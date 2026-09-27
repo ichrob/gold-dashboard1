@@ -354,15 +354,26 @@ function currentRegime(){
 }
 function stopPriceFor(dir,price,atr,mult){return dir==="LONG"?price-atr*mult:dir==="SHORT"?price+atr*mult:null;}
 function displayStop(usd){if(usd==null||!isFinite(usd))return "—";const c=$("displayCcy")?.value||"USD";const fx=+( $("fxRate")?.value || 1);if(c==="USD")return usd.toFixed(2)+" USD/oz";return (usd*fx).toFixed(2)+" "+c+"/oz (FX manuell)";}
+function falseBreakoutState(dir){
+ if(C.length<25||!A.at)return "UNKNOWN";
+ const a=C.map(x=>x.close), n=20, last=a.at(-1), prev=a.at(-2);
+ const ref=a.slice(-(n+1),-1);
+ const res=Math.max(...C.slice(-(n+1),-1).map(x=>x.high)), sup=Math.min(...C.slice(-(n+1),-1).map(x=>x.low));
+ const buffer=A.at*0.15;
+ if(dir==="LONG" && last>res+buffer && prev<=res)return "UNCONFIRMED_LONG_BREAKOUT";
+ if(dir==="SHORT" && last<sup-buffer && prev>=sup)return "UNCONFIRMED_SHORT_BREAKOUT";
+ return "OK";
+}
 function updateResearchPanel(){
  const reg=currentRegime(); if($("regime"))$("regime").textContent=reg;
- const rawDir=A.score>=70&&MTF.overall==="LONG"?"LONG":A.score<=30&&MTF.overall==="SHORT"?"SHORT":"NEUTRAL";
+ let rawDir=A.score>=70&&MTF.overall==="LONG"?"LONG":A.score<=30&&MTF.overall==="SHORT"?"SHORT":"NEUTRAL";
+ const fb=falseBreakoutState(rawDir); if(fb!=="OK"&&fb!=="UNKNOWN")rawDir="NEUTRAL";
  let dir=rawDir;
  if(rawDir!==signalState.dir){if(rawDir==="NEUTRAL"){signalState={dir:"NEUTRAL",pending:"NEUTRAL",count:0};dir="NEUTRAL";}else if(signalState.pending===rawDir){signalState.count++;if(signalState.count>=2)signalState={dir:rawDir,pending:rawDir,count:0};else dir=signalState.dir;}else{signalState.pending=rawDir;signalState.count=1;dir=signalState.dir;}}
  const stop=dir!=="NEUTRAL"?stopPriceFor(dir,lastPrice,A.at,+( $("trailAtr")?.value||1.5)):null;
  if($("stopCurrent"))$("stopCurrent").textContent=displayStop(tradeMgmt.stop||stop);
  if($("stopRisk"))$("stopRisk").textContent=stop?Math.abs(lastPrice-stop).toFixed(2)+" USD/oz":"—";
- if($("hysteresis"))$("hysteresis").textContent=dir+" · Hysterese "+(signalState.count?signalState.count+"/2":"stabil");
+ if($("hysteresis"))$("hysteresis").textContent=dir+" · Hysterese "+(signalState.count?signalState.count+"/2":"stabil")+(falseBreakoutState(dir)!=="OK"&&dir!=="NEUTRAL"?" · Breakout unbestätigt":"");
  if($("researchStatus"))$("researchStatus").textContent=researchLog.length?researchLog.length+" Snapshots lokal gespeichert.":"Noch keine Snapshots.";
 }
 function captureResearchSnapshot(result="OBSERVATION"){
@@ -446,9 +457,11 @@ function updateQuick(){
 function updateTradeSignal(){
  if(!C.length||!A.at){$("tradeSignal").textContent="Warte auf Analyse";return}
  const mtfDir=MTF.overall||"NEUTRAL";
+ const fb=falseBreakoutState(mtfDir);
  let text="🟡 ABWARTEN", cls="neutral";
- if(A.score>=70 && mtfDir==="LONG"){text="🟢 LONG-Kandidat";cls="ok"}
- if(A.score<=30 && mtfDir==="SHORT"){text="🔴 SHORT-Kandidat";cls="bad"}
+ if(A.score>=70 && mtfDir==="LONG" && fb==="OK"){text="🟢 LONG-Kandidat";cls="ok"}
+ if(A.score<=30 && mtfDir==="SHORT" && fb==="OK"){text="🔴 SHORT-Kandidat";cls="bad"}
+ if(fb!=="OK" && fb!=="UNKNOWN"){text="🟡 ABWARTEN · Breakout bestätigen";cls="neutral"}
  $("tradeSignal").textContent=text+" · Score "+(A.score??0).toFixed(0)+"/100 · MTF "+mtfDir;
  $("tradeSignal").className="signal "+cls;
 }
