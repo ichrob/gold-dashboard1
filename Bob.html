@@ -258,7 +258,7 @@ function rsi(a,p=14){if(a.length<=p)return 50;let g=0,l=0;for(let i=1;i<=p;i++){
 function atr(c,p=14){if(c.length<p+1)return 0;let tr=[];for(let i=1;i<c.length;i++)tr.push(Math.max(c[i].high-c[i].low,Math.abs(c[i].high-c[i-1].close),Math.abs(c[i].low-c[i-1].close)));return tr.slice(-p).reduce((x,y)=>x+y,0)/Math.min(p,tr.length)}
 function calc(){let a=C.map(x=>x.close),e20=ema(a,20),e50=ema(a,50),e200=ema(a,Math.min(200,a.length)),R=rsi(a),at=atr(C),e20s=emaSeries(a,20),e50s=emaSeries(a,50);const fast=emaSeries(a,12),slow=emaSeries(a,26),macdSeries=a.map((_,i)=>fast[i]-slow[i]);const sigSeries=emaSeries(macdSeries,9);const macd=macdSeries.at(-1),sig=sigSeries.at(-1);A={e20,e50,e200,R,at,macd,sig,hist:macd-sig};return A}
 function analyze(){if(!C.length)return;let a=C.map(x=>x.close),x=calc();lastPrice=lastPrice||a.at(-1);$("price").textContent=lastPrice.toFixed(2);$("rsi").textContent=x.R.toFixed(1);$("ema20").textContent=x.e20.toFixed(2);$("ema50").textContent=x.e50.toFixed(2);$("ema200").textContent=x.e200.toFixed(2);$("atr").textContent=x.at.toFixed(2);$("macd").textContent=x.macd.toFixed(3);$("macds").textContent=x.sig.toFixed(3);$("hist").textContent=x.hist.toFixed(3);$("trend").textContent=x.e20>x.e50?"Bullish":"Bearish";$("trend2").textContent=x.e50>x.e200?"Bullish":"Bearish";
-let score=0;if(lastPrice>x.e20)score++;if(x.e20>x.e50)score++;if(x.e50>x.e200)score++;if(x.macd>x.sig)score++;if(x.R>50&&x.R<70)score++;if(x.R<30)score--;if(x.R>75)score--;let txt=score>=4?"🟢 LONG-Setup":score<=1?"🔴 SHORT-Setup":"🟡 NEUTRAL";$("signal").textContent=txt;$("signal").className="signal "+(score>=4?"ok":score<=1?"bad":"neutral");draw(a);updateQuick();advancedAnalysis()}
+const signalPrice=a.at(-1);A.signalPrice=signalPrice;let score=0;if(signalPrice>x.e20)score++;if(x.e20>x.e50)score++;if(x.e50>x.e200)score++;if(x.macd>x.sig)score++;if(x.R>50&&x.R<70)score++;if(x.R<30)score--;if(x.R>75)score--;let txt=score>=4?"🟢 LONG-Setup":score<=1?"🔴 SHORT-Setup":"🟡 NEUTRAL";$("signal").textContent=txt;$("signal").className="signal "+(score>=4?"ok":score<=1?"bad":"neutral");draw(a);updateQuick();advancedAnalysis()}
 function draw(a){let cv=$("chart"),ctx=cv.getContext("2d"),w=cv.width,h=cv.height;ctx.clearRect(0,0,w,h);let v=a.slice(-100),mn=Math.min(...v),mx=Math.max(...v);ctx.beginPath();v.forEach((p,i)=>{let x=i*(w-20)/(v.length-1)+10,y=h-10-(p-mn)/(mx-mn||1)*(h-20);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.strokeStyle="#222";ctx.lineWidth=2;ctx.stroke()}
 
 function emaS(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
@@ -399,7 +399,7 @@ function restoreTradeMgmt(){if(tradeMgmt.active){$("tradeEntry").value=tradeMgmt
 
 function advancedAnalysis(){
  if(C.length<30)return;
- const a=C.map(x=>x.close), b=boll(a), st=stochastic(C), ad=adxCalc(C), vw=vwapCalc(C), lv=levels(C), p=lastPrice;
+ const a=C.map(x=>x.close), b=boll(a), st=stochastic(C), ad=adxCalc(C), vw=vwapCalc(C), lv=levels(C), p=A.signalPrice||a.at(-1);
  $("adx").textContent=ad.toFixed(1)+(ad>=25?" · Trend":" · schwach");
  $("bbpos").textContent=p>=b.up?"über Band":p<=b.lo?"unter Band":((p-b.lo)/(b.up-b.lo)*100).toFixed(0)+"%";
  $("stoch").textContent=st.toFixed(0);
@@ -519,7 +519,7 @@ async function loadData(){
   $("status").textContent="Live-Daten momentan nicht erreichbar: "+e.message+" · Bitte erneut versuchen.";
  }
 }
-function demo(){let p=4250;C=[];for(let i=0;i<250;i++){p+=Math.sin(i/8)*1.8+Math.sin(i*0.73)*2.2;const o=p-2,h=p+8,l=p-8;C.push({open:o,high:h,low:l,close:p,isOpen:false})}$("status").textContent="Reproduzierbare Demo-Daten aktiv.";analyze()}
+function demo(){let p=4250;C=[];lastPrice=p;for(let i=0;i<250;i++){p+=Math.sin(i/8)*1.8+Math.sin(i*0.73)*2.2;const o=p-2,h=p+8,l=p-8;C.push({open:o,high:h,low:l,close:p,isOpen:false})}$("status").textContent="Reproduzierbare Demo-Daten aktiv.";analyze()}
 function riskCalc(){if(!lastPrice||!A.at){$("riskout").textContent="Zuerst Daten laden.";return}let acc=+$("account").value,risk=+$("risk2").value/100,lev=+$("lev").value,m=+$("atrmult").value,rr=+$("rr").value;let euro=acc*risk,dist=A.at*m;let dir=A.score>=70?"LONG":A.score<=30?"SHORT":"NEUTRAL";if(dir==="NEUTRAL"){$("riskout").innerHTML=`Richtung nach Score: <b>ABWARTEN / NO TRADE</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Kein Stop- oder Zielkurs wird für ein neutrales Setup berechnet.`;return;}let stop=dir==="LONG"?lastPrice-dist:lastPrice+dist,tp=dir==="LONG"?lastPrice+dist*rr:lastPrice-dist*rr,notional=euro/(dist/lastPrice),margin=notional/lev;$("riskout").innerHTML=`Richtung nach Score: <b>${dir}</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Referenz-Stop: <b>${stop.toFixed(2)}</b><br>Referenz-Ziel: <b>${tp.toFixed(2)}</b><br>Positionswert nach Risikomodell: <b>${notional.toFixed(2)} €</b><br>Rechnerische Margin bei ${lev}×: <b>${margin.toFixed(2)} €</b>`}
 restoreTradeMgmt(); updateResearchPanel();
 setInterval(()=>{ if(document.visibilityState==="visible") loadData(); }, 60000);
