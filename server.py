@@ -12,7 +12,7 @@ HTML_PATH = BASE_DIR / "Bob.html"
 SW_PATH = BASE_DIR / "sw.js"
 with HTML_PATH.open("rb") as f:
     HTML = f.read()
-SW = SW_PATH.read_bytes() if SW_PATH.exists() else None()
+SW = SW_PATH.read_bytes() if SW_PATH.exists() else None
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
