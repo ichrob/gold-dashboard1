@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<rect width="512" height="512" rx="112" fill="#eef2ff"/>
+<rect x="118" y="58" width="276" height="396" rx="58" fill="#111827"/>
+<rect x="140" y="82" width="232" height="348" rx="38" fill="#f8fafc"/>
+<circle cx="256" cy="405" r="14" fill="#111827"/>
+<path d="M256 142c-39 0-70 31-70 70 0 16 5 31 14 43l-22 64c-4 12 7 24 19 20l59-18 59 18c12 4 23-8 19-20l-22-64c9-12 14-27 14-43 0-39-31-70-70-70Z" fill="#2563eb"/>
+<path d="M256 166v91M211 211h90M224 286h64" stroke="#fff" stroke-width="18" stroke-linecap="round"/>
+<circle cx="256" cy="211" r="20" fill="#fff"/>
+<text x="256" y="365" text-anchor="middle" font-family="Arial,sans-serif" font-size="54" font-weight="800" fill="#111827">BOB</text>
+</svg>
