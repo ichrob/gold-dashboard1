@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Gold Intelligence Dashboard</title>
+<title>Bob – Gold Scanner</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#f3f4f6;color:#151515;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
 main{max-width:900px;margin:auto;padding:14px}.card{background:#fff;border-radius:18px;padding:16px;margin:12px 0;box-shadow:0 2px 12px #0001}
@@ -18,7 +18,7 @@ canvas{width:100%;height:220px;border-radius:12px;background:#fafafa}.warning{ba
 </head>
 <body><main>
 <div class="card">
-<h1>🥇 Gold Intelligence Dashboard</h1>
+<h1>📱 Bob</h1>
 <div class="sub">XAU/USD · technische Analyse · DEGIRO bleibt manuell</div>
 </div>
 
@@ -49,7 +49,7 @@ canvas{width:100%;height:220px;border-radius:12px;background:#fafafa}.warning{ba
 <div><label>Kostenloser Push-Kanal (ntfy)</label><input id="ntfyTopic" placeholder="z. B. gold-scanner-..." autocomplete="off"></div>
 <div><label>Push-Kanal</label><button onclick="setupNtfy()">☁️ ntfy einrichten</button></div>
 </div>
-<div class="small" style="margin-top:8px">Kein Login nötig. Auf Android die ntfy-App installieren und denselben Topic abonnieren. Der Topic-Name ist wie ein Passwort und sollte nicht weitergegeben werden.</div>
+<div class="small" style="margin-top:8px">Kein Login nötig. Auf Android die ntfy-App installieren und denselben Topic abonnieren. Der Topic-Name ist eine öffentliche Kanaladresse, kein echtes Passwort. Für sensible Inhalte sollte ein geschützter Push-Dienst verwendet werden.</div>
 <div class="warning" style="margin-top:10px"><b>Trade-Schutz:</b> Management-Pushs werden nur ausgelöst, wenn du unten „Trade gesetzt“ bestätigst.</div>
 <div id="pushStatus" class="small" style="margin-top:8px">Noch nicht registriert.</div>
 </div>
@@ -206,6 +206,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Spread
 </main>
 <script>
 
+const $=id=>document.getElementById(id);
 const PUSH_DEFAULTS={general:false,trade:false,activeTrade:false};
 let pushState={...PUSH_DEFAULTS,...JSON.parse(localStorage.getItem("goldScannerPush")||"{}")}
 function savePush(){localStorage.setItem("goldScannerPush",JSON.stringify(pushState));renderPush();}
@@ -251,7 +252,6 @@ async function testPush(){if(!pushState.registered){const ok=await registerNotif
 renderPush();
 
 let C=[], lastPrice=0, A={};
-const $=id=>document.getElementById(id);
 function ema(a,p){let k=2/(p+1),e=a[0];for(let i=1;i<a.length;i++)e=a[i]*k+e*(1-k);return e}
 function emaSeries(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
 function rsi(a,p=14){if(a.length<=p)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];d>0?g+=d:l-=d}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return l===0?100:100-100/(1+g/l)}
@@ -509,7 +509,7 @@ async function loadData(){
  }
 }
 function demo(){let p=4250;C=[];for(let i=0;i<250;i++){p+=Math.sin(i/8)*1.8+(Math.random()-.48)*8;C.push({open:p-2,high:p+8,low:p-8,close:p})}$("status").textContent="Demo-Daten aktiv.";analyze()}
-function riskCalc(){if(!lastPrice||!A.at){$("riskout").textContent="Zuerst Daten laden.";return}let acc=+$("account").value,risk=+$("risk2").value/100,lev=+$("lev").value,m=+$("atrmult").value,rr=+$("rr").value;let euro=acc*risk,dist=A.at*m;let dir=A.score>=70?"LONG":A.score<=30?"SHORT":"LONG";let stop=dir==="LONG"?lastPrice-dist:lastPrice+dist,tp=dir==="LONG"?lastPrice+dist*rr:lastPrice-dist*rr,notional=euro/(dist/lastPrice),margin=notional/lev;$("riskout").innerHTML=`Richtung nach Score: <b>${dir}</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Referenz-Stop: <b>${stop.toFixed(2)}</b><br>Referenz-Ziel: <b>${tp.toFixed(2)}</b><br>Positionswert nach Risikomodell: <b>${notional.toFixed(2)} €</b><br>Rechnerische Margin bei ${lev}×: <b>${margin.toFixed(2)} €</b>`}
+function riskCalc(){if(!lastPrice||!A.at){$("riskout").textContent="Zuerst Daten laden.";return}let acc=+$("account").value,risk=+$("risk2").value/100,lev=+$("lev").value,m=+$("atrmult").value,rr=+$("rr").value;let euro=acc*risk,dist=A.at*m;let dir=A.score>=70?"LONG":A.score<=30?"SHORT":"NEUTRAL";if(dir==="NEUTRAL"){$("riskout").innerHTML=`Richtung nach Score: <b>ABWARTEN / NO TRADE</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Kein Stop- oder Zielkurs wird für ein neutrales Setup berechnet.`;return;}let stop=dir==="LONG"?lastPrice-dist:lastPrice+dist,tp=dir==="LONG"?lastPrice+dist*rr:lastPrice-dist*rr,notional=euro/(dist/lastPrice),margin=notional/lev;$("riskout").innerHTML=`Richtung nach Score: <b>${dir}</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Referenz-Stop: <b>${stop.toFixed(2)}</b><br>Referenz-Ziel: <b>${tp.toFixed(2)}</b><br>Positionswert nach Risikomodell: <b>${notional.toFixed(2)} €</b><br>Rechnerische Margin bei ${lev}×: <b>${margin.toFixed(2)} €</b>`}
 restoreTradeMgmt(); updateResearchPanel();
 setInterval(()=>{ if(document.visibilityState==="visible") loadData(); }, 60000);
 </script></body></html>
