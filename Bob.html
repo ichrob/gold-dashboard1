@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gold Intelligence Dashboard</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f4f6;color:#151515;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:900px;margin:auto;padding:14px}.card{background:#fff;border-radius:18px;padding:16px;margin:12px 0;box-shadow:0 2px 12px #0001}
+h1{font-size:25px;margin:0}.sub{color:#666;font-size:13px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}
+@media(min-width:700px){.grid{grid-template-columns:repeat(4,1fr)}}label{font-size:12px;color:#666;display:block;margin-bottom:4px}
+input,select,button{width:100%;padding:11px;border:1px solid #ddd;border-radius:10px;font-size:15px;background:#fff}
+button{background:#111;color:#fff;font-weight:700;border:0;cursor:pointer}.row{display:flex;gap:8px}.row>*{flex:1}
+.metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.metric{background:#f6f6f6;padding:12px;border-radius:12px}.metric b{display:block;font-size:19px;margin-top:3px}
+.signal{text-align:center;padding:18px;border-radius:15px;font-size:24px;font-weight:800;background:#eee}.small{font-size:12px;color:#666}.ok{color:#087f3e}.bad{color:#b42318}.neutral{color:#8a5a00}
+table{width:100%;border-collapse:collapse}td{padding:8px;border-bottom:1px solid #eee}.right{text-align:right}
+canvas{width:100%;height:220px;border-radius:12px;background:#fafafa}.warning{background:#fff5d6;border-radius:12px;padding:12px;font-size:13px}.research{background:#eef6ff;border-radius:12px;padding:12px;font-size:13px}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#eee;margin:2px;font-size:12px}
+</style>
+</head>
+<body><main>
+<div class="card">
+<h1>🥇 Gold Intelligence Dashboard</h1>
+<div class="sub">XAU/USD · technische Analyse · DEGIRO bleibt manuell</div>
+</div>
+
+<div class="card">
+<h2 style="margin:0 0 10px">⚡ Schnellansicht</h2>
+<div id="quickSignal" class="signal neutral">Warte auf Live-Daten</div>
+<div class="metrics" style="margin-top:10px">
+<div class="metric">Gold<b id="quickPrice">—</b></div>
+<div class="metric">Trend<b id="quickTrend">—</b></div>
+<div class="metric">MTF<b id="quickMtf">—</b></div>
+<div class="metric">Risiko<b id="quickRisk">—</b></div>
+</div>
+<div id="quickReason" class="small" style="margin-top:10px">Lade Daten, um das Setup zu bewerten.</div>
+<div class="grid" style="margin-top:10px">
+<div><label>Konto (€)</label><input id="account" type="number" value="500" step="50"></div>
+<div><label>Risiko pro Trade (%)</label><input id="risk" type="number" value="1" step=".1"></div>
+</div>
+</div>
+
+<div class="card">
+<h3>🔔 Push-Benachrichtigungen</h3>
+<div class="grid">
+<div class="metric"><label>Allgemeine Trade-Empfehlungen</label><button id="generalPushBtn" onclick="togglePush('general')">🔕 Aus</button></div>
+<div class="metric"><label>Aktiver Trade: Stop-Loss / Schließen</label><button id="tradePushBtn" onclick="togglePush('trade')">🔕 Aus</button></div>
+</div>
+<div class="row" style="margin-top:10px"><button onclick="registerNotifications()">📱 Gerät für Push registrieren</button><button onclick="testPush()">🧪 Test-Push</button></div>
+<div class="grid" style="margin-top:10px">
+<div><label>Kostenloser Push-Kanal (ntfy)</label><input id="ntfyTopic" placeholder="z. B. gold-scanner-..." autocomplete="off"></div>
+<div><label>Push-Kanal</label><button onclick="setupNtfy()">☁️ ntfy einrichten</button></div>
+</div>
+<div class="small" style="margin-top:8px">Kein Login nötig. Auf Android die ntfy-App installieren und denselben Topic abonnieren. Der Topic-Name ist wie ein Passwort und sollte nicht weitergegeben werden.</div>
+<div class="warning" style="margin-top:10px"><b>Trade-Schutz:</b> Management-Pushs werden nur ausgelöst, wenn du unten „Trade gesetzt“ bestätigst.</div>
+<div id="pushStatus" class="small" style="margin-top:8px">Noch nicht registriert.</div>
+</div>
+
+<div class="card">
+<h3>🛡️ Trade-Status</h3>
+<div class="grid">
+<div><label>Trade gesetzt?</label><button id="tradeStateBtn" onclick="toggleTradeState()">❌ Nein</button></div>
+<div><label>Management-Pushs</label><div class="metric" id="tradePushState">Nur bei aktivem Trade</div></div>
+</div>
+</div>
+
+<div class="card">
+<h3>Datenquelle</h3>
+<div class="grid">
+<div><label>Markt</label><input value="XAU/USD (Gold)" disabled></div>
+<div><label>Datenanbieter</label><input value="biquote · kostenlos · kein API-Key" disabled></div>
+<div><label>Zeitebene</label><select id="tf"><option value="1m">1 Minute</option><option value="5m">5 Minuten</option><option value="15m" selected>15 Minuten</option><option value="30m">30 Minuten</option><option value="1h">1 Stunde</option><option value="4h">4 Stunden</option><option value="1d">1 Tag</option></select></div>
+<div><label>Kerzen</label><select id="n"><option>100</option><option selected>200</option><option>500</option><option>1000</option></select></div>
+</div>
+<div class="row" style="margin-top:10px"><button onclick="loadData()">🔴 Live XAU/USD laden</button><button onclick="demo()">Demo-Daten</button></div>
+<div id="status" class="small" style="margin-top:8px">Kostenlos · kein API-Key · Live-Ticks und Intraday-OHLC.</div>
+</div>
+
+<div class="card"><div id="signal" class="signal neutral">Noch keine Analyse</div></div>
+
+<div class="card">
+<h3>Markt</h3><div class="metrics">
+<div class="metric">Preis<b id="price">—</b></div>
+<div class="metric">RSI(14)<b id="rsi">—</b></div>
+<div class="metric">EMA 20<b id="ema20">—</b></div>
+<div class="metric">EMA 50<b id="ema50">—</b></div>
+<div class="metric">EMA 200<b id="ema200">—</b></div>
+<div class="metric">ATR(14)<b id="atr">—</b></div>
+</div></div>
+
+<div class="card"><h3>Preisverlauf</h3><canvas id="chart" width="800" height="220"></canvas></div>
+
+<div class="card"><h3>⏱ Multi-Timeframe</h3>
+<table>
+<tr><td>5 Min.</td><td class="right" id="mtf5">—</td></tr>
+<tr><td>15 Min.</td><td class="right" id="mtf15">—</td></tr>
+<tr><td>1 Std.</td><td class="right" id="mtf1h">—</td></tr>
+<tr><td>4 Std.</td><td class="right" id="mtf4h">—</td></tr>
+</table>
+<div id="mtfSummary" class="small" style="margin-top:10px">—</div>
+</div>
+<div class="card"><h3>Momentum</h3><table>
+<tr><td>MACD</td><td class="right" id="macd">—</td></tr>
+<tr><td>MACD Signal</td><td class="right" id="macds">—</td></tr>
+<tr><td>MACD Histogramm</td><td class="right" id="hist">—</td></tr>
+<tr><td>Trend EMA20/50</td><td class="right" id="trend">—</td></tr>
+<tr><td>Trend EMA50/200</td><td class="right" id="trend2">—</td></tr>
+</table></div>
+
+<div class="card">
+<h3>🧠 Erweiterte Analyse</h3>
+<div class="metrics">
+<div class="metric">ADX<b id="adx">—</b></div>
+<div class="metric">Bollinger Position<b id="bbpos">—</b></div>
+<div class="metric">Stochastic<b id="stoch">—</b></div>
+<div class="metric">VWAP<b id="vwap">—</b></div>
+<div class="metric">Support<b id="support">—</b></div>
+<div class="metric">Resistance<b id="resistance">—</b></div>
+</div>
+<div style="margin-top:12px">
+<b>Multi-Faktor-Score</b>
+<div id="score" class="signal neutral" style="margin-top:8px;font-size:20px">—</div>
+<div id="scoreDetails" class="small" style="margin-top:8px">—</div>
+</div>
+</div>
+
+<div class="card">
+<h3>🎯 DEGIRO-Trade-Modus</h3>
+<div id="tradeSignal" class="signal neutral" style="font-size:20px">Warte auf Analyse</div>
+<div class="grid" style="margin-top:10px">
+<div>
+<label>DEGIRO-Produkt</label>
+<select id="dgType">
+<option value="turbo">Turbo / Knock-Out</option>
+<option value="warrant">Optionsschein</option>
+<option value="etc">Gold-ETC / ungehebelt</option>
+<option value="future">Future / anderes Derivat</option>
+</select>
+</div>
+<div><label>Hebel des Produkts</label><input id="dgLev" type="number" value="5" step=".1" min="1"></div>
+<div><label>KO-/Stop-Level</label><input id="dgKo" type="number" placeholder="z. B. 4200"></div>
+<div><label>Spread je Einheit</label><input id="dgSpread" type="number" value="0" step=".01" min="0"></div>
+</div>
+<div class="row" style="margin-top:10px">
+<button onclick="calcDgTrade()">DEGIRO-Vorschlag berechnen</button>
+<button onclick="useRiskDefaults()">Standardwerte einsetzen</button>
+</div>
+<div id="dgOut" style="margin-top:12px">Trage bei einem gehebelten Produkt möglichst den echten Hebel und das KO-Level aus DEGIRO ein.</div>
+<div class="warning" style="margin-top:12px">
+<b>So arbeitet die Empfehlung:</b> Die App verbindet XAU/USD-Signal, Multi-Timeframe-Richtung, technischen Score, ATR und dein maximales €-Risiko.
+Sie wählt <u>kein konkretes DEGIRO-Wertpapier automatisch</u>, weil die in deinem Konto verfügbaren Produkte, Knock-Outs, Spreads und Kosten nicht öffentlich aus der App abgefragt werden.
+Bei einem Turbo/Knock-Out ist das KO-Level besonders wichtig: Der technische Stop der Analyse ist nicht automatisch das KO-Level.
+</div>
+</div>
+
+<div class="card"><h3>Trade-Risikorechner</h3>
+<div class="grid">
+<div><label>Risiko %</label><input id="risk2" type="number" value="1" step=".1"></div>
+<div><label>Hebel</label><input id="lev" type="number" value="5" step=".5"></div>
+<div><label>Stop-Distanz in ATR</label><input id="atrmult" type="number" value="1.5" step=".1"></div>
+<div><label>Chance/Risiko-Ziel</label><input id="rr" type="number" value="2" step=".1"></div>
+</div>
+<div class="row" style="margin-top:10px"><button onclick="riskCalc()">Risiko berechnen</button></div>
+<div id="riskout" style="margin-top:12px">—</div>
+</div>
+
+<div class="card">
+<h3>🔬 Research & Evaluation</h3>
+<div class="research"><b>Grundregel:</b> Jede Verbesserung muss gegen die aktuelle Baseline getestet werden. Die App speichert dafür Signal, Regime, Score, ATR, Stop-Kurs, MTF-Zustand und Trade-Ergebnis lokal. Kein Parameter wird wegen eines einzelnen guten Backtests automatisch als „besser“ erklärt.</div>
+<div class="grid" style="margin-top:10px">
+<div><label>Anzeige-/Kontowährung</label><select id="displayCcy"><option value="USD" selected>USD</option><option value="EUR">EUR (manuelle FX-Rate)</option><option value="CHF">CHF (manuelle FX-Rate)</option></select></div>
+<div><label>USD → Anzeige-Währung</label><input id="fxRate" type="number" value="1" step=".0001"></div>
+<div><label>Backtest-/Testkosten (bps je Seite)</label><input id="costBps" type="number" value="5" step=".5" min="0"></div>
+<div><label>Slippage (USD/oz je Seite)</label><input id="slippage" type="number" value="0.20" step=".05" min="0"></div>
+</div>
+<div class="grid" style="margin-top:10px">
+<div class="metric">Regime<b id="regime">—</b></div>
+<div class="metric">Signal-Hysterese<b id="hysteresis">—</b></div>
+<div class="metric">Stop aktuell<b id="stopCurrent">—</b></div>
+<div class="metric">Stop-Risiko<b id="stopRisk">—</b></div>
+</div>
+<div class="row" style="margin-top:10px">
+<button onclick="captureResearchSnapshot()">📌 Snapshot speichern</button>
+<button onclick="exportResearch()">⬇️ Research-CSV exportieren</button>
+</div>
+<div id="researchStatus" class="small" style="margin-top:8px">Noch keine Snapshots.</div>
+<div class="small" style="margin-top:8px">Evaluationslog: Baseline vs. neue Regel, Trefferquote allein nicht ausreichend. Entscheidend sind u. a. Netto-PnL nach Kosten, Max Drawdown, Profit Factor, Expectancy, MAE/MFE, Turnover und Stabilität über Walk-forward-Zeitfenster.</div>
+</div>
+
+<div class="card">
+<h3>🛑 Stop-Loss-Management</h3>
+<div id="stopPanel" class="research">Noch kein aktiver Trade. Sobald ein Trade bestätigt wurde, zeigt die App den <b>konkreten XAU/USD Stop-Loss-Kurs in USD/oz</b> und bei einer Anpassung den neuen Zielkurs.</div>
+<div class="grid" style="margin-top:10px">
+<div><label>Trade-Einstieg XAU/USD</label><input id="tradeEntry" type="number" step=".01" placeholder="wird beim Bestätigen übernommen"></div>
+<div><label>Aktueller XAU/USD-Kurs</label><input id="tradePrice" type="number" step=".01" placeholder="Live-Kurs"></div>
+<div><label>Aktueller Stop XAU/USD</label><input id="tradeStop" type="number" step=".01" placeholder="z. B. 4235.00"></div>
+<div><label>Stop-ATR-Multiplikator</label><input id="trailAtr" type="number" value="1.5" step=".1" min="0.5"></div>
+</div>
+<div class="row" style="margin-top:10px"><button onclick="setTradeEntry()">✅ Trade-Einstieg bestätigen</button><button onclick="suggestStopUpdate()">🔔 Stop-Loss neu berechnen</button></div>
+<div id="stopUpdate" class="small" style="margin-top:8px">Management-Pushs bleiben bis zur Trade-Bestätigung gesperrt.</div>
+</div>
+
+<div class="card warning">
+<b>Wichtig:</b> Das Dashboard ist eine technische Regelhilfe, keine Gewinn-Garantie und keine Anlageberatung.
+Hoher Hebel kann Verluste sehr schnell vergrößern. Die App platziert keine Orders und greift nicht auf DEGIRO zu.
+Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Spreads, Finanzierung und Bezugsverhältnis müssen direkt in deinem DEGIRO-Konto geprüft werden.
+</div>
+</main>
+<script>
+
+const PUSH_DEFAULTS={general:false,trade:false,activeTrade:false};
+let pushState={...PUSH_DEFAULTS,...JSON.parse(localStorage.getItem("goldScannerPush")||"{}")}
+function savePush(){localStorage.setItem("goldScannerPush",JSON.stringify(pushState));renderPush();}
+function renderPush(){
+ const gb=$("generalPushBtn"),tb=$("tradePushBtn"),ts=$("tradeStateBtn"),tp=$("tradePushState");
+ if(gb){gb.textContent=pushState.general?"🔔 Ein":"🔕 Aus";}
+ if(tb){tb.textContent=pushState.trade?"🔔 Ein":"🔕 Aus";}
+ if(ts){ts.textContent=pushState.activeTrade?"✅ Trade gesetzt":"❌ Nein";}
+ if(tp){tp.textContent=pushState.activeTrade?"Aktiv – Stop-Loss/Schließen erlaubt":"Nur bei aktivem Trade";}
+}
+async function registerNotifications(){
+ if(!("Notification" in window)){$("pushStatus").textContent="Dieser Browser unterstützt keine Web-Benachrichtigungen.";return false;}
+ const p=await Notification.requestPermission();
+ if(p==="granted"){
+   pushState.registered=true;savePush();
+   if("serviceWorker" in navigator){try{await navigator.serviceWorker.register("sw.js");}catch(e){console.warn(e)}}
+   $("pushStatus").textContent="✅ Benachrichtigungen erlaubt. Für echte Hintergrund-Pushs muss die App über HTTPS/PWA laufen.";
+   return true;
+ }
+ $("pushStatus").textContent="Benachrichtigungen wurden nicht freigegeben.";return false;
+}
+async function togglePush(kind){
+ if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
+ pushState[kind]=!pushState[kind];savePush();
+}
+function toggleTradeState(){pushState.activeTrade=!pushState.activeTrade;savePush();
+ if(pushState.activeTrade) notifyTrade("Trade gesetzt", "Trade-Management-Benachrichtigungen sind jetzt aktiviert.");}
+function canNotify(kind){return pushState.registered && pushState[kind] && Notification.permission==="granted" && (kind!=="trade" || pushState.activeTrade);}
+function ntfyTopic(){return ($("ntfyTopic")?.value||localStorage.getItem("goldScannerNtfyTopic")||"").trim()}
+function randomTopic(){const a=new Uint8Array(18);crypto.getRandomValues(a);return "gold-scanner-"+Array.from(a,b=>b.toString(16).padStart(2,"0")).join("")}
+function setupNtfy(){let t=ntfyTopic();if(!t){t=randomTopic();$("ntfyTopic").value=t;localStorage.setItem("goldScannerNtfyTopic",t)}else localStorage.setItem("goldScannerNtfyTopic",t);$("pushStatus").textContent="✅ ntfy-Kanal gespeichert. Jetzt denselben Topic in der ntfy-App abonnieren."}
+async function sendNtfy(kind,title,body){const topic=ntfyTopic();if(!topic)return false;if(kind==="trade" && !pushState.activeTrade)return false;try{const r=await fetch("https://ntfy.sh/"+encodeURIComponent(topic),{method:"POST",headers:{"Title":title,"Priority":kind==="trade"?"5":"4","Tags":kind==="trade"?"rotating_light":"chart_with_upwards_trend"},body});return r.ok}catch(e){console.warn("ntfy",e);return false}}
+function notify(kind,title,body){if(!canNotify(kind))return false;try{new Notification(title,{body,tag:"gold-scanner-"+kind});sendNtfy(kind,title,body);return true}catch(e){sendNtfy(kind,title,body);return false}}
+function notifyGeneral(title,body){return notify("general",title,body)}
+function notifyTrade(title,body){return notify("trade",title,body)}
+async function testPush(){if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
+ const sent=notifyGeneral("Gold Scanner – Test","Allgemeine Trade-Empfehlungen");
+ const sentTrade=notifyTrade("Gold Scanner – Trade-Test",pushState.activeTrade?"Trade-Management ist aktiv.":"Kein aktiver Trade – Management-Push bleibt gesperrt.");
+ const ntfy=await sendNtfy("general","Gold Scanner – ntfy-Test","Push-Kanal funktioniert.");
+ $("pushStatus").textContent=(sent||sentTrade||ntfy)?"✅ Test ausgelöst.":"Test nicht ausgelöst – Schalter, Trade-Status oder ntfy-Topic prüfen.";
+}
+(function(){const t=localStorage.getItem("goldScannerNtfyTopic");if(t&&$("ntfyTopic"))$("ntfyTopic").value=t;})();
+renderPush();
+
+let C=[], lastPrice=0, A={};
+const $=id=>document.getElementById(id);
+function ema(a,p){let k=2/(p+1),e=a[0];for(let i=1;i<a.length;i++)e=a[i]*k+e*(1-k);return e}
+function emaSeries(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
+function rsi(a,p=14){if(a.length<=p)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];d>0?g+=d:l-=d}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return l===0?100:100-100/(1+g/l)}
+function atr(c,p=14){if(c.length<p+1)return 0;let tr=[];for(let i=1;i<c.length;i++)tr.push(Math.max(c[i].high-c[i].low,Math.abs(c[i].high-c[i-1].close),Math.abs(c[i].low-c[i-1].close)));return tr.slice(-p).reduce((x,y)=>x+y,0)/Math.min(p,tr.length)}
+function calc(){let a=C.map(x=>x.close), e20=ema(a,20),e50=ema(a,50),e200=ema(a,Math.min(200,a.length)),R=rsi(a),at=atr(C),e20s=emaSeries(a,20),e50s=emaSeries(a,50);let m20=ema(a.slice(-Math.min(60,a.length)),12),m26=ema(a.slice(-Math.min(60,a.length)),26);let macd=m20-m26;let sig=ema([...a.slice(-35)].map((_,i)=>ema(a.slice(0,i+1),12)-ema(a.slice(0,i+1),26)).slice(-9),9);A={e20,e50,e200,R,at,macd,sig, hist:macd-sig};return A}
+function analyze(){if(!C.length)return;let a=C.map(x=>x.close),x=calc();lastPrice=a.at(-1);$("price").textContent=lastPrice.toFixed(2);$("rsi").textContent=x.R.toFixed(1);$("ema20").textContent=x.e20.toFixed(2);$("ema50").textContent=x.e50.toFixed(2);$("ema200").textContent=x.e200.toFixed(2);$("atr").textContent=x.at.toFixed(2);$("macd").textContent=x.macd.toFixed(3);$("macds").textContent=x.sig.toFixed(3);$("hist").textContent=x.hist.toFixed(3);$("trend").textContent=x.e20>x.e50?"Bullish":"Bearish";$("trend2").textContent=x.e50>x.e200?"Bullish":"Bearish";
+let score=0;if(lastPrice>x.e20)score++;if(x.e20>x.e50)score++;if(x.e50>x.e200)score++;if(x.macd>x.sig)score++;if(x.R>50&&x.R<70)score++;if(x.R<30)score--;if(x.R>75)score--;let txt=score>=4?"🟢 LONG-Setup":score<=1?"🔴 SHORT-Setup":"🟡 NEUTRAL";$("signal").textContent=txt;$("signal").className="signal "+(score>=4?"ok":score<=1?"bad":"neutral");draw(a);updateQuick();advancedAnalysis()}
+function draw(a){let cv=$("chart"),ctx=cv.getContext("2d"),w=cv.width,h=cv.height;ctx.clearRect(0,0,w,h);let v=a.slice(-100),mn=Math.min(...v),mx=Math.max(...v);ctx.beginPath();v.forEach((p,i)=>{let x=i*(w-20)/(v.length-1)+10,y=h-10-(p-mn)/(mx-mn||1)*(h-20);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.strokeStyle="#222";ctx.lineWidth=2;ctx.stroke()}
+
+function emaS(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
+function rsiS(a,p=14){if(a.length<p+2)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];g+=Math.max(d,0);l+=Math.max(-d,0)}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return l===0?100:100-100/(1+g/l)}
+function timeframeScore(bars){
+  const closed=bars.filter(x=>!x.isOpen).slice(-220);
+  if(closed.length<60)return {dir:"NEUTRAL",score:0,age:null};
+  const a=closed.map(x=>+x.close), e20=ema(a,20),e50=ema(a,50),e200=ema(a,Math.min(200,a.length)),R=rsiS(a);
+  const e12=emaS(a,12),e26=emaS(a,26), mac=e12.at(-1)-e26.at(-1);
+  const macPrev=e12.at(-2)-e26.at(-2);
+  let score=0;if(a.at(-1)>e20)score++;else score--;if(e20>e50)score++;else score--;if(e50>e200)score++;else score--;if(mac>macPrev)score++;else score--;if(R>=50&&R<=70)score++;if(R<35)score--;
+  return {dir:score>=2?"LONG":score<=-2?"SHORT":"NEUTRAL",score,rsi:R,price:a.at(-1),openTime:closed.at(-1).openTime};
+}
+async function loadMTF(){
+ const tfs=[["5m","mtf5"],["15m","mtf15"],["1h","mtf1h"],["4h","mtf4h"]];
+ const results=await Promise.all(tfs.map(async ([tf,id])=>{
+   const r=await fetch(`https://biquote.io/api/XAUUSD/ohlc?interval=${tf}&limit=220`);
+   if(!r.ok)throw Error(tf+" HTTP "+r.status);
+   const j=await r.json(), z=timeframeScore(j.bars||[]);
+   return [tf,id,z];
+ }));
+ let longs=0,shorts=0,neutral=0;
+ for(const [tf,id,z] of results){
+   $(id).textContent=z.dir+(z.rsi!=null?` · RSI ${z.rsi.toFixed(0)}`:"");
+   $(id).className=z.dir==="LONG"?"ok":z.dir==="SHORT"?"bad":"neutral";
+   z.dir==="LONG"?longs++:z.dir==="SHORT"?shorts++:neutral++;
+ }
+ const agreement=Math.max(longs,shorts)/4;
+ let overall=longs>=3?"LONG":shorts>=3?"SHORT":"NEUTRAL";
+ $("quickMtf").textContent=overall;
+ let strength=longs>=3||shorts>=3?(agreement*100).toFixed(0)+"% Übereinstimmung":"Keine klare Mehrheitsrichtung";
+ const mtfSummary=$("mtfSummary");
+ if(mtfSummary)mtfSummary.innerHTML=`<b>${overall}</b><br>${longs} LONG · ${shorts} SHORT · ${neutral} NEUTRAL · ${strength}`;
+ MTF={longs,shorts,neutral};
+ updateTradeSignal();
+ return MTF;
+}
+
+
+function adxCalc(c,p=14){
+ if(c.length<p*2+2)return 0;
+ let tr=[],plus=[],minus=[];
+ for(let i=1;i<c.length;i++){
+  tr.push(Math.max(c[i].high-c[i].low,Math.abs(c[i].high-c[i-1].close),Math.abs(c[i].low-c[i-1].close)));
+  let up=c[i].high-c[i-1].high, dn=c[i-1].low-c[i].low;
+  plus.push(up>dn&&up>0?up:0); minus.push(dn>up&&dn>0?dn:0);
+ }
+ let atrv=tr.slice(-p).reduce((a,b)=>a+b,0)/p;
+ let ap=plus.slice(-p).reduce((a,b)=>a+b,0)/p, am=minus.slice(-p).reduce((a,b)=>a+b,0)/p;
+ let diP=atrv?100*ap/atrv:0, diM=atrv?100*am/atrv:0;
+ return diP+diM?100*Math.abs(diP-diM)/(diP+diM):0;
+}
+function boll(a,p=20,m=2){
+ let v=a.slice(-p),mean=v.reduce((x,y)=>x+y,0)/v.length;
+ let sd=Math.sqrt(v.reduce((x,y)=>x+(y-mean)**2,0)/v.length);
+ return {mid:mean,up:mean+m*sd,lo:mean-m*sd};
+}
+function stochastic(c,p=14){
+ let v=c.slice(-p), hi=Math.max(...v.map(x=>x.high)),lo=Math.min(...v.map(x=>x.low));
+ return hi===lo?50:100*(v.at(-1).close-lo)/(hi-lo);
+}
+function vwapCalc(c){
+ let pv=0,vol=0;
+ for(const x of c){
+   let q=Number(x.volume||0);
+   if(q>0){pv+=((x.high+x.low+x.close)/3)*q;vol+=q}
+ }
+ return vol?pv/vol:null;
+}
+function levels(c,n=30){
+ let v=c.slice(-n),sup=Math.min(...v.map(x=>x.low)),res=Math.max(...v.map(x=>x.high));
+ return {sup,res};
+}
+let MTF={longs:0,shorts:0,neutral:0};
+let researchLog=JSON.parse(localStorage.getItem("goldScannerResearch")||"[]");
+let tradeMgmt=JSON.parse(localStorage.getItem("goldScannerTradeMgmt")||"{}" );
+function saveResearch(){localStorage.setItem("goldScannerResearch",JSON.stringify(researchLog));}
+function saveTradeMgmt(){localStorage.setItem("goldScannerTradeMgmt",JSON.stringify(tradeMgmt));}
+function currentRegime(){
+ if(!C.length||!A.at)return "UNBEKANNT";
+ const atrPct=(A.at/lastPrice)*100, ad=A.adx||0;
+ if(atrPct>=0.65) return ad>=25?"TREND + HOCH-VOL":"HOCH-VOL / UNKLAR";
+ if(ad>=25) return A.e20>A.e50&&A.e50>A.e200?"TREND BULLISH":A.e20<A.e50&&A.e50<A.e200?"TREND BEARISH":"TREND / GEMISCHT";
+ return atrPct<=0.25?"LOW-VOL / RANGE":"RANGE / ÜBERGANG";
+}
+function stopPriceFor(dir,price,atr,mult){return dir==="LONG"?price-atr*mult:dir==="SHORT"?price+atr*mult:null;}
+function displayStop(usd){if(usd==null||!isFinite(usd))return "—";const c=$("displayCcy")?.value||"USD";const fx=+( $("fxRate")?.value || 1);if(c==="USD")return usd.toFixed(2)+" USD/oz";return (usd*fx).toFixed(2)+" "+c+"/oz (FX manuell)";}
+function updateResearchPanel(){
+ const reg=currentRegime(); if($("regime"))$("regime").textContent=reg;
+ const dir=A.score>=70&&MTF.longs>=3?"LONG":A.score<=30&&MTF.shorts>=3?"SHORT":"NEUTRAL";
+ const stop=dir!=="NEUTRAL"?stopPriceFor(dir,lastPrice,A.at,+( $("trailAtr")?.value||1.5)):null;
+ if($("stopCurrent"))$("stopCurrent").textContent=displayStop(tradeMgmt.stop||stop);
+ if($("stopRisk"))$("stopRisk").textContent=stop?Math.abs(lastPrice-stop).toFixed(2)+" USD/oz":"—";
+ if($("hysteresis"))$("hysteresis").textContent=dir+" · Mindestwechsel wird geprüft";
+ if($("researchStatus"))$("researchStatus").textContent=researchLog.length?researchLog.length+" Snapshots lokal gespeichert.":"Noch keine Snapshots.";
+}
+function captureResearchSnapshot(result="OBSERVATION"){
+ if(!C.length||!A.at)return;
+ const dir=A.score>=70&&MTF.longs>=3?"LONG":A.score<=30&&MTF.shorts>=3?"SHORT":"NEUTRAL";
+ const rec={time:new Date().toISOString(),price:lastPrice,atr:A.at,score:A.score??null,adx:A.adx??null,regime:currentRegime(),mtfLongs:MTF.longs,mtfShorts:MTF.shorts,direction:dir,stop:tradeMgmt.stop||stopPriceFor(dir,lastPrice,A.at,+( $("trailAtr")?.value||1.5)),result,costBps:+($("costBps")?.value||0),slippage:+($("slippage")?.value||0)};
+ researchLog.push(rec);if(researchLog.length>5000)researchLog=researchLog.slice(-5000);saveResearch();updateResearchPanel();
+}
+function exportResearch(){
+ if(!researchLog.length){$("researchStatus").textContent="Noch keine Daten zum Export.";return;}
+ const cols=Object.keys(researchLog[0]), rows=[cols.join(","),...researchLog.map(r=>cols.map(k=>JSON.stringify(r[k]??"")).join(","))];
+ const blob=new Blob([rows.join("\n")],{type:"text/csv;charset=utf-8"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="gold-scanner-research.csv";a.click();URL.revokeObjectURL(a.href);
+}
+function setTradeEntry(){
+ if(!lastPrice||!A.at)return;
+ const dir=A.score>=70&&MTF.longs>=3?"LONG":A.score<=30&&MTF.shorts>=3?"SHORT":"NEUTRAL";
+ if(dir==="NEUTRAL"){$("stopUpdate").textContent="Kein bestätigtes LONG-/SHORT-Setup.";return;}
+ tradeMgmt={active:true,dir,entry:+($("tradeEntry").value||lastPrice),stop:stopPriceFor(dir,+($("tradeEntry").value||lastPrice),A.at,+( $("trailAtr")?.value||1.5)),lastUpdate:new Date().toISOString()};
+ $("tradeEntry").value=tradeMgmt.entry.toFixed(2);$("tradePrice").value=lastPrice.toFixed(2);$("tradeStop").value=tradeMgmt.stop.toFixed(2);saveTradeMgmt();
+ pushState.activeTrade=true;savePush();
+ const msg=`${dir}: initialer Stop-Loss ${displayStop(tradeMgmt.stop)}. Einstieg ${tradeMgmt.entry.toFixed(2)} USD/oz.`;
+ $("stopUpdate").innerHTML="<b>Trade bestätigt.</b> "+msg;notifyTrade("Gold Scanner – Trade bestätigt",msg);captureResearchSnapshot("TRADE_SET");updateResearchPanel();
+}
+function suggestStopUpdate(){
+ if(!tradeMgmt.active){$("stopUpdate").textContent="Kein aktiver Trade – zuerst Trade-Einstieg bestätigen.";return;}
+ const p=+($("tradePrice").value||lastPrice),atrv=A.at,mult=+( $("trailAtr")?.value||1.5),candidate=stopPriceFor(tradeMgmt.dir,p,atrv,mult),old=tradeMgmt.stop;
+ let next=tradeMgmt.dir==="LONG"?Math.max(old,candidate):Math.min(old,candidate);
+ if(next===old){$("stopUpdate").innerHTML=`<b>Kein Nachziehen.</b> Technischer Stop bleibt bei <b>${displayStop(old)}</b>.`;return;}
+ tradeMgmt.stop=next;tradeMgmt.lastUpdate=new Date().toISOString();saveTradeMgmt();$("tradeStop").value=next.toFixed(2);$("stopUpdate").innerHTML=`<b>STOP-LOSS ANPASSEN:</b> neuer Kurs <b>${displayStop(next)}</b> (alt ${displayStop(old)}).`;
+ notifyTrade("Gold Scanner – Stop-Loss anpassen",`Neuer Stop-Loss: ${displayStop(next)}. Alter Stop: ${displayStop(old)}.`);captureResearchSnapshot("STOP_UPDATE");updateResearchPanel();
+}
+function restoreTradeMgmt(){if(tradeMgmt.active){$("tradeEntry").value=tradeMgmt.entry?.toFixed?.(2)||"";$("tradeStop").value=tradeMgmt.stop?.toFixed?.(2)||"";$("tradePrice").value=lastPrice?lastPrice.toFixed(2):"";pushState.activeTrade=true;savePush();}}
+
+
+function advancedAnalysis(){
+ if(C.length<30)return;
+ const a=C.map(x=>x.close), b=boll(a), st=stochastic(C), ad=adxCalc(C), vw=vwapCalc(C), lv=levels(C), p=lastPrice;
+ $("adx").textContent=ad.toFixed(1)+(ad>=25?" · Trend":" · schwach");
+ $("bbpos").textContent=p>=b.up?"über Band":p<=b.lo?"unter Band":((p-b.lo)/(b.up-b.lo)*100).toFixed(0)+"%";
+ $("stoch").textContent=st.toFixed(0);
+ $("vwap").textContent=vw?vw.toFixed(2):"n/v";
+ $("support").textContent=lv.sup.toFixed(2);
+ $("resistance").textContent=lv.res.toFixed(2);
+
+ let pts=0,max=0,details=[];
+ const trendBull=A.e20>A.e50&&A.e50>A.e200, trendBear=A.e20<A.e50&&A.e50<A.e200;
+ if(trendBull){pts+=3;details.push("Trend ↑")} else if(trendBear){pts-=3;details.push("Trend ↓")} max+=3;
+ if(A.macd>A.sig&&A.R>=50&&A.R<75){pts+=2;details.push("Momentum ↑")}
+ else if(A.macd<A.sig&&A.R<50&&A.R>25){pts-=2;details.push("Momentum ↓")} max+=2;
+ if(ad>=25){pts+=(trendBull?2:trendBear?-2:0);details.push("Trendstärke")} max+=2;
+ if(p>b.mid&&st>50){pts+=1;details.push("Preisstruktur ↑")}
+ else if(p<b.mid&&st<50){pts-=1;details.push("Preisstruktur ↓")} max+=1;
+ if(vw){if(p>vw)pts+=1;else pts-=1;details.push("VWAP "+(p>vw?"↑":"↓"));max+=1}
+ if(p>lv.sup+(lv.res-lv.sup)*.15 && p<lv.res-(lv.res-lv.sup)*.15){pts+=0.5;max+=0.5}
+ let score=50+50*(pts/max);
+ let verdict=score>=70?"🟢 LONG-Qualität":score<=30?"🔴 SHORT-Qualität":"🟡 ABWARTEN";
+ $("score").textContent=`${verdict} · ${score.toFixed(0)}/100`;
+ $("score").className="signal "+(score>=70?"ok":score<=30?"bad":"neutral");
+ $("scoreDetails").textContent=details.join(" · ")+" · ADX "+ad.toFixed(0);
+ A.score=score; A.adx=ad; A.support=lv.sup; A.resistance=lv.res;
+ updateQuick(); updateResearchPanel();
+}
+
+function updateQuick(){
+ if(!C.length||!A.at)return;
+ const p=lastPrice;
+ let q="🟡 ABWARTEN", cls="neutral";
+ if(A.score>=70){q="🟢 LONG-Setup";cls="ok"}
+ else if(A.score<=30){q="🔴 SHORT-Setup";cls="bad"}
+ $("quickSignal").textContent=q;$("quickSignal").className="signal "+cls;
+ $("quickPrice").textContent=p.toFixed(2);
+ $("quickTrend").textContent=A.e20>A.e50&&A.e50>A.e200?"Bullish":A.e20<A.e50&&A.e50<A.e200?"Bearish":"Gemischt";
+ const acc=+$("account").value||500, rp=+$("risk").value||1;
+ $("quickRisk").textContent=(acc*rp/100).toFixed(2)+" €";
+ $("quickReason").textContent=q.includes("LONG")?"Mehrere technische Faktoren sprechen in dieselbe Richtung. Nur bei akzeptablem Risiko prüfen."
+ :q.includes("SHORT")?"Mehrere technische Faktoren sprechen nach unten. Nur bei akzeptablem Risiko prüfen."
+ :"Die Faktoren sind nicht ausreichend ausgerichtet – besser auf ein klareres Setup warten.";
+ updateTradeSignal(); updateResearchPanel();
+}
+
+function updateTradeSignal(){
+ if(!C.length||!A.at){$("tradeSignal").textContent="Warte auf Analyse";return}
+ const mtfDir=MTF.longs>=3?"LONG":MTF.shorts>=3?"SHORT":"NEUTRAL";
+ let text="🟡 ABWARTEN", cls="neutral";
+ if(A.score>=70 && mtfDir==="LONG"){text="🟢 LONG-Kandidat";cls="ok"}
+ if(A.score<=30 && mtfDir==="SHORT"){text="🔴 SHORT-Kandidat";cls="bad"}
+ $("tradeSignal").textContent=text+" · Score "+(A.score??0).toFixed(0)+"/100 · MTF "+mtfDir;
+ $("tradeSignal").className="signal "+cls;
+}
+
+function useRiskDefaults(){
+ $("dgLev").value=5;
+ $("dgKo").value="";
+ $("dgSpread").value=0;
+ calcDgTrade();
+}
+
+function calcDgTrade(){
+ if(!lastPrice||!A.at){$("dgOut").innerHTML="Zuerst Live-Daten laden.";return}
+ const acc=+$("account").value||500, riskPct=+$("risk").value||1, maxLoss=acc*riskPct/100;
+ const lev=Math.max(1,+$("dgLev").value||1), ko=+$("dgKo").value, spread=Math.max(0,+$("dgSpread").value||0);
+ const score=A.score??50, mtf=MTF.longs>=3?"LONG":MTF.shorts>=3?"SHORT":"NEUTRAL";
+ let dir=score>=70&&mtf==="LONG"?"LONG":score<=30&&mtf==="SHORT"?"SHORT":"ABWARTEN";
+ const atrStop=Math.max(A.at*1.5, A.at);
+ const techStop=dir==="LONG"?lastPrice-atrStop:dir==="SHORT"?lastPrice+atrStop:null;
+ const target=dir==="LONG"?lastPrice+atrStop*2:dir==="SHORT"?lastPrice-atrStop*2:null;
+ const koDist=ko?(Math.abs(lastPrice-ko)/lastPrice*100):null;
+ const effectiveRiskToKo=ko?Math.abs(lastPrice-ko):null;
+ const approxNotional=dir!=="ABWARTEN"?maxLoss/(atrStop/lastPrice):0;
+ const margin=approxNotional/lev;
+ const product=$("dgType").value;
+ let koWarning="";
+ if(ko && dir==="LONG" && ko>=lastPrice)koWarning="⚠️ Das KO-Level liegt nicht unter dem aktuellen Goldpreis – LONG prüfen.";
+ if(ko && dir==="SHORT" && ko<=lastPrice)koWarning="⚠️ Das KO-Level liegt nicht über dem aktuellen Goldpreis – SHORT prüfen.";
+ if(ko && koDist<2)koWarning="⚠️ KO-Abstand < 2%: sehr enger Puffer.";
+ const productLabel={turbo:"Turbo / Knock-Out",warrant:"Optionsschein",etc:"Gold-ETC / ungehebelt",future:"Future / anderes Derivat"}[product];
+
+ if(dir==="ABWARTEN"){
+   $("dgOut").innerHTML=`<b>Kein Trade-Vorschlag.</b><br>Score und Multi-Timeframe-Richtung bestätigen keinen gemeinsamen LONG-/SHORT-Trade.<br><br>Maximales Risiko laut Einstellung: <b>${maxLoss.toFixed(2)} €</b>.`;
+   return;
+ }
+ $("dgOut").innerHTML=`
+ <table>
+ <tr><td>Richtung</td><td class="right"><b>${dir}</b></td></tr>
+ <tr><td>Produkt</td><td class="right">${productLabel}</td></tr>
+ <tr><td>XAU/USD Referenz-Einstieg</td><td class="right"><b>${lastPrice.toFixed(2)}</b></td></tr>
+ <tr><td>Technischer Stop (ATR)</td><td class="right"><b>${techStop.toFixed(2)}</b></td></tr>
+ <tr><td>Technisches Ziel (2R)</td><td class="right"><b>${target.toFixed(2)}</b></td></tr>
+ <tr><td>Max. Verlust</td><td class="right"><b>${maxLoss.toFixed(2)} €</b></td></tr>
+ <tr><td>Rechnerischer Positionswert</td><td class="right"><b>${approxNotional.toFixed(2)} €</b></td></tr>
+ <tr><td>Rechnerische Margin bei ${lev.toFixed(1)}×</td><td class="right"><b>${margin.toFixed(2)} €</b></td></tr>
+ ${ko?`<tr><td>KO-Abstand</td><td class="right"><b>${koDist.toFixed(2)}%</b></td></tr>`:""}
+ ${spread?`<tr><td>Spread eingegeben</td><td class="right">${spread.toFixed(2)}</td></tr>`:""}
+ </table>
+ <div class="small" style="margin-top:10px">${koWarning || "Vor einer Order in DEGIRO: Produktdaten, Spread, Finanzierung, Bezugsverhältnis und KO-Level direkt im Produkt prüfen."}</div>`;
+}
+
+async function loadData(){
+ try{
+  const tf=$("tf").value, n=$("n").value;
+  const [ohlc,tick]=await Promise.all([
+   fetch(`https://biquote.io/api/XAUUSD/ohlc?interval=${tf}&limit=${n}`).then(r=>{if(!r.ok)throw Error("OHLC HTTP "+r.status);return r.json()}),
+   fetch(`https://biquote.io/api/XAUUSD?allowStale=false`).then(r=>{if(!r.ok)throw Error("Live-Tick HTTP "+r.status);return r.json()})
+  ]);
+  if(!ohlc.bars?.length)throw Error("Keine Kerzen verfügbar");
+  C=ohlc.bars.slice().reverse().map(x=>({open:+x.open,high:+x.high,low:+x.low,close:+x.close,isOpen:!!x.isOpen}));
+  if(tick.mid) C[C.length-1].close=+tick.mid;
+  $("status").textContent=`LIVE · XAU/USD ${tick.marketState||"open"} · ${tick.quoteAgeSeconds??"?"} s alt · ${new Date().toLocaleTimeString()}`;
+  analyze();
+   restoreTradeMgmt();
+   await loadMTF();
+ }catch(e){
+  $("status").textContent="Live-Daten momentan nicht erreichbar: "+e.message+" · Bitte erneut versuchen.";
+ }
+}
+function demo(){let p=4250;C=[];for(let i=0;i<250;i++){p+=Math.sin(i/8)*1.8+(Math.random()-.48)*8;C.push({open:p-2,high:p+8,low:p-8,close:p})}$("status").textContent="Demo-Daten aktiv.";analyze()}
+function riskCalc(){if(!lastPrice||!A.at){$("riskout").textContent="Zuerst Daten laden.";return}let acc=+$("account").value,risk=+$("risk2").value/100,lev=+$("lev").value,m=+$("atrmult").value,rr=+$("rr").value;let euro=acc*risk,dist=A.at*m;let dir=A.score>=70?"LONG":A.score<=30?"SHORT":"LONG";let stop=dir==="LONG"?lastPrice-dist:lastPrice+dist,tp=dir==="LONG"?lastPrice+dist*rr:lastPrice-dist*rr,notional=euro/(dist/lastPrice),margin=notional/lev;$("riskout").innerHTML=`Richtung nach Score: <b>${dir}</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Referenz-Stop: <b>${stop.toFixed(2)}</b><br>Referenz-Ziel: <b>${tp.toFixed(2)}</b><br>Positionswert nach Risikomodell: <b>${notional.toFixed(2)} €</b><br>Rechnerische Margin bei ${lev}×: <b>${margin.toFixed(2)} €</b>`}
+restoreTradeMgmt(); updateResearchPanel();
+setInterval(()=>{ if(document.visibilityState==="visible") loadData(); }, 60000);
+</script></body></html>
