@@ -10,9 +10,13 @@ PASSWORD = os.environ.get("BOB_PASSWORD", "")
 BASE_DIR = Path(__file__).resolve().parent
 HTML_PATH = BASE_DIR / "Bob.html"
 SW_PATH = BASE_DIR / "sw.js"
+MANIFEST_PATH = BASE_DIR / "manifest.json"
+ICON_PATH = BASE_DIR / "icon.svg"
 with HTML_PATH.open("rb") as f:
     HTML = f.read()
 SW = SW_PATH.read_bytes() if SW_PATH.exists() else None
+MANIFEST = MANIFEST_PATH.read_bytes() if MANIFEST_PATH.exists() else None
+ICON = ICON_PATH.read_bytes() if ICON_PATH.exists() else None
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -50,6 +54,24 @@ class Handler(BaseHTTPRequestHandler):
             )
             self.end_headers()
             self.wfile.write(HTML)
+            return
+
+        if self.path == "/manifest.json" and MANIFEST is not None:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/manifest+json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(MANIFEST)
+            return
+
+        if self.path == "/icon.svg" and ICON is not None:
+            self.send_response(200)
+            self.send_header("Content-Type", "image/svg+xml")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(ICON)
             return
 
         if self.path == "/sw.js" and SW is not None:
