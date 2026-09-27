@@ -1,12 +1,18 @@
 import os
 import base64
+import hmac
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 USER = os.environ.get("BOB_USER", "")
 PASSWORD = os.environ.get("BOB_PASSWORD", "")
 
-with open("Bob.html", "rb") as f:
+BASE_DIR = Path(__file__).resolve().parent
+HTML_PATH = BASE_DIR / "Bob.html"
+SW_PATH = BASE_DIR / "sw.js"
+with HTML_PATH.open("rb") as f:
     HTML = f.read()
+SW = SW_PATH.read_bytes() if SW_PATH.exists() else None()
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -15,7 +21,7 @@ class Handler(BaseHTTPRequestHandler):
             f"{USER}:{PASSWORD}".encode("utf-8")
         ).decode("ascii")
 
-        if not USER or not PASSWORD or auth != expected:
+        if not USER or not PASSWORD or not hmac.compare_digest(auth, expected):
             self.send_response(401)
             self.send_header("WWW-Authenticate", 'Basic realm="Bob"')
             self.send_header("Cache-Control", "no-store")
@@ -23,11 +29,42 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(b"Authentication required.")
             return
 
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        if self.path in ("/", "/index.html"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "connect-src 'self' https://biquote.io https://ntfy.sh; "
+                "img-src 'self' data:; "
+                "worker-src 'self'; "
+                "object-src 'none'; "
+                "base-uri 'self'; "
+                "frame-ancestors 'none'"
+            )
+            self.end_headers()
+            self.wfile.write(HTML)
+            return
+
+        if self.path == "/sw.js" and SW is not None:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(SW)
+            return
+
+        self.send_response(404)
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(HTML)
+        self.wfile.write(b"Not found.")
 
     def log_message(self, fmt, *args):
         pass
