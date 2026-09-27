@@ -193,6 +193,7 @@ Bei einem Turbo/Knock-Out ist das KO-Level besonders wichtig: Der technische Sto
 <div><label>Aktueller XAU/USD-Kurs</label><input id="tradePrice" type="number" step=".01" placeholder="Live-Kurs"></div>
 <div><label>Aktueller Stop XAU/USD</label><input id="tradeStop" type="number" step=".01" placeholder="z. B. 4235.00"></div>
 <div><label>Stop-ATR-Multiplikator</label><input id="trailAtr" type="number" value="1.5" step=".1" min="0.5"></div>
+<div><label>Mindest-CRV</label><input id="minRR" type="number" value="2" step=".1" min="1"></div>
 </div>
 <div class="row" style="margin-top:10px"><button onclick="setTradeEntry()">✅ Trade-Einstieg bestätigen</button><button onclick="suggestStopUpdate()">🔔 Stop-Loss neu berechnen</button></div>
 <div id="stopUpdate" class="small" style="margin-top:8px">Management-Pushs bleiben bis zur Trade-Bestätigung gesperrt.</div>
@@ -352,7 +353,34 @@ function currentRegime(){
  if(ad>=25) return A.e20>A.e50&&A.e50>A.e200?"TREND BULLISH":A.e20<A.e50&&A.e50<A.e200?"TREND BEARISH":"TREND / GEMISCHT";
  return atrPct<=0.25?"LOW-VOL / RANGE":"RANGE / ÜBERGANG";
 }
-function stopPriceFor(dir,price,atr,mult){return dir==="LONG"?price-atr*mult:dir==="SHORT"?price+atr*mult:null;}
+function structureLevels(c,lookback=40){
+ const v=(c||[]).slice(-lookback);
+ if(v.length<8)return {support:null,resistance:null,swingLow:null,swingHigh:null};
+ const lows=v.map(x=>+x.low).filter(Number.isFinite), highs=v.map(x=>+x.high).filter(Number.isFinite);
+ const support=Math.min(...lows),resistance=Math.max(...highs);
+ const recent=v.slice(-Math.min(12,v.length));
+ return {support,resistance,swingLow:Math.min(...recent.map(x=>x.low)),swingHigh:Math.max(...recent.map(x=>x.high))};
+}
+function stopModel(dir,entry,atr,mult=1.5){
+ if(!dir||dir==="NEUTRAL"||!Number.isFinite(entry)||!Number.isFinite(atr)||atr<=0)return {stop:null,reason:"Kein gültiges Setup"};
+ const lv=structureLevels(C,40), buffer=Math.max(atr*0.20,0.01);
+ let structureStop=dir==="LONG"?Math.min(lv.swingLow,lv.support)-buffer:Math.max(lv.swingHigh,lv.resistance)+buffer;
+ const atrStop=dir==="LONG"?entry-atr*mult:entry+atr*mult;
+ let stop=dir==="LONG"?Math.min(structureStop,atrStop):Math.max(structureStop,atrStop);
+ const maxDist=atr*Math.max(2.5,mult+0.75);
+ if(Math.abs(entry-stop)>maxDist)stop=dir==="LONG"?entry-maxDist:entry+maxDist;
+ if(dir==="LONG"&&stop>=entry)stop=entry-atr*Math.max(1,mult);
+ if(dir==="SHORT"&&stop<=entry)stop=entry+atr*Math.max(1,mult);
+ return {stop,structureStop,atrStop,support:lv.support,resistance:lv.resistance,buffer,reason:"Marktstruktur + Support/Resistance + ATR"};
+}
+function stopPriceFor(dir,price,atr,mult){return stopModel(dir,price,atr,mult).stop;}
+function targetModel(dir,entry,stop,minRR=2){
+ minRR=Math.max(1,+minRR||2);
+ if(!dir||dir==="NEUTRAL"||!Number.isFinite(entry)||!Number.isFinite(stop))return {target:null,rr:null};
+ const risk=Math.abs(entry-stop);
+ if(!risk)return {target:null,rr:null};
+ return {target:dir==="LONG"?entry+risk*minRR:entry-risk*minRR,rr:minRR,risk};
+}
 function displayStop(usd){if(usd==null||!isFinite(usd))return "—";const c=$("displayCcy")?.value||"USD";const fx=+( $("fxRate")?.value || 1);if(c==="USD")return usd.toFixed(2)+" USD/oz";return (usd*fx).toFixed(2)+" "+c+"/oz (FX manuell)";}
 function falseBreakoutState(dir){
  if(C.length<25||!A.at)return "UNKNOWN";
@@ -370,9 +398,11 @@ function updateResearchPanel(){
  const fb=falseBreakoutState(rawDir); if(fb!=="OK"&&fb!=="UNKNOWN")rawDir="NEUTRAL";
  let dir=rawDir;
  if(rawDir!==signalState.dir){if(rawDir==="NEUTRAL"){signalState={dir:"NEUTRAL",pending:"NEUTRAL",count:0};dir="NEUTRAL";}else if(signalState.pending===rawDir){signalState.count++;if(signalState.count>=2)signalState={dir:rawDir,pending:rawDir,count:0};else dir=signalState.dir;}else{signalState.pending=rawDir;signalState.count=1;dir=signalState.dir;}}
- const stop=dir!=="NEUTRAL"?stopPriceFor(dir,lastPrice,A.at,+( $("trailAtr")?.value||1.5)):null;
+ const sm=dir!=="NEUTRAL"?stopModel(dir,lastPrice,A.at,+( $("trailAtr")?.value||1.5)):null;
+ const stop=sm?.stop||null;
  if($("stopCurrent"))$("stopCurrent").textContent=displayStop(tradeMgmt.stop||stop);
  if($("stopRisk"))$("stopRisk").textContent=stop?Math.abs(lastPrice-stop).toFixed(2)+" USD/oz":"—";
+ if($("stopPanel")&&!tradeMgmt.active&&sm?.stop)$("stopPanel").innerHTML="<b>Technischer Referenz-Stop:</b> "+displayStop(sm.stop)+"<br><span class='small'>"+sm.reason+" · Struktur "+displayStop(sm.structureStop)+" · ATR "+displayStop(sm.atrStop)+"</span>";
  if($("hysteresis"))$("hysteresis").textContent=dir+" · Hysterese "+(signalState.count?signalState.count+"/2":"stabil")+(falseBreakoutState(dir)!=="OK"&&dir!=="NEUTRAL"?" · Breakout unbestätigt":"");
  if($("researchStatus"))$("researchStatus").textContent=researchLog.length?researchLog.length+" Snapshots lokal gespeichert.":"Noch keine Snapshots.";
 }
@@ -391,15 +421,18 @@ function setTradeEntry(){
  if(!lastPrice||!A.at)return;
  const dir=A.score>=70&&MTF.longs>=3?"LONG":A.score<=30&&MTF.shorts>=3?"SHORT":"NEUTRAL";
  if(dir==="NEUTRAL"){$("stopUpdate").textContent="Kein bestätigtes LONG-/SHORT-Setup.";return;}
- tradeMgmt={active:true,dir,entry:+($("tradeEntry").value||lastPrice),stop:stopPriceFor(dir,+($("tradeEntry").value||lastPrice),A.at,+( $("trailAtr")?.value||1.5)),lastUpdate:new Date().toISOString()};
+ const entry=+($("tradeEntry").value||lastPrice), sm=stopModel(dir,entry,A.at,+( $("trailAtr")?.value||1.5));
+ if(!sm.stop){$("stopUpdate").textContent="Kein valider Stop berechenbar.";return;}
+ const tgt=targetModel(dir,entry,sm.stop,Math.max(1,+($("minRR")?.value||2)));
+ tradeMgmt={active:true,dir,entry,stop:sm.stop,target:tgt.target,rr:tgt.rr,stopReason:sm.reason,lastUpdate:new Date().toISOString()};
  $("tradeEntry").value=tradeMgmt.entry.toFixed(2);$("tradePrice").value=lastPrice.toFixed(2);$("tradeStop").value=tradeMgmt.stop.toFixed(2);saveTradeMgmt();
  pushState.activeTrade=true;savePush();
  const msg=`${dir}: initialer Stop-Loss ${displayStop(tradeMgmt.stop)}. Einstieg ${tradeMgmt.entry.toFixed(2)} USD/oz.`;
- $("stopUpdate").innerHTML="<b>Trade bestätigt.</b> "+msg;notifyTrade("Gold Scanner – Trade bestätigt",msg);captureResearchSnapshot("TRADE_SET");updateResearchPanel();
+ $("stopUpdate").innerHTML="<b>Trade bestätigt.</b> "+msg+" CRV-Ziel: "+displayStop(tradeMgmt.target)+" (2R).";notifyTrade("Gold Scanner – Trade bestätigt",msg);captureResearchSnapshot("TRADE_SET");updateResearchPanel();
 }
 function suggestStopUpdate(){
  if(!tradeMgmt.active){$("stopUpdate").textContent="Kein aktiver Trade – zuerst Trade-Einstieg bestätigen.";return;}
- const p=+($("tradePrice").value||lastPrice),atrv=A.at,mult=+( $("trailAtr")?.value||1.5),candidate=stopPriceFor(tradeMgmt.dir,p,atrv,mult),old=tradeMgmt.stop;
+ const p=+($("tradePrice").value||lastPrice),atrv=A.at,mult=+( $("trailAtr")?.value||1.5),model=stopModel(tradeMgmt.dir,p,atrv,mult),candidate=model.stop,old=tradeMgmt.stop;
  let next=tradeMgmt.dir==="LONG"?Math.max(old,candidate):Math.min(old,candidate);
  if(next===old){$("stopUpdate").innerHTML=`<b>Kein Nachziehen.</b> Technischer Stop bleibt bei <b>${displayStop(old)}</b>.`;return;}
  tradeMgmt.stop=next;tradeMgmt.lastUpdate=new Date().toISOString();saveTradeMgmt();$("tradeStop").value=next.toFixed(2);$("stopUpdate").innerHTML=`<b>STOP-LOSS ANPASSEN:</b> neuer Kurs <b>${displayStop(next)}</b> (alt ${displayStop(old)}).`;
@@ -475,44 +508,37 @@ function useRiskDefaults(){
 
 function calcDgTrade(){
  if(!lastPrice||!A.at){$("dgOut").innerHTML="Zuerst Live-Daten laden.";return}
- const acc=+$("account").value||500, riskPct=+$("risk").value||1, maxLoss=acc*riskPct/100;
+ const acc=+$("account").value||500, riskPct=Math.max(0,+$("risk").value||1), maxLoss=acc*riskPct/100;
  const lev=Math.max(1,+$("dgLev").value||1), ko=+$("dgKo").value, spread=Math.max(0,+$("dgSpread").value||0);
- const score=A.score??50, mtf=MTF.longs>=3?"LONG":MTF.shorts>=3?"SHORT":"NEUTRAL";
+ const score=A.score??50, mtf=MTF.overall||"NEUTRAL";
  let dir=score>=70&&mtf==="LONG"?"LONG":score<=30&&mtf==="SHORT"?"SHORT":"ABWARTEN";
- const atrStop=Math.max(A.at*1.5, A.at);
- const techStop=dir==="LONG"?lastPrice-atrStop:dir==="SHORT"?lastPrice+atrStop:null;
- const target=dir==="LONG"?lastPrice+atrStop*2:dir==="SHORT"?lastPrice-atrStop*2:null;
+ const product=$("dgType").value, productLabel={turbo:"Turbo / Knock-Out",warrant:"Optionsschein",etc:"Gold-ETC / ungehebelt",future:"Future / anderes Derivat"}[product];
+ if(dir==="ABWARTEN"){ $("dgOut").innerHTML=`<b>Kein Trade-Vorschlag.</b><br>Score und Multi-Timeframe-Richtung bestätigen keinen gemeinsamen LONG-/SHORT-Trade.<br><br>Maximales Risiko: <b>${maxLoss.toFixed(2)} €</b>.`; return; }
+ const sm=stopModel(dir,lastPrice,A.at,1.5), tgt=targetModel(dir,lastPrice,sm.stop,2);
+ if(!sm.stop||!tgt.target){$("dgOut").innerHTML="<b>Kein Trade-Vorschlag.</b><br>Stop/CRV konnte nicht zuverlässig berechnet werden.";return;}
+ const riskDist=Math.abs(lastPrice-sm.stop), rewardDist=Math.abs(tgt.target-lastPrice), rr=tgt.rr;
  const koDist=ko?(Math.abs(lastPrice-ko)/lastPrice*100):null;
- const effectiveRiskToKo=ko?Math.abs(lastPrice-ko):null;
- const approxNotional=dir!=="ABWARTEN"?maxLoss/(atrStop/lastPrice):0;
- const margin=approxNotional/lev;
- const product=$("dgType").value;
  let koWarning="";
- if(ko && dir==="LONG" && ko>=lastPrice)koWarning="⚠️ Das KO-Level liegt nicht unter dem aktuellen Goldpreis – LONG prüfen.";
- if(ko && dir==="SHORT" && ko<=lastPrice)koWarning="⚠️ Das KO-Level liegt nicht über dem aktuellen Goldpreis – SHORT prüfen.";
- if(ko && koDist<2)koWarning="⚠️ KO-Abstand < 2%: sehr enger Puffer.";
- const productLabel={turbo:"Turbo / Knock-Out",warrant:"Optionsschein",etc:"Gold-ETC / ungehebelt",future:"Future / anderes Derivat"}[product];
-
- if(dir==="ABWARTEN"){
-   $("dgOut").innerHTML=`<b>Kein Trade-Vorschlag.</b><br>Score und Multi-Timeframe-Richtung bestätigen keinen gemeinsamen LONG-/SHORT-Trade.<br><br>Maximales Risiko laut Einstellung: <b>${maxLoss.toFixed(2)} €</b>.`;
-   return;
- }
- $("dgOut").innerHTML=`
- <table>
+ if(ko&&dir==="LONG"&&ko>=lastPrice)koWarning="⚠️ KO-Level liegt nicht unter dem aktuellen Goldpreis – LONG prüfen.";
+ if(ko&&dir==="SHORT"&&ko<=lastPrice)koWarning="⚠️ KO-Level liegt nicht über dem aktuellen Goldpreis – SHORT prüfen.";
+ if(ko&&koDist<2)koWarning="⚠️ KO-Abstand < 2%: sehr enger Puffer.";
+ const costNote=spread>0?"Spread eingegeben: "+spread.toFixed(2):"Spread nicht eingegeben – CRV ist vor Kosten."; 
+ const approxNotional=maxLoss/(riskDist/lastPrice), margin=approxNotional/lev;
+ $("dgOut").innerHTML=`<table>
  <tr><td>Richtung</td><td class="right"><b>${dir}</b></td></tr>
  <tr><td>Produkt</td><td class="right">${productLabel}</td></tr>
  <tr><td>XAU/USD Referenz-Einstieg</td><td class="right"><b>${lastPrice.toFixed(2)}</b></td></tr>
- <tr><td>Technischer Stop (ATR)</td><td class="right"><b>${techStop.toFixed(2)}</b></td></tr>
- <tr><td>Technisches Ziel (2R)</td><td class="right"><b>${target.toFixed(2)}</b></td></tr>
+ <tr><td>Stop: Struktur + ATR</td><td class="right"><b>${sm.stop.toFixed(2)}</b></td></tr>
+ <tr><td>Stop-Grund</td><td class="right">${sm.reason}</td></tr>
+ <tr><td>Ziel bei 2R</td><td class="right"><b>${tgt.target.toFixed(2)}</b></td></tr>
+ <tr><td>CRV vor Kosten</td><td class="right"><b>${rr.toFixed(2)} : 1</b></td></tr>
+ <tr><td>Stop-Distanz</td><td class="right">${riskDist.toFixed(2)} USD/oz</td></tr>
  <tr><td>Max. Verlust</td><td class="right"><b>${maxLoss.toFixed(2)} €</b></td></tr>
  <tr><td>Rechnerischer Positionswert</td><td class="right"><b>${approxNotional.toFixed(2)} €</b></td></tr>
  <tr><td>Rechnerische Margin bei ${lev.toFixed(1)}×</td><td class="right"><b>${margin.toFixed(2)} €</b></td></tr>
- ${ko?`<tr><td>KO-Abstand</td><td class="right"><b>${koDist.toFixed(2)}%</b></td></tr>`:""}
- ${spread?`<tr><td>Spread eingegeben</td><td class="right">${spread.toFixed(2)}</td></tr>`:""}
- </table>
- <div class="small" style="margin-top:10px">${koWarning || "Vor einer Order in DEGIRO: Produktdaten, Spread, Finanzierung, Bezugsverhältnis und KO-Level direkt im Produkt prüfen."}</div>`;
+ ${ko?\`<tr><td>KO-Abstand</td><td class="right"><b>${koDist.toFixed(2)}%</b></td></tr>\`:''}
+ </table><div class="small" style="margin-top:10px">${koWarning||costNote}<br>Vor einer Order in DEGIRO: Produktdaten, Spread, Finanzierung, Bezugsverhältnis und KO-Level direkt im Produkt prüfen. Der technische Stop ist nicht das KO-Level.</div>`;
 }
-
 async function loadData(){
  try{
   const tf=$("tf").value, n=$("n").value;
@@ -533,7 +559,16 @@ async function loadData(){
  }
 }
 function demo(){let p=4250;C=[];lastPrice=p;for(let i=0;i<250;i++){p+=Math.sin(i/8)*1.8+Math.sin(i*0.73)*2.2;const o=p-2,h=p+8,l=p-8;C.push({open:o,high:h,low:l,close:p,isOpen:false})}$("status").textContent="Reproduzierbare Demo-Daten aktiv.";analyze()}
-function riskCalc(){if(!lastPrice||!A.at){$("riskout").textContent="Zuerst Daten laden.";return}let acc=+$("account").value,risk=+$("risk2").value/100,lev=+$("lev").value,m=+$("atrmult").value,rr=+$("rr").value;let euro=acc*risk,dist=A.at*m;let dir=A.score>=70?"LONG":A.score<=30?"SHORT":"NEUTRAL";if(dir==="NEUTRAL"){$("riskout").innerHTML=`Richtung nach Score: <b>ABWARTEN / NO TRADE</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Kein Stop- oder Zielkurs wird für ein neutrales Setup berechnet.`;return;}let stop=dir==="LONG"?lastPrice-dist:lastPrice+dist,tp=dir==="LONG"?lastPrice+dist*rr:lastPrice-dist*rr,notional=euro/(dist/lastPrice),margin=notional/lev;$("riskout").innerHTML=`Richtung nach Score: <b>${dir}</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Referenz-Stop: <b>${stop.toFixed(2)}</b><br>Referenz-Ziel: <b>${tp.toFixed(2)}</b><br>Positionswert nach Risikomodell: <b>${notional.toFixed(2)} €</b><br>Rechnerische Margin bei ${lev}×: <b>${margin.toFixed(2)} €</b>`}
+function riskCalc(){
+ if(!lastPrice||!A.at){$("riskout").textContent="Zuerst Daten laden.";return}
+ const acc=+$("account").value,risk=+$("risk2").value/100,lev=Math.max(1,+$("lev").value||1),m=+$("atrmult").value,rr=Math.max(1,+$("rr").value),euro=acc*risk;
+ const dir=A.score>=70&&MTF.overall==="LONG"?"LONG":A.score<=30&&MTF.overall==="SHORT"?"SHORT":"NEUTRAL";
+ if(dir==="NEUTRAL"){$("riskout").innerHTML=`Richtung: <b>ABWARTEN / NO TRADE</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Kein Stop- oder Zielkurs für ein neutrales Setup.`;return;}
+ const sm=stopModel(dir,lastPrice,A.at,m),tgt=targetModel(dir,lastPrice,sm.stop,rr),dist=Math.abs(lastPrice-sm.stop);
+ if(!sm.stop||!tgt.target||tgt.rr<1){$("riskout").textContent="Kein valides Risiko-/CRV-Modell.";return}
+ const notional=euro/(dist/lastPrice),margin=notional/lev;
+ $("riskout").innerHTML=`Richtung: <b>${dir}</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Stop: <b>${sm.stop.toFixed(2)}</b> · ${sm.reason}<br>Ziel: <b>${tgt.target.toFixed(2)}</b><br>CRV: <b>${tgt.rr.toFixed(2)} : 1</b><br>Positionswert nach Risikomodell: <b>${notional.toFixed(2)} €</b><br>Rechnerische Margin bei ${lev}×: <b>${margin.toFixed(2)} €</b>`;
+}
 restoreTradeMgmt(); updateResearchPanel();
 setInterval(()=>{ if(document.visibilityState==="visible") loadData(); }, 60000);
 </script></body></html>
