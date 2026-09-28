@@ -60,6 +60,25 @@ PY
       - name: Validate service worker syntax
         run: node --check sw.js
 
+      - name: Validate Bob JavaScript syntax
+        run: |
+          node --check push_manager.js
+          node --check degiro_assistant.js
+          python - <<'PY'
+from pathlib import Path
+import re, subprocess, tempfile
+
+html = Path("Bob.html").read_text(encoding="utf-8")
+scripts = re.findall(r"<script>([\\s\\S]*?)</script>", html)
+if not scripts:
+    raise SystemExit("No inline Bob script found")
+with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+    f.write(scripts[-1])
+    path = f.name
+subprocess.run(["node", "--check", path], check=True)
+print("Bob inline JavaScript: OK")
+PY
+
       - name: Validate HTML shell
         run: python - <<'PY'
 from html.parser import HTMLParser
