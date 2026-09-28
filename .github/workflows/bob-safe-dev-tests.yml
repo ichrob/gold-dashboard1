@@ -15,4 +15,5 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m py_compile server.py
+      - run: python -m pip install --disable-pip-version-check pytest
       - run: python -m pytest -q tests/test_server_helpers.py
