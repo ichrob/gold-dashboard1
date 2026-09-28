@@ -120,13 +120,13 @@ def build_live_bundle():
 
         # Yahoo Finance provides recent XAU/USD 5-minute bars for the technical history.
         yahoo = fetch_json(
-            "https://query1.finance.yahoo.com/v8/finance/chart/XAUUSD=X?interval=5m&range=5d&includePrePost=true",
+            "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=5m&range=5d&includePrePost=true",
             retries=2,
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128 Safari/537.36"
         )
         result = yahoo.get("chart", {}).get("result", [None])[0] if isinstance(yahoo, dict) else None
         if not result:
-            raise RuntimeError("Yahoo Finance liefert keine XAU/USD-Historie")
+            raise RuntimeError("Yahoo Finance liefert keine Gold-Futures-Historie")
         timestamps = result.get("timestamp") or []
         quote = (result.get("indicators", {}).get("quote") or [None])[0] or {}
         opens = quote.get("open") or []
@@ -151,11 +151,11 @@ def build_live_bundle():
                 continue
         bars_5m.sort(key=lambda x: x["openTime"])
         if len(bars_5m) < 200:
-            raise RuntimeError(f"Yahoo Finance liefert zu wenig 5m-Historie ({len(bars_5m)} Kerzen)")
+            raise RuntimeError(f"Yahoo Finance liefert zu wenig Gold-Futures-5m-Historie ({len(bars_5m)} Kerzen)")
 
         latest_bar_age = max(0, now - bars_5m[-1]["openTime"] / 1000)
         if latest_bar_age > 900:
-            raise RuntimeError(f"Yahoo XAU/USD-Historie nicht frisch (Alter {latest_bar_age:.0f} s)")
+            raise RuntimeError(f"Yahoo Gold-Futures-Historie nicht frisch (Alter {latest_bar_age:.0f} s)")
 
         yahoo_price = bars_5m[-1]["close"]
         diff = goldprice_price - yahoo_price
@@ -183,7 +183,7 @@ def build_live_bundle():
             "history": {
                 "bars_by_tf": {"5m": bars_5m},
                 "points": legacy_points,
-                "data_state": {"status": "fresh", "source": "GoldPrice.dev spot + Yahoo Finance 5m"},
+                "data_state": {"status": "fresh", "source": "GoldPrice.dev spot + Yahoo Finance GC=F 5m"},
                 "age_seconds": goldprice_age
             }
         }
