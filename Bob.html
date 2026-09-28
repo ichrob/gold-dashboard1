@@ -226,7 +226,7 @@ function renderPush(){
  if(ts)ts.textContent=pushState.activeTrade?"✅ Trade gesetzt":"❌ Nein";
  if(tp)tp.textContent=pushState.activeTrade?"Aktiv – Stop-Loss/Schließen erlaubt":"Nur bei aktivem Trade";
 }
-async async function registerNotifications(){
+async function registerNotifications(){
  try{
    pushState=await BobPush.enable();
    renderPush();
