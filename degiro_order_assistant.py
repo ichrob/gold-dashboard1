@@ -24,6 +24,7 @@ class DegiroProduct:
     spread_pct: Optional[float] = None
     liquidity_score: Optional[float] = None
     data_age_seconds: Optional[int] = None
+    multiplier: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,7 @@ class OrderDraft:
     spread_pct: Optional[float]
     liquidity_score: Optional[float]
     data_age_seconds: Optional[int]
+    multiplier: float
     currency: str
     requires_manual_confirmation: bool = True
     frozen: bool = True
@@ -50,6 +52,23 @@ class OrderDraft:
 def _validate_isin(isin: str) -> None:
     if len(isin) != 12 or not isin[:2].isalpha() or not isin[2:].isalnum():
         raise ValueError("ISIN must contain 12 alphanumeric characters with a 2-letter country prefix")
+    digits = []
+    for char in isin:
+        if char.isdigit():
+            digits.append(char)
+        else:
+            digits.extend(str(ord(char.upper()) - 55))
+    expanded = "".join(digits)
+    if len(expanded) != 13:
+        raise ValueError("Invalid ISIN")
+    total = 0
+    for index, char in enumerate(expanded):
+        value = int(char)
+        if (len(expanded) - index) % 2 == 0:
+            value *= 2
+        total += value // 10 + value % 10
+    if total % 10 != 1:
+        raise ValueError("Invalid ISIN checksum")
 
 
 def knockout_distance_pct(current_price: float, knockout_price: float) -> float:
@@ -59,15 +78,20 @@ def knockout_distance_pct(current_price: float, knockout_price: float) -> float:
     return abs(current_price - knockout_price) / current_price * 100.0
 
 
-def risk_per_unit(side: OrderSide, entry_price: float, stop_loss: float) -> float:
-    """Return absolute price risk per unit and validate stop direction."""
-    if entry_price <= 0 or stop_loss <= 0:
-        raise ValueError("Entry and stop-loss must be positive")
+def risk_per_unit(
+    side: OrderSide,
+    entry_price: float,
+    stop_loss: float,
+    multiplier: float = 1.0,
+) -> float:
+    """Return EUR-equivalent price risk per unit and validate stop direction."""
+    if entry_price <= 0 or stop_loss <= 0 or multiplier <= 0:
+        raise ValueError("Entry, stop-loss and multiplier must be positive")
     if side == "BUY" and stop_loss >= entry_price:
         raise ValueError("For BUY, stop-loss must be below entry")
     if side == "SELL" and stop_loss <= entry_price:
         raise ValueError("For SELL, stop-loss must be above entry")
-    return abs(entry_price - stop_loss)
+    return abs(entry_price - stop_loss) * multiplier
 
 
 def position_size(risk_budget_eur: float, risk_per_unit_eur: float) -> int:
@@ -89,15 +113,23 @@ def validate_product(
     _validate_isin(product.isin)
     if not product.name.strip():
         raise ValueError("Product name must not be empty")
+    if product.side not in ("BUY", "SELL"):
+        raise ValueError("Invalid order side")
     if product.currency != "EUR":
         raise ValueError("Only EUR-denominated products are supported by this draft")
     if product.current_price <= 0:
         raise ValueError("Current price must be positive")
     if product.leverage is not None and product.leverage <= 0:
         raise ValueError("Leverage must be positive")
+    if product.multiplier <= 0:
+        raise ValueError("Multiplier must be positive")
     if product.knockout_price is not None:
         if product.knockout_price <= 0:
             raise ValueError("KO price must be positive")
+        if product.side == "BUY" and product.knockout_price >= product.current_price:
+            raise ValueError("BUY product KO must be below current price")
+        if product.side == "SELL" and product.knockout_price <= product.current_price:
+            raise ValueError("SELL product KO must be above current price")
         if knockout_distance_pct(product.current_price, product.knockout_price) < min_ko_distance_pct:
             raise ValueError("KO distance is below the configured safety threshold")
     if product.spread_pct is not None:
@@ -133,15 +165,19 @@ def prepare_order(
     )
     if quantity < 1:
         raise ValueError("Quantity must be at least 1")
+    if order_type not in ("MARKET", "LIMIT", "STOP_LOSS", "STOP_LIMIT"):
+        raise ValueError("Invalid order type")
     if order_type in ("LIMIT", "STOP_LIMIT") and entry_price is None:
         raise ValueError("This order type requires an entry price")
     if order_type in ("STOP_LOSS", "STOP_LIMIT") and stop_loss is None:
         raise ValueError("This order type requires a stop-loss")
+    if risk_budget_eur is not None and stop_loss is None:
+        raise ValueError("A risk budget requires a stop-loss")
 
     max_risk = None
     if stop_loss is not None:
         effective_entry = entry_price if entry_price is not None else product.current_price
-        unit_risk = risk_per_unit(product.side, effective_entry, stop_loss)
+        unit_risk = risk_per_unit(product.side, effective_entry, stop_loss, product.multiplier)
         max_risk = unit_risk * quantity
         if risk_budget_eur is not None and max_risk > risk_budget_eur:
             raise ValueError("Requested quantity exceeds the risk budget")
@@ -165,5 +201,6 @@ def prepare_order(
         spread_pct=product.spread_pct,
         liquidity_score=product.liquidity_score,
         data_age_seconds=product.data_age_seconds,
+        multiplier=product.multiplier,
         currency=product.currency,
     )
