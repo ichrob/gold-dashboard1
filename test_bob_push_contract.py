@@ -31,9 +31,11 @@ class BobPushContractTests(unittest.TestCase):
     def test_mtf_loader_is_async_and_push_waits_for_it(self):
         self.assertIn("async function loadMTF(force=false)", self.html)
         self.assertNotIn("async async function loadMTF(force=false){", self.html)
-        self.assertIn("await loadMTF();updateResearchPanel();maybePushEntrySignal();", self.html)
+        self.assertIn("await loadMTF();updateResearchPanel(true);maybePushEntrySignal();", self.html)
         self.assertIn("function maybePushEntrySignal()", self.html)
         self.assertIn("const dir=signalState.dir;", self.html)
+        self.assertIn("function updateResearchPanel(commitSignal=false)", self.html)
+        self.assertIn("if(commitSignal&&rawDir!==signalState.dir)", self.html)
 
     def test_trade_push_activation_is_explicit(self):
         self.assertIn('if(!wasActive&&!tradeMgmt.active){setPushStatus("⚠️ Zuerst einen Trade setzen, dann „Trade gesetzt“ aktivieren.");return;}', self.html)
