@@ -4,7 +4,7 @@ on:
   push:
     branches: [degiro-order-assistant]
   pull_request:
-    branches: [degiro-order-assistant]
+    branches: [main]
 
 jobs:
   test-degiro-order-assistant:
