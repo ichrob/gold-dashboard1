@@ -15,14 +15,21 @@ class PushEngineTests(unittest.TestCase):
         self.assertIsNone(neutral)
         self.assertEqual(second.kind, "entry")
 
-    def test_stop_updates_are_deduplicated(self):
+    def test_stop_updates_are_deduplicated_by_direction(self):
         engine = PushEngine(cooldown_seconds=900)
         first = engine.stop_update("LONG", 4200.0, 4210.0, now=1000)
-        repeat = engine.stop_update("LONG", 4210.0, 4210.0, now=1060)
-        changed = engine.stop_update("LONG", 4210.0, 4220.0, now=1120)
+        repeat = engine.stop_update("LONG", 4210.0, 4215.0, now=1060)
+        later = engine.stop_update("LONG", 4215.0, 4220.0, now=2000)
         self.assertEqual(first.kind, "stop")
         self.assertIsNone(repeat)
-        self.assertEqual(changed.kind, "stop")
+        self.assertEqual(later.kind, "stop")
+
+    def test_stop_can_resume_after_direction_change(self):
+        engine = PushEngine(cooldown_seconds=900)
+        long_event = engine.stop_update("LONG", 4200.0, 4210.0, now=1000)
+        short_event = engine.stop_update("SHORT", 4200.0, 4190.0, now=1060)
+        self.assertEqual(long_event.kind, "stop")
+        self.assertEqual(short_event.kind, "stop")
 
     def test_risk_alert_cooldown(self):
         engine = PushEngine(cooldown_seconds=900)
@@ -33,12 +40,20 @@ class PushEngineTests(unittest.TestCase):
         self.assertIsNone(repeat)
         self.assertEqual(later.kind, "risk")
 
-    def test_exit_is_an_explicit_event(self):
+    def test_exit_is_deduplicated_by_direction_not_wording(self):
         engine = PushEngine(cooldown_seconds=900)
         event = engine.trade_exit("SHORT", "Signal ungültig", now=1000)
-        repeat = engine.trade_exit("SHORT", "Signal ungültig", now=1100)
+        repeat = engine.trade_exit("SHORT", "Stop-Loss-Bereich", now=1100)
+        later = engine.trade_exit("SHORT", "Stop-Loss-Bereich", now=2000)
         self.assertEqual(event.kind, "exit")
         self.assertIsNone(repeat)
+        self.assertEqual(later.kind, "exit")
+
+    def test_invalid_exit_direction_is_normalized(self):
+        engine = PushEngine(cooldown_seconds=900)
+        event = engine.trade_exit("", "Test", now=1000)
+        self.assertEqual(event.kind, "exit")
+        self.assertIn("NEUTRAL", event.body)
 
 
 if __name__ == "__main__":
