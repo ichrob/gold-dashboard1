@@ -748,7 +748,7 @@ function rankDgProducts(){
     if(!sameDir){reject=true;reasons.push("falsche Richtung");}
     if(!dataFresh){reject=true;reasons.push("Live-Produktdaten nicht verifiziert");}
     if(!Number.isFinite(koDist)||koDist<minKo){reject=true;reasons.push("K.O.-Abstand zu klein/unbekannt");}
-    if(!Number.isFinite(lev)||lev<1){reject=true;reasons.push("Hebel unbekannt");}
+    if(!Number.isFinite(lev)||lev<1){reject=true;reasons.push("Hebel unbekannt");}\n    if(Number.isFinite(lev)&&lev>maxLev){reject=true;reasons.push("Hebel über gewünschtem Maximum");}
     if(x.bidOnly||x.tradable===false){reject=true;reasons.push("nicht normal handelbar");}
     if(days<0){reject=true;reasons.push("abgelaufen");}
 
