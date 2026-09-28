@@ -175,6 +175,18 @@ Bei einem Turbo/Knock-Out ist das KO-Level besonders wichtig: Der technische Sto
 <b>Auswahlregel:</b> Passende Richtung → ausreichender K.O.-Abstand → Handelbarkeit/Liquidität → Spread/Kosten → sinnvoller Hebel. Produkte mit erreichtem K.O., fehlendem Ask/Bid, „Bid Only“ oder zu engem K.O.-Abstand werden ausgeschlossen.
 </div>
 </div>
+<div class="card">
+<h3>📸 DEGIRO-Screenshot → Bob</h3>
+<div class="small">Lade einen aktuellen Screenshot der Gold-Hebelprodukte aus deiner DEGIRO-App hoch. Bob liest daraus nach Möglichkeit Richtung, ISIN, Hebel, K.O./Stop, Bid/Ask und Laufzeit und verwendet die Liste für die laufende Auswahl.</div>
+<div class="row" style="margin-top:10px">
+<input id="dgScreenshot" type="file" accept="image/*" capture="environment">
+<button onclick="analyzeDgScreenshot()">🔎 Screenshot analysieren</button>
+</div>
+<div id="dgScreenshotStatus" class="small" style="margin-top:8px">Noch kein Screenshot analysiert.</div>
+<img id="dgScreenshotPreview" alt="DEGIRO Screenshot Vorschau" style="display:none;width:100%;max-height:420px;object-fit:contain;border-radius:12px;margin-top:10px;background:#f6f6f6">
+<pre id="dgOcrText" class="small" style="display:none;white-space:pre-wrap;max-height:220px;overflow:auto;margin-top:10px"></pre>
+<div class="warning" style="margin-top:10px"><b>Wichtig:</b> Der Screenshot wird im Browser verarbeitet; Bob braucht dafür keine DEGIRO-Anmeldung. Die Produktliste bleibt die zuletzt eingelesene Liste, bis du einen neuen Screenshot analysierst. DEGIRO kann Produkte abhängig von Land, Zulassung und Kontoeinstellungen unterschiedlich anbieten.</div>
+</div>
 <div class="card"><h3>Trade-Risikorechner</h3>
 <div class="grid">
 <div><label>Risiko %</label><input id="risk2" type="number" value="1" step=".1"></div>
@@ -229,6 +241,7 @@ Hoher Hebel kann Verluste sehr schnell vergrößern. Die App platziert keine Ord
 Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Spreads, Finanzierung und Bezugsverhältnis müssen direkt in deinem DEGIRO-Konto geprüft werden.
 </div>
 </main>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
 
 const $=id=>document.getElementById(id);
@@ -578,6 +591,57 @@ function useRiskDefaults(){
 
 
 let dgProducts=[];
+let lastProductDirection="NEUTRAL";
+let lastProductNoticeAt=0;
+function parseDgOcr(text){
+  const lines=String(text||"").split(/\n+/).map(x=>x.replace(/\s+/g," ").trim()).filter(Boolean);
+  const out=[];
+  for(let i=0;i<lines.length;i++){
+    const window=lines.slice(Math.max(0,i-1),Math.min(lines.length,i+2)).join(" ");
+    const isin=(window.match(/\b[A-Z]{2}[A-Z0-9]{9}\d\b/)||[])[0]||"";
+    if(!isin)continue;
+    const direction=/\b(short|bear|put|short[- ]?produkt)\b/i.test(window)?"SHORT":/\b(long|bull|call|long[- ]?produkt)\b/i.test(window)?"LONG":"";
+    const levm=window.match(/(?:Hebel|Leverage|Gearing|x)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*x?/i)||window.match(/(\d+(?:[.,]\d+)?)\s*x\b/i);
+    const kom=window.match(/(?:K\.?O\.?|Knock[- ]?Out|Stop(?:-Loss)?|Barriere)\s*[:=]?\s*([0-9][0-9.,]*)/i);
+    const nums=[...window.matchAll(/\b\d{3,6}(?:[.,]\d+)?\b/g)].map(m=>Number(m[0].replace(/,/g,"."))).filter(Number.isFinite);
+    const ko=kom?Number(kom[1].replace(/,/g,".")):NaN;
+    const leverage=levm?Number(levm[1].replace(",",".")):NaN;
+    const bidm=window.match(/(?:Bid|Geld)\s*[:=]?\s*([0-9][0-9.,]*)/i);
+    const askm=window.match(/(?:Ask|Brief)\s*[:=]?\s*([0-9][0-9.,]*)/i);
+    const bid=bidm?Number(bidm[1].replace(/,/g,".")):NaN;
+    const ask=askm?Number(askm[1].replace(/,/g,".")):NaN;
+    const name=(lines[i-1]||lines[i]).slice(0,120);
+    if(direction && Number.isFinite(leverage) && Number.isFinite(ko)){
+      out.push({name,isin,direction,leverage,ko,bid,ask,bidOnly:/bid only/i.test(window),tradable:!/nicht handelbar|unavailable|expired|ausverkauft/i.test(window),expiry:null,source:"DEGIRO Screenshot"});
+    }
+  }
+  const seen=new Set();
+  return out.filter(x=>{const k=x.isin+"|"+x.direction+"|"+x.ko;if(seen.has(k))return false;seen.add(k);return true;});
+}
+async function analyzeDgScreenshot(){
+  const input=$("dgScreenshot"),status=$("dgScreenshotStatus"),img=$("dgScreenshotPreview"),ocr=$("dgOcrText");
+  const file=input?.files?.[0];
+  if(!file){status.textContent="Bitte zuerst einen DEGIRO-Screenshot auswählen.";return;}
+  if(!file.type.startsWith("image/")){status.textContent="Bitte eine Bilddatei verwenden.";return;}
+  img.src=URL.createObjectURL(file);img.style.display="block";status.textContent="⏳ Screenshot wird lokal gelesen…";
+  try{
+    if(!window.Tesseract)throw Error("OCR-Modul konnte nicht geladen werden.");
+    const result=await Tesseract.recognize(file,"eng",{logger:m=>{if(m.status&&m.progress!=null)status.textContent="⏳ "+m.status+" · "+Math.round(m.progress*100)+"%";}});
+    const text=result?.data?.text||"";
+    ocr.textContent=text;ocr.style.display="block";
+    const parsed=parseDgOcr(text);
+    if(!parsed.length){
+      status.textContent="⚠️ Screenshot gelesen, aber keine vollständigen Produktzeilen erkannt. Ein schärferer Screenshot mit sichtbaren ISIN/Hebel/K.O.-Spalten hilft.";
+      return;
+    }
+    dgProducts=parsed;
+    status.textContent="✅ "+parsed.length+" DEGIRO-Kandidaten aus Screenshot erkannt · Richtung wird mit dem aktuellen Gold-Momentum abgeglichen.";
+    rankDgProducts();
+  }catch(e){
+    status.textContent="❌ Screenshot/OCR fehlgeschlagen: "+e.message;
+  }
+}
+
 async function loadDgProducts(){
   const box=$("dgProductStatus");
   try{
@@ -597,8 +661,13 @@ function rankDgProducts(){
   if(!dgProducts.length){$("dgProductOut").innerHTML="Keine Produkte zum Vergleichen.";return;}
   const p=lastPrice, score=A.score??50, mtf=MTF.overall||"NEUTRAL";
   const dir=score>=70&&mtf==="LONG"?"LONG":score<=30&&mtf==="SHORT"?"SHORT":"NEUTRAL";
+  const previousDirection=lastProductDirection;
   const minKo=Math.max(.5,+$("dgMinKo").value||3), maxLev=Math.max(1,+$("dgMaxLev").value||12);
-  if(dir==="NEUTRAL"){ $("dgProductOut").innerHTML="<b>WAIT / NO TRADE.</b><br>Gold-Signal und MTF bestätigen derzeit keine gemeinsame Richtung."; return; }
+  if(dir==="NEUTRAL"){
+    $("dgProductOut").innerHTML="<b>WAIT / NO TRADE.</b><br>Gold-Signal und MTF bestätigen derzeit keine gemeinsame Richtung.";
+    if(previousDirection!=="NEUTRAL"){lastProductDirection="NEUTRAL";}
+    return;
+  }
   const candidates=dgProducts.map(x=>{
     const ko=Number(x.ko),lev=Number(x.leverage),bid=Number(x.bid),ask=Number(x.ask),expiry=x.expiry?new Date(x.expiry):null;
     const koDist=Number.isFinite(ko)&&p>0 ? Math.abs(p-ko)/p*100 : NaN;
@@ -621,6 +690,12 @@ function rankDgProducts(){
   $("dgProductOut").innerHTML=`<div class="research"><b>Bob-Auswahl: ${top.name||top.isin||"Gold-Hebelprodukt"}</b><br>Richtung ${top.direction} · Hebel ${Number(top.leverage).toFixed(1)}× · K.O.-Abstand ${top._koDist.toFixed(2)}% · Score ${top._score.toFixed(0)}/100<br><span class="small">${top.isin?"ISIN: "+top.isin+" · ":""}${top._reasons.join(" · ")||"keine zusätzlichen Warnungen"}</span></div>
   <table style="margin-top:10px"><tr><td><b>Kandidat</b></td><td class="right"><b>Richtung</b></td><td class="right"><b>Hebel</b></td><td class="right"><b>K.O.-Abstand</b></td><td class="right"><b>Spread</b></td></tr>${rows}</table>
   <div class="small" style="margin-top:10px">Die Auswahl ist eine technische Filterung, keine Gewinn-Garantie. Vor einer Order müssen Produktpreis, Bezugsverhältnis, K.O.-Regeln, Spread, Finanzierung und KID des konkreten Produkts in DEGIRO geprüft werden.</div>`;
+  const now=Date.now();
+  if(previousDirection!==dir && now-lastProductNoticeAt>60000){
+    lastProductNoticeAt=now;
+    if(previousDirection!=="NEUTRAL") notifyGeneral("Bob – Momentum-Wechsel",`${dir}: ${top.name||top.isin||"neues Gold-Hebelprodukt"} · Hebel ${Number(top.leverage).toFixed(1)}× · K.O.-Abstand ${top._koDist.toFixed(2)}% · RSI ${Number(A.R).toFixed(1)} · Score ${Number(A.score).toFixed(0)}/100`);
+  }
+  lastProductDirection=dir;
 }
 function calcDgTrade(){
  if(!lastPrice||!A.at){$("dgOut").innerHTML="Zuerst Live-Daten laden.";return}
@@ -677,7 +752,7 @@ async function loadData(){
   if(fxEl&&Number.isFinite(autoFx)&&autoFx>0&&!fxEl.dataset.manual)fxEl.value=autoFx.toFixed(4);
   const sourceNote=spots.sourceWarning||"Spot/Futures-Differenz gering · Futures = technische Referenz";
   $("status").textContent=`LIVE · XAU/USD ${lastPrice.toFixed(2)} · GoldPrice.dev Spot + Yahoo GC=F · ${sourceNote} · ${new Date().toLocaleTimeString()}`;
-  analyze();restoreTradeMgmt();await loadMTF();
+  analyze();restoreTradeMgmt();await loadMTF(); if(dgProducts.length) rankDgProducts();
  }catch(e){const msg="Live-Daten momentan nicht erreichbar: "+e.message; $("status").textContent=msg+" · Bitte erneut versuchen."; $("quickSignal").textContent="🔴 LIVE-DATEN FEHLER"; $("quickSignal").className="signal bad"; $("quickReason").textContent=msg;}
 }
 function demo(){let p=4250;C=[];lastPrice=p;for(let i=0;i<250;i++){p+=Math.sin(i/8)*1.8+Math.sin(i*0.73)*2.2;const o=p-2,h=p+8,l=p-8;C.push({open:o,high:h,low:l,close:p,isOpen:false})}$("status").textContent="Reproduzierbare Demo-Daten aktiv.";analyze()}
