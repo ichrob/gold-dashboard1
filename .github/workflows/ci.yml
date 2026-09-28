@@ -2,7 +2,7 @@ name: Bob CI
 
 on:
   push:
-    branches: ["main", "ci/**"]
+    branches: ["main", "ci/**", "feature/**"]
   pull_request:
     branches: ["main"]
   workflow_dispatch:
