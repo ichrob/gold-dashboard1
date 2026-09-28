@@ -102,10 +102,11 @@ def fetch_six_structured_product(isin):
     gearing = field("Gearing", ["Spread in %","Distance to Knock-Out"])
     ko_dist = field("Distance to Knock-Out", ["Distance to Knock-Out in %","Knock-Out reached"])
     ko_dist_pct = field("Distance to Knock-Out in %", ["Knock-Out reached","market maker quality"])
+    last_price = field("Last Price", ["Volume","Time","Date"])
     underlying_price = field("Price", ["Date","Ratio"])
     product_type = field("Type", ["Ratio","SVSP Code","Currency"])
     direction = "LONG" if re.search(r"\b(?:Bull|Long|Call)\b", product_type or "", re.I) else ("SHORT" if re.search(r"\b(?:Bear|Short|Put)\b", product_type or "", re.I) else "")
-    return {"name":name,"bid":_clean_product_number(bid),"ask":_clean_product_number(ask),"ko":_clean_product_number(ko),"ratio":_clean_product_number(ratio),"leverage":_clean_product_number(gearing),"ko_distance":_clean_product_number(ko_dist),"ko_distance_pct":_clean_product_number(ko_dist_pct),"underlying_price":_clean_product_number(underlying_price),"direction":direction,"source":"SIX Structured Products","source_url":url}
+    return {"name":name,"bid":_clean_product_number(bid),"ask":_clean_product_number(ask),"ko":_clean_product_number(ko),"ratio":_clean_product_number(ratio),"leverage":_clean_product_number(gearing),"ko_distance":_clean_product_number(ko_dist),"ko_distance_pct":_clean_product_number(ko_dist_pct),"last_price":_clean_product_number(last_price),"underlying_price":_clean_product_number(underlying_price),"direction":direction,"source":"SIX Structured Products","source_url":url}
 
 def lookup_product_live(isin):
     raw = os.environ.get("BOB_PRODUCT_DATA_JSON", "")
