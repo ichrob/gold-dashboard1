@@ -290,13 +290,17 @@ function barsFromIntraday(points, minutes){
   }
   return [...buckets.values()].sort((a,b)=>a.ts-b.ts).map(x=>({open:x.open,high:x.high,low:x.low,close:x.close,isOpen:false,openTime:x.ts}));
 }
-async function fetchIntradayPoints(){
- const now=Date.now();if(liveHistoryCache&&now-liveHistoryAt<120000)return liveHistoryCache;
- const r=await fetch("https://xaus.com/api/v1/intraday?symbol=xau&hours=48&fresh="+now,{cache:"no-store"});
- if(!r.ok)throw Error("XAUS intraday HTTP "+r.status);
- const j=await r.json();if(j.data_state?.status!=="fresh")throw Error("XAUS Intraday-Daten nicht frisch");
- liveHistoryCache=j.points||[];liveHistoryAt=now;return liveHistoryCache;
+let liveBundleCache=null, liveBundleAt=0;
+async function fetchLiveBundle(force=false){
+ const now=Date.now();
+ if(!force&&liveBundleCache&&now-liveBundleAt<30000)return liveBundleCache;
+ const r=await fetch("/api/live?fresh="+now,{cache:"no-store"});
+ let j=null;try{j=await r.json()}catch(_){throw Error("Bob-Server liefert keine gültige JSON-Antwort");}
+ if(!r.ok)throw Error(j?.error||("Bob-Server HTTP "+r.status));
+ if(!j.spots||!j.history?.points?.length)throw Error("Bob-Server liefert unvollständige Live-Daten");
+ liveBundleCache=j;liveBundleAt=now;liveHistoryCache=j.history.points;liveHistoryAt=now;return j;
 }
+async function fetchIntradayPoints(){const j=await fetchLiveBundle();if(j.history.data_state?.status!=="fresh")throw Error("XAUS Intraday-Daten nicht frisch");return j.history.points||[];}
 async function loadMTF(force=false){
  if(!force&&lastMtfAt&&Date.now()-lastMtfAt<300000)return MTF;
  try{
@@ -549,39 +553,22 @@ function calcDgTrade(){
  </table><div class="small" style="margin-top:10px">${koWarning||costNote}<br>Vor einer Order in DEGIRO: Produktdaten, Spread, Finanzierung, Bezugsverhältnis und KO-Level direkt im Produkt prüfen. Der technische Stop ist nicht das KO-Level.</div>`;
 }
 async function fetchSpotSources(){
-  const [a,b]=await Promise.all([
-    fetch("https://xaus.com/api/v1/spot?currency=USD",{cache:"no-store"}).then(r=>{if(!r.ok)throw Error("XAUS spot HTTP "+r.status);return r.json()}),
-    fetch("https://api.goldprice.dev/v1/prices?symbol=XAU-USD-SPOT",{cache:"no-store"}).then(r=>{if(!r.ok)throw Error("GoldPrice.dev HTTP "+r.status);return r.json()})
-  ]);
-  const xaus=Number(a.spot_usd_oz), gp=Number(b.symbols?.[0]?.price);
-  if(!Number.isFinite(xaus)||!Number.isFinite(gp))throw Error("Ungültige Live-Goldwerte");
-  if(a.data_state?.status!=="fresh" || a.stale===true || b.symbols?.[0]?.is_stale===true)throw Error("Mindestens eine Live-Quelle ist nicht frisch");
-  const diff=Math.abs(xaus-gp), pct=diff/((xaus+gp)/2)*100;
-  if(pct>0.50)throw Error("Live-Quellen weichen um "+pct.toFixed(3)+"% ab – Analyse vorsichtshalber angehalten");
-  return {xaus,gp,diff,pct};
+ const j=await fetchLiveBundle();const s=j.spots||{},xaus=Number(s.xaus),gp=Number(s.goldprice),diff=Number(s.diff),pct=Number(s.pct);
+ if(!Number.isFinite(xaus)||!Number.isFinite(gp)||!Number.isFinite(pct))throw Error("Ungültige Live-Goldwerte");
+ if(pct>0.50)throw Error("Live-Quellen weichen um "+pct.toFixed(3)+"% ab – Analyse vorsichtshalber angehalten");
+ return {xaus,gp,diff,pct};
 }
 async function loadData(){
  try{
-  const tf=$("tf").value, n=+$("n").value;
-  const [spots,history]=await Promise.all([
-    fetchSpotSources(),
-    fetchIntradayPoints().then(points=>({points,data_state:{status:"fresh"}}))
-  ]);
-  const points=history.points||[];
+  const tf=$("tf").value,n=+$("n").value,bundle=await fetchLiveBundle(true),spots=await fetchSpotSources(),points=bundle.history.points||[];
   const minutes=tf==="5m"?5:tf==="15m"?15:tf==="1h"?60:null;
   if(!minutes)throw Error("Diese Zeitebene wird nicht unterstützt.");
-  const bars=barsFromIntraday(points,minutes);
-  if(!bars.length)throw Error("Keine XAU-Intradaydaten verfügbar");
-  C=bars.slice(-n);
-  lastPrice=spots.xaus;
+  const bars=barsFromIntraday(points,minutes);if(!bars.length)throw Error("Keine XAU-Intradaydaten verfügbar");
+  C=bars.slice(-n);lastPrice=spots.xaus;
   const sourceNote=spots.pct<=0.15?"Quellen stimmen gut überein":"⚠️ Quellenabweichung "+spots.pct.toFixed(3)+"%";
   $("status").textContent=`LIVE · XAU/USD ${lastPrice.toFixed(2)} · XAUS + GoldPrice.dev · ${sourceNote} · ${new Date().toLocaleTimeString()}`;
-  analyze();
-  restoreTradeMgmt();
-  await loadMTF();
- }catch(e){
-  $("status").textContent="Live-Daten momentan nicht erreichbar: "+e.message+" · Bitte erneut versuchen.";
- }
+  analyze();restoreTradeMgmt();await loadMTF();
+ }catch(e){$("status").textContent="Live-Daten momentan nicht erreichbar: "+e.message+" · Bitte erneut versuchen.";}
 }
 function demo(){let p=4250;C=[];lastPrice=p;for(let i=0;i<250;i++){p+=Math.sin(i/8)*1.8+Math.sin(i*0.73)*2.2;const o=p-2,h=p+8,l=p-8;C.push({open:o,high:h,low:l,close:p,isOpen:false})}$("status").textContent="Reproduzierbare Demo-Daten aktiv.";analyze()}
 function riskCalc(){
@@ -595,5 +582,6 @@ function riskCalc(){
  $("riskout").innerHTML=`Richtung: <b>${dir}</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Stop: <b>${sm.stop.toFixed(2)}</b> · ${sm.reason}<br>Ziel: <b>${tgt.target.toFixed(2)}</b><br>CRV: <b>${tgt.rr.toFixed(2)} : 1</b><br>Positionswert nach Risikomodell: <b>${notional.toFixed(2)} €</b><br>Rechnerische Margin bei ${lev}×: <b>${margin.toFixed(2)} €</b>`;
 }
 restoreTradeMgmt(); updateResearchPanel();
+loadData();
 setInterval(()=>{ if(document.visibilityState==="visible") loadData(); }, 60000);
 </script></body></html>
