@@ -631,6 +631,25 @@ function parseDgOcr(text){
   const seen=new Set();
   return out.filter(x=>{const k=x.isin;if(seen.has(k))return false;seen.add(k);return true;});
 }
+async function enrichDgProductsByIsin(products){
+  const unique=[...new Set(products.map(x=>x.isin).filter(Boolean))].slice(0,5);
+  if(!unique.length)return products;
+  try{
+    const qs=unique.map(x=>"isin="+encodeURIComponent(x)).join("&");
+    const r=await fetch("/api/isin-lookup?"+qs,{cache:"no-store"});
+    if(!r.ok)return products;
+    const j=await r.json(), map=j.results||{};
+    return products.map(p=>{
+      const m=map[p.isin]||{};
+      const name=m.name||m.securityDescription||p.name;
+      const descriptor=[name,m.ticker,m.securityType2,m.securityType].filter(Boolean).join(" ");
+      const direction=p.direction||(/\b(short|bear|put|inverse)\b/i.test(descriptor)?"SHORT":/\b(long|bull|call|leveraged)\b/i.test(descriptor)?"LONG":"");
+      const levm=descriptor.match(/(\d+(?:[.,]\d+)?)\s*x\b/i);
+      const kom=descriptor.match(/(?:K\.?O\.?|Knock[- ]?Out|Stop(?:-Loss)?|Barriere)\s*[:=]?\s*([0-9][0-9.,]*)/i);
+      return {...p,name,direction,leverage:Number.isFinite(p.leverage)?p.leverage:(levm?Number(levm[1].replace(",",".")):p.leverage),ko:Number.isFinite(p.ko)?p.ko:(kom?Number(kom[1].replace(/,/g,".")):p.ko),figi:m.figi||null,ticker:m.ticker||null,identifierResolved:Boolean(m.figi||m.name)};
+    });
+  }catch(e){console.warn("ISIN lookup",e);return products;}
+}
 async function analyzeDgScreenshot(){
   const input=$("dgScreenshot"),status=$("dgScreenshotStatus"),img=$("dgScreenshotPreview"),ocr=$("dgOcrText");
   const file=input?.files?.[0];
@@ -649,8 +668,9 @@ async function analyzeDgScreenshot(){
       status.textContent="⚠️ Screenshot noch nicht zuverlässig genug. Fehlend/unklar: "+missing.join(", ")+". Bob braucht mindestens Produktname und ISIN/Identifikationsnummer.";
       return;
     }
-    dgProducts=parsed;
-    status.textContent="✅ "+parsed.length+" DEGIRO-Kandidaten aus Screenshot erkannt · Richtung wird mit dem aktuellen Gold-Momentum abgeglichen.";
+    dgProducts=await enrichDgProductsByIsin(parsed);
+    const resolved=dgProducts.filter(x=>x.identifierResolved).length;
+    status.textContent="✅ "+dgProducts.length+" Produkt(e) erkannt · "+resolved+" per ISIN eindeutig aufgelöst · Richtung wird mit dem aktuellen Gold-Momentum abgeglichen.";
     rankDgProducts();
   }catch(e){
     status.textContent="❌ Screenshot/OCR fehlgeschlagen: "+e.message;
