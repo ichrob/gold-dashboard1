@@ -177,7 +177,13 @@ Bei einem Turbo/Knock-Out ist das KO-Level besonders wichtig: Der technische Sto
 </div>
 <div class="card">
 <h3>📸 DEGIRO-Screenshot → Bob</h3>
-<div class="small">Lade einen aktuellen Screenshot der Gold-Hebelprodukte aus deiner DEGIRO-App hoch. Bob liest daraus nach Möglichkeit Richtung, ISIN, Hebel, K.O./Stop, Bid/Ask und Laufzeit und verwendet die Liste für die laufende Auswahl.</div>
+<div class="small"><b>So wird der Screenshot am besten gelesen:</b><br>
+1. In DEGIRO die <b>Gold-Hebelprodukte</b> als Liste öffnen.<br>
+2. Möglichst <b>ganze Produktzeilen</b> aufnehmen – nicht nur ein einzelnes Produkt.<br>
+3. <b>Produktname/ISIN, Long/Short, Hebel, K.O./Stop und Bid/Ask</b> müssen sichtbar sein.<br>
+4. Keine Finger, Pop-ups oder starken Reflexionen über den Produktdaten.<br>
+5. Wenn die Liste länger ist: mehrere Screenshots nacheinander hochladen.<br>
+Bob prüft die Lesbarkeit und verwirft unvollständige Datensätze, statt Werte zu erraten.</div>
 <div class="row" style="margin-top:10px">
 <input id="dgScreenshot" type="file" accept="image/*" capture="environment">
 <button onclick="analyzeDgScreenshot()">🔎 Screenshot analysieren</button>
@@ -593,6 +599,15 @@ function useRiskDefaults(){
 let dgProducts=[];
 let lastProductDirection="NEUTRAL";
 let lastProductNoticeAt=0;
+function screenshotQuality(text, parsed){
+  const raw=String(text||"");
+  const hasIsin=(raw.match(/\b[A-Z]{2}[A-Z0-9]{9}\d\b/g)||[]).length;
+  const hasDirection=/\b(long|short|bull|bear)\b/i.test(raw);
+  const hasLeverage=/\b(?:Hebel|Leverage|Gearing)\b|\d+(?:[.,]\d+)?\s*x\b/i.test(raw);
+  const hasKo=/\b(?:K\.?O\.?|Knock[- ]?Out|Stop(?:-Loss)?|Barriere)\b/i.test(raw);
+  const score=(hasIsin?25:0)+(hasDirection?25:0)+(hasLeverage?25:0)+(hasKo?25:0);
+  return {score,hasIsin,hasDirection,hasLeverage,hasKo,products:parsed.length};
+}
 function parseDgOcr(text){
   const lines=String(text||"").split(/\n+/).map(x=>x.replace(/\s+/g," ").trim()).filter(Boolean);
   const out=[];
@@ -630,8 +645,10 @@ async function analyzeDgScreenshot(){
     const text=result?.data?.text||"";
     ocr.textContent=text;ocr.style.display="block";
     const parsed=parseDgOcr(text);
-    if(!parsed.length){
-      status.textContent="⚠️ Screenshot gelesen, aber keine vollständigen Produktzeilen erkannt. Ein schärferer Screenshot mit sichtbaren ISIN/Hebel/K.O.-Spalten hilft.";
+    const q=screenshotQuality(text,parsed);
+    if(!parsed.length || q.score<75){
+      const missing=[!q.hasIsin?"ISIN":"",!q.hasDirection?"LONG/SHORT":"",!q.hasLeverage?"Hebel":"",!q.hasKo?"K.O./Stop":""].filter(Boolean);
+      status.textContent="⚠️ Screenshot noch nicht zuverlässig genug. Fehlend/unklar: "+missing.join(", ")+". Bitte einen schärferen oder weiter geöffneten Screenshot aufnehmen.";
       return;
     }
     dgProducts=parsed;
