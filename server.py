@@ -3,6 +3,7 @@ import base64
 import hmac
 import json
 import time
+import threading
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
@@ -25,6 +26,10 @@ ICON = ICON_PATH.read_bytes() if ICON_PATH.exists() else None
 
 UPSTREAM_TIMEOUT = 10
 FRESH_MAX_AGE = 180
+LIVE_CACHE_TTL = 20
+_live_cache = None
+_live_cache_at = 0.0
+_live_lock = threading.Lock()
 
 def fetch_json(url):
     req = Request(url, headers={"User-Agent": "Bob/1.0", "Accept": "application/json"})
@@ -52,55 +57,68 @@ def iso_age_seconds(value):
         return None
 
 def build_live_bundle():
-    now = int(time.time() * 1000)
-    xaus = fetch_json(f"https://xaus.com/api/v1/spot?currency=USD&fresh={now}")
-    intraday = fetch_json("https://xaus.com/api/v1/intraday?symbol=xau&hours=48")
-    goldprice = fetch_json("https://api.goldprice.dev/v1/prices?symbol=XAU-USD-SPOT")
+    global _live_cache, _live_cache_at
+    cached = _live_cache
+    if cached is not None and time.time() - _live_cache_at < LIVE_CACHE_TTL:
+        return cached
 
-    xaus_price = float(xaus.get("spot_usd_oz"))
-    gp_row = (goldprice.get("symbols") or [None])[0]
-    gp_price = float(gp_row.get("price")) if gp_row else float("nan")
-    if not (xaus_price > 0 and gp_price > 0):
-        raise RuntimeError("Ungültige Live-Goldwerte")
+    with _live_lock:
+        cached = _live_cache
+        if cached is not None and time.time() - _live_cache_at < LIVE_CACHE_TTL:
+            return cached
 
-    if xaus.get("data_state", {}).get("status") != "fresh":
-        raise RuntimeError("XAUS Spot-Daten nicht frisch")
-    if intraday.get("data_state", {}).get("status") != "fresh":
-        raise RuntimeError("XAUS Intraday-Daten nicht frisch")
-    if gp_row.get("is_stale") is True:
-        raise RuntimeError("GoldPrice.dev-Daten nicht frisch")
+        now = int(time.time() * 1000)
+        xaus = fetch_json(f"https://xaus.com/api/v1/spot?currency=USD&fresh={now}")
+        intraday = fetch_json("https://xaus.com/api/v1/intraday?symbol=xau&hours=48")
+        goldprice = fetch_json("https://api.goldprice.dev/v1/prices?symbol=XAU-USD-SPOT")
 
-    spot_age = iso_age_seconds(xaus.get("price_as_of") or xaus.get("updated_at"))
-    intraday_age = iso_age_seconds(intraday.get("data_state", {}).get("as_of"))
-    gp_age = iso_age_seconds(gp_row.get("computed_at"))
-    if any(age is None or age > FRESH_MAX_AGE for age in (spot_age, intraday_age, gp_age)):
-        raise RuntimeError("Mindestens eine Live-Quelle ist älter als 180 Sekunden")
+        xaus_price = float(xaus.get("spot_usd_oz"))
+        gp_row = (goldprice.get("symbols") or [None])[0]
+        gp_price = float(gp_row.get("price")) if gp_row else float("nan")
+        if not (xaus_price > 0 and gp_price > 0):
+            raise RuntimeError("Ungültige Live-Goldwerte")
 
-    points = intraday.get("points") or []
-    if not points:
-        raise RuntimeError("XAUS Intraday-Serie ist leer")
+        if xaus.get("data_state", {}).get("status") != "fresh":
+            raise RuntimeError("XAUS Spot-Daten nicht frisch")
+        if intraday.get("data_state", {}).get("status") != "fresh":
+            raise RuntimeError("XAUS Intraday-Daten nicht frisch")
+        if gp_row.get("is_stale") is True:
+            raise RuntimeError("GoldPrice.dev-Daten nicht frisch")
 
-    diff = abs(xaus_price - gp_price)
-    pct = diff / ((xaus_price + gp_price) / 2) * 100
-    if pct > 0.50:
-        raise RuntimeError(f"Live-Quellen weichen um {pct:.3f}% ab – Analyse angehalten")
+        spot_age = iso_age_seconds(xaus.get("price_as_of") or xaus.get("updated_at"))
+        intraday_age = iso_age_seconds(intraday.get("data_state", {}).get("as_of"))
+        gp_age = iso_age_seconds(gp_row.get("computed_at"))
+        if any(age is None or age > FRESH_MAX_AGE for age in (spot_age, intraday_age, gp_age)):
+            raise RuntimeError("Mindestens eine Live-Quelle ist älter als 180 Sekunden")
 
-    return {
-        "fetched_at": int(time.time()),
-        "spots": {
-            "xaus": xaus_price,
-            "goldprice": gp_price,
-            "diff": diff,
-            "pct": pct,
-            "xaus_age_seconds": spot_age,
-            "goldprice_age_seconds": gp_age
-        },
-        "history": {
-            "points": points,
-            "data_state": intraday.get("data_state", {}),
-            "age_seconds": intraday_age
+        points = intraday.get("points") or []
+        if not points:
+            raise RuntimeError("XAUS Intraday-Serie ist leer")
+
+        diff = abs(xaus_price - gp_price)
+        pct = diff / ((xaus_price + gp_price) / 2) * 100
+        if pct > 0.50:
+            raise RuntimeError(f"Live-Quellen weichen um {pct:.3f}% ab – Analyse angehalten")
+
+        bundle = {
+            "fetched_at": int(time.time()),
+            "spots": {
+                "xaus": xaus_price,
+                "goldprice": gp_price,
+                "diff": diff,
+                "pct": pct,
+                "xaus_age_seconds": spot_age,
+                "goldprice_age_seconds": gp_age
+            },
+            "history": {
+                "points": points,
+                "data_state": intraday.get("data_state", {}),
+                "age_seconds": intraday_age
+            }
         }
-    }
+        _live_cache = bundle
+        _live_cache_at = time.time()
+        return bundle
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
