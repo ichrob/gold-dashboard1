@@ -22,6 +22,7 @@ class BobPushContractTests(unittest.TestCase):
     def test_entry_push_uses_confirmed_signal(self):
         self.assertIn('confirmedSignalDirection()', self.html)
         self.assertIn('notifyGeneral("Bob – "+dir+" Einstiegssignal"', self.html)
+        self.assertIn('function maybePushEntrySignal()', self.html)
         self.assertIn('lastPushedEntryDirection', self.html)
 
 
@@ -35,7 +36,7 @@ class BobPushContractTests(unittest.TestCase):
     def test_trade_push_activation_is_explicit(self):
         self.assertIn('if(!wasActive&&!tradeMgmt.active){setPushStatus("⚠️ Zuerst einen Trade setzen, dann „Trade gesetzt“ aktivieren.");return;}', self.html)
         self.assertNotIn('pushState.activeTrade=true;savePush();', self.html)
-        self.assertIn('Management-Pushs erst nach Aktivierung von „Trade gesetzt".', self.html)
+        self.assertIn('Management-Pushs erst nach Aktivierung von „Trade gesetzt“.', self.html)
 
     def test_anti_spam_simulation_and_monitoring_exist(self):
         self.assertIn('const PUSH_COOLDOWN=15*60*1000;', self.html)
