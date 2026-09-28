@@ -247,9 +247,9 @@ async function togglePush(kind){
 }
 function toggleTradeState(){
  const wasActive=pushState.activeTrade;
+ if(!wasActive&&!tradeMgmt.active){setPushStatus("⚠️ Zuerst einen Trade setzen, dann „Trade gesetzt“ aktivieren.");return;}
  pushState.activeTrade=!wasActive;savePush();
  if(pushState.activeTrade)notifyTrade("Bob – Trade aktiviert","Trade-Management ist jetzt aktiv.");
- else if(wasActive)notifyTrade("Bob – Trade beendet","Trade-Management wurde beendet.");
 }
 function canNotify(kind){return pushState.registered&&pushState[kind]&&Notification.permission==="granted"&&(kind!=="trade"||pushState.activeTrade);}
 function ntfyTopic(){return ($("ntfyTopic")?.value||localStorage.getItem("goldScannerNtfyTopic")||"").trim()}
@@ -335,7 +335,7 @@ async function fetchLiveBundle(force=false){
  liveBundleCache=j;liveBundleAt=now;liveHistoryCache=j.history.points;liveHistoryAt=now;return j;
 }
 async function fetchIntradayPoints(){const j=await fetchLiveBundle();if(j.history.data_state?.status!=="fresh")throw Error("Gold-Historie nicht frisch");return j.history.points||[];}
-async function loadMTF(force=false){
+async async function loadMTF(force=false){
  if(!force&&lastMtfAt&&Date.now()-lastMtfAt<300000)return MTF;
  try{
   const bundle=await fetchLiveBundle();
@@ -480,14 +480,19 @@ function updateResearchPanel(){
  if($("stopPanel")&&!tradeMgmt.active&&sm?.stop)$("stopPanel").innerHTML="<b>Technischer Referenz-Stop:</b> "+displayStop(sm.stop)+"<br><span class='small'>"+sm.reason+" · Struktur "+displayStop(sm.structureStop)+" · ATR "+displayStop(sm.atrStop)+"</span>";
  if($("hysteresis"))$("hysteresis").textContent=dir+" · Hysterese "+(signalState.count?signalState.count+"/2":"stabil")+(falseBreakoutState(dir)!=="OK"&&dir!=="NEUTRAL"?" · Breakout unbestätigt":"");
  if($("researchStatus"))$("researchStatus").textContent=researchLog.length?researchLog.length+" Snapshots lokal gespeichert.":"Noch keine Snapshots.";
- // Optimierung 1+2+5+10: Einstieg nur bei bestätigtem, stabilem Signal; keine Wiederholungen.
- if(dir!==lastPushedEntryDirection){
-   if(dir==="LONG"||dir==="SHORT"){
-     const score=Number(A.score||50).toFixed(0);
-     notifyGeneral("Bob – "+dir+" Einstiegssignal","Bestätigtes "+dir+"-Setup · Score "+score+"/100 · MTF "+(MTF.overall||dir)+" · Kurs "+lastPrice.toFixed(2)+" USD/oz.");
-   }
-   lastPushedEntryDirection=dir;
- }
+}
+function maybePushEntrySignal(){
+ const dir=signalState.dir;
+ if(dir!=="LONG"&&dir!=="SHORT")return;
+ if(dir===lastPushedEntryDirection)return;
+ if(!lastPrice||!A.at||!Number.isFinite(Number(A.score)))return;
+ const score=Number(A.score);
+ const mtf=MTF.overall;
+ if(mtf!==dir||score<70&&dir==="LONG"||score>30&&dir==="SHORT")return;
+ const fb=falseBreakoutState(dir);
+ if(fb!=="OK"&&fb!=="UNKNOWN")return;
+ const sent=notifyGeneral("Bob – "+dir+" Einstiegssignal","Bestätigtes und stabiles "+dir+"-Setup · Score "+score.toFixed(0)+"/100 · MTF "+mtf+" · Kurs "+lastPrice.toFixed(2)+" USD/oz.");
+ if(sent||pushState.simulation)lastPushedEntryDirection=dir;
 }
 function captureResearchSnapshot(result="OBSERVATION"){
  if(!C.length||!A.at)return;
@@ -535,7 +540,7 @@ function suggestStopUpdate(){
  tradeMgmt.stop=next;tradeMgmt.lastUpdate=new Date().toISOString();saveTradeMgmt();$("tradeStop").value=next.toFixed(2);$("stopUpdate").innerHTML=`<b>STOP-LOSS ANPASSEN:</b> neuer Kurs <b>${displayStop(next)}</b> (alt ${displayStop(old)}).`;
  notifyTrade("Gold Scanner – Stop-Loss anpassen",`Neuer Stop-Loss: ${displayStop(next)}. Alter Stop: ${displayStop(old)}.`);captureResearchSnapshot("STOP_UPDATE");updateResearchPanel();
 }
-function restoreTradeMgmt(){if(tradeMgmt.active){$("tradeEntry").value=tradeMgmt.entry?.toFixed?.(2)||"";$("tradeStop").value=tradeMgmt.stop?.toFixed?.(2)||"";$("tradePrice").value=lastPrice?lastPrice.toFixed(2):"";pushState.activeTrade=true;savePush();}}
+function restoreTradeMgmt(){if(tradeMgmt.active){$("tradeEntry").value=tradeMgmt.entry?.toFixed?.(2)||"";$("tradeStop").value=tradeMgmt.stop?.toFixed?.(2)||"";$("tradePrice").value=lastPrice?lastPrice.toFixed(2):"";}}
 
 
 function advancedAnalysis(){
@@ -664,7 +669,7 @@ async function loadData(){
   if(fxEl&&Number.isFinite(autoFx)&&autoFx>0&&!fxEl.dataset.manual)fxEl.value=autoFx.toFixed(4);
   const sourceNote=spots.sourceWarning||"Spot/Futures-Differenz gering · Futures = technische Referenz";
   $("status").textContent=`LIVE · XAU/USD ${lastPrice.toFixed(2)} · GoldPrice.dev Spot + Yahoo GC=F · ${sourceNote} · ${new Date().toLocaleTimeString()}`;
-  analyze();restoreTradeMgmt();await loadMTF();
+  analyze();restoreTradeMgmt();await loadMTF();updateResearchPanel();maybePushEntrySignal();
   monitorActiveTrade();
  }catch(e){const msg="Live-Daten momentan nicht erreichbar: "+e.message; $("status").textContent=msg+" · Bitte erneut versuchen."; $("quickSignal").textContent="🔴 LIVE-DATEN FEHLER"; $("quickSignal").className="signal bad"; $("quickReason").textContent=msg;}
 }
