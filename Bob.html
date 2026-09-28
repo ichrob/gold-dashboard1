@@ -73,12 +73,12 @@ canvas{width:100%;height:220px;border-radius:12px;background:#fafafa}.warning{ba
 <h3>Datenquelle</h3>
 <div class="grid">
 <div><label>Markt</label><input value="XAU/USD (Gold)" disabled></div>
-<div><label>Datenanbieter</label><input value="biquote · kostenlos · kein API-Key" disabled></div>
-<div><label>Zeitebene</label><select id="tf"><option value="1m">1 Minute</option><option value="5m">5 Minuten</option><option value="15m" selected>15 Minuten</option><option value="30m">30 Minuten</option><option value="1h">1 Stunde</option><option value="4h">4 Stunden</option><option value="1d">1 Tag</option></select></div>
+<div><label>Datenanbieter</label><input value="XAUS + GoldPrice.dev · kostenlos · ohne Pflicht-API-Key" disabled></div>
+<div><label>Zeitebene</label><select id="tf"><option value="5m">5 Minuten</option><option value="15m" selected>15 Minuten</option><option value="1h">1 Stunde</option></select></div>
 <div><label>Kerzen</label><select id="n"><option>100</option><option selected>200</option><option>500</option><option>1000</option></select></div>
 </div>
 <div class="row" style="margin-top:10px"><button onclick="loadData()">🔴 Live XAU/USD laden</button><button onclick="demo()">Demo-Daten</button></div>
-<div id="status" class="small" style="margin-top:8px">Kostenlos · kein API-Key · Live-Ticks und Intraday-OHLC.</div>
+<div id="status" class="small" style="margin-top:8px">Kostenlos · zwei unabhängige Live-Spotquellen · Intraday-Serie von XAUS. Quellenabweichung > 0,50% stoppt die Analyse.</div>
 </div>
 
 <div class="card"><div id="signal" class="signal neutral">Noch keine Analyse</div></div>
@@ -267,7 +267,7 @@ function atr(c,p=14){if(c.length<p+1)return 0;let tr=[];for(let i=1;i<c.length;i
 function calc(){let a=C.map(x=>x.close),e20=ema(a,20),e50=ema(a,50),e200=ema(a,Math.min(200,a.length)),R=rsi(a),at=atr(C),e20s=emaSeries(a,20),e50s=emaSeries(a,50);const fast=emaSeries(a,12),slow=emaSeries(a,26),macdSeries=a.map((_,i)=>fast[i]-slow[i]);const sigSeries=emaSeries(macdSeries,9);const macd=macdSeries.at(-1),sig=sigSeries.at(-1);A={e20,e50,e200,R,at,macd,sig,hist:macd-sig};return A}
 function analyze(){if(!C.length)return;let a=C.map(x=>x.close),x=calc();lastPrice=lastPrice||a.at(-1);$("price").textContent=lastPrice.toFixed(2);$("rsi").textContent=x.R.toFixed(1);$("ema20").textContent=x.e20.toFixed(2);$("ema50").textContent=x.e50.toFixed(2);$("ema200").textContent=x.e200.toFixed(2);$("atr").textContent=x.at.toFixed(2);$("macd").textContent=x.macd.toFixed(3);$("macds").textContent=x.sig.toFixed(3);$("hist").textContent=x.hist.toFixed(3);$("trend").textContent=x.e20>x.e50?"Bullish":"Bearish";$("trend2").textContent=x.e50>x.e200?"Bullish":"Bearish";
 const signalPrice=a.at(-1);A.signalPrice=signalPrice;let score=0;if(signalPrice>x.e20)score++;if(x.e20>x.e50)score++;if(x.e50>x.e200)score++;if(x.macd>x.sig)score++;if(x.R>50&&x.R<70)score++;if(x.R<30)score--;if(x.R>75)score--;let txt=score>=4?"🟢 LONG-Setup":score<=1?"🔴 SHORT-Setup":"🟡 NEUTRAL";$("signal").textContent=txt;$("signal").className="signal "+(score>=4?"ok":score<=1?"bad":"neutral");draw(a);updateQuick();advancedAnalysis()}
-function draw(a){let cv=$("chart"),ctx=cv.getContext("2d"),w=cv.width,h=cv.height;ctx.clearRect(0,0,w,h);let v=a.slice(-100),mn=Math.min(...v),mx=Math.max(...v);ctx.beginPath();v.forEach((p,i)=>{let x=i*(w-20)/(v.length-1)+10,y=h-10-(p-mn)/(mx-mn||1)*(h-20);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.strokeStyle="#222";ctx.lineWidth=2;ctx.stroke()}
+function draw(a){const cv=$("chart"),ctx=cv.getContext("2d"),w=cv.width,h=cv.height;ctx.clearRect(0,0,w,h);const v=C.slice(-120),ps=v.map(x=>x.close).filter(Number.isFinite);if(v.length<2||ps.length<2)return;const mn=Math.min(...ps),mx=Math.max(...ps),pad=18;ctx.beginPath();v.forEach((b,i)=>{const p=Number(b.close),x=pad+i*(w-pad*2)/(v.length-1),y=h-pad-(p-mn)/(mx-mn||1)*(h-pad*2);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.strokeStyle="#222";ctx.lineWidth=2;ctx.stroke();const lp=Number(lastPrice);if(Number.isFinite(lp)){const y=h-pad-(lp-mn)/(mx-mn||1)*(h-pad*2);ctx.setLineDash([5,4]);ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(w-pad,y);ctx.stroke();ctx.setLineDash([])}}
 
 function emaS(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
 function rsiS(a,p=14){if(a.length<p+2)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];g+=Math.max(d,0);l+=Math.max(-d,0)}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return l===0?100:100-100/(1+g/l)}
@@ -280,39 +280,39 @@ function timeframeScore(bars){
   let score=0;if(a.at(-1)>e20)score++;else score--;if(e20>e50)score++;else score--;if(e50>e200)score++;else score--;if(mac>macPrev)score++;else score--;if(R>=50&&R<=70)score++;if(R<35)score--;
   return {dir:score>=2?"LONG":score<=-2?"SHORT":"NEUTRAL",score,rsi:R,price:a.at(-1),openTime:closed.at(-1).openTime};
 }
-function closedBars(bars){
- const b=(bars||[]).map(x=>({...x,open:+x.open,high:+x.high,low:+x.low,close:+x.close})).filter(x=>Number.isFinite(x.close));
- if(b.length>1 && (b.at(-1).isOpen===true || b.at(-1).isClosed===false)) b.pop();
- return b;
+function barsFromIntraday(points, minutes){
+  const step=minutes*60*1000, buckets=new Map();
+  for(const x of (points||[])){
+    const t=Date.parse(x.t), p=Number(x.p);
+    if(!Number.isFinite(t)||!Number.isFinite(p)) continue;
+    const bucket=Math.floor(t/step)*step;
+    const b=buckets.get(bucket)||{open:p,high:p,low:p,close:p,ts:bucket};
+    b.high=Math.max(b.high,p); b.low=Math.min(b.low,p); b.close=p; buckets.set(bucket,b);
+  }
+  return [...buckets.values()].sort((a,b)=>a.ts-b.ts).map(x=>({open:x.open,high:x.high,low:x.low,close:x.close,isOpen:false,openTime:x.ts}));
 }
-function loadMTF(){
- const tfs=[["5m","mtf5"],["15m","mtf15"],["1h","mtf1h"],["4h","mtf4h"]];
- const results=await Promise.all(tfs.map(async ([tf,id])=>{
-   const r=await fetch(`https://biquote.io/api/XAUUSD/ohlc?interval=${tf}&limit=240`);
-   if(!r.ok)throw Error(tf+" HTTP "+r.status);
-   const j=await r.json(), z=timeframeScore(closedBars(j.bars||[]));
-   return [tf,id,z];
- }));
- const byTf=Object.fromEntries(results.map(x=>[x[0],x[2]]));
- let longs=0,shorts=0,neutral=0;
- for(const [tf,id,z] of results){
-   $(id).textContent=z.dir+(z.rsi!=null?` · RSI ${z.rsi.toFixed(0)}`:"");
-   $(id).className=z.dir==="LONG"?"ok":z.dir==="SHORT"?"bad":"neutral";
-   z.dir==="LONG"?longs++:z.dir==="SHORT"?shorts++:neutral++;
- }
- const dirs=[byTf["4h"]?.dir,byTf["1h"]?.dir,byTf["15m"]?.dir,byTf["5m"]?.dir];
- const valid=dirs.every(Boolean), longChain=valid&&dirs[0]==="LONG"&&dirs[1]==="LONG"&&dirs[2]!=="SHORT"&&dirs[3]!=="SHORT", shortChain=valid&&dirs[0]==="SHORT"&&dirs[1]==="SHORT"&&dirs[2]!=="LONG"&&dirs[3]!=="LONG";
- const overall=longChain?"LONG":shortChain?"SHORT":"NEUTRAL";
- $("quickMtf").textContent=overall;
- const strength=overall!=="NEUTRAL"?(overall==="LONG"?(dirs.filter(d=>d==="LONG").length):(dirs.filter(d=>d==="SHORT").length))+"/4 hierarchisch bestätigt":"Keine widerspruchsfreie Hierarchie";
- const mtfSummary=$("mtfSummary");
- if(mtfSummary)mtfSummary.innerHTML=`<b>${overall}</b><br>${longs} LONG · ${shorts} SHORT · ${neutral} NEUTRAL · ${strength}`;
- MTF={longs,shorts,neutral,overall,byTf,dirs};
- updateTradeSignal();
- return MTF;
+async function fetchIntradayPoints(){
+ const r=await fetch("https://xaus.com/api/v1/intraday?symbol=xau&hours=48&fresh="+Date.now(),{cache:"no-store"});
+ if(!r.ok)throw Error("XAUS intraday HTTP "+r.status);
+ const j=await r.json();if(j.data_state?.status==="unavailable")throw Error("XAUS intraday unavailable");
+ return j.points||[];
 }
-
-
+async function loadMTF(){
+ try{
+  const points=await fetchIntradayPoints();
+  const tfs=[["5m","mtf5",5],["15m","mtf15",15],["1h","mtf1h",60]];
+  const results=tfs.map(([tf,id,min])=>[tf,id,timeframeScore(barsFromIntraday(points,min))]);
+  let longs=0,shorts=0,neutral=0;
+  for(const [tf,id,z] of results){const label=z.age===null?"NEUTRAL · zu wenig Historie":z.dir+(z.rsi!=null?" · RSI "+z.rsi.toFixed(0):"");$(id).textContent=label;$(id).className=z.dir==="LONG"?"ok":z.dir==="SHORT"?"bad":"neutral";z.dir==="LONG"?longs++:z.dir==="SHORT"?shorts++:neutral++;}
+  $("mtf4h").textContent="Nicht bewertet · freie Intraday-Historie reicht nicht für robuste 4h/EMA200";$("mtf4h").className="neutral";
+  const byTf=Object.fromEntries(results.map(x=>[x[0],x[2]])),dirs=[byTf["1h"]?.dir,byTf["15m"]?.dir,byTf["5m"]?.dir];
+  const valid=dirs.every(Boolean),longChain=valid&&dirs[0]==="LONG"&&dirs[1]!=="SHORT"&&dirs[2]!=="SHORT",shortChain=valid&&dirs[0]==="SHORT"&&dirs[1]!=="LONG"&&dirs[2]!=="LONG";
+  const overall=longChain?"LONG":shortChain?"SHORT":"NEUTRAL";$("quickMtf").textContent=overall;
+  const strength=overall!=="NEUTRAL"?(overall==="LONG"?dirs.filter(d=>d==="LONG").length:dirs.filter(d=>d==="SHORT").length)+"/3 bestätigt":"Keine widerspruchsfreie Hierarchie";
+  const mtfSummary=$("mtfSummary");if(mtfSummary)mtfSummary.innerHTML="<b>"+overall+"</b><br>"+longs+" LONG · "+shorts+" SHORT · "+neutral+" NEUTRAL · "+strength+"<br><span class=\"small\">4h wird bewusst nicht simuliert: die kostenlose Intraday-Serie liefert dafür nicht genug Historie.</span>";
+  MTF={longs,shorts,neutral,overall,byTf,dirs};updateTradeSignal();updateResearchPanel();return MTF;
+ }catch(e){$("quickMtf").textContent="NEUTRAL";const mtfSummary=$("mtfSummary");if(mtfSummary)mtfSummary.textContent="MTF momentan nicht verfügbar: "+e.message;MTF={longs:0,shorts:0,neutral:3,overall:"NEUTRAL",byTf:{},dirs:[]};updateTradeSignal();updateResearchPanel();return MTF;}
+}
 function adxCalc(c,p=14){
  if(c.length<p*2+2)return 0;
  let tr=[],plus=[],minus=[];
@@ -546,21 +546,37 @@ function calcDgTrade(){
  ${ko?\`<tr><td>KO-Abstand</td><td class="right"><b>${koDist.toFixed(2)}%</b></td></tr>\`:''}
  </table><div class="small" style="margin-top:10px">${koWarning||costNote}<br>Vor einer Order in DEGIRO: Produktdaten, Spread, Finanzierung, Bezugsverhältnis und KO-Level direkt im Produkt prüfen. Der technische Stop ist nicht das KO-Level.</div>`;
 }
+async function fetchSpotSources(){
+  const [a,b]=await Promise.all([
+    fetch("https://xaus.com/api/v1/spot?currency=USD",{cache:"no-store"}).then(r=>{if(!r.ok)throw Error("XAUS spot HTTP "+r.status);return r.json()}),
+    fetch("https://api.goldprice.dev/v1/prices?symbol=XAU-USD-SPOT",{cache:"no-store"}).then(r=>{if(!r.ok)throw Error("GoldPrice.dev HTTP "+r.status);return r.json()})
+  ]);
+  const xaus=Number(a.spot_usd_oz), gp=Number(b.symbols?.[0]?.price);
+  if(!Number.isFinite(xaus)||!Number.isFinite(gp))throw Error("Ungültige Live-Goldwerte");
+  if(a.data_state?.status==="unavailable" || a.stale===true || b.symbols?.[0]?.is_stale===true)throw Error("Mindestens eine Live-Quelle ist nicht frisch");
+  const diff=Math.abs(xaus-gp), pct=diff/((xaus+gp)/2)*100;
+  if(pct>0.50)throw Error("Live-Quellen weichen um "+pct.toFixed(3)+"% ab – Analyse vorsichtshalber angehalten");
+  return {xaus,gp,diff,pct};
+}
 async function loadData(){
  try{
-  const tf=$("tf").value, n=$("n").value;
-  const [ohlc,tick]=await Promise.all([
-   fetch(`https://biquote.io/api/XAUUSD/ohlc?interval=${tf}&limit=${n}`).then(r=>{if(!r.ok)throw Error("OHLC HTTP "+r.status);return r.json()}),
-   fetch(`https://biquote.io/api/XAUUSD?allowStale=false`).then(r=>{if(!r.ok)throw Error("Live-Tick HTTP "+r.status);return r.json()})
+  const tf=$("tf").value, n=+$("n").value;
+  const [spots,history]=await Promise.all([
+    fetchSpotSources(),
+    fetch("https://xaus.com/api/v1/intraday?symbol=xau&hours=48",{cache:"no-store"}).then(r=>{if(!r.ok)throw Error("XAUS intraday HTTP "+r.status);return r.json()})
   ]);
-  if(!ohlc.bars?.length)throw Error("Keine Kerzen verfügbar");
-  C=ohlc.bars.slice().reverse().map(x=>({open:+x.open,high:+x.high,low:+x.low,close:+x.close,isOpen:!!x.isOpen})).filter(x=>Number.isFinite(x.close));
-  if(C.length>1 && C.at(-1).isOpen) C.pop();
-  lastPrice=Number(tick.mid)||C.at(-1).close;
-  $("status").textContent=`LIVE · XAU/USD ${tick.marketState||"open"} · ${tick.quoteAgeSeconds??"?"} s alt · ${new Date().toLocaleTimeString()}`;
+  const points=history.points||[];
+  const minutes=tf==="5m"?5:tf==="15m"?15:tf==="1h"?60:null;
+  if(!minutes)throw Error("Diese Zeitebene wird nicht unterstützt.");
+  const bars=barsFromIntraday(points,minutes);
+  if(!bars.length)throw Error("Keine XAU-Intradaydaten verfügbar");
+  C=bars.slice(-n);
+  lastPrice=spots.xaus;
+  const sourceNote=spots.pct<=0.15?"Quellen stimmen gut überein":"⚠️ Quellenabweichung "+spots.pct.toFixed(3)+"%";
+  $("status").textContent=`LIVE · XAU/USD ${lastPrice.toFixed(2)} · XAUS + GoldPrice.dev · ${sourceNote} · ${new Date().toLocaleTimeString()}`;
   analyze();
-   restoreTradeMgmt();
-   await loadMTF();
+  restoreTradeMgmt();
+  await loadMTF();
  }catch(e){
   $("status").textContent="Live-Daten momentan nicht erreichbar: "+e.message+" · Bitte erneut versuchen.";
  }
