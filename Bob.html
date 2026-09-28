@@ -73,12 +73,12 @@ canvas{width:100%;height:220px;border-radius:12px;background:#fafafa}.warning{ba
 <h3>Datenquelle</h3>
 <div class="grid">
 <div><label>Markt</label><input value="XAU/USD (Gold)" disabled></div>
-<div><label>Datenanbieter</label><input value="XAUS · Spot + Intraday · kostenlos" disabled></div>
+<div><label>Datenanbieter</label><input value="GoldPrice.dev · Spot + Yahoo GC=F · kostenlos" disabled></div>
 <div><label>Zeitebene</label><select id="tf"><option value="5m">5 Minuten</option><option value="15m" selected>15 Minuten</option><option value="1h">1 Stunde</option></select></div>
 <div><label>Kerzen</label><select id="n"><option>100</option><option selected>200</option><option>500</option><option>1000</option></select></div>
 </div>
 <div class="row" style="margin-top:10px"><button onclick="loadData()">🔴 Live XAU/USD laden</button><button onclick="demo()">Demo-Daten</button></div>
-<div id="status" class="small" style="margin-top:8px">Kostenlos · XAUS Spot + Intraday. Die Analyse wird gestoppt, wenn die Live-Daten nicht frisch oder unvollständig sind.</div>
+<div id="status" class="small" style="margin-top:8px">Kostenlos · GoldPrice.dev Spot + Yahoo GC=F 5m. Die Analyse wird gestoppt, wenn die Live-Daten nicht frisch oder unvollständig sind.</div>
 </div>
 
 <div class="card"><div id="signal" class="signal neutral">Noch keine Analyse</div></div>
@@ -300,7 +300,7 @@ async function fetchLiveBundle(force=false){
  if(!j.spots||!j.history?.points?.length)throw Error("Bob-Server liefert unvollständige Live-Daten");
  liveBundleCache=j;liveBundleAt=now;liveHistoryCache=j.history.points;liveHistoryAt=now;return j;
 }
-async function fetchIntradayPoints(){const j=await fetchLiveBundle();if(j.history.data_state?.status!=="fresh")throw Error("XAUS Intraday-Daten nicht frisch");return j.history.points||[];}
+async function fetchIntradayPoints(){const j=await fetchLiveBundle();if(j.history.data_state?.status!=="fresh")throw Error("Gold-Historie nicht frisch");return j.history.points||[];}
 async function loadMTF(force=false){
  if(!force&&lastMtfAt&&Date.now()-lastMtfAt<300000)return MTF;
  try{
@@ -566,7 +566,7 @@ async function loadData(){
   const bars=barsFromIntraday(points,minutes);if(!bars.length)throw Error("Keine XAU-Intradaydaten verfügbar");
   C=bars.slice(-n);lastPrice=spots.xaus;
   const sourceNote=spots.pct<=0.15?"Quellen stimmen gut überein":"⚠️ Quellenabweichung "+spots.pct.toFixed(3)+"%";
-  $("status").textContent=`LIVE · XAU/USD ${lastPrice.toFixed(2)} · XAUS + GoldPrice.dev · ${sourceNote} · ${new Date().toLocaleTimeString()}`;
+  $("status").textContent=`LIVE · XAU/USD ${lastPrice.toFixed(2)} · GoldPrice.dev Spot + Yahoo GC=F · ${sourceNote} · ${new Date().toLocaleTimeString()}`;
   analyze();restoreTradeMgmt();await loadMTF();
  }catch(e){const msg="Live-Daten momentan nicht erreichbar: "+e.message; $("status").textContent=msg+" · Bitte erneut versuchen."; $("quickSignal").textContent="🔴 LIVE-DATEN FEHLER"; $("quickSignal").className="signal bad"; $("quickReason").textContent=msg;}
 }
