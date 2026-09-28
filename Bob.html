@@ -226,7 +226,7 @@ function renderPush(){
  if(ts)ts.textContent=pushState.activeTrade?"✅ Trade gesetzt":"❌ Nein";
  if(tp)tp.textContent=pushState.activeTrade?"Aktiv – Stop-Loss/Schließen erlaubt":"Nur bei aktivem Trade";
 }
-async function registerNotifications(){
+async async function registerNotifications(){
  try{
    pushState=await BobPush.enable();
    renderPush();
@@ -237,7 +237,7 @@ async function registerNotifications(){
    return false;
  }
 }
-async function togglePush(kind){
+async async function togglePush(kind){
  if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
  pushState=BobPush.set(kind,!pushState[kind]);renderPush();
 }
