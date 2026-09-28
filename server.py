@@ -108,60 +108,70 @@ def build_live_bundle():
         if xaus_state != "fresh" or xaus_age is None or xaus_age > FRESH_MAX_AGE:
             raise RuntimeError(f"XAUS Spot nicht frisch (Status {xaus_state}, Alter {xaus_age if xaus_age is not None else 'unbekannt'} s)")
 
-        # Biquote provides broker/MT5-derived live ticks and long OHLC history.
-        bq = fetch_json("https://biquote.io/api/XAUUSD?allowStale=false")
-        bq_price = float(bq.get("mid"))
-        bq_age = float(bq.get("quoteAgeSeconds", 999999))
-        if not (bq_price > 0):
-            raise RuntimeError("Biquote liefert keinen gültigen XAU/USD-Preis")
-        if bq.get("stale") is True or bq_age > FRESH_MAX_AGE:
-            raise RuntimeError(f"Biquote XAU/USD nicht frisch (Alter {bq_age:.0f} s)")
+        # XAUS is the single live source for spot + intraday history.
+        # The public intraday endpoint records XAU every 2 minutes and supports up to 48h.
+        intraday = fetch_json("https://xaus.com/api/v1/intraday?symbol=xau&hours=48")
+        intraday_state = intraday.get("data_state", {}) if isinstance(intraday, dict) else {}
+        intraday_points = intraday.get("points") if isinstance(intraday, dict) else None
+        if not isinstance(intraday_points, list) or not intraday_points:
+            raise RuntimeError("XAUS liefert keine Intraday-Historie")
+        if intraday_state.get("status") != "fresh":
+            raise RuntimeError(f"XAUS Intraday nicht frisch (Status {intraday_state.get('status')})")
 
-        diff = abs(xaus_price - bq_price)
-        pct = diff / ((xaus_price + bq_price) / 2) * 100
-        if pct > 0.50:
-            raise RuntimeError(f"XAUS und Biquote weichen um {pct:.3f}% ab – Analyse angehalten")
+        # Convert the 2-minute XAUS series into the legacy OHLC contract.
+        bars_5m = []
+        step_ms = 5 * 60 * 1000
+        buckets = {}
+        for point in intraday_points:
+            try:
+                ts = int(time.mktime(time.strptime(point["t"][:19], "%Y-%m-%dT%H:%M:%S")) * 1000)
+                price = float(point["p"])
+                bucket = (ts // step_ms) * step_ms
+                b = buckets.get(bucket)
+                if b is None:
+                    buckets[bucket] = {"openTime": bucket, "open": price, "high": price, "low": price, "close": price, "isOpen": False}
+                else:
+                    b["high"] = max(b["high"], price)
+                    b["low"] = min(b["low"], price)
+                    b["close"] = price
+            except (KeyError, TypeError, ValueError, OverflowError):
+                continue
+        bars_5m = sorted(buckets.values(), key=lambda x: x["openTime"])
+        if len(bars_5m) < 200:
+            raise RuntimeError(f"XAUS liefert zu wenig 5m-Historie ({len(bars_5m)} Kerzen)")
 
-        bars_by_tf = {}
-        for tf, limit in (("5m", 1000), ("15m", 1000), ("1h", 500), ("4h", 500)):
-            payload = fetch_json(f"https://biquote.io/api/XAUUSD/ohlc?interval={tf}&limit={limit}")
-            bars = normalize_biquote_bars(payload)
-            if not bars:
-                raise RuntimeError(f"Biquote liefert keine {tf}-Historie")
-            bars_by_tf[tf] = bars
+        bq_price = xaus_price
+        bq_age = xaus_age
+        diff = 0.0
+        pct = 0.0
+        gp_price = xaus_price
+        gp_age = xaus_age
+        gp_status = "XAUS Intraday"
 
-        # Optional secondary source. It never blocks the live feed.
-        gp_price = bq_price
-        gp_age = bq_age
-        gp_status = "Biquote-Kontrollwert"
-
-        # Keep the legacy frontend contract: points are 5m closes.
-        # 1000 x 5m bars give the 15m view >300 bars, enough for EMA200.
         legacy_points = [
-            {"t": b["openTime"], "p": b["close"]}
-            for b in bars_by_tf.get("5m", [])
-            if not b.get("isOpen")
+            {"t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(b["openTime"] / 1000)), "p": b["close"]}
+            for b in bars_5m
         ]
 
         bundle = {
             "fetched_at": int(time.time()),
             "spots": {
                 "xaus": xaus_price,
-                "biquote": bq_price,
+                "biquote": xaus_price,
                 "goldprice": gp_price,
                 "diff": diff,
                 "pct": pct,
                 "xaus_age_seconds": xaus_age,
-                "biquote_age_seconds": bq_age,
+                "biquote_age_seconds": xaus_age,
                 "goldprice_age_seconds": gp_age,
                 "goldprice_status": gp_status,
-                "primary": "Biquote + XAUS"
+                "primary": "XAUS"
             },
             "history": {
-                "bars_by_tf": bars_by_tf,
+                "bars_by_tf": {"5m": bars_5m},
                 "points": legacy_points,
-                "data_state": {"status": "fresh", "source": "Biquote OHLC + XAUS spot"},
-                "age_seconds": bq_age
+                "data_state": {"status": "fresh", "source": "XAUS spot + 2m intraday"},
+                "age_seconds": xaus_age
             }
         }
         _live_cache = bundle
