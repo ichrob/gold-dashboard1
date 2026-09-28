@@ -4,6 +4,7 @@ import hmac
 import json
 import time
 import threading
+import re
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from datetime import datetime, timezone
@@ -48,6 +49,21 @@ def fetch_json(url, retries=2, user_agent="Bob/1.1"):
         if attempt < retries:
             time.sleep(0.6 * (attempt + 1))
     raise last_error or RuntimeError(f"Upstream nicht erreichbar ({url})")
+
+def lookup_openfigi_isin(isin):
+    payload = json.dumps([{"idType":"ID_ISIN","idValue":isin}]).encode("utf-8")
+    req = Request("https://api.openfigi.com/v3/mapping", data=payload,
+                  headers={"User-Agent":"Bob/1.1","Accept":"application/json","Content-Type":"application/json"},
+                  method="POST")
+    with urlopen(req, timeout=UPSTREAM_TIMEOUT) as response:
+        if response.status < 200 or response.status >= 300:
+            raise RuntimeError(f"OpenFIGI HTTP {response.status}")
+        data = json.loads(response.read().decode("utf-8"))
+    rows = data[0].get("data", []) if isinstance(data, list) and data and isinstance(data[0], dict) else []
+    if not rows:
+        return {}
+    x = rows[0]
+    return {k: x.get(k) for k in ("figi","name","ticker","securityType","securityType2","marketSector","securityDescription","exchCode")}
 
 def fetch_goldprice_bars(interval, days):
     """Best-effort genuine XAU/USD spot OHLC; empty means unavailable on current API tier."""
@@ -385,7 +401,7 @@ class Handler(BaseHTTPRequestHandler):
                 "default-src 'self'; "
                 "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
                 "style-src 'self' 'unsafe-inline'; "
-                "connect-src 'self' https://xaus.com https://api.goldprice.dev https://ntfy.sh https://cdn.jsdelivr.net; "
+                "connect-src 'self' https://xaus.com https://api.goldprice.dev https://ntfy.sh https://cdn.jsdelivr.net https://api.openfigi.com; "
                 "img-src 'self' data:; "
                 "worker-src 'self' blob:; "
                 "object-src 'none'; "
@@ -415,6 +431,30 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.end_headers()
                 self.wfile.write(body)
+            return
+
+        if path == "/api/isin-lookup":
+            qs = parse_qs(urlparse(self.path).query)
+            isins = []
+            for raw in qs.get("isin", []):
+                value = str(raw).strip().upper()
+                if value and value not in isins and len(value) <= 20:
+                    isins.append(value)
+            results = {}
+            for isin in isins[:5]:
+                if not re.fullmatch(r"[A-Z]{2}[A-Z0-9]{9}[0-9]", isin):
+                    continue
+                try:
+                    results[isin] = lookup_openfigi_isin(isin)
+                except Exception as exc:
+                    results[isin] = {"error": str(exc)}
+            body = json.dumps({"results": results}, separators=(",", ":")).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body)
             return
 
         if path == "/api/degiro-products":
