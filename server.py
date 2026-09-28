@@ -149,7 +149,7 @@ class Handler(BaseHTTPRequestHandler):
                 "default-src 'self'; "
                 "script-src 'self' 'unsafe-inline'; "
                 "style-src 'self' 'unsafe-inline'; "
-                "connect-src 'self' https://ntfy.sh; "
+                "connect-src 'self' https://xaus.com https://api.goldprice.dev https://ntfy.sh; "
                 "img-src 'self' data:; "
                 "worker-src 'self'; "
                 "object-src 'none'; "
@@ -171,7 +171,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(body)
             except Exception as exc:
-                body = json.dumps({"error": str(exc)}).encode("utf-8")
+                print(f"Bob /api/live ERROR: {type(exc).__name__}: {exc}", flush=True)
+                body = json.dumps({"error": str(exc), "error_type": type(exc).__name__}).encode("utf-8")
                 self.send_response(502)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
