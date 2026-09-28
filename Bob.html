@@ -56,6 +56,10 @@ canvas{width:100%;height:220px;border-radius:12px;background:#fafafa}.warning{ba
 <div><label>Kostenloser Push-Kanal (ntfy)</label><input id="ntfyTopic" placeholder="z. B. gold-scanner-..." autocomplete="off"></div>
 <div><label>Push-Kanal</label><button onclick="setupNtfy()">☁️ ntfy einrichten</button></div>
 </div>
+<div class="grid" style="margin-top:10px">
+<div class="metric"><label>Simulation</label><button id="simulationBtn" onclick="toggleSimulation()">🧪 Aus</button></div>
+<div class="metric"><label>Push-Status</label><div id="pushEventStatus" class="small">Keine neue Meldung.</div></div>
+</div>
 <div class="small" style="margin-top:8px">Kein Login nötig. Auf Android die ntfy-App installieren und denselben Topic abonnieren. Der Topic-Name ist eine öffentliche Kanaladresse, kein echtes Passwort. Für sensible Inhalte sollte ein geschützter Push-Dienst verwendet werden.</div>
 <div class="warning" style="margin-top:10px"><b>Trade-Schutz:</b> Management-Pushs werden nur ausgelöst, wenn du unten „Trade gesetzt“ bestätigst.</div>
 <div id="pushStatus" class="small" style="margin-top:8px">Noch nicht registriert.</div>
@@ -215,46 +219,70 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Spread
 <script>
 
 const $=id=>document.getElementById(id);
-const PUSH_DEFAULTS={general:false,trade:false,activeTrade:false};
-let pushState={...PUSH_DEFAULTS};try{const raw=localStorage.getItem("goldScannerPush");if(raw){const parsed=JSON.parse(raw);if(parsed&&typeof parsed==="object")pushState={...PUSH_DEFAULTS,...parsed};}}catch(e){console.warn("push state reset",e)}
+const PUSH_DEFAULTS={general:false,trade:false,activeTrade:false,simulation:false,registered:false};
+let pushState={...PUSH_DEFAULTS};
+try{const raw=localStorage.getItem("goldScannerPush");if(raw){const parsed=JSON.parse(raw);if(parsed&&typeof parsed==="object")pushState={...PUSH_DEFAULTS,...parsed};}}catch(e){console.warn("push state reset",e)}
+const PUSH_COOLDOWN=15*60*1000;
+let pushLast={};
 function savePush(){localStorage.setItem("goldScannerPush",JSON.stringify(pushState));renderPush();}
 function renderPush(){
- const gb=$("generalPushBtn"),tb=$("tradePushBtn"),ts=$("tradeStateBtn"),tp=$("tradePushState");
- if(gb){gb.textContent=pushState.general?"🔔 Ein":"🔕 Aus";}
- if(tb){tb.textContent=pushState.trade?"🔔 Ein":"🔕 Aus";}
- if(ts){ts.textContent=pushState.activeTrade?"✅ Trade gesetzt":"❌ Nein";}
- if(tp){tp.textContent=pushState.activeTrade?"Aktiv – Stop-Loss/Schließen erlaubt":"Nur bei aktivem Trade";}
+ const gb=$("generalPushBtn"),tb=$("tradePushBtn"),ts=$("tradeStateBtn"),tp=$("tradePushState"),sb=$("simulationBtn");
+ if(gb)gb.textContent=pushState.general?"🔔 Ein":"🔕 Aus";
+ if(tb)tb.textContent=pushState.trade?"🔔 Ein":"🔕 Aus";
+ if(ts)ts.textContent=pushState.activeTrade?"✅ Trade gesetzt":"❌ Nein";
+ if(tp)tp.textContent=pushState.activeTrade?"Aktiv – Stop-Loss/Risiko/Ausstieg erlaubt":"Nur bei aktivem Trade";
+ if(sb)sb.textContent=pushState.simulation?"🧪 Ein":"🧪 Aus";
 }
+function setPushStatus(text){const el=$("pushEventStatus");if(el)el.textContent=text;const st=$("pushStatus");if(st)st.textContent=text;}
+function toggleSimulation(){pushState.simulation=!pushState.simulation;savePush();setPushStatus(pushState.simulation?"🧪 Simulation aktiv – Meldungen werden erzeugt, aber nicht zugestellt.":"Simulation aus – echte Push-Zustellung aktiv.");}
 async function registerNotifications(){
  if(!("Notification" in window)){$("pushStatus").textContent="Dieser Browser unterstützt keine Web-Benachrichtigungen.";return false;}
  const p=await Notification.requestPermission();
- if(p==="granted"){
-   pushState.registered=true;savePush();
-   if("serviceWorker" in navigator){try{await navigator.serviceWorker.register("sw.js");}catch(e){console.warn(e)}}
-   $("pushStatus").textContent="✅ Benachrichtigungen erlaubt. Für echte Hintergrund-Pushs muss die App über HTTPS/PWA laufen.";
-   return true;
- }
- $("pushStatus").textContent="Benachrichtigungen wurden nicht freigegeben.";return false;
+ if(p==="granted"){pushState.registered=true;savePush();if("serviceWorker" in navigator){try{await navigator.serviceWorker.register("sw.js");}catch(e){console.warn(e)}}setPushStatus("✅ Benachrichtigungen erlaubt. Für echte Hintergrund-Pushs muss die App über HTTPS/PWA laufen.");return true;}
+ setPushStatus("Benachrichtigungen wurden nicht freigegeben.");return false;
 }
 async function togglePush(kind){
  if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
  pushState[kind]=!pushState[kind];savePush();
 }
-function toggleTradeState(){pushState.activeTrade=!pushState.activeTrade;savePush();
- if(pushState.activeTrade) notifyTrade("Trade gesetzt", "Trade-Management-Benachrichtigungen sind jetzt aktiviert.");}
-function canNotify(kind){return pushState.registered && pushState[kind] && Notification.permission==="granted" && (kind!=="trade" || pushState.activeTrade);}
+function toggleTradeState(){
+ const wasActive=pushState.activeTrade;
+ pushState.activeTrade=!wasActive;savePush();
+ if(pushState.activeTrade)notifyTrade("Bob – Trade aktiviert","Trade-Management ist jetzt aktiv.");
+ else if(wasActive)notifyTrade("Bob – Trade beendet","Trade-Management wurde beendet.");
+}
+function canNotify(kind){return pushState.registered&&pushState[kind]&&Notification.permission==="granted"&&(kind!=="trade"||pushState.activeTrade);}
 function ntfyTopic(){return ($("ntfyTopic")?.value||localStorage.getItem("goldScannerNtfyTopic")||"").trim()}
 function randomTopic(){const a=new Uint8Array(18);crypto.getRandomValues(a);return "gold-scanner-"+Array.from(a,b=>b.toString(16).padStart(2,"0")).join("")}
-function setupNtfy(){let t=ntfyTopic();if(!t){t=randomTopic();$("ntfyTopic").value=t;localStorage.setItem("goldScannerNtfyTopic",t)}else localStorage.setItem("goldScannerNtfyTopic",t);$("pushStatus").textContent="✅ ntfy-Kanal gespeichert. Jetzt denselben Topic in der ntfy-App abonnieren."}
-async function sendNtfy(kind,title,body){const topic=ntfyTopic();if(!topic)return false;if(kind==="trade" && !pushState.activeTrade)return false;try{const r=await fetch("https://ntfy.sh/"+encodeURIComponent(topic),{method:"POST",headers:{"Title":title,"Priority":kind==="trade"?"5":"4","Tags":kind==="trade"?"rotating_light":"chart_with_upwards_trend"},body});return r.ok}catch(e){console.warn("ntfy",e);return false}}
-function notify(kind,title,body){if(!canNotify(kind))return false;try{new Notification(title,{body,tag:"gold-scanner-"+kind});sendNtfy(kind,title,body);return true}catch(e){sendNtfy(kind,title,body);return false}}
-function notifyGeneral(title,body){return notify("general",title,body)}
-function notifyTrade(title,body){return notify("trade",title,body)}
-async function testPush(){if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
- const sent=notifyGeneral("Gold Scanner – Test","Allgemeine Trade-Empfehlungen");
- const sentTrade=notifyTrade("Gold Scanner – Trade-Test",pushState.activeTrade?"Trade-Management ist aktiv.":"Kein aktiver Trade – Management-Push bleibt gesperrt.");
- const ntfy=await sendNtfy("general","Gold Scanner – ntfy-Test","Push-Kanal funktioniert.");
- $("pushStatus").textContent=(sent||sentTrade||ntfy)?"✅ Test ausgelöst.":"Test nicht ausgelöst – Schalter, Trade-Status oder ntfy-Topic prüfen.";
+function setupNtfy(){let t=ntfyTopic();if(!t){t=randomTopic();$("ntfyTopic").value=t;localStorage.setItem("goldScannerNtfyTopic",t)}else localStorage.setItem("goldScannerNtfyTopic",t);setPushStatus("✅ ntfy-Kanal gespeichert. Jetzt denselben Topic in der ntfy-App abonnieren.")}
+async function sendNtfy(kind,title,body,priority=4){
+ const topic=ntfyTopic();if(!topic)return false;if(kind==="trade"&&!pushState.activeTrade)return false;
+ try{const r=await fetch("https://ntfy.sh/"+encodeURIComponent(topic),{method:"POST",headers:{"Title":title,"Priority":String(priority),"Tags":kind==="trade"?"rotating_light":"chart_with_upwards_trend"},body});return r.ok}catch(e){console.warn("ntfy",e);return false}
+}
+function pushKey(kind,title,body){
+ if(kind==="general"&&title.includes("Signal"))return "entry:"+title.replace(/.*– /,"");
+ if(kind==="trade"&&title.includes("Stop-Loss"))return "stop:"+body.replace(/.*neuer Stop-Loss: /,"");
+ if(kind==="trade"&&title.includes("Risikoalarm"))return "risk:"+title;
+ if(kind==="trade"&&title.includes("schließen"))return "exit:"+title;
+ return kind+":"+title+":"+body;
+}
+function notify(kind,title,body,priority=4){
+ if(kind==="trade"&&!pushState.activeTrade)return false;
+ const key=pushKey(kind,title,body),now=Date.now(),last=pushLast[key]||0;
+ if(now-last<PUSH_COOLDOWN){setPushStatus("⏳ Push unterdrückt (Anti-Spam): "+title);return false;}
+ pushLast[key]=now;
+ if(pushState.simulation){setPushStatus("🧪 Simulation: "+title+" — "+body);return true;}
+ if(!canNotify(kind))return false;
+ try{new Notification(title,{body,tag:"bob-"+key});sendNtfy(kind,title,body,priority);setPushStatus("🔔 Gesendet: "+title);return true}catch(e){sendNtfy(kind,title,body,priority);return false}
+}
+function notifyGeneral(title,body){return notify("general",title,body,4)}
+function notifyTrade(title,body){return notify("trade",title,body,5)}
+async function testPush(){
+ if(!pushState.registered&&!pushState.simulation){const ok=await registerNotifications();if(!ok)return;}
+ const sent=notifyGeneral("Bob – Test","Allgemeine Einstiegssignal-Pushs");
+ const sentTrade=pushState.activeTrade?notifyTrade("Bob – Trade-Test","Management-Pushs sind aktiv."):false;
+ const ntfy=pushState.simulation?false:await sendNtfy("general","Bob – ntfy-Test","Push-Kanal funktioniert.",4);
+ setPushStatus((sent||sentTrade||ntfy)?"✅ Test ausgelöst.":"Test nicht ausgelöst – Schalter/Trade-Status/ntfy prüfen.");
 }
 (function(){const t=localStorage.getItem("goldScannerNtfyTopic");if(t&&$("ntfyTopic"))$("ntfyTopic").value=t;})();
 renderPush();
