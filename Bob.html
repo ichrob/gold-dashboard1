@@ -601,37 +601,35 @@ let lastProductDirection="NEUTRAL";
 let lastProductNoticeAt=0;
 function screenshotQuality(text, parsed){
   const raw=String(text||"");
-  const hasIsin=(raw.match(/\b[A-Z]{2}[A-Z0-9]{9}\d\b/g)||[]).length;
-  const hasDirection=/\b(long|short|bull|bear)\b/i.test(raw);
+  const hasIsin=(raw.match(/\b[A-Z]{2}[A-Z0-9]{9}\d\b/g)||[]).length>0;
+  const hasProductName=parsed.some(x=>String(x.name||"").trim().length>=4);
+  const hasDirection=/\b(long|short|bull|bear|call|put)\b/i.test(raw);
   const hasLeverage=/\b(?:Hebel|Leverage|Gearing)\b|\d+(?:[.,]\d+)?\s*x\b/i.test(raw);
   const hasKo=/\b(?:K\.?O\.?|Knock[- ]?Out|Stop(?:-Loss)?|Barriere)\b/i.test(raw);
-  const score=(hasIsin?25:0)+(hasDirection?25:0)+(hasLeverage?25:0)+(hasKo?25:0);
-  return {score,hasIsin,hasDirection,hasLeverage,hasKo,products:parsed.length};
+  const score=(hasIsin?60:0)+(hasProductName?40:0);
+  return {score,hasIsin,hasProductName,hasDirection,hasLeverage,hasKo,products:parsed.length};
 }
 function parseDgOcr(text){
   const lines=String(text||"").split(/\n+/).map(x=>x.replace(/\s+/g," ").trim()).filter(Boolean);
   const out=[];
   for(let i=0;i<lines.length;i++){
-    const window=lines.slice(Math.max(0,i-1),Math.min(lines.length,i+2)).join(" ");
+    const window=lines.slice(Math.max(0,i-2),Math.min(lines.length,i+3)).join(" ");
     const isin=(window.match(/\b[A-Z]{2}[A-Z0-9]{9}\d\b/)||[])[0]||"";
     if(!isin)continue;
-    const direction=/\b(short|bear|put|short[- ]?produkt)\b/i.test(window)?"SHORT":/\b(long|bull|call|long[- ]?produkt)\b/i.test(window)?"LONG":"";
-    const levm=window.match(/(?:Hebel|Leverage|Gearing|x)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*x?/i)||window.match(/(\d+(?:[.,]\d+)?)\s*x\b/i);
+    const direction=/\b(short|bear|put|short[- ]?produkt|inverse)\b/i.test(window)?"SHORT":/\b(long|bull|call|long[- ]?produkt|leveraged)\b/i.test(window)?"LONG":"";
+    const levm=window.match(/(?:Hebel|Leverage|Gearing)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*x?/i)||window.match(/(\d+(?:[.,]\d+)?)\s*x\b/i);
     const kom=window.match(/(?:K\.?O\.?|Knock[- ]?Out|Stop(?:-Loss)?|Barriere)\s*[:=]?\s*([0-9][0-9.,]*)/i);
-    const nums=[...window.matchAll(/\b\d{3,6}(?:[.,]\d+)?\b/g)].map(m=>Number(m[0].replace(/,/g,"."))).filter(Number.isFinite);
     const ko=kom?Number(kom[1].replace(/,/g,".")):NaN;
     const leverage=levm?Number(levm[1].replace(",",".")):NaN;
     const bidm=window.match(/(?:Bid|Geld)\s*[:=]?\s*([0-9][0-9.,]*)/i);
     const askm=window.match(/(?:Ask|Brief)\s*[:=]?\s*([0-9][0-9.,]*)/i);
     const bid=bidm?Number(bidm[1].replace(/,/g,".")):NaN;
     const ask=askm?Number(askm[1].replace(/,/g,".")):NaN;
-    const name=(lines[i-1]||lines[i]).slice(0,120);
-    if(direction && Number.isFinite(leverage) && Number.isFinite(ko)){
-      out.push({name,isin,direction,leverage,ko,bid,ask,bidOnly:/bid only/i.test(window),tradable:!/nicht handelbar|unavailable|expired|ausverkauft/i.test(window),expiry:null,source:"DEGIRO Screenshot"});
-    }
+    const name=(lines[i-1]||lines[i]).replace(isin,"").trim().slice(0,160) || "DEGIRO-Produkt";
+    out.push({name,isin,direction,leverage,ko,bid,ask,bidOnly:/bid only/i.test(window),tradable:!/nicht handelbar|unavailable|expired|ausverkauft/i.test(window),expiry:null,source:"DEGIRO Screenshot"});
   }
   const seen=new Set();
-  return out.filter(x=>{const k=x.isin+"|"+x.direction+"|"+x.ko;if(seen.has(k))return false;seen.add(k);return true;});
+  return out.filter(x=>{const k=x.isin;if(seen.has(k))return false;seen.add(k);return true;});
 }
 async function analyzeDgScreenshot(){
   const input=$("dgScreenshot"),status=$("dgScreenshotStatus"),img=$("dgScreenshotPreview"),ocr=$("dgOcrText");
@@ -646,9 +644,9 @@ async function analyzeDgScreenshot(){
     ocr.textContent=text;ocr.style.display="block";
     const parsed=parseDgOcr(text);
     const q=screenshotQuality(text,parsed);
-    if(!parsed.length || q.score<75){
-      const missing=[!q.hasIsin?"ISIN":"",!q.hasDirection?"LONG/SHORT":"",!q.hasLeverage?"Hebel":"",!q.hasKo?"K.O./Stop":""].filter(Boolean);
-      status.textContent="⚠️ Screenshot noch nicht zuverlässig genug. Fehlend/unklar: "+missing.join(", ")+". Bitte einen schärferen oder weiter geöffneten Screenshot aufnehmen.";
+    if(!parsed.length || q.score<100){
+      const missing=[!q.hasIsin?"ISIN/Identifikationsnummer":"",!q.hasProductName?"Produktname":""].filter(Boolean);
+      status.textContent="⚠️ Screenshot noch nicht zuverlässig genug. Fehlend/unklar: "+missing.join(", ")+". Bob braucht mindestens Produktname und ISIN/Identifikationsnummer.";
       return;
     }
     dgProducts=parsed;
