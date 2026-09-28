@@ -383,11 +383,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header(
                 "Content-Security-Policy",
                 "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline'; "
+                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
                 "style-src 'self' 'unsafe-inline'; "
-                "connect-src 'self' https://xaus.com https://api.goldprice.dev https://ntfy.sh; "
+                "connect-src 'self' https://xaus.com https://api.goldprice.dev https://ntfy.sh https://cdn.jsdelivr.net; "
                 "img-src 'self' data:; "
-                "worker-src 'self'; "
+                "worker-src 'self' blob:; "
                 "object-src 'none'; "
                 "base-uri 'self'; "
                 "frame-ancestors 'none'"
