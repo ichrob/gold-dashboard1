@@ -32,10 +32,10 @@ _live_cache = None
 _live_cache_at = 0.0
 _live_lock = threading.Lock()
 
-def fetch_json(url, retries=2):
+def fetch_json(url, retries=2, user_agent="Bob/1.1"):
     last_error = None
     for attempt in range(retries + 1):
-        req = Request(url, headers={"User-Agent": "Bob/1.1", "Accept": "application/json"})
+        req = Request(url, headers={"User-Agent": user_agent, "Accept": "application/json"})
         try:
             with urlopen(req, timeout=UPSTREAM_TIMEOUT) as response:
                 if response.status < 200 or response.status >= 300:
@@ -96,91 +96,70 @@ def build_live_bundle():
         if cached is not None and time.time() - _live_cache_at < LIVE_CACHE_TTL:
             return cached
 
-        now_ms = int(time.time() * 1000)
+        now = time.time()
 
-        # XAUS remains the independent reference source. Prefer the spot endpoint,
-        # but fall back to XAUS's own 2-minute intraday series if the spot upstream
-        # temporarily returns 503. This keeps the feed live without inventing prices.
-        xaus = None
-        spot_error = None
-        try:
-            xaus = fetch_json(f"https://xaus.com/api/v1/spot?currency=USD&compact=1&fresh={now_ms}")
-        except Exception as exc:
-            spot_error = exc
+        # Primary live spot: goldprice.dev, anonymous endpoint.
+        goldprice = fetch_json(
+            "https://api.goldprice.dev/v1/prices?symbol=XAU-USD-SPOT",
+            retries=2,
+            user_agent="Bob/1.1"
+        )
+        symbols = goldprice.get("symbols") if isinstance(goldprice, dict) else None
+        if not isinstance(symbols, list) or not symbols:
+            raise RuntimeError("GoldPrice.dev liefert keine XAU/USD-Daten")
+        row = symbols[0]
+        goldprice_price = float(row.get("price"))
+        goldprice_age = iso_age_seconds(row.get("computed_at"))
+        if not (goldprice_price > 0):
+            raise RuntimeError("GoldPrice.dev liefert keinen gültigen XAU/USD-Preis")
+        if row.get("is_stale") is True or goldprice_age is None or goldprice_age > FRESH_MAX_AGE:
+            raise RuntimeError(
+                f"GoldPrice.dev Spot nicht frisch (stale={row.get('is_stale')}, "
+                f"Alter {goldprice_age if goldprice_age is not None else 'unbekannt'} s)"
+            )
 
-        # XAUS's public intraday endpoint records XAU every 2 minutes and supports up to 48h.
-        intraday = fetch_json("https://xaus.com/api/v1/intraday?symbol=xau&hours=48")
-        intraday_state = intraday.get("data_state", {}) if isinstance(intraday, dict) else {}
-        intraday_points = intraday.get("points") if isinstance(intraday, dict) else None
-        if not isinstance(intraday_points, list) or not intraday_points:
-            raise RuntimeError("XAUS liefert keine Intraday-Historie")
-        if intraday_state.get("status") != "fresh":
-            raise RuntimeError(f"XAUS Intraday nicht frisch (Status {intraday_state.get('status')})")
-
-        # Determine the freshest valid intraday point for a spot fallback.
-        latest_point = None
-        for point in intraday_points:
-            try:
-                stamp = str(point["t"]).replace("Z", "+00:00")
-                dt = datetime.fromisoformat(stamp)
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                ts = dt.timestamp()
-                price = float(point["p"])
-                if price > 0 and (latest_point is None or ts > latest_point[0]):
-                    latest_point = (ts, price)
-            except (KeyError, TypeError, ValueError, OverflowError):
-                continue
-        if latest_point is None:
-            raise RuntimeError("XAUS liefert keinen gültigen Intraday-Preis")
-
-        if xaus is not None:
-            xaus_price = float(xaus.get("spot_usd_oz"))
-            xaus_state = xaus.get("data_state", {}).get("status")
-            xaus_age = iso_age_seconds(xaus.get("price_as_of") or xaus.get("updated_at"))
-            if not (xaus_price > 0):
-                raise RuntimeError("XAUS liefert keinen gültigen XAU/USD-Preis")
-            if xaus_state != "fresh" or xaus_age is None or xaus_age > FRESH_MAX_AGE:
-                raise RuntimeError(f"XAUS Spot nicht frisch (Status {xaus_state}, Alter {xaus_age if xaus_age is not None else 'unbekannt'} s)")
-        else:
-            xaus_price = latest_point[1]
-            xaus_age = max(0, time.time() - latest_point[0])
-            if xaus_age > FRESH_MAX_AGE:
-                raise RuntimeError(f"XAUS Spot-Fallback nicht frisch (Alter {xaus_age:.0f} s; Spot-Fehler: {spot_error})")
-
-        # Convert the 2-minute XAUS series into the legacy OHLC contract.
+        # Yahoo Finance provides recent XAU/USD 5-minute bars for the technical history.
+        yahoo = fetch_json(
+            "https://query1.finance.yahoo.com/v8/finance/chart/XAUUSD=X?interval=5m&range=5d&includePrePost=true",
+            retries=2,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128 Safari/537.36"
+        )
+        result = yahoo.get("chart", {}).get("result", [None])[0] if isinstance(yahoo, dict) else None
+        if not result:
+            raise RuntimeError("Yahoo Finance liefert keine XAU/USD-Historie")
+        timestamps = result.get("timestamp") or []
+        quote = (result.get("indicators", {}).get("quote") or [None])[0] or {}
+        opens = quote.get("open") or []
+        highs = quote.get("high") or []
+        lows = quote.get("low") or []
+        closes = quote.get("close") or []
         bars_5m = []
-        step_ms = 5 * 60 * 1000
-        buckets = {}
-        for point in intraday_points:
+        for i, ts in enumerate(timestamps):
             try:
-                stamp = str(point["t"]).replace("Z", "+00:00")
-                dt = datetime.fromisoformat(stamp)
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                ts = int(dt.timestamp() * 1000)
-                price = float(point["p"])
-                bucket = (ts // step_ms) * step_ms
-                b = buckets.get(bucket)
-                if b is None:
-                    buckets[bucket] = {"openTime": bucket, "open": price, "high": price, "low": price, "close": price, "isOpen": False}
-                else:
-                    b["high"] = max(b["high"], price)
-                    b["low"] = min(b["low"], price)
-                    b["close"] = price
-            except (KeyError, TypeError, ValueError, OverflowError):
+                o, h, l, close = map(float, (opens[i], highs[i], lows[i], closes[i]))
+                if not all(v == v and v > 0 for v in (o, h, l, close)):
+                    continue
+                bars_5m.append({
+                    "openTime": int(ts) * 1000,
+                    "open": o,
+                    "high": h,
+                    "low": l,
+                    "close": close,
+                    "isOpen": False
+                })
+            except (IndexError, TypeError, ValueError, OverflowError):
                 continue
-        bars_5m = sorted(buckets.values(), key=lambda x: x["openTime"])
+        bars_5m.sort(key=lambda x: x["openTime"])
         if len(bars_5m) < 200:
-            raise RuntimeError(f"XAUS liefert zu wenig 5m-Historie ({len(bars_5m)} Kerzen)")
+            raise RuntimeError(f"Yahoo Finance liefert zu wenig 5m-Historie ({len(bars_5m)} Kerzen)")
 
-        bq_price = xaus_price
-        bq_age = xaus_age
-        diff = 0.0
-        pct = 0.0
-        gp_price = xaus_price
-        gp_age = xaus_age
-        gp_status = "XAUS Intraday"
+        latest_bar_age = max(0, now - bars_5m[-1]["openTime"] / 1000)
+        if latest_bar_age > 900:
+            raise RuntimeError(f"Yahoo XAU/USD-Historie nicht frisch (Alter {latest_bar_age:.0f} s)")
+
+        yahoo_price = bars_5m[-1]["close"]
+        diff = goldprice_price - yahoo_price
+        pct = (diff / yahoo_price * 100) if yahoo_price else 0.0
 
         legacy_points = [
             {"t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(b["openTime"] / 1000)), "p": b["close"]}
@@ -190,22 +169,22 @@ def build_live_bundle():
         bundle = {
             "fetched_at": int(time.time()),
             "spots": {
-                "xaus": xaus_price,
-                "biquote": xaus_price,
-                "goldprice": gp_price,
+                "xaus": goldprice_price,
+                "biquote": yahoo_price,
+                "goldprice": goldprice_price,
                 "diff": diff,
                 "pct": pct,
-                "xaus_age_seconds": xaus_age,
-                "biquote_age_seconds": xaus_age,
-                "goldprice_age_seconds": gp_age,
-                "goldprice_status": gp_status,
-                "primary": "XAUS"
+                "xaus_age_seconds": goldprice_age,
+                "biquote_age_seconds": latest_bar_age,
+                "goldprice_age_seconds": goldprice_age,
+                "goldprice_status": "GoldPrice.dev · live",
+                "primary": "GoldPrice.dev"
             },
             "history": {
                 "bars_by_tf": {"5m": bars_5m},
                 "points": legacy_points,
-                "data_state": {"status": "fresh", "source": "XAUS spot + 2m intraday"},
-                "age_seconds": xaus_age
+                "data_state": {"status": "fresh", "source": "GoldPrice.dev spot + Yahoo Finance 5m"},
+                "age_seconds": goldprice_age
             }
         }
         _live_cache = bundle
