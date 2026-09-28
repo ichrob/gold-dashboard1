@@ -417,6 +417,44 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
             return
 
+        if path == "/api/degiro-products":
+            raw_products = os.environ.get("BOB_DEGIRO_PRODUCTS_JSON", "")
+            try:
+                products = json.loads(raw_products) if raw_products else []
+                if not isinstance(products, list):
+                    raise ValueError("BOB_DEGIRO_PRODUCTS_JSON muss eine Liste sein")
+                safe = []
+                for p in products:
+                    if not isinstance(p, dict):
+                        continue
+                    item = {
+                        "name": str(p.get("name", ""))[:120],
+                        "isin": str(p.get("isin", ""))[:20],
+                        "direction": str(p.get("direction", "")).upper()[:10],
+                        "leverage": p.get("leverage"),
+                        "ko": p.get("ko"),
+                        "bid": p.get("bid"),
+                        "ask": p.get("ask"),
+                        "expiry": p.get("expiry"),
+                        "bidOnly": bool(p.get("bidOnly", False)),
+                        "tradable": p.get("tradable", True),
+                    }
+                    safe.append(item)
+                body = json.dumps({
+                    "products": safe,
+                    "source": "BOB_DEGIRO_PRODUCTS_JSON" if raw_products else "not configured"
+                }, separators=(",", ":")).encode("utf-8")
+                self.send_response(200)
+            except Exception as exc:
+                body = json.dumps({"error": str(exc), "products": []}).encode("utf-8")
+                self.send_response(400)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         if path == "/manifest.json" and MANIFEST is not None:
             self.send_response(200)
             self.send_header("Content-Type", "application/manifest+json; charset=utf-8")
