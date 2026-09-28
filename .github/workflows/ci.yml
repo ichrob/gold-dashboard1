@@ -69,7 +69,7 @@ from pathlib import Path
 import re, subprocess, tempfile
 
 html = Path("Bob.html").read_text(encoding="utf-8")
-scripts = re.findall(r"<script>([\\s\\S]*?)</script>", html)
+scripts = re.findall(r"<script>([\s\S]*?)</script>", html)
 if not scripts:
     raise SystemExit("No inline Bob script found")
 with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
