@@ -237,7 +237,7 @@ async async function registerNotifications(){
    return false;
  }
 }
-async async function togglePush(kind){
+async function togglePush(kind){
  if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
  pushState=BobPush.set(kind,!pushState[kind]);renderPush();
 }
