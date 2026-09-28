@@ -599,7 +599,7 @@ async function fetchSpotSources(){
  const j=await fetchLiveBundle();const s=j.spots||{},xaus=Number(s.xaus),gp=Number(s.goldprice),reference=Number(s.yahoo_gc_f||s.biquote),diff=Number(s.diff),pct=Number(s.pct);
  if(!Number.isFinite(xaus)||!Number.isFinite(gp)||!Number.isFinite(pct))throw Error("Ungültige Live-Goldwerte");
  const sourceWarning=pct>0.50?"⚠️ Spot/Futures-Abweichung "+pct.toFixed(3)+"% – Futures nur als technische Referenz":"";
- return {xaus,gp,reference,diff,pct,sourceWarning,usd_eur:Number(s.usd_eur)};
+ return {xaus,gp,reference,diff,pct,sourceWarning,usd_eur:Number(s.usd_eur),usd_chf:Number(s.usd_chf)};
 }
 async function loadData(){
  try{
@@ -609,8 +609,9 @@ async function loadData(){
   if(!["5m","15m","1h"].includes(tf))throw Error("Diese Zeitebene wird nicht unterstützt.");
   if(!bars.length)throw Error("Keine echte "+tf+"-Historie verfügbar");
   C=bars.filter(b=>!b.isOpen).slice(-n);lastPrice=spots.xaus;
-  const fxEl=$("fxRate");
-  if(fxEl&&Number.isFinite(Number(spots.usd_eur))&&Number(spots.usd_eur)>0&&!fxEl.dataset.manual)fxEl.value=Number(spots.usd_eur).toFixed(4);
+  const fxEl=$("fxRate"),ccy=$("displayCcy")?.value||"USD";
+  const autoFx=ccy==="EUR"?Number(spots.usd_eur):ccy==="CHF"?Number(spots.usd_chf):1;
+  if(fxEl&&Number.isFinite(autoFx)&&autoFx>0&&!fxEl.dataset.manual)fxEl.value=autoFx.toFixed(4);
   const sourceNote=spots.sourceWarning||"Spot/Futures-Differenz gering · Futures = technische Referenz";
   $("status").textContent=`LIVE · XAU/USD ${lastPrice.toFixed(2)} · GoldPrice.dev Spot + Yahoo GC=F · ${sourceNote} · ${new Date().toLocaleTimeString()}`;
   analyze();restoreTradeMgmt();await loadMTF();
@@ -630,7 +631,9 @@ function riskCalc(){
  $("riskout").innerHTML=`Richtung: <b>${dir}</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Stop: <b>${sm.stop.toFixed(2)}</b> · ${sm.reason}<br>Ziel: <b>${tgt.target.toFixed(2)}</b><br>CRV: <b>${tgt.rr.toFixed(2)} : 1</b><br>Theoretischer Basis-Positionswert: <b>${notionalEur.toFixed(2)} €</b><br>Rechnerische Margin bei ${lev}×: <b>${marginEur.toFixed(2)} €</b><br><span class="small">FX ${fx.toFixed(4)} EUR/USD · Basiswertrechnung, keine DEGIRO-Produktstückzahl.</span>`;
 }
 restoreTradeMgmt(); updateResearchPanel();
-const fxField=$("fxRate"); if(fxField)fxField.addEventListener("input",()=>fxField.dataset.manual="1",{once:true});
+const fxField=$("fxRate"),ccyField=$("displayCcy");
+if(fxField)fxField.addEventListener("input",()=>fxField.dataset.manual="1");
+if(ccyField)ccyField.addEventListener("change",()=>{if(fxField)fxField.dataset.manual="";loadData(true);});
 loadData();
 setInterval(()=>{ if(document.visibilityState==="visible") loadData(); }, 60000);
 </script></body></html>
