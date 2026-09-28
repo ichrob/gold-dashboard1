@@ -796,22 +796,23 @@ function rankDgProducts(){
     let riskPerUnitEur=NaN, estimatedUnits=NaN, riskModel="nicht verifiziert";
     if(Number.isFinite(productPrice)&&productPrice>0&&Number.isFinite(p)&&Number.isFinite(technicalStop)){
       const underlyingMovePct=Math.abs(p-technicalStop)/p;
+      const productCurrency=String(x.currency||"").toUpperCase();
+      const eurFactor=productCurrency==="EUR"?1:(fx>0?fx:NaN);
       if(Number.isFinite(ratio)&&ratio>0){
-        const riskUsd=Math.abs(p-technicalStop)/ratio;
-        riskPerUnitEur=fx>0?riskUsd*fx:NaN;
-        riskModel="Ratio-Modell";
+        const riskInProductCcy=Math.abs(p-technicalStop)/ratio;
+        riskPerUnitEur=Number.isFinite(eurFactor)?riskInProductCcy*eurFactor:NaN;
+        riskModel=productCurrency==="EUR"?"Ratio-Modell (EUR)":"Ratio-Modell (USD→EUR)";
       }else if(Number.isFinite(lev)&&lev>0){
         const riskProductPct=underlyingMovePct*lev;
-        const riskUsd=productPrice*riskProductPct;
-        riskPerUnitEur=fx>0?riskUsd*fx:NaN;
-        riskModel="Hebel-Näherung";
+        const riskInProductCcy=productPrice*riskProductPct;
+        riskPerUnitEur=Number.isFinite(eurFactor)?riskInProductCcy*eurFactor:NaN;
+        riskModel=productCurrency==="EUR"?"Hebel-Näherung (EUR)":"Hebel-Näherung (USD→EUR)";
       }
       if(Number.isFinite(riskPerUnitEur)&&riskPerUnitEur>0){
         estimatedUnits=Math.floor(maxLossEur/riskPerUnitEur);
         if(estimatedUnits<1)reasons.push("Risiko erlaubt weniger als 1 Stück");
       }
     }
-    if(!Number.isFinite(estimatedUnits)||estimatedUnits<1){reject=true;reasons.push("Risiko/Stückzahl nicht belastbar");}
 
     const tradeGate=tradeScore>=70;
     if(!tradeGate){reject=true;reasons.push("Trade-Score < 70");}
@@ -842,12 +843,15 @@ function rankDgProducts(){
   const riskLine=Number.isFinite(top._estimatedUnits)
     ? `Geschätzte Stückzahl: <b>${top._estimatedUnits}</b> · Risiko/Stück ≈ ${top._riskPerUnitEur.toFixed(2)} € · ${top._riskModel}`
     : "Risiko/Stückzahl nicht verifiziert";
+
+  const dataAge=top.dataTimestamp?Math.max(0,(Date.now()-Date.parse(top.dataTimestamp))/1000):NaN;
+  const dataAgeLine=Number.isFinite(dataAge)?`Datenalter: <b>${Math.round(dataAge)} s</b>`:"Datenalter: nicht verifiziert";
   $("dgProductOut").innerHTML=`<div class="research">
     <b>Bob-Auswahl: ${top.name||top.isin||"Gold-Hebelprodukt"}</b><br>
     Trade-Score <b>${top._tradeScore}/100</b> · Produkt-Score <b>${top._productScore}/100</b> · Gesamtscore <b>${top._score}/100</b><br>
     Richtung ${top.direction} · Hebel ${Number(top.leverage).toFixed(1)}× · Produktkurs ${Number.isFinite(Number(top.productPrice))?Number(top.productPrice).toFixed(4):"—"} · K.O.-Abstand ${top._koDist.toFixed(2)}%
     <br>K.O.-Puffer zum technischen Stop: ${Number.isFinite(top._koBufferPct)?top._koBufferPct.toFixed(2)+"%":"—"} · Spread: ${top._spread.toFixed(2)}%
-    <br>${riskLine}
+    <br>${riskLine} · ${dataAgeLine} · Währung ${top.currency||"unbekannt"}
     <br><span class="small">${top.isin?"ISIN: "+top.isin+" · ":""}Live-Produktdaten verifiziert · ${top._reasons.join(" · ")||"keine zusätzlichen Warnungen"}</span>
   </div>
   <table style="margin-top:10px"><tr><td><b>Kandidat</b></td><td class="right"><b>Richtung</b></td><td class="right"><b>Hebel</b></td><td class="right"><b>K.O.</b></td><td class="right"><b>Spread</b></td><td class="right"><b>Score</b></td></tr>${rows}</table>
