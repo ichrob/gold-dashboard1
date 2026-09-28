@@ -45,7 +45,7 @@ class Handler(BaseHTTPRequestHandler):
                 "default-src 'self'; "
                 "script-src 'self' 'unsafe-inline'; "
                 "style-src 'self' 'unsafe-inline'; "
-                "connect-src 'self' https://biquote.io https://ntfy.sh; "
+                "connect-src 'self' https://xaus.com https://api.goldprice.dev https://ntfy.sh https://biquote.io; "
                 "img-src 'self' data:; "
                 "worker-src 'self'; "
                 "object-src 'none'; "
