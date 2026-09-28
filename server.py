@@ -3,6 +3,7 @@ import base64
 import hmac
 import json
 import time
+import threading
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
@@ -25,6 +26,10 @@ ICON = ICON_PATH.read_bytes() if ICON_PATH.exists() else None
 
 UPSTREAM_TIMEOUT = 10
 FRESH_MAX_AGE = 180
+LIVE_CACHE_TTL = 20
+_live_cache = None
+_live_cache_at = 0.0
+_live_lock = threading.Lock()
 
 def fetch_json(url):
     req = Request(url, headers={"User-Agent": "Bob/1.0", "Accept": "application/json"})
@@ -52,8 +57,18 @@ def iso_age_seconds(value):
         return None
 
 def build_live_bundle():
-    now = int(time.time() * 1000)
-    xaus = fetch_json(f"https://xaus.com/api/v1/spot?currency=USD&fresh={now}")
+    global _live_cache, _live_cache_at
+    cached = _live_cache
+    if cached is not None and time.time() - _live_cache_at < LIVE_CACHE_TTL:
+        return cached
+
+    with _live_lock:
+        cached = _live_cache
+        if cached is not None and time.time() - _live_cache_at < LIVE_CACHE_TTL:
+            return cached
+
+        now = int(time.time() * 1000)
+        xaus = fetch_json(f"https://xaus.com/api/v1/spot?currency=USD&fresh={now}")
     intraday = fetch_json("https://xaus.com/api/v1/intraday?symbol=xau&hours=48")
     goldprice = fetch_json("https://api.goldprice.dev/v1/prices?symbol=XAU-USD-SPOT")
 
@@ -85,7 +100,7 @@ def build_live_bundle():
     if pct > 0.50:
         raise RuntimeError(f"Live-Quellen weichen um {pct:.3f}% ab – Analyse angehalten")
 
-    return {
+    bundle = {
         "fetched_at": int(time.time()),
         "spots": {
             "xaus": xaus_price,
@@ -101,6 +116,9 @@ def build_live_bundle():
             "age_seconds": intraday_age
         }
     }
+    _live_cache = bundle
+    _live_cache_at = time.time()
+    return bundle
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
