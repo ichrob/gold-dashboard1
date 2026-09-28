@@ -18,6 +18,8 @@ class BobPushContractTests(unittest.TestCase):
     def test_trade_management_is_guarded(self):
         self.assertRegex(self.html, r'function canNotify\(kind\).*?kind!=="trade"\s*\|\|\s*pushState\.activeTrade')
         self.assertIn('if(kind==="trade"&&!pushState.activeTrade)return false;', self.html)
+        self.assertIn('if(!pushState[kind])return false;', self.html)
+        self.assertIn('function savePushLast()', self.html)
 
     def test_entry_push_uses_confirmed_signal(self):
         self.assertIn('confirmedSignalDirection()', self.html)
@@ -46,7 +48,7 @@ class BobPushContractTests(unittest.TestCase):
         self.assertIn('notifyTrade("Bob – Trade schließen"', self.html)
 
     def test_embedded_javascript_parses(self):
-        scripts = re.findall(r'<script(?:\\s[^>]*)?>(.*?)</script>', self.html, flags=re.S | re.I)
+        scripts = re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>', self.html, flags=re.S | re.I)
         self.assertTrue(scripts)
         with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8") as f:
             f.write("\n".join(scripts))
