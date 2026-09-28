@@ -433,6 +433,12 @@ function falseBreakoutState(dir){
  if(dir==="SHORT" && last<sup-buffer && prev>=sup)return "UNCONFIRMED_SHORT_BREAKOUT";
  return "OK";
 }
+function confirmedSignalDirection(){
+ const raw=A.score>=70&&MTF.overall==="LONG"?"LONG":A.score<=30&&MTF.overall==="SHORT"?"SHORT":"NEUTRAL";
+ if(raw==="NEUTRAL")return "NEUTRAL";
+ const fb=falseBreakoutState(raw);
+ return (fb==="OK"||fb==="UNKNOWN")?raw:"NEUTRAL";
+}
 function updateResearchPanel(){
  const reg=currentRegime(); if($("regime"))$("regime").textContent=reg;
  let rawDir=A.score>=70&&MTF.overall==="LONG"?"LONG":A.score<=30&&MTF.overall==="SHORT"?"SHORT":"NEUTRAL";
@@ -449,7 +455,7 @@ function updateResearchPanel(){
 }
 function captureResearchSnapshot(result="OBSERVATION"){
  if(!C.length||!A.at)return;
- const dir=A.score>=70&&MTF.overall==="LONG"?"LONG":A.score<=30&&MTF.overall==="SHORT"?"SHORT":"NEUTRAL";
+ const dir=confirmedSignalDirection();
  const rec={time:new Date().toISOString(),price:lastPrice,atr:A.at,score:A.score??null,adx:A.adx??null,regime:currentRegime(),mtfLongs:MTF.longs,mtfShorts:MTF.shorts,direction:dir,stop:tradeMgmt.stop||stopPriceFor(dir,lastPrice,A.at,+( $("trailAtr")?.value||1.5)),result,costBps:+($("costBps")?.value||0),slippage:+($("slippage")?.value||0)};
  researchLog.push(rec);if(researchLog.length>5000)researchLog=researchLog.slice(-5000);saveResearch();updateResearchPanel();
 }
@@ -460,7 +466,7 @@ function exportResearch(){
 }
 function setTradeEntry(){
  if(!lastPrice||!A.at)return;
- const dir=A.score>=70&&MTF.longs>=3?"LONG":A.score<=30&&MTF.shorts>=3?"SHORT":"NEUTRAL";
+ const dir=confirmedSignalDirection();
  if(dir==="NEUTRAL"){$("stopUpdate").textContent="Kein bestätigtes LONG-/SHORT-Setup.";return;}
  const entry=+($("tradeEntry").value||lastPrice), sm=stopModel(dir,entry,A.at,+( $("trailAtr")?.value||1.5));
  if(!sm.stop){$("stopUpdate").textContent="Kein valider Stop berechenbar.";return;}
@@ -469,7 +475,7 @@ function setTradeEntry(){
  $("tradeEntry").value=tradeMgmt.entry.toFixed(2);$("tradePrice").value=lastPrice.toFixed(2);$("tradeStop").value=tradeMgmt.stop.toFixed(2);saveTradeMgmt();
  pushState.activeTrade=true;savePush();
  const msg=`${dir}: initialer Stop-Loss ${displayStop(tradeMgmt.stop)}. Einstieg ${tradeMgmt.entry.toFixed(2)} USD/oz.`;
- $("stopUpdate").innerHTML="<b>Trade bestätigt.</b> "+msg+" CRV-Ziel: "+displayStop(tradeMgmt.target)+" (2R).";notifyTrade("Gold Scanner – Trade bestätigt",msg);captureResearchSnapshot("TRADE_SET");updateResearchPanel();
+ $("stopUpdate").innerHTML="<b>Trade bestätigt.</b> "+msg+" CRV-Ziel: "+displayStop(tradeMgmt.target)+" ("+tgt.rr.toFixed(2)+"R).";notifyTrade("Gold Scanner – Trade bestätigt",msg);captureResearchSnapshot("TRADE_SET");updateResearchPanel();
 }
 function suggestStopUpdate(){
  if(!tradeMgmt.active){$("stopUpdate").textContent="Kein aktiver Trade – zuerst Trade-Einstieg bestätigen.";return;}
@@ -593,7 +599,7 @@ async function fetchSpotSources(){
  const j=await fetchLiveBundle();const s=j.spots||{},xaus=Number(s.xaus),gp=Number(s.goldprice),reference=Number(s.yahoo_gc_f||s.biquote),diff=Number(s.diff),pct=Number(s.pct);
  if(!Number.isFinite(xaus)||!Number.isFinite(gp)||!Number.isFinite(pct))throw Error("Ungültige Live-Goldwerte");
  const sourceWarning=pct>0.50?"⚠️ Spot/Futures-Abweichung "+pct.toFixed(3)+"% – Futures nur als technische Referenz":"";
- return {xaus,gp,reference,diff,pct,sourceWarning};
+ return {xaus,gp,reference,diff,pct,sourceWarning,usd_eur:Number(s.usd_eur)};
 }
 async function loadData(){
  try{
@@ -603,6 +609,8 @@ async function loadData(){
   if(!["5m","15m","1h"].includes(tf))throw Error("Diese Zeitebene wird nicht unterstützt.");
   if(!bars.length)throw Error("Keine echte "+tf+"-Historie verfügbar");
   C=bars.filter(b=>!b.isOpen).slice(-n);lastPrice=spots.xaus;
+  const fxEl=$("fxRate");
+  if(fxEl&&Number.isFinite(Number(spots.usd_eur))&&Number(spots.usd_eur)>0&&!fxEl.dataset.manual)fxEl.value=Number(spots.usd_eur).toFixed(4);
   const sourceNote=spots.sourceWarning||"Spot/Futures-Differenz gering · Futures = technische Referenz";
   $("status").textContent=`LIVE · XAU/USD ${lastPrice.toFixed(2)} · GoldPrice.dev Spot + Yahoo GC=F · ${sourceNote} · ${new Date().toLocaleTimeString()}`;
   analyze();restoreTradeMgmt();await loadMTF();
@@ -612,7 +620,7 @@ function demo(){let p=4250;C=[];lastPrice=p;for(let i=0;i<250;i++){p+=Math.sin(i
 function riskCalc(){
  if(!lastPrice||!A.at){$("riskout").textContent="Zuerst Daten laden.";return}
  const acc=+$("account").value,risk=+$("risk2").value/100,lev=Math.max(1,+$("lev").value||1),m=+$("atrmult").value,rr=Math.max(1,+$("rr").value),euro=acc*risk,fx=+$("fxRate")?.value||0;
- const dir=A.score>=70&&MTF.overall==="LONG"?"LONG":A.score<=30&&MTF.overall==="SHORT"?"SHORT":"NEUTRAL";
+ const dir=confirmedSignalDirection();
  if(dir==="NEUTRAL"){$("riskout").innerHTML=`Richtung: <b>ABWARTEN / NO TRADE</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Kein Stop- oder Zielkurs für ein neutrales Setup.`;return;}
  const sm=stopModel(dir,lastPrice,A.at,m),tgt=targetModel(dir,lastPrice,sm.stop,rr),dist=Math.abs(lastPrice-sm.stop);
  if(!sm.stop||!tgt.target||tgt.rr<1){$("riskout").textContent="Kein valides Risiko-/CRV-Modell.";return}
@@ -622,6 +630,7 @@ function riskCalc(){
  $("riskout").innerHTML=`Richtung: <b>${dir}</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Stop: <b>${sm.stop.toFixed(2)}</b> · ${sm.reason}<br>Ziel: <b>${tgt.target.toFixed(2)}</b><br>CRV: <b>${tgt.rr.toFixed(2)} : 1</b><br>Theoretischer Basis-Positionswert: <b>${notionalEur.toFixed(2)} €</b><br>Rechnerische Margin bei ${lev}×: <b>${marginEur.toFixed(2)} €</b><br><span class="small">FX ${fx.toFixed(4)} EUR/USD · Basiswertrechnung, keine DEGIRO-Produktstückzahl.</span>`;
 }
 restoreTradeMgmt(); updateResearchPanel();
+const fxField=$("fxRate"); if(fxField)fxField.addEventListener("input",()=>fxField.dataset.manual="1",{once:true});
 loadData();
 setInterval(()=>{ if(document.visibilityState==="visible") loadData(); }, 60000);
 </script></body></html>
