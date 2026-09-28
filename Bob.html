@@ -272,12 +272,18 @@ function draw(a){const cv=$("chart"),ctx=cv.getContext("2d"),w=cv.width,h=cv.hei
 function emaS(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
 function rsiS(a,p=14){if(a.length<p+2)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];g+=Math.max(d,0);l+=Math.max(-d,0)}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return l===0?100:100-100/(1+g/l)}
 function timeframeScore(bars){
-  const closed=bars.filter(x=>!x.isOpen).slice(-220);
-  if(closed.length<50)return {dir:"NEUTRAL",score:0,age:null,reason:"zu wenig Historie"};
-  const a=closed.map(x=>+x.close), e20=a.length>=20?ema(a,20):null,e50=a.length>=50?ema(a,50):null,e200=a.length>=200?ema(a,200):null,R=rsiS(a);
-  const e12=emaS(a,12),e26=emaS(a,26), mac=e12.at(-1)-e26.at(-1);
-  const macPrev=e12.at(-2)-e26.at(-2);
-  let score=0,components=0;if(e20!=null){if(a.at(-1)>e20)score++;else score--;components++;}if(e50!=null){if(e20!=null){if(e20>e50)score++;else score--;components++;}}if(e200!=null&&e50!=null){if(e50>e200)score++;else score--;components++;}if(mac>macPrev)score++;else score--;components++;if(R>=50&&R<=70)score++;if(R<35)score--;components++;const dir=components>=4?(score>=2?"LONG":score<=-2?"SHORT":"NEUTRAL"):"NEUTRAL";return {dir,score,rsi:R,price:a.at(-1),openTime:closed.at(-1).openTime,components,fullHistory:a.length>=200};
+  const closed=(bars||[]).filter(x=>!x.isOpen).slice(-220);
+  if(closed.length<50)return {dir:"NEUTRAL",score:0,rsi:null,age:null,reason:"zu wenig Historie",available:false,fullHistory:false};
+  const a=closed.map(x=>+x.close), e20=ema(a,20),e50=ema(a,50),e200=a.length>=200?ema(a,200):null,R=rsiS(a);
+  const e12=emaS(a,12),e26=emaS(a,26), mac=e12.at(-1)-e26.at(-1), macPrev=e12.at(-2)-e26.at(-2);
+  let score=0,components=0;
+  if(a.at(-1)>e20)score++;else score--;components++;
+  if(e20>e50)score++;else score--;components++;
+  if(e200!=null){if(e50>e200)score++;else score--;components++;}
+  if(mac>macPrev)score++;else score--;components++;
+  if(Number.isFinite(R)){if(R>=50&&R<=70)score++;else if(R<35)score--;components++;}
+  const dir=components>=4?(score>=2?"LONG":score<=-2?"SHORT":"NEUTRAL"):"NEUTRAL";
+  return {dir,score,rsi:R,price:a.at(-1),openTime:closed.at(-1).openTime,components,available:true,fullHistory:a.length>=200};
 }
 function barsFromIntraday(points, minutes){
   const step=minutes*60*1000, buckets=new Map();
@@ -309,22 +315,22 @@ async function loadMTF(force=false){
   const tfBars=bundle.history?.bars_by_tf||{};
   lastMtfAt=Date.now();
   const tfs=[
-   ["5m","mtf5",barsFromIntraday(points,5)],
-   ["15m","mtf15",barsFromIntraday(points,15)],
+   ["5m","mtf5",tfBars["5m"]||barsFromIntraday(points,5)],
+   ["15m","mtf15",tfBars["15m"]||barsFromIntraday(points,15)],
    ["1h","mtf1h",tfBars["1h"]||[]],
    ["4h","mtf4h",tfBars["4h"]||[]]
   ];
   const results=tfs.map(([tf,id,bars])=>[tf,id,timeframeScore(bars)]);
   let longs=0,shorts=0,neutral=0;
   for(const [tf,id,z] of results){
-   const label=z.age===null?"NEUTRAL · zu wenig Historie":z.dir+(z.rsi!=null?" · RSI "+z.rsi.toFixed(0):"");
+   const label=!z.available?"NEUTRAL · Historie fehlt":z.dir+(z.rsi!=null?" · RSI "+z.rsi.toFixed(0):"");
    $(id).textContent=label;
    $(id).className=z.dir==="LONG"?"ok":z.dir==="SHORT"?"bad":"neutral";
    z.dir==="LONG"?longs++:z.dir==="SHORT"?shorts++:neutral++;
   }
   const byTf=Object.fromEntries(results.map(x=>[x[0],x[2]]));
   const dirs=[byTf["4h"]?.dir,byTf["1h"]?.dir,byTf["15m"]?.dir,byTf["5m"]?.dir];
-  const valid=dirs.every(Boolean);
+  const valid=results.every(([,id,z])=>z.available);
   const longChain=valid&&dirs[0]==="LONG"&&dirs[1]==="LONG"&&dirs[2]!=="SHORT"&&dirs[3]!=="SHORT";
   const shortChain=valid&&dirs[0]==="SHORT"&&dirs[1]==="SHORT"&&dirs[2]!=="LONG"&&dirs[3]!=="LONG";
   const overall=longChain?"LONG":shortChain?"SHORT":"NEUTRAL";
@@ -495,7 +501,13 @@ function advancedAnalysis(){
  if(p>b.mid&&st>50){pts+=1;details.push("Preisstruktur ↑")}
  else if(p<b.mid&&st<50){pts-=1;details.push("Preisstruktur ↓")} max+=1;
  if(vw){if(p>vw)pts+=1;else pts-=1;details.push("VWAP "+(p>vw?"↑":"↓"));max+=1}
- if(p>lv.sup+(lv.res-lv.sup)*.15 && p<lv.res-(lv.res-lv.sup)*.15){pts+=0.5;max+=0.5}
+ const range=lv.res-lv.sup;
+ if(range>0){
+   const midRange=lv.sup+range*0.5;
+   if(p>=midRange)pts+=0.5; else pts-=0.5;
+   details.push("Lage im Range "+(p>=midRange?"↑":"↓"));
+ }
+ max+=0.5;
  let score=50+50*(pts/max);
  let verdict=score>=70?"🟢 LONG-Qualität":score<=30?"🔴 SHORT-Qualität":"🟡 ABWARTEN";
  $("score").textContent=`${verdict} · ${score.toFixed(0)}/100`;
