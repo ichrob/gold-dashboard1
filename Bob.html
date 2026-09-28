@@ -259,26 +259,25 @@ async function testPush(){if(!pushState.registered){const ok=await registerNotif
 (function(){const t=localStorage.getItem("goldScannerNtfyTopic");if(t&&$("ntfyTopic"))$("ntfyTopic").value=t;})();
 renderPush();
 
-let C=[], lastPrice=0, A={};
+let C=[], lastPrice=0, A={};let liveHistoryCache=null,liveHistoryAt=0,lastMtfAt=0;
 function ema(a,p){let k=2/(p+1),e=a[0];for(let i=1;i<a.length;i++)e=a[i]*k+e*(1-k);return e}
 function emaSeries(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
 function rsi(a,p=14){if(a.length<=p)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];d>0?g+=d:l-=d}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return l===0?100:100-100/(1+g/l)}
 function atr(c,p=14){if(c.length<p+1)return 0;let tr=[];for(let i=1;i<c.length;i++)tr.push(Math.max(c[i].high-c[i].low,Math.abs(c[i].high-c[i-1].close),Math.abs(c[i].low-c[i-1].close)));return tr.slice(-p).reduce((x,y)=>x+y,0)/Math.min(p,tr.length)}
-function calc(){let a=C.map(x=>x.close),e20=ema(a,20),e50=ema(a,50),e200=ema(a,Math.min(200,a.length)),R=rsi(a),at=atr(C),e20s=emaSeries(a,20),e50s=emaSeries(a,50);const fast=emaSeries(a,12),slow=emaSeries(a,26),macdSeries=a.map((_,i)=>fast[i]-slow[i]);const sigSeries=emaSeries(macdSeries,9);const macd=macdSeries.at(-1),sig=sigSeries.at(-1);A={e20,e50,e200,R,at,macd,sig,hist:macd-sig};return A}
-function analyze(){if(!C.length)return;let a=C.map(x=>x.close),x=calc();lastPrice=lastPrice||a.at(-1);$("price").textContent=lastPrice.toFixed(2);$("rsi").textContent=x.R.toFixed(1);$("ema20").textContent=x.e20.toFixed(2);$("ema50").textContent=x.e50.toFixed(2);$("ema200").textContent=x.e200.toFixed(2);$("atr").textContent=x.at.toFixed(2);$("macd").textContent=x.macd.toFixed(3);$("macds").textContent=x.sig.toFixed(3);$("hist").textContent=x.hist.toFixed(3);$("trend").textContent=x.e20>x.e50?"Bullish":"Bearish";$("trend2").textContent=x.e50>x.e200?"Bullish":"Bearish";
-const signalPrice=a.at(-1);A.signalPrice=signalPrice;let score=0;if(signalPrice>x.e20)score++;if(x.e20>x.e50)score++;if(x.e50>x.e200)score++;if(x.macd>x.sig)score++;if(x.R>50&&x.R<70)score++;if(x.R<30)score--;if(x.R>75)score--;let txt=score>=4?"🟢 LONG-Setup":score<=1?"🔴 SHORT-Setup":"🟡 NEUTRAL";$("signal").textContent=txt;$("signal").className="signal "+(score>=4?"ok":score<=1?"bad":"neutral");draw(a);updateQuick();advancedAnalysis()}
+function calc(){let a=C.map(x=>x.close),e20=a.length>=20?ema(a,20):null,e50=a.length>=50?ema(a,50):null,e200=a.length>=200?ema(a,200):null,R=rsi(a),at=atr(C);const fast=emaSeries(a,12),slow=emaSeries(a,26),macdSeries=a.map((_,i)=>fast[i]-slow[i]);const sigSeries=emaSeries(macdSeries,9);const macd=macdSeries.at(-1),sig=sigSeries.at(-1);A={e20,e50,e200,R,at,macd,sig,hist:macd-sig};return A}
+function analyze(){if(!C.length)return;let a=C.map(x=>x.close),x=calc();lastPrice=lastPrice||a.at(-1);$("price").textContent=lastPrice.toFixed(2);$("rsi").textContent=x.R.toFixed(1);$("ema20").textContent=x.e20==null?"n/v":x.e20.toFixed(2);$("ema50").textContent=x.e50==null?"n/v":x.e50.toFixed(2);$("ema200").textContent=x.e200==null?"n/v":x.e200.toFixed(2);$("atr").textContent=x.at.toFixed(2);$("macd").textContent=x.macd.toFixed(3);$("macds").textContent=x.sig.toFixed(3);$("hist").textContent=x.hist.toFixed(3);$("trend").textContent=x.e20!=null&&x.e50!=null?(x.e20>x.e50?"Bullish":"Bearish"):"n/v";$("trend2").textContent=x.e50!=null&&x.e200!=null?(x.e50>x.e200?"Bullish":"Bearish"):"n/v";
+const signalPrice=a.at(-1);A.signalPrice=signalPrice;let score=0;let ready=a.length>=200&&x.e20!=null&&x.e50!=null&&x.e200!=null; if(ready){if(signalPrice>x.e20)score++;if(x.e20>x.e50)score++;if(x.e50>x.e200)score++;if(x.macd>x.sig)score++;if(x.R>50&&x.R<70)score++;if(x.R<30)score--;if(x.R>75)score--;}else score=0;let txt=!ready?"🟡 NEUTRAL · zu wenig Historie":score>=4?"🟢 LONG-Setup":score<=1?"🔴 SHORT-Setup":"🟡 NEUTRAL";$("signal").textContent=txt;$("signal").className="signal "+(score>=4?"ok":score<=1&&ready?"bad":"neutral");draw(a);updateQuick();advancedAnalysis()}
 function draw(a){const cv=$("chart"),ctx=cv.getContext("2d"),w=cv.width,h=cv.height;ctx.clearRect(0,0,w,h);const v=C.slice(-120),ps=v.map(x=>x.close).filter(Number.isFinite);if(v.length<2||ps.length<2)return;const mn=Math.min(...ps),mx=Math.max(...ps),pad=18;ctx.beginPath();v.forEach((b,i)=>{const p=Number(b.close),x=pad+i*(w-pad*2)/(v.length-1),y=h-pad-(p-mn)/(mx-mn||1)*(h-pad*2);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.strokeStyle="#222";ctx.lineWidth=2;ctx.stroke();const lp=Number(lastPrice);if(Number.isFinite(lp)){const y=h-pad-(lp-mn)/(mx-mn||1)*(h-pad*2);ctx.setLineDash([5,4]);ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(w-pad,y);ctx.stroke();ctx.setLineDash([])}}
 
 function emaS(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
 function rsiS(a,p=14){if(a.length<p+2)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];g+=Math.max(d,0);l+=Math.max(-d,0)}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return l===0?100:100-100/(1+g/l)}
 function timeframeScore(bars){
   const closed=bars.filter(x=>!x.isOpen).slice(-220);
-  if(closed.length<60)return {dir:"NEUTRAL",score:0,age:null};
-  const a=closed.map(x=>+x.close), e20=ema(a,20),e50=ema(a,50),e200=ema(a,Math.min(200,a.length)),R=rsiS(a);
+  if(closed.length<50)return {dir:"NEUTRAL",score:0,age:null,reason:"zu wenig Historie"};
+  const a=closed.map(x=>+x.close), e20=a.length>=20?ema(a,20):null,e50=a.length>=50?ema(a,50):null,e200=a.length>=200?ema(a,200):null,R=rsiS(a);
   const e12=emaS(a,12),e26=emaS(a,26), mac=e12.at(-1)-e26.at(-1);
   const macPrev=e12.at(-2)-e26.at(-2);
-  let score=0;if(a.at(-1)>e20)score++;else score--;if(e20>e50)score++;else score--;if(e50>e200)score++;else score--;if(mac>macPrev)score++;else score--;if(R>=50&&R<=70)score++;if(R<35)score--;
-  return {dir:score>=2?"LONG":score<=-2?"SHORT":"NEUTRAL",score,rsi:R,price:a.at(-1),openTime:closed.at(-1).openTime};
+  let score=0,components=0;if(e20!=null){if(a.at(-1)>e20)score++;else score--;components++;}if(e50!=null){if(e20!=null){if(e20>e50)score++;else score--;components++;}}if(e200!=null&&e50!=null){if(e50>e200)score++;else score--;components++;}if(mac>macPrev)score++;else score--;components++;if(R>=50&&R<=70)score++;if(R<35)score--;components++;const dir=components>=4?(score>=2?"LONG":score<=-2?"SHORT":"NEUTRAL"):"NEUTRAL";return {dir,score,rsi:R,price:a.at(-1),openTime:closed.at(-1).openTime,components,fullHistory:a.length>=200};
 }
 function barsFromIntraday(points, minutes){
   const step=minutes*60*1000, buckets=new Map();
@@ -292,14 +291,17 @@ function barsFromIntraday(points, minutes){
   return [...buckets.values()].sort((a,b)=>a.ts-b.ts).map(x=>({open:x.open,high:x.high,low:x.low,close:x.close,isOpen:false,openTime:x.ts}));
 }
 async function fetchIntradayPoints(){
- const r=await fetch("https://xaus.com/api/v1/intraday?symbol=xau&hours=48&fresh="+Date.now(),{cache:"no-store"});
+ const now=Date.now();if(liveHistoryCache&&now-liveHistoryAt<120000)return liveHistoryCache;
+ const r=await fetch("https://xaus.com/api/v1/intraday?symbol=xau&hours=48&fresh="+now,{cache:"no-store"});
  if(!r.ok)throw Error("XAUS intraday HTTP "+r.status);
- const j=await r.json();if(j.data_state?.status==="unavailable")throw Error("XAUS intraday unavailable");
- return j.points||[];
+ const j=await r.json();if(j.data_state?.status!=="fresh")throw Error("XAUS Intraday-Daten nicht frisch");
+ liveHistoryCache=j.points||[];liveHistoryAt=now;return liveHistoryCache;
 }
-async function loadMTF(){
+async function loadMTF(force=false){
+ if(!force&&lastMtfAt&&Date.now()-lastMtfAt<300000)return MTF;
  try{
   const points=await fetchIntradayPoints();
+  lastMtfAt=Date.now();
   const tfs=[["5m","mtf5",5],["15m","mtf15",15],["1h","mtf1h",60]];
   const results=tfs.map(([tf,id,min])=>[tf,id,timeframeScore(barsFromIntraday(points,min))]);
   let longs=0,shorts=0,neutral=0;
@@ -553,7 +555,7 @@ async function fetchSpotSources(){
   ]);
   const xaus=Number(a.spot_usd_oz), gp=Number(b.symbols?.[0]?.price);
   if(!Number.isFinite(xaus)||!Number.isFinite(gp))throw Error("Ungültige Live-Goldwerte");
-  if(a.data_state?.status==="unavailable" || a.stale===true || b.symbols?.[0]?.is_stale===true)throw Error("Mindestens eine Live-Quelle ist nicht frisch");
+  if(a.data_state?.status!=="fresh" || a.stale===true || b.symbols?.[0]?.is_stale===true)throw Error("Mindestens eine Live-Quelle ist nicht frisch");
   const diff=Math.abs(xaus-gp), pct=diff/((xaus+gp)/2)*100;
   if(pct>0.50)throw Error("Live-Quellen weichen um "+pct.toFixed(3)+"% ab – Analyse vorsichtshalber angehalten");
   return {xaus,gp,diff,pct};
@@ -563,7 +565,7 @@ async function loadData(){
   const tf=$("tf").value, n=+$("n").value;
   const [spots,history]=await Promise.all([
     fetchSpotSources(),
-    fetch("https://xaus.com/api/v1/intraday?symbol=xau&hours=48",{cache:"no-store"}).then(r=>{if(!r.ok)throw Error("XAUS intraday HTTP "+r.status);return r.json()})
+    fetchIntradayPoints().then(points=>({points,data_state:{status:"fresh"}}))
   ]);
   const points=history.points||[];
   const minutes=tf==="5m"?5:tf==="15m"?15:tf==="1h"?60:null;
