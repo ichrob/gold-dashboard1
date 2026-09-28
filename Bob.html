@@ -73,12 +73,12 @@ canvas{width:100%;height:220px;border-radius:12px;background:#fafafa}.warning{ba
 <h3>Datenquelle</h3>
 <div class="grid">
 <div><label>Markt</label><input value="XAU/USD (Gold)" disabled></div>
-<div><label>Datenanbieter</label><input value="GoldPrice.dev · Spot + Yahoo GC=F · kostenlos" disabled></div>
+<div><label>Datenanbieter</label><input value="GoldPrice.dev Spot + Yahoo GC=F Futures" disabled></div>
 <div><label>Zeitebene</label><select id="tf"><option value="5m">5 Minuten</option><option value="15m" selected>15 Minuten</option><option value="1h">1 Stunde</option></select></div>
 <div><label>Kerzen</label><select id="n"><option>100</option><option selected>200</option><option>500</option><option>1000</option></select></div>
 </div>
 <div class="row" style="margin-top:10px"><button onclick="loadData()">🔴 Live XAU/USD laden</button><button onclick="demo()">Demo-Daten</button></div>
-<div id="status" class="small" style="margin-top:8px">Kostenlos · GoldPrice.dev Spot + Yahoo GC=F 5m. Die Analyse wird gestoppt, wenn die Live-Daten nicht frisch oder unvollständig sind.</div>
+<div id="status" class="small" style="margin-top:8px">GoldPrice.dev XAU/USD Spot + Yahoo GC=F Futures. GC=F dient als technische Historie; Spot und Futures sind unterschiedliche Instrumente.</div>
 </div>
 
 <div class="card"><div id="signal" class="signal neutral">Noch keine Analyse</div></div>
@@ -304,20 +304,42 @@ async function fetchIntradayPoints(){const j=await fetchLiveBundle();if(j.histor
 async function loadMTF(force=false){
  if(!force&&lastMtfAt&&Date.now()-lastMtfAt<300000)return MTF;
  try{
-  const points=await fetchIntradayPoints();
+  const bundle=await fetchLiveBundle();
+  const points=bundle.history?.points||[];
+  const tfBars=bundle.history?.bars_by_tf||{};
   lastMtfAt=Date.now();
-  const tfs=[["5m","mtf5",5],["15m","mtf15",15],["1h","mtf1h",60]];
-  const results=tfs.map(([tf,id,min])=>[tf,id,timeframeScore(barsFromIntraday(points,min))]);
+  const tfs=[
+   ["5m","mtf5",barsFromIntraday(points,5)],
+   ["15m","mtf15",barsFromIntraday(points,15)],
+   ["1h","mtf1h",tfBars["1h"]||[]],
+   ["4h","mtf4h",tfBars["4h"]||[]]
+  ];
+  const results=tfs.map(([tf,id,bars])=>[tf,id,timeframeScore(bars)]);
   let longs=0,shorts=0,neutral=0;
-  for(const [tf,id,z] of results){const label=z.age===null?"NEUTRAL · zu wenig Historie":z.dir+(z.rsi!=null?" · RSI "+z.rsi.toFixed(0):"");$(id).textContent=label;$(id).className=z.dir==="LONG"?"ok":z.dir==="SHORT"?"bad":"neutral";z.dir==="LONG"?longs++:z.dir==="SHORT"?shorts++:neutral++;}
-  $("mtf4h").textContent="Nicht bewertet · freie Intraday-Historie reicht nicht für robuste 4h/EMA200";$("mtf4h").className="neutral";
-  const byTf=Object.fromEntries(results.map(x=>[x[0],x[2]])),dirs=[byTf["1h"]?.dir,byTf["15m"]?.dir,byTf["5m"]?.dir];
-  const valid=dirs.every(Boolean),longChain=valid&&dirs[0]==="LONG"&&dirs[1]!=="SHORT"&&dirs[2]!=="SHORT",shortChain=valid&&dirs[0]==="SHORT"&&dirs[1]!=="LONG"&&dirs[2]!=="LONG";
-  const overall=longChain?"LONG":shortChain?"SHORT":"NEUTRAL";$("quickMtf").textContent=overall;
-  const strength=overall!=="NEUTRAL"?(overall==="LONG"?dirs.filter(d=>d==="LONG").length:dirs.filter(d=>d==="SHORT").length)+"/3 bestätigt":"Keine widerspruchsfreie Hierarchie";
-  const mtfSummary=$("mtfSummary");if(mtfSummary)mtfSummary.innerHTML="<b>"+overall+"</b><br>"+longs+" LONG · "+shorts+" SHORT · "+neutral+" NEUTRAL · "+strength+"<br><span class=\"small\">4h wird bewusst nicht simuliert: die kostenlose Intraday-Serie liefert dafür nicht genug Historie.</span>";
-  MTF={longs,shorts,neutral,overall,byTf,dirs};updateTradeSignal();updateResearchPanel();return MTF;
- }catch(e){$("quickMtf").textContent="NEUTRAL";const mtfSummary=$("mtfSummary");if(mtfSummary)mtfSummary.textContent="MTF momentan nicht verfügbar: "+e.message;MTF={longs:0,shorts:0,neutral:3,overall:"NEUTRAL",byTf:{},dirs:[]};updateTradeSignal();updateResearchPanel();return MTF;}
+  for(const [tf,id,z] of results){
+   const label=z.age===null?"NEUTRAL · zu wenig Historie":z.dir+(z.rsi!=null?" · RSI "+z.rsi.toFixed(0):"");
+   $(id).textContent=label;
+   $(id).className=z.dir==="LONG"?"ok":z.dir==="SHORT"?"bad":"neutral";
+   z.dir==="LONG"?longs++:z.dir==="SHORT"?shorts++:neutral++;
+  }
+  const byTf=Object.fromEntries(results.map(x=>[x[0],x[2]]));
+  const dirs=[byTf["4h"]?.dir,byTf["1h"]?.dir,byTf["15m"]?.dir,byTf["5m"]?.dir];
+  const valid=dirs.every(Boolean);
+  const longChain=valid&&dirs[0]==="LONG"&&dirs[1]==="LONG"&&dirs[2]!=="SHORT"&&dirs[3]!=="SHORT";
+  const shortChain=valid&&dirs[0]==="SHORT"&&dirs[1]==="SHORT"&&dirs[2]!=="LONG"&&dirs[3]!=="LONG";
+  const overall=longChain?"LONG":shortChain?"SHORT":"NEUTRAL";
+  $("quickMtf").textContent=overall;
+  const strength=overall!=="NEUTRAL"?(overall==="LONG"?dirs.filter(d=>d==="LONG").length:dirs.filter(d=>d==="SHORT").length)+"/4 bestätigt":"Keine widerspruchsfreie 4-Zeiten-Hierarchie";
+  const mtfSummary=$("mtfSummary");
+  if(mtfSummary)mtfSummary.innerHTML="<b>"+overall+"</b><br>"+longs+" LONG · "+shorts+" SHORT · "+neutral+" NEUTRAL · "+strength+"<br><span class=\"small\">4h basiert jetzt auf echter 1h-Historie und wird nur mit mindestens 200 geschlossenen 4h-Kerzen bewertet.</span>";
+  MTF={longs,shorts,neutral,overall,byTf,dirs};
+  updateTradeSignal();updateResearchPanel();return MTF;
+ }catch(e){
+  $("quickMtf").textContent="NEUTRAL";
+  const mtfSummary=$("mtfSummary");if(mtfSummary)mtfSummary.textContent="MTF momentan nicht verfügbar: "+e.message;
+  MTF={longs:0,shorts:0,neutral:4,overall:"NEUTRAL",byTf:{},dirs:[]};
+  updateTradeSignal();updateResearchPanel();return MTF;
+ }
 }
 function adxCalc(c,p=14){
  if(c.length<p*2+2)return 0;
@@ -553,10 +575,10 @@ function calcDgTrade(){
  </table><div class="small" style="margin-top:10px">${koWarning||costNote}<br>Vor einer Order in DEGIRO: Produktdaten, Spread, Finanzierung, Bezugsverhältnis und KO-Level direkt im Produkt prüfen. Der technische Stop ist nicht das KO-Level.</div>`;
 }
 async function fetchSpotSources(){
- const j=await fetchLiveBundle();const s=j.spots||{},xaus=Number(s.xaus),gp=Number(s.goldprice),diff=Number(s.diff),pct=Number(s.pct);
+ const j=await fetchLiveBundle();const s=j.spots||{},xaus=Number(s.xaus),gp=Number(s.goldprice),reference=Number(s.yahoo_gc_f||s.biquote),diff=Number(s.diff),pct=Number(s.pct);
  if(!Number.isFinite(xaus)||!Number.isFinite(gp)||!Number.isFinite(pct))throw Error("Ungültige Live-Goldwerte");
  if(pct>0.50)throw Error("Live-Quellen weichen um "+pct.toFixed(3)+"% ab – Analyse vorsichtshalber angehalten");
- return {xaus,gp,diff,pct};
+ return {xaus,gp,reference,diff,pct};
 }
 async function loadData(){
  try{
@@ -565,7 +587,7 @@ async function loadData(){
   if(!minutes)throw Error("Diese Zeitebene wird nicht unterstützt.");
   const bars=barsFromIntraday(points,minutes);if(!bars.length)throw Error("Keine XAU-Intradaydaten verfügbar");
   C=bars.slice(-n);lastPrice=spots.xaus;
-  const sourceNote=spots.pct<=0.15?"Quellen stimmen gut überein":"⚠️ Quellenabweichung "+spots.pct.toFixed(3)+"%";
+  const sourceNote=spots.pct<=0.15?"Spot/Futures-Differenz gering · Futures = technische Referenz":"⚠️ Spot/Futures-Differenz "+spots.pct.toFixed(3)+"%";
   $("status").textContent=`LIVE · XAU/USD ${lastPrice.toFixed(2)} · GoldPrice.dev Spot + Yahoo GC=F · ${sourceNote} · ${new Date().toLocaleTimeString()}`;
   analyze();restoreTradeMgmt();await loadMTF();
  }catch(e){const msg="Live-Daten momentan nicht erreichbar: "+e.message; $("status").textContent=msg+" · Bitte erneut versuchen."; $("quickSignal").textContent="🔴 LIVE-DATEN FEHLER"; $("quickSignal").className="signal bad"; $("quickReason").textContent=msg;}
