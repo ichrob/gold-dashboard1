@@ -594,11 +594,12 @@ async function fetchSpotSources(){
 }
 async function loadData(){
  try{
-  const tf=$("tf").value,n=+$("n").value,bundle=await fetchLiveBundle(true),spots=await fetchSpotSources(),points=bundle.history.points||[];
-  const minutes=tf==="5m"?5:tf==="15m"?15:tf==="1h"?60:null;
-  if(!minutes)throw Error("Diese Zeitebene wird nicht unterstützt.");
-  const bars=barsFromIntraday(points,minutes);if(!bars.length)throw Error("Keine XAU-Intradaydaten verfügbar");
-  C=bars.slice(-n);lastPrice=spots.xaus;
+  const tf=$("tf").value,n=+$("n").value,bundle=await fetchLiveBundle(true),spots=await fetchSpotSources();
+  const tfBars=bundle.history?.bars_by_tf||{};
+  const bars=tfBars[tf]||[];
+  if(!["5m","15m","1h"].includes(tf))throw Error("Diese Zeitebene wird nicht unterstützt.");
+  if(!bars.length)throw Error("Keine echte "+tf+"-Historie verfügbar");
+  C=bars.filter(b=>!b.isOpen).slice(-n);lastPrice=spots.xaus;
   const sourceNote=spots.sourceWarning||"Spot/Futures-Differenz gering · Futures = technische Referenz";
   $("status").textContent=`LIVE · XAU/USD ${lastPrice.toFixed(2)} · GoldPrice.dev Spot + Yahoo GC=F · ${sourceNote} · ${new Date().toLocaleTimeString()}`;
   analyze();restoreTradeMgmt();await loadMTF();
