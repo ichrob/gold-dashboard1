@@ -25,6 +25,6 @@ jobs:
         with:
           python-version: '3.12'
       - name: Syntax check
-        run: python -m py_compile push_engine.py test_push_engine.py
+        run: python -m py_compile push_engine.py test_push_engine.py test_bob_push_contract.py
       - name: Unit tests
-        run: python -m unittest -v test_push_engine.py
+        run: python -m unittest -v test_push_engine.py test_bob_push_contract.py
