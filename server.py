@@ -98,18 +98,17 @@ def build_live_bundle():
 
         now_ms = int(time.time() * 1000)
 
-        # XAUS remains the independent reference spot source.
-        xaus = fetch_json(f"https://xaus.com/api/v1/spot?currency=USD&compact=1&fresh={now_ms}")
-        xaus_price = float(xaus.get("spot_usd_oz"))
-        xaus_state = xaus.get("data_state", {}).get("status")
-        xaus_age = iso_age_seconds(xaus.get("price_as_of") or xaus.get("updated_at"))
-        if not (xaus_price > 0):
-            raise RuntimeError("XAUS liefert keinen gültigen XAU/USD-Preis")
-        if xaus_state != "fresh" or xaus_age is None or xaus_age > FRESH_MAX_AGE:
-            raise RuntimeError(f"XAUS Spot nicht frisch (Status {xaus_state}, Alter {xaus_age if xaus_age is not None else 'unbekannt'} s)")
+        # XAUS remains the independent reference source. Prefer the spot endpoint,
+        # but fall back to XAUS's own 2-minute intraday series if the spot upstream
+        # temporarily returns 503. This keeps the feed live without inventing prices.
+        xaus = None
+        spot_error = None
+        try:
+            xaus = fetch_json(f"https://xaus.com/api/v1/spot?currency=USD&compact=1&fresh={now_ms}")
+        except Exception as exc:
+            spot_error = exc
 
-        # XAUS is the single live source for spot + intraday history.
-        # The public intraday endpoint records XAU every 2 minutes and supports up to 48h.
+        # XAUS's public intraday endpoint records XAU every 2 minutes and supports up to 48h.
         intraday = fetch_json("https://xaus.com/api/v1/intraday?symbol=xau&hours=48")
         intraday_state = intraday.get("data_state", {}) if isinstance(intraday, dict) else {}
         intraday_points = intraday.get("points") if isinstance(intraday, dict) else None
@@ -117,6 +116,37 @@ def build_live_bundle():
             raise RuntimeError("XAUS liefert keine Intraday-Historie")
         if intraday_state.get("status") != "fresh":
             raise RuntimeError(f"XAUS Intraday nicht frisch (Status {intraday_state.get('status')})")
+
+        # Determine the freshest valid intraday point for a spot fallback.
+        latest_point = None
+        for point in intraday_points:
+            try:
+                stamp = str(point["t"]).replace("Z", "+00:00")
+                dt = datetime.fromisoformat(stamp)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                ts = dt.timestamp()
+                price = float(point["p"])
+                if price > 0 and (latest_point is None or ts > latest_point[0]):
+                    latest_point = (ts, price)
+            except (KeyError, TypeError, ValueError, OverflowError):
+                continue
+        if latest_point is None:
+            raise RuntimeError("XAUS liefert keinen gültigen Intraday-Preis")
+
+        if xaus is not None:
+            xaus_price = float(xaus.get("spot_usd_oz"))
+            xaus_state = xaus.get("data_state", {}).get("status")
+            xaus_age = iso_age_seconds(xaus.get("price_as_of") or xaus.get("updated_at"))
+            if not (xaus_price > 0):
+                raise RuntimeError("XAUS liefert keinen gültigen XAU/USD-Preis")
+            if xaus_state != "fresh" or xaus_age is None or xaus_age > FRESH_MAX_AGE:
+                raise RuntimeError(f"XAUS Spot nicht frisch (Status {xaus_state}, Alter {xaus_age if xaus_age is not None else 'unbekannt'} s)")
+        else:
+            xaus_price = latest_point[1]
+            xaus_age = max(0, time.time() - latest_point[0])
+            if xaus_age > FRESH_MAX_AGE:
+                raise RuntimeError(f"XAUS Spot-Fallback nicht frisch (Alter {xaus_age:.0f} s; Spot-Fehler: {spot_error})")
 
         # Convert the 2-minute XAUS series into the legacy OHLC contract.
         bars_5m = []
