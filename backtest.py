@@ -91,8 +91,8 @@ def backtest(bars,cost_bps=5,slippage=0.20):
         if e20>e50>e200: pts+=3
         elif e20<e50<e200: pts-=3
         maxv+=3
-        if mac>slow and R>=50 and R<75: pts+=2
-        elif mac<slow and R<50 and R>25: pts-=2
+        if mac>pmac and R>=50 and R<75: pts+=2
+        elif mac<pmac and R<50 and R>25: pts-=2
         maxv+=2
         # ADX/Bollinger/VWAP are omitted from this standalone engine rather than approximated.
         # This keeps the baseline honest: the resulting test is explicitly a partial-model test.
