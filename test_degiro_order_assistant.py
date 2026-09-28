@@ -12,7 +12,7 @@ from degiro_order_assistant import (
 
 def product(**overrides):
     values = dict(
-        isin="DE0001234567",
+        isin="DE000BAY0017",
         name="Example leveraged product",
         side="BUY",
         current_price=100.0,
