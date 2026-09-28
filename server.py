@@ -69,56 +69,56 @@ def build_live_bundle():
 
         now = int(time.time() * 1000)
         xaus = fetch_json(f"https://xaus.com/api/v1/spot?currency=USD&fresh={now}")
-    intraday = fetch_json("https://xaus.com/api/v1/intraday?symbol=xau&hours=48")
-    goldprice = fetch_json("https://api.goldprice.dev/v1/prices?symbol=XAU-USD-SPOT")
+        intraday = fetch_json("https://xaus.com/api/v1/intraday?symbol=xau&hours=48")
+        goldprice = fetch_json("https://api.goldprice.dev/v1/prices?symbol=XAU-USD-SPOT")
 
-    xaus_price = float(xaus.get("spot_usd_oz"))
-    gp_row = (goldprice.get("symbols") or [None])[0]
-    gp_price = float(gp_row.get("price")) if gp_row else float("nan")
-    if not (xaus_price > 0 and gp_price > 0):
-        raise RuntimeError("Ungültige Live-Goldwerte")
+        xaus_price = float(xaus.get("spot_usd_oz"))
+        gp_row = (goldprice.get("symbols") or [None])[0]
+        gp_price = float(gp_row.get("price")) if gp_row else float("nan")
+        if not (xaus_price > 0 and gp_price > 0):
+            raise RuntimeError("Ungültige Live-Goldwerte")
 
-    if xaus.get("data_state", {}).get("status") != "fresh":
-        raise RuntimeError("XAUS Spot-Daten nicht frisch")
-    if intraday.get("data_state", {}).get("status") != "fresh":
-        raise RuntimeError("XAUS Intraday-Daten nicht frisch")
-    if gp_row.get("is_stale") is True:
-        raise RuntimeError("GoldPrice.dev-Daten nicht frisch")
+        if xaus.get("data_state", {}).get("status") != "fresh":
+            raise RuntimeError("XAUS Spot-Daten nicht frisch")
+        if intraday.get("data_state", {}).get("status") != "fresh":
+            raise RuntimeError("XAUS Intraday-Daten nicht frisch")
+        if gp_row.get("is_stale") is True:
+            raise RuntimeError("GoldPrice.dev-Daten nicht frisch")
 
-    spot_age = iso_age_seconds(xaus.get("price_as_of") or xaus.get("updated_at"))
-    intraday_age = iso_age_seconds(intraday.get("data_state", {}).get("as_of"))
-    gp_age = iso_age_seconds(gp_row.get("computed_at"))
-    if any(age is None or age > FRESH_MAX_AGE for age in (spot_age, intraday_age, gp_age)):
-        raise RuntimeError("Mindestens eine Live-Quelle ist älter als 180 Sekunden")
+        spot_age = iso_age_seconds(xaus.get("price_as_of") or xaus.get("updated_at"))
+        intraday_age = iso_age_seconds(intraday.get("data_state", {}).get("as_of"))
+        gp_age = iso_age_seconds(gp_row.get("computed_at"))
+        if any(age is None or age > FRESH_MAX_AGE for age in (spot_age, intraday_age, gp_age)):
+            raise RuntimeError("Mindestens eine Live-Quelle ist älter als 180 Sekunden")
 
-    points = intraday.get("points") or []
-    if not points:
-        raise RuntimeError("XAUS Intraday-Serie ist leer")
+        points = intraday.get("points") or []
+        if not points:
+            raise RuntimeError("XAUS Intraday-Serie ist leer")
 
-    diff = abs(xaus_price - gp_price)
-    pct = diff / ((xaus_price + gp_price) / 2) * 100
-    if pct > 0.50:
-        raise RuntimeError(f"Live-Quellen weichen um {pct:.3f}% ab – Analyse angehalten")
+        diff = abs(xaus_price - gp_price)
+        pct = diff / ((xaus_price + gp_price) / 2) * 100
+        if pct > 0.50:
+            raise RuntimeError(f"Live-Quellen weichen um {pct:.3f}% ab – Analyse angehalten")
 
-    bundle = {
-        "fetched_at": int(time.time()),
-        "spots": {
-            "xaus": xaus_price,
-            "goldprice": gp_price,
-            "diff": diff,
-            "pct": pct,
-            "xaus_age_seconds": spot_age,
-            "goldprice_age_seconds": gp_age
-        },
-        "history": {
-            "points": points,
-            "data_state": intraday.get("data_state", {}),
-            "age_seconds": intraday_age
+        bundle = {
+            "fetched_at": int(time.time()),
+            "spots": {
+                "xaus": xaus_price,
+                "goldprice": gp_price,
+                "diff": diff,
+                "pct": pct,
+                "xaus_age_seconds": spot_age,
+                "goldprice_age_seconds": gp_age
+            },
+            "history": {
+                "points": points,
+                "data_state": intraday.get("data_state", {}),
+                "age_seconds": intraday_age
+            }
         }
-    }
-    _live_cache = bundle
-    _live_cache_at = time.time()
-    return bundle
+        _live_cache = bundle
+        _live_cache_at = time.time()
+        return bundle
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
