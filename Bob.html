@@ -556,6 +556,7 @@ function useRiskDefaults(){
 function calcDgTrade(){
  if(!lastPrice||!A.at){$("dgOut").innerHTML="Zuerst Live-Daten laden.";return}
  const acc=+$("account").value||500, riskPct=Math.max(0,+$("risk").value||1), maxLoss=acc*riskPct/100;
+ const fx=+$("fxRate")?.value||0;
  const lev=Math.max(1,+$("dgLev").value||1), ko=+$("dgKo").value, spread=Math.max(0,+$("dgSpread").value||0);
  const score=A.score??50, mtf=MTF.overall||"NEUTRAL";
  let dir=score>=70&&mtf==="LONG"?"LONG":score<=30&&mtf==="SHORT"?"SHORT":"ABWARTEN";
@@ -569,8 +570,9 @@ function calcDgTrade(){
  if(ko&&dir==="LONG"&&ko>=lastPrice)koWarning="⚠️ KO-Level liegt nicht unter dem aktuellen Goldpreis – LONG prüfen.";
  if(ko&&dir==="SHORT"&&ko<=lastPrice)koWarning="⚠️ KO-Level liegt nicht über dem aktuellen Goldpreis – SHORT prüfen.";
  if(ko&&koDist<2)koWarning="⚠️ KO-Abstand < 2%: sehr enger Puffer.";
- const costNote=spread>0?"Spread eingegeben: "+spread.toFixed(2):"Spread nicht eingegeben – CRV ist vor Kosten."; 
- const approxNotional=maxLoss/(riskDist/lastPrice), margin=approxNotional/lev;
+ const costNote=spread>0?"Spread eingegeben: "+spread.toFixed(2):"Spread nicht eingegeben – CRV ist vor Kosten.";
+ if(!Number.isFinite(fx)||fx<=0){$("dgOut").innerHTML="<b>Keine Berechnung.</b><br>Bitte zuerst eine gültige USD→EUR-FX-Rate im FX-Feld setzen.";return;}
+ const maxLossUsd=maxLoss/fx, approxNotionalUsd=maxLossUsd/(riskDist/lastPrice), approxNotionalEur=approxNotionalUsd*fx, marginEur=approxNotionalEur/lev;
  $("dgOut").innerHTML=`<table>
  <tr><td>Richtung</td><td class="right"><b>${dir}</b></td></tr>
  <tr><td>Produkt</td><td class="right">${productLabel}</td></tr>
@@ -581,10 +583,11 @@ function calcDgTrade(){
  <tr><td>CRV vor Kosten</td><td class="right"><b>${rr.toFixed(2)} : 1</b></td></tr>
  <tr><td>Stop-Distanz</td><td class="right">${riskDist.toFixed(2)} USD/oz</td></tr>
  <tr><td>Max. Verlust</td><td class="right"><b>${maxLoss.toFixed(2)} €</b></td></tr>
- <tr><td>Rechnerischer Positionswert</td><td class="right"><b>${approxNotional.toFixed(2)} €</b></td></tr>
- <tr><td>Rechnerische Margin bei ${lev.toFixed(1)}×</td><td class="right"><b>${margin.toFixed(2)} €</b></td></tr>
+ <tr><td>Theoretischer Basis-Positionswert</td><td class="right"><b>${approxNotionalEur.toFixed(2)} €</b></td></tr>
+ <tr><td>Rechnerische Margin bei ${lev.toFixed(1)}×</td><td class="right"><b>${marginEur.toFixed(2)} €</b></td></tr>
+ <tr><td>FX USD→EUR</td><td class="right"><b>${fx.toFixed(4)}</b></td></tr>
  ${ko?`<tr><td>KO-Abstand</td><td class="right"><b>${koDist.toFixed(2)}%</b></td></tr>`:''}
- </table><div class="small" style="margin-top:10px">${koWarning||costNote}<br>Vor einer Order in DEGIRO: Produktdaten, Spread, Finanzierung, Bezugsverhältnis und KO-Level direkt im Produkt prüfen. Der technische Stop ist nicht das KO-Level.</div>`;
+ </table><div class="small" style="margin-top:10px">${koWarning||costNote}<br>Nur theoretische Basiswertrechnung. Für Turbo/KO/Optionsschein ist die tatsächliche Stückzahl nicht aus "Hebel" allein bestimmbar; Bezugsverhältnis, Preis, Währung, Spread, Finanzierung und KO-Regeln des konkreten DEGIRO-Produkts sind erforderlich. Vor einer Order die Produktdaten direkt im Produkt prüfen. Der technische Stop ist nicht das KO-Level.</div>`;
 }
 async function fetchSpotSources(){
  const j=await fetchLiveBundle();const s=j.spots||{},xaus=Number(s.xaus),gp=Number(s.goldprice),reference=Number(s.yahoo_gc_f||s.biquote),diff=Number(s.diff),pct=Number(s.pct);
@@ -608,13 +611,15 @@ async function loadData(){
 function demo(){let p=4250;C=[];lastPrice=p;for(let i=0;i<250;i++){p+=Math.sin(i/8)*1.8+Math.sin(i*0.73)*2.2;const o=p-2,h=p+8,l=p-8;C.push({open:o,high:h,low:l,close:p,isOpen:false})}$("status").textContent="Reproduzierbare Demo-Daten aktiv.";analyze()}
 function riskCalc(){
  if(!lastPrice||!A.at){$("riskout").textContent="Zuerst Daten laden.";return}
- const acc=+$("account").value,risk=+$("risk2").value/100,lev=Math.max(1,+$("lev").value||1),m=+$("atrmult").value,rr=Math.max(1,+$("rr").value),euro=acc*risk;
+ const acc=+$("account").value,risk=+$("risk2").value/100,lev=Math.max(1,+$("lev").value||1),m=+$("atrmult").value,rr=Math.max(1,+$("rr").value),euro=acc*risk,fx=+$("fxRate")?.value||0;
  const dir=A.score>=70&&MTF.overall==="LONG"?"LONG":A.score<=30&&MTF.overall==="SHORT"?"SHORT":"NEUTRAL";
  if(dir==="NEUTRAL"){$("riskout").innerHTML=`Richtung: <b>ABWARTEN / NO TRADE</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Kein Stop- oder Zielkurs für ein neutrales Setup.`;return;}
  const sm=stopModel(dir,lastPrice,A.at,m),tgt=targetModel(dir,lastPrice,sm.stop,rr),dist=Math.abs(lastPrice-sm.stop);
  if(!sm.stop||!tgt.target||tgt.rr<1){$("riskout").textContent="Kein valides Risiko-/CRV-Modell.";return}
- const notional=euro/(dist/lastPrice),margin=notional/lev;
- $("riskout").innerHTML=`Richtung: <b>${dir}</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Stop: <b>${sm.stop.toFixed(2)}</b> · ${sm.reason}<br>Ziel: <b>${tgt.target.toFixed(2)}</b><br>CRV: <b>${tgt.rr.toFixed(2)} : 1</b><br>Positionswert nach Risikomodell: <b>${notional.toFixed(2)} €</b><br>Rechnerische Margin bei ${lev}×: <b>${margin.toFixed(2)} €</b>`;
+ if(!Number.isFinite(fx)||fx<=0){$("riskout").textContent="Keine gültige USD→EUR-FX-Rate. Bitte fxRate setzen.";return;}
+ const maxLossUsd=euro/fx;
+ const notionalUsd=maxLossUsd/(dist/lastPrice),notionalEur=notionalUsd*fx,marginEur=notionalEur/lev;
+ $("riskout").innerHTML=`Richtung: <b>${dir}</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Stop: <b>${sm.stop.toFixed(2)}</b> · ${sm.reason}<br>Ziel: <b>${tgt.target.toFixed(2)}</b><br>CRV: <b>${tgt.rr.toFixed(2)} : 1</b><br>Theoretischer Basis-Positionswert: <b>${notionalEur.toFixed(2)} €</b><br>Rechnerische Margin bei ${lev}×: <b>${marginEur.toFixed(2)} €</b><br><span class="small">FX ${fx.toFixed(4)} EUR/USD · Basiswertrechnung, keine DEGIRO-Produktstückzahl.</span>`;
 }
 restoreTradeMgmt(); updateResearchPanel();
 loadData();
