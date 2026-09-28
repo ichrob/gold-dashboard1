@@ -224,6 +224,8 @@ let pushState={...PUSH_DEFAULTS};
 try{const raw=localStorage.getItem("goldScannerPush");if(raw){const parsed=JSON.parse(raw);if(parsed&&typeof parsed==="object")pushState={...PUSH_DEFAULTS,...parsed};}}catch(e){console.warn("push state reset",e)}
 const PUSH_COOLDOWN=15*60*1000;
 let pushLast={};
+try{const raw=localStorage.getItem("goldScannerPushLast");if(raw){const parsed=JSON.parse(raw);if(parsed&&typeof parsed==="object")pushLast=parsed;}}catch(e){console.warn("push cooldown reset",e)}
+function savePushLast(){try{localStorage.setItem("goldScannerPushLast",JSON.stringify(pushLast));}catch(e){console.warn("push cooldown save",e)}}
 function savePush(){localStorage.setItem("goldScannerPush",JSON.stringify(pushState));renderPush();}
 function renderPush(){
  const gb=$("generalPushBtn"),tb=$("tradePushBtn"),ts=$("tradeStateBtn"),tp=$("tradePushState"),sb=$("simulationBtn");
@@ -267,12 +269,13 @@ function pushKey(kind,title,body){
  return kind+":"+title+":"+body;
 }
 function notify(kind,title,body,priority=4){
+ if(!pushState[kind])return false;
  if(kind==="trade"&&!pushState.activeTrade)return false;
  const key=pushKey(kind,title,body),now=Date.now(),last=pushLast[key]||0;
  if(now-last<PUSH_COOLDOWN){setPushStatus("⏳ Push unterdrückt (Anti-Spam): "+title);return false;}
- pushLast[key]=now;
- if(pushState.simulation){setPushStatus("🧪 Simulation: "+title+" — "+body);return true;}
+ if(pushState.simulation){pushLast[key]=now;savePushLast();setPushStatus("🧪 Simulation: "+title+" — "+body);return true;}
  if(!canNotify(kind))return false;
+ pushLast[key]=now;savePushLast();
  try{new Notification(title,{body,tag:"bob-"+key});sendNtfy(kind,title,body,priority);setPushStatus("🔔 Gesendet: "+title);return true}catch(e){sendNtfy(kind,title,body,priority);return false}
 }
 function notifyGeneral(title,body){return notify("general",title,body,4)}
