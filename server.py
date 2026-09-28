@@ -42,12 +42,12 @@ def fetch_json(url, retries=2):
                     raise RuntimeError(f"Upstream HTTP {response.status}")
                 return json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
-            last_error = RuntimeError(f"Upstream HTTP {exc.code}")
+            last_error = RuntimeError(f"Upstream HTTP {exc.code} ({url})")
         except (URLError, TimeoutError, json.JSONDecodeError) as exc:
-            last_error = RuntimeError("Upstream nicht erreichbar oder ungültige JSON-Antwort")
+            last_error = RuntimeError(f"Upstream nicht erreichbar oder ungültige JSON-Antwort ({url})")
         if attempt < retries:
             time.sleep(0.6 * (attempt + 1))
-    raise last_error or RuntimeError("Upstream nicht erreichbar")
+    raise last_error or RuntimeError(f"Upstream nicht erreichbar ({url})")
 
 def iso_age_seconds(value):
     if not value:
