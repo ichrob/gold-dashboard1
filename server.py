@@ -49,6 +49,30 @@ def fetch_json(url, retries=2, user_agent="Bob/1.1"):
             time.sleep(0.6 * (attempt + 1))
     raise last_error or RuntimeError(f"Upstream nicht erreichbar ({url})")
 
+def fetch_goldprice_bars(interval, days):
+    """Best-effort genuine XAU/USD spot OHLC; empty means unavailable on current API tier."""
+    end = datetime.now(timezone.utc)
+    start = datetime.fromtimestamp(end.timestamp() - days * 86400, timezone.utc)
+    url = (
+        "https://api.goldprice.dev/v1/bars?symbol=XAU-USD-SPOT"
+        f"&interval={interval}&from={start.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+        f"&to={end.strftime('%Y-%m-%dT%H:%M:%SZ')}&limit=10000"
+    )
+    try:
+        payload = fetch_json(url, retries=1, user_agent="Bob/1.1")
+        out = []
+        for b in payload.get("bars", []) if isinstance(payload, dict) else []:
+            try:
+                ts = datetime.fromisoformat(str(b["bar_start"]).replace("Z", "+00:00")).timestamp()
+                o, h, low, close = [float(b[k]) for k in ("open", "high", "low", "close")]
+                if not all(v > 0 and v == v for v in (o, h, low, close)): continue
+                out.append({"openTime": int(ts*1000), "open": o, "high": h, "low": low, "close": close, "isOpen": not bool(b.get("is_closed", False))})
+            except (KeyError, TypeError, ValueError, OverflowError):
+                continue
+        out.sort(key=lambda x: x["openTime"])
+        return out
+    except Exception:
+        return []
 def iso_age_seconds(value):
     if not value:
         return None
@@ -258,13 +282,18 @@ def build_live_bundle():
 
 
         usd_eur = None
-        try:
-            fx = fetch_json("https://api.goldprice.dev/v1/convert?from=USD&to=EUR&amount=1", retries=1, user_agent="Bob/1.1")
-            usd_eur = float(fx.get("rate")) if isinstance(fx, dict) else None
-            if not (usd_eur > 0):
-                usd_eur = None
-        except Exception:
-            pass
+        usd_chf = None
+        for ccy in ("EUR", "CHF"):
+            try:
+                fx = fetch_json(f"https://api.goldprice.dev/v1/convert?from=USD&to={ccy}&amount=1", retries=1, user_agent="Bob/1.1")
+                rate = float(fx.get("rate")) if isinstance(fx, dict) else None
+                if rate and rate > 0:
+                    if ccy == "EUR":
+                        usd_eur = rate
+                    else:
+                        usd_chf = rate
+            except Exception:
+                pass
 
         yahoo_price = bars_5m[-1]["close"]
         diff = goldprice_price - yahoo_price
@@ -285,6 +314,7 @@ def build_live_bundle():
                 "pct": pct,
                 "xaus_age_seconds": goldprice_age,
                 "usd_eur": usd_eur,
+                "usd_chf": usd_chf,
                 "yahoo_gc_f_age_seconds": latest_bar_age,
                 "yahoo_1h_age_seconds": latest_1h_age,
                 "technical_4h_status": "available" if bars_4h else "unavailable",
