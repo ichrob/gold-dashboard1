@@ -301,7 +301,7 @@ async function fetchLiveBundle(force=false){
  liveBundleCache=j;liveBundleAt=now;liveHistoryCache=j.history.points;liveHistoryAt=now;return j;
 }
 async function fetchIntradayPoints(){const j=await fetchLiveBundle();if(j.history.data_state?.status!=="fresh")throw Error("XAUS Intraday-Daten nicht frisch");return j.history.points||[];}
-function loadMTF(force=false){
+async function loadMTF(force=false){
  if(!force&&lastMtfAt&&Date.now()-lastMtfAt<300000)return MTF;
  try{
   const points=await fetchIntradayPoints();
