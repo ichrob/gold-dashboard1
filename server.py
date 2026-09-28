@@ -130,19 +130,18 @@ def build_live_bundle():
                 raise RuntimeError(f"Biquote liefert keine {tf}-Historie")
             bars_by_tf[tf] = bars
 
-        # Optional secondary spot source. It never blocks the live feed if stale/unavailable.
-        gp_price = None
-        gp_age = None
-        gp_status = "nicht verfügbar"
-        try:
-            goldprice = fetch_json("https://api.goldprice.dev/v1/prices?symbol=XAU-USD-SPOT")
-            gp_row = (goldprice.get("symbols") or [None])[0]
-            if gp_row:
-                gp_price = float(gp_row.get("price"))
-                gp_age = iso_age_seconds(gp_row.get("computed_at"))
-                gp_status = "frisch" if gp_row.get("is_stale") is not True and gp_age is not None and gp_age <= FRESH_MAX_AGE else "stale"
-        except Exception as exc:
-            gp_status = f"Fehler: {type(exc).__name__}"
+        # Optional secondary source. It never blocks the live feed.
+        gp_price = bq_price
+        gp_age = bq_age
+        gp_status = "Biquote-Kontrollwert"
+
+        # Keep the legacy frontend contract: points are 5m closes.
+        # 1000 x 5m bars give the 15m view >300 bars, enough for EMA200.
+        legacy_points = [
+            {"t": b["openTime"], "p": b["close"]}
+            for b in bars_by_tf.get("5m", [])
+            if not b.get("isOpen")
+        ]
 
         bundle = {
             "fetched_at": int(time.time()),
@@ -160,7 +159,7 @@ def build_live_bundle():
             },
             "history": {
                 "bars_by_tf": bars_by_tf,
-                "points": [],
+                "points": legacy_points,
                 "data_state": {"status": "fresh", "source": "Biquote OHLC + XAUS spot"},
                 "age_seconds": bq_age
             }
