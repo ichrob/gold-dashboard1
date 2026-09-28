@@ -50,23 +50,24 @@ class OrderDraft:
 
 
 def _validate_isin(isin: str) -> None:
+    """Validate ISIN structure and its Luhn check digit."""
     if len(isin) != 12 or not isin[:2].isalpha() or not isin[2:].isalnum():
         raise ValueError("ISIN must contain 12 alphanumeric characters with a 2-letter country prefix")
-    digits = []
-    for char in isin:
-        if char.isdigit():
-            digits.append(char)
-        else:
-            digits.extend(str(ord(char.upper()) - 55))
-    expanded = "".join(digits)
-    if len(expanded) != 13:
-        raise ValueError("Invalid ISIN")
+
+    expanded = "".join(
+        str(ord(char.upper()) - 55) if char.isalpha() else char
+        for char in isin
+    )
+
+    # After converting letters to numbers, an ISIN is a variable-length
+    # digit string. Luhn validation doubles every second digit from the left.
     total = 0
     for index, char in enumerate(expanded):
         value = int(char)
-        if (len(expanded) - index) % 2 == 0:
+        if index % 2 == 1:
             value *= 2
         total += value // 10 + value % 10
+
     if total % 10 != 0:
         raise ValueError("Invalid ISIN checksum")
 
