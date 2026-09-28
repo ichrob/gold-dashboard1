@@ -287,14 +287,5 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
-def startup_live_self_test():
-    try:
-        bundle = build_live_bundle()
-        print(f"Bob startup live self-test OK: XAUS={bundle['spots']['xaus']:.2f}, 5m_bars={len(bundle['history']['bars_by_tf']['5m'])}", flush=True)
-    except Exception as exc:
-        print(f"Bob startup live self-test ERROR: {type(exc).__name__}: {exc}", flush=True)
-
-threading.Thread(target=startup_live_self_test, daemon=True).start()
-
 port = int(os.environ.get("PORT", "10000"))
 ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
