@@ -280,38 +280,57 @@ function timeframeScore(bars){
   let score=0;if(a.at(-1)>e20)score++;else score--;if(e20>e50)score++;else score--;if(e50>e200)score++;else score--;if(mac>macPrev)score++;else score--;if(R>=50&&R<=70)score++;if(R<35)score--;
   return {dir:score>=2?"LONG":score<=-2?"SHORT":"NEUTRAL",score,rsi:R,price:a.at(-1),openTime:closed.at(-1).openTime};
 }
-function closedBars(bars){
- const b=(bars||[]).map(x=>({...x,open:+x.open,high:+x.high,low:+x.low,close:+x.close})).filter(x=>Number.isFinite(x.close));
- if(b.length>1 && (b.at(-1).isOpen===true || b.at(-1).isClosed===false)) b.pop();
- return b;
+function barsFromIntraday(points, minutes){
+  const step=minutes*60*1000, buckets=new Map();
+  for(const x of (points||[])){
+    const t=Date.parse(x.t), p=Number(x.p);
+    if(!Number.isFinite(t)||!Number.isFinite(p)) continue;
+    const bucket=Math.floor(t/step)*step;
+    const b=buckets.get(bucket)||{open:p,high:p,low:p,close:p,ts:bucket};
+    b.high=Math.max(b.high,p); b.low=Math.min(b.low,p); b.close=p; buckets.set(bucket,b);
+  }
+  return [...buckets.values()].sort((a,b)=>a.ts-b.ts).map(x=>({open:x.open,high:x.high,low:x.low,close:x.close,isOpen:false,openTime:x.ts}));
 }
-function loadMTF(){
- const tfs=[["5m","mtf5"],["15m","mtf15"],["1h","mtf1h"],["4h","mtf4h"]];
- const results=await Promise.all(tfs.map(async ([tf,id])=>{
-   const r=await fetch(`https://biquote.io/api/XAUUSD/ohlc?interval=${tf}&limit=240`);
-   if(!r.ok)throw Error(tf+" HTTP "+r.status);
-   const j=await r.json(), z=timeframeScore(closedBars(j.bars||[]));
-   return [tf,id,z];
- }));
- const byTf=Object.fromEntries(results.map(x=>[x[0],x[2]]));
- let longs=0,shorts=0,neutral=0;
- for(const [tf,id,z] of results){
-   $(id).textContent=z.dir+(z.rsi!=null?` · RSI ${z.rsi.toFixed(0)}`:"");
-   $(id).className=z.dir==="LONG"?"ok":z.dir==="SHORT"?"bad":"neutral";
-   z.dir==="LONG"?longs++:z.dir==="SHORT"?shorts++:neutral++;
- }
- const dirs=[byTf["4h"]?.dir,byTf["1h"]?.dir,byTf["15m"]?.dir,byTf["5m"]?.dir];
- const valid=dirs.every(Boolean), longChain=valid&&dirs[0]==="LONG"&&dirs[1]==="LONG"&&dirs[2]!=="SHORT"&&dirs[3]!=="SHORT", shortChain=valid&&dirs[0]==="SHORT"&&dirs[1]==="SHORT"&&dirs[2]!=="LONG"&&dirs[3]!=="LONG";
- const overall=longChain?"LONG":shortChain?"SHORT":"NEUTRAL";
- $("quickMtf").textContent=overall;
- const strength=overall!=="NEUTRAL"?(overall==="LONG"?(dirs.filter(d=>d==="LONG").length):(dirs.filter(d=>d==="SHORT").length))+"/4 hierarchisch bestätigt":"Keine widerspruchsfreie Hierarchie";
- const mtfSummary=$("mtfSummary");
- if(mtfSummary)mtfSummary.innerHTML=`<b>${overall}</b><br>${longs} LONG · ${shorts} SHORT · ${neutral} NEUTRAL · ${strength}`;
- MTF={longs,shorts,neutral,overall,byTf,dirs};
- updateTradeSignal();
- return MTF;
+async function fetchIntradayPoints(){
+  const r=await fetch("https://xaus.com/api/v1/intraday?symbol=xau&hours=48",{cache:"no-store"});
+  if(!r.ok) throw Error("XAUS intraday HTTP "+r.status);
+  const j=await r.json();
+  if(j.data_state?.status==="unavailable") throw Error("XAUS intraday unavailable");
+  return j.points||[];
 }
-
+async function loadMTF(){
+  try{
+    const points=await fetchIntradayPoints();
+    const tfs=[["5m","mtf5",5],["15m","mtf15",15],["1h","mtf1h",60],["4h","mtf4h",240]];
+    const results=tfs.map(([tf,id,min])=>[tf,id,timeframeScore(barsFromIntraday(points,min))]);
+    let longs=0,shorts=0,neutral=0;
+    for(const [tf,id,z] of results){
+      $(id).textContent=z.dir+(z.rsi!=null?` · RSI ${z.rsi.toFixed(0)}`:"");
+      $(id).className=z.dir==="LONG"?"ok":z.dir==="SHORT"?"bad":"neutral";
+      z.dir==="LONG"?longs++:z.dir==="SHORT"?shorts++:neutral++;
+    }
+    const byTf=Object.fromEntries(results.map(x=>[x[0],x[2]]));
+    const dirs=[byTf["4h"]?.dir,byTf["1h"]?.dir,byTf["15m"]?.dir,byTf["5m"]?.dir];
+    const valid=dirs.every(Boolean);
+    const longChain=valid&&dirs[0]==="LONG"&&dirs[1]==="LONG"&&dirs[2]!=="SHORT"&&dirs[3]!=="SHORT";
+    const shortChain=valid&&dirs[0]==="SHORT"&&dirs[1]==="SHORT"&&dirs[2]!=="LONG"&&dirs[3]!=="LONG";
+    const overall=longChain?"LONG":shortChain?"SHORT":"NEUTRAL";
+    $("quickMtf").textContent=overall;
+    const strength=overall!=="NEUTRAL"?(overall==="LONG"?dirs.filter(d=>d==="LONG").length:dirs.filter(d=>d==="SHORT").length)+"/4 hierarchisch bestätigt":"Keine widerspruchsfreie Hierarchie";
+    const mtfSummary=$("mtfSummary");
+    if(mtfSummary)mtfSummary.innerHTML=`<b>${overall}</b><br>${longs} LONG · ${shorts} SHORT · ${neutral} NEUTRAL · ${strength}`;
+    MTF={longs,shorts,neutral,overall,byTf,dirs};
+    updateTradeSignal();
+    return MTF;
+  }catch(e){
+    $("quickMtf").textContent="NEUTRAL";
+    const mtfSummary=$("mtfSummary");
+    if(mtfSummary)mtfSummary.textContent="MTF momentan nicht verfügbar: "+e.message;
+    MTF={longs:0,shorts:0,neutral:4,overall:"NEUTRAL",byTf:{},dirs:[]};
+    updateTradeSignal();
+    return MTF;
+  }
+}
 
 function adxCalc(c,p=14){
  if(c.length<p*2+2)return 0;
@@ -546,21 +565,35 @@ function calcDgTrade(){
  ${ko?\`<tr><td>KO-Abstand</td><td class="right"><b>${koDist.toFixed(2)}%</b></td></tr>\`:''}
  </table><div class="small" style="margin-top:10px">${koWarning||costNote}<br>Vor einer Order in DEGIRO: Produktdaten, Spread, Finanzierung, Bezugsverhältnis und KO-Level direkt im Produkt prüfen. Der technische Stop ist nicht das KO-Level.</div>`;
 }
+async function fetchSpotSources(){
+  const [a,b]=await Promise.all([
+    fetch("https://xaus.com/api/v1/spot?currency=USD",{cache:"no-store"}).then(r=>{if(!r.ok)throw Error("XAUS spot HTTP "+r.status);return r.json()}),
+    fetch("https://api.goldprice.dev/v1/prices?symbol=XAU-USD-SPOT",{cache:"no-store"}).then(r=>{if(!r.ok)throw Error("GoldPrice.dev HTTP "+r.status);return r.json()})
+  ]);
+  const xaus=Number(a.spot_usd_oz), gp=Number(b.symbols?.[0]?.price);
+  if(!Number.isFinite(xaus)||!Number.isFinite(gp))throw Error("Ungültige Live-Goldwerte");
+  if(a.data_state?.status==="unavailable" || a.stale===true || b.symbols?.[0]?.is_stale===true)throw Error("Mindestens eine Live-Quelle ist nicht frisch");
+  const diff=Math.abs(xaus-gp), pct=diff/((xaus+gp)/2)*100;
+  return {xaus,gp,diff,pct};
+}
 async function loadData(){
  try{
-  const tf=$("tf").value, n=$("n").value;
-  const [ohlc,tick]=await Promise.all([
-   fetch(`https://biquote.io/api/XAUUSD/ohlc?interval=${tf}&limit=${n}`).then(r=>{if(!r.ok)throw Error("OHLC HTTP "+r.status);return r.json()}),
-   fetch(`https://biquote.io/api/XAUUSD?allowStale=false`).then(r=>{if(!r.ok)throw Error("Live-Tick HTTP "+r.status);return r.json()})
+  const tf=$("tf").value, n=+$("n").value;
+  const [spots,history]=await Promise.all([
+    fetchSpotSources(),
+    fetch("https://xaus.com/api/v1/intraday?symbol=xau&hours=48",{cache:"no-store"}).then(r=>{if(!r.ok)throw Error("XAUS intraday HTTP "+r.status);return r.json()})
   ]);
-  if(!ohlc.bars?.length)throw Error("Keine Kerzen verfügbar");
-  C=ohlc.bars.slice().reverse().map(x=>({open:+x.open,high:+x.high,low:+x.low,close:+x.close,isOpen:!!x.isOpen})).filter(x=>Number.isFinite(x.close));
-  if(C.length>1 && C.at(-1).isOpen) C.pop();
-  lastPrice=Number(tick.mid)||C.at(-1).close;
-  $("status").textContent=`LIVE · XAU/USD ${tick.marketState||"open"} · ${tick.quoteAgeSeconds??"?"} s alt · ${new Date().toLocaleTimeString()}`;
+  const points=history.points||[];
+  const minutes=tf==="5m"?5:tf==="15m"?15:tf==="1h"?60:tf==="4h"?240:15;
+  const bars=barsFromIntraday(points,minutes);
+  if(!bars.length)throw Error("Keine XAU-Intradaydaten verfügbar");
+  C=bars.slice(-n);
+  lastPrice=spots.xaus;
+  const sourceNote=spots.pct<=0.15?"Quellen stimmen gut überein":"⚠️ Quellenabweichung "+spots.pct.toFixed(3)+"%";
+  $("status").textContent=`LIVE · XAU/USD ${lastPrice.toFixed(2)} · XAUS + GoldPrice.dev · ${sourceNote} · ${new Date().toLocaleTimeString()}`;
   analyze();
-   restoreTradeMgmt();
-   await loadMTF();
+  restoreTradeMgmt();
+  await loadMTF();
  }catch(e){
   $("status").textContent="Live-Daten momentan nicht erreichbar: "+e.message+" · Bitte erneut versuchen.";
  }
