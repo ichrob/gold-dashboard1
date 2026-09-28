@@ -108,6 +108,34 @@ def fetch_six_structured_product(isin):
     direction = "LONG" if re.search(r"\b(?:Bull|Long|Call)\b", product_type or "", re.I) else ("SHORT" if re.search(r"\b(?:Bear|Short|Put)\b", product_type or "", re.I) else "")
     return {"name":name,"bid":_clean_product_number(bid),"ask":_clean_product_number(ask),"ko":_clean_product_number(ko),"ratio":_clean_product_number(ratio),"leverage":_clean_product_number(gearing),"ko_distance":_clean_product_number(ko_dist),"ko_distance_pct":_clean_product_number(ko_dist_pct),"last_price":_clean_product_number(last_price),"underlying_price":_clean_product_number(underlying_price),"direction":direction,"source":"SIX Structured Products","source_url":url}
 
+def fetch_euronext_structured_product(isin):
+    """Best-effort public Euronext lookup for European structured products."""
+    url = f"https://live.euronext.com/en/product/structured-products/{isin}-XMLI/market-information"
+    req = Request(url, headers={"User-Agent":"Bob/1.1","Accept":"text/html"})
+    with urlopen(req, timeout=UPSTREAM_TIMEOUT) as response:
+        if response.status < 200 or response.status >= 300:
+            raise RuntimeError(f"Euronext HTTP {response.status}")
+        html = response.read().decode("utf-8", "ignore")
+    text = _html_text(html)
+    def field(label, next_labels):
+        pattern = re.escape(label) + r"\\s+(.+?)(?=\\s+(?:" + "|".join(re.escape(x) for x in next_labels) + r")\\s+|$)"
+        m = re.search(pattern, text, flags=re.I)
+        return m.group(1).strip() if m else None
+    product = field("Product", ["Strategy","EUSIPA Code","Country of Distribution"])
+    strategy = field("Strategy", ["EUSIPA Code","EUSIPA Name","Country of Distribution"])
+    price = field("Last traded price", ["Since Open","Since Previous Close","Valuation Close"])
+    if not price:
+        price = field("Valuation trade", ["Since Open","Since Previous Close","Valuation Close"])
+    leverage = field("Leverage", ["Ratio","1st Strike Price","2nd Strike Price"])
+    ratio = field("Ratio", ["1st Strike Price","2nd Strike Price","Upper Threshold"])
+    strike = field("1st Strike Price", ["1st Strike Price Currency","2nd Strike Price","Upper Threshold"])
+    expiry = field("Expiry Date", ["Exercise Type","Issue Price","Currency"])
+    status = "BID_ONLY" if re.search(r"Bid-Only", text, re.I) else ("SUSPENDED" if re.search(r"\\bSUSPENDED\\b", text) else "")
+    direction = "LONG" if re.search(r"\\b(?:Bullish|Call)\\b", strategy or "") else ("SHORT" if re.search(r"\\b(?:Bearish|Put)\\b", strategy or "") else "")
+    return {"name":product,"last_price":_clean_product_number(price),"leverage":_clean_product_number(leverage),
+            "ratio":ratio,"ko":_clean_product_number(strike),"expiry":expiry,"direction":direction,
+            "trading_status":status,"source":"Euronext Structured Products","source_url":url}
+
 def lookup_product_live(isin):
     raw = os.environ.get("BOB_PRODUCT_DATA_JSON", "")
     if raw:
@@ -115,11 +143,20 @@ def lookup_product_live(isin):
             feed = json.loads(raw)
             if isinstance(feed, dict) and isinstance(feed.get(isin), dict):
                 item = dict(feed[isin]); item["source"] = item.get("source") or "BOB_PRODUCT_DATA_JSON"; return item
-        except (TypeError, ValueError, json.JSONDecodeError): pass
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
     if isin.startswith("CH"):
-        try: return fetch_six_structured_product(isin)
-        except Exception as exc: return {"source":"SIX Structured Products","error":str(exc)}
+        try:
+            return fetch_six_structured_product(isin)
+        except Exception as exc:
+            return {"source":"SIX Structured Products","error":str(exc)}
+    if isin.startswith(("DE","FR","NL","BE","IT","PT","ES")):
+        try:
+            return fetch_euronext_structured_product(isin)
+        except Exception as exc:
+            return {"source":"Euronext Structured Products","error":str(exc)}
     return {"source":"unavailable","error":"Keine öffentliche Live-Produktquelle für diese ISIN konfiguriert."}
+
 
 def fetch_goldprice_bars(interval, days):
     """Best-effort genuine XAU/USD spot OHLC; empty means unavailable on current API tier."""
