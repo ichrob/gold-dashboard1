@@ -574,7 +574,7 @@ function calcDgTrade(){
  ${ko?`<tr><td>KO-Abstand</td><td class="right"><b>${koDist.toFixed(2)}%</b></td></tr>`:''}
  </table><div class="small" style="margin-top:10px">${koWarning||costNote}<br>Vor einer Order in DEGIRO: Produktdaten, Spread, Finanzierung, Bezugsverhältnis und KO-Level direkt im Produkt prüfen. Der technische Stop ist nicht das KO-Level.</div>`;
 }
-async async function fetchSpotSources(){
+async function fetchSpotSources(){
  const j=await fetchLiveBundle();const s=j.spots||{},xaus=Number(s.xaus),gp=Number(s.goldprice),reference=Number(s.yahoo_gc_f||s.biquote),diff=Number(s.diff),pct=Number(s.pct);
  if(!Number.isFinite(xaus)||!Number.isFinite(gp)||!Number.isFinite(pct))throw Error("Ungültige Live-Goldwerte");
  if(pct>0.50)throw Error("Live-Quellen weichen um "+pct.toFixed(3)+"% ab – Analyse vorsichtshalber angehalten");
