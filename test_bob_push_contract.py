@@ -24,6 +24,19 @@ class BobPushContractTests(unittest.TestCase):
         self.assertIn('notifyGeneral("Bob – "+dir+" Einstiegssignal"', self.html)
         self.assertIn('lastPushedEntryDirection', self.html)
 
+
+    def test_mtf_loader_is_async_and_push_waits_for_it(self):
+        self.assertIn("async function loadMTF(force=false)", self.html)
+        self.assertNotIn("function loadMTF(force=false){", self.html)
+        self.assertIn("await loadMTF();updateResearchPanel();maybePushEntrySignal();", self.html)
+        self.assertIn("function maybePushEntrySignal()", self.html)
+        self.assertIn("const dir=signalState.dir;", self.html)
+
+    def test_trade_push_activation_is_explicit(self):
+        self.assertIn('if(!wasActive&&!tradeMgmt.active){setPushStatus("⚠️ Zuerst einen Trade setzen, dann „Trade gesetzt“ aktivieren.");return;}', self.html)
+        self.assertNotIn('pushState.activeTrade=true;savePush();', self.html)
+        self.assertIn('Management-Pushs erst nach Aktivierung von „Trade gesetzt".', self.html)
+
     def test_anti_spam_simulation_and_monitoring_exist(self):
         self.assertIn('const PUSH_COOLDOWN=15*60*1000;', self.html)
         self.assertIn('pushState.simulation', self.html)
