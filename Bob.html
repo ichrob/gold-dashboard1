@@ -845,7 +845,7 @@ function rankDgProducts(){
   $("dgProductOut").innerHTML=`<div class="research">
     <b>Bob-Auswahl: ${top.name||top.isin||"Gold-Hebelprodukt"}</b><br>
     Trade-Score <b>${top._tradeScore}/100</b> · Produkt-Score <b>${top._productScore}/100</b> · Gesamtscore <b>${top._score}/100</b><br>
-    Richtung ${top.direction} · Hebel ${Number(top.leverage).toFixed(1)}× · Produktkurs ${Number.isFinite(productPrice=Number(top.productPrice))?productPrice.toFixed(4):"—"} · K.O.-Abstand ${top._koDist.toFixed(2)}%
+    Richtung ${top.direction} · Hebel ${Number(top.leverage).toFixed(1)}× · Produktkurs ${Number.isFinite(Number(top.productPrice))?Number(top.productPrice).toFixed(4):"—"} · K.O.-Abstand ${top._koDist.toFixed(2)}%
     <br>K.O.-Puffer zum technischen Stop: ${Number.isFinite(top._koBufferPct)?top._koBufferPct.toFixed(2)+"%":"—"} · Spread: ${top._spread.toFixed(2)}%
     <br>${riskLine}
     <br><span class="small">${top.isin?"ISIN: "+top.isin+" · ":""}Live-Produktdaten verifiziert · ${top._reasons.join(" · ")||"keine zusätzlichen Warnungen"}</span>
