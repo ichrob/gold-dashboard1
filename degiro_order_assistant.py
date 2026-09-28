@@ -67,7 +67,7 @@ def _validate_isin(isin: str) -> None:
         if (len(expanded) - index) % 2 == 0:
             value *= 2
         total += value // 10 + value % 10
-    if total % 10 != 1:
+    if total % 10 != 0:
         raise ValueError("Invalid ISIN checksum")
 
 
