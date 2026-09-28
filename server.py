@@ -216,26 +216,6 @@ def build_live_bundle():
         if latest_bar_age > 900:
             raise RuntimeError(f"Yahoo Gold-Futures-Historie nicht frisch (Alter {latest_bar_age:.0f} s)")
 
-        # Prefer genuine XAU/USD spot OHLC when the GoldPrice.dev tier exposes intraday bars.
-        # Each timeframe is independent; a plan-gated interval falls back to the existing Yahoo futures history.
-        spot_5m = fetch_goldprice_bars("5m", 30)
-        if len([b for b in spot_5m if not b["isOpen"]]) >= 200:
-            latest_spot_age = max(0, now - spot_5m[-1]["openTime"] / 1000)
-            if latest_spot_age <= 900:
-                bars_5m = spot_5m
-        spot_15m = fetch_goldprice_bars("15m", 30)
-        spot_1h = fetch_goldprice_bars("1h", 30)
-        spot_4h = fetch_goldprice_bars("4h", 30)
-        spot_1h_closed = [b for b in spot_1h if not b["isOpen"]]
-        if len(spot_1h_closed) >= 200:
-            bars_1h = spot_1h
-            latest_1h_age = max(0, now - bars_1h[-1]["openTime"] / 1000)
-        if len([b for b in spot_15m if not b["isOpen"]]) >= 200:
-            bars_15m = spot_15m
-        if len([b for b in spot_4h if not b["isOpen"]]) >= 200:
-            bars_4h = spot_4h
-            history_4h_error = None
-
         # Longer 1h history is optional: live spot/5m data must remain available
         # even if Yahoo's longer history endpoint is temporarily unavailable.
         bars_1h, bars_15m, bars_4h, latest_1h_age = [], [], [], None
@@ -300,6 +280,26 @@ def build_live_bundle():
             history_4h_error = str(exc)
             bars_1h, bars_4h, latest_1h_age = [], [], None
 
+
+        # Prefer genuine XAU/USD spot OHLC when the GoldPrice.dev tier exposes intraday bars.
+        # Each timeframe is independent; a plan-gated interval falls back to the existing Yahoo futures history.
+        spot_5m = fetch_goldprice_bars("5m", 30)
+        if len([b for b in spot_5m if not b["isOpen"]]) >= 200:
+            latest_spot_age = max(0, now - spot_5m[-1]["openTime"] / 1000)
+            if latest_spot_age <= 900:
+                bars_5m = spot_5m
+        spot_15m = fetch_goldprice_bars("15m", 30)
+        spot_1h = fetch_goldprice_bars("1h", 30)
+        spot_4h = fetch_goldprice_bars("4h", 30)
+        spot_1h_closed = [b for b in spot_1h if not b["isOpen"]]
+        if len(spot_1h_closed) >= 200:
+            bars_1h = spot_1h
+            latest_1h_age = max(0, now - bars_1h[-1]["openTime"] / 1000)
+        if len([b for b in spot_15m if not b["isOpen"]]) >= 200:
+            bars_15m = spot_15m
+        if len([b for b in spot_4h if not b["isOpen"]]) >= 200:
+            bars_4h = spot_4h
+            history_4h_error = None
 
         usd_eur = None
         usd_chf = None
