@@ -470,12 +470,22 @@ function confirmedSignalDirection(){
  const fb=falseBreakoutState(raw);
  return (fb==="OK"||fb==="UNKNOWN")?raw:"NEUTRAL";
 }
-function updateResearchPanel(){
+function updateResearchPanel(commitSignal=false){
  const reg=currentRegime(); if($("regime"))$("regime").textContent=reg;
  let rawDir=A.score>=70&&MTF.overall==="LONG"?"LONG":A.score<=30&&MTF.overall==="SHORT"?"SHORT":"NEUTRAL";
  const fb=falseBreakoutState(rawDir); if(fb!=="OK"&&fb!=="UNKNOWN")rawDir="NEUTRAL";
- let dir=rawDir;
- if(rawDir!==signalState.dir){if(rawDir==="NEUTRAL"){signalState={dir:"NEUTRAL",pending:"NEUTRAL",count:0};dir="NEUTRAL";}else if(signalState.pending===rawDir){signalState.count++;if(signalState.count>=2)signalState={dir:rawDir,pending:rawDir,count:0};else dir=signalState.dir;}else{signalState.pending=rawDir;signalState.count=1;dir=signalState.dir;}}
+ let dir=signalState.dir;
+ if(commitSignal&&rawDir!==signalState.dir){
+   if(rawDir==="NEUTRAL"){signalState={dir:"NEUTRAL",pending:"NEUTRAL",count:0};}
+   else if(signalState.pending===rawDir){
+     signalState.count++;
+     if(signalState.count>=2)signalState={dir:rawDir,pending:rawDir,count:0};
+   }else{
+     signalState.pending=rawDir;
+     signalState.count=1;
+   }
+   dir=signalState.dir;
+ }
  const sm=dir!=="NEUTRAL"?stopModel(dir,lastPrice,A.at,+( $("trailAtr")?.value||1.5)):null;
  const stop=sm?.stop||null;
  if($("stopCurrent"))$("stopCurrent").textContent=displayStop(tradeMgmt.stop||stop);
@@ -672,7 +682,7 @@ async function loadData(){
   if(fxEl&&Number.isFinite(autoFx)&&autoFx>0&&!fxEl.dataset.manual)fxEl.value=autoFx.toFixed(4);
   const sourceNote=spots.sourceWarning||"Spot/Futures-Differenz gering · Futures = technische Referenz";
   $("status").textContent=`LIVE · XAU/USD ${lastPrice.toFixed(2)} · GoldPrice.dev Spot + Yahoo GC=F · ${sourceNote} · ${new Date().toLocaleTimeString()}`;
-  analyze();restoreTradeMgmt();await loadMTF();updateResearchPanel();maybePushEntrySignal();
+  analyze();restoreTradeMgmt();await loadMTF();updateResearchPanel(true);maybePushEntrySignal();
   monitorActiveTrade();
  }catch(e){const msg="Live-Daten momentan nicht erreichbar: "+e.message; $("status").textContent=msg+" · Bitte erneut versuchen."; $("quickSignal").textContent="🔴 LIVE-DATEN FEHLER"; $("quickSignal").className="signal bad"; $("quickReason").textContent=msg;}
 }
