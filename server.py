@@ -141,7 +141,7 @@ def build_live_bundle():
                 f"Alter {goldprice_age if goldprice_age is not None else 'unbekannt'} s)"
             )
 
-        # Yahoo Finance provides recent XAU/USD 5-minute bars for the technical history.
+        # Yahoo Finance provides recent GC=F gold-futures 5-minute bars for technical history.
         yahoo = fetch_json(
             "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=5m&range=5d&includePrePost=true",
             retries=2,
@@ -180,36 +180,43 @@ def build_live_bundle():
         if latest_bar_age > 900:
             raise RuntimeError(f"Yahoo Gold-Futures-Historie nicht frisch (Alter {latest_bar_age:.0f} s)")
 
-        # Longer 1h history for real 4h candles and EMA200.
-        yahoo_1h = fetch_json(
-            "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1h&range=3mo&includePrePost=true",
-            retries=2,
-            user_agent="Mozilla/5.0"
-        )
-        result_1h = yahoo_1h.get("chart", {}).get("result", [None])[0] if isinstance(yahoo_1h, dict) else None
-        if not result_1h:
-            raise RuntimeError("Yahoo Finance liefert keine 1h-Historie")
-        ts_1h = result_1h.get("timestamp") or []
-        q_1h = (result_1h.get("indicators", {}).get("quote") or [None])[0] or {}
-        o_1h, h_1h, l_1h, c_1h = q_1h.get("open") or [], q_1h.get("high") or [], q_1h.get("low") or [], q_1h.get("close") or []
-        bars_1h = []
-        for i, ts in enumerate(ts_1h):
-            try:
-                o, h, l, close = map(float, (o_1h[i], h_1h[i], l_1h[i], c_1h[i]))
-                if not all(v == v and v > 0 for v in (o, h, l, close)):
+        # Longer 1h history is optional: live spot/5m data must remain available
+        # even if Yahoo's longer history endpoint is temporarily unavailable.
+        bars_1h, bars_4h, latest_1h_age = [], [], None
+        history_4h_error = None
+        try:
+            yahoo_1h = fetch_json(
+                "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1h&range=3mo&includePrePost=true",
+                retries=2,
+                user_agent="Mozilla/5.0"
+            )
+            result_1h = yahoo_1h.get("chart", {}).get("result", [None])[0] if isinstance(yahoo_1h, dict) else None
+            if not result_1h:
+                raise RuntimeError("Yahoo Finance liefert keine 1h-Historie")
+            ts_1h = result_1h.get("timestamp") or []
+            q_1h = (result_1h.get("indicators", {}).get("quote") or [None])[0] or {}
+            o_1h, h_1h, l_1h, c_1h = q_1h.get("open") or [], q_1h.get("high") or [], q_1h.get("low") or [], q_1h.get("close") or []
+            for i, ts in enumerate(ts_1h):
+                try:
+                    o, h, low, close = map(float, (o_1h[i], h_1h[i], l_1h[i], c_1h[i]))
+                    if not all(v == v and v > 0 for v in (o, h, low, close)):
+                        continue
+                    bars_1h.append({"openTime": int(ts) * 1000, "open": o, "high": h, "low": low, "close": close, "isOpen": False})
+                except (IndexError, TypeError, ValueError, OverflowError):
                     continue
-                bars_1h.append({"openTime": int(ts) * 1000, "open": o, "high": h, "low": l, "close": close, "isOpen": False})
-            except (IndexError, TypeError, ValueError, OverflowError):
-                continue
-        bars_1h.sort(key=lambda x: x["openTime"])
-        if len(bars_1h) < 800:
-            raise RuntimeError(f"Zu wenig 1h-Historie für 4h/EMA200 ({len(bars_1h)} Kerzen)")
-        latest_1h_age = max(0, now - bars_1h[-1]["openTime"] / 1000)
-        if latest_1h_age > 7200:
-            raise RuntimeError(f"Yahoo 1h-Historie nicht frisch (Alter {latest_1h_age:.0f} s)")
-        bars_4h = aggregate_bars(bars_1h, 240)
-        if len([b for b in bars_4h if not b["isOpen"]]) < 200:
-            raise RuntimeError("Zu wenig geschlossene 4h-Historie für EMA200")
+            bars_1h.sort(key=lambda x: x["openTime"])
+            if len(bars_1h) < 800:
+                raise RuntimeError(f"Zu wenig 1h-Historie für 4h/EMA200 ({len(bars_1h)} Kerzen)")
+            latest_1h_age = max(0, now - bars_1h[-1]["openTime"] / 1000)
+            if latest_1h_age > 7200:
+                raise RuntimeError(f"Yahoo 1h-Historie nicht frisch (Alter {latest_1h_age:.0f} s)")
+            bars_4h = aggregate_bars(bars_1h, 240)
+            if len([b for b in bars_4h if not b["isOpen"]]) < 200:
+                raise RuntimeError("Zu wenig geschlossene 4h-Historie für EMA200")
+        except Exception as exc:
+            history_4h_error = str(exc)
+            bars_1h, bars_4h, latest_1h_age = [], [], None
+
 
         yahoo_price = bars_5m[-1]["close"]
         diff = goldprice_price - yahoo_price
@@ -231,6 +238,8 @@ def build_live_bundle():
                 "xaus_age_seconds": goldprice_age,
                 "yahoo_gc_f_age_seconds": latest_bar_age,
                 "yahoo_1h_age_seconds": latest_1h_age,
+                "technical_4h_status": "available" if bars_4h else "unavailable",
+                "technical_4h_error": history_4h_error,
                 "goldprice_age_seconds": goldprice_age,
                 "goldprice_status": "GoldPrice.dev · live",
                 "primary": "GoldPrice.dev",
@@ -240,7 +249,7 @@ def build_live_bundle():
             "history": {
                 "bars_by_tf": {"5m": bars_5m, "1h": bars_1h, "4h": bars_4h},
                 "points": legacy_points,
-                "data_state": {"status": "fresh", "source": "GoldPrice.dev XAU/USD Spot + Yahoo Finance GC=F technical history"},
+                "data_state": {"status": "fresh", "source": "GoldPrice.dev XAU/USD Spot + Yahoo Finance GC=F technical history", "technical_4h_status": "available" if bars_4h else "unavailable"},
                 "age_seconds": goldprice_age
             }
         }
