@@ -73,12 +73,12 @@ canvas{width:100%;height:220px;border-radius:12px;background:#fafafa}.warning{ba
 <h3>Datenquelle</h3>
 <div class="grid">
 <div><label>Markt</label><input value="XAU/USD (Gold)" disabled></div>
-<div><label>Datenanbieter</label><input value="XAUS + GoldPrice.dev · kostenlos · ohne Pflicht-API-Key" disabled></div>
+<div><label>Datenanbieter</label><input value="XAUS · Spot + Intraday · kostenlos" disabled></div>
 <div><label>Zeitebene</label><select id="tf"><option value="5m">5 Minuten</option><option value="15m" selected>15 Minuten</option><option value="1h">1 Stunde</option></select></div>
 <div><label>Kerzen</label><select id="n"><option>100</option><option selected>200</option><option>500</option><option>1000</option></select></div>
 </div>
 <div class="row" style="margin-top:10px"><button onclick="loadData()">🔴 Live XAU/USD laden</button><button onclick="demo()">Demo-Daten</button></div>
-<div id="status" class="small" style="margin-top:8px">Kostenlos · zwei unabhängige Live-Spotquellen · Intraday-Serie von XAUS. Quellenabweichung > 0,50% stoppt die Analyse.</div>
+<div id="status" class="small" style="margin-top:8px">Kostenlos · XAUS Spot + Intraday. Die Analyse wird gestoppt, wenn die Live-Daten nicht frisch oder unvollständig sind.</div>
 </div>
 
 <div class="card"><div id="signal" class="signal neutral">Noch keine Analyse</div></div>
