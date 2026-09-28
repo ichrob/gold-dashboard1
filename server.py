@@ -182,7 +182,7 @@ def build_live_bundle():
 
         # Longer 1h history is optional: live spot/5m data must remain available
         # even if Yahoo's longer history endpoint is temporarily unavailable.
-        bars_1h, bars_4h, latest_1h_age = [], [], None
+        bars_1h, bars_15m, bars_4h, latest_1h_age = [], [], [], None
         history_4h_error = None
         try:
             yahoo_1h = fetch_json(
@@ -210,6 +210,7 @@ def build_live_bundle():
             latest_1h_age = max(0, now - bars_1h[-1]["openTime"] / 1000)
             if latest_1h_age > 7200:
                 raise RuntimeError(f"Yahoo 1h-Historie nicht frisch (Alter {latest_1h_age:.0f} s)")
+            bars_15m = aggregate_bars(bars_1h, 15)
             bars_4h = aggregate_bars(bars_1h, 240)
             if len([b for b in bars_4h if not b["isOpen"]]) < 200:
                 raise RuntimeError("Zu wenig geschlossene 4h-Historie für EMA200")
@@ -247,7 +248,7 @@ def build_live_bundle():
                 "reference_note": "GC=F ist Gold-Futures, nicht XAU/USD Spot"
             },
             "history": {
-                "bars_by_tf": {"5m": bars_5m, "1h": bars_1h, "4h": bars_4h},
+                "bars_by_tf": {"5m": bars_5m, "15m": bars_15m, "1h": bars_1h, "4h": bars_4h},
                 "points": legacy_points,
                 "data_state": {"status": "fresh", "source": "GoldPrice.dev XAU/USD Spot + Yahoo Finance GC=F technical history", "technical_4h_status": "available" if bars_4h else "unavailable"},
                 "age_seconds": goldprice_age
