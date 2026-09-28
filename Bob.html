@@ -577,8 +577,8 @@ function calcDgTrade(){
 async function fetchSpotSources(){
  const j=await fetchLiveBundle();const s=j.spots||{},xaus=Number(s.xaus),gp=Number(s.goldprice),reference=Number(s.yahoo_gc_f||s.biquote),diff=Number(s.diff),pct=Number(s.pct);
  if(!Number.isFinite(xaus)||!Number.isFinite(gp)||!Number.isFinite(pct))throw Error("Ungültige Live-Goldwerte");
- if(pct>0.50)throw Error("Live-Quellen weichen um "+pct.toFixed(3)+"% ab – Analyse vorsichtshalber angehalten");
- return {xaus,gp,reference,diff,pct};
+ const sourceWarning=pct>0.50?"⚠️ Spot/Futures-Abweichung "+pct.toFixed(3)+"% – Futures nur als technische Referenz":"";
+ return {xaus,gp,reference,diff,pct,sourceWarning};
 }
 async function loadData(){
  try{
@@ -587,7 +587,7 @@ async function loadData(){
   if(!minutes)throw Error("Diese Zeitebene wird nicht unterstützt.");
   const bars=barsFromIntraday(points,minutes);if(!bars.length)throw Error("Keine XAU-Intradaydaten verfügbar");
   C=bars.slice(-n);lastPrice=spots.xaus;
-  const sourceNote=spots.pct<=0.15?"Spot/Futures-Differenz gering · Futures = technische Referenz":"⚠️ Spot/Futures-Differenz "+spots.pct.toFixed(3)+"%";
+  const sourceNote=spots.sourceWarning||"Spot/Futures-Differenz gering · Futures = technische Referenz";
   $("status").textContent=`LIVE · XAU/USD ${lastPrice.toFixed(2)} · GoldPrice.dev Spot + Yahoo GC=F · ${sourceNote} · ${new Date().toLocaleTimeString()}`;
   analyze();restoreTradeMgmt();await loadMTF();
  }catch(e){const msg="Live-Daten momentan nicht erreichbar: "+e.message; $("status").textContent=msg+" · Bitte erneut versuchen."; $("quickSignal").textContent="🔴 LIVE-DATEN FEHLER"; $("quickSignal").className="signal bad"; $("quickReason").textContent=msg;}
