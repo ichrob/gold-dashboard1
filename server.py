@@ -85,6 +85,17 @@ def normalize_biquote_bars(payload):
     out.sort(key=lambda x: x["openTime"])
     return out
 
+def mark_bar_state(bars, minutes):
+    """Mark the currently forming bar as open; never feed it into closed-bar analysis."""
+    now_ms = int(time.time() * 1000)
+    step = minutes * 60 * 1000
+    for b in bars:
+        try:
+            b["isOpen"] = now_ms < int(b["openTime"]) + step
+        except (TypeError, ValueError, KeyError):
+            b["isOpen"] = True
+    return bars
+
 def aggregate_bars(bars, minutes):
     step = minutes * 60 * 1000
     buckets = {}
@@ -173,6 +184,7 @@ def build_live_bundle():
             except (IndexError, TypeError, ValueError, OverflowError):
                 continue
         bars_5m.sort(key=lambda x: x["openTime"])
+        mark_bar_state(bars_5m, 5)
         if len(bars_5m) < 200:
             raise RuntimeError(f"Yahoo Finance liefert zu wenig Gold-Futures-5m-Historie ({len(bars_5m)} Kerzen)")
 
@@ -205,6 +217,7 @@ def build_live_bundle():
                 except (IndexError, TypeError, ValueError, OverflowError):
                     continue
             bars_1h.sort(key=lambda x: x["openTime"])
+            mark_bar_state(bars_1h, 60)
             if len(bars_1h) < 800:
                 raise RuntimeError(f"Zu wenig 1h-Historie für 4h/EMA200 ({len(bars_1h)} Kerzen)")
             latest_1h_age = max(0, now - bars_1h[-1]["openTime"] / 1000)
@@ -233,6 +246,7 @@ def build_live_bundle():
                 except (IndexError, TypeError, ValueError, OverflowError):
                     continue
             bars_15m.sort(key=lambda x: x["openTime"])
+            mark_bar_state(bars_15m, 15)
             if len(bars_15m) < 200:
                 raise RuntimeError(f"Zu wenig echte 15m-Historie ({len(bars_15m)} Kerzen)")
             bars_4h = aggregate_bars(bars_1h, 240)
@@ -242,6 +256,15 @@ def build_live_bundle():
             history_4h_error = str(exc)
             bars_1h, bars_4h, latest_1h_age = [], [], None
 
+
+        usd_eur = None
+        try:
+            fx = fetch_json("https://api.goldprice.dev/v1/convert?from=USD&to=EUR&amount=1", retries=1, user_agent="Bob/1.1")
+            usd_eur = float(fx.get("rate")) if isinstance(fx, dict) else None
+            if not (usd_eur > 0):
+                usd_eur = None
+        except Exception:
+            pass
 
         yahoo_price = bars_5m[-1]["close"]
         diff = goldprice_price - yahoo_price
@@ -261,6 +284,7 @@ def build_live_bundle():
                 "diff": diff,
                 "pct": pct,
                 "xaus_age_seconds": goldprice_age,
+                "usd_eur": usd_eur,
                 "yahoo_gc_f_age_seconds": latest_bar_age,
                 "yahoo_1h_age_seconds": latest_1h_age,
                 "technical_4h_status": "available" if bars_4h else "unavailable",
