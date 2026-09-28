@@ -46,5 +46,27 @@ class ProductSelectorTests(unittest.TestCase):
         self.assertEqual(ranked[0][1],"Short A")
 
 
+def test_bob_selector_contains_hard_safety_gates_and_currency_aware_risk():
+    html = (ROOT / "Bob.html").read_text(encoding="utf-8")
+    required = [
+        "if(!Number.isFinite(koDist)||koDist<minKo)",
+        "if(Number.isFinite(lev)&&lev>maxLev)",
+        "if(x.bidOnly||x.tradable===false)",
+        "if(!Number.isFinite(spreadPct))",
+        "const productCurrency=String(x.currency||\"\").toUpperCase()",
+        "productCurrency===\"EUR\"?1:(fx>0?fx:NaN)",
+        "Risiko/Stückzahl nicht verifiziert",
+        "Datenalter:"
+    ]
+    for marker in required:
+        assert marker in html
+
+
+def test_bob_selector_rejects_unverified_live_data():
+    html = (ROOT / "Bob.html").read_text(encoding="utf-8")
+    assert "if(!dataFresh){reject=true" in html
+    assert "Live-Produktdaten nicht verifiziert" in html
+
+
 if __name__ == "__main__":
     unittest.main()
