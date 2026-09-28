@@ -85,6 +85,29 @@ def normalize_biquote_bars(payload):
     out.sort(key=lambda x: x["openTime"])
     return out
 
+def aggregate_bars(bars, minutes):
+    step = minutes * 60 * 1000
+    buckets = {}
+    now_ms = int(time.time() * 1000)
+    for b in bars:
+        try:
+            ts = int(b["openTime"])
+            bucket = (ts // step) * step
+            if bucket not in buckets:
+                buckets[bucket] = {"openTime": bucket, "open": float(b["open"]), "high": float(b["high"]), "low": float(b["low"]), "close": float(b["close"]), "isOpen": False}
+            else:
+                x = buckets[bucket]
+                x["high"] = max(x["high"], float(b["high"]))
+                x["low"] = min(x["low"], float(b["low"]))
+                x["close"] = float(b["close"])
+        except (TypeError, ValueError, KeyError):
+            continue
+    out = []
+    for x in sorted(buckets.values(), key=lambda v: v["openTime"]):
+        x["isOpen"] = now_ms < x["openTime"] + step
+        out.append(x)
+    return out
+
 def build_live_bundle():
     global _live_cache, _live_cache_at
     cached = _live_cache
