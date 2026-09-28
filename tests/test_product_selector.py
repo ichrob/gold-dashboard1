@@ -1,4 +1,7 @@
 import unittest
+import pathlib
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def rank_fixture(items, direction, min_ko=3, max_lev=12, trade_score=85, max_loss=5):
