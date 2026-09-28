@@ -56,6 +56,10 @@ canvas{width:100%;height:220px;border-radius:12px;background:#fafafa}.warning{ba
 <div><label>Kostenloser Push-Kanal (ntfy)</label><input id="ntfyTopic" placeholder="z. B. gold-scanner-..." autocomplete="off"></div>
 <div><label>Push-Kanal</label><button onclick="setupNtfy()">☁️ ntfy einrichten</button></div>
 </div>
+<div class="grid" style="margin-top:10px">
+<div class="metric"><label>Simulation</label><button id="simulationBtn" onclick="toggleSimulation()">🧪 Aus</button></div>
+<div class="metric"><label>Push-Status</label><div id="pushEventStatus" class="small">Keine neue Meldung.</div></div>
+</div>
 <div class="small" style="margin-top:8px">Kein Login nötig. Auf Android die ntfy-App installieren und denselben Topic abonnieren. Der Topic-Name ist eine öffentliche Kanaladresse, kein echtes Passwort. Für sensible Inhalte sollte ein geschützter Push-Dienst verwendet werden.</div>
 <div class="warning" style="margin-top:10px"><b>Trade-Schutz:</b> Management-Pushs werden nur ausgelöst, wenn du unten „Trade gesetzt“ bestätigst.</div>
 <div id="pushStatus" class="small" style="margin-top:8px">Noch nicht registriert.</div>
@@ -215,51 +219,78 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Spread
 <script>
 
 const $=id=>document.getElementById(id);
-const PUSH_DEFAULTS={general:false,trade:false,activeTrade:false};
-let pushState={...PUSH_DEFAULTS};try{const raw=localStorage.getItem("goldScannerPush");if(raw){const parsed=JSON.parse(raw);if(parsed&&typeof parsed==="object")pushState={...PUSH_DEFAULTS,...parsed};}}catch(e){console.warn("push state reset",e)}
+const PUSH_DEFAULTS={general:false,trade:false,activeTrade:false,simulation:false,registered:false};
+let pushState={...PUSH_DEFAULTS};
+try{const raw=localStorage.getItem("goldScannerPush");if(raw){const parsed=JSON.parse(raw);if(parsed&&typeof parsed==="object")pushState={...PUSH_DEFAULTS,...parsed};}}catch(e){console.warn("push state reset",e)}
+const PUSH_COOLDOWN=15*60*1000;
+let pushLast={};
+try{const raw=localStorage.getItem("goldScannerPushLast");if(raw){const parsed=JSON.parse(raw);if(parsed&&typeof parsed==="object")pushLast=parsed;}}catch(e){console.warn("push cooldown reset",e)}
+function savePushLast(){try{localStorage.setItem("goldScannerPushLast",JSON.stringify(pushLast));}catch(e){console.warn("push cooldown save",e)}}
 function savePush(){localStorage.setItem("goldScannerPush",JSON.stringify(pushState));renderPush();}
 function renderPush(){
- const gb=$("generalPushBtn"),tb=$("tradePushBtn"),ts=$("tradeStateBtn"),tp=$("tradePushState");
- if(gb){gb.textContent=pushState.general?"🔔 Ein":"🔕 Aus";}
- if(tb){tb.textContent=pushState.trade?"🔔 Ein":"🔕 Aus";}
- if(ts){ts.textContent=pushState.activeTrade?"✅ Trade gesetzt":"❌ Nein";}
- if(tp){tp.textContent=pushState.activeTrade?"Aktiv – Stop-Loss/Schließen erlaubt":"Nur bei aktivem Trade";}
+ const gb=$("generalPushBtn"),tb=$("tradePushBtn"),ts=$("tradeStateBtn"),tp=$("tradePushState"),sb=$("simulationBtn");
+ if(gb)gb.textContent=pushState.general?"🔔 Ein":"🔕 Aus";
+ if(tb)tb.textContent=pushState.trade?"🔔 Ein":"🔕 Aus";
+ if(ts)ts.textContent=pushState.activeTrade?"✅ Trade gesetzt":"❌ Nein";
+ if(tp)tp.textContent=pushState.activeTrade?"Aktiv – Stop-Loss/Risiko/Ausstieg erlaubt":"Nur bei aktivem Trade";
+ if(sb)sb.textContent=pushState.simulation?"🧪 Ein":"🧪 Aus";
 }
+function setPushStatus(text){const el=$("pushEventStatus");if(el)el.textContent=text;const st=$("pushStatus");if(st)st.textContent=text;}
+function toggleSimulation(){pushState.simulation=!pushState.simulation;savePush();setPushStatus(pushState.simulation?"🧪 Simulation aktiv – Meldungen werden erzeugt, aber nicht zugestellt.":"Simulation aus – echte Push-Zustellung aktiv.");}
 async function registerNotifications(){
  if(!("Notification" in window)){$("pushStatus").textContent="Dieser Browser unterstützt keine Web-Benachrichtigungen.";return false;}
  const p=await Notification.requestPermission();
- if(p==="granted"){
-   pushState.registered=true;savePush();
-   if("serviceWorker" in navigator){try{await navigator.serviceWorker.register("sw.js");}catch(e){console.warn(e)}}
-   $("pushStatus").textContent="✅ Benachrichtigungen erlaubt. Für echte Hintergrund-Pushs muss die App über HTTPS/PWA laufen.";
-   return true;
- }
- $("pushStatus").textContent="Benachrichtigungen wurden nicht freigegeben.";return false;
+ if(p==="granted"){pushState.registered=true;savePush();if("serviceWorker" in navigator){try{await navigator.serviceWorker.register("sw.js");}catch(e){console.warn(e)}}setPushStatus("✅ Benachrichtigungen erlaubt. Für echte Hintergrund-Pushs muss die App über HTTPS/PWA laufen.");return true;}
+ setPushStatus("Benachrichtigungen wurden nicht freigegeben.");return false;
 }
 async function togglePush(kind){
  if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
  pushState[kind]=!pushState[kind];savePush();
 }
-function toggleTradeState(){pushState.activeTrade=!pushState.activeTrade;savePush();
- if(pushState.activeTrade) notifyTrade("Trade gesetzt", "Trade-Management-Benachrichtigungen sind jetzt aktiviert.");}
-function canNotify(kind){return pushState.registered && pushState[kind] && Notification.permission==="granted" && (kind!=="trade" || pushState.activeTrade);}
+function toggleTradeState(){
+ const wasActive=pushState.activeTrade;
+ if(!wasActive&&!tradeMgmt.active){setPushStatus("⚠️ Zuerst einen Trade setzen, dann „Trade gesetzt“ aktivieren.");return;}
+ pushState.activeTrade=!wasActive;savePush();
+ if(pushState.activeTrade)notifyTrade("Bob – Trade aktiviert","Trade-Management ist jetzt aktiv.");
+}
+function canNotify(kind){return pushState.registered&&pushState[kind]&&Notification.permission==="granted"&&(kind!=="trade"||pushState.activeTrade);}
 function ntfyTopic(){return ($("ntfyTopic")?.value||localStorage.getItem("goldScannerNtfyTopic")||"").trim()}
 function randomTopic(){const a=new Uint8Array(18);crypto.getRandomValues(a);return "gold-scanner-"+Array.from(a,b=>b.toString(16).padStart(2,"0")).join("")}
-function setupNtfy(){let t=ntfyTopic();if(!t){t=randomTopic();$("ntfyTopic").value=t;localStorage.setItem("goldScannerNtfyTopic",t)}else localStorage.setItem("goldScannerNtfyTopic",t);$("pushStatus").textContent="✅ ntfy-Kanal gespeichert. Jetzt denselben Topic in der ntfy-App abonnieren."}
-async function sendNtfy(kind,title,body){const topic=ntfyTopic();if(!topic)return false;if(kind==="trade" && !pushState.activeTrade)return false;try{const r=await fetch("https://ntfy.sh/"+encodeURIComponent(topic),{method:"POST",headers:{"Title":title,"Priority":kind==="trade"?"5":"4","Tags":kind==="trade"?"rotating_light":"chart_with_upwards_trend"},body});return r.ok}catch(e){console.warn("ntfy",e);return false}}
-function notify(kind,title,body){if(!canNotify(kind))return false;try{new Notification(title,{body,tag:"gold-scanner-"+kind});sendNtfy(kind,title,body);return true}catch(e){sendNtfy(kind,title,body);return false}}
-function notifyGeneral(title,body){return notify("general",title,body)}
-function notifyTrade(title,body){return notify("trade",title,body)}
-async function testPush(){if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
- const sent=notifyGeneral("Gold Scanner – Test","Allgemeine Trade-Empfehlungen");
- const sentTrade=notifyTrade("Gold Scanner – Trade-Test",pushState.activeTrade?"Trade-Management ist aktiv.":"Kein aktiver Trade – Management-Push bleibt gesperrt.");
- const ntfy=await sendNtfy("general","Gold Scanner – ntfy-Test","Push-Kanal funktioniert.");
- $("pushStatus").textContent=(sent||sentTrade||ntfy)?"✅ Test ausgelöst.":"Test nicht ausgelöst – Schalter, Trade-Status oder ntfy-Topic prüfen.";
+function setupNtfy(){let t=ntfyTopic();if(!t){t=randomTopic();$("ntfyTopic").value=t;localStorage.setItem("goldScannerNtfyTopic",t)}else localStorage.setItem("goldScannerNtfyTopic",t);setPushStatus("✅ ntfy-Kanal gespeichert. Jetzt denselben Topic in der ntfy-App abonnieren.")}
+async function sendNtfy(kind,title,body,priority=4){
+ const topic=ntfyTopic();if(!topic)return false;if(kind==="trade"&&!pushState.activeTrade)return false;
+ try{const r=await fetch("https://ntfy.sh/"+encodeURIComponent(topic),{method:"POST",headers:{"Title":title,"Priority":String(priority),"Tags":kind==="trade"?"rotating_light":"chart_with_upwards_trend"},body});return r.ok}catch(e){console.warn("ntfy",e);return false}
+}
+function pushKey(kind,title,body){
+ if(kind==="general"&&title.includes("Signal"))return "entry:"+title.replace(/.*– /,"");
+ if(kind==="trade"&&title.includes("Stop-Loss"))return "stop:"+body.replace(/.*neuer Stop-Loss: /,"");
+ if(kind==="trade"&&title.includes("Risikoalarm"))return "risk:"+title;
+ if(kind==="trade"&&title.includes("schließen"))return "exit:"+title;
+ return kind+":"+title+":"+body;
+}
+function notify(kind,title,body,priority=4){
+ if(!pushState[kind])return false;
+ if(kind==="trade"&&!pushState.activeTrade)return false;
+ const key=pushKey(kind,title,body),now=Date.now(),last=pushLast[key]||0;
+ if(now-last<PUSH_COOLDOWN){setPushStatus("⏳ Push unterdrückt (Anti-Spam): "+title);return false;}
+ if(pushState.simulation){pushLast[key]=now;savePushLast();setPushStatus("🧪 Simulation: "+title+" — "+body);return true;}
+ if(!canNotify(kind))return false;
+ pushLast[key]=now;savePushLast();
+ try{new Notification(title,{body,tag:"bob-"+key});sendNtfy(kind,title,body,priority);setPushStatus("🔔 Gesendet: "+title);return true}catch(e){sendNtfy(kind,title,body,priority);return false}
+}
+function notifyGeneral(title,body){return notify("general",title,body,4)}
+function notifyTrade(title,body){return notify("trade",title,body,5)}
+async function testPush(){
+ if(!pushState.registered&&!pushState.simulation){const ok=await registerNotifications();if(!ok)return;}
+ const sent=notifyGeneral("Bob – Test","Allgemeine Einstiegssignal-Pushs");
+ const sentTrade=pushState.activeTrade?notifyTrade("Bob – Trade-Test","Management-Pushs sind aktiv."):false;
+ const ntfy=pushState.simulation?false:await sendNtfy("general","Bob – ntfy-Test","Push-Kanal funktioniert.",4);
+ setPushStatus((sent||sentTrade||ntfy)?"✅ Test ausgelöst.":"Test nicht ausgelöst – Schalter/Trade-Status/ntfy prüfen.");
 }
 (function(){const t=localStorage.getItem("goldScannerNtfyTopic");if(t&&$("ntfyTopic"))$("ntfyTopic").value=t;})();
 renderPush();
 
-let C=[], lastPrice=0, A={};let liveHistoryCache=null,liveHistoryAt=0,lastMtfAt=0;
+let C=[], lastPrice=0, A={};let liveHistoryCache=null,liveHistoryAt=0,lastMtfAt=0;let lastPushedEntryDirection="NEUTRAL";
 function ema(a,p){let k=2/(p+1),e=a[0];for(let i=1;i<a.length;i++)e=a[i]*k+e*(1-k);return e}
 function emaSeries(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
 function rsi(a,p=14){if(a.length<=p)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];d>0?g+=d:l-=d}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return l===0?100:100-100/(1+g/l)}
@@ -439,12 +470,22 @@ function confirmedSignalDirection(){
  const fb=falseBreakoutState(raw);
  return (fb==="OK"||fb==="UNKNOWN")?raw:"NEUTRAL";
 }
-function updateResearchPanel(){
+function updateResearchPanel(commitSignal=false){
  const reg=currentRegime(); if($("regime"))$("regime").textContent=reg;
  let rawDir=A.score>=70&&MTF.overall==="LONG"?"LONG":A.score<=30&&MTF.overall==="SHORT"?"SHORT":"NEUTRAL";
  const fb=falseBreakoutState(rawDir); if(fb!=="OK"&&fb!=="UNKNOWN")rawDir="NEUTRAL";
- let dir=rawDir;
- if(rawDir!==signalState.dir){if(rawDir==="NEUTRAL"){signalState={dir:"NEUTRAL",pending:"NEUTRAL",count:0};dir="NEUTRAL";}else if(signalState.pending===rawDir){signalState.count++;if(signalState.count>=2)signalState={dir:rawDir,pending:rawDir,count:0};else dir=signalState.dir;}else{signalState.pending=rawDir;signalState.count=1;dir=signalState.dir;}}
+ let dir=signalState.dir;
+ if(commitSignal&&rawDir!==signalState.dir){
+   if(rawDir==="NEUTRAL"){signalState={dir:"NEUTRAL",pending:"NEUTRAL",count:0};}
+   else if(signalState.pending===rawDir){
+     signalState.count++;
+     if(signalState.count>=2)signalState={dir:rawDir,pending:rawDir,count:0};
+   }else{
+     signalState.pending=rawDir;
+     signalState.count=1;
+   }
+   dir=signalState.dir;
+ }
  const sm=dir!=="NEUTRAL"?stopModel(dir,lastPrice,A.at,+( $("trailAtr")?.value||1.5)):null;
  const stop=sm?.stop||null;
  if($("stopCurrent"))$("stopCurrent").textContent=displayStop(tradeMgmt.stop||stop);
@@ -452,6 +493,19 @@ function updateResearchPanel(){
  if($("stopPanel")&&!tradeMgmt.active&&sm?.stop)$("stopPanel").innerHTML="<b>Technischer Referenz-Stop:</b> "+displayStop(sm.stop)+"<br><span class='small'>"+sm.reason+" · Struktur "+displayStop(sm.structureStop)+" · ATR "+displayStop(sm.atrStop)+"</span>";
  if($("hysteresis"))$("hysteresis").textContent=dir+" · Hysterese "+(signalState.count?signalState.count+"/2":"stabil")+(falseBreakoutState(dir)!=="OK"&&dir!=="NEUTRAL"?" · Breakout unbestätigt":"");
  if($("researchStatus"))$("researchStatus").textContent=researchLog.length?researchLog.length+" Snapshots lokal gespeichert.":"Noch keine Snapshots.";
+}
+function maybePushEntrySignal(){
+ const dir=signalState.dir;
+ if(dir!=="LONG"&&dir!=="SHORT")return;
+ if(dir===lastPushedEntryDirection)return;
+ if(!lastPrice||!A.at||!Number.isFinite(Number(A.score)))return;
+ const score=Number(A.score);
+ const mtf=MTF.overall;
+ if(mtf!==dir||score<70&&dir==="LONG"||score>30&&dir==="SHORT")return;
+ const fb=falseBreakoutState(dir);
+ if(fb!=="OK"&&fb!=="UNKNOWN")return;
+ const sent=notifyGeneral("Bob – "+dir+" Einstiegssignal","Bestätigtes und stabiles "+dir+"-Setup · Score "+score.toFixed(0)+"/100 · MTF "+mtf+" · Kurs "+lastPrice.toFixed(2)+" USD/oz.");
+ if(sent||pushState.simulation)lastPushedEntryDirection=dir;
 }
 function captureResearchSnapshot(result="OBSERVATION"){
  if(!C.length||!A.at)return;
@@ -473,9 +527,23 @@ function setTradeEntry(){
  const tgt=targetModel(dir,entry,sm.stop,Math.max(1,+($("minRR")?.value||2)));
  tradeMgmt={active:true,dir,entry,stop:sm.stop,target:tgt.target,rr:tgt.rr,stopReason:sm.reason,lastUpdate:new Date().toISOString()};
  $("tradeEntry").value=tradeMgmt.entry.toFixed(2);$("tradePrice").value=lastPrice.toFixed(2);$("tradeStop").value=tradeMgmt.stop.toFixed(2);saveTradeMgmt();
- pushState.activeTrade=true;savePush();
  const msg=`${dir}: initialer Stop-Loss ${displayStop(tradeMgmt.stop)}. Einstieg ${tradeMgmt.entry.toFixed(2)} USD/oz.`;
- $("stopUpdate").innerHTML="<b>Trade bestätigt.</b> "+msg+" CRV-Ziel: "+displayStop(tradeMgmt.target)+" ("+tgt.rr.toFixed(2)+"R).";notifyTrade("Gold Scanner – Trade bestätigt",msg);captureResearchSnapshot("TRADE_SET");updateResearchPanel();
+ $("stopUpdate").innerHTML="<b>Trade vorbereitet.</b> "+msg+" CRV-Ziel: "+displayStop(tradeMgmt.target)+" ("+tgt.rr.toFixed(2)+"R). <span class=\"small\">Management-Pushs erst nach Aktivierung von „Trade gesetzt“.</span>";captureResearchSnapshot("TRADE_SET");updateResearchPanel();
+}
+function monitorActiveTrade(){
+ if(!tradeMgmt.active||!lastPrice||!A.at)return;
+ const p=lastPrice,old=tradeMgmt.stop,dir=tradeMgmt.dir;
+ const model=stopModel(dir,p,A.at,+($("trailAtr")?.value||1.5)),candidate=model.stop;
+ if(candidate!=null){
+   const improves=dir==="LONG"?candidate>old+Math.max(A.at*0.10,0.10):candidate<old-Math.max(A.at*0.10,0.10);
+   if(improves){tradeMgmt.stop=dir==="LONG"?Math.max(old,candidate):Math.min(old,candidate);tradeMgmt.lastUpdate=new Date().toISOString();saveTradeMgmt();if($("tradeStop"))$("tradeStop").value=tradeMgmt.stop.toFixed(2);notifyTrade("Bob – Stop-Loss anpassen","Neuer Stop-Loss: "+displayStop(tradeMgmt.stop)+". Alter Stop: "+displayStop(old)+". Kurs "+p.toFixed(2)+" USD/oz.");}
+ }
+ const riskDistance=Math.abs(p-old),threshold=Math.max(A.at*0.50,p*0.0025),nearStop=dir==="LONG"?p<=old+threshold:p>=old-threshold;
+ if(nearStop&&((dir==="LONG"&&p>old)||(dir==="SHORT"&&p<old)))notifyTrade("Bob – Risikoalarm",dir+": Kurs "+p.toFixed(2)+" USD/oz nähert sich dem Stop-Loss "+displayStop(old)+". Abstand "+riskDistance.toFixed(2)+" USD/oz.");
+ const confirmed=confirmedSignalDirection(),opposite=(dir==="LONG"&&confirmed==="SHORT")||(dir==="SHORT"&&confirmed==="LONG"),stopTouched=dir==="LONG"?p<=old:p>=old;
+ if(opposite)notifyTrade("Bob – Trade schließen",dir+": bestätigtes Gegensignal erkannt. Aktueller Kurs "+p.toFixed(2)+" USD/oz.");
+ else if(stopTouched)notifyTrade("Bob – Trade schließen",dir+": Stop-Loss-Bereich erreicht. Kurs "+p.toFixed(2)+" USD/oz · Stop "+displayStop(old)+".");
+ updateResearchPanel();
 }
 function suggestStopUpdate(){
  if(!tradeMgmt.active){$("stopUpdate").textContent="Kein aktiver Trade – zuerst Trade-Einstieg bestätigen.";return;}
@@ -485,7 +553,7 @@ function suggestStopUpdate(){
  tradeMgmt.stop=next;tradeMgmt.lastUpdate=new Date().toISOString();saveTradeMgmt();$("tradeStop").value=next.toFixed(2);$("stopUpdate").innerHTML=`<b>STOP-LOSS ANPASSEN:</b> neuer Kurs <b>${displayStop(next)}</b> (alt ${displayStop(old)}).`;
  notifyTrade("Gold Scanner – Stop-Loss anpassen",`Neuer Stop-Loss: ${displayStop(next)}. Alter Stop: ${displayStop(old)}.`);captureResearchSnapshot("STOP_UPDATE");updateResearchPanel();
 }
-function restoreTradeMgmt(){if(tradeMgmt.active){$("tradeEntry").value=tradeMgmt.entry?.toFixed?.(2)||"";$("tradeStop").value=tradeMgmt.stop?.toFixed?.(2)||"";$("tradePrice").value=lastPrice?lastPrice.toFixed(2):"";pushState.activeTrade=true;savePush();}}
+function restoreTradeMgmt(){if(tradeMgmt.active){$("tradeEntry").value=tradeMgmt.entry?.toFixed?.(2)||"";$("tradeStop").value=tradeMgmt.stop?.toFixed?.(2)||"";$("tradePrice").value=lastPrice?lastPrice.toFixed(2):"";}}
 
 
 function advancedAnalysis(){
@@ -614,7 +682,8 @@ async function loadData(){
   if(fxEl&&Number.isFinite(autoFx)&&autoFx>0&&!fxEl.dataset.manual)fxEl.value=autoFx.toFixed(4);
   const sourceNote=spots.sourceWarning||"Spot/Futures-Differenz gering · Futures = technische Referenz";
   $("status").textContent=`LIVE · XAU/USD ${lastPrice.toFixed(2)} · GoldPrice.dev Spot + Yahoo GC=F · ${sourceNote} · ${new Date().toLocaleTimeString()}`;
-  analyze();restoreTradeMgmt();await loadMTF();
+  analyze();restoreTradeMgmt();await loadMTF();updateResearchPanel(true);maybePushEntrySignal();
+  monitorActiveTrade();
  }catch(e){const msg="Live-Daten momentan nicht erreichbar: "+e.message; $("status").textContent=msg+" · Bitte erneut versuchen."; $("quickSignal").textContent="🔴 LIVE-DATEN FEHLER"; $("quickSignal").className="signal bad"; $("quickReason").textContent=msg;}
 }
 function demo(){let p=4250;C=[];lastPrice=p;for(let i=0;i<250;i++){p+=Math.sin(i/8)*1.8+Math.sin(i*0.73)*2.2;const o=p-2,h=p+8,l=p-8;C.push({open:o,high:h,low:l,close:p,isOpen:false})}$("status").textContent="Reproduzierbare Demo-Daten aktiv.";analyze()}
@@ -636,4 +705,5 @@ if(fxField)fxField.addEventListener("input",()=>fxField.dataset.manual="1");
 if(ccyField)ccyField.addEventListener("change",()=>{if(fxField)fxField.dataset.manual="";loadData(true);});
 loadData();
 setInterval(()=>{ if(document.visibilityState==="visible") loadData(); }, 60000);
+setInterval(()=>{ if(document.visibilityState==="visible"&&pushState.activeTrade) monitorActiveTrade(); }, 15000);
 </script></body></html>
