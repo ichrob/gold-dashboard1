@@ -1,7 +1,8 @@
 """Standalone DEGIRO order-preparation logic for Bob.
 
 This module deliberately does not place, submit, or automate real orders.
-It converts an already selected trade setup into a reviewable order draft.
+It converts an already selected trade setup into a reviewable order draft
+and rejects stale, implausible or insufficiently protected inputs.
 """
 
 from dataclasses import dataclass
@@ -20,6 +21,9 @@ class DegiroProduct:
     leverage: Optional[float]
     knockout_price: Optional[float]
     currency: str = "EUR"
+    spread_pct: Optional[float] = None
+    liquidity_score: Optional[float] = None
+    data_age_seconds: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -35,8 +39,17 @@ class OrderDraft:
     knockout_distance_pct: Optional[float]
     max_risk_eur: Optional[float]
     leverage: Optional[float]
+    spread_pct: Optional[float]
+    liquidity_score: Optional[float]
+    data_age_seconds: Optional[int]
     currency: str
     requires_manual_confirmation: bool = True
+    frozen: bool = True
+
+
+def _validate_isin(isin: str) -> None:
+    if len(isin) != 12 or not isin[:2].isalpha() or not isin[2:].isalnum():
+        raise ValueError("ISIN must contain 12 alphanumeric characters with a 2-letter country prefix")
 
 
 def knockout_distance_pct(current_price: float, knockout_price: float) -> float:
@@ -64,6 +77,39 @@ def position_size(risk_budget_eur: float, risk_per_unit_eur: float) -> int:
     return int(risk_budget_eur // risk_per_unit_eur)
 
 
+def validate_product(
+    product: DegiroProduct,
+    *,
+    max_spread_pct: float = 1.0,
+    min_liquidity_score: float = 0.0,
+    max_data_age_seconds: int = 30,
+    min_ko_distance_pct: float = 0.0,
+) -> None:
+    """Reject a product when identity, data freshness or market-quality checks fail."""
+    _validate_isin(product.isin)
+    if not product.name.strip():
+        raise ValueError("Product name must not be empty")
+    if product.currency != "EUR":
+        raise ValueError("Only EUR-denominated products are supported by this draft")
+    if product.current_price <= 0:
+        raise ValueError("Current price must be positive")
+    if product.leverage is not None and product.leverage <= 0:
+        raise ValueError("Leverage must be positive")
+    if product.knockout_price is not None:
+        if product.knockout_price <= 0:
+            raise ValueError("KO price must be positive")
+        if knockout_distance_pct(product.current_price, product.knockout_price) < min_ko_distance_pct:
+            raise ValueError("KO distance is below the configured safety threshold")
+    if product.spread_pct is not None:
+        if product.spread_pct < 0 or product.spread_pct > max_spread_pct:
+            raise ValueError("Spread exceeds the configured maximum")
+    if product.liquidity_score is not None and product.liquidity_score < min_liquidity_score:
+        raise ValueError("Liquidity is below the configured minimum")
+    if product.data_age_seconds is not None:
+        if product.data_age_seconds < 0 or product.data_age_seconds > max_data_age_seconds:
+            raise ValueError("Market data is stale")
+
+
 def prepare_order(
     product: DegiroProduct,
     *,
@@ -72,12 +118,26 @@ def prepare_order(
     entry_price: Optional[float] = None,
     stop_loss: Optional[float] = None,
     risk_budget_eur: Optional[float] = None,
+    max_spread_pct: float = 1.0,
+    min_liquidity_score: float = 0.0,
+    max_data_age_seconds: int = 30,
+    min_ko_distance_pct: float = 0.0,
 ) -> OrderDraft:
     """Build a DEGIRO order draft for manual review only."""
+    validate_product(
+        product,
+        max_spread_pct=max_spread_pct,
+        min_liquidity_score=min_liquidity_score,
+        max_data_age_seconds=max_data_age_seconds,
+        min_ko_distance_pct=min_ko_distance_pct,
+    )
     if quantity < 1:
         raise ValueError("Quantity must be at least 1")
+    if order_type in ("LIMIT", "STOP_LIMIT") and entry_price is None:
+        raise ValueError("This order type requires an entry price")
+    if order_type in ("STOP_LOSS", "STOP_LIMIT") and stop_loss is None:
+        raise ValueError("This order type requires a stop-loss")
 
-    unit_risk = None
     max_risk = None
     if stop_loss is not None:
         effective_entry = entry_price if entry_price is not None else product.current_price
@@ -102,5 +162,8 @@ def prepare_order(
         knockout_distance_pct=ko_distance,
         max_risk_eur=max_risk,
         leverage=product.leverage,
+        spread_pct=product.spread_pct,
+        liquidity_score=product.liquidity_score,
+        data_age_seconds=product.data_age_seconds,
         currency=product.currency,
     )
