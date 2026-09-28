@@ -65,6 +65,61 @@ def lookup_openfigi_isin(isin):
     x = rows[0]
     return {k: x.get(k) for k in ("figi","name","ticker","securityType","securityType2","marketSector","securityDescription","exchCode")}
 
+def _clean_product_number(value):
+    if value is None: return None
+    text = str(value).strip().replace("\u00a0", " ")
+    text = re.sub(r"[^0-9,.-]", "", text)
+    if not text: return None
+    if "," in text and "." not in text: text = text.replace(",", ".")
+    else: text = text.replace(",", "")
+    try:
+        n = float(text); return n if n == n else None
+    except ValueError: return None
+
+def _html_text(html):
+    text = re.sub(r"<script\b[^>]*>.*?</script>", " ", html, flags=re.I|re.S)
+    text = re.sub(r"<style\b[^>]*>.*?</style>", " ", text, flags=re.I|re.S)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", text).replace("&nbsp;", " ").strip()
+
+def fetch_six_structured_product(isin):
+    if not isin.startswith("CH"): return {}
+    url = f"https://www.six-structured-products.com/en/zertifikat/-{isin}"
+    req = Request(url, headers={"User-Agent":"Bob/1.1","Accept":"text/html"})
+    with urlopen(req, timeout=UPSTREAM_TIMEOUT) as response:
+        if response.status < 200 or response.status >= 300: raise RuntimeError(f"SIX HTTP {response.status}")
+        html = response.read().decode("utf-8", "ignore")
+    text = _html_text(html)
+    def field(label, next_labels):
+        pattern = re.escape(label) + r"\s+(.+?)(?=\s+(?:" + "|".join(re.escape(x) for x in next_labels) + r")\s+|$)"
+        m = re.search(pattern, text, flags=re.I)
+        return m.group(1).strip() if m else None
+    name = field("Name", ["ISIN","Valor","Symbol"])
+    bid = field("Bid", ["Ask","Notation","Volume"])
+    ask = field("Ask", ["Notation","Volume","Performance"])
+    ko = field("Knock-out", ["Type","Ratio","SVSP Code","Currency"])
+    ratio = field("Ratio", ["SVSP Code","Currency","First Trading Date"])
+    gearing = field("Gearing", ["Spread in %","Distance to Knock-Out"])
+    ko_dist = field("Distance to Knock-Out", ["Distance to Knock-Out in %","Knock-Out reached"])
+    ko_dist_pct = field("Distance to Knock-Out in %", ["Knock-Out reached","market maker quality"])
+    underlying_price = field("Price", ["Date","Ratio"])
+    product_type = field("Type", ["Ratio","SVSP Code","Currency"])
+    direction = "LONG" if re.search(r"\b(?:Bull|Long|Call)\b", product_type or "", re.I) else ("SHORT" if re.search(r"\b(?:Bear|Short|Put)\b", product_type or "", re.I) else "")
+    return {"name":name,"bid":_clean_product_number(bid),"ask":_clean_product_number(ask),"ko":_clean_product_number(ko),"ratio":_clean_product_number(ratio),"leverage":_clean_product_number(gearing),"ko_distance":_clean_product_number(ko_dist),"ko_distance_pct":_clean_product_number(ko_dist_pct),"underlying_price":_clean_product_number(underlying_price),"direction":direction,"source":"SIX Structured Products","source_url":url}
+
+def lookup_product_live(isin):
+    raw = os.environ.get("BOB_PRODUCT_DATA_JSON", "")
+    if raw:
+        try:
+            feed = json.loads(raw)
+            if isinstance(feed, dict) and isinstance(feed.get(isin), dict):
+                item = dict(feed[isin]); item["source"] = item.get("source") or "BOB_PRODUCT_DATA_JSON"; return item
+        except (TypeError, ValueError, json.JSONDecodeError): pass
+    if isin.startswith("CH"):
+        try: return fetch_six_structured_product(isin)
+        except Exception as exc: return {"source":"SIX Structured Products","error":str(exc)}
+    return {"source":"unavailable","error":"Keine öffentliche Live-Produktquelle für diese ISIN konfiguriert."}
+
 def fetch_goldprice_bars(interval, days):
     """Best-effort genuine XAU/USD spot OHLC; empty means unavailable on current API tier."""
     end = datetime.now(timezone.utc)
@@ -456,6 +511,19 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+
+        if path == "/api/product-live":
+            qs = parse_qs(urlparse(self.path).query)
+            isins = []
+            for raw in qs.get("isin", []):
+                value = str(raw).strip().upper()
+                if value and value not in isins and len(value) <= 20: isins.append(value)
+            results = {}
+            for isin in isins[:5]:
+                if re.fullmatch(r"[A-Z]{2}[A-Z0-9]{9}[0-9]", isin): results[isin] = lookup_product_live(isin)
+            body = json.dumps({"results":results}, separators=(",",":")).encode("utf-8")
+            self.send_response(200); self.send_header("Content-Type","application/json; charset=utf-8")
+            self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff"); self.end_headers(); self.wfile.write(body); return
 
         if path == "/api/degiro-products":
             raw_products = os.environ.get("BOB_DEGIRO_PRODUCTS_JSON", "")
