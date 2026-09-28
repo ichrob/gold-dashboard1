@@ -636,19 +636,36 @@ async function enrichDgProductsByIsin(products){
   if(!unique.length)return products;
   try{
     const qs=unique.map(x=>"isin="+encodeURIComponent(x)).join("&");
-    const r=await fetch("/api/isin-lookup?"+qs,{cache:"no-store"});
-    if(!r.ok)return products;
-    const j=await r.json(), map=j.results||{};
+    const [ir,pr]=await Promise.all([
+      fetch("/api/isin-lookup?"+qs,{cache:"no-store"}),
+      fetch("/api/product-live?"+qs,{cache:"no-store"})
+    ]);
+    const ij=ir.ok?await ir.json():{results:{}}, pj=pr.ok?await pr.json():{results:{}};
+    const imap=ij.results||{}, pmap=pj.results||{};
     return products.map(p=>{
-      const m=map[p.isin]||{};
-      const name=m.name||m.securityDescription||p.name;
+      const m=imap[p.isin]||{}, live=pmap[p.isin]||{};
+      const name=live.name||m.name||m.securityDescription||p.name;
       const descriptor=[name,m.ticker,m.securityType2,m.securityType].filter(Boolean).join(" ");
-      const direction=p.direction||(/\b(short|bear|put|inverse)\b/i.test(descriptor)?"SHORT":/\b(long|bull|call|leveraged)\b/i.test(descriptor)?"LONG":"");
+      const direction=p.direction||live.direction||(/\b(short|bear|put|inverse)\b/i.test(descriptor)?"SHORT":/\b(long|bull|call|leveraged)\b/i.test(descriptor)?"LONG":"");
       const levm=descriptor.match(/(\d+(?:[.,]\d+)?)\s*x\b/i);
       const kom=descriptor.match(/(?:K\.?O\.?|Knock[- ]?Out|Stop(?:-Loss)?|Barriere)\s*[:=]?\s*([0-9][0-9.,]*)/i);
-      return {...p,name,direction,leverage:Number.isFinite(p.leverage)?p.leverage:(levm?Number(levm[1].replace(",",".")):p.leverage),ko:Number.isFinite(p.ko)?p.ko:(kom?Number(kom[1].replace(/,/g,".")):p.ko),figi:m.figi||null,ticker:m.ticker||null,identifierResolved:Boolean(m.figi||m.name)};
+      const leverage=Number.isFinite(Number(live.leverage))?Number(live.leverage):Number.isFinite(p.leverage)?p.leverage:(levm?Number(levm[1].replace(",",".")):p.leverage);
+      const ko=Number.isFinite(Number(live.ko))?Number(live.ko):Number.isFinite(p.ko)?p.ko:(kom?Number(kom[1].replace(/,/g,".")):p.ko);
+      return {...p,...live,name,direction,leverage,ko,
+        bid:Number.isFinite(Number(live.bid))?Number(live.bid):p.bid,
+        ask:Number.isFinite(Number(live.ask))?Number(live.ask):p.ask,
+        productPrice:Number.isFinite(Number(live.last_price))?Number(live.last_price):(Number.isFinite(Number(live.price))?Number(live.price):p.productPrice),
+        koDistancePct:Number.isFinite(Number(live.ko_distance_pct))?Number(live.ko_distance_pct):p.koDistancePct,
+        identifierResolved:Boolean(m.figi||m.name||live.source&&live.source!=="unavailable"),
+        dataFresh:Boolean(live.source&&live.source!=="unavailable"&&!live.error)
+      };
     });
-  }catch(e){console.warn("ISIN lookup",e);return products;}
+  }catch(e){console.warn("ISIN/product lookup",e);return products;}
+}
+async function refreshDgLiveProducts(){
+  if(!dgProducts.length)return;
+  dgProducts=await enrichDgProductsByIsin(dgProducts);
+  rankDgProducts();
 }
 async function analyzeDgScreenshot(){
   const input=$("dgScreenshot"),status=$("dgScreenshotStatus"),img=$("dgScreenshotPreview"),ocr=$("dgOcrText");
@@ -700,35 +717,36 @@ function rankDgProducts(){
   const minKo=Math.max(.5,+$("dgMinKo").value||3), maxLev=Math.max(1,+$("dgMaxLev").value||12);
   if(dir==="NEUTRAL"){
     $("dgProductOut").innerHTML="<b>WAIT / NO TRADE.</b><br>Gold-Signal und MTF bestätigen derzeit keine gemeinsame Richtung.";
-    if(previousDirection!=="NEUTRAL"){lastProductDirection="NEUTRAL";}
+    if(previousDirection!=="NEUTRAL")lastProductDirection="NEUTRAL";
     return;
   }
   const candidates=dgProducts.map(x=>{
-    const ko=Number(x.ko),lev=Number(x.leverage),bid=Number(x.bid),ask=Number(x.ask),expiry=x.expiry?new Date(x.expiry):null;
-    const koDist=Number.isFinite(ko)&&p>0 ? Math.abs(p-ko)/p*100 : NaN;
-    const spread=Number.isFinite(bid)&&Number.isFinite(ask)&&ask>0 ? (ask-bid)/ask*100 : NaN;
+    const ko=Number(x.ko),lev=Number(x.leverage),bid=Number(x.bid),ask=Number(x.ask);
+    const liveKoPct=Number(x.koDistancePct), koDist=Number.isFinite(liveKoPct)?liveKoPct:(Number.isFinite(ko)&&p>0?Math.abs(p-ko)/p*100:NaN);
+    const spread=Number.isFinite(bid)&&Number.isFinite(ask)&&ask>0?(ask-bid)/ask*100:NaN;
     const sameDir=String(x.direction||"").toUpperCase()===dir;
-    const days=expiry&&!isNaN(expiry)?(expiry-Date.now())/86400000:9999;
-    let reasons=[], s=0, reject=false;
-    if(!sameDir) reject=true; else s+=30;
-    if(!Number.isFinite(koDist)||koDist<minKo) reject=true; else s+=Math.min(25,koDist*3);
-    if(!Number.isFinite(lev)||lev<1) reject=true; else s+=Math.min(20,(Math.min(lev,maxLev)/maxLev)*20);
-    if(Number.isFinite(spread)){s+=Math.max(0,15-Math.min(15,spread*5));}else{reasons.push("Spread unbekannt");}
-    if(days<0) reject=true; else if(days<30){s-=8;reasons.push("kurze Restlaufzeit");} else s+=Math.min(8,days/60);
+    const expiry=x.expiry?new Date(x.expiry):null, days=expiry&&!isNaN(expiry)?(expiry-Date.now())/86400000:9999;
+    let reasons=[],s=0,reject=false;
+    if(!sameDir)reject=true;else s+=30;
+    if(!Number.isFinite(koDist)||koDist<minKo)reject=true;else s+=Math.min(25,koDist*3);
+    if(!Number.isFinite(lev)||lev<1)reject=true;else s+=Math.min(20,(Math.min(lev,maxLev)/maxLev)*20);
+    if(Number.isFinite(spread))s+=Math.max(0,15-Math.min(15,spread*5));else reasons.push("Spread unbekannt");
+    if(days<0)reject=true;else if(days<30){s-=8;reasons.push("kurze Restlaufzeit");}else s+=Math.min(8,days/60);
     if(x.bidOnly||x.tradable===false){reject=true;reasons.push("nicht normal kaufbar");}
-    if(koDist<minKo+1)reasons.push("K.O.-Puffer knapp über Minimum");
     if(lev>maxLev)reasons.push("Hebel über gewünschtem Maximum");
+    if(!x.dataFresh)reasons.push("Live-Produktdaten nicht verifiziert");
     return {...x,_score:s,_reject:reject,_koDist:koDist,_spread:spread,_days:days,_reasons:reasons};
   }).filter(x=>!x._reject).sort((a,b)=>b._score-a._score);
   if(!candidates.length){$("dgProductOut").innerHTML="<b>Kein Produkt erfüllt die Sicherheitsfilter.</b><br>Bob erzeugt bewusst keinen Trade-Vorschlag.";return;}
-  const top=candidates[0], rows=candidates.slice(0,5).map((x,i)=>`<tr><td>${i+1}. ${x.name||x.isin||"Produkt"}</td><td class="right">${x.direction}</td><td class="right">${Number(x.leverage).toFixed(1)}×</td><td class="right">${Number.isFinite(x._koDist)?x._koDist.toFixed(2)+"%":"—"}</td><td class="right">${Number.isFinite(x._spread)?x._spread.toFixed(2)+"%":"—"}</td></tr>`).join("");
-  $("dgProductOut").innerHTML=`<div class="research"><b>Bob-Auswahl: ${top.name||top.isin||"Gold-Hebelprodukt"}</b><br>Richtung ${top.direction} · Hebel ${Number(top.leverage).toFixed(1)}× · K.O.-Abstand ${top._koDist.toFixed(2)}% · Score ${top._score.toFixed(0)}/100<br><span class="small">${top.isin?"ISIN: "+top.isin+" · ":""}${top._reasons.join(" · ")||"keine zusätzlichen Warnungen"}</span></div>
-  <table style="margin-top:10px"><tr><td><b>Kandidat</b></td><td class="right"><b>Richtung</b></td><td class="right"><b>Hebel</b></td><td class="right"><b>K.O.-Abstand</b></td><td class="right"><b>Spread</b></td></tr>${rows}</table>
-  <div class="small" style="margin-top:10px">Die Auswahl ist eine technische Filterung, keine Gewinn-Garantie. Vor einer Order müssen Produktpreis, Bezugsverhältnis, K.O.-Regeln, Spread, Finanzierung und KID des konkreten Produkts in DEGIRO geprüft werden.</div>`;
+  const top=candidates[0], rows=candidates.slice(0,5).map((x,i)=>`<tr><td>${i+1}. ${x.name||x.isin||"Produkt"}</td><td class="right">${x.direction}</td><td class="right">${Number(x.leverage).toFixed(1)}×</td><td class="right">${Number.isFinite(x._koDist)?x._koDist.toFixed(2)+"%":"—"}</td><td class="right">${Number.isFinite(Number(x.productPrice))?Number(x.productPrice).toFixed(4)+"":"—"}</td></tr>`).join("");
+  const freshness=top.dataFresh?"Live-Produktdaten verifiziert":"Produktdaten nicht live verifiziert";
+  $("dgProductOut").innerHTML=`<div class="research"><b>Bob-Auswahl: ${top.name||top.isin||"Gold-Hebelprodukt"}</b><br>Richtung ${top.direction} · Hebel ${Number(top.leverage).toFixed(1)}× · Produktkurs ${Number.isFinite(Number(top.productPrice))?Number(top.productPrice).toFixed(4):"—"} · K.O.-Abstand ${top._koDist.toFixed(2)}%<br><span class="small">${top.isin?"ISIN: "+top.isin+" · ":""}${freshness} · ${top._reasons.join(" · ")||"keine zusätzlichen Warnungen"}</span></div>
+  <table style="margin-top:10px"><tr><td><b>Kandidat</b></td><td class="right"><b>Richtung</b></td><td class="right"><b>Hebel</b></td><td class="right"><b>K.O.-Abstand</b></td><td class="right"><b>Produktkurs</b></td></tr>${rows}</table>
+  <div class="small" style="margin-top:10px">Bob verwendet bevorzugt Live-Produktdaten. Fehlen diese, wird der Wert ausdrücklich als nicht verifiziert behandelt. Die technische Filterung ist keine Gewinn-Garantie.</div>`;
   const now=Date.now();
-  if(previousDirection!==dir && now-lastProductNoticeAt>60000){
+  if(previousDirection!==dir&&now-lastProductNoticeAt>60000){
     lastProductNoticeAt=now;
-    if(previousDirection!=="NEUTRAL") notifyGeneral("Bob – Momentum-Wechsel",`${dir}: ${top.name||top.isin||"neues Gold-Hebelprodukt"} · Hebel ${Number(top.leverage).toFixed(1)}× · K.O.-Abstand ${top._koDist.toFixed(2)}% · RSI ${Number(A.R).toFixed(1)} · Score ${Number(A.score).toFixed(0)}/100`);
+    if(previousDirection!=="NEUTRAL")notifyGeneral("Bob – Momentum-Wechsel",`${dir}: ${top.name||top.isin||"neues Gold-Hebelprodukt"} · Hebel ${Number(top.leverage).toFixed(1)}× · K.O.-Abstand ${top._koDist.toFixed(2)}% · RSI ${Number(A.R).toFixed(1)} · Score ${Number(A.score).toFixed(0)}/100`);
   }
   lastProductDirection=dir;
 }
@@ -808,5 +826,5 @@ const fxField=$("fxRate"),ccyField=$("displayCcy");
 if(fxField)fxField.addEventListener("input",()=>fxField.dataset.manual="1");
 if(ccyField)ccyField.addEventListener("change",()=>{if(fxField)fxField.dataset.manual="";loadData(true);});
 loadData();
-setInterval(()=>{ if(document.visibilityState==="visible") loadData(); }, 60000);
+setInterval(()=>{ if(document.visibilityState==="visible"){ loadData(); refreshDgLiveProducts(); } }, 60000);
 </script></body></html>
