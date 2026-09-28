@@ -99,6 +99,7 @@ def fetch_six_structured_product(isin):
     ask = field("Ask", ["Notation","Volume","Performance"])
     ko = field("Knock-out", ["Type","Ratio","SVSP Code","Currency"])
     ratio = field("Ratio", ["SVSP Code","Currency","First Trading Date"])
+    currency = field("Currency", ["First Trading Date","Last Trading Date","Underlying"])
     gearing = field("Gearing", ["Spread in %","Distance to Knock-Out"])
     ko_dist = field("Distance to Knock-Out", ["Distance to Knock-Out in %","Knock-Out reached"])
     ko_dist_pct = field("Distance to Knock-Out in %", ["Knock-Out reached","market maker quality"])
@@ -106,7 +107,7 @@ def fetch_six_structured_product(isin):
     underlying_price = field("Price", ["Date","Ratio"])
     product_type = field("Type", ["Ratio","SVSP Code","Currency"])
     direction = "LONG" if re.search(r"\b(?:Bull|Long|Call)\b", product_type or "", re.I) else ("SHORT" if re.search(r"\b(?:Bear|Short|Put)\b", product_type or "", re.I) else "")
-    return {"name":name,"bid":_clean_product_number(bid),"ask":_clean_product_number(ask),"ko":_clean_product_number(ko),"ratio":_clean_product_number(ratio),"leverage":_clean_product_number(gearing),"ko_distance":_clean_product_number(ko_dist),"ko_distance_pct":_clean_product_number(ko_dist_pct),"last_price":_clean_product_number(last_price),"underlying_price":_clean_product_number(underlying_price),"direction":direction,"source":"SIX Structured Products","source_url":url}
+    return {"name":name,"bid":_clean_product_number(bid),"ask":_clean_product_number(ask),"ko":_clean_product_number(ko),"ratio":_clean_product_number(ratio),"leverage":_clean_product_number(gearing),"ko_distance":_clean_product_number(ko_dist),"ko_distance_pct":_clean_product_number(ko_dist_pct),"last_price":_clean_product_number(last_price),"underlying_price":_clean_product_number(underlying_price),"direction":direction,"currency":(currency or "").strip().upper(),"data_timestamp":datetime.now(timezone.utc).isoformat(),"source":"SIX Structured Products","source_url":url}
 
 def fetch_euronext_structured_product(isin):
     """Best-effort public Euronext lookup for European structured products."""
@@ -132,8 +133,10 @@ def fetch_euronext_structured_product(isin):
     expiry = field("Expiry Date", ["Exercise Type","Issue Price","Currency"])
     status = "BID_ONLY" if re.search(r"Bid-Only", text, re.I) else ("SUSPENDED" if re.search(r"\\bSUSPENDED\\b", text) else "")
     direction = "LONG" if re.search(r"\\b(?:Bullish|Call)\\b", strategy or "") else ("SHORT" if re.search(r"\\b(?:Bearish|Put)\\b", strategy or "") else "")
+    currency = field("Currency", ["Trading Venue","Trading Hours","Market"])
     return {"name":product,"last_price":_clean_product_number(price),"leverage":_clean_product_number(leverage),
             "ratio":ratio,"ko":_clean_product_number(strike),"expiry":expiry,"direction":direction,
+            "currency":(currency or "").strip().upper(),"data_timestamp":datetime.now(timezone.utc).isoformat(),
             "trading_status":status,"source":"Euronext Structured Products","source_url":url}
 
 def lookup_product_live(isin):
