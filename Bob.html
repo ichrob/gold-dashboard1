@@ -566,7 +566,8 @@ async function loadData(){
     fetch("https://xaus.com/api/v1/intraday?symbol=xau&hours=48",{cache:"no-store"}).then(r=>{if(!r.ok)throw Error("XAUS intraday HTTP "+r.status);return r.json()})
   ]);
   const points=history.points||[];
-  const minutes=tf==="5m"?5:tf==="15m"?15:tf==="1h"?60:tf==="4h"?240:15;
+  const minutes=tf==="5m"?5:tf==="15m"?15:tf==="1h"?60:null;
+  if(!minutes)throw Error("Diese Zeitebene wird nicht unterstützt.");
   const bars=barsFromIntraday(points,minutes);
   if(!bars.length)throw Error("Keine XAU-Intradaydaten verfügbar");
   C=bars.slice(-n);
