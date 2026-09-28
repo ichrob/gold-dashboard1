@@ -1,6 +1,7 @@
 import ast
 import pathlib
 import time
+from datetime import datetime, timezone
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 source = (ROOT / "server.py").read_text(encoding="utf-8")
@@ -8,7 +9,7 @@ tree = ast.parse(source)
 
 wanted = {"normalize_biquote_bars", "mark_bar_state", "aggregate_bars", "iso_age_seconds"}
 nodes = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in wanted]
-namespace = {"time": time}
+namespace = {"time": time, "datetime": datetime, "timezone": timezone}
 exec(compile(ast.Module(body=nodes, type_ignores=[]), "server.py", "exec"), namespace)
 
 
