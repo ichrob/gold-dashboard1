@@ -210,7 +210,31 @@ def build_live_bundle():
             latest_1h_age = max(0, now - bars_1h[-1]["openTime"] / 1000)
             if latest_1h_age > 7200:
                 raise RuntimeError(f"Yahoo 1h-Historie nicht frisch (Alter {latest_1h_age:.0f} s)")
-            bars_15m = aggregate_bars(bars_1h, 15)
+
+            # 15m must come from genuine 15-minute OHLC data.
+            # Aggregating 1h candles down to 15m would invent invalid intrabar OHLC.
+            yahoo_15m = fetch_json(
+                "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=15m&range=60d&includePrePost=true",
+                retries=2,
+                user_agent="Mozilla/5.0"
+            )
+            result_15m = yahoo_15m.get("chart", {}).get("result", [None])[0] if isinstance(yahoo_15m, dict) else None
+            if not result_15m:
+                raise RuntimeError("Yahoo Finance liefert keine 15m-Historie")
+            ts_15m = result_15m.get("timestamp") or []
+            q_15m = (result_15m.get("indicators", {}).get("quote") or [None])[0] or {}
+            o_15m, h_15m, l_15m, c_15m = q_15m.get("open") or [], q_15m.get("high") or [], q_15m.get("low") or [], q_15m.get("close") or []
+            for i, ts in enumerate(ts_15m):
+                try:
+                    o, h, low, close = map(float, (o_15m[i], h_15m[i], l_15m[i], c_15m[i]))
+                    if not all(v == v and v > 0 for v in (o, h, low, close)):
+                        continue
+                    bars_15m.append({"openTime": int(ts) * 1000, "open": o, "high": h, "low": low, "close": close, "isOpen": False})
+                except (IndexError, TypeError, ValueError, OverflowError):
+                    continue
+            bars_15m.sort(key=lambda x: x["openTime"])
+            if len(bars_15m) < 200:
+                raise RuntimeError(f"Zu wenig echte 15m-Historie ({len(bars_15m)} Kerzen)")
             bars_4h = aggregate_bars(bars_1h, 240)
             if len([b for b in bars_4h if not b["isOpen"]]) < 200:
                 raise RuntimeError("Zu wenig geschlossene 4h-Historie für EMA200")
