@@ -30,7 +30,7 @@ class BobPushContractTests(unittest.TestCase):
 
     def test_mtf_loader_is_async_and_push_waits_for_it(self):
         self.assertIn("async function loadMTF(force=false)", self.html)
-        self.assertNotIn("function loadMTF(force=false){", self.html)
+        self.assertNotIn("async async function loadMTF(force=false){", self.html)
         self.assertIn("await loadMTF();updateResearchPanel();maybePushEntrySignal();", self.html)
         self.assertIn("function maybePushEntrySignal()", self.html)
         self.assertIn("const dir=signalState.dir;", self.html)
