@@ -1,0 +1,19 @@
+name: Bob safe dev tests
+
+on:
+  push:
+    branches: [bob-safe-dev-tests]
+  pull_request:
+    branches: [main]
+
+jobs:
+  python-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m py_compile server.py
+      - run: python -m pip install --disable-pip-version-check pytest
+      - run: python -m pytest -q tests/test_server_helpers.py tests/test_product_selector.py

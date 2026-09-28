@@ -4,6 +4,7 @@ import hmac
 import json
 import time
 import threading
+import re
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from datetime import datetime, timezone
@@ -48,6 +49,117 @@ def fetch_json(url, retries=2, user_agent="Bob/1.1"):
         if attempt < retries:
             time.sleep(0.6 * (attempt + 1))
     raise last_error or RuntimeError(f"Upstream nicht erreichbar ({url})")
+
+def lookup_openfigi_isin(isin):
+    payload = json.dumps([{"idType":"ID_ISIN","idValue":isin}]).encode("utf-8")
+    req = Request("https://api.openfigi.com/v3/mapping", data=payload,
+                  headers={"User-Agent":"Bob/1.1","Accept":"application/json","Content-Type":"application/json"},
+                  method="POST")
+    with urlopen(req, timeout=UPSTREAM_TIMEOUT) as response:
+        if response.status < 200 or response.status >= 300:
+            raise RuntimeError(f"OpenFIGI HTTP {response.status}")
+        data = json.loads(response.read().decode("utf-8"))
+    rows = data[0].get("data", []) if isinstance(data, list) and data and isinstance(data[0], dict) else []
+    if not rows:
+        return {}
+    x = rows[0]
+    return {k: x.get(k) for k in ("figi","name","ticker","securityType","securityType2","marketSector","securityDescription","exchCode")}
+
+def _clean_product_number(value):
+    if value is None: return None
+    text = str(value).strip().replace("\u00a0", " ")
+    text = re.sub(r"[^0-9,.-]", "", text)
+    if not text: return None
+    if "," in text and "." not in text: text = text.replace(",", ".")
+    else: text = text.replace(",", "")
+    try:
+        n = float(text); return n if n == n else None
+    except ValueError: return None
+
+def _html_text(html):
+    text = re.sub(r"<script\b[^>]*>.*?</script>", " ", html, flags=re.I|re.S)
+    text = re.sub(r"<style\b[^>]*>.*?</style>", " ", text, flags=re.I|re.S)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", text).replace("&nbsp;", " ").strip()
+
+def fetch_six_structured_product(isin):
+    if not isin.startswith("CH"): return {}
+    url = f"https://www.six-structured-products.com/en/zertifikat/-{isin}"
+    req = Request(url, headers={"User-Agent":"Bob/1.1","Accept":"text/html"})
+    with urlopen(req, timeout=UPSTREAM_TIMEOUT) as response:
+        if response.status < 200 or response.status >= 300: raise RuntimeError(f"SIX HTTP {response.status}")
+        html = response.read().decode("utf-8", "ignore")
+    text = _html_text(html)
+    def field(label, next_labels):
+        pattern = re.escape(label) + r"\s+(.+?)(?=\s+(?:" + "|".join(re.escape(x) for x in next_labels) + r")\s+|$)"
+        m = re.search(pattern, text, flags=re.I)
+        return m.group(1).strip() if m else None
+    name = field("Name", ["ISIN","Valor","Symbol"])
+    bid = field("Bid", ["Ask","Notation","Volume"])
+    ask = field("Ask", ["Notation","Volume","Performance"])
+    ko = field("Knock-out", ["Type","Ratio","SVSP Code","Currency"])
+    ratio = field("Ratio", ["SVSP Code","Currency","First Trading Date"])
+    currency = field("Currency", ["First Trading Date","Last Trading Date","Underlying"])
+    gearing = field("Gearing", ["Spread in %","Distance to Knock-Out"])
+    ko_dist = field("Distance to Knock-Out", ["Distance to Knock-Out in %","Knock-Out reached"])
+    ko_dist_pct = field("Distance to Knock-Out in %", ["Knock-Out reached","market maker quality"])
+    last_price = field("Last Price", ["Volume","Time","Date"])
+    underlying_price = field("Price", ["Date","Ratio"])
+    product_type = field("Type", ["Ratio","SVSP Code","Currency"])
+    direction = "LONG" if re.search(r"\b(?:Bull|Long|Call)\b", product_type or "", re.I) else ("SHORT" if re.search(r"\b(?:Bear|Short|Put)\b", product_type or "", re.I) else "")
+    return {"name":name,"bid":_clean_product_number(bid),"ask":_clean_product_number(ask),"ko":_clean_product_number(ko),"ratio":_clean_product_number(ratio),"leverage":_clean_product_number(gearing),"ko_distance":_clean_product_number(ko_dist),"ko_distance_pct":_clean_product_number(ko_dist_pct),"last_price":_clean_product_number(last_price),"underlying_price":_clean_product_number(underlying_price),"direction":direction,"currency":(currency or "").strip().upper(),"data_timestamp":datetime.now(timezone.utc).isoformat(),"source":"SIX Structured Products","source_url":url}
+
+def fetch_euronext_structured_product(isin):
+    """Best-effort public Euronext lookup for European structured products."""
+    url = f"https://live.euronext.com/en/product/structured-products/{isin}-XMLI/market-information"
+    req = Request(url, headers={"User-Agent":"Bob/1.1","Accept":"text/html"})
+    with urlopen(req, timeout=UPSTREAM_TIMEOUT) as response:
+        if response.status < 200 or response.status >= 300:
+            raise RuntimeError(f"Euronext HTTP {response.status}")
+        html = response.read().decode("utf-8", "ignore")
+    text = _html_text(html)
+    def field(label, next_labels):
+        pattern = re.escape(label) + r"\\s+(.+?)(?=\\s+(?:" + "|".join(re.escape(x) for x in next_labels) + r")\\s+|$)"
+        m = re.search(pattern, text, flags=re.I)
+        return m.group(1).strip() if m else None
+    product = field("Product", ["Strategy","EUSIPA Code","Country of Distribution"])
+    strategy = field("Strategy", ["EUSIPA Code","EUSIPA Name","Country of Distribution"])
+    price = field("Last traded price", ["Since Open","Since Previous Close","Valuation Close"])
+    if not price:
+        price = field("Valuation trade", ["Since Open","Since Previous Close","Valuation Close"])
+    leverage = field("Leverage", ["Ratio","1st Strike Price","2nd Strike Price"])
+    ratio = field("Ratio", ["1st Strike Price","2nd Strike Price","Upper Threshold"])
+    strike = field("1st Strike Price", ["1st Strike Price Currency","2nd Strike Price","Upper Threshold"])
+    expiry = field("Expiry Date", ["Exercise Type","Issue Price","Currency"])
+    status = "BID_ONLY" if re.search(r"Bid-Only", text, re.I) else ("SUSPENDED" if re.search(r"\\bSUSPENDED\\b", text) else "")
+    direction = "LONG" if re.search(r"\\b(?:Bullish|Call)\\b", strategy or "") else ("SHORT" if re.search(r"\\b(?:Bearish|Put)\\b", strategy or "") else "")
+    currency = field("Currency", ["Trading Venue","Trading Hours","Market"])
+    return {"name":product,"last_price":_clean_product_number(price),"leverage":_clean_product_number(leverage),
+            "ratio":ratio,"ko":_clean_product_number(strike),"expiry":expiry,"direction":direction,
+            "currency":(currency or "").strip().upper(),"data_timestamp":datetime.now(timezone.utc).isoformat(),
+            "trading_status":status,"source":"Euronext Structured Products","source_url":url}
+
+def lookup_product_live(isin):
+    raw = os.environ.get("BOB_PRODUCT_DATA_JSON", "")
+    if raw:
+        try:
+            feed = json.loads(raw)
+            if isinstance(feed, dict) and isinstance(feed.get(isin), dict):
+                item = dict(feed[isin]); item["source"] = item.get("source") or "BOB_PRODUCT_DATA_JSON"; return item
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
+    if isin.startswith("CH"):
+        try:
+            return fetch_six_structured_product(isin)
+        except Exception as exc:
+            return {"source":"SIX Structured Products","error":str(exc)}
+    if isin.startswith(("DE","FR","NL","BE","IT","PT","ES")):
+        try:
+            return fetch_euronext_structured_product(isin)
+        except Exception as exc:
+            return {"source":"Euronext Structured Products","error":str(exc)}
+    return {"source":"unavailable","error":"Keine öffentliche Live-Produktquelle für diese ISIN konfiguriert."}
+
 
 def fetch_goldprice_bars(interval, days):
     """Best-effort genuine XAU/USD spot OHLC; empty means unavailable on current API tier."""
@@ -383,11 +495,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header(
                 "Content-Security-Policy",
                 "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline'; "
+                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
                 "style-src 'self' 'unsafe-inline'; "
-                "connect-src 'self' https://xaus.com https://api.goldprice.dev https://ntfy.sh; "
+                "connect-src 'self' https://xaus.com https://api.goldprice.dev https://ntfy.sh https://cdn.jsdelivr.net https://api.openfigi.com; "
                 "img-src 'self' data:; "
-                "worker-src 'self'; "
+                "worker-src 'self' blob:; "
                 "object-src 'none'; "
                 "base-uri 'self'; "
                 "frame-ancestors 'none'"
@@ -415,6 +527,81 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.end_headers()
                 self.wfile.write(body)
+            return
+
+        if path == "/api/isin-lookup":
+            qs = parse_qs(urlparse(self.path).query)
+            isins = []
+            for raw in qs.get("isin", []):
+                value = str(raw).strip().upper()
+                if value and value not in isins and len(value) <= 20:
+                    isins.append(value)
+            results = {}
+            for isin in isins[:5]:
+                if not re.fullmatch(r"[A-Z]{2}[A-Z0-9]{9}[0-9]", isin):
+                    continue
+                try:
+                    results[isin] = lookup_openfigi_isin(isin)
+                except Exception as exc:
+                    results[isin] = {"error": str(exc)}
+            body = json.dumps({"results": results}, separators=(",", ":")).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if path == "/api/product-live":
+            qs = parse_qs(urlparse(self.path).query)
+            isins = []
+            for raw in qs.get("isin", []):
+                value = str(raw).strip().upper()
+                if value and value not in isins and len(value) <= 20: isins.append(value)
+            results = {}
+            for isin in isins[:5]:
+                if re.fullmatch(r"[A-Z]{2}[A-Z0-9]{9}[0-9]", isin): results[isin] = lookup_product_live(isin)
+            body = json.dumps({"results":results}, separators=(",",":")).encode("utf-8")
+            self.send_response(200); self.send_header("Content-Type","application/json; charset=utf-8")
+            self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff"); self.end_headers(); self.wfile.write(body); return
+
+        if path == "/api/degiro-products":
+            raw_products = os.environ.get("BOB_DEGIRO_PRODUCTS_JSON", "")
+            try:
+                products = json.loads(raw_products) if raw_products else []
+                if not isinstance(products, list):
+                    raise ValueError("BOB_DEGIRO_PRODUCTS_JSON muss eine Liste sein")
+                safe = []
+                for p in products:
+                    if not isinstance(p, dict):
+                        continue
+                    item = {
+                        "name": str(p.get("name", ""))[:120],
+                        "isin": str(p.get("isin", ""))[:20],
+                        "direction": str(p.get("direction", "")).upper()[:10],
+                        "leverage": p.get("leverage"),
+                        "ko": p.get("ko"),
+                        "bid": p.get("bid"),
+                        "ask": p.get("ask"),
+                        "expiry": p.get("expiry"),
+                        "bidOnly": bool(p.get("bidOnly", False)),
+                        "tradable": p.get("tradable", True),
+                    }
+                    safe.append(item)
+                body = json.dumps({
+                    "products": safe,
+                    "source": "BOB_DEGIRO_PRODUCTS_JSON" if raw_products else "not configured"
+                }, separators=(",", ":")).encode("utf-8")
+                self.send_response(200)
+            except Exception as exc:
+                body = json.dumps({"error": str(exc), "products": []}).encode("utf-8")
+                self.send_response(400)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body)
             return
 
         if path == "/manifest.json" and MANIFEST is not None:

@@ -158,6 +158,41 @@ Bei einem Turbo/Knock-Out ist das KO-Level besonders wichtig: Der technische Sto
 </div>
 </div>
 
+<div class="card">
+<h3>🏆 Bob – DEGIRO Gold-Produktwahl</h3>
+<div class="small">Bob bewertet nur Produkte, die als aktuelle Kandidaten geliefert wurden. Ein hohes Ranking bedeutet nicht Gewinnsicherheit.</div>
+<div class="grid" style="margin-top:10px">
+<div><label>Min. K.O.-Abstand</label><input id="dgMinKo" type="number" value="3" step=".5" min="0.5"></div>
+<div><label>Max. gewünschter Hebel</label><input id="dgMaxLev" type="number" value="12" step=".5" min="1"></div>
+</div>
+<div class="row" style="margin-top:10px">
+<button onclick="loadDgProducts()">🔄 DEGIRO-Produkte aktualisieren</button>
+<button onclick="rankDgProducts()">🏆 Produkt auswählen</button>
+</div>
+<div id="dgProductStatus" class="small" style="margin-top:8px">Noch keine Produktliste geladen.</div>
+<div id="dgProductOut" style="margin-top:12px">Bob wartet auf die verfügbaren Gold-Hebelprodukte.</div>
+<div class="warning" style="margin-top:12px">
+<b>Auswahlregel:</b> Passende Richtung → ausreichender K.O.-Abstand → Handelbarkeit/Liquidität → Spread/Kosten → sinnvoller Hebel. Produkte mit erreichtem K.O., fehlendem Ask/Bid, „Bid Only“ oder zu engem K.O.-Abstand werden ausgeschlossen.
+</div>
+</div>
+<div class="card">
+<h3>📸 DEGIRO-Screenshot → Bob</h3>
+<div class="small"><b>So wird der Screenshot am besten gelesen:</b><br>
+1. In DEGIRO die <b>Gold-Hebelprodukte</b> als Liste öffnen.<br>
+2. Möglichst <b>ganze Produktzeilen</b> aufnehmen – nicht nur ein einzelnes Produkt.<br>
+3. <b>Produktname/ISIN, Long/Short, Hebel, K.O./Stop und Bid/Ask</b> müssen sichtbar sein.<br>
+4. Keine Finger, Pop-ups oder starken Reflexionen über den Produktdaten.<br>
+5. Wenn die Liste länger ist: mehrere Screenshots nacheinander hochladen.<br>
+Bob prüft die Lesbarkeit und verwirft unvollständige Datensätze, statt Werte zu erraten.</div>
+<div class="row" style="margin-top:10px">
+<input id="dgScreenshot" type="file" accept="image/*" capture="environment">
+<button onclick="analyzeDgScreenshot()">🔎 Screenshot analysieren</button>
+</div>
+<div id="dgScreenshotStatus" class="small" style="margin-top:8px">Noch kein Screenshot analysiert.</div>
+<img id="dgScreenshotPreview" alt="DEGIRO Screenshot Vorschau" style="display:none;width:100%;max-height:420px;object-fit:contain;border-radius:12px;margin-top:10px;background:#f6f6f6">
+<pre id="dgOcrText" class="small" style="display:none;white-space:pre-wrap;max-height:220px;overflow:auto;margin-top:10px"></pre>
+<div class="warning" style="margin-top:10px"><b>Wichtig:</b> Der Screenshot wird im Browser verarbeitet; Bob braucht dafür keine DEGIRO-Anmeldung. Die Produktliste bleibt die zuletzt eingelesene Liste, bis du einen neuen Screenshot analysierst. DEGIRO kann Produkte abhängig von Land, Zulassung und Kontoeinstellungen unterschiedlich anbieten.</div>
+</div>
 <div class="card"><h3>Trade-Risikorechner</h3>
 <div class="grid">
 <div><label>Risiko %</label><input id="risk2" type="number" value="1" step=".1"></div>
@@ -212,6 +247,7 @@ Hoher Hebel kann Verluste sehr schnell vergrößern. Die App platziert keine Ord
 Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Spreads, Finanzierung und Bezugsverhältnis müssen direkt in deinem DEGIRO-Konto geprüft werden.
 </div>
 </main>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
 
 const $=id=>document.getElementById(id);
@@ -559,6 +595,275 @@ function useRiskDefaults(){
  calcDgTrade();
 }
 
+
+let dgProducts=[];
+let lastProductDirection="NEUTRAL";
+let lastProductNoticeAt=0;
+function screenshotQuality(text, parsed){
+  const raw=String(text||"");
+  const hasIsin=(raw.match(/\b[A-Z]{2}[A-Z0-9]{9}\d\b/g)||[]).length>0;
+  const hasProductName=parsed.some(x=>String(x.name||"").trim().length>=4);
+  const hasDirection=/\b(long|short|bull|bear|call|put)\b/i.test(raw);
+  const hasLeverage=/\b(?:Hebel|Leverage|Gearing)\b|\d+(?:[.,]\d+)?\s*x\b/i.test(raw);
+  const hasKo=/\b(?:K\.?O\.?|Knock[- ]?Out|Stop(?:-Loss)?|Barriere)\b/i.test(raw);
+  const score=(hasIsin?60:0)+(hasProductName?40:0);
+  return {score,hasIsin,hasProductName,hasDirection,hasLeverage,hasKo,products:parsed.length};
+}
+function parseDgOcr(text){
+  const lines=String(text||"").split(/\n+/).map(x=>x.replace(/\s+/g," ").trim()).filter(Boolean);
+  const out=[];
+  for(let i=0;i<lines.length;i++){
+    const window=lines.slice(Math.max(0,i-2),Math.min(lines.length,i+3)).join(" ");
+    const isin=(window.match(/\b[A-Z]{2}[A-Z0-9]{9}\d\b/)||[])[0]||"";
+    if(!isin)continue;
+    const direction=/\b(short|bear|put|short[- ]?produkt|inverse)\b/i.test(window)?"SHORT":/\b(long|bull|call|long[- ]?produkt|leveraged)\b/i.test(window)?"LONG":"";
+    const levm=window.match(/(?:Hebel|Leverage|Gearing)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*x?/i)||window.match(/(\d+(?:[.,]\d+)?)\s*x\b/i);
+    const kom=window.match(/(?:K\.?O\.?|Knock[- ]?Out|Stop(?:-Loss)?|Barriere)\s*[:=]?\s*([0-9][0-9.,]*)/i);
+    const ko=kom?Number(kom[1].replace(/,/g,".")):NaN;
+    const leverage=levm?Number(levm[1].replace(",",".")):NaN;
+    const bidm=window.match(/(?:Bid|Geld)\s*[:=]?\s*([0-9][0-9.,]*)/i);
+    const askm=window.match(/(?:Ask|Brief)\s*[:=]?\s*([0-9][0-9.,]*)/i);
+    const bid=bidm?Number(bidm[1].replace(/,/g,".")):NaN;
+    const ask=askm?Number(askm[1].replace(/,/g,".")):NaN;
+    const name=(lines[i-1]||lines[i]).replace(isin,"").trim().slice(0,160) || "DEGIRO-Produkt";
+    out.push({name,isin,direction,leverage,ko,bid,ask,bidOnly:/bid only/i.test(window),tradable:!/nicht handelbar|unavailable|expired|ausverkauft/i.test(window),expiry:null,source:"DEGIRO Screenshot"});
+  }
+  const seen=new Set();
+  return out.filter(x=>{const k=x.isin;if(seen.has(k))return false;seen.add(k);return true;});
+}
+async function enrichDgProductsByIsin(products){
+  const unique=[...new Set(products.map(x=>x.isin).filter(Boolean))].slice(0,5);
+  if(!unique.length)return products;
+  try{
+    const qs=unique.map(x=>"isin="+encodeURIComponent(x)).join("&");
+    const [ir,pr]=await Promise.all([
+      fetch("/api/isin-lookup?"+qs,{cache:"no-store"}),
+      fetch("/api/product-live?"+qs,{cache:"no-store"})
+    ]);
+    const ij=ir.ok?await ir.json():{results:{}}, pj=pr.ok?await pr.json():{results:{}};
+    const imap=ij.results||{}, pmap=pj.results||{};
+    return products.map(p=>{
+      const m=imap[p.isin]||{}, live=pmap[p.isin]||{};
+      const name=live.name||m.name||m.securityDescription||p.name;
+      const descriptor=[name,m.ticker,m.securityType2,m.securityType].filter(Boolean).join(" ");
+      const direction=p.direction||live.direction||(/\b(short|bear|put|inverse)\b/i.test(descriptor)?"SHORT":/\b(long|bull|call|leveraged)\b/i.test(descriptor)?"LONG":"");
+      const levm=descriptor.match(/(\d+(?:[.,]\d+)?)\s*x\b/i);
+      const kom=descriptor.match(/(?:K\.?O\.?|Knock[- ]?Out|Stop(?:-Loss)?|Barriere)\s*[:=]?\s*([0-9][0-9.,]*)/i);
+      const leverage=Number.isFinite(Number(live.leverage))?Number(live.leverage):Number.isFinite(p.leverage)?p.leverage:(levm?Number(levm[1].replace(",",".")):p.leverage);
+      const ko=Number.isFinite(Number(live.ko))?Number(live.ko):Number.isFinite(p.ko)?p.ko:(kom?Number(kom[1].replace(/,/g,".")):p.ko);
+      return {...p,...live,name,direction,leverage,ko,
+        bid:Number.isFinite(Number(live.bid))?Number(live.bid):p.bid,
+        ask:Number.isFinite(Number(live.ask))?Number(live.ask):p.ask,
+        productPrice:Number.isFinite(Number(live.last_price))?Number(live.last_price):(Number.isFinite(Number(live.price))?Number(live.price):p.productPrice),
+        koDistancePct:Number.isFinite(Number(live.ko_distance_pct))?Number(live.ko_distance_pct):p.koDistancePct,
+        identifierResolved:Boolean(m.figi||m.name||live.source&&live.source!=="unavailable"),
+        dataFresh:Boolean(live.source&&live.source!=="unavailable"&&!live.error)
+      };
+    });
+  }catch(e){console.warn("ISIN/product lookup",e);return products;}
+}
+async function refreshDgLiveProducts(){
+  if(!dgProducts.length)return;
+  dgProducts=await enrichDgProductsByIsin(dgProducts);
+  rankDgProducts();
+}
+async function analyzeDgScreenshot(){
+  const input=$("dgScreenshot"),status=$("dgScreenshotStatus"),img=$("dgScreenshotPreview"),ocr=$("dgOcrText");
+  const file=input?.files?.[0];
+  if(!file){status.textContent="Bitte zuerst einen DEGIRO-Screenshot auswählen.";return;}
+  if(!file.type.startsWith("image/")){status.textContent="Bitte eine Bilddatei verwenden.";return;}
+  img.src=URL.createObjectURL(file);img.style.display="block";status.textContent="⏳ Screenshot wird lokal gelesen…";
+  try{
+    if(!window.Tesseract)throw Error("OCR-Modul konnte nicht geladen werden.");
+    const result=await Tesseract.recognize(file,"eng",{logger:m=>{if(m.status&&m.progress!=null)status.textContent="⏳ "+m.status+" · "+Math.round(m.progress*100)+"%";}});
+    const text=result?.data?.text||"";
+    ocr.textContent=text;ocr.style.display="block";
+    const parsed=parseDgOcr(text);
+    const q=screenshotQuality(text,parsed);
+    if(!parsed.length || q.score<100){
+      const missing=[!q.hasIsin?"ISIN/Identifikationsnummer":"",!q.hasProductName?"Produktname":""].filter(Boolean);
+      status.textContent="⚠️ Screenshot noch nicht zuverlässig genug. Fehlend/unklar: "+missing.join(", ")+". Bob braucht mindestens Produktname und ISIN/Identifikationsnummer.";
+      return;
+    }
+    dgProducts=await enrichDgProductsByIsin(parsed);
+    const resolved=dgProducts.filter(x=>x.identifierResolved).length;
+    status.textContent="✅ "+dgProducts.length+" Produkt(e) erkannt · "+resolved+" per ISIN eindeutig aufgelöst · Richtung wird mit dem aktuellen Gold-Momentum abgeglichen.";
+    rankDgProducts();
+  }catch(e){
+    status.textContent="❌ Screenshot/OCR fehlgeschlagen: "+e.message;
+  }
+}
+
+async function loadDgProducts(){
+  const box=$("dgProductStatus");
+  try{
+    const r=await fetch("/api/degiro-products",{cache:"no-store"});
+    const j=await r.json();
+    if(!r.ok) throw Error(j.error||"Produktliste nicht verfügbar");
+    dgProducts=Array.isArray(j.products)?j.products:[];
+    box.textContent=dgProducts.length+" Gold-Hebelprodukte geladen · Quelle: "+(j.source||"Produktfeed");
+    rankDgProducts();
+  }catch(e){
+    dgProducts=[];
+    box.textContent="Keine automatische DEGIRO-Produktliste verfügbar: "+e.message;
+    $("dgProductOut").innerHTML="<b>Kein automatischer Produktvergleich.</b><br>Bob analysiert Gold weiter, benötigt für die konkrete Produktauswahl aber einen aktuellen Produktfeed mit ISIN, Richtung, Hebel, K.O., Bid/Ask und Laufzeit.";
+  }
+}
+function rankDgProducts(){
+  if(!dgProducts.length){$("dgProductOut").innerHTML="Keine Produkte zum Vergleichen.";return;}
+  const p=Number(lastPrice), mtf=MTF.overall||"NEUTRAL";
+  const dir=confirmedSignalDirection();
+  const previousDirection=lastProductDirection;
+  const minKo=Math.max(.5,+$("dgMinKo").value||3), maxLev=Math.max(1,+$("dgMaxLev").value||12);
+  const acc=Math.max(0,+$("account").value||500), riskPct=Math.max(0,+$("risk").value||1), maxLossEur=acc*riskPct/100;
+  const fx=Math.max(0,+$("fxRate")?.value||0);
+  const technicalStop=dir!=="NEUTRAL"&&Number.isFinite(A.at)?stopModel(dir,p,A.at,1.5)?.stop:null;
+  const signalScore=Number.isFinite(A.score)?A.score:50;
+  const rsi=Number(A.R), adx=Number(A.adx);
+  const tradeScore=Math.round(Math.max(0,Math.min(100,
+    (dir!=="NEUTRAL"?35:0)+
+    (Number.isFinite(signalScore)?Math.max(0,30-Math.abs(signalScore-(dir==="LONG"?100:0))*.3):0)+
+    (dir!=="NEUTRAL"&&mtf===dir?20:0)+
+    (Number.isFinite(rsi)&&((dir==="LONG"&&rsi>=50&&rsi<75)||(dir==="SHORT"&&rsi>25&&rsi<=50))?10:0)+
+    (Number.isFinite(adx)&&adx>=25?5:0)
+  )));
+  if(dir==="NEUTRAL"){
+    $("dgProductOut").innerHTML="<b>WAIT / NO TRADE.</b><br>Gold-Signal, MTF/Hysterese oder Breakout-Bestätigung ergeben derzeit keine freigegebene Richtung.";
+    lastProductDirection="NEUTRAL";
+    return;
+  }
+
+  const candidates=dgProducts.map(x=>{
+    const ko=Number(x.ko), lev=Number(x.leverage), bid=Number(x.bid), ask=Number(x.ask);
+    const productPrice=Number(x.productPrice);
+    const liveKoPct=Number(x.koDistancePct);
+    const koDist=Number.isFinite(liveKoPct)?Math.abs(liveKoPct):(Number.isFinite(ko)&&p>0?Math.abs(p-ko)/p*100:NaN);
+    const spreadPct=Number.isFinite(bid)&&Number.isFinite(ask)&&ask>0?Math.max(0,(ask-bid)/ask*100):NaN;
+    const sameDir=String(x.direction||"").toUpperCase()===dir;
+    const expiry=x.expiry?new Date(x.expiry):null, days=expiry&&!isNaN(expiry)?(expiry-Date.now())/86400000:9999;
+    const dataFresh=Boolean(x.dataFresh);
+    const ratio=Number(x.ratio);
+    let reasons=[], reject=false;
+
+    if(!sameDir){reject=true;reasons.push("falsche Richtung");}
+    if(!dataFresh){reject=true;reasons.push("Live-Produktdaten nicht verifiziert");}
+    if(!Number.isFinite(koDist)||koDist<minKo){reject=true;reasons.push("K.O.-Abstand zu klein/unbekannt");}
+    if(!Number.isFinite(lev)||lev<1){reject=true;reasons.push("Hebel unbekannt");}\n    if(Number.isFinite(lev)&&lev>maxLev){reject=true;reasons.push("Hebel über gewünschtem Maximum");}
+    if(x.bidOnly||x.tradable===false){reject=true;reasons.push("nicht normal handelbar");}
+    if(days<0){reject=true;reasons.push("abgelaufen");}
+
+    let koBufferPct=NaN;
+    if(Number.isFinite(ko)&&Number.isFinite(technicalStop)&&p>0){
+      const koCorrectSide=dir==="LONG"?ko<p:ko>p;
+      const beyondTechnicalStop=dir==="LONG"?ko<technicalStop:ko>technicalStop;
+      if(!koCorrectSide){reject=true;reasons.push("K.O. auf falscher Seite");}
+      else if(!beyondTechnicalStop){reject=true;reasons.push("K.O. vor technischem Stop");}
+      else{
+        koBufferPct=Math.abs(technicalStop-ko)/p*100;
+        if(koBufferPct<0.5){reasons.push("K.O.-Puffer zum technischen Stop klein");}
+      }
+    }else{
+      reject=true;reasons.push("K.O./technischer Stop nicht verifizierbar");
+    }
+
+    if(Number.isFinite(spreadPct)&&spreadPct>2){reject=true;reasons.push("Spread > 2%");}
+    if(!Number.isFinite(spreadPct)){reject=true;reasons.push("Spread unbekannt");}
+    if(Number.isFinite(productPrice)&&productPrice<=0){reject=true;reasons.push("Produktkurs ungültig");}
+    if(days<30&&days>=0)reasons.push("kurze Restlaufzeit");
+
+    let productScore=0;
+    productScore+=30; // direction is a hard filter
+    if(Number.isFinite(koDist)){
+      productScore+=Math.min(25,koDist>=10?25:koDist>=6?20:Math.max(0,koDist*3.2));
+    }
+    if(Number.isFinite(koBufferPct)){
+      productScore+=Math.min(15,Math.max(0,koBufferPct*3));
+    }
+    // Reward a useful, not maximal, leverage. Above the user's ceiling gets no extra points.
+    if(Number.isFinite(lev)){
+      const leverageFit=lev<=maxLev
+        ? (lev<=8 ? 15 : 15-(lev-8)*1.5)
+        : Math.max(0,8-(lev-maxLev)*2);
+      productScore+=Math.max(0,Math.min(15,leverageFit));
+    }
+    if(Number.isFinite(spreadPct)){
+      productScore+=spreadPct<=.5?10:spreadPct<=1?7:spreadPct<=2?3:0;
+    }
+    if(days>=30)productScore+=5;else if(days>=0)productScore+=2;
+
+    // Backward risk calculation. For linear products, ratio gives the cleanest unit-risk estimate.
+    // Otherwise use leverage as an explicitly approximate sensitivity.
+    let riskPerUnitEur=NaN, estimatedUnits=NaN, riskModel="nicht verifiziert";
+    if(Number.isFinite(productPrice)&&productPrice>0&&Number.isFinite(p)&&Number.isFinite(technicalStop)){
+      const underlyingMovePct=Math.abs(p-technicalStop)/p;
+      const productCurrency=String(x.currency||"").toUpperCase();
+      const eurFactor=productCurrency==="EUR"?1:(fx>0?fx:NaN);
+      if(Number.isFinite(ratio)&&ratio>0){
+        const riskInProductCcy=Math.abs(p-technicalStop)/ratio;
+        riskPerUnitEur=Number.isFinite(eurFactor)?riskInProductCcy*eurFactor:NaN;
+        riskModel=productCurrency==="EUR"?"Ratio-Modell (EUR)":"Ratio-Modell (USD→EUR)";
+      }else if(Number.isFinite(lev)&&lev>0){
+        const riskProductPct=underlyingMovePct*lev;
+        const riskInProductCcy=productPrice*riskProductPct;
+        riskPerUnitEur=Number.isFinite(eurFactor)?riskInProductCcy*eurFactor:NaN;
+        riskModel=productCurrency==="EUR"?"Hebel-Näherung (EUR)":"Hebel-Näherung (USD→EUR)";
+      }
+      if(Number.isFinite(riskPerUnitEur)&&riskPerUnitEur>0){
+        estimatedUnits=Math.floor(maxLossEur/riskPerUnitEur);
+        if(estimatedUnits<1)reasons.push("Risiko erlaubt weniger als 1 Stück");
+      }
+    }
+
+    const tradeGate=tradeScore>=70;
+    if(!tradeGate){reject=true;reasons.push("Trade-Score < 70");}
+
+    const totalScore=Math.round(Math.max(0,Math.min(100,tradeScore*.55+productScore*.45)));
+    return {...x,_score:totalScore,_tradeScore:tradeScore,_productScore:Math.round(productScore),_reject:reject,
+      _koDist:koDist,_koBufferPct:koBufferPct,_spread:spreadPct,_days:days,_riskPerUnitEur:riskPerUnitEur,
+      _estimatedUnits:estimatedUnits,_riskModel:riskModel,_reasons:reasons};
+  }).filter(x=>!x._reject).sort((a,b)=>b._score-a._score);
+
+  if(!candidates.length){
+    $("dgProductOut").innerHTML=`<div class="warning"><b>KEIN TRADE / KEIN PRODUKT.</b><br>
+    Bob hat aktuell kein Produkt gefunden, das gleichzeitig Richtung, K.O.-Sicherheit, Live-Daten, Handelbarkeit, Spread und das Risiko-Limit erfüllt.
+    <br><br><b>Trade-Score:</b> ${tradeScore}/100 · <b>Max. Risiko:</b> ${maxLossEur.toFixed(2)} €</div>`;
+    lastProductDirection=dir;
+    return;
+  }
+
+  const top=candidates[0];
+  const rows=candidates.slice(0,5).map((x,i)=>`<tr>
+    <td>${i+1}. ${x.name||x.isin||"Produkt"}</td>
+    <td class="right">${x.direction}</td>
+    <td class="right">${Number(x.leverage).toFixed(1)}×</td>
+    <td class="right">${Number.isFinite(x._koDist)?x._koDist.toFixed(2)+"%":"—"}</td>
+    <td class="right">${Number.isFinite(x._spread)?x._spread.toFixed(2)+"%":"—"}</td>
+    <td class="right">${x._score}/100</td></tr>`).join("");
+
+  const riskLine=Number.isFinite(top._estimatedUnits)
+    ? `Geschätzte Stückzahl: <b>${top._estimatedUnits}</b> · Risiko/Stück ≈ ${top._riskPerUnitEur.toFixed(2)} € · ${top._riskModel}`
+    : "Risiko/Stückzahl nicht verifiziert";
+
+  const dataAge=top.dataTimestamp?Math.max(0,(Date.now()-Date.parse(top.dataTimestamp))/1000):NaN;
+  const dataAgeLine=Number.isFinite(dataAge)?`Datenalter: <b>${Math.round(dataAge)} s</b>`:"Datenalter: nicht verifiziert";
+  $("dgProductOut").innerHTML=`<div class="research">
+    <b>Bob-Auswahl: ${top.name||top.isin||"Gold-Hebelprodukt"}</b><br>
+    Trade-Score <b>${top._tradeScore}/100</b> · Produkt-Score <b>${top._productScore}/100</b> · Gesamtscore <b>${top._score}/100</b><br>
+    Richtung ${top.direction} · Hebel ${Number(top.leverage).toFixed(1)}× · Produktkurs ${Number.isFinite(Number(top.productPrice))?Number(top.productPrice).toFixed(4):"—"} · K.O.-Abstand ${top._koDist.toFixed(2)}%
+    <br>K.O.-Puffer zum technischen Stop: ${Number.isFinite(top._koBufferPct)?top._koBufferPct.toFixed(2)+"%":"—"} · Spread: ${top._spread.toFixed(2)}%
+    <br>${riskLine} · ${dataAgeLine} · Währung ${top.currency||"unbekannt"}
+    <br><span class="small">${top.isin?"ISIN: "+top.isin+" · ":""}Live-Produktdaten verifiziert · ${top._reasons.join(" · ")||"keine zusätzlichen Warnungen"}</span>
+  </div>
+  <table style="margin-top:10px"><tr><td><b>Kandidat</b></td><td class="right"><b>Richtung</b></td><td class="right"><b>Hebel</b></td><td class="right"><b>K.O.</b></td><td class="right"><b>Spread</b></td><td class="right"><b>Score</b></td></tr>${rows}</table>
+  <div class="small" style="margin-top:10px">Trade-Score und Produkt-Score werden getrennt berechnet. Ein höherer Hebel erhöht den Score nicht automatisch. Bob verwirft Produkte, wenn das K.O. vor dem technischen Stop liegt oder die Live-Daten nicht verifiziert sind.</div>`;
+
+  const now=Date.now();
+  if(previousDirection!==dir&&now-lastProductNoticeAt>60000){
+    lastProductNoticeAt=now;
+    if(previousDirection!=="NEUTRAL")notifyGeneral("Bob – bestätigter Momentum-Wechsel",`${dir}: ${top.name||top.isin||"neues Gold-Hebelprodukt"} · Hebel ${Number(top.leverage).toFixed(1)}× · K.O.-Abstand ${top._koDist.toFixed(2)}% · RSI ${Number(A.R).toFixed(1)} · Trade-Score ${top._tradeScore}/100`);
+  }
+  lastProductDirection=dir;
+}
 function calcDgTrade(){
  if(!lastPrice||!A.at){$("dgOut").innerHTML="Zuerst Live-Daten laden.";return}
  const acc=+$("account").value||500, riskPct=Math.max(0,+$("risk").value||1), maxLoss=acc*riskPct/100;
@@ -614,7 +919,7 @@ async function loadData(){
   if(fxEl&&Number.isFinite(autoFx)&&autoFx>0&&!fxEl.dataset.manual)fxEl.value=autoFx.toFixed(4);
   const sourceNote=spots.sourceWarning||"Spot/Futures-Differenz gering · Futures = technische Referenz";
   $("status").textContent=`LIVE · XAU/USD ${lastPrice.toFixed(2)} · GoldPrice.dev Spot + Yahoo GC=F · ${sourceNote} · ${new Date().toLocaleTimeString()}`;
-  analyze();restoreTradeMgmt();await loadMTF();
+  analyze();restoreTradeMgmt();await loadMTF(); if(dgProducts.length) rankDgProducts();
  }catch(e){const msg="Live-Daten momentan nicht erreichbar: "+e.message; $("status").textContent=msg+" · Bitte erneut versuchen."; $("quickSignal").textContent="🔴 LIVE-DATEN FEHLER"; $("quickSignal").className="signal bad"; $("quickReason").textContent=msg;}
 }
 function demo(){let p=4250;C=[];lastPrice=p;for(let i=0;i<250;i++){p+=Math.sin(i/8)*1.8+Math.sin(i*0.73)*2.2;const o=p-2,h=p+8,l=p-8;C.push({open:o,high:h,low:l,close:p,isOpen:false})}$("status").textContent="Reproduzierbare Demo-Daten aktiv.";analyze()}
@@ -635,5 +940,5 @@ const fxField=$("fxRate"),ccyField=$("displayCcy");
 if(fxField)fxField.addEventListener("input",()=>fxField.dataset.manual="1");
 if(ccyField)ccyField.addEventListener("change",()=>{if(fxField)fxField.dataset.manual="";loadData(true);});
 loadData();
-setInterval(()=>{ if(document.visibilityState==="visible") loadData(); }, 60000);
+setInterval(()=>{ if(document.visibilityState==="visible"){ loadData(); refreshDgLiveProducts(); } }, 60000);
 </script></body></html>
