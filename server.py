@@ -224,20 +224,23 @@ def build_live_bundle():
             "fetched_at": int(time.time()),
             "spots": {
                 "xaus": goldprice_price,
-                "biquote": yahoo_price,
+                "yahoo_gc_f": yahoo_price,
                 "goldprice": goldprice_price,
                 "diff": diff,
                 "pct": pct,
                 "xaus_age_seconds": goldprice_age,
-                "biquote_age_seconds": latest_bar_age,
+                "yahoo_gc_f_age_seconds": latest_bar_age,
+                "yahoo_1h_age_seconds": latest_1h_age,
                 "goldprice_age_seconds": goldprice_age,
                 "goldprice_status": "GoldPrice.dev · live",
-                "primary": "GoldPrice.dev"
+                "primary": "GoldPrice.dev",
+                "reference": "Yahoo Finance GC=F",
+                "reference_note": "GC=F ist Gold-Futures, nicht XAU/USD Spot"
             },
             "history": {
-                "bars_by_tf": {"5m": bars_5m},
+                "bars_by_tf": {"5m": bars_5m, "1h": bars_1h, "4h": bars_4h},
                 "points": legacy_points,
-                "data_state": {"status": "fresh", "source": "GoldPrice.dev spot + Yahoo Finance GC=F 5m"},
+                "data_state": {"status": "fresh", "source": "GoldPrice.dev XAU/USD Spot + Yahoo Finance GC=F technical history"},
                 "age_seconds": goldprice_age
             }
         }
