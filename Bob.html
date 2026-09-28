@@ -568,7 +568,7 @@ async function loadData(){
   const sourceNote=spots.pct<=0.15?"Quellen stimmen gut überein":"⚠️ Quellenabweichung "+spots.pct.toFixed(3)+"%";
   $("status").textContent=`LIVE · XAU/USD ${lastPrice.toFixed(2)} · XAUS + GoldPrice.dev · ${sourceNote} · ${new Date().toLocaleTimeString()}`;
   analyze();restoreTradeMgmt();await loadMTF();
- }catch(e){$("status").textContent="Live-Daten momentan nicht erreichbar: "+e.message+" · Bitte erneut versuchen.";}
+ }catch(e){const msg="Live-Daten momentan nicht erreichbar: "+e.message; $("status").textContent=msg+" · Bitte erneut versuchen."; $("quickSignal").textContent="🔴 LIVE-DATEN FEHLER"; $("quickSignal").className="signal bad"; $("quickReason").textContent=msg;}
 }
 function demo(){let p=4250;C=[];lastPrice=p;for(let i=0;i<250;i++){p+=Math.sin(i/8)*1.8+Math.sin(i*0.73)*2.2;const o=p-2,h=p+8,l=p-8;C.push({open:o,high:h,low:l,close:p,isOpen:false})}$("status").textContent="Reproduzierbare Demo-Daten aktiv.";analyze()}
 function riskCalc(){
