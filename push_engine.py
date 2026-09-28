@@ -24,7 +24,6 @@ class PushEngine:
         self.cooldown_seconds = max(0, int(cooldown_seconds))
         self._last_sent: dict[str, float] = {}
         self._last_signal = "NEUTRAL"
-        self._last_stop = None
 
     def _allow(self, key: str, now: float) -> bool:
         previous = self._last_sent.get(key)
@@ -33,7 +32,14 @@ class PushEngine:
         self._last_sent[key] = now
         return True
 
-    def signal_transition(self, direction: str, score: float, mtf: str, *, now: float | None = None) -> PushEvent | None:
+    def signal_transition(
+        self,
+        direction: str,
+        score: float,
+        mtf: str,
+        *,
+        now: float | None = None,
+    ) -> PushEvent | None:
         direction = str(direction or "NEUTRAL").upper()
         mtf = str(mtf or "NEUTRAL").upper()
         if direction not in {"LONG", "SHORT", "NEUTRAL"}:
@@ -54,12 +60,21 @@ class PushEngine:
             key,
         )
 
-    def stop_update(self, direction: str, old_stop: float | None, new_stop: float | None, *, now: float | None = None) -> PushEvent | None:
+    def stop_update(
+        self,
+        direction: str,
+        old_stop: float | None,
+        new_stop: float | None,
+        *,
+        now: float | None = None,
+    ) -> PushEvent | None:
         if old_stop is None or new_stop is None or float(old_stop) == float(new_stop):
             return None
         direction = str(direction or "NEUTRAL").upper()
         stamp = time() if now is None else float(now)
-        key = f"stop:{direction}:{round(float(new_stop), 2):.2f}"
+        # Cool down by direction, not by the exact new stop. Otherwise every
+        # tiny trailing-stop change could bypass the intended anti-spam window.
+        key = f"stop:{direction}"
         if not self._allow(key, stamp):
             return None
         return PushEvent(
@@ -69,19 +84,36 @@ class PushEngine:
             key,
         )
 
-    def trade_exit(self, direction: str, reason: str, *, now: float | None = None) -> PushEvent | None:
+    def trade_exit(
+        self,
+        direction: str,
+        reason: str,
+        *,
+        now: float | None = None,
+    ) -> PushEvent | None:
+        direction = str(direction or "NEUTRAL").upper()
+        reason = str(reason or "Unbekannter Grund").strip()
         stamp = time() if now is None else float(now)
-        key = f"exit:{str(direction).upper()}:{reason}"
+        # One exit alert per direction during the cooldown, regardless of
+        # wording changes, prevents repeated close prompts for the same trade.
+        key = f"exit:{direction}"
         if not self._allow(key, stamp):
             return None
         return PushEvent(
             "exit",
             "Bob – Trade schließen",
-            f"{str(direction).upper()}: Trade-Management beendet. Grund: {reason}.",
+            f"{direction}: Trade-Management beendet. Grund: {reason}.",
             key,
         )
 
-    def risk_alert(self, direction: str, price: float, stop: float, *, now: float | None = None) -> PushEvent | None:
+    def risk_alert(
+        self,
+        direction: str,
+        price: float,
+        stop: float,
+        *,
+        now: float | None = None,
+    ) -> PushEvent | None:
         direction = str(direction or "NEUTRAL").upper()
         if direction not in {"LONG", "SHORT"}:
             return None
