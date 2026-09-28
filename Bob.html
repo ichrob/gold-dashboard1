@@ -287,7 +287,7 @@ async function testPush(){
 (function(){const t=localStorage.getItem("goldScannerNtfyTopic");if(t&&$("ntfyTopic"))$("ntfyTopic").value=t;})();
 renderPush();
 
-let C=[], lastPrice=0, A={};let liveHistoryCache=null,liveHistoryAt=0,lastMtfAt=0;
+let C=[], lastPrice=0, A={};let liveHistoryCache=null,liveHistoryAt=0,lastMtfAt=0;let lastPushedEntryDirection="NEUTRAL";
 function ema(a,p){let k=2/(p+1),e=a[0];for(let i=1;i<a.length;i++)e=a[i]*k+e*(1-k);return e}
 function emaSeries(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
 function rsi(a,p=14){if(a.length<=p)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];d>0?g+=d:l-=d}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return l===0?100:100-100/(1+g/l)}
@@ -480,6 +480,14 @@ function updateResearchPanel(){
  if($("stopPanel")&&!tradeMgmt.active&&sm?.stop)$("stopPanel").innerHTML="<b>Technischer Referenz-Stop:</b> "+displayStop(sm.stop)+"<br><span class='small'>"+sm.reason+" · Struktur "+displayStop(sm.structureStop)+" · ATR "+displayStop(sm.atrStop)+"</span>";
  if($("hysteresis"))$("hysteresis").textContent=dir+" · Hysterese "+(signalState.count?signalState.count+"/2":"stabil")+(falseBreakoutState(dir)!=="OK"&&dir!=="NEUTRAL"?" · Breakout unbestätigt":"");
  if($("researchStatus"))$("researchStatus").textContent=researchLog.length?researchLog.length+" Snapshots lokal gespeichert.":"Noch keine Snapshots.";
+ // Optimierung 1+2+5+10: Einstieg nur bei bestätigtem, stabilem Signal; keine Wiederholungen.
+ if(dir!==lastPushedEntryDirection){
+   if(dir==="LONG"||dir==="SHORT"){
+     const score=Number(A.score||50).toFixed(0);
+     notifyGeneral("Bob – "+dir+" Einstiegssignal","Bestätigtes "+dir+"-Setup · Score "+score+"/100 · MTF "+(MTF.overall||dir)+" · Kurs "+lastPrice.toFixed(2)+" USD/oz.");
+   }
+   lastPushedEntryDirection=dir;
+ }
 }
 function captureResearchSnapshot(result="OBSERVATION"){
  if(!C.length||!A.at)return;
@@ -501,9 +509,23 @@ function setTradeEntry(){
  const tgt=targetModel(dir,entry,sm.stop,Math.max(1,+($("minRR")?.value||2)));
  tradeMgmt={active:true,dir,entry,stop:sm.stop,target:tgt.target,rr:tgt.rr,stopReason:sm.reason,lastUpdate:new Date().toISOString()};
  $("tradeEntry").value=tradeMgmt.entry.toFixed(2);$("tradePrice").value=lastPrice.toFixed(2);$("tradeStop").value=tradeMgmt.stop.toFixed(2);saveTradeMgmt();
- pushState.activeTrade=true;savePush();
  const msg=`${dir}: initialer Stop-Loss ${displayStop(tradeMgmt.stop)}. Einstieg ${tradeMgmt.entry.toFixed(2)} USD/oz.`;
- $("stopUpdate").innerHTML="<b>Trade bestätigt.</b> "+msg+" CRV-Ziel: "+displayStop(tradeMgmt.target)+" ("+tgt.rr.toFixed(2)+"R).";notifyTrade("Gold Scanner – Trade bestätigt",msg);captureResearchSnapshot("TRADE_SET");updateResearchPanel();
+ $("stopUpdate").innerHTML="<b>Trade vorbereitet.</b> "+msg+" CRV-Ziel: "+displayStop(tradeMgmt.target)+" ("+tgt.rr.toFixed(2)+"R). <span class=\"small\">Management-Pushs erst nach Aktivierung von „Trade gesetzt“.</span>";captureResearchSnapshot("TRADE_SET");updateResearchPanel();
+}
+function monitorActiveTrade(){
+ if(!tradeMgmt.active||!lastPrice||!A.at)return;
+ const p=lastPrice,old=tradeMgmt.stop,dir=tradeMgmt.dir;
+ const model=stopModel(dir,p,A.at,+($("trailAtr")?.value||1.5)),candidate=model.stop;
+ if(candidate!=null){
+   const improves=dir==="LONG"?candidate>old+Math.max(A.at*0.10,0.10):candidate<old-Math.max(A.at*0.10,0.10);
+   if(improves){tradeMgmt.stop=dir==="LONG"?Math.max(old,candidate):Math.min(old,candidate);tradeMgmt.lastUpdate=new Date().toISOString();saveTradeMgmt();if($("tradeStop"))$("tradeStop").value=tradeMgmt.stop.toFixed(2);notifyTrade("Bob – Stop-Loss anpassen","Neuer Stop-Loss: "+displayStop(tradeMgmt.stop)+". Alter Stop: "+displayStop(old)+". Kurs "+p.toFixed(2)+" USD/oz.");}
+ }
+ const riskDistance=Math.abs(p-old),threshold=Math.max(A.at*0.50,p*0.0025),nearStop=dir==="LONG"?p<=old+threshold:p>=old-threshold;
+ if(nearStop&&((dir==="LONG"&&p>old)||(dir==="SHORT"&&p<old)))notifyTrade("Bob – Risikoalarm",dir+": Kurs "+p.toFixed(2)+" USD/oz nähert sich dem Stop-Loss "+displayStop(old)+". Abstand "+riskDistance.toFixed(2)+" USD/oz.");
+ const confirmed=confirmedSignalDirection(),opposite=(dir==="LONG"&&confirmed==="SHORT")||(dir==="SHORT"&&confirmed==="LONG"),stopTouched=dir==="LONG"?p<=old:p>=old;
+ if(opposite)notifyTrade("Bob – Trade schließen",dir+": bestätigtes Gegensignal erkannt. Aktueller Kurs "+p.toFixed(2)+" USD/oz.");
+ else if(stopTouched)notifyTrade("Bob – Trade schließen",dir+": Stop-Loss-Bereich erreicht. Kurs "+p.toFixed(2)+" USD/oz · Stop "+displayStop(old)+".");
+ updateResearchPanel();
 }
 function suggestStopUpdate(){
  if(!tradeMgmt.active){$("stopUpdate").textContent="Kein aktiver Trade – zuerst Trade-Einstieg bestätigen.";return;}
@@ -643,6 +665,7 @@ async function loadData(){
   const sourceNote=spots.sourceWarning||"Spot/Futures-Differenz gering · Futures = technische Referenz";
   $("status").textContent=`LIVE · XAU/USD ${lastPrice.toFixed(2)} · GoldPrice.dev Spot + Yahoo GC=F · ${sourceNote} · ${new Date().toLocaleTimeString()}`;
   analyze();restoreTradeMgmt();await loadMTF();
+  monitorActiveTrade();
  }catch(e){const msg="Live-Daten momentan nicht erreichbar: "+e.message; $("status").textContent=msg+" · Bitte erneut versuchen."; $("quickSignal").textContent="🔴 LIVE-DATEN FEHLER"; $("quickSignal").className="signal bad"; $("quickReason").textContent=msg;}
 }
 function demo(){let p=4250;C=[];lastPrice=p;for(let i=0;i<250;i++){p+=Math.sin(i/8)*1.8+Math.sin(i*0.73)*2.2;const o=p-2,h=p+8,l=p-8;C.push({open:o,high:h,low:l,close:p,isOpen:false})}$("status").textContent="Reproduzierbare Demo-Daten aktiv.";analyze()}
@@ -664,4 +687,5 @@ if(fxField)fxField.addEventListener("input",()=>fxField.dataset.manual="1");
 if(ccyField)ccyField.addEventListener("change",()=>{if(fxField)fxField.dataset.manual="";loadData(true);});
 loadData();
 setInterval(()=>{ if(document.visibilityState==="visible") loadData(); }, 60000);
+setInterval(()=>{ if(document.visibilityState==="visible"&&pushState.activeTrade) monitorActiveTrade(); }, 15000);
 </script></body></html>
