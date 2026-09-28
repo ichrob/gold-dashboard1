@@ -6,6 +6,7 @@ import time
 import threading
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -53,7 +54,6 @@ def iso_age_seconds(value):
         return None
     try:
         stamp = value.replace("Z", "+00:00")
-        from datetime import datetime, timezone
         dt = datetime.fromisoformat(stamp)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
@@ -124,7 +124,11 @@ def build_live_bundle():
         buckets = {}
         for point in intraday_points:
             try:
-                ts = int(time.mktime(time.strptime(point["t"][:19], "%Y-%m-%dT%H:%M:%S")) * 1000)
+                stamp = str(point["t"]).replace("Z", "+00:00")
+                dt = datetime.fromisoformat(stamp)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                ts = int(dt.timestamp() * 1000)
                 price = float(point["p"])
                 bucket = (ts // step_ms) * step_ms
                 b = buckets.get(bucket)
