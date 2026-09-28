@@ -26,7 +26,7 @@ ICON = ICON_PATH.read_bytes() if ICON_PATH.exists() else None
 
 UPSTREAM_TIMEOUT = 10
 FRESH_MAX_AGE = 180
-LIVE_CACHE_TTL = 20
+LIVE_CACHE_TTL = 65
 _live_cache = None
 _live_cache_at = 0.0
 _live_lock = threading.Lock()
