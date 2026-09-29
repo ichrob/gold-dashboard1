@@ -5,6 +5,7 @@ from degiro_order_assistant import (
     knockout_distance_pct,
     position_size,
     prepare_order,
+    revalidate_order,
     risk_per_unit,
     validate_product,
 )
@@ -47,8 +48,50 @@ def test_prepare_order_keeps_manual_confirmation_and_freeze():
     assert draft.quantity == 10
     assert draft.max_risk_eur == pytest.approx(20.0)
     assert draft.knockout_distance_pct == pytest.approx(10.0)
+    assert draft.reference_price == pytest.approx(100.0)
     assert draft.requires_manual_confirmation is True
     assert draft.frozen is True
+
+
+def test_revalidation_accepts_unchanged_fresh_product():
+    draft = prepare_order(
+        product(), order_type="LIMIT", quantity=10, entry_price=100.0,
+        stop_loss=98.0, risk_budget_eur=25.0,
+    )
+    revalidate_order(draft, product())
+
+
+def test_revalidation_rejects_price_drift():
+    draft = prepare_order(
+        product(), order_type="LIMIT", quantity=10, entry_price=100.0,
+        stop_loss=98.0, risk_budget_eur=25.0,
+    )
+    with pytest.raises(ValueError, match="price moved"):
+        revalidate_order(draft, product(current_price=100.6))
+
+
+def test_revalidation_rejects_identity_or_risk_changes():
+    draft = prepare_order(
+        product(), order_type="LIMIT", quantity=10, entry_price=100.0,
+        stop_loss=98.0, risk_budget_eur=25.0,
+    )
+    with pytest.raises(ValueError, match="Product identity"):
+        revalidate_order(draft, product(isin="DE000BAY0019"))
+    with pytest.raises(ValueError, match="Knockout"):
+        revalidate_order(draft, product(knockout_price=89.0))
+    with pytest.raises(ValueError, match="leverage"):
+        revalidate_order(draft, product(leverage=6.0))
+
+
+def test_revalidation_rejects_stale_or_wide_market_data():
+    draft = prepare_order(
+        product(), order_type="LIMIT", quantity=10, entry_price=100.0,
+        stop_loss=98.0, risk_budget_eur=25.0,
+    )
+    with pytest.raises(ValueError, match="stale"):
+        revalidate_order(draft, product(data_age_seconds=31))
+    with pytest.raises(ValueError, match="Spread"):
+        revalidate_order(draft, product(spread_pct=1.1))
 
 
 def test_buy_stop_must_be_below_entry():
@@ -59,12 +102,8 @@ def test_buy_stop_must_be_below_entry():
 def test_risk_budget_rejects_oversized_order():
     with pytest.raises(ValueError):
         prepare_order(
-            product(),
-            order_type="LIMIT",
-            quantity=20,
-            entry_price=100.0,
-            stop_loss=98.0,
-            risk_budget_eur=25.0,
+            product(), order_type="LIMIT", quantity=20,
+            entry_price=100.0, stop_loss=98.0, risk_budget_eur=25.0,
         )
 
 
