@@ -47,10 +47,12 @@ def tf_score(b):
 def stop_target(b,entry,dir,atr_mult=1.5,rr=2.0):
     if len(b)<40:return None,None
     atrv=atr(b)
-    highs=[x["high"] for x in b[-40:]]; lows=[x["low"] for x in b[-40:]]
-    swing_h=max(highs); swing_l=min(lows)
+    lookback=b[-40:]
+    highs=[x["high"] for x in lookback]; lows=[x["low"] for x in lookback]
+    swing=lookback[-12:]
+    swing_h=max(x["high"] for x in swing); swing_l=min(x["low"] for x in swing)
     sup=min(lows); res=max(highs); buf=max(atrv*.20,.01)
-    structure=swing_l-buf if dir=="LONG" else swing_h+buf
+    structure=(min(swing_l,sup)-buf) if dir=="LONG" else (max(swing_h,res)+buf)
     atrstop=entry-atrv*atr_mult if dir=="LONG" else entry+atrv*atr_mult
     stop=min(structure,atrstop) if dir=="LONG" else max(structure,atrstop)
     maxdist=atrv*max(2.5,atr_mult+.75)
