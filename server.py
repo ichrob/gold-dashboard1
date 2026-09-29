@@ -476,7 +476,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(503)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
-            self.wfile.write(b'{"error":"Push-Service nicht konfiguriert"}')
+            self.wfile.write('{"error":"Push-Service nicht konfiguriert"}'.encode("utf-8"))
             return
 
         try:
@@ -518,12 +518,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(400)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
-            self.wfile.write(b'{"error":"Ungültige Push-Payload"}')
+            self.wfile.write('{"error":"Ungültige Push-Payload"}'.encode("utf-8"))
         except (URLError, TimeoutError):
             self.send_response(503)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
-            self.wfile.write(b'{"error":"Push-Service nicht erreichbar"}')
+            self.wfile.write('{"error":"Push-Service nicht erreichbar"}'.encode("utf-8"))
 
     def log_message(self, fmt, *args):
         pass
