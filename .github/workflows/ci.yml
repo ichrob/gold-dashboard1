@@ -74,6 +74,9 @@ scripts.forEach((code, i) => new vm.Script(code, {filename: `Bob-inline-${i + 1}
 console.log(`Bob inline JavaScript: OK (${scripts.length} block)`);
 NODE
 
+      - name: Run Bob regression tests
+        run: node test_bob.js
+
       - name: Validate HTML shell
         run: python - <<'PY'
 from html.parser import HTMLParser
