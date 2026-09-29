@@ -236,7 +236,7 @@ async function registerNotifications(){
    if(status)status.textContent="⏳ Push wird registriert …";
    pushState=await BobPush.enable();
    renderPush();
-   if(status)status.textContent="granted"===Notification.permission?"✅ Gerät registriert. Benachrichtigungen sind freigegeben.":"⚠️ Registrierung gespeichert, aber Browser-Berechtigung ist noch nicht freigegeben.";
+   if(status)status.textContent="granted"===Notification.permission?"✅ Browser-Benachrichtigungen freigegeben. Service Worker ist registriert.":"⚠️ Registrierung gespeichert, aber Browser-Berechtigung ist noch nicht freigegeben.";
    return pushState.registered===true;
  }catch(e){
    if(status)status.textContent="❌ "+(e?.message||"Benachrichtigungen konnten nicht aktiviert werden.");
@@ -273,10 +273,16 @@ async function notifyGeneral(title,body){return notify("general",title,body)}
 async function notifyTrade(title,body){return notify("trade",title,body)}
 async function testPush(){
  if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
- const sent=await notifyGeneral("Bob – Test","Allgemeine Trade-Empfehlungen");
- const sentTrade=await notifyTrade("Bob – Trade-Test",pushState.activeTrade?"Trade-Management ist aktiv.":"Kein aktiver Trade – Management-Push bleibt gesperrt.");
- const ntfy=await sendNtfy("general","Bob – ntfy-Test","Push-Kanal funktioniert.");
- $("pushStatus").textContent=(sent||sentTrade||ntfy)?"✅ Test erfolgreich ausgelöst.":"⚠️ Kein Push ausgelöst – Berechtigung und Push-Schalter prüfen.";
+ const results=[];
+ if(pushState.general)results.push(await notifyGeneral("Bob – Test","Allgemeine Trade-Empfehlungen"));
+ if(pushState.trade && pushState.activeTrade)results.push(await notifyTrade("Bob – Trade-Test","Trade-Management ist aktiv."));
+ const ntfyConfigured=Boolean(ntfyTopic());
+ if(ntfyConfigured && pushState.general)results.push(await sendNtfy("general","Bob – ntfy-Test","Push-Kanal funktioniert."));
+ const localSent=results.some(Boolean);
+ const channels=[];
+ if(localSent)channels.push("Push-Test ausgelöst");
+ if(ntfyConfigured && pushState.general)channels.push("ntfy-Test ausgelöst");
+ $("pushStatus").textContent=channels.length?"✅ "+channels.join(" + ")+".":"⚠️ Kein Test ausgelöst – mindestens einen Push-Schalter aktivieren."; 
 }
 (function(){const t=localStorage.getItem("goldScannerNtfyTopic");if(t&&$("ntfyTopic"))$("ntfyTopic").value=t;})();
 renderPush();
