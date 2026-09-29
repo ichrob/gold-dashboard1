@@ -210,7 +210,7 @@ Bei einem Turbo/Knock-Out ist das KO-Level besonders wichtig: Der technische Sto
 
 <div class="card">
 <h3>🛑 Stop-Loss-Management</h3>
-<div id="stopPanel" class="research">Noch kein aktiver Trade. Sobald ein Trade bestätigt wurde, zeigt die App den <b>konkreten XAU/USD Stop-Loss-Kurs in USD/oz</b> und bei einer Anpassung den neuen Zielkurs.</div>
+<div id="stopPanel" class="research">Noch kein aktiver Trade. Sobald ein Trade aktiv ist, zeigt die App den <b>konkreten XAU/USD Stop-Loss-Kurs in USD/oz</b> und bei einer Anpassung den neuen Zielkurs.</div>
 <div class="grid" style="margin-top:10px">
 <div><label>Trade-Einstieg XAU/USD</label><input id="tradeEntry" type="number" step=".01" placeholder="wird beim Bestätigen übernommen"></div>
 <div><label>Aktueller XAU/USD-Kurs</label><input id="tradePrice" type="number" step=".01" placeholder="Live-Kurs"></div>
@@ -787,7 +787,7 @@ function setTradeEntry(){
  $("tradeEntry").value=tradeMgmt.entry.toFixed(2);$("tradePrice").value=lastPrice.toFixed(2);$("tradeStop").value=tradeMgmt.stop.toFixed(2);saveTradeMgmt();
  pushState=BobPush.setActiveTrade(true);renderPush();
  const msg=`${dir}: initialer Stop-Loss ${displayStop(tradeMgmt.stop)}. Einstieg ${tradeMgmt.entry.toFixed(2)} USD/oz.`;
- $("stopUpdate").innerHTML="<b>Trade bestätigt.</b> "+msg+" CRV-Ziel: "+displayStop(tradeMgmt.target)+" ("+tgt.rr.toFixed(2)+"R).";captureResearchSnapshot("TRADE_SET");updateResearchPanel();
+ $("stopUpdate").innerHTML="<b>Trade aktiv.</b> "+msg+" CRV-Ziel: "+displayStop(tradeMgmt.target)+" ("+tgt.rr.toFixed(2)+"R).";captureResearchSnapshot("TRADE_SET");updateResearchPanel();
 }
 function suggestStopUpdate(){
  if(!tradeMgmt.active){$("stopUpdate").textContent="Kein aktiver Trade – zuerst Trade-Einstieg bestätigen.";return;}
