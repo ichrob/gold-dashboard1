@@ -524,6 +524,34 @@ class Handler(BaseHTTPRequestHandler):
             return
         # Public read-only app resources. No credentials or secrets are returned here.
         # This is required for normal PWA/browser fetch behavior after the initial protected page load.
+        if path == "/push_manager.js":
+            try:
+                body = (BASE_DIR / "push_manager.js").read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/javascript; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
+            except OSError:
+                self.send_response(404)
+                self.end_headers()
+            return
+
+        if path == "/degiro_assistant.js":
+            try:
+                body = (BASE_DIR / "degiro_assistant.js").read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/javascript; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
+            except OSError:
+                self.send_response(404)
+                self.end_headers()
+            return
+
         if path == "/sw.js" and SW is not None:
             self.send_response(200)
             self.send_header("Content-Type", "application/javascript; charset=utf-8")
