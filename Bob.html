@@ -332,11 +332,28 @@ var liveBundleCache=null, liveBundleAt=0;
 async function fetchLiveBundle(force=false){
  const now=Date.now();
  if(!force&&liveBundleCache&&now-liveBundleAt<30000)return liveBundleCache;
- const r=await fetch("/api/live?fresh="+now,{cache:"no-store"});
- let j=null;try{j=await r.json()}catch(_){throw Error("Bob-Server liefert keine gültige JSON-Antwort");}
- if(!r.ok)throw Error(j?.error||("Bob-Server HTTP "+r.status));
- if(!j.spots||!Number.isFinite(Number(j.spots.xaus)))throw Error("Bob-Server liefert keinen gültigen Live-XAU/USD-Preis");
- liveBundleCache=j;liveBundleAt=now;return j;
+ try{
+  const r=await fetch("/api/live?fresh="+now,{cache:"no-store"});
+  let j=null;try{j=await r.json()}catch(_){throw Error("Bob-Server liefert keine gültige JSON-Antwort");}
+  if(!r.ok)throw Error(j?.error||("Bob-Server HTTP "+r.status));
+  if(!j.spots||!Number.isFinite(Number(j.spots.xaus)))throw Error("Bob-Server liefert keinen gültigen Live-XAU/USD-Preis");
+  liveBundleCache=j;liveBundleAt=now;return j;
+ }catch(serverError){
+  // Last-resort free browser fallback: obtain the current XAU/USD spot directly.
+  // Technical history remains unavailable; never fabricate a signal from this fallback.
+  try{
+   const r=await fetch("https://api.goldprice.dev/v1/prices?symbol=XAU-USD-SPOT",{cache:"no-store"});
+   if(!r.ok)throw Error("Spot-Fallback HTTP "+r.status);
+   const data=await r.json(),row=data?.symbols?.[0],price=Number(row?.price);
+   if(!Number.isFinite(price)||price<=0||row?.is_stale===true)throw Error("Spot-Fallback liefert keinen frischen Preis");
+   const age=row?.computed_at?Math.max(0,Date.now()-Date.parse(row.computed_at)):null;
+   if(age!==null&&age>180000)throw Error("Spot-Fallback ist zu alt");
+   const j={fetched_at:Math.floor(Date.now()/1000),spots:{xaus:price,goldprice:price,yahoo_gc_f:null,diff:0,pct:0,xaus_age_seconds:age!==null?age/1000:null,goldprice_age_seconds:age!==null?age/1000:null,usd_eur:null,usd_chf:null,goldprice_status:"GoldPrice.dev · browser fallback",xaus_is_spot:true,primary:"GoldPrice.dev · browser fallback",reference:"Yahoo Finance GC=F",reference_note:"GC=F ist Gold-Futures, nicht XAU/USD Spot",spot_error:"Server-Live-API nicht erreichbar"},history:{bars_by_tf:{},points:[],data_state:{status:"partial",source:"GoldPrice.dev XAU/USD Spot · Browser-Fallback",technical_4h_status:"unavailable",technical_errors:[String(serverError?.message||serverError)]},age_seconds:age!==null?age/1000:null}};
+   liveBundleCache=j;liveBundleAt=now;return j;
+  }catch(fallbackError){
+   throw Error("Live-Daten momentan nicht erreichbar: "+String(fallbackError?.message||serverError?.message||"unbekannter Fehler"));
+  }
+ } 
 }
 async function fetchIntradayPoints(){const j=await fetchLiveBundle();if(j.history.data_state?.status!=="fresh")throw Error("Gold-Historie nicht frisch");return j.history.points||[];}
 async function loadMTF(force=false){
