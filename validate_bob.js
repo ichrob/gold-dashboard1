@@ -38,3 +38,5 @@ if (!fs.readFileSync("server.py","utf8").includes('"xaus_is_spot": spot_source =
 if (!fs.readFileSync("Bob.html","utf8").includes("REFERENZ · GC=F")) throw new Error("UI must distinguish futures fallback from XAU/USD spot");
 
 if (!fs.readFileSync("Bob.html","utf8").includes("var C=[], lastPrice=0, A={}, lastMtfAt=0;")) throw new Error("live analysis state must be hoisted");
+
+if (!fs.readFileSync("server.py","utf8").includes("https://api.goldprice.dev/v1/spot/XAU-USD-SPOT")) throw new Error("spot endpoint fallback missing");
