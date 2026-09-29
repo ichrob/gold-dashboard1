@@ -76,7 +76,7 @@ def test_revalidation_rejects_identity_or_risk_changes():
         stop_loss=98.0, risk_budget_eur=25.0,
     )
     with pytest.raises(ValueError, match="Product identity"):
-        revalidate_order(draft, product(isin="US0378331005"))
+        revalidate_order(draft, product(isin="DE1234567898"))
     with pytest.raises(ValueError, match="Knockout"):
         revalidate_order(draft, product(knockout_price=89.0))
     with pytest.raises(ValueError, match="leverage"):
