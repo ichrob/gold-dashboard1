@@ -236,11 +236,14 @@ const $=id=>document.getElementById(id);
 let pushState=BobPush.state();
 function savePush(){pushState=BobPush.save(pushState);renderPush();}
 function renderPush(){
- const gb=$("generalPushBtn"),tb=$("tradePushBtn"),ts=$("tradeStateBtn"),tp=$("tradePushState");
+ const gb=$("generalPushBtn"),tb=$("tradePushBtn"),ts=$("tradeStateBtn"),tp=$("tradePushState"),ps=$("pushStatus");
  if(gb)gb.textContent=pushState.general?"🔔 Ein":"🔕 Aus";
  if(tb)tb.textContent=pushState.trade?"🔔 Ein":"🔕 Aus";
  if(ts)ts.textContent=pushState.activeTrade?"✅ Trade aktiv":"❌ Kein aktiver Trade";
  if(tp)tp.textContent=pushState.activeTrade?"Aktiv – Stop-Loss/Schließen":"Gesperrt – kein aktiver Trade";
+ if(ps && pushState.serverRegistered)ps.textContent="✅ Gerät für Push registriert. Push-Service erreichbar.";
+ else if(ps && pushState.registered)ps.textContent="⚠️ Browser-Benachrichtigungen freigegeben, Server-Registrierung noch nicht bestätigt.";
+ else if(ps)ps.textContent="Noch nicht registriert.";
 }
 async function registerNotifications(){
  const status=$("pushStatus");
