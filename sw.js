@@ -1,4 +1,4 @@
-const CACHE_VERSION = "bob-shell-v6";
+const CACHE_VERSION = "bob-shell-v7";
 
 self.addEventListener("install", event => { self.skipWaiting(); });
 self.addEventListener("activate", event => {
