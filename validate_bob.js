@@ -19,6 +19,9 @@ for (const key of ["name","short_name","start_url","display"]) {
 }
 if (!fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3")) throw new Error("manifest must use bundled SVG icon");
 if (fs.readFileSync("server.py","utf8").includes('body = json.dumps({"error": str(exc)')) throw new Error("public /api/live must not leak raw exception text");
+if ((fs.readFileSync("Bob.html","utf8").match(/var liveBundleCache=null, liveBundleAt=0;/g)||[]).length !== 1) throw new Error("live bundle cache must have exactly one declaration");
+if (fs.readFileSync("Bob.html","utf8").indexOf("var liveBundleCache=null, liveBundleAt=0;") > fs.readFileSync("Bob.html","utf8").indexOf("async function loadData")) throw new Error("live bundle cache must be declared before loadData");
+if (fs.readFileSync("Bob.html","utf8").includes("Cannot access 'liveBundleCache' before initialization")) throw new Error("stale TDZ error text must not be present");
 if (!fs.readFileSync("sw.js","utf8").includes("/icon.svg?v=3")) throw new Error("service worker must use bundled SVG icon");
 if (/icon-192\\.png|icon-512\\.png/.test(fs.readFileSync("Bob.html","utf8"))) throw new Error("Bob.html still references removed PNG icons");
 
