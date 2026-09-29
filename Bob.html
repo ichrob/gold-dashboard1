@@ -25,15 +25,17 @@ canvas{width:100%;height:220px;border-radius:12px;background:#fafafa}.warning{ba
 </head>
 <body>
 <script>
-/* Bob runtime probe: public shell fingerprint + runtime heartbeat. */
+/* Bob runtime probe: public shell fingerprint + runtime heartbeat + uncaught-error trace. */
 try{
  const bobRuntimeId="bob-runtime-"+Date.now()+"-"+Math.random().toString(36).slice(2,8);
  window.__BOB_RUNTIME_ID__=bobRuntimeId;
- fetch("/api/diag",{method:"POST",headers:{"Content-Type":"application/json","X-Bob-Runtime":bobRuntimeId},body:JSON.stringify({
-  event:"boot:public-shell",
-  at:new Date().toISOString(),
-  details:{reason:"current Bob HTML shell executed",runtimeId:bobRuntimeId,href:location.href,userAgent:navigator.userAgent.slice(0,180)}
- }),cache:"no-store",keepalive:true}).catch(()=>{});
+ window.addEventListener("error",function(e){
+  try{fetch("/api/diag",{method:"POST",headers:{"Content-Type":"application/json","X-Bob-Runtime":bobRuntimeId},body:JSON.stringify({event:"boot:error",at:new Date().toISOString(),details:{error:String(e.message||e.error||"unknown").slice(0,300),reason:"uncaught window error"}}),cache:"no-store",keepalive:true}).catch(()=>{});}catch(_){}
+ });
+ window.addEventListener("unhandledrejection",function(e){
+  try{fetch("/api/diag",{method:"POST",headers:{"Content-Type":"application/json","X-Bob-Runtime":bobRuntimeId},body:JSON.stringify({event:"boot:rejection",at:new Date().toISOString(),details:{error:String(e.reason||"unknown").slice(0,300),reason:"unhandled promise rejection"}}),cache:"no-store",keepalive:true}).catch(()=>{});}catch(_){}
+ });
+ fetch("/api/diag",{method:"POST",headers:{"Content-Type":"application/json","X-Bob-Runtime":bobRuntimeId},body:JSON.stringify({event:"boot:public-shell",at:new Date().toISOString(),details:{reason:"current Bob HTML shell executed",runtimeId:bobRuntimeId,href:location.href,userAgent:navigator.userAgent.slice(0,180)}}),cache:"no-store",keepalive:true}).catch(()=>{});
 }catch(_){}
 </script>
 <main>
