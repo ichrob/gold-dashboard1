@@ -529,9 +529,9 @@ async function fetchLiveBundle(force=false){
  } 
 }
 async function fetchIntradayPoints(){const j=await fetchLiveBundle();if(j.history.data_state?.status!=="fresh")throw Error("Gold-Historie nicht frisch");return j.history.points||[];}
-async function loadMTF(force=false, generation=null){
+async function loadMTF(force=false, generation=null, suppliedBundle=null){
  try{
-  const bundle=await fetchLiveBundle();
+  const bundle=suppliedBundle || await fetchLiveBundle(force);
   const points=bundle.history?.points||[];
   const tfBars=bundle.history?.bars_by_tf||{};
   lastMtfAt=Date.now();
