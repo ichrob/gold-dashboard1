@@ -150,12 +150,12 @@ def aggregate_bars(bars, minutes):
     return out
 
 def build_live_bundle():
-    """Build Bob's free-tier live bundle.
-    Live XAU/USD comes from the anonymous GoldPrice.dev spot endpoint.
-    Technical history uses Yahoo GC=F only; paid GoldPrice intraday bars are never requested.
-    A history failure must not hide an otherwise valid live spot price.
+    """Build Bob's live bundle without letting slow secondary sources block the spot heartbeat.
+
+    XAU/USD spot, technical history and FX are fetched concurrently. A valid spot
+    response is returned even when technical history or FX is temporarily slow.
     """
-    global _live_cache, _live_cache_at
+    global _live_cache, _live_cache_at, _fx_cache, _fx_cache_at
     if _live_cache is not None and time.time() - _live_cache_at < LIVE_CACHE_TTL:
         return _live_cache
 
@@ -164,54 +164,43 @@ def build_live_bundle():
             return _live_cache
 
         now = time.time()
-        goldprice_price = None
-        goldprice_age = None
-        spot_error = None
 
-        try:
+        def fetch_spot():
+            last_error = None
             endpoints = [
                 "https://api.goldprice.dev/v1/prices?symbol=XAU-USD-SPOT",
                 "https://api.goldprice.dev/v1/spot/XAU-USD-SPOT",
             ]
-            last_spot_error = None
             for endpoint in endpoints:
                 try:
-                    goldprice = fetch_json(endpoint, retries=1, user_agent="Bob/1.2")
+                    payload = fetch_json(endpoint, retries=1, user_agent="Bob/1.3")
                     if "/v1/spot/" in endpoint:
-                        row = goldprice if isinstance(goldprice, dict) else None
+                        row = payload if isinstance(payload, dict) else None
                     else:
-                        symbols = goldprice.get("symbols") if isinstance(goldprice, dict) else None
+                        symbols = payload.get("symbols") if isinstance(payload, dict) else None
                         row = symbols[0] if isinstance(symbols, list) and symbols else None
                     if not isinstance(row, dict):
                         raise RuntimeError("GoldPrice.dev liefert keine XAU/USD-Daten")
-                    candidate = float(row.get("price"))
+                    price = float(row.get("price"))
                     age = iso_age_seconds(row.get("computed_at"))
-                    if not candidate > 0:
+                    if price <= 0:
                         raise RuntimeError("GoldPrice.dev liefert keinen gültigen XAU/USD-Preis")
                     if row.get("is_stale") is True or age is None or age > FRESH_MAX_AGE:
                         raise RuntimeError(
                             f"GoldPrice.dev Spot nicht frisch (stale={row.get('is_stale')}, "
                             f"Alter {age if age is not None else 'unbekannt'} s)"
                         )
-                    goldprice_price, goldprice_age = candidate, age
-                    last_spot_error = None
-                    break
+                    return price, age, None, "GoldPrice.dev · live", True
                 except Exception as exc:
-                    last_spot_error = exc
-            if goldprice_price is None and last_spot_error is not None:
-                raise last_spot_error
-        except Exception as exc:
-            spot_error = str(exc)
+                    last_error = exc
+            return None, None, str(last_error) if last_error else "Spotquelle nicht verfügbar", None, False
 
-        bars_5m, bars_1h = [], []
-        technical_errors = []
-
-        def yahoo_bars(interval, range_value):
+        def fetch_yahoo(interval, range_value):
             payload = fetch_json(
                 f"https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval={interval}"
                 f"&range={range_value}&includePrePost=true",
                 retries=1,
-                user_agent="Bob/1.1",
+                user_agent="Bob/1.3",
             )
             result = payload.get("chart", {}).get("result", [None])[0] if isinstance(payload, dict) else None
             if not result:
@@ -241,38 +230,102 @@ def build_live_bundle():
             out.sort(key=lambda x: x["openTime"])
             return out
 
-        try:
-            bars_5m = yahoo_bars("5m", "5d")
+        def fetch_fx():
+            if time.time() - _fx_cache_at < FX_CACHE_TTL and any(v is not None for v in _fx_cache.values()):
+                return _fx_cache["EUR"], _fx_cache["CHF"], []
+            rates = {"EUR": None, "CHF": None}
+            errors = []
+            for ccy in ("EUR", "CHF"):
+                try:
+                    fx = fetch_json(
+                        f"https://api.goldprice.dev/v1/convert?from=USD&to={ccy}&amount=1",
+                        retries=1,
+                        user_agent="Bob/1.3",
+                    )
+                    rate = float(fx.get("rate")) if isinstance(fx, dict) else None
+                    if rate and rate > 0:
+                        rates[ccy] = rate
+                        _fx_cache[ccy] = rate
+                    else:
+                        errors.append(f"Ungültige {ccy}-FX-Rate")
+                except Exception as exc:
+                    errors.append(str(exc))
+            _fx_cache_at = time.time()
+            return rates["EUR"] or _fx_cache["EUR"], rates["CHF"] or _fx_cache["CHF"], errors
+
+        # The spot price is the primary heartbeat. Secondary requests run in parallel
+        # so a slow history/FX provider cannot keep the UI on "Warte auf Live-Daten".
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="bob-live") as pool:
+            futures = {
+                pool.submit(fetch_spot): "spot",
+                pool.submit(fetch_yahoo, "5m", "5d"): "5m",
+                pool.submit(fetch_yahoo, "1h", "3mo"): "1h",
+                pool.submit(fetch_fx): "fx",
+            }
+            results = {}
+            for future in as_completed(futures):
+                name = futures[future]
+                try:
+                    results[name] = future.result()
+                except Exception as exc:
+                    results[name] = exc
+
+        spot_result = results.get("spot")
+        if isinstance(spot_result, tuple):
+            goldprice_price, goldprice_age, spot_error, spot_source, is_spot = spot_result
+        else:
+            goldprice_price = goldprice_age = None
+            spot_error = str(spot_result) if spot_result else "Spotquelle nicht verfügbar"
+            spot_source = None
+            is_spot = False
+
+        bars_5m = results.get("5m", [])
+        if isinstance(bars_5m, Exception):
+            technical_5m_error = str(bars_5m)
+            bars_5m = []
+        else:
+            technical_5m_error = None
+        bars_1h = results.get("1h", [])
+        if isinstance(bars_1h, Exception):
+            technical_1h_error = str(bars_1h)
+            bars_1h = []
+        else:
+            technical_1h_error = None
+
+        fx_result = results.get("fx")
+        if isinstance(fx_result, tuple):
+            usd_eur, usd_chf, fx_errors = fx_result
+        else:
+            usd_eur, usd_chf, fx_errors = _fx_cache["EUR"], _fx_cache["CHF"], [str(fx_result)] if fx_result else []
+
+        if bars_5m:
             mark_bar_state(bars_5m, 5)
-            if bars_5m:
-                age = max(0, now - bars_5m[-1]["openTime"] / 1000)
-                if age > 900:
-                    technical_errors.append(f"5m-Historie nicht frisch ({age:.0f} s)")
-        except Exception as exc:
-            technical_errors.append(str(exc))
-
-        try:
-            bars_1h = yahoo_bars("1h", "3mo")
+        if bars_1h:
             mark_bar_state(bars_1h, 60)
-        except Exception as exc:
-            technical_errors.append(str(exc))
 
-        bars_15m = aggregate_bars(bars_5m, 15) if bars_5m else []
-        bars_4h = aggregate_bars(bars_1h, 240) if bars_1h else []
+        technical_errors = []
+        if technical_5m_error:
+            technical_errors.append(technical_5m_error)
+        if technical_1h_error:
+            technical_errors.append(technical_1h_error)
+        if bars_5m:
+            age = max(0, now - bars_5m[-1]["openTime"] / 1000)
+            if age > 900:
+                technical_errors.append(f"5m-Historie nicht frisch ({age:.0f} s)")
+        technical_errors.extend(fx_errors)
 
         if goldprice_price is None:
             if bars_5m:
                 goldprice_price = bars_5m[-1]["close"]
                 goldprice_age = max(0, now - bars_5m[-1]["openTime"] / 1000)
                 spot_source = "Yahoo Finance GC=F · FALLBACK"
+                is_spot = False
             else:
-                raise RuntimeError(
-                    "Kein kostenloser Live-Preis verfügbar"
-                    + (f": {spot_error}" if spot_error else "")
-                )
-        else:
-            spot_source = "GoldPrice.dev · live"
+                raise RuntimeError("Kein kostenloser Live-Preis verfügbar" + (f": {spot_error}" if spot_error else ""))
 
+        bars_15m = aggregate_bars(bars_5m, 15) if bars_5m else []
+        bars_4h = aggregate_bars(bars_1h, 240) if bars_1h else []
         reference = bars_5m[-1]["close"] if bars_5m else goldprice_price
         diff = goldprice_price - reference
         pct = (diff / reference * 100) if reference else 0.0
@@ -281,35 +334,6 @@ def build_live_bundle():
             {"t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(b["openTime"] / 1000)), "p": b["close"]}
             for b in points_source
         ]
-
-        global _fx_cache, _fx_cache_at
-        if time.time() - _fx_cache_at < FX_CACHE_TTL and any(v is not None for v in _fx_cache.values()):
-            usd_eur = _fx_cache["EUR"]
-            usd_chf = _fx_cache["CHF"]
-        else:
-            usd_eur = None
-            usd_chf = None
-            for ccy in ("EUR", "CHF"):
-                try:
-                    fx = fetch_json(
-                        f"https://api.goldprice.dev/v1/convert?from=USD&to={ccy}&amount=1",
-                        retries=1,
-                        user_agent="Bob/1.1",
-                    )
-                    rate = float(fx.get("rate")) if isinstance(fx, dict) else None
-                    if rate and rate > 0:
-                        _fx_cache[ccy] = rate
-                        if ccy == "EUR":
-                            usd_eur = rate
-                        else:
-                            usd_chf = rate
-                except Exception:
-                    pass
-            _fx_cache_at = time.time()
-            if usd_eur is None:
-                usd_eur = _fx_cache["EUR"]
-            if usd_chf is None:
-                usd_chf = _fx_cache["CHF"]
 
         status = "fresh" if goldprice_age is not None and goldprice_age <= FRESH_MAX_AGE else "partial"
         bundle = {
@@ -324,28 +348,19 @@ def build_live_bundle():
                 "goldprice_age_seconds": goldprice_age,
                 "usd_eur": usd_eur,
                 "usd_chf": usd_chf,
-                "yahoo_gc_f_age_seconds": (
-                    max(0, now - bars_5m[-1]["openTime"] / 1000) if bars_5m else None
-                ),
-                "yahoo_1h_age_seconds": (
-                    max(0, now - bars_1h[-1]["openTime"] / 1000) if bars_1h else None
-                ),
+                "yahoo_gc_f_age_seconds": max(0, now - bars_5m[-1]["openTime"] / 1000) if bars_5m else None,
+                "yahoo_1h_age_seconds": max(0, now - bars_1h[-1]["openTime"] / 1000) if bars_1h else None,
                 "technical_4h_status": "available" if bars_4h else "unavailable",
                 "technical_4h_error": "; ".join(technical_errors) if technical_errors else None,
                 "goldprice_status": spot_source,
-                "xaus_is_spot": spot_source == "GoldPrice.dev · live",
+                "xaus_is_spot": is_spot,
                 "primary": spot_source,
                 "reference": "Yahoo Finance GC=F",
                 "reference_note": "GC=F ist Gold-Futures, nicht XAU/USD Spot",
                 "spot_error": spot_error,
             },
             "history": {
-                "bars_by_tf": {
-                    "5m": bars_5m,
-                    "15m": bars_15m,
-                    "1h": bars_1h,
-                    "4h": bars_4h,
-                },
+                "bars_by_tf": {"5m": bars_5m, "15m": bars_15m, "1h": bars_1h, "4h": bars_4h},
                 "points": legacy_points,
                 "data_state": {
                     "status": status,
