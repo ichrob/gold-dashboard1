@@ -287,7 +287,7 @@ async function testPush(){
 (function(){const t=localStorage.getItem("goldScannerNtfyTopic");if(t&&$("ntfyTopic"))$("ntfyTopic").value=t;})();
 renderPush();
 
-var C=[], lastPrice=0, A={}, lastMtfAt=0, liveFxUsdEur=null, MTF={longs:0,shorts:0,neutral:0,overall:"NEUTRAL",byTf:{},dirs:[]};
+var C=[], lastPrice=0, A={}, lastMtfAt=0, liveFxUsdEur=null, loadGeneration=0, MTF={longs:0,shorts:0,neutral:0,overall:"NEUTRAL",byTf:{},dirs:[]};
 function getMtfState(){const m=(typeof MTF==="object"&&MTF!==null)?MTF:null;return m&&typeof m.overall!=="undefined"?m:{longs:0,shorts:0,neutral:4,overall:"NEUTRAL",byTf:{},dirs:[]};}
 function ema(a,p){let k=2/(p+1),e=a[0];for(let i=1;i<a.length;i++)e=a[i]*k+e*(1-k);return e}
 function emaSeries(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
@@ -357,10 +357,11 @@ async function fetchLiveBundle(force=false){
  } 
 }
 async function fetchIntradayPoints(){const j=await fetchLiveBundle();if(j.history.data_state?.status!=="fresh")throw Error("Gold-Historie nicht frisch");return j.history.points||[];}
-async function loadMTF(force=false){
- if(!force&&lastMtfAt&&Date.now()-lastMtfAt<300000)return MTF;
+async function loadMTF(force=false, generation=null){
+ if(!force&&lastMtfAt&&Date.now()-lastMtfAt<300000)return getMtfState();
  try{
   const bundle=await fetchLiveBundle();
+  if(generation!==null&&generation!==loadGeneration)return getMtfState();
   const points=bundle.history?.points||[];
   const tfBars=bundle.history?.bars_by_tf||{};
   lastMtfAt=Date.now();
@@ -661,10 +662,12 @@ async function fetchSpotSources(bundle=null){
  return {xaus,gp,reference,diff,pct,sourceWarning,usd_eur:Number(s.usd_eur),usd_chf:Number(s.usd_chf)};
 }
 async function loadData(){
+ const generation=++loadGeneration;
  try{
   const tf=$("tf").value,n=+$("n").value;
   if(!["5m","15m","1h"].includes(tf))throw Error("Diese Zeitebene wird nicht unterstützt.");
   const bundle=await fetchLiveBundle(),spots=await fetchSpotSources(bundle);
+  if(generation!==loadGeneration)return;
   const tfBars=bundle.history?.bars_by_tf||{};
   const bars=tfBars[tf]||[];
 
@@ -714,7 +717,7 @@ async function loadData(){
   }
 
   $("status").textContent=(isSpot?"LIVE · XAU/USD ":"REFERENZ · GC=F ") + lastPrice.toFixed(2)+" · "+sourceLabel+fallbackWarning+" · "+new Date().toLocaleTimeString();
-  analyze();restoreTradeMgmt();await loadMTF();
+  analyze();restoreTradeMgmt();await loadMTF(false,generation);
  }catch(e){
   const msg="Live-Daten momentan nicht erreichbar: "+e.message;
   $("status").textContent=msg+" · Bitte erneut versuchen.";
