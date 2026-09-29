@@ -25,9 +25,15 @@ canvas{width:100%;height:220px;border-radius:12px;background:#fafafa}.warning{ba
 </head>
 <body>
 <script>
-/* Bob runtime probe: intentionally isolated from the main application script. */
+/* Bob runtime probe: public shell fingerprint + runtime heartbeat. */
 try{
- fetch("/api/diag",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({event:"boot:isolated",at:new Date().toISOString(),details:{reason:"isolated probe before main Bob script"}}),cache:"no-store",keepalive:true}).catch(()=>{});
+ const bobRuntimeId="bob-runtime-"+Date.now()+"-"+Math.random().toString(36).slice(2,8);
+ window.__BOB_RUNTIME_ID__=bobRuntimeId;
+ fetch("/api/diag",{method:"POST",headers:{"Content-Type":"application/json","X-Bob-Runtime":bobRuntimeId},body:JSON.stringify({
+  event:"boot:public-shell",
+  at:new Date().toISOString(),
+  details:{reason:"current Bob HTML shell executed",runtimeId:bobRuntimeId,href:location.href,userAgent:navigator.userAgent.slice(0,180)}
+ }),cache:"no-store",keepalive:true}).catch(()=>{});
 }catch(_){}
 </script>
 <main>
