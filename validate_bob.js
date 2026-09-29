@@ -29,3 +29,7 @@ if (/icon-192\\.png|icon-512\\.png/.test(fs.readFileSync("Bob.html","utf8"))) th
 console.log(`Bob JS/HTML/assets validation: OK (${scripts.length} inline script block)`);
 
 if (fs.readFileSync("Bob.html","utf8").includes("liveHistoryCache")) throw new Error("obsolete live history cache state must not exist");
+
+if (!fs.readFileSync("Bob.html","utf8").includes("if(!A.ready||!C.length||!Number.isFinite(A.at))return \"NEUTRAL\";")) throw new Error("signal direction must require ready analysis");
+if (!fs.readFileSync("Bob.html","utf8").includes("const required=200;")) throw new Error("MTF must require full 200-bar history");
+if (!fs.readFileSync("Bob.html","utf8").includes("timeframeScore(bars,tf)")) throw new Error("MTF freshness must be timeframe-aware");
