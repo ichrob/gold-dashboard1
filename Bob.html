@@ -657,8 +657,8 @@ function usdEurRate(){
 }
 async function fetchSpotSources(bundle=null){
  const j=bundle||await fetchLiveBundle();const s=j.spots||{},xaus=Number(s.xaus),gp=Number(s.goldprice),reference=Number(s.yahoo_gc_f||s.biquote),diff=Number(s.diff),pct=Number(s.pct);
- if(!Number.isFinite(xaus)||!Number.isFinite(gp)||!Number.isFinite(pct))throw Error("Ungültige Live-Goldwerte");
- const sourceWarning=Math.abs(pct)>0.50?"⚠️ Spot/Futures-Abweichung "+pct.toFixed(3)+"% – Futures nur als technische Referenz":"";
+ if(!Number.isFinite(xaus)||xaus<=0)throw Error("Ungültiger Live-XAU/USD-Preis");
+ const sourceWarning=Number.isFinite(pct)&&Math.abs(pct)>0.50?"⚠️ Spot/Futures-Abweichung "+pct.toFixed(3)+"% – Futures nur als technische Referenz":"";
  return {xaus,gp,reference,diff,pct,sourceWarning,usd_eur:Number(s.usd_eur),usd_chf:Number(s.usd_chf)};
 }
 async function loadData(){
@@ -666,14 +666,24 @@ async function loadData(){
  try{
   const tf=$("tf").value,n=+$("n").value;
   if(!["5m","15m","1h"].includes(tf))throw Error("Diese Zeitebene wird nicht unterstützt.");
-  const bundle=await fetchLiveBundle(),spots=await fetchSpotSources(bundle);
+  const bundle=await fetchLiveBundle();
+  if(generation!==loadGeneration)return;
+
+  // The live spot price is the primary heartbeat of Bob. Secondary spot/futures
+  // fields and technical analysis are allowed to fail without hiding it.
+  const primarySpot=Number(bundle.spots?.xaus);
+  if(!Number.isFinite(primarySpot)||primarySpot<=0)throw Error("Bob-Server liefert keinen gültigen Live-XAU/USD-Preis");
+  lastPrice=primarySpot;
+  $("quickPrice").textContent=lastPrice.toFixed(2)+" USD";
+  $("price").textContent=lastPrice.toFixed(2)+" USD";
+
+  let spots;
+  try{spots=await fetchSpotSources(bundle)}
+  catch(_){spots={xaus:primarySpot,gp:NaN,reference:NaN,diff:NaN,pct:NaN,sourceWarning:"",usd_eur:Number(bundle.spots?.usd_eur),usd_chf:Number(bundle.spots?.usd_chf)}}
   if(generation!==loadGeneration)return;
   const tfBars=bundle.history?.bars_by_tf||{};
   const bars=tfBars[tf]||[];
 
-  // Live XAU/USD must be rendered independently from technical history.
-  // A missing/temporary technical series must never hide a valid live spot price.
-  lastPrice=spots.xaus;
   liveFxUsdEur=Number.isFinite(Number(spots.usd_eur))&&Number(spots.usd_eur)>0?Number(spots.usd_eur):null;
   $("quickPrice").textContent=lastPrice.toFixed(2)+" USD";
   $("price").textContent=lastPrice.toFixed(2)+" USD";
@@ -717,7 +727,17 @@ async function loadData(){
   }
 
   $("status").textContent=(isSpot?"LIVE · XAU/USD ":"REFERENZ · GC=F ") + lastPrice.toFixed(2)+" · "+sourceLabel+fallbackWarning+" · "+new Date().toLocaleTimeString();
-  analyze();restoreTradeMgmt();await loadMTF(false,generation);
+  try{
+   analyze();restoreTradeMgmt();
+  }catch(analysisError){
+   C=[];
+   $("quickSignal").textContent="🟢 LIVE-PREIS · TECHNIK WARTET";
+   $("quickSignal").className="signal neutral";
+   $("quickReason").textContent="Live-Preis ist verfügbar; technische Analyse momentan nicht verfügbar.";
+   $("status").textContent="LIVE · XAU/USD "+lastPrice.toFixed(2)+" · Technikanalyse momentan nicht verfügbar · "+new Date().toLocaleTimeString();
+   console.warn("Bob technical analysis",analysisError);
+  }
+  await loadMTF(false,generation);
  }catch(e){
   const msg="Live-Daten momentan nicht erreichbar: "+e.message;
   $("status").textContent=msg+" · Bitte erneut versuchen.";
