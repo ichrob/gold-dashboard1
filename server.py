@@ -168,13 +168,20 @@ def build_live_bundle():
         def fetch_spot():
             last_error = None
             endpoints = [
+                "https://xaus.com/api/v1/spot?compact=1",
                 "https://api.goldprice.dev/v1/prices?symbol=XAU-USD-SPOT",
                 "https://api.goldprice.dev/v1/spot/XAU-USD-SPOT",
             ]
             for endpoint in endpoints:
                 try:
                     payload = fetch_json(endpoint, retries=1, user_agent="Bob/1.3")
-                    if "/v1/spot/" in endpoint:
+                    if endpoint.startswith("https://xaus.com/"):
+                        row = {
+                            "price": payload.get("spot_usd_oz") if isinstance(payload, dict) else None,
+                            "computed_at": payload.get("updated_at") if isinstance(payload, dict) else None,
+                            "is_stale": (payload.get("data_state", {}).get("status") == "stale") if isinstance(payload, dict) else True,
+                        }
+                    elif "/v1/spot/" in endpoint:
                         row = payload if isinstance(payload, dict) else None
                     else:
                         symbols = payload.get("symbols") if isinstance(payload, dict) else None
