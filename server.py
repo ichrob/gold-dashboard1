@@ -15,6 +15,7 @@ USER = os.environ.get("BOB_USER", "")
 PASSWORD = os.environ.get("BOB_PASSWORD", "")
 PUSH_SERVICE_URL = os.environ.get("PUSH_SERVICE_URL", "")
 PUSH_SERVICE_TOKEN = os.environ.get("PUSH_SERVICE_TOKEN", "")
+SIGNAL_WORKER_TOKEN = os.environ.get("SIGNAL_WORKER_TOKEN", "")
 
 BASE_DIR = Path(__file__).resolve().parent
 HTML_PATH = BASE_DIR / "Bob.html"
@@ -365,7 +366,9 @@ class Handler(BaseHTTPRequestHandler):
             f"{USER}:{PASSWORD}".encode("utf-8")
         ).decode("ascii")
 
-        if not USER or not PASSWORD or not hmac.compare_digest(auth, expected):
+        worker_token = self.headers.get("X-Bob-Worker-Token", "")
+        worker_ok = bool(SIGNAL_WORKER_TOKEN) and hmac.compare_digest(worker_token, SIGNAL_WORKER_TOKEN)
+        if not worker_ok and (not USER or not PASSWORD or not hmac.compare_digest(auth, expected)):
             self.send_response(401)
             self.send_header("WWW-Authenticate", 'Basic realm="Bob"')
             self.send_header("Cache-Control", "no-store")
@@ -485,7 +488,9 @@ class Handler(BaseHTTPRequestHandler):
         expected = "Basic " + base64.b64encode(
             f"{USER}:{PASSWORD}".encode("utf-8")
         ).decode("ascii")
-        if not USER or not PASSWORD or not hmac.compare_digest(auth, expected):
+        worker_token = self.headers.get("X-Bob-Worker-Token", "")
+        worker_ok = bool(SIGNAL_WORKER_TOKEN) and hmac.compare_digest(worker_token, SIGNAL_WORKER_TOKEN)
+        if not worker_ok and (not USER or not PASSWORD or not hmac.compare_digest(auth, expected)):
             self.send_response(401)
             self.send_header("WWW-Authenticate", 'Basic realm="Bob"')
             self.send_header("Cache-Control", "no-store")
