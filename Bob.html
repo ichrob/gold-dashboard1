@@ -574,6 +574,26 @@ async function loadMTF(force=false, generation=null, suppliedBundle=null){
   const mtfSummary=$("mtfSummary");
   if(mtfSummary)mtfSummary.innerHTML="<b>"+overall+"</b><br>"+longs+" LONG · "+shorts+" SHORT · "+neutral+" NEUTRAL · "+strength+"<br><span class=\"small\">4h basiert jetzt auf echter 1h-Historie und wird nur mit mindestens 200 geschlossenen 4h-Kerzen bewertet.</span>";
   MTF={longs,shorts,neutral,overall,byTf,dirs};
+  // Server-side verification is the authoritative runtime check for the MTF pipeline.
+  try{
+   const vr=await fetch("/api/mtf?fresh="+Date.now(),{cache:"no-store"});
+   if(vr.ok){
+    const v=await vr.json(), r=v.results||{};
+    for(const [tf,id] of [["5m","mtf5"],["15m","mtf15"],["1h","mtf1h"],["4h","mtf4h"]]){
+     const z=r[tf]; if(!z) continue;
+     const label=!z.available?"NEUTRAL · Historie fehlt":z.dir+(z.rsi!=null?" · RSI "+Number(z.rsi).toFixed(0):"");
+     $(id).textContent=label; $(id).className=z.dir==="LONG"?"ok":z.dir==="SHORT"?"bad":"neutral";
+    }
+    const vd=["4h","1h","15m","5m"].map(tf=>r[tf]?.dir);
+    MTF={longs:vd.filter(x=>x==="LONG").length,shorts:vd.filter(x=>x==="SHORT").length,neutral:vd.filter(x=>x==="NEUTRAL").length,overall:v.overall||"NEUTRAL",byTf:r,dirs:vd};
+    $("quickMtf").textContent=MTF.overall;
+    const mtfSummary=$("mtfSummary");
+    if(mtfSummary)mtfSummary.innerHTML="<b>"+MTF.overall+"</b><br>"+MTF.longs+" LONG · "+MTF.shorts+" SHORT · "+MTF.neutral+" NEUTRAL · Server-verifiziert";
+    reportBobDiag("mtf:server-verified",{bars5m:r["5m"]?.bars||0,bars15m:r["15m"]?.bars||0,bars1h:r["1h"]?.bars||0,bars4h:r["4h"]?.bars||0,available:!!v.valid,overall:MTF.overall,historyStatus:bundle.history?.data_state?.status||"unknown",source:"server-mtf"});
+   }else{
+    reportBobDiag("mtf:server-error",{error:"HTTP "+vr.status,reason:"/api/mtf verification failed"});
+   }
+  }catch(e){reportBobDiag("mtf:server-error",{error:e?.message||String(e),reason:"/api/mtf verification exception"});}
   updateTradeSignal();updateResearchPanel();return MTF;
  }catch(e){
   reportBobDiag("mtf:error",{error:e?.message||String(e),reason:"loadMTF exception"});
