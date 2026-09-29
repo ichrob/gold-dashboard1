@@ -63,7 +63,7 @@ try{
 <div class="card">
 <h3>🔔 Push-Benachrichtigungen</h3>
 <div class="grid">
-<div class="metric"><label>1. Trade-Signale: „Trade starten?“</label><button id="generalPushBtn" onclick="togglePush('general')">🔕 Aus</button></div>
+<div class="metric"><label>1. Trade Empfehlung</label><button id="generalPushBtn" onclick="togglePush('general')">🔕 Aus</button></div>
 <div class="metric"><label>2. Aktiver Trade</label><button id="tradePushBtn" onclick="togglePush('trade')">🔕 Aus</button></div>
 </div>
 <div class="row" style="margin-top:10px"><button onclick="registerNotifications()">📱 Gerät für Push registrieren</button><button onclick="testPush()">🧪 Test-Push</button></div>
@@ -72,7 +72,7 @@ try{
 <div><label>Push-Kanal</label><button onclick="setupNtfy()">☁️ ntfy einrichten</button></div>
 </div>
 <div class="small" style="margin-top:8px">Kein Login nötig. Auf Android die ntfy-App installieren und denselben Topic abonnieren. Der Topic-Name ist eine öffentliche Kanaladresse, kein echtes Passwort. Für sensible Inhalte sollte ein geschützter Push-Dienst verwendet werden.</div>
-<div class="warning" style="margin-top:10px"><b>Push-Regel:</b> Signal-Pushs und Trade-Aktiver Trade – Pushs sind getrennt. Ein Aktiver-Trade-Push wird nur bei einem tatsächlich aktiven Trade versendet.</div>
+<div class="warning" style="margin-top:10px"><b>Push-Regel:</b> „Trade Empfehlung“ meldet neue Trade-Empfehlungen. „Aktiver Trade“ meldet ausschließlich „Stop-Loss nachsetzen“ und „Trade schließen“ – und nur bei einem tatsächlich aktiven Trade.</div>
 <div id="pushStatus" class="small" style="margin-top:8px">Noch nicht registriert.</div>
 </div>
 
@@ -80,7 +80,7 @@ try{
 <h3>🛡️ Trade-Status</h3>
 <div class="grid">
 <div><label>Trade-Status</label><div class="metric" id="tradeStateBtn">❌ Kein aktiver Trade</div></div>
-<div><label>Management-Pushs</label><div class="metric" id="tradePushState">Nur bei aktivem Trade</div></div>
+<div><label>Aktiver Trade – Pushs</label><div class="metric" id="tradePushState">Nur bei aktivem Trade</div></div>
 </div>
 <button style="margin-top:10px" onclick="closeTrade()">⏹️ Trade schließen</button>
 </div>
