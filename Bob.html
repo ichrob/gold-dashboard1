@@ -690,6 +690,9 @@ function riskCalc(){
  const notionalUsd=maxLossUsd/(dist/lastPrice),notionalEur=notionalUsd*fx,marginEur=notionalEur/lev;
  $("riskout").innerHTML=`Richtung: <b>${dir}</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Stop: <b>${sm.stop.toFixed(2)}</b> · ${sm.reason}<br>Ziel: <b>${tgt.target.toFixed(2)}</b><br>CRV: <b>${tgt.rr.toFixed(2)} : 1</b><br>Theoretischer Basis-Positionswert: <b>${notionalEur.toFixed(2)} €</b><br>Rechnerische Margin bei ${lev}×: <b>${marginEur.toFixed(2)} €</b><br><span class="small">FX ${fx.toFixed(4)} EUR/USD · Basiswertrechnung, keine DEGIRO-Produktstückzahl.</span>`;
 }
+if("serviceWorker" in navigator){
+  window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{}),{once:true});
+}
 restoreTradeMgmt(); updateResearchPanel();
 const fxField=$("fxRate"),ccyField=$("displayCcy");
 if(fxField)fxField.addEventListener("input",()=>fxField.dataset.manual="1");
