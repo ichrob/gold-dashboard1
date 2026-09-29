@@ -28,9 +28,7 @@ services:
       - key: PUSH_SERVICE_TOKEN
         generateValue: true
       - key: VAPID_PRIVATE_KEY
-        sync: false
-      - key: VAPID_PUBLIC_KEY
-        sync: false
+        generateValue: true
       - key: VAPID_SUBJECT
         value: mailto:bob@localhost
       - key: BOB_ORIGIN
