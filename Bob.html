@@ -530,10 +530,8 @@ async function fetchLiveBundle(force=false){
 }
 async function fetchIntradayPoints(){const j=await fetchLiveBundle();if(j.history.data_state?.status!=="fresh")throw Error("Gold-Historie nicht frisch");return j.history.points||[];}
 async function loadMTF(force=false, generation=null){
- if(!force&&lastMtfAt&&Date.now()-lastMtfAt<300000)return getMtfState();
  try{
   const bundle=await fetchLiveBundle();
-  if(generation!==null&&generation!==loadGeneration)return getMtfState();
   const points=bundle.history?.points||[];
   const tfBars=bundle.history?.bars_by_tf||{};
   lastMtfAt=Date.now();
@@ -565,6 +563,7 @@ async function loadMTF(force=false, generation=null){
   updateTradeSignal();updateResearchPanel();return MTF;
  }catch(e){
   $("quickMtf").textContent="NEUTRAL";
+  ["mtf5","mtf15","mtf1h","mtf4h"].forEach(id=>{const el=$(id);if(el){el.textContent="NEUTRAL · Historie fehlt";el.className="neutral";}});
   const mtfSummary=$("mtfSummary");if(mtfSummary)mtfSummary.textContent="MTF momentan nicht verfügbar: "+e.message;
   MTF={longs:0,shorts:0,neutral:4,overall:"NEUTRAL",byTf:{},dirs:[]};
   updateTradeSignal();updateResearchPanel();return MTF;
@@ -932,7 +931,7 @@ async function loadData(){
    $("status").textContent="LIVE · XAU/USD "+lastPrice.toFixed(2)+" · Technikanalyse momentan nicht verfügbar · "+new Date().toLocaleTimeString();
    console.warn("Bob technical analysis",analysisError);
   }
-  await loadMTF(false,generation);
+  await loadMTF(true);
  }catch(e){
   console.error("[BOB] live:failed",e);
   const msg="Live-Daten momentan nicht erreichbar: "+e.message;
