@@ -9,6 +9,17 @@ services:
     startCommand: python server.py
     autoDeployTrigger: commit
     healthCheckPath: /
+    envVars:
+      - key: PUSH_SERVICE_URL
+        fromService:
+          name: bob-push-service
+          type: web
+          property: hostport
+      - key: PUSH_SERVICE_TOKEN
+        fromService:
+          name: bob-push-service
+          type: web
+          envVarKey: PUSH_SERVICE_TOKEN
 
   - type: web
     name: bob-push-service
@@ -26,8 +37,6 @@ services:
           name: bob-push-db
           property: connectionString
       - key: PUSH_SERVICE_TOKEN
-        generateValue: true
-      - key: VAPID_PRIVATE_KEY
         generateValue: true
       - key: VAPID_SUBJECT
         value: mailto:bob@localhost
