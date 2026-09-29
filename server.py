@@ -398,6 +398,35 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(HTML)
             return
 
+        if path == "/api/push/vapid-public-key":
+            try:
+                if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
+                    raise RuntimeError("Push-Service nicht konfiguriert")
+                base = PUSH_SERVICE_URL
+                if not base.startswith("http://") and not base.startswith("https://"):
+                    base = "http://" + base
+                req = Request(base.rstrip("/") + "/vapid-public-key", headers={"Accept":"application/json"})
+                with urlopen(req, timeout=8) as response:
+                    result = response.read()
+                    status = response.status
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(result)
+            except HTTPError as exc:
+                self.send_response(exc.code)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(b'{"error":"Push-Service-Fehler"}')
+            except (URLError, TimeoutError):
+                self.send_response(503)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(b'{"error":"Push-Service nicht erreichbar"}')
+            return
+
         if path == "/api/live":
             try:
                 payload = build_live_bundle()
@@ -465,7 +494,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         path = urlparse(self.path).path
-        if path != "/api/push/send":
+        if path not in ("/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe"):
             self.send_response(404)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -488,8 +517,13 @@ class Handler(BaseHTTPRequestHandler):
             base = PUSH_SERVICE_URL
             if not base.startswith("http://") and not base.startswith("https://"):
                 base = "http://" + base
+            relay_path = {
+                "/api/push/send": "/send",
+                "/api/push/subscribe": "/subscribe",
+                "/api/push/unsubscribe": "/unsubscribe",
+            }[path]
             req = Request(
-                base.rstrip("/") + "/send",
+                base.rstrip("/") + relay_path,
                 data=body,
                 method="POST",
                 headers={
