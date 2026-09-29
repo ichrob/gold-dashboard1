@@ -747,6 +747,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/push/send": "/send",
                 "/api/push/subscribe": "/subscribe",
                 "/api/push/unsubscribe": "/unsubscribe",
+                "/api/push/preferences": "/preferences",
             }[path]
             req = Request(
                 base.rstrip("/") + relay_path,
