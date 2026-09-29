@@ -31,8 +31,11 @@ ICON = ICON_PATH.read_bytes() if ICON_PATH.exists() else None
 UPSTREAM_TIMEOUT = 10
 FRESH_MAX_AGE = 180
 LIVE_CACHE_TTL = 65
+FX_CACHE_TTL = 900
 _live_cache = None
 _live_cache_at = 0.0
+_fx_cache = {"EUR": None, "CHF": None}
+_fx_cache_at = 0.0
 _live_lock = threading.Lock()
 
 def fetch_json(url, retries=2, user_agent="Bob/1.1"):
@@ -266,23 +269,34 @@ def build_live_bundle():
             for b in points_source
         ]
 
-        usd_eur = None
-        usd_chf = None
-        for ccy in ("EUR", "CHF"):
-            try:
-                fx = fetch_json(
-                    f"https://api.goldprice.dev/v1/convert?from=USD&to={ccy}&amount=1",
-                    retries=1,
-                    user_agent="Bob/1.1",
-                )
-                rate = float(fx.get("rate")) if isinstance(fx, dict) else None
-                if rate and rate > 0:
-                    if ccy == "EUR":
-                        usd_eur = rate
-                    else:
-                        usd_chf = rate
-            except Exception:
-                pass
+        global _fx_cache, _fx_cache_at
+        if time.time() - _fx_cache_at < FX_CACHE_TTL and any(v is not None for v in _fx_cache.values()):
+            usd_eur = _fx_cache["EUR"]
+            usd_chf = _fx_cache["CHF"]
+        else:
+            usd_eur = None
+            usd_chf = None
+            for ccy in ("EUR", "CHF"):
+                try:
+                    fx = fetch_json(
+                        f"https://api.goldprice.dev/v1/convert?from=USD&to={ccy}&amount=1",
+                        retries=1,
+                        user_agent="Bob/1.1",
+                    )
+                    rate = float(fx.get("rate")) if isinstance(fx, dict) else None
+                    if rate and rate > 0:
+                        _fx_cache[ccy] = rate
+                        if ccy == "EUR":
+                            usd_eur = rate
+                        else:
+                            usd_chf = rate
+                except Exception:
+                    pass
+            _fx_cache_at = time.time()
+            if usd_eur is None:
+                usd_eur = _fx_cache["EUR"]
+            if usd_chf is None:
+                usd_chf = _fx_cache["CHF"]
 
         status = "fresh" if goldprice_age is not None and goldprice_age <= FRESH_MAX_AGE else "partial"
         bundle = {
