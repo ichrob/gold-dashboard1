@@ -1,7 +1,7 @@
-const CACHE_VERSION = "bob-icons-v3";
+const CACHE_VERSION = "bob-shell-v4";
 
 self.addEventListener("install", event => { self.skipWaiting(); });
-self.addEventListener("activate", event => { event.waitUntil(self.clients.claim()); });
+self.addEventListener("activate", event => {\n  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith("bob-") && key !== CACHE_VERSION).map(key => caches.delete(key)))).then(() => self.clients.claim()));\n});
 
 function safeJson(event) {
   try { return event.data ? event.data.json() : {}; }
