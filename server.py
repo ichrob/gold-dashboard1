@@ -762,9 +762,17 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def log_message(self, fmt, *args):
-        pass
+        # Explicit runtime access logging. Render HTTP request logs are not
+        # available on every workspace tier, so keep a compact server-side
+        # trace for diagnosing browser -> Render connectivity.
+        try:
+            request_id = self.headers.get("Rndr-Id", "-")
+            print(f"BOB_HTTP path={self.path} method={self.command} status={args[1] if len(args)>1 else '-'} rndr_id={request_id}", flush=True)
+        except Exception:
+            pass
 
 port = int(os.environ.get("PORT", "10000"))
+print(f"BOB_START port={port} host=0.0.0.0 version=runtime-http-trace-v1", flush=True)
 ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress
