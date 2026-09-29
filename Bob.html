@@ -63,8 +63,8 @@ try{
 <div class="card">
 <h3>🔔 Push-Benachrichtigungen</h3>
 <div class="grid">
-<div class="metric"><label>Allgemeine Trade-Empfehlungen</label><button id="generalPushBtn" onclick="togglePush('general')">🔕 Aus</button></div>
-<div class="metric"><label>Aktiver Trade: Stop-Loss / Schließen</label><button id="tradePushBtn" onclick="togglePush('trade')">🔕 Aus</button></div>
+<div class="metric"><label>1. Trade-Signale: „Trade starten?“</label><button id="generalPushBtn" onclick="togglePush('general')">🔕 Aus</button></div>
+<div class="metric"><label>2. Aktiver Trade: Stop-Loss / Schließen</label><button id="tradePushBtn" onclick="togglePush('trade')">🔕 Aus</button></div>
 </div>
 <div class="row" style="margin-top:10px"><button onclick="registerNotifications()">📱 Gerät für Push registrieren</button><button onclick="testPush()">🧪 Test-Push</button></div>
 <div class="grid" style="margin-top:10px">
@@ -72,16 +72,17 @@ try{
 <div><label>Push-Kanal</label><button onclick="setupNtfy()">☁️ ntfy einrichten</button></div>
 </div>
 <div class="small" style="margin-top:8px">Kein Login nötig. Auf Android die ntfy-App installieren und denselben Topic abonnieren. Der Topic-Name ist eine öffentliche Kanaladresse, kein echtes Passwort. Für sensible Inhalte sollte ein geschützter Push-Dienst verwendet werden.</div>
-<div class="warning" style="margin-top:10px"><b>Trade-Schutz:</b> Management-Pushs werden nur ausgelöst, wenn du unten „Trade gesetzt“ bestätigst.</div>
+<div class="warning" style="margin-top:10px"><b>Push-Regel:</b> Signal-Pushs und Trade-Management-Pushs sind getrennt. Ein Management-Push wird nur bei einem tatsächlich aktiven Trade versendet.</div>
 <div id="pushStatus" class="small" style="margin-top:8px">Noch nicht registriert.</div>
 </div>
 
 <div class="card">
 <h3>🛡️ Trade-Status</h3>
 <div class="grid">
-<div><label>Trade gesetzt?</label><button id="tradeStateBtn" onclick="toggleTradeState()">❌ Nein</button></div>
+<div><label>Trade-Status</label><div class="metric" id="tradeStateBtn">❌ Kein aktiver Trade</div></div>
 <div><label>Management-Pushs</label><div class="metric" id="tradePushState">Nur bei aktivem Trade</div></div>
 </div>
+<button style="margin-top:10px" onclick="closeTrade()">⏹️ Trade schließen</button>
 </div>
 
 <div class="card">
@@ -238,8 +239,8 @@ function renderPush(){
  const gb=$("generalPushBtn"),tb=$("tradePushBtn"),ts=$("tradeStateBtn"),tp=$("tradePushState");
  if(gb)gb.textContent=pushState.general?"🔔 Ein":"🔕 Aus";
  if(tb)tb.textContent=pushState.trade?"🔔 Ein":"🔕 Aus";
- if(ts)ts.textContent=pushState.activeTrade?"✅ Trade gesetzt":"❌ Nein";
- if(tp)tp.textContent=pushState.activeTrade?"Aktiv – Stop-Loss/Schließen erlaubt":"Nur bei aktivem Trade";
+ if(ts)ts.textContent=pushState.activeTrade?"✅ Trade aktiv":"❌ Kein aktiver Trade";
+ if(tp)tp.textContent=pushState.activeTrade?"Aktiv – Stop-Loss/Schließen erlaubt":"Gesperrt – kein aktiver Trade";
 }
 async function registerNotifications(){
  const status=$("pushStatus");
@@ -251,6 +252,7 @@ async function registerNotifications(){
    if(status)status.textContent="⏳ Push wird registriert …";
    pushState=await BobPush.enable();
    renderPush();
+   await syncPushPreferences();
    if(status)status.textContent="granted"===Notification.permission?"✅ Browser-Benachrichtigungen freigegeben. Service Worker ist registriert.":"⚠️ Registrierung gespeichert, aber Browser-Berechtigung ist noch nicht freigegeben.";
    return pushState.registered===true;
  }catch(e){
@@ -258,17 +260,35 @@ async function registerNotifications(){
    return false;
  }
 }
+async function syncPushPreferences(){
+ if(!pushState.serverRegistered)return false;
+ try{
+   const reg=await navigator.serviceWorker.ready;
+   const sub=await reg.pushManager.getSubscription();
+   if(!sub)return false;
+   const r=await fetch("/api/push/preferences",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({endpoint:sub.endpoint,general:!!pushState.general,trade:!!pushState.trade,activeTrade:!!pushState.activeTrade})});
+   return r.ok;
+ }catch(_){return false;}
+}
 async function togglePush(kind){
  try{
    if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
    pushState=BobPush.set(kind,!pushState[kind]);renderPush();
+   await syncPushPreferences();
  }catch(e){
    $("pushStatus").textContent="❌ "+(e?.message||"Push-Einstellung konnte nicht geändert werden.");
  }
 }
-function toggleTradeState(){
- pushState=BobPush.setActiveTrade(!pushState.activeTrade);renderPush();
- if(pushState.activeTrade)notifyTrade("Bob – Trade gesetzt","Trade-Management-Benachrichtigungen sind jetzt aktiviert.");
+async function closeTrade(){
+ if(!pushState.activeTrade){$("stopUpdate").textContent="Kein aktiver Trade vorhanden.";return;}
+ const entry=tradeMgmt.entry, exit=+$("tradePrice").value||lastPrice;
+ const msg=entry&&exit ? "Trade geschlossen. Einstieg "+Number(entry).toFixed(2)+" USD/oz · aktueller Kurs "+Number(exit).toFixed(2)+" USD/oz." : "Trade geschlossen.";
+ if(pushState.trade)await notifyTrade("Bob – Trade geschlossen",msg);
+ tradeMgmt.active=false;saveTradeMgmt();
+ pushState=BobPush.setActiveTrade(false);renderPush();await syncPushPreferences();
+ $("stopPanel").innerHTML="Trade geschlossen. Management-Pushs sind wieder gesperrt.";
+ $("stopUpdate").textContent=msg;
+ captureResearchSnapshot("TRADE_CLOSED");updateResearchPanel();
 }
 function canNotify(kind){return BobPush.allowed(kind);}
 function ntfyTopic(){return ($("ntfyTopic")?.value||localStorage.getItem("goldScannerNtfyTopic")||"").trim()}
@@ -777,7 +797,7 @@ function suggestStopUpdate(){
  tradeMgmt.stop=next;tradeMgmt.lastUpdate=new Date().toISOString();saveTradeMgmt();$("tradeStop").value=next.toFixed(2);$("stopUpdate").innerHTML=`<b>STOP-LOSS ANPASSEN:</b> neuer Kurs <b>${displayStop(next)}</b> (alt ${displayStop(old)}).`;
  notifyTrade("Gold Scanner – Stop-Loss anpassen",`Neuer Stop-Loss: ${displayStop(next)}. Alter Stop: ${displayStop(old)}.`);captureResearchSnapshot("STOP_UPDATE");updateResearchPanel();
 }
-function restoreTradeMgmt(){if(tradeMgmt.active){$("tradeEntry").value=tradeMgmt.entry?.toFixed?.(2)||"";$("tradeStop").value=tradeMgmt.stop?.toFixed?.(2)||"";$("tradePrice").value=lastPrice?lastPrice.toFixed(2):"";pushState=BobPush.setActiveTrade(true);renderPush();}}
+function restoreTradeMgmt(){if(tradeMgmt.active){$("tradeEntry").value=tradeMgmt.entry?.toFixed?.(2)||"";$("tradeStop").value=tradeMgmt.stop?.toFixed?.(2)||"";$("tradePrice").value=lastPrice?lastPrice.toFixed(2):"";pushState=BobPush.setActiveTrade(true);renderPush();syncPushPreferences();}}
 
 
 function advancedAnalysis(){
