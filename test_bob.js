@@ -109,6 +109,14 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert(calc.approxNotionalEur > 0);
   assert(calc.marginEur > 0);
   assert.strictEqual(degiro.BobDegiro.riskModel({ spot: 4000, stop: 4000, riskEur: 5, fxUsdEur: 0.92, leverage: 5 }).ok, false);
+  const shortCalc = degiro.BobDegiro.riskModel({ spot: 4000, stop: 4020, riskEur: 5, fxUsdEur: 0.92, leverage: 5, ko: 4100 });
+  assert.strictEqual(shortCalc.ok, true);
+  assert(shortCalc.approxNotionalEur > 0);
+  assert(shortCalc.warnings.some(w => w.includes("KO-Level") ) === false);
+  const longKo = degiro.BobDegiro.riskModel({ spot: 4000, stop: 3980, riskEur: 5, fxUsdEur: 0.92, leverage: 5, ko: 4010 });
+  assert(longKo.warnings.some(w => w.includes("KO-Level")));
+  const tightKo = degiro.BobDegiro.riskModel({ spot: 4000, stop: 3980, riskEur: 5, fxUsdEur: 0.92, leverage: 5, ko: 3950 });
+  assert(tightKo.warnings.some(w => w.includes("unter 2%")));
 
   console.log("Bob push + DEGIRO tests: OK");
 })().catch(err => { console.error(err); process.exit(1); });
