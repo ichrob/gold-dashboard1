@@ -367,23 +367,25 @@ async function fetchLiveBundle(force=false){
   // server proxy. Load it directly so Render availability cannot block analysis.
   try{
    const chartFetch=async(range,interval)=>{
-    const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),6500);
+    const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),9000);
     try{
-     const hours=48;
-     const rr=await fetch("https://xaus.com/api/v1/intraday?symbol=xau&hours="+hours+"&fresh="+now,{cache:"no-store",signal:ctl.signal});
-     if(!rr.ok)throw Error("XAUS intraday HTTP "+rr.status);
+     // Use the documented XAUS chart endpoint with the requested range.
+     // The previous implementation hard-coded 48 hours, which made EMA200
+     // and the 4h hierarchy impossible to calculate even though live history
+     // was successfully loaded.
+     const rr=await fetch("https://xaus.com/api/v1/chart?symbol=xau&range="+encodeURIComponent(range)+"&interval="+encodeURIComponent(interval)+"&fresh="+now,{cache:"no-store",signal:ctl.signal});
+     if(!rr.ok)throw Error("XAUS chart HTTP "+rr.status);
      const pp=await rr.json(),pts=pp?.points;
-     if(!Array.isArray(pts)||!pts.length)throw Error("XAUS Intraday liefert keine Punkte");
-     const minutes=interval==="5m"?5:60,step=minutes*60*1000,buckets=new Map();
+     if(!Array.isArray(pts)||!pts.length)throw Error("XAUS Chart liefert keine Punkte");
+     const buckets=new Map();
      for(const p of pts){
-      const ts=Date.parse(p.t),price=Number(p.p);
-      if(!Number.isFinite(ts)||!Number.isFinite(price)||price<=0)continue;
-      const bucket=Math.floor(ts/step)*step;
-      const b=buckets.get(bucket)||{openTime:bucket,open:price,high:price,low:price,close:price,isOpen:false};
-      b.high=Math.max(b.high,price);b.low=Math.min(b.low,price);b.close=price;buckets.set(bucket,b);
+      const ts=Number(p.t)*1000, o=Number(p.o), h=Number(p.h), l=Number(p.l), c=Number(p.c);
+      if(!Number.isFinite(ts)||![o,h,l,c].every(Number.isFinite)||![o,h,l,c].every(v=>v>0))continue;
+      const b={openTime:ts,open:o,high:h,low:l,close:c,isOpen:false};
+      buckets.set(ts,b);
      }
      const out=[...buckets.values()].sort((a,b)=>a.openTime-b.openTime);
-     if(!out.length)throw Error("XAUS Intraday enthält keine gültigen Preise");
+     if(!out.length)throw Error("XAUS Chart enthält keine gültigen Preise");
      return out;
     }finally{clearTimeout(tm)}
    };
@@ -961,3 +963,5 @@ window.addEventListener("unhandledrejection",e=>{
 loadData();
 setInterval(()=>{ if(document.visibilityState==="visible") loadData(); }, 60000);
 </script></body></html>
+
+
