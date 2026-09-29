@@ -332,14 +332,24 @@ function barsFromIntraday(points, minutes){
 var liveBundleCache=null, liveBundleAt=0;
 async function fetchLiveBundle(force=false){
  const now=Date.now();
+ const diag=$("quickReason");
+ if(diag)diag.textContent="Verbinde mit Bob Live-Daten …";
+ console.info("[BOB] live:start",new Date(now).toISOString());
  if(!force&&liveBundleCache&&now-liveBundleAt<30000)return liveBundleCache;
  try{
-  const r=await fetch("/api/live?fresh="+now,{cache:"no-store"});
+  const liveUrl="/api/live?fresh="+now;
+  console.info("[BOB] live:request",liveUrl);
+  const r=await fetch(liveUrl,{cache:"no-store"});
+  console.info("[BOB] live:response",r.status,r.headers.get("content-type"));
   let j=null;try{j=await r.json()}catch(_){throw Error("Bob-Server liefert keine gültige JSON-Antwort");}
   if(!r.ok)throw Error(j?.error||("Bob-Server HTTP "+r.status));
   if(!j.spots||!Number.isFinite(Number(j.spots.xaus)))throw Error("Bob-Server liefert keinen gültigen Live-XAU/USD-Preis");
-  liveBundleCache=j;liveBundleAt=now;return j;
+  liveBundleCache=j;liveBundleAt=now;
+  console.info("[BOB] live:success",Number(j.spots?.xaus),j.history?.data_state?.status);
+  return j;
  }catch(serverError){
+  console.warn("[BOB] live:server-error",serverError);
+  if($("quickReason"))$("quickReason").textContent="Server-Live-Abfrage fehlgeschlagen – prüfe Browser-Fallback …";
   // Last-resort free browser fallback: obtain the current XAU/USD spot directly.
   // Technical history remains unavailable; never fabricate a signal from this fallback.
   try{
@@ -739,6 +749,7 @@ async function loadData(){
   }
   await loadMTF(false,generation);
  }catch(e){
+  console.error("[BOB] live:failed",e);
   const msg="Live-Daten momentan nicht erreichbar: "+e.message;
   $("status").textContent=msg+" · Bitte erneut versuchen.";
   $("quickSignal").textContent="🔴 LIVE-DATEN FEHLER";
@@ -776,7 +787,16 @@ try{updateResearchPanel();}catch(e){console.warn("Bob research UI init",e)}
 const fxField=$("fxRate"),ccyField=$("displayCcy");
 if(fxField)fxField.addEventListener("input",()=>fxField.dataset.manual="1");
 if(ccyField)ccyField.addEventListener("change",()=>{if(fxField)fxField.dataset.manual="";loadData(true);});
-window.addEventListener("error",e=>{const el=$("quickSignal");if(el&&el.textContent==="Warte auf Live-Daten"){el.textContent="🔴 BOB-STARTFEHLER";el.className="signal bad";$("quickReason").textContent="Bob konnte die Live-Abfrage nicht starten. Bitte erneut laden.";}});
+window.addEventListener("error",e=>{
+ const el=$("quickSignal");
+ console.error("[BOB] window:error",e.error||e.message);
+ if(el&&el.textContent==="Warte auf Live-Daten"){el.textContent="🔴 BOB-STARTFEHLER";el.className="signal bad";$("quickReason").textContent="Bob-Startfehler: "+(e.message||"unbekannter JavaScript-Fehler");}
+});
+window.addEventListener("unhandledrejection",e=>{
+ console.error("[BOB] unhandledrejection",e.reason);
+ const el=$("quickSignal");
+ if(el&&el.textContent==="Warte auf Live-Daten"){el.textContent="🔴 BOB-STARTFEHLER";el.className="signal bad";$("quickReason").textContent="Bob-Live-Startfehler: "+(e.reason?.message||String(e.reason));}
+});
 loadData();
 setInterval(()=>{ if(document.visibilityState==="visible") loadData(); }, 60000);
 </script></body></html>
