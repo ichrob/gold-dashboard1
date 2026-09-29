@@ -338,6 +338,16 @@ function barsFromIntraday(points, minutes){
   }
   return [...buckets.values()].sort((a,b)=>a.ts-b.ts).map(x=>({open:x.open,high:x.high,low:x.low,close:x.close,isOpen:false,openTime:x.ts}));
 }
+let bobDiagSeq=0;
+async function reportBobDiag(event,details={}){
+ try{
+  const payload={event:String(event||"unknown").slice(0,80),seq:++bobDiagSeq,at:new Date().toISOString(),details:{}};
+  for(const [k,v] of Object.entries(details||{})){
+   if(["bars5m","bars15m","bars1h","bars4h","available","overall","error","reason","historyStatus","source","direct","server"].includes(k)) payload.details[k]=typeof v==="string"?v.slice(0,300):v;
+  }
+  await fetch("/api/diag",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload),cache:"no-store",keepalive:true});
+ }catch(e){console.warn("[BOB] diag-report",e)}
+}
 var liveBundleCache=null, liveBundleAt=0;
 var directSpotBundle=null;
 async function fetchLiveBundle(force=false){
@@ -425,6 +435,7 @@ async function fetchLiveBundle(force=false){
        Promise.resolve(loadMTF(false,null,direct)).catch(()=>{});
       }
      }catch(bootstrapError){
+      reportBobDiag("analysis:bootstrap-error",{error:bootstrapError?.message||String(bootstrapError)});
       console.warn("[BOB] technical-bootstrap-error",bootstrapError);
      }
     }
@@ -558,12 +569,14 @@ async function loadMTF(force=false, generation=null, suppliedBundle=null){
   const shortChain=valid&&dirs[0]==="SHORT"&&dirs[1]==="SHORT"&&dirs[2]!=="LONG"&&dirs[3]!=="LONG";
   const overall=longChain?"LONG":shortChain?"SHORT":"NEUTRAL";
   $("quickMtf").textContent=overall;
+  reportBobDiag("mtf:success",{bars5m:(tfBars["5m"]||[]).length,bars15m:(tfBars["15m"]||[]).length,bars1h:(tfBars["1h"]||[]).length,bars4h:(tfBars["4h"]||[]).length,available,overall,historyStatus:bundle.history?.data_state?.status||"unknown",source:bundle.history?.data_state?.source||"unknown"});
   const strength=overall!=="NEUTRAL"?(overall==="LONG"?dirs.filter(d=>d==="LONG").length:dirs.filter(d=>d==="SHORT").length)+"/4 bestätigt":"Keine widerspruchsfreie 4-Zeiten-Hierarchie";
   const mtfSummary=$("mtfSummary");
   if(mtfSummary)mtfSummary.innerHTML="<b>"+overall+"</b><br>"+longs+" LONG · "+shorts+" SHORT · "+neutral+" NEUTRAL · "+strength+"<br><span class=\"small\">4h basiert jetzt auf echter 1h-Historie und wird nur mit mindestens 200 geschlossenen 4h-Kerzen bewertet.</span>";
   MTF={longs,shorts,neutral,overall,byTf,dirs};
   updateTradeSignal();updateResearchPanel();return MTF;
  }catch(e){
+  reportBobDiag("mtf:error",{error:e?.message||String(e),reason:"loadMTF exception"});
   $("quickMtf").textContent="NEUTRAL";
   ["mtf5","mtf15","mtf1h","mtf4h"].forEach(id=>{const el=$(id);if(el){el.textContent="NEUTRAL · Historie fehlt";el.className="neutral";}});
   const mtfSummary=$("mtfSummary");if(mtfSummary)mtfSummary.textContent="MTF momentan nicht verfügbar: "+e.message;
@@ -873,6 +886,7 @@ async function loadData(){
       bars=tfBars[tf]||[];
       bundle.history=h;
       console.info("[BOB] technical-history:loaded",tf,bars.length);
+      reportBobDiag("history:loaded",{server:true,bars5m:(tfBars["5m"]||[]).length,bars15m:(tfBars["15m"]||[]).length,bars1h:(tfBars["1h"]||[]).length,bars4h:(tfBars["4h"]||[]).length,historyStatus:h?.data_state?.status||"unknown",source:h?.data_state?.source||"unknown"});
      }
     }
    }catch(historyError){
@@ -941,6 +955,7 @@ async function loadData(){
   // fire-and-forget so a slow MTF source can never block the live price.
   loadMTF(true,generation,bundle);
  }catch(e){
+  reportBobDiag("live:failed",{error:e?.message||String(e)});
   console.error("[BOB] live:failed",e);
   const msg="Live-Daten momentan nicht erreichbar: "+e.message;
   $("status").textContent=msg+" · Bitte erneut versuchen.";
