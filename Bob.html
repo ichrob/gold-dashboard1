@@ -227,19 +227,29 @@ function renderPush(){
  if(tp)tp.textContent=pushState.activeTrade?"Aktiv – Stop-Loss/Schließen erlaubt":"Nur bei aktivem Trade";
 }
 async function registerNotifications(){
+ const status=$("pushStatus");
  try{
+   if(!window.isSecureContext)throw new Error("Push benötigt eine sichere HTTPS-Verbindung.");
+   if(!("Notification" in window))throw new Error("Dieser Browser unterstützt Web-Benachrichtigungen nicht.");
+   if(!("serviceWorker" in navigator))throw new Error("Dieser Browser unterstützt keine Service Worker.");
+   if(Notification.permission==="denied")throw new Error("Benachrichtigungen sind für Bob blockiert. Bitte die Browser-Berechtigung für diese Website wieder erlauben.");
+   if(status)status.textContent="⏳ Push wird registriert …";
    pushState=await BobPush.enable();
    renderPush();
-   $("pushStatus").textContent="✅ Benachrichtigungen erlaubt. Bob ist als PWA-Service-Worker registriert.";
-   return true;
+   if(status)status.textContent="granted"===Notification.permission?"✅ Gerät registriert. Benachrichtigungen sind freigegeben.":"⚠️ Registrierung gespeichert, aber Browser-Berechtigung ist noch nicht freigegeben.";
+   return pushState.registered===true;
  }catch(e){
-   $("pushStatus").textContent=e?.message||"Benachrichtigungen konnten nicht aktiviert werden.";
+   if(status)status.textContent="❌ "+(e?.message||"Benachrichtigungen konnten nicht aktiviert werden.");
    return false;
  }
 }
 async function togglePush(kind){
- if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
- pushState=BobPush.set(kind,!pushState[kind]);renderPush();
+ try{
+   if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
+   pushState=BobPush.set(kind,!pushState[kind]);renderPush();
+ }catch(e){
+   $("pushStatus").textContent="❌ "+(e?.message||"Push-Einstellung konnte nicht geändert werden.");
+ }
 }
 function toggleTradeState(){
  pushState=BobPush.setActiveTrade(!pushState.activeTrade);renderPush();
@@ -253,20 +263,20 @@ async function sendNtfy(kind,title,body){
  const topic=ntfyTopic();if(!topic)return false;if(kind==="trade" && !pushState.activeTrade)return false;
  try{const r=await fetch("https://ntfy.sh/"+encodeURIComponent(topic),{method:"POST",headers:{"Title":title,"Priority":kind==="trade"?"5":"4","Tags":kind==="trade"?"rotating_light":"chart_with_upwards_trend"},body});return r.ok}catch(e){console.warn("ntfy",e);return false}
 }
-function notify(kind,title,body,data={}){
+async function notify(kind,title,body,data={}){
  if(!canNotify(kind))return false;
- const sent=BobPush.emit(kind,title,body,data);
- sendNtfy(kind,title,body);
+ const sent=await BobPush.emit(kind,title,body,data);
+ await sendNtfy(kind,title,body);
  return sent;
 }
-function notifyGeneral(title,body){return notify("general",title,body)}
-function notifyTrade(title,body){return notify("trade",title,body)}
+async function notifyGeneral(title,body){return notify("general",title,body)}
+async function notifyTrade(title,body){return notify("trade",title,body)}
 async function testPush(){
  if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
- const sent=notifyGeneral("Bob – Test","Allgemeine Trade-Empfehlungen");
- const sentTrade=notifyTrade("Bob – Trade-Test",pushState.activeTrade?"Trade-Management ist aktiv.":"Kein aktiver Trade – Management-Push bleibt gesperrt.");
+ const sent=await notifyGeneral("Bob – Test","Allgemeine Trade-Empfehlungen");
+ const sentTrade=await notifyTrade("Bob – Trade-Test",pushState.activeTrade?"Trade-Management ist aktiv.":"Kein aktiver Trade – Management-Push bleibt gesperrt.");
  const ntfy=await sendNtfy("general","Bob – ntfy-Test","Push-Kanal funktioniert.");
- $("pushStatus").textContent=(sent||sentTrade||ntfy)?"✅ Test ausgelöst.":"Test nicht ausgelöst – Schalter, Trade-Status oder ntfy-Topic prüfen.";
+ $("pushStatus").textContent=(sent||sentTrade||ntfy)?"✅ Test erfolgreich ausgelöst.":"⚠️ Kein Push ausgelöst – Berechtigung und Push-Schalter prüfen.";
 }
 (function(){const t=localStorage.getItem("goldScannerNtfyTopic");if(t&&$("ntfyTopic"))$("ntfyTopic").value=t;})();
 renderPush();
