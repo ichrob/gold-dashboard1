@@ -13,15 +13,15 @@ services:
       - key: PUSH_SERVICE_URL
         fromService:
           name: bob-push-service
-          type: web
+          type: pserv
           property: hostport
       - key: PUSH_SERVICE_TOKEN
         fromService:
           name: bob-push-service
-          type: web
+          type: pserv
           envVarKey: PUSH_SERVICE_TOKEN
 
-  - type: web
+  - type: pserv
     name: bob-push-service
     runtime: python
     plan: free
