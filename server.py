@@ -378,6 +378,27 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(ICON)
             return
 
+        if path == "/api/live":
+            try:
+                payload = build_live_bundle()
+                body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as exc:
+                print(f"Bob /api/live ERROR: {type(exc).__name__}: {exc}", flush=True)
+                body = json.dumps({"error": str(exc), "error_type": type(exc).__name__}).encode("utf-8")
+                self.send_response(502)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
+            return
+
         auth = self.headers.get("Authorization", "")
         expected = "Basic " + base64.b64encode(
             f"{USER}:{PASSWORD}".encode("utf-8")
@@ -447,26 +468,6 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(b'{"error":"Push-Service nicht erreichbar"}')
             return
 
-        if path == "/api/live":
-            try:
-                payload = build_live_bundle()
-                body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("X-Content-Type-Options", "nosniff")
-                self.end_headers()
-                self.wfile.write(body)
-            except Exception as exc:
-                print(f"Bob /api/live ERROR: {type(exc).__name__}: {exc}", flush=True)
-                body = json.dumps({"error": str(exc), "error_type": type(exc).__name__}).encode("utf-8")
-                self.send_response(502)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("X-Content-Type-Options", "nosniff")
-                self.end_headers()
-                self.wfile.write(body)
-            return
 
         if path == "/manifest.json" and MANIFEST is not None:
             self.send_response(200)
