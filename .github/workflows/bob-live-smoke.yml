@@ -1,0 +1,44 @@
+name: Bob live smoke test
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for Render auto-deploy
+        run: sleep 90
+
+      - name: Check Bob health
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 30             https://bob-private-scanner.onrender.com/health             | tee /tmp/health.json
+          grep -q '"status":"ok"' /tmp/health.json
+
+      - name: Check Bob live data
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 45             https://bob-private-scanner.onrender.com/api/live             | tee /tmp/live.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path("/tmp/live.json").read_text())
+          spots = data.get("spots") or {}
+          price = spots.get("xaus")
+          if not isinstance(price, (int, float)) or price <= 0:
+              raise SystemExit("Invalid XAU/USD spot price")
+
+          if spots.get("xaus_is_spot") is not True:
+              raise SystemExit("Primary XAU/USD source is not marked as spot")
+
+          status = ((data.get("history") or {}).get("data_state") or {}).get("status")
+          if status not in {"fresh", "partial"}:
+              raise SystemExit(f"Unexpected live data status: {status!r}")
+
+          print(f"Bob live smoke OK: XAU/USD={price}, data_state={status}")
+          PY
