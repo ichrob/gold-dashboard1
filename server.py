@@ -720,7 +720,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         path = urlparse(self.path).path
-        if path not in ("/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe"):
+        if path not in ("/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences"):
             self.send_response(404)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
