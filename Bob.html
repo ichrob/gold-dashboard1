@@ -287,7 +287,7 @@ async function testPush(){
 (function(){const t=localStorage.getItem("goldScannerNtfyTopic");if(t&&$("ntfyTopic"))$("ntfyTopic").value=t;})();
 renderPush();
 
-var C=[], lastPrice=0, A={}, lastMtfAt=0, MTF={longs:0,shorts:0,neutral:0,overall:"NEUTRAL",byTf:{},dirs:[]};
+var C=[], lastPrice=0, A={}, lastMtfAt=0, liveFxUsdEur=null, MTF={longs:0,shorts:0,neutral:0,overall:"NEUTRAL",byTf:{},dirs:[]};
 function ema(a,p){let k=2/(p+1),e=a[0];for(let i=1;i<a.length;i++)e=a[i]*k+e*(1-k);return e}
 function emaSeries(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
 function rsi(a,p=14){if(a.length<=p)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];d>0?g+=d:l-=d}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return l===0?100:100-100/(1+g/l)}
@@ -612,8 +612,8 @@ function useRiskDefaults(){
 function calcDgTrade(){
  if(!lastPrice||!A.at){$("dgOut").innerHTML="Zuerst Live-Daten laden.";return}
  const acc=+$("account").value||500, riskPct=Math.max(0,+$("risk").value||1), maxLoss=acc*riskPct/100;
- const fx=+$("fxRate")?.value||0;
- const lev=Math.max(1,+$("dgLev").value||1), ko=+$("dgKo").value, spread=Math.max(0,+$("dgSpread").value||0);
+ const fx=usdEurRate();
+ const lev=Math.max(1,+$("dgLev").value||1, ko=+$("dgKo").value, spread=Math.max(0,+$("dgSpread").value||0);
  const score=A.score??50, mtf=MTF.overall||"NEUTRAL";
  let dir=A.ready?(score>=70&&mtf==="LONG"?"LONG":score<=30&&mtf==="SHORT"?"SHORT":"ABWARTEN"):"ABWARTEN";
  const product=$("dgType").value, productLabel={turbo:"Turbo / Knock-Out",warrant:"Optionsschein",etc:"Gold-ETC / ungehebelt",future:"Future / anderes Derivat"}[product];
@@ -645,6 +645,14 @@ function calcDgTrade(){
  ${ko?`<tr><td>KO-Abstand</td><td class="right"><b>${koDist.toFixed(2)}%</b></td></tr>`:''}
  </table><div class="small" style="margin-top:10px">${koWarning||costNote}<br>Nur theoretische Basiswertrechnung. Die tatsächliche Produktstückzahl ist ohne konkrete Produktdaten nicht belastbar; Bezugsverhältnis, Preis, Währung, Spread, Finanzierung und KO-Regeln des konkreten DEGIRO-Produkts sind erforderlich. Vor einer Order die Produktdaten direkt im Produkt prüfen. Der technische Stop ist nicht das KO-Level.</div>`;
 }
+function usdEurRate(){
+ const ccy=$("displayCcy")?.value||"USD";
+ if(ccy==="EUR"){
+  const manual=Number($("fxRate")?.value);
+  if(Number.isFinite(manual)&&manual>0)return manual;
+ }
+ return Number(liveFxUsdEur);
+}
 async function fetchSpotSources(){
  const j=await fetchLiveBundle();const s=j.spots||{},xaus=Number(s.xaus),gp=Number(s.goldprice),reference=Number(s.yahoo_gc_f||s.biquote),diff=Number(s.diff),pct=Number(s.pct);
  if(!Number.isFinite(xaus)||!Number.isFinite(gp)||!Number.isFinite(pct))throw Error("Ungültige Live-Goldwerte");
@@ -662,6 +670,7 @@ async function loadData(){
   // Live XAU/USD must be rendered independently from technical history.
   // A missing/temporary technical series must never hide a valid live spot price.
   lastPrice=spots.xaus;
+  liveFxUsdEur=Number.isFinite(Number(spots.usd_eur))&&Number(spots.usd_eur)>0?Number(spots.usd_eur):null;
   $("quickPrice").textContent=lastPrice.toFixed(2)+" USD";
   $("price").textContent=lastPrice.toFixed(2)+" USD";
 
