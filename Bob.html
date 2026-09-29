@@ -569,7 +569,7 @@ function advancedAnalysis(){
  $("score").textContent=`${verdict} · ${score.toFixed(0)}/100`;
  $("score").className="signal "+(score>=70?"ok":score<=30?"bad":"neutral");
  $("scoreDetails").textContent=details.join(" · ")+" · ADX "+ad.toFixed(0);
- A.score=score; A.ready=ready; A.adx=ad; A.support=lv.sup; A.resistance=lv.res;
+ A.score=score; A.ready=Boolean(C.length>=200&&A.e20!=null&&A.e50!=null&&A.e200!=null); A.adx=ad; A.support=lv.sup; A.resistance=lv.res;
  updateQuick(); updateResearchPanel();
 }
 
