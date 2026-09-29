@@ -40,3 +40,5 @@ if (!fs.readFileSync("Bob.html","utf8").includes("REFERENZ · GC=F")) throw new 
 if (!fs.readFileSync("Bob.html","utf8").includes("var C=[], lastPrice=0, A={}, lastMtfAt=0;")) throw new Error("live analysis state must be hoisted");
 
 if (!fs.readFileSync("server.py","utf8").includes("https://api.goldprice.dev/v1/spot/XAU-USD-SPOT")) throw new Error("spot endpoint fallback missing");
+
+if (!fs.readFileSync("Bob.html","utf8").includes("navigator.serviceWorker.addEventListener(\"controllerchange\"")) throw new Error("service worker update reload guard missing");
