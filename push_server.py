@@ -1,14 +1,15 @@
-import json, os, secrets
+import base64, json, os, secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 import psycopg
+from cryptography.hazmat.primitives import serialization
+from py_vapid import Vapid
 from pywebpush import webpush, WebPushException
 
 PORT=int(os.environ.get("PORT","10000"))
 DATABASE_URL=os.environ.get("DATABASE_URL","")
 VAPID_PRIVATE_KEY=os.environ.get("VAPID_PRIVATE_KEY","")
-VAPID_PUBLIC_KEY=os.environ.get("VAPID_PUBLIC_KEY","")
 VAPID_SUBJECT=os.environ.get("VAPID_SUBJECT","mailto:bob@localhost")
 PUSH_SERVICE_TOKEN=os.environ.get("PUSH_SERVICE_TOKEN","")
 BOB_ORIGIN=os.environ.get("BOB_ORIGIN","")
@@ -17,6 +18,19 @@ def db():
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL fehlt")
     return psycopg.connect(DATABASE_URL)
+
+def vapid():
+    if not VAPID_PRIVATE_KEY:
+        raise RuntimeError("VAPID_PRIVATE_KEY fehlt")
+    raw=VAPID_PRIVATE_KEY.strip().encode().replace(b"+",b"-").replace(b"/",b"_").rstrip(b"=")
+    return Vapid.from_string(raw.decode())
+
+def vapid_public_key():
+    key=vapid().public_key.public_bytes(
+        encoding=serialization.Encoding.X962,
+        format=serialization.PublicFormat.UncompressedPoint,
+    )
+    return base64.urlsafe_b64encode(key).rstrip(b"=").decode()
 
 def init_db():
     with db() as conn:
@@ -67,7 +81,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path=urlparse(self.path).path
         if path=="/vapid-public-key":
-            send_json(self,200,{"publicKey":VAPID_PUBLIC_KEY})
+            send_json(self,200,{"publicKey":vapid_public_key()})
             return
         if path=="/health":
             send_json(self,200,{"ok":True})
@@ -109,8 +123,6 @@ class Handler(BaseHTTPRequestHandler):
                     self.headers.get("X-Bob-Push-Token",""),PUSH_SERVICE_TOKEN):
                     send_json(self,401,{"error":"Unauthorized"})
                     return
-                if not VAPID_PRIVATE_KEY:
-                    raise RuntimeError("VAPID_PRIVATE_KEY fehlt")
                 title=str(payload.get("title","Bob"))[:120]
                 body=str(payload.get("body",""))[:1000]
                 data=payload.get("data") if isinstance(payload.get("data"),dict) else {}
