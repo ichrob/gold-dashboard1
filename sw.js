@@ -1,4 +1,4 @@
-const CACHE_VERSION = "bob-shell-v10";
+const CACHE_VERSION = "bob-shell-v11";
 
 self.addEventListener("install", event => { self.skipWaiting(); });
 self.addEventListener("activate", event => {
@@ -42,28 +42,25 @@ self.addEventListener("message", event => {
   if (event.data && event.data.type === "BOB_SKIP_WAITING") self.skipWaiting();
 });
 
-// Network-first prevents an old Bob shell from surviving a deployment.
+// Network-only for the Bob application shell: never let an older service-worker
+// cache mask a newly deployed HTML/JS build. API calls are also network-only.
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
-  // API calls must never fall back to the cached HTML shell. Returning Bob.html
-  // for an API failure makes a failed fetch look like a successful 200 response
-  // and hides the real Render connectivity problem.
   const isApi = url.pathname.startsWith("/api/");
-  event.respondWith(fetch(event.request).then(response => {
-    if (response && response.ok && !isApi && (url.pathname === "/" || url.pathname.endsWith("Bob.html") || url.pathname.endsWith(".js"))) {
-      const copy = response.clone();
-      caches.open(CACHE_VERSION).then(cache => cache.put(event.request, copy)).catch(() => {});
-    }
-    return response;
-  }).catch(() => {
+  const isShell = url.pathname === "/" || url.pathname.endsWith("/Bob.html") || url.pathname.endsWith(".js") || url.pathname.endsWith(".css");
+  if (!isApi && !isShell) return;
+  event.respondWith(fetch(event.request, {cache:"no-store"}).catch(() => {
     if (isApi) {
       return new Response(JSON.stringify({error:"Bob API temporarily unreachable"}), {
         status: 503,
         headers: {"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store"}
       });
     }
-    return caches.match(event.request).then(r => r || caches.match("/Bob.html"));
+    return new Response("<!doctype html><meta charset=\"utf-8\"><title>Bob wird aktualisiert</title><body style=\"font-family:sans-serif;padding:24px\">Bob wird gerade aktualisiert. Bitte kurz neu laden.</body>", {
+      status: 503,
+      headers: {"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store"}
+    });
   }));
 });
