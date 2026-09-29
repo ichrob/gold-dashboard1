@@ -56,6 +56,22 @@
   async function emit(kind,title,body,data={}){
     if(!allowed(kind))return false;
     const tag="bob-"+kind+"-"+(data.signalId||"current");
+    const payload={title,body,data:{...data,url:data.url||"/",kind,signalId:data.signalId||null},tag};
+    let serverSent=false;
+    if(read().serverRegistered){
+      try{
+        const res=await fetch("/api/push/send",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify(payload)
+        });
+        if(res.ok){
+          const result=await res.json().catch(()=>null);
+          serverSent=Boolean(result&&result.sent>0);
+        }
+      }catch(_){}
+    }
+    if(serverSent)return true;
     const options={body,tag,data:{url:data.url||"/",kind,signalId:data.signalId||null},renotify:false};
     try{
       if("serviceWorker" in navigator){
