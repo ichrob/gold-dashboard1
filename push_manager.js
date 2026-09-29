@@ -25,8 +25,22 @@
       const {publicKey}=await keyRes.json();
       if(!publicKey)throw new Error("VAPID-Key fehlt.");
       if(!reg.pushManager)return false;
+      // Recreate the browser subscription with the current VAPID public key.
+      // This repairs subscriptions created with a previous VAPID key after a
+      // server-side key rotation or a recreated push database.
       let sub=await reg.pushManager.getSubscription();
-      if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64ToBytes(publicKey)});
+      if(sub){
+        try{
+          await fetch(PUSH_API+"/unsubscribe",{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({endpoint:sub.endpoint})
+          });
+        }catch(_){}
+        try{await sub.unsubscribe();}catch(_){}
+        sub=null;
+      }
+      sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64ToBytes(publicKey)});
       const res=await fetch(PUSH_API+"/subscribe",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
@@ -72,6 +86,21 @@
         if(res.ok){
           const result=await res.json().catch(()=>null);
           serverSent=Boolean(result&&result.sent>0);
+          if(result&&result.vapidReset){
+            const reg=await navigator.serviceWorker.ready;
+            serverSent=await registerServerPush(reg);
+            if(serverSent){
+              const retry=await fetch("/api/push/send",{
+                method:"POST",
+                headers:{"Content-Type":"application/json"},
+                body:JSON.stringify(payload)
+              });
+              if(retry.ok){
+                const retryResult=await retry.json().catch(()=>null);
+                serverSent=Boolean(retryResult&&retryResult.sent>0);
+              }
+            }
+          }
         }
       }catch(_){}
     }
