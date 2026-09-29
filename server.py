@@ -28,7 +28,7 @@ SW = SW_PATH.read_bytes() if SW_PATH.exists() else None
 MANIFEST = MANIFEST_PATH.read_bytes() if MANIFEST_PATH.exists() else None
 ICON = ICON_PATH.read_bytes() if ICON_PATH.exists() else None
 
-UPSTREAM_TIMEOUT = 10
+UPSTREAM_TIMEOUT = 4
 FRESH_MAX_AGE = 180
 LIVE_CACHE_TTL = 65
 FX_CACHE_TTL = 900
