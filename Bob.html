@@ -288,6 +288,7 @@ async function testPush(){
 renderPush();
 
 var C=[], lastPrice=0, A={}, lastMtfAt=0, liveFxUsdEur=null, MTF={longs:0,shorts:0,neutral:0,overall:"NEUTRAL",byTf:{},dirs:[]};
+function getMtfState(){const m=(typeof MTF==="object"&&MTF!==null)?MTF:null;return m&&typeof m.overall!=="undefined"?m:{longs:0,shorts:0,neutral:4,overall:"NEUTRAL",byTf:{},dirs:[]};}
 function ema(a,p){let k=2/(p+1),e=a[0];for(let i=1;i<a.length;i++)e=a[i]*k+e*(1-k);return e}
 function emaSeries(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
 function rsi(a,p=14){if(a.length<=p)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];d>0?g+=d:l-=d}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return l===0?100:100-100/(1+g/l)}
@@ -483,14 +484,14 @@ function falseBreakoutState(dir){
 }
 function confirmedSignalDirection(){
  if(!A.ready||!C.length||!Number.isFinite(A.at))return "NEUTRAL";
- const raw=A.score>=70&&MTF.overall==="LONG"?"LONG":A.score<=30&&MTF.overall==="SHORT"?"SHORT":"NEUTRAL";
+ const raw=A.score>=70&&getMtfState().overall==="LONG"?"LONG":A.score<=30&&getMtfState().overall==="SHORT"?"SHORT":"NEUTRAL";
  if(raw==="NEUTRAL")return "NEUTRAL";
  const fb=falseBreakoutState(raw);
  return (fb==="OK"||fb==="UNKNOWN")?raw:"NEUTRAL";
 }
 function updateResearchPanel(){
  const reg=currentRegime(); if($("regime"))$("regime").textContent=reg;
- let rawDir=A.ready&&A.score>=70&&MTF.overall==="LONG"?"LONG":A.ready&&A.score<=30&&MTF.overall==="SHORT"?"SHORT":"NEUTRAL";
+ let rawDir=A.ready&&A.score>=70&&getMtfState().overall==="LONG"?"LONG":A.ready&&A.score<=30&&getMtfState().overall==="SHORT"?"SHORT":"NEUTRAL";
  const fb=falseBreakoutState(rawDir); if(fb!=="OK"&&fb!=="UNKNOWN")rawDir="NEUTRAL";
  let dir=rawDir;
  if(rawDir!==signalState.dir){if(rawDir==="NEUTRAL"){signalState={dir:"NEUTRAL",pending:"NEUTRAL",count:0};dir="NEUTRAL";}else if(signalState.pending===rawDir){signalState.count++;if(signalState.count>=2)signalState={dir:rawDir,pending:rawDir,count:0};else dir=signalState.dir;}else{signalState.pending=rawDir;signalState.count=1;dir=signalState.dir;}}
@@ -505,7 +506,7 @@ function updateResearchPanel(){
 function captureResearchSnapshot(result="OBSERVATION"){
  if(!C.length||!A.at)return;
  const dir=confirmedSignalDirection();
- const rec={time:new Date().toISOString(),price:lastPrice,atr:A.at,score:A.score??null,adx:A.adx??null,regime:currentRegime(),mtfLongs:MTF.longs,mtfShorts:MTF.shorts,direction:dir,stop:tradeMgmt.stop||stopPriceFor(dir,lastPrice,A.at,+( $("trailAtr")?.value||1.5)),result,costBps:+($("costBps")?.value||0),slippage:+($("slippage")?.value||0)};
+ const rec={time:new Date().toISOString(),price:lastPrice,atr:A.at,score:A.score??null,adx:A.adx??null,regime:currentRegime(),mtfLongs:getMtfState().longs,mtfShorts:getMtfState().shorts,direction:dir,stop:tradeMgmt.stop||stopPriceFor(dir,lastPrice,A.at,+( $("trailAtr")?.value||1.5)),result,costBps:+($("costBps")?.value||0),slippage:+($("slippage")?.value||0)};
  researchLog.push(rec);if(researchLog.length>5000)researchLog=researchLog.slice(-5000);saveResearch();updateResearchPanel();
 }
 function exportResearch(){
@@ -592,7 +593,7 @@ function updateQuick(){
 
 function updateTradeSignal(){
  if(!C.length||!A.at){$("tradeSignal").textContent="Warte auf Analyse";return}
- const mtfDir=MTF.overall||"NEUTRAL";
+ const mtfDir=getMtfState().overall||"NEUTRAL";
  const fb=falseBreakoutState(mtfDir);
  let text="🟡 ABWARTEN", cls="neutral";
  if(A.score>=70 && mtfDir==="LONG" && fb==="OK"){text="🟢 LONG-Kandidat";cls="ok"}
@@ -614,7 +615,7 @@ function calcDgTrade(){
  const acc=+$("account").value||500, riskPct=Math.max(0,+$("risk").value||1), maxLoss=acc*riskPct/100;
  const fx=usdEurRate();
  const lev=Math.max(1,+$("dgLev").value||1), ko=+$("dgKo").value, spread=Math.max(0,+$("dgSpread").value||0);
- const score=A.score??50, mtf=MTF.overall||"NEUTRAL";
+ const score=A.score??50, mtf=getMtfState().overall||"NEUTRAL";
  let dir=A.ready?(score>=70&&mtf==="LONG"?"LONG":score<=30&&mtf==="SHORT"?"SHORT":"ABWARTEN"):"ABWARTEN";
  const product=$("dgType").value, productLabel={turbo:"Turbo / Knock-Out",warrant:"Optionsschein",etc:"Gold-ETC / ungehebelt",future:"Future / anderes Derivat"}[product];
  if(dir==="ABWARTEN"){ $("dgOut").innerHTML=`<b>Kein Trade-Vorschlag.</b><br>Score und Multi-Timeframe-Richtung bestätigen keinen gemeinsamen LONG-/SHORT-Trade.<br><br>Maximales Risiko: <b>${maxLoss.toFixed(2)} €</b>.`; return; }
