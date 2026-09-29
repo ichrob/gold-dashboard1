@@ -329,7 +329,7 @@ function barsFromIntraday(points, minutes){
   }
   return [...buckets.values()].sort((a,b)=>a.ts-b.ts).map(x=>({open:x.open,high:x.high,low:x.low,close:x.close,isOpen:false,openTime:x.ts}));
 }
-var liveBundleCache=null, liveBundleAt=0;
+var liveBundleCache=null, liveBundleAt=0, directSpotBundle=null;
 async function fetchLiveBundle(force=false){
  const now=Date.now();
  const diag=$("quickReason");
@@ -353,13 +353,12 @@ async function fetchLiveBundle(force=false){
    spots:{xaus:p0,goldprice:p0,yahoo_gc_f:null,diff:0,pct:0,xaus_age_seconds:age0!==null?age0/1000:null,goldprice_age_seconds:age0!==null?age0/1000:null,usd_eur:null,usd_chf:null,goldprice_status:"XAUS · direkt",xaus_is_spot:true,primary:"XAUS · direkt",reference:"Yahoo Finance GC=F",reference_note:"GC=F ist Gold-Futures, nicht XAU/USD Spot",spot_error:state0==="stale"?"XAUS liefert den letzten bekannten realen Preis (stale)":null},
    history:{bars_by_tf:{},points:[],data_state:{status:"partial",source:"XAUS XAU/USD Spot · Direktabruf",technical_4h_status:"unavailable",technical_errors:["Technikhistorie wird separat über Bob/Render geladen"]},age_seconds:age0!==null?age0/1000:null}
   };
-  liveBundleCache=direct;liveBundleAt=now;
-  // Render the live heartbeat immediately. Technical history must never hide a valid spot price.
+  directSpotBundle=direct;
+  // Keep the direct spot heartbeat, but continue to /api/live so technical history can load.
   if($("quickPrice"))$("quickPrice").textContent=p0.toFixed(2)+" USD";
   if($("quickSignal")){$("quickSignal").textContent="🟢 LIVE-PREIS · TECHNIK WARTET";$("quickSignal").className="signal neutral";}
-  if($("quickReason"))$("quickReason").textContent=state0==="stale"?"XAU/USD · XAUS letzter bekannter Preis":"XAU/USD · XAUS Live-Spot";
-  console.info("[BOB] live:direct-xaus",p0,state0);
-  return direct;
+  if($("quickReason"))$("quickReason").textContent="XAU/USD · Live-Spot · technische Historie wird geladen …";
+  console.info("[BOB] live:direct-xaus",p0,state0,"continuing-for-history");
  }catch(directError){
   console.warn("[BOB] live:direct-xaus-error",directError);
  }
@@ -379,6 +378,12 @@ async function fetchLiveBundle(force=false){
   return j;
  }catch(serverError){
   console.warn("[BOB] live:server-error",serverError);
+  if(directSpotBundle){
+   directSpotBundle.history.data_state.technical_errors=[String(serverError?.message||serverError)];
+   directSpotBundle.history.data_state.technical_4h_status="unavailable";
+   liveBundleCache=directSpotBundle;liveBundleAt=now;
+   return directSpotBundle;
+  }
   if($("quickReason"))$("quickReason").textContent="Server-Live-Abfrage fehlgeschlagen – prüfe Browser-Fallback …";
   // Last-resort free browser fallback: obtain the current XAU/USD spot directly.
   // Technical history remains unavailable; never fabricate a signal from this fallback.
