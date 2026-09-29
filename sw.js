@@ -1,4 +1,4 @@
-const CACHE_VERSION = "bob-shell-v9";
+const CACHE_VERSION = "bob-shell-v10";
 
 self.addEventListener("install", event => { self.skipWaiting(); });
 self.addEventListener("activate", event => {
@@ -47,11 +47,23 @@ self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
+  // API calls must never fall back to the cached HTML shell. Returning Bob.html
+  // for an API failure makes a failed fetch look like a successful 200 response
+  // and hides the real Render connectivity problem.
+  const isApi = url.pathname.startsWith("/api/");
   event.respondWith(fetch(event.request).then(response => {
-    if (response && response.ok && (url.pathname === "/" || url.pathname.endsWith("Bob.html") || url.pathname.endsWith(".js"))) {
+    if (response && response.ok && !isApi && (url.pathname === "/" || url.pathname.endsWith("Bob.html") || url.pathname.endsWith(".js"))) {
       const copy = response.clone();
       caches.open(CACHE_VERSION).then(cache => cache.put(event.request, copy)).catch(() => {});
     }
     return response;
-  }).catch(() => caches.match(event.request).then(r => r || caches.match("/Bob.html"))));
+  }).catch(() => {
+    if (isApi) {
+      return new Response(JSON.stringify({error:"Bob API temporarily unreachable"}), {
+        status: 503,
+        headers: {"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store"}
+      });
+    }
+    return caches.match(event.request).then(r => r || caches.match("/Bob.html"));
+  }));
 });
