@@ -20,6 +20,8 @@ services:
           name: bob-push-service
           type: pserv
           envVarKey: PUSH_SERVICE_TOKEN
+      - key: SIGNAL_WORKER_TOKEN
+        generateValue: true
 
   - type: pserv
     name: bob-push-service
@@ -42,6 +44,25 @@ services:
         value: mailto:bob@localhost
       - key: BOB_ORIGIN
         value: https://bob-private-scanner.onrender.com
+
+  - type: cron
+    name: bob-signal-worker
+    runtime: python
+    plan: free
+    region: frankfurt
+    branch: main
+    buildCommand: echo Bob signal worker
+    startCommand: python signal_worker.py
+    schedule: "*/5 * * * *"
+    autoDeployTrigger: commit
+    envVars:
+      - key: BOB_URL
+        value: https://bob-private-scanner.onrender.com
+      - key: BOB_WORKER_TOKEN
+        fromService:
+          name: bob-private-scanner
+          type: web
+          envVarKey: SIGNAL_WORKER_TOKEN
 
 databases:
   - name: bob-push-db
