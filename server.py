@@ -169,24 +169,37 @@ def build_live_bundle():
         spot_error = None
 
         try:
-            goldprice = fetch_json(
+            endpoints = [
                 "https://api.goldprice.dev/v1/prices?symbol=XAU-USD-SPOT",
-                retries=1,
-                user_agent="Bob/1.1",
-            )
-            symbols = goldprice.get("symbols") if isinstance(goldprice, dict) else None
-            row = symbols[0] if isinstance(symbols, list) and symbols else None
-            if not isinstance(row, dict):
-                raise RuntimeError("GoldPrice.dev liefert keine XAU/USD-Daten")
-            goldprice_price = float(row.get("price"))
-            goldprice_age = iso_age_seconds(row.get("computed_at"))
-            if not goldprice_price > 0:
-                raise RuntimeError("GoldPrice.dev liefert keinen gültigen XAU/USD-Preis")
-            if row.get("is_stale") is True or goldprice_age is None or goldprice_age > FRESH_MAX_AGE:
-                raise RuntimeError(
-                    f"GoldPrice.dev Spot nicht frisch (stale={row.get('is_stale')}, "
-                    f"Alter {goldprice_age if goldprice_age is not None else 'unbekannt'} s)"
-                )
+                "https://api.goldprice.dev/v1/spot/XAU-USD-SPOT",
+            ]
+            last_spot_error = None
+            for endpoint in endpoints:
+                try:
+                    goldprice = fetch_json(endpoint, retries=1, user_agent="Bob/1.2")
+                    if "/v1/spot/" in endpoint:
+                        row = goldprice if isinstance(goldprice, dict) else None
+                    else:
+                        symbols = goldprice.get("symbols") if isinstance(goldprice, dict) else None
+                        row = symbols[0] if isinstance(symbols, list) and symbols else None
+                    if not isinstance(row, dict):
+                        raise RuntimeError("GoldPrice.dev liefert keine XAU/USD-Daten")
+                    candidate = float(row.get("price"))
+                    age = iso_age_seconds(row.get("computed_at"))
+                    if not candidate > 0:
+                        raise RuntimeError("GoldPrice.dev liefert keinen gültigen XAU/USD-Preis")
+                    if row.get("is_stale") is True or age is None or age > FRESH_MAX_AGE:
+                        raise RuntimeError(
+                            f"GoldPrice.dev Spot nicht frisch (stale={row.get('is_stale')}, "
+                            f"Alter {age if age is not None else 'unbekannt'} s)"
+                        )
+                    goldprice_price, goldprice_age = candidate, age
+                    last_spot_error = None
+                    break
+                except Exception as exc:
+                    last_spot_error = exc
+            if goldprice_price is None and last_spot_error is not None:
+                raise last_spot_error
         except Exception as exc:
             spot_error = str(exc)
 
