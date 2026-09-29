@@ -378,96 +378,6 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(ICON)
             return
 
-        auth = self.headers.get("Authorization", "")
-        expected = "Basic " + base64.b64encode(
-            f"{USER}:{PASSWORD}".encode("utf-8")
-        ).decode("ascii")
-
-        worker_token = self.headers.get("X-Bob-Worker-Token", "")
-        worker_ok = bool(SIGNAL_WORKER_TOKEN) and hmac.compare_digest(worker_token, SIGNAL_WORKER_TOKEN)
-        if not worker_ok and (not USER or not PASSWORD or not hmac.compare_digest(auth, expected)):
-            self.send_response(401)
-            self.send_header("WWW-Authenticate", 'Basic realm="Bob"')
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(b"Authentication required.")
-            return
-
-        path = urlparse(self.path).path
-
-        if path in ("/", "/index.html"):
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("X-Frame-Options", "DENY")
-            self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header(
-                "Content-Security-Policy",
-                "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline'; "
-                "style-src 'self' 'unsafe-inline'; "
-                "connect-src 'self' https://xaus.com https://api.goldprice.dev https://ntfy.sh; "
-                "img-src 'self' data:; "
-                "worker-src 'self'; "
-                "object-src 'none'; "
-                "base-uri 'self'; "
-                "frame-ancestors 'none'"
-            )
-            self.end_headers()
-            self.wfile.write(HTML)
-            return
-
-        if path == "/api/push/vapid-public-key":
-            try:
-                if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
-                    raise RuntimeError("Push-Service nicht konfiguriert")
-                base = PUSH_SERVICE_URL
-                if not base.startswith("http://") and not base.startswith("https://"):
-                    base = "http://" + base
-                req = Request(base.rstrip("/") + "/vapid-public-key", headers={"Accept":"application/json"})
-                with urlopen(req, timeout=8) as response:
-                    result = response.read()
-                    status = response.status
-                self.send_response(status)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("X-Content-Type-Options", "nosniff")
-                self.end_headers()
-                self.wfile.write(result)
-            except HTTPError as exc:
-                self.send_response(exc.code)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.end_headers()
-                self.wfile.write(b'{"error":"Push-Service-Fehler"}')
-            except (URLError, TimeoutError):
-                self.send_response(503)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.end_headers()
-                self.wfile.write(b'{"error":"Push-Service nicht erreichbar"}')
-            return
-
-        if path == "/api/live":
-            try:
-                payload = build_live_bundle()
-                body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("X-Content-Type-Options", "nosniff")
-                self.end_headers()
-                self.wfile.write(body)
-            except Exception as exc:
-                print(f"Bob /api/live ERROR: {type(exc).__name__}: {exc}", flush=True)
-                body = json.dumps({"error": str(exc), "error_type": type(exc).__name__}).encode("utf-8")
-                self.send_response(502)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("X-Content-Type-Options", "nosniff")
-                self.end_headers()
-                self.wfile.write(body)
-            return
-
         if path == "/manifest.json" and MANIFEST is not None:
             self.send_response(200)
             self.send_header("Content-Type", "application/manifest+json; charset=utf-8")
@@ -559,3 +469,94 @@ port = int(os.environ.get("PORT", "10000"))
 ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress
+        auth = self.headers.get("Authorization", "")
+        expected = "Basic " + base64.b64encode(
+            f"{USER}:{PASSWORD}".encode("utf-8")
+        ).decode("ascii")
+
+        worker_token = self.headers.get("X-Bob-Worker-Token", "")
+        worker_ok = bool(SIGNAL_WORKER_TOKEN) and hmac.compare_digest(worker_token, SIGNAL_WORKER_TOKEN)
+        if not worker_ok and (not USER or not PASSWORD or not hmac.compare_digest(auth, expected)):
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", 'Basic realm="Bob"')
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(b"Authentication required.")
+            return
+
+        path = urlparse(self.path).path
+
+        if path in ("/", "/index.html"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "connect-src 'self' https://xaus.com https://api.goldprice.dev https://ntfy.sh; "
+                "img-src 'self' data:; "
+                "worker-src 'self'; "
+                "object-src 'none'; "
+                "base-uri 'self'; "
+                "frame-ancestors 'none'"
+            )
+            self.end_headers()
+            self.wfile.write(HTML)
+            return
+
+        if path == "/api/push/vapid-public-key":
+            try:
+                if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
+                    raise RuntimeError("Push-Service nicht konfiguriert")
+                base = PUSH_SERVICE_URL
+                if not base.startswith("http://") and not base.startswith("https://"):
+                    base = "http://" + base
+                req = Request(base.rstrip("/") + "/vapid-public-key", headers={"Accept":"application/json"})
+                with urlopen(req, timeout=8) as response:
+                    result = response.read()
+                    status = response.status
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(result)
+            except HTTPError as exc:
+                self.send_response(exc.code)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(b'{"error":"Push-Service-Fehler"}')
+            except (URLError, TimeoutError):
+                self.send_response(503)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(b'{"error":"Push-Service nicht erreichbar"}')
+            return
+
+        if path == "/api/live":
+            try:
+                payload = build_live_bundle()
+                body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as exc:
+                print(f"Bob /api/live ERROR: {type(exc).__name__}: {exc}", flush=True)
+                body = json.dumps({"error": str(exc), "error_type": type(exc).__name__}).encode("utf-8")
+                self.send_response(502)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
+            return
+
+
