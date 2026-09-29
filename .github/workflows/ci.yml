@@ -34,17 +34,18 @@ jobs:
         run: python -m py_compile server.py backtest.py
 
       - name: Validate manifest
-        run: python - <<'PY'
-import json
-from pathlib import Path
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
 
-manifest = json.loads(Path("manifest.json").read_text(encoding="utf-8"))
-required = {"name", "short_name", "start_url", "display"}
-missing = sorted(required - manifest.keys())
-if missing:
-    raise SystemExit(f"manifest.json missing required keys: {', '.join(missing)}")
-print("manifest.json: OK")
-PY
+          manifest = json.loads(Path("manifest.json").read_text(encoding="utf-8"))
+          required = {"name", "short_name", "start_url", "display"}
+          missing = sorted(required - manifest.keys())
+          if missing:
+              raise SystemExit(f"manifest.json missing required keys: {', '.join(missing)}")
+          print("manifest.json: OK")
+          PY
 
       - name: Validate required Bob assets
         run: |
@@ -78,13 +79,14 @@ NODE
         run: node test_bob.js
 
       - name: Validate HTML shell
-        run: python - <<'PY'
-from html.parser import HTMLParser
-from pathlib import Path
+        run: |
+          python - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
 
-class Parser(HTMLParser):
-    pass
+          class Parser(HTMLParser):
+              pass
 
-Parser().feed(Path("Bob.html").read_text(encoding="utf-8"))
-print("Bob.html: OK")
-PY
+          Parser().feed(Path("Bob.html").read_text(encoding="utf-8"))
+          print("Bob.html: OK")
+          PY
