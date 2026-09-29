@@ -334,6 +334,16 @@ def build_live_bundle():
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        path = urlparse(self.path).path
+        if path == "/health":
+            body = b'{"status":"ok","service":"bob"}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         auth = self.headers.get("Authorization", "")
         expected = "Basic " + base64.b64encode(
             f"{USER}:{PASSWORD}".encode("utf-8")
