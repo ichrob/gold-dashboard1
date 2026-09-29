@@ -406,6 +406,28 @@ async function fetchLiveBundle(force=false){
     if($("quickPrice"))$("quickPrice").textContent=p0.toFixed(2)+" USD";
     if($("quickReason"))$("quickReason").textContent="XAU/USD · Live-Spot · technische Historie geladen";
     console.info("[BOB] live:browser-history",b5.length,b1.length,historyErrors,"server-verification");
+    // Fail-safe bootstrap: once genuine browser history is present, immediately
+    // hydrate the technical UI. This prevents a slow/partial secondary /api/live
+    // response from leaving the page stuck on the initial "Warte auf Live-Daten"
+    // state even though the history has already arrived.
+    if(b5.length>=30){
+     try{
+      lastPrice=p0;
+      const bootBars=b5.filter(b=>!b.isOpen).slice(-Math.max(200,+$("n")?.value||200));
+      if(bootBars.length>=30){
+       C=bootBars;
+       $("price").textContent=p0.toFixed(2)+" USD";
+       $("quickPrice").textContent=p0.toFixed(2)+" USD";
+       $("quickSignal").textContent="🟡 ANALYSE WIRD BERECHNET …";
+       $("quickSignal").className="signal neutral";
+       $("quickReason").textContent="XAU/USD · Live-Spot · technische Historie geladen";
+       analyze();
+       Promise.resolve(loadMTF(false,null)).catch(()=>{});
+      }
+     }catch(bootstrapError){
+      console.warn("[BOB] technical-bootstrap-error",bootstrapError);
+     }
+    }
     // Browser history is already a genuine XAU/USD series and is sufficient for the
     // primary technical analysis. Do not block the UI on Render secondary sources.
     // Render can still be queried later by the normal refresh cycle for verification/FX.
