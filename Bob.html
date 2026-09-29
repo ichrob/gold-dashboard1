@@ -367,15 +367,24 @@ async function fetchLiveBundle(force=false){
   // server proxy. Load it directly so Render availability cannot block analysis.
   try{
    const chartFetch=async(range,interval)=>{
-    const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),4500);
+    const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),6500);
     try{
-     const rr=await fetch("https://xaus.com/api/v1/chart?symbol=xau&range="+range+"&interval="+interval+"&fresh="+now,{cache:"no-store",signal:ctl.signal});
-     if(!rr.ok)throw Error("XAUS chart HTTP "+rr.status);
+     const hours=48;
+     const rr=await fetch("https://xaus.com/api/v1/intraday?symbol=xau&hours="+hours+"&fresh="+now,{cache:"no-store",signal:ctl.signal});
+     if(!rr.ok)throw Error("XAUS intraday HTTP "+rr.status);
      const pp=await rr.json(),pts=pp?.points;
-     if(!Array.isArray(pts)||!pts.length)throw Error("XAUS chart liefert keine Punkte");
-     return pts.map(p=>({openTime:Number(p.t)*1000,open:Number(p.o),high:Number(p.h),low:Number(p.l),close:Number(p.c),isOpen:false}))
-       .filter(b=>[b.openTime,b.open,b.high,b.low,b.close].every(Number.isFinite))
-       .sort((a,b)=>a.openTime-b.openTime);
+     if(!Array.isArray(pts)||!pts.length)throw Error("XAUS Intraday liefert keine Punkte");
+     const minutes=interval==="5m"?5:60,step=minutes*60*1000,buckets=new Map();
+     for(const p of pts){
+      const ts=Date.parse(p.t),price=Number(p.p);
+      if(!Number.isFinite(ts)||!Number.isFinite(price)||price<=0)continue;
+      const bucket=Math.floor(ts/step)*step;
+      const b=buckets.get(bucket)||{openTime:bucket,open:price,high:price,low:price,close:price,isOpen:false};
+      b.high=Math.max(b.high,price);b.low=Math.min(b.low,price);b.close=price;buckets.set(bucket,b);
+     }
+     const out=[...buckets.values()].sort((a,b)=>a.openTime-b.openTime);
+     if(!out.length)throw Error("XAUS Intraday enthält keine gültigen Preise");
+     return out;
     }finally{clearTimeout(tm)}
    };
    const settled=await Promise.allSettled([chartFetch("5d","5m"),chartFetch("3mo","1h")]);
@@ -415,7 +424,7 @@ async function fetchLiveBundle(force=false){
   const liveUrl="/api/live?fresh="+now;
   console.info("[BOB] live:request",liveUrl);
   const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),5000);
+  const timer=setTimeout(()=>controller.abort(),20000);
   let r;
   try{r=await fetch(liveUrl,{cache:"no-store",signal:controller.signal})}finally{clearTimeout(timer)}
   console.info("[BOB] live:response",r.status,r.headers.get("content-type"));
