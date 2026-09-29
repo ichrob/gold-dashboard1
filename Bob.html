@@ -287,7 +287,7 @@ async function testPush(){
 (function(){const t=localStorage.getItem("goldScannerNtfyTopic");if(t&&$("ntfyTopic"))$("ntfyTopic").value=t;})();
 renderPush();
 
-var C=[], lastPrice=0, A={}, lastMtfAt=0;
+var C=[], lastPrice=0, A={}, lastMtfAt=0, MTF={longs:0,shorts:0,neutral:0,overall:"NEUTRAL",byTf:{},dirs:[]};
 function ema(a,p){let k=2/(p+1),e=a[0];for(let i=1;i<a.length;i++)e=a[i]*k+e*(1-k);return e}
 function emaSeries(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
 function rsi(a,p=14){if(a.length<=p)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];d>0?g+=d:l-=d}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return l===0?100:100-100/(1+g/l)}
@@ -430,7 +430,6 @@ function levels(c,n=30){
  let v=c.slice(-n),sup=Math.min(...v.map(x=>x.low)),res=Math.max(...v.map(x=>x.high));
  return {sup,res};
 }
-let MTF={longs:0,shorts:0,neutral:0};
 let researchLog=[];try{const raw=localStorage.getItem("goldScannerResearch");const p=raw?JSON.parse(raw):[];researchLog=Array.isArray(p)?p:[]}catch(e){console.warn("research reset",e)}
 let tradeMgmt={};try{const raw=localStorage.getItem("goldScannerTradeMgmt");const p=raw?JSON.parse(raw):{};tradeMgmt=p&&typeof p==="object"?p:{}}catch(e){console.warn("trade state reset",e)}
 let signalState={dir:"NEUTRAL",pending:"NEUTRAL",count:0};
