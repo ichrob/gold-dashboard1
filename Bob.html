@@ -659,6 +659,18 @@ async function loadData(){
   }
 
   C=bars.filter(b=>!b.isOpen).slice(-n);
+  const latestBar=C.length?Number(C[C.length-1].openTime):NaN;
+  const tfFreshLimit={"5m":20*60*1000,"15m":45*60*1000,"1h":3*60*60*1000}[tf]||3*60*60*1000;
+  const technicalAge=Number.isFinite(latestBar)?Date.now()-latestBar:Infinity;
+  if(!Number.isFinite(technicalAge)||technicalAge>tfFreshLimit){
+   $("status").textContent="LIVE · XAU/USD "+lastPrice.toFixed(2)+" · "+sourceLabel+" · Technikhistorie zu alt ("+
+     (Number.isFinite(technicalAge)?Math.round(technicalAge/60000):"unbekannt")+" Min.) · kein Signal";
+   $("quickSignal").textContent="🟢 LIVE-PREIS · TECHNIK ZU ALT";
+   $("quickSignal").className="signal neutral";
+   $("quickReason").textContent="Der Live-Preis ist verfügbar. Die technische Historie ist zu alt für ein belastbares Signal.";
+   C=[];
+   return;
+  }
   if(C.length<30){
    $("status").textContent="LIVE · XAU/USD "+lastPrice.toFixed(2)+" · "+sourceLabel+" · Zu wenig geschlossene "+tf+"-Kerzen für eine vollständige Analyse.";
    $("quickSignal").textContent="🟢 LIVE-PREIS · ANALYSE WARTET";
