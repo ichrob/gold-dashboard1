@@ -351,7 +351,7 @@ function barsFromIntraday(points, minutes){
     const b=buckets.get(bucket)||{open:p,high:p,low:p,close:p,ts:bucket};
     b.high=Math.max(b.high,p); b.low=Math.min(b.low,p); b.close=p; buckets.set(bucket,b);
   }
-  return [...buckets.values()].sort((a,b)=>a.ts-b.ts).map(x=>({open:x.open,high:x.high,low:x.low,close:x.close,isOpen:false,openTime:x.ts}));
+  const now=Date.now(), step=minutes*60*1000; return [...buckets.values()].sort((a,b)=>a.ts-b.ts).map(x=>({open:x.open,high:x.high,low:x.low,close:x.close,isOpen:now < x.ts+step,openTime:x.ts}));
 }
 let bobDiagSeq=0;
 async function reportBobDiag(event,details={}){
@@ -409,7 +409,7 @@ async function fetchLiveBundle(force=false){
       const b={openTime:ts,open:o,high:h,low:l,close:c,isOpen:false};
       buckets.set(ts,b);
      }
-     const out=[...buckets.values()].sort((a,b)=>a.openTime-b.openTime);
+     const stepMs=({"5m":5,"15m":15,"1h":60,"4h":240}[interval]||5)*60*1000; const nowMs=Date.now(); for(const b of buckets.values()) b.isOpen=nowMs < b.openTime+stepMs; const out=[...buckets.values()].sort((a,b)=>a.openTime-b.openTime);
      if(!out.length)throw Error("XAUS Chart enthält keine gültigen Preise");
      return out;
     }finally{clearTimeout(tm)}
