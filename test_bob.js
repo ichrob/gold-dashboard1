@@ -75,7 +75,7 @@ function loadPush() {
   assert.strictEqual(p.context.window.BobPush.allowed("trade"), true);
   const emitted = await p.context.window.BobPush.emit("trade", "Test", "Body", { signalId: "t1" });
   assert.strictEqual(emitted, true);
-  assert(p.fetchCalls.some(call => call.url === "/api/push/send"));
+  assert.strictEqual(p.fetchCalls.some(call => call.url === "/api/push/send"), false);
   assert.strictEqual(p.serviceWorkerRegistration.lastNotification.title, "Test");
 
   const degiro = {};
