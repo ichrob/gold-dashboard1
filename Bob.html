@@ -779,7 +779,7 @@ function exportResearch(){
  const cols=Object.keys(researchLog[0]), rows=[cols.join(","),...researchLog.map(r=>cols.map(k=>JSON.stringify(r[k]??"")).join(","))];
  const blob=new Blob([rows.join("\n")],{type:"text/csv;charset=utf-8"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="gold-scanner-research.csv";a.click();URL.revokeObjectURL(a.href);
 }
-function activateTestTrade(){
+async function activateTestTrade(){
  if(!lastPrice||!A.at){$("stopUpdate").textContent="Zuerst „Live XAU/USD laden“, damit der Test echte Live-Daten verwendet.";return;}
  const entry=+($("tradeEntry").value||lastPrice), price=+($("tradePrice").value||lastPrice), mult=Math.max(.5,+($("trailAtr")?.value||1.5));
  if(!Number.isFinite(entry)||!Number.isFinite(price)||!Number.isFinite(A.at)||A.at<=0){$("stopUpdate").textContent="Test-Trade benötigt gültige Kurs- und ATR-Daten.";return;}
