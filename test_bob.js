@@ -44,15 +44,9 @@ function loadPush() {
     },
     fetch: async (url, options={}) => {
       fetchCalls.push({url, options});
-      if (url === "/api/push/vapid-public-key") {
-        return { ok: true, json: async () => ({ publicKey: "BA==" }) };
-      }
-      if (url === "/api/push/subscribe") {
-        return { ok: true, json: async () => ({ ok: true }) };
-      }
-      if (url === "/api/push/send") {
-        return { ok: true, json: async () => ({ ok: true, sent: 1, removed: 0 }) };
-      }
+      if (url === "/api/push/vapid-public-key") return { ok: true, json: async () => ({ publicKey: "BA==" }) };
+      if (url === "/api/push/subscribe") return { ok: true, json: async () => ({ ok: true }) };
+      if (url === "/api/push/send") return { ok: true, json: async () => ({ ok: true, sent: 1, removed: 0 }) };
       throw new Error("Unexpected fetch: " + url);
     }
   };
@@ -62,7 +56,7 @@ function loadPush() {
   context.window.isSecureContext = true;
   vm.createContext(context);
   vm.runInContext(fs.readFileSync("push_manager.js", "utf8"), context, { filename: "push_manager.js" });
-  return { context, store, serviceWorkerRegistration, get registrationCalls() { return registrationCalls; } };
+  return { context, store, serviceWorkerRegistration, fetchCalls, get registrationCalls() { return registrationCalls; } };
 }
 
 (async () => {
@@ -72,8 +66,8 @@ function loadPush() {
   assert.strictEqual(state.registered, true);
   assert.strictEqual(state.serverRegistered, true);
   assert.strictEqual(p.registrationCalls, 1);
-  assert(fetchCalls.some(call => call.url === "/api/push/vapid-public-key"));
-  assert(fetchCalls.some(call => call.url === "/api/push/subscribe"));
+  assert(p.fetchCalls.some(call => call.url === "/api/push/vapid-public-key"));
+  assert(p.fetchCalls.some(call => call.url === "/api/push/subscribe"));
   p.context.window.BobPush.set("general", true);
   assert.strictEqual(p.context.window.BobPush.allowed("general"), true);
   p.context.window.BobPush.set("trade", true);
@@ -82,23 +76,19 @@ function loadPush() {
   assert.strictEqual(p.context.window.BobPush.allowed("trade"), true);
   const emitted = await p.context.window.BobPush.emit("trade", "Test", "Body", { signalId: "t1" });
   assert.strictEqual(emitted, true);
-  assert(fetchCalls.some(call => call.url === "/api/push/send"));
+  assert(p.fetchCalls.some(call => call.url === "/api/push/send"));
   assert.strictEqual(p.serviceWorkerRegistration.lastNotification, undefined);
 
   const degiro = {};
   const degiroContext = { window: degiro };
   vm.createContext(degiroContext);
   vm.runInContext(fs.readFileSync("degiro_assistant.js", "utf8"), degiroContext, { filename: "degiro_assistant.js" });
-  const calc = degiro.BobDegiro.riskModel({
-    spot: 4000, stop: 3980, riskEur: 5, fxUsdEur: 0.92, leverage: 5
-  });
+  const calc = degiro.BobDegiro.riskModel({ spot: 4000, stop: 3980, riskEur: 5, fxUsdEur: 0.92, leverage: 5 });
   assert.strictEqual(calc.ok, true);
   assert(Math.abs(calc.maxLossUsd - (5 / 0.92)) < 1e-12);
   assert(calc.approxNotionalEur > 0);
   assert(calc.marginEur > 0);
-  assert.strictEqual(degiro.BobDegiro.riskModel({
-    spot: 4000, stop: 4000, riskEur: 5, fxUsdEur: 0.92, leverage: 5
-  }).ok, false);
+  assert.strictEqual(degiro.BobDegiro.riskModel({ spot: 4000, stop: 4000, riskEur: 5, fxUsdEur: 0.92, leverage: 5 }).ok, false);
 
   console.log("Bob push + DEGIRO tests: OK");
 })().catch(err => { console.error(err); process.exit(1); });
