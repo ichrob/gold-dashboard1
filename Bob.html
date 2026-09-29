@@ -422,7 +422,7 @@ async function fetchLiveBundle(force=false){
        $("quickSignal").className="signal neutral";
        $("quickReason").textContent="XAU/USD · Live-Spot · technische Historie geladen";
        analyze();
-       Promise.resolve(loadMTF(false,null)).catch(()=>{});
+       Promise.resolve(loadMTF(false,null,direct)).catch(()=>{});
       }
      }catch(bootstrapError){
       console.warn("[BOB] technical-bootstrap-error",bootstrapError);
@@ -542,6 +542,8 @@ async function loadMTF(force=false, generation=null){
    ["4h","mtf4h",tfBars["4h"]||[]]
   ];
   const results=tfs.map(([tf,id,bars])=>[tf,id,timeframeScore(bars,tf)]);
+   // Always paint the MTF cells from the bundle that produced the current analysis.
+   // This prevents a second live request/race from leaving the UI at the initial "—" state.
   let longs=0,shorts=0,neutral=0;
   for(const [tf,id,z] of results){
    const label=!z.available?"NEUTRAL · Historie fehlt":z.dir+(z.rsi!=null?" · RSI "+z.rsi.toFixed(0):"");
@@ -931,7 +933,7 @@ async function loadData(){
    $("status").textContent="LIVE · XAU/USD "+lastPrice.toFixed(2)+" · Technikanalyse momentan nicht verfügbar · "+new Date().toLocaleTimeString();
    console.warn("Bob technical analysis",analysisError);
   }
-  await loadMTF(true);
+  await loadMTF(true,generation,bundle);
  }catch(e){
   console.error("[BOB] live:failed",e);
   const msg="Live-Daten momentan nicht erreichbar: "+e.message;
