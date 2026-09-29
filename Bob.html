@@ -338,7 +338,8 @@ function barsFromIntraday(points, minutes){
   }
   return [...buckets.values()].sort((a,b)=>a.ts-b.ts).map(x=>({open:x.open,high:x.high,low:x.low,close:x.close,isOpen:false,openTime:x.ts}));
 }
-var liveBundleCache=null, liveBundleAt=0, directSpotBundle=null;
+var liveBundleCache=null, liveBundleAt=0;
+var directSpotBundle=null;
 async function fetchLiveBundle(force=false){
  const now=Date.now();
  const diag=$("quickReason");
