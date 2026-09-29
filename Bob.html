@@ -215,6 +215,12 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Spread
 <script src="/push_manager.js"></script>
 <script src="/degiro_assistant.js"></script>
 <script>
+/* Bob runtime probe: intentionally isolated from the main application script. */
+try{
+ fetch("/api/diag",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({event:"boot:isolated",at:new Date().toISOString(),details:{reason:"isolated probe before main Bob script"}}),cache:"no-store",keepalive:true}).catch(()=>{});
+}catch(_){}
+</script>
+<script>
 
 const $=id=>document.getElementById(id);
 let pushState=BobPush.state();
