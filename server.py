@@ -358,6 +358,26 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        # Public read-only app resources. No credentials or secrets are returned here.
+        # This is required for normal PWA/browser fetch behavior after the initial protected page load.
+        if path == "/sw.js" and SW is not None:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(SW)
+            return
+
+        if path == "/icon.svg" and ICON is not None:
+            self.send_response(200)
+            self.send_header("Content-Type", "image/svg+xml")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(ICON)
+            return
+
         auth = self.headers.get("Authorization", "")
         expected = "Basic " + base64.b64encode(
             f"{USER}:{PASSWORD}".encode("utf-8")
