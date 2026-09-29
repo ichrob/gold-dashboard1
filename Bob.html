@@ -404,8 +404,14 @@ async function fetchLiveBundle(force=false){
     if($("quickPrice"))$("quickPrice").textContent=p0.toFixed(2)+" USD";
     if($("quickReason"))$("quickReason").textContent="XAU/USD · Live-Spot · technische Historie geladen";
     console.info("[BOB] live:browser-history",b5.length,b1.length,historyErrors,"server-verification");
-    // Do not return here: the Render /api/live bundle remains the authoritative
-    // technical-analysis payload. The browser chart is only a resilient fallback.
+    // Browser history is already a genuine XAU/USD series and is sufficient for the
+    // primary technical analysis. Do not block the UI on Render secondary sources.
+    // Render can still be queried later by the normal refresh cycle for verification/FX.
+    if(b5.length>=30){
+     liveBundleCache=direct;liveBundleAt=now;
+     console.info("[BOB] live:return-browser-history",b5.length,b1.length);
+     return direct;
+    }
 
    }
   }catch(chartError){
