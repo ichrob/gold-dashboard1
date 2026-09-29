@@ -8,4 +8,4 @@ services:
     buildCommand: echo Bob
     startCommand: python server.py
     autoDeployTrigger: commit
-    healthCheckPath: /
+    healthCheckPath: /health
