@@ -310,7 +310,7 @@ async function testPush(){
  if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
  const results=[];
  if(pushState.general)results.push(await notifyGeneral("Bob – Test","Allgemeine Trade-Empfehlungen"));
- if(pushState.trade && pushState.activeTrade)results.push(await notifyTrade("Bob – Trade-Test","Trade-Management ist aktiv."));
+ if(pushState.trade && pushState.activeTrade)results.push(await notifyTrade("Bob – Trade-Test","Stop-Loss- und Trade-Schließen-Pushs sind aktiv."));
  const ntfyConfigured=Boolean(ntfyTopic());
  if(ntfyConfigured && pushState.general)results.push(await sendNtfy("general","Bob – ntfy-Test","Push-Kanal funktioniert."));
  const localSent=results.some(Boolean);
@@ -787,7 +787,7 @@ function setTradeEntry(){
  $("tradeEntry").value=tradeMgmt.entry.toFixed(2);$("tradePrice").value=lastPrice.toFixed(2);$("tradeStop").value=tradeMgmt.stop.toFixed(2);saveTradeMgmt();
  pushState=BobPush.setActiveTrade(true);renderPush();
  const msg=`${dir}: initialer Stop-Loss ${displayStop(tradeMgmt.stop)}. Einstieg ${tradeMgmt.entry.toFixed(2)} USD/oz.`;
- $("stopUpdate").innerHTML="<b>Trade bestätigt.</b> "+msg+" CRV-Ziel: "+displayStop(tradeMgmt.target)+" ("+tgt.rr.toFixed(2)+"R).";notifyTrade("Gold Scanner – Trade bestätigt",msg);captureResearchSnapshot("TRADE_SET");updateResearchPanel();
+ $("stopUpdate").innerHTML="<b>Trade bestätigt.</b> "+msg+" CRV-Ziel: "+displayStop(tradeMgmt.target)+" ("+tgt.rr.toFixed(2)+"R).";captureResearchSnapshot("TRADE_SET");updateResearchPanel();
 }
 function suggestStopUpdate(){
  if(!tradeMgmt.active){$("stopUpdate").textContent="Kein aktiver Trade – zuerst Trade-Einstieg bestätigen.";return;}
