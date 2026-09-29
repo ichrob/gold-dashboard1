@@ -378,6 +378,15 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(ICON)
             return
 
+        if path == "/manifest.json" and MANIFEST is not None:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/manifest+json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(MANIFEST)
+            return
+
         if path == "/api/live":
             try:
                 payload = build_live_bundle()
@@ -390,7 +399,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
             except Exception as exc:
                 print(f"Bob /api/live ERROR: {type(exc).__name__}: {exc}", flush=True)
-                body = json.dumps({"error": str(exc), "error_type": type(exc).__name__}).encode("utf-8")
+                body = json.dumps({"error": "Live-Daten momentan nicht verfügbar", "error_type": type(exc).__name__}).encode("utf-8")
                 self.send_response(502)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
@@ -466,16 +475,6 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.end_headers()
                 self.wfile.write(b'{"error":"Push-Service nicht erreichbar"}')
-            return
-
-
-        if path == "/manifest.json" and MANIFEST is not None:
-            self.send_response(200)
-            self.send_header("Content-Type", "application/manifest+json; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.end_headers()
-            self.wfile.write(MANIFEST)
             return
 
 
