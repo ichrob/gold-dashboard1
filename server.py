@@ -712,7 +712,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
 
-        if not worker_ok and (not USER or not PASSWORD or not hmac.compare_digest(auth, expected)):
+        if path == "/api/push/send" and not worker_ok and (not USER or not PASSWORD or not hmac.compare_digest(auth, expected)):
             self.send_response(401)
             self.send_header("WWW-Authenticate", 'Basic realm="Bob"')
             self.send_header("Cache-Control", "no-store")
