@@ -725,8 +725,31 @@ async function loadData(){
   try{spots=await fetchSpotSources(bundle)}
   catch(_){spots={xaus:primarySpot,gp:NaN,reference:NaN,diff:NaN,pct:NaN,sourceWarning:"",usd_eur:Number(bundle.spots?.usd_eur),usd_chf:Number(bundle.spots?.usd_chf)}}
   if(generation!==loadGeneration)return;
-  const tfBars=bundle.history?.bars_by_tf||{};
-  const bars=tfBars[tf]||[];
+  let tfBars=bundle.history?.bars_by_tf||{};
+  let bars=tfBars[tf]||[];
+
+  // The direct XAUS heartbeat intentionally contains no technical history.
+  // Load Render history separately so it can never block or hide the live spot price.
+  if(!bars.length && bundle.spots?.xaus_is_spot){
+   try{
+    const ctl=new AbortController();
+    const tm=setTimeout(()=>ctl.abort(),5000);
+    let hr;
+    try{hr=await fetch("/api/live?fresh="+Date.now(),{cache:"no-store",signal:ctl.signal})}finally{clearTimeout(tm)}
+    if(hr.ok){
+     const hj=await hr.json();
+     const h=hj?.history;
+     if(h?.bars_by_tf){
+      tfBars=h.bars_by_tf||{};
+      bars=tfBars[tf]||[];
+      bundle.history=h;
+      console.info("[BOB] technical-history:loaded",tf,bars.length);
+     }
+    }
+   }catch(historyError){
+    console.warn("[BOB] technical-history:error",historyError);
+   }
+  }
 
   liveFxUsdEur=Number.isFinite(Number(spots.usd_eur))&&Number(spots.usd_eur)>0?Number(spots.usd_eur):null;
   $("quickPrice").textContent=lastPrice.toFixed(2)+" USD";
