@@ -203,15 +203,50 @@ def build_live_bundle():
             return None, None, str(last_error) if last_error else "Spotquelle nicht verfügbar", None, False
 
         def fetch_yahoo(interval, range_value):
+            # XAUS exposes a documented XAU chart proxy. Use it first so Render
+            # does not depend on direct Yahoo connectivity (which currently returns 404).
+            xaus_interval = {"5m":"5m", "1h":"1h"}.get(interval, interval)
+            try:
+                payload = fetch_json(
+                    f"https://xaus.com/api/v1/chart?symbol=xau&range={range_value}&interval={xaus_interval}",
+                    retries=1,
+                    user_agent="Bob/1.4",
+                )
+                points = payload.get("points") if isinstance(payload, dict) else None
+                if isinstance(points, list) and points:
+                    out = []
+                    for p in points:
+                        try:
+                            ts = int(p["t"])
+                            o, h, low, close = map(float, (p["o"], p["h"], p["l"], p["c"]))
+                            if not all(v == v and v > 0 for v in (o, h, low, close)):
+                                continue
+                            out.append({
+                                "openTime": ts * 1000,
+                                "open": o,
+                                "high": h,
+                                "low": low,
+                                "close": close,
+                                "isOpen": False,
+                            })
+                        except (KeyError, TypeError, ValueError, OverflowError):
+                            continue
+                    out.sort(key=lambda x: x["openTime"])
+                    if out:
+                        return out
+            except Exception:
+                pass
+
+            # Keep direct Yahoo as a secondary fallback.
             payload = fetch_json(
                 f"https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval={interval}"
                 f"&range={range_value}&includePrePost=true",
                 retries=1,
-                user_agent="Bob/1.3",
+                user_agent="Bob/1.4",
             )
             result = payload.get("chart", {}).get("result", [None])[0] if isinstance(payload, dict) else None
             if not result:
-                raise RuntimeError(f"Yahoo Finance liefert keine {interval}-Historie")
+                raise RuntimeError(f"Keine {interval}-Historie verfügbar")
             timestamps = result.get("timestamp") or []
             quote = (result.get("indicators", {}).get("quote") or [None])[0] or {}
             opens = quote.get("open") or []
@@ -224,17 +259,10 @@ def build_live_bundle():
                     o, h, low, close = map(float, (opens[i], highs[i], lows[i], closes[i]))
                     if not all(v == v and v > 0 for v in (o, h, low, close)):
                         continue
-                    out.append({
-                        "openTime": int(ts) * 1000,
-                        "open": o,
-                        "high": h,
-                        "low": low,
-                        "close": close,
-                        "isOpen": False,
-                    })
+                    out.append({"openTime": int(ts)*1000, "open":o, "high":h, "low":low, "close":close, "isOpen":False})
                 except (IndexError, TypeError, ValueError, OverflowError):
                     continue
-            out.sort(key=lambda x: x["openTime"])
+            out.sort(key=lambda x:x["openTime"])
             return out
 
         def fetch_fx():
