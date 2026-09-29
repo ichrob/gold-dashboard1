@@ -15,13 +15,13 @@ jobs:
       - name: Check Bob health
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --max-time 30             https://bob-private-scanner.onrender.com/health             | tee /tmp/health.json
+          curl --fail --silent --show-error --max-time 30 https://bob-private-scanner.onrender.com/health | tee /tmp/health.json
           grep -q '"status":"ok"' /tmp/health.json
 
       - name: Check Bob live data
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --max-time 45             https://bob-private-scanner.onrender.com/api/live             | tee /tmp/live.json
+          curl --fail --silent --show-error --max-time 45 https://bob-private-scanner.onrender.com/api/live | tee /tmp/live.json
 
           python - <<'PY'
           import json
@@ -42,3 +42,5 @@ jobs:
 
           print(f"Bob live smoke OK: XAU/USD={price}, data_state={status}")
           PY
+
+      # Render/GitHub auto-deploy verification commit.
