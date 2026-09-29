@@ -391,11 +391,13 @@ async function fetchLiveBundle(force=false){
     direct.history.bars_by_tf=byTf;
     direct.history.points=b5.map(b=>({t:new Date(b.openTime).toISOString(),p:b.close}));
     direct.history.data_state={status:"fresh",source:"XAUS XAU/USD Spot + XAUS Chart · Browser",technical_4h_status:direct.history.bars_by_tf["4h"]?.length?"available":"unavailable",technical_errors:historyErrors};
-    liveBundleCache=direct;liveBundleAt=now;
+    directSpotBundle=direct;
     if($("quickPrice"))$("quickPrice").textContent=p0.toFixed(2)+" USD";
     if($("quickReason"))$("quickReason").textContent="XAU/USD · Live-Spot · technische Historie geladen";
-    console.info("[BOB] live:browser-history",b5.length,b1.length,historyErrors);
-    return direct;
+    console.info("[BOB] live:browser-history",b5.length,b1.length,historyErrors,"server-verification");
+    // Do not return here: the Render /api/live bundle remains the authoritative
+    // technical-analysis payload. The browser chart is only a resilient fallback.
+
    }
   }catch(chartError){
    console.warn("[BOB] live:browser-history-error",chartError);
