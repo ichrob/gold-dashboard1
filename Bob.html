@@ -64,7 +64,7 @@ try{
 <h3>🔔 Push-Benachrichtigungen</h3>
 <div class="grid">
 <div class="metric"><label>1. Trade-Signale: „Trade starten?“</label><button id="generalPushBtn" onclick="togglePush('general')">🔕 Aus</button></div>
-<div class="metric"><label>2. Aktiver Trade: Stop-Loss / Schließen</label><button id="tradePushBtn" onclick="togglePush('trade')">🔕 Aus</button></div>
+<div class="metric"><label>2. Aktiver Trade</label><button id="tradePushBtn" onclick="togglePush('trade')">🔕 Aus</button></div>
 </div>
 <div class="row" style="margin-top:10px"><button onclick="registerNotifications()">📱 Gerät für Push registrieren</button><button onclick="testPush()">🧪 Test-Push</button></div>
 <div class="grid" style="margin-top:10px">
@@ -72,7 +72,7 @@ try{
 <div><label>Push-Kanal</label><button onclick="setupNtfy()">☁️ ntfy einrichten</button></div>
 </div>
 <div class="small" style="margin-top:8px">Kein Login nötig. Auf Android die ntfy-App installieren und denselben Topic abonnieren. Der Topic-Name ist eine öffentliche Kanaladresse, kein echtes Passwort. Für sensible Inhalte sollte ein geschützter Push-Dienst verwendet werden.</div>
-<div class="warning" style="margin-top:10px"><b>Push-Regel:</b> Signal-Pushs und Trade-Management-Pushs sind getrennt. Ein Management-Push wird nur bei einem tatsächlich aktiven Trade versendet.</div>
+<div class="warning" style="margin-top:10px"><b>Push-Regel:</b> Signal-Pushs und Trade-Aktiver Trade – Pushs sind getrennt. Ein Aktiver-Trade-Push wird nur bei einem tatsächlich aktiven Trade versendet.</div>
 <div id="pushStatus" class="small" style="margin-top:8px">Noch nicht registriert.</div>
 </div>
 
@@ -240,7 +240,7 @@ function renderPush(){
  if(gb)gb.textContent=pushState.general?"🔔 Ein":"🔕 Aus";
  if(tb)tb.textContent=pushState.trade?"🔔 Ein":"🔕 Aus";
  if(ts)ts.textContent=pushState.activeTrade?"✅ Trade aktiv":"❌ Kein aktiver Trade";
- if(tp)tp.textContent=pushState.activeTrade?"Aktiv – Stop-Loss/Schließen erlaubt":"Gesperrt – kein aktiver Trade";
+ if(tp)tp.textContent=pushState.activeTrade?"Aktiv – Stop-Loss/Schließen":"Gesperrt – kein aktiver Trade";
 }
 async function registerNotifications(){
  const status=$("pushStatus");
