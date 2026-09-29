@@ -59,6 +59,16 @@ function loadPush() {
   return { context, store, serviceWorkerRegistration, fetchCalls, get registrationCalls() { return registrationCalls; } };
 }
 
+const serverSource = fs.readFileSync("server.py", "utf8");
+const bobSource = fs.readFileSync("Bob.html", "utf8");
+const renderSource = fs.readFileSync("render.yaml", "utf8");
+assert.strictEqual((serverSource.match(/def build_live_bundle\(\):/g) || []).length, 1);
+assert(bobSource.includes("Live XAU/USD must be rendered independently from technical history."));
+assert(bobSource.includes("LIVE-PREIS · TECHNIK WARTET"));
+assert(renderSource.includes("plan: free"));
+assert(!renderSource.includes("type: cron"));
+assert(!renderSource.includes("type: worker"));
+
 (async () => {
   const p = loadPush();
   assert.strictEqual(p.context.window.BobPush.state().registered, false);
