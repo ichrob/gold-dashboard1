@@ -431,8 +431,43 @@ async function fetchLiveBundle(force=false){
   let j=null;try{j=await r.json()}catch(_){throw Error("Bob-Server liefert keine gültige JSON-Antwort");}
   if(!r.ok)throw Error(j?.error||("Bob-Server HTTP "+r.status));
   if(!j.spots||!Number.isFinite(Number(j.spots.xaus)))throw Error("Bob-Server liefert keinen gültigen Live-XAU/USD-Preis");
+
+  // IMPORTANT: the browser can successfully load XAUS intraday history even when
+  // Render returns a valid spot bundle with empty/partial technical history.
+  // The previous implementation discarded that browser history as soon as the
+  // server answered HTTP 200, which produced exactly the visible "LIVE-PREIS /
+  // TECHNIK WARTET" state. Merge the two bundles and keep the richer timeframe.
+  const serverBars=j.history?.bars_by_tf||{};
+  const browserBars=directSpotBundle?.history?.bars_by_tf||{};
+  const mergedBars={...serverBars};
+  for(const tf of ["5m","15m","1h","4h"]){
+   const sb=Array.isArray(serverBars[tf])?serverBars[tf]:[];
+   const bb=Array.isArray(browserBars[tf])?browserBars[tf]:[];
+   if(bb.length>sb.length)mergedBars[tf]=bb;
+  }
+  const serverHasHistory=Object.values(serverBars).some(v=>Array.isArray(v)&&v.length>=30);
+  const browserHasHistory=Object.values(browserBars).some(v=>Array.isArray(v)&&v.length>=30);
+  if(browserHasHistory && !serverHasHistory){
+   j.history=j.history||{};
+   j.history.bars_by_tf=mergedBars;
+   j.history.points=(directSpotBundle.history.points||j.history.points||[]);
+   j.history.data_state={
+    ...(j.history.data_state||{}),
+    status:"fresh",
+    source:"XAUS XAU/USD Spot + XAUS Intraday · Browser",
+    technical_errors:[...(j.history.data_state?.technical_errors||[]),"Browser-Historie als resilienten Fallback übernommen"]
+   };
+   console.info("[BOB] live:merged-browser-history",Object.fromEntries(Object.entries(mergedBars).map(([k,v])=>[k,v?.length||0])));
+  }else if(Object.keys(mergedBars).length){
+   j.history=j.history||{};
+   j.history.bars_by_tf=mergedBars;
+   if((j.history.points||[]).length < (directSpotBundle?.history?.points||[]).length){
+    j.history.points=directSpotBundle.history.points;
+   }
+  }
+
   liveBundleCache=j;liveBundleAt=now;
-  console.info("[BOB] live:success",Number(j.spots?.xaus),j.history?.data_state?.status);
+  console.info("[BOB] live:success",Number(j.spots?.xaus),j.history?.data_state?.status,Object.fromEntries(Object.entries(j.history?.bars_by_tf||{}).map(([k,v])=>[k,v?.length||0])));
   return j;
  }catch(serverError){
   console.warn("[BOB] live:server-error",serverError);
