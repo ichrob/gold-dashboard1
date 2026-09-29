@@ -359,6 +359,192 @@ def build_live_bundle():
         _live_cache_at = time.time()
         return bundle
 
+def build_live_bundle():
+    """Build Bob's free-tier live bundle.
+    Live XAU/USD comes from the anonymous GoldPrice.dev spot endpoint.
+    Technical history uses Yahoo GC=F only; paid GoldPrice intraday bars are never requested.
+    A history failure must not hide an otherwise valid live spot price.
+    """
+    global _live_cache, _live_cache_at
+    if _live_cache is not None and time.time() - _live_cache_at < LIVE_CACHE_TTL:
+        return _live_cache
+
+    with _live_lock:
+        if _live_cache is not None and time.time() - _live_cache_at < LIVE_CACHE_TTL:
+            return _live_cache
+
+        now = time.time()
+        goldprice_price = None
+        goldprice_age = None
+        spot_error = None
+
+        try:
+            goldprice = fetch_json(
+                "https://api.goldprice.dev/v1/prices?symbol=XAU-USD-SPOT",
+                retries=1,
+                user_agent="Bob/1.1",
+            )
+            symbols = goldprice.get("symbols") if isinstance(goldprice, dict) else None
+            row = symbols[0] if isinstance(symbols, list) and symbols else None
+            if not isinstance(row, dict):
+                raise RuntimeError("GoldPrice.dev liefert keine XAU/USD-Daten")
+            goldprice_price = float(row.get("price"))
+            goldprice_age = iso_age_seconds(row.get("computed_at"))
+            if not goldprice_price > 0:
+                raise RuntimeError("GoldPrice.dev liefert keinen gültigen XAU/USD-Preis")
+            if row.get("is_stale") is True or goldprice_age is None or goldprice_age > FRESH_MAX_AGE:
+                raise RuntimeError(
+                    f"GoldPrice.dev Spot nicht frisch (stale={row.get('is_stale')}, "
+                    f"Alter {goldprice_age if goldprice_age is not None else 'unbekannt'} s)"
+                )
+        except Exception as exc:
+            spot_error = str(exc)
+
+        bars_5m, bars_1h = [], []
+        technical_errors = []
+
+        def yahoo_bars(interval, range_value):
+            payload = fetch_json(
+                f"https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval={interval}"
+                f"&range={range_value}&includePrePost=true",
+                retries=1,
+                user_agent="Bob/1.1",
+            )
+            result = payload.get("chart", {}).get("result", [None])[0] if isinstance(payload, dict) else None
+            if not result:
+                raise RuntimeError(f"Yahoo Finance liefert keine {interval}-Historie")
+            timestamps = result.get("timestamp") or []
+            quote = (result.get("indicators", {}).get("quote") or [None])[0] or {}
+            opens = quote.get("open") or []
+            highs = quote.get("high") or []
+            lows = quote.get("low") or []
+            closes = quote.get("close") or []
+            out = []
+            for i, ts in enumerate(timestamps):
+                try:
+                    o, h, low, close = map(float, (opens[i], highs[i], lows[i], closes[i]))
+                    if not all(v == v and v > 0 for v in (o, h, low, close)):
+                        continue
+                    out.append({
+                        "openTime": int(ts) * 1000,
+                        "open": o,
+                        "high": h,
+                        "low": low,
+                        "close": close,
+                        "isOpen": False,
+                    })
+                except (IndexError, TypeError, ValueError, OverflowError):
+                    continue
+            out.sort(key=lambda x: x["openTime"])
+            return out
+
+        try:
+            bars_5m = yahoo_bars("5m", "5d")
+            mark_bar_state(bars_5m, 5)
+            if bars_5m:
+                age = max(0, now - bars_5m[-1]["openTime"] / 1000)
+                if age > 900:
+                    technical_errors.append(f"5m-Historie nicht frisch ({age:.0f} s)")
+        except Exception as exc:
+            technical_errors.append(str(exc))
+
+        try:
+            bars_1h = yahoo_bars("1h", "3mo")
+            mark_bar_state(bars_1h, 60)
+        except Exception as exc:
+            technical_errors.append(str(exc))
+
+        bars_15m = aggregate_bars(bars_5m, 15) if bars_5m else []
+        bars_4h = aggregate_bars(bars_1h, 240) if bars_1h else []
+
+        if goldprice_price is None:
+            if bars_5m:
+                goldprice_price = bars_5m[-1]["close"]
+                goldprice_age = max(0, now - bars_5m[-1]["openTime"] / 1000)
+                spot_source = "Yahoo Finance GC=F · FALLBACK"
+            else:
+                raise RuntimeError(
+                    "Kein kostenloser Live-Preis verfügbar"
+                    + (f": {spot_error}" if spot_error else "")
+                )
+        else:
+            spot_source = "GoldPrice.dev · live"
+
+        reference = bars_5m[-1]["close"] if bars_5m else goldprice_price
+        diff = goldprice_price - reference
+        pct = (diff / reference * 100) if reference else 0.0
+        points_source = bars_5m if bars_5m else bars_1h
+        legacy_points = [
+            {"t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(b["openTime"] / 1000)), "p": b["close"]}
+            for b in points_source
+        ]
+
+        usd_eur = None
+        usd_chf = None
+        for ccy in ("EUR", "CHF"):
+            try:
+                fx = fetch_json(
+                    f"https://api.goldprice.dev/v1/convert?from=USD&to={ccy}&amount=1",
+                    retries=1,
+                    user_agent="Bob/1.1",
+                )
+                rate = float(fx.get("rate")) if isinstance(fx, dict) else None
+                if rate and rate > 0:
+                    if ccy == "EUR":
+                        usd_eur = rate
+                    else:
+                        usd_chf = rate
+            except Exception:
+                pass
+
+        status = "fresh" if goldprice_age is not None and goldprice_age <= FRESH_MAX_AGE else "partial"
+        bundle = {
+            "fetched_at": int(time.time()),
+            "spots": {
+                "xaus": goldprice_price,
+                "goldprice": goldprice_price,
+                "yahoo_gc_f": reference,
+                "diff": diff,
+                "pct": pct,
+                "xaus_age_seconds": goldprice_age,
+                "goldprice_age_seconds": goldprice_age,
+                "usd_eur": usd_eur,
+                "usd_chf": usd_chf,
+                "yahoo_gc_f_age_seconds": (
+                    max(0, now - bars_5m[-1]["openTime"] / 1000) if bars_5m else None
+                ),
+                "yahoo_1h_age_seconds": (
+                    max(0, now - bars_1h[-1]["openTime"] / 1000) if bars_1h else None
+                ),
+                "technical_4h_status": "available" if bars_4h else "unavailable",
+                "technical_4h_error": "; ".join(technical_errors) if technical_errors else None,
+                "goldprice_status": spot_source,
+                "primary": spot_source,
+                "reference": "Yahoo Finance GC=F",
+                "reference_note": "GC=F ist Gold-Futures, nicht XAU/USD Spot",
+                "spot_error": spot_error,
+            },
+            "history": {
+                "bars_by_tf": {
+                    "5m": bars_5m,
+                    "15m": bars_15m,
+                    "1h": bars_1h,
+                    "4h": bars_4h,
+                },
+                "points": legacy_points,
+                "data_state": {
+                    "status": status,
+                    "source": "GoldPrice.dev XAU/USD Spot + Yahoo Finance GC=F technische Referenz",
+                    "technical_4h_status": "available" if bars_4h else "unavailable",
+                    "technical_errors": technical_errors,
+                },
+                "age_seconds": goldprice_age,
+            },
+        }
+        _live_cache = bundle
+        _live_cache_at = time.time()
+        return bundle
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         auth = self.headers.get("Authorization", "")
