@@ -605,6 +605,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
             return
 
+        path = urlparse(self.path).path
+
         auth = self.headers.get("Authorization", "")
         expected = "Basic " + base64.b64encode(
             f"{USER}:{PASSWORD}".encode("utf-8")
@@ -612,12 +614,13 @@ class Handler(BaseHTTPRequestHandler):
 
         worker_token = self.headers.get("X-Bob-Worker-Token", "")
         worker_ok = bool(SIGNAL_WORKER_TOKEN) and hmac.compare_digest(worker_token, SIGNAL_WORKER_TOKEN)
-        if not worker_ok and (not USER or not PASSWORD or not hmac.compare_digest(auth, expected)):
+        public_push_path = path in ("/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences")
+        if not public_push_path and not worker_ok and (not USER or not PASSWORD or not hmac.compare_digest(auth, expected)):
             print(
-                f"BOB_AUTH_FAIL path={path} auth_present={bool(auth)} "
-                f"auth_scheme={auth.split(" ",1)[0] if auth else "-"} "
-                f"user_configured={bool(USER)} password_configured={bool(PASSWORD)} "
-                f"worker_token_present={bool(worker_token)} worker_token_configured={bool(SIGNAL_WORKER_TOKEN)}",
+                f'BOB_AUTH_FAIL path={path} auth_present={bool(auth)} '
+                f'auth_scheme={auth.split(" ",1)[0] if auth else "-"} '
+                f'user_configured={bool(USER)} password_configured={bool(PASSWORD)} '
+                f'worker_token_present={bool(worker_token)} worker_token_configured={bool(SIGNAL_WORKER_TOKEN)}',
                 flush=True,
             )
             self.send_response(401)
@@ -626,8 +629,6 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"Authentication required.")
             return
-
-        path = urlparse(self.path).path
 
         # Fresh pathname bypasses stale PWA shells on devices that cached an older root.
         if path == "/bob-v12":
