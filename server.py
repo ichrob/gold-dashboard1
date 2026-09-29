@@ -253,23 +253,48 @@ def build_live_bundle():
             _fx_cache_at = time.time()
             return rates["EUR"] or _fx_cache["EUR"], rates["CHF"] or _fx_cache["CHF"], errors
 
-        # The spot price is the primary heartbeat. Secondary requests run in parallel
-        # so a slow history/FX provider cannot keep the UI on "Warte auf Live-Daten".
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="bob-live") as pool:
-            futures = {
-                pool.submit(fetch_spot): "spot",
-                pool.submit(fetch_yahoo, "5m", "5d"): "5m",
-                pool.submit(fetch_yahoo, "1h", "3mo"): "1h",
-                pool.submit(fetch_fx): "fx",
-            }
-            results = {}
-            for future in as_completed(futures):
-                name = futures[future]
+        # The spot price is the primary heartbeat. Do NOT wait for every secondary
+        # source: ThreadPoolExecutor's context manager would otherwise wait for slow
+        # Yahoo/FX requests at shutdown and keep /api/live hanging.
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+        pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="bob-live")
+        futures = {
+            pool.submit(fetch_spot): "spot",
+            pool.submit(fetch_yahoo, "5m", "5d"): "5m",
+            pool.submit(fetch_yahoo, "1h", "3mo"): "1h",
+            pool.submit(fetch_fx): "fx",
+        }
+        results = {}
+        try:
+            # The heartbeat gets a generous but bounded window.
+            spot_future = next(f for f, name in futures.items() if name == "spot")
+            try:
+                results["spot"] = spot_future.result(timeout=12)
+            except Exception as exc:
+                results["spot"] = exc
+
+            # Secondary data is best-effort. Never let it block the live price.
+            secondary_deadline = time.monotonic() + 2.0
+            for future, name in futures.items():
+                if name == "spot":
+                    continue
+                remaining = max(0.0, secondary_deadline - time.monotonic())
+                if remaining <= 0:
+                    results[name] = TimeoutError("Sekundärquelle zu langsam")
+                    continue
                 try:
-                    results[name] = future.result()
+                    results[name] = future.result(timeout=remaining)
+                except FuturesTimeoutError:
+                    results[name] = TimeoutError("Sekundärquelle zu langsam")
                 except Exception as exc:
                     results[name] = exc
+        finally:
+            # Cancel unfinished secondary work and return the HTTP response without
+            # waiting for those worker threads to finish.
+            for future, name in futures.items():
+                if name != "spot" and not future.done():
+                    future.cancel()
+            pool.shutdown(wait=False, cancel_futures=True)
 
         spot_result = results.get("spot")
         if isinstance(spot_result, tuple):
