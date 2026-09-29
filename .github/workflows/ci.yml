@@ -30,7 +30,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Python syntax
-        run: python -m py_compile server.py backtest.py
+        run: python -m py_compile server.py backtest.py push_server.py
       - name: JSON and Bob validation
         run: node validate_bob.js
       - name: Service worker syntax
