@@ -477,36 +477,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(MANIFEST)
             return
 
-        if path == "/icon.svg" and ICON is not None:
-            self.send_response(200)
-            self.send_header("Content-Type", "image/svg+xml")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.end_headers()
-            self.wfile.write(ICON)
-            return
 
-        if path == "/sw.js" and SW is not None:
-            self.send_response(200)
-            self.send_header("Content-Type", "application/javascript; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.end_headers()
-            self.wfile.write(SW)
-            return
-
-        self.send_response(404)
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(b"Not found.")
-
-    def do_POST(self):
-        auth = self.headers.get("Authorization", "")
-        expected = "Basic " + base64.b64encode(
-            f"{USER}:{PASSWORD}".encode("utf-8")
-        ).decode("ascii")
-        worker_token = self.headers.get("X-Bob-Worker-Token", "")
-        worker_ok = bool(SIGNAL_WORKER_TOKEN) and hmac.compare_digest(worker_token, SIGNAL_WORKER_TOKEN)
         if not worker_ok and (not USER or not PASSWORD or not hmac.compare_digest(auth, expected)):
             self.send_response(401)
             self.send_header("WWW-Authenticate", 'Basic realm="Bob"')
