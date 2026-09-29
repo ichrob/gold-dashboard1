@@ -580,6 +580,13 @@ class Handler(BaseHTTPRequestHandler):
         worker_token = self.headers.get("X-Bob-Worker-Token", "")
         worker_ok = bool(SIGNAL_WORKER_TOKEN) and hmac.compare_digest(worker_token, SIGNAL_WORKER_TOKEN)
         if not worker_ok and (not USER or not PASSWORD or not hmac.compare_digest(auth, expected)):
+            print(
+                f"BOB_AUTH_FAIL path={path} auth_present={bool(auth)} "
+                f"auth_scheme={auth.split(" ",1)[0] if auth else "-"} "
+                f"user_configured={bool(USER)} password_configured={bool(PASSWORD)} "
+                f"worker_token_present={bool(worker_token)} worker_token_configured={bool(SIGNAL_WORKER_TOKEN)}",
+                flush=True,
+            )
             self.send_response(401)
             self.send_header("WWW-Authenticate", 'Basic realm="Bob"')
             self.send_header("Cache-Control", "no-store")
