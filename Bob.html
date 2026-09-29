@@ -287,7 +287,7 @@ async function testPush(){
 (function(){const t=localStorage.getItem("goldScannerNtfyTopic");if(t&&$("ntfyTopic"))$("ntfyTopic").value=t;})();
 renderPush();
 
-let C=[], lastPrice=0, A={};var liveHistoryCache=null,liveHistoryAt=0,lastMtfAt=0;
+let C=[], lastPrice=0, A={};var lastMtfAt=0;
 function ema(a,p){let k=2/(p+1),e=a[0];for(let i=1;i<a.length;i++)e=a[i]*k+e*(1-k);return e}
 function emaSeries(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
 function rsi(a,p=14){if(a.length<=p)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];d>0?g+=d:l-=d}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return l===0?100:100-100/(1+g/l)}
@@ -332,7 +332,7 @@ async function fetchLiveBundle(force=false){
  let j=null;try{j=await r.json()}catch(_){throw Error("Bob-Server liefert keine gültige JSON-Antwort");}
  if(!r.ok)throw Error(j?.error||("Bob-Server HTTP "+r.status));
  if(!j.spots||!Number.isFinite(Number(j.spots.xaus)))throw Error("Bob-Server liefert keinen gültigen Live-XAU/USD-Preis");
- liveBundleCache=j;liveBundleAt=now;liveHistoryCache=j.history.points;liveHistoryAt=now;return j;
+ liveBundleCache=j;liveBundleAt=now;return j;
 }
 async function fetchIntradayPoints(){const j=await fetchLiveBundle();if(j.history.data_state?.status!=="fresh")throw Error("Gold-Historie nicht frisch");return j.history.points||[];}
 async function loadMTF(force=false){
