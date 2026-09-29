@@ -28,10 +28,16 @@ def init_db():
             id BIGSERIAL PRIMARY KEY,
             endpoint TEXT UNIQUE NOT NULL,
             subscription JSONB NOT NULL,
+            general_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+            trade_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+            active_trade BOOLEAN NOT NULL DEFAULT FALSE,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
           )
         """)
+        conn.execute("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS general_enabled BOOLEAN NOT NULL DEFAULT FALSE")
+        conn.execute("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS trade_enabled BOOLEAN NOT NULL DEFAULT FALSE")
+        conn.execute("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS active_trade BOOLEAN NOT NULL DEFAULT FALSE")
         conn.execute("""
           CREATE TABLE IF NOT EXISTS bob_settings (
             key TEXT PRIMARY KEY,
@@ -139,6 +145,27 @@ class Handler(BaseHTTPRequestHandler):
                 send_json(self, 200, {"ok": True})
                 return
 
+            if path == "/preferences":
+                supplied = self.headers.get("X-Bob-Push-Token", "")
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
+                    send_json(self, 401, {"error": "Unauthorized"})
+                    return
+                endpoint = payload.get("endpoint")
+                if not endpoint:
+                    raise ValueError("endpoint fehlt")
+                general = bool(payload.get("general"))
+                trade = bool(payload.get("trade"))
+                active = bool(payload.get("activeTrade"))
+                with db() as conn:
+                    conn.execute("""
+                      UPDATE subscriptions
+                      SET general_enabled=%s, trade_enabled=%s, active_trade=%s, updated_at=now()
+                      WHERE endpoint=%s
+                    """, (general, trade, active, endpoint))
+                    conn.commit()
+                send_json(self, 200, {"ok": True})
+                return
+
             if path == "/unsubscribe":
                 endpoint = payload.get("endpoint")
                 if not endpoint:
@@ -167,10 +194,20 @@ class Handler(BaseHTTPRequestHandler):
                     separators=(",", ":"),
                 )
                 vapid_key = vapid()
+                kind = str(payload.get("kind") or payload.get("data", {}).get("kind") or "general").lower()
+                if kind == "signal":
+                    kind = "general"
+                if kind not in ("general", "trade"):
+                    kind = "general"
                 with db() as conn:
-                    rows = conn.execute(
-                        "SELECT id, endpoint, subscription FROM subscriptions"
-                    ).fetchall()
+                    if kind == "trade":
+                        rows = conn.execute(
+                            "SELECT id, endpoint, subscription FROM subscriptions WHERE trade_enabled=TRUE AND active_trade=TRUE"
+                        ).fetchall()
+                    else:
+                        rows = conn.execute(
+                            "SELECT id, endpoint, subscription FROM subscriptions WHERE general_enabled=TRUE"
+                        ).fetchall()
 
                 sent = 0
                 removed = 0
