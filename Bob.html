@@ -653,10 +653,12 @@ async function loadData(){
   const autoFx=ccy==="EUR"?Number(spots.usd_eur):ccy==="CHF"?Number(spots.usd_chf):1;
   if(fxEl&&Number.isFinite(autoFx)&&autoFx>0&&!fxEl.dataset.manual)fxEl.value=autoFx.toFixed(4);
 
+  const isSpot=bundle.spots?.xaus_is_spot!==false;
   const sourceLabel=bundle.spots?.goldprice_status||"GoldPrice.dev";
-  const fallbackWarning=bundle.spots?.spot_error?" · Spotquelle momentan nicht frisch – Referenz/Fallback aktiv":"";
+  const fallbackWarning=!isSpot?" · XAU/USD Spot nicht verfügbar – GC=F Futures als Referenz":"";
+
   if(!bars.length){
-   $("status").textContent="LIVE · XAU/USD "+lastPrice.toFixed(2)+" · "+sourceLabel+fallbackWarning+" · Technikhistorie momentan nicht verfügbar · "+new Date().toLocaleTimeString();
+   $("status").textContent=(isSpot?"LIVE · XAU/USD ":"REFERENZ · GC=F ") + lastPrice.toFixed(2)+" · "+sourceLabel+fallbackWarning+" · Technikhistorie momentan nicht verfügbar · "+new Date().toLocaleTimeString();
    $("quickSignal").textContent="🟢 LIVE-PREIS · TECHNIK WARTET";
    $("quickSignal").className="signal neutral";
    $("quickReason").textContent="Der aktuelle XAU/USD-Preis ist verfügbar. Die technische Historie fehlt momentan; deshalb wird kein Handelssignal berechnet.";
@@ -669,7 +671,7 @@ async function loadData(){
   const tfFreshLimit={"5m":20*60*1000,"15m":45*60*1000,"1h":3*60*60*1000}[tf]||3*60*60*1000;
   const technicalAge=Number.isFinite(latestBar)?Date.now()-latestBar:Infinity;
   if(!Number.isFinite(technicalAge)||technicalAge>tfFreshLimit){
-   $("status").textContent="LIVE · XAU/USD "+lastPrice.toFixed(2)+" · "+sourceLabel+" · Technikhistorie zu alt ("+
+   $("status").textContent=(isSpot?"LIVE · XAU/USD ":"REFERENZ · GC=F ") + lastPrice.toFixed(2)+" · "+sourceLabel+" · Technikhistorie zu alt ("+
      (Number.isFinite(technicalAge)?Math.round(technicalAge/60000):"unbekannt")+" Min.) · kein Signal";
    $("quickSignal").textContent="🟢 LIVE-PREIS · TECHNIK ZU ALT";
    $("quickSignal").className="signal neutral";
@@ -685,7 +687,7 @@ async function loadData(){
    return;
   }
 
-  $("status").textContent="LIVE · XAU/USD "+lastPrice.toFixed(2)+" · "+sourceLabel+fallbackWarning+" · "+new Date().toLocaleTimeString();
+  $("status").textContent=(isSpot?"LIVE · XAU/USD ":"REFERENZ · GC=F ") + lastPrice.toFixed(2)+" · "+sourceLabel+fallbackWarning+" · "+new Date().toLocaleTimeString();
   analyze();restoreTradeMgmt();await loadMTF();
  }catch(e){
   const msg="Live-Daten momentan nicht erreichbar: "+e.message;
