@@ -44,9 +44,9 @@ function loadPush() {
     },
     fetch: async (url, options={}) => {
       fetchCalls.push({url, options});
-      if (url === "/api/push/vapid-public-key") return { ok: true, json: async () => ({ publicKey: "BA==" }) };
-      if (url === "/api/push/subscribe") return { ok: true, json: async () => ({ ok: true }) };
-      if (url === "/api/push/send") return { ok: true, json: async () => ({ ok: true, sent: 1, removed: 0 }) };
+      if (url === "/api/push/vapid-public-key") return { ok: false, status: 404, json: async () => ({ error: "Push-Service disabled in free mode" }) };
+      if (url === "/api/push/subscribe") return { ok: false, status: 404, json: async () => ({ error: "Push-Service disabled in free mode" }) };
+      if (url === "/api/push/send") return { ok: false, status: 404, json: async () => ({ error: "Push-Service disabled in free mode" }) };
       throw new Error("Unexpected fetch: " + url);
     }
   };
@@ -64,10 +64,9 @@ function loadPush() {
   assert.strictEqual(p.context.window.BobPush.state().registered, false);
   const state = await p.context.window.BobPush.enable();
   assert.strictEqual(state.registered, true);
-  assert.strictEqual(state.serverRegistered, true);
+  assert.strictEqual(state.serverRegistered, false);
   assert.strictEqual(p.registrationCalls, 1);
   assert(p.fetchCalls.some(call => call.url === "/api/push/vapid-public-key"));
-  assert(p.fetchCalls.some(call => call.url === "/api/push/subscribe"));
   p.context.window.BobPush.set("general", true);
   assert.strictEqual(p.context.window.BobPush.allowed("general"), true);
   p.context.window.BobPush.set("trade", true);
@@ -77,7 +76,7 @@ function loadPush() {
   const emitted = await p.context.window.BobPush.emit("trade", "Test", "Body", { signalId: "t1" });
   assert.strictEqual(emitted, true);
   assert(p.fetchCalls.some(call => call.url === "/api/push/send"));
-  assert.strictEqual(p.serviceWorkerRegistration.lastNotification, undefined);
+  assert.strictEqual(p.serviceWorkerRegistration.lastNotification.title, "Test");
 
   const degiro = {};
   const degiroContext = { window: degiro };
