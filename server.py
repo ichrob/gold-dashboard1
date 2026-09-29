@@ -436,9 +436,83 @@ def build_live_bundle():
         _live_cache_at = time.time()
         return bundle
 
+def _ema(values, period):
+    if not values:
+        return None
+    k = 2.0 / (period + 1.0)
+    e = float(values[0])
+    for value in values[1:]:
+        e = float(value) * k + e * (1.0 - k)
+    return e
+
+def _rsi(values, period=14):
+    if len(values) < period + 2:
+        return 50.0
+    gains = losses = 0.0
+    for i in range(1, period + 1):
+        d = values[i] - values[i - 1]
+        gains += max(d, 0.0)
+        losses += max(-d, 0.0)
+    gains /= period
+    losses /= period
+    for i in range(period + 1, len(values)):
+        d = values[i] - values[i - 1]
+        gains = (gains * (period - 1) + max(d, 0.0)) / period
+        losses = (losses * (period - 1) + max(-d, 0.0)) / period
+    return 100.0 if losses == 0 else 100.0 - 100.0 / (1.0 + gains / losses)
+
+def _mtf_score(bars, tf):
+    closed = [b for b in (bars or []) if not b.get("isOpen")][-220:]
+    if len(closed) < 200:
+        return {"dir":"NEUTRAL","available":False,"reason":"zu wenig Historie","bars":len(closed)}
+    latest = int(closed[-1]["openTime"])
+    age = max(0, int(time.time() * 1000) - latest)
+    freshness = {"5m":1200000,"15m":2700000,"1h":10800000,"4h":43200000}.get(tf,10800000)
+    if age > freshness:
+        return {"dir":"NEUTRAL","available":False,"reason":"Historie zu alt","bars":len(closed),"ageMs":age}
+    values = [float(b["close"]) for b in closed]
+    e20, e50, e200 = _ema(values,20), _ema(values,50), _ema(values,200)
+    e12, e26 = _ema(values,12), _ema(values,26)
+    mac = e12 - e26
+    prev_values = values[:-1]
+    prev_mac = _ema(prev_values,12) - _ema(prev_values,26)
+    rsi = _rsi(values)
+    score = 0
+    score += 1 if values[-1] > e20 else -1
+    score += 1 if e20 > e50 else -1
+    score += 1 if e50 > e200 else -1
+    score += 1 if mac > prev_mac else -1
+    score += 1 if 50 <= rsi <= 70 else (-1 if rsi < 35 else 0)
+    direction = "LONG" if score >= 2 else "SHORT" if score <= -2 else "NEUTRAL"
+    return {"dir":direction,"available":True,"reason":"ok","bars":len(closed),"rsi":round(rsi,2),"score":score,"ageMs":age}
+
+def build_mtf_verification(bundle):
+    tfbars = bundle.get("history",{}).get("bars_by_tf",{}) if isinstance(bundle,dict) else {}
+    results = {tf:_mtf_score(tfbars.get(tf,[]),tf) for tf in ("5m","15m","1h","4h")}
+    valid = all(v.get("available") for v in results.values())
+    dirs = [results[tf]["dir"] for tf in ("4h","1h","15m","5m")]
+    overall = "LONG" if valid and dirs[0]=="LONG" and dirs[1]=="LONG" and dirs[2]!="SHORT" and dirs[3]!="SHORT" else "SHORT" if valid and dirs[0]=="SHORT" and dirs[1]=="SHORT" and dirs[2]!="LONG" and dirs[3]!="LONG" else "NEUTRAL"
+    return {"overall":overall,"valid":valid,"results":results,"verifiedAt":datetime.now(timezone.utc).isoformat()}
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
+        if path == "/api/mtf":
+            try:
+                verification = build_mtf_verification(build_live_bundle())
+                body = json.dumps(verification, ensure_ascii=False, separators=(",",":")).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as exc:
+                self.send_response(503)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error":str(exc)}).encode("utf-8"))
+            return
         if path == "/health":
             body = b'{"status":"ok","service":"bob"}'
             self.send_response(200)
