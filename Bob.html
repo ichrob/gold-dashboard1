@@ -613,7 +613,7 @@ function calcDgTrade(){
  if(!lastPrice||!A.at){$("dgOut").innerHTML="Zuerst Live-Daten laden.";return}
  const acc=+$("account").value||500, riskPct=Math.max(0,+$("risk").value||1), maxLoss=acc*riskPct/100;
  const fx=usdEurRate();
- const lev=Math.max(1,+$("dgLev").value||1, ko=+$("dgKo").value, spread=Math.max(0,+$("dgSpread").value||0);
+ const lev=Math.max(1,+$("dgLev").value||1), ko=+$("dgKo").value, spread=Math.max(0,+$("dgSpread").value||0);
  const score=A.score??50, mtf=MTF.overall||"NEUTRAL";
  let dir=A.ready?(score>=70&&mtf==="LONG"?"LONG":score<=30&&mtf==="SHORT"?"SHORT":"ABWARTEN"):"ABWARTEN";
  const product=$("dgType").value, productLabel={turbo:"Turbo / Knock-Out",warrant:"Optionsschein",etc:"Gold-ETC / ungehebelt",future:"Future / anderes Derivat"}[product];
@@ -725,7 +725,7 @@ async function loadData(){
 function demo(){let p=4250;C=[];lastPrice=p;for(let i=0;i<250;i++){p+=Math.sin(i/8)*1.8+Math.sin(i*0.73)*2.2;const o=p-2,h=p+8,l=p-8;C.push({open:o,high:h,low:l,close:p,isOpen:false})}$("status").textContent="Reproduzierbare Demo-Daten aktiv.";analyze()}
 function riskCalc(){
  if(!lastPrice||!A.at){$("riskout").textContent="Zuerst Daten laden.";return}
- const acc=+$("account").value,risk=+$("risk2").value/100,lev=Math.max(1,+$("lev").value||1),m=+$("atrmult").value,rr=Math.max(1,+$("rr").value),euro=acc*risk,fx=+$("fxRate")?.value||0;
+ const acc=+$("account").value,risk=+$("risk2").value/100,lev=Math.max(1,+$("lev").value||1),m=+$("atrmult").value,rr=Math.max(1,+$("rr").value),euro=acc*risk,fx=usdEurRate();
  const dir=confirmedSignalDirection();
  if(dir==="NEUTRAL"){$("riskout").innerHTML=`Richtung: <b>ABWARTEN / NO TRADE</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Kein Stop- oder Zielkurs für ein neutrales Setup.`;return;}
  const sm=stopModel(dir,lastPrice,A.at,m),tgt=targetModel(dir,lastPrice,sm.stop,rr),dist=Math.abs(lastPrice-sm.stop);
