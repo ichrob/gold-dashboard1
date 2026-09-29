@@ -217,6 +217,7 @@ class Handler(BaseHTTPRequestHandler):
 
                 sent = 0
                 removed = 0
+                vapid_reset = False
                 for sid, endpoint, sub in rows:
                     try:
                         webpush(
@@ -236,6 +237,17 @@ class Handler(BaseHTTPRequestHandler):
                                 )
                                 conn.commit()
                             removed += 1
+                        elif code == 403:
+                            # A 403 from the push provider can mean that the
+                            # subscription was created with a previous VAPID key.
+                            # Remove it so the browser can recreate it cleanly.
+                            with db() as conn:
+                                conn.execute(
+                                    "DELETE FROM subscriptions WHERE id=%s", (sid,)
+                                )
+                                conn.commit()
+                            removed += 1
+                            vapid_reset = True
                         else:
                             response = getattr(exc, "response", None)
                             status = getattr(response, "status_code", None)
@@ -244,7 +256,7 @@ class Handler(BaseHTTPRequestHandler):
                                 f"push delivery failed ({type(exc).__name__}) status={status} detail={detail}",
                                 flush=True,
                             )
-                send_json(self, 200, {"ok": True, "sent": sent, "removed": removed})
+                send_json(self, 200, {"ok": True, "sent": sent, "removed": removed, "vapidReset": vapid_reset})
                 return
 
             send_json(self, 404, {"error": "Not found"})
