@@ -23,7 +23,14 @@ table{width:100%;border-collapse:collapse}td{padding:8px;border-bottom:1px solid
 canvas{width:100%;height:220px;border-radius:12px;background:#fafafa}.warning{background:#fff5d6;border-radius:12px;padding:12px;font-size:13px}.research{background:#eef6ff;border-radius:12px;padding:12px;font-size:13px}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#eee;margin:2px;font-size:12px}
 </style>
 </head>
-<body><main>
+<body>
+<script>
+/* Bob runtime probe: intentionally isolated from the main application script. */
+try{
+ fetch("/api/diag",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({event:"boot:isolated",at:new Date().toISOString(),details:{reason:"isolated probe before main Bob script"}}),cache:"no-store",keepalive:true}).catch(()=>{});
+}catch(_){}
+</script>
+<main>
 <div class="card">
 <h1>📱 Bob</h1>
 <div class="sub">XAU/USD · technische Analyse · DEGIRO bleibt manuell</div>
@@ -214,12 +221,6 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Spread
 </main>
 <script src="/push_manager.js"></script>
 <script src="/degiro_assistant.js"></script>
-<script>
-/* Bob runtime probe: intentionally isolated from the main application script. */
-try{
- fetch("/api/diag",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({event:"boot:isolated",at:new Date().toISOString(),details:{reason:"isolated probe before main Bob script"}}),cache:"no-store",keepalive:true}).catch(()=>{});
-}catch(_){}
-</script>
 <script>
 
 const $=id=>document.getElementById(id);
