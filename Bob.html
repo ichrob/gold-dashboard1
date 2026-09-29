@@ -971,7 +971,15 @@ if("serviceWorker" in navigator){
   });
   window.addEventListener("load",()=>{
     sessionStorage.removeItem("bob-sw-reloaded");
-    navigator.serviceWorker.register("/sw.js?v=8",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{});
+    navigator.serviceWorker.register("/sw.js?v=9",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{});
+    // MTF watchdog: if the live analysis rendered but the MTF cells did not,
+    // retry from the already cached live bundle without requiring a page reload.
+    setTimeout(()=>{
+      try{
+        const q=$("quickMtf");
+        if(q && q.textContent==="—") Promise.resolve(loadMTF(false,null,liveBundleCache||directSpotBundle)).catch(()=>{});
+      }catch(e){console.warn("[BOB] MTF watchdog",e)}
+    },1200);
   },{once:true});
 }
 try{restoreTradeMgmt();}catch(e){console.warn("Bob trade UI init",e)}
