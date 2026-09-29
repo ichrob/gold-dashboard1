@@ -266,6 +266,7 @@ def build_live_bundle():
             return out
 
         def fetch_fx():
+            global _fx_cache, _fx_cache_at
             if time.time() - _fx_cache_at < FX_CACHE_TTL and any(v is not None for v in _fx_cache.values()):
                 return _fx_cache["EUR"], _fx_cache["CHF"], []
             rates = {"EUR": None, "CHF": None}
