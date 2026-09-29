@@ -540,7 +540,7 @@ async function fetchLiveBundle(force=false){
  } 
 }
 async function fetchIntradayPoints(){const j=await fetchLiveBundle();if(j.history.data_state?.status!=="fresh")throw Error("Gold-Historie nicht frisch");return j.history.points||[];}
-async function loadMTF(force=false, generation=null, suppliedBundle=null){
+async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
  try{
   const bundle=suppliedBundle || await fetchLiveBundle(force);
   const points=bundle.history?.points||[];
@@ -604,6 +604,26 @@ async function loadMTF(force=false, generation=null, suppliedBundle=null){
   updateTradeSignal();updateResearchPanel();return MTF;
  }
 }
+
+// MTF single-flight guard: multiple analysis paths/watchdog retries may request MTF,
+// but only one runtime pipeline is allowed to execute at a time.
+let mtfInFlight=null;
+let mtfRequestSeq=0;
+async function loadMTF(force=false, generation=null, suppliedBundle=null){
+ if(mtfInFlight){
+  reportBobDiag("mtf:deduplicated",{request:++mtfRequestSeq,reason:"MTF request already in flight"});
+  return mtfInFlight;
+ }
+ const request=++mtfRequestSeq;
+ let promiseRef;
+ promiseRef=_loadMTFImpl(force,generation,suppliedBundle).finally(()=>{
+  if(mtfInFlight===promiseRef)mtfInFlight=null;
+ });
+ mtfInFlight=promiseRef;
+ reportBobDiag("mtf:start",{request,reason:"single-flight MTF run"});
+ return promiseRef;
+}
+
 function adxCalc(c,p=14){
  if(c.length<p*2+2)return 0;
  let tr=[],plus=[],minus=[];
