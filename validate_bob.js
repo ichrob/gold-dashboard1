@@ -27,3 +27,5 @@ if (!fs.readFileSync("sw.js","utf8").includes("/icon.svg?v=3")) throw new Error(
 if (/icon-192\\.png|icon-512\\.png/.test(fs.readFileSync("Bob.html","utf8"))) throw new Error("Bob.html still references removed PNG icons");
 
 console.log(`Bob JS/HTML/assets validation: OK (${scripts.length} inline script block)`);
+
+if (fs.readFileSync("Bob.html","utf8").includes("liveHistoryCache")) throw new Error("obsolete live history cache state must not exist");
