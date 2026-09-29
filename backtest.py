@@ -31,7 +31,7 @@ def atr(b,p=14):
 
 def tf_score(b):
     b=[x for x in b if not x.get("isOpen")]
-    if len(b)<50:return "NEUTRAL",False
+    if len(b)<200:return "NEUTRAL",False
     a=[x["close"] for x in b[-220:]]
     e20,e50=ema(a,20),ema(a,50); e200=ema(a,200) if len(a)>=200 else None
     R=rsi(a); f=ema(a,12); s=ema(a,26)
@@ -62,7 +62,13 @@ def stop_target(b,entry,dir,atr_mult=1.5,rr=2.0):
 def backtest(bars,cost_bps=5,slippage=0.20):
     bars=sorted([b for b in bars if not b.get("isOpen")],key=lambda x:x["openTime"])
     trades=[]; equity=0.0; peak=0.0; maxdd=0.0
-    i=220
+    # The live MTF model requires 200 closed bars on every timeframe.
+    # Estimate the input bar size so the test does not manufacture a 4h history
+    # from only a few days of 5m/15m/1h data.
+    deltas=[(bars[i]["openTime"]-bars[i-1]["openTime"])/60000 for i in range(1,min(len(bars),500)) if bars[i]["openTime"]>bars[i-1]["openTime"]]
+    source_minutes=max(1,round(sum(deltas)/len(deltas))) if deltas else 60
+    required_source_bars=math.ceil(200*240/source_minutes)+2
+    i=max(220,required_source_bars)
     while i<len(bars)-1:
         window=bars[:i+1]
         dirs={}
