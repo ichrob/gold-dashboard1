@@ -377,15 +377,23 @@ async function fetchLiveBundle(force=false){
        .sort((a,b)=>a.openTime-b.openTime);
     }finally{clearTimeout(tm)}
    };
-   const [b5,b1]=await Promise.all([chartFetch("5d","5m"),chartFetch("3mo","1h")]);
-   if(b5.length&&b1.length){
-    direct.history.bars_by_tf={"5m":b5,"15m":aggregateBrowserBars(b5,15),"1h":b1,"4h":aggregateBrowserBars(b1,240)};
+   const settled=await Promise.allSettled([chartFetch("5d","5m"),chartFetch("3mo","1h")]);
+   const b5=settled[0].status==="fulfilled"?settled[0].value:[];
+   const b1=settled[1].status==="fulfilled"?settled[1].value:[];
+   const historyErrors=[];
+   if(settled[0].status==="rejected")historyErrors.push("5m: "+String(settled[0].reason?.message||settled[0].reason||"nicht verfügbar"));
+   if(settled[1].status==="rejected")historyErrors.push("1h: "+String(settled[1].reason?.message||settled[1].reason||"nicht verfügbar"));
+   if(b5.length||b1.length){
+    const byTf={};
+    if(b5.length){byTf["5m"]=b5;byTf["15m"]=aggregateBrowserBars(b5,15);}
+    if(b1.length){byTf["1h"]=b1;byTf["4h"]=aggregateBrowserBars(b1,240);}
+    direct.history.bars_by_tf=byTf;
     direct.history.points=b5.map(b=>({t:new Date(b.openTime).toISOString(),p:b.close}));
-    direct.history.data_state={status:"fresh",source:"XAUS XAU/USD Spot + XAUS Chart · Browser",technical_4h_status:direct.history.bars_by_tf["4h"].length?"available":"unavailable",technical_errors:[]};
+    direct.history.data_state={status:"fresh",source:"XAUS XAU/USD Spot + XAUS Chart · Browser",technical_4h_status:direct.history.bars_by_tf["4h"]?.length?"available":"unavailable",technical_errors:historyErrors};
     liveBundleCache=direct;liveBundleAt=now;
     if($("quickPrice"))$("quickPrice").textContent=p0.toFixed(2)+" USD";
     if($("quickReason"))$("quickReason").textContent="XAU/USD · Live-Spot · technische Historie geladen";
-    console.info("[BOB] live:browser-history",b5.length,b1.length);
+    console.info("[BOB] live:browser-history",b5.length,b1.length,historyErrors);
     return direct;
    }
   }catch(chartError){
