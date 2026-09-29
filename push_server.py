@@ -199,11 +199,17 @@ class Handler(BaseHTTPRequestHandler):
                     kind = "general"
                 if kind not in ("general", "trade"):
                     kind = "general"
+                is_test = bool(data.get("test")) if isinstance(data, dict) else False
                 with db() as conn:
                     if kind == "trade":
-                        rows = conn.execute(
-                            "SELECT id, endpoint, subscription FROM subscriptions WHERE trade_enabled=TRUE AND active_trade=TRUE"
-                        ).fetchall()
+                        if is_test:
+                            rows = conn.execute(
+                                "SELECT id, endpoint, subscription FROM subscriptions WHERE trade_enabled=TRUE"
+                            ).fetchall()
+                        else:
+                            rows = conn.execute(
+                                "SELECT id, endpoint, subscription FROM subscriptions WHERE trade_enabled=TRUE AND active_trade=TRUE"
+                            ).fetchall()
                     else:
                         rows = conn.execute(
                             "SELECT id, endpoint, subscription FROM subscriptions WHERE general_enabled=TRUE"
