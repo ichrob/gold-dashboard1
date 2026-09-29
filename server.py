@@ -712,6 +712,15 @@ class Handler(BaseHTTPRequestHandler):
             return
 
 
+    def do_POST(self):
+        path = urlparse(self.path).path
+        auth = self.headers.get("Authorization", "")
+        expected = "Basic " + base64.b64encode(
+            f"{USER}:{PASSWORD}".encode("utf-8")
+        ).decode("ascii")
+        worker_token = self.headers.get("X-Bob-Worker-Token", "")
+        worker_ok = bool(SIGNAL_WORKER_TOKEN) and hmac.compare_digest(worker_token, SIGNAL_WORKER_TOKEN)
+
         if path == "/api/push/send" and not worker_ok and (not USER or not PASSWORD or not hmac.compare_digest(auth, expected)):
             self.send_response(401)
             self.send_header("WWW-Authenticate", 'Basic realm="Bob"')
@@ -787,8 +796,6 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write('{"error":"Push-Service nicht erreichbar"}'.encode("utf-8"))
 
-    def do_POST(self):
-        path = urlparse(self.path).path
         if path != "/api/diag":
             self.send_response(404)
             self.send_header("Cache-Control", "no-store")
