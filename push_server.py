@@ -231,8 +231,11 @@ class Handler(BaseHTTPRequestHandler):
                                 conn.commit()
                             removed += 1
                         else:
+                            response = getattr(exc, "response", None)
+                            status = getattr(response, "status_code", None)
+                            detail = str(getattr(response, "text", "") or "")[:300]
                             print(
-                                f"push delivery failed ({type(exc).__name__})",
+                                f"push delivery failed ({type(exc).__name__}) status={status} detail={detail}",
                                 flush=True,
                             )
                 send_json(self, 200, {"ok": True, "sent": sent, "removed": removed})
