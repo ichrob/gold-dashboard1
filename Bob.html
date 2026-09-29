@@ -768,13 +768,15 @@ if("serviceWorker" in navigator){
   });
   window.addEventListener("load",()=>{
     sessionStorage.removeItem("bob-sw-reloaded");
-    navigator.serviceWorker.register("/sw.js",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{});
+    navigator.serviceWorker.register("/sw.js?v=7",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{});
   },{once:true});
 }
-restoreTradeMgmt(); updateResearchPanel();
+try{restoreTradeMgmt();}catch(e){console.warn("Bob trade UI init",e)}
+try{updateResearchPanel();}catch(e){console.warn("Bob research UI init",e)}
 const fxField=$("fxRate"),ccyField=$("displayCcy");
 if(fxField)fxField.addEventListener("input",()=>fxField.dataset.manual="1");
 if(ccyField)ccyField.addEventListener("change",()=>{if(fxField)fxField.dataset.manual="";loadData(true);});
+window.addEventListener("error",e=>{const el=$("quickSignal");if(el&&el.textContent==="Warte auf Live-Daten"){el.textContent="🔴 BOB-STARTFEHLER";el.className="signal bad";$("quickReason").textContent="Bob konnte die Live-Abfrage nicht starten. Bitte erneut laden.";}});
 loadData();
 setInterval(()=>{ if(document.visibilityState==="visible") loadData(); }, 60000);
 </script></body></html>
