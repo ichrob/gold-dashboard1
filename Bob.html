@@ -1057,7 +1057,7 @@ if("serviceWorker" in navigator){
   });
   window.addEventListener("load",()=>{
     sessionStorage.removeItem("bob-sw-reloaded");
-    navigator.serviceWorker.register("/sw.js?v=11",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{});
+    navigator.serviceWorker.register("/sw.js?v=12",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{});
     // MTF watchdog: if the live analysis rendered but the MTF cells did not,
     // retry from the already cached live bundle without requiring a page reload.
     let mtfWatchdogRuns=0;
