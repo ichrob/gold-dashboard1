@@ -1,7 +1,7 @@
 /* Bob Push Manager: browser notification + optional server Web Push registration. */
 (function(){
   const KEY="bobPushV1", LEGACY="goldScannerPush";
-  const PUSH_API="https://bob-push-service.onrender.com";
+  const PUSH_API="/api/push";
   const defaults={registered:false,serverRegistered:false,general:false,trade:false,activeTrade:false};
   function read(){
     try{
