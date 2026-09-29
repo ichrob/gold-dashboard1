@@ -45,35 +45,29 @@ class OrderDraft:
     data_age_seconds: Optional[int]
     multiplier: float
     currency: str
+    reference_price: float
     requires_manual_confirmation: bool = True
     frozen: bool = True
 
 
 def _validate_isin(isin: str) -> None:
-    """Validate ISIN structure and its Luhn check digit."""
     if len(isin) != 12 or not isin[:2].isalpha() or not isin[2:].isalnum():
         raise ValueError("ISIN must contain 12 alphanumeric characters with a 2-letter country prefix")
-
     expanded = "".join(
         str(ord(char.upper()) - 55) if char.isalpha() else char
         for char in isin
     )
-
-    # After converting letters to numbers, an ISIN is a variable-length
-    # digit string. Luhn validation doubles every second digit from the left.
     total = 0
     for index, char in enumerate(expanded):
         value = int(char)
         if index % 2 == 1:
             value *= 2
         total += value // 10 + value % 10
-
     if total % 10 != 0:
         raise ValueError("Invalid ISIN checksum")
 
 
 def knockout_distance_pct(current_price: float, knockout_price: float) -> float:
-    """Return absolute percentage distance from current price to KO level."""
     if current_price <= 0 or knockout_price <= 0:
         raise ValueError("Prices must be positive")
     return abs(current_price - knockout_price) / current_price * 100.0
@@ -85,7 +79,6 @@ def risk_per_unit(
     stop_loss: float,
     multiplier: float = 1.0,
 ) -> float:
-    """Return EUR-equivalent price risk per unit and validate stop direction."""
     if entry_price <= 0 or stop_loss <= 0 or multiplier <= 0:
         raise ValueError("Entry, stop-loss and multiplier must be positive")
     if side == "BUY" and stop_loss >= entry_price:
@@ -96,7 +89,6 @@ def risk_per_unit(
 
 
 def position_size(risk_budget_eur: float, risk_per_unit_eur: float) -> int:
-    """Return the largest whole-unit position within the risk budget."""
     if risk_budget_eur <= 0 or risk_per_unit_eur <= 0:
         raise ValueError("Risk budget and unit risk must be positive")
     return int(risk_budget_eur // risk_per_unit_eur)
@@ -110,7 +102,6 @@ def validate_product(
     max_data_age_seconds: int = 30,
     min_ko_distance_pct: float = 0.0,
 ) -> None:
-    """Reject a product when identity, data freshness or market-quality checks fail."""
     _validate_isin(product.isin)
     if not product.name.strip():
         raise ValueError("Product name must not be empty")
@@ -156,7 +147,7 @@ def prepare_order(
     max_data_age_seconds: int = 30,
     min_ko_distance_pct: float = 0.0,
 ) -> OrderDraft:
-    """Build a DEGIRO order draft for manual review only."""
+    """Build a frozen DEGIRO order draft for manual review only."""
     validate_product(
         product,
         max_spread_pct=max_spread_pct,
@@ -204,4 +195,60 @@ def prepare_order(
         data_age_seconds=product.data_age_seconds,
         multiplier=product.multiplier,
         currency=product.currency,
+        reference_price=product.current_price,
     )
+
+
+def revalidate_order(
+    draft: OrderDraft,
+    fresh_product: DegiroProduct,
+    *,
+    max_price_drift_pct: float = 0.5,
+    max_spread_pct: float = 1.0,
+    min_liquidity_score: float = 0.0,
+    max_data_age_seconds: int = 30,
+    min_ko_distance_pct: float = 0.0,
+) -> None:
+    """Revalidate a frozen draft immediately before manual confirmation.
+
+    Any critical product identity/risk change or excessive price drift rejects
+    the frozen draft. This never mutates or submits the draft.
+    """
+    if not draft.frozen or not draft.requires_manual_confirmation:
+        raise ValueError("Order draft is not in the required frozen/manual-confirmation state")
+    validate_product(
+        fresh_product,
+        max_spread_pct=max_spread_pct,
+        min_liquidity_score=min_liquidity_score,
+        max_data_age_seconds=max_data_age_seconds,
+        min_ko_distance_pct=min_ko_distance_pct,
+    )
+    if fresh_product.isin != draft.isin:
+        raise ValueError("Product identity changed")
+    if fresh_product.side != draft.side:
+        raise ValueError("Order direction changed")
+    if fresh_product.currency != draft.currency:
+        raise ValueError("Product currency changed")
+    if fresh_product.multiplier != draft.multiplier:
+        raise ValueError("Product multiplier changed")
+    if fresh_product.leverage != draft.leverage:
+        raise ValueError("Product leverage changed")
+    if fresh_product.knockout_price != draft.knockout_price:
+        raise ValueError("Knockout level changed")
+
+    if max_price_drift_pct < 0:
+        raise ValueError("Maximum price drift must not be negative")
+    drift_pct = abs(fresh_product.current_price - draft.reference_price) / draft.reference_price * 100.0
+    if drift_pct > max_price_drift_pct:
+        raise ValueError("Market price moved beyond the confirmation threshold")
+
+    if draft.order_type in ("LIMIT", "STOP_LIMIT") and draft.entry_price is None:
+        raise ValueError("Frozen draft is missing its required entry price")
+    if draft.order_type in ("STOP_LOSS", "STOP_LIMIT") and draft.stop_loss is None:
+        raise ValueError("Frozen draft is missing its required stop-loss")
+    if draft.stop_loss is not None:
+        effective_entry = draft.entry_price if draft.entry_price is not None else fresh_product.current_price
+        unit_risk = risk_per_unit(draft.side, effective_entry, draft.stop_loss, draft.multiplier)
+        current_risk = unit_risk * draft.quantity
+        if draft.max_risk_eur is not None and current_risk > draft.max_risk_eur + 1e-9:
+            raise ValueError("Frozen draft risk no longer matches its recorded risk")
