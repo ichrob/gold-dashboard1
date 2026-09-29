@@ -44,3 +44,5 @@ if (!fs.readFileSync("server.py","utf8").includes("https://api.goldprice.dev/v1/
 if (!fs.readFileSync("Bob.html","utf8").includes("navigator.serviceWorker.addEventListener(\"controllerchange\"")) throw new Error("service worker update reload guard missing");
 
 if (!fs.readFileSync("Bob.html","utf8").includes("https://api.goldprice.dev/v1/prices?symbol=XAU-USD-SPOT")) throw new Error("browser live spot fallback missing");
+
+if (!fs.readFileSync("Bob.html","utf8").includes("Math.abs(pct)>0.50")) throw new Error("spot/futures divergence must use absolute spread");
