@@ -657,6 +657,36 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write('{"error":"Push-Service nicht erreichbar"}'.encode("utf-8"))
 
+    def do_POST(self):
+        path = urlparse(self.path).path
+        if path != "/api/diag":
+            self.send_response(404)
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(b"Not found.")
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0") or 0)
+            if length <= 0 or length > 8192:
+                raise ValueError("invalid diagnostic payload size")
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            event = str(payload.get("event", "unknown"))[:80]
+            details = payload.get("details") if isinstance(payload.get("details"), dict) else {}
+            safe = {}
+            for key in ("bars5m","bars15m","bars1h","bars4h","available","overall","error","reason","historyStatus","source","direct","server"):
+                if key in details:
+                    value = details[key]
+                    safe[key] = str(value)[:300] if isinstance(value, str) else value
+            print(f"BOB_DIAG event={event} seq={payload.get('seq')} details={json.dumps(safe, ensure_ascii=False, separators=(',',':'))}", flush=True)
+            self.send_response(204)
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+        except Exception as exc:
+            print(f"BOB_DIAG_ERROR {type(exc).__name__}: {exc}", flush=True)
+            self.send_response(400)
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+
     def log_message(self, fmt, *args):
         pass
 
