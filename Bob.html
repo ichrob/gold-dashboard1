@@ -1044,7 +1044,7 @@ if("serviceWorker" in navigator){
   });
   window.addEventListener("load",()=>{
     sessionStorage.removeItem("bob-sw-reloaded");
-    navigator.serviceWorker.register("/sw.js?v=9",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{});
+    navigator.serviceWorker.register("/sw.js?v=10",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{});
     // MTF watchdog: if the live analysis rendered but the MTF cells did not,
     // retry from the already cached live bundle without requiring a page reload.
     let mtfWatchdogRuns=0;
@@ -1060,6 +1060,16 @@ if("serviceWorker" in navigator){
     },1000);
   },{once:true});
 }
+// Early runtime heartbeat: proves that the currently displayed Bob shell executes
+// the current JavaScript and can reach the same-origin Render server.
+try{
+ fetch("/api/diag",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+  event:"boot:client",
+  at:new Date().toISOString(),
+  details:{reason:"current Bob HTML runtime reached startup"}
+ }),cache:"no-store",keepalive:true
+ }).catch(()=>{});
+}catch(_){}
 try{restoreTradeMgmt();}catch(e){console.warn("Bob trade UI init",e)}
 try{updateResearchPanel();}catch(e){console.warn("Bob research UI init",e)}
 const fxField=$("fxRate"),ccyField=$("displayCcy");
