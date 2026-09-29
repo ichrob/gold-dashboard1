@@ -71,6 +71,9 @@ assert(!renderSource.includes("type: worker"));
 assert((serverSource.match(/if path == "\/api\/live":/g) || []).length === 1);
 assert((serverSource.match(/if path == "\/sw\.js"/g) || []).length === 1);
 assert((serverSource.match(/if path == "\/manifest\.json"/g) || []).length === 1);
+assert(!/icon-192\\.png|icon-512\\.png/.test(fs.readFileSync("manifest.json","utf8")));
+assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
+
 
 
 (async () => {
