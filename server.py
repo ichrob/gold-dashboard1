@@ -486,7 +486,7 @@ class Handler(BaseHTTPRequestHandler):
 
         path = urlparse(self.path).path
 
-                # Fresh pathname bypasses stale PWA shells on devices that cached an older root.
+        # Fresh pathname bypasses stale PWA shells on devices that cached an older root.
         if path == "/bob-live":
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
