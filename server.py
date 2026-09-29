@@ -13,6 +13,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 USER = os.environ.get("BOB_USER", "")
 PASSWORD = os.environ.get("BOB_PASSWORD", "")
+PUSH_SERVICE_URL = os.environ.get("PUSH_SERVICE_URL", "")
+PUSH_SERVICE_TOKEN = os.environ.get("PUSH_SERVICE_TOKEN", "")
 
 BASE_DIR = Path(__file__).resolve().parent
 HTML_PATH = BASE_DIR / "Bob.html"
@@ -448,6 +450,80 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(b"Not found.")
+
+    def do_POST(self):
+        auth = self.headers.get("Authorization", "")
+        expected = "Basic " + base64.b64encode(
+            f"{USER}:{PASSWORD}".encode("utf-8")
+        ).decode("ascii")
+        if not USER or not PASSWORD or not hmac.compare_digest(auth, expected):
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", 'Basic realm="Bob"')
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(b"Authentication required.")
+            return
+
+        path = urlparse(self.path).path
+        if path != "/api/push/send":
+            self.send_response(404)
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(b"Not found.")
+            return
+
+        if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
+            self.send_response(503)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b'{"error":"Push-Service nicht konfiguriert"}')
+            return
+
+        try:
+            length = int(self.headers.get("Content-Length", "0") or 0)
+            if length <= 0 or length > 65536:
+                raise ValueError("Ungültige Payload-Größe")
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+            base = PUSH_SERVICE_URL
+            if not base.startswith("http://") and not base.startswith("https://"):
+                base = "http://" + base
+            req = Request(
+                base.rstrip("/") + "/send",
+                data=body,
+                method="POST",
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Bob-Push-Token": PUSH_SERVICE_TOKEN,
+                    "Accept": "application/json",
+                },
+            )
+            with urlopen(req, timeout=12) as response:
+                result = response.read()
+                status = response.status
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(result)
+        except HTTPError as exc:
+            body = exc.read() or b'{"error":"Push-Service-Fehler"}'
+            self.send_response(exc.code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        except (ValueError, json.JSONDecodeError):
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b'{"error":"Ungültige Push-Payload"}')
+        except (URLError, TimeoutError):
+            self.send_response(503)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b'{"error":"Push-Service nicht erreichbar"}')
 
     def log_message(self, fmt, *args):
         pass
