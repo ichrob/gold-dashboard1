@@ -712,7 +712,15 @@ function riskCalc(){
  $("riskout").innerHTML=`Richtung: <b>${dir}</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Stop: <b>${sm.stop.toFixed(2)}</b> · ${sm.reason}<br>Ziel: <b>${tgt.target.toFixed(2)}</b><br>CRV: <b>${tgt.rr.toFixed(2)} : 1</b><br>Theoretischer Basis-Positionswert: <b>${approxNotionalEur.toFixed(2)} €</b><br>Rechnerische Margin bei ${lev}×: <b>${marginEur.toFixed(2)} €</b><br><span class="small">FX ${fx.toFixed(4)} EUR/USD · Basiswertrechnung, keine DEGIRO-Produktstückzahl.</span>`;
 }
 if("serviceWorker" in navigator){
-  window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{}),{once:true});
+  let bobSwReloaded=false;
+  navigator.serviceWorker.addEventListener("controllerchange",()=>{
+    if(bobSwReloaded||sessionStorage.getItem("bob-sw-reloaded")==="1")return;
+    bobSwReloaded=true;sessionStorage.setItem("bob-sw-reloaded","1");location.reload();
+  });
+  window.addEventListener("load",()=>{
+    sessionStorage.removeItem("bob-sw-reloaded");
+    navigator.serviceWorker.register("/sw.js",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{});
+  },{once:true});
 }
 restoreTradeMgmt(); updateResearchPanel();
 const fxField=$("fxRate"),ccyField=$("displayCcy");
