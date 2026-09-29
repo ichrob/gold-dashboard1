@@ -654,8 +654,8 @@ function usdEurRate(){
  }
  return Number(liveFxUsdEur);
 }
-async function fetchSpotSources(){
- const j=await fetchLiveBundle();const s=j.spots||{},xaus=Number(s.xaus),gp=Number(s.goldprice),reference=Number(s.yahoo_gc_f||s.biquote),diff=Number(s.diff),pct=Number(s.pct);
+async function fetchSpotSources(bundle=null){
+ const j=bundle||await fetchLiveBundle();const s=j.spots||{},xaus=Number(s.xaus),gp=Number(s.goldprice),reference=Number(s.yahoo_gc_f||s.biquote),diff=Number(s.diff),pct=Number(s.pct);
  if(!Number.isFinite(xaus)||!Number.isFinite(gp)||!Number.isFinite(pct))throw Error("Ungültige Live-Goldwerte");
  const sourceWarning=Math.abs(pct)>0.50?"⚠️ Spot/Futures-Abweichung "+pct.toFixed(3)+"% – Futures nur als technische Referenz":"";
  return {xaus,gp,reference,diff,pct,sourceWarning,usd_eur:Number(s.usd_eur),usd_chf:Number(s.usd_chf)};
@@ -664,7 +664,7 @@ async function loadData(){
  try{
   const tf=$("tf").value,n=+$("n").value;
   if(!["5m","15m","1h"].includes(tf))throw Error("Diese Zeitebene wird nicht unterstützt.");
-  const bundle=await fetchLiveBundle(true),spots=await fetchSpotSources();
+  const bundle=await fetchLiveBundle(),spots=await fetchSpotSources(bundle);
   const tfBars=bundle.history?.bars_by_tf||{};
   const bars=tfBars[tf]||[];
 
