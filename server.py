@@ -320,6 +320,7 @@ def build_live_bundle():
                 "technical_4h_status": "available" if bars_4h else "unavailable",
                 "technical_4h_error": "; ".join(technical_errors) if technical_errors else None,
                 "goldprice_status": spot_source,
+                "xaus_is_spot": spot_source == "GoldPrice.dev · live",
                 "primary": spot_source,
                 "reference": "Yahoo Finance GC=F",
                 "reference_note": "GC=F ist Gold-Futures, nicht XAU/USD Spot",
