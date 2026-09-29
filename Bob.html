@@ -313,7 +313,7 @@ async function testPush(){
  if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
  const results=[];
  if(pushState.general)results.push(await notifyGeneral("Bob – Test","Allgemeine Trade-Empfehlungen"));
- if(pushState.trade)results.push(await notify("trade","Bob – Trade-Test","Stop-Loss- und Trade-Schließen-Pushs sind aktiv.",{test:true}));
+ if(pushState.trade)results.push(await BobPush.emit("trade","Bob – Trade-Test","Stop-Loss- und Trade-Schließen-Pushs sind aktiv.",{test:true}));
  const ntfyConfigured=Boolean(ntfyTopic());
  if(ntfyConfigured && pushState.general)results.push(await sendNtfy("general","Bob – ntfy-Test","Push-Kanal funktioniert."));
  const localSent=results.some(Boolean);
