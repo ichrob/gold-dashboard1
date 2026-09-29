@@ -378,6 +378,37 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(ICON)
             return
 
+        if path == "/manifest.json" and MANIFEST is not None:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/manifest+json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(MANIFEST)
+            return
+
+        if path == "/api/live":
+            try:
+                payload = build_live_bundle()
+                body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as exc:
+                print(f"Bob /api/live ERROR: {type(exc).__name__}: {exc}", flush=True)
+                body = json.dumps({"error": str(exc), "error_type": type(exc).__name__}).encode("utf-8")
+                self.send_response(502)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
+            return
+
+
         auth = self.headers.get("Authorization", "")
         expected = "Basic " + base64.b64encode(
             f"{USER}:{PASSWORD}".encode("utf-8")
@@ -447,115 +478,5 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(b'{"error":"Push-Service nicht erreichbar"}')
             return
 
-        if path == "/api/live":
-            try:
-                payload = build_live_bundle()
-                body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("X-Content-Type-Options", "nosniff")
-                self.end_headers()
-                self.wfile.write(body)
-            except Exception as exc:
-                print(f"Bob /api/live ERROR: {type(exc).__name__}: {exc}", flush=True)
-                body = json.dumps({"error": str(exc), "error_type": type(exc).__name__}).encode("utf-8")
-                self.send_response(502)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("X-Content-Type-Options", "nosniff")
-                self.end_headers()
-                self.wfile.write(body)
-            return
-
-        if path == "/manifest.json" and MANIFEST is not None:
-            self.send_response(200)
-            self.send_header("Content-Type", "application/manifest+json; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.end_headers()
-            self.wfile.write(MANIFEST)
-            return
 
 
-        if not worker_ok and (not USER or not PASSWORD or not hmac.compare_digest(auth, expected)):
-            self.send_response(401)
-            self.send_header("WWW-Authenticate", 'Basic realm="Bob"')
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(b"Authentication required.")
-            return
-
-        path = urlparse(self.path).path
-        if path not in ("/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe"):
-            self.send_response(404)
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(b"Not found.")
-            return
-
-        if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
-            self.send_response(503)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
-            self.wfile.write('{"error":"Push-Service nicht konfiguriert"}'.encode("utf-8"))
-            return
-
-        try:
-            length = int(self.headers.get("Content-Length", "0") or 0)
-            if length <= 0 or length > 65536:
-                raise ValueError("Ungültige Payload-Größe")
-            payload = json.loads(self.rfile.read(length).decode("utf-8"))
-            body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-            base = PUSH_SERVICE_URL
-            if not base.startswith("http://") and not base.startswith("https://"):
-                base = "http://" + base
-            relay_path = {
-                "/api/push/send": "/send",
-                "/api/push/subscribe": "/subscribe",
-                "/api/push/unsubscribe": "/unsubscribe",
-            }[path]
-            req = Request(
-                base.rstrip("/") + relay_path,
-                data=body,
-                method="POST",
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Bob-Push-Token": PUSH_SERVICE_TOKEN,
-                    "Accept": "application/json",
-                },
-            )
-            with urlopen(req, timeout=12) as response:
-                result = response.read()
-                status = response.status
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.end_headers()
-            self.wfile.write(result)
-        except HTTPError as exc:
-            body = exc.read() or b'{"error":"Push-Service-Fehler"}'
-            self.send_response(exc.code)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(body)
-        except (ValueError, json.JSONDecodeError):
-            self.send_response(400)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
-            self.wfile.write('{"error":"Ungültige Push-Payload"}'.encode("utf-8"))
-        except (URLError, TimeoutError):
-            self.send_response(503)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.end_headers()
-            self.wfile.write('{"error":"Push-Service nicht erreichbar"}'.encode("utf-8"))
-
-    def log_message(self, fmt, *args):
-        pass
-
-port = int(os.environ.get("PORT", "10000"))
-ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
-
-# Bob maintenance marker: 4h MTF upgrade in progress
