@@ -954,6 +954,24 @@ async function loadData(){
   // Final retry after the main analysis has rendered. This is intentionally
   // fire-and-forget so a slow MTF source can never block the live price.
   loadMTF(true,generation,bundle);
+  // One compact pipeline snapshot lets us diagnose all major UI values, not only MTF.
+  reportBobDiag("pipeline:complete",{
+   direct:!!bundle?.spots?.xaus_is_spot,
+   bars5m:(bundle.history?.bars_by_tf?.["5m"]||[]).length,
+   bars15m:(bundle.history?.bars_by_tf?.["15m"]||[]).length,
+   bars1h:(bundle.history?.bars_by_tf?.["1h"]||[]).length,
+   bars4h:(bundle.history?.bars_by_tf?.["4h"]||[]).length,
+   available:!!C.length,
+   overall:typeof MTF==="object"?MTF.overall:"unknown",
+   historyStatus:bundle.history?.data_state?.status||"unknown",
+   source:bundle.history?.data_state?.source||"unknown",
+   reason:[
+    ["price",$("quickPrice")?.textContent],
+    ["trend",$("quickTrend")?.textContent],
+    ["mtf",$("quickMtf")?.textContent],
+    ["signal",$("quickSignal")?.textContent]
+   ].map(x=>x[0]+"="+String(x[1]||"")).join(" | ")
+  });
  }catch(e){
   reportBobDiag("live:failed",{error:e?.message||String(e)});
   console.error("[BOB] live:failed",e);
