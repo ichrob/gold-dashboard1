@@ -58,7 +58,7 @@ function loadPush() {
   };
   context.window.Notification = context.Notification;
   context.window.navigator = context.navigator;
-  context.fetch = context.window.fetch;
+  context.window.fetch = context.fetch;
   context.window.isSecureContext = true;
   vm.createContext(context);
   vm.runInContext(fs.readFileSync("push_manager.js", "utf8"), context, { filename: "push_manager.js" });
