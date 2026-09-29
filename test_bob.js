@@ -29,6 +29,9 @@ function loadPush() {
       }
     }
   };
+  context.window.Notification = context.Notification;
+  context.window.navigator = context.navigator;
+  context.window.isSecureContext = true;
   vm.createContext(context);
   vm.runInContext(fs.readFileSync("push_manager.js", "utf8"), context, { filename: "push_manager.js" });
   return { context, store, serviceWorkerRegistration, get registrationCalls() { return registrationCalls; } };
