@@ -36,3 +36,5 @@ if (!fs.readFileSync("Bob.html","utf8").includes("timeframeScore(bars,tf)")) thr
 
 if (!fs.readFileSync("server.py","utf8").includes('"xaus_is_spot": spot_source == "GoldPrice.dev · live"')) throw new Error("spot fallback provenance flag missing");
 if (!fs.readFileSync("Bob.html","utf8").includes("REFERENZ · GC=F")) throw new Error("UI must distinguish futures fallback from XAU/USD spot");
+
+if (!fs.readFileSync("Bob.html","utf8").includes("var C=[], lastPrice=0, A={}, lastMtfAt=0;")) throw new Error("live analysis state must be hoisted");
