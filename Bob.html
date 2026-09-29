@@ -318,6 +318,15 @@ function timeframeScore(bars,tf=""){
   const dir=components>=4?(score>=2?"LONG":score<=-2?"SHORT":"NEUTRAL"):"NEUTRAL";
   return {dir,score,rsi:R,price:a.at(-1),openTime:closed.at(-1).openTime,components,available:true,fullHistory:a.length>=200};
 }
+function aggregateBrowserBars(bars, minutes){
+ const step=minutes*60*1000, buckets=new Map();
+ for(const b of (bars||[])){
+  const bucket=Math.floor(Number(b.openTime)/step)*step;
+  const x=buckets.get(bucket)||{openTime:bucket,open:b.open,high:b.high,low:b.low,close:b.close,isOpen:false};
+  x.high=Math.max(x.high,b.high);x.low=Math.min(x.low,b.low);x.close=b.close;buckets.set(bucket,x);
+ }
+ return [...buckets.values()].sort((a,b)=>a.openTime-b.openTime);
+}
 function barsFromIntraday(points, minutes){
   const step=minutes*60*1000, buckets=new Map();
   for(const x of (points||[])){
@@ -353,6 +362,35 @@ async function fetchLiveBundle(force=false){
    spots:{xaus:p0,goldprice:p0,yahoo_gc_f:null,diff:0,pct:0,xaus_age_seconds:age0!==null?age0/1000:null,goldprice_age_seconds:age0!==null?age0/1000:null,usd_eur:null,usd_chf:null,goldprice_status:"XAUS · direkt",xaus_is_spot:true,primary:"XAUS · direkt",reference:"Yahoo Finance GC=F",reference_note:"GC=F ist Gold-Futures, nicht XAU/USD Spot",spot_error:state0==="stale"?"XAUS liefert den letzten bekannten realen Preis (stale)":null},
    history:{bars_by_tf:{},points:[],data_state:{status:"partial",source:"XAUS XAU/USD Spot · Direktabruf",technical_4h_status:"unavailable",technical_errors:["Technikhistorie wird separat über Bob/Render geladen"]},age_seconds:age0!==null?age0/1000:null}
   };
+  // Browser-side technical history: XAUS provides the same XAU series used by Bob's
+  // server proxy. Load it directly so Render availability cannot block analysis.
+  try{
+   const chartFetch=async(range,interval)=>{
+    const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),4500);
+    try{
+     const rr=await fetch("https://xaus.com/api/v1/chart?symbol=xau&range="+range+"&interval="+interval+"&fresh="+now,{cache:"no-store",signal:ctl.signal});
+     if(!rr.ok)throw Error("XAUS chart HTTP "+rr.status);
+     const pp=await rr.json(),pts=pp?.points;
+     if(!Array.isArray(pts)||!pts.length)throw Error("XAUS chart liefert keine Punkte");
+     return pts.map(p=>({openTime:Number(p.t)*1000,open:Number(p.o),high:Number(p.h),low:Number(p.l),close:Number(p.c),isOpen:false}))
+       .filter(b=>[b.openTime,b.open,b.high,b.low,b.close].every(Number.isFinite))
+       .sort((a,b)=>a.openTime-b.openTime);
+    }finally{clearTimeout(tm)}
+   };
+   const [b5,b1]=await Promise.all([chartFetch("5d","5m"),chartFetch("3mo","1h")]);
+   if(b5.length&&b1.length){
+    direct.history.bars_by_tf={"5m":b5,"15m":aggregateBrowserBars(b5,15),"1h":b1,"4h":aggregateBrowserBars(b1,240)};
+    direct.history.points=b5.map(b=>({t:new Date(b.openTime).toISOString(),p:b.close}));
+    direct.history.data_state={status:"fresh",source:"XAUS XAU/USD Spot + XAUS Chart · Browser",technical_4h_status:direct.history.bars_by_tf["4h"].length?"available":"unavailable",technical_errors:[]};
+    liveBundleCache=direct;liveBundleAt=now;
+    if($("quickPrice"))$("quickPrice").textContent=p0.toFixed(2)+" USD";
+    if($("quickReason"))$("quickReason").textContent="XAU/USD · Live-Spot · technische Historie geladen";
+    console.info("[BOB] live:browser-history",b5.length,b1.length);
+    return direct;
+   }
+  }catch(chartError){
+   console.warn("[BOB] live:browser-history-error",chartError);
+  }
   directSpotBundle=direct;
   // Keep the direct spot heartbeat, but continue to /api/live so technical history can load.
   if($("quickPrice"))$("quickPrice").textContent=p0.toFixed(2)+" USD";
