@@ -336,6 +336,30 @@ async function fetchLiveBundle(force=false){
  if(diag)diag.textContent="Verbinde mit Bob Live-Daten …";
  console.info("[BOB] live:start",new Date(now).toISOString());
  if(!force&&liveBundleCache&&now-liveBundleAt<30000)return liveBundleCache;
+ // Primary browser heartbeat: XAUS explicitly supports CORS and returns XAU/USD spot directly.
+ // This prevents a slow/blocked Render upstream from hiding the live price in Bob.
+ try{
+  const controller0=new AbortController();
+  const timer0=setTimeout(()=>controller0.abort(),3500);
+  let r0;
+  try{r0=await fetch("https://xaus.com/api/v1/spot?compact=1&fresh="+now,{cache:"no-store",signal:controller0.signal})}finally{clearTimeout(timer0)}
+  if(!r0.ok)throw Error("XAUS HTTP "+r0.status);
+  const d0=await r0.json(),p0=Number(d0?.spot_usd_oz),state0=d0?.data_state?.status;
+  const age0=d0?.price_as_of?Math.max(0,Date.now()-Date.parse(d0.price_as_of)):null;
+  if(!Number.isFinite(p0)||p0<=0||state0==="unavailable")throw Error("XAUS liefert keinen gültigen XAU/USD-Preis");
+  if(age0!==null&&age0>180000)throw Error("XAUS-Preis ist zu alt");
+  const direct={
+   fetched_at:Math.floor(Date.now()/1000),
+   spots:{xaus:p0,goldprice:p0,yahoo_gc_f:null,diff:0,pct:0,xaus_age_seconds:age0!==null?age0/1000:null,goldprice_age_seconds:age0!==null?age0/1000:null,usd_eur:null,usd_chf:null,goldprice_status:"XAUS · direkt",xaus_is_spot:true,primary:"XAUS · direkt",reference:"Yahoo Finance GC=F",reference_note:"GC=F ist Gold-Futures, nicht XAU/USD Spot",spot_error:state0==="stale"?"XAUS liefert den letzten bekannten realen Preis (stale)":null},
+   history:{bars_by_tf:{},points:[],data_state:{status:"partial",source:"XAUS XAU/USD Spot · Direktabruf",technical_4h_status:"unavailable",technical_errors:["Technikhistorie wird separat über Bob/Render geladen"]},age_seconds:age0!==null?age0/1000:null}
+  };
+  liveBundleCache=direct;liveBundleAt=now;
+  if($("quickReason"))$("quickReason").textContent=state0==="stale"?"XAU/USD · XAUS letzter bekannter Preis":"XAU/USD · XAUS Live-Spot";
+  console.info("[BOB] live:direct-xaus",p0,state0);
+  return direct;
+ }catch(directError){
+  console.warn("[BOB] live:direct-xaus-error",directError);
+ }
  try{
   const liveUrl="/api/live?fresh="+now;
   console.info("[BOB] live:request",liveUrl);
