@@ -686,9 +686,10 @@ function riskCalc(){
  const sm=stopModel(dir,lastPrice,A.at,m),tgt=targetModel(dir,lastPrice,sm.stop,rr),dist=Math.abs(lastPrice-sm.stop);
  if(!sm.stop||!tgt.target||tgt.rr<1){$("riskout").textContent="Kein valides Risiko-/CRV-Modell.";return}
  if(!Number.isFinite(fx)||fx<=0){$("riskout").textContent="Keine gültige USD→EUR-FX-Rate. Bitte fxRate setzen.";return;}
- const maxLossUsd=euro/fx;
- const notionalUsd=maxLossUsd/(dist/lastPrice),notionalEur=notionalUsd*fx,marginEur=notionalEur/lev;
- $("riskout").innerHTML=`Richtung: <b>${dir}</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Stop: <b>${sm.stop.toFixed(2)}</b> · ${sm.reason}<br>Ziel: <b>${tgt.target.toFixed(2)}</b><br>CRV: <b>${tgt.rr.toFixed(2)} : 1</b><br>Theoretischer Basis-Positionswert: <b>${notionalEur.toFixed(2)} €</b><br>Rechnerische Margin bei ${lev}×: <b>${marginEur.toFixed(2)} €</b><br><span class="small">FX ${fx.toFixed(4)} EUR/USD · Basiswertrechnung, keine DEGIRO-Produktstückzahl.</span>`;
+ const model=BobDegiro.riskModel({spot:lastPrice,stop:sm.stop,riskEur:euro,fxUsdEur:fx,leverage:lev});
+ if(!model.ok){$("riskout").textContent=model.reason;return;}
+ const {approxNotionalEur,marginEur}=model;
+ $("riskout").innerHTML=`Richtung: <b>${dir}</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Stop: <b>${sm.stop.toFixed(2)}</b> · ${sm.reason}<br>Ziel: <b>${tgt.target.toFixed(2)}</b><br>CRV: <b>${tgt.rr.toFixed(2)} : 1</b><br>Theoretischer Basis-Positionswert: <b>${approxNotionalEur.toFixed(2)} €</b><br>Rechnerische Margin bei ${lev}×: <b>${marginEur.toFixed(2)} €</b><br><span class="small">FX ${fx.toFixed(4)} EUR/USD · Basiswertrechnung, keine DEGIRO-Produktstückzahl.</span>`;
 }
 if("serviceWorker" in navigator){
   window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{}),{once:true});
