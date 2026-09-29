@@ -1,7 +1,8 @@
-/* Bob Push Manager: one canonical browser-notification path, PWA-safe and state-migrating. */
+/* Bob Push Manager: browser notification + optional server Web Push registration. */
 (function(){
   const KEY="bobPushV1", LEGACY="goldScannerPush";
-  const defaults={registered:false,general:false,trade:false,activeTrade:false};
+  const PUSH_API="https://bob-push-service.onrender.com";
+  const defaults={registered:false,serverRegistered:false,general:false,trade:false,activeTrade:false};
   function read(){
     try{
       const raw=localStorage.getItem(KEY);
@@ -12,16 +13,40 @@
     return {...defaults};
   }
   function save(s){const next={...defaults,...s};try{localStorage.setItem(KEY,JSON.stringify(next));}catch(_){}return next;}
+  function b64ToBytes(value){
+    const pad="=".repeat((4-(value.length%4))%4);
+    const raw=atob(value.replace(/-/g,"+").replace(/_/g,"/")+pad);
+    return Uint8Array.from(raw,c=>c.charCodeAt(0));
+  }
+  async function registerServerPush(reg){
+    try{
+      const keyRes=await fetch(PUSH_API+"/vapid-public-key",{cache:"no-store"});
+      if(!keyRes.ok)throw new Error("VAPID-Key konnte nicht geladen werden.");
+      const {publicKey}=await keyRes.json();
+      if(!publicKey)throw new Error("VAPID-Key fehlt.");
+      if(!reg.pushManager)return false;
+      let sub=await reg.pushManager.getSubscription();
+      if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64ToBytes(publicKey)});
+      const res=await fetch(PUSH_API+"/subscribe",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({subscription:sub.toJSON()})
+      });
+      if(!res.ok)throw new Error("Push-Subscription konnte nicht gespeichert werden.");
+      return true;
+    }catch(_){return false;}
+  }
   async function enable(){
     if(!("Notification" in window))throw new Error("Web-Benachrichtigungen werden von diesem Browser nicht unterstützt.");
     const p=await Notification.requestPermission();
     if(p!=="granted")throw new Error("Benachrichtigungen wurden nicht freigegeben.");
+    let serverRegistered=false;
     if("serviceWorker" in navigator){
       const reg=await navigator.serviceWorker.register("/sw.js",{updateViaCache:"none"});
       try{await reg.update();}catch(_){}
+      serverRegistered=await registerServerPush(reg);
     }
-    const s=save({...read(),registered:true});
-    return s;
+    return save({...read(),registered:true,serverRegistered});
   }
   function state(){return read();}
   function allowed(kind){
