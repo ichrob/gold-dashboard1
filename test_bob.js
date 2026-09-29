@@ -65,6 +65,10 @@ const renderSource = fs.readFileSync("render.yaml", "utf8");
 assert.strictEqual((serverSource.match(/def build_live_bundle\(\):/g) || []).length, 1);
 assert(bobSource.includes("Live XAU/USD must be rendered independently from technical history."));
 assert(bobSource.includes("LIVE-PREIS · TECHNIK WARTET"));
+assert(bobSource.includes("var liveBundleCache=null, liveBundleAt=0;"));
+assert(bobSource.indexOf("var liveBundleCache=null, liveBundleAt=0;") < bobSource.lastIndexOf("loadData();"));
+assert(serverSource.indexOf('if path == "/api/live":') < serverSource.indexOf('auth = self.headers.get("Authorization", "")'));
+
 assert(renderSource.includes("plan: free"));
 assert(!renderSource.includes("type: cron"));
 assert(!renderSource.includes("type: worker"));
