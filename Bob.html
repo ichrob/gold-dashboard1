@@ -340,7 +340,7 @@ async function fetchLiveBundle(force=false){
   const liveUrl="/api/live?fresh="+now;
   console.info("[BOB] live:request",liveUrl);
   const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),15000);
+  const timer=setTimeout(()=>controller.abort(),5000);
   let r;
   try{r=await fetch(liveUrl,{cache:"no-store",signal:controller.signal})}finally{clearTimeout(timer)}
   console.info("[BOB] live:response",r.status,r.headers.get("content-type"));
@@ -358,7 +358,7 @@ async function fetchLiveBundle(force=false){
   try{
    if($("quickReason"))$("quickReason").textContent="Server-Live-Abfrage wartet zu lange – direkter Spot-Fallback …";
    const controller2=new AbortController();
-   const timer2=setTimeout(()=>controller2.abort(),10000);
+   const timer2=setTimeout(()=>controller2.abort(),6000);
    let r;
    try{r=await fetch("https://api.goldprice.dev/v1/prices?symbol=XAU-USD-SPOT",{cache:"no-store",signal:controller2.signal})}finally{clearTimeout(timer2)}
    if(!r.ok)throw Error("Spot-Fallback HTTP "+r.status);
