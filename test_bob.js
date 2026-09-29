@@ -6,8 +6,22 @@ function loadPush() {
   const store = new Map();
   let permission = "default";
   let registrationCalls = 0;
+  let pushSubscription = null;
+  const fetchCalls = [];
   const serviceWorkerRegistration = {
     update: async () => {},
+    pushManager: {
+      getSubscription: async () => pushSubscription,
+      subscribe: async () => {
+        pushSubscription = {
+          toJSON: () => ({
+            endpoint: "https://push.example/sub/test",
+            keys: { p256dh: "p256dh", auth: "auth" }
+          })
+        };
+        return pushSubscription;
+      }
+    },
     showNotification: async (title, options) => {
       serviceWorkerRegistration.lastNotification = { title, options };
     }
@@ -27,10 +41,24 @@ function loadPush() {
         register: async () => { registrationCalls += 1; return serviceWorkerRegistration; },
         ready: Promise.resolve(serviceWorkerRegistration)
       }
+    },
+    fetch: async (url, options={}) => {
+      fetchCalls.push({url, options});
+      if (url === "/api/push/vapid-public-key") {
+        return { ok: true, json: async () => ({ publicKey: "BA==" }) };
+      }
+      if (url === "/api/push/subscribe") {
+        return { ok: true, json: async () => ({ ok: true }) };
+      }
+      if (url === "/api/push/send") {
+        return { ok: true, json: async () => ({ ok: true, sent: 1, removed: 0 }) };
+      }
+      throw new Error("Unexpected fetch: " + url);
     }
   };
   context.window.Notification = context.Notification;
   context.window.navigator = context.navigator;
+  context.fetch = context.window.fetch;
   context.window.isSecureContext = true;
   vm.createContext(context);
   vm.runInContext(fs.readFileSync("push_manager.js", "utf8"), context, { filename: "push_manager.js" });
@@ -42,7 +70,10 @@ function loadPush() {
   assert.strictEqual(p.context.window.BobPush.state().registered, false);
   const state = await p.context.window.BobPush.enable();
   assert.strictEqual(state.registered, true);
+  assert.strictEqual(state.serverRegistered, true);
   assert.strictEqual(p.registrationCalls, 1);
+  assert(fetchCalls.some(call => call.url === "/api/push/vapid-public-key"));
+  assert(fetchCalls.some(call => call.url === "/api/push/subscribe"));
   p.context.window.BobPush.set("general", true);
   assert.strictEqual(p.context.window.BobPush.allowed("general"), true);
   p.context.window.BobPush.set("trade", true);
@@ -51,7 +82,8 @@ function loadPush() {
   assert.strictEqual(p.context.window.BobPush.allowed("trade"), true);
   const emitted = await p.context.window.BobPush.emit("trade", "Test", "Body", { signalId: "t1" });
   assert.strictEqual(emitted, true);
-  assert.strictEqual(p.serviceWorkerRegistration.lastNotification.title, "Test");
+  assert(fetchCalls.some(call => call.url === "/api/push/send"));
+  assert.strictEqual(p.serviceWorkerRegistration.lastNotification, undefined);
 
   const degiro = {};
   const degiroContext = { window: degiro };
