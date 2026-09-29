@@ -239,10 +239,10 @@ def build_live_bundle():
 
             # Keep direct Yahoo as a secondary fallback.
             payload = fetch_json(
-                f"https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval={interval}"
+                f"https://query2.finance.yahoo.com/v8/finance/chart/GC%3DF?interval={interval}"
                 f"&range={range_value}&includePrePost=true",
                 retries=1,
-                user_agent="Bob/1.4",
+                user_agent="Mozilla/5.0 (Bob/1.5; +https://bob-private-scanner.onrender.com)",
             )
             result = payload.get("chart", {}).get("result", [None])[0] if isinstance(payload, dict) else None
             if not result:
