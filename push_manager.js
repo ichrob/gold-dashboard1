@@ -54,7 +54,11 @@
     return s.registered&&Notification.permission==="granted"&&s[kind]===true&&(kind!=="trade"||s.activeTrade===true);
   }
   async function emit(kind,title,body,data={}){
-    if(!allowed(kind))return false;
+    const testTrade=kind==="trade"&&data&&data.test===true;
+    if(testTrade){
+      const s=read();
+      if(!(s.registered&&Notification.permission==="granted"&&s.trade===true))return false;
+    }else if(!allowed(kind))return false;
     const tag="bob-"+kind+"-"+(data.signalId||"current");
     const payload={title,body,data:{...data,url:data.url||"/",kind,signalId:data.signalId||null},tag};
     let serverSent=false;
