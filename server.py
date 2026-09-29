@@ -494,7 +494,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(HTML)
             return
 
-if path in ("/", "/index.html"):
+         if path in ("/", "/index.html"):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
