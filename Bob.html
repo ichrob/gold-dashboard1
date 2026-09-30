@@ -743,12 +743,34 @@ function stopModel(dir,entry,atr,mult=1.5){
  return {stop,structureStop,atrStop,support:lv.support,resistance:lv.resistance,buffer,reason:"Marktstruktur + Support/Resistance + ATR"};
 }
 function stopPriceFor(dir,price,atr,mult){return stopModel(dir,price,atr,mult).stop;}
+function fibonacciModel(dir,entry,atr=0){
+ if(!dir||dir==="NEUTRAL"||!C.length||!Number.isFinite(entry))return {valid:false};
+ const bars=C.slice(-120), highs=bars.map(x=>Number(x.high)), lows=bars.map(x=>Number(x.low));
+ const hi=Math.max(...highs), lo=Math.min(...lows), range=hi-lo;
+ if(!Number.isFinite(hi)||!Number.isFinite(lo)||range<=0)return {valid:false};
+ const levels=dir==="LONG"
+   ? {r382:hi-range*.382,r500:hi-range*.5,r618:hi-range*.618,r786:hi-range*.786,e1272:hi+range*.272,e1618:hi+range*.618}
+   : {r382:lo+range*.382,r500:lo+range*.5,r618:lo+range*.618,r786:lo+range*.786,e1272:lo-range*.272,e1618:lo-range*.618};
+ const extensions=dir==="LONG"?[levels.e1272,levels.e1618]:[levels.e1272,levels.e1618];
+ const target=extensions.filter(x=>dir==="LONG"?x>entry:x<entry).sort((a,b)=>dir==="LONG"?a-b:b-a)[0]??(dir==="LONG"?levels.e1272:levels.e1272);
+ return {valid:true,high:hi,low:lo,range,levels,target};
+}
 function targetModel(dir,entry,stop,minRR=2){
  minRR=Math.max(1,+minRR||2);
  if(!dir||dir==="NEUTRAL"||!Number.isFinite(entry)||!Number.isFinite(stop))return {target:null,rr:null};
  const risk=Math.abs(entry-stop);
  if(!risk)return {target:null,rr:null};
- return {target:dir==="LONG"?entry+risk*minRR:entry-risk*minRR,rr:minRR,risk};
+ const fib=fibonacciModel(dir,entry,A.at);
+ const rrTarget=dir==="LONG"?entry+risk*minRR:entry-risk*minRR;
+ let target=rrTarget, source="CRV";
+ if(fib.valid){
+   const candidates=dir==="LONG"?[fib.levels.e1272,fib.levels.e1618]:[fib.levels.e1272,fib.levels.e1618];
+   const viable=candidates.filter(x=>dir==="LONG"?x>entry+risk*minRR:x<entry-risk*minRR);
+   if(viable.length) target=dir==="LONG"?Math.min(...viable):Math.max(...viable);
+   else target=rrTarget;
+   source=target!==rrTarget?"Fibonacci Extension + CRV":"CRV + Fibonacci geprüft";
+ }
+ return {target,rr:Math.abs(target-entry)/risk,risk,source,fibonacci:fib};
 }
 function displayStop(usd){if(usd==null||!isFinite(usd))return "—";const c=$("displayCcy")?.value||"USD";const fx=c==="USD"?1:+($("fxRate")?.value||0);if(!Number.isFinite(fx)||fx<=0)return usd.toFixed(2)+" USD/oz · FX fehlt";return (usd*fx).toFixed(2)+" "+c+"/oz"+(c==="USD"?"":" · FX");}
 function falseBreakoutState(dir){
@@ -837,6 +859,8 @@ function advancedAnalysis(){
  $("bbpos").textContent=p>=b.up?"über Band":p<=b.lo?"unter Band":((p-b.lo)/(b.up-b.lo)*100).toFixed(0)+"%";
  $("stoch").textContent=st.toFixed(0);
  $("vwap").textContent=vw?vw.toFixed(2):"n/v";
+ const fib=fibonacciModel(A.score>=70?"LONG":A.score<=30?"SHORT":"NEUTRAL",p,A.at);
+ if($("fibonacci"))$("fibonacci").textContent=fib.valid?("0.382 "+fib.levels.r382.toFixed(2)+" · 0.5 "+fib.levels.r500.toFixed(2)+" · 0.618 "+fib.levels.r618.toFixed(2)+" · Ext 1.272 "+fib.levels.e1272.toFixed(2)):"n/v";
  $("support").textContent=lv.sup.toFixed(2);
  $("resistance").textContent=lv.res.toFixed(2);
 
