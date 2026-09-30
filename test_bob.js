@@ -230,6 +230,13 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   const strongCtx={direction:"LONG",atr:20,spot:4000,trend:"LONG",trend2:"LONG",mtf:"LONG",rsi:60,hist:1,adx:30,momentum:1};
   const completeProduct={name:"Synthetic Gold",isin:"DE000FC1CHB7",productDirection:"LONG",spot:4000,ko:3500,leverage:4,price:12,spread:0};
   assert(degiro.BobDegiro.rankProducts([completeProduct],strongCtx).tradeable);
+  const now=Date.now(),quoted={...completeProduct,isinConfirmed:true,quote:{found:true,marketOpen:true,currency:"EUR",isin:completeProduct.isin,quoteAt:new Date(now-1000).toISOString(),price:12,leverage:4,ko:3500,spread:0,direction:"LONG"}};
+  const freshCtx={...strongCtx,requireFreshQuotes:true,spotFresh:true,now};
+  assert(degiro.BobDegiro.rankProducts([quoted],freshCtx).tradeable);
+  assert(!degiro.BobDegiro.rankProducts([quoted],{...freshCtx,spotFresh:false}).tradeable);
+  for(const p of [completeProduct,{...quoted,isinConfirmed:false},{...quoted,price:13},{...quoted,quote:{...quoted.quote,quoteAt:new Date(now-61000).toISOString()}},{...quoted,quote:{...quoted.quote,quoteAt:new Date(now+6000).toISOString()}},{...quoted,quote:{...quoted.quote,isin:"DE000PJ9NCK0"}}])assert(!degiro.BobDegiro.rankProducts([p],freshCtx).tradeable);
+  assert(degiro.BobDegiro.rankProducts([{...quoted,quote:{...quoted.quote,quoteAt:new Date(now-61000).toISOString()}},quoted],freshCtx).tradeable);
+
   for(const key of ["price","leverage","ko","spread"]){const missing={...completeProduct,[key]:""};assert(!degiro.BobDegiro.rankProducts([missing],strongCtx).tradeable);}
   assert(!degiro.BobDegiro.rankProducts([{...completeProduct,isin:"DEOOOFC1CHB7"}],strongCtx).tradeable);
 
@@ -238,7 +245,7 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert(fs.readFileSync("degiro_assistant.js", "utf8").includes("/ocr-assets/v5/tesseract.min.js"));
   assert(fs.readFileSync("degiro_assistant.js", "utf8").includes("/api/degiro/enrich"));
   assert(serverSource.includes("/api/degiro/enrich"));
-  assert(serverSource.includes("api.openfigi.com/v3/mapping"));
+  assert(serverSource.includes("product_quotes.get_quote"));
 
 
   console.log("Bob push + DEGIRO tests: OK");
