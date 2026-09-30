@@ -546,9 +546,26 @@ def build_mtf_verification(bundle):
     tfbars = bundle.get("history",{}).get("bars_by_tf",{}) if isinstance(bundle,dict) else {}
     results = {tf:_mtf_score(tfbars.get(tf,[]),tf) for tf in ("5m","15m","1h","4h")}
     valid = all(v.get("available") for v in results.values())
-    dirs = [results[tf]["dir"] for tf in ("4h","1h","15m","5m")]
-    overall = "LONG" if valid and dirs[0]=="LONG" and dirs[1]=="LONG" and dirs[2]!="SHORT" and dirs[3]!="SHORT" else "SHORT" if valid and dirs[0]=="SHORT" and dirs[1]=="SHORT" and dirs[2]!="LONG" and dirs[3]!="LONG" else "NEUTRAL"
-    return {"overall":overall,"valid":valid,"results":results,"verifiedAt":datetime.now(timezone.utc).isoformat()}
+    d4,d1,d15,d5 = (results[tf]["dir"] for tf in ("4h","1h","15m","5m"))
+    sign = lambda d: 1 if d=="LONG" else -1 if d=="SHORT" else 0
+    regime,trend,setup,timing = map(sign,(d4,d1,d15,d5))
+    reason = "4h Regime · 1h Trend · 15m Setup · 5m Timing"
+    if not valid:
+        overall,bias,reason = "NEUTRAL",0.0,"MTF unvollständig"
+    elif regime and trend and regime != trend:
+        overall,bias,reason = "NEUTRAL",0.0,"4h/1h widersprüchlich"
+    elif not (trend or regime):
+        overall,bias,reason = "NEUTRAL",0.0,"Kein übergeordneter Trend"
+    elif setup == -(trend or regime):
+        overall,bias,reason = "NEUTRAL",0.0,"15m Setup gegen Haupttrend"
+    elif timing == -(trend or regime):
+        overall,bias,reason = "NEUTRAL",0.0,"5m Timing gegen Haupttrend"
+    else:
+        primary = trend or regime
+        overall = "LONG" if primary > 0 else "SHORT"
+        bias = regime*0.35 + trend*0.35 + setup*0.20 + timing*0.10
+    hierarchy = {"regime":d4,"trend":d1,"setup":d15,"timing":d5,"bias":round(bias,3),"reason":reason}
+    return {"overall":overall,"valid":valid,"results":results,"hierarchy":hierarchy,"verifiedAt":datetime.now(timezone.utc).isoformat()}
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
