@@ -308,5 +308,9 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert(serverSource.includes("product_quotes.get_quote"));
 
 
+  assert(degiro.BobDegiro.supplementaryHint(["Hebel"]).includes("Produktübersicht"));
+  assert(degiro.BobDegiro.supplementaryHint(["Produktkurs"]).includes("Geld, Brief"));
+  assert(degiro.BobDegiro.screenshotTimeLabel({sourceTime:"30/09/2026 21:43"}).includes("Aktualität nicht verifiziert"));
+  assert(degiro.BobDegiro.screenshotTimeLabel({}).includes("Kurszeit fehlt"));
   console.log("Bob push + DEGIRO tests: OK");
 })().catch(err => { console.error(err); process.exit(1); });

@@ -214,11 +214,31 @@ async function readScreenshot(i,file){
   if(!x.ok){if(status)status.textContent="⚠️ "+x.reason;return;}
   productQuotes.delete(i);
   for(const [k,v] of Object.entries({dir:x.direction,price:x.price,lev:x.leverage,ko:x.ko,spread:x.spread})){if(v!==""&&v!==null&&v!==undefined&&field(k))field(k).value=v;}
-  detailScreenshots.set(i,x);if(field("confirmed"))field("confirmed").checked=false;
+  const previous=detailScreenshots.get(i)||{};
+  const evidence={...(previous.evidence||{})};
+  for(const [key,value] of Object.entries({Richtung:x.direction,Kurs:x.price,Hebel:x.leverage,KO:x.ko,Spread:x.spread})){if(value!==""&&value!==null&&value!==undefined)evidence[key]={value,source:file.name};}
+  // A new price observation must not inherit an older spread or quote timestamp.
+  const hasQuote=x.price!==""||x.bid!==null||x.ask!==null;
+  if(hasQuote&&x.spread===""){field("spread").value="";delete evidence.Spread;}
+  detailScreenshots.set(i,{...previous,...x,evidence});if(field("confirmed"))field("confirmed").checked=false;
   if(status)status.textContent="✅ Zusatzbild zugeordnet. Gelesene Werte unter Details am Screenshot prüfen. "+(x.sourceTime?"Kurszeit im Bild: "+x.sourceTime:"Kurszeit im Bild fehlt.");
   const meta=document.getElementById("dgResearch"+i);if(meta)meta.textContent="📷 DEGIRO-Momentaufnahme · "+(x.bid!==null?"Geld "+x.bid+" / Brief "+(x.ask??"fehlt")+" "+x.currency+" · ":"")+"keine laufenden Live-Daten. Fehlende oder nicht verlässlich datierte Werte bleiben für die aktuelle Rangliste gesperrt.";
   rankUI();
  }catch(e){if((rowVersions.get(i)||0)!==version)return;if(status)status.textContent="⚠️ Zusatzbild konnte nicht gelesen werden. Bitte erneut versuchen oder die Angaben unter Details ergänzen.";}
+}
+function supplementaryHint(missing){
+ const identity=missing.includes("eindeutige ISIN");
+ const staticFields=missing.some(v=>["Produktrichtung","Hebel","KO-Schwelle"].includes(v));
+ const quotes=missing.some(v=>["Produktkurs","Geld-/Briefkurse für den Spread","bestätigte aktuelle Kursdaten mit Zeitstempeln"].includes(v));
+ return (identity?"Bitte ein Bild mit eindeutig sichtbarer ISIN hochladen. ":"")+(staticFields?"Bitte Produktübersicht mit Richtung, Hebel und KO-Schwelle ergänzen. ":"")+(quotes?"Bitte Kursdatenbild mit ISIN, Geld, Brief und vollständiger Kurszeit ergänzen. ":"")+"Erkannte Werte bitte am Original prüfen.";
+}
+function screenshotTimeLabel(x){
+ return x?.sourceTime?"Kursstand im Bild: "+x.sourceTime+" · Zeitzone nicht angegeben; Aktualität nicht verifiziert. Kein Live-Kurs.":"Kurszeit fehlt – Aktualität nicht prüfbar. Kein Live-Kurs.";
+}
+function screenshotSummary(x){
+ if(!x)return "";
+ const rows=Object.entries(x.evidence||{}).map(([key,e])=>'<tr><td>'+esc(key)+'</td><td>'+esc(e.value)+'</td><td>'+esc(e.source)+'</td></tr>').join("");
+ return '<div class="small"><b>Erkannte Angaben – bitte prüfen</b><table style="width:100%"><thead><tr><th>Angabe</th><th>Wert</th><th>Bildquelle</th></tr></thead><tbody>'+rows+'</tbody></table>'+esc(screenshotTimeLabel(x))+'</div>';
 }
 function missingProductData(p){
  const missing=[];
@@ -352,7 +372,7 @@ function rankUI(){
  const missingOut=document.getElementById("dgMissingProducts");
  if(missingOut){
   const cards=ps.map((p,z)=>{const i=z+1,missing=missingProductData(p);return{p,i,missing};}).filter(x=>(x.p.name||x.p.isin)&&x.missing.length);
-  const html=cards.length?'<b>📷 Für diese Produkte brauche ich weitere Daten</b>'+cards.map(({p,i,missing})=>'<div style="margin-top:8px;padding:10px;background:#fff;border:1px solid #e1e7f0;border-radius:12px"><b>'+esc(p.isin||p.name)+'</b><div class="small">Fehlt / prüfen: '+esc(missing.join(" · "))+'</div><button data-detail-upload="'+i+'">Zusatzbild für dieses Produkt hochladen</button><div class="small">'+esc(document.getElementById("dgOcrStatus"+i)?.textContent||"")+'</div><div class="small">Zeige die ISIN und die fehlenden Angaben. Ein Bild enthält nicht immer alle Werte.</div></div>').join(""):"";
+  const html=cards.length?'<b>📷 Für diese Produkte brauche ich weitere Daten</b>'+cards.map(({p,i,missing})=>'<div style="margin-top:8px;padding:10px;background:#fff;border:1px solid #e1e7f0;border-radius:12px"><b>'+esc(p.isin||p.name)+'</b><div class="small">Fehlt / prüfen: '+esc(missing.join(" · "))+'</div>'+screenshotSummary(detailScreenshots.get(i))+'<button data-detail-upload="'+i+'">Zusatzbild für dieses Produkt hochladen</button><div class="small">'+esc(document.getElementById("dgOcrStatus"+i)?.textContent||"")+'</div><div class="small">'+esc(supplementaryHint(missing))+'</div></div>').join(""):"";
   if(missingOut.dataset.content!==html){missingOut.innerHTML=html;missingOut.dataset.content=html;missingOut.querySelectorAll('[data-detail-upload]').forEach(btn=>btn.addEventListener("click",()=>document.getElementById("dgDetailShot"+btn.dataset.detailUpload)?.click()));}
  }
  const r=rankProducts(ps,{requireFreshQuotes:true,spotFresh,direction:d,atr:a,spot:s,trend:document.getElementById("trend")?.textContent,trend2:document.getElementById("trend2")?.textContent,mtf:document.getElementById("mtfSummary")?.textContent,rsi:n(document.getElementById("rsi")?.textContent),hist:n(document.getElementById("hist")?.textContent),adx:n(document.getElementById("adx")?.textContent),momentum:n(document.getElementById("momentum")?.textContent)});
@@ -393,5 +413,5 @@ function rankUI(){
 }
 
 if(typeof document!=="undefined"){if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",()=>{try{inject();}catch(e){console.warn(e);}});else try{inject();}catch(e){console.warn(e);}}
-window.BobDegiro={riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData};
+window.BobDegiro={riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel};
 })();
