@@ -74,7 +74,7 @@ async function readScreenshot(i,file){
   if(status)status.textContent=x.isin?"✅ Screenshot gelesen – Angaben bitte kurz gegen DEGIRO prüfen.":"⚠️ Screenshot gelesen, aber keine sichere ISIN erkannt – Angaben bitte prüfen.";
  }catch(e){if(status)status.textContent="⚠️ OCR nicht verfügbar. Kandidaten können weiterhin manuell eingegeben werden.";}
 }
-function parseScreenshotCandidates(text){const raw=String(text||"");const hits=[];const re=/\b[A-Z]{2}[A-Z0-9]{10}\b/g;let m;while((m=re.exec(raw))&&hits.length<4){const x=ocrExtract(raw.slice(Math.max(0,m.index-180),Math.min(raw.length,m.index+260)));x.isin=m[0];if(!hits.some(v=>v.isin===x.isin))hits.push(x);}return hits;}
+function parseScreenshotCandidates(text){const raw=String(text||"").replace(/\r/g,"");const hits=[];const re=/\b[A-Z]{2}[A-Z0-9]{10}\b/g;let m;while((m=re.exec(raw))&&hits.length<4){const start=Math.max(0,raw.lastIndexOf("\n",m.index-1)+1),end=Math.min(raw.length,(raw.indexOf("\n",m.index)===-1?raw.length:raw.indexOf("\n",m.index)));const line=raw.slice(start,end).trim();const context=raw.slice(Math.max(0,m.index-120),Math.min(raw.length,m.index+180));const x=ocrExtract(line||context);if(!x.direction)x.direction=ocrExtract(context).direction;x.isin=m[0];if(!hits.some(v=>v.isin===x.isin))hits.push(x);}return hits;}
 async function readCentralScreenshot(file){
  const status=document.getElementById("dgCentralStatus");if(!file)return;
  try{
