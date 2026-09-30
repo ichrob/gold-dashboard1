@@ -544,6 +544,23 @@ def build_mtf_verification(bundle):
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
+        # Sensitive data APIs must be authenticated before any data generation.
+        # Keep static PWA resources and /health public, but never expose live,
+        # MTF, or DEGIRO enrichment data without the existing Bob credentials.
+        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich")
+        if protected_api_path:
+            auth = self.headers.get("Authorization", "")
+            expected = "Basic " + base64.b64encode(
+                f"{USER}:{PASSWORD}".encode("utf-8")
+            ).decode("ascii")
+            if not USER or not PASSWORD or not hmac.compare_digest(auth, expected):
+                self.send_response(401)
+                self.send_header("WWW-Authenticate", 'Basic realm="Bob"')
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(b"Authentication required.")
+                return
+
         if path == "/api/degiro/enrich":
             try:
                 query = parse_qs(urlparse(self.path).query)
