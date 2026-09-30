@@ -30,6 +30,8 @@ function loadPush() {
     window: { addEventListener: (event, handler) => { if (event === "load") Promise.resolve().then(handler); } },
     setTimeout: () => 0,
     clearTimeout: () => {},
+    setInterval: () => 0,
+    clearInterval: () => {},
     localStorage: {
       getItem: key => store.has(key) ? store.get(key) : null,
       setItem: (key, value) => store.set(key, value)
