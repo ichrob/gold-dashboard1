@@ -82,6 +82,8 @@ assert(serverSource.includes('"xaus_is_spot": spot_source == "XAUS · live"'));
 assert(serverSource.includes('"is_genuine_xauusd_spot": is_spot'));
 assert(serverSource.includes('Never promote technical/futures history to the XAU/USD spot field.'));
 assert(serverSource.includes('"source": (spot_source or "keine Spotquelle") + " + Yahoo Finance GC=F technische Referenz"'));
+assert(serverSource.includes("script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net"));
+assert(serverSource.includes("worker-src 'self' blob:"));
 assert(serverSource.includes('if len(values) < period + 2:\n        return None'));
 assert(serverSource.includes('reason":"zu wenig Historie für RSI"'));
 
