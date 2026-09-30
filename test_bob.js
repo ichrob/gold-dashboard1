@@ -127,6 +127,14 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert(longKo.warnings.some(w => w.includes("KO-Level")));
   const tightKo = degiro.BobDegiro.riskModel({ spot: 4000, stop: 3980, riskEur: 5, fxUsdEur: 0.92, leverage: 5, ko: 3950 });
   assert(tightKo.warnings.some(w => w.includes("unter 2%")));
+  const strongLong = degiro.BobDegiro.technicalQuality({direction:"LONG",trend:"LONG",trend2:"LONG",mtf:"LONG",rsi:60,hist:1,adx:30});
+  assert(strongLong.score > 80);
+  const conflictedLong = degiro.BobDegiro.technicalQuality({direction:"LONG",trend:"SHORT",trend2:"SHORT",mtf:"SHORT",rsi:80,hist:-1,adx:10});
+  assert(conflictedLong.score < 30);
+  const neutralQuality = degiro.BobDegiro.technicalQuality({direction:"NEUTRAL",trend:"LONG",mtf:"SHORT",rsi:60,hist:1,adx:30});
+  assert.strictEqual(neutralQuality.score, 50);
+  assert(strongLong.reasons.some(x => x.includes("MTF")));
+  assert(conflictedLong.reasons.some(x => x.includes("widerspricht")));
   const ranked = degiro.BobDegiro.rankProducts([
     {name:"Long A", productDirection:"LONG", spot:4000, ko:3800, leverage:4, spread:0.5},
     {name:"Long B", productDirection:"LONG", spot:4000, ko:3990, leverage:8, spread:1},
