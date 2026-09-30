@@ -1162,6 +1162,7 @@ async function fetchSpotSources(bundle=null){
  const sourceWarning=Number.isFinite(pct)&&Math.abs(pct)>0.50?"⚠️ Spot/Futures-Abweichung "+pct.toFixed(3)+"% – Futures nur als technische Referenz":"";
  return {xaus,gp,reference,diff,pct,sourceWarning,usd_eur:Number(s.usd_eur),usd_chf:Number(s.usd_chf)};
 }
+function hydrateTechnicalFromBundle(bundle, requestedN=200){try{const tfBars=bundle?.history?.bars_by_tf||{};const preferred=Array.isArray(tfBars["5m"])&&tfBars["5m"].length?tfBars["5m"]:Array.isArray(tfBars["15m"])&&tfBars["15m"].length?tfBars["15m"]:Array.isArray(tfBars["1h"])&&tfBars["1h"].length?tfBars["1h"]:[];const closed=preferred.filter(b=>!b.isOpen);if(closed.length<30)return false;const n=Math.max(30,Number(requestedN)||200);C=closed.slice(-n);const p=Number(bundle?.spots?.xaus);if(Number.isFinite(p)&&p>0)lastPrice=p;analyze();return true;}catch(e){reportBobDiag("analysis:hydrate-error",{error:e?.message||String(e)});return false;}}
 async function loadData(){
  const generation=++loadGeneration;
  try{
@@ -1184,6 +1185,7 @@ async function loadData(){
   if(generation!==loadGeneration)return;
   let tfBars=bundle.history?.bars_by_tf||{};
   let bars=tfBars[tf]||[];
+  if(!bars.length){for(const alt of ["5m","15m","1h"]){if(Array.isArray(tfBars[alt])&&tfBars[alt].length){bars=tfBars[alt];break;}}}
 
   // The direct XAUS heartbeat intentionally contains no technical history.
   // Load Render history separately so it can never block or hide the live spot price.
@@ -1222,6 +1224,8 @@ async function loadData(){
   const fallbackWarning=!isSpot?" · XAU/USD Spot nicht verfügbar – GC=F Futures als Referenz":"";
 
   if(!bars.length){
+   const hydrated=hydrateTechnicalFromBundle(bundle,n);
+   if(hydrated){loadMTF(false,generation,bundle);return;}
    loadMTF(false,generation,bundle);
    $("status").textContent=(isSpot?"LIVE · XAU/USD ":"REFERENZ · GC=F ") + lastPrice.toFixed(2)+" · "+sourceLabel+fallbackWarning+" · Technikhistorie momentan nicht verfügbar · "+new Date().toLocaleTimeString();
    $("quickSignal").textContent="🟢 LIVE-PREIS · TECHNIK WARTET";
