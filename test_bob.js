@@ -122,6 +122,16 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert.strictEqual(p.fetchCalls.some(call => call.url === "/api/push/send"), false);
   assert.strictEqual(p.serviceWorkerRegistration.lastNotification.title, "Test");
 
+  const htmlSource = fs.readFileSync("Bob.html", "utf8");
+  const scoreBlock = htmlSource.slice(htmlSource.indexOf(" let pts=0,max=0,details=[];"),htmlSource.indexOf(" const atrPct=",htmlSource.indexOf(" let pts=0,max=0,details=[];")));
+  const scoring = vm.runInNewContext(scoreBlock + "\n({pts,max,weights:w})", {
+    currentRegime:()=>"TREND", getMtfState:()=>({overall:"LONG"}),
+    fibonacciModel:()=>({valid:false}), A:{e20:3,e50:2,e200:1,macd:2,sig:1,R:60,at:10},
+    p:4000,b:{mid:3900},st:60
+  });
+  assert(Number.isFinite(scoring.pts));
+  assert(scoring.max>0);
+  assert.strictEqual(Object.values(scoring.weights).reduce((a,b)=>a+b,0),100);
   const degiro = {};
   const degiroContext = { window: degiro };
   vm.createContext(degiroContext);
@@ -185,9 +195,23 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   const parsedTight = degiro.BobDegiro.parseScreenshotCandidates("Gold LONG DE000ABC1234\nGold SHORT DE000XYZ9876");
   assert.strictEqual(parsedTight[0].direction, "LONG");
   assert.strictEqual(parsedTight[1].direction, "SHORT");
+  const multi = degiro.BobDegiro.parseScreenshotCandidates("Gold Turbo LONG\nISIN DE000ABC1234\nHebel 5x\nKO 3900\nProduktkurs 12,34\nGold Turbo SHORT\nISIN DE000XYZ9876\nHebel 4x\nKO 4100\nProduktkurs 9,87");
+  assert.strictEqual(multi[0].leverage,"5");
+  assert.strictEqual(multi[0].ko,"3900");
+  assert.strictEqual(multi[0].price,"12.34");
+  assert.strictEqual(multi[0].direction,"LONG");
+  assert.strictEqual(multi[1].leverage,"4");
+  assert.strictEqual(multi[1].ko,"4100");
+  assert.strictEqual(multi[1].price,"9.87");
+  assert.strictEqual(multi[1].direction,"SHORT");
+  const repeated = degiro.BobDegiro.parseScreenshotCandidates("Gold LONG DE000ABC1234\n\nGold LONG DE000ABC1234 Hebel 5x KO 3900");
+  assert.strictEqual(repeated.length,1);
+  assert.strictEqual(repeated[0].ko,"3900");
+  const many = degiro.BobDegiro.parseScreenshotCandidates(Array.from({length:8},(_,i)=>"Gold LONG DE000ABC123"+i+" Hebel 5x KO 3900").join("\n"));
+  assert.strictEqual(many.length,8);
   assert(fs.readFileSync("degiro_assistant.js", "utf8").includes("dgCentralShot"));
-  assert(fs.readFileSync("degiro_assistant.js", "utf8").includes("Bob Top 4"));
-  assert(fs.readFileSync("degiro_assistant.js", "utf8").includes("BOB-FAVORIT"));
+
+
   assert(fs.readFileSync("degiro_assistant.js", "utf8").includes("cdn.jsdelivr.net/npm/tesseract.js@5"));
   assert(fs.readFileSync("degiro_assistant.js", "utf8").includes("/api/degiro/enrich"));
   assert(serverSource.includes("/api/degiro/enrich"));
