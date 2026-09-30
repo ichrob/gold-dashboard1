@@ -230,10 +230,20 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   const strongCtx={direction:"LONG",atr:20,spot:4000,trend:"LONG",trend2:"LONG",mtf:"LONG",rsi:60,hist:1,adx:30,momentum:1};
   const completeProduct={name:"Synthetic Gold",isin:"DE000FC1CHB7",productDirection:"LONG",spot:4000,ko:3500,leverage:4,price:12,spread:0};
   assert(degiro.BobDegiro.rankProducts([completeProduct],strongCtx).tradeable);
-  const now=Date.now(),quoted={...completeProduct,isinConfirmed:true,quote:{found:true,eligible:true,tradingEndAt:new Date(now+60000).toISOString(),marketOpen:true,currency:"EUR",isin:completeProduct.isin,quoteAt:new Date(now-1000).toISOString(),price:12,leverage:4,ko:3500,spread:0,direction:"LONG"}};
+  const now=Date.now(),quoted={...completeProduct,isinConfirmed:true,quote:{found:true,eligible:true,tradingEndAt:new Date(now+60000).toISOString(),marketOpen:true,currency:"EUR",isin:completeProduct.isin,quoteAt:new Date(now-1000).toISOString(),bidAt:new Date(now-1000).toISOString(),askAt:new Date(now-1000).toISOString(),leverageAt:new Date(now-1000).toISOString(),snapshotAt:new Date(now-1000).toISOString(),price:12,leverage:4,ko:3500,spread:0,direction:"LONG"}};
   const freshCtx={...strongCtx,requireFreshQuotes:true,spotFresh:true,now};
   assert(degiro.BobDegiro.rankProducts([quoted],freshCtx).tradeable);
   assert(!degiro.BobDegiro.rankProducts([quoted],{...freshCtx,spotFresh:false}).tradeable);
+  assert(degiro.BobDegiro.quoteTiming(quoted.quote,now).fresh);
+  assert.strictEqual(degiro.BobDegiro.quoteTiming(quoted.quote,now).ageSeconds,1);
+  assert(!degiro.BobDegiro.quoteTiming(quoted.quote,now+61000).fresh);
+  for(const key of ["bidAt","askAt","leverageAt","snapshotAt"]){
+   for(const val of ["",new Date(now-61000).toISOString(),new Date(now+6000).toISOString()]){
+    const bad={...quoted,quote:{...quoted.quote,[key]:val}};
+    assert(!degiro.BobDegiro.rankProducts([bad],freshCtx).tradeable);
+   }
+  }
+
   for(const p of [completeProduct,{...quoted,isinConfirmed:false},{...quoted,price:13},{...quoted,quote:{...quoted.quote,quoteAt:new Date(now-61000).toISOString()}},{...quoted,quote:{...quoted.quote,quoteAt:new Date(now+6000).toISOString()}},{...quoted,quote:{...quoted.quote,isin:"DE000PJ9NCK0"}}])assert(!degiro.BobDegiro.rankProducts([p],freshCtx).tradeable);
   assert(degiro.BobDegiro.rankProducts([{...quoted,quote:{...quoted.quote,quoteAt:new Date(now-61000).toISOString()}},quoted],freshCtx).tradeable);
 
