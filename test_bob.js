@@ -71,7 +71,13 @@ assert(bobSource.includes("maybePushAnalysisAlerts()"));
 assert(bobSource.includes("LIVE-PREIS · TECHNIK WARTET"));
 assert(bobSource.includes("var liveBundleCache=null, liveBundleAt=0;"));
 assert(bobSource.indexOf("var liveBundleCache=null, liveBundleAt=0;") < bobSource.lastIndexOf("loadData();"));
-assert(serverSource.indexOf('if path == "/api/live":') < serverSource.indexOf('auth = self.headers.get("Authorization", "")'));
+const sensitiveGate = serverSource.indexOf('protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich")');
+assert(sensitiveGate >= 0);
+assert(sensitiveGate < serverSource.indexOf('if path == "/api/live":'));
+assert(sensitiveGate < serverSource.indexOf('if path == "/api/mtf":'));
+assert(sensitiveGate < serverSource.indexOf('if path == "/api/degiro/enrich":'));
+assert(serverSource.includes('self.send_response(401)'));
+assert(serverSource.includes('WWW-Authenticate'));
 
 assert(renderSource.includes("plan: free"));
 assert(!renderSource.includes("type: cron"));
