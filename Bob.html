@@ -370,6 +370,20 @@ function timeframeScore(bars,tf=""){
   const dir=components>=4?(score>=2?"LONG":score<=-2?"SHORT":"NEUTRAL"):"NEUTRAL";
   return {dir,score,rsi:R,price:a.at(-1),openTime:closed.at(-1).openTime,components,available:true,fullHistory:a.length>=200};
 }
+function buildMtfHierarchy(byTf,valid=true){
+ const h=byTf||{}, d4=h["4h"]?.dir, d1=h["1h"]?.dir, d15=h["15m"]?.dir, d5=h["5m"]?.dir;
+ if(!valid||![d4,d1,d15,d5].every(Boolean))return {overall:"NEUTRAL",bias:0,roles:{regime:d4||"NEUTRAL",trend:d1||"NEUTRAL",setup:d15||"NEUTRAL",timing:d5||"NEUTRAL"},reason:"MTF unvollständig"};
+ const sign=d=>d==="LONG"?1:d==="SHORT"?-1:0;
+ const regime=sign(d4),trend=sign(d1),setup=sign(d15),timing=sign(d5);
+ // 4h defines regime, 1h defines primary trend. Lower timeframes refine rather than override them.
+ if(regime!==0&&trend!==0&&regime!==trend)return {overall:"NEUTRAL",bias:0,roles:{regime:d4,trend:d1,setup:d15,timing:d5},reason:"4h/1h widersprüchlich"};
+ const primary=trend||regime;
+ if(primary===0)return {overall:"NEUTRAL",bias:0,roles:{regime:d4,trend:d1,setup:d15,timing:d5},reason:"Kein übergeordneter Trend"};
+ if(setup===-primary)return {overall:"NEUTRAL",bias:0,roles:{regime:d4,trend:d1,setup:d15,timing:d5},reason:"15m Setup gegen Haupttrend"};
+ if(timing===-primary)return {overall:"NEUTRAL",bias:0,roles:{regime:d4,trend:d1,setup:d15,timing:d5},reason:"5m Timing gegen Haupttrend"};
+ const bias=(regime*0.35+trend*0.35+setup*0.20+timing*0.10);
+ return {overall:primary===1?"LONG":"SHORT",bias,roles:{regime:d4,trend:d1,setup:d15,timing:d5},reason:"4h Regime · 1h Trend · 15m Setup · 5m Timing"};
+}
 function aggregateBrowserBars(bars, minutes){
  const step=minutes*60*1000, buckets=new Map();
  for(const b of (bars||[])){
@@ -617,15 +631,14 @@ async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
   const byTf=Object.fromEntries(results.map(x=>[x[0],x[2]]));
   const dirs=[byTf["4h"]?.dir,byTf["1h"]?.dir,byTf["15m"]?.dir,byTf["5m"]?.dir];
   const valid=results.every(([,id,z])=>z.available);
-  const longChain=valid&&dirs[0]==="LONG"&&dirs[1]==="LONG"&&dirs[2]!=="SHORT"&&dirs[3]!=="SHORT";
-  const shortChain=valid&&dirs[0]==="SHORT"&&dirs[1]==="SHORT"&&dirs[2]!=="LONG"&&dirs[3]!=="LONG";
-  const overall=longChain?"LONG":shortChain?"SHORT":"NEUTRAL";
+  const mtfHierarchy=buildMtfHierarchy(byTf,valid);
+  const overall=mtfHierarchy.overall;
   $("quickMtf").textContent=overall;
   reportBobDiag("mtf:success",{bars5m:(tfBars["5m"]||[]).length,bars15m:(tfBars["15m"]||[]).length,bars1h:(tfBars["1h"]||[]).length,bars4h:(tfBars["4h"]||[]).length,available:valid,overall,historyStatus:bundle.history?.data_state?.status||"unknown",source:bundle.history?.data_state?.source||"unknown"});
   const strength=overall!=="NEUTRAL"?(overall==="LONG"?dirs.filter(d=>d==="LONG").length:dirs.filter(d=>d==="SHORT").length)+"/4 bestätigt":"Keine widerspruchsfreie 4-Zeiten-Hierarchie";
   const mtfSummary=$("mtfSummary");
   if(mtfSummary)mtfSummary.innerHTML="<b>"+overall+"</b><br>"+longs+" LONG · "+shorts+" SHORT · "+neutral+" NEUTRAL · "+strength+"<br><span class=\"small\">4h basiert jetzt auf echter 1h-Historie und wird nur mit mindestens 200 geschlossenen 4h-Kerzen bewertet.</span>";
-  MTF={longs,shorts,neutral,overall,byTf,dirs};
+  MTF={longs,shorts,neutral,overall,byTf,dirs,hierarchy:mtfHierarchy};
   // Server-side verification is the authoritative runtime check for the MTF pipeline.
   try{
    const vr=await fetch("/api/mtf?fresh="+Date.now(),{cache:"no-store"});
