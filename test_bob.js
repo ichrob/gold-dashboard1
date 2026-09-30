@@ -233,6 +233,20 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   const now=Date.now(),quoted={...completeProduct,isinConfirmed:true,quote:{found:true,eligible:true,tradingEndAt:new Date(now+60000).toISOString(),marketOpen:true,currency:"EUR",isin:completeProduct.isin,quoteAt:new Date(now-1000).toISOString(),bidAt:new Date(now-1000).toISOString(),askAt:new Date(now-1000).toISOString(),leverageAt:new Date(now-1000).toISOString(),snapshotAt:new Date(now-1000).toISOString(),price:12,leverage:4,ko:3500,spread:0,direction:"LONG"}};
   const freshCtx={...strongCtx,requireFreshQuotes:true,spotFresh:true,now};
   assert(degiro.BobDegiro.rankProducts([quoted],freshCtx).tradeable);
+  // Synthetic acceptance cases: a direction label must never hide a breached KO barrier.
+  for(const ko of [4000,4100]){
+    const breached={...quoted,ko,quote:{...quoted.quote,ko}};
+    assert(!degiro.BobDegiro.rankProducts([breached],freshCtx).tradeable,"LONG KO at/above spot must be excluded");
+  }
+  const shortCtx={...freshCtx,direction:"SHORT",trend:"SHORT",trend2:"SHORT",mtf:"SHORT",rsi:40,hist:-1,momentum:-1};
+  const short={...quoted,productDirection:"SHORT",ko:4500,quote:{...quoted.quote,direction:"SHORT",ko:4500}};
+  assert(degiro.BobDegiro.rankProducts([short],shortCtx).tradeable);
+  assert(!degiro.BobDegiro.rankProducts([quoted],shortCtx).tradeable);
+  for(const ko of [4000,3500]){
+    const breached={...short,ko,quote:{...short.quote,ko}};
+    assert(!degiro.BobDegiro.rankProducts([breached],shortCtx).tradeable,"SHORT KO at/below spot must be excluded");
+  }
+
   assert(!degiro.BobDegiro.rankProducts([quoted],{...freshCtx,spotFresh:false}).tradeable);
   assert(degiro.BobDegiro.quoteTiming(quoted.quote,now).fresh);
   assert.strictEqual(degiro.BobDegiro.quoteTiming(quoted.quote,now).ageSeconds,1);
