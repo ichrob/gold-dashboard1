@@ -87,13 +87,13 @@ async function prepareOcrImage(file,statusId,isinPass=false){
   const bitmap=await createImageBitmap(file);
   const maxSide=isinPass?3200:1800,scale=Math.min(isinPass?2:1,maxSide/Math.max(bitmap.width,bitmap.height),Math.sqrt(4500000/(bitmap.width*bitmap.height)));
   const canvas=document.createElement("canvas");canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));
-  canvas.getContext("2d",{alpha:false}).drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close();
+  const ctx=canvas.getContext("2d",{alpha:false});if(isinPass)ctx.imageSmoothingEnabled=false;ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close();
   if(status)status.textContent="🖼️ Screenshot für OCR optimiert …";
   return await new Promise((resolve,reject)=>canvas.toBlob(x=>x?resolve(x):reject(new Error("Bildaufbereitung fehlgeschlagen")),isinPass?"image/png":"image/jpeg",0.86));
  }catch(e){return file;}
 }
 function recoverOcrIsins(primary,secondary){
- const candidates=Array.from(new Set((String(secondary||"").toUpperCase().match(/DE000[A-Z0-9]{6}[0-9](?![A-Z0-9])/g)||[]).filter(validIsin))),corrections={};
+ const candidates=Array.from(new Set((String(secondary||"").toUpperCase().match(/DE[0OCD]{3}[A-Z0-9]{6}[0-9](?![A-Z0-9])/g)||[]).map(x=>"DE000"+x.slice(5)).filter(validIsin))),corrections={};
  const text=String(primary||"").replace(/\bDE[0O]{3}[A-Z0-9]{7}\b/g,raw=>{
   if(validIsin(normalizeOcrIsin(raw).isin))return raw;
   const matches=candidates.filter(candidate=>{
