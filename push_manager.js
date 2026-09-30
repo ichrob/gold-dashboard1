@@ -119,4 +119,55 @@
   function set(kind,value){return save({...read(),[kind]:Boolean(value)});}
   function setActiveTrade(value){return set("activeTrade",value);}
   window.BobPush={state,save,enable,allowed,emit,set,setActiveTrade};
+
+  // Active-trade push monitor. This intentionally stays in the push layer:
+  // it does not place orders or alter market/DEGIRO logic. It only triggers
+  // the existing stop-management suggestion and a close recommendation when
+  // the stored active-trade stop is actually breached.
+  function activeTradePushMonitor(){
+    try{
+      const s=read();
+      if(!s.registered||!s.trade||!s.activeTrade)return;
+      const raw=localStorage.getItem("goldScannerTradeMgmt");
+      if(!raw)return;
+      const t=JSON.parse(raw);
+      if(!t?.active||!t?.dir||!Number.isFinite(Number(t.stop)))return;
+
+      const priceEl=document.getElementById("tradePrice");
+      const liveEl=document.getElementById("price");
+      const p=Number(priceEl?.value)||Number.parseFloat(String(liveEl?.textContent||"").replace(",","."));
+      if(!Number.isFinite(p))return;
+
+      const stop=Number(t.stop);
+      const breached=(t.dir==="LONG"&&p<=stop)||(t.dir==="SHORT"&&p>=stop);
+      if(breached){
+        const key="bobPushStopBreach";
+        const prior=localStorage.getItem(key);
+        const marker=t.dir+":"+stop.toFixed(4)+":"+Math.floor(Date.now()/600000);
+        if(prior!==marker){
+          localStorage.setItem(key,marker);
+          emit("trade","Bob – Trade schließen",
+            "Stop-Loss erreicht/überschritten · "+t.dir+" · Kurs "+p.toFixed(2)+" · Stop "+stop.toFixed(2),
+            {kind:"trade-close",signalId:"close:"+marker});
+        }
+        return;
+      }
+
+      // Let Bob's existing, tested stop model decide whether the stop can be
+      // improved. The function itself emits "Stop-Loss anpassen" only when the
+      // new stop is genuinely better, so normal price noise stays silent.
+      if(typeof window.suggestStopUpdate==="function"){
+        window.suggestStopUpdate();
+      }
+    }catch(e){
+      // Push monitoring must never interfere with the rest of Bob.
+      console.warn("Bob active-trade push monitor",e);
+    }
+  }
+
+  window.addEventListener("load",()=>{
+    setTimeout(activeTradePushMonitor,1500);
+    setInterval(activeTradePushMonitor,60000);
+  });
+})();
 })();
