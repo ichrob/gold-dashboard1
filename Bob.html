@@ -813,7 +813,7 @@ function setTradeEntry(){
  const entry=+($("tradeEntry").value||lastPrice), sm=stopModel(dir,entry,A.at,+( $("trailAtr")?.value||1.5));
  if(!sm.stop){$("stopUpdate").textContent="Kein valider Stop berechenbar.";return;}
  const tgt=targetModel(dir,entry,sm.stop,Math.max(1,+($("minRR")?.value||2)));
- tradeMgmt={active:true,dir,entry,stop:sm.stop,target:tgt.target,rr:tgt.rr,stopReason:sm.reason,lastUpdate:new Date().toISOString()};
+ tradeMgmt={active:true,dir,entry,stop:sm.stop,target:tgt.target,rr:tgt.rr,initialRisk:Math.abs(entry-sm.stop),profitStage:0,stopReason:sm.reason,lastUpdate:new Date().toISOString()};
  $("tradeEntry").value=tradeMgmt.entry.toFixed(2);$("tradePrice").value=lastPrice.toFixed(2);$("tradeStop").value=tradeMgmt.stop.toFixed(2);saveTradeMgmt();
  pushState=BobPush.setActiveTrade(true);renderPush();
  const msg=`${dir}: initialer Stop-Loss ${displayStop(tradeMgmt.stop)}. Einstieg ${tradeMgmt.entry.toFixed(2)} USD/oz.`;
@@ -923,14 +923,64 @@ function checkDgProduct(){
    (result.reasons.length?"<br>ℹ️ "+result.reasons.join(" · "):"")+
    "<br><span class='small'>Der Prüfschema-Wert ist kein Gewinnscore. Er zeigt nur, wie gut die eingegebenen Produktdaten zum aktuellen Bob-Szenario und den Sicherheitsregeln passen.</span>";
 }
-async function maybePushAnalysisAlerts(){
+async function manageProfitProtection(){
+ try{
+   if(!pushState?.activeTrade||!pushState?.trade||!tradeMgmt?.active)return;
+   const entry=Number(tradeMgmt.entry), stop=Number(tradeMgmt.stop), p=Number(lastPrice);
+   if(!Number.isFinite(entry)||!Number.isFinite(stop)||!Number.isFinite(p)||!tradeMgmt.dir)return;
+   const initialRisk=Number(tradeMgmt.initialRisk)>0?Number(tradeMgmt.initialRisk):Math.abs(entry-stop);
+   if(!Number.isFinite(initialRisk)||initialRisk<=0)return;
+   const favorable=tradeMgmt.dir==="LONG"?p-entry:entry-p;
+   const r=favorable/initialRisk;
+   const score=Number(A.score);
+   const mtf=getMtfState().overall||"NEUTRAL";
+   const aligned=(tradeMgmt.dir==="LONG"&&mtf==="LONG")||(tradeMgmt.dir==="SHORT"&&mtf==="SHORT");
+   const momentumStrong=aligned&&((tradeMgmt.dir==="LONG"&&A.macd>=A.sig)||(tradeMgmt.dir==="SHORT"&&A.macd<=A.sig))&&((tradeMgmt.dir==="LONG"&&score>=70)||(tradeMgmt.dir==="SHORT"&&score<=30));
+   const momentumWeak=!momentumStrong && ((tradeMgmt.dir==="LONG"&&(score<65||mtf!=="LONG"))||(tradeMgmt.dir==="SHORT"&&(score>35||mtf!=="SHORT")));
+   let saved={};try{saved=JSON.parse(localStorage.getItem("bobProfitGuardV1")||"{}")}catch(_){}
+   const baseKey=tradeMgmt.entry+":"+tradeMgmt.dir;
+   if(saved.tradeKey!==baseKey){saved={tradeKey:baseKey};}
+
+   if(Number.isFinite(Number(tradeMgmt.target))){
+     const target=Number(tradeMgmt.target);
+     const reached=tradeMgmt.dir==="LONG"?p>=target:p<=target;
+     if(reached&&saved.target!==baseKey){
+       await notifyTrade("🎯 Bob – Trade schließen: Ziel erreicht","Ziel "+target.toFixed(2)+" USD/oz erreicht · Gewinn sichern.",{kind:"trade-close-target",signalId:"target:"+baseKey});
+       saved.target=baseKey;localStorage.setItem("bobProfitGuardV1",JSON.stringify(saved));
+       return;
+     }
+   }
+
+   const stage=r>=2?2:r>=1.5?1.5:r>=1?1:0;
+   if(stage>0&&Number(saved.stage||0)<stage){
+     let desired=stop;
+     if(stage>=1) desired=tradeMgmt.dir==="LONG"?Math.max(desired,entry):Math.min(desired,entry);
+     if(stage>=1.5) desired=tradeMgmt.dir==="LONG"?Math.max(desired,entry+initialRisk*0.5):Math.min(desired,entry-initialRisk*0.5);
+     if(stage>=2) desired=tradeMgmt.dir==="LONG"?Math.max(desired,entry+initialRisk):Math.min(desired,entry-initialRisk);
+     const moved=tradeMgmt.dir==="LONG"?desired>stop+0.0001:desired<stop-0.0001;
+     if(moved){
+       tradeMgmt.stop=desired;tradeMgmt.lastUpdate=new Date().toISOString();tradeMgmt.profitStage=stage;saveTradeMgmt();$("tradeStop").value=desired.toFixed(2);
+       await notifyTrade("🛡️ Bob – Gewinn absichern",stage===1?"+1R erreicht · Stop auf mindestens Einstieg absichern.":stage===1.5?"+1,5R erreicht · bereits erzielten Gewinn weiter schützen.":"+2R erreicht · mindestens +1R Gewinn schützen.",{kind:"profit-protection",signalId:"profit:"+baseKey+":"+stage});
+       captureResearchSnapshot("PROFIT_PROTECTION");updateResearchPanel();
+     } else {
+       saved.stage=stage;localStorage.setItem("bobProfitGuardV1",JSON.stringify(saved));
+     }
+   }
+
+   if(momentumWeak&&r>=1&&saved.weak!==baseKey){
+     await notifyTrade("⚠️ Bob – Gewinn schützen","Momentum schwächt sich ab · "+r.toFixed(1)+"R im Gewinn · Stop-Loss prüfen/nachziehen.",{kind:"profit-protection-warning",signalId:"weak:"+baseKey});
+     saved.weak=baseKey;localStorage.setItem("bobProfitGuardV1",JSON.stringify(saved));
+   }
+ }catch(e){console.warn("Bob profit protection",e)}
+}
+\nasync function maybePushAnalysisAlerts(){
  try{
    if(!pushState?.registered)return;
    const dir=confirmedSignalDirection();
    const mtf=getMtfState().overall||"NEUTRAL";
    let saved={};try{saved=JSON.parse(localStorage.getItem("bobAlertV2")||"{}")}catch(_){}
    const now=Date.now();
-   const switched=(saved.dir==="LONG"||saved.dir==="SHORT")&&(dir==="LONG"||dir==="SHORT")&&saved.dir!==dir;
+   const switched=(saved.dir==="LONG"||saved.dir==="SHORT")&&(dir==="LONG"||dir==="SHORT")&&saved.dir!==dir;\n\n   await manageProfitProtection();
 
    // For an active trade, a confirmed reversal is the highest-priority warning:
    // recommend closing first, then explain the new signal direction.
