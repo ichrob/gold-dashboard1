@@ -74,7 +74,8 @@ function ocrExtract(text){
  const raw=String(text||"").replace(/\r/g," ");
  const upper=raw.toUpperCase();
  const isin=(raw.match(/\b[A-Z]{2}[A-Z0-9]{10}\b/)||[])[0]||"";
- const lev=(raw.match(/(?:HEBEL|LEVERAGE)?\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*[X×]/i)||[])[1]||"";
+ const levMatch=raw.match(/\b(?:HEBEL|LEVERAGE)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(?:[X×]\b)?|\b(\d+(?:[.,]\d+)?)\s*[X×](?![A-Z0-9])/i);
+ const lev=levMatch?(levMatch[1]||levMatch[2]||""):"";
  const ko=(raw.match(/(?:KO|KNOCK[- ]?OUT|BARRIERE|BARRIER)\s*[:=]?\s*([0-9]{3,6}(?:[.,][0-9]+)?)/i)||[])[1]||"";
  const spread=(raw.match(/(?:SPREAD|GELD\s*\/\s*BRIEF|BID\s*\/\s*ASK)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)/i)||[])[1]||"";
  const price=(raw.match(/(?:PRODUKTKURS|PRODUKTPREIS|KURS|PREIS|PRICE|QUOTE)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)/i)||[])[1]||"";
@@ -121,7 +122,27 @@ async function readScreenshot(i,file){
   if(status)status.textContent=x.isin?"✅ Screenshot gelesen – Angaben bitte kurz gegen DEGIRO prüfen.":"⚠️ Screenshot gelesen, aber keine sichere ISIN erkannt – Angaben bitte prüfen.";
  }catch(e){if(status)status.textContent="⚠️ OCR nicht verfügbar. Kandidaten können weiterhin manuell eingegeben werden.";}
 }
-function parseScreenshotCandidates(text){const raw=String(text||"").replace(/\r/g,"");const hits=[];const re=/\b[A-Z]{2}[A-Z0-9]{10}\b/g;let m;while((m=re.exec(raw))&&hits.length<4){const start=Math.max(0,raw.lastIndexOf("\n",m.index-1)+1),end=Math.min(raw.length,(raw.indexOf("\n",m.index)===-1?raw.length:raw.indexOf("\n",m.index)));const line=raw.slice(start,end).trim();const context=raw.slice(Math.max(0,m.index-120),Math.min(raw.length,m.index+180));const x=ocrExtract(line||context);if(!x.direction)x.direction=ocrExtract(context).direction;x.isin=m[0];if(!hits.some(v=>v.isin===x.isin))hits.push(x);}return hits;}
+function parseScreenshotCandidates(text){
+ const raw=String(text||"").replace(/\r/g,"");
+ const matches=Array.from(raw.matchAll(/\b[A-Z]{2}[A-Z0-9]{10}\b/g));
+ const starts=matches.map((m,i)=>{
+  const lineStart=raw.lastIndexOf("\n",m.index-1)+1;
+  const lower=i?matches[i-1].index+matches[i-1][0].length:0;
+  const preceding=raw.slice(lower,lineStart);
+  const headings=Array.from(preceding.matchAll(/(?:^|\n)([^\n]*(?:GOLD|XAU|TURBO)[^\n]*(?:LONG|SHORT|CALL|PUT)[^\n]*)/gi));
+  const heading=headings[headings.length-1];
+  return heading?lower+heading.index+(heading[0].startsWith("\n")?1:0):(i?lineStart:0);
+ });
+ const hits=[];
+ matches.forEach((m,i)=>{
+  const x=ocrExtract(raw.slice(starts[i],i+1<matches.length?starts[i+1]:raw.length));
+  x.isin=m[0];
+  const existing=hits.find(v=>v.isin===x.isin);
+  if(existing){Object.keys(x).forEach(k=>{if(!existing[k]&&x[k])existing[k]=x[k];});}
+  else if(hits.length<8)hits.push(x);
+ });
+ return hits;
+}
 async function readCentralScreenshot(file){
  const status=document.getElementById("dgCentralStatus");if(!file)return;
  try{
