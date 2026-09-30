@@ -234,17 +234,18 @@ def build_live_bundle():
                         symbols = payload.get("symbols") if isinstance(payload, dict) else None
                         row = symbols[0] if isinstance(symbols, list) and symbols else None
                     if not isinstance(row, dict):
-                        raise RuntimeError("GoldPrice.dev liefert keine XAU/USD-Daten")
+                        raise RuntimeError("XAU/USD-Spotquelle liefert keine gültigen Daten")
                     price = float(row.get("price"))
                     age = iso_age_seconds(row.get("computed_at"))
+                    source_name = "XAUS · live" if endpoint.startswith("https://xaus.com/") else "GoldPrice.dev · live"
                     if price <= 0:
-                        raise RuntimeError("GoldPrice.dev liefert keinen gültigen XAU/USD-Preis")
+                        raise RuntimeError(f"{source_name} liefert keinen gültigen XAU/USD-Preis")
                     if row.get("is_stale") is True or age is None or age > FRESH_MAX_AGE:
                         raise RuntimeError(
-                            f"GoldPrice.dev Spot nicht frisch (stale={row.get('is_stale')}, "
+                            f"{source_name} Spot nicht frisch (stale={row.get('is_stale')}, "
                             f"Alter {age if age is not None else 'unbekannt'} s)"
                         )
-                    return price, age, None, "GoldPrice.dev · live", True
+                    return price, age, None, source_name, True
                 except Exception as exc:
                     last_error = exc
             return None, None, str(last_error) if last_error else "Spotquelle nicht verfügbar", None, False
