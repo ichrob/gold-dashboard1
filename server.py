@@ -22,6 +22,13 @@ HTML_PATH = BASE_DIR / "Bob.html"
 SW_PATH = BASE_DIR / "sw.js"
 MANIFEST_PATH = BASE_DIR / "manifest.json"
 ICON_PATH = BASE_DIR / "icon.svg"
+
+# Load static shell assets once at startup. The request handler serves these
+# bytes directly; keeping the load explicit prevents runtime NameError failures.
+HTML = HTML_PATH.read_bytes() if HTML_PATH.exists() else b""
+SW = SW_PATH.read_bytes() if SW_PATH.exists() else None
+MANIFEST = MANIFEST_PATH.read_bytes() if MANIFEST_PATH.exists() else None
+ICON = ICON_PATH.read_bytes() if ICON_PATH.exists() else None
 # Runtime-module fallback: Render must serve these two browser modules even if
 # the deployed filesystem snapshot omits an untracked/static file. Keeping the
 # source embedded here makes the JS delivery independent of that filesystem edge case.
