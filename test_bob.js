@@ -139,6 +139,10 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert(fs.readFileSync("degiro_assistant.js", "utf8").includes("Bob Top 4"));
   assert(fs.readFileSync("degiro_assistant.js", "utf8").includes("BOB-FAVORIT"));
   assert(fs.readFileSync("degiro_assistant.js", "utf8").includes("cdn.jsdelivr.net/npm/tesseract.js@5"));
+  assert(fs.readFileSync("degiro_assistant.js", "utf8").includes("/api/degiro/enrich"));
+  assert(serverSource.includes("/api/degiro/enrich"));
+  assert(serverSource.includes("api.openfigi.com/v3/mapping"));
+  assert(serverSource.includes("Screenshot data remains authoritative"));
 
 
   console.log("Bob push + DEGIRO tests: OK");
