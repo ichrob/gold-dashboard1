@@ -146,7 +146,7 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert.strictEqual(degiro.BobDegiro.detailScreenshotData("DE000FG4JXV7 DE000PJ9NCK0", "DE000FG4JXV7").ok,false);
   assert.strictEqual(degiro.BobDegiro.detailScreenshotData("Geld 3,00 Brief 3,01", "DE000FG4JXV7").ok,false);
   assert.strictEqual(degiro.BobDegiro.detailScreenshotData("DE000FG4JXV7 EUR Geld 4,00 Brief 3,00", "DE000FG4JXV7").ok,false);
-  const header=degiro.BobDegiro.detailScreenshotData("SG Gold Turbo Classic Put BAR\n4460 BP 4460 Bv 10\n18/12/2026 LV 14.01\nSCG | DE000FG4JXV7 | EUR\n€24,68 +1,97", "DE000FG4JXV7");
+  const header=degiro.BobDegiro.detailScreenshotData("SG Gold Turbo Classic Put BAR\n@ 4460 BP 4460 Bv 10\n18/12/2026 LV 14.01\nSCG | DE000FG4JXV7 | EUR\n€24,68 +1,97", "DE000FG4JXV7");
   assert.strictEqual(header.direction,"SHORT");assert.strictEqual(header.ko,"4460");assert.strictEqual(header.leverage,"14.01");assert.strictEqual(header.price,"24.68");
   assert.strictEqual(header.sourceTime,""); // expiry is never a quote time
   assert(degiro.BobDegiro.missingProductData({isin:"DE000FG4JXV7",productDirection:"SHORT",price:24.82,leverage:14.01,ko:4460,spread:0.01}).includes("bestätigte aktuelle Kursdaten mit Zeitstempeln"));
