@@ -122,6 +122,16 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert.strictEqual(p.fetchCalls.some(call => call.url === "/api/push/send"), false);
   assert.strictEqual(p.serviceWorkerRegistration.lastNotification.title, "Test");
 
+  const htmlSource = fs.readFileSync("Bob.html", "utf8");
+  const scoreBlock = htmlSource.slice(htmlSource.indexOf(" let pts=0,max=0,details=[];"),htmlSource.indexOf(" const atrPct=",htmlSource.indexOf(" let pts=0,max=0,details=[];")));
+  const scoring = vm.runInNewContext(scoreBlock + "\n({pts,max,weights:w})", {
+    currentRegime:()=>"TREND", getMtfState:()=>({overall:"LONG"}),
+    fibonacciModel:()=>({valid:false}), A:{e20:3,e50:2,e200:1,macd:2,sig:1,R:60,at:10},
+    p:4000,b:{mid:3900},st:60
+  });
+  assert(Number.isFinite(scoring.pts));
+  assert(scoring.max>0);
+  assert.strictEqual(Object.values(scoring.weights).reduce((a,b)=>a+b,0),100);
   const degiro = {};
   const degiroContext = { window: degiro };
   vm.createContext(degiroContext);

@@ -914,7 +914,26 @@ function advancedAnalysis(){
  const p0=Number(p);
  const fibDir=trendBull&&mtf==="LONG"?"LONG":trendBear&&mtf==="SHORT"?"SHORT":A.macd>A.sig?"LONG":A.macd<A.sig?"SHORT":"NEUTRAL";
  const fibCore=fibonacciModel(fibDir,p0,A.at);
- // Score architecture: each factor has one explicit budget. MTF is independent from Trend\n // so the same trend information is not counted twice. Regime adaptations preserve\n // a 100-point total by redistributing weight between existing factors.\n const w={trend:18,mtf:14,momentum:15,structure:14,cr:14,fibonacci:12,atr:6,adx:3,vwap:2,osc:2};\n if(regime.includes("RANGE")||regime.includes("LOW-VOL")){w.trend=12;w.mtf=12;w.structure=20;w.fibonacci=16;w.momentum=12;w.cr=14;w.atr=5;w.adx=2;w.vwap=3;w.osc=4;}\n if(regime.includes("TREND")){w.trend=22;w.mtf=16;w.momentum=17;w.structure=13;w.cr=13;w.fibonacci=12;w.atr=4;w.adx=2;w.vwap=1;w.osc=0;}\n if(regime.includes("HOCH-VOL")){w.trend=16;w.mtf=13;w.momentum=14;w.structure=13;w.cr=18;w.fibonacci=10;w.atr=10;w.adx=3;w.vwap=2;w.osc=1;}\n const evidence=[];\n const add=(name,value,weight)=>{const v=Math.max(-1,Math.min(1,value));pts+=v*weight;max+=weight;if(Math.abs(v)>=0.55)evidence.push(name+(v>0?" ↑":" ↓"));};\n const trendVal=trendBull?1:trendBear?-1:0; add("Trend",trendVal,w.trend);\n const mtfVal=mtf==="LONG"?1:mtf==="SHORT"?-1:0; add("MTF",mtfVal,w.mtf);\n const macdVal=A.macd>A.sig?1:A.macd<A.sig?-1:0; const rsiVal=A.R>=50&&A.R<75?1:A.R<=50&&A.R>25?-1:0;\n add("Momentum",(macdVal*0.6+rsiVal*0.4),w.momentum);\n const structVal=p0>b.mid&&st>50?1:p0<b.mid&&st<50?-1:0; add("Struktur",structVal,w.structure);\n let fibVal=0; if(fibCore.valid){\n  const retr=[fibCore.levels.r382,fibCore.levels.r500,fibCore.levels.r618,fibCore.levels.r786];\n  const near=Math.min(...retr.map(x=>Math.abs(p0-x))); const tolerance=Math.max(A.at*0.35,0.001);\n  const nearRetr=near<=tolerance; const extBias=fibDir==="LONG"?(p0>fibCore.levels.r618?0.35:-0.15):(p0<fibCore.levels.r618?-0.35:0.15);\n  fibVal=(nearRetr?0.75:0)+extBias; if(fibDir==="SHORT")fibVal*=-1;\n } add("Fibonacci",fibVal,w.fibonacci);
+ // Score architecture: each factor has one explicit budget. MTF is independent from Trend
+ // so the same trend information is not counted twice. Regime adaptations preserve
+ // a 100-point total by redistributing weight between existing factors.
+ const w={trend:18,mtf:14,momentum:15,structure:14,cr:14,fibonacci:12,atr:6,adx:3,vwap:2,osc:2};
+ if(regime.includes("RANGE")||regime.includes("LOW-VOL")){w.trend=12;w.mtf=12;w.structure=20;w.fibonacci=16;w.momentum=12;w.cr=14;w.atr=5;w.adx=2;w.vwap=3;w.osc=4;}
+ if(regime.includes("TREND")){w.trend=22;w.mtf=16;w.momentum=17;w.structure=13;w.cr=13;w.fibonacci=12;w.atr=4;w.adx=2;w.vwap=1;w.osc=0;}
+ if(regime.includes("HOCH-VOL")){w.trend=16;w.mtf=13;w.momentum=14;w.structure=13;w.cr=18;w.fibonacci=10;w.atr=10;w.adx=3;w.vwap=2;w.osc=1;}
+ const evidence=[];
+ const add=(name,value,weight)=>{const v=Math.max(-1,Math.min(1,value));pts+=v*weight;max+=weight;if(Math.abs(v)>=0.55)evidence.push(name+(v>0?" ↑":" ↓"));};
+ const trendVal=trendBull?1:trendBear?-1:0; add("Trend",trendVal,w.trend);
+ const mtfVal=mtf==="LONG"?1:mtf==="SHORT"?-1:0; add("MTF",mtfVal,w.mtf);
+ const macdVal=A.macd>A.sig?1:A.macd<A.sig?-1:0; const rsiVal=A.R>=50&&A.R<75?1:A.R<=50&&A.R>25?-1:0;
+ add("Momentum",(macdVal*0.6+rsiVal*0.4),w.momentum);
+ const structVal=p0>b.mid&&st>50?1:p0<b.mid&&st<50?-1:0; add("Struktur",structVal,w.structure);
+ let fibVal=0; if(fibCore.valid){
+  const retr=[fibCore.levels.r382,fibCore.levels.r500,fibCore.levels.r618,fibCore.levels.r786];
+  const near=Math.min(...retr.map(x=>Math.abs(p0-x))); const tolerance=Math.max(A.at*0.35,0.001);
+  const nearRetr=near<=tolerance; const extBias=fibDir==="LONG"?(p0>fibCore.levels.r618?0.35:-0.15):(p0<fibCore.levels.r618?-0.35:0.15);
+  fibVal=(nearRetr?0.75:0)+extBias; if(fibDir==="SHORT")fibVal*=-1;
+ } add("Fibonacci",fibVal,w.fibonacci);
  const atrPct=(A.at/p0)*100;
  const atrVal=atrPct>0.65?0.7:atrPct<0.18?-0.25:0.25;
  add("ATR",atrVal,w.atr);
