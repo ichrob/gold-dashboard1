@@ -139,9 +139,10 @@ function inject(){
     if(x.isin)enrichProduct(i);
    });
    if(lab)lab.textContent="✓ "+label+" geladen";
-   if(status)status.textContent="✅ "+items.length+" Produkt(e) aus "+centralTexts.filter(Boolean).length+" Screenshot(s) erkannt.";
-   rankUI();
-  }catch(e){
+   if(status)status.textContent="⏳ "+items.length+" Produkt(e) erkannt. Warte auf weitere Bilder …";
+   if(centralTexts.filter(Boolean).length>=1){ rankUI(); }
+  }
+  catch(e){
    if(lab)lab.textContent=label+" erneut versuchen";
    if(status)status.textContent="⚠️ "+label+" konnte nicht automatisch gelesen werden. Bitte erneut auswählen.";
    console.warn("[BOB] DEGIRO OCR",e);
