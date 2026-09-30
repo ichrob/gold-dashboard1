@@ -136,6 +136,20 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   const degiroContext = { window: degiro };
   vm.createContext(degiroContext);
   vm.runInContext(fs.readFileSync("degiro_assistant.js", "utf8"), degiroContext, { filename: "degiro_assistant.js" });
+  const detail = degiro.BobDegiro.detailScreenshotData("Kursdaten\nGeld € 24,81 Brief € 24,82\nGeld Vol. 10K Brief Vol. 10K\n30/09/2026 21:43\nSymbol | ISIN DE000FG4JXV7\nEUR", "DE000FG4JXV7");
+  assert.strictEqual(detail.ok,true);
+  assert.strictEqual(detail.bid,24.81);assert.strictEqual(detail.ask,24.82);
+  assert.strictEqual(detail.spread,"0.01");assert.strictEqual(detail.price,"24.82");
+  assert.strictEqual(detail.sourceTime,"30/09/2026 21:43");
+  assert.strictEqual(detail.leverage,""); // chart points and account balance are not leverage
+  assert.strictEqual(degiro.BobDegiro.detailScreenshotData("DE000PJ9NCK0\nGeld 3,00 Brief 3,01", "DE000FG4JXV7").ok,false);
+  assert.strictEqual(degiro.BobDegiro.detailScreenshotData("DE000FG4JXV7 DE000PJ9NCK0", "DE000FG4JXV7").ok,false);
+  assert.strictEqual(degiro.BobDegiro.detailScreenshotData("Geld 3,00 Brief 3,01", "DE000FG4JXV7").ok,false);
+  assert.strictEqual(degiro.BobDegiro.detailScreenshotData("DE000FG4JXV7 EUR Geld 4,00 Brief 3,00", "DE000FG4JXV7").ok,false);
+  const header=degiro.BobDegiro.detailScreenshotData("SG Gold Turbo Classic Put BAR\n4460 BP 4460 Bv 10\n18/12/2026 LV 14.01\nSCG | DE000FG4JXV7 | EUR\n€24,68 +1,97", "DE000FG4JXV7");
+  assert.strictEqual(header.direction,"SHORT");assert.strictEqual(header.ko,"4460");assert.strictEqual(header.leverage,"14.01");assert.strictEqual(header.price,"24.68");
+  assert.strictEqual(header.sourceTime,""); // expiry is never a quote time
+  assert(degiro.BobDegiro.missingProductData({isin:"DE000FG4JXV7",productDirection:"SHORT",price:24.82,leverage:14.01,ko:4460,spread:0.01}).includes("bestätigte aktuelle Kursdaten mit Zeitstempeln"));
   const calc = degiro.BobDegiro.riskModel({ spot: 4000, stop: 3980, riskEur: 5, fxUsdEur: 0.92, leverage: 5 });
   assert.strictEqual(calc.ok, true);
   assert(Math.abs(calc.maxLossUsd - (5 / 0.92)) < 1e-12);
