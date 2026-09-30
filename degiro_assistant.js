@@ -25,13 +25,32 @@ function loadOcr(){
  });
  return ocrLoader;
 }
+async function prepareOcrImage(file,statusId){
+ const status=document.getElementById(statusId||"");
+ try{
+  const bitmap=await createImageBitmap(file);
+  const maxSide=1600;
+  const scale=Math.min(1,maxSide/Math.max(bitmap.width,bitmap.height));
+  const w=Math.max(1,Math.round(bitmap.width*scale)),h=Math.max(1,Math.round(bitmap.height*scale));
+  const canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;
+  const ctx=canvas.getContext("2d",{alpha:false});
+  ctx.drawImage(bitmap,0,0,w,h);
+  bitmap.close();
+  if(status)status.textContent="🖼️ Screenshot für OCR optimiert …";
+  return await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error("Bildaufbereitung fehlgeschlagen")),"image/jpeg",0.82));
+ }catch(e){
+  if(status)status.textContent="🖼️ Originalbild wird verwendet …";
+  return file;
+ }
+}
 function recognizeOcr(file,statusId){
  const job=ocrQueue.then(async()=>{
   const T=await loadOcr();
   const el=document.getElementById(statusId||"");
-  if(el)el.textContent="📥 OCR-Bibliothek geladen – Bild wird jetzt gelesen …";
+  if(el)el.textContent="📥 OCR-Bibliothek geladen – Bild wird vorbereitet …";
+  const prepared=await prepareOcrImage(file,statusId);
   const result=await Promise.race([
-   T.recognize(file,"deu+eng",{logger:m=>{
+   T.recognize(prepared,"deu+eng",{logger:m=>{
     const s=document.getElementById(statusId||"");
     if(s&&m&&m.status==="recognizing text"&&m.progress)s.textContent="📷 OCR "+Math.round(m.progress*100)+"%";
     else if(s&&m&&m.status==="loading language traineddata")s.textContent="📦 OCR-Sprachdaten werden geladen …";
