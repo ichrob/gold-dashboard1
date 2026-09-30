@@ -168,9 +168,23 @@ try{
 </div>
 <div id="dgOut" style="margin-top:12px">Trage bei einem gehebelten Produkt möglichst den echten Hebel und das KO-Level aus DEGIRO ein.</div>
 <div class="warning" style="margin-top:12px">
-<b>So arbeitet die Empfehlung:</b> Die App verbindet XAU/USD-Signal, Multi-Timeframe-Richtung, technischen Score, ATR und dein maximales €-Risiko.
-Sie wählt <u>kein konkretes DEGIRO-Wertpapier automatisch</u>, weil die in deinem Konto verfügbaren Produkte, Knock-Outs, Spreads und Kosten nicht öffentlich aus der App abgefragt werden.
-Bei einem Turbo/Knock-Out ist das KO-Level besonders wichtig: Der technische Stop der Analyse ist nicht automatisch das KO-Level.
+<b>So arbeitet die Empfehlung:</b> Bob verbindet XAU/USD-Signal, Multi-Timeframe-Richtung, technischen Score, ATR und dein maximales €-Risiko.
+Die konkrete DEGIRO-Auswahl bleibt nachvollziehbar: Du kannst die Daten des in DEGIRO angezeigten Produkts (Name, ISIN, Richtung, Kurs, Hebel, KO, Spread) eintragen; Bob prüft dann Richtung, KO-Abstand und Risikopassung.
+Bob platziert keine Orders und behauptet keine Gewinn-Garantie.
+</div>
+<div style="margin-top:14px">
+<b>🔎 DEGIRO-Produktprüfung</b>
+<div class="grid" style="margin-top:8px">
+<div><label>Produktname</label><input id="dgName" placeholder="z. B. Gold Turbo"></div>
+<div><label>ISIN</label><input id="dgIsin" placeholder="z. B. DE000..."></div>
+<div><label>Produkt-Richtung</label><select id="dgDir"><option value="">Automatisch aus KO</option><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select></div>
+<div><label>Produktkurs</label><input id="dgPrice" type="number" step=".0001" placeholder="DEGIRO-Kurs"></div>
+</div>
+<div class="row" style="margin-top:8px">
+<button onclick="checkDgProduct()">Produkt prüfen</button>
+<button onclick="clearDgProduct()">Eingaben löschen</button>
+</div>
+<div id="dgProductOut" class="small" style="margin-top:10px">Noch kein konkretes DEGIRO-Produkt geprüft.</div>
 </div>
 </div>
 
@@ -879,8 +893,66 @@ function updateTradeSignal(){
  if(fb!=="OK" && fb!=="UNKNOWN"){text="🟡 ABWARTEN · Breakout bestätigen";cls="neutral"}
  $("tradeSignal").textContent=text+" · Score "+(A.score??0).toFixed(0)+"/100 · MTF "+mtfDir;
  $("tradeSignal").className="signal "+cls;
+ maybePushAnalysisAlerts();
 }
 
+function clearDgProduct(){
+ ["dgName","dgIsin","dgPrice","dgDir","dgLev","dgKo","dgSpread"].forEach(id=>{const el=$(id);if(el){if(el.tagName==="SELECT")el.value="";else el.value=id==="dgLev"?5:id==="dgSpread"?0:"";}});
+ $("dgProductOut").textContent="Produktdaten gelöscht.";
+}
+function checkDgProduct(){
+ if(!lastPrice){$("dgProductOut").textContent="Zuerst Live-XAU/USD laden.";return;}
+ const direction=confirmedSignalDirection();
+ const result=BobDegiro.evaluateProduct({
+   spot:lastPrice,
+   ko:+$("dgKo").value,
+   leverage:+$("dgLev").value,
+   spread:+$("dgSpread").value,
+   direction,
+   productDirection:$("dgDir").value
+ });
+ const name=$("dgName").value.trim()||"DEGIRO-Produkt";
+ const isin=$("dgIsin").value.trim()||"ISIN nicht eingetragen";
+ if(!result.ok){$("dgProductOut").innerHTML="<b>Keine Prüfung möglich.</b> "+result.reasons.join(" · ");return;}
+ const badge=result.fit?"🟢 passt zum aktuellen Szenario":"🟡 mit Warnungen prüfen";
+ const koText=result.koDistancePct==null?"KO-Abstand —":result.koDistancePct.toFixed(2)+"%";
+ $("dgProductOut").innerHTML="<b>"+badge+"</b><br>"+name+" · "+isin+
+   "<br>Bob-Szenario: <b>"+direction+"</b> · Produkt: <b>"+(result.direction||"—")+"</b>"+
+   " · Hebel: <b>"+result.leverage.toFixed(1)+"×</b> · KO-Abstand: <b>"+koText+"</b> · Prüfschema: <b>"+result.score+"/100</b>"+
+   (result.warnings.length?"<br>⚠️ "+result.warnings.join(" · "):"")+
+   (result.reasons.length?"<br>ℹ️ "+result.reasons.join(" · "):"")+
+   "<br><span class='small'>Der Prüfschema-Wert ist kein Gewinnscore. Er zeigt nur, wie gut die eingegebenen Produktdaten zum aktuellen Bob-Szenario und den Sicherheitsregeln passen.</span>";
+}
+function maybePushAnalysisAlerts(){
+ try{
+   if(!pushState?.registered)return;
+   const dir=confirmedSignalDirection();
+   const mtf=getMtfState().overall||"NEUTRAL";
+   let saved={};try{saved=JSON.parse(localStorage.getItem("bobAlertV2")||"{}")}catch(_){}
+   if(saved.dir&&dir!==saved.dir&&dir!=="NEUTRAL"){
+     BobPush.emit("general","Bob – neues Gold-Szenario",
+       dir+" bestätigt · MTF "+mtf+" · XAU/USD "+lastPrice.toFixed(2),
+       {kind:"signal-change",signalId:"ui:"+dir+":"+Math.floor(Date.now()/60000)});
+   }
+   if(saved.mtf&&mtf!==saved.mtf&&mtf!=="NEUTRAL"){
+     BobPush.emit("general","Bob – MTF-Wechsel",mtf+" · XAU/USD "+lastPrice.toFixed(2),
+       {kind:"mtf-change",signalId:"mtf:"+mtf+":"+Math.floor(Date.now()/60000)});
+   }
+   saved.dir=dir;saved.mtf=mtf;localStorage.setItem("bobAlertV2",JSON.stringify(saved));
+   if(pushState.activeTrade&&pushState.trade&&tradeMgmt?.active&&Number.isFinite(Number(tradeMgmt.stop))){
+     const stop=Number(tradeMgmt.stop), distance=Math.abs(lastPrice-stop);
+     const near=Math.max((A.at||0)*0.25,1);
+     const breached=(tradeMgmt.direction==="LONG"&&lastPrice<=stop)||(tradeMgmt.direction==="SHORT"&&lastPrice>=stop);
+     const now=Date.now(), lastWarn=Number(saved.tradeWarnAt||0);
+     if((breached||distance<=near)&&now-lastWarn>15*60*1000){
+       BobPush.emit("trade",breached?"Bob – Stop-Loss erreicht":"Bob – Stop-Loss wird knapp",
+         "XAU/USD "+lastPrice.toFixed(2)+" · Stop "+stop.toFixed(2),
+         {kind:"active-trade-warning",signalId:"trade-stop:"+Math.floor(now/600000)});
+       saved.tradeWarnAt=now;localStorage.setItem("bobAlertV2",JSON.stringify(saved));
+     }
+   }
+ }catch(e){console.warn("Bob push analysis alert",e)}
+}
 function useRiskDefaults(){
  $("dgLev").value=5;
  $("dgKo").value="";
