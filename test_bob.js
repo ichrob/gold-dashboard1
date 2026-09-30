@@ -167,7 +167,7 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   ], {direction:"LONG", atr:20, spot:4000});
   assert.strictEqual(ranked.candidates.length, 2);
   assert.strictEqual(ranked.candidates[0].name, "Long A");
-  assert(ranked.candidates.every(p => p.productDirection === "LONG"));
+  assert(ranked.candidates.every(p => p.productDirection === "LONG"));\n  const neutralRank = degiro.BobDegiro.rankProducts([{name:"Long A",productDirection:"LONG",spot:4000,ko:3800,leverage:4,spread:0.5},{name:"Short C",productDirection:"SHORT",spot:4000,ko:4100,leverage:5,spread:0.5}], {direction:"NEUTRAL",atr:20,spot:4000});\n  assert.strictEqual(neutralRank.tradeable, false);\n  assert.strictEqual(neutralRank.candidates.length, 0);
   const gated = degiro.BobDegiro.rankProducts([{name:"Long Weak",productDirection:"LONG",spot:4000,ko:3800,leverage:4,spread:0.5}], {direction:"LONG",atr:20,spot:4000,trend:"SHORT",trend2:"SHORT",mtf:"SHORT",rsi:80,hist:-1,adx:10,momentum:-1});
   assert.strictEqual(gated.tradeable, false);
   assert(gated.gateReason.includes("Technischer Konsens"));
