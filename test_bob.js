@@ -218,6 +218,13 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert(degiro.BobDegiro.validIsin("DE000FC1CHB7"));
   assert(!degiro.BobDegiro.validIsin("DEOOOFC1CHB7"));
   assert(!degiro.BobDegiro.validIsin("DEOOOPJONB98"));
+  assert.strictEqual(degiro.BobDegiro.normalizeOcrIsin("DEOOOFC1CHB7").isin,"DE000FC1CHB7");
+  assert.strictEqual(degiro.BobDegiro.normalizeOcrIsin("DEOOOFC1CHB7").originalIsin,"DEOOOFC1CHB7");
+  assert.strictEqual(degiro.BobDegiro.normalizeOcrIsin("DEOOOFG5GUTO").isin,"DE000FG5GUT0");
+  assert.strictEqual(degiro.BobDegiro.normalizeOcrIsin("DEOOOPJINCKO").isin,"DEOOOPJINCKO");
+  assert.strictEqual(degiro.BobDegiro.normalizeOcrIsin("DEOOOPJONB98").isin,"DEOOOPJONB98");
+  assert.strictEqual(degiro.BobDegiro.normalizeOcrIsin("DE000FC1CHB7").originalIsin,"");
+
   const ten=degiro.BobDegiro.parseScreenshotCandidates(Array.from({length:10},(_,i)=>"Gold Call BAR 3900 | DE000ABC12"+String(i).padStart(2,"0")).join("\n"));
   assert.strictEqual(ten.length,10);
   const strongCtx={direction:"LONG",atr:20,spot:4000,trend:"LONG",trend2:"LONG",mtf:"LONG",rsi:60,hist:1,adx:30,momentum:1};

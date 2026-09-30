@@ -12,6 +12,16 @@ function validIsin(value){
  for(let i=digits.length-1,double=false;i>=0;i--,double=!double){let x=Number(digits[i]);if(double)x*=2;sum+=x>9?x-9:x;}
  return sum%10===0;
 }
+function normalizeOcrIsin(value){
+ const original=String(value||"").trim().toUpperCase();
+ if(validIsin(original))return{isin:original,originalIsin:""};
+ // German WKN excludes I/O. Only substitute those confusable glyphs,
+ // only for DE000-style identifiers, and accept only a valid checksum.
+ // Never infer other digits (such as 9) from an ambiguous OCR character.
+ if(!/^DE[0O]{3}[A-Z0-9]{7}$/.test(original))return{isin:original,originalIsin:""};
+ const candidate="DE000"+original.slice(5).replace(/O/g,"0").replace(/I/g,"1");
+ return validIsin(candidate)?{isin:candidate,originalIsin:original}:{isin:original,originalIsin:""};
+}
 function koDistancePct(spot,ko){spot=n(spot);ko=n(ko);if(spot===null||ko===null||spot<=0)return null;return Math.abs((spot-ko)/spot)*100;}
 function directionOf(spot,ko){spot=n(spot);ko=n(ko);if(spot===null||ko===null)return null;return ko<spot?"LONG":ko>spot?"SHORT":null;}
 function riskModel(p){const spot=n(p.spot),stop=n(p.stop),riskEur=n(p.riskEur),fx=n(p.fxUsdEur),lev=Math.max(1,n(p.leverage)||1);if(spot===null||stop===null||riskEur===null||riskEur<=0)return{ok:false,reason:"Ungültige Eingabedaten für Risiko."};if(fx===null||fx<=0)return{ok:false,reason:"Keine gültige USD→EUR-FX-Rate."};const dist=Math.abs(spot-stop);if(dist<=0)return{ok:false,reason:"Stop-Distanz ist null."};const maxLossUsd=riskEur/fx,approxNotionalUsd=maxLossUsd/(dist/spot),approxNotionalEur=approxNotionalUsd*fx,marginEur=approxNotionalEur/lev,ko=n(p.ko),koPct=koDistancePct(spot,ko),warnings=[];if(ko!==null&&((spot>stop&&ko>=spot)||(spot<stop&&ko<=spot)))warnings.push("KO-Level liegt auf der falschen Seite des aktuellen Goldpreises.");if(koPct!==null&&koPct<2)warnings.push("KO-Abstand liegt unter 2%.");return{ok:true,maxLossUsd,approxNotionalUsd,approxNotionalEur,marginEur,stopDistance:dist,koDistancePct:koPct,warnings};}
@@ -88,7 +98,8 @@ function recognizeOcr(file,statusId){
 function ocrExtract(text){
  const raw=String(text||"").replace(/\r/g," ");
  const upper=raw.toUpperCase();
- const isin=(raw.match(/\b[A-Z]{2}[A-Z0-9]{10}\b/)||[])[0]||"";
+ const ident=normalizeOcrIsin((raw.match(/\b[A-Z]{2}[A-Z0-9]{10}\b/)||[])[0]||"");
+ const isin=ident.isin;
  const levMatch=raw.match(/\b(?:HEBEL|LEVERAGE)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(?:[X×]\b)?|\b(\d+(?:[.,]\d+)?)\s*[X×](?![A-Z0-9])/i);
  const lev=levMatch?(levMatch[1]||levMatch[2]||""):"";
  const ko=(raw.match(/\b(?:KO|KNOCK[- ]?OUT|BARRIERE|BARRIER|BAR|SL)\b\s*[:=]?\s*([0-9]{3,6}(?:[.,][0-9]+)?)/i)||[])[1]||"";
@@ -97,7 +108,7 @@ function ocrExtract(text){
  const direction=upper.includes("SHORT")||upper.includes("PUT")?"SHORT":(upper.includes("LONG")||upper.includes("CALL")?"LONG":"");
  const lines=raw.split(/\n+/).map(x=>x.trim()).filter(Boolean);
  const nameLine=lines.find(x=>/GOLD|XAU|TURBO|KNOCK|CALL|PUT/i.test(x)&&x.length<100)||"";
- return {isin,leverage:lev.replace(",","."),ko:ko.replace(",","."),spread:spread.replace(",","."),price:price.replace(",","."),direction,name:nameLine};
+ return {isin,originalIsin:ident.originalIsin,leverage:lev.replace(",","."),ko:ko.replace(",","."),spread:spread.replace(",","."),price:price.replace(",","."),direction,name:nameLine};
 }
 async function enrichProduct(i){
  const isin=document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value.trim()||"";
@@ -152,7 +163,7 @@ function parseScreenshotCandidates(text){
  const hits=[];
  matches.forEach((m,i)=>{
   const x=ocrExtract(raw.slice(starts[i],i+1<matches.length?starts[i+1]:raw.length));
-  x.isin=m[0];
+  const ident=normalizeOcrIsin(m[0]);x.isin=ident.isin;x.originalIsin=ident.originalIsin;
   const existing=hits.find(v=>v.isin===x.isin);
   if(existing){Object.keys(x).forEach(k=>{if(!existing[k]&&x[k])existing[k]=x[k];});}
   else if(hits.length<12)hits.push(x);
@@ -217,10 +228,10 @@ function inject(){
     const set=(k,v)=>{const el=document.querySelector('[data-dg="'+k+'"][data-i="'+i+'"]');if(el&&v)el.value=v;};
     set("name",x.name||x.isin);set("isin",x.isin);set("dir",x.direction);set("price",x.price);set("lev",x.leverage);set("ko",x.ko);set("spread",x.spread);
     const s=document.getElementById("dgOcrStatus"+i);if(s)s.textContent="✅ Aus Screenshot erkannt – Angaben kurz gegen DEGIRO prüfen.";
-    if(x.isin)enrichProduct(i);
+    if(x.originalIsin){if(s)s.textContent="⚠️ OCR normalisiert: "+x.originalIsin+" → "+x.isin+" (Prüfziffer gültig). Bitte am Screenshot prüfen.";}else if(x.isin)enrichProduct(i);
    });
    if(lab)lab.textContent="✓ "+label+" geladen";
-   if(status){const count=centralTexts.filter(Boolean).length;status.textContent=count<2?"✅ "+items.length+" Produkt(e) erkannt. Bitte noch Bild "+(count+1)+" hochladen.":"✅ "+count+" Bilder gelesen · "+items.length+" unterschiedliche Produkte erkannt.";const uncertain=items.filter(x=>!validIsin(x.isin)).length;if(uncertain)status.textContent+=" ⚠️ "+uncertain+" ISIN(s) bitte unter Details prüfen (OCR unsicher oder Prüfziffer ungültig).";status.textContent+=" Fehlende Produktkurse, Hebel und Spreads bitte aus DEGIRO ergänzen.";}
+   if(status){const count=centralTexts.filter(Boolean).length;status.textContent=count<2?"✅ "+items.length+" Produkt(e) erkannt. Bitte noch Bild "+(count+1)+" hochladen.":"✅ "+count+" Bilder gelesen · "+items.length+" unterschiedliche Produkte erkannt.";const corrected=items.filter(x=>x.originalIsin).length;if(corrected)status.textContent+=" "+corrected+" ISIN(s) mit gültiger Prüfziffer aus O/0 bzw. I/1 normalisiert – bitte prüfen.";const uncertain=items.filter(x=>!validIsin(x.isin)).length;if(uncertain)status.textContent+=" ⚠️ "+uncertain+" ISIN(s) bitte unter Details prüfen (OCR unsicher oder Prüfziffer ungültig).";status.textContent+=" Fehlende Produktkurse, Hebel und Spreads bitte aus DEGIRO ergänzen.";}
    if(centralTexts.filter(Boolean).length>=2)rankUI();
   }catch(e){
    if(lab)lab.textContent=label+" erneut versuchen";
@@ -282,5 +293,5 @@ function rankUI(){
 }
 
 if(typeof document!=="undefined"){if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",()=>{try{inject();}catch(e){console.warn(e);}});else try{inject();}catch(e){console.warn(e);}}
-window.BobDegiro={riskModel,koDistancePct,evaluateProduct,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin};
+window.BobDegiro={riskModel,koDistancePct,evaluateProduct,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin};
 })();
