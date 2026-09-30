@@ -624,7 +624,7 @@ async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
   reportBobDiag("mtf:success",{bars5m:(tfBars["5m"]||[]).length,bars15m:(tfBars["15m"]||[]).length,bars1h:(tfBars["1h"]||[]).length,bars4h:(tfBars["4h"]||[]).length,available:valid,overall,historyStatus:bundle.history?.data_state?.status||"unknown",source:bundle.history?.data_state?.source||"unknown"});
   const strength=overall!=="NEUTRAL"?(overall==="LONG"?dirs.filter(d=>d==="LONG").length:dirs.filter(d=>d==="SHORT").length)+"/4 bestätigt":"Keine widerspruchsfreie 4-Zeiten-Hierarchie";
   const mtfSummary=$("mtfSummary");
-  if(mtfSummary)mtfSummary.innerHTML="<b>"+overall+"</b><br>"+longs+" LONG · "+shorts+" SHORT · "+neutral+" NEUTRAL · "+strength+"<br><span class=\"small\">4h basiert jetzt auf echter 1h-Historie und wird nur mit mindestens 200 geschlossenen 4h-Kerzen bewertet.</span>";
+  if(mtfSummary)mtfSummary.innerHTML="<b>"+overall+"</b><br>"+longs+" LONG · "+shorts+" SHORT · "+neutral+" NEUTRAL · "+strength+"<br><span class="small">4h basiert jetzt auf echter 1h-Historie und wird nur mit mindestens 200 geschlossenen 4h-Kerzen bewertet.</span>";
   MTF={longs,shorts,neutral,overall,byTf,dirs};
   // Server-side verification is the authoritative runtime check for the MTF pipeline.
   try{
@@ -910,8 +910,8 @@ function advancedAnalysis(){
  const oscVal=(st>80?-0.35:st<20?0.35:st>50?0.4:-0.4);
  add("Oszillatoren",oscVal,w.osc);
  const dirForRisk=trendBull&&mtf==="LONG"?"LONG":trendBear&&mtf==="SHORT"?"SHORT":"NEUTRAL";
- const sm=dirForRisk!=="NEUTRAL"?stopModel(dirForRisk,p0,A.at,+($(\"trailAtr\")?.value||1.5)):null;
- const tgt=sm?.stop?targetModel(dirForRisk,p0,sm.stop,Math.max(1,+($(\"minRR\")?.value||2))):null;
+ const sm=dirForRisk!=="NEUTRAL"?stopModel(dirForRisk,p0,A.at,+($("trailAtr")?.value||1.5)):null;
+ const tgt=sm?.stop?targetModel(dirForRisk,p0,sm.stop,Math.max(1,+($("minRR")?.value||2))):null;
  const rr=Number(tgt?.rr||0);
  const crVal=rr>=3?1:rr>=2?0.65:rr>=1.5?0.1:rr>0?-0.5:-0.8;
  add("CRV",crVal,w.cr);
@@ -920,9 +920,9 @@ function advancedAnalysis(){
  if(contradiction)score=Math.min(score,62);
  if(rr>0&&rr<1.5)score=Math.min(score,58);
  let verdict=score>=70?"🟢 LONG-Qualität":score<=30?"🔴 SHORT-Qualität":"🟡 ABWARTEN";
- $(\"score\").textContent=verdict+" · "+score.toFixed(0)+"/100";
- $(\"score\").className="signal "+(score>=70?"ok":score<=30?"bad":"neutral");
- $(\"scoreDetails\").textContent=evidence.join(" · ")+" · Regime "+regime+" · CRV "+(rr?rr.toFixed(2)+"R":"n/v");
+ $("score").textContent=verdict+" · "+score.toFixed(0)+"/100";
+ $("score").className="signal "+(score>=70?"ok":score<=30?"bad":"neutral");
+ $("scoreDetails").textContent=evidence.join(" · ")+" · Regime "+regime+" · CRV "+(rr?rr.toFixed(2)+"R":"n/v");
  A.score=score; A.ready=Boolean(C.length>=200&&A.e20!=null&&A.e50!=null&&A.e200!=null); A.adx=ad; A.support=lv.sup; A.resistance=lv.res; A.weights=w; A.regime=regime; A.fibonacci=fibCore; A.crv=rr; updateQuick(); updateResearchPanel();
 }
 
