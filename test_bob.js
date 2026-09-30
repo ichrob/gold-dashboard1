@@ -210,6 +210,22 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   const many = degiro.BobDegiro.parseScreenshotCandidates(Array.from({length:8},(_,i)=>"Gold LONG DE000ABC123"+i+" Hebel 5x KO 3900").join("\n"));
   assert.strictEqual(many.length,8);
   assert(fs.readFileSync("degiro_assistant.js", "utf8").includes("dgCentralShot"));
+  const screenRow=degiro.BobDegiro.ocrExtract("Gold Turbo Mini Call BAR 3539 BP 3503.93 Bv 10 | DE000FA06UL6");
+  assert.strictEqual(screenRow.ko,"3539");
+  assert.strictEqual(screenRow.leverage,"");
+  assert.strictEqual(screenRow.price,"");
+  assert.strictEqual(degiro.BobDegiro.ocrExtract("Gold Long SL\n3978.9026 STR 3978.9026 R 10 | DE000PJ9NCK0").ko,"3978.9026");
+  assert(degiro.BobDegiro.validIsin("DE000FC1CHB7"));
+  assert(!degiro.BobDegiro.validIsin("DEOOOFC1CHB7"));
+  assert(!degiro.BobDegiro.validIsin("DEOOOPJONB98"));
+  const ten=degiro.BobDegiro.parseScreenshotCandidates(Array.from({length:10},(_,i)=>"Gold Call BAR 3900 | DE000ABC12"+String(i).padStart(2,"0")).join("\n"));
+  assert.strictEqual(ten.length,10);
+  const strongCtx={direction:"LONG",atr:20,spot:4000,trend:"LONG",trend2:"LONG",mtf:"LONG",rsi:60,hist:1,adx:30,momentum:1};
+  const completeProduct={name:"Synthetic Gold",isin:"DE000FC1CHB7",productDirection:"LONG",spot:4000,ko:3500,leverage:4,price:12,spread:0};
+  assert(degiro.BobDegiro.rankProducts([completeProduct],strongCtx).tradeable);
+  for(const key of ["price","leverage","ko","spread"]){const missing={...completeProduct,[key]:""};assert(!degiro.BobDegiro.rankProducts([missing],strongCtx).tradeable);}
+  assert(!degiro.BobDegiro.rankProducts([{...completeProduct,isin:"DEOOOFC1CHB7"}],strongCtx).tradeable);
+
 
 
   assert(fs.readFileSync("degiro_assistant.js", "utf8").includes("/ocr-assets/v5/tesseract.min.js"));
