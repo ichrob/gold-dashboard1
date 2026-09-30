@@ -11,7 +11,7 @@ function scenario(){const s=typeof window.confirmedSignalDirection==="function"?
 function spot(){const x=n(window.lastPrice);if(x)return x;const m=String(document.getElementById("price")?.textContent||"").match(/[0-9]+(?:[.,][0-9]+)?/);return m?n(m[0].replace(",",".")):null;}
 function atr(){return n(window.A?.at)||n(window.A?.atr)||null;}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
-let ocrLoader=null,ocrWorkerPromise=null,ocrQueue=Promise.resolve();
+let ocrLoader=null,ocrQueue=Promise.resolve();
 function loadOcr(){
  if(typeof window==="undefined")return Promise.reject(new Error("Browser erforderlich."));
  if(window.Tesseract)return Promise.resolve(window.Tesseract);
@@ -25,22 +25,20 @@ function loadOcr(){
  });
  return ocrLoader;
 }
-async function loadOcrWorker(){
- const T=await loadOcr();
- if(!ocrWorkerPromise){
-  ocrWorkerPromise=T.createWorker("eng",1,{logger:m=>{
-   const id=window.__bobOcrStatusId;
-   const el=id?document.getElementById(id):null;
-   if(el&&m&&m.status==="recognizing text"&&m.progress)el.textContent="📷 OCR "+Math.round(m.progress*100)+"%";
-  }});
- }
- return ocrWorkerPromise;
-}
 function recognizeOcr(file,statusId){
  const job=ocrQueue.then(async()=>{
-  window.__bobOcrStatusId=statusId||"";
-  const worker=await loadOcrWorker();
-  return Promise.race([worker.recognize(file),new Promise((_,reject)=>setTimeout(()=>reject(new Error("OCR-Zeitüberschreitung")),45000))]);
+  const T=await loadOcr();
+  const el=document.getElementById(statusId||"");
+  if(el)el.textContent="📥 OCR-Bibliothek geladen – Bild wird jetzt gelesen …";
+  const result=await Promise.race([
+   T.recognize(file,"deu+eng",{logger:m=>{
+    const s=document.getElementById(statusId||"");
+    if(s&&m&&m.status==="recognizing text"&&m.progress)s.textContent="📷 OCR "+Math.round(m.progress*100)+"%";
+    else if(s&&m&&m.status==="loading language traineddata")s.textContent="📦 OCR-Sprachdaten werden geladen …";
+   }}),
+   new Promise((_,reject)=>setTimeout(()=>reject(new Error("OCR-Zeitüberschreitung nach 45 Sekunden")),45000))
+  ]);
+  return result;
  });
  ocrQueue=job.catch(()=>{});
  return job;
