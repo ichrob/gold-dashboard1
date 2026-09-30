@@ -11,7 +11,7 @@ function scenario(){const s=typeof window.confirmedSignalDirection==="function"?
 function spot(){const x=n(window.lastPrice);if(x)return x;const m=String(document.getElementById("price")?.textContent||"").match(/[0-9]+(?:[.,][0-9]+)?/);return m?n(m[0].replace(",",".")):null;}
 function atr(){return n(window.A?.at)||n(window.A?.atr)||null;}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
-let ocrLoader=null;
+let ocrLoader=null,ocrWorkerPromise=null,ocrQueue=Promise.resolve();
 function loadOcr(){
  if(typeof window==="undefined")return Promise.reject(new Error("Browser erforderlich."));
  if(window.Tesseract)return Promise.resolve(window.Tesseract);
@@ -24,6 +24,26 @@ function loadOcr(){
   document.head.appendChild(s);
  });
  return ocrLoader;
+}
+async function loadOcrWorker(){
+ const T=await loadOcr();
+ if(!ocrWorkerPromise){
+  ocrWorkerPromise=T.createWorker("eng",1,{logger:m=>{
+   const id=window.__bobOcrStatusId;
+   const el=id?document.getElementById(id):null;
+   if(el&&m&&m.status==="recognizing text"&&m.progress)el.textContent="📷 OCR "+Math.round(m.progress*100)+"%";
+  }});
+ }
+ return ocrWorkerPromise;
+}
+function recognizeOcr(file,statusId){
+ const job=ocrQueue.then(async()=>{
+  window.__bobOcrStatusId=statusId||"";
+  const worker=await loadOcrWorker();
+  return Promise.race([worker.recognize(file),new Promise((_,reject)=>setTimeout(()=>reject(new Error("OCR-Zeitüberschreitung")),45000))]);
+ });
+ ocrQueue=job.catch(()=>{});
+ return job;
 }
 function ocrExtract(text){
  const raw=String(text||"").replace(/\r/g," ");
@@ -124,10 +144,9 @@ function inject(){
   if(!file)return;
   const status=b.querySelector("#dgCentralStatus"),lab=b.querySelector("#dgShotLabel"+slot);
   try{
-   if(lab)lab.textContent=label+" wird gelesen …";
-   if(status)status.textContent="📷 "+label+" wird gelesen …";
-   const T=await loadOcr();
-   const result=await T.recognize(file,"deu+eng");
+   if(lab)lab.textContent=label+" wartet …";
+   if(status)status.textContent="⏳ "+label+" wartet auf den OCR-Worker …";
+   const result=await recognizeOcr(file,"dgCentralStatus");
    centralTexts[slot-1]=result.data.text||"";
    const all=centralTexts.filter(Boolean).join("\n\n");
    const items=parseScreenshotCandidates(all);
@@ -139,12 +158,11 @@ function inject(){
     if(x.isin)enrichProduct(i);
    });
    if(lab)lab.textContent="✓ "+label+" geladen";
-   if(status){ const count=centralTexts.filter(Boolean).length; status.textContent=count<2 ? "⏳ "+count+" Bild geladen. Bitte noch Bild "+(count+1)+" hochladen …" : "⏳ "+items.length+" Produkt(e) erkannt. Analyse wird ausgeführt …"; }
-   if(centralTexts.filter(Boolean).length>=2){ rankUI(); }
-  }
-  catch(e){
+   if(status){const count=centralTexts.filter(Boolean).length;status.textContent=count<2?"⏳ "+count+" Bild geladen. Bitte noch Bild "+(count+1)+" hochladen …":"⏳ "+items.length+" Produkt(e) erkannt. Analyse wird ausgeführt …";}
+   if(centralTexts.filter(Boolean).length>=2)rankUI();
+  }catch(e){
    if(lab)lab.textContent=label+" erneut versuchen";
-   if(status)status.textContent="⚠️ "+label+" konnte nicht automatisch gelesen werden. Bitte erneut auswählen.";
+   if(status)status.textContent="⚠️ "+label+" konnte nicht automatisch gelesen werden: "+(e&&e.message?e.message:"OCR-Fehler");
    console.warn("[BOB] DEGIRO OCR",e);
   }
  }
