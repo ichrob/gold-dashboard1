@@ -170,27 +170,36 @@ function rankUI(){
   o.innerHTML='<div style="padding:14px;background:#fff;border-radius:15px;border:1px solid #e5e7eb"><b style="font-size:16px">📊 Bob-Aktualanalyse</b><div class="small" style="margin-top:6px">Szenario: <b>'+esc(d)+'</b></div><div class="warning" style="margin-top:9px"><b>Kein passender Trade-Kandidat.</b></div><div class="small" style="margin-top:5px">'+esc(r.gateReason||"Mindestens ein vollständiger Screenshot-Kandidat wird benötigt.")+'</div></div>';
   return r;
  }
- const best=r.candidates[0];
- const bestName=best.name||best.isin||"DEGIRO-Produkt";
- const e=best.evaluation;
- const ko=e.koDistancePct===null?"—":e.koDistancePct.toFixed(2)+"%";
- const at=e.atrMultiple===null?"—":e.atrMultiple.toFixed(1)+" ATR";
- const action=e.direction==="LONG"?"LONG":"SHORT";
  if(!r.tradeable){
   o.innerHTML='<div style="padding:15px;background:#fff;border-radius:16px;border:1px solid #e5e7eb"><b style="font-size:17px">📊 Bob-Aktualanalyse</b><div class="small" style="margin-top:6px">Szenario: <b>'+esc(r.scenario)+'</b> · '+r.total+' Kandidat(en) geprüft</div><div class="warning" style="margin-top:10px"><b>Kein eindeutiger Trade-Kandidat.</b></div><div class="small" style="margin-top:5px">'+esc(r.gateReason)+'</div></div>';
   return r;
  }
- o.innerHTML='<div style="padding:16px;background:#fff;border-radius:18px;border:2px solid #16a34a">'+
- '<div class="small">AKTUELLE BOB-ANALYSE · '+esc(r.scenario)+'</div>'+
- '<div style="font-size:20px;font-weight:800;margin-top:4px">🎯 Technisch passendster Trade-Kandidat</div>'+
- '<div style="margin-top:11px;padding:12px;background:#f0fdf4;border-radius:13px"><b style="font-size:17px">'+esc(bestName)+'</b>'+
- '<div style="margin-top:5px"><b>'+action+'</b> · Produktkurs '+(best.price??"—")+' · Hebel '+(e.leverage||"—")+'×</div>'+
- '<div class="small" style="margin-top:4px">KO-Abstand '+ko+' · ATR-Puffer '+at+' · Setup-Qualität '+e.setupScore+'/100</div></div>'+
- '<div class="small" style="margin-top:10px"><b>Warum:</b> '+esc(e.reasons.slice(0,4).join(" · "))+'</div>'+
- (e.warnings.length?'<div class="small warning" style="margin-top:7px">⚠️ '+esc(e.warnings.slice(0,2).join(" · "))+'</div>':'<div class="small ok" style="margin-top:7px">✓ Keine wesentliche Warnung im aktuellen Produktcheck.</div>')+
- '<div class="small" style="margin-top:9px">Bob vergleicht technische Passung und Produktrisiko. Das ist keine Gewinnwahrscheinlichkeit und keine Garantie.</div></div>';
+ const top=r.candidates.slice(0,3);
+ const cards=top.map((p,i)=>{
+  const e=p.evaluation, name=p.name||p.isin||"DEGIRO-Produkt";
+  const ko=e.koDistancePct===null?"—":e.koDistancePct.toFixed(2)+"%";
+  const at=e.atrMultiple===null?"—":e.atrMultiple.toFixed(1)+" ATR";
+  const action=e.direction==="LONG"?"LONG":"SHORT";
+  const rank=i+1;
+  const rankLabel=rank===1?"🥇 Platz 1":rank===2?"🥈 Platz 2":"🥉 Platz 3";
+  const reason=e.reasons.filter(x=>!x.includes("widerspricht")).slice(0,2).join(" · ")||"Richtung und Produktdaten wurden passend zum Bob-Szenario geprüft.";
+  return '<div style="margin-top:10px;padding:13px;background:#fff;border-radius:15px;border:1px solid #e5e7eb">'+
+   '<div style="font-weight:800;font-size:16px">'+rankLabel+' · '+esc(name)+'</div>'+
+   '<div style="margin-top:5px"><b>'+action+'</b> · Produktkurs '+(p.price??"—")+' · Hebel '+(e.leverage||"—")+'×</div>'+
+   '<div class="small" style="margin-top:4px">KO-Abstand '+ko+' · ATR-Puffer '+at+' · Setup-Qualität '+e.setupScore+'/100</div>'+
+   '<div class="small" style="margin-top:7px"><b>Warum:</b> '+esc(reason)+'</div>'+
+   (e.warnings.length?'<div class="small warning" style="margin-top:6px">⚠️ '+esc(e.warnings.slice(0,2).join(" · "))+'</div>':'')+
+  '</div>';
+ }).join("");
+ o.innerHTML='<div style="padding:15px;background:#fff;border-radius:18px;border:2px solid #dbe4f0">'+
+  '<div class="small">AKTUELLE BOB-ANALYSE · '+esc(r.scenario)+' · '+r.total+' Kandidat(en) geprüft</div>'+
+  '<div style="font-size:20px;font-weight:800;margin-top:4px">🎯 Trade-Rangliste</div>'+
+  '<div class="small" style="margin-top:4px">Bob sortiert die passenden Produkte nach technischer Passung und Produktrisiko.</div>'+
+  cards+
+  '<div class="small" style="margin-top:9px">Die Plätze sind eine technische Rangfolge der geprüften DEGIRO-Kandidaten, keine Gewinnwahrscheinlichkeit und keine Garantie.</div></div>';
  return r;
 }
+
 if(typeof document!=="undefined"){if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",()=>{try{inject();}catch(e){console.warn(e);}});else try{inject();}catch(e){console.warn(e);}}
 window.BobDegiro={riskModel,koDistancePct,evaluateProduct,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates};
 })();
