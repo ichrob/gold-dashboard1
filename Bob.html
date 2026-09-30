@@ -923,31 +923,50 @@ function checkDgProduct(){
    (result.reasons.length?"<br>ℹ️ "+result.reasons.join(" · "):"")+
    "<br><span class='small'>Der Prüfschema-Wert ist kein Gewinnscore. Er zeigt nur, wie gut die eingegebenen Produktdaten zum aktuellen Bob-Szenario und den Sicherheitsregeln passen.</span>";
 }
-function maybePushAnalysisAlerts(){
+async function maybePushAnalysisAlerts(){
  try{
    if(!pushState?.registered)return;
    const dir=confirmedSignalDirection();
    const mtf=getMtfState().overall||"NEUTRAL";
    let saved={};try{saved=JSON.parse(localStorage.getItem("bobAlertV2")||"{}")}catch(_){}
+   const now=Date.now();
+   const switched=(saved.dir==="LONG"||saved.dir==="SHORT")&&(dir==="LONG"||dir==="SHORT")&&saved.dir!==dir;
+
+   // For an active trade, a confirmed reversal is the highest-priority warning:
+   // recommend closing first, then explain the new signal direction.
+   if(switched&&pushState.activeTrade&&pushState.trade&&tradeMgmt?.active&&tradeMgmt.dir!==dir){
+     const closeMarker="reversal:"+tradeMgmt.dir+"-to-"+dir+":"+Math.floor(now/600000);
+     if(saved.tradeCloseWarn!==closeMarker){
+       await BobPush.emit("trade","🚨 Bob – DRINGEND: Trade schließen",
+         "Bestätigter Richtungswechsel "+tradeMgmt.dir+" → "+dir+
+         " · Momentum/Parameter gedreht · Kurs "+lastPrice.toFixed(2)+
+         ". Aktiven "+tradeMgmt.dir+"-Trade prüfen und schließen.",
+         {kind:"trade-close-recommendation",signalId:closeMarker,priority:"urgent"});
+       saved.tradeCloseWarn=closeMarker;
+       localStorage.setItem("bobAlertV2",JSON.stringify(saved));
+     }
+   }
+
    if(saved.dir&&dir!==saved.dir&&dir!=="NEUTRAL"){
-     const switched= (saved.dir==="LONG"||saved.dir==="SHORT") && (dir==="LONG"||dir==="SHORT") && saved.dir!==dir;
      const title=switched?"🔄 Bob – Signalwechsel":"Bob – neues Gold-Szenario";
      const body=switched
        ? "Signalwechsel: "+saved.dir+" → "+dir+" · MTF "+mtf+" · XAU/USD "+lastPrice.toFixed(2)
        : dir+" bestätigt · MTF "+mtf+" · XAU/USD "+lastPrice.toFixed(2);
      BobPush.emit("general",title,body,
-       {kind:"signal-change",signalId:"ui:"+saved.dir+"-to-"+dir+":"+Math.floor(Date.now()/60000)});
+       {kind:"signal-change",signalId:"ui:"+saved.dir+"-to-"+dir+":"+Math.floor(now/60000)});
    }
+
    if(saved.mtf&&mtf!==saved.mtf&&mtf!=="NEUTRAL"){
      BobPush.emit("general","Bob – MTF-Wechsel",mtf+" · XAU/USD "+lastPrice.toFixed(2),
-       {kind:"mtf-change",signalId:"mtf:"+mtf+":"+Math.floor(Date.now()/60000)});
+       {kind:"mtf-change",signalId:"mtf:"+mtf+":"+Math.floor(now/60000)});
    }
+
    saved.dir=dir;saved.mtf=mtf;localStorage.setItem("bobAlertV2",JSON.stringify(saved));
    if(pushState.activeTrade&&pushState.trade&&tradeMgmt?.active&&Number.isFinite(Number(tradeMgmt.stop))){
      const stop=Number(tradeMgmt.stop), distance=Math.abs(lastPrice-stop);
      const near=Math.max((A.at||0)*0.25,1);
      const breached=(tradeMgmt.dir==="LONG"&&lastPrice<=stop)||(tradeMgmt.dir==="SHORT"&&lastPrice>=stop);
-     const now=Date.now(), lastWarn=Number(saved.tradeWarnAt||0);
+     const lastWarn=Number(saved.tradeWarnAt||0);
      if((breached||distance<=near)&&now-lastWarn>15*60*1000){
        BobPush.emit("trade",breached?"Bob – Stop-Loss erreicht":"Bob – Stop-Loss wird knapp",
          "XAU/USD "+lastPrice.toFixed(2)+" · Stop "+stop.toFixed(2),
