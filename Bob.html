@@ -973,7 +973,8 @@ async function manageProfitProtection(){
    }
  }catch(e){console.warn("Bob profit protection",e)}
 }
-\nasync function maybePushAnalysisAlerts(){
+
+async function maybePushAnalysisAlerts(){
  try{
    if(!pushState?.registered)return;
    const dir=confirmedSignalDirection();
