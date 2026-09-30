@@ -191,7 +191,7 @@ function detailScreenshotData(text,expectedIsin){
  const raw=String(text||""),ids=Array.from(new Set(parseScreenshotCandidates(raw).map(x=>x.isin)));
  if(!validIsin(expectedIsin))return{ok:false,reason:"Bitte zuerst die ISIN dieses Produkts am Screenshot prüfen und korrigieren."};
  if(ids.length!==1||ids[0]!==expectedIsin)return{ok:false,reason:ids.length?"Der Screenshot gehört nicht eindeutig zu "+expectedIsin+". Bitte nur dieses Produkt mit sichtbarer ISIN hochladen.":"ISIN im Zusatzbild fehlt. Bitte die ISIN zusammen mit den Produktdaten zeigen."};
- const x=ocrExtract(raw);
+ const x=ocrExtract(raw.replace(/(\bBAR\s*\n)[@©●•®]\s*(?=[0-9])/gi,"$1"));
  if(!x.price){const top=raw.match(/(?:^|\n)\s*€\s*([0-9]+(?:[.,][0-9]+)?)\b/);if(top)x.price=top[1].replace(",",".");}
  const amount=label=>{const m=raw.match(new RegExp("\\b(?:"+label+")(?!\\s*(?:Vol|Volumen))\\s*[:=]?\\s*(?:€|EUR)?\\s*([0-9]+(?:[.,][0-9]+)?)","i"));return m?Number(m[1].replace(",",".")):null;};
  const bid=amount("Geld|Bid"),ask=amount("Brief|Ask");
@@ -205,20 +205,20 @@ function detailScreenshotData(text,expectedIsin){
 async function readScreenshot(i,file){
  const status=document.getElementById("dgOcrStatus"+i),field=k=>document.querySelector('[data-dg="'+k+'"][data-i="'+i+'"]');
  if(!file)return;
- const expected=(field("isin")?.value||"").trim().toUpperCase(),version=rowVersions.get(i)||0;
+ const expected=(field("isin")?.value||"").trim().toUpperCase(),version=(rowVersions.get(i)||0)+1;rowVersions.set(i,version);
  if(status)status.textContent="📷 Zusatzbild für "+expected+" wird kostenlos im Browser gelesen …";
  try{
   const result=await recognizeOcr(file,"dgOcrStatus"+i);
   if((rowVersions.get(i)||0)!==version||(field("isin")?.value||"").trim().toUpperCase()!==expected)return;
   const x=detailScreenshotData(result.data.text,expected);
   if(!x.ok){if(status)status.textContent="⚠️ "+x.reason;return;}
-  productQuotes.delete(i);rowVersions.set(i,version+1);
+  productQuotes.delete(i);
   for(const [k,v] of Object.entries({dir:x.direction,price:x.price,lev:x.leverage,ko:x.ko,spread:x.spread})){if(v!==""&&v!==null&&v!==undefined&&field(k))field(k).value=v;}
   detailScreenshots.set(i,x);if(field("confirmed"))field("confirmed").checked=false;
   if(status)status.textContent="✅ Zusatzbild zugeordnet. Gelesene Werte unter Details am Screenshot prüfen. "+(x.sourceTime?"Kurszeit im Bild: "+x.sourceTime:"Kurszeit im Bild fehlt.");
   const meta=document.getElementById("dgResearch"+i);if(meta)meta.textContent="📷 DEGIRO-Momentaufnahme · "+(x.bid!==null?"Geld "+x.bid+" / Brief "+(x.ask??"fehlt")+" "+x.currency+" · ":"")+"keine laufenden Live-Daten. Fehlende oder nicht verlässlich datierte Werte bleiben für die aktuelle Rangliste gesperrt.";
   rankUI();
- }catch(e){if(status)status.textContent="⚠️ Zusatzbild konnte nicht gelesen werden. Bitte erneut versuchen oder die Angaben unter Details ergänzen.";}
+ }catch(e){if((rowVersions.get(i)||0)!==version)return;if(status)status.textContent="⚠️ Zusatzbild konnte nicht gelesen werden. Bitte erneut versuchen oder die Angaben unter Details ergänzen.";}
 }
 function missingProductData(p){
  const missing=[];
