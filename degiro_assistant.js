@@ -81,16 +81,34 @@ async function loadOcrWorker(statusId){
  ocrWorkerPromise=ocrTimeout(initializing,60000,"OCR-Engine konnte nicht innerhalb von 60 Sekunden gestartet werden").catch(e=>{ocrWorkerPromise=null;initializing.then(w=>w.terminate()).catch(()=>{});throw e;});
  return ocrWorkerPromise;
 }
-async function prepareOcrImage(file,statusId){
+async function prepareOcrImage(file,statusId,isinPass=false){
  const status=document.getElementById(statusId||"");
  try{
   const bitmap=await createImageBitmap(file);
-  const maxSide=1800,scale=Math.min(1,maxSide/Math.max(bitmap.width,bitmap.height));
+  const maxSide=isinPass?3200:1800,scale=Math.min(isinPass?2:1,maxSide/Math.max(bitmap.width,bitmap.height),Math.sqrt(4500000/(bitmap.width*bitmap.height)));
   const canvas=document.createElement("canvas");canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));
   canvas.getContext("2d",{alpha:false}).drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close();
   if(status)status.textContent="🖼️ Screenshot für OCR optimiert …";
-  return await new Promise((resolve,reject)=>canvas.toBlob(x=>x?resolve(x):reject(new Error("Bildaufbereitung fehlgeschlagen")),"image/jpeg",0.86));
+  return await new Promise((resolve,reject)=>canvas.toBlob(x=>x?resolve(x):reject(new Error("Bildaufbereitung fehlgeschlagen")),isinPass?"image/png":"image/jpeg",0.86));
  }catch(e){return file;}
+}
+function recoverOcrIsins(primary,secondary){
+ const candidates=Array.from(new Set((String(secondary||"").toUpperCase().match(/DE000[A-Z0-9]{6}[0-9](?![A-Z0-9])/g)||[]).filter(validIsin))),corrections={};
+ const text=String(primary||"").replace(/\bDE[0O]{3}[A-Z0-9]{7}\b/g,raw=>{
+  if(validIsin(normalizeOcrIsin(raw).isin))return raw;
+  const matches=candidates.filter(candidate=>{
+   let differences=0;
+   for(let i=0;i<12;i++){if(raw[i]===candidate[i])continue;
+    if(i>=2&&i<5&&raw[i]==="O"&&candidate[i]==="0")continue;
+    if(i>=5&&((raw[i]==="O"&&/[09]/.test(candidate[i]))||(raw[i]==="I"&&/[19]/.test(candidate[i])))){differences++;continue;}
+    return false;
+   }
+   return differences>0&&differences<=2;
+  });
+  if(matches.length!==1)return raw;
+  corrections[matches[0]]=raw;return matches[0];
+ });
+ return{text,corrections};
 }
 function recognizeOcr(file,statusId){
  const job=ocrQueue.then(async()=>{
@@ -100,6 +118,18 @@ function recognizeOcr(file,statusId){
   try{
    result=await ocrTimeout(worker.recognize(prepared),45000,"OCR-Zeitüberschreitung nach 45 Sekunden");
   }catch(e){ocrWorkerPromise=null;await worker.terminate().catch(()=>{});throw e;}
+  if(parseScreenshotCandidates(result.data.text||"").some(x=>!validIsin(x.isin))){
+   let secondaryFailed=false;
+   try{
+    const status=document.getElementById(statusId||"");if(status)status.textContent="🔎 Unsichere ISINs werden mit einem zweiten Lesedurchgang geprüft …";
+    const enlarged=await prepareOcrImage(file,statusId,true);
+    await worker.setParameters({tessedit_pageseg_mode:"11",tessedit_char_whitelist:"0123456789ABCDEFGHJKLMNPQRSTUVWXYZ"});
+    const second=await ocrTimeout(worker.recognize(enlarged),45000,"ISIN-Zweitlesung nach 45 Sekunden beendet");
+    const recovered=recoverOcrIsins(result.data.text,second.data.text);
+    result.data.text=recovered.text;result.data.isinRecoveries=recovered.corrections;
+   }catch(e){secondaryFailed=true;ocrWorkerPromise=null;await worker.terminate().catch(()=>{});console.warn("[BOB] ISIN-Zweitlesung",e&&e.message?e.message:e);}
+   finally{try{if(!secondaryFailed)await worker.setParameters({tessedit_pageseg_mode:"3",tessedit_char_whitelist:""});}catch(e){ocrWorkerPromise=null;await worker.terminate().catch(()=>{});}}
+  }
   return result;
  });
  ocrQueue=job.catch(()=>{});
@@ -130,7 +160,7 @@ function populateCandidateRows(items){
   const confirmed=document.querySelector('[data-dg="confirmed"][data-i="'+i+'"]');if(confirmed)confirmed.checked=false;
   const status=document.getElementById("dgOcrStatus"+i),research=document.getElementById("dgResearch"+i);
   if(research)research.textContent="🌐 Zusatzdaten: warten auf ISIN.";
-  if(status)status.textContent=!x?"Wartet auf Screenshot.":!validIsin(x.isin)?"⚠️ ISIN unsicher: "+(x.isin||"nicht erkannt")+". Bitte direkt am Screenshot korrigieren; Produkt bleibt gesperrt.":x.originalIsin?"⚠️ OCR normalisiert: "+x.originalIsin+" → "+x.isin+" (Prüfziffer gültig). Bitte am Screenshot prüfen.":"✅ Aus Screenshot erkannt – ISIN am Screenshot prüfen und bestätigen.";
+  if(status)status.textContent=!x?"Wartet auf Screenshot.":!validIsin(x.isin)?"⚠️ ISIN unsicher: "+(x.isin||"nicht erkannt")+". Bitte direkt am Screenshot korrigieren; Produkt bleibt gesperrt.":x.ocrRecovery?"⚠️ OCR-Zweitlesung: "+x.originalIsin+" → "+x.isin+" (Prüfziffer gültig). Am Screenshot prüfen und bestätigen.":x.originalIsin?"⚠️ OCR normalisiert: "+x.originalIsin+" → "+x.isin+" (Prüfziffer gültig). Bitte am Screenshot prüfen.":"✅ Aus Screenshot erkannt – ISIN am Screenshot prüfen und bestätigen.";
  }
 }
 
@@ -234,7 +264,7 @@ function inject(){
   r.querySelector('[data-dg="confirmed"]').addEventListener('change',()=>{enrichProduct(i);rankUI();});
   r.querySelectorAll('[data-dg]').forEach(el=>el.addEventListener('input',()=>{if(el.dataset.dg!=="confirmed"){productQuotes.delete(i);if(el.dataset.dg==="isin")r.querySelector('[data-dg="confirmed"]').checked=false;}rankUI();}));
  }
- let centralTexts=[];
+ let centralTexts=[],centralRecoveries=[];
  async function processCentralShot(file,label,slot){
   if(!file)return;
   const status=b.querySelector("#dgCentralStatus"),lab=b.querySelector("#dgShotLabel"+slot);
@@ -242,13 +272,13 @@ function inject(){
    if(lab)lab.textContent=label+" wartet …";
    if(status)status.textContent="⏳ "+label+" wartet auf den OCR-Worker …";
    const result=await recognizeOcr(file,"dgCentralStatus");
-   centralTexts[slot-1]=result.data.text||"";
+   centralTexts[slot-1]=result.data.text||"";centralRecoveries[slot-1]=result.data.isinRecoveries||{};
    const all=centralTexts.filter(Boolean).join("\n\n");
-   const items=parseScreenshotCandidates(all);
+   const items=parseScreenshotCandidates(all);const recovered=Object.assign({},...centralRecoveries);for(const x of items){if(recovered[x.isin]){x.originalIsin=recovered[x.isin];x.ocrRecovery=true;}}
    populateCandidateRows(items);
    items.slice(0,12).forEach((x,idx)=>{if(x.isin)enrichProduct(idx+1);});
    if(lab)lab.textContent="✓ "+label+" geladen";
-   if(status){const count=centralTexts.filter(Boolean).length;status.textContent=count<2?"✅ "+items.length+" Produkt(e) erkannt. Bitte noch Bild "+(count+1)+" hochladen.":"✅ "+count+" Bilder gelesen · "+items.length+" unterschiedliche Produkte erkannt.";const corrected=items.filter(x=>x.originalIsin).length;if(corrected)status.textContent+=" "+corrected+" ISIN(s) mit gültiger Prüfziffer aus O/0 bzw. I/1 normalisiert – bitte prüfen.";const uncertain=items.filter(x=>!validIsin(x.isin)).length;if(uncertain)status.textContent+=" ⚠️ "+uncertain+" ISIN(s) bitte unter Details prüfen (OCR unsicher oder Prüfziffer ungültig).";status.textContent+=" Aktuelle Emittentenkurse werden recherchiert. ISINs unter Details am Screenshot bestätigen. Quellen ohne datierte Kurse bleiben gesperrt.";}
+   if(status){const count=centralTexts.filter(Boolean).length;status.textContent=count<2?"✅ "+items.length+" Produkt(e) erkannt. Bitte noch Bild "+(count+1)+" hochladen.":"✅ "+count+" Bilder gelesen · "+items.length+" unterschiedliche Produkte erkannt.";const reread=items.filter(x=>x.ocrRecovery).length;if(reread)status.textContent+=" "+reread+" unsichere ISIN(s) durch Zweitlesung erkannt – am Screenshot prüfen.";const corrected=items.filter(x=>x.originalIsin&&!x.ocrRecovery).length;if(corrected)status.textContent+=" "+corrected+" ISIN(s) mit gültiger Prüfziffer aus O/0 bzw. I/1 normalisiert – bitte prüfen.";const uncertain=items.filter(x=>!validIsin(x.isin)).length;if(uncertain)status.textContent+=" ⚠️ "+uncertain+" ISIN(s) bitte unter Details prüfen (OCR unsicher oder Prüfziffer ungültig).";status.textContent+=" Aktuelle Emittentenkurse werden recherchiert. ISINs unter Details am Screenshot bestätigen. Quellen ohne datierte Kurse bleiben gesperrt.";}
    if(centralTexts.filter(Boolean).length>=2)rankUI();
   }catch(e){
    if(lab)lab.textContent=label+" erneut versuchen";
@@ -321,5 +351,5 @@ function rankUI(){
 }
 
 if(typeof document!=="undefined"){if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",()=>{try{inject();}catch(e){console.warn(e);}});else try{inject();}catch(e){console.warn(e);}}
-window.BobDegiro={riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows};
+window.BobDegiro={riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins};
 })();

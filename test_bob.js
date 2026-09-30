@@ -225,6 +225,13 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert.strictEqual(degiro.BobDegiro.normalizeOcrIsin("DEOOOPJONB98").isin,"DEOOOPJONB98");
   assert.strictEqual(degiro.BobDegiro.normalizeOcrIsin("DE000FC1CHB7").originalIsin,"");
 
+  const reread=degiro.BobDegiro.recoverOcrIsins("DEOOOPJINCKO\nDEOOOPJONB98","R10DE000PJ9NCK0\nR10DE000PJ9NB98");
+  assert.strictEqual(reread.text,"DE000PJ9NCK0\nDE000PJ9NB98");
+  assert.strictEqual(reread.corrections.DE000PJ9NCK0,"DEOOOPJINCKO");
+  assert.strictEqual(degiro.BobDegiro.recoverOcrIsins("DEOOOPJINCKO","DE000PG0XK25").text,"DEOOOPJINCKO");
+  assert.strictEqual(degiro.BobDegiro.recoverOcrIsins("DE000FC1CHB7","DE000PJ9NCK0").text,"DE000FC1CHB7");
+  assert.strictEqual(degiro.BobDegiro.recoverOcrIsins("DEOOOPJINCKO","").text,"DEOOOPJINCKO");
+
   const rows=new Map(),statuses=new Map();
   degiroContext.document={querySelector:selector=>{if(!rows.has(selector))rows.set(selector,{value:"OLD",checked:true});return rows.get(selector);},getElementById:id=>{if(!statuses.has(id))statuses.set(id,{textContent:"OLD"});return statuses.get(id);}};
   degiro.BobDegiro.populateCandidateRows([{name:"First",isin:"DE000FC1CHB7",price:"12"},{name:"Second",isin:"DE000PG0XK25",price:"20"}]);
