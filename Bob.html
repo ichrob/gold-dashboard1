@@ -930,9 +930,13 @@ function maybePushAnalysisAlerts(){
    const mtf=getMtfState().overall||"NEUTRAL";
    let saved={};try{saved=JSON.parse(localStorage.getItem("bobAlertV2")||"{}")}catch(_){}
    if(saved.dir&&dir!==saved.dir&&dir!=="NEUTRAL"){
-     BobPush.emit("general","Bob – neues Gold-Szenario",
-       dir+" bestätigt · MTF "+mtf+" · XAU/USD "+lastPrice.toFixed(2),
-       {kind:"signal-change",signalId:"ui:"+dir+":"+Math.floor(Date.now()/60000)});
+     const switched= (saved.dir==="LONG"||saved.dir==="SHORT") && (dir==="LONG"||dir==="SHORT") && saved.dir!==dir;
+     const title=switched?"🔄 Bob – Signalwechsel":"Bob – neues Gold-Szenario";
+     const body=switched
+       ? "Signalwechsel: "+saved.dir+" → "+dir+" · MTF "+mtf+" · XAU/USD "+lastPrice.toFixed(2)
+       : dir+" bestätigt · MTF "+mtf+" · XAU/USD "+lastPrice.toFixed(2);
+     BobPush.emit("general",title,body,
+       {kind:"signal-change",signalId:"ui:"+saved.dir+"-to-"+dir+":"+Math.floor(Date.now()/60000)});
    }
    if(saved.mtf&&mtf!==saved.mtf&&mtf!=="NEUTRAL"){
      BobPush.emit("general","Bob – MTF-Wechsel",mtf+" · XAU/USD "+lastPrice.toFixed(2),
@@ -942,7 +946,7 @@ function maybePushAnalysisAlerts(){
    if(pushState.activeTrade&&pushState.trade&&tradeMgmt?.active&&Number.isFinite(Number(tradeMgmt.stop))){
      const stop=Number(tradeMgmt.stop), distance=Math.abs(lastPrice-stop);
      const near=Math.max((A.at||0)*0.25,1);
-     const breached=(tradeMgmt.direction==="LONG"&&lastPrice<=stop)||(tradeMgmt.direction==="SHORT"&&lastPrice>=stop);
+     const breached=(tradeMgmt.dir==="LONG"&&lastPrice<=stop)||(tradeMgmt.dir==="SHORT"&&lastPrice>=stop);
      const now=Date.now(), lastWarn=Number(saved.tradeWarnAt||0);
      if((breached||distance<=near)&&now-lastWarn>15*60*1000){
        BobPush.emit("trade",breached?"Bob – Stop-Loss erreicht":"Bob – Stop-Loss wird knapp",
