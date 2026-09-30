@@ -156,8 +156,9 @@
       // Let Bob's existing, tested stop model decide whether the stop can be
       // improved. The function itself emits "Stop-Loss anpassen" only when the
       // new stop is genuinely better, so normal price noise stays silent.
-      if(typeof window.suggestStopUpdate==="function"){
-        window.suggestStopUpdate();
+      const stopBtn=document.querySelector('button[onclick="suggestStopUpdate()"]');
+      if(stopBtn && typeof window.suggestStopUpdate==="function"){
+        stopBtn.click();
       }
     }catch(e){
       // Push monitoring must never interfere with the rest of Bob.
@@ -169,5 +170,4 @@
     setTimeout(activeTradePushMonitor,1500);
     setInterval(activeTradePushMonitor,60000);
   });
-})();
-})();
+})()
