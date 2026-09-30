@@ -980,7 +980,9 @@ async function manageProfitProtection(){
    const mtf=getMtfState().overall||"NEUTRAL";
    let saved={};try{saved=JSON.parse(localStorage.getItem("bobAlertV2")||"{}")}catch(_){}
    const now=Date.now();
-   const switched=(saved.dir==="LONG"||saved.dir==="SHORT")&&(dir==="LONG"||dir==="SHORT")&&saved.dir!==dir;\n\n   await manageProfitProtection();
+   const switched=(saved.dir==="LONG"||saved.dir==="SHORT")&&(dir==="LONG"||dir==="SHORT")&&saved.dir!==dir;
+
+   await manageProfitProtection();
 
    // For an active trade, a confirmed reversal is the highest-priority warning:
    // recommend closing first, then explain the new signal direction.
