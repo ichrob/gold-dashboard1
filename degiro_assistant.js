@@ -11,50 +11,58 @@ function scenario(){const s=typeof window.confirmedSignalDirection==="function"?
 function spot(){const x=n(window.lastPrice);if(x)return x;const m=String(document.getElementById("price")?.textContent||"").match(/[0-9]+(?:[.,][0-9]+)?/);return m?n(m[0].replace(",",".")):null;}
 function atr(){return n(window.A?.at)||n(window.A?.atr)||null;}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
-let ocrLoader=null,ocrQueue=Promise.resolve();
+let ocrLoader=null,ocrWorkerPromise=null,ocrQueue=Promise.resolve();
 function loadOcr(){
  if(typeof window==="undefined")return Promise.reject(new Error("Browser erforderlich."));
  if(window.Tesseract)return Promise.resolve(window.Tesseract);
  if(ocrLoader)return ocrLoader;
  ocrLoader=new Promise((resolve,reject)=>{
   const s=document.createElement("script");
-  s.src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
-  s.onload=()=>window.Tesseract?resolve(window.Tesseract):reject(new Error("OCR konnte nicht geladen werden."));
-  s.onerror=()=>reject(new Error("Kostenlose OCR-Bibliothek konnte nicht geladen werden."));
+  s.src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+  s.onload=()=>window.Tesseract?resolve(window.Tesseract):reject(new Error("OCR-Bibliothek konnte nicht geladen werden."));
+  s.onerror=()=>reject(new Error("OCR-Bibliothek konnte nicht geladen werden."));
   document.head.appendChild(s);
  });
  return ocrLoader;
+}
+async function loadOcrWorker(statusId){
+ if(ocrWorkerPromise)return ocrWorkerPromise;
+ const T=await loadOcr();
+ const status=document.getElementById(statusId||"");
+ if(status)status.textContent="📦 OCR-Engine wird gestartet …";
+ ocrWorkerPromise=T.createWorker("eng",1,{
+  workerPath:"https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js",
+  langPath:"https://tessdata.projectnaptha.com/4.0.0",
+  corePath:"https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1",
+  logger:m=>{
+   const s=document.getElementById(statusId||"");
+   if(!s||!m)return;
+   if(m.status==="loading language traineddata")s.textContent="📦 OCR-Sprachdaten werden geladen …";
+   else if(m.status==="recognizing text"&&m.progress)s.textContent="📷 OCR "+Math.round(m.progress*100)+"%";
+  }
+ });
+ return ocrWorkerPromise;
 }
 async function prepareOcrImage(file,statusId){
  const status=document.getElementById(statusId||"");
  try{
   const bitmap=await createImageBitmap(file);
-  const maxSide=1600;
-  const scale=Math.min(1,maxSide/Math.max(bitmap.width,bitmap.height));
-  const w=Math.max(1,Math.round(bitmap.width*scale)),h=Math.max(1,Math.round(bitmap.height*scale));
-  const canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;
-  const ctx=canvas.getContext("2d",{alpha:false});
-  ctx.drawImage(bitmap,0,0,w,h);
-  bitmap.close();
+  const maxSide=1800,scale=Math.min(1,maxSide/Math.max(bitmap.width,bitmap.height));
+  const canvas=document.createElement("canvas");canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));
+  canvas.getContext("2d",{alpha:false}).drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close();
   if(status)status.textContent="🖼️ Screenshot für OCR optimiert …";
-  return await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error("Bildaufbereitung fehlgeschlagen")),"image/jpeg",0.82));
- }catch(e){
-  if(status)status.textContent="🖼️ Originalbild wird verwendet …";
-  return file;
- }
+  return await new Promise((resolve,reject)=>canvas.toBlob(x=>x?resolve(x):reject(new Error("Bildaufbereitung fehlgeschlagen")),"image/jpeg",0.86));
+ }catch(e){return file;}
 }
 function recognizeOcr(file,statusId){
  const job=ocrQueue.then(async()=>{
-  const T=await loadOcr();
-  const el=document.getElementById(statusId||"");
-  if(el)el.textContent="📥 OCR-Bibliothek geladen – Bild wird vorbereitet …";
+  const worker=await Promise.race([
+   loadOcrWorker(statusId),
+   new Promise((_,reject)=>setTimeout(()=>reject(new Error("OCR-Engine konnte nicht innerhalb von 60 Sekunden gestartet werden")),60000))
+  ]);
   const prepared=await prepareOcrImage(file,statusId);
   const result=await Promise.race([
-   T.recognize(prepared,"deu+eng",{logger:m=>{
-    const s=document.getElementById(statusId||"");
-    if(s&&m&&m.status==="recognizing text"&&m.progress)s.textContent="📷 OCR "+Math.round(m.progress*100)+"%";
-    else if(s&&m&&m.status==="loading language traineddata")s.textContent="📦 OCR-Sprachdaten werden geladen …";
-   }}),
+   worker.recognize(prepared),
    new Promise((_,reject)=>setTimeout(()=>reject(new Error("OCR-Zeitüberschreitung nach 45 Sekunden")),45000))
   ]);
   return result;
