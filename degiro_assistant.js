@@ -139,8 +139,8 @@ function inject(){
     if(x.isin)enrichProduct(i);
    });
    if(lab)lab.textContent="✓ "+label+" geladen";
-   if(status)status.textContent="⏳ "+items.length+" Produkt(e) erkannt. Warte auf weitere Bilder …";
-   if(centralTexts.filter(Boolean).length>=1){ rankUI(); }
+   if(status){ const count=centralTexts.filter(Boolean).length; status.textContent=count<2 ? "⏳ "+count+" Bild geladen. Bitte noch Bild "+(count+1)+" hochladen …" : "⏳ "+items.length+" Produkt(e) erkannt. Analyse wird ausgeführt …"; }
+   if(centralTexts.filter(Boolean).length>=2){ rankUI(); }
   }
   catch(e){
    if(lab)lab.textContent=label+" erneut versuchen";
