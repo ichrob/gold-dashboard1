@@ -88,7 +88,109 @@ async function readCentralScreenshot(file){
   if(items.length)rankUI();
  }catch(e){if(status)status.textContent="⚠️ Zentrale OCR nicht verfügbar. Einzelkarten bleiben nutzbar.";}
 }
-function inject(){if(document.getElementById("dgTop3"))return;const a=document.getElementById("dgProductOut");if(!a)return;const b=document.createElement("div");b.id="dgTop3";b.style.cssText="margin-top:14px;padding:14px;background:#f6f8fa;border-radius:16px";b.innerHTML='<b>🏆 Bob – DEGIRO-Screenshot-Analyse</b><div class="small" style="margin:6px 0 12px">Lade einfach deine zwei DEGIRO-Bilder hoch. Bob liest die Produkte daraus und vergleicht die passenden Kandidaten.</div><div style="padding:14px;background:#eef6ff;border-radius:14px"><b>📷 Zwei Bilder hochladen</b><div class="small" style="margin:5px 0 12px">Tippe auf einen blauen Upload-Pfeil. Beide Bilder werden kostenlos direkt im Browser gelesen.</div><div class="grid" style="gap:12px"><label for="dgCentralShot1" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:145px;padding:14px;background:#fff;border:1px solid #dbe4f0;border-radius:14px;cursor:pointer;text-align:center"><span style="display:flex;align-items:center;justify-content:center;width:58px;height:58px;border-radius:16px;background:#1677ff;color:#fff;font-size:34px;font-weight:700;line-height:1;box-shadow:0 3px 8px rgba(22,119,255,.25)">↑</span><span id="dgShotLabel1" style="margin-top:9px;font-weight:700">Screenshot 1 hochladen</span><span class="small" style="margin-top:3px">DEGIRO-Ansicht</span><input id="dgCentralShot1" type="file" accept="image/*" style="display:none"></label><label for="dgCentralShot2" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:145px;padding:14px;background:#fff;border:1px solid #dbe4f0;border-radius:14px;cursor:pointer;text-align:center"><span style="display:flex;align-items:center;justify-content:center;width:58px;height:58px;border-radius:16px;background:#1677ff;color:#fff;font-size:34px;font-weight:700;line-height:1;box-shadow:0 3px 8px rgba(22,119,255,.25)">↑</span><span id="dgShotLabel2" style="margin-top:9px;font-weight:700">Screenshot 2 hochladen</span><span class="small" style="margin-top:3px">DEGIRO-Ansicht</span><input id="dgCentralShot2" type="file" accept="image/*" style="display:none"></label></div><div id="dgCentralStatus" class="small" style="margin-top:10px">Noch keine Bilder hochgeladen.</div></div><details style="margin-top:10px"><summary style="cursor:pointer;font-weight:700">Manuelle Korrektur / einzelne Produkte</summary><div id="dgTop3Inputs"></div></details><button style="margin-top:10px" id="dgRankBtn">🔎 Produkte vergleichen</button><div id="dgTop3Out" style="margin-top:10px"></div>';a.parentNode.insertBefore(b,a.nextSibling);const q=b.querySelector("#dgTop3Inputs");for(let i=1;i<=8;i++){const r=document.createElement("div");r.style.cssText="margin:8px 0;padding:8px;background:#fff;border-radius:10px";r.innerHTML='<b>Kandidat '+i+'</b><div id="dgOcrStatus'+i+'" class="small" style="margin-top:5px">Wartet auf Screenshot.</div><div id="dgResearch'+i+'" class="small research" style="margin-top:6px">🌐 Zusatzdaten: warten auf ISIN.</div><div class="grid" style="margin-top:6px"><input data-dg="name" data-i="'+i+'" placeholder="Produktname / ISIN"><select data-dg="dir" data-i="'+i+'"><option value="">Richtung</option><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select><input data-dg="price" data-i="'+i+'" type="number" step=".0001" placeholder="Produktkurs"><input data-dg="lev" data-i="'+i+'" type="number" step=".1" placeholder="Hebel"><input data-dg="ko" data-i="'+i+'" type="number" step=".01" placeholder="KO-Level"><input data-dg="spread" data-i="'+i+'" type="number" step=".01" min="0" placeholder="Spread"><input data-dg="isin" data-i="'+i+'" placeholder="ISIN"></div>';q.appendChild(r);}b.querySelector("#dgRankBtn").addEventListener("click",rankUI);let centralTexts=[];async function processCentralShot(file,label,slot){if(!file)return;const status=b.querySelector("#dgCentralStatus"),lab=b.querySelector("#dgShotLabel"+slot);try{if(lab)lab.textContent=label+" wird gelesen …";if(status)status.textContent="📷 "+label+" wird gelesen …";const T=await loadOcr();const result=await T.recognize(file,"deu+eng");centralTexts[slot-1]=result.data.text||"";const all=centralTexts.filter(Boolean).join("\n\n");const items=parseScreenshotCandidates(all);items.slice(0,8).forEach((x,idx)=>{const i=idx+1;const set=(k,v)=>{const el=document.querySelector('[data-dg="'+k+'"][data-i="'+i+'"]');if(el&&v)el.value=v;};set("name",x.name||x.isin);set("isin",x.isin);set("dir",x.direction);set("price",x.price);set("lev",x.leverage);set("ko",x.ko);set("spread",x.spread);const s=document.getElementById("dgOcrStatus"+i);if(s)s.textContent="✅ Aus Screenshot erkannt – Angaben kurz gegen DEGIRO prüfen.";if(x.isin)enrichProduct(i);});if(lab)lab.textContent="✓ "+label+" geladen";if(status)status.textContent="✅ "+items.length+" Produkt(e) aus "+centralTexts.filter(Boolean).length+" Screenshot(s) erkannt. Jetzt „Produkte vergleichen“ drücken.";if(items.length)rankUI();}catch(e){if(lab)lab.textContent=label+" erneut versuchen";if(status)status.textContent="⚠️ "+label+" konnte nicht automatisch gelesen werden. Bitte erneut auswählen.";console.warn("[BOB] DEGIRO OCR",e);}}b.querySelector("#dgCentralShot1").addEventListener("change",e=>processCentralShot(e.target.files&&e.target.files[0],"Screenshot 1",1));b.querySelector("#dgCentralShot2").addEventListener("change",e=>processCentralShot(e.target.files&&e.target.files[0],"Screenshot 2",2));}function rankUI(){const s=spot(),d=scenario(),a=atr(),ps=[1,2,3,4].map(i=>({name:document.querySelector('[data-dg="name"][data-i="'+i+'"]')?.value.trim(),productDirection:document.querySelector('[data-dg="dir"][data-i="'+i+'"]')?.value,price:n(document.querySelector('[data-dg="price"][data-i="'+i+'"]')?.value),leverage:n(document.querySelector('[data-dg="lev"][data-i="'+i+'"]')?.value),ko:n(document.querySelector('[data-dg="ko"][data-i="'+i+'"]')?.value),spread:n(document.querySelector('[data-dg="spread"][data-i="'+i+'"]')?.value)||0,spot:s})),r=rankProducts(ps,{direction:d,atr:a,spot:s,trend:document.getElementById("trend")?.textContent,trend2:document.getElementById("trend2")?.textContent,mtf:document.getElementById("mtfSummary")?.textContent,rsi:n(document.getElementById("rsi")?.textContent),hist:n(document.getElementById("hist")?.textContent),adx:n(document.getElementById("adx")?.textContent),momentum:n(document.getElementById("momentum")?.textContent)}),o=document.getElementById("dgTop3Out");if(!o)return r;if(!r.candidates.length){o.innerHTML='<span class="bad"><b>Keine passende Auswahl.</b></span><div class="small">Mindestens einen vollständigen Kandidaten eingeben. Bei neutralem Szenario wird keine Richtung künstlich bevorzugt.</div>';return r;}const best=r.candidates[0];if(r.scenario!=="NEUTRAL"&&!r.tradeable){o.innerHTML='<span class="warning"><b>Kein technischer Favorit.</b></span><div class="small">'+esc(r.gateReason)+'</div><div class="small" style="margin-top:6px">Die Produkte bleiben sichtbar, werden aber bei widersprüchlichem Setup nicht künstlich priorisiert.</div>';return r;}o.innerHTML='<div class="small">Szenario: <b>'+r.scenario+'</b> · '+r.total+' Kandidat(en) geprüft</div>'+r.candidates.map((p,i)=>{const e=p.evaluation,k=e.koDistancePct===null?"—":e.koDistancePct.toFixed(2)+"%",at=e.atrMultiple===null?"—":e.atrMultiple.toFixed(1)+" ATR",w=e.warnings.slice(0,2).join(" · "),fav=i===0,why=fav?(e.direction===r.scenario?'Richtung passt zum Szenario. ':'Neutrales Szenario. ')+(e.koDistancePct!==null?'KO-Puffer '+k+'. ':'')+(e.atrMultiple!==null?'ATR-Puffer '+at+'.':''):'';return '<div style="margin-top:8px;padding:10px;background:#fff;border-radius:10px;border:2px solid '+(fav?'#16a34a':'#e5e7eb')+'"><b>'+(fav?'🟢 ⭐ BOB-FAVORIT':'🔵 '+(i+1)+'.')+' '+esc(p.name||"Produkt")+'</b><div class="small">'+esc(e.direction||"—")+' · Kurs '+(p.price??"—")+' · Hebel '+(e.leverage||"—")+'× · KO-Abstand '+k+' · '+at+' · Setup-Qualität '+e.setupScore+'/100 · Konfidenz '+e.confidence+'/100 · Produkt-Fit '+e.productScore+'/100 · Gesamt '+e.score+'/100</div>'+(fav?'<div class="small ok" style="margin-top:6px"><b>Warum:</b> '+esc(why)+'</div>':'')+(w?'<div class="small warning" style="margin-top:6px">'+esc(w)+'</div>':'<div class="small ok" style="margin-top:6px">Keine wesentliche Warnung im aktuellen Check.</div>')+'</div>';}).join("")+'<div class="small" style="margin-top:8px">Bob kennzeichnet den technisch passendsten Kandidaten. Das ist keine Gewinnwahrscheinlichkeit und keine Garantie.</div>';return r;}
+function inject(){
+ if(document.getElementById("dgTop3"))return;
+ const a=document.getElementById("dgProductOut"); if(!a)return;
+ const b=document.createElement("div");
+ b.id="dgTop3";
+ b.style.cssText="margin-top:14px;padding:16px;background:#f7f9fc;border-radius:20px;border:1px solid #e5eaf2";
+ b.innerHTML='<div style="display:flex;align-items:center;gap:9px"><span style="font-size:25px">🎯</span><div><b style="font-size:18px">DEGIRO-Assistent</b><div class="small">Screenshots hochladen → Bob analysiert → passender Trade-Kandidat</div></div></div>'+
+ '<div style="margin-top:14px;padding:12px;background:#fff;border-radius:16px;border:1px solid #e1e7f0">'+
+ '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>📷 DEGIRO-Screenshots</b><span class="small">2–3 Bilder</span></div>'+
+ '<div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px">'+
+ '<label for="dgCentralShot1" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:112px;padding:8px;background:#f8fbff;border:1px solid #dce7f5;border-radius:14px;cursor:pointer;text-align:center">'+
+ '<span style="display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:15px;background:#1677ff;color:#fff;font-size:31px;font-weight:700;line-height:1;box-shadow:0 3px 8px rgba(22,119,255,.22)">↑</span>'+
+ '<span id="dgShotLabel1" style="margin-top:7px;font-weight:700;font-size:12px">Bild 1</span><input id="dgCentralShot1" type="file" accept="image/*" style="display:none"></label>'+
+ '<label for="dgCentralShot2" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:112px;padding:8px;background:#f8fbff;border:1px solid #dce7f5;border-radius:14px;cursor:pointer;text-align:center">'+
+ '<span style="display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:15px;background:#1677ff;color:#fff;font-size:31px;font-weight:700;line-height:1;box-shadow:0 3px 8px rgba(22,119,255,.22)">↑</span>'+
+ '<span id="dgShotLabel2" style="margin-top:7px;font-weight:700;font-size:12px">Bild 2</span><input id="dgCentralShot2" type="file" accept="image/*" style="display:none"></label>'+
+ '<label for="dgCentralShot3" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:112px;padding:8px;background:#f8fbff;border:1px solid #dce7f5;border-radius:14px;cursor:pointer;text-align:center">'+
+ '<span style="display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:15px;background:#1677ff;color:#fff;font-size:31px;font-weight:700;line-height:1;box-shadow:0 3px 8px rgba(22,119,255,.22)">↑</span>'+
+ '<span id="dgShotLabel3" style="margin-top:7px;font-weight:700;font-size:12px">Bild 3 <span style="font-weight:400">(optional)</span></span><input id="dgCentralShot3" type="file" accept="image/*" style="display:none"></label>'+
+ '</div><div id="dgCentralStatus" class="small" style="margin-top:9px">Noch keine Bilder hochgeladen.</div></div>'+
+ '<div id="dgTop3Out" style="margin-top:12px"></div>'+
+ '<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:700">Details / manuelle Korrektur</summary><div class="small" style="margin:7px 0">Nur öffnen, wenn Bob einen Wert aus dem Screenshot nicht sicher erkennt.</div><div id="dgTop3Inputs"></div></details>'+
+ '<button style="margin-top:10px;width:100%" id="dgRankBtn">🔎 Analyse erneut ausführen</button>';
+ a.parentNode.insertBefore(b,a.nextSibling);
+ const q=b.querySelector("#dgTop3Inputs");
+ for(let i=1;i<=8;i++){
+  const r=document.createElement("div");
+  r.style.cssText="margin:8px 0;padding:9px;background:#fff;border-radius:10px";
+  r.innerHTML='<b>Kandidat '+i+'</b><div id="dgOcrStatus'+i+'" class="small" style="margin-top:5px">Wartet auf Screenshot.</div><div id="dgResearch'+i+'" class="small research" style="margin-top:5px">🌐 Zusatzdaten: warten auf ISIN.</div><div class="grid" style="margin-top:6px"><input data-dg="name" data-i="'+i+'" placeholder="Produktname / ISIN"><select data-dg="dir" data-i="'+i+'"><option value="">Richtung</option><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select><input data-dg="price" data-i="'+i+'" type="number" step=".0001" placeholder="Produktkurs"><input data-dg="lev" data-i="'+i+'" type="number" step=".1" placeholder="Hebel"><input data-dg="ko" data-i="'+i+'" type="number" step=".01" placeholder="KO-Level"><input data-dg="spread" data-i="'+i+'" type="number" step=".01" min="0" placeholder="Spread"><input data-dg="isin" data-i="'+i+'" placeholder="ISIN"></div>';
+  q.appendChild(r);
+ }
+ let centralTexts=[];
+ async function processCentralShot(file,label,slot){
+  if(!file)return;
+  const status=b.querySelector("#dgCentralStatus"),lab=b.querySelector("#dgShotLabel"+slot);
+  try{
+   if(lab)lab.textContent=label+" wird gelesen …";
+   if(status)status.textContent="📷 "+label+" wird gelesen …";
+   const T=await loadOcr();
+   const result=await T.recognize(file,"deu+eng");
+   centralTexts[slot-1]=result.data.text||"";
+   const all=centralTexts.filter(Boolean).join("\n\n");
+   const items=parseScreenshotCandidates(all);
+   items.slice(0,8).forEach((x,idx)=>{
+    const i=idx+1;
+    const set=(k,v)=>{const el=document.querySelector('[data-dg="'+k+'"][data-i="'+i+'"]');if(el&&v)el.value=v;};
+    set("name",x.name||x.isin);set("isin",x.isin);set("dir",x.direction);set("price",x.price);set("lev",x.leverage);set("ko",x.ko);set("spread",x.spread);
+    const s=document.getElementById("dgOcrStatus"+i);if(s)s.textContent="✅ Aus Screenshot erkannt – Angaben kurz gegen DEGIRO prüfen.";
+    if(x.isin)enrichProduct(i);
+   });
+   if(lab)lab.textContent="✓ "+label+" geladen";
+   if(status)status.textContent="✅ "+items.length+" Produkt(e) aus "+centralTexts.filter(Boolean).length+" Screenshot(s) erkannt.";
+   rankUI();
+  }catch(e){
+   if(lab)lab.textContent=label+" erneut versuchen";
+   if(status)status.textContent="⚠️ "+label+" konnte nicht automatisch gelesen werden. Bitte erneut auswählen.";
+   console.warn("[BOB] DEGIRO OCR",e);
+  }
+ }
+ [1,2,3].forEach(slot=>{
+  b.querySelector("#dgCentralShot"+slot).addEventListener("change",e=>processCentralShot(e.target.files&&e.target.files[0],"Bild "+slot,slot));
+ });
+ b.querySelector("#dgRankBtn").addEventListener("click",rankUI);
+}
+function rankUI(){
+ const s=spot(),d=scenario(),a=atr();
+ const ps=Array.from({length:8},(_,z)=>z+1).map(i=>({
+  name:document.querySelector('[data-dg="name"][data-i="'+i+'"]')?.value.trim(),
+  isin:document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value.trim(),
+  productDirection:document.querySelector('[data-dg="dir"][data-i="'+i+'"]')?.value,
+  price:n(document.querySelector('[data-dg="price"][data-i="'+i+'"]')?.value),
+  leverage:n(document.querySelector('[data-dg="lev"][data-i="'+i+'"]')?.value),
+  ko:n(document.querySelector('[data-dg="ko"][data-i="'+i+'"]')?.value),
+  spread:n(document.querySelector('[data-dg="spread"][data-i="'+i+'"]')?.value)||0,
+  spot:s
+ }));
+ const r=rankProducts(ps,{direction:d,atr:a,spot:s,trend:document.getElementById("trend")?.textContent,trend2:document.getElementById("trend2")?.textContent,mtf:document.getElementById("mtfSummary")?.textContent,rsi:n(document.getElementById("rsi")?.textContent),hist:n(document.getElementById("hist")?.textContent),adx:n(document.getElementById("adx")?.textContent),momentum:n(document.getElementById("momentum")?.textContent)});
+ const o=document.getElementById("dgTop3Out");if(!o)return r;
+ if(!r.candidates.length){
+  o.innerHTML='<div style="padding:14px;background:#fff;border-radius:15px;border:1px solid #e5e7eb"><b style="font-size:16px">📊 Bob-Aktualanalyse</b><div class="small" style="margin-top:6px">Szenario: <b>'+esc(d)+'</b></div><div class="warning" style="margin-top:9px"><b>Kein passender Trade-Kandidat.</b></div><div class="small" style="margin-top:5px">'+esc(r.gateReason||"Mindestens ein vollständiger Screenshot-Kandidat wird benötigt.")+'</div></div>';
+  return r;
+ }
+ const best=r.candidates[0];
+ const bestName=best.name||best.isin||"DEGIRO-Produkt";
+ const e=best.evaluation;
+ const ko=e.koDistancePct===null?"—":e.koDistancePct.toFixed(2)+"%";
+ const at=e.atrMultiple===null?"—":e.atrMultiple.toFixed(1)+" ATR";
+ const action=e.direction==="LONG"?"LONG":"SHORT";
+ if(!r.tradeable){
+  o.innerHTML='<div style="padding:15px;background:#fff;border-radius:16px;border:1px solid #e5e7eb"><b style="font-size:17px">📊 Bob-Aktualanalyse</b><div class="small" style="margin-top:6px">Szenario: <b>'+esc(r.scenario)+'</b> · '+r.total+' Kandidat(en) geprüft</div><div class="warning" style="margin-top:10px"><b>Kein eindeutiger Trade-Kandidat.</b></div><div class="small" style="margin-top:5px">'+esc(r.gateReason)+'</div></div>';
+  return r;
+ }
+ o.innerHTML='<div style="padding:16px;background:#fff;border-radius:18px;border:2px solid #16a34a">'+
+ '<div class="small">AKTUELLE BOB-ANALYSE · '+esc(r.scenario)+'</div>'+
+ '<div style="font-size:20px;font-weight:800;margin-top:4px">🎯 Technisch passendster Trade-Kandidat</div>'+
+ '<div style="margin-top:11px;padding:12px;background:#f0fdf4;border-radius:13px"><b style="font-size:17px">'+esc(bestName)+'</b>'+
+ '<div style="margin-top:5px"><b>'+action+'</b> · Produktkurs '+(best.price??"—")+' · Hebel '+(e.leverage||"—")+'×</div>'+
+ '<div class="small" style="margin-top:4px">KO-Abstand '+ko+' · ATR-Puffer '+at+' · Setup-Qualität '+e.setupScore+'/100</div></div>'+
+ '<div class="small" style="margin-top:10px"><b>Warum:</b> '+esc(e.reasons.slice(0,4).join(" · "))+'</div>'+
+ (e.warnings.length?'<div class="small warning" style="margin-top:7px">⚠️ '+esc(e.warnings.slice(0,2).join(" · "))+'</div>':'<div class="small ok" style="margin-top:7px">✓ Keine wesentliche Warnung im aktuellen Produktcheck.</div>')+
+ '<div class="small" style="margin-top:9px">Bob vergleicht technische Passung und Produktrisiko. Das ist keine Gewinnwahrscheinlichkeit und keine Garantie.</div></div>';
+ return r;
+}
 if(typeof document!=="undefined"){if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",()=>{try{inject();}catch(e){console.warn(e);}});else try{inject();}catch(e){console.warn(e);}}
 window.BobDegiro={riskModel,koDistancePct,evaluateProduct,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates};
 })();
