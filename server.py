@@ -4,6 +4,7 @@ import hmac
 import json
 import time
 import threading
+import bob_auth
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from datetime import datetime, timezone
@@ -568,8 +569,17 @@ def build_mtf_verification(bundle):
     return {"overall":overall,"valid":valid,"results":results,"hierarchy":hierarchy,"verifiedAt":datetime.now(timezone.utc).isoformat()}
 
 class Handler(BaseHTTPRequestHandler):
+    def authenticated(self):
+        return bob_auth.authenticated(self.headers, USER, PASSWORD)
+
     def do_GET(self):
         path = urlparse(self.path).path
+        if path == "/login":
+            bob_auth.login_page(self)
+            return
+        if path in ("/", "/index.html", "/bob-live", "/bob-v12") and not self.authenticated():
+            bob_auth.send(self, 303, location="/login")
+            return
         # Sensitive data APIs must be authenticated before any data generation.
         # Keep static PWA resources and /health public, but never expose live,
         # MTF, or DEGIRO enrichment data without the existing Bob credentials.
@@ -579,9 +589,8 @@ class Handler(BaseHTTPRequestHandler):
             expected = "Basic " + base64.b64encode(
                 f"{USER}:{PASSWORD}".encode("utf-8")
             ).decode("ascii")
-            if not USER or not PASSWORD or not hmac.compare_digest(auth, expected):
+            if not self.authenticated():
                 self.send_response(401)
-                self.send_header("WWW-Authenticate", 'Basic realm="Bob"')
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 self.wfile.write(b"Authentication required.")
@@ -722,7 +731,7 @@ class Handler(BaseHTTPRequestHandler):
         worker_token = self.headers.get("X-Bob-Worker-Token", "")
         worker_ok = bool(SIGNAL_WORKER_TOKEN) and hmac.compare_digest(worker_token, SIGNAL_WORKER_TOKEN)
         public_push_path = path in ("/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences")
-        if not public_push_path and not worker_ok and (not USER or not PASSWORD or not hmac.compare_digest(auth, expected)):
+        if not public_push_path and not worker_ok and (not self.authenticated()):
             print(
                 f'BOB_AUTH_FAIL path={path} auth_present={bool(auth)} '
                 f'auth_scheme={auth.split(" ",1)[0] if auth else "-"} '
@@ -731,7 +740,6 @@ class Handler(BaseHTTPRequestHandler):
                 flush=True,
             )
             self.send_response(401)
-            self.send_header("WWW-Authenticate", 'Basic realm="Bob"')
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(b"Authentication required.")
@@ -830,14 +838,19 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
+        if path == "/login":
+            bob_auth.send(self, 200)
+            return
+        if path in ("/", "/index.html") and not self.authenticated():
+            bob_auth.send(self, 303, location="/login")
+            return
         if path in ("/", "/index.html"):
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
                 f"{USER}:{PASSWORD}".encode("utf-8")
             ).decode("ascii")
-            if not USER or not PASSWORD or not hmac.compare_digest(auth, expected):
+            if not self.authenticated():
                 self.send_response(401)
-                self.send_header("WWW-Authenticate", 'Basic realm="Bob"')
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("Content-Length", "0")
                 self.end_headers()
@@ -859,6 +872,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path == "/login":
+            bob_auth.login(self, USER, PASSWORD)
+            return
+        if path == "/logout":
+            bob_auth.logout(self)
+            return
+        if bob_auth.cookie(self.headers, bob_auth.COOKIE) and not bob_auth.same_origin(self.headers):
+            bob_auth.send(self, 403)
+            return
         auth = self.headers.get("Authorization", "")
         expected = "Basic " + base64.b64encode(
             f"{USER}:{PASSWORD}".encode("utf-8")
@@ -890,9 +912,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        if path in ("/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences") and not worker_ok and (not USER or not PASSWORD or not hmac.compare_digest(auth, expected)):
+        if path in ("/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences") and not worker_ok and (not self.authenticated()):
             self.send_response(401)
-            self.send_header("WWW-Authenticate", 'Basic realm="Bob"')
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(b"Authentication required.")
@@ -975,8 +996,9 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             pass
 
-port = int(os.environ.get("PORT", "10000"))
-print(f"BOB_START port={port} host=0.0.0.0 version=runtime-http-trace-v1", flush=True)
-ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "10000"))
+    print(f"BOB_START port={port} host=0.0.0.0 version=runtime-http-trace-v1", flush=True)
+    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress
