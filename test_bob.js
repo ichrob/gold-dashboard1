@@ -133,9 +133,9 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
     {name:"Short C", productDirection:"SHORT", spot:4000, ko:4100, leverage:5, spread:0.5},
     {name:"Long D", productDirection:"LONG", spot:4000, ko:3700, leverage:5, spread:0.5}
   ], {direction:"LONG", atr:20, spot:4000});
-  assert.strictEqual(ranked.candidates.length, 4);
+  assert.strictEqual(ranked.candidates.length, 3);
   assert.strictEqual(ranked.candidates[0].name, "Long A");
-  assert(ranked.candidates.every(p => p.evaluation.direction === "LONG" || p.evaluation.score < 60));
+  assert(ranked.candidates.every(p => p.productDirection === "LONG"));
   const parsed = degiro.BobDegiro.parseScreenshotCandidates("Gold Turbo LONG ISIN DE000ABC1234 Hebel 5x KO 3900\nGold Turbo SHORT ISIN DE000XYZ9876 Hebel 4x KO 4100");
   assert.strictEqual(parsed.length, 2);
   assert.strictEqual(parsed[0].isin, "DE000ABC1234");
