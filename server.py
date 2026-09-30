@@ -802,6 +802,44 @@ class Handler(BaseHTTPRequestHandler):
             return
 
 
+    def do_HEAD(self):
+        # Render and other HTTP probes use HEAD. Mirror the root/health access
+        # policy without generating a response body, so probes do not produce
+        # false 501 errors and the private root stays private.
+        path = urlparse(self.path).path
+        if path == "/health":
+            self.send_response(200)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if path in ("/", "/index.html"):
+            auth = self.headers.get("Authorization", "")
+            expected = "Basic " + base64.b64encode(
+                f"{USER}:{PASSWORD}".encode("utf-8")
+            ).decode("ascii")
+            if not USER or not PASSWORD or not hmac.compare_digest(auth, expected):
+                self.send_response(401)
+                self.send_header("WWW-Authenticate", 'Basic realm="Bob"')
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https://xaus.com https://api.goldprice.dev https://ntfy.sh; img-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+            self.send_header("Content-Length", str(len(HTML)))
+            self.end_headers()
+            return
+        self.send_response(404)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_POST(self):
         path = urlparse(self.path).path
         auth = self.headers.get("Authorization", "")
