@@ -69,10 +69,10 @@ async function readScreenshot(i,file){
  if(status)status.textContent="📷 Screenshot wird kostenlos direkt im Browser gelesen …";
  try{
   const T=await loadOcr();
-  const result=await T.recognize(file,"eng",{logger:m=>{if(status&&m&&m.status==="recognizing text"&&m.progress)status.textContent="📷 OCR "+Math.round(m.progress*100)+"%";}});
+  const result=await T.recognize(file,"deu+eng",{logger:m=>{if(status&&m&&m.status==="recognizing text"&&m.progress)status.textContent="📷 OCR "+Math.round(m.progress*100)+"%";}});
   const x=ocrExtract(result.data.text);
   const set=(kind,value)=>{const el=document.querySelector('[data-dg="'+kind+'"][data-i="'+i+'"]');if(el&&value)el.value=value;};
-  set("name",x.name);set("isin",x.isin);set("dir",x.direction);set("lev",x.leverage);set("ko",x.ko);set("spread",x.spread); if(x.isin)enrichProduct(i);
+  set("name",x.name);set("isin",x.isin);set("dir",x.direction);set("price",x.price);set("lev",x.leverage);set("ko",x.ko);set("spread",x.spread); if(x.isin)enrichProduct(i);
   if(status)status.textContent=x.isin?"✅ Screenshot gelesen – Angaben bitte kurz gegen DEGIRO prüfen.":"⚠️ Screenshot gelesen, aber keine sichere ISIN erkannt – Angaben bitte prüfen.";
  }catch(e){if(status)status.textContent="⚠️ OCR nicht verfügbar. Kandidaten können weiterhin manuell eingegeben werden.";}
 }
