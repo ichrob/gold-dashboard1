@@ -27,7 +27,7 @@ function loadPush() {
     }
   };
   const context = {
-    window: {},
+    window: { addEventListener: (event, handler) => { if (event === "load") Promise.resolve().then(handler); } },
     localStorage: {
       getItem: key => store.has(key) ? store.get(key) : null,
       setItem: (key, value) => store.set(key, value)
