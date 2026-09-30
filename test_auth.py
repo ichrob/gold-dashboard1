@@ -44,6 +44,7 @@ class AuthenticationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b'autocomplete="current-password"', body)
         self.assertIn('no-store', headers['Cache-Control'])
+        self.assertEqual(headers['Referrer-Policy'], 'same-origin')
         token = re.search(b'name="csrf" value="([^"]+)"', body)[1].decode()
         return token
 
@@ -83,6 +84,8 @@ class AuthenticationTests(unittest.TestCase):
         self.assertFalse(bob_auth.SESSIONS)
         self.assertEqual(self.sign_in(origin='https://other.example')[0],403)
         self.assertFalse(bob_auth.SESSIONS)
+        self.assertEqual(self.sign_in(origin='null')[0],403)
+        self.assertEqual(self.sign_in(origin='')[0],403)
         token = self.form()
         body = urlencode({'username':'test-user','password':'test-only-password','csrf':token})
         self.assertEqual(self.request('POST','/login',body,{'Origin':'https://bob.example','Content-Type':'application/x-www-form-urlencoded'})[0],403)
