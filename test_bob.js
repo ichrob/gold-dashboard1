@@ -133,9 +133,12 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
     {name:"Short C", productDirection:"SHORT", spot:4000, ko:4100, leverage:5, spread:0.5},
     {name:"Long D", productDirection:"LONG", spot:4000, ko:3700, leverage:5, spread:0.5}
   ], {direction:"LONG", atr:20, spot:4000});
-  assert.strictEqual(ranked.candidates.length, 3);
+  assert.strictEqual(ranked.candidates.length, 4);
   assert.strictEqual(ranked.candidates[0].name, "Long A");
   assert(ranked.candidates.every(p => p.evaluation.direction === "LONG" || p.evaluation.score < 60));
+  assert(fs.readFileSync("degiro_assistant.js", "utf8").includes("Bob Top 4"));
+  assert(fs.readFileSync("degiro_assistant.js", "utf8").includes("BOB-FAVORIT"));
+  assert(fs.readFileSync("degiro_assistant.js", "utf8").includes("cdn.jsdelivr.net/npm/tesseract.js@5"));
 
 
   console.log("Bob push + DEGIRO tests: OK");
