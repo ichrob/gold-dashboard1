@@ -12,17 +12,22 @@ function spot(){const x=n(window.lastPrice);if(x)return x;const m=String(documen
 function atr(){return n(window.A?.at)||n(window.A?.atr)||null;}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 let ocrLoader=null,ocrWorkerPromise=null,ocrQueue=Promise.resolve();
+function ocrTimeout(promise,ms,message){
+ let timer;
+ return Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(message)),ms);})]).finally(()=>clearTimeout(timer));
+}
 function loadOcr(){
  if(typeof window==="undefined")return Promise.reject(new Error("Browser erforderlich."));
  if(window.Tesseract)return Promise.resolve(window.Tesseract);
  if(ocrLoader)return ocrLoader;
  ocrLoader=new Promise((resolve,reject)=>{
   const s=document.createElement("script");
-  s.src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+  s.src="/ocr-assets/v5/tesseract.min.js";
   s.onload=()=>window.Tesseract?resolve(window.Tesseract):reject(new Error("OCR-Bibliothek konnte nicht geladen werden."));
-  s.onerror=()=>reject(new Error("OCR-Bibliothek konnte nicht geladen werden."));
+  s.onerror=()=>{ocrLoader=null;s.remove();reject(new Error("OCR-Bibliothek konnte nicht geladen werden. Bitte erneut versuchen."));};
   document.head.appendChild(s);
  });
+ ocrLoader=ocrTimeout(ocrLoader,30000,"OCR-Bibliothek konnte nicht innerhalb von 30 Sekunden geladen werden").catch(e=>{ocrLoader=null;throw e;});
  return ocrLoader;
 }
 async function loadOcrWorker(statusId){
@@ -30,10 +35,11 @@ async function loadOcrWorker(statusId){
  const T=await loadOcr();
  const status=document.getElementById(statusId||"");
  if(status)status.textContent="📦 OCR-Engine wird gestartet …";
- ocrWorkerPromise=T.createWorker("eng",1,{
-  workerPath:"https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js",
-  langPath:"https://tessdata.projectnaptha.com/4.0.0",
-  corePath:"https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1",
+ const initializing=T.createWorker("eng",1,{
+  workerPath:"/ocr-assets/v5/worker.min.js",
+  langPath:"/ocr-assets/v5",
+  corePath:"/ocr-assets/v5",
+  workerBlobURL:false,
   logger:m=>{
    const s=document.getElementById(statusId||"");
    if(!s||!m)return;
@@ -41,6 +47,7 @@ async function loadOcrWorker(statusId){
    else if(m.status==="recognizing text"&&m.progress)s.textContent="📷 OCR "+Math.round(m.progress*100)+"%";
   }
  });
+ ocrWorkerPromise=ocrTimeout(initializing,60000,"OCR-Engine konnte nicht innerhalb von 60 Sekunden gestartet werden").catch(e=>{ocrWorkerPromise=null;initializing.then(w=>w.terminate()).catch(()=>{});throw e;});
  return ocrWorkerPromise;
 }
 async function prepareOcrImage(file,statusId){
@@ -56,15 +63,12 @@ async function prepareOcrImage(file,statusId){
 }
 function recognizeOcr(file,statusId){
  const job=ocrQueue.then(async()=>{
-  const worker=await Promise.race([
-   loadOcrWorker(statusId),
-   new Promise((_,reject)=>setTimeout(()=>reject(new Error("OCR-Engine konnte nicht innerhalb von 60 Sekunden gestartet werden")),60000))
-  ]);
+  const worker=await loadOcrWorker(statusId);
   const prepared=await prepareOcrImage(file,statusId);
-  const result=await Promise.race([
-   worker.recognize(prepared),
-   new Promise((_,reject)=>setTimeout(()=>reject(new Error("OCR-Zeitüberschreitung nach 45 Sekunden")),45000))
-  ]);
+  let result;
+  try{
+   result=await ocrTimeout(worker.recognize(prepared),45000,"OCR-Zeitüberschreitung nach 45 Sekunden");
+  }catch(e){ocrWorkerPromise=null;await worker.terminate().catch(()=>{});throw e;}
   return result;
  });
  ocrQueue=job.catch(()=>{});
