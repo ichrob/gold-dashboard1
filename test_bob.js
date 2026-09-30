@@ -127,6 +127,16 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert(longKo.warnings.some(w => w.includes("KO-Level")));
   const tightKo = degiro.BobDegiro.riskModel({ spot: 4000, stop: 3980, riskEur: 5, fxUsdEur: 0.92, leverage: 5, ko: 3950 });
   assert(tightKo.warnings.some(w => w.includes("unter 2%")));
+  const ranked = degiro.BobDegiro.rankProducts([
+    {name:"Long A", productDirection:"LONG", spot:4000, ko:3800, leverage:4, spread:0.5},
+    {name:"Long B", productDirection:"LONG", spot:4000, ko:3990, leverage:8, spread:1},
+    {name:"Short C", productDirection:"SHORT", spot:4000, ko:4100, leverage:5, spread:0.5},
+    {name:"Long D", productDirection:"LONG", spot:4000, ko:3700, leverage:5, spread:0.5}
+  ], {direction:"LONG", atr:20, spot:4000});
+  assert.strictEqual(ranked.candidates.length, 3);
+  assert.strictEqual(ranked.candidates[0].name, "Long A");
+  assert(ranked.candidates.every(p => p.evaluation.direction === "LONG" || p.evaluation.score < 60));
+
 
   console.log("Bob push + DEGIRO tests: OK");
 })().catch(err => { console.error(err); process.exit(1); });
