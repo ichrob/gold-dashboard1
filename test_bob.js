@@ -84,6 +84,7 @@ assert(serverSource.includes('Never promote technical/futures history to the XAU
 assert(serverSource.includes('"source": (spot_source or "keine Spotquelle") + " + Yahoo Finance GC=F technische Referenz"'));
 assert(serverSource.includes("script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net"));
 assert(serverSource.includes("worker-src 'self' blob:"));
+assert(serverSource.includes('"script-src \'self\' \'unsafe-inline\' https://cdn.jsdelivr.net; "'));
 assert(serverSource.includes('if len(values) < period + 2:\n        return None'));
 assert(serverSource.includes('reason":"zu wenig Historie für RSI"'));
 
