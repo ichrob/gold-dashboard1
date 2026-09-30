@@ -734,13 +734,16 @@ function stopModel(dir,entry,atr,mult=1.5){
  if(!dir||dir==="NEUTRAL"||!Number.isFinite(entry)||!Number.isFinite(atr)||atr<=0)return {stop:null,reason:"Kein gültiges Setup"};
  const lv=structureLevels(C,40), buffer=Math.max(atr*0.20,0.01);
  let structureStop=dir==="LONG"?Math.min(lv.swingLow,lv.support)-buffer:Math.max(lv.swingHigh,lv.resistance)+buffer;
+ const fib=fibonacciModel(dir,entry,atr);
+ const fibStop=fib.valid?(dir==="LONG"?fib.levels.r786-buffer:fib.levels.r786+buffer):null;
+ if(Number.isFinite(fibStop)) structureStop=dir==="LONG"?Math.min(structureStop,fibStop):Math.max(structureStop,fibStop);
  const atrStop=dir==="LONG"?entry-atr*mult:entry+atr*mult;
  let stop=dir==="LONG"?Math.min(structureStop,atrStop):Math.max(structureStop,atrStop);
  const maxDist=atr*Math.max(2.5,mult+0.75);
  if(Math.abs(entry-stop)>maxDist)stop=dir==="LONG"?entry-maxDist:entry+maxDist;
  if(dir==="LONG"&&stop>=entry)stop=entry-atr*Math.max(1,mult);
  if(dir==="SHORT"&&stop<=entry)stop=entry+atr*Math.max(1,mult);
- return {stop,structureStop,atrStop,support:lv.support,resistance:lv.resistance,buffer,reason:"Marktstruktur + Support/Resistance + ATR"};
+ return {stop,structureStop,atrStop,fibStop,support:lv.support,resistance:lv.resistance,buffer,reason:"Fibonacci + Marktstruktur + Support/Resistance + ATR"};
 }
 function stopPriceFor(dir,price,atr,mult){return stopModel(dir,price,atr,mult).stop;}
 function fibonacciModel(dir,entry,atr=0){
