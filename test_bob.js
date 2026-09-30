@@ -225,6 +225,19 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert.strictEqual(degiro.BobDegiro.normalizeOcrIsin("DEOOOPJONB98").isin,"DEOOOPJONB98");
   assert.strictEqual(degiro.BobDegiro.normalizeOcrIsin("DE000FC1CHB7").originalIsin,"");
 
+  const rows=new Map(),statuses=new Map();
+  degiroContext.document={querySelector:selector=>{if(!rows.has(selector))rows.set(selector,{value:"OLD",checked:true});return rows.get(selector);},getElementById:id=>{if(!statuses.has(id))statuses.set(id,{textContent:"OLD"});return statuses.get(id);}};
+  degiro.BobDegiro.populateCandidateRows([{name:"First",isin:"DE000FC1CHB7",price:"12"},{name:"Second",isin:"DE000PG0XK25",price:"20"}]);
+  degiro.BobDegiro.populateCandidateRows([{name:"Replacement",isin:"DEOOOPJINCKO",price:"",leverage:""}]);
+  const field=(key,i)=>rows.get('[data-dg="'+key+'"][data-i="'+i+'"]');
+  assert.strictEqual(field("price",1).value,"");
+  assert.strictEqual(field("name",2).value,"");
+  assert.strictEqual(field("isin",2).value,"");
+  assert.strictEqual(field("confirmed",1).checked,false);
+  assert(statuses.get("dgOcrStatus1").textContent.includes("ISIN unsicher"));
+  assert.strictEqual(statuses.get("dgOcrStatus2").textContent,"Wartet auf Screenshot.");
+  delete degiroContext.document;
+
   const ten=degiro.BobDegiro.parseScreenshotCandidates(Array.from({length:10},(_,i)=>"Gold Call BAR 3900 | DE000ABC12"+String(i).padStart(2,"0")).join("\n"));
   assert.strictEqual(ten.length,10);
   const strongCtx={direction:"LONG",atr:20,spot:4000,trend:"LONG",trend2:"LONG",mtf:"LONG",rsi:60,hist:1,adx:30,momentum:1};

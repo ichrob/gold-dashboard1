@@ -121,6 +121,19 @@ function ocrExtract(text){
  return {isin,originalIsin:ident.originalIsin,leverage:lev.replace(",","."),ko:ko.replace(",","."),spread:spread.replace(",","."),price:price.replace(",","."),direction,name:nameLine};
 }
 const productQuotes=new Map(),pendingQuotes=new Set();
+function populateCandidateRows(items){
+ // Replacing a screenshot must not retain prices, confirmation or surplus products.
+ for(let i=1;i<=12;i++){
+  const x=items[i-1],values=x?{name:x.name||x.isin,isin:x.isin,dir:x.direction,price:x.price,lev:x.leverage,ko:x.ko,spread:x.spread}:{};
+  for(const k of ["name","isin","dir","price","lev","ko","spread"]){const el=document.querySelector('[data-dg="'+k+'"][data-i="'+i+'"]');if(el)el.value=values[k]??"";}
+  productQuotes.delete(i);
+  const confirmed=document.querySelector('[data-dg="confirmed"][data-i="'+i+'"]');if(confirmed)confirmed.checked=false;
+  const status=document.getElementById("dgOcrStatus"+i),research=document.getElementById("dgResearch"+i);
+  if(research)research.textContent="🌐 Zusatzdaten: warten auf ISIN.";
+  if(status)status.textContent=!x?"Wartet auf Screenshot.":!validIsin(x.isin)?"⚠️ ISIN unsicher: "+(x.isin||"nicht erkannt")+". Bitte direkt am Screenshot korrigieren; Produkt bleibt gesperrt.":x.originalIsin?"⚠️ OCR normalisiert: "+x.originalIsin+" → "+x.isin+" (Prüfziffer gültig). Bitte am Screenshot prüfen.":"✅ Aus Screenshot erkannt – ISIN am Screenshot prüfen und bestätigen.";
+ }
+}
+
 async function enrichProduct(i){
  const field=k=>document.querySelector('[data-dg="'+k+'"][data-i="'+i+'"]');
  const isin=(field("isin")?.value.trim()||"").toUpperCase(),meta=document.getElementById("dgResearch"+i);
@@ -232,14 +245,8 @@ function inject(){
    centralTexts[slot-1]=result.data.text||"";
    const all=centralTexts.filter(Boolean).join("\n\n");
    const items=parseScreenshotCandidates(all);
-   items.slice(0,12).forEach((x,idx)=>{
-    const i=idx+1;
-    const set=(k,v)=>{const el=document.querySelector('[data-dg="'+k+'"][data-i="'+i+'"]');if(el&&v)el.value=v;};
-    set("name",x.name||x.isin);set("isin",x.isin);set("dir",x.direction);set("price",x.price);set("lev",x.leverage);set("ko",x.ko);set("spread",x.spread);
-    const s=document.getElementById("dgOcrStatus"+i);if(s)s.textContent="✅ Aus Screenshot erkannt – Angaben kurz gegen DEGIRO prüfen.";
-    productQuotes.delete(i);const confirmed=document.querySelector('[data-dg="confirmed"][data-i="'+i+'"]');if(confirmed)confirmed.checked=false;
-    if(x.originalIsin){if(s)s.textContent="⚠️ OCR normalisiert: "+x.originalIsin+" → "+x.isin+" (Prüfziffer gültig). Bitte am Screenshot prüfen.";}if(x.isin)enrichProduct(i);
-   });
+   populateCandidateRows(items);
+   items.slice(0,12).forEach((x,idx)=>{if(x.isin)enrichProduct(idx+1);});
    if(lab)lab.textContent="✓ "+label+" geladen";
    if(status){const count=centralTexts.filter(Boolean).length;status.textContent=count<2?"✅ "+items.length+" Produkt(e) erkannt. Bitte noch Bild "+(count+1)+" hochladen.":"✅ "+count+" Bilder gelesen · "+items.length+" unterschiedliche Produkte erkannt.";const corrected=items.filter(x=>x.originalIsin).length;if(corrected)status.textContent+=" "+corrected+" ISIN(s) mit gültiger Prüfziffer aus O/0 bzw. I/1 normalisiert – bitte prüfen.";const uncertain=items.filter(x=>!validIsin(x.isin)).length;if(uncertain)status.textContent+=" ⚠️ "+uncertain+" ISIN(s) bitte unter Details prüfen (OCR unsicher oder Prüfziffer ungültig).";status.textContent+=" Aktuelle Emittentenkurse werden recherchiert. ISINs unter Details am Screenshot bestätigen. Quellen ohne datierte Kurse bleiben gesperrt.";}
    if(centralTexts.filter(Boolean).length>=2)rankUI();
@@ -314,5 +321,5 @@ function rankUI(){
 }
 
 if(typeof document!=="undefined"){if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",()=>{try{inject();}catch(e){console.warn(e);}});else try{inject();}catch(e){console.warn(e);}}
-window.BobDegiro={riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin};
+window.BobDegiro={riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows};
 })();
