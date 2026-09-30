@@ -10,7 +10,46 @@ function scenario(){const s=typeof window.confirmedSignalDirection==="function"?
 function spot(){const x=n(window.lastPrice);if(x)return x;const m=String(document.getElementById("price")?.textContent||"").match(/[0-9]+(?:[.,][0-9]+)?/);return m?n(m[0].replace(",",".")):null;}
 function atr(){return n(window.A?.at)||n(window.A?.atr)||null;}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
-function inject(){if(document.getElementById("dgTop3"))return;const a=document.getElementById("dgProductOut");if(!a)return;const b=document.createElement("div");b.id="dgTop3";b.style.cssText="margin-top:14px;padding:12px;background:#f6f8fa;border-radius:12px";b.innerHTML='<b>🏆 Bob Top 3 – DEGIRO-Produkte</b><div class="small" style="margin:6px 0 10px">Bob prüft die Kandidaten im Hintergrund nach Richtung, KO-Abstand, Volatilität, Hebel und Spread. Der Check ist keine Gewinnwahrscheinlichkeit.</div><div id="dgTop3Inputs"></div><button style="margin-top:8px" id="dgRankBtn">🔎 Top 3 berechnen</button><div id="dgTop3Out" style="margin-top:10px"></div>';a.parentNode.insertBefore(b,a.nextSibling);const q=b.querySelector("#dgTop3Inputs");for(let i=1;i<=4;i++){const r=document.createElement("div");r.style.cssText="margin:8px 0;padding:8px;background:#fff;border-radius:10px";r.innerHTML='<b>Kandidat '+i+'</b><div class="grid" style="margin-top:6px"><input data-dg="name" data-i="'+i+'" placeholder="Produktname / ISIN"><select data-dg="dir" data-i="'+i+'"><option value="">Richtung</option><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select><input data-dg="price" data-i="'+i+'" type="number" step=".0001" placeholder="Produktkurs"><input data-dg="lev" data-i="'+i+'" type="number" step=".1" placeholder="Hebel"><input data-dg="ko" data-i="'+i+'" type="number" step=".01" placeholder="KO-Level"><input data-dg="spread" data-i="'+i+'" type="number" step=".01" min="0" placeholder="Spread"></div>';q.appendChild(r);}b.querySelector("#dgRankBtn").addEventListener("click",rankUI);}
+let ocrLoader=null;
+function loadOcr(){
+ if(typeof window==="undefined")return Promise.reject(new Error("Browser erforderlich."));
+ if(window.Tesseract)return Promise.resolve(window.Tesseract);
+ if(ocrLoader)return ocrLoader;
+ ocrLoader=new Promise((resolve,reject)=>{
+  const s=document.createElement("script");
+  s.src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+  s.onload=()=>window.Tesseract?resolve(window.Tesseract):reject(new Error("OCR konnte nicht geladen werden."));
+  s.onerror=()=>reject(new Error("Kostenlose OCR-Bibliothek konnte nicht geladen werden."));
+  document.head.appendChild(s);
+ });
+ return ocrLoader;
+}
+function ocrExtract(text){
+ const raw=String(text||"").replace(/\r/g," ");
+ const upper=raw.toUpperCase();
+ const isin=(raw.match(/\b[A-Z]{2}[A-Z0-9]{10}\b/)||[])[0]||"";
+ const lev=(raw.match(/(?:HEBEL|LEVERAGE)?\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*[X×]/i)||[])[1]||"";
+ const ko=(raw.match(/(?:KO|KNOCK[- ]?OUT|BARRIERE|BARRIER)\s*[:=]?\s*([0-9]{3,6}(?:[.,][0-9]+)?)/i)||[])[1]||"";
+ const spread=(raw.match(/(?:SPREAD)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)/i)||[])[1]||"";
+ const direction=upper.includes("SHORT")||upper.includes("PUT")?"SHORT":(upper.includes("LONG")||upper.includes("CALL")?"LONG":"");
+ const lines=raw.split(/\n+/).map(x=>x.trim()).filter(Boolean);
+ const nameLine=lines.find(x=>/GOLD|XAU|TURBO|KNOCK|CALL|PUT/i.test(x)&&x.length<100)||"";
+ return {isin,leverage:lev.replace(",","."),ko:ko.replace(",","."),spread:spread.replace(",","."),direction,name:nameLine};
+}
+async function readScreenshot(i,file){
+ const status=document.getElementById("dgOcrStatus"+i);
+ if(!file)return;
+ if(status)status.textContent="📷 Screenshot wird kostenlos direkt im Browser gelesen …";
+ try{
+  const T=await loadOcr();
+  const result=await T.recognize(file,"eng",{logger:m=>{if(status&&m&&m.status==="recognizing text"&&m.progress)status.textContent="📷 OCR "+Math.round(m.progress*100)+"%";}});
+  const x=ocrExtract(result.data.text);
+  const set=(kind,value)=>{const el=document.querySelector('[data-dg="'+kind+'"][data-i="'+i+'"]');if(el&&value)el.value=value;};
+  set("name",x.name);set("isin",x.isin);set("dir",x.direction);set("lev",x.leverage);set("ko",x.ko);set("spread",x.spread);
+  if(status)status.textContent=x.isin?"✅ Screenshot gelesen – Angaben bitte kurz gegen DEGIRO prüfen.":"⚠️ Screenshot gelesen, aber keine sichere ISIN erkannt – Angaben bitte prüfen.";
+ }catch(e){if(status)status.textContent="⚠️ OCR nicht verfügbar. Kandidaten können weiterhin manuell eingegeben werden.";}
+}
+function inject(){if(document.getElementById("dgTop3"))return;const a=document.getElementById("dgProductOut");if(!a)return;const b=document.createElement("div");b.id="dgTop3";b.style.cssText="margin-top:14px;padding:12px;background:#f6f8fa;border-radius:12px";b.innerHTML='<b>🏆 Bob Top 3 – DEGIRO-Produkte</b><div class="small" style="margin:6px 0 10px">Bob prüft die Kandidaten im Hintergrund nach Richtung, KO-Abstand, Volatilität, Hebel und Spread. Der Check ist keine Gewinnwahrscheinlichkeit.</div><div id="dgTop3Inputs"></div><button style="margin-top:8px" id="dgRankBtn">🔎 Top 3 berechnen</button><div id="dgTop3Out" style="margin-top:10px"></div>';a.parentNode.insertBefore(b,a.nextSibling);const q=b.querySelector("#dgTop3Inputs");for(let i=1;i<=4;i++){const r=document.createElement("div");r.style.cssText="margin:8px 0;padding:8px;background:#fff;border-radius:10px";r.innerHTML='<b>Kandidat '+i+'</b><div class="small" style="margin-top:5px">Kostenloser Screenshot-Fallback (OCR direkt im Browser):</div><input type="file" accept="image/*" data-dgshot="1" data-i="'+i+'" style="margin:6px 0"><div id="dgOcrStatus'+i+'" class="small">Kein Screenshot gelesen.</div><div class="grid" style="margin-top:6px"><input data-dg="name" data-i="'+i+'" placeholder="Produktname / ISIN"><select data-dg="dir" data-i="'+i+'"><option value="">Richtung</option><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select><input data-dg="price" data-i="'+i+'" type="number" step=".0001" placeholder="Produktkurs"><input data-dg="lev" data-i="'+i+'" type="number" step=".1" placeholder="Hebel"><input data-dg="ko" data-i="'+i+'" type="number" step=".01" placeholder="KO-Level"><input data-dg="spread" data-i="'+i+'" type="number" step=".01" min="0" placeholder="Spread"></div>';q.appendChild(r);r.querySelector('[data-dgshot="1"]').addEventListener("change",e=>readScreenshot(i,e.target.files&&e.target.files[0]));}b.querySelector("#dgRankBtn").addEventListener("click",rankUI);}
 function rankUI(){const s=spot(),d=scenario(),a=atr(),ps=[1,2,3,4].map(i=>({name:document.querySelector('[data-dg="name"][data-i="'+i+'"]')?.value.trim(),productDirection:document.querySelector('[data-dg="dir"][data-i="'+i+'"]')?.value,price:n(document.querySelector('[data-dg="price"][data-i="'+i+'"]')?.value),leverage:n(document.querySelector('[data-dg="lev"][data-i="'+i+'"]')?.value),ko:n(document.querySelector('[data-dg="ko"][data-i="'+i+'"]')?.value),spread:n(document.querySelector('[data-dg="spread"][data-i="'+i+'"]')?.value)||0,spot:s})),r=rankProducts(ps,{direction:d,atr:a,spot:s}),o=document.getElementById("dgTop3Out");if(!o)return r;if(!r.candidates.length){o.innerHTML='<span class="bad"><b>Keine passende Auswahl.</b></span><div class="small">Mindestens einen vollständigen Kandidaten eingeben. Bei neutralem Szenario wird keine Richtung künstlich bevorzugt.</div>';return r;}const best=r.candidates[0];o.innerHTML='<div class="small">Szenario: <b>'+r.scenario+'</b> · '+r.total+' Kandidat(en) geprüft</div>'+r.candidates.map((p,i)=>{const e=p.evaluation,k=e.koDistancePct===null?"—":e.koDistancePct.toFixed(2)+"%",at=e.atrMultiple===null?"—":e.atrMultiple.toFixed(1)+" ATR",w=e.warnings.slice(0,2).join(" · "),fav=i===0,why=fav?(e.direction===r.scenario?'Richtung passt zum Szenario. ':'Neutrales Szenario. ')+(e.koDistancePct!==null?'KO-Puffer '+k+'. ':'')+(e.atrMultiple!==null?'ATR-Puffer '+at+'.':''):'';return '<div style="margin-top:8px;padding:10px;background:#fff;border-radius:10px;border:2px solid '+(fav?'#16a34a':'#e5e7eb')+'"><b>'+(fav?'🟢 ⭐ BOB-FAVORIT':'🔵 '+(i+1)+'.')+' '+esc(p.name||"Produkt")+'</b><div class="small">'+esc(e.direction||"—")+' · Hebel '+(e.leverage||"—")+'× · KO-Abstand '+k+' · '+at+' · Technischer Check '+e.score+'/100</div>'+(fav?'<div class="small ok" style="margin-top:6px"><b>Warum:</b> '+esc(why)+'</div>':'')+(w?'<div class="small warning" style="margin-top:6px">'+esc(w)+'</div>':'<div class="small ok" style="margin-top:6px">Keine wesentliche Warnung im aktuellen Check.</div>')+'</div>';}).join("")+'<div class="small" style="margin-top:8px">Bob kennzeichnet den technisch passendsten Kandidaten. Das ist keine Gewinnwahrscheinlichkeit und keine Garantie.</div>';return r;}
 if(typeof document!=="undefined"){if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",()=>{try{inject();}catch(e){console.warn(e);}});else try{inject();}catch(e){console.warn(e);}}
 window.BobDegiro={riskModel,koDistancePct,evaluateProduct,rankProducts};
