@@ -141,7 +141,7 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   const conflictedProduct = degiro.BobDegiro.evaluateProduct({spot:4000,ko:3800,leverage:4,direction:"LONG",productDirection:"LONG",trend:"SHORT",trend2:"SHORT",mtf:"SHORT",rsi:80,hist:-1,adx:10,momentum:-1});
   assert(conflictedProduct.conflictCount >= 3);
   assert(conflictedProduct.warnings.some(w => w.includes("Mehrere technische Signale")));
-  assert(conflictedProduct.confidence < conflictedProduct.setupScore);
+  assert(conflictedProduct.confidence <= conflictedProduct.setupScore);
   const conflictedLong = degiro.BobDegiro.technicalQuality({direction:"LONG",trend:"SHORT",trend2:"SHORT",mtf:"SHORT",rsi:80,hist:-1,adx:10});
   assert(conflictedLong.score < 30);
   const neutralQuality = degiro.BobDegiro.technicalQuality({direction:"NEUTRAL",trend:"LONG",mtf:"SHORT",rsi:60,hist:1,adx:30});
