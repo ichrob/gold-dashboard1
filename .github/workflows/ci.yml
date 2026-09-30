@@ -43,5 +43,7 @@ jobs:
         run: |
           node --check push_manager.js
           node --check degiro_assistant.js
+      - name: Login and session tests
+        run: python -m unittest test_auth.py
       - name: Regression tests
         run: node test_bob.js
