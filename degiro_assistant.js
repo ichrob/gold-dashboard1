@@ -76,12 +76,12 @@ async function readScreenshot(i,file){
   if(status)status.textContent=x.isin?"✅ Screenshot gelesen – Angaben bitte kurz gegen DEGIRO prüfen.":"⚠️ Screenshot gelesen, aber keine sichere ISIN erkannt – Angaben bitte prüfen.";
  }catch(e){if(status)status.textContent="⚠️ OCR nicht verfügbar. Kandidaten können weiterhin manuell eingegeben werden.";}
 }
-function parseScreenshotCandidates(text){const raw=String(text||"").replace(/\r/g,"");const hits=[];const re=/\b[A-Z]{2}[A-Z0-9]{10}\b/g;let m;while((m=re.exec(raw))&&hits.length<4){const start=Math.max(0,raw.lastIndexOf("\n",m.index-1)+1),end=Math.min(raw.length,(raw.indexOf("\n",m.index)===-1?raw.length:raw.indexOf("\n",m.index)));const line=raw.slice(start,end).trim();const context=raw.slice(Math.max(0,m.index-120),Math.min(raw.length,m.index+180));const x=ocrExtract(line||context);if(!x.direction)x.direction=ocrExtract(context).direction;x.isin=m[0];if(!hits.some(v=>v.isin===x.isin))hits.push(x);}return hits;}
+function parseScreenshotCandidates(text){const raw=String(text||"").replace(/\r/g,"");const hits=[];const re=/\b[A-Z]{2}[A-Z0-9]{10}\b/g;let m;while((m=re.exec(raw))&&hits.length<8){const start=Math.max(0,raw.lastIndexOf("\n",m.index-220)+1);const lineEnd=raw.indexOf("\n",m.index);const line=raw.slice(lineStart,lineEnd===-1?raw.length:lineEnd).trim();const context=raw.slice(Math.max(0,m.index-260),Math.min(raw.length,m.index+360));const x=ocrExtract(line||context);const cx=ocrExtract(context);if(!x.direction)x.direction=cx.direction;if(!x.price)x.price=cx.price;if(!x.leverage)x.leverage=cx.leverage;if(!x.ko)x.ko=cx.ko;if(!x.spread)x.spread=cx.spread;if(!x.name)x.name=cx.name;x.isin=m[0];if(!hits.some(v=>v.isin===x.isin))hits.push(x);}return hits;}
 async function readCentralScreenshot(file){
  const status=document.getElementById("dgCentralStatus");if(!file)return;
  try{
   if(status)status.textContent="📷 Screenshot wird kostenlos direkt im Browser gelesen …";
-  const T=await loadOcr();const result=await T.recognize(file,"eng");
+  const T=await loadOcr();const result=await T.recognize(file,"deu+eng");
   const items=parseScreenshotCandidates(result.data.text);
   items.forEach((x,idx)=>{const i=idx+1;const set=(k,v)=>{const el=document.querySelector('[data-dg="'+k+'"][data-i="'+i+'"]');if(el&&v)el.value=v;};set("name",x.name||x.isin);set("isin",x.isin);set("dir",x.direction);set("lev",x.leverage);set("ko",x.ko);set("spread",x.spread);const s=document.getElementById("dgOcrStatus"+i);if(s)s.textContent="✅ Zentraler Screenshot erkannt – Angaben kurz gegen DEGIRO prüfen.";if(x.isin)enrichProduct(i);});
   if(status)status.textContent=items.length?"✅ "+items.length+" Produkt(e) erkannt.":"⚠️ Keine sichere ISIN erkannt – bitte Einzelkarten verwenden.";
@@ -100,13 +100,13 @@ function inject(){
  '<div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px">'+
  '<label for="dgCentralShot1" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:112px;padding:8px;background:#f8fbff;border:1px solid #dce7f5;border-radius:14px;cursor:pointer;text-align:center">'+
  '<span style="display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:15px;background:#1677ff;color:#fff;font-size:31px;font-weight:700;line-height:1;box-shadow:0 3px 8px rgba(22,119,255,.22)">↑</span>'+
- '<span id="dgShotLabel1" style="margin-top:7px;font-weight:700;font-size:12px">Bild 1</span><input id="dgCentralShot1" type="file" accept="image/*" style="display:none"></label>'+
+ '<span id="dgShotLabel1" style="margin-top:7px;font-weight:700;font-size:12px">Screenshot 1</span><input id="dgCentralShot1" type="file" accept="image/*" style="display:none"></label>'+
  '<label for="dgCentralShot2" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:112px;padding:8px;background:#f8fbff;border:1px solid #dce7f5;border-radius:14px;cursor:pointer;text-align:center">'+
  '<span style="display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:15px;background:#1677ff;color:#fff;font-size:31px;font-weight:700;line-height:1;box-shadow:0 3px 8px rgba(22,119,255,.22)">↑</span>'+
- '<span id="dgShotLabel2" style="margin-top:7px;font-weight:700;font-size:12px">Bild 2</span><input id="dgCentralShot2" type="file" accept="image/*" style="display:none"></label>'+
+ '<span id="dgShotLabel2" style="margin-top:7px;font-weight:700;font-size:12px">Screenshot 2</span><input id="dgCentralShot2" type="file" accept="image/*" style="display:none"></label>'+
  '<label for="dgCentralShot3" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:112px;padding:8px;background:#f8fbff;border:1px solid #dce7f5;border-radius:14px;cursor:pointer;text-align:center">'+
  '<span style="display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:15px;background:#1677ff;color:#fff;font-size:31px;font-weight:700;line-height:1;box-shadow:0 3px 8px rgba(22,119,255,.22)">↑</span>'+
- '<span id="dgShotLabel3" style="margin-top:7px;font-weight:700;font-size:12px">Bild 3 <span style="font-weight:400">(optional)</span></span><input id="dgCentralShot3" type="file" accept="image/*" style="display:none"></label>'+
+ '<span id="dgShotLabel3" style="margin-top:7px;font-weight:700;font-size:12px">Screenshot 3 <span style="font-weight:400">(optional)</span></span><input id="dgCentralShot3" type="file" accept="image/*" style="display:none"></label>'+
  '</div><div id="dgCentralStatus" class="small" style="margin-top:9px">Noch keine Bilder hochgeladen.</div></div>'+
  '<div id="dgTop3Out" style="margin-top:12px"></div>'+
  '<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:700">Details / manuelle Korrektur</summary><div class="small" style="margin:7px 0">Nur öffnen, wenn Bob einen Wert aus dem Screenshot nicht sicher erkennt.</div><div id="dgTop3Inputs"></div></details>'+
@@ -139,7 +139,7 @@ function inject(){
     if(x.isin)enrichProduct(i);
    });
    if(lab)lab.textContent="✓ "+label+" geladen";
-   if(status){ const count=centralTexts.filter(Boolean).length; status.textContent=count<2 ? "⏳ "+count+" Bild geladen. Bitte noch Bild "+(count+1)+" hochladen …" : "⏳ "+items.length+" Produkt(e) erkannt. Analyse wird ausgeführt …"; }
+   if(status){ const count=centralTexts.filter(Boolean).length; status.textContent=count<2 ? "⏳ "+count+" Screenshot geladen. Bitte noch Screenshot "+(count+1)+" hochladen …" : "✅ "+items.length+" Produkt(e) aus "+count+" Screenshot(s) erkannt. Analyse kann jetzt ausgeführt werden."; }
    if(centralTexts.filter(Boolean).length>=2){ rankUI(); }
   }
   catch(e){
@@ -195,7 +195,7 @@ function rankUI(){
  o.innerHTML='<div style="padding:15px;background:#fff;border-radius:18px;border:2px solid #dbe4f0">'+
   '<div class="small">AKTUELLE BOB-ANALYSE · '+esc(r.scenario)+' · '+r.total+' Kandidat(en) geprüft</div>'+
   '<div style="font-size:20px;font-weight:800;margin-top:4px">🎯 Trade-Rangliste</div>'+
-  '<div class="small" style="margin-top:4px">Bob sortiert die passenden Produkte nach technischer Passung und Produktrisiko.</div>'+
+  '<div class="small" style="margin-top:4px">Bob prüft bis zu 8 erkannte Produkte und ordnet die passenden Kandidaten nach technischer Passung, KO-Puffer und Produktrisiko.</div>'+
   cards+
   '<div class="small" style="margin-top:9px">Die Plätze sind eine technische Rangfolge der geprüften DEGIRO-Kandidaten, keine Gewinnwahrscheinlichkeit und keine Garantie.</div></div>';
  return r;
