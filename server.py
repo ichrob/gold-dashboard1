@@ -479,7 +479,7 @@ def build_live_bundle():
                 "points": legacy_points,
                 "data_state": {
                     "status": status,
-                    "source": f"{spot_source or \"keine Spotquelle\"} + Yahoo Finance GC=F technische Referenz",
+                    "source": (spot_source or "keine Spotquelle") + " + Yahoo Finance GC=F technische Referenz",
                     "technical_4h_status": "available" if bars_4h else "unavailable",
                     "technical_errors": technical_errors,
                 },
