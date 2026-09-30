@@ -27,6 +27,9 @@ ICON_PATH = BASE_DIR / "icon.svg"
 # source embedded here makes the JS delivery independent of that filesystem edge case.
 PUSH_MANAGER_JS = "/* Bob Push Manager: browser notification + optional server Web Push registration. */\n(function(){\n  const KEY=\"bobPushV1\", LEGACY=\"goldScannerPush\";\n  const PUSH_API=\"/api/push\";\n  const defaults={registered:false,serverRegistered:false,general:false,trade:false,activeTrade:false};\n  function read(){\n    try{\n      const raw=localStorage.getItem(KEY);\n      if(raw)return {...defaults,...JSON.parse(raw)};\n      const old=localStorage.getItem(LEGACY);\n      if(old)return {...defaults,...JSON.parse(old)};\n    }catch(_){}\n    return {...defaults};\n  }\n  function save(s){const next={...defaults,...s};try{localStorage.setItem(KEY,JSON.stringify(next));}catch(_){}return next;}\n  function b64ToBytes(value){\n    const pad=\"=\".repeat((4-(value.length%4))%4);\n    const raw=atob(value.replace(/-/g,\"+\").replace(/_/g,\"/\")+pad);\n    return Uint8Array.from(raw,c=>c.charCodeAt(0));\n  }\n  async function registerServerPush(reg){\n    try{\n      const keyRes=await fetch(PUSH_API+\"/vapid-public-key\",{cache:\"no-store\"});\n      if(!keyRes.ok)throw new Error(\"VAPID-Key konnte nicht geladen werden.\");\n      const {publicKey}=await keyRes.json();\n      if(!publicKey)throw new Error(\"VAPID-Key fehlt.\");\n      if(!reg.pushManager)return false;\n      // Recreate the browser subscription with the current VAPID public key.\n      // This repairs subscriptions created with a previous VAPID key after a\n      // server-side key rotation or a recreated push database.\n      let sub=await reg.pushManager.getSubscription();\n      if(sub){\n        try{\n          await fetch(PUSH_API+\"/unsubscribe\",{\n            method:\"POST\",\n            headers:{\"Content-Type\":\"application/json\"},\n            body:JSON.stringify({endpoint:sub.endpoint})\n          });\n        }catch(_){}\n        try{await sub.unsubscribe();}catch(_){}\n        sub=null;\n      }\n      sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64ToBytes(publicKey)});\n      const res=await fetch(PUSH_API+\"/subscribe\",{\n        method:\"POST\",\n        headers:{\"Content-Type\":\"application/json\"},\n        body:JSON.stringify({subscription:sub.toJSON()})\n      });\n      if(!res.ok)throw new Error(\"Push-Subscription konnte nicht gespeichert werden.\");\n      return true;\n    }catch(_){return false;}\n  }\n  async function enable(){\n    if(!(\"Notification\" in window))throw new Error(\"Web-Benachrichtigungen werden von diesem Browser nicht unterstützt.\");\n    const p=await Notification.requestPermission();\n    if(p!==\"granted\")throw new Error(\"Benachrichtigungen wurden nicht freigegeben.\");\n    let serverRegistered=false;\n    if(\"serviceWorker\" in navigator){\n      const reg=await navigator.serviceWorker.register(\"/sw.js\",{updateViaCache:\"none\"});\n      try{await reg.update();}catch(_){}\n      serverRegistered=await registerServerPush(reg);\n    }\n    return save({...read(),registered:true,serverRegistered});\n  }\n  function state(){return read();}\n  function allowed(kind){\n    const s=read();\n    return s.registered&&Notification.permission===\"granted\"&&s[kind]===true&&(kind!==\"trade\"||s.activeTrade===true);\n  }\n  async function emit(kind,title,body,data={}){\n    const testTrade=kind===\"trade\"&&data&&data.test===true;\n    if(testTrade){\n      const s=read();\n      if(!(s.registered&&Notification.permission===\"granted\"&&s.trade===true))return false;\n    }else if(!allowed(kind))return false;\n    const tag=\"bob-\"+kind+\"-\"+(data.signalId||\"current\");\n    const payload={title,body,data:{...data,url:data.url||\"/\",kind,signalId:data.signalId||null},tag};\n    let serverSent=false;\n    if(read().serverRegistered){\n      try{\n        const res=await fetch(\"/api/push/send\",{\n          method:\"POST\",\n          headers:{\"Content-Type\":\"application/json\"},\n          body:JSON.stringify(payload)\n        });\n        if(res.ok){\n          const result=await res.json().catch(()=>null);\n          serverSent=Boolean(result&&result.sent>0);\n          if(result&&result.vapidReset){\n            const reg=await navigator.serviceWorker.ready;\n            serverSent=await registerServerPush(reg);\n            if(serverSent){\n              const retry=await fetch(\"/api/push/send\",{\n                method:\"POST\",\n                headers:{\"Content-Type\":\"application/json\"},\n                body:JSON.stringify(payload)\n              });\n              if(retry.ok){\n                const retryResult=await retry.json().catch(()=>null);\n                serverSent=Boolean(retryResult&&retryResult.sent>0);\n              }\n            }\n          }\n        }\n      }catch(_){}\n    }\n    if(serverSent)return true;\n    const options={body,tag,data:{url:data.url||\"/\",kind,signalId:data.signalId||null},renotify:false};\n    try{\n      if(\"serviceWorker\" in navigator){\n        const reg=await navigator.serviceWorker.ready;\n        await reg.showNotification(title,options);\n        return true;\n      }\n      new Notification(title,options);\n      return true;\n    }catch(_){return false;}\n  }\n  function set(kind,value){return save({...read(),[kind]:Boolean(value)});}\n  function setActiveTrade(value){return set(\"activeTrade\",value);}\n  window.BobPush={state,save,enable,allowed,emit,set,setActiveTrade};\n})();"
 DEGIRO_ASSISTANT_JS = "/* Bob DEGIRO assistant: deterministic risk math and product-fit checks. No order execution. */\n(function(){\n  function n(v){const x=Number(v);return Number.isFinite(x)?x:null;}\n  function koDistancePct(spot,ko){spot=n(spot);ko=n(ko);if(spot===null||ko===null||spot<=0)return null;return Math.abs((spot-ko)/spot)*100;}\n  function directionOf(spot,ko){spot=n(spot);ko=n(ko);if(spot===null||ko===null)return null;return ko<spot?\"LONG\":ko>spot?\"SHORT\":null;}\n  function riskModel(p){\n    const spot=n(p.spot),stop=n(p.stop),riskEur=n(p.riskEur),fx=n(p.fxUsdEur),lev=Math.max(1,n(p.leverage)||1);\n    if(spot===null||stop===null||riskEur===null||riskEur<=0)return {ok:false,reason:\"Ungültige Eingabedaten für Risiko.\"};\n    if(fx===null||fx<=0)return {ok:false,reason:\"Keine gültige USD→EUR-FX-Rate.\"};\n    const dist=Math.abs(spot-stop);if(dist<=0)return {ok:false,reason:\"Stop-Distanz ist null.\"};\n    const maxLossUsd=riskEur/fx,approxNotionalUsd=maxLossUsd/(dist/spot),approxNotionalEur=approxNotionalUsd*fx,marginEur=approxNotionalEur/lev;\n    const ko=n(p.ko),koPct=koDistancePct(spot,ko),warnings=[];\n    if(ko!==null&&((spot>stop&&ko>=spot)||(spot<stop&&ko<=spot)))warnings.push(\"KO-Level liegt auf der falschen Seite des aktuellen Goldpreises.\");\n    if(koPct!==null&&koPct<2)warnings.push(\"KO-Abstand liegt unter 2%.\");\n    return {ok:true,maxLossUsd,approxNotionalUsd,approxNotionalEur,marginEur,stopDistance:dist,koDistancePct:koPct,warnings};\n  }\n  function evaluateProduct(p){\n    const spot=n(p.spot),ko=n(p.ko),lev=Math.max(1,n(p.leverage)||1),spread=Math.max(0,n(p.spread)||0);\n    const requested=String(p.direction||\"NEUTRAL\").toUpperCase(),productDirection=String(p.productDirection||directionOf(spot,ko)||\"\").toUpperCase(),reasons=[],warnings=[];\n    if(spot===null||spot<=0)return {ok:false,fit:false,score:0,reasons:[\"Kein gültiger XAU/USD-Preis.\"],warnings:[]};\n    if(!productDirection||![\"LONG\",\"SHORT\"].includes(productDirection))reasons.push(\"Richtung des Produkts fehlt.\");\n    if(requested!==\"NEUTRAL\"&&productDirection&&requested!==productDirection)reasons.push(\"Produkt-Richtung passt nicht zum aktuellen Bob-Szenario.\");\n    if(ko===null)warnings.push(\"KO-Level fehlt – KO-Abstand kann nicht geprüft werden.\");\n    const koPct=koDistancePct(spot,ko);\n    if(koPct!==null&&koPct<2)warnings.push(\"KO-Abstand unter 2%.\");\n    if(koPct!==null&&koPct<1)warnings.push(\"KO-Abstand unter 1% – sehr enger Puffer.\");\n    if(lev>10)warnings.push(\"Hebel über 10× – sehr hohe Empfindlichkeit.\");\n    if(spread>0)reasons.push(\"Spread wurde berücksichtigt.\");\n    let score=100;\n    score-=reasons.filter(x=>x.includes(\"passt nicht\")).length*55;\n    score-=reasons.filter(x=>x.includes(\"fehlt\")).length*15;\n    if(koPct!==null&&koPct<2)score-=25;\n    if(koPct!==null&&koPct<1)score-=20;\n    if(lev>10)score-=15;\n    if(spread>0)score-=Math.min(10,spread);\n    const fit=score>=60&&!reasons.some(x=>x.includes(\"passt nicht\"));\n    return {ok:true,fit,score:Math.max(0,Math.round(score)),direction:productDirection,koDistancePct:koPct,leverage:lev,reasons,warnings};\n  }\n  window.BobDegiro={riskModel,koDistancePct,evaluateProduct};\n})();"
+# Optional free market-metadata enrichment. Screenshot data remains authoritative.
+_DEGIRO_ENRICH_CACHE = {}
+_DEGIRO_ENRICH_TTL = 900
 UPSTREAM_TIMEOUT = 4
 FRESH_MAX_AGE = 180
 LIVE_CACHE_TTL = 65
@@ -53,6 +56,54 @@ def fetch_json(url, retries=2, user_agent="Bob/1.1"):
         if attempt < retries:
             time.sleep(0.6 * (attempt + 1))
     raise last_error or RuntimeError(f"Upstream nicht erreichbar ({url})")
+
+def fetch_json_post(url, payload, retries=1, user_agent="Bob/1.1"):
+    last_error = None
+    body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    for attempt in range(retries + 1):
+        req = Request(
+            url,
+            data=body,
+            method="POST",
+            headers={"User-Agent": user_agent, "Accept": "application/json", "Content-Type": "application/json"},
+        )
+        try:
+            with urlopen(req, timeout=UPSTREAM_TIMEOUT) as response:
+                if response.status < 200 or response.status >= 300:
+                    raise RuntimeError(f"Upstream HTTP {response.status}")
+                return json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            last_error = RuntimeError(f"Upstream HTTP {exc.code} ({url})")
+        except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+            last_error = RuntimeError(f"Upstream nicht erreichbar oder ungültige JSON-Antwort ({url})")
+        if attempt < retries:
+            time.sleep(0.4 * (attempt + 1))
+    raise last_error or RuntimeError(f"Upstream nicht erreichbar ({url})")
+
+def enrich_degiro_product(isin):
+    key = str(isin or "").strip().upper()
+    if not key:
+        return {"found": False, "source": "OpenFIGI", "reason": "ISIN fehlt"}
+    cached = _DEGIRO_ENRICH_CACHE.get(key)
+    if cached and time.time() - cached.get("_cached_at", 0) < _DEGIRO_ENRICH_TTL:
+        return {k:v for k,v in cached.items() if k != "_cached_at"}
+    if len(key) != 12:
+        return {"found": False, "source": "OpenFIGI", "reason": "Ungültige ISIN-Länge"}
+    payload = fetch_json_post("https://api.openfigi.com/v3/mapping", [{"idType":"ID_ISIN","idValue":key}], retries=1, user_agent="Bob/1.6")
+    rows = payload[0].get("data", []) if isinstance(payload, list) and payload and isinstance(payload[0], dict) else []
+    row = rows[0] if rows else None
+    result = {
+        "found": bool(row),
+        "source": "OpenFIGI · öffentliche Metadaten",
+        "checkedAt": datetime.now(timezone.utc).isoformat(),
+        "isin": key,
+    }
+    if row:
+        for field in ("figi","name","ticker","securityType","securityType2","marketSector","exchCode","currency","securityDescription"):
+            if row.get(field) not in (None, ""):
+                result[field] = row[field]
+    _DEGIRO_ENRICH_CACHE[key] = {**result, "_cached_at": time.time()}
+    return result
 
 def fetch_goldprice_bars(interval, days):
     """Best-effort genuine XAU/USD spot OHLC; empty means unavailable on current API tier."""
@@ -496,6 +547,28 @@ def build_mtf_verification(bundle):
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
+        if path == "/api/degiro/enrich":
+            try:
+                query = parse_qs(urlparse(self.path).query)
+                isin = (query.get("isin") or [""])[0].strip().upper()
+                if len(isin) != 12:
+                    raise ValueError("ISIN fehlt oder ist ungültig")
+                result = enrich_degiro_product(isin)
+                body = json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as exc:
+                body = json.dumps({"found":False,"source":"OpenFIGI","reason":"Zusatzprüfung momentan nicht verfügbar","checkedAt":datetime.now(timezone.utc).isoformat()}, ensure_ascii=False).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
+            return
         if path == "/api/mtf":
             try:
                 verification = build_mtf_verification(build_live_bundle())
