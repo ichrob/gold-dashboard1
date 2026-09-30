@@ -228,6 +228,8 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   const reread=degiro.BobDegiro.recoverOcrIsins("DEOOOPJINCKO\nDEOOOPJONB98","R10DE000PJ9NCK0\nR10DE000PJ9NB98");
   assert.strictEqual(reread.text,"DE000PJ9NCK0\nDE000PJ9NB98");
   assert.strictEqual(reread.corrections.DE000PJ9NCK0,"DEOOOPJINCKO");
+  assert.strictEqual(degiro.BobDegiro.recoverOcrIsins("DEOOOPJONB98","39919013R10DEC00PJ9NB98").text,"DE000PJ9NB98");
+  assert.strictEqual(degiro.BobDegiro.recoverOcrIsins("DEOOOPJONB98","DE000PJ9NB99").text,"DEOOOPJONB98");
   assert.strictEqual(degiro.BobDegiro.recoverOcrIsins("DEOOOPJINCKO","DE000PG0XK25").text,"DEOOOPJINCKO");
   assert.strictEqual(degiro.BobDegiro.recoverOcrIsins("DE000FC1CHB7","DE000PJ9NCK0").text,"DE000FC1CHB7");
   assert.strictEqual(degiro.BobDegiro.recoverOcrIsins("DEOOOPJINCKO","").text,"DEOOOPJINCKO");
