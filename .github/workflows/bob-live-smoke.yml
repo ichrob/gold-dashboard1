@@ -18,29 +18,12 @@ jobs:
           curl --fail --silent --show-error --max-time 30 https://bob-private-scanner.onrender.com/health | tee /tmp/health.json
           grep -q '"status":"ok"' /tmp/health.json
 
-      - name: Check Bob live data
+      - name: Check protected Bob live API
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --max-time 45 https://bob-private-scanner.onrender.com/api/live | tee /tmp/live.json
-
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          data = json.loads(Path("/tmp/live.json").read_text())
-          spots = data.get("spots") or {}
-          price = spots.get("xaus")
-          if not isinstance(price, (int, float)) or price <= 0:
-              raise SystemExit("Invalid XAU/USD spot price")
-
-          if spots.get("xaus_is_spot") is not True:
-              raise SystemExit("Primary XAU/USD source is not marked as spot")
-
-          status = ((data.get("history") or {}).get("data_state") or {}).get("status")
-          if status not in {"fresh", "partial"}:
-              raise SystemExit(f"Unexpected live data status: {status!r}")
-
-          print(f"Bob live smoke OK: XAU/USD={price}, data_state={status}")
-          PY
+          code="$(curl --silent --show-error --max-time 30 -o /tmp/live.json -w '%{http_code}' https://bob-private-scanner.onrender.com/api/live)"
+          test "$code" = "401"
+          grep -q "Authentication required" /tmp/live.json
+          echo "Bob live API protection OK: unauthenticated request returns 401"
 
       # Render/GitHub auto-deploy verification commit.
