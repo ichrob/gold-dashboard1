@@ -748,15 +748,42 @@ function stopModel(dir,entry,atr,mult=1.5){
 function stopPriceFor(dir,price,atr,mult){return stopModel(dir,price,atr,mult).stop;}
 function fibonacciModel(dir,entry,atr=0){
  if(!dir||dir==="NEUTRAL"||!C.length||!Number.isFinite(entry))return {valid:false};
- const bars=C.slice(-120), highs=bars.map(x=>Number(x.high)), lows=bars.map(x=>Number(x.low));
- const hi=Math.max(...highs), lo=Math.min(...lows), range=hi-lo;
+ // Use confirmed local swing points instead of arbitrary highest/lowest values in a fixed window.
+ // Three bars on each side must confirm a pivot; ATR filters out insignificant micro-swings.
+ const bars=C.slice(-180), left=3, right=3, minSwing=Math.max((Number(atr)||0)*0.35,entry*0.0005);
+ if(bars.length<left+right+5)return {valid:false};
+ const highs=bars.map(x=>Number(x.high)), lows=bars.map(x=>Number(x.low));
+ const pivH=[], pivL=[];
+ for(let i=left;i<bars.length-right;i++){
+   const h=highs[i], l=lows[i]; if(!Number.isFinite(h)||!Number.isFinite(l))continue;
+   let isH=true,isL=true;
+   for(let j=i-left;j<=i+right;j++){if(j===i)continue;if(highs[j]>=h)isH=false;if(lows[j]<=l)isL=false;}
+   if(isH)pivH.push({i,price:h});
+   if(isL)pivL.push({i,price:l});
+ }
+ if(!pivH.length||!pivL.length)return {valid:false};
+ let hiPivot,loPivot;
+ if(dir==="LONG"){
+   // Bullish impulse: a swing low must precede the selected swing high.
+   const candidates=pivH.map(h=>{const lowsBefore=pivL.filter(l=>l.i<h.i);if(!lowsBefore.length)return null;const l=lowsBefore.at(-1);return {h,l,range:h.price-l.price};}).filter(Boolean).filter(x=>x.range>=minSwing);
+   if(!candidates.length)return {valid:false};
+   candidates.sort((a,b)=>(b.h.i-a.h.i)*3+(b.range-a.range));
+   ({h:hiPivot,l:loPivot}=candidates[0]);
+ }else{
+   // Bearish impulse: a swing high must precede the selected swing low.
+   const candidates=pivL.map(l=>{const highsBefore=pivH.filter(h=>h.i<l.i);if(!highsBefore.length)return null;const h=highsBefore.at(-1);return {h,l,range:h.price-l.price};}).filter(Boolean).filter(x=>x.range>=minSwing);
+   if(!candidates.length)return {valid:false};
+   candidates.sort((a,b)=>(b.l.i-a.l.i)*3+(b.range-a.range));
+   ({h:hiPivot,l:loPivot}=candidates[0]);
+ }
+ const hi=hiPivot.price, lo=loPivot.price, range=hi-lo;
  if(!Number.isFinite(hi)||!Number.isFinite(lo)||range<=0)return {valid:false};
  const levels=dir==="LONG"
    ? {r382:hi-range*.382,r500:hi-range*.5,r618:hi-range*.618,r786:hi-range*.786,e1272:hi+range*.272,e1618:hi+range*.618}
    : {r382:lo+range*.382,r500:lo+range*.5,r618:lo+range*.618,r786:lo+range*.786,e1272:lo-range*.272,e1618:lo-range*.618};
- const extensions=dir==="LONG"?[levels.e1272,levels.e1618]:[levels.e1272,levels.e1618];
- const target=extensions.filter(x=>dir==="LONG"?x>entry:x<entry).sort((a,b)=>dir==="LONG"?a-b:b-a)[0]??(dir==="LONG"?levels.e1272:levels.e1272);
- return {valid:true,high:hi,low:lo,range,levels,target};
+ const extensions=[levels.e1272,levels.e1618];
+ const target=extensions.filter(x=>dir==="LONG"?x>entry:x<entry).sort((a,b)=>dir==="LONG"?a-b:b-a)[0]??levels.e1272;
+ return {valid:true,high:hi,low:lo,range,levels,target,swingHighIndex:hiPivot.i,swingLowIndex:loPivot.i,swingMethod:"confirmed-3x3-pivot"};
 }
 function targetModel(dir,entry,stop,minRR=2){
  minRR=Math.max(1,+minRR||2);
