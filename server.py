@@ -432,13 +432,10 @@ def build_live_bundle():
         technical_errors.extend(fx_errors)
 
         if goldprice_price is None:
-            if bars_5m:
-                goldprice_price = bars_5m[-1]["close"]
-                goldprice_age = max(0, now - bars_5m[-1]["openTime"] / 1000)
-                spot_source = "Yahoo Finance GC=F · FALLBACK"
-                is_spot = False
-            else:
-                raise RuntimeError("Kein kostenloser Live-Preis verfügbar" + (f": {spot_error}" if spot_error else ""))
+            # Never promote technical/futures history to the XAU/USD spot field.
+            # A GC=F close is a futures reference, not a spot price, and must not
+            # masquerade as live XAU/USD data when the genuine spot source fails.
+            raise RuntimeError("Kein kostenloser Live-XAU/USD-Spotpreis verfügbar" + (f": {spot_error}" if spot_error else ""))
 
         bars_15m = aggregate_bars(bars_5m, 15) if bars_5m else []
         bars_4h = aggregate_bars(bars_1h, 240) if bars_1h else []
@@ -469,7 +466,9 @@ def build_live_bundle():
                 "technical_4h_status": "available" if bars_4h else "unavailable",
                 "technical_4h_error": "; ".join(technical_errors) if technical_errors else None,
                 "goldprice_status": spot_source,
-                "xaus_is_spot": spot_source == "GoldPrice.dev · live",
+                "xaus_is_spot": spot_source == "XAUS · live",
+                "is_genuine_xauusd_spot": is_spot,
+                "spot_source_type": "XAU/USD spot" if is_spot else None,
                 "primary": spot_source,
                 "reference": "Yahoo Finance GC=F",
                 "reference_note": "GC=F ist Gold-Futures, nicht XAU/USD Spot",
@@ -480,7 +479,7 @@ def build_live_bundle():
                 "points": legacy_points,
                 "data_state": {
                     "status": status,
-                    "source": "GoldPrice.dev XAU/USD Spot + Yahoo Finance GC=F technische Referenz",
+                    "source": f"{spot_source or \"keine Spotquelle\"} + Yahoo Finance GC=F technische Referenz",
                     "technical_4h_status": "available" if bars_4h else "unavailable",
                     "technical_errors": technical_errors,
                 },
@@ -502,7 +501,7 @@ def _ema(values, period):
 
 def _rsi(values, period=14):
     if len(values) < period + 2:
-        return 50.0
+        return None
     gains = losses = 0.0
     for i in range(1, period + 1):
         d = values[i] - values[i - 1]
@@ -532,6 +531,8 @@ def _mtf_score(bars, tf):
     prev_values = values[:-1]
     prev_mac = _ema(prev_values,12) - _ema(prev_values,26)
     rsi = _rsi(values)
+    if rsi is None:
+        return {"dir":"NEUTRAL","available":False,"reason":"zu wenig Historie für RSI","bars":len(closed),"ageMs":age}
     score = 0
     score += 1 if values[-1] > e20 else -1
     score += 1 if e20 > e50 else -1
