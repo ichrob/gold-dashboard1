@@ -36,7 +36,9 @@ if (!fs.readFileSync("Bob.html","utf8").includes("A.ready=Boolean(C.length>=200&
 if (!fs.readFileSync("Bob.html","utf8").includes("const required=200;")) throw new Error("MTF must require full 200-bar history");
 if (!fs.readFileSync("Bob.html","utf8").includes("timeframeScore(bars,tf)")) throw new Error("MTF freshness must be timeframe-aware");
 
-if (!fs.readFileSync("server.py","utf8").includes('"xaus_is_spot": spot_source == "GoldPrice.dev · live"')) throw new Error("spot fallback provenance flag missing");
+if (!fs.readFileSync("server.py","utf8").includes('"xaus_is_spot": spot_source == "XAUS · live"')) throw new Error("spot provenance flag missing");
+if (!fs.readFileSync("server.py","utf8").includes('"is_genuine_xauusd_spot": is_spot')) throw new Error("genuine spot metadata missing");
+if (!fs.readFileSync("server.py","utf8").includes("Never promote technical/futures history to the XAU/USD spot field.")) throw new Error("synthetic spot fallback guard missing");
 if (!fs.readFileSync("Bob.html","utf8").includes("REFERENZ · GC=F")) throw new Error("UI must distinguish futures fallback from XAU/USD spot");
 
 if (!fs.readFileSync("Bob.html","utf8").includes("var C=[], lastPrice=0, A={}, lastMtfAt=0, liveFxUsdEur=null,")) throw new Error("live analysis/FX state must be hoisted");
