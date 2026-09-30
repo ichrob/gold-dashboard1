@@ -873,7 +873,7 @@ function advancedAnalysis(){
  const mtf=getMtfState().overall||"NEUTRAL";
  const p0=Number(p);
  const fibDir=trendBull&&mtf==="LONG"?"LONG":trendBear&&mtf==="SHORT"?"SHORT":A.macd>A.sig?"LONG":A.macd<A.sig?"SHORT":"NEUTRAL";
- const fib=fibonacciModel(fibDir,p0,A.at);
+ const fibCore=fibonacciModel(fibDir,p0,A.at);
  const w={trend:22,momentum:16,structure:16,cr:15,fibonacci:12,atr:8,adx:5,vwap:3,osc:3};
  if(regime.includes("RANGE")||regime.includes("LOW-VOL")){w.trend=14;w.structure=20;w.fibonacci=16;w.osc=7;w.adx=3;w.momentum=14;}
  if(regime.includes("TREND")){w.trend=26;w.momentum=18;w.fibonacci=14;w.structure=15;w.osc=2;}
@@ -890,12 +890,12 @@ function advancedAnalysis(){
  const structVal=p0>b.mid&&st>50?1:p0<b.mid&&st<50?-1:0;
  add("Struktur",structVal,w.structure);
  let fibVal=0;
- if(fib.valid){
-   const retr=[fib.levels.r382,fib.levels.r500,fib.levels.r618,fib.levels.r786];
+ if(fibCore.valid){
+   const retr=[fibCore.levels.r382,fibCore.levels.r500,fibCore.levels.r618,fibCore.levels.r786];
    const near=Math.min(...retr.map(x=>Math.abs(p0-x)));
    const tolerance=Math.max(A.at*0.35,0.001);
    const nearRetr=near<=tolerance;
-   const extBias=fibDir==="LONG"?(p0>fib.levels.r618?0.35:-0.15):(p0<fib.levels.r618?-0.35:0.15);
+   const extBias=fibDir==="LONG"?(p0>fibCore.levels.r618?0.35:-0.15):(p0<fibCore.levels.r618?-0.35:0.15);
    fibVal=(nearRetr?0.75:0)+extBias;
    if(fibDir==="SHORT")fibVal*=-1;
  }
@@ -923,7 +923,7 @@ function advancedAnalysis(){
  $(\"score\").textContent=verdict+" · "+score.toFixed(0)+"/100";
  $(\"score\").className="signal "+(score>=70?"ok":score<=30?"bad":"neutral");
  $(\"scoreDetails\").textContent=evidence.join(" · ")+" · Regime "+regime+" · CRV "+(rr?rr.toFixed(2)+"R":"n/v");
- A.score=score; A.ready=Boolean(C.length>=200&&A.e20!=null&&A.e50!=null&&A.e200!=null); A.adx=ad; A.support=lv.sup; A.resistance=lv.res; A.weights=w; A.regime=regime; A.fibonacci=fib; A.crv=rr; updateQuick(); updateResearchPanel();
+ A.score=score; A.ready=Boolean(C.length>=200&&A.e20!=null&&A.e50!=null&&A.e200!=null); A.adx=ad; A.support=lv.sup; A.resistance=lv.res; A.weights=w; A.regime=regime; A.fibonacci=fibCore; A.crv=rr; updateQuick(); updateResearchPanel();
 }
 
 function updateQuick(){
