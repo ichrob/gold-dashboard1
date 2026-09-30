@@ -624,7 +624,7 @@ async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
   reportBobDiag("mtf:success",{bars5m:(tfBars["5m"]||[]).length,bars15m:(tfBars["15m"]||[]).length,bars1h:(tfBars["1h"]||[]).length,bars4h:(tfBars["4h"]||[]).length,available:valid,overall,historyStatus:bundle.history?.data_state?.status||"unknown",source:bundle.history?.data_state?.source||"unknown"});
   const strength=overall!=="NEUTRAL"?(overall==="LONG"?dirs.filter(d=>d==="LONG").length:dirs.filter(d=>d==="SHORT").length)+"/4 bestätigt":"Keine widerspruchsfreie 4-Zeiten-Hierarchie";
   const mtfSummary=$("mtfSummary");
-  if(mtfSummary)mtfSummary.innerHTML="<b>"+overall+"</b><br>"+longs+" LONG · "+shorts+" SHORT · "+neutral+" NEUTRAL · "+strength+"<br><span class="small">4h basiert jetzt auf echter 1h-Historie und wird nur mit mindestens 200 geschlossenen 4h-Kerzen bewertet.</span>";
+  if(mtfSummary)mtfSummary.innerHTML="<b>"+overall+"</b><br>"+longs+" LONG · "+shorts+" SHORT · "+neutral+" NEUTRAL · "+strength+"<br><span class=\"small\">4h basiert jetzt auf echter 1h-Historie und wird nur mit mindestens 200 geschlossenen 4h-Kerzen bewertet.</span>";
   MTF={longs,shorts,neutral,overall,byTf,dirs};
   // Server-side verification is the authoritative runtime check for the MTF pipeline.
   try{
