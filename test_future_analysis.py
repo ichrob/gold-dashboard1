@@ -2,6 +2,7 @@ import copy
 import unittest
 from datetime import datetime,timezone,timedelta
 from unittest.mock import patch
+from urllib.error import HTTPError, URLError
 import future_analysis as a
 
 NOW=datetime(2026,10,1,12,tzinfo=timezone.utc)
@@ -11,6 +12,13 @@ def payload():
 def rows(n,step):
  return [dict(t=T-(n-i)*step,open=100+i*.1,high=101+i*.1,low=99+i*.1,close=100+i*.1) for i in range(n)]
 class HistoryTests(unittest.TestCase):
+ def test_provider_failure_status_is_safe_and_specific(self):
+  secret='upstream-private-response'
+  error=HTTPError('https://example.invalid/'+secret,429,secret,{},None)
+  self.assertEqual(a.history_error(error),'GCZ26-Historie: Datenanbieter antwortet mit HTTP 429')
+  for exc in (URLError(secret),ValueError(secret),KeyError(secret)):
+   self.assertNotIn(secret,a.history_error(exc))
+  self.assertEqual(a.history_error(ValueError('Doppelte Futures-Kerzen')),'Doppelte Futures-Kerzen')
  def test_exact_contract_and_closed_bars(self):
   p=payload();r,t=a.parse_chart(p,5,NOW);self.assertEqual(len(r),2)
   for key,val in [('symbol','GC=F'),('currency','EUR'),('instrumentType','CFD'),('shortName','Gold Feb 27'),('regularMarketTime',T-1801)]:

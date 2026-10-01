@@ -13,6 +13,13 @@ def spot_history():
  return [dict(t,proxyKind='gold-api-spot',underlying='XAU/USD') for t in history()]
 
 class SpotFutureTests(unittest.TestCase):
+ def test_disabled_provider_is_identified_before_first_observation(self):
+  with patch.object(f,'_ticks',[]),patch.object(f,'_spot_ticks',[]),patch.object(f,'_source_error','Investing.com deaktiviert; ersetzt durch Gold-API.com'),patch.object(f,'_spot_source_error',None):
+   result=f.current_estimate(reference(),NOW)
+   self.assertEqual(result['proxyKind'],'gold-api-spot')
+   legacy=next(v for v in result['alternatives'] if v['proxyKind']=='investing-cfd')
+   self.assertIn('deaktiviert',legacy['sourceStatus'])
+   self.assertNotIn('sourceStatus',result)
  def setUp(self):
   for module,names in [(f,('_ticks','_spot_ticks')),(quality,('_pending','_errors','_seen'))]:
    for name in names:
