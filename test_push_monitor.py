@@ -28,8 +28,14 @@ class PushMonitorTests(unittest.TestCase):
         payload=dict(tradeId='trade-fixture',direction='LONG',timeframe='5m',instrument='XAU/USD',levels={k:4050 for k in LEVELS},startedAt=end-step,previousClose=4040)
         return validate_monitor(payload,now),dict(barsByTf={'5m':[dict(openTime=end-step,close=4060,isOpen=False,instrument='XAU/USD')]})
     def test_endpoints_require_server_token(self):
-        for path in ('/monitor','/preferences'):
+        for path in ('/monitor','/preferences','/auth-session/create','/auth-session/check','/auth-session/revoke'):
             status,_=self.request(path,{},'wrong');self.assertEqual(status,401)
+    def test_session_route_is_authenticated_and_committed(self):
+        db,conn=self.connection()
+        with patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'),patch.object(push_server,'db',db),patch.object(push_server.bob_session_store,'handle',return_value={'ok':True}) as handle:
+            status,result=self.request('/auth-session/revoke',{'tokenHash':'a'*64})
+            self.assertEqual(status,200);self.assertTrue(result['ok'])
+            handle.assert_called_once_with(conn,'revoke',{'tokenHash':'a'*64});conn.commit.assert_called_once()
     def test_preferences_preserve_checkpoint_and_stop(self):
         monitor,_=self.monitor();old={**monitor,'previousClose':4060,'processedAt':monitor['startedAt']+300000}
         db,conn=self.connection();conn.execute.return_value.fetchone.return_value=(old,)
