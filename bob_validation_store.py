@@ -149,7 +149,7 @@ def _sync():
             except (ValueError,TypeError,KeyError):pass
         try:
             result=request('write' if usable else 'read',{'events':usable} if usable else {})
-            estimate_quality.restore_durable(result['pairs'],now)
+            estimate_quality.restore_durable(result['pairs'],datetime.now(timezone.utc))
             with _lock:
                 del _queue[:len(batch)]
                 _status='Genauigkeitsmessung dauerhaft gesichert; eingefrorene Schätzungen bleiben über Neustarts erhalten'

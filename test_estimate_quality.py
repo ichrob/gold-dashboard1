@@ -57,3 +57,14 @@ class QualityTests(unittest.TestCase):
   self.assertEqual(summary['0–60s']['sampleCount'],21)
   self.assertEqual(summary['0–60s']['meanAbsoluteError'],2)
   self.assertEqual(summary['61–300s']['sampleCount'],0)
+
+ def test_restore_uses_time_after_network_receipt(self):
+  import bob_validation_store as s
+  import time
+  pair=dict(bucket='0–60s',predictionAt=at(-20),prediction=102,referenceAt=at(-60),
+            predictionReceivedAt=at(-10),truthAt=at(-20),truth=100,truthReceivedAt=at(10))
+  with patch.object(s,'_queue',[]),patch.object(s,'_active_until',time.monotonic()+120),patch.object(s,'_status',''),patch.object(s,'request',return_value={'pairs':[pair]}),patch.object(s,'datetime') as clock,patch.object(s.threading.Event,'wait',side_effect=StopIteration):
+   clock.now.side_effect=[NOW,NOW+timedelta(seconds=20)]
+   with self.assertRaises(StopIteration):s._sync()
+   self.assertIn('dauerhaft gesichert',s.status())
+   self.assertEqual(e.quality(s.KEY,40,NOW+timedelta(seconds=20))['sampleCount'],1)
