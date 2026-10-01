@@ -998,6 +998,9 @@ function clearDgProduct(){
 function checkDgProduct(){
  if(!lastPrice){$("dgProductOut").textContent="Zuerst Live-XAU/USD laden.";return;}
  const direction=confirmedSignalDirection();
+ const inputs={isin:$("dgIsin").value.trim(),price:$("dgPrice").value,leverage:$("dgLev").value,ko:$("dgKo").value,spread:$("dgSpread").value};
+ const missing=BobDegiro.manualProductMissing(inputs);
+ if(missing.length){$("dgProductOut").textContent="Keine Prüfung möglich. Bitte ergänzen / korrigieren: "+missing.join(" · ");return;}
  const result=BobDegiro.evaluateProduct({
    spot:lastPrice,
    ko:+$("dgKo").value,
@@ -1006,10 +1009,10 @@ function checkDgProduct(){
    direction,
    productDirection:$("dgDir").value
  });
- const name=$("dgName").value.trim()||"DEGIRO-Produkt";
- const isin=$("dgIsin").value.trim()||"ISIN nicht eingetragen";
+ const name=BobDegiro.escapeHtml($("dgName").value.trim()||"DEGIRO-Produkt");
+ const isin=BobDegiro.escapeHtml($("dgIsin").value.trim()||"ISIN nicht eingetragen");
  if(!result.ok){$("dgProductOut").innerHTML="<b>Keine Prüfung möglich.</b> "+result.reasons.join(" · ");return;}
- const badge=result.fit?"🟢 passt zum aktuellen Szenario":"🟡 mit Warnungen prüfen";
+ const badge=direction==="NEUTRAL"?"🟡 Kein bestätigtes Richtungsszenario – keine Freigabe":result.fit?"🟢 passt zum aktuellen Szenario":"🟡 mit Warnungen prüfen";
  const koText=result.koDistancePct==null?"KO-Abstand —":result.koDistancePct.toFixed(2)+"%";
  $("dgProductOut").innerHTML="<b>"+badge+"</b><br>"+name+" · "+isin+
    "<br>Bob-Szenario: <b>"+direction+"</b> · Produkt: <b>"+(result.direction||"—")+"</b>"+
