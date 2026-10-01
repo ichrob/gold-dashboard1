@@ -305,6 +305,14 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert(!expiredText.includes("4199.30")&&expiredText.includes("veraltet"));
   const pendingText=degiro.BobDegiro.futureResearchText({futureResearch:{contract:"GCZ26",calculatedFuture:{available:false,reason:"Referenz fehlt"}}},now);
   assert(pendingText.includes("Referenz fehlt"));
+  const productCalc={calculatedProduct:{available:true,priceEur:24.7396,bidEur:24.7296,priceAt:new Date(now-1000).toISOString(),referenceAt:new Date(now-100000).toISOString(),goldAt:new Date(now-1000).toISOString(),fxDataAt:new Date(now-1000).toISOString(),fxEffectiveAt:new Date(now-1000).toISOString(),formula:"P₀ + Änderung",note:"Delta ±1; Emittentenpreis kann abweichen"}};
+  const productText=degiro.BobDegiro.productEstimateText(productCalc,now);
+  assert(productText.includes("BERECHNETER PRODUKTKURS: ca. 24.74 EUR")&&productText.includes("Keine Live-Handelsfreigabe"));
+  assert(!degiro.BobDegiro.productEstimateText(productCalc,now+61000).includes("24.74"));
+  assert(!degiro.BobDegiro.currentQuote({...quoted,quote:{...quoted.quote,priceKind:"calculated"}},now));
+  const basisOnly=degiro.BobDegiro.futureResearchText({futureResearch:{contract:"GCZ26",underlyingPriceUsd:4191.4,underlyingAt:new Date(now-790000).toISOString(),estimateNote:"Nur Basiswert"}},now);
+  assert(!basisOnly.includes("undefined")&&!basisOnly.includes("Geld undefined"));
+
 
 
   assert(!degiro.BobDegiro.rankProducts([quoted],{...freshCtx,spotFresh:false}).tradeable);

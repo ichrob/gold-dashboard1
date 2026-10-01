@@ -148,3 +148,46 @@ confidence interval is claimed without matched validation observations.
 Official explanation of the CFD/exchange distinction and lack of public API:
 https://www.investing-support.com/hc/en-us/articles/115003804125-Why-is-Prev-Close-Different-from-the-Close-Price-in-the-Historical-Data-Table-on-Investing-com
 https://www.investing-support.com/hc/en-us/articles/115005473825-Do-You-Offer-API-Access-at-Investing-com
+
+
+## Fallback policy for other DEGIRO products
+
+A directly observed, fresh eligible issuer quote takes precedence. If that
+quote becomes unavailable or outdated, Bob tries a verified product model and
+labels any output **Berechneter Produktkurs**. No calculated number is inserted
+into executable `price`, `bid`, `ask`, leverage or trade-eligibility fields.
+Browser ranking also rejects a response explicitly marked `priceKind=calculated`.
+
+For the verified simple, non-quanto SG XAU/USD turbos (classifications 43,45,47)
+Bob can retain an observed bid/ask reference whose gold, both FX observations,
+and product observation times are all within five seconds of one another.
+Without such a reference it displays why a calculation is unavailable.
+The anchored model for each side is:
+
+`P(t) = P₀ + direction × ratio × [(XAU(t) − strike) × FX(t) − (XAU₀ − strike) × FX₀]`
+
+`direction=+1` for LONG and `−1` for SHORT; ratio is the confirmed fractional
+ratio and FX is EUR per USD. The model holds the original EUR premium and spread
+constant, with unit delta. It accounts for current FX changes including their
+impact on the funding strike, rather than applying a fixed advertised leverage.
+It is an uncalibrated approximation, not a published issuer or DEGIRO quote.
+
+Current gold and FX observations must each be at most 60 seconds old and within
+15 seconds of each other. Reference age is capped at 30 minutes. Identity,
+underlying, direction, ratio, current SG strike/KO and classification must agree;
+changed terms require a new observed anchor. KO crossings, closed session,
+expiry, source-integrity failures and stale inputs remove the numeric estimate.
+A network outage may reuse a model only when the current issuer metadata still
+matches all its terms. Current inputs retain their actual source timestamps.
+There is no network call during cache-age recalculation. Anchors are bounded
+and process-local, so a restart requires new observations.
+
+Any other issuer-verified SG product on the exact GCZ26 identity can share the
+existing GCZ26 underlying research/calculation feed. It must match all four
+issuer fields (NMP, RIC, underlying ISIN and name). A separately verified OTC
+product source is still required for that product's own price or gearing;
+no reference product bid, ask, KO, ratio or leverage is copied to another ISIN.
+New contract months require their own registered sources. Options, quanto,
+other underlyings and BNP products without verified model parameters do not
+receive a fabricated fallback. The policy is direct quote, verified estimate,
+or an explicit unavailable state, all within the existing free services.

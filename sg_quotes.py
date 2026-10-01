@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 import product_quotes as q
 import future_estimate
+import product_estimate
 
 ONVISTA = 'https://www.onvista.de/'
 SPOT_ORIGIN = 'https://xaus.com/'
@@ -193,7 +194,55 @@ def parse_snapshot(product, properties, snapshot, spot, fx, isin, now=None):
                                'Näherung bei konstantem Wechselkurs und Delta ±1; kein SG-Hebelwert. '
                                'KO und Basispreis stammen direkt von SG.',
                   metadata=metadata['metadata'])
+    result['productModel'] = dict(isin=isin, underlying='XAU/USD', direction=direction,
+                                ratio=ratio, strike=strike, ko=ko,
+                                classification=product['ProductClassificationId'],
+                                verifiedSimpleTurbo=True, tradingEndAt=result['tradingEndAt'])
     return q.freshness(result, now)
+
+
+def apply_product_estimate(result, now):
+    """No network here: cache expiry can never refresh the input timestamps."""
+    model = result.get('productModel')
+    if not model:
+        return result
+    product_estimate.remember(result, model, now)
+    if result.get('eligible'):
+        result.pop('calculatedProduct', None)
+        result['priceKind'] = 'observed-issuer'
+        return result
+    with _INPUT_LOCKS['spot']:
+        spot = _INPUT_CACHE.get('spot', (0, {}))[1]
+    with _INPUT_LOCKS['fx']:
+        fx = _INPUT_CACHE.get('fx', (0, {}))[1]
+    result['calculatedProduct'] = product_estimate.current(model, spot, fx, now)
+    result['priceKind'] = 'calculated' if result['calculatedProduct']['available'] else 'unavailable'
+    return result
+
+
+def restore_product_model(fallback, product, properties):
+    """Reuse only a recently observed model whose current issuer terms agree."""
+    if (product.get('AssetNMP') != 'XAUUSD' or product.get('TodayBarrierHitDate')
+            or not fallback.get('productVerified') or fallback['metadata']['status'] & (2|8|16|32)
+            or not fallback['metadata']['status'] & 1):
+        return fallback
+    attrs = {p['Name']:p for p in properties}
+    with product_estimate._lock:
+        candidates = [a for a in product_estimate._anchors.values() if a['isin'] == fallback['isin']]
+    for anchor in candidates:
+        try:
+            if (anchor['classification'] == product['ProductClassificationId']
+                    and anchor['direction'] == fallback['metadata']['direction']
+                    and anchor['ko'] == fallback['metadata']['ko']
+                    and anchor['strike'] == q.number(attrs['Strike']['Value'])
+                    and math.isclose(anchor['ratio']*q.number(attrs['Ratio']['Value']),1,rel_tol=1e-9)):
+                fallback['productModel'] = {k:anchor[k] for k in
+                    ('isin','underlying','direction','ratio','strike','ko','classification',
+                     'verifiedSimpleTurbo','tradingEndAt')}
+                return q.freshness(fallback)
+        except (KeyError,ValueError,TypeError):
+            pass
+    return fallback
 
 
 # Research is deliberately a separate envelope. Even fresh OTC product prices
@@ -283,7 +332,22 @@ def get_quote(product, properties, isin):
     fallback = q.parse_sg(product, properties, isin)
     if isin not in PRODUCT_IDS:
         fallback['reason'] = 'SG-Produkt erkannt; ergänzende Kursquelle für diese ISIN noch nicht verifiziert'
-        return fallback
+        contract = q.sg_future_contract(product, isin)
+        if contract:
+            # Other verified SG products can share an exact UNDERLYING feed.
+            # Never copy the reference product's OTC prices, ratio or KO.
+            reference_isin = next(key for key,c in q.SG_GOLD_FUTURES.items() if c['ric'] == contract['ric'])
+            reference = q.get_quote(reference_isin).get('futureResearch', {})
+            if reference.get('contract') == contract['ric']:
+                research = {k:reference[k] for k in ('contract','underlying','underlyingType',
+                    'underlyingPriceUsd','underlyingAt','underlyingDataState') if k in reference}
+                research.update(direction=fallback['metadata']['direction'],ko=fallback['metadata']['ko'],
+                    source='Kontraktspezifische Basiswert-Recherche via onvista',
+                    sourceUrl=reference.get('sourceUrl'),
+                    estimateNote='Berechnung ausschließlich des gemeinsamen Future-Basiswerts. '
+                                 'Produktkurs und produktspezifischer Hebel sind nicht bestätigt.')
+                fallback['futureResearch'] = refresh_future_research(research)
+        return restore_product_model(fallback, product, properties)
     try:
         if q.sg_future_contract(product, isin):
             future_estimate.ensure_collector()
@@ -307,4 +371,4 @@ def get_quote(product, properties, isin):
         print(f'BOB_SG_SOURCE isin={isin} error={type(exc).__name__}', flush=True)
         fallback['reason'] = 'SG-Ergänzungsdaten nicht bestätigt: '+(str(exc) if isinstance(exc, ValueError)
                                                                       else 'Quelle oder Pflichtangaben fehlen')
-        return fallback
+        return restore_product_model(fallback, product, properties) if isinstance(exc,OSError) else fallback

@@ -25,7 +25,9 @@ SG_GOLD_FUTURES = {
 }
 
 def sg_future_contract(product, isin):
-    contract = SG_GOLD_FUTURES.get(isin)
+    # The verified underlying identity applies to other SG products on the
+    # same contract too. Every product still needs its own verified quote ID.
+    contract = next((c for c in SG_GOLD_FUTURES.values() if product.get('AssetRic') == c['ric']), None)
     if contract and all(product.get(key) == contract[field] for key, field in
                         [('AssetNMP', 'nmp'), ('AssetRic', 'ric'), ('AssetIsin', 'isin'),
                          ('AssetName', 'name')]):
@@ -169,6 +171,10 @@ def freshness(result, now=None):
         result['reason'] = 'Gold-Future: aktuelle kontraktspezifische Basiswertdaten und eigene Trendprüfung fehlen; keine Spot-Freigabe'
     if result.get('found') and not result['eligible'] and result.get('metadata', {}).get('underlyingType') != 'FUTURE':
         result['reason'] = 'Kurs veraltet, Markt geschlossen oder Zeitstempel nicht prüfbar'
+    result['pricePolicy'] = 'direct-then-verified-model'
+    if result.get('productModel'):
+        from sg_quotes import apply_product_estimate
+        result = apply_product_estimate(result, now)
     return result
 
 def parse_bnp(data, isin, now=None):
