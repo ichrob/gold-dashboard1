@@ -288,10 +288,14 @@ def current_estimate(research, now=None):
             estimate_quality.observe(key,research['underlyingPriceUsd'],research['underlyingAt'],now.isoformat())
         out=calculate(research,ticks,now,kind)
         rows=sorted(stamp(t['at']) for t in ticks if t.get('contract')==CONTRACT)
+        gaps=[(b-a).total_seconds() for a,b in zip(rows,rows[1:])]
+        last_break=next((i+1 for i in range(len(gaps)-1,-1,-1) if gaps[i]>MAX_GAP),0)
         out['collection']=dict(sampleCount=len(rows),
             coveredSeconds=round((rows[-1]-rows[0]).total_seconds(),1) if rows else 0,
             firstAt=rows[0].isoformat() if rows else None,lastAt=rows[-1].isoformat() if rows else None,
-            currentFresh=bool(rows and 0 <= (now-rows[-1]).total_seconds() <= MAX_PROXY_AGE),maxGapSeconds=MAX_GAP)
+            currentFresh=bool(rows and 0 <= (now-rows[-1]).total_seconds() <= MAX_PROXY_AGE),maxGapSeconds=MAX_GAP,
+            largestGapSeconds=round(max(gaps,default=0),1),
+            continuousSeconds=round((rows[-1]-rows[last_break]).total_seconds(),1) if rows else 0)
         if kind=='gold-api-spot':out['storageStatus']=_storage_status
         if out['available']:
             estimate_quality.record(key,out['priceUsd'],out['priceAt'],out['referenceAt'],now.isoformat())

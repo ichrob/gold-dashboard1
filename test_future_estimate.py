@@ -96,6 +96,18 @@ class EstimateTests(unittest.TestCase):
             self.assertFalse(stale['collection']['currentFresh'])
             self.assertEqual(stale['collection']['lastAt'],out['collection']['lastAt'])
 
+    def test_collection_distinguishes_total_span_from_contiguous_segment(self):
+        with patch.object(f,'_ticks',[tick(300,4100),tick(270,4101),tick(90,4102),tick(0,4103)]):
+            out=f.current_estimate(reference(),NOW)
+            self.assertEqual(out['collection']['coveredSeconds'],300)
+            self.assertEqual(out['collection']['largestGapSeconds'],180)
+            self.assertEqual(out['collection']['continuousSeconds'],90)
+            self.assertFalse(out['available'])
+        with patch.object(f,'_ticks',[]):
+            empty=f.current_estimate(reference(),NOW)['alternatives'][0]['collection']
+            self.assertEqual(empty['largestGapSeconds'],0)
+            self.assertEqual(empty['continuousSeconds'],0)
+
     def test_recording_never_refreshes_cached_timestamp(self):
         with patch.object(f, '_ticks', []):
             f.record_tick(tick(10,4100),NOW)
