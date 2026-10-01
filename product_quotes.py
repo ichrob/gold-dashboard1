@@ -7,6 +7,7 @@ import math
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
@@ -15,6 +16,78 @@ MAX_AGE_SECONDS = 60
 _CACHE = {}
 _LOCK = threading.Lock()
 ORIGIN = 'https://derivate.bnpparibas.com/'
+SG_ORIGIN = 'https://www.sg-zertifikate.de/'
+
+def issuer_json(url, origin, timeout=6):
+    """Read a bounded response only from the selected issuer's fixed host."""
+    request = Request(url, headers={'User-Agent': 'Bob/1.7 public product research',
+                                   'Accept': 'application/json', 'Cache-Control': 'no-cache'})
+    with urlopen(request, timeout=timeout) as response:
+        if not response.url.startswith(origin):
+            raise ValueError('Unerwartete Weiterleitung')
+        body = response.read(500_001)
+    if len(body) > 500_000:
+        raise ValueError('Produktantwort zu groß')
+    return json.loads(body)
+
+def parse_sg(product, properties, isin, now=None):
+    """SG's AllProperties is metadata, not a dated live quote snapshot.
+
+    Its TimeStamp is BIDTIME only, has no offset, and does not date ASK or
+    current_leverage. Never invent those timestamps or promote chart history
+    to an executable snapshot. Preserve identified metadata separately.
+    """
+    now = now or datetime.now(timezone.utc)
+    if (product.get('Isin') != isin or product.get('ExchangeCode') != 'CBDE'
+            or product.get('AssetNMP') != 'XAUUSD' or product.get('AssetCurrency') != 'USD'
+            or product.get('Currency') != 'EUR' or not isinstance(properties, list)):
+        raise ValueError('SG-Produktidentität oder Gold-Basiswert nicht bestätigt')
+    attrs = {}
+    for item in properties:
+        name = item['Name']
+        if name in attrs:
+            raise ValueError('Widersprüchliche SG-Eigenschaften')
+        attrs[name] = item
+    if attrs['Isin']['Value'] != isin:
+        raise ValueError('SG-Eigenschaften gehören zu anderer ISIN')
+    side = attrs['PutOrCall']['Value']
+    if side not in ('Call', 'Put'):
+        raise ValueError('SG-Produktrichtung fehlt')
+    barrier = attrs.get('BarrierTurboCertificate') or attrs.get('Barrier')
+    if not barrier or barrier.get('Suffix', '').strip() != 'USD':
+        raise ValueError('SG-KO-Barriere in USD fehlt')
+    ko = number(barrier['Value'])
+    if ko <= 0:
+        raise ValueError('Ungültige SG-KO-Barriere')
+    status = product.get('Status')
+    if isinstance(status, bool) or not isinstance(status, int):
+        raise ValueError('SG-Produktstatus fehlt')
+    inactive = bool(status & (2 | 8 | 16 | 32)) or not status & 1
+    reason = ('SG-Produkt abgelaufen oder Barriere getroffen' if inactive else
+              'SG-Produkt erkannt; getrennte aktuelle Zeitstempel für Geld, Brief und Hebel fehlen')
+    return dict(found=False, productVerified=True, eligible=False, fresh=False,
+                isin=isin, source='Société Générale · offizielle Produktdaten',
+                sourceUrl=SG_ORIGIN+'product-details/'+isin.lower(),
+                checkedAt=now.isoformat(), reason=reason,
+                metadata=dict(name=product.get('Name', ''), underlying='XAU/USD',
+                              underlyingIsin=product.get('AssetIsin'), currency='EUR',
+                              direction='LONG' if side == 'Call' else 'SHORT', ko=ko,
+                              status=status), maxAgeSeconds=MAX_AGE_SECONDS)
+
+def get_sg_quote(isin):
+    try:
+        product = issuer_json(SG_ORIGIN+'EmcWebApi/api/Products/'+isin, SG_ORIGIN)
+        product_id = product['Id']
+        if isinstance(product_id, bool) or not isinstance(product_id, int) or product_id <= 0:
+            raise ValueError('Ungültige SG-Produktkennung')
+        if product.get('Isin') != isin:
+            raise ValueError('Falsche SG-ISIN')
+        properties = issuer_json(SG_ORIGIN+'EmcWebApi/api/Products/AllProperties/'+str(product_id), SG_ORIGIN)
+        return parse_sg(product, properties, isin)
+    except Exception:
+        return dict(found=False, eligible=False, fresh=False, isin=isin,
+                    source='Société Générale · öffentliche Produktrecherche',
+                    reason='SG-Produktdaten nicht bestätigt oder Quelle nicht erreichbar')
 
 def valid_isin(value):
     if not re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]', value) or re.match(r'DE(?=[0O]{3})(?=[0O]{0,2}O)', value):
@@ -90,6 +163,22 @@ def get_quote(isin):
         if cached and time.monotonic()-cached[0] < 15:
             return freshness(cached[1])
     # Fixed public endpoint from the issuer's own web client. No arbitrary URL.
+    # Query issuers independently; a slow BNP miss must not consume SG's
+    # entire browser timeout. Neither adapter trusts the ISIN prefix.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        bnp = pool.submit(get_bnp_quote, isin)
+        sg = pool.submit(get_sg_quote, isin)
+        result = bnp.result()
+        sg_result = sg.result()
+    if not result.get('found') and sg_result.get('productVerified'):
+        result = sg_result
+    with _LOCK:
+        if len(_CACHE) >= 256:
+            _CACHE.pop(next(iter(_CACHE)))
+        _CACHE[isin] = (time.monotonic(), result)
+    return freshness(result)
+
+def get_bnp_quote(isin):
     url = ORIGIN+'apiv2/api/v1/product/header/'+isin
     try:
         request = Request(url, headers={'User-Agent':'Bob/1.6 public product research','Accept':'application/json',
@@ -105,8 +194,4 @@ def get_quote(isin):
         result = dict(found=False, eligible=False, fresh=False, isin=isin, source='Öffentliche Emittentenrecherche',
                       reason='Keine verlässlich datierten Kurse verfügbar (Quelle nicht unterstützt oder nicht erreichbar)',
                       checkedAt=datetime.now(timezone.utc).isoformat())
-    with _LOCK:
-        if len(_CACHE) >= 256:
-            _CACHE.pop(next(iter(_CACHE)))
-        _CACHE[isin] = (time.monotonic(), result)
-    return freshness(result)
+    return result

@@ -43,9 +43,14 @@ wird nicht als datierter Emittenten-API-Kurs in die Live-Rangliste eingeschleust
 Die separate manuelle Rechenprüfung besitzt keine Quellenzeiten und bekommt
 ebenfalls keine grüne aktuelle Freigabe.
 
-Die bestehende automatische BNP-Recherche bleibt erhalten. Für SG wird keine
-verlässliche kostenlose Live-Quelle behauptet. Unterstützte Recherche ist
-kein Nachweis, dass ein Produkt aktuell oder handelsgeeignet ist.
+Die bestehende automatische BNP-Recherche bleibt erhalten. Die neue SG-Recherche
+nutzt die offiziellen Endpunkte `Products/{ISIN}` und `Products/AllProperties/{ID}`.
+Sie bestätigt die Produktidentität und zeigt Basiswert, Richtung und KO-Barriere
+getrennt von Kursdaten. `AllProperties.TimeStamp` datiert nur den Geldkurs und
+enthält keine Zeitzone; Briefkurs und Hebel haben keine eigenen Quellenzeiten.
+Deshalb bleiben SG-Produkte für die aktuelle Rangliste gesperrt. Die Abfragezeit
+und der Zeitstempel aus `Prices/Live` ersetzen diese fehlenden Angaben nicht.
+Es werden keine Konten, API-Schlüssel oder kostenpflichtigen Dienste benötigt.
 
 Tests: `node test_manual_import.js`, `node test_bob.js`, `node validate_bob.js`
 und `python -m unittest test_auth.py test_ocr_assets.py test_product_quotes.py`.

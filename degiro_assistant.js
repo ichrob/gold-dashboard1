@@ -183,7 +183,10 @@ async function enrichProduct(i){
    productQuotes.set(i,x);
    for(const [key,val] of Object.entries({price:x.price,lev:x.leverage,ko:x.ko,spread:x.spread,dir:x.direction})){if(field(key))field(key).value=val;}
    if(meta)meta.innerHTML="🌐 "+esc(x.source)+" · Geld "+esc(x.bid)+" / Brief "+esc(x.ask)+" EUR · Spread "+esc(x.spread)+" EUR ("+esc(x.spreadPct)+"%) · Hebel "+esc(x.leverage)+"× · Kurszeit "+esc(new Date(x.quoteAt).toLocaleString())+" · "+'<span id="dgQuoteState'+i+'">'+(x.eligible?"aktuell":"GESPERRT: "+esc(x.reason))+'</span>'+". Emittentenkurs; ausführbarer DEGIRO-Kurs kann abweichen.";
-  }else if(meta)meta.textContent="🌐 "+(x.reason||"Keine verlässlich datierten Emittentenkurse verfügbar")+". Produkt für aktuelle Rangliste gesperrt.";
+  }else if(meta){
+   const info=x.productVerified&&x.metadata;
+   meta.textContent="🌐 "+(x.source?x.source+" · ":"")+(info?"ISIN bestätigt · "+info.underlying+" · "+info.direction+" · KO "+info.ko+" USD · ":"")+(x.reason||"Keine verlässlich datierten Emittentenkurse verfügbar")+". Produkt für aktuelle Rangliste gesperrt.";
+  }
  }catch(e){productQuotes.delete(i);if(meta)meta.textContent="🌐 Recherche nicht erreichbar: Produkt für aktuelle Rangliste gesperrt.";}
  finally{pendingQuotes.delete(i);rankUI();}
 }
