@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 import estimate_quality
 import bob_market_store
+import bob_validation_store
 
 URL = 'https://www.investing.com/commodities/gold'
 CONTRACT = 'GCZ26'
@@ -296,7 +297,7 @@ def current_estimate(research, now=None):
             currentFresh=bool(rows and 0 <= (now-rows[-1]).total_seconds() <= MAX_PROXY_AGE),maxGapSeconds=MAX_GAP,
             largestGapSeconds=round(max(gaps,default=0),1),
             continuousSeconds=round((rows[-1]-rows[last_break]).total_seconds(),1) if rows else 0)
-        if kind=='gold-api-spot':out['storageStatus']=_storage_status
+        if kind=='gold-api-spot':out['storageStatus']=_storage_status+' · '+bob_validation_store.status()
         if out['available']:
             estimate_quality.record(key,out['priceUsd'],out['priceAt'],out['referenceAt'],now.isoformat())
             horizon=(stamp(out['priceAt'])-stamp(out['referenceAt'])).total_seconds()

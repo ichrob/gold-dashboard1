@@ -1,0 +1,150 @@
+"""Durable frozen GCZ26 predictions; asynchronous, server-token-only archive."""
+import json
+import math
+import os
+import threading
+import time
+from datetime import datetime, timezone
+from urllib.request import Request, build_opener
+from bob_auth import NoRedirect
+
+KEY='future:GCZ26:gold-api-spot-ratio-v1'
+_lock=threading.Lock()
+_queue=[]
+_thread=None
+_last_truth=None
+_active_until=0
+_status='Genauigkeitsmessung noch nicht dauerhaft gesichert'
+
+
+def stamp(raw):
+    at=datetime.fromisoformat(raw.replace('Z','+00:00'))
+    if at.tzinfo is None:raise ValueError('Messzeit ohne Zeitzone')
+    return at.astimezone(timezone.utc)
+
+
+def bucket(age):
+    if not 0<age<=1800:raise ValueError('Ungültiger Referenzabstand')
+    return '0–60s' if age<=60 else '61–300s' if age<=300 else '301–900s' if age<=900 else '901–1800s'
+
+
+def event(payload, now=None):
+    now=now or datetime.now(timezone.utc)
+    if payload.get('key')!=KEY or payload.get('type') not in ('prediction','truth'):
+        raise ValueError('Messidentität nicht bestätigt')
+    value=payload.get('value')
+    if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value) or value<=0:
+        raise ValueError('Ungültiger Messkurs')
+    at=stamp(payload['at'])
+    if not 0<=(now-at).total_seconds()<=(90 if payload['type']=='prediction' else 3600):
+        raise ValueError('Messzeit nicht verwendbar')
+    ref=stamp(payload['referenceAt']) if payload['type']=='prediction' else None
+    horizon=bucket((at-ref).total_seconds()) if ref else ''
+    return payload['type'],at,float(value),ref,horizon
+
+
+def init(conn):
+    conn.execute('''CREATE TABLE IF NOT EXISTS bob_future_predictions (
+        bucket TEXT NOT NULL, quote_at TIMESTAMPTZ NOT NULL, price DOUBLE PRECISION NOT NULL,
+        reference_at TIMESTAMPTZ NOT NULL, received_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        truth_at TIMESTAMPTZ, PRIMARY KEY(bucket,quote_at))''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS bob_future_truths (
+        quote_at TIMESTAMPTZ PRIMARY KEY, price DOUBLE PRECISION NOT NULL,
+        received_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())''')
+
+
+def handle(conn, action, payload):
+    if action not in ('read','write'):raise ValueError('Unbekannte Messaktion')
+    # Serialize pairing and writes across scanner instances. Caller commits.
+    conn.execute('SELECT pg_advisory_xact_lock(68431026)')
+    if action=='write':
+        events=payload.get('events')
+        if not isinstance(events,list) or len(events)>40:raise ValueError('Ungültiges Messpaket')
+        checked=[event(e) for e in events]
+        conn.execute("DELETE FROM bob_future_predictions WHERE received_at<now()-interval '6 hours'")
+        conn.execute("DELETE FROM bob_future_truths WHERE received_at<now()-interval '6 hours'")
+        for kind,at,value,ref,horizon in checked:
+            if kind=='prediction':
+                # First server receipt is immutable, even after recalculation.
+                conn.execute('''INSERT INTO bob_future_predictions(bucket,quote_at,price,reference_at)
+                    VALUES(%s,%s,%s,%s) ON CONFLICT(bucket,quote_at) DO NOTHING''',(horizon,at,value,ref))
+            else:
+                conn.execute('''INSERT INTO bob_future_truths(quote_at,price) VALUES(%s,%s)
+                    ON CONFLICT(quote_at) DO NOTHING''',(at,value))
+                actual=conn.execute('SELECT price FROM bob_future_truths WHERE quote_at=%s',(at,)).fetchone()
+                if not actual or actual[0]!=value:raise ValueError('Widersprüchlicher Future-Zeitstempel')
+        # Compare only predictions archived before the first receipt of truth.
+        truths=conn.execute('SELECT quote_at,received_at FROM bob_future_truths ORDER BY received_at,quote_at').fetchall()
+        for at,received in truths:
+            for horizon in ('0–60s','61–300s','301–900s','901–1800s'):
+                used=conn.execute('SELECT 1 FROM bob_future_predictions WHERE bucket=%s AND truth_at=%s',(horizon,at)).fetchone()
+                if used:continue
+                row=conn.execute('''SELECT quote_at FROM bob_future_predictions WHERE bucket=%s AND truth_at IS NULL
+                    AND received_at<=%s AND quote_at BETWEEN %s-interval '5 seconds' AND %s+interval '5 seconds'
+                    ORDER BY abs(extract(epoch FROM quote_at-%s)),quote_at LIMIT 1''',(horizon,received,at,at,at)).fetchone()
+                if row:conn.execute('UPDATE bob_future_predictions SET truth_at=%s WHERE bucket=%s AND quote_at=%s',(at,horizon,row[0]))
+    rows=conn.execute('''SELECT p.bucket,p.quote_at,p.price,p.reference_at,p.received_at,t.quote_at,t.price,t.received_at
+        FROM bob_future_predictions p JOIN bob_future_truths t ON p.truth_at=t.quote_at
+        WHERE t.received_at>=now()-interval '6 hours' ORDER BY t.received_at DESC LIMIT 800''').fetchall()
+    pairs=[dict(bucket=b,predictionAt=a.isoformat(),prediction=value,referenceAt=ref.isoformat(),
+                predictionReceivedAt=created.isoformat(),truthAt=ta.isoformat(),truth=tv,truthReceivedAt=received.isoformat())
+           for b,a,value,ref,created,ta,tv,received in reversed(rows)]
+    return dict(ok=True,key=KEY,pairs=pairs)
+
+
+def request(action, payload):
+    base=os.environ.get('PUSH_SERVICE_URL','').rstrip('/');token=os.environ.get('PUSH_SERVICE_TOKEN','')
+    if not base or not token:raise OSError('Messspeicher nicht konfiguriert')
+    if not base.startswith(('http://','https://')):base='http://'+base
+    req=Request(base+'/market-validations/'+action,data=json.dumps(payload).encode(),
+        headers={'Content-Type':'application/json','X-Bob-Push-Token':token},method='POST')
+    with build_opener(NoRedirect()).open(req,timeout=12) as response:body=response.read(524289)
+    if len(body)>524288:raise ValueError('Messantwort zu groß')
+    result=json.loads(body)
+    if not isinstance(result,dict) or result.get('key')!=KEY or result.get('ok') is not True:
+        raise ValueError('Messantwort nicht verwendbar')
+    return result
+
+
+def status():
+    with _lock:return _status
+
+
+def enqueue(key, kind, value, at, reference_at=None):
+    global _thread,_last_truth,_active_until
+    if key!=KEY or not os.environ.get('PUSH_SERVICE_URL') or not os.environ.get('PUSH_SERVICE_TOKEN'):return
+    e=dict(key=key,type=kind,value=value,at=at)
+    if reference_at is not None:e['referenceAt']=reference_at
+    with _lock:
+        _active_until=time.monotonic()+120
+        if kind=='truth':
+            if _last_truth==(at,value):return
+            _last_truth=(at,value)
+        _queue.append(e);_queue[:]=_queue[-120:]
+        if _thread is None or not _thread.is_alive():
+            _thread=threading.Thread(target=_sync,name='bob-future-validation',daemon=True)
+            _thread.start()
+
+
+def _sync():
+    global _status
+    import estimate_quality
+    while True:
+        with _lock:
+            batch=list(_queue[:40])
+            if not batch and time.monotonic()>_active_until:return
+        # Do not retry old predictions as fresh ones after an outage.
+        now=datetime.now(timezone.utc)
+        usable=[]
+        for e in batch:
+            try:event(e,now);usable.append(e)
+            except (ValueError,TypeError,KeyError):pass
+        try:
+            result=request('write' if usable else 'read',{'events':usable} if usable else {})
+            estimate_quality.restore_durable(result['pairs'],now)
+            with _lock:
+                del _queue[:len(batch)]
+                _status='Genauigkeitsmessung dauerhaft gesichert; eingefrorene Schätzungen bleiben über Neustarts erhalten'
+        except (OSError,ValueError,TypeError,KeyError):
+            with _lock:_status='Dauerhafter Messspeicher momentan nicht erreichbar; lokale Messung läuft weiter'
+        threading.Event().wait(30)

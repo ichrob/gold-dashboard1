@@ -26,3 +26,24 @@ class QualityTests(unittest.TestCase):
   e.observe('x',100,at(60),at(80));e.observe('x',100,at(66),at(110))
   self.assertEqual(e.quality('x',60,NOW+timedelta(seconds=120))['sampleCount'],0)
   e.observe('x',100,at(60),at(110));self.assertEqual(e.quality('x',60,NOW+timedelta(seconds=120))['sampleCount'],1)
+
+ def test_durable_comparisons_restore_without_refreshing_receipt_or_duplicates(self):
+  from bob_validation_store import KEY
+  pairs=[dict(bucket='0–60s',predictionAt=at(60+i*30),prediction=102,referenceAt=at(15+i*30),
+              predictionReceivedAt=at(61+i*30),truthAt=at(60+i*30),truth=100,truthReceivedAt=at(70+i*30)) for i in range(21)]
+  now=NOW+timedelta(seconds=700)
+  e.restore_durable(pairs,now);q=e.quality(KEY,45,now)
+  self.assertTrue(q['ready']);self.assertEqual(q['sampleCount'],21);self.assertEqual(q['maxAbsoluteError'],2)
+  e.restore_durable(pairs,now);self.assertEqual(e.quality(KEY,45,now)['sampleCount'],21)
+  self.assertEqual(q['lastValidationAt'],at(670))
+  self.assertFalse(e.quality(KEY,45,NOW+timedelta(seconds=2500))['ready'])
+  with self.assertRaises(ValueError):e.restore_durable([dict(pairs[0],predictionReceivedAt=at(71))],now)
+  self.assertEqual(e.quality(KEY,45,now)['sampleCount'],21)
+  with self.assertRaises(ValueError):e.restore_durable([dict(pairs[0],truthAt=at(66))],now)
+
+ def test_archive_validation_rejects_other_contract_stale_predictions_and_future_times(self):
+  import bob_validation_store as s
+  p=dict(key=s.KEY,type='prediction',value=4200,at=at(-30),referenceAt=at(-120))
+  self.assertEqual(s.event(p,NOW)[-1],'61–300s')
+  for wrong in (dict(p,key='future:GC=F'),dict(p,value=True),dict(p,at=at(-91)),dict(p,at=at(1)),dict(p,referenceAt=at(-2000))):
+   with self.assertRaises(ValueError):s.event(wrong,NOW)

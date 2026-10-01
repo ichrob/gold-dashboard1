@@ -37,6 +37,37 @@ class MarketStoreTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class PostgresMarketTests(unittest.TestCase):
+ def test_frozen_future_prediction_survives_connections_and_matches_only_later_truth_once(self):
+  import psycopg
+  import bob_validation_store as v
+  dsn=os.environ['BOB_TEST_DATABASE_URL'];now=datetime.now(timezone.utc)
+  at=now-timedelta(seconds=1);ref=at-timedelta(seconds=120)
+  p=dict(key=v.KEY,type='prediction',at=at.isoformat(),referenceAt=ref.isoformat(),value=4200)
+  t=dict(key=v.KEY,type='truth',at=at.isoformat(),value=4198)
+  with psycopg.connect(dsn) as conn:
+   v.init(conn);v.handle(conn,'write',{'events':[p]})
+  with psycopg.connect(dsn) as conn:
+   v.handle(conn,'write',{'events':[dict(p,value=4300),t]})
+  with psycopg.connect(dsn) as conn:
+   rows=v.handle(conn,'read',{})['pairs'];pair=next(x for x in rows if x['truthAt']==at.isoformat())
+   self.assertEqual(pair['prediction'],4200);self.assertEqual(pair['truth'],4198)
+   again=v.handle(conn,'write',{'events':[t]})['pairs']
+   self.assertEqual(sum(x['truthAt']==at.isoformat() for x in again),1)
+  with psycopg.connect(dsn) as conn:
+   with self.assertRaises(ValueError):v.handle(conn,'write',{'events':[dict(t,value=4197)]})
+   conn.rollback()
+  # A prediction submitted after truth was already archived cannot validate.
+  late=now-timedelta(seconds=20)
+  truth=dict(t,at=late.isoformat())
+  pred=dict(p,at=late.isoformat(),referenceAt=(late-timedelta(seconds=120)).isoformat())
+  with psycopg.connect(dsn) as conn:
+   v.handle(conn,'write',{'events':[truth]})
+  with psycopg.connect(dsn) as conn:
+   v.handle(conn,'write',{'events':[pred]})
+   self.assertFalse(any(x['truthAt']==late.isoformat() for x in v.handle(conn,'read',{})['pairs']))
+   conn.execute('DELETE FROM bob_future_predictions WHERE quote_at IN (%s,%s)',(at,late))
+   conn.execute('DELETE FROM bob_future_truths WHERE quote_at IN (%s,%s)',(at,late))
+
  def test_two_connections_preserve_timestamp_and_reject_rewrites(self):
   import psycopg
   dsn=os.environ['BOB_TEST_DATABASE_URL'];now=datetime.now(timezone.utc)
