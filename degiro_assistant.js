@@ -28,7 +28,7 @@ function riskModel(p){const spot=n(p.spot),stop=n(p.stop),riskEur=n(p.riskEur),f
 function technicalQuality(ctx={}){const d=String(ctx.direction||"NEUTRAL").toUpperCase();if(d==="NEUTRAL")return{score:50,reasons:["Kein eindeutiges Richtungsszenario."]};let score=50,reasons=[];const side=v=>{const x=String(v||"").toUpperCase();return x.includes("LONG")||x.includes("BULL")||x.includes("UP")?"LONG":x.includes("SHORT")||x.includes("BEAR")||x.includes("DOWN")?"SHORT":""};const trend=side(ctx.trend),trend2=side(ctx.trend2),mtf=side(ctx.mtf),rsi=Number(ctx.rsi),hist=Number(ctx.hist),adx=Number(ctx.adx),momentum=Number(ctx.momentum);if(trend===d){score+=12;reasons.push("EMA-Trend bestätigt.");}else if(trend&&trend!==d){score-=12;reasons.push("EMA-Trend widerspricht.");}if(trend2===d){score+=10;reasons.push("Langfristtrend bestätigt.");}else if(trend2&&trend2!==d){score-=10;reasons.push("Langfristtrend widerspricht.");}if(mtf===d){score+=15;reasons.push("MTF bestätigt.");}else if(mtf&&mtf!==d){score-=15;reasons.push("MTF widerspricht.");}if(Number.isFinite(rsi)){const support=(d==="LONG"&&rsi>=55&&rsi<=65)||(d==="SHORT"&&rsi>=35&&rsi<=45);const broad=(d==="LONG"&&rsi>=50&&rsi<70)||(d==="SHORT"&&rsi<=50&&rsi>30);if(support){score+=10;reasons.push("RSI liegt im günstigen Trendbereich.");}else if(broad){score+=5;reasons.push("RSI unterstützt die Richtung.");}else if((d==="LONG"&&rsi>75)||(d==="SHORT"&&rsi<25)){score-=10;reasons.push("RSI zeigt erhöhtes Überdehnungsrisiko.");}}if(Number.isFinite(hist)){const h=hist>0?"LONG":hist<0?"SHORT":"";if(h===d){score+=10;reasons.push("MACD-Histogramm bestätigt.");}else if(h&&h!==d){score-=10;reasons.push("MACD-Histogramm widerspricht.");}}if(Number.isFinite(adx)){if(adx>=30){score+=7;reasons.push("ADX zeigt einen starken Trend.");}else if(adx>=20){score+=3;reasons.push("ADX bestätigt vorhandene Trendstärke.");}else if(adx<15){score-=5;reasons.push("ADX zeigt wenig Trendstärke.");}}if(Number.isFinite(momentum)){const m=momentum>0?"LONG":momentum<0?"SHORT":"";if(m===d){score+=8;reasons.push("Momentum bestätigt.");}else if(m&&m!==d){score-=8;reasons.push("Momentum widerspricht.");}}return{score:Math.max(0,Math.min(100,Math.round(score))),reasons};}
 function evaluateProduct(p){const spot=n(p.spot),ko=n(p.ko),lev=Math.max(1,n(p.leverage)||1),spread=Math.max(0,n(p.spread)||0),atr=n(p.atr),requested=String(p.direction||"NEUTRAL").toUpperCase(),productDirection=String(p.productDirection||directionOf(spot,ko)||"").toUpperCase(),reasons=[],warnings=[];if(spot===null||spot<=0)return{ok:false,fit:false,score:0,reasons:["Kein gültiger XAU/USD-Preis."],warnings:[]};if(!productDirection||!["LONG","SHORT"].includes(productDirection))reasons.push("Richtung des Produkts fehlt.");if(requested!=="NEUTRAL"&&productDirection&&requested!==productDirection)reasons.push("Produkt-Richtung passt nicht zum aktuellen Bob-Szenario.");if(ko!==null&&((productDirection==="LONG"&&ko>=spot)||(productDirection==="SHORT"&&ko<=spot)))return{ok:false,fit:false,score:0,reasons:["KO-Level liegt am oder jenseits des aktuellen Goldpreises – Produkt gesperrt."],warnings:[]};if(ko===null)warnings.push("KO-Level fehlt – KO-Abstand kann nicht geprüft werden.");const koPct=koDistancePct(spot,ko),koDistance=ko===null?null:Math.abs(spot-ko),atrMultiple=koDistance!==null&&atr!==null&&atr>0?koDistance/atr:null;if(koPct!==null&&koPct<2)warnings.push("KO-Abstand unter 2%.");if(koPct!==null&&koPct<1)warnings.push("KO-Abstand unter 1% – sehr enger Puffer.");if(atrMultiple!==null&&atrMultiple<1.5)warnings.push("KO-Puffer kleiner als 1,5 ATR.");if(atrMultiple!==null&&atrMultiple<1)warnings.push("KO-Puffer kleiner als 1 ATR – sehr eng.");if(lev>10)warnings.push("Hebel über 10× – sehr hohe Empfindlichkeit.");if(spread>0)reasons.push("Spread wurde berücksichtigt.");let productScore=100;if(requested!=="NEUTRAL"&&productDirection!==requested)productScore-=60;if(!productDirection)productScore-=20;if(ko===null)productScore-=20;if(koPct!==null&&koPct<2)productScore-=20;if(koPct!==null&&koPct<1)productScore-=20;if(atrMultiple!==null&&atrMultiple<1.5)productScore-=15;if(atrMultiple!==null&&atrMultiple<1)productScore-=20;if(lev>10)productScore-=15;if(spread>0)productScore-=Math.min(10,spread);const quality=technicalQuality(p);const score=Math.round(productScore*0.45+quality.score*0.55);const fit=productScore>=60&&!reasons.some(x=>x.includes("passt nicht"));const conflictCount=quality.reasons.filter(x=>x.includes("widerspricht")).length;const confirmationCount=quality.reasons.filter(x=>x.includes("bestätigt")||x.includes("unterstützt")||x.includes("günstigen")||x.includes("Momentum")).length;if(conflictCount>=3){warnings.push("Mehrere technische Signale widersprechen der Richtung.");}if(requested!=="NEUTRAL"&&quality.score<35){warnings.push("Setup-Qualität sehr niedrig – kein starker technischer Konsens.");}const confidence=Math.max(0,Math.min(100,Math.round(quality.score-(conflictCount*5))));return{ok:true,fit,score:Math.max(0,Math.round(score)),direction:productDirection,koDistancePct:koPct,koDistance,atrMultiple,leverage:lev,reasons:reasons.concat(quality.reasons),warnings,productScore,setupScore:quality.score,confidence,conflictCount,confirmationCount};}
 function quoteTiming(q,now=Date.now()){
- const times=q?[q.quoteAt,q.bidAt,q.askAt,q.leverageAt,q.snapshotAt].map(Date.parse):[];
+ const times=q?[q.quoteAt,q.bidAt,q.askAt,q.leverageAt,q.snapshotAt].map(v=>typeof v==="string"&&/(?:Z|[+-]\d{2}:\d{2})$/.test(v)?Date.parse(v):NaN):[];
  const ages=times.map(t=>now-t),age=ages.length?Math.max(...ages):NaN;
  const fresh=ages.length===5&&ages.every(x=>Number.isFinite(x)&&x>=-5000&&x<=60000)&&now<=Date.parse(q.tradingEndAt);
  return{fresh,ageSeconds:Number.isFinite(age)?Math.max(0,Math.ceil(age/1000)):null};
@@ -37,7 +37,7 @@ function currentQuote(p,now=Date.now()){
  const q=p.quote;
  return !!q&&q.found&&q.eligible===true&&q.marketOpen&&quoteTiming(q,now).fresh&&q.currency==="EUR"&&q.isin===String(p.isin||"").toUpperCase()&&validIsin(p.isin)&&q.price===p.price&&q.leverage===p.leverage&&q.ko===p.ko&&q.spread===p.spread&&q.direction===p.productDirection&&p.isinConfirmed===true;
 }
-function rankProducts(products,context={}){const scenario=String(context.direction||"NEUTRAL").toUpperCase();if(scenario==="NEUTRAL")return{scenario,candidates:[],total:0,tradeable:false,gateReason:"Momentum ist NEUTRAL – Bob empfiehlt kein DEGIRO-Produkt."};if(context.requireFreshQuotes&&context.spotFresh!==true)return{scenario,candidates:[],total:0,tradeable:false,gateReason:"Goldpreis veraltet oder Kurszeit unbekannt – aktuelle Rangliste gesperrt."};const valid=(products||[]).map((p,i)=>Object.assign({_index:i},p)).filter(p=>String(p.name||p.isin||"").trim()&&n(p.spot)>0&&(!context.requireFreshQuotes||currentQuote(p,context.now??Date.now()))).map(p=>Object.assign(p,{evaluation:evaluateProduct(Object.assign({},p,context))})).filter(p=>p.evaluation.ok&&p.evaluation.fit&&p.evaluation.direction===scenario).sort((a,b)=>b.evaluation.score-a.evaluation.score);if(context.requireFreshQuotes&&!valid.length)return{scenario,candidates:[],total:0,tradeable:false,gateReason:"Keine passenden, bestätigten Produkte mit höchstens 60 Sekunden alten Emittentenkursen. ISIN unter Details prüfen; veraltete oder fehlende Daten sind gesperrt."};const best=valid[0]?.evaluation;const setupGate=!!best&&(best.setupScore>=35&&best.conflictCount<3);const p=valid[0];const complete=!!p&&n(p.price)>0&&n(p.leverage)>=1&&n(p.ko)>0&&n(p.spread)!==null&&n(p.spread)>=0&&(!p.isin||validIsin(p.isin));return{scenario,candidates:valid.slice(0,4),total:valid.length,tradeable:setupGate&&complete,gateReason:!setupGate?"Technischer Konsens zu schwach oder zu widersprüchlich – kein Favorit.":!complete?"Produktdaten unvollständig oder ISIN ungültig – Kurs, Hebel, KO und Spread unter Details prüfen und ergänzen.":""};}
+function rankProducts(products,context={}){const scenario=String(context.direction||"NEUTRAL").toUpperCase();if(scenario==="NEUTRAL")return{scenario,candidates:[],total:0,tradeable:false,gateReason:"Momentum ist NEUTRAL – Bob empfiehlt kein DEGIRO-Produkt."};if(context.requireFreshQuotes&&context.spotFresh!==true)return{scenario,candidates:[],total:0,tradeable:false,gateReason:"Goldpreis veraltet oder Kurszeit unbekannt – aktuelle Rangliste gesperrt."};const valid=(products||[]).map((p,i)=>Object.assign({_index:i},p)).filter(p=>String(p.name||p.isin||"").trim()&&n(p.spot)>0&&(!context.requireFreshQuotes||currentQuote(p,context.now??Date.now()))).map(p=>Object.assign(p,{evaluation:evaluateProduct(Object.assign({},p,context))})).filter(p=>p.evaluation.ok&&p.evaluation.fit&&p.evaluation.direction===scenario).sort((a,b)=>b.evaluation.score-a.evaluation.score);if(context.requireFreshQuotes&&!valid.length)return{scenario,candidates:[],total:0,tradeable:false,gateReason:"Keine passenden, bestätigten Produkte mit höchstens 60 Sekunden alten Emittentenkursen für eine Live-Rangliste. Screenshot-Momentaufnahmen werden getrennt geprüft. ISIN unter Details prüfen; veraltete oder fehlende Daten sind gesperrt."};const best=valid[0]?.evaluation;const setupGate=!!best&&(best.setupScore>=35&&best.conflictCount<3);const p=valid[0];const complete=!!p&&n(p.price)>0&&n(p.leverage)>=1&&n(p.ko)>0&&n(p.spread)!==null&&n(p.spread)>=0&&(!p.isin||validIsin(p.isin));return{scenario,candidates:valid.slice(0,4),total:valid.length,tradeable:setupGate&&complete,gateReason:!setupGate?"Technischer Konsens zu schwach oder zu widersprüchlich – kein Favorit.":!complete?"Produktdaten unvollständig oder ISIN ungültig – Kurs, Hebel, KO und Spread unter Details prüfen und ergänzen.":""};}
 function scenario(){const s=typeof window.confirmedSignalDirection==="function"?window.confirmedSignalDirection():null;if(s&&["LONG","SHORT","NEUTRAL"].includes(String(s).toUpperCase()))return String(s).toUpperCase();const t=String(document.getElementById("signal")?.textContent||"").toUpperCase();return t.includes("LONG")?"LONG":t.includes("SHORT")?"SHORT":"NEUTRAL";}
 function spot(){const x=n(window.lastPrice);if(x)return x;const m=String(document.getElementById("price")?.textContent||"").match(/[0-9]+(?:[.,][0-9]+)?/);return m?n(m[0].replace(",",".")):null;}
 function atr(){return n(window.A?.at)||n(window.A?.atr)||null;}
@@ -187,6 +187,61 @@ async function enrichProduct(i){
  }catch(e){productQuotes.delete(i);if(meta)meta.textContent="🌐 Recherche nicht erreichbar: Produkt für aktuelle Rangliste gesperrt.";}
  finally{pendingQuotes.delete(i);rankUI();}
 }
+// Only explicitly labelled source timestamps count. Never use upload/device time.
+function sourceTimestamp(value){
+ const m=String(value||'').trim().match(/^(\d{2})[/.](\d{2})[/.](\d{4})\s+(\d{2}):(\d{2}):(\d{2})\s*(Z|UTC|CET|CEST|[+-]\d{2}:?\d{2})$/i);
+ if(!m)return null;
+ const [,dd,mm,yy,hh,mi,ss,zone]=m,parts=[+yy,+mm,+dd,+hh,+mi,+ss];
+ const local=Date.UTC(+yy,+mm-1,+dd,+hh,+mi,+ss),date=new Date(local);
+ if(date.getUTCFullYear()!==parts[0]||date.getUTCMonth()+1!==parts[1]||date.getUTCDate()!==parts[2]||+hh>23||+mi>59||+ss>59)return null;
+ const z=zone.toUpperCase();let offset=0;
+ if(z==='CET')offset=60;else if(z==='CEST')offset=120;
+ else if(z!=='Z'&&z!=='UTC'){const p=z.match(/^([+-])(\d{2}):?(\d{2})$/);if(+p[2]>14||+p[3]>59||+p[2]===14&&+p[3]!==0)return null;offset=(+p[2]*60+ +p[3])*(p[1]==='-'?-1:1);}
+ return new Date(local-offset*60000).toISOString();
+}
+function screenshotTimes(raw){
+ const out={};
+ for(const [key,label] of Object.entries({quote:'Kurszeit|Kursstand|Quote time',bid:'Geldzeit|Bid time',ask:'Briefzeit|Ask time',leverage:'Hebelzeit|Leverage time',ko:'KO-Zeit|KO time'})){
+  const matches=Array.from(String(raw).matchAll(new RegExp('(?:^|\\n)\\s*(?:'+label+')\\s*[:=]?\\s*([^\\n]+)','gi')));
+  // Multiple conflicting labels are ambiguous. A minute-only time cannot prove 60s.
+  out[key]=matches.length===1?{present:true,text:matches[0][1].trim(),at:sourceTimestamp(matches[0][1])}:{present:matches.length>0,text:'',at:null};
+ }
+ return out;
+}
+function evidenceTiming(e,now=Date.now()){
+ const at=e?.at,parsed=typeof at==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(at)?Date.parse(at):NaN;
+ const age=now-parsed;
+ return{fresh:Number.isFinite(age)&&age>=0&&age<=60000,ageSeconds:Number.isFinite(age)?Math.ceil(age/1000):null};
+}
+function fieldSourceTime(x,key){
+ const field={Geld:'bid',Brief:'ask',Hebel:'leverage',KO:'ko'}[key];
+ if(x.times?.[field]?.present)return x.times[field].at;
+ return ['Geld','Brief','Kurs','Spread'].includes(key)?x.times?.quote?.at||null:null;
+}
+function manualSnapshotStatus(p,x,now=Date.now()){
+ const reasons=[],e=x?.evidence||{};
+ if(!x||x.isin!==String(p.isin||'').trim().toUpperCase()||!validIsin(p.isin))reasons.push('Bildidentität nicht bestätigt');
+ if(p.isinConfirmed!==true)reasons.push('Erkannte Werte und Quellenzeiten am Original bestätigen');
+ if(x?.currency!=='EUR'||!(n(x?.bid)>0)||!(n(x?.ask)>=n(x?.bid)))reasons.push('Geld und Brief in EUR fehlen');
+ const pairs={Geld:x?.bid,Brief:x?.ask,Spread:p.spread,Hebel:p.leverage,KO:p.ko};
+ for(const [key,value] of Object.entries(pairs)){
+  if(n(value)===null||n(e[key]?.value)!==n(value)||!evidenceTiming(e[key],now).fresh)reasons.push(key+': eigener Zeitnachweis fehlt oder älter als 60 Sekunden');
+ }
+ if(n(p.price)!==n(x?.ask)||!(n(p.leverage)>=1)||!(n(p.ko)>0)||n(p.spread)===null||Math.abs(n(p.spread)-(n(x?.ask)-n(x?.bid)))>0.000001)reasons.push('Produktwerte unvollständig oder widersprüchlich');
+ if(x?.delayed)reasons.push('Bild weist auf verzögerte Kurse hin');
+ return{complete:reasons.length===0,reasons,liveVerified:false};
+}
+const IDENTITY_KEY='bobDegiroIdentitiesV1';
+function saveIdentities(){
+ try{const items=[];for(let i=1;i<=12;i++){const read=k=>document.querySelector('[data-dg="'+k+'"][data-i="'+i+'"]')?.value||'';if(validIsin(read('isin')))items.push({isin:read('isin').toUpperCase(),name:read('name'),direction:read('dir')});}localStorage.setItem(IDENTITY_KEY,JSON.stringify(items));}catch(_){}
+}
+function loadIdentities(){
+ try{const items=JSON.parse(localStorage.getItem(IDENTITY_KEY)||'[]');return Array.isArray(items)?items.filter(x=>x&&validIsin(x.isin)).slice(0,12).map(x=>({isin:x.isin,name:String(x.name||x.isin),direction:['LONG','SHORT'].includes(x.direction)?x.direction:''})):[];}catch(_){return [];}
+}
+function needsDirectionalData(p,direction){
+ return ['LONG','SHORT'].includes(direction)&&p.productDirection===direction&&!currentQuote(p)&&!manualSnapshotStatus(p,p.snapshot).complete;
+}
+
 function detailScreenshotData(text,expectedIsin){
  const raw=String(text||""),ids=Array.from(new Set(parseScreenshotCandidates(raw).map(x=>x.isin)));
  if(!validIsin(expectedIsin))return{ok:false,reason:"Bitte zuerst die ISIN dieses Produkts am Screenshot prüfen und korrigieren."};
@@ -200,7 +255,7 @@ function detailScreenshotData(text,expectedIsin){
  const currency=/\bEUR\b|€/.test(raw)?"EUR":"";
  if(bid!==null&&ask!==null&&currency==="EUR"){x.price=String(ask);x.spread=String(Math.round((ask-bid)*1000000)/1000000);}
  if(!x.leverage){const lv=raw.match(/\bLV\s+(\d+(?:[.,]\d+)?)/i);if(lv)x.leverage=lv[1].replace(",",".");}
- return{ok:true,...x,bid,ask,currency,sourceTime:stamp};
+ return{ok:true,...x,bid,ask,currency,sourceTime:stamp,times:screenshotTimes(raw),delayed:/verzögert|delayed/i.test(raw)};
 }
 async function readScreenshot(i,file){
  const status=document.getElementById("dgOcrStatus"+i),field=k=>document.querySelector('[data-dg="'+k+'"][data-i="'+i+'"]');
@@ -228,24 +283,28 @@ function mergeScreenshotEvidence(previous,x,source){
  const hasQuote=n(x.price)!==null||x.bid!==null&&x.bid!==undefined||x.ask!==null&&x.ask!==undefined;
  // Keep the original quote's timestamp when adding only static product details.
  const merged={...previous,...x,evidence,clearSpread:false};
- if(!hasQuote){for(const key of ["bid","ask","currency","sourceTime"])merged[key]=previous[key]??x[key];}
+ if(!hasQuote){for(const key of ["bid","ask","currency","sourceTime","delayed"])merged[key]=previous[key]??x[key];}
  else {for(const key of ["Kurs","Geld","Brief","Spread"])delete evidence[key];merged.clearSpread=n(x.spread)===null;}
- for(const [key,value] of Object.entries({Richtung:x.direction,Kurs:x.price,Hebel:x.leverage,KO:x.ko,Geld:x.bid,Brief:x.ask,Spread:x.spread})){if(value!==""&&value!==null&&value!==undefined)evidence[key]={value,source};}
+ for(const [key,value] of Object.entries({Richtung:x.direction,Kurs:x.price,Hebel:x.leverage,KO:x.ko,Geld:x.bid,Brief:x.ask,Spread:x.spread})){if(value!==""&&value!==null&&value!==undefined)evidence[key]={value,source,at:fieldSourceTime(x,key)};}
+ if(hasQuote&&evidence.Spread){const times=[evidence.Geld?.at,evidence.Brief?.at];evidence.Spread.at=times.every(Boolean)?times.sort()[0]:null;}
+ for(const [key,field] of Object.entries({Kurs:"price",Hebel:"leverage",KO:"ko",Spread:"spread",Richtung:"direction"})){merged[field]=evidence[key]?.value??"";}
  return merged;
 }
 function supplementaryHint(missing){
  const identity=missing.includes("eindeutige ISIN");
  const staticFields=missing.some(v=>["Produktrichtung","Hebel","KO-Schwelle"].includes(v));
  const quotes=missing.some(v=>["Produktkurs","Geld-/Briefkurse für den Spread","bestätigte aktuelle Kursdaten mit Zeitstempeln"].includes(v));
- return (identity?"Bitte ein Bild mit eindeutig sichtbarer ISIN hochladen. ":"")+(staticFields?"Bitte Produktübersicht mit Richtung, Hebel und KO-Schwelle ergänzen. ":"")+(quotes?"Bitte Kursdatenbild mit ISIN, Geld, Brief und vollständiger Kurszeit ergänzen. ":"")+"Erkannte Werte bitte am Original prüfen.";
+ return (identity?"Bitte ein Bild mit eindeutig sichtbarer ISIN hochladen. ":"")+(staticFields?"Bitte Produktübersicht mit Richtung, Hebel und KO-Schwelle ergänzen. Für Hebel und KO sind eigene datierte Quellen erforderlich; ein neues Kursbild erneuert sie nicht. ":"")+(quotes?"Bitte Kursdatenbild mit ISIN, Geld, Brief und ausdrücklich zugeordneter Kurszeit (Datum, Sekunden, Zeitzone) ergänzen. Uploadzeit zählt nicht. ":"")+"Erkannte Werte bitte am Original prüfen.";
 }
 function screenshotTimeLabel(x){
- return x?.sourceTime?"Kursstand im Bild: "+x.sourceTime+" · Zeitzone nicht angegeben; Aktualität nicht verifiziert. Kein Live-Kurs.":"Kurszeit fehlt – Aktualität nicht prüfbar. Kein Live-Kurs.";
+ const e=x?.evidence?.Geld;
+ if(e?.at){const t=evidenceTiming(e);return 'Kursquelle: '+e.at+' · '+(t.fresh?'höchstens 60 Sekunden alt':t.ageSeconds===null?'Zeit unklar':t.ageSeconds+' s alt / gesperrt')+' · Momentaufnahme, keine Live-Verifizierung.';}
+ return x?.sourceTime?'Kursstand im Bild: '+x.sourceTime+' · Aktualität nicht verifiziert. Vollständige, ausdrücklich zugeordnete Kurszeit mit Sekunden und Zeitzone erforderlich.':'Kurszeit fehlt – Aktualität nicht prüfbar. Kein Live-Kurs.';
 }
 function screenshotSummary(x){
  if(!x)return "";
- const rows=Object.entries(x.evidence||{}).map(([key,e])=>'<tr><td>'+esc(key)+'</td><td>'+esc(e.value)+'</td><td>'+esc(e.source)+'</td></tr>').join("");
- return '<div class="small"><b>Erkannte Angaben – bitte prüfen</b><table style="width:100%"><thead><tr><th>Angabe</th><th>Wert</th><th>Bildquelle</th></tr></thead><tbody>'+rows+'</tbody></table>'+esc(screenshotTimeLabel(x))+'</div>';
+ const rows=Object.entries(x.evidence||{}).map(([key,e])=>{const t=evidenceTiming(e);return '<tr><td>'+esc(key)+'</td><td>'+esc(e.value)+'</td><td>'+esc(e.source)+'</td><td>'+esc(e.at||'Zeit / Zeitzone fehlt')+(key==='Richtung'?'':' · '+esc(t.ageSeconds===null?'gesperrt':t.ageSeconds+' s · '+(t.fresh?'≤ 60 s':'gesperrt')))+'</td></tr>';}).join("");
+ return '<div class="small"><b>Erkannte Angaben – bitte prüfen</b><table style="width:100%"><thead><tr><th>Angabe</th><th>Wert</th><th>Bildquelle</th><th>Quellenzeit</th></tr></thead><tbody>'+rows+'</tbody></table>'+esc(screenshotTimeLabel(x))+'</div>';
 }
 function manualProductMissing(p){
  const missing=[];
@@ -309,6 +368,7 @@ function inject(){
  '<span id="dgShotLabel3" style="margin-top:7px;font-weight:700;font-size:12px">Bild 3 <span style="font-weight:400">(optional)</span></span><input id="dgCentralShot3" type="file" accept="image/*" style="display:none"></label>'+
  '</div><div id="dgCentralStatus" class="small" style="margin-top:9px">Noch keine Bilder hochgeladen.</div></div>'+
  '<div id="dgMissingProducts" style="margin-top:12px"></div>'+
+ '<div id="dgManualSnapshots" style="margin-top:12px"></div>'+
  '<div id="dgTop3Out" style="margin-top:12px"></div>'+
  '<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:700">Details / manuelle Korrektur</summary><div class="small" style="margin:7px 0">Nur öffnen, wenn Bob einen Wert aus dem Screenshot nicht sicher erkennt.</div><div id="dgTop3Inputs"></div></details>'+
  '<button style="margin-top:10px;width:100%" id="dgRankBtn">🔎 Analyse erneut ausführen</button>';
@@ -317,14 +377,15 @@ function inject(){
  for(let i=1;i<=12;i++){
   const r=document.createElement("div");
   r.style.cssText="margin:8px 0;padding:9px;background:#fff;border-radius:10px";
-  r.innerHTML='<b>Kandidat '+i+'</b><div id="dgOcrStatus'+i+'" class="small" style="margin-top:5px">Wartet auf Screenshot.</div><div id="dgResearch'+i+'" class="small research" style="margin-top:5px">🌐 Zusatzdaten: warten auf ISIN.</div><div class="grid" style="margin-top:6px"><input data-dg="name" data-i="'+i+'" placeholder="Produktname / ISIN"><select data-dg="dir" data-i="'+i+'"><option value="">Richtung</option><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select><input data-dg="price" data-i="'+i+'" type="number" step=".0001" placeholder="Produktkurs"><input data-dg="lev" data-i="'+i+'" type="number" step=".1" placeholder="Hebel"><input data-dg="ko" data-i="'+i+'" type="number" step=".01" placeholder="KO-Level"><input data-dg="spread" data-i="'+i+'" type="number" step=".01" min="0" placeholder="Spread"><input data-dg="isin" data-i="'+i+'" placeholder="ISIN"></div><label class="small"><input data-dg="confirmed" data-i="'+i+'" type="checkbox"> ISIN am DEGIRO-Screenshot geprüft</label><button data-research="'+i+'">Aktuelle Produktdaten laden</button>';
-  r.insertAdjacentHTML("beforeend",'<div style="margin-top:8px"><label for="dgDetailShot'+i+'">📷 Zusatzbild für dieses Produkt hochladen</label><input id="dgDetailShot'+i+'" type="file" accept="image/*"><div class="small">Produktdetail oder Kursdaten mit sichtbarer ISIN. Mehrere Bilder können nacheinander ergänzt werden.</div></div>');
+  r.innerHTML='<b>Kandidat '+i+'</b><div id="dgOcrStatus'+i+'" class="small" style="margin-top:5px">Wartet auf Screenshot.</div><div id="dgResearch'+i+'" class="small research" style="margin-top:5px">🌐 Zusatzdaten: warten auf ISIN.</div><div class="grid" style="margin-top:6px"><input data-dg="name" data-i="'+i+'" placeholder="Produktname / ISIN"><select data-dg="dir" data-i="'+i+'"><option value="">Richtung</option><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select><input data-dg="price" data-i="'+i+'" type="number" step=".0001" placeholder="Produktkurs"><input data-dg="lev" data-i="'+i+'" type="number" step=".1" placeholder="Hebel"><input data-dg="ko" data-i="'+i+'" type="number" step=".01" placeholder="KO-Level"><input data-dg="spread" data-i="'+i+'" type="number" step=".01" min="0" placeholder="Spread"><input data-dg="isin" data-i="'+i+'" placeholder="ISIN"></div><label class="small"><input data-dg="confirmed" data-i="'+i+'" type="checkbox"> ISIN, erkannte Werte und zugeordnete Quellenzeiten am Original geprüft</label><button data-research="'+i+'">Aktuelle Produktdaten laden</button>';
+  r.insertAdjacentHTML("beforeend",'<div id="dgEvidence'+i+'"></div><div style="margin-top:8px"><label for="dgDetailShot'+i+'">📷 Zusatzbild für dieses Produkt hochladen</label><input id="dgDetailShot'+i+'" type="file" accept="image/*"><div class="small">Produktdetail oder Kursdaten mit sichtbarer ISIN. Mehrere Bilder können nacheinander ergänzt werden. Kurszeit braucht Datum, Sekunden und Zeitzone; Hebel und KO benötigen eigene Quellenzeiten. Fehlende Zeiten werden nicht ergänzt.</div></div>');
   q.appendChild(r);
   r.querySelector("#dgDetailShot"+i).addEventListener("change",e=>readScreenshot(i,e.target.files?.[0]));
   r.querySelector('[data-research]').addEventListener('click',()=>enrichProduct(i));
   r.querySelector('[data-dg="confirmed"]').addEventListener('change',()=>{enrichProduct(i);rankUI();});
   r.querySelectorAll('[data-dg]').forEach(el=>el.addEventListener('input',()=>{if(el.dataset.dg!=="confirmed"){productQuotes.delete(i);detailScreenshots.delete(i);rowVersions.set(i,(rowVersions.get(i)||0)+1);if(el.dataset.dg==="isin")r.querySelector('[data-dg="confirmed"]').checked=false;}rankUI();}));
  }
+ populateCandidateRows(loadIdentities());
  let centralTexts=[],centralRecoveries=[];
  async function processCentralShot(file,label,slot){
   if(!file)return;
@@ -355,6 +416,8 @@ function inject(){
  setInterval(()=>{if(!document.hidden)rankUI();},1000);
 }
 function rankUI(){
+ saveIdentities();
+ for(let i=1;i<=12;i++){const out=document.getElementById('dgEvidence'+i),html=screenshotSummary(detailScreenshots.get(i));if(out&&out.innerHTML!==html)out.innerHTML=html;}
  for(const [i,q] of productQuotes){
   const state=document.getElementById("dgQuoteState"+i),timing=quoteTiming(q);
   if(state)state.textContent=q.eligible&&q.marketOpen&&timing.fresh?"aktuell · "+timing.ageSeconds+" s alt":"GESPERRT · "+(timing.ageSeconds===null?"Zeitstempel unbekannt":timing.ageSeconds+" s alt")+(q.marketOpen?"":" · Markt geschlossen");
@@ -371,14 +434,19 @@ function rankUI(){
   leverage:n(document.querySelector('[data-dg="lev"][data-i="'+i+'"]')?.value),
   ko:n(document.querySelector('[data-dg="ko"][data-i="'+i+'"]')?.value),
   spread:n(document.querySelector('[data-dg="spread"][data-i="'+i+'"]')?.value),
-  quote:productQuotes.get(i),isinConfirmed:document.querySelector('[data-dg="confirmed"][data-i="'+i+'"]')?.checked===true,
+  snapshot:detailScreenshots.get(i),quote:productQuotes.get(i),isinConfirmed:document.querySelector('[data-dg="confirmed"][data-i="'+i+'"]')?.checked===true,
   spot:s
  }));
  const missingOut=document.getElementById("dgMissingProducts");
  if(missingOut){
-  const cards=ps.map((p,z)=>{const i=z+1,missing=missingProductData(p);return{p,i,missing};}).filter(x=>(x.p.name||x.p.isin)&&x.missing.length);
-  const html=cards.length?'<b>📷 Für diese Produkte brauche ich weitere Daten</b>'+cards.map(({p,i,missing})=>'<div style="margin-top:8px;padding:10px;background:#fff;border:1px solid #e1e7f0;border-radius:12px"><b>'+esc(p.isin||p.name)+'</b><div class="small">Fehlt / prüfen: '+esc(missing.join(" · "))+'</div>'+screenshotSummary(detailScreenshots.get(i))+'<button data-detail-upload="'+i+'">Zusatzbild für dieses Produkt hochladen</button><div class="small">'+esc(document.getElementById("dgOcrStatus"+i)?.textContent||"")+'</div><div class="small">'+esc(supplementaryHint(missing))+'</div></div>').join(""):"";
+  const cards=ps.map((p,z)=>{const i=z+1;let missing=missingProductData(p);if(!currentQuote(p)&&p.snapshot){const state=manualSnapshotStatus(p,p.snapshot);if(state.complete)missing=[];else missing.push(...state.reasons);}return{p,i,missing};}).filter(x=>(x.p.name||x.p.isin)&&x.missing.length&&needsDirectionalData(x.p,d));
+  const html=cards.length?'<b>📷 Neue Bilder für '+esc(d)+'-Produkte benötigt</b>'+cards.map(({p,i,missing})=>'<div style="margin-top:8px;padding:10px;background:#fff;border:1px solid #e1e7f0;border-radius:12px"><b>'+esc(p.isin||p.name)+'</b><div class="small">Fehlt / prüfen: '+esc(missing.join(" · "))+'</div>'+screenshotSummary(detailScreenshots.get(i))+'<button data-detail-upload="'+i+'">Zusatzbild für dieses Produkt hochladen</button><div class="small">'+esc(document.getElementById("dgOcrStatus"+i)?.textContent||"")+'</div><div class="small">'+esc(supplementaryHint(missing))+'</div></div>').join(""):"";
   if(missingOut.dataset.content!==html){missingOut.innerHTML=html;missingOut.dataset.content=html;missingOut.querySelectorAll('[data-detail-upload]').forEach(btn=>btn.addEventListener("click",()=>document.getElementById("dgDetailShot"+btn.dataset.detailUpload)?.click()));}
+ }
+ const manualOut=document.getElementById("dgManualSnapshots");
+ if(manualOut){
+  const assessed=d==="NEUTRAL"||!spotFresh?[]:ps.filter(p=>p.productDirection===d&&!currentQuote(p)&&manualSnapshotStatus(p,p.snapshot).complete).map(p=>({...p,evaluation:evaluateProduct({...p,spot:s,direction:d,atr:a})})).filter(p=>p.evaluation.ok&&p.evaluation.fit);
+  manualOut.innerHTML=assessed.length?'<b>📷 Zeitlich vollständige Momentaufnahmen</b>'+assessed.map(p=>'<div class="small">'+esc(p.isin)+' · Brief '+esc(p.snapshot.ask)+' EUR · Geld '+esc(p.snapshot.bid)+' EUR · Spread '+esc(p.spread)+' EUR · Hebel '+esc(p.leverage)+' · KO '+esc(p.ko)+'<br>Technische Passung der gespeicherten Werte. Laufende Aktualisierung, Marktstatus und Ausführbarkeit nicht bestätigt – keine Live-Freigabe.</div>').join(''):'';
  }
  const r=rankProducts(ps,{requireFreshQuotes:true,spotFresh,direction:d,atr:a,spot:s,trend:document.getElementById("trend")?.textContent,trend2:document.getElementById("trend2")?.textContent,mtf:document.getElementById("mtfSummary")?.textContent,rsi:n(document.getElementById("rsi")?.textContent),hist:n(document.getElementById("hist")?.textContent),adx:n(document.getElementById("adx")?.textContent),momentum:n(document.getElementById("momentum")?.textContent)});
  const o=document.getElementById("dgTop3Out");if(!o)return r;
@@ -418,5 +486,5 @@ function rankUI(){
 }
 
 if(typeof document!=="undefined"){if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",()=>{try{inject();}catch(e){console.warn(e);}});else try{inject();}catch(e){console.warn(e);}}
-window.BobDegiro={riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();

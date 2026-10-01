@@ -1012,7 +1012,7 @@ function checkDgProduct(){
  const name=BobDegiro.escapeHtml($("dgName").value.trim()||"DEGIRO-Produkt");
  const isin=BobDegiro.escapeHtml($("dgIsin").value.trim()||"ISIN nicht eingetragen");
  if(!result.ok){$("dgProductOut").innerHTML="<b>Keine Prüfung möglich.</b> "+result.reasons.join(" · ");return;}
- const badge=direction==="NEUTRAL"?"🟡 Kein bestätigtes Richtungsszenario – keine Freigabe":result.fit?"🟢 passt zum aktuellen Szenario":"🟡 mit Warnungen prüfen";
+ const badge="🟡 Manuelle Rechenprüfung ohne datierte Quellen – keine aktuelle Freigabe";
  const koText=result.koDistancePct==null?"KO-Abstand —":result.koDistancePct.toFixed(2)+"%";
  $("dgProductOut").innerHTML="<b>"+badge+"</b><br>"+name+" · "+isin+
    "<br>Bob-Szenario: <b>"+direction+"</b> · Produkt: <b>"+(result.direction||"—")+"</b>"+
