@@ -11,6 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from urllib.request import Request,urlopen
+from urllib.error import HTTPError, URLError
 
 SYMBOL='GCZ26.CMX'
 CONTRACT='GCZ26'
@@ -157,9 +158,27 @@ def _collect():
                 state=analyse(five,hourly,min(at5,at1))
             except (OSError,ValueError,KeyError,TypeError,IndexError) as exc:
                 state=dict(contract=CONTRACT,available=False,direction='NEUTRAL',
-                           reason=str(exc) if isinstance(exc,ValueError) else 'GCZ26-Historie momentan nicht verfügbar')
+                           reason=history_error(exc))
             with _lock:_state=state
         threading.Event().wait(max(1,60-(time.monotonic()-started)))
+
+
+def history_error(exc):
+    # Expose only a controlled error class/status, never upstream bodies,
+    # headers, URLs, or potentially sensitive exception representations.
+    if isinstance(exc, HTTPError):
+        return 'GCZ26-Historie: Datenanbieter antwortet mit HTTP '+str(exc.code)
+    if isinstance(exc, (TimeoutError, URLError)):
+        return 'GCZ26-Historie: Verbindung zum Datenanbieter fehlgeschlagen oder Zeitlimit erreicht'
+    if isinstance(exc, ValueError):
+        # parse_chart's identity/freshness checks contain only fixed messages.
+        message=str(exc)
+        if message in ('Futures-Historie gehört nicht zum bestätigten GCZ26-Kontrakt',
+                       'GCZ26-Handelsdaten zu alt oder Kurszeit zukünftig',
+                       'Doppelte Futures-Kerzen', 'Unerwartete Futures-Historien-Weiterleitung',
+                       'Futures-Historie zu groß'):
+            return message
+    return 'GCZ26-Historie: Antwort fehlt oder Datenformat nicht verwendbar'
 
 
 def ensure_collector():

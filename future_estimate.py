@@ -23,10 +23,10 @@ MAX_GAP = 90
 _lock = threading.Lock()
 _ticks = []
 _spot_ticks = []
-_spot_source_error = 'Investing.com ersetzt durch Gold-API.com'
+_spot_source_error = None
 _thread = None
 _active_until = 0
-_source_error = None
+_source_error = 'Investing.com deaktiviert; ersetzt durch Gold-API.com'
 
 
 def stamp(value):
