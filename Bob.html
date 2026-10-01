@@ -21,6 +21,7 @@ button{background:#111;color:#fff;font-weight:700;border:0;cursor:pointer}.row{d
 .signal{text-align:center;padding:18px;border-radius:15px;font-size:24px;font-weight:800;background:#eee}.small{font-size:12px;color:#666}.ok{color:#087f3e}.bad{color:#b42318}.neutral{color:#8a5a00}
 table{width:100%;border-collapse:collapse}td{padding:8px;border-bottom:1px solid #eee}.right{text-align:right}
 canvas{width:100%;height:220px;border-radius:12px;background:#fafafa}.warning{background:#fff5d6;border-radius:12px;padding:12px;font-size:13px}.research{background:#eef6ff;border-radius:12px;padding:12px;font-size:13px}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#eee;margin:2px;font-size:12px}
+summary{cursor:pointer;font-weight:700;padding:10px 0}details[open]>summary{margin-bottom:8px}.chart-frame{position:relative;padding-left:22px}.axis-price{position:absolute;left:0;top:50%;transform:translateY(-50%) rotate(-90deg);font-size:12px;color:#666}.axis-time{text-align:center;font-size:12px;color:#666}
 </style>
 </head>
 <body>
@@ -86,7 +87,8 @@ try{
 </div>
 
 <div class="card">
-<h3>Datenquelle</h3>
+<h3>Datenquelle: <span id="sourceSummary">neutral · noch nicht geladen</span></h3>
+<details><summary>Details anzeigen</summary>
 <div class="grid">
 <div><label>Markt</label><input value="XAU/USD (Gold)" disabled></div>
 <div><label>Datenanbieter</label><input value="GoldPrice.dev Spot + Yahoo GC=F Futures" disabled></div>
@@ -94,39 +96,42 @@ try{
 <div><label>Kerzen</label><select id="n"><option>100</option><option selected>200</option><option>500</option><option>1000</option></select></div>
 </div>
 <div class="row" style="margin-top:10px"><button onclick="loadData()">🔴 Live XAU/USD laden</button><button onclick="demo()">Demo-Daten</button></div>
+</details>
 <div id="status" class="small" style="margin-top:8px">GoldPrice.dev XAU/USD Spot + Yahoo GC=F Futures. GC=F dient als technische Historie; Spot und Futures sind unterschiedliche Instrumente.</div>
 </div>
 
 <div class="card"><div id="signal" class="signal neutral">Noch keine Analyse</div></div>
 
 <div class="card">
-<h3>Markt</h3><div class="metrics">
+<h3>Markt</h3><p id="marketSummary">Noch keine Bewertung</p><div class="metrics">
 <div class="metric">Preis<b id="price">—</b></div>
+</div><details><summary>Technische Details anzeigen</summary><div class="metrics">
 <div class="metric">RSI(14)<b id="rsi">—</b></div>
 <div class="metric">EMA 20<b id="ema20">—</b></div>
 <div class="metric">EMA 50<b id="ema50">—</b></div>
 <div class="metric">EMA 200<b id="ema200">—</b></div>
 <div class="metric">ATR(14)<b id="atr">—</b></div>
-</div></div>
+</div></details></div>
 
-<div class="card"><h3>Preisverlauf</h3><canvas id="chart" width="800" height="220"></canvas></div>
+<div class="card"><h3>Preisverlauf</h3><div class="chart-frame"><span class="axis-price">Preis</span><canvas id="chart" width="800" height="220" aria-label="Preisverlauf: waagerecht Zeit, senkrecht Preis"></canvas><div class="axis-time">Zeit</div></div></div>
 
 <div class="card"><h3>⏱ Multi-Timeframe</h3>
+<div id="mtfSummary" class="small">—</div><details><summary>Zeitebenen anzeigen</summary>
 <table>
 <tr><td>5 Min.</td><td class="right neutral" id="mtf5">⏳ wird geladen …</td></tr>
 <tr><td>15 Min.</td><td class="right neutral" id="mtf15">⏳ wird geladen …</td></tr>
 <tr><td>1 Std.</td><td class="right neutral" id="mtf1h">⏳ wird geladen …</td></tr>
 <tr><td>4 Std.</td><td class="right neutral" id="mtf4h">⏳ wird geladen …</td></tr>
 </table>
-<div id="mtfSummary" class="small" style="margin-top:10px">—</div>
+</details>
 </div>
-<div class="card"><h3>Momentum</h3><table>
+<div class="card"><details><summary>Momentum langfristig: <span id="momentumSummary">nicht verfügbar</span></summary><p class="small">Bewertung der EMA-Trends in der gewählten Zeitebene; keine feste Signaldauer.</p><table>
 <tr><td>MACD</td><td class="right" id="macd">—</td></tr>
 <tr><td>MACD Signal</td><td class="right" id="macds">—</td></tr>
 <tr><td>MACD Histogramm</td><td class="right" id="hist">—</td></tr>
 <tr><td>Trend EMA20/50</td><td class="right" id="trend">—</td></tr>
 <tr><td>Trend EMA50/200</td><td class="right" id="trend2">—</td></tr>
-</table></div>
+</table></details></div>
 
 <div class="card">
 <h3>🧠 Erweiterte Analyse</h3>
@@ -347,7 +352,20 @@ function rsi(a,p=14){if(a.length<=p)return 50;let g=0,l=0;for(let i=1;i<=p;i++){
 function atr(c,p=14){if(c.length<p+1)return 0;let tr=[];for(let i=1;i<c.length;i++)tr.push(Math.max(c[i].high-c[i].low,Math.abs(c[i].high-c[i-1].close),Math.abs(c[i].low-c[i-1].close)));return tr.slice(-p).reduce((x,y)=>x+y,0)/Math.min(p,tr.length)}
 function calc(){let a=C.map(x=>x.close),e20=a.length>=20?ema(a,20):null,e50=a.length>=50?ema(a,50):null,e200=a.length>=200?ema(a,200):null,R=rsi(a),at=atr(C);const fast=emaSeries(a,12),slow=emaSeries(a,26),macdSeries=a.map((_,i)=>fast[i]-slow[i]);const sigSeries=emaSeries(macdSeries,9);const macd=macdSeries.at(-1),sig=sigSeries.at(-1);A={e20,e50,e200,R,at,macd,sig,hist:macd-sig,ready:false};return A}
 function analyze(){if(!C.length)return;let a=C.map(x=>x.close),x=calc();lastPrice=lastPrice||a.at(-1);$("price").textContent=lastPrice.toFixed(2);$("rsi").textContent=x.R.toFixed(1);$("ema20").textContent=x.e20==null?"n/v":x.e20.toFixed(2);$("ema50").textContent=x.e50==null?"n/v":x.e50.toFixed(2);$("ema200").textContent=x.e200==null?"n/v":x.e200.toFixed(2);$("atr").textContent=x.at.toFixed(2);$("macd").textContent=x.macd.toFixed(3);$("macds").textContent=x.sig.toFixed(3);$("hist").textContent=x.hist.toFixed(3);$("trend").textContent=x.e20!=null&&x.e50!=null?(x.e20>x.e50?"Bullish":"Bearish"):"n/v";$("trend2").textContent=x.e50!=null&&x.e200!=null?(x.e50>x.e200?"Bullish":"Bearish"):"n/v";
+renderCompactAnalysis(x);
 const signalPrice=a.at(-1);A.signalPrice=signalPrice;let score=0;let ready=a.length>=200&&x.e20!=null&&x.e50!=null&&x.e200!=null; if(ready){if(signalPrice>x.e20)score++;if(x.e20>x.e50)score++;if(x.e50>x.e200)score++;if(x.macd>x.sig)score++;if(x.R>50&&x.R<70)score++;if(x.R<30)score--;if(x.R>75)score--;}else score=0;let txt=!ready?"🟡 NEUTRAL · zu wenig Historie":score>=4?"🟢 LONG-Setup":score<=1?"🔴 SHORT-Setup":"🟡 NEUTRAL";$("signal").textContent=txt;$("signal").className="signal "+(score>=4?"ok":score<=1&&ready?"bad":"neutral");draw(a);updateQuick();advancedAnalysis();if(directSpotBundle)Promise.resolve(loadMTF(false,null,directSpotBundle)).catch(e=>console.warn("[BOB] MTF analyze fallback",e))}
+function momentumLabel(x){
+ if(![x.e20,x.e50,x.e200].every(v=>typeof v==="number"&&Number.isFinite(v)))return "nicht verfügbar";
+ if(x.e20>x.e50&&x.e50>x.e200)return "bullish";
+ if(x.e20<x.e50&&x.e50<x.e200)return "bearish";
+ if(x.e20===x.e50||x.e50===x.e200)return "neutral";
+ return "uneinheitlich";
+}
+function renderCompactAnalysis(x){
+ const label=momentumLabel(x),el=$("momentumSummary");
+ el.textContent=label;el.className=label==="bullish"?"ok":label==="bearish"?"bad":"neutral";
+ $("marketSummary").textContent="Trendbewertung: "+label;
+}
 function draw(a){const cv=$("chart"),ctx=cv.getContext("2d"),w=cv.width,h=cv.height;ctx.clearRect(0,0,w,h);const v=C.slice(-120),ps=v.map(x=>x.close).filter(Number.isFinite);if(v.length<2||ps.length<2)return;const mn=Math.min(...ps),mx=Math.max(...ps),pad=18;ctx.beginPath();v.forEach((b,i)=>{const p=Number(b.close),x=pad+i*(w-pad*2)/(v.length-1),y=h-pad-(p-mn)/(mx-mn||1)*(h-pad*2);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.strokeStyle="#222";ctx.lineWidth=2;ctx.stroke();const lp=Number(lastPrice);if(Number.isFinite(lp)){const y=h-pad-(lp-mn)/(mx-mn||1)*(h-pad*2);ctx.setLineDash([5,4]);ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(w-pad,y);ctx.stroke();ctx.setLineDash([])}}
 
 function emaS(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
@@ -1386,6 +1404,16 @@ window.addEventListener("unhandledrejection",e=>{
  const el=$("quickSignal");
  if(el&&el.textContent==="Warte auf Live-Daten"){el.textContent="🔴 BOB-STARTFEHLER";el.className="signal bad";$("quickReason").textContent="Bob-Live-Startfehler: "+(e.reason?.message||String(e.reason));}
 });
+if(typeof MutationObserver!=="undefined"){
+ new MutationObserver(()=>{
+  const status=$("status").textContent;
+  $("sourceSummary").textContent=status.startsWith("LIVE")?"Live-Preis verfügbar":status.startsWith("REFERENZ")?"Referenzdaten":status.includes("Demo")?"Demo-Daten":"neutral · Status prüfen";
+  if(status.includes("zu alt")||status.includes("nicht verfügbar")||status.includes("nicht erreichbar")){
+   $("momentumSummary").textContent="nicht verfügbar";$("momentumSummary").className="neutral";
+   $("marketSummary").textContent="Keine aktuelle Trendbewertung verfügbar";
+  }
+ }).observe($("status"),{childList:true,characterData:true,subtree:true});
+}
 loadData();
 setInterval(()=>{ if(document.visibilityState==="visible") loadData(); }, 60000);
 </script><form method="post" action="/logout" style="text-align:center;margin:24px"><button type="submit">Abmelden</button></form>
