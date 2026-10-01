@@ -247,6 +247,15 @@ function screenshotSummary(x){
  const rows=Object.entries(x.evidence||{}).map(([key,e])=>'<tr><td>'+esc(key)+'</td><td>'+esc(e.value)+'</td><td>'+esc(e.source)+'</td></tr>').join("");
  return '<div class="small"><b>Erkannte Angaben – bitte prüfen</b><table style="width:100%"><thead><tr><th>Angabe</th><th>Wert</th><th>Bildquelle</th></tr></thead><tbody>'+rows+'</tbody></table>'+esc(screenshotTimeLabel(x))+'</div>';
 }
+function manualProductMissing(p){
+ const missing=[];
+ if(!validIsin(p.isin))missing.push("gültige ISIN");
+ if(!(n(p.price)>0))missing.push("Produktkurs");
+ if(!(n(p.leverage)>=1))missing.push("Hebel");
+ if(!(n(p.ko)>0))missing.push("KO-Schwelle");
+ if(n(p.spread)===null||n(p.spread)<0)missing.push("Spread");
+ return missing;
+}
 function missingProductData(p){
  const missing=[];
  if(!validIsin(p.isin))missing.push("eindeutige ISIN");
@@ -409,5 +418,5 @@ function rankUI(){
 }
 
 if(typeof document!=="undefined"){if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",()=>{try{inject();}catch(e){console.warn(e);}});else try{inject();}catch(e){console.warn(e);}}
-window.BobDegiro={riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence};
+window.BobDegiro={riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
