@@ -1,20 +1,65 @@
 """Password-backed browser sessions; no credentials in cookies or URLs."""
 import base64
 import hmac
+import hashlib
 import html
+import json
+import os
+import re
 import secrets
 import threading
 import time
 from http.cookies import SimpleCookie, CookieError
 from urllib.parse import parse_qs
+from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 COOKIE = '__Host-bob_session'
 CSRF_COOKIE = '__Host-bob_login'
 TTL = 8 * 60 * 60
+REMEMBER_TTL = 7 * 24 * 60 * 60
+STORE_URL = os.environ.get('PUSH_SERVICE_URL', '')
+STORE_TOKEN = os.environ.get('PUSH_SERVICE_TOKEN', '')
 LOCK = threading.Lock()
 SESSIONS = {}
 PENDING = {}
 FAILURES = []
+
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def persistent_configured():
+    return bool(STORE_URL and STORE_TOKEN)
+
+
+def session_request(action, token, user='', password='', expiry=None):
+    base = STORE_URL.rstrip('/')
+    if not persistent_configured():
+        raise OSError('Sitzungsspeicher nicht konfiguriert')
+    if not base.startswith(('http://', 'https://')):
+        base = 'http://' + base
+    payload = {'tokenHash': hashlib.sha256(token.encode()).hexdigest()}
+    if action != 'revoke':
+        payload['binding'] = hmac.new(password.encode(),
+            ('bob-browser-session-v1\0'+user+'\0'+token).encode(), hashlib.sha256).hexdigest()
+    if expiry is not None:
+        payload['expiresAt'] = expiry
+    request = Request(base+'/auth-session/'+action, data=json.dumps(payload).encode(),
+        headers={'Content-Type':'application/json', 'X-Bob-Push-Token':STORE_TOKEN}, method='POST')
+    with build_opener(NoRedirect()).open(request, timeout=12) as response:
+        data = response.read(4097)
+    if len(data)>4096:
+        raise ValueError('Sitzungsantwort zu groß')
+    result = json.loads(data)
+    if not isinstance(result, dict):
+        raise ValueError('Ungültige Sitzungsantwort')
+    return result
+
+
+def persistent_token(token):
+    return bool(re.fullmatch(r'v1_[A-Za-z0-9_-]{43}', token))
 
 
 def cookie(headers, name):
@@ -32,6 +77,11 @@ def authenticated(headers, user, password):
     if hmac.compare_digest(headers.get('Authorization', '').encode(), expected.encode()):
         return True
     token = cookie(headers, COOKIE)
+    if persistent_token(token):
+        try:
+            return session_request('check', token, user, password).get('valid') is True
+        except (OSError, ValueError, TypeError):
+            return False
     with LOCK:
         return SESSIONS.get(token, 0) > time.time()
 
@@ -72,7 +122,8 @@ def login_page(handler, error=''):
         if len(PENDING) >= 512:
             PENDING.pop(next(iter(PENDING)))
         PENDING[token] = now + 600
-    body = f'''<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Bob – Anmeldung</title><style>body{{font-family:system-ui;background:#f3f5f8;margin:0;padding:24px}}main{{max-width:360px;margin:8vh auto;background:white;border-radius:18px;padding:28px}}label,input,button{{display:block;box-sizing:border-box;width:100%;margin-top:12px}}input,button{{padding:13px;border:1px solid #ccd3dd;border-radius:9px;font:inherit}}button{{background:#2358b6;color:white}}p{{color:#49566a}}.error{{color:#a12222}}</style><main><h1>Bob anmelden</h1><p>Nutze deine bestehenden Bob-Zugangsdaten.</p><p class="error">{html.escape(error)}</p><form method="post" action="/login"><input type="hidden" name="csrf" value="{token}"><label for="username">Benutzername</label><input id="username" name="username" type="text" autocomplete="username" required maxlength="256"><label for="password">Passwort</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024"><button type="submit">Anmelden</button></form></main></html>'''.encode()
+    remember = '<label style="display:flex;align-items:center;gap:10px"><input style="width:auto;margin:0" type="checkbox" name="remember" value="1"> Angemeldet bleiben (7 Tage)</label><p>Nur auf deinem eigenen Gerät verwenden. Abmelden beendet die Sitzung auch nach einem Serverneustart.</p>' if persistent_configured() else ''
+    body = f'''<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Bob – Anmeldung</title><style>body{{font-family:system-ui;background:#f3f5f8;margin:0;padding:24px}}main{{max-width:360px;margin:8vh auto;background:white;border-radius:18px;padding:28px}}label,input,button{{display:block;box-sizing:border-box;width:100%;margin-top:12px}}input,button{{padding:13px;border:1px solid #ccd3dd;border-radius:9px;font:inherit}}button{{background:#2358b6;color:white}}p{{color:#49566a}}.error{{color:#a12222}}</style><main><h1>Bob anmelden</h1><p>Nutze deine bestehenden Bob-Zugangsdaten.</p><p class="error">{html.escape(error)}</p><form method="post" action="/login"><input type="hidden" name="csrf" value="{token}"><label for="username">Benutzername</label><input id="username" name="username" type="text" autocomplete="username" required maxlength="256"><label for="password">Passwort</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024">{remember}<button type="submit">Anmelden</button></form></main></html>'''.encode()
     send(handler, 200, body, cookies=[set_cookie(CSRF_COOKIE, token, 600)])
 
 
@@ -104,7 +155,19 @@ def login(handler, user, password):
                 FAILURES.append(now)
             login_page(handler, 'Anmeldung fehlgeschlagen. Bitte Zugangsdaten prüfen.')
             return
-        token = secrets.token_urlsafe(32)
+        remember = fields.get('remember') == ['1']
+        age = REMEMBER_TTL if remember else TTL
+        token = ('v1_' if remember else '') + secrets.token_urlsafe(32)
+        old_token = cookie(handler.headers, COOKIE)
+        try:
+            if persistent_token(old_token):
+                if session_request('revoke', old_token).get('ok') is not True:
+                    raise ValueError('Sitzung nicht beendet')
+            if remember and session_request('create', token, user, password, now+age).get('ok') is not True:
+                raise ValueError('Sitzung nicht gespeichert')
+        except (OSError, ValueError, TypeError):
+            login_page(handler, 'Dauerhafte Anmeldung momentan nicht verfügbar. Bitte später erneut versuchen oder ohne „Angemeldet bleiben“ anmelden.')
+            return
         with LOCK:
             for key, expiry in list(SESSIONS.items()):
                 if expiry <= now:
@@ -112,8 +175,9 @@ def login(handler, user, password):
             SESSIONS.pop(cookie(handler.headers, COOKIE), None)
             if len(SESSIONS) >= 512:
                 SESSIONS.pop(next(iter(SESSIONS)))
-            SESSIONS[token] = now + TTL
-        send(handler, 303, location='/', cookies=[set_cookie(COOKIE, token, TTL), set_cookie(CSRF_COOKIE, '', 0)])
+            if not remember:
+                SESSIONS[token] = now + age
+        send(handler, 303, location='/', cookies=[set_cookie(COOKIE, token, age), set_cookie(CSRF_COOKIE, '', 0)])
     except (ValueError, UnicodeError):
         send(handler, 400, b'Ungueltige Anmeldung.')
 
@@ -122,6 +186,14 @@ def logout(handler):
     if not same_origin(handler.headers):
         send(handler, 403)
         return
+    token = cookie(handler.headers, COOKIE)
+    if persistent_token(token):
+        try:
+            if session_request('revoke', token).get('ok') is not True:
+                raise ValueError('Sitzung nicht beendet')
+        except (OSError, ValueError, TypeError):
+            send(handler, 503, 'Abmelden momentan nicht möglich: Sitzungsspeicher nicht erreichbar. Bitte erneut versuchen.'.encode())
+            return
     with LOCK:
-        SESSIONS.pop(cookie(handler.headers, COOKIE), None)
+        SESSIONS.pop(token, None)
     send(handler, 303, location='/login', cookies=[set_cookie(COOKIE, '', 0)])
