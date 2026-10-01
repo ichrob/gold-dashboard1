@@ -48,7 +48,10 @@ def session_request(action, token, user='', password='', expiry=None):
         payload['expiresAt'] = expiry
     request = Request(base+'/auth-session/'+action, data=json.dumps(payload).encode(),
         headers={'Content-Type':'application/json', 'X-Bob-Push-Token':STORE_TOKEN}, method='POST')
-    with build_opener(NoRedirect()).open(request, timeout=12) as response:
+    # A sleeping free Render backend takes about a minute to start. Keep the
+    # authenticated request pending through that start instead of falsely rejecting
+    # a valid browser session after twelve seconds. No redirect or auth bypass.
+    with build_opener(NoRedirect()).open(request, timeout=75) as response:
         data = response.read(4097)
     if len(data)>4096:
         raise ValueError('Sitzungsantwort zu groß')
