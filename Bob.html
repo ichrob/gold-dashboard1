@@ -113,7 +113,7 @@ try{
 <div class="metric">ATR(14)<b id="atr">—</b></div>
 </div></details></div>
 
-<div class="card"><h3>Preisverlauf</h3><div id="chartLatest" class="small" aria-live="polite">Letzter Preis: — · Kurszeit: —</div><div class="chart-frame"><span class="axis-price">Preis</span><canvas id="chart" width="800" height="220" aria-label="Preisverlauf: waagerecht Zeit, senkrecht Preis"></canvas><div class="axis-time">Zeit</div></div></div>
+<div class="card"><h3>Preisverlauf</h3><div id="chartLatest" class="small" aria-live="polite">Letzter Preis: — · Kurszeit: —</div><div class="chart-frame"><span class="axis-price">Preis</span><canvas id="chart" width="800" height="220" aria-label="Preisverlauf: waagerecht Zeit, senkrecht Preis"></canvas><div class="axis-time">Zeit</div></div><div id="chartFib" class="small" style="margin-top:8px">Fibonacci: noch keine bestätigten Level.</div></div>
 
 <div class="card"><h3>⏱ Multi-Timeframe</h3>
 <div id="mtfSummary" class="small">—</div><details><summary>Zeitebenen anzeigen</summary>
@@ -377,14 +377,18 @@ function draw(a){
  const priceLabel=p=>p.toLocaleString("de-CH",{minimumFractionDigits:2,maximumFractionDigits:2});
  const lp=Number(lastPrice);
  $("chartLatest").textContent="Letzter Preis: "+(lp>0?priceLabel(lp)+" USD":"—")+" · Kurszeit: "+(quoteAt?new Date(quoteAt).toLocaleString("de-CH",{timeZone:"Europe/Zurich"}):"nicht verfügbar")+" · Schweizer Zeit";
- if(v.length<2){ctx.fillStyle="#666";ctx.font="16px sans-serif";ctx.fillText("Kein historischer Verlauf mit Zeitangaben verfügbar",20,110);return;}
+ if(v.length<2){$("chartFib").textContent="Fibonacci: keine bestätigten Level verfügbar.";ctx.fillStyle="#666";ctx.font="16px sans-serif";ctx.fillText("Kein historischer Verlauf mit Zeitangaben verfügbar",20,110);return;}
  v.sort((a,b)=>Number(a.openTime)-Number(b.openTime));
- const ps=v.map(b=>Number(b.close)),lo=Math.min(...ps),hi=Math.max(...ps),margin=Math.max((hi-lo)*.08,.5),mn=lo-margin,mx=hi+margin;
- const left=90,right=w-20,top=15,bottom=h-42,start=Number(v[0].openTime),end=Number(v.at(-1).openTime);
+ const fib=A.ready&&A.fibonacci?.valid?A.fibonacci:null;
+ const fibRows=fib?[["38,2 %",fib.levels.r382],["50 %",fib.levels.r500],["61,8 %",fib.levels.r618],["78,6 %",fib.levels.r786],["Ext. 127,2 %",fib.levels.e1272],["Ext. 161,8 %",fib.levels.e1618]].filter(r=>Number.isFinite(r[1])):[];
+ $("chartFib").textContent=fibRows.length?"Fibonacci · "+fibRows.map(r=>r[0]+": "+priceLabel(r[1])+" USD").join(" · "):"Fibonacci: keine bestätigten Level verfügbar.";
+ const ps=[...v.map(b=>Number(b.close)),...fibRows.map(r=>r[1])],lo=Math.min(...ps),hi=Math.max(...ps),margin=Math.max((hi-lo)*.08,.5),mn=lo-margin,mx=hi+margin;
+ const left=90,right=w-180,top=15,bottom=h-42,start=Number(v[0].openTime),end=Number(v.at(-1).openTime);
  const x=t=>left+(t-start)/(end-start||1)*(right-left),y=p=>bottom-(p-mn)/(mx-mn)*(bottom-top);
  ctx.font="14px sans-serif";ctx.lineWidth=1;
  for(let i=0;i<=4;i++){const p=mn+(mx-mn)*i/4,py=y(p);ctx.strokeStyle="#e0e0e0";ctx.beginPath();ctx.moveTo(left,py);ctx.lineTo(right,py);ctx.stroke();ctx.fillStyle="#555";ctx.textAlign="right";ctx.fillText(priceLabel(p),left-8,py+5);}
  for(let i=0;i<=4;i++){const t=start+(end-start)*i/4,px=x(t);ctx.textAlign=i===0?"left":i===4?"right":"center";ctx.fillText(timeLabel(t),px,bottom+23);}
+ for(const [label,p] of fibRows){const py=y(p);ctx.strokeStyle=label.startsWith("Ext.")?"#7c3aed":"#087f8c";ctx.lineWidth=1;ctx.setLineDash([6,4]);ctx.beginPath();ctx.moveTo(left,py);ctx.lineTo(right,py);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=ctx.strokeStyle;ctx.textAlign="left";ctx.font="12px sans-serif";ctx.fillText(label+" · "+priceLabel(p),right+7,py+4);}
  ctx.strokeStyle="#222";ctx.lineWidth=2;ctx.beginPath();v.forEach((b,i)=>{i?ctx.lineTo(x(Number(b.openTime)),y(Number(b.close))):ctx.moveTo(x(Number(b.openTime)),y(Number(b.close)))});ctx.stroke();
  const last=v.at(-1);ctx.beginPath();ctx.arc(x(Number(last.openTime)),y(Number(last.close)),4,0,Math.PI*2);ctx.fillStyle="#222";ctx.fill();
  ctx.textAlign="left";ctx.font="12px sans-serif";ctx.fillStyle="#666";ctx.fillText(new Date(start).toLocaleDateString("de-CH",{timeZone:"Europe/Zurich"})+" – "+new Date(end).toLocaleDateString("de-CH",{timeZone:"Europe/Zurich"}),left,h-4);
@@ -998,7 +1002,7 @@ function advancedAnalysis(){
  $("score").textContent=verdict+" · "+score.toFixed(0)+"/100";
  $("score").className="signal "+(score>=70?"ok":score<=30?"bad":"neutral");
  $("scoreDetails").textContent=evidence.join(" · ")+" · Regime "+regime+" · CRV "+(rr?rr.toFixed(2)+"R":"n/v");
- A.score=score; A.ready=Boolean(C.length>=200&&A.e20!=null&&A.e50!=null&&A.e200!=null); A.adx=ad; A.support=lv.sup; A.resistance=lv.res; A.weights=w; A.regime=regime; A.fibonacci=fibCore; A.crv=rr; updateQuick(); updateResearchPanel();
+ A.score=score; A.ready=Boolean(C.length>=200&&A.e20!=null&&A.e50!=null&&A.e200!=null); A.adx=ad; A.support=lv.sup; A.resistance=lv.res; A.weights=w; A.regime=regime; A.fibonacci=fibCore; A.crv=rr; updateQuick(); updateResearchPanel(); draw();
 }
 
 function updateQuick(){
