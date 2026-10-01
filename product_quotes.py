@@ -10,6 +10,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 from zoneinfo import ZoneInfo
 
 MAX_AGE_SECONDS = 60
@@ -93,6 +94,22 @@ def parse_sg(product, properties, isin, now=None):
                               direction='LONG' if side == 'Call' else 'SHORT', ko=ko,
                               status=status), maxAgeSeconds=MAX_AGE_SECONDS)
 
+def sg_source_error(exc, stage):
+    # Fixed descriptions only: never expose provider bodies, URLs or headers.
+    stages = {'identity': 'Produktidentität', 'properties': 'Produkteigenschaften',
+              'dated-quotes': 'datierte Kurse'}
+    label = stages.get(stage, 'Produktdaten')
+    if isinstance(exc, HTTPError):
+        detail = 'Datenanbieter antwortet mit HTTP '+str(exc.code)
+    elif isinstance(exc, (TimeoutError, URLError, OSError)):
+        detail = 'Verbindung fehlgeschlagen oder Zeitlimit erreicht'
+    elif isinstance(exc, ValueError) and str(exc) == 'Kursdaten fehlen':
+        detail = 'Kursdaten fehlen'
+    else:
+        detail = 'Antwort nicht verwendbar oder Pflichtangaben fehlen'
+    return 'SG '+label+': '+detail
+
+
 def get_sg_quote(isin):
     stage = 'identity'
     try:
@@ -127,8 +144,8 @@ def get_sg_quote(isin):
         print(f'BOB_SG isin={isin} stage={stage} error={type(exc).__name__}', flush=True)
         return dict(found=False, eligible=False, fresh=False, isin=isin,
                     source='Société Générale · öffentliche Produktrecherche',
-                    reason=('SG-Produktdaten nicht bestätigt: '+str(exc) if isinstance(exc, ValueError)
-                            else 'SG-Produktdaten nicht bestätigt oder Quelle nicht erreichbar'))
+                    productVerified=stage != 'identity', sourceFailure=True,
+                    reason=sg_source_error(exc, stage))
 
 def valid_isin(value):
     if not re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]', value) or re.match(r'DE(?=[0O]{3})(?=[0O]{0,2}O)', value):
@@ -168,7 +185,8 @@ def freshness(result, now=None):
     result['eligible'] = bool(result.get('found') and result['fresh'] and result.get('marketOpen') and now <= stamp(result['tradingEndAt']))
     if result.get('metadata', {}).get('underlyingType') == 'FUTURE':
         result['eligible'] = False
-        result['reason'] = 'Gold-Future: eigener bedingter Kontraktvergleich; keine Spot-Freigabe'
+        if not result.get('sourceFailure'):
+            result['reason'] = 'Gold-Future: eigener bedingter Kontraktvergleich; keine Spot-Freigabe'
     if result.get('found') and not result['eligible'] and result.get('metadata', {}).get('underlyingType') != 'FUTURE':
         result['reason'] = 'Kurs veraltet, Markt geschlossen oder Zeitstempel nicht prüfbar'
     result['pricePolicy'] = 'direct-then-verified-model'
@@ -224,7 +242,7 @@ def get_quote(isin):
         sg = pool.submit(get_sg_quote, isin)
         result = bnp.result()
         sg_result = sg.result()
-    if not result.get('found') and sg_result.get('productVerified'):
+    if not result.get('found') and (sg_result.get('productVerified') or isin in SG_GOLD_FUTURES):
         result = sg_result
     with _LOCK:
         if len(_CACHE) >= 256:
