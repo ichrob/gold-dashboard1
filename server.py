@@ -19,6 +19,7 @@ PASSWORD = os.environ.get("BOB_PASSWORD", "")
 PUSH_SERVICE_URL = os.environ.get("PUSH_SERVICE_URL", "")
 PUSH_SERVICE_TOKEN = os.environ.get("PUSH_SERVICE_TOKEN", "")
 SIGNAL_WORKER_TOKEN = os.environ.get("SIGNAL_WORKER_TOKEN", "")
+FIB_MONITOR_HEALTH = {"configured": bool(PUSH_SERVICE_URL and PUSH_SERVICE_TOKEN), "status": "starting", "lastCheckedAt": None, "lastSuccessAt": None}
 
 BASE_DIR = Path(__file__).resolve().parent
 HTML_PATH = BASE_DIR / "Bob.html"
@@ -619,7 +620,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error":str(exc)}).encode("utf-8"))
             return
         if path == "/health":
-            body = b'{"status":"ok","service":"bob"}'
+            body = json.dumps({"status":"ok","service":"bob","fibonacciMonitor":dict(FIB_MONITOR_HEALTH)},separators=(",",":")).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -983,6 +984,7 @@ class Handler(BaseHTTPRequestHandler):
 def fibonacci_monitor_loop():
     """Monitor registered active trades using existing free services."""
     if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
+        FIB_MONITOR_HEALTH["status"] = "unconfigured"
         print("BOB_FIB monitor_unconfigured", flush=True)
         return
     base = PUSH_SERVICE_URL.rstrip("/")
@@ -993,6 +995,8 @@ def fibonacci_monitor_loop():
             request = Request(base+"/monitor-status", headers={"X-Bob-Push-Token":PUSH_SERVICE_TOKEN})
             with urlopen(request, timeout=10) as response:
                 active = json.loads(response.read(4096)).get("activeMonitors", 0)
+            FIB_MONITOR_HEALTH.update(status="active" if active else "idle", lastCheckedAt=int(time.time()), lastSuccessAt=int(time.time()))
+            print("BOB_FIB monitor_connected active="+str(active), flush=True)
             if active:
                 bundle = build_live_bundle()
                 bars = bundle.get("history", {}).get("bars_by_tf", {})
@@ -1002,6 +1006,7 @@ def fibonacci_monitor_loop():
                     result = json.loads(response.read(4096))
                 print("BOB_FIB monitor_checked active="+str(active)+" sent="+str(result.get("sent",0)), flush=True)
         except Exception as exc:
+            FIB_MONITOR_HEALTH.update(status="unavailable", lastCheckedAt=int(time.time()))
             print("BOB_FIB monitor_error="+type(exc).__name__, flush=True)
         time.sleep(60)
 
