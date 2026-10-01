@@ -335,7 +335,7 @@ def parse_future_research(product, properties, snapshot, fx, isin, now=None):
     except (KeyError, ValueError, TypeError):
         pass
     metadata['futureResearch'] = refresh_future_research(research, now)
-    metadata['reason'] = 'Gold-Future '+contract['ric']+': aktuelle kontraktspezifische Basiswertdaten und eigene Trendprüfung fehlen; keine Spot-Freigabe'
+    metadata['reason'] = 'Gold-Future '+contract['ric']+': eigener bedingter Kontraktvergleich; keine Spot-Freigabe'
     return metadata
 
 
