@@ -53,6 +53,25 @@ assert.equal(added.currency,'EUR');assert.equal(added.ask,24.82);
 assert.equal(added.evidence.KO.source,'details.jpg');
 const undatedKO=b.mergeScreenshotEvidence(snapshot,b.detailScreenshotData(isin+'\nKO 4461',isin),'undated.jpg');
 assert.equal(undatedKO.evidence.KO.at,null);
+const comparisonProduct={...product,snapshot};
+const comparisonContext={direction:'SHORT',spotFresh:true,spot:4000,now};
+assert.equal(b.rankManualSnapshots([comparisonProduct],comparisonContext).total,1);
+assert.equal(b.rankManualSnapshots([comparisonProduct],comparisonContext).liveVerified,false);
+for(const change of [{direction:'NEUTRAL'},{direction:'LONG'},{spotFresh:false},{now:now+30001},{trend:'LONG',trend2:'LONG',mtf:'LONG',hist:1,momentum:1,rsi:65}]){
+ assert.equal(b.rankManualSnapshots([comparisonProduct],{...comparisonContext,...change}).total,0);
+}
+assert.equal(b.rankManualSnapshots([{...comparisonProduct,isinConfirmed:false}],comparisonContext).total,0);
+assert.equal(b.rankManualSnapshots([{...comparisonProduct,ko:4500}],{...comparisonContext,spot:4600}).total,0);
+const lower={...comparisonProduct,leverage:20,snapshot:{...snapshot,evidence:{...snapshot.evidence,Hebel:{...snapshot.evidence.Hebel,value:20}}}};
+const ordered=b.rankManualSnapshots([lower,{...comparisonProduct,leverage:5,snapshot:{...snapshot,evidence:{...snapshot.evidence,Hebel:{...snapshot.evidence.Hebel,value:5}}}}],comparisonContext);
+assert.equal(ordered.total,2);assert.equal(ordered.candidates[0].leverage,5);
+context.document={getElementById:()=>null};
+for(const direction of ['NEUTRAL','LONG','SHORT']){
+ const cards=b.productUploadCards([comparisonProduct,{...comparisonProduct,productDirection:'LONG',name:'<img onerror=bad>'}],direction,now);
+ assert(cards.includes('data-detail-upload="1"'));assert(cards.includes('data-detail-upload="2"'));assert(cards.includes('&lt;img onerror=bad&gt;'));
+ assert(cards.includes('data-card-confirm="1"'));
+ if(direction==='LONG')assert(cards.indexOf('data-detail-upload="2"')<cards.indexOf('data-detail-upload="1"'));
+}
 context.document={querySelector:sel=>{const m=sel.match(/data-dg="([^"]+)".*data-i="(\d+)"/);return m?fields[m[2]+':'+m[1]]:null;}};
 for(const [key,value] of Object.entries({isin,name:'SG Gold SHORT',dir:'SHORT',price:'24.82',lev:'14.01',ko:'4460',spread:'.01'}))fields['1:'+key]={value};
 b.saveIdentities();const saved=JSON.parse(store.get('bobDegiroIdentitiesV1'));
