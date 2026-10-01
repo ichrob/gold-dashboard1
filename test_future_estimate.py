@@ -85,6 +85,17 @@ class EstimateTests(unittest.TestCase):
             state=page();state['keyMetrics'][key]=value
             with self.assertRaises(ValueError):f.parse_page(html(state),NOW)
 
+    def test_collection_reports_actual_coverage_even_when_reference_is_missing(self):
+        with patch.object(f,'_ticks',[tick(30,4100),tick(0,4101)]),patch.object(f,'_source_error',None):
+            out=f.current_estimate(reference(),NOW)
+            self.assertFalse(out['available']);self.assertNotIn('priceUsd',out)
+            self.assertEqual(out['collection']['sampleCount'],2)
+            self.assertEqual(out['collection']['coveredSeconds'],30)
+            self.assertTrue(out['collection']['currentFresh'])
+            stale=f.current_estimate(reference(),NOW+timedelta(seconds=61))
+            self.assertFalse(stale['collection']['currentFresh'])
+            self.assertEqual(stale['collection']['lastAt'],out['collection']['lastAt'])
+
     def test_recording_never_refreshes_cached_timestamp(self):
         with patch.object(f, '_ticks', []):
             f.record_tick(tick(10,4100),NOW)

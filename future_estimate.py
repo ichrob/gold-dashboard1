@@ -192,6 +192,15 @@ def current_estimate(research, now=None):
     with _lock:
         ticks, error = list(_ticks), _source_error
     out = calculate(research, ticks, now)
+    # Source timestamps describe real coverage, never an invented history or
+    # a promise that a particular delayed reference will become available.
+    rows = sorted((stamp(t['at']) for t in ticks if t.get('contract') == CONTRACT))
+    out['collection'] = dict(sampleCount=len(rows),
+        coveredSeconds=round((rows[-1]-rows[0]).total_seconds(),1) if rows else 0,
+        firstAt=rows[0].isoformat() if rows else None,
+        lastAt=rows[-1].isoformat() if rows else None,
+        currentFresh=bool(rows and 0 <= (now-rows[-1]).total_seconds() <= MAX_PROXY_AGE),
+        maxGapSeconds=MAX_GAP)
     if out['available']:
         estimate_quality.record(key,out['priceUsd'],out['priceAt'],out['referenceAt'],now.isoformat())
         horizon=(stamp(out['priceAt'])-stamp(out['referenceAt'])).total_seconds()

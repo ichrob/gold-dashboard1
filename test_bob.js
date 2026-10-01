@@ -271,6 +271,8 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   const now=Date.now(),quoted={...completeProduct,isinConfirmed:true,quote:{found:true,eligible:true,tradingEndAt:new Date(now+60000).toISOString(),marketOpen:true,currency:"EUR",isin:completeProduct.isin,quoteAt:new Date(now-1000).toISOString(),bidAt:new Date(now-1000).toISOString(),askAt:new Date(now-1000).toISOString(),leverageAt:new Date(now-1000).toISOString(),snapshotAt:new Date(now-1000).toISOString(),price:12,leverage:4,ko:3500,spread:0,direction:"LONG"}};
   const freshCtx={...strongCtx,requireFreshQuotes:true,spotFresh:true,now};
   assert(degiro.BobDegiro.rankProducts([quoted],freshCtx).tradeable);
+  assert(!degiro.BobDegiro.needsDirectionalData({...quoted,isinConfirmed:false},"LONG"),"existing dated issuer data must not request redundant screenshots");
+  assert(!degiro.BobDegiro.currentQuote({...quoted,isinConfirmed:false},now),"confirmation remains required for ranking");
   // Synthetic acceptance cases: a direction label must never hide a breached KO barrier.
   for(const ko of [4000,4100]){
     const breached={...quoted,ko,quote:{...quoted.quote,ko}};

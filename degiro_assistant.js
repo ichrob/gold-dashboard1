@@ -40,6 +40,8 @@ function futureResearchText(x,now=Date.now()){
   if(c.available&&Number.isFinite(c.priceUsd)&&c.priceUsd>0&&age>=0&&age<=60&&refAge>=0&&refAge<=1800){
    text+=" · BERECHNETER FUTURE-KURS: "+Number(c.priceUsd).toFixed(2)+" USD · Investing.com CFD-Kurszeit "+at(c.priceAt)+" ("+Math.ceil(age)+" s alt) · echter GCZ26-Referenzkurs "+c.referencePriceUsd+" USD von "+at(c.referenceAt)+" · Zeitversatz "+c.alignmentSeconds+" s"+(c.proxyReferenceKind==="linear-interpolation"?" (CFD-Referenz zeitlich interpoliert)":"")+" · Formel: "+c.formula+" · "+c.note;
   }else text+=" · Berechneter Future-Kurs: "+(c.available?"veraltet – Aktualisierung erforderlich":c.reason||"noch nicht verfügbar");
+  const collection=c.collection;
+  if(collection)text+=" · CFD-Erfassung: "+collection.sampleCount+" Beobachtungen über "+Math.floor(collection.coveredSeconds/60)+" min · letzter CFD-Zeitpunkt "+at(collection.lastAt)+" · "+(collection.currentFresh?"frisch":"nicht aktuell")+(Number.isFinite(c.referenceAgeSeconds)?" · Future-Referenz "+Math.ceil(c.referenceAgeSeconds/60)+" min alt":"");
   text+=" · "+qualityText(c.validation,"USD");
   if(c.sourceStatus)text+=" · CFD-Quelle: "+c.sourceStatus;
  }
@@ -59,7 +61,10 @@ function productEstimateText(x,now=Date.now()){
 }
 function qualityText(v,unit){
  if(!v)return "Genauigkeitsmessung startet";
- if(!v.ready)return "Genauigkeit noch nicht ausreichend gemessen · "+(v.sampleCount||0)+" passende Vergleiche";
+ if(!v.ready){
+  const span=n(v.observedSpanSeconds)??Math.min(n(v.bid?.observedSpanSeconds)||0,n(v.ask?.observedSpanSeconds)||0);
+  return "Genauigkeit noch nicht ausreichend gemessen · "+(v.sampleCount||0)+"/"+(v.minSamples||20)+" passende Vergleiche · Messzeitraum "+Math.floor(span/60)+"/10 min"+(v.horizonBucket?" · Referenzabstand "+v.horizonBucket:"");
+ }
  const error=n(v.maxAbsoluteError)??Math.max(n(v.bid?.maxAbsoluteError)||0,n(v.ask?.maxAbsoluteError)||0);
  return v.sampleCount+" Vergleiche · bisher maximale Abweichung "+Number(error).toFixed(unit==="EUR"?4:2)+" "+unit+" · zukünftige Fehler können größer sein";
 }
@@ -295,6 +300,10 @@ async function enrichProduct(i){
   futureResearchQuotes.delete(i);
   if(x.isin===isin&&(x.futureResearch||!x.found&&x.calculatedProduct))futureResearchQuotes.set(i,x);
   if(x.isin===isin&&x.productVerified&&x.metadata?.underlyingType==="FUTURE")futureIsins.add(isin);
+  if(x.isin===isin&&x.productVerified&&x.metadata){
+   if(["LONG","SHORT"].includes(x.metadata.direction)&&field("dir"))field("dir").value=x.metadata.direction;
+   if(n(x.metadata.ko)>0&&field("ko"))field("ko").value=x.metadata.ko;
+  }
   if(x.found&&x.isin===isin){
    productQuotes.set(i,x);
    for(const [key,val] of Object.entries({price:x.price,lev:x.leverage,ko:x.ko,spread:x.spread,dir:x.direction})){if(field(key))field(key).value=val;}
@@ -339,7 +348,7 @@ function fieldSourceTime(x,key){
 }
 function manualSnapshotStatus(p,x,now=Date.now()){
  const reasons=[],e=x?.evidence||{};
- if(isFutureProduct(p))reasons.push("Gold-Future: eigene Basiswertdaten und Trendprüfung fehlen; keine Spot-Freigabe");
+ if(isFutureProduct(p))reasons.push(p.quote?.futureResearch?.contractAnalysis?.available?"Gold-Future: Kontraktanalyse vorhanden; bedingten Vergleich beachten. Keine Spot-Freigabe":"Gold-Future: eigene Basiswertdaten und Trendprüfung erforderlich; keine Spot-Freigabe");
  if(!x||x.isin!==String(p.isin||'').trim().toUpperCase()||!validIsin(p.isin))reasons.push('Bildidentität nicht bestätigt');
  if(p.isinConfirmed!==true)reasons.push('Erkannte Werte und Quellenzeiten am Original bestätigen');
  if(x?.currency!=='EUR'||!(n(x?.bid)>0)||!(n(x?.ask)>=n(x?.bid)))reasons.push('Geld und Brief in EUR fehlen');
@@ -367,10 +376,10 @@ function productUploadCards(products,direction,now=Date.now()){
  const requested=cards.filter(({p})=>needsDirectionalData(p,direction));
  const requestHtml=requested.length?'<div style="padding:10px;border:1px solid #e1e7f0;border-radius:12px;margin-bottom:10px"><b>Weitere Screenshots benötigt · '+esc(direction)+'</b>'+requested.map(({p,i})=>'<div class="small" style="margin-top:6px"><b>ISIN '+esc(p.isin||'unklar')+'</b> · '+esc(Array.from(new Set([...missingProductData(p),...manualSnapshotStatus(p,p.snapshot,now).reasons])).join(' · '))+' <button data-detail-upload="'+i+'">Bilder ergänzen</button></div>').join('')+'</div>':'';
  return requestHtml+'<b>📷 Gespeicherte Produkte · Bilder ergänzen</b><div class="small">'+(['LONG','SHORT'].includes(direction)?'Passende '+esc(direction)+'-Produkte stehen zuerst.':'ABWARTEN: Bilder können ergänzt werden; es gibt keine Produktempfehlung.')+'</div>'+cards.map(({p,i})=>{
-  const state=manualSnapshotStatus(p,p.snapshot,now),live=currentQuote(p,now);
-  const missing=live||state.complete?[]:Array.from(new Set([...missingProductData(p),...state.reasons]));
+  const state=manualSnapshotStatus(p,p.snapshot,now),live=currentQuote(p,now),issuerData=currentQuote({...p,isinConfirmed:true},now);
+  const missing=issuerData?(p.isinConfirmed?[]:["ISIN und Produktzuordnung am Original bestätigen"]):live||state.complete?[]:Array.from(new Set([...missingProductData(p),...state.reasons]));
   return '<div style="margin-top:8px;padding:10px;background:#fff;border:1px solid #e1e7f0;border-radius:12px"><b>'+esc(p.isin||p.name)+'</b> · '+esc(p.productDirection||'Richtung unklar')+
-   '<div class="small">'+esc(p.name||'')+'</div><div class="small">'+(live?'Datierte Emittentendaten vorhanden; DEGIRO-Ausführungskurs prüfen.':state.complete?'Zeitlich vollständige Momentaufnahme · keine Live-Freigabe.':'Fehlt / prüfen: '+esc(missing.join(' · ')))+'</div>'+
+   '<div class="small">'+esc(p.name||'')+'</div><div class="small">'+(issuerData?'Datierte Emittentendaten vorhanden; '+(p.isinConfirmed?'DEGIRO-Ausführungskurs prüfen.':'ISIN und Produktzuordnung am Original bestätigen.'):state.complete?'Zeitlich vollständige Momentaufnahme · keine Live-Freigabe.':'Fehlt / prüfen: '+esc(missing.join(' · ')))+'</div>'+
    '<div class="small">Zwei Screenshots pro ISIN möglich: Kursbild und Produktdetails gemeinsam auswählen oder nacheinander ergänzen. Beide müssen die ISIN zeigen.</div><button data-detail-upload="'+i+'">Screenshots für dieses Produkt hinzufügen</button> <button data-card-research="'+i+'">Internetrecherche erneut prüfen</button><label class="small" style="display:block"><input data-card-confirm="'+i+'" type="checkbox" '+(p.isinConfirmed?'checked':'')+'> ISIN, Werte und Quellenzeiten am Original geprüft</label>'+
    screenshotSummary(p.snapshot)+'<div class="small">'+esc(document.getElementById('dgOcrStatus'+i)?.textContent||'')+'</div><div class="small">'+esc(supplementaryHint(missing))+'</div></div>';
  }).join('');
@@ -383,7 +392,7 @@ function loadIdentities(){
  try{const items=JSON.parse(localStorage.getItem(IDENTITY_KEY)||'[]');return Array.isArray(items)?items.filter(x=>x&&validIsin(x.isin)).slice(0,12).map(x=>({isin:x.isin,name:String(x.name||x.isin),direction:['LONG','SHORT'].includes(x.direction)?x.direction:''})):[];}catch(_){return [];}
 }
 function needsDirectionalData(p,direction){
- return ['LONG','SHORT'].includes(direction)&&p.productDirection===direction&&!currentQuote(p)&&!manualSnapshotStatus(p,p.snapshot).complete;
+ return ['LONG','SHORT'].includes(direction)&&p.productDirection===direction&&!currentQuote({...p,isinConfirmed:true})&&!manualSnapshotStatus(p,p.snapshot).complete;
 }
 
 function detailScreenshotData(text,expectedIsin){
