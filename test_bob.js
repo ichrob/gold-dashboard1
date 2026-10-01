@@ -85,7 +85,9 @@ assert(!serverSource.includes('WWW-Authenticate')); // HTML login replaces nativ
 assert(serverSource.includes('"xaus_is_spot": spot_source == "XAUS · live"'));
 assert(serverSource.includes('"is_genuine_xauusd_spot": is_spot'));
 assert(serverSource.includes('Never promote technical/futures history to the XAU/USD spot field.'));
-assert(serverSource.includes('"source": (spot_source or "keine Spotquelle") + " + Yahoo Finance GC=F technische Referenz"'));
+assert(serverSource.includes('"source": (spot_source or "keine Spotquelle") + " · Historie "'));
+assert(serverSource.includes('"instrument": "XAU/USD"'));
+assert(serverSource.includes('"instrument":"GC=F"'));
 assert(serverSource.includes("script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net"));
 assert(serverSource.includes("worker-src 'self' blob:"));
 assert(serverSource.includes('"script-src \'self\' \'unsafe-inline\' https://cdn.jsdelivr.net; "'));

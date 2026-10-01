@@ -170,7 +170,7 @@ def aggregate_bars(bars, minutes):
             ts = int(b["openTime"])
             bucket = (ts // step) * step
             if bucket not in buckets:
-                buckets[bucket] = {"openTime": bucket, "open": float(b["open"]), "high": float(b["high"]), "low": float(b["low"]), "close": float(b["close"]), "isOpen": False}
+                buckets[bucket] = {"openTime": bucket, "open": float(b["open"]), "high": float(b["high"]), "low": float(b["low"]), "close": float(b["close"]), "isOpen": False, "instrument": b.get("instrument", "unknown")}
             else:
                 x = buckets[bucket]
                 x["high"] = max(x["high"], float(b["high"]))
@@ -264,6 +264,7 @@ def build_live_bundle():
                                 "low": low,
                                 "close": close,
                                 "isOpen": False,
+                                "instrument": "XAU/USD",
                             })
                         except (KeyError, TypeError, ValueError, OverflowError):
                             continue
@@ -295,7 +296,7 @@ def build_live_bundle():
                     o, h, low, close = map(float, (opens[i], highs[i], lows[i], closes[i]))
                     if not all(v == v and v > 0 for v in (o, h, low, close)):
                         continue
-                    out.append({"openTime": int(ts)*1000, "open":o, "high":h, "low":low, "close":close, "isOpen":False})
+                    out.append({"openTime": int(ts)*1000, "open":o, "high":h, "low":low, "close":close, "isOpen":False, "instrument":"GC=F"})
                 except (IndexError, TypeError, ValueError, OverflowError):
                     continue
             out.sort(key=lambda x:x["openTime"])
@@ -460,7 +461,7 @@ def build_live_bundle():
                 "points": legacy_points,
                 "data_state": {
                     "status": status,
-                    "source": (spot_source or "keine Spotquelle") + " + Yahoo Finance GC=F technische Referenz",
+                    "source": (spot_source or "keine Spotquelle") + " · Historie " + ", ".join(sorted({b.get("instrument", "unknown") for b in bars_5m+bars_1h})),
                     "technical_4h_status": "available" if bars_4h else "unavailable",
                     "technical_errors": technical_errors,
                 },
@@ -979,9 +980,35 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             pass
 
+def fibonacci_monitor_loop():
+    """Monitor registered active trades using existing free services."""
+    if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
+        print("BOB_FIB monitor_unconfigured", flush=True)
+        return
+    base = PUSH_SERVICE_URL.rstrip("/")
+    if not base.startswith(("https://", "http://")):
+        base = "http://" + base
+    while True:
+        try:
+            request = Request(base+"/monitor-status", headers={"X-Bob-Push-Token":PUSH_SERVICE_TOKEN})
+            with urlopen(request, timeout=10) as response:
+                active = json.loads(response.read(4096)).get("activeMonitors", 0)
+            if active:
+                bundle = build_live_bundle()
+                bars = bundle.get("history", {}).get("bars_by_tf", {})
+                payload = {"barsByTf":{tf:bars.get(tf, [])[-12:] for tf in ("5m","15m","1h")}}
+                request = Request(base+"/monitor", data=json.dumps(payload).encode(), method="POST", headers={"Content-Type":"application/json","X-Bob-Push-Token":PUSH_SERVICE_TOKEN})
+                with urlopen(request, timeout=20) as response:
+                    result = json.loads(response.read(4096))
+                print("BOB_FIB monitor_checked active="+str(active)+" sent="+str(result.get("sent",0)), flush=True)
+        except Exception as exc:
+            print("BOB_FIB monitor_error="+type(exc).__name__, flush=True)
+        time.sleep(60)
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "10000"))
     print(f"BOB_START port={port} host=0.0.0.0 version=runtime-http-trace-v1", flush=True)
+    threading.Thread(target=fibonacci_monitor_loop, name="bob-fibonacci", daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress

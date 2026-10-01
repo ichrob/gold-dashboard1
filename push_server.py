@@ -2,6 +2,7 @@ import base64
 import json
 import os
 import secrets
+import fibonacci_monitor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -38,6 +39,7 @@ def init_db():
         conn.execute("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS general_enabled BOOLEAN NOT NULL DEFAULT FALSE")
         conn.execute("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS trade_enabled BOOLEAN NOT NULL DEFAULT FALSE")
         conn.execute("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS active_trade BOOLEAN NOT NULL DEFAULT FALSE")
+        conn.execute("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS trade_monitor JSONB")
         conn.execute("""
           CREATE TABLE IF NOT EXISTS bob_settings (
             key TEXT PRIMARY KEY,
@@ -117,6 +119,15 @@ class Handler(BaseHTTPRequestHandler):
                     conn.execute("SELECT 1").fetchone()
                 send_json(self, 200, {"ok": True})
                 return
+            if path == "/monitor-status":
+                supplied = self.headers.get("X-Bob-Push-Token", "")
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
+                    send_json(self, 401, {"error": "Unauthorized"})
+                    return
+                with db() as conn:
+                    count = conn.execute("SELECT count(*) FROM subscriptions WHERE trade_enabled=TRUE AND active_trade=TRUE AND trade_monitor IS NOT NULL").fetchone()[0]
+                send_json(self, 200, {"activeMonitors": count})
+                return
             if path == "/vapid-public-key":
                 send_json(self, 200, {"publicKey": vapid_public_key()})
                 return
@@ -156,14 +167,20 @@ class Handler(BaseHTTPRequestHandler):
                 general = bool(payload.get("general"))
                 trade = bool(payload.get("trade"))
                 active = bool(payload.get("activeTrade"))
+                monitor = fibonacci_monitor.validate_monitor(payload.get("fibonacciMonitor")) if active and trade else None
                 with db() as conn:
+                    old = conn.execute("SELECT trade_monitor FROM subscriptions WHERE endpoint=%s FOR UPDATE", (endpoint,)).fetchone()
+                    if not old:
+                        raise ValueError("Push-Abonnement nicht registriert")
+                    if monitor and old[0] and old[0].get("tradeId") == monitor["tradeId"]:
+                        monitor = old[0]
                     conn.execute("""
                       UPDATE subscriptions
-                      SET general_enabled=%s, trade_enabled=%s, active_trade=%s, updated_at=now()
+                      SET general_enabled=%s, trade_enabled=%s, active_trade=%s, trade_monitor=%s::jsonb, updated_at=now()
                       WHERE endpoint=%s
-                    """, (general, trade, active, endpoint))
+                    """, (general, trade, active, json.dumps(monitor) if monitor else None, endpoint))
                     conn.commit()
-                send_json(self, 200, {"ok": True})
+                send_json(self, 200, {"ok": True, "fibonacciMonitor": "active" if monitor else "inactive"})
                 return
 
             if path == "/unsubscribe":
@@ -176,6 +193,47 @@ class Handler(BaseHTTPRequestHandler):
                     )
                     conn.commit()
                 send_json(self, 200, {"ok": True})
+                return
+
+            if path == "/monitor":
+                supplied = self.headers.get("X-Bob-Push-Token", "")
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
+                    send_json(self, 401, {"error": "Unauthorized"})
+                    return
+                bars_by_tf = payload.get("barsByTf", {})
+                if not isinstance(bars_by_tf, dict):
+                    raise ValueError("Kerzendaten fehlen")
+                sent = 0
+                with db() as conn:
+                    rows = conn.execute("SELECT id, subscription, trade_monitor FROM subscriptions WHERE trade_enabled=TRUE AND active_trade=TRUE AND trade_monitor IS NOT NULL FOR UPDATE").fetchall()
+                    key = vapid() if rows else None
+                    for sid, sub, monitor in rows:
+                        checkpoint, alerts, status = fibonacci_monitor.advance_monitor(monitor, bars_by_tf.get(monitor['timeframe'], []))
+                        delivered = True
+                        # Coalesce simultaneous level breaks into one notification.
+                        if alerts:
+                            event = alerts[-1]
+                            latest_alerts = [a for a in alerts if a['candleClosedAt']==event['candleClosedAt'] and a['crossed']==event['crossed']]
+                            label = ", ".join(a['levelLabel'] + " bei " + format(a['levelPrice'], '.2f') for a in latest_alerts)
+                            body = (f"{event['instrument']} · {event['direction']}-Trade · {event['timeframe']}-Kerzenschluss {event['price']:.2f} USD. "
+                                    f"Fibonacci {label} USD nach {'oben' if event['crossed']=='up' else 'unten'} durchbrochen · "
+                                    f"{'für' if event['favorable'] else 'gegen'} deine Position. Kein automatischer Trade.")
+                            try:
+                                webpush(subscription_info=sub, data=json.dumps({'title':'Bob – Fibonacci-Level durchbrochen','body':body,'data':{**event,'events':latest_alerts,'url':'/','kind':'trade'}},separators=(',',':')), vapid_private_key=key,vapid_claims={'sub':VAPID_SUBJECT},ttl=300)
+                                sent += 1
+                            except WebPushException as exc:
+                                delivered = False
+                                code = getattr(getattr(exc, 'response', None), 'status_code', None)
+                                if code in (404, 410):
+                                    conn.execute("DELETE FROM subscriptions WHERE id=%s", (sid,))
+                                print("BOB_FIB delivery_failed status="+str(code), flush=True)
+                        if delivered:
+                            if status == 'expired':
+                                conn.execute("UPDATE subscriptions SET trade_monitor=NULL WHERE id=%s", (sid,))
+                            else:
+                                conn.execute("UPDATE subscriptions SET trade_monitor=%s::jsonb WHERE id=%s", (json.dumps(checkpoint),sid))
+                    conn.commit()
+                send_json(self, 200, {'ok':True,'sent':sent})
                 return
 
             if path == "/send":
@@ -269,5 +327,6 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
-init_db()
-ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+if __name__ == "__main__":
+    init_db()
+    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

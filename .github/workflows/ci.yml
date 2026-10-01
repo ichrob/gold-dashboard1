@@ -44,8 +44,9 @@ jobs:
           node --check push_manager.js
           node --check degiro_assistant.js
       - name: Login and session tests
-        run: python -m unittest test_auth.py test_ocr_assets.py test_product_quotes.py
+        run: python -m unittest test_auth.py test_ocr_assets.py test_product_quotes.py test_fibonacci_monitor.py test_push_monitor.py
       - name: Regression tests
         run: |
           node test_bob.js
           node test_manual_import.js
+          node test_dashboard.js

@@ -22,6 +22,7 @@ button{background:#111;color:#fff;font-weight:700;border:0;cursor:pointer}.row{d
 table{width:100%;border-collapse:collapse}td{padding:8px;border-bottom:1px solid #eee}.right{text-align:right}
 canvas{width:100%;height:220px;border-radius:12px;background:#fafafa}.warning{background:#fff5d6;border-radius:12px;padding:12px;font-size:13px}.research{background:#eef6ff;border-radius:12px;padding:12px;font-size:13px}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#eee;margin:2px;font-size:12px}
 summary{cursor:pointer;font-weight:700;padding:10px 0}details[open]>summary{margin-bottom:8px}.chart-frame{position:relative;padding-left:22px}.axis-price{position:absolute;left:0;top:50%;transform:translateY(-50%) rotate(-90deg);font-size:12px;color:#666}.axis-time{text-align:center;font-size:12px;color:#666}
+ .analysis-blocks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.analysis-block{padding:12px;border-radius:12px;border-left:4px solid #9ca3af;background:#f3f4f6}.analysis-block b{display:block;margin:5px 0}.analysis-block.long{border-color:#15803d;background:#f0fdf4}.analysis-block.short{border-color:#b91c1c;background:#fef2f2}.analysis-block.neutral{color:#4b5563}.analysis-block small{display:block;color:#555}.analysis-blocks~details{margin-top:10px}
 </style>
 </head>
 <body>
@@ -54,6 +55,14 @@ try{
 <div class="metric">MTF<b id="quickMtf">—</b></div>
 <div class="metric">Risiko<b id="quickRisk">—</b></div>
 </div>
+<div class="analysis-blocks" style="margin-top:12px">
+<div class="analysis-block neutral"><span>Trend</span><b id="blockTrend">NEUTRAL</b><small id="blockTrendNote">Daten fehlen</small></div>
+<div class="analysis-block neutral"><span>Momentum</span><b id="blockMomentum">NEUTRAL</b><small id="blockMomentumNote">Daten fehlen</small></div>
+<div class="analysis-block neutral"><span>Fibonacci</span><b id="blockFibonacci">NEUTRAL</b><small id="blockFibonacciNote">Daten fehlen</small></div>
+<div class="analysis-block neutral"><span>MTF-Bestätigung</span><b id="blockMtf">NEUTRAL</b><small id="blockMtfNote">Daten fehlen</small></div>
+<div class="analysis-block neutral"><span>Volatilität</span><b id="blockVolatility">NEUTRAL</b><small id="blockVolatilityNote">Daten fehlen</small></div>
+<div class="analysis-block neutral"><span>Marktstruktur</span><b id="blockStructure">NEUTRAL</b><small id="blockStructureNote">Daten fehlen</small></div>
+</div><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div>
 <div id="quickReason" class="small" style="margin-top:10px">Lade Daten, um das Setup zu bewerten.</div>
 <div class="grid" style="margin-top:10px">
 <div><label>Konto (€)</label><input id="account" type="number" value="500" step="50"></div>
@@ -73,8 +82,8 @@ try{
 <div><label>Push-Kanal</label><button onclick="setupNtfy()">☁️ ntfy einrichten</button></div>
 </div>
 <div class="small" style="margin-top:8px">Kein Login nötig. Auf Android die ntfy-App installieren und denselben Topic abonnieren. Der Topic-Name ist eine öffentliche Kanaladresse, kein echtes Passwort. Für sensible Inhalte sollte ein geschützter Push-Dienst verwendet werden.</div>
-<div class="warning" style="margin-top:10px"><b>Push-Regel:</b> „Trade Empfehlung“ meldet neue Trade-Empfehlungen. „Aktiver Trade“ meldet ausschließlich „Stop-Loss nachsetzen“ und „Trade schließen“ – und nur bei einem tatsächlich aktiven Trade.</div>
-<div id="pushStatus" class="small" style="margin-top:8px">Noch nicht registriert.</div>
+<div class="warning" style="margin-top:10px"><b>Push-Regel:</b> „Trade Empfehlung“ meldet neue Trade-Empfehlungen. „Aktiver Trade“ meldet Stop-Loss, Richtungswechsel und bestätigte Fibonacci-Brüche – und nur bei einem tatsächlich aktiven Trade.</div>
+<div id="fibMonitorStatus" class="small" style="margin-top:8px">Fibonacci-Überwachung: kein aktiver Trade.</div><div id="pushStatus" class="small" style="margin-top:8px">Noch nicht registriert.</div>
 </div>
 
 <div class="card">
@@ -134,7 +143,7 @@ try{
 </table></details></div>
 
 <div class="card">
-<h3>🧠 Erweiterte Analyse</h3>
+<details><summary>Weitere technische Details</summary>
 <div class="metrics">
 <div class="metric">ADX<b id="adx">—</b></div>
 <div class="metric">Bollinger Position<b id="bbpos">—</b></div>
@@ -148,7 +157,7 @@ try{
 <div id="score" class="signal neutral" style="margin-top:8px;font-size:20px">—</div>
 <div id="scoreDetails" class="small" style="margin-top:8px">—</div>
 </div>
-</div>
+</details></div>
 
 <div class="card">
 <h3>🎯 DEGIRO-Trade-Modus</h3>
@@ -282,15 +291,33 @@ async function registerNotifications(){
    return false;
  }
 }
+function captureFibonacciMonitor(){
+ if(!tradeMgmt?.active||tradeMgmt.test||!A.ready||C.length<2)return null;
+ const bars=C.slice(-8),instrument=bars.at(-1)?.instrument;
+ if(!["XAU/USD","GC=F"].includes(instrument)||!bars.every(b=>b.instrument===instrument))return null;
+ const deltas=bars.slice(1).map((b,i)=>Number(b.openTime)-Number(bars[i].openTime)).filter(v=>v>0).sort((a,b)=>a-b);
+ const step=deltas[Math.floor(deltas.length/2)],tf=Object.entries({"5m":300000,"15m":900000,"1h":3600000}).find(([,v])=>v===step)?.[0];
+ if(!tf)return null;
+ const fib=fibonacciModel(tradeMgmt.dir,tradeMgmt.entry,A.at);
+ if(!fib.valid)return null;
+ const now=Date.now();
+ return {tradeId:"trade-"+now+"-"+Math.random().toString(36).slice(2,10),direction:tradeMgmt.dir,timeframe:tf,instrument,levels:{...fib.levels},startedAt:now,previousClose:Number(C.at(-1).close)};
+}
 async function syncPushPreferences(){
- if(!pushState.serverRegistered)return false;
+ const status=$("fibMonitorStatus");
+ if(!pushState.serverRegistered){if(status)status.textContent="Fibonacci-Überwachung: zuerst Gerät für Server-Push registrieren.";return false;}
  try{
+   if(tradeMgmt?.active&&!tradeMgmt.test&&pushState.trade&&!tradeMgmt.fibonacciMonitor){
+    const snapshot=captureFibonacciMonitor();if(snapshot){tradeMgmt.fibonacciMonitor=snapshot;saveTradeMgmt();}
+   }
    const reg=await navigator.serviceWorker.ready;
    const sub=await reg.pushManager.getSubscription();
-   if(!sub)return false;
-   const r=await fetch("/api/push/preferences",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({endpoint:sub.endpoint,general:!!pushState.general,trade:!!pushState.trade,activeTrade:!!pushState.activeTrade})});
+   if(!sub){if(status)status.textContent="Fibonacci-Überwachung: Server-Push-Abonnement fehlt.";return false;}
+   const r=await fetch("/api/push/preferences",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({endpoint:sub.endpoint,general:!!pushState.general,trade:!!pushState.trade,activeTrade:!!pushState.activeTrade,fibonacciMonitor:tradeMgmt?.active&&!tradeMgmt.test&&pushState.trade?tradeMgmt.fibonacciMonitor||null:null})});
+   const result=r.ok?await r.json():null;
+   if(status)status.textContent=result?.fibonacciMonitor==="active"?"Fibonacci-Überwachung auf dem Server gespeichert · "+tradeMgmt.fibonacciMonitor.timeframe+" · "+tradeMgmt.fibonacciMonitor.instrument+" · Level beim Trade-Start festgehalten. Kostenlose Server können pausieren; lückenlose Überwachung ist nicht garantiert.":r.ok?"Fibonacci-Überwachung nicht aktiv: Trade-Push, aktiver Trade und bestätigte Level erforderlich.":"Fibonacci-Überwachung konnte nicht gespeichert werden.";
    return r.ok;
- }catch(_){return false;}
+ }catch(_){if(status)status.textContent="Fibonacci-Überwachung konnte nicht gespeichert werden.";return false;}
 }
 async function togglePush(kind){
  try{
@@ -442,7 +469,7 @@ function aggregateBrowserBars(bars, minutes){
  const step=minutes*60*1000, buckets=new Map();
  for(const b of (bars||[])){
   const bucket=Math.floor(Number(b.openTime)/step)*step;
-  const x=buckets.get(bucket)||{openTime:bucket,open:b.open,high:b.high,low:b.low,close:b.close,isOpen:false};
+  const x=buckets.get(bucket)||{openTime:bucket,open:b.open,high:b.high,low:b.low,close:b.close,isOpen:false,instrument:b.instrument};
   x.high=Math.max(x.high,b.high);x.low=Math.min(x.low,b.low);x.close=b.close;buckets.set(bucket,x);
  }
  return [...buckets.values()].sort((a,b)=>a.openTime-b.openTime);
@@ -511,7 +538,7 @@ async function fetchLiveBundle(force=false){
      for(const p of pts){
       const ts=Number(p.t)*1000, o=Number(p.o), h=Number(p.h), l=Number(p.l), c=Number(p.c);
       if(!Number.isFinite(ts)||![o,h,l,c].every(Number.isFinite)||![o,h,l,c].every(v=>v>0))continue;
-      const b={openTime:ts,open:o,high:h,low:l,close:c,isOpen:false};
+      const b={openTime:ts,open:o,high:h,low:l,close:c,isOpen:false,instrument:"XAU/USD"};
       buckets.set(ts,b);
      }
      const stepMs=({"5m":5,"15m":15,"1h":60,"4h":240}[interval]||5)*60*1000; const nowMs=Date.now(); for(const b of buckets.values()) b.isOpen=nowMs < b.openTime+stepMs; const out=[...buckets.values()].sort((a,b)=>a.openTime-b.openTime);
@@ -713,7 +740,7 @@ async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
     reportBobDiag("mtf:server-error",{error:"HTTP "+vr.status,reason:"/api/mtf verification failed"});
    }
   }catch(e){reportBobDiag("mtf:server-error",{error:e?.message||String(e),reason:"/api/mtf verification exception"});}
-  updateTradeSignal();updateResearchPanel();return MTF;
+  renderAnalysisBlocks();updateTradeSignal();updateResearchPanel();return MTF;
  }catch(e){
   reportBobDiag("mtf:error",{error:e?.message||String(e),reason:"loadMTF exception"});
   $("quickMtf").textContent="NEUTRAL";
@@ -925,7 +952,7 @@ async function activateTestTrade(){
  $("stopPanel").innerHTML="<b>🧪 Test-Trade aktiv.</b> Nur für den Push-End-to-End-Test – kein reales Handelssignal und keine DEGIRO-Order.";
  $("stopUpdate").innerHTML="<b>Test-Trade aktiv:</b> "+dir+" · Einstieg "+entry.toFixed(2)+" USD/oz · Test-Stop "+displayStop(testStop)+".";
 }
-function setTradeEntry(){
+async function setTradeEntry(){
  if(!lastPrice||!A.at)return;
  const dir=confirmedSignalDirection();
  if(dir==="NEUTRAL"){$("stopUpdate").textContent="Kein bestätigtes LONG-/SHORT-Setup.";return;}
@@ -933,8 +960,9 @@ function setTradeEntry(){
  if(!sm.stop){$("stopUpdate").textContent="Kein valider Stop berechenbar.";return;}
  const tgt=targetModel(dir,entry,sm.stop,Math.max(1,+($("minRR")?.value||2)));
  tradeMgmt={active:true,dir,entry,stop:sm.stop,target:tgt.target,rr:tgt.rr,initialRisk:Math.abs(entry-sm.stop),profitStage:0,stopReason:sm.reason,lastUpdate:new Date().toISOString()};
+ tradeMgmt.fibonacciMonitor=captureFibonacciMonitor();
  $("tradeEntry").value=tradeMgmt.entry.toFixed(2);$("tradePrice").value=lastPrice.toFixed(2);$("tradeStop").value=tradeMgmt.stop.toFixed(2);saveTradeMgmt();
- pushState=BobPush.setActiveTrade(true);renderPush();
+ pushState=BobPush.setActiveTrade(true);renderPush();await syncPushPreferences();
  const msg=`${dir}: initialer Stop-Loss ${displayStop(tradeMgmt.stop)}. Einstieg ${tradeMgmt.entry.toFixed(2)} USD/oz.`;
  $("stopUpdate").innerHTML="<b>Trade aktiv.</b> "+msg+" CRV-Ziel: "+displayStop(tradeMgmt.target)+" ("+tgt.rr.toFixed(2)+"R).";captureResearchSnapshot("TRADE_SET");updateResearchPanel();
 }
@@ -946,7 +974,7 @@ function suggestStopUpdate(){
  tradeMgmt.stop=next;tradeMgmt.lastUpdate=new Date().toISOString();saveTradeMgmt();$("tradeStop").value=next.toFixed(2);$("stopUpdate").innerHTML=`<b>STOP-LOSS ANPASSEN:</b> neuer Kurs <b>${displayStop(next)}</b> (alt ${displayStop(old)}).`;
  notifyTrade("Gold Scanner – Stop-Loss anpassen",`Neuer Stop-Loss: ${displayStop(next)}. Alter Stop: ${displayStop(old)}.`);captureResearchSnapshot("STOP_UPDATE");updateResearchPanel();
 }
-function restoreTradeMgmt(){if(tradeMgmt.active){$("tradeEntry").value=tradeMgmt.entry?.toFixed?.(2)||"";$("tradeStop").value=tradeMgmt.stop?.toFixed?.(2)||"";$("tradePrice").value=lastPrice?lastPrice.toFixed(2):"";pushState=BobPush.setActiveTrade(true);renderPush();syncPushPreferences();}}
+function restoreTradeMgmt(){if(!tradeMgmt.active){pushState=BobPush.setActiveTrade(false);renderPush();syncPushPreferences();return;}if(tradeMgmt.active){$("tradeEntry").value=tradeMgmt.entry?.toFixed?.(2)||"";$("tradeStop").value=tradeMgmt.stop?.toFixed?.(2)||"";$("tradePrice").value=lastPrice?lastPrice.toFixed(2):"";pushState=BobPush.setActiveTrade(true);renderPush();syncPushPreferences();}}
 
 
 function advancedAnalysis(){
@@ -1014,7 +1042,25 @@ function advancedAnalysis(){
  A.score=score; A.ready=Boolean(C.length>=200&&A.e20!=null&&A.e50!=null&&A.e200!=null); A.adx=ad; A.support=lv.sup; A.resistance=lv.res; A.weights=w; A.regime=regime; A.fibonacci=fibCore; A.crv=rr; updateQuick(); updateResearchPanel(); draw();
 }
 
+function renderAnalysisBlocks(){
+ const ready=!!A.ready&&C.length>=200;
+ const put=(name,dir,note)=>{const el=$("block"+name),detail=$("block"+name+"Note");if(!el)return;el.textContent=dir;el.parentElement.className="analysis-block "+(dir==="LONG"?"long":dir==="SHORT"?"short":"neutral");if(detail)detail.textContent=note;};
+ if(!ready){for(const name of ["Trend","Momentum","Fibonacci","Mtf","Volatility","Structure"])put(name,"NEUTRAL","Daten fehlen oder sind nicht ausreichend aktuell");$("analysisQuality").textContent="Signalqualität: nicht verfügbar";return;}
+ const trend=A.e20>A.e50&&A.e50>A.e200?"LONG":A.e20<A.e50&&A.e50<A.e200?"SHORT":"NEUTRAL";
+ const momentum=A.macd>A.sig&&A.R>=50&&A.R<75?"LONG":A.macd<A.sig&&A.R<=50&&A.R>25?"SHORT":"NEUTRAL";
+ const mtf=getMtfState(),fib=A.fibonacci;
+ put("Trend",trend,"EMA-Trends in der Analysezeitebene");
+ put("Momentum",momentum,momentum==="NEUTRAL"?"Momentum uneinheitlich":"MACD und RSI stimmen überein");
+ put("Fibonacci",fib?.valid?fib.direction:"NEUTRAL",fib?.valid?"Szenario aus bestätigten Wendepunkten":"Keine bestätigten Level");
+ put("Mtf",mtf.overall||"NEUTRAL",mtf.overall==="NEUTRAL"?"Zeitebenen uneinheitlich oder unvollständig":"Übergeordnete Zeitebenen bestätigt");
+ put("Volatility","NEUTRAL",currentRegime()+" · Volatilität gibt allein keine Richtung vor");
+ const closes=C.map(b=>Number(b.close)),bb=boll(closes),st=stochastic(C),p=A.signalPrice||closes.at(-1);
+ const structure=p>bb.mid&&st>50?"LONG":p<bb.mid&&st<50?"SHORT":"NEUTRAL";
+ put("Structure",structure,"Preisposition und Stochastik; vereinfachte Strukturbewertung");
+ $("analysisQuality").textContent="Signalqualität: "+(confirmedSignalDirection()==="NEUTRAL"?"nicht ausreichend bestätigt":"technisch bestätigt")+" · Analyse-Score "+Number(A.score||0).toFixed(0)+"/100 · keine Gewinnwahrscheinlichkeit";
+}
 function updateQuick(){
+ renderAnalysisBlocks();
  if(!C.length||!A.at)return;
  if(!A.ready){$("quickSignal").textContent="🟡 ABWARTEN · Historie fehlt";$("quickSignal").className="signal neutral";$("quickRisk").textContent="—";return;}
  const p=lastPrice;
@@ -1261,7 +1307,7 @@ async function loadData(){
   if(generation!==loadGeneration)return;
   let tfBars=bundle.history?.bars_by_tf||{};
   let bars=tfBars[tf]||[];
-  if(!bars.length){for(const alt of ["5m","15m","1h"]){if(Array.isArray(tfBars[alt])&&tfBars[alt].length){bars=tfBars[alt];break;}}}
+
 
   // The direct XAUS heartbeat intentionally contains no technical history.
   // Load Render history separately so it can never block or hide the live spot price.
@@ -1300,14 +1346,13 @@ async function loadData(){
   const fallbackWarning=!isSpot?" · XAU/USD Spot nicht verfügbar – GC=F Futures als Referenz":"";
 
   if(!bars.length){
-   const hydrated=hydrateTechnicalFromBundle(bundle,n);
-   if(hydrated){loadMTF(false,generation,bundle);return;}
+
    loadMTF(false,generation,bundle);
    $("status").textContent=(isSpot?"LIVE · XAU/USD ":"REFERENZ · GC=F ") + lastPrice.toFixed(2)+" · "+sourceLabel+fallbackWarning+" · Technikhistorie momentan nicht verfügbar · "+new Date().toLocaleTimeString();
    $("quickSignal").textContent="🟢 LIVE-PREIS · TECHNIK WARTET";
    $("quickSignal").className="signal neutral";
    $("quickReason").textContent="Der aktuelle XAU/USD-Preis ist verfügbar. Die technische Historie fehlt momentan; deshalb wird kein Handelssignal berechnet.";
-   C=[];
+   C=[];A.ready=false;renderAnalysisBlocks();draw();
    return;
   }
 
@@ -1324,7 +1369,7 @@ async function loadData(){
    $("quickSignal").textContent="🟢 LIVE-PREIS · TECHNIK ZU ALT";
    $("quickSignal").className="signal neutral";
    $("quickReason").textContent="Der Live-Preis ist verfügbar. Die technische Historie ist zu alt für ein belastbares Signal.";
-   C=[];
+   C=[];A.ready=false;renderAnalysisBlocks();draw();
    return;
   }
   if(C.length<30){
@@ -1451,7 +1496,7 @@ if(typeof MutationObserver!=="undefined"){
  }).observe($("status"),{childList:true,characterData:true,subtree:true});
 }
 loadData();
-setInterval(()=>{ if(document.visibilityState==="visible") loadData(); }, 60000);
+setInterval(()=>{ if(document.visibilityState==="visible"){loadData();syncPushPreferences();} }, 60000);
 </script><form method="post" action="/logout" style="text-align:center;margin:24px"><button type="submit">Abmelden</button></form>
 </body></html>
 
