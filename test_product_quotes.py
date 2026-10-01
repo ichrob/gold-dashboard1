@@ -2,6 +2,7 @@ import unittest
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
 import product_quotes as q
+from urllib.error import HTTPError
 
 ISIN='DE000PJ9NCK0'
 NOW=datetime(2026,9,30,16,6,3,tzinfo=timezone.utc)
@@ -9,6 +10,29 @@ def snapshot():
     return dict(responseDate='2026-09-30T16:06:02Z',tradingHours=dict(isTradeable=True,tradingStart='2026-09-30T06:00:00Z',tradingEnd='2026-09-30T20:00:00Z'),result=dict(isin=ISIN,productName='GOLD Unlimited Long',issuerCompanyName='BNP Paribas',currency=dict(isoCode='EUR'),first=dict(underlyingISIN='USFX00000XAU',currency=dict(isoCode='USD'),knockOutAbsolute=3978.9026),keyFigures=dict(leverage=22.67,lastUpdate='2026-09-30T16:06:02Z'),config=dict(hasMultipleUnderlying=False,isPublicTradable=True,isMarketClosed=False,isKnockedOut=False,isMaturedOrKnockOut=False,isCanceled=False,isLifeCycleEnded=False,isBidOnly=False,isPercentageQuotation=False),bid=16.19,ask=16.2,bidSize=8000,askSize=8000,leverage=22.67,bidDate='2026-09-30T18:06:00.282',askDate='2026-09-30T18:06:00.282'))
 
 class ProductQuoteTests(unittest.TestCase):
+    def test_known_sg_failure_is_not_replaced_by_bnp_miss(self):
+        isin='DE000FG309G0'
+        sg=dict(found=False, productVerified=False, eligible=False, fresh=False,
+                isin=isin, sourceFailure=True, reason='SG Produktidentität: Zeitlimit erreicht')
+        with patch.dict(q._CACHE, {}, clear=True), patch.object(q,'get_bnp_quote',return_value={'found':False,'reason':'BNP miss'}), patch.object(q,'get_sg_quote',return_value=sg):
+            out=q.get_quote(isin)
+        self.assertEqual(out['reason'],sg['reason'])
+        self.assertFalse(out['productVerified'])
+        self.assertFalse(out['eligible'])
+
+    def test_sg_errors_expose_only_fixed_stage_and_http_status(self):
+        error=HTTPError('https://private.invalid/?secret=value',429,'private body',{'Authorization':'secret'},None)
+        with patch.object(q,'issuer_json',side_effect=error):
+            out=q.get_sg_quote('DE000FG309G0')
+        self.assertIn('HTTP 429',out['reason'])
+        self.assertIn('Produktidentität',out['reason'])
+        self.assertNotIn('private',out['reason'])
+        self.assertNotIn('secret',out['reason'])
+        self.assertFalse(out['productVerified'])
+        result=q.freshness(dict(out,metadata={'underlyingType':'FUTURE'}))
+        self.assertEqual(result['reason'],out['reason'])
+        self.assertFalse(result['eligible'])
+
     def sg_snapshot(self):
         product = dict(Id=7069123, Isin='DE000FG4JXV7', ExchangeCode='CBDE',
                        AssetNMP='XAUUSD', AssetIsin='XD0002747026', AssetCurrency='USD',

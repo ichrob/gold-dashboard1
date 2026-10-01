@@ -381,6 +381,6 @@ def get_quote(product, properties, isin):
             return parse_snapshot(product, properties, page.result(), gold.result(), fx.result(), isin)
     except (KeyError, ValueError, TypeError, OSError) as exc:
         print(f'BOB_SG_SOURCE isin={isin} error={type(exc).__name__}', flush=True)
-        fallback['reason'] = 'SG-Ergänzungsdaten nicht bestätigt: '+(str(exc) if isinstance(exc, ValueError)
-                                                                      else 'Quelle oder Pflichtangaben fehlen')
+        fallback['sourceFailure'] = True
+        fallback['reason'] = q.sg_source_error(exc, 'dated-quotes')
         return restore_product_model(fallback, product, properties) if isinstance(exc,OSError) else fallback
