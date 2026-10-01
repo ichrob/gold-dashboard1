@@ -222,3 +222,23 @@ corners. A favorite requires separated score ranges (two-point margin), with
 no unresolved same-direction candidate in its group. The observed-quote list
 remains distinct. Every conditional result requires checking the current
 DEGIRO ask and product conditions; it grants no automatic trade approval.
+
+
+## Gold-API replacement (2026-10-01)
+
+The runtime collector no longer requests Investing.com. It uses the documented
+free, keyless Gold-API endpoint `https://api.gold-api.com/price/XAU` once every
+30 seconds, validating XAU, Gold, USD, exchangeRate=1 and the original
+`updatedAt` (at most 60 seconds old). This bypasses the XAUS intermediary;
+XAUS attributes its spot data to this same provider, so these are not treated
+as independent sources. The CFD parser/formula remain solely for regressions.
+
+The replacement formula is `F_ref * Spot_now / Spot_ref`, holding the dated
+Future/Spot factor fixed over a maximum 30-minute reference horizon. It is
+an assumption, not an exchange realtime quote or a fitted carry-rate model.
+Spot reference alignment is unchanged: both actual bracketing observations
+within 30 seconds, interpolation explicit, no observation gap over 90 seconds.
+Only ticks actually gathered by Bob count; no invented history at startup.
+Gold-API spot errors use their own identity/method/horizon key and cannot
+inherit earlier CFD calibration. Own GCZ26 indicators still use exact-contract
+Yahoo history and never count spot movement as independent confirmation.

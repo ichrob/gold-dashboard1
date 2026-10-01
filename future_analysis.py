@@ -1,6 +1,6 @@
 """Contract-specific, closed-bar GCZ26 analysis; never spot/continuous history.
 
-Yahoo's exchange history is delayed. CFD nowcasts are not fed into indicators
+Yahoo's exchange history is delayed. Spot nowcasts are not fed into indicators
 and are not counted as a second technical confirmation source.
 """
 import copy
@@ -141,7 +141,7 @@ def analyse(five,hourly,market_at,now=None):
                 sourceUrl='https://finance.yahoo.com/quote/GCZ26.CMX/',technicalSourceFamilies=1,
                 checkedAt=now.isoformat(),expiresAt=datetime.fromtimestamp(expires,timezone.utc).isoformat(),
                 reason='MTF bestätigt auf abgeschlossenen GCZ26-Kerzen' if overall!='NEUTRAL' else 'ABWARTEN: Kontrakt-MTF unvollständig oder uneinheitlich',
-                note='CFD-Kursschätzung zählt nicht als zusätzliche technische Bestätigung. Historie ist verzögert.')
+                note='Spot-Kursschätzung zählt nicht als zusätzliche technische Bestätigung. Historie ist verzögert.')
 
 
 def _collect():
