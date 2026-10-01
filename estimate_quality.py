@@ -108,12 +108,20 @@ def quality(key, horizon, now=None):
     bucket=horizon_bucket(horizon)
     with _lock:
         rows=[r for r in _errors.get((key,bucket),[]) if 0<=now.timestamp()-r['received']<=21600]
+        summaries=[]
+        for b in ('0–60s','61–300s','301–900s','901–1800s'):
+            group=[r for r in _errors.get((key,b),[]) if 0<=now.timestamp()-r['received']<=21600]
+            summary=dict(horizonBucket=b,sampleCount=len(group))
+            if group:summary.update(meanAbsoluteError=sum(abs(r['error']) for r in group)/len(group),
+                                    maxAbsoluteError=max(abs(r['error']) for r in group))
+            summaries.append(summary)
     count=len(rows)
     span=max(r['at'] for r in rows)-min(r['at'] for r in rows) if rows else 0
     last=max((r['received'] for r in rows),default=0)
     ready=bool(count>=MIN_SAMPLES and span>=MIN_SPAN_SECONDS and now.timestamp()-last<=1800)
     out=dict(ready=ready,sampleCount=count,minSamples=MIN_SAMPLES,horizonBucket=bucket,
              observedSpanSeconds=round(span,1),maxMatchSeconds=MAX_MATCH_SECONDS,
+             horizonSummaries=summaries,
              kind='empirical-observed-errors',isConfidenceInterval=False,
              note='Bisher gemessene Abweichungen; zukünftige Fehler können größer sein.')
     if rows:

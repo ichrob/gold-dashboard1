@@ -89,7 +89,15 @@ def handle(conn, action, payload):
     pairs=[dict(bucket=b,predictionAt=a.isoformat(),prediction=value,referenceAt=ref.isoformat(),
                 predictionReceivedAt=created.isoformat(),truthAt=ta.isoformat(),truth=tv,truthReceivedAt=received.isoformat())
            for b,a,value,ref,created,ta,tv,received in reversed(rows)]
-    return dict(ok=True,key=KEY,pairs=pairs)
+    prediction_count=conn.execute('SELECT count(*) FROM bob_future_predictions').fetchone()[0]
+    truth_count=conn.execute('SELECT count(*) FROM bob_future_truths').fetchone()[0]
+    latest=conn.execute('''SELECT t.quote_at,
+        (SELECT min(abs(extract(epoch FROM p.quote_at-t.quote_at))) FROM bob_future_predictions p
+         WHERE p.received_at<=t.received_at) FROM bob_future_truths t ORDER BY t.quote_at DESC LIMIT 1''').fetchone()
+    diagnostics=dict(predictionCount=prediction_count,truthCount=truth_count,pairCount=len(pairs),
+                     lastTruthAt=latest[0].isoformat() if latest else None,
+                     nearestPredictionSeconds=float(latest[1]) if latest and latest[1] is not None else None)
+    return dict(ok=True,key=KEY,pairs=pairs,diagnostics=diagnostics)
 
 
 def request(action, payload):
@@ -141,10 +149,19 @@ def _sync():
             except (ValueError,TypeError,KeyError):pass
         try:
             result=request('write' if usable else 'read',{'events':usable} if usable else {})
-            estimate_quality.restore_durable(result['pairs'],now)
+            estimate_quality.restore_durable(result['pairs'],datetime.now(timezone.utc))
             with _lock:
                 del _queue[:len(batch)]
                 _status='Genauigkeitsmessung dauerhaft gesichert; eingefrorene Schätzungen bleiben über Neustarts erhalten'
+                d=result.get('diagnostics',{})
+                if all(isinstance(d.get(k),int) and not isinstance(d[k],bool) and d[k]>=0 for k in ('predictionCount','truthCount','pairCount')):
+                    _status+=' · Messarchiv: '+str(d['predictionCount'])+' eingefrorene Schätzungen, '+str(d['truthCount'])+' datierte GCZ26-Kurse, '+str(d['pairCount'])+' passende Paare insgesamt'
+                    if d.get('lastTruthAt'):
+                        last=stamp(d['lastTruthAt']).astimezone(timezone.utc)
+                        _status+=' · jüngster echter Vergleichskurs '+last.strftime('%d.%m.%Y %H:%M:%S UTC')
+                    distance=d.get('nearestPredictionSeconds')
+                    if isinstance(distance,(int,float)) and not isinstance(distance,bool) and math.isfinite(distance) and distance>=0:
+                        _status+=' · nächster vorher gespeicherter Schätzzeitpunkt: '+str(round(distance,2))+' s Abstand (höchstens 5 s)'
         except (OSError,ValueError,TypeError,KeyError):
             with _lock:_status='Dauerhafter Messspeicher momentan nicht erreichbar; lokale Messung läuft weiter'
         threading.Event().wait(30)

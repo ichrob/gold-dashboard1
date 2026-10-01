@@ -47,3 +47,24 @@ class QualityTests(unittest.TestCase):
   self.assertEqual(s.event(p,NOW)[-1],'61–300s')
   for wrong in (dict(p,key='future:GC=F'),dict(p,value=True),dict(p,at=at(-91)),dict(p,at=at(1)),dict(p,referenceAt=at(-2000))):
    with self.assertRaises(ValueError):s.event(wrong,NOW)
+
+ def test_all_horizon_counts_visible_without_borrowing_readiness(self):
+  for i in range(21):
+   t=60+i*30;e.record('x',102,at(t),at(t-45),at(t));e.observe('x',100,at(t),at(t+10))
+  q=e.quality('x',120,NOW+timedelta(seconds=700))
+  self.assertFalse(q['ready']);self.assertEqual(q['sampleCount'],0)
+  summary={s['horizonBucket']:s for s in q['horizonSummaries']}
+  self.assertEqual(summary['0–60s']['sampleCount'],21)
+  self.assertEqual(summary['0–60s']['meanAbsoluteError'],2)
+  self.assertEqual(summary['61–300s']['sampleCount'],0)
+
+ def test_restore_uses_time_after_network_receipt(self):
+  import bob_validation_store as s
+  import time
+  pair=dict(bucket='0–60s',predictionAt=at(-20),prediction=102,referenceAt=at(-60),
+            predictionReceivedAt=at(-10),truthAt=at(-20),truth=100,truthReceivedAt=at(10))
+  with patch.object(s,'_queue',[]),patch.object(s,'_active_until',time.monotonic()+120),patch.object(s,'_status',''),patch.object(s,'request',return_value={'pairs':[pair]}),patch.object(s,'datetime') as clock,patch.object(s.threading.Event,'wait',side_effect=StopIteration):
+   clock.now.side_effect=[NOW,NOW+timedelta(seconds=20)]
+   with self.assertRaises(StopIteration):s._sync()
+   self.assertIn('dauerhaft gesichert',s.status())
+   self.assertEqual(e.quality(s.KEY,40,NOW+timedelta(seconds=20))['sampleCount'],1)
