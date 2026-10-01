@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 import product_quotes as q
+import future_estimate
 
 ONVISTA = 'https://www.onvista.de/'
 SPOT_ORIGIN = 'https://xaus.com/'
@@ -215,6 +216,7 @@ def refresh_future_research(research, now=None):
     result['underlyingFresh'] = bool(basis_ages and max(basis_ages) <= q.MAX_AGE_SECONDS)
     result['eligible'] = False
     result['analysisAvailable'] = False
+    result['calculatedFuture'] = future_estimate.current_estimate(result, now)
     # A labelled research estimate is bounded to a 30-minute observation.
     # It never enters price/leverage/KO inputs of the spot comparison.
     result.pop('indicativeLeverage', None)
@@ -284,6 +286,7 @@ def get_quote(product, properties, isin):
         return fallback
     try:
         if q.sg_future_contract(product, isin):
+            future_estimate.ensure_collector()
             # Research quotes remain useful when FX is missing. There is no
             # spot request and no fallback to a continuous/front-month future.
             with ThreadPoolExecutor(max_workers=2) as pool:

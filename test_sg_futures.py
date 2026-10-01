@@ -103,6 +103,7 @@ class FutureResearchTests(unittest.TestCase):
     def test_adapter_has_no_spot_request_and_keeps_quotes_when_fx_fails(self):
         product, props, snapshot, fx = future_fixture()
         with patch.object(sg, 'fetch_snapshot', return_value=snapshot), \
+             patch.object(sg.future_estimate, 'ensure_collector'), \
              patch.object(sg, 'market_input', side_effect=OSError('FX unavailable')) as inputs:
             result = sg.get_quote(product, props, ISIN)
         self.assertTrue(result['productVerified']); self.assertFalse(result['eligible'])

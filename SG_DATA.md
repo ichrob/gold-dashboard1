@@ -97,3 +97,54 @@ the dated product research without an estimate.
 CME's free public quotes are delayed by at least ten minutes:
 https://www.cmegroup.com/trading/about-all-delayed-quotes.html
 No paid feed, new service, account or subscription was added.
+
+
+## Calculated GCZ26 price using Investing.com CFD observations
+
+`futureResearch.calculatedFuture` is explicitly labelled **Berechneter
+Future-Kurs**, with `isExchangeRealtime=false` and `eligible=false`.
+The fixed formula is `F(t₀) + CFD(t) − CFD(t₀)`: the last dated, exact GCZ26
+underlying observation plus the observed CFD dollar change since that time.
+The futures/CFD basis is assumed constant until the next reference observation.
+This is an uncalibrated estimate, not a guaranteed accurate real-time price.
+No fitted beta or forecast drift is added without validation data.
+
+The free public Investing.com Gold page's structured data is checked for
+instrument 8830, USD/troy ounce, an active/open, non-delayed CFD, declared
+December 2026 month, 2026-12-29 settlement and 2026-08-27 rollover. Despite the
+page's GC1! metadata label, these are CFD observations, never exchange quotes.
+Only the quote's epoch-millisecond `lastUpdateTime` dates the CFD. The other
+relative-instrument quotes and undated bid/ask are not used. An unavailable,
+blocked, redirected or changed page does not become a fabricated observation.
+There is no public Investing.com API or guaranteed page access/refresh rate.
+
+One shared background daemon starts when futures research is requested, reads
+the public page at most once per 30 seconds and stays active for one hour after
+the last fresh research request. It does not block /api/live or any running
+monitor. It records actual observations, without rewriting cached timestamps.
+The in-memory, bounded one-hour buffer resets on deployment/restart. After
+startup, the calculation waits until the buffer covers a real reference time;
+this can take the source's full delay (typically 10–20 minutes or longer).
+No CFD history is invented to conceal that warm-up.
+
+CFD(t₀) is linearly interpolated between collected observations bracketing t₀,
+each at most 30 seconds away, or directly observed if a timestamp matches.
+Interpolation itself is approximate; both bracketing timestamps and their
+maximum distance are retained. The reference may be at most 30 minutes old,
+the latest CFD observation at most 60 seconds old, and the intervening buffer
+must have no gap exceeding 90 seconds. Future timestamps, rollover, missing
+references and outdated inputs remove the numeric estimate. Browser research
+refreshes every 30 seconds and hides stale estimates as their timestamps age.
+The calculation time never substitutes for an observation time.
+
+The dated reference price remains visible separately. The calculated field
+never replaces Bob's XAU/USD feed or supplies executable product/ranking inputs.
+Delayed-reference gearing/KO estimates remain separately labelled, and automatic
+futures eligibility remains blocked pending exact-contract trend/MTF data.
+Reference/CFD basis changes, interpolation, page caching and differing quote
+conventions are material sources of error. No precision or statistical
+confidence interval is claimed without matched validation observations.
+
+Official explanation of the CFD/exchange distinction and lack of public API:
+https://www.investing-support.com/hc/en-us/articles/115003804125-Why-is-Prev-Close-Different-from-the-Close-Price-in-the-Historical-Data-Table-on-Investing-com
+https://www.investing-support.com/hc/en-us/articles/115005473825-Do-You-Offer-API-Access-at-Investing-com

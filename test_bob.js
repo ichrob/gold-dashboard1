@@ -297,6 +297,15 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert(!degiro.BobDegiro.currentQuote({...quoted,quote:{...quoted.quote,metadata:{underlyingType:"FUTURE"}}},now));
   const researchText=degiro.BobDegiro.futureResearchText({futureResearch:{contract:"GCZ26",bid:39.95,ask:39.97,bidAt:new Date(now).toISOString(),askAt:new Date(now).toISOString(),underlyingPriceUsd:4191.4,underlyingAt:new Date(now-790000).toISOString(),indicativeLeverage:9.2,indicativeKoDistancePct:10.6,estimateNote:"Keine Spot-Freigabe"}});
   assert(researchText.includes("GCZ26")&&researchText.includes("verzögert")&&researchText.includes("Keine Spot-Freigabe"));
+  const calculatedResearch={futureResearch:{contract:"GCZ26",bid:40,ask:40.1,estimateNote:"Keine Spot-Freigabe",calculatedFuture:{available:true,priceUsd:4199.3,priceAt:new Date(now-1000).toISOString(),referenceAt:new Date(now-790000).toISOString(),referencePriceUsd:4191.4,alignmentSeconds:10,formula:"F(t₀) + [CFD(t) − CFD(t₀)]",note:"Näherung bei konstantem Abstand"}}};
+  const computedText=degiro.BobDegiro.futureResearchText(calculatedResearch,now);
+  assert(computedText.includes("BERECHNETER FUTURE-KURS: 4199.30 USD"));
+  assert(computedText.includes("Näherung")&&computedText.includes("CFD")&&computedText.includes("Zeitversatz 10 s"));
+  const expiredText=degiro.BobDegiro.futureResearchText(calculatedResearch,now+61000);
+  assert(!expiredText.includes("4199.30")&&expiredText.includes("veraltet"));
+  const pendingText=degiro.BobDegiro.futureResearchText({futureResearch:{contract:"GCZ26",calculatedFuture:{available:false,reason:"Referenz fehlt"}}},now);
+  assert(pendingText.includes("Referenz fehlt"));
+
 
   assert(!degiro.BobDegiro.rankProducts([quoted],{...freshCtx,spotFresh:false}).tradeable);
   assert(degiro.BobDegiro.quoteTiming(quoted.quote,now).fresh);
