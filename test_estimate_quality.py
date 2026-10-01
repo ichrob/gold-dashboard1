@@ -47,3 +47,13 @@ class QualityTests(unittest.TestCase):
   self.assertEqual(s.event(p,NOW)[-1],'61–300s')
   for wrong in (dict(p,key='future:GC=F'),dict(p,value=True),dict(p,at=at(-91)),dict(p,at=at(1)),dict(p,referenceAt=at(-2000))):
    with self.assertRaises(ValueError):s.event(wrong,NOW)
+
+ def test_all_horizon_counts_visible_without_borrowing_readiness(self):
+  for i in range(21):
+   t=60+i*30;e.record('x',102,at(t),at(t-45),at(t));e.observe('x',100,at(t),at(t+10))
+  q=e.quality('x',120,NOW+timedelta(seconds=700))
+  self.assertFalse(q['ready']);self.assertEqual(q['sampleCount'],0)
+  summary={s['horizonBucket']:s for s in q['horizonSummaries']}
+  self.assertEqual(summary['0–60s']['sampleCount'],21)
+  self.assertEqual(summary['0–60s']['meanAbsoluteError'],2)
+  self.assertEqual(summary['61–300s']['sampleCount'],0)
