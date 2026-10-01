@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 import estimate_quality
+import bob_market_store
 
 URL = 'https://www.investing.com/commodities/gold'
 CONTRACT = 'GCZ26'
@@ -27,6 +28,28 @@ _spot_source_error = None
 _thread = None
 _active_until = 0
 _source_error = 'Investing.com deaktiviert; ersetzt durch Gold-API.com'
+_storage_loaded = False
+_storage_status = 'Spot-Beobachtungen noch nicht aus dauerhaftem Speicher geladen'
+
+
+def restore_spot_observations(observations, now=None):
+    now=now or datetime.now(timezone.utc)
+    if not isinstance(observations,list) or len(observations)>240:
+        raise ValueError('Spot-Speicherantwort nicht verwendbar')
+    restored=[]
+    for item in observations:
+        at,price=bob_market_store.point(item,now.timestamp(),3600)
+        restored.append(dict(price=price,at=at,contract=CONTRACT,proxyKind='gold-api-spot',
+            underlying='XAU/USD',source='Gold-API.com · XAU/USD Spot',sourceUrl=GOLD_API_URL))
+    with _lock:
+        merged={}
+        for tick in list(_spot_ticks)+restored:
+            if not 0<=now.timestamp()-stamp(tick['at']).timestamp()<=3600:continue
+            at=stamp(tick['at']).isoformat()
+            if at in merged and merged[at]['price']!=tick['price']:
+                raise ValueError('Widersprüchlicher gespeicherter Spot-Kurszeitstempel')
+            merged[at]=tick
+        _spot_ticks[:]=sorted(merged.values(),key=lambda t:stamp(t['at']))[-240:]
 
 
 def stamp(value):
@@ -141,13 +164,28 @@ def record_spot_tick(tick, now=None):
 
 
 def _collect():
-    global _spot_source_error
+    global _spot_source_error, _storage_loaded, _storage_status
     while True:
         started=time.monotonic()
         with _lock:active=started<_active_until
         if active:
+            if not _storage_loaded:
+                try:
+                    saved=bob_market_store.request('read',{})
+                    restore_spot_observations(saved['observations'])
+                    _storage_loaded=True
+                    _storage_status='Spot-Beobachtungen aus dauerhaftem Speicher geladen'
+                except (OSError,ValueError,KeyError,TypeError,AttributeError):
+                    _storage_status='Dauerhafter Spot-Speicher nicht erreichbar oder Daten nicht verwendbar; lokale Erfassung läuft weiter'
             try:
-                record_spot_tick(fetch_spot_tick())
+                tick=fetch_spot_tick()
+                record_spot_tick(tick)
+                try:
+                    saved=bob_market_store.request('write',dict(at=tick['at'],price=tick['price'],symbol='XAU',currency='USD'))
+                    if saved.get('ok') is not True:raise ValueError('Nicht gespeichert')
+                    _storage_status='Spot-Beobachtungen dauerhaft gespeichert; originale Quellenzeiten bleiben erhalten'
+                except (OSError,ValueError,TypeError):
+                    _storage_status='Dauerhaftes Speichern momentan fehlgeschlagen; lokale Erfassung läuft weiter'
             except (OSError,ValueError,KeyError,TypeError,OverflowError) as exc:
                 error=str(exc) if isinstance(exc,ValueError) else 'Gold-API.com nicht erreichbar oder Datenformat geändert'
                 with _lock:_spot_source_error=error
@@ -254,6 +292,7 @@ def current_estimate(research, now=None):
             coveredSeconds=round((rows[-1]-rows[0]).total_seconds(),1) if rows else 0,
             firstAt=rows[0].isoformat() if rows else None,lastAt=rows[-1].isoformat() if rows else None,
             currentFresh=bool(rows and 0 <= (now-rows[-1]).total_seconds() <= MAX_PROXY_AGE),maxGapSeconds=MAX_GAP)
+        if kind=='gold-api-spot':out['storageStatus']=_storage_status
         if out['available']:
             estimate_quality.record(key,out['priceUsd'],out['priceAt'],out['referenceAt'],now.isoformat())
             horizon=(stamp(out['priceAt'])-stamp(out['referenceAt'])).total_seconds()
