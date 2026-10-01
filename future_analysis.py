@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from urllib.request import Request,urlopen
 from urllib.error import HTTPError, URLError
+from email.utils import parsedate_to_datetime
 
 SYMBOL='GCZ26.CMX'
 CONTRACT='GCZ26'
@@ -147,8 +148,10 @@ def analyse(five,hourly,market_at,now=None):
 
 def _collect():
     global _state
+    failures=0
     while True:
         started=time.monotonic()
+        wait_seconds=60
         with _lock:active=started<_active_until
         if active:
             try:
@@ -156,11 +159,27 @@ def _collect():
                     a=pool.submit(fetch_chart,'5m','5d');b=pool.submit(fetch_chart,'1h','6mo')
                     five,at5=parse_chart(a.result(),5);hourly,at1=parse_chart(b.result(),60)
                 state=analyse(five,hourly,min(at5,at1))
+                failures=0
             except (OSError,ValueError,KeyError,TypeError,IndexError) as exc:
+                failures+=1
+                wait_seconds=retry_delay(exc,failures)
                 state=dict(contract=CONTRACT,available=False,direction='NEUTRAL',
-                           reason=history_error(exc))
+                           reason=history_error(exc),retryAfterSeconds=wait_seconds)
             with _lock:_state=state
-        threading.Event().wait(max(1,60-(time.monotonic()-started)))
+        threading.Event().wait(max(1,wait_seconds-(time.monotonic()-started)))
+
+
+def retry_delay(exc, failures, now=None):
+    now=time.time() if now is None else now
+    delay=min(1800,60*2**min(max(failures,1),5))
+    if isinstance(exc,HTTPError) and exc.code==429:
+        delay=max(300,delay)
+        header=exc.headers.get('Retry-After','') if exc.headers else ''
+        try:
+            seconds=int(header) if str(header).isdigit() else parsedate_to_datetime(header).timestamp()-now
+            delay=max(delay,min(86400,max(0,seconds)))
+        except (ValueError,TypeError,OverflowError):pass
+    return delay
 
 
 def history_error(exc):

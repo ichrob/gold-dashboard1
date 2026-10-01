@@ -4,6 +4,7 @@ import os
 import secrets
 import fibonacci_monitor
 import bob_session_store
+import bob_market_store
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -26,6 +27,7 @@ def db():
 def init_db():
     with db() as conn:
         bob_session_store.init(conn)
+        bob_market_store.init(conn)
         conn.execute("""
           CREATE TABLE IF NOT EXISTS subscriptions (
             id BIGSERIAL PRIMARY KEY,
@@ -141,6 +143,18 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         try:
+            if path in ('/market-spots/read','/market-spots/write'):
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'})
+                    return
+                payload=json_body(self)
+                if not isinstance(payload,dict):raise ValueError('Ungültige Spot-Speicherdaten')
+                with db() as conn:
+                    result=bob_market_store.handle(conn,path.rsplit('/',1)[-1],payload)
+                    conn.commit()
+                send_json(self,200,result)
+                return
             if path in ('/auth-session/create', '/auth-session/check', '/auth-session/revoke'):
                 supplied = self.headers.get('X-Bob-Push-Token', '')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
