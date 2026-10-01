@@ -2,7 +2,8 @@
 
 Bob has verified source mappings for the seven SG ISINs in
 `sg_quotes.PRODUCT_IDS`. Eligibility also requires the issuer to confirm XAU/USD
-spot as the underlying; gold futures remain excluded. Unknown ISINs remain
+spot as the underlying. FG309G has a separate exact-contract futures research
+view; futures remain excluded from the spot ranking. Unknown ISINs remain
 blocked until their source identity has been verified. BNP uses its existing
 independent adapter.
 
@@ -64,3 +65,35 @@ checking before an order.
 No new account, API key, subscription or paid service is required. The FX cache
 is shared across product requests and uses a 45-second TTL (at most 80/hour per
 running Bob process under continuous polling); missing/failing inputs fail closed.
+
+## Gold futures research (FG309G)
+
+SG confirms `DE000FG309G0` as `C_CMX_GOLD_F_Z26`, RIC `GCZ26`, underlying
+ISIN `XC0009656924` (Gold Future Dec 2026). The secondary snapshot must match
+instrument `188570012`, notation `317423266`, USD and exchange `CXE`. A rollover
+or changed contract identity fails closed; no continuous/front-month symbol or
+XAU/USD quote is substituted.
+
+`futureResearch` is a separate non-executable response envelope. It contains
+separately dated SG OTC bid/ask, official SG KO/strike, the exact futures contract,
+and (when supplied with a valid observation time and matching notation) the
+secondary dated underlying figure. `datetimeCalculation`, request time and
+undated `referencePrice` never date the underlying observation.
+
+A research-only approximate gearing and distance to current SG KO may be shown
+using a futures observation no older than 30 minutes, current bid/ask and both
+current FX observation timestamps. This mixes observation times and is explicitly
+labelled as an estimate using a delayed/unverified-real-time basis. It is neither
+current issuer leverage nor a current KO distance. The 30-minute limit is solely
+a research display limit; it never relaxes the 60-second trading gate. Cache hits
+recompute ages and remove estimates when product/FX inputs expire.
+
+Even if a futures observation is recent, automatic eligibility remains false:
+real-time source quality and a trend/MTF history for the exact contract have not
+been established. Both live and manual screenshot ranking reject known futures;
+no spot LONG/SHORT signal can authorize them. A missing FX feed still preserves
+the dated product research without an estimate.
+
+CME's free public quotes are delayed by at least ten minutes:
+https://www.cmegroup.com/trading/about-all-delayed-quotes.html
+No paid feed, new service, account or subscription was added.

@@ -17,6 +17,20 @@ _CACHE = {}
 _LOCK = threading.Lock()
 ORIGIN = 'https://derivate.bnpparibas.com/'
 SG_ORIGIN = 'https://www.sg-zertifikate.de/'
+# Exact contract identities confirmed from SG and the secondary product snapshot.
+SG_GOLD_FUTURES = {
+    'DE000FG309G0': dict(nmp='C_CMX_GOLD_F_Z26', ric='GCZ26',
+                         isin='XC0009656924', name='Gold Future Dec 2026',
+                         instrument_id='188570012', notation_id=317423266),
+}
+
+def sg_future_contract(product, isin):
+    contract = SG_GOLD_FUTURES.get(isin)
+    if contract and all(product.get(key) == contract[field] for key, field in
+                        [('AssetNMP', 'nmp'), ('AssetRic', 'ric'), ('AssetIsin', 'isin'),
+                         ('AssetName', 'name')]):
+        return contract
+    return None
 
 def issuer_json(url, origin, timeout=6):
     """Read a bounded response only from the selected issuer's fixed host."""
@@ -38,8 +52,9 @@ def parse_sg(product, properties, isin, now=None):
     to an executable snapshot. Preserve identified metadata separately.
     """
     now = now or datetime.now(timezone.utc)
+    contract = sg_future_contract(product, isin)
     if (product.get('Isin') != isin or product.get('ExchangeCode') != 'CBDE'
-            or product.get('AssetNMP') != 'XAUUSD' or product.get('AssetCurrency') != 'USD'
+            or (product.get('AssetNMP') != 'XAUUSD' and contract is None) or product.get('AssetCurrency') != 'USD'
             or product.get('Currency') != 'EUR' or not isinstance(properties, list)):
         raise ValueError('SG-Produktidentität oder Gold-Basiswert nicht bestätigt')
     attrs = {}
@@ -69,7 +84,9 @@ def parse_sg(product, properties, isin, now=None):
                 isin=isin, source='Société Générale · offizielle Produktdaten',
                 sourceUrl=SG_ORIGIN+'product-details/'+isin.lower(),
                 checkedAt=now.isoformat(), reason=reason,
-                metadata=dict(name=product.get('Name', ''), underlying='XAU/USD',
+                metadata=dict(name=product.get('Name', ''), underlying=contract['name'] if contract else 'XAU/USD',
+                              underlyingType='FUTURE' if contract else 'SPOT',
+                              contract=contract['ric'] if contract else None,
                               underlyingIsin=product.get('AssetIsin'), currency='EUR',
                               direction='LONG' if side == 'Call' else 'SHORT', ko=ko,
                               status=status), maxAgeSeconds=MAX_AGE_SECONDS)
@@ -83,7 +100,7 @@ def get_sg_quote(isin):
             raise ValueError('Ungültige SG-Produktkennung')
         if product.get('Isin') != isin:
             raise ValueError('Falsche SG-ISIN')
-        if product.get('AssetNMP') != 'XAUUSD':
+        if product.get('AssetNMP') != 'XAUUSD' and sg_future_contract(product, isin) is None:
             return dict(found=False, productVerified=True, eligible=False, fresh=False, isin=isin,
                         source='Société Générale · offizielle Produktdaten',
                         sourceUrl=SG_ORIGIN+'product-details/'+isin.lower(),
@@ -92,6 +109,7 @@ def get_sg_quote(isin):
                                ' ist kein XAU/USD-Spot; eigene Basiswertdaten erforderlich',
                         metadata=dict(name=product.get('Name', ''), underlying=product.get('AssetNMP'),
                                       underlyingIsin=product.get('AssetIsin'), currency=product.get('Currency'),
+                                      underlyingType='UNSUPPORTED',
                                       direction='nicht bestätigt', ko='nicht bestätigt'))
         stage = 'properties'
         properties = issuer_json(SG_ORIGIN+'EmcWebApi/api/Products/AllProperties/'+str(product_id), SG_ORIGIN)
@@ -132,6 +150,9 @@ def stamp(value, local=False):
 def freshness(result, now=None):
     result = dict(result)
     now = now or datetime.now(timezone.utc)
+    if result.get('futureResearch'):
+        from sg_quotes import refresh_future_research
+        result['futureResearch'] = refresh_future_research(result['futureResearch'], now)
     try:
         keys = ['quoteAt', 'bidAt', 'askAt', 'leverageAt', 'snapshotAt']
         if result.get('leverageKind') == 'calculated-gearing':
@@ -143,7 +164,10 @@ def freshness(result, now=None):
     except (KeyError, ValueError, TypeError):
         result['fresh'] = False
     result['eligible'] = bool(result.get('found') and result['fresh'] and result.get('marketOpen') and now <= stamp(result['tradingEndAt']))
-    if result.get('found') and not result['eligible']:
+    if result.get('metadata', {}).get('underlyingType') == 'FUTURE':
+        result['eligible'] = False
+        result['reason'] = 'Gold-Future: aktuelle kontraktspezifische Basiswertdaten und eigene Trendprüfung fehlen; keine Spot-Freigabe'
+    if result.get('found') and not result['eligible'] and result.get('metadata', {}).get('underlyingType') != 'FUTURE':
         result['reason'] = 'Kurs veraltet, Markt geschlossen oder Zeitstempel nicht prüfbar'
     return result
 

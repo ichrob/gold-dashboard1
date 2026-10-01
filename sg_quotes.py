@@ -67,7 +67,7 @@ def market_input(kind):
         return value
 
 
-def parse_snapshot(product, properties, snapshot, spot, fx, isin, now=None):
+def validate_snapshot(product, properties, snapshot, isin, now):
     now = now or datetime.now(timezone.utc)
     metadata = q.parse_sg(product, properties, isin, now)
     attrs = {p['Name']: p for p in properties}
@@ -94,7 +94,15 @@ def parse_snapshot(product, properties, snapshot, spot, fx, isin, now=None):
     if bool(status & (2 | 8 | 16 | 32)) or not status & 1 or product.get('TodayBarrierHitDate'):
         raise ValueError('SG-Produkt nicht aktiv')
     underlying = underlyings[0]
-    if (underlying['isoCurrency'] != 'USD' or underlying['instrument']['symbol'] != 'XAU'
+    contract = q.sg_future_contract(product, isin)
+    if contract:
+        if (underlying['isoCurrency'] != 'USD'
+                or underlying['instrument']['entityType'] != 'FUTURE'
+                or str(underlying['instrument']['entityValue']) != contract['instrument_id']
+                or underlying['market']['idNotation'] != contract['notation_id']
+                or underlying['market']['codeExchange'] != 'CXE'):
+            raise ValueError('Gold-Futures-Kontrakt nicht bestätigt')
+    elif (underlying['isoCurrency'] != 'USD' or underlying['instrument']['symbol'] != 'XAU'
             or underlying['instrument']['entityType'] != 'PRECIOUS_METAL'):
         raise ValueError('Gold-Spot-Basiswert nicht bestätigt')
     direction = metadata['metadata']['direction']
@@ -121,6 +129,15 @@ def parse_snapshot(product, properties, snapshot, spot, fx, isin, now=None):
     bid, ask = q.number(quote['bid']), q.number(quote['ask'])
     if bid <= 0 or ask < bid or q.number(quote['volumeBid']) <= 0 or q.number(quote['volumeAsk']) <= 0:
         raise ValueError('Kein gültiger zweiseitiger SG-Kurs')
+    return metadata, attrs, instrument, details, quote, underlying, ratio, bid, ask, secondary_ko, secondary_strike
+
+
+def parse_snapshot(product, properties, snapshot, spot, fx, isin, now=None):
+    now = now or datetime.now(timezone.utc)
+    if product.get('AssetNMP') != 'XAUUSD':
+        raise ValueError('Futures dürfen keine Spot-Berechnung verwenden')
+    metadata, attrs, instrument, details, quote, underlying, ratio, bid, ask, secondary_ko, secondary_strike = validate_snapshot(product, properties, snapshot, isin, now)
+    direction = metadata['metadata']['direction']
     if (spot['stale'] is not False or spot['data_state']['status'] != 'fresh'
             or spot['xau']['currency'] != 'USD' or spot['xau']['unit'] != 'troy_oz'
             or fx['result'] != 'success' or fx['base'] != 'USD'
@@ -178,12 +195,106 @@ def parse_snapshot(product, properties, snapshot, spot, fx, isin, now=None):
     return q.freshness(result, now)
 
 
+# Research is deliberately a separate envelope. Even fresh OTC product prices
+# cannot authorize a future using the spot trend or a delayed basis price.
+def refresh_future_research(research, now=None):
+    now = now or datetime.now(timezone.utc)
+    result = dict(research)
+    def ages(keys):
+        try:
+            values = [(now-q.stamp(result[k])).total_seconds() for k in keys]
+            return values if all(age >= -5 for age in values) else None
+        except (KeyError, ValueError, TypeError):
+            return None
+    product_ages = ages(['bidAt', 'askAt'])
+    basis_ages = ages(['underlyingAt'])
+    fx_ages = ages(['fxDataAt', 'fxEffectiveAt'])
+    result['productQuoteFresh'] = bool(product_ages and max(product_ages) <= q.MAX_AGE_SECONDS)
+    result['productQuoteAgeSeconds'] = round(max(product_ages), 1) if product_ages else None
+    result['underlyingAgeSeconds'] = round(max(basis_ages), 1) if basis_ages else None
+    result['underlyingFresh'] = bool(basis_ages and max(basis_ages) <= q.MAX_AGE_SECONDS)
+    result['eligible'] = False
+    result['analysisAvailable'] = False
+    # A labelled research estimate is bounded to a 30-minute observation.
+    # It never enters price/leverage/KO inputs of the spot comparison.
+    result.pop('indicativeLeverage', None)
+    result.pop('indicativeKoDistancePct', None)
+    result.pop('estimateAt', None)
+    if (result['productQuoteFresh'] and basis_ages and max(basis_ages) <= 1800
+            and fx_ages and max(fx_ages) <= q.MAX_AGE_SECONDS):
+        basis, ko = result['underlyingPriceUsd'], result['ko']
+        if ((result['direction'] == 'SHORT' and basis < ko and basis < result['strike'])
+                or (result['direction'] == 'LONG' and basis > ko and basis > result['strike'])):
+            estimate = basis*result['usdEur']*result['ratio']/result['ask']
+            if math.isfinite(estimate) and estimate >= 1:
+                result['indicativeLeverage'] = estimate
+                result['indicativeKoDistancePct'] = abs(ko-basis)/basis*100
+                result['estimateAt'] = min(q.stamp(result[k]) for k in
+                    ['underlyingAt', 'askAt', 'fxDataAt', 'fxEffectiveAt']).isoformat()
+    return result
+
+
+def parse_future_research(product, properties, snapshot, fx, isin, now=None):
+    now = now or datetime.now(timezone.utc)
+    contract = q.sg_future_contract(product, isin)
+    if contract is None:
+        raise ValueError('Futures-Kontrakt oder Rollover nicht bestätigt')
+    metadata, attrs, instrument, details, quote, underlying, ratio, bid, ask, *_ = validate_snapshot(product, properties, snapshot, isin, now)
+    research = dict(contract=contract['ric'], underlying=contract['name'], underlyingType='FUTURE',
+                    source='SG OTC via onvista · Futures-Recherche', sourceUrl=product_url(isin),
+                    bid=bid, ask=ask, bidAt=q.stamp(quote['datetimeBid']).isoformat(),
+                    askAt=q.stamp(quote['datetimeAsk']).isoformat(), currency='EUR',
+                    direction=metadata['metadata']['direction'], ko=metadata['metadata']['ko'],
+                    strike=q.number(attrs['Strike']['Value']), ratio=ratio,
+                    underlyingDataState='verzögert oder Echtzeitstatus nicht bestätigt',
+                    estimateNote='Nur Recherche: Näherung aus datiertem Futures-Kurs, USD/EUR und Briefkurs; '
+                                 'kein aktueller SG-Hebel und kein aktueller KO-Abstand. '
+                                 'Eigene Futures-Trendprüfung fehlt. Keine Spot-Freigabe.')
+    # This is a dated figure from the exact underlying notation, not the
+    # undated referencePrice or calculation/request timestamp.
+    figures = underlying.get('derivativesBarrierFigureList', {})
+    if (figures.get('idNotationUnderlying') == contract['notation_id']
+            and figures.get('isoCurrencyUnderlying') == 'USD'):
+        try:
+            value = q.number(figures['priceUnderlying'])
+            at = q.stamp(figures['datetimePriceUnderlying'])
+            if value > 0 and (now-at).total_seconds() >= -5:
+                research.update(underlyingPriceUsd=value, underlyingAt=at.isoformat())
+        except (KeyError, ValueError, TypeError):
+            pass
+    try:
+        if (fx['result'] == 'success' and fx['base'] == 'USD' and fx['source'] == 'live'
+                and fx['sources']['EUR'] == 'live' and fx['market_session'] == 'open'):
+            usd_eur = q.number(fx['rates']['EUR'])
+            if usd_eur > 0:
+                research.update(usdEur=usd_eur,
+                                fxDataAt=q.stamp(fx['data_updated_at']).isoformat(),
+                                fxEffectiveAt=q.stamp(fx['effective_at']['EUR']).isoformat())
+    except (KeyError, ValueError, TypeError):
+        pass
+    metadata['futureResearch'] = refresh_future_research(research, now)
+    metadata['reason'] = 'Gold-Future '+contract['ric']+': aktuelle kontraktspezifische Basiswertdaten und eigene Trendprüfung fehlen; keine Spot-Freigabe'
+    return metadata
+
+
 def get_quote(product, properties, isin):
     fallback = q.parse_sg(product, properties, isin)
     if isin not in PRODUCT_IDS:
         fallback['reason'] = 'SG-Produkt erkannt; ergänzende Kursquelle für diese ISIN noch nicht verifiziert'
         return fallback
     try:
+        if q.sg_future_contract(product, isin):
+            # Research quotes remain useful when FX is missing. There is no
+            # spot request and no fallback to a continuous/front-month future.
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                page = pool.submit(fetch_snapshot, isin)
+                fx = pool.submit(market_input, 'fx')
+                snapshot = page.result()
+                try:
+                    rate = fx.result()
+                except (OSError, ValueError, KeyError, TypeError):
+                    rate = {}
+                return parse_future_research(product, properties, snapshot, rate, isin)
         with ThreadPoolExecutor(max_workers=3) as pool:
             page = pool.submit(fetch_snapshot, isin)
             gold = pool.submit(market_input, 'spot')

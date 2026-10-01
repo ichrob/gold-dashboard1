@@ -285,6 +285,19 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
     assert(!degiro.BobDegiro.rankProducts([breached],shortCtx).tradeable,"SHORT KO at/below spot must be excluded");
   }
 
+  // Exact-contract futures must not inherit any XAU/USD ranking, including
+  // the manually confirmed screenshot path and fabricated eligible responses.
+  const future={...short,isin:"DE000FG309G0",quote:{...short.quote,isin:"DE000FG309G0"}};
+  assert(!degiro.BobDegiro.currentQuote(future,now));
+  assert(!degiro.BobDegiro.evaluateProduct(future).ok);
+  assert(!degiro.BobDegiro.rankProducts([future],shortCtx).tradeable);
+  assert(!degiro.BobDegiro.rankProducts([future],{...shortCtx,requireFreshQuotes:false}).tradeable);
+  assert(!degiro.BobDegiro.manualSnapshotStatus(future,{isin:future.isin},now).complete);
+  assert.strictEqual(degiro.BobDegiro.rankManualSnapshots([future],shortCtx).total,0);
+  assert(!degiro.BobDegiro.currentQuote({...quoted,quote:{...quoted.quote,metadata:{underlyingType:"FUTURE"}}},now));
+  const researchText=degiro.BobDegiro.futureResearchText({futureResearch:{contract:"GCZ26",bid:39.95,ask:39.97,bidAt:new Date(now).toISOString(),askAt:new Date(now).toISOString(),underlyingPriceUsd:4191.4,underlyingAt:new Date(now-790000).toISOString(),indicativeLeverage:9.2,indicativeKoDistancePct:10.6,estimateNote:"Keine Spot-Freigabe"}});
+  assert(researchText.includes("GCZ26")&&researchText.includes("verzögert")&&researchText.includes("Keine Spot-Freigabe"));
+
   assert(!degiro.BobDegiro.rankProducts([quoted],{...freshCtx,spotFresh:false}).tradeable);
   assert(degiro.BobDegiro.quoteTiming(quoted.quote,now).fresh);
   assert.strictEqual(degiro.BobDegiro.quoteTiming(quoted.quote,now).ageSeconds,1);
