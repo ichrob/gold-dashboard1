@@ -26,7 +26,31 @@ summary{cursor:pointer;font-weight:700;padding:10px 0}details[open]>summary{marg
 </style>
 </head>
 <body>
+<div id="bobSessionNotice" hidden role="alert" class="warning" style="margin:14px">
+ Bob-Anmeldung abgelaufen. Serverprüfung und aktuelle Trade-Freigabe sind gesperrt.
+ <a href="/login" target="_blank" rel="noopener">Bob in einem neuen Tab anmelden</a>.
+ Danach diese Ansicht neu laden. Ein laufender Test wird nicht automatisch beendet.
+</div>
 <script>
+// A protected API rejection must not become an endless background error loop.
+// Keep local test/trade state intact; reauthentication is an explicit user action.
+(function(){
+ const nativeFetch=window.fetch.bind(window);
+ let expired=false;
+ const notice=()=>{const el=document.getElementById("bobSessionNotice");if(el)el.hidden=false;};
+ window.BobSession={expired:()=>expired};
+ window.fetch=async function(input,options={}){
+  let protectedApi=false;
+  try{
+   const url=new URL(typeof input==="string"?input:input.url,location.href);
+   protectedApi=url.origin===location.origin&&url.pathname.startsWith("/api/")&&url.pathname!=="/api/diag";
+  }catch(_){}
+  if(protectedApi&&expired)return new Response(JSON.stringify({error:"Bob-Anmeldung abgelaufen"}),{status:401,headers:{"Content-Type":"application/json"}});
+  const response=await nativeFetch(input,protectedApi?{...options,credentials:"same-origin"}:options);
+  if(protectedApi&&response.status===401){expired=true;notice();}
+  return response;
+ };
+})();
 /* Bob runtime probe: public shell fingerprint + runtime heartbeat + uncaught-error trace. */
 try{
  const bobRuntimeId="bob-runtime-"+Date.now()+"-"+Math.random().toString(36).slice(2,8);
@@ -372,7 +396,7 @@ async function testPush(){
 renderPush();
 
 var C=[], lastPrice=0, A={}, lastMtfAt=0, liveFxUsdEur=null, loadGeneration=0, MTF={longs:0,shorts:0,neutral:0,overall:"NEUTRAL",byTf:{},dirs:[]};
-function getMtfState(){const m=(typeof MTF==="object"&&MTF!==null)?MTF:null;return m&&typeof m.overall!=="undefined"?m:{longs:0,shorts:0,neutral:4,overall:"NEUTRAL",byTf:{},dirs:[]};}
+function getMtfState(){const m=window.BobSession?.expired()?null:(typeof MTF==="object"&&MTF!==null)?MTF:null;return m&&typeof m.overall!=="undefined"?m:{longs:0,shorts:0,neutral:4,overall:"NEUTRAL",byTf:{},dirs:[]};}
 function ema(a,p){let k=2/(p+1),e=a[0];for(let i=1;i<a.length;i++)e=a[i]*k+e*(1-k);return e}
 function emaSeries(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
 function rsi(a,p=14){if(a.length<=p)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];d>0?g+=d:l-=d}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return l===0?100:100-100/(1+g/l)}
@@ -908,6 +932,7 @@ function falseBreakoutState(dir){
  return "OK";
 }
 function confirmedSignalDirection(){
+ if(window.BobSession?.expired())return "NEUTRAL";
  if(!A.ready||!C.length||!Number.isFinite(A.at))return "NEUTRAL";
  const raw=A.score>=70&&getMtfState().overall==="LONG"?"LONG":A.score<=30&&getMtfState().overall==="SHORT"?"SHORT":"NEUTRAL";
  if(raw==="NEUTRAL")return "NEUTRAL";
@@ -1043,7 +1068,7 @@ function advancedAnalysis(){
 }
 
 function renderAnalysisBlocks(){
- const ready=!!A.ready&&C.length>=200;
+ const ready=!window.BobSession?.expired()&&!!A.ready&&C.length>=200;
  const put=(name,dir,note)=>{const el=$("block"+name),detail=$("block"+name+"Note");if(!el)return;el.textContent=dir;el.parentElement.className="analysis-block "+(dir==="LONG"?"long":dir==="SHORT"?"short":"neutral");if(detail)detail.textContent=note;};
  if(!ready){for(const name of ["Trend","Momentum","Fibonacci","Mtf","Volatility","Structure"])put(name,"NEUTRAL","Daten fehlen oder sind nicht ausreichend aktuell");$("analysisQuality").textContent="Signalqualität: nicht verfügbar";return;}
  const trend=A.e20>A.e50&&A.e50>A.e200?"LONG":A.e20<A.e50&&A.e50<A.e200?"SHORT":"NEUTRAL";
@@ -1061,6 +1086,7 @@ function renderAnalysisBlocks(){
 }
 function updateQuick(){
  renderAnalysisBlocks();
+ if(window.BobSession?.expired()){$("quickSignal").textContent="🟡 ABWARTEN · Anmeldung erforderlich";$("quickSignal").className="signal neutral";$("quickReason").textContent="Serverprüfung gesperrt: bitte erneut bei Bob anmelden.";$("quickRisk").textContent="—";updateTradeSignal();return;}
  if(!C.length||!A.at)return;
  if(!A.ready){$("quickSignal").textContent="🟡 ABWARTEN · Historie fehlt";$("quickSignal").className="signal neutral";$("quickRisk").textContent="—";return;}
  const p=lastPrice;
@@ -1079,6 +1105,7 @@ function updateQuick(){
 }
 
 function updateTradeSignal(){
+ if(window.BobSession?.expired()){$("tradeSignal").textContent="🟡 ABWARTEN · Anmeldung erforderlich";$("tradeSignal").className="signal neutral";return;}
  if(!C.length||!A.at){$("tradeSignal").textContent="Warte auf Analyse";return}
  const mtfDir=getMtfState().overall||"NEUTRAL";
  const fb=falseBreakoutState(mtfDir);
@@ -1240,7 +1267,7 @@ function calcDgTrade(){
  const fx=usdEurRate();
  const lev=Math.max(1,+$("dgLev").value||1), ko=+$("dgKo").value, spread=Math.max(0,+$("dgSpread").value||0);
  const score=A.score??50, mtf=getMtfState().overall||"NEUTRAL";
- let dir=A.ready?(score>=70&&mtf==="LONG"?"LONG":score<=30&&mtf==="SHORT"?"SHORT":"ABWARTEN"):"ABWARTEN";
+ let dir=!window.BobSession?.expired()&&A.ready?(score>=70&&mtf==="LONG"?"LONG":score<=30&&mtf==="SHORT"?"SHORT":"ABWARTEN"):"ABWARTEN";
  const product=$("dgType").value, productLabel={turbo:"Turbo / Knock-Out",warrant:"Optionsschein",etc:"Gold-ETC / ungehebelt",future:"Future / anderes Derivat"}[product];
  if(dir==="ABWARTEN"){ $("dgOut").innerHTML=`<b>Kein Trade-Vorschlag.</b><br>Score und Multi-Timeframe-Richtung bestätigen keinen gemeinsamen LONG-/SHORT-Trade.<br><br>Maximales Risiko: <b>${maxLoss.toFixed(2)} €</b>.`; return; }
  const sm=stopModel(dir,lastPrice,A.at,1.5), tgt=targetModel(dir,lastPrice,sm.stop,2);
@@ -1499,5 +1526,4 @@ loadData();
 setInterval(()=>{ if(document.visibilityState==="visible"){loadData();syncPushPreferences();} }, 60000);
 </script><form method="post" action="/logout" style="text-align:center;margin:24px"><button type="submit">Abmelden</button></form>
 </body></html>
-
 
