@@ -51,3 +51,17 @@ Tests: `node test_manual_import.js`, `node test_bob.js`, `node validate_bob.js`
 und `python -m unittest test_auth.py test_ocr_assets.py test_product_quotes.py`.
 Originalbildtests müssen zusätzlich mit den tatsächlichen DEGIRO-Bildern
 erfolgen; die Textfixtures testen bewusst die Regeln, nicht die OCR-Genauigkeit.
+
+## Produktbezogener Ablauf
+
+Alle gespeicherten Produkte erhalten direkt einen Upload-Button, auch bei
+ABWARTEN. Zur Signalrichtung passende Produkte stehen zuerst. Mehrere Bilder
+für dieselbe ISIN werden in der ausgewählten Reihenfolge gelesen. Das gleiche
+Bild kann erneut gewählt werden. Abweichende oder fehlende ISIN bleiben gesperrt.
+Werte und Quellenzeiten können direkt auf der Produktkarte bestätigt werden.
+
+Zeitlich vollständige, bestätigte Momentaufnahmen werden separat nach technischer
+Passung verglichen, nur bei frischem Goldpreis und bestätigter LONG-/SHORT-Richtung.
+Schwacher oder widersprüchlicher technischer Konsens sperrt den Vergleich.
+Die Rangfolge umfasst nur belegte Momentaufnahmen und bietet keine Live-Freigabe.
+Die vorhandene datierte Emittentenrecherche bleibt davon getrennt.
