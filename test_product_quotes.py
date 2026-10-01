@@ -47,7 +47,8 @@ class ProductQuoteTests(unittest.TestCase):
 
     def test_sg_adapter_and_issuer_selection(self):
         product, props = self.sg_snapshot()
-        with patch.object(q, 'issuer_json', side_effect=[product, props]) as fetch:
+        with patch.object(q, 'issuer_json', side_effect=[product, props]) as fetch, \
+             patch('sg_quotes.get_quote', return_value=q.parse_sg(product, props, product['Isin'])):
             x = q.get_sg_quote(product['Isin'])
             self.assertTrue(x['productVerified'])
             self.assertIn('/Products/AllProperties/7069123', fetch.call_args_list[1].args[0])
@@ -56,6 +57,19 @@ class ProductQuoteTests(unittest.TestCase):
             result = q.get_quote(product['Isin'])
             self.assertTrue(result['productVerified']); self.assertFalse(result['eligible'])
         q._CACHE.clear()
+
+    def test_sg_future_is_identified_but_never_uses_spot_enrichment(self):
+        product, _ = self.sg_snapshot()
+        product['AssetNMP'] = 'C_CMX_GOLD_F_Z26'
+        with patch.object(q, 'issuer_json', return_value=product) as fetch, \
+             patch('sg_quotes.get_quote') as enrich:
+            result = q.get_sg_quote(product['Isin'])
+        self.assertTrue(result['productVerified'])
+        self.assertFalse(result['eligible'])
+        self.assertIn('kein XAU/USD-Spot', result['reason'])
+        self.assertEqual(fetch.call_count, 1)
+        enrich.assert_not_called()
+
     def test_current_snapshot_and_oldest_component_timestamp(self):
         x=q.parse_bnp(snapshot(),ISIN,NOW)
         self.assertTrue(x['eligible']);self.assertEqual(x['ageSeconds'],2.7)

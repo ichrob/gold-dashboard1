@@ -75,6 +75,7 @@ def parse_sg(product, properties, isin, now=None):
                               status=status), maxAgeSeconds=MAX_AGE_SECONDS)
 
 def get_sg_quote(isin):
+    stage = 'identity'
     try:
         product = issuer_json(SG_ORIGIN+'EmcWebApi/api/Products/'+isin, SG_ORIGIN)
         product_id = product['Id']
@@ -82,12 +83,32 @@ def get_sg_quote(isin):
             raise ValueError('Ungültige SG-Produktkennung')
         if product.get('Isin') != isin:
             raise ValueError('Falsche SG-ISIN')
+        if product.get('AssetNMP') != 'XAUUSD':
+            return dict(found=False, productVerified=True, eligible=False, fresh=False, isin=isin,
+                        source='Société Générale · offizielle Produktdaten',
+                        sourceUrl=SG_ORIGIN+'product-details/'+isin.lower(),
+                        checkedAt=datetime.now(timezone.utc).isoformat(),
+                        reason='SG-Basiswert '+str(product.get('AssetNMP', 'unbekannt'))+
+                               ' ist kein XAU/USD-Spot; eigene Basiswertdaten erforderlich',
+                        metadata=dict(name=product.get('Name', ''), underlying=product.get('AssetNMP'),
+                                      underlyingIsin=product.get('AssetIsin'), currency=product.get('Currency'),
+                                      direction='nicht bestätigt', ko='nicht bestätigt'))
+        stage = 'properties'
         properties = issuer_json(SG_ORIGIN+'EmcWebApi/api/Products/AllProperties/'+str(product_id), SG_ORIGIN)
-        return parse_sg(product, properties, isin)
-    except Exception:
+        # Dated OTC quotes are a separate source. SG's undated ASK/leverage
+        # fields and chart prices must never become an executable snapshot.
+        from sg_quotes import get_quote as sg_quote
+        stage = 'dated-quotes'
+        result = sg_quote(product, properties, isin)
+        print(f'BOB_SG isin={isin} found={bool(result.get("found"))} eligible={bool(result.get("eligible"))} '
+              f'age={result.get("ageSeconds")} source=sg-otc-onvista', flush=True)
+        return result
+    except Exception as exc:
+        print(f'BOB_SG isin={isin} stage={stage} error={type(exc).__name__}', flush=True)
         return dict(found=False, eligible=False, fresh=False, isin=isin,
                     source='Société Générale · öffentliche Produktrecherche',
-                    reason='SG-Produktdaten nicht bestätigt oder Quelle nicht erreichbar')
+                    reason=('SG-Produktdaten nicht bestätigt: '+str(exc) if isinstance(exc, ValueError)
+                            else 'SG-Produktdaten nicht bestätigt oder Quelle nicht erreichbar'))
 
 def valid_isin(value):
     if not re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]', value) or re.match(r'DE(?=[0O]{3})(?=[0O]{0,2}O)', value):
@@ -112,7 +133,10 @@ def freshness(result, now=None):
     result = dict(result)
     now = now or datetime.now(timezone.utc)
     try:
-        times = [stamp(result[k]) for k in ('quoteAt', 'bidAt', 'askAt', 'leverageAt', 'snapshotAt')]
+        keys = ['quoteAt', 'bidAt', 'askAt', 'leverageAt', 'snapshotAt']
+        if result.get('leverageKind') == 'calculated-gearing':
+            keys += ['spotAt', 'fxAt', 'fxDataAt', 'fxEffectiveAt']
+        times = [stamp(result[k]) for k in keys]
         ages = [(now-t).total_seconds() for t in times]
         result['ageSeconds'] = round(max(ages), 1)
         result['fresh'] = all(-5 <= age <= MAX_AGE_SECONDS for age in ages)

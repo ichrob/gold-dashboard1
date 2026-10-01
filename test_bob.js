@@ -289,6 +289,16 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert(degiro.BobDegiro.quoteTiming(quoted.quote,now).fresh);
   assert.strictEqual(degiro.BobDegiro.quoteTiming(quoted.quote,now).ageSeconds,1);
   assert(!degiro.BobDegiro.quoteTiming(quoted.quote,now+61000).fresh);
+  const calculated={...quoted,quote:{...quoted.quote,leverageKind:"calculated-gearing",leverageEstimated:true,
+    spotAt:new Date(now-1000).toISOString(),fxAt:new Date(now-1000).toISOString(),
+    fxDataAt:new Date(now-1000).toISOString(),fxEffectiveAt:new Date(now-1000).toISOString()}};
+  assert(degiro.BobDegiro.rankProducts([calculated],freshCtx).tradeable);
+  for(const key of ["spotAt","fxAt","fxDataAt","fxEffectiveAt"]){
+    for(const val of ["",new Date(now-61000).toISOString(),new Date(now+6000).toISOString()]){
+      const bad={...calculated,quote:{...calculated.quote,[key]:val}};
+      assert(!degiro.BobDegiro.rankProducts([bad],freshCtx).tradeable,"dated calculated-gearing input required: "+key);
+    }
+  }
   for(const key of ["bidAt","askAt","leverageAt","snapshotAt"]){
    for(const val of ["",new Date(now-61000).toISOString(),new Date(now+6000).toISOString()]){
     const bad={...quoted,quote:{...quoted.quote,[key]:val}};
