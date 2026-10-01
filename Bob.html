@@ -113,7 +113,7 @@ try{
 <div class="metric">ATR(14)<b id="atr">—</b></div>
 </div></details></div>
 
-<div class="card"><h3>Preisverlauf</h3><div id="chartLatest" class="small" aria-live="polite">Letzter Preis: — · Kurszeit: —</div><div class="chart-frame"><span class="axis-price">Preis</span><canvas id="chart" width="800" height="220" aria-label="Preisverlauf: waagerecht Zeit, senkrecht Preis"></canvas><div class="axis-time">Zeit</div></div><div id="chartFib" class="small" style="margin-top:8px">Fibonacci: noch keine bestätigten Level.</div></div>
+<div class="card"><h3>Preisverlauf</h3><div id="chartLatest" class="small" aria-live="polite">Letzter Preis: — · Kurszeit: —</div><div class="chart-frame"><span class="axis-price">Preis</span><canvas id="chart" width="800" height="220" aria-label="Preisverlauf: waagerecht Zeit, senkrecht Preis"></canvas><div class="axis-time">Zeit</div></div><div id="chartFibExplanation" class="research" style="margin-top:10px">Fibonacci: noch keine bestätigten Level.</div><div id="chartFib" class="small" style="margin-top:8px">Fibonacci: noch keine bestätigten Level.</div></div>
 
 <div class="card"><h3>⏱ Multi-Timeframe</h3>
 <div id="mtfSummary" class="small">—</div><details><summary>Zeitebenen anzeigen</summary>
@@ -366,9 +366,18 @@ function renderCompactAnalysis(x){
  el.textContent=label;el.className=label==="bullish"?"ok":label==="bearish"?"bad":"neutral";
  $("marketSummary").textContent="Trendbewertung: "+label;
 }
+function fibonacciExplanation(fib){
+ if(!fib?.valid||!["LONG","SHORT"].includes(fib.direction))return "Fibonacci: keine bestätigten Level verfügbar. Eine Richtung lässt sich daraus derzeit nicht ableiten.";
+ const p=v=>Number(v).toLocaleString("de-CH",{minimumFractionDigits:2,maximumFractionDigits:2})+" USD";
+ const l=fib.levels;
+ if(!l||![l.r382,l.r500,l.r618,l.r786,l.e1272,l.e1618,fib.high,fib.low].every(Number.isFinite))return "Fibonacci: unvollständige Level – keine Einordnung verfügbar.";
+ if(fib.direction==="LONG")return "Fibonacci-Szenario aufwärts: Bei einem Rücksetzer liegen mögliche Unterstützungszonen bei "+p(l.r382)+" (38,2 %), "+p(l.r500)+" (50 %) und "+p(l.r618)+" (61,8 %). Geht der Kurs weiter zurück, folgt "+p(l.r786)+" (78,6 %); unter dem Ausgangstief "+p(fib.low)+" ist diese Aufwärtsbewegung gebrochen. Setzt sich der Anstieg über "+p(fib.high)+" fort, liegen mögliche Erweiterungsziele bei "+p(l.e1272)+" und "+p(l.e1618)+". Die Zonen bestätigen allein keine Trendwende.";
+ return "Fibonacci-Szenario abwärts: Bei einer Erholung liegen mögliche Widerstandszonen bei "+p(l.r382)+" (38,2 %), "+p(l.r500)+" (50 %) und "+p(l.r618)+" (61,8 %). Steigt der Kurs weiter, folgt "+p(l.r786)+" (78,6 %); über dem Ausgangshoch "+p(fib.high)+" ist diese Abwärtsbewegung gebrochen. Setzt sich der Rückgang unter "+p(fib.low)+" fort, liegen mögliche Erweiterungsziele bei "+p(l.e1272)+" und "+p(l.e1618)+". Die Zonen bestätigen allein keine Trendwende.";
+}
 function draw(a){
  const cv=$("chart"),ctx=cv.getContext("2d"),w=cv.width,h=cv.height;
  ctx.clearRect(0,0,w,h);
+ $("chartFibExplanation").textContent=fibonacciExplanation(A.ready?A.fibonacci:null);
  const v=C.slice(-120).filter(b=>Number.isFinite(Number(b.close))&&Number.isFinite(Number(b.openTime))&&Number(b.openTime)>0);
  const bundle=typeof liveBundleCache!=="undefined"?liveBundleCache:null;
  const age=bundle?.spots?.xaus_age_seconds;
@@ -841,7 +850,7 @@ function fibonacciModel(dir,entry,atr=0){
    : {r382:lo+range*.382,r500:lo+range*.5,r618:lo+range*.618,r786:lo+range*.786,e1272:lo-range*.272,e1618:lo-range*.618};
  const extensions=[levels.e1272,levels.e1618];
  const target=extensions.filter(x=>dir==="LONG"?x>entry:x<entry).sort((a,b)=>dir==="LONG"?a-b:b-a)[0]??levels.e1272;
- return {valid:true,high:hi,low:lo,range,levels,target,swingHighIndex:hiPivot.i,swingLowIndex:loPivot.i,swingMethod:"confirmed-3x3-pivot"};
+ return {valid:true,direction:dir,high:hi,low:lo,range,levels,target,swingHighIndex:hiPivot.i,swingLowIndex:loPivot.i,swingMethod:"confirmed-3x3-pivot"};
 }
 function targetModel(dir,entry,stop,minRR=2){
  minRR=Math.max(1,+minRR||2);
