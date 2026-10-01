@@ -8,8 +8,10 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from future_estimate import stamp, number
+import estimate_quality
 
 _anchors = {}
+_history = {}
 _lock = threading.Lock()
 MAX_ANCHOR_AGE = 1800
 MAX_INPUT_AGE = 60
@@ -18,6 +20,10 @@ MAX_ANCHOR_SKEW = 5
 
 def identity(model):
     return tuple(model[k] for k in ('isin','underlying','direction','ratio','strike','ko','classification'))
+
+
+def quality_key(model,side):
+    return 'turbo:'+repr(identity(model))+':'+side
 
 
 def validate_model(model):
@@ -48,9 +54,32 @@ def remember(result, model, now):
         previous = _anchors.get(key)
         if previous and stamp(previous['referenceAt']) >= min(times):
             return
+        history=list(_history.get(key,[]))
+    # Shadow-test older references at several horizons before updating the
+    # anchor. The actual current bid/ask never enter the forecast formula.
+    spot=dict(stale=False,data_state=dict(status='fresh'),xau=dict(currency='USD',unit='troy_oz'),
+              spot_usd_oz=result['leverageInputs']['spotUsd'],price_as_of=result['spotAt'])
+    fx=dict(result='success',base='USD',source='live',sources=dict(EUR='live'),market_session='open',
+            rates=dict(EUR=result['leverageInputs']['usdEur']),data_updated_at=result['fxDataAt'],
+            effective_at=dict(EUR=result['fxEffectiveAt']))
+    for target in (45,180,600,1200):
+        choices=[a for a in history if estimate_quality.horizon_bucket((min(times)-stamp(a['referenceAt'])).total_seconds())
+                 ==estimate_quality.horizon_bucket(target)]
+        if not choices:continue
+        old=min(choices,key=lambda a:abs((min(times)-stamp(a['referenceAt'])).total_seconds()-target))
+        predicted=calculate(model,old,spot,fx,now)
+        if predicted['available']:
+            for side in ('bid','ask'):
+                scoped=quality_key(model,side)
+                estimate_quality.record(scoped,predicted[side+'Eur'],predicted['priceAt'],old['referenceAt'],now.isoformat())
+    for side in ('bid','ask'):
+        estimate_quality.observe(quality_key(model,side),result[side],result[side+'At'],now.isoformat())
+    with _lock:
         if len(_anchors) >= 256:
-            _anchors.pop(next(iter(_anchors)))
+            oldest=next(iter(_anchors));_anchors.pop(oldest);_history.pop(oldest,None)
         _anchors[key] = anchor
+        rows=_history.setdefault(key,[]);rows.append(anchor)
+        rows[:]=[a for a in rows if (now-stamp(a['referenceAt'])).total_seconds()<=1800][-90:]
 
 
 def calculate(model, anchor, spot, fx, now=None):
@@ -108,6 +137,22 @@ def calculate(model, anchor, spot, fx, now=None):
 
 
 def current(model, spot, fx, now=None):
+    now=now or datetime.now(timezone.utc)
     with _lock:
         anchor = _anchors.get(identity(model))
-    return calculate(model, anchor, spot, fx, now)
+    out=calculate(model, anchor, spot, fx, now)
+    if out['available']:
+        horizon=(stamp(out['priceAt'])-stamp(out['referenceAt'])).total_seconds()
+        qualities=[]
+        for side in ('bid','ask'):
+            key=quality_key(model,side)
+            estimate_quality.record(key,out[side+'Eur'],out['priceAt'],out['referenceAt'],now.isoformat())
+            qualities.append(estimate_quality.quality(key,horizon,now))
+        out['validation']=dict(ready=all(v['ready'] for v in qualities),
+            sampleCount=min(v['sampleCount'] for v in qualities),minSamples=estimate_quality.MIN_SAMPLES,
+            bid=qualities[0],ask=qualities[1],horizonBucket=qualities[0]['horizonBucket'],
+            reason='Genauigkeit für diesen Referenz-Abstand noch nicht ausreichend gemessen',
+            note='Bisher gemessene Abweichungen; zukünftige Fehler können größer sein.')
+        if out['validation']['ready']:
+            out['comparisonErrorEur']=max(.01,*(v['maxAbsoluteError'] for v in qualities))
+    return out

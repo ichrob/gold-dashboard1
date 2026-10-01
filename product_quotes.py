@@ -168,7 +168,7 @@ def freshness(result, now=None):
     result['eligible'] = bool(result.get('found') and result['fresh'] and result.get('marketOpen') and now <= stamp(result['tradingEndAt']))
     if result.get('metadata', {}).get('underlyingType') == 'FUTURE':
         result['eligible'] = False
-        result['reason'] = 'Gold-Future: aktuelle kontraktspezifische Basiswertdaten und eigene Trendprüfung fehlen; keine Spot-Freigabe'
+        result['reason'] = 'Gold-Future: eigener bedingter Kontraktvergleich; keine Spot-Freigabe'
     if result.get('found') and not result['eligible'] and result.get('metadata', {}).get('underlyingType') != 'FUTURE':
         result['reason'] = 'Kurs veraltet, Markt geschlossen oder Zeitstempel nicht prüfbar'
     result['pricePolicy'] = 'direct-then-verified-model'

@@ -11,6 +11,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from urllib.request import Request, urlopen
+import estimate_quality
 
 URL = 'https://www.investing.com/commodities/gold'
 CONTRACT = 'GCZ26'
@@ -184,9 +185,19 @@ def calculate(research, ticks, now=None):
 
 
 def current_estimate(research, now=None):
+    now = now or datetime.now(timezone.utc)
+    key='future:'+str(research.get('contract'))
+    if research.get('underlyingPriceUsd') and research.get('underlyingAt'):
+        estimate_quality.observe(key,research['underlyingPriceUsd'],research['underlyingAt'],now.isoformat())
     with _lock:
         ticks, error = list(_ticks), _source_error
     out = calculate(research, ticks, now)
+    if out['available']:
+        estimate_quality.record(key,out['priceUsd'],out['priceAt'],out['referenceAt'],now.isoformat())
+        horizon=(stamp(out['priceAt'])-stamp(out['referenceAt'])).total_seconds()
+        out['validation']=estimate_quality.quality(key,horizon,now)
+        if out['validation']['ready']:
+            out['comparisonErrorUsd']=max(.1,out['validation']['maxAbsoluteError'])
     if error:
         out['sourceStatus'] = error
     return out

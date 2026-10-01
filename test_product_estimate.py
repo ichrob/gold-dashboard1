@@ -12,7 +12,7 @@ from test_sg_futures import future_fixture
 
 class ProductEstimateTests(unittest.TestCase):
     def setUp(self):
-        self.patches=[patch.object(e,'_anchors',{}),patch.object(sg,'_INPUT_CACHE',{})]
+        self.patches=[patch.object(e,'_anchors',{}),patch.object(e,'_history',{}),patch.object(sg,'_INPUT_CACHE',{})]
         for p in self.patches:p.start()
         self.addCleanup(lambda:[p.stop() for p in reversed(self.patches)])
 
@@ -28,6 +28,23 @@ class ProductEstimateTests(unittest.TestCase):
         fx.update(data_updated_at=now.isoformat(),effective_at={'EUR':now.isoformat()},rates={'EUR':fxrate})
         sg._INPUT_CACHE.update(spot=(0,spot),fx=(0,fx))
         return spot,fx
+
+    def test_validation_uses_old_anchor_before_reanchoring(self):
+        import estimate_quality as quality
+        with patch.object(quality,'_pending',{}), patch.object(quality,'_errors',{}), patch.object(quality,'_seen',{}):
+            first,data=self.anchor()
+            later=NOW+timedelta(seconds=40)
+            observed=copy.deepcopy(first)
+            for k in ('bidAt','askAt','spotAt','fxAt','fxDataAt','fxEffectiveAt'):
+                observed[k]=later.isoformat()
+            observed['bid']+=.5;observed['ask']+=.5
+            # Independent gold/FX stayed constant: expected forecast is the
+            # old product price, so the measured difference must be EUR .50.
+            e.remember(observed,observed['productModel'],later)
+            measured=quality.quality(e.quality_key(observed['productModel'],'ask'),50,later)
+            self.assertEqual(measured['sampleCount'],1)
+            self.assertAlmostEqual(measured['maxAbsoluteError'],.5)
+            self.assertFalse(measured['ready'])
 
     def test_short_product_formula_and_current_fx(self):
         result,data=self.anchor();now=NOW+timedelta(seconds=80)

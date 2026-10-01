@@ -170,7 +170,7 @@ The anchored model for each side is:
 ratio and FX is EUR per USD. The model holds the original EUR premium and spread
 constant, with unit delta. It accounts for current FX changes including their
 impact on the funding strike, rather than applying a fixed advertised leverage.
-It is an uncalibrated approximation, not a published issuer or DEGIRO quote.
+It is an approximation, never a published issuer or DEGIRO quote. Conditional comparison requires measured empirical errors.
 
 Current gold and FX observations must each be at most 60 seconds old and within
 15 seconds of each other. Reference age is capped at 30 minutes. Identity,
@@ -191,3 +191,34 @@ New contract months require their own registered sources. Options, quanto,
 other underlyings and BNP products without verified model parameters do not
 receive a fabricated fallback. The policy is direct quote, verified estimate,
 or an explicit unavailable state, all within the existing free services.
+
+
+## Conditional comparison and empirical validation
+
+Frozen calculations are matched once to dated observations within five seconds.
+Identity and reference-age buckets (up to 60s, 300s, 900s, 1800s) remain separate.
+Readiness requires 20 distinct matches spanning at least ten minutes in the
+applicable bucket and a validation received within 30 minutes. Product models
+also check older anchors before reanchoring, using independent current gold/FX,
+never the current observed product bid/ask in the forecast. Both bid and ask
+must qualify. This is a deterministic model check, not a guaranteed error bound
+or a statistical confidence interval. The measured maximum error, floored at
+EUR 0.01 / USD 0.10, supplies comparison spans. Predictions, matches and anchors
+are bounded and process-local; deployments and restarts reset readiness.
+
+GCZ26 indicators use Yahoo's delayed GCZ26.CMX history, verified as COMEX USD
+Gold Dec 26. The background collector requests 5m/5d and 1h/6mo history every
+minute while requested. Only closed valid bars are retained; 15m and 4h bars
+require complete constituent candles. Each frame needs 220 bars. EMA20/50/200,
+MACD, RSI, ATR, confirmed pivots and Fibonacci levels are displayed separately
+from spot. Direction requires all four frames to agree; CFD nowcasts do not
+enter indicators or add another technical source. Errors, missing history and
+stale analysis produce ABWARTEN, without blocking the live endpoint.
+
+The conditional comparison groups candidates by underlying contract and
+direction. Current identity, session, terms, timestamps, timing and KO/funding
+checks still apply. Scores and risk metrics are evaluated at comparison-span
+corners. A favorite requires separated score ranges (two-point margin), with
+no unresolved same-direction candidate in its group. The observed-quote list
+remains distinct. Every conditional result requires checking the current
+DEGIRO ask and product conditions; it grants no automatic trade approval.

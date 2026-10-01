@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 import product_quotes as q
 import future_estimate
 import product_estimate
+import future_analysis
 
 ONVISTA = 'https://www.onvista.de/'
 SPOT_ORIGIN = 'https://xaus.com/'
@@ -266,6 +267,11 @@ def refresh_future_research(research, now=None):
     result['eligible'] = False
     result['analysisAvailable'] = False
     result['calculatedFuture'] = future_estimate.current_estimate(result, now)
+    result['contractAnalysis'] = future_analysis.current(now)
+    result['analysisAvailable'] = bool(result['contractAnalysis'].get('available'))
+    local=now.astimezone(ZoneInfo('Europe/Berlin'))
+    result['marketOpen'] = bool(local.weekday()<5 and 8<=local.hour<22 and result.get('tradingEndAt')
+                                and now<=q.stamp(result['tradingEndAt']))
     # A labelled research estimate is bounded to a 30-minute observation.
     # It never enters price/leverage/KO inputs of the spot comparison.
     result.pop('indicativeLeverage', None)
@@ -300,7 +306,12 @@ def parse_future_research(product, properties, snapshot, fx, isin, now=None):
                     underlyingDataState='verzögert oder Echtzeitstatus nicht bestätigt',
                     estimateNote='Nur Recherche: Näherung aus datiertem Futures-Kurs, USD/EUR und Briefkurs; '
                                  'kein aktueller SG-Hebel und kein aktueller KO-Abstand. '
-                                 'Eigene Futures-Trendprüfung fehlt. Keine Spot-Freigabe.')
+                                 'Kontraktanalyse und Fehlermessung separat beachten. Keine Spot-Freigabe.')
+    local=now.astimezone(ZoneInfo('Europe/Berlin'))
+    end=local.replace(hour=22,minute=0,second=0,microsecond=0)
+    if details.get('datetimeLastTradingDay'):
+        end=min(end,q.stamp(details['datetimeLastTradingDay']).astimezone(ZoneInfo('Europe/Berlin')))
+    research['tradingEndAt']=end.astimezone(timezone.utc).isoformat()
     # This is a dated figure from the exact underlying notation, not the
     # undated referencePrice or calculation/request timestamp.
     figures = underlying.get('derivativesBarrierFigureList', {})
@@ -351,6 +362,7 @@ def get_quote(product, properties, isin):
     try:
         if q.sg_future_contract(product, isin):
             future_estimate.ensure_collector()
+            future_analysis.ensure_collector()
             # Research quotes remain useful when FX is missing. There is no
             # spot request and no fallback to a continuous/front-month future.
             with ThreadPoolExecutor(max_workers=2) as pool:

@@ -104,6 +104,7 @@ class FutureResearchTests(unittest.TestCase):
         product, props, snapshot, fx = future_fixture()
         with patch.object(sg, 'fetch_snapshot', return_value=snapshot), \
              patch.object(sg.future_estimate, 'ensure_collector'), \
+             patch.object(sg.future_analysis, 'ensure_collector'), \
              patch.object(sg, 'market_input', side_effect=OSError('FX unavailable')) as inputs:
             result = sg.get_quote(product, props, ISIN)
         self.assertTrue(result['productVerified']); self.assertFalse(result['eligible'])
