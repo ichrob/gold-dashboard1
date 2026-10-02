@@ -144,6 +144,10 @@ function screenshotCurrentState(p,bundle,now=Date.now()){
  }
  const status=manualSnapshotStatus(p,shot,now),spread=shot?.currency==='EUR'&&n(shot.bid)>0&&n(shot.ask)>=n(shot.bid)?shot.ask-shot.bid:null;
  out.rows.push({label:'Produktkurse / Nachweise',text:(spread===null?'Kein vollständiges Kursbild':'Screenshot-Spread '+spread.toFixed(4)+' EUR ('+(spread/shot.ask*100).toFixed(3)+'% des Briefs) · '+(shot.sourceTime||'Quellenzeit nicht vollständig belegt'))+' · '+(status.complete?'vollständige Momentaufnahme, keine Live-Verifizierung':status.reasons.join('; '))});
+ const ke=meta?.koEvidence;
+ if(ke?.state==='issuer_reported'&&ke.currency==='USD'&&n(ke.value)>0&&n(ke.value)===n(meta.ko)&&typeof ke.updatedAtRaw==='string'&&ke.updatedAtRaw){
+  out.rows.push({label:'SG-KO-Nachweis',text:ke.value+' USD · Emittenten-Aktualisierung '+ke.updatedAtRaw+(ke.timezoneKnown===true?'':' (Zeitzone nicht angegeben)')+' · Abruf '+(ke.retrievedAt||'nicht belegt')+' · '+(freshTimes([ke.retrievedAt],now)?'gerade abgerufene Emittentenangabe':'Abruf nicht mehr frisch')+'; Gültigkeitszeitraum und Geld-/Briefkurse dadurch nicht bestätigt'});
+ }
  return out;
 }
 function renderScreenshotCurrentState(p,bundle,now=Date.now()){

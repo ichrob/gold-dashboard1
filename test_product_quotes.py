@@ -55,6 +55,23 @@ class ProductQuoteTests(unittest.TestCase):
             self.assertNotIn(key, x)
         self.assertFalse(q.freshness(x, NOW)['eligible'])
 
+    def test_sg_barrier_update_is_independent_of_quote_time(self):
+        product, props = self.sg_snapshot()
+        props.append(dict(Name='StrikeBarrierUpdateTime', Value='2026-09-30T01:12:16.267'))
+        result = q.parse_sg(product, props, product['Isin'], NOW)
+        evidence = result['metadata']['koEvidence']
+        self.assertEqual(evidence['value'], 4460)
+        self.assertEqual(evidence['currency'], 'USD')
+        self.assertEqual(evidence['updatedAtRaw'], '2026-09-30T01:12:16.267')
+        self.assertFalse(evidence['timezoneKnown'])
+        self.assertEqual(evidence['retrievedAt'], NOW.isoformat())
+        self.assertFalse(result['found']); self.assertFalse(result['eligible'])
+        for value in (None, 12, '2026-02-30T01:00:00', 'not a timestamp'):
+            props[-1]['Value'] = value
+            self.assertIsNone(q.parse_sg(product, props, product['Isin'], NOW)['metadata']['koEvidence'])
+        props[-1]['Value'] = '2026-09-30T01:12:16Z'
+        self.assertTrue(q.parse_sg(product, props, product['Isin'], NOW)['metadata']['koEvidence']['timezoneKnown'])
+
     def test_sg_identity_currency_barrier_and_duplicates_rejected(self):
         for key, value in [('Isin', ISIN), ('AssetNMP', 'GOLD-FUTURE'), ('Currency', 'USD'), ('Status', True)]:
             product, props = self.sg_snapshot(); product[key] = value

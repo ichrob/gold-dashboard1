@@ -265,3 +265,13 @@ observed momentary spread. All missing source/time/identity evidence stays
 visible; this panel never changes ranking, eligibility or execution fields.
 No new network source, paid account, service, order or provider permission
 is introduced by this assessment.
+
+## Separate issuer barrier evidence
+
+SG AllProperties may contain StrikeBarrierUpdateTime independently of BIDTIME.
+Bob preserves that raw date, the USD barrier, and the retrieval time in
+metadata.koEvidence. Missing offsets stay unknown; retrieval time never becomes
+an issuer update time. The screenshot assessment displays this evidence even
+when no fresh product quote exists. It does not establish a validity interval,
+confirm a past KO event, refresh manual evidence, or grant trading eligibility.
+Malformed or absent barrier-update dates produce no dated barrier evidence.
