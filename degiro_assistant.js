@@ -211,7 +211,7 @@ function directionOf(spot,ko){spot=n(spot);ko=n(ko);if(spot===null||ko===null)re
 function riskModel(p){const spot=n(p.spot),stop=n(p.stop),riskEur=n(p.riskEur),fx=n(p.fxUsdEur),lev=Math.max(1,n(p.leverage)||1);if(spot===null||stop===null||riskEur===null||riskEur<=0)return{ok:false,reason:"Ungültige Eingabedaten für Risiko."};if(fx===null||fx<=0)return{ok:false,reason:"Keine gültige USD→EUR-FX-Rate."};const dist=Math.abs(spot-stop);if(dist<=0)return{ok:false,reason:"Stop-Distanz ist null."};const maxLossUsd=riskEur/fx,approxNotionalUsd=maxLossUsd/(dist/spot),approxNotionalEur=approxNotionalUsd*fx,marginEur=approxNotionalEur/lev,ko=n(p.ko),koPct=koDistancePct(spot,ko),warnings=[];if(ko!==null&&((spot>stop&&ko>=spot)||(spot<stop&&ko<=spot)))warnings.push("KO-Level liegt auf der falschen Seite des aktuellen Goldpreises.");if(koPct!==null&&koPct<2)warnings.push("KO-Abstand liegt unter 2%.");return{ok:true,maxLossUsd,approxNotionalUsd,approxNotionalEur,marginEur,stopDistance:dist,koDistancePct:koPct,warnings};}
 function technicalQuality(ctx={}){const d=String(ctx.direction||"NEUTRAL").toUpperCase();if(d==="NEUTRAL")return{score:50,reasons:["Kein eindeutiges Richtungsszenario."]};let score=50,reasons=[];const side=v=>{const x=String(v||"").toUpperCase();return x.includes("LONG")||x.includes("BULL")||x.includes("UP")?"LONG":x.includes("SHORT")||x.includes("BEAR")||x.includes("DOWN")?"SHORT":""};const trend=side(ctx.trend),trend2=side(ctx.trend2),mtf=side(ctx.mtf),rsi=Number(ctx.rsi),hist=Number(ctx.hist),adx=Number(ctx.adx),momentum=Number(ctx.momentum);if(trend===d){score+=12;reasons.push("EMA-Trend bestätigt.");}else if(trend&&trend!==d){score-=12;reasons.push("EMA-Trend widerspricht.");}if(trend2===d){score+=10;reasons.push("Langfristtrend bestätigt.");}else if(trend2&&trend2!==d){score-=10;reasons.push("Langfristtrend widerspricht.");}if(mtf===d){score+=15;reasons.push("MTF bestätigt.");}else if(mtf&&mtf!==d){score-=15;reasons.push("MTF widerspricht.");}if(Number.isFinite(rsi)){const support=(d==="LONG"&&rsi>=55&&rsi<=65)||(d==="SHORT"&&rsi>=35&&rsi<=45);const broad=(d==="LONG"&&rsi>=50&&rsi<70)||(d==="SHORT"&&rsi<=50&&rsi>30);if(support){score+=10;reasons.push("RSI liegt im günstigen Trendbereich.");}else if(broad){score+=5;reasons.push("RSI unterstützt die Richtung.");}else if((d==="LONG"&&rsi>75)||(d==="SHORT"&&rsi<25)){score-=10;reasons.push("RSI zeigt erhöhtes Überdehnungsrisiko.");}}if(Number.isFinite(hist)){const h=hist>0?"LONG":hist<0?"SHORT":"";if(h===d){score+=10;reasons.push("MACD-Histogramm bestätigt.");}else if(h&&h!==d){score-=10;reasons.push("MACD-Histogramm widerspricht.");}}if(Number.isFinite(adx)){if(adx>=30){score+=7;reasons.push("ADX zeigt einen starken Trend.");}else if(adx>=20){score+=3;reasons.push("ADX bestätigt vorhandene Trendstärke.");}else if(adx<15){score-=5;reasons.push("ADX zeigt wenig Trendstärke.");}}if(Number.isFinite(momentum)){const m=momentum>0?"LONG":momentum<0?"SHORT":"";if(m===d){score+=8;reasons.push("Momentum bestätigt.");}else if(m&&m!==d){score-=8;reasons.push("Momentum widerspricht.");}}return{score:Math.max(0,Math.min(100,Math.round(score))),reasons};}
 const futureIsins=new Set(["DE000FG309G0"]);
-function isFutureProduct(p){return p.underlyingType==="FUTURE"||p.quote?.metadata?.underlyingType==="FUTURE"||futureIsins.has(String(p.isin||"").trim().toUpperCase());}
+function isFutureProduct(p){return /\bFUTURE\b/i.test(p.name||p.snapshot?.name||'')||p.underlyingType==="FUTURE"||p.quote?.metadata?.underlyingType==="FUTURE"||futureIsins.has(String(p.isin||"").trim().toUpperCase());}
 function futureResearchText(x,now=Date.now()){
  const r=x.futureResearch;if(!r)return "";
  const at=v=>typeof v==="string"&&!Number.isNaN(Date.parse(v))?new Date(v).toLocaleString():"unbekannt";
@@ -340,6 +340,7 @@ function renderScreenshotCurrentState(p,bundle,now=Date.now()){
  return '<div class="small" style="margin-top:8px;padding:8px;background:#f4f7fb;border-radius:8px"><b>Berechneter Zustand / offene Nachweise</b>'+state.rows.map(r=>'<div style="margin-top:5px"><b>'+esc(r.label)+':</b> '+esc(r.text)+'</div>').join('')+'<div style="margin-top:5px">Teilbewertung / Szenario. Keine zusätzliche Live-Freigabe; Quellenzeiten werden durch die Berechnung nicht erneuert.</div></div>';
 }
 function conditionalCandidate(p,context={},now=Date.now()){
+ if(/FAKTOR|FACTOR/i.test(p.name||''))return {ok:false,isin:p.isin,reason:"Faktorprodukt benötigt eigenes tägliches Anpassungsmodell",scope:"FACTOR",direction:p.productDirection};
  const q=p.quote,fail=reason=>({ok:false,isin:p.isin,reason,scope:isFutureProduct(p)?q?.futureResearch?.contract||q?.metadata?.contract||"FUTURE":"XAU/USD",direction:isFutureProduct(p)?q?.futureResearch?.direction:q?.productModel?.direction||q?.direction||p.productDirection});
  if(!q||q.isin!==p.isin||!validIsin(p.isin)||p.isinConfirmed!==true)return fail("ISIN oder Produktidentität nicht bestätigt");
  let basis,ask,bid,ko,strike,ratio,fx,errorPrice=0,errorBasis=0,scope,ctx,quality,priceKind,at;
@@ -348,15 +349,18 @@ function conditionalCandidate(p,context={},now=Date.now()){
   if(!q.productVerified||q.metadata?.underlyingType!=="FUTURE"||q.metadata.contract!==r?.contract||r?.contract!==c?.contract||r?.contract!==a?.contract)return fail("Futures-Kontrakt nicht vollständig bestätigt");
   if(!c.available||!c.validation?.ready||c.validation.sampleCount<20)return fail("Future-Schätzung: Genauigkeit noch nicht ausreichend gemessen");
   if(!a.available||!["LONG","SHORT"].includes(a.direction)||a.technicalSourceFamilies!==1||!Object.values(a.frames||{}).every(f=>f.available)||Object.keys(a.frames||{}).length!==4||!freshTimes([a.checkedAt],now,180)||!Number.isFinite(Date.parse(a.expiresAt))||now>Date.parse(a.expiresAt))return fail("ABWARTEN: eigene Kontrakt-MTF fehlt, ist uneinheitlich oder veraltet");
-  if(!r.marketOpen||!Number.isFinite(Date.parse(r.tradingEndAt))||now>Date.parse(r.tradingEndAt)||!freshTimes([r.bidAt,r.askAt,r.fxDataAt,r.fxEffectiveAt,c.priceAt],now)||!freshTimes([c.referenceAt],now,1800))return fail("Future-, Produkt- oder FX-Daten nicht aktuell");
-  const times=[r.bidAt,r.askAt,r.fxDataAt,r.fxEffectiveAt,c.priceAt].map(Date.parse);
-  if(Math.max(...times)-Math.min(...times)>15000)return fail("Future- und Produktdaten zeitlich zu weit auseinander");
-  basis=n(c.priceUsd);ask=n(r.ask);bid=n(r.bid);ko=n(r.ko);strike=n(r.strike);ratio=n(r.ratio);fx=n(r.usdEur);errorBasis=n(c.comparisonErrorUsd);
+  const shot=selectionDetailStatus(p,now),useShot=shot.complete;
+  const prices=useShot?{bid:n(p.snapshot.bid),ask:n(p.snapshot.ask),bidAt:shot.at,askAt:shot.at}:r;
+  if(!r.marketOpen||!Number.isFinite(Date.parse(r.tradingEndAt))||now>Date.parse(r.tradingEndAt)||!freshTimes([prices.bidAt,prices.askAt],now,90)||!freshTimes([r.fxDataAt,r.fxEffectiveAt,c.priceAt],now)||!freshTimes([c.referenceAt],now,1800))return fail("Future-, Produkt- oder FX-Daten nicht aktuell");
+  const times=[prices.bidAt,prices.askAt,r.fxDataAt,r.fxEffectiveAt,c.priceAt].map(Date.parse);
+  if(Math.max(...times)-Math.min(...times)>(useShot?90000:15000))return fail("Future- und Produktdaten zeitlich zu weit auseinander");
+  if(useShot&&Math.abs(n(p.ko)-n(r.ko))>1)return fail("Screenshot-Barriere und Future-Produktbedingungen widersprechen sich um mehr als 1 USD");
+  basis=n(c.priceUsd);ask=n(prices.ask);bid=n(prices.bid);ko=n(r.ko);strike=n(r.strike);ratio=n(r.ratio);fx=n(r.usdEur);errorBasis=n(c.comparisonErrorUsd);
   if(!(errorBasis>=Math.max(.1,n(c.validation.maxAbsoluteError)||0)))return fail("Gemessene Future-Abweichung fehlt");
   if(r.direction!==a.direction)return fail("Produkt passt nicht zum eigenen Futures-Szenario");
   const timing=n(a.frames['5m'].ema20);
   if(timing===null||a.direction==="LONG"&&basis-errorBasis<=timing||a.direction==="SHORT"&&basis+errorBasis>=timing)return fail("ABWARTEN: berechnete Kursspanne bestätigt das Kontrakt-Timing nicht eindeutig");
-  scope=r.contract;priceKind="Bestätigter Produktkurs · berechneter Basiswert";quality=c.validation;at=c.priceAt;
+  scope=r.contract;priceKind=useShot?"DEGIRO-Kursmomentaufnahme · berechnete Future-Referenz":"Bestätigter Produktkurs · berechneter Basiswert";quality=c.validation;at=c.priceAt;
   ctx={direction:a.direction,trend:a.frames['1h'].trend,trend2:a.frames['1h'].ema50>a.frames['1h'].ema200?"LONG":"SHORT",mtf:a.direction,rsi:a.rsi,hist:a.macdHistogram,momentum:a.macdHistogram,atr:a.atr};
  }else if(currentQuote(p,now)){
   if(!context.spotFresh||!["LONG","SHORT"].includes(context.direction))return fail("ABWARTEN: Spot-Szenario oder aktueller Goldpreis fehlen");
@@ -384,6 +388,9 @@ function conditionalCandidate(p,context={},now=Date.now()){
  }
  return {ok:true,isin:p.isin,name:p.name||p.isin,scope,direction:ctx.direction,priceKind,
   price:ask,priceError:errorPrice,basis,basisError:errorBasis,quality,at,
+  source:isFutureProduct(p)?q.futureResearch.calculatedFuture.proxySource:q.source,
+  quoteAt:isFutureProduct(p)?(selectionDetailStatus(p,now).complete?selectionDetailStatus(p,now).timeLabel:q.futureResearch.askAt):q.quoteAt,
+  reasons:["Eigene "+scope+"-Analyse bestätigt die Richtung", "KO-Puffer und technische Passung über die beobachtete Fehlerspanne geprüft"],
   scoreLow:Math.min(...evaluations.map(e=>e.score)),scoreHigh:Math.max(...evaluations.map(e=>e.score)),
   leverageLow:Math.min(...evaluations.map(e=>e.leverage)),leverageHigh:Math.max(...evaluations.map(e=>e.leverage)),
   koDistanceMinPct:Math.min(...evaluations.map(e=>e.koDistancePct)),spreadWorst:ask-bid+2*errorPrice};
@@ -665,6 +672,77 @@ function rankManualSnapshots(products,context={}){
   .sort((a,b)=>b.evaluation.score-a.evaluation.score);
  return{candidates,total:candidates.length,liveVerified:false};
 }
+
+// Original screenshot time: exact instant or an explicitly uncertain minute interval.
+function selectionTimeWindow(raw){
+ const exact=sourceTimestamp(raw);if(exact)return {start:Date.parse(exact),end:Date.parse(exact),label:raw};
+ const m=String(raw||'').match(/^(\d{2})[/.](\d{2})[/.](\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/);
+ if(!m)return null;
+ const [,dd,mm,yy,hh,mi,ss]=m,local=Date.UTC(+yy,+mm-1,+dd,+hh,+mi,+(ss||0));
+ const fmt=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Zurich',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
+ const matches=[60,120].map(offset=>local-offset*60000).filter(t=>{
+  const parts=Object.fromEntries(fmt.formatToParts(new Date(t)).map(x=>[x.type,x.value]));
+  return parts.year===yy&&parts.month===mm&&parts.day===dd&&parts.hour===hh&&parts.minute===mi&&parts.second===(ss||'00');
+ });
+ if(matches.length!==1)return null;
+ return {start:matches[0],end:matches[0]+(ss?0:59999),label:raw+' · Europe/Zurich angenommen'+(ss?'':' · Sekunden unbekannt')};
+}
+function selectionDetailStatus(p,now=Date.now()){
+ const x=p.snapshot,e=x?.evidence||{},reasons=[];
+ if(!validIsin(p.isin)||x?.isin!==p.isin)reasons.push('Detailbild mit derselben ISIN');
+ if(!p.isinConfirmed)reasons.push('Erkannte Werte am Original bestätigen');
+ if(x?.currency!=='EUR'||!(n(x.bid)>0&&n(x.ask)>=n(x.bid))||n(p.price)!==n(x.ask))reasons.push('Aktuelles Kursbild mit Geld/Brief in EUR');
+ const pair=e.Geld?.source&&e.Geld.source===e.Brief?.source&&n(e.Geld.value)===n(x?.bid)&&n(e.Brief.value)===n(x?.ask);
+ const explicit=x?.times?.quote;
+ const time=pair?selectionTimeWindow(explicit?.present?explicit.text:x?.sourceTime):null;
+ if(!time||now<time.start||now-time.start>90000)reasons.push('Kurszeit mit Datum: höchstens 90 Sekunden alt; keine ergänzten Sekunden');
+ if(x?.delayed)reasons.push('Nicht verzögerten Produktkurs ergänzen');
+ if(!(n(p.leverage)>=1&&n(e.Hebel?.value)===n(p.leverage))||!evidenceTiming(e.Hebel,now).fresh&&!(pair&&e.Hebel?.source===e.Geld?.source&&time&&now-time.start<=90000))reasons.push('Aktuelles Detailbild mit Hebel und zugehöriger Zeit');
+ const fixed=window.BobCombined.fixedFor(p),meta=p.quote?.productVerified?p.quote.metadata:null;
+ if(!(n(p.ko)>0)||!(fixed||n(meta?.ko)===n(p.ko)||n(e.KO?.value)===n(p.ko)&&evidenceTiming(e.KO,now).fresh))reasons.push('KO-Barriere mit gültigem Nachweis oder festen Screenshotwert bestätigen');
+ return {complete:!reasons.length,reasons,at:time?new Date(time.start).toISOString():null,timeLabel:time?.label,source:e.Geld?.source};
+}
+function selectionWorkflow(products,context={},bundle,references=[]){
+ const now=context.now??Date.now(),direction=String(context.direction||'NEUTRAL').toUpperCase();
+ const result={direction,stage:'LISTE',groups:[],requests:[],waiting:[],total:0,tradeable:false};
+ const seen=new Set(),items=[];
+ for(const [index,p] of products.entries())if(p.isin&&!seen.has(p.isin)){seen.add(p.isin);items.push({...p,index:index+1});}
+ result.total=items.length;if(!items.length)return result;
+ if(!['LONG','SHORT'].includes(direction)){result.stage='ABWARTEN';return result;}
+ result.stage='DETAILBILDER';const groups=new Map();
+ const add=c=>{if(c.direction!==direction)return;const key=c.scope+' · '+c.direction;if(!groups.has(key))groups.set(key,[]);const arr=groups.get(key);if(!arr.some(x=>x.isin===c.isin))arr.push(c);};
+ const combined=window.BobCombined.rank(products,references,bundle,context);
+ for(const p of combined.candidates)add({isin:p.isin,name:p.name,direction,scope:'XAU/USD',score:p.evaluation.score,price:p.price,at:p.at,source:p.source,priceKind:p.priceKind,reasons:p.evaluation.reasons});
+ for(const p of items){
+  if(p.productDirection!==direction)continue;
+  if(/FAKTOR|FACTOR/i.test(p.name||'')){result.waiting.push({isin:p.isin,reason:'Faktorprodukt: eigenes tägliches Anpassungsmodell fehlt'});continue;}
+  const cond=conditionalCandidate(p,context,now);if(cond.ok){if(cond.direction===direction)add({...cond,score:cond.scoreLow});else result.waiting.push({isin:p.isin,reason:"Eigene Future-Analyse passt nicht zur aktuellen Vorauswahl-Richtung"});continue;}
+  const state=selectionDetailStatus(p,now);
+  if(!isFutureProduct(p)&&state.complete&&context.spotFresh===true){
+   const e=evaluateProduct({...p,...context});
+   if(e.ok&&e.fit&&e.setupScore>=35&&e.conflictCount<3)add({isin:p.isin,name:p.name,direction,scope:'XAU/USD',score:e.score,price:p.price,at:state.timeLabel,source:state.source,priceKind:'Geprüfte DEGIRO-Kursmomentaufnahme',reasons:e.reasons});
+   else result.waiting.push({isin:p.isin,reason:e.reasons.join(' · ')||'Technische Passung unzureichend'});
+  }else if(!state.complete)result.requests.push({isin:p.isin,name:p.name,index:p.index,reasons:state.reasons,scope:isFutureProduct(p)?'FUTURE':'XAU/USD'});
+  else result.waiting.push({isin:p.isin,reason:isFutureProduct(p)?cond.reason:'Aktuelle Gold-Spot-Analyse fehlt'});
+ }
+ for(const [scope,candidates] of groups){candidates.sort((a,b)=>b.score-a.score||a.isin.localeCompare(b.isin));result.groups.push({scope,total:candidates.length,candidates:candidates.slice(0,3)});}
+ // This is an upload priority, not a product recommendation from incomplete prices.
+ result.requests.sort((a,b)=>Number(a.scope==='FUTURE')-Number(b.scope==='FUTURE')||a.index-b.index);
+ if(result.groups.length)result.stage='TOP3';return result;
+}
+function renderSelectionWorkflow(r){
+ const steps='<div class="small">Listenbilder → Vorauswahl → aktuelle Detailbilder → begründete Top 3</div>';
+ if(r.stage==='LISTE')return '<b>1 · Listenbilder hochladen</b>'+steps;
+ if(r.stage==='ABWARTEN')return '<b>ABWARTEN · keine Produktempfehlung</b>'+steps+'<div class="small">'+r.total+' unterschiedliche Produkte gespeichert. Bei NEUTRAL entsteht keine Top-3-Empfehlung.</div>';
+ const pending=r.requests.slice(0,3),remaining=r.requests.length-pending.length;
+ return '<b>'+ (r.stage==='TOP3'?'Begründete Top 3 unter den belegten Produkten':'Vorauswahl · Detailbilder ergänzen')+'</b>'+steps+
+ '<div class="small">'+r.total+' unterschiedliche Produkte. Vorauswahl nach Analyse-Richtung '+esc(r.direction)+'; fehlende Preise erhalten keine Rangpunkte.</div>'+
+ r.groups.map(g=>'<div style="margin-top:12px"><b>'+esc(g.scope)+' · '+g.total+' bewertbare Produkte</b>'+g.candidates.map((c,i)=>'<div style="padding:10px;margin-top:8px;border:1px solid #dbe4f0;border-radius:12px"><b>Platz '+(i+1)+' · '+esc(c.isin)+'</b><div class="small">'+esc(c.name)+'<br>'+esc(c.priceKind)+' · Brief '+Number(c.price).toFixed(2)+' EUR · technische Passung '+c.score+'/100<br>Warum: '+esc((c.reasons||[]).slice(0,3).join(' · '))+'<br>Quelle '+esc(c.source||'Produktnachweis')+' · Datenzeit '+esc(c.at)+(c.quoteAt?' · Produktkurszeit '+esc(c.quoteAt):'')+(c.quality?'<br>'+esc(qualityText(c.quality,'USD')):'')+'</div></div>').join('')+'</div>').join('')+
+ (pending.length?'<div style="margin-top:12px"><b>Nächster Schritt · diese Detailbilder ergänzen</b><div class="small">Upload-Reihenfolge, keine Rangliste unvollständiger Produkte.</div>'+pending.map(p=>'<div class="small" style="margin-top:8px"><b>'+esc(p.isin)+'</b> · '+esc(p.name)+'<br>Benötigt: '+esc(p.reasons.join(' · '))+' <button data-selection-upload="'+p.index+'">Detailbilder ergänzen</button></div>').join('')+(remaining?'<div class="small">'+remaining+' weitere passende Kandidaten unter „Gespeicherte Produkte“.</div>':'')+'</div>':'')+
+ r.waiting.map(p=>'<div class="small warning">'+esc(p.isin)+' · '+esc(p.reason)+'</div>').join('')+
+ '<div class="small" style="margin-top:10px">Spot und Future werden getrennt bewertet. Weniger als drei belegte Produkte ergeben eine kürzere Liste. Kein garantierter bester Trade und keine automatische Handelsfreigabe; tatsächlichen DEGIRO-Preis vor dem Einstieg prüfen.</div>';
+}
+
 function productUploadCards(products,direction,now=Date.now()){
  const cards=(products||[]).map((p,z)=>({p,i:z+1})).filter(({p})=>p.name||p.isin);
  cards.sort((a,b)=>Number(b.p.productDirection===direction)-Number(a.p.productDirection===direction));
@@ -836,10 +914,10 @@ function inject(){
  '<span id="dgShotLabel3" style="margin-top:7px;font-weight:700;font-size:12px">Bild 3 <span style="font-weight:400">(optional)</span></span><input id="dgCentralShot3" type="file" accept="image/*" style="display:none"></label>'+
  '</div><div id="dgCentralStatus" class="small" style="margin-top:9px">Noch keine Bilder hochgeladen.</div></div>'+
  '<div class="small" style="margin-top:9px">Automatische Produktrecherche: beim Öffnen und alle 60 Sekunden, solange Bob sichtbar ist. Quellenzeiten bleiben unverändert; Kurse über 90 Sekunden bleiben veraltet. Fehlende Kurse bleiben offen, berechnete Werte sind Schätzungen.</div>'+
- '<div id="dgMissingProducts" style="margin-top:12px"></div>'+
- '<div id="dgManualSnapshots" style="margin-top:12px"></div>'+
- '<div id="dgConditionalOut" style="margin-top:12px"></div>'+
  '<div id="dgTop3Out" style="margin-top:12px"></div>'+
+ '<details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700">Alle gespeicherten Produkte / weitere Detailbilder</summary><div id="dgMissingProducts" style="margin-top:12px"></div></details>'+
+ '<div id="dgManualSnapshots" style="margin-top:12px" hidden></div>'+
+ '<div id="dgConditionalOut" style="margin-top:12px" hidden></div>'+
  '<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:700">Details / manuelle Kursnachweise</summary><div class="small" style="margin:7px 0">Hier lassen sich Screenshotwerte korrigieren und datierte Stuttgart-/Onvista-Nachweise bedingt auswerten.</div><div id="dgTop3Inputs"></div></details>'+
  '<button style="margin-top:10px;width:100%" id="dgRankBtn">🔎 Analyse erneut ausführen</button>';
  a.parentNode.insertBefore(b,a.nextSibling);
@@ -974,6 +1052,9 @@ function rankUI(){
  }
  const r=rankProducts(ps,{requireFreshQuotes:true,spotFresh,direction:d,atr:a,spot:s,trend:document.getElementById("trend")?.textContent,trend2:document.getElementById("trend2")?.textContent,mtf:document.getElementById("mtfSummary")?.textContent,rsi:n(document.getElementById("rsi")?.textContent),hist:n(document.getElementById("hist")?.textContent),adx:n(document.getElementById("adx")?.textContent),momentum:n(document.getElementById("momentum")?.textContent)});
  const o=document.getElementById("dgTop3Out");if(!o)return r;
+ const flow=selectionWorkflow(ps,{direction:d,spotFresh,spot:s,atr:a,trend:document.getElementById('trend')?.textContent,trend2:document.getElementById('trend2')?.textContent,mtf:document.getElementById('mtfSummary')?.textContent,rsi:n(document.getElementById('rsi')?.textContent),hist:n(document.getElementById('hist')?.textContent),adx:n(document.getElementById('adx')?.textContent),momentum:n(document.getElementById('momentum')?.textContent)},bundle,ps.map((_,i)=>combinedReferences.get(i+1)));
+ const flowHtml=renderSelectionWorkflow(flow);if(o.dataset.flow!==flowHtml){o.innerHTML=flowHtml;o.dataset.flow=flowHtml;o.querySelectorAll('[data-selection-upload]').forEach(btn=>btn.addEventListener('click',()=>document.getElementById('dgDetailShot'+btn.dataset.selectionUpload)?.click()));}return flow;
+
  if(combinedReferences.size){
   const context={spotFresh,direction:d,atr:a,spot:s,trend:document.getElementById('trend')?.textContent,trend2:document.getElementById('trend2')?.textContent,mtf:document.getElementById('mtfSummary')?.textContent,rsi:n(document.getElementById('rsi')?.textContent),hist:n(document.getElementById('hist')?.textContent),adx:n(document.getElementById('adx')?.textContent),momentum:n(document.getElementById('momentum')?.textContent)};
   const automatic=window.BobCombined.rank(ps,ps.map((_,i)=>combinedReferences.get(i+1)),bundle,context);
@@ -1026,7 +1107,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 

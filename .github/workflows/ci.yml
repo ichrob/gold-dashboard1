@@ -73,6 +73,7 @@ jobs:
         run: |
           python -m unittest test_source_permission.py test_trade_reference.py
           node test_bob.js
+          node test_selection_flow.js
           node test_conditional.js
           node test_manual_import.js
           node test_screenshot_state.js
