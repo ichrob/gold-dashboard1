@@ -13,7 +13,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from zoneinfo import ZoneInfo
 
-MAX_AGE_SECONDS = 60
+MAX_AGE_SECONDS = 90
 _CACHE = {}
 _LOCK = threading.Lock()
 ORIGIN = 'https://derivate.bnpparibas.com/'
