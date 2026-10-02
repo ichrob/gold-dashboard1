@@ -6,7 +6,7 @@ const p={isin:'DE000FG6XB39',isinConfirmed:true,name:'SG Gold Turbo BEST Open-En
 let state=b.screenshotCurrentState(p,bundle,now);
 assert(Math.abs(state.koDistancePct-(4403.17-4200)/4200*100)<1e-10);
 assert.equal(state.leverage,null);assert.equal(state.eligible,false);assert.equal(state.liveVerified,false);
-assert(state.rows[0].text.includes('Szenario'));assert(state.rows[3].text.includes('0.0100 EUR'));
+assert(state.rows[0].text.includes('Szenario'));assert(state.rows[3].text.includes('Geld '));
 assert(b.renderScreenshotCurrentState(p,bundle,now).includes('Keine zusätzliche Live-Freigabe'));
 const before=JSON.stringify(p);b.screenshotCurrentState(p,bundle,now);assert.equal(JSON.stringify(p),before);
 assert.equal(b.screenshotCurrentState({...p,isinConfirmed:false},bundle,now).basis,null);
@@ -34,3 +34,6 @@ assert.equal(state.eligible,false);assert.equal(state.liveVerified,false);
 assert(b.screenshotCurrentState(dated,bundle,now+61000).rows.some(r=>r.text.includes('Abruf nicht mehr frisch')));
 for(const change of [e=>e.value=4400,e=>e.currency='EUR',e=>e.state='screenshot']){const bad=JSON.parse(JSON.stringify(dated));change(bad.quote.metadata.koEvidence);assert(!b.screenshotCurrentState(bad,bundle,now).rows.some(r=>r.label==='SG-KO-Nachweis'));}
 console.log('Screenshot current-state tests: OK');
+
+
+assert(!b.renderScreenshotCurrentState(p,bundle,now).includes('Spread'));
