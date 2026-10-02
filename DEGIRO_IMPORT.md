@@ -91,3 +91,13 @@ Lizenz ein und belegt keine Anbietererlaubnis. Die Zulässigkeit einer dauerhaft
 SG-/Sekundärquellen-Anbindung und vollständige Kursverfügbarkeit für alle ISINs
 sind weiterhin gesondert nachzuweisen. Bei geschlossenem Bob startet dieser
 Browserzyklus keine Anfragen; die getrennte GCZ26-Sammlung bleibt unverändert.
+
+Onvista untersagt automatisierte Abfragen ohne ausdrückliche Einwilligung:
+https://www.onvista.de/nutzungsbedingungen . Deshalb ist der Onvista-Adapter
+serverseitig standardmäßig gesperrt, einschließlich seines GCZ26-Fallbacks.
+Die primäre Yahoo-GCZ26-Sammlung wird nicht geändert. Die Sperre darf nur mit
+dokumentierter Anbietereinwilligung aufgehoben werden (`BOB_ONVISTA_AUTOMATION_APPROVED`
+= `provider-approved` und `BOB_ONVISTA_PERMISSION_REFERENCE` als Nachweisreferenz).
+Eine Nutzerfreigabe oder öffentlich sichtbare Kurse sind kein solcher Nachweis.
+Ohne Erlaubnis bleiben die betroffenen SG-Kurse ausdrücklich offen; manuelle
+Screenshotnachweise können weiterhin geprüft werden.

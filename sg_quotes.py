@@ -6,6 +6,7 @@ undated CurrentLeverage. Every changing input keeps its own observation time.
 """
 import json
 import math
+import os
 import re
 import threading
 import time
@@ -39,6 +40,12 @@ def product_url(isin):
 
 
 def fetch_snapshot(isin):
+    # Public visibility does not grant automated-use permission. Both settings
+    # are administrative evidence of the provider's express consent, not a
+    # user confirmation or a request to obtain consent. Disabled by default.
+    if (os.getenv('BOB_ONVISTA_AUTOMATION_APPROVED', '') != 'provider-approved'
+            or not os.getenv('BOB_ONVISTA_PERMISSION_REFERENCE', '').strip()):
+        raise PermissionError('ONVISTA_AUTOMATION_NOT_APPROVED')
     url = product_url(isin)
     request = Request(url, headers={'User-Agent': 'Bob/1.8 public product research',
                                    'Accept': 'text/html', 'Cache-Control': 'no-cache'})
