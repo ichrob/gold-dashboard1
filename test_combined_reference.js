@@ -76,3 +76,16 @@ assert.equal(b.assess(p,{...imageReference,imageEvidence:{bid:'a.jpg',ask:'b.jpg
 assert.equal(b.assess(p,{...imageReference,barriers:imageReference.barriers.map(x=>({...x,imageSource:null}))},bundle,now).ko,null);
 
 assert(!b.screenshotDraft('DEGIRO\n'+p.isin+'\nEUR\nGeld 25.000 Stk.\nBrief 25.000 Stk.',p.isin).paired);
+
+// Exercise the actual bridge with DOM-like fields, including confirmation reset.
+const bridgeContext={window:{}};
+vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8').replace('window.BobDegiro={','window.BobDegiro={prefillCombinedForm,resetCombinedForm,'),bridgeContext);
+const formFields={};for(const key of ['source','bid','ask','quoteAt','venue','url','ko1','koSource1','koUrl1','koAt1','koUntil1','goldReference','goldAt','goldUrl','fxReference','fxAt','fxUrl'])formFields[key]={value:''};
+formFields.reviewed={type:'checkbox',checked:true};formFields.referenceConfirmed={type:'checkbox',checked:true};
+const summary={innerHTML:''},formNode={open:false,querySelector:selector=>formFields[selector.match(/data-combined="([^\"]+)"/)?.[1]],querySelectorAll:selector=>selector.includes('checkbox')?[formFields.reviewed,formFields.referenceConfirmed]:Object.values(formFields)};
+bridgeContext.document={querySelector:()=>formNode,getElementById:()=>summary};
+formFields.goldReference.value='old gold';bridgeContext.window.BobDegiro.prefillCombinedForm(1,draft,'quote.jpg');
+assert.equal(formFields.bid.value,'21.28');assert.equal(formFields.goldReference.value,'');assert.equal(formFields.reviewed.checked,false);assert(formNode.open);assert(summary.innerHTML.includes('quote.jpg'));
+bridgeContext.window.BobDegiro.prefillCombinedForm(1,details,'details.jpg');assert.equal(formFields.bid.value,'21.28');assert.equal(formFields.ko1.value,'4403.305');assert.equal(formFields.koUntil1.value,'');
+bridgeContext.window.BobDegiro.resetCombinedForm(1);assert.equal(formFields.bid.value,'');assert.equal(formFields.reviewed.checked,false);
+console.log('Screenshot form bridge: passed');
