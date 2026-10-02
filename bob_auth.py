@@ -171,14 +171,16 @@ def login(handler, user, password):
         age = REMEMBER_TTL if remember else TTL
         token = ('v1_' if remember else '') + secrets.token_urlsafe(32)
         old_token = cookie(handler.headers, COOKIE)
+        store_action = 'revoke' if persistent_token(old_token) else 'create'
         try:
             if persistent_token(old_token):
                 if session_request('revoke', old_token).get('ok') is not True:
                     raise ValueError('Sitzung nicht beendet')
+            store_action = 'create'
             if remember and session_request('create', token, user, password, now+age).get('ok') is not True:
                 raise ValueError('Sitzung nicht gespeichert')
         except (OSError, ValueError, TypeError):
-            if persistent_token(old_token):
+            if store_action == 'revoke':
                 error = 'Die bisherige Sieben-Tage-Sitzung konnte nicht beendet werden. Der Sitzungsspeicher ist momentan nicht erreichbar. Bitte später erneut anmelden.'
             else:
                 error = 'Dauerhafte Anmeldung momentan nicht verfügbar. Bitte später erneut versuchen oder ohne „Angemeldet bleiben“ anmelden.'

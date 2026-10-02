@@ -93,6 +93,20 @@ class PersistentLoginTests(unittest.TestCase):
             cookie=next(v.split(';')[0] for k,v in headers if k=='Set-Cookie' and v.startswith(auth.COOKIE+'='))
             self.assertEqual(self.request('GET','/',headers={'Cookie':cookie})[0],200)
 
+    def test_new_persistent_session_failure_after_successful_revoke_is_distinct(self):
+        old='v1_'+secrets.token_urlsafe(32)
+        with patch.object(auth,'session_request',side_effect=[{'ok':True},OSError('fixture')]) as backend:
+            csrf=self.form()
+            body=urlencode(dict(username='test-user',password='test-only-password',csrf=csrf,remember='1'))
+            cookies=f'{auth.CSRF_COOKIE}={csrf}; {auth.COOKIE}={old}'
+            status,_,page,headers=self.request('POST','/login',body,{'Origin':'https://bob.example','Content-Type':'application/x-www-form-urlencoded','Cookie':cookies})
+            self.assertEqual(status,200)
+            self.assertEqual([call.args[0] for call in backend.call_args_list],['revoke','create'])
+            self.assertIn('Dauerhafte Anmeldung momentan nicht verfügbar'.encode(),page)
+            self.assertNotIn('bisherige Sieben-Tage-Sitzung'.encode(),page)
+            self.assertFalse(auth.SESSIONS)
+            self.assertFalse(any(v.startswith(auth.COOKIE+'=') for k,v in headers if k=='Set-Cookie'))
+
     def test_expired_form_returns_fresh_usable_form(self):
         import re
         csrf=self.form()
