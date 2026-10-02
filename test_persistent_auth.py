@@ -7,6 +7,9 @@ import threading
 import time
 import unittest
 from unittest.mock import MagicMock, patch
+from io import StringIO
+from urllib.error import HTTPError
+from urllib.parse import urlencode
 import bob_auth as auth
 import bob_session_store as store
 import test_auth as baseline
@@ -56,8 +59,77 @@ class PersistentLoginTests(unittest.TestCase):
             self.assertFalse(auth.authenticated({'Cookie':cookie},'test-user','test-only-password'))
             self.assertEqual(self.request('POST','/logout',headers={'Cookie':cookie,'Origin':'https://bob.example'})[0],503)
 
+    def test_normal_login_with_old_persistent_cookie_revokes_before_rotation(self):
+        old='v1_'+secrets.token_urlsafe(32)
+        with patch.object(auth,'session_request',return_value={'ok':True}) as backend:
+            csrf=self.form()
+            body=urlencode(dict(username='test-user',password='test-only-password',csrf=csrf))
+            cookies=f'{auth.CSRF_COOKIE}={csrf}; {auth.COOKIE}={old}'
+            status,_,_,headers=self.request('POST','/login',body,{'Origin':'https://bob.example','Content-Type':'application/x-www-form-urlencoded','Cookie':cookies})
+            self.assertEqual(status,303)
+            backend.assert_called_once_with('revoke',old)
+            cookie=next(v.split(';')[0] for k,v in headers if k=='Set-Cookie' and v.startswith(auth.COOKIE+'='))
+            self.assertFalse(auth.persistent_token(cookie.split('=',1)[1]))
+            self.assertEqual(self.request('GET','/',headers={'Cookie':cookie})[0],200)
+
+    def test_normal_login_cannot_claim_rotation_when_old_session_revoke_fails(self):
+        old='v1_'+secrets.token_urlsafe(32)
+        with patch.object(auth,'session_request',side_effect=OSError('fixture')):
+            csrf=self.form()
+            body=urlencode(dict(username='test-user',password='test-only-password',csrf=csrf))
+            cookies=f'{auth.CSRF_COOKIE}={csrf}; {auth.COOKIE}={old}'
+            status,_,body,headers=self.request('POST','/login',body,{'Origin':'https://bob.example','Content-Type':'application/x-www-form-urlencoded','Cookie':cookies})
+            self.assertEqual(status,200)
+            self.assertIn('bisherige Sieben-Tage-Sitzung'.encode(),body)
+            self.assertNotIn('ohne „Angemeldet bleiben“'.encode(),body)
+            self.assertFalse(auth.SESSIONS)
+            self.assertFalse(any(v.startswith(auth.COOKIE+'=') for k,v in headers if k=='Set-Cookie'))
+
+    def test_fresh_normal_login_does_not_depend_on_session_store(self):
+        with patch.object(auth,'session_request',side_effect=OSError('fixture')) as backend:
+            status,_,_,headers=baseline.AuthenticationTests.sign_in(self)
+            self.assertEqual(status,303)
+            backend.assert_not_called()
+            cookie=next(v.split(';')[0] for k,v in headers if k=='Set-Cookie' and v.startswith(auth.COOKIE+'='))
+            self.assertEqual(self.request('GET','/',headers={'Cookie':cookie})[0],200)
+
+    def test_new_persistent_session_failure_after_successful_revoke_is_distinct(self):
+        old='v1_'+secrets.token_urlsafe(32)
+        with patch.object(auth,'session_request',side_effect=[{'ok':True},OSError('fixture')]) as backend:
+            csrf=self.form()
+            body=urlencode(dict(username='test-user',password='test-only-password',csrf=csrf,remember='1'))
+            cookies=f'{auth.CSRF_COOKIE}={csrf}; {auth.COOKIE}={old}'
+            status,_,page,headers=self.request('POST','/login',body,{'Origin':'https://bob.example','Content-Type':'application/x-www-form-urlencoded','Cookie':cookies})
+            self.assertEqual(status,200)
+            self.assertEqual([call.args[0] for call in backend.call_args_list],['revoke','create'])
+            self.assertIn('Dauerhafte Anmeldung momentan nicht verfügbar'.encode(),page)
+            self.assertNotIn('bisherige Sieben-Tage-Sitzung'.encode(),page)
+            self.assertFalse(auth.SESSIONS)
+            self.assertFalse(any(v.startswith(auth.COOKIE+'=') for k,v in headers if k=='Set-Cookie'))
+
+    def test_expired_form_returns_fresh_usable_form(self):
+        import re
+        csrf=self.form()
+        auth.PENDING.clear()
+        body=urlencode(dict(username='test-user',password='test-only-password',csrf=csrf))
+        status,_,page,_=self.request('POST','/login',body,{'Origin':'https://bob.example','Content-Type':'application/x-www-form-urlencoded','Cookie':auth.CSRF_COOKIE+'='+csrf})
+        self.assertEqual(status,403)
+        self.assertFalse(auth.SESSIONS)
+        fresh=re.search(b'name="csrf" value="([^"]+)"',page)[1].decode()
+        self.assertNotEqual(fresh,csrf)
+        body=urlencode(dict(username='test-user',password='test-only-password',csrf=fresh))
+        self.assertEqual(self.request('POST','/login',body,{'Origin':'https://bob.example','Content-Type':'application/x-www-form-urlencoded','Cookie':auth.CSRF_COOKIE+'='+fresh})[0],303)
+
 
 class SessionStoreTests(unittest.TestCase):
+    def test_failed_transport_logs_only_action_error_type_and_status(self):
+        opener=MagicMock()
+        opener.open.side_effect=HTTPError('https://push.example/secret',503,'SECRET_RESPONSE',{'X-Secret':'SECRET_HEADER'},None)
+        out=StringIO()
+        with patch.object(auth,'STORE_URL','https://push.example'),patch.object(auth,'STORE_TOKEN','SECRET_SERVICE_TOKEN'),patch.object(auth,'build_opener',return_value=opener),patch('sys.stdout',out):
+            with self.assertRaises(HTTPError):auth.session_request('create','SECRET_COOKIE','SECRET_USER','SECRET_PASSWORD',time.time()+600)
+        self.assertEqual(out.getvalue(),'BOB_SESSION action=create error=HTTPError status=503\n')
+
     def test_database_binding_expiry_validation_and_revoke(self):
         conn=MagicMock();payload=dict(tokenHash='a'*64,binding='b'*64,expiresAt=10600)
         self.assertEqual(store.handle(conn,'create',payload,10000),{'ok':True})
