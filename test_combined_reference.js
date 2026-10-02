@@ -26,3 +26,26 @@ assert.equal(b.assess({...p,isin:'DE000FG309G0'}, {...r,isin:'DE000FG309G0'},bun
 assert(b.render(s).includes('Schätzung, keine SG-Quotierung'));assert(b.render(s).includes('Keine Live-Freigabe'));
 const hostile=clone(r);hostile.venue='<script>alert(1)</script>';assert(!b.render(b.assess(p,hostile,bundle,now)).includes('<script>'));
 console.log('Combined manual references: passed');
+const context={now,direction:'SHORT',spotFresh:true,spot:4200,atr:10,trend:'SHORT',trend2:'SHORT',mtf:'SHORT',rsi:40,hist:-1,adx:30,momentum:-1};
+let ranked=b.rank([p],[r],bundle,context);
+assert.equal(ranked.candidates.length,1);assert.equal(ranked.selection.isin,p.isin);assert(ranked.selection.estimated);assert.equal(ranked.tradeable,false);
+assert.equal(ranked.candidates[0].ko,4403);assert(Math.abs(ranked.candidates[0].price-18.10)<1e-8);
+assert(b.renderTop3(ranked).includes('Platz 1'));assert(b.renderTop3(ranked).includes('Bedingte Schätzung'));
+assert.equal(b.rank([p],[r],bundle,{...context,direction:'NEUTRAL'}).candidates.length,0);
+assert.equal(b.rank([p],[r],bundle,{...context,direction:'LONG'}).candidates.length,0);
+assert.equal(b.rank([p],[r],bundle,{...context,spotFresh:false}).candidates.length,0);
+assert.equal(b.rank([p],[r],bundle,{...context,trend:'LONG',trend2:'LONG',mtf:'LONG',hist:1,momentum:1}).candidates.length,0);
+assert.equal(b.rank([p],[r],bundle,{...context,now:now+61000}).candidates.length,0);
+for(const mutate of [x=>x.barriers[1].value=4404.01,x=>x.quoteAt=at(-1801),x=>x.referenceConfirmed=false]){const bad=clone(r);mutate(bad);const result=b.rank([p],[bad],bundle,context);assert.equal(result.candidates.length,0);assert(result.excluded.length);}
+const products=[p],refs=[r];
+for(const isin of ['DE000FG4JXV7','DE000FG7EPT1','DE000FG5GUT0']){const next=clone(p);next.isin=isin;next.quote.isin=isin;next.quote.productModel.isin=isin;const ref=clone(r);ref.isin=isin;ref.barriers.forEach(x=>x.isin=isin);products.push(next);refs.push(ref);}
+const unchanged=JSON.stringify([products,refs,bundle]);ranked=b.rank(products,refs,bundle,context);
+assert.equal(ranked.total,4);assert.equal(ranked.candidates.length,3);assert.equal(ranked.selection,null);assert.equal(JSON.stringify([products,refs,bundle]),unchanged);
+assert.equal(b.rank([p,p],[r,r],bundle,context).total,1);
+// A fresh confirmed price is never replaced by an estimate for the same row.
+const live=clone(p);Object.assign(live,{price:18.1,leverage:20,ko:4403,spread:.01});Object.assign(live.quote,{found:true,eligible:true,marketOpen:true,currency:'EUR',price:18.1,leverage:20,ko:4403,spread:.01,direction:'SHORT',quoteAt:at(0),bidAt:at(0),askAt:at(0),leverageAt:at(0),snapshotAt:at(0),tradingEndAt:at(5000),source:'SG'});
+const mixed=b.rank([live,products[1]],[r,refs[1]],bundle,context);assert.equal(mixed.candidates.length,2);assert.equal(mixed.candidates[0].estimated,false);assert.equal(mixed.candidates[1].estimated,true);
+const future=clone(p);future.isin='DE000FG309G0';assert.equal(b.rank([future],[r],bundle,context).total,0);
+assert(b.rank([future],[r],bundle,context).excluded[0].reason.includes('Kontrakt-MTF'));
+const unsafeName=clone(p);unsafeName.name='<script>alert(1)</script>';assert(!b.renderTop3(b.rank([unsafeName],[r],bundle,context)).includes('<script>'));
+console.log('Automatic combined Top-3: passed');
