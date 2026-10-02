@@ -78,7 +78,9 @@ jobs:
           node test_screenshot_state.js
           node test_combined_reference.js
           node test_exit_estimate.js
+          node test_exit_plan.js
           node test_trade_upload.js
           node test_dashboard.js
           node test_quote_refresh.js
+
 

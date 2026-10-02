@@ -1,0 +1,16 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const window={};vm.runInNewContext(fs.readFileSync('exit_estimate.js','utf8'),{window});
+const p=window.BobExitEstimate.planInput,now=Date.parse('2026-10-02T19:00:00Z');
+const bundle={spots:{xaus:4140,is_genuine_xauusd_spot:true,spot_price_as_of:'2026-10-02T18:59:30Z',primary:'XAUS'}};
+const a={ready:true,at:3},bars=Array.from({length:30},(_,i)=>({openTime:now-(30-i)*300000,high:4141,low:4130,close:4140,isOpen:false,instrument:'XAU/USD'}));
+assert(p(bundle,a,bars,'LONG',now).available);assert(p(bundle,a,bars,'SHORT',now).available);
+assert.equal(p(bundle,a,bars,'LONG',now).gold,4140);
+for(const at of ['2026-10-02T18:58:59Z','2026-10-02T19:00:01Z','2026-10-02T18:59:30','bad'])assert(!p({spots:{...bundle.spots,spot_price_as_of:at}},a,bars,'LONG',now).available);
+for(const b of [{is_genuine_xauusd_spot:false},{spot_error:'stale'},{xaus:0}])assert(!p({spots:{...bundle.spots,...b}},a,bars,'LONG',now).available);
+assert(!p(bundle,a,bars.map(b=>({...b,instrument:'GC=F'})),'LONG',now).available);
+assert(!p(bundle,a,bars.map(b=>({...b,openTime:b.openTime-7200000})),'LONG',now).available);
+assert(!p(bundle,a,bars.map(b=>({...b,openTime:b.openTime+300001})),'LONG',now).available);
+assert(!p(bundle,{ready:false,at:3},bars,'LONG',now).available);
+assert(!p(bundle,a,bars,'NEUTRAL',now).available);
+const html=fs.readFileSync('Bob.html','utf8');assert(html.includes('spot_price_as_of:d0.price_as_of||null'));assert(html.includes('is_genuine_xauusd_spot:d0.xau?.currency==="USD"'));
+console.log('Exit plan: spot provenance, source times, closed history, stale/future/demo/futures rejection passed');

@@ -536,12 +536,12 @@ async function fetchLiveBundle(force=false){
   try{r0=await fetch("https://xaus.com/api/v1/spot?compact=1&fresh="+now,{cache:"no-store",signal:controller0.signal})}finally{clearTimeout(timer0)}
   if(!r0.ok)throw Error("XAUS HTTP "+r0.status);
   const d0=await r0.json(),p0=Number(d0?.spot_usd_oz),state0=d0?.data_state?.status;
-  const age0=d0?.price_as_of?Math.max(0,Date.now()-Date.parse(d0.price_as_of)):null;
+  const age0=d0?.price_as_of?Date.now()-Date.parse(d0.price_as_of):null;
   if(!Number.isFinite(p0)||p0<=0||state0==="unavailable")throw Error("XAUS liefert keinen gültigen XAU/USD-Preis");
-  if(age0!==null&&age0>180000)throw Error("XAUS-Preis ist zu alt");
+  if(age0!==null&&(!Number.isFinite(age0)||age0<0||age0>180000))throw Error("XAUS-Preis ist zu alt");
   const direct={
    fetched_at:Math.floor(Date.now()/1000),
-   spots:{xaus:p0,goldprice:p0,yahoo_gc_f:null,diff:0,pct:0,xaus_age_seconds:age0!==null?age0/1000:null,goldprice_age_seconds:age0!==null?age0/1000:null,usd_eur:null,usd_chf:null,goldprice_status:"XAUS · direkt",xaus_is_spot:true,primary:"XAUS · direkt",reference:"Yahoo Finance GC=F",reference_note:"GC=F ist Gold-Futures, nicht XAU/USD Spot",spot_error:state0==="stale"?"XAUS liefert den letzten bekannten realen Preis (stale)":null},
+   spots:{spot_price_as_of:d0.price_as_of||null,is_genuine_xauusd_spot:d0.xau?.currency==="USD"&&d0.xau?.unit==="troy_oz"&&state0==="fresh"&&d0.stale===false,spot_source_type:"XAU/USD spot",xaus:p0,goldprice:p0,yahoo_gc_f:null,diff:0,pct:0,xaus_age_seconds:age0!==null?age0/1000:null,goldprice_age_seconds:age0!==null?age0/1000:null,usd_eur:null,usd_chf:null,goldprice_status:"XAUS · direkt",xaus_is_spot:true,primary:"XAUS · direkt",reference:"Yahoo Finance GC=F",reference_note:"GC=F ist Gold-Futures, nicht XAU/USD Spot",spot_error:state0==="stale"?"XAUS liefert den letzten bekannten realen Preis (stale)":null},
    history:{bars_by_tf:{},points:[],data_state:{status:"partial",source:"XAUS XAU/USD Spot · Direktabruf",technical_4h_status:"unavailable",technical_errors:["Technikhistorie wird separat über Bob/Render geladen"]},age_seconds:age0!==null?age0/1000:null}
   };
   // Browser-side technical history: XAUS provides the same XAU series used by Bob's
@@ -1523,5 +1523,6 @@ loadData();
 setInterval(()=>{ if(document.visibilityState==="visible"){loadData();syncPushPreferences();} }, 60000);
 </script><form method="post" action="/logout" style="text-align:center;margin:24px"><button type="submit">Abmelden</button></form>
 </body></html>
+
 
 
