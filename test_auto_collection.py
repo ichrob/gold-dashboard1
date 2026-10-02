@@ -48,7 +48,7 @@ class AutoCollectionTests(unittest.TestCase):
         with patch.object(a, 'enabled', return_value=True), patch.object(a.future_estimate, 'ensure_collector'), patch.object(a.future_analysis, 'fetch_reference', return_value={'sourceFailure': True}) as source, patch.object(a.future_estimate, 'current_estimate', return_value={'available': False}), patch.object(a.bob_validation_store, 'request', return_value={'pairs': []}), patch.object(a.bob_market_store, 'request', return_value={}), patch.object(a.estimate_quality, 'restore_durable'), patch.object(a, 'datetime') as clock:
             clock.now.return_value = NOW
             a.tick(NOW)
-            self.assertGreaterEqual(a.status()['nextSourceInSeconds'], 299)
+            self.assertGreaterEqual(a.status()['nextSourceInSeconds'], 59)
             self.assertFalse(a.status()['ready'])
             a.tick(NOW)
             source.assert_called_once()

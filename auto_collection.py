@@ -50,8 +50,13 @@ def tick(now=None):
             # contract, continuous future or source timestamp replacement.
             try:
                 research = future_analysis.fetch_reference()
-            except (OSError, ValueError, TypeError, KeyError, IndexError):
-                research = sg_quotes.fetch_future_reference()
+            except (OSError, ValueError, TypeError, KeyError, IndexError) as primary_error:
+                try:
+                    research = sg_quotes.fetch_future_reference()
+                except (OSError, ValueError, TypeError, KeyError, IndexError):
+                    # Preserve Yahoo's failure and shared retry deadline when
+                    # the fixed fallback is unavailable (including consent).
+                    raise primary_error
             if research.get('contract') != future_estimate.CONTRACT:
                 raise ValueError('GCZ26-Referenz momentan nicht verfügbar')
             future_estimate.remember_reference(research, datetime.now(timezone.utc))
@@ -59,10 +64,11 @@ def tick(now=None):
             _failures = 0
             _source_error = None
             _next_source = time.monotonic() + 60
-        except (OSError, ValueError, TypeError, KeyError):
+        except (OSError, ValueError, TypeError, KeyError, IndexError) as exc:
             _failures += 1
-            _next_source = time.monotonic() + min(1800, 300 * 2**min(_failures-1, 3))
-            _source_error = 'GCZ26-Quelle momentan nicht verfügbar; erneuter Abruf mit Wartezeit'
+            delay, source_error = future_analysis.reference_failure(exc)
+            _next_source = time.monotonic() + delay
+            _source_error = source_error+'; erneuter Abruf mit Wartezeit'
     result = future_estimate.current_estimate(_research, now)
     archive_error = None
     diagnostics = {}
