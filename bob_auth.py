@@ -12,6 +12,7 @@ import time
 from http.cookies import SimpleCookie, CookieError
 from urllib.parse import parse_qs
 from urllib.request import Request, build_opener, HTTPRedirectHandler
+from urllib.error import HTTPError
 
 COOKIE = '__Host-bob_session'
 CSRF_COOKIE = '__Host-bob_login'
@@ -51,14 +52,22 @@ def session_request(action, token, user='', password='', expiry=None):
     # A sleeping free Render backend takes about a minute to start. Keep the
     # authenticated request pending through that start instead of falsely rejecting
     # a valid browser session after twelve seconds. No redirect or auth bypass.
-    with build_opener(NoRedirect()).open(request, timeout=75) as response:
-        data = response.read(4097)
-    if len(data)>4096:
-        raise ValueError('Sitzungsantwort zu groß')
-    result = json.loads(data)
-    if not isinstance(result, dict):
-        raise ValueError('Ungültige Sitzungsantwort')
-    return result
+    try:
+        with build_opener(NoRedirect()).open(request, timeout=75) as response:
+            data = response.read(4097)
+        if len(data)>4096:
+            raise ValueError('Sitzungsantwort zu groß')
+        result = json.loads(data)
+        if not isinstance(result, dict):
+            raise ValueError('Ungültige Sitzungsantwort')
+        return result
+    except (OSError, ValueError, TypeError) as exc:
+        # Fixed labels and numeric HTTP status only: never log a URL, request,
+        # response body, cookie, binding, password or service token.
+        label = action if action in ('create', 'check', 'revoke') else 'unknown'
+        code = exc.code if isinstance(exc, HTTPError) else '-'
+        print(f'BOB_SESSION action={label} error={type(exc).__name__} status={code}', flush=True)
+        raise
 
 
 def persistent_token(token):
@@ -115,7 +124,7 @@ def set_cookie(name, value, age):
     return f'{name}={value}; Path=/; Max-Age={age}; Secure; HttpOnly; SameSite=Strict'
 
 
-def login_page(handler, error=''):
+def login_page(handler, error='', status=200):
     token = secrets.token_urlsafe(32)
     now = time.time()
     with LOCK:
@@ -127,7 +136,7 @@ def login_page(handler, error=''):
         PENDING[token] = now + 600
     remember = '<label style="display:flex;align-items:center;gap:10px"><input style="width:auto;margin:0" type="checkbox" name="remember" value="1"> Angemeldet bleiben (7 Tage)</label><p>Nur auf deinem eigenen Gerät verwenden. Abmelden beendet die Sitzung auch nach einem Serverneustart.</p>' if persistent_configured() else ''
     body = f'''<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Bob – Anmeldung</title><style>body{{font-family:system-ui;background:#f3f5f8;margin:0;padding:24px}}main{{max-width:360px;margin:8vh auto;background:white;border-radius:18px;padding:28px}}label,input,button{{display:block;box-sizing:border-box;width:100%;margin-top:12px}}input,button{{padding:13px;border:1px solid #ccd3dd;border-radius:9px;font:inherit}}button{{background:#2358b6;color:white}}p{{color:#49566a}}.error{{color:#a12222}}</style><main><h1>Bob anmelden</h1><p>Nutze deine bestehenden Bob-Zugangsdaten.</p><p class="error">{html.escape(error)}</p><form method="post" action="/login"><input type="hidden" name="csrf" value="{token}"><label for="username">Benutzername</label><input id="username" name="username" type="text" autocomplete="username" required maxlength="256"><label for="password">Passwort</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024">{remember}<button type="submit">Anmelden</button></form></main></html>'''.encode()
-    send(handler, 200, body, cookies=[set_cookie(CSRF_COOKIE, token, 600)])
+    send(handler, status, body, cookies=[set_cookie(CSRF_COOKIE, token, 600)])
 
 
 def login(handler, user, password):
@@ -147,7 +156,7 @@ def login(handler, user, password):
             FAILURES[:] = [x for x in FAILURES if x > now - 60]
             limited = len(FAILURES) >= 30
         if not valid:
-            send(handler, 403, b'Anmeldung abgelaufen. Bitte Seite neu laden.')
+            login_page(handler, 'Anmeldung abgelaufen. Bitte erneut anmelden.', status=403)
             return
         if limited:
             send(handler, 429, b'Bitte eine Minute warten.')
@@ -169,7 +178,11 @@ def login(handler, user, password):
             if remember and session_request('create', token, user, password, now+age).get('ok') is not True:
                 raise ValueError('Sitzung nicht gespeichert')
         except (OSError, ValueError, TypeError):
-            login_page(handler, 'Dauerhafte Anmeldung momentan nicht verfügbar. Bitte später erneut versuchen oder ohne „Angemeldet bleiben“ anmelden.')
+            if persistent_token(old_token):
+                error = 'Die bisherige Sieben-Tage-Sitzung konnte nicht beendet werden. Der Sitzungsspeicher ist momentan nicht erreichbar. Bitte später erneut anmelden.'
+            else:
+                error = 'Dauerhafte Anmeldung momentan nicht verfügbar. Bitte später erneut versuchen oder ohne „Angemeldet bleiben“ anmelden.'
+            login_page(handler, error)
             return
         with LOCK:
             for key, expiry in list(SESSIONS.items()):
