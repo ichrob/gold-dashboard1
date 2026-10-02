@@ -1,0 +1,10 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const window={};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),{window});const b=window.BobExitEstimate;
+const p={isin:'DE000FG4JXV7',direction:'SHORT',simpleSpotTurbo:true,referenceConfirmed:true,bid:20,goldReference:4200,fxReference:.9,fxScenario:.9,ratio:.1,strike:4460,ko:4460,entry:21,quantity:10,planGold:4200,targetGold:4150,stopGold:4230,source:'DEGIRO-Screenshot',referenceAt:'02/10/2026 15:04'};
+let x=b.calculate(p);assert(x.available);assert.equal(x.rows[0].price,24.5);assert.equal(x.rows[1].price,17.3);assert.equal(x.rows[0].pnl,35);assert(Math.abs(x.rows[1].pnl+37)<1e-9);assert(!x.tradeable);
+const long=b.calculate({...p,direction:'LONG',strike:4000,ko:4000,targetGold:4250,stopGold:4170});assert.equal(long.rows[0].price,24.5);assert.equal(long.rows[1].price,17.3);
+const fx=b.calculate({...p,fxScenario:.85});assert(Math.abs(fx.rows[0].price-22.95)<1e-9);
+for(const changes of [{ratio:''},{quantity:1.5},{simpleSpotTurbo:false},{referenceConfirmed:false},{source:''},{referenceAt:''},{isin:'bad'},{targetGold:4210},{stopGold:4190},{planGold:4460},{goldReference:4460}])assert(!b.calculate({...p,...changes}).available,JSON.stringify(changes));
+const ko=b.calculate({...p,stopGold:4460});assert(!ko.rows[1].available);assert(ko.rows[1].reason.includes('KO'));
+assert(b.render(x).includes('02/10/2026 15:04'));assert(!b.render(x).includes('15:04:30'));assert(b.render(x).includes('Genauigkeit noch nicht gemessen'));
+console.log('Exit scenarios: long/short, FX, PnL, missing evidence, KO and minute precision passed');
