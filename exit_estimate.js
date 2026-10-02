@@ -54,8 +54,32 @@ function init(){
   panel.querySelector('[data-exit-output]').textContent='Technische Szenarien aus der aktuellen Goldanalyse übernommen. Keine Vorhersage des besten Ausstiegszeitpunkts.';
  });
  panel.querySelector('[data-exit-calculate]').addEventListener('click',()=>{const values=read();try{localStorage.setItem('bobExitScenarioV1',JSON.stringify(values));}catch(_){}panel.querySelector('[data-exit-output]').innerHTML=render(calculate(values));});
- panel.querySelectorAll('[data-exit]').forEach(el=>el.addEventListener('input',()=>{panel.querySelector('[data-exit-output]').textContent='Eingaben geändert; Schätzung erneut berechnen.';}));
+ panel.querySelectorAll('[data-exit]').forEach(el=>el.addEventListener('input',()=>{if(el.dataset.exit!=='referenceConfirmed')get('referenceConfirmed').checked=false;panel.querySelector('[data-exit-output]').textContent='Eingaben geändert; Schätzung erneut berechnen.';}));
 }
-window.BobExitEstimate={calculate,render,init};
+function restoreReference(){
+ const p=document.getElementById('bobExitEstimate');if(!p)return false;
+ const get=k=>p.querySelector('[data-exit="'+k+'"]');
+ try{const x=JSON.parse(localStorage.getItem('bobTradeMarketReferencesV1')||'{}')[get('isin').value];
+ if(!x||x.at!==get('referenceAt').value||x.bid!==get('bid').value)return false;
+ for(const k of ['goldReference','fxReference','fxScenario','source'])get(k).value=x[k];return true;
+ }catch(_){return false;}
+}
+async function researchReference(){
+ const panel=document.getElementById('bobExitEstimate');if(!panel)return;
+ const get=k=>panel.querySelector('[data-exit="'+k+'"]'),out=panel.querySelector('[data-exit-output]');
+ const isin=get('isin').value,at=get('referenceAt').value,bid=get('bid').value,source=get('source').value;
+ if(!window.BobDegiro?.validIsin(isin)||!at||!(num(bid)>0)){out.textContent='Zuerst Produkt-ISIN und datierten Geldkurs übernehmen.';return;}
+ get('referenceConfirmed').checked=false;out.textContent='Historische Gold-/FX-Referenz zur Originalzeit wird gesucht …';
+ try{
+  const response=await fetch('/api/trade-reference?at='+encodeURIComponent(at),{cache:'no-store'}),x=await response.json();
+  if(get('isin').value!==isin||get('referenceAt').value!==at||get('bid').value!==bid)return;
+  if(!response.ok||!x.available){out.textContent=x.reason||'Referenz fehlt.';return;}
+  get('goldReference').value=x.goldReference;get('fxReference').value=x.fxReference;get('fxScenario').value=x.fxReference;
+  get('source').value=source+' · Historische Näherungsreferenz: '+x.goldSource+' @ '+x.goldAt+'; '+x.fxSource+' @ '+x.fxStart+' bis '+x.fxEnd+'; Zeitzone Europe/Zurich angenommen; maximaler Zeitversatz '+x.maxSkewSeconds+' s';
+  try{const all=JSON.parse(localStorage.getItem('bobTradeMarketReferencesV1')||'{}');all[isin]={at,bid,goldReference:x.goldReference,fxReference:x.fxReference,fxScenario:x.fxReference,source:get('source').value,evidence:x};localStorage.setItem('bobTradeMarketReferencesV1',JSON.stringify(all));}catch(_){}
+  out.innerHTML='Gold-/FX-Werte übernommen: Gold '+esc(x.goldReference)+' USD · USD→EUR '+esc(x.fxReference)+'.<br><a href="'+esc(x.goldUrl)+'" target="_blank" rel="noopener">Goldquelle</a> · <a href="'+esc(x.fxUrl)+'" target="_blank" rel="noopener">FX-Quelle</a><br>'+esc(x.note)+'<br>Referenz in den Berechnungsdetails prüfen und bestätigen. Ziel/Stop ergänzen. Ausstiegs-FX zunächst konstant angenommen.';
+ }catch(_){if(get('isin').value===isin&&get('referenceAt').value===at)out.textContent='Referenzabruf fehlgeschlagen. Keine historischen Werte ersetzt.';}
+}
+window.BobExitEstimate={calculate,render,init,researchReference,restoreReference};
 if(typeof document!=='undefined'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();}
 })();
