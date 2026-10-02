@@ -31,6 +31,7 @@ _active_until = 0
 _source_error = 'Investing.com deaktiviert; ersetzt durch Gold-API.com'
 _storage_loaded = False
 _storage_status = 'Spot-Beobachtungen noch nicht aus dauerhaftem Speicher geladen'
+_research_reference = {}
 
 
 def restore_spot_observations(observations, now=None):
@@ -267,7 +268,8 @@ def calculate(research, ticks, now=None, proxy_kind="investing-cfd"):
                    proxySource='Gold-API.com · XAU/USD Spot' if proxy_kind=='gold-api-spot' else 'Investing.com · Gold-CFD (abgeleitet)',
                    proxySourceUrl=GOLD_API_URL if proxy_kind=='gold-api-spot' else URL,
                    assumedFutureSpotFactor=ref_price/anchor if proxy_kind=='gold-api-spot' else None,
-                   referenceSource='onvista · datierter GCZ26-Basiswert')
+                   referenceSource=research.get('source', 'onvista · datierter GCZ26-Basiswert'),
+                   referenceSourceUrl=research.get('sourceUrl'))
     except (KeyError, ValueError, TypeError, OverflowError) as exc:
         out['reason'] = str(exc) if isinstance(exc, ValueError) else 'Pflichtdaten für die Kursberechnung fehlen'
     return out
@@ -278,9 +280,34 @@ def validation_key(contract,kind):
     return 'future:'+str(contract)+':'+('gold-api-spot-ratio-v1' if kind=='gold-api-spot' else 'cfd-change-v1')
 
 
+def remember_reference(research, now=None):
+    """Share only references returned by the collector's validated adapters."""
+    global _research_reference
+    now = now or datetime.now(timezone.utc)
+    at = stamp(research['underlyingAt'])
+    number(research['underlyingPriceUsd'])
+    if research.get('contract') != CONTRACT or not 0 <= (now-at).total_seconds() <= MAX_REFERENCE_AGE:
+        raise ValueError('GCZ26-Referenz nicht verwendbar')
+    with _lock:
+        if not _research_reference or at > stamp(_research_reference['underlyingAt']):
+            _research_reference = dict(research)
+
+
 def current_estimate(research, now=None):
     now=now or datetime.now(timezone.utc)
     with _lock:
+        # Share a dated exact-contract reference collected without a dashboard
+        # with SG research. Never share product bid/ask, terms or eligibility.
+        if research.get('contract') == CONTRACT:
+            if _research_reference:
+                at = stamp(_research_reference['underlyingAt'])
+                if 0 <= (now-at).total_seconds() <= MAX_REFERENCE_AGE:
+                    try:
+                        original = stamp(research['underlyingAt'])
+                    except (KeyError, ValueError, TypeError):
+                        original = datetime.min.replace(tzinfo=timezone.utc)
+                    if at > original:
+                        research = dict(_research_reference)
         sources=[('investing-cfd',list(_ticks),_source_error),('gold-api-spot',list(_spot_ticks),_spot_source_error)]
     alternatives=[]
     for kind,ticks,error in sources:

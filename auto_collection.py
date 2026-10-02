@@ -11,6 +11,7 @@ import bob_validation_store
 import estimate_quality
 import future_estimate
 import sg_quotes
+import future_analysis
 
 ISIN = 'DE000FG309G0'
 _lock = threading.Lock()
@@ -44,11 +45,16 @@ def tick(now=None):
     future_estimate.ensure_collector()
     if time.monotonic() >= _next_source:
         try:
-            # Same registered underlying, independent of OTC quotes and FX.
-            # Revalidate exact contract identity, including rollover each read.
-            research = sg_quotes.fetch_future_reference()
+            # Existing exact-contract Yahoo feed; no SG OTC/FX prerequisite.
+            # Fixed fallback to the registered onvista underlying, no guessed
+            # contract, continuous future or source timestamp replacement.
+            try:
+                research = future_analysis.fetch_reference()
+            except (OSError, ValueError, TypeError, KeyError, IndexError):
+                research = sg_quotes.fetch_future_reference()
             if research.get('contract') != future_estimate.CONTRACT:
                 raise ValueError('GCZ26-Referenz momentan nicht verfügbar')
+            future_estimate.remember_reference(research, datetime.now(timezone.utc))
             _research = dict(research)
             _failures = 0
             _source_error = None
@@ -86,6 +92,7 @@ def tick(now=None):
     report = dict(enabled=True, state='ready' if ready else 'collecting', contract=future_estimate.CONTRACT,
                   evaluatedAt=evaluated.isoformat(), lastCycleAt=evaluated.isoformat(),
                   referenceAt=reference_at, referenceAgeSeconds=result.get('referenceAgeSeconds'),
+                  referenceSource=_research.get('source'),
                   estimateAvailable=bool(result.get('available')), ready=ready, reason=reason,
                   collection=result.get('collection', {}), archive=diagnostics, spotArchive=spot_archive,
                   horizons=groups, retentionHours=48, sourceIntervalSeconds=60,

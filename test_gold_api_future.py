@@ -13,6 +13,17 @@ def spot_history():
  return [dict(t,proxyKind='gold-api-spot',underlying='XAU/USD') for t in history()]
 
 class SpotFutureTests(unittest.TestCase):
+ def test_collected_contract_reference_is_shared_without_product_fields(self):
+  newer=dict(reference(),underlyingAt=(NOW-timedelta(seconds=750)).isoformat(),
+             source='Yahoo Finance · GCZ26.CMX · verzögerter Börsenkurs',sourceUrl='https://finance.yahoo.com/quote/GCZ26.CMX/')
+  with patch.object(f,'_research_reference',{}),patch.object(f,'_spot_ticks',spot_history()):
+   f.remember_reference(newer,NOW)
+   out=f.current_estimate(reference(),NOW)
+   self.assertTrue(out['available']);self.assertEqual(out['referenceAt'],newer['underlyingAt'])
+   self.assertEqual(out['referenceSource'],newer['source'])
+   self.assertFalse(f.current_estimate(dict(reference(),contract='GCG27'),NOW)['available'])
+   self.assertFalse(f.current_estimate(reference(),NOW+timedelta(seconds=1801))['available'])
+   self.assertFalse(out['eligible']);self.assertNotIn('bid',out)
  def test_disabled_provider_is_identified_before_first_observation(self):
   with patch.object(f,'_ticks',[]),patch.object(f,'_spot_ticks',[]),patch.object(f,'_source_error','Investing.com deaktiviert; ersetzt durch Gold-API.com'),patch.object(f,'_spot_source_error',None):
    result=f.current_estimate(reference(),NOW)

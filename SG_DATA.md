@@ -267,9 +267,12 @@ No new network source, paid account, service, order or provider permission
 is introduced by this assessment.
 ## Collection recovery (2026-10-02)
 
-The autonomous collector reads the already registered onvista GCZ26 underlying
-directly, validating the product-page and exact underlying/notation identities
-on each request. SG product metadata, OTC bid/ask and FX availability no longer
+The autonomous collector uses the dated last-trade quote from the existing
+Yahoo GCZ26.CMX analysis feed, verifying COMEX, USD, Gold Dec 26, FUTURE and
+the original regularMarketTime. Its fixed fallback is the already registered
+onvista GCZ26 underlying, validating the product-page and underlying/notation
+identities on each request. The newest usable dated reference is shared with
+SG future calculations, with its source preserved separately from product data. SG product metadata, OTC bid/ask and FX availability no longer
 block collection of the separate dated future reference. Neither this reference
 nor a calculated future grants product eligibility. `researchAvailable` identifies
 successful SG research separately from the executable-quote `found` flag.
