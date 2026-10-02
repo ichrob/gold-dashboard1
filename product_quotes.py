@@ -77,6 +77,22 @@ def parse_sg(product, properties, isin, now=None):
     ko = number(barrier['Value'])
     if ko <= 0:
         raise ValueError('Ungültige SG-KO-Barriere')
+    # Barrier updates are separate from BIDTIME. Preserve the issuer's own
+    # date without assigning an undocumented timezone or a validity window.
+    ko_evidence = None
+    update = attrs.get('StrikeBarrierUpdateTime', {}).get('Value')
+    if isinstance(update, str) and re.fullmatch(
+            r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?', update):
+        try:
+            parsed_update = datetime.fromisoformat(update.replace('Z', '+00:00'))
+        except ValueError:
+            pass
+        else:
+            ko_evidence = dict(value=ko, currency='USD', updatedAtRaw=update,
+                               timezoneKnown=parsed_update.tzinfo is not None,
+                               retrievedAt=now.isoformat(),
+                               source='SG · StrikeBarrierUpdateTime',
+                               state='issuer_reported')
     status = product.get('Status')
     if isinstance(status, bool) or not isinstance(status, int):
         raise ValueError('SG-Produktstatus fehlt')
@@ -92,7 +108,7 @@ def parse_sg(product, properties, isin, now=None):
                               contract=contract['ric'] if contract else None,
                               underlyingIsin=product.get('AssetIsin'), currency='EUR',
                               direction='LONG' if side == 'Call' else 'SHORT', ko=ko,
-                              status=status), maxAgeSeconds=MAX_AGE_SECONDS)
+                              status=status, koEvidence=ko_evidence), maxAgeSeconds=MAX_AGE_SECONDS)
 
 def sg_source_error(exc, stage):
     # Fixed descriptions only: never expose provider bodies, URLs or headers.

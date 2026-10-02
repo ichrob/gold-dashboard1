@@ -289,3 +289,13 @@ collection window to reduce idle-service pauses. Scheduled Actions can be delaye
 and free Render services can sleep or restart; this is not guaranteed uptime.
 Diagnostics retain source failures during backoff and report the actual estimate
 failure reason and the ages of reference and spot inputs.
+
+## Separate issuer barrier evidence
+
+SG AllProperties may contain StrikeBarrierUpdateTime independently of BIDTIME.
+Bob preserves that raw date, the USD barrier, and the retrieval time in
+metadata.koEvidence. Missing offsets stay unknown; retrieval time never becomes
+an issuer update time. The screenshot assessment displays this evidence even
+when no fresh product quote exists. It does not establish a validity interval,
+confirm a past KO event, refresh manual evidence, or grant trading eligibility.
+Malformed or absent barrier-update dates produce no dated barrier evidence.

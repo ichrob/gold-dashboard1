@@ -26,4 +26,11 @@ const f={...p,isin:'DE000FG309G0',quote:{isin:'DE000FG309G0',productVerified:tru
 state=b.screenshotCurrentState(f,bundle,now);assert.equal(state.basis,4250);assert(state.rows[0].text.includes('keine Börsen-Echtzeit'));assert(state.leverage>0);assert.equal(state.eligible,false);
 for(const change of [r=>r.contract='GCG27',r=>r.calculatedFuture.priceAt=at(-61),r=>r.calculatedFuture.referenceAt=at(-1801)]){const bad=JSON.parse(JSON.stringify(f));change(bad.quote.futureResearch);assert.equal(b.screenshotCurrentState(bad,bundle,now).basis,null);}
 const escape={...p,name:'<script>alert(1)</script> Gold'};assert(!b.renderScreenshotCurrentState(escape,bundle,now).includes('<script>'));
+const evidence={value:4403.17,currency:'USD',updatedAtRaw:'2026-10-02T01:12:16.267',timezoneKnown:false,retrievedAt:at(0),state:'issuer_reported'};
+const dated=JSON.parse(JSON.stringify(modeled));dated.quote.metadata.koEvidence=evidence;
+state=b.screenshotCurrentState(dated,bundle,now);
+assert(state.rows.some(r=>r.label==='SG-KO-Nachweis'&&r.text.includes('Zeitzone nicht angegeben')&&r.text.includes('gerade abgerufene')));
+assert.equal(state.eligible,false);assert.equal(state.liveVerified,false);
+assert(b.screenshotCurrentState(dated,bundle,now+61000).rows.some(r=>r.text.includes('Abruf nicht mehr frisch')));
+for(const change of [e=>e.value=4400,e=>e.currency='EUR',e=>e.state='screenshot']){const bad=JSON.parse(JSON.stringify(dated));change(bad.quote.metadata.koEvidence);assert(!b.screenshotCurrentState(bad,bundle,now).rows.some(r=>r.label==='SG-KO-Nachweis'));}
 console.log('Screenshot current-state tests: OK');
