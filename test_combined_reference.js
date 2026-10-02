@@ -89,3 +89,14 @@ assert.equal(formFields.bid.value,'21.28');assert.equal(formFields.goldReference
 bridgeContext.window.BobDegiro.prefillCombinedForm(1,details,'details.jpg');assert.equal(formFields.bid.value,'21.28');assert.equal(formFields.ko1.value,'4403.305');assert.equal(formFields.koUntil1.value,'');
 bridgeContext.window.BobDegiro.resetCombinedForm(1);assert.equal(formFields.bid.value,'');assert.equal(formFields.reviewed.checked,false);
 console.log('Screenshot form bridge: passed');
+// Fixed screenshot barriers persist independently of quote freshness and SG terms.
+const storage={};const fixedWindow={};const localStorage={getItem:k=>storage[k]||null,setItem:(k,v)=>storage[k]=v};
+vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),{window:fixedWindow,localStorage});
+const fb=fixedWindow.BobCombined,fp={isin:'DE000FG4JXV7',productDirection:'SHORT',name:'SG Gold Turbo Classic Put',ko:4460};
+assert(fb.saveFixed(fp,'detail.jpg'));assert.equal(fb.fixedFor(fp).value,4460);
+const fixedState=fb.assess(fp,null,bundle,now);assert.equal(fixedState.ko.value,4460);assert.equal(fixedState.distanceUsd,260);assert.equal(fixedState.tradeable,false);assert.equal(fixedState.quote,null);assert(fb.render(fixedState).includes('fester Berechnungswert'));
+assert.equal(fb.fixedFor({...fp,ko:4450}),null);assert.equal(fb.fixedFor({...fp,productDirection:'LONG'}),null);assert.equal(fb.fixedFor({...fp,isin:p.isin}),null);
+const reloaded={};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),{window:reloaded,localStorage});assert.equal(reloaded.BobCombined.fixedFor(fp).value,4460);
+assert(!fb.saveFixed({...fp,ko:0}));fb.removeFixed(fp.isin);assert.equal(fb.fixedFor(fp),null);
+assert(Number.isNaN(b.time('02/10/2026 15:04')));assert.equal(b.assess(p,{...r,quoteAt:'02/10/2026 15:04'},bundle,now).quote,null);
+console.log('Fixed screenshot barrier and honest minute precision: passed');
