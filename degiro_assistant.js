@@ -126,8 +126,8 @@ function screenshotDraft(raw,isin){
   const eur=Array.from(section.matchAll(/(?:€\s*([\d.,]+)|([\d.,]+)\s*EUR\b)/gi));
   if(eur.length===1)return value(eur[0][1]||eur[0][2]);
   if(eur.length)return null;
-  const plain=section.match(/^\s*[:=]?\s*([\d.,]+)(?![\d.,])\s*(?!Stk|Stück|Vol|%)/i);
-  return plain&& !/^\s*[•·]/.test(section)?value(plain[1]):null;
+  const plain=section.match(/^\s*[:=]?\s*([\d.,]+)(?![\d.,])/i);
+  return plain&&!/^(?:Stk|Stück|Vol|%)/i.test(section.slice(plain[0].length).trim())&&!/^\s*[•·]/.test(section)?value(plain[1]):null;
  };
  const bid=amount(bids,asks),ask=amount(asks,bids);
  if(hasQuote&&bids.length===1&&asks.length===1&&bid>0&&ask>=bid&&/EUR\b|€/.test(raw)){fields.bid=String(bid);fields.ask=String(ask);}

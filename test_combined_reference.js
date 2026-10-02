@@ -74,3 +74,5 @@ imageReference.barriers.forEach(x=>{x.url='';x.imageSource='details.jpg';});
 assert(b.assess(p,imageReference,bundle,now).estimated);
 assert.equal(b.assess(p,{...imageReference,imageEvidence:{bid:'a.jpg',ask:'b.jpg'}},bundle,now).quote,null);
 assert.equal(b.assess(p,{...imageReference,barriers:imageReference.barriers.map(x=>({...x,imageSource:null}))},bundle,now).ko,null);
+
+assert(!b.screenshotDraft('DEGIRO\n'+p.isin+'\nEUR\nGeld 25.000 Stk.\nBrief 25.000 Stk.',p.isin).paired);
