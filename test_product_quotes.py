@@ -55,6 +55,20 @@ class ProductQuoteTests(unittest.TestCase):
             self.assertNotIn(key, x)
         self.assertFalse(q.freshness(x, NOW)['eligible'])
 
+    def test_verified_sg_metadata_survives_dated_quote_exception(self):
+        product, props = self.sg_snapshot()
+        with patch.object(q, 'issuer_json', side_effect=[product, props]), \
+             patch('sg_quotes.get_quote', side_effect=OSError('private response')):
+            result = q.get_sg_quote(product['Isin'])
+        self.assertTrue(result['productVerified'])
+        self.assertEqual(result['metadata']['direction'], 'SHORT')
+        self.assertEqual(result['metadata']['ko'], 4460)
+        self.assertTrue(result['sourceFailure'])
+        self.assertFalse(result['eligible'])
+        self.assertFalse(result['found'])
+        self.assertNotIn('private', result['reason'])
+        self.assertNotIn('bid', result)
+
     def test_sg_barrier_update_is_independent_of_quote_time(self):
         product, props = self.sg_snapshot()
         props.append(dict(Name='StrikeBarrierUpdateTime', Value='2026-09-30T01:12:16.267'))

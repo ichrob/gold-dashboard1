@@ -72,6 +72,12 @@ class PostgresMarketTests(unittest.TestCase):
   with psycopg.connect(dsn) as conn:
    with self.assertRaises(ValueError):v.handle(conn,'write',{'events':[dict(t,value=4197)]})
    conn.rollback()
+  with psycopg.connect(dsn) as conn:
+   exported=v.handle(conn,'read',{'includeAudit':True})['audit']
+   frozen=next(r for r in exported['predictions'] if r['quoteAt']==at.isoformat())
+   self.assertEqual(frozen['price'],4200)
+   self.assertEqual(frozen['pairingState'],'paired')
+   self.assertFalse(exported['isLiveApproval'])
   # A prediction submitted after truth was already archived cannot validate.
   late=now-timedelta(seconds=20)
   truth=dict(t,at=late.isoformat())
