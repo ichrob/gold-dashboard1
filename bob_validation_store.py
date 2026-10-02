@@ -61,8 +61,8 @@ def handle(conn, action, payload):
         events=payload.get('events')
         if not isinstance(events,list) or len(events)>40:raise ValueError('Ungültiges Messpaket')
         checked=[event(e) for e in events]
-        conn.execute("DELETE FROM bob_future_predictions WHERE received_at<now()-interval '6 hours'")
-        conn.execute("DELETE FROM bob_future_truths WHERE received_at<now()-interval '6 hours'")
+        conn.execute("DELETE FROM bob_future_predictions WHERE received_at<now()-interval '48 hours'")
+        conn.execute("DELETE FROM bob_future_truths WHERE received_at<now()-interval '48 hours'")
         for kind,at,value,ref,horizon in checked:
             if kind=='prediction':
                 # First server receipt is immutable, even after recalculation.
@@ -85,7 +85,7 @@ def handle(conn, action, payload):
                 if row:conn.execute('UPDATE bob_future_predictions SET truth_at=%s WHERE bucket=%s AND quote_at=%s',(at,horizon,row[0]))
     rows=conn.execute('''SELECT p.bucket,p.quote_at,p.price,p.reference_at,p.received_at,t.quote_at,t.price,t.received_at
         FROM bob_future_predictions p JOIN bob_future_truths t ON p.truth_at=t.quote_at
-        WHERE t.received_at>=now()-interval '6 hours' ORDER BY t.received_at DESC LIMIT 800''').fetchall()
+        WHERE t.received_at>=now()-interval '48 hours' ORDER BY t.received_at DESC LIMIT 800''').fetchall()
     pairs=[dict(bucket=b,predictionAt=a.isoformat(),prediction=value,referenceAt=ref.isoformat(),
                 predictionReceivedAt=created.isoformat(),truthAt=ta.isoformat(),truth=tv,truthReceivedAt=received.isoformat())
            for b,a,value,ref,created,ta,tv,received in reversed(rows)]
@@ -165,3 +165,4 @@ def _sync():
         except (OSError,ValueError,TypeError,KeyError):
             with _lock:_status='Dauerhafter Messspeicher momentan nicht erreichbar; lokale Messung läuft weiter'
         threading.Event().wait(30)
+

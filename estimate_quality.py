@@ -72,7 +72,7 @@ def observe(key, value, at, received_at):
                 errors=_errors.setdefault(scoped,[])
                 errors.append(dict(at=point,received=received,error=prediction['value']-value,
                                    offset=abs(prediction['at']-point),horizon=prediction['horizon']))
-                errors[:]=[r for r in errors if received-r['received']<=21600][-200:]
+                errors[:]=[r for r in errors if received-r['received']<=172800][-200:]
     except (ValueError,TypeError,OverflowError):
         return
 
@@ -86,7 +86,7 @@ def restore_durable(pairs, now=None):
         horizon=point-ref;b=horizon_bucket(horizon)
         values=(p['prediction'],p['truth'])
         if (b is None or b!=p['bucket'] or not ref<point<=created<=received<=now.timestamp()
-                or now.timestamp()-received>21600 or abs(point-truth)>MAX_MATCH_SECONDS or truth>received
+                or now.timestamp()-received>172800 or abs(point-truth)>MAX_MATCH_SECONDS or truth>received
                 or any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or v<=0 for v in values)):
             raise ValueError('Gespeicherter Vergleich nicht verwendbar')
         scoped=(bob_validation_store.KEY,b)
@@ -107,10 +107,10 @@ def quality(key, horizon, now=None):
     now=now or datetime.now(timezone.utc)
     bucket=horizon_bucket(horizon)
     with _lock:
-        rows=[r for r in _errors.get((key,bucket),[]) if 0<=now.timestamp()-r['received']<=21600]
+        rows=[r for r in _errors.get((key,bucket),[]) if 0<=now.timestamp()-r['received']<=172800]
         summaries=[]
         for b in ('0–60s','61–300s','301–900s','901–1800s'):
-            group=[r for r in _errors.get((key,b),[]) if 0<=now.timestamp()-r['received']<=21600]
+            group=[r for r in _errors.get((key,b),[]) if 0<=now.timestamp()-r['received']<=172800]
             summary=dict(horizonBucket=b,sampleCount=len(group))
             if group:summary.update(meanAbsoluteError=sum(abs(r['error']) for r in group)/len(group),
                                     maxAbsoluteError=max(abs(r['error']) for r in group))
@@ -131,3 +131,4 @@ def quality(key, horizon, now=None):
     if not ready:
         out['reason']='Genauigkeit noch nicht ausreichend für diesen Referenz-Abstand gemessen'
     return out
+

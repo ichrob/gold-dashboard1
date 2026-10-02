@@ -50,6 +50,15 @@ jobs:
         run: python -m py_compile server.py backtest.py push_server.py signal_worker.py estimate_quality.py future_analysis.py future_estimate.py product_estimate.py sg_quotes.py product_quotes.py
       - name: VAPID key generation
         run: python -c "from py_vapid import Vapid; v=Vapid(); v.generate_keys(); assert len(v.private_pem()) > 100"
+      - name: Automatic collection panel syntax
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          from auto_collection import PANEL
+          Path('/tmp/bob-auto-ui.js').write_text(re.search(r'<script>(.*)</script>',PANEL,re.S)[1])
+          PY
+          node --check /tmp/bob-auto-ui.js
       - name: JSON and Bob validation
         run: node validate_bob.js
       - name: Service worker syntax
@@ -59,7 +68,7 @@ jobs:
           node --check push_manager.js
           node --check degiro_assistant.js
       - name: Login and session tests
-        run: python -m unittest test_auth.py test_persistent_auth.py test_market_store.py test_ocr_assets.py test_product_quotes.py test_sg_quotes.py test_sg_futures.py test_future_estimate.py test_gold_api_future.py test_product_estimate.py test_estimate_quality.py test_future_analysis.py test_fibonacci_monitor.py test_push_monitor.py
+        run: python -m unittest test_auth.py test_persistent_auth.py test_auto_collection.py test_market_store.py test_ocr_assets.py test_product_quotes.py test_sg_quotes.py test_sg_futures.py test_future_estimate.py test_gold_api_future.py test_product_estimate.py test_estimate_quality.py test_future_analysis.py test_fibonacci_monitor.py test_push_monitor.py
       - name: Regression tests
         run: |
           node test_bob.js

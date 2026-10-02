@@ -75,7 +75,7 @@ assert(bobSource.includes("maybePushAnalysisAlerts()"));
 assert(bobSource.includes("LIVE-PREIS · TECHNIK WARTET"));
 assert(bobSource.includes("var liveBundleCache=null, liveBundleAt=0;"));
 assert(bobSource.indexOf("var liveBundleCache=null, liveBundleAt=0;") < bobSource.lastIndexOf("loadData();"));
-const sensitiveGate = serverSource.indexOf('protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich")');
+const sensitiveGate = serverSource.indexOf('protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status")');
 assert(sensitiveGate >= 0);
 assert(sensitiveGate < serverSource.indexOf('if path == "/api/live":'));
 assert(sensitiveGate < serverSource.indexOf('if path == "/api/mtf":'));
@@ -387,3 +387,4 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert(shadowText.includes('noch nicht ausreichend'));
   console.log("Bob push + DEGIRO tests: OK");
 })().catch(err => { console.error(err); process.exit(1); });
+
