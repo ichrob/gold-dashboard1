@@ -56,6 +56,22 @@ def fetch_chart(interval,range_value):
     return json.loads(body)
 
 
+def fetch_reference(now=None):
+    """Use the existing exact-contract history feed's dated last-trade quote."""
+    payload = fetch_chart('5m', '5d')
+    _, market_at = parse_chart(payload, 5, now)
+    meta = payload['chart']['result'][0]['meta']
+    value = meta['regularMarketPrice']
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+        raise ValueError('GCZ26-Referenzkurs nicht verwendbar')
+    return dict(contract=CONTRACT, underlying='Gold Future Dec 2026', underlyingType='FUTURE',
+                underlyingPriceUsd=float(value),
+                underlyingAt=datetime.fromtimestamp(market_at, timezone.utc).isoformat(),
+                source='Yahoo Finance · GCZ26.CMX · verzögerter Börsenkurs',
+                sourceUrl='https://finance.yahoo.com/quote/'+SYMBOL+'/',
+                isExchangeRealtime=False, eligible=False)
+
+
 def aggregate(rows,base_minutes,target_minutes):
     step=target_minutes*60;groups={}
     for row in rows:groups.setdefault(row['t']//step*step,[]).append(row)

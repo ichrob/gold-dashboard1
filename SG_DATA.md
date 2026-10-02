@@ -265,6 +265,30 @@ observed momentary spread. All missing source/time/identity evidence stays
 visible; this panel never changes ranking, eligibility or execution fields.
 No new network source, paid account, service, order or provider permission
 is introduced by this assessment.
+## Collection recovery (2026-10-02)
+
+The autonomous collector uses the dated last-trade quote from the existing
+Yahoo GCZ26.CMX analysis feed, verifying COMEX, USD, Gold Dec 26, FUTURE and
+the original regularMarketTime. Its fixed fallback is the already registered
+onvista GCZ26 underlying, validating the product-page and underlying/notation
+identities on each request. The newest usable dated reference is shared with
+SG future calculations, with its source preserved separately from product data. SG product metadata, OTC bid/ask and FX availability no longer
+block collection of the separate dated future reference. Neither this reference
+nor a calculated future grants product eligibility. `researchAvailable` identifies
+successful SG research separately from the executable-quote `found` flag.
+
+Each collection cycle merges real source-timestamped spot observations from the
+durable archive. This repairs a process-local gap when another scanner instance
+saved the missing ticks. An outage that no instance observed remains a genuine
+gap; the existing alignment, 90-second continuity, 60-second spot freshness and
+30-minute reference-age checks still block calculation until a usable reference
+falls within newly collected continuous observations. No history is fabricated.
+
+The free GitHub collection-health schedule runs every five minutes in the Swiss
+collection window to reduce idle-service pauses. Scheduled Actions can be delayed
+and free Render services can sleep or restart; this is not guaranteed uptime.
+Diagnostics retain source failures during backoff and report the actual estimate
+failure reason and the ages of reference and spot inputs.
 
 ## Separate issuer barrier evidence
 

@@ -12,6 +12,17 @@ def payload():
 def rows(n,step):
  return [dict(t=T-(n-i)*step,open=100+i*.1,high=101+i*.1,low=99+i*.1,close=100+i*.1) for i in range(n)]
 class HistoryTests(unittest.TestCase):
+ def test_reference_keeps_original_market_time_and_exact_identity(self):
+  p=payload();p['chart']['result'][0]['meta']['regularMarketPrice']=4215.3
+  with patch.object(a,'fetch_chart',return_value=p):
+   result=a.fetch_reference(NOW)
+  self.assertEqual(result['underlyingAt'],NOW.isoformat())
+  self.assertEqual(result['underlyingPriceUsd'],4215.3)
+  self.assertFalse(result['eligible']);self.assertFalse(result['isExchangeRealtime'])
+  for key,value in [('symbol','GC=F'),('shortName','Gold Feb 27'),('regularMarketPrice',True),('regularMarketPrice',0),('regularMarketTime',T-1801),('regularMarketTime',T+1)]:
+   bad=copy.deepcopy(p);bad['chart']['result'][0]['meta'][key]=value
+   with self.subTest(key=key,value=value),patch.object(a,'fetch_chart',return_value=bad):
+    with self.assertRaises(ValueError):a.fetch_reference(NOW)
  def test_provider_failure_status_is_safe_and_specific(self):
   secret='upstream-private-response'
   error=HTTPError('https://example.invalid/'+secret,429,secret,{},None)

@@ -34,6 +34,7 @@ class FutureResearchTests(unittest.TestCase):
     def test_dated_research_is_separate_and_uses_future_not_spot(self):
         result = self.parse(future_fixture())
         self.assertFalse(result['found']); self.assertFalse(result['eligible'])
+        self.assertTrue(result['researchAvailable'])
         self.assertEqual(result['metadata']['contract'], 'GCZ26')
         for field in ('price', 'bid', 'ask', 'leverage', 'quoteAt'):
             self.assertNotIn(field, result)
@@ -114,6 +115,34 @@ class FutureResearchTests(unittest.TestCase):
              patch.object(sg, 'get_quote', return_value=result) as enrich:
             self.assertEqual(q.get_sg_quote(ISIN)['metadata']['contract'], 'GCZ26')
         enrich.assert_called_once()
+
+    def test_independent_reference_needs_no_sg_quotes_or_fx(self):
+        snapshot = future_fixture()[2]
+        # Missing OTC bid/ask does not erase an identified underlying quote.
+        snapshot.pop('quote')
+        with patch.object(sg, 'fetch_snapshot', return_value=snapshot), patch.object(sg, 'datetime') as clock, patch.object(q, 'issuer_json') as issuer, patch.object(sg, 'market_input') as fx:
+            clock.now.return_value = NOW
+            result = sg.fetch_future_reference()
+        self.assertEqual(result['contract'], 'GCZ26')
+        self.assertEqual(q.stamp(result['underlyingAt']), q.stamp(OLD))
+        self.assertEqual(result['underlyingPriceUsd'], 4191.4)
+        self.assertFalse(result['eligible']); self.assertFalse(result['isExchangeRealtime'])
+        issuer.assert_not_called(); fx.assert_not_called()
+
+    def test_independent_reference_rejects_rollover_and_undated_prices(self):
+        import copy
+        for target, key, value in [('instrument', 'entityValue', '1'),
+                ('market', 'idNotation', 1), ('figures', 'datetimePriceUnderlying', '2026-10-01T07:27:20'),
+                ('figures', 'datetimePriceUnderlying', '2026-10-01T06:00:00Z'),
+                ('figures', 'datetimePriceUnderlying', '2026-10-01T08:00:00Z'),
+                ('figures', 'priceUnderlying', True), ('figures', 'isoCurrencyUnderlying', 'EUR')]:
+            snapshot = copy.deepcopy(future_fixture()[2])
+            u = snapshot['derivativesUnderlyingList']['list'][0]
+            area = u['derivativesBarrierFigureList'] if target == 'figures' else u[target]
+            area[key] = value
+            with self.subTest(target=target, key=key, value=value), patch.object(sg, 'fetch_snapshot', return_value=snapshot), patch.object(sg, 'datetime') as clock:
+                clock.now.return_value = NOW
+                with self.assertRaises(ValueError): sg.fetch_future_reference()
 
 
 if __name__ == '__main__': unittest.main()
