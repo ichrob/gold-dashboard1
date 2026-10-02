@@ -100,3 +100,10 @@ const reloaded={};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8
 assert(!fb.saveFixed({...fp,ko:0}));fb.removeFixed(fp.isin);assert.equal(fb.fixedFor(fp),null);
 assert(Number.isNaN(b.time('02/10/2026 15:04')));assert.equal(b.assess(p,{...r,quoteAt:'02/10/2026 15:04'},bundle,now).quote,null);
 console.log('Fixed screenshot barrier and honest minute precision: passed');
+const mt=b.minuteTime('02/10/2026 15:04');assert.equal(mt.at,'2026-10-02T15:04:05+02:00');assert(mt.assumedSeconds&&mt.assumedTimezone);
+assert.equal(b.minuteTime('02/01/2026 15:04').at,'2026-01-02T15:04:05+01:00');
+for(const stamp of ['31/02/2026 15:04','02/10/2026 25:04','25/10/2026 02:30','29/03/2026 02:30','02/10/2026 15:04:19','15:04'])assert.equal(b.minuteTime(stamp),null);
+const minuteDraft=b.screenshotDraft('DEGIRO\n'+p.isin+'\nEUR\nGeld € 19,37\nBrief € 19,38\n02/10/2026 15:04',p.isin);assert.equal(minuteDraft.fields.quoteAt,mt.at);assert(minuteDraft.supplementedTime.assumedSeconds);
+const marked=b.mergeDraft(null,minuteDraft,'minute.jpg');assert(marked.supplementedTime.assumedSeconds);assert(b.mergeDraft(marked,details,'detail.jpg').supplementedTime.assumedSeconds);assert.equal(b.mergeDraft(marked,degiro,'seconds.jpg').supplementedTime,null);
+assert.equal(b.assess(p,{...r,assumedSeconds:true},bundle,now).quote,null);assert(b.render(b.assess(p,{...r,assumedSeconds:true},bundle,now)).includes('auf Nutzerwunsch auf 05'));
+console.log('User-requested seconds 05 with precision provenance: passed');
