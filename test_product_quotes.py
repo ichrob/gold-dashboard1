@@ -116,9 +116,14 @@ class ProductQuoteTests(unittest.TestCase):
         self.assertTrue(x['eligible']);self.assertEqual(x['ageSeconds'],2.7)
         self.assertEqual(x['price'],16.2);self.assertEqual(x['spread'],.01)
         self.assertEqual(x['ko'],3978.9026);self.assertFalse(x['isDegiroQuote'])
+    def test_inclusive_90_second_product_freshness(self):
+        x=q.parse_bnp(snapshot(),ISIN,NOW)
+        for key in ('quoteAt','bidAt','askAt','leverageAt','snapshotAt'):x[key]=NOW.isoformat()
+        self.assertTrue(q.freshness(x,NOW+timedelta(seconds=90))['eligible'])
+        self.assertFalse(q.freshness(x,NOW+timedelta(seconds=90.001))['eligible'])
     def test_stale_cached_quote_expires_without_refetch(self):
         x=q.parse_bnp(snapshot(),ISIN,NOW)
-        self.assertFalse(q.freshness(x,NOW+timedelta(seconds=60))['eligible'])
+        self.assertFalse(q.freshness(x,NOW+timedelta(seconds=90))['eligible'])
     def test_future_missing_closed_knocked_out_and_expired_hours(self):
         self.assertFalse(q.parse_bnp(snapshot(),ISIN,NOW-timedelta(seconds=10))['eligible'])
         for key in ['isMarketClosed','isKnockedOut']:

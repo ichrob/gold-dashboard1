@@ -75,7 +75,7 @@ class SgQuoteTests(unittest.TestCase):
 
     def test_cached_calculation_expires_using_original_input_times(self):
         result = self.parse(fixture())
-        self.assertFalse(q.freshness(result, NOW+timedelta(seconds=51))['eligible'])
+        self.assertFalse(q.freshness(result, NOW+timedelta(seconds=81))['eligible'])
         del result['fxAt']
         self.assertFalse(q.freshness(result, NOW)['eligible'])
 

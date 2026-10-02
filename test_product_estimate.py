@@ -47,7 +47,7 @@ class ProductEstimateTests(unittest.TestCase):
             self.assertFalse(measured['ready'])
 
     def test_short_product_formula_and_current_fx(self):
-        result,data=self.anchor();now=NOW+timedelta(seconds=80)
+        result,data=self.anchor();now=NOW+timedelta(seconds=110)
         spot,fx=self.inputs(data,now,4201.4,.885)
         stale=q.freshness(result,now);c=stale['calculatedProduct']
         self.assertTrue(c['available']);self.assertFalse(stale['eligible'])
@@ -61,7 +61,7 @@ class ProductEstimateTests(unittest.TestCase):
         self.assertAlmostEqual(c['askEur']-c['bidEur'],result['ask']-result['bid'])
 
     def test_long_model_moves_with_gold_and_observed_quote_has_precedence(self):
-        result,data=self.anchor();now=NOW+timedelta(seconds=80)
+        result,data=self.anchor();now=NOW+timedelta(seconds=110)
         model=dict(result['productModel'],direction='LONG',ko=3900,strike=3900)
         anchor=next(iter(e._anchors.values()));anchor=dict(anchor,**model)
         spot,fx=self.inputs(data,now,anchor['underlyingPriceUsd']+10)
@@ -72,7 +72,7 @@ class ProductEstimateTests(unittest.TestCase):
         self.assertNotIn('calculatedProduct',current)
 
     def test_failure_without_anchor_or_with_changed_terms(self):
-        result,data=self.anchor();now=NOW+timedelta(seconds=80)
+        result,data=self.anchor();now=NOW+timedelta(seconds=110)
         spot,fx=self.inputs(data,now)
         self.assertFalse(e.calculate(result['productModel'],None,spot,fx,now)['available'])
         anchor=next(iter(e._anchors.values()))
@@ -81,7 +81,7 @@ class ProductEstimateTests(unittest.TestCase):
             self.assertFalse(out['available']);self.assertNotIn('priceEur',out)
 
     def test_stale_future_inputs_closed_session_ko_and_old_reference_block(self):
-        result,data=self.anchor();now=NOW+timedelta(seconds=80)
+        result,data=self.anchor();now=NOW+timedelta(seconds=110)
         spot,fx=self.inputs(data,now)
         anchor=next(iter(e._anchors.values()));model=result['productModel']
         bad=[]
@@ -102,7 +102,7 @@ class ProductEstimateTests(unittest.TestCase):
         self.assertTrue(result['eligible']);self.assertFalse(e._anchors)
 
     def test_source_outage_falls_back_but_identity_error_does_not(self):
-        result,data=self.anchor();now=NOW+timedelta(seconds=80)
+        result,data=self.anchor();now=NOW+timedelta(seconds=110)
         self.inputs(data,now)
         with patch.object(sg,'fetch_snapshot',side_effect=OSError('network')),\
              patch.object(sg,'market_input',side_effect=lambda k:sg._INPUT_CACHE[k][1]),\
