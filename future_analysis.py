@@ -24,6 +24,7 @@ _chart_locks = {('5m', '5d'): threading.Lock(), ('1h', '6mo'): threading.Lock()}
 _chart_cache = {}
 _chart_retry = {}
 _chart_failures = {}
+_chart_errors = {}
 
 
 def parse_chart(payload,minutes,now=None):
@@ -81,12 +82,27 @@ def fetch_chart(interval, range_value):
         except (OSError, ValueError, TypeError, KeyError) as exc:
             failures = _chart_failures.get(key, 0)+1
             _chart_failures[key] = failures
+            _chart_errors[key] = history_error(exc)
             _chart_retry[key] = time.monotonic()+retry_delay(exc, failures)
             raise
         _chart_cache[key] = (time.monotonic(), copy.deepcopy(value))
         _chart_failures[key] = 0
         _chart_retry[key] = 0
+        _chart_errors.pop(key, None)
         return value
+
+
+def reference_failure(exc):
+    """Share the provider retry deadline; consumers must not extend it."""
+    key = ('5m', '5d')
+    with _chart_locks[key]:
+        remaining = _chart_retry.get(key, 0)-time.monotonic()
+        if remaining > 0:
+            return max(1, math.ceil(remaining)), _chart_errors.get(key, history_error(exc))
+    # A successfully downloaded but stale/invalid quote can change on the
+    # next ordinary poll. It is not a transport failure or a rate limit.
+    delay = 60 if isinstance(exc, (ValueError, KeyError, TypeError, IndexError)) else retry_delay(exc, 1)
+    return delay, history_error(exc)
 
 
 def fetch_reference(now=None):
