@@ -590,7 +590,7 @@ class Handler(BaseHTTPRequestHandler):
         # Sensitive data APIs must be authenticated before any data generation.
         # Keep static PWA resources and /health public, but never expose live,
         # MTF, or DEGIRO enrichment data without the existing Bob credentials.
-        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status")
+        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/collection-export")
         if protected_api_path:
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
@@ -602,6 +602,26 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(b"Authentication required.")
                 return
+
+        if path == "/api/collection-export":
+            try:
+                import bob_validation_store
+                result = bob_validation_store.request('read', {'includeAudit': True})
+                if not isinstance(result.get('audit'), dict):
+                    raise ValueError('Prüfexport noch nicht verfügbar')
+                body = json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Disposition", 'attachment; filename="bob-gcz26-live-audit.json"')
+            except (OSError, ValueError, KeyError, TypeError):
+                body = b'{"error":"Pruefexport momentan nicht verfuegbar"}'
+                self.send_response(503)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body)
+            return
 
         if path == "/api/collection-status":
             body = json.dumps(auto_collection.status(), ensure_ascii=False, separators=(",", ":")).encode()
@@ -1050,4 +1070,3 @@ if __name__ == "__main__":
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress
-

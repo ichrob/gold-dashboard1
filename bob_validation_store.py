@@ -97,7 +97,11 @@ def handle(conn, action, payload):
     diagnostics=dict(predictionCount=prediction_count,truthCount=truth_count,pairCount=len(pairs),
                      lastTruthAt=latest[0].isoformat() if latest else None,
                      nearestPredictionSeconds=float(latest[1]) if latest and latest[1] is not None else None)
-    return dict(ok=True,key=KEY,pairs=pairs,diagnostics=diagnostics)
+    result = dict(ok=True,key=KEY,pairs=pairs,diagnostics=diagnostics)
+    if action == 'read' and payload.get('includeAudit') is True:
+        from validation_audit import read_archive
+        result['audit'] = read_archive(conn)
+    return result
 
 
 def request(action, payload):
@@ -106,8 +110,9 @@ def request(action, payload):
     if not base.startswith(('http://','https://')):base='http://'+base
     req=Request(base+'/market-validations/'+action,data=json.dumps(payload).encode(),
         headers={'Content-Type':'application/json','X-Bob-Push-Token':token},method='POST')
-    with build_opener(NoRedirect()).open(req,timeout=12) as response:body=response.read(524289)
-    if len(body)>524288:raise ValueError('Messantwort zu groß')
+    limit = 4_000_000 if action == 'read' and payload.get('includeAudit') is True else 524288
+    with build_opener(NoRedirect()).open(req,timeout=12) as response:body=response.read(limit+1)
+    if len(body)>limit:raise ValueError('Messantwort zu groß')
     result=json.loads(body)
     if not isinstance(result,dict) or result.get('key')!=KEY or result.get('ok') is not True:
         raise ValueError('Messantwort nicht verwendbar')
@@ -165,4 +170,3 @@ def _sync():
         except (OSError,ValueError,TypeError,KeyError):
             with _lock:_status='Dauerhafter Messspeicher momentan nicht erreichbar; lokale Messung läuft weiter'
         threading.Event().wait(30)
-

@@ -75,11 +75,12 @@ assert(bobSource.includes("maybePushAnalysisAlerts()"));
 assert(bobSource.includes("LIVE-PREIS · TECHNIK WARTET"));
 assert(bobSource.includes("var liveBundleCache=null, liveBundleAt=0;"));
 assert(bobSource.indexOf("var liveBundleCache=null, liveBundleAt=0;") < bobSource.lastIndexOf("loadData();"));
-const sensitiveGate = serverSource.indexOf('protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status")');
+const sensitiveGate = serverSource.indexOf('protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/collection-export")');
 assert(sensitiveGate >= 0);
 assert(sensitiveGate < serverSource.indexOf('if path == "/api/live":'));
 assert(sensitiveGate < serverSource.indexOf('if path == "/api/mtf":'));
 assert(sensitiveGate < serverSource.indexOf('if path == "/api/degiro/enrich":'));
+assert(sensitiveGate < serverSource.indexOf('if path == "/api/collection-export":'));
 assert(serverSource.includes('self.send_response(401)'));
 assert(!serverSource.includes('WWW-Authenticate')); // HTML login replaces native browser challenge
 assert(serverSource.includes('"xaus_is_spot": spot_source == "XAUS · live"'));
@@ -396,5 +397,3 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert(shadowText.includes('noch nicht ausreichend'));
   console.log("Bob push + DEGIRO tests: OK");
 })().catch(err => { console.error(err); process.exit(1); });
-
-

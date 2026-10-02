@@ -68,7 +68,7 @@ jobs:
           node --check push_manager.js
           node --check degiro_assistant.js
       - name: Login and session tests
-        run: python -m unittest test_auth.py test_persistent_auth.py test_auto_collection.py test_market_store.py test_ocr_assets.py test_product_quotes.py test_sg_quotes.py test_sg_futures.py test_future_estimate.py test_gold_api_future.py test_product_estimate.py test_estimate_quality.py test_future_analysis.py test_fibonacci_monitor.py test_push_monitor.py test_spot_timestamp.py
+        run: python -m unittest test_auth.py test_persistent_auth.py test_auto_collection.py test_market_store.py test_ocr_assets.py test_product_quotes.py test_sg_quotes.py test_sg_futures.py test_future_estimate.py test_gold_api_future.py test_product_estimate.py test_estimate_quality.py test_validation_audit.py test_future_analysis.py test_fibonacci_monitor.py test_push_monitor.py test_spot_timestamp.py
       - name: Regression tests
         run: |
           python -m unittest test_source_permission.py

@@ -130,6 +130,7 @@ def sg_source_error(exc, stage):
 
 def get_sg_quote(isin):
     stage = 'identity'
+    verified_metadata = None
     try:
         product = issuer_json(SG_ORIGIN+'EmcWebApi/api/Products/'+isin, SG_ORIGIN)
         product_id = product['Id']
@@ -150,6 +151,7 @@ def get_sg_quote(isin):
                                       direction='nicht bestätigt', ko='nicht bestätigt'))
         stage = 'properties'
         properties = issuer_json(SG_ORIGIN+'EmcWebApi/api/Products/AllProperties/'+str(product_id), SG_ORIGIN)
+        verified_metadata = parse_sg(product, properties, isin)
         # Dated OTC quotes are a separate source. SG's undated ASK/leverage
         # fields and chart prices must never become an executable snapshot.
         from sg_quotes import get_quote as sg_quote
@@ -164,6 +166,9 @@ def get_sg_quote(isin):
         return result
     except Exception as exc:
         print(f'BOB_SG isin={isin} stage={stage} error={type(exc).__name__}', flush=True)
+        if verified_metadata is not None:
+            return dict(verified_metadata, found=False, eligible=False, fresh=False,
+                        sourceFailure=True, reason=sg_source_error(exc, stage))
         return dict(found=False, eligible=False, fresh=False, isin=isin,
                     source='Société Générale · öffentliche Produktrecherche',
                     productVerified=stage != 'identity', sourceFailure=True,
