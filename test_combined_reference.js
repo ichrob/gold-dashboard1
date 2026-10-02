@@ -38,7 +38,7 @@ assert.equal(b.rank([p],[r],bundle,{...context,trend:'LONG',trend2:'LONG',mtf:'L
 assert.equal(b.rank([p],[r],bundle,{...context,now:now+61000}).candidates.length,0);
 for(const mutate of [x=>x.barriers[1].value=4404.01,x=>x.quoteAt=at(-1801),x=>x.referenceConfirmed=false]){const bad=clone(r);mutate(bad);const result=b.rank([p],[bad],bundle,context);assert.equal(result.candidates.length,0);assert(result.excluded.length);}
 const products=[p],refs=[r];
-for(const isin of ['DE000FG4JXV7','DE000FG7EPT1','DE000FG5GUT0']){const next=clone(p);next.isin=isin;next.quote.isin=isin;next.quote.productModel.isin=isin;const ref=clone(r);ref.isin=isin;ref.barriers.forEach(x=>x.isin=isin);products.push(next);refs.push(ref);}
+for(const isin of ['DE000FG4JXV7','DE000FG7EPT1','DE000FG5GUT0']){const next=clone(p);next.ko=4403;next.isin=isin;next.quote.isin=isin;next.quote.productModel.isin=isin;const ref=clone(r);ref.isin=isin;ref.barriers.forEach(x=>x.isin=isin);products.push(next);refs.push(ref);}
 const unchanged=JSON.stringify([products,refs,bundle]);ranked=b.rank(products,refs,bundle,context);
 assert.equal(ranked.total,4);assert.equal(ranked.candidates.length,3);assert.equal(ranked.selection,null);assert.equal(JSON.stringify([products,refs,bundle]),unchanged);
 assert.equal(b.rank([p,p],[r,r],bundle,context).total,1);
@@ -93,7 +93,7 @@ console.log('Screenshot form bridge: passed');
 const storage={};const fixedWindow={};const localStorage={getItem:k=>storage[k]||null,setItem:(k,v)=>storage[k]=v};
 vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),{window:fixedWindow,localStorage});
 const fb=fixedWindow.BobCombined,fp={isin:'DE000FG4JXV7',productDirection:'SHORT',name:'SG Gold Turbo Classic Put',ko:4460};
-assert(fb.saveFixed(fp,'detail.jpg'));assert.equal(fb.fixedFor(fp).value,4460);
+assert.equal(fb.fixedFor(fp).value,4460);assert(fb.saveFixed(fp,'detail.jpg'));assert.equal(fb.fixedFor(fp).value,4460);
 const fixedState=fb.assess(fp,null,bundle,now);assert.equal(fixedState.ko.value,4460);assert.equal(fixedState.distanceUsd,260);assert.equal(fixedState.tradeable,false);assert.equal(fixedState.quote,null);assert(fb.render(fixedState).includes('fester Berechnungswert'));
 assert.equal(fb.fixedFor({...fp,ko:4450}),null);assert.equal(fb.fixedFor({...fp,productDirection:'LONG'}),null);assert.equal(fb.fixedFor({...fp,isin:p.isin}),null);
 const reloaded={};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),{window:reloaded,localStorage});assert.equal(reloaded.BobCombined.fixedFor(fp).value,4460);
