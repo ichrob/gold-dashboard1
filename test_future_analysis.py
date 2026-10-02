@@ -12,6 +12,21 @@ def payload():
 def rows(n,step):
  return [dict(t=T-(n-i)*step,open=100+i*.1,high=101+i*.1,low=99+i*.1,close=100+i*.1) for i in range(n)]
 class HistoryTests(unittest.TestCase):
+ def test_reference_and_history_share_fetch_and_original_times(self):
+  p=payload();p['chart']['result'][0]['meta']['regularMarketPrice']=4215.3
+  with patch.object(a,'_chart_cache',{}),patch.object(a,'_chart_retry',{}),patch.object(a,'_chart_failures',{}),patch.object(a.time,'monotonic',return_value=100),patch.object(a,'_fetch_chart',return_value=p) as fetch:
+   a.fetch_reference(NOW)
+   chart=a.fetch_chart('5m','5d')
+   fetch.assert_called_once_with('5m','5d')
+   chart['chart']['result'][0]['meta']['regularMarketTime']=T+1
+   self.assertEqual(a.fetch_chart('5m','5d')['chart']['result'][0]['meta']['regularMarketTime'],T)
+ def test_shared_rate_limit_backoff_cannot_be_bypassed(self):
+  e=HTTPError('https://example.invalid',429,'limited',{'Retry-After':'1200'},None)
+  with patch.object(a,'_chart_cache',{}),patch.object(a,'_chart_retry',{}),patch.object(a,'_chart_failures',{}),patch.object(a.time,'monotonic',return_value=100),patch.object(a,'_fetch_chart',side_effect=e) as fetch:
+   with self.assertRaises(HTTPError):a.fetch_chart('5m','5d')
+   with self.assertRaises(URLError):a.fetch_reference(NOW)
+   fetch.assert_called_once()
+   self.assertEqual(a._chart_retry[('5m','5d')],1300)
  def test_reference_keeps_original_market_time_and_exact_identity(self):
   p=payload();p['chart']['result'][0]['meta']['regularMarketPrice']=4215.3
   with patch.object(a,'fetch_chart',return_value=p):
