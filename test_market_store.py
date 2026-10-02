@@ -37,6 +37,22 @@ class MarketStoreTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class PostgresMarketTests(unittest.TestCase):
+ def test_spot_archive_retains_overnight_rows_without_reusing_them_as_current_inputs(self):
+  import psycopg
+  dsn=os.environ['BOB_TEST_DATABASE_URL'];now=datetime.now(timezone.utc)
+  overnight=now-timedelta(hours=12);expired=now-timedelta(hours=49)
+  point=dict(symbol='XAU',currency='USD',at=now.isoformat(),price=4160.25)
+  with psycopg.connect(dsn) as conn:
+   store.init(conn)
+   for at in (overnight,expired):
+    conn.execute('INSERT INTO bob_spot_observations(stream,quote_at,price) VALUES(%s,%s,%s)',(store.STREAM,at,4100))
+   store.handle(conn,'write',point)
+   result=store.handle(conn,'read',{})
+   self.assertTrue(conn.execute('SELECT 1 FROM bob_spot_observations WHERE stream=%s AND quote_at=%s',(store.STREAM,overnight)).fetchone())
+   self.assertFalse(conn.execute('SELECT 1 FROM bob_spot_observations WHERE stream=%s AND quote_at=%s',(store.STREAM,expired)).fetchone())
+   self.assertGreaterEqual(result['diagnostics']['sampleCount'],2)
+   self.assertFalse(any(x['at']==overnight.isoformat() for x in result['observations']))
+   conn.execute('DELETE FROM bob_spot_observations WHERE stream=%s AND quote_at IN (%s,%s)',(store.STREAM,overnight,now))
  def test_frozen_future_prediction_survives_connections_and_matches_only_later_truth_once(self):
   import psycopg
   import bob_validation_store as v

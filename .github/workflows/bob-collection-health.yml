@@ -1,0 +1,42 @@
+name: Bob collection health
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '7,17,27,37,47,57 * * * 1-5'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bob-collection-health
+  cancel-in-progress: false
+jobs:
+  collection-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Swiss collection hours
+        id: hours
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          t=datetime.now(ZoneInfo('Europe/Zurich'))
+          active=t.weekday()<5 and 6<=t.hour<22
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write('active='+str(active).lower()+'\n')
+          PY
+      - name: Verify collector availability
+        if: steps.hours.outputs.active == 'true'
+        run: |
+          curl --fail --silent --show-error --max-time 90 --retry 1 --retry-delay 5 https://bob-push-service.onrender.com/health > /tmp/bob-store-health.json
+          curl --fail --silent --show-error --max-time 90 --retry 2 --retry-delay 5 https://bob-private-scanner.onrender.com/health > /tmp/bob-health.json
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/bob-health.json'))
+          assert d.get('status')=='ok', 'Bob unavailable'
+          c=d.get('automaticCollection',{})
+          assert c.get('enabled') is True and c.get('running') is True, 'Automatic collection not running'
+          print('Bob automatic collector available; detailed measurements remain private')
+          PY

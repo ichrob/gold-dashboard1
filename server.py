@@ -5,6 +5,7 @@ import json
 import time
 import threading
 import bob_auth
+import auto_collection
 import ocr_assets
 import product_quotes
 from pathlib import Path
@@ -30,6 +31,7 @@ ICON_PATH = BASE_DIR / "icon.svg"
 # Load static shell assets once at startup. The request handler serves these
 # bytes directly; keeping the load explicit prevents runtime NameError failures.
 HTML = HTML_PATH.read_bytes() if HTML_PATH.exists() else b""
+HTML = HTML.replace(b"</body>", auto_collection.PANEL.encode('utf-8')+b"</body>")
 SW = SW_PATH.read_bytes() if SW_PATH.exists() else None
 MANIFEST = MANIFEST_PATH.read_bytes() if MANIFEST_PATH.exists() else None
 ICON = ICON_PATH.read_bytes() if ICON_PATH.exists() else None
@@ -568,7 +570,7 @@ class Handler(BaseHTTPRequestHandler):
         # Sensitive data APIs must be authenticated before any data generation.
         # Keep static PWA resources and /health public, but never expose live,
         # MTF, or DEGIRO enrichment data without the existing Bob credentials.
-        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich")
+        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status")
         if protected_api_path:
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
@@ -580,6 +582,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(b"Authentication required.")
                 return
+
+        if path == "/api/collection-status":
+            body = json.dumps(auto_collection.status(), ensure_ascii=False, separators=(",", ":")).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
 
         if path == "/api/degiro/enrich":
             try:
@@ -620,7 +631,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error":str(exc)}).encode("utf-8"))
             return
         if path == "/health":
-            body = json.dumps({"status":"ok","service":"bob","fibonacciMonitor":dict(FIB_MONITOR_HEALTH)},separators=(",",":")).encode()
+            auto_collection.start()
+            body = json.dumps({"status":"ok","service":"bob","fibonacciMonitor":dict(FIB_MONITOR_HEALTH),"automaticCollection":auto_collection.health()},separators=(",",":")).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -1014,6 +1026,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", "10000"))
     print(f"BOB_START port={port} host=0.0.0.0 version=runtime-http-trace-v1", flush=True)
     threading.Thread(target=fibonacci_monitor_loop, name="bob-fibonacci", daemon=True).start()
+    auto_collection.start()
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress

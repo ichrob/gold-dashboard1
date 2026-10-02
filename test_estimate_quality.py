@@ -48,6 +48,17 @@ class QualityTests(unittest.TestCase):
   for wrong in (dict(p,key='future:GC=F'),dict(p,value=True),dict(p,at=at(-91)),dict(p,at=at(1)),dict(p,referenceAt=at(-2000))):
    with self.assertRaises(ValueError):s.event(wrong,NOW)
 
+ def test_overnight_archive_retains_errors_without_granting_stale_readiness(self):
+  from bob_validation_store import KEY
+  pairs=[dict(bucket='0–60s',predictionAt=at(60+i*30),prediction=102,referenceAt=at(15+i*30),
+              predictionReceivedAt=at(61+i*30),truthAt=at(60+i*30),truth=100,truthReceivedAt=at(70+i*30)) for i in range(21)]
+  morning=NOW+timedelta(hours=12)
+  e.restore_durable(pairs,morning)
+  result=e.quality(KEY,45,morning)
+  self.assertEqual(result['sampleCount'],21)
+  self.assertFalse(result['ready'])
+  with self.assertRaises(ValueError):e.restore_durable(pairs,NOW+timedelta(hours=49))
+
  def test_all_horizon_counts_visible_without_borrowing_readiness(self):
   for i in range(21):
    t=60+i*30;e.record('x',102,at(t),at(t-45),at(t));e.observe('x',100,at(t),at(t+10))
