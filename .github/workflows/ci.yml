@@ -75,4 +75,5 @@ jobs:
           node test_conditional.js
           node test_manual_import.js
           node test_screenshot_state.js
+          node test_combined_reference.js
           node test_dashboard.js
