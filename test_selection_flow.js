@@ -27,3 +27,6 @@ r=b.selectionWorkflow([f,p],context,{});assert.equal(r.groups.length,2);assert(r
 f.quote.futureResearch.calculatedFuture.validation.ready=false;
 r=b.selectionWorkflow([f],context,{});assert.equal(r.groups.length,0);assert(r.waiting[0].reason.includes('Genauigkeit'));
 console.log('validated Future + screenshot path works without SG bid/ask; unvalidated estimate blocked');
+
+assert(!b.selectionDetailStatus({...p,snapshot:{...p.snapshot,times:{bid:{present:true,text:"02/10/2026 21:25"}}}},now).complete);
+assert(!b.selectionDetailStatus({...p,snapshot:{...p.snapshot,times:{leverage:{present:true,text:"invalid"}}}},now).complete);

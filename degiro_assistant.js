@@ -696,6 +696,11 @@ function selectionDetailStatus(p,now=Date.now()){
  const explicit=x?.times?.quote;
  const time=pair?selectionTimeWindow(explicit?.present?explicit.text:x?.sourceTime):null;
  if(!time||now<time.start||now-time.start>90000)reasons.push('Kurszeit mit Datum: höchstens 90 Sekunden alt; keine ergänzten Sekunden');
+ for(const key of ['bid','ask'])if(x?.times?.[key]?.present){
+  const own=selectionTimeWindow(x.times[key].text);
+  if(!own||now<own.start||now-own.start>90000||!time||own.end<time.start||own.start>time.end)reasons.push('Widersprüchliche oder ungültige '+(key==='bid'?'Geldzeit':'Briefzeit')+' am Original prüfen');
+ }
+ if(x?.times?.leverage?.present&&!evidenceTiming(e.Hebel,now).fresh)reasons.push('Eigene Hebelzeit ist ungültig oder veraltet');
  if(x?.delayed)reasons.push('Nicht verzögerten Produktkurs ergänzen');
  if(!(n(p.leverage)>=1&&n(e.Hebel?.value)===n(p.leverage))||!evidenceTiming(e.Hebel,now).fresh&&!(pair&&e.Hebel?.source===e.Geld?.source&&time&&now-time.start<=90000))reasons.push('Aktuelles Detailbild mit Hebel und zugehöriger Zeit');
  const fixed=window.BobCombined.fixedFor(p),meta=p.quote?.productVerified?p.quote.metadata:null;
