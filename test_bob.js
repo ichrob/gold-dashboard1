@@ -342,7 +342,16 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   for(const p of [completeProduct,{...quoted,isinConfirmed:false},{...quoted,price:13},{...quoted,quote:{...quoted.quote,quoteAt:new Date(now-90001).toISOString()}},{...quoted,quote:{...quoted.quote,quoteAt:new Date(now+6000).toISOString()}},{...quoted,quote:{...quoted.quote,isin:"DE000PJ9NCK0"}}])assert(!degiro.BobDegiro.rankProducts([p],freshCtx).tradeable);
   assert(degiro.BobDegiro.rankProducts([{...quoted,quote:{...quoted.quote,quoteAt:new Date(now-90001).toISOString()}},quoted],freshCtx).tradeable);
 
-  for(const key of ["price","leverage","ko","spread"]){const missing={...completeProduct,[key]:""};assert(!degiro.BobDegiro.rankProducts([missing],strongCtx).tradeable);}
+  const ignoredCosts=[undefined,0,.01,10,100,-1,''];
+  const noCost=degiro.BobDegiro.evaluateProduct({...completeProduct,...strongCtx});
+  for(const spread of ignoredCosts){
+    const v=degiro.BobDegiro.evaluateProduct({...completeProduct,...strongCtx,spread});
+    assert.deepStrictEqual(v,noCost,'spread must not change assessment');
+    assert(degiro.BobDegiro.rankProducts([{...completeProduct,spread}],strongCtx).tradeable);
+    assert(degiro.BobDegiro.currentQuote({...quoted,spread},now));
+    assert(!degiro.BobDegiro.manualProductMissing({...completeProduct,spread}).includes('Spread'));
+  }
+  for(const key of ["price","leverage","ko"]){const missing={...completeProduct,[key]:""};assert(!degiro.BobDegiro.rankProducts([missing],strongCtx).tradeable);}
   assert(!degiro.BobDegiro.rankProducts([{...completeProduct,isin:"DEOOOFC1CHB7"}],strongCtx).tradeable);
 
 
@@ -367,7 +376,7 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert.strictEqual(replacement.clearSpread,true);
   assert.strictEqual(replacement.evidence.Geld,undefined);
   assert.strictEqual(replacement.sourceTime,"");
-  assert.strictEqual(degiro.BobDegiro.manualProductMissing({}).length,5);
+  assert.strictEqual(degiro.BobDegiro.manualProductMissing({}).length,4);
   assert.strictEqual(degiro.BobDegiro.manualProductMissing({isin:"DE000FG4JXV7",price:24.82,leverage:14.01,ko:4460,spread:0}).length,0);
   assert(degiro.BobDegiro.manualProductMissing({isin:"DE000FG4JXV7",price:24.82,leverage:14.01,ko:0,spread:""}).includes("KO-Schwelle"));
   assert.strictEqual(degiro.BobDegiro.escapeHtml('<img src=x onerror="alert(1)">'), '&lt;img src=x onerror=&quot;alert(1)&quot;&gt;');

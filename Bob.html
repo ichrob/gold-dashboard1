@@ -198,7 +198,7 @@ try{
 </div>
 <div><label>Hebel des Produkts</label><input id="dgLev" type="number" value="5" step=".1" min="1"></div>
 <div><label>KO-/Stop-Level</label><input id="dgKo" type="number" placeholder="z. B. 4200"></div>
-<div><label>Spread je Einheit</label><input id="dgSpread" type="number" value="0" step=".01" min="0"></div>
+
 </div>
 <div class="row" style="margin-top:10px">
 <button onclick="calcDgTrade()">DEGIRO-Vorschlag berechnen</button>
@@ -207,7 +207,7 @@ try{
 <div id="dgOut" style="margin-top:12px">Trage bei einem gehebelten Produkt möglichst den echten Hebel und das KO-Level aus DEGIRO ein.</div>
 <div class="warning" style="margin-top:12px">
 <b>So arbeitet die Empfehlung:</b> Bob verbindet XAU/USD-Signal, Multi-Timeframe-Richtung, technischen Score, ATR und dein maximales €-Risiko.
-Die konkrete DEGIRO-Auswahl bleibt nachvollziehbar: Du kannst die Daten des in DEGIRO angezeigten Produkts (Name, ISIN, Richtung, Kurs, Hebel, KO, Spread) eintragen; Bob prüft dann Richtung, KO-Abstand und Risikopassung.
+Die konkrete DEGIRO-Auswahl bleibt nachvollziehbar: Du kannst die Daten des in DEGIRO angezeigten Produkts (Name, ISIN, Richtung, Kurs, Hebel, KO) eintragen; Bob prüft dann Richtung, KO-Abstand und Risikopassung.
 Bob platziert keine Orders und behauptet keine Gewinn-Garantie.
 </div>
 <div style="margin-top:14px">
@@ -277,7 +277,7 @@ Bob platziert keine Orders und behauptet keine Gewinn-Garantie.
 <div class="card warning">
 <b>Wichtig:</b> Das Dashboard ist eine technische Regelhilfe, keine Gewinn-Garantie und keine Anlageberatung.
 Hoher Hebel kann Verluste sehr schnell vergrößern. Die App platziert keine Orders und greift nicht auf DEGIRO zu.
-Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Spreads, Finanzierung und Bezugsverhältnis müssen direkt in deinem DEGIRO-Konto geprüft werden.
+Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanzierung und Bezugsverhältnis müssen direkt in deinem DEGIRO-Konto geprüft werden.
 </div>
 </main>
 <script src="/push_manager.js"></script>
@@ -1119,20 +1119,19 @@ function updateTradeSignal(){
 }
 
 function clearDgProduct(){
- ["dgName","dgIsin","dgPrice","dgDir","dgLev","dgKo","dgSpread"].forEach(id=>{const el=$(id);if(el){if(el.tagName==="SELECT")el.value="";else el.value=id==="dgLev"?5:id==="dgSpread"?0:"";}});
+ ["dgName","dgIsin","dgPrice","dgDir","dgLev","dgKo"].forEach(id=>{const el=$(id);if(el){if(el.tagName==="SELECT")el.value="";else el.value=id==="dgLev"?5:"";}});
  $("dgProductOut").textContent="Produktdaten gelöscht.";
 }
 function checkDgProduct(){
  if(!lastPrice){$("dgProductOut").textContent="Zuerst Live-XAU/USD laden.";return;}
  const direction=confirmedSignalDirection();
- const inputs={isin:$("dgIsin").value.trim(),price:$("dgPrice").value,leverage:$("dgLev").value,ko:$("dgKo").value,spread:$("dgSpread").value};
+ const inputs={isin:$("dgIsin").value.trim(),price:$("dgPrice").value,leverage:$("dgLev").value,ko:$("dgKo").value};
  const missing=BobDegiro.manualProductMissing(inputs);
  if(missing.length){$("dgProductOut").textContent="Keine Prüfung möglich. Bitte ergänzen / korrigieren: "+missing.join(" · ");return;}
  const result=BobDegiro.evaluateProduct({
    spot:lastPrice,
    ko:+$("dgKo").value,
    leverage:+$("dgLev").value,
-   spread:+$("dgSpread").value,
    direction,
    productDirection:$("dgDir").value
  });
@@ -1257,7 +1256,6 @@ async function maybePushAnalysisAlerts(){
 function useRiskDefaults(){
  $("dgLev").value=5;
  $("dgKo").value="";
- $("dgSpread").value=0;
  calcDgTrade();
 }
 
@@ -1265,7 +1263,7 @@ function calcDgTrade(){
  if(!lastPrice||!A.at){$("dgOut").innerHTML="Zuerst Live-Daten laden.";return}
  const acc=+$("account").value||500, riskPct=Math.max(0,+$("risk").value||1), maxLoss=acc*riskPct/100;
  const fx=usdEurRate();
- const lev=Math.max(1,+$("dgLev").value||1), ko=+$("dgKo").value, spread=Math.max(0,+$("dgSpread").value||0);
+ const lev=Math.max(1,+$("dgLev").value||1), ko=+$("dgKo").value;
  const score=A.score??50, mtf=getMtfState().overall||"NEUTRAL";
  let dir=!window.BobSession?.expired()&&A.ready?(score>=70&&mtf==="LONG"?"LONG":score<=30&&mtf==="SHORT"?"SHORT":"ABWARTEN"):"ABWARTEN";
  const product=$("dgType").value, productLabel={turbo:"Turbo / Knock-Out",warrant:"Optionsschein",etc:"Gold-ETC / ungehebelt",future:"Future / anderes Derivat"}[product];
@@ -1278,9 +1276,8 @@ function calcDgTrade(){
  if(ko&&dir==="LONG"&&ko>=lastPrice)koWarning="⚠️ KO-Level liegt nicht unter dem aktuellen Goldpreis – LONG prüfen.";
  if(ko&&dir==="SHORT"&&ko<=lastPrice)koWarning="⚠️ KO-Level liegt nicht über dem aktuellen Goldpreis – SHORT prüfen.";
  if(ko&&koDist<2)koWarning="⚠️ KO-Abstand < 2%: sehr enger Puffer.";
- const costNote=spread>0?"Spread eingegeben: "+spread.toFixed(2):"Spread nicht eingegeben – CRV ist vor Kosten.";
  if(!Number.isFinite(fx)||fx<=0){$("dgOut").innerHTML="<b>Keine Berechnung.</b><br>Bitte zuerst eine gültige USD→EUR-FX-Rate im FX-Feld setzen.";return;}
- const dg=BobDegiro.riskModel({spot:lastPrice,stop:sm.stop,riskEur:maxLoss,fxUsdEur:fx,leverage:lev,ko,spread}); if(!dg.ok){$("dgOut").innerHTML="<b>Keine Berechnung.</b><br>"+dg.reason;return;} const {maxLossUsd,approxNotionalUsd,approxNotionalEur,marginEur}=dg;
+ const dg=BobDegiro.riskModel({spot:lastPrice,stop:sm.stop,riskEur:maxLoss,fxUsdEur:fx,leverage:lev,ko}); if(!dg.ok){$("dgOut").innerHTML="<b>Keine Berechnung.</b><br>"+dg.reason;return;} const {maxLossUsd,approxNotionalUsd,approxNotionalEur,marginEur}=dg;
  $("dgOut").innerHTML=`<table>
  <tr><td>Richtung</td><td class="right"><b>${dir}</b></td></tr>
  <tr><td>Produkt</td><td class="right">${productLabel}</td></tr>
@@ -1295,7 +1292,7 @@ function calcDgTrade(){
  <tr><td>Rechnerische Margin bei ${lev.toFixed(1)}×</td><td class="right"><b>${marginEur.toFixed(2)} €</b></td></tr>
  <tr><td>FX USD→EUR</td><td class="right"><b>${fx.toFixed(4)}</b></td></tr>
  ${ko?`<tr><td>KO-Abstand</td><td class="right"><b>${koDist.toFixed(2)}%</b></td></tr>`:''}
- </table><div class="small" style="margin-top:10px">${koWarning||costNote}<br>Nur theoretische Basiswertrechnung. Die tatsächliche Produktstückzahl ist ohne konkrete Produktdaten nicht belastbar; Bezugsverhältnis, Preis, Währung, Spread, Finanzierung und KO-Regeln des konkreten DEGIRO-Produkts sind erforderlich. Vor einer Order die Produktdaten direkt im Produkt prüfen. Der technische Stop ist nicht das KO-Level.</div>`;
+ </table><div class="small" style="margin-top:10px">${koWarning}<br>Nur theoretische Basiswertrechnung. Die tatsächliche Produktstückzahl ist ohne konkrete Produktdaten nicht belastbar; Bezugsverhältnis, Preis, Währung, Finanzierung und KO-Regeln des konkreten DEGIRO-Produkts sind erforderlich. Vor einer Order die Produktdaten direkt im Produkt prüfen. Der technische Stop ist nicht das KO-Level.</div>`;
 }
 function usdEurRate(){
  const ccy=$("displayCcy")?.value||"USD";
@@ -1526,4 +1523,5 @@ loadData();
 setInterval(()=>{ if(document.visibilityState==="visible"){loadData();syncPushPreferences();} }, 60000);
 </script><form method="post" action="/logout" style="text-align:center;margin:24px"><button type="submit">Abmelden</button></form>
 </body></html>
+
 
