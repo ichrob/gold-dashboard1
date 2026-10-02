@@ -290,6 +290,11 @@ and free Render services can sleep or restart; this is not guaranteed uptime.
 Diagnostics retain source failures during backoff and report the actual estimate
 failure reason and the ages of reference and spot inputs.
 
+The exact-contract Yahoo reference and analysis share one chart request per
+interval per minute. Cache hits retain provider timestamps, and HTTP 429 /
+Retry-After backoff is shared by both consumers. Reference polling cannot
+bypass the history source's wait period.
+
 ## Separate issuer barrier evidence
 
 SG AllProperties may contain StrikeBarrierUpdateTime independently of BIDTIME.

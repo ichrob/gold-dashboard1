@@ -20,6 +20,10 @@ _lock=threading.Lock()
 _thread=None
 _active_until=0
 _state={}
+_chart_locks = {('5m', '5d'): threading.Lock(), ('1h', '6mo'): threading.Lock()}
+_chart_cache = {}
+_chart_retry = {}
+_chart_failures = {}
 
 
 def parse_chart(payload,minutes,now=None):
@@ -46,7 +50,7 @@ def parse_chart(payload,minutes,now=None):
     return sorted(rows,key=lambda r:r['t']),market_at
 
 
-def fetch_chart(interval,range_value):
+def _fetch_chart(interval,range_value):
     url='https://query1.finance.yahoo.com/v8/finance/chart/'+SYMBOL+'?interval='+interval+'&range='+range_value
     with urlopen(Request(url,headers={'User-Agent':'Bob/2.0 contract history','Accept':'application/json'}),timeout=10) as response:
         if not response.url.startswith('https://query1.finance.yahoo.com/v8/finance/chart/'+SYMBOL+'?'):
@@ -54,6 +58,35 @@ def fetch_chart(interval,range_value):
         body=response.read(3_000_001)
     if len(body)>3_000_000:raise ValueError('Futures-Historie zu groß')
     return json.loads(body)
+
+
+def fetch_chart(interval, range_value):
+    """Single shared request per chart/minute across reference and analysis.
+
+    Cache hits preserve all original provider timestamps. Backoff applies to
+    every consumer; a reference request cannot bypass the history retry gate.
+    """
+    key = (interval, range_value)
+    if key not in _chart_locks:
+        raise ValueError('Nicht registrierte GCZ26-Historienabfrage')
+    with _chart_locks[key]:
+        now = time.monotonic()
+        cached = _chart_cache.get(key)
+        if cached and now-cached[0] < 60:
+            return copy.deepcopy(cached[1])
+        if now < _chart_retry.get(key, 0):
+            raise URLError('GCZ26-Datenquelle in gemeinsamer Wartezeit')
+        try:
+            value = _fetch_chart(interval, range_value)
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            failures = _chart_failures.get(key, 0)+1
+            _chart_failures[key] = failures
+            _chart_retry[key] = time.monotonic()+retry_delay(exc, failures)
+            raise
+        _chart_cache[key] = (time.monotonic(), copy.deepcopy(value))
+        _chart_failures[key] = 0
+        _chart_retry[key] = 0
+        return value
 
 
 def fetch_reference(now=None):
