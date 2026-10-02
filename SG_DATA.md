@@ -242,3 +242,26 @@ Only ticks actually gathered by Bob count; no invented history at startup.
 Gold-API spot errors use their own identity/method/horizon key and cannot
 inherit earlier CFD calibration. Own GCZ26 indicators still use exact-contract
 Yahoo history and never count spot movement as independent confirmation.
+
+
+## Screenshot current-state assessment (2026-10-02)
+
+Each confirmed product card now shows a read-only partial assessment. Gold-spot
+scenarios require a genuine XAU/USD bundle and its original `spot_price_as_of`;
+request time, response `updated_at`, and device/upload time cannot date a price.
+The live bundle now retains the provider's price observation timestamp.
+
+The signed distance to the stated KO is displayed separately from confirmed
+current KO: a product-name barrier is a scenario input, not proof that the barrier
+is still valid. A crossing is not proof of a past issuer KO event. Generic Gold
+without confirmed underlying metadata is explicitly a spot scenario. Known or
+named futures never fall back to spot or continuous GC=F. Exact-contract
+nowcasts remain labelled estimates, not exchange realtime.
+
+Gearing uses a validated existing product estimate or dated quote/FX and an
+exact-contract basis. An old screenshot ask, the name's LV and an unconfirmed
+Bv value cannot manufacture current gearing. Screenshot spread remains an
+observed momentary spread. All missing source/time/identity evidence stays
+visible; this panel never changes ranking, eligibility or execution fields.
+No new network source, paid account, service, order or provider permission
+is introduced by this assessment.
