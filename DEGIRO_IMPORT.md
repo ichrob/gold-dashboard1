@@ -6,7 +6,7 @@ Bestätigungen als aktuell wiederhergestellt. Zusatzbilder müssen eindeutig zur
 ISIN gehören. Bei LONG/SHORT werden neue Bilder nur für passende Produkte
 angefordert; bei NEUTRAL gibt es keine aktuelle Produktauswahl.
 
-Geld, Brief und der daraus berechnete Spread müssen höchstens 60 Sekunden alt
+Geld, Brief und der daraus berechnete Spread müssen höchstens 90 Sekunden alt
 sein. Hebel und KO brauchen jeweils einen eigenen Zeitnachweis, ebenfalls
 höchstens 60 Sekunden alt. Dies ist eine konservative Prüfregel, keine Aussage,
 dass sich die KO-Schwelle sekündlich ändert. Neue Kursbilder aktualisieren nur
@@ -70,3 +70,34 @@ Passung verglichen, nur bei frischem Goldpreis und bestätigter LONG-/SHORT-Rich
 Schwacher oder widersprüchlicher technischer Konsens sperrt den Vergleich.
 Die Rangfolge umfasst nur belegte Momentaufnahmen und bietet keine Live-Freigabe.
 Die vorhandene datierte Emittentenrecherche bleibt davon getrennt.
+
+## Automatische Recherche importierter ISINs (02.10.2026)
+
+Bob recherchiert alle gültigen importierten ISINs beim Öffnen sowie erneut nach
+60 Sekunden, solange die Ansicht sichtbar ist. Maximal zwei Anfragen laufen
+gleichzeitig. Beim Zurückkehren zur Ansicht oder nach Wiederherstellung der
+Internetverbindung werden fällige Produkte erneut geprüft. Fehlgeschlagene
+Abfragen werden erst im nächsten Zyklus wiederholt. Neue Listen ersetzen
+ausstehende Produktidentitäten; alte Antworten werden nicht übernommen.
+
+„Analyse erneut ausführen“ wartet auf den laufenden Recherchezyklus. Die
+ISIN-Bestätigung und alle bisherigen Zeit-, Modell- und Ranglistenprüfungen
+bleiben erforderlich. Ein neuer Abruf erneuert keine Quellenzeit; ein alter
+Kurs bleibt alt. Berechnete Werte bleiben ausdrücklich Schätzungen.
+
+Verwendet werden ausschließlich die bereits vorhandenen externen Adapter,
+keine DEGIRO-Kontositzung. Diese Änderung führt keine neue Datenquelle oder
+Lizenz ein und belegt keine Anbietererlaubnis. Die Zulässigkeit einer dauerhaften
+SG-/Sekundärquellen-Anbindung und vollständige Kursverfügbarkeit für alle ISINs
+sind weiterhin gesondert nachzuweisen. Bei geschlossenem Bob startet dieser
+Browserzyklus keine Anfragen; die getrennte GCZ26-Sammlung bleibt unverändert.
+
+Onvista untersagt automatisierte Abfragen ohne ausdrückliche Einwilligung:
+https://www.onvista.de/nutzungsbedingungen . Deshalb ist der Onvista-Adapter
+serverseitig standardmäßig gesperrt, einschließlich seines GCZ26-Fallbacks.
+Die primäre Yahoo-GCZ26-Sammlung wird nicht geändert. Die Sperre darf nur mit
+dokumentierter Anbietereinwilligung aufgehoben werden (`BOB_ONVISTA_AUTOMATION_APPROVED`
+= `provider-approved` und `BOB_ONVISTA_PERMISSION_REFERENCE` als Nachweisreferenz).
+Eine Nutzerfreigabe oder öffentlich sichtbare Kurse sind kein solcher Nachweis.
+Ohne Erlaubnis bleiben die betroffenen SG-Kurse ausdrücklich offen; manuelle
+Screenshotnachweise können weiterhin geprüft werden.

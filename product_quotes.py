@@ -115,7 +115,9 @@ def sg_source_error(exc, stage):
     stages = {'identity': 'Produktidentität', 'properties': 'Produkteigenschaften',
               'dated-quotes': 'datierte Kurse'}
     label = stages.get(stage, 'Produktdaten')
-    if isinstance(exc, HTTPError):
+    if isinstance(exc, PermissionError) and str(exc) == 'ONVISTA_AUTOMATION_NOT_APPROVED':
+        detail = 'automatischer Onvista-Abruf gesperrt: ausdrückliche Anbietereinwilligung fehlt'
+    elif isinstance(exc, HTTPError):
         detail = 'Datenanbieter antwortet mit HTTP '+str(exc.code)
     elif isinstance(exc, (TimeoutError, URLError, OSError)):
         detail = 'Verbindung fehlgeschlagen oder Zeitlimit erreicht'
