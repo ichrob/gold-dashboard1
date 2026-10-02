@@ -70,6 +70,37 @@ def market_input(kind):
         return value
 
 
+def fetch_future_reference():
+    """Dated GCZ26 research, independent of SG OTC terms and FX availability."""
+    isin = 'DE000FG309G0'
+    contract = q.SG_GOLD_FUTURES[isin]
+    snapshot = fetch_snapshot(isin)
+    instrument = snapshot['instrument']
+    underlyings = snapshot['derivativesUnderlyingList']['list']
+    if (instrument['isin'] != isin
+            or str(instrument['entityValue']) != str(PRODUCT_IDS[isin])
+            or len(underlyings) != 1):
+        raise ValueError('GCZ26-Referenzidentität nicht bestätigt')
+    underlying = underlyings[0]
+    figures = underlying['derivativesBarrierFigureList']
+    if (underlying['isoCurrency'] != 'USD'
+            or underlying['instrument']['entityType'] != 'FUTURE'
+            or str(underlying['instrument']['entityValue']) != contract['instrument_id']
+            or underlying['market']['idNotation'] != contract['notation_id']
+            or underlying['market']['codeExchange'] != 'CXE'
+            or figures['idNotationUnderlying'] != contract['notation_id']
+            or figures['isoCurrencyUnderlying'] != 'USD'):
+        raise ValueError('GCZ26-Referenzidentität nicht bestätigt')
+    at = q.stamp(figures['datetimePriceUnderlying'])
+    value = future_estimate.number(figures['priceUnderlying'])
+    if not 0 <= (datetime.now(timezone.utc)-at).total_seconds() <= future_estimate.MAX_REFERENCE_AGE:
+        raise ValueError('GCZ26-Referenzkurs veraltet oder Kurszeit zukünftig')
+    return dict(contract=contract['ric'], underlying=contract['name'], underlyingType='FUTURE',
+                underlyingPriceUsd=value, underlyingAt=at.isoformat(),
+                source='onvista · datierter GCZ26-Basiswert', sourceUrl=product_url(isin),
+                isExchangeRealtime=False, eligible=False)
+
+
 def validate_snapshot(product, properties, snapshot, isin, now):
     now = now or datetime.now(timezone.utc)
     metadata = q.parse_sg(product, properties, isin, now)
@@ -335,6 +366,7 @@ def parse_future_research(product, properties, snapshot, fx, isin, now=None):
     except (KeyError, ValueError, TypeError):
         pass
     metadata['futureResearch'] = refresh_future_research(research, now)
+    metadata['researchAvailable'] = True
     metadata['reason'] = 'Gold-Future '+contract['ric']+': eigener bedingter Kontraktvergleich; keine Spot-Freigabe'
     return metadata
 

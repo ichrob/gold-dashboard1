@@ -137,7 +137,11 @@ def get_sg_quote(isin):
         from sg_quotes import get_quote as sg_quote
         stage = 'dated-quotes'
         result = sg_quote(product, properties, isin)
+        research = result.get('futureResearch', {})
         print(f'BOB_SG isin={isin} found={bool(result.get("found"))} eligible={bool(result.get("eligible"))} '
+              f'product_verified={bool(result.get("productVerified"))} '
+              f'research_available={bool(research)} contract={research.get("contract")} '
+              f'estimate_available={bool(research.get("calculatedFuture", {}).get("available"))} '
               f'age={result.get("ageSeconds")} source=sg-otc-onvista', flush=True)
         return result
     except Exception as exc:

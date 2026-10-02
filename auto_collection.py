@@ -10,7 +10,7 @@ import bob_market_store
 import bob_validation_store
 import estimate_quality
 import future_estimate
-import product_quotes
+import sg_quotes
 
 ISIN = 'DE000FG309G0'
 _lock = threading.Lock()
@@ -19,6 +19,7 @@ _research = {}
 _next_source = 0
 _failures = 0
 _report = {}
+_source_error = None
 
 
 def enabled():
@@ -31,7 +32,7 @@ def in_window(now):
 
 
 def tick(now=None):
-    global _research, _next_source, _failures, _report
+    global _research, _next_source, _failures, _report, _source_error
     now = now or datetime.now(timezone.utc)
     if not enabled():
         return
@@ -41,22 +42,21 @@ def tick(now=None):
                            reason='Sammlung werktags 06–22 Uhr Schweizer Zeit')
         return
     future_estimate.ensure_collector()
-    source_error = None
     if time.monotonic() >= _next_source:
         try:
-            # The fixed SG adapter revalidates the exact contract identity.
-            # No BNP query, provider rotation, guessed contracts or new login.
-            quote = product_quotes.get_sg_quote(ISIN)
-            research = quote.get('futureResearch', {})
+            # Same registered underlying, independent of OTC quotes and FX.
+            # Revalidate exact contract identity, including rollover each read.
+            research = sg_quotes.fetch_future_reference()
             if research.get('contract') != future_estimate.CONTRACT:
                 raise ValueError('GCZ26-Referenz momentan nicht verfügbar')
             _research = dict(research)
             _failures = 0
+            _source_error = None
             _next_source = time.monotonic() + 60
         except (OSError, ValueError, TypeError, KeyError):
             _failures += 1
             _next_source = time.monotonic() + min(1800, 300 * 2**min(_failures-1, 3))
-            source_error = 'GCZ26-Quelle momentan nicht verfügbar; erneuter Abruf mit Wartezeit'
+            _source_error = 'GCZ26-Quelle momentan nicht verfügbar; erneuter Abruf mit Wartezeit'
     result = future_estimate.current_estimate(_research, now)
     archive_error = None
     diagnostics = {}
@@ -65,7 +65,11 @@ def tick(now=None):
         saved = bob_validation_store.request('read', {})
         estimate_quality.restore_durable(saved['pairs'], datetime.now(timezone.utc))
         diagnostics = saved.get('diagnostics', {})
-        spot_archive = bob_market_store.request('read', {}).get('diagnostics', {})
+        spot_saved = bob_market_store.request('read', {})
+        # Merge real ticks saved by another instance after a process pause.
+        # Never invent observations or refresh original source timestamps.
+        future_estimate.restore_spot_observations(spot_saved.get('observations', []), datetime.now(timezone.utc))
+        spot_archive = spot_saved.get('diagnostics', {})
     except (OSError, ValueError, TypeError, KeyError):
         archive_error = 'Dauerhafter Messspeicher momentan nicht erreichbar'
     evaluated = datetime.now(timezone.utc)
@@ -76,7 +80,7 @@ def tick(now=None):
     # original input freshness, sample/span, receipt-time and horizon gates.
     validation = result.get('validation', {})
     ready = bool(result.get('available') and validation.get('ready') and not archive_error)
-    reason = archive_error or source_error or ('' if ready else result.get('reason') or
+    reason = archive_error or ('' if ready else result.get('reason') or _source_error or
               validation.get('reason') or 'Noch nicht genügend passende Vergleichspaare')
     reference_at = _research.get('underlyingAt')
     report = dict(enabled=True, state='ready' if ready else 'collecting', contract=future_estimate.CONTRACT,
@@ -86,11 +90,16 @@ def tick(now=None):
                   collection=result.get('collection', {}), archive=diagnostics, spotArchive=spot_archive,
                   horizons=groups, retentionHours=48, sourceIntervalSeconds=60,
                   spotIntervalSeconds=30, isExchangeRealtime=False,
+                  sourceStatus=_source_error, sourceFailures=_failures,
+                  estimateReason=result.get('reason'), proxyAgeSeconds=result.get('proxyAgeSeconds'),
                   nextSourceInSeconds=max(0, round(_next_source-time.monotonic())))
     with _lock:
         _report = report
     print('BOB_COLLECTION state='+report['state']+' pairs='+str(diagnostics.get('pairCount', 0))+
-          ' estimate_available='+str(report['estimateAvailable']), flush=True)
+          ' estimate_available='+str(report['estimateAvailable'])+
+          ' reason='+str(result.get('reason') or validation.get('reason') or '')+
+          ' reference_age='+str(report['referenceAgeSeconds'])+
+          ' spot_age='+str(report['proxyAgeSeconds']), flush=True)
 
 
 def _run():
