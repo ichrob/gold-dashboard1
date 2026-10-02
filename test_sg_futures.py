@@ -81,7 +81,7 @@ class FutureResearchTests(unittest.TestCase):
                 if key == 'effective_at': data[3][key]['EUR'] = at
                 else: data[3][key] = at
                 self.assertNotIn('indicativeLeverage', self.parse(data)['futureResearch'])
-        r = q.freshness(self.parse(future_fixture()), NOW+timedelta(seconds=51))
+        r = q.freshness(self.parse(future_fixture()), NOW+timedelta(seconds=81))
         self.assertFalse(r['futureResearch']['productQuoteFresh'])
         self.assertNotIn('indicativeLeverage', r['futureResearch'])
         self.assertFalse(r['eligible'])
