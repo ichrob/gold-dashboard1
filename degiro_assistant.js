@@ -10,6 +10,8 @@ function assess(p,r,bundle,now=Date.now()){
  if(!r)return out;
  if(!window.BobDegiro.validIsin(p.isin)||!p.isinConfirmed||r.isin!==p.isin){fail('ISIN und Produktzuordnung bestätigen');return out;}
  if(!['LONG','SHORT'].includes(p.productDirection)){fail('Produktrichtung fehlt');return out;}
+ const meta=p.quote?.isin===p.isin&&p.quote?.productVerified?p.quote.metadata:null;
+ if(meta&&((Number(meta.status)&(2|8|16|32))||meta.direction&&meta.direction!==p.productDirection)){fail('Emittent meldet inaktives Produkt oder widersprüchliche Richtung');return out;}
  const bid=number(r.bid),ask=number(r.ask);
  if(!['Stuttgart','Onvista'].includes(r.source)||!r.venue||!/^https:\/\//.test(r.url||'')||!r.paired||!r.reviewed||!fresh(r.quoteAt,now,1800)||!(bid>0&&ask>=bid))fail('Geld/Brief als geprüftes Paar derselben Quelle und desselben Handelsplatzes mit Quellenzeit (höchstens 30 Minuten) ergänzen');
  else out.quote={bid,ask,spread:ask-bid,source:r.source,venue:r.venue,url:r.url,at:r.quoteAt,liveVerified:false};
