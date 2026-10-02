@@ -49,3 +49,43 @@ const future=clone(p);future.isin='DE000FG309G0';assert.equal(b.rank([future],[r
 assert(b.rank([future],[r],bundle,context).excluded[0].reason.includes('Kontrakt-MTF'));
 const unsafeName=clone(p);unsafeName.name='<script>alert(1)</script>';assert(!b.renderTop3(b.rank([unsafeName],[r],bundle,context)).includes('<script>'));
 console.log('Automatic combined Top-3: passed');
+const onvista='onvista.de\nISIN '+p.isin+'\nSociete Generale (EUR)\nGeld · 25.000 Stk.\n21,280 EUR\nheute, 12:24:13\nBrief · 25.000 Stk.\n21,290 EUR\nheute, 12:24:13';
+const draft=b.screenshotDraft(onvista,p.isin);
+assert.equal(draft.source,'Onvista');assert.equal(draft.fields.bid,'21.28');assert.equal(draft.fields.ask,'21.29');assert.equal(draft.fields.quoteAt,'heute, 12:24:13');
+assert(!draft.fields.ko1);assert.equal(draft.fields.venue,'Société Générale');
+const imported=window.BobDegiro.detailScreenshotData(onvista,p.isin);assert(imported.ok);assert.equal(imported.bid,21.28);assert.equal(imported.ask,21.29);
+const details=b.screenshotDraft('onvista.de\n'+p.isin+'\nKO-Schwelle\n4.403,305 USD\nBasispreis\n4.403,305 USD\nBezugsverhältnis\n0,100\nGoldpreis 4.179,120 USD',p.isin);
+assert.equal(details.fields.ko1,'4403.305');assert.equal(details.fields.koUntil1,'');assert(!details.hasQuote);
+assert.equal(window.BobDegiro.ocrExtract('Goldpreis 4.179,120 USD\nBasispreis 4.403,305 USD').price,'');
+const merged=b.mergeDraft(b.mergeDraft(null,draft,'quote.jpg'),details,'details.jpg');
+assert.equal(merged.fields.bid,'21.28');assert.equal(merged.fields.quoteAt,'heute, 12:24:13');assert.equal(merged.evidence.bid,'quote.jpg');assert.equal(merged.evidence.ko1,'details.jpg');
+const degiro=b.screenshotDraft('DEGIRO\n'+p.isin+'\nBörse Societe Generale OTC\nEUR\nGeld € 19,33\nBrief € 19,34\nKurszeit: 02/10/2026 12:24:13 CEST',p.isin);
+assert.equal(degiro.source,'DEGIRO');assert.equal(degiro.fields.quoteAt,'2026-10-02T10:24:13.000Z');assert.equal(degiro.fields.venue,'Societe Generale OTC');
+const replaced=b.mergeDraft(merged,degiro,'degiro.jpg');assert.equal(replaced.fields.source,'DEGIRO');assert.equal(replaced.fields.bid,'19.33');assert.equal(replaced.evidence.bid,'degiro.jpg');
+for(const raw of [onvista+'\nGeld 22 EUR\nBrief 23 EUR',onvista.replace('21,280 EUR',''),onvista.replace('21,290 EUR','20,000 EUR')]){const x=b.screenshotDraft(raw,p.isin);assert(!x.paired);assert.equal(window.BobDegiro.detailScreenshotData(raw,p.isin).ok,false);assert(!b.mergeDraft(merged,x,'ambiguous.jpg').fields.bid);}
+assert(!b.screenshotDraft(onvista,'DE000FG309G0').ok);
+assert(!b.screenshotDraft(onvista+'\nDE000FG309G0',p.isin).ok);
+const delayed=b.screenshotDraft(onvista+'\nverzögert',p.isin);assert(delayed.delayed);
+assert.equal(b.assess(p,{...r,source:'DEGIRO'},bundle,now).estimated,true);
+assert.equal(b.assess(p,{...r,source:'DEGIRO',delayed:true},bundle,now).quote,null);
+console.log('Screenshot-to-form drafts: passed');
+const imageReference=clone(r);imageReference.url='';imageReference.source='DEGIRO';imageReference.imageEvidence={bid:'quote.jpg',ask:'quote.jpg'};
+imageReference.barriers.forEach(x=>{x.url='';x.imageSource='details.jpg';});
+assert(b.assess(p,imageReference,bundle,now).estimated);
+assert.equal(b.assess(p,{...imageReference,imageEvidence:{bid:'a.jpg',ask:'b.jpg'}},bundle,now).quote,null);
+assert.equal(b.assess(p,{...imageReference,barriers:imageReference.barriers.map(x=>({...x,imageSource:null}))},bundle,now).ko,null);
+
+assert(!b.screenshotDraft('DEGIRO\n'+p.isin+'\nEUR\nGeld 25.000 Stk.\nBrief 25.000 Stk.',p.isin).paired);
+
+// Exercise the actual bridge with DOM-like fields, including confirmation reset.
+const bridgeContext={window:{}};
+vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8').replace('window.BobDegiro={','window.BobDegiro={prefillCombinedForm,resetCombinedForm,'),bridgeContext);
+const formFields={};for(const key of ['source','bid','ask','quoteAt','venue','url','ko1','koSource1','koUrl1','koAt1','koUntil1','goldReference','goldAt','goldUrl','fxReference','fxAt','fxUrl'])formFields[key]={value:''};
+formFields.reviewed={type:'checkbox',checked:true};formFields.referenceConfirmed={type:'checkbox',checked:true};
+const summary={innerHTML:''},formNode={open:false,querySelector:selector=>formFields[selector.match(/data-combined="([^\"]+)"/)?.[1]],querySelectorAll:selector=>selector.includes('checkbox')?[formFields.reviewed,formFields.referenceConfirmed]:Object.values(formFields)};
+bridgeContext.document={querySelector:()=>formNode,getElementById:()=>summary};
+formFields.goldReference.value='old gold';bridgeContext.window.BobDegiro.prefillCombinedForm(1,draft,'quote.jpg');
+assert.equal(formFields.bid.value,'21.28');assert.equal(formFields.goldReference.value,'');assert.equal(formFields.reviewed.checked,false);assert(formNode.open);assert(summary.innerHTML.includes('quote.jpg'));
+bridgeContext.window.BobDegiro.prefillCombinedForm(1,details,'details.jpg');assert.equal(formFields.bid.value,'21.28');assert.equal(formFields.ko1.value,'4403.305');assert.equal(formFields.koUntil1.value,'');
+bridgeContext.window.BobDegiro.resetCombinedForm(1);assert.equal(formFields.bid.value,'');assert.equal(formFields.reviewed.checked,false);
+console.log('Screenshot form bridge: passed');
