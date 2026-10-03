@@ -39,11 +39,14 @@ class MarketCardsTests(unittest.TestCase):
         reference = dict(price=4172, at='2026-10-02T12:00:00+00:00', previousClose=4200,
                          kind='reference', changePct=-.66)
         with patch.object(m, '_cache', None), patch.object(m, 'fetch_spot', return_value=m.unavailable('XAU/USD')), patch.object(m, 'fetch_quote', return_value=reference), patch.object(future_estimate, 'current_estimate', return_value=estimate):
-            return m.snapshot()['future']
+            return m.snapshot()
 
     def test_released_estimate_preferred_without_claiming_validated_accuracy(self):
         q=self.snapshot_with(dict(available=True,priceUsd=4180,priceAt='2026-10-02T12:10:00+00:00',
                                   validation={'ready':False}))
+        self.assertEqual(q['future']['price'],4172)
+        self.assertEqual(q['future']['kind'],'reference')
+        q=q['estimate']
         self.assertEqual(q['price'],4180)
         self.assertEqual(q['kind'],'calculated')
         self.assertFalse(q['validation']['ready'])
@@ -52,12 +55,14 @@ class MarketCardsTests(unittest.TestCase):
 
     def test_unavailable_estimate_keeps_dated_reference(self):
         q=self.snapshot_with(dict(available=False,reason='stale inputs'))
+        self.assertIsNone(q['estimate']['price'])
+        self.assertIn('pausiert',q['estimate']['note'])
+        q=q['future']
         self.assertEqual(q['kind'],'reference')
         self.assertEqual(q['at'],'2026-10-02T12:00:00+00:00')
-        self.assertIn('pausiert',q['note'])
 
     def test_old_reference_close_does_not_supply_estimated_daily_change(self):
         q=self.snapshot_with(dict(available=True,priceUsd=4180,priceAt='2026-10-05T12:10:00+00:00'))
-        self.assertIsNone(q['changePct'])
+        self.assertIsNone(q['estimate']['changePct'])
 
 if __name__=='__main__': unittest.main()

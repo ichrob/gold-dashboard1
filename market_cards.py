@@ -31,7 +31,7 @@ def parse_quote(payload, symbol, now=None):
     return dict(price=price, at=datetime.fromtimestamp(at, timezone.utc).isoformat(),
                 changePct=change, previousClose=previous if positive(previous) else None,
                 symbol=symbol, source='Yahoo Finance', kind='reference',
-                note='Echtzeit nicht bestätigt', changeLabel='zum Vortagesschluss')
+                note='Verzögerter Referenzkurs', changeLabel='zum Vortagesschluss')
 
 
 def fetch_quote(symbol):
@@ -68,7 +68,7 @@ def snapshot():
     with _lock:
         if _cache is not None and time.monotonic() - _cached_at < 30:
             return _cache
-        result = dict(spot=unavailable('XAU/USD'), future=unavailable('GCZ26'))
+        result = dict(spot=unavailable('XAU/USD'), future=unavailable('GCZ26'), estimate=unavailable('GCZ26'))
         with ThreadPoolExecutor(max_workers=2) as pool:
             jobs = {'spot': pool.submit(fetch_spot), 'future': pool.submit(fetch_quote, 'GCZ26.CMX')}
             for key, job in jobs.items():
@@ -92,15 +92,15 @@ def snapshot():
                     datetime.fromisoformat(reference['at'].replace('Z', '+00:00')).astimezone(zone).date() ==
                     datetime.fromisoformat(estimate['priceAt'].replace('Z', '+00:00')).astimezone(zone).date())
                 change = (estimate['priceUsd'] / previous - 1) * 100 if positive(previous) and same_day else None
-                result['future'] = dict(price=estimate['priceUsd'], at=estimate['priceAt'],
+                result['estimate'] = dict(price=estimate['priceUsd'], at=estimate['priceAt'],
                     calculatedAt=estimate.get('calculatedAt'), changePct=change,
                     symbol='GCZ26', source=estimate.get('proxySource', ''), kind='calculated',
                     note='Future-Schätzung · automatische Aktualisierung',
                     changeLabel='geschätzt zum Vortagesschluss',
                     referenceAt=estimate.get('referenceAt'), referencePrice=estimate.get('referencePriceUsd'),
                     validation=estimate.get('validation', {}), isExchangeRealtime=False)
-            elif result['future']['price'] is not None:
-                result['future']['note'] = 'Verzögerter Referenzkurs · Schätzung pausiert'
+            else:
+                result['estimate']['note'] = 'Schätzung pausiert · aktuelle Eingangsdaten fehlen'
         except (OSError, ValueError, KeyError, TypeError):
             pass
         _cache, _cached_at = result, time.monotonic()

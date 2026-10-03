@@ -1,6 +1,6 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const html=fs.readFileSync('Bob.html','utf8');
-const script=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].find(m=>m[1].includes('const quotes={spot:null,future:null}'))[1];
+const script=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].find(m=>m[1].includes('const quotes={spot:null,future:null,estimate:null}'))[1];
 const els=new Map(),el=id=>{if(!els.has(id))els.set(id,{textContent:'',className:''});return els.get(id)};
 let payload={spot:{price:4140,at:new Date().toISOString(),changePct:1.2,source:'fixture'},future:{price:4172.1,at:'2026-01-01T00:00:00Z',changePct:-.72,source:'fixture'}};
 const context={window:{},document:{getElementById:el,visibilityState:'visible',addEventListener(){}},fetch:async()=>({ok:true,json:async()=>payload}),setTimeout:()=>0,clearTimeout(){},setInterval(){},AbortController,Date,Number};
@@ -12,10 +12,15 @@ setImmediate(async()=>{
  assert.equal(el('gold-spot-change').textContent,'— %');assert.equal(el('gold-spot-basis').textContent,'Tagesänderung fehlt');
  context.window.BobGoldCards.spot({spots:{xaus:9999,spot_price_as_of:'2025-01-01T00:00:00Z'}});
  assert.equal(el('gold-spot-price').textContent,'4.141,00');
- payload.future={price:4180,at:new Date().toISOString(),kind:'calculated',changePct:-.5,changeLabel:'geschätzt zum Vortagesschluss'};
+ payload.estimate={price:4180,at:new Date().toISOString(),kind:'calculated',changePct:-.5,changeLabel:'geschätzt zum Vortagesschluss'};
  await context.window.BobGoldCards.refresh();
- assert.equal(el('gold-future-price').textContent,'≈ 4.180,00');
- assert.equal(el('gold-future-state').textContent,'Future-Schätzung · automatisch');
- assert.equal(el('gold-future-basis').textContent,'geschätzt zum Vortagesschluss');
+ assert.equal(el('gold-estimate-price').textContent,'≈ 4.180,00');
+ assert.equal(el('gold-estimate-state').textContent,'Future-Schätzung · automatisch');
+ assert.equal(el('gold-estimate-basis').textContent,'geschätzt zum Vortagesschluss');
+ assert.equal(el('gold-future-price').textContent,'4.172,10');
+ payload.estimate={price:null,note:'Schätzung pausiert'};
+ await context.window.BobGoldCards.refresh();
+ assert.equal(el('gold-estimate-price').textContent,'—');
+ assert.equal(el('gold-estimate-state').textContent,'Schätzung pausiert');
  console.log('Gold cards: formatting, directions, stale data, missing change and older response protection OK');
 });
