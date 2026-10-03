@@ -56,4 +56,4 @@ const compact=b.compactProductCard({isin:'DE000FG4JXV7',index:1,productDirection
 assert(compact.includes('Erkannte Zahlen geprüft – stimmen überein'));
 assert(compact.includes('data-card-confirm="1"'));assert(compact.includes('data-selection-upload="1"'));
 assert(compact.includes('Quellen und Einzelheiten'));assert(compact.includes('/product-details/fg4jxv'));
-assert.equal((compact.match(/Kursbild: Geld, Brief, Hebel und Quellenzeit/g)||[]).length,1);
+assert.equal((compact.match(/Geld, Brief und Quellenzeit \(Kursdaten\)/g)||[]).length,1);
