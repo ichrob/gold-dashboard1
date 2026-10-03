@@ -5,6 +5,7 @@ import threading
 from html import unescape
 from datetime import datetime, timezone
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
 ORIGIN = 'https://www.boerse-stuttgart.de/'
 _CACHE = {}
@@ -101,10 +102,19 @@ def get_product(isin):
         if len(body)>2_000_000:
             raise ValueError('Antwort zu groß')
         result = parse_page(body.decode('utf-8'), isin)
-    except Exception:
+    except Exception as exc:
+        # Report bounded diagnostics, never response bodies or internal URLs.
+        if isinstance(exc, HTTPError):
+            failure = 'HTTP_'+str(exc.code)
+        elif isinstance(exc, (TimeoutError, URLError, OSError)):
+            failure = 'CONNECTION_'+type(exc).__name__
+        elif isinstance(exc, ValueError):
+            failure = 'PAGE_SCHEMA'
+        else:
+            failure = 'INVALID_RESPONSE'
         result = dict(isin=isin, found=False, productVerified=False, eligible=False, fresh=False,
-                      source='Börse Stuttgart', sourceUrl=url, sourceFailure=True,
-                      reason='Börse-Stuttgart-Produktdaten nicht erreichbar oder nicht eindeutig zugeordnet')
+                      source='Börse Stuttgart', sourceUrl=url, sourceFailure=True, sourceFailureCode=failure,
+                      reason='Börse-Stuttgart-Produktdaten nicht erreichbar oder nicht eindeutig zugeordnet ('+failure+')')
     with _LOCK:
         if len(_CACHE)>=256:
             _CACHE.pop(next(iter(_CACHE)))
