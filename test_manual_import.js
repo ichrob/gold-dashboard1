@@ -76,11 +76,32 @@ context.document={querySelector:sel=>{const m=sel.match(/data-dg="([^"]+)".*data
 for(const [key,value] of Object.entries({isin,name:'SG Gold SHORT',dir:'SHORT',price:'24.82',lev:'14.01',ko:'4460',spread:'.01'}))fields['1:'+key]={value};
 b.saveIdentities();const saved=JSON.parse(store.get('bobDegiroIdentitiesV1'));
 assert.deepEqual(Object.keys(saved[0]).sort(),['direction','isin','name']);
-assert.equal(b.loadIdentities()[0].isin,isin);assert.equal(b.loadIdentities()[0].price,undefined);
-store.set('bobDegiroIdentitiesV1','bad json');assert.equal(b.loadIdentities().length,0);
+assert.equal(b.loadIdentities()[0].isin,isin);assert.equal(b.loadIdentities()[0].price,24.82);
+store.delete('bobDegiroProductsV2');store.set('bobDegiroIdentitiesV1','bad json');assert.equal(b.loadIdentities().length,0);
 store.set('bobDegiroIdentitiesV1',JSON.stringify([{isin:'invalid'}]));assert.equal(b.loadIdentities().length,0);
 const server=fs.readFileSync('server.py','utf8');
 assert(server.includes('manualSnapshotStatus'));assert(server.includes('bobDegiroIdentitiesV1'));
 console.log('Manual DEGIRO timestamp / provenance / persistence regressions: OK');
 
 
+
+// Reload must preserve full evidence and confirmation without refreshing source clocks.
+const makeApi=()=>{const env={window:{},localStorage:{getItem:k=>store.get(k),setItem:(k,v)=>store.set(k,v)},document:{getElementById:()=>null,querySelector:sel=>{const m=sel.match(/data-dg="([^"]+)".*data-i="(\d+)"/);return m?fields[m[2]+':'+m[1]]:null;}}};vm.createContext(env);vm.runInContext(fs.readFileSync('degiro_assistant.js','utf8'),env);return env.window.BobDegiro;};
+store.clear();const first=makeApi();
+const full={...product,direction:product.productDirection,isinConfirmed:true,snapshot,reference:{isin,quoteAt:snapshot.evidence.Geld.at,reviewed:true}};
+assert(first.writeStoredProducts([full]));const second=makeApi(),loaded=second.loadIdentities();
+assert.equal(loaded[0].isinConfirmed,true);assert.equal(loaded[0].snapshot.evidence.Geld.at,snapshot.evidence.Geld.at);
+assert.equal(loaded[0].reference.quoteAt,snapshot.evidence.Geld.at);
+fields['1:confirmed']={checked:false};second.restoreProductRows(loaded);second.saveIdentities();
+assert.equal(fields['1:confirmed'].checked,true);assert.equal(second.loadIdentities()[0].snapshot.evidence.KO.source,'full.jpg');
+assert(!second.manualSnapshotStatus({...product,snapshot:loaded[0].snapshot},loaded[0].snapshot,now+15*3600000).complete);
+const wrong=second.cleanStoredProduct({...full,snapshot:{isin:'DE000PJ9NCK0'},reference:{isin:'DE000PJ9NCK0'}});
+assert.equal(wrong.snapshot,undefined);assert.equal(wrong.reference,undefined);
+const recovered=second.recoverReviewedLists([]);assert.equal(recovered.length,10);assert(recovered.every(x=>second.validIsin(x.isin)));
+const sg=recovered.find(x=>x.isin==='DE000FG5GUT0');assert.equal(sg.snapshot.terms.strike.value,4069.25);assert.equal(sg.snapshot.terms.strike.at,null);assert.equal(sg.snapshot.terms.ratio,undefined);assert.equal(sg.snapshot.terms.quanto,undefined);
+assert(!second.productTermsStatus({...sg,productDirection:sg.direction},now).complete);
+const newer={...sg,snapshot:{...sg.snapshot,terms:{strike:{value:4070,at:'2026-10-03T08:00:00Z',source:'new.jpg'}}}};
+assert.equal(second.recoverReviewedLists([newer])[0].snapshot.terms.strike.value,4070);
+assert(second.writeStoredProducts([]));assert.equal(makeApi().loadIdentities().length,0);
+store.set('bobDegiroProductsV2','broken');const corrupt=makeApi();assert.equal(corrupt.loadIdentities().length,0);assert(!corrupt.writeStoredProducts([]));assert.equal(store.get('bobDegiroProductsV2'),'broken');
+console.log('Full evidence reload, identity isolation, historical recovery, empty list and corrupt-store preservation: OK');
