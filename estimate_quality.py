@@ -12,6 +12,7 @@ _lock = threading.RLock()
 _pending = {}
 _errors = {}
 _seen = {}
+_truth_receipts = {}
 MIN_SAMPLES = 20
 MIN_SPAN_SECONDS = 600
 MAX_MATCH_SECONDS = 5
@@ -57,8 +58,18 @@ def observe(key, value, at, received_at):
     try:
         point,received=map(seconds,(at,received_at))
         if isinstance(value,bool) or not math.isfinite(value) or value<=0 or point>received:return
-        bob_validation_store.enqueue(key,'truth',value,at)
         with _lock:
+            # Repeated polling of a delayed quote must not move its first
+            # receipt forward and validate a prediction made after seeing it.
+            identity=(key,point)
+            first=_truth_receipts.get(identity)
+            if first is not None:
+                return
+            _truth_receipts[identity]=received
+            if len(_truth_receipts)>10000:
+                oldest=min(_truth_receipts,key=_truth_receipts.get)
+                _truth_receipts.pop(oldest,None)
+            bob_validation_store.enqueue(key,'truth',value,at)
             for scoped,rows in list(_pending.items()):
                 if scoped[0]!=key:continue
                 seen=_seen.setdefault(scoped,[])
@@ -131,4 +142,3 @@ def quality(key, horizon, now=None):
     if not ready:
         out['reason']='Genauigkeit noch nicht ausreichend für diesen Referenz-Abstand gemessen'
     return out
-

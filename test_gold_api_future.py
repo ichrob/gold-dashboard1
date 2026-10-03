@@ -32,7 +32,7 @@ class SpotFutureTests(unittest.TestCase):
    self.assertIn('deaktiviert',legacy['sourceStatus'])
    self.assertNotIn('sourceStatus',result)
  def setUp(self):
-  for module,names in [(f,('_ticks','_spot_ticks')),(quality,('_pending','_errors','_seen'))]:
+  for module,names in [(f,('_ticks','_spot_ticks')),(quality,('_pending','_errors','_seen','_truth_receipts'))]:
    for name in names:
     p=patch.object(module,name,[] if name.endswith('ticks') else {});p.start();self.addCleanup(p.stop)
  def test_original_quote_timestamp_and_identity(self):
