@@ -1125,6 +1125,15 @@ function advancedAnalysis(){
  A.score=score; A.ready=Boolean(C.length>=200&&A.e20!=null&&A.e50!=null&&A.e200!=null); A.adx=ad; A.support=lv.sup; A.resistance=lv.res; A.weights=w; A.regime=regime; A.fibonacci=fibCore; A.crv=rr; updateQuick(); updateResearchPanel(); draw();
 }
 
+function invalidateTechnicalSignal(reason){
+ A.ready=false;
+ renderAnalysisBlocks();
+ for(const id of ['signal','tradeSignal']){
+  $(id).textContent='🟡 ABWARTEN · '+reason;$(id).className='signal neutral';
+ }
+ $('dgOut').textContent='Abwarten – keine aktuelle Szenariorechnung. '+reason;
+ $('dgProductOut').textContent='Keine aktuelle Produktfreigabe. '+reason+' Produktnachweise im DEGIRO-Assistenten prüfen.';
+}
 function renderAnalysisBlocks(){
  const ready=!window.BobSession?.expired()&&!!A.ready&&C.length>=200;
  const put=(name,dir,note)=>{const el=$("block"+name),detail=$("block"+name+"Note");if(!el)return;el.textContent=dir;el.parentElement.className="analysis-block "+(dir==="LONG"?"long":dir==="SHORT"?"short":"neutral");if(detail)detail.textContent=note;};
@@ -1164,7 +1173,7 @@ function updateQuick(){
 
 function updateTradeSignal(){
  if(window.BobSession?.expired()){$("tradeSignal").textContent="🟡 ABWARTEN · Anmeldung erforderlich";$("tradeSignal").className="signal neutral";return;}
- if(!C.length||!A.at){$("tradeSignal").textContent="Warte auf Analyse";return}
+ if(!A.ready||C.length<200||!A.at){$("tradeSignal").textContent="🟡 ABWARTEN · technische Analyse nicht freigegeben";$("tradeSignal").className="signal neutral";return}
  const mtfDir=getMtfState().overall||"NEUTRAL";
  const fb=falseBreakoutState(mtfDir);
  let text="🟡 ABWARTEN", cls="neutral";
@@ -1187,6 +1196,12 @@ function checkDgProduct(){
  const missing=BobDegiro.manualProductMissing(inputs);
  if(missing.length){$("dgProductOut").textContent="Keine Prüfung möglich. Bitte ergänzen / korrigieren: "+missing.join(" · ");return;}
  const result=BobDegiro.evaluateProduct({
+   ...inputs,
+   name:$("dgName").value.trim(),
+   atr:A.at,
+   trend:$("trend").textContent,trend2:$("trend2").textContent,
+   ...BobDegiro.selectionUiSignals(),
+   hist:Number($("hist").textContent),rsi:A.R,
    spot:lastPrice,
    ko:+$("dgKo").value,
    leverage:+$("dgLev").value,
@@ -1322,10 +1337,11 @@ function calcDgTrade(){
  const acc=+$("account").value||500, riskPct=Math.max(0,+$("risk").value||1), maxLoss=acc*riskPct/100;
  const fx=usdEurRate();
  const lev=Math.max(1,+$("dgLev").value||1), ko=+$("dgKo").value;
- const score=A.score??50, mtf=getMtfState().overall||"NEUTRAL";
- let dir=!window.BobSession?.expired()&&A.ready?(score>=70&&mtf==="LONG"?"LONG":score<=30&&mtf==="SHORT"?"SHORT":"ABWARTEN"):"ABWARTEN";
+ const confirmed=confirmedSignalDirection();
+ const market=BobDegiro.selectionMarketGate({direction:confirmed,trend:$('trend').textContent,trend2:$('trend2').textContent,...BobDegiro.selectionUiSignals(),hist:Number($('hist').textContent),atr:A.at});
+ const dir=market.ok?confirmed:'ABWARTEN';
  const product=$("dgType").value, productLabel={turbo:"Turbo / Knock-Out",warrant:"Optionsschein",etc:"Gold-ETC / ungehebelt",future:"Future / anderes Derivat"}[product];
- if(dir==="ABWARTEN"){ $("dgOut").innerHTML=`<b>Kein Trade-Vorschlag.</b><br>Score und Multi-Timeframe-Richtung bestätigen keinen gemeinsamen LONG-/SHORT-Trade.<br><br>Maximales Risiko: <b>${maxLoss.toFixed(2)} €</b>.`; return; }
+ if(dir==="ABWARTEN"){ $("dgOut").innerHTML=`<b>Kein Trade-Vorschlag.</b><br>${BobDegiro.escapeHtml(market.reasons.join(" · "))}<br><br>Maximales Risiko: <b>${maxLoss.toFixed(2)} €</b>.`; return; }
  const sm=stopModel(dir,lastPrice,A.at,1.5), tgt=targetModel(dir,lastPrice,sm.stop,2);
  if(!sm.stop||!tgt.target){$("dgOut").innerHTML="<b>Kein Trade-Vorschlag.</b><br>Stop/CRV konnte nicht zuverlässig berechnet werden.";return;}
  const riskDist=Math.abs(lastPrice-sm.stop), rewardDist=Math.abs(tgt.target-lastPrice), rr=tgt.rr;
@@ -1336,7 +1352,7 @@ function calcDgTrade(){
  if(ko&&koDist<2)koWarning="⚠️ KO-Abstand < 2%: sehr enger Puffer.";
  if(!Number.isFinite(fx)||fx<=0){$("dgOut").innerHTML="<b>Keine Berechnung.</b><br>Bitte zuerst eine gültige USD→EUR-FX-Rate im FX-Feld setzen.";return;}
  const dg=BobDegiro.riskModel({spot:lastPrice,stop:sm.stop,riskEur:maxLoss,fxUsdEur:fx,leverage:lev,ko}); if(!dg.ok){$("dgOut").innerHTML="<b>Keine Berechnung.</b><br>"+dg.reason;return;} const {maxLossUsd,approxNotionalUsd,approxNotionalEur,marginEur}=dg;
- $("dgOut").innerHTML=`<table>
+ $("dgOut").innerHTML=`<b>Unverbindliche Szenariorechnung – keine Produktfreigabe</b><table>
  <tr><td>Richtung</td><td class="right"><b>${dir}</b></td></tr>
  <tr><td>Produkt</td><td class="right">${productLabel}</td></tr>
  <tr><td>XAU/USD Referenz-Einstieg</td><td class="right"><b>${lastPrice.toFixed(2)}</b></td></tr>
@@ -1435,7 +1451,7 @@ async function loadData(){
    $("quickSignal").textContent="🟢 LIVE-PREIS · TECHNIK WARTET";
    $("quickSignal").className="signal neutral";
    $("quickReason").textContent="Der aktuelle XAU/USD-Preis ist verfügbar. Die technische Historie fehlt momentan; deshalb wird kein Handelssignal berechnet.";
-   C=[];A.ready=false;renderAnalysisBlocks();draw();
+   C=[];invalidateTechnicalSignal("Technische Historie fehlt oder ist veraltet");draw();
    return;
   }
 
@@ -1452,7 +1468,7 @@ async function loadData(){
    $("quickSignal").textContent="🟢 LIVE-PREIS · TECHNIK ZU ALT";
    $("quickSignal").className="signal neutral";
    $("quickReason").textContent="Der Live-Preis ist verfügbar. Die technische Historie ist zu alt für ein belastbares Signal.";
-   C=[];A.ready=false;renderAnalysisBlocks();draw();
+   C=[];invalidateTechnicalSignal("Technische Historie fehlt oder ist veraltet");draw();
    return;
   }
   if(C.length<30){
@@ -1460,6 +1476,7 @@ async function loadData(){
    $("quickSignal").textContent="🟢 LIVE-PREIS · ANALYSE WARTET";
    $("quickSignal").className="signal neutral";
    $("quickReason").textContent="Live-Preis vorhanden, aber für die technische Analyse sind noch nicht genügend geschlossene Kerzen verfügbar.";
+   invalidateTechnicalSignal("Zu wenig geschlossene Kerzen");
    return;
   }
 
@@ -1467,7 +1484,7 @@ async function loadData(){
   try{
    analyze();restoreTradeMgmt();
   }catch(analysisError){
-   C=[];
+   C=[];invalidateTechnicalSignal("Technische Analyse fehlgeschlagen");
    $("quickSignal").textContent="🟢 LIVE-PREIS · TECHNIK WARTET";
    $("quickSignal").className="signal neutral";
    $("quickReason").textContent="Live-Preis ist verfügbar; technische Analyse momentan nicht verfügbar.";
@@ -1498,6 +1515,7 @@ async function loadData(){
  }catch(e){
   reportBobDiag("live:failed",{error:e?.message||String(e)});
   console.error("[BOB] live:failed",e);
+  invalidateTechnicalSignal("Live-Daten nicht erreichbar");
   const msg="Live-Daten momentan nicht erreichbar: "+e.message;
   $("status").textContent=msg+" · Bitte erneut versuchen.";
   $("quickSignal").textContent="🔴 LIVE-DATEN FEHLER";

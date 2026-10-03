@@ -170,3 +170,5 @@ for(const direction of ['LONG','SHORT','NEUTRAL']){
  assert.equal(result.ok,direction!=='NEUTRAL');
 }
 assert.equal(b.selectionUiSignals({getElementById:()=>null}).momentum,0);
+assert(!b.evaluateProduct({...context,...copies[0],name:'Gold Faktor Short',spot:context.spot}).ok);
+assert(!b.evaluateProduct({...context,...copies[0],name:'Gold Future Turbo Short',spot:context.spot}).ok);
