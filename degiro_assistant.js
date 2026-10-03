@@ -842,7 +842,6 @@ function renderMissingValues(reasons){
   if(/Basispreis|Finanzierungslevel/.test(reason))return 'DEGIRO → Produktdetails: Basispreis (BP) / Finanzierungslevel mit aktuellem Datenstand. Falls dort nicht sichtbar: aktuelle Produktdaten beim Emittenten.';
   if(/Bezugsverhältnis/.test(reason))return 'Produktdetails oder Dokumente → Endgültige Bedingungen: nach Bezugsverhältnis / Ratio suchen und die vollständige Definition aufnehmen.';
   if(/Basiswert/.test(reason))return 'Produktdetails → Dokumente → Endgültige Bedingungen: Basiswert / Underlying zur passenden ISIN. Gold Spot und Gold Future müssen eindeutig unterscheidbar sein.';
-  if(/Quanto|Währungsabsicherung/.test(reason))return 'Produktdetails → Dokumente → Endgültige Bedingungen: Quanto / Währungsabsicherung. Die Produktwährung EUR allein bestätigt keine Absicherung.';
   if(/Währung/.test(reason))return 'Produktdetails oder Endgültige Bedingungen: Produktwährung / Auszahlungswährung zur passenden ISIN.';
   if(/Laufzeit|Fälligkeit|abgelaufen/.test(reason))return 'Produktdetails oder Endgültige Bedingungen: Laufzeit / Fälligkeit beziehungsweise Open End.';
   if(/Produkttyp|Produktart|Faktorprodukt/.test(reason))return 'Produktdetails: vollständiger Produktname und Produktart; alternativ Dokumente → Basisinformationsblatt. Faktorprodukte bleiben ausgeschlossen.';
@@ -1012,7 +1011,7 @@ function productTermsStatus(p,now=Date.now()){
  if(!['LONG','SHORT'].includes(p.productDirection))reasons.push('Long/Short fehlt');
  if(/FAKTOR|FACTOR/i.test([p.name,q?.name,meta?.name,terms.type?.value].join(' ')))reasons.push('Faktorprodukt ausgeschlossen');
  const api=model&&q?.productVerified&&q.source&&q.checkedAt&&now>=Date.parse(q.checkedAt)&&now-Date.parse(q.checkedAt)<=86400000?model:null;
- const labels={ratio:'Bezugsverhältnis',strike:'Basispreis in USD',underlying:'Exakter Basiswert (z. B. XAU/USD)',type:'Produkttyp',maturity:'Laufzeit / Fälligkeit oder Open End',currency:'Produktwährung',quanto:'Quanto / Währungsabsicherung'};
+ const labels={ratio:'Bezugsverhältnis',strike:'Basispreis in USD',underlying:'Exakter Basiswert (z. B. XAU/USD)',type:'Produkttyp',maturity:'Laufzeit / Fälligkeit oder Open End',currency:'Produktwährung'};
  for(const [key,label] of Object.entries(labels)){
   const e=terms[key],age=now-Date.parse(e?.at);
   if(durableCondition(e,key,now)||e?.source&&Number.isFinite(age)&&age>=0&&age<=86400000)values[key]=e.value;
@@ -1022,8 +1021,6 @@ function productTermsStatus(p,now=Date.now()){
  for(const key of ['ratio','strike'])if(values[key]!==undefined&&!(n(values[key])>0))reasons.push(labels[key]+': ungültig');
  if(values.currency&&values.currency!=='EUR')reasons.push('Produktwährung EUR erforderlich');
  if(values.type&&!/turbo|mini.?future|knock.?out/i.test(values.type))reasons.push('Produkttyp nicht als Turbo / Knock-out bestätigt');
- if(values.quanto&&!/^(ja|nein|yes|no)$/i.test(values.quanto))reasons.push('Quanto / Währungsabsicherung muss eindeutig Ja oder Nein sein');
- if(/^(ja|yes)$/i.test(values.quanto||''))reasons.push('Quanto-Produkt: bestätigtes eigenes Berechnungsmodell fehlt');
  const future=isFutureProduct(p)||/future/i.test(values.underlying||'');
  if(future){
   const e=terms.contract,age=now-Date.parse(e?.at);
@@ -1150,7 +1147,7 @@ function screenshotTimeLabel(x){
 }
 function screenshotSummary(x){
  if(!x)return "";
- const termRows=Object.entries(x.terms||{}).map(([key,e])=>'<tr><td>'+esc(({ratio:'Bezugsverhältnis',strike:'Basispreis USD',underlying:'Basiswert',contract:'Future-Kontrakt',type:'Produkttyp',maturity:'Laufzeit',currency:'Produktwährung',quanto:'Quanto'})[key]||key)+'</td><td>'+esc(e.value)+'</td><td>'+esc(e.source)+'</td><td>'+esc(e.conditionVerified?'Produktbedingung recherchiert '+e.reviewedAt+' · keine Kurszeit':e.reviewed&&['type','currency','maturity'].includes(key)?'Geprüfte Produktbedingung · keine Kurszeit':e.at||'Produktdatenstand fehlt')+'</td></tr>').join('');
+ const termRows=Object.entries(x.terms||{}).filter(([key])=>key!=='quanto').map(([key,e])=>'<tr><td>'+esc(({ratio:'Bezugsverhältnis',strike:'Basispreis USD',underlying:'Basiswert',contract:'Future-Kontrakt',type:'Produkttyp',maturity:'Laufzeit',currency:'Produktwährung',quanto:'Quanto'})[key]||key)+'</td><td>'+esc(e.value)+'</td><td>'+esc(e.source)+'</td><td>'+esc(e.conditionVerified?'Produktbedingung recherchiert '+e.reviewedAt+' · keine Kurszeit':e.reviewed&&['type','currency','maturity'].includes(key)?'Geprüfte Produktbedingung · keine Kurszeit':e.at||'Produktdatenstand fehlt')+'</td></tr>').join('');
  const rows=Object.entries(x.evidence||{}).filter(([key])=>key!=='Spread').map(([key,e])=>{const t=evidenceTiming(e);return '<tr><td>'+esc(key)+'</td><td>'+esc(e.value)+'</td><td>'+esc(e.source)+'</td><td>'+esc(e.at||'Zeit / Zeitzone fehlt')+(key==='Richtung'?'':' · '+esc(t.ageSeconds===null?'gesperrt':t.ageSeconds+' s · '+(t.fresh?'Nachweis ≤ 14 h · kein Livekurs':'gesperrt')))+'</td></tr>';}).join("");
  return '<div class="small">'+(x.listEvidence?'<div>ISIN/Bildzuordnung geprüft: '+esc(x.listEvidence.source)+' · historischer Bildnachweis, Produktdatenstand fehlt.</div><div>'+esc(x.listEvidence.ratioText||'')+'</div>':'')+'<b>Erkannte Angaben – bitte prüfen</b><table style="width:100%"><thead><tr><th>Angabe</th><th>Wert</th><th>Bildquelle</th><th>Quellenzeit</th></tr></thead><tbody>'+rows+termRows+'</tbody></table>'+esc(screenshotTimeLabel(x))+'</div>';
 }

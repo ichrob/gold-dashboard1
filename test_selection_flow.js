@@ -50,7 +50,7 @@ assert(b.finalProductStatus(imageProduct,now).complete,JSON.stringify(b.finalPro
 assert.equal(b.selectionWorkflow([imageProduct],context,{}).groups.length,1);
 const reverse=b.mergeScreenshotEvidence(b.mergeScreenshotEvidence(null,detailData,'details.jpg'),quoteData,'quote.jpg');
 assert.deepEqual(JSON.parse(JSON.stringify(reverse.terms)),JSON.parse(JSON.stringify(imageSnapshot.terms)));
-for(const key of ['ratio','strike','underlying','type','maturity','currency','quanto']){
+for(const key of ['ratio','strike','underlying','type','maturity','currency']){
  const bad=JSON.parse(JSON.stringify(imageProduct));delete bad.snapshot.terms[key];
  assert(!b.finalProductStatus(bad,now).complete,key);
  assert.equal(b.selectionWorkflow([bad],context,{}).groups.length,0,key);
@@ -60,7 +60,6 @@ for(const mutate of [
  x=>x.snapshot.terms.strike.at='2026-10-02T19:23:00Z',
  x=>x.snapshot.terms.underlying.value='Gold',
  x=>x.snapshot.terms.type.value='Faktor',
- x=>x.snapshot.terms.quanto.value='Ja',
  x=>x.snapshot.terms.maturity.value='01/10/2026 20:00:00 CEST',
  x=>x.snapshot.direction='LONG',
  x=>x.snapshot.evidence.KO.at=null,
@@ -219,7 +218,7 @@ assert.equal(researched.snapshot.terms.ratio.at,null);assert(b.durableCondition(
 assert(!b.durableCondition(researched.snapshot.terms.ratio,'strike',researchNow));assert(!b.durableCondition(researched.snapshot.terms.ratio,'contract',researchNow));
 assert(!b.durableCondition({...researched.snapshot.terms.ratio,revoked:true},'ratio',researchNow));assert(!b.durableCondition({...researched.snapshot.terms.ratio,reviewedAt:'2027-01-01T00:00:00Z'},'ratio',researchNow));
 const checked=b.productTermsStatus({...researched,productDirection:'LONG',isinConfirmed:true},researchNow);
-assert.equal(checked.values.ratio,.1);assert.equal(checked.values.quanto,'Nein');assert(!checked.complete);assert(checked.reasons.some(x=>x.includes('Basispreis')));assert(checked.reasons.some(x=>x.includes('Knock-out')));
+assert.equal(checked.values.ratio,.1);assert(!checked.complete);assert(checked.reasons.some(x=>x.includes('Basispreis')));assert(checked.reasons.some(x=>x.includes('Knock-out')));
 assert.equal(b.applyResearchedTerms([{isin:'DE000FG309G0',direction:'SHORT'}])[0].snapshot,undefined);
 assert.equal(b.applyResearchedTerms([{isin:'DE000FG5GUT0',direction:'SHORT'}])[0].snapshot,undefined);
 const custom={...researched,snapshot:{...researched.snapshot,terms:{ratio:{value:.01,at:'2026-10-05T08:00:00Z',source:'new.jpg'}}}};
@@ -256,3 +255,5 @@ assert(!beforeFold.includes('Referenzkontrakt / Futures Contract'));
 assert(!beforeFold.includes('Exakter Gold-Future-Kontrakt fehlt'));
 const completeFold=b.renderSelectionWorkflow(b.selectionWorkflow([p],{...context,direction:'NEUTRAL'},{}));
 assert(!completeFold.includes('data-missing-values'));
+
+for(const value of [undefined,'Ja','Nein','unbekannt']){const x=JSON.parse(JSON.stringify(imageProduct));if(value===undefined)delete x.snapshot.terms.quanto;else x.snapshot.terms.quanto.value=value;assert(b.finalProductStatus(x,now).complete);}
