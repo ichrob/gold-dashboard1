@@ -40,7 +40,7 @@ class PostgresMarketTests(unittest.TestCase):
  def test_spot_archive_retains_overnight_rows_without_reusing_them_as_current_inputs(self):
   import psycopg
   dsn=os.environ['BOB_TEST_DATABASE_URL'];now=datetime.now(timezone.utc)
-  overnight=now-timedelta(hours=12);expired=now-timedelta(hours=49)
+  overnight=now-timedelta(days=6);expired=now-timedelta(days=7,seconds=1)
   point=dict(symbol='XAU',currency='USD',at=now.isoformat(),price=4160.25)
   with psycopg.connect(dsn) as conn:
    store.init(conn)
@@ -83,6 +83,23 @@ class PostgresMarketTests(unittest.TestCase):
    self.assertFalse(any(x['truthAt']==late.isoformat() for x in v.handle(conn,'read',{})['pairs']))
    conn.execute('DELETE FROM bob_future_predictions WHERE quote_at IN (%s,%s)',(at,late))
    conn.execute('DELETE FROM bob_future_truths WHERE quote_at IN (%s,%s)',(at,late))
+
+ def test_future_archive_keeps_six_days_and_expires_after_seven(self):
+  import psycopg
+  import bob_validation_store as v
+  now=datetime.now(timezone.utc)
+  kept=now-timedelta(days=6);expired=now-timedelta(days=7,minutes=1)
+  with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+   v.init(conn)
+   for at in (kept,expired):
+    conn.execute('INSERT INTO bob_future_truths(quote_at,price,received_at) VALUES(%s,4198,%s)',(at,at+timedelta(seconds=10)))
+    conn.execute("INSERT INTO bob_future_predictions(bucket,quote_at,price,reference_at,received_at,truth_at) VALUES('61–300s',%s,4200,%s,%s,%s)",(at,at-timedelta(seconds=120),at,at))
+   result=v.handle(conn,'write',{'events':[]})
+   self.assertTrue(any(p['truthAt']==kept.isoformat() for p in result['pairs']))
+   self.assertFalse(any(p['truthAt']==expired.isoformat() for p in result['pairs']))
+   for table in ('bob_future_predictions','bob_future_truths'):
+    self.assertFalse(conn.execute('SELECT 1 FROM '+table+' WHERE quote_at=%s',(expired,)).fetchone())
+    conn.execute('DELETE FROM '+table+' WHERE quote_at=%s',(kept,))
 
  def test_two_connections_preserve_timestamp_and_reject_rewrites(self):
   import psycopg

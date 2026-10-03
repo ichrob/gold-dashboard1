@@ -40,7 +40,7 @@ def paused_report(now):
         report = dict(_report, enabled=True, state='paused', ready=False,
                       estimateAvailable=False, evaluatedAt=now.isoformat(),
                       reason='Sammlung werktags 06–22 Uhr Schweizer Zeit',
-                      retentionHours=48)
+                      retentionHours=168)
     if time.monotonic() >= _next_archive:
         _next_archive = time.monotonic() + 60
         try:
@@ -132,7 +132,7 @@ def tick(now=None):
                   archiveStatus='unavailable' if archive_error else 'loaded',
                   spotArchiveStatus='unavailable' if archive_error else 'loaded',
                   archiveCheckedAt=evaluated.isoformat() if not archive_error else None,
-                  horizons=groups, retentionHours=48, sourceIntervalSeconds=60,
+                  horizons=groups, retentionHours=168, sourceIntervalSeconds=60,
                   spotIntervalSeconds=30, isExchangeRealtime=False,
                   sourceStatus=_source_error, sourceFailures=_failures,
                   estimateReason=result.get('reason'), proxyAgeSeconds=result.get('proxyAgeSeconds'),
@@ -189,7 +189,7 @@ def health():
 PANEL = '''<section id="bobAutoCollection" style="max-width:860px;margin:16px auto;padding:18px;border-radius:16px;background:white"><h3>Automatische Datensammlung</h3><p id="bobAutoStatus">Messstand wird geladen …</p><div id="bobAutoGroups"></div></section><script>
 (()=>{const panel=document.getElementById('bobAutoCollection');const header=document.querySelector('h1')?.parentElement;if(header)header.after(panel);
 async function update(){try{const r=await fetch('/api/collection-status',{cache:'no-store'});if(!r.ok)throw Error();const d=await r.json();const a=d.archive||{};const s=d.spotArchive||{};const count=(x,k)=>Number.isInteger(x[k])?String(x[k]):'unbekannt';
-document.getElementById('bobAutoStatus').textContent=(d.state==='paused'?'Sammlung pausiert':d.running?'Serverseitige Sammlung läuft':d.enabled?'Sammlung startet':'Automatische Sammlung ausgeschaltet')+' · '+(d.ready?'Genauigkeit für den aktuellen Referenzabstand ausreichend geprüft':'ABWARTEN')+' · '+(d.reason||'')+' · Messstand '+(d.evaluatedAt?new Date(d.evaluatedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch ausstehend')+' · '+count(a,'predictionCount')+' Schätzungen, '+count(a,'truthCount')+' GCZ26-Referenzen, '+count(a,'pairCount')+' passende Paare · '+count(s,'sampleCount')+' gespeicherte Spot-Beobachtungen · Aufbewahrung 48 Stunden'+(d.archiveStatus==='unavailable'?' · Messarchiv nicht erreichbar; angezeigte Zähler gegebenenfalls letzter bekannter Stand':'')+(d.spotArchiveStatus==='unavailable'?' · Spot-Archiv nicht erreichbar':'');
+document.getElementById('bobAutoStatus').textContent=(d.state==='paused'?'Sammlung pausiert':d.running?'Serverseitige Sammlung läuft':d.enabled?'Sammlung startet':'Automatische Sammlung ausgeschaltet')+' · '+(d.ready?'Genauigkeit für den aktuellen Referenzabstand ausreichend geprüft':'ABWARTEN')+' · '+(d.reason||'')+' · Messstand '+(d.evaluatedAt?new Date(d.evaluatedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch ausstehend')+' · '+count(a,'predictionCount')+' Schätzungen, '+count(a,'truthCount')+' GCZ26-Referenzen, '+count(a,'pairCount')+' passende Paare · '+count(s,'sampleCount')+' gespeicherte Spot-Beobachtungen · Aufbewahrung 7 Tage'+(d.archiveStatus==='unavailable'?' · Messarchiv nicht erreichbar; angezeigte Zähler gegebenenfalls letzter bekannter Stand':'')+(d.spotArchiveStatus==='unavailable'?' · Spot-Archiv nicht erreichbar':'');
 const box=document.getElementById('bobAutoGroups');box.replaceChildren();for(const g of d.horizons||[]){const p=document.createElement('p');p.textContent=g.horizonBucket+': '+g.sampleCount+'/'+g.minSamples+' Vergleiche'+(Number.isFinite(g.meanAbsoluteError)?' · mittlerer Fehler '+g.meanAbsoluteError.toFixed(2)+' USD · größter Fehler '+g.maxAbsoluteError.toFixed(2)+' USD':'')+' · '+(d.state==='paused'?'gespeicherter Messstand · keine aktuelle Freigabe':g.ready?'ausreichend geprüft':'noch nicht ausreichend geprüft');box.append(p);}}
 catch{document.getElementById('bobAutoStatus').textContent='Messstand momentan nicht erreichbar – keine Auswertungsfreigabe.';}}update();setInterval(update,60000);})();
 </script>'''
