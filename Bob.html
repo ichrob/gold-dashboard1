@@ -117,6 +117,58 @@ try{
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refresh();});
 })();
 </script>
+<section class="card" aria-labelledby="economicTitle">
+<h2 id="economicTitle" style="margin:0 0 10px">Wirtschaftstermine</h2>
+<div id="economicStatus" class="warning" role="status">Terminrisiko unbekannt · Kalender wird geladen.</div>
+<p id="economicNext">Nächster bestätigter Termin wird gesucht.</p>
+<p class="small">Nur Information: Termine ändern weder Produktfreigaben noch Ranking oder Empfehlungspushs.</p>
+<details><summary>Termine und Quellen anzeigen</summary>
+<div id="economicEvents"></div><div id="economicSources" class="small"></div>
+<p class="small">Zeitangaben: Schweiz (Europe/Zurich), mit automatischer Sommerzeit. Fed-Termine ohne bestätigte Uhrzeit haben keinen Countdown. Unangekündigte Nachrichten und weitere Termine sind nicht vollständig erfasst.</p>
+</details>
+</section>
+<script>
+/* Economic calendar: isolated display only, no signal, ranking or push hooks. */
+(function(){
+ let data=null,busy=false,lastSuccess=0;
+ const el=id=>document.getElementById(id);
+ const fmt=ms=>new Intl.DateTimeFormat('de-CH',{timeZone:'Europe/Zurich',dateStyle:'medium',timeStyle:'short'}).format(new Date(ms));
+ const localDay=ms=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Zurich',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(ms));
+ function describe(e,now){
+  if(e.dateOnly)return e.date.split('-').reverse().join('.')+' · Uhrzeit nicht bestätigt';
+  const delta=Date.parse(e.at)-now,minutes=Math.ceil(Math.abs(delta)/60000);
+  return fmt(Date.parse(e.at))+' · '+(delta>=0?(minutes<60?'in '+minutes+' Min.':'in '+Math.floor(minutes/60)+' Std. '+minutes%60+' Min.'):'vor '+minutes+' Min. veröffentlicht');
+ }
+ function render(){
+  const now=Date.now(),unknown=!data||!data.complete||now-lastSuccess>120000;
+  const events=(data?.events||[]).filter(e=>e.dateOnly?e.date>=localDay(now):Date.parse(e.at)>=now-7200000);
+  const near=events.filter(e=>e.importance==='hoch'&&(e.dateOnly?e.date===localDay(now):Math.abs(Date.parse(e.at)-now)<=3600000));
+  el('economicStatus').textContent=(near.length?'Erhöhtes Terminrisiko · wichtige Veröffentlichung heute oder zeitnah.':'Kein wichtiger Termin im erfassten Zeitfenster von ±60 Minuten bestätigt.')+(unknown?' Terminrisiko teilweise unbekannt · Quellenstatus prüfen.':'');
+  el('economicStatus').className=near.length||unknown?'warning':'research';
+  const next=events.find(e=>e.dateOnly||Date.parse(e.at)>=now);
+  el('economicNext').textContent=next?next.title+' · '+describe(next,now)+(next.sourceFresh?'':' · Quelle nicht aktuell'):'Kein kommender Termin bestätigt.';
+  el('economicEvents').replaceChildren();
+  for(const e of events.slice(0,15)){
+   const p=document.createElement('p');p.textContent=e.title+' · Relevanz: '+e.importance+' · '+describe(e,now)+' · '+e.source+(e.sourceFresh?'':' (nicht aktuell)');el('economicEvents').append(p);
+  }
+  el('economicSources').replaceChildren();
+  for(const source of data?.sources||[]){
+   const p=document.createElement('p'),a=document.createElement('a');
+   a.textContent=source.name;a.href=source.url;a.target='_blank';a.rel='noopener noreferrer';p.append(a);
+   p.append(document.createTextNode(' · '+source.status+' · Letzter erfolgreicher Abruf: '+(source.checkedAt?fmt(Date.parse(source.checkedAt)):'noch keiner')));el('economicSources').append(p);
+  }
+ }
+ async function refresh(){
+  if(busy||window.BobSession?.expired())return;
+  busy=true;const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),8000);
+  try{const r=await fetch('/api/economic-calendar',{cache:'no-store',signal:ctl.signal});if(!r.ok)throw Error('Kalender nicht erreichbar');data=await r.json();lastSuccess=Date.now();}
+  catch(_){lastSuccess=0;}finally{clearTimeout(timer);busy=false;render();}
+ }
+ refresh();setTimeout(refresh,15000);
+ setInterval(()=>{render();if(document.visibilityState!=='hidden')refresh();},60000);
+ document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refresh();});
+})();
+</script>
 <div class="card">
 <h2 style="margin:0 0 10px">⚡ Schnellansicht</h2>
 <div id="quickSignal" class="signal neutral">Warte auf Live-Daten</div>
