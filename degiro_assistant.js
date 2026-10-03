@@ -485,6 +485,7 @@ function scenario(){if(window.BobSession?.expired())return "NEUTRAL";const s=typ
 function spot(){const x=n(window.lastPrice);if(x)return x;const m=String(document.getElementById("price")?.textContent||"").match(/[0-9]+(?:[.,][0-9]+)?/);return m?n(m[0].replace(",",".")):null;}
 function atr(){return n(window.A?.at)||n(window.A?.atr)||null;}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+let activeOcrStatusId=null;
 let ocrLoader=null,ocrWorkerPromise=null,ocrQueue=Promise.resolve();
 function ocrTimeout(promise,ms,message){
  let timer;
@@ -515,7 +516,7 @@ async function loadOcrWorker(statusId){
   corePath:"/ocr-assets/v5",
   workerBlobURL:false,
   logger:m=>{
-   const s=document.getElementById(statusId||"");
+   const s=document.getElementById(activeOcrStatusId||statusId||"");
    if(!s||!m)return;
    if(m.status==="loading language traineddata")s.textContent="📦 OCR-Sprachdaten werden geladen …";
    else if(m.status==="recognizing text"&&m.progress)s.textContent="📷 OCR "+Math.round(m.progress*100)+"%";
@@ -555,6 +556,7 @@ function recoverOcrIsins(primary,secondary){
 }
 function recognizeOcr(file,statusId){
  const job=ocrQueue.then(async()=>{
+  activeOcrStatusId=statusId;
   const worker=await loadOcrWorker(statusId);
   const prepared=await prepareOcrImage(file,statusId);
   let result;
@@ -887,6 +889,10 @@ function renderMissingValues(reasons,p={}){
  };
  return '<details class="small" data-missing-values style="margin-top:8px"><summary style="cursor:pointer;padding:8px 0"><strong>Fehlende Werte</strong></summary><ul>'+values.map(reason=>'<li style="margin:10px 0"><strong>'+esc(reason.startsWith('Exakter Gold-Future-Kontrakt fehlt')?'Exakter Future-Kontrakt fehlt oder ist nicht aktuell bestätigt':reason)+'</strong><br>Screenshot auf der '+esc(provider)+': '+esc(location(reason))+'</li>').join('')+'</ul><div>Den Produktlink oben öffnen. Lesbare Screenshots mit ISIN, Feldnamen und angezeigtem Datenstand über „Detailbilder ergänzen“ hochladen. Mehrere Ausschnitte sind möglich. Nicht angezeigte Datumsangaben bleiben offen; die Handy-Uhr ersetzt keinen Datenstand.</div></details>';
 }
+function renderImageImportStatus(index){
+ const message=typeof document==='undefined'?'':document.getElementById('dgOcrStatus'+index)?.textContent||'';
+ return '<div class="small" role="status" aria-live="polite" data-image-import-status="'+index+'" style="margin-top:8px;white-space:normal;overflow-wrap:anywhere">'+esc(message||'Nach der Bildauswahl startet das Einlesen automatisch. Kein zusätzlicher Upload-Klick nötig.')+'</div>';
+}
 function renderSelectionWorkflow(r){
  const steps='<div class="small">Listenbilder → unverbindliche Kandidaten → Pflichtprüfung → bis zu 3 geeignete Produkte</div><details><summary class="small">So bewertet Bob Kosten und Risiko</summary><div class="small">Risiko-/Datenwert: 100 minus Abzüge für Handels- und Finanzierungskosten, KO und Datenqualität. Spread nur zur Information: kein Punkteabzug und keine Spread-Sperre. Die Hebelhöhe allein bringt weder Plus- noch Minuspunkte. Vergleich: 1.000 EUR / 1 Kalendertag. Unbekannte Kosten erhalten jeweils den vollen 10-Punkte-Abzug; kein bestätigter Kostenvorteil. Mindestwert 60. Gleiche Werte bedeuten Gleichstand; ISIN sortiert nur die Anzeige. Kostennachweise unter Details / manuelle Kursnachweise.</div></details>';
  const notApproved=r.notApproved||[];
@@ -894,7 +900,7 @@ function renderSelectionWorkflow(r){
  '<div class="small">'+esc((r.gateReasons||[]).join(' · '))+'</div>'+
  '<div class="small">'+r.total+' unterschiedliche Produkte. Vorauswahl nach Analyse-Richtung '+esc(r.direction)+'; fehlende Preise erhalten keine Rangpunkte.</div>'+
  r.groups.map(g=>'<div style="margin-top:12px"><b>'+esc(g.scope)+' · '+g.total+' bewertbare Produkte</b>'+g.candidates.map((c,i)=>'<div style="padding:10px;margin-top:8px;border:1px solid #dbe4f0;border-radius:12px"><b>Platz '+(i+1)+' · '+esc(c.isin)+'</b><div class="small">'+esc(c.name)+'<br>'+esc(c.priceKind)+' · Brief '+Number(c.price).toFixed(2)+' EUR · Risiko-/Datenwert '+c.score+'/100<br>Warum: '+esc((c.reasons||[]).slice(0,3).join(' · '))+'<br>Quelle '+esc(c.source||'Produktnachweis')+' · Datenzeit '+esc(c.at)+(c.quoteAt?' · Produktkurszeit '+esc(c.quoteAt):'')+(c.quality?'<br>'+esc(qualityText(c.quality,'USD')):'')+'</div>'+renderProductSources(c)+'</div>').join('')+'</div>').join('')+
- (notApproved.length?'<div style="margin-top:14px"><b>Weitere Produkte · nicht freigegeben ('+notApproved.length+')</b>'+notApproved.map(p=>'<div data-selection-blocked="'+p.index+'" style="padding:10px;margin-top:8px;border:1px solid #d1d5db;border-radius:12px;background:#f8fafc"><b>'+esc(p.isin)+'</b> · '+esc(p.name||'')+'<div class="small"><strong>Nicht freigegeben</strong><br>Begründung: '+esc(p.reasons.filter(reason=>!(p.missingReasons||[]).includes(reason)).join(' · ')||'Produktnachweise unvollständig – siehe fehlende Werte')+'</div>'+renderProductSources(p)+renderIssuerHelp(p,p.missingReasons)+renderMissingValues(p.missingReasons,p)+'<button data-selection-upload="'+p.index+'">Detailbilder ergänzen</button></div>').join('')+'</div>':'')+
+ (notApproved.length?'<div style="margin-top:14px"><b>Weitere Produkte · nicht freigegeben ('+notApproved.length+')</b>'+notApproved.map(p=>'<div data-selection-blocked="'+p.index+'" style="padding:10px;margin-top:8px;border:1px solid #d1d5db;border-radius:12px;background:#f8fafc"><b>'+esc(p.isin)+'</b> · '+esc(p.name||'')+'<div class="small"><strong>Nicht freigegeben</strong><br>Begründung: '+esc(p.reasons.filter(reason=>!(p.missingReasons||[]).includes(reason)).join(' · ')||'Produktnachweise unvollständig – siehe fehlende Werte')+'</div>'+renderProductSources(p)+renderIssuerHelp(p,p.missingReasons)+renderMissingValues(p.missingReasons,p)+renderImageImportStatus(p.index)+'<button data-selection-upload="'+p.index+'">Detailbilder ergänzen</button></div>').join('')+'</div>':'')+
  '<div class="small" style="margin-top:10px">Spot und Future werden getrennt bewertet. Weniger als drei belegte Produkte ergeben eine kürzere Liste. Freigabe gilt ausschließlich für diese geprüfte Produktauswahl, nicht als Handelsauftrag oder garantierter bester Trade. Kandidaten mit offenen Nachweisen bleiben gesperrt; tatsächlichen DEGIRO-Preis vor dem Einstieg prüfen.</div>';
 }
 
@@ -910,7 +916,7 @@ function productUploadCards(products,direction,now=Date.now()){
   const missing=Array.from(new Set([...terms.reasons,...(issuerData?(p.isinConfirmed?[]:["ISIN und Produktzuordnung am Original bestätigen"]):live||state.complete?[]:[...missingProductData(p),...state.reasons])]));
   return '<div style="margin-top:8px;padding:10px;background:#fff;border:1px solid #e1e7f0;border-radius:12px"><b>'+esc(p.isin||p.name)+'</b> · '+esc(p.productDirection||'Richtung unklar')+
    '<div class="small">'+esc(p.name||'')+'</div><div class="small">'+(missing.length?'GESPERRT · Fehlt / prüfen: '+esc(missing.join(' · ')):issuerData?'Datierte Emittentendaten vorhanden; DEGIRO-Ausführungskurs prüfen.':'Zeitlich vollständige Momentaufnahme · keine Live-Freigabe.')+'</div>'+
-   '<div class="small">Zwei Screenshots pro ISIN möglich: Kursbild und Produktdetails gemeinsam auswählen oder nacheinander ergänzen. Beide müssen die ISIN zeigen.</div><button data-detail-upload="'+i+'">Screenshots für dieses Produkt hinzufügen</button> <button data-card-research="'+i+'">Internetrecherche erneut prüfen</button><label class="small" style="display:block"><input data-card-confirm="'+i+'" type="checkbox" '+(p.isinConfirmed?'checked':'')+'> ISIN, Werte und Quellenzeiten am Original geprüft</label>'+
+   renderImageImportStatus(i)+'<div class="small">Zwei Screenshots pro ISIN möglich: Kursbild und Produktdetails gemeinsam auswählen oder nacheinander ergänzen. Beide müssen die ISIN zeigen.</div><button data-detail-upload="'+i+'">Screenshots für dieses Produkt hinzufügen</button> <button data-card-research="'+i+'">Internetrecherche erneut prüfen</button><label class="small" style="display:block"><input data-card-confirm="'+i+'" type="checkbox" '+(p.isinConfirmed?'checked':'')+'> ISIN, Werte und Quellenzeiten am Original geprüft</label>'+
    renderProductSources({...p,index:i})+renderIssuerHelp(p,missing)+screenshotSummary(p.snapshot)+renderScreenshotCurrentState(p,window.liveBundleCache,now)+'<div class="small">'+esc(document.getElementById('dgOcrStatus'+i)?.textContent||'')+'</div><div class="small">'+esc(supplementaryHint(missing))+'</div></div>';
  }).join('');
 }
@@ -1145,7 +1151,7 @@ async function readScreenshot(i,file){
  const status=document.getElementById("dgOcrStatus"+i),field=k=>document.querySelector('[data-dg="'+k+'"][data-i="'+i+'"]');
  if(!file)return;
  const expected=(field("isin")?.value||"").trim().toUpperCase(),version=(rowVersions.get(i)||0)+1;rowVersions.set(i,version);
- if(status)status.textContent="📷 Zusatzbild für "+expected+" wird kostenlos im Browser gelesen …";
+ if(status)status.textContent="📷 "+file.name+" für "+expected+" wird automatisch eingelesen …";rankUI();
  try{
   const result=await recognizeOcr(file,"dgOcrStatus"+i);
   if((rowVersions.get(i)||0)!==version||(field("isin")?.value||"").trim().toUpperCase()!==expected)return;
@@ -1160,7 +1166,7 @@ async function readScreenshot(i,file){
   if(status)status.textContent="✅ Zusatzbild zugeordnet. Gelesene Werte unter Details am Screenshot prüfen. "+(merged.sourceTime?"Kurszeit im Bild: "+merged.sourceTime:"Kurszeit im Bild fehlt.");
   const meta=document.getElementById("dgResearch"+i);if(meta)meta.textContent="📷 "+(x.combinedDraft?.source||'Screenshot')+"-Momentaufnahme · "+(merged.bid!==null?"Geld "+merged.bid+" / Brief "+(merged.ask??"fehlt")+" "+merged.currency+" · ":"")+"keine laufenden Live-Daten. Erkannte Kursnachweis-Felder am Original prüfen und bestätigen; offene Zeiten bleiben gesperrt.";
   rankUI();
- }catch(e){if((rowVersions.get(i)||0)!==version)return;if(status)status.textContent="⚠️ Zusatzbild konnte nicht gelesen werden. Bitte erneut versuchen oder die Angaben unter Details ergänzen.";}
+ }catch(e){if((rowVersions.get(i)||0)!==version)return;if(status)status.textContent="⚠️ Bild konnte nicht eingelesen werden: "+(e?.message||"Unbekannter Fehler")+". Bitte erneut auswählen.";}
 }
 function mergeScreenshotEvidence(previous,x,source){
  previous=previous||{};
@@ -1296,9 +1302,13 @@ function inject(){
   q.appendChild(r);
   r.querySelector("#dgDetailShot"+i).addEventListener("change",async e=>{
    const input=e.target,files=Array.from(input.files||[]),isin=document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value;
+   if(!files.length)return;
    input.value="";input.disabled=true;
+   const status=document.getElementById('dgOcrStatus'+i);
+   if(status)status.textContent='📷 '+files.length+' Bild(er) ausgewählt. Automatisches Einlesen startet …';
+   rankUI();
    try{for(const file of files){if(document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value!==isin)break;await readScreenshot(i,file);}}
-   finally{input.disabled=false;}
+   finally{input.disabled=false;rankUI();}
   });
   r.querySelector('[data-research]').addEventListener('click',()=>enrichProduct(i));
   r.querySelector('[data-dg="confirmed"]').addEventListener('change',()=>{enrichProduct(i);rankUI();});
@@ -1418,7 +1428,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
