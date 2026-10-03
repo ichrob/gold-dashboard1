@@ -95,7 +95,7 @@ try{
   el(key,'change').className='gold-change'+(pct>0?' up':pct<0?' down':'');
   el(key,'basis').textContent=pct===null?'Tagesänderung fehlt':q.changeLabel||'zum Vortagesschluss';
   const old=Number.isFinite(stamp)&&(Date.now()-stamp>120000||stamp>Date.now()+5000);
-  el(key,'state').textContent=expired?'Anmeldung erforderlich':!has?(q?.note||(key==='estimate'?'Schätzung wartet auf aktuelle Eingangsdaten':'Kurs momentan nicht verfügbar')):!Number.isFinite(stamp)?'Kurszeit unbestätigt':old?(q.kind==='calculated'?'Letzte Schätzung · nicht aktuell':'Letzter Stand · nicht aktuell'):q.kind==='calculated'?'Future-Schätzung · automatisch':q.note||'Echtzeit nicht bestätigt';
+  el(key,'state').textContent=expired?'Anmeldung erforderlich':!has?(q?.note||(key==='estimate'?'Schätzung wartet auf aktuelle Eingangsdaten':'Kurs momentan nicht verfügbar')):!Number.isFinite(stamp)?'Kurszeit unbestätigt':q.historical?'Letzte gespeicherte Schätzung · Aktualisierung pausiert':old?(q.kind==='calculated'?'Letzte Schätzung · nicht aktuell':'Letzter Stand · nicht aktuell'):q.kind==='calculated'?'Future-Schätzung · automatisch':q.note||'Echtzeit nicht bestätigt';
   el(key,'time').textContent=Number.isFinite(stamp)?'Stand: '+new Date(stamp).toLocaleString('de-CH',{timeZone:'Europe/Zurich',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})+' (Zürich)':'Kurszeit fehlt';
   el(key,'source').textContent=(q?.kind==='calculated'?'Berechnet · ':'')+(q?.source||'');
  }

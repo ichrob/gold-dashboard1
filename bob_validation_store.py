@@ -97,6 +97,14 @@ def handle(conn, action, payload):
     diagnostics=dict(predictionCount=prediction_count,truthCount=truth_count,pairCount=len(pairs),
                      lastTruthAt=latest[0].isoformat() if latest else None,
                      nearestPredictionSeconds=float(latest[1]) if latest and latest[1] is not None else None)
+    # Display the latest frozen prediction, even if it has no matching truth
+    # yet. Original quote time is never replaced with the archive read time.
+    last_prediction=conn.execute("""SELECT quote_at,price,received_at,reference_at
+        FROM bob_future_predictions WHERE quote_at>=now()-interval '7 days' AND quote_at<=now()
+        ORDER BY quote_at DESC,received_at DESC LIMIT 1""").fetchone()
+    diagnostics['latestEstimate']=(dict(contract='GCZ26',priceAt=last_prediction[0].isoformat(),
+        priceUsd=last_prediction[1],savedAt=last_prediction[2].isoformat(),
+        referenceAt=last_prediction[3].isoformat()) if last_prediction else None)
     return dict(ok=True,key=KEY,pairs=pairs,diagnostics=diagnostics)
 
 
