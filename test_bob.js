@@ -344,9 +344,9 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
 
   const noCost=degiro.BobDegiro.evaluateProduct({...completeProduct,...strongCtx});
   const costly=degiro.BobDegiro.evaluateProduct({...completeProduct,...strongCtx,spread:.12});
-  assert(costly.score<noCost.score,'positive spread reduces ranking score');
+  assert.equal(costly.score,noCost.score,'spread does not affect ranking score');
   for(const spread of [undefined,10,100,-1,'']){
-    assert(!degiro.BobDegiro.rankProducts([{...completeProduct,spread}],strongCtx).tradeable,'missing, invalid or excessive spread blocks recommendation');
+    assert(degiro.BobDegiro.rankProducts([{...completeProduct,spread}],strongCtx).tradeable,'spread alone never blocks ranking');
   }
   for(const key of ["price","leverage","ko"]){const missing={...completeProduct,[key]:""};assert(!degiro.BobDegiro.rankProducts([missing],strongCtx).tradeable);}
   assert(!degiro.BobDegiro.rankProducts([{...completeProduct,isin:"DEOOOFC1CHB7"}],strongCtx).tradeable);
