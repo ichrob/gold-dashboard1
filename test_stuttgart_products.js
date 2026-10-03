@@ -51,3 +51,9 @@ const unconfirmed=b.productTermsStatus({...p,snapshot:{isin,terms:{ratio:{value:
 assert(unconfirmed.reasons.some(x=>x.includes('Bezugsverhältnis: Wert eingelesen')));
 assert.equal(unconfirmed.values.ratio,undefined);
 console.log('Mobile evidence summary and unconfirmed value distinction passed');
+
+const compact=b.compactProductCard({isin:'DE000FG4JXV7',index:1,productDirection:'SHORT',snapshot:{terms:{ratio:{value:.1},strike:{value:4460}}}},['Geld fehlt','Brief fehlt']);
+assert(compact.includes('Erkannte Zahlen geprüft – stimmen überein'));
+assert(compact.includes('data-card-confirm="1"'));assert(compact.includes('data-selection-upload="1"'));
+assert(compact.includes('Quellen und Einzelheiten'));assert(compact.includes('/product-details/fg4jxv'));
+assert.equal((compact.match(/Kursbild: Geld, Brief, Hebel und Quellenzeit/g)||[]).length,1);
