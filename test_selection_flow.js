@@ -8,7 +8,7 @@ p.snapshot={isin,currency:'EUR',bid:20,ask:20.01,sourceTime:'02/10/2026 21:22',e
 const terms=(values)=>Object.fromEntries(Object.entries(values).map(([k,value])=>[k,{value,at:'2026-10-02T19:00:00Z',source:'details.jpg'}]));
 p.snapshot.terms=terms({ratio:.1,strike:4460,underlying:'XAU/USD',type:'Turbo',maturity:'Open End',currency:'EUR',quanto:'Nein'});
 p.snapshot.evidence.KO={value:4460,source:'details.jpg',at:'2026-10-02T19:00:00Z'};
-assert(b.selectionDetailStatus(p,now).complete);assert(b.selectionDetailStatus(p,w.start+90000).complete);assert(!b.selectionDetailStatus(p,w.start+90001).complete);assert(!b.selectionDetailStatus(p,w.start-1).complete);
+assert(b.selectionDetailStatus(p,now).complete);assert(b.selectionDetailStatus(p,w.start+14*3600000).complete);assert(!b.selectionDetailStatus(p,w.start+14*3600000+1).complete);assert(!b.selectionDetailStatus(p,w.start-1).complete);
 assert(!b.selectionDetailStatus({...p,isinConfirmed:false},now).complete);
 assert(!b.selectionDetailStatus({...p,snapshot:{...p.snapshot,evidence:{...p.snapshot.evidence,Brief:{source:'other.jpg',value:20.01}}}},now).complete);
 const context={now,direction:'SHORT',spotFresh:true,spot:4140,atr:10,trend:'SHORT',trend2:'SHORT',mtf:'SHORT',rsi:40,hist:-1,adx:30,momentum:-1};
@@ -66,7 +66,7 @@ for(const mutate of [
  x=>x.snapshot.evidence.KO.at=null,
  x=>x.isinConfirmed=false,
  x=>x.snapshot.isin='DE000FG309G0',
- x=>x.snapshot.times.quote={present:true,text:'02/10/2026 21:20:00 CEST'},
+ x=>x.snapshot.times.quote={present:true,text:'02/10/2026 07:20:00 CEST'},
  x=>x.snapshot.delayed=true
 ]){const bad=JSON.parse(JSON.stringify(imageProduct));mutate(bad);assert(!b.finalProductStatus(bad,now).complete);assert.equal(b.selectionWorkflow([bad],context,{}).groups.length,0);}
 assert(!b.detailScreenshotData(details.replace(isin,'DE000FG309G0'),isin).ok);
@@ -92,7 +92,7 @@ assert(!b.productTermsStatus(wrongFuture,now).complete);
 // A reviewed old manual quote cannot use a fresh derived estimate to enter the final list.
 const incomplete={...p,snapshot:{...p.snapshot,terms:{}}};
 const oldRef={isin,reviewed:true,paired:true,source:'DEGIRO',venue:'SG',bid:20,ask:20.01,quoteAt:new Date(now-100000).toISOString()};
-assert(!b.finalProductStatus({...imageProduct,snapshot:{...imageSnapshot,times:{quote:{present:true,text:'02/10/2026 20:00:00 CEST'}}}},now,oldRef).complete);
+assert(!b.finalProductStatus({...imageProduct,snapshot:{...imageSnapshot,times:{quote:{present:true,text:'02/10/2026 07:00:00 CEST'}}}},now,oldRef).complete);
 assert.equal(b.selectionWorkflow([incomplete],context,{},[oldRef]).groups.length,0);
 console.log('Product completeness, exact contract, independent image clocks and final-ranking gates passed');
 assert(!b.parseProductTerms(details+'\nBedingungenstand: 01/10/2026 21:00:00 CEST').ratio);
@@ -143,7 +143,7 @@ for(const change of [
 }
 const blocked=JSON.parse(JSON.stringify(copies[0]));blocked.snapshot.terms.type.value='Faktor';
 assert.equal(b.selectionWorkflow([blocked,...copies.slice(1)],context,{}).approvedCount,2);
-const expired=b.selectionWorkflow(copies,{...context,now:now+91000},{});
+const expired=b.selectionWorkflow(copies,{...context,now:now+14*3600000+1},{});
 assert.equal(expired.approvedCount,0);assert(expired.requests.every(x=>x.reasons.some(y=>/Kurs|Zeit|Hebel/.test(y))));
 const tight=JSON.parse(JSON.stringify(copies[0]));tight.ko=4141;tight.snapshot.evidence.KO.value=4141;
 assert.equal(b.selectionWorkflow([tight],context,{}).approvedCount,0);
@@ -173,7 +173,7 @@ assert.equal(b.selectionUiSignals({getElementById:()=>null}).momentum,0);
 assert(!b.evaluateProduct({...context,...copies[0],name:'Gold Faktor Short',spot:context.spot}).ok);
 assert(!b.evaluateProduct({...context,...copies[0],name:'Gold Future Turbo Short',spot:context.spot}).ok);
 // Every non-selected product remains visible with an explicit status and reason.
-for(const c of [context,{...context,direction:'NEUTRAL'}, {...context,now:now+91000}]){
+for(const c of [context,{...context,direction:'NEUTRAL'}, {...context,now:now+14*3600000+1}]){
  const products=[...copies,futureOk];const result=b.selectionWorkflow(products,c,{});
  const selected=new Set(result.groups.flatMap(g=>g.candidates).map(p=>p.isin));
  assert.equal(result.notApproved.length,products.length-selected.size);
@@ -209,3 +209,4 @@ assert.equal(verifyPush({...pushInput(copies),bundle:{fetched_at:now/1000-61,spo
 const nearExpiry=pushInput(copies);nearExpiry.bundle.spots.xaus_age_seconds=59;
 assert.equal(verifyPush(nearExpiry,now).products.length,0);
 console.log('Server push evaluator: 0/1/2/3, expiry, conflicting signals, mandatory evidence, contracts and uncertainty passed');
+
