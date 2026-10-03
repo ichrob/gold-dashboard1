@@ -5,6 +5,9 @@ const w=b.selectionTimeWindow('02/10/2026 21:22');assert.equal(w.start,Date.pars
 for(const raw of ['31/02/2026 21:22','25/10/2026 02:30','29/03/2026 02:30','21:22'])assert.equal(b.selectionTimeWindow(raw),null,raw);
 const p={isin,name:'SG Gold Turbo Classic Put BAR 4460',productDirection:'SHORT',price:20.01,leverage:15,ko:4460,isinConfirmed:true};
 p.snapshot={isin,currency:'EUR',bid:20,ask:20.01,sourceTime:'02/10/2026 21:22',evidence:{Geld:{source:'quote.jpg',value:20},Brief:{source:'quote.jpg',value:20.01},Hebel:{source:'quote.jpg',value:15}}};
+const terms=(values)=>Object.fromEntries(Object.entries(values).map(([k,value])=>[k,{value,at:'2026-10-02T19:00:00Z',source:'details.jpg'}]));
+p.snapshot.terms=terms({ratio:.1,strike:4460,underlying:'XAU/USD',type:'Turbo',maturity:'Open End',currency:'EUR',quanto:'Nein'});
+p.snapshot.evidence.KO={value:4460,source:'details.jpg',at:'2026-10-02T19:00:00Z'};
 assert(b.selectionDetailStatus(p,now).complete);assert(b.selectionDetailStatus(p,w.start+90000).complete);assert(!b.selectionDetailStatus(p,w.start+90001).complete);assert(!b.selectionDetailStatus(p,w.start-1).complete);
 assert(!b.selectionDetailStatus({...p,isinConfirmed:false},now).complete);
 assert(!b.selectionDetailStatus({...p,snapshot:{...p.snapshot,evidence:{...p.snapshot.evidence,Brief:{source:'other.jpg',value:20.01}}}},now).complete);
@@ -15,12 +18,13 @@ r=b.selectionWorkflow([{...p,snapshot:null}],context,{});assert.equal(r.requests
 assert(b.isFutureProduct({name:'SG Gold Future Turbo Put'}));
 r=b.selectionWorkflow([{...p,name:'SG Gold Future Faktor Long',productDirection:'LONG'}],{...context,direction:'LONG'},{});assert.equal(r.groups.length,0);assert(r.waiting[0].reason.includes('Faktorprodukt'));
 // A Future never enters a Spot ranking from a fresh screenshot alone.
-r=b.selectionWorkflow([{...p,name:'SG Gold Future Turbo Put'}],context,{});assert.equal(r.groups.length,0);assert(r.waiting[0].reason.toLowerCase().includes('identität'));
+r=b.selectionWorkflow([{...p,name:'SG Gold Future Turbo Put'}],context,{});assert.equal(r.groups.length,0);assert(r.requests[0].reasons.some(x=>x.includes('Future')));
 console.log('selection flow: timestamps, identity, ranking, NEUTRAL and Future boundaries passed');
 
 const at=sec=>new Date(now+sec*1000).toISOString();
 const f={...p,isin:'DE000FG309G0',name:'SG Gold Future Turbo Put',ko:4500};
 f.snapshot={...p.snapshot,isin:f.isin,evidence:{...p.snapshot.evidence,KO:{source:'quote.jpg',value:4500,at:at(0)}}};
+f.snapshot.terms=terms({ratio:.1,strike:4500,underlying:'Gold Future Dec 2026',contract:'GCZ26',type:'Turbo',maturity:'Open End',currency:'EUR',quanto:'Nein'});
 f.quote={isin:f.isin,productVerified:true,metadata:{underlyingType:'FUTURE',contract:'GCZ26'},futureResearch:{contract:'GCZ26',direction:'SHORT',marketOpen:true,tradingEndAt:at(3600),bidAt:at(-1000),askAt:at(-1000),bid:0,ask:0,fxDataAt:at(0),fxEffectiveAt:at(0),ko:4500,strike:4500,ratio:.1,usdEur:.88,calculatedFuture:{available:true,contract:'GCZ26',priceUsd:4000,comparisonErrorUsd:2,priceAt:at(0),referenceAt:at(-900),proxySource:'Gold-API Spot (Berechnung)',validation:{ready:true,sampleCount:21,maxAbsoluteError:2}},contractAnalysis:{available:true,contract:'GCZ26',direction:'SHORT',technicalSourceFamilies:1,checkedAt:at(0),expiresAt:at(180),rsi:40,macdHistogram:-1,atr:20,frames:{'5m':{available:true,ema20:4010},'15m':{available:true},'1h':{available:true,trend:'SHORT',ema50:4020,ema200:4050},'4h':{available:true}}}}};
 const fc=b.conditionalCandidate(f,context,now);assert(fc.ok,fc.reason);assert(fc.priceKind.includes('DEGIRO'));assert.equal(fc.price,20.01);
 r=b.selectionWorkflow([f,p],context,{});assert.equal(r.groups.length,2);assert(r.groups.some(g=>g.scope==='GCZ26 · SHORT'));
@@ -30,3 +34,69 @@ console.log('validated Future + screenshot path works without SG bid/ask; unvali
 
 assert(!b.selectionDetailStatus({...p,snapshot:{...p.snapshot,times:{bid:{present:true,text:"02/10/2026 21:25"}}}},now).complete);
 assert(!b.selectionDetailStatus({...p,snapshot:{...p.snapshot,times:{leverage:{present:true,text:"invalid"}}}},now).complete);
+
+// End-to-end text processing: two images, one ISIN, independent clocks.
+const details=isin+'\nSHORT\nKO 4460\nKO-Zeit: 02/10/2026 21:00:00 CEST\nBezugsverhältnis: 0,100\nBasispreis: 4.460,00 USD\nBasiswert: XAU/USD\nProdukttyp: Turbo\nLaufzeit: Open End\nProduktwährung: EUR\nQuanto: Nein\nProduktdatenstand: 02/10/2026 21:00:00 CEST';
+const quote=isin+'\nSHORT\nEUR\nGeld 20,00\nBrief 20,01\nHebel 15\nKurszeit: 02/10/2026 21:22:00 CEST';
+const detailData=b.detailScreenshotData(details,isin),quoteData=b.detailScreenshotData(quote,isin);
+assert(detailData.ok,detailData.reason);assert(quoteData.ok,quoteData.reason);
+const imageSnapshot=b.mergeScreenshotEvidence(b.mergeScreenshotEvidence(null,quoteData,'quote.jpg'),detailData,'details.jpg');
+const imageProduct={...p,snapshot:imageSnapshot};
+assert.equal(imageSnapshot.terms.ratio.value,.1);assert.equal(imageSnapshot.terms.strike.value,4460);
+assert.equal(imageSnapshot.times.quote.at,quoteData.times.quote.at);
+assert.equal(imageSnapshot.evidence.Geld.at,quoteData.times.quote.at);
+assert.equal(imageSnapshot.evidence.Geld.source,'quote.jpg');
+assert(b.finalProductStatus(imageProduct,now).complete,JSON.stringify(b.finalProductStatus(imageProduct,now)));
+assert.equal(b.selectionWorkflow([imageProduct],context,{}).groups.length,1);
+const reverse=b.mergeScreenshotEvidence(b.mergeScreenshotEvidence(null,detailData,'details.jpg'),quoteData,'quote.jpg');
+assert.deepEqual(JSON.parse(JSON.stringify(reverse.terms)),JSON.parse(JSON.stringify(imageSnapshot.terms)));
+for(const key of ['ratio','strike','underlying','type','maturity','currency','quanto']){
+ const bad=JSON.parse(JSON.stringify(imageProduct));delete bad.snapshot.terms[key];
+ assert(!b.finalProductStatus(bad,now).complete,key);
+ assert.equal(b.selectionWorkflow([bad],context,{}).groups.length,0,key);
+}
+for(const mutate of [
+ x=>x.snapshot.terms.ratio.at='2026-10-01T19:22:29Z',
+ x=>x.snapshot.terms.strike.at='2026-10-02T19:23:00Z',
+ x=>x.snapshot.terms.underlying.value='Gold',
+ x=>x.snapshot.terms.type.value='Faktor',
+ x=>x.snapshot.terms.quanto.value='Ja',
+ x=>x.snapshot.terms.maturity.value='01/10/2026 20:00:00 CEST',
+ x=>x.snapshot.direction='LONG',
+ x=>x.snapshot.evidence.KO.at=null,
+ x=>x.isinConfirmed=false,
+ x=>x.snapshot.isin='DE000FG309G0',
+ x=>x.snapshot.times.quote={present:true,text:'02/10/2026 21:20:00 CEST'},
+ x=>x.snapshot.delayed=true
+]){const bad=JSON.parse(JSON.stringify(imageProduct));mutate(bad);assert(!b.finalProductStatus(bad,now).complete);assert.equal(b.selectionWorkflow([bad],context,{}).groups.length,0);}
+assert(!b.detailScreenshotData(details.replace(isin,'DE000FG309G0'),isin).ok);
+assert(!b.detailScreenshotData(details+'\nDE000FG309G0',isin).ok);
+assert(!b.detailScreenshotData(details+'\nLONG',isin).ok);
+assert(!b.detailScreenshotData(details+'\nBezugsverhältnis: 0,01',isin).ok);
+assert(!b.detailScreenshotData(details.replace('0,100','0'),isin).ok);
+const noQuoteTime=b.detailScreenshotData(quote.replace(/Kurszeit:.*/,'')+'\nProduktdatenstand: 02/10/2026 21:22:00 CEST',isin);
+assert.equal(noQuoteTime.sourceTime,'');
+const noTime=b.mergeScreenshotEvidence(imageSnapshot,noQuoteTime,'undated-quote.jpg');
+assert.equal(noTime.evidence.Geld.at,null);assert(!noTime.times.quote.at);
+assert(!b.finalProductStatus({...p,snapshot:noTime},now).complete);
+const other=b.mergeScreenshotEvidence(imageSnapshot,{isin:'DE000FG309G0',ko:'4500'},'other.jpg');
+assert(!other.terms.ratio);assert(!other.evidence.Geld);
+const update=b.detailScreenshotData(quote.replace('20,00','21,00').replace('20,01','21,01').replace('21:22:00','21:22:20'),isin);
+const updated=b.mergeScreenshotEvidence(imageSnapshot,update,'new-quote.jpg');
+assert.equal(updated.bid,21);assert.equal(updated.ask,21.01);assert.equal(updated.evidence.Geld.at,'2026-10-02T19:22:20.000Z');
+assert.equal(updated.terms.strike.at,imageSnapshot.terms.strike.at);
+const missingFuture=JSON.parse(JSON.stringify(f));delete missingFuture.snapshot.terms.contract;
+assert(!b.productTermsStatus(missingFuture,now).complete);
+const wrongFuture=JSON.parse(JSON.stringify(f));wrongFuture.snapshot.terms.contract.value='GCG27';
+assert(!b.productTermsStatus(wrongFuture,now).complete);
+// A reviewed old manual quote cannot use a fresh derived estimate to enter the final list.
+const incomplete={...p,snapshot:{...p.snapshot,terms:{}}};
+const oldRef={isin,reviewed:true,paired:true,source:'DEGIRO',venue:'SG',bid:20,ask:20.01,quoteAt:new Date(now-100000).toISOString()};
+assert(!b.finalProductStatus({...imageProduct,snapshot:{...imageSnapshot,times:{quote:{present:true,text:'02/10/2026 20:00:00 CEST'}}}},now,oldRef).complete);
+assert.equal(b.selectionWorkflow([incomplete],context,{},[oldRef]).groups.length,0);
+console.log('Product completeness, exact contract, independent image clocks and final-ranking gates passed');
+assert(!b.parseProductTerms(details+'\nBedingungenstand: 01/10/2026 21:00:00 CEST').ratio);
+assert(b.parseProductTerms(details+'\nBedingungenstand: 01/10/2026 21:00:00 CEST').error);
+assert.equal(b.selectionWorkflow([imageProduct,{...imageProduct,ko:4450}],context,{}).groups.length,0);
+const wrongRatio=JSON.parse(JSON.stringify(f));wrongRatio.snapshot.terms.ratio.value=.01;
+assert(!b.productTermsStatus(wrongRatio,now).complete);

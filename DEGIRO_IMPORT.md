@@ -101,3 +101,41 @@ dokumentierter Anbietereinwilligung aufgehoben werden (`BOB_ONVISTA_AUTOMATION_A
 Eine Nutzerfreigabe oder öffentlich sichtbare Kurse sind kein solcher Nachweis.
 Ohne Erlaubnis bleiben die betroffenen SG-Kurse ausdrücklich offen; manuelle
 Screenshotnachweise können weiterhin geprüft werden.
+
+## Pflichtdaten der abschließenden Top 3 (03.10.2026)
+
+Die sichtbare abschließende Auswahl prüft zusätzlich Bezugsverhältnis,
+Basispreis in USD, exakten Basiswert, Produkttyp, Produktwährung, Laufzeit und
+Quanto-Eigenschaft. Bei Futures ist der exakte Kontrakt erforderlich, zum
+Beispiel GCZ26; „Gold“ allein reicht nicht. Faktorprodukte sind ausgeschlossen.
+Quanto-Produkte bleiben ohne eigenes bestätigtes Modell gesperrt.
+
+Produktbedingungen besitzen einen eigenen Quellenstand. Die konservative
+Gültigkeitsgrenze beträgt 24 Stunden, Kursnachweise bleiben bei 90 Sekunden.
+Das ist eine Prüfregel und keine Aussage über Änderungsintervalle des Emittenten.
+Fehlende oder zukünftige Zeitangaben sperren die abschließende Auswahl. Ein
+historisch gespeicherter fester KO-Wert allein reicht dafür nicht mehr aus.
+Die bisherigen Schätzungs- und Teilanalysen bleiben technisch erhalten;
+eine neu berechnete Schätzung erneuert keinen alten Geld-/Briefkurs.
+
+Aus Produktdetailbildern werden beschriftete Angaben erkannt, beispielsweise
+`Bezugsverhältnis: 0,100`, `Basispreis: 4.460,00 USD`, `Basiswert: XAU/USD`,
+`Produkttyp: Turbo`, `Produktwährung: EUR`, `Laufzeit: Open End`, `Quanto: Nein`.
+Für ein Future-Produkt kommen `Basiswert: Gold Future Dec 2026` und
+`Future-Kontrakt: GCZ26` hinzu. Der tatsächlich belegte Quellenstand wird über
+`Produktdatenstand` oder `Bedingungenstand` mit vollständigem Datum, Uhrzeit
+und Zeitzone gelesen. Der KO behält seinen eigenen Nachweis `KO-Zeit`.
+Labels oder Zeitangaben dürfen nicht erfunden werden. Fehlt der Stand im
+Original, zeigt Bob ihn als fehlend an; ein erneuter Upload behebt das nicht.
+Fälligkeiten erfordern einen eindeutigen Zeitpunkt; Open End muss explizit
+belegt sein. Widersprüchliche Mehrfachwerte werden zurückgewiesen.
+
+Reine Detailbilder erhalten Geld-/Briefwerte, Bildquelle und sämtliche
+Kurszeitfelder. Neue Kursbilder ersetzen diese zusammen; ein undatiertes neues
+Kursbild darf keine alte Kurszeit erben. Produktbedingungen behalten ihre
+eigenen Quellenzeiten. Daten einer anderen ISIN werden nie zusammengeführt.
+Ein Produktdatenstand oder Fälligkeitsdatum wird nicht als Kurszeit verwendet.
+
+Regressionstest: `node test_selection_flow.js` umfasst den Weg von OCR-Texten
+über beide Bildreihenfolgen, Zusammenführung, Pflichtdaten- und Altersprüfung
+bis zur Top 3. Synthetische OCR-Texte belegen keine Erkennungsquote realer Bilder.
