@@ -269,14 +269,16 @@ def get_quote(isin):
     isin = str(isin or '').strip().upper()
     if not valid_isin(isin):
         return dict(found=False, eligible=False, fresh=False, reason='ISIN-Prüfziffer ungültig')
-    from stuttgart_products import get_product
+    from public_product_terms import get_product
     terms = get_product(isin)
+    if terms.get('productVerified') and terms.get('metadata', {}).get('status') == 2:
+        return terms
     issuer = get_issuer_quote(isin)
     if not terms.get('productVerified'):
         if issuer.get('found'):
             return dict(issuer, exchangeResearch=terms)
         return dict(issuer, exchangeResearch=terms, sourceDisabled=False,
-                    sourceFailure=True, source='Börse Stuttgart',
+                    sourceFailure=True, source=terms.get('source', 'Öffentliche Produktrecherche'),
                     reason=terms.get('reason', 'Produktrecherche nicht verfügbar'))
     if not issuer.get('found'):
         return terms

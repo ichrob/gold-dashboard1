@@ -3,6 +3,7 @@ from unittest.mock import patch
 from datetime import datetime, timezone
 import stuttgart_products as s
 import product_quotes as q
+import public_product_terms as public
 
 ISIN='DE000FG309G0'
 NOW=datetime(2026,10,3,18,tzinfo=timezone.utc)
@@ -31,14 +32,14 @@ class StuttgartTests(unittest.TestCase):
             self.assertEqual(s.parse_page(page,ISIN,NOW)['metadata']['status'],2)
     def test_terms_reach_existing_api(self):
         terms=s.parse_page(PAGE,ISIN,NOW)
-        with patch.object(s,'get_product',return_value=terms),patch.object(q,'get_issuer_quote',return_value={'found':False}):
+        with patch.object(public,'get_product',return_value=terms),patch.object(q,'get_issuer_quote',return_value={'found':False}):
             self.assertEqual(q.get_quote(ISIN),terms)
     def test_knockout_overrides_issuer_eligibility(self):
         terms=s.parse_page('Das Wertpapier wurde ausgeknockt. '+PAGE,ISIN,NOW)
-        with patch.object(s,'get_product',return_value=terms),patch.object(q,'get_issuer_quote',return_value={'found':True,'eligible':True}):
+        with patch.object(public,'get_product',return_value=terms),patch.object(q,'get_issuer_quote',return_value={'found':True,'eligible':True}):
             self.assertFalse(q.get_quote(ISIN)['eligible'])
     def test_failed_exchange_keeps_issuer_quote(self):
-        with patch.object(s,'get_product',return_value={'productVerified':False}),patch.object(q,'get_issuer_quote',return_value={'found':True,'bid':12}):
+        with patch.object(public,'get_product',return_value={'productVerified':False}),patch.object(q,'get_issuer_quote',return_value={'found':True,'bid':12}):
             self.assertEqual(q.get_quote(ISIN)['bid'],12)
     def test_invalid_isin_never_requests(self):
         with patch.object(s,'urlopen') as fetch:
