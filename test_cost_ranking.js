@@ -2,7 +2,7 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const window={};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),{window});
 const b=window.BobDegiro,now=Date.parse('2026-10-02T10:00:00Z'),at=new Date(now).toISOString();
 const ctx={now,spot:4000,spotFresh:true,direction:'LONG',atr:20,trend:'LONG',trend2:'LONG',mtf:'LONG',rsi:60,hist:1,adx:30,momentum:1};
-const cost=isin=>({isin,source:'Synthetic tariff, not real DEGIRO fees',asOf:at,roundTripEur:2,financingDailyPct:.01,positionEur:1000,holdingDays:1});
+const cost=isin=>({isin,source:'Synthetic tariff, not real DEGIRO fees',asOf:at,roundTripEur:2,financingDailyPct:.01,positionEur:1000,holdingDays:1,scenarioExplicit:true});
 const p={isin:'DE000FC1CHB7',name:'Synthetic Gold Turbo',spot:4000,isinConfirmed:true,price:40,spread:.04,ko:3600,leverage:5,productDirection:'LONG',at,costs:cost('DE000FC1CHB7')};
 const assess=changes=>b.evaluateProduct({...p,...ctx,...changes});
 const rank=products=>b.rankProducts(products,ctx);
@@ -21,10 +21,10 @@ assert(assess({ko:3920}).score<base.score);
 for(const changes of [{ko:3980},{ko:4000},{ko:4100},{ko:null},{leverage:null},{price:null}])assert(!assess(changes).fit,JSON.stringify(changes));
 assert(!assess({atr:300}).fit,'insufficient volatility buffer');
 assert(assess({atr:null}).score<base.score,'unknown volatility is penalized');
-const unknown=assess({costs:null});assert.equal(unknown.costRisk.totalCostsPct,null);assert(unknown.score<base.score);
+const unknown=assess({costs:{positionEur:1000,holdingDays:1,scenarioExplicit:true}});assert.equal(unknown.costRisk.totalCostsPct,null);assert(unknown.score<base.score);
 assert(unknown.reasons.join(' ').includes('unbekannt'));
 const zero=assess({costs:{...p.costs,roundTripEur:0,financingDailyPct:0}});assert(zero.score>unknown.score);
-for(const change of [{source:''},{asOf:'2026-08-01T00:00:00Z'},{asOf:'2026-10-03T00:00:00Z'},{asOf:'2026-10-02T10:00:00'},{isin:'DE000PJ9NCK0'},{positionEur:2000},{holdingDays:2}]){
+for(const change of [{source:''},{asOf:'2026-08-01T00:00:00Z'},{asOf:'2026-10-03T00:00:00Z'},{asOf:'2026-10-02T10:00:00'},{isin:'DE000PJ9NCK0'}]){
  const e=assess({costs:{...p.costs,...change}});assert.equal(e.costRisk.totalCostsPct,null,JSON.stringify(change));assert.equal(e.score,unknown.score);
 }
 for(const change of [{roundTripEur:null},{roundTripEur:-1},{roundTripEur:''},{financingDailyPct:null},{financingDailyPct:-1}])assert.equal(assess({costs:{...p.costs,...change}}).costRisk.totalCostsPct,null);
@@ -62,3 +62,10 @@ const missingTerms={...withShot,snapshot:{...shot,terms:{}}};assert.equal(b.sele
 const hostile=assess({costs:{...p.costs,source:'<script>bad</script>'}});
 const rendered=b.renderSelectionWorkflow({...blocked,waiting:[{isin:p.isin,reason:hostile.reasons.join(' ')}]});assert(!rendered.includes('<script>'));
 console.log('Cost/risk scenarios passed:',JSON.stringify({lowCosts:base.score,wideSpread:wide.score,unknownCosts:unknown.score,highLeverage:assess({leverage:15}).score,missingAtr:assess({atr:null}).score,neutral:'ABWARTEN',tightFuture:'ABWARTEN'}));
+
+const noPlan=assess({costs:null});assert.equal(noPlan.costRisk.totalCostsPct,null);assert.equal(noPlan.costRisk.parts.trading,0);assert.equal(noPlan.costRisk.parts.financing,0);assert(noPlan.reasons.join(' ').includes('noch nicht berechnet'));
+assert.equal(assess({costs:{...p.costs,scenarioExplicit:false}}).costRisk.scenarioComplete,false);
+for(const change of [{positionEur:null},{holdingDays:null},{positionEur:0},{holdingDays:-1}])assert.equal(assess({costs:{...p.costs,...change}}).costRisk.scenarioComplete,false);
+assert.equal(assess({costs:{...p.costs,positionEur:2000,holdingDays:2}}).costRisk.tradingPct,.1);
+assert.equal(assess({costs:{...p.costs,positionEur:2000,holdingDays:2}}).costRisk.financingPct,.02);
+assert.equal(assess({costs:{...p.costs,holdingDays:.25}}).costRisk.financingPct,.0025);
