@@ -827,9 +827,28 @@ function selectionWorkflow(products,context={},bundle,references=[]){
   const contractHelp=productTermsStatus(p,now).reasons.filter(reason=>reason.startsWith('Exakter Gold-Future-Kontrakt fehlt'));
   const reasons=[...result.gateReasons,...(request?.reasons||[]),...(waiting?[waiting.reason]:[]),...contractHelp];
   if(!reasons.length)reasons.push(eligibleIds.has(p.isin)?'Grundsätzlich geeignet, aber derzeit nicht unter den höchstens drei ausgewählten Produkten. Keine Freigabe in dieser Auswahl.':'Pflichtprüfung nicht bestanden: aktuelle Produkt- und Marktnachweise prüfen');
-  return {isin:p.isin,name:p.name,index:p.index,reasons:[...new Set(reasons)]};
+  return {isin:p.isin,name:p.name,index:p.index,reasons:[...new Set(reasons)],missingReasons:finalProductStatus(p,now,references[p.index-1]).reasons};
  }));
  result.stage=result.approved?'TOP3':'ABWARTEN';return result;
+}
+function renderMissingValues(reasons){
+ const values=[...new Set(reasons||[])];if(!values.length)return '';
+ const location=reason=>{
+  if(/Future-Kontrakt|Futures-Kontrakt/.test(reason))return 'DEGIRO → Produktdetails → Dokumente → Endgültige Bedingungen. Im Dokument zuerst nach der ISIN suchen, dann nach Basiswert / Underlying oder Referenzkontrakt / Futures Contract. Benötigt: Kontraktmonat/Jahr und Börse; bei Kontraktwechseln auch Roll / Rollover prüfen.';
+  if(/Geld|Brief|Kurszeit|Kursbild|Produktkurs|Kursnachweis/.test(reason))return 'DEGIRO → Produkt öffnen → Kursansicht: Geld (Bid), Brief (Ask), Währung und zugehöriges Kursdatum mit Uhrzeit aufnehmen. Die Handy-Uhr allein ist kein Kurszeitnachweis.';
+  if(/Hebel/.test(reason))return 'DEGIRO → Produktdetails: Hebel samt zugehörigem Datenstand aufnehmen.';
+  if(/KO|Barriere/.test(reason))return 'DEGIRO → Produktdetails: Knock-out-Schwelle / Barriere (BAR) samt Datenstand. Falls dort nicht sichtbar: aktuelle Produktdaten beim Emittenten.';
+  if(/ISIN|Bildzuordnung|Detailbild|Original|Long\/Short/.test(reason))return 'DEGIRO → Produktdetails: ISIN und vollständigen Produktnamen mit Long/Call oder Short/Put zeigen; erkannte Angaben mit dem Original vergleichen.';
+  if(/Basispreis|Finanzierungslevel/.test(reason))return 'DEGIRO → Produktdetails: Basispreis (BP) / Finanzierungslevel mit aktuellem Datenstand. Falls dort nicht sichtbar: aktuelle Produktdaten beim Emittenten.';
+  if(/Bezugsverhältnis/.test(reason))return 'Produktdetails oder Dokumente → Endgültige Bedingungen: nach Bezugsverhältnis / Ratio suchen und die vollständige Definition aufnehmen.';
+  if(/Basiswert/.test(reason))return 'Produktdetails → Dokumente → Endgültige Bedingungen: Basiswert / Underlying zur passenden ISIN. Gold Spot und Gold Future müssen eindeutig unterscheidbar sein.';
+  if(/Quanto|Währungsabsicherung/.test(reason))return 'Produktdetails → Dokumente → Endgültige Bedingungen: Quanto / Währungsabsicherung. Die Produktwährung EUR allein bestätigt keine Absicherung.';
+  if(/Währung/.test(reason))return 'Produktdetails oder Endgültige Bedingungen: Produktwährung / Auszahlungswährung zur passenden ISIN.';
+  if(/Laufzeit|Fälligkeit|abgelaufen/.test(reason))return 'Produktdetails oder Endgültige Bedingungen: Laufzeit / Fälligkeit beziehungsweise Open End.';
+  if(/Produkttyp|Produktart|Faktorprodukt/.test(reason))return 'Produktdetails: vollständiger Produktname und Produktart; alternativ Dokumente → Basisinformationsblatt. Faktorprodukte bleiben ausgeschlossen.';
+  return 'Produktdetails und zugehörige Dokumente zur passenden ISIN mit dem gespeicherten Nachweis vergleichen.';
+ };
+ return '<details class="small" data-missing-values style="margin-top:8px"><summary style="cursor:pointer;padding:8px 0"><strong>Fehlende Werte</strong></summary><div>Fehlende, veraltete oder widersprüchliche Angaben:</div><ul>'+values.map(reason=>'<li style="margin:10px 0"><strong>'+esc(reason.startsWith('Exakter Gold-Future-Kontrakt fehlt')?'Exakter Future-Kontrakt fehlt oder ist nicht aktuell bestätigt':reason)+'</strong><br>Wo finden: '+esc(location(reason))+'</li>').join('')+'</ul><div>Gut lesbare Screenshots mit ISIN, Feldnamen und Datenstand über „Detailbilder ergänzen“ bei diesem Produkt hochladen. Bei Tabellen die passende Zeile samt Spaltenüberschriften aufnehmen. Falls Dokumente bei DEGIRO fehlen, auf der Emittentenseite nach derselben ISIN suchen.</div></details>';
 }
 function renderSelectionWorkflow(r){
  const steps='<div class="small">Listenbilder → unverbindliche Kandidaten → Pflichtprüfung → bis zu 3 geeignete Produkte</div><details><summary class="small">So bewertet Bob Kosten und Risiko</summary><div class="small">Risiko-/Datenwert: 100 minus Abzüge für Handels- und Finanzierungskosten, KO und Datenqualität. Spread nur zur Information: kein Punkteabzug und keine Spread-Sperre. Die Hebelhöhe allein bringt weder Plus- noch Minuspunkte. Vergleich: 1.000 EUR / 1 Kalendertag. Unbekannte Kosten erhalten jeweils den vollen 10-Punkte-Abzug; kein bestätigter Kostenvorteil. Mindestwert 60. Gleiche Werte bedeuten Gleichstand; ISIN sortiert nur die Anzeige. Kostennachweise unter Details / manuelle Kursnachweise.</div></details>';
@@ -838,7 +857,7 @@ function renderSelectionWorkflow(r){
  '<div class="small">'+esc((r.gateReasons||[]).join(' · '))+'</div>'+
  '<div class="small">'+r.total+' unterschiedliche Produkte. Vorauswahl nach Analyse-Richtung '+esc(r.direction)+'; fehlende Preise erhalten keine Rangpunkte.</div>'+
  r.groups.map(g=>'<div style="margin-top:12px"><b>'+esc(g.scope)+' · '+g.total+' bewertbare Produkte</b>'+g.candidates.map((c,i)=>'<div style="padding:10px;margin-top:8px;border:1px solid #dbe4f0;border-radius:12px"><b>Platz '+(i+1)+' · '+esc(c.isin)+'</b><div class="small">'+esc(c.name)+'<br>'+esc(c.priceKind)+' · Brief '+Number(c.price).toFixed(2)+' EUR · Risiko-/Datenwert '+c.score+'/100<br>Warum: '+esc((c.reasons||[]).slice(0,3).join(' · '))+'<br>Quelle '+esc(c.source||'Produktnachweis')+' · Datenzeit '+esc(c.at)+(c.quoteAt?' · Produktkurszeit '+esc(c.quoteAt):'')+(c.quality?'<br>'+esc(qualityText(c.quality,'USD')):'')+'</div></div>').join('')+'</div>').join('')+
- (notApproved.length?'<div style="margin-top:14px"><b>Weitere Produkte · nicht freigegeben ('+notApproved.length+')</b>'+notApproved.map(p=>'<div data-selection-blocked="'+p.index+'" style="padding:10px;margin-top:8px;border:1px solid #d1d5db;border-radius:12px;background:#f8fafc"><b>'+esc(p.isin)+'</b> · '+esc(p.name||'')+'<div class="small"><strong>Nicht freigegeben</strong><br>Begründung: '+esc(p.reasons.join(' · '))+'</div><button data-selection-upload="'+p.index+'">Detailbilder ergänzen</button></div>').join('')+'</div>':'')+
+ (notApproved.length?'<div style="margin-top:14px"><b>Weitere Produkte · nicht freigegeben ('+notApproved.length+')</b>'+notApproved.map(p=>'<div data-selection-blocked="'+p.index+'" style="padding:10px;margin-top:8px;border:1px solid #d1d5db;border-radius:12px;background:#f8fafc"><b>'+esc(p.isin)+'</b> · '+esc(p.name||'')+'<div class="small"><strong>Nicht freigegeben</strong><br>Begründung: '+esc(p.reasons.filter(reason=>!(p.missingReasons||[]).includes(reason)).join(' · ')||'Produktnachweise unvollständig – siehe fehlende Werte')+'</div>'+renderMissingValues(p.missingReasons)+'<button data-selection-upload="'+p.index+'">Detailbilder ergänzen</button></div>').join('')+'</div>':'')+
  '<div class="small" style="margin-top:10px">Spot und Future werden getrennt bewertet. Weniger als drei belegte Produkte ergeben eine kürzere Liste. Freigabe gilt ausschließlich für diese geprüfte Produktauswahl, nicht als Handelsauftrag oder garantierter bester Trade. Kandidaten mit offenen Nachweisen bleiben gesperrt; tatsächlichen DEGIRO-Preis vor dem Einstieg prüfen.</div>';
 }
 

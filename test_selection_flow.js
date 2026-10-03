@@ -241,3 +241,18 @@ for(const direction of ['NEUTRAL','LONG']){
 }
 const confirmed=b.selectionWorkflow([f],{...context,direction:'NEUTRAL'},{});
 assert(!confirmed.notApproved[0].reasons.some(x=>x.startsWith('Exakter Gold-Future-Kontrakt fehlt')));
+
+
+// Missing evidence stays collapsed and separate from market reasons.
+const folded=b.selectionWorkflow([{...f,snapshot:null}],{...context,direction:'NEUTRAL'},{});
+const foldedHtml=b.renderSelectionWorkflow(folded);
+assert(folded.notApproved[0].missingReasons.some(x=>x.includes('Bezugsverhältnis')));
+assert(foldedHtml.includes('<strong>Fehlende Werte</strong>'));
+assert(foldedHtml.includes('Wo finden:'));
+assert(!/<details[^>]*data-missing-values[^>]*\\bopen\\b/.test(foldedHtml));
+const beforeFold=foldedHtml.slice(0,foldedHtml.indexOf('data-missing-values'));
+assert(beforeFold.includes('Marktsignal neutral'));
+assert(!beforeFold.includes('Referenzkontrakt / Futures Contract'));
+assert(!beforeFold.includes('Exakter Gold-Future-Kontrakt fehlt'));
+const completeFold=b.renderSelectionWorkflow(b.selectionWorkflow([p],{...context,direction:'NEUTRAL'},{}));
+assert(!completeFold.includes('data-missing-values'));
