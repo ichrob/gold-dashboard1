@@ -446,26 +446,24 @@ function costRiskAssessment(p){
  const atrMultiple=distance!==null&&atr>0?distance/atr:null;
  if(koPct!==null){parts.ko=Math.min(25,Math.max(0,(5-koPct)*5));if(koPct<1)blocked.push('KO-Abstand unter 1%');}
  if(atrMultiple!==null){parts.ko=Math.min(25,parts.ko+Math.max(0,(3-atrMultiple)*5));if(atrMultiple<1.5)blocked.push('KO-Puffer kleiner als 1,5 ATR');}
- else {parts.data+=5;warnings.push('ATR fehlt: Volatilitätspuffer nicht vollständig prüfbar.');}
+ else {warnings.push('ATR fehlt: Volatilitätspuffer nicht vollständig prüfbar.');}
  parts.leverage=0; // Valid leverage is informational; missing/invalid values still fail completeness.
  const error=n(p.rankingUncertaintyUsd),basis=n(p.rankingBasisUsd)??spot;
  if(error!==null&&error>0&&ko>0){
   const centralDistance=Math.abs(basis-ko);
   if(centralDistance<=3*error)blocked.push('KO-Abstand höchstens dreifache beobachtete Future-Abweichung');
-  parts.data+=Math.min(10,10*error/Math.max(.0001,centralDistance));
  }
  const estimated=p.estimated===true||p.rankingEstimated===true;
- if(estimated){parts.data+=5;if(p.rankingEstimateValidated!==true){parts.data+=5;warnings.push('Schätzgenauigkeit nicht bestätigt.');}}
+ if(estimated){if(p.rankingEstimateValidated!==true){warnings.push('Schätzgenauigkeit nicht bestätigt.');}}
  const quoteAt=p.rankingQuoteAt||q?.quoteAt||shot?.evidence?.Geld?.at||shot?.sourceTime||p.at;
  const iso=/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(String(quoteAt||''))?Date.parse(quoteAt):NaN;
  const window=Number.isFinite(iso)?{start:iso}:selectionTimeWindow(quoteAt),quoteAge=window?now-window.start:null;
- if(quoteAge===null||quoteAge<0||quoteAge>90000){parts.data+=10;warnings.push('Kurszeit fehlt oder ist veraltet; keine Live-Freigabe.');}
- else parts.data+=Math.min(5,quoteAge/90000*5);
- parts.data=Math.min(20,parts.data);
+ if(quoteAge===null||quoteAge<0||quoteAge>90000){warnings.push('Kurszeit fehlt oder ist veraltet; keine Live-Freigabe.');}
+ parts.data=0; // Data quality is informational only; eligibility gates remain unchanged.
  reasons.push('Risiko: KO '+(koPct===null?'unbekannt':koPct.toFixed(2)+'%')+(atrMultiple===null?' · ATR unbekannt':' / '+atrMultiple.toFixed(1)+' ATR')+'; Hebel '+(lev===null?'unbekannt':lev.toFixed(2)+'×')+' (ohne pauschale Plus- oder Minuspunkte)'+(error>0?'; Future-Abweichung ±'+error.toFixed(2)+' USD, dreifacher Fehlerpuffer verlangt':''));
  const penalty=Object.values(parts).reduce((a,b)=>a+b,0),score=Math.round(Math.max(0,100-penalty)*10)/10;
- reasons.push('Daten: '+(estimated?'Schätzung':'Kursangabe')+'; Abzüge KO '+parts.ko.toFixed(1)+', Hebel '+parts.leverage.toFixed(1)+', Daten '+parts.data.toFixed(1)+' Punkte');
- if(score<60)blocked.push('Risiko-/Datenwert unter 60/100');
+ reasons.push('Daten: '+(estimated?'Schätzung':'Kursangabe')+'; Abzüge KO '+parts.ko.toFixed(1)+', Hebel '+parts.leverage.toFixed(1)+' Punkte; Datenqualität ohne Gewichtung');
+ if(score<60)blocked.push('Risikowert unter 60/100');
  return {score,fit:!blocked.length,parts,spreadPct,tradingPct,financingPct,knownCostsPct,totalCostsPct:null,reasons:blocked.map(x=>'ABWARTEN: '+x).concat(reasons),warnings};
 }
 
