@@ -6,7 +6,7 @@ const p={isin,isinConfirmed:true,productDirection:'LONG',ko:4143.437,quote:{isin
 const status=b.productTermsStatus(p,now);
 assert.equal(status.values.ratio,.1);assert.equal(status.values.underlying,'XAU/USD');
 assert(!status.complete);assert(status.reasons.some(x=>x.includes('nicht aktiv')));
-assert(status.reasons.some(x=>x.includes('datierter Basispreis')));
+assert(status.reasons.some(x=>x.includes('Basispreis in USD: Wert fehlt')));
 assert(status.reasons.some(x=>x.includes('datierter Produktnachweis')));
 console.log('Stuttgart terms/status/freshness tests passed');
 
@@ -42,3 +42,12 @@ console.log('SG numeric/date-only import, identity rejection and KO conflict exp
 const originalSgOcr='21:40 BHG « 451 ED\n= Q BB ESSERE.e | ZERTIFIKATE\nStammdaten\nISIN DEOOOFG4JXV7\nWKN FG4JXV\nClassic Turbo-\n\nProduktare Optionsscheine\nAbwicklungsart © Barausgleich\nBasiswert @ Gold\nBezugsverhaltnis © 10:1\nTyp Put\nBasispreis © 4.460,000 USD\nKnock-Out-Barriere 4,460,000 USD\n@\nKnock-Out Zeit 00:00 - 24:00\nAusgabetag © 10.09.2026\nfinaler Bewertungstag 18.12.2026\n0)\n\nFalligkeitstag © 28.12.2026\nIm Durchschnitt erleiden 7 von 10 Kleinanlegern Verluste\nbeim Handel mit Turbo-Optionsscheinen. Turbo-\nOptionsscheine sind hoch risikoreiche Produkte und\nnicht fiir langfristige Anlagestrategien geeignet.\n\nIII O <\n';
 const realImageResult=b.detailScreenshotData(originalSgOcr,"DE000FG4JXV7");
 assert(realImageResult.ok);assert.equal(realImageResult.ko,"4460");assert.equal(realImageResult.terms.strike.value,4460);assert.equal(realImageResult.terms.ratio.value,.1);assert(realImageResult.terms.ko.ocrCorrection);assert.equal(realImageResult.terms.ko.at,null);
+
+const summary=b.screenshotSummary({terms:{ratio:{value:.1,source:'SG'},ko:{value:4460,source:'SG'}},evidence:{KO:{value:4460,source:'SG'}},listEvidence:{source:'Liste',ratioText:'Bv 10 – Berechnungsfaktor noch nicht bestätigt'}});
+assert(!summary.includes('<table'));assert.equal((summary.match(/KO-Barriere/g)||[]).length,1);
+assert(summary.includes('Bezugsverhältnis eingelesen: 0.1'));assert(!summary.includes('Berechnungsfaktor noch'));
+assert(summary.includes('noch nicht bestätigt'));
+const unconfirmed=b.productTermsStatus({...p,snapshot:{isin,terms:{ratio:{value:.1,source:'SG'}}}},now);
+assert(unconfirmed.reasons.some(x=>x.includes('Bezugsverhältnis: Wert eingelesen')));
+assert.equal(unconfirmed.values.ratio,undefined);
+console.log('Mobile evidence summary and unconfirmed value distinction passed');
