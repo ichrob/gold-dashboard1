@@ -55,6 +55,7 @@ def restore_spot_observations(observations, now=None):
 
 
 def stamp(value):
+    if not isinstance(value,str):raise ValueError('Kurszeit fehlt oder ist ungültig')
     at = datetime.fromisoformat(value.replace('Z', '+00:00'))
     if at.tzinfo is None:
         raise ValueError('Kurszeit ohne Zeitzone')

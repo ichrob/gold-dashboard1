@@ -537,13 +537,21 @@ function buildMtfHierarchy(byTf,valid=true){
  return {overall:primary===1?"LONG":"SHORT",bias,roles:{regime:d4,trend:d1,setup:d15,timing:d5},reason:"4h Regime · 1h Trend · 15m Setup · 5m Timing"};
 }
 function aggregateBrowserBars(bars, minutes){
- const step=minutes*60*1000, buckets=new Map();
- for(const b of (bars||[])){
-  const bucket=Math.floor(Number(b.openTime)/step)*step;
-  const x=buckets.get(bucket)||{openTime:bucket,open:b.open,high:b.high,low:b.low,close:b.close,isOpen:false,instrument:b.instrument};
-  x.high=Math.max(x.high,b.high);x.low=Math.min(x.low,b.low);x.close=b.close;buckets.set(bucket,x);
+ const base=({15:5,240:60})[minutes];if(!base)return [];
+ const step=minutes*60000,sourceStep=base*60000,groups=new Map();
+ for(const b of bars||[]){
+  const ts=b.openTime,prices=[b.open,b.high,b.low,b.close];
+  if(!Number.isFinite(ts)||ts<=0||ts%sourceStep||!prices.every(v=>typeof v==='number'&&Number.isFinite(v)&&v>0)||b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)||b.low>b.high)continue;
+  const bucket=Math.floor(ts/step)*step;
+  if(!groups.has(bucket))groups.set(bucket,[]);groups.get(bucket).push(b);
  }
- return [...buckets.values()].sort((a,b)=>a.openTime-b.openTime);
+ const out=[];
+ for(const [ts,items] of groups){
+  items.sort((a,b)=>a.openTime-b.openTime);
+  if(items.length!==minutes/base||items.some((b,i)=>b.openTime!==ts+i*sourceStep)||new Set(items.map(b=>b.instrument||'unknown')).size!==1)continue;
+  out.push({openTime:ts,open:items[0].open,high:Math.max(...items.map(b=>b.high)),low:Math.min(...items.map(b=>b.low)),close:items.at(-1).close,instrument:items[0].instrument||'unknown',isOpen:Date.now()<ts+step||items.some(b=>b.isOpen)});
+ }
+ return out.sort((a,b)=>a.openTime-b.openTime);
 }
 function barsFromIntraday(points, minutes){
   const step=minutes*60*1000, buckets=new Map();
@@ -568,12 +576,19 @@ async function reportBobDiag(event,details={}){
 }
 var liveBundleCache=null, liveBundleAt=0;
 var directSpotBundle=null;
+function parseDirectSpot(data, now=Date.now()){
+ const price=data?.spot_usd_oz,at=data?.price_as_of,age=now-Date.parse(at);
+ if(typeof price!=="number"||!Number.isFinite(price)||price<=0||data?.data_state?.status!=="fresh"||data.stale!==false||data.xau?.currency!=="USD"||data.xau?.unit!=="troy_oz")throw Error("XAUS liefert keinen bestätigten aktuellen XAU/USD-Preis");
+ if(typeof at!=="string"||!/(?:Z|[+-]\d{2}:\d{2})$/.test(at)||!Number.isFinite(age)||age<0||age>180000)throw Error("XAUS-Quellenzeit fehlt oder ist nicht aktuell");
+ return {price,at,age};
+}
 async function fetchLiveBundle(force=false){
  const now=Date.now();
  const diag=$("quickReason");
  if(diag)diag.textContent="Verbinde mit Bob Live-Daten …";
  console.info("[BOB] live:start",new Date(now).toISOString());
  if(!force&&liveBundleCache&&now-liveBundleAt<30000)return liveBundleCache;
+ directSpotBundle=null; // Never reuse an older cycle as a fresh fallback.
  // Primary browser heartbeat: XAUS explicitly supports CORS and returns XAU/USD spot directly.
  // This prevents a slow/blocked Render upstream from hiding the live price in Bob.
  try{
@@ -582,10 +597,7 @@ async function fetchLiveBundle(force=false){
   let r0;
   try{r0=await fetch("https://xaus.com/api/v1/spot?compact=1&fresh="+now,{cache:"no-store",signal:controller0.signal})}finally{clearTimeout(timer0)}
   if(!r0.ok)throw Error("XAUS HTTP "+r0.status);
-  const d0=await r0.json(),p0=Number(d0?.spot_usd_oz),state0=d0?.data_state?.status;
-  const age0=d0?.price_as_of?Date.now()-Date.parse(d0.price_as_of):null;
-  if(!Number.isFinite(p0)||p0<=0||state0==="unavailable")throw Error("XAUS liefert keinen gültigen XAU/USD-Preis");
-  if(age0!==null&&(!Number.isFinite(age0)||age0<0||age0>180000))throw Error("XAUS-Preis ist zu alt");
+  const d0=await r0.json(),observed=parseDirectSpot(d0),p0=observed.price,age0=observed.age,state0=d0.data_state.status;
   const direct={
    fetched_at:Math.floor(Date.now()/1000),
    spots:{spot_price_as_of:d0.price_as_of||null,is_genuine_xauusd_spot:d0.xau?.currency==="USD"&&d0.xau?.unit==="troy_oz"&&state0==="fresh"&&d0.stale===false,spot_source_type:"XAU/USD spot",xaus:p0,goldprice:p0,yahoo_gc_f:null,diff:0,pct:0,xaus_age_seconds:age0!==null?age0/1000:null,goldprice_age_seconds:age0!==null?age0/1000:null,usd_eur:null,usd_chf:null,goldprice_status:"XAUS · direkt",xaus_is_spot:true,primary:"XAUS · direkt",reference:"Yahoo Finance GC=F",reference_note:"GC=F ist Gold-Futures, nicht XAU/USD Spot",spot_error:state0==="stale"?"XAUS liefert den letzten bekannten realen Preis (stale)":null},
@@ -746,11 +758,8 @@ async function fetchLiveBundle(force=false){
    let r;
    try{r=await fetch("https://xaus.com/api/v1/spot?compact=1",{cache:"no-store",signal:controller2.signal})}finally{clearTimeout(timer2)}
    if(!r.ok)throw Error("XAUS-Spot-Fallback HTTP "+r.status);
-   const data=await r.json(),price=Number(data?.spot_usd_oz),state=data?.data_state?.status;
-   if(!Number.isFinite(price)||price<=0||state==="unavailable")throw Error("XAUS liefert keinen gültigen XAU/USD-Preis");
-   const age=data?.updated_at?Math.max(0,Date.now()-Date.parse(data.updated_at)):null;
-   if(age!==null&&age>180000)throw Error("XAUS-Spot ist zu alt");
-   const j={fetched_at:Math.floor(Date.now()/1000),spots:{xaus:price,goldprice:price,yahoo_gc_f:null,diff:0,pct:0,xaus_age_seconds:age!==null?age/1000:null,goldprice_age_seconds:age!==null?age/1000:null,usd_eur:null,usd_chf:null,goldprice_status:"XAUS · browser fallback",xaus_is_spot:true,primary:"XAUS · browser fallback",reference:"Yahoo Finance GC=F",reference_note:"GC=F ist Gold-Futures, nicht XAU/USD Spot",spot_error:"Server-Live-API nicht erreichbar"},history:{bars_by_tf:{},points:[],data_state:{status:"partial",source:"XAUS XAU/USD Spot · Browser-Fallback",technical_4h_status:"unavailable",technical_errors:[String(serverError?.message||serverError)]},age_seconds:age!==null?age/1000:null}};
+   const data=await r.json(),observed=parseDirectSpot(data),price=observed.price,age=observed.age;
+   const j={fetched_at:Math.floor(Date.now()/1000),spots:{spot_price_as_of:observed.at,is_genuine_xauusd_spot:true,spot_source_type:"XAU/USD spot",xaus:price,goldprice:price,yahoo_gc_f:null,diff:0,pct:0,xaus_age_seconds:age!==null?age/1000:null,goldprice_age_seconds:age!==null?age/1000:null,usd_eur:null,usd_chf:null,goldprice_status:"XAUS · browser fallback",xaus_is_spot:true,primary:"XAUS · browser fallback",reference:"Yahoo Finance GC=F",reference_note:"GC=F ist Gold-Futures, nicht XAU/USD Spot",spot_error:"Server-Live-API nicht erreichbar"},history:{bars_by_tf:{},points:[],data_state:{status:"partial",source:"XAUS XAU/USD Spot · Browser-Fallback",technical_4h_status:"unavailable",technical_errors:[String(serverError?.message||serverError)]},age_seconds:age!==null?age/1000:null}};
    liveBundleCache=j;liveBundleAt=now;return j;
   }catch(fallbackError){
    throw Error("Live-Daten momentan nicht erreichbar: "+String(fallbackError?.message||serverError?.message||"unbekannter Fehler"));

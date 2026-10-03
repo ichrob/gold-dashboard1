@@ -19,6 +19,7 @@ MAX_MATCH_SECONDS = 5
 
 
 def seconds(at):
+    if not isinstance(at,str):raise ValueError('Kurszeit fehlt oder ist ungültig')
     value = datetime.fromisoformat(at.replace('Z','+00:00'))
     if value.tzinfo is None:
         raise ValueError('Validierungszeit ohne Zeitzone')
@@ -97,9 +98,10 @@ def restore_durable(pairs, now=None):
         horizon=point-ref;b=horizon_bucket(horizon)
         values=(p['prediction'],p['truth'])
         if (b is None or b!=p['bucket'] or not ref<point<=created<=received<=now.timestamp()
-                or now.timestamp()-received>604800 or abs(point-truth)>MAX_MATCH_SECONDS or truth>received
+                or abs(point-truth)>MAX_MATCH_SECONDS or truth>received
                 or any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or v<=0 for v in values)):
             raise ValueError('Gespeicherter Vergleich nicht verwendbar')
+        if now.timestamp()-received>604800:continue
         scoped=(bob_validation_store.KEY,b)
         rows=grouped.setdefault(scoped,[])
         seen_truths=truths.setdefault(scoped,set())

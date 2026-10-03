@@ -18,6 +18,7 @@ _status='Genauigkeitsmessung noch nicht dauerhaft gesichert'
 
 
 def stamp(raw):
+    if not isinstance(raw,str):raise ValueError('Kurszeit fehlt oder ist ungültig')
     at=datetime.fromisoformat(raw.replace('Z','+00:00'))
     if at.tzinfo is None:raise ValueError('Messzeit ohne Zeitzone')
     return at.astimezone(timezone.utc)
@@ -52,6 +53,9 @@ def init(conn):
         quote_at TIMESTAMPTZ PRIMARY KEY, price DOUBLE PRECISION NOT NULL,
         received_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())''')
 
+    conn.execute('CREATE INDEX IF NOT EXISTS bob_prediction_truth_idx ON bob_future_predictions(bucket,truth_at)')
+    conn.execute('CREATE INDEX IF NOT EXISTS bob_prediction_quote_idx ON bob_future_predictions(quote_at DESC)')
+
 
 def handle(conn, action, payload):
     if action not in ('read','write'):raise ValueError('Unbekannte Messaktion')
@@ -74,7 +78,8 @@ def handle(conn, action, payload):
                 actual=conn.execute('SELECT price FROM bob_future_truths WHERE quote_at=%s',(at,)).fetchone()
                 if not actual or actual[0]!=value:raise ValueError('Widersprüchlicher Future-Zeitstempel')
         # Compare only predictions archived before the first receipt of truth.
-        truths=conn.execute('SELECT quote_at,received_at FROM bob_future_truths ORDER BY received_at,quote_at').fetchall()
+        truth_times=list({at for kind,at,*_ in checked if kind=='truth'})
+        truths=(conn.execute('SELECT quote_at,received_at FROM bob_future_truths WHERE quote_at=ANY(%s) ORDER BY received_at,quote_at',(truth_times,)).fetchall() if truth_times else [])
         for at,received in truths:
             for horizon in ('0–60s','61–300s','301–900s','901–1800s'):
                 used=conn.execute('SELECT 1 FROM bob_future_predictions WHERE bucket=%s AND truth_at=%s',(horizon,at)).fetchone()
@@ -89,11 +94,11 @@ def handle(conn, action, payload):
     pairs=[dict(bucket=b,predictionAt=a.isoformat(),prediction=value,referenceAt=ref.isoformat(),
                 predictionReceivedAt=created.isoformat(),truthAt=ta.isoformat(),truth=tv,truthReceivedAt=received.isoformat())
            for b,a,value,ref,created,ta,tv,received in reversed(rows)]
-    prediction_count=conn.execute('SELECT count(*) FROM bob_future_predictions').fetchone()[0]
-    truth_count=conn.execute('SELECT count(*) FROM bob_future_truths').fetchone()[0]
+    prediction_count=conn.execute("SELECT count(*) FROM bob_future_predictions WHERE received_at>=now()-interval '7 days'").fetchone()[0]
+    truth_count=conn.execute("SELECT count(*) FROM bob_future_truths WHERE received_at>=now()-interval '7 days'").fetchone()[0]
     latest=conn.execute('''SELECT t.quote_at,
         (SELECT min(abs(extract(epoch FROM p.quote_at-t.quote_at))) FROM bob_future_predictions p
-         WHERE p.received_at<=t.received_at) FROM bob_future_truths t ORDER BY t.quote_at DESC LIMIT 1''').fetchone()
+         WHERE p.received_at<=t.received_at) FROM bob_future_truths t WHERE t.received_at>=now()-interval '7 days' ORDER BY t.quote_at DESC LIMIT 1''').fetchone()
     diagnostics=dict(predictionCount=prediction_count,truthCount=truth_count,pairCount=len(pairs),
                      lastTruthAt=latest[0].isoformat() if latest else None,
                      nearestPredictionSeconds=float(latest[1]) if latest and latest[1] is not None else None)

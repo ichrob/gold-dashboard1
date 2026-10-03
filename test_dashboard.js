@@ -24,3 +24,20 @@ assert(element('quickSignal').textContent.includes('Anmeldung erforderlich'));
 assert(element('tradeSignal').textContent.includes('Anmeldung erforderlich'));
 for(const n of ['Trend','Momentum','Fibonacci','Mtf','Volatility','Structure'])assert.equal(element('block'+n).textContent,'NEUTRAL');
 console.log('Dashboard runtime: analysis, six blocks, frozen monitor snapshot and test exclusion OK');
+
+const aggregation=vm.runInContext(`(()=>{
+ const start=Date.UTC(2026,9,1,12),row=i=>({openTime:start+i*300000,open:100,high:102,low:99,close:101,instrument:'XAU/USD',isOpen:false});
+ const rows=[row(0),row(1),row(2)];
+ return {full:aggregateBrowserBars(rows,15),gap:aggregateBrowserBars([rows[0],rows[2]],15),duplicate:aggregateBrowserBars([...rows,rows[0]],15),mixed:aggregateBrowserBars([rows[0],{...rows[1],instrument:'GC=F'},rows[2]],15),open:aggregateBrowserBars([{...rows[0],isOpen:true},...rows.slice(1)],15)};
+})()`,env);
+assert.equal(aggregation.full.length,1);assert.equal(aggregation.gap.length,0);assert.equal(aggregation.duplicate.length,0);assert.equal(aggregation.mixed.length,0);assert(aggregation.open[0].isOpen);
+
+const spotChecks=vm.runInContext(`(()=>{
+ const now=Date.now(),base={spot_usd_oz:4100,price_as_of:new Date(now-1000).toISOString(),stale:false,data_state:{status:'fresh'},xau:{currency:'USD',unit:'troy_oz'}};
+ let rejected=0;
+ for(const changes of [{price_as_of:null,updated_at:new Date(now).toISOString()},{price_as_of:new Date(now+1000).toISOString()},{price_as_of:new Date(now-181000).toISOString()},{stale:true},{spot_usd_oz:true},{price_as_of:'2026-10-03T08:00:00'}]){
+  try{parseDirectSpot({...base,...changes},now);}catch(_){rejected++;}
+ }
+ return {rejected,valid:parseDirectSpot(base,now)};
+})()`,env);
+assert.equal(spotChecks.rejected,6);assert.equal(spotChecks.valid.age,1000);

@@ -19,6 +19,7 @@ def positive(value):
 def parse_quote(payload, symbol, now=None):
     now = time.time() if now is None else now
     meta = payload['chart']['result'][0]['meta']
+    if not isinstance(meta,dict):raise ValueError('Invalid quote metadata')
     if (meta.get('symbol') != symbol or meta.get('currency') != 'USD'
             or meta.get('instrumentType') != 'FUTURE'):
         raise ValueError('Quote identity mismatch')
@@ -47,10 +48,13 @@ def fetch_spot():
     request = Request('https://xaus.com/api/v1/spot?compact=1', headers={'User-Agent': 'Bob/1.3'})
     with urlopen(request, timeout=6) as response:
         payload = json.loads(response.read(500000))
+    if not isinstance(payload,dict):raise ValueError('Invalid spot payload')
     xau = payload.get('xau', {})
+    if not isinstance(xau,dict):raise ValueError('Invalid spot identity')
     price, at = payload.get('spot_usd_oz'), payload.get('price_as_of')
     if xau.get('currency') != 'USD' or xau.get('unit') != 'troy_oz' or not positive(price):
         raise ValueError('Spot identity mismatch')
+    if not isinstance(at,str):raise ValueError('Invalid spot time')
     stamp = datetime.fromisoformat(at.replace('Z', '+00:00'))
     if stamp.tzinfo is None or stamp.timestamp() > time.time() + 5:
         raise ValueError('Invalid spot time')
@@ -103,7 +107,7 @@ def snapshot():
             for key, job in jobs.items():
                 try:
                     result[key] = job.result()
-                except (OSError, ValueError, KeyError, TypeError, IndexError):
+                except (OSError, ValueError, KeyError, TypeError, IndexError, OverflowError, AttributeError):
                     pass
         # Released for display independently of the ongoing accuracy study.
         # The model still requires fresh, aligned inputs for the exact contract.

@@ -66,7 +66,9 @@ class QualityTests(unittest.TestCase):
   result=e.quality(KEY,45,morning)
   self.assertEqual(result['sampleCount'],21)
   self.assertFalse(result['ready'])
-  with self.assertRaises(ValueError):e.restore_durable(pairs,NOW+timedelta(days=7,hours=1))
+  expired=NOW+timedelta(days=7,hours=1)
+  e.restore_durable(pairs,expired)
+  self.assertEqual(e.quality(KEY,45,expired)['sampleCount'],0)
 
  def test_all_horizon_counts_visible_without_borrowing_readiness(self):
   for i in range(21):
@@ -88,3 +90,12 @@ class QualityTests(unittest.TestCase):
    with self.assertRaises(StopIteration):s._sync()
    self.assertIn('dauerhaft gesichert',s.status())
    self.assertEqual(e.quality(s.KEY,40,NOW+timedelta(seconds=20))['sampleCount'],1)
+
+class ArchiveTransitTests(unittest.TestCase):
+ def test_expiry_during_network_read_does_not_discard_newer_rows(self):
+  from bob_validation_store import KEY
+  def pair(offset):
+   return dict(bucket='0–60s',predictionAt=at(offset),prediction=102,referenceAt=at(offset-45),predictionReceivedAt=at(offset),truthAt=at(offset),truth=100,truthReceivedAt=at(offset+10))
+  with patch.object(e,'_errors',{}),patch.object(e,'_seen',{}),patch.object(e,'_pending',{}):
+   e.restore_durable([pair(-604811),pair(-20)],NOW)
+   self.assertEqual(e.quality(KEY,45,NOW)['sampleCount'],1)
