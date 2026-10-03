@@ -41,3 +41,24 @@ const spotChecks=vm.runInContext(`(()=>{
  return {rejected,valid:parseDirectSpot(base,now)};
 })()`,env);
 assert.equal(spotChecks.rejected,6);assert.equal(spotChecks.valid.age,1000);
+
+// Legacy panels must lose their previous setup after a data/analysis failure.
+vm.runInContext(`A.ready=true;A.at=20;A.score=90;invalidateTechnicalSignal('Historie zu alt');`,env);
+assert.equal(env.A.ready,false);
+for(const id of ['signal','tradeSignal']){assert(element(id).textContent.includes('ABWARTEN'));assert.equal(element(id).className,'signal neutral');}
+assert(element('dgOut').textContent.includes('Abwarten'));
+assert(element('dgProductOut').textContent.includes('Keine aktuelle Produktfreigabe'));
+vm.runInContext('updateTradeSignal()',env);
+assert(element('tradeSignal').textContent.includes('ABWARTEN'));
+// Actual manual-input wiring: prices, identity and name must reach the assessment.
+let entered;
+env.BobDegiro={...env.BobDegiro,manualProductMissing:()=>[],selectionUiSignals:()=>({mtf:'LONG',momentum:1}),escapeHtml:s=>s,evaluateProduct:p=>{entered=p;return {ok:false,reasons:['fixture']};}};
+Object.assign(element('dgIsin'),{value:'DE000FC1CHB7'});element('dgName').value='Gold Faktor Long';element('dgPrice').value='7.25';element('dgLev').value='12';element('dgKo').value='3500';
+vm.runInContext('lastPrice=4000;A.at=20;checkDgProduct()',env);
+assert.equal(entered.price,'7.25');assert.equal(entered.isin,'DE000FC1CHB7');assert.equal(entered.name,'Gold Faktor Long');assert.equal(entered.atr,20);
+// The calculator respects the shared market veto, even with a directional score.
+env.BobDegiro.selectionMarketGate=()=>({ok:false,reasons:['MTF widerspricht LONG']});
+vm.runInContext('A.ready=true;A.score=90;A.at=20;calcDgTrade()',env);
+assert(element('dgOut').innerHTML.includes('Kein Trade-Vorschlag'));
+assert(element('dgOut').innerHTML.includes('MTF widerspricht LONG'));
+console.log('Legacy panels: stale signal revoked, manual data forwarded, scenario veto preserved');
