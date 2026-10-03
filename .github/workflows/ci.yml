@@ -75,6 +75,7 @@ jobs:
           node test_bob.js
           node test_cost_ranking.js
           node test_selection_flow.js
+          node test_selection_push.js
           node test_conditional.js
           node test_manual_import.js
           node test_screenshot_state.js

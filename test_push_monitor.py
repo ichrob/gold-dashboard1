@@ -27,6 +27,12 @@ class PushMonitorTests(unittest.TestCase):
         step=300000;end=int(now//step)*step
         payload=dict(tradeId='trade-fixture',direction='LONG',timeframe='5m',instrument='XAU/USD',levels={k:4050 for k in LEVELS},startedAt=end-step,previousClose=4040)
         return validate_monitor(payload,now),dict(barsByTf={'5m':[dict(openTime=end-step,close=4060,isOpen=False,instrument='XAU/USD')]})
+    def test_product_recommendations_never_reach_delivery(self):
+        with patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'),patch.object(push_server,'webpush') as send,patch.object(push_server,'db') as database:
+            for data in ({'isin':'DE000FG4JXV7'}, {'kind':'product-selection','approved':True}, {'kind':'best-trade'}):
+                status,result=self.request('/send',{'title':'Bob Auswahl','data':data})
+                self.assertEqual(status,200);self.assertEqual(result['sent'],0)
+            send.assert_not_called();database.assert_not_called()
     def test_endpoints_require_server_token(self):
         for path in ('/monitor','/preferences','/auth-session/create','/auth-session/check','/auth-session/revoke','/market-spots/read','/market-spots/write'):
             status,_=self.request(path,{},'wrong');self.assertEqual(status,401)

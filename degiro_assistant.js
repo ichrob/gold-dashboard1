@@ -72,7 +72,7 @@ function render(state){
  (k?'<div>Konservative KO-Schwelle: '+k.value.toFixed(4)+' USD · Quellenabweichung '+k.differenceUsd.toFixed(4)+' USD'+(state.distanceUsd!==null?' · Abstand '+state.distanceUsd.toFixed(2)+' USD / '+state.distancePct.toFixed(2)+'%':'')+'</div>'+k.evidence.map(x=>'<div>KO-Nachweis: '+escape(x.source)+(k.fixed?' · fester Berechnungswert · Bestätigung '+escape(x.confirmedAt)+' (keine Kurszeit)':' · '+escape(x.at)+' · bestätigt gültig bis '+escape(x.validUntil))+'</div>').join(''):'')+
  (e?'<div><b>Schätzung, keine SG-Quotierung:</b> Geld ≈ '+e.bid.toFixed(4)+' / Brief ≈ '+e.ask.toFixed(4)+' EUR · Hebel ≈ '+e.leverage.toFixed(2)+'× · FX-Zeit '+escape(e.fxAt)+'</div><div>'+escape(e.formula)+'</div>':'')+
  state.reasons.map(x=>'<div>Offen: '+escape(x)+'</div>').join('')+
- '<div>Vollständige Bewertungen werden automatisch in der bedingten Top-3 berücksichtigt. Keine Live-Freigabe. Schätzfehler, Preisaufschlag und zwischenzeitliche KO-Berührung unbestätigt. Tatsächlichen DEGIRO-Geld-/Briefkurs vor einer Entscheidung prüfen.</div></div>';
+ '<div>Unverbindlicher Kandidatenvergleich. Freigabe ausschließlich nach der Pflichtprüfung in der Produktauswahl. Schätzfehler, Preisaufschlag und zwischenzeitliche KO-Berührung unbestätigt. Tatsächlichen DEGIRO-Geld-/Briefkurs vor einer Entscheidung prüfen.</div></div>';
 }
 function rank(products,references,bundle,context={}){
  const now=context.now??Date.now(),direction=String(context.direction||'NEUTRAL').toUpperCase();
@@ -111,7 +111,7 @@ function rank(products,references,bundle,context={}){
  return out;
 }
 function renderTop3(result){
- return '<div style="padding:14px;background:#fff;border:2px solid #dbe4f0;border-radius:15px"><b>Automatische Top-3 · '+escape(result.direction)+'</b><div class="small">'+escape(result.reason)+' · '+result.total+' passende Produkte</div>'+
+ return '<div style="padding:14px;background:#fff;border:2px solid #dbe4f0;border-radius:15px"><b>Unverbindlicher Kandidatenvergleich · '+escape(result.direction)+'</b><div class="small">'+escape(result.reason)+' · '+result.total+' passende Produkte</div>'+
  result.candidates.map((p,i)=>'<div style="padding:10px;margin-top:8px;border:1px solid #e1e7f0;border-radius:10px"><b>Platz '+(i+1)+' · '+escape(p.isin)+'</b><div class="small">'+escape(p.name)+' · '+escape(p.productDirection)+'</div><div class="small"><b>'+escape(p.priceKind)+'</b> · Brief '+(p.estimated?'≈ ':'')+p.price.toFixed(4)+' EUR · Hebel '+(p.estimated?'≈ ':'')+p.leverage.toFixed(2)+'×</div><div class="small">KO '+p.ko.toFixed(4)+' USD · Abstand '+p.evaluation.koDistancePct.toFixed(2)+'% · Kosten-Risiko-Wert '+p.evaluation.score+'/100</div><div class="small">Quelle '+escape(p.source)+' · '+escape(p.venue)+' · '+(p.estimated?'Referenzzeit ':'Kurszeit ')+escape(p.at)+'</div><div class="small">Warum: '+escape(p.evaluation.reasons.slice(0,3).join(' · '))+'</div>'+p.evaluation.warnings.map(w=>'<div class="small warning">'+escape(w)+'</div>').join('')+(p.estimated?'<div class="small">Schätzgenauigkeit noch unbestätigt; angenommener Quellenaufschlag kann sich ändern.</div>':'')+'</div>').join('')+
  (result.excluded.length?'<details><summary>Ausgeschlossene Produkte ('+result.excluded.length+')</summary>'+result.excluded.map(p=>'<div class="small">'+escape(p.isin)+' · '+escape(p.reason)+'</div>').join('')+'</details>':'')+
  '<div class="small">Rangfolge nur innerhalb vollständiger Kandidaten, keine Gewinnwahrscheinlichkeit. Schätzungen bleiben bedingt; keine automatische Handelsfreigabe oder Order. Aktuellen DEGIRO-Briefkurs und Produktbedingungen prüfen.</div></div>';
@@ -389,6 +389,10 @@ function conditionalCandidate(p,context={},now=Date.now()){
  if(!(basis>0&&ask>0&&bid>0&&ask>=bid&&ko>0&&ask>errorPrice&&basis>errorBasis))return fail("Unvollständige Preise oder zu große beobachtete Abweichung");
  const direction=isFutureProduct(p)?q.futureResearch.direction:q.productModel?.direction||q.direction;
  if((errorPrice>0||errorBasis>0)&&(!(ratio>0&&fx>0&&strike>0)||direction==="LONG"&&basis-errorBasis<=strike||direction==="SHORT"&&basis+errorBasis>=strike))return fail("Berechnungsparameter fehlen oder Finanzierungsschwelle innerhalb der Spanne erreicht");
+ const market=selectionMarketGate(ctx);if(!market.ok)return fail(market.reasons.join(' · '));
+ if(isFutureProduct(p))for(const [frame,value] of Object.entries(q.futureResearch.contractAnalysis.frames)){
+  for(const key of ['direction','trend'])if(value[key]&&String(value[key]).toUpperCase()!==ctx.direction)return fail('Kontrakt-'+frame+' '+key+' widerspricht '+ctx.direction);
+ }
  const lev=(u,price)=>ratio>0&&fx>0?u*fx*ratio/price:n(q.leverage);
  const evaluations=[];
  for(const u of [basis-errorBasis,basis+errorBasis])for(const price of [ask-errorPrice,ask+errorPrice]){
@@ -415,13 +419,12 @@ function rankConditional(products,context={}){
  }
  const results=Array.from(groups,([scope,candidates])=>{
   candidates.sort((a,b)=>b.scoreLow-a.scoreLow);
-  const best=candidates[0],unresolved=excluded.some(c=>(c.scope===best.scope||c.scope==="FUTURE"&&best.scope!=="XAU/USD")&&(!c.direction||c.direction===best.direction)),unique=!unresolved&&(candidates.length===1||best.scoreLow>Math.max(...candidates.slice(1).map(c=>c.scoreHigh))+2);
-  return {scope,candidates,favorite:unique?best:null,reason:unique?"Bedingter Favorit unter ausreichend geprüften Kandidaten – aktuellen DEGIRO-Briefkurs vor Einstieg prüfen":"ABWARTEN: Vergleichsdaten fehlen oder kein eindeutiger Favorit innerhalb der beobachteten Fehlerspannen"};
+  return {scope,candidates,favorite:null,reason:"Unverbindlicher Kandidatenvergleich, keine Freigabe. Pflichtprüfung in der Produktauswahl; aktuellen DEGIRO-Briefkurs prüfen"};
  });
  return {groups:results,excluded,tradeable:false,needsDegiroCheck:true};
 }
 function renderConditional(result){
- const rows=result.groups.map(g=>'<div style="margin-top:10px"><b>'+esc(g.scope)+' · '+(g.favorite?'Bedingter Favorit: '+esc(g.favorite.isin):'ABWARTEN')+'</b><div class="small">'+esc(g.reason)+'</div>'+g.candidates.slice(0,3).map(c=>'<div class="small" style="margin-top:8px"><b>'+esc(c.isin)+'</b> · '+esc(c.priceKind)+' · Kurs ca. '+c.price.toFixed(2)+' EUR'+(c.priceError?' · Vergleichsspanne ±'+c.priceError.toFixed(4)+' EUR':'')+' · Basiswert '+c.basis.toFixed(2)+' USD'+(c.basisError?' ±'+c.basisError.toFixed(2)+' USD':'')+'<br>Kosten-Risiko-Wert '+c.scoreLow+'–'+c.scoreHigh+'/100 · Hebel ca. '+c.leverageLow.toFixed(2)+'–'+c.leverageHigh.toFixed(2)+'× · KO-Abstand mindestens '+c.koDistanceMinPct.toFixed(2)+'% innerhalb der Vergleichsspanne · Datenzeit '+esc(new Date(c.at).toLocaleTimeString())+'<br>Warum: '+esc((c.reasons||[]).slice(0,3).join(' · '))+(c.quality?'<br>'+esc(qualityText(c.quality,c.priceError?'EUR':'USD')):'')+'</div>').join('')+'</div>').join('');
+ const rows=result.groups.map(g=>'<div style="margin-top:10px"><b>'+esc(g.scope)+' · '+'Unverbindliche Kandidaten · keine Freigabe'+'</b><div class="small">'+esc(g.reason)+'</div>'+g.candidates.slice(0,3).map(c=>'<div class="small" style="margin-top:8px"><b>'+esc(c.isin)+'</b> · '+esc(c.priceKind)+' · Kurs ca. '+c.price.toFixed(2)+' EUR'+(c.priceError?' · Vergleichsspanne ±'+c.priceError.toFixed(4)+' EUR':'')+' · Basiswert '+c.basis.toFixed(2)+' USD'+(c.basisError?' ±'+c.basisError.toFixed(2)+' USD':'')+'<br>Kosten-Risiko-Wert '+c.scoreLow+'–'+c.scoreHigh+'/100 · Hebel ca. '+c.leverageLow.toFixed(2)+'–'+c.leverageHigh.toFixed(2)+'× · KO-Abstand mindestens '+c.koDistanceMinPct.toFixed(2)+'% innerhalb der Vergleichsspanne · Datenzeit '+esc(new Date(c.at).toLocaleTimeString())+'<br>Warum: '+esc((c.reasons||[]).slice(0,3).join(' · '))+(c.quality?'<br>'+esc(qualityText(c.quality,c.priceError?'EUR':'USD')):'')+'</div>').join('')+'</div>').join('');
  const waiting=result.excluded.map(x=>'<div class="small">'+esc(x.isin)+' · '+esc(x.reason)+'</div>').join('');
  return '<div style="padding:14px;background:#fff;border:1px solid #dbe4f0;border-radius:15px"><b>Bedingter Produktvergleich</b><div class="small">Unterschiedliche Basiswerte werden getrennt bewertet. Beobachtete Fehlerspannen sind keine garantierten Grenzen.</div>'+(rows||'<div class="warning">ABWARTEN – noch kein ausreichend geprüfter Kandidat.</div>')+waiting+'<div class="small" style="margin-top:9px">Vor Einstieg den aktuellen DEGIRO-Briefkurs und die Produktbedingungen prüfen. Keine automatische Handelsfreigabe.</div></div>';
 }
@@ -769,23 +772,39 @@ function selectionDetailStatus(p,now=Date.now()){
  if(!(n(p.ko)>0)||!(fixed||n(meta?.ko)===n(p.ko)||n(e.KO?.value)===n(p.ko)&&evidenceTiming(e.KO,now).fresh))reasons.push('KO-Barriere mit gültigem Nachweis oder festen Screenshotwert bestätigen');
  return {complete:!reasons.length,reasons,at:time?new Date(time.start).toISOString():null,timeLabel:time?.label,source:e.Geld?.source};
 }
+// A direction label alone is not an entry confirmation. Missing values stay unknown.
+function selectionMarketGate(context={}){
+ const d=String(context.direction||'NEUTRAL').toUpperCase(),reasons=[];
+ if(!['LONG','SHORT'].includes(d))return {ok:false,reasons:['Marktsignal neutral: keine bestätigte Long-/Short-Richtung']};
+ const side=v=>{const x=String(v||'').toUpperCase();if(/NEUTRAL|ABWARTEN|MIXED|GEMISCHT/.test(x))return '';const long=/LONG|BULL|UP/.test(x),short=/SHORT|BEAR|DOWN/.test(x);return long===short?'':long?'LONG':'SHORT';};
+ for(const [key,label] of [['trend','EMA-Trend'],['trend2','Langfristtrend'],['mtf','MTF']]){
+  const value=side(context[key]);if(!value)reasons.push(label+' neutral oder nicht bestätigt');else if(value!==d)reasons.push(label+' widerspricht '+d);
+ }
+ for(const [key,label] of [['hist','MACD'],['momentum','Momentum']]){
+  const value=n(context[key]);if(value===null||value===0)reasons.push(label+' neutral oder nicht vorhanden');else if((value>0?'LONG':'SHORT')!==d)reasons.push(label+' widerspricht '+d);
+ }
+ if(!(n(context.atr)>0))reasons.push('ATR fehlt: KO-Puffer gegenüber Volatilität nicht prüfbar');
+ return {ok:!reasons.length,reasons};
+}
 function selectionWorkflow(products,context={},bundle,references=[]){
  const now=context.now??Date.now(),direction=String(context.direction||'NEUTRAL').toUpperCase();
- const result={direction,stage:'LISTE',groups:[],requests:[],waiting:[],total:0,tradeable:false};
+ const result={direction,stage:'LISTE',groups:[],requests:[],waiting:[],total:0,tradeable:false,approved:false,approvedCount:0,gateReasons:[],checkedAt:now};
  const seen=new Set(),items=[];
  for(const [index,p] of products.entries())if(p.isin&&!seen.has(p.isin)){seen.add(p.isin);items.push({...p,index:index+1});}
  const conflicting=new Set(items.filter(p=>products.some(other=>other.isin===p.isin&&JSON.stringify(other)!==JSON.stringify(products[p.index-1]))).map(p=>p.isin));
- result.total=items.length;if(!items.length)return result;
- if(!['LONG','SHORT'].includes(direction)){result.stage='ABWARTEN';return result;}
+ result.total=items.length;
+ const market=selectionMarketGate(context);
+ result.gateReasons=!items.length?['Keine Produkte mit bestätigter ISIN vorhanden']:market.reasons;
+ if(!items.length){result.stage='ABWARTEN';return result;}
  result.stage='DETAILBILDER';const groups=new Map();
- const add=c=>{if(c.direction!==direction)return;const key=c.scope+' · '+c.direction;if(!groups.has(key))groups.set(key,[]);const arr=groups.get(key);if(!arr.some(x=>x.isin===c.isin))arr.push(c);};
+ const add=c=>{if(!market.ok||c.direction!==direction)return;const key=c.scope+' · '+c.direction;if(!groups.has(key))groups.set(key,[]);const arr=groups.get(key);if(!arr.some(x=>x.isin===c.isin))arr.push(c);};
  const completeProducts=products.filter((p,i)=>!conflicting.has(p.isin)&&finalProductStatus(p,now,references[i]).complete);
  const completeReferences=completeProducts.map(p=>references[products.indexOf(p)]);
  const combined=window.BobCombined.rank(completeProducts,completeReferences,bundle,context);
- for(const p of combined.candidates)add({isin:p.isin,name:p.name,direction,scope:'XAU/USD',score:p.evaluation.score,price:p.price,at:p.at,source:p.source,priceKind:p.priceKind,reasons:p.evaluation.reasons});
+ for(const p of combined.candidates.filter(p=>!p.estimated))add({isin:p.isin,name:p.name,direction,scope:'XAU/USD',score:p.evaluation.score,price:p.price,at:p.at,source:p.source,priceKind:p.priceKind,reasons:p.evaluation.reasons});
  for(const p of items){
   if(conflicting.has(p.isin)){result.waiting.push({isin:p.isin,reason:'Widersprüchliche doppelte ISIN: Listen und Detailbilder am Original prüfen'});continue;}
-  if(p.productDirection!==direction)continue;
+  if(p.productDirection!==direction){result.waiting.push({isin:p.isin,reason:'Produktrichtung '+(p.productDirection||'unbekannt')+' passt nicht zu '+direction});continue;}
   if(/FAKTOR|FACTOR/i.test(p.name||'')){result.waiting.push({isin:p.isin,reason:'Faktorprodukt: eigenes tägliches Anpassungsmodell fehlt'});continue;}
   const terms=finalProductStatus(p,now,references[p.index-1]);
   if(!terms.complete){result.requests.push({isin:p.isin,name:p.name,index:p.index,reasons:terms.reasons,scope:isFutureProduct(p)?'FUTURE':'XAU/USD'});continue;}
@@ -801,19 +820,22 @@ function selectionWorkflow(products,context={},bundle,references=[]){
  for(const [scope,candidates] of groups){candidates.sort((a,b)=>b.score-a.score||a.isin.localeCompare(b.isin));result.groups.push({scope,total:candidates.length,candidates:candidates.slice(0,3)});}
  // This is an upload priority, not a product recommendation from incomplete prices.
  result.requests.sort((a,b)=>Number(a.scope==='FUTURE')-Number(b.scope==='FUTURE')||a.index-b.index);
- if(result.groups.length)result.stage='TOP3';else if(!result.requests.length)result.stage='ABWARTEN';return result;
+ // At most three displayed selections overall; each keeps its own basis label.
+ const selected=result.groups.flatMap(g=>g.candidates).sort((a,b)=>b.score-a.score||a.isin.localeCompare(b.isin)).slice(0,3);
+ result.groups=result.groups.map(g=>({...g,candidates:g.candidates.filter(c=>selected.includes(c))})).filter(g=>g.candidates.length);
+ result.approvedCount=selected.length;result.approved=selected.length>0;
+ result.stage=result.approved?'TOP3':'ABWARTEN';return result;
 }
 function renderSelectionWorkflow(r){
- const steps='<div class="small">Listenbilder → Vorauswahl → aktuelle Detailbilder → begründete Top 3</div><details><summary class="small">So bewertet Bob Kosten und Risiko</summary><div class="small">Kosten-Risiko-Wert: 100 minus Abzüge für Handels- und Finanzierungskosten, KO und Datenqualität. Spread nur zur Information: kein Punkteabzug und keine Spread-Sperre. Die Hebelhöhe allein bringt weder Plus- noch Minuspunkte. Vergleich: 1.000 EUR / 1 Kalendertag. Unbekannte Kosten erhalten jeweils den vollen 10-Punkte-Abzug; kein bestätigter Kostenvorteil. Mindestwert 60. Gleiche Werte bedeuten Gleichstand; ISIN sortiert nur die Anzeige. Kostennachweise unter Details / manuelle Kursnachweise.</div></details>';
- if(r.stage==='LISTE')return '<b>1 · Listenbilder hochladen</b>'+steps;
- if(r.stage==='ABWARTEN')return '<b>ABWARTEN · keine Produktempfehlung</b>'+steps+'<div class="small">'+r.total+' unterschiedliche Produkte gespeichert. Kein ausreichend geeigneter Kandidat oder keine eindeutige Marktrichtung.</div>'+r.waiting.map(p=>'<div class="small">'+esc(p.isin)+' · '+esc(p.reason)+'</div>').join('');
+ const steps='<div class="small">Listenbilder → unverbindliche Kandidaten → Pflichtprüfung → bis zu 3 geeignete Produkte</div><details><summary class="small">So bewertet Bob Kosten und Risiko</summary><div class="small">Kosten-Risiko-Wert: 100 minus Abzüge für Handels- und Finanzierungskosten, KO und Datenqualität. Spread nur zur Information: kein Punkteabzug und keine Spread-Sperre. Die Hebelhöhe allein bringt weder Plus- noch Minuspunkte. Vergleich: 1.000 EUR / 1 Kalendertag. Unbekannte Kosten erhalten jeweils den vollen 10-Punkte-Abzug; kein bestätigter Kostenvorteil. Mindestwert 60. Gleiche Werte bedeuten Gleichstand; ISIN sortiert nur die Anzeige. Kostennachweise unter Details / manuelle Kursnachweise.</div></details>';
  const pending=r.requests.slice(0,3),remaining=r.requests.length-pending.length;
- return '<b>'+ (r.stage==='TOP3'?'Begründete Top 3 unter den belegten Produkten':'ABWARTEN · Detailbilder ergänzen')+'</b>'+steps+
+ return '<b>'+ (r.approved?'Zur Produktauswahl freigegeben · '+r.approvedCount+' geeignete'+(r.approvedCount===1?'s Produkt':' Produkte'):'Abwarten – derzeit kein geeignetes Produkt')+'</b>'+steps+
+ '<div class="small">'+esc((r.gateReasons||[]).join(' · '))+'</div>'+
  '<div class="small">'+r.total+' unterschiedliche Produkte. Vorauswahl nach Analyse-Richtung '+esc(r.direction)+'; fehlende Preise erhalten keine Rangpunkte.</div>'+
  r.groups.map(g=>'<div style="margin-top:12px"><b>'+esc(g.scope)+' · '+g.total+' bewertbare Produkte</b>'+g.candidates.map((c,i)=>'<div style="padding:10px;margin-top:8px;border:1px solid #dbe4f0;border-radius:12px"><b>Platz '+(i+1)+' · '+esc(c.isin)+'</b><div class="small">'+esc(c.name)+'<br>'+esc(c.priceKind)+' · Brief '+Number(c.price).toFixed(2)+' EUR · Kosten-Risiko-Wert '+c.score+'/100<br>Warum: '+esc((c.reasons||[]).slice(0,3).join(' · '))+'<br>Quelle '+esc(c.source||'Produktnachweis')+' · Datenzeit '+esc(c.at)+(c.quoteAt?' · Produktkurszeit '+esc(c.quoteAt):'')+(c.quality?'<br>'+esc(qualityText(c.quality,'USD')):'')+'</div></div>').join('')+'</div>').join('')+
  (pending.length?'<div style="margin-top:12px"><b>Nächster Schritt · diese Detailbilder ergänzen</b><div class="small">Upload-Reihenfolge, keine Rangliste unvollständiger Produkte.</div>'+pending.map(p=>'<div class="small" style="margin-top:8px"><b>'+esc(p.isin)+'</b> · '+esc(p.name)+'<br>Benötigt: '+esc(p.reasons.join(' · '))+' <button data-selection-upload="'+p.index+'">Detailbilder ergänzen</button></div>').join('')+(remaining?'<div class="small">'+remaining+' weitere passende Kandidaten unter „Gespeicherte Produkte“.</div>':'')+'</div>':'')+
  r.waiting.map(p=>'<div class="small warning">'+esc(p.isin)+' · '+esc(p.reason)+'</div>').join('')+
- '<div class="small" style="margin-top:10px">Spot und Future werden getrennt bewertet. Weniger als drei belegte Produkte ergeben eine kürzere Liste. Kein garantierter bester Trade und keine automatische Handelsfreigabe; tatsächlichen DEGIRO-Preis vor dem Einstieg prüfen.</div>';
+ '<div class="small" style="margin-top:10px">Spot und Future werden getrennt bewertet. Weniger als drei belegte Produkte ergeben eine kürzere Liste. Freigabe gilt ausschließlich für diese geprüfte Produktauswahl, nicht als Handelsauftrag oder garantierter bester Trade. Kandidaten mit offenen Nachweisen bleiben gesperrt; tatsächlichen DEGIRO-Preis vor dem Einstieg prüfen.</div>';
 }
 
 function productUploadCards(products,direction,now=Date.now()){
@@ -1234,45 +1256,6 @@ function rankUI(){
  const flow=selectionWorkflow(ps,{direction:d,spotFresh,spot:s,atr:a,trend:document.getElementById('trend')?.textContent,trend2:document.getElementById('trend2')?.textContent,mtf:document.getElementById('mtfSummary')?.textContent,rsi:n(document.getElementById('rsi')?.textContent),hist:n(document.getElementById('hist')?.textContent),adx:n(document.getElementById('adx')?.textContent),momentum:n(document.getElementById('momentum')?.textContent)},bundle,ps.map((_,i)=>combinedReferences.get(i+1)));
  const flowHtml=renderSelectionWorkflow(flow);if(o.dataset.flow!==flowHtml){o.innerHTML=flowHtml;o.dataset.flow=flowHtml;o.querySelectorAll('[data-selection-upload]').forEach(btn=>btn.addEventListener('click',()=>document.getElementById('dgDetailShot'+btn.dataset.selectionUpload)?.click()));}return flow;
 
- if(combinedReferences.size){
-  const context={spotFresh,direction:d,atr:a,spot:s,trend:document.getElementById('trend')?.textContent,trend2:document.getElementById('trend2')?.textContent,mtf:document.getElementById('mtfSummary')?.textContent,rsi:n(document.getElementById('rsi')?.textContent),hist:n(document.getElementById('hist')?.textContent),adx:n(document.getElementById('adx')?.textContent),momentum:n(document.getElementById('momentum')?.textContent)};
-  const automatic=window.BobCombined.rank(ps,ps.map((_,i)=>combinedReferences.get(i+1)),bundle,context);
-  o.innerHTML=window.BobCombined.renderTop3(automatic);return automatic;
- }
- if(!r.candidates.length){
-  o.innerHTML='<div style="padding:14px;background:#fff;border-radius:15px;border:1px solid #e5e7eb"><b style="font-size:16px">📊 Bob-Aktualanalyse</b><div class="small" style="margin-top:6px">Szenario: <b>'+esc(d)+'</b></div><div class="warning" style="margin-top:9px"><b>Kein passender Trade-Kandidat.</b></div><div class="small" style="margin-top:5px">'+esc(r.gateReason||"Mindestens ein vollständiger Screenshot-Kandidat wird benötigt.")+'</div></div>';
-  return r;
- }
- if(!r.tradeable){
-  o.innerHTML='<div style="padding:15px;background:#fff;border-radius:16px;border:1px solid #e5e7eb"><b style="font-size:17px">📊 Bob-Aktualanalyse</b><div class="small" style="margin-top:6px">Szenario: <b>'+esc(r.scenario)+'</b> · '+r.total+' Kandidat(en) geprüft</div><div class="warning" style="margin-top:10px"><b>Kein eindeutiger Trade-Kandidat.</b></div><div class="small" style="margin-top:5px">'+esc(r.gateReason)+'</div></div>';
-  return r;
- }
- const top=r.candidates.slice(0,3);
- const cards=top.map((p,i)=>{
-  const e=p.evaluation, name=p.name||p.isin||"DEGIRO-Produkt";
-  const ko=e.koDistancePct===null?"—":e.koDistancePct.toFixed(2)+"%";
-  const at=e.atrMultiple===null?"—":e.atrMultiple.toFixed(1)+" ATR";
-  const action=e.direction==="LONG"?"LONG":"SHORT";
-  const rank=i+1;
-  const rankLabel=rank===1?"🥇 Platz 1":rank===2?"🥈 Platz 2":"🥉 Platz 3";
-  const reason=e.reasons.slice(0,3).join(" · ")||"Richtung und Produktdaten wurden passend zum Bob-Szenario geprüft.";
-  return '<div style="margin-top:10px;padding:13px;background:#fff;border-radius:15px;border:1px solid #e5e7eb">'+
-   '<div style="font-weight:800;font-size:16px">'+rankLabel+' · '+esc(name)+'</div>'+
-   '<div style="margin-top:5px"><b>'+action+'</b> · Produktkurs '+(p.price??"—")+' · Hebel '+(e.leverage?e.leverage.toFixed(2):"—")+'×</div>'+
-   '<div class="small">'+esc(p.quote.source)+' · Kurszeit '+esc(new Date(p.quote.quoteAt).toLocaleTimeString())+' · DEGIRO-Ausführungskurs prüfen</div>'+
-   (p.quote.leverageNote?'<div class="small">'+esc(p.quote.leverageNote)+'</div>':'')+
-   '<div class="small" style="margin-top:4px">KO-Abstand '+ko+' · ATR-Puffer '+at+' · Setup-Qualität '+e.setupScore+'/100</div>'+
-   '<div class="small" style="margin-top:7px"><b>Warum:</b> '+esc(reason)+'</div>'+
-   (e.warnings.length?'<div class="small warning" style="margin-top:6px">⚠️ '+esc(e.warnings.slice(0,2).join(" · "))+'</div>':'')+
-  '</div>';
- }).join("");
- o.innerHTML='<div style="padding:15px;background:#fff;border-radius:18px;border:2px solid #dbe4f0">'+
-  '<div class="small">AKTUELLE BOB-ANALYSE · '+esc(r.scenario)+' · '+r.total+' Kandidat(en) geprüft</div>'+
-  '<div style="font-size:20px;font-weight:800;margin-top:4px">🎯 Vergleich bestätigter Produktkurse</div>'+
-  '<div class="small" style="margin-top:4px">Bob sortiert die passenden Produkte nach Kosten, Produktrisiko und Datenqualität.</div>'+
-  cards+
-  '<div class="small" style="margin-top:9px">Die Plätze sind eine technische Rangfolge der geprüften DEGIRO-Kandidaten, keine Gewinnwahrscheinlichkeit und keine Garantie.</div></div>';
- return r;
 }
 
 if(typeof document!=="undefined"){if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",()=>{try{inject();}catch(e){console.warn(e);}});else try{inject();}catch(e){console.warn(e);}}
@@ -1286,7 +1269,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 

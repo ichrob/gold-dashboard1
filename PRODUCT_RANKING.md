@@ -101,3 +101,26 @@ Auf Nutzerwunsch entfällt auch der frühere 15-Punkte-Hebelabzug in der
 zusätzlichen technischen Produkteignung. Ein hoher Hebel bleibt als
 Empfindlichkeitshinweis sichtbar; entscheidend sind die konkreten KO-/ATR-Puffer,
 Schätzunsicherheit, Kosten, Datenqualität und Marktrichtung.
+
+## Punkt 5: verbindliche Auswahlprüfung
+
+Die Endauswahl gibt null bis höchstens drei Produkte insgesamt aus. Bei null lautet
+sie „Abwarten – derzeit kein geeignetes Produkt“, gefolgt von konkreten Markt-,
+Daten- oder Produktrisikogründen. `approved` und `approvedCount` bezeichnen nur
+die technische Produktauswahl; `tradeable` bleibt false (kein Handelsauftrag).
+EMA-Trend, Langfristtrend, MTF, MACD und Momentum müssen die Richtung bestätigen;
+neutrale, fehlende oder widersprüchliche Werte sperren. Ein positiver ATR ist
+Pflicht für die Prüfung des Volatilitätspuffers. Die eigene Future-Analyse wird
+zusätzlich geprüft; ausdrücklich widersprüchliche Zeitrahmen sperren ebenfalls.
+Alle bisherigen Produktnachweis-, Kontrakt- und Future-Fehlerpufferprüfungen bleiben.
+
+Unvalidierte kombinierte Preisschätzungen erhalten keine Endfreigabe. Nebenvergleiche
+sind unverbindliche Kandidatenlisten, ohne Favoritenbezeichnung. Die Freigabe wird
+bei jeder Aktualisierung neu berechnet, insbesondere nach Ablauf der Quellenzeiten.
+Der Push-Dienst besitzt keine aktuellen Produktnachweise: Produktempfehlungs-Pushs
+werden deshalb im Browser und im Server gesperrt, auch bei behaupteter Freigabe
+im Payload. Allgemeine Marktinformationen und Warnungen zu aktiven Trades bleiben.
+
+Regressionen: null/ein/zwei/drei geeignete Produkte, gesperrte Beimischungen,
+mehrere Basiswertgruppen, neutrale und widersprüchliche Signale, Datenablauf,
+Faktorprodukte, falscher Kontrakt, zu enger KO-Puffer und Futures-Schätzfehler.

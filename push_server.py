@@ -290,6 +290,10 @@ class Handler(BaseHTTPRequestHandler):
                 title = str(payload.get("title", "Bob"))[:120]
                 body = str(payload.get("body", ""))[:1000]
                 data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+                # No server-side evidence exists for a released product selection.
+                if data.get("isin") or any(word in (str(data.get("kind", "")) + " " + str(payload.get("kind", "")) + " " + title).lower() for word in ("product", "best-trade", "best_trade", "bester trade", "produktempfehl")):
+                    send_json(self, 200, {"ok": True, "sent": 0, "reason": "Product selection is not verified by the push service"})
+                    return
                 message = json.dumps(
                     {"title": title, "body": body, "data": data},
                     separators=(",", ":"),
