@@ -133,6 +133,10 @@ function screenshotDraft(raw,isin){
  const amount=(label,other)=>{
   if(label.length!==1)return null;const start=label[0].index+label[0][0].length,end=other.find(x=>x.index>start)?.index??raw.length;
   const section=raw.slice(start,end).split(/heute|Kurszeit|Geldzeit|Briefzeit|\b\d{2}[/.]\d{2}[/.]\d{4}/i)[0];
+  // DEGIRO overview: the labelled quote precedes unrelated EUR rows
+  // (open, close, high, low, position). Do not count those as extra quotes.
+  const direct=section.match(/^\s*[:=]?\s*(?:€\s*([\d.,]+)|([\d.,]+)\s*EUR\b)[ \t]*(?=\r?\n|$)/i);
+  if(direct)return value(direct[1]||direct[2]);
   const eur=Array.from(section.matchAll(/(?:€\s*([\d.,]+)|([\d.,]+)\s*EUR\b)/gi));
   if(eur.length===1)return value(eur[0][1]||eur[0][2]);
   if(eur.length)return null;
@@ -1401,4 +1405,3 @@ function init(){
 }
 window.BobTradeUpload={parse,draft,reviewed,merge,init};if(typeof document!=='undefined'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();}
 })();
-
