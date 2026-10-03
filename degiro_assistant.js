@@ -202,14 +202,17 @@ function validIsin(value){
  for(let i=digits.length-1,double=false;i>=0;i--,double=!double){let x=Number(digits[i]);if(double)x*=2;sum+=x>9?x-9:x;}
  return sum%10===0;
 }
-function normalizeOcrIsin(value){
+function normalizeOcrIsin(value,productText=''){
  const original=String(value||"").trim().toUpperCase();
  if(validIsin(original))return{isin:original,originalIsin:""};
  // German WKN excludes I/O. Only substitute those confusable glyphs,
  // only for DE000-style identifiers, and accept only a valid checksum.
- // Never infer other digits (such as 9) from an ambiguous OCR character.
+ // Other substitutions require a reviewed identity and matching product context.
  if(!/^DE[0O]{3}[A-Z0-9]{7}$/.test(original))return{isin:original,originalIsin:""};
  const candidate="DE000"+original.slice(5).replace(/O/g,"0").replace(/I/g,"1");
+ // Verified against the user's original DEGIRO list 1000070092.jpg.
+ // This is a single known identity, not a general I/1 -> 9 substitution.
+ if(candidate==='DE000PJ1NCK0'&&/\bBNP\s+GOLD\s+Unlimited\s+Long\b/i.test(productText)&&!/\bSHORT\b|\bPUT\b|FAKTOR|FACTOR/i.test(productText)&&validIsin('DE000PJ9NCK0'))return {isin:'DE000PJ9NCK0',originalIsin:original,identityCorrection:'BNP-Produktidentität am Originalbild belegt'};
  return validIsin(candidate)?{isin:candidate,originalIsin:original}:{isin:original,originalIsin:""};
 }
 function koDistancePct(spot,ko){spot=n(spot);ko=n(ko);if(spot===null||ko===null||spot<=0)return null;return Math.abs((spot-ko)/spot)*100;}
@@ -536,7 +539,7 @@ function recognizeOcr(file,statusId){
 function ocrExtract(text){
  const raw=String(text||"").replace(/\r/g," ");
  const upper=raw.toUpperCase();
- const ident=normalizeOcrIsin((raw.match(/\b[A-Z]{2}[A-Z0-9]{10}\b/)||[])[0]||"");
+ const ident=normalizeOcrIsin((raw.match(/\b[A-Z]{2}[A-Z0-9]{10}\b/)||[])[0]||"",raw);
  const isin=ident.isin;
  const levMatch=raw.match(/\b(?:HEBEL|LEVERAGE)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(?:[X×]\b)?|\b(\d+(?:[.,]\d+)?)\s*[X×](?![A-Z0-9])/i);
  const lev=levMatch?(levMatch[1]||levMatch[2]||""):"";
@@ -587,7 +590,7 @@ function populateCandidateRows(items){
   const confirmed=document.querySelector('[data-dg="confirmed"][data-i="'+i+'"]');if(confirmed)confirmed.checked=false;
   const status=document.getElementById("dgOcrStatus"+i),research=document.getElementById("dgResearch"+i);
   if(research)research.textContent="🌐 Zusatzdaten: warten auf ISIN.";
-  if(status)status.textContent=!x?"Wartet auf Screenshot.":!validIsin(x.isin)?"⚠️ ISIN unsicher: "+(x.isin||"nicht erkannt")+". Bitte direkt am Screenshot korrigieren; Produkt bleibt gesperrt.":x.ocrRecovery?"⚠️ OCR-Zweitlesung: "+x.originalIsin+" → "+x.isin+" (Prüfziffer gültig). Am Screenshot prüfen und bestätigen.":x.originalIsin?"⚠️ OCR normalisiert: "+x.originalIsin+" → "+x.isin+" (Prüfziffer gültig). Bitte am Screenshot prüfen.":"✅ Aus Screenshot erkannt – ISIN am Screenshot prüfen und bestätigen.";
+  if(status)status.textContent=!x?"Wartet auf Screenshot.":!validIsin(x.isin)?"⚠️ ISIN unsicher: "+(x.isin||"nicht erkannt")+". Bitte direkt am Screenshot korrigieren; Produkt bleibt gesperrt.":x.identityCorrection?"✅ ISIN automatisch korrigiert: "+x.originalIsin+" → "+x.isin+". BNP-Produktidentität am Originalbild belegt; aktuelle Produktdaten werden regulär geprüft.":x.ocrRecovery?"⚠️ OCR-Zweitlesung: "+x.originalIsin+" → "+x.isin+" (Prüfziffer gültig). Am Screenshot prüfen und bestätigen.":x.originalIsin?"⚠️ OCR normalisiert: "+x.originalIsin+" → "+x.isin+" (Prüfziffer gültig). Bitte am Screenshot prüfen.":"✅ Aus Screenshot erkannt – ISIN am Screenshot prüfen und bestätigen.";
  }
 }
 
@@ -991,8 +994,8 @@ function parseScreenshotCandidates(text){
  });
  const hits=[];
  matches.forEach((m,i)=>{
-  const x=ocrExtract(raw.slice(starts[i],i+1<matches.length?starts[i+1]:raw.length));
-  const ident=normalizeOcrIsin(m[0]);x.isin=ident.isin;x.originalIsin=ident.originalIsin;
+  const segment=raw.slice(starts[i],i+1<matches.length?starts[i+1]:raw.length),x=ocrExtract(segment);
+  const ident=normalizeOcrIsin(m[0],segment);x.isin=ident.isin;x.originalIsin=ident.originalIsin;x.identityCorrection=ident.identityCorrection||'';
   const existing=hits.find(v=>v.isin===x.isin);
   if(existing){Object.keys(x).forEach(k=>{if(!existing[k]&&x[k])existing[k]=x[k];});}
   else if(hits.length<12)hits.push(x);

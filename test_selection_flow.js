@@ -106,3 +106,13 @@ const overviewData=b.detailScreenshotData(overview,isin);
 assert(overviewData.ok,overviewData.reason);assert.equal(overviewData.bid,6.05);assert.equal(overviewData.ask,6.06);
 assert.equal(overviewData.sourceTime,'');assert.equal(overviewData.times.quote.at,null);
 assert(!b.detailScreenshotData(overview+'\nGeld € 6,04\nBrief € 6,07',isin).ok);
+// Reviewed BNP identity: I/1 -> 9 is permitted only for this exact product context.
+const bnpLine='BNP GOLD Unlimited Long SL 3980.6468 STR\n3980.6468 R 10 | DEOOOPJINCKO\nBNP OTC\nEUR';
+const bnp=b.parseScreenshotCandidates(bnpLine)[0];
+assert.equal(bnp.isin,'DE000PJ9NCK0');assert.equal(bnp.direction,'LONG');assert(bnp.identityCorrection);assert.equal(bnp.originalIsin,'DEOOOPJINCKO');
+assert(b.validIsin(bnp.isin));
+assert.equal(b.parseScreenshotCandidates(bnpLine.replace('DEOOOPJINCKO','DE000PJ1NCK0'))[0].isin,bnp.isin);
+for(const text of [bnpLine.replace('BNP','SG'),bnpLine.replace('Unlimited Long','Unlimited Short'),bnpLine.replace('GOLD','DAX'),bnpLine.replace('Unlimited Long','Faktor Long'),bnpLine.replace('PJINCKO','PJINCK1')])assert.notEqual(b.parseScreenshotCandidates(text)[0].isin,bnp.isin);
+const mixed=b.parseScreenshotCandidates(bnpLine+'\nSG Gold Turbo Short\nDE000FG4JXV7');assert.equal(mixed.length,2);assert.equal(mixed[0].isin,bnp.isin);assert.equal(mixed[1].direction,'SHORT');
+assert.equal(b.parseScreenshotCandidates(bnpLine+'\n'+bnpLine.replace('DEOOOPJINCKO',bnp.isin)).length,1);
+assert(!b.finalProductStatus({isin:bnp.isin,name:bnp.name,productDirection:bnp.direction,isinConfirmed:true},now).complete);
