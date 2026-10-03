@@ -153,7 +153,8 @@ try{
 <div><label>Push-Kanal</label><button onclick="setupNtfy()">☁️ ntfy einrichten</button></div>
 </div>
 <div class="small" style="margin-top:8px">Kein Login nötig. Auf Android die ntfy-App installieren und denselben Topic abonnieren. Der Topic-Name ist eine öffentliche Kanaladresse, kein echtes Passwort. Für sensible Inhalte sollte ein geschützter Push-Dienst verwendet werden.</div>
-<div class="warning" style="margin-top:10px"><b>Push-Regel:</b> „Marktsignale“ meldet Änderungen der Goldanalyse, keine Produktfreigabe. „Aktiver Trade“ meldet Stop-Loss, Richtungswechsel und bestätigte Fibonacci-Brüche – und nur bei einem tatsächlich aktiven Trade.</div>
+<div class="warning" style="margin-top:10px"><b>Push-Regel:</b> „Marktsignale“ aktiviert auch Produktpushs: nur nach erneuter Pflichtprüfung, bei neuer Auswahl oder Rücknahme. Nicht freigegebene Kandidaten lösen keinen Empfehlungspush aus. Produktpushs benötigen ein registriertes Gerät; sie werden nicht über ntfy gesendet. Neue Auswahlen werden bei geöffneter Bob-App geprüft. Bei ausbleibender Bestätigung läuft die Freigabe ab. „Aktiver Trade“ meldet Stop-Loss, Richtungswechsel und bestätigte Fibonacci-Brüche – und nur bei einem tatsächlich aktiven Trade.</div>
+<div id="productPushStatus" class="small">Produktpush: nur bei aktiven Marktsignalen.</div>
 <div id="fibMonitorStatus" class="small" style="margin-top:8px">Fibonacci-Überwachung: kein aktiver Trade.</div><div id="pushStatus" class="small" style="margin-top:8px">Noch nicht registriert.</div>
 </div>
 

@@ -60,7 +60,7 @@
       try{await reg.update();}catch(_){}
       serverRegistered=await registerServerPush(reg);
     }
-    return save({...read(),registered:true,serverRegistered});
+    const next=save({...read(),registered:true,serverRegistered});syncWorkerPreferences();return next;
   }
   function state(){return read();}
   function allowed(kind){
@@ -68,7 +68,7 @@
     return s.registered&&Notification.permission==="granted"&&s[kind]===true&&(kind!=="trade"||s.activeTrade===true);
   }
   async function emit(kind,title,body,data={}){
-    // Product selections are local, expire quickly, and are not verified by push delivery.
+    // Generic notification calls must never bypass the dedicated server selection check.
     if(data.isin||/product|best.trade|produktempfehl|bester trade/i.test([kind,data.kind,title].join(' ')))return false;
     const testTrade=kind==="trade"&&data&&data.test===true;
     if(testTrade){
@@ -118,9 +118,40 @@
       return true;
     }catch(_){return false;}
   }
-  function set(kind,value){return save({...read(),[kind]:Boolean(value)});}
+  function syncWorkerPreferences(){
+    if(!('serviceWorker' in navigator))return;
+    navigator.serviceWorker.ready.then(reg=>reg.active?.postMessage({type:'BOB_PUSH_PREFERENCES',general:read().general===true})).catch(()=>{});
+  }
+  let selectionBusy=false,selectionLastAt=0,selectionLastKey='',selectionGeneration=0;
+  function productStatus(text){const el=typeof document!=='undefined'?document.getElementById('productPushStatus'):null;if(el)el.textContent=text;}
+  async function updateSelection(evidence,flow){
+    const s=read();
+    if(!s.general){productStatus('Produktpush: aus – Marktsignale sind deaktiviert.');return false;}
+    if(!s.serverRegistered||!allowed('general')){productStatus('Produktpush: Gerät für Server-Push registrieren.');return false;}
+    const key=JSON.stringify([flow.direction,flow.groups.map(g=>[g.scope,g.candidates.map(p=>p.isin)]),flow.gateReasons]);
+    if(selectionBusy||(key===selectionLastKey&&Date.now()-selectionLastAt<10000))return false;
+    selectionBusy=true;const generation=selectionGeneration;
+    try{
+      const reg=await navigator.serviceWorker.ready,sub=await reg.pushManager.getSubscription();
+      if(!sub||!read().general||generation!==selectionGeneration)return false;
+      const payload={...evidence,capturedAt:Date.now(),endpoint:sub.endpoint};
+      const res=await fetch('/api/push/selection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const result=res.ok?await res.json():null;
+      if(generation!==selectionGeneration||!read().general)return false;
+      selectionLastAt=Date.now();selectionLastKey=key;
+      productStatus(!result?'Produktpush: Serverprüfung derzeit nicht erreichbar; keine neue Empfehlung.':result.disabled?'Produktpush: Marktsignale serverseitig aus – Einstellung erneut synchronisieren.':result.approvedCount?'Produktpush: '+result.approvedCount+' Produkt(e) serverseitig geprüft. '+(result.sent?'Benachrichtigung versandt.':'Unveränderte Auswahl / Wiederholung unterdrückt.'):'Produktpush: Abwarten – keine freigegebene Auswahl.');
+      return Boolean(result?.sent);
+    }catch(_){selectionLastAt=Date.now();selectionLastKey=key;productStatus('Produktpush: Serverprüfung nicht erreichbar; keine neue Empfehlung.');return false;}
+    finally{selectionBusy=false;}
+  }
+  function set(kind,value){
+    const next=save({...read(),[kind]:Boolean(value)});
+    if(kind==='general'){selectionGeneration++;selectionLastAt=0;selectionLastKey='';syncWorkerPreferences();}
+    return next;
+  }
   function setActiveTrade(value){return set("activeTrade",value);}
-  window.BobPush={state,save,enable,allowed,emit,set,setActiveTrade};
+  window.BobPush={state,save,enable,allowed,emit,set,setActiveTrade,updateSelection,syncWorkerPreferences};
+  syncWorkerPreferences();
 
   // Active-trade push monitor. This intentionally stays in the push layer:
   // it does not place orders or alter market/DEGIRO logic. It only triggers

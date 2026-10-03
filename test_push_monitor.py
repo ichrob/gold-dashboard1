@@ -27,6 +27,35 @@ class PushMonitorTests(unittest.TestCase):
         step=300000;end=int(now//step)*step
         payload=dict(tradeId='trade-fixture',direction='LONG',timeframe='5m',instrument='XAU/USD',levels={k:4050 for k in LEVELS},startedAt=end-step,previousClose=4040)
         return validate_monitor(payload,now),dict(barsByTf={'5m':[dict(openTime=end-step,close=4060,isOpen=False,instrument='XAU/USD')]})
+    def test_selection_off_does_not_evaluate_or_send(self):
+        db,conn=self.connection();conn.execute.return_value.fetchone.return_value=(False,)
+        with patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'),patch.object(push_server,'db',db),patch.object(push_server.product_push,'evaluate') as verify,patch.object(push_server,'webpush') as send:
+            status,result=self.request('/selection',{'endpoint':'fixture','approved':True})
+            self.assertEqual(status,200);self.assertTrue(result['disabled'])
+            verify.assert_not_called();send.assert_not_called()
+    def test_selection_is_rechecked_and_targets_only_enabled_device(self):
+        db,conn=self.connection();sub={'endpoint':'fixture'}
+        conn.execute.return_value.fetchone.side_effect=[(True,),(123,sub,None)]
+        now=int(push_server.time.time()*1000)
+        checked={'products':[{'isin':'DE000FG4JXV7','name':'Turbo','direction':'SHORT','scope':'XAU/USD','reasons':['KO-Puffer ausreichend']}], 'expiresAt':now+25000}
+        with patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'),patch.object(push_server,'db',db),patch.object(push_server.product_push,'evaluate',return_value=checked) as verify,patch.object(push_server,'vapid',return_value='fixture'),patch.object(push_server,'webpush') as send:
+            status,result=self.request('/selection',{'endpoint':'fixture'})
+            self.assertEqual(status,200);self.assertEqual(result['sent'],1)
+            verify.assert_called_once();send.assert_called_once()
+            self.assertEqual(send.call_args.kwargs['subscription_info'],sub)
+            self.assertLessEqual(send.call_args.kwargs['ttl'],25)
+            self.assertTrue(any('general_enabled=TRUE FOR UPDATE' in c.args[0] for c in conn.execute.call_args_list))
+    def test_switch_off_during_verification_blocks_delivery(self):
+        db,conn=self.connection();conn.execute.return_value.fetchone.side_effect=[(True,),None]
+        with patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'),patch.object(push_server,'db',db),patch.object(push_server.product_push,'evaluate',return_value={'products':[]}),patch.object(push_server,'webpush') as send:
+            status,result=self.request('/selection',{'endpoint':'fixture'})
+            self.assertEqual(status,200);self.assertTrue(result['disabled']);send.assert_not_called()
+    def test_failed_product_delivery_does_not_consume_transition(self):
+        _,conn=self.connection();now=int(push_server.time.time()*1000)
+        checked={'products':[{'isin':'fixture','direction':'LONG','scope':'XAU/USD'}], 'expiresAt':now+25000}
+        with patch.object(push_server,'vapid',return_value='fixture'),patch.object(push_server,'webpush',side_effect=push_server.WebPushException('fixture')):
+            self.assertEqual(push_server.deliver_product_selection(conn,(1,{},None),checked),0)
+            conn.execute.assert_not_called()
     def test_product_recommendations_never_reach_delivery(self):
         with patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'),patch.object(push_server,'webpush') as send,patch.object(push_server,'db') as database:
             for data in ({'isin':'DE000FG4JXV7'}, {'kind':'product-selection','approved':True}, {'kind':'best-trade'}):
@@ -34,7 +63,7 @@ class PushMonitorTests(unittest.TestCase):
                 self.assertEqual(status,200);self.assertEqual(result['sent'],0)
             send.assert_not_called();database.assert_not_called()
     def test_endpoints_require_server_token(self):
-        for path in ('/monitor','/preferences','/auth-session/create','/auth-session/check','/auth-session/revoke','/market-spots/read','/market-spots/write'):
+        for path in ('/selection','/monitor','/preferences','/auth-session/create','/auth-session/check','/auth-session/revoke','/market-spots/read','/market-spots/write'):
             status,_=self.request(path,{},'wrong');self.assertEqual(status,401)
     def test_session_route_is_authenticated_and_committed(self):
         db,conn=self.connection()
