@@ -102,7 +102,9 @@ def get_product(isin):
         return dict(isin=isin,found=False,eligible=False,fresh=False,productVerified=True,
                     source=r['source'],sourceUrl=r['sourceUrl'],checkedAt=None,
                     conditions={},observedTerms={},reason='Bestätigtes Knock-out: Produkt dauerhaft ausgeschlossen',
-                    metadata=dict(status=2,tradingHalted=True,termsDated=False),terminalEvidence=r)
+                    metadata=dict(status=2,tradingHalted=True,termsDated=False,
+                        direction='LONG',underlying='XAU/USD',underlyingType='SPOT',
+                        ko=4143.437,strike=4143.437,ratio=.1,contract=None),terminalEvidence=r)
     with _LOCK:
         item=_CACHE.get(isin)
         if item and time.monotonic()-item[0]<900:return item[1]
