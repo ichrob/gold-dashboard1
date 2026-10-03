@@ -20,12 +20,12 @@ for(const leverage of [null,'',0,-1])assert(!assess({leverage}).fit,'missing or 
 assert(assess({ko:3920}).score<base.score);
 for(const changes of [{ko:3980},{ko:4000},{ko:4100},{ko:null},{leverage:null},{price:null}])assert(!assess(changes).fit,JSON.stringify(changes));
 assert(!assess({atr:300}).fit,'insufficient volatility buffer');
-assert(assess({atr:null}).score<base.score,'unknown volatility is penalized');
+assert.equal(assess({atr:null}).score,base.score,'missing ATR has no data-quality deduction');
 const unknown=assess({costs:null});assert.equal(unknown.score,base.score);
 for(const costs of [null,{},cost(p.isin),{...cost(p.isin),roundTripEur:5000,financingDailyPct:100}]){const e=assess({costs});assert.equal(e.score,base.score);assert.equal(e.fit,base.fit);assert.equal(e.costRisk.totalCostsPct,null);}
-assert(assess({at:new Date(now-60000).toISOString()}).score<base.score);
-assert(assess({estimated:true}).score<base.score);
-assert(assess({at:null}).score<base.score);
+assert.equal(assess({at:new Date(now-60000).toISOString()}).score,base.score);
+assert.equal(assess({estimated:true}).score,base.score);
+assert.equal(assess({at:null}).score,base.score);
 const future={...p,isin:'DE000FG309G0',name:'Gold Future Turbo',productDirection:'LONG',ko:3800,costs:cost('DE000FG309G0')};
 const qa={available:true,contract:'GCZ26',direction:'LONG',technicalSourceFamilies:1,checkedAt:at,expiresAt:new Date(now+180000).toISOString(),rsi:60,macdHistogram:1,atr:20,frames:{'5m':{available:true,ema20:3700},'15m':{available:true},'1h':{available:true,trend:'LONG',ema50:4000,ema200:3900},'4h':{available:true}}};
 future.quote={isin:future.isin,productVerified:true,metadata:{underlyingType:'FUTURE',contract:'GCZ26'},futureResearch:{contract:'GCZ26',direction:'LONG',marketOpen:true,tradingEndAt:new Date(now+3600000).toISOString(),bid:39.96,ask:40,ko:3800,strike:3800,ratio:.1,usdEur:1,bidAt:at,askAt:at,fxDataAt:at,fxEffectiveAt:at,contractAnalysis:qa,calculatedFuture:{available:true,contract:'GCZ26',priceUsd:4000,comparisonErrorUsd:2,priceAt:at,referenceAt:at,validation:{ready:true,sampleCount:25,maxAbsoluteError:2}}}};
@@ -55,3 +55,5 @@ const rendered=b.renderSelectionWorkflow({...blocked,waiting:[{isin:p.isin,reaso
 console.log('Cost/risk scenarios passed:',JSON.stringify({lowCosts:base.score,wideSpread:wide.score,unknownCosts:unknown.score,highLeverage:assess({leverage:15}).score,missingAtr:assess({atr:null}).score,neutral:'ABWARTEN',tightFuture:'ABWARTEN'}));
 
 assert(!fs.readFileSync('degiro_assistant.js','utf8').includes('data-cost-save'));
+
+for(const change of [{at:null},{estimated:true},{atr:null},{rankingUncertaintyUsd:2,rankingBasisUsd:4000}])assert.equal(assess(change).costRisk.parts.data,0);
