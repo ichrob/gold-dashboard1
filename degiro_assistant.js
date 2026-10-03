@@ -946,7 +946,7 @@ function renderSelectionWorkflow(r,products=[]){
 }
 
 function productUploadCards(products,direction,now=Date.now()){
- return (products||[]).map((p,z)=>({...p,index:z+1})).filter(p=>p.name||p.isin).map(p=>compactProductCard(p,finalProductStatus(p,now).reasons,'Produktnachweise prüfen')).join('');
+ return (products||[]).map((p,z)=>({...p,index:z+1})).filter(p=>p.name||p.isin).sort((a,b)=>Number(b.productDirection===direction)-Number(a.productDirection===direction)).map(p=>compactProductCard(p,finalProductStatus(p,now).reasons,'Produktnachweise prüfen')).join('');
 }
 
 
