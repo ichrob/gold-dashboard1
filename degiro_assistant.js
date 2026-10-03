@@ -824,7 +824,8 @@ function selectionWorkflow(products,context={},bundle,references=[]){
  const eligibleIds=new Set(Array.from(groups.values()).flat().map(p=>p.isin));
  result.notApproved.push(...items.filter(p=>!selectedIds.has(p.isin)).map(p=>{
   const request=result.requests.find(x=>x.isin===p.isin),waiting=result.waiting.find(x=>x.isin===p.isin);
-  const reasons=[...result.gateReasons,...(request?.reasons||[]),...(waiting?[waiting.reason]:[])];
+  const contractHelp=productTermsStatus(p,now).reasons.filter(reason=>reason.startsWith('Exakter Gold-Future-Kontrakt fehlt'));
+  const reasons=[...result.gateReasons,...(request?.reasons||[]),...(waiting?[waiting.reason]:[]),...contractHelp];
   if(!reasons.length)reasons.push(eligibleIds.has(p.isin)?'Grundsätzlich geeignet, aber derzeit nicht unter den höchstens drei ausgewählten Produkten. Keine Freigabe in dieser Auswahl.':'Pflichtprüfung nicht bestanden: aktuelle Produkt- und Marktnachweise prüfen');
   return {isin:p.isin,name:p.name,index:p.index,reasons:[...new Set(reasons)]};
  }));
