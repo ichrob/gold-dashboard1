@@ -182,27 +182,37 @@ def mark_bar_state(bars, minutes):
     return bars
 
 def aggregate_bars(bars, minutes):
-    step = minutes * 60 * 1000
-    buckets = {}
-    now_ms = int(time.time() * 1000)
+    """Only aggregate complete, ordered, same-instrument source candles."""
+    base = {15: 5, 240: 60}.get(minutes)
+    if base is None:
+        raise ValueError('Nicht unterstützte Kerzenaggregation')
+    step, source_step = minutes*60000, base*60000
+    groups = {}
     for b in bars:
         try:
-            ts = int(b["openTime"])
-            bucket = (ts // step) * step
-            if bucket not in buckets:
-                buckets[bucket] = {"openTime": bucket, "open": float(b["open"]), "high": float(b["high"]), "low": float(b["low"]), "close": float(b["close"]), "isOpen": False, "instrument": b.get("instrument", "unknown")}
-            else:
-                x = buckets[bucket]
-                x["high"] = max(x["high"], float(b["high"]))
-                x["low"] = min(x["low"], float(b["low"]))
-                x["close"] = float(b["close"])
-        except (TypeError, ValueError, KeyError):
-            continue
+            ts = b['openTime']
+            prices = [b[k] for k in ('open','high','low','close')]
+            valid = (not isinstance(ts,bool) and isinstance(ts,(int,float)) and math.isfinite(ts)
+                     and ts > 0 and ts % source_step == 0
+                     and all(not isinstance(v,bool) and isinstance(v,(int,float)) and math.isfinite(v) and v>0 for v in prices))
+            if not valid:continue
+            o,h,l,c = prices
+            if l>min(o,c) or h<max(o,c) or l>h:continue
+            groups.setdefault(ts//step*step,[]).append(b)
+        except (KeyError,TypeError):continue
     out = []
-    for x in sorted(buckets.values(), key=lambda v: v["openTime"]):
-        x["isOpen"] = now_ms < x["openTime"] + step
-        out.append(x)
+    now_ms = time.time()*1000
+    for ts, items in sorted(groups.items()):
+        items.sort(key=lambda b:b['openTime'])
+        if ([b['openTime'] for b in items] != [ts+i*source_step for i in range(minutes//base)]
+                or len({b.get('instrument','unknown') for b in items}) != 1):
+            continue
+        out.append(dict(openTime=ts,open=items[0]['open'],high=max(b['high'] for b in items),
+                        low=min(b['low'] for b in items),close=items[-1]['close'],
+                        instrument=items[0].get('instrument','unknown'),
+                        isOpen=now_ms<ts+step or any(b.get('isOpen',False) for b in items)))
     return out
+
 
 def build_live_bundle():
     """Build Bob's live bundle without letting slow secondary sources block the spot heartbeat.

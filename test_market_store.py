@@ -103,6 +103,22 @@ class PostgresMarketTests(unittest.TestCase):
     self.assertFalse(conn.execute('SELECT 1 FROM '+table+' WHERE quote_at=%s',(expired,)).fetchone())
     conn.execute('DELETE FROM '+table+' WHERE quote_at=%s',(kept,))
 
+ def test_prediction_only_write_does_not_rescan_historic_truths(self):
+  import psycopg
+  import bob_validation_store as v
+  at=datetime.now(timezone.utc)-timedelta(days=2)
+  class CountingConnection:
+   def __init__(self,conn):self.conn=conn;self.calls=0
+   def execute(self,*args):self.calls+=1;return self.conn.execute(*args)
+  with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+   v.init(conn)
+   times=[at+timedelta(seconds=i) for i in range(20)]
+   for t in times:conn.execute('INSERT INTO bob_future_truths(quote_at,price) VALUES(%s,4100)',(t,))
+   counted=CountingConnection(conn)
+   v.handle(counted,'write',{'events':[]})
+   self.assertLessEqual(counted.calls,12)
+   conn.execute('DELETE FROM bob_future_truths WHERE quote_at=ANY(%s)',(times,))
+
  def test_two_connections_preserve_timestamp_and_reject_rewrites(self):
   import psycopg
   dsn=os.environ['BOB_TEST_DATABASE_URL'];now=datetime.now(timezone.utc)

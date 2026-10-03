@@ -158,7 +158,8 @@ def _run():
         except Exception as exc:
             # No provider response, URL or credential is exposed.
             with _lock:
-                _report.update(state='error', ready=False,
+                _report.update(state='error', ready=False, estimateAvailable=False,
+                               estimatePriceUsd=None, estimateAt=None,
                                reason='Sammlung unterbrochen; automatischer Wiederholungsversuch',
                                errorType=type(exc).__name__)
             print('BOB_COLLECTION error='+type(exc).__name__, flush=True)

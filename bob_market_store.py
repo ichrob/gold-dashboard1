@@ -26,6 +26,7 @@ def point(payload, now=None, age=60):
     price=payload.get('price');raw=payload.get('at')
     if isinstance(price,bool) or not isinstance(price,(int,float)) or not math.isfinite(price) or price<=0:
         raise ValueError('Ungültiger Spot-Kurs')
+    if not isinstance(raw,str):raise ValueError('Spot-Quellenzeit fehlt')
     at=datetime.fromisoformat(raw.replace('Z','+00:00'))
     if at.tzinfo is None or not 0<=now-at.timestamp()<=age:
         raise ValueError('Spot-Quellenzeit nicht verwendbar')

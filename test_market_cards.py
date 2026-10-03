@@ -101,4 +101,10 @@ class MarketCardsTests(unittest.TestCase):
             self.assertFalse(result['estimate'].get('historical',False))
             old.assert_not_called()
 
+    def test_malformed_source_does_not_hide_other_cards(self):
+        with patch.object(m,'_cache',None),patch.object(m,'fetch_spot',side_effect=AttributeError('bad source')),patch.object(m,'fetch_quote',return_value={'price':4172,'kind':'reference'}),patch.object(future_estimate,'current_estimate',return_value={'available':False}),patch.object(m,'last_estimate',return_value=None):
+            self.assertEqual(m.snapshot()['future']['price'],4172)
+        for at in (None,{},42):
+            with self.assertRaises(ValueError):future_estimate.stamp(at)
+
 if __name__=='__main__': unittest.main()

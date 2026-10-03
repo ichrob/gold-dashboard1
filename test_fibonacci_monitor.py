@@ -44,6 +44,13 @@ class MonitorTests(unittest.TestCase):
     def test_aggregate_preserves_instrument(self):
         import server
         b=self.bar();b.update(open=4040,high=4065,low=4035)
-        self.assertEqual(server.aggregate_bars([b],15)[0]['instrument'],'XAU/USD')
+        start=b['openTime']//900000*900000
+        rows=[dict(b,openTime=start+i*300000) for i in range(3)]
+        self.assertEqual(server.aggregate_bars(rows,15)[0]['instrument'],'XAU/USD')
+        self.assertEqual(server.aggregate_bars([rows[0],rows[2]],15),[])
+        self.assertEqual(server.aggregate_bars(rows+[rows[0]],15),[])
+        self.assertEqual(server.aggregate_bars([rows[0],dict(rows[1],instrument='GC=F'),rows[2]],15),[])
+        self.assertEqual(server.aggregate_bars([dict(rows[0],high=float('inf')),*rows[1:]],15),[])
+        self.assertTrue(server.aggregate_bars([dict(rows[0],isOpen=True),*rows[1:]],15)[0]['isOpen'])
 
 if __name__=='__main__':unittest.main()
