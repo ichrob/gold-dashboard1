@@ -9,6 +9,7 @@ import bob_auth
 import auto_collection
 import ocr_assets
 import product_quotes
+import market_cards
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from datetime import datetime, timezone
@@ -590,7 +591,7 @@ class Handler(BaseHTTPRequestHandler):
         # Sensitive data APIs must be authenticated before any data generation.
         # Keep static PWA resources and /health public, but never expose live,
         # MTF, or DEGIRO enrichment data without the existing Bob credentials.
-        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status")
+        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards")
         if protected_api_path:
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
@@ -715,6 +716,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(MANIFEST)
+            return
+
+        if path == "/api/market-cards":
+            body = json.dumps(market_cards.snapshot(), ensure_ascii=False, allow_nan=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
             return
 
         if path == "/api/live":
@@ -1070,5 +1080,6 @@ if __name__ == "__main__":
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress
+
 
 
