@@ -68,9 +68,9 @@ assert.equal(ordered.total,2);assert.equal(ordered.candidates[0].evaluation.scor
 context.document={getElementById:()=>null};
 for(const direction of ['NEUTRAL','LONG','SHORT']){
  const cards=b.productUploadCards([comparisonProduct,{...comparisonProduct,productDirection:'LONG',name:'<img onerror=bad>'}],direction,now);
- assert(cards.includes('data-detail-upload="1"'));assert(cards.includes('data-detail-upload="2"'));assert(cards.includes('&lt;img onerror=bad&gt;'));
+ assert(cards.includes('data-selection-upload="1"'));assert(cards.includes('data-selection-upload="2"'));assert(cards.includes('&lt;img onerror=bad&gt;'));
  assert(cards.includes('data-card-confirm="1"'));
- if(direction==='LONG')assert(cards.indexOf('data-detail-upload="2"')<cards.indexOf('data-detail-upload="1"'));
+ if(direction==='LONG')assert(cards.indexOf('data-selection-upload="2"')<cards.indexOf('data-selection-upload="1"'));
 }
 context.document={querySelector:sel=>{const m=sel.match(/data-dg="([^"]+)".*data-i="(\d+)"/);return m?fields[m[2]+':'+m[1]]:null;}};
 for(const [key,value] of Object.entries({isin,name:'SG Gold SHORT',dir:'SHORT',price:'24.82',lev:'14.01',ko:'4460',spread:'.01'}))fields['1:'+key]={value};
