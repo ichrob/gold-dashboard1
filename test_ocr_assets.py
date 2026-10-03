@@ -1,3 +1,5 @@
+import ast
+from pathlib import Path
 import hashlib
 import io
 import unittest
@@ -28,6 +30,14 @@ class Handler:
 class AssetsTests(unittest.TestCase):
     def setUp(self):
         ocr_assets._cache.clear()
+
+    def test_served_product_module_matches_tested_source(self):
+        module = ast.parse(Path('server.py').read_text())
+        embedded = next(n.value.value for n in module.body
+                        if isinstance(n, ast.Assign) and any(
+                            isinstance(t, ast.Name) and t.id == 'DEGIRO_ASSISTANT_JS'
+                            for t in n.targets))
+        self.assertEqual(embedded, Path('degiro_assistant.js').read_text())
 
     def test_fixed_paths_only(self):
         with patch("ocr_assets.urlopen") as fetch:
