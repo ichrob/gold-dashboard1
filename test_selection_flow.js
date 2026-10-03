@@ -116,3 +116,57 @@ for(const text of [bnpLine.replace('BNP','SG'),bnpLine.replace('Unlimited Long',
 const mixed=b.parseScreenshotCandidates(bnpLine+'\nSG Gold Turbo Short\nDE000FG4JXV7');assert.equal(mixed.length,2);assert.equal(mixed[0].isin,bnp.isin);assert.equal(mixed[1].direction,'SHORT');
 assert.equal(b.parseScreenshotCandidates(bnpLine+'\n'+bnpLine.replace('DEOOOPJINCKO',bnp.isin)).length,1);
 assert(!b.finalProductStatus({isin:bnp.isin,name:bnp.name,productDirection:bnp.direction,isinConfirmed:true},now).complete);
+
+// Point 5: an empty or short selection is intentional, never padded.
+const copies=['DE000FG4JXV7','DE000FC1CHB7','DE000PJ9NCK0'].map(id=>{
+ const x=JSON.parse(JSON.stringify(imageProduct));x.isin=id;x.snapshot.isin=id;x.snapshot.evidence.KO.at=new Date(now).toISOString();return x;
+});
+for(let count=0;count<=3;count++){
+ const result=b.selectionWorkflow(copies.slice(0,count),context,{});
+ assert.equal(result.approvedCount,count);assert.equal(result.approved,count>0);
+ assert.equal(result.groups.flatMap(g=>g.candidates).length,count);
+ const html=b.renderSelectionWorkflow(result);
+ assert.equal((html.match(/<b>Platz /g)||[]).length,count);
+ assert(html.includes(count?'Zur Produktauswahl freigegeben':'Abwarten – derzeit kein geeignetes Produkt'));
+ assert(!html.includes('Begründete Top 3'));
+}
+for(const change of [
+ {direction:'NEUTRAL'}, {direction:''}, {mtf:'NEUTRAL'}, {mtf:'LONG'},
+ {trend:'LONG'}, {trend2:'LONG'}, {hist:1}, {momentum:1},
+ {hist:null},{hist:''},{momentum:0},{atr:null},{trend:undefined},
+ {mtf:'LONG / SHORT'}, {spotFresh:false}
+]){
+ const result=b.selectionWorkflow(copies,{...context,...change},{});
+ assert.equal(result.approvedCount,0,JSON.stringify(change));
+ assert(b.renderSelectionWorkflow(result).includes('Abwarten – derzeit kein geeignetes Produkt'));
+ assert(result.gateReasons.length||result.waiting.length||result.requests.length);
+}
+const blocked=JSON.parse(JSON.stringify(copies[0]));blocked.snapshot.terms.type.value='Faktor';
+assert.equal(b.selectionWorkflow([blocked,...copies.slice(1)],context,{}).approvedCount,2);
+const expired=b.selectionWorkflow(copies,{...context,now:now+91000},{});
+assert.equal(expired.approvedCount,0);assert(expired.requests.every(x=>x.reasons.some(y=>/Kurs|Zeit|Hebel/.test(y))));
+const tight=JSON.parse(JSON.stringify(copies[0]));tight.ko=4141;tight.snapshot.evidence.KO.value=4141;
+assert.equal(b.selectionWorkflow([tight],context,{}).approvedCount,0);
+assert(b.renderSelectionWorkflow(b.selectionWorkflow([tight],context,{})).includes('KO'));
+const futureOk=JSON.parse(JSON.stringify(f));futureOk.quote.futureResearch.calculatedFuture.validation.ready=true;
+assert.equal(b.selectionWorkflow([futureOk],context,{}).approvedCount,1);
+for(const change of [
+ x=>x.quote.futureResearch.contractAnalysis.frames['15m'].direction='LONG',
+ x=>x.quote.futureResearch.contractAnalysis.direction='NEUTRAL',
+ x=>x.quote.futureResearch.calculatedFuture.contract='GCG27',
+ x=>x.quote.futureResearch.calculatedFuture.comparisonErrorUsd=170,
+ x=>x.quote.futureResearch.calculatedFuture.validation.ready=false,
+ x=>x.quote.futureResearch.calculatedFuture.priceAt=at(-61)
+]){const x=JSON.parse(JSON.stringify(futureOk));change(x);const result=b.selectionWorkflow([x],context,{});assert.equal(result.approvedCount,0);assert(result.waiting.length||result.requests.length);}
+const mix=b.selectionWorkflow([...copies,futureOk],context,{});assert.equal(mix.approvedCount,3);
+console.log('No forced Top 3: 0/1/2/3, mixed blocked products, neutral/conflicting signals, expiration, KO and Future uncertainty passed');
+
+// Production markup has an MTF legend with LONG, SHORT and NEUTRAL simultaneously.
+for(const direction of ['LONG','SHORT','NEUTRAL']){
+ const doc={getElementById:id=>({textContent:{blockMtf:direction,blockMomentum:direction,mtfSummary:direction+' 4 LONG · 0 SHORT · 0 NEUTRAL'}[id]})};
+ const ui=b.selectionUiSignals(doc);
+ assert.equal(ui.mtf,direction);assert.equal(ui.momentum,direction==='LONG'?1:direction==='SHORT'?-1:0);
+ const result=b.selectionMarketGate({...context,direction,trend:direction,trend2:direction,hist:ui.momentum,...ui});
+ assert.equal(result.ok,direction!=='NEUTRAL');
+}
+assert.equal(b.selectionUiSignals({getElementById:()=>null}).momentum,0);

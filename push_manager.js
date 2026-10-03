@@ -68,6 +68,8 @@
     return s.registered&&Notification.permission==="granted"&&s[kind]===true&&(kind!=="trade"||s.activeTrade===true);
   }
   async function emit(kind,title,body,data={}){
+    // Product selections are local, expire quickly, and are not verified by push delivery.
+    if(data.isin||/product|best.trade|produktempfehl|bester trade/i.test([kind,data.kind,title].join(' ')))return false;
     const testTrade=kind==="trade"&&data&&data.test===true;
     if(testTrade){
       const s=read();
