@@ -13,8 +13,8 @@ const snapshot=b.mergeScreenshotEvidence(null,read('Kurszeit: '+at+'\nHebelzeit:
 const product={isin,price:24.82,spread:0.01,leverage:14.01,ko:4460,productDirection:'SHORT',isinConfirmed:true,spot:4000};
 assert(b.manualSnapshotStatus(product,snapshot,now).complete);
 assert(!b.manualSnapshotStatus(product,snapshot,now).liveVerified);
-assert(b.manualSnapshotStatus(product,snapshot,now+30000).complete); // exactly 60s
-assert(!b.manualSnapshotStatus(product,snapshot,now+30001).complete);
+assert(b.manualSnapshotStatus(product,snapshot,now+14*3600000-30000).complete); // exactly 14 hours
+assert(!b.manualSnapshotStatus(product,snapshot,now+14*3600000-29999).complete);
 assert(!b.manualSnapshotStatus(product,snapshot,now-30001).complete); // future source time
 assert(!b.manualSnapshotStatus({...product,isinConfirmed:false},snapshot,now).complete);
 assert(!b.manualSnapshotStatus({...product,leverage:15},snapshot,now).complete);
@@ -44,7 +44,7 @@ assert.equal(merged.evidence.Hebel.at,snapshot.evidence.Hebel.at);
 assert.equal(merged.evidence.KO.source,'full.jpg');
 assert.equal(merged.leverage,'14.01');assert.equal(merged.ko,'4460');
 assert.equal(merged.evidence.Geld.source,'new-quotes.jpg');
-assert(!b.manualSnapshotStatus({...product,price:25.01},merged,now+60000).complete);
+assert(b.manualSnapshotStatus({...product,price:25.01},merged,now+60000).complete);
 const onlyDetails=b.detailScreenshotData(isin+'\nKO 4461\nKO-Zeit: '+at,isin);
 const added=b.mergeScreenshotEvidence(snapshot,onlyDetails,'details.jpg');
 assert.equal(added.evidence.Geld.at,snapshot.evidence.Geld.at);
@@ -57,7 +57,7 @@ const comparisonProduct={...product,snapshot};
 const comparisonContext={atr:20,direction:'SHORT',spotFresh:true,spot:4000,now};
 assert.equal(b.rankManualSnapshots([comparisonProduct],comparisonContext).total,1);
 assert.equal(b.rankManualSnapshots([comparisonProduct],comparisonContext).liveVerified,false);
-for(const change of [{direction:'NEUTRAL'},{direction:'LONG'},{spotFresh:false},{now:now+30001},{trend:'LONG',trend2:'LONG',mtf:'LONG',hist:1,momentum:1,rsi:65}]){
+for(const change of [{direction:'NEUTRAL'},{direction:'LONG'},{spotFresh:false},{now:now+14*3600000-29999},{trend:'LONG',trend2:'LONG',mtf:'LONG',hist:1,momentum:1,rsi:65}]){
  assert.equal(b.rankManualSnapshots([comparisonProduct],{...comparisonContext,...change}).total,0);
 }
 assert.equal(b.rankManualSnapshots([{...comparisonProduct,isinConfirmed:false}],comparisonContext).total,0);
@@ -82,4 +82,5 @@ store.set('bobDegiroIdentitiesV1',JSON.stringify([{isin:'invalid'}]));assert.equ
 const server=fs.readFileSync('server.py','utf8');
 assert(server.includes('manualSnapshotStatus'));assert(server.includes('bobDegiroIdentitiesV1'));
 console.log('Manual DEGIRO timestamp / provenance / persistence regressions: OK');
+
 

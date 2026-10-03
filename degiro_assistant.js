@@ -708,10 +708,11 @@ function screenshotTimes(raw){
  }
  return out;
 }
+const SCREENSHOT_MAX_AGE_MS=14*60*60*1000;
 function evidenceTiming(e,now=Date.now()){
  const at=e?.at,parsed=typeof at==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(at)?Date.parse(at):NaN;
  const age=now-parsed;
- return{fresh:Number.isFinite(age)&&age>=0&&age<=60000,ageSeconds:Number.isFinite(age)?Math.ceil(age/1000):null};
+ return{fresh:Number.isFinite(age)&&age>=0&&age<=SCREENSHOT_MAX_AGE_MS,ageSeconds:Number.isFinite(age)?Math.ceil(age/1000):null};
 }
 function fieldSourceTime(x,key){
  const field={Geld:'bid',Brief:'ask',Hebel:'leverage',KO:'ko'}[key];
@@ -724,9 +725,10 @@ function manualSnapshotStatus(p,x,now=Date.now()){
  if(!x||x.isin!==String(p.isin||'').trim().toUpperCase()||!validIsin(p.isin))reasons.push('Bildidentität nicht bestätigt');
  if(p.isinConfirmed!==true)reasons.push('Erkannte Werte und Quellenzeiten am Original bestätigen');
  if(x?.currency!=='EUR'||!(n(x?.bid)>0)||!(n(x?.ask)>=n(x?.bid)))reasons.push('Geld und Brief in EUR fehlen');
+ if(e.Geld?.at!==e.Brief?.at)reasons.push('Geld-/Briefzeiten stimmen nicht überein');
  const pairs={Geld:x?.bid,Brief:x?.ask,Hebel:p.leverage,KO:p.ko};
  for(const [key,value] of Object.entries(pairs)){
-  if(n(value)===null||n(e[key]?.value)!==n(value)||!evidenceTiming(e[key],now).fresh)reasons.push(key+': eigener Zeitnachweis fehlt oder älter als 60 Sekunden');
+  if(n(value)===null||n(e[key]?.value)!==n(value)||!evidenceTiming(e[key],now).fresh)reasons.push(key+': eigener Zeitnachweis fehlt oder älter als 14 Stunden');
  }
  if(n(p.price)!==n(x?.ask)||!(n(p.leverage)>=1)||!(n(p.ko)>0))reasons.push('Produktwerte unvollständig oder widersprüchlich');
  if(x?.delayed)reasons.push('Bild weist auf verzögerte Kurse hin');
@@ -764,14 +766,14 @@ function selectionDetailStatus(p,now=Date.now()){
  const pair=e.Geld?.source&&e.Geld.source===e.Brief?.source&&n(e.Geld.value)===n(x?.bid)&&n(e.Brief.value)===n(x?.ask);
  const explicit=x?.times?.quote;
  const time=pair?selectionTimeWindow(explicit?.present?explicit.text:x?.sourceTime):null;
- if(!time||now<time.start||now-time.start>90000)reasons.push('Kurszeit mit Datum: höchstens 90 Sekunden alt; keine ergänzten Sekunden');
+ if(!time||now<time.start||now-time.start>SCREENSHOT_MAX_AGE_MS)reasons.push('Kurszeit mit Datum: höchstens 14 Stunden alt; keine ergänzten Sekunden');
  for(const key of ['bid','ask'])if(x?.times?.[key]?.present){
   const own=selectionTimeWindow(x.times[key].text);
-  if(!own||now<own.start||now-own.start>90000||!time||own.end<time.start||own.start>time.end)reasons.push('Widersprüchliche oder ungültige '+(key==='bid'?'Geldzeit':'Briefzeit')+' am Original prüfen');
+  if(!own||now<own.start||now-own.start>SCREENSHOT_MAX_AGE_MS||!time||own.end<time.start||own.start>time.end)reasons.push('Widersprüchliche oder ungültige '+(key==='bid'?'Geldzeit':'Briefzeit')+' am Original prüfen');
  }
  if(x?.times?.leverage?.present&&!evidenceTiming(e.Hebel,now).fresh)reasons.push('Eigene Hebelzeit ist ungültig oder veraltet');
  if(x?.delayed)reasons.push('Nicht verzögerten Produktkurs ergänzen');
- if(!(n(p.leverage)>=1&&n(e.Hebel?.value)===n(p.leverage))||!evidenceTiming(e.Hebel,now).fresh&&!(pair&&e.Hebel?.source===e.Geld?.source&&time&&now-time.start<=90000))reasons.push('Aktuelles Detailbild mit Hebel und zugehöriger Zeit');
+ if(!(n(p.leverage)>=1&&n(e.Hebel?.value)===n(p.leverage))||!evidenceTiming(e.Hebel,now).fresh&&!(pair&&e.Hebel?.source===e.Geld?.source&&time&&now-time.start<=SCREENSHOT_MAX_AGE_MS))reasons.push('Aktuelles Detailbild mit Hebel und zugehöriger Zeit');
  const fixed=window.BobCombined.fixedFor(p),meta=p.quote?.productVerified?p.quote.metadata:null;
  if(!(n(p.ko)>0)||!(fixed||n(meta?.ko)===n(p.ko)||n(e.KO?.value)===n(p.ko)&&evidenceTiming(e.KO,now).fresh))reasons.push('KO-Barriere mit gültigem Nachweis oder festen Screenshotwert bestätigen');
  return {complete:!reasons.length,reasons,at:time?new Date(time.start).toISOString():null,timeLabel:time?.label,source:e.Geld?.source};
@@ -822,7 +824,7 @@ function selectionWorkflow(products,context={},bundle,references=[]){
   const state=selectionDetailStatus(p,now);
   if(!isFutureProduct(p)&&state.complete&&context.spotFresh===true){
    const e=evaluateProduct({...p,...context,spread:n(p.snapshot.ask)-n(p.snapshot.bid),rankingQuoteAt:state.at});
-   if(e.ok&&e.fit&&e.setupScore>=35&&e.conflictCount<3)add({isin:p.isin,name:p.name,direction,scope:'XAU/USD',score:e.score,price:p.price,at:state.timeLabel,source:state.source,priceKind:'Geprüfte DEGIRO-Kursmomentaufnahme',reasons:e.reasons});
+   if(e.ok&&e.fit&&e.setupScore>=35&&e.conflictCount<3)add({isin:p.isin,name:p.name,direction,scope:'XAU/USD',score:e.score,price:p.price,at:state.timeLabel,source:state.source,priceKind:'DEGIRO-Screenshot · bis 14 Stunden gültiger Nachweis, kein Livekurs',reasons:e.reasons});
    else result.waiting.push({isin:p.isin,reason:e.reasons.join(' · ')||'Technische Passung unzureichend'});
   }else if(!state.complete)result.requests.push({isin:p.isin,name:p.name,index:p.index,reasons:state.reasons,scope:isFutureProduct(p)?'FUTURE':'XAU/USD'});
   else result.waiting.push({isin:p.isin,reason:isFutureProduct(p)?cond.reason:'Aktuelle Gold-Spot-Analyse fehlt'});
@@ -959,7 +961,7 @@ function finalProductStatus(p,now=Date.now(),reference){
  const future=pair(r,q?.source)&&r.direction===p.productDirection&&r.marketOpen;
  const shot=selectionDetailStatus(p,now);
  const ref=reference?.isin===p.isin&&reference.reviewed&&reference.paired&&reference.source&&reference.venue&&!reference.delayed&&n(reference.bid)>0&&n(reference.ask)>=n(reference.bid)&&freshTimes([reference.quoteAt],now,90);
- if(!issuer&&!future&&!shot.complete&&!ref)reasons.push('Aktuelle Geld-/Briefkurse mit Quelle und Quellenzeit fehlen (höchstens 90 Sekunden); '+shot.reasons.filter(x=>!status.reasons.includes(x)).join(' · '));
+ if(!issuer&&!future&&!shot.complete&&!ref)reasons.push('Geld-/Briefnachweis fehlt: Emittentenkurs höchstens 90 Sekunden oder geprüftes Screenshot-Kursbild höchstens 14 Stunden; '+shot.reasons.filter(x=>!status.reasons.includes(x)).join(' · '));
  return {...status,complete:!reasons.length,reasons};
 }
 function detailScreenshotData(text,expectedIsin){
@@ -1050,13 +1052,13 @@ function supplementaryHint(missing){
 }
 function screenshotTimeLabel(x){
  const e=x?.evidence?.Geld;
- if(e?.at){const t=evidenceTiming(e);return 'Kursquelle: '+e.at+' · '+(t.fresh?'höchstens 60 Sekunden alt':t.ageSeconds===null?'Zeit unklar':t.ageSeconds+' s alt / gesperrt')+' · Momentaufnahme, keine Live-Verifizierung.';}
+ if(e?.at){const t=evidenceTiming(e);return 'Kursquelle: '+e.at+' · '+(t.ageSeconds===null?'Zeit unklar':t.ageSeconds+' s alt · '+(t.fresh?'Nachweis innerhalb von 14 Stunden gültig':'Nachweis abgelaufen'))+' · Momentaufnahme, keine Live-Verifizierung.';}
  return x?.sourceTime?'Kursstand im Bild: '+x.sourceTime+' · Aktualität nicht verifiziert. Vollständige, ausdrücklich zugeordnete Kurszeit mit Sekunden und Zeitzone erforderlich.':'Kurszeit fehlt – Aktualität nicht prüfbar. Kein Live-Kurs.';
 }
 function screenshotSummary(x){
  if(!x)return "";
  const termRows=Object.entries(x.terms||{}).map(([key,e])=>'<tr><td>'+esc(({ratio:'Bezugsverhältnis',strike:'Basispreis USD',underlying:'Basiswert',contract:'Future-Kontrakt',type:'Produkttyp',maturity:'Laufzeit',currency:'Produktwährung',quanto:'Quanto'})[key]||key)+'</td><td>'+esc(e.value)+'</td><td>'+esc(e.source)+'</td><td>'+esc(e.at||'Produktdatenstand fehlt')+'</td></tr>').join('');
- const rows=Object.entries(x.evidence||{}).filter(([key])=>key!=='Spread').map(([key,e])=>{const t=evidenceTiming(e);return '<tr><td>'+esc(key)+'</td><td>'+esc(e.value)+'</td><td>'+esc(e.source)+'</td><td>'+esc(e.at||'Zeit / Zeitzone fehlt')+(key==='Richtung'?'':' · '+esc(t.ageSeconds===null?'gesperrt':t.ageSeconds+' s · '+(t.fresh?'≤ 60 s':'gesperrt')))+'</td></tr>';}).join("");
+ const rows=Object.entries(x.evidence||{}).filter(([key])=>key!=='Spread').map(([key,e])=>{const t=evidenceTiming(e);return '<tr><td>'+esc(key)+'</td><td>'+esc(e.value)+'</td><td>'+esc(e.source)+'</td><td>'+esc(e.at||'Zeit / Zeitzone fehlt')+(key==='Richtung'?'':' · '+esc(t.ageSeconds===null?'gesperrt':t.ageSeconds+' s · '+(t.fresh?'Nachweis ≤ 14 h · kein Livekurs':'gesperrt')))+'</td></tr>';}).join("");
  return '<div class="small"><b>Erkannte Angaben – bitte prüfen</b><table style="width:100%"><thead><tr><th>Angabe</th><th>Wert</th><th>Bildquelle</th><th>Quellenzeit</th></tr></thead><tbody>'+rows+termRows+'</tbody></table>'+esc(screenshotTimeLabel(x))+'</div>';
 }
 function manualProductMissing(p){
@@ -1118,7 +1120,7 @@ function inject(){
  '<span style="display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:15px;background:#1677ff;color:#fff;font-size:31px;font-weight:700;line-height:1;box-shadow:0 3px 8px rgba(22,119,255,.22)">↑</span>'+
  '<span id="dgShotLabel3" style="margin-top:7px;font-weight:700;font-size:12px">Bild 3 <span style="font-weight:400">(optional)</span></span><input id="dgCentralShot3" type="file" accept="image/*" style="display:none"></label>'+
  '</div><div id="dgCentralStatus" class="small" style="margin-top:9px">Noch keine Bilder hochgeladen.</div></div>'+
- '<div class="small" style="margin-top:9px">Automatische Produktrecherche: beim Öffnen und alle 60 Sekunden, solange Bob sichtbar ist. Quellenzeiten bleiben unverändert; Kurse über 90 Sekunden bleiben veraltet. Fehlende Kurse bleiben offen, berechnete Werte sind Schätzungen.</div>'+
+ '<div class="small" style="margin-top:9px">Automatische Produktrecherche: beim Öffnen und alle 60 Sekunden, solange Bob sichtbar ist. Quellenzeiten bleiben unverändert: Emittentenkurse höchstens 90 Sekunden; Screenshot-Kursnachweise 14 Stunden ab Quellenzeit gültig, keine Echtzeitkurse. Neue Kursbilder ersetzen den bisherigen Kursnachweis. Fehlende Kurse bleiben offen, berechnete Werte sind Schätzungen.</div>'+
  '<div id="dgTop3Out" style="margin-top:12px"></div>'+
  '<details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700">Alle gespeicherten Produkte / weitere Detailbilder</summary><div id="dgMissingProducts" style="margin-top:12px"></div></details>'+
  '<div id="dgManualSnapshots" style="margin-top:12px" hidden></div>'+
@@ -1484,4 +1486,5 @@ function init(){
 }
 window.BobTradeUpload={parse,draft,reviewed,merge,init};if(typeof document!=='undefined'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();}
 })();
+
 
