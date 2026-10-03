@@ -12,8 +12,11 @@ const wide=assess({spread:.4});assert(wide.fit);assert.equal(wide.score,base.sco
 for(const spread of [null,undefined,'',-1,0,.4,2,39,100]){const e=assess({spread});assert.equal(e.score,base.score);assert.equal(e.fit,base.fit);assert.equal(e.costRisk.parts.spread,0);}
 assert(rank([{...p,spread:2}]).tradeable,'wide spread cannot trigger a gate');
 assert(assess({spread:2,costs:{...p.costs,roundTripEur:49,financingDailyPct:0}}).fit,'spread excluded from the 5% weighted-cost gate');
-for(const leverage of [6,10,15,20,40])assert(assess({leverage}).score<=base.score,'leverage alone never improves rank');
-assert(assess({leverage:15}).score<base.score);
+for(const leverage of [1,5,6,10,15,20,40,100]){const e=assess({leverage});assert.equal(e.score,base.score);assert.equal(e.fit,base.fit);assert.equal(e.productScore,base.productScore);assert.equal(e.costRisk.parts.leverage,0);}
+const high={...p,name:'High leverage, lower fees',leverage:30},low={...p,name:'Low leverage, higher fees',leverage:5,costs:{...p.costs,roundTripEur:10}};
+assert.equal(rank([low,high]).candidates[0].name,high.name,'high leverage can rank first on the actual conditions');
+for(const leverage of [5,30]){assert(!assess({leverage,ko:3990}).fit);assert(!assess({leverage,atr:300}).fit);}
+for(const leverage of [null,'',0,-1])assert(!assess({leverage}).fit,'missing or invalid leverage remains a data failure');
 assert(assess({ko:3920}).score<base.score);
 for(const changes of [{ko:3980},{ko:4000},{ko:4100},{ko:null},{leverage:null},{price:null}])assert(!assess(changes).fit,JSON.stringify(changes));
 assert(!assess({atr:300}).fit,'insufficient volatility buffer');
