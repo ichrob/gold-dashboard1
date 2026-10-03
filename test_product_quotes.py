@@ -13,7 +13,7 @@ class ProductQuoteTests(unittest.TestCase):
     def test_known_sg_failure_is_not_replaced_by_bnp_miss(self):
         isin='DE000FG309G0'
         with patch.dict(q._CACHE, {isin:(__import__('time').monotonic(),{'found':True,'source':'SG'})}, clear=True), patch.object(q,'get_bnp_quote') as bnp, patch.object(q,'issuer_json') as sg:
-            out=q.get_quote(isin)
+            out=q.get_issuer_quote(isin)
         self.assertTrue(out['sourceDisabled']);self.assertFalse(out['found'])
         bnp.assert_not_called();sg.assert_not_called()
 
@@ -81,7 +81,7 @@ class ProductQuoteTests(unittest.TestCase):
     def test_sg_adapter_and_issuer_selection(self):
         with patch.object(q,'urlopen') as network:
             for isin in ('DE000FG4JXV7','DE000FG309G0','DE000FG7EPT1','DE000FG6XB39','DE000FC1CHB7','DE000FA06UL6','DE000FG5GUT0'):
-                result=q.get_quote(isin)
+                result=q.get_issuer_quote(isin)
                 self.assertTrue(result['sourceDisabled']);self.assertFalse(result['eligible'])
             network.assert_not_called()
 
@@ -92,7 +92,7 @@ class ProductQuoteTests(unittest.TestCase):
         fetch.assert_not_called();enrich.assert_not_called()
         # BNP can still be researched; unknown ISINs never probe SG.
         with patch.dict(q._CACHE,{},clear=True), patch.object(q,'get_sg_quote') as sg, patch.object(q,'get_bnp_quote',return_value={'found':False}) as bnp:
-            q.get_quote(ISIN)
+            q.get_issuer_quote(ISIN)
         bnp.assert_called_once_with(ISIN);sg.assert_not_called()
 
     def test_current_snapshot_and_oldest_component_timestamp(self):
@@ -124,7 +124,7 @@ class ProductQuoteTests(unittest.TestCase):
     def test_checksum_and_arbitrary_url_blocked(self):
         with patch.object(q,'urlopen') as fetch:
             for value in ['https://localhost','DEOOOPJONB98','DE000PJ9NCK1']:
-                self.assertFalse(q.get_quote(value)['eligible'])
+                self.assertFalse(q.get_issuer_quote(value)['eligible'])
             fetch.assert_not_called()
     def test_every_component_must_be_dated_and_current(self):
         for key in ['bidDate','askDate']:

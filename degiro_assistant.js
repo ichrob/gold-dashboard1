@@ -478,7 +478,7 @@ function quoteTiming(q,now=Date.now()){
 }
 function currentQuote(p,now=Date.now()){
  const q=p.quote;
- return !isFutureProduct(p)&&!!q&&q.priceKind!=="calculated"&&q.found&&q.eligible===true&&q.marketOpen&&quoteTiming(q,now).fresh&&q.currency==="EUR"&&q.isin===String(p.isin||"").toUpperCase()&&validIsin(p.isin)&&q.price===p.price&&q.leverage===p.leverage&&q.ko===p.ko&&q.direction===p.productDirection&&p.isinConfirmed===true;
+ return !(q?.metadata?.status!==undefined&&q.metadata.status!==1)&&!isFutureProduct(p)&&!!q&&q.priceKind!=="calculated"&&q.found&&q.eligible===true&&q.marketOpen&&quoteTiming(q,now).fresh&&q.currency==="EUR"&&q.isin===String(p.isin||"").toUpperCase()&&validIsin(p.isin)&&q.price===p.price&&q.leverage===p.leverage&&q.ko===p.ko&&q.direction===p.productDirection&&p.isinConfirmed===true;
 }
 function rankProducts(products,context={}){const scenario=String(context.direction||"NEUTRAL").toUpperCase();if(scenario==="NEUTRAL")return{scenario,candidates:[],total:0,tradeable:false,gateReason:"Momentum ist NEUTRAL – Bob empfiehlt kein DEGIRO-Produkt."};if(context.requireFreshQuotes&&context.spotFresh!==true)return{scenario,candidates:[],total:0,tradeable:false,gateReason:"Goldpreis veraltet oder Kurszeit unbekannt – aktuelle Rangliste gesperrt."};const valid=(products||[]).map((p,i)=>Object.assign({_index:i},p)).filter(p=>String(p.name||p.isin||"").trim()&&n(p.spot)>0&&(!context.requireFreshQuotes||currentQuote(p,context.now??Date.now()))).map(p=>Object.assign(p,{evaluation:evaluateProduct(Object.assign({},p,context))})).filter(p=>p.evaluation.ok&&p.evaluation.fit&&p.evaluation.direction===scenario).sort((a,b)=>b.evaluation.score-a.evaluation.score);if(context.requireFreshQuotes&&!valid.length)return{scenario,candidates:[],total:0,tradeable:false,gateReason:"ABWARTEN: Kein ausreichend geeignetes Produkt nach Risiko und Datenprüfung. Benötigt werden passende, bestätigte Produkte mit höchstens 90 Sekunden alten Emittentenkursen für eine Live-Rangliste. Screenshot-Momentaufnahmen werden getrennt geprüft. ISIN unter Details prüfen; veraltete oder fehlende Daten sind gesperrt."};const best=valid[0]?.evaluation;const setupGate=!!best&&(best.setupScore>=35&&best.conflictCount<3);const p=valid[0];const complete=!!p&&n(p.price)>0&&n(p.leverage)>=1&&n(p.ko)>0&&(!p.isin||validIsin(p.isin));return{scenario,candidates:valid.slice(0,4),total:valid.length,tradeable:setupGate&&complete,gateReason:!setupGate?"Technischer Konsens zu schwach oder zu widersprüchlich – kein Favorit.":!complete?"Produktdaten unvollständig oder ISIN ungültig – Kurs, Hebel und KO unter Details prüfen und ergänzen.":""};}
 function scenario(){if(window.BobSession?.expired())return "NEUTRAL";const s=typeof window.confirmedSignalDirection==="function"?window.confirmedSignalDirection():null;if(s&&["LONG","SHORT","NEUTRAL"].includes(String(s).toUpperCase()))return String(s).toUpperCase();const t=String(document.getElementById("signal")?.textContent||"").toUpperCase();return t.includes("LONG")?"LONG":t.includes("SHORT")?"SHORT":"NEUTRAL";}
@@ -655,8 +655,9 @@ async function enrichProduct(i){
   if(x.isin===isin&&(x.futureResearch||!x.found&&x.calculatedProduct))futureResearchQuotes.set(i,x);
   if(x.isin===isin&&x.productVerified&&x.metadata?.underlyingType==="FUTURE")futureIsins.add(isin);
   if(x.isin===isin&&x.productVerified&&x.metadata){
+   productQuotes.set(i,x);
    if(["LONG","SHORT"].includes(x.metadata.direction)&&field("dir"))field("dir").value=x.metadata.direction;
-   if(n(x.metadata.ko)>0&&field("ko"))field("ko").value=x.metadata.ko;
+   if(n(x.metadata.ko)>0&&field("ko")&&(x.metadata.termsDated!==false||!(n(field("ko").value)>0)))field("ko").value=x.metadata.ko;
   }
   if(x.sourceDisabled&&x.isin===isin){
    if(meta)meta.textContent=x.reason+" Die Produktauswahl prüft die vorhandenen Screenshotnachweise separat.";
@@ -666,7 +667,7 @@ async function enrichProduct(i){
    if(meta)meta.innerHTML="🌐 "+esc(x.source)+" · Geld "+esc(x.bid)+" / Brief "+esc(x.ask)+" EUR · Hebel "+esc(Number(x.leverage).toFixed(2))+"×"+(x.leverageEstimated?" (rechnerische Näherung)":"")+" · Kurszeit "+esc(new Date(x.quoteAt).toLocaleString())+" · "+'<span id="dgQuoteState'+i+'">'+(x.eligible?"aktuell":"GESPERRT: "+esc(x.reason))+'</span>'+". Ausführbarer DEGIRO-Kurs kann abweichen."+(x.leverageNote?" "+esc(x.leverageNote):"")+ '<span id="dgCalculatedState'+i+'">'+esc(productEstimateText(x))+'</span>';
   }else if(meta){
    const info=x.productVerified&&x.metadata;
-   meta.textContent="🌐 "+(x.source?x.source+" · ":"")+(info?"ISIN bestätigt · "+info.underlying+" · "+info.direction+" · KO "+info.ko+" USD · ":"")+(x.reason||"Keine verlässlich datierten Emittentenkurse verfügbar")+futureResearchText(x)+productEstimateText(x)+". Produkt für aktuelle Rangliste gesperrt.";
+   meta.textContent="🌐 "+(x.source?x.source+" · ":"")+(info?"ISIN bestätigt · "+info.underlying+" · "+info.direction+" · KO "+info.ko+" USD · "+(info.strike?"Basispreis "+info.strike+" USD · ":"")+(info.ratio?"Bezugsverhältnis "+info.ratio+" · ":"")+(info.contract?"Kontrakt "+info.contract+" · ":""):"")+(x.reason||"Keine verlässlich datierten Emittentenkurse verfügbar")+futureResearchText(x)+productEstimateText(x)+". Produkt für aktuelle Rangliste gesperrt.";
   }
  }catch(e){productQuotes.delete(i);futureResearchQuotes.delete(i);if(meta)meta.textContent="🌐 Recherche nicht erreichbar: Produkt für aktuelle Rangliste gesperrt.";}
  finally{pendingQuotes.delete(i);rankUI();}
@@ -1006,7 +1007,7 @@ function productTermsStatus(p,now=Date.now()){
  const reasons=[],values={},q=p.quote?.isin===p.isin?p.quote:null;
  const meta=q?.productVerified?q.metadata:null;
  const model=q?.productModel?.isin===p.isin?q.productModel:meta?.underlyingType==='FUTURE'&&meta.contract&&meta.contract===q?.futureResearch?.contract?q.futureResearch:null;
- const shot=p.snapshot?.isin===p.isin?p.snapshot:null,terms=shot?.terms||{};
+ const shot=p.snapshot?.isin===p.isin?p.snapshot:null,terms={...(q?.productVerified?q.conditions:{}),...shot?.terms};
  if(!validIsin(p.isin)||p.isinConfirmed!==true)reasons.push('ISIN und Bildzuordnung am Original bestätigen');
  if(!['LONG','SHORT'].includes(p.productDirection))reasons.push('Long/Short fehlt');
  if(/FAKTOR|FACTOR/i.test([p.name,q?.name,meta?.name,terms.type?.value].join(' ')))reasons.push('Faktorprodukt ausgeschlossen');
@@ -1037,8 +1038,8 @@ function productTermsStatus(p,now=Date.now()){
  }
  const ko=shot?.evidence?.KO,koAge=now-Date.parse(ko?.at),apiKoAge=now-Date.parse(q?.checkedAt);
  if(!(n(p.ko)>0))reasons.push('Knock-out-Schwelle fehlt');
- else if(!(ko?.source&&n(ko.value)===n(p.ko)&&koAge>=0&&koAge<=86400000)&&!(meta&&q.source&&n(meta.ko)===n(p.ko)&&apiKoAge>=0&&apiKoAge<=86400000))reasons.push('Knock-out-Schwelle: datierter Produktnachweis fehlt oder älter als 24 Stunden');
- if(meta?.ko&&n(p.ko)!==n(meta.ko))reasons.push('Knock-out-Schwelle widerspricht Emittentendaten');
+ else if(!(ko?.source&&n(ko.value)===n(p.ko)&&koAge>=0&&koAge<=86400000)&&!(meta&&meta.termsDated!==false&&q.source&&n(meta.ko)===n(p.ko)&&apiKoAge>=0&&apiKoAge<=86400000))reasons.push('Knock-out-Schwelle: datierter Produktnachweis fehlt oder älter als 24 Stunden');
+ if(meta?.ko&&n(p.ko)!==n(meta.ko))reasons.push('Knock-out-Schwelle widerspricht Produktquelle');
  if(meta?.status!==undefined&&(!(meta.status&1)||meta.status&(2|8|16|32)))reasons.push('Produkt laut Emittent nicht aktiv');
  return {complete:reasons.length===0,reasons,values};
 }
@@ -1260,7 +1261,7 @@ function inject(){
  restoreProductRows(applyResearchedTerms(localStorage.getItem(PRODUCT_STORE_KEY)?restoredProducts:recoverReviewedLists(restoredProducts)));
  quoteRefresh=createQuoteRefresh({
   rows:()=>Array.from({length:12},(_,idx)=>{const id=idx+1,isin=(document.querySelector('[data-dg="isin"][data-i="'+id+'"]')?.value.trim()||'').toUpperCase();return {id,isin,key:isin+':'+(rowVersions.get(id)||0)};}),
-  request:enrichProduct,visible:()=>!document.hidden
+  request:enrichProduct,visible:()=>!document.hidden,interval:900000
  });
  refreshImportedProducts(true);
  let centralTexts=[],centralRecoveries=[];
@@ -1302,7 +1303,7 @@ function rankUI(){
   const isin=document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value.trim().toUpperCase();
   if(isin!==x.isin){futureResearchQuotes.delete(i);continue;}
   const meta=document.getElementById("dgResearch"+i),info=x.metadata;
-  if(meta)meta.textContent="🌐 "+x.source+" · ISIN bestätigt · "+info.underlying+" · "+info.direction+" · KO "+info.ko+" USD · "+x.reason+futureResearchText(x)+productEstimateText(x)+". Produkt für aktuelle Rangliste gesperrt.";
+  if(meta)meta.textContent="🌐 "+x.source+" · ISIN bestätigt · "+info.underlying+" · "+info.direction+" · KO "+info.ko+" USD · "+(info.strike?"Basispreis "+info.strike+" USD · ":"")+(info.ratio?"Bezugsverhältnis "+info.ratio+" · ":"")+(info.contract?"Kontrakt "+info.contract+" · ":"")+x.reason+futureResearchText(x)+productEstimateText(x)+". Produkt für aktuelle Rangliste gesperrt.";
  }
  for(let i=1;i<=12;i++){const out=document.getElementById('dgEvidence'+i),html=screenshotSummary(detailScreenshots.get(i));if(out&&out.innerHTML!==html)out.innerHTML=html;}
  for(const [i,q] of productQuotes){

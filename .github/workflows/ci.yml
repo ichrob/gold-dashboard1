@@ -72,7 +72,8 @@ jobs:
         run: python -m unittest test_auth.py test_persistent_auth.py test_auto_collection.py test_market_store.py test_ocr_assets.py test_product_quotes.py test_sg_quotes.py test_sg_futures.py test_future_estimate.py test_gold_api_future.py test_product_estimate.py test_estimate_quality.py test_future_analysis.py test_future_recovery.py test_fibonacci_monitor.py test_push_monitor.py test_product_push.py test_spot_timestamp.py
       - name: Regression tests
         run: |
-          python -m unittest test_economic_calendar.py
+          python -m unittest test_economic_calendar.py test_stuttgart_products.py
+          node test_stuttgart_products.js
           python -m unittest test_candle_shadow.py test_candle_study.py
           python -m unittest test_source_permission.py test_trade_reference.py
           node test_bob.js

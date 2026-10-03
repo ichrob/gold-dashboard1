@@ -1,0 +1,11 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const ctx={window:{}};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),ctx);
+const b=ctx.window.BobDegiro,now=Date.parse('2026-10-03T18:00:00Z'),isin='DE000FG7MTA6';
+const conditions=Object.fromEntries(Object.entries({ratio:.1,underlying:'XAU/USD',currency:'EUR',type:'Knock-out Turbo',maturity:'Open End'}).map(([k,value])=>[k,{value,source:'https://www.boerse-stuttgart.de/',conditionVerified:true,reviewedAt:'2026-10-03T17:59:00Z'}]));
+const p={isin,isinConfirmed:true,productDirection:'LONG',ko:4143.437,quote:{isin,source:'Börse Stuttgart',checkedAt:'2026-10-03T17:59:00Z',productVerified:true,conditions,metadata:{status:2,ko:4143.437,direction:'LONG',termsDated:false}}};
+const status=b.productTermsStatus(p,now);
+assert.equal(status.values.ratio,.1);assert.equal(status.values.underlying,'XAU/USD');
+assert(!status.complete);assert(status.reasons.some(x=>x.includes('nicht aktiv')));
+assert(status.reasons.some(x=>x.includes('datierter Basispreis')));
+assert(status.reasons.some(x=>x.includes('datierter Produktnachweis')));
+console.log('Stuttgart terms/status/freshness tests passed');
