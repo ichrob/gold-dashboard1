@@ -64,7 +64,7 @@ assert.equal(b.rankManualSnapshots([{...comparisonProduct,isinConfirmed:false}],
 assert.equal(b.rankManualSnapshots([{...comparisonProduct,ko:4500}],{...comparisonContext,spot:4600}).total,0);
 const lower={...comparisonProduct,leverage:20,snapshot:{...snapshot,evidence:{...snapshot.evidence,Hebel:{...snapshot.evidence.Hebel,value:20}}}};
 const ordered=b.rankManualSnapshots([lower,{...comparisonProduct,leverage:5,snapshot:{...snapshot,evidence:{...snapshot.evidence,Hebel:{...snapshot.evidence.Hebel,value:5}}}}],comparisonContext);
-assert.equal(ordered.total,2);assert.equal(ordered.candidates[0].leverage,5);
+assert.equal(ordered.total,2);assert.equal(ordered.candidates[0].evaluation.score,ordered.candidates[1].evaluation.score);
 context.document={getElementById:()=>null};
 for(const direction of ['NEUTRAL','LONG','SHORT']){
  const cards=b.productUploadCards([comparisonProduct,{...comparisonProduct,productDirection:'LONG',name:'<img onerror=bad>'}],direction,now);

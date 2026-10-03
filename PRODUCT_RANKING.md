@@ -1,4 +1,4 @@
-# Produktranking nach Kosten und Risiko – Version 2 – Spread ohne Gewichtung
+# Produktranking nach Kosten und Risiko – Version 3 – Spread und Hebelhöhe ohne pauschale Gewichtung
 
 Die technische Marktanalyse ist weiterhin eine Zulassungsbedingung. NEUTRAL,
 widersprüchliche Analyse, unvollständige Produktbedingungen und unzureichend
@@ -46,7 +46,7 @@ Start 100 Punkte; folgende Abzüge werden addiert (Rundung auf 0,1 Punkte):
 | Finanzierung | `min(10, 5 × Finanzierung%)` für den Vergleichstag |
 | Unbekannte Kosten | jeweils volle 10 Punkte für Handel / Finanzierung |
 | KO | `min(25, max(0, (5 − Abstand%) × 5) + max(0, (3 − ATR-Abstand) × 5))` |
-| Hebel | `min(15, max(0, Hebel − 5))`; höherer Hebel bringt niemals Zusatzpunkte |
+| Hebel | 0 Punkte: die gültige Hebelhöhe allein verändert weder Score noch Eignung; fehlende/ungültige Werte bleiben ein Datenfehler |
 | Daten | zusammen maximal 20: ATR unbekannt 5; Schätzung 5; unbestätigte Schätzgenauigkeit weitere 5; unklare/veraltete Kurszeit 10, sonst bis 5 für Alter 0–90 s; Future-Fehleranteil bis 10 |
 
 Unbekannte Kosten erhalten mindestens denselben Abzug wie hohe bekannte Kosten
@@ -86,7 +86,8 @@ fehlender Nachweise. Weniger als drei geeignete Produkte ergeben eine kürzere L
 `node test_cost_ranking.js` prüft unveränderte Scores und Eignung bei variierendem
 oder fehlendem Spread (auch über 3%), Gebühren, Finanzierung,
 belegtes Null versus unbekannt, Quellenalter, falsche ISIN/Vergleichsbasis,
-Hebelmonotonie, Volatilität, KO, Future-Unsicherheit Long/Short, NEUTRAL,
+Hebelneutralität (einschließlich älterer Eignungsprüfung), Platz 1 für ein ansonsten
+besseres Produkt mit hohem Hebel, Volatilität, KO, Future-Unsicherheit Long/Short, NEUTRAL,
 vollständige Screenshot-Auswahl, Abwarten und HTML-Escaping. Bestehende Tests
 für Import, BNP-Korrektur, Zeitstempel, Produktbedingungen und Auswahl bleiben
 Teil der CI. Die Regressionstests verlangen ausdrücklich, dass Spread allein weder
@@ -95,3 +96,8 @@ datierter Geld-/Briefkurse bleiben als Nachweisprüfung erhalten.
 
 Goldwert-Anzeigen, Futures-Schätzalgorithmus, Datensammlung und Sieben-Tage-Archiv
 werden durch diese Änderung nicht verändert.
+
+Auf Nutzerwunsch entfällt auch der frühere 15-Punkte-Hebelabzug in der
+zusätzlichen technischen Produkteignung. Ein hoher Hebel bleibt als
+Empfindlichkeitshinweis sichtbar; entscheidend sind die konkreten KO-/ATR-Puffer,
+Schätzunsicherheit, Kosten, Datenqualität und Marktrichtung.
