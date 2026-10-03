@@ -1,4 +1,6 @@
 import unittest
+from unittest.mock import patch
+import future_estimate
 import market_cards as m
 
 class MarketCardsTests(unittest.TestCase):
@@ -32,5 +34,30 @@ class MarketCardsTests(unittest.TestCase):
     def test_positive_and_unchanged(self):
         self.assertGreater(m.parse_quote(self.payload(regularMarketPrice=4300), 'GCZ26.CMX', 1100)['changePct'],0)
         self.assertEqual(m.parse_quote(self.payload(regularMarketPrice=4202.3), 'GCZ26.CMX', 1100)['changePct'],0)
+
+    def snapshot_with(self, estimate):
+        reference = dict(price=4172, at='2026-10-02T12:00:00+00:00', previousClose=4200,
+                         kind='reference', changePct=-.66)
+        with patch.object(m, '_cache', None), patch.object(m, 'fetch_spot', return_value=m.unavailable('XAU/USD')), patch.object(m, 'fetch_quote', return_value=reference), patch.object(future_estimate, 'current_estimate', return_value=estimate):
+            return m.snapshot()['future']
+
+    def test_released_estimate_preferred_without_claiming_validated_accuracy(self):
+        q=self.snapshot_with(dict(available=True,priceUsd=4180,priceAt='2026-10-02T12:10:00+00:00',
+                                  validation={'ready':False}))
+        self.assertEqual(q['price'],4180)
+        self.assertEqual(q['kind'],'calculated')
+        self.assertFalse(q['validation']['ready'])
+        self.assertFalse(q['isExchangeRealtime'])
+        self.assertAlmostEqual(q['changePct'],(4180/4200-1)*100)
+
+    def test_unavailable_estimate_keeps_dated_reference(self):
+        q=self.snapshot_with(dict(available=False,reason='stale inputs'))
+        self.assertEqual(q['kind'],'reference')
+        self.assertEqual(q['at'],'2026-10-02T12:00:00+00:00')
+        self.assertIn('pausiert',q['note'])
+
+    def test_old_reference_close_does_not_supply_estimated_daily_change(self):
+        q=self.snapshot_with(dict(available=True,priceUsd=4180,priceAt='2026-10-05T12:10:00+00:00'))
+        self.assertIsNone(q['changePct'])
 
 if __name__=='__main__': unittest.main()
