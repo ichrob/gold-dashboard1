@@ -75,7 +75,7 @@ assert(bobSource.includes("maybePushAnalysisAlerts()"));
 assert(bobSource.includes("LIVE-PREIS · TECHNIK WARTET"));
 assert(bobSource.includes("var liveBundleCache=null, liveBundleAt=0;"));
 assert(bobSource.indexOf("var liveBundleCache=null, liveBundleAt=0;") < bobSource.lastIndexOf("loadData();"));
-const sensitiveGate = serverSource.indexOf('protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards")');
+const sensitiveGate = serverSource.indexOf('protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar")');
 assert(sensitiveGate >= 0);
 assert(sensitiveGate < serverSource.indexOf('if path == "/api/market-cards":'));
 assert(sensitiveGate < serverSource.indexOf('if path == "/api/live":'));
