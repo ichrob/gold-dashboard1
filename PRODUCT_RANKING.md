@@ -1,4 +1,4 @@
-# Produktranking nach Kosten und Risiko – Version 1
+# Produktranking nach Kosten und Risiko – Version 2 – Spread ohne Gewichtung
 
 Die technische Marktanalyse ist weiterhin eine Zulassungsbedingung. NEUTRAL,
 widersprüchliche Analyse, unvollständige Produktbedingungen und unzureichend
@@ -8,7 +8,9 @@ Quanto, Barriere und datierte Geld-/Briefkurse vor der Rangfolge. Faktorprodukte
 bleiben ausgeschlossen. Spot und unterschiedliche Futures werden getrennt.
 
 Der frühere Score mischte technische Signale und grobe Risikostufen. Spread
-hatte ausdrücklich keinen Einfluss. Jetzt verwenden Live-, Screenshot- und
+wurde in Version 1 gewichtet. Auf ausdrücklichen Nutzerwunsch vom 03.10.2026
+ist er jetzt wieder reine Information: keine Punkte, keine Spread-Sperre und
+kein Einfluss auf die 5%-Kostengrenze. Jetzt verwenden Live-, Screenshot- und
 bedingte Vergleiche dieselbe Kosten-Risiko-Bewertung. Der Score ist eine
 konservative Auswahlregel, keine kalibrierte Gewinn- oder Verlustwahrscheinlichkeit.
 
@@ -39,7 +41,7 @@ Start 100 Punkte; folgende Abzüge werden addiert (Rundung auf 0,1 Punkte):
 
 | Bestandteil | Abzug |
 | --- | --- |
-| Spread | `min(20, 10 × Spread%)`; Spread% = 100 × (Brief − Geld) / Brief |
+| Spread | 0 Punkte, unabhängig von Höhe oder fehlender Spread-Angabe; nur Information |
 | Handelskosten | `min(10, 5 × Kosten%)`; Kosten% = 100 × Gebühren EUR / 1.000 EUR |
 | Finanzierung | `min(10, 5 × Finanzierung%)` für den Vergleichstag |
 | Unbekannte Kosten | jeweils volle 10 Punkte für Handel / Finanzierung |
@@ -50,11 +52,12 @@ Start 100 Punkte; folgende Abzüge werden addiert (Rundung auf 0,1 Punkte):
 Unbekannte Kosten erhalten mindestens denselben Abzug wie hohe bekannte Kosten
 im jeweiligen Kostenbestandteil. Sie können daher keinen scheinbaren Kostenvorteil
 erzeugen. Gesamtkosten bleiben `null`, wenn eine Kostenart unbekannt ist; lediglich
-die ausdrücklich als solche behandelte bekannte Teilsumme wird für harte Grenzen
-genutzt. Fehlende wesentliche Produktdaten werden im Hauptablauf ausgeschlossen.
+die bekannte Teilsumme aus Handel und Finanzierung wird für harte Grenzen
+genutzt. Der Spread ist auch dort ausgeschlossen; ausgewiesene Gesamtkosten
+dürfen ihn rein informativ weiterhin enthalten. Fehlende wesentliche Produktdaten werden im Hauptablauf ausgeschlossen.
 
-Sperren: fehlender/ungültiger Kurs, Hebel, KO, Produktrichtung oder Spread;
-überschrittene KO-Barriere; Spread über 3%; bekannte Kosten bereits über 5%;
+Sperren: fehlender/ungültiger Kurs, Hebel, KO oder Produktrichtung;
+überschrittene KO-Barriere; bekannte Handels-/Finanzierungskosten bereits über 5%;
 KO-Abstand unter 1%; KO-Puffer unter 1,5 ATR; Score unter 60. Die bereits vorhandenen
 strengeren technischen Eignungs- und Aktualitätsprüfungen bleiben zusätzlich aktiv.
 Die Schwellen sind nachvollziehbare Sicherheitsregeln, kein empirisch optimiertes
@@ -80,12 +83,15 @@ Punkteabzüge. Bei Gleichstand dient die ISIN nur der Anzeigereihenfolge. Ohne
 geeignete Kandidaten steht **ABWARTEN**, mit konkretem Sperrgrund oder der Liste
 fehlender Nachweise. Weniger als drei geeignete Produkte ergeben eine kürzere Liste.
 
-`node test_cost_ranking.js` prüft relative Spreads, Gebühren, Finanzierung,
+`node test_cost_ranking.js` prüft unveränderte Scores und Eignung bei variierendem
+oder fehlendem Spread (auch über 3%), Gebühren, Finanzierung,
 belegtes Null versus unbekannt, Quellenalter, falsche ISIN/Vergleichsbasis,
 Hebelmonotonie, Volatilität, KO, Future-Unsicherheit Long/Short, NEUTRAL,
 vollständige Screenshot-Auswahl, Abwarten und HTML-Escaping. Bestehende Tests
 für Import, BNP-Korrektur, Zeitstempel, Produktbedingungen und Auswahl bleiben
-Teil der CI. Alte Tests, die Spread ignorieren mussten, wurden ersetzt.
+Teil der CI. Die Regressionstests verlangen ausdrücklich, dass Spread allein weder
+Rangpunkte noch einen Ausschluss bewirkt. Die bestehenden Prüfungen konsistenter,
+datierter Geld-/Briefkurse bleiben als Nachweisprüfung erhalten.
 
 Goldwert-Anzeigen, Futures-Schätzalgorithmus, Datensammlung und Sieben-Tage-Archiv
 werden durch diese Änderung nicht verändert.
