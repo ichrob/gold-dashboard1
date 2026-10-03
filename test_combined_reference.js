@@ -102,7 +102,7 @@ assert(Number.isNaN(b.time('02/10/2026 15:04')));assert.equal(b.assess(p,{...r,q
 console.log('Fixed screenshot barrier and honest minute precision: passed');
 const minuteDraft=b.screenshotDraft('DEGIRO\n'+p.isin+'\nEUR\nGeld € 19,37\nBrief € 19,38\n02/10/2026 15:04',p.isin);
 assert.equal(minuteDraft.fields.quoteAt,'02/10/2026 15:04');assert.equal(minuteDraft.supplementedTime,null);
-const ref={bid:19.37,ask:19.38,source:'DEGIRO',venue:'SG OTC',quoteAt:'02/10/2026 15:04'};
+const ref={isin:p.isin,bid:19.37,ask:19.38,source:'DEGIRO',venue:'SG OTC',quoteAt:'02/10/2026 15:04'};
 const current={isin:p.isin,found:true,bid:20,ask:20.01,source:'SG',venue:'SG OTC',quoteAt:new Date(now-1000).toISOString()};
 const comp=b.compareSnapshot(p,ref,null,current,now);assert.equal(comp.snapshot.at,ref.quoteAt);assert(Math.abs(comp.bidChange-.63)<1e-8);assert(comp.sameVenue);assert(b.renderComparison(comp).includes(current.quoteAt));
 for(const bad of [{...current,isin:'DE000FG4JXV7'},{...current,quoteAt:new Date(now-90001).toISOString()},{...current,estimated:true},{...current,calculatedProduct:{}},{...current,source:''}])assert.equal(b.compareSnapshot(p,ref,null,bad,now).current,null);
@@ -113,3 +113,8 @@ console.log('Unmodified minute times and same-ISIN fresh quote comparison: passe
 for(const age of [60000,89999,90000])assert(b.compareSnapshot(p,ref,null,{...current,quoteAt:new Date(now-age).toISOString()},now).current);
 assert.equal(b.compareSnapshot(p,ref,null,{...current,quoteAt:new Date(now-90001).toISOString()},now).current,null);
 console.log('Inclusive 90-second comparison freshness boundary: passed');
+const differentIsinDraft={...details,isin:'DE000FG309G0'};
+const reassigned=b.mergeDraft(merged,differentIsinDraft,'other-product.jpg');
+assert.equal(reassigned.isin,differentIsinDraft.isin);assert(!reassigned.fields.bid);assert(!reassigned.fields.ask);assert(!reassigned.fields.quoteAt);assert(!reassigned.evidence.bid);
+assert.equal(b.compareSnapshot({...p,isin:'DE000FG309G0'},ref,null,current,now),null);
+assert.equal(b.compareSnapshot({...p,isin:'DE000FG309G0'},null,merged,current,now),null);

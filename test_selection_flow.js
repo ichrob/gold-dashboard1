@@ -100,3 +100,9 @@ assert(b.parseProductTerms(details+'\nBedingungenstand: 01/10/2026 21:00:00 CEST
 assert.equal(b.selectionWorkflow([imageProduct,{...imageProduct,ko:4450}],context,{}).groups.length,0);
 const wrongRatio=JSON.parse(JSON.stringify(f));wrongRatio.snapshot.terms.ratio.value=.01;
 assert(!b.productTermsStatus(wrongRatio,now).complete);
+// DEGIRO's two-column overview has unrelated EUR figures below the quote row.
+const overview=isin+'\nGeld € 6,05 Brief € 6,06\nGeld Vol. 25K Brief Vol. 25K\nEröffnung € 10,25 Schluss € 9,485\nHoch € 13,71 12M High —\nTief € 4,92 12M Low —\nBörse Societe Generale OTC\nPosition € 6,07\nBreak-Even Preis € 5,95';
+const overviewData=b.detailScreenshotData(overview,isin);
+assert(overviewData.ok,overviewData.reason);assert.equal(overviewData.bid,6.05);assert.equal(overviewData.ask,6.06);
+assert.equal(overviewData.sourceTime,'');assert.equal(overviewData.times.quote.at,null);
+assert(!b.detailScreenshotData(overview+'\nGeld € 6,04\nBrief € 6,07',isin).ok);
