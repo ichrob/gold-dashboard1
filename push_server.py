@@ -2,6 +2,9 @@ import base64
 import json
 import os
 import secrets
+import threading
+import time
+import product_push
 import fibonacci_monitor
 import bob_session_store
 import bob_market_store
@@ -46,6 +49,7 @@ def init_db():
         conn.execute("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS trade_enabled BOOLEAN NOT NULL DEFAULT FALSE")
         conn.execute("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS active_trade BOOLEAN NOT NULL DEFAULT FALSE")
         conn.execute("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS trade_monitor JSONB")
+        conn.execute("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS product_selection JSONB")
         conn.execute("""
           CREATE TABLE IF NOT EXISTS bob_settings (
             key TEXT PRIMARY KEY,
@@ -96,7 +100,7 @@ def cors(handler):
 
 def json_body(handler):
     length = int(handler.headers.get("Content-Length", "0") or 0)
-    if length <= 0 or length > 65536:
+    if length <= 0 or length > (524288 if urlparse(handler.path).path == "/selection" else 65536):
         raise ValueError("Ungültige Payload-Größe")
     return json.loads(handler.rfile.read(length).decode("utf-8"))
 
@@ -109,6 +113,41 @@ def send_json(handler, status, payload):
     cors(handler)
     handler.end_headers()
     handler.wfile.write(body)
+
+def deliver_product_selection(conn, row, checked):
+    sid, sub, previous = row
+    state, message = product_push.transition(previous, checked)
+    if message:
+        ttl = max(1, min(300, int((message['data']['expiresAt']-time.time()*1000)/1000)))
+        try:
+            webpush(subscription_info=sub, data=json.dumps(message, separators=(',', ':')),
+                    vapid_private_key=vapid(), vapid_claims={'sub': VAPID_SUBJECT}, ttl=ttl)
+        except WebPushException as exc:
+            code = getattr(getattr(exc, 'response', None), 'status_code', None)
+            if code in (404, 410):
+                conn.execute("DELETE FROM subscriptions WHERE id=%s", (sid,))
+            return 0  # Failed delivery must not consume a notification transition.
+    conn.execute("UPDATE subscriptions SET product_selection=%s::jsonb WHERE id=%s", (json.dumps(state), sid))
+    return int(message is not None)
+
+
+def expire_product_selections():
+    now = int(time.time()*1000)
+    with db() as conn:
+        rows = conn.execute("SELECT id, subscription, product_selection FROM subscriptions WHERE general_enabled=TRUE AND product_selection IS NOT NULL AND (product_selection->>'notified')::boolean=TRUE AND (product_selection->>'expiresAt')::bigint<=%s FOR UPDATE", (now,)).fetchall()
+        for row in rows:
+            deliver_product_selection(conn, row, {'products': [], 'expiresAt': now, 'reasons': ['Aktuelle Bestätigung abgelaufen; Bob öffnen und erneut prüfen']})
+        conn.commit()
+
+
+def product_expiry_loop():
+    while True:
+        try:
+            expire_product_selections()
+        except Exception as exc:
+            print('BOB_PRODUCT expiry_error='+type(exc).__name__, flush=True)
+        time.sleep(15)
+
 
 class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
@@ -123,7 +162,7 @@ class Handler(BaseHTTPRequestHandler):
                 vapid()
                 with db() as conn:
                     conn.execute("SELECT 1").fetchone()
-                send_json(self, 200, {"ok": True})
+                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1"})
                 return
             if path == "/monitor-status":
                 supplied = self.headers.get("X-Bob-Push-Token", "")
@@ -207,7 +246,7 @@ class Handler(BaseHTTPRequestHandler):
                 endpoint = payload.get("endpoint")
                 if not endpoint:
                     raise ValueError("endpoint fehlt")
-                general = bool(payload.get("general"))
+                general = payload.get("general") is True
                 trade = bool(payload.get("trade"))
                 active = bool(payload.get("activeTrade"))
                 monitor = fibonacci_monitor.validate_monitor(payload.get("fibonacciMonitor")) if active and trade else None
@@ -219,9 +258,10 @@ class Handler(BaseHTTPRequestHandler):
                         monitor = old[0]
                     conn.execute("""
                       UPDATE subscriptions
-                      SET general_enabled=%s, trade_enabled=%s, active_trade=%s, trade_monitor=%s::jsonb, updated_at=now()
+                      SET general_enabled=%s, trade_enabled=%s, active_trade=%s, trade_monitor=%s::jsonb,
+                          product_selection=CASE WHEN %s THEN product_selection ELSE NULL END, updated_at=now()
                       WHERE endpoint=%s
-                    """, (general, trade, active, json.dumps(monitor) if monitor else None, endpoint))
+                    """, (general, trade, active, json.dumps(monitor) if monitor else None, general, endpoint))
                     conn.commit()
                 send_json(self, 200, {"ok": True, "fibonacciMonitor": "active" if monitor else "inactive"})
                 return
@@ -277,6 +317,29 @@ class Handler(BaseHTTPRequestHandler):
                                 conn.execute("UPDATE subscriptions SET trade_monitor=%s::jsonb WHERE id=%s", (json.dumps(checkpoint),sid))
                     conn.commit()
                 send_json(self, 200, {'ok':True,'sent':sent})
+                return
+
+            if path == "/selection":
+                supplied = self.headers.get("X-Bob-Push-Token", "")
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
+                    send_json(self, 401, {"error": "Unauthorized"})
+                    return
+                endpoint = payload.get("endpoint")
+                if not isinstance(endpoint, str) or not endpoint:
+                    raise ValueError("Push-Abonnement fehlt")
+                # Check the persisted switch before running the evaluator, then
+                # recheck under a row lock immediately before delivery.
+                with db() as conn:
+                    row = conn.execute("SELECT general_enabled FROM subscriptions WHERE endpoint=%s", (endpoint,)).fetchone()
+                if not row or row[0] is not True:
+                    send_json(self, 200, {"ok": True, "sent": 0, "disabled": True})
+                    return
+                checked = product_push.evaluate(payload)
+                with db() as conn:
+                    row = conn.execute("SELECT id, subscription, product_selection FROM subscriptions WHERE endpoint=%s AND general_enabled=TRUE FOR UPDATE", (endpoint,)).fetchone()
+                    sent = deliver_product_selection(conn, row, checked) if row else 0
+                    conn.commit()
+                send_json(self, 200, {"ok": True, "sent": sent, "disabled": not bool(row), "approvedCount": len(checked['products']) if row else 0})
                 return
 
             if path == "/send":
@@ -375,5 +438,7 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 if __name__ == "__main__":
+    product_push.evaluate({'products': [], 'capturedAt': int(time.time()*1000)})
     init_db()
+    threading.Thread(target=product_expiry_loop, name="bob-product-expiry", daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

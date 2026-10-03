@@ -186,3 +186,26 @@ const allBlocked=b.selectionWorkflow([...copies,futureOk],{...context,direction:
 assert.equal(allBlocked.notApproved.length,4);assert(b.renderSelectionWorkflow(allBlocked).includes('data-selection-blocked="4"'));
 const unidentified=b.selectionWorkflow([{name:'<unsicheres Produkt>'}],context,{});
 assert.equal(unidentified.notApproved.length,1);assert(b.renderSelectionWorkflow(unidentified).includes('&lt;unsicheres Produkt&gt;'));assert(b.renderSelectionWorkflow(unidentified).includes('ISIN fehlt'));
+
+// Push verification reruns the same evidence checks on the server and ignores
+// client claims about approval. It also accounts for time spent in delivery.
+const verifyPush=require('./selection_push_evaluator').evaluate;
+const pushInput=products=>({products,context,capturedAt:now,bundle:{fetched_at:now/1000,spots:{xaus:4140,xaus_age_seconds:0},history:{data_state:{status:'fresh'}}}});
+for(let count=0;count<=3;count++){
+ const verified=verifyPush({...pushInput(copies.slice(0,count)),approved:true},now);
+ assert.equal(verified.products.length,count);
+ assert(verified.expiresAt<=now+30000);
+}
+for(const change of [{direction:'NEUTRAL'},{mtf:'LONG'},{trend2:'LONG'},{momentum:0},{atr:null}])assert.equal(verifyPush({...pushInput(copies),context:{...context,...change}},now).products.length,0);
+for(const bad of [blocked,tight,{...copies[0],snapshot:null}])assert.equal(verifyPush(pushInput([bad]),now).products.length,0);
+assert.equal(verifyPush(pushInput([futureOk]),now).products.length,1);
+for(const mutate of [
+ x=>x.quote.futureResearch.calculatedFuture.contract='GCG27',
+ x=>x.quote.futureResearch.calculatedFuture.comparisonErrorUsd=170,
+ x=>x.quote.futureResearch.calculatedFuture.validation.ready=false
+]){const bad=JSON.parse(JSON.stringify(futureOk));mutate(bad);assert.equal(verifyPush(pushInput([bad]),now).products.length,0);}
+assert.throws(()=>verifyPush({...pushInput(copies),capturedAt:now-16000},now),/veraltet/);
+assert.equal(verifyPush({...pushInput(copies),bundle:{fetched_at:now/1000-61,spots:{xaus:4140,xaus_age_seconds:0},history:{data_state:{status:'fresh'}}}},now).products.length,0);
+const nearExpiry=pushInput(copies);nearExpiry.bundle.spots.xaus_age_seconds=59;
+assert.equal(verifyPush(nearExpiry,now).products.length,0);
+console.log('Server push evaluator: 0/1/2/3, expiry, conflicting signals, mandatory evidence, contracts and uncertainty passed');

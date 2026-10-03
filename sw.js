@@ -1,8 +1,8 @@
-const CACHE_VERSION = "bob-shell-v12";
+const CACHE_VERSION = "bob-shell-v13";
 
 self.addEventListener("install", event => { self.skipWaiting(); });
 self.addEventListener("activate", event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith("bob-") && key !== CACHE_VERSION).map(key => caches.delete(key)))).then(() => self.clients.claim()));
+  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith("bob-") && key !== CACHE_VERSION && key !== "bob-push-settings").map(key => caches.delete(key)))).then(() => self.clients.claim()));
 });
 
 function safeJson(event) {
@@ -12,6 +12,7 @@ function safeJson(event) {
 
 self.addEventListener("push", event => {
   const data = safeJson(event);
+  const details = data.data || data;
   const title = data.title || "Bob";
   const options = {
     body: data.body || "",
@@ -20,9 +21,17 @@ self.addEventListener("push", event => {
     tag: data.tag || "bob",
     renotify: Boolean(data.renotify),
     requireInteraction: Boolean(data.requireInteraction),
-    data: { url: data.url || "/", kind: data.kind || "general", signalId: data.signalId || null }
+    data: { url: details.url || "/", kind: details.kind || "general", signalId: details.signalId || null }
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil((async()=>{
+    if(String(details.kind||'').startsWith('product-')){
+      const cache=await caches.open('bob-push-settings');
+      const response=await cache.match('/__bob_push_preferences__');
+      const prefs=response?await response.json():{};
+      if(prefs.general!==true||!Number.isFinite(details.expiresAt)||Date.now()>=details.expiresAt)return;
+    }
+    await self.registration.showNotification(title, options);
+  })());
 });
 
 self.addEventListener("notificationclick", event => {
@@ -40,6 +49,12 @@ self.addEventListener("notificationclick", event => {
 
 self.addEventListener("message", event => {
   if (event.data && event.data.type === "BOB_SKIP_WAITING") self.skipWaiting();
+  if(event.data?.type==='BOB_PUSH_PREFERENCES')event.waitUntil((async()=>{
+    const cache=await caches.open('bob-push-settings');
+    const general=event.data.general===true;
+    await cache.put('/__bob_push_preferences__',new Response(JSON.stringify({general})));
+    if(!general){const notifications=await self.registration.getNotifications({tag:'bob-product-selection'});notifications.forEach(n=>n.close());}
+  })());
 });
 
 // Network-only for the Bob application shell: never let an older service-worker
