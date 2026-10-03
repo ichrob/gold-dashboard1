@@ -1008,7 +1008,7 @@ function productTermsStatus(p,now=Date.now()){
  if(future){
   const e=terms.contract,age=now-Date.parse(e?.at);
   values.contract=e?.source&&Number.isFinite(age)&&age>=0&&age<=86400000?e.value:null;
-  if(!/^GC[FGHJKMNQUVXZ]\d{2}$/.test(values.contract||''))reasons.push('Exakter Gold-Future-Kontrakt fehlt (z. B. GCZ26)');
+  if(!/^GC[FGHJKMNQUVXZ]\d{2}$/.test(values.contract||''))reasons.push('Exakter Gold-Future-Kontrakt fehlt oder ist nicht aktuell bestätigt. Öffne das betroffene Produkt bei DEGIRO: Produktdetails → Dokumente → Endgültige Bedingungen (falls dort nicht vorhanden: Dokumente auf der Emittentenseite). Suche nach Basiswert, Kontraktmonat/Jahr und Börse sowie einer möglichen Rollregel. Lade einen Screenshot mit diesen Angaben und der passenden ISIN als Detailbild zu diesem Produkt hoch.');
   if(meta?.contract&&values.contract&&meta.contract!==values.contract)reasons.push('Future-Kontrakt widerspricht Emittentendaten');
   if(values.underlying&&!/\bgold\b.*\bfuture\b|\bfuture\b.*\bgold\b/i.test(values.underlying))reasons.push('Exakter Gold-Future-Basiswert widerspricht Produktart');
  }else if(values.underlying&&values.underlying!=='XAU/USD')reasons.push('Basiswert ungenau: Gold allein bestätigt keinen Spot-Basiswert');
@@ -1547,6 +1547,7 @@ function init(){
 }
 window.BobTradeUpload={parse,draft,reviewed,merge,init};if(typeof document!=='undefined'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();}
 })();
+
 
 
 
