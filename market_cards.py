@@ -63,6 +63,35 @@ def unavailable(symbol):
                 source='', kind='unavailable', note='Kurs momentan nicht verfügbar')
 
 
+
+def last_estimate(previous=None, now=None):
+    """Display-only historical fallback; never re-enter it into the model."""
+    import auto_collection
+    now = time.time() if now is None else now
+    saved = auto_collection.status().get('archive', {}).get('latestEstimate')
+    candidates = []
+    if isinstance(saved, dict) and saved.get('contract') == 'GCZ26':
+        candidates.append(dict(price=saved.get('priceUsd'), at=saved.get('priceAt'),
+            symbol='GCZ26', kind='calculated', source='Bob · gespeicherte Future-Schätzung',
+            referenceAt=saved.get('referenceAt')))
+    if previous and previous.get('kind') == 'calculated':
+        candidates.append(dict(previous))
+    valid = []
+    for q in candidates:
+        try:
+            at = datetime.fromisoformat(q['at'].replace('Z', '+00:00'))
+            if positive(q.get('price')) and at.tzinfo is not None and 0 <= now-at.timestamp() <= 604800:
+                valid.append((at.timestamp(), q))
+        except (ValueError, TypeError, KeyError, AttributeError):
+            pass
+    if not valid:
+        return None
+    q = max(valid, key=lambda item: item[0])[1]
+    q.update(historical=True, changePct=None, isExchangeRealtime=False,
+             note='Letzte gespeicherte Schätzung · Aktualisierung pausiert')
+    return q
+
+
 def snapshot():
     global _cache, _cached_at
     with _lock:
@@ -103,5 +132,9 @@ def snapshot():
                 result['estimate']['note'] = 'Schätzung pausiert · aktuelle Eingangsdaten fehlen'
         except (OSError, ValueError, KeyError, TypeError):
             pass
+        if result['estimate']['price'] is None:
+            historical = last_estimate(_cache.get('estimate') if _cache else None)
+            if historical:
+                result['estimate'] = historical
         _cache, _cached_at = result, time.monotonic()
         return result

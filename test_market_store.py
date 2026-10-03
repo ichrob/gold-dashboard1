@@ -61,7 +61,9 @@ class PostgresMarketTests(unittest.TestCase):
   p=dict(key=v.KEY,type='prediction',at=at.isoformat(),referenceAt=ref.isoformat(),value=4200)
   t=dict(key=v.KEY,type='truth',at=at.isoformat(),value=4198)
   with psycopg.connect(dsn) as conn:
-   v.init(conn);v.handle(conn,'write',{'events':[p]})
+   v.init(conn);saved=v.handle(conn,'write',{'events':[p]})
+   self.assertEqual(saved['diagnostics']['latestEstimate']['priceUsd'],4200)
+   self.assertEqual(saved['diagnostics']['latestEstimate']['priceAt'],at.isoformat())
   with psycopg.connect(dsn) as conn:
    v.handle(conn,'write',{'events':[dict(p,value=4300),t]})
   with psycopg.connect(dsn) as conn:

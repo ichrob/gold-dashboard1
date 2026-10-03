@@ -1,6 +1,8 @@
 import unittest
 from unittest.mock import patch
 import future_estimate
+import auto_collection
+from datetime import datetime, timezone, timedelta
 import market_cards as m
 
 class MarketCardsTests(unittest.TestCase):
@@ -64,5 +66,39 @@ class MarketCardsTests(unittest.TestCase):
     def test_old_reference_close_does_not_supply_estimated_daily_change(self):
         q=self.snapshot_with(dict(available=True,priceUsd=4180,priceAt='2026-10-05T12:10:00+00:00'))
         self.assertIsNone(q['estimate']['changePct'])
+
+    def test_last_frozen_estimate_restores_with_original_time(self):
+        now=datetime.now(timezone.utc)
+        original=(now-timedelta(days=1)).isoformat()
+        saved=dict(contract='GCZ26',priceUsd=4188.25,priceAt=original)
+        with patch.object(auto_collection,'status',return_value={'archive':{'latestEstimate':saved}}):
+            q=m.last_estimate(now=now.timestamp())
+        self.assertEqual(q['price'],4188.25)
+        self.assertEqual(q['at'],original)
+        self.assertTrue(q['historical'])
+        self.assertIsNone(q['changePct'])
+
+    def test_newer_memory_estimate_wins_and_invalid_archive_is_not_shown(self):
+        now=datetime.now(timezone.utc)
+        previous=dict(price=4190,at=(now-timedelta(minutes=5)).isoformat(),kind='calculated')
+        for age,contract in ((8,'GCZ26'),(-1,'GCZ26'),(1,'GC=F')):
+            saved=dict(contract=contract,priceUsd=9999,priceAt=(now-timedelta(days=age)).isoformat())
+            with patch.object(auto_collection,'status',return_value={'archive':{'latestEstimate':saved}}):
+                self.assertIsNone(m.last_estimate(now=now.timestamp()))
+                self.assertEqual(m.last_estimate(previous,now.timestamp())['price'],4190)
+
+    def test_unavailable_calculation_displays_saved_value_then_new_calculation_replaces_it(self):
+        original='2026-10-02T12:00:00+00:00'
+        historical=dict(price=4170,at=original,kind='calculated',historical=True)
+        with patch.object(m,'last_estimate',return_value=historical) as old:
+            result=self.snapshot_with(dict(available=False))
+            self.assertEqual(result['estimate']['price'],4170)
+            self.assertEqual(result['estimate']['at'],original)
+            old.assert_called_once()
+        with patch.object(m,'last_estimate') as old:
+            result=self.snapshot_with(dict(available=True,priceUsd=4180,priceAt='2026-10-02T12:10:00+00:00'))
+            self.assertEqual(result['estimate']['price'],4180)
+            self.assertFalse(result['estimate'].get('historical',False))
+            old.assert_not_called()
 
 if __name__=='__main__': unittest.main()

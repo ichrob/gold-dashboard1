@@ -22,5 +22,13 @@ setImmediate(async()=>{
  await context.window.BobGoldCards.refresh();
  assert.equal(el('gold-estimate-price').textContent,'—');
  assert.equal(el('gold-estimate-state').textContent,'Schätzung pausiert');
+ payload.estimate={price:4170,at:new Date(Date.now()-86400000).toISOString(),kind:'calculated',historical:true};
+ await context.window.BobGoldCards.refresh();
+ assert.equal(el('gold-estimate-price').textContent,'≈ 4.170,00');
+ assert(el('gold-estimate-state').textContent.includes('gespeicherte Schätzung'));
+ payload.estimate={price:4190,at:new Date().toISOString(),kind:'calculated'};
+ await context.window.BobGoldCards.refresh();
+ assert.equal(el('gold-estimate-price').textContent,'≈ 4.190,00');
+ assert.equal(el('gold-estimate-state').textContent,'Future-Schätzung · automatisch');
  console.log('Gold cards: formatting, directions, stale data, missing change and older response protection OK');
 });
