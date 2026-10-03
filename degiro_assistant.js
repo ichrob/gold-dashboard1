@@ -164,7 +164,8 @@ function screenshotDraft(raw,isin){
  return {ok:true,isin,source,fields,hasQuote,supplementedTime:supplemented,paired:!!fields.bid&&!!fields.ask,delayed:/verzögert|delayed/i.test(raw),notes};
 }
 function mergeDraft(previous,incoming,image){
- const out={fields:{...(previous?.fields||{})},evidence:{...(previous?.evidence||{})},notes:incoming.notes,delayed:previous?.delayed||false,supplementedTime:previous?.supplementedTime||null};
+ if(previous?.isin!==incoming.isin)previous=null;
+ const out={isin:incoming.isin,fields:{...(previous?.fields||{})},evidence:{...(previous?.evidence||{})},notes:incoming.notes,delayed:previous?.delayed||false,supplementedTime:previous?.supplementedTime||null};
  const clear=keys=>{for(const key of keys){delete out.fields[key];delete out.evidence[key];}};
  if(incoming.hasQuote){clear(['bid','ask','quoteAt','venue','url','source']);out.delayed=incoming.delayed;out.supplementedTime=incoming.supplementedTime||null;out.fields.source=incoming.source;out.evidence.source=image;}
  if(incoming.fields.ko1)clear(['ko1','koSource1','koUrl1','koAt1','koUntil1']);
@@ -172,6 +173,7 @@ function mergeDraft(previous,incoming,image){
  return out;
 }
 function compareSnapshot(p,reference,draft,q,now=Date.now()){
+ if(reference&&reference.isin!==p.isin||!reference&&draft&&draft.isin!==p.isin)return null;
  const r=reference||draft?.fields;if(!r)return null;
  const bid=number(r.bid),ask=number(r.ask);if(!(bid>0&&ask>=bid))return null;
  const out={isin:p.isin,snapshot:{bid,ask,source:r.source||draft?.fields?.source||'Quelle offen',venue:r.venue||'Handelsplatz offen',at:r.quoteAt||'Kurszeit offen',image:draft?.evidence?.bid||reference?.imageEvidence?.bid||null},current:null,reason:'Frischer Kurs derselben ISIN mit Quelle und Kurszeit fehlt'};
@@ -1060,7 +1062,7 @@ function inject(){
   });
   r.querySelector('[data-research]').addEventListener('click',()=>enrichProduct(i));
   r.querySelector('[data-dg="confirmed"]').addEventListener('change',()=>{enrichProduct(i);rankUI();});
-  r.querySelectorAll('[data-dg]').forEach(el=>el.addEventListener('input',()=>{if(el.dataset.dg!=="confirmed"){combinedReferences.delete(i);productQuotes.delete(i);futureResearchQuotes.delete(i);detailScreenshots.delete(i);rowVersions.set(i,(rowVersions.get(i)||0)+1);if(el.dataset.dg==="isin")r.querySelector('[data-dg="confirmed"]').checked=false;}rankUI();}));
+  r.querySelectorAll('[data-dg]').forEach(el=>el.addEventListener('input',()=>{if(el.dataset.dg!=="confirmed"){combinedReferences.delete(i);productQuotes.delete(i);futureResearchQuotes.delete(i);detailScreenshots.delete(i);rowVersions.set(i,(rowVersions.get(i)||0)+1);if(el.dataset.dg==="isin"){combinedDrafts.delete(i);resetCombinedForm(i);r.querySelector('[data-dg="confirmed"]').checked=false;}}rankUI();}));
  }
  populateCandidateRows(loadIdentities());
  quoteRefresh=createQuoteRefresh({
