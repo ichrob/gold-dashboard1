@@ -220,7 +220,7 @@ def parse_bnp(data, isin, now=None):
                   isDegiroQuote=False, tradingEndAt=stamp(hours['tradingEnd']).isoformat(), maxAgeSeconds=MAX_AGE_SECONDS)
     return freshness(result, now)
 
-def get_quote(isin):
+def get_issuer_quote(isin):
     isin = str(isin or '').strip().upper()
     if not valid_isin(isin):
         return dict(found=False, eligible=False, fresh=False, reason='ISIN-Prüfziffer ungültig')
@@ -262,3 +262,24 @@ def get_bnp_quote(isin):
                       checkedAt=datetime.now(timezone.utc).isoformat())
     return result
 
+
+
+def get_quote(isin):
+    """Combine dated issuer quotes with independently identified exchange terms."""
+    isin = str(isin or '').strip().upper()
+    if not valid_isin(isin):
+        return dict(found=False, eligible=False, fresh=False, reason='ISIN-Prüfziffer ungültig')
+    from stuttgart_products import get_product
+    terms = get_product(isin)
+    issuer = get_issuer_quote(isin)
+    if not terms.get('productVerified'):
+        return dict(issuer, exchangeResearch=terms)
+    if not issuer.get('found'):
+        return terms
+    result = dict(issuer, productVerified=True, metadata=terms['metadata'],
+                  conditions=terms['conditions'], observedTerms=terms['observedTerms'],
+                  termsSource=terms['source'], termsSourceUrl=terms['sourceUrl'],
+                  termsCheckedAt=terms['checkedAt'])
+    if terms['metadata']['status'] != 1 or terms['metadata']['tradingHalted']:
+        result.update(eligible=False, marketOpen=False, reason=terms['reason'])
+    return result
