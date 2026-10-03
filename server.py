@@ -10,6 +10,7 @@ import auto_collection
 import ocr_assets
 import product_quotes
 import market_cards
+import candle_shadow
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from datetime import datetime, timezone
@@ -34,6 +35,7 @@ ICON_PATH = BASE_DIR / "icon.svg"
 # bytes directly; keeping the load explicit prevents runtime NameError failures.
 HTML = HTML_PATH.read_bytes() if HTML_PATH.exists() else b""
 HTML = HTML.replace(b"</body>", auto_collection.PANEL.encode('utf-8')+b"</body>")
+HTML = HTML.replace(b"</body>", candle_shadow.PANEL.encode('utf-8')+b"</body>")
 SW = SW_PATH.read_bytes() if SW_PATH.exists() else None
 MANIFEST = MANIFEST_PATH.read_bytes() if MANIFEST_PATH.exists() else None
 ICON = ICON_PATH.read_bytes() if ICON_PATH.exists() else None
@@ -502,6 +504,16 @@ def build_live_bundle():
                 "age_seconds": goldprice_age,
             },
         }
+        # Research output only. No selection, score, ranking or push consumes it.
+        try:
+            bundle['candleShadow'] = candle_shadow.snapshot(
+                bundle['history']['bars_by_tf'],
+                {tf: _mtf_score(bundle['history']['bars_by_tf'][tf], tf)
+                 for tf in candle_shadow.STEPS}, now_ms=now*1000)
+        except Exception as exc:
+            bundle['candleShadow'] = {'mode': 'shadow', 'affectsSelection': False,
+                                      'status': 'unavailable'}
+            print('BOB_CANDLE_SHADOW unavailable '+type(exc).__name__, flush=True)
         _live_cache = bundle
         _live_cache_at = time.time()
         return bundle
@@ -1090,6 +1102,7 @@ if __name__ == "__main__":
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress
+
 
 
 
