@@ -576,6 +576,10 @@ function recognizeOcr(file,statusId){
   let result;
   try{
    result=await ocrTimeout(worker.recognize(prepared),45000,"OCR-Zeitüberschreitung nach 45 Sekunden");
+   if(/Stammdaten/i.test(result.data.text||'')&&/Knock-Out-Barriere|Basispreis/i.test(result.data.text||'')){
+    try{await worker.setParameters({tessedit_pageseg_mode:"6"});result=await ocrTimeout(worker.recognize(prepared),45000,"Tabellenerkennung nach 45 Sekunden beendet");}
+    finally{await worker.setParameters({tessedit_pageseg_mode:"3"});}
+   }
   }catch(e){ocrWorkerPromise=null;await worker.terminate().catch(()=>{});throw e;}
   if(parseScreenshotCandidates(result.data.text||"").some(x=>!validIsin(x.isin))){
    let secondaryFailed=false;
@@ -1012,6 +1016,11 @@ function needsDirectionalData(p,direction){
 
 // Terms have their own source date; a quote/upload never refreshes them.
 function parseProductTerms(raw){
+ raw=String(raw).replace(/(?:©|®|ⓘ|@)/g,'').replace(/Bezugsverhaltnis/g,'Bezugsverhältnis');
+ // A correctly read German USD amount establishes the table's number convention.
+ const germanAmounts=/\b\d{1,3}\.\d{3},\d+\s*USD\b/.test(raw);
+ const numberCorrection=germanAmounts&&/\b\d{1,3},\d{3},\d+\s*USD\b/.test(raw);
+ if(germanAmounts)raw=raw.replace(/\b(\d{1,3}),(\d{3}),(\d+)\s*USD\b/g,'$1.$2,$3 USD');
  const out={},dates=Array.from(String(raw).matchAll(/(?:^|\n)\s*(?:Produktdatenstand|Bedingungenstand)\s*[:=]?\s*([^\n]+)/gi));
  if(new Set(dates.map(m=>m[1].trim())).size>1)return {error:'Widersprüchlicher Produktdatenstand'};
  const at=dates.length?sourceTimestamp(dates[0][1]):null;
@@ -1037,7 +1046,7 @@ function parseProductTerms(raw){
    let numeric=m[1];if(numeric.includes(','))numeric=numeric.replace(/\./g,'').replace(',','.');
    value=Number(numeric);if(!(value>0&&Number.isFinite(value)))return {error:label.split('|')[0]+': positiver Wert erforderlich'};
   }
-  out[key]={value,at,dateText};
+  out[key]={value,at,dateText,ocrCorrection:numberCorrection&&['ko','strike'].includes(key)?'OCR-Trennzeichen anhand des deutschen Tabellenformats vereinheitlicht; am Original prüfen':null};
  }
  return out;
 }
@@ -1215,7 +1224,7 @@ function screenshotTimeLabel(x){
 }
 function screenshotSummary(x){
  if(!x)return "";
- const termRows=Object.entries(x.terms||{}).filter(([key])=>key!=='quanto').map(([key,e])=>'<tr><td>'+esc(({ratio:'Bezugsverhältnis',strike:'Basispreis USD',underlying:'Basiswert',contract:'Future-Kontrakt',type:'Produkttyp',maturity:'Laufzeit',currency:'Produktwährung',quanto:'Quanto'})[key]||key)+'</td><td>'+esc(e.value)+'</td><td>'+esc(e.source)+'</td><td>'+esc(e.conditionVerified?'Produktbedingung recherchiert '+e.reviewedAt+' · keine Kurszeit':e.reviewed&&['type','currency','maturity'].includes(key)?'Geprüfte Produktbedingung · keine Kurszeit':e.at||(e.dateText?'Datum '+e.dateText+' · Uhrzeit/Gültigkeit nicht bestätigt':'Produktdatenstand fehlt'))+'</td></tr>').join('');
+ const termRows=Object.entries(x.terms||{}).filter(([key])=>key!=='quanto').map(([key,e])=>'<tr><td>'+esc(({ratio:'Bezugsverhältnis',strike:'Basispreis USD',underlying:'Basiswert',contract:'Future-Kontrakt',type:'Produkttyp',maturity:'Laufzeit',currency:'Produktwährung',quanto:'Quanto'})[key]||key)+'</td><td>'+esc(e.value)+(e.ocrCorrection?' · '+esc(e.ocrCorrection):'')+'</td><td>'+esc(e.source)+'</td><td>'+esc(e.conditionVerified?'Produktbedingung recherchiert '+e.reviewedAt+' · keine Kurszeit':e.reviewed&&['type','currency','maturity'].includes(key)?'Geprüfte Produktbedingung · keine Kurszeit':e.at||(e.dateText?'Datum '+e.dateText+' · Uhrzeit/Gültigkeit nicht bestätigt':'Produktdatenstand fehlt'))+'</td></tr>').join('');
  const rows=Object.entries(x.evidence||{}).filter(([key])=>key!=='Spread').map(([key,e])=>{const t=evidenceTiming(e);return '<tr><td>'+esc(key)+'</td><td>'+esc(e.value)+'</td><td>'+esc(e.source)+'</td><td>'+esc(e.at||(e.dateText?'Datum '+e.dateText+' · Uhrzeit/Gültigkeit nicht bestätigt':'Zeit / Zeitzone fehlt'))+(key==='Richtung'?'':' · '+esc(t.ageSeconds===null?'gesperrt':t.ageSeconds+' s · '+(t.fresh?'Nachweis ≤ 14 h · kein Livekurs':'gesperrt')))+'</td></tr>';}).join("");
  return '<div class="small">'+(x.listEvidence?'<div>ISIN/Bildzuordnung geprüft: '+esc(x.listEvidence.source)+' · historischer Bildnachweis, Produktdatenstand fehlt.</div><div>'+esc(x.listEvidence.ratioText||'')+'</div>':'')+'<b>Erkannte Angaben – bitte prüfen</b><table style="width:100%"><thead><tr><th>Angabe</th><th>Wert</th><th>Bildquelle</th><th>Quellenzeit</th></tr></thead><tbody>'+rows+termRows+'</tbody></table>'+esc(screenshotTimeLabel(x))+'</div>';
 }

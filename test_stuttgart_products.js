@@ -38,3 +38,7 @@ console.log('SG numeric/date-only import, identity rejection and KO conflict exp
  await assert.rejects(b.retainSelectedImages({files:[{arrayBuffer:async()=>{throw Error('provider denied');}}]}),/auf dem Gerät speichern/);
  console.log('Android file retained before picker reset; cancel and read failure tested');
 })().catch(e=>{console.error(e);process.exitCode=1;});
+
+const originalSgOcr='21:40 BHG « 451 ED\n= Q BB ESSERE.e | ZERTIFIKATE\nStammdaten\nISIN DEOOOFG4JXV7\nWKN FG4JXV\nClassic Turbo-\n\nProduktare Optionsscheine\nAbwicklungsart © Barausgleich\nBasiswert @ Gold\nBezugsverhaltnis © 10:1\nTyp Put\nBasispreis © 4.460,000 USD\nKnock-Out-Barriere 4,460,000 USD\n@\nKnock-Out Zeit 00:00 - 24:00\nAusgabetag © 10.09.2026\nfinaler Bewertungstag 18.12.2026\n0)\n\nFalligkeitstag © 28.12.2026\nIm Durchschnitt erleiden 7 von 10 Kleinanlegern Verluste\nbeim Handel mit Turbo-Optionsscheinen. Turbo-\nOptionsscheine sind hoch risikoreiche Produkte und\nnicht fiir langfristige Anlagestrategien geeignet.\n\nIII O <\n';
+const realImageResult=b.detailScreenshotData(originalSgOcr,"DE000FG4JXV7");
+assert(realImageResult.ok);assert.equal(realImageResult.ko,"4460");assert.equal(realImageResult.terms.strike.value,4460);assert.equal(realImageResult.terms.ratio.value,.1);assert(realImageResult.terms.ko.ocrCorrection);assert.equal(realImageResult.terms.ko.at,null);
