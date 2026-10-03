@@ -25,3 +25,16 @@ assert(!b.detailScreenshotData('Basispreis 4.635,8091 USD (02.10.2026)','DE000FG
 const mismatch=b.productTermsStatus({...p,ko:4143.44},now);
 assert(mismatch.reasons.some(x=>x.includes('gespeichert 4143.44 USD')&&x.includes('Quelle 4143.437 USD')));
 console.log('SG numeric/date-only import, identity rejection and KO conflict explanation passed');
+
+// Simulate Android revoking a provider-backed file once its input is cleared.
+(async()=>{
+ ctx.File=File;
+ let released=false;
+ const input={files:[{name:'sg.jpg',type:'image/jpeg',lastModified:1,arrayBuffer:async()=>{await Promise.resolve();if(released)throw Error('File could not be read! Code=0');return Uint8Array.from([1,2,3]).buffer;}}],set value(v){released=true;}};
+ const copies=await b.retainSelectedImages(input);
+ assert(released);assert.equal(copies[0].name,'sg.jpg');
+ assert.deepEqual(Array.from(new Uint8Array(await copies[0].arrayBuffer())),[1,2,3]);
+ assert.equal((await b.retainSelectedImages({files:[]})).length,0);
+ await assert.rejects(b.retainSelectedImages({files:[{arrayBuffer:async()=>{throw Error('provider denied');}}]}),/auf dem Gerät speichern/);
+ console.log('Android file retained before picker reset; cancel and read failure tested');
+})().catch(e=>{console.error(e);process.exitCode=1;});

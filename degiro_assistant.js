@@ -525,6 +525,20 @@ async function loadOcrWorker(statusId){
  ocrWorkerPromise=ocrTimeout(initializing,60000,"OCR-Engine konnte nicht innerhalb von 60 Sekunden gestartet werden").catch(e=>{ocrWorkerPromise=null;initializing.then(w=>w.terminate()).catch(()=>{});throw e;});
  return ocrWorkerPromise;
 }
+async function retainSelectedImages(input){
+ const files=Array.from(input.files||[]);
+ if(!files.length)return [];
+ // Read Android content-provider files before releasing the picker selection.
+ try{
+  const copies=await Promise.all(files.map(async file=>{
+   const bytes=await file.arrayBuffer();
+   if(!bytes.byteLength)throw new Error('Die ausgewählte Bilddatei ist leer.');
+   return new File([bytes],file.name,{type:file.type,lastModified:file.lastModified});
+  }));
+  input.value='';
+  return copies;
+ }catch(_){throw new Error('Android konnte die Bilddatei nicht bereitstellen. Bitte das Bild auf dem Gerät speichern und über Dateien → Bilder erneut auswählen.');}
+}
 async function prepareOcrImage(file,statusId,isinPass=false){
  const status=document.getElementById(statusId||"");
  try{
@@ -1303,12 +1317,15 @@ function inject(){
   r.querySelector("#dgDetailShot"+i).addEventListener("change",async e=>{
    const input=e.target,files=Array.from(input.files||[]),isin=document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value;
    if(!files.length)return;
-   input.value="";input.disabled=true;
+   input.disabled=true;
    const status=document.getElementById('dgOcrStatus'+i);
-   if(status)status.textContent='📷 '+files.length+' Bild(er) ausgewählt. Automatisches Einlesen startet …';
+   if(status)status.textContent='📷 '+files.length+' Bild(er) ausgewählt. Bilddateien werden übernommen …';
    rankUI();
-   try{for(const file of files){if(document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value!==isin)break;await readScreenshot(i,file);}}
-   finally{input.disabled=false;rankUI();}
+   try{
+    const retained=await retainSelectedImages(input);
+    for(const file of retained){if(document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value!==isin)break;await readScreenshot(i,file);}
+   }catch(e){if(status)status.textContent='⚠️ '+e.message;}
+   finally{input.value='';input.disabled=false;rankUI();}
   });
   r.querySelector('[data-research]').addEventListener('click',()=>enrichProduct(i));
   r.querySelector('[data-dg="confirmed"]').addEventListener('change',()=>{enrichProduct(i);rankUI();});
@@ -1428,7 +1445,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
