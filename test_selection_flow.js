@@ -172,3 +172,17 @@ for(const direction of ['LONG','SHORT','NEUTRAL']){
 assert.equal(b.selectionUiSignals({getElementById:()=>null}).momentum,0);
 assert(!b.evaluateProduct({...context,...copies[0],name:'Gold Faktor Short',spot:context.spot}).ok);
 assert(!b.evaluateProduct({...context,...copies[0],name:'Gold Future Turbo Short',spot:context.spot}).ok);
+// Every non-selected product remains visible with an explicit status and reason.
+for(const c of [context,{...context,direction:'NEUTRAL'}, {...context,now:now+91000}]){
+ const products=[...copies,futureOk];const result=b.selectionWorkflow(products,c,{});
+ const selected=new Set(result.groups.flatMap(g=>g.candidates).map(p=>p.isin));
+ assert.equal(result.notApproved.length,products.length-selected.size);
+ const html=b.renderSelectionWorkflow(result);
+ for(const p of result.notApproved){assert(!selected.has(p.isin));assert(p.reasons.length);assert(html.includes(p.isin));}
+ assert.equal((html.match(/<strong>Nicht freigegeben<\/strong>/g)||[]).length,result.notApproved.length);
+ assert.equal((html.match(/Begründung:/g)||[]).length,result.notApproved.length);
+}
+const allBlocked=b.selectionWorkflow([...copies,futureOk],{...context,direction:'NEUTRAL'},{});
+assert.equal(allBlocked.notApproved.length,4);assert(b.renderSelectionWorkflow(allBlocked).includes('data-selection-blocked="4"'));
+const unidentified=b.selectionWorkflow([{name:'<unsicheres Produkt>'}],context,{});
+assert.equal(unidentified.notApproved.length,1);assert(b.renderSelectionWorkflow(unidentified).includes('&lt;unsicheres Produkt&gt;'));assert(b.renderSelectionWorkflow(unidentified).includes('ISIN fehlt'));

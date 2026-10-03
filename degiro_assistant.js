@@ -793,11 +793,12 @@ function selectionMarketGate(context={}){
 }
 function selectionWorkflow(products,context={},bundle,references=[]){
  const now=context.now??Date.now(),direction=String(context.direction||'NEUTRAL').toUpperCase();
- const result={direction,stage:'LISTE',groups:[],requests:[],waiting:[],total:0,tradeable:false,approved:false,approvedCount:0,gateReasons:[],checkedAt:now};
+ const result={direction,stage:'LISTE',groups:[],requests:[],waiting:[],total:0,tradeable:false,approved:false,approvedCount:0,gateReasons:[],checkedAt:now,notApproved:[]};
  const seen=new Set(),items=[];
  for(const [index,p] of products.entries())if(p.isin&&!seen.has(p.isin)){seen.add(p.isin);items.push({...p,index:index+1});}
  const conflicting=new Set(items.filter(p=>products.some(other=>other.isin===p.isin&&JSON.stringify(other)!==JSON.stringify(products[p.index-1]))).map(p=>p.isin));
- result.total=items.length;
+ result.notApproved=products.map((p,i)=>({...p,index:i+1})).filter(p=>!p.isin&&p.name).map(p=>({isin:'ISIN fehlt',name:p.name,index:p.index,reasons:['Eindeutige ISIN fehlt: Produktzuordnung zuerst bestätigen']}));
+ result.total=items.length+result.notApproved.length;
  const market=selectionMarketGate(context);
  result.gateReasons=!items.length?['Keine Produkte mit bestätigter ISIN vorhanden']:market.reasons;
  if(!items.length){result.stage='ABWARTEN';return result;}
@@ -829,17 +830,24 @@ function selectionWorkflow(products,context={},bundle,references=[]){
  const selected=result.groups.flatMap(g=>g.candidates).sort((a,b)=>b.score-a.score||a.isin.localeCompare(b.isin)).slice(0,3);
  result.groups=result.groups.map(g=>({...g,candidates:g.candidates.filter(c=>selected.includes(c))})).filter(g=>g.candidates.length);
  result.approvedCount=selected.length;result.approved=selected.length>0;
+ const selectedIds=new Set(selected.map(p=>p.isin));
+ const eligibleIds=new Set(Array.from(groups.values()).flat().map(p=>p.isin));
+ result.notApproved.push(...items.filter(p=>!selectedIds.has(p.isin)).map(p=>{
+  const request=result.requests.find(x=>x.isin===p.isin),waiting=result.waiting.find(x=>x.isin===p.isin);
+  const reasons=[...result.gateReasons,...(request?.reasons||[]),...(waiting?[waiting.reason]:[])];
+  if(!reasons.length)reasons.push(eligibleIds.has(p.isin)?'Grundsätzlich geeignet, aber derzeit nicht unter den höchstens drei ausgewählten Produkten. Keine Freigabe in dieser Auswahl.':'Pflichtprüfung nicht bestanden: aktuelle Produkt- und Marktnachweise prüfen');
+  return {isin:p.isin,name:p.name,index:p.index,reasons:[...new Set(reasons)]};
+ }));
  result.stage=result.approved?'TOP3':'ABWARTEN';return result;
 }
 function renderSelectionWorkflow(r){
  const steps='<div class="small">Listenbilder → unverbindliche Kandidaten → Pflichtprüfung → bis zu 3 geeignete Produkte</div><details><summary class="small">So bewertet Bob Kosten und Risiko</summary><div class="small">Kosten-Risiko-Wert: 100 minus Abzüge für Handels- und Finanzierungskosten, KO und Datenqualität. Spread nur zur Information: kein Punkteabzug und keine Spread-Sperre. Die Hebelhöhe allein bringt weder Plus- noch Minuspunkte. Vergleich: 1.000 EUR / 1 Kalendertag. Unbekannte Kosten erhalten jeweils den vollen 10-Punkte-Abzug; kein bestätigter Kostenvorteil. Mindestwert 60. Gleiche Werte bedeuten Gleichstand; ISIN sortiert nur die Anzeige. Kostennachweise unter Details / manuelle Kursnachweise.</div></details>';
- const pending=r.requests.slice(0,3),remaining=r.requests.length-pending.length;
+ const notApproved=r.notApproved||[];
  return '<b>'+ (r.approved?'Zur Produktauswahl freigegeben · '+r.approvedCount+' geeignete'+(r.approvedCount===1?'s Produkt':' Produkte'):'Abwarten – derzeit kein geeignetes Produkt')+'</b>'+steps+
  '<div class="small">'+esc((r.gateReasons||[]).join(' · '))+'</div>'+
  '<div class="small">'+r.total+' unterschiedliche Produkte. Vorauswahl nach Analyse-Richtung '+esc(r.direction)+'; fehlende Preise erhalten keine Rangpunkte.</div>'+
  r.groups.map(g=>'<div style="margin-top:12px"><b>'+esc(g.scope)+' · '+g.total+' bewertbare Produkte</b>'+g.candidates.map((c,i)=>'<div style="padding:10px;margin-top:8px;border:1px solid #dbe4f0;border-radius:12px"><b>Platz '+(i+1)+' · '+esc(c.isin)+'</b><div class="small">'+esc(c.name)+'<br>'+esc(c.priceKind)+' · Brief '+Number(c.price).toFixed(2)+' EUR · Kosten-Risiko-Wert '+c.score+'/100<br>Warum: '+esc((c.reasons||[]).slice(0,3).join(' · '))+'<br>Quelle '+esc(c.source||'Produktnachweis')+' · Datenzeit '+esc(c.at)+(c.quoteAt?' · Produktkurszeit '+esc(c.quoteAt):'')+(c.quality?'<br>'+esc(qualityText(c.quality,'USD')):'')+'</div></div>').join('')+'</div>').join('')+
- (pending.length?'<div style="margin-top:12px"><b>Nächster Schritt · diese Detailbilder ergänzen</b><div class="small">Upload-Reihenfolge, keine Rangliste unvollständiger Produkte.</div>'+pending.map(p=>'<div class="small" style="margin-top:8px"><b>'+esc(p.isin)+'</b> · '+esc(p.name)+'<br>Benötigt: '+esc(p.reasons.join(' · '))+' <button data-selection-upload="'+p.index+'">Detailbilder ergänzen</button></div>').join('')+(remaining?'<div class="small">'+remaining+' weitere passende Kandidaten unter „Gespeicherte Produkte“.</div>':'')+'</div>':'')+
- r.waiting.map(p=>'<div class="small warning">'+esc(p.isin)+' · '+esc(p.reason)+'</div>').join('')+
+ (notApproved.length?'<div style="margin-top:14px"><b>Weitere Produkte · nicht freigegeben ('+notApproved.length+')</b>'+notApproved.map(p=>'<div data-selection-blocked="'+p.index+'" style="padding:10px;margin-top:8px;border:1px solid #d1d5db;border-radius:12px;background:#f8fafc"><b>'+esc(p.isin)+'</b> · '+esc(p.name||'')+'<div class="small"><strong>Nicht freigegeben</strong><br>Begründung: '+esc(p.reasons.join(' · '))+'</div><button data-selection-upload="'+p.index+'">Detailbilder ergänzen</button></div>').join('')+'</div>':'')+
  '<div class="small" style="margin-top:10px">Spot und Future werden getrennt bewertet. Weniger als drei belegte Produkte ergeben eine kürzere Liste. Freigabe gilt ausschließlich für diese geprüfte Produktauswahl, nicht als Handelsauftrag oder garantierter bester Trade. Kandidaten mit offenen Nachweisen bleiben gesperrt; tatsächlichen DEGIRO-Preis vor dem Einstieg prüfen.</div>';
 }
 
