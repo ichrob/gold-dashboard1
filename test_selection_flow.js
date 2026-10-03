@@ -228,3 +228,16 @@ assert(b.durableCondition({value:'EUR',source:'list.jpg',reviewed:true},'currenc
 assert(!b.durableCondition({value:4460,source:'list.jpg',reviewed:true},'strike',researchNow));
 assert.equal(b.maturityDeadline('18/12/2026'),Date.parse('2026-12-17T23:00:00Z'));assert.equal(b.maturityDeadline('31/02/2026'),null);
 console.log('Researched conditions, no invented quote clocks/contracts, no overwrite, and conservative date-only maturity: OK');
+
+
+// Contract guidance must remain visible when market direction prevents selection.
+for(const direction of ['NEUTRAL','LONG']){
+ const missing={...f,snapshot:{...f.snapshot,terms:{...f.snapshot.terms,contract:undefined}}};
+ const result=b.selectionWorkflow([missing,p],{...context,direction},{});
+ assert(result.notApproved.find(x=>x.isin===f.isin).reasons.some(x=>x.includes('Produktdetails → Dokumente')));
+ assert(b.renderSelectionWorkflow(result).includes('Referenzkontrakt / Futures Contract'));
+ assert(!result.notApproved.find(x=>x.isin===p.isin)?.reasons.some(x=>x.includes('Produktdetails → Dokumente')));
+ assert(!result.groups.some(g=>g.candidates.some(x=>x.isin===f.isin)));
+}
+const confirmed=b.selectionWorkflow([f],{...context,direction:'NEUTRAL'},{});
+assert(!confirmed.notApproved[0].reasons.some(x=>x.startsWith('Exakter Gold-Future-Kontrakt fehlt')));
