@@ -60,9 +60,9 @@ class AutoCollectionTests(unittest.TestCase):
         with patch.object(a, 'enabled', return_value=True), patch.object(a.future_estimate, 'ensure_collector'), patch.object(a.future_analysis, 'fetch_reference', side_effect=OSError('unavailable')), patch.object(a.sg_quotes, 'fetch_future_reference', return_value=research) as fallback, patch.object(a.future_estimate, 'current_estimate', return_value={'available': False}), patch.object(a.bob_validation_store, 'request', return_value={'pairs': []}), patch.object(a.bob_market_store, 'request', return_value={}), patch.object(a.estimate_quality, 'restore_durable'), patch.object(a, 'datetime') as clock:
             clock.now.return_value = NOW
             a.tick(NOW)
-            fallback.assert_called_once_with()
-            self.assertEqual(a.status()['sourceFailures'], 0)
-            self.assertEqual(a.status()['referenceAt'], NOW.isoformat())
+            fallback.assert_not_called()
+            self.assertEqual(a.status()['sourceFailures'], 1)
+            self.assertGreater(a.status()['nextSourceInSeconds'], 0)
 
     def test_each_cycle_merges_saved_real_ticks_and_preserves_gaps(self):
         rows = [dict(at=(NOW-timedelta(seconds=s)).isoformat(), price=4100+(800-s)*.01,
@@ -163,3 +163,4 @@ class CollectionEndpointTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertIn(b'"pairCount":20', body)
             self.assertEqual(headers['Cache-Control'], 'no-store')
+

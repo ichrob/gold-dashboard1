@@ -104,33 +104,23 @@ class ProductEstimateTests(unittest.TestCase):
     def test_source_outage_falls_back_but_identity_error_does_not(self):
         result,data=self.anchor();now=NOW+timedelta(seconds=110)
         self.inputs(data,now)
-        with patch.object(sg,'fetch_snapshot',side_effect=OSError('network')),\
-             patch.object(sg,'market_input',side_effect=lambda k:sg._INPUT_CACHE[k][1]),\
-             patch.object(sg.q,'freshness',wraps=q.freshness) as fresh:
-            fallback=sg.get_quote(data[0],data[1],ISIN)
-        # get_quote uses real wall clock; recalculate against test time to
-        # verify model restoration without accidentally refreshing any input.
-        self.assertIn('productModel',fallback)
+        # Local, previously supplied model evidence can still be calculated.
+        fallback=sg.restore_product_model(q.parse_sg(data[0],data[1],ISIN,now),data[0],data[1])
         fallback=q.freshness(fallback,now)
-        self.assertTrue(fallback['calculatedProduct']['available']);self.assertFalse(fallback['found'])
-        with patch.object(sg,'fetch_snapshot',side_effect=ValueError('identity mismatch')),\
-             patch.object(sg,'market_input',return_value={}):
+        self.assertTrue(fallback['calculatedProduct']['available'])
+        self.assertFalse(fallback['found'])
+        with patch.object(sg,'fetch_snapshot') as fetch, patch.object(sg,'market_input') as market:
             blocked=sg.get_quote(data[0],data[1],ISIN)
-        self.assertNotIn('productModel',blocked)
+        fetch.assert_not_called();market.assert_not_called()
+        self.assertTrue(blocked['sourceDisabled'])
 
     def test_other_verified_sg_products_share_only_the_exact_future_basis(self):
-        product,props,snapshot,fx=future_fixture()
-        product['Isin']=ISIN;props[0]['Value']=ISIN
-        self.assertEqual(q.sg_future_contract(product,ISIN)['ric'],'GCZ26')
-        ref=sg.parse_future_research(*future_fixture(),'DE000FG309G0',NOW)
-        with patch.dict(sg.PRODUCT_IDS,{},clear=True),patch.object(q,'get_quote',return_value=ref) as shared:
+        product,props,*_=future_fixture()
+        with patch.dict(sg.PRODUCT_IDS,{},clear=True),patch.object(q,'get_quote') as shared:
             out=sg.get_quote(product,props,ISIN)
-        shared.assert_called_once_with('DE000FG309G0')
-        self.assertEqual(out['futureResearch']['underlyingPriceUsd'],ref['futureResearch']['underlyingPriceUsd'])
-        for k in ('bid','ask','ratio','indicativeLeverage'):self.assertNotIn(k,out['futureResearch'])
-        self.assertFalse(out['eligible']);self.assertFalse(out['found'])
-        product['AssetRic']='GCG27'
-        self.assertIsNone(q.sg_future_contract(product,ISIN))
+        shared.assert_not_called();self.assertTrue(out['sourceDisabled'])
+        self.assertNotIn('futureResearch',out)
 
 
 if __name__ == '__main__':unittest.main()
+

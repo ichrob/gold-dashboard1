@@ -7,7 +7,6 @@ import math
 import re
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
@@ -37,6 +36,8 @@ def sg_future_contract(product, isin):
 
 def issuer_json(url, origin, timeout=6):
     """Read a bounded response only from the selected issuer's fixed host."""
+    if url.startswith(SG_ORIGIN) or origin == SG_ORIGIN:
+        raise PermissionError('SG_LIVE_DISABLED_BY_USER')
     request = Request(url, headers={'User-Agent': 'Bob/1.7 public product research',
                                    'Accept': 'application/json', 'Cache-Control': 'no-cache'})
     with urlopen(request, timeout=timeout) as response:
@@ -128,46 +129,17 @@ def sg_source_error(exc, stage):
     return 'SG '+label+': '+detail
 
 
+def sg_disabled(isin):
+    """User decision: no SG network research, including relayed OTC quotes."""
+    return dict(found=False, eligible=False, fresh=False, productVerified=False,
+                isin=isin, source='SG-Abruf deaktiviert', sourceDisabled=True,
+                sourceFailure=False,
+                reason='SG-Liveabruf auf Nutzerwunsch deaktiviert. DEGIRO-Screenshotdaten verwenden; Berechnungen bleiben als berechnet gekennzeichnet.')
+
+
 def get_sg_quote(isin):
-    stage = 'identity'
-    try:
-        product = issuer_json(SG_ORIGIN+'EmcWebApi/api/Products/'+isin, SG_ORIGIN)
-        product_id = product['Id']
-        if isinstance(product_id, bool) or not isinstance(product_id, int) or product_id <= 0:
-            raise ValueError('Ungültige SG-Produktkennung')
-        if product.get('Isin') != isin:
-            raise ValueError('Falsche SG-ISIN')
-        if product.get('AssetNMP') != 'XAUUSD' and sg_future_contract(product, isin) is None:
-            return dict(found=False, productVerified=True, eligible=False, fresh=False, isin=isin,
-                        source='Société Générale · offizielle Produktdaten',
-                        sourceUrl=SG_ORIGIN+'product-details/'+isin.lower(),
-                        checkedAt=datetime.now(timezone.utc).isoformat(),
-                        reason='SG-Basiswert '+str(product.get('AssetNMP', 'unbekannt'))+
-                               ' ist kein XAU/USD-Spot; eigene Basiswertdaten erforderlich',
-                        metadata=dict(name=product.get('Name', ''), underlying=product.get('AssetNMP'),
-                                      underlyingIsin=product.get('AssetIsin'), currency=product.get('Currency'),
-                                      underlyingType='UNSUPPORTED',
-                                      direction='nicht bestätigt', ko='nicht bestätigt'))
-        stage = 'properties'
-        properties = issuer_json(SG_ORIGIN+'EmcWebApi/api/Products/AllProperties/'+str(product_id), SG_ORIGIN)
-        # Dated OTC quotes are a separate source. SG's undated ASK/leverage
-        # fields and chart prices must never become an executable snapshot.
-        from sg_quotes import get_quote as sg_quote
-        stage = 'dated-quotes'
-        result = sg_quote(product, properties, isin)
-        research = result.get('futureResearch', {})
-        print(f'BOB_SG isin={isin} found={bool(result.get("found"))} eligible={bool(result.get("eligible"))} '
-              f'product_verified={bool(result.get("productVerified"))} '
-              f'research_available={bool(research)} contract={research.get("contract")} '
-              f'estimate_available={bool(research.get("calculatedFuture", {}).get("available"))} '
-              f'age={result.get("ageSeconds")} source=sg-otc-onvista', flush=True)
-        return result
-    except Exception as exc:
-        print(f'BOB_SG isin={isin} stage={stage} error={type(exc).__name__}', flush=True)
-        return dict(found=False, eligible=False, fresh=False, isin=isin,
-                    source='Société Générale · öffentliche Produktrecherche',
-                    productVerified=stage != 'identity', sourceFailure=True,
-                    reason=sg_source_error(exc, stage))
+    return sg_disabled(isin)
+
 
 def valid_isin(value):
     if not re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]', value) or re.match(r'DE(?=[0O]{3})(?=[0O]{0,2}O)', value):
@@ -252,25 +224,25 @@ def get_quote(isin):
     isin = str(isin or '').strip().upper()
     if not valid_isin(isin):
         return dict(found=False, eligible=False, fresh=False, reason='ISIN-Prüfziffer ungültig')
+    # Known SG identities are local routing information, not verified terms.
+    # Check before cache: an earlier SG response must never be reused as live.
+    from sg_quotes import PRODUCT_IDS
+    if isin in PRODUCT_IDS or isin in SG_GOLD_FUTURES:
+        return sg_disabled(isin)
     with _LOCK:
         cached = _CACHE.get(isin)
-        if cached and time.monotonic()-cached[0] < 15:
+        if cached and time.monotonic()-cached[0] < 15 and cached[1].get('source') == 'BNP Paribas · Emittent OTC':
             return freshness(cached[1])
-    # Fixed public endpoint from the issuer's own web client. No arbitrary URL.
-    # Query issuers independently; a slow BNP miss must not consume SG's
-    # entire browser timeout. Neither adapter trusts the ISIN prefix.
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        bnp = pool.submit(get_bnp_quote, isin)
-        sg = pool.submit(get_sg_quote, isin)
-        result = bnp.result()
-        sg_result = sg.result()
-    if not result.get('found') and (sg_result.get('productVerified') or isin in SG_GOLD_FUTURES):
-        result = sg_result
+    # Unknown products may be researched at BNP only. No speculative SG request.
+    result = get_bnp_quote(isin)
+    if not result.get('found'):
+        result = dict(result, reason='Keine aktuellen BNP-Produktdaten verfügbar. SG-Abruf deaktiviert; DEGIRO-Screenshotdaten verwenden.')
     with _LOCK:
         if len(_CACHE) >= 256:
             _CACHE.pop(next(iter(_CACHE)))
         _CACHE[isin] = (time.monotonic(), result)
     return freshness(result)
+
 
 def get_bnp_quote(isin):
     url = ORIGIN+'apiv2/api/v1/product/header/'+isin
@@ -289,3 +261,4 @@ def get_bnp_quote(isin):
                       reason='Keine verlässlich datierten Kurse verfügbar (Quelle nicht unterstützt oder nicht erreichbar)',
                       checkedAt=datetime.now(timezone.utc).isoformat())
     return result
+

@@ -74,18 +74,9 @@ def tick(now=None):
     future_estimate.ensure_collector()
     if time.monotonic() >= _next_source:
         try:
-            # Existing exact-contract Yahoo feed; no SG OTC/FX prerequisite.
-            # Fixed fallback to the registered onvista underlying, no guessed
-            # contract, continuous future or source timestamp replacement.
-            try:
-                research = future_analysis.fetch_reference()
-            except (OSError, ValueError, TypeError, KeyError, IndexError) as primary_error:
-                try:
-                    research = sg_quotes.fetch_future_reference()
-                except (OSError, ValueError, TypeError, KeyError, IndexError):
-                    # Preserve Yahoo's failure and shared retry deadline when
-                    # the fixed fallback is unavailable (including consent).
-                    raise primary_error
+            # Exact-contract source only. The SG/Onvista product-page fallback
+            # is disabled by user request; no retry through SG on failure.
+            research = future_analysis.fetch_reference()
             if research.get('contract') != future_estimate.CONTRACT:
                 raise ValueError('GCZ26-Referenz momentan nicht verfügbar')
             future_estimate.remember_reference(research, datetime.now(timezone.utc))
@@ -198,3 +189,4 @@ document.getElementById('bobAutoStatus').textContent=(d.state==='paused'?'Sammlu
 const box=document.getElementById('bobAutoGroups');box.replaceChildren();for(const g of d.horizons||[]){const p=document.createElement('p');p.textContent=g.horizonBucket+': '+g.sampleCount+'/'+g.minSamples+' Vergleiche'+(Number.isFinite(g.meanAbsoluteError)?' · mittlerer Fehler '+g.meanAbsoluteError.toFixed(2)+' USD · größter Fehler '+g.maxAbsoluteError.toFixed(2)+' USD':'')+' · '+(d.state==='paused'?'gespeicherter Messstand':g.ready?'ausreichend geprüft':'noch nicht ausreichend geprüft');box.append(p);}}
 catch{document.getElementById('bobAutoStatus').textContent='Messstand momentan nicht erreichbar.';}}update();setInterval(update,30000);})();
 </script>'''
+
