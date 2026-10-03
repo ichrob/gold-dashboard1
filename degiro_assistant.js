@@ -995,20 +995,29 @@ function parseProductTerms(raw){
  const out={},dates=Array.from(String(raw).matchAll(/(?:^|\n)\s*(?:Produktdatenstand|Bedingungenstand)\s*[:=]?\s*([^\n]+)/gi));
  if(new Set(dates.map(m=>m[1].trim())).size>1)return {error:'Widersprüchlicher Produktdatenstand'};
  const at=dates.length?sourceTimestamp(dates[0][1]):null;
- const labels={ratio:'Bezugsverhältnis|Bezugsverhaeltnis',strike:'Basispreis|Finanzierungslevel',underlying:'Basiswert|Underlying',contract:'Future-Kontrakt|Futures-Kontrakt|Kontrakt',type:'Produkttyp|Produktart',maturity:'Laufzeit|Fälligkeit|Faelligkeit',currency:'Produktwährung|Produktwaehrung',quanto:'Quanto|Währungsabsicherung'};
+ const labels={ko:'Knock-Out-Barriere|Knock-out-Schwelle',ratio:'Bezugsverhältnis|Bezugsverhaeltnis',strike:'Basispreis|Finanzierungslevel',underlying:'Basiswert|Underlying',contract:'Future-Kontrakt|Futures-Kontrakt|Kontrakt',type:'Produkttyp|Produktart',maturity:'Laufzeit|Fälligkeit|Faelligkeit',currency:'Produktwährung|Produktwaehrung',quanto:'Quanto|Währungsabsicherung'};
  for(const [key,label] of Object.entries(labels)){
   const matches=Array.from(String(raw).matchAll(new RegExp('(?:^|\\n)\\s*(?:'+label+')\\s*[:=]?\\s*([^\\n]+)','gi')));
   if(!matches.length)continue;
   const values=Array.from(new Set(matches.map(m=>m[1].trim())));
   if(values.length!==1)return {error:'Widersprüchliche Produktbedingung: '+label.split('|')[0]};
-  let value=values[0];
-  if(['ratio','strike'].includes(key)){
-   const m=value.match(key==='strike'?/^([\d.,]+)\s*USD$/i:/^([\d.,]+)$/);
+  let value=values[0],dateText=null;
+  if(['strike','ko'].includes(key)){
+   const dated=value.match(/^(.*?)\s*\((\d{2}\.\d{2}\.\d{4})\)\s*$/);
+   if(dated){value=dated[1].trim();dateText=dated[2];}
+  }
+  if(key==='ratio'&&/^\d+(?:[.,]\d+)?\s*:\s*1$/.test(value)){
+   const denominator=Number(value.split(':')[0].trim().replace(',','.'));
+   if(!(denominator>0))return {error:'Bezugsverhältnis ungültig'};
+   out[key]={value:1/denominator,at,displayText:values[0]};continue;
+  }
+  if(['ratio','strike','ko'].includes(key)){
+   const m=value.match(['strike','ko'].includes(key)?/^([\d.,]+)\s*USD$/i:/^([\d.,]+)$/);
    if(!m)return {error:label.split('|')[0]+': Zahl'+(key==='strike'?' und Währung USD':'')+' eindeutig angeben'};
    let numeric=m[1];if(numeric.includes(','))numeric=numeric.replace(/\./g,'').replace(',','.');
    value=Number(numeric);if(!(value>0&&Number.isFinite(value)))return {error:label.split('|')[0]+': positiver Wert erforderlich'};
   }
-  out[key]={value,at};
+  out[key]={value,at,dateText};
  }
  return out;
 }
@@ -1076,7 +1085,7 @@ function productTermsStatus(p,now=Date.now()){
  const ko=shot?.evidence?.KO,koAge=now-Date.parse(ko?.at),apiKoAge=now-Date.parse(q?.checkedAt);
  if(!(n(p.ko)>0))reasons.push('Knock-out-Schwelle fehlt');
  else if(!(ko?.source&&n(ko.value)===n(p.ko)&&koAge>=0&&koAge<=86400000)&&!(meta&&meta.termsDated!==false&&q.source&&n(meta.ko)===n(p.ko)&&apiKoAge>=0&&apiKoAge<=86400000))reasons.push('Knock-out-Schwelle: datierter Produktnachweis fehlt oder älter als 24 Stunden');
- if(meta?.ko&&n(p.ko)!==n(meta.ko))reasons.push('Knock-out-Schwelle widerspricht Produktquelle');
+ if(meta?.ko&&n(p.ko)!==n(meta.ko))reasons.push('Knock-out-Schwelle widerspricht Produktquelle: gespeichert '+p.ko+' USD ('+(ko?.source||'Produktliste / manuelle Eingabe')+'; Stand '+(ko?.at||ko?.dateText||'nicht belegt')+'), Quelle '+meta.ko+' USD ('+(q.termsSource||q.source||'Produktquelle')+'; Gültigkeitsstand '+(meta.termsDated===false?'nicht belegt':q.checkedAt||'nicht belegt')+'). Abrufzeit '+(q.termsCheckedAt||q.checkedAt||'unbekannt')+' ist kein Gültigkeitsdatum.');
  if(meta?.status!==undefined&&(!(meta.status&1)||meta.status&(2|8|16|32)))reasons.push('Produkt laut Emittent nicht aktiv');
  return {complete:reasons.length===0,reasons,values};
 }
@@ -1112,6 +1121,7 @@ function detailScreenshotData(text,expectedIsin){
  if(!x.leverage){const lv=raw.match(/\bLV\s+(\d+(?:[.,]\d+)?)/i);if(lv)x.leverage=lv[1].replace(",",".");}
  const terms=parseProductTerms(raw);
  if(terms.error)return {ok:false,reason:terms.error};
+ if(terms.ko)x.ko=String(terms.ko.value);
  return{ok:true,...x,bid,ask,currency,sourceTime:stamp,times:screenshotTimes(raw),terms,delayed:/verzögert|delayed/i.test(raw),combinedDraft:draft};
 }
 function resetCombinedForm(i){
@@ -1167,7 +1177,7 @@ function mergeScreenshotEvidence(previous,x,source){
  for(const [key,value] of Object.entries(x.terms||{}))merged.terms[key]={...value,source};
  if(!hasQuote){for(const key of ["bid","ask","currency","sourceTime","delayed"])merged[key]=previous[key]??x[key];}
  else {for(const key of ["Kurs","Geld","Brief","Spread"])delete evidence[key];merged.clearSpread=n(x.spread)===null;}
- for(const [key,value] of Object.entries({Richtung:x.direction,Kurs:x.price,Hebel:x.leverage,KO:x.ko,Geld:x.bid,Brief:x.ask,Spread:x.spread})){if(value!==""&&value!==null&&value!==undefined)evidence[key]={value,source,at:fieldSourceTime(x,key)};}
+ for(const [key,value] of Object.entries({Richtung:x.direction,Kurs:x.price,Hebel:x.leverage,KO:x.ko,Geld:x.bid,Brief:x.ask,Spread:x.spread})){if(value!==""&&value!==null&&value!==undefined)evidence[key]={value,source,at:fieldSourceTime(x,key),dateText:key==='KO'?x.terms?.ko?.dateText:null};}
  if(hasQuote&&evidence.Spread){const times=[evidence.Geld?.at,evidence.Brief?.at];evidence.Spread.at=times.every(Boolean)?times.sort()[0]:null;}
  for(const [key,field] of Object.entries({Kurs:"price",Hebel:"leverage",KO:"ko",Spread:"spread",Richtung:"direction"})){merged[field]=evidence[key]?.value??"";}
  return merged;
@@ -1185,8 +1195,8 @@ function screenshotTimeLabel(x){
 }
 function screenshotSummary(x){
  if(!x)return "";
- const termRows=Object.entries(x.terms||{}).filter(([key])=>key!=='quanto').map(([key,e])=>'<tr><td>'+esc(({ratio:'Bezugsverhältnis',strike:'Basispreis USD',underlying:'Basiswert',contract:'Future-Kontrakt',type:'Produkttyp',maturity:'Laufzeit',currency:'Produktwährung',quanto:'Quanto'})[key]||key)+'</td><td>'+esc(e.value)+'</td><td>'+esc(e.source)+'</td><td>'+esc(e.conditionVerified?'Produktbedingung recherchiert '+e.reviewedAt+' · keine Kurszeit':e.reviewed&&['type','currency','maturity'].includes(key)?'Geprüfte Produktbedingung · keine Kurszeit':e.at||'Produktdatenstand fehlt')+'</td></tr>').join('');
- const rows=Object.entries(x.evidence||{}).filter(([key])=>key!=='Spread').map(([key,e])=>{const t=evidenceTiming(e);return '<tr><td>'+esc(key)+'</td><td>'+esc(e.value)+'</td><td>'+esc(e.source)+'</td><td>'+esc(e.at||'Zeit / Zeitzone fehlt')+(key==='Richtung'?'':' · '+esc(t.ageSeconds===null?'gesperrt':t.ageSeconds+' s · '+(t.fresh?'Nachweis ≤ 14 h · kein Livekurs':'gesperrt')))+'</td></tr>';}).join("");
+ const termRows=Object.entries(x.terms||{}).filter(([key])=>key!=='quanto').map(([key,e])=>'<tr><td>'+esc(({ratio:'Bezugsverhältnis',strike:'Basispreis USD',underlying:'Basiswert',contract:'Future-Kontrakt',type:'Produkttyp',maturity:'Laufzeit',currency:'Produktwährung',quanto:'Quanto'})[key]||key)+'</td><td>'+esc(e.value)+'</td><td>'+esc(e.source)+'</td><td>'+esc(e.conditionVerified?'Produktbedingung recherchiert '+e.reviewedAt+' · keine Kurszeit':e.reviewed&&['type','currency','maturity'].includes(key)?'Geprüfte Produktbedingung · keine Kurszeit':e.at||(e.dateText?'Datum '+e.dateText+' · Uhrzeit/Gültigkeit nicht bestätigt':'Produktdatenstand fehlt'))+'</td></tr>').join('');
+ const rows=Object.entries(x.evidence||{}).filter(([key])=>key!=='Spread').map(([key,e])=>{const t=evidenceTiming(e);return '<tr><td>'+esc(key)+'</td><td>'+esc(e.value)+'</td><td>'+esc(e.source)+'</td><td>'+esc(e.at||(e.dateText?'Datum '+e.dateText+' · Uhrzeit/Gültigkeit nicht bestätigt':'Zeit / Zeitzone fehlt'))+(key==='Richtung'?'':' · '+esc(t.ageSeconds===null?'gesperrt':t.ageSeconds+' s · '+(t.fresh?'Nachweis ≤ 14 h · kein Livekurs':'gesperrt')))+'</td></tr>';}).join("");
  return '<div class="small">'+(x.listEvidence?'<div>ISIN/Bildzuordnung geprüft: '+esc(x.listEvidence.source)+' · historischer Bildnachweis, Produktdatenstand fehlt.</div><div>'+esc(x.listEvidence.ratioText||'')+'</div>':'')+'<b>Erkannte Angaben – bitte prüfen</b><table style="width:100%"><thead><tr><th>Angabe</th><th>Wert</th><th>Bildquelle</th><th>Quellenzeit</th></tr></thead><tbody>'+rows+termRows+'</tbody></table>'+esc(screenshotTimeLabel(x))+'</div>';
 }
 function manualProductMissing(p){

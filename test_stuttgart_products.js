@@ -11,3 +11,17 @@ assert(status.reasons.some(x=>x.includes('datierter Produktnachweis')));
 console.log('Stuttgart terms/status/freshness tests passed');
 
 assert(!b.evaluateProduct({...p,spot:4200,direction:"LONG",leverage:10}).ok);
+
+// SG table transcription from supplied screenshots: decimal comma, ratio and date-only evidence.
+const sgText='ISIN DE000FG309G0\nTyp Put\nBezugsverhältnis 10:1\nBasispreis 4.635,8091 USD (02.10.2026)\nKnock-Out-Barriere 4.635,8091 USD (02.10.2026)';
+const parsed=b.detailScreenshotData(sgText,'DE000FG309G0');
+assert(parsed.ok,parsed.reason);assert.equal(parsed.terms.ratio.value,.1);
+assert.equal(parsed.terms.strike.value,4635.8091);assert.equal(parsed.ko,'4635.8091');
+assert.equal(parsed.terms.strike.dateText,'02.10.2026');assert.equal(parsed.terms.strike.at,null);
+const merged=b.mergeScreenshotEvidence(null,parsed,'SG-Stammdaten.jpg');
+assert.equal(merged.evidence.KO.dateText,'02.10.2026');assert.equal(merged.evidence.KO.at,null);
+assert(!b.detailScreenshotData(sgText,'DE000FG4JXV7').ok);
+assert(!b.detailScreenshotData('Basispreis 4.635,8091 USD (02.10.2026)','DE000FG309G0').ok);
+const mismatch=b.productTermsStatus({...p,ko:4143.44},now);
+assert(mismatch.reasons.some(x=>x.includes('gespeichert 4143.44 USD')&&x.includes('Quelle 4143.437 USD')));
+console.log('SG numeric/date-only import, identity rejection and KO conflict explanation passed');
