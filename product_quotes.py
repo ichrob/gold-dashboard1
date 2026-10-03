@@ -273,7 +273,11 @@ def get_quote(isin):
     terms = get_product(isin)
     issuer = get_issuer_quote(isin)
     if not terms.get('productVerified'):
-        return dict(issuer, exchangeResearch=terms)
+        if issuer.get('found'):
+            return dict(issuer, exchangeResearch=terms)
+        return dict(issuer, exchangeResearch=terms, sourceDisabled=False,
+                    sourceFailure=True, source='Börse Stuttgart',
+                    reason=terms.get('reason', 'Produktrecherche nicht verfügbar'))
     if not issuer.get('found'):
         return terms
     result = dict(issuer, productVerified=True, metadata=terms['metadata'],
