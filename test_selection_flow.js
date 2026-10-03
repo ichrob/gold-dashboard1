@@ -210,3 +210,21 @@ const nearExpiry=pushInput(copies);nearExpiry.bundle.spots.xaus_age_seconds=59;
 assert.equal(verifyPush(nearExpiry,now).products.length,0);
 console.log('Server push evaluator: 0/1/2/3, expiry, conflicting signals, mandatory evidence, contracts and uncertainty passed');
 
+
+// Fixed product conditions are separate from daily KO/strike and quote evidence.
+const researchNow=Date.parse('2026-10-05T08:00:00Z');
+const researched=b.applyResearchedTerms([{isin:'DE000FG5GUT0',direction:'LONG'}])[0];
+assert.equal(researched.snapshot.terms.ratio.value,.1);assert.equal(researched.snapshot.terms.underlying.value,'XAU/USD');assert.equal(researched.snapshot.terms.quanto.value,'Nein');
+assert.equal(researched.snapshot.terms.ratio.at,null);assert(b.durableCondition(researched.snapshot.terms.ratio,'ratio',researchNow));
+assert(!b.durableCondition(researched.snapshot.terms.ratio,'strike',researchNow));assert(!b.durableCondition(researched.snapshot.terms.ratio,'contract',researchNow));
+assert(!b.durableCondition({...researched.snapshot.terms.ratio,revoked:true},'ratio',researchNow));assert(!b.durableCondition({...researched.snapshot.terms.ratio,reviewedAt:'2027-01-01T00:00:00Z'},'ratio',researchNow));
+const checked=b.productTermsStatus({...researched,productDirection:'LONG',isinConfirmed:true},researchNow);
+assert.equal(checked.values.ratio,.1);assert.equal(checked.values.quanto,'Nein');assert(!checked.complete);assert(checked.reasons.some(x=>x.includes('Basispreis')));assert(checked.reasons.some(x=>x.includes('Knock-out')));
+assert.equal(b.applyResearchedTerms([{isin:'DE000FG309G0',direction:'SHORT'}])[0].snapshot,undefined);
+assert.equal(b.applyResearchedTerms([{isin:'DE000FG5GUT0',direction:'SHORT'}])[0].snapshot,undefined);
+const custom={...researched,snapshot:{...researched.snapshot,terms:{ratio:{value:.01,at:'2026-10-05T08:00:00Z',source:'new.jpg'}}}};
+assert.equal(b.applyResearchedTerms([custom])[0].snapshot.terms.ratio.value,.01);
+assert(b.durableCondition({value:'EUR',source:'list.jpg',reviewed:true},'currency',researchNow));
+assert(!b.durableCondition({value:4460,source:'list.jpg',reviewed:true},'strike',researchNow));
+assert.equal(b.maturityDeadline('18/12/2026'),Date.parse('2026-12-17T23:00:00Z'));assert.equal(b.maturityDeadline('31/02/2026'),null);
+console.log('Researched conditions, no invented quote clocks/contracts, no overwrite, and conservative date-only maturity: OK');
