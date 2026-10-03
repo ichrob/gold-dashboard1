@@ -485,6 +485,7 @@ function scenario(){if(window.BobSession?.expired())return "NEUTRAL";const s=typ
 function spot(){const x=n(window.lastPrice);if(x)return x;const m=String(document.getElementById("price")?.textContent||"").match(/[0-9]+(?:[.,][0-9]+)?/);return m?n(m[0].replace(",",".")):null;}
 function atr(){return n(window.A?.at)||n(window.A?.atr)||null;}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+let activeOcrStatusId=null;
 let ocrLoader=null,ocrWorkerPromise=null,ocrQueue=Promise.resolve();
 function ocrTimeout(promise,ms,message){
  let timer;
@@ -515,7 +516,7 @@ async function loadOcrWorker(statusId){
   corePath:"/ocr-assets/v5",
   workerBlobURL:false,
   logger:m=>{
-   const s=document.getElementById(statusId||"");
+   const s=document.getElementById(activeOcrStatusId||statusId||"");
    if(!s||!m)return;
    if(m.status==="loading language traineddata")s.textContent="📦 OCR-Sprachdaten werden geladen …";
    else if(m.status==="recognizing text"&&m.progress)s.textContent="📷 OCR "+Math.round(m.progress*100)+"%";
@@ -555,6 +556,7 @@ function recoverOcrIsins(primary,secondary){
 }
 function recognizeOcr(file,statusId){
  const job=ocrQueue.then(async()=>{
+  activeOcrStatusId=statusId;
   const worker=await loadOcrWorker(statusId);
   const prepared=await prepareOcrImage(file,statusId);
   let result;
