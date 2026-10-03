@@ -1,4 +1,4 @@
-"""48-hour archive of actual Gold-API Spot observations, preserving source time."""
+"""Seven-day archive of actual Gold-API Spot observations, preserving source time."""
 import json
 import math
 import os
@@ -35,7 +35,7 @@ def point(payload, now=None, age=60):
 def handle(conn, action, payload):
     if action=='write':
         at,price=point(payload)
-        conn.execute("DELETE FROM bob_spot_observations WHERE quote_at < now()-interval '48 hours'")
+        conn.execute("DELETE FROM bob_spot_observations WHERE quote_at < now()-interval '7 days'")
         conn.execute('''INSERT INTO bob_spot_observations(stream,quote_at,price)
             VALUES(%s,%s,%s) ON CONFLICT(stream,quote_at) DO NOTHING''',(STREAM,at,price))
         row=conn.execute('SELECT price FROM bob_spot_observations WHERE stream=%s AND quote_at=%s',(STREAM,at)).fetchone()
@@ -46,7 +46,7 @@ def handle(conn, action, payload):
         rows=conn.execute('''SELECT quote_at,price FROM bob_spot_observations
             WHERE stream=%s AND quote_at >= now()-interval '1 hour' AND quote_at <= now()
             ORDER BY quote_at DESC LIMIT 240''',(STREAM,)).fetchall()
-        summary=conn.execute("SELECT count(*),min(quote_at),max(quote_at) FROM bob_spot_observations WHERE stream=%s AND quote_at>=now()-interval '48 hours'",(STREAM,)).fetchone()
+        summary=conn.execute("SELECT count(*),min(quote_at),max(quote_at) FROM bob_spot_observations WHERE stream=%s AND quote_at>=now()-interval '7 days'",(STREAM,)).fetchone()
         diagnostics=dict(sampleCount=summary[0],firstAt=summary[1].isoformat() if summary[1] else None,lastAt=summary[2].isoformat() if summary[2] else None)
         return {'observations':[dict(at=at.isoformat(),price=price,symbol='XAU',currency='USD') for at,price in reversed(rows)],'diagnostics':diagnostics}
     raise ValueError('Unbekannte Spot-Speicheraktion')

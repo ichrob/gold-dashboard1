@@ -61,12 +61,12 @@ class QualityTests(unittest.TestCase):
   from bob_validation_store import KEY
   pairs=[dict(bucket='0–60s',predictionAt=at(60+i*30),prediction=102,referenceAt=at(15+i*30),
               predictionReceivedAt=at(61+i*30),truthAt=at(60+i*30),truth=100,truthReceivedAt=at(70+i*30)) for i in range(21)]
-  morning=NOW+timedelta(hours=12)
+  morning=NOW+timedelta(days=6)
   e.restore_durable(pairs,morning)
   result=e.quality(KEY,45,morning)
   self.assertEqual(result['sampleCount'],21)
   self.assertFalse(result['ready'])
-  with self.assertRaises(ValueError):e.restore_durable(pairs,NOW+timedelta(hours=49))
+  with self.assertRaises(ValueError):e.restore_durable(pairs,NOW+timedelta(days=7,hours=1))
 
  def test_all_horizon_counts_visible_without_borrowing_readiness(self):
   for i in range(21):
