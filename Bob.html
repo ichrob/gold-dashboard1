@@ -23,6 +23,13 @@ table{width:100%;border-collapse:collapse}td{padding:8px;border-bottom:1px solid
 canvas{width:100%;height:220px;border-radius:12px;background:#fafafa}.warning{background:#fff5d6;border-radius:12px;padding:12px;font-size:13px}.research{background:#eef6ff;border-radius:12px;padding:12px;font-size:13px}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#eee;margin:2px;font-size:12px}
 summary{cursor:pointer;font-weight:700;padding:10px 0}details[open]>summary{margin-bottom:8px}.chart-frame{position:relative;padding-left:22px}.axis-price{position:absolute;left:0;top:50%;transform:translateY(-50%) rotate(-90deg);font-size:12px;color:#666}.axis-time{text-align:center;font-size:12px;color:#666}
  .analysis-blocks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.analysis-block{padding:12px;border-radius:12px;border-left:4px solid #9ca3af;background:#f3f4f6}.analysis-block b{display:block;margin:5px 0}.analysis-block.long{border-color:#15803d;background:#f0fdf4}.analysis-block.short{border-color:#b91c1c;background:#fef2f2}.analysis-block.neutral{color:#4b5563}.analysis-block small{display:block;color:#555}.analysis-blocks~details{margin-top:10px}
+
+/* Goldmarkt – Variante 3: Hell & klar */
+.gold-market{margin:18px 0 22px;color:#10243e}.gold-market h2{margin:0 0 14px;font-size:23px}.gold-market h2:after{content:"";display:block;width:42px;height:4px;background:#d4a447;border-radius:4px;margin-top:9px}
+.gold-quotes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.gold-quote{min-width:0;background:#fff;border:1px solid #ece9e3;border-radius:20px;padding:20px;box-shadow:0 5px 20px #10243e0a}
+.gold-quote header{display:flex;align-items:center;gap:10px}.gold-icon{color:#c99536;width:32px;height:28px;flex-shrink:0}.gold-quote h3{font-size:19px;margin:0}.gold-symbol{color:#64748b;font-size:12px;margin-top:3px}.gold-price-row{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;margin:20px 0 10px}.gold-price{font-size:32px;font-weight:750;letter-spacing:-1px;font-variant-numeric:tabular-nums}.gold-currency{font-size:13px;color:#64748b}
+.gold-change{display:inline-block;background:#f1f3f5;color:#526070;border-radius:9px;padding:7px 10px;font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}.gold-change.up{color:#137442;background:#e9f8ef}.gold-change.down{color:#c22c42;background:#fff0f2}.gold-change-label{color:#64748b;font-size:11px;margin-top:5px;min-height:15px}.gold-meta{border-top:1px solid #eceff2;margin-top:14px;padding-top:10px;font-size:11px;color:#64748b;line-height:1.5;overflow-wrap:anywhere}.gold-state{font-weight:600;color:#526070}.gold-market-note{color:#64748b;font-size:11px;margin:9px 2px 0}
+@media(max-width:480px){.gold-quotes{gap:8px}.gold-quote{padding:12px;border-radius:15px}.gold-quote header{gap:6px}.gold-quote h3{font-size:15px}.gold-icon{width:23px}.gold-price{font-size:clamp(20px,5.8vw,28px)}.gold-price-row{margin-top:15px;gap:4px}.gold-change{font-size:14px;padding:6px 8px}.gold-currency{font-size:11px}}
 </style>
 </head>
 <body>
@@ -70,6 +77,44 @@ try{
 <div class="sub">XAU/USD · technische Analyse · DEGIRO bleibt manuell</div>
 </div>
 
+<section class="gold-market" aria-labelledby="goldMarketTitle" data-design="hell-klar-v3"><h2 id="goldMarketTitle">Goldmarkt</h2><div class="gold-quotes"><article class="gold-quote"><header><svg class="gold-icon" viewBox="0 0 40 32" aria-hidden="true"><path d="M15 2h10l5 12H10zM6 17h10l5 12H1zM24 17h10l5 12H19z" fill="currentColor"/><path d="M15 3l-4 10h18M6 18L2 28h17M24 18l-4 10h18" fill="none" stroke="#efd397" stroke-width="2"/></svg><div><h3>Gold-Spot</h3><div class="gold-symbol">XAU/USD</div></div></header><div class="gold-price-row"><span class="gold-price" id="gold-spot-price">—</span><span class="gold-currency">USD</span></div><div class="gold-change" id="gold-spot-change">— %</div><div class="gold-change-label" id="gold-spot-basis">Tagesänderung fehlt</div><div class="gold-meta"><div class="gold-state" id="gold-spot-state">Lade Kurs …</div><div id="gold-spot-time">Kurszeit fehlt</div><div id="gold-spot-source"></div></div></article><article class="gold-quote"><header><svg class="gold-icon" viewBox="0 0 40 32" aria-hidden="true"><path d="M15 2h10l5 12H10zM6 17h10l5 12H1zM24 17h10l5 12H19z" fill="currentColor"/><path d="M15 3l-4 10h18M6 18L2 28h17M24 18l-4 10h18" fill="none" stroke="#efd397" stroke-width="2"/></svg><div><h3>Gold-Future</h3><div class="gold-symbol">GCZ26 · Dez. 2026</div></div></header><div class="gold-price-row"><span class="gold-price" id="gold-future-price">—</span><span class="gold-currency">USD</span></div><div class="gold-change" id="gold-future-change">— %</div><div class="gold-change-label" id="gold-future-basis">Tagesänderung fehlt</div><div class="gold-meta"><div class="gold-state" id="gold-future-state">Lade Kurs …</div><div id="gold-future-time">Kurszeit fehlt</div><div id="gold-future-source"></div></div></article></div><p class="gold-market-note">USD je Feinunze · Veränderung zum Vortagesschluss der jeweiligen Quelle.</p></section>
+
+<script>
+(function(){
+ const quotes={spot:null,future:null};let busy=false;
+ const positive=n=>typeof n==='number'&&Number.isFinite(n)&&n>0;
+ const el=(key,part)=>document.getElementById('gold-'+key+'-'+part);
+ const number=n=>n.toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2});
+ function render(key){
+  const q=quotes[key],has=q&&positive(q.price),stamp=q?.at?Date.parse(q.at):NaN;
+  const expired=window.BobSession?.expired();
+  el(key,'price').textContent=has?number(q.price):'—';
+  const pct=has&&typeof q.changePct==='number'&&Number.isFinite(q.changePct)?q.changePct:null;
+  el(key,'change').textContent=pct===null?'— %':(pct>0?'↑ +':pct<0?'↓ −':'→ ')+number(Math.abs(pct))+' %';
+  el(key,'change').className='gold-change'+(pct>0?' up':pct<0?' down':'');
+  el(key,'basis').textContent=pct===null?'Tagesänderung fehlt':'zum Vortagesschluss';
+  const old=Number.isFinite(stamp)&&(Date.now()-stamp>120000||stamp>Date.now()+5000);
+  el(key,'state').textContent=expired?'Anmeldung erforderlich':!has?'Kurs momentan nicht verfügbar':!Number.isFinite(stamp)?'Kurszeit unbestätigt':old?'Letzter Stand · nicht aktuell':q.kind==='calculated'?'Berechneter Kurs':q.note||'Echtzeit nicht bestätigt';
+  el(key,'time').textContent=Number.isFinite(stamp)?'Stand: '+new Date(stamp).toLocaleString('de-CH',{timeZone:'Europe/Zurich',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})+' (Zürich)':'Kurszeit fehlt';
+  el(key,'source').textContent=(q?.kind==='calculated'?'Berechnet · ':'')+(q?.source||'');
+ }
+ function accept(key,q){
+  if(!q||!positive(q.price))return;
+  const old=quotes[key],at=Date.parse(q.at),before=Date.parse(old?.at);
+  if(old&&Number.isFinite(before)&&(!Number.isFinite(at)||at<before))return;
+  quotes[key]=q;render(key);
+ }
+ async function refresh(){
+  if(busy||window.BobSession?.expired())return;
+  busy=true;const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),10000);
+  try{const r=await fetch('/api/market-cards',{cache:'no-store',signal:ctl.signal});if(!r.ok)throw Error('quote unavailable');const data=await r.json();accept('spot',data.spot);accept('future',data.future);}catch(_){}
+  finally{clearTimeout(timer);busy=false;render('spot');render('future');}
+ }
+ window.BobGoldCards={spot(bundle){const s=bundle?.spots;if(!s||!positive(s.xaus))return;accept('spot',{price:s.xaus,at:s.spot_price_as_of,source:s.primary||s.goldprice_status||'Bob Spotquelle',kind:'spot',note:'Spot · Quellenzeit',changePct:null});},refresh};
+ refresh();setInterval(()=>{render('spot');render('future');if(document.visibilityState!=='hidden')refresh();},30000);
+ document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refresh();});
+})();
+</script>
 <div class="card">
 <h2 style="margin:0 0 10px">⚡ Schnellansicht</h2>
 <div id="quickSignal" class="signal neutral">Warte auf Live-Daten</div>
@@ -1322,6 +1367,7 @@ async function loadData(){
   const primarySpot=Number(bundle.spots?.xaus);
   if(!Number.isFinite(primarySpot)||primarySpot<=0)throw Error("Bob-Server liefert keinen gültigen Live-XAU/USD-Preis");
   lastPrice=primarySpot;
+  window.BobGoldCards?.spot(bundle);
   $("quickPrice").textContent=lastPrice.toFixed(2)+" USD";
   $("price").textContent=lastPrice.toFixed(2)+" USD";
 
@@ -1523,6 +1569,7 @@ loadData();
 setInterval(()=>{ if(document.visibilityState==="visible"){loadData();syncPushPreferences();} }, 60000);
 </script><form method="post" action="/logout" style="text-align:center;margin:24px"><button type="submit">Abmelden</button></form>
 </body></html>
+
 
 
 

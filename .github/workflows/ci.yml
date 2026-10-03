@@ -81,7 +81,10 @@ jobs:
           node test_exit_estimate.js
           node test_exit_plan.js
           node test_trade_upload.js
+          python -m unittest test_market_cards.py
+          node test_market_cards.js
           node test_dashboard.js
           node test_quote_refresh.js
+
 
 

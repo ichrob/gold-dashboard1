@@ -1,0 +1,16 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const html=fs.readFileSync('Bob.html','utf8');
+const script=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].find(m=>m[1].includes('const quotes={spot:null,future:null}'))[1];
+const els=new Map(),el=id=>{if(!els.has(id))els.set(id,{textContent:'',className:''});return els.get(id)};
+let payload={spot:{price:4140,at:new Date().toISOString(),changePct:1.2,source:'fixture'},future:{price:4172.1,at:'2026-01-01T00:00:00Z',changePct:-.72,source:'fixture'}};
+const context={window:{},document:{getElementById:el,visibilityState:'visible',addEventListener(){}},fetch:async()=>({ok:true,json:async()=>payload}),setTimeout:()=>0,clearTimeout(){},setInterval(){},AbortController,Date,Number};
+vm.createContext(context);vm.runInContext(script,context);
+setImmediate(async()=>{
+ assert.equal(el('gold-spot-change').textContent,'↑ +1,20 %');assert(el('gold-spot-change').className.includes('up'));
+ assert.equal(el('gold-future-change').textContent,'↓ −0,72 %');assert(el('gold-future-state').textContent.includes('nicht aktuell'));
+ context.window.BobGoldCards.spot({spots:{xaus:4141,spot_price_as_of:new Date(Date.now()+1000).toISOString(),primary:'Bob'}});
+ assert.equal(el('gold-spot-change').textContent,'— %');assert.equal(el('gold-spot-basis').textContent,'Tagesänderung fehlt');
+ context.window.BobGoldCards.spot({spots:{xaus:9999,spot_price_as_of:'2025-01-01T00:00:00Z'}});
+ assert.equal(el('gold-spot-price').textContent,'4.141,00');
+ console.log('Gold cards: formatting, directions, stale data, missing change and older response protection OK');
+});
