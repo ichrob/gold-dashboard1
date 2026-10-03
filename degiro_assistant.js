@@ -855,6 +855,20 @@ function renderProductSources(p){
  '<div>Kurszeit: '+esc(time(q.quoteAt))+'</div>'+
  '<div>'+esc(q.reason||'Weitere Pflichtprüfungen entscheiden über die Freigabe.')+'</div><div>Abrufzeit ist keine Kurszeit und kein Gültigkeitsnachweis.</div></div>';
 }
+function renderIssuerHelp(p,reasons){
+ if(!reasons?.length||!validIsin(p.isin))return '';
+ const sgIds=['DE000FG4JXV7','DE000FG309G0','DE000FG7EPT1','DE000FC1CHB7','DE000FG5GUT0','DE000FG6XB39','DE000FG5NMF2','DE000FG7MTA6'];
+ const sg=sgIds.includes(p.isin)||/^SG\b|Soci[eé]t[eé] G[eé]n[eé]rale/i.test(p.name||'');
+ const url=sg?'https://www.sg-zertifikate.de/product-details/'+p.isin.slice(5,11).toLowerCase():null;
+ return '<div class="small" data-issuer-help style="margin-top:8px;padding:10px;background:#fff4db;border-radius:8px"><b>Werte fehlen oder sind nicht ausreichend aktuell belegt.</b><div>'+ (sg?'Bitte über sg-zertifikate.de nachtragen.':'Bitte beim jeweiligen Emittenten nachtragen; SG führt keine BNP-Produkte.')+'</div>'+ (url?'<a href="'+esc(url)+'" target="_blank" rel="noopener noreferrer">SG-Produkt öffnen · '+esc(p.isin)+'</a><div>Direktlink zum Produkt – keine Suche nötig. Falls eine Suche erscheint: ISIN kopieren und dort einfügen.</div>':'')+'<button type="button" data-copy-product-isin="'+esc(p.isin)+'">ISIN kopieren</button><span role="status" data-copy-status></span><div>Fehlende Angaben stehen unter „Fehlende Werte“. Screenshot mit ISIN, Werten und zugehörigem Datenstand aufnehmen und über „Detailbilder ergänzen“ hochladen.</div></div>';
+}
+function bindIsinCopy(root){
+ root.querySelectorAll('[data-copy-product-isin]').forEach(button=>button.addEventListener('click',async()=>{
+  const isin=button.dataset.copyProductIsin,status=button.parentNode.querySelector('[data-copy-status]');
+  try{await navigator.clipboard.writeText(isin);if(status)status.textContent=' ISIN kopiert: '+isin;}
+  catch(_){if(status)status.textContent=' Bitte manuell kopieren: '+isin;}
+ }));
+}
 function renderMissingValues(reasons){
  const values=[...new Set(reasons||[])];if(!values.length)return '';
  const location=reason=>{
@@ -880,7 +894,7 @@ function renderSelectionWorkflow(r){
  '<div class="small">'+esc((r.gateReasons||[]).join(' · '))+'</div>'+
  '<div class="small">'+r.total+' unterschiedliche Produkte. Vorauswahl nach Analyse-Richtung '+esc(r.direction)+'; fehlende Preise erhalten keine Rangpunkte.</div>'+
  r.groups.map(g=>'<div style="margin-top:12px"><b>'+esc(g.scope)+' · '+g.total+' bewertbare Produkte</b>'+g.candidates.map((c,i)=>'<div style="padding:10px;margin-top:8px;border:1px solid #dbe4f0;border-radius:12px"><b>Platz '+(i+1)+' · '+esc(c.isin)+'</b><div class="small">'+esc(c.name)+'<br>'+esc(c.priceKind)+' · Brief '+Number(c.price).toFixed(2)+' EUR · Risiko-/Datenwert '+c.score+'/100<br>Warum: '+esc((c.reasons||[]).slice(0,3).join(' · '))+'<br>Quelle '+esc(c.source||'Produktnachweis')+' · Datenzeit '+esc(c.at)+(c.quoteAt?' · Produktkurszeit '+esc(c.quoteAt):'')+(c.quality?'<br>'+esc(qualityText(c.quality,'USD')):'')+'</div>'+renderProductSources(c)+'</div>').join('')+'</div>').join('')+
- (notApproved.length?'<div style="margin-top:14px"><b>Weitere Produkte · nicht freigegeben ('+notApproved.length+')</b>'+notApproved.map(p=>'<div data-selection-blocked="'+p.index+'" style="padding:10px;margin-top:8px;border:1px solid #d1d5db;border-radius:12px;background:#f8fafc"><b>'+esc(p.isin)+'</b> · '+esc(p.name||'')+'<div class="small"><strong>Nicht freigegeben</strong><br>Begründung: '+esc(p.reasons.filter(reason=>!(p.missingReasons||[]).includes(reason)).join(' · ')||'Produktnachweise unvollständig – siehe fehlende Werte')+'</div>'+renderProductSources(p)+renderMissingValues(p.missingReasons)+'<button data-selection-upload="'+p.index+'">Detailbilder ergänzen</button></div>').join('')+'</div>':'')+
+ (notApproved.length?'<div style="margin-top:14px"><b>Weitere Produkte · nicht freigegeben ('+notApproved.length+')</b>'+notApproved.map(p=>'<div data-selection-blocked="'+p.index+'" style="padding:10px;margin-top:8px;border:1px solid #d1d5db;border-radius:12px;background:#f8fafc"><b>'+esc(p.isin)+'</b> · '+esc(p.name||'')+'<div class="small"><strong>Nicht freigegeben</strong><br>Begründung: '+esc(p.reasons.filter(reason=>!(p.missingReasons||[]).includes(reason)).join(' · ')||'Produktnachweise unvollständig – siehe fehlende Werte')+'</div>'+renderProductSources(p)+renderIssuerHelp(p,p.missingReasons)+renderMissingValues(p.missingReasons)+'<button data-selection-upload="'+p.index+'">Detailbilder ergänzen</button></div>').join('')+'</div>':'')+
  '<div class="small" style="margin-top:10px">Spot und Future werden getrennt bewertet. Weniger als drei belegte Produkte ergeben eine kürzere Liste. Freigabe gilt ausschließlich für diese geprüfte Produktauswahl, nicht als Handelsauftrag oder garantierter bester Trade. Kandidaten mit offenen Nachweisen bleiben gesperrt; tatsächlichen DEGIRO-Preis vor dem Einstieg prüfen.</div>';
 }
 
@@ -897,7 +911,7 @@ function productUploadCards(products,direction,now=Date.now()){
   return '<div style="margin-top:8px;padding:10px;background:#fff;border:1px solid #e1e7f0;border-radius:12px"><b>'+esc(p.isin||p.name)+'</b> · '+esc(p.productDirection||'Richtung unklar')+
    '<div class="small">'+esc(p.name||'')+'</div><div class="small">'+(missing.length?'GESPERRT · Fehlt / prüfen: '+esc(missing.join(' · ')):issuerData?'Datierte Emittentendaten vorhanden; DEGIRO-Ausführungskurs prüfen.':'Zeitlich vollständige Momentaufnahme · keine Live-Freigabe.')+'</div>'+
    '<div class="small">Zwei Screenshots pro ISIN möglich: Kursbild und Produktdetails gemeinsam auswählen oder nacheinander ergänzen. Beide müssen die ISIN zeigen.</div><button data-detail-upload="'+i+'">Screenshots für dieses Produkt hinzufügen</button> <button data-card-research="'+i+'">Internetrecherche erneut prüfen</button><label class="small" style="display:block"><input data-card-confirm="'+i+'" type="checkbox" '+(p.isinConfirmed?'checked':'')+'> ISIN, Werte und Quellenzeiten am Original geprüft</label>'+
-   renderProductSources({...p,index:i})+screenshotSummary(p.snapshot)+renderScreenshotCurrentState(p,window.liveBundleCache,now)+'<div class="small">'+esc(document.getElementById('dgOcrStatus'+i)?.textContent||'')+'</div><div class="small">'+esc(supplementaryHint(missing))+'</div></div>';
+   renderProductSources({...p,index:i})+renderIssuerHelp(p,missing)+screenshotSummary(p.snapshot)+renderScreenshotCurrentState(p,window.liveBundleCache,now)+'<div class="small">'+esc(document.getElementById('dgOcrStatus'+i)?.textContent||'')+'</div><div class="small">'+esc(supplementaryHint(missing))+'</div></div>';
  }).join('');
 }
 
@@ -1353,7 +1367,7 @@ function rankUI(){
  if(missingOut){
   const html=productUploadCards(ps,d);
   if(missingOut.dataset.content!==html){
-   missingOut.innerHTML=html;missingOut.dataset.content=html;
+   missingOut.innerHTML=html;missingOut.dataset.content=html;bindIsinCopy(missingOut);
    missingOut.querySelectorAll('[data-detail-upload]').forEach(btn=>btn.addEventListener("click",()=>document.getElementById("dgDetailShot"+btn.dataset.detailUpload)?.click()));
    missingOut.querySelectorAll('[data-card-research]').forEach(btn=>btn.addEventListener('click',()=>enrichProduct(Number(btn.dataset.cardResearch))));
    missingOut.querySelectorAll('[data-card-confirm]').forEach(box=>box.addEventListener('change',()=>{
@@ -1379,7 +1393,7 @@ function rankUI(){
  const references=ps.map((_,i)=>combinedReferences.get(i+1));
  const flow=selectionWorkflow(ps,selectionContext,bundle,references);
  window.BobPush?.updateSelection?.({products:ps,context:selectionContext,bundle:{spots:bundle?.spots,fetched_at:bundle?.fetched_at,history:{data_state:bundle?.history?.data_state}},references,fixedBarriers:window.BobCombined.fixedBarriers()},flow);
- const flowHtml=renderSelectionWorkflow(flow);if(o.dataset.flow!==flowHtml){o.innerHTML=flowHtml;o.dataset.flow=flowHtml;o.querySelectorAll('[data-selection-upload]').forEach(btn=>btn.addEventListener('click',()=>document.getElementById('dgDetailShot'+btn.dataset.selectionUpload)?.click()));}return flow;
+ const flowHtml=renderSelectionWorkflow(flow);if(o.dataset.flow!==flowHtml){o.innerHTML=flowHtml;o.dataset.flow=flowHtml;bindIsinCopy(o);o.querySelectorAll('[data-selection-upload]').forEach(btn=>btn.addEventListener('click',()=>document.getElementById('dgDetailShot'+btn.dataset.selectionUpload)?.click()));}return flow;
 
 }
 
@@ -1394,7 +1408,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
