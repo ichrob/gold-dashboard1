@@ -594,6 +594,7 @@ function ocrExtract(text){
  return {isin,originalIsin:ident.originalIsin,leverage:lev.replace(",","."),ko:ko.replace(",","."),spread:spread.replace(",","."),price:price.replace(",","."),direction,name:nameLine};
 }
 const combinedReferences=new Map(),combinedDrafts=new Map();
+const researchResults=new Map();
 const productQuotes=new Map(),futureResearchQuotes=new Map(),pendingQuotes=new Set(),detailScreenshots=new Map(),rowVersions=new Map();
 // Research follows imported identities; confirmation still gates every ranking.
 // A bounded foreground queue avoids twelve simultaneous issuer requests.
@@ -625,7 +626,7 @@ function populateCandidateRows(items){
  for(let i=1;i<=12;i++){
   const x=items[i-1],values=x?{name:x.name||x.isin,isin:x.isin,dir:x.direction,price:x.price,lev:x.leverage,ko:x.ko,spread:x.spread}:{};
   for(const k of ["name","isin","dir","price","lev","ko","spread"]){const el=document.querySelector('[data-dg="'+k+'"][data-i="'+i+'"]');if(el)el.value=values[k]??"";}
-  productQuotes.delete(i);futureResearchQuotes.delete(i);detailScreenshots.delete(i);rowVersions.set(i,(rowVersions.get(i)||0)+1);
+  researchResults.delete(i);productQuotes.delete(i);futureResearchQuotes.delete(i);detailScreenshots.delete(i);rowVersions.set(i,(rowVersions.get(i)||0)+1);
   combinedReferences.delete(i);combinedDrafts.delete(i);
   resetCombinedForm(i);
   const upload=document.getElementById("dgDetailShot"+i);if(upload)upload.value="";
@@ -653,6 +654,7 @@ async function enrichProduct(i){
   let x=await res.json();
   if(inactive&&!x.productVerified)x={...inactive,reason:"Produkt weiterhin ausgeschlossen: zuvor als ausgeknockt/beendet bestätigt; erneuter Abruf fehlgeschlagen"};
   if((rowVersions.get(i)||0)!==version||(field("isin")?.value.trim()||"").toUpperCase()!==isin)return;
+  researchResults.set(i,{...x,attemptedAt:new Date().toISOString()});
   productQuotes.delete(i);
   futureResearchQuotes.delete(i);
   if(x.isin===isin&&(x.futureResearch||!x.found&&x.calculatedProduct))futureResearchQuotes.set(i,x);
@@ -672,7 +674,7 @@ async function enrichProduct(i){
    const info=x.productVerified&&x.metadata;
    meta.textContent="🌐 "+(x.source?x.source+" · ":"")+(info?"ISIN bestätigt · "+info.underlying+" · "+info.direction+" · KO "+info.ko+" USD · "+(info.strike?"Basispreis "+info.strike+" USD · ":"")+(info.ratio?"Bezugsverhältnis "+info.ratio+" · ":"")+(info.contract?"Kontrakt "+info.contract+" · ":""):"")+(x.reason||"Keine verlässlich datierten Emittentenkurse verfügbar")+futureResearchText(x)+productEstimateText(x)+". Produkt für aktuelle Rangliste gesperrt.";
   }
- }catch(e){if(inactive&&(field("isin")?.value.trim()||"").toUpperCase()===isin)productQuotes.set(i,inactive);else productQuotes.delete(i);futureResearchQuotes.delete(i);if(meta)meta.textContent="🌐 Recherche nicht erreichbar: Produkt für aktuelle Rangliste gesperrt.";}
+ }catch(e){if((field("isin")?.value.trim()||"").toUpperCase()===isin)researchResults.set(i,{isin,sourceFailure:true,reason:"Abruf fehlgeschlagen",attemptedAt:new Date().toISOString()});if(inactive&&(field("isin")?.value.trim()||"").toUpperCase()===isin)productQuotes.set(i,inactive);else productQuotes.delete(i);futureResearchQuotes.delete(i);if(meta)meta.textContent="🌐 Recherche nicht erreichbar: Produkt für aktuelle Rangliste gesperrt.";}
  finally{pendingQuotes.delete(i);rankUI();}
 }
 // Only explicitly labelled source timestamps count. Never use upload/device time.
@@ -835,6 +837,24 @@ function selectionWorkflow(products,context={},bundle,references=[]){
  }));
  result.stage=result.approved?'TOP3':'ABWARTEN';return result;
 }
+function renderProductSources(p){
+ const attempt=researchResults.get(p.index),q=attempt?.isin===p.isin?attempt:p.quote?.isin===p.isin?p.quote:null;
+ const time=v=>{const d=new Date(v);return v&&Number.isFinite(d.getTime())?d.toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)':'nicht vorhanden';};
+ const link=(label,url)=>{try{const u=new URL(url);if(u.protocol==='https:')return '<a href="'+esc(u.href)+'" target="_blank" rel="noopener noreferrer">'+esc(label)+'</a>';}catch(_){}return esc(label);};
+ if(!q)return '<div class="small" data-product-sources style="margin-top:8px"><b>Quellenprüfung</b><div>Noch kein Abrufresultat für diese ISIN vorhanden.</div></div>';
+ const terms=q.exchangeResearch||q;
+ const verified=q.productVerified===true||terms.productVerified===true;
+ const source=q.termsSource||terms.source||q.source||'Quelle nicht angegeben';
+ const url=q.termsSourceUrl||terms.sourceUrl||q.sourceUrl;
+ const at=q.termsCheckedAt||terms.checkedAt;
+ return '<div class="small" data-product-sources style="margin-top:8px;padding:8px;border:1px solid #d1d5db;border-radius:8px"><b>Quellenprüfung · '+(verified?'Produktdaten abgerufen':q.found?'Kursdaten abgerufen':'Abruf ohne bestätigte Produktdaten')+'</b>'+
+ '<div>Produktquelle: '+link(source,url)+'</div><div>Daten abgerufen: '+esc(time(at))+'</div>'+
+ (q.attemptedAt?'<div>Letzter Prüfversuch: '+esc(time(q.attemptedAt))+'</div>':'')+
+ '<div>Basispreis / KO: '+(q.metadata?.termsDated===false?'Werte vorhanden, Gültigkeitsdatum nicht belegt':'Datierte Nachweise siehe Pflichtprüfung')+'</div>'+
+ '<div>Kursquelle: '+(q.found?link(q.source||'Kursanbieter',q.sourceUrl):'kein bestätigter Geld-/Briefnachweis aus diesem Abruf')+'</div>'+
+ '<div>Kurszeit: '+esc(time(q.quoteAt))+'</div>'+
+ '<div>'+esc(q.reason||'Weitere Pflichtprüfungen entscheiden über die Freigabe.')+'</div><div>Abrufzeit ist keine Kurszeit und kein Gültigkeitsnachweis.</div></div>';
+}
 function renderMissingValues(reasons){
  const values=[...new Set(reasons||[])];if(!values.length)return '';
  const location=reason=>{
@@ -859,8 +879,8 @@ function renderSelectionWorkflow(r){
  return '<b>'+ (r.approved?'Zur Produktauswahl freigegeben · '+r.approvedCount+' geeignete'+(r.approvedCount===1?'s Produkt':' Produkte'):'Abwarten – derzeit kein geeignetes Produkt')+'</b>'+steps+
  '<div class="small">'+esc((r.gateReasons||[]).join(' · '))+'</div>'+
  '<div class="small">'+r.total+' unterschiedliche Produkte. Vorauswahl nach Analyse-Richtung '+esc(r.direction)+'; fehlende Preise erhalten keine Rangpunkte.</div>'+
- r.groups.map(g=>'<div style="margin-top:12px"><b>'+esc(g.scope)+' · '+g.total+' bewertbare Produkte</b>'+g.candidates.map((c,i)=>'<div style="padding:10px;margin-top:8px;border:1px solid #dbe4f0;border-radius:12px"><b>Platz '+(i+1)+' · '+esc(c.isin)+'</b><div class="small">'+esc(c.name)+'<br>'+esc(c.priceKind)+' · Brief '+Number(c.price).toFixed(2)+' EUR · Risiko-/Datenwert '+c.score+'/100<br>Warum: '+esc((c.reasons||[]).slice(0,3).join(' · '))+'<br>Quelle '+esc(c.source||'Produktnachweis')+' · Datenzeit '+esc(c.at)+(c.quoteAt?' · Produktkurszeit '+esc(c.quoteAt):'')+(c.quality?'<br>'+esc(qualityText(c.quality,'USD')):'')+'</div></div>').join('')+'</div>').join('')+
- (notApproved.length?'<div style="margin-top:14px"><b>Weitere Produkte · nicht freigegeben ('+notApproved.length+')</b>'+notApproved.map(p=>'<div data-selection-blocked="'+p.index+'" style="padding:10px;margin-top:8px;border:1px solid #d1d5db;border-radius:12px;background:#f8fafc"><b>'+esc(p.isin)+'</b> · '+esc(p.name||'')+'<div class="small"><strong>Nicht freigegeben</strong><br>Begründung: '+esc(p.reasons.filter(reason=>!(p.missingReasons||[]).includes(reason)).join(' · ')||'Produktnachweise unvollständig – siehe fehlende Werte')+'</div>'+renderMissingValues(p.missingReasons)+'<button data-selection-upload="'+p.index+'">Detailbilder ergänzen</button></div>').join('')+'</div>':'')+
+ r.groups.map(g=>'<div style="margin-top:12px"><b>'+esc(g.scope)+' · '+g.total+' bewertbare Produkte</b>'+g.candidates.map((c,i)=>'<div style="padding:10px;margin-top:8px;border:1px solid #dbe4f0;border-radius:12px"><b>Platz '+(i+1)+' · '+esc(c.isin)+'</b><div class="small">'+esc(c.name)+'<br>'+esc(c.priceKind)+' · Brief '+Number(c.price).toFixed(2)+' EUR · Risiko-/Datenwert '+c.score+'/100<br>Warum: '+esc((c.reasons||[]).slice(0,3).join(' · '))+'<br>Quelle '+esc(c.source||'Produktnachweis')+' · Datenzeit '+esc(c.at)+(c.quoteAt?' · Produktkurszeit '+esc(c.quoteAt):'')+(c.quality?'<br>'+esc(qualityText(c.quality,'USD')):'')+'</div>'+renderProductSources(c)+'</div>').join('')+'</div>').join('')+
+ (notApproved.length?'<div style="margin-top:14px"><b>Weitere Produkte · nicht freigegeben ('+notApproved.length+')</b>'+notApproved.map(p=>'<div data-selection-blocked="'+p.index+'" style="padding:10px;margin-top:8px;border:1px solid #d1d5db;border-radius:12px;background:#f8fafc"><b>'+esc(p.isin)+'</b> · '+esc(p.name||'')+'<div class="small"><strong>Nicht freigegeben</strong><br>Begründung: '+esc(p.reasons.filter(reason=>!(p.missingReasons||[]).includes(reason)).join(' · ')||'Produktnachweise unvollständig – siehe fehlende Werte')+'</div>'+renderProductSources(p)+renderMissingValues(p.missingReasons)+'<button data-selection-upload="'+p.index+'">Detailbilder ergänzen</button></div>').join('')+'</div>':'')+
  '<div class="small" style="margin-top:10px">Spot und Future werden getrennt bewertet. Weniger als drei belegte Produkte ergeben eine kürzere Liste. Freigabe gilt ausschließlich für diese geprüfte Produktauswahl, nicht als Handelsauftrag oder garantierter bester Trade. Kandidaten mit offenen Nachweisen bleiben gesperrt; tatsächlichen DEGIRO-Preis vor dem Einstieg prüfen.</div>';
 }
 
@@ -877,7 +897,7 @@ function productUploadCards(products,direction,now=Date.now()){
   return '<div style="margin-top:8px;padding:10px;background:#fff;border:1px solid #e1e7f0;border-radius:12px"><b>'+esc(p.isin||p.name)+'</b> · '+esc(p.productDirection||'Richtung unklar')+
    '<div class="small">'+esc(p.name||'')+'</div><div class="small">'+(missing.length?'GESPERRT · Fehlt / prüfen: '+esc(missing.join(' · ')):issuerData?'Datierte Emittentendaten vorhanden; DEGIRO-Ausführungskurs prüfen.':'Zeitlich vollständige Momentaufnahme · keine Live-Freigabe.')+'</div>'+
    '<div class="small">Zwei Screenshots pro ISIN möglich: Kursbild und Produktdetails gemeinsam auswählen oder nacheinander ergänzen. Beide müssen die ISIN zeigen.</div><button data-detail-upload="'+i+'">Screenshots für dieses Produkt hinzufügen</button> <button data-card-research="'+i+'">Internetrecherche erneut prüfen</button><label class="small" style="display:block"><input data-card-confirm="'+i+'" type="checkbox" '+(p.isinConfirmed?'checked':'')+'> ISIN, Werte und Quellenzeiten am Original geprüft</label>'+
-   screenshotSummary(p.snapshot)+renderScreenshotCurrentState(p,window.liveBundleCache,now)+'<div class="small">'+esc(document.getElementById('dgOcrStatus'+i)?.textContent||'')+'</div><div class="small">'+esc(supplementaryHint(missing))+'</div></div>';
+   renderProductSources({...p,index:i})+screenshotSummary(p.snapshot)+renderScreenshotCurrentState(p,window.liveBundleCache,now)+'<div class="small">'+esc(document.getElementById('dgOcrStatus'+i)?.textContent||'')+'</div><div class="small">'+esc(supplementaryHint(missing))+'</div></div>';
  }).join('');
 }
 
@@ -1374,7 +1394,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
