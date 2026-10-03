@@ -102,19 +102,11 @@ class FutureResearchTests(unittest.TestCase):
         self.assertFalse(q.freshness(result, NOW)['eligible'])
 
     def test_adapter_has_no_spot_request_and_keeps_quotes_when_fx_fails(self):
-        product, props, snapshot, fx = future_fixture()
-        with patch.object(sg, 'fetch_snapshot', return_value=snapshot), \
-             patch.object(sg.future_estimate, 'ensure_collector'), \
-             patch.object(sg.future_analysis, 'ensure_collector'), \
-             patch.object(sg, 'market_input', side_effect=OSError('FX unavailable')) as inputs:
-            result = sg.get_quote(product, props, ISIN)
-        self.assertTrue(result['productVerified']); self.assertFalse(result['eligible'])
-        self.assertEqual(result['futureResearch']['ask'], 24.62)
-        inputs.assert_called_once_with('fx')
-        with patch.object(q, 'issuer_json', side_effect=[product, props]), \
-             patch.object(sg, 'get_quote', return_value=result) as enrich:
-            self.assertEqual(q.get_sg_quote(ISIN)['metadata']['contract'], 'GCZ26')
-        enrich.assert_called_once()
+        product,props,*_=future_fixture()
+        with patch.object(sg,'fetch_snapshot') as fetch, patch.object(sg,'market_input') as inputs:
+            result=sg.get_quote(product,props,ISIN)
+        self.assertTrue(result['sourceDisabled']);self.assertFalse(result['eligible'])
+        fetch.assert_not_called();inputs.assert_not_called()
 
     def test_independent_reference_needs_no_sg_quotes_or_fx(self):
         snapshot = future_fixture()[2]
@@ -122,7 +114,7 @@ class FutureResearchTests(unittest.TestCase):
         snapshot.pop('quote')
         with patch.object(sg, 'fetch_snapshot', return_value=snapshot), patch.object(sg, 'datetime') as clock, patch.object(q, 'issuer_json') as issuer, patch.object(sg, 'market_input') as fx:
             clock.now.return_value = NOW
-            result = sg.fetch_future_reference()
+            result = sg.parse_future_reference(snapshot)
         self.assertEqual(result['contract'], 'GCZ26')
         self.assertEqual(q.stamp(result['underlyingAt']), q.stamp(OLD))
         self.assertEqual(result['underlyingPriceUsd'], 4191.4)
@@ -142,7 +134,8 @@ class FutureResearchTests(unittest.TestCase):
             area[key] = value
             with self.subTest(target=target, key=key, value=value), patch.object(sg, 'fetch_snapshot', return_value=snapshot), patch.object(sg, 'datetime') as clock:
                 clock.now.return_value = NOW
-                with self.assertRaises(ValueError): sg.fetch_future_reference()
+                with self.assertRaises(ValueError): sg.parse_future_reference(snapshot)
 
 
 if __name__ == '__main__': unittest.main()
+

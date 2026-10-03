@@ -128,14 +128,15 @@ class SgQuoteTests(unittest.TestCase):
             self.assertFalse(self.parse(data, at)['eligible'])
 
     def test_failed_extra_source_preserves_verified_metadata(self):
-        product, props, *_ = fixture()
-        with patch.object(sg, 'fetch_snapshot', side_effect=ValueError('Kursdaten fehlen')), \
-             patch.object(sg, 'market_input', return_value={}):
-            result = sg.get_quote(product, props, ISIN)
-        self.assertTrue(result['productVerified']); self.assertFalse(result['eligible'])
-        self.assertEqual(result['metadata']['ko'], 4460)
-        self.assertIn('Kursdaten fehlen', result['reason'])
+        product,props,*_=fixture()
+        with patch.object(sg,'fetch_snapshot') as fetch, patch.object(sg,'market_input') as inputs:
+            result=sg.get_quote(product,props,ISIN)
+        self.assertTrue(result['sourceDisabled']);self.assertFalse(result['productVerified'])
+        fetch.assert_not_called();inputs.assert_not_called()
+        # Supplied evidence remains parseable without a live source.
+        self.assertEqual(sg.q.parse_sg(product,props,ISIN,NOW)['metadata']['ko'],4460)
 
 
 if __name__ == '__main__':
     unittest.main()
+

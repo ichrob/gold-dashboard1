@@ -12,26 +12,18 @@ def snapshot():
 class ProductQuoteTests(unittest.TestCase):
     def test_known_sg_failure_is_not_replaced_by_bnp_miss(self):
         isin='DE000FG309G0'
-        sg=dict(found=False, productVerified=False, eligible=False, fresh=False,
-                isin=isin, sourceFailure=True, reason='SG Produktidentität: Zeitlimit erreicht')
-        with patch.dict(q._CACHE, {}, clear=True), patch.object(q,'get_bnp_quote',return_value={'found':False,'reason':'BNP miss'}), patch.object(q,'get_sg_quote',return_value=sg):
+        with patch.dict(q._CACHE, {isin:(__import__('time').monotonic(),{'found':True,'source':'SG'})}, clear=True), patch.object(q,'get_bnp_quote') as bnp, patch.object(q,'issuer_json') as sg:
             out=q.get_quote(isin)
-        self.assertEqual(out['reason'],sg['reason'])
-        self.assertFalse(out['productVerified'])
-        self.assertFalse(out['eligible'])
+        self.assertTrue(out['sourceDisabled']);self.assertFalse(out['found'])
+        bnp.assert_not_called();sg.assert_not_called()
 
     def test_sg_errors_expose_only_fixed_stage_and_http_status(self):
         error=HTTPError('https://private.invalid/?secret=value',429,'private body',{'Authorization':'secret'},None)
-        with patch.object(q,'issuer_json',side_effect=error):
+        reason=q.sg_source_error(error,'identity')
+        self.assertIn('HTTP 429',reason);self.assertNotIn('secret',reason)
+        with patch.object(q,'issuer_json') as fetch:
             out=q.get_sg_quote('DE000FG309G0')
-        self.assertIn('HTTP 429',out['reason'])
-        self.assertIn('Produktidentität',out['reason'])
-        self.assertNotIn('private',out['reason'])
-        self.assertNotIn('secret',out['reason'])
-        self.assertFalse(out['productVerified'])
-        result=q.freshness(dict(out,metadata={'underlyingType':'FUTURE'}))
-        self.assertEqual(result['reason'],out['reason'])
-        self.assertFalse(result['eligible'])
+        fetch.assert_not_called();self.assertTrue(out['sourceDisabled'])
 
     def sg_snapshot(self):
         product = dict(Id=7069123, Isin='DE000FG4JXV7', ExchangeCode='CBDE',
@@ -87,29 +79,21 @@ class ProductQuoteTests(unittest.TestCase):
         self.assertFalse(x['eligible']); self.assertIn('Barriere getroffen', x['reason'])
 
     def test_sg_adapter_and_issuer_selection(self):
-        product, props = self.sg_snapshot()
-        with patch.object(q, 'issuer_json', side_effect=[product, props]) as fetch, \
-             patch('sg_quotes.get_quote', return_value=q.parse_sg(product, props, product['Isin'])):
-            x = q.get_sg_quote(product['Isin'])
-            self.assertTrue(x['productVerified'])
-            self.assertIn('/Products/AllProperties/7069123', fetch.call_args_list[1].args[0])
-        q._CACHE.clear()
-        with patch.object(q, 'get_bnp_quote', return_value={'found':False}), patch.object(q, 'get_sg_quote', return_value=x):
-            result = q.get_quote(product['Isin'])
-            self.assertTrue(result['productVerified']); self.assertFalse(result['eligible'])
-        q._CACHE.clear()
+        with patch.object(q,'urlopen') as network:
+            for isin in ('DE000FG4JXV7','DE000FG309G0','DE000FG7EPT1','DE000FG6XB39','DE000FC1CHB7','DE000FA06UL6','DE000FG5GUT0'):
+                result=q.get_quote(isin)
+                self.assertTrue(result['sourceDisabled']);self.assertFalse(result['eligible'])
+            network.assert_not_called()
 
     def test_sg_future_is_identified_but_never_uses_spot_enrichment(self):
-        product, _ = self.sg_snapshot()
-        product['AssetNMP'] = 'C_CMX_GOLD_F_Z26'
-        with patch.object(q, 'issuer_json', return_value=product) as fetch, \
-             patch('sg_quotes.get_quote') as enrich:
-            result = q.get_sg_quote(product['Isin'])
-        self.assertTrue(result['productVerified'])
-        self.assertFalse(result['eligible'])
-        self.assertIn('kein XAU/USD-Spot', result['reason'])
-        self.assertEqual(fetch.call_count, 1)
-        enrich.assert_not_called()
+        with patch.object(q,'issuer_json') as fetch, patch('sg_quotes.get_quote') as enrich:
+            result=q.get_sg_quote('DE000FG309G0')
+        self.assertFalse(result['productVerified']);self.assertTrue(result['sourceDisabled'])
+        fetch.assert_not_called();enrich.assert_not_called()
+        # BNP can still be researched; unknown ISINs never probe SG.
+        with patch.dict(q._CACHE,{},clear=True), patch.object(q,'get_sg_quote') as sg, patch.object(q,'get_bnp_quote',return_value={'found':False}) as bnp:
+            q.get_quote(ISIN)
+        bnp.assert_called_once_with(ISIN);sg.assert_not_called()
 
     def test_current_snapshot_and_oldest_component_timestamp(self):
         x=q.parse_bnp(snapshot(),ISIN,NOW)
@@ -152,3 +136,4 @@ class ProductQuoteTests(unittest.TestCase):
         self.assertFalse(q.parse_bnp(data,ISIN,NOW)['eligible'])
 
 if __name__=='__main__':unittest.main()
+

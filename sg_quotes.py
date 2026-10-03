@@ -40,26 +40,9 @@ def product_url(isin):
 
 
 def fetch_snapshot(isin):
-    # Public visibility does not grant automated-use permission. Both settings
-    # are administrative evidence of the provider's express consent, not a
-    # user confirmation or a request to obtain consent. Disabled by default.
-    if (os.getenv('BOB_ONVISTA_AUTOMATION_APPROVED', '') != 'provider-approved'
-            or not os.getenv('BOB_ONVISTA_PERMISSION_REFERENCE', '').strip()):
-        raise PermissionError('ONVISTA_AUTOMATION_NOT_APPROVED')
-    url = product_url(isin)
-    request = Request(url, headers={'User-Agent': 'Bob/1.8 public product research',
-                                   'Accept': 'text/html', 'Cache-Control': 'no-cache'})
-    with urlopen(request, timeout=12) as response:
-        if not response.url.startswith(ONVISTA):
-            raise ValueError('Unerwartete Kursquellen-Weiterleitung')
-        body = response.read(2_000_001)
-    if len(body) > 2_000_000:
-        raise ValueError('Kursantwort zu groß')
-    match = re.search(r'<script\b[^>]*\bid="__NEXT_DATA__"[^>]*>(.*?)</script>',
-                      body.decode('utf-8'), re.S)
-    if not match:
-        raise ValueError('Kursdaten fehlen')
-    return json.loads(match[1])['props']['pageProps']['data']['snapshot']
+    # Deliberately unconditional: old provider-consent settings cannot re-enable
+    # a source which the user explicitly disabled.
+    raise PermissionError('SG_LIVE_DISABLED_BY_USER')
 
 
 def market_input(kind):
@@ -79,9 +62,13 @@ def market_input(kind):
 
 def fetch_future_reference():
     """Dated GCZ26 research, independent of SG OTC terms and FX availability."""
+    raise PermissionError('SG_LIVE_DISABLED_BY_USER')
+
+
+def parse_future_reference(snapshot):
+    """Validate supplied evidence without retrieving a product page."""
     isin = 'DE000FG309G0'
     contract = q.SG_GOLD_FUTURES[isin]
-    snapshot = fetch_snapshot(isin)
     instrument = snapshot['instrument']
     underlyings = snapshot['derivativesUnderlyingList']['list']
     if (instrument['isin'] != isin
@@ -379,47 +366,4 @@ def parse_future_research(product, properties, snapshot, fx, isin, now=None):
 
 
 def get_quote(product, properties, isin):
-    fallback = q.parse_sg(product, properties, isin)
-    if isin not in PRODUCT_IDS:
-        fallback['reason'] = 'SG-Produkt erkannt; ergänzende Kursquelle für diese ISIN noch nicht verifiziert'
-        contract = q.sg_future_contract(product, isin)
-        if contract:
-            # Other verified SG products can share an exact UNDERLYING feed.
-            # Never copy the reference product's OTC prices, ratio or KO.
-            reference_isin = next(key for key,c in q.SG_GOLD_FUTURES.items() if c['ric'] == contract['ric'])
-            reference = q.get_quote(reference_isin).get('futureResearch', {})
-            if reference.get('contract') == contract['ric']:
-                research = {k:reference[k] for k in ('contract','underlying','underlyingType',
-                    'underlyingPriceUsd','underlyingAt','underlyingDataState') if k in reference}
-                research.update(direction=fallback['metadata']['direction'],ko=fallback['metadata']['ko'],
-                    source='Kontraktspezifische Basiswert-Recherche via onvista',
-                    sourceUrl=reference.get('sourceUrl'),
-                    estimateNote='Berechnung ausschließlich des gemeinsamen Future-Basiswerts. '
-                                 'Produktkurs und produktspezifischer Hebel sind nicht bestätigt.')
-                fallback['futureResearch'] = refresh_future_research(research)
-        return restore_product_model(fallback, product, properties)
-    try:
-        if q.sg_future_contract(product, isin):
-            future_estimate.ensure_collector()
-            future_analysis.ensure_collector()
-            # Research quotes remain useful when FX is missing. There is no
-            # spot request and no fallback to a continuous/front-month future.
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                page = pool.submit(fetch_snapshot, isin)
-                fx = pool.submit(market_input, 'fx')
-                snapshot = page.result()
-                try:
-                    rate = fx.result()
-                except (OSError, ValueError, KeyError, TypeError):
-                    rate = {}
-                return parse_future_research(product, properties, snapshot, rate, isin)
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            page = pool.submit(fetch_snapshot, isin)
-            gold = pool.submit(market_input, 'spot')
-            fx = pool.submit(market_input, 'fx')
-            return parse_snapshot(product, properties, page.result(), gold.result(), fx.result(), isin)
-    except (KeyError, ValueError, TypeError, OSError) as exc:
-        print(f'BOB_SG_SOURCE isin={isin} error={type(exc).__name__}', flush=True)
-        fallback['sourceFailure'] = True
-        fallback['reason'] = q.sg_source_error(exc, 'dated-quotes')
-        return restore_product_model(fallback, product, properties) if isinstance(exc,OSError) else fallback
+    return q.sg_disabled(isin)
