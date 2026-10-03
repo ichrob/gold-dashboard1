@@ -8,7 +8,7 @@ def at(s):return (NOW+timedelta(seconds=s)).isoformat()
 
 class QualityTests(unittest.TestCase):
  def setUp(self):
-  for name in ('_pending','_errors','_seen'):
+  for name in ('_pending','_errors','_seen','_truth_receipts'):
    p=patch.object(e,name,{});p.start();self.addCleanup(p.stop)
  def test_frozen_prediction_matches_once_and_separates_horizons(self):
   e.record('x',102,at(60),at(0),at(61));e.record('x',100,at(60),at(0),at(62))
@@ -25,7 +25,16 @@ class QualityTests(unittest.TestCase):
   e.record('x',102,at(60),at(0),at(100))
   e.observe('x',100,at(60),at(80));e.observe('x',100,at(66),at(110))
   self.assertEqual(e.quality('x',60,NOW+timedelta(seconds=120))['sampleCount'],0)
-  e.observe('x',100,at(60),at(110));self.assertEqual(e.quality('x',60,NOW+timedelta(seconds=120))['sampleCount'],1)
+  e.observe('x',100,at(60),at(110));self.assertEqual(e.quality('x',60,NOW+timedelta(seconds=120))['sampleCount'],0)
+
+ def test_truth_before_prediction_cannot_be_reused_after_later_poll(self):
+  e.observe('x',100,at(60),at(80))
+  e.record('x',100,at(60),at(0),at(90))
+  e.observe('x',100,at(60),at(100))
+  self.assertEqual(e.quality('x',60,NOW+timedelta(seconds=110))['sampleCount'],0)
+  e.record('x',102,at(120),at(60),at(121))
+  e.observe('x',100,at(120),at(140))
+  self.assertEqual(e.quality('x',60,NOW+timedelta(seconds=150))['sampleCount'],1)
 
  def test_durable_comparisons_restore_without_refreshing_receipt_or_duplicates(self):
   from bob_validation_store import KEY

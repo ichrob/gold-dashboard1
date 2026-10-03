@@ -13,7 +13,7 @@ NOW = datetime(2026, 10, 2, 10, 0, tzinfo=timezone.utc)
 
 class AutoCollectionTests(unittest.TestCase):
     def setUp(self):
-        for name, value in (('_research', {}), ('_next_source', 0), ('_failures', 0), ('_report', {}), ('_source_error', None)):
+        for name, value in (('_research', {}), ('_next_source', 0), ('_next_archive', 0), ('_failures', 0), ('_report', {}), ('_source_error', None)):
             p = patch.object(a, name, value); p.start(); self.addCleanup(p.stop)
         p = patch.object(a.future_estimate, '_research_reference', {}); p.start(); self.addCleanup(p.stop)
         p = patch.object(a.sg_quotes, 'fetch_future_reference', side_effect=OSError('fixture unavailable')); p.start(); self.addCleanup(p.stop)
@@ -104,6 +104,36 @@ class AutoCollectionTests(unittest.TestCase):
         copy = a.status(); copy['archive']['pairCount'] = 999
         self.assertEqual(a.status()['archive']['pairCount'], 22)
         self.assertNotIn('archive', a.health()); self.assertNotIn('horizons', a.health())
+
+    def test_weekend_restart_restores_archive_without_market_polling(self):
+        weekend = NOW + timedelta(days=1)
+        with patch.object(a, 'enabled', return_value=True), patch.object(a.future_analysis, 'fetch_reference') as source, patch.object(a.future_estimate, 'ensure_collector') as collector, patch.object(a.future_estimate, 'current_estimate') as estimate, patch.object(a.bob_validation_store, 'request', return_value={'pairs': [], 'diagnostics': {'pairCount': 17, 'predictionCount': 83, 'truthCount': 42}}) as archive, patch.object(a.bob_market_store, 'request', return_value={'diagnostics': {'sampleCount': 200}}), patch.object(a.estimate_quality, 'restore_durable') as restore, patch.object(a.estimate_quality, 'quality', return_value={'ready': True}), patch.object(a, 'datetime') as clock:
+            clock.now.return_value = weekend
+            a.tick(weekend)
+            report = a.status()
+            self.assertEqual(report['archive']['pairCount'], 17)
+            self.assertEqual(report['spotArchive']['sampleCount'], 200)
+            self.assertEqual(report['archiveStatus'], 'loaded')
+            self.assertEqual(len(report['horizons']), 4)
+            self.assertFalse(report['ready'])
+            self.assertFalse(report['estimateAvailable'])
+            source.assert_not_called(); collector.assert_not_called(); estimate.assert_not_called()
+            restore.assert_called_once_with([], weekend)
+            a.tick(weekend)
+            archive.assert_called_once_with('read', {})
+
+    def test_missing_archive_is_unknown_not_a_zero_count(self):
+        with patch.object(a.bob_validation_store, 'request', side_effect=OSError()), patch.object(a.bob_market_store, 'request', side_effect=OSError()):
+            a.paused_report(NOW + timedelta(days=1))
+            report = a.status()
+            self.assertEqual(report['archiveStatus'], 'unavailable')
+            self.assertNotIn('archive', report)
+            self.assertFalse(report['ready'])
+            a._report['archive'] = {'pairCount': 17}
+            a._next_archive = 0
+            a.paused_report(NOW + timedelta(days=1))
+            self.assertEqual(a.status()['archive']['pairCount'], 17)
+            self.assertEqual(a.status()['archiveStatus'], 'unavailable')
 
 
 class CollectionEndpointTests(unittest.TestCase):

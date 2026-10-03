@@ -21,6 +21,7 @@ _next_source = 0
 _failures = 0
 _report = {}
 _source_error = None
+_next_archive = 0
 
 
 def enabled():
@@ -32,15 +33,42 @@ def in_window(now):
     return local.weekday() < 5 and 6 <= local.hour < 22
 
 
+def paused_report(now):
+    """Restore measured evidence after a restart without polling market feeds."""
+    global _next_archive, _report
+    with _lock:
+        report = dict(_report, enabled=True, state='paused', ready=False,
+                      estimateAvailable=False, evaluatedAt=now.isoformat(),
+                      reason='Sammlung werktags 06–22 Uhr Schweizer Zeit',
+                      retentionHours=48)
+    if time.monotonic() >= _next_archive:
+        _next_archive = time.monotonic() + 60
+        try:
+            saved = bob_validation_store.request('read', {})
+            evaluated = datetime.now(timezone.utc)
+            estimate_quality.restore_durable(saved['pairs'], evaluated)
+            report.update(archive=saved.get('diagnostics', {}), archiveStatus='loaded',
+                          archiveCheckedAt=evaluated.isoformat(),
+                          horizons=[estimate_quality.quality(bob_validation_store.KEY, h, evaluated)
+                                    for h in (45, 180, 600, 1200)])
+        except (OSError, ValueError, TypeError, KeyError):
+            report['archiveStatus'] = 'unavailable'
+        try:
+            spot = bob_market_store.request('read', {})
+            report.update(spotArchive=spot.get('diagnostics', {}), spotArchiveStatus='loaded')
+        except (OSError, ValueError, TypeError, KeyError):
+            report['spotArchiveStatus'] = 'unavailable'
+    with _lock:
+        _report = report
+
+
 def tick(now=None):
     global _research, _next_source, _failures, _report, _source_error
     now = now or datetime.now(timezone.utc)
     if not enabled():
         return
     if not in_window(now):
-        with _lock:
-            _report = dict(_report, enabled=True, state='paused', ready=False, evaluatedAt=now.isoformat(),
-                           reason='Sammlung werktags 06–22 Uhr Schweizer Zeit')
+        paused_report(now)
         return
     future_estimate.ensure_collector()
     if time.monotonic() >= _next_source:
@@ -101,6 +129,9 @@ def tick(now=None):
                   referenceSource=_research.get('source'),
                   estimateAvailable=bool(result.get('available')), ready=ready, reason=reason,
                   collection=result.get('collection', {}), archive=diagnostics, spotArchive=spot_archive,
+                  archiveStatus='unavailable' if archive_error else 'loaded',
+                  spotArchiveStatus='unavailable' if archive_error else 'loaded',
+                  archiveCheckedAt=evaluated.isoformat() if not archive_error else None,
                   horizons=groups, retentionHours=48, sourceIntervalSeconds=60,
                   spotIntervalSeconds=30, isExchangeRealtime=False,
                   sourceStatus=_source_error, sourceFailures=_failures,
@@ -157,8 +188,8 @@ def health():
 
 PANEL = '''<section id="bobAutoCollection" style="max-width:860px;margin:16px auto;padding:18px;border-radius:16px;background:white"><h3>Automatische Datensammlung</h3><p id="bobAutoStatus">Messstand wird geladen …</p><div id="bobAutoGroups"></div></section><script>
 (()=>{const panel=document.getElementById('bobAutoCollection');const header=document.querySelector('h1')?.parentElement;if(header)header.after(panel);
-async function update(){try{const r=await fetch('/api/collection-status',{cache:'no-store'});if(!r.ok)throw Error();const d=await r.json();const a=d.archive||{};const s=d.spotArchive||{};
-document.getElementById('bobAutoStatus').textContent=(d.state==='paused'?'Sammlung pausiert':d.running?'Serverseitige Sammlung läuft':d.enabled?'Sammlung startet':'Automatische Sammlung ausgeschaltet')+' · '+(d.ready?'Genauigkeit für den aktuellen Referenzabstand ausreichend geprüft':'ABWARTEN')+' · '+(d.reason||'')+' · Messstand '+(d.evaluatedAt?new Date(d.evaluatedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch ausstehend')+' · '+(a.predictionCount||0)+' Schätzungen, '+(a.truthCount||0)+' GCZ26-Referenzen, '+(a.pairCount||0)+' passende Paare · '+(s.sampleCount||0)+' gespeicherte Spot-Beobachtungen · Aufbewahrung 48 Stunden';
-const box=document.getElementById('bobAutoGroups');box.replaceChildren();for(const g of d.horizons||[]){const p=document.createElement('p');p.textContent=g.horizonBucket+': '+g.sampleCount+'/'+g.minSamples+' Vergleiche'+(Number.isFinite(g.meanAbsoluteError)?' · mittlerer Fehler '+g.meanAbsoluteError.toFixed(2)+' USD · größter Fehler '+g.maxAbsoluteError.toFixed(2)+' USD':'')+' · '+(g.ready?'ausreichend geprüft':'noch nicht ausreichend geprüft');box.append(p);}}
+async function update(){try{const r=await fetch('/api/collection-status',{cache:'no-store'});if(!r.ok)throw Error();const d=await r.json();const a=d.archive||{};const s=d.spotArchive||{};const count=(x,k)=>Number.isInteger(x[k])?String(x[k]):'unbekannt';
+document.getElementById('bobAutoStatus').textContent=(d.state==='paused'?'Sammlung pausiert':d.running?'Serverseitige Sammlung läuft':d.enabled?'Sammlung startet':'Automatische Sammlung ausgeschaltet')+' · '+(d.ready?'Genauigkeit für den aktuellen Referenzabstand ausreichend geprüft':'ABWARTEN')+' · '+(d.reason||'')+' · Messstand '+(d.evaluatedAt?new Date(d.evaluatedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch ausstehend')+' · '+count(a,'predictionCount')+' Schätzungen, '+count(a,'truthCount')+' GCZ26-Referenzen, '+count(a,'pairCount')+' passende Paare · '+count(s,'sampleCount')+' gespeicherte Spot-Beobachtungen · Aufbewahrung 48 Stunden'+(d.archiveStatus==='unavailable'?' · Messarchiv nicht erreichbar; angezeigte Zähler gegebenenfalls letzter bekannter Stand':'')+(d.spotArchiveStatus==='unavailable'?' · Spot-Archiv nicht erreichbar':'');
+const box=document.getElementById('bobAutoGroups');box.replaceChildren();for(const g of d.horizons||[]){const p=document.createElement('p');p.textContent=g.horizonBucket+': '+g.sampleCount+'/'+g.minSamples+' Vergleiche'+(Number.isFinite(g.meanAbsoluteError)?' · mittlerer Fehler '+g.meanAbsoluteError.toFixed(2)+' USD · größter Fehler '+g.maxAbsoluteError.toFixed(2)+' USD':'')+' · '+(d.state==='paused'?'gespeicherter Messstand · keine aktuelle Freigabe':g.ready?'ausreichend geprüft':'noch nicht ausreichend geprüft');box.append(p);}}
 catch{document.getElementById('bobAutoStatus').textContent='Messstand momentan nicht erreichbar – keine Auswertungsfreigabe.';}}update();setInterval(update,60000);})();
 </script>'''
