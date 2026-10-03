@@ -9,3 +9,5 @@ assert(!status.complete);assert(status.reasons.some(x=>x.includes('nicht aktiv')
 assert(status.reasons.some(x=>x.includes('datierter Basispreis')));
 assert(status.reasons.some(x=>x.includes('datierter Produktnachweis')));
 console.log('Stuttgart terms/status/freshness tests passed');
+
+assert(!b.evaluateProduct({...p,spot:4200,direction:"LONG",leverage:10}).ok);
