@@ -157,7 +157,7 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert.strictEqual(calc.ok, true);
   assert(Math.abs(calc.maxLossUsd - (5 / 0.92)) < 1e-12);
   assert(calc.approxNotionalEur > 0);
-  const fit = degiro.BobDegiro.evaluateProduct({spot:4000,ko:3900,leverage:5,spread:1,direction:"LONG",productDirection:"LONG"});
+  const fit = degiro.BobDegiro.evaluateProduct({spot:4000,ko:3900,leverage:5,price:100,spread:0.1,atr:20,at:new Date().toISOString(),direction:"LONG",productDirection:"LONG"});
   assert.strictEqual(fit.ok,true);
   assert.strictEqual(fit.fit,true);
   assert(fit.koDistancePct > 0);
@@ -189,10 +189,10 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert(strongLong.reasons.some(x => x.includes("MTF")));
   assert(conflictedLong.reasons.some(x => x.includes("widerspricht")));
   const ranked = degiro.BobDegiro.rankProducts([
-    {name:"Long A", productDirection:"LONG", spot:4000, ko:3800, leverage:4, spread:0.5},
-    {name:"Long B", productDirection:"LONG", spot:4000, ko:3990, leverage:8, spread:1},
-    {name:"Short C", productDirection:"SHORT", spot:4000, ko:4100, leverage:5, spread:0.5},
-    {name:"Long D", productDirection:"LONG", spot:4000, ko:3700, leverage:5, spread:0.5}
+    {name:"Long A", price:100, productDirection:"LONG", spot:4000, ko:3800, leverage:4, spread:0.5},
+    {name:"Long B", price:100, productDirection:"LONG", spot:4000, ko:3990, leverage:8, spread:1},
+    {name:"Short C", price:100, productDirection:"SHORT", spot:4000, ko:4100, leverage:5, spread:0.5},
+    {name:"Long D", price:100, productDirection:"LONG", spot:4000, ko:3700, leverage:5, spread:0.5}
   ], {direction:"LONG", atr:20, spot:4000});
   assert.strictEqual(ranked.candidates.length, 2);
   assert.strictEqual(ranked.candidates[0].name, "Long A");
@@ -200,7 +200,7 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   const neutralRank = degiro.BobDegiro.rankProducts([{name:"Long A",productDirection:"LONG",spot:4000,ko:3800,leverage:4,spread:0.5},{name:"Short C",productDirection:"SHORT",spot:4000,ko:4100,leverage:5,spread:0.5}], {direction:"NEUTRAL",atr:20,spot:4000});
   assert.strictEqual(neutralRank.tradeable, false);
   assert.strictEqual(neutralRank.candidates.length, 0);
-  const gated = degiro.BobDegiro.rankProducts([{name:"Long Weak",productDirection:"LONG",spot:4000,ko:3800,leverage:4,spread:0.5}], {direction:"LONG",atr:20,spot:4000,trend:"SHORT",trend2:"SHORT",mtf:"SHORT",rsi:80,hist:-1,adx:10,momentum:-1});
+  const gated = degiro.BobDegiro.rankProducts([{name:"Long Weak",price:100,productDirection:"LONG",spot:4000,ko:3800,leverage:4,spread:0.5}], {direction:"LONG",atr:20,spot:4000,trend:"SHORT",trend2:"SHORT",mtf:"SHORT",rsi:80,hist:-1,adx:10,momentum:-1});
   assert.strictEqual(gated.tradeable, false);
   assert(gated.gateReason.includes("Technischer Konsens"));
   const parsed = degiro.BobDegiro.parseScreenshotCandidates("Gold Turbo LONG ISIN DE000ABC1234 Hebel 5x KO 3900\nGold Turbo SHORT ISIN DE000XYZ9876 Hebel 4x KO 4100");
@@ -269,7 +269,7 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   const strongCtx={direction:"LONG",atr:20,spot:4000,trend:"LONG",trend2:"LONG",mtf:"LONG",rsi:60,hist:1,adx:30,momentum:1};
   const completeProduct={name:"Synthetic Gold",isin:"DE000FC1CHB7",productDirection:"LONG",spot:4000,ko:3500,leverage:4,price:12,spread:0};
   assert(degiro.BobDegiro.rankProducts([completeProduct],strongCtx).tradeable);
-  const now=Date.now(),quoted={...completeProduct,isinConfirmed:true,quote:{found:true,eligible:true,tradingEndAt:new Date(now+60000).toISOString(),marketOpen:true,currency:"EUR",isin:completeProduct.isin,quoteAt:new Date(now-1000).toISOString(),bidAt:new Date(now-1000).toISOString(),askAt:new Date(now-1000).toISOString(),leverageAt:new Date(now-1000).toISOString(),snapshotAt:new Date(now-1000).toISOString(),price:12,leverage:4,ko:3500,spread:0,direction:"LONG"}};
+  const now=Date.now(),quoted={...completeProduct,isinConfirmed:true,quote:{found:true,eligible:true,tradingEndAt:new Date(now+60000).toISOString(),marketOpen:true,currency:"EUR",isin:completeProduct.isin,bid:12,ask:12,quoteAt:new Date(now-1000).toISOString(),bidAt:new Date(now-1000).toISOString(),askAt:new Date(now-1000).toISOString(),leverageAt:new Date(now-1000).toISOString(),snapshotAt:new Date(now-1000).toISOString(),price:12,leverage:4,ko:3500,spread:0,direction:"LONG"}};
   const freshCtx={...strongCtx,requireFreshQuotes:true,spotFresh:true,now};
   assert(degiro.BobDegiro.rankProducts([quoted],freshCtx).tradeable);
   assert(!degiro.BobDegiro.needsDirectionalData({...quoted,isinConfirmed:false},"LONG"),"existing dated issuer data must not request redundant screenshots");
@@ -342,14 +342,11 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   for(const p of [completeProduct,{...quoted,isinConfirmed:false},{...quoted,price:13},{...quoted,quote:{...quoted.quote,quoteAt:new Date(now-90001).toISOString()}},{...quoted,quote:{...quoted.quote,quoteAt:new Date(now+6000).toISOString()}},{...quoted,quote:{...quoted.quote,isin:"DE000PJ9NCK0"}}])assert(!degiro.BobDegiro.rankProducts([p],freshCtx).tradeable);
   assert(degiro.BobDegiro.rankProducts([{...quoted,quote:{...quoted.quote,quoteAt:new Date(now-90001).toISOString()}},quoted],freshCtx).tradeable);
 
-  const ignoredCosts=[undefined,0,.01,10,100,-1,''];
   const noCost=degiro.BobDegiro.evaluateProduct({...completeProduct,...strongCtx});
-  for(const spread of ignoredCosts){
-    const v=degiro.BobDegiro.evaluateProduct({...completeProduct,...strongCtx,spread});
-    assert.deepStrictEqual(v,noCost,'spread must not change assessment');
-    assert(degiro.BobDegiro.rankProducts([{...completeProduct,spread}],strongCtx).tradeable);
-    assert(degiro.BobDegiro.currentQuote({...quoted,spread},now));
-    assert(!degiro.BobDegiro.manualProductMissing({...completeProduct,spread}).includes('Spread'));
+  const costly=degiro.BobDegiro.evaluateProduct({...completeProduct,...strongCtx,spread:.12});
+  assert(costly.score<noCost.score,'positive spread reduces ranking score');
+  for(const spread of [undefined,10,100,-1,'']){
+    assert(!degiro.BobDegiro.rankProducts([{...completeProduct,spread}],strongCtx).tradeable,'missing, invalid or excessive spread blocks recommendation');
   }
   for(const key of ["price","leverage","ko"]){const missing={...completeProduct,[key]:""};assert(!degiro.BobDegiro.rankProducts([missing],strongCtx).tradeable);}
   assert(!degiro.BobDegiro.rankProducts([{...completeProduct,isin:"DEOOOFC1CHB7"}],strongCtx).tradeable);
@@ -397,5 +394,6 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert(shadowText.includes('noch nicht ausreichend'));
   console.log("Bob push + DEGIRO tests: OK");
 })().catch(err => { console.error(err); process.exit(1); });
+
 
 
