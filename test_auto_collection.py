@@ -76,12 +76,22 @@ class AutoCollectionTests(unittest.TestCase):
                 clock.now.return_value = NOW
                 a.tick(NOW)
                 self.assertEqual(a.status()['estimateAvailable'], available)
+                self.assertTrue(a.status()['estimationReleased'])
+                self.assertEqual(a.status()['updateIntervalSeconds'],30)
+                if available:
+                    self.assertEqual(a.status()['state'],'estimating')
+                    self.assertGreater(a.status()['estimatePriceUsd'],0)
                 self.assertFalse(a.status()['ready'])
                 self.assertEqual(a.future_estimate._spot_ticks[-1]['at'], rows[-1]['at'])
                 # Restoration is repeated even after the process startup load.
                 a.future_estimate._spot_ticks.clear()
                 a.tick(NOW)
                 self.assertEqual(a.status()['estimateAvailable'], available)
+                self.assertTrue(a.status()['estimationReleased'])
+                self.assertEqual(a.status()['updateIntervalSeconds'],30)
+                if available:
+                    self.assertEqual(a.status()['state'],'estimating')
+                    self.assertGreater(a.status()['estimatePriceUsd'],0)
 
     def test_missing_current_estimate_or_failed_archive_never_grants_readiness(self):
         for estimate in ({'available': False}, {'available': True, 'validation': {'ready': True}}):

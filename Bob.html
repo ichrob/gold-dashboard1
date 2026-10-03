@@ -88,13 +88,13 @@ try{
  function render(key){
   const q=quotes[key],has=q&&positive(q.price),stamp=q?.at?Date.parse(q.at):NaN;
   const expired=window.BobSession?.expired();
-  el(key,'price').textContent=has?number(q.price):'—';
+  el(key,'price').textContent=has?(q.kind==='calculated'?'≈ ':'')+number(q.price):'—';
   const pct=has&&typeof q.changePct==='number'&&Number.isFinite(q.changePct)?q.changePct:null;
   el(key,'change').textContent=pct===null?'— %':(pct>0?'↑ +':pct<0?'↓ −':'→ ')+number(Math.abs(pct))+' %';
   el(key,'change').className='gold-change'+(pct>0?' up':pct<0?' down':'');
-  el(key,'basis').textContent=pct===null?'Tagesänderung fehlt':'zum Vortagesschluss';
+  el(key,'basis').textContent=pct===null?'Tagesänderung fehlt':q.changeLabel||'zum Vortagesschluss';
   const old=Number.isFinite(stamp)&&(Date.now()-stamp>120000||stamp>Date.now()+5000);
-  el(key,'state').textContent=expired?'Anmeldung erforderlich':!has?'Kurs momentan nicht verfügbar':!Number.isFinite(stamp)?'Kurszeit unbestätigt':old?'Letzter Stand · nicht aktuell':q.kind==='calculated'?'Berechneter Kurs':q.note||'Echtzeit nicht bestätigt';
+  el(key,'state').textContent=expired?'Anmeldung erforderlich':!has?'Kurs momentan nicht verfügbar':!Number.isFinite(stamp)?'Kurszeit unbestätigt':old?(q.kind==='calculated'?'Letzte Schätzung · nicht aktuell':'Letzter Stand · nicht aktuell'):q.kind==='calculated'?'Future-Schätzung · automatisch':q.note||'Echtzeit nicht bestätigt';
   el(key,'time').textContent=Number.isFinite(stamp)?'Stand: '+new Date(stamp).toLocaleString('de-CH',{timeZone:'Europe/Zurich',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})+' (Zürich)':'Kurszeit fehlt';
   el(key,'source').textContent=(q?.kind==='calculated'?'Berechnet · ':'')+(q?.source||'');
  }

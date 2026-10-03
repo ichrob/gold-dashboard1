@@ -76,16 +76,32 @@ def snapshot():
                     result[key] = job.result()
                 except (OSError, ValueError, KeyError, TypeError, IndexError):
                     pass
-        # Reuse Bob's existing model, preserving its freshness and contract checks.
-        if result['future']['price'] is None:
-            try:
-                import future_estimate
-                estimate = future_estimate.current_estimate({'contract': 'GCZ26'})
-                if estimate.get('available'):
-                    result['future'].update(price=estimate['priceUsd'], at=estimate['priceAt'],
-                        source=estimate.get('proxySource', ''), kind='calculated',
-                        note='Berechneter Kurs · keine Börsenquotierung')
-            except (OSError, ValueError, KeyError, TypeError):
-                pass
+        # Released for display independently of the ongoing accuracy study.
+        # The model still requires fresh, aligned inputs for the exact contract.
+        try:
+            import future_estimate
+            estimate = future_estimate.current_estimate({'contract': 'GCZ26'})
+            if estimate.get('available'):
+                reference = result['future']
+                previous = reference.get('previousClose')
+                # Only use a previous close from the same trading date as the
+                # estimate; an old Yahoo response must not invent today's %.
+                from zoneinfo import ZoneInfo
+                zone = ZoneInfo('America/New_York')
+                same_day = bool(reference.get('at') and
+                    datetime.fromisoformat(reference['at'].replace('Z', '+00:00')).astimezone(zone).date() ==
+                    datetime.fromisoformat(estimate['priceAt'].replace('Z', '+00:00')).astimezone(zone).date())
+                change = (estimate['priceUsd'] / previous - 1) * 100 if positive(previous) and same_day else None
+                result['future'] = dict(price=estimate['priceUsd'], at=estimate['priceAt'],
+                    calculatedAt=estimate.get('calculatedAt'), changePct=change,
+                    symbol='GCZ26', source=estimate.get('proxySource', ''), kind='calculated',
+                    note='Future-Schätzung · automatische Aktualisierung',
+                    changeLabel='geschätzt zum Vortagesschluss',
+                    referenceAt=estimate.get('referenceAt'), referencePrice=estimate.get('referencePriceUsd'),
+                    validation=estimate.get('validation', {}), isExchangeRealtime=False)
+            elif result['future']['price'] is not None:
+                result['future']['note'] = 'Verzögerter Referenzkurs · Schätzung pausiert'
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
         _cache, _cached_at = result, time.monotonic()
         return result

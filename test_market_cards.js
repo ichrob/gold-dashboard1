@@ -12,5 +12,10 @@ setImmediate(async()=>{
  assert.equal(el('gold-spot-change').textContent,'— %');assert.equal(el('gold-spot-basis').textContent,'Tagesänderung fehlt');
  context.window.BobGoldCards.spot({spots:{xaus:9999,spot_price_as_of:'2025-01-01T00:00:00Z'}});
  assert.equal(el('gold-spot-price').textContent,'4.141,00');
+ payload.future={price:4180,at:new Date().toISOString(),kind:'calculated',changePct:-.5,changeLabel:'geschätzt zum Vortagesschluss'};
+ await context.window.BobGoldCards.refresh();
+ assert.equal(el('gold-future-price').textContent,'≈ 4.180,00');
+ assert.equal(el('gold-future-state').textContent,'Future-Schätzung · automatisch');
+ assert.equal(el('gold-future-basis').textContent,'geschätzt zum Vortagesschluss');
  console.log('Gold cards: formatting, directions, stale data, missing change and older response protection OK');
 });
