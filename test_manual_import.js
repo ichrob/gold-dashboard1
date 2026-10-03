@@ -54,7 +54,7 @@ assert.equal(added.evidence.KO.source,'details.jpg');
 const undatedKO=b.mergeScreenshotEvidence(snapshot,b.detailScreenshotData(isin+'\nKO 4461',isin),'undated.jpg');
 assert.equal(undatedKO.evidence.KO.at,null);
 const comparisonProduct={...product,snapshot};
-const comparisonContext={direction:'SHORT',spotFresh:true,spot:4000,now};
+const comparisonContext={atr:20,direction:'SHORT',spotFresh:true,spot:4000,now};
 assert.equal(b.rankManualSnapshots([comparisonProduct],comparisonContext).total,1);
 assert.equal(b.rankManualSnapshots([comparisonProduct],comparisonContext).liveVerified,false);
 for(const change of [{direction:'NEUTRAL'},{direction:'LONG'},{spotFresh:false},{now:now+30001},{trend:'LONG',trend2:'LONG',mtf:'LONG',hist:1,momentum:1,rsi:65}]){
@@ -82,3 +82,4 @@ store.set('bobDegiroIdentitiesV1',JSON.stringify([{isin:'invalid'}]));assert.equ
 const server=fs.readFileSync('server.py','utf8');
 assert(server.includes('manualSnapshotStatus'));assert(server.includes('bobDegiroIdentitiesV1'));
 console.log('Manual DEGIRO timestamp / provenance / persistence regressions: OK');
+

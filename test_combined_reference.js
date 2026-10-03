@@ -26,6 +26,7 @@ assert.equal(b.assess({...p,isin:'DE000FG309G0'}, {...r,isin:'DE000FG309G0'},bun
 assert(b.render(s).includes('Schätzung, keine SG-Quotierung'));assert(b.render(s).includes('Keine Live-Freigabe'));
 const hostile=clone(r);hostile.venue='<script>alert(1)</script>';assert(!b.render(b.assess(p,hostile,bundle,now)).includes('<script>'));
 console.log('Combined manual references: passed');
+p.costs={isin:p.isin,source:'Synthetic tariff',asOf:at(0),roundTripEur:2,financingDailyPct:.01,positionEur:1000,holdingDays:1};
 const context={now,direction:'SHORT',spotFresh:true,spot:4200,atr:10,trend:'SHORT',trend2:'SHORT',mtf:'SHORT',rsi:40,hist:-1,adx:30,momentum:-1};
 let ranked=b.rank([p],[r],bundle,context);
 assert.equal(ranked.candidates.length,1);assert.equal(ranked.selection.isin,p.isin);assert(ranked.selection.estimated);assert.equal(ranked.tradeable,false);
@@ -38,7 +39,7 @@ assert.equal(b.rank([p],[r],bundle,{...context,trend:'LONG',trend2:'LONG',mtf:'L
 assert.equal(b.rank([p],[r],bundle,{...context,now:now+61000}).candidates.length,0);
 for(const mutate of [x=>x.barriers[1].value=4404.01,x=>x.quoteAt=at(-1801),x=>x.referenceConfirmed=false]){const bad=clone(r);mutate(bad);const result=b.rank([p],[bad],bundle,context);assert.equal(result.candidates.length,0);assert(result.excluded.length);}
 const products=[p],refs=[r];
-for(const isin of ['DE000FG4JXV7','DE000FG7EPT1','DE000FG5GUT0']){const next=clone(p);next.ko=4403;next.isin=isin;next.quote.isin=isin;next.quote.productModel.isin=isin;const ref=clone(r);ref.isin=isin;ref.barriers.forEach(x=>x.isin=isin);products.push(next);refs.push(ref);}
+for(const isin of ['DE000FG4JXV7','DE000FG7EPT1','DE000FG5GUT0']){const next=clone(p);next.ko=4403;next.isin=isin;next.costs.isin=isin;next.quote.isin=isin;next.quote.productModel.isin=isin;const ref=clone(r);ref.isin=isin;ref.barriers.forEach(x=>x.isin=isin);products.push(next);refs.push(ref);}
 const unchanged=JSON.stringify([products,refs,bundle]);ranked=b.rank(products,refs,bundle,context);
 assert.equal(ranked.total,4);assert.equal(ranked.candidates.length,3);assert.equal(ranked.selection,null);assert.equal(JSON.stringify([products,refs,bundle]),unchanged);
 assert.equal(b.rank([p,p],[r,r],bundle,context).total,1);
@@ -118,3 +119,4 @@ const reassigned=b.mergeDraft(merged,differentIsinDraft,'other-product.jpg');
 assert.equal(reassigned.isin,differentIsinDraft.isin);assert(!reassigned.fields.bid);assert(!reassigned.fields.ask);assert(!reassigned.fields.quoteAt);assert(!reassigned.evidence.bid);
 assert.equal(b.compareSnapshot({...p,isin:'DE000FG309G0'},ref,null,current,now),null);
 assert.equal(b.compareSnapshot({...p,isin:'DE000FG309G0'},null,merged,current,now),null);
+
