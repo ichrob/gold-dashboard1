@@ -31,7 +31,7 @@ class PublicTermsTests(unittest.TestCase):
         self.assertNotIn('contract',r['conditions'])
         with self.assertRaises(ValueError):p.parse_page(html.replace('(COMEX)',''),ISIN,NOW)
     def test_terminal_evidence_survives_missing_page_and_never_calls_sources(self):
-        with patch.object(p,'urlopen') as network,patch.object(q,'get_issuer_quote') as issuer:
+        with patch.object(p,'open_public_page') as network,patch.object(q,'get_issuer_quote') as issuer:
             r=q.get_quote('DE000FG7MTA6')
             network.assert_not_called();issuer.assert_not_called()
         self.assertEqual(r['metadata']['status'],2);self.assertFalse(r['eligible'])
@@ -42,7 +42,7 @@ class PublicTermsTests(unittest.TestCase):
             self.assertEqual(r['source'],terms['source']);old.assert_not_called()
     def test_403_cached_as_failure_and_not_retried_in_a_loop(self):
         from urllib.error import HTTPError
-        with patch.dict(p._CACHE,{},clear=True),patch.object(p,'urlopen',side_effect=HTTPError('public',403,'Denied',{},None)) as net:
+        with patch.dict(p._CACHE,{},clear=True),patch.object(p,'open_public_page',side_effect=HTTPError('public',403,'Denied',{},None)) as net:
             a=p.get_product(ISIN);b=p.get_product(ISIN)
             self.assertEqual(a['sourceFailureCode'],'HTTP_403');self.assertEqual(net.call_count,1)
 

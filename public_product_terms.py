@@ -7,7 +7,8 @@ import time
 import threading
 from datetime import datetime, timezone
 from html import unescape
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, HTTPCookieProcessor
+from http.cookiejar import CookieJar
 from urllib.error import HTTPError, URLError
 
 ORIGIN='https://www.comdirect.de/'
@@ -87,6 +88,11 @@ def parse_page(html,isin,now=None):
             tradingHalted=False,termsDated=False,observedAt=now.isoformat()),
         observedTerms=dict(strike=strike,ko=ko,contract=contract,underlying=underlying,source=url,effectiveAt=None))
 
+def open_public_page(request, timeout=12):
+    # Public CIF redirect uses an ordinary anonymous session cookie.
+    # A fresh, isolated jar is discarded after this one request.
+    return build_opener(HTTPCookieProcessor(CookieJar())).open(request, timeout=timeout)
+
 def get_product(isin):
     from product_quotes import valid_isin
     if not valid_isin(isin) or not isin.startswith('DE000'):
@@ -103,7 +109,7 @@ def get_product(isin):
     url=ORIGIN+'inf/zertifikate/'+isin
     try:
         req=Request(url,headers={'User-Agent':'Bob public product research','Accept':'text/html'})
-        with urlopen(req,timeout=12) as response:
+        with open_public_page(req,timeout=12) as response:
             if not response.url.startswith(ORIGIN):raise ValueError('UNEXPECTED_REDIRECT')
             data=response.read(2_000_001)
         if len(data)>2_000_000:raise ValueError('RESPONSE_TOO_LARGE')
