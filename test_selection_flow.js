@@ -247,7 +247,9 @@ const folded=b.selectionWorkflow([{...f,snapshot:null}],{...context,direction:'N
 const foldedHtml=b.renderSelectionWorkflow(folded);
 assert(folded.notApproved[0].missingReasons.some(x=>x.includes('Bezugsverhältnis')));
 assert(foldedHtml.includes('<strong>Fehlende Werte</strong>'));
-assert(foldedHtml.includes('Wo finden:'));
+assert(foldedHtml.includes('Screenshot auf der SG-Produktseite:'));
+assert(!foldedHtml.includes('DEGIRO →'));
+assert(foldedHtml.includes('Stammdaten:')); 
 assert(!/<details[^>]*data-missing-values[^>]*\\bopen\\b/.test(foldedHtml));
 const beforeFold=foldedHtml.slice(0,foldedHtml.indexOf('data-missing-values'));
 assert(beforeFold.includes('Marktsignal neutral'));
