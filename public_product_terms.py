@@ -16,7 +16,7 @@ _LOCK=threading.Lock()
 # Terminal event explicitly confirmed on the exchange product page on 2026-10-03.
 # A later missing page must never reactivate an already knocked-out product.
 TERMINAL={
- 'DE000FG7MTA6':dict(status='knocked_out',checkedAt='2026-10-03T18:03:00Z',
+ 'DE000FG7MTA6':dict(status='knocked_out',confirmedOn='2026-10-03',
     source='Börse Stuttgart',sourceUrl='https://www.boerse-stuttgart.de/de-de/produkte/hebelprodukte/knock-out-produkte/stuttgart/fg7mta/')
 }
 
@@ -94,7 +94,7 @@ def get_product(isin):
     if isin in TERMINAL:
         r=TERMINAL[isin]
         return dict(isin=isin,found=False,eligible=False,fresh=False,productVerified=True,
-                    source=r['source'],sourceUrl=r['sourceUrl'],checkedAt=r['checkedAt'],
+                    source=r['source'],sourceUrl=r['sourceUrl'],checkedAt=None,
                     conditions={},observedTerms={},reason='Bestätigtes Knock-out: Produkt dauerhaft ausgeschlossen',
                     metadata=dict(status=2,tradingHalted=True,termsDated=False),terminalEvidence=r)
     with _LOCK:
