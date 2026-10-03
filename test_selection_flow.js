@@ -160,3 +160,13 @@ for(const change of [
 ]){const x=JSON.parse(JSON.stringify(futureOk));change(x);const result=b.selectionWorkflow([x],context,{});assert.equal(result.approvedCount,0);assert(result.waiting.length||result.requests.length);}
 const mix=b.selectionWorkflow([...copies,futureOk],context,{});assert.equal(mix.approvedCount,3);
 console.log('No forced Top 3: 0/1/2/3, mixed blocked products, neutral/conflicting signals, expiration, KO and Future uncertainty passed');
+
+// Production markup has an MTF legend with LONG, SHORT and NEUTRAL simultaneously.
+for(const direction of ['LONG','SHORT','NEUTRAL']){
+ const doc={getElementById:id=>({textContent:{blockMtf:direction,blockMomentum:direction,mtfSummary:direction+' 4 LONG · 0 SHORT · 0 NEUTRAL'}[id]})};
+ const ui=b.selectionUiSignals(doc);
+ assert.equal(ui.mtf,direction);assert.equal(ui.momentum,direction==='LONG'?1:direction==='SHORT'?-1:0);
+ const result=b.selectionMarketGate({...context,direction,trend:direction,trend2:direction,hist:ui.momentum,...ui});
+ assert.equal(result.ok,direction!=='NEUTRAL');
+}
+assert.equal(b.selectionUiSignals({getElementById:()=>null}).momentum,0);

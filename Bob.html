@@ -144,7 +144,7 @@ try{
 <div class="card">
 <h3>🔔 Push-Benachrichtigungen</h3>
 <div class="grid">
-<div class="metric"><label>1. Trade Empfehlung</label><button id="generalPushBtn" onclick="togglePush('general')">🔕 Aus</button></div>
+<div class="metric"><label>1. Marktsignale</label><button id="generalPushBtn" onclick="togglePush('general')">🔕 Aus</button></div>
 <div class="metric"><label>2. Aktiver Trade</label><button id="tradePushBtn" onclick="togglePush('trade')">🔕 Aus</button></div>
 </div>
 <div class="row" style="margin-top:10px"><button onclick="registerNotifications()">📱 Gerät für Push registrieren</button><button onclick="testPush()">🧪 Test-Push</button></div>
@@ -153,7 +153,7 @@ try{
 <div><label>Push-Kanal</label><button onclick="setupNtfy()">☁️ ntfy einrichten</button></div>
 </div>
 <div class="small" style="margin-top:8px">Kein Login nötig. Auf Android die ntfy-App installieren und denselben Topic abonnieren. Der Topic-Name ist eine öffentliche Kanaladresse, kein echtes Passwort. Für sensible Inhalte sollte ein geschützter Push-Dienst verwendet werden.</div>
-<div class="warning" style="margin-top:10px"><b>Push-Regel:</b> „Trade Empfehlung“ meldet neue Trade-Empfehlungen. „Aktiver Trade“ meldet Stop-Loss, Richtungswechsel und bestätigte Fibonacci-Brüche – und nur bei einem tatsächlich aktiven Trade.</div>
+<div class="warning" style="margin-top:10px"><b>Push-Regel:</b> „Marktsignale“ meldet Änderungen der Goldanalyse, keine Produktfreigabe. „Aktiver Trade“ meldet Stop-Loss, Richtungswechsel und bestätigte Fibonacci-Brüche – und nur bei einem tatsächlich aktiven Trade.</div>
 <div id="fibMonitorStatus" class="small" style="margin-top:8px">Fibonacci-Überwachung: kein aktiver Trade.</div><div id="pushStatus" class="small" style="margin-top:8px">Noch nicht registriert.</div>
 </div>
 
@@ -431,7 +431,7 @@ async function notifyTrade(title,body){return notify("trade",title,body)}
 async function testPush(){
  if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
  const results=[];
- if(pushState.general)results.push(await notifyGeneral("Bob – Test","Allgemeine Trade-Empfehlungen"));
+ if(pushState.general)results.push(await notifyGeneral("Bob – Test","Allgemeine Marktsignale – keine Produktfreigabe"));
  if(pushState.trade)results.push(await BobPush.emit("trade","Bob – Trade-Test","Stop-Loss- und Trade-Schließen-Pushs sind aktiv.",{test:true}));
  const ntfyConfigured=Boolean(ntfyTopic());
  if(ntfyConfigured && pushState.general)results.push(await sendNtfy("general","Bob – ntfy-Test","Push-Kanal funktioniert."));
