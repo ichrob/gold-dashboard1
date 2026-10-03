@@ -955,6 +955,34 @@ function parseProductTerms(raw){
  }
  return out;
 }
+// Offline research of product conditions only. No quote requests or quote clocks.
+const PRODUCT_CONDITION_RESEARCH={
+ 'DE000FC1CHB7':{direction:'LONG',source:'https://www.onvista.de/derivate/Knock-Outs/309138945-FC1CHB-DE000FC1CHB7',values:{ratio:0.1,underlying:'XAU/USD',quanto:'Nein',type:'Turbo',maturity:'Open End',currency:'EUR'}},
+ 'DE000FG5GUT0':{direction:'LONG',source:'https://www.onvista.de/derivate/Knock-Outs/336000321-FG5GUT-DE000FG5GUT0',values:{ratio:0.1,underlying:'XAU/USD',quanto:'Nein',type:'Turbo',maturity:'Open End',currency:'EUR'}},
+ 'DE000FG5GUX2':{direction:'LONG',source:'https://www.sg-zertifikate.at/product-details/fg5gux',values:{ratio:0.1,quanto:'Nein',type:'Turbo BEST',maturity:'Open End'}}
+};
+const CONDITION_RESEARCH_AT='2026-10-03T13:10:00Z';
+function applyResearchedTerms(items){
+ return items.map(p=>{
+  const record=PRODUCT_CONDITION_RESEARCH[p.isin];if(!record||p.direction!==record.direction)return p;
+  const old=p.snapshot?.isin===p.isin?p.snapshot:{isin:p.isin},terms={...old.terms};
+  for(const [key,value]of Object.entries(record.values))if(!terms[key]||terms[key].value===undefined||terms[key].value==='')terms[key]={value,at:null,source:record.source,conditionVerified:true,reviewedAt:CONDITION_RESEARCH_AT};
+  return {...p,snapshot:{...old,terms}};
+ });
+}
+function durableCondition(e,key,now){
+ if(!e?.source||e.revoked===true||e.conflict===true)return false;
+ // Only explicit product-condition evidence may outlive a daily market snapshot.
+ if(['type','currency','maturity'].includes(key)&&e.reviewed===true)return true;
+ const checked=Date.parse(e.reviewedAt);
+ return ['ratio','underlying','type','currency','maturity','quanto'].includes(key)&&e.conditionVerified===true&&Number.isFinite(checked)&&checked<=now;
+}
+function maturityDeadline(raw){
+ const exact=sourceTimestamp(raw);if(exact)return Date.parse(exact);
+ const m=String(raw).match(/^(\d{2})[/.](\d{2})[/.](\d{4})$/);if(!m)return null;
+ // A date alone is accepted before its Zurich calendar day. Do not invent an intraday expiry.
+ return selectionTimeWindow(m[1]+'/'+m[2]+'/'+m[3]+' 00:00')?.start??null;
+}
 function productTermsStatus(p,now=Date.now()){
  const reasons=[],values={},q=p.quote?.isin===p.isin?p.quote:null;
  const meta=q?.productVerified?q.metadata:null;
@@ -967,9 +995,9 @@ function productTermsStatus(p,now=Date.now()){
  const labels={ratio:'Bezugsverhältnis',strike:'Basispreis in USD',underlying:'Exakter Basiswert (z. B. XAU/USD)',type:'Produkttyp',maturity:'Laufzeit / Fälligkeit oder Open End',currency:'Produktwährung',quanto:'Quanto / Währungsabsicherung'};
  for(const [key,label] of Object.entries(labels)){
   const e=terms[key],age=now-Date.parse(e?.at);
-  if(e?.source&&Number.isFinite(age)&&age>=0&&age<=86400000)values[key]=e.value;
+  if(durableCondition(e,key,now)||e?.source&&Number.isFinite(age)&&age>=0&&age<=86400000)values[key]=e.value;
   else if(api&&['ratio','strike','underlying'].includes(key))values[key]=api[key];
-  if(values[key]===undefined||values[key]==='')reasons.push(label+': fehlt oder Produktdatenstand älter als 24 Stunden / unbekannt');
+  if(values[key]===undefined||values[key]==='')reasons.push(label+(key==='strike'?': datierter Basispreis fehlt oder älter als 24 Stunden':': fehlt oder Produktbedingung noch nicht bestätigt'));
  }
  for(const key of ['ratio','strike'])if(values[key]!==undefined&&!(n(values[key])>0))reasons.push(labels[key]+': ungültig');
  if(values.currency&&values.currency!=='EUR')reasons.push('Produktwährung EUR erforderlich');
@@ -987,8 +1015,8 @@ function productTermsStatus(p,now=Date.now()){
  if(meta?.direction&&meta.direction!==p.productDirection||model?.direction&&model.direction!==p.productDirection||shot?.direction&&shot.direction!==p.productDirection)reasons.push('Long/Short widerspricht Produktnachweis');
  for(const key of ['ratio','strike'])if(model?.[key]&&values[key]&&n(model[key])!==n(values[key]))reasons.push(labels[key]+': Screenshot und Emittent widersprechen sich');
  if(values.maturity&&!/^open\s*end$|^unbegrenzt$/i.test(values.maturity)){
-  const end=sourceTimestamp(values.maturity);
-  if(!end||Date.parse(end)<=now)reasons.push('Fälligkeit fehlt als eindeutiger Zeitpunkt oder Produkt ist abgelaufen');
+  const end=maturityDeadline(values.maturity);
+  if(!Number.isFinite(end)||end<=now)reasons.push('Fälligkeit fehlt als eindeutiger Zeitpunkt oder Produkt ist abgelaufen');
  }
  const ko=shot?.evidence?.KO,koAge=now-Date.parse(ko?.at),apiKoAge=now-Date.parse(q?.checkedAt);
  if(!(n(p.ko)>0))reasons.push('Knock-out-Schwelle fehlt');
@@ -1102,7 +1130,7 @@ function screenshotTimeLabel(x){
 }
 function screenshotSummary(x){
  if(!x)return "";
- const termRows=Object.entries(x.terms||{}).map(([key,e])=>'<tr><td>'+esc(({ratio:'Bezugsverhältnis',strike:'Basispreis USD',underlying:'Basiswert',contract:'Future-Kontrakt',type:'Produkttyp',maturity:'Laufzeit',currency:'Produktwährung',quanto:'Quanto'})[key]||key)+'</td><td>'+esc(e.value)+'</td><td>'+esc(e.source)+'</td><td>'+esc(e.at||'Produktdatenstand fehlt')+'</td></tr>').join('');
+ const termRows=Object.entries(x.terms||{}).map(([key,e])=>'<tr><td>'+esc(({ratio:'Bezugsverhältnis',strike:'Basispreis USD',underlying:'Basiswert',contract:'Future-Kontrakt',type:'Produkttyp',maturity:'Laufzeit',currency:'Produktwährung',quanto:'Quanto'})[key]||key)+'</td><td>'+esc(e.value)+'</td><td>'+esc(e.source)+'</td><td>'+esc(e.conditionVerified?'Produktbedingung recherchiert '+e.reviewedAt+' · keine Kurszeit':e.reviewed&&['type','currency','maturity'].includes(key)?'Geprüfte Produktbedingung · keine Kurszeit':e.at||'Produktdatenstand fehlt')+'</td></tr>').join('');
  const rows=Object.entries(x.evidence||{}).filter(([key])=>key!=='Spread').map(([key,e])=>{const t=evidenceTiming(e);return '<tr><td>'+esc(key)+'</td><td>'+esc(e.value)+'</td><td>'+esc(e.source)+'</td><td>'+esc(e.at||'Zeit / Zeitzone fehlt')+(key==='Richtung'?'':' · '+esc(t.ageSeconds===null?'gesperrt':t.ageSeconds+' s · '+(t.fresh?'Nachweis ≤ 14 h · kein Livekurs':'gesperrt')))+'</td></tr>';}).join("");
  return '<div class="small">'+(x.listEvidence?'<div>ISIN/Bildzuordnung geprüft: '+esc(x.listEvidence.source)+' · historischer Bildnachweis, Produktdatenstand fehlt.</div><div>'+esc(x.listEvidence.ratioText||'')+'</div>':'')+'<b>Erkannte Angaben – bitte prüfen</b><table style="width:100%"><thead><tr><th>Angabe</th><th>Wert</th><th>Bildquelle</th><th>Quellenzeit</th></tr></thead><tbody>'+rows+termRows+'</tbody></table>'+esc(screenshotTimeLabel(x))+'</div>';
 }
@@ -1212,7 +1240,7 @@ function inject(){
   r.querySelectorAll('[data-dg]').forEach(el=>el.addEventListener('input',()=>{if(el.dataset.dg!=="confirmed"){combinedReferences.delete(i);productQuotes.delete(i);futureResearchQuotes.delete(i);if(["isin","dir"].includes(el.dataset.dg)){detailScreenshots.delete(i);r.querySelector('[data-dg="confirmed"]').checked=false;}else if(["price","lev","ko","spread"].includes(el.dataset.dg)){r.querySelector('[data-dg="confirmed"]').checked=false;}rowVersions.set(i,(rowVersions.get(i)||0)+1);if(el.dataset.dg==="isin"){combinedDrafts.delete(i);resetCombinedForm(i);r.querySelector('[data-dg="confirmed"]').checked=false;}}rankUI();}));
  }
  const restoredProducts=loadIdentities();
- restoreProductRows(localStorage.getItem(PRODUCT_STORE_KEY)?restoredProducts:recoverReviewedLists(restoredProducts));
+ restoreProductRows(applyResearchedTerms(localStorage.getItem(PRODUCT_STORE_KEY)?restoredProducts:recoverReviewedLists(restoredProducts)));
  quoteRefresh=createQuoteRefresh({
   rows:()=>Array.from({length:12},(_,idx)=>{const id=idx+1,isin=(document.querySelector('[data-dg="isin"][data-i="'+id+'"]')?.value.trim()||'').toUpperCase();return {id,isin,key:isin+':'+(rowVersions.get(id)||0)};}),
   request:enrichProduct,visible:()=>!document.hidden
@@ -1325,7 +1353,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
@@ -1519,6 +1547,7 @@ function init(){
 }
 window.BobTradeUpload={parse,draft,reviewed,merge,init};if(typeof document!=='undefined'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();}
 })();
+
 
 
 
