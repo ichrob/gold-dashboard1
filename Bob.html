@@ -1132,33 +1132,37 @@ function fiveMinuteConfirmation(bundle,now=Date.now()){
  const bars={};
  for(const [tf,step] of Object.entries(steps)){
   bars[tf]=(source[tf]||[]).filter(b=>b.instrument==='XAU/USD'&&!b.isOpen&&Number.isFinite(b.openTime)&&b.openTime+step<=now&&['open','high','low','close'].every(k=>Number.isFinite(b[k])&&b[k]>0)).sort((a,b)=>a.openTime-b.openTime);
-  if(new Set(bars[tf].map(b=>b.openTime)).size!==bars[tf].length)return {dir:'NEUTRAL',count:0,pending:'NEUTRAL',reason:'Doppelte Kerzenzeiten'};
+  if(new Set(bars[tf].map(b=>b.openTime)).size!==bars[tf].length)return {dir:'NEUTRAL',count:0,pending:'NEUTRAL',reason:'Ungültige Daten: doppelte Kerzenzeiten in '+tf};
  }
  const samples=[];
  for(const bar of bars['5m'].slice(199)){
   const end=bar.openTime+300000,history={};
   for(const [tf,step] of Object.entries(steps))history[tf]=bars[tf].filter(b=>b.openTime+step<=end).slice(-220);
   const valid=Object.entries(history).every(([tf,rows])=>rows.length>=200&&end-rows.at(-1).openTime<=steps[tf]*2);
-  if(!valid){samples.push({at:bar.openTime,valid:false,dir:'NEUTRAL'});continue;}
+  if(!valid){const missing=Object.entries(history).filter(([tf,rows])=>rows.length<200||end-rows.at(-1).openTime>steps[tf]*2).map(([tf,rows])=>rows.length<200?tf+': '+rows.length+'/200 geschlossene Kerzen':tf+': Kerzendaten zu alt oder lückenhaft');samples.push({at:bar.openTime,valid:false,dir:'NEUTRAL',reason:missing.join(' · ')});continue;}
   const byTf=Object.fromEntries(Object.entries(history).map(([tf,rows])=>[tf,timeframeScore(rows,tf)]));
   const rows=history['5m'],a=rows.map(b=>b.close),e12=emaS(a,12),e26=emaS(a,26),mac=e12.map((v,i)=>v-e26[i]),sig=emaS(mac,9),r=rsiS(a);
   const collective=collectiveSignal([Math.sign(a.at(-1)-ema(a,20)),Math.sign(ema(a,20)-ema(a,50)),Math.sign(ema(a,50)-ema(a,200)),Math.sign(mac.at(-1)-sig.at(-1)),r>50&&r<75?1:r<50&&r>25?-1:0]);
   let raw=collective>=0.5?'LONG':collective<=-0.5?'SHORT':'NEUTRAL';
   const hierarchy=buildMtfHierarchy(byTf,true);
-  if(raw!==hierarchy.overall)raw='NEUTRAL';
+  let reason=raw==='NEUTRAL'?'5m-Kursindikatoren neutral oder widersprüchlich':'';
+  if(raw!==hierarchy.overall){reason=[reason,'Zeitebenen bestätigen die Richtung nicht: '+hierarchy.reason].filter(Boolean).join(' · ');raw='NEUTRAL';}
   const atr=rows.slice(-14).reduce((sum,b,i)=>{const previous=rows.at(-15+i)?.close??b.open;return sum+Math.max(b.high-b.low,Math.abs(b.high-previous),Math.abs(b.low-previous));},0)/14;
   const previous=rows.slice(-21,-1),res=Math.max(...previous.map(b=>b.high)),sup=Math.min(...previous.map(b=>b.low));
-  if(raw==='LONG'&&bar.close>res+atr*.15&&rows.at(-2).close<=res||raw==='SHORT'&&bar.close<sup-atr*.15&&rows.at(-2).close>=sup)raw='NEUTRAL';
-  samples.push({at:bar.openTime,valid:true,dir:raw});
+  if(raw==='LONG'&&bar.close>res+atr*.15&&rows.at(-2).close<=res||raw==='SHORT'&&bar.close<sup-atr*.15&&rows.at(-2).close>=sup){raw='NEUTRAL';reason='Ausbruch noch unbestätigt – weitere geschlossene Kerze abwarten';}
+  samples.push({at:bar.openTime,valid:true,dir:raw,reason});
  }
  const result=confirmClosedSignals(samples),latest=bars['5m'].at(-1);
- if(!latest||now-latest.openTime>1200000)return {dir:'NEUTRAL',count:0,pending:'NEUTRAL',reason:'5m-Daten fehlen oder sind veraltet'};
- if(!samples.at(-1)?.valid)return {dir:'NEUTRAL',count:0,pending:'NEUTRAL',reason:'Bestätigung ausstehend · Historie unvollständig'};
- return {...result,reason:result.count?'Wechsel zu '+(result.pending==='NEUTRAL'?'ABWARTEN':result.pending)+': 1/2 geschlossene 5m-Kerzen':'2 geschlossene 5m-Kerzen · Richtung bestätigt'};
+ if(!latest||now-latest.openTime>1200000)return {dir:'NEUTRAL',count:0,pending:'NEUTRAL',reason:!latest?'5m-Daten fehlen: keine gültige geschlossene Gold-Kerze':'5m-Daten veraltet: letzter Kerzenbeginn '+new Date(latest.openTime).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)'};
+ if(!samples.at(-1)?.valid)return {dir:'NEUTRAL',count:0,pending:'NEUTRAL',reason:'Fehlende oder unvollständige Angaben: '+(samples.at(-1)?.reason||'5m: '+bars['5m'].length+'/200 geschlossene Kerzen')};
+ const detail=samples.at(-1)?.reason;
+ const confirmation=result.count?'Wechsel zu '+(result.pending==='NEUTRAL'?'ABWARTEN':result.pending)+': erst 1 von 2 geschlossenen 5m-Kerzen bestätigt':result.dir==='NEUTRAL'?'ABWARTEN – kein bestätigtes Richtungssignal':'2 geschlossene 5m-Kerzen · Richtung bestätigt';
+ return {...result,reason:[confirmation,detail].filter(Boolean).join(' · ')};
 }
 function confirmedSignalDirection(){
  if(window.BobSession?.expired()||analysisAgeWarnings().length||!A.ready||!C.length||!Number.isFinite(A.at)){
-  signalState={dir:'NEUTRAL',pending:'NEUTRAL',count:0,reason:'Daten nicht freigegeben'};return 'NEUTRAL';
+  const reasons=[];if(window.BobSession?.expired())reasons.push('Anmeldung erforderlich');if(!C.length)reasons.push('Gold-Kerzendaten fehlen');else if(!A.ready)reasons.push('Analysehistorie unvollständig: '+C.length+' Kerzen');if(!Number.isFinite(A.at))reasons.push('Volatilitätswert ATR fehlt oder ist ungültig');reasons.push(...analysisAgeWarnings());
+  signalState={dir:'NEUTRAL',pending:'NEUTRAL',count:0,reason:reasons.join(' · ')};return 'NEUTRAL';
  }
  signalState=fiveMinuteConfirmation(liveBundleCache);
  return signalState.dir;
@@ -1319,8 +1323,8 @@ function renderAnalysisBlocks(){
 function updateQuick(){
  renderAnalysisBlocks();
  if(window.BobSession?.expired()){$("quickSignal").textContent="🟡 ABWARTEN · Anmeldung erforderlich";$("quickSignal").className="signal neutral";$("quickReason").textContent="Serverprüfung gesperrt: bitte erneut bei Bob anmelden.";$("quickRisk").textContent="—";updateTradeSignal();return;}
- if(!C.length||!A.at)return;
- if(!A.ready){$("quickSignal").textContent="🟡 ABWARTEN · Historie fehlt";$("quickSignal").className="signal neutral";$("quickRisk").textContent="—";return;}
+ if(!C.length||!A.at){confirmedSignalDirection();$("quickSignal").textContent="🟡 ABWARTEN";$("quickSignal").className="signal neutral";$("quickReason").textContent=signalState.reason;return;}
+ if(!A.ready){confirmedSignalDirection();$("quickReason").textContent=signalState.reason;$("quickSignal").textContent="🟡 ABWARTEN · Historie fehlt";$("quickSignal").className="signal neutral";$("quickRisk").textContent="—";return;}
  const p=lastPrice;
  let q="🟡 ABWARTEN", cls="neutral";
  const confirmed=confirmedSignalDirection();
@@ -1339,7 +1343,7 @@ function updateQuick(){
 
 function updateTradeSignal(){
  if(window.BobSession?.expired()){$("tradeSignal").textContent="🟡 ABWARTEN · Anmeldung erforderlich";$("tradeSignal").className="signal neutral";return;}
- if(!A.ready||C.length<200||!A.at){$("tradeSignal").textContent="🟡 ABWARTEN · technische Analyse nicht freigegeben";$("tradeSignal").className="signal neutral";return}
+ if(!A.ready||C.length<200||!A.at){confirmedSignalDirection();$("quickReason").textContent=signalState.reason;$("tradeSignal").textContent="🟡 ABWARTEN · technische Analyse nicht freigegeben";$("tradeSignal").className="signal neutral";return}
  const mtfDir=getMtfState().overall||"NEUTRAL";
  const dir=confirmedSignalDirection();
  let text="🟡 ABWARTEN", cls="neutral";
@@ -1348,7 +1352,7 @@ function updateTradeSignal(){
  $('signal').textContent=dir==='NEUTRAL'?'ABWARTEN':dir+' bestätigt';$('signal').className='signal '+cls;
  $('quickSignal').textContent=text;$('quickSignal').className='signal '+cls;
  $('quickReason').textContent=signalState.reason||'Bestätigung ausstehend';
- $("tradeSignal").textContent=text+" · Score "+(A.score??0).toFixed(0)+"/100 · MTF "+mtfDir;
+ $("tradeSignal").textContent=text+" · Score "+(A.score??0).toFixed(0)+"/100 · MTF "+mtfDir+" · "+signalState.reason;
  $("tradeSignal").className="signal "+cls;
  maybePushAnalysisAlerts();
 }
