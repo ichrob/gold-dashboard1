@@ -31,6 +31,38 @@ summary{cursor:pointer;font-weight:700;padding:10px 0}details[open]>summary{marg
 .gold-quote header{display:flex;align-items:center;gap:10px}.gold-icon{color:#c99536;width:32px;height:28px;flex-shrink:0}.gold-quote h3{font-size:19px;margin:0}.gold-symbol{color:#64748b;font-size:12px;margin-top:3px}.gold-price-row{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;margin:20px 0 10px}.gold-price{font-size:32px;font-weight:750;letter-spacing:-1px;font-variant-numeric:tabular-nums}.gold-currency{font-size:13px;color:#64748b}
 .gold-change{display:inline-block;background:#f1f3f5;color:#526070;border-radius:9px;padding:7px 10px;font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}.gold-change.up{color:#137442;background:#e9f8ef}.gold-change.down{color:#c22c42;background:#fff0f2}.gold-change-label{color:#64748b;font-size:11px;margin-top:5px;min-height:15px}.gold-meta{border-top:1px solid #eceff2;margin-top:14px;padding-top:10px;font-size:11px;color:#64748b;line-height:1.5;overflow-wrap:anywhere}.gold-state{font-weight:600;color:#526070}.gold-market-note{color:#64748b;font-size:11px;margin:9px 2px 0}
 @media(max-width:480px){.gold-quotes{gap:8px}.gold-quote{padding:18px;border-radius:15px}.gold-quote header{gap:6px}.gold-quote h3{font-size:19px}.gold-icon{width:23px}.gold-price{font-size:clamp(30px,9vw,40px)}.gold-price-row{margin-top:15px;gap:4px}.gold-change{font-size:14px;padding:6px 8px}.gold-currency{font-size:11px}}
+
+/* Four mobile workspaces. Existing inputs and calculation nodes stay intact. */
+body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
+.bob-mobile main{max-width:880px;padding:16px 16px 110px}
+.bob-mobile .card{border:1px solid #e5e9ef;box-shadow:0 3px 14px #18283c05;padding:18px;border-radius:18px}
+.bob-mobile h2{font-size:21px;line-height:1.3;overflow-wrap:anywhere}.bob-mobile h3{font-size:18px;margin:0 0 12px}
+.bob-mobile .small{font-size:13px;line-height:1.5;color:#536176}
+.bob-mobile .grid>*{min-width:0}.bob-mobile input[type=checkbox]{width:auto;min-height:20px}
+.bob-mobile button{min-height:44px}.bob-mobile button:focus-visible,.bob-mobile summary:focus-visible{outline:3px solid #1677ff;outline-offset:3px}
+.bob-mobile [hidden]{display:none!important}.bob-mobile summary{min-height:44px}
+.bob-nav{position:fixed;bottom:0;left:0;right:0;z-index:50;background:#ffffffed;backdrop-filter:blur(14px);border-top:1px solid #dce3ed;padding:8px 8px calc(8px + env(safe-area-inset-bottom));display:flex;justify-content:center;gap:4px}
+.bob-nav button{max-width:180px;flex:1;background:transparent;color:#536176;font-size:12px;padding:9px 2px;border-radius:12px}
+.bob-nav button[aria-current=page]{background:#e8f1ff;color:#125bc0}.bob-nav span{display:block;font-size:19px;margin-bottom:2px}
+.bob-heading{display:flex;align-items:center;justify-content:space-between;margin:2px 0 16px}.bob-heading h1{font-size:27px}.bob-heading small{color:#6b7788}
+.bob-status{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}.bob-status button{font-size:12px;width:auto;background:#edf0f5;color:#42536a;padding:7px 10px;min-height:36px}
+.bob-mobile .signal.neutral{background:#eef0f3;color:#526070}.bob-mobile #quickSignal{font-size:27px;padding:15px}
+.bob-mobile .analysis-blocks{gap:9px}.bob-mobile .analysis-block{padding:11px;font-size:13px}.bob-mobile .analysis-block b{font-size:16px}.bob-mobile .analysis-block details{font-size:12px}.bob-mobile .analysis-block summary{font-weight:500;padding:4px 0;min-height:30px}
+.bob-mobile .metric b{font-size:18px}.bob-mobile #hysteresis{font-size:13px;font-weight:500;max-height:180px;overflow:auto}
+.bob-mobile #tradeSignal{font-size:14px!important;text-align:left;max-height:160px;overflow:auto}
+.bob-mobile #dgTop3{margin-top:0!important;padding:14px!important;background:white!important}
+.bob-mobile #auditStatistics table{font-size:12px}.bob-mobile #auditStatistics th{padding:8px;text-align:left}
+.bob-mobile #auditStatistics td{padding:8px;overflow-wrap:anywhere}.bob-mobile #auditStatistics>div{max-width:100%}
+.bob-mobile .gold-quote{padding:15px}.bob-mobile .gold-price{font-size:28px}.bob-mobile .gold-price-row{margin:10px 0}
+.bob-mobile #chartFib{display:none}.bob-mobile .bob-short{margin:10px 0;color:#536176;font-size:14px}
+.bob-mobile .bob-primary{background:#1677ff}.bob-mobile .bob-disclosure{margin:12px 0}
+@media(max-width:400px){.bob-mobile main{padding:12px 12px 110px}.bob-mobile .card{padding:14px}.bob-mobile .row{flex-wrap:wrap}.bob-mobile .row>*{flex-basis:140px}}
+@media(max-width:600px){
+.bob-mobile #auditStatistics table,.bob-mobile #auditStatistics tbody,.bob-mobile #auditStatistics tr,.bob-mobile #auditStatistics td{display:block;width:100%}
+.bob-mobile #auditStatistics caption{display:block;text-align:left;margin-bottom:10px}.bob-mobile #auditStatistics thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.bob-mobile #auditStatistics tr{background:#f5f7fa;border-radius:12px;padding:8px;margin:10px 0}.bob-mobile #auditStatistics td{display:flex;justify-content:space-between;gap:12px}.bob-mobile #auditStatistics td:first-child{font-weight:700}
+.bob-mobile #auditStatistics td:nth-child(2):before{content:"Treffer"}.bob-mobile #auditStatistics td:nth-child(3):before{content:"Fehlprognosen"}.bob-mobile #auditStatistics td:nth-child(4):before{content:"Unverändert"}.bob-mobile #auditStatistics td:nth-child(5):before{content:"Ausgewertet"}
+}
 </style>
 </head>
 <body>
@@ -461,6 +493,80 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
  document.getElementById('auditRefresh').addEventListener('click',refresh);
  document.getElementById('auditDetails').addEventListener('toggle',e=>{if(e.target.open)refresh();});
+})();
+</script>
+<script>
+// Presentation only: reparent existing nodes, preserving listeners, values and IDs.
+(function(){
+ function initMobile(){
+  const main=document.querySelector('main');if(!main||document.getElementById('bobNavigation'))return;
+  const byId=id=>document.getElementById(id);
+  const card=id=>byId(id)?.closest('.card');
+  const quick=card('quickSignal'),manual=card('dgType'),push=card('generalPushBtn');
+  const header=document.querySelector('h1')?.parentElement;
+  const panels={};
+  for(const [key,label] of Object.entries({overview:'Übersicht',products:'Produkte',trade:'Mein Trade',learning:'Lernen'})){
+   const el=document.createElement('section');el.id='bob-view-'+key;el.setAttribute('aria-label',label);el.hidden=key!=='overview';
+   if(key!=='overview'){const h=document.createElement('h2');h.textContent=label;h.tabIndex=-1;el.append(h);}
+   panels[key]=el;main.append(el);
+  }
+  function move(node,key){if(node)panels[key].append(node);}
+  function fold(node,title){if(!node)return null;const d=document.createElement('details');d.className='bob-disclosure';const h=document.createElement('summary');h.textContent=title;node.before(d);d.append(h,node);return d;}
+  move(quick,'overview');
+  if(quick){quick.querySelector('h2').textContent='Bobs Einschätzung';
+   const short=document.createElement('p');short.id='bobShortReason';short.className='bob-short';byId('quickSignal').after(short);
+   fold(byId('quickReason'),'Datenstand und Sperrgründe');
+   fold(quick.querySelector('.metrics'),'Marktwerte und Risiko');
+   fold(byId('account')?.closest('.grid'),'Konto und Risikoeinstellung');
+   for(const block of quick.querySelectorAll('.analysis-block')){const note=block.querySelector('small');fold(note,'Einzelheiten');}
+  }
+  const status=document.createElement('div');status.className='bob-status';status.innerHTML='<button type="button" data-status="data">Marktdaten: prüfen</button><button type="button" data-status="connection">Verbindung: prüfen</button><button type="button" data-status="push">Push: prüfen</button>';
+  panels.overview.prepend(status);
+  const system=document.createElement('details');system.className='card';system.id='bobSystemDetails';system.innerHTML='<summary>Daten und Verbindung prüfen</summary>';
+  panels.overview.append(system);
+  for(const el of [byId('analysisAge'),card('sourceSummary'),push])if(el)system.append(el);
+  if(push)fold(push.querySelector('.warning'),'Welche Nachrichten sendet Bob?');
+  move(document.querySelector('.gold-market'),'overview');fold(document.querySelector('.gold-market'),'Goldkurse · Spot, Future und Schätzung');
+  move(card('chart'),'overview');
+  const technical=document.createElement('details');technical.className='card';technical.innerHTML='<summary>Analyse im Detail</summary>';panels.overview.append(technical);
+  for(const id of ['price','mtfSummary','momentumSummary','adx','signal']){const el=card(id);if(el)technical.append(el);}
+  move(byId('economicTitle')?.closest('section'),'overview');fold(byId('economicTitle')?.closest('section'),'Wirtschaftstermine');
+  const selection=document.createElement('div');selection.className='card';selection.innerHTML='<h3>Produktauswahl</h3><p id="bobSelectionSummary" class="small">Auswahl wird geprüft …</p><button type="button" class="bob-primary" data-view="products">Produkte und fehlende Werte ansehen</button>';quick.after(selection);
+  move(byId('dgTop3'),'products');fold(byId('dgTop3')?.querySelector(':scope > div.small'),'Datenabruf und Gültigkeit');move(manual,'products');fold(manual,'Manuelle Produktprüfung und Berechnung');
+  move(card('tradeStateBtn'),'trade');
+  const enter=document.createElement('button');enter.type='button';enter.className='bob-primary';enter.textContent='Trade erfassen / Kursbild ergänzen';enter.addEventListener('click',()=>{const upload=byId('bobTradeUpload');if(upload?.parentElement.tagName==='DETAILS')upload.parentElement.open=true;byId('trade-images')?.click();});panels.trade.append(enter);
+  move(byId('bobTradeUpload')||byId('bobExitEstimate'),'trade');fold(byId('bobTradeUpload'),'Produktnachweise und Ausstiegskurse');move(card('stopPanel'),'trade');
+  fold(document.querySelector('button[onclick="activateTestTrade()"]'),'Testfunktionen');
+  move(card('risk2'),'trade');fold(card('risk2'),'Trade-Risikorechner');
+  for(const id of ['auditStatistics','improvementPanel','auditPanel'])move(byId(id),'learning');
+  fold(byId('auditStatistics')?.querySelector(':scope > div.small:not([id])'),'Was bedeuten Treffer und Fehlprognosen?');fold(byId('improvementPanel')?.querySelector(':scope > div.small:not([id])'),'Wie Bob Verbesserungen prüft');
+  move(card('researchStatus'),'learning');fold(card('researchStatus'),'Research und manuelle Auswertung');
+  move(byId('bobAutoCollection'),'learning');fold(byId('bobAutoCollection'),'Genauigkeit der Future-Schätzung');
+  const disclaimer=main.querySelector(':scope > .card.warning');if(disclaimer){move(disclaimer,'learning');fold(disclaimer,'Hinweise zur Nutzung');}
+  const logout=document.querySelector('form[action="/logout"]');move(logout,'learning');
+  if(header){header.className='bob-heading';header.querySelector('h1').textContent='Bob';header.querySelector('.sub').textContent='Dein Gold- und Produktassistent';main.prepend(header);}
+  Object.values(panels).forEach(el=>main.append(el));
+  const nav=document.createElement('nav');nav.id='bobNavigation';nav.className='bob-nav';nav.setAttribute('aria-label','Hauptnavigation');
+  nav.innerHTML=[['overview','◫','Übersicht'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['learning','↗','Lernen']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+'</button>').join('');document.body.append(nav);
+  function show(key,focus=true){if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key)btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
+  document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b){show(b.dataset.view);history.replaceState(null,'','#'+b.dataset.view);}});
+  window.addEventListener('hashchange',()=>show(location.hash.slice(1)));
+  for(const b of status.querySelectorAll('button'))b.addEventListener('click',()=>{system.open=true;system.scrollIntoView({behavior:'smooth',block:'start'});});
+  function text(id){return byId(id)?.textContent.trim()||'';}
+  function update(){
+   const close=document.querySelector('button[onclick="closeTrade()"]');if(close)close.hidden=/Kein aktiver Trade/i.test(text('tradeStateBtn'));
+   const reason=text('quickReason');const short=byId('bobShortReason');if(short)short.textContent=/veraltet|Aktualität|Zeitstempel|Daten fehlen/i.test(reason)?'Abwarten: Die Aktualität der Marktdaten ist nicht ausreichend bestätigt.':reason.split(' · ')[0]||'Analyse wird geladen …';
+   const source=text('sourceSummary');status.querySelector('[data-status=data]').textContent='Marktdaten: '+(/live|aktuell/i.test(source)&&!/nicht|unbekannt|veraltet|Aktualität|Zeitstempel/i.test(source+' '+reason)?'Kurs verfügbar':'prüfen');
+   const errors=[text('pushStatus'),text('fibMonitorStatus'),text('auditSave'),text('improvementStatus')].join(' ');
+   status.querySelector('[data-status=connection]').textContent='Verbindung: '+(/502|nicht erreichbar|nicht abrufbar|nicht bestätigt/i.test(errors)?'gestört / unbestätigt':'Status ansehen');
+   status.querySelector('[data-status=push]').textContent='Push: '+(/nicht|gesperrt|502/i.test(text('pushStatus')+' '+text('fibMonitorStatus'))?'prüfen':text('generalPushBtn').includes('Ein')?'eingeschaltet':'aus');
+   const out=byId('dgTop3Out');const summary=byId('bobSelectionSummary');if(out&&summary){const title=out.querySelector(':scope > b')?.textContent||'Noch keine Produktauswahl.';const explanation=[...out.querySelectorAll(':scope > div.small')].find(el=>!/Listenbilder|unterschiedliche Produkte/.test(el.textContent))?.textContent||'';summary.textContent=title+(explanation?' · '+explanation:'');}
+  }
+  // Observe only original outputs, never our derived labels (avoids observer loops).
+  const observer=new MutationObserver(update);for(const id of ['quickReason','sourceSummary','pushStatus','fibMonitorStatus','auditSave','improvementStatus','generalPushBtn','dgTop3Out','tradeStateBtn']){const el=byId(id);if(el)observer.observe(el,{childList:true,subtree:true,characterData:true});}
+  document.body.classList.add('bob-mobile');update();show(location.hash.slice(1),false);
+ }
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initMobile);else initMobile();
 })();
 </script>
 <script>
@@ -1855,6 +1961,8 @@ if(typeof MutationObserver!=="undefined"){
 loadData();
 setInterval(()=>{ if(document.visibilityState==="visible"){loadData();syncPushPreferences();} }, 60000);
 </script><form method="post" action="/logout" style="text-align:center;margin:24px"><button type="submit">Abmelden</button></form>
+
+
 </body></html>
 
 
