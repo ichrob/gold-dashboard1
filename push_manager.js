@@ -76,6 +76,11 @@
       if(!(s.registered&&Notification.permission==="granted"&&s.trade===true))return false;
     }else if(!allowed(kind))return false;
     const tag="bob-"+kind+"-"+(data.signalId||"current");
+    if(!data.test){
+      const at=Number(data.candleClosedAt||data.dataAt);
+      body+=' · Datenzeit: '+(at>0?new Date(at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'unbekannt')+'.';
+    }
+    title=(data.test?"TEST · ":kind==="trade"?"TRADE-WARNUNG · ":"MARKTSIGNAL · ")+title;
     const payload={title,body,data:{...data,url:data.url||"/",kind,signalId:data.signalId||null},tag};
     let serverSent=false;
     if(read().serverRegistered){
@@ -120,7 +125,7 @@
   }
   function syncWorkerPreferences(){
     if(!('serviceWorker' in navigator))return;
-    navigator.serviceWorker.ready.then(reg=>reg.active?.postMessage({type:'BOB_PUSH_PREFERENCES',general:read().general===true})).catch(()=>{});
+    navigator.serviceWorker.ready.then(reg=>reg.active?.postMessage({type:'BOB_PUSH_PREFERENCES',general:read().general===true,trade:read().trade===true,activeTrade:read().activeTrade===true})).catch(()=>{});
   }
   let selectionBusy=false,selectionLastAt=0,selectionLastKey='',selectionGeneration=0;
   function productStatus(text){const el=typeof document!=='undefined'?document.getElementById('productPushStatus'):null;if(el)el.textContent=text;}
@@ -146,6 +151,7 @@
   }
   function set(kind,value){
     const next=save({...read(),[kind]:Boolean(value)});
+    if(kind==='trade'||kind==='activeTrade')syncWorkerPreferences();
     if(kind==='general'){selectionGeneration++;selectionLastAt=0;selectionLastKey='';syncWorkerPreferences();}
     return next;
   }
@@ -171,21 +177,8 @@
       const p=Number(priceEl?.value)||Number.parseFloat(String(liveEl?.textContent||"").replace(",","."));
       if(!Number.isFinite(p))return;
 
-      const stop=Number(t.stop);
-      const breached=(t.dir==="LONG"&&p<=stop)||(t.dir==="SHORT"&&p>=stop);
-      if(breached){
-        const key="bobPushStopBreach";
-        const prior=localStorage.getItem(key);
-        const marker=t.dir+":"+stop.toFixed(4)+":"+Math.floor(Date.now()/600000);
-        if(prior!==marker){
-          localStorage.setItem(key,marker);
-          emit("trade","Bob – Trade schließen",
-            "Stop-Loss erreicht/überschritten · "+t.dir+" · Kurs "+p.toFixed(2)+" · Stop "+stop.toFixed(2),
-            {kind:"trade-close",signalId:"close:"+marker});
-        }
-        return;
-      }
-
+      // Stop proximity/breach transitions are owned by maybePushAnalysisAlerts.
+      // Keep a single alert producer; the second monitor only updates stops.
       // Let Bob's existing, tested stop model decide whether the stop can be
       // improved. The function itself emits "Stop-Loss anpassen" only when the
       // new stop is genuinely better, so normal price noise stays silent.

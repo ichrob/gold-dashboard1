@@ -50,5 +50,10 @@ vm.runInNewContext(fs.readFileSync('push_manager.js','utf8'),{window,localStorag
  await dispatch('push',{...message,data:{...message.data,expiresAt:Date.now()-1}});assert.equal(displayed,1);
  await dispatch('message',{type:'BOB_PUSH_PREFERENCES',general:false});
  await dispatch('push',message);assert.equal(displayed,1);assert.equal(closed,1);
+ await dispatch('message',{type:'BOB_PUSH_PREFERENCES',general:true,trade:true,activeTrade:true});
+ await dispatch('push',{data:{kind:'trade'}});assert.equal(displayed,2);
+ await dispatch('message',{type:'BOB_PUSH_PREFERENCES',general:true,trade:true,activeTrade:false});
+ await dispatch('push',{data:{kind:'trade'}});assert.equal(displayed,2);
+ await dispatch('push',{data:{kind:'trade',test:true}});assert.equal(displayed,3);
  console.log('Service worker blocks queued products after switch-off and expired recommendations');
 })().catch(e=>{console.error(e);process.exitCode=1;});

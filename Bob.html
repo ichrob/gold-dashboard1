@@ -1393,13 +1393,16 @@ async function maybePushAnalysisAlerts(){
      const stop=Number(tradeMgmt.stop), distance=Math.abs(lastPrice-stop);
      const near=Math.max((A.at||0)*0.25,1);
      const breached=(tradeMgmt.dir==="LONG"&&lastPrice<=stop)||(tradeMgmt.dir==="SHORT"&&lastPrice>=stop);
-     const lastWarn=Number(saved.tradeWarnAt||0);
-     if((breached||distance<=near)&&now-lastWarn>15*60*1000){
-       BobPush.emit("trade",breached?"Bob – Stop-Loss erreicht":"Bob – Stop-Loss wird knapp",
+     const stopState=breached?"breached":distance<=near?"near":"clear";
+     const stopKey=(tradeMgmt.fibonacciMonitor?.tradeId||tradeMgmt.entry)+":"+stop+":"+stopState;
+     if(stopState!=="clear"&&saved.tradeStopState!==stopKey){
+       const sent=await BobPush.emit("trade",breached?"Bob – Stop-Loss erreicht":"Bob – Stop-Loss wird knapp",
          "XAU/USD "+lastPrice.toFixed(2)+" · Stop "+stop.toFixed(2),
-         {kind:"active-trade-warning",signalId:"trade-stop:"+Math.floor(now/600000)});
-       saved.tradeWarnAt=now;localStorage.setItem("bobAlertV2",JSON.stringify(saved));
+         {kind:"active-trade-warning",signalId:"trade-stop:"+stopKey});
+       if(sent)saved.tradeStopState=stopKey;
+       localStorage.setItem("bobAlertV2",JSON.stringify(saved));
      }
+     if(stopState==="clear"){saved.tradeStopState=stopKey;localStorage.setItem("bobAlertV2",JSON.stringify(saved));}
    }
  }catch(e){console.warn("Bob push analysis alert",e)}
 }
@@ -1668,6 +1671,7 @@ loadData();
 setInterval(()=>{ if(document.visibilityState==="visible"){loadData();syncPushPreferences();} }, 60000);
 </script><form method="post" action="/logout" style="text-align:center;margin:24px"><button type="submit">Abmelden</button></form>
 </body></html>
+
 
 
 
