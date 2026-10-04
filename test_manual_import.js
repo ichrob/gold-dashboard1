@@ -140,3 +140,16 @@ console.log('Original-image OCR prefix errors and older-quote overwrite protecti
  assert.notEqual(b.normalizeOcrIsin('DE000FGSNMF2').isin,'DE000FG5NMF2');
  console.log('S/5: exact original product recovered; mismatched identity remains uncertain');
 }
+
+(async()=>{
+ const long='SG Gold Turbo BEST Open-End Call BAR 4113.57 BP\n4113.57 Bv 10 | DE000FG5NMF2';
+ const short='SG Gold Turbo Classic Put BAR 4460 BP 4460 Bv 10\n18/12/2026 | DE000FG4JXV7';
+ const files=[{name:'one',text:long},{name:'two',text:short},{name:'overlap',text:long}];
+ const progress=[];const recognize=async f=>({data:{text:f.text}});
+ const many=await b.readListBatch(files,recognize,(i,total)=>progress.push([i,total]));
+ assert.equal(many.length,2);assert.deepEqual(progress,[[1,3],[2,3],[3,3]]);
+ assert.equal((await b.readListBatch(files.slice(0,1),recognize)).length,1);
+ await assert.rejects(b.readListBatch([...files,{name:'unreadable',text:''}],recognize),/unreadable/);
+ await assert.rejects(b.readListBatch(files,async()=>{throw Error('OCR failed');}),/OCR failed/);
+ console.log('Single multi-image upload: one/many, deduplication, progress and failed batch passed');
+})().catch(e=>{console.error(e);process.exitCode=1;});

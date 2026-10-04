@@ -217,7 +217,7 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   assert.strictEqual(repeated[0].ko,"3900");
   const many = degiro.BobDegiro.parseScreenshotCandidates(Array.from({length:8},(_,i)=>"Gold LONG DE000ABC123"+i+" Hebel 5x KO 3900").join("\n"));
   assert.strictEqual(many.length,8);
-  assert(fs.readFileSync("degiro_assistant.js", "utf8").includes("dgCentralShot"));
+  assert(fs.readFileSync("degiro_assistant.js", "utf8").includes('id="dgListUpload" type="file" accept="image/*" multiple'));
   const screenRow=degiro.BobDegiro.ocrExtract("Gold Turbo Mini Call BAR 3539 BP 3503.93 Bv 10 | DE000FA06UL6");
   assert.strictEqual(screenRow.ko,"3539");
   assert.strictEqual(screenRow.leverage,"");
