@@ -187,6 +187,7 @@ try{
 <div class="analysis-block neutral"><span>Volatilität</span><b id="blockVolatility">NEUTRAL</b><small id="blockVolatilityNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Marktstruktur</span><b id="blockStructure">NEUTRAL</b><small id="blockStructureNote">Daten fehlen</small></div>
 </div><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div>
+<details style="margin-top:10px"><summary>Warum entscheidet Bob so?</summary><div id="decisionExplanation" class="small" style="white-space:pre-line">Noch keine bestätigte Analyse.</div></details>
 <div id="quickReason" class="small" style="margin-top:10px">Lade Daten, um das Setup zu bewerten.</div>
 <div class="grid" style="margin-top:10px">
 <div><label>Konto (€)</label><input id="account" type="number" value="500" step="50"></div>
@@ -1162,10 +1163,19 @@ function fiveMinuteConfirmation(bundle,now=Date.now()){
 function confirmedSignalDirection(){
  if(window.BobSession?.expired()||analysisAgeWarnings().length||!A.ready||!C.length||!Number.isFinite(A.at)){
   const reasons=[];if(window.BobSession?.expired())reasons.push('Anmeldung erforderlich');if(!C.length)reasons.push('Gold-Kerzendaten fehlen');else if(!A.ready)reasons.push('Analysehistorie unvollständig: '+C.length+' Kerzen');if(!Number.isFinite(A.at))reasons.push('Volatilitätswert ATR fehlt oder ist ungültig');reasons.push(...analysisAgeWarnings());
-  signalState={dir:'NEUTRAL',pending:'NEUTRAL',count:0,reason:reasons.join(' · ')};return 'NEUTRAL';
+  signalState={dir:'NEUTRAL',pending:'NEUTRAL',count:0,reason:reasons.join(' · ')};renderDecisionExplanation();return 'NEUTRAL';
  }
  signalState=fiveMinuteConfirmation(liveBundleCache);
+ renderDecisionExplanation();
  return signalState.dir;
+}
+function renderDecisionExplanation(){
+ const out=$('decisionExplanation');if(!out)return;
+ const state=signalState,active=['LONG','SHORT'].includes(state.dir),m=getMtfState().byTf||{};
+ const frames=['5m','15m','1h','4h'].map(tf=>tf+': '+(m[tf]?.available?m[tf].dir:'Angaben fehlen')).join(' · ');
+ const why=active?'Bestätigte Richtung '+state.dir+' aus zwei aufeinanderfolgenden geschlossenen 5m-Kerzen. EMA, MACD und RSI werden als gemeinsames Kurskollektiv bewertet.': 'Keine bestätigte Richtung: '+(state.reason||'Angaben fehlen');
+ const against=state.count?'Ein Wechsel zu '+(state.pending==='NEUTRAL'?'ABWARTEN':state.pending)+' zeichnet sich ab; erst 1 von 2 Kerzen bestätigt. Die bisherige Richtung bleibt bis zur Bestätigung bestehen.':active?'Kein ausstehender Richtungswechsel in der aktuellen Prüfung. Das ist keine Garantie für den weiteren Kursverlauf.':state.reason;
+ out.textContent='Warum diese Richtung?\n'+why+'\n'+frames+'\n\nWas spricht dagegen / ist unsicher?\n'+against+'\n\nWann entfällt die Richtungsfreigabe?\nBei zwei geschlossenen 5m-Kerzen für ABWARTEN oder die Gegenrichtung. Bei fehlenden, ungültigen oder veralteten erforderlichen Daten sofort. Ein Produkt benötigt zusätzlich seine eigenen Nachweise und Risikoprüfungen.';
 }
 function updateResearchPanel(){
  const reg=currentRegime(); if($("regime"))$("regime").textContent=reg;
