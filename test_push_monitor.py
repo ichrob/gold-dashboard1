@@ -94,6 +94,18 @@ class PushMonitorTests(unittest.TestCase):
             data=json.loads(send.call_args.kwargs['data'])
             self.assertEqual(len(data['data']['events']),6);self.assertIn('Kerzenschluss',data['body'])
             self.assertTrue(any('UPDATE subscriptions SET trade_monitor=' in c.args[0] for c in conn.execute.call_args_list))
+    def test_data_outage_once_and_recovery(self):
+        monitor,payload=self.monitor();db,conn=self.connection()
+        with patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'),patch.object(push_server,'db',db),patch.object(push_server,'vapid',return_value='fixture'),patch.object(push_server,'webpush') as send:
+            conn.execute.return_value.fetchall.return_value=[(123,{},monitor)]
+            self.assertEqual(self.request('/monitor',{'barsByTf':{}})[1]['sent'],1)
+            self.assertIn('eingeschränkt',json.loads(send.call_args.kwargs['data'])['body'])
+            monitor['dataHealth']='unavailable'
+            self.assertEqual(self.request('/monitor',{'barsByTf':{}})[1]['sent'],0)
+            monitor['previousClose']=4060
+            self.assertEqual(self.request('/monitor',payload)[1]['sent'],1)
+            self.assertIn('keine Entwarnung',json.loads(send.call_args.kwargs['data'])['body'])
+
     def test_failed_delivery_does_not_advance(self):
         monitor,payload=self.monitor();db,conn=self.connection();conn.execute.return_value.fetchall.return_value=[(123,{},monitor)]
         with patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'),patch.object(push_server,'db',db),patch.object(push_server,'vapid',return_value='fixture'),patch.object(push_server,'webpush',side_effect=push_server.WebPushException('fixture')):

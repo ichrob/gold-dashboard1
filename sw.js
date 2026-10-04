@@ -24,6 +24,12 @@ self.addEventListener("push", event => {
     data: { url: details.url || "/", kind: details.kind || "general", signalId: details.signalId || null }
   };
   event.waitUntil((async()=>{
+    if(details.kind==='trade'){
+      const cache=await caches.open('bob-push-settings');
+      const response=await cache.match('/__bob_push_preferences__');
+      const prefs=response?await response.json():{};
+      if(!prefs.trade||(!details.test&&!prefs.activeTrade))return;
+    }
     if(String(details.kind||'').startsWith('product-')){
       const cache=await caches.open('bob-push-settings');
       const response=await cache.match('/__bob_push_preferences__');
@@ -51,8 +57,9 @@ self.addEventListener("message", event => {
   if (event.data && event.data.type === "BOB_SKIP_WAITING") self.skipWaiting();
   if(event.data?.type==='BOB_PUSH_PREFERENCES')event.waitUntil((async()=>{
     const cache=await caches.open('bob-push-settings');
-    const general=event.data.general===true;
-    await cache.put('/__bob_push_preferences__',new Response(JSON.stringify({general})));
+    const general=event.data.general===true,trade=event.data.trade===true,activeTrade=event.data.activeTrade===true;
+    await cache.put('/__bob_push_preferences__',new Response(JSON.stringify({general,trade,activeTrade})));
+    if(!trade||!activeTrade){const notices=await self.registration.getNotifications();notices.filter(n=>n.data?.kind==='trade').forEach(n=>n.close());}
     if(!general){const notifications=await self.registration.getNotifications({tag:'bob-product-selection'});notifications.forEach(n=>n.close());}
   })());
 });

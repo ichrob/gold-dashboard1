@@ -123,7 +123,7 @@ assert(fs.readFileSync("manifest.json","utf8").includes("/icon.svg?v=3"));
   const emitted = await p.context.window.BobPush.emit("trade", "Test", "Body", { signalId: "t1" });
   assert.strictEqual(emitted, true);
   assert.strictEqual(p.fetchCalls.some(call => call.url === "/api/push/send"), false);
-  assert.strictEqual(p.serviceWorkerRegistration.lastNotification.title, "Test");
+  assert.strictEqual(p.serviceWorkerRegistration.lastNotification.title, "TRADE-WARNUNG · Test");
 
   const htmlSource = fs.readFileSync("Bob.html", "utf8");
   const scoreBlock = htmlSource.slice(htmlSource.indexOf(" let pts=0,max=0,details=[];"),htmlSource.indexOf(" const atrPct=",htmlSource.indexOf(" let pts=0,max=0,details=[];")));

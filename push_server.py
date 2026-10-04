@@ -293,6 +293,15 @@ class Handler(BaseHTTPRequestHandler):
                     for sid, sub, monitor in rows:
                         checkpoint, alerts, status = fibonacci_monitor.advance_monitor(monitor, bars_by_tf.get(monitor['timeframe'], []))
                         delivered = True
+                        old_health = monitor.get('dataHealth')
+                        checkpoint['dataHealth'] = status
+                        if status == 'unavailable' and old_health != 'unavailable' or status == 'active' and old_health == 'unavailable':
+                            body = ('Aktuelle Kerzendaten fehlen oder sind veraltet. Analyse mit vorhandenen Werten läuft weiter; aktuelle Trade-Überwachung eingeschränkt.' if status == 'unavailable' else 'Aktuelle Kerzendaten wieder vorhanden. Trade-Überwachung fortgesetzt; dies ist keine Entwarnung für den Trade.')
+                            try:
+                                webpush(subscription_info=sub, data=json.dumps({'title':'DATENSTATUS · Bob', 'body':monitor['instrument']+' · '+monitor['direction']+' · '+body, 'tag':'bob-monitor-health', 'data':{'kind':'trade','url':'/','tradeId':monitor['tradeId']}},separators=(',',':')), vapid_private_key=key,vapid_claims={'sub':VAPID_SUBJECT},ttl=300)
+                                sent += 1
+                            except WebPushException:
+                                delivered = False
                         # Coalesce simultaneous level breaks into one notification.
                         if alerts:
                             event = alerts[-1]
@@ -302,7 +311,7 @@ class Handler(BaseHTTPRequestHandler):
                                     f"Fibonacci {label} USD nach {'oben' if event['crossed']=='up' else 'unten'} durchbrochen · "
                                     f"{'für' if event['favorable'] else 'gegen'} deine Position. Kein automatischer Trade.")
                             try:
-                                webpush(subscription_info=sub, data=json.dumps({'title':'Bob – Fibonacci-Level durchbrochen','body':body,'data':{**event,'events':latest_alerts,'url':'/','kind':'trade'}},separators=(',',':')), vapid_private_key=key,vapid_claims={'sub':VAPID_SUBJECT},ttl=300)
+                                webpush(subscription_info=sub, data=json.dumps({'title':'TRADE-WARNUNG · Fibonacci-Level durchbrochen','body':body,'data':{**event,'events':latest_alerts,'url':'/','kind':'trade'}},separators=(',',':')), vapid_private_key=key,vapid_claims={'sub':VAPID_SUBJECT},ttl=300)
                                 sent += 1
                             except WebPushException as exc:
                                 delivered = False

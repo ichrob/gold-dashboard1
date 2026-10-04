@@ -28,19 +28,19 @@ def transition(previous, checked, now=None):
         if signature == previous.get('lastSignature') and now-previous.get('lastSentAt', 0) < 300000:
             return state, None
         state.update(notified=True, lastSignature=signature, lastSentAt=now)
-        labels = '; '.join(p['isin']+' · '+p.get('name', '')+' · '+p['direction'] for p in products)
+        labels = '; '.join(p['isin']+' · '+p.get('name', '')+' · '+p['direction']+' · '+('berechneter Kurs' if p.get('estimated') else 'Produktkurs')+' · Kurszeit: '+str(p.get('quoteAt') or 'unbekannt') for p in products)
         reason = next((str(r) for p in products for r in p.get('reasons', []) if r), 'Markt- und Produktpflichtprüfungen bestanden')
         valid_until = datetime.fromtimestamp(checked['expiresAt']/1000, ZoneInfo('Europe/Zurich')).strftime('%H:%M:%S')
         body = labels + '. Grund: ' + reason[:220] + '. Prüfung ' + stamp + ' Uhr; spätestens bis '+valid_until+' Uhr bestätigt. Aktuellen Status in Bob prüfen.'
         removed = [p['isin'] for p in previous.get('products', []) if p['isin'] not in {x['isin'] for x in products}]
         if previous.get('notified') and removed:
             body += ' Nicht mehr freigegeben: ' + ', '.join(removed) + '.'
-        title = 'Bob – nach Prüfregeln freigegeben'
+        title = 'PRODUKTFREIGABE · Bob'
         kind = 'product-approved'
     elif previous.get('notified'):
         labels = ', '.join(p['isin'] for p in previous.get('products', []))
         body = labels + ': nicht mehr freigegeben. ' + '; '.join(checked.get('reasons') or ['Aktuelle Bestätigung abgelaufen']) + '. Prüfung ' + stamp + ' Uhr.'
-        title, kind = 'Bob – Produktfreigabe zurückgezogen', 'product-withdrawn'
+        title, kind = 'RÜCKNAHME · Produktfreigabe', 'product-withdrawn'
     else:
         return state, None
     return state, {'title': title, 'body': body[:1000], 'tag': 'bob-product-selection',
