@@ -45,6 +45,8 @@ def event(payload, now=None):
 
 
 def init(conn):
+    import comparison_store
+    comparison_store.init(conn)
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_future_predictions (
         bucket TEXT NOT NULL, quote_at TIMESTAMPTZ NOT NULL, price DOUBLE PRECISION NOT NULL,
         reference_at TIMESTAMPTZ NOT NULL, received_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
@@ -59,6 +61,9 @@ def init(conn):
 
 def handle(conn, action, payload):
     if action not in ('read','write'):raise ValueError('Unbekannte Messaktion')
+    if payload.get('key') == 'future:GCZ26:spot-cfd-comparison-v1':
+        import comparison_store
+        return comparison_store.handle(conn, action, payload)
     # Serialize pairing and writes across scanner instances. Caller commits.
     conn.execute('SELECT pg_advisory_xact_lock(68431026)')
     if action=='write':
@@ -113,7 +118,7 @@ def handle(conn, action, payload):
     return dict(ok=True,key=KEY,pairs=pairs,diagnostics=diagnostics)
 
 
-def request(action, payload):
+def request(action, payload, key=KEY):
     base=os.environ.get('PUSH_SERVICE_URL','').rstrip('/');token=os.environ.get('PUSH_SERVICE_TOKEN','')
     if not base or not token:raise OSError('Messspeicher nicht konfiguriert')
     if not base.startswith(('http://','https://')):base='http://'+base
@@ -122,7 +127,7 @@ def request(action, payload):
     with build_opener(NoRedirect()).open(req,timeout=12) as response:body=response.read(20971521)
     if len(body)>20971520:raise ValueError('Messantwort zu groß')
     result=json.loads(body)
-    if not isinstance(result,dict) or result.get('key')!=KEY or result.get('ok') is not True:
+    if not isinstance(result,dict) or result.get('key')!=key or result.get('ok') is not True:
         raise ValueError('Messantwort nicht verwendbar')
     return result
 
@@ -178,4 +183,3 @@ def _sync():
         except (OSError,ValueError,TypeError,KeyError):
             with _lock:_status='Dauerhafter Messspeicher momentan nicht erreichbar; lokale Messung läuft weiter'
         threading.Event().wait(30)
-
