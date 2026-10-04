@@ -87,3 +87,22 @@ const grouped=vm.runInContext(`(()=>{
 })()`,env);
 assert.equal(grouped.a,grouped.b);assert.equal(grouped.mixed,0);assert.equal(grouped.short,-grouped.a);
 assert.equal(grouped.weights.priceCollective,100);assert.equal(grouped.weights.mtf,0);assert.equal(grouped.weights.atr,0);assert.equal(grouped.weights.cr,0);
+
+(async()=>{
+ await new Promise(resolve=>setImmediate(resolve));
+ push.serverRegistered=true;push.registered=true;push.general=true;push.trade=false;
+ vm.runInContext('tradeMgmt={active:false}',env);
+ env.navigator.serviceWorker={ready:Promise.resolve({pushManager:{getSubscription:async()=>({endpoint:'fixture'})}})};
+ const paths=[];env.fetch=async path=>{paths.push(path);return {ok:false,status:502};};
+ await vm.runInContext('testBackgroundPush()',env);
+ assert.deepEqual(paths,['/api/push/preferences']);
+ assert(element('fibMonitorStatus').textContent.includes('HTTP 502'));
+ assert(!element('fibMonitorStatus').textContent.includes('Anmeldung prüfen'));
+ paths.length=0;env.fetch=async path=>{paths.push(path);return {ok:true,status:200,json:async()=>({backgroundEnabled:true})};};
+ await vm.runInContext('testBackgroundPush()',env);
+ assert.deepEqual(paths,['/api/push/preferences','/api/push/test-background']);
+ assert(element('fibMonitorStatus').textContent.startsWith('Test gespeichert.'));
+ vm.runInContext('renderPush()',env);
+ assert(!element('pushStatus').textContent.includes('Push-Service erreichbar'));
+ console.log('Background test: failed sync blocks scheduling; success confirms server scheduling');
+})().catch(e=>{console.error(e);process.exitCode=1;});

@@ -27,6 +27,19 @@ class PushMonitorTests(unittest.TestCase):
         step=300000;end=int(now//step)*step
         payload=dict(tradeId='trade-fixture',direction='LONG',timeframe='5m',instrument='XAU/USD',levels={k:4050 for k in LEVELS},startedAt=end-step,previousClose=4040)
         return validate_monitor(payload,now),dict(barsByTf={'5m':[dict(openTime=end-step,close=4060,isOpen=False,instrument='XAU/USD')]})
+    def test_provider_timeout_is_bounded_and_preserves_retry(self):
+        from requests.exceptions import Timeout
+        with patch.object(push_server, '_webpush', side_effect=Timeout('fixture')) as send:
+            with self.assertRaises(push_server.WebPushException):
+                push_server.webpush(subscription_info={})
+            self.assertEqual(send.call_args.kwargs['timeout'], 8)
+
+    def test_database_waits_are_bounded(self):
+        with patch.object(push_server, 'DATABASE_URL', 'fixture'), patch.object(push_server.psycopg, 'connect') as connect:
+            push_server.db()
+            self.assertEqual(connect.call_args.kwargs['connect_timeout'], 5)
+            self.assertIn('lock_timeout=3000', connect.call_args.kwargs['options'])
+
     def test_selection_off_does_not_evaluate_or_send(self):
         db,conn=self.connection();conn.execute.return_value.fetchone.return_value=(False,)
         with patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'),patch.object(push_server,'db',db),patch.object(push_server.product_push,'evaluate') as verify,patch.object(push_server,'webpush') as send:

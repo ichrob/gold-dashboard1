@@ -206,7 +206,7 @@ try{
 <div><label>Push-Kanal</label><button onclick="setupNtfy()">☁️ ntfy einrichten</button></div>
 </div>
 <div class="small" style="margin-top:8px">Kein Login nötig. Auf Android die ntfy-App installieren und denselben Topic abonnieren. Der Topic-Name ist eine öffentliche Kanaladresse, kein echtes Passwort. Für sensible Inhalte sollte ein geschützter Push-Dienst verwendet werden.</div>
-<div class="warning" style="margin-top:10px"><b>Push-Regel:</b> „Marktsignale“ aktiviert auch Produktpushs: nur nach erneuter Pflichtprüfung, bei neuer Auswahl oder Rücknahme. Nicht freigegebene Kandidaten lösen keinen Empfehlungspush aus. Produktpushs benötigen ein registriertes Gerät; sie werden nicht über ntfy gesendet. Neue Auswahlen werden bei geöffneter Bob-App geprüft. Bei ausbleibender Bestätigung läuft die Freigabe ab. „Aktiver Trade“ meldet Stop-Loss, Richtungswechsel und bestätigte Fibonacci-Brüche – und nur bei einem tatsächlich aktiven Trade.</div>
+<div class="warning" style="margin-top:10px"><b>Push-Regel:</b> „Marktsignale“ aktiviert auch Produktpushs: nur nach erneuter Pflichtprüfung, bei neuer Auswahl oder Rücknahme. Nicht freigegebene Kandidaten lösen keinen Empfehlungspush aus. Produktpushs benötigen ein registriertes Gerät; sie werden nicht über ntfy gesendet. Nach erfolgreicher Synchronisierung prüft der Server gespeicherte Auswahlen auch bei geschlossener Bob-App erneut. Ohne frische Bestätigung läuft die Freigabe ab. „Aktiver Trade“ meldet Stop-Loss, Ziel, Gewinnschutz, Richtungswechsel und bestätigte Fibonacci-Brüche – nur bei einem tatsächlich aktiven Trade. Dafür müssen die Server laufen; kostenlose Dienste können pausieren.</div>
 <div id="productPushStatus" class="small">Produktpush: nur bei aktiven Marktsignalen.</div>
 <div id="fibMonitorStatus" class="small" style="margin-top:8px">Fibonacci-Überwachung: kein aktiver Trade.</div><button type="button" onclick="testBackgroundPush()">Hintergrund-Push testen (30 Sekunden)</button><div id="pushStatus" class="small" style="margin-top:8px">Noch nicht registriert.</div>
 </div>
@@ -394,7 +394,7 @@ function renderPush(){
  if(tb)tb.textContent=pushState.trade?"🔔 Ein":"🔕 Aus";
  if(ts)ts.textContent=pushState.activeTrade?"✅ Trade aktiv":"❌ Kein aktiver Trade";
  if(tp)tp.textContent=pushState.activeTrade?"Aktiv – Stop-Loss/Schließen":"Gesperrt – kein aktiver Trade";
- if(ps && pushState.serverRegistered)ps.textContent="✅ Gerät für Push registriert. Push-Service erreichbar.";
+ if(ps && pushState.serverRegistered)ps.textContent="✅ Geräte-Registrierung gespeichert. Aktuelle Verbindung wird beim Synchronisieren geprüft.";
  else if(ps && pushState.registered)ps.textContent="⚠️ Browser-Benachrichtigungen freigegeben, Server-Registrierung noch nicht bestätigt.";
  else if(ps)ps.textContent="Noch nicht registriert.";
 }
@@ -430,6 +430,12 @@ function captureFibonacciMonitor(){
 }
 let pushSyncQueue=Promise.resolve();
 function syncPushPreferences(){pushSyncQueue=pushSyncQueue.catch(()=>{}).then(syncPushPreferencesImpl);return pushSyncQueue;}
+function pushRequestError(code){
+ if(code===401||code===403)return "Anmeldung oder Server-Zugriff nicht bestätigt. Bitte Bob neu anmelden; bei erneutem Fehler muss die Server-Verbindung geprüft werden.";
+ if(code>=500)return "Push-Service derzeit nicht erreichbar (HTTP "+code+"). Der Server ist möglicherweise noch im Start. Bitte in etwa einer Minute erneut versuchen.";
+ if(code===404||code===410)return "Push-Abonnement nicht gefunden. Bitte Gerät erneut für Push registrieren.";
+ return "Push-Anfrage abgelehnt (HTTP "+code+"). Bitte Registrierung und Push-Schalter prüfen.";
+}
 async function syncPushPreferencesImpl(){
  const status=$("fibMonitorStatus");
  if(!pushState.serverRegistered){if(status)status.textContent="Fibonacci-Überwachung: zuerst Gerät für Server-Push registrieren.";return false;}
@@ -450,7 +456,8 @@ async function syncPushPreferencesImpl(){
    }
    const background={timeframe:$('tf')?.value||'15m',trailAtr:Number($('trailAtr')?.value)||1.5,trade:backgroundTrade};
    const r=await fetch("/api/push/preferences",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({endpoint:sub.endpoint,general:!!pushState.general,trade:!!pushState.trade,activeTrade:!!pushState.activeTrade,background,fibonacciMonitor:tradeMgmt?.active&&!tradeMgmt.test&&pushState.trade?tradeMgmt.fibonacciMonitor||null:null})});
-   const result=r.ok?await r.json():null;
+   if(!r.ok)throw Error(pushRequestError(r.status));
+   const result=await r.json();
    if(result?.backgroundEnabled){
     pushState=BobPush.set('backgroundEnabled',true);
     const remote=result.backgroundTrade;
@@ -461,16 +468,17 @@ async function syncPushPreferencesImpl(){
    }
    if(status)status.textContent=result?.backgroundEnabled?'Hintergrund-Push gespeichert · Markt, Produkte, Stop, Ziel, Gewinnschutz und Richtungswechsel auch bei geschlossener App. Modell-Stops musst du bei DEGIRO selbst anpassen. Kostenlose Dienste können pausieren.':r.ok?'Hintergrund-Push noch nicht bestätigt.':'Hintergrund-Einstellungen konnten nicht gespeichert werden; bitte erneut synchronisieren.';
    return r.ok;
- }catch(_){if(status)status.textContent="Fibonacci-Überwachung konnte nicht gespeichert werden.";return false;}
+ }catch(e){const message=e?.message||"Push-Verbindung unterbrochen.";if(status)status.textContent="Hintergrund-Einstellungen nicht gespeichert. "+message;if($("pushStatus"))$("pushStatus").textContent="⚠️ Registrierung gespeichert, aktuelle Server-Verbindung nicht bestätigt.";return false;}
 }
 async function testBackgroundPush(){
  const status=$('fibMonitorStatus');
  try{
-  await syncPushPreferences();
+  if(!pushState.general&&!pushState.trade)throw Error("Für den Test zuerst Marktsignale oder Aktiver Trade einschalten.");
+  if(!await syncPushPreferences())return;
   const reg=await navigator.serviceWorker.ready,sub=await reg.pushManager.getSubscription();
   if(!sub)throw Error('Zuerst Gerät für Push registrieren.');
   const r=await fetch('/api/push/test-background',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({endpoint:sub.endpoint})});
-  if(!r.ok)throw Error('Test konnte nicht geplant werden. Push-Schalter und Anmeldung prüfen.');
+  if(!r.ok)throw Error('Test nicht gespeichert. '+pushRequestError(r.status));
   status.textContent='Test gespeichert. Bob jetzt schließen und Bildschirm sperren. Die TEST-Nachricht wird nach etwa 30–45 Sekunden vom Server ausgelöst.';
  }catch(e){status.textContent=e.message;}
 }
