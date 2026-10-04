@@ -325,13 +325,13 @@ try{
 </table>
 </details>
 </div>
-<div class="card"><details><summary>Momentum langfristig: <span id="momentumSummary">nicht verfügbar</span></summary><p class="small">Bewertung der EMA-Trends in der gewählten Zeitebene; keine feste Signaldauer.</p><table>
-<tr><td>MACD</td><td class="right" id="macd">—</td></tr>
-<tr><td>MACD Signal</td><td class="right" id="macds">—</td></tr>
-<tr><td>MACD Histogramm</td><td class="right" id="hist">—</td></tr>
-<tr><td>Trend EMA20/50</td><td class="right" id="trend">—</td></tr>
-<tr><td>Trend EMA50/200</td><td class="right" id="trend2">—</td></tr>
-</table></details></div>
+<div class="card"><details><summary>Momentum langfristig: <span id="momentumSummary">nicht verfügbar</span></summary><p class="small">Bewertung der EMA-Trends in der gewählten Zeitebene; keine feste Signaldauer.</p><div class="metrics">
+<details class="technical-metric"><summary><span>MACD</span><b id="macd">—</b></summary><p>Zeigt den Abstand zwischen dem schnellen EMA 12 und dem langsameren EMA 26. Über der Signallinie: Aufwärtsmomentum; darunter: Abwärtsmomentum.</p></details>
+<details class="technical-metric"><summary><span>MACD Signal</span><b id="macds">—</b></summary><p>Geglätteter Durchschnitt des MACD über 9 Kerzen. Dient als Vergleichslinie: MACD darüber deutet auf LONG, darunter auf SHORT.</p></details>
+<details class="technical-metric"><summary><span>MACD Histogramm</span><b id="hist">—</b></summary><p>Abstand zwischen MACD und Signallinie. Positiv: LONG-Momentum; negativ: SHORT-Momentum. Je näher an null, desto kleiner der Abstand.</p></details>
+<details class="technical-metric"><summary><span>Trend EMA20/50</span><b id="trend">—</b></summary><p>Vergleicht den Durchschnitt über 20 und 50 Kerzen. EMA 20 über EMA 50: Aufwärtstrend (bullish / LONG); darunter: Abwärtstrend (bearish / SHORT).</p></details>
+<details class="technical-metric"><summary><span>Trend EMA50/200</span><b id="trend2">—</b></summary><p>Vergleicht den Durchschnitt über 50 und 200 Kerzen. EMA 50 über EMA 200: längerfristiger Aufwärtstrend (LONG); darunter: Abwärtstrend (SHORT). Die Dauer hängt von der Analysezeitebene ab.</p></details>
+</div></details></div>
 
 <div class="card">
 <details><summary>Weitere technische Details</summary>
