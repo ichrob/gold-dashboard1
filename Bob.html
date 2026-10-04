@@ -394,17 +394,6 @@ Bob platziert keine Orders und behauptet keine Gewinn-Garantie.
 </div>
 </div>
 
-<div class="card"><h3>Trade-Risikorechner</h3>
-<div class="grid">
-<div><label>Risiko %</label><input id="risk2" type="number" placeholder="—" min="0.01" max="100" step=".1"></div>
-<div><label>Hebel</label><input id="lev" type="number" value="5" step=".5"></div>
-<div><label>Stop-Distanz in ATR</label><input id="atrmult" type="number" value="1.5" step=".1"></div>
-<div><label>Chance/Risiko-Ziel</label><input id="rr" type="number" value="2" step=".1"></div>
-</div>
-<div class="row" style="margin-top:10px"><button onclick="riskCalc()">Risiko berechnen</button></div>
-<div id="riskout" style="margin-top:12px">—</div>
-</div>
-
 <div class="card">
 <h3>🔬 Research & Evaluation</h3>
 <div class="research"><b>Grundregel:</b> Jede Verbesserung muss gegen die aktuelle Baseline getestet werden. Die App speichert dafür Signal, Regime, Score, ATR, Stop-Kurs, MTF-Zustand und Trade-Ergebnis lokal. Kein Parameter wird wegen eines einzelnen guten Backtests automatisch als „besser“ erklärt.</div>
@@ -579,7 +568,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const enter=document.createElement('button');enter.type='button';enter.className='bob-primary';enter.textContent='Trade erfassen / Kursbild ergänzen';enter.addEventListener('click',()=>{const upload=byId('bobTradeUpload');if(upload?.parentElement.tagName==='DETAILS')upload.parentElement.open=true;byId('trade-images')?.click();});panels.trade.append(enter);
   move(byId('bobTradeUpload')||byId('bobExitEstimate'),'trade');fold(byId('bobTradeUpload'),'Produktnachweise und Ausstiegskurse');move(card('stopPanel'),'trade');
   fold(document.querySelector('button[onclick="activateTestTrade()"]'),'Testfunktionen');
-  move(card('risk2'),'trade');fold(card('risk2'),'Trade-Risikorechner');
+
   for(const id of ['auditStatistics','improvementPanel','auditPanel'])move(byId(id),'learning');
   fold(byId('auditStatistics')?.querySelector(':scope > div.small:not([id])'),'Was bedeuten Treffer und Fehlprognosen?');fold(byId('improvementPanel')?.querySelector(':scope > div.small:not([id])'),'Wie Bob Verbesserungen prüft');
   move(card('researchStatus'),'learning');fold(card('researchStatus'),'Research und manuelle Auswertung');
@@ -1904,20 +1893,7 @@ async function loadData(force=false){
  }
 }
 function demo(){let p=4250;C=[];lastPrice=p;for(let i=0;i<250;i++){p+=Math.sin(i/8)*1.8+Math.sin(i*0.73)*2.2;const o=p-2,h=p+8,l=p-8;C.push({open:o,high:h,low:l,close:p,isOpen:false})}$("status").textContent="Reproduzierbare Demo-Daten aktiv.";analyze()}
-function riskCalc(){
- if(!personalRisk()||!(Number($("risk2").value)>0&&Number($("risk2").value)<=100)){$("riskout").textContent="Bitte Konto und Risikowerte selbst eintragen.";return;}
- if(!lastPrice||!A.at){$("riskout").textContent="Zuerst Daten laden.";return}
- const acc=+$("account").value,risk=+$("risk2").value/100,lev=Math.max(1,+$("lev").value||1),m=+$("atrmult").value,rr=Math.max(1,+$("rr").value),euro=acc*risk,fx=usdEurRate();
- const dir=confirmedSignalDirection();
- if(dir==="NEUTRAL"){$("riskout").innerHTML=`Richtung: <b>ABWARTEN / NO TRADE</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Kein Stop- oder Zielkurs für ein neutrales Setup.`;return;}
- const sm=stopModel(dir,lastPrice,A.at,m),tgt=targetModel(dir,lastPrice,sm.stop,rr),dist=Math.abs(lastPrice-sm.stop);
- if(!sm.stop||!tgt.target||tgt.rr<1){$("riskout").textContent="Kein valides Risiko-/CRV-Modell.";return}
- if(!Number.isFinite(fx)||fx<=0){$("riskout").textContent="Keine gültige USD→EUR-FX-Rate. Bitte fxRate setzen.";return;}
- const model=BobDegiro.riskModel({spot:lastPrice,stop:sm.stop,riskEur:euro,fxUsdEur:fx,leverage:lev});
- if(!model.ok){$("riskout").textContent=model.reason;return;}
- const {approxNotionalEur,marginEur}=model;
- $("riskout").innerHTML=`Richtung: <b>${dir}</b><br>Max. Verlust: <b>${euro.toFixed(2)} €</b><br>Stop: <b>${sm.stop.toFixed(2)}</b> · ${sm.reason}<br>Ziel: <b>${tgt.target.toFixed(2)}</b><br>CRV: <b>${tgt.rr.toFixed(2)} : 1</b><br>Theoretischer Basis-Positionswert: <b>${approxNotionalEur.toFixed(2)} €</b><br>Rechnerische Margin bei ${lev}×: <b>${marginEur.toFixed(2)} €</b><br><span class="small">FX ${fx.toFixed(4)} EUR/USD · Basiswertrechnung, keine DEGIRO-Produktstückzahl.</span>`;
-}
+
 if("serviceWorker" in navigator){
   let bobSwReloaded=false;
   navigator.serviceWorker.addEventListener("controllerchange",()=>{
