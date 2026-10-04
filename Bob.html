@@ -83,6 +83,7 @@ body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 .bob-mobile .bob-top-quotes .gold-estimate-note{font-size:10px}
 .bob-mobile .bob-top-quotes .gold-market-note{font-size:10px}
 @media(min-width:600px){.bob-mobile .bob-top-quotes header{min-height:60px}.bob-mobile .bob-top-quotes h3{font-size:16px;min-height:22px}.bob-mobile .bob-top-quotes .gold-quote{padding:14px}.bob-mobile .bob-top-quotes .gold-meta{font-size:12px}}
+#gold-estimate-change,#gold-estimate-basis,#gold-estimate-source,.gold-estimate-note{display:none}
 </style>
 </head>
 <body>
@@ -148,8 +149,10 @@ try{
   el(key,'basis').textContent=pct===null?'Tagesänderung fehlt':q.changeLabel||'zum Vortagesschluss';
   el(key,'price').style.fontStyle=has&&(!Number.isFinite(stamp)||Date.now()-stamp>120000||stamp>Date.now()||q.historical)?'italic':'';
   const old=Number.isFinite(stamp)&&(Date.now()-stamp>120000||stamp>Date.now()+5000);
-  el(key,'state').textContent=expired?'Anmeldung erforderlich':!has?(q?.note||(key==='estimate'?'Schätzung wartet auf aktuelle Eingangsdaten':'Kurs momentan nicht verfügbar')):!Number.isFinite(stamp)?'Aktualität unbekannt – Zeitstempel fehlt':q.historical?'Letzte gespeicherte Schätzung · Aktualisierung pausiert':old?(q.kind==='calculated'?'Letzte Schätzung · nicht aktuell':'veraltet – letzter Stand'):q.kind==='calculated'?'Future-Schätzung · automatisch':q.note||'Echtzeit nicht bestätigt';
-  el(key,'time').textContent=Number.isFinite(stamp)?'Stand: '+new Date(stamp).toLocaleString('de-CH',{timeZone:'Europe/Zurich',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})+' (Zürich)':'Kurszeit fehlt';
+  el(key,'state').textContent=expired?'Anmeldung erforderlich':!has?(q?.note||(key==='estimate'?'Schätzung wartet auf aktuelle Eingangsdaten':'Kurs momentan nicht verfügbar')):!Number.isFinite(stamp)?'Aktualität unbekannt – Zeitstempel fehlt':q.historical?'Letzte gespeicherte Schätzung · Aktualisierung pausiert':old?(q.kind==='calculated'?'Letzte Schätzung · nicht aktuell':''):q.kind==='calculated'?'Future-Schätzung · automatisch':q.note||'';
+  if(key==='estimate')el(key,'state').textContent=!expired&&has&&Number.isFinite(stamp)&&!old&&!q.historical?'Aktualisierung aktiv':'Aktualisierung pausiert';
+  else if(el(key,'state').textContent==='Spot · Quellenzeit')el(key,'state').textContent='';
+  el(key,'time').textContent=Number.isFinite(stamp)?'Stand: '+new Date(stamp).toLocaleString('de-CH',{timeZone:'Europe/Zurich',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})+' (Zürich)':'Stand: nicht verfügbar';
   el(key,'source').textContent=(q?.kind==='calculated'?'Berechnet · ':'')+(q?.source||'');
  }
  function accept(key,q){
@@ -165,7 +168,7 @@ try{
   try{const r=await fetch('/api/market-cards',{cache:'no-store',signal:ctl.signal});if(!r.ok)throw Error('quote unavailable');const data=await r.json();accept('spot',data.spot);accept('future',data.future);accept('estimate',data.estimate);}catch(_){}
   finally{clearTimeout(timer);busy=false;render('spot');render('future');render('estimate');}
  }
- window.BobGoldCards={spot(bundle){const s=bundle?.spots;if(!s||!positive(s.xaus))return;accept('spot',{price:s.xaus,at:s.spot_price_as_of,source:s.primary||s.goldprice_status||'Bob Spotquelle',kind:'spot',note:'Spot · Quellenzeit',changePct:null});},refresh};
+ window.BobGoldCards={spot(bundle){const s=bundle?.spots;if(!s||!positive(s.xaus))return;accept('spot',{price:s.xaus,at:s.spot_price_as_of,source:s.primary||s.goldprice_status||'Bob Spotquelle',kind:'spot',note:'',changePct:null});},refresh};
  refresh();setInterval(()=>{render('spot');render('future');render('estimate');if(document.visibilityState!=='hidden')refresh();},30000);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refresh();});
 })();
