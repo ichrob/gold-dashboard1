@@ -80,3 +80,10 @@ assert(ageChecks.stale.available&&ageChecks.stale.ready);assert.equal(ageChecks.
 assert(ageChecks.missing.available);assert.equal(ageChecks.missing.fresh,false);assert.equal(ageChecks.freshWarnings.length,0);assert.equal(ageChecks.noTime.fresh,false);
 assert.equal(element('price').style.fontStyle,'');assert.equal(element('analysisAge').hidden,true);
 console.log('Age warnings: old/missing times calculate, no current approval, fresh data clears warnings');
+
+const grouped=vm.runInContext(`(()=>{
+ const a=collectiveSignal([1,1,1,1,1]),b=collectiveSignal([1]),mixed=collectiveSignal([1,1,1,-1]);
+ return {a,b,mixed,short:collectiveSignal([-1]),weights:A.weights};
+})()`,env);
+assert.equal(grouped.a,grouped.b);assert.equal(grouped.mixed,0);assert.equal(grouped.short,-grouped.a);
+assert.equal(grouped.weights.priceCollective,100);assert.equal(grouped.weights.mtf,0);assert.equal(grouped.weights.atr,0);assert.equal(grouped.weights.cr,0);

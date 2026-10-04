@@ -2,7 +2,7 @@
 """Deterministic Bob backtest engine.
 
 Input JSON: {"bars": [{"openTime":..., "open":..., "high":..., "low":..., "close":..., "isOpen": false}, ...]}
-The engine uses only closed bars, enters on the next bar open, applies the live score/MTF logic,
+The engine uses only closed bars, enters on the next bar open, applies the collective rule with a MACD-slope proxy (partial-model test),
 ATR/structure stop, fixed-R target, spread/slippage costs, and conservative stop-first handling
 when a single bar touches both stop and target.
 """
@@ -29,6 +29,13 @@ def atr(b,p=14):
     tr=[max(x["high"]-x["low"],abs(x["high"]-b[i-1]["close"]),abs(x["low"]-b[i-1]["close"])) for i,x in enumerate(b[1:],1)]
     return sum(tr[-p:])/p
 
+def collective_signal(values):
+    """One price collective: repeated signs never increase its weight."""
+    signs = {1 if v > 0 else -1 if v < 0 else 0 for v in values}
+    if not signs or (1 in signs and -1 in signs):
+        return 0
+    return (1 if 1 in signs else -1 if -1 in signs else 0) * (0.5 if 0 in signs else 1)
+
 def tf_score(b):
     b=[x for x in b if not x.get("isOpen")]
     if len(b)<200:return "NEUTRAL",False
@@ -38,11 +45,8 @@ def tf_score(b):
     # MACD slope proxy matching the live model's current/previous EMA spread.
     mac=(f-s)
     prev_a=a[:-1]; prev=(ema(prev_a,12)-ema(prev_a,26)) if len(prev_a)>=26 else mac
-    score=(1 if a[-1]>e20 else -1)+(1 if e20>e50 else -1)+(1 if e50>e200 else -1 if e200 is not None else 0)+(1 if mac>prev else -1)
-    if math.isfinite(R):
-        score += 1 if 50<=R<=70 else -1 if R<35 else 0
-    components=5 if e200 is not None else 4
-    return ("LONG" if score>=2 else "SHORT" if score<=-2 else "NEUTRAL"),True
+    score=collective_signal([a[-1]-e20,e20-e50,e50-e200,mac-prev,1 if 50<R<75 else -1 if 25<R<50 else 0])
+    return ("LONG" if score>=0.5 else "SHORT" if score<=-0.5 else "NEUTRAL"),True
 
 def stop_target(b,entry,dir,atr_mult=1.5,rr=2.0):
     if len(b)<40:return None,None
@@ -95,17 +99,8 @@ def backtest(bars,cost_bps=5,slippage=0.20):
         R=rsi(closes); fast=ema(closes,12); slow=ema(closes,26)
         prev=window[:-1]; pa=[x["close"] for x in prev]
         mac=fast-slow; pmac=ema(pa,12)-ema(pa,26)
-        pts=maxv=0
-        if e20>e50>e200: pts+=3
-        elif e20<e50<e200: pts-=3
-        maxv+=3
-        if mac>pmac and R>=50 and R<75: pts+=2
-        elif mac<pmac and R<50 and R>25: pts-=2
-        maxv+=2
-        # ADX/Bollinger/VWAP are omitted from this standalone engine rather than approximated.
-        # This keeps the baseline honest: the resulting test is explicitly a partial-model test.
-        maxv+=2+1+1+.5
-        score=50+50*(pts/maxv)
+        # Partial-model historical test: MACD slope remains a documented proxy.
+        score=50+50*collective_signal([closes[-1]-e20,e20-e50,e50-e200,mac-pmac,1 if 50<R<75 else -1 if 25<R<50 else 0])
         if (direction=="LONG" and score<70) or (direction=="SHORT" and score>30):
             i+=1; continue
         entrybar=bars[i+1]; entry=entrybar["open"]+(slippage if direction=="LONG" else -slippage)

@@ -65,3 +65,15 @@ for(const time of [null,'2020-01-01T00:00:00Z']){
 }
 assert.equal(b.calculationAge(at,90000,now),'');
 assert(b.calculationAge(null,90000,now).includes('unbekannt'));
+
+// Duplication, symmetry and risk-context invariance, independent of specific weights.
+const g=b.collectiveSignal;
+for(const values of [[1],[1,0],[1,-1],[0],[-1,0],[-1]]){
+ assert.equal(g(values),g([...values,...values,...values]));
+ assert.equal(g(values),-g(values.map(v=>-v)));
+}
+assert.equal(g([1,1,1,1,-1]),0);
+const q=b.technicalQuality(ctx).score;
+assert.equal(q,b.technicalQuality({...ctx,adx:99,momentum:100}).score);
+assert.equal(q,b.technicalQuality({...ctx,adx:1,momentum:-100}).score);
+assert.equal(b.technicalQuality({...ctx,trend:'SHORT',trend2:'SHORT',hist:-1,rsi:40,direction:'SHORT',mtf:'SHORT'}).score,q);
