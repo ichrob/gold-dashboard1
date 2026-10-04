@@ -259,3 +259,9 @@ const completeFold=b.renderSelectionWorkflow(b.selectionWorkflow([p],{...context
 assert(!completeFold.includes('data-missing-values'));
 
 for(const value of [undefined,'Ja','Nein','unbekannt']){const x=JSON.parse(JSON.stringify(imageProduct));if(value===undefined)delete x.snapshot.terms.quanto;else x.snapshot.terms.quanto.value=value;assert(b.finalProductStatus(x,now).complete);}
+
+const explanation=b.renderProductDecision({direction:'LONG',score:78,reasons:['Risiko: KO 2.50%'],warnings:['Kurszeit fehlt oder ist veraltet','<img src=x>']});
+for(const text of ['Warum ausgewählt?','Was spricht dagegen','Wann entfällt','KO 2.50%','Kurszeit fehlt','1,5 ATR','&lt;img'])assert(explanation.includes(text));
+assert(!explanation.includes('<img'));
+assert(b.renderProductDecision({},false,['Marktsignal neutral']).includes('Marktsignal neutral'));
+console.log('Decision explanations preserve evaluation warnings and escape external text');
