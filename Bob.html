@@ -244,10 +244,7 @@ try{
 </div><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div>
 <details style="margin-top:10px"><summary>Warum entscheidet Bob so?</summary><div id="decisionExplanation" class="small" style="white-space:pre-line">Noch keine bestätigte Analyse.</div></details>
 <div id="quickReason" class="small" style="margin-top:10px">Lade Daten, um das Setup zu bewerten.</div>
-<div class="grid" style="margin-top:10px">
-<div><label>Konto (€)</label><input id="account" type="number" placeholder="—" min="0.01" step="50"></div>
-<div><label>Risiko pro Trade (%)</label><input id="risk" type="number" placeholder="—" min="0.01" max="100" step=".1"><small>Leer = persönliche Risikowarnung aus. Push benötigt einen aktiven Produkt-Trade mit Einstieg und Stückzahl sowie aktivierte Trade-Pushs. Berechnete Kurse werden als solche gekennzeichnet.</small></div>
-</div>
+
 </div>
 
 <div class="card">
@@ -419,7 +416,15 @@ Bob platziert keine Orders und behauptet keine Gewinn-Garantie.
 
 <div class="card">
 <h3>🛑 Stop-Loss-Management</h3>
+<h4>Berechneter Stop-Loss</h4>
+<p class="small">Bobs berechneten Produkt-Stop trägst du selbst bei DEGIRO ein. Bob erteilt keine Verkaufsorder.</p>
 <div id="stopPanel" class="research">Noch kein aktiver Trade. Unter „Mein Trade“ Produktnachweise ergänzen und „Produkt-Trade überwachen“ wählen. Stop und Ziel erscheinen dann als berechnete EUR-Werte pro Stück.</div>
+<h4>Konto und persönliche Risikoeinstellung</h4>
+<p class="small">Diese Werte trägst du hier in Bob ein. Sie bestimmen dein persönliches Verlustbudget; der technische Stop wird separat berechnet.</p>
+<div class="grid" style="margin-top:10px">
+<div><label>Konto (€)</label><input id="account" type="number" placeholder="—" min="0.01" step="50"></div>
+<div><label>Risiko pro Trade (%)</label><input id="risk" type="number" placeholder="—" min="0.01" max="100" step=".1"><small>Leer = persönliche Risikowarnung aus. Push benötigt einen aktiven Produkt-Trade mit Einstieg und Stückzahl sowie aktivierte Trade-Pushs. Berechnete Kurse werden als solche gekennzeichnet.</small></div>
+</div>
 <details><summary>Goldreferenz und technische Einstellungen</summary><div class="grid" style="margin-top:10px">
 <div><label>Trade-Einstieg XAU/USD</label><input id="tradeEntry" type="number" step=".01" placeholder="wird beim Bestätigen übernommen"></div>
 <div><label>Aktueller XAU/USD-Kurs</label><input id="tradePrice" type="number" step=".01" placeholder="Live-Kurs"></div>
@@ -540,7 +545,6 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const short=document.createElement('p');short.id='bobShortReason';short.className='bob-short';byId('quickSignal').after(short);
    fold(byId('quickReason'),'Datenstand und Sperrgründe');
    fold(quick.querySelector('.metrics'),'Marktwerte und Risiko');
-   fold(byId('account')?.closest('.grid'),'Konto und Risikoeinstellung');
    for(const block of quick.querySelectorAll('.analysis-block')){const note=block.querySelector('small');fold(note,'Einzelheiten');}
   }
   const status=document.createElement('div');status.className='bob-status';status.innerHTML='<button type="button" data-status="data">Marktdaten: prüfen</button><button type="button" data-status="connection">Verbindung: prüfen</button><button type="button" data-status="push">Push: prüfen</button>';
