@@ -384,6 +384,57 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 </main>
 <script src="/push_manager.js"></script>
 <script src="/degiro_assistant.js"></script>
+<section class="card" id="auditPanel">
+<h2>Prüfprotokoll &amp; Lernen</h2>
+<div id="auditSave" class="small">Warte auf eine protokollierbare Entscheidung.</div>
+<details id="auditDetails"><summary>Auswertung und Lernstand öffnen</summary>
+<button id="auditRefresh" type="button">Auswertung aktualisieren</button>
+<div id="auditReport" class="small" style="white-space:pre-line">Noch nicht geladen.</div>
+<details><summary>Letzte Entscheidungen mit Quellen und Gründen</summary><pre id="auditRecords" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>
+</details></section>
+<script>
+(function(){
+ let last='',busy=false,next=0;
+ const text=(id,value)=>{const e=document.getElementById(id);if(e)e.textContent=value;};
+ async function api(action,payload){const r=await fetch('/api/audit/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!r.ok)throw Error('Speicher nicht erreichbar ('+r.status+')');return r.json();}
+ window.BobAudit={capture:async(products,flow,bundle)=>{
+  const state=window.BobDecisionAuditState;if(!state?.barAt||busy||Date.now()<next)return;
+  const selected=new Set(flow.groups.flatMap(g=>g.candidates).map(p=>p.isin));
+  const items=products.filter(p=>p.isin).slice(0,12).map(p=>{
+   const q=p.quote||{},shot=p.snapshot||{},paired=shot.evidence?.Geld?.source&&shot.evidence.Geld.source===shot.evidence.Brief?.source;
+   const live=q.found&&q.quoteAt;
+   return {isin:p.isin,direction:p.productDirection,selected:selected.has(p.isin),name:p.name,
+    bid:live?q.bid:paired?shot.bid:null,ask:live?q.ask:paired?shot.ask:null,
+    quoteAt:live?q.quoteAt:paired?(shot.times?.quote?.at||shot.evidence.Geld.at):null,
+    source:live?q.source:paired?shot.evidence.Geld.source:null,ko:p.ko,leverage:p.leverage,
+    confirmed:p.isinConfirmed===true,terms:q.metadata||shot.terms||null,
+    researchAt:q.termsCheckedAt||q.checkedAt||null,researchSource:q.termsSource||q.source||null,
+    reasons:flow.notApproved?.find(x=>x.isin===p.isin)?.reasons||[],
+    selection:flow.groups.flatMap(g=>g.candidates).find(x=>x.isin===p.isin)||null};
+  });
+  const payload={direction:state.dir,shadowDirection:state.shadowDirection,barAt:state.barAt,
+   price:bundle?.spots?.xaus,priceAt:bundle?.spots?.spot_price_as_of,score:state.score,
+   reason:state.reason,indicators:state.indicators,products:items,selection:[...selected],gateReasons:flow.gateReasons};
+  const signature=JSON.stringify([state.dir,state.shadowDirection,state.barAt,state.reason,items,flow.gateReasons]);
+  if(signature===last)return;busy=true;next=Date.now()+30000;
+  try{await api('write',payload);last=signature;text('auditSave','Dauerhaft protokolliert: '+new Date().toLocaleTimeString('de-CH')+' · Daten, Quellenzeiten, Gründe und Regelversion gespeichert.');}
+  catch(e){text('auditSave','Protokoll NICHT gespeichert: '+e.message+'. Bob versucht es erneut; die Analyse läuft weiter.');}
+  finally{busy=false;}
+ }};
+ async function refresh(){
+  text('auditReport','Auswertung wird geladen …');
+  try{const r=await api('read',{}),l=r.learning,p=r.productReview,research=r.researchReview;
+   const lines=['Gespeicherte Entscheidungen: '+r.total+' · Aufbewahrung '+r.retentionDays+' Tage',r.scope,''];
+   for(const [h,m]of Object.entries(r.metrics))lines.push(h+' Minuten: '+m.evaluated+' auswertbare Richtungen, '+m.favorable+' günstig, '+m.unfavorable+' ungünstig, '+m.flat+' unverändert; '+m.neutral+' ABWARTEN-Beobachtungen; '+m.missing+' offen / nicht auswertbar');
+   lines.push('','Produktauswahl: '+p.evaluated+' vergleichbare Kursverläufe nach 60 Minuten; '+p.favorable+' positiv.',p.note,'Vergleich mit geeigneten Alternativen: '+p.comparisons+' Fälle; Auswahl in '+p.selectedBest+' Fällen mindestens gleich gut.','','Recherche: '+research.observations+' Beobachtungen, '+research.conflicts+' Widerspruchshinweise, '+research.missingSourceOrTime+' ohne Quelle/Abrufzeit.',research.note,'','Wiederkehrende Freigabehindernisse:',...(r.issues.length?r.issues.map(([reason,count])=>count+'× '+reason):['Noch keine wiederkehrenden Freigabehindernisse erfasst.']),
+    '',l.mode,l.status+' · '+l.training+' Entwicklungsfälle / '+l.holdout+' zeitlich spätere Prüffälle.','Anpassungsvorschläge werden getrennt geprüft. Keine automatische Code- oder Regeländerung. Ein positiver Kursverlauf beweist keine fehlerfreie Recherche; fehlende Nachweise bleiben offen.');
+   text('auditReport',lines.join('\n'));text('auditRecords',JSON.stringify(r.latest,null,2));
+  }catch(e){text('auditReport','Auswertung nicht verfügbar: '+e.message);}
+ }
+ document.getElementById('auditRefresh').addEventListener('click',refresh);
+ document.getElementById('auditDetails').addEventListener('toggle',e=>{if(e.target.open)refresh();});
+})();
+</script>
 <script>
 
 const $=id=>document.getElementById(id);
@@ -1114,7 +1165,7 @@ function falseBreakoutState(dir){
 }
 // Replay closed 5m bars: deterministic across reloads, browser and background worker.
 // A repeated refresh of the same bar can never count as another confirmation.
-function confirmClosedSignals(samples){
+function confirmClosedSignals(samples,required=2){
  let dir="NEUTRAL",pending="NEUTRAL",count=0,lastAt=null;
  for(const sample of samples){
   if(!Number.isFinite(sample.at)||sample.at<=lastAt)continue;
@@ -1124,7 +1175,7 @@ function confirmClosedSignals(samples){
   const raw=sample.dir;
   if(raw===dir){pending=dir;count=0;continue;}
   count=pending===raw?count+1:1;pending=raw;
-  if(count>=2){dir=raw;count=0;}
+  if(count>=required){dir=raw;count=0;}
  }
  return {dir,pending,count,lastAt};
 }
@@ -1158,14 +1209,15 @@ function fiveMinuteConfirmation(bundle,now=Date.now()){
  if(!samples.at(-1)?.valid)return {dir:'NEUTRAL',count:0,pending:'NEUTRAL',reason:'Fehlende oder unvollständige Angaben: '+(samples.at(-1)?.reason||'5m: '+bars['5m'].length+'/200 geschlossene Kerzen')};
  const detail=samples.at(-1)?.reason;
  const confirmation=result.count?'Wechsel zu '+(result.pending==='NEUTRAL'?'ABWARTEN':result.pending)+': erst 1 von 2 geschlossenen 5m-Kerzen bestätigt':result.dir==='NEUTRAL'?'ABWARTEN – kein bestätigtes Richtungssignal':'2 geschlossene 5m-Kerzen · Richtung bestätigt';
- return {...result,reason:[confirmation,detail].filter(Boolean).join(' · ')};
+ return {...result,shadowDirection:confirmClosedSignals(samples,3).dir,reason:[confirmation,detail].filter(Boolean).join(' · ')};
 }
 function confirmedSignalDirection(){
  if(window.BobSession?.expired()||analysisAgeWarnings().length||!A.ready||!C.length||!Number.isFinite(A.at)){
   const reasons=[];if(window.BobSession?.expired())reasons.push('Anmeldung erforderlich');if(!C.length)reasons.push('Gold-Kerzendaten fehlen');else if(!A.ready)reasons.push('Analysehistorie unvollständig: '+C.length+' Kerzen');if(!Number.isFinite(A.at))reasons.push('Volatilitätswert ATR fehlt oder ist ungültig');reasons.push(...analysisAgeWarnings());
-  signalState={dir:'NEUTRAL',pending:'NEUTRAL',count:0,reason:reasons.join(' · ')};renderDecisionExplanation();return 'NEUTRAL';
+  signalState={dir:'NEUTRAL',pending:'NEUTRAL',count:0,reason:reasons.join(' · ')};window.BobDecisionAuditState={...signalState,barAt:C.at(-1)?.openTime};renderDecisionExplanation();return 'NEUTRAL';
  }
  signalState=fiveMinuteConfirmation(liveBundleCache);
+ window.BobDecisionAuditState={...signalState,barAt:signalState.lastAt??C.at(-1)?.openTime,score:A.score,indicators:{mtf:getMtfState(),atr:A.at,rsi:A.R,ema20:A.e20,ema50:A.e50,ema200:A.e200,macd:A.macd,signal:A.sig}};
  renderDecisionExplanation();
  return signalState.dir;
 }
