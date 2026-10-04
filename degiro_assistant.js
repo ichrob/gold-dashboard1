@@ -204,12 +204,13 @@ function validIsin(value){
 }
 function normalizeOcrIsin(value,productText=''){
  const original=String(value||"").trim().toUpperCase();
- if(validIsin(original))return{isin:original,originalIsin:""};
+ if(validIsin(original)&&!/^DE[0OQ]{3,4}[A-Z0-9]{7}$/.test(original))return{isin:original,originalIsin:""};
+ if(validIsin(original)&&original.startsWith("DE000")&&original.length===12)return{isin:original,originalIsin:""};
  // German WKN excludes I/O. Only substitute those confusable glyphs,
  // only for DE000-style identifiers, and accept only a valid checksum.
  // Other substitutions require a reviewed identity and matching product context.
- if(!/^DE[0O]{3}[A-Z0-9]{7}$/.test(original))return{isin:original,originalIsin:""};
- const candidate="DE000"+original.slice(5).replace(/O/g,"0").replace(/I/g,"1");
+ if(!/^DE[0OQ]{3,4}[A-Z0-9]{7}$/.test(original))return{isin:original,originalIsin:""};
+ const candidate="DE000"+original.slice(-7).replace(/O/g,"0").replace(/I/g,"1");
  // Verified against the user's original DEGIRO list 1000070092.jpg.
  // This is a single known identity, not a general I/1 -> 9 substitution.
  if(candidate==='DE000PJ1NCK0'&&/\bBNP\s+GOLD\s+Unlimited\s+Long\b/i.test(productText)&&!/\bSHORT\b|\bPUT\b|FAKTOR|FACTOR/i.test(productText)&&validIsin('DE000PJ9NCK0'))return {isin:'DE000PJ9NCK0',originalIsin:original,identityCorrection:'BNP-Produktidentität am Originalbild belegt'};
@@ -569,8 +570,8 @@ async function prepareOcrImage(file,statusId,isinPass=false){
  }catch(e){return file;}
 }
 function recoverOcrIsins(primary,secondary){
- const candidates=Array.from(new Set((String(secondary||"").toUpperCase().match(/DE[0OCD]{3}[A-Z0-9]{6}[0-9](?![A-Z0-9])/g)||[]).map(x=>"DE000"+x.slice(5)).filter(validIsin))),corrections={};
- const text=String(primary||"").replace(/\bDE[0O]{3}[A-Z0-9]{7}\b/g,raw=>{
+ const candidates=Array.from(new Set((String(secondary||"").toUpperCase().match(/DE[0OQCD]{3,4}[A-Z0-9]{6}[0-9](?![A-Z0-9])/g)||[]).map(x=>"DE000"+x.slice(-7)).filter(validIsin))),corrections={};
+ const text=String(primary||"").replace(/\bDE[0OQ]{3,4}[A-Z0-9]{7}\b/g,raw=>{
   if(validIsin(normalizeOcrIsin(raw).isin))return raw;
   const matches=candidates.filter(candidate=>{
    let differences=0;
@@ -1208,9 +1209,9 @@ async function readScreenshot(i,file){
   if((rowVersions.get(i)||0)!==version||(field("isin")?.value||"").trim().toUpperCase()!==expected)return;
   const x=detailScreenshotData(result.data.text,expected);
   if(!x.ok){if(status)status.textContent="⚠️ "+x.reason;return;}
-  productQuotes.delete(i);
-  for(const [k,v] of Object.entries({dir:x.direction,price:x.price,lev:x.leverage,ko:x.ko,spread:x.spread})){if(v!==""&&v!==null&&v!==undefined&&field(k))field(k).value=v;}
   const merged=mergeScreenshotEvidence(detailScreenshots.get(i),x,file.name);
+  productQuotes.delete(i);
+  for(const [k,v] of Object.entries({dir:merged.direction,price:merged.price,lev:merged.leverage,ko:merged.ko,spread:merged.spread})){if(v!==""&&v!==null&&v!==undefined&&field(k))field(k).value=v;}
   if(merged.clearSpread&&field("spread"))field("spread").value="";
   detailScreenshots.set(i,merged);if(field("confirmed"))field("confirmed").checked=false;
   prefillCombinedForm(i,x.combinedDraft,file.name);
@@ -1220,6 +1221,17 @@ async function readScreenshot(i,file){
  }catch(e){if((rowVersions.get(i)||0)!==version)return;if(status)status.textContent="⚠️ Bild konnte nicht eingelesen werden: "+(e?.message||"Unbekannter Fehler")+". Bitte erneut auswählen.";}
 }
 function mergeScreenshotEvidence(previous,x,source){
+ const quoteTime=y=>{
+  const raw=y?.times?.quote?.present?y.times.quote.text:y?.sourceTime;
+  const iso=y?.evidence?.Brief?.at||y?.times?.ask?.at||y?.times?.quote?.at;
+  const stamp=typeof iso==='string'?Date.parse(iso):NaN;
+  return Number.isFinite(stamp)?{start:stamp,end:stamp}:selectionTimeWindow(raw);
+ };
+ const oldTime=quoteTime(previous),newTime=quoteTime(x);
+ const incomingQuote=n(x.price)!==null||x.bid!=null||x.ask!=null;
+ if(previous?.isin===x.isin&&incomingQuote&&oldTime&&newTime&&newTime.end<oldTime.start)
+  throw new Error('Älteres Kursbild: vorhandene neuere Kursdaten bleiben erhalten.');
+
  previous=previous||{};
  // Never transfer evidence across identities, including direct callers.
  if(previous.isin&&previous.isin!==x.isin)previous={};
@@ -1285,7 +1297,7 @@ function missingProductData(p){
 }
 function parseScreenshotCandidates(text){
  const raw=String(text||"").replace(/\r/g,"");
- const matches=Array.from(raw.matchAll(/\b[A-Z]{2}[A-Z0-9]{10}\b/g));
+ const matches=Array.from(raw.matchAll(/\b(?:DE[0OQ]{3,4}[A-Z0-9]{7}|[A-Z]{2}[A-Z0-9]{10})\b/g));
  const starts=matches.map((m,i)=>{
   const lineStart=raw.lastIndexOf("\n",m.index-1)+1;
   const lower=i?matches[i-1].index+matches[i-1][0].length:0;

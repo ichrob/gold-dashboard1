@@ -105,3 +105,27 @@ assert.equal(second.recoverReviewedLists([newer])[0].snapshot.terms.strike.value
 assert(second.writeStoredProducts([]));assert.equal(makeApi().loadIdentities().length,0);
 store.set('bobDegiroProductsV2','broken');const corrupt=makeApi();assert.equal(corrupt.loadIdentities().length,0);assert(!corrupt.writeStoredProducts([]));assert.equal(store.get('bobDegiroProductsV2'),'broken');
 console.log('Full evidence reload, identity isolation, historical recovery, empty list and corrupt-store preservation: OK');
+
+{
+// Original DEGIRO list OCR errors: prefix O/Q and one duplicated prefix glyph.
+assert.equal(b.normalizeOcrIsin('DEOQOOFG4JXV7').isin,'DE000FG4JXV7');
+assert.equal(b.normalizeOcrIsin('DEQOOFG6XB39').isin,'DE000FG6XB39'); // Corrupt text can coincidentally pass Luhn.
+const observed=b.parseScreenshotCandidates('SG Gold Turbo Classic Put BAR 4460 BP 4460 Bv 10\n18/12/2026 | DEOQOOFG4JXV7\nSG Gold Turbo BEST Open-End Call BAR 4143.44 BP\n4143.44 Bv 10 | DEOQOOFG7MTA6');
+assert.equal(observed.length,2);assert.equal(observed[0].direction,'SHORT');assert.equal(observed[1].direction,'LONG');
+assert.equal(observed[0].ko,'4460');assert.equal(observed[1].ko,'4143.44');
+assert.equal(b.validIsin(b.normalizeOcrIsin('DEQOOFGSNMF2').isin),false);
+const first=b.detailScreenshotData('DE000FG4JXV7\nEUR\nGeld 24,81\nBrief 24,82\n03/10/2026 12:00',isin);
+assert(first.ok);
+const original=b.mergeScreenshotEvidence(null,first,'new.jpg');
+const old=b.detailScreenshotData('DE000FG4JXV7\nEUR\nGeld 23,81\nBrief 23,82\n02/10/2026 12:00',isin);
+const unchanged=JSON.stringify(original);
+assert.throws(()=>b.mergeScreenshotEvidence(original,old,'old.jpg'),/Älteres Kursbild/);
+assert.equal(JSON.stringify(original),unchanged);
+const noClock=b.detailScreenshotData('DE000FG4JXV7\nEUR\nGeld 25,81\nBrief 25,82',isin);
+assert(noClock.ok);assert.equal(b.mergeScreenshotEvidence(original,noClock,'unknown.jpg').ask,25.82);
+assert.equal(b.mergeScreenshotEvidence(original,noClock,'unknown.jpg').sourceTime,'');
+const noIdentity=b.detailScreenshotData('Bezugsverhältnis 10:1\nTyp Put\nBasispreis 4.635,8091 USD (02.10.2026)\nKnock-Out-Barriere 4.635,8091 USD (02.10.2026)','DE000FG309G0');
+assert.equal(noIdentity.ok,false);assert(noIdentity.reason.includes('ISIN'));
+console.log('Original-image OCR prefix errors and older-quote overwrite protection passed');
+
+}
