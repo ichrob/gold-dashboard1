@@ -88,9 +88,10 @@ jobs:
           node test_exit_plan.js
           node test_trade_product.js
           node test_trade_upload.js
-          python -m unittest test_market_cards.py test_shared_spot.py
+          python -m unittest test_market_cards.py test_shared_spot.py test_server_review.py
           node test_market_cards.js
           node test_shared_spot.js
+          node test_review.js
           node test_dashboard.js
           node test_quote_refresh.js
 

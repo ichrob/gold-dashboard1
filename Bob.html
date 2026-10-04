@@ -786,12 +786,12 @@ function draw(a){
  $("chartFibExplanation").textContent=fibonacciExplanation(A.ready?A.fibonacci:null);
  const v=C.slice(-120).filter(b=>Number.isFinite(Number(b.close))&&Number.isFinite(Number(b.openTime))&&Number(b.openTime)>0);
  const bundle=typeof liveBundleCache!=="undefined"?liveBundleCache:null;
- const age=bundle?.spots?.xaus_age_seconds;
- const quoteAt=Number.isFinite(Number(age))&&age!=null&&bundle?.fetched_at?(Number(bundle.fetched_at)-Number(age))*1000:null;
+ const sourceTime=bundle?.spots?.spot_price_as_of;
+ const quoteAt=typeof sourceTime==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(sourceTime)?Date.parse(sourceTime):NaN;
  const timeLabel=t=>new Date(t).toLocaleTimeString("de-CH",{timeZone:"Europe/Zurich",hour:"2-digit",minute:"2-digit"});
  const priceLabel=p=>p.toLocaleString("de-CH",{minimumFractionDigits:2,maximumFractionDigits:2});
  const lp=Number(lastPrice);
- $("chartLatest").textContent="Letzter Preis: "+(lp>0?priceLabel(lp)+" USD":"—")+" · Kurszeit: "+(quoteAt?new Date(quoteAt).toLocaleString("de-CH",{timeZone:"Europe/Zurich"}):"nicht verfügbar")+" · Schweizer Zeit";
+ $("chartLatest").textContent="Letzter Preis: "+(lp>0?priceLabel(lp)+" USD":"—")+" · Kurszeit: "+(Number.isFinite(quoteAt)?new Date(quoteAt).toLocaleString("de-CH",{timeZone:"Europe/Zurich"}):"nicht verfügbar")+" · Schweizer Zeit";
  if(v.length<2){$("chartFib").textContent="Fibonacci: keine bestätigten Level verfügbar.";ctx.fillStyle="#666";ctx.font="16px sans-serif";ctx.fillText("Kein historischer Verlauf mit Zeitangaben verfügbar",20,110);return;}
  v.sort((a,b)=>Number(a.openTime)-Number(b.openTime));
  const fib=A.ready&&A.fibonacci?.valid?A.fibonacci:null;
@@ -892,6 +892,12 @@ function dataAge(at,limit=180000,now=Date.now()){
  const fresh=Number.isFinite(parsed)&&parsed>0&&now>=parsed&&now-parsed<=limit;
  return {fresh,label:fresh?'':!Number.isFinite(parsed)||parsed<=0?'Aktualität unbekannt – Zeitstempel fehlt oder ist unklar':parsed>now?'Aktualität unbekannt – Zeitstempel liegt in der Zukunft':'veraltet – Stand: '+new Date(parsed).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)'};
 }
+function currentSpotUsable(){
+ const spot=liveBundleCache?.spots;
+ return !window.BobSession?.expired()&&spot?.is_genuine_xauusd_spot===true&&!spot.spot_error&&
+  typeof spot.xaus==='number'&&Number.isFinite(spot.xaus)&&spot.xaus>0&&spot.xaus===lastPrice&&
+  dataAge(spot.spot_price_as_of,60000).fresh;
+}
 function analysisAgeWarnings(){
  const warnings=[],bundle=liveBundleCache;
  if(bundle){const a=dataAge(bundle.spots?.spot_price_as_of);if(!a.fresh||bundle.spots?.spot_error)warnings.push('Goldpreis: '+(a.label||'Aktualität von Quelle nicht bestätigt'));}
@@ -982,6 +988,7 @@ async function fetchIntradayPoints(){const j=await fetchLiveBundle();return j.hi
 async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
  try{
   const bundle=suppliedBundle || liveBundleCache || await fetchLiveBundle(force);
+  if(generation!==null&&generation!==loadGeneration)return MTF;
   const points=bundle.history?.points||[];
   const tfBars=bundle.history?.bars_by_tf||{};
   lastMtfAt=Date.now();
@@ -1013,10 +1020,19 @@ async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
   if(mtfSummary)mtfSummary.innerHTML="<b>"+overall+"</b><br>"+longs+" LONG · "+shorts+" SHORT · "+neutral+" NEUTRAL · "+strength+"<br><span class=\"small\">4h basiert jetzt auf echter 1h-Historie und wird nur mit mindestens 200 geschlossenen 4h-Kerzen bewertet.</span>";
   MTF={longs,shorts,neutral,overall,byTf,dirs,hierarchy:mtfHierarchy};
   // Server-side verification is the authoritative runtime check for the MTF pipeline.
+  const verifyController=new AbortController(),verifyTimer=setTimeout(()=>verifyController.abort(),8000);
   try{
-   const vr=await fetch("/api/mtf?fresh="+Date.now(),{cache:"no-store"});
+   const vr=await fetch("/api/mtf?fresh="+Date.now(),{cache:"no-store",signal:verifyController.signal});
+   if(generation!==null&&generation!==loadGeneration)return MTF;
    if(vr.ok&&results.every(([,id,z])=>z.fresh)){
     const v=await vr.json(), r=v.results||{};
+    if(generation!==null&&generation!==loadGeneration)return MTF;
+    // A separately fetched verification may refer to a different candle snapshot.
+    // Preserve the MTF calculated from the current analysis unless times match.
+    if(!['5m','15m','1h','4h'].every(tf=>r[tf]?.fresh===true&&r[tf]?.openTime===byTf[tf]?.openTime)){
+     reportBobDiag('mtf:verification-skipped',{reason:'Server-Historie gehört nicht zum aktuellen Analysestand'});
+     renderAnalysisBlocks();updateTradeSignal();updateResearchPanel();return MTF;
+    }
     for(const [tf,id] of [["5m","mtf5"],["15m","mtf15"],["1h","mtf1h"],["4h","mtf4h"]]){
      const z=r[tf]; if(!z) continue;
      const label=!z.available?"NEUTRAL · Historie fehlt":z.dir+(z.rsi!=null?" · RSI "+Number(z.rsi).toFixed(0):"");
@@ -1028,10 +1044,13 @@ async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
     const mtfSummary=$("mtfSummary");
     if(mtfSummary)mtfSummary.innerHTML="<b>"+MTF.overall+"</b><br>"+MTF.longs+" LONG · "+MTF.shorts+" SHORT · "+MTF.neutral+" NEUTRAL · Server-verifiziert";
     reportBobDiag("mtf:server-verified",{bars5m:r["5m"]?.bars||0,bars15m:r["15m"]?.bars||0,bars1h:r["1h"]?.bars||0,bars4h:r["4h"]?.bars||0,available:!!v.valid,overall:MTF.overall,historyStatus:bundle.history?.data_state?.status||"unknown",source:"server-mtf"});
+   }else if(vr.ok){
+    reportBobDiag('mtf:verification-skipped',{reason:'Technikhistorie nicht aktuell; keine neue Bestätigung'});
    }else{
     reportBobDiag("mtf:server-error",{error:"HTTP "+vr.status,reason:"/api/mtf verification failed"});
    }
-  }catch(e){reportBobDiag("mtf:server-error",{error:e?.message||String(e),reason:"/api/mtf verification exception"});}
+  }catch(e){reportBobDiag("mtf:server-error",{error:e?.message||String(e),reason:"/api/mtf verification exception"});}finally{clearTimeout(verifyTimer);}
+  if(generation!==null&&generation!==loadGeneration)return MTF;
   renderAnalysisBlocks();updateTradeSignal();updateResearchPanel();return MTF;
  }catch(e){
   reportBobDiag("mtf:error",{error:e?.message||String(e),reason:"loadMTF exception"});
@@ -1045,13 +1064,17 @@ async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
 
 // MTF single-flight guard: multiple analysis paths/watchdog retries may request MTF,
 // but only one runtime pipeline is allowed to execute at a time.
-let mtfInFlight=null;
+let mtfInFlight=null,mtfActiveGeneration=null;
 let mtfRequestSeq=0;
 async function loadMTF(force=false, generation=null, suppliedBundle=null){
  if(mtfInFlight){
   reportBobDiag("mtf:deduplicated",{request:++mtfRequestSeq,reason:"MTF request already in flight"});
-  return mtfInFlight;
+  if(generation===null||generation===mtfActiveGeneration)return mtfInFlight;
+  await mtfInFlight;
+  if(generation!==loadGeneration)return MTF;
+  return loadMTF(force,generation,suppliedBundle);
  }
+ mtfActiveGeneration=generation;
  const request=++mtfRequestSeq;
  let promiseRef;
  promiseRef=_loadMTFImpl(force,generation,suppliedBundle).finally(()=>{
@@ -1348,7 +1371,9 @@ async function setTradeEntry(){
 async function suggestStopUpdate(){
  if(pushState?.backgroundEnabled){$("stopUpdate").textContent="Stop und Ziel werden im Hintergrund überwacht; Serverstand wird synchronisiert.";await syncPushPreferences();renderActiveTradePlan();return;}
  if(!tradeMgmt.active){$("stopUpdate").textContent="Kein aktiver Trade – zuerst Trade-Einstieg bestätigen.";return;}
- const p=+($("tradePrice").value||lastPrice),atrv=A.at,mult=+( $("trailAtr")?.value||1.5),model=stopModel(tradeMgmt.dir,p,atrv,mult),candidate=model.stop,old=tradeMgmt.stop;
+ if(!currentSpotUsable()||analysisAgeWarnings().length||!A.ready||!Number.isFinite(A.at)||A.at<=0){$("stopUpdate").textContent="Stop unverändert: aktuelle geprüfte Gold- und Analysedaten fehlen.";return;}
+ const p=lastPrice,atrv=A.at,mult=+( $("trailAtr")?.value||1.5),model=stopModel(tradeMgmt.dir,p,atrv,mult),candidate=model.stop,old=tradeMgmt.stop;
+ if(!Number.isFinite(candidate)||candidate<=0||!Number.isFinite(old)||old<=0||!(tradeMgmt.dir==='LONG'?candidate<p:tradeMgmt.dir==='SHORT'&&candidate>p)){$("stopUpdate").textContent="Stop unverändert: kein gültiger Stop-Vorschlag verfügbar.";return;}
  let next=tradeMgmt.dir==="LONG"?Math.max(old,candidate):Math.min(old,candidate);
  if(next===old){$("stopUpdate").innerHTML=`<b>Kein Nachziehen.</b> Technischer Stop bleibt bei <b>${activeTradeLevel(old)}</b>.`;return;}
  tradeMgmt.stop=next;tradeMgmt.lastUpdate=new Date().toISOString();saveTradeMgmt();$("tradeStop").value=next.toFixed(2);$("stopUpdate").innerHTML=`<b>STOP-LOSS ANPASSEN:</b> neuer Kurs <b>${activeTradeLevel(next)}</b> (alt ${activeTradeLevel(old)}).`;
@@ -1493,6 +1518,7 @@ function checkDgProduct(){
 async function manageProfitProtection(){
  try{
    if(pushState?.backgroundEnabled||!pushState?.activeTrade||!pushState?.trade||!tradeMgmt?.active)return;
+   if(!currentSpotUsable()||analysisAgeWarnings().length||!A.ready)return;
    const entry=Number(tradeMgmt.entry), stop=Number(tradeMgmt.stop), p=Number(lastPrice);
    if(!Number.isFinite(entry)||!Number.isFinite(stop)||!Number.isFinite(p)||!tradeMgmt.dir)return;
    const initialRisk=Number(tradeMgmt.initialRisk)>0?Number(tradeMgmt.initialRisk):Math.abs(entry-stop);
@@ -1582,7 +1608,7 @@ async function maybePushAnalysisAlerts(){
    }
 
    saved.dir=dir;saved.mtf=mtf;localStorage.setItem("bobAlertV2",JSON.stringify(saved));
-   if(pushState.activeTrade&&pushState.trade&&tradeMgmt?.active&&Number.isFinite(Number(tradeMgmt.stop))){
+   if(currentSpotUsable()&&pushState.activeTrade&&pushState.trade&&tradeMgmt?.active&&Number.isFinite(Number(tradeMgmt.stop))){
      const stop=Number(tradeMgmt.stop), distance=Math.abs(lastPrice-stop);
      const near=Math.max((A.at||0)*0.25,1);
      const breached=(tradeMgmt.dir==="LONG"&&lastPrice<=stop)||(tradeMgmt.dir==="SHORT"&&lastPrice>=stop);
@@ -1656,12 +1682,12 @@ async function fetchSpotSources(bundle=null){
  return {xaus,gp,reference,diff,pct,sourceWarning,usd_eur:Number(s.usd_eur),usd_chf:Number(s.usd_chf)};
 }
 function hydrateTechnicalFromBundle(bundle, requestedN=200){try{const tfBars=bundle?.history?.bars_by_tf||{};const preferred=Array.isArray(tfBars["5m"])&&tfBars["5m"].length?tfBars["5m"]:Array.isArray(tfBars["15m"])&&tfBars["15m"].length?tfBars["15m"]:Array.isArray(tfBars["1h"])&&tfBars["1h"].length?tfBars["1h"]:[];const closed=preferred.filter(b=>!b.isOpen);if(closed.length<30)return false;const n=Math.max(30,Number(requestedN)||200);C=closed.slice(-n);const p=Number(bundle?.spots?.xaus);if(Number.isFinite(p)&&p>0)lastPrice=p;analyze();return true;}catch(e){reportBobDiag("analysis:hydrate-error",{error:e?.message||String(e)});return false;}}
-async function loadData(){
+async function loadData(force=false){
  const generation=++loadGeneration;
  try{
   const tf=$("tf").value,n=+$("n").value;
   if(!["5m","15m","1h"].includes(tf))throw Error("Diese Zeitebene wird nicht unterstützt.");
-  const bundle=await fetchLiveBundle();
+  const bundle=await fetchLiveBundle(force);
   if(generation!==loadGeneration)return;
 
   // The live spot price is the primary heartbeat of Bob. Secondary spot/futures
@@ -1691,6 +1717,7 @@ async function loadData(){
     try{hr=await fetch("/api/live?fresh="+Date.now(),{cache:"no-store",signal:ctl.signal})}finally{clearTimeout(tm)}
     if(hr.ok){
      const hj=await hr.json();
+     if(generation!==loadGeneration)return;
      const h=hj?.history;
      if(h?.bars_by_tf){
       tfBars=h.bars_by_tf||{};
@@ -1705,6 +1732,7 @@ async function loadData(){
    }
   }
 
+  if(generation!==loadGeneration)return;
   liveFxUsdEur=Number.isFinite(Number(spots.usd_eur))&&Number(spots.usd_eur)>0?Number(spots.usd_eur):null;
   $("quickPrice").textContent=lastPrice.toFixed(2)+" USD";
   $("price").textContent=lastPrice.toFixed(2)+" USD";
