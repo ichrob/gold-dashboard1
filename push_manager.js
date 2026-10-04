@@ -68,6 +68,7 @@
     return s.registered&&Notification.permission==="granted"&&s[kind]===true&&(kind!=="trade"||s.activeTrade===true);
   }
   async function emit(kind,title,body,data={}){
+    if(read().backgroundEnabled&&!data.test)return false;
     // Generic notification calls must never bypass the dedicated server selection check.
     if(data.isin||/product|best.trade|produktempfehl|bester trade/i.test([kind,data.kind,title].join(' ')))return false;
     const testTrade=kind==="trade"&&data&&data.test===true;
@@ -123,9 +124,10 @@
       return true;
     }catch(_){return false;}
   }
+  function activeTradeId(){try{const t=JSON.parse(localStorage.getItem('goldScannerTradeMgmt')||'{}');return t.tradeId||t.fibonacciMonitor?.tradeId||null;}catch(_){return null;}}
   function syncWorkerPreferences(){
     if(!('serviceWorker' in navigator))return;
-    navigator.serviceWorker.ready.then(reg=>reg.active?.postMessage({type:'BOB_PUSH_PREFERENCES',general:read().general===true,trade:read().trade===true,activeTrade:read().activeTrade===true})).catch(()=>{});
+    navigator.serviceWorker.ready.then(reg=>reg.active?.postMessage({type:'BOB_PUSH_PREFERENCES',general:read().general===true,trade:read().trade===true,activeTrade:read().activeTrade===true,tradeId:activeTradeId()})).catch(()=>{});
   }
   let selectionBusy=false,selectionLastAt=0,selectionLastKey='',selectionGeneration=0;
   function productStatus(text){const el=typeof document!=='undefined'?document.getElementById('productPushStatus'):null;if(el)el.textContent=text;}
@@ -166,7 +168,7 @@
   function activeTradePushMonitor(){
     try{
       const s=read();
-      if(!s.registered||!s.trade||!s.activeTrade)return;
+      if(s.backgroundEnabled||!s.registered||!s.trade||!s.activeTrade)return;
       const raw=localStorage.getItem("goldScannerTradeMgmt");
       if(!raw)return;
       const t=JSON.parse(raw);
