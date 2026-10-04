@@ -54,7 +54,7 @@ body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 .bob-mobile #auditStatistics table{font-size:12px}.bob-mobile #auditStatistics th{padding:8px;text-align:left}
 .bob-mobile #auditStatistics td{padding:8px;overflow-wrap:anywhere}.bob-mobile #auditStatistics>div{max-width:100%}
 .bob-mobile .gold-quote{padding:15px}.bob-mobile .gold-price{font-size:28px}.bob-mobile .gold-price-row{margin:10px 0}
-.bob-mobile #chartFib{display:none}.bob-mobile .bob-short{margin:10px 0;color:#536176;font-size:14px}
+.bob-mobile #chartFib{display:block}.bob-mobile .bob-short{margin:10px 0;color:#536176;font-size:14px}
 .bob-mobile .bob-primary{background:#1677ff}.bob-mobile .bob-disclosure{margin:12px 0}
 @media(max-width:400px){.bob-mobile main{padding:12px 12px 110px}.bob-mobile .card{padding:14px}.bob-mobile .row{flex-wrap:wrap}.bob-mobile .row>*{flex-basis:140px}}
 @media(max-width:600px){
@@ -84,6 +84,7 @@ body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 .bob-mobile .bob-top-quotes .gold-market-note{font-size:10px}
 @media(min-width:600px){.bob-mobile .bob-top-quotes header{min-height:60px}.bob-mobile .bob-top-quotes h3{font-size:16px;min-height:22px}.bob-mobile .bob-top-quotes .gold-quote{padding:14px}.bob-mobile .bob-top-quotes .gold-meta{font-size:12px}}
 #gold-estimate-change,#gold-estimate-basis,#gold-estimate-source,.gold-estimate-note{display:none}
+.chart-controls{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px}.chart-controls select{min-height:44px}.chart-card .chart-frame{padding:0}.chart-card #chart{display:block;width:100%;height:300px}.chart-status{margin:8px 0 12px}.chart-details{border-top:1px solid #e5e9ef;margin-top:8px}.chart-details summary{font-size:14px}.chart-card #chartFib{line-height:1.8;margin-bottom:10px}.chart-card #chartFibExplanation{font-size:13px}.chart-status[data-stale="true"]{color:#8a5a00;background:#fff5d6;padding:6px 10px;border-radius:8px}
 </style>
 </head>
 <body>
@@ -300,7 +301,12 @@ try{
 <div class="metric">ATR(14)<b id="atr">—</b></div>
 </div></details></div>
 
-<div class="card"><h3>Preisverlauf</h3><div class="grid" style="margin-bottom:10px"><div><label for="chartType">Darstellung</label><select id="chartType" onchange="saveChartView();draw()"><option value="candles" selected>Kerzen</option><option value="line">Linie (Kurve)</option></select></div><div><label for="chartTf">Chart-Zeitebene</label><select id="chartTf" onchange="saveChartView();draw()"><option value="5m">5 Minuten</option><option value="15m" selected>15 Minuten</option><option value="1h">1 Stunde</option><option value="4h">4 Stunden</option></select></div></div><div class="small" id="chartViewStatus" aria-live="polite"></div><div class="small">Die Chart-Auswahl ändert nur die Darstellung. Analyse und Trade-Überwachung behalten ihre Einstellung.</div><div id="chartLatest" class="small" aria-live="polite">Letzter Preis: — · Kurszeit: —</div><div class="chart-frame"><span class="axis-price">Preis</span><canvas id="chart" width="800" height="220" aria-label="Preisverlauf: waagerecht Zeit, senkrecht Preis"></canvas><div class="axis-time">Zeit</div></div><div id="chartFibExplanation" class="research" style="margin-top:10px">Fibonacci: noch keine bestätigten Level.</div><div id="chartFib" class="small" style="margin-top:8px">Fibonacci: noch keine bestätigten Level.</div></div>
+<div class="card chart-card"><h3>Preisverlauf</h3>
+<div class="chart-controls"><div><label for="chartType">Ansicht</label><select id="chartType" onchange="saveChartView();draw()"><option value="candles" selected>Kerzen</option><option value="line">Linie</option></select></div><div><label for="chartTf">Zeitraum pro Kerze</label><select id="chartTf" onchange="saveChartView();draw()"><option value="5m">5 Minuten</option><option value="15m" selected>15 Minuten</option><option value="1h">1 Stunde</option><option value="4h">4 Stunden</option></select></div></div>
+<div class="small chart-status" id="chartViewStatus" aria-live="polite"></div>
+<div class="chart-frame"><canvas id="chart" width="800" height="300" aria-label="Preisverlauf: waagerecht Zeit, senkrecht Preis in USD"></canvas></div>
+<details class="chart-details"><summary>Fibonacci-Level &amp; Erklärung</summary><div id="chartFib" class="small">Fibonacci: noch keine bestätigten Level.</div><div id="chartFibExplanation" class="research">Fibonacci: noch keine bestätigten Level.</div></details>
+<details class="chart-details"><summary>Kursdaten &amp; Hinweise</summary><div id="chartLatest" class="small" aria-live="polite">Letzter Preis: — · Kurszeit: —</div><div id="chartHistoryInfo" class="small"></div><p class="small">Die Chart-Auswahl ändert nur die Darstellung. Analyse und Trade-Überwachung behalten ihre Einstellung.</p></details></div>
 
 <div class="card"><h3>⏱ Multi-Timeframe</h3>
 <div id="mtfSummary" class="small">—</div><details><summary>Zeitebenen anzeigen</summary>
@@ -785,10 +791,12 @@ function fibonacciExplanation(fib){
  return "Fibonacci-Szenario abwärts: Bei einer Erholung liegen mögliche Widerstandszonen bei "+p(l.r382)+" (38,2 %), "+p(l.r500)+" (50 %) und "+p(l.r618)+" (61,8 %). Steigt der Kurs weiter, folgt "+p(l.r786)+" (78,6 %); über dem Ausgangshoch "+p(fib.high)+" ist diese Abwärtsbewegung gebrochen. Setzt sich der Rückgang unter "+p(fib.low)+" fort, liegen mögliche Erweiterungsziele bei "+p(l.e1272)+" und "+p(l.e1618)+". Die Zonen bestätigen allein keine Trendwende.";
 }
 let chartHistory={};
+window.addEventListener('resize',()=>{if($('chart').getBoundingClientRect().width)draw();});
 function saveChartView(){try{localStorage.setItem('bobChartView',JSON.stringify({type:$('chartType').value,tf:$('chartTf').value}));}catch(_){}}
 (function(){try{const v=JSON.parse(localStorage.getItem('bobChartView')||'{}');if(['candles','line'].includes(v.type))$('chartType').value=v.type;if(['5m','15m','1h','4h'].includes(v.tf))$('chartTf').value=v.tf;}catch(_){}})();
 function draw(a){
- const cv=$("chart"),ctx=cv.getContext("2d"),w=cv.width,h=cv.height;
+ const cv=$("chart"),ctx=cv.getContext("2d"),w=Math.max(240,cv.getBoundingClientRect().width||800),h=300;
+ const dpr=window.devicePixelRatio||1;cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);
  ctx.clearRect(0,0,w,h);
  const tf=$('chartTf').value, candles=$('chartType').value==='candles';
  const raw=chartHistory[tf]||((tf===$('tf').value)?C:[]);
@@ -798,7 +806,9 @@ function draw(a){
  const chartAtr=ranges.length?ranges.reduce((a,b)=>a+b,0)/ranges.length:0;
  const model=all.length&&assessment.available?fibonacciModel(assessment.dir,Number(all.at(-1).close),chartAtr,all):null;
  const fib=model?.valid?model:null;
- $('chartViewStatus').textContent=(candles?'Kerzen':'Linie')+' · '+$('chartTf').selectedOptions[0].textContent+' · '+v.length+' geschlossene Kerzen'+(assessment.fresh===false?' · historische Daten – nicht aktuell':'');
+ $('chartViewStatus').textContent=v.length<2?'Keine Chartdaten verfügbar':assessment.fresh===false?'Historische Daten · nicht aktuell':'Verlauf geschlossener Kerzen';
+ $('chartViewStatus').dataset.stale=String(assessment.fresh===false);
+ $('chartHistoryInfo').textContent=v.length+' geschlossene Kerzen · '+$('chartTf').selectedOptions[0].textContent;
  cv.setAttribute('aria-label',(candles?'Kerzenchart':'Linienchart')+' '+tf+'; waagerecht Zeit, senkrecht Preis');
  $('chartFibExplanation').textContent=fibonacciExplanation(fib);
  const bundle=typeof liveBundleCache!=="undefined"?liveBundleCache:null;
@@ -808,17 +818,17 @@ function draw(a){
  const priceLabel=p=>p.toLocaleString("de-CH",{minimumFractionDigits:2,maximumFractionDigits:2});
  const lp=Number(lastPrice);
  $("chartLatest").textContent="Letzter Preis: "+(lp>0?priceLabel(lp)+" USD":"—")+" · Kurszeit: "+(Number.isFinite(quoteAt)?new Date(quoteAt).toLocaleString("de-CH",{timeZone:"Europe/Zurich"}):"nicht verfügbar")+" · Schweizer Zeit";
- if(v.length<2){$("chartFib").textContent="Fibonacci: keine bestätigten Level verfügbar.";ctx.fillStyle="#666";ctx.font="16px sans-serif";ctx.fillText("Kein historischer Verlauf mit Zeitangaben verfügbar",20,110);return;}
+ if(v.length<2){$("chartFib").textContent="Fibonacci: keine bestätigten Level verfügbar.";ctx.fillStyle="#666";ctx.font="16px sans-serif";ctx.fillText("Keine Chartdaten verfügbar",16,140);return;}
  v.sort((a,b)=>Number(a.openTime)-Number(b.openTime));
  const fibRows=fib?[["38,2 %",fib.levels.r382],["50 %",fib.levels.r500],["61,8 %",fib.levels.r618],["78,6 %",fib.levels.r786],["Ext. 127,2 %",fib.levels.e1272],["Ext. 161,8 %",fib.levels.e1618]].filter(r=>Number.isFinite(r[1])):[];
  $("chartFib").textContent=fibRows.length?"Fibonacci · "+fibRows.map(r=>r[0]+": "+priceLabel(r[1])+" USD").join(" · "):"Fibonacci: keine bestätigten Level verfügbar.";
  const ps=[...v.flatMap(b=>candles?[Number(b.low),Number(b.high)]:[Number(b.close)]),...fibRows.map(r=>r[1])],lo=Math.min(...ps),hi=Math.max(...ps),margin=Math.max((hi-lo)*.08,.5),mn=lo-margin,mx=hi+margin;
- const left=90,right=w-180,top=15,bottom=h-42,start=Number(v[0].openTime),end=Number(v.at(-1).openTime);
+ const left=65,right=w-12,top=24,bottom=h-52,start=Number(v[0].openTime),end=Number(v.at(-1).openTime);
  const x=t=>left+(t-start)/(end-start||1)*(right-left),y=p=>bottom-(p-mn)/(mx-mn)*(bottom-top);
- ctx.font="14px sans-serif";ctx.lineWidth=1;
+ ctx.font="11px sans-serif";ctx.lineWidth=1;ctx.fillStyle="#536176";ctx.textAlign="left";ctx.fillText("USD",8,14);
  for(let i=0;i<=4;i++){const p=mn+(mx-mn)*i/4,py=y(p);ctx.strokeStyle="#e0e0e0";ctx.beginPath();ctx.moveTo(left,py);ctx.lineTo(right,py);ctx.stroke();ctx.fillStyle="#555";ctx.textAlign="right";ctx.fillText(priceLabel(p),left-8,py+5);}
- for(let i=0;i<=4;i++){const t=start+(end-start)*i/4,px=x(t);ctx.textAlign=i===0?"left":i===4?"right":"center";ctx.fillText(timeLabel(t),px,bottom+23);}
- for(const [label,p] of fibRows){const py=y(p);ctx.strokeStyle=label.startsWith("Ext.")?"#7c3aed":"#087f8c";ctx.lineWidth=1;ctx.setLineDash([6,4]);ctx.beginPath();ctx.moveTo(left,py);ctx.lineTo(right,py);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=ctx.strokeStyle;ctx.textAlign="left";ctx.font="12px sans-serif";ctx.fillText(label+" · "+priceLabel(p),right+7,py+4);}
+ for(let i=0;i<=2;i++){const t=start+(end-start)*i/2,px=x(t);ctx.textAlign=i===0?"left":i===2?"right":"center";ctx.fillText(timeLabel(t),px,bottom+20);}
+ for(const [label,p] of fibRows){const py=y(p);ctx.strokeStyle=label.startsWith("Ext.")?"#7c3aed":"#087f8c";ctx.lineWidth=1;ctx.setLineDash([6,4]);ctx.beginPath();ctx.moveTo(left,py);ctx.lineTo(right,py);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=ctx.strokeStyle;ctx.textAlign="left";ctx.font="12px sans-serif";/* Exact Fibonacci values are listed below the chart to avoid overlapping labels. */}
  if(candles){
   const step=v.length>1?Math.min(...v.slice(1).map((b,i)=>x(Number(b.openTime))-x(Number(v[i].openTime)))):8;
   const bodyWidth=Math.max(1,Math.min(10,step*.65));
@@ -827,7 +837,7 @@ function draw(a){
  ctx.strokeStyle="#222";ctx.lineWidth=2;ctx.beginPath();v.forEach((b,i)=>{i?ctx.lineTo(x(Number(b.openTime)),y(Number(b.close))):ctx.moveTo(x(Number(b.openTime)),y(Number(b.close)))});ctx.stroke();
  }
  const last=v.at(-1);ctx.beginPath();ctx.arc(x(Number(last.openTime)),y(Number(last.close)),4,0,Math.PI*2);ctx.fillStyle="#222";ctx.fill();
- ctx.textAlign="left";ctx.font="12px sans-serif";ctx.fillStyle="#666";ctx.fillText(new Date(start).toLocaleDateString("de-CH",{timeZone:"Europe/Zurich"})+" – "+new Date(end).toLocaleDateString("de-CH",{timeZone:"Europe/Zurich"}),left,h-4);
+ ctx.textAlign="left";ctx.font="10px sans-serif";ctx.fillStyle="#666";ctx.fillText(new Date(start).toLocaleDateString("de-CH",{timeZone:"Europe/Zurich"})+" – "+new Date(end).toLocaleDateString("de-CH",{timeZone:"Europe/Zurich"}),left,h-4);
 }
 
 
