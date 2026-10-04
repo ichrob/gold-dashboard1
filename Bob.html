@@ -245,8 +245,8 @@ try{
 <details style="margin-top:10px"><summary>Warum entscheidet Bob so?</summary><div id="decisionExplanation" class="small" style="white-space:pre-line">Noch keine bestätigte Analyse.</div></details>
 <div id="quickReason" class="small" style="margin-top:10px">Lade Daten, um das Setup zu bewerten.</div>
 <div class="grid" style="margin-top:10px">
-<div><label>Konto (€)</label><input id="account" type="number" value="500" step="50"></div>
-<div><label>Risiko pro Trade (%)</label><input id="risk" type="number" value="1" step=".1"></div>
+<div><label>Konto (€)</label><input id="account" type="number" placeholder="—" min="0.01" step="50"></div>
+<div><label>Risiko pro Trade (%)</label><input id="risk" type="number" placeholder="—" min="0.01" max="100" step=".1"><small>Leer = persönliche Risikowarnung aus. Push benötigt einen aktiven Produkt-Trade mit Einstieg und Stückzahl sowie aktivierte Trade-Pushs. Berechnete Kurse werden als solche gekennzeichnet.</small></div>
 </div>
 </div>
 
@@ -385,7 +385,7 @@ Bob platziert keine Orders und behauptet keine Gewinn-Garantie.
 
 <div class="card"><h3>Trade-Risikorechner</h3>
 <div class="grid">
-<div><label>Risiko %</label><input id="risk2" type="number" value="1" step=".1"></div>
+<div><label>Risiko %</label><input id="risk2" type="number" placeholder="—" min="0.01" max="100" step=".1"></div>
 <div><label>Hebel</label><input id="lev" type="number" value="5" step=".5"></div>
 <div><label>Stop-Distanz in ATR</label><input id="atrmult" type="number" value="1.5" step=".1"></div>
 <div><label>Chance/Risiko-Ziel</label><input id="rr" type="number" value="2" step=".1"></div>
@@ -661,7 +661,7 @@ async function syncPushPreferencesImpl(){
     const instrument=tradeMgmt.fibonacciMonitor?.instrument||C.at(-1)?.instrument;
     tradeMgmt.tradeId=tradeMgmt.tradeId||tradeMgmt.fibonacciMonitor?.tradeId||('trade-'+Date.now()+'-'+Math.random().toString(36).slice(2));
     tradeMgmt.initialRisk=Number(tradeMgmt.initialRisk)||Math.abs(tradeMgmt.entry-tradeMgmt.stop);
-    backgroundTrade={...tradeMgmt,instrument};
+    backgroundTrade={...tradeMgmt,instrument,personalRisk:personalRisk()};
     saveTradeMgmt();
    }
    const background={timeframe:$('tf')?.value||'15m',trailAtr:Number($('trailAtr')?.value)||1.5,trade:backgroundTrade};
@@ -1443,6 +1443,19 @@ function renderAnalysisBlocks(){
  put("Structure",structure,"Preisposition und Stochastik; vereinfachte Strukturbewertung");
  $("analysisQuality").textContent="Signalqualität: "+(confirmedSignalDirection()==="NEUTRAL"?"nicht ausreichend bestätigt":"technisch bestätigt")+" · Kollektiv-Richtungswert "+Number(A.score||0).toFixed(0)+"/100 · keine Gewinnwahrscheinlichkeit";
 }
+function personalRisk(){
+ const account=Number($("account").value),percent=Number($("risk").value);
+ return Number.isFinite(account)&&account>0&&Number.isFinite(percent)&&percent>0&&percent<=100?{account,percent,budget:account*percent/100}:null;
+}
+function initPersonalRisk(){
+ let saved=null;try{saved=JSON.parse(localStorage.getItem('bobPersonalRiskV1'));}catch(_){}
+ if(saved?.confirmed===true){$('account').value=saved.account||'';$('risk').value=saved.percent||'';}
+ for(const id of ['account','risk'])$(id).addEventListener('input',()=>{
+  const r=personalRisk();localStorage.setItem('bobPersonalRiskV1',JSON.stringify(r?{...r,confirmed:true}:null));
+  $('quickRisk').textContent=r?r.budget.toFixed(2)+' €':'— · persönliche Risikogrenze nicht eingerichtet';
+  syncPushPreferences();
+ });
+}
 function updateQuick(){
  renderAnalysisBlocks();
  if(window.BobSession?.expired()){$("quickSignal").textContent="🟡 ABWARTEN · Anmeldung erforderlich";$("quickSignal").className="signal neutral";$("quickReason").textContent="Serverprüfung gesperrt: bitte erneut bei Bob anmelden.";$("quickRisk").textContent="—";updateTradeSignal();return;}
@@ -1456,8 +1469,8 @@ function updateQuick(){
  $("quickSignal").textContent=q;$("quickSignal").className="signal "+cls;
  $("quickPrice").textContent=p.toFixed(2);
  $("quickTrend").textContent=A.e20>A.e50&&A.e50>A.e200?"Bullish":A.e20<A.e50&&A.e50<A.e200?"Bearish":"Gemischt";
- const acc=+$("account").value||500, rp=+$("risk").value||1;
- $("quickRisk").textContent=(acc*rp/100).toFixed(2)+" €";
+ const personal=personalRisk();
+ $("quickRisk").textContent=personal?personal.budget.toFixed(2)+" €":"— · persönliche Risikogrenze nicht eingerichtet";
  $("quickReason").textContent=q.includes("LONG")?"Mehrere technische Faktoren sprechen in dieselbe Richtung. Nur bei akzeptablem Risiko prüfen."
  :q.includes("SHORT")?"Mehrere technische Faktoren sprechen nach unten. Nur bei akzeptablem Risiko prüfen."
  :"Die Faktoren sind nicht ausreichend ausgerichtet – besser auf ein klareres Setup warten.";
@@ -1633,7 +1646,9 @@ function useRiskDefaults(){
 
 function calcDgTrade(){
  if(!lastPrice||!A.at){$("dgOut").innerHTML="Zuerst Live-Daten laden.";return}
- const acc=+$("account").value||500, riskPct=Math.max(0,+$("risk").value||1), maxLoss=acc*riskPct/100;
+ const personal=personalRisk();
+ if(!personal){$("dgOut").textContent="Persönliche Risikoberechnung inaktiv: Konto und Risiko pro Trade selbst eintragen. Technische Stops bleiben unabhängig davon.";return;}
+ const maxLoss=personal.budget;
  const fx=usdEurRate();
  const lev=Math.max(1,+$("dgLev").value||1), ko=+$("dgKo").value;
  const confirmed=confirmedSignalDirection();
@@ -1817,6 +1832,7 @@ async function loadData(force=false){
 }
 function demo(){let p=4250;C=[];lastPrice=p;for(let i=0;i<250;i++){p+=Math.sin(i/8)*1.8+Math.sin(i*0.73)*2.2;const o=p-2,h=p+8,l=p-8;C.push({open:o,high:h,low:l,close:p,isOpen:false})}$("status").textContent="Reproduzierbare Demo-Daten aktiv.";analyze()}
 function riskCalc(){
+ if(!personalRisk()||!(Number($("risk2").value)>0&&Number($("risk2").value)<=100)){$("riskout").textContent="Bitte Konto und Risikowerte selbst eintragen.";return;}
  if(!lastPrice||!A.at){$("riskout").textContent="Zuerst Daten laden.";return}
  const acc=+$("account").value,risk=+$("risk2").value/100,lev=Math.max(1,+$("lev").value||1),m=+$("atrmult").value,rr=Math.max(1,+$("rr").value),euro=acc*risk,fx=usdEurRate();
  const dir=confirmedSignalDirection();
@@ -1863,6 +1879,7 @@ try{
  }),cache:"no-store",keepalive:true
  }).catch(()=>{});
 }catch(_){}
+initPersonalRisk();
 try{restoreTradeMgmt();}catch(e){console.warn("Bob trade UI init",e)}
 try{updateResearchPanel();}catch(e){console.warn("Bob research UI init",e)}
 const fxField=$("fxRate"),ccyField=$("displayCcy");

@@ -68,6 +68,13 @@ def config(value):
             raise ValueError('Trade-ID fehlt für Hintergrund-Push')
         result['trade'] = {k: t.get(k) for k in ('tradeId', 'dir', 'entry', 'stop', 'initialRisk', 'target', 'instrument')}
         result['trade']['active'] = True
+        personal = t.get('personalRisk')
+        result['trade']['personalRisk'] = None
+        if personal is not None:
+            if not isinstance(personal, dict) or not positive(personal.get('account')) or not positive(personal.get('percent')) or personal['percent'] > 100:
+                raise ValueError('Persönliche Risikoeinstellung ungültig')
+            result['trade']['personalRisk'] = {'account': personal['account'], 'percent': personal['percent']}
+
         result['trade']['product'] = product_model(t.get('product'), t['dir'])
         if t.get('target') is not None and not positive(t['target']):
             raise ValueError('Ungültiges Kursziel')
@@ -127,6 +134,18 @@ def advance(previous, settings, market, general, trade_enabled, now=None):
     if not market.get('priceFresh') or not positive(market.get('price')):
         return state, events
     p, stop, entry, risk = market['price'], old['stop'], t['entry'], t['initialRisk']
+    personal, model = t.get('personalRisk'), t.get('product')
+    if personal and model:
+        budget = personal['account'] * personal['percent'] / 100
+        estimated = product_price(model, p)
+        marker = [personal['account'], personal['percent'], model['entry'], model['quantity']]
+        if estimated is not None and (model['entry'] - estimated) * model['quantity'] >= budget and old.get('personalRiskSent') != marker:
+            loss = (model['entry'] - estimated) * model['quantity']
+            add('personal-risk', 'Deine persönliche Risikogrenze wurde erreicht',
+                f"Berechneter Verlust ≈ {loss:.2f} EUR; Risikobudget {budget:.2f} EUR ({personal['percent']:g}% von {personal['account']:g} EUR). Ohne Gebühren. Position prüfen; kein automatischer Verkauf.")
+            events[-1]['tag'] = 'bob-personal-risk-' + t['tradeId']
+            old['personalRiskSent'] = marker
+
     long = t['dir']=='LONG'
     reached = p<=stop if long else p>=stop
     near = max((market.get('atr') or 0)*.25, 1)
