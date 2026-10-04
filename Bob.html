@@ -92,6 +92,7 @@ body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 .technical-direction{display:inline-block;font-size:12px;font-weight:700;border-radius:5px;padding:3px 7px;color:#4b5563;background:#f3f4f6}
 .technical-direction[data-direction="LONG"]{color:#166534;background:#dcfce7}
 .technical-direction[data-direction="SHORT"]{color:#991b1b;background:#fee2e2}
+#legacyManualProductCheck{display:none!important}
 </style>
 </head>
 <body>
@@ -350,7 +351,7 @@ try{
 </div>
 </details></div>
 
-<div class="card">
+<div class="card" id="legacyManualProductCheck" hidden aria-hidden="true">
 <h3>🎯 DEGIRO-Trade-Modus</h3>
 <div id="tradeSignal" class="signal neutral" style="font-size:20px">Warte auf Analyse</div>
 <div class="grid" style="margin-top:10px">
@@ -573,7 +574,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   for(const id of ['price','mtfSummary','momentumSummary','adx','signal']){const el=card(id);if(el)technical.append(el);}
   move(byId('economicTitle')?.closest('section'),'overview');fold(byId('economicTitle')?.closest('section'),'Wirtschaftstermine');
   const selection=document.createElement('div');selection.className='card';selection.innerHTML='<h3>Produktauswahl</h3><p id="bobSelectionSummary" class="small">Auswahl wird geprüft …</p><button type="button" class="bob-primary" data-view="products">Produkte und fehlende Werte ansehen</button>';quick.after(selection);
-  move(byId('dgTop3'),'products');fold(byId('dgTop3')?.querySelector(':scope > div.small'),'Datenabruf und Gültigkeit');move(manual,'products');fold(manual,'Manuelle Produktprüfung und Berechnung');
+  move(byId('dgTop3'),'products');fold(byId('dgTop3')?.querySelector(':scope > div.small'),'Datenabruf und Gültigkeit');if(manual)manual.hidden=true;
   move(card('tradeStateBtn'),'trade');
   const enter=document.createElement('button');enter.type='button';enter.className='bob-primary';enter.textContent='Trade erfassen / Kursbild ergänzen';enter.addEventListener('click',()=>{const upload=byId('bobTradeUpload');if(upload?.parentElement.tagName==='DETAILS')upload.parentElement.open=true;byId('trade-images')?.click();});panels.trade.append(enter);
   move(byId('bobTradeUpload')||byId('bobExitEstimate'),'trade');fold(byId('bobTradeUpload'),'Produktnachweise und Ausstiegskurse');move(card('stopPanel'),'trade');
