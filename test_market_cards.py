@@ -40,7 +40,7 @@ class MarketCardsTests(unittest.TestCase):
     def snapshot_with(self, estimate):
         reference = dict(price=4172, at='2026-10-02T12:00:00+00:00', previousClose=4200,
                          kind='reference', changePct=-.66)
-        with patch.object(m, '_cache', None), patch.object(m, 'fetch_spot', return_value=m.unavailable('XAU/USD')), patch.object(m, 'fetch_quote', return_value=reference), patch.object(future_estimate, 'current_estimate', return_value=estimate):
+        with patch.object(m.investing_card, 'fetch', return_value=m.unavailable('Gold CFD')), patch.object(m, '_cache', None), patch.object(m, 'fetch_spot', return_value=m.unavailable('XAU/USD')), patch.object(m, 'fetch_quote', return_value=reference), patch.object(future_estimate, 'current_estimate', return_value=estimate):
             return m.snapshot()
 
     def test_released_estimate_preferred_without_claiming_validated_accuracy(self):

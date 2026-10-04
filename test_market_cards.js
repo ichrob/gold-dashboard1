@@ -34,5 +34,16 @@ setImmediate(async()=>{
  await context.window.BobGoldCards.refresh();
  assert.equal(el('gold-estimate-price').textContent,'≈ 4.190,00');
  assert.equal(el('gold-estimate-state').textContent,'Aktualisierung aktiv');
+ payload.cfd={price:4170.45,at:new Date(Date.now()-180000).toISOString(),kind:'cfd',changePct:-.04,note:'Echtzeit CFD · laut Investing.com'};
+ await context.window.BobGoldCards.refresh();
+ assert.equal(el('gold-cfd-price').textContent,'4.170,45');
+ assert.equal(el('gold-cfd-change').className,'gold-change down');
+ assert.equal(el('gold-cfd-state').textContent,'CFD-Kurs nicht aktuell');
+ payload.cfd.at=new Date().toISOString();
+ await context.window.BobGoldCards.refresh();
+ assert.equal(el('gold-cfd-state').textContent,'Echtzeit CFD · laut Investing.com');
+ payload.cfd={...payload.cfd,at:new Date(Date.now()+1000).toISOString(),changePct:.1};
+ await context.window.BobGoldCards.refresh();
+ assert.equal(el('gold-cfd-change').className,'gold-change up');
  console.log('Gold cards: formatting, directions, stale data, missing change and older response protection OK');
 });

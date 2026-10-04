@@ -1,5 +1,6 @@
 """Display-only gold quotes. Never feed card data into trade authorization."""
 import json
+import investing_card
 import math
 import threading
 import time
@@ -88,9 +89,9 @@ def snapshot():
     with _lock:
         if _cache is not None and time.monotonic() - _cached_at < 30:
             return _cache
-        result = dict(spot=unavailable('XAU/USD'), future=unavailable('GCZ26'), estimate=unavailable('GCZ26'))
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            jobs = {'spot': pool.submit(fetch_spot), 'future': pool.submit(fetch_quote, 'GCZ26.CMX')}
+        result = dict(spot=unavailable('XAU/USD'), future=unavailable('GCZ26'), estimate=unavailable('GCZ26'), cfd=unavailable('Gold CFD'))
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            jobs = {'spot': pool.submit(fetch_spot), 'future': pool.submit(fetch_quote, 'GCZ26.CMX'), 'cfd': pool.submit(investing_card.fetch)}
             for key, job in jobs.items():
                 try:
                     result[key] = job.result()

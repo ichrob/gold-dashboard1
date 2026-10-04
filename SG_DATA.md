@@ -304,3 +304,15 @@ an issuer update time. The screenshot assessment displays this evidence even
 when no fresh product quote exists. It does not establish a validity interval,
 confirm a past KO event, refresh manual evidence, or grant trading eligibility.
 Malformed or absent barrier-update dates produce no dated barrier evidence.
+
+
+## Investing.com display card (2026-10-05)
+
+The fourth gold card independently reads the public German Gold page (instrument
+8830, USD per troy ounce, CFD) at most once per 30-second market-card cache.
+It retains the original lastUpdateTime and provider changePcr. The label
+“Echtzeit CFD · laut Investing.com” requires an active, open, non-delayed CFD
+and a source timestamp no older than 120 seconds. Old/closed/delayed quotes
+remain explicitly labelled; failures cannot invent a price or renew its time.
+This display does not feed the Spot/Future model, ranking, or trade monitoring.
+There is no guaranteed second-by-second stream or public API entitlement.
