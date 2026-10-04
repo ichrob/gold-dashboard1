@@ -174,7 +174,7 @@ def product_review(records):
                 returns.append((value,bool(product.get('selected'))))
         if len(returns)>=2 and any(selected for _,selected in returns) and any(not selected for _,selected in returns):
             comparisons.append(max(v for v,selected in returns if selected)>=max(v for v,_ in returns))
-    return {'evaluated':len(results),'favorable':sum(r['changePct']>0 for r in results),'latest':results[-20:],
+    return {'evaluated':len(results),'favorable':sum(r['changePct']>0 for r in results),'unfavorable':sum(r['changePct']<0 for r in results),'flat':sum(r['changePct']==0 for r in results),'latest':results[-20:],
             'comparisons':len(comparisons),'selectedBest':sum(comparisons),
             'note':'Beobachteter Geldkurs nach 60 Minuten gegen damaligen Briefkurs; ohne Gebühren. Alternativen nur bei damaliger Eignung und passenden späteren Kursen. Fehlende Kurse werden nicht geschätzt; begrenzter Rückblick, kein Optimalitätsnachweis.'}
 

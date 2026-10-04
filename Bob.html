@@ -384,6 +384,14 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 </main>
 <script src="/push_manager.js"></script>
 <script src="/degiro_assistant.js"></script>
+<section class="card" id="auditStatistics">
+<h2>Statistik: Treffer und Fehlprognosen</h2>
+<div id="auditStatisticsStatus" class="small" role="status">Statistik wird geladen …</div>
+<div style="overflow-x:auto"><table style="width:100%;text-align:left;border-collapse:collapse"><caption class="small">Nur auswertbare Richtungen / Produktkurse; Anteil innerhalb der jeweiligen Zeile</caption><thead><tr><th>Prüfung</th><th>Treffer</th><th>Fehlprognose</th><th>Unverändert</th><th>Ausgewertet</th></tr></thead><tbody id="auditStatisticsRows"></tbody></table></div>
+<div id="auditStatisticsOpen" class="small" style="white-space:pre-line;margin-top:8px"></div>
+<div class="small" style="margin-top:8px">Treffer = späterer Kurs bewegt sich in die vorhergesagte Richtung. Fehlprognose = Gegenbewegung. Beim Produkt zählt der spätere Geldkurs gegenüber dem ursprünglichen Briefkurs. Das ist eine Verlaufsauswertung ohne Gebühren, kein Beweis für einen fehlerfreien Entscheidungsprozess oder einen tatsächlichen Gewinn.</div>
+<details><summary>Recherchequalität und Auswahlvergleich</summary><div id="auditStatisticsResearch" class="small" style="white-space:pre-line"></div></details>
+</section>
 <section class="card" id="improvementPanel">
 <h2>Verbesserungsvorschläge</h2>
 <div id="improvementStatus" role="status" aria-live="polite">Lernstand wird geprüft …</div>
@@ -433,12 +441,20 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    text('improvementStatus',l.candidateBetter?'Neuer Verbesserungsvorschlag: drei statt zwei Bestätigungskerzen prüfen.':l.ready?'Vergleich abgeschlossen: bislang keine Verbesserung belegt.':'Bob sammelt Vergleichsdaten – noch keine ausreichend geprüfte Anpassung.');
    const delta=v=>Number.isFinite(v)?v.toFixed(4)+' Prozentpunkte je Vergleichsfall':'noch nicht auswertbar';
    text('improvementEvidence','Was wird geprüft?\nZwei gegen drei abgeschlossene 5-Minuten-Kerzen.\n\nDatenbasis\n'+l.training+'/100 Entwicklungsfälle und '+l.holdout+'/100 zeitlich spätere Prüffälle (Mindestzahlen).\n\nGemessener Unterschied gegenüber der aktuellen Regel\nEntwicklungsfälle: '+delta(l.trainingDeltaPct)+'\nSpätere Prüffälle: '+delta(l.holdoutDeltaPct)+'\n\nWas spricht dagegen?\nEine längere Bestätigung reagiert später. Der Vergleich bewertet Goldbewegungen ohne Handelskosten; er beweist keine höhere Produktrendite.\n\nUmsetzung\n'+(l.candidateBetter?'Vorschlag erkannt, noch nicht übernommen. Weitere Prüfung erforderlich.':'Aktuelle Regel bleibt unverändert.')+'\nAutomatische Anpassung: noch nicht verfügbar.');
+   const tbody=document.getElementById('auditStatisticsRows');tbody.replaceChildren();
+   const part=(count,total)=>Number.isFinite(count)?count+' ('+(total>0?(100*count/total).toFixed(1)+' %':'—')+')':'noch nicht verfügbar';
+   const row=(label,m)=>{const tr=document.createElement('tr');for(const value of [label,part(m.favorable,m.evaluated),part(m.unfavorable,m.evaluated),part(m.flat,m.evaluated),m.evaluated]){const td=document.createElement('td');td.textContent=String(value);td.style.padding='8px 6px';tr.appendChild(td);}tbody.appendChild(tr);};
+   for(const h of ['15','60','240'])row('Gold nach '+h+' Min.',r.metrics[h]);
+   row('Produkt nach 60 Min.',p);
+   text('auditStatisticsStatus','Stand: '+new Date().toLocaleString('de-CH')+' · '+r.scope);
+   text('auditStatisticsOpen',Object.entries(r.metrics).map(([h,m])=>h+' Min.: '+m.missing+' offen / nicht auswertbar; '+m.neutral+' ABWARTEN-Beobachtungen (nicht in der Trefferquote).').join('\n'));
+   text('auditStatisticsResearch','Recherche: '+research.observations+' Beobachtungen; '+research.conflicts+' mit Widerspruchshinweis; '+research.missingSourceOrTime+' ohne Quelle oder Abrufzeit. Diese Gruppen können sich überschneiden.\nEin fehlender Widerspruch beweist keine korrekte Recherche. Bestätigte Recherchefehler werden bisher nicht gesondert erfasst.\n\nAuswahlvergleich: '+p.selectedBest+' von '+p.comparisons+' auswertbaren Vergleichen mindestens so gut wie die beobachteten geeigneten Alternativen. Fehlende Alternativkurse zählen nicht mit.');
    const lines=['Gespeicherte Entscheidungen: '+r.total+' · Aufbewahrung '+r.retentionDays+' Tage',r.scope,''];
    for(const [h,m]of Object.entries(r.metrics))lines.push(h+' Minuten: '+m.evaluated+' auswertbare Richtungen, '+m.favorable+' günstig, '+m.unfavorable+' ungünstig, '+m.flat+' unverändert; '+m.neutral+' ABWARTEN-Beobachtungen; '+m.missing+' offen / nicht auswertbar');
    lines.push('','Produktauswahl: '+p.evaluated+' vergleichbare Kursverläufe nach 60 Minuten; '+p.favorable+' positiv.',p.note,'Vergleich mit geeigneten Alternativen: '+p.comparisons+' Fälle; Auswahl in '+p.selectedBest+' Fällen mindestens gleich gut.','','Recherche: '+research.observations+' Beobachtungen, '+research.conflicts+' Widerspruchshinweise, '+research.missingSourceOrTime+' ohne Quelle/Abrufzeit.',research.note,'','Wiederkehrende Freigabehindernisse:',...(r.issues.length?r.issues.map(([reason,count])=>count+'× '+reason):['Noch keine wiederkehrenden Freigabehindernisse erfasst.']),
     '',l.mode,l.status+' · '+l.training+' Entwicklungsfälle / '+l.holdout+' zeitlich spätere Prüffälle.','Anpassungsvorschläge werden getrennt geprüft. Keine automatische Code- oder Regeländerung. Ein positiver Kursverlauf beweist keine fehlerfreie Recherche; fehlende Nachweise bleiben offen.');
    text('auditReport',lines.join('\n'));text('auditRecords',JSON.stringify(r.latest,null,2));
-  }catch(e){text('auditReport','Auswertung nicht verfügbar: '+e.message);text('improvementStatus','Lernstand derzeit nicht abrufbar. Ein zuvor angezeigter Vorschlag ist nicht erneut geprüft.');}
+  }catch(e){text('auditStatisticsStatus','Statistik nicht aktuell abrufbar; eventuell angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.');text('auditReport','Auswertung nicht verfügbar: '+e.message);text('improvementStatus','Lernstand derzeit nicht abrufbar. Ein zuvor angezeigter Vorschlag ist nicht erneut geprüft.');}
  }
  refresh();
  setInterval(()=>{if(!document.hidden)refresh();},300000);
