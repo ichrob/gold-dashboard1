@@ -1448,7 +1448,7 @@ function renderAnalysisBlocks(){
  $("analysisQuality").textContent="Signalqualität: "+(confirmedSignalDirection()==="NEUTRAL"?"nicht ausreichend bestätigt":"technisch bestätigt")+" · Kollektiv-Richtungswert "+Number(A.score||0).toFixed(0)+"/100 ";
  const limits=document.createElement('span');
  limits.innerHTML='<span style="color:#b42318;white-space:nowrap;font-weight:700">↓ ≤ 30 SHORT</span> · <span style="color:#137442;white-space:nowrap;font-weight:700">↑ ≥ 70 LONG</span>';
- $("analysisQuality").append(limits,document.createTextNode(' · dazwischen ABWARTEN · keine Gewinnwahrscheinlichkeit'));
+ $("analysisQuality").append(limits,document.createTextNode(' · dazwischen ABWARTEN'));
 }
 function personalRisk(){
  const account=Number($("account").value),percent=Number($("risk").value);
