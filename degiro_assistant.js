@@ -952,9 +952,9 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben'){
   if(!groups.includes(label))groups.push(label);
  }
  return '<div data-selection-blocked="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere"><b>'+esc(p.isin)+'</b> · '+esc(p.productDirection||'')+'<div class="small">'+'<strong>Nicht freigegeben</strong><br>Begründung: '+esc(status.replace(/^Nicht freigegeben · /,''))+'</div>'+
- (values.length?'<div style="margin-top:10px"><b>1. Erkannte Werte prüfen</b><div class="small">'+values.map(esc).join('<br>')+'</div><label class="small" style="display:block;padding:10px 0"><input type="checkbox" data-card-confirm="'+p.index+'" '+(p.isinConfirmed?'checked':'')+'> Erkannte Zahlen geprüft – stimmen überein</label></div>':'')+
+ (values.length?'<details style="margin-top:10px"><summary>Erkannte Werte prüfen</summary><div class="small">'+values.map(esc).join('<br>')+'</div><label class="small" style="display:block;padding:10px 0"><input type="checkbox" data-card-confirm="'+p.index+'" '+(p.isinConfirmed?'checked':'')+'> Erkannte Zahlen geprüft – stimmen überein</label></details>':'')+
  (unconfirmed.length?'<div class="small" style="margin-top:8px"><em>'+unconfirmed.map(esc).join('<br>')+'</em></div>':'')+
- '<div style="margin-top:8px"><b>'+(values.length?'2. ':'')+'Noch offen</b><div class="small">'+(groups.length?groups.map(esc).join('<br>'):'Keine fehlenden Produktnachweise.')+'</div></div>'+
+ '<details style="margin-top:8px"><summary>Fehlende Werte ('+groups.length+')</summary><div class="small">'+(groups.length?groups.map(esc).join('<br>'):'Keine fehlenden Produktnachweise.')+'</div></details>'+
  renderIssuerHelp(p,reasons)+'<button data-selection-upload="'+p.index+'">Screenshots hinzufügen</button>'+renderImageImportStatus(p.index)+
  '<details data-product-details="'+p.index+'" style="margin-top:10px"><summary>Quellen und Einzelheiten</summary><div class="small">'+esc(p.name||'')+'</div>'+renderProductSources(p)+renderMissingValues(reasons,p)+renderProductDecision(p,false,[status,...reasons])+screenshotSummary(x)+'<button data-card-research="'+p.index+'">Daten erneut abrufen</button></details></div>';
 }
@@ -981,8 +981,8 @@ function renderSelectionWorkflow(r,products=[]){
  '<div class="small">'+esc((r.gateReasons||[]).join(' · '))+'</div>'+
  '<div class="small">'+r.total+' unterschiedliche Produkte. Vorauswahl nach Analyse-Richtung '+esc(r.direction)+'; fehlende Preise erhalten keine Rangpunkte.</div>'+
  r.groups.map(g=>'<div style="margin-top:12px"><b>'+esc(g.scope)+' · '+g.total+' bewertbare Produkte</b>'+g.candidates.map((c,i)=>'<div style="padding:10px;margin-top:8px;border:1px solid #dbe4f0;border-radius:12px"><b>Platz '+(i+1)+' · '+esc(c.isin)+'</b><div class="small">'+esc(c.name)+'<br>'+esc(c.priceKind)+' · Brief '+Number(c.price).toFixed(2)+' EUR · Risiko-/Datenwert '+c.score+'/100<br>Warum: '+esc((c.reasons||[]).slice(0,3).join(' · '))+'<br>Quelle '+esc(c.source||'Produktnachweis')+' · Datenzeit '+esc(c.at)+(c.quoteAt?' · Produktkurszeit '+esc(c.quoteAt):'')+(c.quality?'<br>'+esc(qualityText(c.quality,'USD')):'')+'</div>'+renderProductDecision(c)+renderProductSources(c)+'</div>').join('')+'</div>').join('')+
- (notApproved.length?'<div style="margin-top:14px"><b>Weitere Produkte · nicht freigegeben ('+notApproved.length+')</b>'+notApproved.map(p=>compactProductCard({...products[p.index-1],...p},p.missingReasons,p.reasons.some(v=>/neutral|NEUTRAL/.test(v))?'Nicht freigegeben · Marktsignal neutral':'Nicht freigegeben · '+(p.reasons[0]||'Nachweise prüfen'))).join('')+'</div>':'')+
- '<div class="small" style="margin-top:10px">Spot und Future werden getrennt bewertet. Weniger als drei belegte Produkte ergeben eine kürzere Liste. Freigabe gilt ausschließlich für diese geprüfte Produktauswahl, nicht als Handelsauftrag oder garantierter bester Trade. Kandidaten mit offenen Nachweisen bleiben gesperrt; tatsächlichen DEGIRO-Preis vor dem Einstieg prüfen.</div>';
+ (notApproved.length?'<details style="margin-top:14px"><summary>Weitere Produkte · nicht freigegeben ('+notApproved.length+')</summary>'+notApproved.map(p=>compactProductCard({...products[p.index-1],...p},p.missingReasons,p.reasons.some(v=>/neutral|NEUTRAL/.test(v))?'Nicht freigegeben · Marktsignal neutral':'Nicht freigegeben · '+(p.reasons[0]||'Nachweise prüfen'))).join('')+'</details>':'')+
+ '<details class="small" style="margin-top:10px"><summary>Hinweise zur Produktauswahl</summary>Spot und Future werden getrennt bewertet. Weniger als drei belegte Produkte ergeben eine kürzere Liste. Freigabe gilt ausschließlich für diese geprüfte Produktauswahl, nicht als Handelsauftrag oder garantierter bester Trade. Kandidaten mit offenen Nachweisen bleiben gesperrt; tatsächlichen DEGIRO-Preis vor dem Einstieg prüfen.</details>';
 }
 
 function productUploadCards(products,direction,now=Date.now()){
@@ -1362,7 +1362,7 @@ function inject(){
  '<b>📷 DEGIRO-Liste</b><button type="button" id="dgListUploadButton" style="margin-top:10px;width:100%;background:#1677ff">↑ DEGIRO-Liste hochladen</button>'+
  '<input id="dgListUpload" type="file" accept="image/*" multiple hidden>'+
  '<div class="small" style="margin-top:8px">Einen oder mehrere Listen-Screenshots gleichzeitig auswählen. Eine neue Auswahl ersetzt die bisherige Liste nach erfolgreichem Einlesen.</div>'+
- '<div id="dgCentralStatus" class="small" role="status" aria-live="polite" style="margin-top:9px">Noch keine Bilder hochgeladen.</div></div>'+
+ '<div id="dgCentralStatus" class="small" role="status" aria-live="polite" style="margin-top:9px">Keine neuen Listenbilder ausgewählt.</div></div>'+
  '<div class="small" style="margin-top:9px">Automatische Produktrecherche: beim Öffnen und alle 15 Minuten, solange Bob sichtbar ist. Quellenzeiten bleiben unverändert: Emittentenkurse höchstens 90 Sekunden; Screenshot-Kursnachweise 14 Stunden ab Quellenzeit gültig, keine Echtzeitkurse. Neue Kursbilder ersetzen den bisherigen Kursnachweis. Fehlende Kurse bleiben offen, berechnete Werte sind Schätzungen.</div>'+
  '<div id="dgTop3Out" style="margin-top:12px"></div>'+
  '<details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700">Alle gespeicherten Produkte / weitere Detailbilder</summary><div id="dgMissingProducts" style="margin-top:12px"></div></details>'+
