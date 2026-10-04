@@ -305,7 +305,7 @@ try{
 <div class="chart-controls"><div><label for="chartType">Ansicht</label><select id="chartType" onchange="saveChartView();draw()"><option value="candles" selected>Kerzen</option><option value="line">Linie</option></select></div><div><label for="chartTf">Zeitraum pro Kerze</label><select id="chartTf" onchange="saveChartView();draw()"><option value="5m">5 Minuten</option><option value="15m" selected>15 Minuten</option><option value="1h">1 Stunde</option><option value="4h">4 Stunden</option></select></div></div>
 <div class="small chart-status" id="chartViewStatus" aria-live="polite"></div>
 <div class="chart-frame"><canvas id="chart" width="800" height="300" aria-label="Preisverlauf: waagerecht Zeit, senkrecht Preis in USD"></canvas></div>
-<details class="chart-details"><summary>Fibonacci-Level &amp; Erklärung</summary><div id="chartFib" class="small">Fibonacci: noch keine bestätigten Level.</div><div id="chartFibExplanation" class="research">Fibonacci: noch keine bestätigten Level.</div></details>
+<details class="chart-details"><summary>Fib Level &amp; Erklärung</summary><div id="chartFib" class="small">Fibonacci: noch keine bestätigten Level.</div><div id="chartFibExplanation" class="research">Fibonacci: noch keine bestätigten Level.</div></details>
 <details class="chart-details"><summary>Kursdaten &amp; Hinweise</summary><div id="chartLatest" class="small" aria-live="polite">Letzter Preis: — · Kurszeit: —</div><div id="chartHistoryInfo" class="small"></div><p class="small">Die Chart-Auswahl ändert nur die Darstellung. Analyse und Trade-Überwachung behalten ihre Einstellung.</p></details></div>
 
 <div class="card"><h3>⏱ Multi-Timeframe</h3>
@@ -845,7 +845,7 @@ function draw(a){
  if(sortedFib.length&&labelBottom>bottom-7){const shift=labelBottom-(bottom-7);for(const row of sortedFib)row.labelY-=shift;}
  ctx.font="bold 12px sans-serif";ctx.textAlign="left";
  for(const row of sortedFib){
-  const text=(row.target?"Kursziel ":"Fibonacci-Level ")+row.label.replace("Ext. ","");
+  const text=(row.target?"Kursziel ":"Fib Level ")+row.label.replace("Ext. ","");
   const labelWidth=Math.min(ctx.measureText(text).width+8,right-left-8);
   ctx.fillStyle="rgba(255,255,255,0.96)";ctx.fillRect(left+4,row.labelY-12,labelWidth,16);
   ctx.fillStyle=row.target?"#1e40af":"#b45309";ctx.fillText(text,left+8,row.labelY,labelWidth-8);
