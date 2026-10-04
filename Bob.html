@@ -828,13 +828,27 @@ function draw(a){
  ctx.font="11px sans-serif";ctx.lineWidth=1;ctx.fillStyle="#536176";ctx.textAlign="left";ctx.fillText("USD",8,14);
  for(let i=0;i<=4;i++){const p=mn+(mx-mn)*i/4,py=y(p);ctx.strokeStyle="#e0e0e0";ctx.beginPath();ctx.moveTo(left,py);ctx.lineTo(right,py);ctx.stroke();ctx.fillStyle="#555";ctx.textAlign="right";ctx.fillText(priceLabel(p),left-8,py+5);}
  for(let i=0;i<=2;i++){const t=start+(end-start)*i/2,px=x(t);ctx.textAlign=i===0?"left":i===2?"right":"center";ctx.fillText(timeLabel(t),px,bottom+20);}
- for(const [label,p] of fibRows){const py=y(p);ctx.strokeStyle=label.startsWith("Ext.")?"#7c3aed":"#087f8c";ctx.lineWidth=1;ctx.setLineDash([6,4]);ctx.beginPath();ctx.moveTo(left,py);ctx.lineTo(right,py);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=ctx.strokeStyle;ctx.textAlign="left";ctx.font="12px sans-serif";/* Exact Fibonacci values are listed below the chart to avoid overlapping labels. */}
+ const fibAnnotations=fibRows.map(([label,p])=>({py:y(p),target:label.startsWith("Ext."),label}));
+ for(const row of fibAnnotations){ctx.strokeStyle=row.target?"#1e40af":"#b45309";ctx.lineWidth=2.5;ctx.setLineDash(row.target?[10,4,2,4]:[7,4]);ctx.beginPath();ctx.moveTo(left,row.py);ctx.lineTo(right,row.py);ctx.stroke();ctx.setLineDash([]);}
+
  if(candles){
   const step=v.length>1?Math.min(...v.slice(1).map((b,i)=>x(Number(b.openTime))-x(Number(v[i].openTime)))):8;
   const bodyWidth=Math.max(1,Math.min(10,step*.65));
   for(const b of v){const px=x(Number(b.openTime)),oy=y(Number(b.open)),cy=y(Number(b.close));ctx.strokeStyle=ctx.fillStyle=Number(b.close)>=Number(b.open)?'#15803d':'#dc2626';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(px,y(Number(b.high)));ctx.lineTo(px,y(Number(b.low)));ctx.stroke();ctx.fillRect(px-bodyWidth/2,Math.min(oy,cy),bodyWidth,Math.max(1,Math.abs(cy-oy)));}
  }else{
  ctx.strokeStyle="#222";ctx.lineWidth=2;ctx.beginPath();v.forEach((b,i)=>{i?ctx.lineTo(x(Number(b.openTime)),y(Number(b.close))):ctx.moveTo(x(Number(b.openTime)),y(Number(b.close)))});ctx.stroke();
+ }
+ // Keep labels separated even when Fibonacci levels are close together.
+ const sortedFib=fibAnnotations.slice().sort((a,b)=>a.py-b.py);
+ let labelBottom=top-18;
+ for(const row of sortedFib){row.labelY=Math.max(top+7,row.py-7,labelBottom+18);labelBottom=row.labelY;}
+ if(sortedFib.length&&labelBottom>bottom-7){const shift=labelBottom-(bottom-7);for(const row of sortedFib)row.labelY-=shift;}
+ ctx.font="bold 12px sans-serif";ctx.textAlign="left";
+ for(const row of sortedFib){
+  const text=(row.target?"Kursziel ":"Fibonacci-Level ")+row.label.replace("Ext. ","");
+  const labelWidth=Math.min(ctx.measureText(text).width+8,right-left-8);
+  ctx.fillStyle="rgba(255,255,255,0.96)";ctx.fillRect(left+4,row.labelY-12,labelWidth,16);
+  ctx.fillStyle=row.target?"#1e40af":"#b45309";ctx.fillText(text,left+8,row.labelY,labelWidth-8);
  }
  const last=v.at(-1);ctx.beginPath();ctx.arc(x(Number(last.openTime)),y(Number(last.close)),4,0,Math.PI*2);ctx.fillStyle="#222";ctx.fill();
  ctx.textAlign="left";ctx.font="10px sans-serif";ctx.fillStyle="#666";ctx.fillText(new Date(start).toLocaleDateString("de-CH",{timeZone:"Europe/Zurich"})+" – "+new Date(end).toLocaleDateString("de-CH",{timeZone:"Europe/Zurich"}),left,h-4);
