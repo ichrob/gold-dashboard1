@@ -6,7 +6,9 @@ let payload={spot:{price:4140,at:new Date().toISOString(),changePct:1.2,source:'
 const context={window:{},document:{getElementById:el,visibilityState:'visible',addEventListener(){}},fetch:async()=>({ok:true,json:async()=>payload}),setTimeout:()=>0,clearTimeout(){},setInterval(){},AbortController,Date,Number};
 vm.createContext(context);vm.runInContext(script,context);
 setImmediate(async()=>{
- assert.equal(el('gold-spot-change').textContent,'↑ +1,20 %');assert(el('gold-spot-change').className.includes('up'));
+ assert.equal(el('gold-spot-price').textContent,'—'); // Independent cards cannot override the analysis spot.
+ context.window.BobGoldCards.spot({spots:{xaus:4140,spot_price_as_of:payload.spot.at,primary:'Gold-API'}});
+ assert.equal(el('gold-spot-price').textContent,'4.140,00');
  assert.equal(el('gold-future-price').style.fontStyle,'italic');
  assert.equal(el('gold-future-change').textContent,'↓ −0,72 %');assert.equal(el('gold-future-state').textContent,'');
  context.window.BobGoldCards.spot({spots:{xaus:4141,spot_price_as_of:new Date(Date.now()+1000).toISOString(),primary:'Bob'}});
@@ -15,6 +17,7 @@ setImmediate(async()=>{
  assert.equal(el('gold-spot-price').textContent,'4.141,00');
  payload.estimate={price:4180,at:new Date().toISOString(),kind:'calculated',changePct:-.5,changeLabel:'geschätzt zum Vortagesschluss'};
  await context.window.BobGoldCards.refresh();
+ assert.equal(el('gold-spot-price').textContent,'4.141,00'); // New card refresh still cannot replace the analysis observation.
  assert.equal(el('gold-estimate-price').textContent,'≈ 4.180,00');
  assert.equal(el('gold-estimate-state').textContent,'Aktualisierung aktiv');
  assert.equal(el('gold-estimate-basis').textContent,'geschätzt zum Vortagesschluss');

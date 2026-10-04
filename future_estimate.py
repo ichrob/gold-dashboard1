@@ -145,8 +145,8 @@ def parse_gold_api(data, now=None):
 
 
 def fetch_spot_tick():
-    from product_quotes import issuer_json
-    return parse_gold_api(issuer_json(GOLD_API_URL,'https://api.gold-api.com/',timeout=12))
+    from spot_data import current
+    return current()
 
 
 def record_spot_tick(tick, now=None):
