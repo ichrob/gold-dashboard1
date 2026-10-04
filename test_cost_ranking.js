@@ -57,3 +57,11 @@ console.log('Cost/risk scenarios passed:',JSON.stringify({lowCosts:base.score,wi
 assert(!fs.readFileSync('degiro_assistant.js','utf8').includes('data-cost-save'));
 
 for(const change of [{at:null},{estimated:true},{atr:null},{rankingUncertaintyUsd:2,rankingBasisUsd:4000}])assert.equal(assess(change).costRisk.parts.data,0);
+
+for(const time of [null,'2020-01-01T00:00:00Z']){
+ const rows=b.continuingAnalysis([{...p,at:time,quote:{quoteAt:time}}],ctx);
+ assert.equal(rows.length,1);assert(rows[0].evaluation.ok);assert(rows[0].warning);
+ assert(b.renderContinuingAnalysis([{...p,quote:{quoteAt:time}}],ctx).includes('font-style:italic'));
+}
+assert.equal(b.calculationAge(at,90000,now),'');
+assert(b.calculationAge(null,90000,now).includes('unbekannt'));
