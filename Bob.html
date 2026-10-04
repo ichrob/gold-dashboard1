@@ -363,15 +363,15 @@ Bob platziert keine Orders und behauptet keine Gewinn-Garantie.
 
 <div class="card">
 <h3>🛑 Stop-Loss-Management</h3>
-<div id="stopPanel" class="research">Noch kein aktiver Trade. Sobald ein Trade aktiv ist, zeigt die App den <b>konkreten XAU/USD Stop-Loss-Kurs in USD/oz</b> und bei einer Anpassung den neuen Zielkurs.</div>
-<div class="grid" style="margin-top:10px">
+<div id="stopPanel" class="research">Noch kein aktiver Trade. Unter „Mein Trade“ Produktnachweise ergänzen und „Produkt-Trade überwachen“ wählen. Stop und Ziel erscheinen dann als berechnete EUR-Werte pro Stück.</div>
+<details><summary>Goldreferenz und technische Einstellungen</summary><div class="grid" style="margin-top:10px">
 <div><label>Trade-Einstieg XAU/USD</label><input id="tradeEntry" type="number" step=".01" placeholder="wird beim Bestätigen übernommen"></div>
 <div><label>Aktueller XAU/USD-Kurs</label><input id="tradePrice" type="number" step=".01" placeholder="Live-Kurs"></div>
 <div><label>Aktueller Stop XAU/USD</label><input id="tradeStop" type="number" step=".01" placeholder="z. B. 4235.00"></div>
 <div><label>Stop-ATR-Multiplikator</label><input id="trailAtr" type="number" value="1.5" step=".1" min="0.5"></div>
 <div><label>Mindest-CRV</label><input id="minRR" type="number" value="2" step=".1" min="1"></div>
 </div>
-<div class="row" style="margin-top:10px"><button onclick="setTradeEntry()">✅ Trade-Einstieg bestätigen</button><button onclick="suggestStopUpdate()">🔔 Stop-Loss neu berechnen</button></div><button style="margin-top:8px" onclick="activateTestTrade()">🧪 Test-Trade aktivieren</button>
+</details><div class="row" style="margin-top:10px"><button onclick="setTradeEntry()">✅ Trade-Einstieg bestätigen</button><button onclick="suggestStopUpdate()">🔔 Stop und Ziel aktualisieren</button></div><button style="margin-top:8px" onclick="activateTestTrade()">🧪 Test-Trade aktivieren</button>
 <div id="stopUpdate" class="small" style="margin-top:8px">Management-Pushs bleiben bis zur Trade-Bestätigung gesperrt.</div>
 </div>
 
@@ -463,6 +463,8 @@ async function syncPushPreferencesImpl(){
     const remote=result.backgroundTrade;
     if(remote&&tradeMgmt?.active&&remote.tradeId===tradeMgmt.tradeId&&Number.isFinite(remote.stop)){
      tradeMgmt.stop=tradeMgmt.dir==='LONG'?Math.max(tradeMgmt.stop,remote.stop):Math.min(tradeMgmt.stop,remote.stop);
+     if(Number.isFinite(remote.target)&&remote.target>0)tradeMgmt.target=tradeMgmt.dir==='LONG'?Math.max(tradeMgmt.target||remote.target,remote.target):Math.min(tradeMgmt.target||remote.target,remote.target);
+     renderActiveTradePlan();
      saveTradeMgmt();$('tradeStop').value=tradeMgmt.stop.toFixed(2);
     }
    }
@@ -1010,7 +1012,7 @@ let researchLog=[];try{const raw=localStorage.getItem("goldScannerResearch");con
 let tradeMgmt={};try{const raw=localStorage.getItem("goldScannerTradeMgmt");const p=raw?JSON.parse(raw):{};tradeMgmt=p&&typeof p==="object"?p:{}}catch(e){console.warn("trade state reset",e)}
 let signalState={dir:"NEUTRAL",pending:"NEUTRAL",count:0};
 function saveResearch(){localStorage.setItem("goldScannerResearch",JSON.stringify(researchLog));}
-function saveTradeMgmt(){localStorage.setItem("goldScannerTradeMgmt",JSON.stringify(tradeMgmt));}
+function saveTradeMgmt(){localStorage.setItem("goldScannerTradeMgmt",JSON.stringify(tradeMgmt));renderActiveTradePlan();}
 function currentRegime(){
  if(!C.length||!A.at)return "UNBEKANNT";
  const atrPct=(A.at/lastPrice)*100, ad=A.adx||0;
@@ -1125,7 +1127,8 @@ function updateResearchPanel(){
  if(rawDir!==signalState.dir){if(rawDir==="NEUTRAL"){signalState={dir:"NEUTRAL",pending:"NEUTRAL",count:0};dir="NEUTRAL";}else if(signalState.pending===rawDir){signalState.count++;if(signalState.count>=2)signalState={dir:rawDir,pending:rawDir,count:0};else dir=signalState.dir;}else{signalState.pending=rawDir;signalState.count=1;dir=signalState.dir;}}
  const sm=dir!=="NEUTRAL"?stopModel(dir,lastPrice,A.at,+( $("trailAtr")?.value||1.5)):null;
  const stop=sm?.stop||null;
- if($("stopCurrent"))$("stopCurrent").textContent=displayStop(tradeMgmt.stop||stop);
+ if($("stopCurrent"))$("stopCurrent").textContent=tradeMgmt.active?activeTradeLevel(tradeMgmt.stop):displayStop(stop);
+ if(tradeMgmt.active)renderActiveTradePlan();
  if($("stopRisk"))$("stopRisk").textContent=stop?Math.abs(lastPrice-stop).toFixed(2)+" USD/oz":"—";
  if($("stopPanel")&&!tradeMgmt.active&&sm?.stop)$("stopPanel").innerHTML="<b>Technischer Referenz-Stop:</b> "+displayStop(sm.stop)+"<br><span class='small'>"+sm.reason+" · Struktur "+displayStop(sm.structureStop)+" · ATR "+displayStop(sm.atrStop)+"</span>";
  if($("hysteresis"))$("hysteresis").textContent=dir+" · Hysterese "+(signalState.count?signalState.count+"/2":"stabil")+(falseBreakoutState(dir)!=="OK"&&dir!=="NEUTRAL"?" · Breakout unbestätigt":"");
@@ -1155,6 +1158,36 @@ async function activateTestTrade(){
  $("stopPanel").innerHTML="<b>🧪 Test-Trade aktiv.</b> Nur für den Push-End-to-End-Test – kein reales Handelssignal und keine DEGIRO-Order.";
  $("stopUpdate").innerHTML="<b>Test-Trade aktiv:</b> "+dir+" · Einstieg "+entry.toFixed(2)+" USD/oz · Test-Stop "+displayStop(testStop)+".";
 }
+function activeTradeLevel(value){
+ return tradeMgmt.product&&window.BobTradeProduct?window.BobTradeProduct.label(tradeMgmt.product,value):displayStop(value)+" · Goldreferenz; Produkt noch nicht verbunden";
+}
+function renderActiveTradePlan(){
+ if(!tradeMgmt?.active||tradeMgmt.test||!$('stopPanel'))return;
+ const p=tradeMgmt.product;
+ $('stopPanel').textContent=(p?p.isin+' · '+tradeMgmt.dir+' · Berechnete Produktwerte':'Goldreferenz · Produktnachweis fehlt')+'\nStop: '+activeTradeLevel(tradeMgmt.stop)+'\nZiel: '+activeTradeLevel(tradeMgmt.target)+(p?'\nReferenz: '+p.referenceAt+' · '+p.source+'\nKonstante FX-/Produktbedingungen angenommen. Keine bestätigten DEGIRO-Kurse; Änderungen selbst übernehmen. R bezieht sich auf den Gold-Referenzplan bei Beginn der Überwachung, nicht auf den tatsächlichen Eurogewinn.':'');
+ $('stopPanel').style.whiteSpace='pre-line';
+ if($('stopCurrent'))$('stopCurrent').textContent=activeTradeLevel(tradeMgmt.stop);
+}
+async function activateProductTrade(values){
+ const product=window.BobTradeProduct.model(values);
+ if(!BobDegiro.validIsin(product.isin))throw Error('Ungültige Produkt-ISIN.');
+ const plan=window.BobExitEstimate.planInput(liveBundleCache,A,C,product.direction);
+ if(!plan.available||analysisAgeWarnings().length)throw Error('Für die Aktivierung fehlen frische Gold- und Analysedaten. Bitte Live-Daten laden.');
+ if(tradeMgmt.active&&!tradeMgmt.test&&((tradeMgmt.product&&tradeMgmt.product.isin!==product.isin)||tradeMgmt.dir!==product.direction))throw Error('Zuerst den bisherigen Trade in Bob schließen; Produkt oder Richtung weichen ab.');
+ if(!tradeMgmt.active||tradeMgmt.test){
+  const entry=plan.gold,sm=stopModel(product.direction,entry,A.at,+($('trailAtr')?.value||1.5)),target=targetModel(product.direction,entry,sm.stop,+($('minRR')?.value||2));
+  if(!(sm.stop>0&&target.target>0))throw Error('Stop-/Zielmodell nicht verfügbar.');
+  if(!window.BobTradeProduct.price(product,entry).available||!window.BobTradeProduct.price(product,sm.stop).available||!window.BobTradeProduct.price(product,target.target).available)throw Error('Produktmodell oder KO-Barriere erlaubt keinen vollständigen Stop-/Zielplan. Produktdaten und Goldreferenz prüfen.');
+  tradeMgmt={active:true,dir:product.direction,entry,stop:sm.stop,target:target.target,initialRisk:Math.abs(entry-sm.stop),rr:target.rr,monitorStartedAt:new Date().toISOString()};
+ }
+ if(!window.BobTradeProduct.price(product,lastPrice).available||!window.BobTradeProduct.price(product,tradeMgmt.stop).available||!window.BobTradeProduct.price(product,tradeMgmt.target).available)throw Error('Stop/Ziel liegt außerhalb des gültigen Produktmodells oder an der KO-Barriere.');
+ tradeMgmt.product=product;tradeMgmt.fibonacciMonitor=tradeMgmt.fibonacciMonitor||captureFibonacciMonitor();
+ saveTradeMgmt();pushState=BobPush.setActiveTrade(true);renderPush();renderActiveTradePlan();
+ $('tradeEntry').value=tradeMgmt.entry.toFixed(2);$('tradeStop').value=tradeMgmt.stop.toFixed(2);
+ const synced=await syncPushPreferences();
+ return synced?'Produkt-Trade gespeichert und mit dem Server synchronisiert. Für Meldungen „Aktiver Trade“ einschalten.':'Produkt-Trade lokal gespeichert. Hintergrund-Synchronisierung fehlgeschlagen; Push-Status prüfen und erneut synchronisieren.';
+}
+window.activateProductTrade=activateProductTrade;
 async function setTradeEntry(){
  if(!lastPrice||!A.at)return;
  const dir=confirmedSignalDirection();
@@ -1169,14 +1202,14 @@ async function setTradeEntry(){
  const msg=`${dir}: initialer Stop-Loss ${displayStop(tradeMgmt.stop)}. Einstieg ${tradeMgmt.entry.toFixed(2)} USD/oz.`;
  $("stopUpdate").innerHTML="<b>Trade aktiv.</b> "+msg+" CRV-Ziel: "+displayStop(tradeMgmt.target)+" ("+tgt.rr.toFixed(2)+"R).";captureResearchSnapshot("TRADE_SET");updateResearchPanel();
 }
-function suggestStopUpdate(){
- if(pushState?.backgroundEnabled){syncPushPreferences();$("stopUpdate").textContent="Stop wird im Hintergrund überwacht; Serverstand wird synchronisiert.";return;}
+async function suggestStopUpdate(){
+ if(pushState?.backgroundEnabled){$("stopUpdate").textContent="Stop und Ziel werden im Hintergrund überwacht; Serverstand wird synchronisiert.";await syncPushPreferences();renderActiveTradePlan();return;}
  if(!tradeMgmt.active){$("stopUpdate").textContent="Kein aktiver Trade – zuerst Trade-Einstieg bestätigen.";return;}
  const p=+($("tradePrice").value||lastPrice),atrv=A.at,mult=+( $("trailAtr")?.value||1.5),model=stopModel(tradeMgmt.dir,p,atrv,mult),candidate=model.stop,old=tradeMgmt.stop;
  let next=tradeMgmt.dir==="LONG"?Math.max(old,candidate):Math.min(old,candidate);
- if(next===old){$("stopUpdate").innerHTML=`<b>Kein Nachziehen.</b> Technischer Stop bleibt bei <b>${displayStop(old)}</b>.`;return;}
- tradeMgmt.stop=next;tradeMgmt.lastUpdate=new Date().toISOString();saveTradeMgmt();$("tradeStop").value=next.toFixed(2);$("stopUpdate").innerHTML=`<b>STOP-LOSS ANPASSEN:</b> neuer Kurs <b>${displayStop(next)}</b> (alt ${displayStop(old)}).`;
- notifyTrade("Gold Scanner – Stop-Loss anpassen",`Neuer Stop-Loss: ${displayStop(next)}. Alter Stop: ${displayStop(old)}.`);captureResearchSnapshot("STOP_UPDATE");updateResearchPanel();
+ if(next===old){$("stopUpdate").innerHTML=`<b>Kein Nachziehen.</b> Technischer Stop bleibt bei <b>${activeTradeLevel(old)}</b>.`;return;}
+ tradeMgmt.stop=next;tradeMgmt.lastUpdate=new Date().toISOString();saveTradeMgmt();$("tradeStop").value=next.toFixed(2);$("stopUpdate").innerHTML=`<b>STOP-LOSS ANPASSEN:</b> neuer Kurs <b>${activeTradeLevel(next)}</b> (alt ${activeTradeLevel(old)}).`;
+ notifyTrade("Gold Scanner – Stop-Loss anpassen",`Neuer Stop-Loss: ${activeTradeLevel(next)}. Alter Stop: ${activeTradeLevel(old)}.`);captureResearchSnapshot("STOP_UPDATE");updateResearchPanel();
 }
 function restoreTradeMgmt(){if(!tradeMgmt.active){pushState=BobPush.setActiveTrade(false);renderPush();syncPushPreferences();return;}if(tradeMgmt.active){$("tradeEntry").value=tradeMgmt.entry?.toFixed?.(2)||"";$("tradeStop").value=tradeMgmt.stop?.toFixed?.(2)||"";$("tradePrice").value=lastPrice?lastPrice.toFixed(2):"";pushState=BobPush.setActiveTrade(true);renderPush();syncPushPreferences();}}
 

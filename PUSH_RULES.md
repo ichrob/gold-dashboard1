@@ -21,3 +21,10 @@ Bob einmal neu laden. Push-Schalter aktivieren und auf „Hintergrund-Push gespe
 
 ## Noch manuell nachzuweisen
 Auf dem Android-Gerät je einen ausdrücklich bezeichneten Test bei offener App, geschlossener App und gesperrtem Bildschirm empfangen. Danach Trade schließen und verspätete Trade-Warnung prüfen. Ein erfolgreiches Web-Push-Provider-Acknowledgement beweist keinen sichtbaren Empfang auf dem Handy.
+
+## Produktbezogener Trade und fortgesetztes Ziel
+Unter „Mein Trade“ kann die geprüfte Ausstiegsreferenz über „Produkt-Trade überwachen / aktualisieren“ an den aktiven Trade gebunden werden. ISIN, Produktrichtung, tatsächlicher Kaufpreis, Stückzahl sowie zusammengehöriger Geld-/Gold-/FX-Nachweis werden gespeichert. Das vorhandene lineare Modell unterstützt bestätigte einfache Gold-Spot-Turbos in EUR. Für Futures, Optionsscheine oder andere Modelle wird keine unpassende Euroberechnung eingesetzt.
+
+Stop und Ziel erscheinen in EUR je Stück, ausdrücklich berechnet. Formel: Referenz-Geldkurs + Richtung × Bezugsverhältnis × [(Gold-Szenario − Basispreis) × FX-Szenario − (Referenz-Gold − Basispreis) × Referenz-FX]. Originalzeit und Modellannahmen bleiben sichtbar. Ein Goldschwellen-Ereignis bestätigt keinen tatsächlichen DEGIRO-Verkaufskurs. KO und nichtpositive Modellkurse liefern keine Eurozahl. R bleibt das anfängliche Risiko des technischen Goldplans; es ist nicht der tatsächliche Eurogewinn. Eine Abschwächungs-Gewinnwarnung setzt bei verbundenem Produkt zusätzlich einen positiven modellierten Gewinn gegenüber dem Kaufkurs voraus.
+
+Nach Erreichen des bisherigen Ziels darf der Server ein weiter entferntes Ziel vorschlagen, wenn aktuelle Analyse, Richtung, MTF und MACD die Fortsetzung bestätigen (Score LONG >=70 / SHORT <=30). Mindestabstand zum aktuellen Kurs und alten Ziel: max(0,5 Anfangsrisiko, 0,5 ATR). Je abgeschlossener Kerze höchstens eine Erweiterung. Ziel erreicht wird weiterhin gemeldet; Stopnachziehen endet nicht am ersten Ziel. Neuer Stop und neues Ziel werden dauerhaft gespeichert und beim Öffnen übernommen, ohne durch alte App-Werte zurückgesetzt zu werden. Kein Brokerauftrag wird verändert.
