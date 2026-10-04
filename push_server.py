@@ -16,7 +16,8 @@ from urllib.parse import urlparse
 import psycopg
 from cryptography.hazmat.primitives import serialization
 from py_vapid import Vapid
-from pywebpush import webpush, WebPushException
+from pywebpush import webpush as _webpush, WebPushException
+from requests.exceptions import RequestException
 
 PORT = int(os.environ.get("PORT", "10000"))
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
@@ -27,7 +28,17 @@ BOB_ORIGIN = os.environ.get("BOB_ORIGIN", "")
 def db():
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL fehlt")
-    return psycopg.connect(DATABASE_URL)
+    return psycopg.connect(DATABASE_URL, connect_timeout=5,
+                           options="-c lock_timeout=3000 -c statement_timeout=10000")
+
+def webpush(**kwargs):
+    # Never hold subscription locks indefinitely on an unreachable push provider.
+    kwargs['timeout'] = 8
+    try:
+        return _webpush(**kwargs)
+    except RequestException as exc:
+        raise WebPushException('Push provider connection failed') from exc
+
 
 def init_db():
     with db() as conn:
@@ -555,10 +566,13 @@ class Handler(BaseHTTPRequestHandler):
             send_json(self, 500, {"error": "Interner Push-Service-Fehler"})
 
     def log_message(self, fmt, *args):
-        pass
+        # Route and status only: never log device endpoints or authentication data.
+        print(f"BOB_PUSH_HTTP method={self.command} path={urlparse(self.path).path} status={args[1] if len(args)>1 else '-'}", flush=True)
 
 if __name__ == "__main__":
     product_push.evaluate({'products': [], 'capturedAt': int(time.time()*1000)})
+    print("BOB_PUSH startup=database", flush=True)
     init_db()
+    print("BOB_PUSH startup=ready", flush=True)
     threading.Thread(target=product_expiry_loop, name="bob-product-expiry", daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
