@@ -1322,6 +1322,20 @@ function parseScreenshotCandidates(text){
  });
  return hits;
 }
+async function readListBatch(files,recognize,progress=()=>{}){
+ if(!files.length)throw new Error('Keine Bilder ausgewählt.');
+ const texts=[],recoveries={};
+ for(const [index,file] of files.entries()){
+  progress(index+1,files.length,file.name);
+  const result=await recognize(file,'dgCentralStatus');
+  const text=result?.data?.text||'';
+  if(!parseScreenshotCandidates(text).length)throw new Error('Keine Produkt-ISIN in '+file.name+' erkannt. Bitte das Listenbild prüfen.');
+  texts.push(text);Object.assign(recoveries,result.data.isinRecoveries||{});
+ }
+ const items=parseScreenshotCandidates(texts.join('\n\n'));
+ for(const x of items)if(recoveries[x.isin]){x.originalIsin=recoveries[x.isin];x.ocrRecovery=true;}
+ return items;
+}
 function inject(){
  if(document.getElementById("dgTop3"))return;
  const a=document.getElementById("dgProductOut"); if(!a)return;
@@ -1330,18 +1344,10 @@ function inject(){
  b.style.cssText="margin-top:14px;padding:16px;background:#f7f9fc;border-radius:20px;border:1px solid #e5eaf2";
  b.innerHTML='<div style="display:flex;align-items:center;gap:9px"><span style="font-size:25px">🎯</span><div><b style="font-size:18px">DEGIRO-Assistent</b><div class="small">Produktliste erfassen → Bilder pro ISIN ergänzen → belegte Daten vergleichen</div></div></div>'+
  '<div style="margin-top:14px;padding:12px;background:#fff;border-radius:16px;border:1px solid #e1e7f0">'+
- '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>📷 DEGIRO-Screenshots</b><span class="small">2–3 Bilder</span></div>'+
- '<div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px">'+
- '<label for="dgCentralShot1" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:112px;padding:8px;background:#f8fbff;border:1px solid #dce7f5;border-radius:14px;cursor:pointer;text-align:center">'+
- '<span style="display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:15px;background:#1677ff;color:#fff;font-size:31px;font-weight:700;line-height:1;box-shadow:0 3px 8px rgba(22,119,255,.22)">↑</span>'+
- '<span id="dgShotLabel1" style="margin-top:7px;font-weight:700;font-size:12px">Bild 1</span><input id="dgCentralShot1" type="file" accept="image/*" style="display:none"></label>'+
- '<label for="dgCentralShot2" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:112px;padding:8px;background:#f8fbff;border:1px solid #dce7f5;border-radius:14px;cursor:pointer;text-align:center">'+
- '<span style="display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:15px;background:#1677ff;color:#fff;font-size:31px;font-weight:700;line-height:1;box-shadow:0 3px 8px rgba(22,119,255,.22)">↑</span>'+
- '<span id="dgShotLabel2" style="margin-top:7px;font-weight:700;font-size:12px">Bild 2</span><input id="dgCentralShot2" type="file" accept="image/*" style="display:none"></label>'+
- '<label for="dgCentralShot3" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:112px;padding:8px;background:#f8fbff;border:1px solid #dce7f5;border-radius:14px;cursor:pointer;text-align:center">'+
- '<span style="display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:15px;background:#1677ff;color:#fff;font-size:31px;font-weight:700;line-height:1;box-shadow:0 3px 8px rgba(22,119,255,.22)">↑</span>'+
- '<span id="dgShotLabel3" style="margin-top:7px;font-weight:700;font-size:12px">Bild 3 <span style="font-weight:400">(optional)</span></span><input id="dgCentralShot3" type="file" accept="image/*" style="display:none"></label>'+
- '</div><div id="dgCentralStatus" class="small" style="margin-top:9px">Noch keine Bilder hochgeladen.</div></div>'+
+ '<b>📷 DEGIRO-Liste</b><button type="button" id="dgListUploadButton" style="margin-top:10px;width:100%;background:#1677ff">↑ DEGIRO-Liste hochladen</button>'+
+ '<input id="dgListUpload" type="file" accept="image/*" multiple hidden>'+
+ '<div class="small" style="margin-top:8px">Einen oder mehrere Listen-Screenshots gleichzeitig auswählen. Eine neue Auswahl ersetzt die bisherige Liste nach erfolgreichem Einlesen.</div>'+
+ '<div id="dgCentralStatus" class="small" role="status" aria-live="polite" style="margin-top:9px">Noch keine Bilder hochgeladen.</div></div>'+
  '<div class="small" style="margin-top:9px">Automatische Produktrecherche: beim Öffnen und alle 15 Minuten, solange Bob sichtbar ist. Quellenzeiten bleiben unverändert: Emittentenkurse höchstens 90 Sekunden; Screenshot-Kursnachweise 14 Stunden ab Quellenzeit gültig, keine Echtzeitkurse. Neue Kursbilder ersetzen den bisherigen Kursnachweis. Fehlende Kurse bleiben offen, berechnete Werte sind Schätzungen.</div>'+
  '<div id="dgTop3Out" style="margin-top:12px"></div>'+
  '<details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700">Alle gespeicherten Produkte / weitere Detailbilder</summary><div id="dgMissingProducts" style="margin-top:12px"></div></details>'+
@@ -1402,32 +1408,21 @@ function inject(){
   request:enrichProduct,visible:()=>!document.hidden,interval:900000
  });
  refreshImportedProducts(true);
- let centralTexts=[],centralRecoveries=[];
- async function processCentralShot(file,label,slot){
-  if(!file)return;
-  const status=b.querySelector("#dgCentralStatus"),lab=b.querySelector("#dgShotLabel"+slot);
+ const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgListUploadButton'),uploadStatus=b.querySelector('#dgCentralStatus');
+ uploadButton.addEventListener('click',()=>upload.click());
+ upload.addEventListener('change',async()=>{
+  if(!upload.files?.length)return;
+  uploadButton.disabled=true;upload.disabled=true;
   try{
-   if(lab)lab.textContent=label+" wartet …";
-   if(status)status.textContent="⏳ "+label+" wartet auf den OCR-Worker …";
-   const result=await recognizeOcr(file,"dgCentralStatus");
-   centralTexts[slot-1]=result.data.text||"";centralRecoveries[slot-1]=result.data.isinRecoveries||{};
-   const all=centralTexts.filter(Boolean).join("\n\n");
-   const items=parseScreenshotCandidates(all);const recovered=Object.assign({},...centralRecoveries);for(const x of items){if(recovered[x.isin]){x.originalIsin=recovered[x.isin];x.ocrRecovery=true;}}
-   populateCandidateRows(items);
-   // OCR completion must not wait for a slow external provider. A replacement
-   // during an active cycle gets a follow-up for the new row identities.
+   const files=await retainSelectedImages(upload);
+   const items=await readListBatch(files,recognizeOcr,(i,total,name)=>{uploadStatus.textContent='📷 Bild '+i+' von '+total+' wird gelesen: '+name;});
+   populateCandidateRows(items);rankUI();
+   uploadStatus.textContent='✅ '+files.length+' Bild(er) gelesen · '+items.length+' unterschiedliche Produkte erkannt. ISINs und Werte am Original prüfen und bestätigen.';
+   const uncertain=items.filter(x=>!validIsin(x.isin)).length;
+   if(uncertain)uploadStatus.textContent+=' ⚠️ '+uncertain+' ISIN(s) unsicher – unter Details prüfen.';
    refreshImportedProducts(true).then(()=>refreshImportedProducts());
-   if(lab)lab.textContent="✓ "+label+" geladen";
-   if(status){const count=centralTexts.filter(Boolean).length;status.textContent=count<2?"✅ "+items.length+" Produkt(e) erkannt. Bitte noch Bild "+(count+1)+" hochladen.":"✅ "+count+" Bilder gelesen · "+items.length+" unterschiedliche Produkte erkannt.";const reread=items.filter(x=>x.ocrRecovery).length;if(reread)status.textContent+=" "+reread+" unsichere ISIN(s) durch Zweitlesung erkannt – am Screenshot prüfen.";const corrected=items.filter(x=>x.originalIsin&&!x.ocrRecovery).length;if(corrected)status.textContent+=" "+corrected+" ISIN(s) mit gültiger Prüfziffer aus O/0 bzw. I/1 normalisiert – bitte prüfen.";const uncertain=items.filter(x=>!validIsin(x.isin)).length;if(uncertain)status.textContent+=" ⚠️ "+uncertain+" ISIN(s) bitte unter Details prüfen (OCR unsicher oder Prüfziffer ungültig).";status.textContent+=" Aktuelle Emittentenkurse werden recherchiert. ISINs unter Details am Screenshot bestätigen. Quellen ohne datierte Kurse bleiben gesperrt.";}
-   if(centralTexts.filter(Boolean).length>=2)rankUI();
-  }catch(e){
-   if(lab)lab.textContent=label+" erneut versuchen";
-   if(status)status.textContent="⚠️ "+label+" konnte nicht automatisch gelesen werden: "+(e&&e.message?e.message:"OCR-Fehler");
-   console.warn("[BOB] DEGIRO OCR",e);
-  }
- }
- [1,2,3].forEach(slot=>{
-  b.querySelector("#dgCentralShot"+slot).addEventListener("change",e=>processCentralShot(e.target.files&&e.target.files[0],"Bild "+slot,slot));
+  }catch(e){uploadStatus.textContent='⚠️ '+(e?.message||'Bilder konnten nicht gelesen werden')+' Die bisherige Produktliste bleibt erhalten.';}
+  finally{upload.value='';upload.disabled=false;uploadButton.disabled=false;}
  });
  b.querySelector("#dgRankBtn").addEventListener("click",async e=>{const button=e.currentTarget;button.disabled=true;rankUI();try{await refreshImportedProducts(true);}finally{button.disabled=false;rankUI();}});
  setInterval(()=>{if(!document.hidden){rankUI();refreshImportedProducts();}},10000);
@@ -1533,7 +1528,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
