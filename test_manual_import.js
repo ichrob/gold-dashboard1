@@ -129,3 +129,14 @@ assert.equal(noIdentity.ok,false);assert(noIdentity.reason.includes('ISIN'));
 console.log('Original-image OCR prefix errors and older-quote overwrite protection passed');
 
 }
+
+{
+ const source='SG Gold Turbo BEST Open-End Call BAR 4113.57 BP\n4113.57 Bv 10 | DEQOOFGSNMF2';
+ const hit=b.parseScreenshotCandidates(source)[0];
+ assert.equal(hit.isin,'DE000FG5NMF2');assert.equal(hit.originalIsin,'DEQOOFGSNMF2');assert(hit.identityCorrection.includes('S/5'));
+ assert.equal(hit.direction,'LONG');assert.equal(hit.ko,'4113.57');assert.equal(hit.price,'');
+ assert.equal(b.parseScreenshotCandidates(source.replace('DEQOOFGSNMF2','DE000FG5NMF2'))[0].isin,'DE000FG5NMF2');
+ for(const wrong of [source.replace(/4113.57/g,'4143.44'),source.replace('Call','Put'),source.replace('SG Gold','BNP Gold')])assert.notEqual(b.parseScreenshotCandidates(wrong)[0].isin,'DE000FG5NMF2');
+ assert.notEqual(b.normalizeOcrIsin('DE000FGSNMF2').isin,'DE000FG5NMF2');
+ console.log('S/5: exact original product recovered; mismatched identity remains uncertain');
+}
