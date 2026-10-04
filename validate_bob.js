@@ -22,7 +22,7 @@ if (fs.readFileSync("server.py","utf8").includes('body = json.dumps({"error": st
 if ((fs.readFileSync("Bob.html","utf8").match(/var liveBundleCache=null, liveBundleAt=0;/g)||[]).length !== 1) throw new Error("live bundle cache must have exactly one declaration");
 if (fs.readFileSync("Bob.html","utf8").indexOf("var liveBundleCache=null, liveBundleAt=0;") > fs.readFileSync("Bob.html","utf8").indexOf("async function loadData")) throw new Error("live bundle cache must be declared before loadData");
 if (fs.readFileSync("Bob.html","utf8").includes("Cannot access 'liveBundleCache' before initialization")) throw new Error("stale TDZ error text must not be present");
-if (!fs.readFileSync("Bob.html","utf8").includes("BobDegiro.riskModel({spot:lastPrice,stop:sm.stop,riskEur:euro,fxUsdEur:fx,leverage:lev})")) throw new Error("risk calculator must use shared DEGIRO risk model");
+if (/Trade[ -]Risikorechner/i.test(html)) throw new Error("removed Trade-Risikorechner must stay absent");
 if (!fs.readFileSync("sw.js","utf8").includes("/icon.svg?v=3")) throw new Error("service worker must use bundled SVG icon");
 if (/icon-192\\.png|icon-512\\.png/.test(fs.readFileSync("Bob.html","utf8"))) throw new Error("Bob.html still references removed PNG icons");
 
