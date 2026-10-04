@@ -85,6 +85,13 @@ body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 @media(min-width:600px){.bob-mobile .bob-top-quotes header{min-height:60px}.bob-mobile .bob-top-quotes h3{font-size:16px;min-height:22px}.bob-mobile .bob-top-quotes .gold-quote{padding:14px}.bob-mobile .bob-top-quotes .gold-meta{font-size:12px}}
 #gold-estimate-change,#gold-estimate-basis,#gold-estimate-source,.gold-estimate-note{display:none}
 .chart-controls{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px}.chart-controls select{min-height:44px}.chart-card .chart-frame{padding:0}.chart-card #chart{display:block;width:100%;height:300px}.chart-status{margin:8px 0 12px}.chart-details{border-top:1px solid #e5e9ef;margin-top:8px}.chart-details summary{font-size:14px}.chart-card #chartFib{line-height:1.8;margin-bottom:10px}.chart-card #chartFibExplanation{font-size:13px}.chart-status[data-stale="true"]{color:#8a5a00;background:#fff5d6;padding:6px 10px;border-radius:8px}
+.technical-metric{border:1px solid #d1d5db;border-radius:10px;padding:10px;background:#fff}
+.technical-metric summary{cursor:pointer;font-size:13px}
+.technical-metric summary b{display:block;font-size:18px;margin:5px 0}
+.technical-metric p{font-size:13px;line-height:1.45;margin:8px 0 0}
+.technical-direction{display:inline-block;font-size:12px;font-weight:700;border-radius:5px;padding:3px 7px;color:#4b5563;background:#f3f4f6}
+.technical-direction[data-direction="LONG"]{color:#166534;background:#dcfce7}
+.technical-direction[data-direction="SHORT"]{color:#991b1b;background:#fee2e2}
 </style>
 </head>
 <body>
@@ -293,12 +300,12 @@ try{
 <div class="card">
 <h3>Markt</h3><p id="marketSummary">Noch keine Bewertung</p><div class="metrics">
 <div class="metric">Preis<b id="price">—</b></div>
-</div><details><summary>Technische Details anzeigen</summary><div class="metrics">
-<div class="metric">RSI(14)<b id="rsi">—</b></div>
-<div class="metric">EMA 20<b id="ema20">—</b></div>
-<div class="metric">EMA 50<b id="ema50">—</b></div>
-<div class="metric">EMA 200<b id="ema200">—</b></div>
-<div class="metric">ATR(14)<b id="atr">—</b></div>
+</div><details><summary>Technische Details anzeigen</summary><p class="small">Grün: LONG · Rot: SHORT · Grau: neutral / keine Richtung. Wert antippen für die Erklärung. Einordnung der Analysekerzen, keine einzelne Trade-Freigabe.</p><div class="metrics">
+<details class="technical-metric"><summary><span>RSI (14)</span><b id="rsi">—</b><span id="rsiDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Momentum: Stärke der jüngsten Auf- und Abwärtsbewegungen. Über 50 bis unter 75: LONG; unter 50 bis über 25: SHORT. Extremwerte und 50 bleiben neutral.</p></details>
+<details class="technical-metric"><summary><span>EMA 20</span><b id="ema20">—</b><span id="ema20Direction" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Kurzfristiger, gewichteter Durchschnitt der letzten 20 Kerzen. Schlusskurs darüber: LONG; darunter: SHORT.</p></details>
+<details class="technical-metric"><summary><span>EMA 50</span><b id="ema50">—</b><span id="ema50Direction" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Mittelfristiger, gewichteter Durchschnitt der letzten 50 Kerzen. Schlusskurs darüber: LONG; darunter: SHORT.</p></details>
+<details class="technical-metric"><summary><span>EMA 200</span><b id="ema200">—</b><span id="ema200Direction" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Langfristiger, gewichteter Durchschnitt der letzten 200 Kerzen. Schlusskurs darüber: LONG; darunter: SHORT.</p></details>
+<details class="technical-metric"><summary><span>ATR (14)</span><b id="atr">—</b><span id="atrDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Durchschnittliche Schwankungsbreite über 14 Kerzen in USD. Höher bedeutet stärkere Schwankungen, aber keine LONG- oder SHORT-Richtung.</p></details>
 </div></details></div>
 
 <div class="card chart-card"><h3>Preisverlauf</h3>
@@ -777,7 +784,17 @@ function momentumLabel(x){
  if(x.e20===x.e50||x.e50===x.e200)return "neutral";
  return "uneinheitlich";
 }
+function renderTechnicalDirections(x){
+ const price=Number(C.at(-1)?.close);
+ const put=(id,dir,label=dir)=>{const el=$(id+"Direction");if(el){el.dataset.direction=dir;el.textContent=label;}};
+ const compare=(value)=>Number.isFinite(price)&&typeof value==="number"&&Number.isFinite(value)?price>value?"LONG":price<value?"SHORT":"NEUTRAL":"NEUTRAL";
+ for(const [id,key] of [["ema20","e20"],["ema50","e50"],["ema200","e200"]])put(id,compare(x[key]),x[key]==null?"Daten fehlen":compare(x[key]));
+ const r=Number.isFinite(x.R)&&C.length>=15?x.R:null;
+ put("rsi",r!==null&&r>50&&r<75?"LONG":r!==null&&r<50&&r>25?"SHORT":"NEUTRAL",r===null?"Daten fehlen":r>=75?"NEUTRAL · überkauft":r<=25?"NEUTRAL · überverkauft":r>50?"LONG":r<50?"SHORT":"NEUTRAL");
+ put("atr","NEUTRAL","Keine Richtung");
+}
 function renderCompactAnalysis(x){
+ renderTechnicalDirections(x);
  const label=momentumLabel(x),el=$("momentumSummary");
  el.textContent=label;el.className=label==="bullish"?"ok":label==="bearish"?"bad":"neutral";
  $("marketSummary").textContent="Trendbewertung: "+label;
