@@ -40,5 +40,13 @@ class InvestingCardTests(unittest.TestCase):
         state=self.fixture();del state['instrument']['price']['changePcr']
         self.assertIsNone(self.parse(state)['changePct'])
 
+    def test_display_cfd_requires_explicit_december_identity_for_study(self):
+        state=self.fixture()
+        self.assertIsNone(self.parse(state)['declaredContract'])
+        state['keyMetrics']=dict(month='Dez. 2026', settlement_day='2026-12-29T00:00:00Z', last_rollover_day='2026-08-27T00:00:00Z')
+        self.assertEqual(self.parse(state)['declaredContract'], 'GCZ26')
+        state['keyMetrics']['month']='Feb. 2027'
+        self.assertIsNone(self.parse(state)['declaredContract'])
+
 
 if __name__ == '__main__':unittest.main()

@@ -161,6 +161,8 @@ def start():
     global _thread
     if not enabled():
         return
+    import future_comparison
+    future_comparison.start()
     with _lock:
         if _thread is None or not _thread.is_alive():
             _thread = threading.Thread(target=_run, name='bob-auto-collection', daemon=True)
@@ -168,10 +170,11 @@ def start():
 
 
 def status():
+    import future_comparison
     with _lock:
         report = copy.deepcopy(_report)
         running = bool(_thread and _thread.is_alive())
-    return dict(report, enabled=enabled(), running=running,
+    return dict(report, comparison=future_comparison.status(), enabled=enabled(), running=running,
                 state=report.get('state', 'starting' if enabled() else 'disabled'))
 
 
@@ -182,11 +185,15 @@ def health():
     return {k: report.get(k) for k in ('enabled', 'running', 'state', 'lastCycleAt')}
 
 
-PANEL = '''<section id="bobAutoCollection" style="max-width:860px;margin:16px auto;padding:18px;border-radius:16px;background:white"><h3>Automatische Future-Schätzung</h3><p id="bobAutoStatus">Messstand wird geladen …</p><div id="bobAutoGroups"></div></section><script>
+PANEL = '''<section id="bobAutoCollection" style="max-width:860px;margin:16px auto;padding:18px;border-radius:16px;background:white"><h3>Automatische Future-Schätzung</h3><p id="bobAutoStatus">Messstand wird geladen …</p><div id="bobAutoGroups"></div><details id="bobFutureComparison"><summary>Spot oder Investing.com · Genauigkeitsvergleich</summary><p id="bobComparisonStatus">Vergleich startet …</p><div id="bobComparisonResults"></div><p>Spot bleibt die aktive Grundlage. Beide Modelle verwenden dieselbe GCZ26-Referenz und einen gemeinsamen Quellenzeitpunkt; nötige Zwischenwerte werden linear interpoliert. Prüfung gegen später empfangene, datierte GCZ26-Kurse (höchstens 5 Sekunden Zeitabweichung). Keine automatische Umstellung. Aufbewahrung: 7 Tage.</p></details></section><script>
 (()=>{const panel=document.getElementById('bobAutoCollection');const header=document.querySelector('h1')?.parentElement;if(header)header.after(panel);
 async function update(){try{const r=await fetch('/api/collection-status',{cache:'no-store'});if(!r.ok)throw Error();const d=await r.json();const a=d.archive||{};const s=d.spotArchive||{};const count=(x,k)=>Number.isInteger(x[k])?String(x[k]):'unbekannt';
 document.getElementById('bobAutoStatus').textContent=(d.state==='paused'?'Sammlung pausiert':d.running?'Serverseitige Sammlung läuft':d.enabled?'Sammlung startet':'Automatische Sammlung ausgeschaltet')+' · '+(d.estimationReleased?'Schätzung zur Anzeige freigegeben · Aktualisierung alle 30 Sekunden während der Sammelzeiten':'Schätzung startet')+' · '+(d.estimateAvailable?'Schätzwert verfügbar':d.state==='paused'?'Aktualisierung werktags 06–22 Uhr (Zürich)':'Warte auf passende aktuelle Kursdaten')+' · '+(d.ready?'Genauigkeitstest: ausreichend Vergleiche vorhanden':'Genauigkeitstest läuft weiter')+' · '+(d.reason||'')+' · Messstand '+(d.evaluatedAt?new Date(d.evaluatedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch ausstehend')+' · '+count(a,'predictionCount')+' Schätzungen, '+count(a,'truthCount')+' GCZ26-Referenzen, '+count(a,'pairCount')+' passende Paare · '+count(s,'sampleCount')+' gespeicherte Spot-Beobachtungen · Aufbewahrung 7 Tage'+(d.archiveStatus==='unavailable'?' · Messarchiv nicht erreichbar; angezeigte Zähler gegebenenfalls letzter bekannter Stand':'')+(d.spotArchiveStatus==='unavailable'?' · Spot-Archiv nicht erreichbar':'');
-const box=document.getElementById('bobAutoGroups');box.replaceChildren();for(const g of d.horizons||[]){const p=document.createElement('p');p.textContent=g.horizonBucket+': '+g.sampleCount+'/'+g.minSamples+' Vergleiche'+(Number.isFinite(g.meanAbsoluteError)?' · mittlerer Fehler '+g.meanAbsoluteError.toFixed(2)+' USD · größter Fehler '+g.maxAbsoluteError.toFixed(2)+' USD':'')+' · '+(d.state==='paused'?'gespeicherter Messstand':g.ready?'ausreichend geprüft':'noch nicht ausreichend geprüft');box.append(p);}}
+const box=document.getElementById('bobAutoGroups');box.replaceChildren();for(const g of d.horizons||[]){const p=document.createElement('p');p.textContent=g.horizonBucket+': '+g.sampleCount+'/'+g.minSamples+' Vergleiche'+(Number.isFinite(g.meanAbsoluteError)?' · mittlerer Fehler '+g.meanAbsoluteError.toFixed(2)+' USD · größter Fehler '+g.maxAbsoluteError.toFixed(2)+' USD':'')+' · '+(d.state==='paused'?'gespeicherter Messstand':g.ready?'ausreichend geprüft':'noch nicht ausreichend geprüft');box.append(p);}
+const c=d.comparison||{},cs=c.summary||{},out=document.getElementById('bobComparisonResults');out.replaceChildren();
+document.getElementById('bobComparisonStatus').textContent=(c.state==='paused'?'Vergleich pausiert':c.state==='comparing'?'Parallele Schätzungen werden gespeichert':'Vergleich sammelt Eingangsdaten')+' · '+(c.reason||'')+' · '+(c.predictionCount??0)+' gemeinsame Schätzungen · '+(cs.count??0)+' geprüfte Paare'+(c.archiveStatus==='unavailable'?' · Archiv nicht erreichbar; Zahlen können veraltet sein':'');
+if(c.current){const p=document.createElement('p');p.textContent='Schätzungen vom '+new Date(c.current.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+': Spot ≈ '+c.current.spot.toFixed(2)+' USD · Investing ≈ '+c.current.cfd.toFixed(2)+' USD';out.append(p);}
+for(const g of [{...cs,bucket:'Gesamt'},...(cs.horizons||[])]){if(!g.count)continue;const p=document.createElement('p');p.textContent=g.bucket+' · '+g.count+' gemeinsame Vergleiche · mittlerer / größter Fehler: Spot '+g.spot.mae.toFixed(2)+' / '+g.spot.maximum.toFixed(2)+' USD, Investing '+g.cfd.mae.toFixed(2)+' / '+g.cfd.maximum.toFixed(2)+' USD';out.append(p);}
+const verdict=document.createElement('p');verdict.textContent=c.archiveStatus==='loaded'&&cs.preliminaryReady?'Vorläufiger Vergleich über '+cs.days+' UTC-Kalendertag(e): '+(cs.lowerMeanError==='equal'?'gleicher mittlerer Fehler':(cs.lowerMeanError==='cfd'?'Investing.com':'Spot')+' hat bisher den geringeren mittleren Fehler')+'. Größte Fehler und Referenzabstände ebenfalls beachten; keine Garantie für künftige Genauigkeit.':'Noch keine ausreichende aktuelle Vergleichsbasis (zunächst mindestens 20 Paare über 10 Minuten).';out.append(verdict);}
 catch{document.getElementById('bobAutoStatus').textContent='Messstand momentan nicht erreichbar.';}}update();setInterval(update,30000);})();
 </script>'''
-

@@ -316,3 +316,34 @@ and a source timestamp no older than 120 seconds. Old/closed/delayed quotes
 remain explicitly labelled; failures cannot invent a price or renew its time.
 This display does not feed the Spot/Future model, ranking, or trade monitoring.
 There is no guaranteed second-by-second stream or public API entitlement.
+
+
+## Parallel Spot/CFD study (2026-10-05)
+
+`future_comparison.py` independently collects Investing.com CFD observations
+while automatic collection is enabled, Mon–Fri 06–22 Europe/Zurich. The source
+must explicitly declare December 2026, the expected settlement and rollover;
+rolling to a different contract pauses this study. Observations older than 60
+seconds, unavailable references and gaps do not create predictions.
+
+Both shadow models use the same dated GCZ26 anchor and a shared target time.
+The later proxy series is interpolated only between actual observations within
+30 seconds on each side. The existing ratio model is used for Spot; the dollar
+change model is used for CFD. Existing alignment, continuity and 30-minute
+anchor limits apply. The active Spot estimate and trade inputs are unchanged.
+The study never adds CFD ticks to the active estimator's `_ticks` buffer.
+
+`comparison_store.py` uses separate PostgreSQL tables behind the existing
+server-token protected validation endpoint. Each target keeps its first paired
+prediction. A truth observation can match it only once, within five seconds,
+after the prediction's first archive receipt. Truth first receipts are immutable;
+a truth provided alongside a prediction cannot validate that prediction. Anchors
+cannot double as their own truth. Neither this study nor its schema migration
+modifies existing validation rows. Frozen results persist for seven days;
+raw CFD input buffers need to warm up again after a scanner restart.
+
+The learning panel shows common sample count, mean absolute error, maximum
+absolute error and reference-age groups. At least 20 pairs over ten minutes
+with recent evidence unlock a explicitly preliminary comparison, never automatic
+source selection or a claim of guaranteed accuracy. Real source availability
+and the supply of matching dated GCZ26 observations determine how long this takes.
