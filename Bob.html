@@ -72,7 +72,7 @@ try{
  fetch("/api/diag",{method:"POST",headers:{"Content-Type":"application/json","X-Bob-Runtime":bobRuntimeId},body:JSON.stringify({event:"boot:public-shell",at:new Date().toISOString(),details:{reason:"current Bob HTML shell executed",runtimeId:bobRuntimeId,href:location.href,userAgent:navigator.userAgent.slice(0,180)}}),cache:"no-store",keepalive:true}).catch(()=>{});
 }catch(_){}
 </script>
-<main>
+<main><p id="analysisAge" class="small" style="font-style:italic" hidden></p>
 <div class="card">
 <h1>📱 Bob</h1>
 <div class="sub">XAU/USD · technische Analyse · DEGIRO bleibt manuell</div>
@@ -94,8 +94,9 @@ try{
   el(key,'change').textContent=pct===null?'— %':(pct>0?'↑ +':pct<0?'↓ −':'→ ')+number(Math.abs(pct))+' %';
   el(key,'change').className='gold-change'+(pct>0?' up':pct<0?' down':'');
   el(key,'basis').textContent=pct===null?'Tagesänderung fehlt':q.changeLabel||'zum Vortagesschluss';
+  el(key,'price').style.fontStyle=has&&(!Number.isFinite(stamp)||Date.now()-stamp>120000||stamp>Date.now()||q.historical)?'italic':'';
   const old=Number.isFinite(stamp)&&(Date.now()-stamp>120000||stamp>Date.now()+5000);
-  el(key,'state').textContent=expired?'Anmeldung erforderlich':!has?(q?.note||(key==='estimate'?'Schätzung wartet auf aktuelle Eingangsdaten':'Kurs momentan nicht verfügbar')):!Number.isFinite(stamp)?'Kurszeit unbestätigt':q.historical?'Letzte gespeicherte Schätzung · Aktualisierung pausiert':old?(q.kind==='calculated'?'Letzte Schätzung · nicht aktuell':'Letzter Stand · nicht aktuell'):q.kind==='calculated'?'Future-Schätzung · automatisch':q.note||'Echtzeit nicht bestätigt';
+  el(key,'state').textContent=expired?'Anmeldung erforderlich':!has?(q?.note||(key==='estimate'?'Schätzung wartet auf aktuelle Eingangsdaten':'Kurs momentan nicht verfügbar')):!Number.isFinite(stamp)?'Aktualität unbekannt – Zeitstempel fehlt':q.historical?'Letzte gespeicherte Schätzung · Aktualisierung pausiert':old?(q.kind==='calculated'?'Letzte Schätzung · nicht aktuell':'veraltet – letzter Stand'):q.kind==='calculated'?'Future-Schätzung · automatisch':q.note||'Echtzeit nicht bestätigt';
   el(key,'time').textContent=Number.isFinite(stamp)?'Stand: '+new Date(stamp).toLocaleString('de-CH',{timeZone:'Europe/Zurich',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})+' (Zürich)':'Kurszeit fehlt';
   el(key,'source').textContent=(q?.kind==='calculated'?'Berechnet · ':'')+(q?.source||'');
  }
@@ -565,7 +566,7 @@ function timeframeScore(bars,tf=""){
   if(closed.length<required)return {dir:"NEUTRAL",score:0,rsi:null,age:null,reason:"zu wenig Historie",available:false,fullHistory:false};
   const latest=Number(closed.at(-1)?.openTime), age=Number.isFinite(latest)?Date.now()-latest:Infinity;
   const freshness={"5m":20*60*1000,"15m":45*60*1000,"1h":3*60*60*1000,"4h":12*60*60*1000}[tf]||3*60*60*1000;
-  if(!Number.isFinite(age)||age>freshness)return {dir:"NEUTRAL",score:0,rsi:null,age:Number.isFinite(age)?age:null,reason:"Historie zu alt",available:false,fullHistory:true};
+  const timing=dataAge(closed.at(-1)?.openTime,freshness);
   const a=closed.map(x=>+x.close), e20=ema(a,20),e50=ema(a,50),e200=a.length>=200?ema(a,200):null,R=rsiS(a);
   const e12=emaS(a,12),e26=emaS(a,26), mac=e12.at(-1)-e26.at(-1), macPrev=e12.at(-2)-e26.at(-2);
   let score=0,components=0;
@@ -575,7 +576,7 @@ function timeframeScore(bars,tf=""){
   if(mac>macPrev)score++;else score--;components++;
   if(Number.isFinite(R)){if(R>=50&&R<=70)score++;else if(R<35)score--;components++;}
   const dir=components>=4?(score>=2?"LONG":score<=-2?"SHORT":"NEUTRAL"):"NEUTRAL";
-  return {dir,score,rsi:R,price:a.at(-1),openTime:closed.at(-1).openTime,components,available:true,fullHistory:a.length>=200};
+  return {dir,score,rsi:R,fresh:timing.fresh,ageWarning:timing.label,price:a.at(-1),openTime:closed.at(-1).openTime,components,available:true,fullHistory:a.length>=200};
 }
 function buildMtfHierarchy(byTf,valid=true){
  const h=byTf||{}, d4=h["4h"]?.dir, d1=h["1h"]?.dir, d15=h["15m"]?.dir, d5=h["5m"]?.dir;
@@ -631,11 +632,33 @@ async function reportBobDiag(event,details={}){
 }
 var liveBundleCache=null, liveBundleAt=0;
 var directSpotBundle=null;
+function dataAge(at,limit=180000,now=Date.now()){
+ const parsed=typeof at==='number'?at:typeof at==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(at)?Date.parse(at):NaN;
+ const fresh=Number.isFinite(parsed)&&parsed>0&&now>=parsed&&now-parsed<=limit;
+ return {fresh,label:fresh?'':!Number.isFinite(parsed)||parsed<=0?'Aktualität unbekannt – Zeitstempel fehlt oder ist unklar':parsed>now?'Aktualität unbekannt – Zeitstempel liegt in der Zukunft':'veraltet – Stand: '+new Date(parsed).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)'};
+}
+function analysisAgeWarnings(){
+ const warnings=[],bundle=liveBundleCache;
+ if(bundle){const a=dataAge(bundle.spots?.spot_price_as_of);if(!a.fresh||bundle.spots?.spot_error)warnings.push('Goldpreis: '+(a.label||'Aktualität von Quelle nicht bestätigt'));}
+ const tf=$('tf')?.value||'15m',limit={'5m':1200000,'15m':2700000,'1h':10800000}[tf]||10800000;
+ if(C.length){const a=dataAge(C.at(-1).openTime,limit);if(!a.fresh)warnings.push('Technikhistorie: '+a.label);}
+ for(const [tf,z] of Object.entries(MTF?.byTf||{})){const a=dataAge(z.openTime,{'5m':1200000,'15m':2700000,'1h':10800000,'4h':43200000}[tf]);if(z.available&&!a.fresh)warnings.push(tf+': '+a.label);}
+ return warnings;
+}
+function renderAnalysisAge(){
+ const warnings=analysisAgeWarnings(),uncertain=warnings.length>0;
+ for(const id of ['price','quickPrice','rsi','ema20','ema50','ema200','atr','macd','macds','hist','signal','quickSignal']){const el=$(id);if(el)el.style.fontStyle=uncertain?'italic':'';}
+ const status=$('status');if(uncertain&&status)status.textContent=status.textContent.replace(/^LIVE/, 'LETZTER DATENSTAND');
+ const el=$('analysisAge');if(el){el.hidden=!uncertain;el.textContent=uncertain?'Mit veralteten Daten oder Daten unbekannter Aktualität berechnet. Keine aktuell bestätigte Freigabe. '+warnings.join(' · '):'';}
+ return warnings;
+}
+window.BobAnalysisAge=analysisAgeWarnings;
+setInterval(renderAnalysisAge,10000);
 function parseDirectSpot(data, now=Date.now()){
  const price=data?.spot_usd_oz,at=data?.price_as_of,age=now-Date.parse(at);
- if(typeof price!=="number"||!Number.isFinite(price)||price<=0||data?.data_state?.status!=="fresh"||data.stale!==false||data.xau?.currency!=="USD"||data.xau?.unit!=="troy_oz")throw Error("XAUS liefert keinen bestätigten aktuellen XAU/USD-Preis");
- if(typeof at!=="string"||!/(?:Z|[+-]\d{2}:\d{2})$/.test(at)||!Number.isFinite(age)||age<0||age>180000)throw Error("XAUS-Quellenzeit fehlt oder ist nicht aktuell");
- return {price,at,age};
+ if(typeof price!=="number"||!Number.isFinite(price)||price<=0||data.xau?.currency!=="USD"||data.xau?.unit!=="troy_oz")throw Error("XAUS liefert keinen bestätigten aktuellen XAU/USD-Preis");
+
+ return {price,at,age:typeof at==="string"&&/(?:Z|[+-]\d{2}:\d{2})$/.test(at)&&Number.isFinite(age)?age:null};
 }
 async function fetchLiveBundle(force=false){
  const now=Date.now();
@@ -652,10 +675,10 @@ async function fetchLiveBundle(force=false){
   let r0;
   try{r0=await fetch("https://xaus.com/api/v1/spot?compact=1&fresh="+now,{cache:"no-store",signal:controller0.signal})}finally{clearTimeout(timer0)}
   if(!r0.ok)throw Error("XAUS HTTP "+r0.status);
-  const d0=await r0.json(),observed=parseDirectSpot(d0),p0=observed.price,age0=observed.age,state0=d0.data_state.status;
+  const d0=await r0.json(),observed=parseDirectSpot(d0),p0=observed.price,age0=observed.age,state0=d0.data_state?.status;
   const direct={
    fetched_at:Math.floor(Date.now()/1000),
-   spots:{spot_price_as_of:d0.price_as_of||null,is_genuine_xauusd_spot:d0.xau?.currency==="USD"&&d0.xau?.unit==="troy_oz"&&state0==="fresh"&&d0.stale===false,spot_source_type:"XAU/USD spot",xaus:p0,goldprice:p0,yahoo_gc_f:null,diff:0,pct:0,xaus_age_seconds:age0!==null?age0/1000:null,goldprice_age_seconds:age0!==null?age0/1000:null,usd_eur:null,usd_chf:null,goldprice_status:"XAUS · direkt",xaus_is_spot:true,primary:"XAUS · direkt",reference:"Yahoo Finance GC=F",reference_note:"GC=F ist Gold-Futures, nicht XAU/USD Spot",spot_error:state0==="stale"?"XAUS liefert den letzten bekannten realen Preis (stale)":null},
+   spots:{spot_price_as_of:d0.price_as_of||null,is_genuine_xauusd_spot:d0.xau?.currency==="USD"&&d0.xau?.unit==="troy_oz"&&state0==="fresh"&&d0.stale===false,spot_source_type:"XAU/USD spot",xaus:p0,goldprice:p0,yahoo_gc_f:null,diff:0,pct:0,xaus_age_seconds:age0!==null?age0/1000:null,goldprice_age_seconds:age0!==null?age0/1000:null,usd_eur:null,usd_chf:null,goldprice_status:"XAUS · direkt",xaus_is_spot:true,primary:"XAUS · direkt",reference:"Yahoo Finance GC=F",reference_note:"GC=F ist Gold-Futures, nicht XAU/USD Spot",spot_error:state0!=="fresh"||d0.stale!==false||!dataAge(d0.price_as_of).fresh?"XAUS liefert den letzten bekannten realen Preis (stale)":null},
    history:{bars_by_tf:{},points:[],data_state:{status:"partial",source:"XAUS XAU/USD Spot · Direktabruf",technical_4h_status:"unavailable",technical_errors:["Technikhistorie wird separat über Bob/Render geladen"]},age_seconds:age0!==null?age0/1000:null}
   };
   // Browser-side technical history: XAUS provides the same XAU series used by Bob's
@@ -817,11 +840,12 @@ async function fetchLiveBundle(force=false){
    const j={fetched_at:Math.floor(Date.now()/1000),spots:{spot_price_as_of:observed.at,is_genuine_xauusd_spot:true,spot_source_type:"XAU/USD spot",xaus:price,goldprice:price,yahoo_gc_f:null,diff:0,pct:0,xaus_age_seconds:age!==null?age/1000:null,goldprice_age_seconds:age!==null?age/1000:null,usd_eur:null,usd_chf:null,goldprice_status:"XAUS · browser fallback",xaus_is_spot:true,primary:"XAUS · browser fallback",reference:"Yahoo Finance GC=F",reference_note:"GC=F ist Gold-Futures, nicht XAU/USD Spot",spot_error:"Server-Live-API nicht erreichbar"},history:{bars_by_tf:{},points:[],data_state:{status:"partial",source:"XAUS XAU/USD Spot · Browser-Fallback",technical_4h_status:"unavailable",technical_errors:[String(serverError?.message||serverError)]},age_seconds:age!==null?age/1000:null}};
    liveBundleCache=j;liveBundleAt=now;return j;
   }catch(fallbackError){
+   if(liveBundleCache&&Number(liveBundleCache.spots?.xaus)>0){liveBundleCache.spots.spot_error='Abruf fehlgeschlagen – Berechnung mit letztem Datenstand';return liveBundleCache;}
    throw Error("Live-Daten momentan nicht erreichbar: "+String(fallbackError?.message||serverError?.message||"unbekannter Fehler"));
   }
  } 
 }
-async function fetchIntradayPoints(){const j=await fetchLiveBundle();if(j.history.data_state?.status!=="fresh")throw Error("Gold-Historie nicht frisch");return j.history.points||[];}
+async function fetchIntradayPoints(){const j=await fetchLiveBundle();return j.history.points||[];}
 async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
  try{
   const bundle=suppliedBundle || await fetchLiveBundle(force);
@@ -840,7 +864,7 @@ async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
   let longs=0,shorts=0,neutral=0;
   for(const [tf,id,z] of results){
    const label=!z.available?"NEUTRAL · Historie fehlt":z.dir+(z.rsi!=null?" · RSI "+z.rsi.toFixed(0):"");
-   $(id).textContent=label;
+   $(id).textContent=label+(z.ageWarning?" · "+z.ageWarning:"");$(id).style.fontStyle=z.fresh===false?"italic":"";
    $(id).className=z.dir==="LONG"?"ok":z.dir==="SHORT"?"bad":"neutral";
    z.dir==="LONG"?longs++:z.dir==="SHORT"?shorts++:neutral++;
   }
@@ -858,12 +882,12 @@ async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
   // Server-side verification is the authoritative runtime check for the MTF pipeline.
   try{
    const vr=await fetch("/api/mtf?fresh="+Date.now(),{cache:"no-store"});
-   if(vr.ok){
+   if(vr.ok&&results.every(([,id,z])=>z.fresh)){
     const v=await vr.json(), r=v.results||{};
     for(const [tf,id] of [["5m","mtf5"],["15m","mtf15"],["1h","mtf1h"],["4h","mtf4h"]]){
      const z=r[tf]; if(!z) continue;
      const label=!z.available?"NEUTRAL · Historie fehlt":z.dir+(z.rsi!=null?" · RSI "+Number(z.rsi).toFixed(0):"");
-     $(id).textContent=label; $(id).className=z.dir==="LONG"?"ok":z.dir==="SHORT"?"bad":"neutral";
+     $(id).textContent=label+(z.ageWarning?" · "+z.ageWarning:"");$(id).style.fontStyle=z.fresh===false?"italic":""; $(id).className=z.dir==="LONG"?"ok":z.dir==="SHORT"?"bad":"neutral";
     }
     const vd=["4h","1h","15m","5m"].map(tf=>r[tf]?.dir);
     MTF={longs:vd.filter(x=>x==="LONG").length,shorts:vd.filter(x=>x==="SHORT").length,neutral:vd.filter(x=>x==="NEUTRAL").length,overall:v.overall||"NEUTRAL",byTf:r,dirs:vd};
@@ -1043,7 +1067,7 @@ function falseBreakoutState(dir){
  return "OK";
 }
 function confirmedSignalDirection(){
- if(window.BobSession?.expired())return "NEUTRAL";
+ if(window.BobSession?.expired()||analysisAgeWarnings().length)return "NEUTRAL";
  if(!A.ready||!C.length||!Number.isFinite(A.at))return "NEUTRAL";
  const raw=A.score>=70&&getMtfState().overall==="LONG"?"LONG":A.score<=30&&getMtfState().overall==="SHORT"?"SHORT":"NEUTRAL";
  if(raw==="NEUTRAL")return "NEUTRAL";
@@ -1515,15 +1539,6 @@ async function loadData(){
   const latestBar=C.length?Number(C[C.length-1].openTime):NaN;
   const tfFreshLimit={"5m":20*60*1000,"15m":45*60*1000,"1h":3*60*60*1000}[tf]||3*60*60*1000;
   const technicalAge=Number.isFinite(latestBar)?Date.now()-latestBar:Infinity;
-  if(!Number.isFinite(technicalAge)||technicalAge>tfFreshLimit){
-   $("status").textContent=(isSpot?"LIVE · XAU/USD ":"REFERENZ · GC=F ") + lastPrice.toFixed(2)+" · "+sourceLabel+" · Technikhistorie zu alt ("+
-     (Number.isFinite(technicalAge)?Math.round(technicalAge/60000):"unbekannt")+" Min.) · kein Signal";
-   $("quickSignal").textContent="🟢 LIVE-PREIS · TECHNIK ZU ALT";
-   $("quickSignal").className="signal neutral";
-   $("quickReason").textContent="Der Live-Preis ist verfügbar. Die technische Historie ist zu alt für ein belastbares Signal.";
-   C=[];invalidateTechnicalSignal("Technische Historie fehlt oder ist veraltet");draw();
-   return;
-  }
   if(C.length<30){
    $("status").textContent="LIVE · XAU/USD "+lastPrice.toFixed(2)+" · "+sourceLabel+" · Zu wenig geschlossene "+tf+"-Kerzen für eine vollständige Analyse.";
    $("quickSignal").textContent="🟢 LIVE-PREIS · ANALYSE WARTET";
@@ -1535,7 +1550,7 @@ async function loadData(){
 
   $("status").textContent=(isSpot?"LIVE · XAU/USD ":"REFERENZ · GC=F ") + lastPrice.toFixed(2)+" · "+sourceLabel+fallbackWarning+" · "+new Date().toLocaleTimeString();
   try{
-   analyze();restoreTradeMgmt();
+   analyze();renderAnalysisAge();restoreTradeMgmt();
   }catch(analysisError){
    C=[];invalidateTechnicalSignal("Technische Analyse fehlgeschlagen");
    $("quickSignal").textContent="🟢 LIVE-PREIS · TECHNIK WARTET";

@@ -40,7 +40,7 @@ const spotChecks=vm.runInContext(`(()=>{
  }
  return {rejected,valid:parseDirectSpot(base,now)};
 })()`,env);
-assert.equal(spotChecks.rejected,6);assert.equal(spotChecks.valid.age,1000);
+assert.equal(spotChecks.rejected,1);assert.equal(spotChecks.valid.age,1000);
 
 // Legacy panels must lose their previous setup after a data/analysis failure.
 vm.runInContext(`A.ready=true;A.at=20;A.score=90;invalidateTechnicalSignal('Historie zu alt');`,env);
@@ -62,3 +62,21 @@ vm.runInContext('A.ready=true;A.score=90;A.at=20;calcDgTrade()',env);
 assert(element('dgOut').innerHTML.includes('Kein Trade-Vorschlag'));
 assert(element('dgOut').innerHTML.includes('MTF widerspricht LONG'));
 console.log('Legacy panels: stale signal revoked, manual data forwarded, scenario veto preserved');
+
+// Age is a warning for calculations, but cannot establish a current approval.
+env.window.BobSession={expired:()=>false};
+const ageChecks=vm.runInContext(`(()=>{
+ const saved=C.map(b=>({...b}));
+ C=C.map(b=>({...b,openTime:b.openTime-86400000}));
+ liveBundleCache={spots:{xaus:4200,spot_price_as_of:'2020-01-01T00:00:00Z'}};
+ const staleScore=timeframeScore(C,'15m');analyze();renderAnalysisAge();
+ const stale={available:staleScore.available,fresh:staleScore.fresh,ready:A.ready,approval:confirmedSignalDirection(),count:C.length};
+ C=C.map(b=>({...b,openTime:undefined}));
+ const missing=timeframeScore(C,'15m');
+ C=saved;MTF.byTf={};liveBundleCache={spots:{xaus:4200,spot_price_as_of:new Date().toISOString()}};renderAnalysisAge();
+ return {stale,missing:{available:missing.available,fresh:missing.fresh},freshWarnings:analysisAgeWarnings(),noTime:dataAge(null)};
+})()`,env);
+assert(ageChecks.stale.available&&ageChecks.stale.ready);assert.equal(ageChecks.stale.fresh,false);assert.equal(ageChecks.stale.approval,'NEUTRAL');assert(ageChecks.stale.count>=200);
+assert(ageChecks.missing.available);assert.equal(ageChecks.missing.fresh,false);assert.equal(ageChecks.freshWarnings.length,0);assert.equal(ageChecks.noTime.fresh,false);
+assert.equal(element('price').style.fontStyle,'');assert.equal(element('analysisAge').hidden,true);
+console.log('Age warnings: old/missing times calculate, no current approval, fresh data clears warnings');
