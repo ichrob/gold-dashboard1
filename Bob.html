@@ -840,7 +840,6 @@ function draw(a){
  for(const row of sortedFib){
   const text=(row.target?"Kursziel ":"Fib Level ")+row.label.replace("Ext. ","");
   const labelWidth=Math.min(ctx.measureText(text).width+8,right-left-8);
-  ctx.fillStyle="rgba(255,255,255,0.96)";ctx.fillRect(left+4,row.labelY-12,labelWidth,16);
   ctx.fillStyle=row.target?"#1e40af":"#b45309";ctx.fillText(text,left+8,row.labelY,labelWidth-8);
  }
  // Draw prices last so level labels never cover the price path or candles.
