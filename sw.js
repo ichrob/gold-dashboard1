@@ -24,11 +24,17 @@ self.addEventListener("push", event => {
     data: { url: details.url || "/", kind: details.kind || "general", signalId: details.signalId || null }
   };
   event.waitUntil((async()=>{
+    if(Number.isFinite(details.expiresAt)&&Date.now()>=details.expiresAt)return;
+    if(details.kind==='general'){
+      const cache=await caches.open('bob-push-settings'),response=await cache.match('/__bob_push_preferences__');
+      if(!(response&&(await response.json()).general))return;
+    }
     if(details.kind==='trade'){
       const cache=await caches.open('bob-push-settings');
       const response=await cache.match('/__bob_push_preferences__');
       const prefs=response?await response.json():{};
       if(!prefs.trade||(!details.test&&!prefs.activeTrade))return;
+      if(!details.test&&details.tradeId&&details.tradeId!==prefs.tradeId)return;
     }
     if(String(details.kind||'').startsWith('product-')){
       const cache=await caches.open('bob-push-settings');
@@ -58,7 +64,7 @@ self.addEventListener("message", event => {
   if(event.data?.type==='BOB_PUSH_PREFERENCES')event.waitUntil((async()=>{
     const cache=await caches.open('bob-push-settings');
     const general=event.data.general===true,trade=event.data.trade===true,activeTrade=event.data.activeTrade===true;
-    await cache.put('/__bob_push_preferences__',new Response(JSON.stringify({general,trade,activeTrade})));
+    await cache.put('/__bob_push_preferences__',new Response(JSON.stringify({general,trade,activeTrade,tradeId:event.data.tradeId||null})));
     if(!trade||!activeTrade){const notices=await self.registration.getNotifications();notices.filter(n=>n.data?.kind==='trade').forEach(n=>n.close());}
     if(!general){const notifications=await self.registration.getNotifications({tag:'bob-product-selection'});notifications.forEach(n=>n.close());}
   })());

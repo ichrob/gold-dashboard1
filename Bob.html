@@ -208,7 +208,7 @@ try{
 <div class="small" style="margin-top:8px">Kein Login nötig. Auf Android die ntfy-App installieren und denselben Topic abonnieren. Der Topic-Name ist eine öffentliche Kanaladresse, kein echtes Passwort. Für sensible Inhalte sollte ein geschützter Push-Dienst verwendet werden.</div>
 <div class="warning" style="margin-top:10px"><b>Push-Regel:</b> „Marktsignale“ aktiviert auch Produktpushs: nur nach erneuter Pflichtprüfung, bei neuer Auswahl oder Rücknahme. Nicht freigegebene Kandidaten lösen keinen Empfehlungspush aus. Produktpushs benötigen ein registriertes Gerät; sie werden nicht über ntfy gesendet. Neue Auswahlen werden bei geöffneter Bob-App geprüft. Bei ausbleibender Bestätigung läuft die Freigabe ab. „Aktiver Trade“ meldet Stop-Loss, Richtungswechsel und bestätigte Fibonacci-Brüche – und nur bei einem tatsächlich aktiven Trade.</div>
 <div id="productPushStatus" class="small">Produktpush: nur bei aktiven Marktsignalen.</div>
-<div id="fibMonitorStatus" class="small" style="margin-top:8px">Fibonacci-Überwachung: kein aktiver Trade.</div><div id="pushStatus" class="small" style="margin-top:8px">Noch nicht registriert.</div>
+<div id="fibMonitorStatus" class="small" style="margin-top:8px">Fibonacci-Überwachung: kein aktiver Trade.</div><button type="button" onclick="testBackgroundPush()">Hintergrund-Push testen (30 Sekunden)</button><div id="pushStatus" class="small" style="margin-top:8px">Noch nicht registriert.</div>
 </div>
 
 <div class="card">
@@ -426,9 +426,11 @@ function captureFibonacciMonitor(){
  const fib=fibonacciModel(tradeMgmt.dir,tradeMgmt.entry,A.at);
  if(!fib.valid)return null;
  const now=Date.now();
- return {tradeId:"trade-"+now+"-"+Math.random().toString(36).slice(2,10),direction:tradeMgmt.dir,timeframe:tf,instrument,levels:{...fib.levels},startedAt:now,previousClose:Number(C.at(-1).close)};
+ return {tradeId:tradeMgmt.tradeId||("trade-"+now+"-"+Math.random().toString(36).slice(2,10)),direction:tradeMgmt.dir,timeframe:tf,instrument,levels:{...fib.levels},startedAt:now,previousClose:Number(C.at(-1).close)};
 }
-async function syncPushPreferences(){
+let pushSyncQueue=Promise.resolve();
+function syncPushPreferences(){pushSyncQueue=pushSyncQueue.catch(()=>{}).then(syncPushPreferencesImpl);return pushSyncQueue;}
+async function syncPushPreferencesImpl(){
  const status=$("fibMonitorStatus");
  if(!pushState.serverRegistered){if(status)status.textContent="Fibonacci-Überwachung: zuerst Gerät für Server-Push registrieren.";return false;}
  try{
@@ -438,11 +440,39 @@ async function syncPushPreferences(){
    const reg=await navigator.serviceWorker.ready;
    const sub=await reg.pushManager.getSubscription();
    if(!sub){if(status)status.textContent="Fibonacci-Überwachung: Server-Push-Abonnement fehlt.";return false;}
-   const r=await fetch("/api/push/preferences",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({endpoint:sub.endpoint,general:!!pushState.general,trade:!!pushState.trade,activeTrade:!!pushState.activeTrade,fibonacciMonitor:tradeMgmt?.active&&!tradeMgmt.test&&pushState.trade?tradeMgmt.fibonacciMonitor||null:null})});
+   let backgroundTrade=null;
+   if(tradeMgmt?.active&&!tradeMgmt.test){
+    const instrument=tradeMgmt.fibonacciMonitor?.instrument||C.at(-1)?.instrument;
+    tradeMgmt.tradeId=tradeMgmt.tradeId||tradeMgmt.fibonacciMonitor?.tradeId||('trade-'+Date.now()+'-'+Math.random().toString(36).slice(2));
+    tradeMgmt.initialRisk=Number(tradeMgmt.initialRisk)||Math.abs(tradeMgmt.entry-tradeMgmt.stop);
+    backgroundTrade={...tradeMgmt,instrument};
+    saveTradeMgmt();
+   }
+   const background={timeframe:$('tf')?.value||'15m',trailAtr:Number($('trailAtr')?.value)||1.5,trade:backgroundTrade};
+   const r=await fetch("/api/push/preferences",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({endpoint:sub.endpoint,general:!!pushState.general,trade:!!pushState.trade,activeTrade:!!pushState.activeTrade,background,fibonacciMonitor:tradeMgmt?.active&&!tradeMgmt.test&&pushState.trade?tradeMgmt.fibonacciMonitor||null:null})});
    const result=r.ok?await r.json():null;
-   if(status)status.textContent=result?.fibonacciMonitor==="active"?"Fibonacci-Überwachung auf dem Server gespeichert · "+tradeMgmt.fibonacciMonitor.timeframe+" · "+tradeMgmt.fibonacciMonitor.instrument+" · Level beim Trade-Start festgehalten. Kostenlose Server können pausieren; lückenlose Überwachung ist nicht garantiert.":r.ok?"Fibonacci-Überwachung nicht aktiv: Trade-Push, aktiver Trade und bestätigte Level erforderlich.":"Fibonacci-Überwachung konnte nicht gespeichert werden.";
+   if(result?.backgroundEnabled){
+    pushState=BobPush.set('backgroundEnabled',true);
+    const remote=result.backgroundTrade;
+    if(remote&&tradeMgmt?.active&&remote.tradeId===tradeMgmt.tradeId&&Number.isFinite(remote.stop)){
+     tradeMgmt.stop=tradeMgmt.dir==='LONG'?Math.max(tradeMgmt.stop,remote.stop):Math.min(tradeMgmt.stop,remote.stop);
+     saveTradeMgmt();$('tradeStop').value=tradeMgmt.stop.toFixed(2);
+    }
+   }
+   if(status)status.textContent=result?.backgroundEnabled?'Hintergrund-Push gespeichert · Markt, Produkte, Stop, Ziel, Gewinnschutz und Richtungswechsel auch bei geschlossener App. Modell-Stops musst du bei DEGIRO selbst anpassen. Kostenlose Dienste können pausieren.':r.ok?'Hintergrund-Push noch nicht bestätigt.':'Hintergrund-Einstellungen konnten nicht gespeichert werden; bitte erneut synchronisieren.';
    return r.ok;
  }catch(_){if(status)status.textContent="Fibonacci-Überwachung konnte nicht gespeichert werden.";return false;}
+}
+async function testBackgroundPush(){
+ const status=$('fibMonitorStatus');
+ try{
+  await syncPushPreferences();
+  const reg=await navigator.serviceWorker.ready,sub=await reg.pushManager.getSubscription();
+  if(!sub)throw Error('Zuerst Gerät für Push registrieren.');
+  const r=await fetch('/api/push/test-background',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({endpoint:sub.endpoint})});
+  if(!r.ok)throw Error('Test konnte nicht geplant werden. Push-Schalter und Anmeldung prüfen.');
+  status.textContent='Test gespeichert. Bob jetzt schließen und Bildschirm sperren. Die TEST-Nachricht wird nach etwa 30–45 Sekunden vom Server ausgelöst.';
+ }catch(e){status.textContent=e.message;}
 }
 async function togglePush(kind){
  try{
@@ -485,7 +515,7 @@ async function notifyTrade(title,body){return notify("trade",title,body)}
 async function testPush(){
  if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
  const results=[];
- if(pushState.general)results.push(await notifyGeneral("Bob – Test","Allgemeine Marktsignale – keine Produktfreigabe"));
+ if(pushState.general)results.push(await BobPush.emit("general","Bob – Test","Allgemeine Marktsignale – keine Produktfreigabe",{test:true}));
  if(pushState.trade)results.push(await BobPush.emit("trade","Bob – Trade-Test","Stop-Loss- und Trade-Schließen-Pushs sind aktiv.",{test:true}));
  const ntfyConfigured=Boolean(ntfyTopic());
  if(ntfyConfigured && pushState.general)results.push(await sendNtfy("general","Bob – ntfy-Test","Push-Kanal funktioniert."));
@@ -1132,6 +1162,7 @@ async function setTradeEntry(){
  $("stopUpdate").innerHTML="<b>Trade aktiv.</b> "+msg+" CRV-Ziel: "+displayStop(tradeMgmt.target)+" ("+tgt.rr.toFixed(2)+"R).";captureResearchSnapshot("TRADE_SET");updateResearchPanel();
 }
 function suggestStopUpdate(){
+ if(pushState?.backgroundEnabled){syncPushPreferences();$("stopUpdate").textContent="Stop wird im Hintergrund überwacht; Serverstand wird synchronisiert.";return;}
  if(!tradeMgmt.active){$("stopUpdate").textContent="Kein aktiver Trade – zuerst Trade-Einstieg bestätigen.";return;}
  const p=+($("tradePrice").value||lastPrice),atrv=A.at,mult=+( $("trailAtr")?.value||1.5),model=stopModel(tradeMgmt.dir,p,atrv,mult),candidate=model.stop,old=tradeMgmt.stop;
  let next=tradeMgmt.dir==="LONG"?Math.max(old,candidate):Math.min(old,candidate);
@@ -1274,7 +1305,7 @@ function checkDgProduct(){
 }
 async function manageProfitProtection(){
  try{
-   if(!pushState?.activeTrade||!pushState?.trade||!tradeMgmt?.active)return;
+   if(pushState?.backgroundEnabled||!pushState?.activeTrade||!pushState?.trade||!tradeMgmt?.active)return;
    const entry=Number(tradeMgmt.entry), stop=Number(tradeMgmt.stop), p=Number(lastPrice);
    if(!Number.isFinite(entry)||!Number.isFinite(stop)||!Number.isFinite(p)||!tradeMgmt.dir)return;
    const initialRisk=Number(tradeMgmt.initialRisk)>0?Number(tradeMgmt.initialRisk):Math.abs(entry-stop);
@@ -1325,7 +1356,7 @@ async function manageProfitProtection(){
 
 async function maybePushAnalysisAlerts(){
  try{
-   if(!pushState?.registered)return;
+   if(!pushState?.registered||pushState.backgroundEnabled)return;
    const dir=confirmedSignalDirection();
    const mtf=getMtfState().overall||"NEUTRAL";
    let saved={};try{saved=JSON.parse(localStorage.getItem("bobAlertV2")||"{}")}catch(_){}
@@ -1646,6 +1677,7 @@ loadData();
 setInterval(()=>{ if(document.visibilityState==="visible"){loadData();syncPushPreferences();} }, 60000);
 </script><form method="post" action="/logout" style="text-align:center;margin:24px"><button type="submit">Abmelden</button></form>
 </body></html>
+
 
 
 

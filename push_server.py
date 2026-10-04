@@ -6,6 +6,7 @@ import threading
 import time
 import product_push
 import fibonacci_monitor
+import background_push
 import bob_session_store
 import bob_market_store
 import bob_validation_store
@@ -50,6 +51,8 @@ def init_db():
         conn.execute("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS active_trade BOOLEAN NOT NULL DEFAULT FALSE")
         conn.execute("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS trade_monitor JSONB")
         conn.execute("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS product_selection JSONB")
+        for column in ('background_config', 'background_state', 'selection_evidence', 'pending_test'):
+            conn.execute('ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS '+column+' JSONB')
         conn.execute("""
           CREATE TABLE IF NOT EXISTS bob_settings (
             key TEXT PRIMARY KEY,
@@ -100,7 +103,7 @@ def cors(handler):
 
 def json_body(handler):
     length = int(handler.headers.get("Content-Length", "0") or 0)
-    if length <= 0 or length > (524288 if urlparse(handler.path).path == "/selection" else 65536):
+    if length <= 0 or length > (1048576 if urlparse(handler.path).path in ("/selection", "/background") else 65536):
         raise ValueError("Ungültige Payload-Größe")
     return json.loads(handler.rfile.read(length).decode("utf-8"))
 
@@ -144,9 +147,74 @@ def product_expiry_loop():
     while True:
         try:
             expire_product_selections()
+            deliver_background_tests()
         except Exception as exc:
             print('BOB_PRODUCT expiry_error='+type(exc).__name__, flush=True)
         time.sleep(15)
+
+
+def deliver_background_tests():
+    now=int(time.time()*1000)
+    with db() as conn:
+        rows=conn.execute("SELECT id, subscription, pending_test, general_enabled, trade_enabled FROM subscriptions WHERE pending_test IS NOT NULL AND (pending_test->>'dueAt')::bigint<=%s FOR UPDATE",(now,)).fetchall()
+        for sid, sub, pending, general, trade in rows:
+            allowed=general if pending['kind']=='general' else trade
+            if allowed and now < pending['dueAt']+300000:
+                message={'title':'TEST · Push bei geschlossener App','body':'Diese Testnachricht wurde zeitversetzt auf dem Server ausgelöst. Kein Handelssignal.','tag':'bob-background-test','data':{'kind':pending['kind'],'test':True,'url':'/','expiresAt':now+180000}}
+                try:
+                    webpush(subscription_info=sub,data=json.dumps(message),vapid_private_key=vapid(),vapid_claims={'sub':VAPID_SUBJECT},ttl=180)
+                except WebPushException:
+                    continue
+            conn.execute('UPDATE subscriptions SET pending_test=NULL WHERE id=%s',(sid,))
+        conn.commit()
+
+
+def run_background(bundle):
+    sent = 0
+    with db() as conn:
+        rows = conn.execute("SELECT id, subscription, general_enabled, trade_enabled, active_trade, background_config, background_state, selection_evidence, product_selection FROM subscriptions WHERE (general_enabled=TRUE OR (trade_enabled=TRUE AND active_trade=TRUE)) AND background_config IS NOT NULL FOR UPDATE").fetchall()
+        for sid, sub, general, trade, active, settings, previous, evidence, selection in rows:
+            try:
+                market = background_push.analyze(bundle, settings)
+            except Exception as exc:
+                print('BOB_BACKGROUND analysis_failed='+type(exc).__name__, flush=True)
+                market = {'ready':False,'priceFresh':False}
+            state, events = background_push.advance(previous, settings, market, general, trade and active)
+            delivered = True
+            if events:
+                # One delivery/checkpoint per device, so a failure cannot consume an alert.
+                priority = {'stop-hit':0,'reversal':1,'target':2}
+                events.sort(key=lambda e:priority.get(e['data']['eventKind'],3))
+                message = dict(events[0])
+                message['body'] = ' | '.join(e['body'] for e in events)
+                message['data'] = dict(message['data'], events=[e['data']['eventKind'] for e in events])
+                if any(e['data']['kind']=='trade' for e in events):
+                    message['data']['kind']='trade'
+                at=market.get('dataAt')
+                if at:
+                    from datetime import datetime
+                    from zoneinfo import ZoneInfo
+                    message['body'] += ' · Kurszeit '+datetime.fromtimestamp(at/1000,ZoneInfo('Europe/Zurich')).strftime('%d.%m. %H:%M:%S')+' (Zürich).'
+                else:
+                    message['body'] += ' · Kurszeit unbekannt.'
+                try:
+                    webpush(subscription_info=sub,data=json.dumps(message,separators=(',',':')),vapid_private_key=vapid(),vapid_claims={'sub':VAPID_SUBJECT},ttl=180)
+                    sent += 1
+                except WebPushException as exc:
+                    delivered=False
+                    if getattr(getattr(exc,'response',None),'status_code',None) in (404,410):
+                        conn.execute('DELETE FROM subscriptions WHERE id=%s',(sid,))
+            if delivered:
+                state['checkedAt']=int(time.time()*1000)
+                conn.execute('UPDATE subscriptions SET background_state=%s::jsonb WHERE id=%s',(json.dumps(state),sid))
+            if general and evidence:
+                try:
+                    checked=product_push.evaluate({**evidence,'capturedAt':int(time.time()*1000),'bundle':bundle,'context':market.get('context',{'direction':'NEUTRAL'})})
+                    sent += deliver_product_selection(conn,(sid,sub,selection),checked)
+                except Exception as exc:
+                    print('BOB_BACKGROUND selection_failed='+type(exc).__name__,flush=True)
+        conn.commit()
+    return sent
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -170,7 +238,7 @@ class Handler(BaseHTTPRequestHandler):
                     send_json(self, 401, {"error": "Unauthorized"})
                     return
                 with db() as conn:
-                    count = conn.execute("SELECT count(*) FROM subscriptions WHERE trade_enabled=TRUE AND active_trade=TRUE AND trade_monitor IS NOT NULL").fetchone()[0]
+                    count = conn.execute("SELECT count(*) FROM subscriptions WHERE general_enabled=TRUE OR (trade_enabled=TRUE AND active_trade=TRUE)").fetchone()[0]
                 send_json(self, 200, {"activeMonitors": count})
                 return
             if path == "/vapid-public-key":
@@ -250,12 +318,27 @@ class Handler(BaseHTTPRequestHandler):
                 trade = bool(payload.get("trade"))
                 active = bool(payload.get("activeTrade"))
                 monitor = fibonacci_monitor.validate_monitor(payload.get("fibonacciMonitor")) if active and trade else None
+                raw_settings = dict(payload.get('background') or {})
+                if not (trade and active):
+                    raw_settings['trade'] = None
+                settings = background_push.config(raw_settings) if 'background' in payload else None
+                if settings and not (trade and active):
+                    settings['trade'] = None
                 with db() as conn:
                     old = conn.execute("SELECT trade_monitor FROM subscriptions WHERE endpoint=%s FOR UPDATE", (endpoint,)).fetchone()
                     if not old:
                         raise ValueError("Push-Abonnement nicht registriert")
                     if monitor and old[0] and old[0].get("tradeId") == monitor["tradeId"]:
                         monitor = old[0]
+                    if monitor and settings is not None:
+                        monitor = {**monitor, "backgroundManaged": True}
+                    background_state = None
+                    if settings is not None:
+                        row = conn.execute('SELECT background_state FROM subscriptions WHERE endpoint=%s', (endpoint,)).fetchone()
+                        background_state = row[0] if row and isinstance(row[0], dict) else {}
+                        if not settings.get('trade'):
+                            background_state.pop('trade', None)
+                        conn.execute('UPDATE subscriptions SET background_config=%s::jsonb, background_state=%s::jsonb WHERE endpoint=%s', (json.dumps(settings),json.dumps(background_state),endpoint))
                     conn.execute("""
                       UPDATE subscriptions
                       SET general_enabled=%s, trade_enabled=%s, active_trade=%s, trade_monitor=%s::jsonb,
@@ -263,7 +346,7 @@ class Handler(BaseHTTPRequestHandler):
                       WHERE endpoint=%s
                     """, (general, trade, active, json.dumps(monitor) if monitor else None, general, endpoint))
                     conn.commit()
-                send_json(self, 200, {"ok": True, "fibonacciMonitor": "active" if monitor else "inactive"})
+                send_json(self, 200, {"ok": True, "fibonacciMonitor": "active" if monitor else "inactive", "backgroundEnabled": settings is not None, "backgroundTrade": (background_state or {}).get("trade")})
                 return
 
             if path == "/unsubscribe":
@@ -276,6 +359,31 @@ class Handler(BaseHTTPRequestHandler):
                     )
                     conn.commit()
                 send_json(self, 200, {"ok": True})
+                return
+
+            if path == "/test-background":
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'})
+                    return
+                endpoint=payload.get('endpoint')
+                with db() as conn:
+                    row=conn.execute('SELECT general_enabled, trade_enabled FROM subscriptions WHERE endpoint=%s FOR UPDATE',(endpoint,)).fetchone()
+                    if not row or not any(row):
+                        raise ValueError('Zuerst Gerät anmelden und mindestens einen Push-Schalter aktivieren')
+                    pending={'kind':'general' if row[0] else 'trade','dueAt':int(time.time()*1000)+30000}
+                    conn.execute('UPDATE subscriptions SET pending_test=%s::jsonb WHERE endpoint=%s',(json.dumps(pending),endpoint))
+                    conn.commit()
+                send_json(self,200,{'ok':True,'dueAt':pending['dueAt']})
+                return
+
+            if path == "/background":
+                supplied = self.headers.get("X-Bob-Push-Token", "")
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
+                    send_json(self, 401, {"error": "Unauthorized"})
+                    return
+                sent = run_background(payload.get('bundle') or {})
+                send_json(self, 200, {'ok': True, 'sent': sent})
                 return
 
             if path == "/monitor":
@@ -295,7 +403,7 @@ class Handler(BaseHTTPRequestHandler):
                         delivered = True
                         old_health = monitor.get('dataHealth')
                         checkpoint['dataHealth'] = status
-                        if status == 'unavailable' and old_health != 'unavailable' or status == 'active' and old_health == 'unavailable':
+                        if not monitor.get('backgroundManaged') and ((status == 'unavailable' and old_health != 'unavailable') or (status == 'active' and old_health == 'unavailable')):
                             body = ('Aktuelle Kerzendaten fehlen oder sind veraltet. Analyse mit vorhandenen Werten läuft weiter; aktuelle Trade-Überwachung eingeschränkt.' if status == 'unavailable' else 'Aktuelle Kerzendaten wieder vorhanden. Trade-Überwachung fortgesetzt; dies ist keine Entwarnung für den Trade.')
                             try:
                                 webpush(subscription_info=sub, data=json.dumps({'title':'DATENSTATUS · Bob', 'body':monitor['instrument']+' · '+monitor['direction']+' · '+body, 'tag':'bob-monitor-health', 'data':{'kind':'trade','url':'/','tradeId':monitor['tradeId']}},separators=(',',':')), vapid_private_key=key,vapid_claims={'sub':VAPID_SUBJECT},ttl=300)
@@ -311,7 +419,7 @@ class Handler(BaseHTTPRequestHandler):
                                     f"Fibonacci {label} USD nach {'oben' if event['crossed']=='up' else 'unten'} durchbrochen · "
                                     f"{'für' if event['favorable'] else 'gegen'} deine Position. Kein automatischer Trade.")
                             try:
-                                webpush(subscription_info=sub, data=json.dumps({'title':'TRADE-WARNUNG · Fibonacci-Level durchbrochen','body':body,'data':{**event,'events':latest_alerts,'url':'/','kind':'trade'}},separators=(',',':')), vapid_private_key=key,vapid_claims={'sub':VAPID_SUBJECT},ttl=300)
+                                webpush(subscription_info=sub, data=json.dumps({'title':'TRADE-WARNUNG · Fibonacci-Level durchbrochen','body':body,'data':{**event,'tradeId':monitor['tradeId'],'events':latest_alerts,'url':'/','kind':'trade'}},separators=(',',':')), vapid_private_key=key,vapid_claims={'sub':VAPID_SUBJECT},ttl=300)
                                 sent += 1
                             except WebPushException as exc:
                                 delivered = False
@@ -346,6 +454,9 @@ class Handler(BaseHTTPRequestHandler):
                 checked = product_push.evaluate(payload)
                 with db() as conn:
                     row = conn.execute("SELECT id, subscription, product_selection FROM subscriptions WHERE endpoint=%s AND general_enabled=TRUE FOR UPDATE", (endpoint,)).fetchone()
+                    if row:
+                        evidence = {k: payload[k] for k in ('products','references','fixedBarriers') if k in payload}
+                        conn.execute('UPDATE subscriptions SET selection_evidence=%s::jsonb WHERE id=%s',(json.dumps(evidence),row[0]))
                     sent = deliver_product_selection(conn, row, checked) if row else 0
                     conn.commit()
                 send_json(self, 200, {"ok": True, "sent": sent, "disabled": not bool(row), "approvedCount": len(checked['products']) if row else 0})
@@ -385,11 +496,11 @@ class Handler(BaseHTTPRequestHandler):
                             ).fetchall()
                         else:
                             rows = conn.execute(
-                                "SELECT id, endpoint, subscription FROM subscriptions WHERE trade_enabled=TRUE AND active_trade=TRUE"
+                                "SELECT id, endpoint, subscription FROM subscriptions WHERE trade_enabled=TRUE AND active_trade=TRUE AND background_config IS NULL"
                             ).fetchall()
                     else:
                         rows = conn.execute(
-                            "SELECT id, endpoint, subscription FROM subscriptions WHERE general_enabled=TRUE"
+                            "SELECT id, endpoint, subscription FROM subscriptions WHERE general_enabled=TRUE" + ("" if is_test else " AND background_config IS NULL")
                         ).fetchall()
 
                 sent = 0

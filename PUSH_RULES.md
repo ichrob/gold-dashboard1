@@ -12,7 +12,12 @@ Marktsignale steuert Markt- und servergeprüfte Produktmeldungen. Trade-Push set
 - Gewinnschutz/Ziel/Richtungsumkehr: bestehende Modelle bleiben erhalten. Keine automatische Orderausführung.
 
 ## Zustellung
-Der Service Worker unterdrückt Trade-Pushs nach lokalem Ausschalten/Schließen und abgelaufene Produktfreigaben. Serverüberwachung läuft unabhängig von der geöffneten App, solange die kostenlosen Dienste erreichbar sind. Lokale Stop-/Gewinnschutzmodelle benötigen die laufende App. Ein vollständiger Ausfall des Pushdienstes kann nicht über denselben Dienst gemeldet werden.
+Der Service Worker unterdrückt Trade-Pushs nach lokalem Ausschalten/Schließen und abgelaufene Produktfreigaben. Serverüberwachung läuft unabhängig von der geöffneten App, solange die kostenlosen Dienste erreichbar sind. Stop, Stop-Nachziehen, Ziel, Gewinnschutz (1R/1,5R/2R), Momentum-Abschwächung, Richtungswechsel, Marktsignale und gespeicherte Produktauswahl laufen nach bestätigter Synchronisierung auf dem Server. Der Browser unterdrückt dann seine automatischen Meldungen. Die Analyse verwendet dieselbe Dashboard-Funktion. Produktnachweise behalten ihre Originalzeit und können ablaufen; eine erneute Prüfung macht sie nicht frisch. Ein vollständiger Ausfall des Pushdienstes kann nicht über denselben Dienst gemeldet werden.
+
+## Hintergrund aktivieren und testen
+Bob einmal neu laden. Push-Schalter aktivieren und auf „Hintergrund-Push gespeichert“ achten. Beim aktiven Trade werden Einstieg, Anfangsrisiko, Modell-Stop, Ziel, Richtung und Basiswert mit stabiler Trade-ID gespeichert. Modell-Stops sind Empfehlungen; kein Auftrag wird bei DEGIRO geändert. Status und verschärfter Modell-Stop werden beim Öffnen synchronisiert. Neue Trades erhalten einen eigenen Zustand.
+
+Über „Hintergrund-Push testen (30 Sekunden)“ wird eine einmalige Testnachricht in der Datenbank gespeichert. Danach App schließen und Bildschirm sperren. Der Server löst sie nach etwa 30–45 Sekunden aus. Dieser Test benötigt keinen echten Trade.
 
 ## Noch manuell nachzuweisen
 Auf dem Android-Gerät je einen ausdrücklich bezeichneten Test bei offener App, geschlossener App und gesperrtem Bildschirm empfangen. Danach Trade schließen und verspätete Trade-Warnung prüfen. Ein erfolgreiches Web-Push-Provider-Acknowledgement beweist keinen sichtbaren Empfang auf dem Handy.
