@@ -63,6 +63,26 @@ body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 .bob-mobile #auditStatistics tr{background:#f5f7fa;border-radius:12px;padding:8px;margin:10px 0}.bob-mobile #auditStatistics td{display:flex;justify-content:space-between;gap:12px}.bob-mobile #auditStatistics td:first-child{font-weight:700}
 .bob-mobile #auditStatistics td:nth-child(2):before{content:"Treffer"}.bob-mobile #auditStatistics td:nth-child(3):before{content:"Fehlprognosen"}.bob-mobile #auditStatistics td:nth-child(4):before{content:"Unverändert"}.bob-mobile #auditStatistics td:nth-child(5):before{content:"Ausgewertet"}
 }
+
+/* Always-visible three-column market strip, including small phones. */
+.bob-mobile .bob-top-quotes{margin:0 0 14px}
+.bob-mobile .bob-top-quotes>h2{font-size:15px;margin:0 0 8px}
+.bob-mobile .bob-top-quotes>h2:after{display:none}
+.bob-mobile .bob-top-quotes .gold-quotes{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.bob-mobile .bob-top-quotes .gold-quote{padding:10px 8px;border-radius:13px;overflow-wrap:anywhere}
+.bob-mobile .bob-top-quotes .gold-icon{display:none}
+.bob-mobile .bob-top-quotes header{display:block;min-height:76px}
+.bob-mobile .bob-top-quotes h3{font-size:13px;line-height:1.3;margin:0 0 4px;min-height:34px}
+.bob-mobile .bob-top-quotes .gold-symbol{font-size:10px;line-height:1.4}
+.bob-mobile .bob-top-quotes .gold-price-row{display:block;margin:8px 0}
+.bob-mobile .bob-top-quotes .gold-price{display:block;font-size:clamp(16px,4.6vw,27px);letter-spacing:-.5px;white-space:nowrap}
+.bob-mobile .bob-top-quotes .gold-currency{font-size:10px}
+.bob-mobile .bob-top-quotes .gold-change{font-size:12px;padding:4px 5px}
+.bob-mobile .bob-top-quotes .gold-change-label{font-size:10px;min-height:28px}
+.bob-mobile .bob-top-quotes .gold-meta{font-size:10px;margin-top:8px;padding-top:8px}
+.bob-mobile .bob-top-quotes .gold-estimate-note{font-size:10px}
+.bob-mobile .bob-top-quotes .gold-market-note{font-size:10px}
+@media(min-width:600px){.bob-mobile .bob-top-quotes header{min-height:60px}.bob-mobile .bob-top-quotes h3{font-size:16px;min-height:22px}.bob-mobile .bob-top-quotes .gold-quote{padding:14px}.bob-mobile .bob-top-quotes .gold-meta{font-size:12px}}
 </style>
 </head>
 <body>
@@ -526,7 +546,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   panels.overview.append(system);
   for(const el of [byId('analysisAge'),card('sourceSummary'),push])if(el)system.append(el);
   if(push)fold(push.querySelector('.warning'),'Welche Nachrichten sendet Bob?');
-  move(document.querySelector('.gold-market'),'overview');fold(document.querySelector('.gold-market'),'Goldkurse · Spot, Future und Schätzung');
+  const goldMarket=document.querySelector('.gold-market');
+  if(goldMarket){goldMarket.classList.add('bob-top-quotes');main.prepend(goldMarket);}
   move(card('chart'),'overview');
   const technical=document.createElement('details');technical.className='card';technical.innerHTML='<summary>Analyse im Detail</summary>';panels.overview.append(technical);
   for(const id of ['price','mtfSummary','momentumSummary','adx','signal']){const el=card(id);if(el)technical.append(el);}
