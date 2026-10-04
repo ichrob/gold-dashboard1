@@ -99,10 +99,14 @@ class BackgroundRules(unittest.TestCase):
             end=now//step*step
             bars[tf]=[dict(openTime=end-(240-i)*step,open=4000+i*.1,high=4004+i*.1,low=3996+i*.1,close=4000+i*.1+math.sin(i/8),instrument='XAU/USD',isOpen=False) for i in range(240)]
         from datetime import datetime,timezone
-        bundle={'spots':{'xaus':4024,'spot_price_as_of':datetime.now(timezone.utc).isoformat()},'history':{'bars_by_tf':bars}}
+        bundle={'spots':{'xaus':4024,'is_genuine_xauusd_spot':True,'spot_price_as_of':datetime.now(timezone.utc).isoformat()},'history':{'bars_by_tf':bars}}
         result=b.analyze(bundle,self.settings)
         self.assertTrue(result['ready']);self.assertTrue(result['priceFresh']);self.assertIn('score',result)
         self.assertFalse(b.analyze({},self.settings)['ready'])
+        for update in ({'is_genuine_xauusd_spot':False}, {'spot_error':'offline'},
+                       {'spot_price_as_of':datetime.fromtimestamp(time.time()-61,timezone.utc).isoformat()}):
+            bad={**bundle,'spots':{**bundle['spots'],**update}}
+            self.assertFalse(b.analyze(bad,self.settings)['priceFresh'])
 
 
 class BackgroundDelivery(PushMonitorTests):

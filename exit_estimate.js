@@ -58,9 +58,9 @@ function init(){
  panel.querySelector('[data-exit-plan]').addEventListener('click',async()=>{
   const direction=get('direction').value,isin=get('isin').value;
   let plan=planInput(window.liveBundleCache,window.A,window.C,direction);
-  if(!plan.available&&!window.BobSession?.expired()&&typeof window.fetchLiveBundle==='function'){
+  if(!plan.available&&!window.BobSession?.expired()&&typeof window.loadData==='function'){
    panel.querySelector('[data-exit-output]').textContent='Aktuelle Gold-Spot-Analyse für Ziel/Stop wird geladen …';
-   try{await window.fetchLiveBundle(true);plan=planInput(window.liveBundleCache,window.A,window.C,direction);}catch(_){}
+   try{await window.loadData(true);plan=planInput(window.liveBundleCache,window.A,window.C,direction);}catch(_){}
   }
   if(get('isin').value!==isin||get('direction').value!==direction)return;
   const gold=plan.gold,atr=plan.atr;
