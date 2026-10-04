@@ -444,7 +444,8 @@ async function syncPushPreferencesImpl(){
    if(tradeMgmt?.active&&!tradeMgmt.test){
     const instrument=tradeMgmt.fibonacciMonitor?.instrument||C.at(-1)?.instrument;
     tradeMgmt.tradeId=tradeMgmt.tradeId||tradeMgmt.fibonacciMonitor?.tradeId||('trade-'+Date.now()+'-'+Math.random().toString(36).slice(2));
-    backgroundTrade={...tradeMgmt,instrument,initialRisk:Number(tradeMgmt.initialRisk)||Math.abs(tradeMgmt.entry-tradeMgmt.stop)};
+    tradeMgmt.initialRisk=Number(tradeMgmt.initialRisk)||Math.abs(tradeMgmt.entry-tradeMgmt.stop);
+    backgroundTrade={...tradeMgmt,instrument};
     saveTradeMgmt();
    }
    const background={timeframe:$('tf')?.value||'15m',trailAtr:Number($('trailAtr')?.value)||1.5,trade:backgroundTrade};
