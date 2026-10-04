@@ -10,6 +10,7 @@ import background_push
 import bob_session_store
 import bob_market_store
 import bob_validation_store
+import decision_audit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -45,6 +46,7 @@ def init_db():
         bob_session_store.init(conn)
         bob_market_store.init(conn)
         bob_validation_store.init(conn)
+        decision_audit.init(conn)
         conn.execute("""
           CREATE TABLE IF NOT EXISTS subscriptions (
             id BIGSERIAL PRIMARY KEY,
@@ -190,6 +192,18 @@ def run_background(bundle):
             except Exception as exc:
                 print('BOB_BACKGROUND analysis_failed='+type(exc).__name__, flush=True)
                 market = {'ready':False,'priceFresh':False}
+            # Audit failures must not interrupt stop/target monitoring or its transaction.
+            try:
+                with conn.transaction():
+                    if market.get('analysisBarAt'):
+                        decision_audit.write(conn,{'origin':'background','direction':market.get('direction','NEUTRAL'),
+                            'shadowDirection':market.get('shadowDirection'),'barAt':market['analysisBarAt'],
+                            'price':market.get('price'),'priceAt':market.get('dataAt'),'reason':market.get('decisionReason'),
+                            'score':market.get('score'),'indicators':market.get('context'), 'products':[],
+                            'selection':[], 'gateReasons':[] if market.get('ready') else ['Marktdaten nicht freigegeben']})
+                        decision_audit.harvest(conn)
+            except Exception as exc:
+                print('BOB_AUDIT write_failed='+type(exc).__name__,flush=True)
             state, events = background_push.advance(previous, settings, market, general, trade and active)
             delivered = True
             if events:
@@ -263,6 +277,18 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         try:
+            if path in ('/decision-audit/read','/decision-audit/write'):
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'})
+                    return
+                payload=json_body(self)
+                if path.endswith('/write'):payload['origin']='browser'
+                with db() as conn:
+                    result=decision_audit.handle(conn,path.rsplit('/',1)[-1],payload)
+                    conn.commit()
+                send_json(self,200,result)
+                return
             if path in ('/market-validations/read','/market-validations/write'):
                 supplied=self.headers.get('X-Bob-Push-Token','')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
