@@ -93,6 +93,7 @@ body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 .technical-direction[data-direction="LONG"]{color:#166534;background:#dcfce7}
 .technical-direction[data-direction="SHORT"]{color:#991b1b;background:#fee2e2}
 #legacyManualProductCheck{display:none!important}
+.technical-value[data-direction="LONG"]{color:#166534}.technical-value[data-direction="SHORT"]{color:#991b1b}.technical-value[data-direction="NEUTRAL"]{color:#4b5563}
 </style>
 </head>
 <body>
@@ -327,22 +328,22 @@ try{
 </details>
 </div>
 <div class="card"><details><summary>Momentum langfristig: <span id="momentumSummary">nicht verfügbar</span></summary><p class="small">Bewertung der EMA-Trends in der gewählten Zeitebene; keine feste Signaldauer.</p><div class="metrics">
-<details class="technical-metric"><summary><span>MACD</span><b id="macd">—</b></summary><p>Zeigt den Abstand zwischen dem schnellen EMA 12 und dem langsameren EMA 26. Über der Signallinie: Aufwärtsmomentum; darunter: Abwärtsmomentum.</p></details>
-<details class="technical-metric"><summary><span>MACD Signal</span><b id="macds">—</b></summary><p>Geglätteter Durchschnitt des MACD über 9 Kerzen. Dient als Vergleichslinie: MACD darüber deutet auf LONG, darunter auf SHORT.</p></details>
-<details class="technical-metric"><summary><span>MACD Histogramm</span><b id="hist">—</b></summary><p>Abstand zwischen MACD und Signallinie. Positiv: LONG-Momentum; negativ: SHORT-Momentum. Je näher an null, desto kleiner der Abstand.</p></details>
-<details class="technical-metric"><summary><span>Trend EMA20/50</span><b id="trend">—</b></summary><p>Vergleicht den Durchschnitt über 20 und 50 Kerzen. EMA 20 über EMA 50: Aufwärtstrend (bullish / LONG); darunter: Abwärtstrend (bearish / SHORT).</p></details>
-<details class="technical-metric"><summary><span>Trend EMA50/200</span><b id="trend2">—</b></summary><p>Vergleicht den Durchschnitt über 50 und 200 Kerzen. EMA 50 über EMA 200: längerfristiger Aufwärtstrend (LONG); darunter: Abwärtstrend (SHORT). Die Dauer hängt von der Analysezeitebene ab.</p></details>
+<details class="technical-metric"><summary><span>MACD</span><b id="macd" class="technical-value" data-direction="NEUTRAL">—</b><span id="macdDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Zeigt den Abstand zwischen dem schnellen EMA 12 und dem langsameren EMA 26. Über der Signallinie: Aufwärtsmomentum; darunter: Abwärtsmomentum.</p></details>
+<details class="technical-metric"><summary><span>MACD Signal</span><b id="macds" class="technical-value" data-direction="NEUTRAL">—</b><span id="macdsDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Geglätteter Durchschnitt des MACD über 9 Kerzen. Dient als Vergleichslinie: MACD darüber deutet auf LONG, darunter auf SHORT. Die Farbe zeigt diesen Vergleich, nicht das Vorzeichen der Signallinie.</p></details>
+<details class="technical-metric"><summary><span>MACD Histogramm</span><b id="hist" class="technical-value" data-direction="NEUTRAL">—</b><span id="histDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Abstand zwischen MACD und Signallinie. Positiv: LONG-Momentum; negativ: SHORT-Momentum. Je näher an null, desto kleiner der Abstand.</p></details>
+<details class="technical-metric"><summary><span>Trend EMA20/50</span><b id="trend" class="technical-value" data-direction="NEUTRAL">—</b><span id="trendDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Vergleicht den Durchschnitt über 20 und 50 Kerzen. EMA 20 über EMA 50: Aufwärtstrend (bullish / LONG); darunter: Abwärtstrend (bearish / SHORT).</p></details>
+<details class="technical-metric"><summary><span>Trend EMA50/200</span><b id="trend2" class="technical-value" data-direction="NEUTRAL">—</b><span id="trend2Direction" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Vergleicht den Durchschnitt über 50 und 200 Kerzen. EMA 50 über EMA 200: längerfristiger Aufwärtstrend (LONG); darunter: Abwärtstrend (SHORT). Die Dauer hängt von der Analysezeitebene ab.</p></details>
 </div></details></div>
 
 <div class="card">
 <details><summary>Weitere technische Details</summary>
 <div class="metrics">
-<details class="technical-metric"><summary><span>ADX</span><b id="adx">—</b></summary><p>Misst die Trendstärke, nicht die Richtung. Ab 25 zeigt Bob „Trend“, darunter „schwach“. Ein hoher Wert kann zu einem Aufwärts- oder Abwärtstrend gehören.</p></details>
-<details class="technical-metric"><summary><span>Bollinger Position</span><b id="bbpos">—</b></summary><p>Zeigt die Lage des Kurses zwischen den Bollinger-Bändern: 0 % am unteren, 100 % am oberen Band. Außerhalb steht „unter Band“ oder „über Band“. Allein kein Umkehrsignal.</p></details>
-<details class="technical-metric"><summary><span>Stochastic</span><b id="stoch">—</b></summary><p>Zeigt, wo der Schlusskurs innerhalb der Hoch-Tief-Spanne der letzten 14 Kerzen liegt. Nahe 100: am oberen Ende; nahe 0: am unteren Ende. Kein automatisches Kauf- oder Verkaufssignal.</p></details>
-<details class="technical-metric"><summary><span>VWAP</span><b id="vwap">—</b></summary><p>Nach Handelsvolumen gewichteter Durchschnittspreis der geladenen Kerzen. Kurse mit mehr Volumen zählen stärker. Ohne passende Volumendaten steht „n/v“.</p></details>
-<details class="technical-metric"><summary><span>Support</span><b id="support">—</b></summary><p>Unterstützung: das tiefste Tief der letzten 30 Analysekerzen. Dort könnte ein Rückgang Halt finden; der Kurs kann diese Marke auch unterschreiten.</p></details>
-<details class="technical-metric"><summary><span>Resistance</span><b id="resistance">—</b></summary><p>Widerstand: das höchste Hoch der letzten 30 Analysekerzen. Dort könnte ein Anstieg stocken; der Kurs kann diese Marke auch überschreiten.</p></details>
+<details class="technical-metric"><summary><span>ADX</span><b id="adx" class="technical-value" data-direction="NEUTRAL">—</b><span id="adxDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Misst die Trendstärke, nicht die Richtung. Ab 25 zeigt Bob „Trend“, darunter „schwach“. Ein hoher Wert kann zu einem Aufwärts- oder Abwärtstrend gehören.</p></details>
+<details class="technical-metric"><summary><span>Bollinger Position</span><b id="bbpos" class="technical-value" data-direction="NEUTRAL">—</b><span id="bbposDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Zeigt die Lage des Kurses zwischen den Bollinger-Bändern: 0 % am unteren, 100 % am oberen Band. Außerhalb steht „unter Band“ oder „über Band“. Über der Bandmitte: LONG-Einordnung; darunter: SHORT. Allein kein Umkehrsignal.</p></details>
+<details class="technical-metric"><summary><span>Stochastic</span><b id="stoch" class="technical-value" data-direction="NEUTRAL">—</b><span id="stochDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Zeigt, wo der Schlusskurs innerhalb der Hoch-Tief-Spanne der letzten 14 Kerzen liegt. Nahe 100: am oberen Ende; nahe 0: am unteren Ende. Zwischen 50 und 80: LONG-Einordnung; zwischen 20 und 50: SHORT. Ab 80 oder bis 20 bleibt die Anzeige neutral. Kein automatisches Kauf- oder Verkaufssignal.</p></details>
+<details class="technical-metric"><summary><span>VWAP</span><b id="vwap" class="technical-value" data-direction="NEUTRAL">—</b><span id="vwapDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Nach Handelsvolumen gewichteter Durchschnittspreis der geladenen Kerzen. Kurse mit mehr Volumen zählen stärker. Schlusskurs darüber: LONG-Einordnung; darunter: SHORT. Ohne passende Volumendaten steht „n/v“.</p></details>
+<details class="technical-metric"><summary><span>Support</span><b id="support" class="technical-value" data-direction="NEUTRAL">—</b><span id="supportDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Unterstützung: das tiefste Tief der letzten 30 Analysekerzen. Dort könnte ein Rückgang Halt finden; der Kurs kann diese Marke auch unterschreiten.</p></details>
+<details class="technical-metric"><summary><span>Resistance</span><b id="resistance" class="technical-value" data-direction="NEUTRAL">—</b><span id="resistanceDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Widerstand: das höchste Hoch der letzten 30 Analysekerzen. Dort könnte ein Anstieg stocken; der Kurs kann diese Marke auch überschreiten.</p></details>
 </div>
 <div style="margin-top:12px">
 <b>Multi-Faktor-Score</b>
@@ -1438,6 +1439,22 @@ async function suggestStopUpdate(){
 function restoreTradeMgmt(){if(!tradeMgmt.active){pushState=BobPush.setActiveTrade(false);renderPush();syncPushPreferences();return;}if(tradeMgmt.active){$("tradeEntry").value=tradeMgmt.entry?.toFixed?.(2)||"";$("tradeStop").value=tradeMgmt.stop?.toFixed?.(2)||"";$("tradePrice").value=lastPrice?lastPrice.toFixed(2):"";pushState=BobPush.setActiveTrade(true);renderPush();syncPushPreferences();}}
 
 
+function renderExtraDirections(x,p,b,st,vw,count){
+ const direction=(a,b)=>typeof a==="number"&&typeof b==="number"&&Number.isFinite(a)&&Number.isFinite(b)?a>b?"LONG":a<b?"SHORT":"NEUTRAL":"NEUTRAL";
+ const put=(id,dir,label=dir)=>{const badge=$(id+"Direction"),value=$(id);if(badge){badge.dataset.direction=dir;badge.textContent=label;}if(value)value.dataset.direction=dir;};
+ const mac=count>=35?direction(x.macd,x.sig):"NEUTRAL";
+ for(const id of ["macd","macds","hist"])put(id,mac,count<35?"Daten fehlen":id==="macds"?"Vergleich: "+mac:mac);
+ put("trend",direction(x.e20,x.e50),x.e20==null||x.e50==null?"Daten fehlen":direction(x.e20,x.e50));
+ put("trend2",direction(x.e50,x.e200),x.e50==null||x.e200==null?"Daten fehlen":direction(x.e50,x.e200));
+ put("adx","NEUTRAL","Trendstärke · keine Richtung");
+ const mid=Number.isFinite(b?.up)&&Number.isFinite(b?.lo)&&b.up>b.lo?(b.up+b.lo)/2:null;
+ put("bbpos",direction(p,mid),mid===null?"Daten fehlen":direction(p,mid));
+ const sd=Number.isFinite(st)&&st>20&&st<80?direction(st,50):"NEUTRAL";
+ put("stoch",sd,!Number.isFinite(st)?"Daten fehlen":st>=80?"NEUTRAL · überkauft":st<=20?"NEUTRAL · überverkauft":sd);
+ put("vwap",direction(p,vw),!(vw>0)?"Volumendaten fehlen":direction(p,vw));
+ put("support","NEUTRAL","Unterstützungsmarke");
+ put("resistance","NEUTRAL","Widerstandsmarke");
+}
 function advancedAnalysis(){
  if(C.length<30)return;
  const a=C.map(x=>x.close), b=boll(a), st=stochastic(C), ad=adxCalc(C), vw=vwapCalc(C), lv=levels(C), p=A.signalPrice||a.at(-1);
@@ -1449,6 +1466,7 @@ function advancedAnalysis(){
  if($("fibonacci"))$("fibonacci").textContent=fib.valid?("0.382 "+fib.levels.r382.toFixed(2)+" · 0.5 "+fib.levels.r500.toFixed(2)+" · 0.618 "+fib.levels.r618.toFixed(2)+" · Ext 1.272 "+fib.levels.e1272.toFixed(2)):"n/v";
  $("support").textContent=lv.sup.toFixed(2);
  $("resistance").textContent=lv.res.toFixed(2);
+ renderExtraDirections(A,p,b,st,vw,C.length);
 
  const regime=currentRegime(),mtf=getMtfState().overall||'NEUTRAL',p0=Number(p);
  const trendBull=A.e20>A.e50&&A.e50>A.e200,trendBear=A.e20<A.e50&&A.e50<A.e200;
