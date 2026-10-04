@@ -107,7 +107,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None):
     if general and healthy:
         if direction in ('LONG','SHORT') and direction != state.get('direction'):
             add('signal-change', 'MARKTSIGNAL · '+direction, 'Bestätigtes Bob-Signal '+direction+' · MTF '+mtf+'. Keine Produktfreigabe.', 'general')
-        elif mtf in ('LONG','SHORT') and mtf != state.get('mtf'):
+        elif mtf in ('LONG','SHORT') and mtf == direction and mtf != state.get('mtf'):
             add('mtf-change', 'MARKTSIGNAL · MTF '+mtf, 'Multi-Timeframe-Ausrichtung geändert. Keine Produktfreigabe.', 'general')
     if healthy:
         state.update(direction=direction, mtf=mtf)

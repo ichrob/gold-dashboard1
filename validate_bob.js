@@ -30,7 +30,7 @@ console.log(`Bob JS/HTML/assets validation: OK (${scripts.length} inline script 
 
 if (fs.readFileSync("Bob.html","utf8").includes("liveHistoryCache")) throw new Error("obsolete live history cache state must not exist");
 
-if (!fs.readFileSync("Bob.html","utf8").includes("if(!A.ready||!C.length||!Number.isFinite(A.at))return \"NEUTRAL\";")) throw new Error("signal direction must require ready analysis");
+if (!fs.readFileSync("Bob.html","utf8").includes("!A.ready||!C.length||!Number.isFinite(A.at)")) throw new Error("signal direction must require ready analysis");
 if (fs.readFileSync("Bob.html","utf8").includes("A.score=score; A.ready=ready;")) throw new Error("advanced analysis must not reference out-of-scope ready variable");
 if (!fs.readFileSync("Bob.html","utf8").includes("A.ready=Boolean(C.length>=200&&A.e20!=null&&A.e50!=null&&A.e200!=null);")) throw new Error("advanced analysis readiness guard missing");
 if (!fs.readFileSync("Bob.html","utf8").includes("const required=200;")) throw new Error("MTF must require full 200-bar history");

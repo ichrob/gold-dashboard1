@@ -1111,27 +1111,68 @@ function falseBreakoutState(dir){
  if(dir==="SHORT" && last<sup-buffer && prev>=sup)return "UNCONFIRMED_SHORT_BREAKOUT";
  return "OK";
 }
+// Replay closed 5m bars: deterministic across reloads, browser and background worker.
+// A repeated refresh of the same bar can never count as another confirmation.
+function confirmClosedSignals(samples){
+ let dir="NEUTRAL",pending="NEUTRAL",count=0,lastAt=null;
+ for(const sample of samples){
+  if(!Number.isFinite(sample.at)||sample.at<=lastAt)continue;
+  if(lastAt!==null&&sample.at-lastAt!==300000){dir="NEUTRAL";pending="NEUTRAL";count=0;}
+  lastAt=sample.at;
+  if(!sample.valid){dir="NEUTRAL";pending="NEUTRAL";count=0;continue;}
+  const raw=sample.dir;
+  if(raw===dir){pending=dir;count=0;continue;}
+  count=pending===raw?count+1:1;pending=raw;
+  if(count>=2){dir=raw;count=0;}
+ }
+ return {dir,pending,count,lastAt};
+}
+function fiveMinuteConfirmation(bundle,now=Date.now()){
+ const source=bundle?.history?.bars_by_tf||{},steps={'5m':300000,'15m':900000,'1h':3600000,'4h':14400000};
+ const bars={};
+ for(const [tf,step] of Object.entries(steps)){
+  bars[tf]=(source[tf]||[]).filter(b=>b.instrument==='XAU/USD'&&!b.isOpen&&Number.isFinite(b.openTime)&&b.openTime+step<=now&&['open','high','low','close'].every(k=>Number.isFinite(b[k])&&b[k]>0)).sort((a,b)=>a.openTime-b.openTime);
+  if(new Set(bars[tf].map(b=>b.openTime)).size!==bars[tf].length)return {dir:'NEUTRAL',count:0,pending:'NEUTRAL',reason:'Doppelte Kerzenzeiten'};
+ }
+ const samples=[];
+ for(const bar of bars['5m'].slice(199)){
+  const end=bar.openTime+300000,history={};
+  for(const [tf,step] of Object.entries(steps))history[tf]=bars[tf].filter(b=>b.openTime+step<=end).slice(-220);
+  const valid=Object.entries(history).every(([tf,rows])=>rows.length>=200&&end-rows.at(-1).openTime<=steps[tf]*2);
+  if(!valid){samples.push({at:bar.openTime,valid:false,dir:'NEUTRAL'});continue;}
+  const byTf=Object.fromEntries(Object.entries(history).map(([tf,rows])=>[tf,timeframeScore(rows,tf)]));
+  const rows=history['5m'],a=rows.map(b=>b.close),e12=emaS(a,12),e26=emaS(a,26),mac=e12.map((v,i)=>v-e26[i]),sig=emaS(mac,9),r=rsiS(a);
+  const collective=collectiveSignal([Math.sign(a.at(-1)-ema(a,20)),Math.sign(ema(a,20)-ema(a,50)),Math.sign(ema(a,50)-ema(a,200)),Math.sign(mac.at(-1)-sig.at(-1)),r>50&&r<75?1:r<50&&r>25?-1:0]);
+  let raw=collective>=0.5?'LONG':collective<=-0.5?'SHORT':'NEUTRAL';
+  const hierarchy=buildMtfHierarchy(byTf,true);
+  if(raw!==hierarchy.overall)raw='NEUTRAL';
+  const atr=rows.slice(-14).reduce((sum,b,i)=>{const previous=rows.at(-15+i)?.close??b.open;return sum+Math.max(b.high-b.low,Math.abs(b.high-previous),Math.abs(b.low-previous));},0)/14;
+  const previous=rows.slice(-21,-1),res=Math.max(...previous.map(b=>b.high)),sup=Math.min(...previous.map(b=>b.low));
+  if(raw==='LONG'&&bar.close>res+atr*.15&&rows.at(-2).close<=res||raw==='SHORT'&&bar.close<sup-atr*.15&&rows.at(-2).close>=sup)raw='NEUTRAL';
+  samples.push({at:bar.openTime,valid:true,dir:raw});
+ }
+ const result=confirmClosedSignals(samples),latest=bars['5m'].at(-1);
+ if(!latest||now-latest.openTime>1200000)return {dir:'NEUTRAL',count:0,pending:'NEUTRAL',reason:'5m-Daten fehlen oder sind veraltet'};
+ if(!samples.at(-1)?.valid)return {dir:'NEUTRAL',count:0,pending:'NEUTRAL',reason:'Bestätigung ausstehend · Historie unvollständig'};
+ return {...result,reason:result.count?'Wechsel zu '+(result.pending==='NEUTRAL'?'ABWARTEN':result.pending)+': 1/2 geschlossene 5m-Kerzen':'2 geschlossene 5m-Kerzen · Richtung bestätigt'};
+}
 function confirmedSignalDirection(){
- if(window.BobSession?.expired()||analysisAgeWarnings().length)return "NEUTRAL";
- if(!A.ready||!C.length||!Number.isFinite(A.at))return "NEUTRAL";
- const raw=A.score>=70&&getMtfState().overall==="LONG"?"LONG":A.score<=30&&getMtfState().overall==="SHORT"?"SHORT":"NEUTRAL";
- if(raw==="NEUTRAL")return "NEUTRAL";
- const fb=falseBreakoutState(raw);
- return (fb==="OK"||fb==="UNKNOWN")?raw:"NEUTRAL";
+ if(window.BobSession?.expired()||analysisAgeWarnings().length||!A.ready||!C.length||!Number.isFinite(A.at)){
+  signalState={dir:'NEUTRAL',pending:'NEUTRAL',count:0,reason:'Daten nicht freigegeben'};return 'NEUTRAL';
+ }
+ signalState=fiveMinuteConfirmation(liveBundleCache);
+ return signalState.dir;
 }
 function updateResearchPanel(){
  const reg=currentRegime(); if($("regime"))$("regime").textContent=reg;
- let rawDir=A.ready&&A.score>=70&&getMtfState().overall==="LONG"?"LONG":A.ready&&A.score<=30&&getMtfState().overall==="SHORT"?"SHORT":"NEUTRAL";
- const fb=falseBreakoutState(rawDir); if(fb!=="OK"&&fb!=="UNKNOWN")rawDir="NEUTRAL";
- let dir=rawDir;
- if(rawDir!==signalState.dir){if(rawDir==="NEUTRAL"){signalState={dir:"NEUTRAL",pending:"NEUTRAL",count:0};dir="NEUTRAL";}else if(signalState.pending===rawDir){signalState.count++;if(signalState.count>=2)signalState={dir:rawDir,pending:rawDir,count:0};else dir=signalState.dir;}else{signalState.pending=rawDir;signalState.count=1;dir=signalState.dir;}}
+ const dir=confirmedSignalDirection();
  const sm=dir!=="NEUTRAL"?stopModel(dir,lastPrice,A.at,+( $("trailAtr")?.value||1.5)):null;
  const stop=sm?.stop||null;
  if($("stopCurrent"))$("stopCurrent").textContent=tradeMgmt.active?activeTradeLevel(tradeMgmt.stop):displayStop(stop);
  if(tradeMgmt.active)renderActiveTradePlan();
  if($("stopRisk"))$("stopRisk").textContent=stop?Math.abs(lastPrice-stop).toFixed(2)+" USD/oz":"—";
  if($("stopPanel")&&!tradeMgmt.active&&sm?.stop)$("stopPanel").innerHTML="<b>Technischer Referenz-Stop:</b> "+displayStop(sm.stop)+"<br><span class='small'>"+sm.reason+" · Struktur "+displayStop(sm.structureStop)+" · ATR "+displayStop(sm.atrStop)+"</span>";
- if($("hysteresis"))$("hysteresis").textContent=dir+" · Hysterese "+(signalState.count?signalState.count+"/2":"stabil")+(falseBreakoutState(dir)!=="OK"&&dir!=="NEUTRAL"?" · Breakout unbestätigt":"");
+ if($("hysteresis"))$("hysteresis").textContent=(dir==='NEUTRAL'?'ABWARTEN':dir)+' · '+(signalState.reason||'Bestätigung ausstehend');
  if($("researchStatus"))$("researchStatus").textContent=researchLog.length?researchLog.length+" Snapshots lokal gespeichert.":"Noch keine Snapshots.";
 }
 function captureResearchSnapshot(result="OBSERVATION"){
@@ -1282,8 +1323,9 @@ function updateQuick(){
  if(!A.ready){$("quickSignal").textContent="🟡 ABWARTEN · Historie fehlt";$("quickSignal").className="signal neutral";$("quickRisk").textContent="—";return;}
  const p=lastPrice;
  let q="🟡 ABWARTEN", cls="neutral";
- if(A.score>=70){q="🟢 LONG-Setup";cls="ok"}
- else if(A.score<=30){q="🔴 SHORT-Setup";cls="bad"}
+ const confirmed=confirmedSignalDirection();
+ if(confirmed==="LONG"){q="🟢 LONG-Setup";cls="ok"}
+ else if(confirmed==="SHORT"){q="🔴 SHORT-Setup";cls="bad"}
  $("quickSignal").textContent=q;$("quickSignal").className="signal "+cls;
  $("quickPrice").textContent=p.toFixed(2);
  $("quickTrend").textContent=A.e20>A.e50&&A.e50>A.e200?"Bullish":A.e20<A.e50&&A.e50<A.e200?"Bearish":"Gemischt";
@@ -1299,11 +1341,13 @@ function updateTradeSignal(){
  if(window.BobSession?.expired()){$("tradeSignal").textContent="🟡 ABWARTEN · Anmeldung erforderlich";$("tradeSignal").className="signal neutral";return;}
  if(!A.ready||C.length<200||!A.at){$("tradeSignal").textContent="🟡 ABWARTEN · technische Analyse nicht freigegeben";$("tradeSignal").className="signal neutral";return}
  const mtfDir=getMtfState().overall||"NEUTRAL";
- const fb=falseBreakoutState(mtfDir);
+ const dir=confirmedSignalDirection();
  let text="🟡 ABWARTEN", cls="neutral";
- if(A.score>=70 && mtfDir==="LONG" && fb==="OK"){text="🟢 LONG-Kandidat";cls="ok"}
- if(A.score<=30 && mtfDir==="SHORT" && fb==="OK"){text="🔴 SHORT-Kandidat";cls="bad"}
- if(fb!=="OK" && fb!=="UNKNOWN"){text="🟡 ABWARTEN · Breakout bestätigen";cls="neutral"}
+ if(dir==="LONG"){text="🟢 LONG-Kandidat";cls="ok"}
+ if(dir==="SHORT"){text="🔴 SHORT-Kandidat";cls="bad"}
+ $('signal').textContent=dir==='NEUTRAL'?'ABWARTEN':dir+' bestätigt';$('signal').className='signal '+cls;
+ $('quickSignal').textContent=text;$('quickSignal').className='signal '+cls;
+ $('quickReason').textContent=signalState.reason||'Bestätigung ausstehend';
  $("tradeSignal").textContent=text+" · Score "+(A.score??0).toFixed(0)+"/100 · MTF "+mtfDir;
  $("tradeSignal").className="signal "+cls;
  maybePushAnalysisAlerts();
@@ -1430,7 +1474,7 @@ async function maybePushAnalysisAlerts(){
        {kind:"signal-change",signalId:"ui:"+saved.dir+"-to-"+dir+":"+Math.floor(now/60000)});
    }
 
-   if(saved.mtf&&mtf!==saved.mtf&&mtf!=="NEUTRAL"){
+   if(saved.mtf&&mtf!==saved.mtf&&mtf!=="NEUTRAL"&&dir===mtf){
      BobPush.emit("general","Bob – MTF-Wechsel",mtf+" · XAU/USD "+lastPrice.toFixed(2),
        {kind:"mtf-change",signalId:"mtf:"+mtf+":"+Math.floor(now/60000)});
    }
