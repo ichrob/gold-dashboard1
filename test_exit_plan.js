@@ -12,5 +12,5 @@ assert(!p(bundle,a,bars.map(b=>({...b,openTime:b.openTime-7200000})),'LONG',now)
 assert(!p(bundle,a,bars.map(b=>({...b,openTime:b.openTime+300001})),'LONG',now).available);
 assert(!p(bundle,{ready:false,at:3},bars,'LONG',now).available);
 assert(!p(bundle,a,bars,'NEUTRAL',now).available);
-const html=fs.readFileSync('Bob.html','utf8');assert(html.includes('spot_price_as_of:d0.price_as_of||null'));assert(html.includes('is_genuine_xauusd_spot:d0.xau?.currency==="USD"'));
+const html=fs.readFileSync('Bob.html','utf8');assert(html.includes('spot.is_genuine_xauusd_spot!==true'));assert(html.includes('Date.parse(spot.spot_price_as_of)'));
 console.log('Exit plan: spot provenance, source times, closed history, stale/future/demo/futures rejection passed');

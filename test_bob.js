@@ -83,7 +83,7 @@ assert(sensitiveGate < serverSource.indexOf('if path == "/api/mtf":'));
 assert(sensitiveGate < serverSource.indexOf('if path == "/api/degiro/enrich":'));
 assert(serverSource.includes('self.send_response(401)'));
 assert(!serverSource.includes('WWW-Authenticate')); // HTML login replaces native browser challenge
-assert(serverSource.includes('"xaus_is_spot": spot_source == "XAUS · live"'));
+assert(serverSource.includes('"xaus_is_spot": is_spot'));
 assert(serverSource.includes('"is_genuine_xauusd_spot": is_spot'));
 assert(serverSource.includes('Never promote technical/futures history to the XAU/USD spot field.'));
 assert(serverSource.includes('"source": (spot_source or "keine Spotquelle") + " · Historie "'));

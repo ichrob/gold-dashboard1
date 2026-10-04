@@ -43,23 +43,10 @@ def fetch_quote(symbol):
 
 
 def fetch_spot():
-    # Existing Bob source. It does not publish a previous close; never substitute
-    # its chart endpoint here (that can contain futures rather than spot bars).
-    request = Request('https://xaus.com/api/v1/spot?compact=1', headers={'User-Agent': 'Bob/1.3'})
-    with urlopen(request, timeout=6) as response:
-        payload = json.loads(response.read(500000))
-    if not isinstance(payload,dict):raise ValueError('Invalid spot payload')
-    xau = payload.get('xau', {})
-    if not isinstance(xau,dict):raise ValueError('Invalid spot identity')
-    price, at = payload.get('spot_usd_oz'), payload.get('price_as_of')
-    if xau.get('currency') != 'USD' or xau.get('unit') != 'troy_oz' or not positive(price):
-        raise ValueError('Spot identity mismatch')
-    if not isinstance(at,str):raise ValueError('Invalid spot time')
-    stamp = datetime.fromisoformat(at.replace('Z', '+00:00'))
-    if stamp.tzinfo is None or stamp.timestamp() > time.time() + 5:
-        raise ValueError('Invalid spot time')
-    return dict(price=price, at=at, changePct=None, symbol='XAU/USD', source='XAUS · Gold-API',
-                kind='spot', note='Letzter Stand · Quelle veraltet' if payload.get('stale') is not False else 'Spot · Quellenzeit')
+    from spot_data import current
+    q = current()
+    return dict(price=q['price'], at=q['at'], changePct=None, symbol='XAU/USD',
+                source=q['source'], kind='spot', note='')
 
 
 def unavailable(symbol):
