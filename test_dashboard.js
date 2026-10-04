@@ -121,3 +121,27 @@ assert.equal(grouped.weights.priceCollective,100);assert.equal(grouped.weights.m
  assert.equal(vm.runInContext('tradeMgmt.stop',env),95);
  console.log('Background test: failed sync blocks scheduling; success confirms server scheduling');
 })().catch(e=>{console.error(e);process.exitCode=1;});
+
+// Signal changes count unique, consecutive, CLOSED 5m candles, never UI calls.
+const confirmations=vm.runInContext(`(()=>{
+ const run=dirs=>confirmClosedSignals(dirs.map((dir,i)=>({dir,at:300000*(i+1),valid:true})));
+ const long=[{dir:'LONG',at:300000,valid:true},{dir:'LONG',at:600000,valid:true}];
+ return {one:run(['LONG']),two:run(['LONG','LONG']),pending:run(['LONG','LONG','SHORT']),reverse:run(['LONG','LONG','SHORT','SHORT']),wait:run(['LONG','LONG','NEUTRAL','NEUTRAL']),noise:run(['LONG','LONG','SHORT','LONG','SHORT']),duplicate:confirmClosedSignals([long[0],long[0]]),gap:confirmClosedSignals([long[0],{...long[1],at:900000}]),invalid:confirmClosedSignals([...long,{at:900000,valid:false,dir:'LONG'}]),missing:fiveMinuteConfirmation({})};
+})()`,env);
+assert.equal(confirmations.one.dir,'NEUTRAL');assert.equal(confirmations.one.count,1);
+assert.equal(confirmations.two.dir,'LONG');assert.equal(confirmations.pending.dir,'LONG');
+assert.equal(confirmations.reverse.dir,'SHORT');assert.equal(confirmations.wait.dir,'NEUTRAL');
+assert.equal(confirmations.noise.dir,'LONG');assert.equal(confirmations.noise.count,1);
+for(const key of ['duplicate','gap','invalid','missing'])assert.equal(confirmations[key].dir,'NEUTRAL');
+const replay=vm.runInContext(`(()=>{
+ const now=Math.floor(Date.now()/14400000)*14400000,steps={'5m':300000,'15m':900000,'1h':3600000,'4h':14400000};
+ const bars=Object.fromEntries(Object.entries(steps).map(([tf,step])=>[tf,Array.from({length:205},(_,i)=>{const p=4200+i*.1+Math.sin(i/8)*12;return {openTime:now-(205-i)*step,open:p,high:p+2,low:p-2,close:p,instrument:'XAU/USD',isOpen:false};})]));
+ const bundle={history:{bars_by_tf:bars}},first=fiveMinuteConfirmation(bundle,now);
+ bars['5m'].push({...bars['5m'].at(-1),openTime:now,isOpen:true,close:9999});
+ const open=fiveMinuteConfirmation(bundle,now);
+ bars['5m'].at(-1).isOpen=false;const unfinished=fiveMinuteConfirmation(bundle,now);
+ return {first,open,unfinished,stale:fiveMinuteConfirmation(bundle,now+1500000)};
+})()`,env);
+assert.deepEqual(replay.first,replay.open);assert.deepEqual(replay.first,replay.unfinished);
+assert.equal(replay.stale.dir,'NEUTRAL');
+console.log('5m confirmation: two closes, reversal, neutral, interrupted sequence, duplicates, gaps, invalid/open/stale candles OK');
