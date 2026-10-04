@@ -36,15 +36,20 @@ def atr(c,p=14):
     tr=[max(c[i]["high"]-c[i]["low"],abs(c[i]["high"]-c[i-1]["close"]),abs(c[i]["low"]-c[i-1]["close"])) for i in range(1,len(c))]
     return sum(tr[-p:])/min(p,len(tr))
 
+def collective_signal(values):
+    """One price collective: repeated signs never increase its weight."""
+    signs = {1 if v > 0 else -1 if v < 0 else 0 for v in values}
+    if not signs or (1 in signs and -1 in signs):
+        return 0
+    return (1 if 1 in signs else -1 if -1 in signs else 0) * (0.5 if 0 in signs else 1)
+
 def tfscore(bars):
     c=[x for x in bars if not x.get("isOpen")][-220:]
-    if len(c)<50:return "NEUTRAL",False
+    if len(c)<200:return "NEUTRAL",False
     a=[float(x["close"]) for x in c];e20,e50=ema(a,20),ema(a,50);e200=ema(a,200) if len(a)>=200 else None
     f,s=emas(a,12),emas(a,26);mac=f[-1]-s[-1];prev=f[-2]-s[-2];R=rsi(a);score=0;n=0
-    score+=1 if a[-1]>e20 else -1;n+=1;score+=1 if e20>e50 else -1;n+=1
-    if e200 is not None:score+=1 if e50>e200 else -1;n+=1
-    score+=1 if mac>prev else -1;n+=1;score+=1 if 50<=R<=70 else (-1 if R<35 else 0);n+=1
-    return ("LONG" if n>=4 and score>=2 else "SHORT" if n>=4 and score<=-2 else "NEUTRAL"),True
+    score=collective_signal([a[-1]-e20,e20-e50,e50-e200,mac-prev,1 if 50<R<75 else -1 if 25<R<50 else 0])
+    return ("LONG" if score>=0.5 else "SHORT" if score<=-0.5 else "NEUTRAL"),True
 
 def adx(c,p=14):
     if len(c)<p*2+2:return 0
@@ -61,15 +66,8 @@ def score(c):
     mac=f[-1]-s[-1];sig=emas([f[i]-s[i] for i in range(len(a))],9)[-1];ad=adx(c)
     v=a[-20:];mid=sum(v)/len(v);sd=(sum((x-mid)**2 for x in v)/len(v))**.5;st=100*(c[-1]["close"]-min(x["low"] for x in c[-14:]))/(max(x["high"] for x in c[-14:])-min(x["low"] for x in c[-14:]) or 1)
     sup=min(x["low"] for x in c[-30:]);res=max(x["high"] for x in c[-30:]);pts=0
-    if e20>e50>e200:pts+=3
-    elif e20<e50<e200:pts-=3
-    if mac>sig and 50<=R<75:pts+=2
-    elif mac<sig and 25<R<50:pts-=2
-    if ad>=25:pts+=2 if e20>e50>e200 else -2 if e20<e50<e200 else 0
-    if a[-1]>mid and st>50:pts+=1
-    elif a[-1]<mid and st<50:pts-=1
-    if res>sup:pts+=.5 if a[-1]>=sup+(res-sup)*.5 else -.5
-    return 50+50*pts/8.5,R,at,ad,sup,res
+    value=collective_signal([a[-1]-e20,e20-e50,e50-e200,mac-sig,1 if 50<R<75 else -1 if 25<R<50 else 0])
+    return 50+50*value,R,at,ad,sup,res
 
 def main():
     if not TOKEN:raise RuntimeError("BOB_WORKER_TOKEN fehlt")
