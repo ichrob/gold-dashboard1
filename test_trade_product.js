@@ -1,0 +1,12 @@
+const assert=require('assert'),fs=require('fs'),vm=require('vm');
+const api=require('./trade_product.js');
+const values={isin:'DE000FG4JXV7',direction:'SHORT',simpleSpotTurbo:true,referenceConfirmed:true,bid:20,goldReference:4200,fxReference:.9,fxScenario:.9,ratio:.1,strike:4460,ko:4460,entry:21,quantity:10,source:'DEGIRO-Screenshot',referenceAt:'02/10/2026 15:04'};
+const short=api.model(values),long=api.model({...values,direction:'LONG',strike:4000,ko:4000});
+assert.equal(api.price(short,4150).price,24.5);assert.equal(api.price(short,4230).price,17.3);
+assert.equal(api.price(long,4250).price,24.5);assert.equal(api.price(long,4170).price,17.3);
+assert(!api.price(short,4460).available);assert(!api.price(long,3999).available);
+for(const patch of [{referenceConfirmed:false},{simpleSpotTurbo:false},{ratio:0},{direction:'NEUTRAL'},{quantity:1.5},{source:''}])assert.throws(()=>api.model({...values,...patch}));
+const env={window:{}};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),env);
+assert.equal(env.window.BobTradeProduct.price(short,4150).price,api.price(short,4150).price);
+assert(api.label(short,4150).includes('EUR/Stück (berechnet)'));
+console.log('Product trade: long/short EUR scenarios, KO rejection, reference requirements, served module parity passed');

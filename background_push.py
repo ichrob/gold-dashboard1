@@ -2,6 +2,7 @@
 import copy
 import json
 import math
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -9,6 +10,42 @@ from pathlib import Path
 
 def positive(value):
     return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value) and value > 0
+
+
+def product_model(value, direction):
+    if value is None:
+        return None
+    if not isinstance(value, dict) or value.get('simpleSpotTurbo') is not True or value.get('referenceConfirmed') is not True or value.get('currency') != 'EUR':
+        raise ValueError('Bestätigtes Gold-Spot-Turbo-Modell in EUR fehlt')
+    if value.get('direction') != direction or not re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]', str(value.get('isin', ''))):
+        raise ValueError('Produktidentität oder Trade-Richtung widersprüchlich')
+    keys = ('bid','goldReference','fxReference','fxScenario','ratio','strike','ko','entry','quantity')
+    if not all(positive(value.get(k)) for k in keys) or value['quantity'] % 1:
+        raise ValueError('Produktreferenz unvollständig')
+    if not all(isinstance(value.get(k),str) and 0<len(value[k])<=2000 for k in ('source','referenceAt')):
+        raise ValueError('Produktquelle oder Referenzzeit fehlt')
+    d = 1 if direction == 'LONG' else -1
+    if d*(value['goldReference']-value['ko'])<=0:
+        raise ValueError('Produktreferenz jenseits der KO-Barriere')
+    return {k:value[k] for k in (*keys,'isin','direction','currency','source','referenceAt','simpleSpotTurbo','referenceConfirmed')}
+
+
+def product_price(model, gold):
+    if not model or not positive(gold):
+        return None
+    d = 1 if model['direction']=='LONG' else -1
+    if d*(gold-model['ko'])<=0:
+        return None
+    price=model['bid']+d*model['ratio']*((gold-model['strike'])*model['fxScenario']-(model['goldReference']-model['strike'])*model['fxReference'])
+    return price if positive(price) else None
+
+
+def level_text(trade, gold):
+    model=trade.get('product')
+    price=product_price(model,gold)
+    if model:
+        return f"≈ {price:.4f} EUR/Stück (berechnet)" if price else 'Eurokurs nicht berechenbar (KO/Modellgrenze)'
+    return f"{gold:.2f} USD/oz (Goldreferenz; Produktdaten fehlen)"
 
 
 def config(value):
@@ -31,6 +68,7 @@ def config(value):
             raise ValueError('Trade-ID fehlt für Hintergrund-Push')
         result['trade'] = {k: t.get(k) for k in ('tradeId', 'dir', 'entry', 'stop', 'initialRisk', 'target', 'instrument')}
         result['trade']['active'] = True
+        result['trade']['product'] = product_model(t.get('product'), t['dir'])
         if t.get('target') is not None and not positive(t['target']):
             raise ValueError('Ungültiges Kursziel')
     return result
@@ -50,6 +88,9 @@ def advance(previous, settings, market, general, trade_enabled, now=None):
         return state, []
     events = []
     def add(kind, title, reason, channel='trade'):
+        product=(settings.get('trade') or {}).get('product') if channel=='trade' else None
+        if product:
+            reason=product['isin']+' · '+reason+' · Modellreferenz '+product['referenceAt']+'; konstante FX-/Produktbedingungen. Kein bestätigter DEGIRO-Kurs.'
         events.append({'title': title, 'body': reason, 'tag': 'bob-background-'+channel,
                        'data': {'kind': channel, 'eventKind': kind, 'url': '/', 'dataAt': market.get('dataAt'),
                                 'expiresAt': now+180000, 'tradeId': (settings.get('trade') or {}).get('tradeId')}})
@@ -79,6 +120,9 @@ def advance(previous, settings, market, general, trade_enabled, now=None):
         old = {**t, 'stage': 0}
     # Never loosen a previously suggested model stop on a stale browser sync.
     old['stop'] = max(old['stop'], t['stop']) if t['dir']=='LONG' else min(old['stop'], t['stop'])
+    old['product'] = t.get('product')
+    if positive(t.get('target')):
+        old['target'] = (max if t['dir']=='LONG' else min)(old.get('target') or t['target'], t['target'])
     state['trade'] = old
     if not market.get('priceFresh') or not positive(market.get('price')):
         return state, events
@@ -88,19 +132,19 @@ def advance(previous, settings, market, general, trade_enabled, now=None):
     near = max((market.get('atr') or 0)*.25, 1)
     phase = 'hit' if reached else 'near' if abs(p-stop)<=near else 'clear'
     if phase != old.get('stopPhase') and phase != 'clear':
-        add('stop-'+phase, 'TRADE-WARNUNG · '+('Stop erreicht' if reached else 'Stop wird knapp'), f"{t['dir']} · XAU/USD {p:.2f} · Modell-Stop {stop:.2f}. Position prüfen.")
+        add('stop-'+phase, 'TRADE-WARNUNG · '+('Stop erreicht' if reached else 'Stop wird knapp'), f"{t['dir']} · Modell-Stop {level_text(t,stop)}. Position prüfen.")
     old['stopPhase'] = phase
-    target = t.get('target')
+    target = old.get('target')
     target_hit = positive(target) and (p>=target if long else p<=target)
     if target_hit and not old.get('targetSent'):
-        add('target', 'TRADE-WARNUNG · Ziel erreicht', f"{t['dir']} · Ziel {target:.2f} USD erreicht. Gewinn sichern prüfen.")
+        add('target', 'TRADE-WARNUNG · Ziel erreicht', f"{t['dir']} · Ziel {level_text(t,target)} anhand Goldreferenz erreicht. Ausstieg/Stop prüfen.")
         old['targetSent'] = True
     if healthy and direction in ('LONG','SHORT') and direction != t['dir'] and direction != old.get('opposite'):
         add('reversal', 'TRADE-WARNUNG · Richtungswechsel', f"Bestätigtes {direction}-Signal gegen deinen {t['dir']}-Trade. Schließen prüfen.")
         old['opposite'] = direction
     elif healthy and direction == t['dir']:
         old['opposite'] = None
-    if reached or target_hit or not healthy:
+    if reached or not healthy:
         return state, events
     r = (p-entry if long else entry-p)/risk
     stage = 2 if r>=2 else 1.5 if r>=1.5 else 1 if r>=1 else 0
@@ -114,10 +158,26 @@ def advance(previous, settings, market, general, trade_enabled, now=None):
     if positive(candidate) and (candidate<p if long else candidate>p):
         desired = max(desired,candidate) if long else min(desired,candidate)
     if abs(desired-stop)>.0001:
-        add('profit-protection' if stage else 'trailing-stop', 'TRADE-WARNUNG · Stop nachziehen', f"{t['dir']} · Neuer Modell-Stop {desired:.2f} USD (vorher {stop:.2f}); {r:.1f}R. Bei DEGIRO selbst anpassen.")
+        add('profit-protection' if stage else 'trailing-stop', 'TRADE-WARNUNG · Stop nachziehen', f"{t['dir']} · Neuer Modell-Stop {level_text(t,desired)} (vorher {level_text(t,stop)}); {r:.1f}R (Goldplan). Bei DEGIRO selbst anpassen.")
         old['stop'] = desired
+    # Extend only after the old objective is reached and a new closed bar confirms continuation.
+    candidate = market.get('suggestedTarget')
+    bar = market.get('analysisBarAt')
+    macd, signal = market.get('macd'), market.get('signal')
+    strong = (direction==t['dir'] and mtf==t['dir'] and
+              isinstance(macd,(int,float)) and isinstance(signal,(int,float)) and
+              (macd>=signal and market.get('score',0)>=70 if long else macd<=signal and market.get('score',100)<=30))
+    if target_hit and strong and positive(candidate) and positive(bar) and bar>old.get('targetBarAt',0):
+        step=max(risk*.5, (market.get('atr') or 0)*.5)
+        beyond = candidate>=max(p,target)+step if long else candidate<=min(p,target)-step
+        if beyond:
+            old.update(target=candidate,targetSent=False,targetBarAt=bar)
+            add('target-extension','TRADE-PLAN · Neues Ziel vorgeschlagen',
+                f"{t['dir']} · Bisheriges Ziel erreicht. Neues Ziel {level_text(t,candidate)}; Stop {level_text(t,old['stop'])}. Richtung, MTF und Momentum weiter bestätigt. Vorschlag bei DEGIRO selbst übernehmen.")
+    estimated_now=product_price(t.get('product'),p)
+    product_in_profit=not t.get('product') or (estimated_now is not None and estimated_now>t['product']['entry'])
     weak = mtf != t['dir'] or (market.get('score',50)<65 if long else market.get('score',50)>35)
-    if weak and r>=1 and not old.get('weak'):
-        add('profit-weak', 'TRADE-WARNUNG · Gewinn schützen', f"{t['dir']} · Momentum schwächer bei {r:.1f}R. Stop/Position prüfen.")
-    old['weak'] = weak and r>=1
+    if weak and r>=1 and product_in_profit and not old.get('weak'):
+        add('profit-weak', 'TRADE-WARNUNG · Gewinn schützen', f"{t['dir']} · Momentum schwächer bei {r:.1f}R (Goldplan). Stop/Position prüfen.")
+    old['weak'] = weak and r>=1 and product_in_profit
     return state, events

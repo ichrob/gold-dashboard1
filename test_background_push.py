@@ -51,6 +51,47 @@ class BackgroundRules(unittest.TestCase):
         self.assertEqual(state['trade']['stop'],90)
         with self.assertRaises(ValueError):b.config({'trade':{**new['trade'],'instrument':'GC=F'}})
         with self.assertRaises(ValueError):b.config({'trade':{**new['trade'],'initialRisk':0}})
+    def test_target_extension_persists_and_protects_profit(self):
+        self.settings['trade']['target']=120
+        m={**self.market,'price':121,'macd':2,'signal':1,'suggestedTarget':140,'analysisBarAt':1000}
+        state,events=b.advance({},self.settings,m,False,True)
+        self.assertIn('target-extension',self.kinds(events))
+        self.assertIn('target',self.kinds(events))
+        self.assertEqual(state['trade']['target'],140)
+        self.assertGreaterEqual(state['trade']['stop'],110)
+        # An old browser snapshot cannot lower the persisted target or repeat it.
+        again,events=b.advance(state,self.settings,m,False,True)
+        self.assertEqual(again['trade']['target'],140)
+        self.assertEqual(events,[])
+        # Same closed bar cannot extend again even if its spot moves.
+        _,events=b.advance(state,self.settings,{**m,'price':141,'suggestedTarget':160},False,True)
+        self.assertNotIn('target-extension',self.kinds(events))
+        _,events=b.advance(state,self.settings,{**m,'price':141,'suggestedTarget':160,'analysisBarAt':2000},False,True)
+        self.assertIn('target-extension',self.kinds(events))
+
+    def test_target_extension_requires_fresh_strong_confirmed_continuation(self):
+        self.settings['trade']['target']=120
+        m={**self.market,'price':121,'macd':2,'signal':1,'suggestedTarget':140,'analysisBarAt':1000}
+        for change in ({'priceFresh':False},{'ready':False},{'direction':'SHORT'},{'mtf':'NEUTRAL'},{'macd':0},{'score':60},{'suggestedTarget':122},{'analysisBarAt':None}):
+            _,events=b.advance({},self.settings,{**m,**change},False,True)
+            self.assertNotIn('target-extension',self.kinds(events),change)
+
+    def test_short_target_moves_lower_while_product_eur_target_rises(self):
+        product=dict(isin='DE000FG4JXV7',direction='SHORT',simpleSpotTurbo=True,referenceConfirmed=True,currency='EUR',bid=20,goldReference=100,fxReference=.9,fxScenario=.9,ratio=.1,strike=160,ko=160,entry=21,quantity=10,source='fixture',referenceAt='02/10/2026 15:04')
+        self.settings['trade'].update(dir='SHORT',stop=110,target=80,product=product)
+        self.settings=b.config(self.settings)
+        m={**self.market,'price':79,'direction':'SHORT','mtf':'SHORT','score':20,'macd':-2,'signal':-1,'suggestedTarget':60,'analysisBarAt':1000}
+        state,events=b.advance({},self.settings,m,False,True)
+        self.assertEqual(state['trade']['target'],60)
+        self.assertLessEqual(state['trade']['stop'],90)
+        extension=next(e for e in events if e['data']['eventKind']=='target-extension')
+        self.assertIn('23.6000 EUR/Stück',extension['body'])
+        self.assertIn(product['isin'],extension['body']);self.assertIn(product['referenceAt'],extension['body'])
+        self.assertIn('berechnet',extension['body'])
+        self.assertIsNone(b.product_price(product,160))
+        with self.assertRaises(ValueError):b.product_model({**product,'direction':'LONG'},'SHORT')
+        with self.assertRaises(ValueError):b.product_model({**product,'ratio':0},'SHORT')
+
     def test_actual_dashboard_runtime_and_missing_data(self):
         import time,math
         now=int(time.time()*1000);bars={}
