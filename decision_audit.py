@@ -32,18 +32,20 @@ def normalize(payload, now=None):
     if bar is None or bar > now:
         raise ValueError('Entscheidungs-Kerzenzeit fehlt oder liegt in der Zukunft')
     # Only explicitly whitelisted evidence; never account credentials or raw images.
-    result = {k: payload.get(k) for k in ('direction','shadowDirection','barAt','price','priceAt','reason','score','indicators','products','selection','gateReasons')}
+    result = {k: payload.get(k) for k in ('direction','shadowDirection','intraday','barAt','price','priceAt','reason','score','indicators','products','selection','gateReasons')}
     result.update(version=VERSION, ruleVersion='signal-5m-two-closes-v1', build=os.environ.get('RENDER_GIT_COMMIT','local'), origin=payload.get('origin','browser'), recordedAt=now)
     if result['origin'] not in ('browser','background'):
         raise ValueError('Ungültige Protokollquelle')
     if result.get('shadowDirection') not in ('LONG','SHORT','NEUTRAL'):
         result['shadowDirection'] = None
+    intraday=result.get('intraday')
+    if not isinstance(intraday,dict) or intraday.get('version')!='intraday-v1' or intraday.get('direction') not in ('LONG','SHORT','NEUTRAL'):result['intraday']=None
     if not isinstance(result.get('products'), list): result['products'] = []
     if len(result['products']) > 12: raise ValueError('Zu viele Produkte')
     at = milliseconds(result.get('priceAt'))
     result['marketEvaluable'] = positive(result.get('price')) and at is not None and 0 <= now-at <= 180000
     # Each decision revision is frozen once. Refreshes with unchanged evidence are idempotent.
-    identity={k:result[k] for k in ('version','origin','direction','shadowDirection','barAt','reason','products','selection','gateReasons')}
+    identity={k:result[k] for k in ('version','origin','direction','shadowDirection','intraday','barAt','reason','products','selection','gateReasons')}
     key=hashlib.sha256(json.dumps(identity,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     return key,result
 
@@ -70,10 +72,11 @@ def outcome(record, truth, horizon):
     def score(direction):
         return change if direction=='LONG' else -change if direction=='SHORT' else None
     return {'horizon':horizon,'changePct':change,'directionalPct':score(record['direction']),
-            'shadowPct':score(record.get('shadowDirection')),'at':truth['at']}
+            'intradayPct':score((record.get('intraday') or {}).get('direction')) if (record.get('intraday') or {}).get('available') else None,'shadowPct':score(record.get('shadowDirection')),'at':truth['at']}
 
 def summarize(rows):
     metrics={str(h):{'evaluated':0,'favorable':0,'unfavorable':0,'flat':0,'neutral':0,'missing':0,'directionalSumPct':0} for h in (15,60,240)}
+    intraday_metrics={h:dict(m) for h,m in metrics.items()}
     seen=set();pairs=[];issues={};latest=[r for r,_ in rows[:30]]
     for record,truths in sorted(rows,key=lambda row:row[0].get('origin')!='background'):
         for reason in record.get('gateReasons') or []:
@@ -84,6 +87,12 @@ def summarize(rows):
         seen.add(observation)
         for h,truth in zip((15,60,240),truths):
             m=metrics[str(h)];result=outcome(record,truth,h)
+            im=intraday_metrics[str(h)]
+            iv=result.get('intradayPct') if result else None
+            if not record.get('intraday') or not record['intraday'].get('available') or result is None:im['missing']+=1
+            elif iv is None:im['neutral']+=1
+            else:
+                im['evaluated']+=1;im['directionalSumPct']+=iv;im['favorable' if iv>0 else 'unfavorable' if iv<0 else 'flat']+=1
             if result is None:m['missing']+=1;continue
             value=result['directionalPct']
             # Compare both policies on the same timeline; ABWARTEN contributes zero exposure.
@@ -100,7 +109,7 @@ def summarize(rows):
     train_delta=improvement(train);test_delta=improvement(holdout)
     ready=len(train)>=100 and len(holdout)>=100
     better=ready and train_delta>0 and test_delta>0
-    return {'metrics':metrics,'latest':latest,'issues':sorted(issues.items(),key=lambda x:-x[1])[:8],
+    return {'intraday':intraday_metrics,'metrics':metrics,'latest':latest,'issues':sorted(issues.items(),key=lambda x:-x[1])[:8],
         'learning':{'mode':'Schattenvergleich: 2 gegen 3 Bestätigungskerzen','samples':len(spaced),
                     'training':len(train),'holdout':len(holdout),'ready':ready,'candidateBetter':better,
                     'trainingDeltaPct':train_delta,'holdoutDeltaPct':test_delta,

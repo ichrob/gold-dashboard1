@@ -166,3 +166,21 @@ assert(displayCheck.zero.includes('ABWARTEN'));
 assert(displayCheck.missing.includes('nicht verfügbar'));
 assert(!displayCheck.missing.includes('0/100'));
 console.log('Signal evidence: shared closed-bar score, timestamp, components, real zero and missing value OK');
+
+const intradayTests=vm.runInContext(`(()=>{
+ const now=Math.floor(Date.now()/900000)*900000;
+ const make=(step,reverse=false)=>Array.from({length:240},(_,i)=>{const p=4200+(reverse?-1:1)*i*.2;return {instrument:'XAU/USD',openTime:now-(240-i)*step,open:p-.05,high:p+.1,low:p-.1,close:p,isOpen:false};});
+ const bundle={spots:{xaus:4247.8,is_genuine_xauusd_spot:true,spot_price_as_of:new Date(now).toISOString()},history:{bars_by_tf:{'5m':make(300000),'15m':make(900000),'1h':make(3600000,true)}}};
+ const good=intradayState(bundle,null,now),hit=intradayState(bundle,{active:true,dir:'LONG',stop:4248},now);
+ const duplicate=JSON.parse(JSON.stringify(bundle));duplicate.history.bars_by_tf['5m'].at(-1).openTime-=300000;
+ const irregular=JSON.parse(JSON.stringify(bundle));irregular.history.bars_by_tf['5m'].at(-1).openTime+=60000;
+ const difference=JSON.parse(JSON.stringify(bundle));difference.spots.xaus=4132;
+ const stale=JSON.parse(JSON.stringify(bundle));stale.spots.spot_price_as_of=new Date(now-61000).toISOString();
+ const flat=JSON.parse(JSON.stringify(bundle));for(const row of flat.history.bars_by_tf['15m'])Object.assign(row,{open:4247.8,high:4248,low:4247.6,close:4247.8});
+ return {good,hit,duplicate:intradayState(duplicate,null,now),irregular:intradayState(irregular,null,now+60000),difference:intradayState(difference,null,now),stale:intradayState(stale,null,now),flat:intradayState(flat,null,now)};
+})()`,env);
+assert.equal(intradayTests.good.direction,'LONG');assert(intradayTests.good.countertrend);
+assert.equal(intradayTests.good.mode,'shadow');assert.equal(intradayTests.hit.tradeAction,'AUSSTIEG PRÜFEN');
+for(const key of ['duplicate','irregular','difference','stale']){assert.equal(intradayTests[key].available,false,key);assert.equal(intradayTests[key].direction,'NEUTRAL',key);}
+assert.equal(intradayTests.flat.direction,'NEUTRAL');
+console.log('Intraday shadow: 15m/5m entry, 1h countertrend, no 4h veto, immediate stop, sideways and invalid data gates passed');

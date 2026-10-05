@@ -220,7 +220,7 @@ def run_background(bundle):
                 with conn.transaction():
                     if market.get('analysisBarAt'):
                         decision_audit.write(conn,{'origin':'background','direction':market.get('direction','NEUTRAL'),
-                            'shadowDirection':market.get('shadowDirection'),'barAt':market['analysisBarAt'],
+                            'shadowDirection':market.get('shadowDirection'),'intraday':market.get('intraday'),'barAt':market['analysisBarAt'],
                             'price':market.get('price'),'priceAt':market.get('dataAt'),'reason':market.get('decisionReason'),
                             'score':market.get('score'),'indicators':market.get('context'), 'products':[],
                             'selection':[], 'gateReasons':[] if market.get('ready') else ['Marktdaten nicht freigegeben']})
