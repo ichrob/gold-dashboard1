@@ -1,5 +1,12 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const window={};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),{window});const b=window.BobDegiro;
+// Return upload resolves identity again after list replacement/reordering.
+const returnIsin='DE000FG5NMF2',otherIsin='DE000FG309G0';
+assert.equal(b.screenshotReturnRow(returnIsin,[{isin:otherIsin,index:1},{isin:returnIsin,index:8}]).index,8);
+assert.equal(b.screenshotReturnRow(returnIsin,[{isin:otherIsin,index:8}]),null);
+assert.equal(b.screenshotReturnRow(returnIsin,[{isin:returnIsin,index:1},{isin:returnIsin,index:2}]),null);
+assert.equal(b.screenshotReturnRow('invalid',[{isin:'invalid',index:1}]),null);
+assert(b.compactProductCard({isin:returnIsin,index:8},['Geld fehlt']).includes('data-screenshot-product="'+returnIsin+'"'));
 const now=Date.parse('2026-10-02T07:00:00Z'),at=s=>new Date(now+s*1000).toISOString();
 const bundle={fetched_at:now/1000,spots:{xaus:4200,xaus_age_seconds:0,spot_price_as_of:at(0),is_genuine_xauusd_spot:true}};
 const p={isin:'DE000FG6XB39',isinConfirmed:true,name:'SG Gold Turbo BEST Open-End Put BAR 4403.17 Bv 10 LV 19.4',productDirection:'SHORT',ko:4403.17,leverage:19.4,snapshot:{isin:'DE000FG6XB39',direction:'SHORT',bid:19.33,ask:19.34,currency:'EUR',sourceTime:'02/10/2026 08:31',evidence:{}}};

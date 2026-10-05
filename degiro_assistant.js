@@ -906,9 +906,39 @@ function renderIssuerHelp(p,reasons){
  const sgIds=['DE000FG4JXV7','DE000FG309G0','DE000FG7EPT1','DE000FC1CHB7','DE000FG5GUT0','DE000FG6XB39','DE000FG5NMF2','DE000FG7MTA6'];
  const sg=sgIds.includes(p.isin)||/^SG\b|Soci[eé]t[eé] G[eé]n[eé]rale/i.test(p.name||'');
  const url=sg?'https://www.sg-zertifikate.de/product-details/'+p.isin.slice(5,11).toLowerCase():null;
- return '<div class="small" data-issuer-help style="margin:10px 0">'+(url?'<a href="'+esc(url)+'" target="_blank" rel="noopener noreferrer">SG-Produkt öffnen</a>':'Produktseite des Emittenten öffnen (BNP).')+'<details><summary>Hilfe zum Screenshot</summary>ISIN, fehlende Werte und den angezeigten Datenstand aufnehmen. Nach der Bildauswahl wird automatisch eingelesen.<button type="button" data-copy-product-isin="'+esc(p.isin)+'">ISIN kopieren</button><span role="status" data-copy-status></span></details></div>';
+ return '<div class="small" data-issuer-help style="margin:10px 0">'+(url?'<a data-screenshot-product="'+esc(p.isin)+'" href="'+esc(url)+'" target="_blank" rel="noopener noreferrer">SG-Produkt öffnen</a>':'Produktseite des Emittenten öffnen (BNP).')+'<details><summary>Hilfe zum Screenshot</summary>ISIN, fehlende Werte und den angezeigten Datenstand aufnehmen. Nach der Bildauswahl wird automatisch eingelesen.<button type="button" data-copy-product-isin="'+esc(p.isin)+'">ISIN kopieren</button><span role="status" data-copy-status></span></details></div>';
+}
+const RETURN_PRODUCT_KEY='bob.productScreenshotReturn.v1';
+let returnProductIsin='',returnProductPending=false;
+try{returnProductIsin=localStorage.getItem(RETURN_PRODUCT_KEY)||'';returnProductPending=!!returnProductIsin;}catch(_){}
+function screenshotReturnRow(isin,rows){
+ const matches=rows.filter(row=>String(row.isin||'').trim().toUpperCase()===isin);
+ return validIsin(isin)&&matches.length===1?matches[0]:null;
+}
+function updateScreenshotReturn(resume=false){
+ const panel=document.getElementById('dgScreenshotReturn');if(!panel)return;
+ const rows=Array.from(document.querySelectorAll('[data-dg="isin"]')).map(el=>({isin:el.value,index:el.dataset.i}));
+ const row=screenshotReturnRow(returnProductIsin,rows);
+ panel.hidden=!row;
+ if(!row)return;
+ panel.querySelector('[data-return-isin]').textContent=returnProductIsin;
+ if(resume&&returnProductPending&&!document.hidden){
+  returnProductPending=false;
+  document.querySelector('#bobNavigation [data-view="products"]')?.click();
+  panel.scrollIntoView({block:'start'});
+ }
+}
+function rememberScreenshotProduct(isin){
+ if(!validIsin(isin))return;
+ returnProductIsin=isin;returnProductPending=true;
+ try{localStorage.setItem(RETURN_PRODUCT_KEY,isin);}catch(_){}
+ updateScreenshotReturn();
 }
 function bindIsinCopy(root){
+ root.querySelectorAll('[data-screenshot-product]').forEach(link=>{
+  if(link.dataset.returnBound)return;link.dataset.returnBound='1';
+  link.addEventListener('click',()=>rememberScreenshotProduct(link.dataset.screenshotProduct));
+ });
  root.querySelectorAll('[data-copy-product-isin]').forEach(button=>button.addEventListener('click',async()=>{
   const isin=button.dataset.copyProductIsin,status=button.parentNode.querySelector('[data-copy-status]');
   try{await navigator.clipboard.writeText(isin);if(status)status.textContent=' ISIN kopiert: '+isin;}
@@ -1370,6 +1400,7 @@ function inject(){
  b.id="dgTop3";
  b.style.cssText="margin-top:14px;padding:16px;background:#f7f9fc;border-radius:20px;border:1px solid #e5eaf2";
  b.innerHTML='<div style="display:flex;align-items:center;gap:9px"><span style="font-size:25px">🎯</span><div><b style="font-size:18px">DEGIRO-Assistent</b><div class="small">Produktliste erfassen → Bilder pro ISIN ergänzen → belegte Daten vergleichen</div></div></div>'+
+ '<div id="dgScreenshotReturn" hidden style="margin-top:14px;padding:14px;background:#eaf3ff;border:2px solid #1677ff;border-radius:14px;scroll-margin-top:16px"><b>Screenshots für <span data-return-isin></span></b><p class="small">Hier beim zuletzt geöffneten Produkt weitermachen. Die Bilder werden weiterhin auf die passende ISIN geprüft.</p><button type="button" data-return-upload style="width:100%;background:#1677ff">↑ Bilder für dieses Produkt hinzufügen</button><button type="button" data-return-close>Fertig / ausblenden</button><div role="status" data-return-status></div></div>'+
  '<div style="margin-top:14px;padding:12px;background:#fff;border-radius:16px;border:1px solid #e1e7f0">'+
  '<b>📷 DEGIRO-Liste</b><button type="button" id="dgListUploadButton" style="margin-top:10px;width:100%;background:#1677ff">↑ DEGIRO-Liste hochladen</button>'+
  '<input id="dgListUpload" type="file" accept="image/*" multiple hidden>'+
@@ -1430,6 +1461,19 @@ function inject(){
  }
  const restoredProducts=loadIdentities();
  restoreProductRows(applyResearchedTerms(localStorage.getItem(PRODUCT_STORE_KEY)?restoredProducts:recoverReviewedLists(restoredProducts)));
+ b.querySelector('[data-return-upload]').addEventListener('click',()=>{
+  const rows=Array.from(document.querySelectorAll('[data-dg="isin"]')).map(el=>({isin:el.value,index:el.dataset.i}));
+  const row=screenshotReturnRow(returnProductIsin,rows);
+  if(!row){updateScreenshotReturn();return;}
+  document.getElementById('dgDetailShot'+row.index)?.click();
+ });
+ b.querySelector('[data-return-close]').addEventListener('click',()=>{
+  returnProductIsin='';returnProductPending=false;
+  try{localStorage.removeItem(RETURN_PRODUCT_KEY);}catch(_){}
+  updateScreenshotReturn();
+ });
+ setTimeout(()=>updateScreenshotReturn(true),0);
+ window.addEventListener('pageshow',()=>updateScreenshotReturn(true));
  quoteRefresh=createQuoteRefresh({
   rows:()=>Array.from({length:12},(_,idx)=>{const id=idx+1,isin=(document.querySelector('[data-dg="isin"][data-i="'+id+'"]')?.value.trim()||'').toUpperCase();return {id,isin,key:isin+':'+(rowVersions.get(id)||0)};}),
   request:enrichProduct,visible:()=>!document.hidden,interval:900000
@@ -1453,7 +1497,7 @@ function inject(){
  });
  b.querySelector("#dgRankBtn").addEventListener("click",async e=>{const button=e.currentTarget;button.disabled=true;rankUI();try{await refreshImportedProducts(true);}finally{button.disabled=false;rankUI();}});
  setInterval(()=>{if(!document.hidden){rankUI();refreshImportedProducts();}},10000);
- document.addEventListener('visibilitychange',()=>{if(!document.hidden){rankUI();refreshImportedProducts();}});
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden){rankUI();refreshImportedProducts();updateScreenshotReturn(true);}});
  window.addEventListener('online',()=>refreshImportedProducts());
  setInterval(()=>{if(!document.hidden)rankUI();},1000);
 }
@@ -1487,6 +1531,10 @@ function renderContinuingAnalysis(products,context){
 }
 function rankUI(){
  saveIdentities();
+ updateScreenshotReturn();
+ const returnRow=screenshotReturnRow(returnProductIsin,Array.from(document.querySelectorAll('[data-dg="isin"]')).map(el=>({isin:el.value,index:el.dataset.i})));
+ const returnStatus=document.querySelector('[data-return-status]');
+ if(returnStatus)returnStatus.textContent=returnRow?document.getElementById('dgOcrStatus'+returnRow.index)?.textContent||'':'';
  for(const [i,x] of futureResearchQuotes){
   const isin=document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value.trim().toUpperCase();
   if(isin!==x.isin){futureResearchQuotes.delete(i);continue;}
@@ -1556,7 +1604,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
@@ -1781,5 +1829,3 @@ function init(){
 }
 window.BobTradeUpload={parse,draft,reviewed,merge,init};if(typeof document!=='undefined'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();}
 })();
-
-
