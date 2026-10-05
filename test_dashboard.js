@@ -145,3 +145,24 @@ const replay=vm.runInContext(`(()=>{
 assert.deepEqual(replay.first,replay.open);assert.deepEqual(replay.first,replay.unfinished);
 assert.equal(replay.stale.dir,'NEUTRAL');
 console.log('5m confirmation: two closes, reversal, neutral, interrupted sequence, duplicates, gaps, invalid/open/stale candles OK');
+
+// Display and approval share the exact closed-bar evidence, including genuine zero.
+assert(Number.isFinite(replay.first.score));
+assert.equal(replay.first.components.length,5);
+assert(Number.isFinite(replay.first.scoreAt));
+assert.equal(replay.stale.score,undefined);
+const displayCheck=vm.runInContext(`(()=>{
+ const original=confirmedSignalDirection;
+ A.ready=true;window.BobSession={expired:()=>false};
+ confirmedSignalDirection=()=>{signalState={dir:'NEUTRAL',score:0,scoreAt:Date.now(),components:[{label:'RSI',direction:'SHORT'}],reason:'5m-Bestätigung fehlt'};return 'NEUTRAL'};
+ renderAnalysisBlocks();const zero=$('analysisQuality').textContent;
+ confirmedSignalDirection=()=>{signalState={dir:'NEUTRAL',reason:'Daten fehlen'};return 'NEUTRAL'};
+ renderAnalysisBlocks();const missing=$('analysisQuality').textContent;
+ confirmedSignalDirection=original;return {zero,missing};
+})()`,env);
+assert(displayCheck.zero.includes('0/100'));
+assert(displayCheck.zero.includes('RSI: SHORT'));
+assert(displayCheck.zero.includes('ABWARTEN'));
+assert(displayCheck.missing.includes('nicht verfügbar'));
+assert(!displayCheck.missing.includes('0/100'));
+console.log('Signal evidence: shared closed-bar score, timestamp, components, real zero and missing value OK');
