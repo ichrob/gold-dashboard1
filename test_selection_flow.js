@@ -398,3 +398,20 @@ const wrongDirection=JSON.parse(JSON.stringify(stored));wrongDirection.productDi
 assert(b.productTermsStatus(wrongDirection,bnpNow).reasons.some(r=>/Produktrichtung/.test(r)));
 assert.equal(b.selectionWorkflow([bnpProduct],{...context,now:bnpNow,direction:'NEUTRAL'},{}).groups.length,0);
 console.log('BNP dated terms survive actual two-image order and saved-state reload; midnight, direction, identity, missing quote time and neutral gates verified');
+
+// New mobile original 1000070630: the browser address bar is collapsed, but
+// the BNP PARIBAS masthead and the same labelled product evidence are visible.
+const bnpBannerOcr=androidBnpOcr.replace('derivate.bnpparibas.com','BNP PARIBAS\nZERTIFIKATE');
+for(const raw of [bnpBannerOcr,bnpBannerOcr.replaceAll('PJONB9','PJSNB9')]){
+ const read=b.detailScreenshotData(raw,'DE000PJ9NB98');
+ assert(read.ok,read.reason);assert.equal(read.isin,'DE000PJ9NB98');
+ assert.equal(read.terms.ko.value,3996.2705);assert.equal(read.terms.type.value,'Unlimited Long');
+ const old=JSON.parse(JSON.stringify(stored.snapshot));
+ old.terms.type.automatic=false;
+ assert(!b.screenshotSummary(old).includes('Produkttyp: Unlimited Long</b><div>Quelle: 1000070573.jpg</div><div>Wert eingelesen'));
+}
+for(const raw of [bnpBannerOcr.replace('BNP PARIBAS','OTHER ISSUER'),bnpBannerOcr.replace('PJONB9','PJONC9'),bnpBannerOcr.replace('3.996,2705','3.995,2705'),bnpBannerOcr.replace('Unlimited Long','Unlimited Short'),bnpBannerOcr+'\nISIN DE000PG0XK25']){
+ assert(!b.detailScreenshotData(raw,'DE000PJ9NB98').ok);
+}
+assert(!b.detailScreenshotData(bnpBannerOcr,'DE000PG0XK25').ok);
+console.log('BNP masthead without browser address: reviewed identity recovery and negative controls passed');
