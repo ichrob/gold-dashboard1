@@ -1282,7 +1282,11 @@ function parseProductTerms(raw){
  const at=dates.length?sourceTimestamp(dates[0][1]):null;
  const labels={ko:'Knock-Out-Barriere|Knock-out-Schwelle',ratio:'Bezugsverhältnis|Bezugsverhaeltnis',strike:'Basispreis|Finanzierungslevel',underlying:'Basiswert|Underlying',contract:'Future-Kontrakt|Futures-Kontrakt|Kontrakt',type:'Produkttyp|Produktart',maturity:'Laufzeit|Fälligkeit|Faelligkeit',currency:'Produktwährung|Produktwaehrung',quanto:'Quanto|Währungsabsicherung'};
  for(const [key,label] of Object.entries(labels)){
-  const matches=Array.from(String(raw).matchAll(new RegExp('(?:^|\\n)\\s*(?:'+label+')\\s*[:=]?\\s*([^\\n]+)','gi')));
+  let matches=Array.from(String(raw).matchAll(new RegExp('(?:^|\\n)\\s*(?:'+label+')\\s*[:=]?\\s*([^\\n]+)','gi')));
+  // Issuers use "Produktart" for the instrument family and "Typ" for
+  // Call/Put or Long/Short. Only fall back to Typ when no product-family
+  // label exists, otherwise both rows would be treated as contradictory.
+  if(key==='type'&&!matches.length)matches=Array.from(String(raw).matchAll(/(?:^|\n)\s*Typ\s*[:=]?\s*([^\n]+)/gi));
   if(!matches.length)continue;
   const values=Array.from(new Set(matches.map(m=>m[1].trim())));
   if(values.length!==1)return {error:'Widersprüchliche Produktbedingung: '+label.split('|')[0]};
