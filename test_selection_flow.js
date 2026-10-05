@@ -452,3 +452,10 @@ assert(!b.detailScreenshotData(badgeQuote.replace('WKN-Bildprüfung: PJ9NB9','')
 assert(!b.detailScreenshotData(badgeQuote.replace('PJONB9 13','AB1234 13'),'DE000PJ9NB98').ok);
 assert(!b.detailScreenshotData(badgeQuote,'DE000PJ9NCK0').ok);
 console.log('Focused badge evidence resolves only confusable same-image WKN readings');
+
+const refreshed={isin:'DE000PJ9NB98',productDirection:'LONG',price:13.07,leverage:28.28,ko:3996.2705,snapshot:{isin:'DE000PJ9NB98',identityBasis:'WKN',direction:'LONG',evidence:{Kurs:{value:13.08},Hebel:{value:28.25},KO:{value:3996.2705}}},quote:{isin:'DE000PJ9NB98',productVerified:true,direction:'LONG',price:13.07,leverage:28.28}};
+assert(b.automaticIdentity(refreshed));
+assert(!b.automaticIdentity({...refreshed,quote:{...refreshed.quote,productVerified:false}}));
+assert(!b.automaticIdentity({...refreshed,price:99}));
+assert(!b.automaticIdentity({...refreshed,ko:4000}));
+assert(!b.automaticIdentity({...refreshed,quote:{...refreshed.quote,direction:'SHORT'}}));
