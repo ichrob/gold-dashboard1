@@ -137,4 +137,8 @@ assert(!autoStatus.complete);
 assert.equal(autoShot.terms.strike.at,null);
 assert(!b.automaticCondition({source:'image',value:0},'ratio'));
 assert(!b.automaticCondition({source:'image',value:.1,conflict:true},'ratio'));
+const autoQuote=b.detailScreenshotData('WKN FG5NMF\nTyp Call\nGeld 4,69 EUR\nBrief 4,70 EUR','DE000FG5NMF2');
+const quoteProduct={isin:autoQuote.isin,productDirection:'LONG',price:4.7,snapshot:b.mergeScreenshotEvidence(null,autoQuote,'quote.jpg')};
+assert(b.automaticIdentity(quoteProduct));
+assert(!b.automaticIdentity({...quoteProduct,price:4.8}));
 console.log('Automatic image acceptance without user flag; wrong identity, edits and missing evidence remain blocked');

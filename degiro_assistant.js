@@ -1204,7 +1204,7 @@ function automaticIdentity(p){
  if(!image&&!issuer)return false;
  if(image){
   if(x.direction&&p.productDirection!==x.direction)return false;
-  for(const [field,key]of Object.entries({price:'Kurs',leverage:'Hebel',ko:'KO',spread:'Spread'})){
+  for(const [field,key]of Object.entries({price:'Kurs',leverage:'Hebel',ko:'KO'})){
    const e=x.evidence?.[key];if(e&&n(p[field])!==n(e.value))return false;
   }
  }
