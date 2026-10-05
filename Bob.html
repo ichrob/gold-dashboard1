@@ -278,7 +278,7 @@ try{
 <div class="analysis-block neutral"><span>MTF-Bestätigung</span><b id="blockMtf">NEUTRAL</b><small id="blockMtfNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Volatilität</span><b id="blockVolatility">NEUTRAL</b><small id="blockVolatilityNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Marktstruktur</span><b id="blockStructure">NEUTRAL</b><small id="blockStructureNote">Daten fehlen</small></div>
-</div><details open style="margin-top:12px"><summary><b>Intraday · 1 bis wenige Stunden · Test</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">15m Richtung, 5m Einstieg mit zwei Schlusskerzen. Früher Ausstieg und nachgezogener Stop werden separat getestet. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div>
+</div><details open style="margin-top:12px"><summary><b>Intraday · aktive Analyse + Vergleichstest</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">Aktiv: 1h Richtung, 15m Bestätigung, 5m Einstieg mit zwei Schlusskerzen; 4h nur Hintergrund. Startwerte: EMA 20/50/200, RSI 14, MACD 12/26/9, ATR 14, ADX mindestens 20. Neue Signale Mo–Fr 08:00–21:30; Tagesende-Hinweis ab 21:45 (Zürich). Produkt-Handelszeiten zusätzlich prüfen. Darunter bleibt die bisherige 15m/5m-Testvariante getrennt erhalten. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div>
 <details style="margin-top:10px"><summary>Warum entscheidet Bob so?</summary><div id="decisionExplanation" class="small" style="white-space:pre-line">Noch keine bestätigte Analyse.</div></details>
 <div id="quickReason" class="small" style="margin-top:10px">Lade Daten, um das Setup zu bewerten.</div>
 
@@ -517,7 +517,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     reasons:flow.notApproved?.find(x=>x.isin===p.isin)?.reasons||[],
     selection:flow.groups.flatMap(g=>g.candidates).find(x=>x.isin===p.isin)||null};
   });
-  const payload={direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,barAt:state.barAt,
+  const payload={ruleVersion:'intraday-1h-15m-5m-v1',direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,barAt:state.barAt,
    price:bundle?.spots?.xaus,priceAt:bundle?.spots?.spot_price_as_of,score:state.score,
    reason:state.reason,indicators:state.indicators,products:items,selection:[...selected],gateReasons:flow.gateReasons};
   const signature=JSON.stringify([state.dir,state.shadowDirection,state.barAt,state.reason,items,flow.gateReasons]);
@@ -937,18 +937,19 @@ function timeframeScore(bars,tf=""){
   return {dir,score,rsi:R,fresh:timing.fresh,ageWarning:timing.label,price:a.at(-1),openTime:closed.at(-1).openTime,components,available:true,fullHistory:a.length>=200};
 }
 function buildMtfHierarchy(byTf,valid=true){
- const h=byTf||{}, d4=h["4h"]?.dir, d1=h["1h"]?.dir, d15=h["15m"]?.dir, d5=h["5m"]?.dir;
- if(!valid||![d4,d1,d15,d5].every(Boolean))return {overall:"NEUTRAL",bias:0,roles:{regime:d4||"NEUTRAL",trend:d1||"NEUTRAL",setup:d15||"NEUTRAL",timing:d5||"NEUTRAL"},reason:"MTF unvollständig"};
- const sign=d=>d==="LONG"?1:d==="SHORT"?-1:0;
- const regime=sign(d4),trend=sign(d1),setup=sign(d15),timing=sign(d5);
- // 4h defines regime, 1h defines primary trend. Lower timeframes refine rather than override them.
- if(regime!==0&&trend!==0&&regime!==trend)return {overall:"NEUTRAL",bias:0,roles:{regime:d4,trend:d1,setup:d15,timing:d5},reason:"4h/1h widersprüchlich"};
- const primary=trend||regime;
- if(primary===0)return {overall:"NEUTRAL",bias:0,roles:{regime:d4,trend:d1,setup:d15,timing:d5},reason:"Kein übergeordneter Trend"};
- if(setup===-primary)return {overall:"NEUTRAL",bias:0,roles:{regime:d4,trend:d1,setup:d15,timing:d5},reason:"15m Setup gegen Haupttrend"};
- if(timing===-primary)return {overall:"NEUTRAL",bias:0,roles:{regime:d4,trend:d1,setup:d15,timing:d5},reason:"5m Timing gegen Haupttrend"};
- const bias=(regime*0.35+trend*0.35+setup*0.20+timing*0.10);
- return {overall:primary===1?"LONG":"SHORT",bias,roles:{regime:d4,trend:d1,setup:d15,timing:d5},reason:"4h Regime · 1h Trend · 15m Setup · 5m Timing"};
+ const h=byTf||{},roles={regime:h['4h']?.dir||'NEUTRAL',trend:h['1h']?.dir||'NEUTRAL',setup:h['15m']?.dir||'NEUTRAL',timing:h['5m']?.dir||'NEUTRAL'};
+ const result=(overall,reason)=>({overall,bias:overall==='LONG'?1:overall==='SHORT'?-1:0,roles,reason});
+ if(!valid||!['1h','15m','5m'].every(tf=>h[tf]?.dir&&h[tf].available!==false&&h[tf].fresh!==false))return result('NEUTRAL','Intraday-MTF unvollständig oder veraltet');
+ if(!['LONG','SHORT'].includes(roles.trend))return result('NEUTRAL','1h-Richtung neutral');
+ if(roles.setup!==roles.trend)return result('NEUTRAL','15m bestätigt die 1h-Richtung nicht');
+ if(roles.timing!==roles.trend)return result('NEUTRAL','5m-Einstieg bestätigt die 1h-Richtung nicht');
+ return result(roles.trend,'Intraday: 1h Richtung · 15m Bestätigung · 5m Einstieg · 4h nur Hintergrund');
+}
+function intradaySession(now=Date.now()){
+ const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Zurich',weekday:'short',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now)).map(p=>[p.type,p.value]));
+ const minute=Number(parts.hour)*60+Number(parts.minute),weekday=!['Sat','Sun'].includes(parts.weekday);
+ return {entryAllowed:weekday&&minute>=480&&minute<1290,closeReminder:weekday&&minute>=1305,date:parts.year+'-'+parts.month+'-'+parts.day,
+ reason:'Bob-Intraday-Zeitplan: neue Signale Mo–Fr 08:00–21:30, Tagesende-Hinweis ab 21:45 (Zürich). Produkt-Handelszeiten zusätzlich prüfen; keine automatische Schließung.'};
 }
 function aggregateBrowserBars(bars, minutes){
  const base=({15:5,240:60})[minutes];if(!base)return [];
@@ -1006,7 +1007,7 @@ function analysisAgeWarnings(){
  if(bundle){const a=dataAge(bundle.spots?.spot_price_as_of);if(!a.fresh||bundle.spots?.spot_error)warnings.push('Goldpreis: '+(a.label||'Aktualität von Quelle nicht bestätigt'));}
  const tf=$('tf')?.value||'15m',limit={'5m':1200000,'15m':2700000,'1h':10800000}[tf]||10800000;
  if(C.length){const a=dataAge(C.at(-1).openTime,limit);if(!a.fresh)warnings.push('Technikhistorie: '+a.label);}
- for(const [tf,z] of Object.entries(MTF?.byTf||{})){const a=dataAge(z.openTime,{'5m':1200000,'15m':2700000,'1h':10800000,'4h':43200000}[tf]);if(z.available&&!a.fresh)warnings.push(tf+': '+a.label);}
+ for(const [tf,z] of Object.entries(MTF?.byTf||{})){if(tf==='4h')continue;const a=dataAge(z.openTime,{'5m':1200000,'15m':2700000,'1h':10800000,'4h':43200000}[tf]);if(z.available&&!a.fresh)warnings.push(tf+': '+a.label);}
  return warnings;
 }
 function renderAnalysisAge(){
@@ -1113,14 +1114,14 @@ async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
   }
   const byTf=Object.fromEntries(results.map(x=>[x[0],x[2]]));
   const dirs=[byTf["4h"]?.dir,byTf["1h"]?.dir,byTf["15m"]?.dir,byTf["5m"]?.dir];
-  const valid=results.every(([,id,z])=>z.available);
+  const valid=results.filter(([tf])=>tf!=='4h').every(([,id,z])=>z.available&&z.fresh);
   const mtfHierarchy=buildMtfHierarchy(byTf,valid);
   const overall=mtfHierarchy.overall;
   $("quickMtf").textContent=overall;
   reportBobDiag("mtf:success",{bars5m:(tfBars["5m"]||[]).length,bars15m:(tfBars["15m"]||[]).length,bars1h:(tfBars["1h"]||[]).length,bars4h:(tfBars["4h"]||[]).length,available:valid,overall,historyStatus:bundle.history?.data_state?.status||"unknown",source:bundle.history?.data_state?.source||"unknown"});
-  const strength=overall!=="NEUTRAL"?(overall==="LONG"?dirs.filter(d=>d==="LONG").length:dirs.filter(d=>d==="SHORT").length)+"/4 bestätigt":"Keine widerspruchsfreie 4-Zeiten-Hierarchie";
+  const strength=overall!=="NEUTRAL"?"3/3 Intraday-Zeitebenen bestätigt":"1h/15m/5m noch nicht gemeinsam bestätigt";
   const mtfSummary=$("mtfSummary");
-  if(mtfSummary)mtfSummary.innerHTML="<b>"+overall+"</b><br>"+longs+" LONG · "+shorts+" SHORT · "+neutral+" NEUTRAL · "+strength+"<br><span class=\"small\">4h basiert jetzt auf echter 1h-Historie und wird nur mit mindestens 200 geschlossenen 4h-Kerzen bewertet.</span>";
+  if(mtfSummary)mtfSummary.innerHTML="<b>"+overall+"</b><br>"+longs+" LONG · "+shorts+" SHORT · "+neutral+" NEUTRAL · "+strength+"<br><span class=\"small\">Intraday: 1h Richtung, 15m Bestätigung, 5m Einstieg. 4h bleibt Hintergrund ohne Veto.</span>";
   MTF={longs,shorts,neutral,overall,byTf,dirs,hierarchy:mtfHierarchy};
   // Server-side verification is the authoritative runtime check for the MTF pipeline.
   const verifyController=new AbortController(),verifyTimer=setTimeout(()=>verifyController.abort(),8000);
@@ -1142,7 +1143,7 @@ async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
      $(id).textContent=label+(z.ageWarning?" · "+z.ageWarning:"");$(id).style.fontStyle=z.fresh===false?"italic":""; $(id).className=z.dir==="LONG"?"ok":z.dir==="SHORT"?"bad":"neutral";
     }
     const vd=["4h","1h","15m","5m"].map(tf=>r[tf]?.dir);
-    MTF={longs:vd.filter(x=>x==="LONG").length,shorts:vd.filter(x=>x==="SHORT").length,neutral:vd.filter(x=>x==="NEUTRAL").length,overall:v.overall||"NEUTRAL",byTf:r,dirs:vd};
+    MTF={longs:vd.filter(x=>x==="LONG").length,shorts:vd.filter(x=>x==="SHORT").length,neutral:vd.filter(x=>x==="NEUTRAL").length,overall:buildMtfHierarchy(r).overall,byTf:r,dirs:vd};
     $("quickMtf").textContent=MTF.overall;
     const mtfSummary=$("mtfSummary");
     if(mtfSummary)mtfSummary.innerHTML="<b>"+MTF.overall+"</b><br>"+MTF.longs+" LONG · "+MTF.shorts+" SHORT · "+MTF.neutral+" NEUTRAL · Server-verifiziert";
@@ -1397,18 +1398,24 @@ function renderIntraday(){
  if(intradayCache?.bundle===liveBundleCache&&intradayCache.key===cacheKey)return;
  const state=window.BobSession?.expired()?{version:'intraday-v1',mode:'shadow',available:false,direction:'NEUTRAL',reason:'Anmeldung erforderlich'}:intradayState(liveBundleCache,tradeMgmt);window.BobIntradayState=state;
  const time=state.barAt?new Date(state.barAt+300000).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'}):'nicht verfügbar';
- let text='TESTVARIANTE · keine zusätzliche Produktfreigabe\nIntraday: '+(state.direction==='NEUTRAL'?'ABWARTEN':state.direction)+' · 5m-Kerzenschluss '+time+'\n'+state.reason;
+ const session=intradaySession();
+ let text='AKTIV: '+(signalState.dir||'NEUTRAL')+' · '+(signalState.reason||'Bestätigung fehlt')+(tradeMgmt?.active&&session.closeReminder?'\nTAGESENDE: Position bei DEGIRO schließen prüfen; keine automatische Order.':'')+'\n\nVERGLEICHSTEST 15m/5m · keine zusätzliche Produktfreigabe\nIntraday: '+(state.direction==='NEUTRAL'?'ABWARTEN':state.direction)+' · 5m-Kerzenschluss '+time+'\n'+state.reason;
  if(state.available)text+='\n15m: '+state.setup+' · 5m: '+state.timing+' · 1h-Kontext: '+state.hour+(state.countertrend?' · Gegenbewegung zum 1h-Trend':'')+'\n4h: Hintergrund, kein Veto';
  if(tradeMgmt?.active)text+='\nTrade-Test: '+state.tradeAction+' · '+(state.exitReason||state.reason)+(Number.isFinite(state.suggestedStop)?'\nStop-Vorschlag im Test: '+activeTradeLevel(state.suggestedStop):'');
  out.textContent=text;intradayCache={bundle:liveBundleCache,key:cacheKey};
 }
 
 function fiveMinuteConfirmation(bundle,now=Date.now()){
- const source=bundle?.history?.bars_by_tf||{},steps={'5m':300000,'15m':900000,'1h':3600000,'4h':14400000};
+ const source=bundle?.history?.bars_by_tf||{},steps={'5m':300000,'15m':900000,'1h':3600000};
  const bars={};
  for(const [tf,step] of Object.entries(steps)){
   bars[tf]=(source[tf]||[]).filter(b=>b.instrument==='XAU/USD'&&!b.isOpen&&Number.isFinite(b.openTime)&&b.openTime+step<=now&&['open','high','low','close'].every(k=>Number.isFinite(b[k])&&b[k]>0)).sort((a,b)=>a.openTime-b.openTime);
   if(new Set(bars[tf].map(b=>b.openTime)).size!==bars[tf].length)return {dir:'NEUTRAL',count:0,pending:'NEUTRAL',reason:'Ungültige Daten: doppelte Kerzenzeiten in '+tf};
+ }
+ for(const [tf,rows] of Object.entries(bars)){
+  const step=steps[tf];
+  if(rows.some(b=>b.openTime%step||b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)))return {dir:'NEUTRAL',reason:tf+': unplausible Kerzendaten'};
+  if(rows.slice(-20).some((b,i,a)=>i&&b.openTime-a[i-1].openTime!==step))return {dir:'NEUTRAL',reason:tf+': Lücke in den letzten 20 Kerzen'};
  }
  const samples=[];
  for(const bar of bars['5m'].slice(199)){
@@ -1425,15 +1432,17 @@ function fiveMinuteConfirmation(bundle,now=Date.now()){
   const hierarchy=buildMtfHierarchy(byTf,true);
   let reason=raw==='NEUTRAL'?'5m-Kursindikatoren neutral oder widersprüchlich':'';
   if(raw!==hierarchy.overall){reason=[reason,'Zeitebenen bestätigen die Richtung nicht: '+hierarchy.reason].filter(Boolean).join(' · ');raw='NEUTRAL';}
+  if(adxCalc(history['15m'])<20){raw='NEUTRAL';reason='15m-Seitwärtsphase: ADX unter 20';}
   const atr=rows.slice(-14).reduce((sum,b,i)=>{const previous=rows.at(-15+i)?.close??b.open;return sum+Math.max(b.high-b.low,Math.abs(b.high-previous),Math.abs(b.low-previous));},0)/14;
   const previous=rows.slice(-21,-1),res=Math.max(...previous.map(b=>b.high)),sup=Math.min(...previous.map(b=>b.low));
   if(raw==='LONG'&&bar.close>res+atr*.15&&rows.at(-2).close<=res||raw==='SHORT'&&bar.close<sup-atr*.15&&rows.at(-2).close>=sup){raw='NEUTRAL';reason='Ausbruch noch unbestätigt – weitere geschlossene Kerze abwarten';}
   samples.push({at:bar.openTime,valid:true,dir:raw,reason,score:50+50*collective,components});
  }
  const result=confirmClosedSignals(samples),latest=bars['5m'].at(-1);
- if(!latest||now-latest.openTime>1200000)return {dir:'NEUTRAL',count:0,pending:'NEUTRAL',reason:!latest?'5m-Daten fehlen: keine gültige geschlossene Gold-Kerze':'5m-Daten veraltet: letzter Kerzenbeginn '+new Date(latest.openTime).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)'};
+ if(!latest||now-latest.openTime>600000)return {dir:'NEUTRAL',count:0,pending:'NEUTRAL',reason:!latest?'5m-Daten fehlen: keine gültige geschlossene Gold-Kerze':'5m-Daten veraltet: letzter Kerzenbeginn '+new Date(latest.openTime).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)'};
  if(!samples.at(-1)?.valid)return {dir:'NEUTRAL',count:0,pending:'NEUTRAL',reason:'Fehlende oder unvollständige Angaben: '+(samples.at(-1)?.reason||'5m: '+bars['5m'].length+'/200 geschlossene Kerzen')};
  const detail=samples.at(-1)?.reason;
+ if(samples.at(-1).dir==='NEUTRAL')return {...result,dir:'NEUTRAL',shadowDirection:'NEUTRAL',score:samples.at(-1).score,components:samples.at(-1).components,scoreAt:latest.openTime+300000,reason:detail||'Intraday-Bestätigung fehlt'};
  const confirmation=result.count?'Wechsel zu '+(result.pending==='NEUTRAL'?'ABWARTEN':result.pending)+': erst 1 von 2 geschlossenen 5m-Kerzen bestätigt':result.dir==='NEUTRAL'?'ABWARTEN – kein bestätigtes Richtungssignal':'2 geschlossene 5m-Kerzen · Richtung bestätigt';
  return {...result,score:samples.at(-1).score,components:samples.at(-1).components,scoreAt:latest.openTime+300000,shadowDirection:confirmClosedSignals(samples,3).dir,reason:[confirmation,detail].filter(Boolean).join(' · ')};
 }
@@ -1443,6 +1452,7 @@ function confirmedSignalDirection(){
   A.score=null;signalState={dir:'NEUTRAL',pending:'NEUTRAL',count:0,score:null,reason:reasons.join(' · ')};window.BobDecisionAuditState={...signalState,barAt:C.at(-1)?.openTime};renderDecisionExplanation();return 'NEUTRAL';
  }
  signalState=fiveMinuteConfirmation(liveBundleCache);
+ const session=intradaySession();if(!session.entryAllowed)signalState={...signalState,dir:'NEUTRAL',shadowDirection:'NEUTRAL',reason:session.reason};
  A.score=Number.isFinite(signalState.score)?signalState.score:null;
  window.BobDecisionAuditState={...signalState,barAt:signalState.lastAt??C.at(-1)?.openTime,score:A.score,indicators:{mtf:getMtfState(),atr:A.at,rsi:A.R,ema20:A.e20,ema50:A.e50,ema200:A.e200,macd:A.macd,signal:A.sig}};
  renderDecisionExplanation();
@@ -1453,8 +1463,8 @@ function renderDecisionExplanation(){
  const state=signalState,active=['LONG','SHORT'].includes(state.dir),m=getMtfState().byTf||{};
  const frames=['5m','15m','1h','4h'].map(tf=>tf+': '+(m[tf]?.available?m[tf].dir:'Angaben fehlen')).join(' · ');
  const why=active?'Bestätigte Richtung '+state.dir+' aus zwei aufeinanderfolgenden geschlossenen 5m-Kerzen. EMA, MACD und RSI werden als gemeinsames Kurskollektiv bewertet.': 'Keine bestätigte Richtung: '+(state.reason||'Angaben fehlen');
- const against=state.count?'Ein Wechsel zu '+(state.pending==='NEUTRAL'?'ABWARTEN':state.pending)+' zeichnet sich ab; erst 1 von 2 Kerzen bestätigt. Die bisherige Richtung bleibt bis zur Bestätigung bestehen.':active?'Kein ausstehender Richtungswechsel in der aktuellen Prüfung. Das ist keine Garantie für den weiteren Kursverlauf.':state.reason;
- out.textContent='Warum diese Richtung?\n'+why+'\n'+frames+'\n\nWas spricht dagegen / ist unsicher?\n'+against+'\n\nWann entfällt die Richtungsfreigabe?\nBei zwei geschlossenen 5m-Kerzen für ABWARTEN oder die Gegenrichtung. Bei fehlenden, ungültigen oder veralteten erforderlichen Daten sofort. Ein Produkt benötigt zusätzlich seine eigenen Nachweise und Risikoprüfungen.';
+ const against=state.dir==='NEUTRAL'?state.reason:state.count?'Ein Wechsel zu '+(state.pending==='NEUTRAL'?'ABWARTEN':state.pending)+' zeichnet sich ab; erst 1 von 2 Kerzen bestätigt. Die bisherige Richtung bleibt bis zur Bestätigung bestehen.':active?'Kein ausstehender Richtungswechsel in der aktuellen Prüfung. Das ist keine Garantie für den weiteren Kursverlauf.':state.reason;
+ out.textContent='Warum diese Richtung?\n'+why+'\n'+frames+'\n\nWas spricht dagegen / ist unsicher?\n'+against+'\n\nWann entfällt die Richtungsfreigabe?\nSofort bei fehlender Intraday-Bestätigung oder außerhalb des Bob-Zeitplans; eine neue Richtung benötigt zwei geschlossene 5m-Kerzen. Bei fehlenden, ungültigen oder veralteten erforderlichen Daten sofort. Ein Produkt benötigt zusätzlich seine eigenen Nachweise und Risikoprüfungen.';
 }
 function updateResearchPanel(){
  const reg=currentRegime(); if($("regime"))$("regime").textContent=reg;

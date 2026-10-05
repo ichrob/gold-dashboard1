@@ -193,13 +193,13 @@ def analyse(five,hourly,market_at,now=None):
     now=now or datetime.now(timezone.utc)
     frames={tf:frame(rows,minutes,now) for tf,rows,minutes in
             [('5m',five,5),('15m',aggregate(five,5,15),15),('1h',hourly,60),('4h',aggregate(hourly,60,240),240)]}
-    valid=all(v['available'] for v in frames.values())
-    directions=[v['direction'] for v in frames.values()]
+    valid=all(frames[tf]['available'] for tf in ('5m','15m','1h'))
+    directions=[frames[tf]['direction'] for tf in ('5m','15m','1h')]
     overall=directions[0] if valid and directions[0] in ('LONG','SHORT') and len(set(directions))==1 else 'NEUTRAL'
     market_structure,fib=structure(five[-200:])
     f5,f1=frames['5m'],frames['1h']
     expires=min([now.timestamp()+180,market_at+1800]+[
-        datetime.fromisoformat(v['expiresAt']).timestamp() for v in frames.values() if v['available']])
+        datetime.fromisoformat(v['expiresAt']).timestamp() for tf,v in frames.items() if tf!='4h' and v['available']])
     blocks=dict(trend=f1.get('trend','NEUTRAL'),momentum=f5.get('momentum','NEUTRAL'),
                 fibonacci=fib['direction'],mtf=overall,volatility='NEUTRAL',marketStructure=market_structure)
     return dict(contract=CONTRACT,available=valid,direction=overall,frames=frames,blocks=blocks,
@@ -207,7 +207,7 @@ def analyse(five,hourly,market_at,now=None):
                 source='Yahoo Finance · GCZ26.CMX · verzögerte Börsenhistorie',
                 sourceUrl='https://finance.yahoo.com/quote/GCZ26.CMX/',technicalSourceFamilies=1,
                 checkedAt=now.isoformat(),expiresAt=datetime.fromtimestamp(expires,timezone.utc).isoformat(),
-                reason='MTF bestätigt auf abgeschlossenen GCZ26-Kerzen' if overall!='NEUTRAL' else 'ABWARTEN: Kontrakt-MTF unvollständig oder uneinheitlich',
+                reason='Intraday-MTF 1h/15m/5m bestätigt auf abgeschlossenen GCZ26-Kerzen; 4h nur Hintergrund' if overall!='NEUTRAL' else 'ABWARTEN: Kontrakt-MTF unvollständig oder uneinheitlich',
                 note='Spot-Kursschätzung zählt nicht als zusätzliche technische Bestätigung. Historie ist verzögert.')
 
 

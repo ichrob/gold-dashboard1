@@ -131,6 +131,11 @@ def advance(previous, settings, market, general, trade_enabled, now=None):
     if positive(t.get('target')):
         old['target'] = (max if t['dir']=='LONG' else min)(old.get('target') or t['target'], t['target'])
     state['trade'] = old
+    session = market.get('session') or {}
+    if session.get('closeReminder') and session.get('date') and old.get('intradayEndDate') != session['date']:
+        add('intraday-end', 'INTRADAY · Tagesende', 'Bobs Tagesende-Zeit 21:45 (Zürich) ist erreicht. Offene Position und Schließung bei DEGIRO prüfen. Produkthandelszeiten können abweichen. Keine automatische Order.')
+        old['intradayEndDate'] = session['date']
+        events[-1]['tag'] = 'bob-intraday-end-' + t['tradeId']
     if not market.get('priceFresh') or not positive(market.get('price')):
         return state, events
     p, stop, entry, risk = market['price'], old['stop'], t['entry'], t['initialRisk']

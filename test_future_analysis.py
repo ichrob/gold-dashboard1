@@ -64,3 +64,17 @@ class HistoryTests(unittest.TestCase):
   self.assertEqual(out['direction'],'NEUTRAL') # monotonic RSI overbought, no invented long
   with patch.object(a,'_state',out):
    self.assertFalse(a.current(NOW+timedelta(seconds=181))['available'])
+
+class IntradayPolicyTests(unittest.TestCase):
+ def test_four_hour_context_does_not_veto(self):
+  def fake_frame(rows,minutes,now):
+   return dict(available=minutes!=240,direction='LONG' if minutes!=240 else 'SHORT',trend='LONG',momentum='LONG',expiresAt=(NOW+timedelta(hours=1)).isoformat())
+  with patch.object(a,'frame',side_effect=fake_frame):
+   result=a.analyse(rows(900,300),rows(300,3600),T,NOW)
+  self.assertTrue(result['available']);self.assertEqual(result['direction'],'LONG')
+ def test_missing_hour_blocks(self):
+  def fake_frame(rows,minutes,now):
+   return dict(available=minutes!=60,direction='LONG',expiresAt=(NOW+timedelta(hours=1)).isoformat())
+  with patch.object(a,'frame',side_effect=fake_frame):
+   result=a.analyse(rows(900,300),[],T,NOW)
+  self.assertFalse(result['available']);self.assertEqual(result['direction'],'NEUTRAL')

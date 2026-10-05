@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timezone
 
 VERSION = 'decision-audit-v1'
+RULE_VERSION = 'intraday-1h-15m-5m-v1'
 
 def milliseconds(value):
     try:
@@ -33,7 +34,7 @@ def normalize(payload, now=None):
         raise ValueError('Entscheidungs-Kerzenzeit fehlt oder liegt in der Zukunft')
     # Only explicitly whitelisted evidence; never account credentials or raw images.
     result = {k: payload.get(k) for k in ('direction','shadowDirection','intraday','barAt','price','priceAt','reason','score','indicators','products','selection','gateReasons')}
-    result.update(version=VERSION, ruleVersion='signal-5m-two-closes-v1', build=os.environ.get('RENDER_GIT_COMMIT','local'), origin=payload.get('origin','browser'), recordedAt=now)
+    result.update(version=VERSION, ruleVersion=RULE_VERSION if payload.get('ruleVersion')==RULE_VERSION else 'signal-5m-two-closes-v1', build=os.environ.get('RENDER_GIT_COMMIT','local'), origin=payload.get('origin','browser'), recordedAt=now)
     if result['origin'] not in ('browser','background'):
         raise ValueError('Ungültige Protokollquelle')
     if result.get('shadowDirection') not in ('LONG','SHORT','NEUTRAL'):
@@ -45,7 +46,7 @@ def normalize(payload, now=None):
     at = milliseconds(result.get('priceAt'))
     result['marketEvaluable'] = positive(result.get('price')) and at is not None and 0 <= now-at <= 180000
     # Each decision revision is frozen once. Refreshes with unchanged evidence are idempotent.
-    identity={k:result[k] for k in ('version','origin','direction','shadowDirection','intraday','barAt','reason','products','selection','gateReasons')}
+    identity={k:result[k] for k in ('version','ruleVersion','origin','direction','shadowDirection','intraday','barAt','reason','products','selection','gateReasons')}
     key=hashlib.sha256(json.dumps(identity,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     return key,result
 
@@ -75,6 +76,8 @@ def outcome(record, truth, horizon):
             'intradayPct':score((record.get('intraday') or {}).get('direction')) if (record.get('intraday') or {}).get('available') else None,'shadowPct':score(record.get('shadowDirection')),'at':truth['at']}
 
 def summarize(rows):
+    legacy_count=sum(r.get('ruleVersion')!=RULE_VERSION for r,_ in rows)
+    rows=[(r,t) for r,t in rows if r.get('ruleVersion')==RULE_VERSION]
     metrics={str(h):{'evaluated':0,'favorable':0,'unfavorable':0,'flat':0,'neutral':0,'missing':0,'directionalSumPct':0} for h in (15,60,240)}
     intraday_metrics={h:dict(m) for h,m in metrics.items()}
     seen=set();pairs=[];issues={};latest=[r for r,_ in rows[:30]]
@@ -109,7 +112,7 @@ def summarize(rows):
     train_delta=improvement(train);test_delta=improvement(holdout)
     ready=len(train)>=100 and len(holdout)>=100
     better=ready and train_delta>0 and test_delta>0
-    return {'intraday':intraday_metrics,'metrics':metrics,'latest':latest,'issues':sorted(issues.items(),key=lambda x:-x[1])[:8],
+    return {'ruleVersion':RULE_VERSION,'legacyCount':legacy_count,'intraday':intraday_metrics,'metrics':metrics,'latest':latest,'issues':sorted(issues.items(),key=lambda x:-x[1])[:8],
         'learning':{'mode':'Schattenvergleich: 2 gegen 3 Bestätigungskerzen','samples':len(spaced),
                     'training':len(train),'holdout':len(holdout),'ready':ready,'candidateBetter':better,
                     'trainingDeltaPct':train_delta,'holdoutDeltaPct':test_delta,
@@ -143,7 +146,7 @@ def report(conn):
       FROM bob_decision_audit a ORDER BY a.recorded_at DESC LIMIT 10000""").fetchall()
     result=summarize([(row[0],row[1:]) for row in rows])
     result['total']=conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0]
-    result['scope']='Letzte 10000 Protokolle / bis 30 Tage; Gold-Richtung ohne Handelskosten, kein Gewinnnachweis'
+    result['scope']='Aktuelle Intraday-Regel; frühere Regeln getrennt ('+str(result['legacyCount'])+' ältere Protokolle). Bis 30 Tage; Gold-Richtung ohne Handelskosten, kein Gewinnnachweis'
     result['productReview']=product_review([row[0] for row in rows[:1500]])
     research=[];seen=set()
     for row in rows:

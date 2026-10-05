@@ -136,3 +136,12 @@ class BackgroundDelivery(PushMonitorTests):
             self.assertTrue(any('UPDATE subscriptions SET background_state' in c.args[0] for c in conn.execute.call_args_list))
 
 if __name__=='__main__':unittest.main()
+
+class IntradayEndTests(unittest.TestCase):
+ def test_daily_reminder_once_even_without_prices(self):
+  settings=b.config({'trade':{'active':True,'tradeId':'end','instrument':'XAU/USD','dir':'LONG','entry':100,'stop':90,'initialRisk':10}})
+  market={'ready':False,'priceFresh':False,'session':{'closeReminder':True,'date':'2026-10-05'}}
+  state,events=b.advance({},settings,market,False,True)
+  self.assertIn('intraday-end',[e['data']['eventKind'] for e in events])
+  self.assertEqual(b.advance(state,settings,market,False,True)[1],[])
+  self.assertEqual(b.advance({},settings,market,False,False)[1],[])
