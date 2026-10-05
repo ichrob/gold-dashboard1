@@ -94,8 +94,9 @@ assert.equal(unconfirmed.values.ratio,undefined);
 console.log('Mobile evidence summary and unconfirmed value distinction passed');
 
 const compact=b.compactProductCard({isin:'DE000FG4JXV7',index:1,productDirection:'SHORT',snapshot:{terms:{ratio:{value:.1},strike:{value:4460}}}},['Geld fehlt','Brief fehlt']);
-assert(compact.includes('Erkannte Zahlen geprüft – stimmen überein'));
-assert(compact.includes('data-card-confirm="1"'));assert(compact.includes('data-selection-upload="1"'));
+assert(compact.includes('Automatisch erkannte Werte'));
+assert(!compact.includes('data-card-confirm'));
+assert(compact.includes('data-selection-upload="1"'));
 assert(compact.includes('Quellen und Einzelheiten'));assert(compact.includes('/product-details/fg4jxv'));
 assert.equal((compact.match(/Geld, Brief und Quellenzeit \(Kursdaten\)/g)||[]).length,1);
 
@@ -117,3 +118,27 @@ assert(b.recoverTermRows(conflicting,wasmCells).includes('Basispreis 4.118,0000 
 const noCurrency={words:wasmCells.words.filter(w=>w.text!=='USD')};
 assert.equal(b.recoverTermRows(wasmPrimary,noCurrency),wasmPrimary.text);
 console.log('Actual WASM table recovery, independent cells, conflicts, identity and date-only freshness passed');
+
+// Automatic acceptance derives from the matched image and unchanged evidence.
+const autoShot=b.mergeScreenshotEvidence(null,wasmTerms,'SG-Stammdaten.jpg');
+const autoProduct={isin:'DE000FG5NMF2',productDirection:'LONG',ko:4117.6769,snapshot:autoShot};
+assert(b.automaticIdentity(autoProduct));
+assert(!b.automaticIdentity({...autoProduct,ko:4100}));
+assert(!b.automaticIdentity({...autoProduct,productDirection:'SHORT'}));
+assert(!b.automaticIdentity({...autoProduct,isin:'DE000FG309G0'}));
+assert(!b.automaticIdentity({isin:'DE000FG5NMF2',isinConfirmed:true}));
+const autoStatus=b.productTermsStatus({...autoProduct,isinConfirmed:b.automaticIdentity(autoProduct)},Date.parse('2026-10-05T11:00:00Z'));
+assert.equal(autoStatus.values.ratio,.1);
+assert.equal(autoStatus.values.type,'BEST Turbo-Optionsscheine (Open-End)');
+assert.equal(autoStatus.values.maturity,'Open End');
+assert(autoStatus.reasons.some(r=>r.includes('Gold allein')));
+assert(autoStatus.reasons.some(r=>r.includes('datierter Produktnachweis')));
+assert(!autoStatus.complete);
+assert.equal(autoShot.terms.strike.at,null);
+assert(!b.automaticCondition({source:'image',value:0},'ratio'));
+assert(!b.automaticCondition({source:'image',value:.1,conflict:true},'ratio'));
+const autoQuote=b.detailScreenshotData('WKN FG5NMF\nTyp Call\nGeld 4,69 EUR\nBrief 4,70 EUR','DE000FG5NMF2');
+const quoteProduct={isin:autoQuote.isin,productDirection:'LONG',price:4.7,snapshot:b.mergeScreenshotEvidence(null,autoQuote,'quote.jpg')};
+assert(b.automaticIdentity(quoteProduct));
+assert(!b.automaticIdentity({...quoteProduct,price:4.8}));
+console.log('Automatic image acceptance without user flag; wrong identity, edits and missing evidence remain blocked');
