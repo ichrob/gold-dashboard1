@@ -145,3 +145,22 @@ class IntradayEndTests(unittest.TestCase):
   self.assertIn('intraday-end',[e['data']['eventKind'] for e in events])
   self.assertEqual(b.advance(state,settings,market,False,True)[1],[])
   self.assertEqual(b.advance({},settings,market,False,False)[1],[])
+
+class DisconnectedHttpTests(unittest.TestCase):
+    def test_closed_socket_is_not_retried_as_an_internal_push_failure(self):
+        from unittest.mock import Mock
+        for stage in ('end_headers','write'):
+            for error in (BrokenPipeError(),ConnectionResetError()):
+                h=Mock();h.headers={}
+                getattr(h if stage=='end_headers' else h.wfile,stage).side_effect=error
+                push_server.send_json(h,200,{'ok':True})
+                h.send_response.assert_called_once_with(200)
+                self.assertTrue(h.close_connection)
+        h=Mock();h.headers={};h.wfile.write.side_effect=ValueError('real bug')
+        with self.assertRaises(ValueError):push_server.send_json(h,200,{'ok':True})
+
+    def test_request_disconnect_does_not_generate_second_response(self):
+        from unittest.mock import Mock
+        h=object.__new__(push_server.Handler);h.path='/decision-audit/read';h.headers={'X-Bob-Push-Token':'test'}
+        with patch.object(push_server,'PUSH_SERVICE_TOKEN','test'),patch.object(push_server,'json_body',side_effect=ConnectionResetError()),patch.object(push_server,'send_json') as send:
+            h.do_POST();send.assert_not_called();self.assertTrue(h.close_connection)
