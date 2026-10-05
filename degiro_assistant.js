@@ -569,21 +569,26 @@ async function loadOcrWorker(statusId){
 async function retainSelectedImages(input){
  const files=Array.from(input.files||[]);
  if(!files.length)return [];
- // Read Android content-provider files before releasing the picker selection.
- try{
-  const copies=await Promise.all(files.map(async file=>{
-   let bytes;
+ const copies=[];
+ for(const file of files){
+  let bytes;
+  try{
    try{bytes=await file.arrayBuffer();}
    catch(firstError){
     if(typeof FileReader==='undefined')throw firstError;
     bytes=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(reader.error||firstError);reader.onabort=()=>reject(firstError);reader.readAsArrayBuffer(file);});
    }
-   if(!bytes.byteLength)throw new Error('Die ausgewählte Bilddatei ist leer.');
-   return new File([bytes],file.name,{type:file.type,lastModified:file.lastModified});
-  }));
-  input.value='';
-  return copies;
- }catch(_){throw new Error('Android konnte die Bilddatei nicht bereitstellen. Bitte das Bild auf dem Gerät speichern und über Dateien → Bilder erneut auswählen.');}
+  }catch(error){
+   const code=String(error?.name||'Lesefehler').replace(/[^A-Za-z0-9]/g,'').slice(0,40);
+   throw new Error('Galerie-Bild konnte nicht gelesen werden ('+code+'). Bitte die Auswahl erneut öffnen. Das Bild wurde nicht übernommen.');
+  }
+  if(!bytes?.byteLength)throw new Error('Das ausgewählte Galerie-Bild enthält keine lesbaren Daten (EMPTY_IMAGE).');
+  try{copies.push(new File([bytes],file.name,{type:file.type,lastModified:file.lastModified}));}
+  catch(_){throw new Error('Bob konnte die gelesene Bilddatei nicht zwischenspeichern (IMAGE_COPY).');}
+ }
+ // A picker reset must never discard successfully retained image bytes.
+ try{input.value='';}catch(_){}
+ return copies;
 }
 async function prepareOcrImage(file,statusId,isinPass=false){
  const status=document.getElementById(statusId||"");
@@ -1259,6 +1264,7 @@ function parseProductTerms(raw){
  raw=raw.replace(/(^|\n)[ \t]*[oOQ]{1,2}[ \t]+(?=USD\b)/g,'$1');
  // Mobile SG tables wrap the USD/date cell, sometimes above its label.
  // Join only adjacent, recognisable amount/currency fragments, never another row.
+ if(/BNP\s+Paribas|derivate\.bnpparibas\.com/i.test(raw))raw=raw.replace(/(^|\n)\s*Typ\s+(?=Unlimited\s+(?:Long|Short)\b)/gi,'$1Produkttyp ');
  // BNP places the terms date before the amount, on the same or next line.
  raw=raw.replace(/(Knock[- ]Out)\s+Schwelle/gi,'Knock-out-Schwelle');
  raw=raw.replace(/((?:Basispreis|Knock-out-Schwelle))\s*\((\d{2}\.\d{2}\.\d{4})\)\s*([\d.,]+)\s*USD\b/gi,'$1 $3 USD ($2)');
@@ -1274,7 +1280,7 @@ function parseProductTerms(raw){
  const out={},dates=Array.from(String(raw).matchAll(/(?:^|\n)\s*(?:Produktdatenstand|Bedingungenstand)\s*[:=]?\s*([^\n]+)/gi));
  if(new Set(dates.map(m=>m[1].trim())).size>1)return {error:'Widersprüchlicher Produktdatenstand'};
  const at=dates.length?sourceTimestamp(dates[0][1]):null;
- const labels={ko:'Knock-Out-Barriere|Knock-out-Schwelle',ratio:'Bezugsverhältnis|Bezugsverhaeltnis',strike:'Basispreis|Finanzierungslevel',underlying:'Basiswert|Underlying',contract:'Future-Kontrakt|Futures-Kontrakt|Kontrakt',type:'Produkttyp|Produktart|Typ',maturity:'Laufzeit|Fälligkeit|Faelligkeit',currency:'Produktwährung|Produktwaehrung',quanto:'Quanto|Währungsabsicherung'};
+ const labels={ko:'Knock-Out-Barriere|Knock-out-Schwelle',ratio:'Bezugsverhältnis|Bezugsverhaeltnis',strike:'Basispreis|Finanzierungslevel',underlying:'Basiswert|Underlying',contract:'Future-Kontrakt|Futures-Kontrakt|Kontrakt',type:'Produkttyp|Produktart',maturity:'Laufzeit|Fälligkeit|Faelligkeit',currency:'Produktwährung|Produktwaehrung',quanto:'Quanto|Währungsabsicherung'};
  for(const [key,label] of Object.entries(labels)){
   const matches=Array.from(String(raw).matchAll(new RegExp('(?:^|\\n)\\s*(?:'+label+')\\s*[:=]?\\s*([^\\n]+)','gi')));
   if(!matches.length)continue;
@@ -1702,12 +1708,13 @@ async function inject(){
   r.querySelector("#dgDetailShot"+i).addEventListener("change",async e=>{
    const input=e.target,files=Array.from(input.files||[]),isin=document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value;
    if(!files.length)return;
-   input.disabled=true;
+   const pendingImages=retainSelectedImages(input);
    const status=document.getElementById('dgOcrStatus'+i);
    if(status)status.textContent='📷 '+files.length+' Bild(er) ausgewählt. Bilddateien werden übernommen …';
-   rankUI();
    try{
-    const retained=await retainSelectedImages(input);
+    const retained=await pendingImages;
+    input.disabled=true;
+    rankUI();
     const outcomes=[];
     for(const file of retained){if(document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value!==isin)break;const result=await readScreenshot(i,file);if(result)outcomes.push({name:file.name,...result});}
     if(status&&document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value===isin&&outcomes.length){

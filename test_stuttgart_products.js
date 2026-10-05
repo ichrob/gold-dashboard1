@@ -76,7 +76,10 @@ console.log('WKN identity, same-image SG title quotes, real mobile table layout 
  assert(released);assert.equal(copies[0].name,'sg.jpg');
  assert.deepEqual(Array.from(new Uint8Array(await copies[0].arrayBuffer())),[1,2,3]);
  assert.equal((await b.retainSelectedImages({files:[]})).length,0);
- await assert.rejects(b.retainSelectedImages({files:[{arrayBuffer:async()=>{throw Error('provider denied');}}]}),/auf dem Gerät speichern/);
+ await assert.rejects(b.retainSelectedImages({files:[{arrayBuffer:async()=>{throw Error('provider denied');}}]}),/Galerie-Bild konnte nicht gelesen werden/);
+ const resetFails={files:[new File(['image'],'test.jpg')],set value(v){throw Error('reset failed');}};
+ assert.equal((await b.retainSelectedImages(resetFails))[0].name,'test.jpg');
+ await assert.rejects(b.retainSelectedImages({files:[new File([],'empty.jpg')]}),/EMPTY_IMAGE/);
  console.log('Android file retained before picker reset; cancel and read failure tested');
 })().catch(e=>{console.error(e);process.exitCode=1;});
 
