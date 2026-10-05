@@ -12,6 +12,7 @@ import estimate_quality
 import future_estimate
 import sg_quotes
 import future_analysis
+import investing_card
 
 ISIN = 'DE000FG309G0'
 _lock = threading.Lock()
@@ -161,6 +162,7 @@ def start():
     global _thread
     if not enabled():
         return
+    investing_card.start()
     import future_comparison
     future_comparison.start()
     with _lock:
@@ -174,7 +176,7 @@ def status():
     with _lock:
         report = copy.deepcopy(_report)
         running = bool(_thread and _thread.is_alive())
-    return dict(report, comparison=future_comparison.status(), enabled=enabled(), running=running,
+    return dict(report, cfdFeed=investing_card.health(), comparison=future_comparison.status(), enabled=enabled(), running=running,
                 state=report.get('state', 'starting' if enabled() else 'disabled'))
 
 
@@ -182,7 +184,7 @@ def health():
     report = status()
     # The public health check deliberately excludes prices, products, archive
     # rows and empirical errors. Detailed measurement data requires Bob auth.
-    return {k: report.get(k) for k in ('enabled', 'running', 'state', 'lastCycleAt')}
+    return {k: report.get(k) for k in ('enabled', 'running', 'state', 'lastCycleAt', 'cfdFeed')}
 
 
 PANEL = '''<section id="bobAutoCollection" style="max-width:860px;margin:16px auto;padding:18px;border-radius:16px;background:white"><h3>Automatische Future-Schätzung</h3><p id="bobAutoStatus">Messstand wird geladen …</p><div id="bobAutoGroups"></div><details id="bobFutureComparison"><summary>Spot oder Investing.com · Genauigkeitsvergleich</summary><p id="bobComparisonStatus">Vergleich startet …</p><div id="bobComparisonResults"></div><p>Spot bleibt die aktive Grundlage. Beide Modelle verwenden dieselbe GCZ26-Referenz und einen gemeinsamen Quellenzeitpunkt; nötige Zwischenwerte werden linear interpoliert. Prüfung gegen später empfangene, datierte GCZ26-Kurse (höchstens 5 Sekunden Zeitabweichung). Keine automatische Umstellung. Aufbewahrung: 7 Tage.</p></details></section><script>

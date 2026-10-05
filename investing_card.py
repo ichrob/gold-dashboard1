@@ -1,4 +1,4 @@
-"""Display-only Investing.com Gold CFD; never a GCZ26 exchange quote."""
+"""Shared background Investing.com Gold CFD feed; never a GCZ26 exchange quote."""
 import json
 import math
 import re
@@ -11,6 +11,10 @@ URL = 'https://de.investing.com/commodities/gold'
 _fetch_lock = threading.Lock()
 _cached = None
 _next_fetch = 0
+_thread = None
+_state_lock = threading.Lock()
+_health = {"state": "starting", "lastCheckedAt": None, "sourceAt": None}
+POLL_SECONDS = 30
 
 
 def numeric(value):
@@ -74,10 +78,62 @@ def fetch():
     with _fetch_lock:
         if time.monotonic() < _next_fetch:
             if _cached is None:raise OSError('CFD-Abruf pausiert nach Quellenfehler')
-            return dict(_cached)
+            return aged(_cached)
         _cached = None
-        try:
-            _cached = _fetch()
-            return dict(_cached)
-        finally:
-            _next_fetch = time.monotonic()+30
+        # Count from request start, so a six-second fetch does not accidentally
+        # turn a 30-second worker into a 60-second polling cadence.
+        _next_fetch = time.monotonic() + POLL_SECONDS
+        _cached = _fetch()
+        return aged(_cached)
+
+
+def aged(quote, now=None):
+    """Cached quotes keep the original source time and lose stale eligibility."""
+    now = time.time() if now is None else now
+    q = dict(quote)
+    age = now - datetime.fromisoformat(q['at']).timestamp()
+    if not 0 <= age <= 120:
+        q['realtimeCfd'] = False
+        q['note'] = 'CFD-Kurs nicht aktuell'
+    return q
+
+
+def collect_once():
+    try:
+        q = fetch()
+        state = 'current' if q.get('realtimeCfd') else 'stale'
+        with _state_lock:
+            _health.update(state=state, lastCheckedAt=time.time(), sourceAt=q['at'])
+        print('BOB_CFD checked state='+state+' source_at='+q['at'], flush=True)
+    except Exception as exc:
+        with _state_lock:
+            _health.update(state='unavailable', lastCheckedAt=time.time())
+        print('BOB_CFD error='+type(exc).__name__, flush=True)
+
+
+def _collect(stop=None):
+    stop = stop or threading.Event()
+    while not stop.is_set():
+        started = time.monotonic()
+        collect_once()
+        stop.wait(max(1, POLL_SECONDS-(time.monotonic()-started)))
+
+
+def start():
+    """Run independently of browser login and the 06–22 comparison window."""
+    global _thread
+    with _state_lock:
+        if _thread is None or not _thread.is_alive():
+            _thread = threading.Thread(target=_collect, name='bob-cfd-feed', daemon=True)
+            _thread.start()
+
+
+def health():
+    with _state_lock:
+        result = dict(_health, running=bool(_thread and _thread.is_alive()), intervalSeconds=POLL_SECONDS)
+    if result['sourceAt']:
+        age = time.time()-datetime.fromisoformat(result['sourceAt']).timestamp()
+        result['sourceAgeSeconds'] = round(age)
+        if result['state'] == 'current' and not 0 <= age <= 120:
+            result['state'] = 'stale'
+    return result
