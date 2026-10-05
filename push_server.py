@@ -150,8 +150,15 @@ def send_json(handler, status, payload):
     handler.send_header("Cache-Control", "no-store")
     handler.send_header("X-Content-Type-Options", "nosniff")
     cors(handler)
-    handler.end_headers()
-    handler.wfile.write(body)
+    handler.send_header("Content-Length", str(len(body)))
+    try:
+        handler.end_headers()
+        handler.wfile.write(body)
+    except (BrokenPipeError, ConnectionResetError):
+        # The request may already have committed. Never retry it or write a
+        # second error response to a disconnected caller.
+        handler.close_connection = True
+        print('BOB_PUSH_HTTP client_disconnected', flush=True)
 
 def deliver_product_selection(conn, row, checked):
     sid, sub, previous = row
@@ -266,6 +273,12 @@ def run_background(bundle):
 
 
 class Handler(BaseHTTPRequestHandler):
+    def handle(self):
+        try:
+            super().handle()
+        except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True
+
     def do_OPTIONS(self):
         self.send_response(204)
         cors(self)
@@ -293,6 +306,8 @@ class Handler(BaseHTTPRequestHandler):
                 send_json(self, 200, {"publicKey": vapid_public_key()})
                 return
             send_json(self, 404, {"error": "Not found"})
+        except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True
         except Exception as exc:
             print("push-service error:", type(exc).__name__, flush=True)
             send_json(self, 503, {"error": "Push-Service nicht bereit"})
@@ -610,6 +625,8 @@ class Handler(BaseHTTPRequestHandler):
             send_json(self, 404, {"error": "Not found"})
         except (ValueError, json.JSONDecodeError) as exc:
             send_json(self, 400, {"error": str(exc)})
+        except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True
         except Exception as exc:
             print("push-service error:", type(exc).__name__, flush=True)
             send_json(self, 500, {"error": "Interner Push-Service-Fehler"})

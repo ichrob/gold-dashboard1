@@ -184,6 +184,28 @@ def normalize_biquote_bars(payload):
     out.sort(key=lambda x: x["openTime"])
     return out
 
+def normalize_chart_points(points, minutes):
+    """Keep source candles, excluding off-grid snapshots without rounding time."""
+    step = minutes * 60
+    rows, duplicates = {}, set()
+    for p in points:
+        try:
+            ts = p['t']
+            if isinstance(ts, bool) or not isinstance(ts, (int, float)) or not math.isfinite(ts) or ts <= 0 or ts % step:
+                continue
+            prices = [p[k] for k in ('o', 'h', 'l', 'c')]
+            if any(isinstance(x, bool) for x in prices):continue
+            o, h, low, close = map(float, prices)
+            if not all(math.isfinite(x) and x > 0 for x in (o, h, low, close)) or low > min(o, close) or h < max(o, close):
+                continue
+            if ts in rows:
+                duplicates.add(ts)
+            rows[ts] = dict(openTime=int(ts*1000),open=o,high=h,low=low,close=close,isOpen=False,instrument='XAU/USD')
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+    return [row for ts,row in sorted(rows.items()) if ts not in duplicates]
+
+
 def mark_bar_state(bars, minutes):
     """Mark the currently forming bar as open; never feed it into closed-bar analysis."""
     now_ms = int(time.time() * 1000)
@@ -265,25 +287,10 @@ def build_live_bundle():
                 )
                 points = payload.get("points") if isinstance(payload, dict) else None
                 if isinstance(points, list) and points:
-                    out = []
-                    for p in points:
-                        try:
-                            ts = int(p["t"])
-                            o, h, low, close = map(float, (p["o"], p["h"], p["l"], p["c"]))
-                            if not all(v == v and v > 0 for v in (o, h, low, close)):
-                                continue
-                            out.append({
-                                "openTime": ts * 1000,
-                                "open": o,
-                                "high": h,
-                                "low": low,
-                                "close": close,
-                                "isOpen": False,
-                                "instrument": "XAU/USD",
-                            })
-                        except (KeyError, TypeError, ValueError, OverflowError):
-                            continue
-                    out.sort(key=lambda x: x["openTime"])
+                    out = normalize_chart_points(points, 5 if interval == '5m' else 60)
+                    rejected = len(points)-len(out)
+                    if rejected:
+                        print(f'BOB_HISTORY interval={interval} excluded_non_candles={rejected}',flush=True)
                     if out:
                         return out
             except Exception:
@@ -367,7 +374,7 @@ def build_live_bundle():
                 if name == "spot":
                     continue
                 remaining = max(0.0, secondary_deadline - time.monotonic())
-                if remaining <= 0:
+                if remaining <= 0 and not future.done():
                     results[name] = TimeoutError("Sekundärquelle zu langsam")
                     continue
                 try:

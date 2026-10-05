@@ -5,6 +5,8 @@ import json
 import math
 import os
 import time
+import threading
+import copy
 from datetime import datetime, timezone
 
 VERSION = 'decision-audit-v1'
@@ -137,7 +139,25 @@ def harvest(conn):
       ON CONFLICT DO NOTHING""")
     _harvest_at=time.time()
 
+_report_lock = threading.Lock()
+_report_cache = None
+_report_at = 0
+
 def report(conn):
+    # Browser startup, visibility changes and periodic refresh can overlap.
+    # Coalesce identical reports; failures never refresh the cached timestamp.
+    global _report_cache, _report_at
+    with _report_lock:
+        if _report_cache is not None and time.monotonic()-_report_at < 30:
+            return copy.deepcopy(_report_cache)
+        result = _build_report(conn)
+        result['generatedAt'] = int(time.time()*1000)
+        _report_cache = copy.deepcopy(result)
+        _report_at = time.monotonic()
+        return result
+
+
+def _build_report(conn):
     harvest(conn)
     rows=conn.execute("""SELECT a.payload,
       (SELECT truth FROM bob_decision_outcomes WHERE decision_id=a.id AND horizon=15),

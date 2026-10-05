@@ -71,3 +71,24 @@ class RuleIsolationTests(unittest.TestCase):
   self.assertEqual(report['legacyCount'],1)
   self.assertEqual(report['metrics']['60']['evaluated'],1)
   self.assertNotEqual(a.normalize(payload,now)[0],a.normalize({**payload,'ruleVersion':a.RULE_VERSION},now)[0])
+
+class ReportCoalescingTests(unittest.TestCase):
+ def setUp(self):
+  a._report_cache=None;a._report_at=0
+ def tearDown(self):
+  a._report_cache=None;a._report_at=0
+ def test_parallel_reads_share_computation_without_sharing_mutable_result(self):
+  from concurrent.futures import ThreadPoolExecutor
+  from unittest.mock import patch
+  with patch.object(a,'_build_report',return_value={'metrics':{'count':1}}) as build:
+   with ThreadPoolExecutor(max_workers=4) as pool:results=list(pool.map(lambda _:a.report(None),range(4)))
+   build.assert_called_once();results[0]['metrics']['count']=99
+   self.assertEqual(results[1]['metrics']['count'],1)
+   self.assertEqual(a.report(None)['metrics']['count'],1)
+ def test_expiry_and_errors_do_not_become_successful_cached_report(self):
+  from unittest.mock import patch
+  with patch.object(a,'_build_report',side_effect=RuntimeError('database unavailable')):
+   with self.assertRaises(RuntimeError):a.report(None)
+   self.assertIsNone(a._report_cache)
+  with patch.object(a,'_build_report',return_value={'metrics':{}}) as build,patch.object(a.time,'monotonic',side_effect=[100,131,131]):
+   a.report(None);a.report(None);self.assertEqual(build.call_count,2)
