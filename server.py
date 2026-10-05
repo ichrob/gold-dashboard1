@@ -26,6 +26,17 @@ PUSH_SERVICE_TOKEN = os.environ.get("PUSH_SERVICE_TOKEN", "")
 SIGNAL_WORKER_TOKEN = os.environ.get("SIGNAL_WORKER_TOKEN", "")
 FIB_MONITOR_HEALTH = {"configured": bool(PUSH_SERVICE_URL and PUSH_SERVICE_TOKEN), "status": "starting", "lastCheckedAt": None, "lastSuccessAt": None}
 
+def background_health():
+    """Only a completed cycle proves that background monitoring works."""
+    state = dict(FIB_MONITOR_HEALTH)
+    last = state.get("lastSuccessAt")
+    age = max(0, int(time.time()) - last) if last is not None else None
+    healthy = bool(state["configured"] and age is not None and age <= 120
+                   and state["status"] in ("active", "idle"))
+    return {"status": "ok" if healthy else "unavailable", "service": "bob-background",
+            "monitorStatus": state["status"], "lastSuccessAt": last, "ageSeconds": age}
+
+
 BASE_DIR = Path(__file__).resolve().parent
 HTML_PATH = BASE_DIR / "Bob.html"
 SW_PATH = BASE_DIR / "sw.js"
@@ -648,6 +659,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"error":str(exc)}).encode("utf-8"))
             return
+        if path == "/health/background":
+            payload = background_health()
+            body = json.dumps(payload, separators=(",", ":")).encode()
+            self.send_response(200 if payload["status"] == "ok" else 503)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if path == "/health":
             auto_collection.start()
             body = json.dumps({"status":"ok","service":"bob","fibonacciMonitor":dict(FIB_MONITOR_HEALTH),"automaticCollection":auto_collection.health()},separators=(",",":")).encode()
@@ -885,6 +905,12 @@ class Handler(BaseHTTPRequestHandler):
         # policy without generating a response body, so probes do not produce
         # false 501 errors and the private root stays private.
         path = urlparse(self.path).path
+        if path == "/health/background":
+            self.send_response(200 if background_health()["status"] == "ok" else 503)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if path == "/health":
             self.send_response(200)
             self.send_header("Cache-Control", "no-store")
@@ -1068,7 +1094,8 @@ def fibonacci_monitor_loop():
             request = Request(base+"/monitor-status", headers={"X-Bob-Push-Token":PUSH_SERVICE_TOKEN})
             with urlopen(request, timeout=10) as response:
                 active = json.loads(response.read(4096)).get("activeMonitors", 0)
-            FIB_MONITOR_HEALTH.update(status="active" if active else "idle", lastCheckedAt=int(time.time()), lastSuccessAt=int(time.time()))
+            FIB_MONITOR_HEALTH.update(status="checking", lastCheckedAt=int(time.time()))
+            background_ok = True
             print("BOB_FIB monitor_connected active="+str(active), flush=True)
             if active:
                 try:
@@ -1084,12 +1111,17 @@ def fibonacci_monitor_loop():
                         background_result=json.loads(response.read(4096))
                     print("BOB_BACKGROUND checked sent="+str(background_result.get('sent',0)),flush=True)
                 except Exception as exc:
+                    background_ok = False
                     print("BOB_BACKGROUND error="+type(exc).__name__,flush=True)
                 payload = {"barsByTf":{tf:bars.get(tf, [])[-12:] for tf in ("5m","15m","1h")}}
                 request = Request(base+"/monitor", data=json.dumps(payload).encode(), method="POST", headers={"Content-Type":"application/json","X-Bob-Push-Token":PUSH_SERVICE_TOKEN})
                 with urlopen(request, timeout=20) as response:
                     result = json.loads(response.read(4096))
                 print("BOB_FIB monitor_checked active="+str(active)+" sent="+str(result.get("sent",0)), flush=True)
+            if background_ok:
+                FIB_MONITOR_HEALTH.update(status="active" if active else "idle", lastSuccessAt=int(time.time()))
+            else:
+                FIB_MONITOR_HEALTH.update(status="unavailable")
         except Exception as exc:
             FIB_MONITOR_HEALTH.update(status="unavailable", lastCheckedAt=int(time.time()))
             print("BOB_FIB monitor_error="+type(exc).__name__, flush=True)

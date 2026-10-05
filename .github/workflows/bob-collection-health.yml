@@ -3,7 +3,7 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * 1-5'
+    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
   workflow_dispatch:
 permissions:
   contents: read
@@ -13,22 +13,9 @@ concurrency:
 jobs:
   collection-health:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Swiss collection hours
-        id: hours
-        run: |
-          python - <<'PY'
-          import os
-          from datetime import datetime
-          from zoneinfo import ZoneInfo
-          t=datetime.now(ZoneInfo('Europe/Zurich'))
-          active=t.weekday()<5 and 6<=t.hour<22
-          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
-              f.write('active='+str(active).lower()+'\n')
-          PY
-      - name: Verify collector availability
-        if: steps.hours.outputs.active == 'true'
+      - name: Verify both services and completed background cycle
         run: |
           curl --fail --silent --show-error --max-time 90 --retry 1 --retry-delay 5 https://bob-push-service.onrender.com/health > /tmp/bob-store-health.json
           curl --fail --silent --show-error --max-time 90 --retry 2 --retry-delay 5 https://bob-private-scanner.onrender.com/health > /tmp/bob-health.json
@@ -40,3 +27,6 @@ jobs:
           assert c.get('enabled') is True and c.get('running') is True, 'Automatic collection not running'
           print('Bob automatic collector available; detailed measurements remain private')
           PY
+          # A live HTTP listener does not prove the monitor completed its work.
+          # Allow cold starts and the first 30-second cycle to finish.
+          curl --fail --silent --show-error --max-time 20 --retry 6 --retry-delay 10 --retry-all-errors https://bob-private-scanner.onrender.com/health/background
