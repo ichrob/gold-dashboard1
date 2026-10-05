@@ -1399,6 +1399,9 @@ function detailScreenshotData(text,expectedIsin){
  if(!validIsin(expectedIsin))return{ok:false,reason:"Bitte zuerst die ISIN dieses Produkts am Screenshot prüfen und korrigieren."};
  const identity=screenshotIdentity(raw,expectedIsin);
  if(!identity.ok)return identity;
+ if(/BNP\s+PARIBAS|derivate\.bnpparibas\.com/i.test(raw)){
+  raw=raw.replace(/\bVerkaufen\b/g,'Geld').replace(/\bKaufen\b/g,'Brief');
+ }
  const titlePair=sgScreenshotTitlePair(raw,expectedIsin);
  if(titlePair){
   // Both values are visible in this same image's SG browser title. Never
@@ -1439,6 +1442,15 @@ function screenshotIdentity(raw,expectedIsin){
  if(/sg-zertifikate\.(?:de|at)\b/i.test(raw)){
   for(const m of String(raw).toUpperCase().matchAll(/(?:^|\n)[^\n]*?\b([A-Z0-9]{6})\s*[-–]\s*\d+[.,]\d+\s*\/\s*\d+[.,]\d+\s*€/g))wkns.push(m[1]);
   for(const m of String(raw).toUpperCase().matchAll(/(?:^|\n)\s*([A-Z0-9]{6})\s*(?=\n|$)/g))if(/[A-Z]/.test(m[1])&&/\d/.test(m[1]))wkns.push(m[1]);
+ }
+ // BNP prints WKN without a label, either in the product badge or browser title.
+ // Only accept those layouts on an identified issuer screenshot; never infer
+ // identity from the selected upload card or a substring of a longer code.
+ if(/BNP\s+PARIBAS|derivate\.bnpparibas\.com/i.test(raw)){
+  const primary=String(raw).split(/Ähnliche\s+Produkte/i)[0].toUpperCase();
+  for(const m of primary.matchAll(/(?:^|\n)\s*([A-Z0-9]{6})\s*(?=\n|$|\d+[.,]\d+\s*\/\s*\d+[.,]\d+\s*€)/g)){
+   if(/[A-Z]/.test(m[1])&&/\d/.test(m[1]))wkns.push(m[1]);
+  }
  }
  const unique=[...new Set(wkns)];
  if(validIsin(expectedIsin)&&expectedIsin.startsWith('DE000')&&unique.length===1&&unique[0]===expectedIsin.slice(5,11))return{ok:true,basis:'WKN',wkn:unique[0]};

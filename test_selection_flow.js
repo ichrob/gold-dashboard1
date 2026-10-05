@@ -302,3 +302,15 @@ console.log('Original-image BNP NB98 identity recovery and negative contexts pas
  nodes[3].open=false;api.updateProductHtml(root,'third');assert(nodes[2].open);assert(!nodes[3].open);
  console.log('Product disclosure state: nested sections, ISIN reorder, count changes, explicit closing and unchanged-refresh focus preserved');
 }
+
+// BNP screenshots 1000070543 / 1000070545: issuer badge and browser title.
+const bnpBadge='BNP PARIBAS CERTIFICATE\nGOLD Unlimited Long | 3.996,2705 USD\nPJ9NB9\nMarkt geöffnet\nVerkaufen\n€ 12,06\n8.000 Stück\nKaufen\n€ 12,07\n8.000 Stück';
+const bnpRead=b.detailScreenshotData(bnpBadge,'DE000PJ9NB98');
+assert(bnpRead.ok);assert.equal(bnpRead.identityBasis,'WKN');
+assert.equal(bnpRead.bid,12.06);assert.equal(bnpRead.ask,12.07);
+assert(!bnpRead.sourceTime,'Do not invent source time from phone clock or another image');
+const bnpTitle='PJ9NB9 12,08 / 12,09 €\nderivate.bnpparibas.com\nBNP PARIBAS\nHebel 30,53\nÄhnliche Produkte\nAktuelles Produkt\nBasispreis 3.996,27\nKnock-Out Schwelle 3.996,27';
+assert(b.detailScreenshotData(bnpTitle,'DE000PJ9NB98').reason.includes('Währung USD'));
+assert(b.detailScreenshotData(bnpTitle.replaceAll('3.996,27','3.996,27 USD'),'DE000PJ9NB98').ok);
+for(const raw of [bnpBadge.replace('PJ9NB9','PJ9NCK'),bnpBadge+'\nPJ9NCK',bnpBadge.replace('BNP PARIBAS','Other issuer'),bnpBadge.replace('PJ9NB9','XPJ9NB9X'),bnpBadge.replace('PJ9NB9','')+'\nÄhnliche Produkte\nPJ9NB9'])assert(!b.detailScreenshotData(raw,'DE000PJ9NB98').ok);
+console.log('BNP unlabeled WKN recognition, quote labels and identity rejection passed');
