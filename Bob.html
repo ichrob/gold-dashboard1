@@ -270,7 +270,7 @@ try{
 <div class="analysis-block neutral"><span>MTF-Bestätigung</span><b id="blockMtf">NEUTRAL</b><small id="blockMtfNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Volatilität</span><b id="blockVolatility">NEUTRAL</b><small id="blockVolatilityNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Marktstruktur</span><b id="blockStructure">NEUTRAL</b><small id="blockStructureNote">Daten fehlen</small></div>
-</div><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div>
+</div><details open style="margin-top:12px"><summary><b>Intraday · 1 bis wenige Stunden · Test</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">15m Richtung, 5m Einstieg mit zwei Schlusskerzen. Früher Ausstieg und nachgezogener Stop werden separat getestet. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div>
 <details style="margin-top:10px"><summary>Warum entscheidet Bob so?</summary><div id="decisionExplanation" class="small" style="white-space:pre-line">Noch keine bestätigte Analyse.</div></details>
 <div id="quickReason" class="small" style="margin-top:10px">Lade Daten, um das Setup zu bewerten.</div>
 
@@ -509,7 +509,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     reasons:flow.notApproved?.find(x=>x.isin===p.isin)?.reasons||[],
     selection:flow.groups.flatMap(g=>g.candidates).find(x=>x.isin===p.isin)||null};
   });
-  const payload={direction:state.dir,shadowDirection:state.shadowDirection,barAt:state.barAt,
+  const payload={direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,barAt:state.barAt,
    price:bundle?.spots?.xaus,priceAt:bundle?.spots?.spot_price_as_of,score:state.score,
    reason:state.reason,indicators:state.indicators,products:items,selection:[...selected],gateReasons:flow.gateReasons};
   const signature=JSON.stringify([state.dir,state.shadowDirection,state.barAt,state.reason,items,flow.gateReasons]);
@@ -528,6 +528,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const part=(count,total)=>Number.isFinite(count)?count+' ('+(total>0?(100*count/total).toFixed(1)+' %':'—')+')':'noch nicht verfügbar';
    const row=(label,m)=>{const tr=document.createElement('tr');for(const value of [label,part(m.favorable,m.evaluated),part(m.unfavorable,m.evaluated),part(m.flat,m.evaluated),m.evaluated]){const td=document.createElement('td');td.textContent=String(value);td.style.padding='8px 6px';tr.appendChild(td);}tbody.appendChild(tr);};
    for(const h of ['15','60','240'])row('Gold nach '+h+' Min.',r.metrics[h]);
+   if(r.intraday)for(const h of ['15','60','240'])row('Intraday-Test Gold nach '+h+' Min.',r.intraday[h]);
    row('Produkt nach 60 Min.',p);
    text('auditStatisticsStatus','Stand: '+new Date().toLocaleString('de-CH')+' · '+r.scope);
    text('auditStatisticsOpen',Object.entries(r.metrics).map(([h,m])=>h+' Min.: '+m.missing+' offen / nicht auswertbar; '+m.neutral+' ABWARTEN-Beobachtungen (nicht in der Trefferquote).').join('\n'));
@@ -839,7 +840,10 @@ function draw(a){
  const rangeDate=t=>new Date(t).toLocaleString("de-CH",{timeZone:"Europe/Zurich",day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
  $('chartRangeInfo').textContent=frameLabel+' pro '+(candles?'Kerze':'Kurvenpunkt')+' · '+v.length+' Werte'+(v.length?' · '+rangeDate(Number(v[0].openTime))+' bis '+rangeDate(Number(v.at(-1).openTime)):' · Daten für diese Zeitebene fehlen');
 
- $('chartHistoryInfo').textContent=v.length+' geschlossene Kerzen · '+$('chartTf').selectedOptions[0].textContent;
+ const chartStep=({'5m':300000,'15m':900000,'1h':3600000,'4h':14400000})[tf];
+ const irregular=all.some(b=>Number(b.openTime)%chartStep!==0);
+ if(irregular)$('chartViewStatus').textContent='Quellenzeitpunkte passen nicht zum gewählten Kerzenraster – Intraday-Test gesperrt';
+ $('chartHistoryInfo').textContent=v.length+' Quellenwerte · '+$('chartTf').selectedOptions[0].textContent+(irregular?' · Zeitraster unbestätigt':'');
  cv.setAttribute('aria-label',(candles?'Kerzenchart':'Linienchart')+' '+tf+'; waagerecht Zeit, senkrecht Preis');
  $('chartFibExplanation').textContent=fibonacciExplanation(fib);
  const bundle=typeof liveBundleCache!=="undefined"?liveBundleCache:null;
@@ -1314,6 +1318,68 @@ function confirmClosedSignals(samples,required=2){
  }
  return {dir,pending,count,lastAt};
 }
+// Intraday v1 runs beside the established policy; no orders or live approval changes.
+function intradayState(bundle,trade=null,now=Date.now()){
+ const fail=reason=>({version:'intraday-v1',mode:'shadow',available:false,direction:'NEUTRAL',reason,tradeAction:'NICHT BEURTEILBAR'});
+ const source=bundle?.history?.bars_by_tf||{},steps={'5m':300000,'15m':900000},bars={};
+ for(const [tf,step] of Object.entries(steps)){
+  bars[tf]=(source[tf]||[]).filter(b=>!b.isOpen&&Number.isFinite(b.openTime)&&b.openTime+step<=now).slice(-240);
+  const rows=bars[tf];
+  if(rows.length<200)return fail(tf+': mindestens 200 geschlossene Kerzen benötigt');
+  if(rows.some((b,i)=>b.instrument!=='XAU/USD'||b.openTime%step!==0||!['open','high','low','close'].every(k=>Number.isFinite(b[k])&&b[k]>0)||b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)||i&&b.openTime<=rows[i-1].openTime))return fail(tf+': Kerzenzeiten, Reihenfolge oder OHLC-Daten unplausibel');
+  if(now-rows.at(-1).openTime>step*2)return fail(tf+': Kerzendaten veraltet');
+  if(rows.slice(-20).some((b,i,a)=>i&&b.openTime-a[i-1].openTime!==step))return fail(tf+': Lücke in den letzten 20 Kerzen');
+ }
+ const spot=bundle?.spots||{},stamp=Date.parse(spot.spot_price_as_of),price=spot.xaus;
+ if(spot.is_genuine_xauusd_spot!==true||spot.spot_error||!Number.isFinite(price)||price<=0||!Number.isFinite(stamp)||now<stamp||now-stamp>60000)return fail('Aktueller Gold-Spot mit Quellenzeit fehlt');
+ const metric=rows=>{const a=rows.map(b=>b.close),fast=emaS(a,12),slow=emaS(a,26),mac=fast.map((v,i)=>v-slow[i]),signal=emaS(mac,9),r=rsiS(a),e20=ema(a,20),e50=ema(a,50),vol=atr(rows);
+  const votes=[Math.sign(a.at(-1)-e20),Math.sign(e20-e50),Math.sign(mac.at(-1)-signal.at(-1)),r>50&&r<75?1:r<50&&r>25?-1:0];
+  const score=collectiveSignal(votes);return {e20,e50,e200:ema(a,200),rsi:r,dir:score>=.5?'LONG':score<=-.5?'SHORT':'NEUTRAL',score:50+50*score,atr:vol,adx:adxCalc(rows),gap:Math.abs(e20-e50),hist:mac.at(-1)-signal.at(-1)};};
+ const m5=metric(bars['5m']),difference=Math.abs(price-bars['5m'].at(-1).close);
+ if(difference>Math.max(3*m5.atr,price*.0025))return fail('Spot und letzte 5m-Kerze weichen auffällig ab ('+difference.toFixed(2)+' USD). Quelle/Zeit prüfen');
+ const samples=[];let latest;
+ for(const bar of bars['5m'].slice(-20)){
+  const end=bar.openTime+300000,rows5=bars['5m'].filter(b=>b.openTime+300000<=end),rows15=bars['15m'].filter(b=>b.openTime+900000<=end);
+  if(rows5.length<200||rows15.length<200||end-rows15.at(-1).openTime>1800000){samples.push({at:bar.openTime,valid:false,dir:'NEUTRAL'});continue;}
+  const timing=metric(rows5),setup=metric(rows15),sideways=setup.adx<20||setup.gap<setup.atr*.1;
+  const dir=!sideways&&setup.dir!=='NEUTRAL'&&setup.dir===timing.dir?setup.dir:'NEUTRAL';
+  latest={setup:setup.dir,timing:timing.dir,sideways,reason:sideways?'15m-Seitwärtsfilter aktiv':dir==='NEUTRAL'?'15m-Richtung und 5m-Einstieg stimmen nicht überein':'15m-Richtung und 5m-Einstieg stimmen überein',dir};
+  samples.push({at:bar.openTime,valid:true,dir});
+ }
+ const confirmed=confirmClosedSignals(samples),direction=latest&&latest.dir===confirmed.dir?confirmed.dir:'NEUTRAL';
+ const hour=(source['1h']||[]).filter(b=>!b.isOpen&&b.openTime+3600000<=now&&b.instrument==='XAU/USD');
+ const h=hour.length>=200&&now-hour.at(-1).openTime<=7200000?metric(hour).dir:'NICHT VERFÜGBAR';
+ const result={context:{direction,spotFresh:true,spot:price,atr:m5.atr,trend:m5.e20>m5.e50?'LONG':m5.e20<m5.e50?'SHORT':'NEUTRAL',trend2:m5.e50>m5.e200?'LONG':m5.e50<m5.e200?'SHORT':'NEUTRAL',mtf:latest?.setup,momentum:Math.sign(m5.hist),hist:m5.hist,rsi:m5.rsi,adx:m5.adx},version:'intraday-v1',mode:'shadow',available:true,direction,barAt:bars['5m'].at(-1).openTime,score:m5.score,setup:latest?.setup,timing:latest?.timing,hour:h,countertrend:['LONG','SHORT'].includes(direction)&&['LONG','SHORT'].includes(h)&&h!==direction,reason:latest?.reason||'Bestätigung fehlt',tradeAction:'KEIN AKTIVER TRADE'};
+ if(direction==='NEUTRAL'&&latest?.dir!=='NEUTRAL')result.reason+=' · zweite geschlossene 5m-Kerze fehlt';
+ if(trade?.active&&['LONG','SHORT'].includes(trade.dir)){
+  const long=trade.dir==='LONG',rows=bars['5m'],pivots=[];
+  for(let i=2;i<rows.length-2;i++){const window=rows.slice(i-2,i+3),key=long?'low':'high';if(window.every(b=>long?rows[i][key]<=b[key]:rows[i][key]>=b[key]))pivots.push(rows[i][key]);}
+  const pivot=pivots.at(-1),stop=trade.stop;
+  const hit=Number.isFinite(stop)&&(long?price<=stop:price>=stop);
+  const broken=Number.isFinite(pivot)&&(long?rows.at(-1).close<pivot:rows.at(-1).close>pivot);
+  const weak=latest?.timing!==trade.dir||latest?.setup!==trade.dir;
+  result.tradeAction=hit||broken?'AUSSTIEG PRÜFEN':weak?'GEWINN SCHÜTZEN':'HALTEN';
+  result.exitReason=hit?'Vorhandener Schutzstop erreicht':broken?'Bestätigtes 5m-Strukturniveau durch Kerzenschluss gebrochen':weak?'Kurzfristige Richtung schwächer':'Kurzfristige Richtung intakt';
+  if(!hit&&!broken&&Number.isFinite(pivot)&&Number.isFinite(stop)){
+   const candidate=long?Math.min(pivot-m5.atr*.25,price-m5.atr):Math.max(pivot+m5.atr*.25,price+m5.atr);
+   result.suggestedStop=long?Math.max(stop,candidate):Math.min(stop,candidate);
+  }
+ }
+ return result;
+}
+let intradayCache=null;
+function renderIntraday(){
+ const out=$('intradayStatus');if(!out)return;
+ const cacheKey=JSON.stringify([Math.floor(Date.now()/15000),tradeMgmt?.active,tradeMgmt?.dir,tradeMgmt?.stop,window.BobSession?.expired()]);
+ if(intradayCache?.bundle===liveBundleCache&&intradayCache.key===cacheKey)return;
+ const state=window.BobSession?.expired()?{version:'intraday-v1',mode:'shadow',available:false,direction:'NEUTRAL',reason:'Anmeldung erforderlich'}:intradayState(liveBundleCache,tradeMgmt);window.BobIntradayState=state;
+ const time=state.barAt?new Date(state.barAt+300000).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'}):'nicht verfügbar';
+ let text='TESTVARIANTE · keine zusätzliche Produktfreigabe\nIntraday: '+(state.direction==='NEUTRAL'?'ABWARTEN':state.direction)+' · 5m-Kerzenschluss '+time+'\n'+state.reason;
+ if(state.available)text+='\n15m: '+state.setup+' · 5m: '+state.timing+' · 1h-Kontext: '+state.hour+(state.countertrend?' · Gegenbewegung zum 1h-Trend':'')+'\n4h: Hintergrund, kein Veto';
+ if(tradeMgmt?.active)text+='\nTrade-Test: '+state.tradeAction+' · '+(state.exitReason||state.reason)+(Number.isFinite(state.suggestedStop)?'\nStop-Vorschlag im Test: '+activeTradeLevel(state.suggestedStop):'');
+ out.textContent=text;intradayCache={bundle:liveBundleCache,key:cacheKey};
+}
+
 function fiveMinuteConfirmation(bundle,now=Date.now()){
  const source=bundle?.history?.bars_by_tf||{},steps={'5m':300000,'15m':900000,'1h':3600000,'4h':14400000};
  const bars={};
@@ -1519,6 +1585,7 @@ function invalidateTechnicalSignal(reason){
  $('dgProductOut').textContent='Keine aktuelle Produktfreigabe. '+reason+' Produktnachweise im DEGIRO-Assistenten prüfen.';
 }
 function renderAnalysisBlocks(){
+ renderIntraday();
  const ready=!window.BobSession?.expired()&&!!A.ready&&C.length>=200;
  const put=(name,dir,note)=>{const el=$("block"+name),detail=$("block"+name+"Note");if(!el)return;el.textContent=dir;el.parentElement.className="analysis-block "+(dir==="LONG"?"long":dir==="SHORT"?"short":"neutral");if(detail)detail.textContent=note;};
  if(!ready){for(const name of ["Trend","Momentum","Fibonacci","Mtf","Volatility","Structure"])put(name,"NEUTRAL","Daten fehlen oder sind nicht ausreichend aktuell");$("analysisQuality").textContent="5-Minuten-Richtungswert: nicht verfügbar · ABWARTEN – aktuelle Analysedaten fehlen";$("score").textContent="Richtungswert: nicht verfügbar";$("score").className="signal neutral";$("scoreDetails").textContent="Aktuelle Analysedaten fehlen";return;}

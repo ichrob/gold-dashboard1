@@ -28,6 +28,16 @@ class AuditTests(unittest.TestCase):
         report=a.summarize([(r,truths),(r,truths)])
         self.assertEqual(report['metrics']['60']['evaluated'],1)
         self.assertFalse(report['learning']['ready']);self.assertFalse(report['learning']['automaticRuleChange'])
+    def test_intraday_parallel_outcomes_and_missing(self):
+        p={**self.payload,'intraday':{'version':'intraday-v1','available':True,'direction':'SHORT','mode':'shadow'}}
+        key,r=a.normalize(p,self.now)
+        self.assertNotEqual(key,a.normalize(self.payload,self.now)[0])
+        truths=[{'at':self.now+h*60000,'price':99} for h in (15,60,240)]
+        report=a.summarize([(r,truths)])
+        self.assertEqual(report['intraday']['60']['favorable'],1)
+        self.assertEqual(report['metrics']['60']['unfavorable'],1)
+        r['intraday']['available']=False
+        self.assertEqual(a.summarize([(r,truths)])['intraday']['60']['evaluated'],0)
     def test_product_requires_real_fresh_bid(self):
         r=self.record();r['products']=[dict(isin='DE000FG5NMF2',selected=True,ask=10,quoteAt=self.now)]
         later={**r,'recordedAt':self.now+3600000,'products':[dict(isin='DE000FG5NMF2',bid=11,quoteAt=self.now+3600000)]}

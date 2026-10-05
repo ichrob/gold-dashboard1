@@ -1785,6 +1785,16 @@ function rankUI(){
  const selectionContext={direction:d,spotFresh:spotFresh&&!(window.BobAnalysisAge?.().length),spot:s,atr:a,trend:document.getElementById('trend')?.textContent,trend2:document.getElementById('trend2')?.textContent,...selectionUiSignals(),rsi:n(document.getElementById('rsi')?.textContent),hist:n(document.getElementById('hist')?.textContent),adx:n(document.getElementById('adx')?.textContent)};
  const references=ps.map((_,i)=>combinedReferences.get(i+1));
  const flow=selectionWorkflow(ps,selectionContext,bundle,references);
+ const intraday=window.BobIntradayState,shadowOut=document.getElementById('intradayProducts');
+ if(shadowOut){
+  if(intraday?.available&&['LONG','SHORT'].includes(intraday.direction)){
+   const test=selectionWorkflow(ps,intraday.context,bundle,references);
+   const candidates=test.groups.flatMap(g=>g.candidates).slice(0,3);
+   shadowOut.textContent='DEGIRO-Testvergleich (keine Freigabe): '+(candidates.length?candidates.map((p,i)=>(i+1)+'. '+p.isin+' · '+p.priceKind+' · Risiko-/Datenwert '+p.score+'/100').join('\n'):'kein ausreichend belegtes Produkt · '+test.gateReasons.concat(test.notApproved.flatMap(p=>p.reasons)).slice(0,3).join(' · '));
+   intraday.products=candidates.map(p=>({isin:p.isin,price:p.price,at:p.at,priceKind:p.priceKind,score:p.score}));
+  }else shadowOut.textContent='DEGIRO-Testvergleich: ABWARTEN – '+(intraday?.reason||'Intraday-Daten fehlen');
+ }
+
  window.BobAudit?.capture(ps,flow,bundle);
  window.BobPush?.updateSelection?.({products:ps,context:selectionContext,bundle:{spots:bundle?.spots,fetched_at:bundle?.fetched_at,history:{data_state:bundle?.history?.data_state}},references,fixedBarriers:window.BobCombined.fixedBarriers()},flow);
  const flowHtml=renderSelectionWorkflow(flow,ps)+renderContinuingAnalysis(ps,selectionContext);if(o.dataset.flow!==flowHtml){const opened=[...o.querySelectorAll('details[data-product-details][open]')].map(e=>e.dataset.productDetails);o.innerHTML=flowHtml;o.dataset.flow=flowHtml;for(const id of opened){const el=o.querySelector('[data-product-details="'+id+'"]');if(el)el.open=true;}bindCompactCards(o);}return flow;
