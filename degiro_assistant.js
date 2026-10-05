@@ -1049,7 +1049,7 @@ function renderMissingValues(reasons,p={}){
 }
 function renderImageImportStatus(index){
  const message=typeof document==='undefined'?'':document.getElementById('dgOcrStatus'+index)?.textContent||'';
- return '<div class="small" role="status" aria-live="polite" data-image-import-status="'+index+'" style="margin-top:8px;white-space:normal;overflow-wrap:anywhere">'+esc(message||'Nach der Bildauswahl startet das Einlesen automatisch. Kein zusätzlicher Upload-Klick nötig.')+'</div>';
+ return '<div class="small" role="status" aria-live="polite" data-image-import-status="'+index+'" style="margin-top:8px;white-space:normal;overflow-wrap:anywhere">'+esc(message||'Nach der Bildauswahl startet das Einlesen automatisch. Kein zusätzlicher Upload-Klick nötig.')+'<div style="margin-top:4px;font-size:12px;color:#64748b">Bildimport 05.10-4 · Galerieauswahl</div></div>';
 }
 // Keep disclosure state by product identity and nested section, never by row order.
 function detailStateKey(el){
@@ -1484,6 +1484,13 @@ function detailScreenshotData(text,expectedIsin){
  if(terms.ko)x.ko=String(terms.ko.value);
  return{ok:true,...x,identityBasis:identity.basis,bid,ask,currency,sourceTime:stamp,times:screenshotTimes(raw),terms,delayed:/verzögert|delayed/i.test(raw),combinedDraft:draft};
 }
+// Show only product identifiers on failures, never the full private OCR transcript.
+function imageIdentityDiagnostic(raw){
+ const text=String(raw||'').toUpperCase();
+ const ids=[...new Set(text.match(/\b[A-Z]{2}[A-Z0-9]{10}\b/g)||[])].slice(0,3);
+ const wkns=[...new Set(Array.from(text.matchAll(/\bWKN\s*[:=]?\s*([A-Z0-9]{6})\b/g),m=>m[1]))].slice(0,3);
+ return 'Gelesen: '+(ids.length?'ISIN '+ids.join(', '):'keine ISIN')+(wkns.length?' · WKN '+wkns.join(', '):'');
+}
 function screenshotIdentity(raw,expectedIsin){
  const ids=Array.from(new Set(parseScreenshotCandidates(raw).map(x=>x.isin)));
  if(ids.length)return ids.length===1&&ids[0]===expectedIsin?{ok:true,basis:'ISIN'}:{ok:false,reason:'Der Screenshot gehört nicht eindeutig zu '+expectedIsin+'. Bitte Produktkennung prüfen.'};
@@ -1541,7 +1548,7 @@ async function readScreenshot(i,file){
   const result=await recognizeOcr(file,"dgOcrStatus"+i);
   if((rowVersions.get(i)||0)!==version||(field("isin")?.value||"").trim().toUpperCase()!==expected)return;
   const x=detailScreenshotData(result.data.text,expected);
-  if(!x.ok){if(status)status.textContent="⚠️ "+x.reason;return{ok:false,reason:x.reason};}
+  if(!x.ok){const reason=x.reason+" "+imageIdentityDiagnostic(result.data.text)+" · Bildimport 05.10-4";if(status)status.textContent="⚠️ "+reason;return{ok:false,reason};}
   const merged=mergeScreenshotEvidence(detailScreenshots.get(i),x,file.name);
   productQuotes.delete(i);
   for(const [k,v] of Object.entries({dir:merged.direction,price:merged.price,lev:merged.leverage,ko:merged.ko,spread:merged.spread})){if(v!==""&&v!==null&&v!==undefined&&field(k))field(k).value=v;}
@@ -1903,7 +1910,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
