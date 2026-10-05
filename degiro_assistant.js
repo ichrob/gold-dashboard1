@@ -594,6 +594,34 @@ function recoverOcrIsins(primary,secondary){
  });
  return{text,corrections};
 }
+// Re-read wrapped amount cells by their position in the SAME image. Never borrow
+// a neighbouring KO/strike value or change the screenshot's product identity.
+function recoverTermRows(primary,secondary){
+ let text=primary.text||'';
+ const words=secondary.words||[],center=w=>(w.bbox.y0+w.bbox.y1)/2;
+ const labels=words.filter(w=>/^(Basispreis|Finanzierungslevel|Knock-Out-Barriere|Knock-out-Schwelle|Typ|Quanto|Ausgabetag|Bezugsverhältnis|Bezugsverhaltnis)$/.test(w.text));
+ for(const label of labels.filter(w=>/^(Basispreis|Finanzierungslevel|Knock-Out-Barriere|Knock-out-Schwelle)$/.test(w.text))){
+  if(labels.filter(w=>w.text===label.text).length!==1)continue;
+  const height=label.bbox.y1-label.bbox.y0;
+  const cell=words.filter(w=>w.bbox.x0>label.bbox.x1+height&&Math.abs(center(w)-center(label))<=2.5*height&&
+   !labels.some(other=>other!==label&&Math.abs(center(w)-center(other))<=Math.abs(center(w)-center(label))));
+  const amounts=cell.filter(w=>/^\d{1,3}(?:\.\d{3})*,\d+$/.test(w.text));
+  const usd=cell.filter(w=>w.text==='USD');
+  const dates=cell.filter(w=>/^\(?\d{2}\.\d{2}\.\d{4}\)?$/.test(w.text));
+  if(amounts.length!==1||usd.length!==1||dates.length>1)continue;
+  if(cell.some(w=>!amounts.includes(w)&&!usd.includes(w)&&!dates.includes(w)&&!/^\(?\)?$/.test(w.text)))continue;
+  const amount=amounts[0];
+  // The currency must belong to this amount column, including a wrapped USD.
+  if(Math.abs(amount.bbox.x1-usd[0].bbox.x1)>height)continue;
+  const row=new RegExp('(^|\n)[ \\t]*'+label.text+'[^\n]*(?:\n[ \\t]*[oOQ®©ⓘ@]*[ \\t]*USD[^\n]*)?','g');
+  const matches=Array.from(text.matchAll(row));if(matches.length!==1)continue;
+  const previous=matches[0][0].match(/\d{1,3}(?:\.\d{3})*,\d+/g)||[];
+  if(previous.some(value=>value!==amount.text))continue;
+  const date=dates.length?' ('+dates[0].text.replace(/[()]/g,'')+')':'';
+  text=text.replace(row,(_,prefix)=>prefix+label.text+' '+amount.text+' USD'+date);
+ }
+ return text;
+}
 function recognizeOcr(file,statusId){
  const job=ocrQueue.then(async()=>{
   activeOcrStatusId=statusId;
@@ -604,7 +632,14 @@ function recognizeOcr(file,statusId){
    result=await ocrTimeout(worker.recognize(prepared),45000,"OCR-Zeitüberschreitung nach 45 Sekunden");
    if(/Stammdaten|\bISIN\b|\bWKN\b/i.test(result.data.text||'')&&/Knock-Out-Barriere|Basispreis/i.test(result.data.text||'')){
     const tableImage=await prepareOcrImage(file,statusId,true);
-    try{await worker.setParameters({tessedit_pageseg_mode:"6"});result=await ocrTimeout(worker.recognize(tableImage),45000,"Tabellenerkennung nach 45 Sekunden beendet");}
+    try{
+     await worker.setParameters({tessedit_pageseg_mode:"6"});result=await ocrTimeout(worker.recognize(tableImage),45000,"Tabellenerkennung nach 45 Sekunden beendet");
+     if(parseProductTerms(result.data.text||'').error){
+      await worker.setParameters({tessedit_pageseg_mode:"11"});
+      const cells=await ocrTimeout(worker.recognize(tableImage),45000,"Tabellen-Zweitlesung nach 45 Sekunden beendet");
+      result.data.text=recoverTermRows(result.data,cells.data);
+     }
+    }
     finally{await worker.setParameters({tessedit_pageseg_mode:"3"});}
    }
   }catch(e){ocrWorkerPromise=null;await worker.terminate().catch(()=>{});throw e;}
@@ -1649,7 +1684,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
