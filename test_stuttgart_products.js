@@ -26,6 +26,27 @@ const mismatch=b.productTermsStatus({...p,ko:4143.44},now);
 assert(mismatch.reasons.some(x=>x.includes('gespeichert 4143.44 USD')&&x.includes('Quelle 4143.437 USD')));
 console.log('SG numeric/date-only import, identity rejection and KO conflict explanation passed');
 
+// 2026-10-05 SG mobile screenshot: USD/date wrap below the amount.
+const mobileSg='ISIN DE000FG5NMF2\nTyp Call\nBezugsverhältnis 10:1\nBasispreis 4.117,6769\nUSD (05.10.2026)\nKnock-Out-Barriere 4.117,6769\n© USD (05.10.2026)\nKnock-Out Zeit 00:00 - 24:00';
+const mobile=b.detailScreenshotData(mobileSg,'DE000FG5NMF2');
+assert(mobile.ok,mobile.reason);assert.equal(mobile.terms.strike.value,4117.6769);
+assert.equal(mobile.terms.ko.value,4117.6769);assert.equal(mobile.terms.ko.dateText,'05.10.2026');
+assert.equal(mobile.terms.ko.at,null);
+// Actual local OCR line order and damaged date: retain amount, not a guessed date.
+const wrappedOcr=mobileSg.replace('Basispreis 4.117,6769\nUSD (05.10.2026)','. . 4.117,6769\nBasispreis © USD (05:10:2026)').replace('© USD (05.10.2026)','® USD (0 3:10:2026)');
+const damaged=b.detailScreenshotData(wrappedOcr,'DE000FG5NMF2');
+assert(damaged.ok,damaged.reason);assert.equal(damaged.terms.strike.value,4117.6769);
+assert.equal(damaged.terms.ko.value,4117.6769);assert.equal(damaged.terms.ko.dateText,null);
+assert.equal(damaged.terms.ko.at,null);assert(damaged.terms.ko.ocrCorrection.includes('Aktualität nicht bestätigt'));
+for(const date of ['31.02.2026','05:10:2026']){
+ const x=b.detailScreenshotData(mobileSg.replaceAll('05.10.2026',date),'DE000FG5NMF2');
+ assert(x.ok);assert.equal(x.terms.ko.dateText,null);assert.equal(x.terms.ko.at,null);
+}
+assert(!b.detailScreenshotData(mobileSg.replace('© USD','Andere Zeile\nUSD'),'DE000FG5NMF2').ok);
+assert(!b.detailScreenshotData(mobileSg+'\nKnock-Out-Barriere 4.118,0000 USD','DE000FG5NMF2').ok);
+assert(!b.detailScreenshotData('Kurs von: 10:45:14 (05.10.2026)\nGeld 4,310 EUR\nBrief 4,320 EUR','DE000FG5NMF2').ok);
+console.log('Wrapped SG terms preserve amounts, identity checks and unconfirmed dates');
+
 // Simulate Android revoking a provider-backed file once its input is cleared.
 (async()=>{
  ctx.File=File;
