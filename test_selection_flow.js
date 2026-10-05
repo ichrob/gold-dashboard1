@@ -346,3 +346,17 @@ assert(browserRead.ok);assert.equal(browserRead.isin,'DE000PJ9NB98');assert.equa
 assert(!b.detailScreenshotData(browserEngineBnpOcr.replace('3.996,2705','3.995,2705'),'DE000PJ9NB98').ok);
 assert(!b.detailScreenshotData(browserEngineBnpOcr,'DE000PG0XK25').ok);
 console.log('Tesseract.js 5.1.1 original image transcript: correct identity and terms');
+
+// Android 05.10-4 diagnostic from 1000070603: REFERENZZINS was incorrectly
+// counted as a second ISIN; phone OCR read 9 as O in both labelled identifiers.
+const androidBnpOcr=browserEngineBnpOcr.replace('Referenzzins','REFERENZZINS').replace('PJSNB9','PJONB9');
+const androidRead=b.detailScreenshotData(androidBnpOcr,'DE000PJ9NB98');
+assert(androidRead.ok,androidRead.reason);
+assert.equal(androidRead.isin,'DE000PJ9NB98');
+assert.equal(androidRead.terms.strike.value,3996.2705);
+assert.equal(androidRead.terms.ko.value,3996.2705);
+assert.equal(b.parseScreenshotCandidates(androidBnpOcr).length,1);
+assert.equal(b.parseScreenshotCandidates('REFERENZZINS STAMMDATEN').length,0);
+assert(!b.imageIdentityDiagnostic(androidBnpOcr).includes('REFERENZZINS'));
+for(const changed of [androidBnpOcr+'\nISIN DE000PG0XK25',androidBnpOcr.replace('PJONB9','PJONC9'),androidBnpOcr.replace('3.996,2705','3.995,2705'),androidBnpOcr.replace('derivate.bnpparibas.com','other.com')])assert(!b.detailScreenshotData(changed,'DE000PJ9NB98').ok);
+console.log('Android real failure: text labels excluded, reviewed 9/O identity and conflicting evidence checked');

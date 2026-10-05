@@ -214,7 +214,7 @@ function normalizeOcrIsin(value,productText=''){
  // Visually verified user original 1000070573.jpg. Both labelled identifiers
  // and both exact USD terms must agree; this is not general S -> 9 guessing.
  const bnpTermsContext=/derivate\.bnpparibas\.com/i.test(productText)
-  && /\bWKN\s+PJSNB9\b/i.test(productText)
+  && /\bWKN\s+PJ[SO]NB9\b/i.test(productText)
   && /Knock[- ]Out\s+Schwelle\s*\(05\.10\.2026\)\s*3\.996,2705\s+USD/i.test(productText)
   && /Basispreis\s*\(05\.10\.2026\)\s*3\.996,2705\s+USD/i.test(productText)
   && /Typ\s+Unlimited\s+Long/i.test(productText)
@@ -701,7 +701,7 @@ function recognizeOcr(file,statusId){
 function ocrExtract(text){
  const raw=String(text||"").replace(/\r/g," ");
  const upper=raw.toUpperCase();
- const ident=normalizeOcrIsin((raw.match(/\b[A-Z]{2}[A-Z0-9]{10}\b/)||[])[0]||"",raw);
+ const ident=normalizeOcrIsin((raw.match(/\b(?=[A-Z0-9]*[0-9])[A-Z]{2}[A-Z0-9]{10}\b/)||[])[0]||"",raw);
  const isin=ident.isin;
  const levMatch=raw.match(/\b(?:HEBEL|LEVERAGE)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(?:[X×]\b)?|\b(\d+(?:[.,]\d+)?)\s*[X×](?![A-Z0-9])/i);
  const lev=levMatch?(levMatch[1]||levMatch[2]||""):"";
@@ -1049,7 +1049,7 @@ function renderMissingValues(reasons,p={}){
 }
 function renderImageImportStatus(index){
  const message=typeof document==='undefined'?'':document.getElementById('dgOcrStatus'+index)?.textContent||'';
- return '<div class="small" role="status" aria-live="polite" data-image-import-status="'+index+'" style="margin-top:8px;white-space:normal;overflow-wrap:anywhere">'+esc(message||'Nach der Bildauswahl startet das Einlesen automatisch. Kein zusätzlicher Upload-Klick nötig.')+'<div style="margin-top:4px;font-size:12px;color:#64748b">Bildimport 05.10-4 · Galerieauswahl</div></div>';
+ return '<div class="small" role="status" aria-live="polite" data-image-import-status="'+index+'" style="margin-top:8px;white-space:normal;overflow-wrap:anywhere">'+esc(message||'Nach der Bildauswahl startet das Einlesen automatisch. Kein zusätzlicher Upload-Klick nötig.')+'<div style="margin-top:4px;font-size:12px;color:#64748b">Bildimport 05.10-5 · Galerieauswahl</div></div>';
 }
 // Keep disclosure state by product identity and nested section, never by row order.
 function detailStateKey(el){
@@ -1487,7 +1487,7 @@ function detailScreenshotData(text,expectedIsin){
 // Show only product identifiers on failures, never the full private OCR transcript.
 function imageIdentityDiagnostic(raw){
  const text=String(raw||'').toUpperCase();
- const ids=[...new Set(text.match(/\b[A-Z]{2}[A-Z0-9]{10}\b/g)||[])].slice(0,3);
+ const ids=[...new Set(text.match(/\b(?=[A-Z0-9]*[0-9])[A-Z]{2}[A-Z0-9]{10}\b/g)||[])].slice(0,3);
  const wkns=[...new Set(Array.from(text.matchAll(/\bWKN\s*[:=]?\s*([A-Z0-9]{6})\b/g),m=>m[1]))].slice(0,3);
  return 'Gelesen: '+(ids.length?'ISIN '+ids.join(', '):'keine ISIN')+(wkns.length?' · WKN '+wkns.join(', '):'');
 }
@@ -1548,7 +1548,7 @@ async function readScreenshot(i,file){
   const result=await recognizeOcr(file,"dgOcrStatus"+i);
   if((rowVersions.get(i)||0)!==version||(field("isin")?.value||"").trim().toUpperCase()!==expected)return;
   const x=detailScreenshotData(result.data.text,expected);
-  if(!x.ok){const reason=x.reason+" "+imageIdentityDiagnostic(result.data.text)+" · Bildimport 05.10-4";if(status)status.textContent="⚠️ "+reason;return{ok:false,reason};}
+  if(!x.ok){const reason=x.reason+" "+imageIdentityDiagnostic(result.data.text)+" · Bildimport 05.10-5";if(status)status.textContent="⚠️ "+reason;return{ok:false,reason};}
   const merged=mergeScreenshotEvidence(detailScreenshots.get(i),x,file.name);
   productQuotes.delete(i);
   for(const [k,v] of Object.entries({dir:merged.direction,price:merged.price,lev:merged.leverage,ko:merged.ko,spread:merged.spread})){if(v!==""&&v!==null&&v!==undefined&&field(k))field(k).value=v;}
@@ -1647,7 +1647,7 @@ function missingProductData(p){
 }
 function parseScreenshotCandidates(text){
  const raw=String(text||"").replace(/\r/g,"");
- const matches=Array.from(raw.matchAll(/\b(?:DE[0OQ]{3,4}[A-Z0-9]{7}|[A-Z]{2}[A-Z0-9]{10})\b/g));
+ const matches=Array.from(raw.matchAll(/\b(?:DE[0OQ]{3,4}[A-Z0-9]{7}|(?=[A-Z0-9]*[0-9])[A-Z]{2}[A-Z0-9]{10})\b/g));
  const starts=matches.map((m,i)=>{
   const lineStart=raw.lastIndexOf("\n",m.index-1)+1;
   const lower=i?matches[i-1].index+matches[i-1][0].length:0;
@@ -2057,7 +2057,7 @@ if(typeof document!=='undefined'){if(document.readyState==='loading')document.ad
 const KEY='bobTradeEvidenceV1',esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function number(v){let s=String(v||'').trim();if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');return /^\d+(?:\.\d+)?$/.test(s)?Number(s):null;}
 function parse(text){
- const raw=String(text||''),ids=[...new Set(raw.toUpperCase().match(/\b[A-Z]{2}[A-Z0-9]{10}\b/g)||[])].filter(x=>window.BobDegiro.validIsin(x));
+ const raw=String(text||''),ids=[...new Set(raw.toUpperCase().match(/\b(?=[A-Z0-9]*[0-9])[A-Z]{2}[A-Z0-9]{10}\b/g)||[])].filter(x=>window.BobDegiro.validIsin(x));
  if(ids.length!==1)return{ok:false,reason:'Genau eine gültige ISIN muss im Bild sichtbar sein. Kursbild bitte mit ISIN erneut aufnehmen.'};
  const match=re=>{const m=raw.match(re);return m?m[1].trim():null;},val=label=>number(match(new RegExp('\\b(?:'+label+')(?!\\s*(?:Vol|Volumen))\\s*[:=]?\\s*(?:€|EUR)?\\s*([0-9]+(?:[.,][0-9]+)?)','i')));
  const time=match(/\b(\d{2}[/.]\d{2}[/.]\d{4},?\s+\d{2}:\d{2}(?::\d{2})?)\b/),direction=/\b(?:CALL|LONG)\b/i.test(raw)?'LONG':/\b(?:PUT|SHORT)\b/i.test(raw)?'SHORT':null;
@@ -2072,7 +2072,7 @@ function parse(text){
 }
 const PRODUCT_REFERENCES={DE000FG5GUX2:{ratio:0.1,source:'Société Générale Produktseite, recherchiert 02.10.2026',url:'https://www.sg-zertifikate.de/product-details/fg5gux'}};
 function draft(raw){
- const ids=[...new Set(String(raw).toUpperCase().match(/\b[A-Z]{2}[A-Z0-9]{10}\b/g)||[])];
+ const ids=[...new Set(String(raw).toUpperCase().match(/\b(?=[A-Z0-9]*[0-9])[A-Z]{2}[A-Z0-9]{10}\b/g)||[])];
  const candidate=ids.length===1?ids[0]:'';
  const fallback=parse(String(raw).replace(candidate,'DE000FG5GUX2'));
  const val=label=>{const m=raw.match(new RegExp('\\b(?:'+label+')(?!\\s*(?:Vol|Volumen))\\s*[:=]?\\s*(?:€|EUR)?\\s*([0-9]+(?:[.,][0-9]+)?)','i'));return m?m[1]:'';};
