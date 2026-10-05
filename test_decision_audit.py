@@ -6,7 +6,7 @@ import decision_audit as a
 class AuditTests(unittest.TestCase):
     def setUp(self):
         self.now=1800000000000
-        self.payload=dict(direction='LONG',shadowDirection='NEUTRAL',barAt=self.now-300000,price=100,priceAt=self.now,products=[],selection=[],origin='background')
+        self.payload=dict(ruleVersion=a.RULE_VERSION,direction='LONG',shadowDirection='NEUTRAL',barAt=self.now-300000,price=100,priceAt=self.now,products=[],selection=[],origin='background')
     def record(self):return a.normalize(self.payload,self.now)[1]
     def test_idempotent_frozen_decision(self):
         key,r=a.normalize(self.payload,self.now)
@@ -59,3 +59,15 @@ class AuditDatabaseTests(unittest.TestCase):
             a._harvest_at=0
             self.assertGreaterEqual(a.report(conn)['total'],1)
             conn.rollback()
+
+class RuleIsolationTests(unittest.TestCase):
+ def test_legacy_observations_are_not_new_policy_evidence(self):
+  now=1800000000000
+  payload=dict(direction='LONG',barAt=now-300000,price=100,priceAt=now,products=[],selection=[])
+  legacy=a.normalize(payload,now)[1]
+  current=a.normalize({**payload,'ruleVersion':a.RULE_VERSION},now)[1]
+  truths=[{'at':now+h*60000,'price':101} for h in (15,60,240)]
+  report=a.summarize([(legacy,truths),(current,truths)])
+  self.assertEqual(report['legacyCount'],1)
+  self.assertEqual(report['metrics']['60']['evaluated'],1)
+  self.assertNotEqual(a.normalize(payload,now)[0],a.normalize({**payload,'ruleVersion':a.RULE_VERSION},now)[0])

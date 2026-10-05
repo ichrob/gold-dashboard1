@@ -219,7 +219,7 @@ def run_background(bundle):
             try:
                 with conn.transaction():
                     if market.get('analysisBarAt'):
-                        decision_audit.write(conn,{'origin':'background','direction':market.get('direction','NEUTRAL'),
+                        decision_audit.write(conn,{'ruleVersion':market.get('ruleVersion'),'origin':'background','direction':market.get('direction','NEUTRAL'),
                             'shadowDirection':market.get('shadowDirection'),'intraday':market.get('intraday'),'barAt':market['analysisBarAt'],
                             'price':market.get('price'),'priceAt':market.get('dataAt'),'reason':market.get('decisionReason'),
                             'score':market.get('score'),'indicators':market.get('context'), 'products':[],

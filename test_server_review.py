@@ -25,3 +25,12 @@ class ReviewTests(unittest.TestCase):
             with self.assertRaises(ValueError):handler.handle()
 
 if __name__=='__main__':unittest.main()
+
+class IntradayMtfTests(unittest.TestCase):
+    def test_optional_four_hour_and_mandatory_confirmation(self):
+        frames={tf:dict(dir='LONG',available=True,fresh=True) for tf in ('5m','15m','1h')}
+        frames['4h']=dict(dir='SHORT',available=False,fresh=False)
+        with patch.object(server,'_mtf_score',side_effect=lambda bars,tf:frames[tf]):
+            self.assertEqual(server.build_mtf_verification({})['overall'],'LONG')
+            frames['15m']['dir']='NEUTRAL'
+            self.assertEqual(server.build_mtf_verification({})['overall'],'NEUTRAL')

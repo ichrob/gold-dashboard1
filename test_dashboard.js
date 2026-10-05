@@ -199,3 +199,16 @@ assert.equal(chartChecks.flat,null);
 assert.deepEqual(Array.from(chartChecks.positions),[0,1/3,2/3,1]);
 assert.deepEqual(Array.from(chartChecks.breaks),[true,false,true,false]);
 console.log('Chart: confirmed Fibonacci in all four timeframes, no fabricated flat-market levels, compressed and disconnected weekend gaps OK');
+
+// Intraday live policy: 4h context never vetoes, 1h/15m/5m must all confirm.
+const intradayPolicy=vm.runInContext(`(()=>{
+ const f=dir=>({dir,available:true,fresh:true});
+ const base={'1h':f('LONG'),'15m':f('LONG'),'5m':f('LONG'),'4h':f('SHORT')};
+ return {aligned:buildMtfHierarchy(base),no4h:buildMtfHierarchy({...base,'4h':undefined}),neutral:buildMtfHierarchy({...base,'15m':f('NEUTRAL')}),opposed:buildMtfHierarchy({...base,'1h':f('SHORT')}),stale:buildMtfHierarchy({...base,'5m':{...f('LONG'),fresh:false}}),
+ before:intradaySession(Date.parse('2026-10-05T19:29:00Z')),cutoff:intradaySession(Date.parse('2026-10-05T19:30:00Z')),end:intradaySession(Date.parse('2026-10-05T19:45:00Z')),winter:intradaySession(Date.parse('2026-11-02T20:45:00Z')),weekend:intradaySession(Date.parse('2026-10-04T10:00:00Z'))};
+})()`,env);
+assert.equal(intradayPolicy.aligned.overall,'LONG');assert.equal(intradayPolicy.no4h.overall,'LONG');
+for(const key of ['neutral','opposed','stale'])assert.equal(intradayPolicy[key].overall,'NEUTRAL',key);
+assert(intradayPolicy.before.entryAllowed);assert(!intradayPolicy.cutoff.entryAllowed);
+assert(!intradayPolicy.weekend.entryAllowed);assert(intradayPolicy.end.closeReminder);assert(intradayPolicy.winter.closeReminder);
+console.log('Live intraday: mandatory 1h/15m/5m, optional 4h, stale veto, Zurich daily cutoff and DST OK');
