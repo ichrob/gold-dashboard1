@@ -11,6 +11,8 @@ class BackgroundHealthTests(unittest.TestCase):
     def test_health_rejects_stale_failed_and_unconfigured_monitor(self):
         with patch.object(server.time, 'time', return_value=1000), patch.dict(server.FIB_MONITOR_HEALTH, configured=True, status='active', lastSuccessAt=990):
             self.assertEqual(server.background_health()['status'], 'ok')
+            with patch.dict(server.FIB_MONITOR_HEALTH, status='checking'):
+                self.assertEqual(server.background_health()['status'], 'ok')
             for change in ({'lastSuccessAt': 879}, {'lastSuccessAt': None},
                            {'status': 'unavailable'}, {'configured': False}):
                 with patch.dict(server.FIB_MONITOR_HEALTH, change):
@@ -45,7 +47,7 @@ class BackgroundHealthTests(unittest.TestCase):
         worker.start()
         try:
             for method in ('GET', 'HEAD'):
-                for state, expected in (('active', 200), ('unavailable', 503)):
+                for state, expected in (('active', 200), ('checking', 200), ('unavailable', 503)):
                     with patch.dict(server.FIB_MONITOR_HEALTH, configured=True, status=state, lastSuccessAt=int(server.time.time())):
                         conn = http.client.HTTPConnection(*httpd.server_address)
                         conn.request(method, '/health/background')
