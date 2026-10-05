@@ -211,6 +211,16 @@ function normalizeOcrIsin(value,productText=''){
  // Other substitutions require a reviewed identity and matching product context.
  if(!/^DE[0OQ]{3,4}[A-Z0-9]{7}$/.test(original))return{isin:original,originalIsin:""};
  const candidate="DE000"+original.slice(-7).replace(/O/g,"0").replace(/I/g,"1");
+ // Visually verified user original 1000070573.jpg. Both labelled identifiers
+ // and both exact USD terms must agree; this is not general S -> 9 guessing.
+ const bnpTermsContext=/derivate\.bnpparibas\.com/i.test(productText)
+  && /\bWKN\s+PJSNB9\b/i.test(productText)
+  && /Knock[- ]Out\s+Schwelle\s*\(05\.10\.2026\)\s*3\.996,2705\s+USD/i.test(productText)
+  && /Basispreis\s*\(05\.10\.2026\)\s*3\.996,2705\s+USD/i.test(productText)
+  && /Typ\s+Unlimited\s+Long/i.test(productText)
+  && !/\bSHORT\b|\bPUT\b|FAKTOR|FACTOR/i.test(productText);
+ if(candidate==='DE000PJSNB98'&&bnpTermsContext)return {isin:'DE000PJ9NB98',originalIsin:original,identityCorrection:'Produktidentität am Originalbild 1000070573.jpg geprüft; WKN und beide USD-Stammdaten stimmen überein'};
+
  // Verified against the user's original DEGIRO list 1000070092.jpg.
  // This is a single known identity, not a general I/1 -> 9 substitution.
  if(candidate==='DE000PJ1NCK0'&&/\bBNP\s+GOLD\s+Unlimited\s+Long\b/i.test(productText)&&!/\bSHORT\b|\bPUT\b|FAKTOR|FACTOR/i.test(productText)&&validIsin('DE000PJ9NCK0'))return {isin:'DE000PJ9NCK0',originalIsin:original,identityCorrection:'BNP-Produktidentität am Originalbild belegt'};
@@ -562,7 +572,12 @@ async function retainSelectedImages(input){
  // Read Android content-provider files before releasing the picker selection.
  try{
   const copies=await Promise.all(files.map(async file=>{
-   const bytes=await file.arrayBuffer();
+   let bytes;
+   try{bytes=await file.arrayBuffer();}
+   catch(firstError){
+    if(typeof FileReader==='undefined')throw firstError;
+    bytes=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(reader.error||firstError);reader.onabort=()=>reject(firstError);reader.readAsArrayBuffer(file);});
+   }
    if(!bytes.byteLength)throw new Error('Die ausgewählte Bilddatei ist leer.');
    return new File([bytes],file.name,{type:file.type,lastModified:file.lastModified});
   }));
@@ -1247,6 +1262,7 @@ function parseProductTerms(raw){
  // BNP places the terms date before the amount, on the same or next line.
  raw=raw.replace(/(Knock[- ]Out)\s+Schwelle/gi,'Knock-out-Schwelle');
  raw=raw.replace(/((?:Basispreis|Knock-out-Schwelle))\s*\((\d{2}\.\d{2}\.\d{4})\)\s*([\d.,]+)\s*USD\b/gi,'$1 $3 USD ($2)');
+ raw=raw.replace(/(Laufzeit|Bezugsverhältnis)\s*[&▶►]\s*/g,'$1 ');
  const termLabel='(?:Basispreis|Finanzierungslevel|Knock-Out-Barriere|Knock-out-Schwelle)';
  raw=raw.replace(new RegExp('(?:^|\\n)[ \\t.,;]*([0-9][0-9.,]*)[ \\t]*\\n[ \\t]*('+termLabel+')[ \\t]*[:=]?[ \\t]*(?=USD\\b)','gi'),'\n$2 $1 ');
  raw=raw.replace(new RegExp('('+termLabel+'[ \\t]*[:=]?[ \\t]*(?:\\n[ \\t]*)?[0-9][0-9.,]*)[ \\t]*\\n(?:[ \\t]*\\n)*[ \\t]*(USD\\b)','gi'),'$1 $2');
@@ -1258,7 +1274,7 @@ function parseProductTerms(raw){
  const out={},dates=Array.from(String(raw).matchAll(/(?:^|\n)\s*(?:Produktdatenstand|Bedingungenstand)\s*[:=]?\s*([^\n]+)/gi));
  if(new Set(dates.map(m=>m[1].trim())).size>1)return {error:'Widersprüchlicher Produktdatenstand'};
  const at=dates.length?sourceTimestamp(dates[0][1]):null;
- const labels={ko:'Knock-Out-Barriere|Knock-out-Schwelle',ratio:'Bezugsverhältnis|Bezugsverhaeltnis',strike:'Basispreis|Finanzierungslevel',underlying:'Basiswert|Underlying',contract:'Future-Kontrakt|Futures-Kontrakt|Kontrakt',type:'Produkttyp|Produktart',maturity:'Laufzeit|Fälligkeit|Faelligkeit',currency:'Produktwährung|Produktwaehrung',quanto:'Quanto|Währungsabsicherung'};
+ const labels={ko:'Knock-Out-Barriere|Knock-out-Schwelle',ratio:'Bezugsverhältnis|Bezugsverhaeltnis',strike:'Basispreis|Finanzierungslevel',underlying:'Basiswert|Underlying',contract:'Future-Kontrakt|Futures-Kontrakt|Kontrakt',type:'Produkttyp|Produktart|Typ',maturity:'Laufzeit|Fälligkeit|Faelligkeit',currency:'Produktwährung|Produktwaehrung',quanto:'Quanto|Währungsabsicherung'};
  for(const [key,label] of Object.entries(labels)){
   const matches=Array.from(String(raw).matchAll(new RegExp('(?:^|\\n)\\s*(?:'+label+')\\s*[:=]?\\s*([^\\n]+)','gi')));
   if(!matches.length)continue;
