@@ -1065,6 +1065,27 @@ function productUploadCards(products,direction,now=Date.now()){
 
 // Original list images live in IndexedDB, independently of Android's file picker.
 let listArchive=null,listArchiveUrls=[],productArchivePayload='';
+const LIST_DAY_KEY='bobDegiroListDayV1';
+function zurichListDay(now=Date.now()){
+ const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Zurich',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now));
+ const get=k=>parts.find(p=>p.type===k).value;
+ return {day:get('year')+'-'+get('month')+'-'+get('day'),closed:Number(get('hour'))>=22};
+}
+function listExpired(day,now=Date.now()){const current=zurichListDay(now);return !!day&&(day!==current.day||current.closed);}
+function clearDailyList(){
+ const empty=JSON.stringify({version:2,products:[]});
+ listArchive=null;productArchivePayload=empty;
+ localStorage.setItem(PRODUCT_STORE_KEY,empty);localStorage.setItem(IDENTITY_KEY,'[]');localStorage.removeItem(LIST_DAY_KEY);
+ showListArchive();
+ return archiveTransaction('readwrite',store=>{store.delete('list');return store.put(empty,'products');});
+}
+function expireVisibleList(){
+ const day=localStorage.getItem(LIST_DAY_KEY);
+ if(!listExpired(day))return;
+ clearDailyList().catch(()=>{});populateCandidateRows([]);
+ const label=document.getElementById('dgCentralStatus');if(label)label.textContent='Tagesliste um 22 Uhr abgelaufen. Bitte am nächsten Morgen neue Listenbilder einlesen.';
+}
+
 function archiveTransaction(mode,action){
  return new Promise((resolve,reject)=>{
   const request=indexedDB.open('bobProductArchive',1);
@@ -1091,8 +1112,10 @@ function showListArchive(){
  }
 }
 async function saveListArchive(files,items){
+ if(zurichListDay().closed)throw Error('Tagesliste endet um 22 Uhr Schweizer Zeit. Bitte am nächsten Morgen neu einlesen.');
  const record={files:files.map(file=>({name:file.name,blob:file})),items,storedAt:new Date().toISOString()};
  await archiveTransaction('readwrite',store=>{store.put(JSON.stringify({version:2,products:items.map(cleanStoredProduct).filter(Boolean)}),'products');return store.put(record,'list');});
+ localStorage.setItem(LIST_DAY_KEY,zurichListDay(Date.parse(record.storedAt)).day);
  listArchive=record;showListArchive();
  // Best effort: storage persistence does not change quote/evidence timestamps.
  try{navigator.storage?.persist?.().catch(()=>{});}catch(_){}
@@ -1100,8 +1123,12 @@ async function saveListArchive(files,items){
 async function restoreListArchive(){
  try{
   listArchive=await archiveTransaction('readonly',store=>store.get('list'));
+  const day=listArchive?.storedAt?zurichListDay(Date.parse(listArchive.storedAt)).day:localStorage.getItem(LIST_DAY_KEY);
+  if(listExpired(day)||(!day&&zurichListDay().closed)){await clearDailyList();return;}
+  if(day)localStorage.setItem(LIST_DAY_KEY,day);
   const backup=await archiveTransaction('readonly',store=>store.get('products'));
   if(!localStorage.getItem(PRODUCT_STORE_KEY)&&backup){localStorage.setItem(PRODUCT_STORE_KEY,backup);}
+  if(!day&&localStorage.getItem(PRODUCT_STORE_KEY))localStorage.setItem(LIST_DAY_KEY,zurichListDay().day);
   showListArchive();
  }catch(_){productStorageMessage='Bildspeicher nicht erreichbar. Vorhandene Produktdaten werden weiterhin geladen.';}
 }
@@ -1119,6 +1146,7 @@ function cleanStoredProduct(x){
 function writeStoredProducts(items){
  if(productStorageBlocked)return false;
  try{const rows=items.map(cleanStoredProduct).filter(Boolean).slice(0,12),payload=JSON.stringify({version:2,products:rows});
+  if(rows.length&&!localStorage.getItem(LIST_DAY_KEY))localStorage.setItem(LIST_DAY_KEY,zurichListDay().day);
   if(localStorage.getItem(PRODUCT_STORE_KEY)!==payload)localStorage.setItem(PRODUCT_STORE_KEY,payload);
   if(localStorage.getItem(PRODUCT_STORE_KEY)!==payload)throw Error('Speicherung nicht bestätigt');
   if(productArchivePayload!==payload&&typeof indexedDB!=='undefined'){productArchivePayload=payload;archiveTransaction('readwrite',store=>store.put(payload,'products')).catch(()=>{productArchivePayload='';});}
@@ -1645,7 +1673,7 @@ async function inject(){
  });
  refreshImportedProducts(true);
  const savedCount=restoredProducts.length;
- b.querySelector('#dgCentralStatus').textContent=listArchive?.files?.length?'Gespeicherte Liste: '+listArchive.files.length+' Bild(er) · '+savedCount+' Produkte. Kein erneutes Einlesen nötig.':savedCount?savedCount+' Produkte gespeichert. Frühere Originalbilder sind nicht gespeichert; die Produktdaten bleiben erhalten.':'Noch keine eigene Liste gespeichert.';
+ b.querySelector('#dgCentralStatus').textContent=listArchive?.files?.length?'Gespeicherte Liste: '+listArchive.files.length+' Bild(er) · '+savedCount+' Produkte. Gespeichert bis 22 Uhr Schweizer Zeit.':savedCount?savedCount+' Produkte gespeichert. Frühere Originalbilder sind nicht gespeichert; die Produktdaten bleiben bis 22 Uhr erhalten.':'Bitte für heute neue Listenbilder einlesen. Tageslisten gelten bis 22 Uhr Schweizer Zeit.';
  const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgListUploadButton'),uploadStatus=b.querySelector('#dgCentralStatus');
  uploadButton.addEventListener('click',()=>upload.click());
  upload.addEventListener('change',async()=>{
@@ -1656,7 +1684,7 @@ async function inject(){
    const items=await readListBatch(files,recognizeOcr,(i,total,name)=>{uploadStatus.textContent='📷 Bild '+i+' von '+total+' wird gelesen: '+name;});
    await saveListArchive(files,items);
    populateCandidateRows(items);rankUI();
-   uploadStatus.textContent='✅ '+files.length+' Bild(er) gelesen · '+items.length+' unterschiedliche Produkte erkannt. Bilder und Produkte auf diesem Gerät gespeichert; bleiben nach dem Schließen erhalten.';
+   uploadStatus.textContent='✅ '+files.length+' Bild(er) gelesen · '+items.length+' unterschiedliche Produkte erkannt. Bilder und Produkte bis heute 22 Uhr Schweizer Zeit gespeichert – auch nach dem Schließen.';
    const uncertain=items.filter(x=>!validIsin(x.isin)).length;
    if(uncertain)uploadStatus.textContent+=' ⚠️ '+uncertain+' ISIN(s) unsicher – unter Details prüfen.';
    refreshImportedProducts(true).then(()=>refreshImportedProducts());
@@ -1698,6 +1726,7 @@ function renderContinuingAnalysis(products,context){
  return '<details data-product-details="calculations"><summary>Berechnung mit vorhandenen Werten</summary><p class="small"><i>Berechnung läuft auch mit veralteten Werten und ohne Zeitstempel weiter. Die rechnerische Bewertung ist keine aktuell bestätigte Produktfreigabe.</i></p>'+ (marketWarnings.length?'<p><i>'+esc(marketWarnings.join(' · '))+'</i></p>':'')+rows+'</details>';
 }
 function rankUI(){
+ expireVisibleList();
  saveIdentities();
  updateScreenshotReturn();
  const returnRow=screenshotReturnRow(returnProductIsin,Array.from(document.querySelectorAll('[data-dg="isin"]')).map(el=>({isin:el.value,index:el.dataset.i})));
@@ -1773,7 +1802,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
