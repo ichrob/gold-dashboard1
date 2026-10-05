@@ -80,7 +80,9 @@ assert.equal(b.loadIdentities()[0].isin,isin);assert.equal(b.loadIdentities()[0]
 store.delete('bobDegiroProductsV2');store.set('bobDegiroIdentitiesV1','bad json');assert.equal(b.loadIdentities().length,0);
 store.set('bobDegiroIdentitiesV1',JSON.stringify([{isin:'invalid'}]));assert.equal(b.loadIdentities().length,0);
 const server=fs.readFileSync('server.py','utf8');
-assert(server.includes('manualSnapshotStatus'));assert(server.includes('bobDegiroIdentitiesV1'));
+assert(server.includes('DEGIRO_ASSISTANT_JS = (BASE_DIR / "degiro_assistant.js").read_text'));
+const servedModule=fs.readFileSync('degiro_assistant.js','utf8');
+assert(servedModule.includes('manualSnapshotStatus'));assert(servedModule.includes('bobDegiroIdentitiesV1'));
 console.log('Manual DEGIRO timestamp / provenance / persistence regressions: OK');
 
 
