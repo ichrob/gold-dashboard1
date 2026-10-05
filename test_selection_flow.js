@@ -333,3 +333,9 @@ assert(!b.detailScreenshotData(bnpUnderlying.replace('PJ9NB9','PJ9NCK'),'DE000PJ
 assert(!b.detailScreenshotData(bnpUnderlying+'\nISIN DE000PG0XK25','DE000PJ9NB98').ok);
 assert(!b.detailScreenshotData(bnpUnderlying.replace('PJ9NB9','PJINBY'),'DE000PJ9NB98').ok);
 console.log('BNP underlying identity scoped separately; ambiguous OCR remains blocked');
+
+const actualBnpOcr="19:19 BG KP\nderivate.bnpparibas.com\nStammdaten\nKnock-Out Schwelle\n(05.10.2026) 3.996,2705 USD\nQ\nBasispreis\n(05.10.2026) 3.996,2705 USD\nBezugsverhaltnis 0,1\nLaufzeit & Open End\nReferenzzins SOFR\neat passungssatz 4,00 %\nWKN PJSNB9\nISIN DEOOOPJSNB98\nTyp Unlimited Long\nStuttoart. Frankfurt.\n-_\nRisikowarnung gem? ; \u2018 Bafin-Allgemeinv...\nIII O <\n";
+const actualRead=b.detailScreenshotData(actualBnpOcr,'DE000PJ9NB98');
+assert(actualRead.ok);assert.equal(actualRead.terms.strike.value,3996.2705);assert.equal(actualRead.terms.ko.value,3996.2705);assert.equal(actualRead.terms.ratio.value,.1);assert.equal(actualRead.terms.maturity.value,'Open End');assert.equal(actualRead.terms.type.value,'Unlimited Long');
+for(const changed of [actualBnpOcr.replace('derivate.bnpparibas.com','other.com'),actualBnpOcr.replace('PJSNB9','PJSNC9'),actualBnpOcr.replace('3.996,2705','3.995,2705'),actualBnpOcr.replace('Unlimited Long','Unlimited Short')])assert(!b.detailScreenshotData(changed,'DE000PJ9NB98').ok);
+console.log('Original BNP image OCR: reviewed identity and terms pass; mismatched evidence rejected');
