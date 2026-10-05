@@ -1063,6 +1063,48 @@ function productUploadCards(products,direction,now=Date.now()){
 }
 
 
+// Original list images live in IndexedDB, independently of Android's file picker.
+let listArchive=null,listArchiveUrls=[],productArchivePayload='';
+function archiveTransaction(mode,action){
+ return new Promise((resolve,reject)=>{
+  const request=indexedDB.open('bobProductArchive',1);
+  request.onupgradeneeded=()=>request.result.createObjectStore('records');
+  request.onerror=()=>reject(request.error);
+  request.onsuccess=()=>{
+   const db=request.result,tx=db.transaction('records',mode);let result;
+   tx.oncomplete=()=>{db.close();resolve(result?.result);};
+   tx.onerror=tx.onabort=()=>{db.close();reject(tx.error||Error('Bildspeicher nicht verfügbar'));};
+   try{result=action(tx.objectStore('records'));}catch(e){db.close();reject(e);}
+  };
+ });
+}
+function showListArchive(){
+ const el=document.getElementById('dgSavedListImages');if(!el)return;
+ listArchiveUrls.forEach(url=>URL.revokeObjectURL(url));listArchiveUrls=[];
+ if(!listArchive?.files?.length){el.textContent='';return;}
+ el.innerHTML='<summary>Gespeicherte Listenbilder ('+listArchive.files.length+')</summary><div data-list-previews></div>';
+ const previews=el.querySelector('[data-list-previews]');
+ for(const file of listArchive.files){
+  const url=URL.createObjectURL(file.blob);listArchiveUrls.push(url);
+  const a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener';
+  const img=document.createElement('img');img.src=url;img.alt=file.name;img.style.cssText='max-width:140px;max-height:180px;margin:6px';a.append(img);previews.append(a);
+ }
+}
+async function saveListArchive(files,items){
+ const record={files:files.map(file=>({name:file.name,blob:file})),items,storedAt:new Date().toISOString()};
+ await archiveTransaction('readwrite',store=>{store.put(JSON.stringify({version:2,products:items.map(cleanStoredProduct).filter(Boolean)}),'products');return store.put(record,'list');});
+ listArchive=record;showListArchive();
+ // Best effort: storage persistence does not change quote/evidence timestamps.
+ try{navigator.storage?.persist?.().catch(()=>{});}catch(_){}
+}
+async function restoreListArchive(){
+ try{
+  listArchive=await archiveTransaction('readonly',store=>store.get('list'));
+  const backup=await archiveTransaction('readonly',store=>store.get('products'));
+  if(!localStorage.getItem(PRODUCT_STORE_KEY)&&backup){localStorage.setItem(PRODUCT_STORE_KEY,backup);}
+  showListArchive();
+ }catch(_){productStorageMessage='Bildspeicher nicht erreichbar. Vorhandene Produktdaten werden weiterhin geladen.';}
+}
 const IDENTITY_KEY='bobDegiroIdentitiesV1', PRODUCT_STORE_KEY='bobDegiroProductsV2';
 let productStorageMessage='',productStorageBlocked=false;
 function cleanStoredProduct(x){
@@ -1079,6 +1121,7 @@ function writeStoredProducts(items){
  try{const rows=items.map(cleanStoredProduct).filter(Boolean).slice(0,12),payload=JSON.stringify({version:2,products:rows});
   if(localStorage.getItem(PRODUCT_STORE_KEY)!==payload)localStorage.setItem(PRODUCT_STORE_KEY,payload);
   if(localStorage.getItem(PRODUCT_STORE_KEY)!==payload)throw Error('Speicherung nicht bestätigt');
+  if(productArchivePayload!==payload&&typeof indexedDB!=='undefined'){productArchivePayload=payload;archiveTransaction('readwrite',store=>store.put(payload,'products')).catch(()=>{productArchivePayload='';});}
   localStorage.setItem(IDENTITY_KEY,JSON.stringify(rows.map(({isin,name,direction})=>({isin,name,direction}))));
   productStorageMessage='Produktdaten, Bildquellen und Prüfstatus auf diesem Gerät gespeichert. Originalzeiten bleiben erhalten.';return true;
  }catch(_){productStorageMessage='Speicherung fehlgeschlagen: Produktdaten bleiben möglicherweise nur in diesem Tab. Bitte diesen Tab geöffnet lassen.';return false;}
@@ -1511,7 +1554,7 @@ async function readListBatch(files,recognize,progress=()=>{}){
  for(const x of items)if(recoveries[x.isin]){x.originalIsin=recoveries[x.isin];x.ocrRecovery=true;}
  return items;
 }
-function inject(){
+async function inject(){
  if(document.getElementById("dgTop3"))return;
  const a=document.getElementById("dgProductOut"); if(!a)return;
  const b=document.createElement("div");
@@ -1523,7 +1566,7 @@ function inject(){
  '<b>📷 DEGIRO-Liste</b><button type="button" id="dgListUploadButton" style="margin-top:10px;width:100%;background:#1677ff">↑ DEGIRO-Liste hochladen</button>'+
  '<input id="dgListUpload" type="file" accept="image/*" multiple hidden>'+
  '<div class="small" style="margin-top:8px">Einen oder mehrere Listen-Screenshots gleichzeitig auswählen. Eine neue Auswahl ersetzt die bisherige Liste nach erfolgreichem Einlesen.</div>'+
- '<div id="dgCentralStatus" class="small" role="status" aria-live="polite" style="margin-top:9px">Keine neuen Listenbilder ausgewählt.</div></div>'+
+ '<div id="dgCentralStatus" class="small" role="status" aria-live="polite" style="margin-top:9px">Gespeicherte Liste wird geladen …</div><details id="dgSavedListImages"></details></div>'+
  '<div class="small" style="margin-top:9px">Automatische Produktrecherche: beim Öffnen und alle 15 Minuten, solange Bob sichtbar ist. Quellenzeiten bleiben unverändert: Emittentenkurse höchstens 90 Sekunden; Screenshot-Kursnachweise 14 Stunden ab Quellenzeit gültig, keine Echtzeitkurse. Neue Kursbilder ersetzen den bisherigen Kursnachweis. Fehlende Kurse bleiben offen, berechnete Werte sind Schätzungen.</div>'+
  '<div id="dgTop3Out" style="margin-top:12px"></div>'+
  '<details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700">Alle gespeicherten Produkte / weitere Detailbilder</summary><div id="dgMissingProducts" style="margin-top:12px"></div></details>'+
@@ -1580,6 +1623,7 @@ function inject(){
   r.querySelector('[data-research]').addEventListener('click',()=>enrichProduct(i));
   r.querySelectorAll('[data-dg]').forEach(el=>el.addEventListener('input',()=>{if(el.dataset.dg!=="confirmed"){combinedReferences.delete(i);productQuotes.delete(i);futureResearchQuotes.delete(i);if(["isin","dir"].includes(el.dataset.dg)){detailScreenshots.delete(i);}else if(["price","lev","ko","spread"].includes(el.dataset.dg)){}rowVersions.set(i,(rowVersions.get(i)||0)+1);if(el.dataset.dg==="isin"){combinedDrafts.delete(i);resetCombinedForm(i);}}rankUI();}));
  }
+ await restoreListArchive();
  const restoredProducts=loadIdentities();
  restoreProductRows(applyResearchedTerms(localStorage.getItem(PRODUCT_STORE_KEY)?restoredProducts:recoverReviewedLists(restoredProducts)));
  b.querySelector('[data-return-upload]').addEventListener('click',()=>{
@@ -1600,6 +1644,8 @@ function inject(){
   request:enrichProduct,visible:()=>!document.hidden,interval:900000
  });
  refreshImportedProducts(true);
+ const savedCount=restoredProducts.length;
+ b.querySelector('#dgCentralStatus').textContent=listArchive?.files?.length?'Gespeicherte Liste: '+listArchive.files.length+' Bild(er) · '+savedCount+' Produkte. Kein erneutes Einlesen nötig.':savedCount?savedCount+' Produkte gespeichert. Frühere Originalbilder sind nicht gespeichert; die Produktdaten bleiben erhalten.':'Noch keine eigene Liste gespeichert.';
  const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgListUploadButton'),uploadStatus=b.querySelector('#dgCentralStatus');
  uploadButton.addEventListener('click',()=>upload.click());
  upload.addEventListener('change',async()=>{
@@ -1608,8 +1654,9 @@ function inject(){
   try{
    const files=await retainSelectedImages(upload);
    const items=await readListBatch(files,recognizeOcr,(i,total,name)=>{uploadStatus.textContent='📷 Bild '+i+' von '+total+' wird gelesen: '+name;});
+   await saveListArchive(files,items);
    populateCandidateRows(items);rankUI();
-   uploadStatus.textContent='✅ '+files.length+' Bild(er) gelesen · '+items.length+' unterschiedliche Produkte erkannt. ISINs und Werte am Original prüfen und bestätigen.';
+   uploadStatus.textContent='✅ '+files.length+' Bild(er) gelesen · '+items.length+' unterschiedliche Produkte erkannt. Bilder und Produkte auf diesem Gerät gespeichert; bleiben nach dem Schließen erhalten.';
    const uncertain=items.filter(x=>!validIsin(x.isin)).length;
    if(uncertain)uploadStatus.textContent+=' ⚠️ '+uncertain+' ISIN(s) unsicher – unter Details prüfen.';
    refreshImportedProducts(true).then(()=>refreshImportedProducts());
@@ -1715,7 +1762,7 @@ function rankUI(){
 
 }
 
-if(typeof document!=="undefined"){if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",()=>{try{inject();}catch(e){console.warn(e);}});else try{inject();}catch(e){console.warn(e);}}
+if(typeof document!=="undefined"){if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",()=>{inject().catch(e=>console.warn(e));});else inject().catch(e=>console.warn(e));}
 function exitReference(isin){
  isin=String(isin||'').trim().toUpperCase();
  for(let i=1;i<=12;i++){
@@ -1726,7 +1773,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
