@@ -45,5 +45,11 @@ setImmediate(async()=>{
  payload.cfd={...payload.cfd,at:new Date(Date.now()+1000).toISOString(),changePct:.1};
  await context.window.BobGoldCards.refresh();
  assert.equal(el('gold-cfd-change').className,'gold-change up');
+ context.window.BobGoldCards.spot({spots:{xaus:4180,spot_price_as_of:new Date(Date.now()+2000).toISOString(),dailyChange:{changePct:1,changeLabel:'zum Spot-Vortagesschluss (Investing.com)'}}});
+ assert.equal(el('gold-spot-change').textContent,'↑ +1,00 %');assert.equal(el('gold-spot-change').className,'gold-change up');
+ context.window.BobGoldCards.spot({spots:{xaus:4100,spot_price_as_of:new Date(Date.now()+3000).toISOString(),dailyChange:{changePct:-1}}});
+ assert.equal(el('gold-spot-change').textContent,'↓ −1,00 %');assert.equal(el('gold-spot-change').className,'gold-change down');
+ context.window.BobGoldCards.spot({spots:{xaus:4140,spot_price_as_of:new Date(Date.now()+4000).toISOString(),dailyChange:{changePct:0}}});
+ assert.equal(el('gold-spot-change').textContent,'→ 0,00 %');assert.equal(el('gold-spot-change').className,'gold-change');
  console.log('Gold cards: formatting, directions, stale data, missing change and older response protection OK');
 });

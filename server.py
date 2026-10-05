@@ -11,6 +11,7 @@ import ocr_assets
 import product_quotes
 import market_cards
 import candle_shadow
+import spot_daily_change
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 import economic_calendar
@@ -457,6 +458,7 @@ def build_live_bundle():
                 "pct": pct,
                 "xaus_age_seconds": goldprice_age,
                 "spot_price_as_of": spot_price_as_of,
+                "dailyChange": spot_daily_change.change(goldprice_price, spot_price_as_of),
                 "goldprice_age_seconds": goldprice_age,
                 "usd_eur": usd_eur,
                 "usd_chf": usd_chf,

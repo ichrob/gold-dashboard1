@@ -56,7 +56,7 @@ class CfdBackgroundTests(unittest.TestCase):
             self.assertTrue(all(1<=seconds<=30 for seconds in cycles))
 
     def test_start_is_independent_of_comparison_hours(self):
-        with patch.object(auto_collection,'enabled',return_value=True),patch.object(auto_collection,'in_window',return_value=False),patch.object(auto_collection,'_thread',Mock(is_alive=lambda:True)),patch('future_comparison.start'),patch.object(c,'start') as start:
+        with patch.object(auto_collection,'enabled',return_value=True),patch.object(auto_collection,'in_window',return_value=False),patch.object(auto_collection,'_thread',Mock(is_alive=lambda:True)),patch('future_comparison.start'),patch('spot_daily_change.start'),patch.object(c,'start') as start:
             auto_collection.start();start.assert_called_once()
 
     def test_poll_interval_counts_from_request_start(self):
