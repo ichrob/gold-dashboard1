@@ -360,3 +360,13 @@ assert.equal(b.parseScreenshotCandidates('REFERENZZINS STAMMDATEN').length,0);
 assert(!b.imageIdentityDiagnostic(androidBnpOcr).includes('REFERENZZINS'));
 for(const changed of [androidBnpOcr+'\nISIN DE000PG0XK25',androidBnpOcr.replace('PJONB9','PJONC9'),androidBnpOcr.replace('3.996,2705','3.995,2705'),androidBnpOcr.replace('derivate.bnpparibas.com','other.com')])assert(!b.detailScreenshotData(changed,'DE000PJ9NB98').ok);
 console.log('Android real failure: text labels excluded, reviewed 9/O identity and conflicting evidence checked');
+
+// Original 1000070567 WASM text, with WKN independently read from its badge pixels.
+const bnpQuoteOcr="19:18 BE \u00a9 N%.\u20ac\nderivate.bnpparibas.com\n\nBNP Paribas Zertifikate > Knockouts\n\n\u00a35 GOLD Unlimited\nLong | 3.996,2705\nusb\n\n(LE @ Markt gedffnet\n\nHandelszeiten!*) 08:00:00 - 22:00:00 - Knock-\nOut 00:00:00 - 24:00:00\n\n\u00a9 8B \u00a9 & OE\n=\n\nVerkaufen Kaufen\n\n\u20ac11,62 \u20ac11,63\n\n8.000 Stick 8.000 Stick\nAnderung Hebel GOLD\n\n-15,00 % 31,71 4.127,16 USD\n[1 O <\n\nWKN PJ9NB9";
+const quote567=b.detailScreenshotData(bnpQuoteOcr,"DE000PJ9NB98");
+assert(quote567.ok,quote567.reason);assert.equal(quote567.bid,11.62);assert.equal(quote567.ask,11.63);assert.equal(quote567.leverage,"31.71");assert.equal(quote567.sourceTime,"");
+assert(!b.detailScreenshotData(bnpQuoteOcr.replace("PJ9NB9","PJ9NCK"),"DE000PJ9NB98").ok);
+assert(!b.detailScreenshotData(bnpQuoteOcr.replace("€11,63","€11,61"),"DE000PJ9NB98").ok);
+assert(!b.detailScreenshotData(bnpQuoteOcr+"\nISIN DE000PG0XK25","DE000PJ9NB98").ok);
+assert.equal(b.bnpBadgeRect({text:"other issuer",words:[]}),null);
+console.log("BNP original quote: side-by-side prices, badge identity, leverage and missing source time verified");
