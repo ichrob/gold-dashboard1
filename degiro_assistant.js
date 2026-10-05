@@ -214,6 +214,11 @@ function normalizeOcrIsin(value,productText=''){
  // Verified against the user's original DEGIRO list 1000070092.jpg.
  // This is a single known identity, not a general I/1 -> 9 substitution.
  if(candidate==='DE000PJ1NCK0'&&/\bBNP\s+GOLD\s+Unlimited\s+Long\b/i.test(productText)&&!/\bSHORT\b|\bPUT\b|FAKTOR|FACTOR/i.test(productText)&&validIsin('DE000PJ9NCK0'))return {isin:'DE000PJ9NCK0',originalIsin:original,identityCorrection:'BNP-Produktidentität am Originalbild belegt'};
+ // Original DEGIRO list 1000070469.jpg shows PJ9NB98, BNP Gold Long,
+ // SL/STR 3996.2705 and R 10. Do not generalise I/1 -> 9 from checksum alone.
+ const bnpNbContext=/\bBNP\s+GOLD\s+Unlimited\s+Long\s+SL\s+3996[.,]2705\s+STR\s+3996[.,]2705\s+R\s*10\b/i.test(productText)
+  && !/\bSHORT\b|\bPUT\b|FAKTOR|FACTOR/i.test(productText);
+ if(candidate==='DE000PJ1NB98'&&bnpNbContext&&validIsin('DE000PJ9NB98'))return {isin:'DE000PJ9NB98',originalIsin:original,identityCorrection:'BNP-Produktidentität am Originalbild 1000070469.jpg belegt'};
  // Verified visually in the original DEGIRO list 1000069826(1).jpg.
  // A checksum alone cannot justify S/5 substitutions: require this exact product context.
  const sgContext=/\bSG\s+GOLD\s+TURBO\s+BEST\s+OPEN[-\s]?END\s+CALL\b/i.test(productText)
@@ -715,7 +720,7 @@ function populateCandidateRows(items){
   const confirmed=document.querySelector('[data-dg="confirmed"][data-i="'+i+'"]');if(confirmed)confirmed.checked=false;
   const status=document.getElementById("dgOcrStatus"+i),research=document.getElementById("dgResearch"+i);
   if(research)research.textContent="🌐 Zusatzdaten: warten auf ISIN.";
-  if(status)status.textContent=!x?"Wartet auf Screenshot.":!validIsin(x.isin)?"⚠️ ISIN unsicher: "+(x.isin||"nicht erkannt")+". Bitte direkt am Screenshot korrigieren; Produkt bleibt gesperrt.":x.identityCorrection?"✅ ISIN automatisch korrigiert: "+x.originalIsin+" → "+x.isin+". "+x.identityCorrection+"; aktuelle Produktdaten werden regulär geprüft.":x.ocrRecovery?"⚠️ OCR-Zweitlesung: "+x.originalIsin+" → "+x.isin+" (Prüfziffer gültig). Am Screenshot prüfen und bestätigen.":x.originalIsin?"⚠️ OCR normalisiert: "+x.originalIsin+" → "+x.isin+" (Prüfziffer gültig). Bitte am Screenshot prüfen.":"✅ Aus Screenshot erkannt – ISIN am Screenshot prüfen und bestätigen.";
+  if(status)status.textContent=!x?"Wartet auf Screenshot.":!validIsin(x.isin)?"⚠️ ISIN unsicher: "+(x.isin||"nicht erkannt")+". Bitte ein schärferes Produktbild mit ISIN oder WKN ergänzen; Produkt bleibt gesperrt.":x.identityCorrection?"✅ ISIN automatisch korrigiert: "+x.originalIsin+" → "+x.isin+". "+x.identityCorrection+"; aktuelle Produktdaten werden regulär geprüft.":x.ocrRecovery?"⚠️ OCR-Zweitlesung: "+x.originalIsin+" → "+x.isin+" (Prüfziffer gültig). Produktnachweise werden automatisch geprüft.":x.originalIsin?"⚠️ OCR normalisiert: "+x.originalIsin+" → "+x.isin+" (Prüfziffer gültig). Produktnachweise werden automatisch geprüft.":"✅ Aus Screenshot erkannt – Produktnachweise werden automatisch geprüft.";
  }
 }
 
