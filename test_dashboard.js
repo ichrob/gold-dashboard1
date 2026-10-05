@@ -1,7 +1,7 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const html=fs.readFileSync('Bob.html','utf8'),script=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)[1];
 const elements=new Map(),storage=new Map();
-const noop=()=>{};const canvas=new Proxy({},{get:()=>noop,set:()=>true});
+const noop=()=>{};const canvas=new Proxy({},{get:(_,key)=>key==='measureText'?text=>({width:text.length*6}):noop,set:()=>true});
 const element=id=>{if(!elements.has(id))elements.set(id,{value:({tf:'15m',n:'200',account:'500',risk:'1',trailAtr:'1.5',minRR:'2',displayCcy:'USD'})[id]||'',textContent:'',innerHTML:'',className:'',parentElement:{className:''},style:{},dataset:{},classList:{add:noop,remove:noop,toggle:noop},addEventListener:noop,setAttribute:noop,appendChild:noop,append:noop,selectedOptions:[{textContent:"15 Minuten"}],getContext:()=>canvas,getBoundingClientRect:()=>({width:800,height:300}),width:800,height:220});return elements.get(id);};
 const push={registered:false,serverRegistered:false,activeTrade:false,trade:false,general:false};
 const env={console:{log:noop,warn:noop,info:noop,error:noop},document:{getElementById:element,querySelectorAll:()=>[],querySelector:()=>null,visibilityState:'hidden',addEventListener:noop,createTextNode:text=>({textContent:text}),createElement:()=>element('temp')},window:{addEventListener:noop},localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},navigator:{},Notification:{permission:'denied'},BobPush:{state:()=>push,set:()=>push,setActiveTrade:()=>push,emit:async()=>false},BobDegiro:{riskModel:()=>({ok:false,reason:'fixture'})},fetch:async()=>{throw Error('offline fixture')},setTimeout:()=>0,clearTimeout:noop,setInterval:()=>0,AbortController,Date,Math,Number,JSON,URL,Blob,Promise};
@@ -184,3 +184,18 @@ assert.equal(intradayTests.good.mode,'shadow');assert.equal(intradayTests.hit.tr
 for(const key of ['duplicate','irregular','difference','stale']){assert.equal(intradayTests[key].available,false,key);assert.equal(intradayTests[key].direction,'NEUTRAL',key);}
 assert.equal(intradayTests.flat.direction,'NEUTRAL');
 console.log('Intraday shadow: 15m/5m entry, 1h countertrend, no 4h veto, immediate stop, sideways and invalid data gates passed');
+
+// Neutral trading signals must not suppress chart-only confirmed swings.
+const chartChecks=vm.runInContext(`(()=>{
+ const bars=Array.from({length:120},(_,i)=>{const p=4200+Math.sin(i/5)*20;return {openTime:Date.UTC(2026,9,2)+i*300000,open:p,close:p,high:p+1,low:p-1};});
+ const models=['5m','15m','1h','4h'].map(tf=>{chartHistory[tf]=bars;$('chartTf').value=tf;$('chartType').value='line';draw();return {valid:!!chartFibonacci(bars,3)?.valid,text:$('chartFib').textContent};});
+ const flat=chartFibonacci(bars.map(b=>({...b,open:4200,close:4200,high:4200,low:4200})),0);
+ const friday=Date.UTC(2026,9,2,20),monday=Date.UTC(2026,9,5,0);
+ const axis=chartTradingAxis([{openTime:friday},{openTime:friday+300000},{openTime:monday},{openTime:monday+300000}],300000);
+ return {models,flat,positions:[friday,friday+300000,monday,monday+300000].map(axis.position),breaks:[0,1,2,3].map(axis.startsSegment)};
+})()`,env);
+for(const m of chartChecks.models){assert(m.valid);assert(m.text.includes('38,2 %'));assert(m.text.includes('161,8 %'));}
+assert.equal(chartChecks.flat,null);
+assert.deepEqual(Array.from(chartChecks.positions),[0,1/3,2/3,1]);
+assert.deepEqual(Array.from(chartChecks.breaks),[true,false,true,false]);
+console.log('Chart: confirmed Fibonacci in all four timeframes, no fabricated flat-market levels, compressed and disconnected weekend gaps OK');

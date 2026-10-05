@@ -826,6 +826,18 @@ function fibonacciExplanation(fib){
  if(fib.direction==="LONG")return "Fibonacci-Szenario aufwärts: Bei einem Rücksetzer liegen mögliche Unterstützungszonen bei "+p(l.r382)+" (38,2 %), "+p(l.r500)+" (50 %) und "+p(l.r618)+" (61,8 %). Geht der Kurs weiter zurück, folgt "+p(l.r786)+" (78,6 %); unter dem Ausgangstief "+p(fib.low)+" ist diese Aufwärtsbewegung gebrochen. Setzt sich der Anstieg über "+p(fib.high)+" fort, liegen mögliche Erweiterungsziele bei "+p(l.e1272)+" und "+p(l.e1618)+". Die Zonen bestätigen allein keine Trendwende.";
  return "Fibonacci-Szenario abwärts: Bei einer Erholung liegen mögliche Widerstandszonen bei "+p(l.r382)+" (38,2 %), "+p(l.r500)+" (50 %) und "+p(l.r618)+" (61,8 %). Steigt der Kurs weiter, folgt "+p(l.r786)+" (78,6 %); über dem Ausgangshoch "+p(fib.high)+" ist diese Abwärtsbewegung gebrochen. Setzt sich der Rückgang unter "+p(fib.low)+" fort, liegen mögliche Erweiterungsziele bei "+p(l.e1272)+" und "+p(l.e1618)+". Die Zonen bestätigen allein keine Trendwende.";
 }
+// Chart swings remain visible even when the trading assessment is neutral.
+function chartFibonacci(bars,atr){
+ if(!bars.length)return null;
+ const entry=Number(bars.at(-1).close);
+ return ['LONG','SHORT'].map(dir=>fibonacciModel(dir,entry,atr,bars))
+  .filter(m=>m.valid).sort((a,b)=>Math.max(b.swingHighIndex,b.swingLowIndex)-Math.max(a.swingHighIndex,a.swingLowIndex))[0]||null;
+}
+function chartTradingAxis(bars,step){
+ const indices=new Map(bars.map((b,i)=>[Number(b.openTime),i]));
+ return {position:t=>(indices.get(Number(t))??0)/Math.max(1,bars.length-1),
+  startsSegment:i=>i===0||Number(bars[i].openTime)-Number(bars[i-1].openTime)>step*1.5};
+}
 let chartHistory={};
 window.addEventListener('resize',()=>{if($('chart').getBoundingClientRect().width)draw();});
 function saveChartView(){try{localStorage.setItem('bobChartView',JSON.stringify({type:$('chartType').value,tf:$('chartTf').value}));}catch(_){}}
@@ -840,7 +852,7 @@ function draw(a){
  const v=all.slice(-120), assessment=timeframeScore(all,tf);
  const ranges=all.slice(-14).map((b,i,bs)=>Math.max(Number(b.high)-Number(b.low),i?Math.abs(Number(b.high)-Number(bs[i-1].close)):0,i?Math.abs(Number(b.low)-Number(bs[i-1].close)):0));
  const chartAtr=ranges.length?ranges.reduce((a,b)=>a+b,0)/ranges.length:0;
- const model=all.length&&assessment.available?fibonacciModel(assessment.dir,Number(all.at(-1).close),chartAtr,all):null;
+ const model=chartFibonacci(v,chartAtr);
  const fib=model?.valid?model:null;
  $('chartViewStatus').textContent=v.length<2?'Keine Chartdaten verfügbar':assessment.fresh===false?'Historische Daten · nicht aktuell':'Verlauf geschlossener Kerzen';
  $('chartViewStatus').dataset.stale=String(assessment.fresh===false);
@@ -851,9 +863,9 @@ function draw(a){
  const chartStep=({'5m':300000,'15m':900000,'1h':3600000,'4h':14400000})[tf];
  const irregular=all.some(b=>Number(b.openTime)%chartStep!==0);
  if(irregular)$('chartViewStatus').textContent='Quellenzeitpunkte passen nicht zum gewählten Kerzenraster – Intraday-Test gesperrt';
- $('chartHistoryInfo').textContent=v.length+' Quellenwerte · '+$('chartTf').selectedOptions[0].textContent+(irregular?' · Zeitraster unbestätigt':'');
+ $('chartHistoryInfo').textContent=v.length+' Quellenwerte · '+$('chartTf').selectedOptions[0].textContent+(irregular?' · Zeitraster unbestätigt':'')+' · Handelspausen ausgeblendet';
  cv.setAttribute('aria-label',(candles?'Kerzenchart':'Linienchart')+' '+tf+'; waagerecht Zeit, senkrecht Preis');
- $('chartFibExplanation').textContent=fibonacciExplanation(fib);
+ $('chartFibExplanation').textContent=fibonacciExplanation(fib)+(fib?' Grundlage: bestätigte Swing-Punkte dieser Zeitebene; keine Handelsfreigabe.':'');
  const bundle=typeof liveBundleCache!=="undefined"?liveBundleCache:null;
  const sourceTime=bundle?.spots?.spot_price_as_of;
  const quoteAt=typeof sourceTime==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(sourceTime)?Date.parse(sourceTime):NaN;
@@ -867,10 +879,11 @@ function draw(a){
  $("chartFib").textContent=fibRows.length?"Fibonacci · "+fibRows.map(r=>r[0]+": "+priceLabel(r[1])+" USD").join(" · "):"Fibonacci: keine bestätigten Level verfügbar.";
  const ps=[...v.flatMap(b=>candles?[Number(b.low),Number(b.high)]:[Number(b.close)]),...fibRows.map(r=>r[1])],lo=Math.min(...ps),hi=Math.max(...ps),margin=Math.max((hi-lo)*.08,.5),mn=lo-margin,mx=hi+margin;
  const left=65,right=w-12,top=24,bottom=h-52,start=Number(v[0].openTime),end=Number(v.at(-1).openTime);
- const x=t=>left+(t-start)/(end-start||1)*(right-left),y=p=>bottom-(p-mn)/(mx-mn)*(bottom-top);
+ const axis=chartTradingAxis(v,chartStep);
+ const x=t=>left+axis.position(t)*(right-left),y=p=>bottom-(p-mn)/(mx-mn)*(bottom-top);
  ctx.font="11px sans-serif";ctx.lineWidth=1;ctx.fillStyle="#536176";ctx.textAlign="left";ctx.fillText("USD",8,14);
  for(let i=0;i<=4;i++){const p=mn+(mx-mn)*i/4,py=y(p);ctx.strokeStyle="#e0e0e0";ctx.beginPath();ctx.moveTo(left,py);ctx.lineTo(right,py);ctx.stroke();ctx.fillStyle="#555";ctx.textAlign="right";ctx.fillText(priceLabel(p),left-8,py+5);}
- for(let i=0;i<=2;i++){const t=start+(end-start)*i/2,px=x(t);ctx.textAlign=i===0?"left":i===2?"right":"center";ctx.fillText(timeLabel(t),px,bottom+20);}
+ for(let i=0;i<=2;i++){const t=Number(v[Math.round((v.length-1)*i/2)].openTime),px=x(t);ctx.textAlign=i===0?"left":i===2?"right":"center";ctx.fillText(timeLabel(t),px,bottom+20);}
  const fibAnnotations=fibRows.map(([label,p])=>({py:y(p),target:label.startsWith("Ext."),label}));
  for(const row of fibAnnotations){ctx.strokeStyle=row.target?"#1e40af":"#b45309";ctx.lineWidth=1;ctx.setLineDash(row.target?[10,4,2,4]:[7,4]);ctx.beginPath();ctx.moveTo(left,row.py);ctx.lineTo(right,row.py);ctx.stroke();ctx.setLineDash([]);}
 
@@ -891,7 +904,7 @@ function draw(a){
   const bodyWidth=Math.max(1,Math.min(10,step*.65));
   for(const b of v){const px=x(Number(b.openTime)),oy=y(Number(b.open)),cy=y(Number(b.close));ctx.strokeStyle=ctx.fillStyle=Number(b.close)>=Number(b.open)?'#15803d':'#dc2626';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(px,y(Number(b.high)));ctx.lineTo(px,y(Number(b.low)));ctx.stroke();ctx.fillRect(px-bodyWidth/2,Math.min(oy,cy),bodyWidth,Math.max(1,Math.abs(cy-oy)));}
  }else{
- ctx.strokeStyle="#222";ctx.lineWidth=2;ctx.beginPath();v.forEach((b,i)=>{i?ctx.lineTo(x(Number(b.openTime)),y(Number(b.close))):ctx.moveTo(x(Number(b.openTime)),y(Number(b.close)))});ctx.stroke();
+ ctx.strokeStyle="#222";ctx.lineWidth=2;ctx.beginPath();v.forEach((b,i)=>{!axis.startsSegment(i)?ctx.lineTo(x(Number(b.openTime)),y(Number(b.close))):ctx.moveTo(x(Number(b.openTime)),y(Number(b.close)))});ctx.stroke();
  }
  const last=v.at(-1);ctx.beginPath();ctx.arc(x(Number(last.openTime)),y(Number(last.close)),4,0,Math.PI*2);ctx.fillStyle="#222";ctx.fill();
  ctx.textAlign="left";ctx.font="10px sans-serif";ctx.fillStyle="#666";ctx.fillText(new Date(start).toLocaleDateString("de-CH",{timeZone:"Europe/Zurich"})+" – "+new Date(end).toLocaleDateString("de-CH",{timeZone:"Europe/Zurich"}),left,h-4);
@@ -2022,7 +2035,7 @@ if("serviceWorker" in navigator){
   });
   window.addEventListener("load",()=>{
     sessionStorage.removeItem("bob-sw-reloaded");
-    navigator.serviceWorker.register("/sw.js?v=19",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{});
+    navigator.serviceWorker.register("/sw.js?v=20",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{});
     // MTF watchdog: if the live analysis rendered but the MTF cells did not,
     // retry from the already cached live bundle without requiring a page reload.
     let mtfWatchdogRuns=0;
