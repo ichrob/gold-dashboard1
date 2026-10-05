@@ -33,11 +33,13 @@ class AssetsTests(unittest.TestCase):
 
     def test_served_product_module_matches_tested_source(self):
         module = ast.parse(Path('server.py').read_text())
-        embedded = next(n.value.value for n in module.body
+        assignment = next(n for n in module.body
                         if isinstance(n, ast.Assign) and any(
                             isinstance(t, ast.Name) and t.id == 'DEGIRO_ASSISTANT_JS'
                             for t in n.targets))
-        self.assertEqual(embedded, Path('degiro_assistant.js').read_text())
+        namespace = {'BASE_DIR': Path(__file__).resolve().parent}
+        exec(compile(ast.Module(body=[assignment], type_ignores=[]), 'server-assets', 'exec'), namespace)
+        self.assertEqual(namespace['DEGIRO_ASSISTANT_JS'], Path('degiro_assistant.js').read_text())
 
     def test_fixed_paths_only(self):
         with patch("ocr_assets.urlopen") as fetch:
