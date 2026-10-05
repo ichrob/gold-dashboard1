@@ -459,3 +459,17 @@ assert(!b.automaticIdentity({...refreshed,quote:{...refreshed.quote,productVerif
 assert(!b.automaticIdentity({...refreshed,price:99}));
 assert(!b.automaticIdentity({...refreshed,ko:4000}));
 assert(!b.automaticIdentity({...refreshed,quote:{...refreshed.quote,direction:'SHORT'}}));
+// Batch timing: only same-product accepted images in one selection may donate.
+function timingBatch(){return [{ok:true,name:'terms.jpg',raw:'BNP PARIBAS\nBasispreis (05.10.2026) 3.996,2705 USD',data:{isin:'DE000PJ9NB98',terms:{strike:{dateText:'05.10.2026',value:3996.2705}},times:{}}},{ok:true,name:'quote.jpg',raw:'BNP PARIBAS\nAnderung Hebel GOLD\n-4,39% 28,25 4.143,13 USD\n21:35:52.211\nIndikation\n21:35:42',data:{isin:'DE000PJ9NB98',bid:13.07,ask:13.08,leverage:'28.25',sourceTime:'',times:{quote:{present:false}}}}];}
+let batch=timingBatch();let series=b.linkScreenshotSeries(batch);
+assert.equal(series.text,'05.10.2026 21:35:52');assert.equal(series.at,'2026-10-05T19:35:52.000Z');assert(series.userDeclaredSimultaneous);
+assert.equal(batch[1].data.times.quote.at,series.at);assert.equal(batch[1].data.times.leverage.at,series.at);
+assert.equal(batch[0].data.terms.strike.dateText,'05.10.2026');assert(!batch[0].data.times.quote);
+assert.equal(b.linkScreenshotSeries(timingBatch().reverse()).text,series.text);
+batch=timingBatch();batch[0].ok=false;assert.equal(b.linkScreenshotSeries(batch),null);
+batch=timingBatch();batch[0].data.isin='DE000PJ9NCK0';assert.equal(b.linkScreenshotSeries(batch),null);
+batch=timingBatch();batch[0].raw+='\n04.10.2026';assert.equal(b.linkScreenshotSeries(batch),null);
+batch=timingBatch();batch[1].raw='BNP PARIBAS\n21:35\nHandelszeiten 08:00:00 - 22:00:00';assert.equal(b.linkScreenshotSeries(batch),null);
+batch=timingBatch();batch[0].data.sourceTime='05.10.2026 21:35:52';batch[1].data.sourceTime='05.10.2026 21:34:00';assert.equal(b.linkScreenshotSeries(batch),null);
+batch=timingBatch();batch[1].data.times.bid={present:true,text:'05.10.2026 21:34:00',at:'2026-10-05T19:34:00Z'};b.linkScreenshotSeries(batch);assert.equal(batch[1].data.times.bid.at,'2026-10-05T19:34:00Z');
+console.log('Same-selection timing, provenance, conflicts, original timestamps and product boundaries passed');
