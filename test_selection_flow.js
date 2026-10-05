@@ -370,3 +370,31 @@ assert(!b.detailScreenshotData(bnpQuoteOcr.replace("€11,63","€11,61"),"DE000
 assert(!b.detailScreenshotData(bnpQuoteOcr+"\nISIN DE000PG0XK25","DE000PJ9NB98").ok);
 assert.equal(b.bnpBadgeRect({text:"other issuer",words:[]}),null);
 console.log("BNP original quote: side-by-side prices, badge identity, leverage and missing source time verified");
+
+// Real Android upload order: dated BNP terms followed by its quote image.
+const bnpNow=Date.parse('2026-10-05T18:54:00Z');
+const bnpSnapshot=b.mergeScreenshotEvidence(b.mergeScreenshotEvidence(null,androidRead,'1000070573.jpg'),quote567,'1000070567.jpg');
+const bnpProduct={isin:'DE000PJ9NB98',isinConfirmed:true,productDirection:'LONG',ko:3996.2705,price:11.63,leverage:31.71,snapshot:bnpSnapshot};
+let bnpStatus=b.productTermsStatus(bnpProduct,bnpNow);
+assert(!bnpStatus.reasons.some(r=>/Produkttyp|Basispreis|Knock-out/.test(r)),bnpStatus.reasons.join('; '));
+assert(bnpStatus.reasons.some(r=>/Basiswert/.test(r)));
+assert(!b.selectionDetailStatus(bnpProduct,bnpNow).reasons.some(r=>/KO-Barriere|Knock-out|Basispreis|Produkttyp/.test(r)));
+assert(b.selectionDetailStatus(bnpProduct,bnpNow).reasons.some(r=>/Kurszeit/.test(r)));
+assert.equal(bnpSnapshot.sourceTime,'');
+assert.equal(bnpSnapshot.terms.strike.at,null);
+assert.equal(bnpSnapshot.evidence.KO.at,null);
+// Saved version-8 records are re-evaluated without upload or changing their clocks.
+const stored=JSON.parse(JSON.stringify(bnpProduct));stored.snapshot.terms.type.automatic=false;
+assert(!b.productTermsStatus(stored,bnpNow).reasons.some(r=>/Produkttyp/.test(r)));
+for(const stamp of ['2026-10-04T21:59:59Z','2026-10-05T22:00:00Z']){
+ const reasons=b.productTermsStatus(stored,Date.parse(stamp)).reasons;
+ assert(reasons.some(r=>/Basispreis/.test(r)));assert(reasons.some(r=>/Knock-out/.test(r)));
+}
+for(const mutate of [p=>p.snapshot.terms.ko.dateText='31.02.2026',p=>p.snapshot.terms.ko.ocrCorrection='uncertain',p=>p.snapshot.terms.ko.conflict=true,p=>p.snapshot.identityBasis='',p=>p.snapshot.isin='DE000PG0XK25',p=>p.ko=3997]){
+ const bad=JSON.parse(JSON.stringify(stored));mutate(bad);
+ assert(b.productTermsStatus(bad,bnpNow).reasons.some(r=>/Knock-out/.test(r)));
+}
+const wrongDirection=JSON.parse(JSON.stringify(stored));wrongDirection.productDirection='SHORT';
+assert(b.productTermsStatus(wrongDirection,bnpNow).reasons.some(r=>/Produktrichtung/.test(r)));
+assert.equal(b.selectionWorkflow([bnpProduct],{...context,now:bnpNow,direction:'NEUTRAL'},{}).groups.length,0);
+console.log('BNP dated terms survive actual two-image order and saved-state reload; midnight, direction, identity, missing quote time and neutral gates verified');

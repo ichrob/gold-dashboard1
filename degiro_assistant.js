@@ -925,7 +925,7 @@ function selectionDetailStatus(p,now=Date.now()){
  if(x?.delayed)reasons.push('Nicht verzögerten Produktkurs ergänzen');
  if(!(n(p.leverage)>=1&&n(e.Hebel?.value)===n(p.leverage))||!evidenceTiming(e.Hebel,now).fresh&&!(pair&&e.Hebel?.source===e.Geld?.source&&time&&now-time.start<=SCREENSHOT_MAX_AGE_MS))reasons.push('Aktuelles Detailbild mit Hebel und zugehöriger Zeit');
  const fixed=window.BobCombined.fixedFor(p),meta=p.quote?.productVerified?p.quote.metadata:null;
- if(!(n(p.ko)>0)||!(fixed||n(meta?.ko)===n(p.ko)||n(e.KO?.value)===n(p.ko)&&evidenceTiming(e.KO,now).fresh))reasons.push('KO-Barriere mit gültigem Nachweis oder festen Screenshotwert bestätigen');
+ if(!(n(p.ko)>0)||!(fixed||n(meta?.ko)===n(p.ko)||screenshotKoCurrent(p,now)))reasons.push('KO-Barriere mit gültigem Nachweis oder festen Screenshotwert bestätigen');
  return {complete:!reasons.length,reasons,at:time?new Date(time.start).toISOString():null,timeLabel:time?.label,source:e.Geld?.source};
 }
 // Read the rendered result blocks, never the MTF legend containing all three labels.
@@ -1086,7 +1086,7 @@ function renderMissingValues(reasons,p={}){
 }
 function renderImageImportStatus(index){
  const message=typeof document==='undefined'?'':document.getElementById('dgOcrStatus'+index)?.textContent||'';
- return '<div class="small" role="status" aria-live="polite" data-image-import-status="'+index+'" style="margin-top:8px;white-space:normal;overflow-wrap:anywhere">'+esc(message||'Nach der Bildauswahl startet das Einlesen automatisch. Kein zusätzlicher Upload-Klick nötig.')+'<div style="margin-top:4px;font-size:12px;color:#64748b">Bildimport 05.10-8 · Galerieauswahl</div></div>';
+ return '<div class="small" role="status" aria-live="polite" data-image-import-status="'+index+'" style="margin-top:8px;white-space:normal;overflow-wrap:anywhere">'+esc(message||'Nach der Bildauswahl startet das Einlesen automatisch. Kein zusätzlicher Upload-Klick nötig.')+'<div style="margin-top:4px;font-size:12px;color:#64748b">Bildimport 05.10-9 · Galerieauswahl</div></div>';
 }
 // Keep disclosure state by product identity and nested section, never by row order.
 function detailStateKey(el){
@@ -1401,7 +1401,7 @@ function automaticCondition(e,key){
  const value=String(e.value??'').trim();
  return key==='ratio'?n(e.value)>0&&n(e.value)<=1:
   key==='underlying'?/^(Gold|XAU\/USD|Gold Future)$/i.test(value):
-  key==='type'?/^(BEST Turbo-Optionsscheine? \(Open-End\)|Turbo|Turbo BEST|Mini Future|Knock-out Turbo)$/i.test(value):
+  key==='type'?/^(BEST Turbo-Optionsscheine? \(Open-End\)|Turbo|Turbo BEST|Mini Future|Knock-out Turbo|Unlimited (?:Long|Short))$/i.test(value):
   key==='maturity'?/^(Open[ -]?End|Unbegrenzt)$/i.test(value):key==='currency'?value==='EUR':false;
 }
 function durableCondition(e,key,now){
@@ -1418,6 +1418,20 @@ function maturityDeadline(raw){
  // A date alone is accepted before its Zurich calendar day. Do not invent an intraday expiry.
  return selectionTimeWindow(m[1]+'/'+m[2]+'/'+m[3]+' 00:00')?.start??null;
 }
+// Daily issuer terms carry a calendar date, not an invented intraday timestamp.
+function currentDatedTerm(e,now){
+ if(!e?.source||e.conflict||e.revoked||e.ocrCorrection)return false;
+ if(e.at){const age=now-Date.parse(e.at);return Number.isFinite(age)&&age>=0&&age<=86400000;}
+ const m=String(e.dateText||'').match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+ return !!m&&m[3]+'-'+m[2]+'-'+m[1]===zurichListDay(now).day;
+}
+function screenshotKoCurrent(p,now){
+ const x=p.snapshot,e=x?.evidence?.KO,t=x?.terms?.ko;
+ if(x?.isin!==p.isin||n(e?.value)!==n(p.ko))return false;
+ if(e?.at)return currentDatedTerm(e,now);
+ return ['ISIN','WKN'].includes(x.identityBasis)&&n(t?.value)===n(p.ko)&&
+  t?.source===e?.source&&t?.dateText===e?.dateText&&currentDatedTerm(t,now);
+}
 function productTermsStatus(p,now=Date.now()){
  const reasons=[],values={},q=p.quote?.isin===p.isin?p.quote:null;
  const meta=q?.productVerified?q.metadata:null;
@@ -1433,13 +1447,15 @@ function productTermsStatus(p,now=Date.now()){
  const labels={ratio:'Bezugsverhältnis',strike:'Basispreis in USD',underlying:'Exakter Basiswert (z. B. XAU/USD)',type:'Produkttyp',maturity:'Laufzeit / Fälligkeit oder Open End',currency:'Produktwährung'};
  for(const [key,label] of Object.entries(labels)){
   const e=terms[key],age=now-Date.parse(e?.at);
-  if(durableCondition(e,key,now)||e?.source&&Number.isFinite(age)&&age>=0&&age<=86400000)values[key]=e.value;
+  if(key==='strike'&&shot&&['ISIN','WKN'].includes(shot.identityBasis)&&currentDatedTerm(e,now)||durableCondition(e,key,now)||e?.source&&Number.isFinite(age)&&age>=0&&age<=86400000)values[key]=e.value;
   else if(api&&['ratio','strike','underlying'].includes(key))values[key]=api[key];
   if(values[key]===undefined||values[key]==='')reasons.push(label+((e?.value!==undefined&&e.value!=='')?(key==='strike'?': Wert eingelesen; gültiger datierter Nachweis fehlt oder ist älter als 24 Stunden':': Wert eingelesen; Produktbedingung nicht eindeutig belegt'):': Wert fehlt'));
  }
  for(const key of ['ratio','strike'])if(values[key]!==undefined&&!(n(values[key])>0))reasons.push(labels[key]+': ungültig');
  if(values.currency&&values.currency!=='EUR')reasons.push('Produktwährung EUR erforderlich');
- if(values.type&&!/turbo|mini.?future|knock.?out/i.test(values.type))reasons.push('Produkttyp nicht als Turbo / Knock-out bestätigt');
+ if(values.type&&!/turbo|mini.?future|knock.?out|^Unlimited (?:Long|Short)$/i.test(values.type))reasons.push('Produkttyp nicht als Turbo / Knock-out bestätigt');
+ const typeDirection=String(values.type||'').match(/^Unlimited (Long|Short)$/i);
+ if(typeDirection&&typeDirection[1].toUpperCase()!==p.productDirection)reasons.push('Produktrichtung widerspricht Produkttyp');
  const future=isFutureProduct(p)||/future/i.test(values.underlying||'');
  if(future){
   const e=terms.contract,age=now-Date.parse(e?.at);
@@ -1454,9 +1470,9 @@ function productTermsStatus(p,now=Date.now()){
   const end=maturityDeadline(values.maturity);
   if(!Number.isFinite(end)||end<=now)reasons.push('Fälligkeit fehlt als eindeutiger Zeitpunkt oder Produkt ist abgelaufen');
  }
- const ko=shot?.evidence?.KO,koAge=now-Date.parse(ko?.at),apiKoAge=now-Date.parse(q?.checkedAt);
+ const ko=shot?.evidence?.KO,apiKoAge=now-Date.parse(q?.checkedAt);
  if(!(n(p.ko)>0))reasons.push('Knock-out-Schwelle fehlt');
- else if(!(ko?.source&&n(ko.value)===n(p.ko)&&koAge>=0&&koAge<=86400000)&&!(meta&&meta.termsDated!==false&&q.source&&n(meta.ko)===n(p.ko)&&apiKoAge>=0&&apiKoAge<=86400000))reasons.push('Knock-out-Schwelle: datierter Produktnachweis fehlt oder älter als 24 Stunden');
+ else if(!screenshotKoCurrent(p,now)&&!(meta&&meta.termsDated!==false&&q.source&&n(meta.ko)===n(p.ko)&&apiKoAge>=0&&apiKoAge<=86400000))reasons.push('Knock-out-Schwelle: datierter Produktnachweis fehlt oder älter als 24 Stunden');
  if(meta?.ko&&n(p.ko)!==n(meta.ko))reasons.push('Knock-out-Schwelle widerspricht Produktquelle: gespeichert '+p.ko+' USD ('+(ko?.source||'Produktliste / manuelle Eingabe')+'; Stand '+(ko?.at||ko?.dateText||'nicht belegt')+'), Quelle '+meta.ko+' USD ('+(q.termsSource||q.source||'Produktquelle')+'; Gültigkeitsstand '+(meta.termsDated===false?'nicht belegt':q.checkedAt||'nicht belegt')+'). Abrufzeit '+(q.termsCheckedAt||q.checkedAt||'unbekannt')+' ist kein Gültigkeitsdatum.');
  if(meta?.status!==undefined&&(!(meta.status&1)||meta.status&(2|8|16|32)))reasons.push('Produkt laut Emittent nicht aktiv');
  return {complete:reasons.length===0,reasons,values};
@@ -1585,7 +1601,7 @@ async function readScreenshot(i,file){
   const result=await recognizeOcr(file,"dgOcrStatus"+i);
   if((rowVersions.get(i)||0)!==version||(field("isin")?.value||"").trim().toUpperCase()!==expected)return;
   const x=detailScreenshotData(result.data.text,expected);
-  if(!x.ok){const reason=x.reason+" "+imageIdentityDiagnostic(result.data.text)+" · Bildimport 05.10-8";if(status)status.textContent="⚠️ "+reason;return{ok:false,reason};}
+  if(!x.ok){const reason=x.reason+" "+imageIdentityDiagnostic(result.data.text)+" · Bildimport 05.10-9";if(status)status.textContent="⚠️ "+reason;return{ok:false,reason};}
   const merged=mergeScreenshotEvidence(detailScreenshots.get(i),x,file.name);
   productQuotes.delete(i);
   for(const [k,v] of Object.entries({dir:merged.direction,price:merged.price,lev:merged.leverage,ko:merged.ko,spread:merged.spread})){if(v!==""&&v!==null&&v!==undefined&&field(k))field(k).value=v;}
@@ -1656,9 +1672,9 @@ function screenshotSummary(x){
  const terms=x.terms||{},ko=x.evidence?.KO;
  const sameKo=terms.ko&&ko&&n(terms.ko.value)===n(ko.value);
  const rows=Object.entries(x.evidence||{}).filter(([key])=>key!=='Spread'&&!(key==='KO'&&sameKo)).map(([key,e])=>{
-  const t=evidenceTiming(e);return card(key==='KO'?'KO-Barriere':key,e,e.at||(e.dateText?'Datum '+e.dateText+' · Gültigkeit noch nicht bestätigt':key==='Richtung'?'Eingelesen · am Original prüfen':'Wert eingelesen · Quellenzeit fehlt'));
+  const t=evidenceTiming(e);return card(key==='KO'?'KO-Barriere':key,e,e.at||(e.dateText?'Datenstand '+e.dateText+(currentDatedTerm(e,Date.now())?' · für diesen Kalendertag belegt; keine Kurszeit':' · nicht für heute bestätigt'):key==='Richtung'?'Eingelesen · am Original prüfen':'Wert eingelesen · Quellenzeit fehlt'));
  }).join('');
- const termRows=Object.entries(terms).filter(([key])=>key!=='quanto').map(([key,e])=>card(labels[key]||key,e,e.automatic?'Automatisch aus zugeordnetem Bild gelesen · keine Kurszeit':e.conditionVerified?'Produktbedingung recherchiert '+e.reviewedAt+' · keine Kurszeit':e.reviewed&&['type','currency','maturity'].includes(key)?'Geprüfte Produktbedingung · keine Kurszeit':e.at||(e.dateText?'Datum '+e.dateText+' · Gültigkeit noch nicht bestätigt':'Wert eingelesen · Produktnachweis noch nicht bestätigt; Datenstand fehlt'))).join('');
+ const termRows=Object.entries(terms).filter(([key])=>key!=='quanto').map(([key,e])=>card(labels[key]||key,e,e.automatic?'Automatisch aus zugeordnetem Bild gelesen · keine Kurszeit':e.conditionVerified?'Produktbedingung recherchiert '+e.reviewedAt+' · keine Kurszeit':e.reviewed&&['type','currency','maturity'].includes(key)?'Geprüfte Produktbedingung · keine Kurszeit':e.at||(e.dateText?'Datenstand '+e.dateText+(currentDatedTerm(e,Date.now())?' · für diesen Kalendertag belegt; keine Kurszeit':' · nicht für heute bestätigt'):'Wert eingelesen · Produktnachweis noch nicht bestätigt; Datenstand fehlt'))).join('');
  const ratio=terms.ratio;
  const ratioNote=ratio?'Bezugsverhältnis eingelesen: '+ratio.value+(durableCondition(ratio,'ratio',Date.now())?' · Produktbedingung bestätigt':' · Nachweis nicht eindeutig'):x.listEvidence?.ratioText||'';
  return '<div class="small" style="min-width:0;max-width:100%;overflow-wrap:anywhere">'+(x.listEvidence?'<div>ISIN/Bildzuordnung geprüft: '+esc(x.listEvidence.source)+' · historischer Bildnachweis.</div>':'')+'<div>'+esc(ratioNote)+'</div><b>Automatisch erkannte Angaben</b>'+rows+termRows+'<div>'+esc(screenshotTimeLabel(x))+'</div></div>';
