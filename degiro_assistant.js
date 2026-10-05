@@ -1067,6 +1067,12 @@ function needsDirectionalData(p,direction){
 // Terms have their own source date; a quote/upload never refreshes them.
 function parseProductTerms(raw){
  raw=String(raw).replace(/(?:©|®|ⓘ|@)/g,'').replace(/Bezugsverhaltnis/g,'Bezugsverhältnis');
+ // Mobile SG tables wrap the USD/date cell, sometimes above its label.
+ // Join only adjacent, recognisable amount/currency fragments, never another row.
+ const termLabel='(?:Basispreis|Finanzierungslevel|Knock-Out-Barriere|Knock-out-Schwelle)';
+ raw=raw.replace(new RegExp('(?:^|\\n)[ \\t.]*([0-9][0-9.,]*)[ \\t]*\\n[ \\t]*('+termLabel+')[ \\t]*[:=]?[ \\t]*(?=USD\\b)','gi'),'\n$2 $1 ');
+ raw=raw.replace(new RegExp('('+termLabel+'[ \\t]*[:=]?[ \\t]*(?:\\n[ \\t]*)?[0-9][0-9.,]*)[ \\t]*\\n(?:[ \\t]*\\n)*[ \\t]*(USD\\b)','gi'),'$1 $2');
+ raw=raw.replace(new RegExp('('+termLabel+'[ \\t]*[:=]?[ \\t]*[0-9][0-9.,]*[ \\t]+USD)[ \\t]*\\n[ \\t]*(\\([^\\n]*\\))','gi'),'$1 $2');
  // A correctly read German USD amount establishes the table's number convention.
  const germanAmounts=/\b\d{1,3}\.\d{3},\d+\s*USD\b/.test(raw);
  const numberCorrection=germanAmounts&&/\b\d{1,3},\d{3},\d+\s*USD\b/.test(raw);
@@ -1080,10 +1086,16 @@ function parseProductTerms(raw){
   if(!matches.length)continue;
   const values=Array.from(new Set(matches.map(m=>m[1].trim())));
   if(values.length!==1)return {error:'Widersprüchliche Produktbedingung: '+label.split('|')[0]};
-  let value=values[0],dateText=null;
+  let value=values[0],dateText=null,dateWarning=null;
   if(['strike','ko'].includes(key)){
-   const dated=value.match(/^(.*?)\s*\((\d{2}\.\d{2}\.\d{4})\)\s*$/);
-   if(dated){value=dated[1].trim();dateText=dated[2];}
+   const dated=value.match(/^([\d.,]+\s*USD)\s*\(([^\n]*)\)?\s*$/i);
+   if(dated){
+    value=dated[1].trim();const candidate=dated[2].replace(/\)\s*$/,'').trim();
+    const parts=candidate.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+    const d=parts?new Date(Date.UTC(+parts[3],+parts[2]-1,+parts[1])):null;
+    if(parts&&d.getUTCFullYear()===+parts[3]&&d.getUTCMonth()===+parts[2]-1&&d.getUTCDate()===+parts[1])dateText=candidate;
+    else dateWarning='Datum im Bild nicht sicher erkannt; am Original prüfen. Aktualität nicht bestätigt.';
+   }
   }
   if(key==='ratio'&&/^\d+(?:[.,]\d+)?\s*:\s*1$/.test(value)){
    const denominator=Number(value.split(':')[0].trim().replace(',','.'));
@@ -1096,7 +1108,7 @@ function parseProductTerms(raw){
    let numeric=m[1];if(numeric.includes(','))numeric=numeric.replace(/\./g,'').replace(',','.');
    value=Number(numeric);if(!(value>0&&Number.isFinite(value)))return {error:label.split('|')[0]+': positiver Wert erforderlich'};
   }
-  out[key]={value,at,dateText,ocrCorrection:numberCorrection&&['ko','strike'].includes(key)?'OCR-Trennzeichen anhand des deutschen Tabellenformats vereinheitlicht; am Original prüfen':null};
+  out[key]={value,at:dateWarning?null:at,dateText,ocrCorrection:dateWarning||(numberCorrection&&['ko','strike'].includes(key)?'OCR-Trennzeichen anhand des deutschen Tabellenformats vereinheitlicht; am Original prüfen':null)};
  }
  return out;
 }
@@ -1769,7 +1781,5 @@ function init(){
 }
 window.BobTradeUpload={parse,draft,reviewed,merge,init};if(typeof document!=='undefined'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();}
 })();
-
-
 
 
