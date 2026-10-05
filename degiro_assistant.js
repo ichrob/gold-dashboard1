@@ -1399,6 +1399,13 @@ function finalProductStatus(p,now=Date.now(),reference){
 }
 function detailScreenshotData(text,expectedIsin){
  let raw=String(text||"");
+ // BNP's Gold reference identifier is not the certificate ISIN.
+ // Scope removal to the explicit Gold underlying section, preserving all
+ // certificate identifiers and rejecting conflicting product identities.
+ if(/derivate\.bnpparibas\.com|BNP\s+Paribas/i.test(raw)&&/Basiswert\s+GOLD\b/i.test(raw)){
+  raw=raw.replace(/(Basiswert\s+GOLD\s+ISIN\s*[:=]?\s*)USFX0{5}XAU\b/i,'Basiswert GOLD\nReferenzkennung XAU/USD');
+  raw=raw.replace(/(?:^|\n)\s*Basiswert\s*\n(?=\s*Basiswert\s+GOLD\b)/i,'\n');
+ }
  if(!validIsin(expectedIsin))return{ok:false,reason:"Bitte zuerst die ISIN dieses Produkts am Screenshot prüfen und korrigieren."};
  const identity=screenshotIdentity(raw,expectedIsin);
  if(!identity.ok)return identity;
