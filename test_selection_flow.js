@@ -326,3 +326,10 @@ assert(pgResult.ok,pgResult.reason);assert.equal(pgResult.terms.strike.value,345
 assert(!b.detailScreenshotData(pgTerms,'DE000PJ9NB98').ok);
 assert(!b.detailScreenshotData('BNP PARIBAS\nHebel 6,09\nÄhnliche Produkte\nAktuelles Produkt\nBasispreis 3.455,49',pg).ok);
 console.log('BNP dated mobile table and inline WKN badge regressions passed');
+
+const bnpUnderlying='PJ9NB9 11,99 / 12,00 €\nderivate.bnpparibas.com\nBasiswert\nBasiswert GOLD\nISIN USFX00000XAU\nWährung des Basiswertes USD';
+assert(b.detailScreenshotData(bnpUnderlying,'DE000PJ9NB98').ok);
+assert(!b.detailScreenshotData(bnpUnderlying.replace('PJ9NB9','PJ9NCK'),'DE000PJ9NB98').ok);
+assert(!b.detailScreenshotData(bnpUnderlying+'\nISIN DE000PG0XK25','DE000PJ9NB98').ok);
+assert(!b.detailScreenshotData(bnpUnderlying.replace('PJ9NB9','PJINBY'),'DE000PJ9NB98').ok);
+console.log('BNP underlying identity scoped separately; ambiguous OCR remains blocked');
