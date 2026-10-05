@@ -265,3 +265,16 @@ for(const text of ['Warum ausgewählt?','Was spricht dagegen','Wann entfällt','
 assert(!explanation.includes('<img'));
 assert(b.renderProductDecision({},false,['Marktsignal neutral']).includes('Marktsignal neutral'));
 console.log('Decision explanations preserve evaluation warnings and escape external text');
+
+// User original 1000070469: tightly scoped recovery, never infer all I/1 as 9.
+const nbLine='BNP GOLD Unlimited Long SL 3996.2705 STR\n3996.2705 R 10 | DEOOOPJINB98\nBNP OTC\nEUR';
+const nb=b.parseScreenshotCandidates(nbLine)[0];
+assert.equal(nb.isin,'DE000PJ9NB98');assert.equal(nb.direction,'LONG');assert.equal(nb.ko,3996.2705);
+assert(nb.identityCorrection);assert(b.validIsin(nb.isin));
+assert.equal(b.parseScreenshotCandidates(nbLine.replace('DEOOOPJINB98','DE000PJ1NB98'))[0].isin,nb.isin);
+for(const bad of [nbLine.replace('BNP','SG'),nbLine.replace('Long','Short'),nbLine.replace('GOLD','DAX'),nbLine.replace('3996.2705','3995.2705'),nbLine.replace('R 10','R 100'),nbLine.replace('PJINB98','PJINB99')]){
+ assert.notEqual(b.parseScreenshotCandidates(bad)[0].isin,nb.isin);
+}
+assert.notEqual(b.normalizeOcrIsin('DEOOOPJINB98').isin,nb.isin);
+assert(!b.finalProductStatus({isin:nb.isin,name:nb.name,productDirection:nb.direction,isinConfirmed:true},now).complete);
+console.log('Original-image BNP NB98 identity recovery and negative contexts passed');
