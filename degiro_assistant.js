@@ -601,6 +601,38 @@ async function prepareOcrImage(file,statusId,isinPass=false){
   return await new Promise((resolve,reject)=>canvas.toBlob(x=>x?resolve(x):reject(new Error("Bildaufbereitung fehlgeschlagen")),isinPass?"image/png":"image/jpeg",0.86));
  }catch(e){return file;}
 }
+// BNP mobile quote cards use a small orange WKN badge left of Markt.
+// Re-read those pixels independently; never supply the selected product code.
+function bnpBadgeRect(data){
+ if(!/BNP\s+Paribas|derivate\.bnpparibas\.com/i.test(data?.text||''))return null;
+ const markers=(data.words||[]).filter(w=>/^Markt$/i.test(w.text));
+ if(markers.length!==1)return null;
+ const b=markers[0].bbox,h=b.y1-b.y0;
+ if(!(h>5&&b.x0>100))return null;
+ return {x:Math.round(b.x0*.15),y:Math.max(0,Math.round(b.y0-h*.35)),width:Math.round(b.x0*.57)-Math.round(b.x0*.15),height:Math.round(b.y1+h*.45)-Math.max(0,Math.round(b.y0-h*.35))};
+}
+async function readBnpBadge(worker,image,data){
+ const rect=bnpBadgeRect(data);if(!rect)return '';
+ const bitmap=await createImageBitmap(image);
+ try{
+  const canvas=document.createElement('canvas');canvas.width=rect.width*2;canvas.height=rect.height*2;
+  const ctx=canvas.getContext('2d',{alpha:false});ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+  ctx.drawImage(bitmap,rect.x,rect.y,rect.width,rect.height,0,0,canvas.width,canvas.height);
+  const crop=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!crop)return '';
+  await worker.setParameters({tessedit_pageseg_mode:'7',tessedit_char_whitelist:'0123456789ABCDEFGHJKLMNPQRSTUVWXYZ'});
+  const read=await ocrTimeout(worker.recognize(crop),15000,'WKN-Zweitlesung beendet');
+  const code=String(read.data.text||'').trim();
+  return /^[A-Z0-9]{6}$/.test(code)&&/[A-Z]/.test(code)&&/\d/.test(code)?code:'';
+ }finally{bitmap.close();await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});}
+}
+function normalizeBnpQuoteColumns(raw){
+ if(!/BNP\s+Paribas|derivate\.bnpparibas\.com/i.test(raw))return raw;
+ // Preserve the displayed left/right pair from one image, never pair uploads.
+ raw=raw.replace(/\bVerkaufen\s+Kaufen\s+€\s*(\d+[.,]\d{2})[ \t]+€\s*(\d+[.,]\d{2})(?=\s|$)/g,'Geld € $1\nBrief € $2');
+ const row=raw.match(/[ÄA]nderung\s+Hebel\s+GOLD\s+[-+−]?\d+[.,]\d+\s*%\s+(\d+[.,]\d+)\s+\d[\d.,]*\s+USD/i);
+ if(row)raw+='\nHebel '+row[1];
+ return raw;
+}
 function recoverOcrIsins(primary,secondary){
  const candidates=Array.from(new Set((String(secondary||"").toUpperCase().match(/DE[0OQCD]{3,4}[A-Z0-9]{6}[0-9](?![A-Z0-9])/g)||[]).map(x=>"DE000"+x.slice(-7)).filter(validIsin))),corrections={};
  const text=String(primary||"").replace(/\bDE[0OQ]{3,4}[A-Z0-9]{7}\b/g,raw=>{
@@ -681,6 +713,10 @@ function recognizeOcr(file,statusId){
     finally{await worker.setParameters({tessedit_pageseg_mode:"3"});}
    }
   }catch(e){ocrWorkerPromise=null;await worker.terminate().catch(()=>{});throw e;}
+  if(!parseScreenshotCandidates(result.data.text||'').length&&bnpBadgeRect(result.data)){
+   try{const wkn=await readBnpBadge(worker,prepared,result.data);if(wkn)result.data.text+='\nWKN '+wkn;}
+   catch(e){console.warn('[BOB] WKN-Zweitlesung',e.message);}
+  }
   if(parseScreenshotCandidates(result.data.text||"").some(x=>!validIsin(x.isin))){
    let secondaryFailed=false;
    try{
@@ -1049,7 +1085,7 @@ function renderMissingValues(reasons,p={}){
 }
 function renderImageImportStatus(index){
  const message=typeof document==='undefined'?'':document.getElementById('dgOcrStatus'+index)?.textContent||'';
- return '<div class="small" role="status" aria-live="polite" data-image-import-status="'+index+'" style="margin-top:8px;white-space:normal;overflow-wrap:anywhere">'+esc(message||'Nach der Bildauswahl startet das Einlesen automatisch. Kein zusätzlicher Upload-Klick nötig.')+'<div style="margin-top:4px;font-size:12px;color:#64748b">Bildimport 05.10-5 · Galerieauswahl</div></div>';
+ return '<div class="small" role="status" aria-live="polite" data-image-import-status="'+index+'" style="margin-top:8px;white-space:normal;overflow-wrap:anywhere">'+esc(message||'Nach der Bildauswahl startet das Einlesen automatisch. Kein zusätzlicher Upload-Klick nötig.')+'<div style="margin-top:4px;font-size:12px;color:#64748b">Bildimport 05.10-6 · Galerieauswahl</div></div>';
 }
 // Keep disclosure state by product identity and nested section, never by row order.
 function detailStateKey(el){
@@ -1437,7 +1473,7 @@ function finalProductStatus(p,now=Date.now(),reference){
  return {...status,complete:!reasons.length,reasons};
 }
 function detailScreenshotData(text,expectedIsin){
- let raw=String(text||"");
+ let raw=normalizeBnpQuoteColumns(String(text||""));
  // BNP's Gold reference identifier is not the certificate ISIN.
  // Scope removal to the explicit Gold underlying section, preserving all
  // certificate identifiers and rejecting conflicting product identities.
@@ -1548,7 +1584,7 @@ async function readScreenshot(i,file){
   const result=await recognizeOcr(file,"dgOcrStatus"+i);
   if((rowVersions.get(i)||0)!==version||(field("isin")?.value||"").trim().toUpperCase()!==expected)return;
   const x=detailScreenshotData(result.data.text,expected);
-  if(!x.ok){const reason=x.reason+" "+imageIdentityDiagnostic(result.data.text)+" · Bildimport 05.10-5";if(status)status.textContent="⚠️ "+reason;return{ok:false,reason};}
+  if(!x.ok){const reason=x.reason+" "+imageIdentityDiagnostic(result.data.text)+" · Bildimport 05.10-6";if(status)status.textContent="⚠️ "+reason;return{ok:false,reason};}
   const merged=mergeScreenshotEvidence(detailScreenshots.get(i),x,file.name);
   productQuotes.delete(i);
   for(const [k,v] of Object.entries({dir:merged.direction,price:merged.price,lev:merged.leverage,ko:merged.ko,spread:merged.spread})){if(v!==""&&v!==null&&v!==undefined&&field(k))field(k).value=v;}
@@ -1910,7 +1946,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
