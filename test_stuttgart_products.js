@@ -98,3 +98,22 @@ assert(compact.includes('Erkannte Zahlen geprüft – stimmen überein'));
 assert(compact.includes('data-card-confirm="1"'));assert(compact.includes('data-selection-upload="1"'));
 assert(compact.includes('Quellen und Einzelheiten'));assert(compact.includes('/product-details/fg4jxv'));
 assert.equal((compact.match(/Geld, Brief und Quellenzeit \(Kursdaten\)/g)||[]).length,1);
+
+// Real Tesseract.js 5.1.1 output from the supplied 1000070489 SG screenshot.
+const wasmPrimary = {"text": "M4586 CNC RAIN 77)\n= Q EERE | zeRmFKaTE\nISIN DEOOOFG5NMF2\nWKN FG5NMF\n\nBEST Turbo-\nProduktart Optionsscheine (Open-\nEnd)\nBasiswert © Gold\nBezugsverhaltnis © 10:1\nTyp Call\nBasispreis ® pall (22:10:2028)\nKnock-Out-Barriere 4.117,6769\noO USD (JRA 0E2026)\nKnock-Out Zeit 00:00 - 24:00\nAusgabetag ® 04.08.2026\nQuanto ® Nein\n@ Risikopramie ® 5,00%\nKennzahlen\nIm Durchschnitt erleiden 7 von 10 Kleinanlegern Verluste\nbeim Handel mit Turbo-Optionsscheinen. Turbo-\nOptionsscheine sind hoch risikoreiche Produkte und\nnicht fur langfristige Anlagestrategien geeignet.\nHallo, haben Sie Fragen? Chat online (°°\n1 @) <\n"};
+const wasmCells = {"words": [{"text": "Typ", "bbox": {"x0": 106, "y0": 1146, "x1": 188, "y1": 1196}}, {"text": "Call", "bbox": {"x0": 1226, "y0": 1144, "x1": 1312, "y1": 1186}}, {"text": "4.117,6769", "bbox": {"x0": 728, "y0": 1276, "x1": 988, "y1": 1324}}, {"text": "Basispreis", "bbox": {"x0": 108, "y0": 1308, "x1": 358, "y1": 1360}}, {"text": "®", "bbox": {"x0": 386, "y0": 1308, "x1": 432, "y1": 1356}}, {"text": "05.10.2026)", "bbox": {"x0": 1034, "y0": 1302, "x1": 1310, "y1": 1358}}, {"text": "USD", "bbox": {"x0": 892, "y0": 1334, "x1": 988, "y1": 1374}}, {"text": "(", "bbox": {"x0": 1018, "y0": 1340, "x1": 1030, "y1": 1396}}, {"text": "Knock-Out-Barriere", "bbox": {"x0": 108, "y0": 1478, "x1": 592, "y1": 1518}}, {"text": "4.117,6769", "bbox": {"x0": 728, "y0": 1484, "x1": 988, "y1": 1534}}, {"text": "05.10.2026)", "bbox": {"x0": 1034, "y0": 1510, "x1": 1310, "y1": 1566}}, {"text": "®", "bbox": {"x0": 116, "y0": 1546, "x1": 164, "y1": 1594}}, {"text": "USD", "bbox": {"x0": 892, "y0": 1544, "x1": 988, "y1": 1584}}, {"text": "(", "bbox": {"x0": 1018, "y0": 1550, "x1": 1030, "y1": 1606}}, {"text": "Knock-Out", "bbox": {"x0": 108, "y0": 1672, "x1": 362, "y1": 1712}}, {"text": "Zeit", "bbox": {"x0": 380, "y0": 1672, "x1": 468, "y1": 1712}}, {"text": "00:00", "bbox": {"x0": 1012, "y0": 1674, "x1": 1138, "y1": 1714}}, {"text": "-", "bbox": {"x0": 1156, "y0": 1696, "x1": 1168, "y1": 1700}}, {"text": "24:00", "bbox": {"x0": 1186, "y0": 1674, "x1": 1312, "y1": 1714}}]};
+const recovered=b.recoverTermRows(wasmPrimary,wasmCells);
+const wasmTerms=b.detailScreenshotData(recovered,'DE000FG5NMF2');
+assert(wasmTerms.ok,wasmTerms.reason);
+for(const key of ['strike','ko']){assert.equal(wasmTerms.terms[key].value,4117.6769);assert.equal(wasmTerms.terms[key].dateText,'05.10.2026');assert.equal(wasmTerms.terms[key].at,null);}
+assert.equal(wasmTerms.terms.ratio.value,.1);
+assert(!b.detailScreenshotData(recovered,'DE000FG309G0').ok);
+const noStrike={words:wasmCells.words.filter(w=>!(w.text==='4.117,6769'&&w.bbox.y0<1400))};
+assert(b.recoverTermRows(wasmPrimary,noStrike).includes('Basispreis ® pall'));
+const duplicate={words:wasmCells.words.concat(wasmCells.words.find(w=>w.text==='4.117,6769'))};
+assert(b.recoverTermRows(wasmPrimary,duplicate).includes('Basispreis ® pall'));
+const conflicting={text:wasmPrimary.text.replace('Basispreis ® pall (22:10:2028)','Basispreis 4.118,0000 USD')};
+assert(b.recoverTermRows(conflicting,wasmCells).includes('Basispreis 4.118,0000 USD'));
+const noCurrency={words:wasmCells.words.filter(w=>w.text!=='USD')};
+assert.equal(b.recoverTermRows(wasmPrimary,noCurrency),wasmPrimary.text);
+console.log('Actual WASM table recovery, independent cells, conflicts, identity and date-only freshness passed');
