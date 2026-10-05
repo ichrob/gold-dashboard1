@@ -11,7 +11,7 @@ class CfdBackgroundTests(unittest.TestCase):
     def setUp(self):
         self.quote = dict(price=4171.75, at=datetime.now(timezone.utc).isoformat(),
                           realtimeCfd=True, isExchangeRealtime=False, kind='cfd')
-        for name, value in (('_cached', None), ('_next_fetch', 0), ('_health', {'state':'starting','lastCheckedAt':None,'sourceAt':None})):
+        for name, value in (('_cached', None), ('_last_observed', None), ('_next_fetch', 0), ('_health', {'state':'starting','lastCheckedAt':None,'sourceAt':None})):
             p=patch.object(c,name,value);p.start();self.addCleanup(p.stop)
 
     def test_background_collection_without_browser_and_shared_fetch(self):
@@ -63,6 +63,26 @@ class CfdBackgroundTests(unittest.TestCase):
         with patch.object(c.time,'monotonic',side_effect=[0,0,30,30]),patch.object(c,'_fetch',return_value=self.quote) as fetch:
             c.fetch();c.fetch()
             self.assertEqual(fetch.call_count,2)
+
+    def test_old_or_conflicting_source_cannot_replace_new_observation(self):
+        with patch.object(c,'_fetch',return_value=self.quote):c.fetch()
+        for change in ({'at':'2026-01-01T00:00:00+00:00'}, {'price':4200}):
+            with patch.object(c,'_next_fetch',0),patch.object(c,'_fetch',return_value={**self.quote,**change}):
+                with self.assertRaises(ValueError):c.fetch()
+                self.assertEqual(c._last_observed,self.quote)
+                self.assertIsNone(c._cached)
+
+    def test_source_request_has_cache_key_but_keeps_identity_check(self):
+        response=Mock()
+        response.url=c.URL+'?_bob_ts=123'
+        response.read.return_value=b'fixture'
+        response.__enter__=Mock(return_value=response)
+        response.__exit__=Mock(return_value=False)
+        with patch.object(c,'urlopen',return_value=response) as request,patch.object(c,'parse',return_value=self.quote):
+            c._fetch()
+            self.assertIn('?_bob_ts=',request.call_args.args[0].full_url)
+            response.url='https://example.com/commodities/gold?_bob_ts=123'
+            with self.assertRaises(ValueError):c._fetch()
 
     def test_start_is_singleton(self):
         with patch.object(c,'_thread',None),patch.object(c.threading,'Thread') as thread:
