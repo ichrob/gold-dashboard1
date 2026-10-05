@@ -1244,6 +1244,9 @@ function parseProductTerms(raw){
  raw=raw.replace(/(^|\n)[ \t]*[oOQ]{1,2}[ \t]+(?=USD\b)/g,'$1');
  // Mobile SG tables wrap the USD/date cell, sometimes above its label.
  // Join only adjacent, recognisable amount/currency fragments, never another row.
+ // BNP places the terms date before the amount, on the same or next line.
+ raw=raw.replace(/(Knock[- ]Out)\s+Schwelle/gi,'Knock-out-Schwelle');
+ raw=raw.replace(/((?:Basispreis|Knock-out-Schwelle))\s*\((\d{2}\.\d{2}\.\d{4})\)\s*([\d.,]+)\s*USD\b/gi,'$1 $3 USD ($2)');
  const termLabel='(?:Basispreis|Finanzierungslevel|Knock-Out-Barriere|Knock-out-Schwelle)';
  raw=raw.replace(new RegExp('(?:^|\\n)[ \\t.,;]*([0-9][0-9.,]*)[ \\t]*\\n[ \\t]*('+termLabel+')[ \\t]*[:=]?[ \\t]*(?=USD\\b)','gi'),'\n$2 $1 ');
  raw=raw.replace(new RegExp('('+termLabel+'[ \\t]*[:=]?[ \\t]*(?:\\n[ \\t]*)?[0-9][0-9.,]*)[ \\t]*\\n(?:[ \\t]*\\n)*[ \\t]*(USD\\b)','gi'),'$1 $2');
@@ -1448,7 +1451,7 @@ function screenshotIdentity(raw,expectedIsin){
  // identity from the selected upload card or a substring of a longer code.
  if(/BNP\s+PARIBAS|derivate\.bnpparibas\.com/i.test(raw)){
   const primary=String(raw).split(/Ähnliche\s+Produkte/i)[0].toUpperCase();
-  for(const m of primary.matchAll(/(?:^|\n)\s*([A-Z0-9]{6})\s*(?=\n|$|\d+[.,]\d+\s*\/\s*\d+[.,]\d+\s*€)/g)){
+  for(const m of primary.matchAll(/(?:^|\n)\s*([A-Z0-9]{6})\s*(?=\n|$|[^A-Z0-9\n]*MARKT\s+(?:GEÖFFNET|GESCHLOSSEN)\b|\d+[.,]\d+\s*\/\s*\d+[.,]\d+\s*€)/g)){
    if(/[A-Z]/.test(m[1])&&/\d/.test(m[1]))wkns.push(m[1]);
   }
  }
