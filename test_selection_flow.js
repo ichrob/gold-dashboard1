@@ -289,3 +289,16 @@ console.log('Original-image BNP NB98 identity recovery and negative contexts pas
  assert(!api.selectionMarketGate({...c,policy:'intraday-shadow-v1',hist:-1}).ok);
  console.log('Intraday shadow: remove EMA200 veto only; keep live veto and MACD checks');
 }
+
+// DOM fixture: repeated refresh, changed counts, reordering and user-closing sections.
+{
+ const fs=require('fs'),vm=require('vm'),ctx={window:{},localStorage:{getItem:()=>null,setItem:()=>{}}};vm.createContext(ctx);vm.runInContext(fs.readFileSync('degiro_assistant.js','utf8'),ctx);
+ let nodes=[],writes=0;
+ const root={querySelectorAll:()=>nodes,contains:el=>nodes.some(n=>n.summary===el),set innerHTML(value){writes++;nodes=make(value==='first'?['A','B']:['B','A'],value==='first'?2:3);}};
+ function make(ids,count){return ids.flatMap(id=>{const card={tagName:'DIV',parentElement:root,getAttribute:()=>id};const outer={tagName:'DETAILS',parentElement:card,open:false,closest:()=>card};outer.summary={tagName:'SUMMARY',textContent:'Quellen und Einzelheiten',parentElement:outer,focus(){ctx.document.activeElement=this;}};outer.querySelector=()=>outer.summary;const inner={tagName:'DETAILS',parentElement:outer,open:false,closest:()=>card};inner.summary={tagName:'SUMMARY',textContent:'Fehlende Werte ('+count+')',parentElement:inner,focus(){ctx.document.activeElement=this;}};inner.querySelector=()=>inner.summary;return [outer,inner];});}
+ const api=ctx.window.BobDegiro;ctx.document={activeElement:null};api.updateProductHtml(root,'first');nodes[0].open=true;nodes[1].open=true;ctx.document.activeElement=nodes[1].summary;
+ api.updateProductHtml(root,'second');assert(nodes[2].open&&nodes[3].open);assert(!nodes[0].open&&!nodes[1].open);assert.equal(ctx.document.activeElement,nodes[3].summary);
+ assert.equal(api.updateProductHtml(root,'second'),false);assert.equal(writes,2);
+ nodes[3].open=false;api.updateProductHtml(root,'third');assert(nodes[2].open);assert(!nodes[3].open);
+ console.log('Product disclosure state: nested sections, ISIN reorder, count changes, explicit closing and unchanged-refresh focus preserved');
+}
