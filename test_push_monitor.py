@@ -7,6 +7,42 @@ import push_server
 from fibonacci_monitor import validate_monitor, LEVELS
 
 class PushMonitorTests(unittest.TestCase):
+    def test_startup_skips_existing_column_locks_and_preserves_key(self):
+        database, conn = self.connection()
+        columns = ('general_enabled', 'trade_enabled', 'active_trade', 'trade_monitor',
+                   'product_selection', 'background_config', 'background_state',
+                   'selection_evidence', 'pending_test')
+        conn.execute.return_value.fetchall.return_value = [(c,) for c in columns]
+        conn.execute.return_value.fetchone.return_value = ('existing-key',)
+        with patch.object(push_server, 'db', database), patch.object(push_server, 'Vapid') as key:
+            push_server.init_db()
+        statements = [c.args[0] for c in conn.execute.call_args_list]
+        self.assertFalse(any('ALTER TABLE subscriptions' in s for s in statements))
+        key.assert_not_called()
+        conn.commit.assert_called_once()
+        conn.reset_mock()
+        conn.execute.return_value.fetchall.return_value = [(c,) for c in columns if c != 'pending_test']
+        with patch.object(push_server, 'db', database):
+            push_server.init_db()
+        alterations = [c.args[0] for c in conn.execute.call_args_list if 'ALTER TABLE subscriptions' in c.args[0]]
+        self.assertEqual(alterations, ['ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS pending_test JSONB'])
+
+    def test_startup_transient_lock_retry_is_bounded(self):
+        lock = push_server.psycopg.errors.LockNotAvailable('fixture')
+        with patch.object(push_server, '_init_db_once', side_effect=[lock, None]) as run, patch.object(push_server.time, 'sleep') as sleep:
+            push_server.init_db()
+            self.assertEqual(run.call_count, 2)
+            sleep.assert_called_once_with(1)
+        with patch.object(push_server, '_init_db_once', side_effect=lock) as run, patch.object(push_server.time, 'sleep'):
+            with self.assertRaises(push_server.psycopg.errors.LockNotAvailable):
+                push_server.init_db()
+            self.assertEqual(run.call_count, 3)
+        with patch.object(push_server, '_init_db_once', side_effect=ValueError('schema')) as run, patch.object(push_server.time, 'sleep') as sleep:
+            with self.assertRaises(ValueError):
+                push_server.init_db()
+            run.assert_called_once()
+            sleep.assert_not_called()
+
     @classmethod
     def setUpClass(cls):
         cls.httpd=push_server.ThreadingHTTPServer(('127.0.0.1',0),push_server.Handler)

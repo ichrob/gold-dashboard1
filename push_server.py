@@ -42,6 +42,19 @@ def webpush(**kwargs):
 
 
 def init_db():
+    for attempt in range(3):
+        try:
+            _init_db_once()
+            return
+        except (psycopg.errors.LockNotAvailable, psycopg.errors.DeadlockDetected,
+                psycopg.errors.SerializationFailure):
+            if attempt == 2:
+                raise
+            print(f'BOB_PUSH startup=database_retry attempt={attempt + 1}', flush=True)
+            time.sleep(attempt + 1)
+
+
+def _init_db_once():
     with db() as conn:
         bob_session_store.init(conn)
         bob_market_store.init(conn)
@@ -59,13 +72,23 @@ def init_db():
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
           )
         """)
-        conn.execute("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS general_enabled BOOLEAN NOT NULL DEFAULT FALSE")
-        conn.execute("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS trade_enabled BOOLEAN NOT NULL DEFAULT FALSE")
-        conn.execute("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS active_trade BOOLEAN NOT NULL DEFAULT FALSE")
-        conn.execute("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS trade_monitor JSONB")
-        conn.execute("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS product_selection JSONB")
-        for column in ('background_config', 'background_state', 'selection_evidence', 'pending_test'):
-            conn.execute('ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS '+column+' JSONB')
+        # Even a no-op ALTER requests an exclusive table lock. Existing
+        # subscriptions are in use by the old instance during rolling deploys.
+        existing = {row[0] for row in conn.execute("""
+            SELECT attname FROM pg_attribute
+            WHERE attrelid = 'subscriptions'::regclass
+              AND attnum > 0 AND NOT attisdropped
+        """).fetchall()}
+        columns = {
+            **{name: 'BOOLEAN NOT NULL DEFAULT FALSE' for name in
+               ('general_enabled', 'trade_enabled', 'active_trade')},
+            **{name: 'JSONB' for name in ('trade_monitor', 'product_selection',
+               'background_config', 'background_state', 'selection_evidence', 'pending_test')},
+        }
+        for column, definition in columns.items():
+            if column not in existing:
+                conn.execute('ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS '
+                             + column + ' ' + definition)
         conn.execute("""
           CREATE TABLE IF NOT EXISTS bob_settings (
             key TEXT PRIMARY KEY,
