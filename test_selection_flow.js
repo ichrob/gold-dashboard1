@@ -415,3 +415,13 @@ for(const raw of [bnpBannerOcr.replace('BNP PARIBAS','OTHER ISSUER'),bnpBannerOc
 }
 assert(!b.detailScreenshotData(bnpBannerOcr,'DE000PG0XK25').ok);
 console.log('BNP masthead without browser address: reviewed identity recovery and negative controls passed');
+
+// Real browser-engine outputs: enlargement corrupts WKN and ratio; original
+// resolution retains the same product and clean terms. Never borrow another ID.
+const enlargedBnp=bnpBannerOcr.replace('WKN PJONB9','WKN PJOSNBS').replace('Bezugsverhaltnis 0,1','Bezugsverhaltnis © 01').replace('Laufzeit @ Open End','Laufzeit EB Open End');
+const originalBnp=bnpBannerOcr.replace('Bezugsverhaltnis 0,1','Bezugsverhaltnis @ 0,1');
+assert(b.preferOriginalTableRead(enlargedBnp,originalBnp));
+assert(!b.preferOriginalTableRead(enlargedBnp,originalBnp+'\nISIN DE000PG0XK25'));
+assert(!b.preferOriginalTableRead('ISIN DE000PG0XK25',originalBnp));
+assert(!b.preferOriginalTableRead(enlargedBnp,originalBnp.replace('BNP PARIBAS','OTHER')));
+assert(!b.preferOriginalTableRead(enlargedBnp,originalBnp.replace('0,1','unreadable')));
