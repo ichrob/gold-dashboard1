@@ -197,7 +197,7 @@ try{
   try{const r=await fetch('/api/market-cards',{cache:'no-store',signal:ctl.signal});if(!r.ok)throw Error('quote unavailable');const data=await r.json();accept('future',data.future);accept('estimate',data.estimate);accept('cfd',data.cfd);}catch(_){}
   finally{clearTimeout(timer);busy=false;render('spot');render('future');render('estimate');render('cfd');}
  }
- window.BobGoldCards={spot(bundle){const s=bundle?.spots;if(!s||!positive(s.xaus))return;accept('spot',{price:s.xaus,at:s.spot_price_as_of,source:s.primary||s.goldprice_status||'Bob Spotquelle',kind:'spot',note:s.spot_error?'Aktualisierung pausiert':'',changePct:null});},refresh};
+ window.BobGoldCards={spot(bundle){const s=bundle?.spots;if(!s||!positive(s.xaus))return;accept('spot',{price:s.xaus,at:s.spot_price_as_of,source:s.primary||s.goldprice_status||'Bob Spotquelle',kind:'spot',note:s.spot_error?'Aktualisierung pausiert':'',changePct:s.dailyChange?.changePct??null,changeLabel:s.dailyChange?.changeLabel});},refresh};
  refresh();setInterval(()=>{render('spot');render('future');render('estimate');render('cfd');if(document.visibilityState!=='hidden')refresh();},30000);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refresh();});
 })();

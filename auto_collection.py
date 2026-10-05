@@ -163,6 +163,8 @@ def start():
     if not enabled():
         return
     investing_card.start()
+    import spot_daily_change
+    spot_daily_change.start()
     import future_comparison
     future_comparison.start()
     with _lock:
