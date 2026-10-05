@@ -445,3 +445,10 @@ assert(!b.ocrGlyphPair('X','9'));
 assert(b.ocrGlyphPair('O','9'));
 assert(b.parseProductTerms('Bezugsverhältnis 01').error);
 console.log('A–Z, 0–9, malformed numeric tokens and independent numeric agreement passed');
+
+const badgeQuote='BNP PARIBAS\nPJONB9 13,07 / 13,08 €\nWKN PJ9NB9\nWKN-Bildprüfung: PJ9NB9\nGeld 13,07\nBrief 13,08';
+assert(b.detailScreenshotData(badgeQuote,'DE000PJ9NB98').ok);
+assert(!b.detailScreenshotData(badgeQuote.replace('WKN-Bildprüfung: PJ9NB9',''),'DE000PJ9NB98').ok);
+assert(!b.detailScreenshotData(badgeQuote.replace('PJONB9 13','AB1234 13'),'DE000PJ9NB98').ok);
+assert(!b.detailScreenshotData(badgeQuote,'DE000PJ9NCK0').ok);
+console.log('Focused badge evidence resolves only confusable same-image WKN readings');
