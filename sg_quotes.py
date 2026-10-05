@@ -19,6 +19,7 @@ import product_quotes as q
 import future_estimate
 import product_estimate
 import future_analysis
+import future_reference
 
 ONVISTA = 'https://www.onvista.de/'
 SPOT_ORIGIN = 'https://xaus.com/'
@@ -292,6 +293,7 @@ def refresh_future_research(research, now=None):
     result['eligible'] = False
     result['analysisAvailable'] = False
     result['calculatedFuture'] = future_estimate.current_estimate(result, now)
+    result['futureReference'] = future_reference.select(result, result['calculatedFuture'], now)
     result['contractAnalysis'] = future_analysis.current(now)
     result['analysisAvailable'] = bool(result['contractAnalysis'].get('available'))
     local=now.astimezone(ZoneInfo('Europe/Berlin'))
