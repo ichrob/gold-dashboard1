@@ -1484,7 +1484,7 @@ function advancedAnalysis(){
  $("bbpos").textContent=p>=b.up?"über Band":p<=b.lo?"unter Band":((p-b.lo)/(b.up-b.lo)*100).toFixed(0)+"%";
  $("stoch").textContent=st.toFixed(0);
  $("vwap").textContent=vw?vw.toFixed(2):"n/v";
- const fib=fibonacciModel(A.score>=70?"LONG":A.score<=30?"SHORT":"NEUTRAL",p,A.at);
+ const fib=fibonacciModel(A.score>=70?"LONG":Number.isFinite(A.score)&&A.score<=30?"SHORT":"NEUTRAL",p,A.at);
  if($("fibonacci"))$("fibonacci").textContent=fib.valid?("0.382 "+fib.levels.r382.toFixed(2)+" · 0.5 "+fib.levels.r500.toFixed(2)+" · 0.618 "+fib.levels.r618.toFixed(2)+" · Ext 1.272 "+fib.levels.e1272.toFixed(2)):"n/v";
  $("support").textContent=lv.sup.toFixed(2);
  $("resistance").textContent=lv.res.toFixed(2);
@@ -1642,7 +1642,7 @@ async function manageProfitProtection(){
    if(!Number.isFinite(initialRisk)||initialRisk<=0)return;
    const favorable=tradeMgmt.dir==="LONG"?p-entry:entry-p;
    const r=favorable/initialRisk;
-   const score=Number(A.score);
+   const score=Number.isFinite(A.score)?A.score:NaN;
    const mtf=getMtfState().overall||"NEUTRAL";
    const aligned=(tradeMgmt.dir==="LONG"&&mtf==="LONG")||(tradeMgmt.dir==="SHORT"&&mtf==="SHORT");
    const momentumStrong=aligned&&((tradeMgmt.dir==="LONG"&&A.macd>=A.sig)||(tradeMgmt.dir==="SHORT"&&A.macd<=A.sig))&&((tradeMgmt.dir==="LONG"&&score>=70)||(tradeMgmt.dir==="SHORT"&&score<=30));
