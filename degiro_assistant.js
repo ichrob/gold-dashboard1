@@ -634,6 +634,33 @@ function normalizeBnpQuoteColumns(raw){
  if(row)raw+='\nHebel '+row[1];
  return raw;
 }
+// Confusable glyphs are compared only against a second observed, checksum-valid
+// identifier. They are never a substitution alphabet for monetary values.
+const OCR_GLYPH_GROUPS=['0OQD9','I9','1IL','2Z','4A','5S','6G','7T','8B'];
+function ocrGlyphPair(a,b){return a===b||OCR_GLYPH_GROUPS.some(group=>group.includes(a)&&group.includes(b));}
+function strictOcrNumber(token){
+ const value=String(token||'');
+ if(!/^(?:0|[1-9]\d*)(?:[.,]\d+)?$/.test(value)&&!/^[1-9]\d{0,2}(?:\.\d{3})+,\d+$/.test(value))return null;
+ const n=Number(value.includes(',')?value.replace(/\./g,'').replace(',','.'):value);
+ return Number.isFinite(n)?n:null;
+}
+function ocrNumericFields(text){
+ const raw=normalizeBnpQuoteColumns(String(text||'')),out={},terms=parseProductTerms(raw);
+ if(!terms.error)for(const key of ['ko','strike','ratio'])if(terms[key])out[key]=terms[key].value;
+ for(const [key,label] of [['bid','Geld|Bid|Verkaufen'],['ask','Brief|Ask|Kaufen'],['leverage','Hebel|Leverage']]){
+  const matches=Array.from(raw.matchAll(new RegExp('(?:^|\\n)\\s*(?:'+label+')\\s*[:=]?\\s*(?:€|EUR)?\\s*([0-9A-Za-z.,]+)','gi')));
+  const values=matches.map(m=>strictOcrNumber(m[1]));
+  if(values.length&&values.every(v=>v!==null&&v===values[0]))out[key]=values[0];
+ }
+ return out;
+}
+function unconfirmedOcrFields(selected,readings){
+ const fields=ocrNumericFields(selected),reads=readings.map(ocrNumericFields);
+ return Object.keys(fields).filter(key=>{
+  const counts=new Map();for(const read of reads)if(read[key]!==undefined)counts.set(read[key],(counts.get(read[key])||0)+1);
+  return (counts.get(fields[key])||0)<2||Array.from(counts).some(([value,count])=>value!==fields[key]&&count>=2);
+ });
+}
 function recoverOcrIsins(primary,secondary){
  const candidates=Array.from(new Set((String(secondary||"").toUpperCase().match(/DE[0OQCD]{3,4}[A-Z0-9]{6}[0-9](?![A-Z0-9])/g)||[]).map(x=>"DE000"+x.slice(-7)).filter(validIsin))),corrections={};
  const text=String(primary||"").replace(/\bDE[0OQ]{3,4}[A-Z0-9]{7}\b/g,raw=>{
@@ -642,7 +669,7 @@ function recoverOcrIsins(primary,secondary){
    let differences=0;
    for(let i=0;i<12;i++){if(raw[i]===candidate[i])continue;
     if(i>=2&&i<5&&raw[i]==="O"&&candidate[i]==="0")continue;
-    if(i>=5&&((raw[i]==="O"&&/[09]/.test(candidate[i]))||(raw[i]==="I"&&/[19]/.test(candidate[i])))){differences++;continue;}
+    if(i>=5&&ocrGlyphPair(raw[i],candidate[i])){differences++;continue;}
     return false;
    }
    return differences>0&&differences<=2;
@@ -709,15 +736,18 @@ function recognizeOcr(file,statusId){
   activeOcrStatusId=statusId;
   const worker=await loadOcrWorker(statusId);
   const prepared=await prepareOcrImage(file,statusId);
-  let result;
+  let result;const readings=[],originalModes=new Set(['3']);
   try{
    result=await ocrTimeout(worker.recognize(prepared),45000,"OCR-Zeitüberschreitung nach 45 Sekunden");
+   readings.push(result.data.text||'');
    if(/Stammdaten|\bISIN\b|\bWKN\b/i.test(result.data.text||'')&&/Knock-Out-Barriere|Basispreis/i.test(result.data.text||'')){
     const tableImage=await prepareOcrImage(file,statusId,true);
     try{
      await worker.setParameters({tessedit_pageseg_mode:"6"});result=await ocrTimeout(worker.recognize(tableImage),45000,"Tabellenerkennung nach 45 Sekunden beendet");
+     readings.push(result.data.text||'');
      if(parseProductTerms(result.data.text||'').error||parseScreenshotCandidates(result.data.text||'').some(x=>!validIsin(x.isin))){
       const original=await ocrTimeout(worker.recognize(prepared),45000,"Originalauflösung nach 45 Sekunden beendet");
+      readings.push(original.data.text||'');originalModes.add('6');
       if(preferOriginalTableRead(result.data.text||'',original.data.text||''))result=original;
      }
      if(parseProductTerms(result.data.text||'').error){
@@ -738,12 +768,29 @@ function recognizeOcr(file,statusId){
    try{
     const status=document.getElementById(statusId||"");if(status)status.textContent="🔎 Unsichere ISINs werden mit einem zweiten Lesedurchgang geprüft …";
     const enlarged=await prepareOcrImage(file,statusId,true);
-    await worker.setParameters({tessedit_pageseg_mode:"11",tessedit_char_whitelist:"0123456789ABCDEFGHJKLMNPQRSTUVWXYZ"});
+    await worker.setParameters({tessedit_pageseg_mode:"11",tessedit_char_whitelist:"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"});
     const second=await ocrTimeout(worker.recognize(enlarged),45000,"ISIN-Zweitlesung nach 45 Sekunden beendet");
     const recovered=recoverOcrIsins(result.data.text,second.data.text);
     result.data.text=recovered.text;result.data.isinRecoveries=recovered.corrections;
    }catch(e){secondaryFailed=true;ocrWorkerPromise=null;await worker.terminate().catch(()=>{});console.warn("[BOB] ISIN-Zweitlesung",e&&e.message?e.message:e);}
    finally{try{if(!secondaryFailed)await worker.setParameters({tessedit_pageseg_mode:"3",tessedit_char_whitelist:""});}catch(e){ocrWorkerPromise=null;await worker.terminate().catch(()=>{});}}
+  }
+  // Require agreement across segmentation/resolution passes for critical
+  // numbers on single-product detail images. Never vote across uploaded files.
+  if(parseScreenshotCandidates(result.data.text||'').length<=1&&Object.keys(ocrNumericFields(result.data.text)).length){
+   let missing=unconfirmedOcrFields(result.data.text,readings);
+   try{
+    for(const mode of ['6','11']){
+     if(!missing.length)break;
+     if(originalModes.has(mode))continue;
+     await worker.setParameters({tessedit_pageseg_mode:mode,tessedit_char_whitelist:''});
+     const check=await ocrTimeout(worker.recognize(prepared),45000,'Zahlenprüfung nach 45 Sekunden beendet');
+     readings.push(check.data.text);originalModes.add(mode);
+     missing=unconfirmedOcrFields(result.data.text,readings);
+    }
+   }finally{await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});}
+   if(missing.length)throw new Error('Zahlen nicht sicher bestätigt ('+missing.join(', ')+'). Bitte diese Werte in einem schärferen Ausschnitt zeigen. Es wurde kein Wert geraten.');
+   result.data.numericCrossChecked=true;
   }
   return result;
  });
@@ -1101,7 +1148,7 @@ function renderMissingValues(reasons,p={}){
 }
 function renderImageImportStatus(index){
  const message=typeof document==='undefined'?'':document.getElementById('dgOcrStatus'+index)?.textContent||'';
- return '<div class="small" role="status" aria-live="polite" data-image-import-status="'+index+'" style="margin-top:8px;white-space:normal;overflow-wrap:anywhere">'+esc(message||'Nach der Bildauswahl startet das Einlesen automatisch. Kein zusätzlicher Upload-Klick nötig.')+'<div style="margin-top:4px;font-size:12px;color:#64748b">Bildimport 05.10-11 · Galerieauswahl</div></div>';
+ return '<div class="small" role="status" aria-live="polite" data-image-import-status="'+index+'" style="margin-top:8px;white-space:normal;overflow-wrap:anywhere">'+esc(message||'Nach der Bildauswahl startet das Einlesen automatisch. Kein zusätzlicher Upload-Klick nötig.')+'<div style="margin-top:4px;font-size:12px;color:#64748b">Bildimport 05.10-12 · Galerieauswahl</div></div>';
 }
 // Keep disclosure state by product identity and nested section, never by row order.
 function detailStateKey(el){
@@ -1374,8 +1421,7 @@ function parseProductTerms(raw){
   if(['ratio','strike','ko'].includes(key)){
    const m=value.match(['strike','ko'].includes(key)?/^([\d.,]+)\s*USD$/i:/^([\d.,]+)$/);
    if(!m)return {error:label.split('|')[0]+': Zahl'+(key==='strike'?' und Währung USD':'')+' eindeutig angeben'};
-   let numeric=m[1];if(numeric.includes(','))numeric=numeric.replace(/\./g,'').replace(',','.');
-   value=Number(numeric);if(!(value>0&&Number.isFinite(value)))return {error:label.split('|')[0]+': positiver Wert erforderlich'};
+   value=strictOcrNumber(m[1]);if(!(value>0&&Number.isFinite(value)))return {error:label.split('|')[0]+': positiver Wert erforderlich'};
   }
   out[key]={value,at:dateWarning?null:at,dateText,ocrCorrection:dateWarning||(numberCorrection&&['ko','strike'].includes(key)?'OCR-Trennzeichen anhand des deutschen Tabellenformats vereinheitlicht; am Original prüfen':null)};
  }
@@ -1519,6 +1565,10 @@ function detailScreenshotData(text,expectedIsin){
  if(/BNP\s+PARIBAS|derivate\.bnpparibas\.com/i.test(raw)){
   raw=raw.replace(/\bVerkaufen\b/g,'Geld').replace(/\bKaufen\b/g,'Brief');
  }
+ // Reject an entire numeric token instead of accepting a numeric prefix
+ // such as 12 from "12,O9". Alphabet characters are never prices.
+ const numericTokens=raw.matchAll(/(?:^|\n)\s*(?:Geld|Brief|Bid|Ask|Hebel)\s*[:=]?\s*(?:€|EUR)?\s*([0-9][0-9A-Za-z.,]*)/gi);
+ for(const token of numericTokens)if(strictOcrNumber(token[1])===null)return {ok:false,reason:'Zahl enthält unklare Zeichen: '+token[1]+'. Bitte einen schärferen Ausschnitt zeigen.'};
  const titlePair=sgScreenshotTitlePair(raw,expectedIsin);
  if(titlePair){
   // Both values are visible in this same image's SG browser title. Never
@@ -1616,7 +1666,7 @@ async function readScreenshot(i,file){
   const result=await recognizeOcr(file,"dgOcrStatus"+i);
   if((rowVersions.get(i)||0)!==version||(field("isin")?.value||"").trim().toUpperCase()!==expected)return;
   const x=detailScreenshotData(result.data.text,expected);
-  if(!x.ok){const reason=x.reason+" "+imageIdentityDiagnostic(result.data.text)+" · Bildimport 05.10-11";if(status)status.textContent="⚠️ "+reason;return{ok:false,reason};}
+  if(!x.ok){const reason=x.reason+" "+imageIdentityDiagnostic(result.data.text)+" · Bildimport 05.10-12";if(status)status.textContent="⚠️ "+reason;return{ok:false,reason};}
   const merged=mergeScreenshotEvidence(detailScreenshots.get(i),x,file.name);
   productQuotes.delete(i);
   for(const [k,v] of Object.entries({dir:merged.direction,price:merged.price,lev:merged.leverage,ko:merged.ko,spread:merged.spread})){if(v!==""&&v!==null&&v!==undefined&&field(k))field(k).value=v;}
@@ -1978,7 +2028,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 

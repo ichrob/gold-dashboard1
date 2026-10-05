@@ -425,3 +425,23 @@ assert(!b.preferOriginalTableRead(enlargedBnp,originalBnp+'\nISIN DE000PG0XK25')
 assert(!b.preferOriginalTableRead('ISIN DE000PG0XK25',originalBnp));
 assert(!b.preferOriginalTableRead(enlargedBnp,originalBnp.replace('BNP PARIBAS','OTHER')));
 assert(!b.preferOriginalTableRead(enlargedBnp,originalBnp.replace('0,1','unreadable')));
+
+// Full alphabet/digit inventory: letters must never become numeric values.
+for(const char of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'){
+ assert.strictEqual(b.strictOcrNumber('12,'+char+'9'),null,char);
+ assert.strictEqual(b.strictOcrNumber(char),null,char);
+ assert(b.ocrGlyphPair(char,char));
+}
+for(const char of '0123456789')assert.strictEqual(b.strictOcrNumber('12,'+char+'9'),Number('12.'+char+'9'));
+for(const token of ['01','12,O9','12,9O','1.2.3','1,2,3','12.99x'])assert.strictEqual(b.strictOcrNumber(token),null,token);
+assert.strictEqual(b.strictOcrNumber('3.996,2705'),3996.2705);
+assert.strictEqual(b.strictOcrNumber('0,1'),.1);
+const numericText='Bezugsverhältnis 0,1\nBasispreis 3.996,2705 USD\nGeld 12,88\nBrief 12,89\nHebel 31,71';
+assert.equal(b.unconfirmedOcrFields(numericText,[numericText]).length,5);
+assert.equal(b.unconfirmedOcrFields(numericText,[numericText,numericText]).length,0);
+const disagreement=numericText.replace('12,89','12,09');
+assert(b.unconfirmedOcrFields(numericText,[numericText,numericText,disagreement,disagreement]).includes('ask'));
+assert(!b.ocrGlyphPair('X','9'));
+assert(b.ocrGlyphPair('O','9'));
+assert(b.parseProductTerms('Bezugsverhältnis 01').error);
+console.log('A–Z, 0–9, malformed numeric tokens and independent numeric agreement passed');
