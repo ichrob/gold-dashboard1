@@ -10,6 +10,7 @@ from urllib.request import Request, urlopen
 URL = 'https://de.investing.com/commodities/gold'
 _fetch_lock = threading.Lock()
 _cached = None
+_last_observed = None
 _next_fetch = 0
 _thread = None
 _state_lock = threading.Lock()
@@ -61,10 +62,10 @@ def parse(body, now=None):
 
 
 def _fetch():
-    request = Request(URL, headers={'User-Agent': 'Mozilla/5.0 (Bob gold cards)',
+    request = Request(URL + '?_bob_ts=' + str(int(time.time() // POLL_SECONDS)), headers={'User-Agent': 'Mozilla/5.0 (Bob gold cards)',
                                    'Accept': 'text/html', 'Cache-Control': 'no-cache'})
     with urlopen(request, timeout=6) as response:
-        if response.url != URL:
+        if response.url.split('?', 1)[0] != URL:
             raise ValueError('Unerwartete CFD-Weiterleitung')
         body = response.read(2000001)
         if len(body) > 2000000:
@@ -74,7 +75,7 @@ def _fetch():
 
 def fetch():
     """Share one bounded request between the display and the shadow study."""
-    global _cached, _next_fetch
+    global _cached, _next_fetch, _last_observed
     with _fetch_lock:
         if time.monotonic() < _next_fetch:
             if _cached is None:raise OSError('CFD-Abruf pausiert nach Quellenfehler')
@@ -83,7 +84,14 @@ def fetch():
         # Count from request start, so a six-second fetch does not accidentally
         # turn a 30-second worker into a 60-second polling cadence.
         _next_fetch = time.monotonic() + POLL_SECONDS
-        _cached = _fetch()
+        q = _fetch()
+        if _last_observed:
+            at = datetime.fromisoformat(q['at'])
+            before = datetime.fromisoformat(_last_observed['at'])
+            if at < before or (at == before and q['price'] != _last_observed['price']):
+                raise ValueError('CFD-Quelle liefert einen älteren oder widersprüchlichen Kursstand')
+        _last_observed = dict(q)
+        _cached = q
         return aged(_cached)
 
 
