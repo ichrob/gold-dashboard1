@@ -340,7 +340,7 @@ try{
 <div class="card chart-card"><h3>Preisverlauf</h3>
 <div class="chart-controls"><div><label for="chartType">Ansicht</label><select id="chartType" onchange="saveChartView();draw()"><option value="candles" selected>Kerzen</option><option value="line">Linie</option></select></div><div><label for="chartTf">Zeitraum pro Kerze</label><select id="chartTf" onchange="saveChartView();draw()"><option value="5m">5 Minuten</option><option value="15m" selected>15 Minuten</option><option value="1h">1 Stunde</option><option value="4h">4 Stunden</option></select></div></div>
 <div class="small chart-status" id="chartViewStatus" aria-live="polite"></div><div class="small" id="chartRangeInfo" aria-live="polite"></div>
-<div class="chart-frame"><canvas id="chart" width="800" height="300" aria-label="Preisverlauf: waagerecht Zeit, senkrecht Preis in USD"></canvas></div>
+<div class="chart-frame"><canvas id="chart" width="800" height="300" aria-label="Preisverlauf: waagerecht Schweizer Zeit, senkrecht Preis in USD"></canvas></div>
 <details class="chart-details"><summary>Fib Level &amp; Erklärung</summary><div id="chartFib" class="small">Fibonacci: noch keine bestätigten Level.</div><div id="chartFibExplanation" class="research">Fibonacci: noch keine bestätigten Level.</div></details>
 <details class="chart-details"><summary>Kursdaten &amp; Hinweise</summary><div id="chartLatest" class="small" aria-live="polite">Letzter Preis: — · Kurszeit: —</div><div id="chartHistoryInfo" class="small"></div><p class="small">Die Chart-Auswahl ändert nur die Darstellung. Analyse und Trade-Überwachung behalten ihre Einstellung.</p></details></div>
 
@@ -864,12 +864,14 @@ function draw(a){
  const irregular=all.some(b=>Number(b.openTime)%chartStep!==0);
  if(irregular)$('chartViewStatus').textContent='Quellenzeitpunkte passen nicht zum gewählten Kerzenraster – Intraday-Test gesperrt';
  $('chartHistoryInfo').textContent=v.length+' Quellenwerte · '+$('chartTf').selectedOptions[0].textContent+(irregular?' · Zeitraster unbestätigt':'')+' · Handelspausen ausgeblendet';
- cv.setAttribute('aria-label',(candles?'Kerzenchart':'Linienchart')+' '+tf+'; waagerecht Zeit, senkrecht Preis');
+ cv.setAttribute('aria-label',(candles?'Kerzenchart':'Linienchart')+' '+tf+'; waagerecht Schweizer Zeit, senkrecht Preis');
  $('chartFibExplanation').textContent=fibonacciExplanation(fib)+(fib?' Grundlage: bestätigte Swing-Punkte dieser Zeitebene; keine Handelsfreigabe.':'');
  const bundle=typeof liveBundleCache!=="undefined"?liveBundleCache:null;
  const sourceTime=bundle?.spots?.spot_price_as_of;
  const quoteAt=typeof sourceTime==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(sourceTime)?Date.parse(sourceTime):NaN;
- const timeLabel=t=>{const multiDay=v.length>1&&Number(v.at(-1).openTime)-Number(v[0].openTime)>=86400000;return multiDay?new Date(t).toLocaleDateString("de-CH",{timeZone:"Europe/Zurich",day:"2-digit",month:"2-digit"}):new Date(t).toLocaleTimeString("de-CH",{timeZone:"Europe/Zurich",hour:"2-digit",minute:"2-digit"});};
+ const axisMultiDay=v.length>1&&new Date(Number(v[0].openTime)).toLocaleDateString('en-CA',{timeZone:'Europe/Zurich'})!==new Date(Number(v.at(-1).openTime)).toLocaleDateString('en-CA',{timeZone:'Europe/Zurich'});
+ const timeLabel=t=>new Date(t).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich',hour:'2-digit',minute:'2-digit'});
+ const axisDateLabel=t=>new Date(t).toLocaleDateString('de-CH',{timeZone:'Europe/Zurich',day:'2-digit',month:'2-digit'});
  const priceLabel=p=>p.toLocaleString("de-CH",{minimumFractionDigits:2,maximumFractionDigits:2});
  const lp=Number(lastPrice);
  $("chartLatest").textContent="Letzter Preis: "+(lp>0?priceLabel(lp)+" USD":"—")+" · Kurszeit: "+(Number.isFinite(quoteAt)?new Date(quoteAt).toLocaleString("de-CH",{timeZone:"Europe/Zurich"}):"nicht verfügbar")+" · Schweizer Zeit";
@@ -883,7 +885,7 @@ function draw(a){
  const x=t=>left+axis.position(t)*(right-left),y=p=>bottom-(p-mn)/(mx-mn)*(bottom-top);
  ctx.font="11px sans-serif";ctx.lineWidth=1;ctx.fillStyle="#536176";ctx.textAlign="left";ctx.fillText("USD",8,14);
  for(let i=0;i<=4;i++){const p=mn+(mx-mn)*i/4,py=y(p);ctx.strokeStyle="#e0e0e0";ctx.beginPath();ctx.moveTo(left,py);ctx.lineTo(right,py);ctx.stroke();ctx.fillStyle="#555";ctx.textAlign="right";ctx.fillText(priceLabel(p),left-8,py+5);}
- for(let i=0;i<=2;i++){const t=Number(v[Math.round((v.length-1)*i/2)].openTime),px=x(t);ctx.textAlign=i===0?"left":i===2?"right":"center";ctx.fillText(timeLabel(t),px,bottom+20);}
+ for(let i=0;i<=2;i++){const t=Number(v[Math.round((v.length-1)*i/2)].openTime),px=x(t);ctx.textAlign=i===0?"left":i===2?"right":"center";ctx.fillText(timeLabel(t),px,bottom+18);if(axisMultiDay||["1h","4h"].includes(tf))ctx.fillText(axisDateLabel(t),px,bottom+32);}
  const fibAnnotations=fibRows.map(([label,p])=>({py:y(p),target:label.startsWith("Ext."),label}));
  for(const row of fibAnnotations){ctx.strokeStyle=row.target?"#1e40af":"#b45309";ctx.lineWidth=1;ctx.setLineDash(row.target?[10,4,2,4]:[7,4]);ctx.beginPath();ctx.moveTo(left,row.py);ctx.lineTo(right,row.py);ctx.stroke();ctx.setLineDash([]);}
 
@@ -2035,7 +2037,7 @@ if("serviceWorker" in navigator){
   });
   window.addEventListener("load",()=>{
     sessionStorage.removeItem("bob-sw-reloaded");
-    navigator.serviceWorker.register("/sw.js?v=20",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{});
+    navigator.serviceWorker.register("/sw.js?v=21",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{});
     // MTF watchdog: if the live analysis rendered but the MTF cells did not,
     // retry from the already cached live bundle without requiring a page reload.
     let mtfWatchdogRuns=0;
