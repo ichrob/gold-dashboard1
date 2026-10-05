@@ -278,3 +278,14 @@ for(const bad of [nbLine.replace('BNP','SG'),nbLine.replace('Long','Short'),nbLi
 assert.notEqual(b.normalizeOcrIsin('DEOOOPJINB98').isin,nb.isin);
 assert(!b.finalProductStatus({isin:nb.isin,name:nb.name,productDirection:nb.direction,isinConfirmed:true},now).complete);
 console.log('Original-image BNP NB98 identity recovery and negative contexts passed');
+
+// Intraday shadow does not inherit the slow EMA50/200 veto; live policy retains it.
+{
+ const fs=require('fs'),vm=require('vm');const ctx={window:{},localStorage:{getItem:()=>null,setItem:()=>{}}};vm.createContext(ctx);vm.runInContext(fs.readFileSync('degiro_assistant.js','utf8'),ctx);
+ const api=ctx.window.BobDegiro,c={direction:'LONG',trend:'LONG',trend2:'SHORT',mtf:'LONG',hist:1,momentum:1,rsi:60,atr:2};
+ assert(!api.selectionMarketGate(c).ok);
+ assert(api.selectionMarketGate({...c,policy:'intraday-shadow-v1'}).ok);
+ assert(api.technicalQuality({...c,policy:'intraday-shadow-v1'}).score>api.technicalQuality(c).score);
+ assert(!api.selectionMarketGate({...c,policy:'intraday-shadow-v1',hist:-1}).ok);
+ console.log('Intraday shadow: remove EMA200 veto only; keep live veto and MACD checks');
+}

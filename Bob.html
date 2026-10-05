@@ -1343,14 +1343,14 @@ function intradayState(bundle,trade=null,now=Date.now()){
   if(rows5.length<200||rows15.length<200||end-rows15.at(-1).openTime>1800000){samples.push({at:bar.openTime,valid:false,dir:'NEUTRAL'});continue;}
   const timing=metric(rows5),setup=metric(rows15),sideways=setup.adx<20||setup.gap<setup.atr*.1;
   const dir=!sideways&&setup.dir!=='NEUTRAL'&&setup.dir===timing.dir?setup.dir:'NEUTRAL';
-  latest={setup:setup.dir,timing:timing.dir,sideways,reason:sideways?'15m-Seitwärtsfilter aktiv':dir==='NEUTRAL'?'15m-Richtung und 5m-Einstieg stimmen nicht überein':'15m-Richtung und 5m-Einstieg stimmen überein',dir};
+  latest={setup:setup.dir,timing:timing.dir,sideways,reason:sideways?'15m-Seitwärtsfilter: ADX '+setup.adx.toFixed(1)+' (mindestens 20), EMA20/50-Abstand '+(setup.atr>0?(setup.gap/setup.atr).toFixed(2):'nicht verfügbar')+' ATR (mindestens 0,10)':dir==='NEUTRAL'?'15m-Richtung und 5m-Einstieg stimmen nicht überein':'15m-Richtung und 5m-Einstieg stimmen überein',dir};
   samples.push({at:bar.openTime,valid:true,dir});
  }
  const confirmed=confirmClosedSignals(samples),direction=latest&&latest.dir===confirmed.dir?confirmed.dir:'NEUTRAL';
  const hour=(source['1h']||[]).filter(b=>!b.isOpen&&b.openTime+3600000<=now&&b.instrument==='XAU/USD');
  const h=hour.length>=200&&now-hour.at(-1).openTime<=7200000?metric(hour).dir:'NICHT VERFÜGBAR';
- const result={context:{direction,spotFresh:true,spot:price,atr:m5.atr,trend:m5.e20>m5.e50?'LONG':m5.e20<m5.e50?'SHORT':'NEUTRAL',trend2:m5.e50>m5.e200?'LONG':m5.e50<m5.e200?'SHORT':'NEUTRAL',mtf:latest?.setup,momentum:Math.sign(m5.hist),hist:m5.hist,rsi:m5.rsi,adx:m5.adx},version:'intraday-v1',mode:'shadow',available:true,direction,barAt:bars['5m'].at(-1).openTime,score:m5.score,setup:latest?.setup,timing:latest?.timing,hour:h,countertrend:['LONG','SHORT'].includes(direction)&&['LONG','SHORT'].includes(h)&&h!==direction,reason:latest?.reason||'Bestätigung fehlt',tradeAction:'KEIN AKTIVER TRADE'};
- if(direction==='NEUTRAL'&&latest?.dir!=='NEUTRAL')result.reason+=' · zweite geschlossene 5m-Kerze fehlt';
+ const result={context:{policy:'intraday-shadow-v1',direction,spotFresh:true,spot:price,atr:m5.atr,trend:m5.e20>m5.e50?'LONG':m5.e20<m5.e50?'SHORT':'NEUTRAL',trend2:m5.e50>m5.e200?'LONG':m5.e50<m5.e200?'SHORT':'NEUTRAL',mtf:latest?.setup,momentum:Math.sign(m5.hist),hist:m5.hist,rsi:m5.rsi,adx:m5.adx},version:'intraday-v1',mode:'shadow',available:true,direction,barAt:bars['5m'].at(-1).openTime,score:m5.score,setup:latest?.setup,timing:latest?.timing,hour:h,countertrend:['LONG','SHORT'].includes(direction)&&['LONG','SHORT'].includes(h)&&h!==direction,reason:latest?.reason||'Bestätigung fehlt',tradeAction:'KEIN AKTIVER TRADE'};
+ if(direction==='NEUTRAL'&&latest&&latest.dir!=='NEUTRAL'){result.preparing=latest.dir;result.reason+=' · Einstieg '+latest.dir+' vorbereitet: 1 von 2 geschlossenen 5m-Kerzen, noch keine Bestätigung';}
  if(trade?.active&&['LONG','SHORT'].includes(trade.dir)){
   const long=trade.dir==='LONG',rows=bars['5m'],pivots=[];
   for(let i=2;i<rows.length-2;i++){const window=rows.slice(i-2,i+3),key=long?'low':'high';if(window.every(b=>long?rows[i][key]<=b[key]:rows[i][key]>=b[key]))pivots.push(rows[i][key]);}
