@@ -219,7 +219,7 @@ function normalizeOcrIsin(value,productText=''){
   && /Basispreis\s*\(05\.10\.2026\)\s*3\.996,2705\s+USD/i.test(productText)
   && /Typ\s+Unlimited\s+Long/i.test(productText)
   && !/\bSHORT\b|\bPUT\b|FAKTOR|FACTOR/i.test(productText);
- if(candidate==='DE000PJSNB98'&&bnpTermsContext)return {isin:'DE000PJ9NB98',originalIsin:original,identityCorrection:'Produktidentität am Originalbild 1000070573.jpg geprüft; WKN und beide USD-Stammdaten stimmen überein'};
+ if(['DE000PJSNB98','DE000PJ0NB98'].includes(candidate)&&bnpTermsContext)return {isin:'DE000PJ9NB98',originalIsin:original,identityCorrection:'Produktidentität am Originalbild 1000070573.jpg geprüft; WKN und beide USD-Stammdaten stimmen überein'};
 
  // Verified against the user's original DEGIRO list 1000070092.jpg.
  // This is a single known identity, not a general I/1 -> 9 substitution.

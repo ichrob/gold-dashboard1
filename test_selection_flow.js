@@ -339,3 +339,10 @@ const actualRead=b.detailScreenshotData(actualBnpOcr,'DE000PJ9NB98');
 assert(actualRead.ok);assert.equal(actualRead.terms.strike.value,3996.2705);assert.equal(actualRead.terms.ko.value,3996.2705);assert.equal(actualRead.terms.ratio.value,.1);assert.equal(actualRead.terms.maturity.value,'Open End');assert.equal(actualRead.terms.type.value,'Unlimited Long');
 for(const changed of [actualBnpOcr.replace('derivate.bnpparibas.com','other.com'),actualBnpOcr.replace('PJSNB9','PJSNC9'),actualBnpOcr.replace('3.996,2705','3.995,2705'),actualBnpOcr.replace('Unlimited Long','Unlimited Short')])assert(!b.detailScreenshotData(changed,'DE000PJ9NB98').ok);
 console.log('Original BNP image OCR: reviewed identity and terms pass; mismatched evidence rejected');
+
+const browserEngineBnpOcr="19:19 B& LHI 4\nderivate.bnpparibas.com\nStammdaten\nKnock-Out Schwelle\n(05.10.2026) 3.996,2705 USD\no\nBasispreis\n(05.10.2026) 3.996,2705 USD\nBezugsverhaltnis 0,1\nLaufzeit @ Open End\nReferenzzins SOFR\nASA passungssatz 4,00 %\nWKN PJSNB9\nISIN DEOOOPJONB98\nTyp Unlimited Long\nStuttoart. Frankfurt.\n-\nRisikowarnung gem\u00e9  \u00b0Bafin-Allgemeinv...\n[I O <\n";
+const browserRead=b.detailScreenshotData(browserEngineBnpOcr,'DE000PJ9NB98');
+assert(browserRead.ok);assert.equal(browserRead.isin,'DE000PJ9NB98');assert.equal(browserRead.terms.strike.value,3996.2705);assert.equal(browserRead.terms.ratio.value,.1);assert.equal(browserRead.terms.maturity.value,'Open End');
+assert(!b.detailScreenshotData(browserEngineBnpOcr.replace('3.996,2705','3.995,2705'),'DE000PJ9NB98').ok);
+assert(!b.detailScreenshotData(browserEngineBnpOcr,'DE000PG0XK25').ok);
+console.log('Tesseract.js 5.1.1 original image transcript: correct identity and terms');
