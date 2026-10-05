@@ -473,3 +473,12 @@ batch=timingBatch();batch[1].raw='BNP PARIBAS\n21:35\nHandelszeiten 08:00:00 - 2
 batch=timingBatch();batch[0].data.sourceTime='05.10.2026 21:35:52';batch[1].data.sourceTime='05.10.2026 21:34:00';assert.equal(b.linkScreenshotSeries(batch),null);
 batch=timingBatch();batch[1].data.times.bid={present:true,text:'05.10.2026 21:34:00',at:'2026-10-05T19:34:00Z'};b.linkScreenshotSeries(batch);assert.equal(batch[1].data.times.bid.at,'2026-10-05T19:34:00Z');
 console.log('Same-selection timing, provenance, conflicts, original timestamps and product boundaries passed');
+
+// Preferred CFD reference reaches the future ranking; stale and unmeasured stay blocked.
+const direct=JSON.parse(JSON.stringify(f));
+direct.quote.futureResearch.futureReference={available:true,contract:'GCZ26',kind:'cfd-reference',priceUsd:3990,priceAt:at(0),proxySource:'Investing.com CFD',comparisonErrorUsd:2,validation:{ready:true,sampleCount:21,maxAbsoluteError:2}};
+const cfdCandidate=b.conditionalCandidate(direct,context,now);assert(cfdCandidate.ok,cfdCandidate.reason);assert.equal(cfdCandidate.basis,3990);assert(cfdCandidate.priceKind.includes('Gold-CFD'));
+assert(b.futureResearchText(direct.quote,now).includes('GOLD-CFD ALS FUTURE-REFERENZ'));
+direct.quote.futureResearch.futureReference.validation.ready=false;assert(!b.conditionalCandidate(direct,context,now).ok);
+direct.quote.futureResearch.futureReference.validation.ready=true;direct.quote.futureResearch.futureReference.priceAt=at(-61);assert(!b.conditionalCandidate(direct,context,now).ok);
+console.log('CFD-first future reference, source label, independent validation and expiry passed');
