@@ -33,7 +33,7 @@ def background_health():
     last = state.get("lastSuccessAt")
     age = max(0, int(time.time()) - last) if last is not None else None
     healthy = bool(state["configured"] and age is not None and age <= 120
-                   and state["status"] in ("active", "idle"))
+                   and state["status"] in ("active", "idle", "checking"))
     return {"status": "ok" if healthy else "unavailable", "service": "bob-background",
             "monitorStatus": state["status"], "lastSuccessAt": last, "ageSeconds": age}
 
