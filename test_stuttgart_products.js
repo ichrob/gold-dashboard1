@@ -47,6 +47,26 @@ assert(!b.detailScreenshotData(mobileSg+'\nKnock-Out-Barriere 4.118,0000 USD','D
 assert(!b.detailScreenshotData('Kurs von: 10:45:14 (05.10.2026)\nGeld 4,310 EUR\nBrief 4,320 EUR','DE000FG5NMF2').ok);
 console.log('Wrapped SG terms preserve amounts, identity checks and unconfirmed dates');
 
+// SG browser-title WKN and quotes from the supplied 11:13 / 11:14 images.
+const sgTitle='FG5NMF - 4,71/ 4,72 €\nsg-zertifikate.de\nFG5NMF\nKurs von: 11:13:52 (05.10.2026)\nGeld\n4,710 EUR';
+const titleQuote=b.detailScreenshotData(sgTitle,'DE000FG5NMF2');
+assert(titleQuote.ok,titleQuote.reason);assert.equal(titleQuote.identityBasis,'WKN');
+assert.equal(titleQuote.bid,4.71);assert.equal(titleQuote.ask,4.72);
+assert.equal(titleQuote.sourceTime,'05.10.2026 11:13:52');assert.equal(titleQuote.times.quote.at,null);
+const nextQuote=b.detailScreenshotData('FG5NMF - 4,69 / 4,70 €\nsg-zertifikate.de\n4,690 EUR\nBrief\n4,700 EUR','DE000FG5NMF2');
+assert(nextQuote.ok,nextQuote.reason);assert.equal(nextQuote.bid,4.69);assert.equal(nextQuote.ask,4.7);
+const firstQuote=b.mergeScreenshotEvidence(null,titleQuote,'11-13.jpg');
+const nextMerged=b.mergeScreenshotEvidence(firstQuote,nextQuote,'11-14.jpg');
+assert.equal(nextMerged.sourceTime,'');assert.equal(nextMerged.evidence.Geld.at,null);assert.equal(nextMerged.times.quote.at,null);
+assert.equal(nextMerged.bid,4.69);assert.equal(nextMerged.ask,4.7);
+for(const bad of [sgTitle.replaceAll('FG5NMF','FG309G'),sgTitle+'\nISIN DE000FG309G0',sgTitle.replace('4,710 EUR','4,690 EUR'),sgTitle.replace('sg-zertifikate.de','example.org')])assert(!b.detailScreenshotData(bad,'DE000FG5NMF2').ok);
+assert(!b.detailScreenshotData('Indikation Basiswert 4.166,350 USD\n05.10.2026 11:14:01','DE000FG5NMF2').ok);
+const wknTerms=b.detailScreenshotData('WKN FG5NMF\nBezugsverhältnis 10:1','DE000FG5NMF2');assert(wknTerms.ok);
+const actualWrapped='ISIN DEOOOFG5NMF2\nWKN FG5NMF\nTyp Call\n; , 4.117,6769\nBasispreis ® USD (22:10:2028)\nKnock-Out-Barriere 4.117,6769\noO USD (JR 0E2026)';
+const wrap=b.detailScreenshotData(actualWrapped,'DE000FG5NMF2');assert(wrap.ok,wrap.reason);
+assert.equal(wrap.terms.strike.value,4117.6769);assert.equal(wrap.terms.ko.value,4117.6769);assert.equal(wrap.terms.ko.dateText,null);
+console.log('WKN identity, same-image SG title quotes, real mobile table layout and isolated timestamps passed');
+
 // Simulate Android revoking a provider-backed file once its input is cleared.
 (async()=>{
  ctx.File=File;

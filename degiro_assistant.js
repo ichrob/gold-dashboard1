@@ -602,8 +602,9 @@ function recognizeOcr(file,statusId){
   let result;
   try{
    result=await ocrTimeout(worker.recognize(prepared),45000,"OCR-Zeitüberschreitung nach 45 Sekunden");
-   if(/Stammdaten/i.test(result.data.text||'')&&/Knock-Out-Barriere|Basispreis/i.test(result.data.text||'')){
-    try{await worker.setParameters({tessedit_pageseg_mode:"6"});result=await ocrTimeout(worker.recognize(prepared),45000,"Tabellenerkennung nach 45 Sekunden beendet");}
+   if(/Stammdaten|\bISIN\b|\bWKN\b/i.test(result.data.text||'')&&/Knock-Out-Barriere|Basispreis/i.test(result.data.text||'')){
+    const tableImage=await prepareOcrImage(file,statusId,true);
+    try{await worker.setParameters({tessedit_pageseg_mode:"6"});result=await ocrTimeout(worker.recognize(tableImage),45000,"Tabellenerkennung nach 45 Sekunden beendet");}
     finally{await worker.setParameters({tessedit_pageseg_mode:"3"});}
    }
   }catch(e){ocrWorkerPromise=null;await worker.terminate().catch(()=>{});throw e;}
@@ -736,6 +737,9 @@ function sourceTimestamp(value){
  return new Date(local-offset*60000).toISOString();
 }
 function screenshotTimes(raw){
+ // SG prints the time before the date; keep the original precision and do
+ // not infer a timezone from the phone or the website's language.
+ raw=String(raw).replace(/(?:^|\n)\s*Kurs von:\s*(\d{2}:\d{2}:\d{2})\s*\((\d{2}\.\d{2}\.\d{4})\)/gi,'\nKurszeit: $2 $1');
  const out={};
  for(const [key,label] of Object.entries({quote:'Kurszeit|Kursstand|Quote time',bid:'Geldzeit|Bid time',ask:'Briefzeit|Ask time',leverage:'Hebelzeit|Leverage time',ko:'KO-Zeit|KO time'})){
   const matches=Array.from(String(raw).matchAll(new RegExp('(?:^|\\n)\\s*(?:'+label+')\\s*[:=]?\\s*([^\\n]+)','gi')));
@@ -1097,10 +1101,11 @@ function needsDirectionalData(p,direction){
 // Terms have their own source date; a quote/upload never refreshes them.
 function parseProductTerms(raw){
  raw=String(raw).replace(/(?:©|®|ⓘ|@)/g,'').replace(/Bezugsverhaltnis/g,'Bezugsverhältnis');
+ raw=raw.replace(/(^|\n)[ \t]*[oOQ]{1,2}[ \t]+(?=USD\b)/g,'$1');
  // Mobile SG tables wrap the USD/date cell, sometimes above its label.
  // Join only adjacent, recognisable amount/currency fragments, never another row.
  const termLabel='(?:Basispreis|Finanzierungslevel|Knock-Out-Barriere|Knock-out-Schwelle)';
- raw=raw.replace(new RegExp('(?:^|\\n)[ \\t.]*([0-9][0-9.,]*)[ \\t]*\\n[ \\t]*('+termLabel+')[ \\t]*[:=]?[ \\t]*(?=USD\\b)','gi'),'\n$2 $1 ');
+ raw=raw.replace(new RegExp('(?:^|\\n)[ \\t.,;]*([0-9][0-9.,]*)[ \\t]*\\n[ \\t]*('+termLabel+')[ \\t]*[:=]?[ \\t]*(?=USD\\b)','gi'),'\n$2 $1 ');
  raw=raw.replace(new RegExp('('+termLabel+'[ \\t]*[:=]?[ \\t]*(?:\\n[ \\t]*)?[0-9][0-9.,]*)[ \\t]*\\n(?:[ \\t]*\\n)*[ \\t]*(USD\\b)','gi'),'$1 $2');
  raw=raw.replace(new RegExp('('+termLabel+'[ \\t]*[:=]?[ \\t]*[0-9][0-9.,]*[ \\t]+USD)[ \\t]*\\n[ \\t]*(\\([^\\n]*\\))','gi'),'$1 $2');
  // A correctly read German USD amount establishes the table's number convention.
@@ -1223,27 +1228,58 @@ function finalProductStatus(p,now=Date.now(),reference){
  return {...status,complete:!reasons.length,reasons};
 }
 function detailScreenshotData(text,expectedIsin){
- const raw=String(text||""),ids=Array.from(new Set(parseScreenshotCandidates(raw).map(x=>x.isin)));
+ let raw=String(text||"");
  if(!validIsin(expectedIsin))return{ok:false,reason:"Bitte zuerst die ISIN dieses Produkts am Screenshot prüfen und korrigieren."};
- if(ids.length!==1||ids[0]!==expectedIsin)return{ok:false,reason:ids.length?"Der Screenshot gehört nicht eindeutig zu "+expectedIsin+". Bitte nur dieses Produkt mit sichtbarer ISIN hochladen.":"ISIN im Zusatzbild fehlt. Bitte die ISIN zusammen mit den Produktdaten zeigen."};
+ const identity=screenshotIdentity(raw,expectedIsin);
+ if(!identity.ok)return identity;
+ const titlePair=sgScreenshotTitlePair(raw,expectedIsin);
+ if(titlePair){
+  // Both values are visible in this same image's SG browser title. Never
+  // borrow the second price or its timestamp from another screenshot.
+  raw=raw.replace(/\b(?:Geld|Brief)\b/gi,'Kursanzeige');
+  raw+='\nGeld '+titlePair.bid+' EUR\nBrief '+titlePair.ask+' EUR';
+ }
+ if(identity.basis==='WKN')raw='ISIN '+expectedIsin+'\n'+raw;
  const x=ocrExtract(raw.replace(/(\bBAR\s*\n)[@©●•®]\s*(?=[0-9])/gi,"$1"));
  if(/\b(?:SHORT|PUT)\b/i.test(raw)&&/\b(?:LONG|CALL)\b/i.test(raw))return {ok:false,reason:'Long/Short im Bild widersprüchlich: Produktzuordnung prüfen'};
  if(!x.price){const top=raw.match(/(?:^|\n)\s*€\s*([0-9]+(?:[.,][0-9]+)?)\b/);if(top)x.price=top[1].replace(",",".");}
  const amount=label=>{const m=raw.match(new RegExp("\\b(?:"+label+")(?!\\s*(?:Vol|Volumen))\\s*[:=]?\\s*(?:€|EUR)?\\s*([0-9]+(?:[.,][0-9]+)?)","i"));return m?Number(m[1].replace(",",".")):null;};
  const draft=window.BobCombined.screenshotDraft(raw,expectedIsin);
- if(draft.hasQuote&&!draft.paired)return{ok:false,reason:'Kursbild nicht eindeutig: bitte Geld und Brief eines einzigen Handelsplatzes mit ISIN zeigen.'};
+ if(draft.hasQuote&&!draft.paired)return{ok:false,reason:'Produkt erkannt'+(identity.basis==='WKN'?' über WKN '+identity.wkn:'')+', aber Geld-/Briefpaar nicht vollständig oder eindeutig. Bitte beide Kurse im selben Bild zeigen.'};
  const bid=draft.paired?n(draft.fields.bid):amount("Geld|Bid"),ask=draft.paired?n(draft.fields.ask):amount("Brief|Ask");
  if(draft.fields.ko1)x.ko=draft.fields.ko1;
  if((bid!==null&&bid<=0)||(ask!==null&&ask<=0)||(bid!==null&&ask!==null&&ask<bid))return{ok:false,reason:"Geld-/Briefkurse widersprüchlich gelesen. Bitte ein schärferes Bild hochladen."};
  const quoteText=raw.replace(/(?:^|\n)\s*(?:Produktdatenstand|Bedingungenstand|Fälligkeit|Faelligkeit|Laufzeit|KO-Zeit|Hebelzeit)\s*[:=]?[^\n]*/gi,'');
- const stamp=(quoteText.match(/\b\d{2}[/.]\d{2}[/.]\d{4}\s+\d{2}:\d{2}(?::\d{2})?\b/)||[])[0]||"";
+ const stamp=screenshotTimes(raw).quote?.text||(quoteText.match(/\b\d{2}[/.]\d{2}[/.]\d{4}\s+\d{2}:\d{2}(?::\d{2})?\b/)||[])[0]||"";
  const currency=/\bEUR\b|€/.test(raw)?"EUR":"";
  if(bid!==null&&ask!==null&&currency==="EUR"){x.price=String(ask);x.spread=String(Math.round((ask-bid)*1000000)/1000000);}
  if(!x.leverage){const lv=raw.match(/\bLV\s+(\d+(?:[.,]\d+)?)/i);if(lv)x.leverage=lv[1].replace(",",".");}
  const terms=parseProductTerms(raw);
  if(terms.error)return {ok:false,reason:terms.error};
  if(terms.ko)x.ko=String(terms.ko.value);
- return{ok:true,...x,bid,ask,currency,sourceTime:stamp,times:screenshotTimes(raw),terms,delayed:/verzögert|delayed/i.test(raw),combinedDraft:draft};
+ return{ok:true,...x,identityBasis:identity.basis,bid,ask,currency,sourceTime:stamp,times:screenshotTimes(raw),terms,delayed:/verzögert|delayed/i.test(raw),combinedDraft:draft};
+}
+function screenshotIdentity(raw,expectedIsin){
+ const ids=Array.from(new Set(parseScreenshotCandidates(raw).map(x=>x.isin)));
+ if(ids.length)return ids.length===1&&ids[0]===expectedIsin?{ok:true,basis:'ISIN'}:{ok:false,reason:'Der Screenshot gehört nicht eindeutig zu '+expectedIsin+'. Bitte Produktkennung prüfen.'};
+ const wkns=Array.from(String(raw).toUpperCase().matchAll(/\bWKN\s*[:=]?\s*([A-Z0-9]{6})\b|\b([A-Z0-9]{6})\s+WKN\b/g)).map(m=>m[1]||m[2]);
+ if(/sg-zertifikate\.(?:de|at)\b/i.test(raw)){
+  for(const m of String(raw).toUpperCase().matchAll(/(?:^|\n)[^\n]*?\b([A-Z0-9]{6})\s*[-–]\s*\d+[.,]\d+\s*\/\s*\d+[.,]\d+\s*€/g))wkns.push(m[1]);
+  for(const m of String(raw).toUpperCase().matchAll(/(?:^|\n)\s*([A-Z0-9]{6})\s*(?=\n|$)/g))if(/[A-Z]/.test(m[1])&&/\d/.test(m[1]))wkns.push(m[1]);
+ }
+ const unique=[...new Set(wkns)];
+ if(validIsin(expectedIsin)&&expectedIsin.startsWith('DE000')&&unique.length===1&&unique[0]===expectedIsin.slice(5,11))return{ok:true,basis:'WKN',wkn:unique[0]};
+ return{ok:false,reason:unique.length?'WKN im Bild passt nicht eindeutig zu '+expectedIsin+'. Bitte Produktkennung prüfen.':'ISIN oder WKN im Zusatzbild fehlt. Bitte die Produktkennung zusammen mit den Daten zeigen.'};
+}
+function sgScreenshotTitlePair(raw,isin){
+ if(!/sg-zertifikate\.(?:de|at)\b/i.test(raw)||!validIsin(isin)||!isin.startsWith('DE000'))return null;
+ if((raw.match(/\bGeld\b/g)||[]).length>1||(raw.match(/\bBrief\b/g)||[]).length>1)return null;
+ const matches=Array.from(String(raw).matchAll(/\b([A-Z0-9]{6})\s*[-–]\s*(\d+[.,]\d+)\s*\/\s*(\d+[.,]\d+)\s*€/g));
+ if(matches.length!==1||matches[0][1]!==isin.slice(5,11))return null;
+ const numeric=s=>Number(s.replace(',','.')),bid=numeric(matches[0][2]),ask=numeric(matches[0][3]);
+ const body=Array.from(String(raw).matchAll(/\b(\d+[.,]\d+)\s+EUR\b/g)).map(m=>numeric(m[1]));
+ if(!(bid>0&&ask>=bid)||!body.length||body.some(v=>v!==bid&&v!==ask))return null;
+ return{bid,ask};
 }
 function resetCombinedForm(i){
  const form=document.querySelector('[data-combined-form="'+i+'"]');if(!form?.querySelectorAll)return;
@@ -1271,7 +1307,7 @@ async function readScreenshot(i,file){
   const result=await recognizeOcr(file,"dgOcrStatus"+i);
   if((rowVersions.get(i)||0)!==version||(field("isin")?.value||"").trim().toUpperCase()!==expected)return;
   const x=detailScreenshotData(result.data.text,expected);
-  if(!x.ok){if(status)status.textContent="⚠️ "+x.reason;return;}
+  if(!x.ok){if(status)status.textContent="⚠️ "+x.reason;return{ok:false,reason:x.reason};}
   const merged=mergeScreenshotEvidence(detailScreenshots.get(i),x,file.name);
   productQuotes.delete(i);
   for(const [k,v] of Object.entries({dir:merged.direction,price:merged.price,lev:merged.leverage,ko:merged.ko,spread:merged.spread})){if(v!==""&&v!==null&&v!==undefined&&field(k))field(k).value=v;}
@@ -1281,7 +1317,12 @@ async function readScreenshot(i,file){
   if(status)status.textContent="✅ Zusatzbild zugeordnet. Gelesene Werte unter Details am Screenshot prüfen. "+(merged.sourceTime?"Kurszeit im Bild: "+merged.sourceTime:"Kurszeit im Bild fehlt.");
   const meta=document.getElementById("dgResearch"+i);if(meta)meta.textContent="📷 "+(x.combinedDraft?.source||'Screenshot')+"-Momentaufnahme · "+(merged.bid!==null?"Geld "+merged.bid+" / Brief "+(merged.ask??"fehlt")+" "+merged.currency+" · ":"")+"keine laufenden Live-Daten. Erkannte Kursnachweis-Felder am Original prüfen und bestätigen; offene Zeiten bleiben gesperrt.";
   rankUI();
- }catch(e){if((rowVersions.get(i)||0)!==version)return;if(status)status.textContent="⚠️ Bild konnte nicht eingelesen werden: "+(e?.message||"Unbekannter Fehler")+". Bitte erneut auswählen.";}
+  return{ok:true,reason:x.identityBasis==='WKN'?'über passende WKN zugeordnet':'über ISIN zugeordnet'};
+ }catch(e){if((rowVersions.get(i)||0)!==version)return;const reason=e?.message||'Unbekannter Fehler';if(status)status.textContent="⚠️ Bild konnte nicht eingelesen werden: "+reason+". Bitte erneut auswählen.";return{ok:false,reason};}
+}
+function screenshotBatchSummary(outcomes){
+ const accepted=outcomes.filter(x=>x.ok).length;
+ return (accepted?'✅ ':'⚠️ ')+accepted+' von '+outcomes.length+' Bild(ern) übernommen. '+(accepted?'Erkannte Werte am Original prüfen. ':'')+outcomes.map(x=>(x.ok?'✓ ':'⚠️ ')+x.name+': '+x.reason).join(' · ');
 }
 function mergeScreenshotEvidence(previous,x,source){
  const quoteTime=y=>{
@@ -1451,7 +1492,11 @@ function inject(){
    rankUI();
    try{
     const retained=await retainSelectedImages(input);
-    for(const file of retained){if(document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value!==isin)break;await readScreenshot(i,file);}
+    const outcomes=[];
+    for(const file of retained){if(document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value!==isin)break;const result=await readScreenshot(i,file);if(result)outcomes.push({name:file.name,...result});}
+    if(status&&document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value===isin&&outcomes.length){
+     status.textContent=screenshotBatchSummary(outcomes);
+    }
    }catch(e){if(status)status.textContent='⚠️ '+e.message;}
    finally{input.value='';input.disabled=false;rankUI();}
   });
