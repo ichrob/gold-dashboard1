@@ -310,7 +310,19 @@ assert(bnpRead.ok);assert.equal(bnpRead.identityBasis,'WKN');
 assert.equal(bnpRead.bid,12.06);assert.equal(bnpRead.ask,12.07);
 assert(!bnpRead.sourceTime,'Do not invent source time from phone clock or another image');
 const bnpTitle='PJ9NB9 12,08 / 12,09 €\nderivate.bnpparibas.com\nBNP PARIBAS\nHebel 30,53\nÄhnliche Produkte\nAktuelles Produkt\nBasispreis 3.996,27\nKnock-Out Schwelle 3.996,27';
-assert(b.detailScreenshotData(bnpTitle,'DE000PJ9NB98').reason.includes('Währung USD'));
+assert(b.detailScreenshotData(bnpTitle,'DE000PJ9NB98').reason.includes('eindeutig angeben'));
 assert(b.detailScreenshotData(bnpTitle.replaceAll('3.996,27','3.996,27 USD'),'DE000PJ9NB98').ok);
 for(const raw of [bnpBadge.replace('PJ9NB9','PJ9NCK'),bnpBadge+'\nPJ9NCK',bnpBadge.replace('BNP PARIBAS','Other issuer'),bnpBadge.replace('PJ9NB9','XPJ9NB9X'),bnpBadge.replace('PJ9NB9','')+'\nÄhnliche Produkte\nPJ9NB9'])assert(!b.detailScreenshotData(raw,'DE000PJ9NB98').ok);
 console.log('BNP unlabeled WKN recognition, quote labels and identity rejection passed');
+
+// BNP mobile table: date before amount and WKN badge beside market status.
+const pg='DE000PG0XK25';
+const pgQuote=bnpBadge.replace('PJ9NB9\nMarkt geöffnet','PG0XK2 ▣ ● Markt geöffnet').replace('3.996,2705','3.455,4922').replace('12,06','60,51').replace('12,07','60,52');
+assert(b.detailScreenshotData(pgQuote,pg).ok);
+assert.equal(b.detailScreenshotData(pgQuote,pg).bid,60.51);
+const pgTerms='BNP PARIBAS\nStammdaten\nKnock-Out Schwelle\n(05.10.2026) 3.455,4922 USD\nBasispreis\n(05.10.2026)\n3.455,4922 USD\nBezugsverhältnis\n0,1\nLaufzeit\nOpen End\nWKN PG0XK2\nISIN DE000PG0XK25';
+const pgResult=b.detailScreenshotData(pgTerms,pg);
+assert(pgResult.ok,pgResult.reason);assert.equal(pgResult.terms.strike.value,3455.4922);assert.equal(pgResult.terms.ko.value,3455.4922);assert.equal(pgResult.terms.strike.dateText,'05.10.2026');assert.equal(pgResult.terms.ratio.value,.1);
+assert(!b.detailScreenshotData(pgTerms,'DE000PJ9NB98').ok);
+assert(!b.detailScreenshotData('BNP PARIBAS\nHebel 6,09\nÄhnliche Produkte\nAktuelles Produkt\nBasispreis 3.455,49',pg).ok);
+console.log('BNP dated mobile table and inline WKN badge regressions passed');
