@@ -92,7 +92,7 @@ assert(serverSource.includes('"instrument":"GC=F"'));
 assert(serverSource.includes("script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net"));
 assert(serverSource.includes("worker-src 'self' blob:"));
 assert(serverSource.includes('"script-src \'self\' \'unsafe-inline\' https://cdn.jsdelivr.net; "'));
-assert(serverSource.includes('if len(values) < period + 2:\n        return None'));
+assert(serverSource.includes('if len(values) < period + 1:\n        return None'));
 assert(serverSource.includes('reason":"zu wenig Historie für RSI"'));
 
 assert(renderSource.includes("plan: free"));

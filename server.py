@@ -517,7 +517,7 @@ def _ema(values, period):
     return e
 
 def _rsi(values, period=14):
-    if len(values) < period + 2:
+    if len(values) < period + 1:
         return None
     gains = losses = 0.0
     for i in range(1, period + 1):
@@ -533,25 +533,34 @@ def _rsi(values, period=14):
     return 50.0 if gains == losses == 0 else 100.0 if losses == 0 else 100.0 - 100.0 / (1.0 + gains / losses)
 
 def _mtf_score(bars, tf):
-    closed = [b for b in (bars or []) if not b.get("isOpen")][-220:]
+    step={"5m":300000,"15m":900000,"1h":3600000,"4h":14400000}.get(tf,900000)
+    now=int(time.time()*1000)
+    if any(not b.get("isOpen") and (not isinstance(b.get("openTime"),(int,float)) or b["openTime"]>now) for b in (bars or [])):
+        return {"dir":"NEUTRAL","available":False,"fresh":False,"reason":"Kerzenzeit fehlt oder liegt in der Zukunft"}
+    closed = [b for b in (bars or []) if not b.get("isOpen") and isinstance(b.get("openTime"),(int,float)) and b["openTime"]+step<=now][-220:]
+    valid=all(b["openTime"]%step==0 and all(isinstance(b.get(k),(int,float)) and not isinstance(b.get(k),bool) and math.isfinite(b[k]) and b[k]>0 for k in ("open","high","low","close")) and b["low"]<=min(b["open"],b["close"]) and b["high"]>=max(b["open"],b["close"]) for b in closed)
+    if not valid or any(b["openTime"]<=a["openTime"] for a,b in zip(closed,closed[1:])) or any(b["openTime"]-a["openTime"]!=step for a,b in zip(closed[-20:],closed[-19:])):
+        return {"dir":"NEUTRAL","available":False,"fresh":False,"reason":"Ungültige oder lückenhafte Kerzen","bars":len(closed)}
     if len(closed) < 200:
         return {"dir":"NEUTRAL","available":False,"reason":"zu wenig Historie","bars":len(closed)}
     latest = int(closed[-1]["openTime"])
     age = int(time.time() * 1000) - latest
-    freshness = {"5m":1200000,"15m":2700000,"1h":10800000,"4h":43200000}.get(tf,10800000)
+    freshness = step*2
     if age < 0 or age > freshness:
         return {"dir":"NEUTRAL","available":False,"fresh":False,"openTime":latest,"reason":"Kurszeit zukünftig" if age < 0 else "Historie zu alt","bars":len(closed),"ageMs":age}
     values = [float(b["close"]) for b in closed]
     e20, e50, e200 = _ema(values,20), _ema(values,50), _ema(values,200)
-    e12, e26 = _ema(values,12), _ema(values,26)
-    mac = e12 - e26
-    prev_values = values[:-1]
-    prev_mac = _ema(prev_values,12) - _ema(prev_values,26)
+    def series(period):
+        result=[values[0]]
+        for value in values[1:]:result.append(value*2/(period+1)+result[-1]*(1-2/(period+1)))
+        return result
+    mac_series=[a-b for a,b in zip(series(12),series(26))]
+    hist=mac_series[-1]-_ema(mac_series,9)
     rsi = _rsi(values)
     if rsi is None:
         return {"dir":"NEUTRAL","available":False,"reason":"zu wenig Historie für RSI","bars":len(closed),"ageMs":age}
     sign = lambda value: 1 if value > 0 else -1 if value < 0 else 0
-    signs = {sign(values[-1]-e20), sign(e20-e50), sign(mac-prev_mac), 1 if 50 < rsi < 75 else -1 if 25 < rsi < 50 else 0}
+    signs = {sign(values[-1]-e20), sign(e20-e50), sign(hist), 1 if 50 < rsi < 75 else -1 if 25 < rsi < 50 else 0}
     score = 0 if 1 in signs and -1 in signs else (1 if 1 in signs else -1 if -1 in signs else 0) * (0.5 if 0 in signs else 1)
     direction = "LONG" if score >= 0.5 else "SHORT" if score <= -0.5 else "NEUTRAL"
     return {"dir":direction,"available":True,"reason":"ok","bars":len(closed),"rsi":round(rsi,2),"score":score,"ageMs":age,"fresh":True,"openTime":latest}

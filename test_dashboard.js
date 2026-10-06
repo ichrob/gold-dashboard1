@@ -77,7 +77,7 @@ const ageChecks=vm.runInContext(`(()=>{
  return {stale,missing:{available:missing.available,fresh:missing.fresh},freshWarnings:analysisAgeWarnings(),noTime:dataAge(null)};
 })()`,env);
 assert(ageChecks.stale.available&&ageChecks.stale.ready);assert.equal(ageChecks.stale.fresh,false);assert.equal(ageChecks.stale.approval,'NEUTRAL');assert(ageChecks.stale.count>=200);
-assert(ageChecks.missing.available);assert.equal(ageChecks.missing.fresh,false);assert.equal(ageChecks.freshWarnings.length,0);assert.equal(ageChecks.noTime.fresh,false);
+assert(!ageChecks.missing.available);assert.equal(ageChecks.missing.fresh,false);assert.equal(ageChecks.freshWarnings.length,0);assert.equal(ageChecks.noTime.fresh,false);
 assert.equal(element('price').style.fontStyle,'');assert.equal(element('analysisAge').hidden,true);
 console.log('Age warnings: old/missing times calculate, no current approval, fresh data clears warnings');
 
@@ -282,3 +282,32 @@ const sourceCheck=vm.runInContext(`(()=>{
  return {valid:normalizeBrowserChart([p,{...p,t:t+72},{...p,t:t+300,l:4300}],'5m',(t+600)*1000),conflict:normalizeBrowserChart([p,{...p,c:4200}],'5m',(t+600)*1000)};
 })()`,env);
 assert.equal(sourceCheck.valid.length,1);assert.equal(sourceCheck.valid[0].openTime,1791243600000);assert.equal(sourceCheck.conflict.length,0);
+
+// Independent arithmetic and boundary regressions from the full analysis audit.
+const auditMath=vm.runInContext(`(()=>{
+ const candle=p=>({open:p,close:p,high:p+1,low:p-1});
+ const fixture=[100,101,102,101,100,101].map(candle);
+ const waves=Array.from({length:150},(_,i)=>{const p=4200+Math.sin(i/5)*(i<70?60:10)+i*.1;return candle(p);});
+ const model=fibonacciModel('LONG',waves.at(-1).close,2,waves),scaled=fibonacciModel('LONG',waves.at(-1).close*100,200,waves.map(b=>Object.fromEntries(Object.entries(b).map(([k,v])=>[k,v*100]))));
+ const saved=C;C=Array.from({length:220},()=>candle(4200));analyze();const flatTrend=$('trend').textContent,flatBands=$('bbpos').textContent;C=saved;
+ const now=Date.UTC(2026,9,6,10),step=300000;
+ const bars=Array.from({length:240},(_,i)=>({...candle(4200+i*.03+Math.sin(i/5)),openTime:now-(240-i)*step,instrument:'XAU/USD',isOpen:false}));
+ const bundle={history:{bars_by_tf:{'5m':bars,'15m':bars.map((b,i)=>({...b,openTime:now-(240-i)*900000}))}}};
+ const first=intradayTechnicalContext(bundle,{score:75,dir:'LONG'},now);A={e20:999,e50:1,R:99,at:999,hist:-999};
+ const second=intradayTechnicalContext(bundle,{score:75,dir:'LONG'},now);
+ return {adx:adxCalc(fixture,2),flatAdx:adxCalc(Array.from({length:40},()=>candle(100))),rsiMinimum:rsiS(Array.from({length:15},(_,i)=>100+i)),missing:collectiveSignal([1,NaN]),conflict:collectiveSignal([1,1,-1]),duplicate:collectiveSignal([1,1,1]),flatTrend,flatBands,model,scaled,first,second,wrongStop:targetModel('LONG',100,110),broken:fibonacciModel('LONG',1,2,waves),structure:confirmedMarketStructure(waves)};
+})()`,env);
+assert(Math.abs(auditMath.adx-37.5)<1e-10);assert.equal(auditMath.flatAdx,0);
+assert.equal(auditMath.rsiMinimum,100);assert.equal(auditMath.flatTrend,'Neutral');assert(auditMath.flatBands.includes('50%'));
+assert.equal(auditMath.missing,0);assert.equal(auditMath.conflict,0);assert.equal(auditMath.duplicate,1);
+assert(auditMath.model.valid&&auditMath.scaled.valid);assert.equal(auditMath.model.swingHighIndex,auditMath.scaled.swingHighIndex);assert.equal(auditMath.model.swingLowIndex,auditMath.scaled.swingLowIndex);
+assert.equal(auditMath.broken.valid,false);assert.equal(auditMath.wrongStop.target,null);
+assert.deepEqual(auditMath.first,auditMath.second);assert(Number.isFinite(auditMath.first.hist));
+console.log('Audit math: hand-calculated Wilder ADX, RSI seed, flat market, no duplicate votes, Fibonacci scale invariance, invalidated swing, stop direction and full-precision context isolation OK');
+
+const structureChecks=vm.runInContext(`(()=>{
+ const up=Array.from({length:120},(_,i)=>{const p=4200+i*.2+Math.sin(i/3)*5;return {open:p,close:p,high:p+1,low:p-1};});
+ const down=up.map(b=>({open:8400-b.open,close:8400-b.close,high:8400-b.low,low:8400-b.high}));
+ return {up:confirmedMarketStructure(up),down:confirmedMarketStructure(down),few:confirmedMarketStructure(up.slice(0,8))};
+})()`,env);
+assert.equal(structureChecks.up.direction,'LONG');assert.equal(structureChecks.down.direction,'SHORT');assert.equal(structureChecks.few.direction,'NEUTRAL');
