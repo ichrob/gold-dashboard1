@@ -506,6 +506,14 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <div class="card" id="fourDayPanel"><h3>Schnell oder vorsichtig · Vier Tage</h3><div id="fourDayComparison" class="small" style="white-space:pre-line">Vergleich wird mit der Statistik geladen.</div></div>
 <section class="card" id="auditPanel">
 <h2>Prüfprotokoll &amp; Lernen</h2>
+<details id="auditDayDetails"><summary>Tagesprüfung · Signal, Produkt und Handelsplan</summary>
+<label for="auditDay">Tag (Schweizer Zeit)</label><input id="auditDay" type="date">
+<button id="auditDayLoad" type="button">Tag prüfen</button>
+<button id="auditDayNext" type="button" hidden>Weitere Entscheidungen</button>
+<div id="auditDaySummary" class="small" style="white-space:pre-line" role="status"></div>
+<div id="auditDayRows"></div>
+<details><summary>Originalnachweise dieser Seite</summary><pre id="auditDayRaw" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>
+</details>
 <div id="auditSave" class="small">Warte auf eine protokollierbare Entscheidung.</div>
 <details id="auditDetails"><summary>Auswertung und Lernstand öffnen</summary>
 <button id="auditRefresh" type="button">Auswertung aktualisieren</button>
@@ -532,10 +540,17 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     reasons:flow.notApproved?.find(x=>x.isin===p.isin)?.reasons||[],
     selection:flow.groups.flatMap(g=>g.candidates).find(x=>x.isin===p.isin)||null};
   });
-  const payload={ruleVersion:'intraday-responsive-v6',direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,entryQuality:intradayEntryContext(bundle,state),barAt:state.barAt,
+  let plan=null;
+  if(state.dir!=='NEUTRAL'&&currentSpotUsable()&&A.ready&&!analysisAgeWarnings().length){
+   const sm=stopModel(state.dir,bundle.spots.xaus,A.at,+($('trailAtr')?.value||1.5));
+   const target=sm?.stop?targetModel(state.dir,bundle.spots.xaus,sm.stop,Math.max(1,+($('minRR')?.value||2))):null;
+   if(sm?.stop>0&&target?.target>0)plan={kind:'candidate',direction:state.dir,entry:bundle.spots.xaus,stop:sm.stop,target:target.target,unit:'USD/oz',at:Date.now(),note:'Zeitgleich berechneter Gold-Referenzplan; keine Order und keine Produktfreigabe'};
+  }
+  if(tradeMgmt?.active&&!tradeMgmt.test)plan={kind:'active-monitor',direction:tradeMgmt.dir,entry:tradeMgmt.entry,stop:tradeMgmt.stop,target:tradeMgmt.target,unit:'USD/oz',at:Date.now(),note:'Gespeicherte Überwachung; kein Ausführungsnachweis',isin:tradeMgmt.product?.isin||null};
+  const payload={plan,ruleVersion:'intraday-responsive-v6' ,direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,entryQuality:intradayEntryContext(bundle,state),barAt:state.barAt,
    price:bundle?.spots?.xaus,priceAt:bundle?.spots?.spot_price_as_of,score:state.score,
    reason:state.reason,indicators:state.indicators,products:items,selection:[...selected],gateReasons:flow.gateReasons};
-  const signature=JSON.stringify([state.dir,state.shadowDirection,state.barAt,state.reason,items,flow.gateReasons]);
+  const signature=JSON.stringify([state.dir,state.shadowDirection,state.barAt,state.reason,items,flow.gateReasons,plan&&[plan.kind,plan.direction,plan.entry,plan.stop,plan.target]]);
   if(signature===last)return;busy=true;next=Date.now()+30000;
   try{await api('write',payload);last=signature;text('auditSave','Dauerhaft protokolliert: '+new Date().toLocaleTimeString('de-CH')+' · Daten, Quellenzeiten, Gründe und Regelversion gespeichert.');}
   catch(e){text('auditSave','Protokoll NICHT gespeichert: '+e.message+'. Bob versucht es erneut; die Analyse läuft weiter.');}
@@ -568,6 +583,42 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  refresh();
  setInterval(()=>{if(!document.hidden)refresh();},300000);
  document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
+ let dayOffset=0,dayBusy=false,loadedDay=null;
+ const dayTime=v=>v?new Date(v).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'nicht belegt';
+ async function readDay(append=false){
+  if(dayBusy)return;dayBusy=true;
+  const day=document.getElementById('auditDay').value;
+  if(!append||day!==loadedDay){dayOffset=0;document.getElementById('auditDayRows').replaceChildren();}
+  text('auditDaySummary','Originalnachweise werden geladen …');
+  try{
+   const r=await api('read',{day,offset:dayOffset});loadedDay=day;
+   if(r.version!=='audit-day-v1')throw Error('Tagesabfrage noch nicht auf beiden Diensten verfügbar');
+   const lines=[day+' · Schweizer Zeit · '+r.total+' gespeicherte Entscheidungen (Browser/Hintergrund können dieselbe Kerze mehrfach protokollieren).',
+    'Richtungen: '+JSON.stringify(r.summary.counts),r.truncated?'Begrenzt auf erste 10’000 Einträge; kein vollständiger Tagesnachweis.':'Alle Tagesentscheidungen seitenweise abrufbar.',
+    ...r.summary.firstSignals.map(x=>'Erstes protokolliertes '+x.direction+' ['+x.ruleVersion+']: '+dayTime(x.at)+' · Gold '+x.price+' USD · frischer Spot: '+(x.marketEvaluable?'ja':'nein')+' · Produktauswahl: '+(x.selection.join(', ')||'keine dokumentiert')),
+    'Gespeicherte Spot-Kursminuten je Stunde:',...r.quoteCoverage.map(x=>dayTime(x.hour)+': '+x.minutes+'/60 Minuten · Spanne '+x.low+'–'+x.high+' USD'),
+    'Stundenvergleich: '+r.comparisons.length+' gespeicherte Versuche; '+r.comparisons.filter(x=>x.observation.valid).length+' gültige Beobachtungen; '+r.comparisons.filter(x=>x.truth).length+' mit Folgepreis.',
+    ...r.limitations];
+   text('auditDaySummary',lines.join('\n'));
+   for(const x of r.records){
+    const d=document.createElement('details'),title=document.createElement('summary'),body=document.createElement('div');
+    title.textContent=dayTime(x.at)+' · '+x.direction+' · '+(x.price??'—')+' USD · '+x.origin;
+    body.style.whiteSpace='pre-line';
+    const outcomes=Object.entries(x.outcomes).map(([h,t])=>h+' Min.: '+(x.marketEvaluable&&x.price>0?((t.price/x.price-1)*100).toFixed(3)+' % Goldbewegung':'nicht auswertbar')+' · Folgepreis '+t.price+' · '+dayTime(t.at));
+    body.textContent=[x.reason||'Grund fehlt','Regel: '+x.ruleVersion,'Kurszeit: '+dayTime(x.priceAt),'Sperrgründe: '+(x.gateReasons.join(' · ')||'keine protokolliert'),
+     'Freigegebene Auswahl: '+(x.selection.join(', ')||'keine dokumentiert'),
+     ...x.products.map(p=>p.isin+' · '+(p.selected?'ausgewählt':'nicht ausgewählt')+' · Geld/Brief '+(p.bid??'—')+'/'+(p.ask??'—')+' · '+dayTime(p.quoteAt)+' · '+(p.reasons||[]).join(' · ')),
+     x.plan?'Damals gespeicherter Plan: '+x.plan.kind+' · '+x.plan.direction+' · Einstieg '+x.plan.entry+' · Stop '+x.plan.stop+' · Ziel '+x.plan.target+' '+x.plan.unit+' · '+x.plan.note:'Einstieg/Stop/Ziel damals nicht protokolliert: keine rückwirkende Bestätigung möglich.',
+     ...outcomes].join('\n');d.append(title,body);document.getElementById('auditDayRows').append(d);
+   }
+   text('auditDayRaw',JSON.stringify(r,null,2));dayOffset=r.nextOffset;
+   document.getElementById('auditDayNext').hidden=dayOffset===null;
+  }catch(e){text('auditDaySummary','Tagesprüfung nicht verfügbar: '+e.message);document.getElementById('auditDayNext').hidden=true;}
+  finally{dayBusy=false;}
+ }
+ document.getElementById('auditDay').value=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Zurich'}).format(new Date());
+ document.getElementById('auditDayLoad').addEventListener('click',()=>readDay(false));
+ document.getElementById('auditDayNext').addEventListener('click',()=>readDay(true));
  document.getElementById('auditRefresh').addEventListener('click',refresh);
  document.getElementById('auditDetails').addEventListener('toggle',e=>{if(e.target.open)refresh();});
 })();

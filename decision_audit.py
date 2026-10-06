@@ -8,6 +8,7 @@ import time
 import threading
 import copy
 import intraday_comparison
+import audit_history
 from datetime import datetime, timezone
 
 VERSION = 'decision-audit-v1'
@@ -36,7 +37,14 @@ def normalize(payload, now=None):
     if bar is None or bar > now:
         raise ValueError('Entscheidungs-Kerzenzeit fehlt oder liegt in der Zukunft')
     # Only explicitly whitelisted evidence; never account credentials or raw images.
-    result = {k: payload.get(k) for k in ('direction','shadowDirection','intraday','entryQuality','barAt','price','priceAt','reason','score','indicators','products','selection','gateReasons')}
+    result = {k: payload.get(k) for k in ('direction','shadowDirection','intraday','entryQuality','barAt','price','priceAt','reason','score','indicators','products','selection','gateReasons','plan')}
+    plan = result.get('plan')
+    if (isinstance(plan,dict) and plan.get('kind') in ('candidate','active-monitor')
+        and plan.get('direction') in ('LONG','SHORT') and plan.get('unit')=='USD/oz'
+        and all(positive(plan.get(k)) for k in ('entry','stop','target'))):
+        result['plan'] = {k:plan.get(k) for k in ('kind','direction','entry','stop','target','unit','at','isin')}
+        result['plan']['note'] = 'Gold-Referenzplan; keine Order und kein bestätigter Euro-Produktkurs'
+    else:result['plan']=None
     result.update(version=VERSION, ruleVersion=payload['ruleVersion'] if payload.get('ruleVersion') in (RULE_VERSION, 'intraday-responsive-v5', 'intraday-consistent-v4', 'intraday-fast-v3', 'intraday-1h-15m-5m-v2', 'intraday-1h-15m-5m-v1') else 'signal-5m-two-closes-v1', build=os.environ.get('RENDER_GIT_COMMIT','local'), origin=payload.get('origin','browser'), recordedAt=now)
     if result['origin'] not in ('browser','background'):
         raise ValueError('Ungültige Protokollquelle')
@@ -51,7 +59,8 @@ def normalize(payload, now=None):
     if not isinstance(entry,dict) or entry.get('version')!='entry-quality-v1' or entry.get('direction') not in ('LONG','SHORT','NEUTRAL'):result['entryQuality']=None
     result['marketEvaluable'] = positive(result.get('price')) and at is not None and 0 <= now-at <= 180000
     # Each decision revision is frozen once. Refreshes with unchanged evidence are idempotent.
-    identity={k:result[k] for k in ('version','ruleVersion','origin','direction','shadowDirection','intraday','barAt','reason','products','selection','gateReasons')}
+    identity={k:result[k] for k in ('version','ruleVersion','origin','direction','shadowDirection','intraday','barAt','reason','products','selection','gateReasons','plan')}
+    if identity.get('plan'):identity['plan']={k:v for k,v in identity['plan'].items() if k!='at'}
     identity['entryQualityVersion']=(result.get('entryQuality') or {}).get('version')
     key=hashlib.sha256(json.dumps(identity,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     return key,result
@@ -225,7 +234,9 @@ def handle(conn,action,payload):
         result=write(conn,payload)
         harvest(conn)
         return result
-    if action=='read':return report(conn)
+    if action=='read':
+        if payload.get('day') is not None:return audit_history.report(conn,payload)
+        return report(conn)
     raise ValueError('Unbekannte Protokollaktion')
 
 

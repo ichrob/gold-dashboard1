@@ -45,7 +45,32 @@ class ComparisonTests(unittest.TestCase):
   self.assertEqual(c.summarize([],c.START-1)['status'],'geplant')
  def test_capture_idempotent_sql_and_outcome_harvest(self):
   db=Mock();c.capture(db,self.market(),c.START)
-  self.assertIn('ON CONFLICT DO NOTHING',db.execute.call_args_list[0].args[0])
+  self.assertIn('ON CONFLICT(campaign,slot) DO UPDATE',db.execute.call_args_list[0].args[0])
+  self.assertIn("(bob_intraday_comparison.payload->>'valid')::boolean=FALSE",db.execute.call_args_list[0].args[0])
   self.assertIn('UPDATE bob_intraday_comparison',db.execute.call_args_list[1].args[0])
 
 if __name__=='__main__':unittest.main()
+
+class RetryTests(unittest.TestCase):
+ def test_only_invalid_within_original_window_retried(self):
+  db=Mock();db.execute.return_value.fetchone.return_value=({'valid':False},)
+  self.assertTrue(c.needs_capture(db,c.START+120000))
+  self.assertFalse(c.needs_capture(db,c.START+300000))
+  db.execute.return_value.fetchone.return_value=({'valid':True},)
+  self.assertFalse(c.needs_capture(db,c.START+120000))
+
+@unittest.skipUnless(__import__('os').environ.get('BOB_TEST_DATABASE_URL'),'Postgres fixture unavailable')
+class RetryDatabaseTests(unittest.TestCase):
+ def test_invalid_then_valid_is_recovered_once_without_rewriting_valid(self):
+  import psycopg,os,bob_market_store,json
+  with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+   c.init(conn);bob_market_store.init(conn)
+   conn.execute('DELETE FROM bob_intraday_comparison WHERE campaign=%s',(c.ID,))
+   market=ComparisonTests().market()
+   c.capture(conn,{**market,'ready':False},c.START)
+   c.capture(conn,{**market,'dataAt':c.START+30000},c.START+30000)
+   c.capture(conn,{**market,'direction':'SHORT'},c.START+45000)
+   saved=conn.execute('SELECT payload FROM bob_intraday_comparison WHERE campaign=%s',(c.ID,)).fetchone()[0]
+   self.assertTrue(saved['valid']);self.assertEqual(saved['fast'],'LONG')
+   self.assertFalse(saved['firstAttempt']['valid']);self.assertEqual(saved['recordedAt'],c.START+30000)
+   conn.rollback()
