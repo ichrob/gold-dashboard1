@@ -36,13 +36,13 @@ def in_window(now):
 
 
 def paused_report(now):
-    """Restore measured evidence after a restart without polling market feeds."""
+    """Restore evidence while exact-contract collection is paused; spot runs separately."""
     global _next_archive, _report
     with _lock:
         report = dict(_report, enabled=True, state='paused', ready=False,
                       estimateAvailable=False, estimationReleased=True, estimatePriceUsd=None, estimateAt=None,
                       updateIntervalSeconds=30, evaluatedAt=now.isoformat(),
-                      reason='Sammlung werktags 06–22 Uhr Schweizer Zeit',
+                      reason='Futures-Sammlung werktags 06–22 Uhr Schweizer Zeit; Spotarchiv werktags durchgehend',
                       retentionHours=168)
     if time.monotonic() >= _next_archive:
         _next_archive = time.monotonic() + 60
@@ -70,10 +70,13 @@ def tick(now=None):
     now = now or datetime.now(timezone.utc)
     if not enabled():
         return
+    # Gold outcomes are needed for the round-the-clock weekday signal study.
+    # The spot archive must survive restarts outside the separate futures window.
+    if now.astimezone(ZoneInfo('Europe/Zurich')).weekday() < 5:
+        future_estimate.ensure_collector()
     if not in_window(now):
         paused_report(now)
         return
-    future_estimate.ensure_collector()
     if time.monotonic() >= _next_source:
         try:
             # Exact-contract source only. The SG/Onvista product-page fallback
