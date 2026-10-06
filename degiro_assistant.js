@@ -1251,7 +1251,7 @@ function updateScreenshotReturn(resume=false){
  if(links){
   const name=document.querySelector('[data-dg="name"][data-i="'+row.index+'"]')?.value||'';
   const html=screenshotProductLink({isin:returnProductIsin,name});
-  if(links.innerHTML!==html){links.innerHTML=html;bindIsinCopy(links);}
+  if(links._productLinkHtml!==html){links.innerHTML=html;links._productLinkHtml=html;bindIsinCopy(links);}
  }
 
  if(resume&&returnProductPending&&!document.hidden){
