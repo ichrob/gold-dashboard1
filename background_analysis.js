@@ -28,7 +28,14 @@ function evaluate(input, {render=false}={}){
   const context={spotFresh:priceFresh,spot:price,...intradayTechnicalContext(bundle,signalState)};
   let suggestedStop=null,suggestedTarget=null;
   if(ready&&priceFresh&&input.trade?.active){const stop=stopModel(input.trade.dir,price,A.at,input.trailAtr||1.5).stop;if(Number.isFinite(stop)&&stop>0){suggestedStop=stop;suggestedTarget=targetModel(input.trade.dir,price,stop,2).target;}}
-  return {entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-responsive-v6',session:intradaySession(),intraday:intradayState(bundle,input.trade),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
+  let plan=null;
+  if(ready&&priceFresh&&direction!=='NEUTRAL'){
+   const stop=stopModel(direction,price,A.at,input.trailAtr||1.5).stop;
+   const target=Number.isFinite(stop)&&stop>0?targetModel(direction,price,stop,2).target:null;
+   if(Number.isFinite(target)&&target>0)plan={kind:'candidate',direction,entry:price,stop,target,unit:'USD/oz',at:Date.now()};
+  }
+  if(input.trade?.active&&['entry','stop','target'].every(k=>Number.isFinite(input.trade[k])&&input.trade[k]>0))plan={kind:'active-monitor',direction:input.trade.dir,entry:input.trade.entry,stop:input.trade.stop,target:input.trade.target,unit:'USD/oz',at:Date.now(),isin:input.trade.product?.isin||null};
+  return {plan,entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-responsive-v6',session:intradaySession(),intraday:intradayState(bundle,input.trade),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
  })()`,env,{timeout:8000});
 }
 module.exports={evaluate};
