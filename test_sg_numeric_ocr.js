@@ -71,6 +71,9 @@ vm.runInContext(code,context);const b=context.window.BobDegiro;b.setTestWorker(w
  // A crop that disagrees must not validate the selected amount.
  inputPasses=latest.concat([{text:'4.246,7459 USD'},{text:'4.246,7459 USD'}]);index=0;
  await assert.rejects(()=>b.recognizeOcr({}),/Zahlen nicht sicher bestätigt/);
+ inputPasses=latest.concat([{text:'4.246,7459 USD'},{text:'4.246,7459 USD'}]);index=0;
+ const partialNumeric=await b.recognizeOcr({},null,true);assert(partialNumeric.data.unconfirmedFields.includes('strike'));
+ const safePartial=b.detailScreenshotData(partialNumeric.data.text,'DE000FG7K283',null,partialNumeric.data.unconfirmedFields);assert(safePartial.ok,safePartial.reason);b.removeUnconfirmedFields(safePartial,partialNumeric.data.unconfirmedFields);assert(!safePartial.terms.strike);assert.equal(safePartial.terms.ko.value,4246.7452);
  // Native Tesseract passes from user image 1000070842.jpg: no labelled ISIN/WKN.
  inputPasses=JSON.parse(fs.readFileSync('test_fixtures/sg_fg7k28_partial_0842.json','utf8'));index=0;
  const partialImage=await b.recognizeOcr({});assert.equal(index,5);assert(partialImage.data.numericCrossChecked);
@@ -188,3 +191,5 @@ vm.runInContext(code,context);const b=context.window.BobDegiro;b.setTestWorker(w
 require('./test_sg_mobile_cells.js');
 
 require('./test_sg_0909_engine.js');
+
+require('./test_resilient_import.js');
