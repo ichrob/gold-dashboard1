@@ -113,7 +113,7 @@ def tick(now=None):
     # original input freshness, sample/span, receipt-time and horizon gates.
     validation = result.get('validation', {})
     ready = bool(result.get('available') and validation.get('ready') and not archive_error)
-    reason = archive_error or ('' if ready else result.get('reason') or _source_error or
+    reason = archive_error or ('' if ready else _source_error or result.get('reason') or
               validation.get('reason') or 'Noch nicht genügend passende Vergleichspaare')
     reference_at = _research.get('underlyingAt')
     report = dict(enabled=True, state='ready' if ready else 'estimating' if result.get('available') else 'collecting', contract=future_estimate.CONTRACT,
@@ -137,7 +137,7 @@ def tick(now=None):
         _report = report
     print('BOB_COLLECTION state='+report['state']+' pairs='+str(diagnostics.get('pairCount', 0))+
           ' estimate_available='+str(report['estimateAvailable'])+
-          ' reason='+str(result.get('reason') or validation.get('reason') or '')+
+          ' reason='+str(report['reason'])+
           ' reference_age='+str(report['referenceAgeSeconds'])+
           ' spot_age='+str(report['proxyAgeSeconds']), flush=True)
 

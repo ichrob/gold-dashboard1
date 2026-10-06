@@ -45,7 +45,7 @@ class AutoCollectionTests(unittest.TestCase):
             self.assertEqual(a.status()['referenceAt'], NOW.isoformat())
 
     def test_source_failure_uses_backoff_without_alternative_provider(self):
-        with patch.object(a, 'enabled', return_value=True), patch.object(a.future_estimate, 'ensure_collector'), patch.object(a.future_analysis, 'fetch_reference', return_value={'sourceFailure': True}) as source, patch.object(a.future_estimate, 'current_estimate', return_value={'available': False}), patch.object(a.bob_validation_store, 'request', return_value={'pairs': []}), patch.object(a.bob_market_store, 'request', return_value={}), patch.object(a.estimate_quality, 'restore_durable'), patch.object(a, 'datetime') as clock:
+        with patch.object(a, 'enabled', return_value=True), patch.object(a.future_estimate, 'ensure_collector'), patch.object(a.future_analysis, 'fetch_reference', return_value={'sourceFailure': True}) as source, patch.object(a.future_estimate, 'current_estimate', return_value={'available': False, 'reason': 'Pflichtdaten für die Kursberechnung fehlen'}), patch.object(a.bob_validation_store, 'request', return_value={'pairs': []}), patch.object(a.bob_market_store, 'request', return_value={}), patch.object(a.estimate_quality, 'restore_durable'), patch.object(a, 'datetime') as clock:
             clock.now.return_value = NOW
             a.tick(NOW)
             self.assertGreaterEqual(a.status()['nextSourceInSeconds'], 59)
@@ -53,6 +53,7 @@ class AutoCollectionTests(unittest.TestCase):
             a.tick(NOW)
             source.assert_called_once()
             self.assertIsNotNone(a.status()['sourceStatus'])
+            self.assertEqual(a.status()['reason'], a.status()['sourceStatus'])
             self.assertEqual(a.status()['sourceFailures'], 1)
 
     def test_fixed_onvista_reference_fallback_without_sg_or_fx(self):
