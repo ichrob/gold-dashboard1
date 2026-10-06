@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from http.server import BaseHTTPRequestHandler
 import server
 
@@ -23,6 +23,23 @@ class ReviewTests(unittest.TestCase):
                 self.assertTrue(handler.close_connection)
         with patch.object(BaseHTTPRequestHandler,'handle',side_effect=ValueError('real bug')):
             with self.assertRaises(ValueError):handler.handle()
+
+    def test_live_client_disconnect_is_not_logged_as_data_failure(self):
+        for error in (BrokenPipeError(), ConnectionResetError()):
+            handler=object.__new__(server.Handler)
+            handler.path='/api/live'
+            handler.headers={}
+            handler.authenticated=Mock(return_value=True)
+            handler.send_response=Mock()
+            handler.send_header=Mock()
+            handler.end_headers=Mock()
+            handler.wfile=Mock()
+            handler.wfile.write.side_effect=error
+            with patch.object(server,'build_live_bundle',return_value={}), patch('builtins.print') as output:
+                handler.do_GET()
+            handler.send_response.assert_called_once_with(200)
+            output.assert_not_called()
+            self.assertTrue(handler.close_connection)
 
 if __name__=='__main__':unittest.main()
 
