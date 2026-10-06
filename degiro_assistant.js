@@ -696,7 +696,8 @@ function recoverTermRows(primary,secondary){
    !labels.some(other=>other!==label&&Math.abs(center(w)-center(other))<=Math.abs(center(w)-center(label))));
   const amounts=cell.filter(w=>/^\d{1,3}(?:\.\d{3})*,\d+$/.test(w.text));
   const usd=cell.filter(w=>/^USD$/i.test(w.text));
-  const dates=cell.filter(w=>/^\(?\d{2}\.\d{2}\.\d{4}\)?$/.test(w.text));
+  // Keep an OCR-damaged numeric date verbatim; the date parser leaves it unverified.
+  const dates=cell.filter(w=>/^\(?\d{1,2}[.:-]\d{1,2}[.:-]\d{4}\)?$/.test(w.text));
   if(amounts.length!==1||usd.length!==1||dates.length>1)continue;
   if(cell.some(w=>!amounts.includes(w)&&!usd.includes(w)&&!dates.includes(w)&&!/^\(?\)?$/.test(w.text)))continue;
   const amount=amounts[0];
@@ -802,8 +803,8 @@ function recognizeOcr(file,statusId){
   try{
    result=await ocrTimeout(worker.recognize(prepared),45000,"OCR-Zeitüberschreitung nach 45 Sekunden");
    identityData=result.data;
-   readings.push(result.data.text||'');
-   if(/Stammdaten|\bISIN\b|\bWKN\b/i.test(result.data.text||'')&&/Knock-Out-Barriere|Basispreis/i.test(result.data.text||'')){
+   readings.push(recoverTermRows(result.data,result.data));
+   if((hasIdentityTable(result.data)||/Stammdaten|\bISIN\b|\bWKN\b/i.test(result.data.text||''))&&/Knock-Out-Barriere|Basispreis/i.test(result.data.text||'')){
     const tableImage=await prepareOcrImage(file,statusId,true);
     try{
      await worker.setParameters({tessedit_pageseg_mode:"6"});result=await ocrTimeout(worker.recognize(tableImage),45000,"Tabellenerkennung nach 45 Sekunden beendet");
@@ -819,6 +820,12 @@ function recognizeOcr(file,statusId){
       result.data.text=recoverTermRows(result.data,cells.data);
       // This is one independent spatial read, not another vote for the primary.
       readings.push(recoverTermRows(cells.data,cells.data));
+      if(parseProductTerms(result.data.text||'').error){
+       // Zoom may split amount digits. Recover cells from the original pixels.
+       const originalCells=await ocrTimeout(worker.recognize(prepared),45000,'Original-Tabellenprüfung nach 45 Sekunden beendet');
+       result.data.text=recoverTermRows(result.data,originalCells.data);
+       readings.push(recoverTermRows(originalCells.data,originalCells.data));originalModes.add('11');
+      }
      }
     }
     finally{await worker.setParameters({tessedit_pageseg_mode:"3"});}
