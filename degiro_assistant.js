@@ -802,15 +802,22 @@ async function readSgIdentity(worker,image,data){
 // Focus only the labelled amount cell in the original image; never a neighbour.
 async function readTermCell(worker,image,data,key){
  const labels={strike:/^(Basispreis|Finanzierungslevel)$/i,ko:/^(Knock-Out-Barriere|Knock-out-Schwelle)$/i};
- if(!labels[key]||!hasIdentityTable(data))return [];
+ if(!labels[key])return [];
  const rows=(data.words||[]).filter(w=>labels[key].test(w.text));if(rows.length!==1)return [];
  const bitmap=await createImageBitmap(image);
  try{
   const b=rows[0].bbox,h=b.y1-b.y0,x=b.x1+h,y=Math.max(0,b.y0-h),height=Math.min(bitmap.height-y,3*h);
   if(h<=5||x>=bitmap.width)return [];
-  const canvas=document.createElement('canvas');canvas.width=(bitmap.width-x)*2;canvas.height=height*2;
+  const currencies=(data.words||[]).filter(w=>/^USD$/i.test(w.text)&&w.bbox.x0>x&&w.bbox.y0>=y&&w.bbox.y1<=y+height);
+  if(currencies.length>1)return [];
+  // The date is a separate column to the right of the right-aligned USD.
+  const column=(data.words||[]).filter(w=>/^USD$/i.test(w.text)&&w.bbox.x0>x);
+  const edge=currencies[0]?.bbox.x1||(column.length&&Math.max(...column.map(w=>w.bbox.x1))-Math.min(...column.map(w=>w.bbox.x1))<h?Math.max(...column.map(w=>w.bbox.x1)):null);
+  const width=(edge?Math.min(bitmap.width,edge+Math.max(3,h*.2)):bitmap.width)-x;
+  if(width<=0)return [];
+  const canvas=document.createElement('canvas');canvas.width=width*3;canvas.height=height*3;
   const ctx=canvas.getContext('2d',{alpha:false});ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
-  ctx.drawImage(bitmap,x,y,bitmap.width-x,height,0,0,canvas.width,canvas.height);
+  ctx.drawImage(bitmap,x,y,width,height,0,0,canvas.width,canvas.height);
   const crop=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!crop)return [];
   const reads=[];
   for(const mode of ['6','11']){
@@ -877,6 +884,19 @@ function recognizeOcr(file,statusId){
     result.data.text=recovered.text;result.data.isinRecoveries=recovered.corrections;
    }catch(e){secondaryFailed=true;ocrWorkerPromise=null;await worker.terminate().catch(()=>{});console.warn("[BOB] ISIN-Zweitlesung",e&&e.message?e.message:e);}
    finally{try{if(!secondaryFailed)await worker.setParameters({tessedit_pageseg_mode:"3",tessedit_char_whitelist:""});}catch(e){ocrWorkerPromise=null;await worker.terminate().catch(()=>{});}}
+  }
+  // Recover malformed labelled cells as well as parsed-but-unconfirmed numbers.
+  // Both focused reads must agree; the selected product supplies no amount.
+  for(const [key,label] of [['strike','Basispreis'],['ko','Knock-Out-Barriere']]){
+   if(!new RegExp('\\b'+label+'\\b','i').test(result.data.text||''))continue;
+   if(ocrNumericFields(result.data.text)[key]!==undefined)continue;
+   const focused=await readTermCell(worker,prepared,identityData,key);
+   if(focused.length!==2||focused[0]!==focused[1])continue;
+   const row=new RegExp('(^|\\n)[ \\t]*'+label+'[^\\n]*(?:\\n[ \\t]*[oOQ®©ⓘ@]*[ \\t]*USD[^\\n]*)?','g');
+   const matches=[...result.data.text.matchAll(row)];if(matches.length!==1)continue;
+   const date=matches[0][0].match(/\b\d{2}\.\d{2}\.\d{4}\b/);
+   result.data.text=result.data.text.replace(row,(_,prefix)=>prefix+focused[0]+(date?' ('+date[0]+')':''));
+   readings.push(...focused);
   }
   // Require agreement across segmentation/resolution passes for critical
   // numbers on single-product detail images. Never vote across uploaded files.
@@ -1864,7 +1884,11 @@ function screenshotIdentity(raw,expectedIsin,productContext=null){
  // The user explicitly assigns supplemental images through the issuer link.
  // Missing identity is allowed only in that captured product context. Any
  // observed conflicting ISIN/WKN above still blocks the import.
- if(!unique.length&&validIsin(expectedIsin)&&productContext?.isin===expectedIsin&&productContext?.basis==='opened-product')
+ const expectedWkn=expectedIsin.slice(5,11);
+ const ambiguousSg=unique.length===1&&/sg-zertifikate\.(?:de|at)\b/i.test(raw)&&
+  [...unique[0]].filter((char,i)=>char!==expectedWkn[i]).length===1&&
+  [...unique[0]].every((char,i)=>char===expectedWkn[i]||/[7T]/.test(char)&&/[7T]/.test(expectedWkn[i]));
+ if((!unique.length||ambiguousSg)&&validIsin(expectedIsin)&&productContext?.isin===expectedIsin&&productContext?.basis==='opened-product')
   return{ok:true,basis:'Produktkontext',context:{isin:expectedIsin,basis:'opened-product'}};
  return{ok:false,reason:unique.length?'WKN im Bild passt nicht eindeutig zu '+expectedIsin+'. Bitte Produktkennung prüfen.':'ISIN oder WKN im Zusatzbild fehlt. Bitte die Produktkennung zusammen mit den Daten zeigen.'};
 }
