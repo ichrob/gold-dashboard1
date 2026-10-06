@@ -83,7 +83,15 @@ def config(value):
 
 def analyze(bundle, settings):
     p = subprocess.run(['node', str(Path(__file__).with_name('background_analysis.js'))],
-                       input=json.dumps({**settings, 'bundle': bundle}), text=True, capture_output=True, timeout=10, check=True)
+                       input=json.dumps({**settings, 'bundle': bundle}), text=True, capture_output=True, timeout=10)
+    if p.returncode:
+        # The child reports only error metadata, never input/settings or quote payloads.
+        try:
+            error = json.loads(p.stderr)
+            print('BOB_ANALYSIS_ERROR '+json.dumps(error, ensure_ascii=True), flush=True)
+        except (ValueError, TypeError):
+            print('BOB_ANALYSIS_ERROR exit='+str(p.returncode), flush=True)
+        raise RuntimeError('Hintergrundanalyse fehlgeschlagen')
     return json.loads(p.stdout)
 
 
