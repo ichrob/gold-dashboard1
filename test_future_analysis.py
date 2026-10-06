@@ -72,9 +72,9 @@ class IntradayPolicyTests(unittest.TestCase):
   with patch.object(a,'frame',side_effect=fake_frame):
    result=a.analyse(rows(900,300),rows(300,3600),T,NOW)
   self.assertTrue(result['available']);self.assertEqual(result['direction'],'LONG')
- def test_missing_hour_blocks(self):
+ def test_missing_hour_is_context_only(self):
   def fake_frame(rows,minutes,now):
    return dict(available=minutes!=60,direction='LONG',expiresAt=(NOW+timedelta(hours=1)).isoformat())
   with patch.object(a,'frame',side_effect=fake_frame):
    result=a.analyse(rows(900,300),[],T,NOW)
-  self.assertFalse(result['available']);self.assertEqual(result['direction'],'NEUTRAL')
+  self.assertTrue(result['available']);self.assertEqual(result['direction'],'LONG')

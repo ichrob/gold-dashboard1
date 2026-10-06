@@ -278,7 +278,7 @@ try{
 <div class="analysis-block neutral"><span>MTF-Bestätigung</span><b id="blockMtf">NEUTRAL</b><small id="blockMtfNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Volatilität</span><b id="blockVolatility">NEUTRAL</b><small id="blockVolatilityNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Marktstruktur</span><b id="blockStructure">NEUTRAL</b><small id="blockStructureNote">Daten fehlen</small></div>
-</div><details open style="margin-top:12px"><summary><b>Intraday · aktive Analyse + Vergleichstest</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">Aktiv: 1h Richtung, 15m Bestätigung, 5m Einstieg mit zwei Schlusskerzen; 4h nur Hintergrund. Startwerte: EMA 20/50/200, RSI 14, MACD 12/26/9, ATR 14, ADX mindestens 20. Neue Signale Mo–Fr 08:00–21:30; Tagesende-Hinweis ab 21:45 (Zürich). Produkt-Handelszeiten zusätzlich prüfen. Darunter bleibt die bisherige 15m/5m-Testvariante getrennt erhalten. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div>
+</div><details open style="margin-top:12px"><summary><b>Intraday · aktive Analyse + Vergleichstest</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">Aktiv v3: 15m Setup und 5m Einstieg. Erste Schlusskerze: Einstieg vorbereitet; zweite: Richtung bestätigt. 1h, 4h und EMA200 dienen als Kontext. EMA20/50, RSI14 und MACD bilden ein gemeinsames Kurskollektiv. DX-Trendstärke ab 20 oder zunehmend ab 15 (unbewiesene Testwerte). Analyse Mo–Fr rund um die Uhr (Zürich). Produkt-Handelszeiten zusätzlich prüfen. Darunter bleibt die bisherige 15m/5m-Testvariante getrennt erhalten. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div>
 <details style="margin-top:10px"><summary>Warum entscheidet Bob so?</summary><div id="decisionExplanation" class="small" style="white-space:pre-line">Noch keine bestätigte Analyse.</div></details>
 <div id="quickReason" class="small" style="margin-top:10px">Lade Daten, um das Setup zu bewerten.</div>
 <details id="bobMarketAnalysis" class="bob-disclosure" style="margin-top:12px"><summary>Marktanalyse von Bob</summary><div id="bobMarketNarrative" class="small" style="white-space:pre-line;margin-top:10px">Noch keine aktuelle Marktanalyse verfügbar.</div></details>
@@ -518,7 +518,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     reasons:flow.notApproved?.find(x=>x.isin===p.isin)?.reasons||[],
     selection:flow.groups.flatMap(g=>g.candidates).find(x=>x.isin===p.isin)||null};
   });
-  const payload={ruleVersion:'intraday-1h-15m-5m-v2',direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,entryQuality:intradayEntryContext(bundle,state),barAt:state.barAt,
+  const payload={ruleVersion:'intraday-fast-v3',direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,entryQuality:intradayEntryContext(bundle,state),barAt:state.barAt,
    price:bundle?.spots?.xaus,priceAt:bundle?.spots?.spot_price_as_of,score:state.score,
    reason:state.reason,indicators:state.indicators,products:items,selection:[...selected],gateReasons:flow.gateReasons};
   const signature=JSON.stringify([state.dir,state.shadowDirection,state.barAt,state.reason,items,flow.gateReasons]);
@@ -934,7 +934,7 @@ function timeframeScore(bars,tf="",now=Date.now()){
   const timing=dataAge(closed.at(-1)?.openTime,freshness,now);
   const a=closed.map(x=>+x.close), e20=ema(a,20),e50=ema(a,50),e200=a.length>=200?ema(a,200):null,R=rsiS(a);
   const e12=emaS(a,12),e26=emaS(a,26), mac=e12.at(-1)-e26.at(-1), macPrev=e12.at(-2)-e26.at(-2);
-  const score=collectiveSignal([Math.sign(a.at(-1)-e20),Math.sign(e20-e50),Math.sign(e50-e200),Math.sign(mac-macPrev),R>50&&R<75?1:R<50&&R>25?-1:0]);
+  const score=collectiveSignal([Math.sign(a.at(-1)-e20),Math.sign(e20-e50),Math.sign(mac-macPrev),R>50&&R<75?1:R<50&&R>25?-1:0]);
   const components=1;
   const dir=score>=0.5?'LONG':score<=-0.5?'SHORT':'NEUTRAL';
   return {dir,score,rsi:R,fresh:timing.fresh,ageWarning:timing.label,price:a.at(-1),openTime:closed.at(-1).openTime,components,available:true,fullHistory:a.length>=200};
@@ -942,17 +942,16 @@ function timeframeScore(bars,tf="",now=Date.now()){
 function buildMtfHierarchy(byTf,valid=true){
  const h=byTf||{},roles={regime:h['4h']?.dir||'NEUTRAL',trend:h['1h']?.dir||'NEUTRAL',setup:h['15m']?.dir||'NEUTRAL',timing:h['5m']?.dir||'NEUTRAL'};
  const result=(overall,reason)=>({overall,bias:overall==='LONG'?1:overall==='SHORT'?-1:0,roles,reason});
- if(!valid||!['1h','15m','5m'].every(tf=>h[tf]?.dir&&h[tf].available!==false&&h[tf].fresh!==false))return result('NEUTRAL','Intraday-MTF unvollständig oder veraltet');
- if(!['LONG','SHORT'].includes(roles.trend))return result('NEUTRAL','1h-Richtung neutral');
- if(roles.setup!==roles.trend)return result('NEUTRAL','15m bestätigt die 1h-Richtung nicht');
- if(roles.timing!==roles.trend)return result('NEUTRAL','5m-Einstieg bestätigt die 1h-Richtung nicht');
- return result(roles.trend,'Intraday: 1h Richtung · 15m Bestätigung · 5m Einstieg · 4h nur Hintergrund');
+ if(!valid||!['15m','5m'].every(tf=>h[tf]?.dir&&h[tf].available!==false&&h[tf].fresh!==false))return result('NEUTRAL','Intraday-MTF unvollständig oder veraltet');
+ if(!['LONG','SHORT'].includes(roles.setup))return result('NEUTRAL','15m-Setup neutral');
+ if(roles.timing!==roles.setup)return result('NEUTRAL','5m bestätigt das 15m-Setup nicht');
+ return result(roles.setup,'15m Setup · 5m Einstieg · 1h/4h Kontext'+(roles.trend!==roles.setup?' · 1h abweichend: Gegenbewegung möglich':''));
 }
 function intradaySession(now=Date.now()){
  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Zurich',weekday:'short',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now)).map(p=>[p.type,p.value]));
  const minute=Number(parts.hour)*60+Number(parts.minute),weekday=!['Sat','Sun'].includes(parts.weekday);
- return {entryAllowed:weekday&&minute>=480&&minute<1290,closeReminder:weekday&&minute>=1305,date:parts.year+'-'+parts.month+'-'+parts.day,
- reason:'Bob-Intraday-Zeitplan: neue Signale Mo–Fr 08:00–21:30, Tagesende-Hinweis ab 21:45 (Zürich). Produkt-Handelszeiten zusätzlich prüfen; keine automatische Schließung.'};
+ return {entryAllowed:weekday,closeReminder:false,date:parts.year+'-'+parts.month+'-'+parts.day,
+ reason:'Bob analysiert Mo–Fr rund um die Uhr (Zürich). Produkt-Handelszeiten und aktuelle Kurse bleiben erforderlich; keine automatische Schließung.'};
 }
 function aggregateBrowserBars(bars, minutes){
  const base=({15:5,240:60})[minutes];if(!base)return [];
@@ -1010,7 +1009,7 @@ function analysisAgeWarnings(){
  if(bundle){const a=dataAge(bundle.spots?.spot_price_as_of);if(!a.fresh||bundle.spots?.spot_error)warnings.push('Goldpreis: '+(a.label||'Aktualität von Quelle nicht bestätigt'));}
  const tf=$('tf')?.value||'15m',limit={'5m':1200000,'15m':2700000,'1h':10800000}[tf]||10800000;
  if(C.length){const a=dataAge(C.at(-1).openTime,limit);if(!a.fresh)warnings.push('Technikhistorie: '+a.label);}
- for(const [tf,z] of Object.entries(MTF?.byTf||{})){if(tf==='4h')continue;const a=dataAge(z.openTime,{'5m':1200000,'15m':2700000,'1h':10800000,'4h':43200000}[tf]);if(z.available&&!a.fresh)warnings.push(tf+': '+a.label);}
+ for(const [tf,z] of Object.entries(MTF?.byTf||{})){if(tf==='4h'||tf==='1h')continue;const a=dataAge(z.openTime,{'5m':1200000,'15m':2700000,'1h':10800000,'4h':43200000}[tf]);if(z.available&&!a.fresh)warnings.push(tf+': '+a.label);}
  return warnings;
 }
 function renderAnalysisAge(){
@@ -1029,6 +1028,17 @@ function parseDirectSpot(data, now=Date.now()){
  return {price,at,age:typeof at==="string"&&/(?:Z|[+-]\d{2}:\d{2})$/.test(at)&&Number.isFinite(age)?age:null};
 }
 let liveBundlePending=null;
+function normalizeBrowserChart(points,interval,now=Date.now()){
+ const step=({'5m':5,'15m':15,'1h':60,'4h':240}[interval]||5)*60000,buckets=new Map();
+ for(const p of points||[]){
+  const ts=Number(p.t)*1000,o=Number(p.o),h=Number(p.h),l=Number(p.l),c=Number(p.c);
+  if(!Number.isFinite(ts)||ts<=0||ts%step||![o,h,l,c].every(v=>Number.isFinite(v)&&v>0)||l>Math.min(o,c)||h<Math.max(o,c)||l>h)continue;
+  const bar={openTime:ts,open:o,high:h,low:l,close:c,isOpen:now<ts+step,instrument:'XAU/USD'};
+  if(buckets.has(ts)&&JSON.stringify(buckets.get(ts))!==JSON.stringify(bar))return [];
+  buckets.set(ts,bar);
+ }
+ return [...buckets.values()].sort((a,b)=>a.openTime-b.openTime);
+}
 async function fetchLiveBundle(force=false){
  if(liveBundlePending)return liveBundlePending;
  if(!force&&liveBundleCache&&Date.now()-liveBundleAt<30000)return liveBundleCache;
@@ -1057,14 +1067,7 @@ async function fetchLiveBundle(force=false){
      if(!rr.ok)throw Error("XAUS chart HTTP "+rr.status);
      const pp=await rr.json(),pts=pp?.points;
      if(!Array.isArray(pts)||!pts.length)throw Error("XAUS Chart liefert keine Punkte");
-     const buckets=new Map();
-     for(const p of pts){
-      const ts=Number(p.t)*1000, o=Number(p.o), h=Number(p.h), l=Number(p.l), c=Number(p.c);
-      if(!Number.isFinite(ts)||![o,h,l,c].every(Number.isFinite)||![o,h,l,c].every(v=>v>0))continue;
-      const b={openTime:ts,open:o,high:h,low:l,close:c,isOpen:false,instrument:"XAU/USD"};
-      buckets.set(ts,b);
-     }
-     const stepMs=({"5m":5,"15m":15,"1h":60,"4h":240}[interval]||5)*60*1000; const nowMs=Date.now(); for(const b of buckets.values()) b.isOpen=nowMs < b.openTime+stepMs; const out=[...buckets.values()].sort((a,b)=>a.openTime-b.openTime);
+     const out=normalizeBrowserChart(pts,interval,Date.now());
      if(!out.length)throw Error("XAUS Chart enthält keine gültigen Preise");
      return out;
     }finally{clearTimeout(tm)}
@@ -1117,14 +1120,14 @@ async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
   }
   const byTf=Object.fromEntries(results.map(x=>[x[0],x[2]]));
   const dirs=[byTf["4h"]?.dir,byTf["1h"]?.dir,byTf["15m"]?.dir,byTf["5m"]?.dir];
-  const valid=results.filter(([tf])=>tf!=='4h').every(([,id,z])=>z.available&&z.fresh);
+  const valid=results.filter(([tf])=>tf==='5m'||tf==='15m').every(([,id,z])=>z.available&&z.fresh);
   const mtfHierarchy=buildMtfHierarchy(byTf,valid);
   const overall=mtfHierarchy.overall;
   $("quickMtf").textContent=overall;
   reportBobDiag("mtf:success",{bars5m:(tfBars["5m"]||[]).length,bars15m:(tfBars["15m"]||[]).length,bars1h:(tfBars["1h"]||[]).length,bars4h:(tfBars["4h"]||[]).length,available:valid,overall,historyStatus:bundle.history?.data_state?.status||"unknown",source:bundle.history?.data_state?.source||"unknown"});
-  const strength=overall!=="NEUTRAL"?"3/3 Intraday-Zeitebenen bestätigt":"1h/15m/5m noch nicht gemeinsam bestätigt";
+  const strength=overall!=="NEUTRAL"?"2/2 Intraday-Zeitebenen bestätigt":"15m/5m noch nicht gemeinsam bestätigt";
   const mtfSummary=$("mtfSummary");
-  if(mtfSummary)mtfSummary.innerHTML="<b>"+overall+"</b><br>"+longs+" LONG · "+shorts+" SHORT · "+neutral+" NEUTRAL · "+strength+"<br><span class=\"small\">Intraday: 1h Richtung, 15m Bestätigung, 5m Einstieg. 4h bleibt Hintergrund ohne Veto.</span>";
+  if(mtfSummary)mtfSummary.innerHTML="<b>"+overall+"</b><br>"+longs+" LONG · "+shorts+" SHORT · "+neutral+" NEUTRAL · "+strength+"<br><span class=\"small\">Intraday: 15m Setup, 5m Einstieg. 1h/4h bleiben Kontext ohne Veto.</span>";
   MTF={longs,shorts,neutral,overall,byTf,dirs,hierarchy:mtfHierarchy};
   // Server-side verification is the authoritative runtime check for the MTF pipeline.
   const verifyController=new AbortController(),verifyTimer=setTimeout(()=>verifyController.abort(),8000);
@@ -1411,7 +1414,7 @@ function renderIntraday(){
 }
 
 function fiveMinuteConfirmation(bundle,now=Date.now()){
- const source=bundle?.history?.bars_by_tf||{},steps={'5m':300000,'15m':900000,'1h':3600000};
+ const source=bundle?.history?.bars_by_tf||{},steps={'5m':300000,'15m':900000};
  const bars={};
  for(const [tf,step] of Object.entries(steps)){
   bars[tf]=(source[tf]||[]).filter(b=>b.instrument==='XAU/USD'&&!b.isOpen&&Number.isFinite(b.openTime)&&b.openTime+step<=now&&['open','high','low','close'].every(k=>Number.isFinite(b[k])&&b[k]>0)).sort((a,b)=>a.openTime-b.openTime);
@@ -1432,14 +1435,15 @@ function fiveMinuteConfirmation(bundle,now=Date.now()){
   if(!valid){const missing=Object.entries(history).filter(([tf,rows])=>rows.length<200||end-rows.at(-1).openTime>steps[tf]*2).map(([tf,rows])=>rows.length<200?tf+': '+rows.length+'/200 geschlossene Kerzen':tf+': Kerzendaten zu alt oder lückenhaft');samples.push({at:bar.openTime,valid:false,dir:'NEUTRAL',reason:missing.join(' · ')});continue;}
   const byTf=Object.fromEntries(Object.entries(history).map(([tf,rows])=>[tf,timeframeScore(rows,tf,end)]));
   const rows=history['5m'],a=rows.map(b=>b.close),e12=emaS(a,12),e26=emaS(a,26),mac=e12.map((v,i)=>v-e26[i]),sig=emaS(mac,9),r=rsiS(a);
-  const votes=[Math.sign(a.at(-1)-ema(a,20)),Math.sign(ema(a,20)-ema(a,50)),Math.sign(ema(a,50)-ema(a,200)),Math.sign(mac.at(-1)-sig.at(-1)),r>50&&r<75?1:r<50&&r>25?-1:0];
+  const votes=[Math.sign(a.at(-1)-ema(a,20)),Math.sign(ema(a,20)-ema(a,50)),Math.sign(mac.at(-1)-sig.at(-1)),r>50&&r<75?1:r<50&&r>25?-1:0];
   const collective=collectiveSignal(votes);
-  const components=['Kurs / EMA20','EMA20 / EMA50','EMA50 / EMA200','MACD / Signallinie','RSI'].map((label,i)=>({label,direction:votes[i]>0?'LONG':votes[i]<0?'SHORT':'NEUTRAL'}));
+  const components=['Kurs / EMA20','EMA20 / EMA50','MACD / Signallinie','RSI'].map((label,i)=>({label,direction:votes[i]>0?'LONG':votes[i]<0?'SHORT':'NEUTRAL'}));
   let raw=collective>=0.5?'LONG':collective<=-0.5?'SHORT':'NEUTRAL';
   const hierarchy=buildMtfHierarchy(byTf,true);
   let reason=raw==='NEUTRAL'?'5m-Kursindikatoren neutral oder widersprüchlich':'';
   if(raw!==hierarchy.overall){reason=[reason,'Zeitebenen bestätigen die Richtung nicht: '+hierarchy.reason].filter(Boolean).join(' · ');raw='NEUTRAL';}
-  if(adxCalc(history['15m'])<20){raw='NEUTRAL';reason='15m-Seitwärtsphase: ADX unter 20';}
+  const strength=adxCalc(history['15m']),previousStrength=adxCalc(history['15m'].slice(0,-1));
+  if(strength<20&&!(strength>=15&&strength>previousStrength)){raw='NEUTRAL';reason='15m-Trendstärke schwach und nicht zunehmend (DX-Testfilter 20 / steigend ab 15)';}
   const atr=rows.slice(-14).reduce((sum,b,i)=>{const previous=rows.at(-15+i)?.close??b.open;return sum+Math.max(b.high-b.low,Math.abs(b.high-previous),Math.abs(b.low-previous));},0)/14;
   const previous=rows.slice(-21,-1),res=Math.max(...previous.map(b=>b.high)),sup=Math.min(...previous.map(b=>b.low));
   if(raw==='LONG'&&bar.close>res+atr*.15&&rows.at(-2).close<=res||raw==='SHORT'&&bar.close<sup-atr*.15&&rows.at(-2).close>=sup){raw='NEUTRAL';reason='Ausbruch noch unbestätigt – weitere geschlossene Kerze abwarten';}
@@ -1449,8 +1453,8 @@ function fiveMinuteConfirmation(bundle,now=Date.now()){
  if(!samples.at(-1)?.valid)return {dir:'NEUTRAL',count:0,pending:'NEUTRAL',reason:'Fehlende oder unvollständige Angaben: '+(samples.at(-1)?.reason||'5m: '+bars['5m'].length+'/200 geschlossene Kerzen')};
  const detail=samples.at(-1)?.reason;
  if(samples.at(-1).dir==='NEUTRAL')return {...result,dir:'NEUTRAL',shadowDirection:'NEUTRAL',score:samples.at(-1).score,components:samples.at(-1).components,scoreAt:latest.openTime+300000,reason:detail||'Intraday-Bestätigung fehlt'};
- const confirmation=result.count?'Wechsel zu '+(result.pending==='NEUTRAL'?'ABWARTEN':result.pending)+': erst 1 von 2 geschlossenen 5m-Kerzen bestätigt':result.dir==='NEUTRAL'?'ABWARTEN – kein bestätigtes Richtungssignal':'2 geschlossene 5m-Kerzen · Richtung bestätigt';
- return {...result,score:samples.at(-1).score,components:samples.at(-1).components,scoreAt:latest.openTime+300000,shadowDirection:confirmClosedSignals(samples,3).dir,reason:[confirmation,detail].filter(Boolean).join(' · ')};
+ const confirmation=result.count?'Einstieg vorbereitet · Wechsel zu '+(result.pending==='NEUTRAL'?'ABWARTEN':result.pending)+': erst 1 von 2 geschlossenen 5m-Kerzen bestätigt':result.dir==='NEUTRAL'?'ABWARTEN – kein bestätigtes Richtungssignal':'2 geschlossene 5m-Kerzen · Richtung bestätigt';
+ return {...result,preparedDirection:result.count?result.pending:null,score:samples.at(-1).score,components:samples.at(-1).components,scoreAt:latest.openTime+300000,shadowDirection:confirmClosedSignals(samples,3).dir,reason:[confirmation,detail].filter(Boolean).join(' · ')};
 }
 function confirmedSignalDirection(){
  if(window.BobSession?.expired()||analysisAgeWarnings().length||!A.ready||!C.length||!Number.isFinite(A.at)){
@@ -1479,7 +1483,7 @@ function intradayEntryContext(bundle=liveBundleCache,state=signalState,now=Date.
   return {tf,available:valid&&!gap&&age>=0&&age<=step,reason:!valid?'Historie fehlt oder ist ungültig':gap?'Kerzenlücke':age>step?'veraltet':'aktuell',ageMinutes:age===null?null:age/60000,rows};
  });
  const result={version:'entry-quality-v1',mode:'shadow',affectsApproval:false,available:false,quality:quality.map(({rows,...q})=>q)};
- if(quality.some(q=>!q.available))return {...result,reason:'Einstiegsvergleich wartet auf vollständige aktuelle 5m/15m/1h-Daten'};
+ if(quality.some(q=>q.tf!=='1h'&&!q.available))return {...result,reason:'Einstiegsvergleich wartet auf vollständige aktuelle 5m/15m-Daten'};
  const rows=quality[0].rows,setup=quality[1].rows,price=rows.at(-1).close,vol=atr(rows),risk=intradayRiskData(bundle,now);
  if(!vol||!risk.available)return {...result,reason:'Schwankungsbreite nicht auswertbar'};
  const day=ts=>new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Zurich',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(ts));
@@ -1500,6 +1504,16 @@ function intradayEntryContext(bundle=liveBundleCache,state=signalState,now=Date.
  return {...result,available:true,price,priceAt:rows.at(-1).openTime+300000,reference:'Schlusskurs der Technikhistorie; keine Mischung mit Spot/CFD',support,resistance,currentDay,previousDay,deviationAtr,signalAgeMinutes,roomR,trendStrength:adxCalc(setup),trendStrengthChange:adxCalc(setup)-adxCalc(setup.slice(0,-3)),direction:['LONG','SHORT'].includes(dir)&&!reasons.length?dir:'NEUTRAL',baselineDirection:dir,reasons,reason:reasons.join(' · ')||'Testbedingungen erfüllt',thresholds:{maxDeviationAtr:1.5,minRoomR:2,maxSignalMinutes:15}};
 }
 
+function nextCandleScenario(bundle=liveBundleCache,now=Date.now()){
+ const step=300000,all=bundle?.history?.bars_by_tf?.['5m']||[];
+ const rows=all.filter(b=>!b.isOpen&&b.openTime+step<=now);
+ const invalid=rows.some((b,i)=>b.instrument!=='XAU/USD'||b.estimated||b.isOpen!==false||!Number.isFinite(b.openTime)||b.openTime%step||['open','high','low','close'].some(k=>!Number.isFinite(b[k])||b[k]<=0)||b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)||(i&&b.openTime<=rows[i-1].openTime));
+ if(invalid||rows.length<21||now-rows.at(-1).openTime>=2*step||rows.slice(-21).some((b,i,a)=>i&&b.openTime-a[i-1].openTime!==step))return {available:false,reason:'Aktuelle lückenlose 5m-Kerzen fehlen'};
+ const predict=r=>{const c=r.map(b=>b.close),last=r.at(-1),e=ema(c,20),slope=c.at(-1)-c.at(-2),atr=r.slice(-14).reduce((sum,b)=>sum+b.high-b.low,0)/14;
+ return {direction:last.close>e&&slope>0?'LONG':last.close<e&&slope<0?'SHORT':'NEUTRAL',reference:last.close,lower:last.close-atr,upper:last.close+atr,targetAt:last.openTime+step};};
+ const current=predict(rows),past=predict(rows.slice(0,-1)),actual=rows.at(-1),delta=actual.close-past.reference;
+ return {...current,available:true,version:'next-candle-v1',mode:'scenario',previous:{direction:past.direction,result:past.direction==='NEUTRAL'?'keine Richtung':delta===0?'unverändert':(past.direction==='LONG'?delta>0:delta<0)?'Richtung getroffen':'Richtung verfehlt'},reason:'Fortsetzungsszenario für die nächste 5m-Schlusskerze; Band = mittlere Handelsspanne der letzten 14 Kerzen, kein Konfidenzintervall. Rückprüfung nur bei lückenlosen Kerzen, keine Trefferquote.'};
+}
 function renderMarketNarrative(){
  const out=$('bobMarketNarrative');if(!out)return;
  const read=id=>$(id)?.textContent?.trim()||'';
@@ -1517,7 +1531,7 @@ function renderMarketNarrative(){
   lines.push('Marktbewegung: '+read('blockVolatilityNote')+'.');
   lines.push('Marktstruktur: '+direction(read('blockStructure'))+'. '+read('blockStructureNote')+'.');
   lines.push('Fibonacci: '+direction(read('blockFibonacci'))+'. '+read('blockFibonacciNote')+'.');
-  lines.push('Der 4-Stunden-Chart dient als Hintergrund. Eine Markttendenz allein bedeutet noch keine Produktfreigabe.');
+  lines.push('Die 1h- und 4h-Charts sowie EMA200 dienen als Hintergrund, auch bei Gegenbewegungen. Eine Markttendenz allein bedeutet noch keine Produktfreigabe.');
  }
  const entry=intradayEntryContext();window.BobEntryQuality=entry;
  lines.push('EINSTIEGSQUALITÄT · VERGLEICHSTEST (keine zusätzliche Freigabe)');
@@ -1528,10 +1542,13 @@ function renderMarketNarrative(){
   lines.push('Nächste Unterstützung: '+f(entry.support)+' USD · nächster Widerstand: '+f(entry.resistance)+' USD. Platz in Signalrichtung: '+f(entry.roomR)+'R.');
   lines.push('EMA20-Abstand (5m): '+f(entry.deviationAtr)+' ATR · Signalalter: '+f(entry.signalAgeMinutes)+' Minuten.');
   for(const [name,r] of [['Heute',entry.currentDay],['Vorheriger beobachteter Tag',entry.previousDay]])lines.push(name+': '+(r?r.day+' · Hoch '+f(r.high)+' / Tief '+f(r.low)+' USD · '+r.bars+' beobachtete 5m-Kerzen':'keine Daten')+'. Bereiche nur aus vorhandener Historie, nicht als vollständige Tagesdaten bestätigt.');
-  lines.push('15m-Trendstärkewert: '+f(entry.trendStrength)+' · Veränderung über drei Kerzen: '+f(entry.trendStrengthChange)+'.');
+  lines.push('15m-DX-Trendstärkewert (kein geglätteter ADX): '+f(entry.trendStrength)+' · Veränderung über drei Kerzen: '+f(entry.trendStrengthChange)+'.');
  }
- lines.push('Testurteil: '+(entry.direction||'NEUTRAL')+' · '+entry.reason+'. Schwellen 1,5 ATR / 2R / 15 Minuten sind unbewiesene Testwerte. Stop und Ziel verwenden feste 15m-Daten.');
+ lines.push('Qualitätshinweis, keine starre Sperre: '+(entry.direction||'NEUTRAL')+' · '+entry.reason+'. Schwellen 1,5 ATR / 2R / 15 Minuten sind unbewiesene Testwerte. Stop und Ziel verwenden feste 15m-Daten.');
  lines.push(read('analysisAge')||'Datenstand siehe Quellenzeiten und Zeitebenenprüfung.');
+ const scenario=nextCandleScenario();
+ lines.push('NÄCHSTE 5m-KERZE · EXPERIMENTELLES SZENARIO');
+ lines.push(scenario.available?scenario.direction+' · Referenz '+scenario.reference.toFixed(2)+' USD · Orientierungsband '+scenario.lower.toFixed(2)+'–'+scenario.upper.toFixed(2)+' USD · Kerzenschluss '+new Date(scenario.targetAt+300000).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich). '+scenario.reason+' Rückblickende Ein-Kerzen-Prüfung: '+scenario.previous.result+'.':scenario.reason);
  out.textContent=lines.filter(Boolean).join('\n\n');
 }
 
@@ -1539,9 +1556,10 @@ function renderDecisionExplanation(){
  const out=$('decisionExplanation');if(!out)return;
  const state=signalState,active=['LONG','SHORT'].includes(state.dir),m=getMtfState().byTf||{};
  const frames=['5m','15m','1h','4h'].map(tf=>tf+': '+(m[tf]?.available?m[tf].dir:'Angaben fehlen')).join(' · ');
+ const preparation=state.preparedDirection?'Einstieg vorbereitet: '+state.preparedDirection+' · erste geschlossene 5m-Kerze bestätigt, noch keine neue Freigabe.\n':'';
  const why=active?'Bestätigte Richtung '+state.dir+' aus zwei aufeinanderfolgenden geschlossenen 5m-Kerzen. EMA, MACD und RSI werden als gemeinsames Kurskollektiv bewertet.': 'Keine bestätigte Richtung: '+(state.reason||'Angaben fehlen');
  const against=state.dir==='NEUTRAL'?state.reason:state.count?'Ein Wechsel zu '+(state.pending==='NEUTRAL'?'ABWARTEN':state.pending)+' zeichnet sich ab; erst 1 von 2 Kerzen bestätigt. Die bisherige Richtung bleibt bis zur Bestätigung bestehen.':active?'Kein ausstehender Richtungswechsel in der aktuellen Prüfung. Das ist keine Garantie für den weiteren Kursverlauf.':state.reason;
- out.textContent='Warum diese Richtung?\n'+why+'\n'+frames+'\n\nWas spricht dagegen / ist unsicher?\n'+against+'\n\nWann entfällt die Richtungsfreigabe?\nSofort bei fehlender Intraday-Bestätigung oder außerhalb des Bob-Zeitplans; eine neue Richtung benötigt zwei geschlossene 5m-Kerzen. Bei fehlenden, ungültigen oder veralteten erforderlichen Daten sofort. Ein Produkt benötigt zusätzlich seine eigenen Nachweise und Risikoprüfungen.';
+ out.textContent=preparation+'Warum diese Richtung?\n'+why+'\n'+frames+'\n\nWas spricht dagegen / ist unsicher?\n'+against+'\n\nWann entfällt die Richtungsfreigabe?\nSofort bei fehlender Intraday-Bestätigung oder außerhalb des Bob-Zeitplans; eine neue Richtung benötigt zwei geschlossene 5m-Kerzen. Bei fehlenden, ungültigen oder veralteten erforderlichen Daten sofort. Ein Produkt benötigt zusätzlich seine eigenen Nachweise und Risikoprüfungen.';
 }
 function updateResearchPanel(){
  const reg=currentRegime(); if($("regime"))$("regime").textContent=reg;

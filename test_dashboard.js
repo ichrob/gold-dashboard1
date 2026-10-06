@@ -148,7 +148,7 @@ console.log('5m confirmation: two closes, reversal, neutral, interrupted sequenc
 
 // Display and approval share the exact closed-bar evidence, including genuine zero.
 assert(Number.isFinite(replay.first.score));
-assert.equal(replay.first.components.length,5);
+assert.equal(replay.first.components.length,4);
 assert(Number.isFinite(replay.first.scoreAt));
 assert.equal(replay.stale.score,undefined);
 const displayCheck=vm.runInContext(`(()=>{
@@ -208,10 +208,10 @@ const intradayPolicy=vm.runInContext(`(()=>{
  before:intradaySession(Date.parse('2026-10-05T19:29:00Z')),cutoff:intradaySession(Date.parse('2026-10-05T19:30:00Z')),end:intradaySession(Date.parse('2026-10-05T19:45:00Z')),winter:intradaySession(Date.parse('2026-11-02T20:45:00Z')),weekend:intradaySession(Date.parse('2026-10-04T10:00:00Z'))};
 })()`,env);
 assert.equal(intradayPolicy.aligned.overall,'LONG');assert.equal(intradayPolicy.no4h.overall,'LONG');
-for(const key of ['neutral','opposed','stale'])assert.equal(intradayPolicy[key].overall,'NEUTRAL',key);
-assert(intradayPolicy.before.entryAllowed);assert(!intradayPolicy.cutoff.entryAllowed);
-assert(!intradayPolicy.weekend.entryAllowed);assert(intradayPolicy.end.closeReminder);assert(intradayPolicy.winter.closeReminder);
-console.log('Live intraday: mandatory 1h/15m/5m, optional 4h, stale veto, Zurich daily cutoff and DST OK');
+for(const key of ['neutral','stale'])assert.equal(intradayPolicy[key].overall,'NEUTRAL',key);
+assert(intradayPolicy.before.entryAllowed);assert(intradayPolicy.cutoff.entryAllowed);assert.equal(intradayPolicy.opposed.overall,'LONG');
+assert(!intradayPolicy.weekend.entryAllowed);assert(!intradayPolicy.end.closeReminder);assert(!intradayPolicy.winter.closeReminder);
+console.log('Live intraday v3: mandatory 15m/5m, optional 1h/4h, stale veto, weekday analysis and DST OK');
 
 // Historical confirmation must use its own bar clock, independent of wall time.
 const clockChecks=vm.runInContext(`(()=>{
@@ -263,3 +263,22 @@ assert(entryChecks.q.signalAgeMinutes>=5&&entryChecks.q.signalAgeMinutes<10);
 assert.deepEqual(entryChecks.stop1,entryChecks.stop2);assert.deepEqual(entryChecks.target1,entryChecks.target2);
 assert.equal(entryChecks.stop1.timeframe,'15m');assert.equal(entryChecks.stale.available,false);assert.equal(entryChecks.blocked.stop,null);
 console.log('Entry quality shadow, source ages, fixed 15m stop/target and missing-data refusal OK');
+
+const forecastChecks=vm.runInContext(`(()=>{
+ const now=Date.UTC(2026,9,6,10),step=300000;
+ const rows=Array.from({length:40},(_,i)=>({openTime:now-(40-i)*step,open:4200+i,close:4200+i+.2,high:4201+i,low:4199+i,isOpen:false,instrument:'XAU/USD'}));
+ const bundle=r=>({history:{bars_by_tf:{'5m':r}}});
+ const good=nextCandleScenario(bundle(rows),now),open=nextCandleScenario(bundle([...rows,{...rows.at(-1),openTime:now,isOpen:true,close:9999}]),now);
+ return {good,open,stale:nextCandleScenario(bundle(rows),now+600001),gap:nextCandleScenario(bundle(rows.filter((_,i)=>i!==30)),now),bad:nextCandleScenario(bundle(rows.map((b,i)=>i===39?{...b,low:9999}:b)),now)};
+})()`,env);
+assert.equal(forecastChecks.good.direction,'LONG');assert.equal(forecastChecks.good.targetAt,Date.UTC(2026,9,6,10));
+assert.deepEqual(forecastChecks.good,forecastChecks.open);
+for(const key of ['stale','gap','bad'])assert.equal(forecastChecks[key].available,false);
+assert.equal(forecastChecks.good.previous.result,'Richtung getroffen');
+console.log('Next-candle scenario: closed-only, invalid/gap/stale refusal and historical one-step evaluation OK');
+
+const sourceCheck=vm.runInContext(`(()=>{
+ const t=1791243600,p={t,o:4200,h:4202,l:4199,c:4201};
+ return {valid:normalizeBrowserChart([p,{...p,t:t+72},{...p,t:t+300,l:4300}],'5m',(t+600)*1000),conflict:normalizeBrowserChart([p,{...p,c:4200}],'5m',(t+600)*1000)};
+})()`,env);
+assert.equal(sourceCheck.valid.length,1);assert.equal(sourceCheck.valid[0].openTime,1791243600000);assert.equal(sourceCheck.conflict.length,0);

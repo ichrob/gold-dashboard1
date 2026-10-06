@@ -551,7 +551,7 @@ def _mtf_score(bars, tf):
     if rsi is None:
         return {"dir":"NEUTRAL","available":False,"reason":"zu wenig Historie für RSI","bars":len(closed),"ageMs":age}
     sign = lambda value: 1 if value > 0 else -1 if value < 0 else 0
-    signs = {sign(values[-1]-e20), sign(e20-e50), sign(e50-e200), sign(mac-prev_mac), 1 if 50 < rsi < 75 else -1 if 25 < rsi < 50 else 0}
+    signs = {sign(values[-1]-e20), sign(e20-e50), sign(mac-prev_mac), 1 if 50 < rsi < 75 else -1 if 25 < rsi < 50 else 0}
     score = 0 if 1 in signs and -1 in signs else (1 if 1 in signs else -1 if -1 in signs else 0) * (0.5 if 0 in signs else 1)
     direction = "LONG" if score >= 0.5 else "SHORT" if score <= -0.5 else "NEUTRAL"
     return {"dir":direction,"available":True,"reason":"ok","bars":len(closed),"rsi":round(rsi,2),"score":score,"ageMs":age,"fresh":True,"openTime":latest}
@@ -559,20 +559,18 @@ def _mtf_score(bars, tf):
 def build_mtf_verification(bundle):
     tfbars = bundle.get("history",{}).get("bars_by_tf",{}) if isinstance(bundle,dict) else {}
     results = {tf:_mtf_score(tfbars.get(tf,[]),tf) for tf in ("5m","15m","1h","4h")}
-    valid = all(results[tf].get("available") and results[tf].get("fresh") for tf in ("5m","15m","1h"))
+    valid = all(results[tf].get("available") and results[tf].get("fresh") for tf in ("5m","15m"))
     d4,d1,d15,d5 = (results[tf]["dir"] for tf in ("4h","1h","15m","5m"))
     overall,bias = "NEUTRAL",0.0
     if not valid:
         reason = "Intraday-MTF unvollständig oder veraltet"
-    elif d1 not in ("LONG","SHORT"):
-        reason = "1h-Richtung neutral"
-    elif d15 != d1:
-        reason = "15m bestätigt die 1h-Richtung nicht"
-    elif d5 != d1:
-        reason = "5m-Einstieg bestätigt die 1h-Richtung nicht"
+    elif d15 not in ("LONG","SHORT"):
+        reason = "15m-Setup neutral"
+    elif d5 != d15:
+        reason = "5m bestätigt das 15m-Setup nicht"
     else:
-        overall,bias = d1,1.0 if d1 == "LONG" else -1.0
-        reason = "Intraday: 1h Richtung · 15m Bestätigung · 5m Einstieg · 4h nur Hintergrund"
+        overall,bias = d15,1.0 if d15 == "LONG" else -1.0
+        reason = "Intraday: 15m Setup · 5m Einstieg · 1h/4h Kontext"
     hierarchy = {"regime":d4,"trend":d1,"setup":d15,"timing":d5,"bias":round(bias,3),"reason":reason}
     return {"overall":overall,"valid":valid,"results":results,"hierarchy":hierarchy,"verifiedAt":datetime.now(timezone.utc).isoformat()}
 
