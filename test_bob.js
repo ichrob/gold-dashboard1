@@ -87,7 +87,7 @@ assert(serverSource.includes('"xaus_is_spot": is_spot'));
 assert(serverSource.includes('"is_genuine_xauusd_spot": is_spot'));
 assert(serverSource.includes('Never promote technical/futures history to the XAU/USD spot field.'));
 assert(serverSource.includes('"source": (spot_source or "keine Spotquelle") + " · Historie "'));
-assert(/(?:["']instrument["']\\s*:|instrument\\s*=)\\s*["']XAU\\/USD["']/.test(serverSource));
+assert(serverSource.includes("instrument='XAU/USD'") || serverSource.includes('"instrument": "XAU/USD"'));
 assert(serverSource.includes('"instrument":"GC=F"'));
 assert(serverSource.includes("script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net"));
 assert(serverSource.includes("worker-src 'self' blob:"));
