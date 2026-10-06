@@ -733,6 +733,36 @@ async function reviewedImageText(file){
   return 'derivate.bnpparibas.com\nStammdaten\nKnock-out-Schwelle 3.996,2705 USD (05.10.2026)\nBasispreis 3.996,2705 USD (05.10.2026)\nBezugsverhältnis 0,1\nLaufzeit Open End\nReferenzzins SOFR\nZinsanpassungssatz 4,00 %\nWKN PJ9NB9\nISIN DE000PJ9NB98\nProdukttyp Unlimited Long';
  }catch(_){return null;}
 }
+// Read only the labelled ISIN row from the same SG image. The selected
+// upload product never supplies characters; two checksum-valid reads must agree.
+function sgIdentityRect(data,width,height){
+ if(!/sg-zertifikate\.(?:de|at)\b/i.test(data?.text||''))return null;
+ const labels=(data.words||[]).filter(w=>/^ISIN$/i.test(w.text));
+ if(labels.length!==1)return null;
+ const b=labels[0].bbox,h=b.y1-b.y0,x=Math.ceil(b.x1+h),y=Math.max(0,Math.floor(b.y0-h));
+ if(!(h>5&&x<width))return null;
+ return {x,y,width:width-x,height:Math.min(height-y,Math.ceil(3*h))};
+}
+async function readSgIdentity(worker,image,data){
+ const bitmap=await createImageBitmap(image);
+ try{
+  const r=sgIdentityRect(data,bitmap.width,bitmap.height);if(!r)return '';
+  const canvas=document.createElement('canvas');canvas.width=r.width*2;canvas.height=r.height*2;
+  const ctx=canvas.getContext('2d',{alpha:false});ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+  ctx.drawImage(bitmap,r.x,r.y,r.width,r.height,0,0,canvas.width,canvas.height);
+  const crop=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!crop)return '';
+  const ids=[];
+  for(const mode of ['7','6']){
+   await worker.setParameters({tessedit_pageseg_mode:mode,tessedit_char_whitelist:''});
+   const read=await ocrTimeout(worker.recognize(crop),15000,'ISIN-Zeilenprüfung beendet');
+   const token=String(read.data.text||'').trim().toUpperCase();
+   const id=normalizeOcrIsin(token).isin;
+   if(!validIsin(id))return '';
+   ids.push(id);
+  }
+  return ids[0]===ids[1]?ids[0]:'';
+ }finally{bitmap.close();await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});}
+}
 function recognizeOcr(file,statusId){
  const job=ocrQueue.then(async()=>{
   const reviewed=await reviewedImageText(file);
@@ -740,9 +770,10 @@ function recognizeOcr(file,statusId){
   activeOcrStatusId=statusId;
   const worker=await loadOcrWorker(statusId);
   const prepared=await prepareOcrImage(file,statusId);
-  let result;const readings=[],originalModes=new Set(['3']);
+  let result,identityData;const readings=[],originalModes=new Set(['3']);
   try{
    result=await ocrTimeout(worker.recognize(prepared),45000,"OCR-Zeitüberschreitung nach 45 Sekunden");
+   identityData=result.data;
    readings.push(result.data.text||'');
    if(/Stammdaten|\bISIN\b|\bWKN\b/i.test(result.data.text||'')&&/Knock-Out-Barriere|Basispreis/i.test(result.data.text||'')){
     const tableImage=await prepareOcrImage(file,statusId,true);
@@ -797,6 +828,10 @@ function recognizeOcr(file,statusId){
    }finally{await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});}
    if(missing.length)throw new Error('Zahlen nicht sicher bestätigt ('+missing.join(', ')+'). Bitte diese Werte in einem schärferen Ausschnitt zeigen. Es wurde kein Wert geraten.');
    result.data.numericCrossChecked=true;
+  }
+  if(!parseScreenshotCandidates(result.data.text||'').length&&/sg-zertifikate\.(?:de|at)\b/i.test(identityData?.text||'')){
+   const id=await readSgIdentity(worker,prepared,identityData);
+   if(id)result.data.text+='\nISIN '+id;
   }
   return result;
  });
@@ -2105,7 +2140,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
