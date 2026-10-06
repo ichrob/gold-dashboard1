@@ -504,3 +504,20 @@ console.log('BNP direct dated terms: stale images, midnight expiry, conflicts, i
 
 assert.equal(b.cleanStoredProduct({isin:'DE000PJONCKO',name:bnpLine,direction:'LONG'}).isin,bnp.isin);
 const koConflict=JSON.parse(JSON.stringify(datedProduct));koConflict.snapshot.evidence.KO.dateText='06.10.2026';assert(b.productTermsStatus(koConflict,bnpDateNow).reasons.some(r=>r.includes('widersprechen')));
+
+// A complete BNP direct import must not fall through to screenshot requests.
+const liveBnp={...p,isin:'DE000PG0XK25',name:'BNP GOLD Unlimited Short',snapshot:null};
+liveBnp.quote={isin:liveBnp.isin,productVerified:true,found:true,eligible:true,marketOpen:true,
+ source:'BNP Paribas',currency:'EUR',direction:'SHORT',price:p.price,bid:20,ask:p.price,
+ leverage:p.leverage,ko:p.ko,quoteAt:at(0),bidAt:at(0),askAt:at(0),leverageAt:at(0),snapshotAt:at(0),tradingEndAt:at(3600),checkedAt:at(0),
+ metadata:{status:1,direction:'SHORT',underlyingType:'SPOT',ko:p.ko,termsDated:true},
+ conditions:terms({ratio:.1,strike:4460,underlying:'XAU/USD',type:'Turbo',maturity:'Open End',currency:'EUR'})};
+liveBnp.isinConfirmed=b.automaticIdentity(liveBnp);
+assert(b.currentQuote(liveBnp,now));assert(b.finalProductStatus(liveBnp,now).complete);
+const liveSelection=b.selectionWorkflow([liveBnp],context,{});
+assert.equal(liveSelection.groups.length,1);assert.equal(liveSelection.requests.length,0);
+const neutralLive=b.selectionWorkflow([liveBnp],{...context,direction:'NEUTRAL'},{});
+assert.equal(neutralLive.groups.length,0);assert.equal(neutralLive.notApproved[0].missingReasons.length,0);
+const expiredLive=b.selectionWorkflow([liveBnp],{...context,now:now+91000},{});
+assert.equal(expiredLive.groups.length,0);assert(expiredLive.requests.length>0);
+console.log('BNP direct-only import: no false screenshot requests, neutral and expiry remain blocked');
