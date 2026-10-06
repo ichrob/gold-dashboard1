@@ -40,6 +40,6 @@ process.stdout.write(JSON.stringify(input.fixtures.map(b=>env.timeframeScore(b,'
     def test_mtf_invalid_ohlc_and_recent_gap(self):
         bars=[dict(openTime=NOW-(220-i)*300000,open=100,close=100,high=101,low=99,isOpen=False) for i in range(220)]
         with patch.object(server.time,'time',return_value=NOW/1000):
-            self.assertFalse(server._mtf_score(bars[:-5]+bars[-4:],'5m')['available'])
+            self.assertFalse(server._mtf_score(bars[:-2]+bars[-1:],'5m')['available'])
             bars[-1]['low']=102
             self.assertFalse(server._mtf_score(bars,'5m')['available'])

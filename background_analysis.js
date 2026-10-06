@@ -15,7 +15,7 @@ function evaluate(input){
   C=(bars[tf]||[]).filter(b=>!b.isOpen&&b.instrument==='XAU/USD').slice(-240);
   const spot=bundle.spots||{},price=Number(spot.xaus),at=Date.parse(spot.spot_price_as_of);
   const priceFresh=spot.is_genuine_xauusd_spot===true&&Number.isFinite(price)&&price>0&&Number.isFinite(at)&&Date.now()>=at&&Date.now()-at<=60000&&!spot.spot_error;
-  if(C.length<200)return {session:intradaySession(),ready:false,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction:'NEUTRAL',mtf:'NEUTRAL'};
+  if(C.length<100)return {session:intradaySession(),ready:false,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction:'NEUTRAL',mtf:'NEUTRAL'};
   const byTf=Object.fromEntries(['5m','15m','1h','4h'].map(t=>[t,timeframeScore((bars[t]||[]).filter(b=>b.instrument==='XAU/USD'),t)]));
   const hierarchy=buildMtfHierarchy(byTf,['5m','15m'].every(tf=>byTf[tf].available&&byTf[tf].fresh));
   MTF={...hierarchy,byTf,dirs:Object.values(byTf).map(x=>x.dir)};lastPrice=price>0?price:C.at(-1).close;
@@ -25,7 +25,7 @@ function evaluate(input){
   const context={spotFresh:priceFresh,spot:price,...intradayTechnicalContext(bundle,signalState)};
   let suggestedStop=null,suggestedTarget=null;
   if(ready&&priceFresh&&input.trade?.active){const stop=stopModel(input.trade.dir,price,A.at,input.trailAtr||1.5).stop;if(Number.isFinite(stop)&&stop>0){suggestedStop=stop;suggestedTarget=targetModel(input.trade.dir,price,stop,2).target;}}
-  return {entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-consistent-v4',session:intradaySession(),intraday:intradayState(bundle,input.trade),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
+  return {entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-responsive-v5',session:intradaySession(),intraday:intradayState(bundle,input.trade),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
  })()`,env,{timeout:3000});
 }
 module.exports={evaluate};

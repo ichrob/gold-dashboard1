@@ -147,7 +147,7 @@ def rsi(values,period=14):
 
 
 def frame(rows,minutes,now):
-    if len(rows)<220:return dict(available=False,direction='NEUTRAL',reason='Weniger als 220 abgeschlossene Kontrakt-Kerzen',bars=len(rows))
+    if len(rows)<100:return dict(available=False,direction='NEUTRAL',reason='Weniger als 100 abgeschlossene Kontrakt-Kerzen',bars=len(rows))
     closed_at=rows[-1]['t']+minutes*60
     if not 0<=now.timestamp()-closed_at<=1800+minutes*60:
         return dict(available=False,direction='NEUTRAL',reason='Kontrakt-Historie veraltet',bars=len(rows))
@@ -156,7 +156,7 @@ def frame(rows,minutes,now):
     mac=[a-b for a,b in zip(ema_series(values,12),ema_series(values,26))]
     signal=ema_series(mac,9)[-1];hist=mac[-1]-signal;strength=rsi(values)
     trend='LONG' if e20>e50 else 'SHORT' if e20<e50 else 'NEUTRAL'
-    momentum='LONG' if hist>0 and 50<strength<75 else 'SHORT' if hist<0 and 25<strength<50 else 'NEUTRAL'
+    momentum='LONG' if hist>0 else 'SHORT' if hist<0 else 'NEUTRAL'
     direction=trend if trend==momentum else 'NEUTRAL'
     tr=[max(r['high']-r['low'],abs(r['high']-prev['close']),abs(r['low']-prev['close'])) for prev,r in zip(rows,rows[1:])]
     atr=sum(tr[:14])/14

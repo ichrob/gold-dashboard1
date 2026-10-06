@@ -311,3 +311,16 @@ const structureChecks=vm.runInContext(`(()=>{
  return {up:confirmedMarketStructure(up),down:confirmedMarketStructure(down),few:confirmedMarketStructure(up.slice(0,8))};
 })()`,env);
 assert.equal(structureChecks.up.direction,'LONG');assert.equal(structureChecks.down.direction,'SHORT');assert.equal(structureChecks.few.direction,'NEUTRAL');
+
+// Responsive policy: support votes affect confirmation speed, not core direction.
+const responsive=vm.runInContext(`(()=>{
+ const sample=(i,dir='LONG',strong=false,valid=true)=>({at:300000*(i+1),dir,strong,valid});
+ const now=Date.UTC(2026,9,6,10),rows=Array.from({length:100},(_,i)=>({openTime:now-(100-i)*300000,open:4200+i,close:4200+i+.2,high:4202+i,low:4199+i,isOpen:false}));
+ const wide=stopModel('LONG',100,1,1.5,{available:true,atr:1,bars:Array.from({length:40},()=>({low:80,high:102,close:100}))});
+ return {full:intradayCollective([1,1,1,1]),support:intradayCollective([-1,1,1,-1]),core:intradayCollective([1,1,-1,1]),missing:intradayCollective([1,1,NaN,1]),short:intradayCollective([-1,-1,-1,-1]),strong:responsiveConfirmation([sample(0,'LONG',true)]),weak:responsiveConfirmation([sample(0)]),two:responsiveConfirmation([sample(0),sample(1)]),gap:responsiveConfirmation([sample(0),sample(2)]),invalid:responsiveConfirmation([sample(0,'LONG',true),sample(1,'LONG',false,false)]),neutral:responsiveConfirmation([sample(0,'LONG',true),sample(1,'NEUTRAL')]),enough:timeframeScore(rows,'5m',now),few:timeframeScore(rows.slice(1),'5m',now),recovered:timeframeScore(rows.map((b,i)=>i<95?{...b,openTime:b.openTime-300000}:b),'5m',now),recentGap:timeframeScore(rows.map((b,i)=>i<99?{...b,openTime:b.openTime-300000}:b),'5m',now),wide};
+})()`,env);
+assert.equal(responsive.full,1);assert.equal(responsive.support,.5);assert.equal(responsive.core,0);assert.equal(responsive.missing,0);assert.equal(responsive.short,-1);
+assert.equal(responsive.strong.dir,'LONG');assert.equal(responsive.weak.dir,'NEUTRAL');assert.equal(responsive.weak.count,1);assert.equal(responsive.two.dir,'LONG');assert.equal(responsive.gap.dir,'NEUTRAL');assert.equal(responsive.invalid.dir,'NEUTRAL');assert.equal(responsive.neutral.dir,'NEUTRAL');
+assert(responsive.enough.available);assert(!responsive.few.available);assert(responsive.recovered.available);assert(!responsive.recentGap.available);
+assert(responsive.wide.stop<80);assert(responsive.wide.beyondGuide);assert.equal(responsive.wide.capped,false);
+console.log('Responsive policy: one strong/two weak closes, core conflict, gaps, 100-bar boundary and uncapped structural stop OK');

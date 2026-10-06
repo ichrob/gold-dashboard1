@@ -54,14 +54,14 @@ class HistoryTests(unittest.TestCase):
   r=rows(12,300);self.assertEqual(len(a.aggregate(r,5,15)),4)
   del r[1];self.assertEqual(len(a.aggregate(r,5,15)),3)
  def test_insufficient_or_stale_history_blocks_direction(self):
-  out=a.analyse(rows(300,300),rows(300,3600),T,NOW)
+  out=a.analyse(rows(297,300),rows(300,3600),T,NOW)
   self.assertFalse(out['available']);self.assertEqual(out['direction'],'NEUTRAL')
   self.assertFalse(out['frames']['15m']['available']);self.assertEqual(out['technicalSourceFamilies'],1)
   self.assertFalse(a.frame(rows(220,300),5,NOW+timedelta(hours=2))['available'])
  def test_all_four_frames_and_expiry(self):
   out=a.analyse(rows(900,300),rows(900,3600),T,NOW)
   self.assertTrue(out['available']);self.assertEqual(set(out['frames']),{'5m','15m','1h','4h'})
-  self.assertEqual(out['direction'],'NEUTRAL') # monotonic RSI overbought, no invented long
+  self.assertEqual(out['direction'],'LONG') # RSI extreme no longer vetoes aligned trend and MACD
   with patch.object(a,'_state',out):
    self.assertFalse(a.current(NOW+timedelta(seconds=181))['available'])
 

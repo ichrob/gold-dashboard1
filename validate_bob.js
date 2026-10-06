@@ -32,8 +32,8 @@ if (fs.readFileSync("Bob.html","utf8").includes("liveHistoryCache")) throw new E
 
 if (!fs.readFileSync("Bob.html","utf8").includes("!A.ready||!C.length||!Number.isFinite(A.at)")) throw new Error("signal direction must require ready analysis");
 if (fs.readFileSync("Bob.html","utf8").includes("A.score=score; A.ready=ready;")) throw new Error("advanced analysis must not reference out-of-scope ready variable");
-if (!fs.readFileSync("Bob.html","utf8").includes("A.ready=Boolean(C.length>=200&&A.e20!=null&&A.e50!=null&&A.e200!=null);")) throw new Error("advanced analysis readiness guard missing");
-if (!fs.readFileSync("Bob.html","utf8").includes("const required=200;")) throw new Error("MTF must require full 200-bar history");
+if (!fs.readFileSync("Bob.html","utf8").includes("A.ready=Boolean(C.length>=100&&A.e20!=null&&A.e50!=null);")) throw new Error("advanced analysis readiness guard missing");
+if (!fs.readFileSync("Bob.html","utf8").includes("const required=100;")) throw new Error("MTF must require 100 closed bars");
 if (!fs.readFileSync("Bob.html","utf8").includes("timeframeScore(bars,tf)")) throw new Error("MTF freshness must be timeframe-aware");
 
 if (!fs.readFileSync("server.py","utf8").includes('"xaus_is_spot": is_spot')) throw new Error("spot provenance flag missing");

@@ -87,3 +87,17 @@ Formula reference checked: https://www.fidelity.com/learning-center/trading-inve
 | Next-candle EMA20 / mean14 range | Experimental scenario only, no probability or approval |
 
 Passing formula and integration tests does not establish optimal settings or profitable live decisions. No thresholds were tuned on the validation fixtures.
+
+## Responsive policy v5 (2026-10-06)
+
+User requested removal of unnecessary intraday friction, including RSI25/75. This is a changed hypothesis, not an empirically proven improvement.
+
+- Required active history: 100 closed bars (EMA50 warm-up); EMA200 requires 200 only for its optional display. Legacy shadow experiment retains its old 200-bar requirement.
+- EMA20/50 and MACD histogram must agree. Price versus EMA20 and RSI above/below50 determine full or partial collective strength, without independently vetoing direction. RSI25/75 are extension warnings, never forced reversal or neutralization. Unknown/nonfinite inputs still fail.
+- One strong closed 5m bar can confirm a new direction when the 15m setup agrees; weak strength, disagreement in supporting indicators or a new breakout requires two closes. No intrabar confirmation. Weak DX is a two-close requirement rather than permanent neutralization.
+- Recent data recovery requires three consecutive closed bars on required frames rather than twenty. Older gaps are not filled and are not automatically declared market closures. Current data age, OHLC and duplicate checks remain. True Range still includes price gaps.
+- Confirmed pivots use two neighbors each side instead of three; confirmation still waits for two following bars. This can detect more minor swings.
+- Structure stops are no longer mechanically tightened inside structure by an ATR cap. Above-guideline distance is disclosed. Existing active stops retain their no-loosening protection. Minimum 2R remains a planning target, not a claim of achievable return; quality thresholds stay nonblocking comparison warnings.
+- Browser, server, product context and background share the active policy. The old shadow remains frozen; audit observations use intraday-responsive-v5.
+
+Trade-offs: shorter warm-up, fewer confirmation bars and faster pivots can increase noise and false signals; wider structure stops can require smaller size or make a product unsuitable. Live and out-of-sample evidence must establish whether this version is better.
