@@ -76,6 +76,7 @@ class ChartSourceTests(unittest.TestCase):
 
 class HistoryRefreshTests(unittest.TestCase):
     def setUp(self):
+        self.independent=patch.object(server.technical_candles,"fetch",return_value=[]);self.independent.start();self.addCleanup(self.independent.stop)
         self.now=1791276000
         self.clock=patch.object(server.time,'time',return_value=self.now);self.clock.start();self.addCleanup(self.clock.stop)
         self.cache=patch.dict(server._technical_history,{},clear=True);self.cache.start();self.addCleanup(self.cache.stop)

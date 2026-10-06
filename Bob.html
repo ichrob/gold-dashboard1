@@ -2080,9 +2080,9 @@ function usdEurRate(){
  return Number(liveFxUsdEur);
 }
 async function fetchSpotSources(bundle=null){
- const j=bundle||await fetchLiveBundle();const s=j.spots||{},xaus=Number(s.xaus),gp=Number(s.goldprice),reference=Number(s.yahoo_gc_f||s.biquote),diff=Number(s.diff),pct=Number(s.pct);
+ const j=bundle||await fetchLiveBundle();const s=j.spots||{},xaus=Number(s.xaus),gp=Number(s.goldprice),reference=Number(s.technical_reference||s.yahoo_gc_f||s.biquote),diff=Number(s.diff),pct=Number(s.pct);
  if(!Number.isFinite(xaus)||xaus<=0)throw Error("Ungültiger Live-XAU/USD-Preis");
- const sourceWarning=Number.isFinite(pct)&&Math.abs(pct)>0.50?"⚠️ Spot/Futures-Abweichung "+pct.toFixed(3)+"% – Futures nur als technische Referenz":"";
+ const sourceWarning=Number.isFinite(pct)&&Math.abs(pct)>0.50?"⚠️ Spot/Kerzen-Abweichung "+pct.toFixed(3)+"% – Kerzenquelle prüfen":"";
  return {xaus,gp,reference,diff,pct,sourceWarning,usd_eur:Number(s.usd_eur),usd_chf:Number(s.usd_chf)};
 }
 function hydrateTechnicalFromBundle(bundle, requestedN=200){try{const tfBars=bundle?.history?.bars_by_tf||{};const preferred=Array.isArray(tfBars["5m"])&&tfBars["5m"].length?tfBars["5m"]:Array.isArray(tfBars["15m"])&&tfBars["15m"].length?tfBars["15m"]:Array.isArray(tfBars["1h"])&&tfBars["1h"].length?tfBars["1h"]:[];const closed=preferred.filter(b=>!b.isOpen);if(closed.length<30)return false;const n=Math.max(30,Number(requestedN)||200);C=closed.slice(-n);const p=Number(bundle?.spots?.xaus);if(Number.isFinite(p)&&p>0)lastPrice=p;analyze();return true;}catch(e){reportBobDiag("analysis:hydrate-error",{error:e?.message||String(e)});return false;}}

@@ -17,6 +17,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 import economic_calendar
 from datetime import datetime, timezone
+import technical_candles
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -67,12 +68,12 @@ _fx_cache = {"EUR": None, "CHF": None}
 _fx_cache_at = 0.0
 _live_lock = threading.Lock()
 
-def fetch_json(url, retries=2, user_agent="Bob/1.1"):
+def fetch_json(url, retries=2, user_agent="Bob/1.1", timeout=None):
     last_error = None
     for attempt in range(retries + 1):
         req = Request(url, headers={"User-Agent": user_agent, "Accept": "application/json"})
         try:
-            with urlopen(req, timeout=UPSTREAM_TIMEOUT) as response:
+            with urlopen(req, timeout=UPSTREAM_TIMEOUT if timeout is None else timeout) as response:
                 if response.status < 200 or response.status >= 300:
                     raise RuntimeError(f"Upstream HTTP {response.status}")
                 return json.loads(response.read().decode("utf-8"))
@@ -213,7 +214,7 @@ def mark_bar_state(bars, minutes):
     step = minutes * 60 * 1000
     for b in bars:
         try:
-            b["isOpen"] = now_ms < int(b["openTime"]) + step
+            b["isOpen"] = b.get("providerIsOpen", False) or now_ms < int(b["openTime"]) + step
         except (TypeError, ValueError, KeyError):
             b["isOpen"] = True
     return bars
@@ -257,7 +258,7 @@ _technical_history_lock = threading.Lock()
 
 def retain_technical_history(interval, rows):
     # Preserve source clocks when secondary work misses the HTTP deadline.
-    minutes = 5 if interval == '5m' else 60
+    minutes = technical_candles.MINUTES[interval]
     with _technical_history_lock:
         old = _technical_history.get(interval, [])
         if rows and technical_history_latest(rows, minutes) >= technical_history_latest(old, minutes):
@@ -268,7 +269,7 @@ def retain_technical_history(interval, rows):
 def technical_history_latest(bars, minutes, now=None):
     now = time.time() if now is None else now
     step = minutes*60*1000
-    return max((b['openTime'] for b in bars if b['openTime']+step <= now*1000), default=0)
+    return max((b['openTime'] for b in bars if not b.get('isOpen') and b['openTime']+step <= now*1000), default=0)
 
 
 def technical_history_fresh(bars, minutes, now=None):
@@ -279,13 +280,20 @@ def technical_history_fresh(bars, minutes, now=None):
 
 def fetch_technical_history(interval, range_value):
     primary = []
-    minutes = 5 if interval == "5m" else 60
+    minutes = technical_candles.MINUTES[interval]
+    independent = technical_candles.fetch(interval, fetch_json)
+    if independent:
+        retain_technical_history(interval, independent)
+        if technical_history_fresh(independent, minutes):
+            return independent
+    if interval in ("15m", "4h"):
+        return retain_technical_history(interval, independent)
     # XAUS exposes a documented XAU chart proxy. Use it first so Render
     # does not depend on direct Yahoo connectivity (which currently returns 404).
     xaus_interval = {"5m":"5m", "1h":"1h"}.get(interval, interval)
     try:
         payload = fetch_json(
-            f"https://xaus.com/api/v1/chart?symbol=xau&range={range_value}&interval={xaus_interval}&fresh={int(time.time()//30)*30000}",
+            f"https://xaus.com/api/v1/chart?symbol=xau&range={range_value}&interval={xaus_interval}&fresh={int(time.time()//60)*60000}",
             retries=1,
             user_agent="Bob/1.4",
         )
@@ -392,11 +400,13 @@ def build_live_bundle():
         # source: ThreadPoolExecutor's context manager would otherwise wait for slow
         # Yahoo/FX requests at shutdown and keep /api/live hanging.
         from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-        pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="bob-live")
+        pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="bob-live")
         futures = {
             pool.submit(fetch_spot): "spot",
             pool.submit(fetch_technical_history, "5m", "5d"): "5m",
             pool.submit(fetch_technical_history, "1h", "3mo"): "1h",
+            pool.submit(fetch_technical_history, "15m", "5d"): "15m",
+            pool.submit(fetch_technical_history, "4h", "3mo"): "4h",
             pool.submit(fetch_fx): "fx",
         }
         results = {}
@@ -484,6 +494,15 @@ def build_live_bundle():
 
         bars_15m = aggregate_bars(bars_5m, 15) if bars_5m else []
         bars_4h = aggregate_bars(bars_1h, 240) if bars_1h else []
+        # Native longer timeframes retain more history than a short 5m window.
+        for tf, minutes in (("15m", 15), ("4h", 240)):
+            native = results.get(tf)
+            if not isinstance(native, list):
+                native = retain_technical_history(tf, [])
+            if native and technical_history_fresh(native, minutes):
+                mark_bar_state(native, minutes)
+                if tf == '15m': bars_15m = native
+                else: bars_4h = native
         reference = bars_5m[-1]["close"] if bars_5m else goldprice_price
         diff = goldprice_price - reference
         pct = (diff / reference * 100) if reference else 0.0
@@ -499,7 +518,8 @@ def build_live_bundle():
             "spots": {
                 "xaus": goldprice_price,
                 "goldprice": goldprice_price,
-                "yahoo_gc_f": reference,
+                "yahoo_gc_f": reference if bars_5m and bars_5m[-1].get("instrument") == "GC=F" else None,
+                "technical_reference": reference,
                 "diff": diff,
                 "pct": pct,
                 "xaus_age_seconds": goldprice_age,
@@ -517,8 +537,8 @@ def build_live_bundle():
                 "is_genuine_xauusd_spot": is_spot,
                 "spot_source_type": "XAU/USD spot" if is_spot else None,
                 "primary": spot_source,
-                "reference": "Yahoo Finance GC=F",
-                "reference_note": "GC=F ist Gold-Futures, nicht XAU/USD Spot",
+                "reference": bars_5m[-1].get("source", bars_5m[-1].get("instrument")) if bars_5m else None,
+                "reference_note": "Technische Kerzenquelle; separat vom gemeinsamen Gold-Spotkurs",
                 "spot_error": spot_error,
             },
             "history": {
@@ -526,7 +546,7 @@ def build_live_bundle():
                 "points": legacy_points,
                 "data_state": {
                     "status": status,
-                    "source": (spot_source or "keine Spotquelle") + " · Historie " + ", ".join(sorted({b.get("instrument", "unknown") for b in bars_5m+bars_1h})),
+                    "source": (spot_source or "keine Spotquelle") + " · Historie " + ", ".join(sorted({b.get("source", b.get("instrument", "unknown")) for b in bars_5m+bars_1h})),
                     "technical_4h_status": "available" if bars_4h else "unavailable",
                     "technical_errors": technical_errors,
                 },
