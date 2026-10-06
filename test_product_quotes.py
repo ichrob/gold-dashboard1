@@ -90,7 +90,7 @@ class ProductQuoteTests(unittest.TestCase):
         self.assertNotIn('secret', result['reason']); self.assertNotIn('private', result['reason'])
 
     def test_bnp_cache_parameter_changes_but_cannot_refresh_source_clocks(self):
-        with patch.object(q, 'urlopen') as network, patch.object(q.time, 'time', return_value=1500):
+        with patch.object(q, 'get_bnp_dated_terms', side_effect=ValueError('no page')), patch.object(q, 'urlopen') as network, patch.object(q.time, 'time', return_value=1500):
             response = network.return_value.__enter__.return_value
             response.url = q.ORIGIN+'apiv2/api/v1/product/header/'+ISIN
             response.read.return_value = json.dumps(snapshot()).encode()
@@ -314,3 +314,31 @@ class ProductQuoteTests(unittest.TestCase):
         self.assertFalse(q.parse_bnp(data,ISIN,NOW)['eligible'])
 
 if __name__=='__main__':unittest.main()
+
+
+class BnpDatedTermsTests(unittest.TestCase):
+    now = datetime(2026, 10, 6, 7, 30, tzinfo=timezone.utc)
+    meta = {'ko':3997.1452, 'strike':3997.1452}
+    page = '<script type="application/ld+json">{"@type":"FinancialProduct","identifier":"DE000PJ9NCK0"}</script><table><caption>Stammdaten</caption><tr><th><button>Knock-Out Schwelle (06.10.2026)</button></th><td>3.997,1452 USD</td></tr><tr><th>Basispreis (06.10.2026)</th><td>3.997,1452 USD</td></tr></table>'
+
+    def test_exact_today_rows_without_invented_time(self):
+        terms = q.parse_bnp_dated_terms(self.page, ISIN, self.meta, self.now)
+        self.assertEqual(terms['strike']['value'],3997.1452)
+        self.assertEqual(terms['ko']['dateText'],'06.10.2026')
+        self.assertIsNone(terms['ko']['at'])
+
+    def test_wrong_identity_stale_future_conflict_currency_and_duplicate_rejected(self):
+        for page in [self.page.replace(ISIN,'DE000PJ9NB98'), self.page.replace('06.10.2026','05.10.2026'), self.page.replace('06.10.2026','07.10.2026'), self.page.replace('3.997,1452','3.997,1453'), self.page.replace('USD','EUR'), self.page.replace('</table>','<tr><th>Basispreis (06.10.2026)</th><td>3.997,1452 USD</td></tr></table>')]:
+            with self.subTest(page=page), self.assertRaises(ValueError):
+                q.parse_bnp_dated_terms(page, ISIN, self.meta, self.now)
+        with self.assertRaises(ValueError):
+            q.parse_bnp_dated_terms(self.page, ISIN, self.meta, self.now+timedelta(days=1))
+
+    def test_dated_issuer_terms_survive_secondary_undated_terms(self):
+        direct = dict(isin=ISIN,productVerified=True,found=False,eligible=False,metadata=dict(self.meta,termsDated=True,status=1),conditions=q.parse_bnp_dated_terms(self.page,ISIN,self.meta,self.now))
+        secondary = dict(productVerified=True,metadata={'status':1,'termsDated':False})
+        with patch.object(q,'get_issuer_quote',return_value=direct), patch('public_product_terms.get_product',return_value=secondary):
+            result=q.get_quote(ISIN)
+        self.assertTrue(result['metadata']['termsDated'])
+        self.assertEqual(result['conditions'],direct['conditions'])
+        self.assertFalse(result['eligible'])
