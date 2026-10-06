@@ -38,6 +38,8 @@ const turn=()=>new Promise(resolve=>setImmediate(resolve));
 {
  const api=window.BobDegiro,isin='DE000PG0XK25';
  const prior={isin,productVerified:true,found:true,eligible:true,fresh:true,marketOpen:true,source:'BNP Paribas',checkedAt:'2026-10-06T16:00:00Z',quoteAt:'2026-10-06T16:00:00Z',metadata:{status:1,direction:'LONG'},conditions:{ko:{value:3456.2486,dateText:'06.10.2026'}},futureResearch:{marketOpen:true},calculatedProduct:{price:12}};
+ const imageUpdate=api.invalidateProductQuote(prior);
+ assert.deepEqual(imageUpdate.conditions,prior.conditions);assert.equal(imageUpdate.productVerified,true);assert.equal(imageUpdate.found,false);assert.equal(imageUpdate.futureResearch,null);
  const failure={isin,sourceFailure:true,reason:'Timeout',attemptedAt:'2026-10-06T16:01:00Z'};
  const kept=api.retainProductResearch(prior,failure,isin);
  assert.equal(kept.productVerified,true);assert.deepEqual(kept.conditions,prior.conditions);
