@@ -35,17 +35,36 @@ def observation(market,now):
        and number(price) and price>0 and number(at) and 0<=now-at<=60000
        and number(bar) and 300000<=now-bar<=600000
        and all(d in ('LONG','SHORT','NEUTRAL') for d in directions))
-    return dict(campaign=ID,slot=slot,recordedAt=now,valid=valid,price=price if number(price) else None,
+    failures=[]
+    if not market.get('ready'):failures.append('Analyse nicht bereit')
+    if not market.get('priceFresh') or not number(at) or not 0<=now-at<=60000:failures.append('Spot-Quellenzeit fehlt oder nicht innerhalb 60 Sekunden')
+    if not number(bar) or not 300000<=now-bar<=600000:failures.append('Geschlossene 5m-Kerze fehlt oder veraltet')
+    if market.get('ruleVersion')!=POLICY:failures.append('Vergleichsregel stimmt nicht überein')
+    if not number(price) or price<=0:failures.append('Spotpreis fehlt')
+    if not all(d in ('LONG','SHORT','NEUTRAL') for d in directions):failures.append('Gepaarte Richtungen fehlen')
+    return dict(campaign=ID,slot=slot,recordedAt=now,valid=valid,validationFailures=failures,price=price if number(price) else None,
        priceAt=at if number(at) else None,barAt=bar if number(bar) else None,
        fast=directions[0] if valid else None,cautious=directions[1] if valid else None,
        entryQuality=market.get('entryQuality'),reason=market.get('decisionReason') or 'Aktuelle gemeinsame Datenbasis fehlt',policy=market.get('ruleVersion'))
+
+def needs_capture(conn, now):
+    slot = slot_at(now)
+    if not eligible(slot) or not 0 <= now-slot < 300000:return False
+    row = conn.execute('SELECT payload FROM bob_intraday_comparison WHERE campaign=%s AND slot=%s',(ID,slot)).fetchone()
+    return not row or not row[0].get('valid')
 
 def capture(conn,market,now=None):
     now=int(time.time()*1000) if now is None else now
     record=observation(market,now)
     if record:
-        conn.execute('INSERT INTO bob_intraday_comparison(campaign,slot,payload) VALUES(%s,%s,%s::jsonb) ON CONFLICT DO NOTHING',(ID,record['slot'],json.dumps(record,allow_nan=False)))
+        conn.execute('''INSERT INTO bob_intraday_comparison(campaign,slot,payload) VALUES(%s,%s,%s::jsonb)
+          ON CONFLICT(campaign,slot) DO UPDATE SET payload=EXCLUDED.payload || jsonb_build_object(
+            'firstAttempt',bob_intraday_comparison.payload,'recoveredWithinWindow',TRUE)
+          WHERE (bob_intraday_comparison.payload->>'valid')::boolean=FALSE
+            AND (EXCLUDED.payload->>'valid')::boolean=TRUE
+            AND bob_intraday_comparison.truth IS NULL''',(ID,record['slot'],json.dumps(record,allow_nan=False)))
     harvest(conn,now)
+    return record
 
 def harvest(conn,now=None):
     # Save outcomes permanently with the campaign, independent of the rolling quote archive.
