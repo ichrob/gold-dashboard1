@@ -229,3 +229,18 @@ assert(clockChecks.observed.length>0);
 assert(clockChecks.observed.every(x=>Number.isFinite(x.asOf)&&x.asOf>=x.last),'Each replay frame must have an explicit historical clock');
 assert.equal(clockChecks.flat,50);assert.equal(clockChecks.up,100);assert.equal(clockChecks.down,0);
 console.log('Historical replay clock and neutral flat RSI OK');
+
+// The narrative must withdraw technical commentary when data or login is unavailable.
+vm.runInContext("A.ready=true;window.BobSession={expired:()=>false}",env);
+element('quickReason').textContent='5m-Daten veraltet';
+element('quickSignal').textContent='ABWARTEN';
+vm.runInContext('renderMarketNarrative()',env);
+assert(element('bobMarketNarrative').textContent.includes('nicht verlässlich beurteilbar'));
+assert(!element('bobMarketNarrative').textContent.includes('Intraday-Tendenz:'));
+element('quickReason').textContent='Außerhalb des Einstiegsfensters';
+vm.runInContext('renderMarketNarrative()',env);
+assert(element('bobMarketNarrative').textContent.includes('Intraday-Tendenz:'));
+assert(element('bobMarketNarrative').textContent.includes('Außerhalb des Einstiegsfensters'));
+assert(/<details id="bobMarketAnalysis"[^>]*>/.test(html));
+assert(!/<details id="bobMarketAnalysis"[^>]*\bopen\b/.test(html));
+console.log('Market narrative: collapsed initially, shares current reason, stale data suppresses tendency');
