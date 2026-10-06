@@ -93,6 +93,7 @@ jobs:
           node test_session.js
           node test_market_cards.js
           node test_shared_spot.js
+          node test_background_runtime.js
           node test_review.js
           node test_dashboard.js
           node test_quote_refresh.js

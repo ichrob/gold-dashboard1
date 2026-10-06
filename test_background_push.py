@@ -13,6 +13,15 @@ class BackgroundRules(unittest.TestCase):
         self.market={'ready':True,'priceFresh':True,'price':105,'dataAt':1800000000000,'direction':'LONG','mtf':'LONG','score':80,'atr':4}
     def kinds(self,events):
         return [e['data']['eventKind'] for e in events]
+    def test_analysis_failure_preserves_source_time_and_reports_computation(self):
+        market=b.failed_analysis_market({'spots':{'spot_price_as_of':'2026-01-01T10:00:00Z'}})
+        self.assertIsNotNone(market['dataAt'])
+        self.assertFalse(market['ready'])
+        _, events=b.advance({},self.settings,market,True,False)
+        self.assertIn('Hintergrundanalyse ist fehlgeschlagen',events[0]['body'])
+        self.assertNotIn('Berechnung mit vorhandenen Werten läuft weiter',events[0]['body'])
+        self.assertIsNone(b.failed_analysis_market({'spots':{'spot_price_as_of':'2026-01-01T10:00:00'}})['dataAt'])
+
     def test_stop_once_and_rearm(self):
         m={**self.market,'price':89}
         s,e=b.advance({},self.settings,m,False,True);self.assertIn('stop-hit',self.kinds(e))
