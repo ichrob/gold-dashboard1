@@ -530,7 +530,7 @@ def _rsi(values, period=14):
         d = values[i] - values[i - 1]
         gains = (gains * (period - 1) + max(d, 0.0)) / period
         losses = (losses * (period - 1) + max(-d, 0.0)) / period
-    return 100.0 if losses == 0 else 100.0 - 100.0 / (1.0 + gains / losses)
+    return 50.0 if gains == losses == 0 else 100.0 if losses == 0 else 100.0 - 100.0 / (1.0 + gains / losses)
 
 def _mtf_score(bars, tf):
     closed = [b for b in (bars or []) if not b.get("isOpen")][-220:]

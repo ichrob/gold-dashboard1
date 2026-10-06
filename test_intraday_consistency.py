@@ -1,0 +1,21 @@
+"""Cross-runtime numerical boundaries and audit isolation for intraday v2."""
+import unittest
+import server
+import backtest
+import future_analysis
+import decision_audit
+
+class IntradayConsistency(unittest.TestCase):
+    def test_rsi_boundaries_across_engines(self):
+        for engine in (server._rsi, backtest.rsi, future_analysis.rsi):
+            self.assertEqual(engine([4200.0]*240), 50)
+            self.assertEqual(engine([4200.0+i for i in range(240)]), 100)
+            self.assertEqual(engine([4200.0-i for i in range(240)]), 0)
+
+    def test_previous_rule_keeps_identity_and_does_not_enter_new_statistics(self):
+        payload={'ruleVersion':'intraday-1h-15m-5m-v1','direction':'LONG','barAt':1000}
+        _, old=decision_audit.normalize(payload, now=2000)
+        self.assertEqual(old['ruleVersion'],payload['ruleVersion'])
+        summary=decision_audit.summarize([(old,[None,None,None])])
+        self.assertEqual(summary['legacyCount'],1)
+        self.assertEqual(summary['metrics']['15']['missing'],0)

@@ -10,7 +10,7 @@ import copy
 from datetime import datetime, timezone
 
 VERSION = 'decision-audit-v1'
-RULE_VERSION = 'intraday-1h-15m-5m-v1'
+RULE_VERSION = 'intraday-1h-15m-5m-v2'
 
 def milliseconds(value):
     try:
@@ -36,7 +36,7 @@ def normalize(payload, now=None):
         raise ValueError('Entscheidungs-Kerzenzeit fehlt oder liegt in der Zukunft')
     # Only explicitly whitelisted evidence; never account credentials or raw images.
     result = {k: payload.get(k) for k in ('direction','shadowDirection','intraday','barAt','price','priceAt','reason','score','indicators','products','selection','gateReasons')}
-    result.update(version=VERSION, ruleVersion=RULE_VERSION if payload.get('ruleVersion')==RULE_VERSION else 'signal-5m-two-closes-v1', build=os.environ.get('RENDER_GIT_COMMIT','local'), origin=payload.get('origin','browser'), recordedAt=now)
+    result.update(version=VERSION, ruleVersion=payload['ruleVersion'] if payload.get('ruleVersion') in (RULE_VERSION, 'intraday-1h-15m-5m-v1') else 'signal-5m-two-closes-v1', build=os.environ.get('RENDER_GIT_COMMIT','local'), origin=payload.get('origin','browser'), recordedAt=now)
     if result['origin'] not in ('browser','background'):
         raise ValueError('Ungültige Protokollquelle')
     if result.get('shadowDirection') not in ('LONG','SHORT','NEUTRAL'):

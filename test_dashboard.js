@@ -212,3 +212,20 @@ for(const key of ['neutral','opposed','stale'])assert.equal(intradayPolicy[key].
 assert(intradayPolicy.before.entryAllowed);assert(!intradayPolicy.cutoff.entryAllowed);
 assert(!intradayPolicy.weekend.entryAllowed);assert(intradayPolicy.end.closeReminder);assert(intradayPolicy.winter.closeReminder);
 console.log('Live intraday: mandatory 1h/15m/5m, optional 4h, stale veto, Zurich daily cutoff and DST OK');
+
+// Historical confirmation must use its own bar clock, independent of wall time.
+const clockChecks=vm.runInContext(`(()=>{
+ const now=Date.UTC(2026,8,15,12),steps={'5m':300000,'15m':900000,'1h':3600000};
+ const bars=Object.fromEntries(Object.entries(steps).map(([tf,step])=>[tf,Array.from({length:240},(_,i)=>{const p=4200+i*.1+Math.sin(i/8)*12;return {openTime:now-(240-i)*step,open:p,high:p+2,low:p-2,close:p,instrument:'XAU/USD',isOpen:false};})]));
+ const score=timeframeScore(bars['5m'],'5m',now);
+ const original=timeframeScore,observed=[];
+ timeframeScore=(rows,tf,asOf)=>{observed.push({asOf,last:rows.at(-1).openTime,tf});return original(rows,tf,asOf);};
+ fiveMinuteConfirmation({history:{bars_by_tf:bars}},now);
+ timeframeScore=original;
+ return {score,observed,flat:rsiS(Array(240).fill(4200)),up:rsiS(Array.from({length:240},(_,i)=>4200+i)),down:rsiS(Array.from({length:240},(_,i)=>4200-i))};
+})()`,env);
+assert(clockChecks.score.fresh,'Historical bars should be fresh at their own decision time');
+assert(clockChecks.observed.length>0);
+assert(clockChecks.observed.every(x=>Number.isFinite(x.asOf)&&x.asOf>=x.last),'Each replay frame must have an explicit historical clock');
+assert.equal(clockChecks.flat,50);assert.equal(clockChecks.up,100);assert.equal(clockChecks.down,0);
+console.log('Historical replay clock and neutral flat RSI OK');
