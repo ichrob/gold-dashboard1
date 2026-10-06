@@ -102,6 +102,16 @@ class ProductQuoteTests(unittest.TestCase):
         self.assertEqual(first['quoteAt'], second['quoteAt'])
         self.assertFalse(second['fresh']); self.assertFalse(second['eligible'])
 
+    def test_stale_response_is_distinguished_from_closed_market(self):
+        stale = q.parse_bnp(snapshot(), ISIN, NOW+timedelta(minutes=3))
+        self.assertFalse(stale['eligible'])
+        self.assertEqual(stale['quoteFailureCode'], 'STALE_OR_INVALID_SOURCE_TIME')
+        self.assertIn('Kursantwort veraltet', stale['reason'])
+        closed = snapshot()
+        closed['tradingHours']['isTradeable'] = False
+        self.assertIn('markt geschlossen', q.parse_bnp(closed, ISIN, NOW)['reason'])
+        self.assertEqual(stale['bidAt'], q.parse_bnp(snapshot(), ISIN, NOW)['bidAt'])
+
     def test_known_sg_failure_is_not_replaced_by_bnp_miss(self):
         isin='DE000FG309G0'
         with patch.dict(q._CACHE, {isin:(__import__('time').monotonic(),{'found':True,'source':'SG'})}, clear=True), patch.object(q,'get_bnp_quote') as bnp, patch.object(q,'issuer_json') as sg:
