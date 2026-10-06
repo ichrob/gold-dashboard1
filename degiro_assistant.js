@@ -806,13 +806,17 @@ async function readTermCell(worker,image,data,key){
  const rows=(data.words||[]).filter(w=>labels[key].test(w.text));if(rows.length!==1)return [];
  const bitmap=await createImageBitmap(image);
  try{
-  const b=rows[0].bbox,h=b.y1-b.y0,x=b.x1+h,y=Math.max(0,b.y0-h),height=Math.min(bitmap.height-y,3*h);
+  const b=rows[0].bbox,h=b.y1-b.y0,y=Math.max(0,b.y0-h),height=Math.min(bitmap.height-y,3*h);
+  let x=b.x1+h;
   if(h<=5||x>=bitmap.width)return [];
   const currencies=(data.words||[]).filter(w=>/^USD$/i.test(w.text)&&w.bbox.x0>x&&w.bbox.y0>=y&&w.bbox.y1<=y+height);
   if(currencies.length>1)return [];
   // The date is a separate column to the right of the right-aligned USD.
   const column=(data.words||[]).filter(w=>/^USD$/i.test(w.text)&&w.bbox.x0>x);
   const edge=currencies[0]?.bbox.x1||(column.length&&Math.max(...column.map(w=>w.bbox.x1))-Math.min(...column.map(w=>w.bbox.x1))<h?Math.max(...column.map(w=>w.bbox.x1)):null);
+  // Exclude the information icon beside the label. It can OCR as 0 or 9.
+  // Locate the amount column from the currency geometry, never another value.
+  if(edge&&column.length)x=Math.max(x,Math.min(...column.map(w=>w.bbox.x0))-5*h);
   const width=(edge?Math.min(bitmap.width,edge+Math.max(3,h*.2)):bitmap.width)-x;
   if(width<=0)return [];
   const canvas=document.createElement('canvas');canvas.width=width*3;canvas.height=height*3;
@@ -914,19 +918,6 @@ function recognizeOcr(file,statusId){
    }catch(e){secondaryFailed=true;ocrWorkerPromise=null;await worker.terminate().catch(()=>{});console.warn("[BOB] ISIN-Zweitlesung",e&&e.message?e.message:e);}
    finally{try{if(!secondaryFailed)await worker.setParameters({tessedit_pageseg_mode:"3",tessedit_char_whitelist:""});}catch(e){ocrWorkerPromise=null;await worker.terminate().catch(()=>{});}}
   }
-  // Recover malformed labelled cells as well as parsed-but-unconfirmed numbers.
-  // Both focused reads must agree; the selected product supplies no amount.
-  for(const [key,label] of [['strike','Basispreis'],['ko','Knock-Out-Barriere']]){
-   if(!new RegExp('\\b'+label+'\\b','i').test(result.data.text||''))continue;
-   if(ocrNumericFields(result.data.text)[key]!==undefined)continue;
-   const focused=await readTermCell(worker,prepared,identityData,key);
-   if(focused.length!==2||focused[0]!==focused[1])continue;
-   const row=new RegExp('(^|\\n)[ \\t]*'+label+'[^\\n]*(?:\\n[ \\t]*[oOQ®©ⓘ@]*[ \\t]*USD[^\\n]*)?','g');
-   const matches=[...result.data.text.matchAll(row)];if(matches.length!==1)continue;
-   const date=matches[0][0].match(/\b\d{2}\.\d{2}\.\d{4}\b/);
-   result.data.text=result.data.text.replace(row,(_,prefix)=>prefix+focused[0]+(date?' ('+date[0]+')':''));
-   readings.push(...focused);
-  }
   // Require agreement across segmentation/resolution passes for critical
   // numbers on single-product detail images. Never vote across uploaded files.
   if(!explicitKnockout(result.data.text)&&parseScreenshotCandidates(result.data.text||'').length<=1&&Object.keys(ocrNumericFields(result.data.text)).length){
@@ -948,6 +939,20 @@ function recognizeOcr(file,statusId){
    missing=unconfirmedOcrFields(result.data.text,readings);
    if(missing.length)throw new Error('Zahlen nicht sicher bestätigt ('+missing.join(', ')+'). Bitte diese Werte in einem schärferen Ausschnitt zeigen. Es wurde kein Wert geraten.');
    result.data.numericCrossChecked=true;
+  }
+  // Recover malformed labelled cells as well as parsed-but-unconfirmed numbers.
+  // Both focused reads must agree; the selected product supplies no amount.
+  for(const [key,label] of [['strike','Basispreis'],['ko','Knock-Out-Barriere']]){
+   if(!new RegExp('\\b'+label+'\\b','i').test(result.data.text||''))continue;
+   if(ocrNumericFields(result.data.text)[key]!==undefined)continue;
+   const focused=await readTermCell(worker,prepared,identityData,key);
+   if(focused.length!==2||focused[0]!==focused[1])continue;
+   const row=new RegExp('(^|\\n)[ \\t]*'+label+'[^\\n]*(?:\\n[ \\t]*[oOQ®©ⓘ@]*[ \\t]*USD[^\\n]*)?','g');
+   const matches=[...result.data.text.matchAll(row)];if(matches.length!==1)continue;
+   const date=matches[0][0].match(/\b\d{2}\.\d{2}\.\d{4}\b/);
+   result.data.text=result.data.text.replace(row,(_,prefix)=>prefix+focused[0]+(date?' ('+date[0]+')':''));
+   readings.push(...focused);
+   if(unconfirmedOcrFields(result.data.text,readings).includes(key))throw new Error('Widersprüchliche Zahlenlesungen für '+label+'; Wert nicht übernommen.');
   }
   for(const [key,label] of [['strike','Basispreis'],['ko','Knock-Out-Barriere']]){
    const term=parseProductTerms(result.data.text,[key])[key];
@@ -1923,7 +1928,17 @@ function screenshotIdentity(raw,expectedIsin,productContext=null){
  // Only the independently observed crop supplies the replacement; the selected
  // product is never a source. Unrelated identifiers continue to block import.
  const badge=String(raw).match(/(?:^|\n)WKN-Bildprüfung: ([A-Z0-9]{6})(?:\n|$)/);
- const unique=[...new Set(wkns.map(code=>badge&&code.length===6&&Array.from(code).every((char,i)=>ocrGlyphPair(char,badge[1][i]))?badge[1]:code))];
+ const labelled=[...new Set([...String(raw).toUpperCase().matchAll(/(?:^|\n)\s*WKN\s+([A-Z0-9]{6})\s*(?=\n|$)/g)].map(m=>m[1]))];
+ const independent=labelled.length===1?labelled[0]:null;
+ const unique=[...new Set(wkns.map(code=>{
+  if(badge&&code.length===6&&Array.from(code).every((char,i)=>ocrGlyphPair(char,badge[1][i])))return badge[1];
+  // A clearly labelled WKN in these same pixels disambiguates the browser title.
+  // The selected product never supplies the replacement.
+  if(independent&&/sg-zertifikate\.(?:de|at)\b/i.test(raw)&&code.length===6&&
+   [...code].filter((char,i)=>char!==independent[i]).length===1&&
+   [...code].every((char,i)=>char===independent[i]||/[7T]/.test(char)&&/[7T]/.test(independent[i])))return independent;
+  return code;
+ }))];
  if(validIsin(expectedIsin)&&expectedIsin.startsWith('DE000')&&unique.length===1&&unique[0]===expectedIsin.slice(5,11))return{ok:true,basis:'WKN',wkn:unique[0]};
  // The user explicitly assigns supplemental images through the issuer link.
  // Missing identity is allowed only in that captured product context. Any
