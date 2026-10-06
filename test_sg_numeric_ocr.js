@@ -100,3 +100,24 @@ vm.runInContext(code,context);const b=context.window.BobDegiro;b.setTestWorker(w
  assert.equal(snapshot.terms.ko.source,'terms.jpg');assert.equal(snapshot.terms.ko.dateText,'06.10.2026');
  console.log('Dated KO evidence survives undated repeats in either image order; expiry and conflicts still block');
 }
+
+// Text extracted by PDF.js from the actual single-product final terms.
+{
+ const pages=JSON.parse(fs.readFileSync('test_fixtures/sg_fg7k28_pdf.json','utf8'));
+ const isin='DE000FG7K283',pdf=b.parseProductPdf(pages,isin,'terms.pdf');
+ assert.equal(pdf.terms.underlying.value,'XAU/USD');
+ assert.deepEqual(Array.from(pdf.referenceDocument.pages),[23,14,13]);
+ assert(!pdf.terms.ko&&!pdf.terms.strike&&!pdf.leverage&&!pdf.sourceTime);
+ assert.throws(()=>b.parseProductPdf(pages,'DE000FG5NMF2','wrong.pdf'),/ISIN/);
+ assert.throws(()=>b.parseProductPdf(pages.concat(['DE000FG5NMF2']),isin,'multi.pdf'),/ISIN/);
+ assert.throws(()=>b.parseProductPdf(pages.map(p=>p.replaceAll('XAU Curncy','unknown')),isin,'ambiguous.pdf'),/nicht eindeutig/);
+ const old={isin,bid:8.67,ask:8.68,sourceTime:'06.10.2026 12:04:30',ko:4246.7452,leverage:42.3982,evidence:{KO:{value:4246.7452},Hebel:{value:42.3982}},terms:{ko:{value:4246.7452,dateText:'06.10.2026'}}};
+ const merged=b.mergeScreenshotEvidence(old,pdf,pdf.terms.underlying.source);
+ assert.equal(merged.bid,8.67);assert.equal(merged.sourceTime,old.sourceTime);assert.equal(merged.terms.ko.dateText,'06.10.2026');assert.equal(merged.leverage,42.3982);
+ const again=b.mergeScreenshotEvidence(merged,{isin,terms:{underlying:{value:'Gold'}}},'new-image.jpg');assert.equal(again.terms.underlying.value,'XAU/USD');
+ const saved=JSON.stringify({[isin]:pdf});context.localStorage={getItem:k=>k==='bobProductPdfReferencesV1'?saved:null};
+ const restored=b.restorePdfReference({isin});assert.equal(restored.snapshot.terms.underlying.value,'XAU/USD');
+ assert(!b.restorePdfReference({isin:'DE000FG5NMF2'}).snapshot);
+ assert(b.screenshotSummary(merged).includes('Bloomberg XAU Curncy'));
+ console.log('PDF identity, reference definitions, persistence and market-data isolation passed');
+}

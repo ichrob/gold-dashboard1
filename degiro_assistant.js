@@ -1265,7 +1265,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben'){
  (values.length?'<details style="margin-top:10px"><summary>Automatisch erkannte Werte</summary><div class="small">'+values.map(esc).join('<br>')+'</div></details>':'')+
  (unconfirmed.length?'<div class="small" style="margin-top:8px"><em>'+unconfirmed.map(esc).join('<br>')+'</em></div>':'')+
  '<details style="margin-top:8px"><summary>Fehlende Werte ('+groups.length+')</summary><div class="small">'+(groups.length?groups.map(esc).join('<br>'):'Keine fehlenden Produktnachweise.')+'</div></details>'+
- renderIssuerHelp(p,reasons)+renderTestScreenshotRequest(p)+'<button data-selection-upload="'+p.index+'">Screenshots hinzufügen</button>'+renderImageImportStatus(p.index)+
+ renderIssuerHelp(p,reasons)+renderTestScreenshotRequest(p)+'<button data-selection-upload="'+p.index+'">Bilder / PDF hinzufügen</button>'+renderImageImportStatus(p.index)+
  '<details data-product-details="'+p.index+'" style="margin-top:10px"><summary>Quellen und Einzelheiten</summary><div class="small">'+esc(p.name||'')+'</div>'+renderProductSources(p)+renderMissingValues(reasons,p)+renderProductDecision(p,false,[status,...reasons])+screenshotSummary(x)+'<button data-card-research="'+p.index+'">Daten erneut abrufen</button></details></div>';
 }
 function bindCompactCards(root){
@@ -1523,6 +1523,7 @@ const PRODUCT_CONDITION_RESEARCH={
 const CONDITION_RESEARCH_AT='2026-10-03T13:10:00Z';
 function applyResearchedTerms(items){
  return items.map(p=>{
+  p=restorePdfReference(p);
   const record=PRODUCT_CONDITION_RESEARCH[p.isin];if(!record||p.direction!==record.direction)return p;
   const old=p.snapshot?.isin===p.isin?p.snapshot:{isin:p.isin},terms={...old.terms};
   for(const [key,value]of Object.entries(record.values))if(!terms[key]||terms[key].value===undefined||terms[key].value==='')terms[key]={value,at:null,source:record.source,conditionVerified:true,reviewedAt:CONDITION_RESEARCH_AT};
@@ -1762,12 +1763,69 @@ function prefillCombinedForm(i,draft,image){
  if(summary)summary.innerHTML='<b>Automatisch aus Bildern übernommen – bitte prüfen</b>'+Object.entries(merged.fields).filter(([,v])=>v!=='').map(([key,value])=>'<div>'+esc(key)+': '+esc(value)+' · Bild '+esc(merged.evidence[key]||image)+'</div>').join('')+merged.notes.map(note=>'<div>'+esc(note)+'</div>').join('');
  form.open=true;
 }
+const PDF_REFERENCE_STORE='bobProductPdfReferencesV1';
+function restorePdfReference(p){
+ try{
+  const record=JSON.parse(localStorage.getItem(PDF_REFERENCE_STORE)||'{}')[p.isin];
+  if(!record||record.isin!==p.isin||record.terms?.underlying?.value!=='XAU/USD'||!record.referenceDocument)return p;
+  const old=p.snapshot?.isin===p.isin?p.snapshot:{isin:p.isin};
+  if(old.terms?.underlying?.value&&!['Gold','XAU/USD'].includes(old.terms.underlying.value))return p;
+  return {...p,snapshot:mergeScreenshotEvidence(old,record,record.terms.underlying.source)};
+ }catch(_){return p;}
+}
+// Product PDFs supply static definitions only, never current market evidence.
+function parseProductPdf(pages,expected,name){
+ if(!validIsin(expected))throw new Error('Bitte zuerst eine gültige ISIN auswählen.');
+ const normalized=pages.map(p=>String(p).replace(/\s+/g,' ').replace(/\(\s+/g,'(').replace(/\s+\)/g,')').replace(/"\s*(Referenzpreis)\s*"/g,'"$1"').trim());
+ const all=normalized.join(' '),ids=[...new Set(all.match(/\b[A-Z]{2}[A-Z0-9]{9}[0-9]\b/g)||[])].filter(validIsin);
+ if(ids.length!==1||ids[0]!==expected)throw new Error('PDF ist nicht eindeutig dieser ISIN zugeordnet. Bitte die Einzelprodukt-Bedingungen wählen.');
+ const table=normalized.findIndex(p=>/Ausstattungstabelle/.test(p)&&p.includes(expected)&&/Basiswert:\s*Gold \(unallocated gold\) gemäß den Regeln der LBMA/.test(p));
+ const ko=normalized.findIndex(p=>/Knock-out-Ereignis/.test(p)&&/Bloomberg-Seite XAU Curncy/.test(p)&&/Briefkurs \(im Falle von Typ Put\)/.test(p));
+ const fixing=normalized.findIndex(p=>/"Referenzpreis" ist/.test(p)&&/am Vormittag festgestellte[nr]? Gold-Preis/.test(p)&&/Feinunze/.test(p));
+ if(table<0||ko<0||fixing<0||!/Typ:\s*Put\b/.test(normalized[table]))throw new Error('Goldreferenz in diesem PDF noch nicht eindeutig unterstützt. Es wurden keine Werte geändert.');
+ const source=name+' · Seiten '+[table+1,ko+1,fixing+1].join(', '),reviewedAt=new Date().toISOString();
+ const evidence=value=>({value,source,conditionVerified:true,reviewedAt});
+ return {ok:true,isin:expected,identityBasis:'ISIN',terms:{underlying:evidence('XAU/USD')},
+  referenceDocument:{name,isin:expected,importedAt:reviewedAt,pages:[table+1,ko+1,fixing+1],
+   underlying:'Gold (unallocated gold) gemäß LBMA-Regeln',referenceVenue:'London Gold Market',
+   knockOutReference:'Bloomberg XAU Curncy · Briefkurs USD je Feinunze (Put)',settlementReference:'Morgendliches Goldfixing / LBMA Gold Price AM',
+   excerpts:[normalized[table].slice(0,1800),normalized[ko].slice(0,6000),normalized[fixing].slice(0,6000)]}};
+}
+let pdfLibraryPromise;
+async function readProductPdf(file,expected){
+ if(file.size>15*1024*1024)throw new Error('PDF zu groß. Maximal 15 MB.');
+ const bytes=new Uint8Array(await file.arrayBuffer());
+ if(String.fromCharCode(...bytes.slice(0,5))!=='%PDF-')throw new Error('Keine gültige PDF-Datei.');
+ if(!pdfLibraryPromise)pdfLibraryPromise=import('https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.624/legacy/build/pdf.mjs').catch(e=>{pdfLibraryPromise=null;throw e;});
+ const lib=await pdfLibraryPromise;
+ lib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.624/legacy/build/pdf.worker.mjs';
+ const task=lib.getDocument({data:bytes,isEvalSupported:false,useSystemFonts:false,disableFontFace:true});
+ task.onPassword=()=>task.destroy();
+ try{
+  const pdf=await task.promise;if(pdf.numPages>80)throw new Error('Bitte die Einzelprodukt-Bedingungen mit höchstens 80 Seiten wählen.');
+  const pages=[];
+  for(let i=1;i<=pdf.numPages;i++){
+   const page=await pdf.getPage(i),content=await page.getTextContent();pages.push(content.items.map(x=>x.str||'').join(' '));page.cleanup();
+  }
+  return parseProductPdf(pages,expected,file.name);
+ }finally{await task.destroy();}
+}
 async function readScreenshot(i,file){
  const status=document.getElementById("dgOcrStatus"+i),field=k=>document.querySelector('[data-dg="'+k+'"][data-i="'+i+'"]');
  if(!file)return;
  const expected=(field("isin")?.value||"").trim().toUpperCase(),version=(rowVersions.get(i)||0)+1;rowVersions.set(i,version);
  if(status)status.textContent="📷 "+file.name+" für "+expected+" wird automatisch eingelesen …";rankUI();
  try{
+  if(file.type==='application/pdf'||/\.pdf$/i.test(file.name||'')){
+   const x=await readProductPdf(file,expected);
+   if((rowVersions.get(i)||0)!==version||(field('isin')?.value||'').trim().toUpperCase()!==expected)return;
+   const old=detailScreenshots.get(i);
+   if(old?.terms?.underlying?.value&&!['Gold','XAU/USD'].includes(old.terms.underlying.value))throw new Error('PDF widerspricht der gespeicherten Basiswertdefinition. Keine Änderung.');
+   const records=JSON.parse(localStorage.getItem(PDF_REFERENCE_STORE)||'{}');records[expected]=x;
+   localStorage.setItem(PDF_REFERENCE_STORE,JSON.stringify(records));
+   detailScreenshots.set(i,mergeScreenshotEvidence(old,x,x.terms.underlying.source));
+   rankUI();return {ok:true,reason:'PDF: Gold-Spot-Referenz geprüft und gespeichert (Seiten '+x.referenceDocument.pages.join(', ')+')'};
+  }
   const result=await recognizeOcr(file,"dgOcrStatus"+i);
   if((rowVersions.get(i)||0)!==version||(field("isin")?.value||"").trim().toUpperCase()!==expected)return;
   const x=detailScreenshotData(result.data.text,expected);
@@ -1852,6 +1910,7 @@ function mergeScreenshotEvidence(previous,x,source){
  for(const [key,value] of Object.entries(x.times||{}))if(hasQuote&&['quote','bid','ask'].includes(key)||!['quote','bid','ask'].includes(key)&&value.present)merged.times[key]=value;
  merged.terms={...(previous.terms||{})};
  for(const [key,value] of Object.entries(x.terms||{})){
+  if(key==='underlying'&&value.value==='Gold'&&merged.terms[key]?.conditionVerified&&merged.terms[key].value==='XAU/USD')continue;
   if(value.fromQuote&&merged.terms[key]?.value===value.value)continue;
   if(merged.terms[key]?.value===value.value&&!value.at&&!value.dateText&&!value.ocrCorrection&&(merged.terms[key].at||merged.terms[key].dateText))continue;
   const incoming={...value,source};
@@ -1878,7 +1937,8 @@ function screenshotTimeLabel(x){
 }
 function screenshotSummary(x){
  if(!x)return "";
- const seriesNote=x.captureSeries?'<div><b>Gemeinsame Aufnahmeserie: '+esc(x.captureSeries.text)+'</b><br>'+esc(x.captureSeries.basis)+' · '+esc(x.captureSeries.timezone)+'<br>Bildquellen: '+esc(x.captureSeries.sources.join(', '))+'</div>':'';
+ const documentNote=x.referenceDocument?'<div><b>PDF-Goldreferenz</b><br>'+esc(x.referenceDocument.underlying)+'<br>KO: '+esc(x.referenceDocument.knockOutReference)+'<br>Abrechnung: '+esc(x.referenceDocument.settlementReference)+'</div>':'';
+ const seriesNote=documentNote+(x.captureSeries?'<div><b>Gemeinsame Aufnahmeserie: '+esc(x.captureSeries.text)+'</b><br>'+esc(x.captureSeries.basis)+' · '+esc(x.captureSeries.timezone)+'<br>Bildquellen: '+esc(x.captureSeries.sources.join(', '))+'</div>':'');
  const labels={ratio:'Bezugsverhältnis',strike:'Basispreis USD',underlying:'Basiswert',contract:'Future-Kontrakt',type:'Produkttyp',maturity:'Laufzeit',currency:'Produktwährung',ko:'KO-Barriere'};
  const card=(label,e,time)=>'<div style="min-width:0;max-width:100%;overflow-wrap:anywhere;border-bottom:1px solid #ddd;padding:10px 0;'+(calculationAge(e.at,SCREENSHOT_MAX_AGE_MS)&&!e.conditionVerified?'font-style:italic':'')+'"><b>'+esc(label)+': '+esc(e.value)+'</b>'+(e.ocrCorrection?'<div>'+esc(e.ocrCorrection)+'</div>':'')+'<div>Quelle: '+esc(e.source||'nicht angegeben')+'</div><div>'+esc(time)+'</div></div>';
  const terms=x.terms||{},ko=x.evidence?.KO;
@@ -1952,7 +2012,7 @@ async function inject(){
  b.id="dgTop3";
  b.style.cssText="margin-top:14px;padding:16px;background:#f7f9fc;border-radius:20px;border:1px solid #e5eaf2";
  b.innerHTML='<div style="display:flex;align-items:center;gap:9px"><span style="font-size:25px">🎯</span><div><b style="font-size:18px">DEGIRO-Assistent</b><div class="small">Produktliste erfassen → Bilder pro ISIN ergänzen → belegte Daten vergleichen</div></div></div>'+
- '<div id="dgScreenshotReturn" hidden style="margin-top:14px;padding:14px;background:#eaf3ff;border:2px solid #1677ff;border-radius:14px;scroll-margin-top:16px"><b>Screenshots für <span data-return-isin></span></b><p class="small">Hier beim zuletzt geöffneten Produkt weitermachen. Die Bilder werden weiterhin auf die passende ISIN geprüft.</p><button type="button" data-return-upload style="width:100%;background:#1677ff">↑ Bilder für dieses Produkt hinzufügen</button><button type="button" data-return-close>Fertig / ausblenden</button><div role="status" data-return-status></div></div>'+
+ '<div id="dgScreenshotReturn" hidden style="margin-top:14px;padding:14px;background:#eaf3ff;border:2px solid #1677ff;border-radius:14px;scroll-margin-top:16px"><b>Screenshots für <span data-return-isin></span></b><p class="small">Hier beim zuletzt geöffneten Produkt weitermachen. Die Bilder werden weiterhin auf die passende ISIN geprüft.</p><button type="button" data-return-upload style="width:100%;background:#1677ff">↑ Bilder / PDF für dieses Produkt hinzufügen</button><button type="button" data-return-close>Fertig / ausblenden</button><div role="status" data-return-status></div></div>'+
  '<div style="margin-top:14px;padding:12px;background:#fff;border-radius:16px;border:1px solid #e1e7f0">'+
  '<b>📷 DEGIRO-Liste</b><button type="button" id="dgListUploadButton" style="margin-top:10px;width:100%;background:#1677ff">↑ DEGIRO-Liste hochladen</button>'+
  '<input id="dgListUpload" type="file" accept="image/*" multiple hidden>'+
@@ -1972,7 +2032,7 @@ async function inject(){
   const r=document.createElement("div");
   r.style.cssText="margin:8px 0;padding:9px;background:#fff;border-radius:10px";
   r.innerHTML='<b>Kandidat '+i+'</b><div id="dgOcrStatus'+i+'" class="small" style="margin-top:5px">Wartet auf Screenshot.</div><div id="dgResearch'+i+'" class="small research" style="margin-top:5px">🌐 Zusatzdaten: warten auf ISIN.</div><div class="grid" style="margin-top:6px"><input data-dg="name" data-i="'+i+'" placeholder="Produktname / ISIN"><select data-dg="dir" data-i="'+i+'"><option value="">Richtung</option><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select><input data-dg="price" data-i="'+i+'" type="number" step=".0001" placeholder="Produktkurs"><input data-dg="lev" data-i="'+i+'" type="number" step=".1" placeholder="Hebel"><input data-dg="ko" data-i="'+i+'" type="number" step=".01" placeholder="KO-Level"><input data-dg="isin" data-i="'+i+'" placeholder="ISIN"></div><button data-research="'+i+'">Aktuelle Produktdaten laden</button>';
-  r.insertAdjacentHTML("beforeend",'<div id="dgEvidence'+i+'"></div><div style="margin-top:8px"><label for="dgDetailShot'+i+'">📷 Zusatzbild für dieses Produkt hochladen</label><input id="dgDetailShot'+i+'" type="file" accept="image/*" multiple><div class="small">Produktdetail oder Kursdaten mit sichtbarer ISIN. Mehrere Bilder können nacheinander ergänzt werden. Kurszeit braucht Datum, Sekunden und Zeitzone; Hebel und KO benötigen eigene Quellenzeiten. Fehlende Zeiten werden nicht ergänzt.</div></div>');
+  r.insertAdjacentHTML("beforeend",'<div id="dgEvidence'+i+'"></div><div style="margin-top:8px"><label for="dgDetailShot'+i+'">📎 Bilder / PDF für dieses Produkt hochladen</label><input id="dgDetailShot'+i+'" type="file" accept="image/*,application/pdf,.pdf" multiple><div class="small">PDF-Endgültige Bedingungen oder Produktdetail oder Kursdaten mit sichtbarer ISIN. Mehrere Bilder können nacheinander ergänzt werden. Kurszeit braucht Datum, Sekunden und Zeitzone; Hebel und KO benötigen eigene Quellenzeiten. Fehlende Zeiten werden nicht ergänzt.</div></div>');
   r.insertAdjacentHTML("beforeend",window.BobCombined.form(i));
   r.querySelector('[data-fixed-save]').addEventListener('click',()=>{
    const read=k=>r.querySelector('[data-dg="'+k+'"]')?.value.trim()||'';
@@ -2184,7 +2244,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
