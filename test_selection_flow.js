@@ -486,3 +486,21 @@ assert(b.futureResearchText(direct.quote,now).includes('GOLD-CFD ALS FUTURE-REFE
 direct.quote.futureResearch.futureReference.validation.ready=false;assert(!b.conditionalCandidate(direct,context,now).ok);
 direct.quote.futureResearch.futureReference.validation.ready=true;direct.quote.futureResearch.futureReference.priceAt=at(-61);assert(!b.conditionalCandidate(direct,context,now).ok);
 console.log('CFD-first future reference, source label, independent validation and expiry passed');
+
+// Today's independently dated BNP terms supersede expired screenshot terms.
+const bnpDateNow=Date.parse('2026-10-06T07:30:00Z');
+const datedSource='https://derivate.bnpparibas.com/product-details/DE000PJ9NB98/';
+const datedConditions={};
+for(const [key,value] of Object.entries({strike:3997.1452,ko:3997.1452,ratio:.1,underlying:'XAU/USD',type:'Unlimited Long',maturity:'Open End',currency:'EUR'}))datedConditions[key]={value,source:datedSource,at:null,dateText:['strike','ko'].includes(key)?'06.10.2026':undefined,conditionVerified:true,reviewedAt:'2026-10-06T07:29:00Z'};
+const datedProduct={isin:'DE000PJ9NB98',isinConfirmed:true,productDirection:'LONG',ko:3997.1452,quote:{isin:'DE000PJ9NB98',productVerified:true,source:datedSource,checkedAt:'2026-10-06T07:29:00Z',metadata:{ko:3997.1452,strike:3997.1452,status:1,termsDated:true,termsDate:'06.10.2026'},conditions:datedConditions},snapshot:{isin:'DE000PJ9NB98',identityBasis:'ISIN',terms:{strike:{value:3996.2705,source:'old.jpg',dateText:'05.10.2026'}},evidence:{KO:{value:3996.2705,source:'old.jpg',dateText:'05.10.2026'}}}};
+assert(b.productTermsStatus(datedProduct,bnpDateNow).complete,JSON.stringify(b.productTermsStatus(datedProduct,bnpDateNow)));
+assert(!b.productTermsStatus(datedProduct,bnpDateNow+86400000).complete);
+const datedConflict=JSON.parse(JSON.stringify(datedProduct));datedConflict.snapshot.terms.strike.dateText='06.10.2026';
+assert(b.productTermsStatus(datedConflict,bnpDateNow).reasons.some(r=>r.includes('widersprechen')));
+assert(b.renderIssuerHelp(datedProduct,['Basispreis fehlt']).includes(datedSource));
+assert.equal(b.parseScreenshotCandidates(bnpLine.replace('DEOOOPJINCKO','DE000PJONCKO'))[0].isin,bnp.isin);
+assert.notEqual(b.parseScreenshotCandidates(bnpLine.replace('DEOOOPJINCKO','DE000PJONCKO').replace('BNP','SG'))[0].isin,bnp.isin);
+console.log('BNP direct dated terms: stale images, midnight expiry, conflicts, issuer link and known OCR variant passed');
+
+assert.equal(b.cleanStoredProduct({isin:'DE000PJONCKO',name:bnpLine,direction:'LONG'}).isin,bnp.isin);
+const koConflict=JSON.parse(JSON.stringify(datedProduct));koConflict.snapshot.evidence.KO.dateText='06.10.2026';assert(b.productTermsStatus(koConflict,bnpDateNow).reasons.some(r=>r.includes('widersprechen')));

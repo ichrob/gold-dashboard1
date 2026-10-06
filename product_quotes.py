@@ -3,6 +3,7 @@ Endpoint and public client headers are those used by the issuer's product page.
 Never substitute request time for bid, ask or leverage timestamps.
 """
 import json
+import html
 import math
 import re
 import threading
@@ -281,6 +282,76 @@ def bnp_product_data(data, isin, now=None):
                        'BNP-Produktbedingungen erkannt; Kurszeiten und Gültigkeitsstand von Basispreis/KO separat prüfen')
 
 
+_BNP_TERMS_CACHE = {}
+
+def parse_bnp_dated_terms(page, isin, metadata, now=None):
+    """Use only dated, labelled rows of this product's visible issuer table."""
+    now = now or datetime.now(timezone.utc)
+    identities = []
+    for script in re.findall(r'<script\b[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', page, re.S | re.I):
+        try:
+            obj = json.loads(html.unescape(script))
+        except (ValueError, TypeError):
+            continue
+        if isinstance(obj, dict) and obj.get('@type') == 'FinancialProduct':
+            identities.append(obj.get('identifier'))
+    if identities != [isin]:
+        raise ValueError('BNP-Seitenidentität nicht eindeutig')
+    tables = re.findall(r'<table\b[^>]*>(.*?)</table>', page, re.S | re.I)
+    tables = [t for t in tables if re.search(r'<caption>\s*Stammdaten\s*</caption>', t, re.I)]
+    if len(tables) != 1:
+        raise ValueError('BNP-Stammdatentabelle nicht eindeutig')
+    conditions = {}
+    for row in re.findall(r'<tr\b[^>]*>(.*?)</tr>', tables[0], re.S | re.I):
+        cells = re.findall(r'<t[hd]\b[^>]*>(.*?)</t[hd]>', row, re.S | re.I)
+        cells = [' '.join(html.unescape(re.sub(r'<[^>]+>', '', c)).split()) for c in cells]
+        if len(cells) != 2:
+            continue
+        label = re.fullmatch(r'(Knock-Out Schwelle|Basispreis) \((\d{2}\.\d{2}\.\d{4})\)', cells[0])
+        if not label:
+            continue
+        key = 'ko' if label[1] == 'Knock-Out Schwelle' else 'strike'
+        value = re.fullmatch(r'(\d{1,3}(?:\.\d{3})*|\d+),(\d+) USD', cells[1])
+        if not value or key in conditions:
+            raise ValueError('BNP-Stammdatenwert nicht eindeutig')
+        amount = float(value[1].replace('.', '')+'.'+value[2])
+        date = datetime.strptime(label[2], '%d.%m.%Y').date()
+        if date != now.astimezone(ZoneInfo('Europe/Zurich')).date() or amount <= 0 or amount != metadata.get(key):
+            raise ValueError('BNP-Stammdaten veraltet oder widersprüchlich')
+        conditions[key] = dict(value=amount, at=None, dateText=label[2],
+            source=ORIGIN+'product-details/'+isin+'/', conditionVerified=True,
+            reviewedAt=now.isoformat())
+    if set(conditions) != {'ko', 'strike'}:
+        raise ValueError('Datierte BNP-Stammdaten fehlen')
+    return conditions
+
+
+def get_bnp_dated_terms(isin, metadata):
+    now = datetime.now(timezone.utc)
+    with _LOCK:
+        cached = _BNP_TERMS_CACHE.get(isin)
+    if cached and time.monotonic()-cached[0] < 600:
+        try:
+            return parse_bnp_dated_terms(cached[1], isin, metadata, now)
+        except ValueError:
+            pass  # Day rollover or changed terms require a new page.
+    url = ORIGIN+'product-details/'+isin+'/'
+    request = Request(url, headers={'User-Agent':'Bob/1.7 public product research', 'Accept':'text/html'})
+    with urlopen(request, timeout=8) as response:
+        if response.url.split('?')[0] != url:
+            raise ValueError('Unerwartete BNP-Produktseite')
+        body = response.read(2_000_001)
+    if len(body) > 2_000_000:
+        raise ValueError('BNP-Produktseite zu groß')
+    page = body.decode('utf-8')
+    conditions = parse_bnp_dated_terms(page, isin, metadata, now)
+    with _LOCK:
+        if len(_BNP_TERMS_CACHE) >= 256:
+            _BNP_TERMS_CACHE.pop(next(iter(_BNP_TERMS_CACHE)))
+        _BNP_TERMS_CACHE[isin] = (time.monotonic(), page)
+    return conditions
+
+
 def bnp_source_error(exc):
     """Stable diagnostic codes; never return raw provider bodies or exceptions."""
     if isinstance(exc, HTTPError):
@@ -374,6 +445,16 @@ def get_bnp_quote(isin):
         result.update(sourceFailure=terms is None, quoteFailureCode=code, reason=reason)
         if terms and terms['metadata']['status'] == 2:
             result['reason'] = terms['reason']+' · '+reason
+    if terms and terms['metadata']['status'] == 1:
+        try:
+            dated = get_bnp_dated_terms(isin, terms['metadata'])
+            result['conditions'].update(dated)
+            result['metadata'].update(termsDated=True, termsDate=dated['ko']['dateText'])
+            result['observedTerms']['effectiveDate'] = dated['ko']['dateText']
+            if result.get('eligible'):
+                result['reason'] = 'BNP-Kurs aktuell; Basispreis und KO mit Emittenten-Datenstand '+dated['ko']['dateText']+' bestätigt'
+        except Exception:
+            result['termsFailureCode'] = 'DATED_TERMS_UNAVAILABLE'
     return result
 
 
@@ -390,6 +471,8 @@ def get_quote(isin):
     issuer = get_issuer_quote(isin)
     if issuer.get('productVerified') and issuer.get('metadata', {}).get('status') == 2:
         return dict(issuer, found=False, eligible=False, exchangeResearch=terms)
+    if issuer.get('productVerified') and issuer.get('metadata', {}).get('termsDated') is True:
+        return dict(issuer, exchangeResearch=terms)
     if not terms.get('productVerified'):
         if issuer.get('found') or issuer.get('productVerified'):
             return dict(issuer, exchangeResearch=terms)
