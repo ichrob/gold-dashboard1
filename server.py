@@ -1,3 +1,4 @@
+import intraday_comparison
 import os
 import base64
 import hmac
@@ -1112,7 +1113,7 @@ def fibonacci_monitor_loop():
             FIB_MONITOR_HEALTH.update(status="checking", lastCheckedAt=int(time.time()))
             background_ok = True
             print("BOB_FIB monitor_connected active="+str(active), flush=True)
-            if active:
+            if active or intraday_comparison.active():
                 try:
                     bundle = build_live_bundle()
                     bars = bundle.get("history", {}).get("bars_by_tf", {})

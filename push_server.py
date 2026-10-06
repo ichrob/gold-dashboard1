@@ -11,6 +11,7 @@ import bob_session_store
 import bob_market_store
 import bob_validation_store
 import decision_audit
+import intraday_comparison
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -215,6 +216,20 @@ def deliver_background_tests():
 def run_background(bundle):
     sent = 0
     with db() as conn:
+        # A single independent campaign, even with no devices subscribed to Push.
+        now=int(time.time()*1000)
+        if intraday_comparison.active(now):
+            try:
+                with conn.transaction():
+                    slot=intraday_comparison.slot_at(now)
+                    if intraday_comparison.eligible(slot) and now-slot<300000 and not conn.execute('SELECT 1 FROM bob_intraday_comparison WHERE campaign=%s AND slot=%s',(intraday_comparison.ID,slot)).fetchone():
+                        try: trial=background_push.analyze(bundle,{'timeframe':'15m'})
+                        except Exception: trial={'ready':False,'decisionReason':'Hintergrundanalyse fehlgeschlagen'}
+                        intraday_comparison.capture(conn,trial,now)
+                        print('BOB_COMPARISON captured valid='+str(bool(trial.get('ready') and trial.get('priceFresh'))),flush=True)
+                    else: intraday_comparison.harvest(conn,now)
+            except Exception as exc:
+                print('BOB_COMPARISON error='+type(exc).__name__,flush=True)
         rows = conn.execute("SELECT id, subscription, general_enabled, trade_enabled, active_trade, background_config, background_state, selection_evidence, product_selection FROM subscriptions WHERE (general_enabled=TRUE OR (trade_enabled=TRUE AND active_trade=TRUE)) AND background_config IS NOT NULL FOR UPDATE").fetchall()
         for sid, sub, general, trade, active, settings, previous, evidence, selection in rows:
             try:
