@@ -121,3 +121,7 @@ vm.runInContext(code,context);const b=context.window.BobDegiro;b.setTestWorker(w
  assert(b.screenshotSummary(merged).includes('Bloomberg XAU Curncy'));
  console.log('PDF identity, reference definitions, persistence and market-data isolation passed');
 }
+{
+ const cases=[['Basiswert ungenau: Gold allein','Endgültige Bedingungen'],['Hebel fehlt','Kennzahlen'],['Geld und Brief fehlen','Kursbereich'],['Basispreis fehlt','Stammdaten'],['KO fehlt','Stammdaten'],['Bezugsverhältnis fehlt','Stammdaten'],['ISIN fehlt','Stammdaten'],['Laufzeit fehlt','Fälligkeit'],['Future-Kontrakt fehlt','Kontraktmonat'],['Währung fehlt','Währung']];
+ for(const [reason,where] of cases){assert(b.missingValueLocation(reason).includes(where));const html=b.compactProductCard({isin:'DE000FG7K283',index:0},[reason]);assert(html.includes('Fundort:'));assert(html.includes(where));}
+}
