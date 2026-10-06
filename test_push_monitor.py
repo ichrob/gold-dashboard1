@@ -43,6 +43,25 @@ class PushMonitorTests(unittest.TestCase):
             run.assert_called_once()
             sleep.assert_not_called()
 
+    def test_selection_transient_lock_retries_without_rechecking_payload(self):
+        locked = push_server.psycopg.errors.LockNotAvailable('fixture')
+        first = MagicMock()
+        first.__enter__.return_value.execute.side_effect = locked
+        second = MagicMock()
+        conn = second.__enter__.return_value
+        row = (123, {'endpoint': 'fixture'}, None)
+        conn.execute.return_value.fetchone.return_value = row
+        with patch.object(push_server, 'db', side_effect=[first, second]) as database, \
+             patch.object(push_server, 'deliver_product_selection', return_value=0) as deliver, \
+             patch.object(push_server.time, 'sleep') as sleep:
+            result = push_server.store_product_selection(
+                'fixture', {'products': []}, {'products': []})
+        self.assertEqual(result, (row, 0))
+        self.assertEqual(database.call_count, 2)
+        sleep.assert_called_once_with(0.25)
+        deliver.assert_called_once_with(conn, row, {'products': []})
+        conn.commit.assert_called_once()
+
     @classmethod
     def setUpClass(cls):
         cls.httpd=push_server.ThreadingHTTPServer(('127.0.0.1',0),push_server.Handler)
@@ -99,6 +118,16 @@ class PushMonitorTests(unittest.TestCase):
         with patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'),patch.object(push_server,'db',db),patch.object(push_server.product_push,'evaluate',return_value={'products':[]}),patch.object(push_server,'webpush') as send:
             status,result=self.request('/selection',{'endpoint':'fixture'})
             self.assertEqual(status,200);self.assertTrue(result['disabled']);send.assert_not_called()
+    def test_selection_reports_retryable_busy_after_bounded_retries(self):
+        db,conn=self.connection();conn.execute.return_value.fetchone.return_value=(True,)
+        locked=push_server.psycopg.errors.LockNotAvailable('fixture')
+        with patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'), \
+             patch.object(push_server,'db',db), \
+             patch.object(push_server.product_push,'evaluate',return_value={'products':[]}), \
+             patch.object(push_server,'store_product_selection',side_effect=locked):
+            status,result=self.request('/selection',{'endpoint':'fixture'})
+        self.assertEqual(status,503)
+        self.assertTrue(result['retryable'])
     def test_failed_product_delivery_does_not_consume_transition(self):
         _,conn=self.connection();now=int(push_server.time.time()*1000)
         checked={'products':[{'isin':'fixture','direction':'LONG','scope':'XAU/USD'}], 'expiresAt':now+25000}
