@@ -34,3 +34,21 @@ const turn=()=>new Promise(resolve=>setImmediate(resolve));
  clock+=60000;await failing.refresh();assert.equal(failures,2);
  console.log('Automatic ISIN refresh: passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});
+// A network failure must retain dated product evidence without retaining a quote.
+{
+ const api=window.BobDegiro,isin='DE000PG0XK25';
+ const prior={isin,productVerified:true,found:true,eligible:true,fresh:true,marketOpen:true,source:'BNP Paribas',checkedAt:'2026-10-06T16:00:00Z',quoteAt:'2026-10-06T16:00:00Z',metadata:{status:1,direction:'LONG'},conditions:{ko:{value:3456.2486,dateText:'06.10.2026'}},futureResearch:{marketOpen:true},calculatedProduct:{price:12}};
+ const imageUpdate=api.invalidateProductQuote(prior);
+ assert.deepEqual(imageUpdate.conditions,prior.conditions);assert.equal(imageUpdate.productVerified,true);assert.equal(imageUpdate.found,false);assert.equal(imageUpdate.futureResearch,null);
+ const failure={isin,sourceFailure:true,reason:'Timeout',attemptedAt:'2026-10-06T16:01:00Z'};
+ const kept=api.retainProductResearch(prior,failure,isin);
+ assert.equal(kept.productVerified,true);assert.deepEqual(kept.conditions,prior.conditions);
+ assert.equal(kept.checkedAt,prior.checkedAt);assert.equal(kept.quoteAt,prior.quoteAt);
+ for(const key of ['found','eligible','fresh','marketOpen'])assert.equal(kept[key],false);
+ assert.equal(kept.futureResearch,null);assert.equal(kept.calculatedProduct,null);
+ assert.equal(api.currentQuote({isin,quote:kept,isinConfirmed:true}),false);
+ for(const response of [{...failure,isin:'DE000PJ9NB98'},{...failure,sourceDisabled:true},{...failure,productVerified:true,metadata:{status:2}},{...failure,sourceFailure:false}])assert.strictEqual(api.retainProductResearch(prior,response,isin),response);
+ assert.strictEqual(api.retainProductResearch({...prior,isin:'DE000PJ9NB98'},failure,isin),failure);
+ const dead=api.retainProductResearch({...prior,metadata:{status:2}},failure,isin);assert.equal(dead.metadata.status,2);
+ console.log('Product research retention: passed');
+}
