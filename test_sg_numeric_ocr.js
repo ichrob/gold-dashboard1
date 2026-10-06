@@ -49,6 +49,28 @@ vm.runInContext(code,context);const b=context.window.BobDegiro;b.setTestWorker(w
  assert(!b.detailScreenshotData(headerless.data.text,'DE000FG5NMF2').ok);
  assert.equal(b.sgIdentityRect({text:'ISIN WKN',words:noAddress[0].words},709,1536),null);
  assert.equal(b.sgIdentityRect({...noAddress[0],words:noAddress[0].words.concat(noAddress[0].words.find(w=>w.text==='ISIN'))},709,1536),null);
+ const latest=JSON.parse(fs.readFileSync('test_fixtures/sg_fg7k28_terms_1216.json','utf8'));
+ inputPasses=latest.concat([{text:'4.246,7452 10 502)\n) usp (°'},{text:'4.246,7452\n06.10.2026)\nUSD ('}]);index=0;
+ const latestResult=await b.recognizeOcr({});assert.equal(index,7);
+ const latestTerms=b.detailScreenshotData(latestResult.data.text,'DE000FG7K283');assert(latestTerms.ok,latestTerms.reason);
+ assert.equal(latestTerms.terms.strike.value,4246.7452);assert.equal(latestTerms.terms.strike.dateText,'06.10.2026');
+ const description=JSON.parse(fs.readFileSync('test_fixtures/sg_fg7k28_description.json','utf8'));
+ inputPasses=description;index=0;
+ const proseResult=await b.recognizeOcr({});assert.equal(index,2);
+ const prose=b.detailScreenshotData(proseResult.data.text,'DE000FG7K283');assert(prose.ok,prose.reason);
+ assert.equal(prose.terms.ratio.value,.1);assert.equal(prose.terms.strike.value,4246.7452);
+ assert.equal(prose.terms.ko.value,4246.7452);assert.equal(prose.terms.ko.dateText,null);
+ assert.equal(prose.terms.underlying.value,'Gold');assert.equal(prose.bid,null);assert.equal(prose.ask,null);
+ assert(!b.detailScreenshotData(proseResult.data.text,'DE000FG5NMF2').ok);
+ for(const order of [[latestTerms,prose],[prose,latestTerms]]){
+  const merged=order.reduce((prev,x)=>b.mergeScreenshotEvidence(prev,x,'test.jpg'),null);
+  assert.equal(merged.terms.ko.dateText,'06.10.2026');assert.equal(merged.terms.strike.dateText,'06.10.2026');
+ }
+ const conflict=description[0].text+'\nDer Basispreis und die Knock-Out-Barriere des Produkts liegen aktuell bei 4.200,0000 USD.';
+ assert(b.parseProductTerms(conflict).error);
+ // A crop that disagrees must not validate the selected amount.
+ inputPasses=latest.concat([{text:'4.246,7459 USD'},{text:'4.246,7459 USD'}]);index=0;
+ await assert.rejects(()=>b.recognizeOcr({}),/Zahlen nicht sicher bestätigt/);
  console.log('Actual SG image passes: independent numeric agreement, dates, identity and disagreement gates passed');
 })().catch(e=>{console.error(e);process.exitCode=1});
 
