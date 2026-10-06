@@ -71,6 +71,18 @@ vm.runInContext(code,context);const b=context.window.BobDegiro;b.setTestWorker(w
  // A crop that disagrees must not validate the selected amount.
  inputPasses=latest.concat([{text:'4.246,7459 USD'},{text:'4.246,7459 USD'}]);index=0;
  await assert.rejects(()=>b.recognizeOcr({}),/Zahlen nicht sicher bestätigt/);
+ // Native Tesseract passes from user image 1000070842.jpg: no labelled ISIN/WKN.
+ inputPasses=JSON.parse(fs.readFileSync('test_fixtures/sg_fg7k28_partial_0842.json','utf8'));index=0;
+ const partialImage=await b.recognizeOcr({});assert.equal(index,5);assert(partialImage.data.numericCrossChecked);
+ const productContext={isin:'DE000FG7K283',basis:'opened-product'};
+ const partialResult=b.detailScreenshotData(partialImage.data.text,productContext.isin,productContext);
+ assert(partialResult.ok,partialResult.reason);
+ for(const key of ['ko','strike']){assert.equal(partialResult.terms[key].value,4246.7452);assert.equal(partialResult.terms[key].dateText,'06.10.2026');}
+ assert.equal(Number(partialResult.leverage),47.7599);assert.equal(partialResult.sourceTime,'');
+ assert(!b.detailScreenshotData(partialImage.data.text+'\nWKN FG5NMF',productContext.isin,productContext).ok);
+ const damagedDate=b.parseProductTerms(b.recoverTermRows(inputPasses[0],inputPasses[0]));
+ assert.equal(damagedDate.ko.value,4246.7452);assert.equal(damagedDate.ko.dateText,null);assert(damagedDate.ko.ocrCorrection);
+ console.log('SG partial original image: spatial values, date, context, absent quote time and foreign WKN verified');
  console.log('Actual SG image passes: independent numeric agreement, dates, identity and disagreement gates passed');
 })().catch(e=>{console.error(e);process.exitCode=1});
 
