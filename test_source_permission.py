@@ -9,7 +9,7 @@ import sg_quotes
 class SourcePermissionTests(unittest.TestCase):
     def test_sg_issuer_host_is_blocked_before_network(self):
         with patch.object(product_quotes, 'urlopen') as network:
-            with self.assertRaisesRegex(PermissionError, 'SG_LIVE_DISABLED_BY_USER'):
+            with self.assertRaisesRegex(PermissionError, 'SG_PROVIDER_PERMISSION_UNCONFIRMED'):
                 product_quotes.issuer_json(product_quotes.SG_ORIGIN+'EmcWebApi/api/Products/DE000FG4JXV7', product_quotes.SG_ORIGIN)
             network.assert_not_called()
 

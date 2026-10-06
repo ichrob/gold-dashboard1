@@ -128,6 +128,52 @@ class ProductQuoteTests(unittest.TestCase):
                  dict(Name='CurrentLeverage', Value=15.52)]
         return product, props
 
+    def test_sg_chart_dates_only_research_and_expires_without_quote_promotion(self):
+        product, _ = self.sg_snapshot()
+        points = [dict(Bid=10.50, Ask=10.51, Date='2026-09-30T18:06:00+02:00')]
+        result = q.parse_sg_chart_research(product, points, product['Isin'], NOW)
+        self.assertTrue(result['chartEvidence']['current'])
+        self.assertEqual(result['chartEvidence']['ageSeconds'], 3)
+        self.assertFalse(result['found']); self.assertFalse(result['eligible'])
+        self.assertNotIn('bidAt', result); self.assertNotIn('leverage', result)
+        old = q.parse_sg_chart_research(product, points, product['Isin'], NOW+timedelta(minutes=2))
+        self.assertFalse(old['chartEvidence']['current'])
+        self.assertFalse(q.freshness(result, NOW)['eligible'])
+
+    def test_sg_chart_rejects_wrong_identity_zone_future_and_crossed_prices(self):
+        product, _ = self.sg_snapshot()
+        for point in [dict(Bid=10, Ask=11, Date='2026-09-30T16:06:00'),
+                      dict(Bid=10, Ask=11, Date='2026-09-30T16:07:00Z'),
+                      dict(Bid=11, Ask=10, Date='2026-09-30T16:06:00Z'),
+                      dict(Bid=True, Ask=11, Date='2026-09-30T16:06:00Z')]:
+            with self.assertRaises((ValueError, TypeError)):
+                q.parse_sg_chart_research(product, [point], product['Isin'], NOW)
+        product['Id'] = 7127448
+        with self.assertRaises(ValueError):
+            q.parse_sg_chart_research(product, [dict(Bid=10, Ask=11, Date='2026-09-30T16:06:00Z')], product['Isin'], NOW)
+
+    def test_newly_confirmed_sg_id_never_routes_to_bnp_or_reuses_cache(self):
+        isin = 'DE000FG7K283'
+        with patch.dict(q._CACHE, {isin:(__import__('time').monotonic(), {'found':True,'source':'BNP Paribas'})}, clear=True), patch.object(q,'get_bnp_quote') as bnp:
+            result=q.get_issuer_quote(isin)
+        bnp.assert_not_called()
+        self.assertEqual(result['sourceFailureCode'], 'SG_PROVIDER_PERMISSION_UNCONFIRMED')
+        self.assertNotIn('Nutzerwunsch', result['reason'])
+        self.assertFalse(result['eligible'])
+
+    def test_sg_diagnostics_survive_comdirect_enrichment(self):
+        isin = 'DE000FG7K283'
+        for verified in (True, False):
+            terms = dict(found=False, productVerified=verified, reason='Produktdaten',
+                         metadata=dict(status=1), conditions={'ratio':.1})
+            with patch('public_product_terms.get_product', return_value=terms):
+                result=q.get_quote(isin)
+            self.assertIn('SG-Direktimport noch nicht aktiviert', result['reason'])
+            self.assertEqual(result['sourceFailureCode'], 'SG_PROVIDER_PERMISSION_UNCONFIRMED')
+            if verified:
+                self.assertEqual(result['conditions'], {'ratio':.1})
+                self.assertTrue(result['issuerResearch']['sourceDisabled'])
+
     def test_sg_metadata_never_becomes_undated_live_quote(self):
         product, props = self.sg_snapshot()
         x = q.parse_sg(product, props, product['Isin'], NOW)

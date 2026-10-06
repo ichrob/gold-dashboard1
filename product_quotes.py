@@ -17,6 +17,8 @@ _CACHE = {}
 _LOCK = threading.Lock()
 ORIGIN = 'https://derivate.bnpparibas.com/'
 SG_ORIGIN = 'https://www.sg-zertifikate.de/'
+# SG's own product IDs, not the independent onvista instrument IDs.
+SG_DIRECT_PRODUCTS = {'DE000FG7K283': 7127448, 'DE000FG4JXV7': 7069123}
 # Exact contract identities confirmed from SG and the secondary product snapshot.
 SG_GOLD_FUTURES = {
     'DE000FG309G0': dict(nmp='C_CMX_GOLD_F_Z26', ric='GCZ26',
@@ -37,7 +39,7 @@ def sg_future_contract(product, isin):
 def issuer_json(url, origin, timeout=6):
     """Read a bounded response only from the selected issuer's fixed host."""
     if url.startswith(SG_ORIGIN) or origin == SG_ORIGIN:
-        raise PermissionError('SG_LIVE_DISABLED_BY_USER')
+        raise PermissionError('SG_PROVIDER_PERMISSION_UNCONFIRMED')
     request = Request(url, headers={'User-Agent': 'Bob/1.7 public product research',
                                    'Accept': 'application/json', 'Cache-Control': 'no-cache'})
     with urlopen(request, timeout=timeout) as response:
@@ -130,15 +132,50 @@ def sg_source_error(exc, stage):
 
 
 def sg_disabled(isin):
-    """User decision: no SG network research, including relayed OTC quotes."""
+    """Direct research is authorized; unattended reuse is not yet confirmed."""
     return dict(found=False, eligible=False, fresh=False, productVerified=False,
                 isin=isin, source='SG-Abruf deaktiviert', sourceDisabled=True,
                 sourceFailure=False,
-                reason='SG-Liveabruf auf Nutzerwunsch deaktiviert. DEGIRO-Screenshotdaten verwenden; Berechnungen bleiben als berechnet gekennzeichnet.')
+                sourceFailureCode='SG_PROVIDER_PERMISSION_UNCONFIRMED',
+                reason='SG-Direktimport noch nicht aktiviert: Berechtigung zur automatischen Übernahme und vollständige datierte Kursdaten fehlen. Screenshotdaten bleiben nutzbar.')
 
 
 def get_sg_quote(isin):
     return sg_disabled(isin)
+
+
+def parse_sg_chart_research(product, points, isin, now=None):
+    """Parse the public Prices/Live chart for bounded research only.
+
+    The request's productId must come from a verified product response. A chart
+    point dates its bid/ask pair, not independent executable quotes, leverage,
+    or KO terms. This pure parser performs no network calls or persistence.
+    """
+    now = now or datetime.now(timezone.utc)
+    expected = SG_DIRECT_PRODUCTS.get(isin)
+    if (expected is None or product.get('Isin') != isin
+            or type(product.get('Id')) is not int or product['Id'] != expected
+            or product.get('ExchangeCode') != 'CBDE'
+            or product.get('AssetNMP') != 'XAUUSD'
+            or product.get('AssetCurrency') != 'USD' or product.get('Currency') != 'EUR'):
+        raise ValueError('SG-Chartprodukt nicht eindeutig bestätigt')
+    if not isinstance(points, list) or not points or len(points) > 10000:
+        raise ValueError('SG-Chartdaten fehlen oder sind zu groß')
+    previous = None
+    for point in points:
+        at = stamp(point['Date'])  # no implicit zone and no request-time fallback
+        bid, ask = number(point['Bid']), number(point['Ask'])
+        if bid <= 0 or ask < bid or at > now or (previous and at < previous):
+            raise ValueError('SG-Chartzeit oder Geld-/Briefpaar ungültig')
+        previous = at
+    age = (now-at).total_seconds()
+    return dict(found=False, eligible=False, fresh=False, productVerified=True,
+                isin=isin, source='SG · Live-Chart, Recherche',
+                sourceUrl=SG_ORIGIN+'product-details/'+isin.lower(),
+                chartEvidence=dict(bid=bid, ask=ask, currency='EUR',
+                                   pointAt=at.isoformat(), ageSeconds=age,
+                                   current=age <= MAX_AGE_SECONDS),
+                reason='Datierter Chartpunkt; separate Hebelzeit und vollständige Kursfreigabe fehlen')
 
 
 def valid_isin(value):
@@ -296,7 +333,7 @@ def get_issuer_quote(isin):
     # Known SG identities are local routing information, not verified terms.
     # Check before cache: an earlier SG response must never be reused as live.
     from sg_quotes import PRODUCT_IDS
-    if isin in PRODUCT_IDS or isin in SG_GOLD_FUTURES:
+    if isin in PRODUCT_IDS or isin in SG_GOLD_FUTURES or isin in SG_DIRECT_PRODUCTS:
         return sg_disabled(isin)
     with _LOCK:
         cached = _CACHE.get(isin)
@@ -359,15 +396,18 @@ def get_quote(isin):
         return dict(issuer, exchangeResearch=terms, sourceDisabled=False,
                     sourceFailure=True, source=terms.get('source', 'Öffentliche Produktrecherche'),
                     reason=terms.get('reason', 'Produktrecherche nicht verfügbar')+
-                    (' · '+issuer['reason'] if issuer.get('quoteFailureCode') else ''))
+                    (' · '+issuer['reason'] if issuer.get('quoteFailureCode') or issuer.get('sourceFailureCode') else ''))
     if not issuer.get('found'):
         # Preserve the working terms source and the reason the independent
         # quote attempt failed. Previously both layers discarded this evidence.
-        if not issuer.get('quoteFailureCode') and not issuer.get('productVerified'):
+        if not issuer.get('quoteFailureCode') and not issuer.get('sourceFailureCode') and not issuer.get('productVerified'):
             return terms
         result = dict(terms, issuerResearch=issuer)
         if issuer.get('quoteFailureCode'):
             result.update(quoteFailureCode=issuer['quoteFailureCode'],
+                          reason=terms['reason']+' · '+issuer['reason'])
+        elif issuer.get('sourceFailureCode'):
+            result.update(sourceFailureCode=issuer['sourceFailureCode'],
                           reason=terms['reason']+' · '+issuer['reason'])
         return result
     result = dict(issuer, productVerified=True, metadata=terms['metadata'],

@@ -53,3 +53,31 @@ Sources:
 The frozen four-day comparison and its policy, market collection, all stored
 trades and user data are unchanged. This check does not prove perpetual uptime,
 automatic complete product approval or an available licensed SG real-time feed.
+
+## Follow-up at 08:45 Zurich
+
+BNP PJ9NB9 was retested through the repaired adapter: bid EUR 12.07, ask EUR
+12.08, both dated 08:45:27.014 Zurich, checked at 08:45:31.589. Identity and
+quote freshness passed. This still does not date KO/strike or grant a trade.
+
+The SG website's own chart service requests `Prices/Live?productId=7127448`.
+At 08:45:32.254 it returned HTTP 200 with bid EUR 10.50, ask EUR 10.51 and
+point date `2026-10-06T08:45:30.953+02:00`, about 1.3 seconds old. The product
+response independently confirmed DE000FG7K283, CBDE, XAUUSD and EUR/USD
+currencies. Thus the AllProperties quote-time limitation does not apply to
+every SG endpoint. This is a dated chart point, not evidence of independent
+bid/ask or leverage clocks, quantities or dated executable terms.
+
+A pure, offline parser now validates known SG product IDs and chart identity,
+price order, explicit timezone, chronology and freshness. The real response
+passed. Evidence stays under `chartEvidence`; it cannot set found, fresh or
+eligible. No chart data is automatically fetched or persisted in Bob.
+
+DE000FG7K283 now routes to SG diagnostics instead of an unsuccessful BNP
+lookup. The diagnostic correctly says unattended provider permission is
+unconfirmed rather than attributing the block to the user's superseded request.
+Runtime SG network calls remain blocked. The legal PDF was retrieved again:
+its caching/reproduction restriction still requires clarification before any
+permanent import. No access restrictions were bypassed or contracts obtained.
+
+This follow-up changes neither the frozen comparison nor user/trade data.
