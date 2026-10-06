@@ -21,6 +21,7 @@ _thread=None
 _active_until=0
 _state={}
 _chart_locks = {('5m', '5d'): threading.Lock(), ('1h', '6mo'): threading.Lock()}
+_provider_fetch_lock = threading.Lock()
 _chart_cache = {}
 _chart_retry = {}
 _chart_failures = {}
@@ -70,12 +71,15 @@ def fetch_chart(interval, range_value):
     key = (interval, range_value)
     if key not in _chart_locks:
         raise ValueError('Nicht registrierte GCZ26-Historienabfrage')
-    with _chart_locks[key]:
+    with _provider_fetch_lock, _chart_locks[key]:
         now = time.monotonic()
         cached = _chart_cache.get(key)
         if cached and now-cached[0] < 60:
             return copy.deepcopy(cached[1])
-        if now < _chart_retry.get(key, 0):
+        # HTTP 429 applies to this provider across chart intervals.
+        rate_limit_until = max((deadline for k, deadline in _chart_retry.items()
+                                if _chart_errors.get(k, '').endswith('HTTP 429')), default=0)
+        if now < max(_chart_retry.get(key, 0), rate_limit_until):
             raise URLError('GCZ26-Datenquelle in gemeinsamer Wartezeit')
         try:
             value = _fetch_chart(interval, range_value)
@@ -95,10 +99,13 @@ def fetch_chart(interval, range_value):
 def reference_failure(exc):
     """Share the provider retry deadline; consumers must not extend it."""
     key = ('5m', '5d')
-    with _chart_locks[key]:
-        remaining = _chart_retry.get(key, 0)-time.monotonic()
+    with _provider_fetch_lock, _chart_locks[key]:
+        rate_limit_until = max((deadline for k, deadline in _chart_retry.items()
+                                if _chart_errors.get(k, '').endswith('HTTP 429')), default=0)
+        remaining = max(_chart_retry.get(key, 0), rate_limit_until)-time.monotonic()
         if remaining > 0:
-            return max(1, math.ceil(remaining)), _chart_errors.get(key, history_error(exc))
+            return max(1, math.ceil(remaining)), ('GCZ26-Historie: Datenanbieter antwortet mit HTTP 429'
+                if rate_limit_until > time.monotonic() else _chart_errors.get(key, history_error(exc)))
     # A successfully downloaded but stale/invalid quote can change on the
     # next ordinary poll. It is not a transport failure or a rate limit.
     delay = 60 if isinstance(exc, (ValueError, KeyError, TypeError, IndexError)) else retry_delay(exc, 1)

@@ -37,10 +37,19 @@ def parse_quote(payload, symbol, now=None):
 
 
 def fetch_quote(symbol):
-    request = Request('https://query2.finance.yahoo.com/v8/finance/chart/' + symbol + '?interval=1d&range=1d',
-                      headers={'User-Agent': 'Mozilla/5.0 (Bob gold cards)', 'Accept': 'application/json'})
-    with urlopen(request, timeout=6) as response:
-        return parse_quote(json.loads(response.read(500000)), symbol)
+    # Reuse the reference/analysis request and its retry gate. A separate
+    # card request every 30 seconds used to keep hitting a throttled provider.
+    import future_analysis
+    if symbol != future_analysis.SYMBOL:
+        raise ValueError('Unsupported future card')
+    payload = future_analysis.fetch_chart('5m', '5d')
+    future_analysis.parse_chart(payload, 5)
+    # chartPreviousClose on a five-day response is not yesterday's close.
+    import copy
+    payload = copy.deepcopy(payload)
+    payload['chart']['result'][0]['meta'].pop('chartPreviousClose', None)
+    return parse_quote(payload, symbol)
+
 
 
 def fetch_spot():
