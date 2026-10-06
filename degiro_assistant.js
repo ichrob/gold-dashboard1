@@ -936,6 +936,15 @@ function populateCandidateRows(items){
  }
 }
 
+// A failed refresh invalidates quotes, not previously verified product evidence.
+// Preserve original evidence dates; never turn the retry time into a source time.
+function retainProductResearch(prior,result,isin){
+ if(result?.isin!==isin||result.productVerified||!result.sourceFailure||result.sourceDisabled||prior?.isin!==isin||!prior.productVerified)return result;
+ return {...prior,found:false,eligible:false,fresh:false,marketOpen:false,
+  futureResearch:null,calculatedProduct:null,sourceFailure:true,
+  quoteFailureCode:result.quoteFailureCode,reason:result.reason||'Abruf fehlgeschlagen',
+  retainedResearch:true,lastAttemptAt:result.attemptedAt||null};
+}
 async function enrichProduct(i){
  const field=k=>document.querySelector('[data-dg="'+k+'"][data-i="'+i+'"]');
  const isin=(field("isin")?.value.trim()||"").toUpperCase(),meta=document.getElementById("dgResearch"+i);
@@ -950,7 +959,7 @@ async function enrichProduct(i){
   const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),60000);
   let res;try{res=await fetch("/api/degiro/enrich?isin="+encodeURIComponent(isin),{cache:"no-store",signal:ctl.signal});}finally{clearTimeout(timer);}
   if(!res.ok)throw Error("Produktrecherche nicht verfügbar");
-  let x=await res.json();
+  let x=retainProductResearch(prior,await res.json(),isin);
   if(inactive&&!x.productVerified)x={...inactive,reason:"Produkt weiterhin ausgeschlossen: zuvor als ausgeknockt/beendet bestätigt; erneuter Abruf fehlgeschlagen"};
   if((rowVersions.get(i)||0)!==version||(field("isin")?.value.trim()||"").toUpperCase()!==isin)return;
   researchResults.set(i,{...x,attemptedAt:new Date().toISOString()});
@@ -973,7 +982,15 @@ async function enrichProduct(i){
    const info=x.productVerified&&x.metadata;
    meta.textContent="🌐 "+(x.source?x.source+" · ":"")+(info?"ISIN bestätigt · "+info.underlying+" · "+info.direction+" · KO "+info.ko+" USD · "+(info.strike?"Basispreis "+info.strike+" USD · ":"")+(info.ratio?"Bezugsverhältnis "+info.ratio+" · ":"")+(info.contract?"Kontrakt "+info.contract+" · ":""):"")+(x.reason||"Keine verlässlich datierten Emittentenkurse verfügbar")+futureResearchText(x)+productEstimateText(x)+". Produkt für aktuelle Rangliste gesperrt.";
   }
- }catch(e){if((field("isin")?.value.trim()||"").toUpperCase()===isin)researchResults.set(i,{isin,sourceFailure:true,reason:"Abruf fehlgeschlagen",attemptedAt:new Date().toISOString()});if(inactive&&(field("isin")?.value.trim()||"").toUpperCase()===isin)productQuotes.set(i,inactive);else productQuotes.delete(i);futureResearchQuotes.delete(i);if(meta)meta.textContent="🌐 Recherche nicht erreichbar: Produkt für aktuelle Rangliste gesperrt.";}
+ }catch(e){
+  if((rowVersions.get(i)||0)!==version||(field("isin")?.value.trim()||"").toUpperCase()!==isin)return;
+  const failure={isin,sourceFailure:true,reason:"Abruf fehlgeschlagen",attemptedAt:new Date().toISOString()};
+  const retained=retainProductResearch(prior,failure,isin);
+  researchResults.set(i,retained);
+  if(retained.productVerified)productQuotes.set(i,retained);else productQuotes.delete(i);
+  futureResearchQuotes.delete(i);
+  if(meta)meta.textContent="🌐 Recherche nicht erreichbar: Produkt für aktuelle Rangliste gesperrt."+(retained.productVerified?" Bestätigte Produktnachweise mit ursprünglichem Datenstand bleiben erhalten.":"");
+ }
  finally{pendingQuotes.delete(i);rankUI();}
 }
 // Only explicitly labelled source timestamps count. Never use upload/device time.
@@ -1274,7 +1291,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben'){
   const dated=/datier|24 Stunden|Gültigkeit/i.test(reason)&&!/widerspr|ungültig/i.test(reason);
   const field=/Basispreis|Finanzierungslevel/.test(reason)?'Basispreis':/KO|Knock|Barriere/i.test(reason)?'KO-Barriere':null;
   if(dated&&field){const label=field+': Werte vorhanden – Aktualität unbestätigt';if(!unconfirmed.some(item=>item.startsWith(label)))unconfirmed.push(label+' · Fundort: '+missingValueLocation(reason));continue;}
-  const label=reason.startsWith('BNP-Kursabruf:')?reason:/Basiswert ungenau: Gold allein/.test(reason)?'Basiswert „Gold“ erkannt – genaue Referenz fehlt (Produktbeschreibung / Endgültige Bedingungen)':/Future-Kontrakt|Futures-Kontrakt|Referenzkontrakt/.test(reason)?'Future-Kontrakt (Stammdaten → Basiswert; ggf. Dokumente → Endgültige Bedingungen)':/Basispreis|Finanzierungslevel/.test(reason)?'Basispreis: gültiger Nachweis (Stammdaten)':/KO|Knock|Barriere/i.test(reason)?'KO-Barriere: gültiger Nachweis (Stammdaten)':/Geld|Brief|Kurs/.test(reason)?'Geld, Brief und Quellenzeit (Kursdaten)':/Hebel/.test(reason)?'Hebel mit Datenstand (Kennzahlen)':/Bezugsverhältnis/.test(reason)?'Bezugsverhältnis fehlt oder ist nicht eindeutig (Stammdaten)':/Basiswert/.test(reason)?'Exakter Basiswert fehlt (Stammdaten / Produktbeschreibung)':/Produkttyp|Long\/Short|Produktrichtung/.test(reason)?'Produkttyp / Richtung (Stammdaten → Typ)':/Laufzeit|Fälligkeit/.test(reason)?'Laufzeit / Fälligkeit (Stammdaten)':/Währung/.test(reason)?'Produktwährung (Kursdaten)':/ISIN|Bildzuordnung|Original|bestätig/.test(reason)?'Produktzuordnung oder Bildwerte nicht eindeutig':reason.split(':')[0]+' (Quellen und Einzelheiten → Fehlende Werte)';
+  const label=reason.startsWith('BNP-Kursabruf:')?reason:/Basiswert ungenau: Gold allein/.test(reason)?'Basiswert „Gold“ erkannt – genaue Referenz fehlt (Produktbeschreibung / Endgültige Bedingungen)':/Future-Kontrakt|Futures-Kontrakt|Referenzkontrakt/.test(reason)?'Future-Kontrakt (Stammdaten → Basiswert; ggf. Dokumente → Endgültige Bedingungen)':/Basispreis|Finanzierungslevel/.test(reason)?'Basispreis: gültiger Nachweis (Stammdaten)':/KO|Knock|Barriere/i.test(reason)?'KO-Barriere: gültiger Nachweis (Stammdaten)':/Geld|Brief|Kurs/.test(reason)?'Geld, Brief und Quellenzeit (Kursdaten)':/Hebel/.test(reason)?'Hebel mit Datenstand (Kennzahlen)':/Bezugsverhältnis/.test(reason)?'Bezugsverhältnis fehlt oder ist nicht eindeutig (Stammdaten)':/Basiswert/.test(reason)?'Exakter Basiswert fehlt (Stammdaten / Produktbeschreibung)':/Produkttyp|Long\/Short|Produktrichtung/.test(reason)?'Produkttyp / Richtung (Stammdaten → Typ)':/Laufzeit|Fälligkeit/.test(reason)?'Laufzeit / Fälligkeit (Stammdaten)':/Währung/.test(reason)?'Produktwährung (Kursdaten)':/ISIN|Produktzuordnung|Bildzuordnung|Bildwerte|Original|bestätig/.test(reason)?'Produktzuordnung oder Bildwerte nicht eindeutig':reason.split(':')[0]+' (Quellen und Einzelheiten → Fehlende Werte)';
   if(!groups.includes(label)){groups.push(label);locations.set(label,missingValueLocation(reason));}
  }
  return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" data-selection-blocked="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere"><b>'+esc(p.isin)+'</b> · '+esc(p.productDirection||'')+'<div class="small">'+'<strong>Nicht freigegeben</strong><br>Begründung: '+esc(status.replace(/^Nicht freigegeben · /,''))+'</div>'+
@@ -1661,7 +1678,9 @@ function productTermsStatus(p,now=Date.now()){
 }
 function bnpSourceIssue(p,now=Date.now()){
  const q=p.quote;
- if(q?.isin!==p.isin||!q?.productVerified||!q.found||!/^BNP Paribas/.test(q.source||''))return '';
+ if(q?.isin!==p.isin||!q?.productVerified||!/^BNP Paribas/.test(q.source||''))return '';
+ if(q.sourceFailure)return 'BNP-Kursabruf: Abruf fehlgeschlagen; bestätigte Produktnachweise bleiben mit ursprünglichem Datenstand erhalten';
+ if(!q.found)return '';
  if(!q.marketOpen||now>Date.parse(q.tradingEndAt))return 'BNP-Kursabruf: Markt geschlossen oder Produkt derzeit nicht handelbar';
  const timing=quoteTiming(q,now);
  return timing.fresh?'':'BNP-Kursabruf: Quellenantwort veraltet oder Geld-/Brief-/Hebelzeit nicht prüfbar';
@@ -2280,7 +2299,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
