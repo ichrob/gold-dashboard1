@@ -144,6 +144,7 @@ function screenshotDraft(raw,isin){
   return plain&&!/^(?:Stk|Stück|Vol|%)/i.test(section.slice(plain[0].length).trim())&&!/^\s*[•·]/.test(section)?value(plain[1]):null;
  };
  const bid=amount(bids,asks),ask=amount(asks,bids);
+ const partialQuote=/EUR\b|€/.test(raw)&&((bids.length===1&&asks.length===0&&bid>0)||(asks.length===1&&bids.length===0&&ask>0))?{bid,ask}:null;
  if(hasQuote&&bids.length===1&&asks.length===1&&bid>0&&ask>=bid&&/EUR\b|€/.test(raw)){fields.bid=String(bid);fields.ask=String(ask);}
  else if(hasQuote)notes.push('Geld-/Briefpaar nicht eindeutig: ein Handelsplatz pro Kursbild, keine Volumenwerte als Kurse');
  const times=api.screenshotTimes(raw),bt=times.bid?.at||times.quote?.at,at=times.ask?.at||times.quote?.at;
@@ -161,7 +162,7 @@ function screenshotDraft(raw,isin){
  if(!source)notes.push('Bildquelle bitte auswählen');
  if(!ko)notes.push('KO-Schwelle mit ausdrücklich angegebener USD-Währung fehlt');
  else if(!fields.koAt1||!fields.koUntil1)notes.push('KO-Quellenzeit / bestätigte Gültigkeit bleiben offen');
- return {ok:true,isin,source,fields,hasQuote,supplementedTime:supplemented,paired:!!fields.bid&&!!fields.ask,delayed:/verzögert|delayed/i.test(raw),notes};
+ return {ok:true,isin,source,fields,hasQuote,partialQuote,supplementedTime:supplemented,paired:!!fields.bid&&!!fields.ask,delayed:/verzögert|delayed/i.test(raw),notes};
 }
 function mergeDraft(previous,incoming,image){
  if(previous?.isin!==incoming.isin)previous=null;
@@ -820,7 +821,7 @@ function recognizeOcr(file,statusId){
       result.data.text=recoverTermRows(result.data,cells.data);
       // This is one independent spatial read, not another vote for the primary.
       readings.push(recoverTermRows(cells.data,cells.data));
-      if(parseProductTerms(result.data.text||'').error){
+      if(parseProductTerms(result.data.text||'').error||Object.values(parseProductTerms(result.data.text||'')).some(e=>e?.ocrCorrection)){
        // Zoom may split amount digits. Recover cells from the original pixels.
        const originalCells=await ocrTimeout(worker.recognize(prepared),45000,'Original-Tabellenprüfung nach 45 Sekunden beendet');
        result.data.text=recoverTermRows(result.data,originalCells.data);
@@ -858,6 +859,7 @@ function recognizeOcr(file,statusId){
      await worker.setParameters({tessedit_pageseg_mode:mode,tessedit_char_whitelist:''});
      const check=await ocrTimeout(worker.recognize(prepared),45000,'Zahlenprüfung nach 45 Sekunden beendet');
      readings.push(recoverTermRows(check.data,check.data));originalModes.add(mode);
+     result.data.text=recoverTermRows(result.data,check.data);
      missing=unconfirmedOcrFields(result.data.text,readings);
     }
    }finally{await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});}
@@ -1735,8 +1737,10 @@ function detailScreenshotData(text,expectedIsin,productContext=null){
  if(!x.price){const top=raw.match(/(?:^|\n)\s*€\s*([0-9]+(?:[.,][0-9]+)?)\b/);if(top)x.price=top[1].replace(",",".");}
  const amount=label=>{const m=raw.match(new RegExp("\\b(?:"+label+")(?!\\s*(?:Vol|Volumen))\\s*[:=]?\\s*(?:€|EUR)?\\s*([0-9]+(?:[.,][0-9]+)?)","i"));return m?Number(m[1].replace(",",".")):null;};
  const draft=window.BobCombined.screenshotDraft(raw,expectedIsin);
- if(draft.hasQuote&&!draft.paired)return{ok:false,reason:'Produkt erkannt'+(identity.basis==='WKN'?' über WKN '+identity.wkn:'')+', aber Geld-/Briefpaar nicht vollständig oder eindeutig. Bitte beide Kurse im selben Bild zeigen.'};
- const bid=draft.paired?n(draft.fields.bid):amount("Geld|Bid"),ask=draft.paired?n(draft.fields.ask):amount("Brief|Ask");
+ if(draft.hasQuote&&!draft.paired&&!draft.partialQuote)return{ok:false,reason:'Produkt erkannt'+(identity.basis==='WKN'?' über WKN '+identity.wkn:'')+', aber Geld-/Briefpaar nicht vollständig oder eindeutig. Bitte beide Kurse im selben Bild zeigen.'};
+ const bid=draft.partialQuote?draft.partialQuote.bid:draft.paired?n(draft.fields.bid):amount("Geld|Bid"),ask=draft.partialQuote?draft.partialQuote.ask:draft.paired?n(draft.fields.ask):amount("Brief|Ask");
+ const importWarnings=[];
+ if(draft.partialQuote){x.price="";x.spread="";importWarnings.push(bid===null?"Geldkurs fehlt: Kursbereich mit Geld und Brief ergänzen.":"Briefkurs fehlt: Kursbereich mit Geld und Brief ergänzen.");}
  if(draft.fields.ko1)x.ko=draft.fields.ko1;
  if((bid!==null&&bid<=0)||(ask!==null&&ask<=0)||(bid!==null&&ask!==null&&ask<bid))return{ok:false,reason:"Geld-/Briefkurse widersprüchlich gelesen. Bitte ein schärferes Bild hochladen."};
  const quoteText=raw.replace(/(?:^|\n)\s*(?:Produktdatenstand|Bedingungenstand|Fälligkeit|Faelligkeit|Laufzeit|KO-Zeit|Hebelzeit)\s*[:=]?[^\n]*/gi,'');
@@ -1744,16 +1748,36 @@ function detailScreenshotData(text,expectedIsin,productContext=null){
  const currency=/\bEUR\b|€/.test(raw)?"EUR":"";
  if(bid!==null&&ask!==null&&currency==="EUR"){x.price=String(ask);x.spread=String(Math.round((ask-bid)*1000000)/1000000);}
  if(!x.leverage){const lv=raw.match(/\bLV\s+(\d+(?:[.,]\d+)?)/i);if(lv)x.leverage=lv[1].replace(",",".");}
- const terms=parseProductTerms(raw);
- if(terms.error)return {ok:false,reason:terms.error};
+ let terms=parseProductTerms(raw);
+ if(terms.error){
+  if(!/sg-zertifikate\.(?:de|at)\b/i.test(raw))return {ok:false,reason:terms.error};
+  if(!/^(?:Basispreis|Knock-Out-Barriere): (?:Zahl|positiver Wert)/.test(terms.error))return {ok:false,reason:terms.error};
+  terms={};
+  for(const key of ['ko','ratio','strike','underlying','contract','type','maturity','currency','quanto']){
+   const read=parseProductTerms(raw,[key]);
+   if(read.error){
+    if(!/^(?:Basispreis|Knock-Out-Barriere): (?:Zahl|positiver Wert)/.test(read.error))return {ok:false,reason:read.error};
+    importWarnings.push(read.error);if(key==='ko')x.ko="";
+   }else Object.assign(terms,read);
+  }
+  if(!Object.keys(terms).length&&bid===null&&ask===null&&!x.leverage)return {ok:false,reason:importWarnings.join(' · ')};
+ }
+
+ // Call/Put is direction, not the instrument family; do not overwrite a Turbo heading.
+ if(/^(?:Call|Put|Long|Short)$/i.test(terms.type?.value||''))delete terms.type;
  // Explicit wrapped SG product heading/table text, not an inferred product model.
  if(/BEST Turbo-\s*(?:\n\s*Produktart\s+)?Optionsscheine?\s*\(Open-\s*End\)/i.test(raw)){
   terms.type={value:'BEST Turbo-Optionsscheine (Open-End)',at:null};
   terms.maturity={value:'Open End',at:null};
  }
+ if(/sg-zertifikate\.(?:de|at)\b/i.test(raw)&&/BEST Turbo-Optionsschein\s+Open-End\s*\|\s*(?:Put|Call)\s*\|\s*auf Gold\b/i.test(raw)){
+  terms.type={value:'BEST Turbo-Optionsschein (Open-End)',at:null};
+  terms.maturity={value:'Open End',at:null};
+  if(!terms.underlying)terms.underlying={value:'Gold',at:null};
+ }
  if(!terms.currency&&currency==='EUR'&&bid!==null&&ask!==null)terms.currency={value:'EUR',at:null,fromQuote:true};
  if(terms.ko)x.ko=String(terms.ko.value);
- return{ok:true,...x,identityBasis:identity.basis,identityContext:identity.context||null,bid,ask,currency,sourceTime:stamp,times:screenshotTimes(raw),terms,delayed:/verzögert|delayed/i.test(raw),combinedDraft:draft};
+ return{ok:true,...x,importWarnings,identityBasis:identity.basis,identityContext:identity.context||null,bid,ask,currency,sourceTime:stamp,times:screenshotTimes(raw),terms,delayed:/verzögert|delayed/i.test(raw),combinedDraft:draft};
 }
 // Show only product identifiers on failures, never the full private OCR transcript.
 function imageIdentityDiagnostic(raw){
@@ -1898,7 +1922,7 @@ async function readScreenshot(i,file,productContext=null){
   if(status)status.textContent="✅ Zusatzbild zugeordnet. Erkannte Werte automatisch übernommen. "+(merged.sourceTime?"Kurszeit im Bild: "+merged.sourceTime:"Kurszeit im Bild fehlt.");
   const meta=document.getElementById("dgResearch"+i);if(meta)meta.textContent="📷 "+(x.combinedDraft?.source||'Screenshot')+"-Momentaufnahme · "+(merged.bid!==null?"Geld "+merged.bid+" / Brief "+(merged.ask??"fehlt")+" "+merged.currency+" · ":"")+"keine laufenden Live-Daten. Unvollständige Kursnachweise bleiben gesperrt.";
   rankUI();
-  return{ok:true,data:x,raw:result.data.text,reason:x.identityBasis==='Produktkontext'?'dem zuvor geöffneten Produkt '+expected+' zugeordnet':x.identityBasis==='WKN'?'über passende WKN zugeordnet':'über ISIN zugeordnet'};
+  return{ok:true,data:x,raw:result.data.text,reason:(x.identityBasis==='Produktkontext'?'dem zuvor geöffneten Produkt '+expected+' zugeordnet':x.identityBasis==='WKN'?'über passende WKN zugeordnet':'über ISIN zugeordnet')+(x.importWarnings?.length?' · '+x.importWarnings.join(' · '):'')};
  }catch(e){if((rowVersions.get(i)||0)!==version)return;const reason=e?.message||'Unbekannter Fehler';if(status)status.textContent="⚠️ Bild konnte nicht eingelesen werden: "+reason+". Bitte erneut auswählen.";return{ok:false,reason};}
 }
 // The user declares one multi-image selection to be a contemporaneous series.

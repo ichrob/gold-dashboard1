@@ -82,6 +82,31 @@ vm.runInContext(code,context);const b=context.window.BobDegiro;b.setTestWorker(w
  assert(!b.detailScreenshotData(partialImage.data.text+'\nWKN FG5NMF',productContext.isin,productContext).ok);
  const damagedDate=b.parseProductTerms(b.recoverTermRows(inputPasses[0],inputPasses[0]));
  assert.equal(damagedDate.ko.value,4246.7452);assert.equal(damagedDate.ko.dateText,null);assert(damagedDate.ko.ocrCorrection);
+ // Tesseract.js passes from the two new original images (20:15).
+ inputPasses=JSON.parse(fs.readFileSync('test_fixtures/sg_fg7k28_0864.json','utf8'));index=0;
+ const newTermsOcr=await b.recognizeOcr({});assert(newTermsOcr.data.numericCrossChecked);assert.equal(index,5);
+ const newTerms=b.detailScreenshotData(newTermsOcr.data.text,productContext.isin,productContext);assert(newTerms.ok,newTerms.reason);
+ for(const key of ['ko','strike']){assert.equal(newTerms.terms[key].value,4246.7452);assert.equal(newTerms.terms[key].dateText,'06.10.2026');}
+ assert.equal(Number(newTerms.leverage),51.9192);
+ const quotePasses=JSON.parse(fs.readFileSync('test_fixtures/sg_fg7k28_0862.json','utf8'));
+ inputPasses=[quotePasses[0],quotePasses[2]];index=0;
+ const newQuoteOcr=await b.recognizeOcr({});assert(newQuoteOcr.data.numericCrossChecked);
+ const partialQuote=b.detailScreenshotData(newQuoteOcr.data.text,productContext.isin,productContext);assert(partialQuote.ok,partialQuote.reason);
+ assert.equal(partialQuote.bid,7.16);assert.equal(partialQuote.ask,null);assert.equal(partialQuote.price,'');assert.equal(partialQuote.spread,'');
+ assert.equal(partialQuote.sourceTime,'06.10.2026 20:15:12');assert(partialQuote.importWarnings.some(s=>s.includes('Briefkurs fehlt')));
+ assert.equal(partialQuote.terms.maturity.value,'Open End');assert.equal(partialQuote.terms.underlying.value,'Gold');
+ const outcomes=[{ok:true,data:newTerms,raw:newTermsOcr.data.text,name:'terms.jpg'},{ok:true,data:partialQuote,raw:newQuoteOcr.data.text,name:'bid.jpg'}];
+ assert(b.linkScreenshotSeries(outcomes));assert(newTerms.times.leverage.fromSeries);
+ const mergedPartial=b.mergeScreenshotEvidence(b.mergeScreenshotEvidence(null,newTerms,'terms.jpg'),partialQuote,'bid.jpg');
+ const reversePartial=b.mergeScreenshotEvidence(b.mergeScreenshotEvidence(null,partialQuote,'bid.jpg'),newTerms,'terms.jpg');
+ assert.equal(reversePartial.terms.type.value,partialQuote.terms.type.value);assert.equal(reversePartial.bid,7.16);assert.equal(reversePartial.ask,null);
+ assert.equal(mergedPartial.evidence.Geld.value,7.16);assert(!mergedPartial.evidence.Brief);assert(!mergedPartial.evidence.Spread);assert.equal(mergedPartial.terms.ko.dateText,'06.10.2026');
+ assert(!b.finalProductStatus({isin:productContext.isin,isinConfirmed:true,productDirection:'SHORT',ko:4246.7452,leverage:51.9192,snapshot:mergedPartial},Date.parse('2026-10-06T18:15:30Z')).complete);
+ const unreadable=b.detailScreenshotData('sg-zertifikate.de\nTyp Put\nBasispreis unlesbar\nKnock-Out-Barriere 4.246,7452 USD (06.10.2026)\nHebel 51,9192',productContext.isin,productContext);
+ assert(unreadable.ok);assert(!unreadable.terms.strike);assert.equal(unreadable.terms.ko.value,4246.7452);assert(unreadable.importWarnings.some(s=>s.includes('Basispreis')));
+ assert(!b.detailScreenshotData(newQuoteOcr.data.text+'\nGeld 8,99 EUR',productContext.isin,productContext).ok);
+ assert(!b.detailScreenshotData(newQuoteOcr.data.text+'\nWKN FG5NMF',productContext.isin,productContext).ok);
+ console.log('New SG originals: dated terms, partial bid, missing ask, series timing and blocked release passed');
  console.log('SG partial original image: spatial values, date, context, absent quote time and foreign WKN verified');
  console.log('Actual SG image passes: independent numeric agreement, dates, identity and disagreement gates passed');
 })().catch(e=>{console.error(e);process.exitCode=1});
