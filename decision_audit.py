@@ -35,7 +35,7 @@ def normalize(payload, now=None):
     if bar is None or bar > now:
         raise ValueError('Entscheidungs-Kerzenzeit fehlt oder liegt in der Zukunft')
     # Only explicitly whitelisted evidence; never account credentials or raw images.
-    result = {k: payload.get(k) for k in ('direction','shadowDirection','intraday','barAt','price','priceAt','reason','score','indicators','products','selection','gateReasons')}
+    result = {k: payload.get(k) for k in ('direction','shadowDirection','intraday','entryQuality','barAt','price','priceAt','reason','score','indicators','products','selection','gateReasons')}
     result.update(version=VERSION, ruleVersion=payload['ruleVersion'] if payload.get('ruleVersion') in (RULE_VERSION, 'intraday-1h-15m-5m-v1') else 'signal-5m-two-closes-v1', build=os.environ.get('RENDER_GIT_COMMIT','local'), origin=payload.get('origin','browser'), recordedAt=now)
     if result['origin'] not in ('browser','background'):
         raise ValueError('Ungültige Protokollquelle')
@@ -46,9 +46,12 @@ def normalize(payload, now=None):
     if not isinstance(result.get('products'), list): result['products'] = []
     if len(result['products']) > 12: raise ValueError('Zu viele Produkte')
     at = milliseconds(result.get('priceAt'))
+    entry=result.get('entryQuality')
+    if not isinstance(entry,dict) or entry.get('version')!='entry-quality-v1' or entry.get('direction') not in ('LONG','SHORT','NEUTRAL'):result['entryQuality']=None
     result['marketEvaluable'] = positive(result.get('price')) and at is not None and 0 <= now-at <= 180000
     # Each decision revision is frozen once. Refreshes with unchanged evidence are idempotent.
     identity={k:result[k] for k in ('version','ruleVersion','origin','direction','shadowDirection','intraday','barAt','reason','products','selection','gateReasons')}
+    identity['entryQualityVersion']=(result.get('entryQuality') or {}).get('version')
     key=hashlib.sha256(json.dumps(identity,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     return key,result
 
@@ -127,13 +130,16 @@ def harvest(conn):
     global _harvest_at
     if time.time()-_harvest_at<60:return
     conn.execute("""INSERT INTO bob_decision_outcomes(decision_id,horizon,truth)
-      SELECT a.id,h.minutes,json_build_object('at',s.quote_at,'price',s.price)::jsonb
+      SELECT a.id,h.minutes,json_build_object('at',s.quote_at,'price',s.price,'minPrice',ext.lo,'maxPrice',ext.hi)::jsonb
       FROM bob_decision_audit a CROSS JOIN (VALUES (15),(60),(240)) h(minutes)
       CROSS JOIN LATERAL (SELECT quote_at,price FROM bob_spot_observations
         WHERE stream='gold-api-xau-usd-v1'
         AND quote_at>=a.recorded_at+h.minutes*interval '1 minute'
         AND quote_at<=a.recorded_at+(h.minutes+1)*interval '1 minute'
         ORDER BY quote_at LIMIT 1) s
+      LEFT JOIN LATERAL (SELECT min(price) lo,max(price) hi FROM bob_spot_observations
+        WHERE stream='gold-api-xau-usd-v1' AND quote_at>=a.recorded_at AND quote_at<=s.quote_at
+        AND a.payload->'entryQuality'->>'version'='entry-quality-v1') ext ON TRUE
       WHERE a.recorded_at>=now()-interval '7 days'
       AND NOT EXISTS (SELECT 1 FROM bob_decision_outcomes o WHERE o.decision_id=a.id AND o.horizon=h.minutes)
       ON CONFLICT DO NOTHING""")
@@ -167,6 +173,7 @@ def _build_report(conn):
     result=summarize([(row[0],row[1:]) for row in rows])
     result['total']=conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0]
     result['scope']='Aktuelle Intraday-Regel; frühere Regeln getrennt ('+str(result['legacyCount'])+' ältere Protokolle). Bis 30 Tage; Gold-Richtung ohne Handelskosten, kein Gewinnnachweis'
+    result['entryQualityReview']=entry_quality_review([(row[0],row[1:]) for row in rows])
     result['productReview']=product_review([row[0] for row in rows[:1500]])
     research=[];seen=set()
     for row in rows:
@@ -217,3 +224,31 @@ def handle(conn,action,payload):
         return result
     if action=='read':return report(conn)
     raise ValueError('Unbekannte Protokollaktion')
+
+
+def entry_quality_review(rows):
+    """Paired 60m spot outcomes. No simulated fills and no automatic rule change."""
+    result=dict(version='entry-quality-v1',evaluated=0,kept=0,filtered=0,baselineWins=0,candidateWins=0,missedFavorable=0,avoidedUnfavorable=0,baselineSumPct=0.,candidateSumPct=0.,excursions=0,adverseSumPct=0.,candidateAdverseSumPct=0.)
+    seen=set()
+    for record,truths in sorted(rows,key=lambda r:r[0].get('origin')!='background'):
+        q=record.get('entryQuality') or {}
+        if q.get('version')!='entry-quality-v1' or not q.get('available') or record.get('direction') not in ('LONG','SHORT'):continue
+        key=record.get('barAt')
+        if key in seen:continue
+        seen.add(key)
+        truth=truths[1] if len(truths)>1 else None
+        scored=outcome(record,truth,60)
+        if not scored:continue
+        value=scored['directionalPct'];keep=q.get('direction')==record['direction']
+        result['evaluated']+=1;result['kept' if keep else 'filtered']+=1
+        result['baselineWins']+=value>0;result['candidateWins']+=keep and value>0
+        result['missedFavorable']+=not keep and value>0;result['avoidedUnfavorable']+=not keep and value<0
+        result['baselineSumPct']+=value;result['candidateSumPct']+=value if keep else 0
+        bound=(truth or {}).get('minPrice' if record['direction']=='LONG' else 'maxPrice')
+        if positive(bound):
+            adverse=max(0,(record['price']-bound)/record['price']*100 if record['direction']=='LONG' else (bound-record['price'])/record['price']*100)
+            result['excursions']+=1;result['adverseSumPct']+=adverse;result['candidateAdverseSumPct']+=adverse if keep else 0
+    for name,total,count in [('baselineMeanPct','baselineSumPct','evaluated'),('candidateMeanPct','candidateSumPct','evaluated'),('meanObservedAdversePct','adverseSumPct','excursions'),('candidateMeanObservedAdversePct','candidateAdverseSumPct','excursions')]:
+        result[name]=result[total]/result[count] if result[count] else None
+    result['note']='Gepaarter 60-Minuten-Spotvergleich, gefilterte Fälle ohne Position (0). Beobachtete Gegenbewegung nur aus gespeicherten Kursen; Datenlücken möglich. Keine Gebühren/Produktkosten enthalten, keine Produktrendite. Überlappende Fälle sind nicht unabhängig; keine automatische Regeländerung.'
+    return result

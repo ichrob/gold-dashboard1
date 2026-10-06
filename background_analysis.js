@@ -21,10 +21,11 @@ function evaluate(input){
   MTF={...hierarchy,byTf,dirs:Object.values(byTf).map(x=>x.dir)};lastPrice=price>0?price:C.at(-1).close;
   analyze();
   const direction=confirmedSignalDirection(),ready=A.ready&&analysisAgeWarnings().length===0;
+  const riskData=intradayRiskData(bundle);
   const context={direction,spotFresh:priceFresh,spot:price,atr:A.at,trend:$('trend').textContent,trend2:$('trend2').textContent,rsi:A.R,hist:A.macd-A.sig,adx:adxCalc(C),mtf:MTF.overall,momentum:$('blockMomentum').textContent==='LONG'?1:$('blockMomentum').textContent==='SHORT'?-1:0};
   let suggestedStop=null,suggestedTarget=null;
   if(ready&&priceFresh&&input.trade?.active){const stop=stopModel(input.trade.dir,price,A.at,input.trailAtr||1.5).stop;if(Number.isFinite(stop)&&stop>0){suggestedStop=stop;suggestedTarget=targetModel(input.trade.dir,price,stop,2).target;}}
-  return {ruleVersion:'intraday-1h-15m-5m-v2',session:intradaySession(),intraday:intradayState(bundle,input.trade),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:A.at,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
+  return {entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-1h-15m-5m-v2',session:intradaySession(),intraday:intradayState(bundle,input.trade),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
  })()`,env,{timeout:3000});
 }
 module.exports={evaluate};
