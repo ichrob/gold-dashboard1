@@ -18,7 +18,7 @@ assert(!b.selectionDetailStatus({...p,snapshot:{...p.snapshot,evidence:{...p.sna
 const context={now,direction:'SHORT',spotFresh:true,spot:4140,atr:10,trend:'SHORT',trend2:'SHORT',mtf:'SHORT',rsi:40,hist:-1,adx:30,momentum:-1};
 let r=b.selectionWorkflow([p,p],context,{});assert.equal(r.total,1);assert.equal(r.groups.length,1);assert.equal(r.groups[0].candidates.length,1);assert.equal(r.stage,'TOP3');assert(!r.tradeable);assert(b.renderSelectionWorkflow(r).includes('Warum:'));
 r=b.selectionWorkflow([p],{...context,direction:'NEUTRAL'},{});assert.equal(r.stage,'ABWARTEN');assert.equal(r.groups.length,0);
-r=b.selectionWorkflow([{...p,snapshot:null}],context,{});assert.equal(r.requests.length,1);assert.equal(r.groups.length,0);assert(b.renderSelectionWorkflow(r).includes('Detailbilder ergänzen'));
+r=b.selectionWorkflow([{...p,snapshot:null}],context,{});assert.equal(r.requests.length,1);assert.equal(r.groups.length,0);assert(b.renderSelectionWorkflow(r).includes('Bilder / PDF hinzufügen'));
 assert(b.isFutureProduct({name:'SG Gold Future Turbo Put'}));
 r=b.selectionWorkflow([{...p,name:'SG Gold Future Faktor Long',productDirection:'LONG'}],{...context,direction:'LONG'},{});assert.equal(r.groups.length,0);assert(r.waiting[0].reason.includes('Faktorprodukt'));
 // A Future never enters a Spot ranking from a fresh screenshot alone.
@@ -251,13 +251,13 @@ const folded=b.selectionWorkflow([{...f,snapshot:null}],{...context,direction:'N
 const foldedHtml=b.renderSelectionWorkflow(folded);
 assert(folded.notApproved[0].missingReasons.some(x=>x.includes('Bezugsverhältnis')));
 assert(foldedHtml.includes('<strong>Fehlende Werte</strong>'));
-assert(foldedHtml.includes('Screenshot auf der SG-Produktseite:'));
+assert(foldedHtml.includes('Fundort auf der SG-Produktseite:'));
 assert(!foldedHtml.includes('DEGIRO →'));
 assert(foldedHtml.includes('Stammdaten:')); 
 assert(!/<details[^>]*data-missing-values[^>]*\\bopen\\b/.test(foldedHtml));
 const beforeFold=foldedHtml.slice(0,foldedHtml.indexOf('data-missing-values'));
 assert(beforeFold.includes('Marktsignal neutral'));
-assert(!beforeFold.includes('Referenzkontrakt / Futures Contract'));
+assert(beforeFold.includes('Referenzkontrakt / Futures Contract')); // Location is now also in the compact missing-values disclosure.
 assert(!beforeFold.includes('Exakter Gold-Future-Kontrakt fehlt'));
 const completeFold=b.renderSelectionWorkflow(b.selectionWorkflow([p],{...context,direction:'NEUTRAL'},{}));
 assert(!completeFold.includes('data-missing-values'));
