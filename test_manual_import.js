@@ -155,3 +155,32 @@ console.log('Original-image OCR prefix errors and older-quote overwrite protecti
  await assert.rejects(b.readListBatch(files,async()=>{throw Error('OCR failed');}),/OCR failed/);
  console.log('Single multi-image upload: one/many, deduplication, progress and failed batch passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});
+
+// A user's issuer-link workflow explicitly assigns otherwise unidentified
+// supplemental images. Context must match and never overrides a conflict.
+{
+ const target='DE000FG7K283',ctx={isin:target,basis:'opened-product'};
+ const text='sg-zertifikate.de\nKennzahlen\nHebel 48,0293\nBezugsverhältnis 0,1';
+ const x=b.detailScreenshotData(text,target,ctx);
+ assert(x.ok,x.reason);
+ assert.equal(x.isin,target);
+ assert.equal(x.identityBasis,'Produktkontext');
+ assert.equal(x.identityContext.isin,target);
+ assert.equal(Number(x.leverage),48.0293);
+ assert(!x.sourceTime,'Product context must not invent a quote time');
+ const merged=b.mergeScreenshotEvidence(null,x,'context.jpg');
+ assert(b.automaticIdentity({isin:target,snapshot:merged,leverage:48.0293}));
+ assert(!b.automaticIdentity({isin:target,snapshot:{...merged,identityContext:{...ctx,isin:'DE000FG309G0'}},leverage:48.0293}));
+ assert(!b.detailScreenshotData(text,target).ok);
+ assert(!b.detailScreenshotData(text,target,{...ctx,isin:'DE000FG309G0'}).ok);
+ assert(!b.detailScreenshotData(text,target,{isin:target,basis:'selected-row'}).ok);
+ for(const conflict of ['ISIN DE000FG309G0','WKN FG309G','FG309G - 2,10 / 2,11 €'])
+  assert(!b.detailScreenshotData(text+'\n'+conflict,target,ctx).ok,conflict);
+ const observed=b.detailScreenshotData('FG7K28 - 7,72 / 7,73 €\n'+text,target,ctx);
+ assert(observed.ok,observed.reason);
+ assert.equal(observed.identityBasis,'WKN');
+ const quotes=b.detailScreenshotData('Geld 7,72 EUR\nBrief 7,73 EUR\nHebel 48,0293',target,ctx);
+ assert(quotes.ok,quotes.reason);
+ assert(!quotes.sourceTime);
+ assert(!b.currentQuote({isin:target,snapshot:quotes}));
+}

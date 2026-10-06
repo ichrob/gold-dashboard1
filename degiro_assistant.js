@@ -1539,10 +1539,13 @@ function applyResearchedTerms(items){
   return {...p,snapshot:{...old,terms}};
  });
 }
+function hasScreenshotIdentity(x){
+ return !!x&&(['ISIN','WKN'].includes(x.identityBasis)||x.identityBasis==='Produktkontext'&&validIsin(x.isin)&&x.identityContext?.isin===x.isin&&x.identityContext?.basis==='opened-product');
+}
 function automaticIdentity(p){
  if(!validIsin(p.isin))return false;
  const q=p.quote,x=p.snapshot;
- const image=x?.isin===p.isin&&['ISIN','WKN'].includes(x.identityBasis);
+ const image=x?.isin===p.isin&&hasScreenshotIdentity(x);
  const issuer=q?.isin===p.isin&&q.productVerified===true;
  if(!image&&!issuer)return false;
  if(image){
@@ -1594,7 +1597,7 @@ function screenshotKoCurrent(p,now){
  if(e?.dateText&&e.dateText!==t?.dateText)return false;
  // An undated repeat in a quote image does not invalidate the separate
  // dated terms image. Match identity and amount; never transfer its date.
- return ['ISIN','WKN'].includes(x.identityBasis)&&n(t?.value)===n(p.ko)&&currentDatedTerm(t,now);
+ return hasScreenshotIdentity(x)&&n(t?.value)===n(p.ko)&&currentDatedTerm(t,now);
 }
 function productTermsStatus(p,now=Date.now()){
  const reasons=[],values={},q=p.quote?.isin===p.isin?p.quote:null;
@@ -1609,7 +1612,7 @@ function productTermsStatus(p,now=Date.now()){
    else terms[key]=direct;
   }
  }
- if(shot&&['ISIN','WKN'].includes(shot.identityBasis))for(const [key,e]of Object.entries(shot.terms||{})){
+ if(shot&&hasScreenshotIdentity(shot))for(const [key,e]of Object.entries(shot.terms||{})){
   if(automaticCondition(e,key))terms[key]={...e,automatic:true};
  }
  if(!validIsin(p.isin)||p.isinConfirmed!==true)reasons.push('Eindeutige Produktzuordnung oder widerspruchsfreie Bildwerte fehlen');
@@ -1619,7 +1622,7 @@ function productTermsStatus(p,now=Date.now()){
  const labels={ratio:'Bezugsverhältnis',strike:'Basispreis in USD',underlying:'Exakter Basiswert (z. B. XAU/USD)',type:'Produkttyp',maturity:'Laufzeit / Fälligkeit oder Open End',currency:'Produktwährung'};
  for(const [key,label] of Object.entries(labels)){
   const e=terms[key],age=now-Date.parse(e?.at);
-  if(key==='strike'&&((shot&&['ISIN','WKN'].includes(shot.identityBasis))||q?.productVerified&&e===q.conditions?.strike)&&currentDatedTerm(e,now)||durableCondition(e,key,now)||e?.source&&Number.isFinite(age)&&age>=0&&age<=86400000)values[key]=e.value;
+  if(key==='strike'&&((shot&&hasScreenshotIdentity(shot))||q?.productVerified&&e===q.conditions?.strike)&&currentDatedTerm(e,now)||durableCondition(e,key,now)||e?.source&&Number.isFinite(age)&&age>=0&&age<=86400000)values[key]=e.value;
   else if(api&&['ratio','strike','underlying'].includes(key))values[key]=api[key];
   if(values[key]===undefined||values[key]==='')reasons.push(label+((e?.value!==undefined&&e.value!=='')?(key==='strike'?': Wert eingelesen; gültiger datierter Nachweis fehlt oder ist älter als 24 Stunden':': Wert eingelesen; Produktbedingung nicht eindeutig belegt'):': Wert fehlt'));
  }
@@ -1672,7 +1675,7 @@ function finalProductStatus(p,now=Date.now(),reference){
  }
  return {...status,complete:!reasons.length,reasons};
 }
-function detailScreenshotData(text,expectedIsin){
+function detailScreenshotData(text,expectedIsin,productContext=null){
  let raw=normalizeBnpQuoteColumns(String(text||""));
  // BNP's Gold reference identifier is not the certificate ISIN.
  // Scope removal to the explicit Gold underlying section, preserving all
@@ -1682,7 +1685,7 @@ function detailScreenshotData(text,expectedIsin){
   raw=raw.replace(/(?:^|\n)\s*Basiswert\s*\n(?=\s*Basiswert\s+GOLD\b)/i,'\n');
  }
  if(!validIsin(expectedIsin))return{ok:false,reason:"Bitte zuerst die ISIN dieses Produkts am Screenshot prüfen und korrigieren."};
- const identity=screenshotIdentity(raw,expectedIsin);
+ const identity=screenshotIdentity(raw,expectedIsin,productContext);
  if(!identity.ok)return identity;
  if(/BNP\s+PARIBAS|derivate\.bnpparibas\.com/i.test(raw)){
   raw=raw.replace(/\bVerkaufen\b/g,'Geld').replace(/\bKaufen\b/g,'Brief');
@@ -1698,7 +1701,7 @@ function detailScreenshotData(text,expectedIsin){
   raw=raw.replace(/\b(?:Geld|Brief)\b/gi,'Kursanzeige');
   raw+='\nGeld '+titlePair.bid+' EUR\nBrief '+titlePair.ask+' EUR';
  }
- if(identity.basis==='WKN')raw='ISIN '+expectedIsin+'\n'+raw;
+ if(identity.basis==='WKN'||identity.basis==='Produktkontext')raw='ISIN '+expectedIsin+'\n'+raw;
  const x=ocrExtract(raw.replace(/(\bBAR\s*\n)[@©●•®]\s*(?=[0-9])/gi,"$1"));
  if(/\b(?:SHORT|PUT)\b/i.test(raw)&&/\b(?:LONG|CALL)\b/i.test(raw))return {ok:false,reason:'Long/Short im Bild widersprüchlich: Produktzuordnung prüfen'};
  if(!x.price){const top=raw.match(/(?:^|\n)\s*€\s*([0-9]+(?:[.,][0-9]+)?)\b/);if(top)x.price=top[1].replace(",",".");}
@@ -1722,7 +1725,7 @@ function detailScreenshotData(text,expectedIsin){
  }
  if(!terms.currency&&currency==='EUR'&&bid!==null&&ask!==null)terms.currency={value:'EUR',at:null,fromQuote:true};
  if(terms.ko)x.ko=String(terms.ko.value);
- return{ok:true,...x,identityBasis:identity.basis,bid,ask,currency,sourceTime:stamp,times:screenshotTimes(raw),terms,delayed:/verzögert|delayed/i.test(raw),combinedDraft:draft};
+ return{ok:true,...x,identityBasis:identity.basis,identityContext:identity.context||null,bid,ask,currency,sourceTime:stamp,times:screenshotTimes(raw),terms,delayed:/verzögert|delayed/i.test(raw),combinedDraft:draft};
 }
 // Show only product identifiers on failures, never the full private OCR transcript.
 function imageIdentityDiagnostic(raw){
@@ -1731,7 +1734,7 @@ function imageIdentityDiagnostic(raw){
  const wkns=[...new Set(Array.from(text.matchAll(/\bWKN\s*[:=]?\s*([A-Z0-9]{6})\b/g),m=>m[1]))].slice(0,3);
  return 'Gelesen: '+(ids.length?'ISIN '+ids.join(', '):'keine ISIN')+(wkns.length?' · WKN '+wkns.join(', '):'');
 }
-function screenshotIdentity(raw,expectedIsin){
+function screenshotIdentity(raw,expectedIsin,productContext=null){
  const ids=Array.from(new Set(parseScreenshotCandidates(raw).map(x=>x.isin)));
  if(ids.length)return ids.length===1&&ids[0]===expectedIsin?{ok:true,basis:'ISIN'}:{ok:false,reason:'Der Screenshot gehört nicht eindeutig zu '+expectedIsin+'. Bitte Produktkennung prüfen.'};
  const wkns=Array.from(String(raw).toUpperCase().matchAll(/\bWKN\s*[:=]?\s*([A-Z0-9]{6})\b|\b([A-Z0-9]{6})\s+WKN\b/g)).map(m=>m[1]||m[2]);
@@ -1754,6 +1757,11 @@ function screenshotIdentity(raw,expectedIsin){
  const badge=String(raw).match(/(?:^|\n)WKN-Bildprüfung: ([A-Z0-9]{6})(?:\n|$)/);
  const unique=[...new Set(wkns.map(code=>badge&&code.length===6&&Array.from(code).every((char,i)=>ocrGlyphPair(char,badge[1][i]))?badge[1]:code))];
  if(validIsin(expectedIsin)&&expectedIsin.startsWith('DE000')&&unique.length===1&&unique[0]===expectedIsin.slice(5,11))return{ok:true,basis:'WKN',wkn:unique[0]};
+ // The user explicitly assigns supplemental images through the issuer link.
+ // Missing identity is allowed only in that captured product context. Any
+ // observed conflicting ISIN/WKN above still blocks the import.
+ if(!unique.length&&validIsin(expectedIsin)&&productContext?.isin===expectedIsin&&productContext?.basis==='opened-product')
+  return{ok:true,basis:'Produktkontext',context:{isin:expectedIsin,basis:'opened-product'}};
  return{ok:false,reason:unique.length?'WKN im Bild passt nicht eindeutig zu '+expectedIsin+'. Bitte Produktkennung prüfen.':'ISIN oder WKN im Zusatzbild fehlt. Bitte die Produktkennung zusammen mit den Daten zeigen.'};
 }
 function sgScreenshotTitlePair(raw,isin){
@@ -1830,7 +1838,7 @@ async function readProductPdf(file,expected){
   return parseProductPdf(pages,expected,file.name);
  }finally{await task.destroy();}
 }
-async function readScreenshot(i,file){
+async function readScreenshot(i,file,productContext=null){
  const status=document.getElementById("dgOcrStatus"+i),field=k=>document.querySelector('[data-dg="'+k+'"][data-i="'+i+'"]');
  if(!file)return;
  const expected=(field("isin")?.value||"").trim().toUpperCase(),version=(rowVersions.get(i)||0)+1;rowVersions.set(i,version);
@@ -1848,7 +1856,7 @@ async function readScreenshot(i,file){
   }
   const result=await recognizeOcr(file,"dgOcrStatus"+i);
   if((rowVersions.get(i)||0)!==version||(field("isin")?.value||"").trim().toUpperCase()!==expected)return;
-  const x=detailScreenshotData(result.data.text,expected);
+  const x=detailScreenshotData(result.data.text,expected,productContext);
   if(!x.ok){const reason=x.reason+" "+imageIdentityDiagnostic(result.data.text)+" · Bildimport 05.10-15";if(status)status.textContent="⚠️ "+reason;return{ok:false,reason};}
   const merged=mergeScreenshotEvidence(detailScreenshots.get(i),x,file.name);
   productQuotes.delete(i);
@@ -1859,7 +1867,7 @@ async function readScreenshot(i,file){
   if(status)status.textContent="✅ Zusatzbild zugeordnet. Erkannte Werte automatisch übernommen. "+(merged.sourceTime?"Kurszeit im Bild: "+merged.sourceTime:"Kurszeit im Bild fehlt.");
   const meta=document.getElementById("dgResearch"+i);if(meta)meta.textContent="📷 "+(x.combinedDraft?.source||'Screenshot')+"-Momentaufnahme · "+(merged.bid!==null?"Geld "+merged.bid+" / Brief "+(merged.ask??"fehlt")+" "+merged.currency+" · ":"")+"keine laufenden Live-Daten. Unvollständige Kursnachweise bleiben gesperrt.";
   rankUI();
-  return{ok:true,data:x,raw:result.data.text,reason:x.identityBasis==='WKN'?'über passende WKN zugeordnet':'über ISIN zugeordnet'};
+  return{ok:true,data:x,raw:result.data.text,reason:x.identityBasis==='Produktkontext'?'dem zuvor geöffneten Produkt '+expected+' zugeordnet':x.identityBasis==='WKN'?'über passende WKN zugeordnet':'über ISIN zugeordnet'};
  }catch(e){if((rowVersions.get(i)||0)!==version)return;const reason=e?.message||'Unbekannter Fehler';if(status)status.textContent="⚠️ Bild konnte nicht eingelesen werden: "+reason+". Bitte erneut auswählen.";return{ok:false,reason};}
 }
 // The user declares one multi-image selection to be a contemporaneous series.
@@ -1934,7 +1942,7 @@ function mergeScreenshotEvidence(previous,x,source){
   if(value.fromQuote&&merged.terms[key]?.value===value.value)continue;
   if(merged.terms[key]?.value===value.value&&!value.at&&!value.dateText&&!value.ocrCorrection&&(merged.terms[key].at||merged.terms[key].dateText))continue;
   const incoming={...value,source};
-  incoming.automatic=['ISIN','WKN'].includes(x.identityBasis)&&automaticCondition(incoming,key);
+  incoming.automatic=hasScreenshotIdentity(x)&&automaticCondition(incoming,key);
   merged.terms[key]=incoming;
  }
  if(!hasQuote){for(const key of ["bid","ask","currency","sourceTime","delayed"])merged[key]=previous[key]??x[key];}
@@ -1966,7 +1974,7 @@ function screenshotSummary(x){
  const rows=Object.entries(x.evidence||{}).filter(([key])=>key!=='Spread'&&!(key==='KO'&&sameKo)).map(([key,e])=>{
   const t=evidenceTiming(e);return card(key==='KO'?'KO-Barriere':key,e,e.at||(e.dateText?'Datenstand '+e.dateText+(currentDatedTerm(e,Date.now())?' · für diesen Kalendertag belegt; keine Kurszeit':' · nicht für heute bestätigt'):key==='Richtung'?'Eingelesen · am Original prüfen':'Wert eingelesen · Quellenzeit fehlt'));
  }).join('');
- const termRows=Object.entries(terms).filter(([key])=>key!=='quanto').map(([key,e])=>card(labels[key]||key,e,(e.automatic||['ISIN','WKN'].includes(x.identityBasis)&&automaticCondition(e,key))?'Automatisch aus zugeordnetem Bild gelesen · keine Kurszeit':e.conditionVerified?'Produktbedingung recherchiert '+e.reviewedAt+' · keine Kurszeit':e.reviewed&&['type','currency','maturity'].includes(key)?'Geprüfte Produktbedingung · keine Kurszeit':e.at||(e.dateText?'Datenstand '+e.dateText+(currentDatedTerm(e,Date.now())?' · für diesen Kalendertag belegt; keine Kurszeit':' · nicht für heute bestätigt'):'Wert eingelesen · Produktnachweis noch nicht bestätigt; Datenstand fehlt'))).join('');
+ const termRows=Object.entries(terms).filter(([key])=>key!=='quanto').map(([key,e])=>card(labels[key]||key,e,(e.automatic||hasScreenshotIdentity(x)&&automaticCondition(e,key))?'Automatisch aus zugeordnetem Bild gelesen · keine Kurszeit':e.conditionVerified?'Produktbedingung recherchiert '+e.reviewedAt+' · keine Kurszeit':e.reviewed&&['type','currency','maturity'].includes(key)?'Geprüfte Produktbedingung · keine Kurszeit':e.at||(e.dateText?'Datenstand '+e.dateText+(currentDatedTerm(e,Date.now())?' · für diesen Kalendertag belegt; keine Kurszeit':' · nicht für heute bestätigt'):'Wert eingelesen · Produktnachweis noch nicht bestätigt; Datenstand fehlt'))).join('');
  const ratio=terms.ratio;
  const ratioNote=ratio?'Bezugsverhältnis eingelesen: '+ratio.value+(durableCondition(ratio,'ratio',Date.now())?' · Produktbedingung bestätigt':' · Nachweis nicht eindeutig'):x.listEvidence?.ratioText||'';
  return '<div class="small" style="min-width:0;max-width:100%;overflow-wrap:anywhere">'+(x.listEvidence?'<div>ISIN/Bildzuordnung geprüft: '+esc(x.listEvidence.source)+' · historischer Bildnachweis.</div>':'')+'<div>'+esc(ratioNote)+'</div><b>Automatisch erkannte Angaben</b>'+seriesNote+rows+termRows+'<div>'+esc(screenshotTimeLabel(x))+'</div></div>';
@@ -2032,7 +2040,7 @@ async function inject(){
  b.id="dgTop3";
  b.style.cssText="margin-top:14px;padding:16px;background:#f7f9fc;border-radius:20px;border:1px solid #e5eaf2";
  b.innerHTML='<div style="display:flex;align-items:center;gap:9px"><span style="font-size:25px">🎯</span><div><b style="font-size:18px">DEGIRO-Assistent</b><div class="small">Produktliste erfassen → Bilder pro ISIN ergänzen → belegte Daten vergleichen</div></div></div>'+
- '<div id="dgScreenshotReturn" hidden style="margin-top:14px;padding:14px;background:#eaf3ff;border:2px solid #1677ff;border-radius:14px;scroll-margin-top:16px"><b>Screenshots für <span data-return-isin></span></b><p class="small">Hier beim zuletzt geöffneten Produkt weitermachen. Die Bilder werden weiterhin auf die passende ISIN geprüft.</p><button type="button" data-return-upload style="width:100%;background:#1677ff">↑ Bilder / PDF für dieses Produkt hinzufügen</button><button type="button" data-return-close>Fertig / ausblenden</button><div role="status" data-return-status></div></div>'+
+ '<div id="dgScreenshotReturn" hidden style="margin-top:14px;padding:14px;background:#eaf3ff;border:2px solid #1677ff;border-radius:14px;scroll-margin-top:16px"><b>Screenshots für <span data-return-isin></span></b><p class="small">Bilder werden diesem zuvor geöffneten Produkt zugeordnet, auch wenn ISIN oder WKN im Bild fehlen. Eine eindeutig abweichende Produktkennung wird gemeldet.</p><button type="button" data-return-upload style="width:100%;background:#1677ff">↑ Bilder / PDF für dieses Produkt hinzufügen</button><button type="button" data-return-close>Fertig / ausblenden</button><div role="status" data-return-status></div></div>'+
  '<div style="margin-top:14px;padding:12px;background:#fff;border-radius:16px;border:1px solid #e1e7f0">'+
  '<b>📷 DEGIRO-Liste</b><button type="button" id="dgListUploadButton" style="margin-top:10px;width:100%;background:#1677ff">↑ DEGIRO-Liste hochladen</button>'+
  '<input id="dgListUpload" type="file" accept="image/*" multiple hidden>'+
@@ -2077,6 +2085,7 @@ async function inject(){
   r.querySelector("#dgDetailShot"+i).addEventListener("change",async e=>{
    const input=e.target,files=Array.from(input.files||[]),isin=document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value;
    if(!files.length)return;
+   const productContext=returnProductIsin===isin&&validIsin(isin)?Object.freeze({isin,basis:'opened-product'}):null;
    const pendingImages=retainSelectedImages(input);
    const status=document.getElementById('dgOcrStatus'+i);
    if(status)status.textContent='📷 '+files.length+' Bild(er) ausgewählt. Bilddateien werden übernommen …';
@@ -2085,7 +2094,7 @@ async function inject(){
     input.disabled=true;
     rankUI();
     const outcomes=[];
-    for(const file of retained){if(document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value!==isin)break;const result=await readScreenshot(i,file);if(result)outcomes.push({name:file.name,...result});}
+    for(const file of retained){if(document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value!==isin)break;const result=await readScreenshot(i,file,productContext);if(result)outcomes.push({name:file.name,...result});}
     if(document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value===isin){
      const series=linkScreenshotSeries(outcomes);
      if(series){
