@@ -324,3 +324,18 @@ assert.equal(responsive.strong.dir,'LONG');assert.equal(responsive.weak.dir,'NEU
 assert(responsive.enough.available);assert(!responsive.few.available);assert(responsive.recovered.available);assert(!responsive.recentGap.available);
 assert(responsive.wide.stop<80);assert(responsive.wide.beyondGuide);assert.equal(responsive.wide.capped,false);
 console.log('Responsive policy: one strong/two weak closes, core conflict, gaps, 100-bar boundary and uncapped structural stop OK');
+
+// Chart controls must persist independently without changing the analysis timeframe.
+const presentation=vm.runInContext(`(()=>{
+ const original=$('tf').value;
+ $('chartShowFib').checked=false;$('chartShowTargets').checked=true;
+ setChartOption('type','candles');setChartOption('tf','5m');
+ return {saved:JSON.parse(localStorage.getItem('bobChartView')),analysis:$('tf').value,original};
+})()`,env);
+assert.equal(presentation.saved.type,'candles');assert.equal(presentation.saved.tf,'5m');
+assert.equal(presentation.saved.fib,false);assert.equal(presentation.saved.targets,true);
+assert.equal(presentation.analysis,presentation.original);
+// Canvas uses rendered height at mobile DPR, preventing stretched chart text.
+element('chart').getBoundingClientRect=()=>({width:310,height:390});env.window.devicePixelRatio=2;
+vm.runInContext('draw()',env);assert.equal(element('chart').width,620);assert.equal(element('chart').height,780);
+console.log('Chart presentation: independent saved overlays, analysis isolation, mobile canvas proportions OK');
