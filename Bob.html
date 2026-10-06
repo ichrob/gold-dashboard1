@@ -281,6 +281,7 @@ try{
 </div><details open style="margin-top:12px"><summary><b>Intraday · aktive Analyse + Vergleichstest</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">Aktiv: 1h Richtung, 15m Bestätigung, 5m Einstieg mit zwei Schlusskerzen; 4h nur Hintergrund. Startwerte: EMA 20/50/200, RSI 14, MACD 12/26/9, ATR 14, ADX mindestens 20. Neue Signale Mo–Fr 08:00–21:30; Tagesende-Hinweis ab 21:45 (Zürich). Produkt-Handelszeiten zusätzlich prüfen. Darunter bleibt die bisherige 15m/5m-Testvariante getrennt erhalten. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div>
 <details style="margin-top:10px"><summary>Warum entscheidet Bob so?</summary><div id="decisionExplanation" class="small" style="white-space:pre-line">Noch keine bestätigte Analyse.</div></details>
 <div id="quickReason" class="small" style="margin-top:10px">Lade Daten, um das Setup zu bewerten.</div>
+<details id="bobMarketAnalysis" class="bob-disclosure" style="margin-top:12px"><summary>Marktanalyse von Bob</summary><div id="bobMarketNarrative" class="small" style="white-space:pre-line;margin-top:10px">Noch keine aktuelle Marktanalyse verfügbar.</div></details>
 
 </div>
 
@@ -615,6 +616,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   function text(id){return byId(id)?.textContent.trim()||'';}
   function update(){
    const close=document.querySelector('button[onclick="closeTrade()"]');if(close)close.hidden=/Kein aktiver Trade/i.test(text('tradeStateBtn'));
+   renderMarketNarrative();
    const reason=text('quickReason');const short=byId('bobShortReason');if(short)short.textContent=/veraltet|Aktualität|Zeitstempel|Daten fehlen/i.test(reason)?'Abwarten: Die Aktualität der Marktdaten ist nicht ausreichend bestätigt.':reason.split(' · ')[0]||'Analyse wird geladen …';
    const source=text('sourceSummary');status.querySelector('[data-status=data]').textContent='Marktdaten: '+(/live|aktuell/i.test(source)&&!/nicht|unbekannt|veraltet|Aktualität|Zeitstempel/i.test(source+' '+reason)?'Kurs verfügbar':'prüfen');
    const errors=[text('pushStatus'),text('fibMonitorStatus'),text('auditSave'),text('improvementStatus')].join(' ');
@@ -623,7 +625,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const out=byId('dgTop3Out');const summary=byId('bobSelectionSummary');if(out&&summary){const title=out.querySelector(':scope > b')?.textContent||'Noch keine Produktauswahl.';const explanation=[...out.querySelectorAll(':scope > div.small')].find(el=>!/Listenbilder|unterschiedliche Produkte/.test(el.textContent))?.textContent||'';summary.textContent=title+(explanation?' · '+explanation:'');}
   }
   // Observe only original outputs, never our derived labels (avoids observer loops).
-  const observer=new MutationObserver(update);for(const id of ['quickReason','sourceSummary','pushStatus','fibMonitorStatus','auditSave','improvementStatus','generalPushBtn','dgTop3Out','tradeStateBtn']){const el=byId(id);if(el)observer.observe(el,{childList:true,subtree:true,characterData:true});}
+  const observer=new MutationObserver(update);for(const id of ['quickSignal','analysisQuality','analysisAge','decisionExplanation','blockTrendNote','blockMomentumNote','blockVolatilityNote','blockStructureNote','quickReason','sourceSummary','pushStatus','fibMonitorStatus','auditSave','improvementStatus','generalPushBtn','dgTop3Out','tradeStateBtn']){const el=byId(id);if(el)observer.observe(el,{childList:true,subtree:true,characterData:true});}
   document.body.classList.add('bob-mobile');update();show(location.hash.slice(1),false);
  }
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initMobile);else initMobile();
@@ -1459,6 +1461,29 @@ function confirmedSignalDirection(){
  renderDecisionExplanation();
  return signalState.dir;
 }
+function renderMarketNarrative(){
+ const out=$('bobMarketNarrative');if(!out)return;
+ const read=id=>$(id)?.textContent?.trim()||'';
+ const direction=d=>d==='LONG'?'aufwärts gerichtet':d==='SHORT'?'abwärts gerichtet':'ohne eindeutige Richtung';
+ const reason=read('quickReason');
+ const unavailable=window.BobSession?.expired()||!A.ready||C.length<200||/veraltet|Daten fehlen|nicht ausreichend aktuell|Anmeldung erforderlich|Historie fehlt|Datenfehler/i.test(reason);
+ const lines=['Bobs aktuelle Einschätzung: '+(read('quickSignal')||'ABWARTEN')+'.',reason];
+ if(unavailable){
+  lines.push('Die aktuelle Markttendenz ist nicht verlässlich beurteilbar. Vorhandene ältere technische Werte sind keine aktuelle Einschätzung.');
+ }else{
+  const m=getMtfState().byTf||{};
+  lines.push('Intraday-Tendenz: '+(m['1h']?.available?direction(m['1h'].dir):'Stundenanalyse noch nicht verfügbar')+'.');
+  lines.push('Bestätigung im 15-Minuten-Chart: '+(m['15m']?.available?direction(m['15m'].dir):'Angaben fehlen')+'. Einstieg im 5-Minuten-Chart: '+(m['5m']?.available?direction(m['5m'].dir):'Angaben fehlen')+'. Eine Freigabe benötigt zwei bestätigte 5-Minuten-Schlusskerzen.');
+  lines.push('In der angezeigten Analysezeitebene ist der Trend '+direction(read('blockTrend'))+'; das Momentum ist '+direction(read('blockMomentum'))+'. '+read('blockMomentumNote')+'.');
+  lines.push('Marktbewegung: '+read('blockVolatilityNote')+'.');
+  lines.push('Marktstruktur: '+direction(read('blockStructure'))+'. '+read('blockStructureNote')+'.');
+  lines.push('Fibonacci: '+direction(read('blockFibonacci'))+'. '+read('blockFibonacciNote')+'.');
+  lines.push('Der 4-Stunden-Chart dient als Hintergrund. Eine Markttendenz allein bedeutet noch keine Produktfreigabe.');
+ }
+ lines.push(read('analysisAge')||'Datenstand noch nicht bestätigt.');
+ out.textContent=lines.filter(Boolean).join('\n\n');
+}
+
 function renderDecisionExplanation(){
  const out=$('decisionExplanation');if(!out)return;
  const state=signalState,active=['LONG','SHORT'].includes(state.dir),m=getMtfState().byTf||{};
