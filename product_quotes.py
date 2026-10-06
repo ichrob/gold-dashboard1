@@ -137,7 +137,7 @@ def sg_disabled(isin):
                 isin=isin, source='SG-Abruf deaktiviert', sourceDisabled=True,
                 sourceFailure=False,
                 sourceFailureCode='SG_PROVIDER_PERMISSION_UNCONFIRMED',
-                reason='SG-Direktimport noch nicht aktiviert: Berechtigung zur automatischen Übernahme und vollständige datierte Kursdaten fehlen. Screenshotdaten bleiben nutzbar.')
+                reason='SG-Direktimport noch nicht aktiviert: Anbieterberechtigung und vollständig belegte Eingangsdaten fehlen. Ein SG-Hebel-Zeitstempel ist für einen berechneten Näherungshebel nicht erforderlich. Screenshotdaten bleiben nutzbar.')
 
 
 def get_sg_quote(isin):
@@ -176,6 +176,54 @@ def parse_sg_chart_research(product, points, isin, now=None):
                                    pointAt=at.isoformat(), ageSeconds=age,
                                    current=age <= MAX_AGE_SECONDS),
                 reason='Datierter Chartpunkt; separate Hebelzeit und vollständige Kursfreigabe fehlen')
+
+
+def parse_sg_chart_gearing(product, properties, points, spot, fx, isin, now=None):
+    """Calculated research gearing without SG's undated CurrentLeverage.
+
+    No network or persistence. A chart remains research, even with current
+    inputs. Unit delta and constant FX are approximations, not issuer leverage.
+    """
+    now = now or datetime.now(timezone.utc)
+    metadata = parse_sg(product, properties, isin, now)
+    result = parse_sg_chart_research(product, points, isin, now)
+    attrs = {item['Name']: item for item in properties}
+    if (product.get('ProductClassificationId') not in (43, 45, 47)
+            or product['Status'] & (2 | 8 | 16 | 32) or not product['Status'] & 1
+            or not (attrs.get('IsQuanto', {}).get('Value') is False
+                    or attrs.get('IsQuanto', {}).get('Value') in ('Nein', 'No'))
+            or attrs.get('Ratio', {}).get('Suffix', '').strip() != ':1'):
+        raise ValueError('SG-Modell oder Bezugsverhältniseinheit nicht bestätigt')
+    units = number(attrs['Ratio']['Value'])
+    if units <= 0:
+        raise ValueError('Ungültiges SG-Bezugsverhältnis')
+    ratio = 1/units
+    if (spot.get('stale') is not False or spot['data_state']['status'] != 'fresh'
+            or spot['xau']['currency'] != 'USD' or spot['xau']['unit'] != 'troy_oz'
+            or fx['result'] != 'success' or fx['base'] != 'USD'
+            or fx['source'] != 'live' or fx['sources']['EUR'] != 'live'
+            or fx['market_session'] != 'open'):
+        raise ValueError('Gold- oder FX-Basis nicht aktuell bestätigt')
+    times = [stamp(result['chartEvidence']['pointAt']), stamp(spot['price_as_of']),
+             stamp(fx['data_updated_at']), stamp(fx['effective_at']['EUR'])]
+    if any(not 0 <= (now-at).total_seconds() <= 60 for at in times):
+        raise ValueError('SG-Hebel-Eingangsdaten veraltet oder zukünftig')
+    if (max(times)-min(times)).total_seconds() > 15:
+        raise ValueError('SG-Hebel-Eingangsdaten zeitlich zu weit auseinander')
+    gold, rate = number(spot['spot_usd_oz']), number(fx['rates']['EUR'])
+    ask = result['chartEvidence']['ask']
+    leverage = gold*rate*ratio/ask
+    if gold <= 0 or rate <= 0 or not math.isfinite(leverage) or leverage < 1:
+        raise ValueError('SG-Hebel-Berechnungsgrundlage ungültig')
+    result['gearingEvidence'] = dict(value=leverage, kind='calculated-gearing',
+        label='Berechneter Hebel · Recherche', at=min(times).isoformat(),
+        chartAt=times[0].isoformat(), spotAt=times[1].isoformat(),
+        fxDataAt=times[2].isoformat(), fxEffectiveAt=times[3].isoformat(),
+        ratio=ratio, goldUsd=gold, usdEur=rate, askEur=ask,
+        direction=metadata['metadata']['direction'],
+        note='Näherung mit Delta ±1 und konstantem FX; kein SG-Emittentenhebel')
+    result['reason'] = 'Datierter Recherche-Hebel berechnet; automatische Nutzungserlaubnis und ausführbare Kursnachweise separat prüfen'
+    return result
 
 
 def valid_isin(value):

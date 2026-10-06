@@ -81,3 +81,29 @@ its caching/reproduction restriction still requires clarification before any
 permanent import. No access restrictions were bypassed or contracts obtained.
 
 This follow-up changes neither the frozen comparison nor user/trade data.
+
+## Calculated chart gearing — 09:37 Zurich
+
+A separately dated issuer leverage is not intrinsically necessary for research
+gearing. The offline SG chart path now supports
+`Gold USD × USD/EUR × (1 / SG Ratio) / chart Ask EUR` for identified simple
+spot turbos with explicitly supported currency treatment. SG's Ratio `10:1`
+means multiplier 0.1, not 10. The issuer's undated CurrentLeverage is ignored.
+
+Each chart, gold and FX observation must carry its own explicit timezone and
+be no more than 60 seconds old, with at most 15 seconds between inputs. The
+calculated evidence retains the oldest input time and every individual source
+time. Futures, unsupported models, stale/missing clocks and unknown ratio
+units are rejected. It never promotes a chart to executable quotes or grants
+product eligibility. It performs no network requests or persistence.
+
+Fresh SG product and chart requests succeeded at 09:37:38 Zurich. In this test
+environment the existing exchangerate.dev FX endpoint returned HTTP 403 and
+the xaus spot request timed out. Therefore a complete current real-input
+gearing test did not pass; synthetic formula and rejection tests did pass.
+No access controls were bypassed. The official SG Markets API documentation
+requires client credentials and authorization; it does not establish free
+access to these retail ISINs. Automatic SG import remains disabled pending
+provider permission and suitable complete inputs. BNP is unchanged.
+
+- https://shared.sgmarkets.com/sp-help-center-content/external-api-doc.html

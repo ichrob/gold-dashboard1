@@ -174,6 +174,46 @@ class ProductQuoteTests(unittest.TestCase):
                 self.assertEqual(result['conditions'], {'ratio':.1})
                 self.assertTrue(result['issuerResearch']['sourceDisabled'])
 
+    def chart_gearing_fixture(self):
+        product, props = self.sg_snapshot()
+        product['ProductClassificationId'] = 43
+        props += [dict(Name='Ratio', Value=10, Suffix=':1'),
+                  dict(Name='IsQuanto', Value='Nein')]
+        points = [dict(Bid=10.50, Ask=10.51, Date='2026-09-30T18:06:00+02:00')]
+        spot = dict(stale=False, data_state=dict(status='fresh'),
+                    xau=dict(currency='USD', unit='troy_oz'),
+                    spot_usd_oz=4154, price_as_of='2026-09-30T16:05:58Z')
+        fx = dict(result='success', base='USD', source='live', sources=dict(EUR='live'),
+                  market_session='open', rates=dict(EUR=.884),
+                  data_updated_at='2026-09-30T16:05:59Z',
+                  effective_at=dict(EUR='2026-09-30T16:05:57Z'))
+        return product, props, points, spot, fx
+
+    def test_chart_gearing_needs_no_issuer_leverage_clock_and_keeps_oldest_input(self):
+        data = self.chart_gearing_fixture()
+        data[1][-3]['Value'] = 999999  # undated issuer leverage is ignored
+        result=q.parse_sg_chart_gearing(*data, data[0]['Isin'], NOW)
+        evidence=result['gearingEvidence']
+        self.assertAlmostEqual(evidence['value'], 4154*.884*.1/10.51)
+        self.assertEqual(evidence['ratio'], .1)
+        self.assertEqual(evidence['at'], '2026-09-30T16:05:57+00:00')
+        self.assertFalse(result['eligible']); self.assertFalse(result['found'])
+        self.assertFalse(q.freshness(result, NOW)['eligible'])
+
+    def test_chart_gearing_rejects_stale_skewed_unknown_units_and_future_contracts(self):
+        for mutation in ('old-fx','undated-fx','skew','ratio-units','future','quanto','inactive'):
+            data = self.chart_gearing_fixture()
+            p, props, points, spot, fx = data
+            if mutation == 'old-fx': fx['effective_at']['EUR']='2026-09-30T16:00:00Z'
+            elif mutation == 'undated-fx': fx['effective_at']['EUR']='2026-09-30T16:05:57'
+            elif mutation == 'skew': spot['price_as_of']='2026-09-30T16:05:40Z'
+            elif mutation == 'ratio-units': props[-2]['Suffix']=''
+            elif mutation == 'future': p['AssetNMP']='C_CMX_GOLD_F_Z26'
+            elif mutation == 'quanto': props[-1]['Value']='Ja'
+            elif mutation == 'inactive': p['Status']=8
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                q.parse_sg_chart_gearing(*data, p['Isin'], NOW)
+
     def test_sg_metadata_never_becomes_undated_live_quote(self):
         product, props = self.sg_snapshot()
         x = q.parse_sg(product, props, product['Isin'], NOW)
