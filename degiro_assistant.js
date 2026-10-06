@@ -253,7 +253,7 @@ function technicalQuality(ctx={}){
  const side=v=>{const x=String(v||'').toUpperCase();if(/NEUTRAL|ABWARTEN|MIXED|GEMISCHT/.test(x))return 0;return /LONG|BULL|UP/.test(x)?1:/SHORT|BEAR|DOWN/.test(x)?-1:0;};
  const sign=v=>n(v)===null?0:Math.sign(n(v));
  const r=n(ctx.rsi),rsi=r!==null&&r>50&&r<75?1:r!==null&&r<50&&r>25?-1:0;
- const value=collectiveSignal([side(ctx.trend),...(ctx.policy==='intraday-shadow-v1'?[]:[side(ctx.trend2)]),sign(ctx.hist),rsi]);
+ const value=collectiveSignal([side(ctx.trend),...(['intraday-shadow-v1','intraday-fast-v3'].includes(ctx.policy)?[]:[side(ctx.trend2)]),sign(ctx.hist),rsi]);
  const expected=d==='LONG'?1:-1,mtf=side(ctx.mtf);
  const conflict=value*expected<0||mtf!==0&&mtf!==expected;
  const score=conflict?0:50+50*value*expected;
@@ -398,7 +398,7 @@ function conditionalCandidate(p,context={},now=Date.now()){
   const r=q.futureResearch,c=r?.futureReference||r?.calculatedFuture,a=r?.contractAnalysis;
   if(!q.productVerified||q.metadata?.underlyingType!=="FUTURE"||q.metadata.contract!==r?.contract||r?.contract!==c?.contract||r?.contract!==a?.contract)return fail("Futures-Kontrakt nicht vollständig bestätigt");
   if(!c.available||!c.validation?.ready||c.validation.sampleCount<20)return fail("Future-Referenz: Genauigkeit gegenüber dem Börsenkurs noch nicht ausreichend gemessen");
-  if(!a.available||!["LONG","SHORT"].includes(a.direction)||a.technicalSourceFamilies!==1||!['5m','15m','1h'].every(tf=>a.frames?.[tf]?.available)||Object.keys(a.frames||{}).length!==4||!freshTimes([a.checkedAt],now,180)||!Number.isFinite(Date.parse(a.expiresAt))||now>Date.parse(a.expiresAt))return fail("ABWARTEN: eigene Kontrakt-MTF fehlt, ist uneinheitlich oder veraltet");
+  if(!a.available||!["LONG","SHORT"].includes(a.direction)||a.technicalSourceFamilies!==1||!['5m','15m'].every(tf=>a.frames?.[tf]?.available)||Object.keys(a.frames||{}).length!==4||!freshTimes([a.checkedAt],now,180)||!Number.isFinite(Date.parse(a.expiresAt))||now>Date.parse(a.expiresAt))return fail("ABWARTEN: eigene Kontrakt-MTF fehlt, ist uneinheitlich oder veraltet");
   const shot=selectionDetailStatus(p,now),useShot=shot.complete;
   const prices=useShot?{bid:n(p.snapshot.bid),ask:n(p.snapshot.ask),bidAt:shot.at,askAt:shot.at}:r;
   if(!r.marketOpen||!Number.isFinite(Date.parse(r.tradingEndAt))||now>Date.parse(r.tradingEndAt)||!freshTimes([prices.bidAt,prices.askAt],now,90)||!freshTimes([r.fxDataAt,r.fxEffectiveAt,c.priceAt],now)||!(c.kind==='cfd-reference'||freshTimes([c.referenceAt],now,1800)))return fail("Future-, Produkt- oder FX-Daten nicht aktuell");
@@ -412,7 +412,7 @@ function conditionalCandidate(p,context={},now=Date.now()){
   const timing=n(a.frames['5m'].ema20);
   if(timing===null||a.direction==="LONG"&&basis-errorBasis<=timing||a.direction==="SHORT"&&basis+errorBasis>=timing)return fail("ABWARTEN: berechnete Kursspanne bestätigt das Kontrakt-Timing nicht eindeutig");
   scope=r.contract;priceKind=c.kind==="cfd-reference"?"Produktkurs · Gold-CFD als Future-Referenz":useShot?"DEGIRO-Kursmomentaufnahme · berechnete Future-Referenz":"Bestätigter Produktkurs · berechneter Basiswert";quality=c.validation;at=c.priceAt;
-  ctx={direction:a.direction,trend:a.frames['1h'].trend,trend2:a.frames['1h'].ema50>a.frames['1h'].ema200?"LONG":"SHORT",mtf:a.direction,rsi:a.rsi,hist:a.macdHistogram,momentum:a.macdHistogram,atr:a.atr};
+  ctx={policy:'intraday-fast-v3',direction:a.direction,trend:a.frames['15m'].trend,trend2:a.frames['1h'].ema50>a.frames['1h'].ema200?"LONG":"SHORT",mtf:a.direction,rsi:a.rsi,hist:a.macdHistogram,momentum:a.macdHistogram,atr:a.atr};
  }else if(currentQuote(p,now)){
   if(!context.spotFresh||!["LONG","SHORT"].includes(context.direction))return fail("ABWARTEN: Spot-Szenario oder aktueller Goldpreis fehlen");
   basis=n(context.spot);ask=n(q.ask);bid=n(q.bid);ko=n(q.ko);scope="XAU/USD";ctx=context;at=q.quoteAt;
@@ -995,14 +995,14 @@ function selectionDetailStatus(p,now=Date.now()){
 // Read the rendered result blocks, never the MTF legend containing all three labels.
 function selectionUiSignals(doc=document){
  const momentum=String(doc.getElementById('blockMomentum')?.textContent||'').trim().toUpperCase();
- return {mtf:doc.getElementById('blockMtf')?.textContent||'NEUTRAL',momentum:momentum==='LONG'?1:momentum==='SHORT'?-1:0};
+ return {policy:'intraday-fast-v3',mtf:doc.getElementById('blockMtf')?.textContent||'NEUTRAL',momentum:momentum==='LONG'?1:momentum==='SHORT'?-1:0};
 }
 // A direction label alone is not an entry confirmation. Missing values stay unknown.
 function selectionMarketGate(context={}){
  const d=String(context.direction||'NEUTRAL').toUpperCase(),reasons=[];
  if(!['LONG','SHORT'].includes(d))return {ok:false,reasons:['Marktsignal neutral: keine bestätigte Long-/Short-Richtung']};
  const side=v=>{const x=String(v||'').toUpperCase();if(/NEUTRAL|ABWARTEN|MIXED|GEMISCHT/.test(x))return '';const long=/LONG|BULL|UP/.test(x),short=/SHORT|BEAR|DOWN/.test(x);return long===short?'':long?'LONG':'SHORT';};
- for(const [key,label] of [['trend','EMA-Trend'],...(context.policy==='intraday-shadow-v1'?[]:[['trend2','Langfristtrend']]),['mtf','MTF']]){
+ for(const [key,label] of [['trend','EMA-Trend'],...(['intraday-shadow-v1','intraday-fast-v3'].includes(context.policy)?[]:[['trend2','Langfristtrend']]),['mtf','MTF']]){
   const value=side(context[key]);if(!value)reasons.push(label+' neutral oder nicht bestätigt');else if(value!==d)reasons.push(label+' widerspricht '+d);
  }
  for(const [key,label] of [['hist','MACD'],['momentum','Momentum']]){

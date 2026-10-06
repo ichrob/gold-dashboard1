@@ -1,6 +1,6 @@
 # Bob intraday policy — 2026-10-05
 
-## Active rules
+## Previous rules (v1/v2; superseded by v3 below)
 
 - 1h determines direction; 15m and 5m must confirm that same direction. Neutral is not confirmation. 4h is displayed as context, never a veto or a replacement for missing 1h data.
 - A new direction requires two consecutive closed 5m candles. Refreshes do not count. Missing confirmation, invalid history and stale required data revoke entry eligibility.
@@ -41,3 +41,11 @@ Initial comparison thresholds: EMA20 distance <=1.5 ATR, room to the next obstac
 Stop/target calculations now require fresh, valid 15m history (40 bars minimum, last 20 consecutive). ATR, structure and Fibonacci use this fixed source regardless of displayed timeframe. Missing 15m data yields no new suggestion; existing stops remain stored and no-loosening rules remain active.
 
 The audit records paired 60-minute spot-direction results for the baseline and entry candidate. A filtered candidate has zero exposure. It reports mean directional change, hits, missed favorable moves, avoided unfavorable moves, and observed adverse excursion from archived spot ticks. Sparse ticks understate true extremes, so the display calls these observed values. Overlapping samples are not independent. No automatic tuning is performed. Product bid/ask comparisons remain separate; absent fees/slippage and execution records prevent a net-profit claim.
+
+## Fast policy v3 (2026-10-06)
+
+15m setup and 5m timing now determine direction; 1h/4h and EMA200 are context. One matching closed bar displays preparation; two remain required for a confirmed new direction. EMA20/50, MACD and RSI form one correlated collective. The existing strength calculation is DX, not Wilder ADX: the experimental filter accepts DX >=20, or rising DX >=15. No empirical superiority claimed. Weekday analysis no longer stops at 21:30; actual product market, quote, risk and evidence gates remain. No automatic closing or orders. Browser fallback rejects off-grid snapshots and inconsistent OHLC rather than retiming them. Missing or stale required candles still block.
+
+Entry-quality thresholds (1.5 ATR / 2R / 15 minutes) remain a paired comparison and visible warning, not an unvalidated additional hard gate. Fixed 15m stops and targets remain. Audits isolate v3 from v1/v2. Existing trades and shadow experiments are retained.
+
+Next-candle v1 is an experimental 5m continuation scenario from closed bars: close versus EMA20 and last close change must agree. The displayed band is plus/minus the last 14 mean high-low ranges, not a probability interval or predicted high/low. It includes a retrospective one-step check computed without the target bar; this is not a persisted live forecast track record. Invalid, stale, mixed, duplicate or gapped evidence is unavailable. No product approval derives from the scenario.
