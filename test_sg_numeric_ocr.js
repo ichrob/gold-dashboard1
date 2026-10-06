@@ -184,3 +184,5 @@ vm.runInContext(code,context);const b=context.window.BobDegiro;b.setTestWorker(w
  assert.equal(await e.window.BobDegiro.reviewedImageText({name:f.images[0].name,arrayBuffer:async()=>new Uint8Array(32)}),null);
  console.log('FG7EPT originals: identity, dated terms, leverage, quote timestamps, older-quote protection and exact-byte evidence passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});
+
+require('./test_sg_mobile_cells.js');
