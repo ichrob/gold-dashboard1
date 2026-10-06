@@ -1,15 +1,18 @@
 // Run Bob's actual dashboard analysis on the server; never duplicate its score formula.
 const fs=require('fs'),vm=require('vm');
-function evaluate(input){
+function evaluate(input, {render=false}={}){
  const noop=()=>{},elements=new Map(),canvas=new Proxy({},{get:()=>noop,set:()=>true});
  const element=id=>{if(!elements.has(id))elements.set(id,{value:({tf:input.timeframe||'15m',n:'200',account:'500',risk:'1',trailAtr:String(input.trailAtr||1.5),minRR:'2',displayCcy:'USD'})[id]||'',textContent:'',innerHTML:'',className:'',parentElement:{className:''},style:{},dataset:{},classList:{add:noop,remove:noop,toggle:noop},addEventListener:noop,setAttribute:noop,appendChild:noop,append:noop,selectedOptions:[{textContent:"15 Minuten"}],getContext:()=>canvas,getBoundingClientRect:()=>({width:800,height:300}),width:800,height:220});return elements.get(id);};
  const push={registered:false,general:false,trade:false,activeTrade:false};
- const env={input,console:{log:noop,warn:noop,info:noop,error:noop},document:{getElementById:element,querySelectorAll:()=>[],querySelector:()=>null,visibilityState:'hidden',addEventListener:noop,createTextNode:text=>({textContent:text}),createElement:()=>element('temp')},window:{addEventListener:noop},localStorage:{getItem:()=>null,setItem:noop},navigator:{},Notification:{permission:'denied'},BobPush:{state:()=>push,set:()=>push,setActiveTrade:()=>push,emit:async()=>false},BobDegiro:{riskModel:()=>({ok:false})},fetch:async()=>{throw Error('Headless analysis has no network access')},setTimeout:()=>0,clearTimeout:noop,setInterval:()=>0,AbortController,Date,Math,Number,JSON,URL,Blob,Promise};
+ const env={input,render,console:{log:noop,warn:noop,info:noop,error:noop},document:{getElementById:element,querySelectorAll:()=>[],querySelector:()=>null,visibilityState:'hidden',addEventListener:noop,createTextNode:text=>({textContent:text}),createElement:()=>element('temp')},window:{addEventListener:noop},localStorage:{getItem:()=>null,setItem:noop},navigator:{},Notification:{permission:'denied'},BobPush:{state:()=>push,set:()=>push,setActiveTrade:()=>push,emit:async()=>false},BobDegiro:{riskModel:()=>({ok:false})},fetch:async()=>{throw Error('Headless analysis has no network access')},setTimeout:()=>0,clearTimeout:noop,setInterval:()=>0,AbortController,Date,Math,Number,JSON,URL,Blob,Promise};
  vm.createContext(env);
  const html=fs.readFileSync(__dirname+'/Bob.html','utf8');
  const script=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].find(m=>m[1].includes('function confirmedSignalDirection()'))[1];
  vm.runInContext(script,env,{timeout:3000});
  return vm.runInContext(`(()=>{
+  // UI rendering repeatedly replays signal history and formats dates. None is
+  // needed by the worker: retain the shared math and evaluate direction once.
+  if(!render){draw=()=>{};renderCompactAnalysis=()=>{};renderExtraDirections=()=>{};updateQuick=()=>{};updateResearchPanel=()=>{};}
   const bundle=input.bundle||{},bars=bundle.history?.bars_by_tf||{},tf=input.timeframe||'15m';
   liveBundleCache=bundle;
   C=(bars[tf]||[]).filter(b=>!b.isOpen&&b.instrument==='XAU/USD').slice(-240);
@@ -26,7 +29,7 @@ function evaluate(input){
   let suggestedStop=null,suggestedTarget=null;
   if(ready&&priceFresh&&input.trade?.active){const stop=stopModel(input.trade.dir,price,A.at,input.trailAtr||1.5).stop;if(Number.isFinite(stop)&&stop>0){suggestedStop=stop;suggestedTarget=targetModel(input.trade.dir,price,stop,2).target;}}
   return {entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-responsive-v6',session:intradaySession(),intraday:intradayState(bundle,input.trade),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
- })()`,env,{timeout:3000});
+ })()`,env,{timeout:8000});
 }
 module.exports={evaluate};
 if(require.main===module){try{process.stdout.write(JSON.stringify(evaluate(JSON.parse(fs.readFileSync(0,'utf8')))));}catch(e){process.stderr.write(JSON.stringify({name:e.name,message:String(e.message).slice(0,200),frames:String(e.stack).split('\n').filter(x=>/^\s+at /.test(x)).slice(0,3)}));process.exitCode=1;}}

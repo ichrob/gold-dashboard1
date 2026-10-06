@@ -82,6 +82,7 @@ def config(value):
 
 
 def analyze(bundle, settings):
+    started = time.monotonic()
     p = subprocess.run(['node', str(Path(__file__).with_name('background_analysis.js'))],
                        input=json.dumps({**settings, 'bundle': bundle}), text=True, capture_output=True, timeout=10)
     if p.returncode:
@@ -92,7 +93,23 @@ def analyze(bundle, settings):
         except (ValueError, TypeError):
             print('BOB_ANALYSIS_ERROR exit='+str(p.returncode), flush=True)
         raise RuntimeError('Hintergrundanalyse fehlgeschlagen')
-    return json.loads(p.stdout)
+    result = json.loads(p.stdout)
+    print('BOB_BACKGROUND_ANALYSIS ready='+str(result.get('ready'))+' priceFresh='+str(result.get('priceFresh'))+' duration_ms='+str(round((time.monotonic()-started)*1000)), flush=True)
+    return result
+
+
+def failed_analysis_market(bundle):
+    """Preserve a genuine source clock when computation fails, without approving it."""
+    from datetime import datetime
+    at = None
+    try:
+        stamp = datetime.fromisoformat(bundle['spots']['spot_price_as_of'].replace('Z', '+00:00'))
+        candidate = stamp.timestamp()*1000
+        if stamp.tzinfo is not None and 0 < candidate <= time.time()*1000:
+            at = candidate
+    except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
+        pass
+    return {'ready': False, 'priceFresh': False, 'analysisError': True, 'dataAt': at}
 
 
 def advance(previous, settings, market, general, trade_enabled, now=None):
@@ -113,7 +130,9 @@ def advance(previous, settings, market, general, trade_enabled, now=None):
     channel = 'trade' if trade_enabled and settings.get('trade') else 'general'
     if state.get('healthy') != healthy:
         if not healthy:
-            add('data-unavailable', 'DATENSTATUS · Überwachung eingeschränkt', 'Aktuelle Markt-/Analysedaten fehlen. Berechnung mit vorhandenen Werten läuft weiter; keine aktuelle Bestätigung.', channel)
+            reason = ('Die Hintergrundanalyse ist fehlgeschlagen. Eine aktuelle Bewertung und Trade-Überwachung sind nicht bestätigt.'
+                      if market.get('analysisError') else 'Aktuelle Markt-/Analysedaten fehlen. Berechnung mit vorhandenen Werten läuft weiter; keine aktuelle Bestätigung.')
+            add('data-unavailable', 'DATENSTATUS · Überwachung eingeschränkt', reason, channel)
         elif state.get('healthy') is False:
             add('data-recovered', 'DATENSTATUS · Überwachung fortgesetzt', 'Aktuelle Daten wieder vorhanden. Keine Entwarnung für einen Trade.', channel)
     state['healthy'] = healthy

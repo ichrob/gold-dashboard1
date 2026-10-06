@@ -236,7 +236,7 @@ def run_background(bundle):
                 market = background_push.analyze(bundle, settings)
             except Exception as exc:
                 print('BOB_BACKGROUND analysis_failed='+type(exc).__name__, flush=True)
-                market = {'ready':False,'priceFresh':False}
+                market = background_push.failed_analysis_market(bundle)
             # Audit failures must not interrupt stop/target monitoring or its transaction.
             try:
                 with conn.transaction():
