@@ -161,6 +161,19 @@ class ProductQuoteTests(unittest.TestCase):
         self.assertNotIn('Nutzerwunsch', result['reason'])
         self.assertFalse(result['eligible'])
 
+    def test_sg_diagnostics_survive_comdirect_enrichment(self):
+        isin = 'DE000FG7K283'
+        for verified in (True, False):
+            terms = dict(found=False, productVerified=verified, reason='Produktdaten',
+                         metadata=dict(status=1), conditions={'ratio':.1})
+            with patch('public_product_terms.get_product', return_value=terms):
+                result=q.get_quote(isin)
+            self.assertIn('SG-Direktimport noch nicht aktiviert', result['reason'])
+            self.assertEqual(result['sourceFailureCode'], 'SG_PROVIDER_PERMISSION_UNCONFIRMED')
+            if verified:
+                self.assertEqual(result['conditions'], {'ratio':.1})
+                self.assertTrue(result['issuerResearch']['sourceDisabled'])
+
     def test_sg_metadata_never_becomes_undated_live_quote(self):
         product, props = self.sg_snapshot()
         x = q.parse_sg(product, props, product['Isin'], NOW)

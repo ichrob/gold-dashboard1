@@ -396,15 +396,18 @@ def get_quote(isin):
         return dict(issuer, exchangeResearch=terms, sourceDisabled=False,
                     sourceFailure=True, source=terms.get('source', 'Öffentliche Produktrecherche'),
                     reason=terms.get('reason', 'Produktrecherche nicht verfügbar')+
-                    (' · '+issuer['reason'] if issuer.get('quoteFailureCode') else ''))
+                    (' · '+issuer['reason'] if issuer.get('quoteFailureCode') or issuer.get('sourceFailureCode') else ''))
     if not issuer.get('found'):
         # Preserve the working terms source and the reason the independent
         # quote attempt failed. Previously both layers discarded this evidence.
-        if not issuer.get('quoteFailureCode') and not issuer.get('productVerified'):
+        if not issuer.get('quoteFailureCode') and not issuer.get('sourceFailureCode') and not issuer.get('productVerified'):
             return terms
         result = dict(terms, issuerResearch=issuer)
         if issuer.get('quoteFailureCode'):
             result.update(quoteFailureCode=issuer['quoteFailureCode'],
+                          reason=terms['reason']+' · '+issuer['reason'])
+        elif issuer.get('sourceFailureCode'):
+            result.update(sourceFailureCode=issuer['sourceFailureCode'],
                           reason=terms['reason']+' · '+issuer['reason'])
         return result
     result = dict(issuer, productVerified=True, metadata=terms['metadata'],
