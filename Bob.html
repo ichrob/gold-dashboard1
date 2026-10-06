@@ -595,7 +595,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    if(r.version!=='audit-day-v1')throw Error('Tagesabfrage noch nicht auf beiden Diensten verfügbar');
    const lines=[day+' · Schweizer Zeit · '+r.total+' gespeicherte Entscheidungen (Browser/Hintergrund können dieselbe Kerze mehrfach protokollieren).',
     'Richtungen: '+JSON.stringify(r.summary.counts),r.truncated?'Begrenzt auf erste 10’000 Einträge; kein vollständiger Tagesnachweis.':'Alle Tagesentscheidungen seitenweise abrufbar.',
-    ...r.summary.firstSignals.map(x=>'Erstes protokolliertes '+x.direction+' ['+x.ruleVersion+']: '+dayTime(x.at)+' · Gold '+x.price+' USD · frischer Spot: '+(x.marketEvaluable?'ja':'nein')+' · Produktauswahl: '+(x.selection.join(', ')||'keine dokumentiert')),
+    ...r.summary.firstSignals.map(x=>'Erstes protokolliertes '+x.direction+' ['+x.ruleVersion+']: '+dayTime(x.at)+' · Gold '+x.price+' USD · Spot für Rückblick auswertbar: '+(x.marketEvaluable?'ja':'nein')+' · Produktauswahl: '+(x.selection.join(', ')||'keine dokumentiert')),
     'Gespeicherte Spot-Kursminuten je Stunde:',...r.quoteCoverage.map(x=>dayTime(x.hour)+': '+x.minutes+'/60 Minuten · Spanne '+x.low+'–'+x.high+' USD'),
     'Stundenvergleich: '+r.comparisons.length+' gespeicherte Versuche; '+r.comparisons.filter(x=>x.observation.valid).length+' gültige Beobachtungen; '+r.comparisons.filter(x=>x.truth).length+' mit Folgepreis.',
     ...r.limitations];

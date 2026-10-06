@@ -35,7 +35,14 @@ def observation(market,now):
        and number(price) and price>0 and number(at) and 0<=now-at<=60000
        and number(bar) and 300000<=now-bar<=600000
        and all(d in ('LONG','SHORT','NEUTRAL') for d in directions))
-    return dict(campaign=ID,slot=slot,recordedAt=now,valid=valid,price=price if number(price) else None,
+    failures=[]
+    if not market.get('ready'):failures.append('Analyse nicht bereit')
+    if not market.get('priceFresh') or not number(at) or not 0<=now-at<=60000:failures.append('Spot-Quellenzeit fehlt oder nicht innerhalb 60 Sekunden')
+    if not number(bar) or not 300000<=now-bar<=600000:failures.append('Geschlossene 5m-Kerze fehlt oder veraltet')
+    if market.get('ruleVersion')!=POLICY:failures.append('Vergleichsregel stimmt nicht überein')
+    if not number(price) or price<=0:failures.append('Spotpreis fehlt')
+    if not all(d in ('LONG','SHORT','NEUTRAL') for d in directions):failures.append('Gepaarte Richtungen fehlen')
+    return dict(campaign=ID,slot=slot,recordedAt=now,valid=valid,validationFailures=failures,price=price if number(price) else None,
        priceAt=at if number(at) else None,barAt=bar if number(bar) else None,
        fast=directions[0] if valid else None,cautious=directions[1] if valid else None,
        entryQuality=market.get('entryQuality'),reason=market.get('decisionReason') or 'Aktuelle gemeinsame Datenbasis fehlt',policy=market.get('ruleVersion'))
