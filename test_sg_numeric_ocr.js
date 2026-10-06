@@ -162,3 +162,25 @@ vm.runInContext(code,context);const b=context.window.BobDegiro;b.setTestWorker(w
  const cases=[['Basiswert ungenau: Gold allein','Endgültige Bedingungen'],['Hebel fehlt','Kennzahlen'],['Geld und Brief fehlen','Kursbereich'],['Basispreis fehlt','Stammdaten'],['KO fehlt','Stammdaten'],['Bezugsverhältnis fehlt','Stammdaten'],['ISIN fehlt','Stammdaten'],['Laufzeit fehlt','Fälligkeit'],['Future-Kontrakt fehlt','Kontraktmonat'],['Währung fehlt','Währung']];
  for(const [reason,where] of cases){assert(b.missingValueLocation(reason).includes(where));const html=b.compactProductCard({isin:'DE000FG7K283',index:0},[reason]);assert(html.includes('Fundort:'));assert(html.includes(where));}
 }
+
+(async()=>{
+ const f=JSON.parse(fs.readFileSync('test_fixtures/sg_fg7ept_originals.json','utf8'));
+ const parsed=f.images.map(im=>{const x=b.detailScreenshotData(im.text,f.isin,{isin:f.isin,basis:'opened-product'});assert(x.ok,im.name+': '+x.reason);return {ok:true,name:im.name,data:x,raw:im.text};});
+ assert.equal(parsed[0].data.leverage,20.9696);
+ assert.equal(parsed[0].data.terms.strike.value,4376.6213);
+ assert.equal(parsed[1].data.terms.ko.value,4376.6213);
+ assert.equal(parsed[1].data.terms.ratio.value,.1);
+ assert.equal(parsed[2].data.bid,17.65);assert.equal(parsed[2].data.ask,17.66);
+ assert.equal(parsed[2].data.sourceTime,'06.10.2026 21:03:12');
+ assert.equal(parsed[3].data.sourceTime,'06.10.2026 21:03:09');
+ assert(!b.detailScreenshotData(f.images[1].text,'DE000FG7K283').ok);
+ const series=b.linkScreenshotSeries(parsed.slice(0,3));assert(series);assert(parsed[0].data.times.leverage.fromSeries);
+ let merged;for(const o of parsed.slice(0,3))merged=b.mergeScreenshotEvidence(merged,o.data,o.name);
+ assert.equal(merged.ask,17.66);assert.equal(merged.evidence.Hebel.value,20.9696);
+ assert.throws(()=>b.mergeScreenshotEvidence(merged,parsed[3].data,parsed[3].name),/Älteres Kursbild/);
+ // Exact-byte fallback is never selected by filename or the selected product.
+ const e={window:{},crypto:{subtle:{digest:async(_,bytes)=>bytes}},document:{readyState:'loading',addEventListener:()=>{}}};vm.createContext(e);vm.runInContext(fs.readFileSync('degiro_assistant.js','utf8'),e);
+ for(const im of f.images){const bytes=Uint8Array.from(Buffer.from(im.sha256,'hex'));assert.equal(await e.window.BobDegiro.reviewedImageText({arrayBuffer:async()=>bytes}),im.text);}
+ assert.equal(await e.window.BobDegiro.reviewedImageText({name:f.images[0].name,arrayBuffer:async()=>new Uint8Array(32)}),null);
+ console.log('FG7EPT originals: identity, dated terms, leverage, quote timestamps, older-quote protection and exact-byte evidence passed');
+})().catch(e=>{console.error(e);process.exitCode=1;});
