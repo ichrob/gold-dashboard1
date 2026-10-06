@@ -766,6 +766,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.end_headers()
                 self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                # The client went away after the live response had started.
+                # This is not a live-data failure and a second response would
+                # only raise another socket error.
+                self.close_connection = True
             except Exception as exc:
                 print(f"Bob /api/live ERROR: {type(exc).__name__}: {exc}", flush=True)
                 body = json.dumps({"error": "Live-Daten momentan nicht verfügbar", "error_type": type(exc).__name__}).encode("utf-8")
@@ -1138,7 +1143,6 @@ if __name__ == "__main__":
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress
-
 
 
 
