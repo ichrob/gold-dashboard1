@@ -940,7 +940,7 @@ async function enrichProduct(i){
  const prior=productQuotes.get(i);
  const inactive=prior?.isin===isin&&prior?.productVerified&&prior?.metadata?.status===2?prior:null;
  try{
-  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),35000);
+  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),60000);
   let res;try{res=await fetch("/api/degiro/enrich?isin="+encodeURIComponent(isin),{cache:"no-store",signal:ctl.signal});}finally{clearTimeout(timer);}
   if(!res.ok)throw Error("Produktrecherche nicht verfügbar");
   let x=await res.json();
@@ -1106,6 +1106,9 @@ function selectionWorkflow(products,context={},bundle,references=[]){
   const terms=finalProductStatus(p,now,references[p.index-1]);
   if(!terms.complete){result.requests.push({isin:p.isin,name:p.name,index:p.index,reasons:terms.reasons,scope:isFutureProduct(p)?'FUTURE':'XAU/USD'});continue;}
   const cond=conditionalCandidate(p,context,now);if(cond.ok){if(cond.direction===direction)add({...cond,score:cond.scoreLow});else result.waiting.push({isin:p.isin,reason:"Eigene Future-Analyse passt nicht zur aktuellen Vorauswahl-Richtung"});continue;}
+  // The direct quote was already evaluated by BobCombined.rank above.
+  // Do not request screenshots for the same complete live evidence.
+  if(currentQuote(p,now))continue;
   const state=selectionDetailStatus(p,now);
   if(!isFutureProduct(p)&&state.complete&&context.spotFresh===true){
    const e=evaluateProduct({...p,...context,spread:n(p.snapshot.ask)-n(p.snapshot.bid),rankingQuoteAt:state.at});
@@ -2105,7 +2108,7 @@ async function inject(){
  window.addEventListener('pageshow',()=>updateScreenshotReturn(true));
  quoteRefresh=createQuoteRefresh({
   rows:()=>Array.from({length:12},(_,idx)=>{const id=idx+1,isin=(document.querySelector('[data-dg="isin"][data-i="'+id+'"]')?.value.trim()||'').toUpperCase();return {id,isin,key:isin+':'+(rowVersions.get(id)||0)};}),
-  request:enrichProduct,visible:()=>!document.hidden,interval:900000
+  request:enrichProduct,visible:()=>!document.hidden,interval:30000
  });
  refreshImportedProducts(true);
  const savedCount=restoredProducts.length;
