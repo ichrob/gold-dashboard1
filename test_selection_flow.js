@@ -557,3 +557,43 @@ sg=sgSeries();assert.equal(b.linkScreenshotSeries([sg[1]]),null);
 sg=sgSeries();sg[1].data.isin='DE000PJ9NB98';assert.equal(b.linkScreenshotSeries(sg),null);
 sg=sgSeries();b.linkScreenshotSeries(sg.reverse());assert(sg[0].data.times.leverage.fromSeries);
 console.log('Separate SG leverage timing, provenance, persistence and timestamp boundaries passed');
+
+{
+// A terminal issuer banner needs identity, but no quote/ratio/leverage uploads.
+const koOriginal=fs.readFileSync('test_fixtures/sg_fg5nmh_knocked_out.txt','utf8');
+const deadIsin='DE000FG5NMH8',dead={isin:deadIsin,name:'SG Gold BEST Turbo Call',productDirection:'LONG'};
+assert(b.validIsin(deadIsin));
+const koRead=b.detailScreenshotData(koOriginal,deadIsin);
+assert(koRead.ok);assert.equal(koRead.lifecycle.status,'KNOCKED_OUT');
+assert.equal(koRead.identityBasis,'WKN');
+assert(!b.detailScreenshotData(koOriginal,isin).ok);
+for(const text of ['Nicht ausgeknockt','Produkt ist nicht KNOCKED OUT','Bei Erreichen der Barriere wird es ausgeknockt.','Knock-Out-Barriere 4114,6610'])assert(!b.explicitKnockout(text));
+assert(!b.knockoutStatus({...dead,isin:'DE000FG5NMF2'}));
+for(const direction of ['LONG','SHORT','NEUTRAL']){
+ const flow=b.selectionWorkflow([dead],{...context,direction},{});
+ assert.equal(flow.requests.length,0);assert.equal(flow.approvedCount,0);
+ const markup=b.renderSelectionWorkflow(flow,[dead]);
+ assert(markup.includes('Ausgeknockt – Produkt ausgeschlossen'));
+ assert(!markup.includes('Fehlende Werte'));assert(!markup.includes('Bilder / PDF hinzufügen'));
+ assert(!markup.includes('aktuelle Screenshots erneut hochladen'));
+}
+assert(!b.evaluateProduct({...p,...dead}).ok);
+assert(b.finalProductStatus(dead).terminal);
+// Lifecycle evidence is identity-bound and persists through later images/reloads.
+const memory=new Map(),koEnv={window:{},localStorage:{getItem:k=>memory.get(k)||null,setItem:(k,v)=>memory.set(k,v)}};
+vm.createContext(koEnv);vm.runInContext(fs.readFileSync('degiro_assistant.js','utf8'),koEnv);
+const kb=koEnv.window.BobDegiro,other='DE000FG7K283';
+const event=kb.detailScreenshotData('WKN FG7K28\nKNOCKED OUT',other);
+assert(event.ok);
+let merged=kb.mergeScreenshotEvidence({isin:other},event,'issuer-status.jpg');
+assert(kb.knockoutStatus({isin:other,snapshot:merged}));
+merged=kb.mergeScreenshotEvidence(merged,{isin:other,terms:{},price:'10'},'older-quote.jpg');
+assert.equal(merged.lifecycle.status,'KNOCKED_OUT');
+assert(kb.knockoutStatus({isin:other}));
+assert(!kb.knockoutStatus({isin,snapshot:merged}));
+assert(!kb.conditionalCandidate({isin:other}).ok);
+assert(!kb.finalProductStatus({isin:other,snapshot:merged}).complete);
+assert.equal(kb.cleanStoredProduct({isin:other,snapshot:merged}).snapshot.lifecycle.source,'issuer-status.jpg');
+console.log('Knock-out: original SG banner, identity, no upload requests, neutral precedence, persistent terminal exclusion and non-status negative controls passed');
+
+}
