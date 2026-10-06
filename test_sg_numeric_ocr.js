@@ -36,6 +36,19 @@ vm.runInContext(code,context);const b=context.window.BobDegiro;b.setTestWorker(w
   let n=0;const probe={setParameters:async()=>{},recognize:async()=>({data:{text:values[n++]}})};
   assert.equal(await b.readSgIdentity(probe,{},passes[0]),'');
  }
+ // Actual 1000070760: address hidden while scrolling; Android confuses
+ // both the overlong ISIN token and WKN. Resolve from pixels, not the target.
+ const noAddress=JSON.parse(fs.readFileSync('test_fixtures/sg_fg7k28_no_address.json','utf8'));
+ noAddress[1].text=noAddress[1].text.replace(/DEOOOFG7K283/g,'DEOOOFGT7K283').replace(/FG7K28/g,'FGTK28');
+ assert(!b.detailScreenshotData(b.recoverTermRows(noAddress[1],noAddress[3]),'DE000FG7K283').ok);
+ inputPasses=noAddress.concat([{text:'DEOOOFG7K283'},{text:'DEOOOFG7K283'}]);index=0;
+ const headerless=await b.recognizeOcr({});assert.equal(index,7);
+ const parsedHeaderless=b.detailScreenshotData(headerless.data.text,'DE000FG7K283');assert(parsedHeaderless.ok,parsedHeaderless.reason);
+ for(const key of ['ko','strike']){assert.equal(parsedHeaderless.terms[key].value,4246.7452);assert.equal(parsedHeaderless.terms[key].dateText,'06.10.2026');}
+ assert.equal(parsedHeaderless.terms.ratio.value,.1);
+ assert(!b.detailScreenshotData(headerless.data.text,'DE000FG5NMF2').ok);
+ assert.equal(b.sgIdentityRect({text:'ISIN WKN',words:noAddress[0].words},709,1536),null);
+ assert.equal(b.sgIdentityRect({...noAddress[0],words:noAddress[0].words.concat(noAddress[0].words.find(w=>w.text==='ISIN'))},709,1536),null);
  console.log('Actual SG image passes: independent numeric agreement, dates, identity and disagreement gates passed');
 })().catch(e=>{console.error(e);process.exitCode=1});
 
