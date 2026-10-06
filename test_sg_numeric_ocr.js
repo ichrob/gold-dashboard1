@@ -186,3 +186,5 @@ vm.runInContext(code,context);const b=context.window.BobDegiro;b.setTestWorker(w
 })().catch(e=>{console.error(e);process.exitCode=1;});
 
 require('./test_sg_mobile_cells.js');
+
+require('./test_sg_0909_engine.js');
