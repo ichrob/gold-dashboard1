@@ -38,3 +38,30 @@ vm.runInContext(code,context);const b=context.window.BobDegiro;b.setTestWorker(w
  }
  console.log('Actual SG image passes: independent numeric agreement, dates, identity and disagreement gates passed');
 })().catch(e=>{console.error(e);process.exitCode=1});
+
+// Actual 12:04 terms image followed by a same-value undated quote header.
+{
+ const reads=JSON.parse(fs.readFileSync('test_fixtures/sg_fg7k28_terms_1204.json','utf8'));
+ const isin='DE000FG7K283',now=Date.parse('2026-10-06T10:06:00Z');
+ const terms=b.detailScreenshotData(b.recoverTermRows(reads[1],reads[3]),isin);assert(terms.ok);
+ const quote=b.detailScreenshotData('ISIN '+isin+'\nSHORT\nEUR\nGeld 8,64\nBrief 8,65\nHebel 45\nKO 4246,7452\nKurszeit: 06.10.2026 12:04:30',isin);assert(quote.ok);
+ const make=items=>items.reduce((prev,[data,name])=>b.mergeScreenshotEvidence(prev,data,name),null);
+ for(const items of [[[terms,'terms.jpg'],[quote,'quote.jpg']],[[quote,'quote.jpg'],[terms,'terms.jpg']]]){
+  const snapshot=make(items),p={isin,isinConfirmed:true,productDirection:'SHORT',price:8.65,leverage:45,ko:4246.7452,snapshot};
+  const result=b.finalProductStatus(p,now);
+  assert(!result.complete);assert.deepEqual(Array.from(result.reasons),['Basiswert ungenau: Gold allein bestätigt keinen Spot-Basiswert']);
+  assert(!b.compactProductCard(p,result.reasons).includes('Geld, Brief und Quellenzeit'));
+  assert(b.compactProductCard(p,result.reasons).includes('Basiswert „Gold“ erkannt'));
+  assert(b.productTermsStatus(p,now+86400000).reasons.some(r=>/Knock-out/.test(r)));
+  const changed=make([[terms,'terms.jpg'],[{...quote,ko:'4247'},'changed.jpg']]);
+  assert(b.productTermsStatus({...p,ko:4247,snapshot:changed},now).reasons.some(r=>/Knock-out/.test(r)));
+  for(const change of [{conflict:true},{revoked:true},{dateText:'05.10.2026'}]){
+   const bad={...snapshot,evidence:{...snapshot.evidence,KO:{...snapshot.evidence.KO,...change}}};
+   assert(b.productTermsStatus({...p,snapshot:bad},now).reasons.some(r=>/Knock-out/.test(r)));
+  }
+ }
+ const snapshot=make([[terms,'terms.jpg'],[quote,'quote.jpg']]);
+ assert.equal(snapshot.evidence.KO.source,'quote.jpg');assert.equal(snapshot.evidence.KO.at,null);assert(!snapshot.evidence.KO.dateText);
+ assert.equal(snapshot.terms.ko.source,'terms.jpg');assert.equal(snapshot.terms.ko.dateText,'06.10.2026');
+ console.log('Dated KO evidence survives undated repeats in either image order; expiry and conflicts still block');
+}
