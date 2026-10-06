@@ -733,10 +733,14 @@ async function reviewedImageText(file){
   return 'derivate.bnpparibas.com\nStammdaten\nKnock-out-Schwelle 3.996,2705 USD (05.10.2026)\nBasispreis 3.996,2705 USD (05.10.2026)\nBezugsverhältnis 0,1\nLaufzeit Open End\nReferenzzins SOFR\nZinsanpassungssatz 4,00 %\nWKN PJ9NB9\nISIN DE000PJ9NB98\nProdukttyp Unlimited Long';
  }catch(_){return null;}
 }
-// Read only the labelled ISIN row from the same SG image. The selected
+// Read only the labelled ISIN row from the same product-details image. The selected
 // upload product never supplies characters; two checksum-valid reads must agree.
+function hasIdentityTable(data){
+ const text=data?.text||'';
+ return /sg-zertifikate\.(?:de|at)\b/i.test(text)||/\bISIN\b/i.test(text)&&/\bWKN\b/i.test(text)&&/Basispreis|Produktart|Bezugsverh[äa]ltnis/i.test(text);
+}
 function sgIdentityRect(data,width,height){
- if(!/sg-zertifikate\.(?:de|at)\b/i.test(data?.text||''))return null;
+ if(!hasIdentityTable(data))return null;
  const labels=(data.words||[]).filter(w=>/^ISIN$/i.test(w.text));
  if(labels.length!==1)return null;
  const b=labels[0].bbox,h=b.y1-b.y0,x=Math.ceil(b.x1+h),y=Math.max(0,Math.floor(b.y0-h));
@@ -829,7 +833,7 @@ function recognizeOcr(file,statusId){
    if(missing.length)throw new Error('Zahlen nicht sicher bestätigt ('+missing.join(', ')+'). Bitte diese Werte in einem schärferen Ausschnitt zeigen. Es wurde kein Wert geraten.');
    result.data.numericCrossChecked=true;
   }
-  if(!parseScreenshotCandidates(result.data.text||'').length&&/sg-zertifikate\.(?:de|at)\b/i.test(identityData?.text||'')){
+  if(!parseScreenshotCandidates(result.data.text||'').length&&hasIdentityTable(identityData)){
    const id=await readSgIdentity(worker,prepared,identityData);
    if(id)result.data.text+='\nISIN '+id;
   }
