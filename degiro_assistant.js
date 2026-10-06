@@ -863,7 +863,38 @@ async function readTermDate(worker,image,data,key){
   return dates[0]===dates[1]?dates[0]:null;
  }finally{bitmap.close();await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});}
 }
-function recognizeOcr(file,statusId){
+// Isolate a single labelled scalar (ratio, leverage, bid or ask) before rereading.
+function scalarCellRect(data,key){
+ const labels={ratio:/^Bezugsverh(?:ä|a|ae)ltnis$/i,leverage:/^(Hebel|Leverage)$/i,bid:/^(Geld|Bid)$/i,ask:/^(Brief|Ask)$/i};
+ const words=data.words||[],rows=words.filter(w=>labels[key]?.test(w.text));if(rows.length!==1)return null;
+ const b=rows[0].bbox,h=b.y1-b.y0;if(h<6)return null;
+ const numeric=words.filter(w=>/^\d+(?:[.,]\d+)*(?::1)?$/.test(w.text));
+ let values=numeric.filter(w=>w.bbox.x0>b.x1&&Math.abs((w.bbox.y0+w.bbox.y1-b.y0-b.y1)/2)<h);
+ if(!values.length&&['bid','ask'].includes(key))values=numeric.filter(w=>w.bbox.y0>b.y1&&w.bbox.y0-b.y1<10*h&&Math.abs((w.bbox.x0+w.bbox.x1-b.x0-b.x1)/2)<5*h);
+ if(values.length!==1)return null;
+ const v=values[0].bbox,pad=Math.max(3,h*.3);
+ return {x:Math.max(0,v.x0-pad),y:Math.max(0,v.y0-pad),width:v.x1-v.x0+2*pad,height:v.y1-v.y0+2*pad};
+}
+async function readScalarCell(worker,image,data,key){
+ const rect=scalarCellRect(data,key);if(!rect)return [];
+ const bitmap=await createImageBitmap(image),reads=[];
+ try{
+  for(const [scale,mode] of [[2,'6'],[3,'11']]){
+   const canvas=document.createElement('canvas');canvas.width=rect.width*scale;canvas.height=rect.height*scale;
+   canvas.getContext('2d',{alpha:false}).drawImage(bitmap,rect.x,rect.y,rect.width,rect.height,0,0,canvas.width,canvas.height);
+   const crop=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!crop)return [];
+   await worker.setParameters({tessedit_pageseg_mode:mode,tessedit_char_whitelist:''});
+   const result=await ocrTimeout(worker.recognize(crop),15000,'Feldprüfung beendet');
+   const value=String(result.data?.text||'').trim();
+   if(!/^\d+(?:[.,]\d+)*(?:\s*:\s*1)?$/.test(value))continue;
+   const text=({ratio:'Bezugsverhältnis',leverage:'Hebel',bid:'Geld',ask:'Brief'})[key]+' '+value;
+   if(ocrNumericFields(text)[key]!==undefined)reads.push(text);
+  }
+  return reads;
+ }finally{bitmap.close();await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});}
+}
+
+function recognizeOcr(file,statusId,allowPartial=false){
  const job=ocrQueue.then(async()=>{
   const reviewed=await reviewedImageText(file);
   if(reviewed)return {data:{text:reviewed,reviewedOriginal:true}};
@@ -936,9 +967,20 @@ function recognizeOcr(file,statusId){
    for(const key of missing.filter(key=>['strike','ko'].includes(key))){
     readings.push(...await readTermCell(worker,prepared,identityData,key));
    }
+   if(allowPartial)for(const key of missing.filter(key=>['ratio','leverage','bid','ask'].includes(key)))readings.push(...await readScalarCell(worker,prepared,identityData,key));
    missing=unconfirmedOcrFields(result.data.text,readings);
-   if(missing.length)throw new Error('Zahlen nicht sicher bestätigt ('+missing.join(', ')+'). Bitte diese Werte in einem schärferen Ausschnitt zeigen. Es wurde kein Wert geraten.');
-   result.data.numericCrossChecked=true;
+   if(missing.length&&!allowPartial)throw new Error('Zahlen nicht sicher bestätigt ('+missing.join(', ')+'). Bitte diese Werte in einem schärferen Ausschnitt zeigen. Es wurde kein Wert geraten.');
+   result.data.unconfirmedFields=missing;
+   result.data.numericCrossChecked=!missing.length;
+  }
+  if(allowPartial)for(const [key,label] of [['ratio','Bezugsverh(?:ä|a|ae)ltnis'],['leverage','Hebel|Leverage'],['bid','Geld|Bid'],['ask','Brief|Ask']]){
+   if(ocrNumericFields(result.data.text)[key]!==undefined||!new RegExp('(?:^|\\n)\\s*(?:'+label+')\\b','i').test(result.data.text))continue;
+   const reads=await readScalarCell(worker,prepared,identityData,key);
+   if(reads.length===2&&ocrNumericFields(reads[0])[key]===ocrNumericFields(reads[1])[key]){
+    const row=new RegExp('(^|\\n)[ \\t]*(?:'+label+')[^\\n]*','gi');
+    if([...result.data.text.matchAll(row)].length===1){result.data.text=result.data.text.replace(row,(_,prefix)=>prefix+reads[0]);readings.push(...reads);}
+   }
+   if(ocrNumericFields(result.data.text)[key]===undefined||unconfirmedOcrFields(result.data.text,readings).includes(key))result.data.unconfirmedFields=[...new Set([...(result.data.unconfirmedFields||[]),key])];
   }
   // Recover malformed labelled cells as well as parsed-but-unconfirmed numbers.
   // Both focused reads must agree; the selected product supplies no amount.
@@ -952,7 +994,7 @@ function recognizeOcr(file,statusId){
    const date=matches[0][0].match(/\b\d{2}\.\d{2}\.\d{4}\b/);
    result.data.text=result.data.text.replace(row,(_,prefix)=>prefix+focused[0]+(date?' ('+date[0]+')':''));
    readings.push(...focused);
-   if(unconfirmedOcrFields(result.data.text,readings).includes(key))throw new Error('Widersprüchliche Zahlenlesungen für '+label+'; Wert nicht übernommen.');
+   if(unconfirmedOcrFields(result.data.text,readings).includes(key)){if(!allowPartial)throw new Error('Widersprüchliche Zahlenlesungen für '+label+'; Wert nicht übernommen.');result.data.unconfirmedFields=[...new Set([...(result.data.unconfirmedFields||[]),key])];}
   }
   for(const [key,label] of [['strike','Basispreis'],['ko','Knock-Out-Barriere']]){
    const term=parseProductTerms(result.data.text,[key])[key];
@@ -1824,7 +1866,7 @@ function finalProductStatus(p,now=Date.now(),reference){
  }
  return {...status,complete:!reasons.length,reasons};
 }
-function detailScreenshotData(text,expectedIsin,productContext=null){
+function detailScreenshotData(text,expectedIsin,productContext=null,excludedFields=[]){
  let raw=normalizeBnpQuoteColumns(String(text||""));
  // BNP's Gold reference identifier is not the certificate ISIN.
  // Scope removal to the explicit Gold underlying section, preserving all
@@ -1838,6 +1880,11 @@ function detailScreenshotData(text,expectedIsin,productContext=null){
  if(!identity.ok)return identity;
  if(explicitKnockout(raw))return {ok:true,isin:expectedIsin,identityBasis:identity.basis,identityContext:identity.context||null,terms:{},times:{},lifecycle:{isin:expectedIsin,status:'KNOCKED_OUT',verified:true,text:'KNOCKED OUT',identityBasis:identity.basis}};
 
+ for(const key of excludedFields){
+  const label=({strike:'Basispreis|Finanzierungslevel',ko:'Knock-Out-Barriere|Knock-out-Schwelle',ratio:'Bezugsverhältnis|Bezugsverhaltnis',leverage:'Hebel|Leverage',bid:'Geld|Bid',ask:'Brief|Ask'})[key];
+  if(label)raw=raw.replace(new RegExp('(^|\\n)[ \\t]*(?:'+label+')[ \\t]*[:=]?[ \\t]*[^\\n]*','gi'),'$1');
+ }
+
  if(/BNP\s+PARIBAS|derivate\.bnpparibas\.com/i.test(raw)){
   raw=raw.replace(/\bVerkaufen\b/g,'Geld').replace(/\bKaufen\b/g,'Brief');
  }
@@ -1845,7 +1892,7 @@ function detailScreenshotData(text,expectedIsin,productContext=null){
  // such as 12 from "12,O9". Alphabet characters are never prices.
  const numericTokens=raw.matchAll(/(?:^|\n)\s*(?:Geld|Brief|Bid|Ask|Hebel)\s*[:=]?\s*(?:€|EUR)?\s*([0-9][0-9A-Za-z.,]*)/gi);
  for(const token of numericTokens)if(strictOcrNumber(token[1])===null)return {ok:false,reason:'Zahl enthält unklare Zeichen: '+token[1]+'. Bitte einen schärferen Ausschnitt zeigen.'};
- const titlePair=sgScreenshotTitlePair(raw,expectedIsin);
+ const titlePair=excludedFields.some(k=>['bid','ask'].includes(k))?null:sgScreenshotTitlePair(raw,expectedIsin);
  if(titlePair){
   // Both values are visible in this same image's SG browser title. Never
   // borrow the second price or its timestamp from another screenshot.
@@ -2025,6 +2072,97 @@ async function readProductPdf(file,expected){
   return parseProductPdf(pages,expected,file.name);
  }finally{await task.destroy();}
 }
+// Local originals support reprocessing after OCR updates. Never refresh source clocks.
+const PRODUCT_OCR_VERSION='2026-10-06-fields-v1';
+const ORIGINAL_TTL=7*86400000,ORIGINAL_LIMIT=100*1024*1024;
+const activeProductImports=new Set();
+function originalRetention(records,now=Date.now()){
+ const sorted=records.filter(r=>now-r.savedAt<ORIGINAL_TTL).reverse().sort((a,b)=>b.savedAt-a.savedAt);
+ let bytes=0;return sorted.filter(r=>{bytes+=r.size||0;return bytes<=ORIGINAL_LIMIT;});
+}
+async function originalsTransaction(mode,action){
+ if(typeof indexedDB==='undefined')throw new Error('Lokaler Bildspeicher ist nicht verfügbar');
+ const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('bobProductOriginals',1);r.onupgradeneeded=()=>r.result.createObjectStore('files',{keyPath:'id'});r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);r.onblocked=()=>reject(new Error('Bildspeicher ist in einem anderen Fenster blockiert'));});
+ try{return await new Promise((resolve,reject)=>{const tx=db.transaction('files',mode),store=tx.objectStore('files');let value;tx.oncomplete=()=>resolve(value);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||new Error('Bildspeicherung abgebrochen'));action(store,v=>value=v);});}finally{db.close();}
+}
+async function loadProductOriginals(){
+ return originalsTransaction('readwrite',(store,done)=>{const request=store.getAll();request.onsuccess=()=>{const keep=originalRetention(request.result),ids=new Set(keep.map(r=>r.id));for(const r of request.result)if(!ids.has(r.id))store.delete(r.id);done(keep);};});
+}
+async function saveProductOriginal(file,isin,context,batch){
+ if(file.size>ORIGINAL_LIMIT)throw new Error('Datei überschreitet den lokalen Bildspeicher von 100 MB');
+ const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer())),x=>x.toString(16).padStart(2,'0')).join('');
+ const record={id:isin+':'+batch+':'+digest,isin,batch,context,name:file.name,type:file.type,blob:file,size:file.size,savedAt:Date.now(),version:null};
+ await originalsTransaction('readwrite',(store,done)=>{const request=store.getAll();request.onsuccess=()=>{const all=request.result.filter(r=>r.id!==record.id).concat(record),keep=originalRetention(all),ids=new Set(keep.map(r=>r.id));for(const r of all)if(!ids.has(r.id))store.delete(r.id);if(ids.has(record.id))store.put(record);done();};});
+ return record;
+}
+async function markOriginalProcessed(record,outcome){
+ if(!record)return;
+ await originalsTransaction('readwrite',store=>{const r=store.get(record.id);r.onsuccess=()=>{if(r.result)store.put({...r.result,version:PRODUCT_OCR_VERSION,lastResult:outcome?.ok?'zugeordnet':'offen'});};});
+}
+async function deleteProductOriginals(isin){
+ await originalsTransaction('readwrite',store=>{const r=store.getAll();r.onsuccess=()=>{for(const file of r.result)if(file.isin===isin)store.delete(file.id);};});
+}
+async function processProductImages(i,files,context,records=null){
+ if(activeProductImports.has(i))return;
+ activeProductImports.add(i);
+ const input=document.getElementById('dgDetailShot'+i),status=document.getElementById('dgOcrStatus'+i);
+ const isin=document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value;
+ const batch=records?.[0]?.batch||crypto.randomUUID(),outcomes=[],storageWarnings=[];
+ if(input)input.disabled=true;
+ try{
+  for(let j=0;j<files.length;j++){
+   if(document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value!==isin)break;
+   const file=files[j];let record=records?.[j];
+   if(!records)try{record=await saveProductOriginal(file,isin,context,batch);}catch(e){storageWarnings.push('Original nicht gespeichert: '+e.message);}
+   const result=await readScreenshot(i,file,context);
+   if(result)outcomes.push({name:file.name,...result});
+   try{await markOriginalProcessed(record,result);}catch(e){storageWarnings.push('Erkennungsstand nicht gespeichert: '+e.message);}
+  }
+  if(document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value===isin){
+   const series=linkScreenshotSeries(outcomes);
+   if(series){
+    // Rebuild the series in source-time order; a newer quote always wins.
+    const accepted=outcomes.filter(o=>o.ok&&o.data).sort((a,b)=>(selectionTimeWindow(a.data.sourceTime)?.start||0)-(selectionTimeWindow(b.data.sourceTime)?.start||0));
+    let merged=detailScreenshots.get(i);
+    for(const o of accepted)try{merged=mergeScreenshotEvidence(merged,o.data,o.name);}catch(e){if(!/^Älteres Kursbild:/.test(e.message))throw e;}
+    detailScreenshots.set(i,merged);
+    for(const o of accepted)o.reason+=' · Zeitbezug der Aufnahmeserie '+series.text;
+   }
+   if(status)status.textContent=screenshotBatchSummary(outcomes)+(storageWarnings.length?' · '+[...new Set(storageWarnings)].join(' · '):' · Originaldateien lokal für bis zu 7 Tage gespeichert.');
+  }
+ }catch(e){if(status)status.textContent='⚠️ '+e.message;}
+ finally{activeProductImports.delete(i);if(input){input.value='';input.disabled=false;}rankUI();}
+}
+async function reprocessOriginals(automatic=false){
+ const rows=Array.from(document.querySelectorAll('[data-dg="isin"]')).map(el=>({isin:el.value,index:Number(el.dataset.i)}));
+ const records=(await loadProductOriginals()).filter(r=>automatic||r.isin===returnProductIsin).sort((a,b)=>a.savedAt-b.savedAt);
+ const groups=new Map();for(const r of records){const key=r.isin+':'+r.batch;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(r);}
+ if(!records.length&&!automatic){const status=document.querySelector('[data-return-status]');if(status)status.textContent='Keine gespeicherten Originaldateien für dieses Produkt vorhanden. Frühere Uploads müssen einmal erneut ausgewählt werden.';}
+ for(const batch of groups.values()){
+  if(automatic&&batch.every(r=>r.version===PRODUCT_OCR_VERSION))continue;
+  if(automatic&&document.hidden)break;
+  const row=screenshotReturnRow(batch[0].isin,rows);if(!row||activeProductImports.has(row.index))continue;
+  const files=batch.map(r=>new File([r.blob],r.name,{type:r.type}));
+  await processProductImages(row.index,files,batch[0].context,batch);
+ }
+}
+
+function removeUnconfirmedFields(x,keys){
+ const labels={strike:'Basispreis',ko:'KO-Barriere',ratio:'Bezugsverhältnis',bid:'Geldkurs',ask:'Briefkurs',leverage:'Hebel'};
+ for(const key of keys){
+  if(['strike','ko','ratio'].includes(key))delete x.terms?.[key];
+  if(key==='ko'){x.ko='';if(x.combinedDraft){delete x.combinedDraft.fields?.ko1;delete x.combinedDraft.fields?.ko2;}}
+  if(key==='leverage'){x.leverage='';delete x.times?.leverage;}
+  if(key==='bid'||key==='ask'){
+   // A quote pair is atomic. Never combine an uncertain side with old evidence.
+   x.bid=null;x.ask=null;x.price='';x.spread='';x.sourceTime='';
+   for(const k of ['quote','bid','ask'])delete x.times?.[k];
+   if(x.combinedDraft){x.combinedDraft.hasQuote=false;for(const k of ['bid','ask','quoteAt'])delete x.combinedDraft.fields?.[k];}
+  }
+  (x.importWarnings||(x.importWarnings=[])).push((labels[key]||key)+': Lesungen stimmen nicht sicher überein; dieses Feld wurde nicht übernommen.');
+ }
+ return x;
+}
 async function readScreenshot(i,file,productContext=null){
  const status=document.getElementById("dgOcrStatus"+i),field=k=>document.querySelector('[data-dg="'+k+'"][data-i="'+i+'"]');
  if(!file)return;
@@ -2041,9 +2179,10 @@ async function readScreenshot(i,file,productContext=null){
    detailScreenshots.set(i,mergeScreenshotEvidence(old,x,x.terms.underlying.source));
    rankUI();return {ok:true,reason:'PDF: Gold-Spot-Referenz geprüft und gespeichert (Seiten '+x.referenceDocument.pages.join(', ')+')'};
   }
-  const result=await recognizeOcr(file,"dgOcrStatus"+i);
+  const result=await recognizeOcr(file,"dgOcrStatus"+i,true);
   if((rowVersions.get(i)||0)!==version||(field("isin")?.value||"").trim().toUpperCase()!==expected)return;
-  const x=detailScreenshotData(result.data.text,expected,productContext);
+  const x=detailScreenshotData(result.data.text,expected,productContext,result.data.unconfirmedFields||[]);
+  if(x.ok)removeUnconfirmedFields(x,result.data.unconfirmedFields||[]);
   if(!x.ok){const reason=x.reason+" "+imageIdentityDiagnostic(result.data.text)+" · Bildimport 05.10-15";if(status)status.textContent="⚠️ "+reason;return{ok:false,reason};}
   const merged=mergeScreenshotEvidence(detailScreenshots.get(i),x,file.name);
   const priorResearch=productQuotes.get(i);
@@ -2083,8 +2222,10 @@ function linkScreenshotSeries(outcomes){
  }
  let text='',sources=[],basis='Kurszeit aus zugehörigem Bild';
  if(full.length){
-  if(new Set(full.map(v=>selectionTimeWindow(v.text).start)).size!==1)return null;
-  text=full[0].text;sources=full.map(v=>v.source);
+  const ordered=full.slice().sort((a,b)=>selectionTimeWindow(a.text).start-selectionTimeWindow(b.text).start);
+  if(selectionTimeWindow(ordered.at(-1).text).start-selectionTimeWindow(ordered[0].text).start>90000)return null;
+  text=ordered[0].text;sources=full.map(v=>v.source);
+  if(ordered.length>1)basis='Früheste Quellenzeit derselben Aufnahmeserie (maximal 90 Sekunden Abstand); Originalzeiten bleiben erhalten';
  }else{
   if(new Set(dates.map(v=>v.text)).size!==1||new Set(clocks.map(v=>v.text)).size!==1)return null;
   text=dates[0].text+' '+clocks[0].text;sources=[dates[0].source,clocks[0].source];
@@ -2104,8 +2245,12 @@ function linkScreenshotSeries(outcomes){
  return series;
 }
 function screenshotBatchSummary(outcomes){
- const accepted=outcomes.filter(x=>x.ok).length;
- return (accepted?'✅ ':'⚠️ ')+accepted+' von '+outcomes.length+' Bild(ern) übernommen. '+(accepted?'':'')+outcomes.map(x=>(x.ok?'✓ ':'⚠️ ')+x.name+': '+x.reason).join(' · ');
+ const accepted=outcomes.filter(x=>x.ok),partial=accepted.filter(x=>x.data?.importWarnings?.length);
+ const rejected=outcomes.length-accepted.length;
+ return (partial.length||rejected?'⚠️ ':'✓ ')+accepted.length+' von '+outcomes.length+' Dateien zugeordnet. '+
+  (partial.length?partial.length+' Datei(en): Werte teilweise übernommen. ':'')+(rejected?rejected+' Datei(en) nicht übernommen. ':'')+
+  outcomes.map(x=>(x.ok?'✓ ':'⚠️ ')+x.name+': '+x.reason).join(' · ')+
+  ' · Ob alle benötigten Daten vorliegen, steht separat unter „Für dieses Produkt noch erforderlich“ bzw. „Datenübermittlung komplett“.';
 }
 function mergeScreenshotEvidence(previous,x,source){
  const quoteTime=y=>{
@@ -2138,6 +2283,8 @@ function mergeScreenshotEvidence(previous,x,source){
   if(key==='underlying'&&value.value==='Gold'&&merged.terms[key]?.conditionVerified&&merged.terms[key].value==='XAU/USD')continue;
   if(value.fromQuote&&merged.terms[key]?.value===value.value)continue;
   if(merged.terms[key]?.value===value.value&&!value.at&&!value.dateText&&!value.ocrCorrection&&(merged.terms[key].at||merged.terms[key].dateText))continue;
+  const termDay=e=>/^(\d{2})\.(\d{2})\.(\d{4})$/.test(e?.dateText||'')?e.dateText.split('.').reverse().join('-'):null;
+  if(termDay(merged.terms[key])&&termDay(value)&&termDay(value)<termDay(merged.terms[key])){if(key==='ko')x={...x,ko:''};continue;}
   const incoming={...value,source};
   incoming.automatic=hasScreenshotIdentity(x)&&automaticCondition(incoming,key);
   merged.terms[key]=incoming;
@@ -2237,7 +2384,7 @@ async function inject(){
  b.id="dgTop3";
  b.style.cssText="margin-top:14px;padding:16px;background:#f7f9fc;border-radius:20px;border:1px solid #e5eaf2";
  b.innerHTML='<div style="display:flex;align-items:center;gap:9px"><span style="font-size:25px">🎯</span><div><b style="font-size:18px">DEGIRO-Assistent</b><div class="small">Produktliste erfassen → Bilder pro ISIN ergänzen → belegte Daten vergleichen</div></div></div>'+
- '<div id="dgScreenshotReturn" hidden style="margin-top:14px;padding:14px;background:#eaf3ff;border:2px solid #1677ff;border-radius:14px;scroll-margin-top:16px"><b>Screenshots für <span data-return-isin></span></b><p class="small">Bilder werden diesem zuvor geöffneten Produkt zugeordnet, auch wenn ISIN oder WKN im Bild fehlen. Eine eindeutig abweichende Produktkennung wird gemeldet.</p><div data-return-product-link></div><div data-return-missing></div><p class="small">Fehlenden Wert erneut aufnehmen: Produktseite öffnen, Screenshot machen und anschließend hier beim selben Produkt hinzufügen.</p><button type="button" data-return-upload style="width:100%;background:#1677ff">↑ Bilder / PDF für dieses Produkt hinzufügen</button><button type="button" data-return-close>Fertig / ausblenden</button><div role="status" data-return-status style="overflow-wrap:anywhere;min-width:0"></div><div role="status" data-return-complete hidden style="margin-top:12px;font-weight:700;color:#15803d">✅ Datenübermittlung komplett</div></div>'+
+ '<div id="dgScreenshotReturn" hidden style="margin-top:14px;padding:14px;background:#eaf3ff;border:2px solid #1677ff;border-radius:14px;scroll-margin-top:16px"><b>Screenshots für <span data-return-isin></span></b><p class="small">Bilder werden diesem zuvor geöffneten Produkt zugeordnet, auch wenn ISIN oder WKN im Bild fehlen. Eine eindeutig abweichende Produktkennung wird gemeldet.</p><div data-return-product-link></div><div data-return-missing></div><p class="small">Fehlenden Wert erneut aufnehmen: Produktseite öffnen, Screenshot machen und anschließend hier beim selben Produkt hinzufügen.</p><button type="button" data-return-upload style="width:100%;background:#1677ff">↑ Bilder / PDF für dieses Produkt hinzufügen</button><div class="small" style="margin:8px 0">Originaldateien: lokal auf diesem Gerät, bis zu 7 Tage / insgesamt 100 MB. Nach Erkennungsupdates prüft Bob gespeicherte Dateien erneut. Ursprüngliche Datenstände bleiben erhalten.</div><button type="button" data-return-reprocess>Gespeicherte Bilder erneut prüfen</button><button type="button" data-return-delete>Gespeicherte Originaldateien löschen</button><button type="button" data-return-close>Fertig / ausblenden</button><div role="status" data-return-status style="overflow-wrap:anywhere;min-width:0"></div><div role="status" data-return-complete hidden style="margin-top:12px;font-weight:700;color:#15803d">✅ Datenübermittlung komplett</div></div>'+
  '<div style="margin-top:14px;padding:12px;background:#fff;border-radius:16px;border:1px solid #e1e7f0">'+
  '<b>📷 DEGIRO-Liste</b><button type="button" id="dgListUploadButton" style="margin-top:10px;width:100%;background:#1677ff">↑ DEGIRO-Liste hochladen</button>'+
  '<input id="dgListUpload" type="file" accept="image/*" multiple hidden>'+
@@ -2288,24 +2435,9 @@ async function inject(){
    if(status)status.textContent='📷 '+files.length+' Bild(er) ausgewählt. Bilddateien werden übernommen …';
    try{
     const retained=await pendingImages;
-    input.disabled=true;
-    rankUI();
-    const outcomes=[];
-    for(const file of retained){if(document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value!==isin)break;const result=await readScreenshot(i,file,productContext);if(result)outcomes.push({name:file.name,...result});}
-    if(document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value===isin){
-     const series=linkScreenshotSeries(outcomes);
-     if(series){
-      let merged=detailScreenshots.get(i);
-      for(const o of outcomes.filter(o=>o.ok&&o.data))merged=mergeScreenshotEvidence(merged,o.data,o.name);
-      detailScreenshots.set(i,merged);
-      for(const o of outcomes.filter(o=>o.ok))o.reason+=' · gemeinsame Aufnahmezeit '+series.text;
-     }
-    }
-    if(status&&document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value===isin&&outcomes.length){
-     status.textContent=screenshotBatchSummary(outcomes);
-    }
+    await processProductImages(i,retained,productContext);
    }catch(e){if(status)status.textContent='⚠️ '+e.message;}
-   finally{input.value='';input.disabled=false;rankUI();}
+   finally{input.value='';input.disabled=activeProductImports.has(i);rankUI();}
   });
   r.querySelector('[data-research]').addEventListener('click',()=>enrichProduct(i));
   r.querySelectorAll('[data-dg]').forEach(el=>el.addEventListener('input',()=>{if(el.dataset.dg!=="confirmed"){combinedReferences.delete(i);productQuotes.delete(i);futureResearchQuotes.delete(i);if(["isin","dir"].includes(el.dataset.dg)){detailScreenshots.delete(i);}else if(["price","lev","ko","spread"].includes(el.dataset.dg)){}rowVersions.set(i,(rowVersions.get(i)||0)+1);if(el.dataset.dg==="isin"){combinedDrafts.delete(i);resetCombinedForm(i);}}rankUI();}));
@@ -2319,6 +2451,10 @@ async function inject(){
   if(!row){updateScreenshotReturn();return;}
   document.getElementById('dgDetailShot'+row.index)?.click();
  });
+ b.querySelector('[data-return-reprocess]').addEventListener('click',async()=>{try{await reprocessOriginals(false);}catch(e){const status=document.querySelector('[data-return-status]');if(status)status.textContent='⚠️ '+e.message;}});
+ b.querySelector('[data-return-delete]').addEventListener('click',async()=>{try{await deleteProductOriginals(returnProductIsin);const status=document.querySelector('[data-return-status]');if(status)status.textContent='Gespeicherte Originaldateien dieses Produkts gelöscht. Erkannte Produktdaten bleiben erhalten.';}catch(e){const status=document.querySelector('[data-return-status]');if(status)status.textContent='Löschen fehlgeschlagen: '+e.message;}});
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)reprocessOriginals(true).catch(e=>console.warn('[BOB] Originalprüfung',e.message));});
+ setTimeout(()=>reprocessOriginals(true).catch(e=>console.warn('[BOB] Originalprüfung',e.message)),1000);
  b.querySelector('[data-return-close]').addEventListener('click',()=>{
   returnProductIsin='';returnProductPending=false;
   try{localStorage.removeItem(RETURN_PRODUCT_KEY);}catch(_){}
@@ -2478,7 +2614,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
