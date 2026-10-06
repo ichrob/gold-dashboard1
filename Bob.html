@@ -1067,6 +1067,14 @@ function normalizeBrowserChart(points,interval,now=Date.now()){
  }
  return [...buckets.values()].sort((a,b)=>a.openTime-b.openTime);
 }
+function technicalHistoryLatest(bars,tf,now=Date.now()){
+ const step=(tf==='5m'?5:60)*60000;
+ return Math.max(0,...(bars||[]).filter(b=>Number.isFinite(b.openTime)&&b.openTime+step<=now).map(b=>b.openTime));
+}
+function technicalHistoryFresh(bars,tf,now=Date.now()){
+ const latest=technicalHistoryLatest(bars,tf,now),step=(tf==='5m'?5:60)*60000;
+ return latest>0&&now-latest<=2*step;
+}
 async function fetchLiveBundle(force=false){
  if(liveBundlePending)return liveBundlePending;
  if(!force&&liveBundleCache&&Date.now()-liveBundleAt<30000)return liveBundleCache;
@@ -1083,7 +1091,7 @@ async function fetchLiveBundle(force=false){
       (Date.parse(spot.spot_price_as_of)===Date.parse(previous.spot_price_as_of)&&spot.xaus!==previous.xaus)))throw Error('Widersprüchlicher Spot-Datensatz');
    // Historical candles are a separate input. A fallback must never replace spot.
    const serverBars=j.history?.bars_by_tf||{};
-   if(!serverBars['5m']?.length||!serverBars['1h']?.length){
+   if(!technicalHistoryFresh(serverBars['5m'],'5m',now)||!technicalHistoryFresh(serverBars['1h'],'1h',now)){
    const chartFetch=async(range,interval)=>{
     const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),9000);
     try{
@@ -1101,10 +1109,10 @@ async function fetchLiveBundle(force=false){
     }finally{clearTimeout(tm)}
    };
 
-    const missing=[['5m','5d'],['1h','3mo']].filter(([tf])=>!serverBars[tf]?.length);
+    const missing=[['5m','5d'],['1h','3mo']].filter(([tf])=>!technicalHistoryFresh(serverBars[tf],tf,now));
     const results=await Promise.allSettled(missing.map(([tf,range])=>chartFetch(range,tf)));
     const bars={...serverBars};
-    results.forEach((r,i)=>{if(r.status==='fulfilled')bars[missing[i][0]]=r.value;});
+    results.forEach((r,i)=>{const tf=missing[i][0];if(r.status==='fulfilled'&&technicalHistoryLatest(r.value,tf,now)>technicalHistoryLatest(bars[tf],tf,now)){bars[tf]=r.value;bars[tf==='5m'?'15m':'4h']=aggregateBrowserBars(r.value,tf==='5m'?15:240);}});
     if(!bars['15m']?.length&&bars['5m']?.length)bars['15m']=aggregateBrowserBars(bars['5m'],15);
     if(!bars['4h']?.length&&bars['1h']?.length)bars['4h']=aggregateBrowserBars(bars['1h'],240);
     j.history={...j.history,bars_by_tf:bars};

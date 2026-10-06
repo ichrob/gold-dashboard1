@@ -251,6 +251,93 @@ def aggregate_bars(bars, minutes):
     return out
 
 
+_technical_history = {}
+_technical_history_lock = threading.Lock()
+
+
+def retain_technical_history(interval, rows):
+    # Preserve source clocks when secondary work misses the HTTP deadline.
+    minutes = 5 if interval == '5m' else 60
+    with _technical_history_lock:
+        old = _technical_history.get(interval, [])
+        if rows and technical_history_latest(rows, minutes) >= technical_history_latest(old, minutes):
+            _technical_history[interval] = [dict(row) for row in rows]
+        return [dict(row) for row in _technical_history.get(interval, [])]
+
+
+def technical_history_latest(bars, minutes, now=None):
+    now = time.time() if now is None else now
+    step = minutes*60*1000
+    return max((b['openTime'] for b in bars if b['openTime']+step <= now*1000), default=0)
+
+
+def technical_history_fresh(bars, minutes, now=None):
+    now = time.time() if now is None else now
+    latest = technical_history_latest(bars, minutes, now)
+    return bool(latest and 0 <= now*1000-latest <= minutes*120000)
+
+
+def fetch_technical_history(interval, range_value):
+    primary = []
+    minutes = 5 if interval == "5m" else 60
+    # XAUS exposes a documented XAU chart proxy. Use it first so Render
+    # does not depend on direct Yahoo connectivity (which currently returns 404).
+    xaus_interval = {"5m":"5m", "1h":"1h"}.get(interval, interval)
+    try:
+        payload = fetch_json(
+            f"https://xaus.com/api/v1/chart?symbol=xau&range={range_value}&interval={xaus_interval}&fresh={int(time.time()//30)*30000}",
+            retries=1,
+            user_agent="Bob/1.4",
+        )
+        points = payload.get("points") if isinstance(payload, dict) else None
+        if isinstance(points, list) and points:
+            out = normalize_chart_points(points, 5 if interval == '5m' else 60)
+            rejected = len(points)-len(out)
+            if rejected:
+                print(f'BOB_HISTORY interval={interval} excluded_non_candles={rejected}',flush=True)
+            if out:
+                primary = out
+                retain_technical_history(interval, out)
+                if technical_history_fresh(out, minutes):
+                    return out
+    except Exception:
+        pass
+
+    try:
+        # Keep direct Yahoo as a secondary fallback.
+        payload = fetch_json(
+            f"https://query2.finance.yahoo.com/v8/finance/chart/GC%3DF?interval={interval}"
+            f"&range={range_value}&includePrePost=true",
+            retries=1,
+            user_agent="Mozilla/5.0 (Bob/1.5; +https://bob-private-scanner.onrender.com)",
+        )
+        result = payload.get("chart", {}).get("result", [None])[0] if isinstance(payload, dict) else None
+        if not result:
+            raise RuntimeError(f"Keine {interval}-Historie verfügbar")
+        timestamps = result.get("timestamp") or []
+        quote = (result.get("indicators", {}).get("quote") or [None])[0] or {}
+        opens = quote.get("open") or []
+        highs = quote.get("high") or []
+        lows = quote.get("low") or []
+        closes = quote.get("close") or []
+        out = []
+        for i, ts in enumerate(timestamps):
+            try:
+                o, h, low, close = map(float, (opens[i], highs[i], lows[i], closes[i]))
+                if not all(v == v and v > 0 for v in (o, h, low, close)):
+                    continue
+                out.append({"openTime": int(ts)*1000, "open":o, "high":h, "low":low, "close":close, "isOpen":False, "instrument":"GC=F"})
+            except (IndexError, TypeError, ValueError, OverflowError):
+                continue
+        out.sort(key=lambda x:x["openTime"])
+        selected = out if technical_history_latest(out, minutes) > technical_history_latest(primary, minutes) else primary
+        return retain_technical_history(interval, selected)
+    except Exception:
+        if primary:
+            return primary
+        raise
+
+
 def build_live_bundle():
     """Build Bob's live bundle without letting slow secondary sources block the spot heartbeat.
 
@@ -276,54 +363,6 @@ def build_live_bundle():
             except (OSError, ValueError, KeyError, TypeError) as exc:
                 return None, None, str(exc), None, False, None
 
-        def fetch_yahoo(interval, range_value):
-            # XAUS exposes a documented XAU chart proxy. Use it first so Render
-            # does not depend on direct Yahoo connectivity (which currently returns 404).
-            xaus_interval = {"5m":"5m", "1h":"1h"}.get(interval, interval)
-            try:
-                payload = fetch_json(
-                    f"https://xaus.com/api/v1/chart?symbol=xau&range={range_value}&interval={xaus_interval}",
-                    retries=1,
-                    user_agent="Bob/1.4",
-                )
-                points = payload.get("points") if isinstance(payload, dict) else None
-                if isinstance(points, list) and points:
-                    out = normalize_chart_points(points, 5 if interval == '5m' else 60)
-                    rejected = len(points)-len(out)
-                    if rejected:
-                        print(f'BOB_HISTORY interval={interval} excluded_non_candles={rejected}',flush=True)
-                    if out:
-                        return out
-            except Exception:
-                pass
-
-            # Keep direct Yahoo as a secondary fallback.
-            payload = fetch_json(
-                f"https://query2.finance.yahoo.com/v8/finance/chart/GC%3DF?interval={interval}"
-                f"&range={range_value}&includePrePost=true",
-                retries=1,
-                user_agent="Mozilla/5.0 (Bob/1.5; +https://bob-private-scanner.onrender.com)",
-            )
-            result = payload.get("chart", {}).get("result", [None])[0] if isinstance(payload, dict) else None
-            if not result:
-                raise RuntimeError(f"Keine {interval}-Historie verfügbar")
-            timestamps = result.get("timestamp") or []
-            quote = (result.get("indicators", {}).get("quote") or [None])[0] or {}
-            opens = quote.get("open") or []
-            highs = quote.get("high") or []
-            lows = quote.get("low") or []
-            closes = quote.get("close") or []
-            out = []
-            for i, ts in enumerate(timestamps):
-                try:
-                    o, h, low, close = map(float, (opens[i], highs[i], lows[i], closes[i]))
-                    if not all(v == v and v > 0 for v in (o, h, low, close)):
-                        continue
-                    out.append({"openTime": int(ts)*1000, "open":o, "high":h, "low":low, "close":close, "isOpen":False, "instrument":"GC=F"})
-                except (IndexError, TypeError, ValueError, OverflowError):
-                    continue
-            out.sort(key=lambda x:x["openTime"])
-            return out
 
         def fetch_fx():
             global _fx_cache, _fx_cache_at
@@ -356,8 +395,8 @@ def build_live_bundle():
         pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="bob-live")
         futures = {
             pool.submit(fetch_spot): "spot",
-            pool.submit(fetch_yahoo, "5m", "5d"): "5m",
-            pool.submit(fetch_yahoo, "1h", "3mo"): "1h",
+            pool.submit(fetch_technical_history, "5m", "5d"): "5m",
+            pool.submit(fetch_technical_history, "1h", "3mo"): "1h",
             pool.submit(fetch_fx): "fx",
         }
         results = {}
@@ -405,13 +444,13 @@ def build_live_bundle():
         bars_5m = results.get("5m", [])
         if isinstance(bars_5m, Exception):
             technical_5m_error = str(bars_5m)
-            bars_5m = []
+            bars_5m = retain_technical_history('5m', [])
         else:
             technical_5m_error = None
         bars_1h = results.get("1h", [])
         if isinstance(bars_1h, Exception):
             technical_1h_error = str(bars_1h)
-            bars_1h = []
+            bars_1h = retain_technical_history('1h', [])
         else:
             technical_1h_error = None
 
