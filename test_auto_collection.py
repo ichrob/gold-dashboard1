@@ -106,8 +106,8 @@ class AutoCollectionTests(unittest.TestCase):
         with patch.object(a, 'enabled', return_value=False), patch.object(a.future_analysis, 'fetch_reference') as source:
             a.tick(NOW); source.assert_not_called()
         a._report = {'ready': True}
-        with patch.object(a, 'enabled', return_value=True), patch.object(a.future_analysis, 'fetch_reference') as source:
-            a.tick(NOW.replace(hour=21)); source.assert_not_called()
+        with patch.object(a, 'enabled', return_value=True), patch.object(a.future_analysis, 'fetch_reference') as source, patch.object(a.future_estimate, 'ensure_collector') as spot:
+            a.tick(NOW.replace(hour=21)); source.assert_not_called(); spot.assert_called_once()
             self.assertFalse(a.status()['ready'])
             self.assertEqual(a.status()['state'], 'paused')
 
@@ -166,3 +166,13 @@ class CollectionEndpointTests(unittest.TestCase):
             self.assertIn(b'"pairCount":20', body)
             self.assertEqual(headers['Cache-Control'], 'no-store')
 
+
+class OvernightSpotTests(unittest.TestCase):
+    def test_restart_outside_future_window_keeps_weekday_spot_archive_alive(self):
+        for now in (datetime(2026,10,6,20,30,tzinfo=timezone.utc),datetime(2026,10,7,2,30,tzinfo=timezone.utc)):
+            with patch.object(a,'enabled',return_value=True),patch.object(a.future_estimate,'ensure_collector') as spot,patch.object(a,'paused_report') as paused,patch.object(a.future_analysis,'fetch_reference') as future:
+                a.tick(now)
+                spot.assert_called_once();paused.assert_called_once_with(now);future.assert_not_called()
+    def test_disabled_collector_does_not_start_spot(self):
+        with patch.object(a,'enabled',return_value=False),patch.object(a.future_estimate,'ensure_collector') as spot:
+            a.tick(datetime(2026,10,6,20,30,tzinfo=timezone.utc));spot.assert_not_called()
