@@ -533,3 +533,27 @@ assert.equal(b.selectionWorkflow([staleLeverage],context,{}).groups.length,0);
 const wrongBnp={...staleLeverage,isinConfirmed:false};
 assert(b.finalProductStatus(wrongBnp,now).reasons.some(x=>x.includes('Produktzuordnung')));
 console.log('BNP source delay is explicit; stale leverage and identity remain blocked');
+
+// Separate SG leverage screenshot inherits only the same selection's capture reference.
+function sgSeries(){return [
+ {ok:true,name:'sg-kurs.jpg',data:{isin:'DE000FG7K283',bid:7.72,ask:7.73,sourceTime:'06.10.2026 19:10:00',times:{}}},
+ {ok:true,name:'sg-hebel.jpg',data:{isin:'DE000FG7K283',leverage:48.0293,times:{}}}
+];}
+let sg=sgSeries();const sgTime=b.linkScreenshotSeries(sg);
+assert(sgTime);assert.equal(sg[1].data.times.leverage.at,sgTime.at);
+assert(sg[1].data.times.leverage.fromSeries);assert(!sg[1].data.sourceTime);
+const linked=b.mergeScreenshotEvidence(null,sg[1].data,'sg-hebel.jpg');
+assert(linked.evidence.Hebel.fromSeries);
+assert.deepEqual(linked.evidence.Hebel.timeSources,['sg-kurs.jpg']);
+assert(b.screenshotSummary(linked).includes('Hebel aus derselben Aufnahmeserie'));
+assert(b.cleanStoredProduct({isin:'DE000FG7K283',snapshot:linked}).snapshot.evidence.Hebel.fromSeries);
+sg=sgSeries();sg[1].data.times.leverage={present:true,at:null,text:'unlesbar'};
+b.linkScreenshotSeries(sg);assert.equal(sg[1].data.times.leverage.at,null);
+sg=sgSeries();sg[1].data.times.leverage={present:true,at:'2026-10-06T16:00:00Z'};
+b.linkScreenshotSeries(sg);assert.equal(sg[1].data.times.leverage.at,'2026-10-06T16:00:00Z');
+sg=sgSeries();delete sg[0].data.sourceTime;
+assert.equal(b.linkScreenshotSeries(sg),null);assert(!sg[1].data.times.leverage);
+sg=sgSeries();assert.equal(b.linkScreenshotSeries([sg[1]]),null);
+sg=sgSeries();sg[1].data.isin='DE000PJ9NB98';assert.equal(b.linkScreenshotSeries(sg),null);
+sg=sgSeries();b.linkScreenshotSeries(sg.reverse());assert(sg[0].data.times.leverage.fromSeries);
+console.log('Separate SG leverage timing, provenance, persistence and timestamp boundaries passed');
