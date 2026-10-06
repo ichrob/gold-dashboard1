@@ -656,7 +656,17 @@
       "cropReads": [
         ") 4.376,6213\nUSD\n",
         ")\n\n4.376,6213\n\nUSD\n"
-      ]
+      ],
+      "dateReads": {
+        "strike": [
+          "06.10.2026)\n",
+          "06.10.2026)\n"
+        ],
+        "ko": [
+          "(\n\n06.10.2026)\n",
+          "(\n\n06.10.2026)\n"
+        ]
+      }
     },
     {
       "name": "03-1000070892.jpg",
@@ -1422,7 +1432,17 @@
       "cropReads": [
         "4.376,6213\n) USD\n",
         "4.376,6213\n\nUSD\n"
-      ]
+      ],
+      "dateReads": {
+        "strike": [
+          "06.10.2026)\n",
+          "06.10.2026)\n\n(\n"
+        ],
+        "ko": [
+          "(\n\n06.10.2026)\n",
+          "06.10.2026)\n"
+        ]
+      }
     }
   ],
   "quote": "21:03 Z@O -\n\nFGTEPT - 17,65 / 17,66 €\n\nsg-zertifikate.de\n\n= Q HE S0S5IE | ZERTIFIKATE\n\nKurs von: 21:03:12 (06.10.2026)\n\nGeld\n\n17,650 EUR\n\nStiickzahl:\n\n25.000\n\nBrief\n\n17,660 EUR\n\nStiickzahl:\n25.000\n\nIm Durchschnitt erleiden 7 von 10 Kleinanlegern Verluste\nbeim Handel mit Turbo-Optionsscheinen. Turbo-\nOptionsscheine sind hoch risikoreiche Produkte und\nnicht fiir langfristige Anlagestrategien geeignet.\n\n[11 @) <\n\n"
