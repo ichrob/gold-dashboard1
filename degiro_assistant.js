@@ -767,6 +767,30 @@ async function readSgIdentity(worker,image,data){
   return ids[0]===ids[1]?ids[0]:'';
  }finally{bitmap.close();await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});}
 }
+// Focus only the labelled amount cell in the original image; never a neighbour.
+async function readTermCell(worker,image,data,key){
+ const labels={strike:/^(Basispreis|Finanzierungslevel)$/i,ko:/^(Knock-Out-Barriere|Knock-out-Schwelle)$/i};
+ if(!labels[key]||!hasIdentityTable(data))return [];
+ const rows=(data.words||[]).filter(w=>labels[key].test(w.text));if(rows.length!==1)return [];
+ const bitmap=await createImageBitmap(image);
+ try{
+  const b=rows[0].bbox,h=b.y1-b.y0,x=b.x1+h,y=Math.max(0,b.y0-h),height=Math.min(bitmap.height-y,3*h);
+  if(h<=5||x>=bitmap.width)return [];
+  const canvas=document.createElement('canvas');canvas.width=(bitmap.width-x)*2;canvas.height=height*2;
+  const ctx=canvas.getContext('2d',{alpha:false});ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+  ctx.drawImage(bitmap,x,y,bitmap.width-x,height,0,0,canvas.width,canvas.height);
+  const crop=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!crop)return [];
+  const reads=[];
+  for(const mode of ['6','11']){
+   await worker.setParameters({tessedit_pageseg_mode:mode,tessedit_char_whitelist:''});
+   const result=await ocrTimeout(worker.recognize(crop),15000,'Betragsprüfung beendet');
+   const text=String(result.data.text||'').replace(/\(?\d{2}\.\d{2}\.\d{4}\)?/g,'').replace(/[()]/g,'').trim();
+   const m=text.match(/^(\d{1,3}(?:\.\d{3})*,\d+)\s+USD$/i);
+   if(m)reads.push((key==='strike'?'Basispreis':'Knock-Out-Barriere')+' '+m[1]+' USD');
+  }
+  return reads;
+ }finally{bitmap.close();await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});}
+}
 function recognizeOcr(file,statusId){
  const job=ocrQueue.then(async()=>{
   const reviewed=await reviewedImageText(file);
@@ -830,6 +854,10 @@ function recognizeOcr(file,statusId){
      missing=unconfirmedOcrFields(result.data.text,readings);
     }
    }finally{await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});}
+   for(const key of missing.filter(key=>['strike','ko'].includes(key))){
+    readings.push(...await readTermCell(worker,prepared,identityData,key));
+   }
+   missing=unconfirmedOcrFields(result.data.text,readings);
    if(missing.length)throw new Error('Zahlen nicht sicher bestätigt ('+missing.join(', ')+'). Bitte diese Werte in einem schärferen Ausschnitt zeigen. Es wurde kein Wert geraten.');
    result.data.numericCrossChecked=true;
   }
@@ -1423,6 +1451,14 @@ function needsDirectionalData(p,direction){
 // Terms have their own source date; a quote/upload never refreshes them.
 function parseProductTerms(raw,onlyKeys=null){
  raw=String(raw).replace(/(?:©|®|ⓘ|@)/g,'').replace(/Bezugsverhaltnis/g,'Bezugsverhältnis');
+ // Description paragraphs are sentences, not table rows split by screen width.
+ if(/Produktbeschreibung/i.test(raw)){
+  const prose=raw.replace(/\s+/g,' '),rows=[];
+  for(const m of prose.matchAll(/hat ein Bezugsverhältnis von (\d+(?:[.,]\d+)?\s*:\s*1)(?=[. ]|$)/gi))rows.push('Bezugsverhältnis '+m[1]);
+  for(const m of prose.matchAll(/Der Basispreis und die Knock-Out-Barriere des Produkts liegen aktuell bei ([\d.,]+) USD\./gi))rows.push('Basispreis '+m[1]+' USD','Knock-Out-Barriere '+m[1]+' USD');
+  for(const m of prose.matchAll(/bezieht sich auf den Basiswert (.+?) und hat ein/gi))rows.push('Basiswert '+m[1]);
+  raw=rows.join('\n');
+ }
  raw=raw.replace(/(^|\n)[ \t]*[oOQ]{1,2}[ \t]+(?=USD\b)/g,'$1');
  // Mobile SG tables wrap the USD/date cell, sometimes above its label.
  // Join only adjacent, recognisable amount/currency fragments, never another row.
@@ -1817,6 +1853,7 @@ function mergeScreenshotEvidence(previous,x,source){
  merged.terms={...(previous.terms||{})};
  for(const [key,value] of Object.entries(x.terms||{})){
   if(value.fromQuote&&merged.terms[key]?.value===value.value)continue;
+  if(merged.terms[key]?.value===value.value&&!value.at&&!value.dateText&&!value.ocrCorrection&&(merged.terms[key].at||merged.terms[key].dateText))continue;
   const incoming={...value,source};
   incoming.automatic=['ISIN','WKN'].includes(x.identityBasis)&&automaticCondition(incoming,key);
   merged.terms[key]=incoming;
