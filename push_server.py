@@ -26,6 +26,9 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "")
 VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "mailto:bob@localhost")
 PUSH_SERVICE_TOKEN = os.environ.get("PUSH_SERVICE_TOKEN", "")
 BOB_ORIGIN = os.environ.get("BOB_ORIGIN", "")
+TRANSIENT_DB_ERRORS = (psycopg.errors.LockNotAvailable,
+                       psycopg.errors.DeadlockDetected,
+                       psycopg.errors.SerializationFailure)
 
 def db():
     if not DATABASE_URL:
@@ -47,8 +50,7 @@ def init_db():
         try:
             _init_db_once()
             return
-        except (psycopg.errors.LockNotAvailable, psycopg.errors.DeadlockDetected,
-                psycopg.errors.SerializationFailure):
+        except TRANSIENT_DB_ERRORS:
             if attempt == 2:
                 raise
             print(f'BOB_PUSH startup=database_retry attempt={attempt + 1}', flush=True)
@@ -176,6 +178,34 @@ def deliver_product_selection(conn, row, checked):
             return 0  # Failed delivery must not consume a notification transition.
     conn.execute("UPDATE subscriptions SET product_selection=%s::jsonb WHERE id=%s", (json.dumps(state), sid))
     return int(message is not None)
+
+
+def store_product_selection(endpoint, payload, checked, attempts=2):
+    """Persist/deliver a selection, retrying only a transient row-lock race."""
+    evidence = {k: payload[k] for k in ('products', 'references', 'fixedBarriers')
+                if k in payload}
+    for attempt in range(attempts):
+        try:
+            with db() as conn:
+                row = conn.execute(
+                    "SELECT id, subscription, product_selection FROM subscriptions "
+                    "WHERE endpoint=%s AND general_enabled=TRUE FOR UPDATE",
+                    (endpoint,),
+                ).fetchone()
+                if row:
+                    conn.execute(
+                        'UPDATE subscriptions SET selection_evidence=%s::jsonb WHERE id=%s',
+                        (json.dumps(evidence), row[0]),
+                    )
+                sent = deliver_product_selection(conn, row, checked) if row else 0
+                conn.commit()
+            return row, sent
+        except TRANSIENT_DB_ERRORS:
+            if attempt + 1 >= attempts:
+                raise
+            print(f'BOB_PUSH database_retry route=selection attempt={attempt + 1}',
+                  flush=True)
+            time.sleep(0.25 * (attempt + 1))
 
 
 def expire_product_selections():
@@ -542,13 +572,7 @@ class Handler(BaseHTTPRequestHandler):
                     send_json(self, 200, {"ok": True, "sent": 0, "disabled": True})
                     return
                 checked = product_push.evaluate(payload)
-                with db() as conn:
-                    row = conn.execute("SELECT id, subscription, product_selection FROM subscriptions WHERE endpoint=%s AND general_enabled=TRUE FOR UPDATE", (endpoint,)).fetchone()
-                    if row:
-                        evidence = {k: payload[k] for k in ('products','references','fixedBarriers') if k in payload}
-                        conn.execute('UPDATE subscriptions SET selection_evidence=%s::jsonb WHERE id=%s',(json.dumps(evidence),row[0]))
-                    sent = deliver_product_selection(conn, row, checked) if row else 0
-                    conn.commit()
+                row, sent = store_product_selection(endpoint, payload, checked)
                 send_json(self, 200, {"ok": True, "sent": sent, "disabled": not bool(row), "approvedCount": len(checked['products']) if row else 0})
                 return
 
@@ -642,6 +666,9 @@ class Handler(BaseHTTPRequestHandler):
             send_json(self, 400, {"error": str(exc)})
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True
+        except TRANSIENT_DB_ERRORS:
+            print(f"BOB_PUSH database_busy path={path}", flush=True)
+            send_json(self, 503, {"error": "Push-Service kurzzeitig belegt", "retryable": True})
         except Exception as exc:
             print("push-service error:", type(exc).__name__, flush=True)
             send_json(self, 500, {"error": "Interner Push-Service-Fehler"})
