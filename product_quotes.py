@@ -268,7 +268,13 @@ def freshness(result, now=None):
         if not result.get('sourceFailure'):
             result['reason'] = 'Gold-Future: eigener bedingter Kontraktvergleich; keine Spot-Freigabe'
     if result.get('found') and not result['eligible'] and result.get('metadata', {}).get('underlyingType') != 'FUTURE':
-        result['reason'] = 'Kurs veraltet, Markt geschlossen oder Zeitstempel nicht prüfbar'
+        if not result.get('marketOpen') or now > stamp(result['tradingEndAt']):
+            result['reason'] = 'Emittentenmarkt geschlossen oder Produkt derzeit nicht handelbar'
+        elif not result['fresh']:
+            result['reason'] = 'Emittenten-Kursantwort veraltet oder Quellenzeiten nicht prüfbar; automatischer Neuabruf erforderlich'
+            result['quoteFailureCode'] = 'STALE_OR_INVALID_SOURCE_TIME'
+        else:
+            result['reason'] = 'Produktkurs nicht freigegeben'
     result['pricePolicy'] = 'direct-then-verified-model'
     if result.get('productModel'):
         from sg_quotes import apply_product_estimate

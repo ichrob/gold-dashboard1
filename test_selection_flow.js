@@ -521,3 +521,15 @@ assert.equal(neutralLive.groups.length,0);assert.equal(neutralLive.notApproved[0
 const expiredLive=b.selectionWorkflow([liveBnp],{...context,now:now+91000},{});
 assert.equal(expiredLive.groups.length,0);assert(expiredLive.requests.length>0);
 console.log('BNP direct-only import: no false screenshot requests, neutral and expiry remain blocked');
+
+// A fresh bid/ask pair cannot conceal an expired independent leverage clock.
+const staleLeverage={...liveBnp,quote:{...liveBnp.quote,leverageAt:at(-91)}};
+const staleStatus=b.finalProductStatus(staleLeverage,now);
+assert(!staleStatus.complete);
+assert(staleStatus.reasons.some(x=>x.startsWith('BNP-Kursabruf:')));
+assert(!staleStatus.reasons.some(x=>x.includes('Detailbild mit derselben ISIN')));
+assert(b.missingValueLocation(staleStatus.reasons.at(-1)).includes('Automatische BNP-Quelle'));
+assert.equal(b.selectionWorkflow([staleLeverage],context,{}).groups.length,0);
+const wrongBnp={...staleLeverage,isinConfirmed:false};
+assert(b.finalProductStatus(wrongBnp,now).reasons.some(x=>x.includes('Produktzuordnung')));
+console.log('BNP source delay is explicit; stale leverage and identity remain blocked');

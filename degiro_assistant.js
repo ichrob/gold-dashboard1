@@ -1161,6 +1161,8 @@ function productIssuerLabel(p){
 function renderTestScreenshotRequest(p){
  if(finalProductStatus(p).complete)return '';
  const issuer=productIssuerLabel(p);
+ const issue=bnpSourceIssue(p);
+ if(issue)return '<div class="small" data-bnp-source-delay>'+esc(issue)+'. Bob fragt automatisch erneut ab. Vorhandene Produktbedingungen bleiben getrennt geprüft. Ein Screenshot ist nur ein zusätzlicher Nachweis.</div>';
  return '<div data-test-screenshot-request class="small" style="margin:12px 0;padding:12px;background:#eaf3ff;border-radius:10px"><b>Für den Intraday-Test: aktuelle Screenshots erneut hochladen</b><div>Bitte öffne die '+esc(issuer)+'-Produktseite für <strong>'+esc(p.isin)+'</strong> und lade neue Bilder über den Knopf darunter hoch.</div><ul><li><b>Kursdaten:</b> Geld- und Briefkurs, angezeigtes Datum/Uhrzeit sowie ISIN oder WKN sichtbar aufnehmen.</li><li><b>Stammdaten:</b> fehlende oder nicht aktuell bestätigte Angaben ergänzen, insbesondere Basispreis und KO-Barriere mit Datenstand.</li></ul><div>Für einen späteren Vergleich erneut ein aktuelles Kursbild ergänzen. So kann Bob die Produktentwicklung besser auswerten. Kein Kauf nötig; die Bilder allein erteilen keine Handelsfreigabe.</div></div>';
 }
 function renderIssuerHelp(p,reasons){
@@ -1206,6 +1208,7 @@ function bindIsinCopy(root){
  }));
 }
 function missingValueLocation(reason){
+ if(String(reason).startsWith('BNP-Kursabruf:'))return 'Automatische BNP-Quelle; Bob wiederholt den Abruf. Die letzte Quellenzeit steht unter Quellen und Einzelheiten.';
   if(/Future-Kontrakt|Futures-Kontrakt/.test(reason))return 'Stammdaten: Basiswert mit Kontraktmonat/Jahr. Bei fehlenden Details: Dokumentation → Endgültige Bedingungen, Referenzkontrakt / Futures Contract und Börse.';
   if(/Geld|Brief|Kurszeit|Kursbild|Produktkurs|Kursnachweis/.test(reason))return 'Kursbereich oben: Geld und Brief in EUR zusammen mit „Kurs von“ (Datum/Uhrzeit) aufnehmen. Falls auch der Hebel fehlt: Kennzahlen ergänzen.';
   if(/Hebel/.test(reason))return 'Kennzahlen: Hebel aufnehmen. Den zugehörigen Datenstand mit erfassen, sofern angezeigt.';
@@ -1264,7 +1267,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben'){
   const dated=/datier|24 Stunden|Gültigkeit/i.test(reason)&&!/widerspr|ungültig/i.test(reason);
   const field=/Basispreis|Finanzierungslevel/.test(reason)?'Basispreis':/KO|Knock|Barriere/i.test(reason)?'KO-Barriere':null;
   if(dated&&field){const label=field+': Werte vorhanden – Aktualität unbestätigt';if(!unconfirmed.some(item=>item.startsWith(label)))unconfirmed.push(label+' · Fundort: '+missingValueLocation(reason));continue;}
-  const label=/Basiswert ungenau: Gold allein/.test(reason)?'Basiswert „Gold“ erkannt – genaue Referenz fehlt (Produktbeschreibung / Endgültige Bedingungen)':/Future-Kontrakt|Futures-Kontrakt|Referenzkontrakt/.test(reason)?'Future-Kontrakt (Stammdaten → Basiswert; ggf. Dokumente → Endgültige Bedingungen)':/Basispreis|Finanzierungslevel/.test(reason)?'Basispreis: gültiger Nachweis (Stammdaten)':/KO|Knock|Barriere/i.test(reason)?'KO-Barriere: gültiger Nachweis (Stammdaten)':/Geld|Brief|Kurs/.test(reason)?'Geld, Brief und Quellenzeit (Kursdaten)':/Hebel/.test(reason)?'Hebel mit Datenstand (Kennzahlen)':/Bezugsverhältnis/.test(reason)?'Bezugsverhältnis fehlt oder ist nicht eindeutig (Stammdaten)':/Basiswert/.test(reason)?'Exakter Basiswert fehlt (Stammdaten / Produktbeschreibung)':/Produkttyp|Long\/Short|Produktrichtung/.test(reason)?'Produkttyp / Richtung (Stammdaten → Typ)':/Laufzeit|Fälligkeit/.test(reason)?'Laufzeit / Fälligkeit (Stammdaten)':/Währung/.test(reason)?'Produktwährung (Kursdaten)':/ISIN|Bildzuordnung|Original|bestätig/.test(reason)?'Produktzuordnung oder Bildwerte nicht eindeutig':reason.split(':')[0]+' (Quellen und Einzelheiten → Fehlende Werte)';
+  const label=reason.startsWith('BNP-Kursabruf:')?reason:/Basiswert ungenau: Gold allein/.test(reason)?'Basiswert „Gold“ erkannt – genaue Referenz fehlt (Produktbeschreibung / Endgültige Bedingungen)':/Future-Kontrakt|Futures-Kontrakt|Referenzkontrakt/.test(reason)?'Future-Kontrakt (Stammdaten → Basiswert; ggf. Dokumente → Endgültige Bedingungen)':/Basispreis|Finanzierungslevel/.test(reason)?'Basispreis: gültiger Nachweis (Stammdaten)':/KO|Knock|Barriere/i.test(reason)?'KO-Barriere: gültiger Nachweis (Stammdaten)':/Geld|Brief|Kurs/.test(reason)?'Geld, Brief und Quellenzeit (Kursdaten)':/Hebel/.test(reason)?'Hebel mit Datenstand (Kennzahlen)':/Bezugsverhältnis/.test(reason)?'Bezugsverhältnis fehlt oder ist nicht eindeutig (Stammdaten)':/Basiswert/.test(reason)?'Exakter Basiswert fehlt (Stammdaten / Produktbeschreibung)':/Produkttyp|Long\/Short|Produktrichtung/.test(reason)?'Produkttyp / Richtung (Stammdaten → Typ)':/Laufzeit|Fälligkeit/.test(reason)?'Laufzeit / Fälligkeit (Stammdaten)':/Währung/.test(reason)?'Produktwährung (Kursdaten)':/ISIN|Bildzuordnung|Original|bestätig/.test(reason)?'Produktzuordnung oder Bildwerte nicht eindeutig':reason.split(':')[0]+' (Quellen und Einzelheiten → Fehlende Werte)';
   if(!groups.includes(label)){groups.push(label);locations.set(label,missingValueLocation(reason));}
  }
  return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" data-selection-blocked="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere"><b>'+esc(p.isin)+'</b> · '+esc(p.productDirection||'')+'<div class="small">'+'<strong>Nicht freigegeben</strong><br>Begründung: '+esc(status.replace(/^Nicht freigegeben · /,''))+'</div>'+
@@ -1646,16 +1649,27 @@ function productTermsStatus(p,now=Date.now()){
  if(meta?.status!==undefined&&(!(meta.status&1)||meta.status&(2|8|16|32)))reasons.push('Produkt laut Emittent nicht aktiv');
  return {complete:reasons.length===0,reasons,values};
 }
+function bnpSourceIssue(p,now=Date.now()){
+ const q=p.quote;
+ if(q?.isin!==p.isin||!q?.productVerified||!q.found||!/^BNP Paribas/.test(q.source||''))return '';
+ if(!q.marketOpen||now>Date.parse(q.tradingEndAt))return 'BNP-Kursabruf: Markt geschlossen oder Produkt derzeit nicht handelbar';
+ const timing=quoteTiming(q,now);
+ return timing.fresh?'':'BNP-Kursabruf: Quellenantwort veraltet oder Geld-/Brief-/Hebelzeit nicht prüfbar';
+}
 function finalProductStatus(p,now=Date.now(),reference){
  const status=productTermsStatus(p,now),reasons=status.reasons.slice();
  const q=p.quote?.isin===p.isin?p.quote:null;
  const r=q?.productVerified&&q.metadata?.contract===q.futureResearch?.contract?q.futureResearch:null;
  const pair=(x,source)=>!!source&&n(x?.bid)>0&&n(x?.ask)>=n(x.bid)&&!x.delayed&&freshTimes([x.bidAt,x.askAt],now,90);
- const issuer=pair(q,q?.source)&&q.found&&!q.estimated&&!q.calculatedProduct&&q.currency==='EUR'&&q.direction===p.productDirection&&q.marketOpen;
+ const issuer=pair(q,q?.source)&&q.found&&!q.estimated&&!q.calculatedProduct&&q.currency==='EUR'&&q.direction===p.productDirection&&q.marketOpen&&(isFutureProduct(p)||currentQuote(p,now));
  const future=pair(r,q?.source)&&r.direction===p.productDirection&&r.marketOpen;
  const shot=selectionDetailStatus(p,now);
  const ref=reference?.isin===p.isin&&reference.reviewed&&reference.paired&&reference.source&&reference.venue&&!reference.delayed&&n(reference.bid)>0&&n(reference.ask)>=n(reference.bid)&&freshTimes([reference.quoteAt],now,90);
- if(!issuer&&!future&&!shot.complete&&!ref)reasons.push(...shot.reasons.filter(x=>!status.reasons.includes(x)));
+ if(!issuer&&!future&&!shot.complete&&!ref){
+  const issue=bnpSourceIssue(p,now);
+  if(issue)reasons.push(issue);
+  else reasons.push(...shot.reasons.filter(x=>!status.reasons.includes(x)));
+ }
  return {...status,complete:!reasons.length,reasons};
 }
 function detailScreenshotData(text,expectedIsin){
