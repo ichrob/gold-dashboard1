@@ -24,3 +24,10 @@ The 1h/15m/5m hierarchy, ADX threshold, daily schedule, ATR multiplier and rewar
 Deterministic tests cover required timeframes, missing/opposed/neutral/stale evidence, optional 4h, Zurich cutoff and DST, Future frame eligibility, and one daily background reminder even when price data are unavailable. Existing dashboard and product-selection regression tests remain required. A live-market profitability or CFD-accuracy result is not implied by passing software tests.
 
 The server now reads the tracked product module directly, eliminating the embedded duplicate so the tested and served versions match.
+
+## Correctness review — 2026-10-06 (v2)
+
+- Each historical 5m replay evaluates MTF freshness at that candle's close, rather than at the wall clock when the replay happens. This prevents a later reload from silently invalidating older confirmation evidence. Live freshness gates still apply.
+- Flat RSI input returns 50 consistently in dashboard, server verification and partial backtest. Rising-only input remains 100; falling-only input remains 0.
+- Stale or missing 5m data are rejected before the expensive multi-frame replay. No stale-entry threshold is relaxed.
+- Audit v2 is separate from v1. Existing observations retain their version and remain stored. No profitability claim or parameter optimization follows from these correctness fixes.

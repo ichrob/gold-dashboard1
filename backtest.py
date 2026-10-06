@@ -22,7 +22,7 @@ def rsi(a,p=14):
     g/=p; l/=p
     for i in range(p+1,len(a)):
         d=a[i]-a[i-1]; g=(g*(p-1)+max(d,0))/p; l=(l*(p-1)+max(-d,0))/p
-    return 100.0 if l==0 else 100-100/(1+g/l)
+    return 50.0 if g==l==0 else 100.0 if l==0 else 100-100/(1+g/l)
 
 def atr(b,p=14):
     if len(b)<p+1:return 0

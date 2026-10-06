@@ -517,7 +517,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     reasons:flow.notApproved?.find(x=>x.isin===p.isin)?.reasons||[],
     selection:flow.groups.flatMap(g=>g.candidates).find(x=>x.isin===p.isin)||null};
   });
-  const payload={ruleVersion:'intraday-1h-15m-5m-v1',direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,barAt:state.barAt,
+  const payload={ruleVersion:'intraday-1h-15m-5m-v2',direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,barAt:state.barAt,
    price:bundle?.spots?.xaus,priceAt:bundle?.spots?.spot_price_as_of,score:state.score,
    reason:state.reason,indicators:state.indicators,products:items,selection:[...selected],gateReasons:flow.gateReasons};
   const signature=JSON.stringify([state.dir,state.shadowDirection,state.barAt,state.reason,items,flow.gateReasons]);
@@ -788,7 +788,7 @@ var C=[], lastPrice=0, A={}, lastMtfAt=0, liveFxUsdEur=null, loadGeneration=0, M
 function getMtfState(){const m=window.BobSession?.expired()?null:(typeof MTF==="object"&&MTF!==null)?MTF:null;return m&&typeof m.overall!=="undefined"?m:{longs:0,shorts:0,neutral:4,overall:"NEUTRAL",byTf:{},dirs:[]};}
 function ema(a,p){let k=2/(p+1),e=a[0];for(let i=1;i<a.length;i++)e=a[i]*k+e*(1-k);return e}
 function emaSeries(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
-function rsi(a,p=14){if(a.length<=p)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];d>0?g+=d:l-=d}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return l===0?100:100-100/(1+g/l)}
+function rsi(a,p=14){if(a.length<=p)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];d>0?g+=d:l-=d}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return g===0&&l===0?50:l===0?100:100-100/(1+g/l)}
 function atr(c,p=14){if(c.length<p+1)return 0;let tr=[];for(let i=1;i<c.length;i++)tr.push(Math.max(c[i].high-c[i].low,Math.abs(c[i].high-c[i-1].close),Math.abs(c[i].low-c[i-1].close)));return tr.slice(-p).reduce((x,y)=>x+y,0)/Math.min(p,tr.length)}
 function calc(){let a=C.map(x=>x.close),e20=a.length>=20?ema(a,20):null,e50=a.length>=50?ema(a,50):null,e200=a.length>=200?ema(a,200):null,R=rsi(a),at=atr(C);const fast=emaSeries(a,12),slow=emaSeries(a,26),macdSeries=a.map((_,i)=>fast[i]-slow[i]);const sigSeries=emaSeries(macdSeries,9);const macd=macdSeries.at(-1),sig=sigSeries.at(-1);A={e20,e50,e200,R,at,macd,sig,hist:macd-sig,ready:false};return A}
 function analyze(){if(!C.length)return;let a=C.map(x=>x.close),x=calc();lastPrice=lastPrice||a.at(-1);$("price").textContent=lastPrice.toFixed(2);$("rsi").textContent=x.R.toFixed(1);$("ema20").textContent=x.e20==null?"n/v":x.e20.toFixed(2);$("ema50").textContent=x.e50==null?"n/v":x.e50.toFixed(2);$("ema200").textContent=x.e200==null?"n/v":x.e200.toFixed(2);$("atr").textContent=x.at.toFixed(2);$("macd").textContent=x.macd.toFixed(3);$("macds").textContent=x.sig.toFixed(3);$("hist").textContent=x.hist.toFixed(3);$("trend").textContent=x.e20!=null&&x.e50!=null?(x.e20>x.e50?"Bullish":"Bearish"):"n/v";$("trend2").textContent=x.e50!=null&&x.e200!=null?(x.e50>x.e200?"Bullish":"Bearish"):"n/v";
@@ -914,7 +914,7 @@ function draw(a){
 
 
 function emaS(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
-function rsiS(a,p=14){if(a.length<p+2)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];g+=Math.max(d,0);l+=Math.max(-d,0)}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return l===0?100:100-100/(1+g/l)}
+function rsiS(a,p=14){if(a.length<p+2)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];g+=Math.max(d,0);l+=Math.max(-d,0)}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return g===0&&l===0?50:l===0?100:100-100/(1+g/l)}
 // Related price indicators form ONE collective; repetitions never add votes.
 function collectiveSignal(values){
  const signs=new Set(values.filter(v=>typeof v==='number'&&Number.isFinite(v)).map(v=>Math.sign(v)));
@@ -922,13 +922,13 @@ function collectiveSignal(values){
  const side=signs.has(1)?1:signs.has(-1)?-1:0;
  return side*(signs.has(0)?0.5:1);
 }
-function timeframeScore(bars,tf=""){
+function timeframeScore(bars,tf="",now=Date.now()){
   const closed=(bars||[]).filter(x=>!x.isOpen).slice(-220);
   const required=200;
   if(closed.length<required)return {dir:"NEUTRAL",score:0,rsi:null,age:null,reason:"zu wenig Historie",available:false,fullHistory:false};
-  const latest=Number(closed.at(-1)?.openTime), age=Number.isFinite(latest)?Date.now()-latest:Infinity;
+  const latest=Number(closed.at(-1)?.openTime), age=Number.isFinite(latest)?now-latest:Infinity;
   const freshness={"5m":20*60*1000,"15m":45*60*1000,"1h":3*60*60*1000,"4h":12*60*60*1000}[tf]||3*60*60*1000;
-  const timing=dataAge(closed.at(-1)?.openTime,freshness);
+  const timing=dataAge(closed.at(-1)?.openTime,freshness,now);
   const a=closed.map(x=>+x.close), e20=ema(a,20),e50=ema(a,50),e200=a.length>=200?ema(a,200):null,R=rsiS(a);
   const e12=emaS(a,12),e26=emaS(a,26), mac=e12.at(-1)-e26.at(-1), macPrev=e12.at(-2)-e26.at(-2);
   const score=collectiveSignal([Math.sign(a.at(-1)-e20),Math.sign(e20-e50),Math.sign(e50-e200),Math.sign(mac-macPrev),R>50&&R<75?1:R<50&&R>25?-1:0]);
@@ -1417,13 +1417,15 @@ function fiveMinuteConfirmation(bundle,now=Date.now()){
   if(rows.some(b=>b.openTime%step||b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)))return {dir:'NEUTRAL',reason:tf+': unplausible Kerzendaten'};
   if(rows.slice(-20).some((b,i,a)=>i&&b.openTime-a[i-1].openTime!==step))return {dir:'NEUTRAL',reason:tf+': Lücke in den letzten 20 Kerzen'};
  }
+ const latest=bars['5m'].at(-1);
+ if(!latest||now-latest.openTime>600000)return {dir:'NEUTRAL',count:0,pending:'NEUTRAL',reason:!latest?'5m-Daten fehlen: keine gültige geschlossene Gold-Kerze':'5m-Daten veraltet: letzter Kerzenbeginn '+new Date(latest.openTime).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)'};
  const samples=[];
  for(const bar of bars['5m'].slice(199)){
   const end=bar.openTime+300000,history={};
   for(const [tf,step] of Object.entries(steps))history[tf]=bars[tf].filter(b=>b.openTime+step<=end).slice(-220);
   const valid=Object.entries(history).every(([tf,rows])=>rows.length>=200&&end-rows.at(-1).openTime<=steps[tf]*2);
   if(!valid){const missing=Object.entries(history).filter(([tf,rows])=>rows.length<200||end-rows.at(-1).openTime>steps[tf]*2).map(([tf,rows])=>rows.length<200?tf+': '+rows.length+'/200 geschlossene Kerzen':tf+': Kerzendaten zu alt oder lückenhaft');samples.push({at:bar.openTime,valid:false,dir:'NEUTRAL',reason:missing.join(' · ')});continue;}
-  const byTf=Object.fromEntries(Object.entries(history).map(([tf,rows])=>[tf,timeframeScore(rows,tf)]));
+  const byTf=Object.fromEntries(Object.entries(history).map(([tf,rows])=>[tf,timeframeScore(rows,tf,end)]));
   const rows=history['5m'],a=rows.map(b=>b.close),e12=emaS(a,12),e26=emaS(a,26),mac=e12.map((v,i)=>v-e26[i]),sig=emaS(mac,9),r=rsiS(a);
   const votes=[Math.sign(a.at(-1)-ema(a,20)),Math.sign(ema(a,20)-ema(a,50)),Math.sign(ema(a,50)-ema(a,200)),Math.sign(mac.at(-1)-sig.at(-1)),r>50&&r<75?1:r<50&&r>25?-1:0];
   const collective=collectiveSignal(votes);
@@ -1438,8 +1440,7 @@ function fiveMinuteConfirmation(bundle,now=Date.now()){
   if(raw==='LONG'&&bar.close>res+atr*.15&&rows.at(-2).close<=res||raw==='SHORT'&&bar.close<sup-atr*.15&&rows.at(-2).close>=sup){raw='NEUTRAL';reason='Ausbruch noch unbestätigt – weitere geschlossene Kerze abwarten';}
   samples.push({at:bar.openTime,valid:true,dir:raw,reason,score:50+50*collective,components});
  }
- const result=confirmClosedSignals(samples),latest=bars['5m'].at(-1);
- if(!latest||now-latest.openTime>600000)return {dir:'NEUTRAL',count:0,pending:'NEUTRAL',reason:!latest?'5m-Daten fehlen: keine gültige geschlossene Gold-Kerze':'5m-Daten veraltet: letzter Kerzenbeginn '+new Date(latest.openTime).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)'};
+ const result=confirmClosedSignals(samples);
  if(!samples.at(-1)?.valid)return {dir:'NEUTRAL',count:0,pending:'NEUTRAL',reason:'Fehlende oder unvollständige Angaben: '+(samples.at(-1)?.reason||'5m: '+bars['5m'].length+'/200 geschlossene Kerzen')};
  const detail=samples.at(-1)?.reason;
  if(samples.at(-1).dir==='NEUTRAL')return {...result,dir:'NEUTRAL',shadowDirection:'NEUTRAL',score:samples.at(-1).score,components:samples.at(-1).components,scoreAt:latest.openTime+300000,reason:detail||'Intraday-Bestätigung fehlt'};
