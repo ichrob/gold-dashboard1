@@ -19,3 +19,25 @@ class IntradayConsistency(unittest.TestCase):
         summary=decision_audit.summarize([(old,[None,None,None])])
         self.assertEqual(summary['legacyCount'],1)
         self.assertEqual(summary['metrics']['15']['missing'],0)
+
+    def test_entry_quality_comparison_and_observed_adverse_excursion(self):
+        row={'direction':'LONG','barAt':1000,'recordedAt':1000,'price':100,'marketEvaluable':True,'entryQuality':{'version':'entry-quality-v1','available':True,'direction':'NEUTRAL'}}
+        truth={'at':3601000,'price':102,'minPrice':98,'maxPrice':103}
+        result=decision_audit.entry_quality_review([(row,[None,truth,None]),(row,[None,truth,None])])
+        self.assertEqual(result['evaluated'],1)
+        self.assertEqual(result['missedFavorable'],1)
+        self.assertAlmostEqual(result['baselineMeanPct'],2)
+        self.assertEqual(result['candidateMeanPct'],0)
+        self.assertEqual(result['meanObservedAdversePct'],2)
+        self.assertEqual(result['candidateMeanObservedAdversePct'],0)
+        row['direction']='SHORT';row['entryQuality']['direction']='SHORT'
+        result=decision_audit.entry_quality_review([(row,[None,truth,None])])
+        self.assertEqual(result['kept'],1)
+        self.assertEqual(result['meanObservedAdversePct'],3)
+
+    def test_entry_snapshot_refresh_is_idempotent(self):
+        row={'direction':'LONG','barAt':1000,'ruleVersion':decision_audit.RULE_VERSION,'entryQuality':{'version':'entry-quality-v1','available':True,'direction':'LONG','signalAgeMinutes':5}}
+        first,_=decision_audit.normalize(row,now=2000)
+        row['entryQuality']['signalAgeMinutes']=6
+        second,_=decision_audit.normalize(row,now=3000)
+        self.assertEqual(first,second)

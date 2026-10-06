@@ -244,3 +244,22 @@ assert(element('bobMarketNarrative').textContent.includes('Außerhalb des Einsti
 assert(/<details id="bobMarketAnalysis"[^>]*>/.test(html));
 assert(!/<details id="bobMarketAnalysis"[^>]*\bopen\b/.test(html));
 console.log('Market narrative: collapsed initially, shares current reason, stale data suppresses tendency');
+const entryChecks=vm.runInContext(`(()=>{
+ const now=Date.now(),steps={'5m':300000,'15m':900000,'1h':3600000};
+ const bars=Object.fromEntries(Object.entries(steps).map(([tf,step])=>[tf,Array.from({length:240},(_,i)=>{const p=4200+i*.02+Math.sin(i/8)*4;return {openTime:Math.floor(now/step)*step-(240-i)*step,open:p,high:p+2,low:p-2,close:p,instrument:'XAU/USD',isOpen:false};})]));
+ const saved=liveBundleCache;liveBundleCache={history:{bars_by_tf:bars}};
+ const state={dir:'LONG',confirmedAt:Math.floor(now/300000)*300000-600000};
+ const q=intradayEntryContext(liveBundleCache,state,now);
+ C=bars['5m'];A.at=1;const stop1=stopModel('LONG',4200,A.at),target1=targetModel('LONG',4200,stop1.stop);
+ C=bars['1h'];A.at=99;const stop2=stopModel('LONG',4200,A.at),target2=targetModel('LONG',4200,stop2.stop);
+ const stale=intradayEntryContext(liveBundleCache,state,now+7200000);
+ const missing=structuredClone?null:null;
+ liveBundleCache=null;const blocked=stopModel('LONG',4200,10);liveBundleCache=saved;
+ return {q,stop1,stop2,target1,target2,stale,blocked};
+})()`.replace(' const missing=structuredClone?null:null;',''),env);
+assert(entryChecks.q.available);assert.equal(entryChecks.q.affectsApproval,false);
+assert(Number.isFinite(entryChecks.q.deviationAtr));assert(Number.isFinite(entryChecks.q.trendStrengthChange));
+assert(entryChecks.q.signalAgeMinutes>=5&&entryChecks.q.signalAgeMinutes<10);
+assert.deepEqual(entryChecks.stop1,entryChecks.stop2);assert.deepEqual(entryChecks.target1,entryChecks.target2);
+assert.equal(entryChecks.stop1.timeframe,'15m');assert.equal(entryChecks.stale.available,false);assert.equal(entryChecks.blocked.stop,null);
+console.log('Entry quality shadow, source ages, fixed 15m stop/target and missing-data refusal OK');

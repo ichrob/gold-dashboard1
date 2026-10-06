@@ -518,7 +518,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     reasons:flow.notApproved?.find(x=>x.isin===p.isin)?.reasons||[],
     selection:flow.groups.flatMap(g=>g.candidates).find(x=>x.isin===p.isin)||null};
   });
-  const payload={ruleVersion:'intraday-1h-15m-5m-v2',direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,barAt:state.barAt,
+  const payload={ruleVersion:'intraday-1h-15m-5m-v2',direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,entryQuality:intradayEntryContext(bundle,state),barAt:state.barAt,
    price:bundle?.spots?.xaus,priceAt:bundle?.spots?.spot_price_as_of,score:state.score,
    reason:state.reason,indicators:state.indicators,products:items,selection:[...selected],gateReasons:flow.gateReasons};
   const signature=JSON.stringify([state.dir,state.shadowDirection,state.barAt,state.reason,items,flow.gateReasons]);
@@ -546,6 +546,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    for(const [h,m]of Object.entries(r.metrics))lines.push(h+' Minuten: '+m.evaluated+' auswertbare Richtungen, '+m.favorable+' günstig, '+m.unfavorable+' ungünstig, '+m.flat+' unverändert; '+m.neutral+' ABWARTEN-Beobachtungen; '+m.missing+' offen / nicht auswertbar');
    lines.push('','Produktauswahl: '+p.evaluated+' vergleichbare Kursverläufe nach 60 Minuten; '+p.favorable+' positiv.',p.note,'Vergleich mit geeigneten Alternativen: '+p.comparisons+' Fälle; Auswahl in '+p.selectedBest+' Fällen mindestens gleich gut.','','Recherche: '+research.observations+' Beobachtungen, '+research.conflicts+' Widerspruchshinweise, '+research.missingSourceOrTime+' ohne Quelle/Abrufzeit.',research.note,'','Wiederkehrende Freigabehindernisse:',...(r.issues.length?r.issues.map(([reason,count])=>count+'× '+reason):['Noch keine wiederkehrenden Freigabehindernisse erfasst.']),
     '',l.mode,l.status+' · '+l.training+' Entwicklungsfälle / '+l.holdout+' zeitlich spätere Prüffälle.','Anpassungsvorschläge werden getrennt geprüft. Keine automatische Code- oder Regeländerung. Ein positiver Kursverlauf beweist keine fehlerfreie Recherche; fehlende Nachweise bleiben offen.');
+   const eq=r.entryQualityReview;if(eq){const num=v=>Number.isFinite(v)?v.toFixed(3)+' %':'noch nicht auswertbar';lines.push('','Einstiegsqualität · Vergleichstest: '+eq.evaluated+' gepaarte Fälle nach 60 Minuten; '+eq.kept+' beibehalten, '+eq.filtered+' gefiltert.','Treffer: bisher '+eq.baselineWins+'/'+eq.evaluated+'; Test '+eq.candidateWins+'/'+eq.kept+' freigegebene Testfälle.','Mittlere Richtungsbewegung pro Vergleichsfall: bisher '+num(eq.baselineMeanPct)+'; Test '+num(eq.candidateMeanPct)+'.','Verpasste günstige Bewegungen: '+eq.missedFavorable+' · vermiedene ungünstige: '+eq.avoidedUnfavorable+'.','Mittlere beobachtete Gegenbewegung: bisher '+num(eq.meanObservedAdversePct)+'; Test '+num(eq.candidateMeanObservedAdversePct)+' ('+eq.excursions+' Fälle).',eq.note);}
    text('auditReport',lines.join('\n'));text('auditRecords',JSON.stringify(r.latest,null,2));
   }catch(e){text('auditStatisticsStatus','Statistik nicht aktuell abrufbar; eventuell angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.');text('auditReport','Auswertung nicht verfügbar: '+e.message);text('improvementStatus','Lernstand derzeit nicht abrufbar. Ein zuvor angezeigter Vorschlag ist nicht erneut geprüft.');}
  }
@@ -1245,11 +1246,12 @@ function structureLevels(c,lookback=40){
  const recent=v.slice(-Math.min(12,v.length));
  return {support,resistance,swingLow:Math.min(...recent.map(x=>x.low)),swingHigh:Math.max(...recent.map(x=>x.high))};
 }
-function stopModel(dir,entry,atr,mult=1.5){
+function stopModel(dir,entry,atr,mult=1.5,fixed=intradayRiskData()){
+ if(!fixed.available)return {stop:null,reason:fixed.reason};atr=fixed.atr;
  if(!dir||dir==="NEUTRAL"||!Number.isFinite(entry)||!Number.isFinite(atr)||atr<=0)return {stop:null,reason:"Kein gültiges Setup"};
- const lv=structureLevels(C,40), buffer=Math.max(atr*0.20,0.01);
+ const lv=structureLevels(fixed.bars,40), buffer=Math.max(atr*0.20,0.01);
  let structureStop=dir==="LONG"?Math.min(lv.swingLow,lv.support)-buffer:Math.max(lv.swingHigh,lv.resistance)+buffer;
- const fib=fibonacciModel(dir,entry,atr);
+ const fib=fibonacciModel(dir,entry,atr,fixed.bars);
  const fibStop=fib.valid?(dir==="LONG"?fib.levels.r786-buffer:fib.levels.r786+buffer):null;
  if(Number.isFinite(fibStop)) structureStop=dir==="LONG"?Math.min(structureStop,fibStop):Math.max(structureStop,fibStop);
  const atrStop=dir==="LONG"?entry-atr*mult:entry+atr*mult;
@@ -1258,7 +1260,7 @@ function stopModel(dir,entry,atr,mult=1.5){
  if(Math.abs(entry-stop)>maxDist)stop=dir==="LONG"?entry-maxDist:entry+maxDist;
  if(dir==="LONG"&&stop>=entry)stop=entry-atr*Math.max(1,mult);
  if(dir==="SHORT"&&stop<=entry)stop=entry+atr*Math.max(1,mult);
- return {stop,structureStop,atrStop,fibStop,support:lv.support,resistance:lv.resistance,buffer,reason:"Fibonacci + Marktstruktur + Support/Resistance + ATR"};
+ return {stop,structureStop,atrStop,fibStop,support:lv.support,resistance:lv.resistance,buffer,timeframe:"15m",reason:"Feste 15m-Basis: Fibonacci + Marktstruktur + Support/Resistance + ATR"};
 }
 function stopPriceFor(dir,price,atr,mult){return stopModel(dir,price,atr,mult).stop;}
 function fibonacciModel(dir,entry,atr=0,sourceBars=C){
@@ -1305,7 +1307,8 @@ function targetModel(dir,entry,stop,minRR=2){
  if(!dir||dir==="NEUTRAL"||!Number.isFinite(entry)||!Number.isFinite(stop))return {target:null,rr:null};
  const risk=Math.abs(entry-stop);
  if(!risk)return {target:null,rr:null};
- const fib=fibonacciModel(dir,entry,A.at);
+ const fixed=intradayRiskData();if(!fixed.available)return {target:null,rr:null,reason:fixed.reason};
+ const fib=fibonacciModel(dir,entry,fixed.atr,fixed.bars);
  const rrTarget=dir==="LONG"?entry+risk*minRR:entry-risk*minRR;
  let target=rrTarget, source="CRV";
  if(fib.valid){
@@ -1331,18 +1334,18 @@ function falseBreakoutState(dir){
 // Replay closed 5m bars: deterministic across reloads, browser and background worker.
 // A repeated refresh of the same bar can never count as another confirmation.
 function confirmClosedSignals(samples,required=2){
- let dir="NEUTRAL",pending="NEUTRAL",count=0,lastAt=null;
+ let dir="NEUTRAL",pending="NEUTRAL",count=0,lastAt=null,confirmedAt=null;
  for(const sample of samples){
   if(!Number.isFinite(sample.at)||sample.at<=lastAt)continue;
-  if(lastAt!==null&&sample.at-lastAt!==300000){dir="NEUTRAL";pending="NEUTRAL";count=0;}
+  if(lastAt!==null&&sample.at-lastAt!==300000){dir="NEUTRAL";pending="NEUTRAL";count=0;confirmedAt=null;}
   lastAt=sample.at;
-  if(!sample.valid){dir="NEUTRAL";pending="NEUTRAL";count=0;continue;}
+  if(!sample.valid){dir="NEUTRAL";pending="NEUTRAL";count=0;confirmedAt=null;continue;}
   const raw=sample.dir;
   if(raw===dir){pending=dir;count=0;continue;}
   count=pending===raw?count+1:1;pending=raw;
-  if(count>=required){dir=raw;count=0;}
+  if(count>=required){dir=raw;count=0;confirmedAt=sample.at;}
  }
- return {dir,pending,count,lastAt};
+ return {dir,pending,count,lastAt,confirmedAt};
 }
 // Intraday v1 runs beside the established policy; no orders or live approval changes.
 function intradayState(bundle,trade=null,now=Date.now()){
@@ -1461,6 +1464,42 @@ function confirmedSignalDirection(){
  renderDecisionExplanation();
  return signalState.dir;
 }
+function intradayRiskData(bundle=liveBundleCache,now=Date.now()){
+ const step=900000,raw=bundle?.history?.bars_by_tf?.['15m']||[];
+ const rows=raw.filter(b=>b.isOpen===false&&b.openTime+step<=now).slice(-200);
+ const valid=rows.length>=40&&rows.every((b,i)=>b.instrument==='XAU/USD'&&Number.isFinite(b.openTime)&&b.openTime%step===0&&['open','high','low','close'].every(k=>Number.isFinite(b[k])&&b[k]>0)&&b.low<=Math.min(b.open,b.close)&&b.high>=Math.max(b.open,b.close)&&(!i||b.openTime>rows[i-1].openTime));
+ if(!valid||now-rows.at(-1).openTime>2*step||rows.slice(-20).some((b,i,a)=>i&&b.openTime-a[i-1].openTime!==step))return {available:false,reason:'Vollständige aktuelle 15m-Kerzen für Stop und Ziel fehlen'};
+ const volatility=atr(rows);return {available:volatility>0,bars:rows,atr:volatility,timeframe:'15m',reason:volatility>0?'':'15m-ATR ist null'};
+}
+function intradayEntryContext(bundle=liveBundleCache,state=signalState,now=Date.now()){
+ const quality=Object.entries({'5m':300000,'15m':900000,'1h':3600000}).map(([tf,step])=>{
+  const rows=(bundle?.history?.bars_by_tf?.[tf]||[]).filter(b=>!b.isOpen&&b.openTime+step<=now);
+  const valid=rows.length>=200&&rows.every((b,i)=>b.instrument==='XAU/USD'&&Number.isFinite(b.openTime)&&b.openTime%step===0&&['open','high','low','close'].every(k=>Number.isFinite(b[k])&&b[k]>0)&&b.low<=Math.min(b.open,b.close)&&b.high>=Math.max(b.open,b.close)&&(!i||b.openTime>rows[i-1].openTime));
+  const gap=rows.slice(-20).some((b,i,a)=>i&&b.openTime-a[i-1].openTime!==step),age=rows.length?now-rows.at(-1).openTime-step:null;
+  return {tf,available:valid&&!gap&&age>=0&&age<=step,reason:!valid?'Historie fehlt oder ist ungültig':gap?'Kerzenlücke':age>step?'veraltet':'aktuell',ageMinutes:age===null?null:age/60000,rows};
+ });
+ const result={version:'entry-quality-v1',mode:'shadow',affectsApproval:false,available:false,quality:quality.map(({rows,...q})=>q)};
+ if(quality.some(q=>!q.available))return {...result,reason:'Einstiegsvergleich wartet auf vollständige aktuelle 5m/15m/1h-Daten'};
+ const rows=quality[0].rows,setup=quality[1].rows,price=rows.at(-1).close,vol=atr(rows),risk=intradayRiskData(bundle,now);
+ if(!vol||!risk.available)return {...result,reason:'Schwankungsbreite nicht auswertbar'};
+ const day=ts=>new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Zurich',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(ts));
+ const today=day(now),days=[...new Set(rows.map(b=>day(b.openTime)))],previous=days.filter(d=>d!==today).at(-1);
+ const range=d=>{const r=rows.filter(b=>day(b.openTime)===d);return r.length?{high:Math.max(...r.map(b=>b.high)),low:Math.min(...r.map(b=>b.low)),day:d,bars:r.length}:null;};
+ const currentDay=range(today),previousDay=previous?range(previous):null,levels=[];
+ for(let i=3;i<setup.length-3;i++){
+  const neighbors=setup.slice(i-3,i+4).filter((_,j)=>j!==3);
+  if(neighbors.every(b=>b.high<setup[i].high))levels.push(setup[i].high);
+  if(neighbors.every(b=>b.low>setup[i].low))levels.push(setup[i].low);
+ }
+ for(const r of [currentDay,previousDay])if(r)levels.push(r.high,r.low);
+ const support=levels.filter(p=>p<price).sort((a,b)=>b-a)[0]??null,resistance=levels.filter(p=>p>price).sort((a,b)=>a-b)[0]??null;
+ const deviationAtr=Math.abs(price-ema(rows.map(b=>b.close),20))/vol,signalAgeMinutes=Number.isFinite(state.confirmedAt)?Math.max(0,(now-state.confirmedAt-300000)/60000):null;
+ const dir=state.dir,stop=['LONG','SHORT'].includes(dir)?stopModel(dir,price,risk.atr,1.5,risk).stop:null,obstacle=dir==='LONG'?resistance:dir==='SHORT'?support:null;
+ const roomR=Number.isFinite(stop)&&stop!==price&&Number.isFinite(obstacle)?Math.abs(obstacle-price)/Math.abs(price-stop):null;
+ const reasons=[];if(deviationAtr>1.5)reasons.push('Abstand zur EMA20 über 1,5 ATR');if(roomR===null)reasons.push('Platz bis zum nächsten Hindernis nicht belegt');else if(roomR<2)reasons.push('Weniger als 2R bis zum nächsten Hindernis');if(signalAgeMinutes===null||signalAgeMinutes>15)reasons.push('Signalalter fehlt oder über 15 Minuten');
+ return {...result,available:true,price,priceAt:rows.at(-1).openTime+300000,reference:'Schlusskurs der Technikhistorie; keine Mischung mit Spot/CFD',support,resistance,currentDay,previousDay,deviationAtr,signalAgeMinutes,roomR,trendStrength:adxCalc(setup),trendStrengthChange:adxCalc(setup)-adxCalc(setup.slice(0,-3)),direction:['LONG','SHORT'].includes(dir)&&!reasons.length?dir:'NEUTRAL',baselineDirection:dir,reasons,reason:reasons.join(' · ')||'Testbedingungen erfüllt',thresholds:{maxDeviationAtr:1.5,minRoomR:2,maxSignalMinutes:15}};
+}
+
 function renderMarketNarrative(){
  const out=$('bobMarketNarrative');if(!out)return;
  const read=id=>$(id)?.textContent?.trim()||'';
@@ -1480,7 +1519,19 @@ function renderMarketNarrative(){
   lines.push('Fibonacci: '+direction(read('blockFibonacci'))+'. '+read('blockFibonacciNote')+'.');
   lines.push('Der 4-Stunden-Chart dient als Hintergrund. Eine Markttendenz allein bedeutet noch keine Produktfreigabe.');
  }
- lines.push(read('analysisAge')||'Datenstand noch nicht bestätigt.');
+ const entry=intradayEntryContext();window.BobEntryQuality=entry;
+ lines.push('EINSTIEGSQUALITÄT · VERGLEICHSTEST (keine zusätzliche Freigabe)');
+ lines.push(entry.quality.map(q=>q.tf+': '+q.reason+(q.ageMinutes!==null?' · letzter Schluss vor '+q.ageMinutes.toFixed(1)+' Min.':'')).join(' | '));
+ if(entry.available){
+  const f=v=>Number.isFinite(v)?v.toFixed(2):'nicht belegt';
+  lines.push('Technischer Referenzkurs: '+f(entry.price)+' USD. '+entry.reference+'.');
+  lines.push('Nächste Unterstützung: '+f(entry.support)+' USD · nächster Widerstand: '+f(entry.resistance)+' USD. Platz in Signalrichtung: '+f(entry.roomR)+'R.');
+  lines.push('EMA20-Abstand (5m): '+f(entry.deviationAtr)+' ATR · Signalalter: '+f(entry.signalAgeMinutes)+' Minuten.');
+  for(const [name,r] of [['Heute',entry.currentDay],['Vorheriger beobachteter Tag',entry.previousDay]])lines.push(name+': '+(r?r.day+' · Hoch '+f(r.high)+' / Tief '+f(r.low)+' USD · '+r.bars+' beobachtete 5m-Kerzen':'keine Daten')+'. Bereiche nur aus vorhandener Historie, nicht als vollständige Tagesdaten bestätigt.');
+  lines.push('15m-Trendstärkewert: '+f(entry.trendStrength)+' · Veränderung über drei Kerzen: '+f(entry.trendStrengthChange)+'.');
+ }
+ lines.push('Testurteil: '+(entry.direction||'NEUTRAL')+' · '+entry.reason+'. Schwellen 1,5 ATR / 2R / 15 Minuten sind unbewiesene Testwerte. Stop und Ziel verwenden feste 15m-Daten.');
+ lines.push(read('analysisAge')||'Datenstand siehe Quellenzeiten und Zeitebenenprüfung.');
  out.textContent=lines.filter(Boolean).join('\n\n');
 }
 
