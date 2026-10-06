@@ -1,4 +1,5 @@
 import unittest
+import json
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
 import product_quotes as q
@@ -10,6 +11,97 @@ def snapshot():
     return dict(responseDate='2026-09-30T16:06:02Z',tradingHours=dict(isTradeable=True,tradingStart='2026-09-30T06:00:00Z',tradingEnd='2026-09-30T20:00:00Z'),result=dict(isin=ISIN,productName='GOLD Unlimited Long',issuerCompanyName='BNP Paribas',currency=dict(isoCode='EUR'),first=dict(underlyingISIN='USFX00000XAU',currency=dict(isoCode='USD'),knockOutAbsolute=3978.9026),keyFigures=dict(leverage=22.67,lastUpdate='2026-09-30T16:06:02Z'),config=dict(hasMultipleUnderlying=False,isPublicTradable=True,isMarketClosed=False,isKnockedOut=False,isMaturedOrKnockOut=False,isCanceled=False,isLifeCycleEnded=False,isBidOnly=False,isPercentageQuotation=False),bid=16.19,ask=16.2,bidSize=8000,askSize=8000,leverage=22.67,bidDate='2026-09-30T18:06:00.282',askDate='2026-09-30T18:06:00.282'))
 
 class ProductQuoteTests(unittest.TestCase):
+    def fetch_bnp(self, data):
+        with patch.object(q, 'urlopen') as network:
+            response = network.return_value.__enter__.return_value
+            response.url = q.ORIGIN+'apiv2/api/v1/product/header/'+ISIN
+            response.read.return_value = json.dumps(data).encode()
+            return q.get_bnp_quote(ISIN)
+
+    def test_bnp_missing_quote_time_preserves_only_verified_conditions(self):
+        data = snapshot()
+        data['result']['first'].update(ratio=.1, strikeAbsolute=3978.9026,
+                                      determinationDate='2099-01-01T00:00:00')
+        data['result']['keyFigures']['maturityDateTimestamp'] = -1
+        data['result']['derivativeTypeName'] = 'Unlimited Long'
+        del data['result']['bidDate']
+        result = self.fetch_bnp(data)
+        self.assertTrue(result['productVerified'])
+        self.assertFalse(result['found']); self.assertFalse(result['eligible'])
+        self.assertEqual(result['quoteFailureCode'], 'MISSING_QUOTE_TIME')
+        self.assertIn('Geldkurs', result['reason'])
+        self.assertEqual(result['conditions']['ratio']['value'], .1)
+        self.assertEqual(result['conditions']['maturity']['value'], 'Open End')
+        self.assertNotIn('ko', result['conditions']); self.assertNotIn('strike', result['conditions'])
+        self.assertFalse(result['metadata']['termsDated'])
+        self.assertIsNone(result['observedTerms']['effectiveAt'])
+        for key in ('bid', 'ask', 'quoteAt', 'bidAt', 'askAt', 'leverageAt'):
+            self.assertNotIn(key, result)
+        self.assertFalse(q.freshness(result)['eligible'])
+
+    def test_bnp_wrong_identity_never_retains_conditions(self):
+        data = snapshot(); data['result']['isin'] = 'DE000PJ9NB98'
+        result = self.fetch_bnp(data)
+        self.assertFalse(result['productVerified'])
+        self.assertTrue(result['sourceFailure']); self.assertNotIn('conditions', result)
+
+    def test_bnp_dated_quote_does_not_date_terms(self):
+        result = self.fetch_bnp(snapshot())
+        self.assertTrue(result['found']); self.assertTrue(result['productVerified'])
+        self.assertFalse(result['metadata']['termsDated'])
+        self.assertIsNone(result['observedTerms']['effectiveAt'])
+        self.assertFalse(result['fresh'])  # historical regression input
+
+    def test_bnp_diagnostic_survives_routing_cache_and_comdirect(self):
+        data = snapshot(); del data['result']['bidDate']
+        failure = self.fetch_bnp(data)
+        terms = dict(isin=ISIN, productVerified=True, found=False, eligible=False,
+                     metadata={'status':1}, source='comdirect', reason='Stammdaten vorhanden')
+        with patch.dict(q._CACHE, {}, clear=True), patch.object(q, 'get_bnp_quote', return_value=failure) as fetch, \
+                patch('public_product_terms.get_product', return_value=terms):
+            first = q.get_quote(ISIN); second = q.get_quote(ISIN)
+        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual(second['quoteFailureCode'], 'MISSING_QUOTE_TIME')
+        self.assertEqual(first['issuerResearch']['conditions'], failure['conditions'])
+        self.assertIn('Geldkurs', second['reason']); self.assertEqual(second['source'], 'comdirect')
+
+    def test_bnp_terms_survive_comdirect_outage_without_quote_approval(self):
+        data = snapshot(); del data['result']['askDate']
+        failure = self.fetch_bnp(data)
+        with patch.object(q, 'get_issuer_quote', return_value=failure), \
+                patch('public_product_terms.get_product', return_value={'productVerified':False}):
+            result = q.get_quote(ISIN)
+        self.assertTrue(result['productVerified']); self.assertFalse(result['eligible'])
+        self.assertIn('Briefkurs', result['reason'])
+
+    def test_bnp_confirmed_terminal_status_overrides_secondary_active_status(self):
+        data = snapshot(); data['result']['config']['isKnockedOut'] = True
+        failure = self.fetch_bnp(data)
+        with patch.object(q, 'get_issuer_quote', return_value=failure), \
+                patch('public_product_terms.get_product', return_value={'productVerified':True, 'metadata':{'status':1}}):
+            result = q.get_quote(ISIN)
+        self.assertEqual(result['metadata']['status'], 2); self.assertFalse(result['eligible'])
+
+    def test_bnp_network_diagnostics_do_not_expose_raw_error(self):
+        error = HTTPError('https://private.invalid/?secret=x', 429, 'private', {}, None)
+        with patch.object(q, 'urlopen', side_effect=error):
+            result = q.get_bnp_quote(ISIN)
+        self.assertEqual(result['quoteFailureCode'], 'HTTP_429')
+        self.assertNotIn('secret', result['reason']); self.assertNotIn('private', result['reason'])
+
+    def test_bnp_cache_parameter_changes_but_cannot_refresh_source_clocks(self):
+        with patch.object(q, 'urlopen') as network, patch.object(q.time, 'time', return_value=1500):
+            response = network.return_value.__enter__.return_value
+            response.url = q.ORIGIN+'apiv2/api/v1/product/header/'+ISIN
+            response.read.return_value = json.dumps(snapshot()).encode()
+            first = q.get_bnp_quote(ISIN)
+            self.assertTrue(network.call_args.args[0].full_url.endswith('?_=1500000'))
+            with patch.object(q.time, 'time', return_value=1516):
+                second = q.get_bnp_quote(ISIN)
+            self.assertTrue(network.call_args.args[0].full_url.endswith('?_=1515000'))
+        self.assertEqual(first['quoteAt'], second['quoteAt'])
+        self.assertFalse(second['fresh']); self.assertFalse(second['eligible'])
+
     def test_known_sg_failure_is_not_replaced_by_bnp_miss(self):
         isin='DE000FG309G0'
         with patch.dict(q._CACHE, {isin:(__import__('time').monotonic(),{'found':True,'source':'SG'})}, clear=True), patch.object(q,'get_bnp_quote') as bnp, patch.object(q,'issuer_json') as sg:
@@ -136,4 +228,3 @@ class ProductQuoteTests(unittest.TestCase):
         self.assertFalse(q.parse_bnp(data,ISIN,NOW)['eligible'])
 
 if __name__=='__main__':unittest.main()
-

@@ -1,6 +1,10 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const ctx={window:{},localStorage:{getItem:()=>null,setItem:()=>{}}};vm.createContext(ctx);vm.runInContext(fs.readFileSync('degiro_assistant.js','utf8'),ctx);
 const b=ctx.window.BobDegiro,isin='DE000FG4JXV7',now=Date.parse('2026-10-02T19:22:30Z');
+const directSource=b.renderProductSources({isin,index:99,quote:{isin,productVerified:true,
+ source:'BNP Paribas · offizielle Produktdaten',sourceUrl:'https://derivate.bnpparibas.com/',
+ metadata:{termsDated:false},exchangeResearch:{productVerified:false,source:'comdirect failed'}}});
+assert(directSource.includes('BNP Paribas'));assert(!directSource.includes('comdirect failed'));
 const w=b.selectionTimeWindow('02/10/2026 21:22');assert.equal(w.start,Date.parse('2026-10-02T19:22:00Z'));assert.equal(w.end-w.start,59999);assert(w.label.includes('Sekunden unbekannt'));
 for(const raw of ['31/02/2026 21:22','25/10/2026 02:30','29/03/2026 02:30','21:22'])assert.equal(b.selectionTimeWindow(raw),null,raw);
 const p={isin,name:'SG Gold Turbo Classic Put BAR 4460',productDirection:'SHORT',price:20.01,leverage:15,ko:4460,isinConfirmed:true};
