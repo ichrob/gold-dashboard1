@@ -278,7 +278,7 @@ try{
 <div class="analysis-block neutral"><span>MTF-Bestätigung</span><b id="blockMtf">NEUTRAL</b><small id="blockMtfNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Volatilität</span><b id="blockVolatility">NEUTRAL</b><small id="blockVolatilityNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Marktstruktur</span><b id="blockStructure">NEUTRAL</b><small id="blockStructureNote">Daten fehlen</small></div>
-</div><details open style="margin-top:12px"><summary><b>Intraday · aktive Analyse + Vergleichstest</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">Aktiv v3: 15m Setup und 5m Einstieg. Erste Schlusskerze: Einstieg vorbereitet; zweite: Richtung bestätigt. 1h, 4h und EMA200 dienen als Kontext. EMA20/50, RSI14 und MACD bilden ein gemeinsames Kurskollektiv. DX-Trendstärke ab 20 oder zunehmend ab 15 (unbewiesene Testwerte). Analyse Mo–Fr rund um die Uhr (Zürich). Produkt-Handelszeiten zusätzlich prüfen. Darunter bleibt die bisherige 15m/5m-Testvariante getrennt erhalten. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div>
+</div><details open style="margin-top:12px"><summary><b>Intraday · aktive Analyse + Vergleichstest</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">Aktiv v4: 15m Setup und 5m Einstieg. Erste Schlusskerze: Einstieg vorbereitet; zweite: Richtung bestätigt. 1h, 4h und EMA200 dienen als Kontext. EMA20/50, RSI14 und MACD bilden ein gemeinsames Kurskollektiv. DX-Trendstärke ab 20 oder zunehmend ab 15 (unbewiesene Testwerte). Analyse Mo–Fr rund um die Uhr (Zürich). Produkt-Handelszeiten zusätzlich prüfen. Darunter bleibt die bisherige 15m/5m-Testvariante getrennt erhalten. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div>
 <details style="margin-top:10px"><summary>Warum entscheidet Bob so?</summary><div id="decisionExplanation" class="small" style="white-space:pre-line">Noch keine bestätigte Analyse.</div></details>
 <div id="quickReason" class="small" style="margin-top:10px">Lade Daten, um das Setup zu bewerten.</div>
 <details id="bobMarketAnalysis" class="bob-disclosure" style="margin-top:12px"><summary>Marktanalyse von Bob</summary><div id="bobMarketNarrative" class="small" style="white-space:pre-line;margin-top:10px">Noch keine aktuelle Marktanalyse verfügbar.</div></details>
@@ -335,7 +335,7 @@ try{
 <details class="technical-metric"><summary><span>EMA 20</span><b id="ema20">—</b><span id="ema20Direction" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Kurzfristiger, gewichteter Durchschnitt der letzten 20 Kerzen. Schlusskurs darüber: LONG; darunter: SHORT.</p></details>
 <details class="technical-metric"><summary><span>EMA 50</span><b id="ema50">—</b><span id="ema50Direction" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Mittelfristiger, gewichteter Durchschnitt der letzten 50 Kerzen. Schlusskurs darüber: LONG; darunter: SHORT.</p></details>
 <details class="technical-metric"><summary><span>EMA 200</span><b id="ema200">—</b><span id="ema200Direction" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Langfristiger, gewichteter Durchschnitt der letzten 200 Kerzen. Schlusskurs darüber: LONG; darunter: SHORT.</p></details>
-<details class="technical-metric"><summary><span>ATR (14)</span><b id="atr">—</b><span id="atrDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Durchschnittliche Schwankungsbreite über 14 Kerzen in USD. Höher bedeutet stärkere Schwankungen, aber keine LONG- oder SHORT-Richtung.</p></details>
+<details class="technical-metric"><summary><span>ATR (14)</span><b id="atr">—</b><span id="atrDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Einfacher Mittelwert (SMA) der True Range über 14 Kerzen in USD, einschließlich Kurslücken. Höher bedeutet stärkere Schwankungen, aber keine LONG- oder SHORT-Richtung.</p></details>
 </div></details></div>
 
 <div class="card chart-card"><h3>Preisverlauf</h3>
@@ -355,7 +355,7 @@ try{
 </table>
 </details>
 </div>
-<div class="card"><details><summary>Momentum langfristig: <span id="momentumSummary">nicht verfügbar</span></summary><p class="small">Bewertung der EMA-Trends in der gewählten Zeitebene; keine feste Signaldauer.</p><div class="metrics">
+<div class="card"><details><summary>Trend langfristig: <span id="momentumSummary">nicht verfügbar</span></summary><p class="small">Bewertung der EMA-Trends in der gewählten Zeitebene; keine feste Signaldauer.</p><div class="metrics">
 <details class="technical-metric"><summary><span>MACD</span><b id="macd" class="technical-value" data-direction="NEUTRAL">—</b><span id="macdDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Zeigt den Abstand zwischen dem schnellen EMA 12 und dem langsameren EMA 26. Über der Signallinie: Aufwärtsmomentum; darunter: Abwärtsmomentum.</p></details>
 <details class="technical-metric"><summary><span>MACD Signal</span><b id="macds" class="technical-value" data-direction="NEUTRAL">—</b><span id="macdsDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Geglätteter Durchschnitt des MACD über 9 Kerzen. Dient als Vergleichslinie: MACD darüber deutet auf LONG, darunter auf SHORT. Die Farbe zeigt diesen Vergleich, nicht das Vorzeichen der Signallinie.</p></details>
 <details class="technical-metric"><summary><span>MACD Histogramm</span><b id="hist" class="technical-value" data-direction="NEUTRAL">—</b><span id="histDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Abstand zwischen MACD und Signallinie. Positiv: LONG-Momentum; negativ: SHORT-Momentum. Je näher an null, desto kleiner der Abstand.</p></details>
@@ -366,7 +366,7 @@ try{
 <div class="card">
 <details><summary>Weitere technische Details</summary>
 <div class="metrics">
-<details class="technical-metric"><summary><span>ADX</span><b id="adx" class="technical-value" data-direction="NEUTRAL">—</b><span id="adxDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Misst die Trendstärke, nicht die Richtung. Ab 25 zeigt Bob „Trend“, darunter „schwach“. Ein hoher Wert kann zu einem Aufwärts- oder Abwärtstrend gehören.</p></details>
+<details class="technical-metric"><summary><span>ADX</span><b id="adx" class="technical-value" data-direction="NEUTRAL">—</b><span id="adxDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Wilder-ADX (14): geglätteter DX; misst Trendstärke, nicht Richtung. Der schnelle Einstiegsfilter verwendet separat DX. Ab 25 zeigt Bob „Trend“, darunter „schwach“. Ein hoher Wert kann zu einem Aufwärts- oder Abwärtstrend gehören.</p></details>
 <details class="technical-metric"><summary><span>Bollinger Position</span><b id="bbpos" class="technical-value" data-direction="NEUTRAL">—</b><span id="bbposDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Zeigt die Lage des Kurses zwischen den Bollinger-Bändern: 0 % am unteren, 100 % am oberen Band. Außerhalb steht „unter Band“ oder „über Band“. Über der Bandmitte: LONG-Einordnung; darunter: SHORT. Allein kein Umkehrsignal.</p></details>
 <details class="technical-metric"><summary><span>Stochastic</span><b id="stoch" class="technical-value" data-direction="NEUTRAL">—</b><span id="stochDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Zeigt, wo der Schlusskurs innerhalb der Hoch-Tief-Spanne der letzten 14 Kerzen liegt. Nahe 100: am oberen Ende; nahe 0: am unteren Ende. Zwischen 50 und 80: LONG-Einordnung; zwischen 20 und 50: SHORT. Ab 80 oder bis 20 bleibt die Anzeige neutral. Kein automatisches Kauf- oder Verkaufssignal.</p></details>
 <details class="technical-metric"><summary><span>VWAP</span><b id="vwap" class="technical-value" data-direction="NEUTRAL">—</b><span id="vwapDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Nach Handelsvolumen gewichteter Durchschnittspreis der geladenen Kerzen. Kurse mit mehr Volumen zählen stärker. Schlusskurs darüber: LONG-Einordnung; darunter: SHORT. Ohne passende Volumendaten steht „n/v“.</p></details>
@@ -518,7 +518,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     reasons:flow.notApproved?.find(x=>x.isin===p.isin)?.reasons||[],
     selection:flow.groups.flatMap(g=>g.candidates).find(x=>x.isin===p.isin)||null};
   });
-  const payload={ruleVersion:'intraday-fast-v3',direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,entryQuality:intradayEntryContext(bundle,state),barAt:state.barAt,
+  const payload={ruleVersion:'intraday-consistent-v4',direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,entryQuality:intradayEntryContext(bundle,state),barAt:state.barAt,
    price:bundle?.spots?.xaus,priceAt:bundle?.spots?.spot_price_as_of,score:state.score,
    reason:state.reason,indicators:state.indicators,products:items,selection:[...selected],gateReasons:flow.gateReasons};
   const signature=JSON.stringify([state.dir,state.shadowDirection,state.barAt,state.reason,items,flow.gateReasons]);
@@ -794,10 +794,10 @@ function emaSeries(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e
 function rsi(a,p=14){if(a.length<=p)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];d>0?g+=d:l-=d}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return g===0&&l===0?50:l===0?100:100-100/(1+g/l)}
 function atr(c,p=14){if(c.length<p+1)return 0;let tr=[];for(let i=1;i<c.length;i++)tr.push(Math.max(c[i].high-c[i].low,Math.abs(c[i].high-c[i-1].close),Math.abs(c[i].low-c[i-1].close)));return tr.slice(-p).reduce((x,y)=>x+y,0)/Math.min(p,tr.length)}
 function calc(){let a=C.map(x=>x.close),e20=a.length>=20?ema(a,20):null,e50=a.length>=50?ema(a,50):null,e200=a.length>=200?ema(a,200):null,R=rsi(a),at=atr(C);const fast=emaSeries(a,12),slow=emaSeries(a,26),macdSeries=a.map((_,i)=>fast[i]-slow[i]);const sigSeries=emaSeries(macdSeries,9);const macd=macdSeries.at(-1),sig=sigSeries.at(-1);A={e20,e50,e200,R,at,macd,sig,hist:macd-sig,ready:false};return A}
-function analyze(){if(!C.length)return;let a=C.map(x=>x.close),x=calc();lastPrice=lastPrice||a.at(-1);$("price").textContent=lastPrice.toFixed(2);$("rsi").textContent=x.R.toFixed(1);$("ema20").textContent=x.e20==null?"n/v":x.e20.toFixed(2);$("ema50").textContent=x.e50==null?"n/v":x.e50.toFixed(2);$("ema200").textContent=x.e200==null?"n/v":x.e200.toFixed(2);$("atr").textContent=x.at.toFixed(2);$("macd").textContent=x.macd.toFixed(3);$("macds").textContent=x.sig.toFixed(3);$("hist").textContent=x.hist.toFixed(3);$("trend").textContent=x.e20!=null&&x.e50!=null?(x.e20>x.e50?"Bullish":"Bearish"):"n/v";$("trend2").textContent=x.e50!=null&&x.e200!=null?(x.e50>x.e200?"Bullish":"Bearish"):"n/v";
+function analyze(){if(!C.length)return;let a=C.map(x=>x.close),x=calc();lastPrice=lastPrice||a.at(-1);$("price").textContent=lastPrice.toFixed(2);$("rsi").textContent=x.R.toFixed(1);$("ema20").textContent=x.e20==null?"n/v":x.e20.toFixed(2);$("ema50").textContent=x.e50==null?"n/v":x.e50.toFixed(2);$("ema200").textContent=x.e200==null?"n/v":x.e200.toFixed(2);$("atr").textContent=x.at.toFixed(2);$("macd").textContent=x.macd.toFixed(3);$("macds").textContent=x.sig.toFixed(3);$("hist").textContent=x.hist.toFixed(3);$("trend").textContent=x.e20!=null&&x.e50!=null?(x.e20>x.e50?"Bullish":x.e20<x.e50?"Bearish":"Neutral"):"n/v";$("trend2").textContent=x.e50!=null&&x.e200!=null?(x.e50>x.e200?"Bullish":x.e50<x.e200?"Bearish":"Neutral"):"n/v";
 renderCompactAnalysis(x);
 const signalPrice=a.at(-1);A.signalPrice=signalPrice;const ready=a.length>=200&&x.e20!=null&&x.e50!=null&&x.e200!=null;
-const score=ready?collectiveSignal([Math.sign(signalPrice-x.e20),Math.sign(x.e20-x.e50),Math.sign(x.e50-x.e200),Math.sign(x.macd-x.sig),x.R>50&&x.R<75?1:x.R<50&&x.R>25?-1:0]):0;
+const score=ready?collectiveSignal([Math.sign(signalPrice-x.e20),Math.sign(x.e20-x.e50),Math.sign(x.macd-x.sig),x.R>50&&x.R<75?1:x.R<50&&x.R>25?-1:0]):0;
 const txt=!ready?'NEUTRAL · zu wenig Historie':score>=0.5?'LONG-Setup':score<=-0.5?'SHORT-Setup':'NEUTRAL';$('signal').textContent=txt;$('signal').className='signal '+(score>=0.5?'ok':score<=-0.5?'bad':'neutral');draw(a);updateQuick();advancedAnalysis();if(directSpotBundle)Promise.resolve(loadMTF(false,null,directSpotBundle)).catch(e=>console.warn("[BOB] MTF analyze fallback",e))}
 function momentumLabel(x){
  if(![x.e20,x.e50,x.e200].every(v=>typeof v==="number"&&Number.isFinite(v)))return "nicht verfügbar";
@@ -917,24 +917,29 @@ function draw(a){
 
 
 function emaS(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
-function rsiS(a,p=14){if(a.length<p+2)return 50;let g=0,l=0;for(let i=1;i<=p;i++){let d=a[i]-a[i-1];g+=Math.max(d,0);l+=Math.max(-d,0)}g/=p;l/=p;for(let i=p+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(p-1)+Math.max(d,0))/p;l=(l*(p-1)+Math.max(-d,0))/p}return g===0&&l===0?50:l===0?100:100-100/(1+g/l)}
+function rsiS(a,p=14){return rsi(a,p);}
+function macdValues(a){const fast=emaSeries(a,12),slow=emaSeries(a,26),series=fast.map((v,i)=>v-slow[i]),signal=emaSeries(series,9);return {macd:series.at(-1),signal:signal.at(-1),hist:series.at(-1)-signal.at(-1)};}
 // Related price indicators form ONE collective; repetitions never add votes.
 function collectiveSignal(values){
+ if(!values.length||values.some(v=>typeof v!=='number'||!Number.isFinite(v)))return 0;
  const signs=new Set(values.filter(v=>typeof v==='number'&&Number.isFinite(v)).map(v=>Math.sign(v)));
  if(!signs.size||signs.has(1)&&signs.has(-1))return 0;
  const side=signs.has(1)?1:signs.has(-1)?-1:0;
  return side*(signs.has(0)?0.5:1);
 }
 function timeframeScore(bars,tf="",now=Date.now()){
-  const closed=(bars||[]).filter(x=>!x.isOpen).slice(-220);
+  const step={'5m':300000,'15m':900000,'1h':3600000,'4h':14400000}[tf]||900000;
+  if((bars||[]).some(b=>!b.isOpen&&(!Number.isFinite(b.openTime)||b.openTime>now)))return {dir:'NEUTRAL',available:false,fresh:false,reason:'Kerzenzeit fehlt oder liegt in der Zukunft'};
+  const closed=(bars||[]).filter(x=>!x.isOpen&&x.openTime+step<=now).slice(-220);
+  if(closed.some((b,i)=>!Number.isFinite(b.openTime)||b.openTime%step||['open','high','low','close'].some(k=>!Number.isFinite(b[k])||b[k]<=0)||b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)||(i&&b.openTime<=closed[i-1].openTime))||closed.slice(-20).some((b,i,a)=>i&&b.openTime-a[i-1].openTime!==step))return {dir:'NEUTRAL',available:false,fresh:false,reason:'Ungültige oder lückenhafte Kerzen'};
   const required=200;
   if(closed.length<required)return {dir:"NEUTRAL",score:0,rsi:null,age:null,reason:"zu wenig Historie",available:false,fullHistory:false};
   const latest=Number(closed.at(-1)?.openTime), age=Number.isFinite(latest)?now-latest:Infinity;
-  const freshness={"5m":20*60*1000,"15m":45*60*1000,"1h":3*60*60*1000,"4h":12*60*60*1000}[tf]||3*60*60*1000;
+  const freshness=step*2;
   const timing=dataAge(closed.at(-1)?.openTime,freshness,now);
   const a=closed.map(x=>+x.close), e20=ema(a,20),e50=ema(a,50),e200=a.length>=200?ema(a,200):null,R=rsiS(a);
-  const e12=emaS(a,12),e26=emaS(a,26), mac=e12.at(-1)-e26.at(-1), macPrev=e12.at(-2)-e26.at(-2);
-  const score=collectiveSignal([Math.sign(a.at(-1)-e20),Math.sign(e20-e50),Math.sign(mac-macPrev),R>50&&R<75?1:R<50&&R>25?-1:0]);
+  const momentum=macdValues(a);
+  const score=collectiveSignal([Math.sign(a.at(-1)-e20),Math.sign(e20-e50),Math.sign(momentum.hist),R>50&&R<75?1:R<50&&R>25?-1:0]);
   const components=1;
   const dir=score>=0.5?'LONG':score<=-0.5?'SHORT':'NEUTRAL';
   return {dir,score,rsi:R,fresh:timing.fresh,ageWarning:timing.label,price:a.at(-1),openTime:closed.at(-1).openTime,components,available:true,fullHistory:a.length>=200};
@@ -1195,7 +1200,7 @@ async function loadMTF(force=false, generation=null, suppliedBundle=null){
  return promiseRef;
 }
 
-function adxCalc(c,p=14){
+function dxCalc(c,p=14){
  if(c.length<p*2+2)return 0;
  let tr=[],plus=[],minus=[];
  for(let i=1;i<c.length;i++){
@@ -1207,6 +1212,35 @@ function adxCalc(c,p=14){
  let ap=plus.slice(-p).reduce((a,b)=>a+b,0)/p, am=minus.slice(-p).reduce((a,b)=>a+b,0)/p;
  let diP=atrv?100*ap/atrv:0, diM=atrv?100*am/atrv:0;
  return diP+diM?100*Math.abs(diP-diM)/(diP+diM):0;
+}
+function adxCalc(c,p=14){
+ if(!Number.isInteger(p)||p<1||c.length<2*p)return 0;
+ const tr=[],plus=[],minus=[];
+ for(let i=1;i<c.length;i++){
+  const up=c[i].high-c[i-1].high,down=c[i-1].low-c[i].low;
+  tr.push(Math.max(c[i].high-c[i].low,Math.abs(c[i].high-c[i-1].close),Math.abs(c[i].low-c[i-1].close)));
+  plus.push(up>down&&up>0?up:0);minus.push(down>up&&down>0?down:0);
+ }
+ let t=tr.slice(0,p).reduce((a,b)=>a+b,0),u=plus.slice(0,p).reduce((a,b)=>a+b,0),d=minus.slice(0,p).reduce((a,b)=>a+b,0),values=[];
+ for(let i=p-1;i<tr.length;i++){
+  if(i>=p){t=t-t/p+tr[i];u=u-u/p+plus[i];d=d-d/p+minus[i];}
+  values.push(t>0&&u+d>0?100*Math.abs(u-d)/(u+d):0);
+ }
+ let ad=values.slice(0,p).reduce((a,b)=>a+b,0)/p;
+ for(const value of values.slice(p))ad=(ad*(p-1)+value)/p;
+ return ad;
+}
+function confirmedMarketStructure(bars){
+ const highs=[],lows=[];
+ for(let i=3;i<bars.length-3;i++){
+  const neighbors=bars.slice(i-3,i+4).filter((_,j)=>j!==3);
+  if(neighbors.every(b=>b.high<bars[i].high))highs.push(bars[i].high);
+  if(neighbors.every(b=>b.low>bars[i].low))lows.push(bars[i].low);
+ }
+ if(highs.length<2||lows.length<2)return {direction:'NEUTRAL',reason:'Noch keine zwei bestätigten Hochs und Tiefs (3 Kerzen je Seite)'};
+ const up=highs.at(-1)>highs.at(-2)&&lows.at(-1)>lows.at(-2),down=highs.at(-1)<highs.at(-2)&&lows.at(-1)<lows.at(-2),price=bars.at(-1).close;
+ const direction=up&&price>=lows.at(-1)?'LONG':down&&price<=highs.at(-1)?'SHORT':'NEUTRAL';
+ return {direction,reason:direction==='LONG'?'Bestätigte höhere Hochs und höhere Tiefs':direction==='SHORT'?'Bestätigte tiefere Hochs und tiefere Tiefs':'Bestätigte Hochs/Tiefs uneinheitlich oder Struktur gebrochen'};
 }
 function boll(a,p=20,m=2){
  let v=a.slice(-p),mean=v.reduce((x,y)=>x+y,0)/v.length;
@@ -1236,7 +1270,7 @@ function saveResearch(){localStorage.setItem("goldScannerResearch",JSON.stringif
 function saveTradeMgmt(){localStorage.setItem("goldScannerTradeMgmt",JSON.stringify(tradeMgmt));renderActiveTradePlan();}
 function currentRegime(){
  if(!C.length||!A.at)return "UNBEKANNT";
- const atrPct=(A.at/lastPrice)*100, ad=A.adx||0;
+ const atrPct=(A.at/(A.signalPrice||C.at(-1).close))*100, ad=A.adx||0;
  if(atrPct>=0.65) return ad>=25?"TREND + HOCH-VOL":"HOCH-VOL / UNKLAR";
  if(ad>=25) return A.e20>A.e50&&A.e50>A.e200?"TREND BULLISH":A.e20<A.e50&&A.e50<A.e200?"TREND BEARISH":"TREND / GEMISCHT";
  return atrPct<=0.25?"LOW-VOL / RANGE":"RANGE / ÜBERGANG";
@@ -1251,7 +1285,7 @@ function structureLevels(c,lookback=40){
 }
 function stopModel(dir,entry,atr,mult=1.5,fixed=intradayRiskData()){
  if(!fixed.available)return {stop:null,reason:fixed.reason};atr=fixed.atr;
- if(!dir||dir==="NEUTRAL"||!Number.isFinite(entry)||!Number.isFinite(atr)||atr<=0)return {stop:null,reason:"Kein gültiges Setup"};
+ if(!["LONG","SHORT"].includes(dir)||!Number.isFinite(entry)||entry<=0||!Number.isFinite(mult)||mult<=0||!Number.isFinite(atr)||atr<=0)return {stop:null,reason:"Kein gültiges Setup"};
  const lv=structureLevels(fixed.bars,40), buffer=Math.max(atr*0.20,0.01);
  let structureStop=dir==="LONG"?Math.min(lv.swingLow,lv.support)-buffer:Math.max(lv.swingHigh,lv.resistance)+buffer;
  const fib=fibonacciModel(dir,entry,atr,fixed.bars);
@@ -1260,14 +1294,16 @@ function stopModel(dir,entry,atr,mult=1.5,fixed=intradayRiskData()){
  const atrStop=dir==="LONG"?entry-atr*mult:entry+atr*mult;
  let stop=dir==="LONG"?Math.min(structureStop,atrStop):Math.max(structureStop,atrStop);
  const maxDist=atr*Math.max(2.5,mult+0.75);
- if(Math.abs(entry-stop)>maxDist)stop=dir==="LONG"?entry-maxDist:entry+maxDist;
+ const capped=Math.abs(entry-stop)>maxDist;
+ if(capped)stop=dir==="LONG"?entry-maxDist:entry+maxDist;
  if(dir==="LONG"&&stop>=entry)stop=entry-atr*Math.max(1,mult);
  if(dir==="SHORT"&&stop<=entry)stop=entry+atr*Math.max(1,mult);
- return {stop,structureStop,atrStop,fibStop,support:lv.support,resistance:lv.resistance,buffer,timeframe:"15m",reason:"Feste 15m-Basis: Fibonacci + Marktstruktur + Support/Resistance + ATR"};
+ if(!Number.isFinite(stop)||stop<=0)return {stop:null,reason:"Kein positiver technischer Stop"};
+ return {stop,capped,structureStop,atrStop,fibStop,support:lv.support,resistance:lv.resistance,buffer,timeframe:"15m",reason:capped?"Feste 15m-Basis: Stop auf ATR-Distanz begrenzt; kann innerhalb der Struktur liegen":"Feste 15m-Basis: Fibonacci + Marktstruktur + Support/Resistance + ATR"};
 }
 function stopPriceFor(dir,price,atr,mult){return stopModel(dir,price,atr,mult).stop;}
 function fibonacciModel(dir,entry,atr=0,sourceBars=C){
- if(!dir||dir==="NEUTRAL"||!sourceBars.length||!Number.isFinite(entry))return {valid:false};
+ if(!["LONG","SHORT"].includes(dir)||!sourceBars.length||!Number.isFinite(entry)||entry<=0)return {valid:false};
  // Use confirmed local swing points instead of arbitrary highest/lowest values in a fixed window.
  // Three bars on each side must confirm a pivot; ATR filters out insignificant micro-swings.
  const bars=sourceBars.slice(-180), left=3, right=3, minSwing=Math.max((Number(atr)||0)*0.35,entry*0.0005);
@@ -1287,27 +1323,27 @@ function fibonacciModel(dir,entry,atr=0,sourceBars=C){
    // Bullish impulse: a swing low must precede the selected swing high.
    const candidates=pivH.map(h=>{const lowsBefore=pivL.filter(l=>l.i<h.i);if(!lowsBefore.length)return null;const l=lowsBefore.at(-1);return {h,l,range:h.price-l.price};}).filter(Boolean).filter(x=>x.range>=minSwing);
    if(!candidates.length)return {valid:false};
-   candidates.sort((a,b)=>(b.h.i-a.h.i)*3+(b.range-a.range));
+   candidates.sort((a,b)=>(b.h.i-a.h.i)||(b.range-a.range));
    ({h:hiPivot,l:loPivot}=candidates[0]);
  }else{
    // Bearish impulse: a swing high must precede the selected swing low.
    const candidates=pivL.map(l=>{const highsBefore=pivH.filter(h=>h.i<l.i);if(!highsBefore.length)return null;const h=highsBefore.at(-1);return {h,l,range:h.price-l.price};}).filter(Boolean).filter(x=>x.range>=minSwing);
    if(!candidates.length)return {valid:false};
-   candidates.sort((a,b)=>(b.l.i-a.l.i)*3+(b.range-a.range));
+   candidates.sort((a,b)=>(b.l.i-a.l.i)||(b.range-a.range));
    ({h:hiPivot,l:loPivot}=candidates[0]);
  }
  const hi=hiPivot.price, lo=loPivot.price, range=hi-lo;
- if(!Number.isFinite(hi)||!Number.isFinite(lo)||range<=0)return {valid:false};
+ if(!Number.isFinite(hi)||!Number.isFinite(lo)||range<=0||dir==="LONG"&&entry<lo||dir==="SHORT"&&entry>hi)return {valid:false};
  const levels=dir==="LONG"
    ? {r382:hi-range*.382,r500:hi-range*.5,r618:hi-range*.618,r786:hi-range*.786,e1272:hi+range*.272,e1618:hi+range*.618}
    : {r382:lo+range*.382,r500:lo+range*.5,r618:lo+range*.618,r786:lo+range*.786,e1272:lo-range*.272,e1618:lo-range*.618};
  const extensions=[levels.e1272,levels.e1618];
- const target=extensions.filter(x=>dir==="LONG"?x>entry:x<entry).sort((a,b)=>dir==="LONG"?a-b:b-a)[0]??levels.e1272;
+ const target=extensions.filter(x=>dir==="LONG"?x>entry:x<entry).sort((a,b)=>dir==="LONG"?a-b:b-a)[0]??null;
  return {valid:true,direction:dir,high:hi,low:lo,range,levels,target,swingHighIndex:hiPivot.i,swingLowIndex:loPivot.i,swingMethod:"confirmed-3x3-pivot"};
 }
 function targetModel(dir,entry,stop,minRR=2){
  minRR=Math.max(1,+minRR||2);
- if(!dir||dir==="NEUTRAL"||!Number.isFinite(entry)||!Number.isFinite(stop))return {target:null,rr:null};
+ if(!["LONG","SHORT"].includes(dir)||!Number.isFinite(entry)||entry<=0||!Number.isFinite(stop)||stop<=0||dir==="LONG"&&stop>=entry||dir==="SHORT"&&stop<=entry)return {target:null,rr:null};
  const risk=Math.abs(entry-stop);
  if(!risk)return {target:null,rr:null};
  const fixed=intradayRiskData();if(!fixed.available)return {target:null,rr:null,reason:fixed.reason};
@@ -1321,6 +1357,7 @@ function targetModel(dir,entry,stop,minRR=2){
    else target=rrTarget;
    source=target!==rrTarget?"Fibonacci Extension + CRV":"CRV + Fibonacci geprüft";
  }
+ if(!Number.isFinite(target)||target<=0)return {target:null,rr:null};
  return {target,rr:Math.abs(target-entry)/risk,risk,source,fibonacci:fib};
 }
 function displayStop(usd){if(usd==null||!isFinite(usd))return "—";const c=$("displayCcy")?.value||"USD";const fx=c==="USD"?1:+($("fxRate")?.value||0);if(!Number.isFinite(fx)||fx<=0)return usd.toFixed(2)+" USD/oz · FX fehlt";return (usd*fx).toFixed(2)+" "+c+"/oz"+(c==="USD"?"":" · FX");}
@@ -1366,7 +1403,7 @@ function intradayState(bundle,trade=null,now=Date.now()){
  if(spot.is_genuine_xauusd_spot!==true||spot.spot_error||!Number.isFinite(price)||price<=0||!Number.isFinite(stamp)||now<stamp||now-stamp>60000)return fail('Aktueller Gold-Spot mit Quellenzeit fehlt');
  const metric=rows=>{const a=rows.map(b=>b.close),fast=emaS(a,12),slow=emaS(a,26),mac=fast.map((v,i)=>v-slow[i]),signal=emaS(mac,9),r=rsiS(a),e20=ema(a,20),e50=ema(a,50),vol=atr(rows);
   const votes=[Math.sign(a.at(-1)-e20),Math.sign(e20-e50),Math.sign(mac.at(-1)-signal.at(-1)),r>50&&r<75?1:r<50&&r>25?-1:0];
-  const score=collectiveSignal(votes);return {e20,e50,e200:ema(a,200),rsi:r,dir:score>=.5?'LONG':score<=-.5?'SHORT':'NEUTRAL',score:50+50*score,atr:vol,adx:adxCalc(rows),gap:Math.abs(e20-e50),hist:mac.at(-1)-signal.at(-1)};};
+  const score=collectiveSignal(votes);return {e20,e50,e200:ema(a,200),rsi:r,dir:score>=.5?'LONG':score<=-.5?'SHORT':'NEUTRAL',score:50+50*score,atr:vol,adx:dxCalc(rows),gap:Math.abs(e20-e50),hist:mac.at(-1)-signal.at(-1)};};
  const m5=metric(bars['5m']),difference=Math.abs(price-bars['5m'].at(-1).close);
  if(difference>Math.max(3*m5.atr,price*.0025))return fail('Spot und letzte 5m-Kerze weichen auffällig ab ('+difference.toFixed(2)+' USD). Quelle/Zeit prüfen');
  const samples=[];let latest;
@@ -1402,7 +1439,7 @@ function intradayState(bundle,trade=null,now=Date.now()){
 let intradayCache=null;
 function renderIntraday(){
  const out=$('intradayStatus');if(!out)return;
- const cacheKey=JSON.stringify([Math.floor(Date.now()/15000),tradeMgmt?.active,tradeMgmt?.dir,tradeMgmt?.stop,window.BobSession?.expired()]);
+ const cacheKey=JSON.stringify([Math.floor(Date.now()/15000),signalState.dir,signalState.reason,signalState.lastAt,tradeMgmt?.active,tradeMgmt?.dir,tradeMgmt?.stop,window.BobSession?.expired()]);
  if(intradayCache?.bundle===liveBundleCache&&intradayCache.key===cacheKey)return;
  const state=window.BobSession?.expired()?{version:'intraday-v1',mode:'shadow',available:false,direction:'NEUTRAL',reason:'Anmeldung erforderlich'}:intradayState(liveBundleCache,tradeMgmt);window.BobIntradayState=state;
  const time=state.barAt?new Date(state.barAt+300000).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'}):'nicht verfügbar';
@@ -1442,7 +1479,7 @@ function fiveMinuteConfirmation(bundle,now=Date.now()){
   const hierarchy=buildMtfHierarchy(byTf,true);
   let reason=raw==='NEUTRAL'?'5m-Kursindikatoren neutral oder widersprüchlich':'';
   if(raw!==hierarchy.overall){reason=[reason,'Zeitebenen bestätigen die Richtung nicht: '+hierarchy.reason].filter(Boolean).join(' · ');raw='NEUTRAL';}
-  const strength=adxCalc(history['15m']),previousStrength=adxCalc(history['15m'].slice(0,-1));
+  const strength=dxCalc(history['15m']),previousStrength=dxCalc(history['15m'].slice(0,-1));
   if(strength<20&&!(strength>=15&&strength>previousStrength)){raw='NEUTRAL';reason='15m-Trendstärke schwach und nicht zunehmend (DX-Testfilter 20 / steigend ab 15)';}
   const atr=rows.slice(-14).reduce((sum,b,i)=>{const previous=rows.at(-15+i)?.close??b.open;return sum+Math.max(b.high-b.low,Math.abs(b.high-previous),Math.abs(b.low-previous));},0)/14;
   const previous=rows.slice(-21,-1),res=Math.max(...previous.map(b=>b.high)),sup=Math.min(...previous.map(b=>b.low));
@@ -1459,15 +1496,27 @@ function fiveMinuteConfirmation(bundle,now=Date.now()){
 function confirmedSignalDirection(){
  if(window.BobSession?.expired()||analysisAgeWarnings().length||!A.ready||!C.length||!Number.isFinite(A.at)){
   const reasons=[];if(window.BobSession?.expired())reasons.push('Anmeldung erforderlich');if(!C.length)reasons.push('Gold-Kerzendaten fehlen');else if(!A.ready)reasons.push('Analysehistorie unvollständig: '+C.length+' Kerzen');if(!Number.isFinite(A.at))reasons.push('Volatilitätswert ATR fehlt oder ist ungültig');reasons.push(...analysisAgeWarnings());
-  A.score=null;signalState={dir:'NEUTRAL',pending:'NEUTRAL',count:0,score:null,reason:reasons.join(' · ')};window.BobDecisionAuditState={...signalState,barAt:C.at(-1)?.openTime};renderDecisionExplanation();return 'NEUTRAL';
+  A.score=null;signalState={dir:'NEUTRAL',pending:'NEUTRAL',count:0,score:null,reason:reasons.join(' · ')};window.BobDecisionAuditState={...signalState,barAt:C.at(-1)?.openTime};renderDecisionExplanation();renderIntraday();return 'NEUTRAL';
  }
  signalState=fiveMinuteConfirmation(liveBundleCache);
  const session=intradaySession();if(!session.entryAllowed)signalState={...signalState,dir:'NEUTRAL',shadowDirection:'NEUTRAL',reason:session.reason};
  A.score=Number.isFinite(signalState.score)?signalState.score:null;
  window.BobDecisionAuditState={...signalState,barAt:signalState.lastAt??C.at(-1)?.openTime,score:A.score,indicators:{mtf:getMtfState(),atr:A.at,rsi:A.R,ema20:A.e20,ema50:A.e50,ema200:A.e200,macd:A.macd,signal:A.sig}};
- renderDecisionExplanation();
+ renderDecisionExplanation();renderIntraday();
  return signalState.dir;
 }
+// Product selection consumes the same full-precision 5m evidence as the signal,
+// never rounded text or indicators from a separately selected display timeframe.
+function intradayTechnicalContext(bundle=liveBundleCache,state=null,now=Date.now()){
+ state=state||fiveMinuteConfirmation(bundle,now);
+ const empty={policy:'intraday-consistent-v4',direction:'NEUTRAL',trend:'NEUTRAL',trend2:'NEUTRAL',mtf:'NEUTRAL',rsi:null,hist:null,momentum:null,atr:null,adx:null};
+ if(!Number.isFinite(state.score)||!intradaySession(now).entryAllowed||window.BobSession?.expired())return empty;
+ const bars=(bundle?.history?.bars_by_tf?.['5m']||[]).filter(b=>!b.isOpen&&b.openTime+300000<=now).slice(-220),values=bars.map(b=>b.close);
+ if(values.length<200)return empty;
+ const m=macdValues(values),e20=ema(values,20),e50=ema(values,50),risk=intradayRiskData(bundle,now);
+ return {...empty,direction:state.dir,trend:e20>e50?'LONG':e20<e50?'SHORT':'NEUTRAL',mtf:state.dir,rsi:rsi(values),hist:m.hist,momentum:m.hist,atr:risk.available?risk.atr:null,adx:adxCalc(bars),barAt:bars.at(-1).openTime};
+}
+window.BobTechnicalContext=()=>intradayTechnicalContext();
 function intradayRiskData(bundle=liveBundleCache,now=Date.now()){
  const step=900000,raw=bundle?.history?.bars_by_tf?.['15m']||[];
  const rows=raw.filter(b=>b.isOpen===false&&b.openTime+step<=now).slice(-200);
@@ -1501,7 +1550,7 @@ function intradayEntryContext(bundle=liveBundleCache,state=signalState,now=Date.
  const dir=state.dir,stop=['LONG','SHORT'].includes(dir)?stopModel(dir,price,risk.atr,1.5,risk).stop:null,obstacle=dir==='LONG'?resistance:dir==='SHORT'?support:null;
  const roomR=Number.isFinite(stop)&&stop!==price&&Number.isFinite(obstacle)?Math.abs(obstacle-price)/Math.abs(price-stop):null;
  const reasons=[];if(deviationAtr>1.5)reasons.push('Abstand zur EMA20 über 1,5 ATR');if(roomR===null)reasons.push('Platz bis zum nächsten Hindernis nicht belegt');else if(roomR<2)reasons.push('Weniger als 2R bis zum nächsten Hindernis');if(signalAgeMinutes===null||signalAgeMinutes>15)reasons.push('Signalalter fehlt oder über 15 Minuten');
- return {...result,available:true,price,priceAt:rows.at(-1).openTime+300000,reference:'Schlusskurs der Technikhistorie; keine Mischung mit Spot/CFD',support,resistance,currentDay,previousDay,deviationAtr,signalAgeMinutes,roomR,trendStrength:adxCalc(setup),trendStrengthChange:adxCalc(setup)-adxCalc(setup.slice(0,-3)),direction:['LONG','SHORT'].includes(dir)&&!reasons.length?dir:'NEUTRAL',baselineDirection:dir,reasons,reason:reasons.join(' · ')||'Testbedingungen erfüllt',thresholds:{maxDeviationAtr:1.5,minRoomR:2,maxSignalMinutes:15}};
+ return {...result,available:true,price,priceAt:rows.at(-1).openTime+300000,reference:'Schlusskurs der Technikhistorie; keine Mischung mit Spot/CFD',support,resistance,currentDay,previousDay,deviationAtr,signalAgeMinutes,roomR,trendStrength:dxCalc(setup),trendStrengthChange:dxCalc(setup)-dxCalc(setup.slice(0,-3)),direction:['LONG','SHORT'].includes(dir)&&!reasons.length?dir:'NEUTRAL',baselineDirection:dir,reasons,reason:reasons.join(' · ')||'Testbedingungen erfüllt',thresholds:{maxDeviationAtr:1.5,minRoomR:2,maxSignalMinutes:15}};
 }
 
 function nextCandleScenario(bundle=liveBundleCache,now=Date.now()){
@@ -1526,6 +1575,7 @@ function renderMarketNarrative(){
  }else{
   const m=getMtfState().byTf||{};
   lines.push('Intraday-Tendenz: '+(m['1h']?.available?direction(m['1h'].dir):'Stundenanalyse noch nicht verfügbar')+'.');
+  lines.push('Entscheidungsbasis: geschlossene 5m-Kerzen und 15m-Setup. Die folgenden Detailblöcke beschreiben die Analysezeitebene; Kontext ist keine zusätzliche Stimme.');
   lines.push('Bestätigung im 15-Minuten-Chart: '+(m['15m']?.available?direction(m['15m'].dir):'Angaben fehlen')+'. Einstieg im 5-Minuten-Chart: '+(m['5m']?.available?direction(m['5m'].dir):'Angaben fehlen')+'. Eine Freigabe benötigt zwei bestätigte 5-Minuten-Schlusskerzen.');
   lines.push('In der angezeigten Analysezeitebene ist der Trend '+direction(read('blockTrend'))+'; das Momentum ist '+direction(read('blockMomentum'))+'. '+read('blockMomentumNote')+'.');
   lines.push('Marktbewegung: '+read('blockVolatilityNote')+'.');
@@ -1664,7 +1714,7 @@ function renderExtraDirections(x,p,b,st,vw,count){
  put("trend2",direction(x.e50,x.e200),x.e50==null||x.e200==null?"Daten fehlen":direction(x.e50,x.e200));
  put("adx","NEUTRAL","Trendstärke · keine Richtung");
  const mid=Number.isFinite(b?.up)&&Number.isFinite(b?.lo)&&b.up>b.lo?(b.up+b.lo)/2:null;
- put("bbpos",direction(p,mid),mid===null?"Daten fehlen":direction(p,mid));
+ put("bbpos",direction(p,mid),b?.up===b?.lo?"NEUTRAL · keine Schwankung":mid===null?"Daten fehlen":direction(p,mid));
  const sd=Number.isFinite(st)&&st>20&&st<80?direction(st,50):"NEUTRAL";
  put("stoch",sd,!Number.isFinite(st)?"Daten fehlen":st>=80?"NEUTRAL · überkauft":st<=20?"NEUTRAL · überverkauft":sd);
  put("vwap",direction(p,vw),!(vw>0)?"Volumendaten fehlen":direction(p,vw));
@@ -1675,7 +1725,7 @@ function advancedAnalysis(){
  if(C.length<30)return;
  const a=C.map(x=>x.close), b=boll(a), st=stochastic(C), ad=adxCalc(C), vw=vwapCalc(C), lv=levels(C), p=A.signalPrice||a.at(-1);
  $("adx").textContent=ad.toFixed(1)+(ad>=25?" · Trend":" · schwach");
- $("bbpos").textContent=p>=b.up?"über Band":p<=b.lo?"unter Band":((p-b.lo)/(b.up-b.lo)*100).toFixed(0)+"%";
+ $("bbpos").textContent=b.up===b.lo?"50% · keine Schwankung":p>=b.up?"über Band":p<=b.lo?"unter Band":((p-b.lo)/(b.up-b.lo)*100).toFixed(0)+"%";
  $("stoch").textContent=st.toFixed(0);
  $("vwap").textContent=vw?vw.toFixed(2):"n/v";
  const fib=fibonacciModel(A.score>=70?"LONG":Number.isFinite(A.score)&&A.score<=30?"SHORT":"NEUTRAL",p,A.at);
@@ -1684,9 +1734,9 @@ function advancedAnalysis(){
  $("resistance").textContent=lv.res.toFixed(2);
  renderExtraDirections(A,p,b,st,vw,C.length);
 
- const regime=currentRegime(),mtf=getMtfState().overall||'NEUTRAL',p0=Number(p);
+ A.adx=ad;const regime=currentRegime(),mtf=getMtfState().overall||'NEUTRAL',p0=Number(p);
  const trendBull=A.e20>A.e50&&A.e50>A.e200,trendBear=A.e20<A.e50&&A.e50<A.e200;
- const collective=collectiveSignal([Math.sign(p0-A.e20),Math.sign(A.e20-A.e50),Math.sign(A.e50-A.e200),Math.sign(A.macd-A.sig),A.R>50&&A.R<75?1:A.R<50&&A.R>25?-1:0]);
+ const collective=collectiveSignal([Math.sign(p0-A.e20),Math.sign(A.e20-A.e50),Math.sign(A.macd-A.sig),A.R>50&&A.R<75?1:A.R<50&&A.R>25?-1:0]);
  const direction=collective>=0.5?'LONG':collective<=-0.5?'SHORT':'NEUTRAL';
  const fibCore=fibonacciModel(direction,p0,A.at);
  // Levels, Fibonacci, Bollinger, stochastic and VWAP describe the same price path.
@@ -1714,21 +1764,22 @@ function invalidateTechnicalSignal(reason){
 }
 function renderAnalysisBlocks(){
  renderIntraday();
- const ready=!window.BobSession?.expired()&&!!A.ready&&C.length>=200;
+ const current=confirmedSignalDirection();
+ const ready=!window.BobSession?.expired()&&!!A.ready&&C.length>=200&&Number.isFinite(signalState.score);
  const put=(name,dir,note)=>{const el=$("block"+name),detail=$("block"+name+"Note");if(!el)return;el.textContent=dir;el.parentElement.className="analysis-block "+(dir==="LONG"?"long":dir==="SHORT"?"short":"neutral");if(detail)detail.textContent=note;};
  if(!ready){for(const name of ["Trend","Momentum","Fibonacci","Mtf","Volatility","Structure"])put(name,"NEUTRAL","Daten fehlen oder sind nicht ausreichend aktuell");$("analysisQuality").textContent="5-Minuten-Richtungswert: nicht verfügbar · ABWARTEN – aktuelle Analysedaten fehlen";$("score").textContent="Richtungswert: nicht verfügbar";$("score").className="signal neutral";$("scoreDetails").textContent="Aktuelle Analysedaten fehlen";return;}
- const trend=A.e20>A.e50&&A.e50>A.e200?"LONG":A.e20<A.e50&&A.e50<A.e200?"SHORT":"NEUTRAL";
- const momentum=A.macd>A.sig&&A.R>=50&&A.R<75?"LONG":A.macd<A.sig&&A.R<=50&&A.R>25?"SHORT":"NEUTRAL";
+ const trend=A.e20>A.e50?"LONG":A.e20<A.e50?"SHORT":"NEUTRAL";
+ const momentum=A.macd>A.sig&&A.R>50&&A.R<75?"LONG":A.macd<A.sig&&A.R<50&&A.R>25?"SHORT":"NEUTRAL";
  const mtf=getMtfState(),fib=A.fibonacci;
- put("Trend",trend,"EMA-Trends in der Analysezeitebene");
+ put("Trend",trend,"EMA20/50 in der Analysezeitebene; EMA200 nur Kontext");
  put("Momentum",momentum,momentum==="NEUTRAL"?"Momentum uneinheitlich":"MACD und RSI stimmen überein");
  put("Fibonacci",fib?.valid?fib.direction:"NEUTRAL",fib?.valid?"Szenario aus bestätigten Wendepunkten":"Keine bestätigten Level");
  put("Mtf",mtf.overall||"NEUTRAL",mtf.overall==="NEUTRAL"?"Zeitebenen uneinheitlich oder unvollständig":"Übergeordnete Zeitebenen bestätigt");
  put("Volatility","NEUTRAL",currentRegime()+" · Volatilität gibt allein keine Richtung vor");
  const closes=C.map(b=>Number(b.close)),bb=boll(closes),st=stochastic(C),p=A.signalPrice||closes.at(-1);
- const structure=p>bb.mid&&st>50?"LONG":p<bb.mid&&st<50?"SHORT":"NEUTRAL";
- put("Structure",structure,"Preisposition und Stochastik; vereinfachte Strukturbewertung");
- const confirmed=confirmedSignalDirection(),state=signalState;
+ const structure=confirmedMarketStructure(C);
+ put("Structure",structure.direction,structure.reason);
+ const confirmed=current,state=signalState;
  const scoreText=Number.isFinite(state.score)?state.score.toFixed(0)+"/100":"nicht verfügbar";
  const stand=Number.isFinite(state.scoreAt)?new Date(state.scoreAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)':'nicht verfügbar';
  const details=(state.components||[]).map(c=>c.label+': '+c.direction).join(' · ');
@@ -1951,7 +2002,7 @@ function calcDgTrade(){
  const fx=usdEurRate();
  const lev=Math.max(1,+$("dgLev").value||1), ko=+$("dgKo").value;
  const confirmed=confirmedSignalDirection();
- const market=BobDegiro.selectionMarketGate({direction:confirmed,trend:$('trend').textContent,trend2:$('trend2').textContent,...BobDegiro.selectionUiSignals(),hist:Number($('hist').textContent),atr:A.at});
+ const market=BobDegiro.selectionMarketGate({direction:confirmed,trend:$('trend').textContent,trend2:$('trend2').textContent,...BobDegiro.selectionUiSignals(),hist:Number($('hist').textContent),atr:A.at,...intradayTechnicalContext()});
  const dir=market.ok?confirmed:'ABWARTEN';
  const product=$("dgType").value, productLabel={turbo:"Turbo / Knock-Out",warrant:"Optionsschein",etc:"Gold-ETC / ungehebelt",future:"Future / anderes Derivat"}[product];
  if(dir==="ABWARTEN"){ $("dgOut").innerHTML=`<b>Kein Trade-Vorschlag.</b><br>${BobDegiro.escapeHtml(market.reasons.join(" · "))}<br><br>Maximales Risiko: <b>${maxLoss.toFixed(2)} €</b>.`; return; }

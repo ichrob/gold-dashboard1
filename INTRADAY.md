@@ -49,3 +49,41 @@ The audit records paired 60-minute spot-direction results for the baseline and e
 Entry-quality thresholds (1.5 ATR / 2R / 15 minutes) remain a paired comparison and visible warning, not an unvalidated additional hard gate. Fixed 15m stops and targets remain. Audits isolate v3 from v1/v2. Existing trades and shadow experiments are retained.
 
 Next-candle v1 is an experimental 5m continuation scenario from closed bars: close versus EMA20 and last close change must agree. The displayed band is plus/minus the last 14 mean high-low ranges, not a probability interval or predicted high/low. It includes a retrospective one-step check computed without the target bar; this is not a persisted live forecast track record. Invalid, stale, mixed, duplicate or gapped evidence is unavailable. No product approval derives from the scenario.
+
+## Consistency audit v4 (2026-10-06)
+
+- MTF now uses MACD(12,26,9) histogram, like closed-bar confirmation, rather than MACD slope. Server and browser are tested against identical histories. Invalid OHLC, missing timestamps, recent gaps, duplicate times and stale bars cannot confirm MTF.
+- EMA200 stays context in secondary collective calculations and the trend block. Equal EMAs are neutral. RSI50 is neutral consistently; RSI14 starts with 15 closes. Missing/nonfinite collective inputs cannot create directional agreement; duplicates add no votes.
+- Actual Wilder ADX14 is now calculated for the ADX display. The existing rolling DX14 remains separately named and retained for the fast filter and legacy shadow experiment; it is not silently replaced by a slower formula. ATR remains SMA14 of True Range (clearly labeled), including gaps; fixed 15m ATR controls product risk context and stop/target models.
+- Product selection and background use full-precision 5m signal context plus fixed 15m ATR, never rounded DOM indicator values. Signal rendering refreshes the cached active status after computing the decision. Stale/invalid signal evidence neutralizes the current-analysis blocks.
+- Market structure uses confirmed 3x3 swing highs/lows, not Bollinger position plus stochastic. Fibonacci candidates sort chronologically before range size, never mix candle indices with USD. Broken origin levels invalidate the swing. A passed extension is not reused as a forward target. Nonpositive stops/targets, unknown direction and wrong-side stops are rejected. ATR-capped stops disclose that the cap may lie inside structure.
+- Flat Bollinger bands are displayed as no variation, not above band.
+
+Defaults remain engineering/test settings, not calibrated probabilities or proof of profitability. New evidence is isolated under intraday-consistent-v4. Existing trades and prior audits remain stored.
+
+Formula reference checked: https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/DMI (Wilder smoothing, initial DX average and recursive ADX).
+
+### Parameter inventory reviewed
+
+| Parameter | Role / review result |
+| --- | --- |
+| EMA20/50; EMA200 | Fast trend collective; EMA200 context only, equality neutral |
+| MACD12/26/9 | Histogram consistently used, no slope substitution |
+| RSI14; 25/50/75 | Wilder RSI, neutral boundary at 50; outer bands describe extension, no independent vote |
+| ATR14 | SMA True Range for dashboard/risk; fixed 15m risk basis; no direction vote |
+| Wilder ADX14 / 25 | Corrected display and regime context, not a separate direction vote |
+| Rolling DX14; 20 or rising >=15 | Existing fast filter retained as an experimental setting |
+| 5m/15m; 1h/4h | Timing/setup; higher frames contextual, latest closed-bar freshness checked |
+| 2 closes; 3-close comparison | Preparation after one, confirmation after two; legacy comparison preserved |
+| 20-bar breakout; 0.15 ATR | Closed-bar breakout confirmation retained |
+| 3x3 pivots; 180-bar Fibonacci | Chronological choice, broken origin invalidation, scale-independent pivot ranking |
+| Fib 38.2/50/61.8/78.6; 127.2/161.8 | Arithmetic checked, context/targets, no added vote |
+| Bollinger20/2; stochastic14/20/80 | Context only; flat-range boundary repaired |
+| VWAP | Requires observed positive volume, no substitute volume and no added vote |
+| Stop1.5 ATR, buffer0.2 ATR, cap max(2.5,mult+0.75) ATR | Positive/side validation, cap disclosed; existing stops not loosened |
+| Target >=2R default | Correct-side positive target only; no expected-return claim |
+| Quality1.5 ATR/2R/15min | Shadow comparison, no additional hard gate; not calibrated |
+| Regime ATR%0.25/0.65 | Context on the same technical price basis, not mixed with spot |
+| Next-candle EMA20 / mean14 range | Experimental scenario only, no probability or approval |
+
+Passing formula and integration tests does not establish optimal settings or profitable live decisions. No thresholds were tuned on the validation fixtures.

@@ -6,7 +6,7 @@ import server
 class ReviewTests(unittest.TestCase):
     def test_mtf_verification_carries_original_time_and_rejects_future(self):
         now=1800000000
-        bars=[dict(openTime=(now-300*(220-i))*1000,close=4000+i*.2,isOpen=False) for i in range(220)]
+        bars=[dict(openTime=(now-300*(220-i))*1000,open=4000+i*.2,high=4001+i*.2,low=3999+i*.2,close=4000+i*.2,isOpen=False) for i in range(220)]
         with patch.object(server.time,'time',return_value=now):
             result=server._mtf_score(bars,'5m')
             self.assertTrue(result['fresh'])
