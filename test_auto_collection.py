@@ -15,6 +15,7 @@ class AutoCollectionTests(unittest.TestCase):
     def setUp(self):
         for name, value in (('_research', {}), ('_next_source', 0), ('_next_archive', 0), ('_failures', 0), ('_report', {}), ('_source_error', None)):
             p = patch.object(a, name, value); p.start(); self.addCleanup(p.stop)
+        p = patch.object(a.cme_reference, 'fetch_reference', side_effect=OSError('fixture')); p.start(); self.addCleanup(p.stop)
         p = patch.object(a.future_estimate, '_research_reference', {}); p.start(); self.addCleanup(p.stop)
         p = patch.object(a.sg_quotes, 'fetch_future_reference', side_effect=OSError('fixture unavailable')); p.start(); self.addCleanup(p.stop)
 

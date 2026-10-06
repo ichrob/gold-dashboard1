@@ -12,6 +12,7 @@ import estimate_quality
 import future_estimate
 import sg_quotes
 import future_analysis
+import cme_reference
 import investing_card
 
 ISIN = 'DE000FG309G0'
@@ -90,6 +91,19 @@ def tick(now=None):
             delay, source_error = future_analysis.reference_failure(exc)
             _next_source = time.monotonic() + delay
             _source_error = source_error+'; erneuter Abruf mit Wartezeit'
+            # Independent exchange reference; Yahoo's cooldown stays intact.
+            try:
+                research = cme_reference.fetch_reference()
+                future_estimate.remember_reference(research, datetime.now(timezone.utc))
+                _research = dict(research)
+                _failures = 0
+                _source_error = None
+                _next_source = time.monotonic() + 60
+            except (OSError, ValueError, TypeError, KeyError, IndexError):
+                backup_delay, backup_error = cme_reference.failure()
+                _next_source = time.monotonic() + min(delay, backup_delay)
+                _source_error += ' · ' + backup_error
+
     result = future_estimate.current_estimate(_research, now)
     archive_error = None
     diagnostics = {}
@@ -138,6 +152,7 @@ def tick(now=None):
     print('BOB_COLLECTION state='+report['state']+' pairs='+str(diagnostics.get('pairCount', 0))+
           ' estimate_available='+str(report['estimateAvailable'])+
           ' reason='+str(report['reason'])+
+          ' reference_source='+str(report['referenceSource'])+
           ' reference_age='+str(report['referenceAgeSeconds'])+
           ' spot_age='+str(report['proxyAgeSeconds']), flush=True)
 
