@@ -1067,7 +1067,7 @@ function renderProductSources(p){
  const time=v=>{const d=new Date(v);return v&&Number.isFinite(d.getTime())?d.toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)':'nicht vorhanden';};
  const link=(label,url)=>{try{const u=new URL(url);if(u.protocol==='https:')return '<a href="'+esc(u.href)+'" target="_blank" rel="noopener noreferrer">'+esc(label)+'</a>';}catch(_){}return esc(label);};
  if(!q)return '<div class="small" data-product-sources style="margin-top:8px"><b>Quellenprüfung</b><div>Noch kein Abrufresultat für diese ISIN vorhanden.</div></div>';
- const terms=q.exchangeResearch||q;
+ const terms=q.exchangeResearch?.productVerified?q.exchangeResearch:q;
  const verified=q.productVerified===true||terms.productVerified===true;
  const source=q.termsSource||terms.source||q.source||'Quelle nicht angegeben';
  const url=q.termsSourceUrl||terms.sourceUrl||q.sourceUrl;

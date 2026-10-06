@@ -189,6 +189,75 @@ def freshness(result, now=None):
         result = apply_product_estimate(result, now)
     return result
 
+def bnp_product_data(data, isin, now=None):
+    """Keep identified conditions even when the issuer has no dated quote.
+
+    responseDate/keyFigures.lastUpdate date the response/calculations, not the
+    strike or KO. determinationDate can be future-dated; none is a terms clock.
+    """
+    now = now or datetime.now(timezone.utc)
+    r = data['result']
+    first, config = r['first'], r['config']
+    if (r['isin'] != isin or first['underlyingISIN'] != 'USFX00000XAU'
+            or first['currency']['isoCode'] != 'USD' or r['currency']['isoCode'] != 'EUR'
+            or not r['issuerCompanyName'].startswith('BNP Paribas')
+            or config.get('hasMultipleUnderlying') is not False):
+        raise ValueError('Produktidentität, Basiswert oder Währung nicht bestätigt')
+    name = r['productName']
+    sides = [side for side in ('LONG', 'SHORT') if side in name.upper()]
+    if len(sides) != 1:
+        raise ValueError('Produktrichtung fehlt')
+    terminal = ('isKnockedOut', 'isMaturedOrKnockOut', 'isCanceled', 'isLifeCycleEnded')
+    if any(type(config.get(k)) is not bool for k in terminal):
+        raise ValueError('Produktstatus fehlt')
+    inactive = any(config[k] for k in terminal)
+    url = ORIGIN+'product-details/'+isin+'/'
+    values = dict(underlying='XAU/USD', currency='EUR')
+    metadata = dict(name=name, direction=sides[0], underlying='XAU/USD',
+                    underlyingType='SPOT', underlyingIsin=first['underlyingISIN'],
+                    currency='EUR', status=2 if inactive else 1,
+                    tradingHalted=inactive, termsDated=False, observedAt=now.isoformat())
+    for source, target in (('knockOutAbsolute', 'ko'), ('strikeAbsolute', 'strike'), ('ratio', 'ratio')):
+        if source in first:
+            value = number(first[source])
+            if value <= 0:
+                raise ValueError('Ungültige Produktbedingung')
+            metadata[target] = value
+            if target == 'ratio':
+                values[target] = value
+    typ = r.get('derivativeTypeName')
+    if typ in ('Unlimited Long', 'Unlimited Short'):
+        if typ.upper().split()[-1] != sides[0]:
+            raise ValueError('Widersprüchliche Produktrichtung')
+        values['type'] = typ
+    if r.get('keyFigures', {}).get('maturityDateTimestamp') == -1:
+        values['maturity'] = 'Open End'
+    conditions = {key:dict(value=value, at=None, source=url, conditionVerified=True,
+                           reviewedAt=now.isoformat()) for key, value in values.items()}
+    return dict(found=False, eligible=False, fresh=False, productVerified=True,
+                isin=isin, name=name, source='BNP Paribas · offizielle Produktdaten',
+                sourceUrl=url, checkedAt=now.isoformat(), metadata=metadata,
+                conditions=conditions, isDegiroQuote=False,
+                observedTerms=dict(ko=metadata.get('ko'), strike=metadata.get('strike'),
+                                   underlying='XAU/USD', source=url, effectiveAt=None),
+                reason='Produkt ausgeknockt oder beendet – ausgeschlossen' if inactive else
+                       'BNP-Produktbedingungen erkannt; Kurszeiten und Gültigkeitsstand von Basispreis/KO separat prüfen')
+
+
+def bnp_source_error(exc):
+    """Stable diagnostic codes; never return raw provider bodies or exceptions."""
+    if isinstance(exc, HTTPError):
+        return 'HTTP_'+str(exc.code), 'BNP antwortet mit HTTP '+str(exc.code)
+    if isinstance(exc, (TimeoutError, URLError, OSError)):
+        return 'CONNECTION', 'BNP-Verbindung fehlgeschlagen oder Zeitlimit erreicht'
+    if isinstance(exc, KeyError) and exc.args and exc.args[0] in ('bidDate', 'askDate', 'lastUpdate', 'responseDate'):
+        labels = {'bidDate':'Geldkurs', 'askDate':'Briefkurs', 'lastUpdate':'Hebel', 'responseDate':'Quellenantwort'}
+        return 'MISSING_QUOTE_TIME', 'BNP: Quellenzeit für '+labels[exc.args[0]]+' fehlt; keine aktuelle Kursfreigabe'
+    if isinstance(exc, KeyError):
+        return 'MISSING_FIELD', 'BNP-Antwort unvollständig; erforderliche Produkt- oder Kursangaben fehlen'
+    return 'INVALID_RESPONSE', 'BNP-Antwort nicht eindeutig prüfbar; Produktidentität, Werte oder Zeitstempel prüfen'
+
+
 def parse_bnp(data, isin, now=None):
     now = now or datetime.now(timezone.utc)
     r = data['result']
@@ -231,12 +300,10 @@ def get_issuer_quote(isin):
         return sg_disabled(isin)
     with _LOCK:
         cached = _CACHE.get(isin)
-        if cached and time.monotonic()-cached[0] < 15 and cached[1].get('source') == 'BNP Paribas · Emittent OTC':
+        if cached and time.monotonic()-cached[0] < 15 and str(cached[1].get('source', '')).startswith('BNP Paribas'):
             return freshness(cached[1])
     # Unknown products may be researched at BNP only. No speculative SG request.
     result = get_bnp_quote(isin)
-    if not result.get('found'):
-        result = dict(result, reason='Keine aktuellen BNP-Produktdaten verfügbar. SG-Abruf deaktiviert; DEGIRO-Screenshotdaten verwenden.')
     with _LOCK:
         if len(_CACHE) >= 256:
             _CACHE.pop(next(iter(_CACHE)))
@@ -245,7 +312,11 @@ def get_issuer_quote(isin):
 
 
 def get_bnp_quote(isin):
-    url = ORIGIN+'apiv2/api/v1/product/header/'+isin
+    # Some intermediaries replay the same header response despite no-cache.
+    # A bounded 15-second URL bucket matches our local cache. This is only a
+    # request parameter, never evidence of quote freshness; original clocks win.
+    url = ORIGIN+'apiv2/api/v1/product/header/'+isin+'?_='+str(int(time.time()//15)*15000)
+    terms = None
     try:
         request = Request(url, headers={'User-Agent':'Bob/1.6 public product research','Accept':'application/json',
                                        'clientid':'0','languageid':'de','Cache-Control':'no-cache'})
@@ -255,11 +326,17 @@ def get_bnp_quote(isin):
             body = response.read(500_001)
         if len(body) > 500_000:
             raise ValueError('Produktantwort zu groß')
-        result = parse_bnp(json.loads(body), isin)
-    except Exception:
-        result = dict(found=False, eligible=False, fresh=False, isin=isin, source='Öffentliche Emittentenrecherche',
-                      reason='Keine verlässlich datierten Kurse verfügbar (Quelle nicht unterstützt oder nicht erreichbar)',
-                      checkedAt=datetime.now(timezone.utc).isoformat())
+        data = json.loads(body)
+        terms = bnp_product_data(data, isin)
+        result = dict(terms, **parse_bnp(data, isin))
+    except Exception as exc:
+        code, reason = bnp_source_error(exc)
+        result = dict(terms or dict(found=False, eligible=False, fresh=False, productVerified=False,
+                      isin=isin, source='BNP Paribas · öffentliche Produktrecherche',
+                      sourceUrl=ORIGIN+'product-details/'+isin+'/', checkedAt=datetime.now(timezone.utc).isoformat()))
+        result.update(sourceFailure=terms is None, quoteFailureCode=code, reason=reason)
+        if terms and terms['metadata']['status'] == 2:
+            result['reason'] = terms['reason']+' · '+reason
     return result
 
 
@@ -274,14 +351,25 @@ def get_quote(isin):
     if terms.get('productVerified') and terms.get('metadata', {}).get('status') == 2:
         return terms
     issuer = get_issuer_quote(isin)
+    if issuer.get('productVerified') and issuer.get('metadata', {}).get('status') == 2:
+        return dict(issuer, found=False, eligible=False, exchangeResearch=terms)
     if not terms.get('productVerified'):
-        if issuer.get('found'):
+        if issuer.get('found') or issuer.get('productVerified'):
             return dict(issuer, exchangeResearch=terms)
         return dict(issuer, exchangeResearch=terms, sourceDisabled=False,
                     sourceFailure=True, source=terms.get('source', 'Öffentliche Produktrecherche'),
-                    reason=terms.get('reason', 'Produktrecherche nicht verfügbar'))
+                    reason=terms.get('reason', 'Produktrecherche nicht verfügbar')+
+                    (' · '+issuer['reason'] if issuer.get('quoteFailureCode') else ''))
     if not issuer.get('found'):
-        return terms
+        # Preserve the working terms source and the reason the independent
+        # quote attempt failed. Previously both layers discarded this evidence.
+        if not issuer.get('quoteFailureCode') and not issuer.get('productVerified'):
+            return terms
+        result = dict(terms, issuerResearch=issuer)
+        if issuer.get('quoteFailureCode'):
+            result.update(quoteFailureCode=issuer['quoteFailureCode'],
+                          reason=terms['reason']+' · '+issuer['reason'])
+        return result
     result = dict(issuer, productVerified=True, metadata=terms['metadata'],
                   conditions=terms['conditions'], observedTerms=terms['observedTerms'],
                   termsSource=terms['source'], termsSourceUrl=terms['sourceUrl'],
