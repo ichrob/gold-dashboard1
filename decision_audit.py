@@ -7,10 +7,11 @@ import os
 import time
 import threading
 import copy
+import intraday_comparison
 from datetime import datetime, timezone
 
 VERSION = 'decision-audit-v1'
-RULE_VERSION = 'intraday-responsive-v5'
+RULE_VERSION = 'intraday-responsive-v6'
 
 def milliseconds(value):
     try:
@@ -36,7 +37,7 @@ def normalize(payload, now=None):
         raise ValueError('Entscheidungs-Kerzenzeit fehlt oder liegt in der Zukunft')
     # Only explicitly whitelisted evidence; never account credentials or raw images.
     result = {k: payload.get(k) for k in ('direction','shadowDirection','intraday','entryQuality','barAt','price','priceAt','reason','score','indicators','products','selection','gateReasons')}
-    result.update(version=VERSION, ruleVersion=payload['ruleVersion'] if payload.get('ruleVersion') in (RULE_VERSION, 'intraday-consistent-v4', 'intraday-fast-v3', 'intraday-1h-15m-5m-v2', 'intraday-1h-15m-5m-v1') else 'signal-5m-two-closes-v1', build=os.environ.get('RENDER_GIT_COMMIT','local'), origin=payload.get('origin','browser'), recordedAt=now)
+    result.update(version=VERSION, ruleVersion=payload['ruleVersion'] if payload.get('ruleVersion') in (RULE_VERSION, 'intraday-responsive-v5', 'intraday-consistent-v4', 'intraday-fast-v3', 'intraday-1h-15m-5m-v2', 'intraday-1h-15m-5m-v1') else 'signal-5m-two-closes-v1', build=os.environ.get('RENDER_GIT_COMMIT','local'), origin=payload.get('origin','browser'), recordedAt=now)
     if result['origin'] not in ('browser','background'):
         raise ValueError('Ungültige Protokollquelle')
     if result.get('shadowDirection') not in ('LONG','SHORT','NEUTRAL'):
@@ -56,6 +57,7 @@ def normalize(payload, now=None):
     return key,result
 
 def init(conn):
+    intraday_comparison.init(conn)
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_decision_audit (
         id TEXT PRIMARY KEY, recorded_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
         payload JSONB NOT NULL)''')
@@ -171,6 +173,7 @@ def _build_report(conn):
       (SELECT truth FROM bob_decision_outcomes WHERE decision_id=a.id AND horizon=240)
       FROM bob_decision_audit a ORDER BY a.recorded_at DESC LIMIT 10000""").fetchall()
     result=summarize([(row[0],row[1:]) for row in rows])
+    result['fourDayComparison']=intraday_comparison.report(conn)
     result['total']=conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0]
     result['scope']='Aktuelle Intraday-Regel; frühere Regeln getrennt ('+str(result['legacyCount'])+' ältere Protokolle). Bis 30 Tage; Gold-Richtung ohne Handelskosten, kein Gewinnnachweis'
     result['entryQualityReview']=entry_quality_review([(row[0],row[1:]) for row in rows])

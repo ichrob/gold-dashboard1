@@ -101,3 +101,13 @@ User requested removal of unnecessary intraday friction, including RSI25/75. Thi
 - Browser, server, product context and background share the active policy. The old shadow remains frozen; audit observations use intraday-responsive-v5.
 
 Trade-offs: shorter warm-up, fewer confirmation bars and faster pivots can increase noise and false signals; wider structure stops can require smaller size or make a product unsuitable. Live and out-of-sample evidence must establish whether this version is better.
+
+## Prospective four-day comparison (v6)
+
+Campaign gold-fast-cautious-20261006-v1 runs 6 October 2026 07:00 through 10 October 2026 07:00 Europe/Zurich (96 calendar hours). Weekend slots are excluded, outages are counted, and deployment/restart does not reset the dates or observations. There is no automatic adoption of a winner.
+
+Fast: existing adaptive one strong / two weak closes. EMA20/50 distance below 0.1 of 5m ATR or MACD histogram magnitude below 0.02 ATR makes a bar weak; these fixed experimental margins are not fitted. Cautious: three consecutive closes of the same core direction, neutral immediately if the latest core direction does not agree. Both use identical source bars and freshness checks. Entry location is a separate prominent notice, not a new compulsory gate. Early pending direction is visible without claiming confirmation.
+
+One independent, durable campaign runs from the server monitor even without push subscriptions. Capture the first poll within five minutes of each eligible hour; freeze it, including invalid data. Missing polls are reported as missing. Paired spot direction outcomes use the first actual stored Gold-API spot quote 60–61 minutes after capture; no estimated outcomes. Neutral means zero exposure. Report signal counts, hit/false-direction counts, flat, wait, mean gross directional movement per paired case, worst observed endpoint, observed adverse excursion (at least 54 sampled minutes), avoided unfavorable and missed favorable moves, and coverage. These are hourly signal observations, not filled trades or independent statistical trials; polling jitter can make adjacent horizons overlap slightly. No stop/target ordering, fees, slippage or product-return claim.
+
+A descriptive leader is based on mean paired gross directional movement, with at least 20 pairs and 80% coverage required to label an end-of-window lead. This minimum is an operational threshold, not statistical significance or proof of general superiority. The endpoint and method stay fixed for the study. All raw campaign records and outcomes persist separately from rolling legacy audit history. Read at Lernen → Schnell oder vorsichtig · Vier Tage.
