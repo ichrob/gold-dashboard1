@@ -539,9 +539,9 @@ def _mtf_score(bars, tf):
         return {"dir":"NEUTRAL","available":False,"fresh":False,"reason":"Kerzenzeit fehlt oder liegt in der Zukunft"}
     closed = [b for b in (bars or []) if not b.get("isOpen") and isinstance(b.get("openTime"),(int,float)) and b["openTime"]+step<=now][-220:]
     valid=all(b["openTime"]%step==0 and all(isinstance(b.get(k),(int,float)) and not isinstance(b.get(k),bool) and math.isfinite(b[k]) and b[k]>0 for k in ("open","high","low","close")) and b["low"]<=min(b["open"],b["close"]) and b["high"]>=max(b["open"],b["close"]) for b in closed)
-    if not valid or any(b["openTime"]<=a["openTime"] for a,b in zip(closed,closed[1:])) or any(b["openTime"]-a["openTime"]!=step for a,b in zip(closed[-20:],closed[-19:])):
+    if not valid or any(b["openTime"]<=a["openTime"] for a,b in zip(closed,closed[1:])) or any(b["openTime"]-a["openTime"]!=step for a,b in zip(closed[-3:],closed[-2:])):
         return {"dir":"NEUTRAL","available":False,"fresh":False,"reason":"Ungültige oder lückenhafte Kerzen","bars":len(closed)}
-    if len(closed) < 200:
+    if len(closed) < 100:
         return {"dir":"NEUTRAL","available":False,"reason":"zu wenig Historie","bars":len(closed)}
     latest = int(closed[-1]["openTime"])
     age = int(time.time() * 1000) - latest
@@ -560,8 +560,8 @@ def _mtf_score(bars, tf):
     if rsi is None:
         return {"dir":"NEUTRAL","available":False,"reason":"zu wenig Historie für RSI","bars":len(closed),"ageMs":age}
     sign = lambda value: 1 if value > 0 else -1 if value < 0 else 0
-    signs = {sign(values[-1]-e20), sign(e20-e50), sign(hist), 1 if 50 < rsi < 75 else -1 if 25 < rsi < 50 else 0}
-    score = 0 if 1 in signs and -1 in signs else (1 if 1 in signs else -1 if -1 in signs else 0) * (0.5 if 0 in signs else 1)
+    trend,momentum=sign(e20-e50),sign(hist)
+    score=trend*(1 if sign(values[-1]-e20)==trend and sign(rsi-50)==trend else .5) if trend and momentum==trend else 0
     direction = "LONG" if score >= 0.5 else "SHORT" if score <= -0.5 else "NEUTRAL"
     return {"dir":direction,"available":True,"reason":"ok","bars":len(closed),"rsi":round(rsi,2),"score":score,"ageMs":age,"fresh":True,"openTime":latest}
 
