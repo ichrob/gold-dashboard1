@@ -648,8 +648,9 @@ function strictOcrNumber(token){
  return Number.isFinite(n)?n:null;
 }
 function ocrNumericFields(text){
- const raw=normalizeBnpQuoteColumns(String(text||'')),out={},terms=parseProductTerms(raw);
- if(!terms.error)for(const key of ['ko','strike','ratio'])if(terms[key])out[key]=terms[key].value;
+ const raw=normalizeBnpQuoteColumns(String(text||'')),out={};
+ // A failed neighbouring field must not discard independently readable evidence.
+ for(const key of ['ko','strike','ratio']){const terms=parseProductTerms(raw,[key]);if(!terms.error&&terms[key])out[key]=terms[key].value;}
  for(const [key,label] of [['bid','Geld|Bid|Verkaufen'],['ask','Brief|Ask|Kaufen'],['leverage','Hebel|Leverage']]){
   const matches=Array.from(raw.matchAll(new RegExp('(?:^|\\n)\\s*(?:'+label+')\\s*[:=]?\\s*(?:€|EUR)?\\s*([0-9A-Za-z.,]+)','gi')));
   const values=matches.map(m=>strictOcrNumber(m[1]));
@@ -694,7 +695,7 @@ function recoverTermRows(primary,secondary){
   const cell=words.filter(w=>w.bbox.x0>label.bbox.x1+height&&Math.abs(center(w)-center(label))<=2.5*height&&
    !labels.some(other=>other!==label&&Math.abs(center(w)-center(other))<=Math.abs(center(w)-center(label))));
   const amounts=cell.filter(w=>/^\d{1,3}(?:\.\d{3})*,\d+$/.test(w.text));
-  const usd=cell.filter(w=>w.text==='USD');
+  const usd=cell.filter(w=>/^USD$/i.test(w.text));
   const dates=cell.filter(w=>/^\(?\d{2}\.\d{2}\.\d{4}\)?$/.test(w.text));
   if(amounts.length!==1||usd.length!==1||dates.length>1)continue;
   if(cell.some(w=>!amounts.includes(w)&&!usd.includes(w)&&!dates.includes(w)&&!/^\(?\)?$/.test(w.text)))continue;
@@ -757,6 +758,8 @@ function recognizeOcr(file,statusId){
       await worker.setParameters({tessedit_pageseg_mode:"11"});
       const cells=await ocrTimeout(worker.recognize(tableImage),45000,"Tabellen-Zweitlesung nach 45 Sekunden beendet");
       result.data.text=recoverTermRows(result.data,cells.data);
+      // This is one independent spatial read, not another vote for the primary.
+      readings.push(recoverTermRows(cells.data,cells.data));
      }
     }
     finally{await worker.setParameters({tessedit_pageseg_mode:"3"});}
@@ -788,7 +791,7 @@ function recognizeOcr(file,statusId){
      if(originalModes.has(mode))continue;
      await worker.setParameters({tessedit_pageseg_mode:mode,tessedit_char_whitelist:''});
      const check=await ocrTimeout(worker.recognize(prepared),45000,'Zahlenprüfung nach 45 Sekunden beendet');
-     readings.push(check.data.text);originalModes.add(mode);
+     readings.push(recoverTermRows(check.data,check.data));originalModes.add(mode);
      missing=unconfirmedOcrFields(result.data.text,readings);
     }
    }finally{await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});}
@@ -1379,7 +1382,7 @@ function needsDirectionalData(p,direction){
 }
 
 // Terms have their own source date; a quote/upload never refreshes them.
-function parseProductTerms(raw){
+function parseProductTerms(raw,onlyKeys=null){
  raw=String(raw).replace(/(?:©|®|ⓘ|@)/g,'').replace(/Bezugsverhaltnis/g,'Bezugsverhältnis');
  raw=raw.replace(/(^|\n)[ \t]*[oOQ]{1,2}[ \t]+(?=USD\b)/g,'$1');
  // Mobile SG tables wrap the USD/date cell, sometimes above its label.
@@ -1402,6 +1405,7 @@ function parseProductTerms(raw){
  const at=dates.length?sourceTimestamp(dates[0][1]):null;
  const labels={ko:'Knock-Out-Barriere|Knock-out-Schwelle',ratio:'Bezugsverhältnis|Bezugsverhaeltnis',strike:'Basispreis|Finanzierungslevel',underlying:'Basiswert|Underlying',contract:'Future-Kontrakt|Futures-Kontrakt|Kontrakt',type:'Produkttyp|Produktart',maturity:'Laufzeit|Fälligkeit|Faelligkeit',currency:'Produktwährung|Produktwaehrung',quanto:'Quanto|Währungsabsicherung'};
  for(const [key,label] of Object.entries(labels)){
+  if(onlyKeys&&!onlyKeys.includes(key))continue;
   let matches=Array.from(String(raw).matchAll(new RegExp('(?:^|\\n)\\s*(?:'+label+')\\s*[:=]?\\s*([^\\n]+)','gi')));
   // Issuers use "Produktart" for the instrument family and "Typ" for
   // Call/Put or Long/Short. Only fall back to Typ when no product-family
