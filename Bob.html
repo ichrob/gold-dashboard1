@@ -500,6 +500,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <input id="youtubeScreenshotInput" type="file" accept="image/png,image/jpeg,image/webp" hidden>
 <p class="small">Vollständigen Videotitel und Kanalnamen sichtbar abfotografieren, möglichst ohne weitere Videovorschläge. Ein sichtbarer YouTube-Link funktioniert ebenfalls. Bob erkennt das Video und versucht anschließend die Untertitelanalyse.</p>
 <p id="youtubeResearchResolved" class="small"></p>
+<div id="youtubeResearchCandidates"></div>
 <details><summary>Alternativ: Link eingeben</summary>
 <label for="youtubeResearchUrl">YouTube-Link</label><input id="youtubeResearchUrl" type="url" placeholder="https://www.youtube.com/watch?v=…">
 <button type="button" id="youtubeResearchAnalyze">Untertitel abrufen und auswerten</button></details>
@@ -543,8 +544,18 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   }catch(e){$('goldResearchStatus').textContent=e.message;$('goldResearchConsensus').textContent='ABWARTEN · Recherche nicht aktuell';$('goldResearchConsensus').className='signal neutral';$('goldResearchCounts').textContent='Vorherige Ergebnisse derzeit nicht bestätigt.';}
   finally{clearTimeout(timer);busy=false;}
  }
+ function showCandidates(rows){
+  $('youtubeResearchCandidates').replaceChildren(...rows.slice(0,8).map(row=>{
+   const box=node('article',''),button=node('button','Dieses Video prüfen');button.type='button';
+   box.append(node('p',row.title+' · '+row.channel),node('p',(row.publishedText||'Alter unbekannt')+' · '+(row.viewsText||'Aufrufzahl unbekannt')),button);
+   button.addEventListener('click',()=>{if($('youtubeResearchAnalyze').disabled)return;$('youtubeResearchUrl').value=row.url;return inspectVideo(false);});
+   return box;
+  }));
+ }
  async function inspectVideo(importText){
-  const status=$('youtubeResearchStatus'),a=$('youtubeResearchAnalyze'),b=$('youtubeResearchImport');a.disabled=b.disabled=$('youtubeScreenshotButton').disabled=true;
+  if($('youtubeResearchAnalyze').disabled)return;
+  $('youtubeResearchCandidates').replaceChildren();$('youtubeResearchResolved').replaceChildren();
+  const status=$('youtubeResearchStatus'),a=$('youtubeResearchAnalyze'),b=$('youtubeResearchImport');a.disabled=b.disabled=$('youtubeScreenshotButton').disabled=$('youtubeResearchUrl').disabled=true;
   const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),30000);
   status.textContent='Video-Inhalt wird geprüft …';
   try{
@@ -557,14 +568,14 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    if(importText)$('youtubeResearchTranscript').value='';
    await load();
   }catch(e){status.textContent=e.name==='AbortError'?'YouTube-Abruf dauert zu lange. Ein vorhandenes Transkript kann eingefügt werden.':e.message;}
-  finally{clearTimeout(timer);a.disabled=b.disabled=$('youtubeScreenshotButton').disabled=false;}
+  finally{clearTimeout(timer);a.disabled=b.disabled=$('youtubeScreenshotButton').disabled=$('youtubeResearchUrl').disabled=false;}
  }
  async function screenshotVideo(){
   const input=$('youtubeScreenshotInput'),status=$('youtubeResearchStatus');
   if(!input.files?.length)return;
   const buttons=[$('youtubeScreenshotButton'),$('youtubeResearchAnalyze'),$('youtubeResearchImport')];
   if(buttons.some(b=>b.disabled))return;
-  buttons.forEach(b=>b.disabled=true);$('youtubeResearchResolved').replaceChildren();
+  buttons.forEach(b=>b.disabled=true);$('youtubeResearchUrl').disabled=true;$('youtubeResearchResolved').replaceChildren();$('youtubeResearchCandidates').replaceChildren();
   let timer,ctl;
   try{
    if(input.files[0].size>16000000)throw Error('Screenshot ist zu groß. Bitte ein Bild unter 16 MB wählen.');
@@ -579,6 +590,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const res=await fetch('/api/research/youtube',{method:'POST',headers:{'Content-Type':'application/json'},signal:ctl.signal,body:JSON.stringify({screenshotText:text})});
    if(res.status===401)throw Error('Bitte erneut anmelden.');
    const r=await res.json();
+   if(r.candidates?.length)showCandidates(r.candidates);
    if(r.resolved){
     $('youtubeResearchUrl').value=r.resolved.url;
     const a=node('a',r.resolved.title+(r.resolved.channel?' · '+r.resolved.channel:''));
@@ -589,10 +601,11 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    status.textContent='Video erkannt und Transkript ausgewertet: '+r.item.transcriptWords+' Wörter. Ausblick: '+r.item.outlook+'. '+r.item.reason;
    await load();
   }catch(e){status.textContent=e.name==='AbortError'?'Videoabruf dauert zu lange. Bitte später erneut versuchen.':e.message;}
-  finally{if(timer)clearTimeout(timer);input.value='';buttons.forEach(b=>b.disabled=false);}
+  finally{if(timer)clearTimeout(timer);input.value='';buttons.forEach(b=>b.disabled=false);$('youtubeResearchUrl').disabled=false;}
  }
  $('youtubeScreenshotButton').addEventListener('click',()=>$('youtubeScreenshotInput').click());
  $('youtubeScreenshotInput').addEventListener('change',screenshotVideo);
+ $('youtubeResearchUrl').addEventListener('input',()=>{$('youtubeResearchStatus').textContent='';$('youtubeResearchResolved').replaceChildren();$('youtubeResearchCandidates').replaceChildren();});
  $('youtubeResearchAnalyze').addEventListener('click',()=>inspectVideo(false));
  $('youtubeResearchImport').addEventListener('click',()=>inspectVideo(true));
  $('goldResearchRefresh').addEventListener('click',load);
