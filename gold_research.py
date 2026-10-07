@@ -15,12 +15,16 @@ from html.parser import HTMLParser
 from urllib.parse import urlparse, urlunparse
 
 INTERVAL = 900
-SOURCES = [
-    dict(id='fx-news', publisher='FXStreet', kind='Internet', url='https://www.fxstreet.com/rss/news', hosts=['www.fxstreet.com','fxstreet.com'], scope='Nachrichten; verschiedene Autoren, keine unabhängige Stimme je Beitrag'),
-    dict(id='fx-analysis', publisher='FXStreet', kind='Internet', url='https://www.fxstreet.com/rss/analysis', hosts=['www.fxstreet.com','fxstreet.com'], scope='Analysen und Gastbeiträge; mögliche kommerzielle Interessen'),
-    dict(id='wgc', publisher='World Gold Council', kind='Internet', url='https://www.gold.org/rss.xml', hosts=['www.gold.org','gold.org'], scope='Gold-Branchenverband; Schwerpunkt längerfristige Marktforschung'),
-    dict(id='wgc-video', publisher='World Gold Council', kind='YouTube', url='https://www.youtube.com/feeds/videos.xml?channel_id=UClnRIMiqpGha91ld0Zs4mwg', hosts=['www.youtube.com','youtube.com'], scope='Offizieller Kanal; Inhaltsprüfung nur bei tatsächlich abrufbaren Untertiteln'),
-]
+MCO_CHANNEL = 'UCsl6Z6p7GOkczo8Cv-GH6Dg'
+SOURCES = [dict(id='mco-video', publisher='MCO Markets', kind='YouTube',
+    url='https://www.youtube.com/feeds/videos.xml?channel_id='+MCO_CHANNEL,
+    hosts=['www.youtube.com','youtube.com'],
+    scope='Nur Gold-Videos von MCO Markets. Eine Anbietermeinung, kein Quellenkonsens.')]
+
+def allowed_item(item):
+    return (item.get('kind')=='YouTube' and item.get('channelId')==MCO_CHANNEL
+            and bool(re.search(r'\bgold\b|goldpreis|xau\s*/?\s*usd',item.get('title',''),re.I)))
+
 _lock = threading.Lock()
 _thread = None
 _report = None
@@ -77,9 +81,10 @@ def classify(title, text, kind):
 def parse_feed(data, source, now):
     if b'<!DOCTYPE' in data.upper() or b'<!ENTITY' in data.upper():raise ValueError('XML declarations unsupported')
     root=ET.fromstring(data)
-    atom={'a':'http://www.w3.org/2005/Atom','m':'http://search.yahoo.com/mrss/'}
+    atom={'a':'http://www.w3.org/2005/Atom','m':'http://search.yahoo.com/mrss/','yt':'http://www.youtube.com/xml/schemas/2015'}
     nodes=root.findall('./channel/item') if root.tag=='rss' else root.findall('a:entry',atom)
     if root.tag!='rss' and root.tag!='{http://www.w3.org/2005/Atom}feed':raise ValueError('Kein Feed')
+    if source['id']=='mco-video' and root.findtext('yt:channelId',namespaces=atom)!=MCO_CHANNEL:raise ValueError('Falscher YouTube-Kanal')
     items=[];scanned=0
     for node in nodes[:100]:
         scanned+=1
@@ -90,7 +95,8 @@ def parse_feed(data, source, now):
         else:
             title=clean(node.findtext('title'));description=clean(node.findtext('description'));published=node.findtext('pubDate');url=node.findtext('link')
         url=link(url,source)
-        if not url or not re.search(r'\bgold\b|xau\s*/?\s*usd|goldpreis',title+' '+description,re.I):continue
+        if not url or not re.search(r'\bgold\b|xau\s*/?\s*usd|goldpreis',title if source['kind']=='YouTube' else title+' '+description,re.I):continue
+        if source['id']=='mco-video' and node.findtext('yt:channelId',namespaces=atom)!=MCO_CHANNEL:continue
         at=timestamp(published)
         age=now-at if at is not None else None
         if age is not None and age>7*86400:continue
@@ -100,7 +106,7 @@ def parse_feed(data, source, now):
         excerpt=' '.join(description.split()[:20])
         items.append(dict(id=hashlib.sha256(url.encode()).hexdigest()[:16],url=url,title=title[:240],excerpt=excerpt,
             publisher=source['publisher'],kind=source['kind'],publishedAt=at,checkedAt=now,current=current,
-            sourceId=source['id'],coverage='Videometadaten' if source['kind']=='YouTube' else 'Feed-Auszug',**assessment))
+            sourceId=source['id'],channelId=MCO_CHANNEL if source['id']=='mco-video' else None,coverage='Videometadaten' if source['kind']=='YouTube' else 'Feed-Auszug',**assessment))
     return items,scanned
 
 def download(source):
@@ -150,6 +156,44 @@ def enrich_article(item):
     except Exception:
         item['articleStatus']='Artikeltext nicht abrufbar oder nicht eindeutig erkennbar; nur Feed-Auszug'
 
+def channel_listing(data, now):
+    text=data.decode('utf-8','replace')
+    match=re.search(r'(?:var\s+)?ytInitialData\s*=\s*',text)
+    if not match:raise ValueError('Kanal nicht lesbar')
+    root=json.JSONDecoder().raw_decode(text[match.end():])[0]
+    if root.get('metadata',{}).get('channelMetadataRenderer',{}).get('externalId')!=MCO_CHANNEL:raise ValueError('Kanal nicht bestätigt')
+    tabs=root.get('contents',{}).get('twoColumnBrowseResultsRenderer',{}).get('tabs',[])
+    tab=next((t['tabRenderer'] for t in tabs if t.get('tabRenderer',{}).get('selected')),None)
+    if not tab:raise ValueError('Keine Videoliste')
+    rows=tab.get('content',{}).get('richGridRenderer',{}).get('contents',[])
+    items=[];scanned=0
+    for row in rows[:60]:
+        content=row.get('richItemRenderer',{}).get('content',{})
+        v=content.get('lockupViewModel',{});old=content.get('videoRenderer',{})
+        identity=v.get('contentId') or old.get('videoId','')
+        if not re.fullmatch(r'[A-Za-z0-9_-]{11}',identity):continue
+        if v and v.get('contentType')!='LOCKUP_CONTENT_TYPE_VIDEO':continue
+        scanned+=1
+        meta=v.get('metadata',{}).get('lockupMetadataViewModel',{})
+        title=meta.get('title',{}).get('content') or ''.join(x.get('text','') for x in old.get('title',{}).get('runs',[]))
+        if not re.search(r'\bgold\b|goldpreis|xau\s*/?\s*usd',title,re.I):continue
+        parts=[p.get('text',{}).get('content','') for r in meta.get('metadata',{}).get('contentMetadataViewModel',{}).get('metadataRows',[]) for p in r.get('metadataParts',[])]
+        items.append(dict(id='youtube-'+identity,url='https://www.youtube.com/watch?v='+identity,title=title[:240],excerpt='',
+            publisher='MCO Markets',kind='YouTube',channelId=MCO_CHANNEL,sourceId='mco-video',publishedAt=None,checkedAt=now,current=False,
+            listingInfo=' · '.join(parts)[:160],coverage='Videometadaten; Veröffentlichungszeit nicht exakt bestätigt',**classify(title,'','YouTube')))
+    return items,scanned
+
+
+def download_channel():
+    source=dict(SOURCES[0],url='https://www.youtube.com/channel/'+MCO_CHANNEL+'/videos')
+    req=urllib.request.Request(source['url'],headers={'User-Agent':'Bob-GoldResearch/1.0 (public channel reader)'})
+    with urllib.request.urlopen(req,timeout=10) as response:
+        if urlparse(response.url).hostname!='www.youtube.com' or urlparse(response.url).path!='/channel/'+MCO_CHANNEL+'/videos':raise ValueError('Kanal umgeleitet')
+        data=response.read(2500001)
+    if len(data)>2500000:raise ValueError('Kanalantwort zu groß')
+    return data
+
+
 def collect(now=None, fetch=download):
     now=time.time() if now is None else now
     def one(source):
@@ -157,13 +201,17 @@ def collect(now=None, fetch=download):
             items,scanned=parse_feed(fetch(source),source,now)
             return dict(**source,status='ok',checkedAt=now,scanned=scanned,relevant=len(items)),items
         except Exception as exc:
+            if fetch is download:
+                try:
+                    items,scanned=channel_listing(download_channel(),now)
+                    return dict(**source,status='ok',checkedAt=now,scanned=scanned,relevant=len(items),route='Kanal-Videoseite; Feed nicht erreichbar'),items
+                except Exception:pass
             return dict(**source,status='unavailable',checkedAt=now,scanned=0,relevant=0,error=type(exc).__name__),[]
     with ThreadPoolExecutor(max_workers=4,thread_name_prefix='bob-research-fetch') as pool:results=list(pool.map(one,SOURCES))
     sources=[r[0] for r in results];unique={}
     for _,items in results:
         for item in items:
-            key=re.sub(r'\W+','',item['title'].lower())
-            if item['url'] not in unique and not any(re.sub(r'\W+','',v['title'].lower())==key for v in unique.values()):unique[item['url']]=item
+            if allowed_item(item):unique[item['url']]=item
     items=sorted(unique.values(),key=lambda x:x['publishedAt'] or 0,reverse=True)
     if fetch is download:
         eligible=[x for x in items if x['kind']=='Internet' and x['current']][:6]
@@ -171,14 +219,17 @@ def collect(now=None, fetch=download):
             list(pool.map(enrich_article,eligible))
         import youtube_research
         for item in [x for x in items if x['kind']=='YouTube'][:3]:youtube_research.enrich(item)
-    return dict(version='gold-research-v2',checkedAt=now,intervalSeconds=INTERVAL,sources=sources,items=items,
-        method='Kostenlose öffentliche Feeds plus bis zu sechs aktuelle öffentlich abrufbare Artikeltexte je Lauf. YouTube-Inhalte über öffentlich abrufbare Untertitel (bis zu drei Videos pro Lauf). Regelbasierte Texttendenz; keine KI-Sprach- oder Bildanalyse. Kein Training und keine automatische Änderung von Handelsregeln.')
+    return dict(version='mco-gold-research-v3',checkedAt=now,intervalSeconds=INTERVAL,sources=sources,items=items,
+        method='Nur Gold-Videos des bestätigten Kanals MCO Markets. Neue Videos werden alle 15 Minuten gesucht; bis zu drei Videos je Lauf werden auf abrufbare Untertitel geprüft. Kurzer Kontext aus dem tatsächlich gelesenen Transkript mit Quellenstellen. Textregeln, keine KI-Sprach- oder Chartanalyse; fehlender Text bleibt ungeprüft.')
+
 
 def summarize(report, now=None):
     now=time.time() if now is None else now
     result=copy.deepcopy(report)
+    result['sources']=[s for s in result.get('sources',[]) if s.get('id')=='mco-video']
     fresh=bool(result.get('checkedAt') and 0<=now-result['checkedAt']<=INTERVAL*2)
-    items=result.get('items',[])
+    items=[x for x in result.get('items',[]) if allowed_item(x)]
+    result['items']=items
     for x in items:x['current']=bool(fresh and x['publishedAt'] is not None and 0<=now-x['publishedAt']<=86400)
     counts={k:0 for k in ('LONG','SHORT','UNKLAR')}
     for x in items:
@@ -192,14 +243,14 @@ def summarize(report, now=None):
         scanned=sum(s['scanned'] for s in result.get('sources',[])),successfulFeeds=sum(s['status']=='ok' for s in result.get('sources',[])),
         publishers=len({s['publisher'] for s in result.get('sources',[]) if s['status']=='ok'}),
         articles=sum(x['kind']=='Internet' for x in items),fullTexts=sum(x['coverage'].startswith('Artikeltext') for x in items),videosFound=sum(x['kind']=='YouTube' for x in items),videosAnalyzed=sum(bool(x.get('transcriptAnalyzed')) for x in items),
-        reason='Mindestens zwei unabhängige Herausgeber mit aktuellem ausdrücklichem Intraday-Ausblick nötig. Auswertungsumfang steht an jedem Beitrag; unbekannt ist nicht neutral. Keine Handelsfreigabe.')
+        reason='Recherche enthält ausschließlich MCO Markets: eine Anbietermeinung, kein unabhängiger Quellenkonsens. Nicht gelesene Videos zählen nicht als neutral. Keine Handelsfreigabe.')
     return result
 
 def snapshot():
     with _lock:report=copy.deepcopy(_report)
     import youtube_research
     report=report or dict(checkedAt=None,sources=[],items=[],method='Recherche startet; noch keine Quellen geprüft.',intervalSeconds=INTERVAL)
-    manual={x['url']:x for x in youtube_research.manual_items()}
+    manual={x['url']:x for x in youtube_research.manual_items() if allowed_item(x)}
     report['items']=[manual.pop(x['url']) if x['url'] in manual and not x.get('transcriptAnalyzed') else x for x in report['items']]
     urls={x['url'] for x in report['items']}
     report['items'] += [x for url,x in manual.items() if url not in urls]

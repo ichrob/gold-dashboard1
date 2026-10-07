@@ -22,7 +22,7 @@ class ScreenshotTests(unittest.TestCase):
         with self.assertRaises(ValueError):y.resolve_screenshot(TITLE+'\n'+CHANNEL,lambda _:[ROW,{**ROW,'url':'https://www.youtube.com/watch?v=lmnopqrstuv'}])
         with self.assertRaises(ValueError):y.resolve_screenshot(URL+'\nhttps://youtu.be/lmnopqrstuv')
     def test_search_parses_data_without_executing_script(self):
-        data={'contents':[{'videoRenderer':{'videoId':'abcdefghijk','title':{'runs':[{'text':TITLE}]},'ownerText':{'runs':[{'text':CHANNEL}]}}}]}
+        data={'contents':[{'videoRenderer':{'videoId':'abcdefghijk','title':{'runs':[{'text':TITLE}]},'ownerText':{'runs':[{'text':CHANNEL,'navigationEndpoint':{'browseEndpoint':{'browseId':'UCsl6Z6p7GOkczo8Cv-GH6Dg'}}}]}}}]}
         raw=('var ytInitialData = '+json.dumps(data)+'; throw Error("untrusted");').encode()
         rows=y.search_videos('Gold outlook',lambda _:raw)
         self.assertEqual(rows,[{**ROW,'publishedText':'','viewsText':''}])
