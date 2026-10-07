@@ -94,3 +94,12 @@ assert.equal((card.match(/<strong>KO-Barriere: Gültigkeitsnachweis offen<\/stro
 assert(!card.includes('KO-Barriere: gültiger Nachweis (Stammdaten)'));
 assert(card.includes('Zeitbezug der Aufnahmeserie'));
 assert(!b.productTermsStatus({...p,ko:4524.63},now).complete,'real KO mismatch remains blocked');
+
+// Secondary evidence fills term validity without granting a quote or market signal.
+const secondaryConditions={...quote.conditions,...Object.fromEntries(['strike','ko'].map(key=>[key,{value:4524.4731,source:'https://www.finanzen.ch/derivate/'+isin.toLowerCase(),dateText:'07.10.2026',reviewedAt:at,at:null,conditionVerified:true,secondary:true}]))};
+const secondaryProduct={...p,quote:{...quote,conditions:secondaryConditions,metadata:{...quote.metadata,termsDated:true,termsDate:'07.10.2026'}}};
+assert(b.productTermsStatus(secondaryProduct,now).complete,JSON.stringify(b.productTermsStatus(secondaryProduct,now)));
+assert(!b.finalProductStatus(secondaryProduct,now).complete,'currency/quote evidence still required');
+const secondaryUi=b.renderSecondaryValidity({secondaryValidity:{state:'open',sources:[{provider:'finanzen.ch',state:'observed',terms:{ko:{value:4526.54,assessment:'Abweichender Wert; nicht übernommen',dateText:null}}}]}});
+assert(secondaryUi.includes('Abweichender Wert'));assert(secondaryUi.includes('nicht angegeben'));
+assert(b.renderSecondaryValidity({secondaryValidity:{state:'checking',sources:[]}}).includes('Hintergrund'));

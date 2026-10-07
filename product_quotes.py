@@ -615,4 +615,5 @@ def get_quote(isin):
             result['sourceUrl'] = result['issuerSourceUrl']
         result.update(analysisQuote=dict(selected), found=False, eligible=False, fresh=False,
                       analysisMaxAgeSeconds=300)
-    return apply(result)
+    from secondary_validity import apply as apply_secondary_validity
+    return apply_secondary_validity(apply(result), isin)
