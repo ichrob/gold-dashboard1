@@ -2914,6 +2914,7 @@ function rankUI(){
  }
 
  window.BobAudit?.capture(ps,flow,bundle);
+ window.BobPaperSimulation?.sync({products:ps,references,fixedBarriers:window.BobCombined.fixedBarriers()});
  window.BobPush?.updateSelection?.({products:ps,context:selectionContext,bundle:{spots:bundle?.spots,fetched_at:bundle?.fetched_at,history:{data_state:bundle?.history?.data_state}},references,fixedBarriers:window.BobCombined.fixedBarriers()},flow);
  const flowHtml=renderContinuingAnalysis(ps,selectionContext)+renderSelectionWorkflow(flow,ps);if(updateProductHtml(o,flowHtml))bindCompactCards(o);return flow;
 
@@ -3173,5 +3174,6 @@ function init(){
 }
 window.BobTradeUpload={parse,draft,reviewed,merge,init};if(typeof document!=='undefined'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();}
 })();
+
 
 

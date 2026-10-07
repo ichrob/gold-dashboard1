@@ -125,7 +125,7 @@ def failed_analysis_market(bundle):
     return {'ready': False, 'priceFresh': False, 'analysisError': True, 'dataAt': at}
 
 
-def advance(previous, settings, market, general, trade_enabled, now=None):
+def advance(previous, settings, market, general, trade_enabled, now=None, log=True):
     now = int(time.time()*1000) if now is None else now
     state = copy.deepcopy(previous or {})
     if not general and not trade_enabled:
@@ -139,7 +139,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None):
             return
         history.append({'at': now, 'kind': kind, 'outcome': outcome, 'reason': reason})
         del history[:-50]
-        print('BOB_PUSH_DECISION '+json.dumps({'kind': kind, 'outcome': outcome, 'reason': reason[:160]}, ensure_ascii=True), flush=True)
+        if log:print('BOB_PUSH_DECISION '+json.dumps({'kind': kind, 'outcome': outcome, 'reason': reason[:160]}, ensure_ascii=True), flush=True)
     def add(kind, title, reason, channel='trade'):
         audit(kind, 'planned', reason[:160])
         product=(settings.get('trade') or {}).get('product') if channel=='trade' else None
@@ -296,4 +296,5 @@ def advance(previous, settings, market, general, trade_enabled, now=None):
         add('profit-weak', 'TRADE-WARNUNG · Gewinn schützen', f"{t['dir']} · Momentum schwächer bei {r:.1f}R (Goldplan). Stop/Position prüfen.")
     old['weak'] = weak and r>=1 and product_in_profit
     return state, events
+
 

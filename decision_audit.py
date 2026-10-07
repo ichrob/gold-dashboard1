@@ -10,6 +10,7 @@ import copy
 import intraday_comparison
 import audit_history
 import stop_target_audit
+import paper_simulation
 from datetime import datetime, timezone
 
 VERSION = 'decision-audit-v1'
@@ -79,6 +80,7 @@ def init(conn):
     conn.execute('CREATE INDEX IF NOT EXISTS bob_audit_recorded ON bob_decision_audit(recorded_at)')
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_decision_outcomes (decision_id TEXT REFERENCES bob_decision_audit(id) ON DELETE CASCADE, horizon INTEGER NOT NULL, truth JSONB NOT NULL, PRIMARY KEY(decision_id,horizon))''')
     stop_target_audit.init(conn)
+    paper_simulation.init(conn)
 
 def write(conn,payload):
     key,record=normalize(payload)
@@ -241,6 +243,8 @@ def product_review(records):
             'note':'Beobachteter Geldkurs nach 60 Minuten gegen damaligen Briefkurs; ohne Gebühren. Alternativen nur bei damaliger Eignung und passenden späteren Kursen. Fehlende Kurse werden nicht geschätzt; begrenzter Rückblick, kein Optimalitätsnachweis.'}
 
 def handle(conn,action,payload):
+    if action=='write' and payload.get('mode')=='simulation-sync':return paper_simulation.sync(conn,payload)
+    if action=='read' and payload.get('mode')=='simulation':return paper_simulation.report(conn,payload.get('day'))
     if action=='write':
         result=write(conn,payload)
         harvest(conn)
@@ -278,5 +282,6 @@ def entry_quality_review(rows, field='entryQuality', version='entry-quality-v1')
         result[name]=result[total]/result[count] if result[count] else None
     result['note']='Gepaarter 60-Minuten-Spotvergleich, gefilterte Fälle ohne Position (0). Beobachtete Gegenbewegung nur aus gespeicherten Kursen; Datenlücken möglich. Keine Gebühren/Produktkosten enthalten, keine Produktrendite. Überlappende Fälle sind nicht unabhängig; keine automatische Regeländerung.'
     return result
+
 
 

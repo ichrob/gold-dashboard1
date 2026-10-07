@@ -13,6 +13,7 @@ import bob_market_store
 import bob_validation_store
 import decision_audit
 import stop_target_audit
+import paper_simulation
 import intraday_comparison
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
@@ -68,7 +69,7 @@ def init_db():
         try:
             _init_db_once()
             return
-        except TRANSIENT_DB_ERRORS:
+        except TRANSIENT_DB_ERRORS + (psycopg.errors.ConnectionTimeout,):
             if attempt == 2:
                 raise
             print(f'BOB_PUSH startup=database_retry attempt={attempt + 1}', flush=True)
@@ -542,7 +543,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
                     send_json(self, 401, {"error": "Unauthorized"})
                     return
-                sent = run_background(payload.get('bundle') or {})
+                bundle=payload.get('bundle') or {}
+                paper_simulation.enqueue(bundle,db)
+                sent = run_background(bundle)
                 send_json(self, 200, {'ok': True, 'sent': sent})
                 return
 
@@ -724,5 +727,6 @@ if __name__ == "__main__":
     print("BOB_PUSH startup=ready", flush=True)
     threading.Thread(target=product_expiry_loop, name="bob-product-expiry", daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+
 
 
