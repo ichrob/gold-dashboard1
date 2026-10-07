@@ -19,7 +19,12 @@ _LOCK = threading.Lock()
 ORIGIN = 'https://derivate.bnpparibas.com/'
 SG_ORIGIN = 'https://www.sg-zertifikate.de/'
 # SG's own product IDs, not the independent onvista instrument IDs.
-SG_DIRECT_PRODUCTS = {'DE000FG7K283': 7127448, 'DE000FG4JXV7': 7069123}
+SG_DIRECT_PRODUCTS = {
+    'DE000FG7K283': 7127448, 'DE000FG4JXV7': 7069123,
+    # Confirmed against SG Products/<ISIN> on 7 October 2026.
+    'DE000FG5GUT0': 6933892, 'DE000FG7EPT1': 7102845,
+    'DE000FC1CHB7': 5906476, 'DE000FG7K275': 7127358,
+}
 # Exact contract identities confirmed from SG and the secondary product snapshot.
 SG_GOLD_FUTURES = {
     'DE000FG309G0': dict(nmp='C_CMX_GOLD_F_Z26', ric='GCZ26',

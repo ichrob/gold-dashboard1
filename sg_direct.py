@@ -86,6 +86,10 @@ def get_quote(isin):
                 q.parse_sg(product, properties, isin)
                 _TERMS[isin] = (time.monotonic(), product, properties)
             result.update(q.parse_sg(product, properties, isin))
+            # UI uses normalized 1=active / 2=ended, not SG's bit flags (65).
+            result['metadata']['sgStatus'] = product['Status']
+            result['metadata']['status'] = (2 if product['Status'] & (2|8|16|32)
+                or not product['Status'] & 1 or product.get('TodayBarrierHitDate') else 1)
             conditions(product, properties, result)
             if product['Status'] & (2|8|16|32) or not product['Status'] & 1 or product.get('TodayBarrierHitDate'):
                 result['reason'] = 'SG-Produkt beendet oder ausgeknockt – ausgeschlossen'

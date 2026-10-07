@@ -261,7 +261,7 @@ class ProductQuoteTests(unittest.TestCase):
 
     def test_sg_adapter_and_issuer_selection(self):
         with patch.object(q,'urlopen') as network:
-            for isin in ('DE000FG309G0','DE000FG7EPT1','DE000FG6XB39','DE000FC1CHB7','DE000FA06UL6','DE000FG5GUT0'):
+            for isin in ('DE000FG309G0','DE000FG6XB39','DE000FA06UL6'):
                 result=q.get_issuer_quote(isin)
                 self.assertTrue(result['sourceDisabled']);self.assertFalse(result['eligible'])
             network.assert_not_called()

@@ -26,6 +26,8 @@ class DirectTests(unittest.TestCase):
         self.assertFalse(out['eligible']); self.assertFalse(out['found'])
         self.assertNotIn('leverageAt',out); self.assertNotIn('strike',out['conditions'])
         self.assertEqual(out['observedTerms']['strike'],4400)
+        self.assertEqual(out['metadata']['status'],1)
+        self.assertEqual(out['metadata']['sgStatus'],65)
     def test_identity_mismatch_stops_before_properties(self):
         self.product['Isin']='DE000FG4JXV7'
         with patch.object(q,'issuer_json',return_value=self.product) as fetch:
@@ -41,6 +43,7 @@ class DirectTests(unittest.TestCase):
         with patch.object(q,'issuer_json',side_effect=[self.product,self.props]) as fetch:
             out=sg.get_quote(ISIN)
         self.assertEqual(fetch.call_count,2); self.assertFalse(out['eligible'])
+        self.assertEqual(out['metadata']['status'],2)
     def test_rate_limit_expires_after_thirty_seconds(self):
         with patch.object(sg.time,'monotonic',return_value=0), patch.object(q,'issuer_json',side_effect=[self.product,self.props,self.points]):
             sg.get_quote(ISIN)
@@ -53,3 +56,17 @@ class DirectTests(unittest.TestCase):
         with patch.object(q,'issuer_json',side_effect=[self.product,self.props,self.points]):
             out=sg.get_quote(ISIN)
         self.assertFalse(out['chartEvidence']['current']); self.assertIn('veraltet',out['reason'])
+
+    def test_screenshot_products_route_to_verified_sg_ids(self):
+        for isin, product_id in [('DE000FG5GUT0',6933892), ('DE000FG7EPT1',7102845),
+                                 ('DE000FC1CHB7',5906476), ('DE000FG7K275',7127358)]:
+            with self.subTest(isin=isin):
+                product = dict(self.product, Isin=isin, Id=product_id)
+                props = [dict(p, Value=isin) if p['Name']=='Isin' else dict(p) for p in self.props]
+                with patch.object(q,'issuer_json',side_effect=[product,props,self.points]) as fetch, patch.object(q,'get_bnp_quote') as bnp:
+                    out=q.get_issuer_quote(isin)
+                bnp.assert_not_called()
+                self.assertIn('productId='+str(product_id),fetch.call_args.args[0])
+                self.assertTrue(out['productVerified'])
+                self.assertIn('chartEvidence',out)
+                self.assertFalse(out['eligible'])
