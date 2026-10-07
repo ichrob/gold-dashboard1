@@ -80,6 +80,26 @@ def parse_captions(raw):
     return out
 
 
+def require_mco(details):
+    if details.get('channelId')!='UCsl6Z6p7GOkczo8Cv-GH6Dg':raise ValueError('Recherche ist auf MCO Markets beschränkt. Dieses Video gehört zu einem anderen Kanal.')
+    if not re.search(r'\bgold\b|goldpreis|xau\s*/?\s*usd',details.get('title',''),re.I):raise ValueError('Recherche ist auf Gold-Videos von MCO Markets beschränkt.')
+
+
+def transcript_context(segments):
+    # Extract whole sentences, retaining conditional clauses and negation.
+    text=' '.join(s['text'] for s in segments)
+    sentences=re.split(r'(?<=[.!?])\s+(?=[A-ZÄÖÜ])',text)
+    chosen=[];words=0
+    for sentence in sentences:
+        if not re.search(r'gold|support|resistance|bull|bear|retracement|unterst[uü]tz|widerstand|abwärts|aufwärts',sentence,re.I):continue
+        if re.search(r'affiliate|subscribe|membership|mitgliedschaft|broker',sentence,re.I):continue
+        n=len(sentence.split())
+        if n>90 or words+n>90:continue
+        chosen.append(sentence);words+=n
+        if len(chosen)==3:break
+    return ' '.join(chosen)
+
+
 def assess(segments, language, automatic=False):
     import gold_research as g
     text=' '.join(s['text'] for s in segments)
@@ -92,7 +112,7 @@ def assess(segments, language, automatic=False):
         if re.search(r'\bgold\b|xau\s*/?\s*usd|goldpreis',s['text'],re.I):
             moments.append(int(s['at']))
             if len(moments)==3:break
-    result.update(transcriptAnalyzed=True,transcriptWords=len(text.split()),transcriptLanguage=language,
+    result.update(context=transcript_context(segments),contextKind='Originalaussagen aus dem Transkript (Auszug)',transcriptAnalyzed=True,transcriptWords=len(text.split()),transcriptLanguage=language,
         automaticCaptions=automatic,mentions=bool(re.search(r'\bgold\b|xau\s*/?\s*usd|goldpreis',text,re.I)),
         goldMoments=moments,coverage='Untertitel (automatische Textregeln)',
         reason=('Gesprochener Inhalt anhand '+('automatischer' if automatic else 'veröffentlichter')+' Untertitel regelbasiert geprüft. Keine Bild-/Chartanalyse und keine KI-Sprachanalyse. Erkennungsfehler möglich.' if supported else 'Untertitel abgerufen; Sprache wird noch nicht ausgewertet. Keine Richtungsstimme.'))
@@ -108,14 +128,22 @@ def analyze(url, fetch=read_url):
     if not _busy.acquire(blocking=False):raise ValueError('YouTube-Prüfung läuft bereits; bitte später erneut versuchen')
     try:
         p=player_metadata(fetch('https://www.youtube.com/watch?v='+identity),identity)
-        d=p['videoDetails'];micro=p.get('microformat',{}).get('playerMicroformatRenderer',{})
+        d=p['videoDetails']
+        require_mco(d)
+        micro=p.get('microformat',{}).get('playerMicroformatRenderer',{})
         tracks=p.get('captions',{}).get('playerCaptionsTracklistRenderer',{}).get('captionTracks',[])
         tracks=[t for t in tracks if isinstance(t.get('baseUrl'),str) and t.get('languageCode','').split('-')[0] in ('en','de')]
         tracks.sort(key=lambda t:(t.get('kind')=='asr',t.get('languageCode','').split('-')[0]!='en'))
         if not tracks:raise ValueError('Keine öffentlich abrufbaren deutschen oder englischen Untertitel')
-        track=tracks[0];caption_url=track['baseUrl']
-        if not safe_url(caption_url) or urlparse(caption_url).path!='/api/timedtext' or parse_qs(urlparse(caption_url).query).get('v')!=[identity]:raise ValueError('Untertitel gehören nicht eindeutig zum Video')
-        result=assess(parse_captions(fetch(caption_url)),track['languageCode'],track.get('kind')=='asr')
+        result=None
+        for track in tracks[:2]:
+            caption_url=track['baseUrl']
+            if not safe_url(caption_url) or urlparse(caption_url).path!='/api/timedtext' or parse_qs(urlparse(caption_url).query).get('v')!=[identity]:raise ValueError('Untertitel gehören nicht eindeutig zum Video')
+            raw=fetch(caption_url)
+            if not raw.strip():continue
+            result=assess(parse_captions(raw),track['languageCode'],track.get('kind')=='asr')
+            break
+        if result is None:raise ValueError('Untertitel sind bei YouTube vorhanden, aber der automatische Abruf liefert Bob keinen Text. Video nicht inhaltlich ausgewertet.')
         result.update(videoId=identity,title=d.get('title','YouTube-Video')[:240],channelId=d.get('channelId'),publisher=d.get('author','Unbekannter Kanal')[:160],publishedDate=micro.get('publishDate'),checkedAt=now,url='https://www.youtube.com/watch?v='+identity)
         if fetch is read_url:
             with _lock:
@@ -128,15 +156,15 @@ def analyze(url, fetch=read_url):
 def enrich(item):
     try:
         result=analyze(item['url'])
-        expected='UClnRIMiqpGha91ld0Zs4mwg' if item.get('sourceId')=='wgc-video' else None
+        expected='UCsl6Z6p7GOkczo8Cv-GH6Dg'
         if expected and result.get('channelId')!=expected:raise ValueError('Kanalzuordnung nicht bestätigt')
         # Preserve publication timestamp from Atom, never substitute retrieval date.
         item.update(result)
-        if expected:item['publisher']='World Gold Council'
+        if expected:item['publisher']='MCO Markets'
         item['trustedTranscript']=bool(expected and result.get('transcriptAnalyzed'))
-    except Exception:
+    except Exception as exc:
         item['transcriptAnalyzed']=False
-        item['articleStatus']='Untertitel nicht abrufbar oder Zuordnung unklar. Video bleibt ungeprüft; keine Richtungsstimme.'
+        item['articleStatus']=str(exc) if isinstance(exc,ValueError) else 'Automatischer Untertitelabruf derzeit nicht verfügbar. Video bleibt ungeprüft.'
     return item
 
 
@@ -145,12 +173,13 @@ def manual(payload):
     transcript=payload.get('transcript','')
     if not isinstance(transcript,str) or len(transcript)>200000:raise ValueError('Transkript zu groß oder ungültig')
     if transcript.strip():
+        metadata=player_metadata(read_url(url),identity)['videoDetails'];require_mco(metadata)
         # User supplied text stays explicitly unverified and cannot enter consensus.
         text=re.sub(r'(?m)^\s*(?:\d+|WEBVTT|\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d+)?\s*-->.*)\s*$','',transcript)
         language=payload.get('language','en')
         if language not in ('en','de'):raise ValueError('Bitte Deutsch oder Englisch auswählen')
         result=assess([{'at':0,'text':text}],language)
-        result.update(title='Eingefügtes Transkript · '+identity,publisher='Vom Nutzer zugeordnet',coverage='Eingefügtes Transkript (Zuordnung ungeprüft)',goldMoments=[],checkedAt=time.time())
+        result.update(title=metadata['title'],channelId=metadata['channelId'],publisher='MCO Markets',coverage='Eingefügtes Transkript (Zuordnung ungeprüft)',goldMoments=[],checkedAt=time.time())
     else:result=analyze(url)
     item=dict(id='youtube-'+identity,sourceId='manual-youtube',publishedAt=None,current=False,kind='YouTube',excerpt='',trustedTranscript=False)
     item.update(result)
@@ -188,7 +217,9 @@ def search_videos(query, fetch=read_url):
             row=value.get('videoRenderer')
             if isinstance(row,dict) and re.fullmatch(r'[A-Za-z0-9_-]{11}',row.get('videoId','')):
                 title=label(row.get('title',{}));channel=label(row.get('ownerText') or row.get('longBylineText') or {})
-                if title and channel:videos[row['videoId']]={'url':'https://www.youtube.com/watch?v='+row['videoId'],'title':title,'channel':channel,'publishedText':label(row.get('publishedTimeText',{})),'viewsText':label(row.get('viewCountText',{}))}
+                owner=row.get('ownerText') or row.get('longBylineText') or {}
+                owner_ids=[x.get('navigationEndpoint',{}).get('browseEndpoint',{}).get('browseId') for x in owner.get('runs',[])]
+                if title and channel and 'UCsl6Z6p7GOkczo8Cv-GH6Dg' in owner_ids:videos[row['videoId']]={'url':'https://www.youtube.com/watch?v='+row['videoId'],'title':title,'channel':channel,'publishedText':label(row.get('publishedTimeText',{})),'viewsText':label(row.get('viewCountText',{}))}
             for x in value.values():walk(x,depth+1)
     walk(data)
     return list(videos.values())[:30]
@@ -234,5 +265,5 @@ def from_screenshot(payload):
     try:
         item=manual({'url':resolved['url']})
         return {'ok':True,'resolved':resolved,'item':item}
-    except Exception:
-        return {'ok':False,'resolved':resolved,'error':'Video erkannt, aber Untertitel derzeit nicht abrufbar. Der Screenshot allein enthält nicht den gesprochenen Videoinhalt. Keine Inhaltsanalyse möglich.'}
+    except Exception as exc:
+        return {'ok':False,'resolved':resolved,'error':str(exc) if isinstance(exc,ValueError) else 'Video erkannt, aber Untertitel derzeit nicht abrufbar. Keine Inhaltsanalyse möglich.'}
