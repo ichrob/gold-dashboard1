@@ -648,3 +648,10 @@ const skewed=JSON.parse(JSON.stringify(analysisProduct));skewed.quote.leverageCa
 assert(!b.analysisReleaseQuote(skewed,now));
 assert(!b.analysisReleaseQuote({...analysisProduct,quote:{...analysisProduct.quote,productVerified:false}},now));
 assert(!b.currentQuote(analysisProduct,now));
+const backupAnalysisProduct=JSON.parse(JSON.stringify(analysisProduct));
+backupAnalysisProduct.quote.analysisQuote.source='Onvista · BNP Paribas';
+backupAnalysisProduct.quote.analysisQuote.priceKind='secondary-market';
+assert(b.analysisReleaseQuote(backupAnalysisProduct,now));
+assert(b.finalProductStatus(backupAnalysisProduct,now).complete);
+assert(b.conditionalCandidate(backupAnalysisProduct,context,now).priceKind.includes('Ersatzquellenkurs'));
+assert(!b.selectionWorkflow([backupAnalysisProduct],{...context,direction:'NEUTRAL'},{}).approved);

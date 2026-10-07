@@ -7,8 +7,8 @@ import time
 from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 
-# Previously verified Onvista instrument identities from sg_quotes.PRODUCT_IDS.
-IDS = {'DE000FG5GUX2':335999756, 'DE000FG5GUT0':336000321, 'DE000FG4JXV7':340459583, 'DE000FG7EPT1':341071258, 'DE000FG6XB39':339841792, 'DE000FC1CHB7':309138945}
+# Verified Onvista instrument identities; each response must match ISIN and WKN.
+IDS = {'DE000FG5GUX2':335999756, 'DE000FG5GUT0':336000321, 'DE000FG4JXV7':340459583, 'DE000FG7EPT1':341071258, 'DE000FG6XB39':339841792, 'DE000FC1CHB7':309138945, 'DE000PJ9NB98':309090392, 'DE000PJ9NCK0':309089800}
 PAGES = {isin:'https://www.onvista.de/derivate/Knock-Outs/handelsplaetze/'+str(id)+'-'+isin[5:11]+'-'+isin for isin,id in IDS.items()}
 _CACHE = {}
 _FAILURES = {}
@@ -182,7 +182,7 @@ def apply_backup(primary, isin, now=None):
             return primary
         result = dict(primary, metadata=dict(meta, status=2), found=False, eligible=False,
                       fresh=False, marketOpen=False, lifecycleEvidence=backup,
-                      reason='Onvista meldet Knock-out; SG-Stammdaten widersprechen. Produkt gesperrt, keine Kursbilder erforderlich.')
+                      reason='Onvista meldet Knock-out; Emittenten-Stammdaten widersprechen. Produkt gesperrt, keine Kursbilder erforderlich.')
         for key in ('analysisQuote','chartEvidence','leverage','leverageCalculation','calculatedProduct'):
             result.pop(key, None)
         return result
@@ -204,5 +204,8 @@ def apply_backup(primary, isin, now=None):
                   snapshotAt=min(clock(backup[k]) for k in ('bidAt','askAt','leverageAt') if backup.get(k)).isoformat(),
                   reason='Backup-Kurse von Onvista; Hebel mit eigenem älteren Datenstand – rechnerische Empfehlung, keine Live-Freigabe',
                   leverageNote='Onvista-Hebel mit separatem Berechnungs- und Eingangsdatenstand; kann vom Hebel beim aktuellen Briefkurs abweichen.')
-    # The backup is used for indicative analysis only until complete live validation.
+    result['analysisQuote'] = {key: result[key] for key in
+        ('bid', 'ask', 'price', 'bidAt', 'askAt', 'currency', 'source', 'priceKind')}
+    result['analysisQuote']['isExecutableQuote'] = False
+    # Analysis clearance independently validates terms and aligned calculation inputs.
     return result

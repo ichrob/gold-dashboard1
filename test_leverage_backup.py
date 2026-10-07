@@ -38,6 +38,15 @@ class Tests(unittest.TestCase):
    self.r['leverageAt']=T
    self.assertEqual(b.apply(self.r,N)['leverage'],8)
    self.assertTrue(b.apply(self.r,N)['leverageComparison']['comparable'])
+ def test_backup_analysis_uses_aligned_calculation_and_preserves_provider(self):
+  self.r.update(backupActive=True,leverage=8,leverageAt=T)
+  with patch('spot_data.current',return_value=self.g),patch('sg_quotes.market_input',return_value=self.fx):
+   out=b.apply(self.r,N)
+   self.assertEqual(out['leverage'],10)
+   self.assertEqual(out['providerLeverage']['value'],8)
+   self.assertFalse(out['eligible'])
+   self.g['at']='2026-10-07T09:40:00Z'
+   self.assertEqual(b.apply(self.r,N)['leverage'],8)
  def test_older_calculation_does_not_replace_newer_provider(self):
   self.r.update(leverage=8,leverageAt='2026-10-07T09:55:00Z');self.g['at']='2026-10-07T09:40:00Z'
   with patch('spot_data.current',return_value=self.g),patch('sg_quotes.market_input',return_value=self.fx):
