@@ -143,7 +143,15 @@ def analyze(url, fetch=read_url):
             if not raw.strip():continue
             result=assess(parse_captions(raw),track['languageCode'],track.get('kind')=='asr')
             break
-        if result is None:raise ValueError('Untertitel sind bei YouTube vorhanden, aber der automatische Abruf liefert Bob keinen Text. Video nicht inhaltlich ausgewertet.')
+        if result is None:
+            if fetch is not read_url:raise ValueError('Untertitel vorhanden, aber kein Text abrufbar')
+            import research_transcript_provider
+            supplied=research_transcript_provider.request(identity)
+            result=assess(supplied['segments'],supplied['language'])
+            result['automaticCaptions']=None
+            result['reason']='Übermittelte Untertitel regelbasiert geprüft; automatische oder manuelle Herkunft nicht bestätigt. Keine KI-Sprach- oder Chartanalyse.'
+            result['coverage']='Untertitel über zusätzlichen Transkript-Dienst (Textregeln)'
+            result['transcriptProvider']=supplied['provider']
         result.update(videoId=identity,title=d.get('title','YouTube-Video')[:240],channelId=d.get('channelId'),publisher=d.get('author','Unbekannter Kanal')[:160],publishedDate=micro.get('publishDate'),checkedAt=now,url='https://www.youtube.com/watch?v='+identity)
         if fetch is read_url:
             with _lock:
