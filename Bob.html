@@ -649,9 +649,11 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <h2>Prüfprotokoll &amp; Lernen</h2>
 <details id="paperSimulationPanel" open><summary>Fortlaufende Marktsimulation · Gold &amp; DEGIRO-Produkte</summary>
 <p id="paperStatus" class="small" role="status" style="white-space:pre-line">Start 8.10.2026 · ohne festes Enddatum. Simulation wird geladen …</p>
+<p id="paperCapital" style="white-space:pre-line;font-weight:bold">Fiktives Startkapital: 100 EUR · Bruttomodell</p>
 <label for="paperDay">Simulationstag (Schweizer Zeit)</label><input id="paperDay" type="date">
 <button id="paperRefresh" type="button">Simulation prüfen</button>
 <p id="paperStats" class="small" style="white-space:pre-line"></p>
+<table><caption>Täglicher Kapitalverlauf · letzte 14 Tage · Bruttomodell, einschließlich offener Positionen</caption><thead><tr><th>Tag</th><th>Anfang</th><th>Kapital</th><th>Gewinn / Verlust</th><th>Bewertung</th></tr></thead><tbody id="paperCapitalDays"></tbody></table>
 <div id="paperCases"></div>
 <details><summary>Technischer Probelauf · künstliche Folgekurse</summary>
 <p class="small">Zeigt Einstieg, Stop-Nachziehen, Teilgewinn und Ausstieg. Kein reales Marktsignal; bleibt aus der Statistik ausgeschlossen.</p>
@@ -684,7 +686,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  let paperBusy=false,paperSyncBusy=false,paperSyncAt=0;
  const paperTime=v=>v?new Date(v).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'nicht bestätigt';
  const paperNumber=v=>Number.isFinite(v)?v.toFixed(3):'unbekannt';
- const paperKinds={'entry':'Einstieg','stop-raised':'Stop nachgezogen','target-extended':'Ziel verlängert','partial-profit':'50 % Teilgewinn','stop':'Stop-Ausstieg','target-exit':'Ziel-Ausstieg','profit-taking':'Gewinnmitnahme bei schwächerem Momentum','time-exit':'Zeit-Ausstieg','reversal-exit':'Richtungswechsel-Ausstieg','data-gap':'Datenlücke · Ergebnis unklar'};
+ const paperMoney=v=>Number.isFinite(v)?v.toLocaleString('de-CH',{style:'currency',currency:'EUR'}):'Bewertung offen';
+ const paperKinds={'entry':'Einstieg','stop-raised':'Stop nachgezogen','target-extended':'Ziel verlängert','partial-profit':'Teilgewinn','stop':'Stop-Ausstieg','target-exit':'Ziel-Ausstieg','profit-taking':'Gewinnmitnahme bei schwächerem Momentum','time-exit':'Zeit-Ausstieg','reversal-exit':'Richtungswechsel-Ausstieg','data-gap':'Datenlücke · Ergebnis unklar','deferred-sale':'Späterer Modellverkauf zum verfügbaren Geldkurs'};
  function renderPaperCase(c,host){
   const d=document.createElement('details'),s=document.createElement('summary'),body=document.createElement('p');
   s.textContent=(c.demonstration?'PROBELAUF':paperTime(c.startedAt))+' · '+c.plan.direction+' · '+c.product.isin+' · '+({open:'offen',closed:'abgeschlossen',inconclusive:'nicht eindeutig'}[c.status]||c.status);
@@ -694,7 +697,9 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    'Aktueller Stop '+paperNumber(c.engine.trade.stop)+' · Ziel '+paperNumber(c.engine.trade.target)+' · Rest '+Math.round(c.remaining*100)+' %',
    'Beobachtetes Goldplan-Ergebnis '+paperNumber(c.goldR)+' R'+(c.status!=='closed'?' (Zwischenstand, keine vollständige Bewertung)':''),
    'Produkt-Bruttovergleich '+(c.productReturnKnown?paperNumber(c.productGrossPct)+' %':'offen: passende Kursnachweise fehlen')+' · Nettogewinn unbekannt',
-   ...c.events.map(e=>paperTime(e.at)+' · '+(paperKinds[e.kind]||e.kind)+(e.gold?' · Gold '+paperNumber(e.gold)+' USD/oz':'')+(e.new?' · '+paperNumber(e.old)+' → '+paperNumber(e.new):'')+(e.quote?' · '+e.quote.source+' · Geld '+paperNumber(e.quote.bid)+' / Brief '+paperNumber(e.quote.ask)+' EUR · Kurszeit '+paperTime(e.quote.bidAt||e.quote.quoteAt):'')+(e.reason?' · '+e.reason:'')),
+   'Euro-Test: '+(c.capitalMode||'ohne Europosition')+' · verfügbares Guthaben beim Einstieg '+paperMoney(c.availableAtEntry),
+   c.quantity?'Stückzahl '+c.quantity+' · eingesetzt '+paperMoney(c.allocated)+' · gebuchte Verkaufserlöse '+paperMoney(c.cashReleased)+' · offene Stücke '+c.remainingUnits+' · Verkauf ohne Kursnachweis '+c.pendingUnits+' Stück':'Kein fiktiver Eurokauf: Produktkurs nicht belegt.',
+   ...c.events.map(e=>paperTime(e.at)+' · '+(paperKinds[e.kind]||e.kind)+(e.units?' · '+e.units+' Stück':'')+(e.weight?' · '+Math.round(e.weight*100)+' %':'')+(e.gold?' · Gold '+paperNumber(e.gold)+' USD/oz':'')+(e.new?' · '+paperNumber(e.old)+' → '+paperNumber(e.new):'')+(e.quote?' · '+e.quote.source+' · Geld '+paperNumber(e.quote.bid)+' / Brief '+paperNumber(e.quote.ask)+' EUR · Kurszeit '+paperTime(e.quote.bidAt||e.quote.quoteAt):'')+(e.reason?' · '+e.reason:'')),
    c.note||''].filter(Boolean).join('\n');
   d.append(s,body);const evidence=document.createElement('details'),title=document.createElement('summary'),raw=document.createElement('pre');
   title.textContent='Gespeicherte Analyse und Originalplan';raw.style.whiteSpace='pre-wrap';raw.style.overflowWrap='anywhere';raw.textContent=JSON.stringify({ruleVersion:c.analysis.ruleVersion,analysis:c.analysis,plan:c.plan,entryQuote:c.entryQuote},null,2);evidence.append(title,raw);d.append(evidence);host.append(d);
@@ -704,6 +709,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   try{
    const r=await api('read',{mode:'simulation',day:document.getElementById('paperDay').value});
    const c=r.control,stale=c.checkedAt&&Date.now()-c.checkedAt>90000;
+   text('paperCapital','Fiktives Startkapital '+paperMoney(c.initialCapital)+' · aktueller Kapitalstand '+paperMoney(c.equity)+'\nBargeld '+paperMoney(c.cash)+' · offene Produktstücke '+(c.openUnits||0)+'\nHeute '+paperMoney(c.dayProfit)+' · seit Start '+paperMoney(c.totalProfit)+'\nDavon gebuchtes Ergebnis seit Start '+paperMoney(c.realizedProfit)+'\nBruttomodell einschließlich offener Positionen zum beobachteten Geldkurs. Ohne Gebühren, Finanzierung und Slippage; kein Nettogewinn. Guthaben wird über die Tage weitergeführt.');
    text('paperStatus',[
     'Start '+paperTime(c.startAt)+' · ohne festes Enddatum · '+(c.status==='scheduled'?'START GEPLANT':c.status==='paused'?'PAUSIERT':'SIMULATION AKTIV'),
     c.reason||'',
@@ -712,10 +718,14 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     'Abgleich '+paperTime(r.productSyncedAt)+' · Anbieterwerte werden im Hintergrund erneut abgerufen. Keine Order und keine Trade-Pushs.'
    ].join('\n'));
    const st=r.stats;
-   text('paperStats',r.day+' · '+(st.closed||0)+' abgeschlossene / '+(st.inconclusive||0)+' unklare Fälle. Goldplan: '+(st.goldPositive||0)+' positiv / '+(st.goldNegative||0)+' negativ / '+(st.goldFlat||0)+' unverändert.\nProdukt-Bruttovergleich: '+(st.productKnown||0)+' auswertbar · '+(st.productPositive||0)+' positiv / '+(st.productNegative||0)+' nicht positiv. Keine Nettogewinn- oder Erfolgsbehauptung.\n'+(st.lastWait?'Letzter Prüfstand: '+st.lastWait:'Noch keine echten Simulationsfälle für diesen Tag.')+'\nFalldetails: höchstens '+r.detailsLimit+' neueste Fälle; rollierend '+r.detailRetentionDays+' Tage. Tagesstatistik bleibt erhalten.');
+   text('paperStats',r.day+' · Tagesanfang '+paperMoney(st.openingCapital)+' · letzter Kapitalstand '+paperMoney(st.capital)+' · Tagesgewinn/-verlust '+paperMoney(st.dayProfit)+'\n'+(st.closed||0)+' abgeschlossene / '+(st.inconclusive||0)+' unklare Fälle. Goldplan: '+(st.goldPositive||0)+' positiv / '+(st.goldNegative||0)+' negativ / '+(st.goldFlat||0)+' unverändert.\nProdukt-Bruttovergleich: '+(st.productKnown||0)+' auswertbar · '+(st.productPositive||0)+' positiv / '+(st.productNegative||0)+' nicht positiv. Keine Nettogewinn- oder Erfolgsbehauptung.\n'+(st.lastWait?'Letzter Prüfstand: '+st.lastWait:'Noch keine echten Simulationsfälle für diesen Tag.')+'\nFalldetails: höchstens '+r.detailsLimit+' neueste Fälle; rollierend '+r.detailRetentionDays+' Tage. Tagesstatistik bleibt erhalten.');
    const host=document.getElementById('paperCases');host.replaceChildren();r.cases.forEach(caseRecord=>renderPaperCase(caseRecord,host));
    const demo=document.getElementById('paperDemo');demo.replaceChildren();renderPaperCase(r.demonstration,demo);
    text('paperRules',r.note);text('paperDaily',JSON.stringify(r.daily,null,2));
+   const days=document.getElementById('paperCapitalDays');days.replaceChildren();
+   for(const row of r.daily.slice(0,14)){
+    const tr=document.createElement('tr');for(const value of [row.day,paperMoney(row.openingCapital),paperMoney(row.capital),paperMoney(row.dayProfit),row.valuationKnown?'beobachteter Kurs / Bargeld':'Kursnachweis offen']){const td=document.createElement('td');td.textContent=value;tr.append(td);}days.append(tr);
+   }
   }catch(e){text('paperStatus','Simulation derzeit nicht abrufbar: '+e.message+'. Aktivität nicht bestätigt.');}
   finally{paperBusy=false;}
  }
