@@ -8,6 +8,7 @@ import product_push
 import fibonacci_monitor
 import background_push
 import bob_session_store
+import research_transcript_provider
 import bob_market_store
 import bob_validation_store
 import decision_audit
@@ -61,6 +62,7 @@ def _init_db_once():
     with db() as conn:
         bob_session_store.init(conn)
         bob_market_store.init(conn)
+        research_transcript_provider.init(conn)
         bob_validation_store.init(conn)
         decision_audit.init(conn)
         conn.execute("""
@@ -383,6 +385,15 @@ class Handler(BaseHTTPRequestHandler):
                     result=bob_validation_store.handle(conn,path.rsplit('/',1)[-1],payload)
                     conn.commit()
                 send_json(self,200,result)
+                return
+            if path=='/research-transcript/read':
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'})
+                    return
+                payload=json_body(self)
+                if not isinstance(payload,dict):raise ValueError('Ungültige Recherche-Anfrage')
+                send_json(self,200,research_transcript_provider.handle(db,payload))
                 return
             if path in ('/market-spots/read','/market-spots/write'):
                 supplied=self.headers.get('X-Bob-Push-Token','')
