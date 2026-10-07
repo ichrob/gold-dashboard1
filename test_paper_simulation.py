@@ -16,12 +16,92 @@ def quote(now=NOW,bid=10.,ask=10.1):
     return dict(isin=ISIN,found=True,marketOpen=True,bid=bid,ask=ask,currency='EUR',source='issuer test',bidAt=now,askAt=now)
 
 def case(direction='LONG'):
-    return sim.new_case(market(direction),dict(isin=ISIN,scope='XAU/USD'),quote(),NOW)
+    return sim.new_case(market(direction),dict(isin=ISIN,scope='XAU/USD'),quote(),NOW,cash=101.)
 
 def tick(price,seconds=30,direction='LONG',**values):
     return {**market(direction),'price':price,'dataAt':NOW+seconds*1000,**values}
 
 class SimulationTests(unittest.TestCase):
+    def test_100_euro_whole_units_cash_and_loss(self):
+        c=sim.new_case(market(),dict(isin=ISIN),quote(),NOW)
+        self.assertEqual(c['quantity'],9);self.assertAlmostEqual(c['allocated'],90.9)
+        control=dict(initialCapital=100.,cash=100-c['allocated'],dayOpeningEquity=100.)
+        sim.capital_snapshot(control,c,quote(),NOW)
+        self.assertAlmostEqual(control['cash'],9.1);self.assertAlmostEqual(control['equity'],99.1)
+        self.assertAlmostEqual(control['dayProfit'],-.9)
+        done=sim.advance_case(c,tick(88),quote(NOW+30000,9.,9.1),NOW+30000)
+        control['cash']+=done['cashReleased'];sim.capital_snapshot(control,done,None,NOW+30000)
+        self.assertAlmostEqual(control['equity'],90.1);self.assertAlmostEqual(control['dayProfit'],-9.9)
+
+    def test_odd_quantity_partial_uses_whole_units(self):
+        c=sim.new_case(market(),dict(isin=ISIN),quote(),NOW)
+        done=sim.advance_case(c,tick(120,suggestedStop=110,suggestedTarget=140,analysisBarAt=NOW+300000),quote(NOW+30000,12,12.1),NOW+30000)
+        self.assertEqual(done['remainingUnits'],5);self.assertEqual(done['bookedUnits'],4)
+        self.assertAlmostEqual(done['cashReleased'],48);self.assertAlmostEqual(done['remaining'],5/9)
+
+    def test_one_unit_closes_at_first_target_without_fraction(self):
+        c=sim.new_case(market(),dict(isin=ISIN),quote(ask=75.,bid=74.),NOW)
+        done=sim.advance_case(c,tick(120,suggestedTarget=140),quote(NOW+30000,80.,81.),NOW+30000)
+        self.assertEqual(done['status'],'closed');self.assertEqual(done['bookedUnits'],1)
+
+    def test_insufficient_capital_never_creates_credit(self):
+        with self.assertRaises(ValueError):sim.new_case(market(),dict(isin=ISIN),quote(ask=101.,bid=100.),NOW)
+
+    def test_missing_sale_waits_and_later_price_is_labeled(self):
+        c=sim.advance_case(case(),tick(88),None,NOW+30000)
+        self.assertEqual(c['cashReleased'],0);self.assertEqual(c['pendingUnits'],10)
+        ctl=dict(initialCapital=101.,cash=0.,dayOpeningEquity=101.)
+        sim.capital_snapshot(ctl,c,None,NOW+30000);self.assertIsNone(ctl['equity'])
+        c=sim.advance_case(c,tick(87,60),quote(NOW+60000,9.,9.1),NOW+60000)
+        self.assertEqual(c['pendingUnits'],0);self.assertEqual(c['cashReleased'],90)
+        self.assertEqual(c['events'][-1]['kind'],'deferred-sale')
+        self.assertEqual(c['events'][-1]['at'],NOW+60000);self.assertTrue(c['productReturnKnown'])
+
+    def test_day_gain_uses_carried_capital_not_daily_100_reset(self):
+        ctl=dict(initialCapital=100.,cash=117.1,dayOpeningEquity=117.1)
+        sim.capital_snapshot(ctl,None,None,NOW);self.assertEqual(ctl['dayProfit'],0)
+        self.assertAlmostEqual(ctl['totalProfit'],17.1)
+        c=sim.new_case(market(),dict(isin=ISIN),quote(),NOW,cash=ctl['cash'])
+        self.assertEqual(c['quantity'],11)
+
+    def test_ledger_transactions_debit_and_settle_exactly_once(self):
+        import json
+        class DB:
+            def __init__(self):
+                self.control=dict(startAt=sim.START,enabled=True)
+                self.case=None;self.days={};self.row=None
+            def execute(self,sql,args=()):
+                self.row=None
+                if sql.startswith('SELECT payload FROM bob_paper_control'):
+                    self.row=(copy.deepcopy(self.control),)
+                elif sql.startswith('SELECT id,payload FROM bob_paper_cases'):
+                    if self.case and self.case.get('dbOpen',True):self.row=(self.case['id'],copy.deepcopy(self.case))
+                elif sql.startswith('SELECT payload FROM bob_paper_days'):
+                    if args[0] in self.days:self.row=(copy.deepcopy(self.days[args[0]]),)
+                elif 'INSERT INTO bob_paper_cases' in sql:
+                    self.case=json.loads(args[3]);self.row=(args[0],)
+                elif sql.startswith('UPDATE bob_paper_cases'):
+                    self.case=json.loads(args[0]);self.case['dbOpen']=args[1] is None
+                elif 'INSERT INTO bob_paper_days' in sql:
+                    self.days[args[0]]=json.loads(args[1])
+                elif sql.startswith('UPDATE bob_paper_control'):
+                    self.control=json.loads(args[0])
+                return self
+            def fetchone(self):return self.row
+        db=DB();m={**market(),'session':{'entryAllowed':True}};choice={'choices':[{'isin':ISIN}]}
+        sim.run_once(db,{},m,choice,{ISIN:quote()},NOW)
+        self.assertAlmostEqual(db.control['cash'],9.1)
+        self.assertAlmostEqual(db.control['equity'],99.1)
+        sim.run_once(db,{},tick(88),choice,{},NOW+30000)
+        self.assertIsNone(db.control['equity']);self.assertEqual(db.case['pendingUnits'],9)
+        sim.run_once(db,{},tick(87,60),choice,{ISIN:quote(NOW+60000,9.,9.1)},NOW+60000)
+        self.assertAlmostEqual(db.control['cash'],90.1)
+        self.assertAlmostEqual(db.control['realizedProfit'],-9.9)
+        sim.run_once(db,{},m,choice,{ISIN:quote(NOW+60000,9.,9.1)},NOW+60000)
+        self.assertAlmostEqual(db.control['cash'],90.1)
+        self.assertEqual(db.days['2026-10-08']['cases'],1)
+        self.assertEqual(db.days['2026-10-08']['productKnown'],1)
+
     def test_long_stop_before_any_trail(self):
         c=case();done=sim.advance_case(c,tick(88,suggestedStop=105),quote(NOW+30000,9,9.1),NOW+30000)
         self.assertEqual(done['exitReason'],'stop');self.assertAlmostEqual(done['goldR'],-1.2)
