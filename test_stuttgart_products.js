@@ -93,7 +93,8 @@ const summary=b.screenshotSummary({terms:{ratio:{value:.1,source:'SG'},ko:{value
 assert(!summary.includes('<table'));assert.equal((summary.match(/KO-Barriere/g)||[]).length,1);
 assert(summary.includes('Bezugsverhältnis eingelesen: 0.1'));assert(!summary.includes('Berechnungsfaktor noch'));
 assert(summary.includes('noch nicht bestätigt'));
-const unconfirmed=b.productTermsStatus({...p,snapshot:{isin,terms:{ratio:{value:.1,source:'SG'}}}},now);
+// Isolate unconfirmed image evidence: verified issuer terms otherwise correctly win.
+const unconfirmed=b.productTermsStatus({...p,quote:null,snapshot:{isin,terms:{ratio:{value:.1,source:'SG'}}}},now);
 assert(unconfirmed.reasons.some(x=>x.includes('Bezugsverhältnis: Wert eingelesen')));
 assert.equal(unconfirmed.values.ratio,undefined);
 console.log('Mobile evidence summary and unconfirmed value distinction passed');

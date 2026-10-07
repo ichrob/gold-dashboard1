@@ -77,3 +77,20 @@ const q=b.technicalQuality(ctx).score;
 assert.equal(q,b.technicalQuality({...ctx,adx:99,momentum:100}).score);
 assert.equal(q,b.technicalQuality({...ctx,adx:1,momentum:-100}).score);
 assert.equal(b.technicalQuality({...ctx,trend:'SHORT',trend2:'SHORT',hist:-1,rsi:40,direction:'SHORT',mtf:'SHORT'}).score,q);
+
+// Stale recommendations retain original clocks and never change live eligibility.
+const oldAt=new Date(now-600000).toISOString();
+const older={...withShot,quote:{isin:p.isin,price:p.price,quoteAt:oldAt,askAt:oldAt,leverageAt:oldAt,eligible:false,fresh:false}};
+const before=JSON.stringify(older);
+assert.equal(b.indicativeRecommendations([older,older],ctx).length,1);
+const output=b.renderContinuingAnalysis([older],ctx);
+assert(output.includes('Mit veralteten Werten gerechnet'));
+assert(output.includes('10 min 0 s alt'));
+assert(output.includes(p.isin));
+assert.equal(JSON.stringify(older),before);
+assert(!b.currentQuote(older,now));
+assert.equal(b.indicativeRecommendations([older],{...ctx,direction:'NEUTRAL'}).length,0);
+for(const change of [{price:null},{leverage:null},{isinConfirmed:false},{ko:3990},{name:'Faktor Gold'},{snapshot:{...shot,terms:{}}}])assert.equal(b.indicativeRecommendations([{...older,...change}],ctx).length,0,JSON.stringify(change));
+const inactive={...older,quote:{...older.quote,productVerified:true,metadata:{status:2}}};
+assert.equal(b.indicativeRecommendations([inactive],ctx).length,0);
+console.log('Stale indicative recommendations: labels, age, exclusion, completeness and no mutation passed');
