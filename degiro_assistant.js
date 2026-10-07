@@ -1346,7 +1346,7 @@ function renderProductSources(p){
  '<div>'+esc(q.reason||'Weitere Pflichtprüfungen entscheiden über die Freigabe.')+'</div><div>Abrufzeit ist keine Kurszeit und kein Gültigkeitsnachweis.</div></div>';
 }
 function productIssuerLabel(p){
- const sgIds=['DE000SQ02JQ6','DE000FG4JXV7','DE000FG309G0','DE000FG7EPT1','DE000FC1CHB7','DE000FG5GUT0','DE000FG6XB39','DE000FG5NMF2','DE000FG7MTA6','DE000FG7K283','DE000FG5NMH8','DE000FG7K3L2','DE000FE4UF01','DE000FG7K275','DE000FG34XV8'];
+ const sgIds=['DE000FA06UL6','DE000FG5GUX2','DE000SQ02JQ6','DE000FG4JXV7','DE000FG309G0','DE000FG7EPT1','DE000FC1CHB7','DE000FG5GUT0','DE000FG6XB39','DE000FG5NMF2','DE000FG7MTA6','DE000FG7K283','DE000FG5NMH8','DE000FG7K3L2','DE000FE4UF01','DE000FG7K275','DE000FG34XV8'];
  const sg=sgIds.includes(p.isin)||/^SG\b|Soci[eé]t[eé] G[eé]n[eé]rale/i.test(p.name||'');
  return sg?'SG':/BNP|Paribas/i.test(p.name||'')||['DE000PJ9NB98','DE000PJ9NCK0'].includes(p.isin)?'BNP':'Emittenten';
 }
