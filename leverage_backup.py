@@ -83,7 +83,7 @@ def apply(result, now=None):
         return result
     if not m.get('simpleNonQuantoTurbo'):
         return dict(result,leverageCalculation=dict(available=False,
-            reason='Berechnungsmodell nicht bestätigt: SG-Angabe zur Währungsabsicherung oder zum einfachen Turbo-Modell fehlt'))
+            reason='Berechnungsmodell nicht bestätigt: Bestätigung zur Währungsabsicherung oder zum einfachen Turbo-Modell fehlt'))
     out = copy.deepcopy(result)
     try:
         if m.get('underlyingType') == 'SPOT':
@@ -102,9 +102,10 @@ def apply(result, now=None):
         out['leverageCalculation'] = evidence
         old = out.get('leverageAt')
         out['leverageComparison'] = compare(out, evidence, supplied_now or datetime.now(timezone.utc))
-        if old and out.get('leverage') and not out.get('leverageEstimated') and 0 <= (now-q.stamp(old)).total_seconds() <= 90:
+        prefer_analysis = out.get('backupActive') and evidence['fresh']
+        if not prefer_analysis and old and out.get('leverage') and not out.get('leverageEstimated') and 0 <= (now-q.stamp(old)).total_seconds() <= 90:
             return out
-        if old and out.get('leverage') and q.stamp(old) >= q.stamp(evidence['at']):
+        if not prefer_analysis and old and out.get('leverage') and q.stamp(old) >= q.stamp(evidence['at']):
             return out
         out['providerLeverage'] = dict(value=out.get('leverage'),at=old,source=out.get('source'))
         out.update(leverage=evidence['value'],leverageAt=evidence['at'],leverageEstimated=True,

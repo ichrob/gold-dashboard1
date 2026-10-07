@@ -420,7 +420,7 @@ function conditionalCandidate(p,context={},now=Date.now()){
   if(!context.spotFresh||!["LONG","SHORT"].includes(context.direction))return fail("ABWARTEN: Spot-Szenario oder aktueller Goldpreis fehlen");
   const a=analysisReleaseQuote(p,now);
   basis=n(context.spot);ask=n(a.ask);bid=n(a.bid);ko=n(p.ko);scope="XAU/USD";ctx=context;at=a.at;
-  priceKind="Chartkurs · berechneter Hebel · Analysefreigabe";
+  priceKind=(a.priceKind==="secondary-market"?"Ersatzquellenkurs":"Chartkurs")+" · berechneter Hebel · Analysefreigabe";
  }else if(currentQuote(p,now)){
   if(!context.spotFresh||!["LONG","SHORT"].includes(context.direction))return fail("ABWARTEN: Spot-Szenario oder aktueller Goldpreis fehlen");
   basis=n(context.spot);ask=n(q.ask);bid=n(q.bid);ko=n(q.ko);scope="XAU/USD";ctx=context;at=q.quoteAt;

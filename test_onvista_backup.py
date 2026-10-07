@@ -55,6 +55,26 @@ class BackupTests(unittest.TestCase):
             data['derivativesDetails']['quanto']=value
             with self.assertRaises(ValueError):b.parse_model_evidence(html(data),ISIN,NOW)
 
+    def test_bnp_identity_model_and_analysis_pair(self):
+        import time
+        for isin in ('DE000PJ9NB98', 'DE000PJ9NCK0'):
+            data=page()
+            data['instrument'].update(isin=isin,wkn=isin[5:11],entityValue=str(b.IDS[isin]))
+            data['quoteList']['list'][0]['idInstrument']=str(b.IDS[isin])
+            data['derivativesDetails'].update(quanto=False,hasIndicativeDetails=False)
+            data['derivativesUnderlyingList']['list'][0].update(isoCurrency='USD',coverRatio=.1)
+            evidence=b.parse_model_evidence(html(data),isin,NOW)
+            parsed=b.parse_page(html(data),isin,NOW)
+            primary=dict(isin=isin,productVerified=True,metadata=dict(status=1,underlyingType='SPOT',direction='LONG',ratio=.1,simpleTurbo=True,quantoState='unknown'))
+            with patch.dict(b._MODEL,{isin:(time.monotonic(),evidence)},clear=True), patch.object(b,'fetch',return_value=parsed):
+                result=b.apply_backup(primary,isin,NOW)
+            self.assertTrue(result['metadata']['simpleNonQuantoTurbo'])
+            self.assertEqual(result['analysisQuote']['askAt'],AT)
+            self.assertEqual(result['analysisQuote']['priceKind'],'secondary-market')
+            self.assertFalse(result['eligible'])
+            data['instrument']['isin']=ISIN
+            with self.assertRaises(ValueError):b.parse_page(html(data),isin,NOW)
+
     def test_missing_leverage_does_not_discard_current_pair(self):
         data=page();data['derivativesFigure']={}
         result=b.parse_page(html(data),ISIN,NOW)

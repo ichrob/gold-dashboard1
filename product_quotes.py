@@ -341,12 +341,13 @@ def bnp_product_data(data, isin, now=None):
         if typ.upper().split()[-1] != sides[0]:
             raise ValueError('Widersprüchliche Produktrichtung')
         values['type'] = typ
+        metadata.update(simpleTurbo=True, quantoState='unknown', simpleNonQuantoTurbo=False)
     if r.get('keyFigures', {}).get('maturityDateTimestamp') == -1:
         values['maturity'] = 'Open End'
     conditions = {key:dict(value=value, at=None, source=url, conditionVerified=True,
                            reviewedAt=now.isoformat()) for key, value in values.items()}
     return dict(found=False, eligible=False, fresh=False, productVerified=True,
-                isin=isin, name=name, source='BNP Paribas · offizielle Produktdaten',
+                isin=isin, name=name, importActive=True, source='BNP Paribas · offizielle Produktdaten',
                 sourceUrl=url, checkedAt=now.isoformat(), metadata=metadata,
                 conditions=conditions, isDegiroQuote=False,
                 observedTerms=dict(ko=metadata.get('ko'), strike=metadata.get('strike'),
@@ -410,7 +411,7 @@ def get_bnp_dated_terms(isin, metadata):
             pass  # Day rollover or changed terms require a new page.
     url = ORIGIN+'product-details/'+isin+'/'
     request = Request(url, headers={'User-Agent':'Bob/1.7 public product research', 'Accept':'text/html'})
-    with urlopen(request, timeout=8) as response:
+    with urlopen(request, timeout=20) as response:
         if response.url.split('?')[0] != url:
             raise ValueError('Unerwartete BNP-Produktseite')
         body = response.read(2_000_001)

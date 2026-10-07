@@ -11,6 +11,11 @@ def snapshot():
     return dict(responseDate='2026-09-30T16:06:02Z',tradingHours=dict(isTradeable=True,tradingStart='2026-09-30T06:00:00Z',tradingEnd='2026-09-30T20:00:00Z'),result=dict(isin=ISIN,productName='GOLD Unlimited Long',issuerCompanyName='BNP Paribas',currency=dict(isoCode='EUR'),first=dict(underlyingISIN='USFX00000XAU',currency=dict(isoCode='USD'),knockOutAbsolute=3978.9026),keyFigures=dict(leverage=22.67,lastUpdate='2026-09-30T16:06:02Z'),config=dict(hasMultipleUnderlying=False,isPublicTradable=True,isMarketClosed=False,isKnockedOut=False,isMaturedOrKnockOut=False,isCanceled=False,isLifeCycleEnded=False,isBidOnly=False,isPercentageQuotation=False),bid=16.19,ask=16.2,bidSize=8000,askSize=8000,leverage=22.67,bidDate='2026-09-30T18:06:00.282',askDate='2026-09-30T18:06:00.282'))
 
 class ProductQuoteTests(unittest.TestCase):
+    def setUp(self):
+        self.backup = patch('onvista_backup.fetch', return_value=None)
+        self.backup.start()
+        self.addCleanup(self.backup.stop)
+
     def fetch_bnp(self, data):
         with patch.object(q, 'urlopen') as network:
             response = network.return_value.__enter__.return_value
@@ -62,8 +67,21 @@ class ProductQuoteTests(unittest.TestCase):
             first = q.get_quote(ISIN); second = q.get_quote(ISIN)
         self.assertEqual(fetch.call_count, 1)
         self.assertEqual(second['quoteFailureCode'], 'MISSING_QUOTE_TIME')
-        self.assertEqual(first['issuerResearch']['conditions'], failure['conditions'])
-        self.assertIn('Geldkurs', second['reason']); self.assertEqual(second['source'], 'comdirect')
+        self.assertEqual(first['conditions'], failure['conditions'])
+        self.assertIn('Geldkurs', second['reason']); self.assertIn('BNP Paribas', second['source'])
+
+    def test_bnp_direct_metadata_survives_secondary_source(self):
+        data = snapshot()
+        data['result'].update(derivativeTypeName='Unlimited Long')
+        data['result']['first'].update(ratio=.1, strikeAbsolute=3978.9026)
+        primary = q.bnp_product_data(data, ISIN, NOW)
+        with patch.object(q, 'get_issuer_quote', return_value=primary), patch('public_product_terms.get_product') as secondary:
+            result = q._get_quote_primary(ISIN)
+        secondary.assert_not_called()
+        self.assertTrue(result['metadata']['simpleTurbo'])
+        self.assertEqual(result['metadata']['quantoState'], 'unknown')
+        self.assertFalse(result['metadata']['simpleNonQuantoTurbo'])
+        self.assertFalse(result['metadata']['termsDated'])
 
     def test_bnp_terms_survive_comdirect_outage_without_quote_approval(self):
         data = snapshot(); del data['result']['askDate']
