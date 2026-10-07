@@ -19,7 +19,13 @@ _LOCK = threading.Lock()
 ORIGIN = 'https://derivate.bnpparibas.com/'
 SG_ORIGIN = 'https://www.sg-zertifikate.de/'
 # SG's own product IDs, not the independent onvista instrument IDs.
+SG_CH_PRODUCTS = {'DE000FG34XV8': 7039911}
+
+def sg_market(isin):
+    return ('https://www.sg-zertifikate.ch/', 'CBSW', 'CHF') if isin in SG_CH_PRODUCTS else (SG_ORIGIN, 'CBDE', 'EUR')
+
 SG_DIRECT_PRODUCTS = {
+    **SG_CH_PRODUCTS,
     'DE000FA06UL6': 5447361, 'DE000FG5GUX2': 6933779,
     'DE000FG5NMH8': 6953143, 'DE000FG7MTA6': 7136701,
     'DE000SQ02JQ6': 2829392,
@@ -71,9 +77,9 @@ def parse_sg(product, properties, isin, now=None):
     """
     now = now or datetime.now(timezone.utc)
     contract = sg_future_contract(product, isin)
-    if (product.get('Isin') != isin or product.get('ExchangeCode') != 'CBDE'
+    if (product.get('Isin') != isin or product.get('ExchangeCode') != sg_market(isin)[1]
             or (product.get('AssetNMP') != 'XAUUSD' and contract is None) or product.get('AssetCurrency') != 'USD'
-            or product.get('Currency') != 'EUR' or not isinstance(properties, list)):
+            or product.get('Currency') != sg_market(isin)[2] or not isinstance(properties, list)):
         raise ValueError('SG-Produktidentität oder Gold-Basiswert nicht bestätigt')
     attrs = {}
     for item in properties:
@@ -116,12 +122,12 @@ def parse_sg(product, properties, isin, now=None):
               'SG-Produkt erkannt; getrennte aktuelle Zeitstempel für Geld, Brief und Hebel fehlen')
     return dict(found=False, productVerified=True, eligible=False, fresh=False,
                 isin=isin, source='Société Générale · offizielle Produktdaten',
-                sourceUrl=SG_ORIGIN+'product-details/'+isin.lower(),
+                sourceUrl=sg_market(isin)[0]+'product-details/'+isin.lower(),
                 checkedAt=now.isoformat(), reason=reason,
                 metadata=dict(name=product.get('Name', ''), underlying=contract['name'] if contract else 'XAU/USD',
                               underlyingType='FUTURE' if contract else 'SPOT',
                               contract=contract['ric'] if contract else None,
-                              underlyingIsin=product.get('AssetIsin'), currency='EUR',
+                              underlyingIsin=product.get('AssetIsin'), currency=sg_market(isin)[2],
                               direction='LONG' if side == 'Call' else 'SHORT', ko=ko,
                               status=status, koEvidence=ko_evidence), maxAgeSeconds=MAX_AGE_SECONDS)
 
@@ -168,9 +174,9 @@ def parse_sg_chart_research(product, points, isin, now=None):
     expected = SG_DIRECT_PRODUCTS.get(isin)
     if (expected is None or product.get('Isin') != isin
             or type(product.get('Id')) is not int or product['Id'] != expected
-            or product.get('ExchangeCode') != 'CBDE'
+            or product.get('ExchangeCode') != sg_market(isin)[1]
             or (product.get('AssetNMP') != 'XAUUSD' and sg_future_contract(product, isin) is None)
-            or product.get('AssetCurrency') != 'USD' or product.get('Currency') != 'EUR'):
+            or product.get('AssetCurrency') != 'USD' or product.get('Currency') != sg_market(isin)[2]):
         raise ValueError('SG-Chartprodukt nicht eindeutig bestätigt')
     if not isinstance(points, list) or not points or len(points) > 10000:
         raise ValueError('SG-Chartdaten fehlen oder sind zu groß')
@@ -184,8 +190,8 @@ def parse_sg_chart_research(product, points, isin, now=None):
     age = (now-at).total_seconds()
     return dict(found=False, eligible=False, fresh=False, productVerified=True,
                 isin=isin, source='SG · Live-Chart, Recherche',
-                sourceUrl=SG_ORIGIN+'product-details/'+isin.lower(),
-                chartEvidence=dict(bid=bid, ask=ask, currency='EUR',
+                sourceUrl=sg_market(isin)[0]+'product-details/'+isin.lower(),
+                chartEvidence=dict(bid=bid, ask=ask, currency=sg_market(isin)[2],
                                    pointAt=at.isoformat(), ageSeconds=age,
                                    current=age <= MAX_AGE_SECONDS),
                 reason='Datierter Chartpunkt; separate Hebelzeit und vollständige Kursfreigabe fehlen')
@@ -584,12 +590,15 @@ def get_quote(isin):
     from onvista_backup import apply_backup
     isin = str(isin or '').strip().upper()
     result = apply_backup(_get_quote_primary(isin), isin)
+    if isin in SG_CH_PRODUCTS:
+        from sg_chf import convert_analysis
+        result = convert_analysis(result)
     chart = result.get('chartEvidence')
     if (not result.get('found') and result.get('productVerified') and
             result.get('metadata', {}).get('status') == 1 and chart):
         result['analysisQuote'] = dict(bid=chart['bid'], ask=chart['ask'], price=chart['ask'],
             bidAt=chart['pointAt'], askAt=chart['pointAt'], currency=chart['currency'],
-            source='SG · datierter Chartkurs', priceKind='issuer-chart',
+            source='SG · datierter Chartkurs'+(' · CHF in EUR umgerechnet' if result.get('currencyConversion') else ''), priceKind='issuer-chart',
             isExecutableQuote=False)
     from leverage_backup import apply
     return apply(result)
