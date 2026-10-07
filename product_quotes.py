@@ -346,6 +346,10 @@ def bnp_product_data(data, isin, now=None):
         values['maturity'] = 'Open End'
     conditions = {key:dict(value=value, at=None, source=url, conditionVerified=True,
                            reviewedAt=now.isoformat()) for key, value in values.items()}
+    from term_series import observed_condition
+    for key in ('strike', 'ko'):
+        if key in metadata:
+            conditions[key] = observed_condition(metadata[key], url, isin, now.isoformat())
     return dict(found=False, eligible=False, fresh=False, productVerified=True,
                 isin=isin, name=name, importActive=True, source='BNP Paribas · offizielle Produktdaten',
                 sourceUrl=url, checkedAt=now.isoformat(), metadata=metadata,

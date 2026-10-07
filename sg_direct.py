@@ -9,6 +9,7 @@ import time
 from zoneinfo import ZoneInfo
 from datetime import datetime, timezone
 import product_quotes as q
+from term_series import observed_condition
 
 _LOCK = threading.Lock()
 _PRODUCT_LOCKS = {}
@@ -24,7 +25,7 @@ def refresh_evidence(result):
         age = (datetime.now(timezone.utc)-q.stamp(evidence['pointAt'])).total_seconds()
         evidence.update(ageSeconds=round(age, 1), current=0 <= age <= q.MAX_AGE_SECONDS)
         result['reason'] = ('SG-Direktimport aktiv (30 s): Chart Geld {:.3f} / Brief {:.3f} {}, Stand {} ({}). '
-            'Stammdaten übernommen; '+('KO/Basispreis nachgewiesen; ' if (result.get('metadata', {}).get('termsDated') or result.get('metadata', {}).get('termsFixed')) else 'datierter KO-/Basispreisnachweis fehlt; ')+'Im Direktabruf liegt kein separat datierter Hebel vor; ergänzende Bildnachweise werden in Bob separat berücksichtigt.').format(
+            'Stammdaten übernommen; '+('KO/Basispreis nachgewiesen; ' if (result.get('metadata', {}).get('termsDated') or result.get('metadata', {}).get('termsFixed')) else 'Basispreis/KO mit Zeitbezug der automatischen Abrufserie übernommen; ')+'Im Direktabruf liegt kein separat datierter Hebel vor; ergänzende Bildnachweise werden in Bob separat berücksichtigt.').format(
                 evidence['bid'], evidence['ask'], evidence['currency'], evidence['pointAt'],
                 'aktuell' if evidence['current'] else 'veraltet')
     return result
@@ -69,9 +70,8 @@ def conditions(product, properties, result):
     # date. This is observed evidence, never a dated condition or clearance.
     for key in ('ko', 'strike'):
         if key in observed:
-            result['conditions'][key] = dict(value=observed[key], at=None,
-                source=result['sourceUrl'], reviewedAt=result['checkedAt'],
-                conditionVerified=False, validityUnconfirmed=True)
+            result['conditions'][key] = observed_condition(observed[key], result['sourceUrl'],
+                result['isin'], result.get('termsCheckedAt', result['checkedAt']))
     # SG explicitly dates changes to strike AND barrier. Retain only its
     # calendar date; do not invent a timezone, intraday time or quote clock.
     evidence = result['metadata'].get('koEvidence')
@@ -124,7 +124,7 @@ def get_quote(isin, terms_only=False):
         try:
             terms = _TERMS.get(isin)
             if terms and time.monotonic()-terms[0] < 300:
-                product, properties = terms[1:]
+                product, properties, observed_at = terms[1:]
             else:
                 origin = q.sg_market(isin)[0]
                 base = origin+'EmcWebApi/api/'
@@ -145,12 +145,14 @@ def get_quote(isin, terms_only=False):
                 stage = 'properties'
                 properties = q.issuer_json(base+'Products/AllProperties/'+str(product['Id']), origin, timeout=12)
                 q.parse_sg(product, properties, isin)
-                _TERMS[isin] = (time.monotonic(), product, properties)
+                observed_at = datetime.now(timezone.utc).isoformat()
+                _TERMS[isin] = (time.monotonic(), product, properties, observed_at)
             result.update(q.parse_sg(product, properties, isin))
             # UI uses normalized 1=active / 2=ended, not SG's bit flags (65).
             result['metadata']['sgStatus'] = product['Status']
             result['metadata']['status'] = (2 if product['Status'] & (2|8|16|32)
                 or not product['Status'] & 1 or product.get('TodayBarrierHitDate') else 1)
+            result['termsCheckedAt'] = observed_at
             conditions(product, properties, result)
             if product['Status'] & (2|8|16|32) or not product['Status'] & 1 or product.get('TodayBarrierHitDate'):
                 result['reason'] = 'SG-Produkt beendet oder ausgeknockt – ausgeschlossen'
@@ -163,7 +165,7 @@ def get_quote(isin, terms_only=False):
                 chart = q.parse_sg_chart_research(product, points, isin)
                 result['chartEvidence'] = chart['chartEvidence']
                 result['reason'] = ('SG-Direktimport aktiv (30 s): Stammdaten übernommen; '
-                    'Geld/Brief als datierter Chartnachweis. Separat datierter Hebel und gültiger KO-/Basispreisnachweis fehlen weiterhin.')
+                    'Geld/Brief als datierter Chartnachweis. Basispreis/KO verwenden den Zeitbezug der automatischen Abrufserie; Hebelnachweise werden separat geprüft.')
         except Exception as exc:
             result.update(sourceFailure=not result['productVerified'],
                           quoteFailureCode='SG_SOURCE_UNAVAILABLE', reason=q.sg_source_error(exc, stage))

@@ -42,6 +42,21 @@ class DirectTests(unittest.TestCase):
         self.assertEqual(out['observedTerms']['strike'],4400)
         self.assertEqual(out['metadata']['status'],1)
         self.assertEqual(out['metadata']['sgStatus'],65)
+    def test_term_series_cache_does_not_gain_quote_refresh_time(self):
+        with patch.object(sg.time,'monotonic',return_value=0), patch.object(q,'issuer_json',side_effect=[self.product,self.props,self.points]):
+            first=sg.get_quote(ISIN)
+        with patch.object(sg.time,'monotonic',return_value=31), patch.object(q,'issuer_json',return_value=self.points):
+            refreshed=sg.get_quote(ISIN)
+        for key in ('strike','ko'):
+            before=first['conditions'][key]['validitySeries']
+            after=refreshed['conditions'][key]['validitySeries']
+            self.assertEqual(before,after)
+            self.assertEqual(after['observedAt'],first['termsCheckedAt'])
+            self.assertEqual(after['isin'],ISIN)
+            self.assertIsNone(refreshed['conditions'][key]['at'])
+        self.assertFalse(refreshed['metadata']['termsDated'])
+        self.assertFalse(refreshed['eligible'])
+
     def test_identity_mismatch_stops_before_properties(self):
         self.product['Isin']='DE000FG4JXV7'
         with patch.object(q,'issuer_json',return_value=self.product) as fetch:

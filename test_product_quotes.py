@@ -37,7 +37,10 @@ class ProductQuoteTests(unittest.TestCase):
         self.assertIn('Geldkurs', result['reason'])
         self.assertEqual(result['conditions']['ratio']['value'], .1)
         self.assertEqual(result['conditions']['maturity']['value'], 'Open End')
-        self.assertNotIn('ko', result['conditions']); self.assertNotIn('strike', result['conditions'])
+        for key in ('ko', 'strike'):
+            self.assertIsNone(result['conditions'][key]['at'])
+            self.assertFalse(result['conditions'][key]['conditionVerified'])
+            self.assertEqual(result['conditions'][key]['validitySeries']['isin'], ISIN)
         self.assertFalse(result['metadata']['termsDated'])
         self.assertIsNone(result['observedTerms']['effectiveAt'])
         for key in ('bid', 'ask', 'quoteAt', 'bidAt', 'askAt', 'leverageAt'):
