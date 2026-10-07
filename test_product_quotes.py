@@ -162,27 +162,20 @@ class ProductQuoteTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             q.parse_sg_chart_research(product, [dict(Bid=10, Ask=11, Date='2026-09-30T16:06:00Z')], product['Isin'], NOW)
 
-    def test_newly_confirmed_sg_id_never_routes_to_bnp_or_reuses_cache(self):
+    def test_newly_confirmed_sg_id_routes_direct_without_bnp_cache(self):
         isin = 'DE000FG7K283'
-        with patch.dict(q._CACHE, {isin:(__import__('time').monotonic(), {'found':True,'source':'BNP Paribas'})}, clear=True), patch.object(q,'get_bnp_quote') as bnp:
+        with patch.dict(q._CACHE, {isin:(__import__('time').monotonic(), {'found':True,'source':'BNP Paribas'})}, clear=True), patch.object(q,'get_bnp_quote') as bnp, patch.object(q, 'get_sg_quote', return_value={'importActive':True}) as sg:
             result=q.get_issuer_quote(isin)
-        bnp.assert_not_called()
-        self.assertEqual(result['sourceFailureCode'], 'SG_PROVIDER_PERMISSION_UNCONFIRMED')
-        self.assertNotIn('Nutzerwunsch', result['reason'])
-        self.assertFalse(result['eligible'])
+        bnp.assert_not_called(); sg.assert_called_once_with(isin)
+        self.assertTrue(result['importActive'])
 
-    def test_sg_diagnostics_survive_comdirect_enrichment(self):
-        isin = 'DE000FG7K283'
-        for verified in (True, False):
-            terms = dict(found=False, productVerified=verified, reason='Produktdaten',
-                         metadata=dict(status=1), conditions={'ratio':.1})
-            with patch('public_product_terms.get_product', return_value=terms):
-                result=q.get_quote(isin)
-            self.assertIn('SG-Direktimport noch nicht aktiviert', result['reason'])
-            self.assertEqual(result['sourceFailureCode'], 'SG_PROVIDER_PERMISSION_UNCONFIRMED')
-            if verified:
-                self.assertEqual(result['conditions'], {'ratio':.1})
-                self.assertTrue(result['issuerResearch']['sourceDisabled'])
+    def test_sg_direct_conditions_survive_secondary_enrichment(self):
+        direct = dict(found=False, productVerified=True, importActive=True,
+                      conditions={'ratio': {'value':.1}}, metadata={'status':65})
+        with patch('public_product_terms.get_product', return_value={'productVerified':True,'metadata':{'status':1}}), patch.object(q, 'get_issuer_quote', return_value=direct):
+            result=q.get_quote('DE000FG7K283')
+        self.assertEqual(result['conditions'], direct['conditions'])
+        self.assertTrue(result['importActive'])
 
     def chart_gearing_fixture(self):
         product, props = self.sg_snapshot()
@@ -268,7 +261,7 @@ class ProductQuoteTests(unittest.TestCase):
 
     def test_sg_adapter_and_issuer_selection(self):
         with patch.object(q,'urlopen') as network:
-            for isin in ('DE000FG4JXV7','DE000FG309G0','DE000FG7EPT1','DE000FG6XB39','DE000FC1CHB7','DE000FA06UL6','DE000FG5GUT0'):
+            for isin in ('DE000FG309G0','DE000FG7EPT1','DE000FG6XB39','DE000FC1CHB7','DE000FA06UL6','DE000FG5GUT0'):
                 result=q.get_issuer_quote(isin)
                 self.assertTrue(result['sourceDisabled']);self.assertFalse(result['eligible'])
             network.assert_not_called()

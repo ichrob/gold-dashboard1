@@ -107,3 +107,29 @@ access to these retail ISINs. Automatic SG import remains disabled pending
 provider permission and suitable complete inputs. BNP is unchanged.
 
 - https://shared.sgmarkets.com/sp-help-center-content/external-api-doc.html
+
+## 7 October — authorized direct website import
+
+The user confirmed that SG's positive reply of 7 October responds to the
+private-use request including 30-second retrieval. The previous permission
+block is removed for SG website requests. No onvista path is re-enabled.
+
+`sg_direct.py` now imports the verified direct IDs for DE000FG7K283 and
+DE000FG4JXV7 through Products, AllProperties and Prices/Live. Shared serialized
+requests and cached errors enforce at least 30 seconds between refreshes per
+product per process. Metadata is reused for five minutes; source clocks never
+advance on cache hits. The existing product refresh in the open application
+requests updates every 30 seconds; this is not a new always-on collection job.
+
+Identified ratio, currency, underlying, product type and explicitly open-ended
+maturity are handed to the existing condition UI. KO and strike remain raw
+observations when their effective timezone/date cannot be established. Dated
+chart pairs are retained as chartEvidence and shown in the diagnostic reason,
+with freshness recomputed on each read. They do not manufacture a leverage
+clock or override a verified screenshot. Unknown direct IDs retain a technical
+verification diagnostic, not the obsolete permission claim. BNP is unchanged.
+
+Regression coverage includes wrong product identity, inactive products, source
+outage, metadata retention, stale chart evidence, original clocks and the
+30-second boundary. Automatic trade/product release remains gated by complete
+valid evidence. No trades are performed.

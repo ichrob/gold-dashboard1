@@ -7,11 +7,13 @@ import sg_quotes
 
 
 class SourcePermissionTests(unittest.TestCase):
-    def test_sg_issuer_host_is_blocked_before_network(self):
+    def test_sg_authorized_host_can_be_read(self):
         with patch.object(product_quotes, 'urlopen') as network:
-            with self.assertRaisesRegex(PermissionError, 'SG_PROVIDER_PERMISSION_UNCONFIRMED'):
-                product_quotes.issuer_json(product_quotes.SG_ORIGIN+'EmcWebApi/api/Products/DE000FG4JXV7', product_quotes.SG_ORIGIN)
-            network.assert_not_called()
+            response = network.return_value.__enter__.return_value
+            response.url = product_quotes.SG_ORIGIN+'EmcWebApi/api/Products/DE000FG4JXV7'
+            response.read.return_value = b'{}'
+            self.assertEqual(product_quotes.issuer_json(response.url, product_quotes.SG_ORIGIN), {})
+            network.assert_called_once()
 
     def test_onvista_never_requests_without_provider_permission(self):
         for config in ({}, {'BOB_ONVISTA_AUTOMATION_APPROVED': 'true'},
