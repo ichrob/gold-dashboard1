@@ -39,8 +39,8 @@ def sg_future_contract(product, isin):
 
 def issuer_json(url, origin, timeout=6):
     """Read a bounded response only from the selected issuer's fixed host."""
-    if url.startswith(SG_ORIGIN) or origin == SG_ORIGIN:
-        raise PermissionError('SG_PROVIDER_PERMISSION_UNCONFIRMED')
+    if not url.startswith(origin):
+        raise ValueError('Unerwarteter Anbieterhost')
     request = Request(url, headers={'User-Agent': 'Bob/1.7 public product research',
                                    'Accept': 'application/json', 'Cache-Control': 'no-cache'})
     with urlopen(request, timeout=timeout) as response:
@@ -133,16 +133,17 @@ def sg_source_error(exc, stage):
 
 
 def sg_disabled(isin):
-    """Direct research is authorized; unattended reuse is not yet confirmed."""
+    """Known SG route without a verified direct product-ID adapter yet."""
     return dict(found=False, eligible=False, fresh=False, productVerified=False,
                 isin=isin, source='SG-Abruf deaktiviert', sourceDisabled=True,
                 sourceFailure=False,
-                sourceFailureCode='SG_PROVIDER_PERMISSION_UNCONFIRMED',
-                reason='SG-Direktimport noch nicht aktiviert: Anbieterberechtigung und vollständig belegte Eingangsdaten fehlen. Ein SG-Hebel-Zeitstempel ist für einen berechneten Näherungshebel nicht erforderlich. Screenshotdaten bleiben nutzbar.')
+                sourceFailureCode='SG_DIRECT_ID_NOT_VERIFIED',
+                reason='SG-Nutzung bestätigt; für dieses Produkt ist der direkte Abruf noch nicht verifiziert. Screenshotdaten bleiben nutzbar.')
 
 
 def get_sg_quote(isin):
-    return sg_disabled(isin)
+    from sg_direct import get_quote
+    return get_quote(isin)
 
 
 def parse_sg_chart_research(product, points, isin, now=None):
@@ -459,7 +460,7 @@ def get_issuer_quote(isin):
     # Check before cache: an earlier SG response must never be reused as live.
     from sg_quotes import PRODUCT_IDS
     if isin in PRODUCT_IDS or isin in SG_GOLD_FUTURES or isin in SG_DIRECT_PRODUCTS:
-        return sg_disabled(isin)
+        return get_sg_quote(isin)
     with _LOCK:
         cached = _CACHE.get(isin)
         if cached and time.monotonic()-cached[0] < 15 and str(cached[1].get('source', '')).startswith('BNP Paribas'):
@@ -525,7 +526,7 @@ def get_quote(isin):
     issuer = get_issuer_quote(isin)
     if issuer.get('productVerified') and issuer.get('metadata', {}).get('status') == 2:
         return dict(issuer, found=False, eligible=False, exchangeResearch=terms)
-    if issuer.get('productVerified') and issuer.get('metadata', {}).get('termsDated') is True:
+    if issuer.get('productVerified') and (issuer.get('importActive') or issuer.get('metadata', {}).get('termsDated') is True):
         return dict(issuer, exchangeResearch=terms)
     if not terms.get('productVerified'):
         if issuer.get('found') or issuer.get('productVerified'):
