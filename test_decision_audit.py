@@ -90,5 +90,14 @@ class ReportCoalescingTests(unittest.TestCase):
   with patch.object(a,'_build_report',side_effect=RuntimeError('database unavailable')):
    with self.assertRaises(RuntimeError):a.report(None)
    self.assertIsNone(a._report_cache)
-  with patch.object(a,'_build_report',return_value={'metrics':{}}) as build,patch.object(a.time,'monotonic',side_effect=[100,131,131]):
+  with patch.object(a,'_build_report',return_value={'metrics':{}}) as build,patch.object(a.time,'monotonic',side_effect=[100,100+a.REPORT_CACHE_SECONDS+1,100+a.REPORT_CACHE_SECONDS+1]):
    a.report(None);a.report(None);self.assertEqual(build.call_count,2)
+ def test_report_query_is_bounded_for_interactive_reads(self):
+  from unittest.mock import Mock,patch
+  conn=Mock();rows=[]
+  conn.execute.side_effect=[Mock(fetchall=lambda:rows),Mock(fetchone=lambda:(0,))]
+  with patch.object(a,'harvest'),patch.object(a.intraday_comparison,'report',return_value={}):
+   result=a._build_report(conn)
+  query,params=conn.execute.call_args_list[0].args
+  self.assertIn('LIMIT %s',query);self.assertEqual(params,(a.REPORT_LIMIT,))
+  self.assertEqual(result['reportRecords'],0)

@@ -1017,7 +1017,7 @@ async function testPush(){
 (function(){const t=localStorage.getItem("goldScannerNtfyTopic");if(t&&$("ntfyTopic"))$("ntfyTopic").value=t;})();
 renderPush();
 
-var C=[], lastPrice=0, A={}, lastMtfAt=0, liveFxUsdEur=null, loadGeneration=0, MTF={longs:0,shorts:0,neutral:0,overall:"NEUTRAL",byTf:{},dirs:[]};
+var C=[], lastPrice=0, A={}, lastMtfAt=0, lastMtfVerifyAt=0, liveFxUsdEur=null, loadGeneration=0, MTF={longs:0,shorts:0,neutral:0,overall:"NEUTRAL",byTf:{},dirs:[]};
 function getMtfState(){const m=window.BobSession?.expired()?null:(typeof MTF==="object"&&MTF!==null)?MTF:null;return m&&typeof m.overall!=="undefined"?m:{longs:0,shorts:0,neutral:4,overall:"NEUTRAL",byTf:{},dirs:[]};}
 function ema(a,p){let k=2/(p+1),e=a[0];for(let i=1;i<a.length;i++)e=a[i]*k+e*(1-k);return e}
 function emaSeries(a,p){let k=2/(p+1),e=a[0],o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e)}return o}
@@ -1423,6 +1423,15 @@ async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
   const mtfSummary=$("mtfSummary");
   if(mtfSummary)mtfSummary.innerHTML="<b>"+overall+"</b><br>"+longs+" LONG · "+shorts+" SHORT · "+neutral+" NEUTRAL · "+strength+"<br><span class=\"small\">Intraday: 15m Setup, 5m Einstieg. 1h/4h bleiben Kontext ohne Veto.</span>";
   MTF={longs,shorts,neutral,overall,byTf,dirs,hierarchy:mtfHierarchy};
+  // The bundle above already contains the server history used by the current
+  // analysis. A second server verification is diagnostic only; running it on
+  // every 30-second repaint overloaded slow/free instances and caused browsers
+  // to abort otherwise healthy analyses. Verify at most once every two minutes.
+  if(!force&&Date.now()-lastMtfVerifyAt<120000){
+   reportBobDiag('mtf:verification-skipped',{reason:'Serverprüfung vor weniger als zwei Minuten bereits gestartet'});
+   renderAnalysisBlocks();updateTradeSignal();updateResearchPanel();return MTF;
+  }
+  lastMtfVerifyAt=Date.now();
   // Server-side verification is the authoritative runtime check for the MTF pipeline.
   const verifyController=new AbortController(),verifyTimer=setTimeout(()=>verifyController.abort(),8000);
   try{
@@ -1453,7 +1462,12 @@ async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
    }else{
     reportBobDiag("mtf:server-error",{error:"HTTP "+vr.status,reason:"/api/mtf verification failed"});
    }
-  }catch(e){reportBobDiag("mtf:server-error",{error:e?.message||String(e),reason:"/api/mtf verification exception"});}finally{clearTimeout(verifyTimer);}
+  }catch(e){
+   const message=e?.message||String(e);
+   if(verifyController.signal.aborted||e?.name==='AbortError'||/\babort(?:ed|ing)?\b/i.test(message))
+    reportBobDiag('mtf:verification-skipped',{reason:'Zeitbegrenzte Serverprüfung beendet; aktuelle Bundle-Analyse bleibt gültig'});
+   else reportBobDiag("mtf:server-error",{error:message,reason:"/api/mtf verification exception"});
+  }finally{clearTimeout(verifyTimer);}
   if(generation!==null&&generation!==loadGeneration)return MTF;
   renderAnalysisBlocks();updateTradeSignal();updateResearchPanel();return MTF;
  }catch(e){

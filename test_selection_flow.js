@@ -182,8 +182,9 @@ for(const c of [context,{...context,direction:'NEUTRAL'}, {...context,now:now+14
  assert.equal(result.notApproved.length,products.length-selected.size);
  const html=b.renderSelectionWorkflow(result);
  for(const p of result.notApproved){assert(!selected.has(p.isin));assert(p.reasons.length);assert(html.includes(p.isin));}
- assert.equal((html.match(/<strong>Nicht freigegeben<\/strong>/g)||[]).length,result.notApproved.length);
- assert.equal((html.match(/Begründung:/g)||[]).length,result.notApproved.length);
+ assert.equal((html.match(/data-selection-blocked=/g)||[]).length,result.notApproved.length);
+ assert.equal((html.match(/<b>Aktuelle Auswahl:<\/b> nicht ausgewählt/g)||[]).length,result.notApproved.length);
+ assert.equal((html.match(/Warum derzeit nicht ausgewählt\?/g)||[]).length,result.notApproved.length);
 }
 const allBlocked=b.selectionWorkflow([...copies,futureOk],{...context,direction:'NEUTRAL'},{});
 assert.equal(allBlocked.notApproved.length,4);assert(b.renderSelectionWorkflow(allBlocked).includes('data-selection-blocked="4"'));

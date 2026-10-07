@@ -41,7 +41,7 @@ if (!fs.readFileSync("server.py","utf8").includes('"is_genuine_xauusd_spot": is_
 if (!fs.readFileSync("server.py","utf8").includes("Never promote technical/futures history to the XAU/USD spot field.")) throw new Error("synthetic spot fallback guard missing");
 if (!fs.readFileSync("Bob.html","utf8").includes("REFERENZ · GC=F")) throw new Error("UI must distinguish futures fallback from XAU/USD spot");
 
-if (!fs.readFileSync("Bob.html","utf8").includes("var C=[], lastPrice=0, A={}, lastMtfAt=0, liveFxUsdEur=null,")) throw new Error("live analysis/FX state must be hoisted");
+if (!fs.readFileSync("Bob.html","utf8").includes("var C=[], lastPrice=0, A={}, lastMtfAt=0, lastMtfVerifyAt=0, liveFxUsdEur=null,")) throw new Error("live analysis/MTF verification/FX state must be hoisted");
 
 if (!fs.readFileSync("server.py","utf8").includes("from spot_data import current")) throw new Error("shared spot source missing");
 
