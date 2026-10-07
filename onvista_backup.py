@@ -84,7 +84,7 @@ def fetch(isin):
             code = str(exc)
         with _LOCK:
             _FAILURES[isin] = dict(state='unavailable', code=code, checkedAt=datetime.now(timezone.utc).isoformat())
-        result, ttl = None, 300
+        result, ttl = None, (30 if code == 'Kein aktuelles Geld-/Briefpaar' else 300)
     with _LOCK:
         _CACHE[isin] = (time.monotonic()+ttl, result)
     return result
