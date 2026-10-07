@@ -1481,7 +1481,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben'){
  if(knockoutStatus(p))return knockoutCard(p);
  const direct=p.quote?.isin===p.isin&&p.quote?.productVerified?p.quote:null;
  const excluded=direct?.metadata?.status===2?'Produkt beendet oder ausgeknockt – ausgeschlossen':/FAKTOR|FACTOR/i.test([p.name,direct?.metadata?.name,p.snapshot?.terms?.type?.value].join(' '))?'Faktorprodukt ausgeschlossen':null;
- if(excluded)return '<div data-product-isin="'+esc(p.isin)+'" style="padding:14px;margin-top:10px;border:1px solid #dc2626;border-radius:12px"><b>'+esc(p.isin)+'</b><p>'+esc(excluded)+'</p><p>Keine weiteren Daten oder Screenshots erforderlich.</p>'+renderProductSources(p)+'</div>';
+ if(excluded)return '<div data-product-isin="'+esc(p.isin)+'" style="padding:14px;margin-top:10px;border:1px solid #dc2626;border-radius:12px"><b>'+esc(p.isin)+'</b><p>'+esc(excluded)+'</p><p>Keine weiteren Daten oder Screenshots erforderlich.</p>'+(direct?.lifecycleEvidence?'<p>'+esc(direct.reason)+'</p>':'')+renderProductSources(p)+'</div>';
  const complete=finalProductStatus(p).complete;
  const x=p.snapshot,terms={...(x?.terms||{}),...(direct?.conditions||{})},values=[];
  for(const [key,label] of Object.entries({strike:'Basispreis USD',ko:'KO USD',ratio:'Bezugsverhältnis',underlying:'Basiswert'})){

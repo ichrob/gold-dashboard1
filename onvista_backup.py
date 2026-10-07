@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 
 # Previously verified Onvista instrument identities from sg_quotes.PRODUCT_IDS.
-IDS = {'DE000FG5GUT0':336000321, 'DE000FG4JXV7':340459583, 'DE000FG7EPT1':341071258, 'DE000FG6XB39':339841792, 'DE000FC1CHB7':309138945}
+IDS = {'DE000FG5GUX2':335999756, 'DE000FG5GUT0':336000321, 'DE000FG4JXV7':340459583, 'DE000FG7EPT1':341071258, 'DE000FG6XB39':339841792, 'DE000FC1CHB7':309138945}
 PAGES = {isin:'https://www.onvista.de/derivate/Knock-Outs/handelsplaetze/'+str(id)+'-'+isin[5:11]+'-'+isin for isin,id in IDS.items()}
 _CACHE = {}
 _FAILURES = {}
@@ -64,6 +64,23 @@ def parse_page(html, isin, now=None):
                 leverageCalculatedAt=figure.get('datetimeCalculation'),
                 source='Onvista · '+q['market']['name'], sourceUrl=PAGES[isin],
                 priceKind='secondary-market', isDegiroQuote=False, analysisMaxAgeSeconds=ANALYSIS_MAX_AGE_SECONDS)
+
+def parse_knockout_evidence(html, isin, now=None):
+    now = now or datetime.now(timezone.utc)
+    match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.S)
+    data = json.loads(match[1])['props']['pageProps']['data']['snapshot']
+    i, d = data['instrument'], data['derivativesDetails']
+    u = data['derivativesUnderlyingList']['list']
+    if (i.get('isin') != isin or i.get('wkn') != isin[5:11]
+            or str(i.get('entityValue')) != str(IDS[isin])
+            or i.get('entitySubType') != 'KNOCKOUT_CERTIFICATE'
+            or len(u) != 1 or u[0]['instrument'].get('isin') != 'XC0009655157'
+            or d.get('nameExerciseRight') not in ('CALL','PUT')
+            or d.get('hasBarrierBeenHit') is not True):
+        return None
+    return dict(isin=isin, direction='LONG' if d['nameExerciseRight']=='CALL' else 'SHORT',
+                knockoutReported=True, source=PAGES[isin], checkedAt=now.isoformat())
+
 
 def parse_model_evidence(html, isin, now=None):
     """Static conversion terms are independent of the age of price fields."""
@@ -130,7 +147,7 @@ def fetch(isin):
                     _MODEL[isin] = (time.monotonic(), model)
             except (KeyError, TypeError, ValueError, IndexError):
                 pass
-            result = parse_page(html, isin)
+            result = parse_knockout_evidence(html, isin) or parse_page(html, isin)
         ttl = 30
         with _LOCK:
             _FAILURES.pop(isin, None)
@@ -160,6 +177,15 @@ def apply_backup(primary, isin, now=None):
     if backup.get('direction') != meta.get('direction'):
         return dict(primary, backupStatus={'state':'rejected','code':'DIRECTION_MISMATCH'})
     now = now or datetime.now(timezone.utc)
+    if backup.get('knockoutReported'):
+        if not 0 <= (now-clock(backup['checkedAt'])).total_seconds() <= 300:
+            return primary
+        result = dict(primary, metadata=dict(meta, status=2), found=False, eligible=False,
+                      fresh=False, marketOpen=False, lifecycleEvidence=backup,
+                      reason='Onvista meldet Knock-out; SG-Stammdaten widersprechen. Produkt gesperrt, keine Kursbilder erforderlich.')
+        for key in ('analysisQuote','chartEvidence','leverage','leverageCalculation','calculatedProduct'):
+            result.pop(key, None)
+        return result
     # Every use rechecks cache age; never renew quote clocks on retrieval.
     try:
         if any(not 0 <= (now-clock(backup[k])).total_seconds() <= ANALYSIS_MAX_AGE_SECONDS for k in ('bidAt', 'askAt')):

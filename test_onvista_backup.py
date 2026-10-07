@@ -18,6 +18,20 @@ def page():
 def html(data):
     return '<script id="__NEXT_DATA__" type="application/json">'+json.dumps({'props':{'pageProps':{'data':{'snapshot':data}}}})+'</script>'
 class BackupTests(unittest.TestCase):
+    def test_explicit_knockout_overrides_stale_active_metadata(self):
+        data=page();data['derivativesDetails']['hasBarrierBeenHit']=True
+        evidence=b.parse_knockout_evidence(html(data),ISIN,NOW)
+        self.assertTrue(evidence['knockoutReported'])
+        primary=dict(isin=ISIN,productVerified=True,metadata=dict(status=1,underlyingType='SPOT',direction='LONG'),analysisQuote={'ask':4},leverage=10)
+        with patch.object(b,'fetch',return_value=evidence):
+            out=b.apply_backup(primary,ISIN,NOW)
+        self.assertEqual(out['metadata']['status'],2)
+        self.assertFalse(out['eligible'])
+        self.assertNotIn('analysisQuote',out)
+        self.assertNotIn('leverage',out)
+        data['instrument']['isin']='DE000FG4JXV7'
+        self.assertIsNone(b.parse_knockout_evidence(html(data),ISIN,NOW))
+
     def test_static_model_survives_stale_quotes_without_promoting_them(self):
         data=page()
         data['derivativesDetails'].update(quanto=False,hasIndicativeDetails=False)
