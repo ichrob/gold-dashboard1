@@ -330,8 +330,10 @@ def _worker(db):
                         if feed and not any(p.get('isin') for p in feed[0]['products']):feed=None
                         if not feed:
                             legacy=conn.execute('''SELECT selection_evidence FROM subscriptions WHERE selection_evidence IS NOT NULL
+                                AND EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(selection_evidence->'products','[]'::jsonb)) AS product
+                                            WHERE COALESCE(product->>'isin','') <> '')
                                 ORDER BY updated_at DESC LIMIT 1''').fetchone()
-                            if legacy and legacy[0].get('products'):
+                            if legacy and any(p.get('isin') for p in legacy[0].get('products',[]) if isinstance(p,dict)):
                                 sync(conn,legacy[0]);feed=(legacy[0],)
                         if not feed:
                             # Identified by the user's October 7 DEGIRO/BNP screenshots;
