@@ -193,3 +193,25 @@ used to repair their source timestamps.
 Validation: 76 Python regressions passed, including primary-source priority,
 secondary fallback, terminal exclusions, and rejection of undated/stale data.
 Full automatic fresh quote + leverage coverage remains unresolved.
+
+### Onvista quote backup enabled by user (2026-10-07)
+
+The user explicitly requested Onvista as an additional automatic backup, superseding
+prior exclusion for this new adapter. The legacy sg_quotes.fetch_snapshot remains
+unchanged. The new adapter covers verified page identities FG5GUT, FG4JXV, FG7EPT,
+FG6XB3 and FC1CHB. Live HTTP page tests returned current bid/ask pairs for all five.
+It selects the newest timestamped EUR RLT pair across the page's venues, checks
+ISIN/WKN/instrument identity, active knockout status, Gold Spot and direction, and
+preserves the original issuer conditions without copying secondary KO/strike.
+
+Fallback is attempted only with verified active Spot terms and no eligible primary
+quote. A current eligible primary wins automatically; newer primary pairs are not
+replaced. Success is cached for 30 seconds, failures for five minutes; source clocks
+are rechecked on each use. No authorization errors are bypassed. Response timeout
+is 20 seconds because the observed public page responses took over eight seconds.
+
+Onvista gearing has a separate calculation timestamp and older underlying/ask input
+times. Its effective age uses the oldest supplied input. Secondary quotes remain
+indicative, with backup source and stale-data labels, not a confirmed live release.
+No BNP, FG7K27 or Future coverage is claimed by this adapter. Full automatic data
+coverage remains incomplete; product terms and numeric prerequisites still apply.
