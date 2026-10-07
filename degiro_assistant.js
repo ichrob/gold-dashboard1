@@ -1465,7 +1465,11 @@ function updateProductHtml(root,html){
  }
  return true;
 }
+function productEvidenceReason(p,reason){
+ return reason==='Detailbild mit derselben ISIN'&&p.quote?.isin===p.isin&&p.quote.productVerified===true&&automaticIdentity(p)?'Zusätzlicher Live-Nachweis offen':reason;
+}
 function compactProductCard(p,reasons=[],status='Nicht freigegeben'){
+ reasons=reasons.map(reason=>productEvidenceReason(p,reason));
  if(knockoutStatus(p))return knockoutCard(p);
  const direct=p.quote?.isin===p.isin&&p.quote?.productVerified?p.quote:null;
  const excluded=direct?.metadata?.status===2?'Produkt beendet oder ausgeknockt – ausgeschlossen':/FAKTOR|FACTOR/i.test([p.name,direct?.metadata?.name,p.snapshot?.terms?.type?.value].join(' '))?'Faktorprodukt ausgeschlossen':null;
@@ -1477,6 +1481,9 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben'){
  for(const [key,e] of Object.entries(x?.evidence||{})){if(key!=='KO'&&key!=='Spread')values.push(key+': '+e.value+(e.at?' · '+e.at:''));}
  const groups=[],unconfirmed=[],locations=new Map(),fieldStates=productFieldStates(p);
  for(const reason of reasons){
+  if(reason==='Zusätzlicher Live-Nachweis offen'){
+   groups.push(reason);locations.set(reason,'Produktidentität automatisch bestätigt. Für die Live-Freigabe fehlt eine bestätigte aktuelle Anbieterquotierung oder ein gültiger zusätzlicher Kursnachweis. Chartwerte und berechneter Hebel bleiben für die Analyse nutzbar.');continue;
+  }
   if(/Geld|Brief|Kurszeit|Kursbild|Produktkurs|BNP-Kursabruf/.test(reason)&&['bid','ask'].every(k=>fieldStates[k].state!=='fehlt')){
    const label='Geld/Brief vorhanden; Datenstand und Kursart siehe oben. Live-Nachweis bleibt separat geprüft.';
    if(!unconfirmed.includes(label))unconfirmed.push(label);continue;
@@ -1944,7 +1951,7 @@ function finalProductStatus(p,now=Date.now(),reference){
  if(!issuer&&!future&&!shot.complete&&!ref){
   const issue=bnpSourceIssue(p,now);
   if(issue)reasons.push(issue);
-  else reasons.push(...shot.reasons.filter(x=>!status.reasons.includes(x)));
+  else reasons.push(...shot.reasons.filter(x=>!status.reasons.includes(x)).map(reason=>productEvidenceReason(p,reason)));
  }
  return {...status,complete:!reasons.length,reasons};
 }
