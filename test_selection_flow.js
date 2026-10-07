@@ -620,3 +620,15 @@ for(const key of ['strike','ko'])fixedIssuer.quote.conditions[key]={value:3997.1
 assert(b.productTermsStatus(fixedIssuer,bnpDateNow).complete);
 assert(!b.productTermsStatus(fixedIssuer,Date.parse('2026-12-18T08:00:00Z')).complete);
 console.log('Issuer terms precedence, correct missing-field label, terminal/factor cards and fixed-contract evidence passed');
+
+// Missing screenshot identity must not masquerade as an issuer identity failure.
+const directNoImage={...refreshed,snapshot:null};
+const directNoImageCard=b.compactProductCard(directNoImage,['Detailbild mit derselben ISIN']);
+assert(directNoImageCard.includes('Produktidentität automatisch bestätigt'));
+assert(!directNoImageCard.includes('Produktzuordnung oder Bildwerte nicht eindeutig'));
+assert(!directNoImageCard.includes('Detailbild mit derselben ISIN'));
+assert(!b.finalProductStatus(directNoImage).complete);
+const unknownIdentityCard=b.compactProductCard({...directNoImage,quote:{...directNoImage.quote,productVerified:false}},['Detailbild mit derselben ISIN']);
+assert(unknownIdentityCard.includes('Produktzuordnung oder Bildwerte nicht eindeutig'));
+const conflictingIdentityCard=b.compactProductCard({...directNoImage,quote:{...directNoImage.quote,direction:'SHORT'}},['Detailbild mit derselben ISIN']);
+assert(conflictingIdentityCard.includes('Produktzuordnung oder Bildwerte nicht eindeutig'));
