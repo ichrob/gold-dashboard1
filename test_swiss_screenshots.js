@@ -171,3 +171,42 @@ updated.quote.conditions.ko.validitySeries.observedAt='2026-10-05T12:00:00Z';
 assert(!b.automaticIdentity(updated),'expired observations cannot justify a changed barrier');
 assert(!b.automaticIdentity({...refreshed,productDirection:'LONG'}));
 console.log('Actual refresh identity: rounded KO, accepted automatic updates, expiry and conflicts passed');
+
+// Current native quote + dated FX supersedes the historical image quote only.
+const chfCurrent=JSON.parse(JSON.stringify(refreshed));
+const nativeBid=34.52,nativeAsk=34.53,fxRate=.9/.84;
+chfCurrent.price=nativeAsk*fxRate;
+chfCurrent.quote.nativeChartEvidence={currency:'CHF',bid:nativeBid,ask:nativeAsk,pointAt:at};
+chfCurrent.quote.currencyConversion={fromCurrency:'CHF',toCurrency:'EUR',rate:fxRate,source:'exchangerate.dev',at,nativeAt:at,evidence:{base:'USD',eur:.9,chf:.84,dataAt:at,eurAt:at,chfAt:at,eurSource:'live',chfSource:'live',marketSession:'open'}};
+chfCurrent.quote.analysisQuote={currency:'EUR',bid:nativeBid*fxRate,ask:chfCurrent.price,price:chfCurrent.price,bidAt:at,askAt:at,source:'SG converted chart',priceKind:'issuer-chart',isExecutableQuote:false};
+chfCurrent.quote.price=chfCurrent.price;
+const originalSnapshot=JSON.stringify(chfCurrent.snapshot);
+assert(b.currentConvertedChfEvidence(chfCurrent,now));
+assert(b.finalProductStatus(chfCurrent,now).complete,JSON.stringify(b.finalProductStatus(chfCurrent,now)));
+const currentContext={...context,now};
+const chfCandidate=b.conditionalCandidate(chfCurrent,currentContext,now);
+assert(chfCandidate.ok,JSON.stringify(chfCandidate));
+assert(chfCandidate.priceKind.includes('Hebel aus Momentaufnahme'));
+assert(chfCandidate.warnings.some(s=>s.includes('kein aktueller berechneter Hebel')));
+assert(b.selectionWorkflow([chfCurrent],currentContext,{}).approved);
+assert(!b.selectionWorkflow([chfCurrent],{...currentContext,direction:'NEUTRAL'},{}).approved);
+assert(!b.selectionWorkflow([{...chfCurrent,ko:4201}],currentContext,{}).approved);
+assert(!b.currentQuote(chfCurrent,now),'analysis approval never claims executable quote');
+assert.equal(JSON.stringify(chfCurrent.snapshot),originalSnapshot,'historical screenshot remains unmodified');
+assert(b.compactProductCard(chfCurrent,[]).includes('data-current-chf-proof'));
+assert(!b.currentConvertedChfEvidence(chfCurrent,now+301000));
+for(const mutate of [
+ x=>x.quote.currencyConversion.evidence.chfAt='2026-10-07T14:19:00Z',
+ x=>x.quote.currencyConversion.evidence.chfAt='2026-10-07T14:23:00Z',
+ x=>x.quote.currencyConversion.evidence.chfSource='cached',
+ x=>x.quote.currencyConversion.evidence=null,
+ x=>x.quote.currencyConversion.rate=1.2,
+ x=>x.quote.analysisQuote.ask+=.1,
+ x=>x.quote.nativeChartEvidence.ask+=.1,
+ x=>x.snapshot.evidence.Hebel.at='2026-10-06T12:00:00Z',
+ x=>x.snapshot.evidence.Hebel.value=99,
+ x=>x.snapshot.isin='DE000PJ9NCK0',
+ x=>x.quote.metadata.status=2,
+ x=>x.quote.productVerified=false
+]){const bad=JSON.parse(JSON.stringify(chfCurrent));mutate(bad);assert(!b.currentConvertedChfEvidence(bad,now));}
+console.log('Current CHF/FX selection: coherent timestamps and arithmetic, snapshot preservation, market/risk gates passed');
