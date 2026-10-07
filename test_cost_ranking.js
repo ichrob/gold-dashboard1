@@ -94,3 +94,17 @@ for(const change of [{price:null},{leverage:null},{isinConfirmed:false},{ko:3990
 const inactive={...older,quote:{...older.quote,productVerified:true,metadata:{status:2}}};
 assert.equal(b.indicativeRecommendations([inactive],ctx).length,0);
 console.log('Stale indicative recommendations: labels, age, exclusion, completeness and no mutation passed');
+
+// Field freshness is independent: current bid/ask do not inherit stale leverage.
+const fieldProduct={...p,quote:{isin:p.isin,productVerified:true,found:true,bid:39.99,ask:40,price:40,currency:'EUR',bidAt:at,askAt:at,leverage:5,leverageAt:oldAt,source:'Onvista',eligible:false}};
+let fields=b.productFieldStates(fieldProduct,now);
+assert.equal(fields.bid.state,'aktuell');assert.equal(fields.ask.state,'aktuell');assert.equal(fields.leverage.state,'veraltet');assert(!b.currentQuote(fieldProduct,now));
+fields=b.productFieldStates({...fieldProduct,quote:{...fieldProduct.quote,leverageAt:null}},now);
+assert.equal(fields.ask.state,'aktuell');assert.equal(fields.leverage.state,'Aktualität unbestätigt');
+const chartProduct={...p,quote:{isin:p.isin,productVerified:true,found:false,analysisQuote:{bid:39.99,ask:40,price:40,currency:'EUR',bidAt:at,askAt:at,source:'SG Chart',priceKind:'issuer-chart'}}};
+fields=b.productFieldStates(chartProduct,now);
+assert.equal(fields.ask.state,'aktuell');assert.equal(fields.ask.kind,'issuer-chart');assert.equal(fields.leverage.state,'Aktualität unbestätigt');
+assert(!b.currentQuote(chartProduct,now));
+const display=b.compactProductCard({...chartProduct,index:1},['Aktuelles Kursbild mit Geld/Brief in EUR','Aktuelles Detailbild mit Hebel und zugehöriger Zeit']);
+assert(display.includes('Geld/Brief vorhanden'));assert(display.includes('Hebel vorhanden'));assert(!display.includes('Fehlende Werte (2)'));
+console.log('Independent price/leverage field states and chart provenance passed');
