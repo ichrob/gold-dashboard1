@@ -24,7 +24,7 @@ def refresh_evidence(result):
         age = (datetime.now(timezone.utc)-q.stamp(evidence['pointAt'])).total_seconds()
         evidence.update(ageSeconds=round(age, 1), current=0 <= age <= q.MAX_AGE_SECONDS)
         result['reason'] = ('SG-Direktimport aktiv (30 s): Chart Geld {:.3f} / Brief {:.3f} {}, Stand {} ({}). '
-            'Stammdaten übernommen; '+('KO/Basispreis nachgewiesen; ' if (result.get('metadata', {}).get('termsDated') or result.get('metadata', {}).get('termsFixed')) else 'datierter KO-/Basispreisnachweis fehlt; ')+'datierter Hebel weiterhin erforderlich.').format(
+            'Stammdaten übernommen; '+('KO/Basispreis nachgewiesen; ' if (result.get('metadata', {}).get('termsDated') or result.get('metadata', {}).get('termsFixed')) else 'datierter KO-/Basispreisnachweis fehlt; ')+'Im Direktabruf liegt kein separat datierter Hebel vor; ergänzende Bildnachweise werden in Bob separat berücksichtigt.').format(
                 evidence['bid'], evidence['ask'], evidence['currency'], evidence['pointAt'],
                 'aktuell' if evidence['current'] else 'veraltet')
     return result
