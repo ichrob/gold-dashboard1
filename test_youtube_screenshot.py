@@ -25,7 +25,17 @@ class ScreenshotTests(unittest.TestCase):
         data={'contents':[{'videoRenderer':{'videoId':'abcdefghijk','title':{'runs':[{'text':TITLE}]},'ownerText':{'runs':[{'text':CHANNEL}]}}}]}
         raw=('var ytInitialData = '+json.dumps(data)+'; throw Error("untrusted");').encode()
         rows=y.search_videos('Gold outlook',lambda _:raw)
-        self.assertEqual(rows,[ROW])
+        self.assertEqual(rows,[{**ROW,'publishedText':'','viewsText':''}])
+    def test_wrapped_title_without_channel_offers_selection_without_analysis(self):
+        text='Beschreibung\nGold Futures & Spot: Watch This Support\nZone\n200 6.390 23h\nLikes Aufrufe Hochgeladen\nGold Elliott Wave analysis'
+        rows=[{**ROW,'title':'Gold Futures & Spot: Watch This Support Zone','channel':'MCO Markets','publishedText':'23 hr ago','viewsText':'6,396 views'},
+              {**ROW,'url':'https://www.youtube.com/watch?v=lmnopqrstuv','title':'Gold Futures & Spot: Watch This Support Zone','channel':'MCO Markets','publishedText':'6 days ago'}]
+        with self.assertRaises(y.VideoSelectionRequired) as caught:
+            y.resolve_screenshot(text,lambda _:rows)
+        with patch.object(y,'resolve_screenshot',side_effect=caught.exception),patch.object(y,'manual') as analysis:
+            result=y.from_screenshot({'screenshotText':text})
+        self.assertFalse(result['ok']);self.assertEqual(result['candidates'],rows);analysis.assert_not_called()
+
     def test_resolved_video_does_not_claim_analysis_when_captions_fail(self):
         with patch.object(y,'resolve_screenshot',return_value=ROW),patch.object(y,'manual',side_effect=ValueError('empty captions')):
             r=y.from_screenshot({'screenshotText':'fixture'})

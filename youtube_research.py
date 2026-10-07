@@ -188,10 +188,16 @@ def search_videos(query, fetch=read_url):
             row=value.get('videoRenderer')
             if isinstance(row,dict) and re.fullmatch(r'[A-Za-z0-9_-]{11}',row.get('videoId','')):
                 title=label(row.get('title',{}));channel=label(row.get('ownerText') or row.get('longBylineText') or {})
-                if title and channel:videos[row['videoId']]={'url':'https://www.youtube.com/watch?v='+row['videoId'],'title':title,'channel':channel}
+                if title and channel:videos[row['videoId']]={'url':'https://www.youtube.com/watch?v='+row['videoId'],'title':title,'channel':channel,'publishedText':label(row.get('publishedTimeText',{})),'viewsText':label(row.get('viewCountText',{}))}
             for x in value.values():walk(x,depth+1)
     walk(data)
     return list(videos.values())[:30]
+
+
+class VideoSelectionRequired(ValueError):
+    def __init__(self, candidates):
+        super().__init__('Titel gefunden. Bitte das passende Video anhand von Kanal, Alter und Aufrufzahl auswählen.')
+        self.candidates = candidates[:8]
 
 
 def resolve_screenshot(text, search=search_videos):
@@ -207,19 +213,24 @@ def resolve_screenshot(text, search=search_videos):
     candidates=[line for line in lines if re.search(r'\bgold\b|goldpreis|xau\s*/?\s*usd',line,re.I) and 15<=len(line)<=180]
     if len(candidates)>2:raise ValueError('Mehrere mögliche Videotitel im Screenshot. Bitte nur das gewünschte Video mit Titel und Kanal abfotografieren.')
     if not candidates:raise ValueError('Kein eindeutiger Link oder Gold-Videotitel erkannt. Bitte einen Screenshot mit vollständig sichtbarem Titel und Kanal verwenden.')
-    haystack=' '+normalized(text)+' ';matches={}
+    haystack=' '+normalized(text)+' ';matches={};title_matches={}
     for query in sorted(candidates,key=len,reverse=True)[:2]:
         for video in search(query):
             title=normalized(video['title']);channel=normalized(video['channel'])
+            if len(title.split())>=4 and len(title)>=20 and ' '+title+' ' in haystack:
+                title_matches[video['url']]=video
             # No fuzzy winner: title AND channel must be fully visible and unique.
             if len(title.split())>=4 and len(title)>=20 and len(channel)>=5 and ' '+title+' ' in haystack and ' '+channel+' ' in haystack:
                 matches[video['url']]={**video,'matchedBy':'vollständiger Titel und Kanal'}
+    if len(matches)!=1 and title_matches:raise VideoSelectionRequired(list(matches.values()) if matches else list(title_matches.values()))
     if len(matches)!=1:raise ValueError('Video nicht eindeutig gefunden. Bitte den vollständigen Titel und Kanal ohne weitere Videovorschläge abfotografieren; Bob rät nicht.')
     return next(iter(matches.values()))
 
 
 def from_screenshot(payload):
-    resolved=resolve_screenshot(payload.get('screenshotText'))
+    try:resolved=resolve_screenshot(payload.get('screenshotText'))
+    except VideoSelectionRequired as exc:
+        return {'ok':False,'candidates':exc.candidates,'error':str(exc)}
     try:
         item=manual({'url':resolved['url']})
         return {'ok':True,'resolved':resolved,'item':item}
