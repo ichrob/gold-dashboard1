@@ -2361,7 +2361,7 @@ async function readProductPdf(file,expected){
  }finally{await task.destroy();}
 }
 // Local originals support reprocessing after OCR updates. Never refresh source clocks.
-const PRODUCT_OCR_VERSION='2026-10-07-series-completeness-v5';
+const PRODUCT_OCR_VERSION='2026-10-07-bnp-recovery-v6';
 const ORIGINAL_TTL=7*86400000,ORIGINAL_LIMIT=100*1024*1024;
 const activeProductImports=new Set();
 function originalRetention(records,now=Date.now()){
