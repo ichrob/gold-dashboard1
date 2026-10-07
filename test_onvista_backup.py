@@ -86,4 +86,18 @@ class BackupTests(unittest.TestCase):
         primary=dict(isin=ISIN,productVerified=True,metadata=dict(status=1,underlyingType='SPOT',direction='LONG'))
         with patch.object(b,'fetch',return_value=r):
             self.assertEqual(b.apply_backup(primary,ISIN,datetime(2026,10,7,10,tzinfo=timezone.utc)),primary)
+    def test_extended_analysis_window_keeps_source_time_and_no_clearance(self):
+        from datetime import timedelta
+        data=page()
+        at=(NOW-timedelta(seconds=300)).isoformat()
+        data['quoteList']['list'][0].update(datetimeBid=at,datetimeAsk=at)
+        parsed=b.parse_page(html(data),ISIN,NOW)
+        self.assertEqual(parsed['askAt'],at)
+        self.assertEqual(parsed['analysisMaxAgeSeconds'],300)
+        primary=dict(isin=ISIN,productVerified=True,metadata=dict(status=1,underlyingType='SPOT',direction='LONG'))
+        with patch.object(b,'fetch',return_value=parsed):
+            out=b.apply_backup(primary,ISIN,NOW)
+        self.assertTrue(out['found']);self.assertFalse(out['eligible'])
+        data['quoteList']['list'][0]['datetimeAsk']=(NOW-timedelta(seconds=301)).isoformat()
+        with self.assertRaises(ValueError):b.parse_page(html(data),ISIN,NOW)
 if __name__=='__main__':unittest.main()
