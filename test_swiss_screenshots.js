@@ -152,3 +152,22 @@ for(const mutate of [
 ]){const bad=JSON.parse(JSON.stringify(auto));mutate(bad);assert(!b.productTermsStatus(bad,now).complete);}
 
 assert(b.finalProductStatus(auto,now,{isin,reviewed:true,paired:true,source:'reference',venue:'test',bid:38.22,ask:38.23,quoteAt:at}).complete,'accepted automatic series satisfies live term gate when separate quote evidence is valid');
+
+// Real row refresh: API replaces rounded screenshot KO, then rankUI derives identity.
+const refreshed=JSON.parse(JSON.stringify(p));refreshed.ko=4524.473138;
+for(const key of ['strike','ko'])refreshed.quote.conditions[key]=JSON.parse(JSON.stringify(auto.quote.conditions[key]));
+refreshed.isinConfirmed=b.automaticIdentity(refreshed);
+assert(refreshed.isinConfirmed,'API full precision must preserve screenshot product identity');
+assert(b.productDataStatus(refreshed,now).complete,'real refreshed row stays complete');
+assert(!b.finalProductStatus(refreshed,now).reasons.some(r=>/Produktzuordnung|Basispreis|Knock-out-Schwelle/.test(r)));
+assert(b.finalProductStatus(refreshed,now).reasons.some(r=>r.includes('CHF-Kursbild')),'independent FX evidence is not bypassed');
+const roundedWithoutApi=JSON.parse(JSON.stringify(p));roundedWithoutApi.ko=4524.473138;delete roundedWithoutApi.quote;
+assert(b.automaticIdentity(roundedWithoutApi),'recorded display precision establishes numeric equivalence');
+assert(!b.automaticIdentity({...roundedWithoutApi,ko:4524.63}),'real KO discrepancy remains rejected');
+const updated=JSON.parse(JSON.stringify(refreshed));updated.ko=4525;
+updated.quote.metadata.ko=4525;updated.quote.conditions.ko.value=4525;
+assert(b.automaticIdentity(updated),'accepted fresh automatic term series can update a mutable barrier');
+updated.quote.conditions.ko.validitySeries.observedAt='2026-10-05T12:00:00Z';
+assert(!b.automaticIdentity(updated),'expired observations cannot justify a changed barrier');
+assert(!b.automaticIdentity({...refreshed,productDirection:'LONG'}));
+console.log('Actual refresh identity: rounded KO, accepted automatic updates, expiry and conflicts passed');
