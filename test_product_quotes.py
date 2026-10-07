@@ -114,7 +114,7 @@ class ProductQuoteTests(unittest.TestCase):
 
     def test_known_sg_failure_is_not_replaced_by_bnp_miss(self):
         isin='DE000FA06UL6'
-        with patch.dict(q._CACHE, {isin:(__import__('time').monotonic(),{'found':True,'source':'SG'})}, clear=True), patch.object(q,'get_bnp_quote') as bnp, patch.object(q,'issuer_json') as sg:
+        with patch.dict(q.SG_DIRECT_PRODUCTS, {}, clear=True), patch.dict(q._CACHE, {isin:(__import__('time').monotonic(),{'found':True,'source':'SG'})}, clear=True), patch.object(q,'get_bnp_quote') as bnp, patch.object(q,'issuer_json') as sg:
             out=q.get_issuer_quote(isin)
         self.assertTrue(out['sourceDisabled']);self.assertFalse(out['found'])
         bnp.assert_not_called();sg.assert_not_called()
@@ -123,7 +123,7 @@ class ProductQuoteTests(unittest.TestCase):
         error=HTTPError('https://private.invalid/?secret=value',429,'private body',{'Authorization':'secret'},None)
         reason=q.sg_source_error(error,'identity')
         self.assertIn('HTTP 429',reason);self.assertNotIn('secret',reason)
-        with patch.object(q,'issuer_json') as fetch:
+        with patch.dict(q.SG_DIRECT_PRODUCTS, {}, clear=True), patch.object(q,'issuer_json') as fetch:
             out=q.get_sg_quote('DE000FA06UL6')
         fetch.assert_not_called();self.assertTrue(out['sourceDisabled'])
 
@@ -260,7 +260,7 @@ class ProductQuoteTests(unittest.TestCase):
         self.assertFalse(x['eligible']); self.assertIn('Barriere getroffen', x['reason'])
 
     def test_sg_adapter_and_issuer_selection(self):
-        with patch.object(q,'urlopen') as network:
+        with patch.dict(q.SG_DIRECT_PRODUCTS, {}, clear=True), patch.object(q,'urlopen') as network:
             for isin in ('DE000FA06UL6',):
                 result=q.get_issuer_quote(isin)
                 self.assertTrue(result['sourceDisabled']);self.assertFalse(result['eligible'])

@@ -20,6 +20,8 @@ ORIGIN = 'https://derivate.bnpparibas.com/'
 SG_ORIGIN = 'https://www.sg-zertifikate.de/'
 # SG's own product IDs, not the independent onvista instrument IDs.
 SG_DIRECT_PRODUCTS = {
+    'DE000FA06UL6': 5447361, 'DE000FG5GUX2': 6933779,
+    'DE000FG5NMH8': 6953143, 'DE000FG7MTA6': 7136701,
     'DE000SQ02JQ6': 2829392,
     'DE000FG7K283': 7127448, 'DE000FG4JXV7': 7069123,
     # Confirmed against SG Products/<ISIN> on 7 October 2026.
