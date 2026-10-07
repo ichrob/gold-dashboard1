@@ -169,3 +169,27 @@ page had old/different strike values (4073.3331 versus SG 4074.353817) and an
 undated leverage; it cannot close that evidence gap. BNP's complete current
 snapshot and dated terms succeeded, but intermittent retrieval failures remain
 possible. No source clocks, terms validity dates or missing values are invented.
+
+
+### Follow-up: source priority and backup feasibility (2026-10-07)
+
+The direct issuer is now queried before comdirect. Verified SG direct imports,
+dated BNP terms, and issuer-confirmed terminal status do not wait for a secondary
+HTML request. comdirect remains the static-data fallback when issuer evidence is
+incomplete. Previously a secondary request could consume its timeout before the
+primary quote was even requested. Permanently confirmed knockouts in TERMINAL
+still short-circuit all network requests. Quote freshness rules are unchanged.
+
+The BNP public website bundle advertises push.bnpparibas.com with adapter set
+SmarthouseFeed and fields bid, ask, quotetime, currentleverage. A public generic
+TLCP client probe returned CONERR 71, "License not valid for this Client type".
+No adapter was enabled and no alternate client identity was attempted. This is
+not a working backup. Direct HTTP probes of the BNP header and Stuttgart product
+page returned 403 in this execution environment; that does not establish an
+outage on Render or permission to bypass restrictions. Earlier BNP responses
+were several minutes old even with unique cache keys; request time must not be
+used to repair their source timestamps.
+
+Validation: 76 Python regressions passed, including primary-source priority,
+secondary fallback, terminal exclusions, and rejection of undated/stale data.
+Full automatic fresh quote + leverage coverage remains unresolved.
