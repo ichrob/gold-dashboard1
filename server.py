@@ -1068,7 +1068,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(self.rfile.read(length).decode('utf-8'))
                 if not isinstance(payload, dict):raise ValueError('Ungültige Anfrage')
                 import youtube_research
-                result = {'ok': True, 'item': youtube_research.manual(payload)}
+                result = youtube_research.from_screenshot(payload) if 'screenshotText' in payload else {'ok': True, 'item': youtube_research.manual(payload)}
                 status = 200
             except ValueError as exc:
                 result = {'ok': False, 'error': str(exc)}
