@@ -78,3 +78,19 @@ const upload=b.renderUploadMissing(p,{reasons:['Basispreis in USD: Wert eingeles
 assert(upload.includes('Für die Live-Freigabe noch offen'));assert(upload.includes('Wert aus dem Bild übernommen'));assert(!upload.includes('direkt daneben'));assert(!upload.includes('Geld und Brief in EUR'));
 assert(b.missingValueLocation('Basispreis fehlt',{}).includes('Stammdaten'));
 assert(!b.finalProductStatus(p,now).complete,'presentation must not relax live gates');
+
+// Screenshot retention is not live freshness; series timing is explicitly inferred.
+const later=now+34*60000;
+const snapshotFields=b.productFieldStates(p,later);
+assert.equal(snapshotFields.leverage.state,'Momentaufnahme · innerhalb Nachweisfrist (14 h)');
+assert(snapshotFields.leverage.fromSeries);
+assert.equal(b.productFieldStates(p,now+15*3600000).leverage.state,'veraltet');
+const detailStatus=b.selectionDetailStatus(p,now);
+assert(!detailStatus.reasons.some(r=>r.startsWith('KO-Barriere mit')),'display rounding must not create a second KO gap');
+assert(detailStatus.reasons.some(r=>r.includes('datierter Produktnachweis')),'actual validity gap remains');
+const koReason='KO-Barriere mit gültigem Nachweis oder festen Screenshotwert bestätigen';
+const card=b.compactProductCard(p,['Knock-out-Schwelle: datierter Produktnachweis fehlt oder älter als 24 Stunden',koReason]);
+assert.equal((card.match(/<strong>KO-Barriere: Gültigkeitsnachweis offen<\/strong>/g)||[]).length,1);
+assert(!card.includes('KO-Barriere: gültiger Nachweis (Stammdaten)'));
+assert(card.includes('Zeitbezug der Aufnahmeserie'));
+assert(!b.productTermsStatus({...p,ko:4524.63},now).complete,'real KO mismatch remains blocked');
