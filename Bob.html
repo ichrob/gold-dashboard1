@@ -496,8 +496,13 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <p id="goldResearchReason" class="small"></p>
 <button type="button" id="goldResearchRefresh">Recherche-Stand laden</button>
 <details><summary>YouTube-Video prüfen</summary>
+<button type="button" id="youtubeScreenshotButton">YouTube-Screenshot einlesen</button>
+<input id="youtubeScreenshotInput" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+<p class="small">Vollständigen Videotitel und Kanalnamen sichtbar abfotografieren, möglichst ohne weitere Videovorschläge. Ein sichtbarer YouTube-Link funktioniert ebenfalls. Bob erkennt das Video und versucht anschließend die Untertitelanalyse.</p>
+<p id="youtubeResearchResolved" class="small"></p>
+<details><summary>Alternativ: Link eingeben</summary>
 <label for="youtubeResearchUrl">YouTube-Link</label><input id="youtubeResearchUrl" type="url" placeholder="https://www.youtube.com/watch?v=…">
-<button type="button" id="youtubeResearchAnalyze">Untertitel abrufen und auswerten</button>
+<button type="button" id="youtubeResearchAnalyze">Untertitel abrufen und auswerten</button></details>
 <p id="youtubeResearchStatus" class="small" aria-live="polite"></p>
 <details><summary>Vorhandenes Transkript einfügen</summary><p class="small">Falls der automatische Abruf nicht klappt: Text aus „Transkript anzeigen“ bei YouTube einfügen. Bob kennzeichnet die Videozuordnung als ungeprüft.</p>
 <label for="youtubeResearchLanguage">Sprache</label><select id="youtubeResearchLanguage"><option value="de">Deutsch</option><option value="en">Englisch</option></select>
@@ -539,7 +544,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   finally{clearTimeout(timer);busy=false;}
  }
  async function inspectVideo(importText){
-  const status=$('youtubeResearchStatus'),a=$('youtubeResearchAnalyze'),b=$('youtubeResearchImport');a.disabled=b.disabled=true;
+  const status=$('youtubeResearchStatus'),a=$('youtubeResearchAnalyze'),b=$('youtubeResearchImport');a.disabled=b.disabled=$('youtubeScreenshotButton').disabled=true;
   const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),30000);
   status.textContent='Video-Inhalt wird geprüft …';
   try{
@@ -552,8 +557,42 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    if(importText)$('youtubeResearchTranscript').value='';
    await load();
   }catch(e){status.textContent=e.name==='AbortError'?'YouTube-Abruf dauert zu lange. Ein vorhandenes Transkript kann eingefügt werden.':e.message;}
-  finally{clearTimeout(timer);a.disabled=b.disabled=false;}
+  finally{clearTimeout(timer);a.disabled=b.disabled=$('youtubeScreenshotButton').disabled=false;}
  }
+ async function screenshotVideo(){
+  const input=$('youtubeScreenshotInput'),status=$('youtubeResearchStatus');
+  if(!input.files?.length)return;
+  const buttons=[$('youtubeScreenshotButton'),$('youtubeResearchAnalyze'),$('youtubeResearchImport')];
+  if(buttons.some(b=>b.disabled))return;
+  buttons.forEach(b=>b.disabled=true);$('youtubeResearchResolved').replaceChildren();
+  let timer,ctl;
+  try{
+   if(input.files[0].size>16000000)throw Error('Screenshot ist zu groß. Bitte ein Bild unter 16 MB wählen.');
+   if(!window.BobDegiro?.retainSelectedImages||!window.BobDegiro?.recognizePlainOcr)throw Error('Bilderkennung wird noch geladen. Bitte kurz erneut versuchen.');
+   status.textContent='Screenshot wird eingelesen …';
+   const files=await window.BobDegiro.retainSelectedImages(input);input.value='';
+   const ocr=await window.BobDegiro.recognizePlainOcr(files[0],'youtubeResearchStatus');
+   const text=String(ocr?.data?.text||'').trim();
+   if(text.length<10||text.length>10000)throw Error('Videotitel und Kanal nicht ausreichend lesbar. Bitte einen näheren Screenshot verwenden.');
+   status.textContent='Video wird anhand des Screenshots gesucht und anschließend geprüft …';
+   ctl=new AbortController();timer=setTimeout(()=>ctl.abort(),55000);
+   const res=await fetch('/api/research/youtube',{method:'POST',headers:{'Content-Type':'application/json'},signal:ctl.signal,body:JSON.stringify({screenshotText:text})});
+   if(res.status===401)throw Error('Bitte erneut anmelden.');
+   const r=await res.json();
+   if(r.resolved){
+    $('youtubeResearchUrl').value=r.resolved.url;
+    const a=node('a',r.resolved.title+(r.resolved.channel?' · '+r.resolved.channel:''));
+    const url=new URL(r.resolved.url);if(url.protocol==='https:'&&url.hostname==='www.youtube.com'){a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';}
+    $('youtubeResearchResolved').replaceChildren(node('span','Erkanntes Video: '),a);
+   }
+   if(!res.ok||!r.ok)throw Error(r.error||'Video konnte nicht geprüft werden.');
+   status.textContent='Video erkannt und Transkript ausgewertet: '+r.item.transcriptWords+' Wörter. Ausblick: '+r.item.outlook+'. '+r.item.reason;
+   await load();
+  }catch(e){status.textContent=e.name==='AbortError'?'Videoabruf dauert zu lange. Bitte später erneut versuchen.':e.message;}
+  finally{if(timer)clearTimeout(timer);input.value='';buttons.forEach(b=>b.disabled=false);}
+ }
+ $('youtubeScreenshotButton').addEventListener('click',()=>$('youtubeScreenshotInput').click());
+ $('youtubeScreenshotInput').addEventListener('change',screenshotVideo);
  $('youtubeResearchAnalyze').addEventListener('click',()=>inspectVideo(false));
  $('youtubeResearchImport').addEventListener('click',()=>inspectVideo(true));
  $('goldResearchRefresh').addEventListener('click',load);

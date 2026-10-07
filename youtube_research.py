@@ -4,9 +4,10 @@ import json
 import re
 import threading
 import time
+import unicodedata
 import urllib.request
 import xml.etree.ElementTree as ET
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urlencode
 
 _MAX = 2000000
 _lock = threading.Lock()
@@ -29,7 +30,7 @@ def video_id(url):
 
 def safe_url(url):
     p=urlparse(url)
-    return p.scheme=='https' and p.hostname in ('www.youtube.com','youtube.com') and not p.username and not p.password and p.port in (None,443) and p.path in ('/watch','/api/timedtext')
+    return p.scheme=='https' and p.hostname in ('www.youtube.com','youtube.com') and not p.username and not p.password and p.port in (None,443) and p.path in ('/watch','/api/timedtext','/results')
 
 
 class Redirects(urllib.request.HTTPRedirectHandler):
@@ -163,3 +164,64 @@ def manual(payload):
 
 def manual_items():
     with _lock:return [dict(x) for x in _manual.values() if time.time()-x['checkedAt']<7*86400]
+
+
+def normalized(value):
+    value=unicodedata.normalize('NFKD',html.unescape(value)).casefold()
+    return ' '.join(re.findall(r'[a-z0-9]+',value))
+
+
+def search_videos(query, fetch=read_url):
+    raw=fetch('https://www.youtube.com/results?'+urlencode({'search_query':query[:160]}))
+    text=raw.decode('utf-8','replace')
+    match=re.search(r'(?:var\s+)?ytInitialData\s*=\s*',text)
+    if not match:raise ValueError('YouTube-Suche momentan nicht öffentlich lesbar')
+    data=json.JSONDecoder().raw_decode(text[match.end():])[0]
+    videos={}
+    def label(value):
+        return value.get('simpleText') or ''.join(x.get('text','') for x in value.get('runs',[]))
+    def walk(value,depth=0):
+        if depth>35:return
+        if isinstance(value,list):
+            for x in value[:100]:walk(x,depth+1)
+        elif isinstance(value,dict):
+            row=value.get('videoRenderer')
+            if isinstance(row,dict) and re.fullmatch(r'[A-Za-z0-9_-]{11}',row.get('videoId','')):
+                title=label(row.get('title',{}));channel=label(row.get('ownerText') or row.get('longBylineText') or {})
+                if title and channel:videos[row['videoId']]={'url':'https://www.youtube.com/watch?v='+row['videoId'],'title':title,'channel':channel}
+            for x in value.values():walk(x,depth+1)
+    walk(data)
+    return list(videos.values())[:30]
+
+
+def resolve_screenshot(text, search=search_videos):
+    if not isinstance(text,str) or not 10<=len(text)<=10000:raise ValueError('Screenshot-Text fehlt oder ist zu lang')
+    urls=set()
+    for candidate in re.findall(r'(?:https?://)?(?:www\.|m\.)?(?:youtube\.com/(?:watch\?[^\s<>]+|shorts/[\w-]+|live/[\w-]+)|youtu\.be/[\w-]+)',text,re.I):
+        try:urls.add('https://www.youtube.com/watch?v='+video_id(candidate if candidate.startswith('https://') else 'https://'+candidate.removeprefix('http://')))
+        except ValueError:pass
+    if len(urls)>1:raise ValueError('Mehrere YouTube-Links erkannt. Bitte nur das gewünschte Video abfotografieren.')
+    if len(urls)==1:return {'url':next(iter(urls)),'title':'Video aus sichtbarem YouTube-Link','channel':'','matchedBy':'sichtbarer Link'}
+    lines=[line.strip() for line in text.splitlines() if line.strip()]
+    # Search only gold-title candidates, never the whole screen/comments/account data.
+    candidates=[line for line in lines if re.search(r'\bgold\b|goldpreis|xau\s*/?\s*usd',line,re.I) and 15<=len(line)<=180]
+    if len(candidates)>2:raise ValueError('Mehrere mögliche Videotitel im Screenshot. Bitte nur das gewünschte Video mit Titel und Kanal abfotografieren.')
+    if not candidates:raise ValueError('Kein eindeutiger Link oder Gold-Videotitel erkannt. Bitte einen Screenshot mit vollständig sichtbarem Titel und Kanal verwenden.')
+    haystack=' '+normalized(text)+' ';matches={}
+    for query in sorted(candidates,key=len,reverse=True)[:2]:
+        for video in search(query):
+            title=normalized(video['title']);channel=normalized(video['channel'])
+            # No fuzzy winner: title AND channel must be fully visible and unique.
+            if len(title.split())>=4 and len(title)>=20 and len(channel)>=5 and ' '+title+' ' in haystack and ' '+channel+' ' in haystack:
+                matches[video['url']]={**video,'matchedBy':'vollständiger Titel und Kanal'}
+    if len(matches)!=1:raise ValueError('Video nicht eindeutig gefunden. Bitte den vollständigen Titel und Kanal ohne weitere Videovorschläge abfotografieren; Bob rät nicht.')
+    return next(iter(matches.values()))
+
+
+def from_screenshot(payload):
+    resolved=resolve_screenshot(payload.get('screenshotText'))
+    try:
+        item=manual({'url':resolved['url']})
+        return {'ok':True,'resolved':resolved,'item':item}
+    except Exception:
+        return {'ok':False,'resolved':resolved,'error':'Video erkannt, aber Untertitel derzeit nicht abrufbar. Der Screenshot allein enthält nicht den gesprochenen Videoinhalt. Keine Inhaltsanalyse möglich.'}
