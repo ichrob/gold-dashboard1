@@ -141,3 +141,14 @@ class DirectTests(unittest.TestCase):
                 self.assertTrue(out['sourceFailure'])
             finally:release.set()
             blocked.result(timeout=1)
+
+    def test_terms_first_does_not_wait_for_quotes_or_hide_later_quotes(self):
+        with patch.object(q,'issuer_json',side_effect=[self.product,self.props]) as fetch:
+            out=sg.get_quote(ISIN,terms_only=True)
+        self.assertEqual(fetch.call_count,2)
+        self.assertTrue(out['productVerified']);self.assertEqual(out['conditions']['ratio']['value'],.1)
+        self.assertNotIn('chartEvidence',out);self.assertFalse(out['eligible'])
+        with patch.object(q,'issuer_json',return_value=self.points) as fetch:
+            full=sg.get_quote(ISIN)
+        self.assertEqual(fetch.call_count,1)
+        self.assertIn('chartEvidence',full)

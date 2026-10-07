@@ -347,3 +347,19 @@ absolute error and reference-age groups. At least 20 pairs over ten minutes
 with recent evidence unlock a explicitly preliminary comparison, never automatic
 source selection or a claim of guaranteed accuracy. Real source availability
 and the supply of matching dated GCZ26 observations determine how long this takes.
+
+
+### 7 October 2026: terms-first delivery and indicative tolerance
+
+SG products without verified metadata first request `scope=terms`. This returns
+identity, terms and terminal status without waiting for chart, secondary quote,
+gold or FX calls. The subsequent full request reuses the verified terms cache.
+Four independent product rows can load concurrently; SG per-product 30-second
+limits remain in place. Ended products and factors remain excluded.
+
+At the user's request indicative gearing now tolerates input ages up to 300
+seconds and input skew up to 90 seconds. Both limits are returned by the server
+and displayed with original source clocks. The Onvista indicative pair uses the
+same 300-second window. Provider comparison remains at 30-second alignment and
+90-second age. These changes do not turn charts or calculations into executable
+quotes or grant live trade clearance. Older values keep their disclosed age.

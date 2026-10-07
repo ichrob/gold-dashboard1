@@ -8,7 +8,8 @@ from collections import OrderedDict
 
 _COMPARISONS = OrderedDict()
 _COMPARISON_LOCK = threading.Lock()
-MAX_SKEW_SECONDS = 30  # Initial monitoring threshold, not a guarantee of accuracy.
+MAX_SKEW_SECONDS = 90  # User-selected tolerance for indicative analysis.
+MAX_INPUT_AGE_SECONDS = 300  # Original clocks remain visible; not execution clearance.
 
 from datetime import datetime, timezone
 import product_quotes as q
@@ -38,7 +39,7 @@ def calculate(result, basis, fx, now=None):
         chart_bid, chart_ask = q.number(chart['bid']), q.number(chart['ask'])
         if (chart.get('currency') == 'EUR' and 0 < chart_bid <= chart_ask
                 and math.isfinite(chart_ask)
-                and 0 <= (now-chart_at).total_seconds() <= 90
+                and 0 <= (now-chart_at).total_seconds() <= MAX_INPUT_AGE_SECONDS
                 and chart_at > quote_at):
             quote = dict(bid=chart_bid, ask=chart_ask, askAt=chart['pointAt'],
                          currency='EUR', source='SG · datierter Chartkurs',
@@ -55,13 +56,14 @@ def calculate(result, basis, fx, now=None):
     if min(ages) < 0 or max(ages) > 1800:
         raise ValueError('Eingangsdaten zukünftig oder älter als 30 Minuten')
     skew = (max(times)-min(times)).total_seconds()
-    inputs_fresh = (max(ages) <= 90 and skew <= MAX_SKEW_SECONDS and basis.get('delayed') is not True
+    inputs_fresh = (max(ages) <= MAX_INPUT_AGE_SECONDS and skew <= MAX_SKEW_SECONDS and basis.get('delayed') is not True
              and fx.get('source') == 'live' and fx.get('sources', {}).get('EUR') == 'live'
              and fx.get('market_session') == 'open')
     return dict(available=True,value=gold*rate*ratio/price, at=min(times).isoformat(), calculatedAt=now.isoformat(),
                 fresh=inputs_fresh and not basis.get('estimated',False), inputsFresh=inputs_fresh, state='CFD-basierte Schätzung; Quellenalter und Zeitabstand separat prüfen' if basis.get('estimated') else 'aktuelle Eingangsdaten' if inputs_fresh else 'veraltete oder zeitlich abweichende Eingangsdaten',
                 kind='calculated-gearing', label='Von Bob geschätzter Hebel auf Basis des Investing-CFD' if basis.get('estimated') else 'Von Bob berechneter Hebel',
                 maxInputAgeSeconds=round(max(ages),1), skewSeconds=round(skew,1),
+                maxAllowedInputAgeSeconds=MAX_INPUT_AGE_SECONDS, maxAllowedSkewSeconds=MAX_SKEW_SECONDS,
                 inputs=dict(priceSide='ask',basisEstimated=bool(basis.get('estimated',False)),basisDelayed=bool(basis.get('delayed',False)),basisPriceUsd=gold,basisAt=times[1].isoformat(),basisSource=basis['source'],
                             contract=m.get('contract'),ratio=ratio,askEur=price,askAt=times[0].isoformat(),
                             priceSource=quote.get('source',result.get('source')),usdEur=rate,
@@ -125,7 +127,7 @@ def compare(result, evidence, now):
         times = [q.stamp(evidence['inputs'][k]) for k in ('basisAt','askAt','fxDataAt','fxEffectiveAt')]
         if (provider <= 0 or result.get('leverageEstimated') or not evidence['fresh']
                 or not 0 <= (now-at).total_seconds() <= 90
-                or (max(times+[at])-min(times+[at])).total_seconds() > MAX_SKEW_SECONDS):
+                or (max(times+[at])-min(times+[at])).total_seconds() > 30):
             return skipped
         difference = (evidence['value']/provider-1)*100
         row = dict(comparable=True, isin=result.get('isin'), providerValue=provider,

@@ -14,6 +14,7 @@ _CACHE = {}
 _FAILURES = {}
 _MODEL = {}
 _LOCK = threading.Lock()
+ANALYSIS_MAX_AGE_SECONDS = 300
 
 def clock(value):
     if not isinstance(value, str) or not re.search(r'(Z|[+-]\d{2}:\d{2})$', value):
@@ -41,7 +42,7 @@ def parse_page(html, isin, now=None):
             continue
         bid, ask = float(q['bid']), float(q['ask'])
         dates = [clock(q['datetimeBid']), clock(q['datetimeAsk'])]
-        if not (0 < bid <= ask and math.isfinite(ask)) or any(not 0 <= (now-d).total_seconds() <= 90 for d in dates):
+        if not (0 < bid <= ask and math.isfinite(ask)) or any(not 0 <= (now-d).total_seconds() <= ANALYSIS_MAX_AGE_SECONDS for d in dates):
             continue
         candidates.append((min(dates), q))
     if not candidates:
@@ -62,7 +63,7 @@ def parse_page(html, isin, now=None):
                 leverage=leverage, leverageAt=leverage_at,
                 leverageCalculatedAt=figure.get('datetimeCalculation'),
                 source='Onvista · '+q['market']['name'], sourceUrl=PAGES[isin],
-                priceKind='secondary-market', isDegiroQuote=False)
+                priceKind='secondary-market', isDegiroQuote=False, analysisMaxAgeSeconds=ANALYSIS_MAX_AGE_SECONDS)
 
 def parse_model_evidence(html, isin, now=None):
     """Static conversion terms are independent of the age of price fields."""
@@ -161,7 +162,7 @@ def apply_backup(primary, isin, now=None):
     now = now or datetime.now(timezone.utc)
     # Every use rechecks cache age; never renew quote clocks on retrieval.
     try:
-        if any(not 0 <= (now-clock(backup[k])).total_seconds() <= 90 for k in ('bidAt', 'askAt')):
+        if any(not 0 <= (now-clock(backup[k])).total_seconds() <= ANALYSIS_MAX_AGE_SECONDS for k in ('bidAt', 'askAt')):
             return primary
     except (KeyError, ValueError, TypeError):
         return primary

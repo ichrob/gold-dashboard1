@@ -43,7 +43,7 @@ class Tests(unittest.TestCase):
   with patch('spot_data.current',return_value=self.g),patch('sg_quotes.market_input',return_value=self.fx):
    self.assertEqual(b.apply(self.r,N)['leverage'],8)
  def test_skew_and_estimated_basis(self):
-  self.g['at']='2026-10-07T09:59:10Z'
+  self.g['at']='2026-10-07T09:58:10Z'
   self.assertFalse(b.calculate(self.r,self.g,self.fx,N)['fresh'])
   self.g['at']=T;self.g['estimated']=True
   self.assertFalse(b.calculate(self.r,self.g,self.fx,N)['fresh'])
@@ -67,4 +67,17 @@ class Tests(unittest.TestCase):
    self.assertIn('CFD',x['leverageSource'])
    cfd['declaredContract']='GCG27'
    self.assertFalse(b.apply(self.r,N)['leverageCalculation']['available'])
+ def test_analysis_tolerance_boundaries(self):
+  from datetime import timedelta
+  def clock(seconds):return (N-timedelta(seconds=seconds)).isoformat()
+  self.g['at']=clock(300)
+  self.r['askAt']=clock(210)
+  self.fx.update(data_updated_at=clock(210),effective_at={'EUR':clock(210)})
+  x=b.calculate(self.r,self.g,self.fx,N)
+  self.assertTrue(x['inputsFresh']);self.assertEqual(x['maxAllowedSkewSeconds'],90)
+  self.assertEqual(x['maxAllowedInputAgeSeconds'],300)
+  self.g['at']=clock(301)
+  self.assertFalse(b.calculate(self.r,self.g,self.fx,N)['inputsFresh'])
+  self.g['at']=clock(299);self.r['askAt']=clock(208)
+  self.assertFalse(b.calculate(self.r,self.g,self.fx,N)['inputsFresh'])
 if __name__=='__main__':unittest.main()

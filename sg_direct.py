@@ -97,7 +97,7 @@ def conditions(product, properties, result):
         result['metadata']['strike'] = observed['strike']
 
 
-def get_quote(isin):
+def get_quote(isin, terms_only=False):
     if isin not in q.SG_DIRECT_PRODUCTS:
         return q.sg_disabled(isin)
     # Serialize per product; a slow source for one ISIN must not block all others.
@@ -110,7 +110,7 @@ def get_quote(isin):
         result = dict(found=False, eligible=False, fresh=False, productVerified=False,
                       isin=isin, source='Société Générale · Direktimport',
                       sourceUrl=q.SG_ORIGIN+'product-details/'+isin.lower(),
-                      importActive=True, refreshIntervalSeconds=INTERVAL,
+                      importActive=True, refreshIntervalSeconds=INTERVAL, analysisMaxAgeSeconds=300,
                       checkedAt=datetime.now(timezone.utc).isoformat())
         stage = 'identity'
         try:
@@ -145,6 +145,9 @@ def get_quote(isin):
             conditions(product, properties, result)
             if product['Status'] & (2|8|16|32) or not product['Status'] & 1 or product.get('TodayBarrierHitDate'):
                 result['reason'] = 'SG-Produkt beendet oder ausgeknockt – ausgeschlossen'
+            elif terms_only:
+                result['reason'] = 'SG-Stammdaten übernommen; Kurs- und Hebelabruf folgen separat'
+                return result
             else:
                 stage = 'dated-quotes'
                 points = q.issuer_json(q.SG_ORIGIN+'EmcWebApi/api/Prices/Live?productId='+str(product['Id']), q.SG_ORIGIN, timeout=12)

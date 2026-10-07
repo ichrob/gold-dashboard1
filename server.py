@@ -713,7 +713,11 @@ class Handler(BaseHTTPRequestHandler):
                 isin = (query.get("isin") or [""])[0].strip().upper()
                 if len(isin) != 12:
                     raise ValueError("ISIN fehlt oder ist ungültig")
-                result = enrich_degiro_product(isin)
+                if query.get("scope") == ["terms"] and isin in product_quotes.SG_DIRECT_PRODUCTS:
+                    from sg_direct import get_quote
+                    result = get_quote(isin, terms_only=True)
+                else:
+                    result = enrich_degiro_product(isin)
                 body = json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
