@@ -1964,10 +1964,11 @@ function productFieldStates(p,now=Date.now()){
   const direct=live?.currency==='EUR'&&n(live.ask)===n(p.price)&&n(live.bid)>0&&n(live.ask)>=n(live.bid);
   const e=shot?.evidence?.[label];
   items[key]=from(label,direct?live[key]:key==='ask'?p.price:shot?.currency==='CHF'?null:shot?.bid,direct?live[key+'At']:e?.at||shot?.sourceTime,direct?live.source:e?.source,direct?analysisLimit:SCREENSHOT_MAX_AGE_MS,direct?live.priceKind:'screenshot');
+  if(!direct&&e?.fromSeries){items[key].fromSeries=true;items[key].timeText=e.timeText;}
  }
  const le=shot?.evidence?.Hebel,directLev=q&&n(q.leverage)===n(p.leverage);
  items.leverage=from('Hebel',p.leverage,directLev?q.leverageAt:n(le?.value)===n(p.leverage)?le?.at:null,directLev?(q.leverageSource||q.source):le?.source,directLev?90000:SCREENSHOT_MAX_AGE_MS,directLev?'':'screenshot');
- if(!directLev&&le?.fromSeries)items.leverage.fromSeries=true;
+ if(!directLev&&le?.fromSeries){items.leverage.fromSeries=true;items.leverage.timeText=le.timeText;}
  if(directLev&&q.leverageEstimated&&n(p.leverage)>0){
   const c=q.leverageCalculation;
   const clocks=[c?.inputs?.basisAt,c?.inputs?.askAt,c?.inputs?.fxDataAt,c?.inputs?.fxEffectiveAt].map(v=>typeof v==='string'?Date.parse(v):NaN);
@@ -1985,7 +1986,7 @@ function renderProductFieldStates(p){
  const comparisonDetail=comparison?'<div>Hebelvergleich: '+esc(comparison.comparable?(comparison.warning?'Auffällige Abweichung: ':'Abweichung: ')+comparison.relativeDifferencePct+' % · '+comparison.note:comparison.reason)+'</div>':'';
  const native=p.quote?.nativeChartEvidence,fx=p.quote?.currencyConversion;
  const nativeInfo=native?'<div><b>Originalkurs CHF: Geld '+esc(native.bid)+' / Brief '+esc(native.ask)+'</b><br>Quellenzeit '+esc(native.pointAt)+(fx?'<br>Für die Analyse in EUR umgerechnet · CHF/EUR '+esc(fx.rate)+' · '+esc(fx.at):'<br>EUR-Umrechnung noch nicht verfügbar')+'</div>':'';
- return '<div class="small" data-field-status>'+nativeInfo+detail+comparisonDetail+Object.values(fields).map(f=>'<div><b>'+esc(f.key)+(f.kind==='issuer-chart'?' (Chartkurs)':'')+': '+esc(f.key==='Hebel'&&n(f.value)>0?Number(f.value).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2}):f.value??'—')+' · '+esc(f.state)+'</b>'+ (f.at?'<br>'+ (f.fromSeries?'Zeitbezug der Aufnahmeserie ':'Quellenzeit ')+esc(f.at)+' · '+esc(f.ageSeconds)+' s alt':'')+'<br>'+esc(f.source)+(f.kind==='issuer-chart'?' · Chartbeobachtung, kein ausführbarer Kursnachweis':'')+'</div>').join('')+(p.quote?.leverageEstimated?'<div>'+esc(p.quote.leverageNote)+'</div>':'')+(p.quote?.leverageCalculation?.available===false?'<div>Hebelberechnung: '+esc(p.quote.leverageCalculation.reason)+'</div>':'')+(p.quote?.backupStatus?.state==='unavailable'?'<div>Onvista-Backup derzeit nicht verfügbar: '+esc(p.quote.backupStatus.code)+'</div>':'')+'</div>';
+ return '<div class="small" data-field-status>'+nativeInfo+detail+comparisonDetail+Object.values(fields).map(f=>'<div><b>'+esc(f.key)+(f.kind==='issuer-chart'?' (Chartkurs)':'')+': '+esc(f.key==='Hebel'&&n(f.value)>0?Number(f.value).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2}):f.value??'—')+' · '+esc(f.state)+'</b>'+ (f.at?'<br>'+ (f.fromSeries?'Zeitbezug der Aufnahmeserie ':'Quellenzeit ')+esc(f.at)+' · '+esc(f.ageSeconds)+' s alt':f.fromSeries&&f.timeText?'<br>Zeitbezug der Aufnahmeserie '+esc(f.timeText)+(/\d{2}[/.]\d{2}[/.]\d{4}/.test(f.timeText)?' · Sekunden unbekannt':' · Kursdatum fehlt'):'')+'<br>'+esc(f.source)+(f.kind==='issuer-chart'?' · Chartbeobachtung, kein ausführbarer Kursnachweis':'')+'</div>').join('')+(p.quote?.leverageEstimated?'<div>'+esc(p.quote.leverageNote)+'</div>':'')+(p.quote?.leverageCalculation?.available===false?'<div>Hebelberechnung: '+esc(p.quote.leverageCalculation.reason)+'</div>':'')+(p.quote?.backupStatus?.state==='unavailable'?'<div>Onvista-Backup derzeit nicht verfügbar: '+esc(p.quote.backupStatus.code)+'</div>':'')+'</div>';
 }
 function analysisReleaseQuote(p,now=Date.now()){
  const q=p.quote,a=q?.analysisQuote,c=q?.leverageCalculation,i=c?.inputs;
@@ -2239,7 +2240,7 @@ async function readProductPdf(file,expected){
  }finally{await task.destroy();}
 }
 // Local originals support reprocessing after OCR updates. Never refresh source clocks.
-const PRODUCT_OCR_VERSION='2026-10-07-swiss-import-status-v3';
+const PRODUCT_OCR_VERSION='2026-10-07-series-underlying-v4';
 const ORIGINAL_TTL=7*86400000,ORIGINAL_LIMIT=100*1024*1024;
 const activeProductImports=new Set();
 function originalRetention(records,now=Date.now()){
@@ -2374,7 +2375,8 @@ async function readScreenshot(i,file,productContext=null){
 function linkScreenshotSeries(outcomes){
  const accepted=outcomes.filter(o=>o.ok&&o.data),ids=new Set(accepted.map(o=>o.data.isin));
  if(accepted.length<2||ids.size!==1)return null;
- const full=[],dates=[],clocks=[];
+ const full=[],dates=[],clocks=[],underlyingClocks=[];
+ const bnpSeries=accepted.some(o=>/BNP\s+PARIBAS|derivate\.bnpparibas\.com/i.test(o.raw||''));
  for(const o of accepted){
   const x=o.data,raw=o.raw||'';
   if(x.sourceTime&&selectionTimeWindow(x.sourceTime))full.push({text:x.sourceTime,source:o.name});
@@ -2385,20 +2387,24 @@ function linkScreenshotSeries(outcomes){
    const row=raw.match(/[ÄA]nderung\s+Hebel\s+GOLD[\s\S]*?USD\s*\n\s*(\d{2}:\d{2}:\d{2})(?:\.\d+)?/i);
    if(row)clocks.push({text:row[1],source:o.name});
   }
+  if(bnpSeries)for(const m of raw.matchAll(/\bIndikation(?:\s*\[\d+\])?\s*[·:]?\s*(\d{2}:\d{2}(?::\d{2})?)(?![\d:])/gi))underlyingClocks.push({text:m[1],source:o.name});
  }
- let text='',sources=[],basis='Kurszeit aus zugehörigem Bild';
+ let text='',sources=[],basis='Kurszeit aus zugehörigem Bild',timeOrigin='product',dateUnknown=false;
  if(full.length){
   const ordered=full.slice().sort((a,b)=>selectionTimeWindow(a.text).start-selectionTimeWindow(b.text).start);
   if(selectionTimeWindow(ordered.at(-1).text).start-selectionTimeWindow(ordered[0].text).start>90000)return null;
   text=ordered[0].text;sources=full.map(v=>v.source);
   if(ordered.length>1)basis='Früheste Quellenzeit derselben Aufnahmeserie (maximal 90 Sekunden Abstand); Originalzeiten bleiben erhalten';
  }else{
-  if(new Set(dates.map(v=>v.text)).size!==1||new Set(clocks.map(v=>v.text)).size!==1)return null;
-  text=dates[0].text+' '+clocks[0].text;sources=[dates[0].source,clocks[0].source];
-  basis='Datum und Kursuhrzeit aus derselben Aufnahmeserie kombiniert; Gleichzeitigkeit laut Nutzer';
+  const candidates=clocks.length?clocks:underlyingClocks;
+  if(new Set(candidates.map(v=>v.text)).size!==1||new Set(dates.map(v=>v.text)).size>1)return null;
+  const clock=candidates[0];if(!clock||!/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(clock.text))return null;
+  dateUnknown=!dates.length;timeOrigin=clocks.length?'product':'underlying';
+  text=(dateUnknown?'':dates[0].text+' ')+clock.text;sources=[...dates.map(v=>v.source),...candidates.map(v=>v.source)];
+  basis=(timeOrigin==='underlying'?'Uhrzeit der Basiswert-Indikation als Zeitbezug der gemeinsamen Bilderserie übernommen; keine gesondert bestätigte Geld-/Briefzeit':'Datum und Kursuhrzeit aus derselben Aufnahmeserie kombiniert')+(dateUnknown?' · Kursdatum fehlt':' · Datum aus derselben Bilderserie');
  }
- const window=selectionTimeWindow(text);if(!window)return null;
- const series={text,at:new Date(window.start).toISOString(),sources:[...new Set(sources)],basis,userDeclaredSimultaneous:true,timezone:'Europe/Zurich angenommen'};
+ const window=selectionTimeWindow(text);if(!window&&!dateUnknown)return null;
+ const series={text,at:window&&/\d{2}:\d{2}:\d{2}/.test(text)?new Date(window.start).toISOString():null,timeOrigin,dateUnknown,sources:[...new Set(sources)],basis,userDeclaredSimultaneous:true,timezone:'Europe/Zurich angenommen'};
  for(const o of accepted){
   const x=o.data;x.captureSeries=series;
   const hasQuote=x.bid!=null&&x.ask!=null;
@@ -2457,7 +2463,7 @@ function mergeScreenshotEvidence(previous,x,source){
  }
  if(!hasQuote){for(const key of ["bid","ask","currency","sourceTime","delayed"])merged[key]=previous[key]??x[key];}
  else {for(const key of ["Kurs","Geld","Brief","Spread"])delete evidence[key];merged.clearSpread=n(x.spread)===null;}
- for(const [key,value] of Object.entries({Richtung:x.direction,Kurs:x.price,Hebel:x.leverage,KO:x.ko,Geld:x.bid,Brief:x.ask,Spread:x.spread})){if(value!==""&&value!==null&&value!==undefined)evidence[key]={value,source,at:fieldSourceTime(x,key),dateText:key==='KO'?x.terms?.ko?.dateText:null,...(['Geld','Brief','Kurs','Spread'].includes(key)?{currency:x.currency}:{}),...(key==='KO'?{displayDecimals:x.terms?.ko?.displayDecimals}:{}),...(key==='Hebel'&&x.times?.leverage?.fromSeries?{fromSeries:true,timeBasis:'Hebel aus derselben Aufnahmeserie',timeSources:[...(x.captureSeries?.sources||[])]}:{})};}
+ for(const [key,value] of Object.entries({Richtung:x.direction,Kurs:x.price,Hebel:x.leverage,KO:x.ko,Geld:x.bid,Brief:x.ask,Spread:x.spread})){if(value!==""&&value!==null&&value!==undefined)evidence[key]={value,source,at:fieldSourceTime(x,key),dateText:key==='KO'?x.terms?.ko?.dateText:null,...(['Geld','Brief','Kurs','Spread'].includes(key)?{currency:x.currency}:{}),...(key==='KO'?{displayDecimals:x.terms?.ko?.displayDecimals}:{}),...((key==='Hebel'?x.times?.leverage?.fromSeries:['Geld','Brief','Kurs','Spread'].includes(key)&&!x.times?.[{Geld:'bid',Brief:'ask'}[key]]?.present&&x.times?.quote?.fromSeries)?{fromSeries:true,timeBasis:(key==='Hebel'?'Hebel aus derselben Aufnahmeserie · ':'')+(x.captureSeries?.basis||'Zeit aus gemeinsamer Bilderserie'),timeText:x.captureSeries?.text,timeOrigin:x.captureSeries?.timeOrigin,timeSources:[...(x.captureSeries?.sources||[])]}:{})};}
  if(hasQuote&&evidence.Spread){const times=[evidence.Geld?.at,evidence.Brief?.at];evidence.Spread.at=times.every(Boolean)?times.sort()[0]:null;}
  for(const [key,field] of Object.entries({Kurs:"price",Hebel:"leverage",KO:"ko",Spread:"spread",Richtung:"direction"})){merged[field]=evidence[key]?.value??"";}
  return merged;
