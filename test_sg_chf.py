@@ -11,6 +11,15 @@ class ChfTests(unittest.TestCase):
   self.assertEqual(out['nativeChartEvidence'],r['chartEvidence'])
   self.assertAlmostEqual(out['chartEvidence']['bid'],40.5)
   self.assertEqual(out['chartEvidence']['currency'],'EUR')
+  evidence=out['currencyConversion']['evidence']
+  self.assertEqual(evidence['chfAt'],at)
+  self.assertEqual(evidence['eurAt'],at)
+  self.assertEqual(evidence['eur'],.9)
+  self.assertEqual(evidence['chf'],.8)
+  self.assertEqual(out['currencyConversion']['nativeAt'],at)
+  for old in ('data_updated_at',):
+   bad=dict(fx);bad[old]=(now-timedelta(seconds=200)).isoformat()
+   self.assertNotIn('chartEvidence',convert_analysis(r,bad,now))
   fx['sources']['CHF']='cached'
   self.assertNotIn('chartEvidence',convert_analysis(r,fx,now))
  def test_ch_market_is_explicit(self):

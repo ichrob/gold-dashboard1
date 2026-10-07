@@ -22,7 +22,10 @@ def convert_analysis(result, fx=None, now=None):
         if not 0 < rate < 10 or any(not 0 <= (now-t).total_seconds() <= 300 for t in times) or (max(times)-min(times)).total_seconds() > 90:
             raise ValueError('CHF/EUR-Daten veraltet oder zeitlich abweichend')
         out['chartEvidence'] = dict(chart, bid=chart['bid']*rate, ask=chart['ask']*rate, currency='EUR',pointAt=min(times).isoformat())
-        out['currencyConversion'] = dict(fromCurrency='CHF',toCurrency='EUR',rate=rate,source='exchangerate.dev',at=min(times).isoformat(),nativeAt=chart['pointAt'])
+        out['currencyConversion'] = dict(fromCurrency='CHF',toCurrency='EUR',rate=rate,source='exchangerate.dev',at=min(times).isoformat(),nativeAt=chart['pointAt'],
+            evidence=dict(base='USD', eur=q.number(fx['rates']['EUR']), chf=q.number(fx['rates']['CHF']),
+                          dataAt=times[1].isoformat(), eurAt=times[2].isoformat(), chfAt=times[3].isoformat(),
+                          marketSession=fx['market_session'], eurSource=fx['sources']['EUR'], chfSource=fx['sources']['CHF']))
     except (KeyError,ValueError,TypeError,OSError,ZeroDivisionError):
         out['reason'] = 'CHF-Originalkurse vorhanden; aktuelle zeitlich passende CHF/EUR-Umrechnung fehlt'
     return out
