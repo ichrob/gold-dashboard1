@@ -103,3 +103,25 @@ assert(!b.finalProductStatus(secondaryProduct,now).complete,'currency/quote evid
 const secondaryUi=b.renderSecondaryValidity({secondaryValidity:{state:'open',sources:[{provider:'finanzen.ch',state:'observed',terms:{ko:{value:4526.54,assessment:'Abweichender Wert; nicht übernommen',dateText:null}}}]}});
 assert(secondaryUi.includes('Abweichender Wert'));assert(secondaryUi.includes('nicht angegeben'));
 assert(b.renderSecondaryValidity({secondaryValidity:{state:'checking',sources:[]}}).includes('Hintergrund'));
+
+assert(b.productDataStatus(p,now).complete,JSON.stringify(b.productDataStatus(p,now)));
+assert(b.productCompletionBadge(p,now).includes('data-series-complete'));
+assert(!b.finalProductStatus(p,now).complete,'analysis completeness must not grant live release');
+assert(!b.productDataStatus(p,now+15*3600000).complete,'expired series');
+for(const mutate of [
+ x=>x.snapshot.captureSeries=null,
+ x=>x.snapshot.terms.strike.source='older.jpg',
+ x=>x.snapshot.times.quote={present:true,text:'invalid'},
+ x=>x.snapshot.evidence.Hebel.at='2026-10-06T14:21:28Z',
+ x=>x.snapshot.isin='DE000PJ9NCK0',
+ x=>x.ko=4524.63,
+ x=>x.quote.currencyConversion=null
+]){const bad=JSON.parse(JSON.stringify(p));mutate(bad);assert(!b.productDataStatus(bad,now).complete,'invalid data must stay incomplete');}
+console.log('Series analysis completeness separated from live validity, with identity, timing, currency and conflict checks');
+
+ctx.Date=class extends Date {static now(){return now;}};
+const neutralCard=b.compactProductCard(p,b.finalProductStatus(p,now).reasons,'Marktsignal neutral');
+assert(neutralCard.includes('data-series-complete'));
+assert(neutralCard.includes('Nicht freigegeben'));
+assert(neutralCard.includes('Für die Live-Freigabe noch offen'));
+assert(!neutralCard.includes('datierter Hebel weiterhin erforderlich'));
