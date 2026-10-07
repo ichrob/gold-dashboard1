@@ -18,6 +18,29 @@ def page():
 def html(data):
     return '<script id="__NEXT_DATA__" type="application/json">'+json.dumps({'props':{'pageProps':{'data':{'snapshot':data}}}})+'</script>'
 class BackupTests(unittest.TestCase):
+    def test_static_model_survives_stale_quotes_without_promoting_them(self):
+        data=page()
+        data['derivativesDetails'].update(quanto=False,hasIndicativeDetails=False)
+        data['derivativesUnderlyingList']['list'][0].update(isoCurrency='USD',coverRatio=.1)
+        data['quoteList']['list'][0]['datetimeAsk']=OLD
+        evidence=b.parse_model_evidence(html(data),ISIN,NOW)
+        primary=dict(isin=ISIN,productVerified=True,eligible=False,metadata=dict(status=1,
+            underlyingType='SPOT',direction='LONG',ratio=.1,simpleTurbo=True,
+            quantoState='unknown',simpleNonQuantoTurbo=False))
+        import time
+        with patch.dict(b._MODEL,{ISIN:(time.monotonic(),evidence)},clear=True), patch.object(b,'fetch',return_value=None):
+            result=b.apply_backup(primary,ISIN,NOW)
+            self.assertTrue(result['metadata']['simpleNonQuantoTurbo'])
+            self.assertFalse(result['eligible']);self.assertNotIn('ask',result)
+            self.assertFalse(primary['metadata']['simpleNonQuantoTurbo'])
+            for key,value in [('direction','SHORT'),('ratio',.01),('quantoState','quanto'),('simpleTurbo',False)]:
+                wrong=copy.deepcopy(primary);wrong['metadata'][key]=value
+                self.assertFalse(b.apply_backup(wrong,ISIN,NOW)['metadata']['simpleNonQuantoTurbo'])
+        with self.assertRaises(ValueError):b.parse_page(html(data),ISIN,NOW)
+        for value in [True,None,0,'false']:
+            data['derivativesDetails']['quanto']=value
+            with self.assertRaises(ValueError):b.parse_model_evidence(html(data),ISIN,NOW)
+
     def test_missing_leverage_does_not_discard_current_pair(self):
         data=page();data['derivativesFigure']={}
         result=b.parse_page(html(data),ISIN,NOW)

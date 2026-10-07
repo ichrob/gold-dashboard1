@@ -12,6 +12,7 @@ IDS = {'DE000FG5GUT0':336000321, 'DE000FG4JXV7':340459583, 'DE000FG7EPT1':341071
 PAGES = {isin:'https://www.onvista.de/derivate/Knock-Outs/handelsplaetze/'+str(id)+'-'+isin[5:11]+'-'+isin for isin,id in IDS.items()}
 _CACHE = {}
 _FAILURES = {}
+_MODEL = {}
 _LOCK = threading.Lock()
 
 def clock(value):
@@ -63,6 +64,48 @@ def parse_page(html, isin, now=None):
                 source='Onvista · '+q['market']['name'], sourceUrl=PAGES[isin],
                 priceKind='secondary-market', isDegiroQuote=False)
 
+def parse_model_evidence(html, isin, now=None):
+    """Static conversion terms are independent of the age of price fields."""
+    now = now or datetime.now(timezone.utc)
+    match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.S)
+    data = json.loads(match[1])['props']['pageProps']['data']['snapshot']
+    i, d = data['instrument'], data['derivativesDetails']
+    u = data['derivativesUnderlyingList']['list']
+    if (i.get('isin') != isin or i.get('wkn') != isin[5:11]
+            or str(i.get('entityValue')) != str(IDS[isin])
+            or i.get('entitySubType') != 'KNOCKOUT_CERTIFICATE'
+            or d.get('quanto') is not False or d.get('hasIndicativeDetails') is not False
+            or d.get('numberUnderlyings') != 1 or d.get('isoCurrency') != 'EUR'
+            or d.get('dataStatus') != 1 or d.get('hasBarrierBeenHit') is not False
+            or d.get('nameExerciseRight') not in ('CALL','PUT') or len(u) != 1
+            or u[0]['instrument'].get('isin') != 'XC0009655157'
+            or u[0].get('isoCurrency') != 'USD'):
+        raise ValueError('Währungsmodell nicht bestätigt')
+    ratio = float(u[0]['coverRatio'])
+    if not math.isfinite(ratio) or ratio <= 0:
+        raise ValueError('Bezugsverhältnis nicht bestätigt')
+    return dict(isin=isin, quanto=False, ratio=ratio,
+                direction='LONG' if d['nameExerciseRight']=='CALL' else 'SHORT',
+                source=PAGES[isin], sourceField='derivativesDetails.quanto',
+                reviewedAt=now.isoformat())
+
+
+def apply_model(primary, isin, now):
+    with _LOCK:
+        cached = _MODEL.get(isin)
+    m = primary.get('metadata', {})
+    if (not cached or time.monotonic()-cached[0] > 900
+            or m.get('quantoState') != 'unknown' or not m.get('simpleTurbo')):
+        return primary
+    evidence = cached[1]
+    if (evidence['isin'] != isin or evidence['direction'] != m.get('direction')
+            or evidence['ratio'] != m.get('ratio')
+            or not 0 <= (now-clock(evidence['reviewedAt'])).total_seconds() <= 900):
+        return primary
+    return dict(primary, metadata=dict(m, simpleNonQuantoTurbo=True,
+                quantoState='non-quanto', currencyModelEvidence=dict(evidence)))
+
+
 def fetch(isin):
     with _LOCK:
         cached = _CACHE.get(isin)
@@ -73,7 +116,20 @@ def fetch(isin):
         with urlopen(req, timeout=20) as response:
             if not response.url.startswith('https://www.onvista.de/'):
                 raise ValueError('Unerwartete Weiterleitung')
-            result = parse_page(response.read(4000000).decode('utf-8'), isin)
+            body = response.read(4000001)
+            if len(body) > 4000000:
+                raise ValueError('Antwort zu groß')
+            html = body.decode('utf-8')
+            # Replace model evidence even when new data contradicts an old value.
+            with _LOCK:
+                _MODEL.pop(isin, None)
+            try:
+                model = parse_model_evidence(html, isin)
+                with _LOCK:
+                    _MODEL[isin] = (time.monotonic(), model)
+            except (KeyError, TypeError, ValueError, IndexError):
+                pass
+            result = parse_page(html, isin)
         ttl = 30
         with _LOCK:
             _FAILURES.pop(isin, None)
@@ -96,6 +152,8 @@ def apply_backup(primary, isin, now=None):
             or primary.get('eligible') or primary.get('sourceDisabled')):
         return primary
     backup = fetch(isin)
+    primary = apply_model(primary, isin, now or datetime.now(timezone.utc))
+    meta = primary.get('metadata', {})
     if not backup:
         return dict(primary, backupStatus=_FAILURES.get(isin, {'state':'unavailable','code':'NO_CURRENT_PAIR'}))
     if backup.get('direction') != meta.get('direction'):
