@@ -32,8 +32,10 @@ class StuttgartTests(unittest.TestCase):
             self.assertEqual(s.parse_page(page,ISIN,NOW)['metadata']['status'],2)
     def test_terms_reach_existing_api(self):
         terms=s.parse_page(PAGE,ISIN,NOW)
-        with patch.object(public,'get_product',return_value=terms),patch.object(q,'get_issuer_quote',return_value={'found':False}):
-            self.assertEqual(q.get_quote(ISIN),terms)
+        with patch.object(public,'get_product',return_value=terms),patch.object(q,'get_issuer_quote',return_value={'found':False}),patch('secondary_validity.get_evidence',return_value=[]):
+            result=q.get_quote(ISIN)
+            self.assertEqual(result.pop('secondaryValidity')['state'],'open')
+            self.assertEqual(result,terms)
     def test_knockout_overrides_issuer_eligibility(self):
         terms=s.parse_page('Das Wertpapier wurde ausgeknockt. '+PAGE,ISIN,NOW)
         with patch.object(public,'get_product',return_value=terms),patch.object(q,'get_issuer_quote',return_value={'found':True,'eligible':True}):
