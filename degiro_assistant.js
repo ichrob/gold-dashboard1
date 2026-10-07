@@ -807,10 +807,19 @@ async function readSgIdentity(worker,image,data){
  }finally{bitmap.close();await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});}
 }
 // Focus only the labelled amount cell in the original image; never a neighbour.
+function termLabelRows(data,key){
+ const words=data.words||[],label=key==='strike'?/^(Basispreis|Finanzierungslevel|Strike)$/i:/^(Knock-Out-Barriere|Knock-out-Schwelle|Stoppschwelle)$/i;
+ const rows=words.filter(w=>label.test(w.text));
+ if(key==='ko')for(const first of words.filter(w=>/^Knock[-–]?Out$/i.test(w.text))){
+  const b=first.bbox,h=b.y1-b.y0;
+  const next=words.filter(w=>/^Schwelle$/i.test(w.text)&&w.bbox.x0>=b.x1&&w.bbox.x0-b.x1<2*h&&Math.abs(w.bbox.y0-b.y0)<h/2);
+  if(next.length===1)rows.push({text:'Knock-out-Schwelle',bbox:{x0:b.x0,y0:Math.min(b.y0,next[0].bbox.y0),x1:next[0].bbox.x1,y1:Math.max(b.y1,next[0].bbox.y1)}});
+ }
+ return rows;
+}
 async function readTermCell(worker,image,data,key){
- const labels={strike:/^(Basispreis|Finanzierungslevel|Strike)$/i,ko:/^(Knock-Out-Barriere|Knock-out-Schwelle|Stoppschwelle)$/i};
- if(!labels[key])return [];
- const rows=(data.words||[]).filter(w=>labels[key].test(w.text));if(rows.length!==1)return [];
+ if(!['strike','ko'].includes(key))return [];
+ const rows=termLabelRows(data,key);if(rows.length!==1)return [];
  const bitmap=await createImageBitmap(image);
  try{
   const b=rows[0].bbox,h=b.y1-b.y0,y=Math.max(0,b.y0-h),height=Math.min(bitmap.height-y,3*h);
@@ -1005,12 +1014,13 @@ function recognizeOcr(file,statusId,allowPartial=false){
   }
   // Recover malformed labelled cells as well as parsed-but-unconfirmed numbers.
   // Both focused reads must agree; the selected product supplies no amount.
-  for(const [key,label] of [['strike','Basispreis'],['ko','Knock-Out-Barriere']]){
+  result.data.text=normalizeProductTermLayout(result.data.text||'');
+  for(const [key,label] of [['strike','Basispreis'],['ko','(?:Knock-Out-Barriere|Knock-out-Schwelle)']]){
    if(!new RegExp('\\b'+label+'\\b','i').test(result.data.text||''))continue;
    if(ocrNumericFields(result.data.text)[key]!==undefined)continue;
    const focused=await readTermCell(worker,prepared,identityData,key);
    if(focused.length!==2||focused[0]!==focused[1])continue;
-   const row=new RegExp('(^|\\n)[ \\t]*'+label+'[^\\n]*(?:\\n[ \\t]*[oOQ®©ⓘ@]*[ \\t]*USD[^\\n]*)?','g');
+   const row=new RegExp('(^|\\n)[ \\t]*'+label+'[^\\n]*(?:\\n[ \\t]*(?:\\([^\\n]*\\)[ \\t]*)?[0-9][0-9A-Za-z.,]*[ \\t]+USD[^\\n]*|\\n[ \\t]*[oOQ®©ⓘ@]*[ \\t]*USD[^\\n]*)?','gi');
    const matches=[...result.data.text.matchAll(row)];if(matches.length!==1)continue;
    const date=matches[0][0].match(/\b\d{2}\.\d{2}\.\d{4}\b/);
    result.data.text=result.data.text.replace(row,(_,prefix)=>prefix+focused[0]+(date?' ('+date[0]+')':''));
@@ -1779,8 +1789,16 @@ function normalizeSwissSgText(raw){
  if(/BEST Turbo-\s*(?:\n\s*Produktart\s+)?Optionsscheine?/i.test(raw))raw=raw.replace(/(^|\n)\s*Produktart\s+(?:BEST Turbo-\s*)?Optionsscheine?/i,'$1Produktart BEST Turbo-Optionsscheine');
  return raw;
 }
+function normalizeProductTermLayout(raw){
+ raw=String(raw||'').replace(/(Knock[-– ]Out)\s+Schwelle/gi,'Knock-out-Schwelle');
+ // BNP's information icon and date precede the amount on narrow screens.
+ // Join only a labelled USD cell; never use the rounded comparison cards.
+ raw=raw.replace(/((?:Basispreis|Knock-out-Schwelle))\s*(?:[oOⓘ▶►&]\s*)?\((\d{2}\.\d{2}\.\d{4})\)\s*(?:[oOⓘ▶►&]\s*)?([\d.,]+)\s*USD\b/gi,'$1 $3 USD ($2)');
+ raw=raw.replace(/((?:Basispreis|Knock-out-Schwelle)\s*[\d.,]+\s*USD)\s*\((\d{2}\.\d{2}\.\d{4})\)/gi,'$1 ($2)');
+ return raw;
+}
 function parseProductTerms(raw,onlyKeys=null){
- raw=normalizeSwissSgText(raw).replace(/(?:©|®|ⓘ|@)/g,'').replace(/Bezugsverhaltnis/g,'Bezugsverhältnis');
+ raw=normalizeProductTermLayout(normalizeSwissSgText(raw)).replace(/(?:©|®|ⓘ|@)/g,'').replace(/Bezugsverhaltnis/g,'Bezugsverhältnis');
  // Description paragraphs are sentences, not table rows split by screen width.
  if(/Produktbeschreibung/i.test(raw)){
   const prose=raw.replace(/\s+/g,' '),rows=[];
@@ -2117,7 +2135,7 @@ function finalProductStatus(p,now=Date.now(),reference){
  return {...status,complete:!reasons.length,reasons};
 }
 function detailScreenshotData(text,expectedIsin,productContext=null,excludedFields=[]){
- let raw=normalizeSwissSgText(normalizeBnpQuoteColumns(String(text||"")));
+ let raw=normalizeProductTermLayout(normalizeSwissSgText(normalizeBnpQuoteColumns(String(text||""))));
  // BNP's Gold reference identifier is not the certificate ISIN.
  // Scope removal to the explicit Gold underlying section, preserving all
  // certificate identifiers and rejecting conflicting product identities.
@@ -2170,7 +2188,7 @@ function detailScreenshotData(text,expectedIsin,productContext=null,excludedFiel
  if(!x.leverage){const lv=raw.match(/\bLV\s+(\d+(?:[.,]\d+)?)/i);if(lv)x.leverage=lv[1].replace(",",".");}
  let terms=parseProductTerms(raw);
  if(terms.error){
-  if(!/sg-zertifikate\.(?:de|at)\b|SOCI[EÉ]T[EÉ]\s+G[EÉ]N[EÉ]RALE/i.test(raw)&&identity.basis!=='Produktkontext')return {ok:false,reason:terms.error};
+  if(!/sg-zertifikate\.(?:de|at)\b|SOCI[EÉ]T[EÉ]\s+G[EÉ]N[EÉ]RALE|BNP\s+Paribas|derivate\.bnpparibas\.com/i.test(raw)&&identity.basis!=='Produktkontext')return {ok:false,reason:terms.error};
   if(!/^(?:Basispreis|Knock-Out-Barriere): (?:Zahl|positiver Wert)/.test(terms.error))return {ok:false,reason:terms.error};
   terms={};
   for(const key of ['ko','ratio','strike','underlying','contract','type','maturity','currency','quanto']){
@@ -3152,4 +3170,5 @@ function init(){
 }
 window.BobTradeUpload={parse,draft,reviewed,merge,init};if(typeof document!=='undefined'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();}
 })();
+
 
