@@ -161,6 +161,10 @@ class SimulationTests(unittest.TestCase):
         self.assertIn('partial-profit',kinds);self.assertIn('stop-raised',kinds);self.assertIn('target-extended',kinds)
         self.assertIsNone(c['productGrossPct'])
 
+    def test_empty_slots_never_erase_saved_universe(self):
+        conn=Mock();r=sim.sync(conn,{'products':[{}, {'price':10}]})
+        self.assertTrue(r['preserved']);conn.execute.assert_not_called()
+
     def test_read_report_does_not_advance_or_write(self):
         conn=Mock();conn.execute.return_value.fetchone.side_effect=[dict_payload:=({'startAt':sim.START},),None,None]
         conn.execute.return_value.fetchall.side_effect=[[],[]]
