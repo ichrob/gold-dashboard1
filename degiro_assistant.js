@@ -1126,6 +1126,7 @@ async function enrichProduct(i){
    if(n(x.metadata.ko)>0&&field("ko")&&(x.metadata.termsDated!==false||x.metadata.termsFixed===true||!(n(field("ko").value)>0)))field("ko").value=x.metadata.ko;
   }
   if(x.analysisQuote&&x.isin===isin&&x.productVerified&&n(x.analysisQuote.price)>0&&field('price'))field('price').value=x.analysisQuote.price;
+  if(x.leverageEstimated&&x.isin===isin&&x.productVerified&&n(x.leverage)>0&&field('lev'))field('lev').value=x.leverage;
   if(x.sourceDisabled&&x.isin===isin){
    if(meta)meta.textContent=x.reason+" Die Produktauswahl prüft die vorhandenen Screenshotnachweise separat.";
   }else if(x.found&&x.isin===isin){
@@ -1906,12 +1907,13 @@ function productFieldStates(p,now=Date.now()){
   items[key]=from(label,direct?live[key]:key==='ask'?p.price:shot?.bid,direct?live[key+'At']:e?.at||shot?.sourceTime,direct?live.source:e?.source,direct?90000:SCREENSHOT_MAX_AGE_MS,direct?live.priceKind:'screenshot');
  }
  const le=shot?.evidence?.Hebel,directLev=q&&n(q.leverage)===n(p.leverage);
- items.leverage=from('Hebel',p.leverage,directLev?q.leverageAt:n(le?.value)===n(p.leverage)?le?.at:null,directLev?q.source:le?.source,directLev?90000:SCREENSHOT_MAX_AGE_MS);
+ items.leverage=from('Hebel',p.leverage,directLev?q.leverageAt:n(le?.value)===n(p.leverage)?le?.at:null,directLev?(q.leverageSource||q.source):le?.source,directLev?90000:SCREENSHOT_MAX_AGE_MS);
  return items;
 }
 function renderProductFieldStates(p){
  const fields=productFieldStates(p);
- return '<div class="small" data-field-status>'+Object.values(fields).map(f=>'<div><b>'+esc(f.key)+': '+esc(f.value??'—')+' · '+esc(f.state)+'</b>'+ (f.at?'<br>Quellenzeit '+esc(f.at)+' · '+esc(f.ageSeconds)+' s alt':'')+'<br>'+esc(f.source)+(f.kind==='issuer-chart'?' · Chartbeobachtung, kein ausführbarer Kursnachweis':'')+'</div>').join('')+(p.quote?.backupStatus?.state==='unavailable'?'<div>Onvista-Backup derzeit nicht verfügbar: '+esc(p.quote.backupStatus.code)+'</div>':'')+'</div>';
+ if(p.quote?.leverageEstimated&&p.quote?.leverageCalculation?.fresh===false&&fields.leverage.state==='aktuell')fields.leverage.state='Aktualität unbestätigt';
+ return '<div class="small" data-field-status>'+Object.values(fields).map(f=>'<div><b>'+esc(f.key)+': '+esc(f.value??'—')+' · '+esc(f.state)+'</b>'+ (f.at?'<br>Quellenzeit '+esc(f.at)+' · '+esc(f.ageSeconds)+' s alt':'')+'<br>'+esc(f.source)+(f.kind==='issuer-chart'?' · Chartbeobachtung, kein ausführbarer Kursnachweis':'')+'</div>').join('')+(p.quote?.leverageEstimated?'<div>'+esc(p.quote.leverageNote)+'</div>':'')+(p.quote?.leverageCalculation?.available===false?'<div>Hebelberechnung: '+esc(p.quote.leverageCalculation.reason)+'</div>':'')+(p.quote?.backupStatus?.state==='unavailable'?'<div>Onvista-Backup derzeit nicht verfügbar: '+esc(p.quote.backupStatus.code)+'</div>':'')+'</div>';
 }
 function finalProductStatus(p,now=Date.now(),reference){
  if(knockoutStatus(p))return {complete:false,terminal:true,reasons:["Ausgeknockt – keine weiteren Daten erforderlich"]};

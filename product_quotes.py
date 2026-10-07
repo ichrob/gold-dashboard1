@@ -588,4 +588,5 @@ def get_quote(isin):
             bidAt=chart['pointAt'], askAt=chart['pointAt'], currency=chart['currency'],
             source='SG · datierter Chartkurs', priceKind='issuer-chart',
             isExecutableQuote=False)
-    return result
+    from leverage_backup import apply
+    return apply(result)
