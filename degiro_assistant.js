@@ -1125,6 +1125,7 @@ async function enrichProduct(i){
    if(["LONG","SHORT"].includes(x.metadata.direction)&&field("dir"))field("dir").value=x.metadata.direction;
    if(n(x.metadata.ko)>0&&field("ko")&&(x.metadata.termsDated!==false||x.metadata.termsFixed===true||!(n(field("ko").value)>0)))field("ko").value=x.metadata.ko;
   }
+  if(x.analysisQuote&&x.isin===isin&&x.productVerified&&n(x.analysisQuote.price)>0&&field('price'))field('price').value=x.analysisQuote.price;
   if(x.sourceDisabled&&x.isin===isin){
    if(meta)meta.textContent=x.reason+" Die Produktauswahl prüft die vorhandenen Screenshotnachweise separat.";
   }else if(x.found&&x.isin===isin){
@@ -1467,8 +1468,16 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben'){
   const v=terms[key]?.value??(key==='ko'?x?.evidence?.KO?.value:null);if(v!==undefined&&v!==null)values.push(label+': '+v);
  }
  for(const [key,e] of Object.entries(x?.evidence||{})){if(key!=='KO'&&key!=='Spread')values.push(key+': '+e.value+(e.at?' · '+e.at:''));}
- const groups=[],unconfirmed=[],locations=new Map();
+ const groups=[],unconfirmed=[],locations=new Map(),fieldStates=productFieldStates(p);
  for(const reason of reasons){
+  if(/Geld|Brief|Kurszeit|Kursbild|Produktkurs|BNP-Kursabruf/.test(reason)&&['bid','ask'].every(k=>fieldStates[k].state!=='fehlt')){
+   const label='Geld/Brief vorhanden; Datenstand und Kursart siehe oben. Live-Nachweis bleibt separat geprüft.';
+   if(!unconfirmed.includes(label))unconfirmed.push(label);continue;
+  }
+  if(/Hebel/.test(reason)&&fieldStates.leverage.state!=='fehlt'){
+   const label='Hebel vorhanden · '+fieldStates.leverage.state+'; ursprünglichen Datenstand siehe oben.';
+   if(!unconfirmed.includes(label))unconfirmed.push(label);continue;
+  }
   const dated=/datier|24 Stunden|Gültigkeit/i.test(reason)&&!/widerspr|ungültig/i.test(reason);
   const field=/Basispreis|Finanzierungslevel/.test(reason)?'Basispreis':/KO|Knock|Barriere/i.test(reason)?'KO-Barriere':null;
   if(dated&&field){const label=field+': Werte vorhanden – Aktualität unbestätigt';if(!unconfirmed.some(item=>item.startsWith(label)))unconfirmed.push(label+' · Fundort: '+missingValueLocation(reason));continue;}
@@ -1476,6 +1485,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben'){
   if(!groups.includes(label)){groups.push(label);locations.set(label,missingValueLocation(reason));}
  }
  return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" data-selection-blocked="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere"><b>'+esc(p.isin)+'</b> · '+esc(p.productDirection||'')+'<div class="small">'+'<strong>Nicht freigegeben</strong><br>Begründung: '+esc(status.replace(/^Nicht freigegeben · /,''))+'</div>'+
+ renderProductFieldStates(p)+
  (values.length?'<details style="margin-top:10px"><summary>Automatisch erkannte Werte</summary><div class="small">'+values.map(esc).join('<br>')+'</div></details>':'')+
  (unconfirmed.length?'<div class="small" style="margin-top:8px"><em>'+unconfirmed.map(esc).join('<br>')+'</em></div>':'')+
  (finalProductStatus(p).complete?'<div style="margin-top:10px;color:#15803d;font-weight:700">Datenübermittlung komplett</div>':'')+
@@ -1879,6 +1889,29 @@ function bnpSourceIssue(p,now=Date.now()){
  if(!q.marketOpen||now>Date.parse(q.tradingEndAt))return 'BNP-Kursabruf: Markt geschlossen oder Produkt derzeit nicht handelbar';
  const timing=quoteTiming(q,now);
  return timing.fresh?'':'BNP-Kursabruf: Quellenantwort veraltet oder Geld-/Brief-/Hebelzeit nicht prüfbar';
+}
+function productFieldStates(p,now=Date.now()){
+ const q=p.quote?.isin===p.isin&&p.quote.productVerified?p.quote:null;
+ const shot=p.snapshot?.isin===p.isin?p.snapshot:null;
+ const live=q?.found?q:q?.analysisQuote;
+ const from=(key,value,at,source,limit=90000,kind='')=>{
+  const t=typeof at==='string'&&/(Z|[+-]\d{2}:\d{2})$/.test(at)?Date.parse(at):selectionTimeWindow(at)?.start;
+  const age=Number.isFinite(t)?now-t:null;
+  return {key,value,at:at||null,source:source||'gespeicherter Wert',kind,ageSeconds:age===null?null:Math.floor(age/1000),state:!(n(value)>0)?'fehlt':age===null||age<0?'Aktualität unbestätigt':age>limit?'veraltet':'aktuell'};
+ };
+ const items={};
+ for(const [key,label] of [['bid','Geld'],['ask','Brief']]){
+  const direct=live?.currency==='EUR'&&n(live.ask)===n(p.price)&&n(live.bid)>0&&n(live.ask)>=n(live.bid);
+  const e=shot?.evidence?.[label];
+  items[key]=from(label,direct?live[key]:key==='ask'?p.price:shot?.bid,direct?live[key+'At']:e?.at||shot?.sourceTime,direct?live.source:e?.source,direct?90000:SCREENSHOT_MAX_AGE_MS,direct?live.priceKind:'screenshot');
+ }
+ const le=shot?.evidence?.Hebel,directLev=q&&n(q.leverage)===n(p.leverage);
+ items.leverage=from('Hebel',p.leverage,directLev?q.leverageAt:n(le?.value)===n(p.leverage)?le?.at:null,directLev?q.source:le?.source,directLev?90000:SCREENSHOT_MAX_AGE_MS);
+ return items;
+}
+function renderProductFieldStates(p){
+ const fields=productFieldStates(p);
+ return '<div class="small" data-field-status>'+Object.values(fields).map(f=>'<div><b>'+esc(f.key)+': '+esc(f.value??'—')+' · '+esc(f.state)+'</b>'+ (f.at?'<br>Quellenzeit '+esc(f.at)+' · '+esc(f.ageSeconds)+' s alt':'')+'<br>'+esc(f.source)+(f.kind==='issuer-chart'?' · Chartbeobachtung, kein ausführbarer Kursnachweis':'')+'</div>').join('')+(p.quote?.backupStatus?.state==='unavailable'?'<div>Onvista-Backup derzeit nicht verfügbar: '+esc(p.quote.backupStatus.code)+'</div>':'')+'</div>';
 }
 function finalProductStatus(p,now=Date.now(),reference){
  if(knockoutStatus(p))return {complete:false,terminal:true,reasons:["Ausgeknockt – keine weiteren Daten erforderlich"]};
@@ -2531,9 +2564,10 @@ function calculationAge(at,limit=90000,now=Date.now()){
 }
 function continuingAnalysis(products,context){
  return products.filter(p=>p.isin||p.name).map(p=>{
+  const analysis=p.quote?.analysisQuote;
   const direct=p.quote?.isin===p.isin&&n(p.quote.price)===n(p.price);
-  const at=direct?(p.quote.askAt||p.quote.quoteAt):(p.snapshot?.evidence?.Brief?.at||p.snapshot?.sourceTime||p.quote?.askAt||p.quote?.quoteAt);
-  const limit=direct?90000:p.snapshot?SCREENSHOT_MAX_AGE_MS:90000,now=context.now??Date.now();
+  const at=direct?(p.quote.askAt||p.quote.quoteAt):((analysis&&n(analysis.price)>0&&n(analysis.price)===n(p.price))?analysis.askAt:p.snapshot?.evidence?.Brief?.at||p.snapshot?.sourceTime||p.quote?.askAt||p.quote?.quoteAt);
+  const limit=direct||(analysis&&n(analysis.price)>0&&n(analysis.price)===n(p.price))?90000:p.snapshot?SCREENSHOT_MAX_AGE_MS:90000,now=context.now??Date.now();
   const priceWarning=calculationAge(at,limit,now);
   const levAt=direct?p.quote.leverageAt:p.snapshot?.evidence?.Hebel?.at;
   const levWarning=calculationAge(levAt,limit,now);
@@ -2661,7 +2695,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 

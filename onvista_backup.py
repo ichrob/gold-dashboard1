@@ -11,6 +11,7 @@ from urllib.request import Request, urlopen
 IDS = {'DE000FG5GUT0':336000321, 'DE000FG4JXV7':340459583, 'DE000FG7EPT1':341071258, 'DE000FG6XB39':339841792, 'DE000FC1CHB7':309138945}
 PAGES = {isin:'https://www.onvista.de/derivate/Knock-Outs/handelsplaetze/'+str(id)+'-'+isin[5:11]+'-'+isin for isin,id in IDS.items()}
 _CACHE = {}
+_FAILURES = {}
 _LOCK = threading.Lock()
 
 def clock(value):
@@ -73,7 +74,12 @@ def fetch(isin):
                 raise ValueError('Unerwartete Weiterleitung')
             result = parse_page(response.read(4000000).decode('utf-8'), isin)
         ttl = 30
-    except Exception:
+        with _LOCK:
+            _FAILURES.pop(isin, None)
+    except Exception as exc:
+        code = 'HTTP_'+str(exc.code) if hasattr(exc,'code') else type(exc).__name__
+        with _LOCK:
+            _FAILURES[isin] = dict(state='unavailable', code=code, checkedAt=datetime.now(timezone.utc).isoformat())
         result, ttl = None, 300
     with _LOCK:
         _CACHE[isin] = (time.monotonic()+ttl, result)
@@ -86,8 +92,10 @@ def apply_backup(primary, isin, now=None):
             or primary.get('eligible') or primary.get('sourceDisabled')):
         return primary
     backup = fetch(isin)
-    if not backup or backup.get('direction') != meta.get('direction'):
-        return primary
+    if not backup:
+        return dict(primary, backupStatus=_FAILURES.get(isin, {'state':'unavailable','code':'NO_CURRENT_PAIR'}))
+    if backup.get('direction') != meta.get('direction'):
+        return dict(primary, backupStatus={'state':'rejected','code':'DIRECTION_MISMATCH'})
     now = now or datetime.now(timezone.utc)
     # Every use rechecks cache age; never renew quote clocks on retrieval.
     try:
@@ -101,7 +109,7 @@ def apply_backup(primary, isin, now=None):
     except (KeyError, ValueError, TypeError):
         pass
     result = dict(primary, **backup)
-    result.update(found=True, eligible=False, fresh=False, backupActive=True,
+    result.update(found=True, eligible=False, fresh=False, backupActive=True, backupStatus={'state':'active'},
                   issuerSource=primary.get('source'), issuerSourceUrl=primary.get('sourceUrl'),
                   direction=meta.get('direction'), ko=meta.get('ko'),
                   snapshotAt=min(clock(backup[k]) for k in ('bidAt','askAt','leverageAt')).isoformat(),

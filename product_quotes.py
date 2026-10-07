@@ -580,4 +580,12 @@ def _get_quote_primary(isin):
 def get_quote(isin):
     from onvista_backup import apply_backup
     isin = str(isin or '').strip().upper()
-    return apply_backup(_get_quote_primary(isin), isin)
+    result = apply_backup(_get_quote_primary(isin), isin)
+    chart = result.get('chartEvidence')
+    if (not result.get('found') and result.get('productVerified') and
+            result.get('metadata', {}).get('status') == 1 and chart):
+        result['analysisQuote'] = dict(bid=chart['bid'], ask=chart['ask'], price=chart['ask'],
+            bidAt=chart['pointAt'], askAt=chart['pointAt'], currency=chart['currency'],
+            source='SG · datierter Chartkurs', priceKind='issuer-chart',
+            isExecutableQuote=False)
+    return result

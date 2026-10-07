@@ -14,6 +14,18 @@ Kennzahlen Hebel -- Knock Out erreicht Nein
 <table><tr><th>Basiswert</th><td><a href="/inf/rohstoffe/goldpreis-XC0009655157">Gold</a></td></tr></table>'''
 
 class PublicTermsTests(unittest.TestCase):
+    def test_chart_is_analysis_only_and_keeps_original_clock(self):
+        primary = dict(isin=ISIN, found=False, eligible=False, productVerified=True,
+                       metadata=dict(status=1), chartEvidence=dict(bid=4.4, ask=4.5,
+                       currency='EUR', pointAt='2026-10-07T09:35:00Z'))
+        with patch.object(q, '_get_quote_primary', return_value=primary), patch('onvista_backup.apply_backup', side_effect=lambda value, isin: value):
+            result = q.get_quote(ISIN)
+        self.assertFalse(result['found'])
+        self.assertFalse(result['eligible'])
+        self.assertEqual(result['analysisQuote']['askAt'], primary['chartEvidence']['pointAt'])
+        self.assertEqual(result['analysisQuote']['price'], 4.5)
+        self.assertFalse(result['analysisQuote']['isExecutableQuote'])
+
     def test_exact_terms_without_invented_quote_clocks(self):
         r=p.parse_page(PAGE,ISIN,NOW)
         self.assertEqual(r['metadata']['ratio'],.1)
@@ -37,7 +49,7 @@ class PublicTermsTests(unittest.TestCase):
         self.assertEqual(r['metadata']['status'],2);self.assertFalse(r['eligible'])
     def test_no_more_stuttgart_requests(self):
         terms=p.parse_page(PAGE,ISIN,NOW)
-        with patch.object(p,'get_product',return_value=terms),patch.object(q,'get_issuer_quote',return_value={'found':False}),patch('stuttgart_products.urlopen') as old:
+        with patch.object(p,'get_product',return_value=terms),patch.object(q,'get_issuer_quote',return_value={'found':False}),patch('stuttgart_products.urlopen') as old,patch('onvista_backup.fetch',return_value=None):
             r=q.get_quote(ISIN)
             self.assertEqual(r['source'],terms['source']);old.assert_not_called()
     def test_dated_issuer_does_not_wait_for_secondary_or_accept_older_terms(self):

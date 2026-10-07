@@ -52,7 +52,7 @@ class BackupTests(unittest.TestCase):
             self.assertEqual(b.apply_backup(newer,ISIN,NOW),newer)
     def test_cache_does_not_renew_time(self):
         r=b.parse_page(html(page()),ISIN,NOW)
-        primary=dict(isin=ISIN,productVerified=True,metadata=dict(status=1,underlyingType='SPOT'))
+        primary=dict(isin=ISIN,productVerified=True,metadata=dict(status=1,underlyingType='SPOT',direction='LONG'))
         with patch.object(b,'fetch',return_value=r):
             self.assertEqual(b.apply_backup(primary,ISIN,datetime(2026,10,7,10,tzinfo=timezone.utc)),primary)
 if __name__=='__main__':unittest.main()
