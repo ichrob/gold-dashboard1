@@ -461,6 +461,12 @@ const refreshed={isin:'DE000PJ9NB98',productDirection:'LONG',price:13.07,leverag
 assert(b.automaticIdentity(refreshed));
 assert(!b.automaticIdentity({...refreshed,quote:{...refreshed.quote,productVerified:false}}));
 assert(!b.automaticIdentity({...refreshed,price:99}));
+const chartRefreshed={...refreshed,quote:{...refreshed.quote,found:false,price:undefined,analysisQuote:{price:refreshed.price}}};
+assert(b.automaticIdentity(chartRefreshed),'verified SG chart update must not conflict with old image price');
+assert(!b.automaticIdentity({...chartRefreshed,price:99}));
+assert(!b.automaticIdentity({...chartRefreshed,quote:{...chartRefreshed.quote,direction:undefined,metadata:{direction:'SHORT'}}}));
+assert(!b.automaticIdentity({...chartRefreshed,quote:{...chartRefreshed.quote,productVerified:false}}));
+
 assert(!b.automaticIdentity({...refreshed,ko:4000}));
 assert(!b.automaticIdentity({...refreshed,quote:{...refreshed.quote,direction:'SHORT'}}));
 // Batch timing: only same-product accepted images in one selection may donate.

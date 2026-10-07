@@ -1779,10 +1779,10 @@ function automaticIdentity(p){
    const e=x.evidence?.[key];
    // A verified quote for this exact product may update mutable market values.
    // Identity is separate from quote freshness; downstream quote gates remain.
-   if(e&&n(p[field])!==n(e.value)&&!(issuer&&(['price','leverage'].includes(field)&&n(q[field])!==null&&n(p[field])===n(q[field])||field==='ko'&&currentDatedTerm(q.conditions?.ko,Date.now())&&n(p.ko)===n(q.conditions.ko.value))))return false;
+   if(e&&n(p[field])!==n(e.value)&&!(issuer&&(['price','leverage'].includes(field)&&n(field==='price'?(q.price??q.analysisQuote?.price):q[field])!==null&&n(p[field])===n(field==='price'?(q.price??q.analysisQuote?.price):q[field])||field==='ko'&&currentDatedTerm(q.conditions?.ko,Date.now())&&n(p.ko)===n(q.conditions.ko.value))))return false;
   }
  }
- if(issuer&&q.direction&&q.direction!==p.productDirection)return false;
+ if(issuer&&(q.direction||q.metadata?.direction)&&(q.direction||q.metadata.direction)!==p.productDirection)return false;
  return true;
 }
 function automaticCondition(e,key){
