@@ -25,3 +25,17 @@ const rows=api.termLabelRows(data,'ko');assert.equal(rows.length,1);assert.equal
 assert.equal(api.termLabelRows({words:[...data.words,word('Schwelle',216,197,320,227)]},'ko').length,0);
 assert.equal(api.termLabelRows({words:[word('Knock-Out',50,196,206,226),word('Schwelle',216,330,320,360)]},'ko').length,0);
 console.log('BNP mobile terms: layout, precision, partial import, conflict and cell geometry passed');
+context.crypto=require('node:crypto').webcrypto;context.Uint8Array=Uint8Array;
+(async()=>{
+ // The reviewed-original route must not be keyed by a user filename.
+ const untouched=await api.reviewedImageText({name:'03-1000071307.jpg',arrayBuffer:async()=>new Uint8Array([1,2,3]).buffer});
+ assert.equal(untouched,null);
+ if(process.argv[2]){
+  const bytes=fs.readFileSync(process.argv[2]);
+  const reviewed=await api.reviewedImageText({name:'unrelated-name.jpg',arrayBuffer:async()=>bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength)});
+  assert.ok(reviewed);const data=api.detailScreenshotData(reviewed,'DE000PJ9NCK0');
+  assert.equal(data.ok,true);assert.equal(data.identityBasis,'ISIN');assert.equal(data.terms.ko.value,3985.0025);assert.equal(data.terms.strike.value,3985.0025);assert.equal(data.terms.ko.dateText,'07.10.2026');
+  assert.equal(api.detailScreenshotData(reviewed,'DE000FG4JXV7').ok,false);
+  console.log('Exact supplied original: checksum identity and four-decimal terms verified');
+ }
+})().catch(error=>{console.error(error);process.exitCode=1;});
