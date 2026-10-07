@@ -9,6 +9,7 @@ import threading
 import copy
 import intraday_comparison
 import audit_history
+import stop_target_audit
 from datetime import datetime, timezone
 
 VERSION = 'decision-audit-v1'
@@ -77,10 +78,12 @@ def init(conn):
         payload JSONB NOT NULL)''')
     conn.execute('CREATE INDEX IF NOT EXISTS bob_audit_recorded ON bob_decision_audit(recorded_at)')
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_decision_outcomes (decision_id TEXT REFERENCES bob_decision_audit(id) ON DELETE CASCADE, horizon INTEGER NOT NULL, truth JSONB NOT NULL, PRIMARY KEY(decision_id,horizon))''')
+    stop_target_audit.init(conn)
 
 def write(conn,payload):
     key,record=normalize(payload)
-    conn.execute('INSERT INTO bob_decision_audit(id,payload) VALUES(%s,%s::jsonb) ON CONFLICT(id) DO NOTHING',(key,json.dumps(record,allow_nan=False)))
+    inserted=conn.execute('INSERT INTO bob_decision_audit(id,payload) VALUES(%s,%s::jsonb) ON CONFLICT(id) DO NOTHING RETURNING id',(key,json.dumps(record,allow_nan=False))).fetchone()
+    if inserted:stop_target_audit.register(conn,key,record)
     conn.execute("DELETE FROM bob_decision_audit WHERE recorded_at < now()-interval '30 days'")
     return {'ok':True,'id':key,'version':VERSION}
 
@@ -275,4 +278,5 @@ def entry_quality_review(rows, field='entryQuality', version='entry-quality-v1')
         result[name]=result[total]/result[count] if result[count] else None
     result['note']='Gepaarter 60-Minuten-Spotvergleich, gefilterte Fälle ohne Position (0). Beobachtete Gegenbewegung nur aus gespeicherten Kursen; Datenlücken möglich. Keine Gebühren/Produktkosten enthalten, keine Produktrendite. Überlappende Fälle sind nicht unabhängig; keine automatische Regeländerung.'
     return result
+
 
