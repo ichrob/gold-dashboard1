@@ -362,7 +362,7 @@ try{
 <details class="technical-metric"><summary><span>ATR (14)</span><b id="atr">—</b><span id="atrDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Einfacher Mittelwert (SMA) der True Range über 14 Kerzen in USD, einschließlich Kurslücken. Höher bedeutet stärkere Schwankungen, aber keine LONG- oder SHORT-Richtung.</p></details>
 </div></details></div>
 
-<div class="card chart-card" data-design="readable-chart-v1"><h3>Gold · XAU/USD</h3><p class="small">Preisverlauf in USD je Feinunze</p>
+<div class="card chart-card" data-design="readable-chart-v1"><h3 id="chartInstrument">Gold · Basiswert wird geladen</h3><p class="small">Preisverlauf in USD je Feinunze</p><p id="chartProvenance" class="small" aria-live="polite">Quelle und Kerzenzeit werden geladen.</p>
 <div class="chart-controls"><div class="chart-segment" role="group" aria-label="Darstellung"><button type="button" data-chart-type="line" onclick="setChartOption('type','line')">Linie</button><button type="button" data-chart-type="candles" onclick="setChartOption('type','candles')">Kerzen</button></div><div class="chart-segment" role="group" aria-label="Zeitraum pro Kerze"><button type="button" data-chart-tf="1m" onclick="setChartOption('tf','1m')">1m</button><button type="button" data-chart-tf="5m" onclick="setChartOption('tf','5m')">5m</button><button type="button" data-chart-tf="15m" onclick="setChartOption('tf','15m')">15m</button><button type="button" data-chart-tf="1h" onclick="setChartOption('tf','1h')">1h</button><button type="button" data-chart-tf="4h" onclick="setChartOption('tf','4h')">4h</button></div><select id="chartType" hidden aria-label="Ansicht"><option value="candles" selected>Kerzen</option><option value="line">Linie</option></select><select id="chartTf" hidden aria-label="Zeitraum pro Kerze"><option value="1m">1 Minute</option><option value="5m">5 Minuten</option><option value="15m" selected>15 Minuten</option><option value="1h">1 Stunde</option><option value="4h">4 Stunden</option></select></div>
 <p id="minuteEntryStatus" class="small" aria-live="polite">1m-Einstiegshilfe · Vergleichstest: Daten werden geladen.</p>
 <div class="small chart-status" id="chartViewStatus" aria-live="polite"></div>
@@ -1193,6 +1193,14 @@ function draw(a){
  $('chartRangeInfo').textContent=frameLabel+' pro '+(candles?'Kerze':'Kurvenpunkt')+' · '+v.length+' Werte'+(v.length?' · '+rangeDate(Number(v[0].openTime))+' bis '+rangeDate(Number(v.at(-1).openTime)):' · Daten für diese Zeitebene fehlen');
 
  const chartStep=({'1m':60000,'5m':300000,'15m':900000,'1h':3600000,'4h':14400000})[tf];
+ const instruments=[...new Set(v.map(b=>b.instrument||'unbekannt'))];
+ const instrument=instruments.length===1?instruments[0]:null;
+ const instrumentLabel=instrument==='GC=F'?'Gold-Futures · GC=F':instrument==='XAU/USD'?'Gold-Spot · XAU/USD':v.length?'Gold · Basiswert nicht eindeutig':'Gold · keine Chartdaten';
+ const sources=[...new Set(v.map(b=>b.source||(b.instrument==='GC=F'?'Yahoo Finance · GC=F':'Quelle nicht ausgewiesen')))];
+ const candleCloseAt=v.length?Number(v.at(-1).openTime)+chartStep:null;
+ $('chartInstrument').textContent=instrumentLabel;
+ $('chartProvenance').textContent='Quelle: '+(sources.join(' / ')||'nicht verfügbar')+' · Letzter Kerzenschluss: '+(candleCloseAt?new Date(candleCloseAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)':'nicht verfügbar')+(instrument==='GC=F'?' · Futures-Referenz, kein bestätigter GCZ26-Kontrakt':'');
+
  const irregular=all.some(b=>Number(b.openTime)%chartStep!==0);
  if(irregular)$('chartViewStatus').textContent='Quellenzeitpunkte passen nicht zum gewählten Kerzenraster – Intraday-Test gesperrt';
  $('chartHistoryInfo').textContent=v.length+' Quellenwerte · '+$('chartTf').selectedOptions[0].textContent+(irregular?' · Zeitraster unbestätigt':'')+' · Handelspausen ausgeblendet';
@@ -1206,8 +1214,8 @@ function draw(a){
  const timeLabel=t=>new Date(t).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich',hour:'2-digit',minute:'2-digit'});
  const axisDateLabel=t=>new Date(t).toLocaleDateString('de-CH',{timeZone:'Europe/Zurich',day:'2-digit',month:'2-digit'});
  const priceLabel=p=>p.toLocaleString("de-CH",{minimumFractionDigits:2,maximumFractionDigits:2});
- const lp=Number(lastPrice);
- $("chartLatest").textContent="Letzter Preis: "+(lp>0?priceLabel(lp)+" USD":"—")+" · Kurszeit: "+(Number.isFinite(quoteAt)?new Date(quoteAt).toLocaleString("de-CH",{timeZone:"Europe/Zurich"}):"nicht verfügbar")+" · Schweizer Zeit";
+ const lp=Number(v.at(-1)?.close);
+ $("chartLatest").textContent="Letzter Chart-Kerzenschluss: "+(lp>0?priceLabel(lp)+" USD":"—")+" · Schlusszeit: "+(candleCloseAt?new Date(candleCloseAt).toLocaleString("de-CH",{timeZone:"Europe/Zurich"}):"nicht verfügbar")+" · Schweizer Zeit";
  if(v.length<2){$("chartFib").textContent="Fibonacci: keine bestätigten Level verfügbar.";ctx.fillStyle="#666";ctx.font="16px sans-serif";ctx.fillText("Keine Chartdaten verfügbar",16,140);return;}
  v.sort((a,b)=>Number(a.openTime)-Number(b.openTime));
  const fibRows=fib?[["38,2 %",fib.levels.r382],["50 %",fib.levels.r500],["61,8 %",fib.levels.r618],["78,6 %",fib.levels.r786],["Ext. 127,2 %",fib.levels.e1272],["Ext. 161,8 %",fib.levels.e1618]].filter(r=>Number.isFinite(r[1])):[];
