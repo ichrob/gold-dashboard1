@@ -56,6 +56,16 @@ body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 .bob-mobile .gold-quote{padding:15px}.bob-mobile .gold-price{font-size:28px}.bob-mobile .gold-price-row{margin:10px 0}
 .bob-mobile #chartFib{display:block}.bob-mobile .bob-short{margin:10px 0;color:#536176;font-size:14px}
 .bob-mobile .bob-primary{background:#1677ff}.bob-mobile .bob-disclosure{margin:12px 0}
+.bob-mobile button:disabled{background:#e5e9ef;color:#6b7788;cursor:not-allowed;opacity:.85}
+.bob-mobile .bob-top-quotes{margin:10px 0}
+.bob-mobile .bob-top-quotes .gold-quote{padding:10px 12px}
+.bob-mobile .bob-top-quotes .gold-price{font-size:23px}
+.bob-mobile .bob-top-quotes .gold-price-row{margin:5px 0}
+.bob-mobile .bob-top-quotes .gold-meta{margin-top:6px;padding-top:5px}
+.bob-mobile [data-primary-product-values]{padding:10px;background:#f3f6fa;border-radius:10px;margin:8px 0}
+.bob-mobile [data-product-status]{padding:8px 0}
+.bob-mobile [data-product-next]{font-size:14px}
+@media(min-width:650px){.bob-mobile .bob-top-quotes .gold-quotes{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:400px){.bob-mobile main{padding:12px 12px 110px}.bob-mobile .card{padding:14px}.bob-mobile .row{flex-wrap:wrap}.bob-mobile .row>*{flex-basis:140px}}
 @media(max-width:600px){
 .bob-mobile #auditStatistics table,.bob-mobile #auditStatistics tbody,.bob-mobile #auditStatistics tr,.bob-mobile #auditStatistics td{display:block;width:100%}
@@ -68,8 +78,8 @@ body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 .bob-mobile .bob-top-quotes{margin:0 0 14px}
 .bob-mobile .bob-top-quotes>h2{font-size:20px;margin:0 0 12px}
 .bob-mobile .bob-top-quotes>h2:after{display:none}
-.bob-mobile .bob-top-quotes .gold-quotes{display:block;background:#fff;border:1px solid #e0e4ea;border-radius:17px;padding:0 16px}
-.bob-mobile .bob-top-quotes .gold-quote{padding:16px 0;margin:0;border:0;border-bottom:1px solid #e7eaf0;border-radius:0;box-shadow:none;background:transparent;overflow-wrap:anywhere}
+.bob-mobile .bob-top-quotes .gold-quotes{display:grid;grid-template-columns:1fr;background:#fff;border:1px solid #e0e4ea;border-radius:17px;padding:0 12px}
+.bob-mobile .bob-top-quotes .gold-quote{padding:10px 0;margin:0;border:0;border-bottom:1px solid #e7eaf0;border-radius:0;box-shadow:none;background:transparent;overflow-wrap:anywhere}
 .bob-mobile .bob-top-quotes .gold-quote:last-child{border-bottom:0}
 .bob-mobile .bob-top-quotes .gold-icon{display:none}
 .bob-mobile .bob-top-quotes header{display:block;min-height:0}
@@ -83,6 +93,7 @@ body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 .bob-mobile .bob-top-quotes .gold-change.down{color:#991b1b;background:#fee2e2}
 .bob-mobile .bob-top-quotes .gold-change-label{font-size:12px;min-height:0;margin-top:3px}
 .bob-mobile .bob-top-quotes .gold-meta{border:0;font-size:12px;margin-top:3px;padding-top:0}
+@media(min-width:650px){.bob-mobile .bob-top-quotes .gold-quotes{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.bob-mobile .bob-top-quotes .gold-quote{border-bottom:0}}
 .bob-mobile .bob-top-quotes .gold-market-note,
 .bob-mobile .bob-top-quotes [id$="-source"]{display:none}
 #gold-estimate-change,#gold-estimate-basis,#gold-estimate-source,.gold-estimate-note{display:none}
@@ -291,7 +302,7 @@ try{
 <div class="analysis-block neutral"><span>MTF-Bestätigung</span><b id="blockMtf">NEUTRAL</b><small id="blockMtfNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Volatilität</span><b id="blockVolatility">NEUTRAL</b><small id="blockVolatilityNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Marktstruktur</span><b id="blockStructure">NEUTRAL</b><small id="blockStructureNote">Daten fehlen</small></div>
-</div><details open style="margin-top:12px"><summary><b>Intraday · aktive Analyse + Vergleichstest</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">Aktiv v6: 15m Setup und 5m Einstieg. Erste Schlusskerze: Einstieg vorbereitet; ein klar bestätigter Schluss oder zwei unterstützende Schlüsse bestätigen die Richtung. 1h, 4h und EMA200 dienen als Kontext. EMA20/50, RSI14 und MACD bilden ein gemeinsames Kurskollektiv. DX unter 20 und nicht zunehmend ab 15 verlangt eine zweite Kerze statt einer pauschalen Sperre. Analyse Mo–Fr rund um die Uhr (Zürich). Produkt-Handelszeiten zusätzlich prüfen. Darunter bleibt die bisherige 15m/5m-Testvariante getrennt erhalten. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div>
+</div><details id="intradayComparisonDetails" style="margin-top:12px"><summary><b>Analyse-Regeln und Intraday-Vergleichstest</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">Aktiv v6: 15m Setup und 5m Einstieg. Erste Schlusskerze: Einstieg vorbereitet; ein klar bestätigter Schluss oder zwei unterstützende Schlüsse bestätigen die Richtung. 1h, 4h und EMA200 dienen als Kontext. EMA20/50, RSI14 und MACD bilden ein gemeinsames Kurskollektiv. DX unter 20 und nicht zunehmend ab 15 verlangt eine zweite Kerze statt einer pauschalen Sperre. Analyse Mo–Fr rund um die Uhr (Zürich). Produkt-Handelszeiten zusätzlich prüfen. Darunter bleibt die bisherige 15m/5m-Testvariante getrennt erhalten. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div>
 <details style="margin-top:10px"><summary>Warum entscheidet Bob so?</summary><div id="decisionExplanation" class="small" style="white-space:pre-line">Noch keine bestätigte Analyse.</div></details>
 <div id="quickReason" class="small" style="margin-top:10px">Lade Daten, um das Setup zu bewerten.</div>
 <details id="bobMarketAnalysis" class="bob-disclosure" style="margin-top:12px"><summary>Marktanalyse von Bob</summary><div id="bobMarketNarrative" class="small" style="white-space:pre-line;margin-top:10px">Noch keine aktuelle Marktanalyse verfügbar.</div></details>
@@ -774,6 +785,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   move(quick,'overview');
   if(quick){quick.querySelector('h2').textContent='Bobs Einschätzung';
    const short=document.createElement('p');short.id='bobShortReason';short.className='bob-short';byId('quickSignal').after(short);
+   const next=document.createElement('p');next.id='bobNextStep';next.className='bob-short';short.after(next);
+   fold(byId('analysisQuality'),'5-Minuten-Richtungswert und Einzelindikatoren');
    fold(byId('quickReason'),'Datenstand und Sperrgründe');
    fold(quick.querySelector('.metrics'),'Marktwerte und Risiko');
    for(const block of quick.querySelectorAll('.analysis-block')){const note=block.querySelector('small');fold(note,'Einzelheiten');}
@@ -786,6 +799,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   if(push)fold(push.querySelector('.warning'),'Welche Nachrichten sendet Bob?');
   const goldMarket=document.querySelector('.gold-market');
   if(goldMarket){goldMarket.classList.add('bob-top-quotes');panels.overview.prepend(goldMarket);}
+  // Decision first; market prices and connectivity follow it.
+  panels.overview.prepend(quick);
   move(card('chart'),'overview');
   const technical=document.createElement('details');technical.className='card';technical.innerHTML='<summary>Analyse im Detail</summary>';panels.overview.append(technical);
   for(const id of ['price','mtfSummary','momentumSummary','adx','signal']){const el=card(id);if(el)technical.append(el);}
@@ -793,14 +808,18 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const selection=document.createElement('div');selection.className='card';selection.innerHTML='<h3>Produktauswahl</h3><p id="bobSelectionSummary" class="small">Auswahl wird geprüft …</p><button type="button" class="bob-primary" data-view="products">Produkte und fehlende Werte ansehen</button>';quick.after(selection);
   move(byId('dgTop3'),'products');fold(byId('dgTop3')?.querySelector(':scope > div.small'),'Datenabruf und Gültigkeit');if(manual)manual.hidden=true;
   move(card('tradeStateBtn'),'trade');
-  const enter=document.createElement('button');enter.type='button';enter.className='bob-primary';enter.textContent='Trade erfassen / Kursbild ergänzen';enter.addEventListener('click',()=>{const upload=byId('bobTradeUpload');if(upload?.parentElement.tagName==='DETAILS')upload.parentElement.open=true;byId('trade-images')?.click();});panels.trade.append(enter);
+  const guide=document.createElement('div');guide.className='card';guide.innerHTML='<h3>Trade in Bob erfassen</h3><ol><li>Produkt wählen und Nachweise übernehmen.</li><li>Tatsächlichen Einstieg und Stückzahl ergänzen.</li><li>Produktbedingungen prüfen und Überwachung starten.</li></ol><p class="small">Bob überwacht eine von dir erfasste Position. Einen Kauf führst du selbst bei DEGIRO aus.</p><p id="bobTradeNext" class="bob-short"></p><button type="button" class="bob-primary" data-view="products">1 · Produkt auswählen</button><button type="button" id="bobTradeOpen">2 · Einstieg und Stückzahl ergänzen</button>';panels.trade.append(guide);
+  byId('bobTradeOpen').addEventListener('click',()=>{const upload=byId('bobTradeUpload')||byId('bobExitEstimate');if(upload?.parentElement.tagName==='DETAILS')upload.parentElement.open=true;upload?.scrollIntoView({behavior:'smooth',block:'start'});byId('exit-isin')?.focus();});
+  const enter=document.createElement('button');enter.type='button';enter.className='bob-primary';enter.textContent='Kursbild zum Trade ergänzen';enter.addEventListener('click',()=>{const upload=byId('bobTradeUpload');if(upload?.parentElement.tagName==='DETAILS')upload.parentElement.open=true;byId('trade-images')?.click();});panels.trade.append(enter);
   move(byId('bobTradeUpload')||byId('bobExitEstimate'),'trade');fold(byId('bobTradeUpload'),'Produktnachweise und Ausstiegskurse');move(card('stopPanel'),'trade');
   fold(document.querySelector('button[onclick="activateTestTrade()"]'),'Testfunktionen');
+  const legacyEntry=document.querySelector('button[onclick="setTradeEntry()"]');if(legacyEntry)fold(legacyEntry,'Goldreferenz-Trade · erweiterte Einrichtung');
 
   for(const id of ['auditStatistics','improvementPanel','auditPanel'])move(byId(id),'learning');
   fold(byId('auditStatistics')?.querySelector(':scope > div.small:not([id])'),'Was bedeuten Treffer und Fehlprognosen?');fold(byId('improvementPanel')?.querySelector(':scope > div.small:not([id])'),'Wie Bob Verbesserungen prüft');
   move(byId('goldResearchPanel'),'research');
   move(byId('fourDayPanel'),'learning');
+  move(byId('intradayComparisonDetails'),'learning');
   move(card('researchStatus'),'learning');fold(card('researchStatus'),'Research und manuelle Auswertung');
   move(byId('bobAutoCollection'),'learning');fold(byId('bobAutoCollection'),'Genauigkeit der Future-Schätzung');
   const disclaimer=main.querySelector(':scope > .card.warning');if(disclaimer){move(disclaimer,'learning');fold(disclaimer,'Hinweise zur Nutzung');}
@@ -817,11 +836,23 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   function update(){
    const close=document.querySelector('button[onclick="closeTrade()"]');if(close)close.hidden=/Kein aktiver Trade/i.test(text('tradeStateBtn'));
    renderMarketNarrative();
-   const reason=text('quickReason');const short=byId('bobShortReason');if(short)short.textContent=/veraltet|Aktualität|Zeitstempel|Daten fehlen/i.test(reason)?'Abwarten: Die Aktualität der Marktdaten ist nicht ausreichend bestätigt.':reason.split(' · ')[0]||'Analyse wird geladen …';
-   const source=text('sourceSummary');status.querySelector('[data-status=data]').textContent='Marktdaten: '+(/live|aktuell/i.test(source)&&!/nicht|unbekannt|veraltet|Aktualität|Zeitstempel/i.test(source+' '+reason)?'Kurs verfügbar':'prüfen');
+   const reason=text('quickReason'),signal=text('quickSignal');const short=byId('bobShortReason');
+   const unavailable=/veraltet|Aktualität|Zeitstempel|Daten fehlen|Historie fehlt|Anmeldung/i.test(reason);
+   const scoreText=text('analysisQuality'),scoreMatch=scoreText.match(/Richtungswert:\s*(\d+)\/100/),score=scoreMatch?Number(scoreMatch[1]):null;
+   if(short)short.textContent=unavailable?'Die Aktualität oder Vollständigkeit der Marktdaten ist nicht bestätigt.':/ABWARTEN/.test(signal)&&score!==null&&(score>=70||score<=30)?'Kurzfristig '+(score>=70?'aufwärts':'abwärts')+', aber die Bestätigung für einen Einstieg fehlt noch.':reason.split(' · ')[0]||'Analyse wird geladen …';
+   const next=byId('bobNextStep');if(next)next.textContent=unavailable?'Nächster Schritt: Datenstatus öffnen und den angegebenen Grund prüfen.':/ABWARTEN/.test(signal)?'Nächster Schritt: Auf eine bestätigte Richtung warten. Für das neutrale Marktsignal brauchst du keine neuen Bilder.':'Nächster Schritt: Unter Produkte prüfen, welche Kandidaten für diese Richtung geeignet sind.';
+   const source=text('sourceSummary');status.querySelector('[data-status=data]').textContent='Marktdaten: '+(unavailable?'Bestätigung offen':/live|aktuell/i.test(source)&&!/nicht|unbekannt|veraltet|Aktualität|Zeitstempel/i.test(source)?'aktuell':'Status unbestätigt');
    const errors=[text('pushStatus'),text('fibMonitorStatus'),text('auditSave'),text('improvementStatus')].join(' ');
-   status.querySelector('[data-status=connection]').textContent='Verbindung: '+(/502|nicht erreichbar|nicht abrufbar|nicht bestätigt/i.test(errors)?'gestört / unbestätigt':'Status ansehen');
-   status.querySelector('[data-status=push]').textContent='Push: '+(/nicht|gesperrt|502/i.test(text('pushStatus')+' '+text('fibMonitorStatus'))?'prüfen':text('generalPushBtn').includes('Ein')?'eingeschaltet':'aus');
+   const failed=/502|503|nicht erreichbar|nicht abrufbar|fehlgeschlagen|Fehler/i.test(errors);
+   status.querySelector('[data-status=connection]').textContent='Verbindung: '+(failed?'Störung gemeldet':/aktuelle Verbindung|nicht bestätigt|noch nicht/i.test(errors)?'Bestätigung offen':'kein Fehler gemeldet');
+   const ps=window.BobPush?.state?.()||{};
+   const permission=typeof Notification!=='undefined'?Notification.permission:'unavailable';
+   const pushEnabled=ps.general||ps.trade;
+   status.querySelector('[data-status=push]').textContent='Push: '+(!pushEnabled?'ausgeschaltet':permission==='denied'?'im Browser blockiert':!ps.serverRegistered||permission!=='granted'?'Einrichtung offen':failed?'Verbindung prüfen':ps.general?'Marktsignale aktiviert':ps.activeTrade?'Trade-Warnungen aktiviert':'Trade-Warnungen warten auf Trade');
+   const active=/Trade aktiv/.test(text('tradeStateBtn'))&&!/Kein aktiver/.test(text('tradeStateBtn'));
+   const refresh=document.querySelector('button[onclick="suggestStopUpdate()"]');if(refresh){refresh.disabled=!active;refresh.title=active?'Berechneten Stop und Ziel prüfen':'Zuerst einen Produkt-Trade erfassen und die Überwachung starten';}
+   if(legacyEntry){legacyEntry.disabled=!active;legacyEntry.title='Für Goldreferenz-Trades; Produkt-Trades über den geführten Ablauf erfassen';}
+   const tradeNext=byId('bobTradeNext');if(tradeNext)tradeNext.textContent=active?'Überwachung aktiv. Berechneten Stop und Ziel unten prüfen; Änderungen selbst bei DEGIRO übernehmen.':'Noch keine Überwachung aktiv. Beginne mit Schritt 1 und ergänze danach Einstieg und Stückzahl.';
    const out=byId('dgTop3Out');const summary=byId('bobSelectionSummary');if(out&&summary){const title=out.querySelector(':scope > b')?.textContent||'Noch keine Produktauswahl.';const explanation=[...out.querySelectorAll(':scope > div.small')].find(el=>!/Listenbilder|unterschiedliche Produkte/.test(el.textContent))?.textContent||'';summary.textContent=title+(explanation?' · '+explanation:'');}
   }
   // Observe only original outputs, never our derived labels (avoids observer loops).
@@ -2517,6 +2548,7 @@ setInterval(()=>{ if(document.visibilityState==="visible"){loadData();syncPushPr
 
 
 </body></html>
+
 
 
 
