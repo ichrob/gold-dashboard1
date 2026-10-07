@@ -55,4 +55,16 @@ class Tests(unittest.TestCase):
   self.assertFalse(b.compare(self.r,e,N)['comparable'])
   self.r.update(leverageAt=T,leverageEstimated=True)
   self.assertFalse(b.compare(self.r,e,N)['comparable'])
+ def test_future_uses_displayed_cfd_and_keeps_proxy_label(self):
+  self.r['metadata'].update(underlyingType='FUTURE',contract='GCZ26')
+  cfd=dict(kind='cfd',price=4000,at=T,declaredContract='GCZ26',realtimeCfd=True)
+  with patch('investing_card.fetch',return_value=cfd),patch('sg_quotes.market_input',return_value=self.fx):
+   x=b.apply(self.r,N)
+   self.assertEqual(x['leverage'],10)
+   self.assertFalse(x['eligible'])
+   self.assertFalse(x['leverageCalculation']['fresh'])
+   self.assertTrue(x['leverageCalculation']['inputs']['basisEstimated'])
+   self.assertIn('CFD',x['leverageSource'])
+   cfd['declaredContract']='GCG27'
+   self.assertFalse(b.apply(self.r,N)['leverageCalculation']['available'])
 if __name__=='__main__':unittest.main()

@@ -42,8 +42,8 @@ def calculate(result, basis, fx, now=None):
              and fx.get('source') == 'live' and fx.get('sources', {}).get('EUR') == 'live'
              and fx.get('market_session') == 'open')
     return dict(available=True,value=gold*rate*ratio/price, at=min(times).isoformat(), calculatedAt=now.isoformat(),
-                fresh=fresh, state='aktuelle Eingangsdaten' if fresh else 'veraltete oder zeitlich abweichende Eingangsdaten',
-                kind='calculated-gearing', label='Von Bob berechneter Hebel',
+                fresh=fresh, state='CFD-basierte Schätzung; Quellenalter und Zeitabstand separat prüfen' if basis.get('estimated') else 'aktuelle Eingangsdaten' if fresh else 'veraltete oder zeitlich abweichende Eingangsdaten',
+                kind='calculated-gearing', label='Von Bob geschätzter Hebel auf Basis des Investing-CFD' if basis.get('estimated') else 'Von Bob berechneter Hebel',
                 maxInputAgeSeconds=round(max(ages),1), skewSeconds=round(skew,1),
                 inputs=dict(priceSide='ask',basisEstimated=bool(basis.get('estimated',False)),basisDelayed=bool(basis.get('delayed',False)),basisPriceUsd=gold,basisAt=times[1].isoformat(),basisSource=basis['source'],
                             contract=m.get('contract'),ratio=ratio,askEur=price,askAt=times[0].isoformat(),
@@ -65,10 +65,13 @@ def apply(result, now=None):
             from spot_data import current
             basis = current()
         else:
-            from future_analysis import fetch_reference
-            ref = fetch_reference()
-            basis = dict(price=ref['underlyingPriceUsd'], at=ref['underlyingAt'], source=ref['source'],
-                         contract=ref['contract'], underlyingType='FUTURE',delayed=not ref['isExchangeRealtime'])
+            from investing_card import fetch
+            cfd = fetch()
+            if cfd.get('kind') != 'cfd' or cfd.get('declaredContract') != m.get('contract') or not m.get('contract'):
+                raise ValueError('Investing-CFD: Zuordnung zum Produkt-Future nicht bestätigt')
+            basis = dict(price=cfd['price'], at=cfd['at'], source='Investing.com · angezeigter Gold-CFD',
+                         contract=cfd['declaredContract'], underlyingType='FUTURE', estimated=True,
+                         delayed=not cfd.get('realtimeCfd',False))
         from sg_quotes import market_input
         evidence = calculate(out,basis,market_input('fx'),supplied_now or datetime.now(timezone.utc))
         out['leverageCalculation'] = evidence
@@ -80,7 +83,7 @@ def apply(result, now=None):
             return out
         out['providerLeverage'] = dict(value=out.get('leverage'),at=old,source=out.get('source'))
         out.update(leverage=evidence['value'],leverageAt=evidence['at'],leverageEstimated=True,
-                   leverageSource='Bob · berechneter Hebel',eligible=False,fresh=False,
+                   leverageSource='Bob · CFD-basierter geschätzter Hebel' if basis.get('estimated') else 'Bob · berechneter Hebel',eligible=False,fresh=False,
                    leverageNote=evidence['label']+' · '+evidence['state']+'. '+evidence['note'])
         out['reason'] = 'Produktwerte übernommen; '+out['leverageNote']
     except (KeyError,TypeError,ValueError,OSError,AttributeError) as exc:
