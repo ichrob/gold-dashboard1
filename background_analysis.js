@@ -35,7 +35,7 @@ function evaluate(input, {render=false}={}){
    if(Number.isFinite(target)&&target>0)plan={kind:'candidate',direction,entry:price,stop,target,unit:'USD/oz',at:Date.now()};
   }
   if(input.trade?.active&&['entry','stop','target'].every(k=>Number.isFinite(input.trade[k])&&input.trade[k]>0))plan={kind:'active-monitor',direction:input.trade.dir,entry:input.trade.entry,stop:input.trade.stop,target:input.trade.target,unit:'USD/oz',at:Date.now(),isin:input.trade.product?.isin||null};
-  return {plan,entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-responsive-v6',session:intradaySession(),intraday:intradayState(bundle,input.trade),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
+  return {plan,minuteEntry:minuteEntryContext(bundle,signalState),entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-responsive-v6',session:intradaySession(),intraday:intradayState(bundle,input.trade),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
  })()`,env,{timeout:8000});
 }
 module.exports={evaluate};

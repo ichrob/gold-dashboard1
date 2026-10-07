@@ -37,7 +37,7 @@ def normalize(payload, now=None):
     if bar is None or bar > now:
         raise ValueError('Entscheidungs-Kerzenzeit fehlt oder liegt in der Zukunft')
     # Only explicitly whitelisted evidence; never account credentials or raw images.
-    result = {k: payload.get(k) for k in ('direction','shadowDirection','intraday','entryQuality','barAt','price','priceAt','reason','score','indicators','products','selection','gateReasons','plan')}
+    result = {k: payload.get(k) for k in ('direction','shadowDirection','intraday','entryQuality','minuteEntry','barAt','price','priceAt','reason','score','indicators','products','selection','gateReasons','plan')}
     plan = result.get('plan')
     if (isinstance(plan,dict) and plan.get('kind') in ('candidate','active-monitor')
         and plan.get('direction') in ('LONG','SHORT') and plan.get('unit')=='USD/oz'
@@ -55,12 +55,15 @@ def normalize(payload, now=None):
     if not isinstance(result.get('products'), list): result['products'] = []
     if len(result['products']) > 12: raise ValueError('Zu viele Produkte')
     at = milliseconds(result.get('priceAt'))
+    minute=result.get('minuteEntry')
+    if not isinstance(minute,dict) or minute.get('version')!='minute-entry-v1' or minute.get('direction') not in ('LONG','SHORT','NEUTRAL'):result['minuteEntry']=None
     entry=result.get('entryQuality')
     if not isinstance(entry,dict) or entry.get('version')!='entry-quality-v1' or entry.get('direction') not in ('LONG','SHORT','NEUTRAL'):result['entryQuality']=None
     result['marketEvaluable'] = positive(result.get('price')) and at is not None and 0 <= now-at <= 180000
     # Each decision revision is frozen once. Refreshes with unchanged evidence are idempotent.
     identity={k:result[k] for k in ('version','ruleVersion','origin','direction','shadowDirection','intraday','barAt','reason','products','selection','gateReasons','plan')}
     if identity.get('plan'):identity['plan']={k:v for k,v in identity['plan'].items() if k!='at'}
+    identity['minuteEntryVersion']=(result.get('minuteEntry') or {}).get('version')
     identity['entryQualityVersion']=(result.get('entryQuality') or {}).get('version')
     key=hashlib.sha256(json.dumps(identity,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     return key,result
@@ -185,6 +188,7 @@ def _build_report(conn):
     result['fourDayComparison']=intraday_comparison.report(conn)
     result['total']=conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0]
     result['scope']='Aktuelle Intraday-Regel; frühere Regeln getrennt ('+str(result['legacyCount'])+' ältere Protokolle). Bis 30 Tage; Gold-Richtung ohne Handelskosten, kein Gewinnnachweis'
+    result['minuteEntryReview']=entry_quality_review([(row[0],row[1:]) for row in rows],field='minuteEntry',version='minute-entry-v1')
     result['entryQualityReview']=entry_quality_review([(row[0],row[1:]) for row in rows])
     result['productReview']=product_review([row[0] for row in rows[:1500]])
     research=[];seen=set()
@@ -240,13 +244,14 @@ def handle(conn,action,payload):
     raise ValueError('Unbekannte Protokollaktion')
 
 
-def entry_quality_review(rows):
+def entry_quality_review(rows, field='entryQuality', version='entry-quality-v1'):
     """Paired 60m spot outcomes. No simulated fills and no automatic rule change."""
-    result=dict(version='entry-quality-v1',evaluated=0,kept=0,filtered=0,baselineWins=0,candidateWins=0,missedFavorable=0,avoidedUnfavorable=0,baselineSumPct=0.,candidateSumPct=0.,excursions=0,adverseSumPct=0.,candidateAdverseSumPct=0.)
+    result=dict(version=version,evaluated=0,kept=0,filtered=0,baselineWins=0,candidateWins=0,missedFavorable=0,avoidedUnfavorable=0,baselineSumPct=0.,candidateSumPct=0.,excursions=0,adverseSumPct=0.,candidateAdverseSumPct=0.)
     seen=set()
-    for record,truths in sorted(rows,key=lambda r:r[0].get('origin')!='background'):
-        q=record.get('entryQuality') or {}
-        if q.get('version')!='entry-quality-v1' or not q.get('available') or record.get('direction') not in ('LONG','SHORT'):continue
+    ordered=sorted(rows,key=lambda r:(r[0].get('recordedAt',0),r[0].get('origin')!='background')) if field=='minuteEntry' else sorted(rows,key=lambda r:r[0].get('origin')!='background')
+    for record,truths in ordered:
+        q=record.get(field) or {}
+        if q.get('version')!=version or not q.get('available') or record.get('direction') not in ('LONG','SHORT'):continue
         key=record.get('barAt')
         if key in seen:continue
         seen.add(key)

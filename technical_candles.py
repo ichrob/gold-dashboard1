@@ -4,7 +4,7 @@ import threading
 import time
 from datetime import datetime
 
-MINUTES = {'5m': 5, '15m': 15, '1h': 60, '4h': 240}
+MINUTES = {'1m': 1, '5m': 5, '15m': 15, '1h': 60, '4h': 240}
 _cache = {}
 _locks = {tf: threading.Lock() for tf in MINUTES}
 
