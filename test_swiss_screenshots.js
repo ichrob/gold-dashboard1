@@ -68,3 +68,13 @@ for(const change of [
  assert.equal(await b.reviewedImageText({name:fixture.image,arrayBuffer:async()=>Buffer.from('different pixels')}),null);
  console.log('Swiss original images: Valor, CHF isolation, precision, series clocks and labelled indicative analysis passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});
+
+// Native currency is an informational import result, not a partial failure.
+const successSummary=b.screenshotBatchSummary(outcomes.map(o=>({...o,reason:'zugeordnet'})));
+assert(successSummary.startsWith('✓ 3 von 3'));assert(!successSummary.includes('teilweise'));
+assert(outcomes[1].data.importNotes.some(s=>s.includes('CHF-Originalkurse')));
+assert(b.screenshotBatchSummary([{ok:true,data:{importWarnings:['Brief fehlt']},name:'partial',reason:'partial'}]).includes('teilweise'));
+const upload=b.renderUploadMissing(p,{reasons:['Basispreis in USD: Wert eingelesen; gültiger datierter Nachweis fehlt oder ist älter als 24 Stunden','Knock-out-Schwelle: datierter Produktnachweis fehlt oder älter als 24 Stunden','CHF-Kursbild vorhanden; zeitlich passende EUR-Umrechnung für diesen Nachweis fehlt']});
+assert(upload.includes('Für die Live-Freigabe noch offen'));assert(upload.includes('Wert aus dem Bild übernommen'));assert(!upload.includes('direkt daneben'));assert(!upload.includes('Geld und Brief in EUR'));
+assert(b.missingValueLocation('Basispreis fehlt',{}).includes('Stammdaten'));
+assert(!b.finalProductStatus(p,now).complete,'presentation must not relax live gates');
