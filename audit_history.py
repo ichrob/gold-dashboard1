@@ -50,13 +50,25 @@ def report(conn, payload):
         raise ValueError('Ungültige Seitennummer')
     # No writes/harvest here: browsing history must not alter original evidence.
     total = conn.execute('SELECT count(*) FROM bob_decision_audit WHERE recorded_at >= %s AND recorded_at < %s', (start,end)).fetchone()[0]
-    rows = conn.execute('''SELECT a.id,a.recorded_at,a.payload,
+    # Read only small summary fields for the whole day. Full payloads and outcome
+    # lookups belong to the requested page, not every decision on every click.
+    headers = conn.execute('''SELECT id,recorded_at,jsonb_build_object(
+        'direction',COALESCE(payload->>'direction','NEUTRAL'),
+        'ruleVersion',COALESCE(payload->>'ruleVersion','unbekannt'),
+        'gateReasons',payload->'gateReasons'),NULL
+        FROM bob_decision_audit WHERE recorded_at >= %s AND recorded_at < %s
+        ORDER BY recorded_at,id''',(start,end)).fetchall()
+    summary = summarize(headers)
+    first_ids = [r['id'] for r in summary['firstSignals']]
+    full_query = '''SELECT a.id,a.recorded_at,a.payload,
         (SELECT jsonb_object_agg(o.horizon::text,o.truth) FROM bob_decision_outcomes o WHERE o.decision_id=a.id)
-        FROM bob_decision_audit a WHERE a.recorded_at >= %s AND a.recorded_at < %s
-        ORDER BY a.recorded_at,a.id LIMIT 10001''', (start,end)).fetchall()
-    truncated = len(rows) > 10000
-    rows = rows[:10000]
-    summary = summarize(rows)
+        FROM bob_decision_audit a '''
+    rows = conn.execute(full_query+'''WHERE a.recorded_at >= %s AND a.recorded_at < %s
+        ORDER BY a.recorded_at,a.id LIMIT 100 OFFSET %s''', (start,end,offset)).fetchall()
+    if first_ids:
+        first_rows = conn.execute(full_query+'WHERE a.id = ANY(%s) ORDER BY a.recorded_at,a.id',
+                                  (first_ids,)).fetchall()
+        summary['firstSignals'] = [compact(r) for r in first_rows]
     quote_rows = conn.execute('''SELECT date_trunc('hour',quote_at),count(*),min(price),max(price),
         min(quote_at),max(quote_at),count(DISTINCT date_trunc('minute',quote_at))
         FROM bob_spot_observations WHERE stream='gold-api-xau-usd-v1' AND quote_at >= %s AND quote_at < %s
@@ -65,11 +77,12 @@ def report(conn, payload):
     comparisons = conn.execute('''SELECT payload,truth FROM bob_intraday_comparison
         WHERE slot >= %s AND slot < %s ORDER BY slot''',(int(start.timestamp()*1000),int(end.timestamp()*1000))).fetchall()
     return dict(version='audit-day-v1',day=payload['day'],timezone='Europe/Zurich',total=total,
-        offset=offset,nextOffset=offset+100 if offset+100 < len(rows) else None,truncated=truncated,
-        summary=summary,records=[compact(r) for r in rows[offset:offset+100]],quoteCoverage=coverage,
+        offset=offset,nextOffset=offset+100 if offset+100 < total else None,truncated=False,
+        summary=summary,records=[compact(r) for r in rows],quoteCoverage=coverage,
         comparisons=[dict(observation=p,truth=t) for p,t in comparisons],
         limitations=['Originale Entscheidungen aller damaligen Regelversionen; keine nachträgliche Neuberechnung.',
           'Richtung und Produktfreigabe getrennt prüfen. Aufzeichnung ist kein Nachweis einer Order oder Push-Zustellung.',
           'Stop/Ziel nur beurteilen, wenn damals als Plan gespeichert. Fehlende Pläne bleiben unbekannt.',
           'Gold-Ausgänge nach 15/60/240 Minuten sind keine Produktrendite und kein Stop-/Ziel-Verlaufstest.',
           'Spotarchiv rollierend sieben Tage. Fehlende Kursminuten und fehlende Produktkurse werden nicht ergänzt.'])
+

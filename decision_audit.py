@@ -180,7 +180,8 @@ def report(conn):
 
 
 def _build_report(conn):
-    harvest(conn)
+    # Outcomes are harvested by the writer/background worker. Reading must not
+    # run a seven-day backfill inside an interactive request transaction.
     rows=conn.execute("""SELECT a.payload,
       (SELECT truth FROM bob_decision_outcomes WHERE decision_id=a.id AND horizon=15),
       (SELECT truth FROM bob_decision_outcomes WHERE decision_id=a.id AND horizon=60),
@@ -274,3 +275,4 @@ def entry_quality_review(rows, field='entryQuality', version='entry-quality-v1')
         result[name]=result[total]/result[count] if result[count] else None
     result['note']='Gepaarter 60-Minuten-Spotvergleich, gefilterte Fälle ohne Position (0). Beobachtete Gegenbewegung nur aus gespeicherten Kursen; Datenlücken möglich. Keine Gebühren/Produktkosten enthalten, keine Produktrendite. Überlappende Fälle sind nicht unabhängig; keine automatische Regeländerung.'
     return result
+

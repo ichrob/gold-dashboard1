@@ -129,6 +129,7 @@ def summarize(rows,now=None):
        note='Stündliche gemeinsame Beobachtungen, 60-Minuten-Goldbewegung; ABWARTEN zählt als 0. Keine echten Trades, keine Gebühren oder Produktrendite. Treffer = positive Richtungsbewegung nach 60 Minuten, kein Stop/Ziel-Test. Gegenbewegung nur aus gespeicherten Kursen mit mindestens 54 beobachteten Minuten. Vier Tage belegen keine dauerhafte Überlegenheit; keine automatische Regeländerung.')
 
 def report(conn,now=None):
-    harvest(conn,now)
+    # capture/background processing saves outcomes; a report only reads them.
     rows=conn.execute('SELECT payload,truth FROM bob_intraday_comparison WHERE campaign=%s ORDER BY slot',(ID,)).fetchall()
     return summarize(rows,now)
+
