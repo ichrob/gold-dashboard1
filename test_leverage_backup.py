@@ -36,9 +36,23 @@ class Tests(unittest.TestCase):
    self.assertEqual(x['leverage'],10);self.assertTrue(x['leverageEstimated']);self.assertFalse(x['eligible'])
    self.assertEqual(x['providerLeverage']['value'],8);self.assertEqual(self.r['leverage'],8)
    self.r['leverageAt']=T
-   self.assertIs(b.apply(self.r,N),self.r)
+   self.assertEqual(b.apply(self.r,N)['leverage'],8)
+   self.assertTrue(b.apply(self.r,N)['leverageComparison']['comparable'])
  def test_older_calculation_does_not_replace_newer_provider(self):
   self.r.update(leverage=8,leverageAt='2026-10-07T09:55:00Z');self.g['at']='2026-10-07T09:40:00Z'
   with patch('spot_data.current',return_value=self.g),patch('sg_quotes.market_input',return_value=self.fx):
    self.assertEqual(b.apply(self.r,N)['leverage'],8)
+ def test_skew_and_estimated_basis(self):
+  self.g['at']='2026-10-07T09:59:10Z'
+  self.assertFalse(b.calculate(self.r,self.g,self.fx,N)['fresh'])
+  self.g['at']=T;self.g['estimated']=True
+  self.assertFalse(b.calculate(self.r,self.g,self.fx,N)['fresh'])
+ def test_comparison_skips_stale_and_flags_difference(self):
+  self.r.update(leverage=8,leverageAt=T)
+  e=b.calculate(self.r,self.g,self.fx,N)
+  self.assertTrue(b.compare(self.r,e,N)['warning'])
+  self.r['leverageAt']='2026-10-07T09:59:00Z'
+  self.assertFalse(b.compare(self.r,e,N)['comparable'])
+  self.r.update(leverageAt=T,leverageEstimated=True)
+  self.assertFalse(b.compare(self.r,e,N)['comparable'])
 if __name__=='__main__':unittest.main()
