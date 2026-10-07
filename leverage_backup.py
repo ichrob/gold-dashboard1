@@ -57,8 +57,13 @@ def apply(result, now=None):
     supplied_now = now
     now = now or datetime.now(timezone.utc)
     m = result.get('metadata', {})
-    if not result.get('productVerified') or m.get('status') != 1 or not m.get('simpleNonQuantoTurbo'):
+    if not result.get('productVerified') or m.get('status') != 1:
         return result
+    if 'simpleNonQuantoTurbo' not in m:
+        return result
+    if not m.get('simpleNonQuantoTurbo'):
+        return dict(result,leverageCalculation=dict(available=False,
+            reason='Berechnungsmodell nicht bestätigt: SG-Angabe zur Währungsabsicherung oder zum einfachen Turbo-Modell fehlt'))
     out = copy.deepcopy(result)
     try:
         if m.get('underlyingType') == 'SPOT':

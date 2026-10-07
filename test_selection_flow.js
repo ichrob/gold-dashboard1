@@ -258,7 +258,7 @@ assert(!/<details[^>]*data-missing-values[^>]*\\bopen\\b/.test(foldedHtml));
 const beforeFold=foldedHtml.slice(0,foldedHtml.indexOf('data-missing-values'));
 assert(beforeFold.includes('Marktsignal neutral'));
 assert(beforeFold.includes('Referenzkontrakt / Futures Contract')); // Location is now also in the compact missing-values disclosure.
-assert(!beforeFold.includes('Exakter Gold-Future-Kontrakt fehlt'));
+assert(beforeFold.includes('Exakter Gold-Future-Kontrakt fehlt')); // Concrete blocker now visible by user request.
 const completeFold=b.renderSelectionWorkflow(b.selectionWorkflow([p],{...context,direction:'NEUTRAL'},{}));
 assert(!completeFold.includes('data-missing-values'));
 
