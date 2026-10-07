@@ -756,7 +756,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/health":
             auto_collection.start()
-            body = json.dumps({"status":"ok","service":"bob","fibonacciMonitor":dict(FIB_MONITOR_HEALTH),"automaticCollection":auto_collection.health()},separators=(",",":")).encode()
+            body = json.dumps({"status":"ok","service":"bob","build":os.environ.get("RENDER_GIT_COMMIT"),"fibonacciMonitor":dict(FIB_MONITOR_HEALTH),"automaticCollection":auto_collection.health()},separators=(",",":")).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
