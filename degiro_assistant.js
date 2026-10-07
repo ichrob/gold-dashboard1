@@ -1546,17 +1546,47 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben'){
   const label=/Produkttyp|Produktrichtung/.test(reason)?'Produkttyp / Richtung (Stammdaten → Typ)':reason.startsWith('BNP-Kursabruf:')?reason:/Basiswert ungenau: Gold allein/.test(reason)?'Basiswert „Gold“ erkannt – genaue Referenz fehlt (Produktbeschreibung / Endgültige Bedingungen)':/Future-Kontrakt|Futures-Kontrakt|Referenzkontrakt/.test(reason)?'Future-Kontrakt (Stammdaten → Basiswert; ggf. Dokumente → Endgültige Bedingungen)':/Basispreis|Finanzierungslevel/.test(reason)?'Basispreis: gültiger Nachweis (Stammdaten)':/KO|Knock|Barriere/i.test(reason)?'KO-Barriere: gültiger Nachweis (Stammdaten)':/Geld|Brief|Kurs/.test(reason)?'Geld, Brief und Quellenzeit (Kursdaten)':/Hebel/.test(reason)?'Hebel mit Datenstand (Kennzahlen)':/Bezugsverhältnis/.test(reason)?'Bezugsverhältnis fehlt oder ist nicht eindeutig (Stammdaten)':/Basiswert/.test(reason)?'Exakter Basiswert fehlt (Stammdaten / Produktbeschreibung)':/Produkttyp|Long\/Short|Produktrichtung/.test(reason)?'Produkttyp / Richtung (Stammdaten → Typ)':/Laufzeit|Fälligkeit/.test(reason)?'Laufzeit / Fälligkeit (Stammdaten)':/Währung/.test(reason)?'Produktwährung (Kursdaten)':/ISIN|Produktzuordnung|Bildzuordnung|Bildwerte|Original|bestätig/.test(reason)?'Produktzuordnung oder Bildwerte nicht eindeutig':reason.split(':')[0]+' (Quellen und Einzelheiten → Fehlende Werte)';
   if(!groups.includes(label)){groups.push(label);locations.set(label,missingValueLocation(reason,p));}
  }
- return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" data-selection-blocked="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere"><b>'+esc(p.isin)+'</b>'+productCompletionBadge(p)+' · '+esc(p.productDirection||'')+'<div class="small">'+'<strong>Nicht freigegeben</strong><br>Begründung: '+([...new Set([status.replace(/^Nicht freigegeben · /,''),...reasons,...finalProductStatus(p).reasons])].filter(x=>!/^Produktnachweise prüfen$|^Nicht freigegeben$/.test(x)).map(esc).join(' · ')||'Auswahlbedingungen noch nicht erfüllt')+'</div>'+
- (complete?'<details data-product-values style="margin-top:10px"><summary><strong>Produktwerte anzeigen</strong></summary>':'')+
+ const allReasons=[...new Set([status.replace(/^Nicht freigegeben · /,''),...reasons,...finalProductStatus(p).reasons])].filter(x=>!/^Produktnachweise prüfen$|^Nicht freigegeben$/.test(x));
+ const neutral=/ABWARTEN|NEUTRAL/.test(document.getElementById('quickSignal')?.textContent||'')||allReasons.some(r=>/Marktsignal neutral/.test(r));
+ const data=productDataStatus(p),temporal=allReasons.some(r=>/zeit|Aktualität|datier|veraltet|Gültigkeit|Nachweis/i.test(r));
+ const shortReason=r=>String(r).split('. Öffne')[0].split(' · Fundort:')[0].slice(0,160);
+ const next=complete&&neutral?'Marktsignal neutral – auf eine bestätigte Richtung warten. Dafür sind keine neuen Bilder nötig.':complete?'Produktdaten vollständig – Auswahlgrund unter „Warum derzeit nicht ausgewählt?“ prüfen.':temporal&&data.complete?'Werte vorhanden – den offenen Zeitbezug unter „So ergänzt du den Nachweis“ prüfen.':'Offene Angaben unter „So ergänzt du den Nachweis“ ansehen und nur diese ergänzen.';
+ return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" data-selection-blocked="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere"><b>'+esc(p.isin)+'</b>'+productCompletionBadge(p)+' · '+esc(p.productDirection||'')+
+ '<div class="small" data-product-status><div><b>Daten:</b> '+(data.complete?'vollständig':'Angaben oder eindeutige Nachweise offen')+'</div><div><b>Zeitbezug:</b> '+(complete?'für diesen Analyseweg bestätigt':temporal?'Bestätigung offen – vorhandene Werte bleiben erhalten':'noch nicht vollständig prüfbar')+'</div><div><b>Aktuelle Auswahl:</b> nicht ausgewählt'+(neutral?' · Marktsignal neutral':'')+'</div></div>'+
+ '<p data-product-next><b>Nächster Schritt:</b> '+esc(next)+'</p>'+renderPrimaryProductValues(p)+
+ (allReasons.length?'<div class="small">'+allReasons.slice(0,2).map(shortReason).map(esc).join('<br>')+'</div>':'')+
+ '<details style="margin-top:8px"><summary>Warum derzeit nicht ausgewählt?</summary><div class="small">'+(allReasons.length?allReasons.map(esc).join('<br>'):neutral?'Keine bestätigte Long-/Short-Marktrichtung. Die vollständigen Produktdaten müssen dafür nicht erneut hochgeladen werden.':'Die aktuelle Markt- und Risikoprüfung hat das Produkt nicht ausgewählt; vollständige Daten allein erteilen keine Freigabe.')+'</div></details>'+
+ '<details data-product-values style="margin-top:10px"><summary><strong>Gespeicherte Bildwerte, Quellen und Zeitbezug</strong></summary>'+
  renderProductFieldStates(p)+renderTermSeriesValidity(p)+(currentConvertedChfEvidence(p)?'<div data-current-chf-proof>Aktueller CHF-Kurs und zeitlich passender Wechselkurs als EUR-Nachweis verwendet. Der historische Bildkurs bleibt unverändert; dafür ist kein nachträglicher Wechselkurs erforderlich. Hebel mit ursprünglichem Bildzeitpunkt berücksichtigt.</div>':'')+
  (values.length?'<details style="margin-top:10px"><summary>Automatisch erkannte Werte</summary><div class="small">'+values.map(esc).join('<br>')+'</div></details>':'')+
  (unconfirmed.length?'<div class="small" style="margin-top:8px"><em>'+unconfirmed.map(esc).join('<br>')+'</em></div>':'')+
- '<details style="margin-top:8px"><summary>'+ (groups.length?'Für die Live-Freigabe noch offen ('+groups.length+')':complete?'Datenübertragung komplett':'Nachweise noch offen')+'</summary><div class="small">'+(groups.length?groups.map(label=>'<div style="margin:10px 0"><strong>'+esc(label)+'</strong><br>Fundort: '+esc(locations.get(label))+'</div>').join(''):(finalProductStatus(p).complete?'Produktnachweise vollständig; Marktsignal und Auswahlbedingungen separat prüfen.':'Zahlen vorhanden bedeutet nicht, dass alle Nachweise aktuell bestätigt sind. '+finalProductStatus(p).reasons.map(esc).join(' · ')))+'</div></details>'+
- renderIssuerHelp(p,reasons)+renderTestScreenshotRequest(p)+'<button data-selection-upload="'+p.index+'">Bilder / PDF hinzufügen</button>'+renderImageImportStatus(p.index)+
- '<details data-product-details="'+p.index+'" style="margin-top:10px"><summary>Quellen und Einzelheiten</summary><div class="small">'+esc(p.name||'')+'</div>'+renderProductSources(p)+renderMissingValues(reasons,p)+renderProductDecision(p,false,[status,...reasons])+screenshotSummary(x)+'<button data-card-research="'+p.index+'">Daten erneut abrufen</button></details>'+(complete?'</details>':'')+'</div>';
+ '</details><details style="margin-top:8px"><summary>So ergänzt du den Nachweis'+(groups.length?' · '+groups.length+' offene Punkte':'')+'</summary><div class="small">'+(groups.length?groups.map(label=>'<div style="margin:10px 0"><strong>'+esc(label)+'</strong><br>Fundort: '+esc(locations.get(label))+'</div>').join(''):'Produktdaten vollständig. Ergänzungen nur bei einem neuen Datenstand erforderlich.')+'</div>'+renderIssuerHelp(p,reasons)+renderTestScreenshotRequest(p)+'</details>'+
+ '<button data-selection-upload="'+p.index+'">Bilder / PDF zu diesem Produkt hinzufügen</button><button data-product-trade="'+esc(p.isin)+'">Vorhandenen Trade mit diesem Produkt erfassen</button>'+renderImageImportStatus(p.index)+
+ '<details data-product-details="'+p.index+'" style="margin-top:10px"><summary>Quellen und Einzelheiten</summary><div class="small">'+esc(p.name||'')+'</div>'+renderProductSources(p)+renderMissingValues(reasons,p)+renderProductDecision(p,false,[status,...reasons])+screenshotSummary(x)+'<button data-card-research="'+p.index+'">Daten erneut abrufen</button></details></div>';
+}
+function renderPrimaryProductValues(p,now=Date.now()){
+ const q=p.quote?.isin===p.isin&&p.quote.productVerified?p.quote:null;
+ const live=q?.found?q:q?.analysisQuote;
+ const fields=productFieldStates(p,now),at=live?.bidAt||live?.askAt||q?.quoteAt;
+ const clocks=[live?.bidAt||at,live?.askAt||at].map(t=>Date.parse(t));
+ const current=live?.currency==='EUR'&&!live.delayed&&n(live.bid)>0&&n(live.ask)>=n(live.bid)&&clocks.every(t=>Number.isFinite(t)&&now-t>=0&&now-t<=300000)&&Math.max(...clocks)-Math.min(...clocks)<=90000;
+ const fmt=v=>n(v)>0?Number(v).toLocaleString('de-CH',{maximumFractionDigits:4}):'—';
+ const stamp=at&&Number.isFinite(Date.parse(at))?new Date(at).toLocaleString('de-CH',{timeZone:'Europe/Zurich',hour12:false})+' (Zürich)':'Zeitbezug unbestätigt';
+ const currency=current?'EUR':p.snapshot?.currency||p.currency||'EUR';
+ return '<div class="small" data-primary-product-values><b>'+(current?'Aktueller Anbieterwert':'Gespeicherte Referenz')+'</b><br>Geld '+fmt(current?live.bid:fields.bid.value)+' / Brief '+fmt(current?live.ask:fields.ask.value)+' '+esc(currency)+(current&&live.priceKind==='issuer-chart'?' · Chartkurs, kein bestätigter Ausführungskurs':'')+'<br>'+(current?'Quelle: '+esc(live.source||q.source||'Produktanbieter')+' · '+esc(stamp):'Datenstand: '+esc(fields.ask.state))+'<br>Hebel '+fmt(fields.leverage.value)+' · '+esc(fields.leverage.state)+'</div>';
 }
 function bindCompactCards(root){
  bindIsinCopy(root);
+ root.querySelectorAll('[data-product-trade]').forEach(btn=>btn.addEventListener('click',()=>{
+  const input=document.getElementById('exit-isin');if(!input)return;
+  input.value=btn.dataset.productTrade;
+  input.dispatchEvent(new Event('input',{bubbles:true}));
+  document.querySelector('[data-exit-reference]')?.click();
+  document.querySelector('#bobNavigation [data-view="trade"]')?.click();
+  const panel=document.getElementById('bobTradeUpload')||document.getElementById('bobExitEstimate');
+  if(panel?.parentElement.tagName==='DETAILS')panel.parentElement.open=true;
+  document.getElementById('exit-entry')?.focus();
+ }));
  root.querySelectorAll('[data-selection-upload]').forEach(btn=>btn.addEventListener('click',()=>document.getElementById('dgDetailShot'+btn.dataset.selectionUpload)?.click()));
  root.querySelectorAll('[data-card-research]').forEach(btn=>btn.addEventListener('click',()=>enrichProduct(Number(btn.dataset.cardResearch))));
 }
@@ -1577,7 +1607,7 @@ function renderSelectionWorkflow(r,products=[]){
  return '<b>'+ (r.approved?'Zur Produktauswahl freigegeben · '+r.approvedCount+' geeignete'+(r.approvedCount===1?'s Produkt':' Produkte'):'Abwarten – derzeit kein geeignetes Produkt')+'</b>'+steps+
  '<div class="small">'+esc((r.gateReasons||[]).join(' · '))+'</div>'+
  '<div class="small">'+r.total+' unterschiedliche Produkte. Vorauswahl nach Analyse-Richtung '+esc(r.direction)+'; fehlende Preise erhalten keine Rangpunkte.</div>'+
- r.groups.map(g=>'<div style="margin-top:12px"><b>'+esc(g.scope)+' · '+g.total+' bewertbare Produkte</b>'+g.candidates.map((c,i)=>'<div data-product-isin="'+esc(c.isin)+'" style="padding:10px;margin-top:8px;border:1px solid #dbe4f0;border-radius:12px"><b>Platz '+(i+1)+' · '+esc(c.isin)+'</b>'+productCompletionBadge(products.find(p=>p.isin===c.isin)||c)+'<details data-product-values style="margin-top:10px"><summary><strong>Produktwerte anzeigen</strong></summary><div class="small">'+esc(c.name)+'<br>'+esc(c.priceKind)+' · Brief '+Number(c.price).toFixed(2)+' EUR · Risiko-/Datenwert '+c.score+'/100<br>Warum: '+esc((c.reasons||[]).slice(0,3).join(' · '))+'<br>Quelle '+esc(c.source||'Produktnachweis')+' · Datenzeit '+esc(c.at)+(c.quoteAt?' · Produktkurszeit '+esc(c.quoteAt):'')+(c.quality?'<br>'+esc(qualityText(c.quality,'USD')):'')+'</div>'+renderProductDecision(c)+renderProductSources(c)+'</details></div>').join('')+'</div>').join('')+
+ r.groups.map(g=>'<div style="margin-top:12px"><b>'+esc(g.scope)+' · '+g.total+' bewertbare Produkte</b>'+g.candidates.map((c,i)=>'<div data-product-isin="'+esc(c.isin)+'" style="padding:10px;margin-top:8px;border:1px solid #dbe4f0;border-radius:12px"><b>Platz '+(i+1)+' · '+esc(c.isin)+'</b>'+productCompletionBadge(products.find(p=>p.isin===c.isin)||c)+'<div class="small" data-product-status><div><b>Daten:</b> vollständig</div><div><b>Zeitbezug:</b> für diesen Analyseweg bestätigt</div><div><b>Aktuelle Auswahl:</b> geeignet für '+esc(c.direction)+'</div></div><p><b>Nächster Schritt:</b> Tatsächlichen DEGIRO-Kurs vor einem Einstieg prüfen.</p><button data-product-trade="'+esc(c.isin)+'">Vorhandenen Trade mit diesem Produkt erfassen</button><details data-product-values style="margin-top:10px"><summary><strong>Produktwerte anzeigen</strong></summary><div class="small">'+esc(c.name)+'<br>'+esc(c.priceKind)+' · Brief '+Number(c.price).toFixed(2)+' EUR · Risiko-/Datenwert '+c.score+'/100<br>Warum: '+esc((c.reasons||[]).slice(0,3).join(' · '))+'<br>Quelle '+esc(c.source||'Produktnachweis')+' · Datenzeit '+esc(c.at)+(c.quoteAt?' · Produktkurszeit '+esc(c.quoteAt):'')+(c.quality?'<br>'+esc(qualityText(c.quality,'USD')):'')+'</div>'+renderProductDecision(c)+renderProductSources(c)+'</details></div>').join('')+'</div>').join('')+
  excluded.map(p=>knockoutCard({...products[p.index-1],...p})).join('')+
  (notApproved.length?'<details style="margin-top:14px"><summary>Weitere Produkte · nicht freigegeben ('+notApproved.length+')</summary>'+notApproved.map(p=>compactProductCard({...products[p.index-1],...p},p.missingReasons,p.reasons.some(v=>/neutral|NEUTRAL/.test(v))?'Nicht freigegeben · Marktsignal neutral':'Nicht freigegeben · '+(p.reasons[0]||'Nachweise prüfen'))).join('')+'</details>':'')+
  '<details class="small" style="margin-top:10px"><summary>Hinweise zur Produktauswahl</summary>Spot und Future werden getrennt bewertet. Weniger als drei belegte Produkte ergeben eine kürzere Liste. Freigabe gilt ausschließlich für diese geprüfte Produktauswahl, nicht als Handelsauftrag oder garantierter bester Trade. Kandidaten mit offenen Nachweisen bleiben gesperrt; tatsächlichen DEGIRO-Preis vor dem Einstieg prüfen.</details>';
@@ -2954,6 +2984,23 @@ function init(){
  const fields=[['isin','Produkt-ISIN','text'],['entry','Tatsächlicher Einstieg EUR/Stück','number'],['quantity','Stückzahl','number'],['bid','Geldkurs der Referenz EUR/Stück','number'],['goldReference','Gold Spot USD zur Referenz','number'],['fxReference','USD→EUR zur Referenz','number'],['source','Referenzquelle (z. B. DEGIRO-Screenshot)','text'],['referenceAt','Kurszeit laut Referenz','text'],['ratio','Bezugsverhältnis','number'],['strike','Basispreis USD','number'],['ko','KO-Barriere USD','number'],['planGold','Gold Spot USD für den Handelsplan','number'],['targetGold','Gold-Ziel USD','number'],['stopGold','Gold-Stop USD','number'],['fxScenario','Angenommener USD→EUR-Kurs am Ausstieg','number']];
  panel.innerHTML='<h3>Geschätzter Ausstiegskurs pro Stück</h3><div class="small">Referenz-Geldkurs und gleichzeitig beobachtete Gold-/FX-Werte eingeben oder aus vorhandenen Produktnachweisen übernehmen. Dieses Szenario ersetzt keinen aktuellen Verkaufskurs. Eingaben werden beim Berechnen auf diesem Gerät gespeichert.</div><div class="grid">'+fields.map(([k,l,t])=>'<div><label for="exit-'+k+'">'+l+'</label><input id="exit-'+k+'" data-exit="'+k+'" type="'+t+'" '+(t==='number'?'step="any" min="0"':'')+'></div>').join('')+'<div><label for="exit-direction">Produktrichtung</label><select id="exit-direction" data-exit="direction"><option value="">Auswählen</option><option>LONG</option><option>SHORT</option></select></div></div><label><input type="checkbox" data-exit="simpleSpotTurbo"> Einfaches Gold-Spot-Turbo in EUR, ohne Quanto; Bedingungen am Produkt geprüft</label><br><label><input type="checkbox" data-exit="referenceConfirmed"> Referenz-Geldkurs, Gold und FX gehören zeitlich zusammen; Quelle und Kurszeit geprüft</label><div class="grid"><button data-exit-reference>Produktnachweis übernehmen</button><button data-exit-plan>Ziel/Stop aus aktueller Goldanalyse</button><button data-exit-calculate>Verkaufskurse schätzen</button><button data-exit-monitor>Produkt-Trade überwachen / aktualisieren</button></div><div data-exit-output class="small">Noch keine Schätzung. Tatsächliche Position eingeben; keine Order oder Trade-Aktivierung.</div>';
  parent.after(panel);
+ // Keep identity and actual position visible; technical references remain available.
+ const reference=document.createElement('details'),summary=document.createElement('summary'),grid=document.createElement('div');
+ summary.textContent='Referenzwerte und Produktbedingungen prüfen';grid.className='grid';reference.append(summary,grid);
+ const positionGrid=panel.querySelector('.grid');
+ for(const el of panel.querySelectorAll('[data-exit]'))if(!['isin','entry','quantity','direction','simpleSpotTurbo','referenceConfirmed'].includes(el.dataset.exit))grid.append(el.closest('div'));
+ positionGrid.after(reference);
+ panel.querySelector('h3').textContent='2 · Einstieg und Stückzahl / 3 · Überwachung starten';
+ const hint=document.createElement('p');hint.className='small';hint.id='bobTradeFormHint';reference.after(hint);
+ const updateForm=()=>{
+  const read=k=>panel.querySelector('[data-exit="'+k+'"]');
+  const ready=/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(read('isin').value.trim().toUpperCase())&&Number(read('entry').value)>0&&Number(read('quantity').value)>0&&['LONG','SHORT'].includes(read('direction').value)&&read('simpleSpotTurbo').checked&&read('referenceConfirmed').checked;
+  const monitor=panel.querySelector('[data-exit-monitor]');monitor.disabled=!ready;
+  monitor.textContent='3 · Produkt-Überwachung starten / aktualisieren';
+  hint.textContent=ready?'Position erfasst. Beim Start prüft Bob zusätzlich Referenzwerte, Produktmodell und aktuelle Marktdaten.':'Zum Start: Produkt, Einstieg und Stückzahl ergänzen; Richtung, Bedingungen und zeitliche Zuordnung der Referenzwerte prüfen.';
+ };
+ panel.addEventListener('input',()=>queueMicrotask(updateForm));panel.addEventListener('change',updateForm);
+ panel.addEventListener('click',()=>queueMicrotask(updateForm));
  try{const saved=JSON.parse(localStorage.getItem('bobExitScenarioV1')||'null');if(saved)for(const el of panel.querySelectorAll('[data-exit]'))if(Object.prototype.hasOwnProperty.call(saved,el.dataset.exit)){if(el.type==='checkbox')el.checked=saved[el.dataset.exit]===true;else el.value=saved[el.dataset.exit];}}catch(_){}
  const get=k=>panel.querySelector('[data-exit="'+k+'"]'),read=()=>Object.fromEntries(Array.from(panel.querySelectorAll('[data-exit]')).map(el=>[el.dataset.exit,el.type==='checkbox'?el.checked:el.value.trim()]));
  panel.querySelector('[data-exit-reference]').addEventListener('click',()=>{
@@ -2986,6 +3033,7 @@ function init(){
   catch(e){out.textContent=e.message||'Produkt-Trade konnte nicht übernommen werden.';}
  });
  panel.querySelectorAll('[data-exit]').forEach(el=>el.addEventListener('input',()=>{if(el.dataset.exit!=='referenceConfirmed')get('referenceConfirmed').checked=false;panel.querySelector('[data-exit-output]').textContent='Eingaben geändert; Schätzung erneut berechnen.';}));
+ updateForm();
 }
 function referenceHtml(x){
  const local=t=>new Date(t).toLocaleString('de-CH',{timeZone:'Europe/Zurich',hour12:false})+' Schweizer Zeit';
@@ -3103,3 +3151,4 @@ function init(){
 }
 window.BobTradeUpload={parse,draft,reviewed,merge,init};if(typeof document!=='undefined'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();}
 })();
+
