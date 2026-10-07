@@ -17,6 +17,18 @@ class DirectTests(unittest.TestCase):
             ('ClassificationName','BEST Turbo (Open-End)',''))]
         self.at = (datetime.now(timezone.utc)-timedelta(seconds=2)).isoformat()
         self.points = [dict(Bid=10, Ask=10.01, Date=self.at)]
+    def test_sq02jq_mini_direct_route(self):
+        isin = 'DE000SQ02JQ6'
+        self.product.update(Id=2829392, Isin=isin, ProductClassificationId=45)
+        for prop in self.props:
+            if prop['Name'] == 'Isin': prop['Value'] = isin
+            if prop['Name'] == 'ClassificationName': prop['Value'] = 'Unlimited Turbo-Optionsscheine (Mini)'
+        with patch.object(q,'issuer_json',side_effect=[self.product,self.props,self.points]):
+            out=sg.get_quote(isin)
+        self.assertTrue(out['productVerified'])
+        self.assertEqual(out['conditions']['maturity']['value'], 'Open End')
+        self.assertEqual(out['chartEvidence']['ask'], 10.01)
+
     def test_import_cache_and_no_false_trade_release(self):
         with patch.object(q,'issuer_json',side_effect=[self.product,self.props,self.points]) as fetch:
             out=sg.get_quote(ISIN); cached=sg.get_quote(ISIN)

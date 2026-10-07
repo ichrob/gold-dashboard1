@@ -47,7 +47,7 @@ def conditions(product, properties, result):
     typ = attrs.get('ClassificationName', {}).get('Value')
     if product.get('ProductClassificationId') in (43, 45, 47) and isinstance(typ, str):
         values['type'] = typ
-        if product.get('MaturityDate') is None and 'Open-End' in typ:
+        if product.get('MaturityDate') is None and ('Open-End' in typ or product.get('ProductClassificationId') == 45 and 'Unlimited' in typ):
             values['maturity'] = 'Open End'
         elif product.get('MaturityDate'):
             values['maturity'] = datetime.fromisoformat(product['MaturityDate']).strftime('%d.%m.%Y')
