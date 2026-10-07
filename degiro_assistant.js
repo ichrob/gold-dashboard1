@@ -1252,7 +1252,7 @@ function selectionDetailStatus(p,now=Date.now()){
  if(x?.delayed)reasons.push('Nicht verzögerten Produktkurs ergänzen');
  if(!(n(p.leverage)>=1&&n(e.Hebel?.value)===n(p.leverage))||!evidenceTiming(e.Hebel,now).fresh&&!(pair&&e.Hebel?.source===e.Geld?.source&&time&&now-time.start<=SCREENSHOT_MAX_AGE_MS))reasons.push('Aktuelles Detailbild mit Hebel und zugehöriger Zeit');
  const fixed=window.BobCombined.fixedFor(p),meta=p.quote?.productVerified?p.quote.metadata:null;
- if(!(n(p.ko)>0)||!(fixed||n(meta?.ko)===n(p.ko)||screenshotKoCurrent(p,now)))reasons.push('KO-Barriere mit gültigem Nachweis oder festen Screenshotwert bestätigen');
+ if(!(n(p.ko)>0)||!(fixed||termValueMatches(p.ko,meta?.ko,x?.terms?.ko||e.KO)||screenshotKoCurrent(p,now)))reasons.push('KO-Barriere mit gültigem Nachweis oder festen Screenshotwert bestätigen');
  return {complete:!reasons.length,reasons,at:time?new Date(time.start).toISOString():null,timeLabel:time?.label,source:e.Geld?.source};
 }
 // Read the rendered result blocks, never the MTF legend containing all three labels.
@@ -1418,7 +1418,7 @@ function missingValueLocation(reason,p={}){
  if(/^CHF-Kursbild vorhanden/.test(reason))return 'CHF-Originalkurs ist gespeichert. Bob verwendet für die EUR-Analyse eine separat datierte automatische Umrechnung. Für diesen historischen Kursnachweis fehlt ein zeitlich passender Wechselkurs; dasselbe Bild erneut hochzuladen hilft nicht.';
  const key=/Basispreis|Finanzierungslevel/.test(reason)?'strike':/KO|Knock-out|Barriere/i.test(reason)?'ko':null;
  const term=key&&p.snapshot?.terms?.[key];
- if(term&&n(term.value)>0&&!term.at&&/datierte|Gültigkeitsnachweis|Aktualität/i.test(reason))return 'Wert aus dem Bild übernommen. Ein Gültigkeitsdatum ist dort nicht belegt. Die Aufnahmezeit ersetzt dieses Datum nicht; dasselbe Bild muss nicht erneut hochgeladen werden. Der beobachtete Wert bleibt mit Hinweis für die unverbindliche Analyse nutzbar.';
+ if(term&&n(term.value)>0&&!term.at&&/datierte|Gültigkeitsnachweis|Aktualität|gültigem Nachweis/i.test(reason))return 'Wert aus dem Bild übernommen. Ein Gültigkeitsdatum ist dort nicht belegt. Die Aufnahmezeit ersetzt dieses Datum nicht; dasselbe Bild muss nicht erneut hochgeladen werden. Der beobachtete Wert bleibt mit Hinweis für die unverbindliche Analyse nutzbar.';
  if(/Produkttyp|Produktrichtung/.test(reason))return 'Stammdaten → Typ / Produktart: Call oder Put bzw. Long oder Short.';
  if(String(reason).startsWith('BNP-Kursabruf:'))return 'Automatische BNP-Quelle; Bob wiederholt den Abruf. Die letzte Quellenzeit steht unter Quellen und Einzelheiten.';
   if(/Future-Kontrakt|Futures-Kontrakt/.test(reason))return 'Stammdaten: Basiswert mit Kontraktmonat/Jahr. Bei fehlenden Details: Dokumentation → Endgültige Bedingungen, Referenzkontrakt / Futures Contract und Börse.';
@@ -1508,7 +1508,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben'){
    if(!unconfirmed.includes(label))unconfirmed.push(label);
    const open='Hebelnachweis: Anbieterwert / Datenstand offen';if(!groups.includes(open)){groups.push(open);locations.set(open,missingValueLocation(reason,p));}continue;
   }
-  const dated=/datier|24 Stunden|Gültigkeit/i.test(reason)&&!/widerspr|ungültig/i.test(reason);
+  const dated=(/datier|24 Stunden|Gültigkeit/i.test(reason)||/gültigem Nachweis/i.test(reason)&&n(p.ko)>0)&&!/widerspr|ungültig/i.test(reason);
   const field=/Basispreis|Finanzierungslevel/.test(reason)?'Basispreis':/KO|Knock|Barriere/i.test(reason)?'KO-Barriere':null;
   if(dated&&field){const label=field+': Werte vorhanden – Aktualität unbestätigt';if(!unconfirmed.some(item=>item.startsWith(label)))unconfirmed.push(label+' · Fundort: '+missingValueLocation(reason,p));const open=field+': Gültigkeitsnachweis offen';if(!groups.includes(open)){groups.push(open);locations.set(open,missingValueLocation(reason,p));}continue;}
   const label=/Produkttyp|Produktrichtung/.test(reason)?'Produkttyp / Richtung (Stammdaten → Typ)':reason.startsWith('BNP-Kursabruf:')?reason:/Basiswert ungenau: Gold allein/.test(reason)?'Basiswert „Gold“ erkannt – genaue Referenz fehlt (Produktbeschreibung / Endgültige Bedingungen)':/Future-Kontrakt|Futures-Kontrakt|Referenzkontrakt/.test(reason)?'Future-Kontrakt (Stammdaten → Basiswert; ggf. Dokumente → Endgültige Bedingungen)':/Basispreis|Finanzierungslevel/.test(reason)?'Basispreis: gültiger Nachweis (Stammdaten)':/KO|Knock|Barriere/i.test(reason)?'KO-Barriere: gültiger Nachweis (Stammdaten)':/Geld|Brief|Kurs/.test(reason)?'Geld, Brief und Quellenzeit (Kursdaten)':/Hebel/.test(reason)?'Hebel mit Datenstand (Kennzahlen)':/Bezugsverhältnis/.test(reason)?'Bezugsverhältnis fehlt oder ist nicht eindeutig (Stammdaten)':/Basiswert/.test(reason)?'Exakter Basiswert fehlt (Stammdaten / Produktbeschreibung)':/Produkttyp|Long\/Short|Produktrichtung/.test(reason)?'Produkttyp / Richtung (Stammdaten → Typ)':/Laufzeit|Fälligkeit/.test(reason)?'Laufzeit / Fälligkeit (Stammdaten)':/Währung/.test(reason)?'Produktwährung (Kursdaten)':/ISIN|Produktzuordnung|Bildzuordnung|Bildwerte|Original|bestätig/.test(reason)?'Produktzuordnung oder Bildwerte nicht eindeutig':reason.split(':')[0]+' (Quellen und Einzelheiten → Fehlende Werte)';
@@ -1952,7 +1952,7 @@ function productFieldStates(p,now=Date.now()){
  const from=(key,value,at,source,limit=90000,kind='')=>{
   const t=typeof at==='string'&&/(Z|[+-]\d{2}:\d{2})$/.test(at)?Date.parse(at):selectionTimeWindow(at)?.start;
   const age=Number.isFinite(t)?now-t:null;
-  return {key,value,at:at||null,source:source||'gespeicherter Wert',kind,ageSeconds:age===null?null:Math.floor(age/1000),state:!(n(value)>0)?'fehlt':age===null||age<0?'Aktualität unbestätigt':age>limit?'veraltet':limit===300000&&age>90000?'innerhalb Altersgrenze (300 s)':'aktuell'};
+  return {key,value,at:at||null,source:source||'gespeicherter Wert',kind,ageSeconds:age===null?null:Math.floor(age/1000),state:!(n(value)>0)?'fehlt':age===null||age<0?'Aktualität unbestätigt':age>limit?'veraltet':kind==='screenshot'?'Momentaufnahme · innerhalb Nachweisfrist (14 h)':limit===300000&&age>90000?'innerhalb Altersgrenze (300 s)':'aktuell'};
  };
  const items={},analysisLimit=(q?.analysisMaxAgeSeconds||90)*1000;
  for(const [key,label] of [['bid','Geld'],['ask','Brief']]){
@@ -1961,7 +1961,8 @@ function productFieldStates(p,now=Date.now()){
   items[key]=from(label,direct?live[key]:key==='ask'?p.price:shot?.currency==='CHF'?null:shot?.bid,direct?live[key+'At']:e?.at||shot?.sourceTime,direct?live.source:e?.source,direct?analysisLimit:SCREENSHOT_MAX_AGE_MS,direct?live.priceKind:'screenshot');
  }
  const le=shot?.evidence?.Hebel,directLev=q&&n(q.leverage)===n(p.leverage);
- items.leverage=from('Hebel',p.leverage,directLev?q.leverageAt:n(le?.value)===n(p.leverage)?le?.at:null,directLev?(q.leverageSource||q.source):le?.source,directLev?90000:SCREENSHOT_MAX_AGE_MS);
+ items.leverage=from('Hebel',p.leverage,directLev?q.leverageAt:n(le?.value)===n(p.leverage)?le?.at:null,directLev?(q.leverageSource||q.source):le?.source,directLev?90000:SCREENSHOT_MAX_AGE_MS,directLev?'':'screenshot');
+ if(!directLev&&le?.fromSeries)items.leverage.fromSeries=true;
  if(directLev&&q.leverageEstimated&&n(p.leverage)>0){
   const c=q.leverageCalculation;
   const clocks=[c?.inputs?.basisAt,c?.inputs?.askAt,c?.inputs?.fxDataAt,c?.inputs?.fxEffectiveAt].map(v=>typeof v==='string'?Date.parse(v):NaN);
@@ -1979,7 +1980,7 @@ function renderProductFieldStates(p){
  const comparisonDetail=comparison?'<div>Hebelvergleich: '+esc(comparison.comparable?(comparison.warning?'Auffällige Abweichung: ':'Abweichung: ')+comparison.relativeDifferencePct+' % · '+comparison.note:comparison.reason)+'</div>':'';
  const native=p.quote?.nativeChartEvidence,fx=p.quote?.currencyConversion;
  const nativeInfo=native?'<div><b>Originalkurs CHF: Geld '+esc(native.bid)+' / Brief '+esc(native.ask)+'</b><br>Quellenzeit '+esc(native.pointAt)+(fx?'<br>Für die Analyse in EUR umgerechnet · CHF/EUR '+esc(fx.rate)+' · '+esc(fx.at):'<br>EUR-Umrechnung noch nicht verfügbar')+'</div>':'';
- return '<div class="small" data-field-status>'+nativeInfo+detail+comparisonDetail+Object.values(fields).map(f=>'<div><b>'+esc(f.key)+(f.kind==='issuer-chart'?' (Chartkurs)':'')+': '+esc(f.key==='Hebel'&&n(f.value)>0?Number(f.value).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2}):f.value??'—')+' · '+esc(f.state)+'</b>'+ (f.at?'<br>Quellenzeit '+esc(f.at)+' · '+esc(f.ageSeconds)+' s alt':'')+'<br>'+esc(f.source)+(f.kind==='issuer-chart'?' · Chartbeobachtung, kein ausführbarer Kursnachweis':'')+'</div>').join('')+(p.quote?.leverageEstimated?'<div>'+esc(p.quote.leverageNote)+'</div>':'')+(p.quote?.leverageCalculation?.available===false?'<div>Hebelberechnung: '+esc(p.quote.leverageCalculation.reason)+'</div>':'')+(p.quote?.backupStatus?.state==='unavailable'?'<div>Onvista-Backup derzeit nicht verfügbar: '+esc(p.quote.backupStatus.code)+'</div>':'')+'</div>';
+ return '<div class="small" data-field-status>'+nativeInfo+detail+comparisonDetail+Object.values(fields).map(f=>'<div><b>'+esc(f.key)+(f.kind==='issuer-chart'?' (Chartkurs)':'')+': '+esc(f.key==='Hebel'&&n(f.value)>0?Number(f.value).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2}):f.value??'—')+' · '+esc(f.state)+'</b>'+ (f.at?'<br>'+ (f.fromSeries?'Zeitbezug der Aufnahmeserie ':'Quellenzeit ')+esc(f.at)+' · '+esc(f.ageSeconds)+' s alt':'')+'<br>'+esc(f.source)+(f.kind==='issuer-chart'?' · Chartbeobachtung, kein ausführbarer Kursnachweis':'')+'</div>').join('')+(p.quote?.leverageEstimated?'<div>'+esc(p.quote.leverageNote)+'</div>':'')+(p.quote?.leverageCalculation?.available===false?'<div>Hebelberechnung: '+esc(p.quote.leverageCalculation.reason)+'</div>':'')+(p.quote?.backupStatus?.state==='unavailable'?'<div>Onvista-Backup derzeit nicht verfügbar: '+esc(p.quote.backupStatus.code)+'</div>':'')+'</div>';
 }
 function analysisReleaseQuote(p,now=Date.now()){
  const q=p.quote,a=q?.analysisQuote,c=q?.leverageCalculation,i=c?.inputs;
