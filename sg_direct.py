@@ -23,16 +23,16 @@ def refresh_evidence(result):
     if evidence:
         age = (datetime.now(timezone.utc)-q.stamp(evidence['pointAt'])).total_seconds()
         evidence.update(ageSeconds=round(age, 1), current=0 <= age <= q.MAX_AGE_SECONDS)
-        result['reason'] = ('SG-Direktimport aktiv (30 s): Chart Geld {:.3f} / Brief {:.3f} EUR, Stand {} ({}). '
+        result['reason'] = ('SG-Direktimport aktiv (30 s): Chart Geld {:.3f} / Brief {:.3f} {}, Stand {} ({}). '
             'Stammdaten übernommen; '+('KO/Basispreis nachgewiesen; ' if (result.get('metadata', {}).get('termsDated') or result.get('metadata', {}).get('termsFixed')) else 'datierter KO-/Basispreisnachweis fehlt; ')+'datierter Hebel weiterhin erforderlich.').format(
-                evidence['bid'], evidence['ask'], evidence['pointAt'],
+                evidence['bid'], evidence['ask'], evidence['currency'], evidence['pointAt'],
                 'aktuell' if evidence['current'] else 'veraltet')
     return result
 
 
 def conditions(product, properties, result):
     attrs = {p['Name']: p for p in properties}
-    values = {'underlying': result['metadata']['underlying'], 'currency': 'EUR'}
+    values = {'underlying': result['metadata']['underlying'], 'currency': product['Currency']}
     quanto = attrs.get('IsQuanto', {}).get('Value')
     result['metadata']['simpleTurbo'] = product.get('ProductClassificationId') in (43,45,47)
     result['metadata']['quantoState'] = ('non-quanto' if quanto is False or quanto in ('Nein','No')
@@ -47,7 +47,7 @@ def conditions(product, properties, result):
     typ = attrs.get('ClassificationName', {}).get('Value')
     if product.get('ProductClassificationId') in (43, 45, 47) and isinstance(typ, str):
         values['type'] = typ
-        if product.get('MaturityDate') is None and ('Open-End' in typ or product.get('ProductClassificationId') == 45 and 'Unlimited' in typ):
+        if product.get('MaturityDate') is None and ('Open-End' in typ or product.get('ExchangeCode') == 'CBSW' and product.get('ProductClassificationId') == 47 or product.get('ProductClassificationId') == 45 and 'Unlimited' in typ):
             values['maturity'] = 'Open End'
         elif product.get('MaturityDate'):
             values['maturity'] = datetime.fromisoformat(product['MaturityDate']).strftime('%d.%m.%Y')
@@ -98,6 +98,7 @@ def conditions(product, properties, result):
 
 
 def get_quote(isin, terms_only=False):
+    origin = q.sg_market(isin)[0]
     if isin not in q.SG_DIRECT_PRODUCTS:
         return q.sg_disabled(isin)
     # Serialize per product; a slow source for one ISIN must not block all others.
@@ -109,7 +110,7 @@ def get_quote(isin, terms_only=False):
             return refresh_evidence(cached[1])
         result = dict(found=False, eligible=False, fresh=False, productVerified=False,
                       isin=isin, source='Société Générale · Direktimport',
-                      sourceUrl=q.SG_ORIGIN+'product-details/'+isin.lower(),
+                      sourceUrl=q.sg_market(isin)[0]+'product-details/'+isin.lower(),
                       importActive=True, refreshIntervalSeconds=INTERVAL, analysisMaxAgeSeconds=300,
                       checkedAt=datetime.now(timezone.utc).isoformat())
         stage = 'identity'
@@ -118,8 +119,9 @@ def get_quote(isin, terms_only=False):
             if terms and time.monotonic()-terms[0] < 300:
                 product, properties = terms[1:]
             else:
-                base = q.SG_ORIGIN+'EmcWebApi/api/'
-                product = q.issuer_json(base+'Products/'+isin, q.SG_ORIGIN, timeout=12)
+                origin = q.sg_market(isin)[0]
+                base = origin+'EmcWebApi/api/'
+                product = q.issuer_json(base+'Products/'+isin, origin, timeout=12)
                 if (product.get('Isin') != isin or type(product.get('Id')) is not int
                         or product['Id'] != q.SG_DIRECT_PRODUCTS[isin]
                         or product.get('ProductClassificationId') not in (43, 45, 47, 44100)):
@@ -134,7 +136,7 @@ def get_quote(isin, terms_only=False):
                     _CACHE[isin] = (time.monotonic(), copy.deepcopy(result))
                     return result
                 stage = 'properties'
-                properties = q.issuer_json(base+'Products/AllProperties/'+str(product['Id']), q.SG_ORIGIN, timeout=12)
+                properties = q.issuer_json(base+'Products/AllProperties/'+str(product['Id']), origin, timeout=12)
                 q.parse_sg(product, properties, isin)
                 _TERMS[isin] = (time.monotonic(), product, properties)
             result.update(q.parse_sg(product, properties, isin))
@@ -150,7 +152,7 @@ def get_quote(isin, terms_only=False):
                 return result
             else:
                 stage = 'dated-quotes'
-                points = q.issuer_json(q.SG_ORIGIN+'EmcWebApi/api/Prices/Live?productId='+str(product['Id']), q.SG_ORIGIN, timeout=12)
+                points = q.issuer_json(origin+'EmcWebApi/api/Prices/Live?productId='+str(product['Id']), origin, timeout=12)
                 chart = q.parse_sg_chart_research(product, points, isin)
                 result['chartEvidence'] = chart['chartEvidence']
                 result['reason'] = ('SG-Direktimport aktiv (30 s): Stammdaten übernommen; '

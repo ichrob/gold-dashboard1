@@ -54,7 +54,7 @@ def market_input(kind):
         cached = _INPUT_CACHE.get(kind)
         if cached and time.monotonic()-cached[0] < ttl:
             return cached[1]
-        url, origin = ((FX_ORIGIN+'v1/latest/USD?symbols=EUR', FX_ORIGIN) if kind == 'fx'
+        url, origin = ((FX_ORIGIN+'v1/latest/USD?symbols=EUR,CHF', FX_ORIGIN) if kind == 'fx'
                        else (SPOT_ORIGIN+'api/v1/spot?compact=1', SPOT_ORIGIN))
         value = q.issuer_json(url, origin, timeout=12)
         _INPUT_CACHE[kind] = (time.monotonic(), value)
