@@ -18,6 +18,14 @@ def page():
 def html(data):
     return '<script id="__NEXT_DATA__" type="application/json">'+json.dumps({'props':{'pageProps':{'data':{'snapshot':data}}}})+'</script>'
 class BackupTests(unittest.TestCase):
+    def test_missing_leverage_does_not_discard_current_pair(self):
+        data=page();data['derivativesFigure']={}
+        result=b.parse_page(html(data),ISIN,NOW)
+        self.assertEqual(result['ask'],4.72)
+        self.assertEqual(result['askAt'],AT)
+        self.assertIsNone(result['leverageAt'])
+        self.assertIsNone(result['leverage'])
+
     def test_source_clocks(self):
         r=b.parse_page(html(page()),ISIN,NOW)
         self.assertEqual(r['askAt'],AT)
