@@ -65,6 +65,13 @@ def conditions(product, properties, result):
         if value > 0:
             observed['strike'] = value
     result['observedTerms'] = observed
+    # Keep a successfully read number visible even if SG omits its validity
+    # date. This is observed evidence, never a dated condition or clearance.
+    for key in ('ko', 'strike'):
+        if key in observed:
+            result['conditions'][key] = dict(value=observed[key], at=None,
+                source=result['sourceUrl'], reviewedAt=result['checkedAt'],
+                conditionVerified=False, validityUnconfirmed=True)
     # SG explicitly dates changes to strike AND barrier. Retain only its
     # calendar date; do not invent a timezone, intraday time or quote clock.
     evidence = result['metadata'].get('koEvidence')

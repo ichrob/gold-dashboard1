@@ -108,3 +108,16 @@ assert(!b.currentQuote(chartProduct,now));
 const display=b.compactProductCard({...chartProduct,index:1},['Aktuelles Kursbild mit Geld/Brief in EUR','Aktuelles Detailbild mit Hebel und zugehöriger Zeit']);
 assert(display.includes('Geld/Brief vorhanden'));assert(display.includes('Hebel vorhanden'));assert(!display.includes('Fehlende Werte (2)'));
 console.log('Independent price/leverage field states and chart provenance passed');
+
+// Existing chart values never hide unresolved evidence in a zero-count summary.
+assert(display.includes('Kursnachweis: Aktualität / Kursart offen'));
+assert(display.includes('Hebelnachweis: Anbieterwert / Datenstand offen'));
+assert(!display.includes('Alle Zahlen vorhanden'));
+const agedPair={...fieldProduct,quote:{...fieldProduct.quote,analysisMaxAgeSeconds:300,bidAt:new Date(now-183000).toISOString(),askAt:new Date(now-183000).toISOString()}};
+assert.equal(b.productFieldStates(agedPair,now).ask.state,'innerhalb Altersgrenze (300 s)');
+const observedProduct={...chartProduct,quote:{...chartProduct.quote,conditions:{strike:{value:4524.473138,at:null,source:'SG',conditionVerified:false,validityUnconfirmed:true}}}};
+const observedStatus=b.productTermsStatus(observedProduct,now);
+assert(observedStatus.reasons.some(r=>r.startsWith('Basispreis in USD: Wert eingelesen')));
+assert(!observedStatus.reasons.some(r=>r.startsWith('Basispreis in USD: Wert fehlt')));
+assert(!observedStatus.complete);
+console.log('Open evidence remains visible; undated SG strike is present without granting clearance');
