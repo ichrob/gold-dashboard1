@@ -38,11 +38,11 @@ def calculate(result, basis, fx, now=None):
     if min(ages) < 0 or max(ages) > 1800:
         raise ValueError('Eingangsdaten zukünftig oder älter als 30 Minuten')
     skew = (max(times)-min(times)).total_seconds()
-    fresh = (max(ages) <= 90 and skew <= MAX_SKEW_SECONDS and basis.get('delayed') is not True and not basis.get('estimated', False)
+    inputs_fresh = (max(ages) <= 90 and skew <= MAX_SKEW_SECONDS and basis.get('delayed') is not True
              and fx.get('source') == 'live' and fx.get('sources', {}).get('EUR') == 'live'
              and fx.get('market_session') == 'open')
     return dict(available=True,value=gold*rate*ratio/price, at=min(times).isoformat(), calculatedAt=now.isoformat(),
-                fresh=fresh, state='CFD-basierte Schätzung; Quellenalter und Zeitabstand separat prüfen' if basis.get('estimated') else 'aktuelle Eingangsdaten' if fresh else 'veraltete oder zeitlich abweichende Eingangsdaten',
+                fresh=inputs_fresh and not basis.get('estimated',False), inputsFresh=inputs_fresh, state='CFD-basierte Schätzung; Quellenalter und Zeitabstand separat prüfen' if basis.get('estimated') else 'aktuelle Eingangsdaten' if inputs_fresh else 'veraltete oder zeitlich abweichende Eingangsdaten',
                 kind='calculated-gearing', label='Von Bob geschätzter Hebel auf Basis des Investing-CFD' if basis.get('estimated') else 'Von Bob berechneter Hebel',
                 maxInputAgeSeconds=round(max(ages),1), skewSeconds=round(skew,1),
                 inputs=dict(priceSide='ask',basisEstimated=bool(basis.get('estimated',False)),basisDelayed=bool(basis.get('delayed',False)),basisPriceUsd=gold,basisAt=times[1].isoformat(),basisSource=basis['source'],

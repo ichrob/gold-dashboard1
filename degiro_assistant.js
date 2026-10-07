@@ -1908,11 +1908,18 @@ function productFieldStates(p,now=Date.now()){
  }
  const le=shot?.evidence?.Hebel,directLev=q&&n(q.leverage)===n(p.leverage);
  items.leverage=from('Hebel',p.leverage,directLev?q.leverageAt:n(le?.value)===n(p.leverage)?le?.at:null,directLev?(q.leverageSource||q.source):le?.source,directLev?90000:SCREENSHOT_MAX_AGE_MS);
+ if(directLev&&q.leverageEstimated&&n(p.leverage)>0){
+  const c=q.leverageCalculation;
+  const clocks=[c?.inputs?.basisAt,c?.inputs?.askAt,c?.inputs?.fxDataAt,c?.inputs?.fxEffectiveAt].map(v=>typeof v==='string'?Date.parse(v):NaN);
+  const valid=clocks.every(t=>Number.isFinite(t)&&t<=now);
+  const age=valid?Math.max(...clocks.map(t=>now-t)):null;
+  const inputState=!valid?'Aktualität unbestätigt':age>90000?'veraltet':c?.inputsFresh===true?'aktuell':'zeitlich abweichend oder Aktualität unbestätigt';
+  items.leverage.state=(c?.inputs?.basisEstimated?'CFD-basierte Schätzung':'berechneter Hebel')+' · Eingangsdaten: '+inputState;
+ }
  return items;
 }
 function renderProductFieldStates(p){
  const fields=productFieldStates(p);
- if(p.quote?.leverageEstimated&&p.quote?.leverageCalculation?.fresh===false&&fields.leverage.state==='aktuell')fields.leverage.state='Aktualität unbestätigt';
  const calculation=p.quote?.leverageCalculation, comparison=p.quote?.leverageComparison;
  const detail=calculation?.available?'<div>Berechnungsbasis: Briefkurs '+esc(calculation.inputs?.askEur)+' EUR · '+esc(calculation.inputs?.priceKind==='issuer-chart'?'Chartbeobachtung':calculation.inputs?.priceSource)+'<br>Basiswert: '+esc(calculation.inputs?.basisEstimated?'geschätzt':calculation.inputs?.basisDelayed?'verzögerter Quellenkurs':'Quellenkurs')+' · '+esc(calculation.inputs?.basisSource)+' · '+esc(calculation.inputs?.contract||'Gold Spot')+'<br>Zeitabstand der Eingangskurse: '+esc(calculation.skewSeconds)+' s (Grenze für aktuell: 30 s)</div>':'';
  const comparisonDetail=comparison?'<div>Hebelvergleich: '+esc(comparison.comparable?(comparison.warning?'Auffällige Abweichung: ':'Abweichung: ')+comparison.relativeDifferencePct+' % · '+comparison.note:comparison.reason)+'</div>':'';
