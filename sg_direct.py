@@ -33,6 +33,8 @@ def refresh_evidence(result):
 def conditions(product, properties, result):
     attrs = {p['Name']: p for p in properties}
     values = {'underlying': result['metadata']['underlying'], 'currency': 'EUR'}
+    result['metadata']['simpleNonQuantoTurbo'] = (product.get('ProductClassificationId') in (43,45,47)
+        and attrs.get('IsQuanto', {}).get('Value') in (False, 'Nein', 'No'))
     ratio = attrs.get('Ratio', {})
     if ratio.get('Suffix', '').strip() == ':1':
         units = q.number(ratio['Value'])
