@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 
 VERSION = 'decision-audit-v1'
 RULE_VERSION = 'intraday-responsive-v6'
+REPORT_LIMIT = 2500
+REPORT_CACHE_SECONDS = 300
 
 def milliseconds(value):
     try:
@@ -168,7 +170,7 @@ def report(conn):
     # Coalesce identical reports; failures never refresh the cached timestamp.
     global _report_cache, _report_at
     with _report_lock:
-        if _report_cache is not None and time.monotonic()-_report_at < 30:
+        if _report_cache is not None and time.monotonic()-_report_at < REPORT_CACHE_SECONDS:
             return copy.deepcopy(_report_cache)
         result = _build_report(conn)
         result['generatedAt'] = int(time.time()*1000)
@@ -183,11 +185,12 @@ def _build_report(conn):
       (SELECT truth FROM bob_decision_outcomes WHERE decision_id=a.id AND horizon=15),
       (SELECT truth FROM bob_decision_outcomes WHERE decision_id=a.id AND horizon=60),
       (SELECT truth FROM bob_decision_outcomes WHERE decision_id=a.id AND horizon=240)
-      FROM bob_decision_audit a ORDER BY a.recorded_at DESC LIMIT 10000""").fetchall()
+      FROM bob_decision_audit a ORDER BY a.recorded_at DESC LIMIT %s""",(REPORT_LIMIT,)).fetchall()
     result=summarize([(row[0],row[1:]) for row in rows])
     result['fourDayComparison']=intraday_comparison.report(conn)
     result['total']=conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0]
-    result['scope']='Aktuelle Intraday-Regel; frühere Regeln getrennt ('+str(result['legacyCount'])+' ältere Protokolle). Bis 30 Tage; Gold-Richtung ohne Handelskosten, kein Gewinnnachweis'
+    result['reportRecords']=len(rows)
+    result['scope']='Aktuelle Intraday-Regel; Auswertung der letzten '+str(len(rows))+' von '+str(result['total'])+' gespeicherten Entscheidungen; frühere Regeln getrennt ('+str(result['legacyCount'])+' ältere Protokolle). Einzelne Tage bleiben vollständig abrufbar. Bis 30 Tage; Gold-Richtung ohne Handelskosten, kein Gewinnnachweis'
     result['minuteEntryReview']=entry_quality_review([(row[0],row[1:]) for row in rows],field='minuteEntry',version='minute-entry-v1')
     result['entryQualityReview']=entry_quality_review([(row[0],row[1:]) for row in rows])
     result['productReview']=product_review([row[0] for row in rows[:1500]])

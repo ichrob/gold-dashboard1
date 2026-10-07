@@ -122,8 +122,9 @@ console.log('Series analysis completeness separated from live validity, with ide
 ctx.Date=class extends Date {static now(){return now;}};
 const neutralCard=b.compactProductCard(p,b.finalProductStatus(p,now).reasons,'Marktsignal neutral');
 assert(neutralCard.includes('data-series-complete'));
-assert(neutralCard.includes('Nicht freigegeben'));
-assert(neutralCard.includes('Für die Live-Freigabe noch offen'));
+assert(neutralCard.includes('Aktuelle Auswahl:</b> nicht ausgewählt'));
+assert(neutralCard.includes('Marktsignal neutral'));
+assert(neutralCard.includes('Live-Freigabe'));
 assert(!neutralCard.includes('datierter Hebel weiterhin erforderlich'));
 
 const validity=b.renderTermSeriesValidity(p,now);

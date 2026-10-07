@@ -1547,7 +1547,8 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben'){
   if(!groups.includes(label)){groups.push(label);locations.set(label,missingValueLocation(reason,p));}
  }
  const allReasons=[...new Set([status.replace(/^Nicht freigegeben · /,''),...reasons,...finalProductStatus(p).reasons])].filter(x=>!/^Produktnachweise prüfen$|^Nicht freigegeben$/.test(x));
- const neutral=/ABWARTEN|NEUTRAL/.test(document.getElementById('quickSignal')?.textContent||'')||allReasons.some(r=>/Marktsignal neutral/.test(r));
+ const signalText=typeof document!=='undefined'?(document.getElementById('quickSignal')?.textContent||''):'';
+ const neutral=/ABWARTEN|NEUTRAL/.test(signalText)||allReasons.some(r=>/Marktsignal neutral/.test(r));
  const data=productDataStatus(p),temporal=allReasons.some(r=>/zeit|Aktualität|datier|veraltet|Gültigkeit|Nachweis/i.test(r));
  const shortReason=r=>String(r).split('. Öffne')[0].split(' · Fundort:')[0].slice(0,160);
  const next=complete&&neutral?'Marktsignal neutral – auf eine bestätigte Richtung warten. Dafür sind keine neuen Bilder nötig.':complete?'Produktdaten vollständig – Auswahlgrund unter „Warum derzeit nicht ausgewählt?“ prüfen.':temporal&&data.complete?'Werte vorhanden – den offenen Zeitbezug unter „So ergänzt du den Nachweis“ prüfen.':'Offene Angaben unter „So ergänzt du den Nachweis“ ansehen und nur diese ergänzen.';
