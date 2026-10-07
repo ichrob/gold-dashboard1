@@ -13,7 +13,10 @@ levels, selected product and entry quote are frozen. Repeated timestamps do not
 advance a case. Stop/target events are observed quotes, not continuous tick or
 fill reconstruction. A gap exceeding 90 seconds ends the case as inconclusive.
 
-The versioned policy takes a simulated 50% partial profit at the first target.
+The v2 policy starts a carried fictional EUR 100 gross account. Purchases use
+whole units affordable at the observed ask; unused cash remains cash, with no
+credit. At the first target it sells floor(quantity/2) units, at least one; a
+one-unit position exits completely. The remainder stays invested.
 The remainder uses the existing `background_push.advance` profit protection,
 trailing stop and confirmed target-extension rules. Stops only tighten. Stop
 checks occur before new stop changes. Remaining exposure closes at a reached
@@ -34,9 +37,11 @@ Up to four issuer quote requests are scheduled asynchronously. They reuse the
 existing public quote, permission and backup pipeline and do not block the main
 background/Push request. A valid, open-market EUR bid/ask pair no older than
 90 seconds is required for a product gross comparison: entry ask, exits bid,
-weighted by the simulated fractional exposure. Estimated/chart quotes,
+weighted by the actual whole-unit exposure. Estimated/chart quotes,
 missing exit quotes, indicative candidates or unknown currency produce an
-unknown product result. No leverage-based EUR or futures-return guess is made.
+unknown product result. Units lacking an exit quote remain pending, block a
+new position, and are valued only when a fresh bid is available. Their later
+model sale is recorded at that later source time, never backdated. No leverage-based EUR or futures-return guess is made.
 Quote sources/times are retained per event. Gross results exclude unknown fees,
 financing, slippage and net profit; no DEGIRO execution is claimed.
 
@@ -58,3 +63,12 @@ Tests cover LONG/SHORT stops, target ordering, monotone trailing, partial
 weights, target extension, reversal, gaps, stale product prices, source clocks,
 read-only reporting and tomorrow's start boundary. Existing Push/audit checks
 are also run. A complete prospective market case still requires future data.
+
+Daily capital is cash plus remaining and pending units valued at a fresh bid.
+Missing quotes make the valuation unknown, not zero. Daily P/L uses the prior
+day closing valuation; cumulative P/L uses the initial EUR 100. Realized gross
+P/L is separately recorded. Capital carries across days without resetting.
+The UI shows the latest 14 daily balances; older days remain available via
+the selected-day view (daily read response includes the latest 366).
+Account tests cover bid/ask spread, whole units, odd partial sales, one-unit
+exit, insufficient cash, deferred settlement and carried day boundaries.
