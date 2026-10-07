@@ -601,5 +601,18 @@ def get_quote(isin):
             bidAt=chart['pointAt'], askAt=chart['pointAt'], currency=chart['currency'],
             source='SG · datierter Chartkurs'+(' · CHF in EUR umgerechnet' if result.get('currencyConversion') else ''), priceKind='issuer-chart',
             isExecutableQuote=False)
-    from leverage_backup import apply
+    from leverage_backup import apply, select_analysis_quote
+    selected = select_analysis_quote(result)
+    if (selected.get('priceKind') == 'issuer-chart' and result.get('productVerified')
+            and result.get('metadata', {}).get('status') == 1):
+        if result.get('found'):
+            result['secondaryQuote'] = {key: result.get(key) for key in
+                ('bid', 'ask', 'price', 'bidAt', 'askAt', 'currency', 'source', 'sourceUrl', 'priceKind')}
+        # Preserve the other venue as evidence, but never pair its older price
+        # with the gearing calculated from the newer chart observation.
+        result.update(selected)
+        if result.get('issuerSourceUrl'):
+            result['sourceUrl'] = result['issuerSourceUrl']
+        result.update(analysisQuote=dict(selected), found=False, eligible=False, fresh=False,
+                      analysisMaxAgeSeconds=300)
     return apply(result)

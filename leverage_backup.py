@@ -15,6 +15,31 @@ from datetime import datetime, timezone
 import product_quotes as q
 
 
+def select_analysis_quote(result, now=None):
+    """One dated price pair for both the product display and gearing inputs."""
+    now = now or datetime.now(timezone.utc)
+    quote = result if result.get('found') else result.get('analysisQuote') or {}
+    if result.get('eligible'):
+        return quote
+    chart = result.get('chartEvidence') or {}
+    try:
+        chart_at = q.stamp(chart['pointAt'])
+        quote_at = q.stamp(quote['askAt']) if quote.get('askAt') else datetime.min.replace(tzinfo=timezone.utc)
+        chart_bid, chart_ask = q.number(chart['bid']), q.number(chart['ask'])
+        if (chart.get('currency') == 'EUR' and 0 < chart_bid <= chart_ask
+                and math.isfinite(chart_ask)
+                and 0 <= (now-chart_at).total_seconds() <= MAX_INPUT_AGE_SECONDS
+                and chart_at > quote_at):
+            quote = dict(bid=chart_bid, ask=chart_ask, price=chart_ask,
+                         bidAt=chart['pointAt'], askAt=chart['pointAt'],
+                         quoteAt=chart['pointAt'], currency='EUR',
+                         source='SG · datierter Chartkurs'+(' · CHF in EUR umgerechnet' if result.get('currencyConversion') else ''),
+                         priceKind='issuer-chart', isExecutableQuote=False)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        pass
+    return quote
+
+
 def calculate(result, basis, fx, now=None):
     now = now or datetime.now(timezone.utc)
     m = result['metadata']
@@ -29,23 +54,7 @@ def calculate(result, basis, fx, now=None):
             raise ValueError('Passender Future-Kontrakt fehlt')
     else:
         raise ValueError('Basiswert nicht unterstützt')
-    quote = result if result.get('found') else result.get('analysisQuote') or {}
-    # Prefer a newer dated SG observation for indicative gearing, while keeping
-    # the separate bid/ask quote and its execution status untouched.
-    chart = result.get('chartEvidence') or {}
-    try:
-        chart_at = q.stamp(chart['pointAt'])
-        quote_at = q.stamp(quote['askAt'])
-        chart_bid, chart_ask = q.number(chart['bid']), q.number(chart['ask'])
-        if (chart.get('currency') == 'EUR' and 0 < chart_bid <= chart_ask
-                and math.isfinite(chart_ask)
-                and 0 <= (now-chart_at).total_seconds() <= MAX_INPUT_AGE_SECONDS
-                and chart_at > quote_at):
-            quote = dict(bid=chart_bid, ask=chart_ask, askAt=chart['pointAt'],
-                         currency='EUR', source='SG · datierter Chartkurs',
-                         priceKind='issuer-chart', isExecutableQuote=False)
-    except (KeyError, TypeError, ValueError, OverflowError):
-        pass
+    quote = select_analysis_quote(result, now)
     if quote.get('currency') != 'EUR' or fx.get('result') != 'success' or fx.get('base') != 'USD':
         raise ValueError('Produkt- oder Wechselkurswährung nicht bestätigt')
     price, gold, ratio, rate = (q.number(v) for v in (quote['ask'], basis['price'], m['ratio'], fx['rates']['EUR']))

@@ -36,7 +36,9 @@ class DirectTests(unittest.TestCase):
         self.assertEqual(out['conditions']['ratio']['value'],.1)
         self.assertEqual(cached['chartEvidence']['pointAt'],out['chartEvidence']['pointAt'])
         self.assertFalse(out['eligible']); self.assertFalse(out['found'])
-        self.assertNotIn('leverageAt',out); self.assertNotIn('strike',out['conditions'])
+        self.assertNotIn('leverageAt',out); self.assertEqual(out['conditions']['strike']['value'],4400)
+        self.assertIsNone(out['conditions']['strike']['at'])
+        self.assertFalse(out['conditions']['strike']['conditionVerified'])
         self.assertEqual(out['observedTerms']['strike'],4400)
         self.assertEqual(out['metadata']['status'],1)
         self.assertEqual(out['metadata']['sgStatus'],65)
@@ -102,7 +104,9 @@ class DirectTests(unittest.TestCase):
             with patch.object(q,'issuer_json',side_effect=[self.product,props,self.points]):
                 out=sg.get_quote(ISIN)
             self.assertFalse(out['metadata']['termsDated'])
-            self.assertNotIn('strike',out['conditions'])
+            self.assertEqual(out['conditions']['strike']['value'],4400)
+            self.assertIsNone(out['conditions']['strike']['at'])
+            self.assertFalse(out['conditions']['strike']['conditionVerified'])
 
     def test_future_contract_is_preserved_without_spot_release(self):
         isin='DE000FG309G0';c=q.SG_GOLD_FUTURES[isin]
