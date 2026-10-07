@@ -78,6 +78,8 @@ def sync(conn, payload):
         return value
     safe=dict(products=[{k:clean(p[k]) for k in keys if k in p} for p in products if isinstance(p,dict)],
               references=clean(payload.get('references') or []),fixedBarriers=clean(payload.get('fixedBarriers') or {}))
+    if not any(p.get('isin') for p in safe['products']):
+        return dict(ok=True,products=0,preserved=True)
     text=json.dumps(safe,allow_nan=False)
     if len(text)>180000:raise ValueError('Produktnachweise zu groß')
     conn.execute('''INSERT INTO bob_paper_products(id,payload) VALUES(1,%s::jsonb)
@@ -325,6 +327,7 @@ def _worker(db):
                 with db() as conn:
                     if conn.execute('SELECT pg_try_advisory_xact_lock(72610408)').fetchone()[0]:
                         feed=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
+                        if feed and not any(p.get('isin') for p in feed[0]['products']):feed=None
                         if not feed:
                             legacy=conn.execute('''SELECT selection_evidence FROM subscriptions WHERE selection_evidence IS NOT NULL
                                 ORDER BY updated_at DESC LIMIT 1''').fetchone()
