@@ -24,6 +24,9 @@ SG_DIRECT_PRODUCTS = {
     # Confirmed against SG Products/<ISIN> on 7 October 2026.
     'DE000FG5GUT0': 6933892, 'DE000FG7EPT1': 7102845,
     'DE000FC1CHB7': 5906476, 'DE000FG7K275': 7127358,
+    'DE000FG5NMF2': 6953148, 'DE000FG7K3L2': 7127648,
+    'DE000FG6XB39': 7072444, 'DE000FG309G0': 7032167,
+    'DE000FE4UF01': 6628472,
 }
 # Exact contract identities confirmed from SG and the secondary product snapshot.
 SG_GOLD_FUTURES = {
@@ -163,7 +166,7 @@ def parse_sg_chart_research(product, points, isin, now=None):
     if (expected is None or product.get('Isin') != isin
             or type(product.get('Id')) is not int or product['Id'] != expected
             or product.get('ExchangeCode') != 'CBDE'
-            or product.get('AssetNMP') != 'XAUUSD'
+            or (product.get('AssetNMP') != 'XAUUSD' and sg_future_contract(product, isin) is None)
             or product.get('AssetCurrency') != 'USD' or product.get('Currency') != 'EUR'):
         raise ValueError('SG-Chartprodukt nicht eindeutig bestätigt')
     if not isinstance(points, list) or not points or len(points) > 10000:
@@ -196,6 +199,7 @@ def parse_sg_chart_gearing(product, properties, points, spot, fx, isin, now=None
     result = parse_sg_chart_research(product, points, isin, now)
     attrs = {item['Name']: item for item in properties}
     if (product.get('ProductClassificationId') not in (43, 45, 47)
+            or product.get('AssetNMP') != 'XAUUSD'
             or product['Status'] & (2 | 8 | 16 | 32) or not product['Status'] & 1
             or not (attrs.get('IsQuanto', {}).get('Value') is False
                     or attrs.get('IsQuanto', {}).get('Value') in ('Nein', 'No'))

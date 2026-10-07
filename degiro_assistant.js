@@ -1123,7 +1123,7 @@ async function enrichProduct(i){
   if(x.isin===isin&&x.productVerified&&x.metadata){
    productQuotes.set(i,x);
    if(["LONG","SHORT"].includes(x.metadata.direction)&&field("dir"))field("dir").value=x.metadata.direction;
-   if(n(x.metadata.ko)>0&&field("ko")&&(x.metadata.termsDated!==false||!(n(field("ko").value)>0)))field("ko").value=x.metadata.ko;
+   if(n(x.metadata.ko)>0&&field("ko")&&(x.metadata.termsDated!==false||x.metadata.termsFixed===true||!(n(field("ko").value)>0)))field("ko").value=x.metadata.ko;
   }
   if(x.sourceDisabled&&x.isin===isin){
    if(meta)meta.textContent=x.reason+" Die Produktauswahl prüft die vorhandenen Screenshotnachweise separat.";
@@ -1319,7 +1319,7 @@ function renderProductSources(p){
  const time=v=>{const d=new Date(v);return v&&Number.isFinite(d.getTime())?d.toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)':'nicht vorhanden';};
  const link=(label,url)=>{try{const u=new URL(url);if(u.protocol==='https:')return '<a href="'+esc(u.href)+'" target="_blank" rel="noopener noreferrer">'+esc(label)+'</a>';}catch(_){}return esc(label);};
  if(!q)return '<div class="small" data-product-sources style="margin-top:8px"><b>Quellenprüfung</b><div>Noch kein Abrufresultat für diese ISIN vorhanden.</div></div>';
- const terms=q.exchangeResearch?.productVerified?q.exchangeResearch:q;
+ const terms=q.productVerified&&(q.importActive||q.metadata?.termsDated||q.metadata?.termsFixed)?q:q.exchangeResearch?.productVerified?q.exchangeResearch:q;
  const verified=q.productVerified===true||terms.productVerified===true;
  const source=q.termsSource||terms.source||q.source||'Quelle nicht angegeben';
  const url=q.termsSourceUrl||terms.sourceUrl||q.sourceUrl;
@@ -1327,13 +1327,13 @@ function renderProductSources(p){
  return '<div class="small" data-product-sources style="margin-top:8px;padding:8px;border:1px solid #d1d5db;border-radius:8px"><b>Quellenprüfung · '+(verified?'Produktdaten abgerufen':q.found?'Kursdaten abgerufen':'Abruf ohne bestätigte Produktdaten')+'</b>'+
  '<div>Produktquelle: '+link(source,url)+'</div><div>Daten abgerufen: '+esc(time(at))+'</div>'+
  (q.attemptedAt?'<div>Letzter Prüfversuch: '+esc(time(q.attemptedAt))+'</div>':'')+
- '<div>Basispreis / KO: '+(q.metadata?.termsDated===false?'<em>Werte vorhanden – Aktualität unbestätigt</em>':'Datierte Nachweise siehe Pflichtprüfung')+'</div>'+
+ '<div>Basispreis / KO: '+(q.metadata?.termsFixed?'Feste Vertragswerte mit Fälligkeit bestätigt':q.metadata?.termsDated===false?'<em>Werte vorhanden – Aktualität unbestätigt</em>':'Datierte Nachweise siehe Pflichtprüfung')+'</div>'+
  '<div>Kursquelle: '+(q.found?link(q.source||'Kursanbieter',q.sourceUrl):'kein bestätigter Geld-/Briefnachweis aus diesem Abruf')+'</div>'+
  '<div>Kurszeit: '+esc(time(q.quoteAt))+'</div>'+
  '<div>'+esc(q.reason||'Weitere Pflichtprüfungen entscheiden über die Freigabe.')+'</div><div>Abrufzeit ist keine Kurszeit und kein Gültigkeitsnachweis.</div></div>';
 }
 function productIssuerLabel(p){
- const sgIds=['DE000FG4JXV7','DE000FG309G0','DE000FG7EPT1','DE000FC1CHB7','DE000FG5GUT0','DE000FG6XB39','DE000FG5NMF2','DE000FG7MTA6','DE000FG7K283','DE000FG5NMH8'];
+ const sgIds=['DE000FG4JXV7','DE000FG309G0','DE000FG7EPT1','DE000FC1CHB7','DE000FG5GUT0','DE000FG6XB39','DE000FG5NMF2','DE000FG7MTA6','DE000FG7K283','DE000FG5NMH8','DE000FG7K3L2','DE000FE4UF01','DE000FG7K275','DE000FG34XV8'];
  const sg=sgIds.includes(p.isin)||/^SG\b|Soci[eé]t[eé] G[eé]n[eé]rale/i.test(p.name||'');
  return sg?'SG':/BNP|Paribas/i.test(p.name||'')||['DE000PJ9NB98','DE000PJ9NCK0'].includes(p.isin)?'BNP':'Emittenten';
 }
@@ -1347,6 +1347,7 @@ function renderTestScreenshotRequest(p){
  if(finalProductStatus(p).complete)return '';
  const issuer=productIssuerLabel(p);
  const issue=bnpSourceIssue(p);
+ if(p.quote?.isin===p.isin&&p.quote?.productVerified&&p.quote?.importActive)return '<div class="small" data-sg-direct-status>'+esc(p.quote.reason||'SG-Direktimport aktiv')+' Fehlende Nachweise stehen oben einzeln. Ein Screenshot kann nur diese verbleibenden Lücken ergänzen.</div>';
  if(issue)return '<div class="small" data-bnp-source-delay>'+esc(issue)+'. Bob fragt automatisch erneut ab. Vorhandene Produktbedingungen bleiben getrennt geprüft. Ein Screenshot ist nur ein zusätzlicher Nachweis.</div>';
  return '<div data-test-screenshot-request class="small" style="margin:12px 0;padding:12px;background:#eaf3ff;border-radius:10px"><b>Für den Intraday-Test: aktuelle Screenshots erneut hochladen</b><div>Bitte öffne die '+esc(issuer)+'-Produktseite für <strong>'+esc(p.isin)+'</strong> und lade neue Bilder über den Knopf darunter hoch.</div>'+screenshotProductLink(p)+'<ul><li><b>Kursdaten:</b> Geld- und Briefkurs, angezeigtes Datum/Uhrzeit sowie ISIN oder WKN sichtbar aufnehmen.</li><li><b>Stammdaten:</b> fehlende oder nicht aktuell bestätigte Angaben ergänzen, insbesondere Basispreis und KO-Barriere mit Datenstand.</li></ul><div>Für einen späteren Vergleich erneut ein aktuelles Kursbild ergänzen. So kann Bob die Produktentwicklung besser auswerten. Kein Kauf nötig; die Bilder allein erteilen keine Handelsfreigabe.</div></div>';
 }
@@ -1400,6 +1401,7 @@ function bindIsinCopy(root){
  }));
 }
 function missingValueLocation(reason){
+ if(/Produkttyp|Produktrichtung/.test(reason))return 'Stammdaten → Typ / Produktart: Call oder Put bzw. Long oder Short.';
  if(String(reason).startsWith('BNP-Kursabruf:'))return 'Automatische BNP-Quelle; Bob wiederholt den Abruf. Die letzte Quellenzeit steht unter Quellen und Einzelheiten.';
   if(/Future-Kontrakt|Futures-Kontrakt/.test(reason))return 'Stammdaten: Basiswert mit Kontraktmonat/Jahr. Bei fehlenden Details: Dokumentation → Endgültige Bedingungen, Referenzkontrakt / Futures Contract und Börse.';
   if(/Geld|Brief|Kurszeit|Kursbild|Produktkurs|Kursnachweis/.test(reason))return 'Kursbereich oben: Geld und Brief in EUR zusammen mit „Kurs von“ (Datum/Uhrzeit) aufnehmen. Falls auch der Hebel fehlt: Kennzahlen ergänzen.';
@@ -1457,7 +1459,10 @@ function updateProductHtml(root,html){
 }
 function compactProductCard(p,reasons=[],status='Nicht freigegeben'){
  if(knockoutStatus(p))return knockoutCard(p);
- const x=p.snapshot,terms=x?.terms||{},values=[];
+ const direct=p.quote?.isin===p.isin&&p.quote?.productVerified?p.quote:null;
+ const excluded=direct?.metadata?.status===2?'Produkt beendet oder ausgeknockt – ausgeschlossen':/FAKTOR|FACTOR/i.test([p.name,direct?.metadata?.name,p.snapshot?.terms?.type?.value].join(' '))?'Faktorprodukt ausgeschlossen':null;
+ if(excluded)return '<div data-product-isin="'+esc(p.isin)+'" style="padding:14px;margin-top:10px;border:1px solid #dc2626;border-radius:12px"><b>'+esc(p.isin)+'</b><p>'+esc(excluded)+'</p><p>Keine weiteren Daten oder Screenshots erforderlich.</p>'+renderProductSources(p)+'</div>';
+ const x=p.snapshot,terms={...(x?.terms||{}),...(direct?.conditions||{})},values=[];
  for(const [key,label] of Object.entries({strike:'Basispreis USD',ko:'KO USD',ratio:'Bezugsverhältnis',underlying:'Basiswert'})){
   const v=terms[key]?.value??(key==='ko'?x?.evidence?.KO?.value:null);if(v!==undefined&&v!==null)values.push(label+': '+v);
  }
@@ -1467,12 +1472,13 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben'){
   const dated=/datier|24 Stunden|Gültigkeit/i.test(reason)&&!/widerspr|ungültig/i.test(reason);
   const field=/Basispreis|Finanzierungslevel/.test(reason)?'Basispreis':/KO|Knock|Barriere/i.test(reason)?'KO-Barriere':null;
   if(dated&&field){const label=field+': Werte vorhanden – Aktualität unbestätigt';if(!unconfirmed.some(item=>item.startsWith(label)))unconfirmed.push(label+' · Fundort: '+missingValueLocation(reason));continue;}
-  const label=reason.startsWith('BNP-Kursabruf:')?reason:/Basiswert ungenau: Gold allein/.test(reason)?'Basiswert „Gold“ erkannt – genaue Referenz fehlt (Produktbeschreibung / Endgültige Bedingungen)':/Future-Kontrakt|Futures-Kontrakt|Referenzkontrakt/.test(reason)?'Future-Kontrakt (Stammdaten → Basiswert; ggf. Dokumente → Endgültige Bedingungen)':/Basispreis|Finanzierungslevel/.test(reason)?'Basispreis: gültiger Nachweis (Stammdaten)':/KO|Knock|Barriere/i.test(reason)?'KO-Barriere: gültiger Nachweis (Stammdaten)':/Geld|Brief|Kurs/.test(reason)?'Geld, Brief und Quellenzeit (Kursdaten)':/Hebel/.test(reason)?'Hebel mit Datenstand (Kennzahlen)':/Bezugsverhältnis/.test(reason)?'Bezugsverhältnis fehlt oder ist nicht eindeutig (Stammdaten)':/Basiswert/.test(reason)?'Exakter Basiswert fehlt (Stammdaten / Produktbeschreibung)':/Produkttyp|Long\/Short|Produktrichtung/.test(reason)?'Produkttyp / Richtung (Stammdaten → Typ)':/Laufzeit|Fälligkeit/.test(reason)?'Laufzeit / Fälligkeit (Stammdaten)':/Währung/.test(reason)?'Produktwährung (Kursdaten)':/ISIN|Produktzuordnung|Bildzuordnung|Bildwerte|Original|bestätig/.test(reason)?'Produktzuordnung oder Bildwerte nicht eindeutig':reason.split(':')[0]+' (Quellen und Einzelheiten → Fehlende Werte)';
+  const label=/Produkttyp|Produktrichtung/.test(reason)?'Produkttyp / Richtung (Stammdaten → Typ)':reason.startsWith('BNP-Kursabruf:')?reason:/Basiswert ungenau: Gold allein/.test(reason)?'Basiswert „Gold“ erkannt – genaue Referenz fehlt (Produktbeschreibung / Endgültige Bedingungen)':/Future-Kontrakt|Futures-Kontrakt|Referenzkontrakt/.test(reason)?'Future-Kontrakt (Stammdaten → Basiswert; ggf. Dokumente → Endgültige Bedingungen)':/Basispreis|Finanzierungslevel/.test(reason)?'Basispreis: gültiger Nachweis (Stammdaten)':/KO|Knock|Barriere/i.test(reason)?'KO-Barriere: gültiger Nachweis (Stammdaten)':/Geld|Brief|Kurs/.test(reason)?'Geld, Brief und Quellenzeit (Kursdaten)':/Hebel/.test(reason)?'Hebel mit Datenstand (Kennzahlen)':/Bezugsverhältnis/.test(reason)?'Bezugsverhältnis fehlt oder ist nicht eindeutig (Stammdaten)':/Basiswert/.test(reason)?'Exakter Basiswert fehlt (Stammdaten / Produktbeschreibung)':/Produkttyp|Long\/Short|Produktrichtung/.test(reason)?'Produkttyp / Richtung (Stammdaten → Typ)':/Laufzeit|Fälligkeit/.test(reason)?'Laufzeit / Fälligkeit (Stammdaten)':/Währung/.test(reason)?'Produktwährung (Kursdaten)':/ISIN|Produktzuordnung|Bildzuordnung|Bildwerte|Original|bestätig/.test(reason)?'Produktzuordnung oder Bildwerte nicht eindeutig':reason.split(':')[0]+' (Quellen und Einzelheiten → Fehlende Werte)';
   if(!groups.includes(label)){groups.push(label);locations.set(label,missingValueLocation(reason));}
  }
  return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" data-selection-blocked="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere"><b>'+esc(p.isin)+'</b> · '+esc(p.productDirection||'')+'<div class="small">'+'<strong>Nicht freigegeben</strong><br>Begründung: '+esc(status.replace(/^Nicht freigegeben · /,''))+'</div>'+
  (values.length?'<details style="margin-top:10px"><summary>Automatisch erkannte Werte</summary><div class="small">'+values.map(esc).join('<br>')+'</div></details>':'')+
  (unconfirmed.length?'<div class="small" style="margin-top:8px"><em>'+unconfirmed.map(esc).join('<br>')+'</em></div>':'')+
+ (finalProductStatus(p).complete?'<div style="margin-top:10px;color:#15803d;font-weight:700">Datenübermittlung komplett</div>':'')+
  '<details style="margin-top:8px"><summary>Fehlende Werte ('+groups.length+')</summary><div class="small">'+(groups.length?groups.map(label=>'<div style="margin:10px 0"><strong>'+esc(label)+'</strong><br>Fundort: '+esc(locations.get(label))+'</div>').join(''):'Keine fehlenden Produktnachweise.')+'</div></details>'+
  renderIssuerHelp(p,reasons)+renderTestScreenshotRequest(p)+'<button data-selection-upload="'+p.index+'">Bilder / PDF hinzufügen</button>'+renderImageImportStatus(p.index)+
  '<details data-product-details="'+p.index+'" style="margin-top:10px"><summary>Quellen und Einzelheiten</summary><div class="small">'+esc(p.name||'')+'</div>'+renderProductSources(p)+renderMissingValues(reasons,p)+renderProductDecision(p,false,[status,...reasons])+screenshotSummary(x)+'<button data-card-research="'+p.index+'">Daten erneut abrufen</button></details></div>';
@@ -1776,6 +1782,7 @@ function durableCondition(e,key,now){
  // Only explicit product-condition evidence may outlive a daily market snapshot.
  if(['type','currency','maturity'].includes(key)&&e.reviewed===true)return true;
  const checked=Date.parse(e.reviewedAt);
+ if(key==='contract')return e.conditionVerified===true&&/^GC[FGHJKMNQUVXZ]\d{2}$/.test(e.value||'')&&Number.isFinite(checked)&&now>=checked&&now-checked<=86400000;
  return ['ratio','underlying','type','currency','maturity','quanto'].includes(key)&&e.conditionVerified===true&&Number.isFinite(checked)&&checked<=now;
 }
 function maturityDeadline(raw){
@@ -1787,6 +1794,7 @@ function maturityDeadline(raw){
 // Daily issuer terms carry a calendar date, not an invented intraday timestamp.
 function currentDatedTerm(e,now){
  if(!e?.source||e.conflict||e.revoked||e.ocrCorrection)return false;
+ if(e.fixed===true&&e.conditionVerified===true&&String(e.source).startsWith('https://www.sg-zertifikate.de/')&&e.policySource==='https://www.sg-zertifikate.de/contentmgmt/media/c5bihw1s/bro_turbo-optionsscheine.pdf'){const age=now-Date.parse(e.reviewedAt);return age>=0&&age<=86400000&&/^\d{4}-\d{2}-\d{2}$/.test(e.validUntil||'')&&e.validUntil>zurichListDay(now).day;}
  if(e.at){const age=now-Date.parse(e.at);return Number.isFinite(age)&&age>=0&&age<=86400000;}
  const m=String(e.dateText||'').match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
  return !!m&&m[3]+'-'+m[2]+'-'+m[1]===zurichListDay(now).day;
@@ -1821,6 +1829,15 @@ function productTermsStatus(p,now=Date.now()){
  if(!['LONG','SHORT'].includes(p.productDirection))reasons.push('Long/Short fehlt');
  if(/FAKTOR|FACTOR/i.test([p.name,q?.name,meta?.name,terms.type?.value].join(' ')))reasons.push('Faktorprodukt ausgeschlossen');
  const api=model&&q?.productVerified&&q.source&&q.checkedAt&&now>=Date.parse(q.checkedAt)&&now-Date.parse(q.checkedAt)<=86400000?model:null;
+ // Explicit issuer conditions take precedence over generic historical list labels.
+ for(const key of ['ratio','underlying','contract','type','maturity','currency']){
+  const direct=q?.productVerified?q.conditions?.[key]:null;
+  if(direct?.conditionVerified&&durableCondition(direct,key,now)){
+   const old=shot?.terms?.[key];
+   if(key==='ratio'&&old&&durableCondition(old,key,now)&&n(old.value)!==n(direct.value))reasons.push('Bezugsverhältnis: bestätigte Nachweise widersprechen sich');
+   terms[key]=direct;
+  }
+ }
  const labels={ratio:'Bezugsverhältnis',strike:'Basispreis in USD',underlying:'Exakter Basiswert (z. B. XAU/USD)',type:'Produkttyp',maturity:'Laufzeit / Fälligkeit oder Open End',currency:'Produktwährung'};
  for(const [key,label] of Object.entries(labels)){
   const e=terms[key],age=now-Date.parse(e?.at);
@@ -1836,7 +1853,7 @@ function productTermsStatus(p,now=Date.now()){
  const future=isFutureProduct(p)||/future/i.test(values.underlying||'');
  if(future){
   const e=terms.contract,age=now-Date.parse(e?.at);
-  values.contract=e?.source&&Number.isFinite(age)&&age>=0&&age<=86400000?e.value:null;
+  values.contract=durableCondition(e,'contract',now)||e?.source&&Number.isFinite(age)&&age>=0&&age<=86400000?e.value:null;
   if(!/^GC[FGHJKMNQUVXZ]\d{2}$/.test(values.contract||''))reasons.push('Exakter Gold-Future-Kontrakt fehlt oder ist nicht aktuell bestätigt. Öffne das betroffene Produkt bei DEGIRO: Produktdetails → Dokumente → Endgültige Bedingungen (falls dort nicht vorhanden: Dokumente auf der Emittentenseite). Nutze im Dokument die Suche (Lupe): zuerst deine ISIN, dann Basiswert / Underlying, Referenzkontrakt / Futures Contract oder Kontraktmonat. Die Angaben stehen häufig in einer Tabelle mit Produktbedingungen; bei mehreren Produkten zählt nur die Zeile zu deiner ISIN. Benötigt werden der genaue Future mit Monat/Jahr und Börse. Suche zusätzlich nach Roll / Rollover / Anpassung des Basiswerts für einen möglichen Kontraktwechsel. Lade gut lesbare Screenshots der passenden Tabellenzeile samt Spaltenüberschriften und der relevanten Textstellen als Detailbilder zu diesem Produkt hoch; ISIN und Dokumentdatum bitte mit aufnehmen. Eine feste Seitenzahl kann Bob ohne das konkrete Dokument nicht nennen.');
   if(meta?.contract&&values.contract&&meta.contract!==values.contract)reasons.push('Future-Kontrakt widerspricht Emittentendaten');
   if(values.underlying&&!/\bgold\b.*\bfuture\b|\bfuture\b.*\bgold\b/i.test(values.underlying))reasons.push('Exakter Gold-Future-Basiswert widerspricht Produktart');
@@ -1849,7 +1866,7 @@ function productTermsStatus(p,now=Date.now()){
  }
  const ko=shot?.evidence?.KO,apiKoAge=now-Date.parse(q?.checkedAt);
  if(!(n(p.ko)>0))reasons.push('Knock-out-Schwelle fehlt');
- else if(!screenshotKoCurrent(p,now)&&!(meta&&meta.termsDated!==false&&(!meta.termsDate||currentDatedTerm(q.conditions?.ko,now))&&q.source&&n(meta.ko)===n(p.ko)&&apiKoAge>=0&&apiKoAge<=86400000))reasons.push('Knock-out-Schwelle: datierter Produktnachweis fehlt oder älter als 24 Stunden');
+ else if(!screenshotKoCurrent(p,now)&&!(meta&&(meta.termsDated!==false||meta.termsFixed===true&&currentDatedTerm(q.conditions?.ko,now))&&(!meta.termsDate||currentDatedTerm(q.conditions?.ko,now))&&q.source&&n(meta.ko)===n(p.ko)&&apiKoAge>=0&&apiKoAge<=86400000))reasons.push('Knock-out-Schwelle: datierter Produktnachweis fehlt oder älter als 24 Stunden');
  if(meta?.ko&&n(p.ko)!==n(meta.ko))reasons.push('Knock-out-Schwelle widerspricht Produktquelle: gespeichert '+p.ko+' USD ('+(ko?.source||'Produktliste / manuelle Eingabe')+'; Stand '+(ko?.at||ko?.dateText||'nicht belegt')+'), Quelle '+meta.ko+' USD ('+(q.termsSource||q.source||'Produktquelle')+'; Gültigkeitsstand '+(meta.termsDated===false?'nicht belegt':q.checkedAt||'nicht belegt')+'). Abrufzeit '+(q.termsCheckedAt||q.checkedAt||'unbekannt')+' ist kein Gültigkeitsdatum.');
  if(meta?.status!==undefined&&(!(meta.status&1)||meta.status&(2|8|16|32)))reasons.push('Produkt laut Emittent nicht aktiv');
  return {complete:reasons.length===0,reasons,values};

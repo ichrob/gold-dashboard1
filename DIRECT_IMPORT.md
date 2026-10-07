@@ -133,3 +133,39 @@ Regression coverage includes wrong product identity, inactive products, source
 outage, metadata retention, stale chart evidence, original clocks and the
 30-second boundary. Automatic trade/product release remains gated by complete
 valid evidence. No trades are performed.
+
+## 7 October — actual saved-list completeness audit
+
+The authenticated Bob view contained ten historical list products. A generic
+`BNP Unlimited` screenshot type overrode BNP's verified `Unlimited Long` term;
+the missing-type reason was then mislabeled as KO because it contained
+"Knock-out". Verified issuer conditions now take precedence over generic list
+labels; conflicting ratios and daily strike/KO evidence still block. Product
+source attribution now follows the actual chosen terms source.
+
+SG identities additionally verified: FG5NMF2=6953148 (ended, status 8),
+FG7K3L2=7127648 (ended, status 8), FG6XB39=7072444 (active),
+FG309G0=7032167 (active, exact GCZ26 identity), FE4UF01=6628472 (factor,
+classification 44100, excluded). No price request is made for excluded factors
+or ended products. Their cards request no further screenshots.
+
+SG StrikeBarrierUpdateTime explicitly dates strike/barrier changes. For the
+current calendar date only, the adapter stores that date without inventing an
+intraday timestamp or timezone. Current real responses from FG5GUT0, FC1CHB7,
+FG7EPT1, FG6XB39 and FG309G0 passed through the backend and frontend terms
+checks. FG4JXV7 is a Classic with fixed strike/barrier and expiry 18 December
+2026; fixed contract evidence is separate from a daily date and expires with
+its contract or an unrefreshed verification. Product model reference:
+https://www.sg-zertifikate.de/contentmgmt/media/c5bihw1s/bro_turbo-optionsscheine.pdf
+
+Per-product locks preserve 30-second source throttling without letting one slow
+SG request serialize every other SG product. Exact futures contract identity
+is imported as identified metadata; no future gets spot-trade eligibility.
+
+Remaining limitation: SG chart pairs are dated observations, while
+CurrentLeverage does not supply its own source clock. These changes do not
+promote chart evidence to executable quotes. The sampled comdirect FG5GUT0
+page had old/different strike values (4073.3331 versus SG 4074.353817) and an
+undated leverage; it cannot close that evidence gap. BNP's complete current
+snapshot and dated terms succeeded, but intermittent retrieval failures remain
+possible. No source clocks, terms validity dates or missing values are invented.

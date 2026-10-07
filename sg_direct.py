@@ -6,10 +6,12 @@ Chart observations remain research evidence; missing clocks are never invented.
 import copy
 import threading
 import time
+from zoneinfo import ZoneInfo
 from datetime import datetime, timezone
 import product_quotes as q
 
 _LOCK = threading.Lock()
+_PRODUCT_LOCKS = {}
 _CACHE = {}
 _TERMS = {}
 INTERVAL = 30
@@ -22,7 +24,7 @@ def refresh_evidence(result):
         age = (datetime.now(timezone.utc)-q.stamp(evidence['pointAt'])).total_seconds()
         evidence.update(ageSeconds=round(age, 1), current=0 <= age <= q.MAX_AGE_SECONDS)
         result['reason'] = ('SG-Direktimport aktiv (30 s): Chart Geld {:.3f} / Brief {:.3f} EUR, Stand {} ({}). '
-            'Stammdaten übernommen; datierter Hebel und gültiger KO-/Basispreisnachweis weiterhin erforderlich.').format(
+            'Stammdaten übernommen; '+('KO/Basispreis nachgewiesen; ' if (result.get('metadata', {}).get('termsDated') or result.get('metadata', {}).get('termsFixed')) else 'datierter KO-/Basispreisnachweis fehlt; ')+'datierter Hebel weiterhin erforderlich.').format(
                 evidence['bid'], evidence['ask'], evidence['pointAt'],
                 'aktuell' if evidence['current'] else 'veraltet')
     return result
@@ -41,6 +43,10 @@ def conditions(product, properties, result):
         values['type'] = typ
         if product.get('MaturityDate') is None and 'Open-End' in typ:
             values['maturity'] = 'Open End'
+        elif product.get('MaturityDate'):
+            values['maturity'] = datetime.fromisoformat(product['MaturityDate']).strftime('%d.%m.%Y')
+    if result['metadata'].get('contract'):
+        values['contract'] = result['metadata']['contract']
     result['conditions'] = {key: dict(value=value, at=None, source=result['sourceUrl'],
         reviewedAt=result['checkedAt'], conditionVerified=True) for key, value in values.items()}
     # These observations do not gain an effective time from our request time.
@@ -53,14 +59,45 @@ def conditions(product, properties, result):
         if value > 0:
             observed['strike'] = value
     result['observedTerms'] = observed
+    # SG explicitly dates changes to strike AND barrier. Retain only its
+    # calendar date; do not invent a timezone, intraday time or quote clock.
+    evidence = result['metadata'].get('koEvidence')
+    if evidence and 'strike' in observed:
+        updated = datetime.fromisoformat(evidence['updatedAtRaw'].replace('Z', '+00:00'))
+        today = datetime.now(ZoneInfo('Europe/Zurich')).date()
+        if updated.date() == today:
+            date_text = updated.strftime('%d.%m.%Y')
+            for key in ('ko', 'strike'):
+                result['conditions'][key] = dict(value=observed[key], at=None,
+                    dateText=date_text, source=result['sourceUrl'], conditionVerified=True,
+                    sourceField='StrikeBarrierUpdateTime', sourceTimeRaw=evidence['updatedAtRaw'],
+                    reviewedAt=result['checkedAt'])
+            result['metadata'].update(termsDated=True, termsDate=date_text)
+    # SG's product brochure identifies Classic strike/barrier as constant.
+    # Store that contract evidence without inventing a daily effective date.
+    if (product.get('ProductClassificationId') == 43 and typ == 'Classic Turbo-Optionsscheine'
+            and product.get('AssetNMP') == 'XAUUSD' and product.get('MaturityDate')
+            and observed.get('strike') == observed['ko']):
+        expiry = datetime.fromisoformat(product['MaturityDate']).date()
+        if expiry > datetime.now(ZoneInfo('Europe/Zurich')).date():
+            for key in ('ko', 'strike'):
+                result['conditions'][key] = dict(value=observed[key], at=None,
+                    source=result['sourceUrl'], conditionVerified=True, fixed=True,
+                    validUntil=expiry.isoformat(), reviewedAt=result['checkedAt'],
+                    policySource=q.SG_ORIGIN+'contentmgmt/media/c5bihw1s/bro_turbo-optionsscheine.pdf')
+            result['metadata']['termsFixed'] = True
+    result['metadata'].update({key: values[key] for key in ('ratio',) if key in values})
+    if 'strike' in observed:
+        result['metadata']['strike'] = observed['strike']
 
 
 def get_quote(isin):
     if isin not in q.SG_DIRECT_PRODUCTS:
         return q.sg_disabled(isin)
-    # Serialize source work across callers so overlapping browser/background
-    # requests cannot duplicate requests or bypass the failure cooldown.
+    # Serialize per product; a slow source for one ISIN must not block all others.
     with _LOCK:
+        product_lock = _PRODUCT_LOCKS.setdefault(isin, threading.Lock())
+    with product_lock:
         cached = _CACHE.get(isin)
         if cached and time.monotonic()-cached[0] < INTERVAL:
             return refresh_evidence(cached[1])
@@ -79,8 +116,17 @@ def get_quote(isin):
                 product = q.issuer_json(base+'Products/'+isin, q.SG_ORIGIN, timeout=12)
                 if (product.get('Isin') != isin or type(product.get('Id')) is not int
                         or product['Id'] != q.SG_DIRECT_PRODUCTS[isin]
-                        or product.get('ProductClassificationId') not in (43, 45, 47)):
+                        or product.get('ProductClassificationId') not in (43, 45, 47, 44100)):
                     raise ValueError('SG-Produktidentität nicht bestätigt')
+                if product['ProductClassificationId'] == 44100:
+                    if q.sg_future_contract(product, isin) is None or product.get('Currency') != 'EUR' or product.get('AssetCurrency') != 'USD' or product.get('ExchangeCode') != 'CBDE':
+                        raise ValueError('SG-Faktorproduktidentität nicht bestätigt')
+                    result.update(productVerified=True, excluded=True, name=product.get('Name'),
+                        metadata=dict(name=product.get('Name'), status=1, underlyingType='FUTURE',
+                                      contract=product['AssetRic'], productType='FACTOR'),
+                        conditions={}, reason='Faktorprodukt ausgeschlossen – keine weiteren Daten erforderlich')
+                    _CACHE[isin] = (time.monotonic(), copy.deepcopy(result))
+                    return result
                 stage = 'properties'
                 properties = q.issuer_json(base+'Products/AllProperties/'+str(product['Id']), q.SG_ORIGIN, timeout=12)
                 q.parse_sg(product, properties, isin)
