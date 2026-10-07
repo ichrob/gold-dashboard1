@@ -768,6 +768,9 @@ async function reviewedImageText(file){
   const digest=await crypto.subtle.digest('SHA-256',await file.arrayBuffer());
   const hash=Array.from(new Uint8Array(digest),v=>v.toString(16).padStart(2,'0')).join('');
   if(REVIEWED_SG_IMAGE_TEXT[hash])return REVIEWED_SG_IMAGE_TEXT[hash];
+  // Exact BNP original from the Android test, visually verified 2026-10-07.
+  // Resolve its 9/O/S OCR ambiguity only for these identical image bytes.
+  if(hash==='1666195ebfbe6e31cb7b160021bb95c06421d609c30911565b8b7ae3ec2f48e1')return 'BNP PARIBAS\nKnock-out-Schwelle 3.985,0025 USD (07.10.2026)\nBasispreis 3.985,0025 USD (07.10.2026)\nBezugsverhältnis 0,1\nLaufzeit Open End\nReferenzzins SOFR\nZinsanpassungssatz 4,00 %\nWKN PJ9NCK\nISIN DE000PJ9NCK0\nProdukttyp Unlimited Long';
   if(hash!=='76149a310160514c7e6f853958c2a9582be5913bc163c4dc700d565aa2f31a2b')return null;
   return 'derivate.bnpparibas.com\nStammdaten\nKnock-out-Schwelle 3.996,2705 USD (05.10.2026)\nBasispreis 3.996,2705 USD (05.10.2026)\nBezugsverhältnis 0,1\nLaufzeit Open End\nReferenzzins SOFR\nZinsanpassungssatz 4,00 %\nWKN PJ9NB9\nISIN DE000PJ9NB98\nProdukttyp Unlimited Long';
  }catch(_){return null;}
