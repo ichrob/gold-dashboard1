@@ -3,6 +3,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from collections import Counter
 import math
+import stop_target_audit
 
 ZONE = ZoneInfo('Europe/Zurich')
 
@@ -79,10 +80,12 @@ def report(conn, payload):
     return dict(version='audit-day-v1',day=payload['day'],timezone='Europe/Zurich',total=total,
         offset=offset,nextOffset=offset+100 if offset+100 < total else None,truncated=False,
         summary=summary,records=[compact(r) for r in rows],quoteCoverage=coverage,
+        stopTargetReview=stop_target_audit.report(conn,start,end),
         comparisons=[dict(observation=p,truth=t) for p,t in comparisons],
         limitations=['Originale Entscheidungen aller damaligen Regelversionen; keine nachträgliche Neuberechnung.',
           'Richtung und Produktfreigabe getrennt prüfen. Aufzeichnung ist kein Nachweis einer Order oder Push-Zustellung.',
           'Stop/Ziel nur beurteilen, wenn damals als Plan gespeichert. Fehlende Pläne bleiben unbekannt.',
           'Gold-Ausgänge nach 15/60/240 Minuten sind keine Produktrendite und kein Stop-/Ziel-Verlaufstest.',
           'Spotarchiv rollierend sieben Tage. Fehlende Kursminuten und fehlende Produktkurse werden nicht ergänzt.'])
+
 

@@ -652,6 +652,9 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <button id="auditDayLoad" type="button">Tag prüfen</button>
 <button id="auditDayNext" type="button" hidden>Weitere Entscheidungen</button>
 <div id="auditDaySummary" class="small" style="white-space:pre-line" role="status"></div>
+<details open><summary>Stop-/Ziel-Test · gespeicherte Modellpläne</summary>
+<div id="auditStopTargetSummary" class="small" style="white-space:pre-line">Mit „Tag prüfen“ laden. Neue Pläne werden automatisch protokolliert.</div>
+<div id="auditStopTargetRows"></div></details>
 <div id="auditDayRows"></div>
 <details><summary>Originalnachweise dieser Seite</summary><pre id="auditDayRaw" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>
 </details>
@@ -742,6 +745,28 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     'Stundenvergleich: '+r.comparisons.length+' gespeicherte Versuche; '+r.comparisons.filter(x=>x.observation.valid).length+' gültige Beobachtungen; '+r.comparisons.filter(x=>x.truth).length+' mit Folgepreis.',
     ...r.limitations];
    text('auditDaySummary',lines.join('\n'));
+   const st=r.stopTargetReview;
+   if(st){
+    const labels={'pending':'noch offen','observed-target':'Ziel zuerst beobachtet','observed-stop':'Stop zuerst beobachtet','no-observed-hit':'kein Treffer in vier Stunden beobachtet','inconclusive':'nicht eindeutig / Datenlücke','invalid-plan':'Plan nicht auswertbar'};
+    text('auditStopTargetSummary',st.total+' unterschiedliche gespeicherte Planversionen; keine Anzahl echter Trades.\n'+
+     (Object.entries(st.counts).map(([k,n])=>(labels[k]||k)+': '+n).join(' · ')||'Noch keine neuen auswertbaren Pläne für diesen Tag gespeichert.')+'\n'+
+     'Ab Aktivierung automatisch: ursprüngliche Levels und erster beobachteter Treffer mit Quellenzeit. Frühere fehlende Pläne werden nicht nachträglich erfunden. Kurslücken über '+st.maxGapSeconds+' Sekunden verhindern ein eindeutiges Ergebnis.\n'+st.note+
+     (st.detailsTruncated?'\nDetails zeigen die ersten '+st.detailsLimit+' Planversionen; die Zählung umfasst alle.':''));
+    const root=document.getElementById('auditStopTargetRows');root.replaceChildren();
+    for(const t of st.tests){
+     const d=document.createElement('details'),title=document.createElement('summary'),body=document.createElement('div');
+     title.textContent=dayTime(t.startedAt)+' · '+t.plan.direction+' · '+(labels[t.result.status]||t.result.status);
+     body.style.whiteSpace='pre-line';body.textContent=[
+      'Einstieg '+t.plan.entry+' · Stop '+t.plan.stop+' · Ziel '+t.plan.target+' '+t.plan.unit,
+      'Plan: '+t.plan.kind+' · ISIN '+(t.plan.isin||'nicht zugeordnet')+' · ursprüngliche Levels bleiben unverändert',
+      'Testende: '+dayTime(t.endsAt)+' · zuletzt geprüft: '+(t.checkedAt?dayTime(t.checkedAt):'noch nicht'),
+      t.result.observedAt?'Erster beobachteter Treffer: '+(labels['observed-'+t.result.firstObserved]||t.result.firstObserved)+' · '+dayTime(t.result.observedAt)+' · Kurs '+t.result.observedPrice+' USD':'Kein Treffer protokolliert',
+      'Kursbeobachtungen: '+t.result.samples+' · größte Lücke: '+(t.result.maxGapSeconds??'—')+' Sekunden',
+      t.result.reason||'', 'Nur Gold-Modelltest; Ausführung, Produktkosten und Nettogewinn nicht belegt.',
+      'Entscheidungsnachweis: '+t.decisionId].filter(Boolean).join('\n');
+     d.append(title,body);root.append(d);
+    }
+   }else{text('auditStopTargetSummary','Stop-/Ziel-Test wird mit der neuen Serverversion verfügbar.');}
    for(const x of r.records){
     const d=document.createElement('details'),title=document.createElement('summary'),body=document.createElement('div');
     title.textContent=dayTime(x.at)+' · '+x.direction+' · '+(x.price??'—')+' USD · '+x.origin;
@@ -2562,6 +2587,7 @@ setInterval(()=>{ if(document.visibilityState==="visible"){loadData();syncPushPr
 
 
 </body></html>
+
 
 
 
