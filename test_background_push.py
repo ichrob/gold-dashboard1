@@ -17,17 +17,20 @@ class BackgroundRules(unittest.TestCase):
         market=b.failed_analysis_market({'spots':{'spot_price_as_of':'2026-01-01T10:00:00Z'}})
         self.assertIsNotNone(market['dataAt'])
         self.assertFalse(market['ready'])
-        _, events=b.advance({},self.settings,market,True,False)
+        state, events=b.advance({},self.settings,market,True,False,now=0)
+        self.assertEqual(events,[])
+        state, _=b.advance(state,self.settings,market,True,False,now=30000)
+        _, events=b.advance(state,self.settings,market,True,False,now=60000)
         self.assertIn('Hintergrundanalyse ist fehlgeschlagen',events[0]['body'])
         self.assertNotIn('Berechnung mit vorhandenen Werten läuft weiter',events[0]['body'])
         self.assertIsNone(b.failed_analysis_market({'spots':{'spot_price_as_of':'2026-01-01T10:00:00'}})['dataAt'])
 
-    def test_stop_once_and_rearm(self):
+    def test_stop_once_per_trade(self):
         m={**self.market,'price':89}
         s,e=b.advance({},self.settings,m,False,True);self.assertIn('stop-hit',self.kinds(e))
         self.assertEqual(b.advance(s,self.settings,m,False,True)[1],[])
         s,_=b.advance(s,self.settings,self.market,False,True)
-        self.assertIn('stop-hit',self.kinds(b.advance(s,self.settings,m,False,True)[1]))
+        self.assertNotIn('stop-hit',self.kinds(b.advance(s,self.settings,m,False,True)[1]))
     def test_short_stop_and_target(self):
         self.settings['trade'].update(dir='SHORT',stop=110,target=70)
         _,e=b.advance({},self.settings,{**self.market,'price':111},False,True)
@@ -45,11 +48,15 @@ class BackgroundRules(unittest.TestCase):
         self.assertEqual(b.advance(s,self.settings,{**self.market,'price':111,'direction':'SHORT','mtf':'SHORT','score':20},False,True)[1],[])
     def test_data_outage_no_false_target_and_recovery(self):
         m={**self.market,'price':180,'priceFresh':False}
-        s,e=b.advance({},self.settings,m,False,True);self.assertEqual(self.kinds(e),['data-unavailable'])
-        self.assertEqual(b.advance(s,self.settings,m,False,True)[1],[])
-        self.assertIn('data-recovered',self.kinds(b.advance(s,self.settings,self.market,False,True)[1]))
+        s,e=b.advance({},self.settings,m,False,True,now=0);self.assertEqual(e,[])
+        s,e=b.advance(s,self.settings,m,False,True,now=30000);self.assertEqual(e,[])
+        s,e=b.advance(s,self.settings,m,False,True,now=60000);self.assertEqual(self.kinds(e),['data-unavailable'])
+        s,e=b.advance(s,self.settings,self.market,False,True,now=90000);self.assertEqual(e,[])
+        self.assertIn('data-recovered',self.kinds(b.advance(s,self.settings,self.market,False,True,now=120000)[1]))
     def test_general_without_trade_and_switch_off(self):
-        s,e=b.advance({},self.settings,self.market,True,False)
+        s,e=b.advance({},self.settings,self.market,True,False,now=0)
+        self.assertEqual(e,[])
+        s,e=b.advance(s,self.settings,{**self.market,'dataAt':self.market['dataAt']+30000},True,False,now=30000)
         self.assertEqual(self.kinds(e),['signal-change']);self.assertNotIn('trade',s)
         self.assertEqual(b.advance(s,self.settings,self.market,True,False)[1],[])
         self.assertEqual(b.advance({},self.settings,self.market,False,False)[1],[])
@@ -135,7 +142,7 @@ class BackgroundDelivery(PushMonitorTests):
 
     def test_background_failure_keeps_checkpoint_and_success_persists(self):
         db,conn=self.connection();settings=b.config({})
-        conn.execute.return_value.fetchall.return_value=[(1,{},True,False,False,settings,{},None,None)]
+        conn.execute.return_value.fetchall.return_value=[(1,{},True,False,False,settings,{'signalPending':{'direction':'LONG','since':0,'dataAt':1}},None,None)]
         market={'ready':True,'priceFresh':True,'direction':'LONG','mtf':'LONG','dataAt':1800000000000}
         with patch.object(push_server,'db',db),patch.object(push_server.background_push,'analyze',return_value=market),patch.object(push_server,'vapid',return_value='x'),patch.object(push_server,'webpush',side_effect=push_server.WebPushException('fail')):
             self.assertEqual(push_server.run_background({}),0)
@@ -173,3 +180,4 @@ class DisconnectedHttpTests(unittest.TestCase):
         h=object.__new__(push_server.Handler);h.path='/decision-audit/read';h.headers={'X-Bob-Push-Token':'test'}
         with patch.object(push_server,'PUSH_SERVICE_TOKEN','test'),patch.object(push_server,'json_body',side_effect=ConnectionResetError()),patch.object(push_server,'send_json') as send:
             h.do_POST();send.assert_not_called();self.assertTrue(h.close_connection)
+
