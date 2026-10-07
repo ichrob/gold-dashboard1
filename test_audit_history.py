@@ -5,6 +5,30 @@ import audit_history as h
 import decision_audit as a
 
 class HistoryTests(unittest.TestCase):
+ def test_large_day_loads_only_requested_payload_page(self):
+  at=datetime(2026,10,7,8,tzinfo=timezone.utc)
+  headers=[(str(i),at,{'direction':'NEUTRAL','ruleVersion':'historic'},None) for i in range(10005)]
+  page=[('10000',at,{'direction':'NEUTRAL','ruleVersion':'historic','price':4100},None)]
+  conn=Mock()
+  conn.execute.side_effect=[Mock(fetchone=lambda:(10005,)),Mock(fetchall=lambda:headers),
+      Mock(fetchall=lambda:page),Mock(fetchall=lambda:[]),Mock(fetchall=lambda:[])]
+  result=h.report(conn,{'day':'2026-10-07','offset':10000})
+  self.assertEqual(result['summary']['counts']['NEUTRAL'],10005)
+  self.assertEqual([r['id'] for r in result['records']],['10000'])
+  self.assertFalse(result['truncated']);self.assertIsNone(result['nextOffset'])
+  query,params=conn.execute.call_args_list[2].args
+  self.assertIn('LIMIT 100 OFFSET %s',query);self.assertEqual(params[-1],10000)
+  self.assertNotIn('a.payload',conn.execute.call_args_list[1].args[0])
+  self.assertTrue(all(call.args[0].lstrip().startswith('SELECT') for call in conn.execute.call_args_list))
+ def test_first_signal_keeps_original_plan_and_outcomes(self):
+  at=datetime(2026,10,7,8,tzinfo=timezone.utc)
+  header=('signal',at,{'direction':'LONG','ruleVersion':'historic'},None)
+  full=('signal',at,{'direction':'LONG','ruleVersion':'historic','plan':{'stop':4090}}, {'60':{'price':4110}})
+  conn=Mock();conn.execute.side_effect=[Mock(fetchone=lambda:(1,)),Mock(fetchall=lambda:[header]),
+      Mock(fetchall=lambda:[full]),Mock(fetchall=lambda:[full]),Mock(fetchall=lambda:[]),Mock(fetchall=lambda:[])]
+  result=h.report(conn,{'day':'2026-10-07'})
+  self.assertEqual(result['summary']['firstSignals'][0]['plan'],{'stop':4090})
+  self.assertEqual(result['summary']['firstSignals'][0]['outcomes']['60']['price'],4110)
  def test_zurich_day_bounds_and_dst(self):
   start,end=h.bounds('2026-10-06')
   self.assertEqual(start.isoformat(),'2026-10-05T22:00:00+00:00')
@@ -50,3 +74,4 @@ class HistoryDatabaseTests(unittest.TestCase):
    self.assertEqual(len(last['records']),5);self.assertIsNone(last['nextOffset'])
    self.assertFalse(set(x['id'] for x in r['records'])&set(x['id'] for x in last['records']))
    conn.rollback()
+
