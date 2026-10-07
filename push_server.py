@@ -12,6 +12,7 @@ import research_transcript_provider
 import bob_market_store
 import bob_validation_store
 import decision_audit
+import stop_target_audit
 import intraday_comparison
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
@@ -264,6 +265,13 @@ def deliver_background_tests():
 def run_background(bundle):
     sent = 0
     with db() as conn:
+        # Evaluate frozen plans even if no device currently has a trade or Push
+        # enabled. Isolate failures from alert delivery and interactive reports.
+        try:
+            with conn.transaction():
+                stop_target_audit.harvest(conn)
+        except Exception as exc:
+            print('BOB_STOP_TARGET error='+type(exc).__name__,flush=True)
         # A single independent campaign, even with no devices subscribed to Push.
         now=int(time.time()*1000)
         if intraday_comparison.active(now):
@@ -716,4 +724,5 @@ if __name__ == "__main__":
     print("BOB_PUSH startup=ready", flush=True)
     threading.Thread(target=product_expiry_loop, name="bob-product-expiry", daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+
 
