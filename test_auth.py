@@ -58,7 +58,7 @@ class AuthenticationTests(unittest.TestCase):
             self.assertEqual(status, 303)
             self.assertEqual(h['Location'], '/login')
             self.assertNotIn('WWW-Authenticate', h)
-        for path in ['/api/live','/api/mtf','/api/degiro/enrich']:
+        for path in ['/api/live','/api/mtf','/api/degiro/enrich','/api/gold-research']:
             status, h, _, _ = self.request('GET', path)
             self.assertEqual(status, 401)
             self.assertNotIn('WWW-Authenticate', h)
@@ -98,6 +98,17 @@ class AuthenticationTests(unittest.TestCase):
         basic = 'Basic '+base64.b64encode(b'test-user:test-only-password').decode()
         self.assertEqual(self.request('GET','/',headers={'Authorization':basic})[0],200)
         self.assertEqual(self.request('GET','/',headers={'Authorization':'Basic broken'})[0],303)
+
+    def test_youtube_research_requires_auth_and_validates_request(self):
+        from unittest.mock import patch
+        import youtube_research
+        basic = 'Basic '+base64.b64encode(b'test-user:test-only-password').decode()
+        with patch.object(youtube_research,'manual',return_value={'outlook':'UNKLAR'}) as analyze:
+            self.assertEqual(self.request('POST','/api/research/youtube','{}')[0],401)
+            analyze.assert_not_called()
+            self.assertEqual(self.request('POST','/api/research/youtube','{}',{'Authorization':basic})[0],200)
+            analyze.assert_called_once()
+            self.assertEqual(self.request('POST','/api/research/youtube','[]',{'Authorization':basic})[0],400)
 
     def test_rate_limit(self):
         bob_auth.FAILURES.extend([time.time()]*30)

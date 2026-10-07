@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlparse
 import economic_calendar
 from datetime import datetime, timezone
 import technical_candles
+import gold_research
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -286,7 +287,7 @@ def fetch_technical_history(interval, range_value):
         retain_technical_history(interval, independent)
         if technical_history_fresh(independent, minutes):
             return independent
-    if interval in ("15m", "4h"):
+    if interval in ("1m", "15m", "4h"):
         return retain_technical_history(interval, independent)
     # XAUS exposes a documented XAU chart proxy. Use it first so Render
     # does not depend on direct Yahoo connectivity (which currently returns 404).
@@ -400,7 +401,7 @@ def build_live_bundle():
         # source: ThreadPoolExecutor's context manager would otherwise wait for slow
         # Yahoo/FX requests at shutdown and keep /api/live hanging.
         from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-        pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="bob-live")
+        pool = ThreadPoolExecutor(max_workers=7, thread_name_prefix="bob-live")
         futures = {
             pool.submit(fetch_spot): "spot",
             pool.submit(fetch_technical_history, "5m", "5d"): "5m",
@@ -408,6 +409,7 @@ def build_live_bundle():
             pool.submit(fetch_technical_history, "15m", "5d"): "15m",
             pool.submit(fetch_technical_history, "4h", "3mo"): "4h",
             pool.submit(fetch_fx): "fx",
+            pool.submit(fetch_technical_history, "1m", "1d"): "1m",
         }
         results = {}
         try:
@@ -503,6 +505,10 @@ def build_live_bundle():
                 mark_bar_state(native, minutes)
                 if tf == '15m': bars_15m = native
                 else: bars_4h = native
+        bars_1m = results.get("1m")
+        if not isinstance(bars_1m, list):
+            bars_1m = retain_technical_history("1m", [])
+        mark_bar_state(bars_1m, 1)
         reference = bars_5m[-1]["close"] if bars_5m else goldprice_price
         diff = goldprice_price - reference
         pct = (diff / reference * 100) if reference else 0.0
@@ -542,7 +548,7 @@ def build_live_bundle():
                 "spot_error": spot_error,
             },
             "history": {
-                "bars_by_tf": {"5m": bars_5m, "15m": bars_15m, "1h": bars_1h, "4h": bars_4h},
+                "bars_by_tf": {"1m": bars_1m, "5m": bars_5m, "15m": bars_15m, "1h": bars_1h, "4h": bars_4h},
                 "points": legacy_points,
                 "data_state": {
                     "status": status,
@@ -669,7 +675,7 @@ class Handler(BaseHTTPRequestHandler):
         # Sensitive data APIs must be authenticated before any data generation.
         # Keep static PWA resources and /health public, but never expose live,
         # MTF, or DEGIRO enrichment data without the existing Bob credentials.
-        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar")
+        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research")
         if protected_api_path:
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
@@ -681,6 +687,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(b"Authentication required.")
                 return
+
+        if path == "/api/gold-research":
+            body = json.dumps(gold_research.snapshot(), ensure_ascii=False, allow_nan=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.end_headers()
+            self.wfile.write(body)
+            return
 
         if path == "/api/collection-status":
             body = json.dumps(auto_collection.status(), ensure_ascii=False, separators=(",", ":")).encode()
@@ -740,7 +756,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/health":
             auto_collection.start()
-            body = json.dumps({"status":"ok","service":"bob","fibonacciMonitor":dict(FIB_MONITOR_HEALTH),"automaticCollection":auto_collection.health()},separators=(",",":")).encode()
+            body = json.dumps({"status":"ok","service":"bob","build":os.environ.get("RENDER_GIT_COMMIT"),"fibonacciMonitor":dict(FIB_MONITOR_HEALTH),"automaticCollection":auto_collection.health()},separators=(",",":")).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -1042,6 +1058,33 @@ class Handler(BaseHTTPRequestHandler):
         worker_token = self.headers.get("X-Bob-Worker-Token", "")
         worker_ok = bool(SIGNAL_WORKER_TOKEN) and hmac.compare_digest(worker_token, SIGNAL_WORKER_TOKEN)
 
+        if path == "/api/research/youtube":
+            if not self.authenticated():
+                bob_auth.send(self, 401)
+                return
+            try:
+                length = int(self.headers.get('Content-Length', '0'))
+                if not 0 < length <= 250000:raise ValueError('Ungültige Anfragegröße')
+                payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                if not isinstance(payload, dict):raise ValueError('Ungültige Anfrage')
+                import youtube_research
+                result = {'ok': True, 'item': youtube_research.manual(payload)}
+                status = 200
+            except ValueError as exc:
+                result = {'ok': False, 'error': str(exc)}
+                status = 400
+            except Exception:
+                result = {'ok': False, 'error': 'Untertitel momentan nicht öffentlich abrufbar. Du kannst ein vorhandenes Transkript unten einfügen.'}
+                status = 502
+            body = json.dumps(result, ensure_ascii=False, allow_nan=False).encode('utf-8')
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         if path == "/api/diag":
             try:
                 length = int(self.headers.get("Content-Length", "0") or 0)
@@ -1179,7 +1222,7 @@ def fibonacci_monitor_loop():
                 except Exception:
                     bundle = {}
                     bars = {}  # Let the push monitor announce a data outage once.
-                background_bundle = {**bundle, "history":{**bundle.get("history",{}),"bars_by_tf":{tf:bars.get(tf,[])[-240:] for tf in ("5m","15m","1h","4h")}}}
+                background_bundle = {**bundle, "history":{**bundle.get("history",{}),"bars_by_tf":{tf:bars.get(tf,[])[-240:] for tf in ("1m","5m","15m","1h","4h")}}}
                 request = Request(base+"/background",data=json.dumps({"bundle":background_bundle}).encode(),method="POST",headers={"Content-Type":"application/json","X-Bob-Push-Token":PUSH_SERVICE_TOKEN})
                 try:
                     with urlopen(request,timeout=45) as response:
@@ -1207,6 +1250,7 @@ if __name__ == "__main__":
     print(f"BOB_START port={port} host=0.0.0.0 version=runtime-http-trace-v1", flush=True)
     threading.Thread(target=fibonacci_monitor_loop, name="bob-fibonacci", daemon=True).start()
     auto_collection.start()
+    gold_research.start()
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress

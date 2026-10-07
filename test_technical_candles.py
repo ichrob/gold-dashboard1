@@ -11,6 +11,14 @@ class CandleTests(unittest.TestCase):
         return {'symbol':'XAUUSD','interval':'5m','bars':[
             {'openTime':'2026-10-06T08:55:00Z','open':4100,'high':4102,'low':4099,'close':4101,'isOpen':False}]}
 
+    def test_minute_native_history_and_no_fabricated_fallback(self):
+        p=self.payload();p['interval']='1m';p['bars'][0]['openTime']='2026-10-06T08:59:00Z'
+        rows=tc.normalize(p,'1m',self.now)
+        self.assertEqual(len(rows),1)
+        with patch.object(tc,'fetch',return_value=[]),patch.dict(server._technical_history,{},clear=True),patch.object(server,'fetch_json') as fallback:
+            self.assertEqual(server.fetch_technical_history('1m','1d'),[])
+            fallback.assert_not_called()
+
     def test_strict_identity_and_candle_validation(self):
         p=self.payload()
         self.assertEqual(len(tc.normalize(p,'5m',self.now)),1)

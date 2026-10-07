@@ -6,6 +6,21 @@ import future_analysis
 import decision_audit
 
 class IntradayConsistency(unittest.TestCase):
+    def test_minute_comparison_separate_and_first_observation(self):
+        row={'direction':'LONG','barAt':1000,'recordedAt':1000,'price':100,'marketEvaluable':True,'minuteEntry':{'version':'minute-entry-v1','available':True,'direction':'NEUTRAL'}}
+        truth={'price':101,'at':3601000}
+        import copy
+        late=copy.deepcopy(row);late['recordedAt']=2000;late['minuteEntry']['direction']='LONG'
+        # An unavailable minute history is never counted as a filtered entry.
+        missing=copy.deepcopy(row);missing['barAt']=2000;missing['minuteEntry']['available']=False
+        r=decision_audit.entry_quality_review([(late,[None,{'price':101,'at':3602000}]),(row,[None,truth]),(missing,[None,truth])],field='minuteEntry',version='minute-entry-v1')
+        self.assertEqual(r['evaluated'],1)
+        self.assertEqual(r['filtered'],1)
+        self.assertEqual(r['missedFavorable'],1)
+        self.assertEqual(r['candidateMeanPct'],0)
+        self.assertAlmostEqual(r['baselineMeanPct'],1)
+        self.assertEqual(r['version'],'minute-entry-v1')
+
     def test_rsi_boundaries_across_engines(self):
         for engine in (server._rsi, backtest.rsi, future_analysis.rsi):
             self.assertEqual(engine([4200.0]*240), 50)

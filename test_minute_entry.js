@@ -1,0 +1,37 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const html=fs.readFileSync('Bob.html','utf8'),script=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)[1];
+const elements=new Map(),storage=new Map();
+const noop=()=>{};const canvas=new Proxy({},{get:(_,key)=>key==='measureText'?text=>({width:text.length*6}):noop,set:()=>true});
+const element=id=>{if(!elements.has(id))elements.set(id,{value:({tf:'15m',n:'200',account:'500',risk:'1',trailAtr:'1.5',minRR:'2',displayCcy:'USD'})[id]||'',textContent:'',innerHTML:'',className:'',parentElement:{className:''},style:{},dataset:{},classList:{add:noop,remove:noop,toggle:noop},addEventListener:noop,setAttribute:noop,appendChild:noop,append:noop,selectedOptions:[{textContent:"15 Minuten"}],getContext:()=>canvas,getBoundingClientRect:()=>({width:800,height:300}),width:800,height:220});return elements.get(id);};
+const push={registered:false,serverRegistered:false,activeTrade:false,trade:false,general:false};
+const env={console:{log:noop,warn:noop,info:noop,error:noop},document:{getElementById:element,querySelectorAll:()=>[],querySelector:()=>null,visibilityState:'hidden',addEventListener:noop,createTextNode:text=>({textContent:text}),createElement:()=>element('temp')},window:{addEventListener:noop},localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},navigator:{},Notification:{permission:'denied'},BobPush:{state:()=>push,set:()=>push,setActiveTrade:()=>push,emit:async()=>false},BobDegiro:{riskModel:()=>({ok:false,reason:'fixture'})},fetch:async()=>{throw Error('offline fixture')},setTimeout:()=>0,clearTimeout:noop,setInterval:()=>0,AbortController,Date,Math,Number,JSON,URL,Blob,Promise};
+vm.createContext(env);vm.runInContext(script,env);
+
+const result=vm.runInContext(`(()=>{
+ const now=Math.floor(Date.now()/900000)*900000;
+ const make=(step,sign=1)=>Array.from({length:220},(_,i)=>{const p=4000+sign*i;return {openTime:now-(220-i)*step,open:p-.2*sign,close:p,high:p+1,low:p-1,isOpen:false,instrument:'XAU/USD',source:'test'};});
+ const bundle={history:{bars_by_tf:{'1m':make(60000),'5m':make(300000),'15m':make(900000)}}};
+ const state={dir:'LONG'},good=minuteEntryContext(bundle,state,now);
+ const baseline=fiveMinuteConfirmation(bundle,now);
+ const b=bundle.history.bars_by_tf;
+ b['1m'].push({...b['1m'].at(-1),openTime:now,isOpen:false,close:1});
+ const unfinished=minuteEntryContext(bundle,state,now);b['1m'].pop();
+ const stale=minuteEntryContext(bundle,state,now+120001);
+ b['1m']=make(60000,-1);const opposite=minuteEntryContext(bundle,state,now);
+ const noChange=fiveMinuteConfirmation(bundle,now);
+ b['1m'].splice(-2,1);const gap=minuteEntryContext(bundle,state,now);
+ delete b['1m'];const missing=minuteEntryContext(bundle,state,now),without=fiveMinuteConfirmation(bundle,now);
+ b['1m']=make(60000);b['1m'][1].instrument='GC=F';const mixed=minuteEntryContext(bundle,state,now);
+ b['1m']=make(60000);b['1m'].push({...b['1m'].at(-1)});const duplicate=minuteEntryContext(bundle,state,now);
+ chartHistory={'1m':make(60000)};$('chartTf').value='1m';$('chartType').value='candles';draw();saveChartView();
+ return {good,unfinished,stale,opposite,gap,missing,mixed,duplicate,baseline,noChange,without};
+})()`,env);
+assert(result.good.available);assert.equal(result.good.direction,'LONG');
+assert.deepEqual(result.good,result.unfinished);
+assert(result.opposite.available);assert.equal(result.opposite.direction,'NEUTRAL');
+for(const k of ['stale','gap','missing','mixed','duplicate'])assert.equal(result[k].available,false,k);
+assert.deepEqual(result.baseline,result.noChange);assert.deepEqual(result.baseline,result.without);
+assert.equal(JSON.parse(storage.get('bobChartView')).tf,'1m');
+assert(element('chartRangeInfo').textContent.startsWith('1 Minute'));
+assert(html.includes('data-chart-tf="1m"'));
+console.log('Minute entry: closed bars, gaps, freshness, identity, chart persistence and unchanged main policy OK');
