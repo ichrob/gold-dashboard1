@@ -9,6 +9,21 @@ URL='https://www.youtube.com/watch?v='+ID
 CAP= 'https://www.youtube.com/api/timedtext?v='+ID+'&lang=en'
 
 class YoutubeTests(unittest.TestCase):
+    def test_player_failure_uses_provider_only_after_public_channel_verification(self):
+        import research_transcript_provider as provider
+        item={'url':URL,'channelId':g.MCO_CHANNEL,'title':'Gold outlook'}
+        supplied={'segments':y.parse_captions(self.captions()),'language':'en','provider':'Supadata'}
+        with patch.dict(y._cache,{},clear=True), patch.object(y,'read_url',return_value=self.data('LOGIN_REQUIRED')) as fetch, patch.object(g,'download_channel',return_value=b'channel'), patch.object(g,'channel_listing',return_value=([item],1)), patch.object(provider,'request',return_value=supplied) as request:
+            result=y.analyze(URL,fetch=fetch)
+            self.assertTrue(result['transcriptAnalyzed'])
+            self.assertEqual(result['channelId'],g.MCO_CHANNEL)
+            self.assertIsNone(result['publishedDate'])
+            request.assert_called_once_with(ID)
+        for rows in ([],[{**item,'channelId':'other'}],[{**item,'url':URL.replace(ID,'zyxwvutsrqp')}]):
+            with patch.dict(y._cache,{},clear=True), patch.object(y,'read_url',return_value=self.data('LOGIN_REQUIRED')) as fetch, patch.object(g,'download_channel',return_value=b'channel'), patch.object(g,'channel_listing',return_value=(rows,1)), patch.object(provider,'request') as request:
+                with self.assertRaises(ValueError):y.analyze(URL,fetch=fetch)
+                request.assert_not_called()
+
     def data(self,status='OK',caption=CAP):
         p={'playabilityStatus':{'status':status},'videoDetails':{'videoId':ID,'channelId':'UCsl6Z6p7GOkczo8Cv-GH6Dg','author':'MCO Markets','title':'Gold will fall today'},'captions':{'playerCaptionsTracklistRenderer':{'captionTracks':[{'baseUrl':caption,'languageCode':'en','kind':'asr'}]}}}
         return ('var ytInitialPlayerResponse = '+json.dumps(p)+';').encode()

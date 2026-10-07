@@ -120,6 +120,18 @@ def assess(segments, language, automatic=False):
     return result
 
 
+def listed_metadata(identity):
+    """Confirm exact video membership on the public, verified MCO channel page."""
+    import gold_research as g
+    items, _ = g.channel_listing(g.download_channel(), time.time())
+    item = next((x for x in items if video_id(x['url']) == identity), None)
+    if item is None:
+        raise ValueError('Video nicht in der öffentlichen MCO-Gold-Kanalliste bestätigt')
+    require_mco(item)
+    return {'videoDetails': {'videoId': identity, 'channelId': item['channelId'],
+                             'title': item['title'], 'author': 'MCO Markets'}}
+
+
 def analyze(url, fetch=read_url):
     identity=video_id(url);now=time.time()
     with _lock:
@@ -127,14 +139,20 @@ def analyze(url, fetch=read_url):
         if fetch is read_url and saved and now-saved[0]<3600:return dict(saved[1])
     if not _busy.acquire(blocking=False):raise ValueError('YouTube-Prüfung läuft bereits; bitte später erneut versuchen')
     try:
-        p=player_metadata(fetch('https://www.youtube.com/watch?v='+identity),identity)
+        try:
+            p=player_metadata(fetch('https://www.youtube.com/watch?v='+identity),identity)
+        except (ValueError, OSError):
+            if fetch is not read_url:raise
+            # A failed player request is not evidence that the public video is private.
+            # Independently verify channel ownership before the supported provider API.
+            p=listed_metadata(identity)
         d=p['videoDetails']
         require_mco(d)
         micro=p.get('microformat',{}).get('playerMicroformatRenderer',{})
         tracks=p.get('captions',{}).get('playerCaptionsTracklistRenderer',{}).get('captionTracks',[])
         tracks=[t for t in tracks if isinstance(t.get('baseUrl'),str) and t.get('languageCode','').split('-')[0] in ('en','de')]
         tracks.sort(key=lambda t:(t.get('kind')=='asr',t.get('languageCode','').split('-')[0]!='en'))
-        if not tracks:raise ValueError('Keine öffentlich abrufbaren deutschen oder englischen Untertitel')
+        if not tracks and fetch is not read_url:raise ValueError('Keine öffentlich abrufbaren deutschen oder englischen Untertitel')
         result=None
         for track in tracks[:2]:
             caption_url=track['baseUrl']
