@@ -528,11 +528,22 @@ def get_quote(isin):
     isin = str(isin or '').strip().upper()
     if not valid_isin(isin):
         return dict(found=False, eligible=False, fresh=False, reason='ISIN-Prüfziffer ungültig')
-    from public_product_terms import get_product
+    from public_product_terms import get_product, TERMINAL
+    # Confirmed irreversible events remain authoritative without network calls.
+    if isin in TERMINAL:
+        return get_product(isin)
+    # Refresh the issuer first. A slow or cached secondary page must not delay
+    # the primary source or replace its dated terms with older observations.
+    issuer = get_issuer_quote(isin)
+    if issuer.get('productVerified') and (issuer.get('importActive') or
+            issuer.get('metadata', {}).get('termsDated') is True or
+            issuer.get('metadata', {}).get('status') == 2):
+        if issuer.get('metadata', {}).get('status') == 2:
+            return dict(issuer, found=False, eligible=False)
+        return issuer
     terms = get_product(isin)
     if terms.get('productVerified') and terms.get('metadata', {}).get('status') == 2:
         return terms
-    issuer = get_issuer_quote(isin)
     if issuer.get('productVerified') and issuer.get('metadata', {}).get('status') == 2:
         return dict(issuer, found=False, eligible=False, exchangeResearch=terms)
     if issuer.get('productVerified') and (issuer.get('importActive') or issuer.get('metadata', {}).get('termsDated') is True):

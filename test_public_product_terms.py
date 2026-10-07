@@ -40,6 +40,29 @@ class PublicTermsTests(unittest.TestCase):
         with patch.object(p,'get_product',return_value=terms),patch.object(q,'get_issuer_quote',return_value={'found':False}),patch('stuttgart_products.urlopen') as old:
             r=q.get_quote(ISIN)
             self.assertEqual(r['source'],terms['source']);old.assert_not_called()
+    def test_dated_issuer_does_not_wait_for_secondary_or_accept_older_terms(self):
+        primary = dict(isin=ISIN, productVerified=True, found=False, eligible=False,
+                       metadata=dict(status=1, termsDated=True),
+                       conditions={'ko': {'value':4074.353817, 'dateText':'07.10.2026'}})
+        with patch.object(q,'get_issuer_quote',return_value=primary), patch.object(p,'get_product') as secondary:
+            result=q.get_quote(ISIN)
+        secondary.assert_not_called()
+        self.assertEqual(result['conditions'],primary['conditions'])
+        self.assertFalse(result['eligible'])
+
+    def test_secondary_remains_available_when_primary_unavailable(self):
+        fallback=p.parse_page(PAGE,ISIN,NOW)
+        calls=[]
+        def primary(_):
+            calls.append('issuer'); return dict(found=False, productVerified=False)
+        def secondary(_):
+            calls.append('secondary'); return fallback
+        with patch.object(q,'get_issuer_quote',side_effect=primary), patch.object(p,'get_product',side_effect=secondary):
+            result=q.get_quote(ISIN)
+        self.assertEqual(calls,['issuer','secondary'])
+        self.assertEqual(result['conditions'],fallback['conditions'])
+        self.assertFalse(result['eligible'])
+
     def test_403_cached_as_failure_and_not_retried_in_a_loop(self):
         from urllib.error import HTTPError
         with patch.dict(p._CACHE,{},clear=True),patch.object(p,'open_public_page',side_effect=HTTPError('public',403,'Denied',{},None)) as net:
