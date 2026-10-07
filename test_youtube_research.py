@@ -48,6 +48,14 @@ class YoutubeTests(unittest.TestCase):
         with patch.object(y,'analyze',return_value={**result,'channelId':'wrong'}):
             bad=y.enrich({'url':URL,'sourceId':'wgc-video'})
             self.assertFalse(bad['transcriptAnalyzed']);self.assertNotIn('trustedTranscript',bad)
+    def test_pasted_transcript_replaces_unavailable_discovered_video(self):
+        report={'checkedAt':100,'sources':[],'items':[{'url':URL,'kind':'YouTube','publishedAt':None,'coverage':'Videometadaten','outlook':'UNKLAR','horizon':'unbekannt'}]}
+        with patch.dict(y._manual,{},clear=True),patch.object(g,'_report',report):
+            y.manual({'url':URL,'transcript':'Gold will rise today. '+('This text discusses the market and its development. '*8)})
+            r=g.snapshot()
+            self.assertEqual(len(r['items']),1);self.assertEqual(r['videosAnalyzed'],1)
+            self.assertFalse(r['items'][0]['trustedTranscript'])
+
     def test_manual_automatic_fetch_result(self):
         result=y.analyze(URL,lambda url:self.data() if url==URL else self.captions())
         with patch.object(y,'analyze',return_value=result),patch.dict(y._manual,{},clear=True):
