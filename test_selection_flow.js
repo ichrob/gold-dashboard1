@@ -632,3 +632,19 @@ const unknownIdentityCard=b.compactProductCard({...directNoImage,quote:{...direc
 assert(unknownIdentityCard.includes('Produktzuordnung oder Bildwerte nicht eindeutig'));
 const conflictingIdentityCard=b.compactProductCard({...directNoImage,quote:{...directNoImage.quote,direction:'SHORT'}},['Detailbild mit derselben ISIN']);
 assert(conflictingIdentityCard.includes('Produktzuordnung oder Bildwerte nicht eindeutig'));
+
+// User-authorized chart/calculated-gearing release preserves market and risk gates.
+const analysisProduct={...p,snapshot:{...p.snapshot,currency:null,bid:null,ask:null,evidence:{KO:p.snapshot.evidence.KO}},quote:{isin:p.isin,productVerified:true,direction:'SHORT',metadata:{status:1},leverage:15,
+ analysisQuote:{bid:20,ask:20.01,price:20.01,currency:'EUR',source:'SG chart',bidAt:at(0),askAt:at(0)},
+ leverageCalculation:{available:true,inputsFresh:true,value:15,inputs:{askEur:20.01,askAt:at(0),basisAt:at(0),fxDataAt:at(0),fxEffectiveAt:at(0)}}}};
+assert(b.analysisReleaseQuote(analysisProduct,now));
+assert(b.finalProductStatus(analysisProduct,now).complete);
+assert(b.conditionalCandidate(analysisProduct,context,now).ok);
+assert(b.selectionWorkflow([analysisProduct],context,{}).approved);
+assert(!b.selectionWorkflow([analysisProduct],{...context,direction:'NEUTRAL'},{}).approved);
+assert(!b.selectionWorkflow([{...analysisProduct,ko:4141}],context,{}).approved);
+assert(!b.analysisReleaseQuote(analysisProduct,now+301000));
+const skewed=JSON.parse(JSON.stringify(analysisProduct));skewed.quote.leverageCalculation.inputs.basisAt=at(-91);
+assert(!b.analysisReleaseQuote(skewed,now));
+assert(!b.analysisReleaseQuote({...analysisProduct,quote:{...analysisProduct.quote,productVerified:false}},now));
+assert(!b.currentQuote(analysisProduct,now));
