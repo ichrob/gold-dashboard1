@@ -48,6 +48,7 @@ def calculate(result, basis, fx, now=None):
                 inputs=dict(priceSide='ask',basisEstimated=bool(basis.get('estimated',False)),basisDelayed=bool(basis.get('delayed',False)),basisPriceUsd=gold,basisAt=times[1].isoformat(),basisSource=basis['source'],
                             contract=m.get('contract'),ratio=ratio,askEur=price,askAt=times[0].isoformat(),
                             priceSource=quote.get('source',result.get('source')),usdEur=rate,
+                            currencyModelEvidence=m.get('currencyModelEvidence'),
                             fxDataAt=times[2].isoformat(),fxEffectiveAt=times[3].isoformat(),
                             fxSource='exchangerate.dev · USD/EUR',priceKind=quote.get('priceKind')),
                 note='Rechnerische Näherung mit Delta ±1; kein bestätigter Emittentenhebel oder ausführbarer Kurs.')
@@ -90,6 +91,8 @@ def apply(result, now=None):
         out.update(leverage=evidence['value'],leverageAt=evidence['at'],leverageEstimated=True,
                    leverageSource='Bob · CFD-basierter geschätzter Hebel' if basis.get('estimated') else 'Bob · berechneter Hebel',eligible=False,fresh=False,
                    leverageNote=evidence['label']+' · '+evidence['state']+'. '+evidence['note'])
+        if m.get('currencyModelEvidence'):
+            out['leverageNote'] += ' Währungsumrechnung: nicht währungsgesichert laut Onvista-Produktbedingungen; USD/EUR berücksichtigt.'
         out['reason'] = 'Produktwerte übernommen; '+out['leverageNote']
     except (KeyError,TypeError,ValueError,OSError,AttributeError) as exc:
         out['leverageCalculation'] = dict(available=False,reason=str(exc) if isinstance(exc,ValueError) else 'Eingangsdaten nicht verfügbar')
