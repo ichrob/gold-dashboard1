@@ -43,11 +43,11 @@ const conditions=Object.fromEntries(Object.entries({underlying:'XAU/USD',currenc
 const quote={isin,productVerified:true,metadata:{status:1,direction:'SHORT',underlyingType:'SPOT',ko:4524.473138,termsDated:false},source:'SG',checkedAt:at,conditions,currency:'EUR',ask:38.2311,currencyConversion:{fromCurrency:'CHF',toCurrency:'EUR',rate:1.07,at},price:38.2311,askAt:at,analysisMaxAgeSeconds:300};
 const p={isin,isinConfirmed:true,productDirection:'SHORT',price:38.2311,ko:4524.4731,leverage:9.533,snapshot,quote};
 assert(b.automaticIdentity(p));
-const strict=b.productTermsStatus(p,now);assert(!strict.complete);assert(strict.reasons.some(r=>r.includes('datierter')));
+const strict=b.productTermsStatus(p,now);assert(strict.complete,JSON.stringify(strict));
 assert(!strict.reasons.some(r=>r.includes('widerspricht Produktquelle')),'same displayed four decimals are not a conflict');
-const research=b.productTermsStatus(p,now,true);assert(research.complete,JSON.stringify(research));assert.equal(research.warnings.length,2);
+const research=b.productTermsStatus(p,now,true);assert(research.complete,JSON.stringify(research));assert.equal(research.warnings.length,0);
 const context={now,spot:4200,spotFresh:true,direction:'SHORT',atr:15,trend:'SHORT',trend2:'SHORT',mtf:'SHORT',rsi:40,hist:-1,adx:30,momentum:-1};
-const recommendations=b.indicativeRecommendations([p],context);assert.equal(recommendations.length,1);assert(recommendations[0].warning.includes('Gültigkeitsdatum nicht bestätigt'));assert(recommendations[0].warning.includes('Aufnahmeserie'));
+const recommendations=b.indicativeRecommendations([p],context);assert.equal(recommendations.length,1);assert(recommendations[0].warning.includes('Aufnahmeserie'));
 assert(!b.finalProductStatus(p,now).complete);assert(!b.analysisReleaseQuote(p,now));assert(!b.currentQuote(p,now));
 assert.equal(b.indicativeRecommendations([p],{...context,direction:'NEUTRAL'}).length,0);
 for(const change of [
@@ -87,7 +87,7 @@ assert(snapshotFields.leverage.fromSeries);
 assert.equal(b.productFieldStates(p,now+15*3600000).leverage.state,'veraltet');
 const detailStatus=b.selectionDetailStatus(p,now);
 assert(!detailStatus.reasons.some(r=>r.startsWith('KO-Barriere mit')),'display rounding must not create a second KO gap');
-assert(detailStatus.reasons.some(r=>r.includes('datierter Produktnachweis')),'actual validity gap remains');
+assert(!detailStatus.reasons.some(r=>r.includes('datierter Produktnachweis')),'series is accepted for term validity');
 const koReason='KO-Barriere mit gültigem Nachweis oder festen Screenshotwert bestätigen';
 const card=b.compactProductCard(p,['Knock-out-Schwelle: datierter Produktnachweis fehlt oder älter als 24 Stunden',koReason]);
 assert.equal((card.match(/<strong>KO-Barriere: Gültigkeitsnachweis offen<\/strong>/g)||[]).length,1);
@@ -125,3 +125,30 @@ assert(neutralCard.includes('data-series-complete'));
 assert(neutralCard.includes('Nicht freigegeben'));
 assert(neutralCard.includes('Für die Live-Freigabe noch offen'));
 assert(!neutralCard.includes('datierter Hebel weiterhin erforderlich'));
+
+const validity=b.renderTermSeriesValidity(p,now);
+assert(validity.includes('Basispreis: Seriennachweis für Bob gültig'));
+assert(validity.includes('KO-Schwelle: Seriennachweis für Bob gültig'));
+assert(!b.productTermsStatus({...p,snapshot:{...snapshot,captureSeries:null}},now).complete);
+assert(!b.productTermsStatus(p,now+25*3600000).complete);
+for(const mutate of [
+ x=>x.snapshot.captureSeries.members=['other.jpg'],
+ x=>x.snapshot.terms.strike.dateText='06.10.2026',
+ x=>x.snapshot.terms.strike.conflict=true,
+ x=>x.snapshot.terms.ko.revoked=true
+]){const bad=JSON.parse(JSON.stringify(p));mutate(bad);assert(!b.productTermsStatus(bad,now).complete);}
+const auto=JSON.parse(JSON.stringify(p));delete auto.snapshot;auto.ko=4524.473138;
+for(const key of ['strike','ko'])auto.quote.conditions[key]={value:4524.473138,source:'SG',at:null,conditionVerified:false,validitySeries:{policy:'declared-series-v1',origin:'automatic',isin,source:'SG',observedAt:at}};
+assert(b.productTermsStatus(auto,now).complete,JSON.stringify(b.productTermsStatus(auto,now)));
+assert(b.renderTermSeriesValidity(auto,now).includes('automatischen Abrufserie'));
+assert(!b.finalProductStatus(auto,now).complete,'term validity alone is not a quote release');
+for(const mutate of [
+ x=>x.quote.conditions.strike.validitySeries.isin='DE000PJ9NCK0',
+ x=>x.quote.conditions.strike.validitySeries.observedAt='2026-10-06T12:00:00Z',
+ x=>x.quote.conditions.ko.validitySeries.observedAt='2026-10-08T12:00:00Z',
+ x=>x.quote.conditions.strike.dateText='06.10.2026',
+ x=>x.quote.conditions.ko.validitySeries.source='other',
+ x=>x.quote.productVerified=false
+]){const bad=JSON.parse(JSON.stringify(auto));mutate(bad);assert(!b.productTermsStatus(bad,now).complete);}
+
+assert(b.finalProductStatus(auto,now,{isin,reviewed:true,paired:true,source:'reference',venue:'test',bid:38.22,ask:38.23,quoteAt:at}).complete,'accepted automatic series satisfies live term gate when separate quote evidence is valid');

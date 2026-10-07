@@ -78,6 +78,9 @@ def parse_page(html,isin,now=None):
     url=ORIGIN+'inf/zertifikate/'+isin
     vals=dict(ratio=ratio,underlying=underlying,type='Knock-out Turbo',maturity=maturity,currency=currency)
     conditions={key:dict(value=value,at=None,source=url,conditionVerified=True,reviewedAt=now.isoformat()) for key,value in vals.items()}
+    from term_series import observed_condition
+    for key, value in (('strike', strike), ('ko', ko)):
+        conditions[key] = observed_condition(value, url, isin, now.isoformat())
     if contract:conditions.pop('underlying')
     return dict(isin=isin,found=False,eligible=False,fresh=False,productVerified=True,
         source='comdirect Informer · öffentliche Produktdaten',sourceUrl=url,checkedAt=now.isoformat(),
