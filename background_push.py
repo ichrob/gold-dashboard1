@@ -3,6 +3,7 @@ import copy
 import json
 import math
 import re
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -59,6 +60,8 @@ def config(value):
         raise ValueError('Ungültiger ATR-Faktor')
     result['trailAtr'] = mult
     t = value.get('trade')
+    if t is not None and not isinstance(t, dict):
+        raise ValueError('Ungültige Trade-Einstellungen')
     if t and t.get('active') and not t.get('test'):
         if t.get('dir') not in ('LONG', 'SHORT') or not all(positive(t.get(k)) for k in ('entry', 'stop', 'initialRisk')):
             raise ValueError('Einstieg, Stop und Anfangsrisiko fehlen für Hintergrund-Push')
@@ -83,8 +86,18 @@ def config(value):
 
 def analyze(bundle, settings):
     started = time.monotonic()
-    p = subprocess.run(['node', str(Path(__file__).with_name('background_analysis.js'))],
-                       input=json.dumps({**settings, 'bundle': bundle}), text=True, capture_output=True, timeout=10)
+    payload = json.dumps({**settings, 'bundle': bundle})
+    # One fresh process after SIGABRT, within the original ten-second budget.
+    # The evaluator rechecks source freshness; no previous result is reused.
+    for attempt in range(2):
+        remaining = 10 - (time.monotonic() - started)
+        if remaining <= 0:
+            raise TimeoutError('Zeitlimit der Hintergrundanalyse erreicht')
+        p = subprocess.run(['node', str(Path(__file__).with_name('background_analysis.js'))],
+                           input=payload, text=True, capture_output=True, timeout=remaining)
+        if p.returncode != -signal.SIGABRT or attempt:
+            break
+        print('BOB_ANALYSIS_RETRY signal=SIGABRT attempt=1', flush=True)
     if p.returncode:
         # The child reports only error metadata, never input/settings or quote payloads.
         try:
