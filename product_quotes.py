@@ -523,7 +523,7 @@ def get_bnp_quote(isin):
 
 
 
-def get_quote(isin):
+def _get_quote_primary(isin):
     """Combine dated issuer quotes with independently identified exchange terms."""
     isin = str(isin or '').strip().upper()
     if not valid_isin(isin):
@@ -575,3 +575,9 @@ def get_quote(isin):
     if terms['metadata']['status'] != 1 or terms['metadata']['tradingHalted']:
         result.update(eligible=False, marketOpen=False, reason=terms['reason'])
     return result
+
+
+def get_quote(isin):
+    from onvista_backup import apply_backup
+    isin = str(isin or '').strip().upper()
+    return apply_backup(_get_quote_primary(isin), isin)
