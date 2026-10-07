@@ -1449,10 +1449,21 @@ function renderUploadMissing(p,status){
 }
 function renderMissingValues(reasons,p={}){
  if(knockoutStatus(p))return '';
- const values=[...new Set(reasons||[])];if(!values.length)return '';
+ const all=[...new Set(reasons||[])];if(!all.length)return '';
+ const fields=productFieldStates(p),terms={...(p.snapshot?.terms||{}),...(p.quote?.conditions||{})};
+ const isEvidenceIssue=reason=>{
+  if(/Zeitversatz|zeitlich|Zeitabstand|Aktualität|Datenstand|Quellenantwort veraltet|Live-Nachweis/.test(reason))return true;
+  if(/Hebel/.test(reason)&&fields.leverage.state!=='fehlt')return true;
+  if(/Geld|Brief|Kurszeit|Kursbild|Produktkurs|Kursnachweis/.test(reason)&&(['bid','ask'].every(k=>fields[k].state!=='fehlt')||/^CHF-Kursbild vorhanden/.test(reason)))return true;
+  const key=/Basispreis|Finanzierungslevel/.test(reason)?'strike':/KO|Knock|Barriere/i.test(reason)?'ko':null;
+  return key&&n(terms[key]?.value??(key==='ko'?p.ko:null))>0&&/datier|Gültigkeit|gültigem Nachweis|24 Stunden/i.test(reason);
+ };
+ const values=all.filter(reason=>!isEvidenceIssue(reason)),evidence=all.filter(isEvidenceIssue);
+ const evidenceHtml=evidence.length?'<details class="small" data-time-evidence style="margin-top:8px"><summary><strong>Zeitbezug / Berechnungsnachweise prüfen</strong></summary><div>Vorhandene Werte bleiben gespeichert. Ein unpassender oder unbestätigter Zeitbezug ist separat ausgewiesen und zählt nicht als fehlender Produktwert. Die Live-Freigabe wird separat geprüft.</div><ul>'+evidence.map(reason=>'<li>'+esc(reason)+'</li>').join('')+'</ul></details>':'';
+ if(!values.length)return evidenceHtml;
  const provider=/^BNP\b/i.test(p.name||'')||['DE000PJ9NCK0','DE000PG0XK25'].includes(p.isin)?'BNP-Produktseite':'SG-Produktseite';
 
- return '<details class="small" data-missing-values style="margin-top:8px"><summary style="cursor:pointer;padding:8px 0"><strong>Fehlende Werte</strong></summary><ul>'+values.map(reason=>'<li style="margin:10px 0"><strong>'+esc(reason.startsWith('Exakter Gold-Future-Kontrakt fehlt')?'Exakter Future-Kontrakt fehlt oder ist nicht aktuell bestätigt':reason)+'</strong><br>Fundort auf der '+esc(provider)+': '+esc(missingValueLocation(reason,p))+'</li>').join('')+'</ul><div>Den Produktlink oben öffnen. Lesbare Screenshots mit ISIN, Feldnamen und angezeigtem Datenstand oder die endgültigen Bedingungen als PDF über „Bilder / PDF hinzufügen“ hochladen. Mehrere Ausschnitte sind möglich. Nicht angezeigte Datumsangaben bleiben offen; die Handy-Uhr ersetzt keinen Datenstand.</div></details>';
+ return evidenceHtml+'<details class="small" data-missing-values style="margin-top:8px"><summary style="cursor:pointer;padding:8px 0"><strong>Fehlende Werte</strong></summary><ul>'+values.map(reason=>'<li style="margin:10px 0"><strong>'+esc(reason.startsWith('Exakter Gold-Future-Kontrakt fehlt')?'Exakter Future-Kontrakt fehlt oder ist nicht aktuell bestätigt':reason)+'</strong><br>Fundort auf der '+esc(provider)+': '+esc(missingValueLocation(reason,p))+'</li>').join('')+'</ul><div>Den Produktlink oben öffnen. Lesbare Screenshots mit ISIN, Feldnamen und angezeigtem Datenstand oder die endgültigen Bedingungen als PDF über „Bilder / PDF hinzufügen“ hochladen. Mehrere Ausschnitte sind möglich. Nicht angezeigte Datumsangaben bleiben offen; die Handy-Uhr ersetzt keinen Datenstand.</div></details>';
 }
 function renderImageImportStatus(index){
  const message=typeof document==='undefined'?'':document.getElementById('dgOcrStatus'+index)?.textContent||'';
