@@ -46,19 +46,20 @@ def parse_page(html, isin, now=None):
     if not candidates:
         raise ValueError('Kein aktuelles Geld-/Briefpaar')
     _, q = max(candidates, key=lambda item: item[0])
-    figure = data['derivativesFigure']
-    leverage = float(figure['gearingAsk'])
-    if not math.isfinite(leverage) or leverage < 1:
-        raise ValueError('Hebel fehlt')
-    # Calculation time is not the age of its inputs; preserve both explicitly.
-    dates = [clock(figure[k]) for k in ('datetimeCalculation', 'datetimeAskPrice', 'datetimePriceUnderlyingCalculation')]
-    if any(d > now for d in dates):
-        raise ValueError('Hebelzeit liegt in der Zukunft')
+    figure = data.get('derivativesFigure') or {}
+    leverage, leverage_at = None, None
+    try:
+        candidate = float(figure['gearingAsk'])
+        dates = [clock(figure[k]) for k in ('datetimeCalculation', 'datetimeAskPrice', 'datetimePriceUnderlyingCalculation')]
+        if math.isfinite(candidate) and candidate >= 1 and all(d <= now for d in dates):
+            leverage, leverage_at = candidate, min(dates).isoformat()
+    except (KeyError, TypeError, ValueError):
+        pass
     return dict(isin=isin, direction='LONG' if details['nameExerciseRight']=='CALL' else 'SHORT', bid=float(q['bid']), ask=float(q['ask']), price=float(q['ask']),
                 spread=float(q['ask'])-float(q['bid']), currency='EUR',
                 bidAt=q['datetimeBid'], askAt=q['datetimeAsk'], quoteAt=min(clock(q['datetimeBid']), clock(q['datetimeAsk'])).isoformat(),
-                leverage=leverage, leverageAt=min(dates).isoformat(),
-                leverageCalculatedAt=figure['datetimeCalculation'],
+                leverage=leverage, leverageAt=leverage_at,
+                leverageCalculatedAt=figure.get('datetimeCalculation'),
                 source='Onvista · '+q['market']['name'], sourceUrl=PAGES[isin],
                 priceKind='secondary-market', isDegiroQuote=False)
 
@@ -78,6 +79,9 @@ def fetch(isin):
             _FAILURES.pop(isin, None)
     except Exception as exc:
         code = 'HTTP_'+str(exc.code) if hasattr(exc,'code') else type(exc).__name__
+        known = {'Quellenzeit fehlt','Produktidentität stimmt nicht überein','Status oder Gold-Spot-Basiswert nicht bestätigt','Kein aktuelles Geld-/Briefpaar','Unerwartete Weiterleitung'}
+        if isinstance(exc, ValueError) and str(exc) in known:
+            code = str(exc)
         with _LOCK:
             _FAILURES[isin] = dict(state='unavailable', code=code, checkedAt=datetime.now(timezone.utc).isoformat())
         result, ttl = None, 300
@@ -112,7 +116,7 @@ def apply_backup(primary, isin, now=None):
     result.update(found=True, eligible=False, fresh=False, backupActive=True, backupStatus={'state':'active'},
                   issuerSource=primary.get('source'), issuerSourceUrl=primary.get('sourceUrl'),
                   direction=meta.get('direction'), ko=meta.get('ko'),
-                  snapshotAt=min(clock(backup[k]) for k in ('bidAt','askAt','leverageAt')).isoformat(),
+                  snapshotAt=min(clock(backup[k]) for k in ('bidAt','askAt','leverageAt') if backup.get(k)).isoformat(),
                   reason='Backup-Kurse von Onvista; Hebel mit eigenem älteren Datenstand – rechnerische Empfehlung, keine Live-Freigabe',
                   leverageNote='Onvista-Hebel mit separatem Berechnungs- und Eingangsdatenstand; kann vom Hebel beim aktuellen Briefkurs abweichen.')
     # The backup is used for indicative analysis only until complete live validation.
