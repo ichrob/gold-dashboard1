@@ -597,3 +597,20 @@ assert.equal(kb.cleanStoredProduct({isin:other,snapshot:merged}).snapshot.lifecy
 console.log('Knock-out: original SG banner, identity, no upload requests, neutral precedence, persistent terminal exclusion and non-status negative controls passed');
 
 }
+
+// A generic historical BNP list label cannot overwrite identified issuer terms.
+const genericList=JSON.parse(JSON.stringify(datedProduct));
+genericList.snapshot.terms.type={value:'BNP Unlimited',reviewed:true,source:'historical-list.jpg'};
+assert(b.productTermsStatus(genericList,bnpDateNow).complete);
+assert(b.missingValueLocation('Produkttyp nicht als Turbo / Knock-out bestätigt').includes('Typ / Produktart'));
+const endedCard=b.compactProductCard({...genericList,quote:{...genericList.quote,metadata:{status:2}}});
+assert(endedCard.includes('Keine weiteren Daten oder Screenshots erforderlich'));
+assert(!endedCard.includes('Bilder / PDF hinzufügen'));
+const factorCard=b.compactProductCard({isin:'DE000FE4UF01',name:'Gold Future Faktor'});
+assert(factorCard.includes('Faktorprodukt ausgeschlossen'));assert(!factorCard.includes('Bilder / PDF hinzufügen'));
+const fixedIssuer=JSON.parse(JSON.stringify(datedProduct));
+fixedIssuer.quote.source='SG';fixedIssuer.quote.metadata.termsDated=false;fixedIssuer.quote.metadata.termsFixed=true;delete fixedIssuer.quote.metadata.termsDate;
+for(const key of ['strike','ko'])fixedIssuer.quote.conditions[key]={value:3997.1452,source:'https://www.sg-zertifikate.de/product-details/test',conditionVerified:true,fixed:true,validUntil:'2026-12-18',reviewedAt:'2026-10-06T07:29:00Z',policySource:'https://www.sg-zertifikate.de/contentmgmt/media/c5bihw1s/bro_turbo-optionsscheine.pdf'};
+assert(b.productTermsStatus(fixedIssuer,bnpDateNow).complete);
+assert(!b.productTermsStatus(fixedIssuer,Date.parse('2026-12-18T08:00:00Z')).complete);
+console.log('Issuer terms precedence, correct missing-field label, terminal/factor cards and fixed-contract evidence passed');

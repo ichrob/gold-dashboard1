@@ -70,3 +70,74 @@ class DirectTests(unittest.TestCase):
                 self.assertTrue(out['productVerified'])
                 self.assertIn('chartEvidence',out)
                 self.assertFalse(out['eligible'])
+
+    def test_today_term_date_does_not_invent_a_quote_clock(self):
+        today=datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        self.props.append(dict(Name='StrikeBarrierUpdateTime',Value=today+'T03:35:31.247'))
+        with patch.object(q,'issuer_json',side_effect=[self.product,self.props,self.points]):
+            out=sg.get_quote(ISIN)
+        self.assertTrue(out['metadata']['termsDated'])
+        self.assertEqual(out['conditions']['ko']['value'],4400)
+        self.assertIsNone(out['conditions']['ko']['at'])
+        self.assertFalse(out['eligible'])
+        self.assertNotIn('leverageAt',out)
+
+    def test_yesterday_and_future_term_dates_remain_unconfirmed(self):
+        for offset in (-1,1):
+            sg._CACHE.clear();sg._TERMS.clear()
+            date=(datetime.now(timezone.utc)+timedelta(days=offset)).strftime('%Y-%m-%d')
+            props=self.props+[dict(Name='StrikeBarrierUpdateTime',Value=date+'T03:35:31')]
+            with patch.object(q,'issuer_json',side_effect=[self.product,props,self.points]):
+                out=sg.get_quote(ISIN)
+            self.assertFalse(out['metadata']['termsDated'])
+            self.assertNotIn('strike',out['conditions'])
+
+    def test_future_contract_is_preserved_without_spot_release(self):
+        isin='DE000FG309G0';c=q.SG_GOLD_FUTURES[isin]
+        product=dict(self.product,Isin=isin,Id=7032167,AssetNMP=c['nmp'],AssetRic=c['ric'],AssetIsin=c['isin'],AssetName=c['name'])
+        props=[dict(p,Value=isin) if p['Name']=='Isin' else p for p in self.props]
+        with patch.object(q,'issuer_json',side_effect=[product,props,self.points]):
+            out=sg.get_quote(isin)
+        self.assertEqual(out['conditions']['contract']['value'],'GCZ26')
+        self.assertIn('chartEvidence',out)
+        self.assertFalse(out['eligible'])
+
+    def test_classic_fixed_terms_keep_expiry_without_fabricated_date(self):
+        expiry=(datetime.now(timezone.utc)+timedelta(days=60)).strftime('%Y-%m-%d')
+        product=dict(self.product,ProductClassificationId=43,MaturityDate=expiry+'T00:00:00')
+        props=[dict(p,Value='Classic Turbo-Optionsscheine') if p['Name']=='ClassificationName' else p for p in self.props]
+        with patch.object(q,'issuer_json',side_effect=[product,props,self.points]):
+            out=sg.get_quote(ISIN)
+        self.assertTrue(out['metadata']['termsFixed'])
+        self.assertIsNone(out['conditions']['ko']['at'])
+        self.assertNotIn('dateText',out['conditions']['ko'])
+        self.assertEqual(out['conditions']['ko']['validUntil'],expiry)
+        self.assertFalse(out['eligible'])
+
+    def test_factor_identity_excluded_without_quote_or_properties_requests(self):
+        isin='DE000FE4UF01';c=q.SG_GOLD_FUTURES['DE000FG309G0']
+        product=dict(self.product,Isin=isin,Id=6628472,ProductClassificationId=44100,
+            AssetNMP=c['nmp'],AssetRic=c['ric'],AssetIsin=c['isin'],AssetName=c['name'])
+        with patch.object(q,'issuer_json',return_value=product) as fetch:
+            out=sg.get_quote(isin)
+        fetch.assert_called_once()
+        self.assertTrue(out['excluded']);self.assertTrue(out['productVerified'])
+        self.assertFalse(out['eligible'])
+
+    def test_different_products_do_not_share_network_lock(self):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        first=threading.Event();release=threading.Event()
+        other='DE000FG5GUT0'
+        def fetch(url,origin,timeout):
+            if url.endswith('/Products/'+ISIN):
+                first.set();release.wait(2);raise TimeoutError()
+            raise TimeoutError()
+        with patch.object(q,'issuer_json',side_effect=fetch), ThreadPoolExecutor(max_workers=2) as pool:
+            blocked=pool.submit(sg.get_quote,ISIN)
+            self.assertTrue(first.wait(1))
+            try:
+                out=pool.submit(sg.get_quote,other).result(timeout=1)
+                self.assertTrue(out['sourceFailure'])
+            finally:release.set()
+            blocked.result(timeout=1)
