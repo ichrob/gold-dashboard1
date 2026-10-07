@@ -59,6 +59,8 @@ def apply(result, now=None):
     m = result.get('metadata', {})
     if not result.get('productVerified') or m.get('status') != 1:
         return result
+    if 'simpleNonQuantoTurbo' not in m:
+        return result
     if not m.get('simpleNonQuantoTurbo'):
         return dict(result,leverageCalculation=dict(available=False,
             reason='Berechnungsmodell nicht bestätigt: SG-Angabe zur Währungsabsicherung oder zum einfachen Turbo-Modell fehlt'))
