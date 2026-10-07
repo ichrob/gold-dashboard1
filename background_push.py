@@ -132,7 +132,16 @@ def advance(previous, settings, market, general, trade_enabled, now=None):
         state.pop('trade', None)
         return state, []
     events = []
+    def audit(kind, outcome, reason):
+        history = state.setdefault('pushHistory', [])
+        # Keep a bounded durable history without adding an entry every tick.
+        if history and history[-1]['kind'] == kind and history[-1]['outcome'] == outcome and now-history[-1]['at'] < 300000:
+            return
+        history.append({'at': now, 'kind': kind, 'outcome': outcome, 'reason': reason})
+        del history[:-50]
+        print('BOB_PUSH_DECISION '+json.dumps({'kind': kind, 'outcome': outcome, 'reason': reason[:160]}, ensure_ascii=True), flush=True)
     def add(kind, title, reason, channel='trade'):
+        audit(kind, 'planned', reason[:160])
         product=(settings.get('trade') or {}).get('product') if channel=='trade' else None
         if product:
             reason=product['isin']+' · '+reason+' · Modellreferenz '+product['referenceAt']+'; konstante FX-/Produktbedingungen. Kein bestätigter DEGIRO-Kurs.'
@@ -141,21 +150,46 @@ def advance(previous, settings, market, general, trade_enabled, now=None):
                                 'expiresAt': now+180000, 'tradeId': (settings.get('trade') or {}).get('tradeId')}})
     healthy = market.get('ready') is True and market.get('priceFresh') is True
     channel = 'trade' if trade_enabled and settings.get('trade') else 'general'
-    if state.get('healthy') != healthy:
+    # Notification debounce never makes unhealthy data eligible for analysis.
+    announced = state.setdefault('announcedHealthy', state.get('healthy', True))
+    pending = state.get('healthPending')
+    if healthy == announced:
+        state.pop('healthPending', None)
+    elif not pending or pending['value'] != healthy:
+        state['healthPending'] = {'value': healthy, 'since': now, 'count': 1, 'checkedAt': now}
+    elif now-pending['checkedAt'] >= 25000:
+        pending.update(count=pending['count']+1, checkedAt=now)
+    pending = state.get('healthPending')
+    confirmed = pending and pending['count'] >= (2 if healthy else 3) and now-pending['since'] >= (30000 if healthy else 60000)
+    if healthy != announced and not confirmed:
+        audit('data-status', 'suppressed', 'Statuswechsel noch nicht mehrfach bestätigt')
+    if confirmed:
         if not healthy:
             reason = ('Die Hintergrundanalyse ist fehlgeschlagen. Eine aktuelle Bewertung und Trade-Überwachung sind nicht bestätigt.'
-                      if market.get('analysisError') else 'Aktuelle Markt-/Analysedaten fehlen. Berechnung mit vorhandenen Werten läuft weiter; keine aktuelle Bestätigung.')
+                      if market.get('analysisError') else 'Aktualität oder zeitliche Abstimmung der vorhandenen Markt-/Analysedaten nicht bestätigt. Berechnung mit vorhandenen Werten läuft weiter; Überwachung eingeschränkt.')
             add('data-unavailable', 'DATENSTATUS · Überwachung eingeschränkt', reason, channel)
-        elif state.get('healthy') is False:
+        else:
             add('data-recovered', 'DATENSTATUS · Überwachung fortgesetzt', 'Aktuelle Daten wieder vorhanden. Keine Entwarnung für einen Trade.', channel)
+        state['announcedHealthy'] = healthy
+        state.pop('healthPending', None)
     state['healthy'] = healthy
     direction = market.get('direction', 'NEUTRAL') if healthy else 'NEUTRAL'
     mtf = market.get('mtf', 'NEUTRAL') if healthy else 'NEUTRAL'
     if general and healthy:
-        if direction in ('LONG','SHORT') and direction != state.get('direction'):
+        notified = state.setdefault('notifiedDirection', state.get('direction'))
+        pending = state.get('signalPending')
+        if direction not in ('LONG', 'SHORT') or direction == notified:
+            state.pop('signalPending', None)
+        elif not pending or pending['direction'] != direction:
+            state['signalPending'] = {'direction': direction, 'since': now, 'dataAt': market.get('dataAt')}
+            audit('signal-change', 'suppressed', 'Richtung wartet auf erneute aktuelle Bestätigung')
+        elif now-pending['since'] >= 30000 and positive(market.get('dataAt')) and market['dataAt'] != pending['dataAt']:
             add('signal-change', 'MARKTSIGNAL · '+direction, 'Bestätigtes Bob-Signal '+direction+' · MTF '+mtf+'. Keine Produktfreigabe.', 'general')
-        elif mtf in ('LONG','SHORT') and mtf == direction and mtf != state.get('mtf'):
-            add('mtf-change', 'MARKTSIGNAL · MTF '+mtf, 'Multi-Timeframe-Ausrichtung geändert. Keine Produktfreigabe.', 'general')
+            state['notifiedDirection'] = direction
+            state.pop('signalPending', None)
+        # MTF confirmation is included in the direction message, never a second alert.
+    else:
+        state.pop('signalPending', None)
     if healthy:
         state.update(direction=direction, mtf=mtf)
     t = settings.get('trade') if trade_enabled else None
@@ -180,6 +214,9 @@ def advance(previous, settings, market, general, trade_enabled, now=None):
         return state, events
     p, stop, entry, risk = market['price'], old['stop'], t['entry'], t['initialRisk']
     personal, model = t.get('personalRisk'), t.get('product')
+    if model and (p <= model['ko'] if t['dir']=='LONG' else p >= model['ko']) and not old.get('koSent'):
+        add('ko-hit', 'TRADE-WARNUNG · KO-Barriere erreicht', 'Goldreferenz erreicht die gespeicherte KO-Barriere. Produktstatus bei DEGIRO prüfen; kein bestätigter Emittentenstatus.')
+        old['koSent'] = True
     if personal and model:
         budget = personal['account'] * personal['percent'] / 100
         estimated = product_price(model, p)
@@ -195,8 +232,14 @@ def advance(previous, settings, market, general, trade_enabled, now=None):
     reached = p<=stop if long else p>=stop
     near = max((market.get('atr') or 0)*.25, 1)
     phase = 'hit' if reached else 'near' if abs(p-stop)<=near else 'clear'
-    if phase != old.get('stopPhase') and phase != 'clear':
+    send_hit = reached and not old.get('stopHitSent')
+    send_near = phase == 'near' and phase != old.get('stopPhase') and now-old.get('stopNearAt', -300000) >= 300000 and not old.get('stopHitSent')
+    if send_hit or send_near:
         add('stop-'+phase, 'TRADE-WARNUNG · '+('Stop erreicht' if reached else 'Stop wird knapp'), f"{t['dir']} · Modell-Stop {level_text(t,stop)}. Position prüfen.")
+        if reached:
+            old['stopHitSent'] = True
+        else:
+            old['stopNearAt'] = now
     old['stopPhase'] = phase
     target = old.get('target')
     target_hit = positive(target) and (p>=target if long else p<=target)
@@ -221,8 +264,16 @@ def advance(previous, settings, market, general, trade_enabled, now=None):
     candidate = market.get('suggestedStop')
     if positive(candidate) and (candidate<p if long else candidate>p):
         desired = max(desired,candidate) if long else min(desired,candidate)
+    notified_stop = old.get('notifiedStop', stop)
+    change = abs(desired-notified_stop)
+    minimum = max((market.get('atr') or 0)*.25, risk*.1, .01)
+    if change >= minimum and now-old.get('stopUpdateAt', -300000) >= 300000:
+        add('profit-protection' if stage else 'trailing-stop', 'TRADE-WARNUNG · Stop nachziehen', f"{t['dir']} · Neuer Modell-Stop {level_text(t,desired)} (zuletzt gemeldet {level_text(t,notified_stop)}); {r:.1f}R (Goldplan). Bei DEGIRO selbst anpassen.")
+        old.update(notifiedStop=desired, stopUpdateAt=now)
+    elif change > .0001:
+        audit('trailing-stop', 'suppressed', 'Änderung zu klein oder letzte Meldung weniger als fünf Minuten her')
+    old.setdefault('notifiedStop', stop)
     if abs(desired-stop)>.0001:
-        add('profit-protection' if stage else 'trailing-stop', 'TRADE-WARNUNG · Stop nachziehen', f"{t['dir']} · Neuer Modell-Stop {level_text(t,desired)} (vorher {level_text(t,stop)}); {r:.1f}R (Goldplan). Bei DEGIRO selbst anpassen.")
         old['stop'] = desired
     # Extend only after the old objective is reached and a new closed bar confirms continuation.
     candidate = market.get('suggestedTarget')
@@ -245,3 +296,4 @@ def advance(previous, settings, market, general, trade_enabled, now=None):
         add('profit-weak', 'TRADE-WARNUNG · Gewinn schützen', f"{t['dir']} · Momentum schwächer bei {r:.1f}R (Goldplan). Stop/Position prüfen.")
     old['weak'] = weak and r>=1 and product_in_profit
     return state, events
+

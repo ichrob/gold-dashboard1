@@ -41,8 +41,24 @@ def webpush(**kwargs):
     # Never hold subscription locks indefinitely on an unreachable push provider.
     kwargs['timeout'] = 8
     try:
-        return _webpush(**kwargs)
+        message = json.loads(kwargs.get('data') or '{}')
+        data = message.get('data') or {}
+        kinds = data.get('events') or [data.get('eventKind') or data.get('kind') or 'unknown']
+    except (ValueError, TypeError, AttributeError):
+        kinds = ['unknown']
+    def log(outcome, status=None):
+        # Provider acceptance does not prove that Android displayed the message.
+        print('BOB_PUSH_DELIVERY '+json.dumps({'events': kinds, 'outcome': outcome,
+              'status': status, 'at': int(time.time()*1000)}), flush=True)
+    try:
+        result = _webpush(**kwargs)
+        log('provider-accepted', getattr(result, 'status_code', None))
+        return result
+    except WebPushException as exc:
+        log('failed', getattr(getattr(exc, 'response', None), 'status_code', None))
+        raise
     except RequestException as exc:
+        log('failed-network')
         raise WebPushException('Push provider connection failed') from exc
 
 
@@ -285,7 +301,7 @@ def run_background(bundle):
             delivered = True
             if events:
                 # One delivery/checkpoint per device, so a failure cannot consume an alert.
-                priority = {'stop-hit':0,'reversal':1,'target':2}
+                priority = {'ko-hit':-1,'stop-hit':0,'reversal':1,'target':2}
                 events.sort(key=lambda e:priority.get(e['data']['eventKind'],3))
                 message = dict(events[0])
                 message['body'] = ' | '.join(e['body'] for e in events)
@@ -302,6 +318,11 @@ def run_background(bundle):
                 try:
                     webpush(subscription_info=sub,data=json.dumps(message,separators=(',',':')),vapid_private_key=vapid(),vapid_claims={'sub':VAPID_SUBJECT},ttl=180)
                     sent += 1
+                    history = state.setdefault('pushHistory', [])
+                    history.append({'at': int(time.time()*1000), 'kind': 'delivery',
+                                    'outcome': 'provider-accepted',
+                                    'events': [e['data']['eventKind'] for e in events]})
+                    del history[:-50]
                 except WebPushException as exc:
                     delivered=False
                     if getattr(getattr(exc,'response',None),'status_code',None) in (404,410):
@@ -695,3 +716,4 @@ if __name__ == "__main__":
     print("BOB_PUSH startup=ready", flush=True)
     threading.Thread(target=product_expiry_loop, name="bob-product-expiry", daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+
