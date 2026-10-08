@@ -105,7 +105,7 @@ assert(secondaryUi.includes('Abweichender Wert'));assert(secondaryUi.includes('n
 assert(b.renderSecondaryValidity({secondaryValidity:{state:'checking',sources:[]}}).includes('Hintergrund'));
 
 assert(b.productDataStatus(p,now).complete,JSON.stringify(b.productDataStatus(p,now)));
-assert(b.productCompletionBadge(p,now).includes('data-series-complete'));
+assert.equal(b.productCompletionBadge(p,now),'','the redundant completion badge was intentionally removed');
 assert(!b.finalProductStatus(p,now).complete,'analysis completeness must not grant live release');
 assert(!b.productDataStatus(p,now+15*3600000).complete,'expired series');
 for(const mutate of [
@@ -121,7 +121,8 @@ console.log('Series analysis completeness separated from live validity, with ide
 
 ctx.Date=class extends Date {static now(){return now;}};
 const neutralCard=b.compactProductCard(p,b.finalProductStatus(p,now).reasons,'Marktsignal neutral');
-assert(neutralCard.includes('data-series-complete'));
+assert(!neutralCard.includes('data-series-complete'));
+assert(neutralCard.includes('Aktualität nicht bestätigt'));
 assert(neutralCard.includes('Aktuelle Auswahl:</b> nicht ausgewählt'));
 assert(neutralCard.includes('Marktsignal neutral'));
 assert(neutralCard.includes('Live-Freigabe'));

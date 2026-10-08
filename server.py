@@ -668,6 +668,7 @@ def sanitize_client_diagnostic(payload):
     # market-data or MTF server failure, so keep old clients honest as well.
     if event == "mtf:server-error" and safe.get("error") == "HTTP 401":
         event = "mtf:verification-skipped"
+        safe.pop("error", None)
         safe["reason"] = "Serverprüfung wegen abgelaufener Bob-Anmeldung ausgesetzt"
     return event, safe
 
