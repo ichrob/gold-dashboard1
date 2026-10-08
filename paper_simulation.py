@@ -308,6 +308,7 @@ def run_once(conn,bundle,market,selection,quotes,now):
 
 # Independent bounded worker: product network calls never delay /background or Push.
 _guard=threading.Lock();_latest=None;_thread=None
+_bundle_ready=threading.Event()
 _pool=None;_pending={};_quotes={};_requested={}
 def quote_cache(products, active, now):
     global _pool
@@ -328,8 +329,10 @@ def quote_cache(products, active, now):
 
 def _worker(db):
     while True:
-        began=time.monotonic()
-        with _guard:bundle=_latest
+        _bundle_ready.wait(timeout=30)
+        with _guard:
+            _bundle_ready.clear()
+            bundle=_latest
         if bundle:
             try:
                 with db() as conn:
@@ -366,11 +369,11 @@ def _worker(db):
                         conn.commit()
                         print('BOB_PAPER checked direction='+str(market.get('direction'))+' ready='+str(market.get('ready'))+' priceFresh='+str(market.get('priceFresh'))+' reason='+str(market.get('analysisWarnings') or market.get('decisionReason')),flush=True)
             except Exception as exc:print('BOB_PAPER error='+type(exc).__name__,flush=True)
-        time.sleep(max(1,30-(time.monotonic()-began)))
 
 def enqueue(bundle, db):
     global _latest,_thread
     with _guard:
         _latest=bundle
+        _bundle_ready.set()
         if _thread is None or not _thread.is_alive():
             _thread=threading.Thread(target=_worker,args=(db,),daemon=True,name='bob-paper-simulation');_thread.start()
