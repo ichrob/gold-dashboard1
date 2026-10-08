@@ -73,3 +73,26 @@ def advance_monitor(monitor, bars, now_ms=None):
                                direction=state['direction'], timeframe=state['timeframe'], instrument=state['instrument'], candleClosedAt=closed_at))
         state.update(processedAt=closed_at, previousClose=close)
     return state, alerts, 'active'
+
+
+def notification_alerts(checkpoint, alerts, now_ms=None):
+    """Filter advisory Fib pushes; persist returned cooldown only after delivery."""
+    now_ms = time.time()*1000 if now_ms is None else now_ms
+    state = dict(checkpoint)
+    notified = dict(state.get('notifiedLevels') or {})
+    adverse = [event for event in alerts if not event['favorable']]
+    if not adverse:
+        return state, []
+    latest = max(event['candleClosedAt'] for event in adverse)
+    selected = []
+    for event in adverse:
+        if event['candleClosedAt'] != latest:
+            continue
+        key = event['level']
+        last = notified.get(key)
+        if last is not None and now_ms-last < 15*60*1000:
+            continue
+        selected.append(event)
+        notified[key] = now_ms
+    state['notifiedLevels'] = notified
+    return state, selected
