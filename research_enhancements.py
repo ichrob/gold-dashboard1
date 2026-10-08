@@ -227,6 +227,7 @@ def handle(connect, payload):
             result['frames'] = []
     result['frameStatus'] = ('Videovorschaubilder gespeichert.' if result['frames'] else
         'Keine zeitlich zugeordneten Videobilder öffentlich abrufbar. Der Videoplayer bleibt verfügbar.')
+    print('BOB_RESEARCH_ENHANCEMENT video='+identity+' summary='+str(bool(result.get('summary'))).lower()+' free_access_configured='+str(bool(key)).lower()+' frames='+str(len(result['frames'])), flush=True)
     return result
 
 
@@ -246,5 +247,5 @@ def request(identity, segments, player, moments):
             raise ValueError('Invalid response')
         return data
     except Exception:
-        return {'summaryStatus': 'Zusätzliche KI-Zusammenfassung derzeit nicht abrufbar.', 'frames': [],
+        return {'unavailable': True, 'summaryStatus': 'Zusätzliche KI-Zusammenfassung derzeit nicht abrufbar.', 'frames': [],
                 'frameStatus': 'Gespeicherte Videobilder derzeit nicht abrufbar.'}

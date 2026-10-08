@@ -232,7 +232,7 @@ def collect(now=None, fetch=download):
         import youtube_research
         for item in [x for x in items if x['kind']=='YouTube'][:3]:youtube_research.enrich(item)
     return dict(version='mco-gold-research-v3',checkedAt=now,intervalSeconds=INTERVAL,sources=sources,items=items,
-        method='Nur Gold-Videos des bestätigten Kanals MCO Markets. Neue Videos werden alle 15 Minuten gesucht; bis zu drei Videos je Lauf werden auf abrufbare Untertitel geprüft. Kurzer Kontext aus dem tatsächlich gelesenen Transkript mit Quellenstellen. Textregeln, keine KI-Sprach- oder Chartanalyse; fehlender Text bleibt ungeprüft.')
+        method='Nur Gold-Videos des bestätigten Kanals MCO Markets. Neue Videos werden alle 15 Minuten gesucht; bis zu drei Videos je Lauf werden auf abrufbare Untertitel geprüft. Kurzer Kontext aus dem tatsächlich gelesenen Transkript mit Quellenstellen. Richtungsbewertung mit Textregeln; zusätzliche KI-Zusammenfassung und gespeicherte Videovorschaubilder abhängig vom ausgewiesenen Abrufstatus. Keine KI-Chartanalyse; fehlender Text bleibt ungeprüft.')
 
 
 def summarize(report, now=None):
