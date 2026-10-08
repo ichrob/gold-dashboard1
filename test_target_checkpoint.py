@@ -43,4 +43,21 @@ class FxTarget(unittest.TestCase):
         self.assertIn('23.9000 EUR',event['body'])
         self.assertIn('geschätzt',event['body'])
 
+class ContinuedCalculation(unittest.TestCase):
+    def test_outage_keeps_original_clock_and_recalculates(self):
+        settings=b.config({'trade':{'active':True,'tradeId':'cached','instrument':'XAU/USD','dir':'LONG','entry':100,'stop':90,'initialRisk':10,'target':120}})
+        state,_=b.advance({},settings,{'ready':True,'priceFresh':True,'price':105,'dataAt':100000},False,True,now=100000,log=False)
+        for now in (130000,160000,200000):
+            state,events=b.advance(state,settings,{'ready':False,'priceFresh':False,'analysisError':True},False,True,now=now,log=False)
+            calc=state['continuedCalculation']
+            self.assertEqual(calc['dataAt'],100000)
+            self.assertEqual(calc['computedAt'],now)
+            self.assertEqual(calc['stopDistance'],15)
+            self.assertTrue(calc['stale'])
+            self.assertFalse(any(e['data']['eventKind'] in ('target','stop','target-extension') for e in events))
+        self.assertTrue(any(e['data']['eventKind']=='data-unavailable' for e in events))
+        state,_=b.advance(state,settings,{'ready':True,'priceFresh':True,'price':106,'dataAt':230000},False,True,now=230000,log=False)
+        self.assertFalse(state['continuedCalculation']['stale'])
+        self.assertEqual(state['continuedCalculation']['dataAt'],230000)
+
 if __name__=='__main__':unittest.main()
