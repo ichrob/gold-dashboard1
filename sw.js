@@ -1,4 +1,4 @@
-const CACHE_VERSION = "bob-shell-v22";
+const CACHE_VERSION = "bob-shell-v23";
 
 self.addEventListener("install", event => { self.skipWaiting(); });
 self.addEventListener("activate", event => {
@@ -16,8 +16,8 @@ self.addEventListener("push", event => {
   const title = data.title || "Bob";
   const options = {
     body: data.body || "",
-    icon: data.icon || "/icon.svg?v=3",
-    badge: data.badge || "/icon.svg?v=3",
+    icon: data.icon || "/icon.svg?v=4",
+    badge: data.badge || "/icon.svg?v=4",
     tag: data.tag || "bob",
     renotify: Boolean(data.renotify),
     requireInteraction: Boolean(data.requireInteraction),
