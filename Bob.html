@@ -556,7 +556,11 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
      node('small','Video-ID: '+(url.searchParams.get('v')||x.id)),
      node('p','Kursbericht: '+x.trend+' · Ausblick: '+x.outlook+' · Horizont: '+x.horizon),node('p',x.excerpt),node('small',x.reason+(x.articleStatus?' · '+x.articleStatus:'')));
     if(x.listingInfo)box.append(node('p','YouTube-Angabe: '+x.listingInfo));
-    if(x.overview)renderOverview(box,x,url);
+    if(x.enhancements)renderEnhancements(box,x,url);
+    if(x.overview){
+     if(x.enhancements&&x.enhancements.summary){const original=node('details','');original.append(node('summary','Zusätzlicher Überblick aus Originalsätzen'));renderOverview(original,x,url);box.append(original);}
+     else renderOverview(box,x,url);
+    }
     else if(x.context)box.append(node('p',(x.contextKind||'Kontext')+': '+x.context));
     if(x.transcriptWords)box.append(node('p','Transkript: '+x.transcriptWords+' Wörter · '+x.transcriptLanguage+(x.automaticCaptions?' · automatisch erzeugt':'')));
     for(const at of (x.overview?[]:x.goldMoments)||[]){const jump=node('a','Gold-Stelle '+Math.floor(at/60)+':'+String(at%60).padStart(2,'0')+' ');const target=new URL(x.url);target.searchParams.set('t',String(at));jump.href=target.href;jump.target='_blank';jump.rel='noopener noreferrer';box.append(jump);}
@@ -565,6 +569,35 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    $('goldResearchItems').replaceChildren(...(rows.length?rows:[node('p','Keine passenden Beiträge verfügbar. Fehlende Quellen werden nicht als neutrale Meinung gezählt.')]));
   }catch(e){$('goldResearchStatus').textContent=e.message;$('goldResearchConsensus').textContent='ABWARTEN · Recherche nicht aktuell';$('goldResearchConsensus').className='signal neutral';$('goldResearchCounts').textContent='Vorherige Ergebnisse derzeit nicht bestätigt.';}
   finally{clearTimeout(timer);busy=false;}
+ }
+ function renderEnhancements(box,item,url){
+  const extra=item.enhancements;
+  if(extra.summary&&extra.summary.kind==='ai'){
+   box.append(node('h4','KI-Gesamtzusammenfassung'),node('small',extra.summary.scope));
+   for(const section of extra.summary.sections||[]){
+    box.append(node('h5',section.label),node('p',section.text));
+    const evidence=node('details','');evidence.append(node('summary','Originalstellen zu diesem Abschnitt'));
+    for(const source of section.evidence||[]){
+     evidence.append(node('blockquote',source.text));
+     if(Number.isFinite(source.at)&&source.at>=0&&source.at<=86400){
+      const at=Math.floor(source.at),link=node('a',Math.floor(at/60)+':'+String(at%60).padStart(2,'0')+' im Video');
+      const target=new URL(url);target.searchParams.set('t',String(at));link.href=target.href;link.target='_blank';link.rel='noopener noreferrer';evidence.append(link);
+     }
+    }
+    box.append(evidence);
+   }
+   box.append(node('small',extra.summary.note));
+  }else box.append(node('p',extra.summaryStatus||'KI-Zusammenfassung noch nicht verfügbar.'));
+  const frames=(extra.frames||[]).filter(f=>typeof f.dataUrl==='string'&&/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(f.dataUrl)&&f.dataUrl.length<140000).slice(0,3);
+  if(frames.length){
+   const gallery=node('details','');gallery.append(node('summary','Gespeicherte Bilder aus dem Video'));
+   for(const frame of frames){
+    const figure=node('figure',''),img=document.createElement('img');img.src=frame.dataUrl;img.alt=frame.label+' – YouTube-Zeitleistenvorschau';img.loading='lazy';img.style.cssText='display:block;width:100%;max-width:640px;height:auto';
+    const at=Math.floor(frame.at),link=node('a','Videostelle ca. '+Math.floor(at/60)+':'+String(at%60).padStart(2,'0'));const target=new URL(url);target.searchParams.set('t',String(at));link.href=target.href;link.target='_blank';link.rel='noopener noreferrer';
+    figure.append(img,node('figcaption',frame.label+' · '+frame.source),link);gallery.append(figure);
+   }
+   box.append(gallery);
+  }else box.append(node('small',extra.frameStatus||'Noch keine gespeicherten Videobilder.'));
  }
  function renderOverview(box,item,url){
   const overview=item.overview, evidence=new Map((overview.evidence||[]).map(e=>[e.id,e]));
@@ -2875,6 +2908,7 @@ setInterval(()=>{ if(document.visibilityState==="visible"){loadData();syncPushPr
 
 
 </body></html>
+
 
 
 

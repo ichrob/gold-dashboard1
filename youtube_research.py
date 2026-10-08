@@ -169,7 +169,8 @@ def analyze(url, fetch=read_url, *, verified_item=None):
             try:
                 raw=fetch(caption_url)
                 if not raw.strip():continue
-                result=assess(parse_captions(raw),track['languageCode'],track.get('kind')=='asr')
+                segments=parse_captions(raw)
+                result=assess(segments,track['languageCode'],track.get('kind')=='asr')
             except (OSError, ValueError, ET.ParseError):
                 continue
             break
@@ -177,11 +178,18 @@ def analyze(url, fetch=read_url, *, verified_item=None):
             if fetch is not read_url:raise ValueError('Untertitel vorhanden, aber kein Text abrufbar')
             import research_transcript_provider
             supplied=research_transcript_provider.request(identity)
-            result=assess(supplied['segments'],supplied['language'])
+            segments=supplied['segments']
+            result=assess(segments,supplied['language'])
             result['automaticCaptions']=None
             result['reason']='Übermittelte Untertitel regelbasiert geprüft; automatische oder manuelle Herkunft nicht bestätigt. Keine KI-Sprach- oder Chartanalyse.'
             result['coverage']='Untertitel über zusätzlichen Transkript-Dienst (Textregeln)'
             result['transcriptProvider']=supplied['provider']
+        if fetch is read_url:
+            import research_enhancements
+            extra=research_enhancements.request(identity,segments,p,(result.get('overview') or {}).get('moments',[]))
+            result['enhancements']=extra
+            if extra.get('summary'):
+                result['reason']='Richtungsbewertung aus Untertiteln mit Textregeln; zusätzliche KI-Zusammenfassung mit Originalbelegen. Keine KI-Chartanalyse.'
         result.update(videoId=identity,title=d.get('title','YouTube-Video')[:240],channelId=d.get('channelId'),publisher=d.get('author','Unbekannter Kanal')[:160],publishedDate=micro.get('publishDate'),checkedAt=now,url='https://www.youtube.com/watch?v='+identity)
         if fetch is read_url:
             with _lock:
@@ -308,3 +316,4 @@ def from_screenshot(payload):
         return {'ok':True,'resolved':resolved,'item':item}
     except Exception as exc:
         return {'ok':False,'resolved':resolved,'error':str(exc) if isinstance(exc,ValueError) else 'Video erkannt, aber Untertitel derzeit nicht abrufbar. Keine Inhaltsanalyse möglich.'}
+

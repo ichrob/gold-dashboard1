@@ -9,6 +9,7 @@ import fibonacci_monitor
 import background_push
 import bob_session_store
 import research_transcript_provider
+import research_enhancements
 import bob_market_store
 import bob_validation_store
 import decision_audit
@@ -82,6 +83,7 @@ def _init_db_once():
         bob_session_store.init(conn)
         bob_market_store.init(conn)
         research_transcript_provider.init(conn)
+        research_enhancements.init(conn)
         bob_validation_store.init(conn)
         decision_audit.init(conn)
         conn.execute("""
@@ -163,7 +165,7 @@ def cors(handler):
 
 def json_body(handler):
     length = int(handler.headers.get("Content-Length", "0") or 0)
-    if length <= 0 or length > (1048576 if urlparse(handler.path).path in ("/selection", "/background") else 65536):
+    if length <= 0 or length > (1048576 if urlparse(handler.path).path in ("/selection", "/background", "/research-enhancement/read") else 65536):
         raise ValueError("Ungültige Payload-Größe")
     return json.loads(handler.rfile.read(length).decode("utf-8"))
 
@@ -410,6 +412,15 @@ class Handler(BaseHTTPRequestHandler):
                     result=bob_validation_store.handle(conn,path.rsplit('/',1)[-1],payload)
                     conn.commit()
                 send_json(self,200,result)
+                return
+            if path=='/research-enhancement/read':
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'})
+                    return
+                payload=json_body(self)
+                if not isinstance(payload,dict):raise ValueError('Ungültige Recherche-Anfrage')
+                send_json(self,200,research_enhancements.handle(db,payload))
                 return
             if path=='/research-transcript/read':
                 supplied=self.headers.get('X-Bob-Push-Token','')
@@ -726,6 +737,7 @@ if __name__ == "__main__":
     print("BOB_PUSH startup=ready", flush=True)
     threading.Thread(target=product_expiry_loop, name="bob-product-expiry", daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+
 
 
 

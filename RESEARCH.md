@@ -34,4 +34,25 @@ Der automatische Lauf verwendet seine bereits bestätigte Kanalliste für den Er
 
 Originalaussagen sind aufklappbar und mit dem Beginn ihres Untertitelsegments verlinkt. Bis zu drei Textstellen öffnen auf ausdrücklichen Klick einen YouTube-NoCookie-Player mit Startzeit; keine externen Playeranfragen beim bloßen Anzeigen des Berichts. Die Einbettung zeigt echte Videobilder, aber keine exportierten Standbilder; der konkrete Chartinhalt wurde nicht visuell geprüft. Falls der Anbieter Einbettungen sperrt, bleibt ein direkter YouTube-Zeitlink verfügbar. Eingefügte Transkripte ohne verlässliche Zeitmarken erhalten keine erfundenen Belegzeiten oder Playerstellen.
 
-Die freie KI-Gesamtzusammenfassung und automatische Standbildextraktion bleiben offen. Die dokumentierte Supadata-Extraktion kostet 5 Credits pro angefangener Videominute und wird wegen des bestehenden kostenlosen Kontingents nicht aktiviert. Referenzen: https://docs.supadata.ai/get-extract und https://developers.google.com/youtube/player_parameters .
+Ergänzung: Die Anbindung für freie KI-Zusammenfassungen und gespeicherte Zeitleisten-Vorschaubilder ist implementiert; Aktivierung und erfolgreicher Live-Abruf sind getrennt nachzuweisen. Die dokumentierte Supadata-Extraktion kostet 5 Credits pro angefangener Videominute und wird wegen des bestehenden kostenlosen Kontingents nicht aktiviert. Referenzen: https://docs.supadata.ai/get-extract und https://developers.google.com/youtube/player_parameters .
+
+
+
+## KI-Zusammenfassung und gespeicherte Videobilder (8. Oktober, abends)
+
+`research_enhancements.py` ergänzt den regelbasierten Überblick, ohne dessen Richtungsstimme zu ändern. Der interne token-geschützte Endpunkt `/research-enhancement/read` erhält nur das bereits dem öffentlichen MCO-Gold-Video zugeordnete Transkript und seine Videostellen. Manuell eingefügte, ungeprüfte Texte werden nicht übertragen.
+
+Die Gemini-Anbindung über `generateContent` verwendet `gemini-2.5-flash-lite`, das am 8. Oktober 2026 im Standard-Free-Tier mit kostenlosem Text-Eingang/Ausgang dokumentiert ist. Voraussetzung: **ein Google-AI-Studio-Projekt ohne aktivierte Abrechnung**. Ein API-Schlüssel allein beweist den Tarif nicht. Deshalb bleiben externe KI-Anfragen aus, bis im bestehenden Render-Pushdienst beides hinterlegt ist:
+
+- `GEMINI_API_KEY`: Schlüssel ausschließlich serverseitig als Geheimnis hinterlegen.
+- `BOB_GEMINI_FREE_PROJECT=confirmed-no-billing`: erst setzen, nachdem fehlende Abrechnung beim Projekt bestätigt wurde. Nicht auf einem abgerechneten Projekt aktivieren.
+
+Bob aktiviert weder Abrechnung noch automatische Aufladung und verwendet keine kostenpflichtigen Ersatzanbieter. Es gibt keine allgemeine API-Option „nur kostenlos“: Die entscheidende Kostensperre ist das Projekt ohne Abrechnung. Zusätzlich reserviert PostgreSQL maximal zehn Versuche pro rollenden 24 Stunden und einen pro Minute; Fehlschläge zählen mit. Pro Video gilt nach einem Versuch eine 24-Stunden-Pause. Bei Quotenfehlern, unvollständigen Antworten oder fehlenden Belegen bleibt der Originalsatz-Überblick erhalten. Keine automatischen Wiederholungen innerhalb desselben Aufrufs. Erfolgreiche Zusammenfassungen werden nach Transkript-Hash wiederverwendet. Google kann Daten im kostenlosen Tarif zur Produktverbesserung verwenden; übertragen werden hier ausschließlich die öffentlichen Video-Untertitel, keine Produkt-, Konto- oder Trade-Daten.
+
+Die gesamte übermittelte Segmentliste wird in einer Anfrage verarbeitet. Deutschsprachige Abschnitte referenzieren Originalsegmente; neue numerische Tokens außerhalb ihrer Belegstellen werden verworfen. Das beweist keine semantische Fehlerfreiheit oder lückenlose Videodeckung. Aussagen gelten als Autorensicht, nicht als aktuelle Goldkurse. Charts werden nicht von der KI ausgewertet.
+
+Standbilder stammen ausschließlich aus öffentlich bereitgestellten YouTube-Storyboard-Spezifikationen des überprüften Videos. Sie sind niedrig aufgelöste Zeitleisten-Vorschaubilder, keine sekundengenauen HD-Frames. Bob verwendet deren deklariertes Zeitintervall, lädt höchstens drei benötigte JPEG-Tafeln von `i.ytimg.com/sb/<videoId>/` ohne Weiterleitungen und speichert die ausgeschnittenen Originalbilder als JSONB in PostgreSQL. Keine Video-Downloads, Anmeldedaten, Umgehungsdienste oder generierten Ersatzbilder. Bei nicht lesbaren Metadaten, fehlender Zeitzuordnung oder Bildern bleibt der Player erhalten; ein Fehlschlag pausiert 24 Stunden. Der Bildinhalt wird nicht als Chartanalyse ausgegeben. Zusammenfassungen/Bilder werden 32 Tage nach letzter Speicherung bereinigt.
+
+Tests: vollständige Segmentübertragung einschließlich später Aussagen, Pflichtbelege, Zahlenprüfung, unvollständige Antworten, Kostensperre ohne bestätigtes Free-Projekt, Kontingentsperre, Cache-Wiederverwendung, keine Geheimnisse in Fehlern, Host-/Video-Zuordnung und richtige Bildzelle/Zeit.
+
+Quellen: https://ai.google.dev/gemini-api/docs/pricing und https://ai.google.dev/api/generate-content
