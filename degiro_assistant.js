@@ -1388,7 +1388,7 @@ function renderTestScreenshotRequest(p){
 function renderIssuerHelp(p,reasons){
  if(!reasons?.length||!validIsin(p.isin))return '';
  const issuer=productIssuerLabel(p),url=p.isin==='DE000FG34XV8'?'https://www.sg-zertifikate.ch/product-details/159787428':issuer==='SG'?'https://www.sg-zertifikate.de/product-details/'+p.isin.slice(5,11).toLowerCase():issuer==='BNP'?'https://derivate.bnpparibas.com/product-details/'+p.isin+'/':null;
- return '<div class="small" data-issuer-help style="margin:10px 0">'+(url?'<a data-screenshot-product="'+esc(p.isin)+'" href="'+esc(url)+'" target="_blank" rel="noopener noreferrer">'+esc(issuer)+'-Produkt öffnen</a>':'Produktseite des Emittenten öffnen ('+esc(issuer)+').')+'<details><summary>Hilfe zum Screenshot</summary>ISIN, fehlende Werte und den angezeigten Datenstand aufnehmen. Nach der Bildauswahl wird automatisch eingelesen.<button type="button" data-copy-product-isin="'+esc(p.isin)+'">ISIN kopieren</button><span role="status" data-copy-status></span></details></div>';
+ return '<div class="small" data-issuer-help style="margin:10px 0">'+(url?'<a data-screenshot-product="'+esc(p.isin)+'" href="'+esc(url)+'" target="_blank" rel="noopener noreferrer">'+esc(issuer)+'-Produkt öffnen</a>':'Produktseite des Emittenten öffnen ('+esc(issuer)+').')+'<button type="button" data-copy-product-isin="'+esc(p.isin)+'">ISIN kopieren</button><span role="status" data-copy-status></span><details><summary>Hilfe zum Screenshot</summary>ISIN, fehlende Werte und den angezeigten Datenstand aufnehmen. Nach der Bildauswahl wird automatisch eingelesen.</details></div>';
 }
 const RETURN_PRODUCT_KEY='bob.productScreenshotReturn.v1';
 let returnProductIsin='',returnProductPending=false;
@@ -1428,11 +1428,20 @@ function bindIsinCopy(root){
   if(link.dataset.returnBound)return;link.dataset.returnBound='1';
   link.addEventListener('click',()=>rememberScreenshotProduct(link.dataset.screenshotProduct));
  });
- root.querySelectorAll('[data-copy-product-isin]').forEach(button=>button.addEventListener('click',async()=>{
-  const isin=button.dataset.copyProductIsin,status=button.parentNode.querySelector('[data-copy-status]');
-  try{await navigator.clipboard.writeText(isin);if(status)status.textContent=' ISIN kopiert: '+isin;}
-  catch(_){if(status)status.textContent=' Bitte manuell kopieren: '+isin;}
- }));
+ root.querySelectorAll('[data-copy-product-isin]').forEach(button=>{
+  if(button.dataset.copyBound)return;button.dataset.copyBound='1';
+  button.addEventListener('click',async()=>{
+   const isin=(button.parentNode.querySelector('[data-dg="isin"]')?.value||button.dataset.copyProductIsin||'').trim().toUpperCase(),status=button.parentNode.querySelector('[data-copy-status]');
+   if(!validIsin(isin)){if(status)status.textContent=' Bitte zuerst eine gültige ISIN eintragen.';return;}
+   try{await navigator.clipboard.writeText(isin);if(status)status.textContent=' ISIN kopiert: '+isin;}
+   catch(_){
+    const field=document.createElement('textarea');field.value=isin;field.readOnly=true;field.style.cssText='position:fixed;left:0;top:0;opacity:0';
+    document.body.append(field);field.select();field.setSelectionRange(0,isin.length);
+    let copied=false;try{copied=document.execCommand('copy');}catch(_){}finally{field.remove();}
+    if(status)status.textContent=copied?' ISIN kopiert: '+isin:' Bitte manuell kopieren: '+isin;
+   }
+  });
+ });
 }
 function missingValueLocation(reason,p={}){
  if(/^CHF-Kursbild vorhanden/.test(reason))return 'CHF-Originalkurs ist gespeichert. Bob verwendet für die EUR-Analyse eine separat datierte automatische Umrechnung. Für diesen historischen Kursnachweis fehlt ein zeitlich passender Wechselkurs; dasselbe Bild erneut hochzuladen hilft nicht.';
@@ -2734,7 +2743,8 @@ async function inject(){
  for(let i=1;i<=12;i++){
   const r=document.createElement("div");
   r.style.cssText="margin:8px 0;padding:9px;background:#fff;border-radius:10px";
-  r.innerHTML='<b>Kandidat '+i+'</b><div id="dgOcrStatus'+i+'" class="small" style="margin-top:5px">Wartet auf Screenshot.</div><div id="dgResearch'+i+'" class="small research" style="margin-top:5px">🌐 Zusatzdaten: warten auf ISIN.</div><div class="grid" style="margin-top:6px"><input data-dg="name" data-i="'+i+'" placeholder="Produktname / ISIN"><select data-dg="dir" data-i="'+i+'"><option value="">Richtung</option><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select><input data-dg="price" data-i="'+i+'" type="number" step=".0001" placeholder="Produktkurs"><input data-dg="lev" data-i="'+i+'" type="number" step=".1" placeholder="Hebel"><input data-dg="ko" data-i="'+i+'" type="number" step=".01" placeholder="KO-Level"><input data-dg="isin" data-i="'+i+'" placeholder="ISIN"><span id="dgCompletion'+i+'" role="status"></span></div><button data-research="'+i+'">Aktuelle Produktdaten laden</button>';
+  r.innerHTML='<b>Kandidat '+i+'</b><div id="dgOcrStatus'+i+'" class="small" style="margin-top:5px">Wartet auf Screenshot.</div><div id="dgResearch'+i+'" class="small research" style="margin-top:5px">🌐 Zusatzdaten: warten auf ISIN.</div><div class="grid" style="margin-top:6px"><input data-dg="name" data-i="'+i+'" placeholder="Produktname / ISIN"><select data-dg="dir" data-i="'+i+'"><option value="">Richtung</option><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select><input data-dg="price" data-i="'+i+'" type="number" step=".0001" placeholder="Produktkurs"><input data-dg="lev" data-i="'+i+'" type="number" step=".1" placeholder="Hebel"><input data-dg="ko" data-i="'+i+'" type="number" step=".01" placeholder="KO-Level"><div><input data-dg="isin" data-i="'+i+'" placeholder="ISIN" aria-label="ISIN"><button type="button" data-copy-product-isin="" style="min-height:44px">ISIN kopieren</button><span role="status" data-copy-status></span></div><span id="dgCompletion'+i+'" role="status"></span></div><button data-research="'+i+'">Aktuelle Produktdaten laden</button>';
+  bindIsinCopy(r);
   r.insertAdjacentHTML("beforeend",'<div id="dgEvidence'+i+'"></div><div style="margin-top:8px"><label for="dgDetailShot'+i+'">📎 Bilder / PDF für dieses Produkt hochladen</label><input id="dgDetailShot'+i+'" type="file" accept="image/*,application/pdf,.pdf" multiple><div class="small">PDF-Endgültige Bedingungen oder Produktdetail oder Kursdaten mit sichtbarer ISIN. Mehrere Bilder können nacheinander ergänzt werden. Kurszeit braucht Datum, Sekunden und Zeitzone. Hebelbild und Kursbild direkt nacheinander aufnehmen und gemeinsam auswählen: Der Hebel erhält den Zeitbezug dieser Aufnahmeserie. Eine eigene Hebelzeit bleibt erhalten; KO benötigt einen eigenen Datenstand.</div></div>');
   r.insertAdjacentHTML("beforeend",window.BobCombined.form(i));
   r.querySelector('[data-fixed-save]').addEventListener('click',()=>{
