@@ -635,7 +635,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 
 </main>
 <script src="/push_manager.js"></script>
-<script src="/degiro_assistant.js?v=20261007-bnp-recovery-v6"></script>
+<script src="/degiro_assistant.js?v=20261008-manual-trade-test-v1"></script>
 <section class="card" id="auditStatistics">
 <h2>Statistik: Treffer und Fehlprognosen</h2>
 <div id="auditStatisticsStatus" class="small" role="status">Statistik wird geladen …</div>
@@ -908,7 +908,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const selection=document.createElement('div');selection.className='card';selection.innerHTML='<h3>Produktauswahl</h3><p id="bobSelectionSummary" class="small">Auswahl wird geprüft …</p><button type="button" class="bob-primary" data-view="products">Produkte und fehlende Werte ansehen</button>';quick.after(selection);
   move(byId('dgTop3'),'products');fold(byId('dgTop3')?.querySelector(':scope > div.small'),'Datenabruf und Gültigkeit');if(manual)manual.hidden=true;
   move(card('tradeStateBtn'),'trade');
-  const guide=document.createElement('div');guide.className='card';guide.innerHTML='<h3>Trade in Bob erfassen</h3><ol><li>Produkt wählen und Nachweise übernehmen.</li><li>Tatsächlichen Einstieg und Stückzahl ergänzen.</li><li>Produktbedingungen prüfen und Überwachung starten.</li></ol><p class="small">Bob überwacht eine von dir erfasste Position. Einen Kauf führst du selbst bei DEGIRO aus.</p><p id="bobTradeNext" class="bob-short"></p><button type="button" class="bob-primary" data-view="products">1 · Produkt auswählen</button><button type="button" id="bobTradeOpen">2 · Einstieg und Stückzahl ergänzen</button>';panels.trade.append(guide);
+  const guide=document.createElement('div');guide.className='card';guide.innerHTML='<h3>Trade in Bob erfassen</h3><ol><li>Produkt wählen und Nachweise übernehmen.</li><li>Tatsächlichen Einstieg und Stückzahl ergänzen.</li><li>Produktbedingungen prüfen und Überwachung starten.</li></ol><p class="small">Bob überwacht eine von dir erfasste Position. Einen Kauf führst du selbst bei DEGIRO aus.</p><p id="bobTradeNext" class="bob-short"></p><button type="button" class="bob-primary" data-view="products">1 · Produkt auswählen</button><button type="button" id="bobTradeOpen">2 · Einstieg und Stückzahl ergänzen</button><button type="button" id="bobTradeTestOpen">Trade-Test · Produkt auswählen</button>';panels.trade.append(guide);window.BobManualTradeTest?.mount(guide);
   byId('bobTradeOpen').addEventListener('click',()=>{const upload=byId('bobTradeUpload')||byId('bobExitEstimate');if(upload?.parentElement.tagName==='DETAILS')upload.parentElement.open=true;upload?.scrollIntoView({behavior:'smooth',block:'start'});byId('exit-isin')?.focus();});
   const enter=document.createElement('button');enter.type='button';enter.className='bob-primary';enter.textContent='Kursbild zum Trade ergänzen';enter.addEventListener('click',()=>{const upload=byId('bobTradeUpload');if(upload?.parentElement.tagName==='DETAILS')upload.parentElement.open=true;byId('trade-images')?.click();});panels.trade.append(enter);
   move(byId('bobTradeUpload')||byId('bobExitEstimate'),'trade');fold(byId('bobTradeUpload'),'Produktnachweise und Ausstiegskurse');move(card('stopPanel'),'trade');

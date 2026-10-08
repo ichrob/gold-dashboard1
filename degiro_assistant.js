@@ -2959,6 +2959,17 @@ function rankUI(){
 }
 
 if(typeof document!=="undefined"){if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",()=>{inject().catch(e=>console.warn(e));});else inject().catch(e=>console.warn(e));}
+// Test selection deliberately does not consult signal/recommendation gates.
+function tradeTestProducts(){
+ const seen=new Set();return Array.from(document.querySelectorAll('[data-dg="isin"]')).flatMap(el=>{
+  const isin=el.value.trim().toUpperCase(),i=Number(el.dataset.i);
+  if(!validIsin(isin)||seen.has(isin))return [];seen.add(isin);
+  const direction=document.querySelector('[data-dg="dir"][data-i="'+i+'"]')?.value;
+  const q=productQuotes.get(i),reference=exitReference(isin);
+  return [{isin,direction,name:document.querySelector('[data-dg="name"][data-i="'+i+'"]')?.value||isin,
+   quote:q?.isin===isin?q:null,reference}];
+ });
+}
 function exitReference(isin){
  isin=String(isin||'').trim().toUpperCase();
  for(let i=1;i<=12;i++){
@@ -2969,7 +2980,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
@@ -3220,3 +3231,54 @@ window.BobTradeUpload={parse,draft,reviewed,merge,init};if(typeof document!=='un
 
 
 
+
+/* Manual paper positions: isolated from real trades, pushes and learning statistics. */
+(function(root){
+ const KEY='bobManualTradeTestV1';
+ function position(isin,direction,entry,quantity,now=Date.now()){
+  if(!root.BobDegiro.validIsin(isin))throw Error('Bitte ein Produkt auswählen.');
+  if(!['LONG','SHORT'].includes(direction))throw Error('Produktrichtung fehlt im Nachweis. Bitte Produktdaten ergänzen.');
+  entry=Number(entry);quantity=Number(quantity);
+  if(!Number.isFinite(entry)||entry<=0||!Number.isSafeInteger(quantity)||quantity<=0)throw Error('Positiven Einstieg und eine ganze Stückzahl eingeben.');
+  return {isin,direction,entry,quantity,createdAt:new Date(now).toISOString(),mode:'manual-paper-test'};
+ }
+ function valuation(p,q,now=Date.now()){
+  const at=Date.parse(q?.bidAt||q?.quoteAt),bid=q?.bid;
+  if(!q||q.isin!==p.isin||q.currency!=='EUR'||q.found!==true||q.productVerified!==true||typeof bid!=='number'||!Number.isFinite(bid)||bid<=0||!Number.isFinite(at)||at>now)
+   return {available:false,reason:'Kein bestätigter, datierter EUR-Geldkurs für dieses Produkt verfügbar.'};
+  return {available:true,bid,at,source:q.source||'Anbieter',stale:!!q.delayed||now-at>90000,
+   pnl:(bid-p.entry)*p.quantity,value:bid*p.quantity};
+ }
+ function mount(guide){
+  const opener=guide.querySelector('#bobTradeTestOpen');if(!opener)return;
+  const panel=document.createElement('div');panel.id='bobManualTradeTest';panel.hidden=true;
+  panel.innerHTML='<h3>Trade-Test · fiktiv</h3><p>Produkt frei auswählen – auch bei ABWARTEN oder ohne Empfehlungsfreigabe. Kein Kauf, keine Trade-Pushs. Separater Test auf diesem Gerät; dein echter Trade bleibt erhalten.</p><label for="manualTestProduct">Produkt</label><select id="manualTestProduct"></select><button type="button" data-test-refresh>Produktliste aktualisieren</button><div class="grid"><label>Angenommener Einstieg EUR/Stück<input data-test-entry type="number" min="0" step="any"></label><label>Fiktive Stückzahl<input data-test-quantity type="number" min="1" step="1" value="1"></label></div><button type="button" data-test-save>Fiktiven Trade erfassen</button><button type="button" data-test-clear>Test entfernen</button><p data-test-message role="status"></p><p data-test-result style="white-space:pre-line"></p><p class="small">Bewertung zum verfügbaren Geldkurs, ohne Gebühren und Finanzierung. Dieser manuelle Test prüft Produktauswahl und Kursentwicklung; er startet keine Stop-/Zielüberwachung im Hintergrund.</p>';
+  guide.append(panel);
+  const select=panel.querySelector('select'),entry=panel.querySelector('[data-test-entry]'),quantity=panel.querySelector('[data-test-quantity]'),message=panel.querySelector('[data-test-message]'),result=panel.querySelector('[data-test-result]');
+  let saved=null,products=[];
+  try{const x=JSON.parse(localStorage.getItem(KEY)||'null');if(x?.mode==='manual-paper-test')saved=position(x.isin,x.direction,x.entry,x.quantity,Date.parse(x.createdAt));}catch(_){}
+  function render(){
+   if(!saved){result.textContent='Noch kein fiktiver Trade erfasst.';return;}
+   const item=root.BobDegiro.tradeTestProducts().find(x=>x.isin===saved.isin),v=valuation(saved,item?.quote);
+   result.textContent='TEST · '+saved.isin+' · '+saved.direction+'\nAngenommener Einstieg '+saved.entry.toFixed(4)+' EUR × '+saved.quantity+' Stück = '+(saved.entry*saved.quantity).toFixed(2)+' EUR\n'+(v.available?(v.stale?'Veralteter':'Verfügbarer')+' Geldkurs '+v.bid.toFixed(4)+' EUR · '+v.source+' · '+new Date(v.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)\nFiktiver Bruttogewinn/-verlust '+v.pnl.toFixed(2)+' EUR'+(v.stale?' · mit veraltetem Kurs berechnet':''):v.reason);
+  }
+  function refresh(){
+   const selected=select.value||saved?.isin;products=root.BobDegiro.tradeTestProducts();select.replaceChildren();
+   const placeholder=document.createElement('option');placeholder.value='';placeholder.textContent=products.length?'Produkt auswählen':'Keine importierten Produkte – zuerst DEGIRO-Liste hochladen';select.append(placeholder);
+   for(const p of products){const o=document.createElement('option');o.value=p.isin;o.textContent=p.isin+' · '+(p.direction||'Richtung offen')+' · '+p.name;select.append(o);}
+   if(products.some(p=>p.isin===selected))select.value=selected;
+   render();
+  }
+  opener.addEventListener('click',()=>{panel.hidden=!panel.hidden;if(!panel.hidden){refresh();if(saved){entry.value=saved.entry;quantity.value=saved.quantity;}panel.scrollIntoView({behavior:'smooth',block:'start'});}});
+  panel.querySelector('[data-test-refresh]').addEventListener('click',refresh);
+  select.addEventListener('change',()=>{entry.value='';message.textContent='Angenommenen Einstieg selbst eingeben. Die Auswahl erteilt keine Einstiegsempfehlung.';});
+  panel.querySelector('[data-test-save]').addEventListener('click',()=>{
+   try{const p=root.BobDegiro.tradeTestProducts().find(x=>x.isin===select.value);if(!p)throw Error('Bitte ein vorhandenes Produkt auswählen.');
+    const next=position(p.isin,p.direction,entry.value,quantity.value);localStorage.setItem(KEY,JSON.stringify(next));saved=next;message.textContent='Fiktiver Trade gespeichert. Keine echte Position und keine Order.';render();
+   }catch(e){message.textContent=e.message;}
+  });
+  panel.querySelector('[data-test-clear]').addEventListener('click',()=>{try{localStorage.removeItem(KEY);saved=null;message.textContent='Test entfernt.';render();}catch(_){message.textContent='Test konnte nicht entfernt werden.';}});
+  setInterval(()=>{if(!panel.hidden&&!document.hidden)render();},30000);
+ }
+ root.BobManualTradeTest={position,valuation,mount};
+})(typeof window!=='undefined'?window:globalThis);
