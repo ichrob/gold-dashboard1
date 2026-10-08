@@ -1143,7 +1143,7 @@ function renderCompactAnalysis(x){
  renderTechnicalDirections(x);
  const label=momentumLabel(x),el=$("momentumSummary");
  el.textContent=label;el.className=label==="bullish"?"ok":label==="bearish"?"bad":"neutral";
- $("marketSummary").textContent="Trendbewertung: "+label;
+ $("marketSummary").textContent="EMA20/50/200-Kontext der Chartzeitebene: "+label+" · keine Intraday-Freigabe";
 }
 function fibonacciExplanation(fib){
  if(!fib?.valid||!["LONG","SHORT"].includes(fib.direction))return "Fibonacci: keine bestätigten Level verfügbar. Eine Richtung lässt sich daraus derzeit nicht ableiten.";
@@ -1986,7 +1986,7 @@ function renderMarketNarrative(){
   lines.push('Die aktuelle Markttendenz ist nicht verlässlich beurteilbar. Vorhandene ältere technische Werte sind keine aktuelle Einschätzung.');
  }else{
   const m=getMtfState().byTf||{};
-  lines.push('Intraday-Tendenz: '+(m['1h']?.available?direction(m['1h'].dir):'Stundenanalyse noch nicht verfügbar')+'.');
+  lines.push('1h-Hintergrund (keine Intraday-Freigabe): '+(m['1h']?.available&&m['1h']?.fresh?direction(m['1h'].dir):'Stundenanalyse nicht aktuell verfügbar')+'.');
   lines.push('Entscheidungsbasis: geschlossene 5m-Kerzen und 15m-Setup. Die folgenden Detailblöcke beschreiben die Analysezeitebene; Kontext ist keine zusätzliche Stimme.');
   lines.push('Bestätigung im 15-Minuten-Chart: '+(m['15m']?.available?direction(m['15m'].dir):'Angaben fehlen')+'. Einstieg im 5-Minuten-Chart: '+(m['5m']?.available?direction(m['5m'].dir):'Angaben fehlen')+'. Ein klares 5m-Signal kann nach einer Schlusskerze bestätigt werden; schwächere Hinweise benötigen zwei.');
   lines.push('In der angezeigten Analysezeitebene ist der Trend '+direction(read('blockTrend'))+'; das Momentum ist '+direction(read('blockMomentum'))+'. '+read('blockMomentumNote')+'.');
@@ -2186,7 +2186,7 @@ function renderAnalysisBlocks(){
  put("Trend",trend,"EMA20/50 in der Analysezeitebene; EMA200 nur Kontext");
  put("Momentum",momentum,momentum==="NEUTRAL"?"MACD neutral":"MACD-Histogramm; RSI ergänzt die Einschätzung, ohne allein zu sperren");
  put("Fibonacci",fib?.valid?fib.direction:"NEUTRAL",fib?.valid?"Szenario aus bestätigten Wendepunkten":"Keine bestätigten Level");
- put("Mtf",mtf.overall||"NEUTRAL",mtf.overall==="NEUTRAL"?"Zeitebenen uneinheitlich oder unvollständig":"Übergeordnete Zeitebenen bestätigt");
+ put("Mtf",mtf.overall||"NEUTRAL",mtf.overall==="NEUTRAL"?"Zeitebenen uneinheitlich oder unvollständig":"15m-Setup und 5m-Timing bestätigt; 1h/4h nur Kontext");
  put("Volatility","NEUTRAL",currentRegime()+" · Volatilität gibt allein keine Richtung vor");
  const closes=C.map(b=>Number(b.close)),bb=boll(closes),st=stochastic(C),p=A.signalPrice||closes.at(-1);
  const structure=confirmedMarketStructure(C);

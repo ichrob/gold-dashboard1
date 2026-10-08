@@ -78,3 +78,34 @@ class IntradayPolicyTests(unittest.TestCase):
   with patch.object(a,'frame',side_effect=fake_frame):
    result=a.analyse(rows(900,300),[],T,NOW)
   self.assertTrue(result['available']);self.assertEqual(result['direction'],'LONG')
+
+class AuditBoundaryTests(unittest.TestCase):
+ def test_frame_rejects_invalid_duplicate_future_and_recent_gap(self):
+  base=rows(220,300)
+  cases=[]
+  for key,value in [('close',float('nan')),('low',10000),('t',T),('t',True)]:
+   bad=copy.deepcopy(base);bad[-1][key]=value;cases.append(bad)
+  cases.extend([base[:-2]+base[-1:],base+[base[-1]],list(reversed(base))])
+  for bad in cases:
+   with self.subTest(last=bad[-1]):
+    self.assertFalse(a.frame(bad,5,NOW)['available'])
+ def test_old_gap_recovery_and_ema200_warmup(self):
+  base=rows(220,300);del base[10]
+  self.assertTrue(a.frame(base,5,NOW)['available'])
+  result=a.frame(rows(100,300),5,NOW)
+  self.assertTrue(result['available']);self.assertIsNone(result['ema200'])
+  self.assertEqual(result['atrMethod'],'Wilder14')
+ def test_stale_history_cannot_describe_current_structure(self):
+  out=a.analyse(rows(900,300),rows(900,3600),T,NOW+timedelta(hours=2))
+  self.assertFalse(out['available'])
+  self.assertEqual(out['blocks']['marketStructure'],'NEUTRAL')
+  self.assertEqual(out['fibonacci']['levels'],{})
+ def test_broken_origin_invalidates_fibonacci_on_both_sides(self):
+  values=[105,104,100,104,106,110,108,107,106]
+  base=[dict(t=T-(len(values)-i)*300,open=v,close=v,high=v+.5,low=v-.5) for i,v in enumerate(values)]
+  self.assertEqual(a.structure(base)[1]['direction'],'LONG')
+  broken=copy.deepcopy(base);broken[-1].update(open=98,close=98,high=98.5,low=97.5)
+  self.assertEqual(a.structure(broken)[1]['direction'],'NEUTRAL')
+  invert=lambda rs:[dict(t=r['t'],open=220-r['open'],close=220-r['close'],high=220-r['low'],low=220-r['high']) for r in rs]
+  self.assertEqual(a.structure(invert(base))[1]['direction'],'SHORT')
+  self.assertEqual(a.structure(invert(broken))[1]['direction'],'NEUTRAL')

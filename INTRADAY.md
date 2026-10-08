@@ -120,3 +120,41 @@ The price chart supports 1m candles and lines, with the same timeframe-local con
 The optional minute-entry-v1 observation requires 100 closed valid minute bars, fresh source times (latest opening time at most two minutes old), three consecutive recent bars, XAU/USD identity, and the current confirmed 5m/15m direction. EMA20/50 and MACD collective, candle body and last-close change must support that direction. Otherwise the experimental candidate waits. Unavailable data are excluded, not scored as a successful filter. Main signals, stops, product ranking and pushes do not use this experiment.
 
 Browser and background record the same helper result in the decision audit. Lernen shows a separate paired 60-minute spot-direction comparison: retained/filtered cases, mean gross directional movement, missed favorable and avoided unfavorable moves. The earliest valid observation per 5m decision is retained in reporting. This is an entry-filter comparison, not a simulation of a delayed fill. Existing four-day fast/cautious campaign is unchanged. No fees, slippage or product profit claim; a net-cost comparison still needs executable product data. No automatic adoption.
+
+
+## Market-analysis audit — 2026-10-08
+
+Reviewed main revision 3a726ec, dashboard math and presentation, server MTF,
+shared headless worker, product collective, exact-contract analysis and existing
+formula/confirmation/risk tests. This is a software and rule audit, not a live
+profitability certification. Authenticated current indicator values were not read.
+
+| Parameter | Finding / decision |
+| --- | --- |
+| EMA20/50, MACD12/26/9 | Core agreement; browser/server numerical parity tested. Retain. |
+| RSI14, 50, 25/75 | Wilder smoothing; flat=50, rising=100, falling=0. Extreme RSI is an extension warning, not an automatic reversal. Retain. |
+| EMA200, 1h/4h | Context only. Clarify market summary and narrative so context is not presented as active intraday direction. Future EMA200 unavailable below 200 bars. |
+| Kollektiv | One correlated price family, not independent votes. Discrete outputs 0/25/50/75/100; 30/70 are display cutoffs, not probabilities. |
+| 15m setup / 5m timing | Required alignment. One strong or two weak closes is the intentional responsive policy. Reversal hysteresis can retain an old direction while the raw score changes; this is disclosed, not a formula contradiction. Product collective separately checks current agreement. |
+| Wilder ADX14 / rolling DX14 | Distinct formulas and roles. ADX display is smoothed; DX fast filter is experimental. Neither adds a directional vote. |
+| ATR14 | Dashboard SMA True Range is explicitly documented; Future uses Wilder smoothing, now identified in output. Do not silently swap risk models. |
+| Fibonacci / structure | Dashboard confirmed pivots and broken origins tested. Fix Future recent-gap/OHLC checks, broken-origin Fibonacci and broken final structure; suppress structure when 5m history is unavailable. |
+| Bollinger20/2 / stochastic14 | Descriptive context only; flat ranges neutral. No case for extra directional weight. |
+| VWAP | Loaded-window volume-weighted context, not exchange session VWAP. Native broker normalization has no volume, so n/v is correct. No synthetic volume; no reason to add a live gate. |
+| Stops / targets | Fixed 15m basis, structural stops, no-loosening protection, 2R planning. Tests check direction and missing data. 2R is not expected profit. |
+| 1m / next candle / entry quality | Experiments and warnings, not additional permissions. Preserve existing comparisons and their identities. |
+
+No new indicator or optimized threshold adopted. Candidate simplification is to
+keep Bollinger/stochastic/VWAP as optional context, as already implemented. A
+session VWAP would require documented session boundaries and real suitable
+volume; it is not available from current native candles. Any change to periods,
+DX filters or confirmation counts needs a separate prospective/out-of-sample
+comparison with executable bid/ask, costs and slippage. Spread remains excluded
+from product ranking as requested, but execution cost must enter profit evaluation.
+
+References consulted:
+- Fidelity RSI: https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/rsi (RSI can remain extreme during strong trends).
+- Fidelity DMI: https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/dmi (Wilder ADX smoothing and non-directional strength).
+- Fidelity ATR: https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/atr (True Range, Wilder smoothing, volatility not direction).
+- Bailey et al., The Probability of Backtest Overfitting: https://escholarship.org/uc/item/4w1110bb (selection/overfitting risk; no calibration of Bob's parameters).
+- Jin, Performance of intraday technical trading in China's gold market: https://www.sciencedirect.com/science/article/pii/S1042443121001876 (indexed material only; full paper not read; not evidence for an optimal Bob setting).

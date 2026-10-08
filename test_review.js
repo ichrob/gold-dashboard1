@@ -24,7 +24,9 @@ vm.createContext(env);vm.runInContext(script,env);
  vm.runInContext('stopModel=()=>({stop:110})',env);await vm.runInContext('suggestStopUpdate()',env);
  assert.equal(vm.runInContext('tradeMgmt.stop',env),110);assert.equal(notices,1);
  vm.runInContext("liveBundleCache.spots.spot_price_as_of='2026-10-02T10:00:00Z';liveBundleCache.spots.xaus_age_seconds=5;liveBundleCache.fetched_at=Date.now()/1000;C=[];draw()",env);
- assert(element('chartLatest').textContent.includes(new Date('2026-10-02T10:00:00Z').toLocaleString('de-CH',{timeZone:'Europe/Zurich'})));
+ // A spot timestamp must never be presented as a missing chart candle's close.
+ assert(element('chartLatest').textContent.includes('Schlusszeit: nicht verfügbar'));
+ assert(!element('chartLatest').textContent.includes(new Date('2026-10-02T10:00:00Z').toLocaleString('de-CH',{timeZone:'Europe/Zurich'})));
  // A late server reply must not overwrite a newer analysis, and the new request must not be lost.
  const diagnostics=[],pending=[];
  env.fetch=async(url,options)=>{

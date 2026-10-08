@@ -155,7 +155,15 @@ def rsi(values,period=14):
 
 def frame(rows,minutes,now):
     if len(rows)<100:return dict(available=False,direction='NEUTRAL',reason='Weniger als 100 abgeschlossene Kontrakt-Kerzen',bars=len(rows))
-    closed_at=rows[-1]['t']+minutes*60
+    step=minutes*60
+    numeric=lambda v:isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(v)
+    valid=all(numeric(r.get('t')) and r['t']%step==0 and r['t']+step<=now.timestamp()
+              and all(numeric(r.get(k)) and r[k]>0 for k in ('open','high','low','close'))
+              and r['low']<=min(r['open'],r['close']) and r['high']>=max(r['open'],r['close']) for r in rows)
+    if (not valid or any(b['t']<=a['t'] for a,b in zip(rows,rows[1:]))
+            or any(b['t']-a['t']!=step for a,b in zip(rows[-3:],rows[-2:]))):
+        return dict(available=False,direction='NEUTRAL',reason='Ungültige oder lückenhafte Kontrakt-Kerzen',bars=len(rows))
+    closed_at=rows[-1]['t']+step
     if not 0<=now.timestamp()-closed_at<=1800+minutes*60:
         return dict(available=False,direction='NEUTRAL',reason='Kontrakt-Historie veraltet',bars=len(rows))
     values=[r['close'] for r in rows[-500:]]
@@ -169,7 +177,7 @@ def frame(rows,minutes,now):
     atr=sum(tr[:14])/14
     for v in tr[14:]:atr=(atr*13+v)/14
     return dict(available=True,direction=direction,trend=trend,momentum=momentum,rsi=strength,
-                ema20=e20,ema50=e50,ema200=e200,macd=mac[-1],macdSignal=signal,macdHistogram=hist,
+                ema20=e20,ema50=e50,ema200=e200 if len(values)>=200 else None,atrMethod="Wilder14",macd=mac[-1],macdSignal=signal,macdHistogram=hist,
                 price=values[-1],atr=atr,bars=len(rows),closedAt=datetime.fromtimestamp(closed_at,timezone.utc).isoformat(),
                 expiresAt=datetime.fromtimestamp(closed_at+1800+minutes*60,timezone.utc).isoformat())
 
@@ -183,14 +191,15 @@ def structure(rows):
     highs=[p for p in pivots if p['kind']=='high'];lows=[p for p in pivots if p['kind']=='low']
     direction='NEUTRAL'
     if len(highs)>=2 and len(lows)>=2:
-        if highs[-1]['value']>highs[-2]['value'] and lows[-1]['value']>lows[-2]['value']:direction='LONG'
-        if highs[-1]['value']<highs[-2]['value'] and lows[-1]['value']<lows[-2]['value']:direction='SHORT'
+        if highs[-1]['value']>highs[-2]['value'] and lows[-1]['value']>lows[-2]['value'] and rows[-1]['close']>=lows[-1]['value']:direction='LONG'
+        if highs[-1]['value']<highs[-2]['value'] and lows[-1]['value']<lows[-2]['value'] and rows[-1]['close']<=highs[-1]['value']:direction='SHORT'
     fib=dict(direction='NEUTRAL',levels={})
     if pivots:
         last=pivots[-1];prior=[p for p in pivots[:-1] if p['kind']!=last['kind'] and p['t']<last['t']]
         if prior:
             a=prior[-1];b=last;up=a['kind']=='low' and b['value']>a['value'];down=a['kind']=='high' and b['value']<a['value']
-            if up or down:
+            intact=all(r['low']>=a['value'] if up else r['high']<=a['value'] for r in rows if r['t']>b['t'])
+            if (up or down) and intact:
                 fib=dict(direction='LONG' if up else 'SHORT',fromAt=a['t'],toAt=b['t'],
                          levels={str(level):b['value']+(a['value']-b['value'])*level for level in (.382,.5,.618,.786)})
     return direction,fib
@@ -203,7 +212,7 @@ def analyse(five,hourly,market_at,now=None):
     valid=all(frames[tf]['available'] for tf in ('5m','15m'))
     directions=[frames[tf]['direction'] for tf in ('5m','15m')]
     overall=directions[0] if valid and directions[0] in ('LONG','SHORT') and len(set(directions))==1 else 'NEUTRAL'
-    market_structure,fib=structure(five[-200:])
+    market_structure,fib=structure(five[-200:]) if frames['5m']['available'] else ('NEUTRAL',dict(direction='NEUTRAL',levels={}))
     f5,f1=frames['5m'],frames['1h']
     expires=min([now.timestamp()+180,market_at+1800]+[
         datetime.fromisoformat(v['expiresAt']).timestamp() for tf,v in frames.items() if tf in ('5m','15m') and v['available']])
