@@ -33,6 +33,7 @@ PRODUCT_IDS = {
     'DE000FG5GUT0': 336000321,
 }
 _INPUT_CACHE = {}
+_INPUT_ERRORS = {}
 _INPUT_LOCKS = {'fx': threading.Lock(), 'spot': threading.Lock()}
 
 
@@ -54,13 +55,21 @@ def market_input(kind):
         cached = _INPUT_CACHE.get(kind)
         if cached and time.monotonic()-cached[0] < ttl:
             return cached[1]
+        failure = _INPUT_ERRORS.get(kind)
+        if failure and time.monotonic()-failure[0] < 30:
+            raise ValueError(failure[1])
         url, origin = ((FX_ORIGIN+'v1/latest/USD?symbols=EUR,CHF', FX_ORIGIN) if kind == 'fx'
                        else (SPOT_ORIGIN+'api/v1/spot?compact=1', SPOT_ORIGIN))
-        if kind == 'fx':
-            from fx_data import fetch_rates
-            value = fetch_rates(q.issuer_json, cached[1] if cached else None)
-        else:
-            value = q.issuer_json(url, origin, timeout=12)
+        try:
+            if kind == 'fx':
+                from fx_data import fetch_rates
+                value = fetch_rates(q.issuer_json, cached[1] if cached else None)
+            else:
+                value = q.issuer_json(url, origin, timeout=12)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            _INPUT_ERRORS[kind] = (time.monotonic(), 'Markteingang '+kind+' vorübergehend nicht verfügbar: '+type(exc).__name__)
+            raise
+        _INPUT_ERRORS.pop(kind, None)
         _INPUT_CACHE[kind] = (time.monotonic(), value)
         return value
 
