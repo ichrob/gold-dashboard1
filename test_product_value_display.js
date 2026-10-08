@@ -13,3 +13,6 @@ assert.equal(b.productFieldStates({...shot,snapshot:{...shot.snapshot,currency:'
 const stale=JSON.parse(JSON.stringify(p));stale.quote.analysisQuote.bidAt=stale.quote.analysisQuote.askAt=new Date(now-3600000).toISOString();
 assert.equal(b.productFieldStates(stale,now).ask.state,'veraltet');
 console.log('Product value display: OK');
+
+const auto=b.compactProductCard(p,['BNP-Kursabruf: Quellenantwort veraltet']);assert(auto.includes('derzeit keine neuen Bilder erforderlich'));
+const actualMissing=b.compactProductCard(p,['Bezugsverhältnis fehlt']);assert(!actualMissing.includes('derzeit keine neuen Bilder erforderlich'));

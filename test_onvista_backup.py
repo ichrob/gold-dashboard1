@@ -57,7 +57,7 @@ class BackupTests(unittest.TestCase):
 
     def test_bnp_identity_model_and_analysis_pair(self):
         import time
-        for isin in ('DE000PJ9NB98', 'DE000PJ9NCK0'):
+        for isin in ('DE000PJ9NB98', 'DE000PJ9NCK0', 'DE000PG0XK25', 'DE000FG7HZY3'):
             data=page()
             data['instrument'].update(isin=isin,wkn=isin[5:11],entityValue=str(b.IDS[isin]))
             data['quoteList']['list'][0]['idInstrument']=str(b.IDS[isin])
