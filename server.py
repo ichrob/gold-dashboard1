@@ -6,6 +6,7 @@ import json
 import math
 import time
 import threading
+import uuid
 import bob_auth
 import auto_collection
 import ocr_assets
@@ -29,6 +30,40 @@ PUSH_SERVICE_URL = os.environ.get("PUSH_SERVICE_URL", "")
 PUSH_SERVICE_TOKEN = os.environ.get("PUSH_SERVICE_TOKEN", "")
 SIGNAL_WORKER_TOKEN = os.environ.get("SIGNAL_WORKER_TOKEN", "")
 FIB_MONITOR_HEALTH = {"configured": bool(PUSH_SERVICE_URL and PUSH_SERVICE_TOKEN), "status": "starting", "lastCheckedAt": None, "lastSuccessAt": None}
+
+PROCESS_STARTED_AT = time.time()
+PROCESS_STARTED_MONOTONIC = time.monotonic()
+PROCESS_ID = uuid.uuid4().hex[:12]
+_FIB_THREAD = None
+_FIB_START_LOCK = threading.Lock()
+
+def ensure_fibonacci_monitor():
+    """Restart a terminated worker, never duplicate a running monitor."""
+    global _FIB_THREAD
+    if not FIB_MONITOR_HEALTH['configured']:
+        return
+    with _FIB_START_LOCK:
+        if _FIB_THREAD is None or not _FIB_THREAD.is_alive():
+            FIB_MONITOR_HEALTH.update(status='starting', lastCheckedAt=None, lastSuccessAt=None)
+            _FIB_THREAD = threading.Thread(target=fibonacci_monitor_loop, name='bob-fibonacci', daemon=True)
+            _FIB_THREAD.start()
+
+def service_health():
+    """Liveness stays independent of providers; report readiness honestly."""
+    collection = auto_collection.health()
+    background = background_health()
+    feed = collection.get('cfdFeed') or {}
+    reasons = []
+    if collection.get('enabled') and (not collection.get('running') or feed.get('state') != 'current'):
+        reasons.append('market-feed-not-current')
+    if FIB_MONITOR_HEALTH['configured'] and background['status'] != 'ok':
+        reasons.append('background-not-current')
+    return {'status': 'degraded' if reasons else 'ok', 'service': 'bob',
+            'build': os.environ.get('RENDER_GIT_COMMIT'),
+            'runtime': {'processId': PROCESS_ID, 'startedAt': datetime.fromtimestamp(PROCESS_STARTED_AT, timezone.utc).isoformat(),
+                        'uptimeSeconds': max(0, int(time.monotonic()-PROCESS_STARTED_MONOTONIC))},
+            'ready': not reasons, 'reasons': reasons,
+            'fibonacciMonitor': dict(FIB_MONITOR_HEALTH), 'automaticCollection': collection}
 
 def background_health():
     """Only a completed cycle proves that background monitoring works."""
@@ -783,7 +818,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/health":
             auto_collection.start()
-            body = json.dumps({"status":"ok","service":"bob","build":os.environ.get("RENDER_GIT_COMMIT"),"fibonacciMonitor":dict(FIB_MONITOR_HEALTH),"automaticCollection":auto_collection.health()},separators=(",",":")).encode()
+            ensure_fibonacci_monitor()
+            body = json.dumps(service_health(),separators=(",",":")).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -1268,8 +1304,8 @@ def fibonacci_monitor_loop():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "10000"))
-    print(f"BOB_START port={port} host=0.0.0.0 version=runtime-http-trace-v1", flush=True)
-    threading.Thread(target=fibonacci_monitor_loop, name="bob-fibonacci", daemon=True).start()
+    print(f"BOB_START port={port} host=0.0.0.0 version=runtime-http-trace-v2 process={PROCESS_ID}", flush=True)
+    ensure_fibonacci_monitor()
     auto_collection.start()
     gold_research.start()
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
