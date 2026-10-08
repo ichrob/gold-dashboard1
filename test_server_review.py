@@ -4,6 +4,23 @@ from http.server import BaseHTTPRequestHandler
 import server
 
 class ReviewTests(unittest.TestCase):
+    def test_legacy_mtf_401_diagnostic_is_auth_expiry_not_server_error(self):
+        event, details = server.sanitize_client_diagnostic({
+            'event':'mtf:server-error',
+            'details':{'error':'HTTP 401','reason':'/api/mtf verification failed','secret':'not logged'},
+        })
+        self.assertEqual(event, 'mtf:verification-skipped')
+        self.assertNotIn('secret', details)
+        self.assertEqual(details['error'], 'HTTP 401')
+        self.assertIn('abgelaufener Bob-Anmeldung', details['reason'])
+
+        event, details = server.sanitize_client_diagnostic({
+            'event':'mtf:server-error',
+            'details':{'error':'HTTP 503','reason':'upstream unavailable'},
+        })
+        self.assertEqual(event, 'mtf:server-error')
+        self.assertEqual(details['error'], 'HTTP 503')
+
     def test_mtf_verification_carries_original_time_and_rejects_future(self):
         now=1800000000
         bars=[dict(openTime=(now-300*(220-i))*1000,open=4000+i*.2,high=4001+i*.2,low=3999+i*.2,close=4000+i*.2,isOpen=False) for i in range(220)]
