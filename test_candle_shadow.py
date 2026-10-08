@@ -13,6 +13,15 @@ def bars(tf='15m'):
 
 
 class CandleTests(unittest.TestCase):
+    def test_one_minute_closed_signal_and_freshness(self):
+        b=bars('1m')
+        b[-1].update(open=101, high=102, low=98, close=101.8)
+        now=b[-1]['openTime']+60000
+        self.assertEqual(cs.analyze(b,'1m',now)['direction'],'LONG')
+        self.assertEqual(cs.analyze(b,'1m',now+60001)['status'],'unavailable')
+        b[-1]['isOpen']=True
+        self.assertEqual(cs.analyze(b,'1m',now)['status'],'unavailable')
+
     def assess(self, b, tf='15m', age=0):
         return cs.analyze(b, tf, b[-1]['openTime']+cs.STEPS[tf]+age)
 

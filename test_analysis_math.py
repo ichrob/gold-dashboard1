@@ -10,6 +10,13 @@ import server
 NOW = 1800000000000
 
 class AnalysisMathTests(unittest.TestCase):
+    def test_one_minute_context_uses_one_minute_timing(self):
+        bars=[dict(openTime=NOW-(220-i)*60000,open=100,close=100,high=101,low=99,isOpen=False) for i in range(220)]
+        with patch.object(server.time,'time',return_value=NOW/1000):
+            self.assertTrue(server._mtf_score(bars,'1m')['available'])
+        with patch.object(server.time,'time',return_value=(NOW+60001)/1000):
+            self.assertFalse(server._mtf_score(bars,'1m')['available'])
+
     def test_browser_server_collective_agreement(self):
         fixtures=[]
         for phase in range(20):

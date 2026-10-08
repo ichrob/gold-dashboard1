@@ -640,7 +640,7 @@ def _rsi(values, period=14):
     return 50.0 if gains == losses == 0 else 100.0 if losses == 0 else 100.0 - 100.0 / (1.0 + gains / losses)
 
 def _mtf_score(bars, tf):
-    step={"5m":300000,"15m":900000,"1h":3600000,"4h":14400000}.get(tf,900000)
+    step={"1m":60000,"5m":300000,"15m":900000,"1h":3600000,"4h":14400000}.get(tf,900000)
     now=int(time.time()*1000)
     if any(not b.get("isOpen") and (not isinstance(b.get("openTime"),(int,float)) or b["openTime"]>now) for b in (bars or [])):
         return {"dir":"NEUTRAL","available":False,"fresh":False,"reason":"Kerzenzeit fehlt oder liegt in der Zukunft"}

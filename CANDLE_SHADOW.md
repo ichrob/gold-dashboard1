@@ -8,7 +8,7 @@ nicht als Rankinggewicht hinzugefügt.
 
 ## Daten und Hypothese v1
 
-- 5m, 15m und 1h werden separat betrachtet. Quelle aus jeder Kerze: XAU/USD
+- 1m, 5m, 15m und 1h werden separat betrachtet. Quelle aus jeder Kerze: XAU/USD
   oder GC=F. GC=F ist eine Futures-Referenz ohne Nachweis eines konkreten Kontrakts;
   sie wird nicht als GCZ26 oder Spot deklariert.
 - Mindestens 21 geschlossene, zusammenhängende Kerzen desselben Instruments.
