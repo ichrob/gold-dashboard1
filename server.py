@@ -654,6 +654,23 @@ def build_mtf_verification(bundle):
     hierarchy = {"regime":d4,"trend":d1,"setup":d15,"timing":d5,"bias":round(bias,3),"reason":reason}
     return {"overall":overall,"valid":valid,"results":results,"hierarchy":hierarchy,"verifiedAt":datetime.now(timezone.utc).isoformat()}
 
+def sanitize_client_diagnostic(payload):
+    """Keep browser diagnostics bounded and reclassify known auth expiry."""
+    event = str(payload.get("event", "unknown"))[:80]
+    details = payload.get("details") if isinstance(payload.get("details"), dict) else {}
+    safe = {}
+    for key in ("bars5m","bars15m","bars1h","bars4h","available","overall","error","reason","historyStatus","source","direct","server"):
+        if key in details:
+            value = details[key]
+            safe[key] = str(value)[:300] if isinstance(value, str) else value
+    # Tabs opened before the client-side session guard can keep reporting this
+    # until their service worker reloads. It is authentication expiry, not a
+    # market-data or MTF server failure, so keep old clients honest as well.
+    if event == "mtf:server-error" and safe.get("error") == "HTTP 401":
+        event = "mtf:verification-skipped"
+        safe["reason"] = "Serverprüfung wegen abgelaufener Bob-Anmeldung ausgesetzt"
+    return event, safe
+
 class Handler(BaseHTTPRequestHandler):
     def handle(self):
         try:
@@ -1100,13 +1117,7 @@ class Handler(BaseHTTPRequestHandler):
                 if length <= 0 or length > 8192:
                     raise ValueError("invalid diagnostic payload size")
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
-                event = str(payload.get("event", "unknown"))[:80]
-                details = payload.get("details") if isinstance(payload.get("details"), dict) else {}
-                safe = {}
-                for key in ("bars5m","bars15m","bars1h","bars4h","available","overall","error","reason","historyStatus","source","direct","server"):
-                    if key in details:
-                        value = details[key]
-                        safe[key] = str(value)[:300] if isinstance(value, str) else value
+                event, safe = sanitize_client_diagnostic(payload)
                 print(f"BOB_DIAG event={event} seq={payload.get('seq')} details={json.dumps(safe, ensure_ascii=False, separators=(',',':'))}", flush=True)
                 self.send_response(204)
                 self.send_header("Cache-Control", "no-store")
