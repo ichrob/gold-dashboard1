@@ -21,3 +21,9 @@ Die bestehende interne Tokenprüfung schützt den neuen Endpunkt. Die Hauptanwen
 Aktivierung: kostenlosen Supadata-Zugang anlegen, Schlüssel im Render-Pushdienst hinterlegen, dann das Beispiel GB1n0fEkfn4 und ein neues MCO-Gold-Video vollständig testen. Der Free-Tarif weist derzeit 100 monatliche Credits ohne Kreditkarte aus. Das ist keine Erfolgsgarantie für konkrete Videos. Ohne diesen Live-Test ist die automatische Inhaltsanalyse nicht als behoben zu melden.
 
 Dokumentation: https://supadata.ai/pricing und https://github.com/supadata-ai/skills/blob/main/skills/supadata/references/video.md
+
+## Fehlerbehebung 8. Oktober 2026
+
+Fehlerhafte Untertitelspuren überspringen und anschließend den vorhandenen Ersatzdienst nutzen. Interne Fehlercodes unterscheiden Zugang, Kontingent, Video, temporäre Verfügbarkeit und Wiederholungspause ohne Schlüssel oder fremde Fehlertexte auszugeben. Fehlversuche pausieren eine Stunde, maximal drei neue Versuche je Video innerhalb von 24 Stunden; das globale Limit von 90 Versuchen in 31 Tagen bleibt bestehen. Bereits gespeicherte Transkripte benötigen keinen erneuten Anbieterabruf. Alte Versuche ohne Videozuordnung bleiben im globalen Limit gezählt.
+
+Der automatische Lauf verwendet seine bereits bestätigte Kanalliste für den Ersatzabruf weiter. Unabhängige manuelle Abrufe prüfen weiterhin selbst die Kanalzuordnung. Relative Altersangaben werden als ungefähr mit Abrufzeit angezeigt, ohne einen exakten Veröffentlichungszeitpunkt oder aktuelle Richtungsstimme zu erfinden. Video-IDs unterscheiden gleichnamige Uploads.

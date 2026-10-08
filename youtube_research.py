@@ -132,7 +132,7 @@ def listed_metadata(identity):
                              'title': item['title'], 'author': 'MCO Markets'}}
 
 
-def analyze(url, fetch=read_url):
+def analyze(url, fetch=read_url, *, verified_item=None):
     identity=video_id(url);now=time.time()
     with _lock:
         saved=_cache.get(identity)
@@ -145,7 +145,13 @@ def analyze(url, fetch=read_url):
             if fetch is not read_url:raise
             # A failed player request is not evidence that the public video is private.
             # Independently verify channel ownership before the supported provider API.
-            p=listed_metadata(identity)
+            if verified_item is not None:
+                # Internal collector already verified the public channel listing this run.
+                require_mco(verified_item)
+                if video_id(verified_item['url']) != identity:raise ValueError('Videozuordnung nicht bestätigt')
+                p={'videoDetails': {'videoId':identity,'channelId':verified_item['channelId'],
+                    'title':verified_item['title'],'author':'MCO Markets'}}
+            else:p=listed_metadata(identity)
         d=p['videoDetails']
         require_mco(d)
         micro=p.get('microformat',{}).get('playerMicroformatRenderer',{})
@@ -184,7 +190,7 @@ def analyze(url, fetch=read_url):
 
 def enrich(item):
     try:
-        result=analyze(item['url'])
+        result=analyze(item['url'],verified_item=item)
         expected='UCsl6Z6p7GOkczo8Cv-GH6Dg'
         if expected and result.get('channelId')!=expected:raise ValueError('Kanalzuordnung nicht bestätigt')
         # Preserve publication timestamp from Atom, never substitute retrieval date.

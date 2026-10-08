@@ -109,3 +109,17 @@ class CaptionRecoveryTests(unittest.TestCase):
         self.assertEqual(g.relative_publication_label('7h ago'),'vor 7 Stunden')
         self.assertEqual(g.relative_publication_label('1d ago'),'vor 1 Tag')
         self.assertEqual(g.relative_publication_label('2 days ago'),'vor 2 Tagen')
+
+class VerifiedListingTests(unittest.TestCase):
+    def test_collector_reuses_verified_listing_but_rejects_wrong_identity(self):
+        import research_transcript_provider as provider
+        fixture=YoutubeTests()
+        supplied={'segments':y.parse_captions(fixture.captions()),'language':'en','provider':'Supadata'}
+        item={'url':URL,'channelId':g.MCO_CHANNEL,'title':'Gold outlook'}
+        for details,valid in [(item,True),({**item,'channelId':'other'},False),({**item,'url':URL.replace(ID,'zyxwvutsrqp')},False)]:
+            with patch.dict(y._cache,{},clear=True),patch.object(y,'read_url',return_value=fixture.data('LOGIN_REQUIRED')) as fetch,patch.object(y,'listed_metadata') as listing,patch.object(provider,'request',return_value=supplied) as request:
+                if valid:self.assertTrue(y.analyze(URL,fetch=fetch,verified_item=details)['transcriptAnalyzed'])
+                else:
+                    with self.assertRaises(ValueError):y.analyze(URL,fetch=fetch,verified_item=details)
+                    request.assert_not_called()
+                listing.assert_not_called()

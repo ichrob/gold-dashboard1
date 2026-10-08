@@ -94,3 +94,24 @@ class ErrorReportingTests(unittest.TestCase):
             with patch.dict(os.environ,{'PUSH_SERVICE_URL':'https://internal.test','PUSH_SERVICE_TOKEN':'secret-value'}),patch.object(p.urllib.request,'build_opener',return_value=opener):
                 with self.assertRaisesRegex(ValueError,expected) as caught:p.request(PAYLOAD['videoId'])
             self.assertNotIn('secret-value',str(caught.exception))
+
+class RetryBudgetTests(unittest.TestCase):
+    def test_hourly_retry_and_video_budget_preserve_global_limit(self):
+        for recent,video_count,total,expected in [(True,0,0,'cooldown'),(False,3,3,'video_limit'),(False,2,90,'local_limit'),(False,2,89,None)]:
+            conn=Mock();conn.__enter__=Mock(return_value=conn);conn.__exit__=Mock(return_value=False)
+            def execute(sql,params=None):
+                if sql.startswith('SELECT result'):
+                    self.assertIn("interval '1 hour'",sql)
+                    return Mock(fetchone=Mock(return_value=(None,recent)))
+                if sql.startswith('SELECT count'):
+                    return Mock(fetchone=Mock(return_value=(video_count if 'video_id=%s' in sql else total,)))
+                return Mock()
+            conn.execute.side_effect=execute
+            fetch=Mock(return_value=p.parse(RAW))
+            with patch.dict(os.environ,{'SUPADATA_API_KEY':'fixture'}):
+                if expected:
+                    with self.assertRaises(p.TranscriptError) as caught:p.handle(lambda:conn,PAYLOAD,fetch)
+                    self.assertEqual(caught.exception.code,expected);fetch.assert_not_called()
+                else:
+                    p.handle(lambda:conn,PAYLOAD,fetch);fetch.assert_called_once()
+                    self.assertTrue(any('INSERT INTO bob_research_requests(claim,video_id)' in call.args[0] for call in conn.execute.call_args_list))

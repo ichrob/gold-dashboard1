@@ -21,7 +21,8 @@ ERRORS = {
     'provider_invalid': 'Transkript-Dienst liefert keinen verwendbaren deutschen oder englischen Text.',
     'provider_pending': 'Transkript-Dienst hat den Text noch nicht bereitgestellt.',
     'not_configured': 'SUPADATA_API_KEY ist im Transkript-Dienst noch nicht eingerichtet.',
-    'cooldown': 'Nach einem fehlgeschlagenen Abruf pausiert dieses Video bis zu 24 Stunden. Andere Videos werden weiter geprüft.',
+    'cooldown': 'Nach einem fehlgeschlagenen Abruf pausiert dieses Video eine Stunde. Andere Videos werden weiter geprüft.',
+    'video_limit': 'Für dieses Video wurden die drei Abrufversuche innerhalb von 24 Stunden erreicht. Bob versucht es später automatisch erneut.',
     'local_limit': 'Bob-Abruflimit erreicht: maximal 90 Versuche innerhalb von 31 Tagen. Keine automatische Aufladung.',
 }
 
@@ -38,6 +39,7 @@ def init(conn):
         claim TEXT NOT NULL)''')
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_research_requests (
         claim TEXT PRIMARY KEY, attempted_at TIMESTAMPTZ NOT NULL DEFAULT now())''')
+    conn.execute('ALTER TABLE bob_research_requests ADD COLUMN IF NOT EXISTS video_id TEXT')
 
 
 def parse(data):
@@ -89,12 +91,14 @@ def handle(connect,payload,fetcher=fetch):
     # Count attempts conservatively, including failures: <=90 per rolling 31 days.
     with connect() as conn:
         conn.execute('SELECT pg_advisory_xact_lock(68431029)')
-        row=conn.execute('SELECT result,attempted_at>now()-interval \'24 hours\' FROM bob_research_transcripts WHERE video_id=%s',(identity,)).fetchone()
+        row=conn.execute('SELECT result,attempted_at>now()-interval \'1 hour\' FROM bob_research_transcripts WHERE video_id=%s',(identity,)).fetchone()
         if row and row[0]:return row[0]
         if row and row[1]:raise TranscriptError('cooldown')
+        video_count=conn.execute("SELECT count(*) FROM bob_research_requests WHERE video_id=%s AND attempted_at>now()-interval '24 hours'",(identity,)).fetchone()[0]
+        if video_count>=3:raise TranscriptError('video_limit')
         count=conn.execute("SELECT count(*) FROM bob_research_requests WHERE attempted_at>now()-interval '31 days'").fetchone()[0]
         if count>=90:raise TranscriptError('local_limit')
-        conn.execute('INSERT INTO bob_research_requests(claim) VALUES(%s)',(claim,))
+        conn.execute('INSERT INTO bob_research_requests(claim,video_id) VALUES(%s,%s)',(claim,identity))
         conn.execute('''INSERT INTO bob_research_transcripts(video_id,attempted_at,claim) VALUES(%s,now(),%s)
             ON CONFLICT(video_id) DO UPDATE SET attempted_at=now(),claim=excluded.claim''',(identity,claim))
     result=fetcher(identity,key)
