@@ -263,7 +263,11 @@ def snapshot():
     import youtube_research
     report=report or dict(checkedAt=None,sources=[],items=[],method='Recherche startet; noch keine Quellen geprüft.',intervalSeconds=INTERVAL)
     manual={x['url']:x for x in youtube_research.manual_items() if allowed_item(x)}
-    report['items']=[manual.pop(x['url']) if x['url'] in manual and not x.get('transcriptAnalyzed') else x for x in report['items']]
+    for item in report['items']:
+        if item['url'] in manual and not item.get('transcriptAnalyzed'):
+            publication={key:item[key] for key in ('publishedAt','publishedRelative','publishedRelativeObservedAt','listingInfo') if key in item}
+            item.update(manual.pop(item['url']))
+            item.update(publication)
     urls={x['url'] for x in report['items']}
     report['items'] += [x for url,x in manual.items() if url not in urls]
     return summarize(report)

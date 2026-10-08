@@ -64,12 +64,14 @@ class YoutubeTests(unittest.TestCase):
             bad=y.enrich({'url':URL,'sourceId':'mco-video'})
             self.assertFalse(bad['transcriptAnalyzed']);self.assertNotIn('trustedTranscript',bad)
     def test_pasted_transcript_replaces_unavailable_discovered_video(self):
-        report={'checkedAt':100,'sources':[],'items':[{'channelId':g.MCO_CHANNEL,'title':'Gold outlook','url':URL,'kind':'YouTube','publishedAt':None,'coverage':'Videometadaten','outlook':'UNKLAR','horizon':'unbekannt'}]}
+        report={'checkedAt':100,'sources':[],'items':[{'channelId':g.MCO_CHANNEL,'title':'Gold outlook','url':URL,'kind':'YouTube','publishedAt':None,'publishedRelative':'vor 7 Stunden','publishedRelativeObservedAt':100,'coverage':'Videometadaten','outlook':'UNKLAR','horizon':'unbekannt'}]}
         with patch.dict(y._manual,{},clear=True),patch.object(g,'_report',report),patch.object(y,'read_url',return_value=self.data()):
             y.manual({'url':URL,'transcript':'Gold will rise today. '+('This text discusses the market and its development. '*8)})
             r=g.snapshot()
             self.assertEqual(len(r['items']),1);self.assertEqual(r['videosAnalyzed'],1)
             self.assertFalse(r['items'][0]['trustedTranscript'])
+            self.assertEqual(r['items'][0]['publishedRelative'],'vor 7 Stunden')
+            self.assertEqual(r['items'][0]['publishedRelativeObservedAt'],100)
 
     def test_context_retains_conditions(self):
         result=y.assess([{'at':0,'text':'Gold remains bearish unless it breaks above 4260. Support is at 4165. '+('Economic context for this analysis is uncertain. '*8)}],'en')
