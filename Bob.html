@@ -1614,6 +1614,10 @@ async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
   // analysis. A second server verification is diagnostic only; running it on
   // every 30-second repaint overloaded slow/free instances and caused browsers
   // to abort otherwise healthy analyses. Verify at most once every two minutes.
+  if(window.BobSession?.expired()){
+   reportBobDiag('mtf:verification-skipped',{reason:'Serverprüfung wegen abgelaufener Bob-Anmeldung ausgesetzt'});
+   renderAnalysisBlocks();updateTradeSignal();updateResearchPanel();return MTF;
+  }
   if(!force&&Date.now()-lastMtfVerifyAt<120000){
    reportBobDiag('mtf:verification-skipped',{reason:'Serverprüfung vor weniger als zwei Minuten bereits gestartet'});
    renderAnalysisBlocks();updateTradeSignal();updateResearchPanel();return MTF;
@@ -1646,6 +1650,9 @@ async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
     reportBobDiag("mtf:server-verified",{bars5m:r["5m"]?.bars||0,bars15m:r["15m"]?.bars||0,bars1h:r["1h"]?.bars||0,bars4h:r["4h"]?.bars||0,available:!!v.valid,overall:MTF.overall,historyStatus:bundle.history?.data_state?.status||"unknown",source:"server-mtf"});
    }else if(vr.ok){
     reportBobDiag('mtf:verification-skipped',{reason:'Technikhistorie nicht aktuell; keine neue Bestätigung'});
+   }else if(vr.status===401){
+    window.BobSession?.recheck?.();
+    reportBobDiag('mtf:verification-skipped',{reason:'Serverprüfung wegen abgelaufener Bob-Anmeldung ausgesetzt'});
    }else{
     reportBobDiag("mtf:server-error",{error:"HTTP "+vr.status,reason:"/api/mtf verification failed"});
    }
