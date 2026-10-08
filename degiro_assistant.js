@@ -3266,7 +3266,15 @@ window.BobTradeUpload={parse,draft,reviewed,merge,init};if(typeof document!=='un
   function render(){
    if(!saved){result.textContent='Noch kein fiktiver Trade erfasst.';return;}
    const item=root.BobDegiro.tradeTestProducts().find(x=>x.isin===saved.isin),v=valuation(saved,item?.quote);
-   result.textContent='TEST · '+saved.isin+' · '+saved.direction+'\nAngenommener Einstieg '+saved.entry.toFixed(4)+' EUR × '+saved.quantity+' Stück = '+(saved.entry*saved.quantity).toFixed(2)+' EUR\n'+(v.available?(v.referenceOnly?'Referenzkurs (nicht ausführbar)':v.stale?'Veralteter Geldkurs':'Verfügbarer Geldkurs')+' '+v.bid.toFixed(4)+' EUR · '+v.source+' · '+new Date(v.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)\nFiktiver Bruttogewinn/-verlust '+v.pnl.toFixed(2)+' EUR'+(v.stale?' · mit veraltetem Kurs berechnet':''):v.reason);
+   result.textContent='TEST · '+saved.isin+' · '+saved.direction+'\nAngenommener Einstieg '+saved.entry.toFixed(4)+' EUR × '+saved.quantity+' Stück = '+(saved.entry*saved.quantity).toFixed(2)+' EUR\n'+(v.available?(v.referenceOnly?'Referenzkurs (nicht ausführbar)':v.stale?'Veralteter Geldkurs':'Verfügbarer Geldkurs')+' '+v.bid.toFixed(4)+' EUR · '+v.source+' · '+new Date(v.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)':v.reason);
+   if(v.available){
+    result.append(document.createTextNode('\nFiktiver Bruttogewinn/-verlust '));
+    const amount=document.createElement('strong'),rounded=Number(v.pnl.toFixed(2));
+    amount.textContent=(rounded>0?'+':rounded<0?'−':'')+Math.abs(rounded).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})+' EUR';
+    amount.style.fontWeight='700';amount.style.color=rounded>0?'#15803d':rounded<0?'#b91c1c':'#374151';
+    result.append(amount);
+    if(v.stale)result.append(document.createTextNode(' · mit veraltetem Kurs berechnet'));
+   }
   }
   function refresh(){
    const selected=select.value||saved?.isin;products=root.BobDegiro.tradeTestProducts();select.replaceChildren();
