@@ -1,0 +1,14 @@
+const assert=require('assert'),fs=require('fs'),vm=require('vm');
+const html=fs.readFileSync('Bob.html','utf8'),ctx={};vm.createContext(ctx);
+vm.runInContext(html.slice(html.indexOf('function volatilityDisplay('),html.indexOf('function renderAnalysisBlocks(')),ctx);
+assert.equal(ctx.volatilityDisplay(0,4000).label,'NIEDRIG');
+assert.equal(ctx.volatilityDisplay(10,4000).label,'NIEDRIG');
+assert.equal(ctx.volatilityDisplay(20,4000).label,'MITTEL');
+assert.equal(ctx.volatilityDisplay(26,4000).label,'HOCH');
+for(const v of [null,NaN,-1,Infinity])assert.equal(ctx.volatilityDisplay(v,4000).label,'NICHT VERFÜGBAR');
+assert.equal(ctx.analysisBlockDataLabel(false,0,[]),'DATEN FEHLEN');
+assert.equal(ctx.analysisBlockDataLabel(false,100,['alt']),'AKTUALITÄT UNBESTÄTIGT');
+assert.equal(ctx.analysisBlockDataLabel(false,20,[]),'DATEN UNVOLLSTÄNDIG');
+assert.equal(ctx.analysisBlockDataLabel(true,100,[]),'ANMELDUNG FEHLT');
+for(const m of html.matchAll(/<script>([\s\S]*?)<\/script>/g))new vm.Script(m[1]);
+console.log('Analysis labels: boundaries, invalid inputs, missing/stale/session states and syntax passed');

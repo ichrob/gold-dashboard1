@@ -10,6 +10,48 @@ import json
 from candle_shadow import STEPS, VERSION, analyze, number
 
 
+def early_hints(data, test_from_ms, cost_bps=0):
+    """Exploratory wick hints, equal clock horizon within each pair; no live signals."""
+    results={}
+    observations=data.get('observations',[])
+    def verified(tf):
+        rows=data.get('bars_by_tf',{}).get(tf,[])
+        out=[];used=set()
+        for r in sorted((x for x in observations if x.get('timeframe')==tf and number(x.get('observedAt'))),key=lambda x:x['observedAt']):
+            at=r.get('candleAt');seen=r['observedAt']
+            if not number(at) or (r.get('instrument'),at) in used or r.get('version')!=VERSION or r.get('affectsSelection') is not False:continue
+            check=analyze([b for b in rows if number(b.get('openTime')) and b['openTime']<=at],tf,seen)
+            if check.get('status')!='observed' or check.get('direction')!=r.get('direction') or check.get('instrument')!=r.get('instrument'):continue
+            used.add((r.get('instrument'),at));out.append(r)
+        return out
+    for fast,slow in [('1m','5m'),('30m','1h')]:
+        hints,context=verified(fast),verified(slow)
+        step=STEPS[fast];horizon=3*STEPS[slow];count=horizon//step
+        totals=dict(evaluated=0,positive=0,nonpositive=0,missingOutcome=0,missingContext=0,laterConfirmations=0)
+        returns=[];leads=[];next_at=0
+        rows=data.get('bars_by_tf',{}).get(fast,[])
+        for r in hints:
+            seen=r['observedAt'];direction=r['direction']
+            if seen<test_from_ms or seen<next_at or direction not in ('LONG','SHORT'):continue
+            prior=[x for x in context if x['instrument']==r['instrument'] and x['observedAt']<=seen and seen-x['closedAt']<=STEPS[slow]]
+            if not prior:totals['missingContext']+=1;continue
+            if prior[-1]['direction']==direction:continue
+            future=[b for b in rows if number(b.get('openTime')) and b['openTime']>=seen][:count]
+            if len(future)!=count:totals['missingOutcome']+=1;continue
+            start=future[0]['openTime']
+            valid=start-seen<=step and all(b['openTime']==start+i*step and b.get('instrument')==r['instrument'] and not b.get('estimated') and b.get('isOpen') is False and all(number(b.get(k)) for k in ('open','high','low','close')) and b['low']<=min(b['open'],b['close']) and b['high']>=max(b['open'],b['close']) for i,b in enumerate(future))
+            if not valid:totals['missingOutcome']+=1;continue
+            value=(future[-1]['close']/future[0]['open']-1)*10000*(1 if direction=='LONG' else -1)-cost_bps
+            returns.append(value);totals['evaluated']+=1
+            totals['positive' if value>0 else 'nonpositive']+=1
+            later=[x for x in context if x['instrument']==r['instrument'] and seen<x['observedAt']<=start+horizon and x['direction']==direction]
+            if later:
+                leads.append((later[0]['observedAt']-seen)/60000);totals['laterConfirmations']+=1
+            next_at=start+horizon
+        results[fast+'_'+slow]={**totals,'horizonMinutes':horizon/60000,'meanNetBps':sum(returns)/len(returns) if returns else None,'meanObservedLeadMinutes':sum(leads)/len(leads) if leads else None,'status':'ausgewertet' if returns else 'noch keine auswertbaren Fälle'}
+    return {'pairs':results,'definition':'Früher Docht-Hinweis bei noch nicht gleichgerichteter größerer Zeitebene. Nichtpositiver Verlauf nach Kostenannahme = Fehlstart-Proxy, kein Stop-Loss-Test. Zeitvorsprung nur gegenüber später tatsächlich protokollierten Bestätigungen. 1m: 15 Minuten Folgeverlauf; 30m: 180 Minuten. Paarergebnisse nicht direkt als Rangliste vergleichen. Keine Aussage über längere Trendteilnahme oder Produktrendite.'}
+
+
 def compare(data, test_from_ms, cost_bps=0):
     if not number(test_from_ms) or not isinstance(cost_bps, (int,float)) or cost_bps<0:
         raise ValueError('Ungültiger Testbeginn oder Kostenannahme')
@@ -59,7 +101,8 @@ def compare(data, test_from_ms, cost_bps=0):
                     'removedNonpositive':sum(v<=0 for v in removed)}
     return {'version':VERSION,'testFromMs':test_from_ms,'roundTripCostBps':cost_bps,
             'scope':'Explorative MTF-Richtungsprüfung am Basiswert; keine Produktfreigabe, kein Profitabilitätsnachweis',
-            'horizonBars':3,'byTimeframe':output}
+            'horizonBars':3,'byTimeframe':output,
+            'earlyHints':early_hints(data,test_from_ms,cost_bps)}
 
 
 if __name__=='__main__':

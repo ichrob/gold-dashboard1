@@ -68,3 +68,19 @@ Strategieprüfung einschließlich verpasster Chancen und Verlustverteilung nöti
 Die Tests verwenden synthetische Daten und belegen technische Regeln, keine
 Vorhersagequalität. Der Server kapselt Fehler dieses Moduls, damit die bestehende
 Live-Pipeline weiterarbeiten kann.
+
+## Frühe Hinweise 1m/5m und 30m/1h
+
+Die Offline-Ausgabe `earlyHints` prüft verifizierte Docht-Hinweise, während die
+zuletzt verfügbare größere Zeitebene noch nicht dieselbe Richtung zeigt.
+Einstieg frühestens zur nächsten verfügbaren Kerzenöffnung nach Erfassung.
+Folgeverlauf: 15 Minuten für 1m/5m, 180 Minuten für 30m/1h. Keine überlappenden
+Fälle innerhalb eines Paars. Fehlende Kontext- oder Folgedaten werden separat
+gezählt. Positive und nichtpositive Bewegungen berücksichtigen die übergebene
+Kostenannahme; nichtpositiv ist nur ein Fehlstart-Proxy, kein realer Stop-Test.
+Zeitvorsprung wird nur zu tatsächlich später protokollierter gleicher Richtung
+ermittelt. Fehlende Bestätigung beweist keinen Fehlstart. Die unterschiedlichen
+Zeithorizonte erlauben keinen direkten Leistungsvergleich der Paare. Die Studie
+ersetzt keinen vollständigen Strategievergleich mit Trendteilnahme, Stop-Pfad,
+verpassten Chancen und Produktkosten. Ohne geeignete Archivdaten steht ausdrücklich
+„noch keine auswertbaren Fälle“. Keine automatische Freigabe.

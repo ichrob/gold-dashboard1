@@ -319,13 +319,13 @@ try{
 <div class="metric">MTF<b id="quickMtf">—</b></div>
 <div class="metric">Risiko<b id="quickRisk">—</b></div>
 </div>
-<div class="analysis-blocks" style="margin-top:12px">
-<div class="analysis-block neutral"><span>Trend</span><b id="blockTrend">NEUTRAL</b><small id="blockTrendNote">Daten fehlen</small></div>
-<div class="analysis-block neutral"><span>Momentum</span><b id="blockMomentum">NEUTRAL</b><small id="blockMomentumNote">Daten fehlen</small></div>
-<div class="analysis-block neutral"><span>Fibonacci</span><b id="blockFibonacci">NEUTRAL</b><small id="blockFibonacciNote">Daten fehlen</small></div>
-<div class="analysis-block neutral"><span>MTF-Bestätigung</span><b id="blockMtf">NEUTRAL</b><small id="blockMtfNote">Daten fehlen</small></div>
-<div class="analysis-block neutral"><span>Volatilität</span><b id="blockVolatility">NEUTRAL</b><small id="blockVolatilityNote">Daten fehlen</small></div>
-<div class="analysis-block neutral"><span>Marktstruktur</span><b id="blockStructure">NEUTRAL</b><small id="blockStructureNote">Daten fehlen</small></div>
+<p class="small">Die sechs Blöcke ergänzen sich. Sie sind keine sechs unabhängigen Stimmen und werden nicht gleich gewichtet.</p><div class="analysis-blocks" style="margin-top:12px">
+<div class="analysis-block neutral"><span>Trend · Richtung</span><b id="blockTrend">DATEN FEHLEN</b><small id="blockTrendNote">Daten fehlen</small></div>
+<div class="analysis-block neutral"><span>Momentum · Dynamik</span><b id="blockMomentum">DATEN FEHLEN</b><small id="blockMomentumNote">Daten fehlen</small></div>
+<div class="analysis-block neutral"><span>Fibonacci · Kurszonen</span><b id="blockFibonacci">DATEN FEHLEN</b><small id="blockFibonacciNote">Daten fehlen</small></div>
+<div class="analysis-block neutral"><span>MTF-Bestätigung · Zeitebenen</span><b id="blockMtf">DATEN FEHLEN</b><small id="blockMtfNote">Daten fehlen</small></div>
+<div class="analysis-block neutral"><span>Volatilität · Schwankungsstärke</span><b id="blockVolatility">DATEN FEHLEN</b><small id="blockVolatilityNote">Daten fehlen</small></div>
+<div class="analysis-block neutral"><span>Marktstruktur · Hochs und Tiefs</span><b id="blockStructure">DATEN FEHLEN</b><small id="blockStructureNote">Daten fehlen</small></div>
 </div><details id="intradayComparisonDetails" style="margin-top:12px"><summary><b>Analyse-Regeln und Intraday-Vergleichstest</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">Aktiv v6: 15m Setup und 5m Einstieg. Erste Schlusskerze: Einstieg vorbereitet; ein klar bestätigter Schluss oder zwei unterstützende Schlüsse bestätigen die Richtung. 1h, 4h und EMA200 dienen als Kontext. EMA20/50, RSI14 und MACD bilden ein gemeinsames Kurskollektiv. DX unter 20 und nicht zunehmend ab 15 verlangt eine zweite Kerze statt einer pauschalen Sperre. Analyse Mo–Fr rund um die Uhr (Zürich). Produkt-Handelszeiten zusätzlich prüfen. Darunter bleibt die bisherige 15m/5m-Testvariante getrennt erhalten. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div>
 <details style="margin-top:10px"><summary>Warum entscheidet Bob so?</summary><div id="decisionExplanation" class="small" style="white-space:pre-line">Noch keine bestätigte Analyse.</div></details>
 <div id="quickReason" class="small" style="margin-top:10px">Lade Daten, um das Setup zu bewerten.</div>
@@ -2252,7 +2252,7 @@ function nextCandleScenario(bundle=liveBundleCache,now=Date.now()){
 function renderMarketNarrative(){
  const out=$('bobMarketNarrative');if(!out)return;
  const read=id=>$(id)?.textContent?.trim()||'';
- const direction=d=>d==='LONG'?'aufwärts gerichtet':d==='SHORT'?'abwärts gerichtet':'ohne eindeutige Richtung';
+ const direction=d=>d==='LONG'?'aufwärts gerichtet':d==='SHORT'?'abwärts gerichtet':d==='NEUTRAL'?'ohne eindeutige Richtung':'nicht beurteilbar ('+d+')';
  const reason=read('quickReason');
  const unavailable=window.BobSession?.expired()||!A.ready||C.length<100||/veraltet|Daten fehlen|nicht ausreichend aktuell|Anmeldung erforderlich|Historie fehlt|Datenfehler/i.test(reason);
  const lines=['Bobs aktuelle Einschätzung: '+(read('quickSignal')||'ABWARTEN')+'.',reason];
@@ -2476,21 +2476,32 @@ function invalidateTechnicalSignal(reason){
  $('dgOut').textContent='Abwarten – keine aktuelle Szenariorechnung. '+reason;
  $('dgProductOut').textContent='Keine aktuelle Produktfreigabe. '+reason+' Produktnachweise im DEGIRO-Assistenten prüfen.';
 }
+function volatilityDisplay(value,price){
+ if(!Number.isFinite(value)||value<0||!Number.isFinite(price)||price<=0)return {label:'NICHT VERFÜGBAR',note:'Schwankungsstärke · gültiger ATR oder Bezugskurs fehlt'};
+ const pct=value/price*100;
+ return {label:pct>=0.65?'HOCH':pct<=0.25?'NIEDRIG':'MITTEL',note:'Schwankungsstärke · ATR(14) '+value.toFixed(2)+' USD ('+pct.toFixed(2)+' % des Kerzenkurses). Feste Orientierungsgrenzen: niedrig ≤ 0,25 %, hoch ≥ 0,65 %. Keine Richtungsaussage; niedrig bedeutet nicht risikofrei.'};
+}
+function analysisBlockDataLabel(expired,count,warnings){
+ return expired?'ANMELDUNG FEHLT':!count?'DATEN FEHLEN':warnings.length?'AKTUALITÄT UNBESTÄTIGT':'DATEN UNVOLLSTÄNDIG';
+}
 function renderAnalysisBlocks(){
  renderIntraday();
  const current=confirmedSignalDirection();
  const ready=!window.BobSession?.expired()&&!!A.ready&&C.length>=100&&Number.isFinite(signalState.score);
  const put=(name,dir,note)=>{const el=$("block"+name),detail=$("block"+name+"Note");if(!el)return;el.textContent=dir;el.parentElement.className="analysis-block "+(dir==="LONG"?"long":dir==="SHORT"?"short":"neutral");if(detail)detail.textContent=note;};
- if(!ready){for(const name of ["Trend","Momentum","Fibonacci","Mtf","Volatility","Structure"])put(name,"NEUTRAL","Daten fehlen oder sind nicht ausreichend aktuell");$("analysisQuality").textContent="5-Minuten-Richtungswert: nicht verfügbar · ABWARTEN – aktuelle Analysedaten fehlen";$("score").textContent="Richtungswert: nicht verfügbar";$("score").className="signal neutral";$("scoreDetails").textContent="Aktuelle Analysedaten fehlen";return;}
+ if(!ready||analysisAgeWarnings().length){const warnings=analysisAgeWarnings(),label=analysisBlockDataLabel(window.BobSession?.expired(),C.length,warnings);for(const name of ["Trend","Momentum","Fibonacci","Mtf","Volatility","Structure"])put(name,label,warnings.join(" · ")||"Keine bestätigte aktuelle Bewertung; dies ist kein neutrales Marktsignal");$("analysisQuality").textContent="5-Minuten-Richtungswert: nicht verfügbar · ABWARTEN – aktuelle Analysedaten fehlen";$("score").textContent="Richtungswert: nicht verfügbar";$("score").className="signal neutral";$("scoreDetails").textContent="Aktuelle Analysedaten fehlen";return;}
  const trend=A.e20>A.e50?"LONG":A.e20<A.e50?"SHORT":"NEUTRAL";
  const momentum=A.macd>A.sig?"LONG":A.macd<A.sig?"SHORT":"NEUTRAL";
  const mtf=getMtfState(),fib=A.fibonacci;
  const mainTrend=sustainedTrendContext(liveBundleCache);
- put("Trend",mainTrend.available?mainTrend.direction:"NEUTRAL",mainTrend.reason);
+ const strength=dmiContext(liveBundleCache).frames['1h'];
+ const strengthText=strength?.available?' · Trendstärke 1h: '+(strength.adx<20?'schwach':strength.adx<25?'Übergang':'ausgeprägt')+' (ADX '+strength.adx.toFixed(1)+', '+(strength.adxChange>0?'zunehmend':strength.adxChange<0?'abnehmend':'gleichbleibend')+'); Richtwert, keine Garantie':' · Trendstärke 1h: Daten nicht verfügbar';
+ put("Trend",mainTrend.available?mainTrend.direction:"NICHT VERFÜGBAR",'Richtung · '+mainTrend.reason+strengthText);
  put("Momentum",momentum,momentum==="NEUTRAL"?"MACD neutral":"MACD-Histogramm; RSI ergänzt die Einschätzung, ohne allein zu sperren");
- put("Fibonacci",fib?.valid?fib.direction:"NEUTRAL",fib?.valid?"Szenario aus bestätigten Wendepunkten":"Keine bestätigten Level");
- put("Mtf",mtf.overall||"NEUTRAL",mtf.overall==="NEUTRAL"?"Zeitebenen uneinheitlich oder unvollständig":"15m-Setup und 5m-Timing; Haupttrend separat in der Freigabe geprüft");
- put("Volatility","NEUTRAL",currentRegime()+" · Volatilität gibt allein keine Richtung vor");
+ put("Fibonacci",fib?.valid?fib.direction:"KEINE LEVEL",fib?.valid?"Kurszonen · Szenario aus bestätigten Wendepunkten; keine eigenständige Richtungsstimme":"Keine bestätigten Level");
+ put("Mtf",mtf.valid===false?"NICHT VERFÜGBAR":mtf.overall||"NEUTRAL",mtf.overall==="NEUTRAL"?"Zeitebenen uneinheitlich oder unvollständig":"15m-Setup und 5m-Timing; Haupttrend separat in der Freigabe geprüft");
+ const vol=volatilityDisplay(A.at,A.signalPrice||C.at(-1)?.close);
+ put("Volatility",vol.label,vol.note);
  const closes=C.map(b=>Number(b.close)),bb=boll(closes),st=stochastic(C),p=A.signalPrice||closes.at(-1);
  const structure=confirmedMarketStructure(C);
  put("Structure",structure.direction,structure.reason);

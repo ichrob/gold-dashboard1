@@ -5,6 +5,29 @@ from candle_study import compare
 
 
 class StudyTests(unittest.TestCase):
+    def test_early_hint_outcome_and_missing_data(self):
+        from candle_study import early_hints
+        now=1800000000000
+        histories={};records=[]
+        for tf in ('1m','5m'):
+            step=STEPS[tf]
+            b=[dict(openTime=now-(21-i)*step,open=100,high=102,low=98,close=100,isOpen=False,instrument='XAU/USD') for i in range(21)]
+            if tf=='1m':b[-1].update(open=101,close=101.8)
+            records.append(dict(analyze(b,tf,now),observedAt=now))
+            histories[tf]=b
+        for i in range(15):
+            histories['1m'].append(dict(openTime=now+i*60000,open=100,high=105,low=98,close=104,isOpen=False,instrument='XAU/USD'))
+        data={'observations':records,'bars_by_tf':histories}
+        r=early_hints(data,now,5)['pairs']['1m_5m']
+        self.assertEqual(r['evaluated'],1)
+        self.assertEqual(r['positive'],1)
+        self.assertAlmostEqual(r['meanNetBps'],395)
+        self.assertIsNone(r['meanObservedLeadMinutes'])
+        histories['1m'][-1]['isOpen']=True
+        r=early_hints(data,now,5)['pairs']['1m_5m']
+        self.assertEqual(r['evaluated'],0)
+        self.assertEqual(r['missingOutcome'],1)
+
     def data(self,tf='15m'):
         b=bars(tf);b[-1].update(open=101,high=102,low=98,close=101.8)
         now=b[-1]['openTime']+STEPS[tf]
