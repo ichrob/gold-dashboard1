@@ -45,7 +45,7 @@ def level_text(trade, gold):
     model=trade.get('product')
     price=product_price(model,gold)
     if model:
-        return f"≈ {price:.4f} EUR/Stück (berechnet)" if price else 'Eurokurs nicht berechenbar (KO/Modellgrenze)'
+        return f"≈ {price:.4f} EUR/Stück (geschätzt) · Gold {gold:.2f} USD/oz" + (' · FX-Aktualisierung verzögert' if model.get('fxDelayed') else '') if price else 'Eurokurs nicht berechenbar (KO/Modellgrenze)'
     return f"{gold:.2f} USD/oz (Goldreferenz; Produktdaten fehlen)"
 
 
@@ -126,6 +126,19 @@ def failed_analysis_market(bundle):
 
 
 def advance(previous, settings, market, general, trade_enabled, now=None, log=True):
+    settings = copy.deepcopy(settings)
+    fx = market.get('fx') or {}
+    model = (settings.get('trade') or {}).get('product')
+    if model and positive(fx.get('rate')):
+        from datetime import datetime
+        try:
+            stamp = datetime.fromisoformat(fx.get('fetchedAt','').replace('Z','+00:00')).timestamp()*1000
+            clock = time.time()*1000 if now is None else now
+            if 0 <= clock-stamp:
+                model['fxScenario'] = fx['rate']
+                model['fxDelayed'] = bool(fx.get('error')) or clock-stamp>90000
+        except (ValueError, TypeError):
+            pass
     now = int(time.time()*1000) if now is None else now
     state = copy.deepcopy(previous or {})
     if not general and not trade_enabled:
@@ -144,7 +157,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         audit(kind, 'planned', reason[:160])
         product=(settings.get('trade') or {}).get('product') if channel=='trade' else None
         if product:
-            reason=reason+' · '+product['isin']+' · Modellreferenz '+product['referenceAt']+'; konstante FX-/Produktbedingungen. Kein bestätigter DEGIRO-Kurs.'
+            reason=reason+' · '+product['isin']+' · Modellreferenz '+product['referenceAt']+'; verfügbarer Wechselkurs und gespeicherte Produktbedingungen. Kein bestätigter DEGIRO-Kurs.'
         events.append({'title': title, 'body': reason, 'tag': 'bob-background-'+channel,
                        'data': {'kind': channel, 'eventKind': kind, 'url': '/', 'dataAt': market.get('dataAt'),
                                 'expiresAt': now+180000, 'tradeId': (settings.get('trade') or {}).get('tradeId')}})
