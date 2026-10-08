@@ -53,4 +53,32 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(server.aggregate_bars([dict(rows[0],high=float('inf')),*rows[1:]],15),[])
         self.assertTrue(server.aggregate_bars([dict(rows[0],isOpen=True),*rows[1:]],15)[0]['isOpen'])
 
+class NotificationTests(unittest.TestCase):
+    def test_direction_cooldown_and_independent_levels(self):
+        from fibonacci_monitor import notification_alerts
+        a=dict(favorable=False,level='r382',candleClosedAt=NOW)
+        initial={'tradeId':'test'}
+        state,events=notification_alerts(initial,[a,dict(a,favorable=True,level='r500')],NOW)
+        self.assertEqual(len(events),1)
+        self.assertNotIn('notifiedLevels',initial)
+        state2,events=notification_alerts(state,[a,dict(a,level='r618')],NOW+600000)
+        self.assertEqual([e['level'] for e in events],['r618'])
+        self.assertEqual(state2['notifiedLevels']['r382'],NOW)
+        self.assertEqual(notification_alerts(state2,[a],NOW+899999)[1],[])
+        self.assertEqual(len(notification_alerts(state2,[a],NOW+900000)[1]),1)
+        # Failed delivery discards the returned checkpoint: retry stays eligible.
+        self.assertEqual(len(notification_alerts(initial,[a],NOW+1000)[1]),1)
+    def test_both_directions_and_same_candle_bundle(self):
+        from fibonacci_monitor import notification_alerts
+        for side,previous,current in [('LONG',4060,4040),('SHORT',4040,4060)]:
+            monitor=MonitorTests().monitor(side);monitor['previousClose']=previous
+            checkpoint,events,_=advance_monitor(monitor,[MonitorTests().bar(current)],NOW)
+            state,selected=notification_alerts(checkpoint,events,NOW)
+            self.assertEqual(len(selected),6)
+            self.assertTrue(all(not e['favorable'] for e in selected))
+            self.assertEqual(len({e['candleClosedAt'] for e in selected}),1)
+            self.assertEqual(notification_alerts(state,events,NOW+STEP)[1],[])
+            # Movement in the trade direction never generates a Fib push.
+            self.assertEqual(notification_alerts({},[{**e,'favorable':True} for e in events],NOW)[1],[])
+
 if __name__=='__main__':unittest.main()
