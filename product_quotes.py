@@ -594,6 +594,11 @@ def _get_quote_primary(isin):
 
 
 def get_quote(isin):
+    from quote_runtime import run
+    return run(str(isin or "").strip().upper(), _get_quote_bounded)
+
+
+def _get_quote_bounded(isin):
     from onvista_backup import apply_backup
     isin = str(isin or '').strip().upper()
     result = apply_backup(_get_quote_primary(isin), isin)

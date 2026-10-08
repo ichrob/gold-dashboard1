@@ -32,9 +32,30 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(r.run(['node','worker.js'],timeout=1),'recovered')
 
     def test_full_queue_is_bounded_and_does_not_start_child(self):
-        r._SLOT.acquire()
+        with r._CONDITION: r._BUSY=True
         try:
             with patch.object(r,'MAX_QUEUE_SECONDS',.01),patch.object(r.subprocess,'run') as child:
                 with self.assertRaises(TimeoutError):r.run(['node','worker.js'],timeout=1)
                 child.assert_not_called()
-        finally:r._SLOT.release()
+        finally:
+            with r._CONDITION: r._BUSY=False;r._CONDITION.notify_all()
+
+    def test_priority_and_identical_inflight_requests(self):
+        entered=threading.Event();release=threading.Event();order=[]
+        def child(args, **kw):
+            order.append(kw['input'])
+            if kw['input']=='first': entered.set();release.wait(2)
+            return {'input':kw['input']}
+        with patch.object(r.subprocess,'run',side_effect=child):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+                first=pool.submit(r.run,['node','w'],input='first')
+                self.assertTrue(entered.wait(1))
+                duplicate=pool.submit(r.run,['node','w'],input='first')
+                paper=pool.submit(r.run,['node','w'],input='paper',priority=2)
+                trade=pool.submit(r.run,['node','w'],input='trade',priority=0)
+                deadline=time.monotonic()+1
+                while r.status()['waiting']<2 and time.monotonic()<deadline:time.sleep(.001)
+                release.set()
+                a=first.result();b=duplicate.result();paper.result();trade.result()
+                self.assertEqual(a,b);self.assertIsNot(a,b)
+        self.assertEqual(order,['first','trade','paper'])

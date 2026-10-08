@@ -14,6 +14,7 @@ import bob_validation_store
 import decision_audit
 import stop_target_audit
 import paper_simulation
+import evaluator_runtime
 import intraday_comparison
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
@@ -273,20 +274,6 @@ def run_background(bundle):
                 stop_target_audit.harvest(conn)
         except Exception as exc:
             print('BOB_STOP_TARGET error='+type(exc).__name__,flush=True)
-        # A single independent campaign, even with no devices subscribed to Push.
-        now=int(time.time()*1000)
-        if intraday_comparison.active(now):
-            try:
-                with conn.transaction():
-                    slot=intraday_comparison.slot_at(now)
-                    if intraday_comparison.needs_capture(conn,now):
-                        try: trial=background_push.analyze(bundle,{'timeframe':'15m'})
-                        except Exception: trial={'ready':False,'decisionReason':'Hintergrundanalyse fehlgeschlagen'}
-                        captured=intraday_comparison.capture(conn,trial,now)
-                        print('BOB_COMPARISON captured valid='+str(bool(captured and captured['valid']))+' slot='+str(slot),flush=True)
-                    else: intraday_comparison.harvest(conn,now)
-            except Exception as exc:
-                print('BOB_COMPARISON error='+type(exc).__name__,flush=True)
         rows = conn.execute("SELECT id, subscription, general_enabled, trade_enabled, active_trade, background_config, background_state, selection_evidence, product_selection FROM subscriptions WHERE (general_enabled=TRUE OR (trade_enabled=TRUE AND active_trade=TRUE)) AND background_config IS NOT NULL FOR UPDATE").fetchall()
         for sid, sub, general, trade, active, settings, previous, evidence, selection in rows:
             try:
@@ -339,6 +326,20 @@ def run_background(bundle):
                     sent += deliver_product_selection(conn,(sid,sub,selection),checked)
                 except Exception as exc:
                     print('BOB_BACKGROUND selection_failed='+type(exc).__name__,flush=True)
+        # A single independent campaign, even with no devices subscribed to Push.
+        now=int(time.time()*1000)
+        if intraday_comparison.active(now):
+            try:
+                with conn.transaction():
+                    slot=intraday_comparison.slot_at(now)
+                    if intraday_comparison.needs_capture(conn,now):
+                        try: trial=background_push.analyze(bundle,{'timeframe':'15m'},priority=2)
+                        except Exception: trial={'ready':False,'decisionReason':'Hintergrundanalyse fehlgeschlagen'}
+                        captured=intraday_comparison.capture(conn,trial,now)
+                        print('BOB_COMPARISON captured valid='+str(bool(captured and captured['valid']))+' slot='+str(slot),flush=True)
+                    else: intraday_comparison.harvest(conn,now)
+            except Exception as exc:
+                print('BOB_COMPARISON error='+type(exc).__name__,flush=True)
         conn.commit()
     return sent
 
@@ -362,7 +363,7 @@ class Handler(BaseHTTPRequestHandler):
                 vapid()
                 with db() as conn:
                     conn.execute("SELECT 1").fetchone()
-                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2"})
+                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status()})
                 return
             if path == "/monitor-status":
                 supplied = self.headers.get("X-Bob-Push-Token", "")

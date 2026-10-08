@@ -350,12 +350,12 @@ def _worker(db):
                         if active:settings['trade']=active[0]['engine']['trade']
                         quotes=quote_cache(evidence['products'],active[0]['product']['isin'] if active else None,now)
                         # A closed browser is not needed: exact same headless rules.
-                        market=background_push.analyze(bundle,settings)
+                        market=background_push.analyze(bundle,settings,priority=2)
                         selection=dict(choices=[],reasons=[])
                         if not active and market.get('ready') and market.get('direction') in ('LONG','SHORT'):
                             request={**evidence,'quotes':quotes,'market':market,'bundle':bundle}
                             p=evaluator_runtime.run(['node',str(Path(__file__).with_name('paper_selection.js'))],input=json.dumps(request),
-                                             text=True,capture_output=True,timeout=6,check=True)
+                                             text=True,capture_output=True,timeout=6,check=True,priority=2)
                             selection=json.loads(p.stdout)
                         run_once(conn,bundle,market,selection,quotes,time.time()*1000)
                         conn.commit()

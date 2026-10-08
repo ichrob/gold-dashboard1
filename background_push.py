@@ -85,7 +85,7 @@ def config(value):
     return result
 
 
-def analyze(bundle, settings):
+def analyze(bundle, settings, *, priority=None):
     started = time.monotonic()
     payload = json.dumps({**settings, 'bundle': bundle})
     # One fresh process after SIGABRT, within the original ten-second budget.
@@ -95,7 +95,8 @@ def analyze(bundle, settings):
         if remaining <= 0:
             raise TimeoutError('Zeitlimit der Hintergrundanalyse erreicht')
         p = evaluator_runtime.run(['node', str(Path(__file__).with_name('background_analysis.js'))],
-                           input=payload, text=True, capture_output=True, timeout=remaining)
+                           input=payload, text=True, capture_output=True, timeout=remaining,
+                           priority=(0 if settings.get('trade', {}).get('active') else 1) if priority is None else priority)
         if p.returncode != -signal.SIGABRT or attempt:
             break
         print('BOB_ANALYSIS_RETRY signal=SIGABRT attempt=1', flush=True)
