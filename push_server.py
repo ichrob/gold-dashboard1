@@ -501,7 +501,7 @@ class Handler(BaseHTTPRequestHandler):
                       WHERE endpoint=%s
                     """, (general, trade, active, json.dumps(monitor) if monitor else None, general, endpoint))
                     conn.commit()
-                send_json(self, 200, {"ok": True, "fibonacciMonitor": "active" if monitor else "inactive", "backgroundEnabled": settings is not None, "backgroundTrade": (background_state or {}).get("trade")})
+                send_json(self, 200, {"ok": True, "fibonacciMonitor": "active" if monitor else "inactive", "backgroundEnabled": settings is not None, "backgroundTrade": (background_state or {}).get("trade"), "continuedCalculation": (background_state or {}).get("continuedCalculation")})
                 return
 
             if path == "/unsubscribe":
