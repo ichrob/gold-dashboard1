@@ -45,7 +45,7 @@ def level_text(trade, gold):
     model=trade.get('product')
     price=product_price(model,gold)
     if model:
-        return f"≈ {price:.4f} EUR/Stück (berechnet)" if price else 'Eurokurs nicht berechenbar (KO/Modellgrenze)'
+        return f"≈ {price:.4f} EUR/Stück (geschätzt) · Gold {gold:.2f} USD/oz" + (' · FX-Aktualisierung verzögert' if model.get('fxDelayed') else '') if price else 'Eurokurs nicht berechenbar (KO/Modellgrenze)'
     return f"{gold:.2f} USD/oz (Goldreferenz; Produktdaten fehlen)"
 
 
@@ -126,6 +126,19 @@ def failed_analysis_market(bundle):
 
 
 def advance(previous, settings, market, general, trade_enabled, now=None, log=True):
+    settings = copy.deepcopy(settings)
+    fx = market.get('fx') or {}
+    model = (settings.get('trade') or {}).get('product')
+    if model and positive(fx.get('rate')):
+        from datetime import datetime
+        try:
+            stamp = datetime.fromisoformat(fx.get('fetchedAt','').replace('Z','+00:00')).timestamp()*1000
+            clock = time.time()*1000 if now is None else now
+            if 0 <= clock-stamp:
+                model['fxScenario'] = fx['rate']
+                model['fxDelayed'] = bool(fx.get('error')) or clock-stamp>90000
+        except (ValueError, TypeError):
+            pass
     now = int(time.time()*1000) if now is None else now
     state = copy.deepcopy(previous or {})
     if not general and not trade_enabled:
@@ -144,7 +157,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         audit(kind, 'planned', reason[:160])
         product=(settings.get('trade') or {}).get('product') if channel=='trade' else None
         if product:
-            reason=reason+' · '+product['isin']+' · Modellreferenz '+product['referenceAt']+'; konstante FX-/Produktbedingungen. Kein bestätigter DEGIRO-Kurs.'
+            reason=reason+' · '+product['isin']+' · Modellreferenz '+product['referenceAt']+'; verfügbarer Wechselkurs und gespeicherte Produktbedingungen. Kein bestätigter DEGIRO-Kurs.'
         events.append({'title': title, 'body': reason, 'tag': 'bob-background-'+channel,
                        'data': {'kind': channel, 'eventKind': kind, 'url': '/', 'dataAt': market.get('dataAt'),
                                 'expiresAt': now+180000, 'tradeId': (settings.get('trade') or {}).get('tradeId')}})
@@ -246,7 +259,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     target = old.get('target')
     target_hit = positive(target) and (p>=target if long else p<=target)
     if target_hit and not old.get('targetSent'):
-        add('target', 'TRADE-WARNUNG · Ziel erreicht', f"{t['dir']} · Ziel {level_text(t,target)} anhand Goldreferenz erreicht. Ausstieg/Stop prüfen.")
+        add('target', 'TRADE-WARNUNG · Ziel erreicht', f"{t['dir']} · Ziel {level_text(t,target)} anhand Goldreferenz erreicht. {('Haupttrend intakt: Fortsetzung mit geschütztem Stop prüfen.' if trend_intact else 'Fortsetzung nicht bestätigt: Gewinnschutz und Stop prüfen; kein automatischer Ausstieg.')}")
         old['targetSent'] = True
     if healthy and not trend_intact and direction in ('LONG','SHORT') and direction != t['dir'] and direction != old.get('opposite'):
         add('reversal', 'TRADE-WARNUNG · Richtungswechsel', f"Bestätigtes {direction}-Signal gegen deinen {t['dir']}-Trade. Schließen prüfen.")
@@ -285,13 +298,14 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
               isinstance(macd,(int,float)) and isinstance(signal,(int,float)) and
               (macd>=signal and market.get('score',0)>=70 if long else macd<=signal and market.get('score',100)<=30))
     strong = (main_trend.get('phase') == 'CONTINUATION') if trend_intact else strong
-    if target_hit and strong and positive(candidate) and positive(bar) and bar>old.get('targetBarAt',0):
+    target_plan = market.get('suggestedTargetPlan') or {}
+    if target_hit and strong and target_plan.get('entrySuitable') is not False and positive(candidate) and positive(bar) and bar>old.get('targetBarAt',0):
         step=max(risk*.5, (market.get('atr') or 0)*.5)
         beyond = candidate>=max(p,target)+step if long else candidate<=min(p,target)-step
         if beyond:
             old.update(target=candidate,targetSent=False,targetBarAt=bar)
             add('target-extension','TRADE-PLAN · Ziel erreicht – neues Ziel',
-                f"{t['dir']} · Bisheriges Ziel erreicht. Neues Ziel {level_text(t,candidate)}; Stop {level_text(t,old['stop'])}. {('Haupttrend-Fortsetzung durch geschlossene Kerze bestätigt' if trend_intact else 'Richtung, MTF und Momentum weiter bestätigt')}. Vorschlag bei DEGIRO selbst übernehmen.")
+                f"{t['dir']} · Bisheriges Ziel erreicht. Neues Ziel {level_text(t,candidate)}; Stop {level_text(t,old['stop'])}. {('Haupttrend-Fortsetzung durch geschlossene Kerze bestätigt' if trend_intact else 'Richtung, MTF und Momentum weiter bestätigt')}. Vorschlag bei DEGIRO selbst übernehmen. {target_plan.get('warning','')}")
     estimated_now=product_price(t.get('product'),p)
     product_in_profit=not t.get('product') or (estimated_now is not None and estimated_now>t['product']['entry'])
     weak = not trend_intact and (main_trend.get('phase') == 'WEAKENING' or mtf != t['dir'] or (market.get('score',50)<65 if long else market.get('score',50)>35))
@@ -332,3 +346,4 @@ def compose_events(events):
     if any(e['data']['kind'] == 'trade' for e in ordered):
         message['data']['kind'] = 'trade'
     return message
+

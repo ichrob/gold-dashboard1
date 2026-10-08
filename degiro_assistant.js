@@ -1953,13 +1953,14 @@ const KO_MAX_AGE_MS=8*60*60*1000;
 function koTermTime(p,e,now){
  if(!e?.source||!(n(e.value)>0)||e.conflict||e.revoked||e.ocrCorrection)return NaN;
  if(e.at)return Date.parse(e.at);
+ if(p.quote?.isin===p.isin&&p.quote.productVerified&&p.quote.conditions?.ko===e&&e.conditionVerified&&currentDatedTerm(e,now))return Date.parse(e.reviewedAt);
  const ref=termSeriesReference(p,'ko',e,now);
  if(ref)return ref.origin==='automatic'?Date.parse(ref.text):selectionTimeWindow(ref.text)?.start;
  return NaN;
 }
 function koEvidenceStatus(p,now=Date.now()){
  const q=p.quote?.isin===p.isin&&p.quote.productVerified?p.quote:null;
- const shot=p.snapshot?.isin===p.isin&&hasScreenshotIdentity(p.snapshot)?p.snapshot:null;
+ const shot=p.snapshot?.isin===p.isin?p.snapshot:null;
  const evidence=[q?.conditions?.ko,shot?.terms?.ko,shot?.evidence?.KO];
  const matches=evidence.filter(e=>e&&termValueMatches(p.ko,e.value,e));
  const times=matches.map(e=>({at:koTermTime(p,e,now),source:e.source}));
@@ -1970,7 +1971,7 @@ function koEvidenceStatus(p,now=Date.now()){
  const fixed=window.BobCombined.fixedFor(p);
  if(fixed)times.push({at:Date.parse(fixed.confirmedAt),source:fixed.source});
  const latest=times.filter(x=>Number.isFinite(x.at)&&x.at<=now).sort((a,b)=>b.at-a.at)[0];
- const blocked=matches.some(e=>e.conflict||e.revoked||e.ocrCorrection);
+ const blocked=matches.some(e=>e.conflict||e.revoked||e.ocrCorrection)||!!(shot?.evidence?.KO?.dateText&&shot.terms?.ko&&shot.evidence.KO.dateText!==shot.terms.ko.dateText);
  const expiresAt=latest?latest.at+KO_MAX_AGE_MS:null;
  const current=!!latest&&!blocked&&now<expiresAt;
  return {current,at:latest?new Date(latest.at).toISOString():null,expiresAt:expiresAt?new Date(expiresAt).toISOString():null,
@@ -2014,7 +2015,7 @@ function productTermsStatus(p,now=Date.now(),allowObserved=false){
  for(const key of ['strike','ko']){
   const direct=q?.productVerified?q.conditions?.[key]:null,old=shot?.terms?.[key]||(key==='ko'?shot?.evidence?.KO:null);
   if(currentProductTerm(p,key,direct,now)){
-   if(currentProductTerm(p,key,old,now)&&!termValueMatches(old.value,direct.value,old))reasons.push((key==='strike'?'Basispreis':'KO-Barriere')+': aktuelle Nachweise widersprechen sich');
+   if((currentProductTerm(p,key,old,now)||key==='ko'&&currentDatedTerm(old,now))&&!termValueMatches(old.value,direct.value,old))reasons.push((key==='strike'?'Basispreis':'KO-Barriere')+': aktuelle Nachweise widersprechen sich');
    else terms[key]=direct;
   }
  }
@@ -2989,8 +2990,13 @@ window.BobDegiro={koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,ter
   const eur=m.bid+d*m.ratio*((gold-m.strike)*m.fxScenario-(m.goldReference-m.strike)*m.fxReference);
   return positive(eur)?{available:true,price:eur,pnl:(eur-m.entry)*m.quantity}:{available:false,reason:'Kein positiver Modellkurs'};
  }
- function label(m,gold){const x=price(m,gold);return x.available?'≈ '+x.price.toFixed(4)+' EUR/Stück (berechnet)':x.reason;}
- root.BobTradeProduct={model,price,label};
+ function withFx(m,spots,now=Date.now()){
+  const fx=spots?.usd_eur_meta,rate=Number(fx?.rate),at=Date.parse(fx?.fetchedAt);
+  if(!m||!positive(rate)||!Number.isFinite(at)||at>now)return m;
+  return {...m,fxScenario:rate,fxDetails:{...fx,delayed:!!fx.error||now-at>90000}};
+ }
+ function label(m,gold){const x=price(m,gold);return x.available?'≈ '+x.price.toFixed(4)+' EUR/Stück (geschätzt) · Gold '+gold.toFixed(2)+' USD/oz'+(m.fxDetails?.delayed?' · FX-Aktualisierung verzögert':''):x.reason;}
+ root.BobTradeProduct={model,price,label,withFx};
  if(typeof module!=='undefined')module.exports=root.BobTradeProduct;
 })(typeof window!=='undefined'?window:globalThis);
 

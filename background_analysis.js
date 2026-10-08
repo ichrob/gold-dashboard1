@@ -27,18 +27,20 @@ function evaluate(input, {render=false}={}){
   const direction=confirmedSignalDirection(),ready=A.ready&&analysisAgeWarnings().length===0;
   const riskData=intradayRiskData(bundle);
   const context={spotFresh:priceFresh,spot:price,...intradayTechnicalContext(bundle,signalState)};
-  let suggestedStop=null,suggestedTarget=null;
-  if(ready&&priceFresh&&input.trade?.active){const stop=stopModel(input.trade.dir,price,A.at,input.trailAtr||1.5).stop;if(Number.isFinite(stop)&&stop>0){suggestedStop=stop;suggestedTarget=targetModel(input.trade.dir,price,stop,2).target;}}
+  let suggestedStop=null,suggestedTarget=null,suggestedTargetPlan=null;
+  if(ready&&priceFresh&&input.trade?.active){const stop=stopModel(input.trade.dir,price,A.at,input.trailAtr||1.5).stop;if(Number.isFinite(stop)&&stop>0){suggestedStop=stop;suggestedTargetPlan=targetModel(input.trade.dir,price,stop,2);suggestedTarget=suggestedTargetPlan.target;}}
   let plan=null;
   if(ready&&priceFresh&&direction!=='NEUTRAL'){
    const stop=stopModel(direction,price,A.at,input.trailAtr||1.5).stop;
-   const target=Number.isFinite(stop)&&stop>0?targetModel(direction,price,stop,2).target:null;
-   if(Number.isFinite(target)&&target>0)plan={kind:'candidate',direction,entry:price,stop,target,unit:'USD/oz',at:Date.now()};
+   const targetPlan=Number.isFinite(stop)&&stop>0?targetModel(direction,price,stop,2):{};
+   const target=targetPlan.target;
+   if(Number.isFinite(target)&&target>0)plan={targetCheck:targetPlan,entrySuitable:targetPlan.entrySuitable,kind:'candidate',direction,entry:price,stop,target,unit:'USD/oz',at:Date.now()};
   }
   if(input.trade?.active&&['entry','stop','target'].every(k=>Number.isFinite(input.trade[k])&&input.trade[k]>0))plan={kind:'active-monitor',direction:input.trade.dir,entry:input.trade.entry,stop:input.trade.stop,target:input.trade.target,unit:'USD/oz',at:Date.now(),isin:input.trade.product?.isin||null};
-  return {plan,trendContext,comparisonBaseline:{ruleVersion:'intraday-responsive-v6',direction:intradaySession().entryAllowed?baseline.dir:'NEUTRAL',shadowDirection:intradaySession().entryAllowed?baseline.shadowDirection:'NEUTRAL',decisionReason:baseline.reason},analysisSnapshot:{timeframe:tf,...A,mtf:MTF},minuteEntry:minuteEntryContext(bundle,signalState),entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-trend-follow-v7',session:intradaySession(),intraday:intradayState(bundle,input.trade),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
+  return {fx:bundle.spots?.usd_eur_meta||null,plan,trendContext,comparisonBaseline:{ruleVersion:'intraday-responsive-v6',direction:intradaySession().entryAllowed?baseline.dir:'NEUTRAL',shadowDirection:intradaySession().entryAllowed?baseline.shadowDirection:'NEUTRAL',decisionReason:baseline.reason},analysisSnapshot:{timeframe:tf,...A,mtf:MTF},minuteEntry:minuteEntryContext(bundle,signalState),entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-trend-follow-v7',session:intradaySession(),intraday:intradayState(bundle,input.trade),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,suggestedTargetPlan,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
  })()`,env,{timeout:8000});
 }
 module.exports={evaluate};
 if(require.main===module){try{process.stdout.write(JSON.stringify(evaluate(JSON.parse(fs.readFileSync(0,'utf8')))));}catch(e){process.stderr.write(JSON.stringify({name:e.name,message:String(e.message).slice(0,200),frames:String(e.stack).split('\n').filter(x=>/^\s+at /.test(x)).slice(0,3)}));process.exitCode=1;}}
+
 

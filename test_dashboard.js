@@ -115,7 +115,7 @@ assert.equal(grouped.weights.priceCollective,100);assert.equal(grouped.weights.m
  await vm.runInContext('activateProductTrade(productInput)',env);
  assert.equal(sent.background.trade.product.isin,env.productInput.isin);
  assert.equal(vm.runInContext('tradeMgmt.target',env),140);
- assert(element('stopPanel').textContent.includes('EUR/Stück (berechnet)'));
+ assert(element('stopPanel').textContent.includes('EUR/Stück (geschätzt)'));
  assert(element('stopPanel').textContent.includes('23.6000'));
  assert(element('stopPanel').textContent.includes('DE000FG4JXV7'));
  assert.equal(vm.runInContext('tradeMgmt.stop',env),95);
