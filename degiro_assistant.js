@@ -1564,10 +1564,12 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben'){
  const signalText=typeof document!=='undefined'?(document.getElementById('quickSignal')?.textContent||''):'';
  const neutral=/ABWARTEN|NEUTRAL/.test(signalText)||allReasons.some(r=>/Marktsignal neutral/.test(r));
  const data=productDataStatus(p),temporal=allReasons.some(r=>/zeit|Aktualität|datier|veraltet|Gültigkeit|Nachweis/i.test(r));
+ const missingNumbers=Object.values(fieldStates).filter(f=>f.state==='fehlt').map(f=>f.key);
+ const dataText=data.complete?'vollständig':missingNumbers.length?'Fehlende Kurswerte: '+missingNumbers.join(', ')+'; weitere Produktnachweise siehe Details':'Geld, Brief und Hebel vorhanden; weitere Produktnachweise siehe Details';
  const shortReason=r=>String(r).split('. Öffne')[0].split(' · Fundort:')[0].slice(0,160);
  const next=complete&&neutral?'Marktsignal neutral – auf eine bestätigte Richtung warten. Dafür sind keine neuen Bilder nötig.':complete?'Produktdaten vollständig – Auswahlgrund unter „Warum derzeit nicht ausgewählt?“ prüfen.':temporal&&data.complete?'Werte vorhanden – den offenen Zeitbezug unter „So ergänzt du den Nachweis“ prüfen.':'Offene Angaben unter „So ergänzt du den Nachweis“ ansehen und nur diese ergänzen.';
  return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" data-selection-blocked="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere"><b>'+esc(p.isin)+'</b>'+productCompletionBadge(p)+' · '+esc(p.productDirection||'')+
- '<div class="small" data-product-status><div><b>Daten:</b> '+(data.complete?'vollständig':'Angaben oder eindeutige Nachweise offen')+'</div><div><b>Zeitbezug:</b> '+(complete?'für diesen Analyseweg bestätigt':temporal?'Bestätigung offen – vorhandene Werte bleiben erhalten':'noch nicht vollständig prüfbar')+'</div><div><b>Aktuelle Auswahl:</b> nicht ausgewählt'+(neutral?' · Marktsignal neutral':'')+'</div></div>'+
+ '<div class="small" data-product-status><div><b>Daten:</b> '+esc(dataText)+'</div><div><b>Zeitbezug:</b> '+(complete?'für diesen Analyseweg bestätigt':temporal?'Bestätigung offen – vorhandene Werte bleiben erhalten':'noch nicht vollständig prüfbar')+'</div><div><b>Aktuelle Auswahl:</b> nicht ausgewählt'+(neutral?' · Marktsignal neutral':'')+'</div></div>'+
  '<p data-product-next><b>Nächster Schritt:</b> '+esc(next)+'</p>'+renderPrimaryProductValues(p)+
  (allReasons.length?'<div class="small">'+allReasons.slice(0,2).map(shortReason).map(esc).join('<br>')+'</div>':'')+
  '<details style="margin-top:8px"><summary>Warum derzeit nicht ausgewählt?</summary><div class="small">'+(allReasons.length?allReasons.map(esc).join('<br>'):neutral?'Keine bestätigte Long-/Short-Marktrichtung. Die vollständigen Produktdaten müssen dafür nicht erneut hochgeladen werden.':'Die aktuelle Markt- und Risikoprüfung hat das Produkt nicht ausgewählt; vollständige Daten allein erteilen keine Freigabe.')+'</div></details>'+
@@ -2097,15 +2099,15 @@ function productFieldStates(p,now=Date.now()){
  };
  const items={},analysisLimit=(q?.analysisMaxAgeSeconds||90)*1000;
  for(const [key,label] of [['bid','Geld'],['ask','Brief']]){
-  const direct=live?.currency==='EUR'&&n(live.ask)===n(p.price)&&n(live.bid)>0&&n(live.ask)>=n(live.bid);
+  const direct=live?.currency==='EUR'&&n(live.bid)>0&&n(live.ask)>=n(live.bid);
   const e=shot?.evidence?.[label];
-  items[key]=from(label,direct?live[key]:key==='ask'?p.price:shot?.currency==='CHF'?null:shot?.bid,direct?live[key+'At']:e?.at||shot?.sourceTime,direct?live.source:e?.source,direct?analysisLimit:SCREENSHOT_MAX_AGE_MS,direct?live.priceKind:'screenshot');
+  items[key]=from(label,direct?live[key]:key==='ask'?(n(p.price)>0?p.price:shot?.currency==='CHF'?null:shot?.ask):shot?.currency==='CHF'?null:shot?.bid,direct?live[key+'At']:e?.at||shot?.sourceTime,direct?live.source:e?.source,direct?analysisLimit:SCREENSHOT_MAX_AGE_MS,direct?live.priceKind:'screenshot');
   if(!direct&&e?.fromSeries){items[key].fromSeries=true;items[key].timeText=e.timeText;}
  }
- const le=shot?.evidence?.Hebel,directLev=q&&n(q.leverage)===n(p.leverage);
- items.leverage=from('Hebel',p.leverage,directLev?q.leverageAt:n(le?.value)===n(p.leverage)?le?.at:null,directLev?(q.leverageSource||q.source):le?.source,directLev?90000:SCREENSHOT_MAX_AGE_MS,directLev?'':'screenshot');
+ const le=shot?.evidence?.Hebel,leverage=n(p.leverage)>0?p.leverage:n(q?.leverage)>0?q.leverage:!le?.conflict&&!le?.revoked?le?.value:null,directLev=q&&n(q.leverage)===n(leverage);
+ items.leverage=from('Hebel',leverage,directLev?q.leverageAt:n(le?.value)===n(leverage)?le?.at:null,directLev?(q.leverageSource||q.source):le?.source,directLev?90000:SCREENSHOT_MAX_AGE_MS,directLev?'':'screenshot');
  if(!directLev&&le?.fromSeries){items.leverage.fromSeries=true;items.leverage.timeText=le.timeText;}
- if(directLev&&q.leverageEstimated&&n(p.leverage)>0){
+ if(directLev&&q.leverageEstimated&&n(leverage)>0){
   const c=q.leverageCalculation;
   const clocks=[c?.inputs?.basisAt,c?.inputs?.askAt,c?.inputs?.fxDataAt,c?.inputs?.fxEffectiveAt].map(v=>typeof v==='string'?Date.parse(v):NaN);
   const valid=clocks.every(t=>Number.isFinite(t)&&t<=now);

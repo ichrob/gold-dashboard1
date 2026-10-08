@@ -29,6 +29,19 @@ class DirectTests(unittest.TestCase):
         self.assertEqual(out['conditions']['maturity']['value'], 'Open End')
         self.assertEqual(out['chartEvidence']['ask'], 10.01)
 
+    def test_missing_list_products_route_to_sg(self):
+        for isin, product_id, classification in [('DE000FG5GUN3',6934161,47), ('DE000FG7HZY3',7151899,43)]:
+            with self.subTest(isin=isin):
+                self.product.update(Isin=isin, Id=product_id, ProductClassificationId=classification)
+                for prop in self.props:
+                    if prop['Name']=='Isin': prop['Value']=isin
+                with patch.object(q,'issuer_json',side_effect=[self.product,self.props,self.points]), patch.object(q,'get_bnp_quote') as bnp:
+                    out=q.get_issuer_quote(isin)
+                bnp.assert_not_called()
+                self.assertTrue(out['productVerified'])
+                self.assertEqual(out['chartEvidence']['ask'],10.01)
+                self.assertFalse(out['eligible'])
+
     def test_import_cache_and_no_false_trade_release(self):
         with patch.object(q,'issuer_json',side_effect=[self.product,self.props,self.points]) as fetch:
             out=sg.get_quote(ISIN); cached=sg.get_quote(ISIN)

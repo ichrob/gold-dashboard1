@@ -36,6 +36,8 @@ SG_DIRECT_PRODUCTS = {
     'DE000FG5NMF2': 6953148, 'DE000FG7K3L2': 7127648,
     'DE000FG6XB39': 7072444, 'DE000FG309G0': 7032167,
     'DE000FE4UF01': 6628472,
+    # Verified via SG Products/<ISIN> on 8 October 2026.
+    'DE000FG5GUN3': 6934161, 'DE000FG7HZY3': 7151899,
 }
 # Exact contract identities confirmed from SG and the secondary product snapshot.
 SG_GOLD_FUTURES = {
