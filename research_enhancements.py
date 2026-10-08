@@ -98,7 +98,7 @@ def generate(segments, key, reader=read):
         'generationConfig': {'temperature': 0.1, 'maxOutputTokens': 4500, 'responseMimeType': 'application/json'}}
     req = urllib.request.Request('https://generativelanguage.googleapis.com/v1beta/models/' + MODEL + ':generateContent',
         data=json.dumps(payload).encode(), headers={'Content-Type': 'application/json', 'x-goog-api-key': key}, method='POST')
-    data = json.loads(reader(req, timeout=18))
+    data = json.loads(reader(req, timeout=40))
     candidate = data.get('candidates', [{}])[0]
     if candidate.get('finishReason') != 'STOP':
         raise ValueError('Incomplete response')
@@ -258,7 +258,7 @@ def request(identity, segments, player, moments):
     req = urllib.request.Request(base + '/research-enhancement/read', data=json.dumps(payload).encode(),
         headers={'Content-Type': 'application/json', 'X-Bob-Push-Token': token}, method='POST')
     try:
-        data = json.loads(read(req, timeout=45))
+        data = json.loads(read(req, timeout=70))
         if not isinstance(data, dict):
             raise ValueError('Invalid response')
         return data
