@@ -288,7 +288,10 @@ try{
 </script>
 <div class="card">
 <h2 style="margin:0 0 10px">⚡ Schnellansicht</h2>
+<p><b>Neuer Einstieg</b> · Abwarten bedeutet keinen Ausstieg aus einem offenen Trade.</p>
 <div id="quickSignal" class="signal neutral">Warte auf Live-Daten</div>
+<div id="activePositionSignal" class="signal neutral" role="status">Dein Trade: KEIN AKTIVER TRADE</div>
+<p id="activePositionReason">Einen bei DEGIRO eröffneten Trade in Bob aktivieren.</p>
 <div class="metrics" style="margin-top:10px">
 <div class="metric">Gold<b id="quickPrice">—</b></div>
 <div class="metric">Trend<b id="quickTrend">—</b></div>
@@ -407,7 +410,10 @@ try{
 
 <div class="card" id="legacyManualProductCheck" hidden aria-hidden="true">
 <h3>🎯 DEGIRO-Trade-Modus</h3>
+<p><b>Neuer Einstieg</b></p>
 <div id="tradeSignal" class="signal neutral" style="font-size:20px">Warte auf Analyse</div>
+<div id="tradePositionSignal" class="signal neutral" role="status">Dein Trade: KEIN AKTIVER TRADE</div>
+<p id="tradePositionReason"></p>
 <div class="grid" style="margin-top:10px">
 <div>
 <label>DEGIRO-Produkt</label>
@@ -1401,6 +1407,7 @@ function analysisAgeWarnings(){
  return warnings;
 }
 function renderAnalysisAge(){
+ renderPositionStatus();
  const warnings=analysisAgeWarnings(),uncertain=warnings.length>0;
  for(const id of ['price','quickPrice','rsi','ema20','ema50','ema200','atr','macd','macds','hist','signal','quickSignal']){const el=$(id);if(el)el.style.fontStyle=uncertain?'italic':'';}
  const status=$('status');if(uncertain&&status)status.textContent=status.textContent.replace(/^LIVE/, 'LETZTER DATENSTAND');
@@ -1672,7 +1679,7 @@ let researchLog=[];try{const raw=localStorage.getItem("goldScannerResearch");con
 let tradeMgmt={};try{const raw=localStorage.getItem("goldScannerTradeMgmt");const p=raw?JSON.parse(raw):{};tradeMgmt=p&&typeof p==="object"?p:{}}catch(e){console.warn("trade state reset",e)}
 let signalState={dir:"NEUTRAL",pending:"NEUTRAL",count:0};
 function saveResearch(){localStorage.setItem("goldScannerResearch",JSON.stringify(researchLog));}
-function saveTradeMgmt(){localStorage.setItem("goldScannerTradeMgmt",JSON.stringify(tradeMgmt));renderActiveTradePlan();}
+function saveTradeMgmt(){localStorage.setItem("goldScannerTradeMgmt",JSON.stringify(tradeMgmt));renderActiveTradePlan();renderPositionStatus();}
 function currentRegime(){
  if(!C.length||!A.at)return "UNBEKANNT";
  const atrPct=(A.at/(A.signalPrice||C.at(-1).close))*100, ad=A.adx||0;
@@ -1941,11 +1948,33 @@ function sustainedTrendContext(bundle,now=Date.now()){
  const level=pivots.at(-1)??null;
  const broken=level!==null&&sign*(setup.close-level)<0;
  const intact=!broken&&sign*(hour.close-hour.e50)>0&&sign*(setup.e20-setup.e50)>0&&sign*(setup.close-setup.e50)>0;
- if(!intact)return {...base,direction:side,phase:'WEAKENING',structureLevel:level,reason:broken?'Bestätigte 15m-Struktur gebrochen – Ausstieg prüfen':'Haupttrend geschwächt – Fortsetzung nicht bestätigt'};
+ if(!intact)return {...base,direction:side,phase:'WEAKENING',structureBroken:broken,structureLevel:level,reason:broken?'Bestätigte 15m-Struktur gebrochen – Ausstieg prüfen':'Haupttrend geschwächt – Fortsetzung nicht bestätigt'};
  const timing=timeframeScore(frames['5m']||[],'5m',now);
  const continuing=timing.available&&timing.fresh&&timing.dir===side&&timeframeScore(rows,'15m',now).dir===side;
  return {...base,direction:side,intact:true,phase:continuing?'CONTINUATION':'PULLBACK',structureLevel:level,
  reason:continuing?'Haupttrend '+side+' intakt · Fortsetzung bestätigt':'Haupttrend '+side+' intakt · kurzfristiger Rücksetzer; Einstieg abwarten, bestehenden Stop beibehalten'};
+}
+// Position management is independent of the entry trigger and never opens/closes an order.
+function positionManagementState(trade,trend,price,priceFresh){
+ const base={action:'NONE',label:'KEIN AKTIVER TRADE',reason:'Einen bei DEGIRO eröffneten Trade in Bob aktivieren.',tone:'neutral'};
+ if(!trade?.active||!['LONG','SHORT'].includes(trade.dir))return base;
+ const side=trade.dir,prefix=(trade.test?'TEST · ':'')+side+' · ';
+ const result=(action,label,reason,tone='neutral')=>({action,label:prefix+label,reason,tone});
+ if(!priceFresh||!Number.isFinite(price))return result('UNAVAILABLE','ÜBERWACHUNG EINGESCHRÄNKT','Aktueller Goldpreis nicht bestätigt. Kein bestätigtes Halte- oder Ausstiegssignal; bestehenden Schutzstop nicht lockern.');
+ const stop=trade.stop;
+ if(Number.isFinite(stop)&&stop>0&&(side==='LONG'?price<=stop:price>=stop))return result('EXIT','STOP ERREICHT · BEENDEN','Gespeicherter Gold-Schutzstop erreicht. Ausführung bei DEGIRO prüfen; Bob schließt keine Order.','bad');
+ if(!trend?.available)return result('UNAVAILABLE','ÜBERWACHUNG EINGESCHRÄNKT',trend?.reason||'Aktuelle Trenddaten fehlen.');
+ if(trend.intact&&trend.direction===side)return result('HOLD','HALTEN',trend.reason+' · Einstiegssignal und offene Position werden getrennt bewertet. Stop nicht lockern.',side==='LONG'?'ok':'bad');
+ if(trend.structureBroken&&trend.direction===side||trend.intact&&['LONG','SHORT'].includes(trend.direction)&&trend.direction!==side)return result('EXIT','BEENDEN PRÜFEN',trend.reason+' · Bestehenden Trade zuerst prüfen. Ein Gegen-Trade braucht eine eigene Einstiegsfreigabe.','bad');
+ return result('PROTECT','GEWINN SCHÜTZEN · TREND PRÜFEN',trend.reason+' · Fortsetzung nicht bestätigt. Kein automatischer Richtungswechsel; Stop nicht lockern.');
+}
+function renderPositionStatus(){
+ const el=$('activePositionSignal');if(!el)return;
+ const state=positionManagementState(tradeMgmt,sustainedTrendContext(liveBundleCache),lastPrice,currentSpotUsable());
+ el.textContent='Dein Trade: '+state.label;el.className='signal '+state.tone;
+ const reason=$('activePositionReason');if(reason)reason.textContent=state.reason;
+ const detail=$('tradePositionSignal');if(detail){detail.textContent=el.textContent;detail.className=el.className;}
+ const detailReason=$('tradePositionReason');if(detailReason)detailReason.textContent=state.reason;
 }
 function trendFollowingSignal(bundle,now=Date.now()){
  const raw=fiveMinuteConfirmation(bundle,now),trend=sustainedTrendContext(bundle,now);
@@ -2289,6 +2318,7 @@ function updateQuick(){
 }
 
 function updateTradeSignal(){
+ renderPositionStatus();
  if(window.BobSession?.expired()){$("tradeSignal").textContent="🟡 ABWARTEN · Anmeldung erforderlich";$("tradeSignal").className="signal neutral";return;}
  if(!A.ready||C.length<100||!A.at){confirmedSignalDirection();$("quickReason").textContent=signalState.reason;$("tradeSignal").textContent="🟡 ABWARTEN · technische Analyse nicht freigegeben";$("tradeSignal").className="signal neutral";return}
  const mtfDir=getMtfState().overall||"NEUTRAL";
