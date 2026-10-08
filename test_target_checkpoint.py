@@ -24,4 +24,23 @@ class TargetCheckpoint(unittest.TestCase):
         self.assertFalse(any(e['data']['eventKind']=='target-extension' for e in events))
         self.assertTrue(any('Haupttrend intakt' in e['body'] for e in events))
 
+class FxTarget(unittest.TestCase):
+    def test_fx_changes_estimate_without_triggering_gold_target(self):
+        import copy
+        now=1791453600000
+        p=dict(isin='DE000FG4JXV7',direction='LONG',simpleSpotTurbo=True,referenceConfirmed=True,currency='EUR',bid=20,goldReference=100,fxReference=.9,fxScenario=.9,ratio=.1,strike=50,ko=50,entry=20,quantity=10,source='fixture',referenceAt='2026-10-08T10:00:00Z')
+        settings=b.config({'trade':{'active':True,'tradeId':'fx','instrument':'XAU/USD','dir':'LONG','entry':100,'stop':90,'initialRisk':10,'target':120,'product':p}})
+        original=copy.deepcopy(settings)
+        market={'ready':True,'priceFresh':True,'price':101,'direction':'LONG','dataAt':now,'fx':{'rate':1.2,'fetchedAt':'2026-10-08T10:00:00Z'}}
+        state,events=b.advance({},settings,market,False,True,now=now,log=False)
+        self.assertEqual(settings,original)
+        self.assertEqual(state['trade']['target'],120)
+        self.assertFalse(any(e['data']['eventKind'] in ('target','target-extension') for e in events))
+        market.update(price=120)
+        _,events=b.advance(state,settings,market,False,True,now=now,log=False)
+        event=next(e for e in events if e['data']['eventKind']=='target')
+        self.assertIn('Gold 120.00 USD/oz',event['body'])
+        self.assertIn('23.9000 EUR',event['body'])
+        self.assertIn('geschätzt',event['body'])
+
 if __name__=='__main__':unittest.main()
