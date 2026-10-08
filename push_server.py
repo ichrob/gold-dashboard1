@@ -250,19 +250,39 @@ def product_expiry_loop():
         time.sleep(15)
 
 
+def trigger_test_message(stage, now):
+    """Exercise real trigger rules with isolated synthetic data, never a user trade."""
+    settings=background_push.config({'trade':{'active':True,'tradeId':'synthetic-push-test',
+        'instrument':'XAU/USD','dir':'LONG','entry':100,'stop':90,'initialRisk':10,'target':120}})
+    market={'ready':True,'priceFresh':True,'price':120 if stage==0 else 89,'dataAt':now,
+        'direction':'LONG','mtf':'LONG','score':80,'atr':4}
+    _,events=background_push.advance({},settings,market,False,True,now=now)
+    kind='target' if stage==0 else 'stop-hit'
+    event=next(e for e in events if e['data']['eventKind']==kind)
+    return {'title':'TEST · '+('Ziel erreicht' if stage==0 else 'Stop erreicht'),
+        'body':'Künstlicher Kurs hat die '+('Zielregel' if stage==0 else 'Stopregel')+' auf dem Server ausgelöst. Kein echter Trade, keine Order.',
+        'tag':'bob-trigger-test-'+kind,'data':{**event['data'],'test':True,'url':'/','expiresAt':now+180000}}
+
+
 def deliver_background_tests():
     now=int(time.time()*1000)
     with db() as conn:
         rows=conn.execute("SELECT id, subscription, pending_test, general_enabled, trade_enabled FROM subscriptions WHERE pending_test IS NOT NULL AND (pending_test->>'dueAt')::bigint<=%s FOR UPDATE",(now,)).fetchall()
         for sid, sub, pending, general, trade in rows:
-            allowed=general if pending['kind']=='general' else trade
+            allowed=(general or trade) if pending.get('scenario')=='stop-target' else (general if pending['kind']=='general' else trade)
             if allowed and now < pending['dueAt']+300000:
                 message={'title':'TEST · Push bei geschlossener App','body':'Diese Testnachricht wurde zeitversetzt auf dem Server ausgelöst. Kein Handelssignal.','tag':'bob-background-test','data':{'kind':pending['kind'],'test':True,'url':'/','expiresAt':now+180000}}
+                if pending.get('scenario')=='stop-target':
+                    message=trigger_test_message(pending.get('stage',0),now)
                 try:
                     webpush(subscription_info=sub,data=json.dumps(message),vapid_private_key=vapid(),vapid_claims={'sub':VAPID_SUBJECT},ttl=180)
                 except WebPushException:
                     continue
-            conn.execute('UPDATE subscriptions SET pending_test=NULL WHERE id=%s',(sid,))
+            if allowed and now < pending['dueAt']+300000 and pending.get('scenario')=='stop-target' and pending.get('stage',0)==0:
+                pending.update(stage=1,dueAt=now+30000)
+                conn.execute('UPDATE subscriptions SET pending_test=%s::jsonb WHERE id=%s',(json.dumps(pending),sid))
+            else:
+                conn.execute('UPDATE subscriptions SET pending_test=NULL WHERE id=%s',(sid,))
         conn.commit()
 
 
@@ -539,6 +559,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not row or not any(row):
                         raise ValueError('Zuerst Gerät anmelden und mindestens einen Push-Schalter aktivieren')
                     pending={'kind':'general' if row[0] else 'trade','dueAt':int(time.time()*1000)+30000}
+                    if payload.get('scenario')=='stop-target':pending.update(scenario='stop-target',stage=0)
                     conn.execute('UPDATE subscriptions SET pending_test=%s::jsonb WHERE endpoint=%s',(json.dumps(pending),endpoint))
                     conn.commit()
                 send_json(self,200,{'ok':True,'dueAt':pending['dueAt']})

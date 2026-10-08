@@ -133,6 +133,25 @@ class BackgroundDelivery(PushMonitorTests):
             status,result=self.request('/test-background',{'endpoint':'fixture'})
             self.assertEqual(status,200);self.assertGreater(result['dueAt'],push_server.time.time()*1000)
             send.assert_not_called()
+    def test_trigger_messages_use_real_rules(self):
+        for stage,kind in ((0,'target'),(1,'stop-hit')):
+            message=push_server.trigger_test_message(stage,1800000000000)
+            self.assertEqual(message['data']['eventKind'],kind)
+            self.assertTrue(message['data']['test'])
+            self.assertTrue(message['title'].startswith('TEST'))
+
+    def test_target_schedules_stop_without_touching_real_trade(self):
+        db,conn=self.connection()
+        pending=dict(kind='general',scenario='stop-target',stage=0,dueAt=int(push_server.time.time()*1000)-1)
+        conn.execute.return_value.fetchall.return_value=[(1,{},pending,True,False)]
+        with patch.object(push_server,'db',db),patch.object(push_server,'vapid',return_value='fixture'),patch.object(push_server,'webpush') as send:
+            push_server.deliver_background_tests()
+            self.assertEqual(json.loads(send.call_args.kwargs['data'])['data']['eventKind'],'target')
+            updates=[c for c in conn.execute.call_args_list if c.args[0].startswith('UPDATE')]
+            self.assertEqual(len(updates),1)
+            self.assertIn('SET pending_test=',updates[0].args[0])
+            self.assertEqual(json.loads(updates[0].args[1][0])['stage'],1)
+
     def test_delayed_delivery_needs_no_open_browser(self):
         db,conn=self.connection();conn.execute.return_value.fetchall.return_value=[(1,{},dict(kind='general',dueAt=int(push_server.time.time()*1000)-1),True,False)]
         with patch.object(push_server,'db',db),patch.object(push_server,'vapid',return_value='fixture'),patch.object(push_server,'webpush') as send:
