@@ -8,6 +8,7 @@ import os
 import re
 import time
 import urllib.request
+import urllib.error
 from urllib.parse import urlparse
 
 CHANNEL = 'UCsl6Z6p7GOkczo8Cv-GH6Dg'
@@ -170,6 +171,18 @@ def frames_saved(identity, spec, moments, reader=read):
     return frames
 
 
+def failure_code(exc):
+    if isinstance(exc, urllib.error.HTTPError):
+        return 'http_' + str(exc.code)
+    if isinstance(exc, (TimeoutError, urllib.error.URLError)):
+        return 'network_timeout'
+    if isinstance(exc, ValueError):
+        return {'Unsupported numbers': 'unsupported_numbers', 'Missing evidence': 'missing_evidence',
+                'Incomplete response': 'incomplete_response', 'Invalid summary': 'invalid_summary',
+                'Summary too long': 'summary_too_long'}.get(str(exc), 'invalid_response')
+    return 'internal_error'
+
+
 def handle(connect, payload):
     identity = payload.get('videoId', '')
     if not isinstance(identity, str) or not re.fullmatch(r'[A-Za-z0-9_-]{11}', identity) or payload.get('channelId') != CHANNEL:
@@ -208,9 +221,12 @@ def handle(connect, payload):
             with connect() as conn:
                 conn.execute('UPDATE bob_research_enhancements SET fingerprint=%s,summary=%s::jsonb,updated_at=now() WHERE video_id=%s', (fingerprint, json.dumps(result['summary']), identity)); conn.commit()
             result['summaryStatus'] = 'KI-Zusammenfassung gespeichert.'
-        except Exception:
+        except Exception as exc:
             result.pop('summary', None)
-            result['summaryStatus'] = 'KI-Abruf nicht verfügbar oder Belegprüfung fehlgeschlagen. Kein kostenpflichtiger Ersatzabruf.'
+            code = failure_code(exc)
+            result['summaryError'] = code
+            result['summaryStatus'] = 'KI-Abruf oder Belegprüfung fehlgeschlagen (' + code + '). Kein kostenpflichtiger Ersatzabruf.'
+            print('BOB_RESEARCH_AI_ERROR video=' + identity + ' code=' + code, flush=True)
     if do_frames:
         try:
             spec = payload.get('storyboardSpec', '')
