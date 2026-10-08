@@ -5,6 +5,7 @@ import math
 import re
 import signal
 import subprocess
+import evaluator_runtime
 import time
 from pathlib import Path
 
@@ -93,7 +94,7 @@ def analyze(bundle, settings):
         remaining = 10 - (time.monotonic() - started)
         if remaining <= 0:
             raise TimeoutError('Zeitlimit der Hintergrundanalyse erreicht')
-        p = subprocess.run(['node', str(Path(__file__).with_name('background_analysis.js'))],
+        p = evaluator_runtime.run(['node', str(Path(__file__).with_name('background_analysis.js'))],
                            input=payload, text=True, capture_output=True, timeout=remaining)
         if p.returncode != -signal.SIGABRT or attempt:
             break

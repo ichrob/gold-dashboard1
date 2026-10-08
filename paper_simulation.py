@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import subprocess
+import evaluator_runtime
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -353,7 +354,7 @@ def _worker(db):
                         selection=dict(choices=[],reasons=[])
                         if not active and market.get('ready') and market.get('direction') in ('LONG','SHORT'):
                             request={**evidence,'quotes':quotes,'market':market,'bundle':bundle}
-                            p=subprocess.run(['node',str(Path(__file__).with_name('paper_selection.js'))],input=json.dumps(request),
+                            p=evaluator_runtime.run(['node',str(Path(__file__).with_name('paper_selection.js'))],input=json.dumps(request),
                                              text=True,capture_output=True,timeout=6,check=True)
                             selection=json.loads(p.stdout)
                         run_once(conn,bundle,market,selection,quotes,time.time()*1000)
