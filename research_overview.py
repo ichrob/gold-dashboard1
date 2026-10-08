@@ -35,7 +35,9 @@ def overview(segments, language):
     for key,label,_ in TOPICS:
         relevant=[c for c in candidates if key in c['tags']]
         def score(c):
-            return (10*bool(re.search(r'\d',c['text'])) if key=='levels' else 0)+len(c['tags'])+2*bool(re.search(r'zusammenfass|fazit|in summary|overall',c['text'],re.I))
+            numeric=bool(re.search(r'\b(?:[1-9]\d{3,5}|[1-9][.,]\d{3})(?!\d)',c['text']))
+            condition=bool(re.search(r'\b(wenn|falls|solange|unless|if)\b',c['text'],re.I))
+            return (20*numeric if key=='levels' else 0)+(8*condition+4*numeric if key=='conditions' else 0)+len(c['tags'])+2*bool(re.search(r'zusammenfass|fazit|in summary|overall',c['text'],re.I))
         relevant.sort(key=lambda c:(-score(c),c['position']))
         refs=[]
         for c in relevant:

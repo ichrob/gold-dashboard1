@@ -569,12 +569,15 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  function renderOverview(box,item,url){
   const overview=item.overview, evidence=new Map((overview.evidence||[]).map(e=>[e.id,e]));
   box.append(node('h4',overview.title),node('p',overview.scope),node('small',overview.method));
-  const topics=node('dl','');
+  const topics=node('dl',''),groups=new Map();
   for(const section of overview.sections||[]){
-   topics.append(node('dt',section.label));
    const statements=(section.evidenceIds||[]).map(id=>evidence.get(id)).filter(Boolean);
-   topics.append(node('dd',statements.length?statements.map(e=>e.text).join(' '):'Im Transkript nicht eindeutig erkannt.'));
+   const text=statements.length?statements.map(e=>e.text).join(' '):'Im Transkript nicht eindeutig erkannt.';
+   const key=statements.length?section.evidenceIds.join(','):'missing-'+section.key;
+   if(groups.has(key))groups.get(key).labels.push(section.label);
+   else groups.set(key,{labels:[section.label],text});
   }
+  for(const group of groups.values())topics.append(node('dt',group.labels.join(' · ')),node('dd',group.text));
   box.append(topics);
   const details=node('details','');details.append(node('summary','Originalaussagen und Belegstellen'));
   function videoLink(at,label){const a=node('a',label),target=new URL(url);target.searchParams.set('t',String(at));a.href=target.href;a.target='_blank';a.rel='noopener noreferrer';return a;}
@@ -670,7 +673,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  $('youtubeResearchImport').addEventListener('click',()=>inspectVideo(true));
  $('goldResearchRefresh').addEventListener('click',load);
  document.addEventListener('click',e=>{if(e.target.closest?.('[data-view="research"]'))load();});
- setInterval(()=>{if(!$('bob-view-research')?.hidden&&document.visibilityState==='visible')load();},60000);
+ setInterval(()=>{if(!$('bob-view-research')?.hidden&&document.visibilityState==='visible'&&!$('goldResearchItems').querySelector('details[open]'))load();},60000);
 })();
 </script>
 
