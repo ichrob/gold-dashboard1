@@ -8,5 +8,17 @@ assert(!api.price(short,4460).available);assert(!api.price(long,3999).available)
 for(const patch of [{referenceConfirmed:false},{simpleSpotTurbo:false},{ratio:0},{direction:'NEUTRAL'},{quantity:1.5},{source:''}])assert.throws(()=>api.model({...values,...patch}));
 const env={window:{}};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),env);
 assert.equal(env.window.BobTradeProduct.price(short,4150).price,api.price(short,4150).price);
-assert(api.label(short,4150).includes('EUR/Stück (berechnet)'));
+assert(api.label(short,4150).includes('EUR/Stück (geschätzt)'));
 console.log('Product trade: long/short EUR scenarios, KO rejection, reference requirements, served module parity passed');
+
+const now=Date.parse('2026-10-08T10:00:00Z');
+const fx={rate:.95,fetchedAt:new Date(now-30000).toISOString(),source:'test'};
+const updated=api.withFx(long,{usd_eur_meta:fx},now);
+assert.equal(long.fxScenario,.9);assert.equal(updated.fxScenario,.95);
+assert(!updated.fxDetails.delayed);assert(api.label(updated,4250).includes('Gold 4250.00 USD/oz'));
+assert(api.withFx(long,{usd_eur_meta:fx},now+90000).fxDetails.delayed);
+assert(api.withFx(long,{usd_eur_meta:{...fx,error:'failed'}},now).fxDetails.delayed);
+assert.equal(api.withFx(long,{usd_eur_meta:{...fx,fetchedAt:new Date(now+1).toISOString()}},now),long);
+assert.equal(api.withFx(long,{usd_eur_meta:{...fx,rate:0}},now),long);
+assert.equal(env.window.BobTradeProduct.withFx(long,{usd_eur_meta:fx},now).fxScenario,.95);
+console.log('FX updates are immutable, stale/failure marked, future data rejected, served module matches');
