@@ -21,11 +21,11 @@ class AutoCollectionTests(unittest.TestCase):
 
     def test_window_handles_swiss_dst_and_weekends(self):
         self.assertTrue(a.in_window(NOW))
-        self.assertFalse(a.in_window(NOW.replace(hour=20)))
+        self.assertTrue(a.in_window(NOW.replace(hour=20)))
         self.assertFalse(a.in_window(NOW+timedelta(days=1)))
         # Switzerland is UTC+1 in December: 05 UTC is 06 local.
         self.assertTrue(a.in_window(datetime(2026, 12, 1, 5, tzinfo=timezone.utc)))
-        self.assertFalse(a.in_window(datetime(2026, 12, 1, 4, tzinfo=timezone.utc)))
+        self.assertTrue(a.in_window(datetime(2026, 12, 1, 4, tzinfo=timezone.utc)))
 
     def test_collection_and_archive_evaluation_need_no_browser(self):
         research = dict(contract='GCZ26', underlyingAt=NOW.isoformat(), underlyingPriceUsd=4200)
@@ -107,7 +107,7 @@ class AutoCollectionTests(unittest.TestCase):
             a.tick(NOW); source.assert_not_called()
         a._report = {'ready': True}
         with patch.object(a, 'enabled', return_value=True), patch.object(a.future_analysis, 'fetch_reference') as source, patch.object(a.future_estimate, 'ensure_collector') as spot:
-            a.tick(NOW.replace(hour=21)); source.assert_not_called(); spot.assert_called_once()
+            a.tick(NOW+timedelta(days=1)); source.assert_not_called(); spot.assert_not_called()
             self.assertFalse(a.status()['ready'])
             self.assertEqual(a.status()['state'], 'paused')
 
@@ -168,11 +168,12 @@ class CollectionEndpointTests(unittest.TestCase):
 
 
 class OvernightSpotTests(unittest.TestCase):
-    def test_restart_outside_future_window_keeps_weekday_spot_archive_alive(self):
+    def test_overnight_reference_collection_is_enabled(self):
         for now in (datetime(2026,10,6,20,30,tzinfo=timezone.utc),datetime(2026,10,7,2,30,tzinfo=timezone.utc)):
-            with patch.object(a,'enabled',return_value=True),patch.object(a.future_estimate,'ensure_collector') as spot,patch.object(a,'paused_report') as paused,patch.object(a.future_analysis,'fetch_reference') as future:
-                a.tick(now)
-                spot.assert_called_once();paused.assert_called_once_with(now);future.assert_not_called()
+            self.assertTrue(a.in_window(now))
+            with patch.object(a,'enabled',return_value=True),patch.object(a,'_next_source',0),patch.object(a.future_estimate,'ensure_collector') as spot,patch.object(a,'paused_report') as paused,patch.object(a.future_analysis,'fetch_reference',side_effect=RuntimeError('reference reached')) as future:
+                with self.assertRaisesRegex(RuntimeError,'reference reached'):a.tick(now)
+                spot.assert_called_once();paused.assert_not_called();future.assert_called_once()
     def test_disabled_collector_does_not_start_spot(self):
         with patch.object(a,'enabled',return_value=False),patch.object(a.future_estimate,'ensure_collector') as spot:
             a.tick(datetime(2026,10,6,20,30,tzinfo=timezone.utc));spot.assert_not_called()

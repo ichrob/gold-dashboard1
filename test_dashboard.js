@@ -339,3 +339,22 @@ assert.equal(presentation.analysis,presentation.original);
 element('chart').getBoundingClientRect=()=>({width:310,height:390});env.window.devicePixelRatio=2;
 vm.runInContext('draw()',env);assert.equal(element('chart').width,620);assert.equal(element('chart').height,780);
 console.log('Chart presentation: independent saved overlays, analysis isolation, mobile canvas proportions OK');
+
+// Repaints reuse closed-bar replay without suppressing changed data or expiry.
+const memoCheck=vm.runInContext(`(()=>{
+ const original=computeFiveMinuteConfirmation;let calls=0;
+ computeFiveMinuteConfirmation=()=>({dir:'LONG',calls:++calls});confirmationMemo=null;
+ const t=1800000000000,b={history:{bars_by_tf:{'5m':[{openTime:t-600000,isOpen:false,close:100}],'15m':[]}}};
+ const a=fiveMinuteConfirmation(b,t);a.dir='SHORT';
+ const same=fiveMinuteConfirmation(b,t);
+ const expired=fiveMinuteConfirmation(b,t+1);
+ b.history.bars_by_tf['5m'][0].close=101;
+ const changed=fiveMinuteConfirmation(b,t+1);
+ const boundary=fiveMinuteConfirmation(b,t+300000);
+ computeFiveMinuteConfirmation=original;confirmationMemo=null;
+ return {same,expired,changed,boundary,calls};
+})()`,env);
+assert.equal(memoCheck.same.dir,'LONG');assert.equal(memoCheck.same.calls,1);
+assert.equal(memoCheck.expired.calls,2);assert.equal(memoCheck.changed.calls,3);
+assert.equal(memoCheck.boundary.calls,4);
+console.log('Signal replay memo: repaint reuse, result isolation, changed input, exact expiry and new close passed');

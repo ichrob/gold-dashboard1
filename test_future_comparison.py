@@ -74,7 +74,7 @@ class ComparisonTests(unittest.TestCase):
     def test_paused_worker_does_not_fetch_market_sources(self):
         with patch.object(c, '_report', {}), patch.object(c.investing_card, 'fetch') as fetch, \
              patch.object(c.bob_validation_store, 'request', return_value=dict(summary={}, predictionCount=0, truthCount=0)):
-            c.tick(NOW.replace(hour=22))
+            c.tick(NOW+timedelta(days=5))
             self.assertEqual(c.status()['state'], 'paused')
             fetch.assert_not_called()
 

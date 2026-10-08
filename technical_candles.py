@@ -37,11 +37,12 @@ def normalize(payload, interval, now=None):
 
 
 def fetch(interval, fetch_json):
-    """One request per timeframe/minute, including failures; preserve source times."""
+    """One request per minute, or 30 seconds for 1m; preserve source times."""
     with _locks[interval]:
         now = time.time()
         saved = _cache.get(interval)
-        if saved and now-saved[0] < 60:
+        cache_seconds = 30 if interval == '1m' else 60
+        if saved and now-saved[0] < cache_seconds:
             return [dict(b) for b in saved[1]]
         rows = saved[1] if saved else []
         try:

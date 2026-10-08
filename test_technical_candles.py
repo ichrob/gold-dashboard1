@@ -49,6 +49,16 @@ class CandleTests(unittest.TestCase):
                 b[0]['close']=1
                 self.assertEqual(tc.fetch('5m',fetch),a)
 
+    def test_minute_refreshes_after_thirty_seconds_without_retiming(self):
+        p=self.payload();p['interval']='1m';p['bars'][0]['openTime']='2026-10-06T08:59:00Z'
+        with patch.dict(tc._cache,{},clear=True),patch.object(tc.time,'time',return_value=self.now),patch.object(server,'fetch_json',return_value=p) as fetch:
+            first=tc.fetch('1m',fetch)
+            with patch.object(tc.time,'time',return_value=self.now+29):tc.fetch('1m',fetch)
+            self.assertEqual(fetch.call_count,1)
+            with patch.object(tc.time,'time',return_value=self.now+30):second=tc.fetch('1m',fetch)
+            self.assertEqual(fetch.call_count,2)
+            self.assertEqual(first,second)
+
     def test_independent_fresh_history_does_not_call_legacy(self):
         with patch.object(server.time,'time',return_value=self.now),patch.dict(server._technical_history,{},clear=True),patch.object(tc,'fetch',return_value=tc.normalize(self.payload(),'5m',self.now)),patch.object(server,'fetch_json') as legacy:
             rows=server.fetch_technical_history('5m','5d')
