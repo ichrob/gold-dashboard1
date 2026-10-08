@@ -1754,6 +1754,25 @@ function fibonacciModel(dir,entry,atr=0,sourceBars=C){
  const target=extensions.filter(x=>dir==="LONG"?x>entry:x<entry).sort((a,b)=>dir==="LONG"?a-b:b-a)[0]??null;
  return {valid:true,direction:dir,high:hi,low:lo,range,levels,target,swingHighIndex:hiPivot.i,swingLowIndex:loPivot.i,swingMethod:"confirmed-2x2-pivot"};
 }
+function targetObstacle(dir,entry,target,risk,minRR=2,fixed=intradayRiskData()){
+ if(!fixed.available||!['LONG','SHORT'].includes(dir)||![entry,target,risk].every(Number.isFinite)||risk<=0)return {available:false,warning:'Hindernisprüfung nicht verfügbar'};
+ const bars=fixed.bars.slice(-180),levels=[],long=dir==='LONG';
+ // Only closed, confirmed pivots: two completed neighbours on each side.
+ for(let i=2;i<bars.length-2;i++){
+  const value=Number(long?bars[i].high:bars[i].low);
+  if(!Number.isFinite(value))continue;
+  if([-2,-1,1,2].every(j=>long?value>Number(bars[i+j].high):value<Number(bars[i+j].low)))levels.push(value);
+ }
+ const structure=structureLevels(bars,40);
+ levels.push(long?structure.resistance:structure.support);
+ const ahead=levels.filter(v=>Number.isFinite(v)&&(long?v>entry&&v<=target:v<entry&&v>=target));
+ const obstacle=ahead.length?(long?Math.min(...ahead):Math.max(...ahead)):null;
+ const obstacleRR=obstacle===null?null:Math.abs(obstacle-entry)/risk;
+ const entrySuitable=obstacle===null||obstacleRR>=minRR;
+ const warning=obstacle===null?'Keine bestätigte Strukturhürde vor diesem Ziel erkannt; keine Erreichbarkeitsgarantie.':
+  (long?'Widerstand':'Unterstützung')+' vor dem Ziel: '+obstacle.toFixed(2)+' USD/oz · bis dorthin '+obstacleRR.toFixed(2)+'R vor Kosten. '+(entrySuitable?'Mindest-CRV bis zur Hürde erfüllt.':'Mindest-CRV bis zur Hürde nicht erfüllt; neuen Einstieg abwarten.');
+ return {available:true,obstacle,obstacleRR,entrySuitable,warning};
+}
 function targetModel(dir,entry,stop,minRR=2){
  minRR=Math.max(1,+minRR||2);
  if(!["LONG","SHORT"].includes(dir)||!Number.isFinite(entry)||entry<=0||!Number.isFinite(stop)||stop<=0||dir==="LONG"&&stop>=entry||dir==="SHORT"&&stop<=entry)return {target:null,rr:null};
@@ -1771,7 +1790,7 @@ function targetModel(dir,entry,stop,minRR=2){
    source=target!==rrTarget?"Fibonacci Extension + CRV":"CRV + Fibonacci geprüft";
  }
  if(!Number.isFinite(target)||target<=0)return {target:null,rr:null};
- return {target,rr:Math.abs(target-entry)/risk,risk,source,fibonacci:fib};
+ return {target,rr:Math.abs(target-entry)/risk,risk,source,fibonacci:fib,...targetObstacle(dir,entry,target,risk,minRR,fixed)};
 }
 function displayStop(usd){if(usd==null||!isFinite(usd))return "—";const c=$("displayCcy")?.value||"USD";const fx=c==="USD"?1:+($("fxRate")?.value||0);if(!Number.isFinite(fx)||fx<=0)return usd.toFixed(2)+" USD/oz · FX fehlt";return (usd*fx).toFixed(2)+" "+c+"/oz"+(c==="USD"?"":" · FX");}
 function falseBreakoutState(dir){
@@ -2142,6 +2161,9 @@ function renderActiveTradePlan(){
  if(!tradeMgmt?.active||tradeMgmt.test||!$('stopPanel'))return;
  const p=tradeMgmt.product;
  $('stopPanel').textContent=(p?p.isin+' · '+tradeMgmt.dir+' · Berechnete Produktwerte':'Goldreferenz · Produktnachweis fehlt')+'\nStop: '+activeTradeLevel(tradeMgmt.stop)+'\nZiel: '+activeTradeLevel(tradeMgmt.target)+(p?'\nReferenz: '+p.referenceAt+' · '+p.source+'\nKonstante FX-/Produktbedingungen angenommen. Keine bestätigten DEGIRO-Kurse; Änderungen selbst übernehmen. R bezieht sich auf den Gold-Referenzplan bei Beginn der Überwachung, nicht auf den tatsächlichen Eurogewinn.':'');
+ const risk=Number(tradeMgmt.initialRisk)||Math.abs(tradeMgmt.entry-tradeMgmt.stop);
+ const check=targetObstacle(tradeMgmt.dir,lastPrice,tradeMgmt.target,risk);
+ $('stopPanel').textContent+='\nZielprüfung: '+check.warning;
  $('stopPanel').style.whiteSpace='pre-line';
  if($('stopCurrent'))$('stopCurrent').textContent=activeTradeLevel(tradeMgmt.stop);
 }
@@ -2177,7 +2199,7 @@ async function setTradeEntry(){
  $("tradeEntry").value=tradeMgmt.entry.toFixed(2);$("tradePrice").value=lastPrice.toFixed(2);$("tradeStop").value=tradeMgmt.stop.toFixed(2);saveTradeMgmt();
  pushState=BobPush.setActiveTrade(true);renderPush();await syncPushPreferences();
  const msg=`${dir}: initialer Stop-Loss ${displayStop(tradeMgmt.stop)}. Einstieg ${tradeMgmt.entry.toFixed(2)} USD/oz.`;
- $("stopUpdate").innerHTML="<b>Trade aktiv.</b> "+msg+" CRV-Ziel: "+displayStop(tradeMgmt.target)+" ("+tgt.rr.toFixed(2)+"R).";captureResearchSnapshot("TRADE_SET");updateResearchPanel();
+ $("stopUpdate").innerHTML="<b>Trade aktiv.</b> "+msg+" CRV-Ziel: "+displayStop(tradeMgmt.target)+" ("+tgt.rr.toFixed(2)+"R). "+tgt.warning;captureResearchSnapshot("TRADE_SET");updateResearchPanel();
 }
 async function suggestStopUpdate(){
  if(pushState?.backgroundEnabled){$("stopUpdate").textContent="Stop und Ziel werden im Hintergrund überwacht; Serverstand wird synchronisiert.";await syncPushPreferences();renderActiveTradePlan();return;}
@@ -2394,7 +2416,7 @@ async function manageProfitProtection(){
      const target=Number(tradeMgmt.target);
      const reached=tradeMgmt.dir==="LONG"?p>=target:p<=target;
      if(reached&&saved.target!==baseKey){
-       await notifyTrade("🎯 Bob – Ziel erreicht","Ziel "+target.toFixed(2)+" USD/oz erreicht · "+(trendIntact?"Haupttrend intakt: Fortsetzung mit geschütztem Stop prüfen.":"Gewinn sichern / Ausstieg prüfen."),{kind:"trade-close-target",signalId:"target:"+baseKey});
+       await notifyTrade("🎯 Bob – Ziel erreicht","Ziel "+target.toFixed(2)+" USD/oz erreicht · "+(trendIntact?"Haupttrend intakt: Fortsetzung mit geschütztem Stop prüfen.":"Fortsetzung nicht bestätigt: Gewinnschutz und Stop prüfen; kein automatischer Ausstieg."),{kind:"trade-close-target",signalId:"target:"+baseKey});
        saved.target=baseKey;localStorage.setItem("bobProfitGuardV1",JSON.stringify(saved));
      }
    }
@@ -2402,10 +2424,10 @@ async function manageProfitProtection(){
    const target=Number(tradeMgmt.target),bar=mainTrend.setupBarAt;
    if(trendIntact&&mainTrend.phase==='CONTINUATION'&&Number.isFinite(target)&&target>0&&(tradeMgmt.dir==='LONG'?p>=target:p<=target)&&bar>(saved.targetBarAt||0)){
      const sm=stopModel(tradeMgmt.dir,p,A.at,+($('trailAtr')?.value||1.5));
-     const next=sm.stop?targetModel(tradeMgmt.dir,p,sm.stop,2).target:null,step=Math.max(initialRisk*.5,(intradayRiskData().atr||0)*.5);
-     if(Number.isFinite(next)&&(tradeMgmt.dir==='LONG'?next>=Math.max(p,target)+step:next<=Math.min(p,target)-step)){
+     const nextPlan=sm.stop?targetModel(tradeMgmt.dir,p,sm.stop,2):{},next=nextPlan.target,step=Math.max(initialRisk*.5,(intradayRiskData().atr||0)*.5);
+     if(nextPlan.entrySuitable!==false&&Number.isFinite(next)&&(tradeMgmt.dir==='LONG'?next>=Math.max(p,target)+step:next<=Math.min(p,target)-step)){
        tradeMgmt.target=next;saveTradeMgmt();saved.targetBarAt=bar;delete saved.target;localStorage.setItem('bobProfitGuardV1',JSON.stringify(saved));
-       await notifyTrade('TRADE-PLAN · Ziel erreicht – neues Ziel','Bisheriges Ziel erreicht. Haupttrend-Fortsetzung durch geschlossene Kerze bestätigt · neues Ziel '+activeTradeLevel(next)+' · vorhandenen Stop beibehalten/nachziehen.',{kind:'target-extension',signalId:'target-extension:'+baseKey+':'+bar});
+       await notifyTrade('TRADE-PLAN · Ziel erreicht – neues Ziel','Bisheriges Ziel erreicht. Haupttrend-Fortsetzung durch geschlossene Kerze bestätigt · neues Ziel '+activeTradeLevel(next)+' · vorhandenen Stop beibehalten/nachziehen. '+(nextPlan.warning||''),{kind:'target-extension',signalId:'target-extension:'+baseKey+':'+bar});
      }
    }
    const stage=r>=2?2:r>=1.5?1.5:r>=1?1:0;
@@ -2507,6 +2529,7 @@ function calcDgTrade(){
  if(dir==="ABWARTEN"){ $("dgOut").innerHTML=`<b>Kein Trade-Vorschlag.</b><br>${BobDegiro.escapeHtml(market.reasons.join(" · "))}<br><br>Maximales Risiko: <b>${maxLoss.toFixed(2)} €</b>.`; return; }
  const sm=stopModel(dir,lastPrice,A.at,1.5), tgt=targetModel(dir,lastPrice,sm.stop,2);
  if(!sm.stop||!tgt.target){$("dgOut").innerHTML="<b>Kein Trade-Vorschlag.</b><br>Stop/CRV konnte nicht zuverlässig berechnet werden.";return;}
+ if(tgt.entrySuitable===false){$("dgOut").textContent="Kein neuer Trade-Vorschlag: "+tgt.warning;return;}
  const riskDist=Math.abs(lastPrice-sm.stop), rewardDist=Math.abs(tgt.target-lastPrice), rr=tgt.rr;
  const koDist=ko?(Math.abs(lastPrice-ko)/lastPrice*100):null;
  let koWarning="";
@@ -2750,6 +2773,7 @@ setInterval(()=>{ if(document.visibilityState==="visible"){loadData();syncPushPr
 
 
 </body></html>
+
 
 
 
