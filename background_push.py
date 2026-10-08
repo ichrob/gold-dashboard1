@@ -265,7 +265,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         marker = [personal['account'], personal['percent'], model['entry'], model['quantity']]
         if estimated is not None and (model['entry'] - estimated) * model['quantity'] >= budget and old.get('personalRiskSent') != marker:
             loss = (model['entry'] - estimated) * model['quantity']
-            add('personal-risk', 'Deine persönliche Risikogrenze wurde erreicht',
+            add('personal-risk', 'Persönliche Verlustgrenze erreicht',
                 f"Berechneter Verlust ≈ {loss:.2f} EUR; Risikobudget {budget:.2f} EUR ({personal['percent']:g}% von {personal['account']:g} EUR). Ohne Gebühren. Position prüfen; kein automatischer Verkauf.")
             events[-1]['tag'] = 'bob-personal-risk-' + t['tradeId']
             old['personalRiskSent'] = marker
