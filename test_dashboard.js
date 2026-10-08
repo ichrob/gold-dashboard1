@@ -366,5 +366,5 @@ const marketSwitch=vm.runInContext(`(()=>{
  setChartMarket('future');const future=$('chartInstrument').textContent;
  setChartMarket('spot');return {future,spot:$('chartInstrument').textContent,unchanged:before===JSON.stringify(C)};
 })()`,env);
-assert(marketSwitch.future.includes('GC=F'));assert(marketSwitch.spot.includes('XAU/USD'));assert(marketSwitch.unchanged);
+assert(marketSwitch.future.includes('Investing.com'));assert(marketSwitch.spot.includes('XAU/USD'));assert(marketSwitch.unchanged);
 console.log('Spot/Future display switch preserves analysis candles');

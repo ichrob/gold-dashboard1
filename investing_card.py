@@ -11,6 +11,7 @@ URL = 'https://de.investing.com/commodities/gold'
 _fetch_lock = threading.Lock()
 _cached = None
 _last_observed = None
+_chart_observations = []
 _next_fetch = 0
 _thread = None
 _state_lock = threading.Lock()
@@ -90,6 +91,9 @@ def fetch():
             before = datetime.fromisoformat(_last_observed['at'])
             if at < before or (at == before and q['price'] != _last_observed['price']):
                 raise ValueError('CFD-Quelle liefert einen älteren oder widersprüchlichen Kursstand')
+        if not _chart_observations or q['at'] != _chart_observations[-1]['at']:
+            _chart_observations.append(dict(q))
+            del _chart_observations[:-20160]
         _last_observed = dict(q)
         _cached = q
         return aged(_cached)
@@ -145,3 +149,16 @@ def health():
         if result['state'] == 'current' and not 0 <= age <= 120:
             result['state'] = 'stale'
     return result
+
+
+def chart_snapshot(tf):
+    """Sampled CFD candles, not exchange OHLC. Original quote times retained."""
+    steps={'1m':60,'5m':300,'15m':900,'1h':3600,'4h':14400}
+    step=steps.get(tf,900)*1000
+    with _fetch_lock:quotes=list(_chart_observations)
+    bars={}
+    for q in quotes:
+        at=int(datetime.fromisoformat(q['at']).timestamp()*1000);key=at//step*step;p=q['price']
+        if key not in bars:bars[key]=dict(openTime=key,open=p,high=p,low=p,close=p,instrument='GOLD-CFD',source='Investing.com · 30-Sekunden-Beobachtungen',isOpen=key+step>time.time()*1000,samples=0)
+        b=bars[key];b.update(high=max(b['high'],p),low=min(b['low'],p),close=p,sourceAt=q['at'],samples=b['samples']+1)
+    return dict(bars=list(bars.values())[-300:],note='Aus beobachteten Kursen seit Serverstart; keine vollständigen historischen OHLC-Kerzen',sourceAt=quotes[-1]['at'] if quotes else None)

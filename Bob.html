@@ -386,7 +386,7 @@ try{
 <details class="technical-metric"><summary><span>ATR (14)</span><b id="atr">—</b><span id="atrDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Einfacher Mittelwert (SMA) der True Range über 14 Kerzen in USD, einschließlich Kurslücken. Höher bedeutet stärkere Schwankungen, aber keine LONG- oder SHORT-Richtung.</p></details>
 </div></details></div>
 
-<div class="card chart-card" data-design="readable-chart-v1"><div class="chart-segment" role="group" aria-label="Gold-Kursreihe"><button type="button" data-chart-market="spot" onclick="setChartMarket('spot')">Gold-Spot</button><button type="button" data-chart-market="future" onclick="setChartMarket('future')">Gold-Future</button></div><h3 id="chartInstrument">Gold · Basiswert wird geladen</h3><p class="small">Preisverlauf in USD je Feinunze</p><p id="chartProvenance" class="small" aria-live="polite">Quelle und Kerzenzeit werden geladen.</p>
+<div class="card chart-card" data-design="readable-chart-v1"><div class="chart-segment" role="group" aria-label="Gold-Kursreihe"><button type="button" data-chart-market="spot" onclick="setChartMarket('spot')">Gold-Spot</button><button type="button" data-chart-market="future" onclick="setChartMarket('future')">Gold-CFD</button></div><h3 id="chartInstrument">Gold · Basiswert wird geladen</h3><p class="small">Preisverlauf in USD je Feinunze</p><p id="chartProvenance" class="small" aria-live="polite">Quelle und Kerzenzeit werden geladen.</p>
 <div class="chart-controls"><div class="chart-segment" role="group" aria-label="Darstellung"><button type="button" data-chart-type="line" onclick="setChartOption('type','line')">Linie</button><button type="button" data-chart-type="candles" onclick="setChartOption('type','candles')">Kerzen</button></div><div class="chart-segment" role="group" aria-label="Zeitraum pro Kerze"><button type="button" data-chart-tf="1m" onclick="setChartOption('tf','1m')">1m</button><button type="button" data-chart-tf="5m" onclick="setChartOption('tf','5m')">5m</button><button type="button" data-chart-tf="15m" onclick="setChartOption('tf','15m')">15m</button><button type="button" data-chart-tf="1h" onclick="setChartOption('tf','1h')">1h</button><button type="button" data-chart-tf="4h" onclick="setChartOption('tf','4h')">4h</button></div><select id="chartType" hidden aria-label="Ansicht"><option value="candles" selected>Kerzen</option><option value="line">Linie</option></select><select id="chartTf" hidden aria-label="Zeitraum pro Kerze"><option value="1m">1 Minute</option><option value="5m">5 Minuten</option><option value="15m" selected>15 Minuten</option><option value="1h">1 Stunde</option><option value="4h">4 Stunden</option></select></div>
 <p id="minuteEntryStatus" class="small" aria-live="polite">1m-Einstiegshilfe · Vergleichstest: Daten werden geladen.</p>
 <div class="small chart-status" id="chartViewStatus" aria-live="polite"></div>
@@ -1278,8 +1278,8 @@ function setChartMarket(value){chartMarket=value==='future'?'future':'spot';try{
 async function loadFutureChart(tf){
  if(futureChartBusy||Date.now()-(futureChartAt[tf]||0)<30000)return;
  futureChartBusy=true;futureChartAt[tf]=Date.now();
- try{const r=await fetch('/api/future-chart?tf='+encodeURIComponent(tf));if(!r.ok)throw Error('Abruf fehlgeschlagen');const data=await r.json();futureChartHistory[tf]=data.bars||[];futureChartError=data.error||'';}
- catch(e){futureChartError='Future-Kursreihe derzeit nicht abrufbar';}
+ try{const r=await fetch('/api/cfd-chart?tf='+encodeURIComponent(tf));if(!r.ok)throw Error('Abruf fehlgeschlagen');const data=await r.json();futureChartHistory[tf]=data.bars||[];futureChartError=data.error||'';}
+ catch(e){futureChartError='CFD-Kursreihe derzeit nicht abrufbar';}
  finally{futureChartBusy=false;if(chartMarket==='future')draw();}
 }
 function setChartOption(kind,value){$(kind==='type'?'chartType':'chartTf').value=value;saveChartView();draw();}
@@ -1303,8 +1303,9 @@ function draw(a){
  const ranges=all.slice(-14).map((b,i,bs)=>Math.max(Number(b.high)-Number(b.low),i?Math.abs(Number(b.high)-Number(bs[i-1].close)):0,i?Math.abs(Number(b.low)-Number(bs[i-1].close)):0));
  const chartAtr=ranges.length?ranges.reduce((a,b)=>a+b,0)/ranges.length:0;
  const model=chartFibonacci(v,chartAtr);
- const fib=model?.valid?model:null;
+ const fib=!isFuture&&model?.valid?model:null;
  $('chartViewStatus').textContent=v.length<2?'Keine Chartdaten verfügbar':assessment.fresh===false?'Historische Daten · nicht aktuell':'Verlauf geschlossener Kerzen';
+ if(isFuture)$('chartViewStatus').textContent=v.length<2?'CFD-Kursverlauf wird gesammelt – für eine erste Kurve 1m wählen':'CFD-Verlauf aus beobachteten Kursen · Lücken möglich';
  $('chartViewStatus').dataset.stale=String(assessment.fresh===false);
  const frameLabel={"1m":"1 Minute","5m":"5 Minuten","15m":"15 Minuten","1h":"1 Stunde","4h":"4 Stunden"}[tf]||tf;
  const rangeDate=t=>new Date(t).toLocaleString("de-CH",{timeZone:"Europe/Zurich",day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
@@ -1316,10 +1317,10 @@ function draw(a){
  const instrumentLabel=instrument==='GC=F'?'Gold-Futures · GC=F':instrument==='XAU/USD'?'Gold-Spot · XAU/USD':v.length?'Gold · Basiswert nicht eindeutig':'Gold · keine Chartdaten';
  const sources=[...new Set(v.map(b=>b.source||(b.instrument==='GC=F'?'Yahoo Finance · GC=F':'Quelle nicht ausgewiesen')))];
  const candleCloseAt=v.length?Number(v.at(-1).openTime)+chartStep:null;
- $('chartInstrument').textContent=isFuture?'Gold-Future · GC=F':instrumentLabel;
+ $('chartInstrument').textContent=isFuture?'Gold-CFD · Investing.com':instrumentLabel;
  $('chartProvenance').textContent='Quelle: '+(sources.join(' / ')||'nicht verfügbar')+' · Letzter Kerzenschluss: '+(candleCloseAt?new Date(candleCloseAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)':'nicht verfügbar')+(instrument==='GC=F'?' · Futures-Referenz, kein bestätigter GCZ26-Kontrakt':'');
 
- if(isFuture)$('chartProvenance').textContent+=' · Möglicherweise verzögert'+(futureChartError?' · '+futureChartError:'');
+ if(isFuture)$('chartProvenance').textContent+=' · Aus 30-Sekunden-Beobachtungen seit Serverstart; keine vollständigen historischen Kerzen'+(futureChartError?' · '+futureChartError:'');
  const irregular=all.some(b=>Number(b.openTime)%chartStep!==0);
  if(irregular)$('chartViewStatus').textContent='Quellenzeitpunkte passen nicht zum gewählten Kerzenraster – Intraday-Test gesperrt';
  $('chartHistoryInfo').textContent=v.length+' Quellenwerte · '+$('chartTf').selectedOptions[0].textContent+(irregular?' · Zeitraster unbestätigt':'')+' · Handelspausen ausgeblendet';

@@ -894,9 +894,10 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        if path == "/api/future-chart":
+        if path == "/api/cfd-chart":
             tf=parse_qs(urlparse(self.path).query).get('tf',['15m'])[0]
-            payload=future_chart.snapshot(tf if tf in future_chart.STEPS else '15m',fetch_json)
+            import investing_card
+            payload=investing_card.chart_snapshot(tf)
             body=json.dumps(payload,allow_nan=False).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type','application/json; charset=utf-8')
