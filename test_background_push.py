@@ -103,7 +103,7 @@ class BackgroundRules(unittest.TestCase):
         extension=next(e for e in events if e['data']['eventKind']=='target-extension')
         self.assertIn('23.6000 EUR/Stück',extension['body'])
         self.assertIn(product['isin'],extension['body']);self.assertIn(product['referenceAt'],extension['body'])
-        self.assertIn('berechnet',extension['body'])
+        self.assertIn('geschätzt',extension['body'])
         self.assertIsNone(b.product_price(product,160))
         with self.assertRaises(ValueError):b.product_model({**product,'direction':'LONG'},'SHORT')
         with self.assertRaises(ValueError):b.product_model({**product,'ratio':0},'SHORT')
