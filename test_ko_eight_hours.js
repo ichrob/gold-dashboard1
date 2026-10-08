@@ -1,0 +1,22 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const sandbox={window:{},localStorage:{getItem:()=>null}};
+vm.runInNewContext(fs.readFileSync(process.env.KO_TEST_FILE||'degiro_assistant.js','utf8'),sandbox);
+const api=sandbox.window.BobDegiro,now=Date.parse('2026-10-08T10:00:00Z'),H=3600000;
+function product(age){return {isin:'DE000FG4JXV7',ko:3900,productDirection:'LONG',quote:{isin:'DE000FG4JXV7',productVerified:true,source:'issuer',checkedAt:new Date(now).toISOString(),conditions:{ko:{value:3900,source:'issuer',at:new Date(now-age).toISOString()}}}};}
+assert(api.koEvidenceStatus(product(8*H-1),now).current);
+assert(!api.koEvidenceStatus(product(8*H),now).current);
+assert(!api.koEvidenceStatus(product(9*H),now).current);
+const failed=product(H);failed.quote.sourceFailure=true;
+assert(api.koEvidenceStatus(failed,now).current);
+assert.equal(api.koEvidenceStatus(failed,now).expiresAt,new Date(now+7*H).toISOString());
+failed.quote.checkedAt=new Date(now+7*H).toISOString();
+assert(!api.koEvidenceStatus(failed,now+7*H).current);
+assert(!api.koEvidenceStatus(product(-H),now).current);
+const revoked=product(H);revoked.quote.conditions.ko.revoked=true;assert(!api.koEvidenceStatus(revoked,now).current);
+const shot=product(H);shot.snapshot={isin:shot.isin,identityBasis:'ISIN',terms:{ko:shot.quote.conditions.ko}};delete shot.quote;
+assert(api.koEvidenceStatus(shot,now).current);
+assert(!api.koEvidenceStatus(shot,now+7*H).current);
+const expired=product(8*H);
+assert(api.productTermsStatus(expired,now).reasons.some(r=>r.includes('8-Stunden')));
+assert(!api.productTermsStatus(product(H),now).reasons.some(r=>/Knock-out-Schwelle|KO-Schwelle/.test(r)));
+console.log('KO 8h: exact expiry, issuer and screenshot evidence, failed refresh, no clock reset, future timestamps and revoked evidence passed');
