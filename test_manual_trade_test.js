@@ -16,3 +16,12 @@ const fields=[{value:p.isin,dataset:{i:'1'}},{value:p.isin,dataset:{i:'2'}}];
 env.document={querySelectorAll:()=>fields,querySelector:selector=>selector.includes('dir')?{value:'LONG'}:selector.includes('name')?{value:'Gold Long'}:null};
 const rows=env.window.BobDegiro.tradeTestProducts();assert.equal(rows.length,1);assert.equal(rows[0].isin,p.isin);
 console.log('Manual paper test: neutral-independent selection, deduplication, inputs, matching EUR quotes, stale quotes and long/short P&L passed');
+
+const chart={...q,found:false,metadata:{status:1},analysisQuote:{bid:9.2,bidAt:q.bidAt,currency:'EUR',source:'SG Chart'}};
+assert(api.valuation(p,chart,now).available);
+assert(api.valuation(p,chart,now).referenceOnly);
+assert(api.valuation(p,chart,now+91000).stale);
+for(const patch of [{currency:'CHF'},{bidAt:null},{bidAt:new Date(now+1).toISOString()}])assert(!api.valuation(p,{...chart,analysisQuote:{...chart.analysisQuote,...patch}},now).available);
+assert(!api.valuation(p,{...chart,isin:'DE000FG4JXV7'},now).available);
+assert(!api.valuation(p,{...chart,metadata:{status:2}},now).available);
+console.log('Dated analysis quotes: fallback, stale label, currency, identity, future dates and terminal status passed');
