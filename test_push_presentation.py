@@ -2,6 +2,11 @@ import unittest
 import background_push as p
 
 class Presentation(unittest.TestCase):
+    def test_server_serves_canonical_browser_policy(self):
+        import server
+        from pathlib import Path
+        self.assertEqual(server.PUSH_MANAGER_JS, Path("push_manager.js").read_text())
+
     def event(self,kind,body):
         return {'title':kind,'body':body,'data':{'eventKind':kind,'kind':'general' if kind=='signal-change' else 'trade'}}
 
