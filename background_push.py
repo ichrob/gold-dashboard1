@@ -161,7 +161,34 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         events.append({'title': title, 'body': reason, 'tag': 'bob-background-'+channel,
                        'data': {'kind': channel, 'eventKind': kind, 'url': '/', 'dataAt': market.get('dataAt'),
                                 'expiresAt': now+180000, 'tradeId': (settings.get('trade') or {}).get('tradeId')}})
+    # Keep computing with the last usable observations, without renewing their clocks.
     healthy = market.get('ready') is True and market.get('priceFresh') is True
+    snapshot = state.get('lastAnalysis') or {}
+    if positive(market.get('price')) and positive(market.get('dataAt')) and market['dataAt'] <= now:
+        snapshot = {**snapshot, **{key: copy.deepcopy(market.get(key)) for key in
+                    ('price', 'dataAt', 'analysisBarAt', 'score', 'atr', 'macd', 'signal', 'analysisSnapshot', 'trendContext', 'continuedPlan') if market.get(key) is not None}}
+        state['lastAnalysis'] = snapshot
+    calculation = {'available': bool(snapshot), 'stale': not healthy, 'computedAt': now,
+                   'dataAt': snapshot.get('dataAt'), 'price': snapshot.get('price'),
+                   'score': snapshot.get('score'), 'analysisBarAt': snapshot.get('analysisBarAt'),
+                   'plan': copy.deepcopy(snapshot.get('continuedPlan'))}
+    model_trade = settings.get('trade') or {}
+    if calculation['plan'] and calculation['plan'].get('tradeId') != model_trade.get('tradeId'):
+        calculation['plan'] = None
+    if calculation['plan']:
+        plan = calculation['plan']
+        plan['computedAt'] = now
+        existing = state.get('trade') or {}
+        stop = existing.get('stop') if existing.get('tradeId') == model_trade.get('tradeId') else model_trade.get('stop')
+        if positive(stop):
+            plan['stop'] = (max if model_trade['dir']=='LONG' else min)(plan['stop'], stop)
+    if snapshot and model_trade:
+        reference = snapshot['price']
+        sign = 1 if model_trade['dir'] == 'LONG' else -1
+        calculation.update(stopDistance=sign*(reference-model_trade['stop']),
+                           targetDistance=sign*(model_trade['target']-reference) if positive(model_trade.get('target')) else None,
+                           productEstimate=product_price(model_trade.get('product'), reference))
+    state['continuedCalculation'] = calculation
     channel = 'trade' if trade_enabled and settings.get('trade') else 'general'
     # Notification debounce never makes unhealthy data eligible for analysis.
     announced = state.setdefault('announcedHealthy', state.get('healthy', True))
@@ -178,9 +205,9 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         audit('data-status', 'suppressed', 'Statuswechsel noch nicht mehrfach bestätigt')
     if confirmed:
         if not healthy:
-            reason = ('Die Hintergrundanalyse ist fehlgeschlagen. Eine aktuelle Bewertung und Trade-Überwachung sind nicht bestätigt.'
+            reason = ('Die Hintergrundanalyse ist fehlgeschlagen. Bob rechnet mit dem letzten verfügbaren Datenstand weiter, sofern vorhanden; keine aktuelle Marktbestätigung.'
                       if market.get('analysisError') else 'Aktualität oder zeitliche Abstimmung der vorhandenen Markt-/Analysedaten nicht bestätigt. Berechnung mit vorhandenen Werten läuft weiter; Überwachung eingeschränkt.')
-            add('data-unavailable', 'DATENSTATUS · Überwachung eingeschränkt', reason, channel)
+            add('data-unavailable', 'DATENSTATUS · Berechnung mit veralteten Werten', reason, channel)
         else:
             add('data-recovered', 'DATENSTATUS · Überwachung fortgesetzt', 'Aktuelle Daten wieder vorhanden. Keine Entwarnung für einen Trade.', channel)
         state['announcedHealthy'] = healthy
