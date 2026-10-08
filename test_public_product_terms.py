@@ -3,6 +3,7 @@ from unittest.mock import patch
 from datetime import datetime, timezone
 import public_product_terms as p
 import product_quotes as q
+import quote_runtime as runtime
 
 ISIN='DE000FG5GUT0'
 NOW=datetime(2026,10,3,18,tzinfo=timezone.utc)
@@ -14,6 +15,11 @@ Kennzahlen Hebel -- Knock Out erreicht Nein
 <table><tr><th>Basiswert</th><td><a href="/inf/rohstoffe/goldpreis-XC0009655157">Gold</a></td></tr></table>'''
 
 class PublicTermsTests(unittest.TestCase):
+    def setUp(self):
+        with runtime._LOCK:
+            runtime._READY.clear()
+            runtime._PENDING.clear()
+
     def test_chart_is_analysis_only_and_keeps_original_clock(self):
         primary = dict(isin=ISIN, found=False, eligible=False, productVerified=True,
                        metadata=dict(status=1), chartEvidence=dict(bid=4.4, ask=4.5,

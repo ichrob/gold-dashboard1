@@ -3,6 +3,7 @@ from unittest.mock import patch
 from datetime import datetime, timezone
 import stuttgart_products as s
 import product_quotes as q
+import quote_runtime as runtime
 import public_product_terms as public
 
 ISIN='DE000FG309G0'
@@ -14,6 +15,11 @@ Nominalwährung EUR Abwicklungswährung Euro Letzter Bewertungstag Endlos Zahlta
 Letzter Börsenhandelstag Endlos Handelszeit 08:00:00 - 22:00:00 Produktbeschreibung'''
 
 class StuttgartTests(unittest.TestCase):
+    def setUp(self):
+        with runtime._LOCK:
+            runtime._READY.clear()
+            runtime._PENDING.clear()
+
     def test_identity_contract_and_no_invented_times(self):
         r=s.parse_page(PAGE,ISIN,NOW)
         self.assertEqual(r['metadata']['contract'],'GCZ26')

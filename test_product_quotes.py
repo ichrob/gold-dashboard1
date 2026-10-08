@@ -3,6 +3,7 @@ import json
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
 import product_quotes as q
+import quote_runtime as runtime
 from urllib.error import HTTPError
 
 ISIN='DE000PJ9NCK0'
@@ -12,6 +13,9 @@ def snapshot():
 
 class ProductQuoteTests(unittest.TestCase):
     def setUp(self):
+        with runtime._LOCK:
+            runtime._READY.clear()
+            runtime._PENDING.clear()
         self.backup = patch('onvista_backup.fetch', return_value=None)
         self.backup.start()
         self.addCleanup(self.backup.stop)

@@ -110,8 +110,8 @@ assert(display.includes('Geld/Brief vorhanden'));assert(display.includes('Hebel 
 console.log('Independent price/leverage field states and chart provenance passed');
 
 // Existing chart values never hide unresolved evidence in a zero-count summary.
-assert(display.includes('Kursnachweis: Aktualität / Kursart offen'));
-assert(display.includes('Hebelnachweis: Anbieterwert / Datenstand offen'));
+assert(display.includes('Kursart und Aktualität noch nicht bestätigt'));
+assert(display.includes('Hebel vorhanden · Aktualitätsprüfung offen'));
 assert(!display.includes('Alle Zahlen vorhanden'));
 const agedPair={...fieldProduct,quote:{...fieldProduct.quote,analysisMaxAgeSeconds:300,bidAt:new Date(now-183000).toISOString(),askAt:new Date(now-183000).toISOString()}};
 assert.equal(b.productFieldStates(agedPair,now).ask.state,'innerhalb Altersgrenze (300 s)');
