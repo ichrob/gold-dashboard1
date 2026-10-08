@@ -558,6 +558,26 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  let busy=false;
  const $=id=>document.getElementById(id),date=v=>v?new Date(v*1000).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'unbekannt';
  function node(tag,text){const n=document.createElement(tag);n.textContent=text;return n;}
+
+ const readKey='bobResearchReadVideosV1';
+ let readVideos=new Set(),latestVideoIds=[];
+ try{const saved=JSON.parse(localStorage.getItem(readKey)||'[]');if(Array.isArray(saved))readVideos=new Set(saved);}catch(e){}
+ function videoKey(item){try{const u=new URL(item.url);return u.searchParams.get('v')||item.id||item.url;}catch(e){return item.id||item.url;}}
+ function updateUnreadBadge(){
+  const button=document.querySelector('[data-view="research"]');if(!button)return;
+  let badge=button.querySelector('.research-unread-badge');
+  if(!badge){badge=node('b','');badge.className='research-unread-badge';badge.style.cssText='position:absolute;top:2px;right:12%;min-width:18px;padding:1px 5px;border-radius:99px;background:#dc2626;color:white;font-size:11px;line-height:16px';button.style.position='relative';button.append(badge);}
+  const count=latestVideoIds.filter(id=>!readVideos.has(id)).length;
+  badge.textContent=String(count);badge.hidden=count===0;
+  button.setAttribute('aria-label',count?'Recherche: '+count+' ungelesene Videos':'Recherche');
+ }
+ function markVideoRead(id){
+  readVideos.add(id);
+  try{localStorage.setItem(readKey,JSON.stringify([...readVideos]));}catch(e){}
+  updateUnreadBadge();
+ }
+ window.addEventListener('storage',e=>{if(e.key!==readKey)return;try{const saved=JSON.parse(e.newValue||'[]');if(Array.isArray(saved)){readVideos=new Set(saved);updateUnreadBadge();}}catch(err){}});
+
  async function load(){
   if(busy)return;busy=true;const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),10000);
   try{
@@ -569,6 +589,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const c=$('goldResearchConsensus');c.textContent='MCO Markets · '+r.consensus;c.className='signal '+(r.consensus==='LONG'?'ok':r.consensus==='SHORT'?'bad':'neutral');
    $('goldResearchReason').textContent=r.reason;$('goldResearchMethod').textContent=r.method;
    $('goldResearchSources').replaceChildren(...r.sources.map(s=>node('p',s.publisher+' · '+s.kind+' · '+(s.status==='ok'?s.scanned+' Einträge geprüft': 'Abruf nicht verfügbar')+' · '+s.scope)));
+   latestVideoIds=[...new Set(r.items.map(videoKey).filter(Boolean))];updateUnreadBadge();
    const rows=r.items.map(x=>{
     const box=node('article','');box.className='research';box.style.marginTop='12px';
     const a=node('a',x.title);const url=new URL(x.url);if(url.protocol==='https:'){a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';}
@@ -585,7 +606,10 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     else if(x.context)box.append(node('p',(x.contextKind||'Kontext')+': '+x.context));
     if(x.transcriptWords)box.append(node('p','Transkript: '+x.transcriptWords+' Wörter · '+x.transcriptLanguage+(x.automaticCaptions?' · automatisch erzeugt':'')));
     for(const at of (x.overview?[]:x.goldMoments)||[]){const jump=node('a','Gold-Stelle '+Math.floor(at/60)+':'+String(at%60).padStart(2,'0')+' ');const target=new URL(x.url);target.searchParams.set('t',String(at));jump.href=target.href;jump.target='_blank';jump.rel='noopener noreferrer';box.append(jump);}
-    return box;
+    const id=videoKey(x),entry=node('details',''),heading=node('summary',(readVideos.has(id)?'':'Neu · ')+x.title);
+    entry.append(heading,box);
+    entry.addEventListener('toggle',()=>{if(entry.open){markVideoRead(id);heading.textContent=x.title;}});
+    return entry;
    });
    $('goldResearchItems').replaceChildren(...(rows.length?rows:[node('p','Keine passenden Beiträge verfügbar. Fehlende Quellen werden nicht als neutrale Meinung gezählt.')]));
   }catch(e){$('goldResearchStatus').textContent=e.message;$('goldResearchConsensus').textContent='ABWARTEN · Recherche nicht aktuell';$('goldResearchConsensus').className='signal neutral';$('goldResearchCounts').textContent='Vorherige Ergebnisse derzeit nicht bestätigt.';}
@@ -727,7 +751,9 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  $('youtubeResearchImport').addEventListener('click',()=>inspectVideo(true));
  $('goldResearchRefresh').addEventListener('click',load);
  document.addEventListener('click',e=>{if(e.target.closest?.('[data-view="research"]'))load();});
- setInterval(()=>{if(!$('bob-view-research')?.hidden&&document.visibilityState==='visible'&&!$('goldResearchItems').querySelector('details[open]'))load();},60000);
+ document.addEventListener('DOMContentLoaded',()=>{updateUnreadBadge();load();});
+ document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!$('goldResearchItems').querySelector('details[open]'))load();});
+ setInterval(()=>{if(document.visibilityState==='visible'&&($('bob-view-research')?.hidden||!$('goldResearchItems').querySelector('details[open]')))load();},60000);
 })();
 </script>
 
