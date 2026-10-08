@@ -1094,13 +1094,13 @@ async function sendNtfy(kind,title,body){
 }
 async function notify(kind,title,body,data={}){
  if(data.isin||/product|best.trade|produktempfehl|bester trade/i.test([kind,data.kind,title].join(" ")))return false;
+ if(pushState?.backgroundEnabled&&!data.test)return false;
  if(!canNotify(kind))return false;
  const sent=await BobPush.emit(kind,title,body,data);
- await sendNtfy(kind,title,body);
  return sent;
 }
 async function notifyGeneral(title,body){return notify("general",title,body)}
-async function notifyTrade(title,body){return notify("trade",title,body)}
+async function notifyTrade(title,body,data={}){return notify("trade",title,body,data)}
 async function testPush(){
  if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
  const results=[];
@@ -2405,7 +2405,7 @@ async function manageProfitProtection(){
      const next=sm.stop?targetModel(tradeMgmt.dir,p,sm.stop,2).target:null,step=Math.max(initialRisk*.5,(intradayRiskData().atr||0)*.5);
      if(Number.isFinite(next)&&(tradeMgmt.dir==='LONG'?next>=Math.max(p,target)+step:next<=Math.min(p,target)-step)){
        tradeMgmt.target=next;saveTradeMgmt();saved.targetBarAt=bar;delete saved.target;localStorage.setItem('bobProfitGuardV1',JSON.stringify(saved));
-       await notifyTrade('Bob – Neues Trendziel','Haupttrend bestätigt · neues Ziel '+activeTradeLevel(next)+' · vorhandenen Stop beibehalten/nachziehen.',{kind:'target-extension',signalId:'target-extension:'+baseKey+':'+bar});
+       await notifyTrade('TRADE-PLAN · Ziel erreicht – neues Ziel','Bisheriges Ziel erreicht. Haupttrend-Fortsetzung durch geschlossene Kerze bestätigt · neues Ziel '+activeTradeLevel(next)+' · vorhandenen Stop beibehalten/nachziehen.',{kind:'target-extension',signalId:'target-extension:'+baseKey+':'+bar});
      }
    }
    const stage=r>=2?2:r>=1.5?1.5:r>=1?1:0;
@@ -2440,17 +2440,20 @@ async function maybePushAnalysisAlerts(){
    const now=Date.now();
    const switched=(saved.dir==="LONG"||saved.dir==="SHORT")&&(dir==="LONG"||dir==="SHORT")&&saved.dir!==dir;
 
+   BobPush.beginBatch?.();
    await manageProfitProtection();
 
    // For an active trade, a confirmed reversal is the highest-priority warning:
    // recommend closing first, then explain the new signal direction.
-   if(switched&&pushState.activeTrade&&pushState.trade&&tradeMgmt?.active&&tradeMgmt.dir!==dir){
+   const holdingTrend=sustainedTrendContext(liveBundleCache);
+   const holdingIntact=holdingTrend.available&&holdingTrend.intact&&holdingTrend.direction===tradeMgmt?.dir;
+   if(switched&&!holdingIntact&&pushState.activeTrade&&pushState.trade&&tradeMgmt?.active&&tradeMgmt.dir!==dir){
      const closeMarker="reversal:"+tradeMgmt.dir+"-to-"+dir+":"+Math.floor(now/600000);
      if(saved.tradeCloseWarn!==closeMarker){
        await BobPush.emit("trade","🚨 Bob – DRINGEND: Trade schließen",
          "Bestätigter Richtungswechsel "+tradeMgmt.dir+" → "+dir+
          " · Momentum/Parameter gedreht · Kurs "+lastPrice.toFixed(2)+
-         ". Aktiven "+tradeMgmt.dir+"-Trade prüfen und schließen.",
+         ". Deinen "+tradeMgmt.dir+"-Trade prüfen; Schließen prüfen.",
          {kind:"trade-close-recommendation",signalId:closeMarker,priority:"urgent"});
        saved.tradeCloseWarn=closeMarker;
        localStorage.setItem("bobAlertV2",JSON.stringify(saved));
@@ -2462,13 +2465,8 @@ async function maybePushAnalysisAlerts(){
      const body=switched
        ? "Signalwechsel: "+saved.dir+" → "+dir+" · MTF "+mtf+" · XAU/USD "+lastPrice.toFixed(2)
        : dir+" bestätigt · MTF "+mtf+" · XAU/USD "+lastPrice.toFixed(2);
-     BobPush.emit("general",title,body,
-       {kind:"signal-change",signalId:"ui:"+saved.dir+"-to-"+dir+":"+Math.floor(now/60000)});
-   }
-
-   if(saved.mtf&&mtf!==saved.mtf&&mtf!=="NEUTRAL"&&dir===mtf){
-     BobPush.emit("general","Bob – MTF-Wechsel",mtf+" · XAU/USD "+lastPrice.toFixed(2),
-       {kind:"mtf-change",signalId:"mtf:"+mtf+":"+Math.floor(now/60000)});
+     BobPush.emit("general",title,body+(tradeMgmt?.active?" Dein "+tradeMgmt.dir+"-Trade: "+(holdingIntact?"Haupttrend intakt.":"Bestand separat prüfen; Einstiegssignal ist kein automatischer Ausstieg."):""),
+       {kind:"signal-change",direction:dir,signalId:"ui:"+saved.dir+"-to-"+dir+":"+Math.floor(now/60000)});
    }
 
    saved.dir=dir;saved.mtf=mtf;localStorage.setItem("bobAlertV2",JSON.stringify(saved));
@@ -2487,7 +2485,7 @@ async function maybePushAnalysisAlerts(){
      }
      if(stopState==="clear"){saved.tradeStopState=stopKey;localStorage.setItem("bobAlertV2",JSON.stringify(saved));}
    }
- }catch(e){console.warn("Bob push analysis alert",e)}
+ }catch(e){console.warn("Bob push analysis alert",e)}finally{await BobPush.flushBatch?.();}
 }
 function useRiskDefaults(){
  $("dgLev").value=5;

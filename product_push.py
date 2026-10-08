@@ -31,7 +31,7 @@ def transition(previous, checked, now=None):
         labels = '; '.join(p['isin']+' · '+p.get('name', '')+' · '+p['direction']+' · '+('berechneter Kurs' if p.get('estimated') else 'Produktkurs')+' · Kurszeit: '+str(p.get('quoteAt') or 'unbekannt') for p in products)
         reason = next((str(r) for p in products for r in p.get('reasons', []) if r), 'Markt- und Produktpflichtprüfungen bestanden')
         valid_until = datetime.fromtimestamp(checked['expiresAt']/1000, ZoneInfo('Europe/Zurich')).strftime('%H:%M:%S')
-        body = labels + '. Grund: ' + reason[:220] + '. Prüfung ' + stamp + ' Uhr; spätestens bis '+valid_until+' Uhr bestätigt. Aktuellen Status in Bob prüfen.'
+        body = 'Neue Produktauswahl prüfen. Grund: ' + reason[:220] + '. ' + labels + '. Prüfung ' + stamp + ' Uhr; spätestens bis '+valid_until+' Uhr bestätigt. Aktuellen Status in Bob prüfen.'
         removed = [p['isin'] for p in previous.get('products', []) if p['isin'] not in {x['isin'] for x in products}]
         if previous.get('notified') and removed:
             body += ' Nicht mehr freigegeben: ' + ', '.join(removed) + '.'
