@@ -12,7 +12,9 @@ p.snapshot={isin,currency:'EUR',bid:20,ask:20.01,sourceTime:'02/10/2026 21:22',e
 const terms=(values)=>Object.fromEntries(Object.entries(values).map(([k,value])=>[k,{value,at:'2026-10-02T19:00:00Z',source:'details.jpg'}]));
 p.snapshot.terms=terms({ratio:.1,strike:4460,underlying:'XAU/USD',type:'Turbo',maturity:'Open End',currency:'EUR',quanto:'Nein'});
 p.snapshot.evidence.KO={value:4460,source:'details.jpg',at:'2026-10-02T19:00:00Z'};
-assert(b.selectionDetailStatus(p,now).complete);assert(b.selectionDetailStatus(p,w.start+14*3600000).complete);assert(!b.selectionDetailStatus(p,w.start+14*3600000+1).complete);assert(!b.selectionDetailStatus(p,w.start-1).complete);
+assert(b.selectionDetailStatus(p,now).complete);assert(!b.selectionDetailStatus(p,w.start+8*3600000).complete);
+const refreshedKo=JSON.parse(JSON.stringify(p));refreshedKo.snapshot.evidence.KO.at=new Date(w.start+13*3600000).toISOString();
+assert(b.selectionDetailStatus(refreshedKo,w.start+14*3600000).complete);assert(!b.selectionDetailStatus(refreshedKo,w.start+14*3600000+1).complete);assert(!b.selectionDetailStatus(p,w.start-1).complete);
 assert(!b.selectionDetailStatus({...p,isinConfirmed:false},now).complete);
 assert(!b.selectionDetailStatus({...p,snapshot:{...p.snapshot,evidence:{...p.snapshot.evidence,Brief:{source:'other.jpg',value:20.01}}}},now).complete);
 const context={now,direction:'SHORT',spotFresh:true,spot:4140,atr:10,trend:'SHORT',trend2:'SHORT',mtf:'SHORT',rsi:40,hist:-1,adx:30,momentum:-1};
@@ -66,12 +68,11 @@ for(const mutate of [
  x=>x.snapshot.terms.type.value='Faktor',
  x=>x.snapshot.terms.maturity.value='01/10/2026 20:00:00 CEST',
  x=>x.snapshot.direction='LONG',
- x=>x.snapshot.evidence.KO.at=null,
  x=>x.isinConfirmed=false,
  x=>x.snapshot.isin='DE000FG309G0',
  x=>x.snapshot.times.quote={present:true,text:'02/10/2026 07:20:00 CEST'},
  x=>x.snapshot.delayed=true
-]){const bad=JSON.parse(JSON.stringify(imageProduct));mutate(bad);assert(!b.finalProductStatus(bad,now).complete);assert.equal(b.selectionWorkflow([bad],context,{}).groups.length,0);}
+]){const bad=JSON.parse(JSON.stringify(imageProduct));mutate(bad);assert(!b.finalProductStatus(bad,now).complete,String(mutate));assert.equal(b.selectionWorkflow([bad],context,{}).groups.length,0);}
 assert(!b.detailScreenshotData(details.replace(isin,'DE000FG309G0'),isin).ok);
 assert(!b.detailScreenshotData(details+'\nDE000FG309G0',isin).ok);
 assert(!b.detailScreenshotData(details+'\nLONG',isin).ok);
@@ -223,7 +224,7 @@ assert.equal(researched.snapshot.terms.ratio.at,null);assert(b.durableCondition(
 assert(!b.durableCondition(researched.snapshot.terms.ratio,'strike',researchNow));assert(!b.durableCondition(researched.snapshot.terms.ratio,'contract',researchNow));
 assert(!b.durableCondition({...researched.snapshot.terms.ratio,revoked:true},'ratio',researchNow));assert(!b.durableCondition({...researched.snapshot.terms.ratio,reviewedAt:'2027-01-01T00:00:00Z'},'ratio',researchNow));
 const checked=b.productTermsStatus({...researched,productDirection:'LONG',isinConfirmed:true},researchNow);
-assert.equal(checked.values.ratio,.1);assert(!checked.complete);assert(checked.reasons.some(x=>x.includes('Basispreis')));assert(checked.reasons.some(x=>x.includes('Knock-out')));
+assert.equal(checked.values.ratio,.1);assert(!checked.complete);assert(checked.reasons.some(x=>x.includes('Basispreis')));assert(checked.reasons.some(x=>/Knock-out|KO-Schwelle/.test(x)));
 assert.equal(b.applyResearchedTerms([{isin:'DE000FG309G0',direction:'SHORT'}])[0].snapshot,undefined);
 assert.equal(b.applyResearchedTerms([{isin:'DE000FG5GUT0',direction:'SHORT'}])[0].snapshot,undefined);
 const custom={...researched,snapshot:{...researched.snapshot,terms:{ratio:{value:.01,at:'2026-10-05T08:00:00Z',source:'new.jpg'}}}};
@@ -387,7 +388,8 @@ const bnpProduct={isin:'DE000PJ9NB98',isinConfirmed:true,productDirection:'LONG'
 let bnpStatus=b.productTermsStatus(bnpProduct,bnpNow);
 assert(!bnpStatus.reasons.some(r=>/Produkttyp|Basispreis|Knock-out/.test(r)),bnpStatus.reasons.join('; '));
 assert(bnpStatus.reasons.some(r=>/Basiswert/.test(r)));
-assert(!b.selectionDetailStatus(bnpProduct,bnpNow).reasons.some(r=>/KO-Barriere|Knock-out|Basispreis|Produkttyp/.test(r)));
+assert(!b.selectionDetailStatus(bnpProduct,bnpNow).reasons.some(r=>/Basispreis|Produkttyp/.test(r)));
+assert(bnpStatus.reasons.some(r=>r.includes('KO-Schwelle'))); // Date alone cannot start an eight-hour clock.
 assert(b.selectionDetailStatus(bnpProduct,bnpNow).reasons.some(r=>/Kurszeit/.test(r)));
 assert.equal(bnpSnapshot.sourceTime,'');
 assert.equal(bnpSnapshot.terms.strike.at,null);
@@ -397,11 +399,11 @@ const stored=JSON.parse(JSON.stringify(bnpProduct));stored.snapshot.terms.type.a
 assert(!b.productTermsStatus(stored,bnpNow).reasons.some(r=>/Produkttyp/.test(r)));
 for(const stamp of ['2026-10-04T21:59:59Z','2026-10-05T22:00:00Z']){
  const reasons=b.productTermsStatus(stored,Date.parse(stamp)).reasons;
- assert(reasons.some(r=>/Basispreis/.test(r)));assert(reasons.some(r=>/Knock-out/.test(r)));
+ assert(reasons.some(r=>/Basispreis/.test(r)));assert(reasons.some(r=>/Knock-out|KO-Schwelle/.test(r)));
 }
 for(const mutate of [p=>p.snapshot.terms.ko.dateText='31.02.2026',p=>p.snapshot.terms.ko.ocrCorrection='uncertain',p=>p.snapshot.terms.ko.conflict=true,p=>p.snapshot.identityBasis='',p=>p.snapshot.isin='DE000PG0XK25',p=>p.ko=3997]){
  const bad=JSON.parse(JSON.stringify(stored));mutate(bad);
- assert(b.productTermsStatus(bad,bnpNow).reasons.some(r=>/Knock-out/.test(r)));
+ assert(b.productTermsStatus(bad,bnpNow).reasons.some(r=>/Knock-out|KO-Schwelle/.test(r)));
 }
 const wrongDirection=JSON.parse(JSON.stringify(stored));wrongDirection.productDirection='SHORT';
 assert(b.productTermsStatus(wrongDirection,bnpNow).reasons.some(r=>/Produktrichtung/.test(r)));
