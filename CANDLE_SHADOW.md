@@ -8,7 +8,7 @@ nicht als Rankinggewicht hinzugefügt.
 
 ## Daten und Hypothese v1
 
-- 1m, 5m, 15m und 1h werden separat betrachtet. Quelle aus jeder Kerze: XAU/USD
+- 1m, 5m, 15m, 30m und 1h werden separat betrachtet. Quelle aus jeder Kerze: XAU/USD
   oder GC=F. GC=F ist eine Futures-Referenz ohne Nachweis eines konkreten Kontrakts;
   sie wird nicht als GCZ26 oder Spot deklariert.
 - Mindestens 21 geschlossene, zusammenhängende Kerzen desselben Instruments.
@@ -25,6 +25,11 @@ nicht als Rankinggewicht hinzugefügt.
   Der Vergleich zur bestehenden MTF-Richtung ist lediglich Kontext.
 
 ## Protokoll und Prüfung
+
+30m entsteht aus jeweils sechs lückenlosen 5m-Kerzen desselben Instruments.
+Unvollständige Gruppen werden nicht ergänzt. Die Stundenrichtung bleibt bestehen;
+30m liefert nur zusätzlichen Testkontext. Für den Richtungsvergleich sind mindestens
+100 abgeschlossene 30m-Kerzen nötig; die Dochtbeobachtung benötigt 21.
 
 Beim regulären Aufbau des Live-Bundles schreibt Bob pro neu beobachteter Kerze
 einen JSON-Datensatz mit Präfix `BOB_CANDLE_SHADOW` ins Serverlog. Das geschieht

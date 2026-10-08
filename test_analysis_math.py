@@ -10,6 +10,21 @@ import server
 NOW = 1800000000000
 
 class AnalysisMathTests(unittest.TestCase):
+    def test_thirty_minute_aggregation_and_context(self):
+        step=1800000
+        rows=[dict(openTime=NOW-(660-i)*300000,open=100,close=100,high=101,low=99,isOpen=False,instrument='XAU/USD') for i in range(660)]
+        with patch.object(server.time,'time',return_value=NOW/1000):
+            combined=server.aggregate_bars(rows,30)
+            self.assertEqual(len(combined),110)
+            self.assertTrue(server._mtf_score(combined,'30m')['available'])
+            self.assertEqual(combined[-1]['openTime'],NOW-step)
+            self.assertEqual(len(server.aggregate_bars(rows[:-1],30)),109)
+            rows[-1]['instrument']='GC=F'
+            self.assertEqual(len(server.aggregate_bars(rows,30)),109)
+            rows[-1]['instrument']='XAU/USD'
+            rows[-1]['isOpen']=True
+            self.assertTrue(server.aggregate_bars(rows,30)[-1]['isOpen'])
+
     def test_one_minute_context_uses_one_minute_timing(self):
         bars=[dict(openTime=NOW-(220-i)*60000,open=100,close=100,high=101,low=99,isOpen=False) for i in range(220)]
         with patch.object(server.time,'time',return_value=NOW/1000):

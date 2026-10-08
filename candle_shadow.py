@@ -10,7 +10,7 @@ import time
 from collections import OrderedDict
 
 VERSION = 'wick-context-v1'
-STEPS = {'1m': 60000, '5m': 300000, '15m': 900000, '1h': 3600000}
+STEPS = {'1m': 60000, '5m': 300000, '15m': 900000, '30m': 1800000, '1h': 3600000}
 _seen = OrderedDict()
 _lock = threading.Lock()
 
@@ -157,7 +157,7 @@ PANEL = r'''<script>
    const data=(await response.json()).candleShadow;
    if(!data||Date.now()-data.checkedAt>120000)throw Error('Testdaten fehlen oder sind veraltet');
    output.replaceChildren();
-   for(const tf of ['1m','5m','15m','1h']){
+   for(const tf of ['1m','5m','15m','30m','1h']){
     const r=data.byTimeframe[tf],line=document.createElement('p');
     const label=r.status==='observed'?(r.direction==='NEUTRAL'?'unklar':r.direction+'-Hinweis'):'nicht verfügbar';
     line.textContent=tf+' · '+(r.instrument||'Quelle offen')+' · '+label+' — '+r.reason+

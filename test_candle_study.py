@@ -5,14 +5,21 @@ from candle_study import compare
 
 
 class StudyTests(unittest.TestCase):
-    def data(self):
-        b=bars();b[-1].update(open=101,high=102,low=98,close=101.8)
-        now=b[-1]['openTime']+STEPS['15m']
-        row=dict(analyze(b,'15m',now),observedAt=now,baselineDirection='SHORT')
+    def data(self,tf='15m'):
+        b=bars(tf);b[-1].update(open=101,high=102,low=98,close=101.8)
+        now=b[-1]['openTime']+STEPS[tf]
+        row=dict(analyze(b,tf,now),observedAt=now,baselineDirection='SHORT')
         for i in range(3):
-            b.append(dict(openTime=now+i*STEPS['15m'],open=100,high=105,low=98,
+            b.append(dict(openTime=now+i*STEPS[tf],open=100,high=105,low=98,
                           close=104,isOpen=False,instrument='XAU/USD'))
-        return {'observations':[row],'bars_by_tf':{'15m':b}},now
+        return {'observations':[row],'bars_by_tf':{tf:b}},now
+
+    def test_thirty_minute_comparison(self):
+        data,now=self.data('30m')
+        result=compare(data,now,5)['byTimeframe']['30m']
+        self.assertEqual(result['baseline']['count'],1)
+        self.assertEqual(result['removedNonpositive'],1)
+        self.assertAlmostEqual(result['baseline']['meanNetBps'],-405)
 
     def test_comparison_costs_and_duplicate_records(self):
         data,now=self.data();data['observations']*=2

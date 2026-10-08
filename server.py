@@ -259,7 +259,7 @@ def mark_bar_state(bars, minutes):
 
 def aggregate_bars(bars, minutes):
     """Only aggregate complete, ordered, same-instrument source candles."""
-    base = {15: 5, 240: 60}.get(minutes)
+    base = {15: 5, 30: 5, 240: 60}.get(minutes)
     if base is None:
         raise ValueError('Nicht unterstützte Kerzenaggregation')
     step, source_step = minutes*60000, base*60000
@@ -535,6 +535,7 @@ def build_live_bundle():
             raise RuntimeError("Kein kostenloser Live-XAU/USD-Spotpreis verfügbar" + (f": {spot_error}" if spot_error else ""))
 
         bars_15m = aggregate_bars(bars_5m, 15) if bars_5m else []
+        bars_30m = aggregate_bars(bars_5m, 30) if bars_5m else []
         bars_4h = aggregate_bars(bars_1h, 240) if bars_1h else []
         # Native longer timeframes retain more history than a short 5m window.
         for tf, minutes in (("15m", 15), ("4h", 240)):
@@ -589,7 +590,7 @@ def build_live_bundle():
                 "spot_error": spot_error,
             },
             "history": {
-                "bars_by_tf": {"1m": bars_1m, "5m": bars_5m, "15m": bars_15m, "1h": bars_1h, "4h": bars_4h},
+                "bars_by_tf": {"1m": bars_1m, "5m": bars_5m, "15m": bars_15m, "30m": bars_30m, "1h": bars_1h, "4h": bars_4h},
                 "points": legacy_points,
                 "data_state": {
                     "status": status,
@@ -640,7 +641,7 @@ def _rsi(values, period=14):
     return 50.0 if gains == losses == 0 else 100.0 if losses == 0 else 100.0 - 100.0 / (1.0 + gains / losses)
 
 def _mtf_score(bars, tf):
-    step={"1m":60000,"5m":300000,"15m":900000,"1h":3600000,"4h":14400000}.get(tf,900000)
+    step={"1m":60000,"5m":300000,"15m":900000,"30m":1800000,"1h":3600000,"4h":14400000}.get(tf,900000)
     now=int(time.time()*1000)
     if any(not b.get("isOpen") and (not isinstance(b.get("openTime"),(int,float)) or b["openTime"]>now) for b in (bars or [])):
         return {"dir":"NEUTRAL","available":False,"fresh":False,"reason":"Kerzenzeit fehlt oder liegt in der Zukunft"}
