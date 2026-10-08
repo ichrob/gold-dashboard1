@@ -178,3 +178,35 @@ results are isolated from caller mutation. This removes repeated quadratic repla
 work during one render; all signal rules and study identities remain unchanged.
 Tests cover expiry plus one millisecond, changed data, new close, and browser/worker
 parity. Live UI timing can still be affected by the upstream feed or browser.
+
+
+## Sustained trend following v7 — 2026-10-08
+
+User goal: detect confirmed longer intraday movements and accompany them with
+protected trailing stops. No prediction of duration, top/bottom or profitability.
+Active policy `intraday-trend-follow-v7` separates entry from continued holding:
+- Closed native XAU/USD 1h EMA20/50 and EMA20 slope over three bars establish
+  the main direction. Both 1h and 15m require 100 bars and existing freshness/OHLC
+  checks; unavailable higher-frame evidence does not grant a new entry.
+- Continuation requires price on the trend side of hourly EMA50, aligned 15m
+  EMA20/50, price on its EMA50 trend side and no breach of the last confirmed
+  15m 2x2 swing. No unconfirmed/future pivot. These are explicit experimental
+  rules, not fitted to the October 6/7 moves.
+- Existing closed 5m/15m responsive confirmation remains the entry trigger;
+  only triggers aligned with the intact main trend grant active direction.
+  Neutral entry during a pullback is distinct from an intact main trend.
+- Background monitoring and paper simulation suppress short-frame reversal /
+  weak-momentum exit solely while higher-frame trend is intact. Existing stops,
+  stop-first ordering, no-loosening, data-gap handling and partial profit remain.
+  Runners can continue after a target; new targets need confirmed continuation.
+  Browser fallback uses the same trend assessment and target continuation.
+- Main Trend block and narrative show the higher-frame assessment. Raw 5m score
+  stays labeled 5m; it is not a duration probability or independent main vote.
+- Audit records v7 and trend context separately; old v6 observations keep identity.
+  The fixed fast/cautious campaign consumes the frozen v6 baseline from the same
+  snapshot and retains its prior rule, dates and outcomes.
+
+Trade-off: requiring main-trend alignment can delay entries and exclude early
+reversals. Retaining runners allows profit giveback up to the protected stop.
+Synthetic regression tests establish mechanics only; no October 6/7 replay or
+live superiority is claimed by this implementation.
