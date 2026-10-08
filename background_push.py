@@ -144,7 +144,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         audit(kind, 'planned', reason[:160])
         product=(settings.get('trade') or {}).get('product') if channel=='trade' else None
         if product:
-            reason=product['isin']+' · '+reason+' · Modellreferenz '+product['referenceAt']+'; konstante FX-/Produktbedingungen. Kein bestätigter DEGIRO-Kurs.'
+            reason=reason+' · '+product['isin']+' · Modellreferenz '+product['referenceAt']+'; konstante FX-/Produktbedingungen. Kein bestätigter DEGIRO-Kurs.'
         events.append({'title': title, 'body': reason, 'tag': 'bob-background-'+channel,
                        'data': {'kind': channel, 'eventKind': kind, 'url': '/', 'dataAt': market.get('dataAt'),
                                 'expiresAt': now+180000, 'tradeId': (settings.get('trade') or {}).get('tradeId')}})
@@ -184,7 +184,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
             state['signalPending'] = {'direction': direction, 'since': now, 'dataAt': market.get('dataAt')}
             audit('signal-change', 'suppressed', 'Richtung wartet auf erneute aktuelle Bestätigung')
         elif now-pending['since'] >= 30000 and positive(market.get('dataAt')) and market['dataAt'] != pending['dataAt']:
-            add('signal-change', 'MARKTSIGNAL · '+direction, 'Bestätigtes Bob-Signal '+direction+' · MTF '+mtf+'. Keine Produktfreigabe.', 'general')
+            add('signal-change', 'EINSTIEG · '+direction, 'Neuer Einstieg: '+direction+' bestätigt · MTF '+mtf+'. Keine Produktfreigabe.', 'general')
             state['notifiedDirection'] = direction
             state.pop('signalPending', None)
         # MTF confirmation is included in the direction message, never a second alert.
@@ -195,7 +195,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     t = settings.get('trade') if trade_enabled else None
     if not t:
         state.pop('trade', None)
-        return state, events
+        return state, present_events(events, settings, market)
     old = state.get('trade', {})
     if old.get('tradeId') != t['tradeId']:
         old = {**t, 'stage': 0}
@@ -211,7 +211,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         old['intradayEndDate'] = session['date']
         events[-1]['tag'] = 'bob-intraday-end-' + t['tradeId']
     if not market.get('priceFresh') or not positive(market.get('price')):
-        return state, events
+        return state, present_events(events, settings, market)
     p, stop, entry, risk = market['price'], old['stop'], t['entry'], t['initialRisk']
     personal, model = t.get('personalRisk'), t.get('product')
     if model and (p <= model['ko'] if t['dir']=='LONG' else p >= model['ko']) and not old.get('koSent'):
@@ -254,7 +254,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     elif healthy and direction == t['dir']:
         old['opposite'] = None
     if reached or not healthy:
-        return state, events
+        return state, present_events(events, settings, market)
     r = (p-entry if long else entry-p)/risk
     stage = 2 if r>=2 else 1.5 if r>=1.5 else 1 if r>=1 else 0
     desired = stop
@@ -290,14 +290,45 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         beyond = candidate>=max(p,target)+step if long else candidate<=min(p,target)-step
         if beyond:
             old.update(target=candidate,targetSent=False,targetBarAt=bar)
-            add('target-extension','TRADE-PLAN · Neues Ziel vorgeschlagen',
-                f"{t['dir']} · Bisheriges Ziel erreicht. Neues Ziel {level_text(t,candidate)}; Stop {level_text(t,old['stop'])}. Richtung, MTF und Momentum weiter bestätigt. Vorschlag bei DEGIRO selbst übernehmen.")
+            add('target-extension','TRADE-PLAN · Ziel erreicht – neues Ziel',
+                f"{t['dir']} · Bisheriges Ziel erreicht. Neues Ziel {level_text(t,candidate)}; Stop {level_text(t,old['stop'])}. {('Haupttrend-Fortsetzung durch geschlossene Kerze bestätigt' if trend_intact else 'Richtung, MTF und Momentum weiter bestätigt')}. Vorschlag bei DEGIRO selbst übernehmen.")
     estimated_now=product_price(t.get('product'),p)
     product_in_profit=not t.get('product') or (estimated_now is not None and estimated_now>t['product']['entry'])
     weak = not trend_intact and (main_trend.get('phase') == 'WEAKENING' or mtf != t['dir'] or (market.get('score',50)<65 if long else market.get('score',50)>35))
     if weak and r>=1 and product_in_profit and not old.get('weak'):
         add('profit-weak', 'TRADE-WARNUNG · Gewinn schützen', f"{t['dir']} · Momentum schwächer bei {r:.1f}R (Goldplan). Stop/Position prüfen.")
     old['weak'] = weak and r>=1 and product_in_profit
-    return state, events
+    return state, present_events(events, settings, market)
 
 
+
+
+def present_events(events, settings, market):
+    """Presentation only: retain triggers/checkpoints, combine compatible messages."""
+    events = copy.deepcopy(events)
+    kinds = {e['data']['eventKind'] for e in events}
+    if 'target-extension' in kinds:
+        events = [e for e in events if e['data']['eventKind'] != 'target']
+    trade = settings.get('trade')
+    trend = market.get('trendContext') or {}
+    for event in events:
+        if event['data']['eventKind'] == 'signal-change' and trade:
+            intact = trend.get('available') and trend.get('intact') and trend.get('direction') == trade['dir']
+            event['body'] += ' Dein '+trade['dir']+'-Trade: '+('Haupttrend intakt.' if intact else 'Bestand separat prüfen; Einstiegssignal ist kein automatischer Ausstieg.')
+    return events
+
+
+def compose_events(events):
+    """Urgent action first; advisory plans never compete with an exit warning."""
+    priority = {'ko-hit': 0, 'stop-hit': 1, 'personal-risk': 2, 'reversal': 3,
+                'data-unavailable': 4, 'stop-near': 5, 'target-extension': 6, 'target': 7}
+    ordered = sorted(events, key=lambda e: priority.get(e['data']['eventKind'], 8))
+    message = copy.deepcopy(ordered[0])
+    urgent = ordered[0]['data']['eventKind'] in ('ko-hit', 'stop-hit', 'reversal')
+    advisory = {'target', 'target-extension', 'trailing-stop', 'profit-protection', 'profit-weak', 'signal-change'}
+    visible = [e for e in ordered if not urgent or e['data']['eventKind'] not in advisory]
+    message['body'] = ' | '.join(e['body'] for e in visible)
+    message['data']['events'] = [e['data']['eventKind'] for e in ordered]
+    if any(e['data']['kind'] == 'trade' for e in ordered):
+        message['data']['kind'] = 'trade'
+    return message

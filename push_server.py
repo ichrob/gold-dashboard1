@@ -310,13 +310,7 @@ def run_background(bundle):
             delivered = True
             if events:
                 # One delivery/checkpoint per device, so a failure cannot consume an alert.
-                priority = {'ko-hit':-1,'stop-hit':0,'reversal':1,'target':2}
-                events.sort(key=lambda e:priority.get(e['data']['eventKind'],3))
-                message = dict(events[0])
-                message['body'] = ' | '.join(e['body'] for e in events)
-                message['data'] = dict(message['data'], events=[e['data']['eventKind'] for e in events])
-                if any(e['data']['kind']=='trade' for e in events):
-                    message['data']['kind']='trade'
+                message = background_push.compose_events(events)
                 at=market.get('dataAt')
                 if at:
                     from datetime import datetime
@@ -368,7 +362,7 @@ class Handler(BaseHTTPRequestHandler):
                 vapid()
                 with db() as conn:
                     conn.execute("SELECT 1").fetchone()
-                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1"})
+                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2"})
                 return
             if path == "/monitor-status":
                 supplied = self.headers.get("X-Bob-Push-Token", "")

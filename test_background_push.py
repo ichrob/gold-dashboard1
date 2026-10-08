@@ -72,7 +72,7 @@ class BackgroundRules(unittest.TestCase):
         m={**self.market,'price':121,'macd':2,'signal':1,'suggestedTarget':140,'analysisBarAt':1000}
         state,events=b.advance({},self.settings,m,False,True)
         self.assertIn('target-extension',self.kinds(events))
-        self.assertIn('target',self.kinds(events))
+        self.assertNotIn('target',self.kinds(events))
         self.assertEqual(state['trade']['target'],140)
         self.assertGreaterEqual(state['trade']['stop'],110)
         # An old browser snapshot cannot lower the persisted target or repeat it.

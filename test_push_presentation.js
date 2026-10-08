@@ -1,0 +1,23 @@
+const assert=require('assert'),fs=require('fs'),vm=require('vm');
+const messages=[],stored={bobPushV1:JSON.stringify({registered:true,general:true,trade:true,activeTrade:true}),goldScannerTradeMgmt:JSON.stringify({tradeId:'position-1'})};
+function Notification(title,options){messages.push({title,...options});}Notification.permission='granted';
+const env={window:{addEventListener(){}},navigator:{},Notification,localStorage:{getItem:k=>stored[k]||null,setItem:(k,v)=>stored[k]=v},Date,console,setTimeout,clearTimeout};
+vm.createContext(env);vm.runInContext(fs.readFileSync('push_manager.js','utf8'),env);
+const p=env.window.BobPush;
+(async()=>{
+ p.beginBatch();
+ await p.emit('trade','old target','Ziel erreicht',{kind:'trade-close-target'});
+ await p.emit('trade','old extension','Haupttrend bestätigt; neues Ziel 130',{kind:'target-extension'});
+ await p.flushBatch();
+ assert.equal(messages.length,1);assert.equal(messages[0].title,'TRADE-PLAN · Ziel erreicht – neues Ziel');assert(!messages[0].body.includes('Ziel erreicht |'));assert.equal(messages[0].data.tradeId,'position-1');
+ messages.length=0;p.beginBatch();
+ await p.emit('general','old','SHORT → LONG · Dein SHORT-Trade',{kind:'signal-change',direction:'LONG'});
+ await p.emit('trade','Stop-Loss erreicht','Stop 90. Position prüfen.',{kind:'active-trade-warning'});
+ await p.emit('trade','old','Neues Ziel 130',{kind:'target-extension'});
+ await p.flushBatch();
+ assert.equal(messages.length,1);assert.equal(messages[0].title,'TRADE-WARNUNG · Stop erreicht');assert(!messages[0].body.includes('Neues Ziel'));assert(!messages[0].body.includes('→'));
+ messages.length=0;await p.emit('general','old','SHORT → LONG · Dein SHORT-Trade',{kind:'signal-change',direction:'LONG'});assert.equal(messages[0].title,'EINSTIEG · LONG');
+ stored.bobPushV1=JSON.stringify({registered:true,general:true,trade:true,activeTrade:true,backgroundEnabled:true});messages.length=0;
+ await p.emit('trade','Stop-Loss erreicht','Stop 90',{kind:'active-trade-warning'});assert.equal(messages.length,0);
+ console.log('Push presentation: target merge, urgent precedence, explicit entry direction, trade identity and background ownership passed');
+})().catch(e=>{console.error(e);process.exitCode=1;});
