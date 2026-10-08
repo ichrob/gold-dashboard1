@@ -30,11 +30,13 @@ class SharedSpotTests(unittest.TestCase):
             self.assertEqual(s.current()['price'],4141.8)
             self.assertTrue(bundle['spots']['is_genuine_xauusd_spot'])
 
-    def test_failed_refresh_blocks_consumers_without_redating_last_quote(self):
+    def test_failed_refresh_keeps_only_still_fresh_observation(self):
         with patch.object(product_quotes,'issuer_json',return_value=self.payload):s.current()
         with patch.object(s,'_attempted',float('-inf')),patch.object(product_quotes,'issuer_json',side_effect=OSError('offline')) as request:
             for _ in range(2):
-                with self.assertRaises(ValueError):s.current()
+                retained=s.current()
+                self.assertEqual(retained['at'],self.payload['updatedAt'])
+                self.assertTrue(retained['refreshWarning'])
             self.assertEqual(request.call_count,1)
             self.assertEqual(s._quote['at'],self.payload['updatedAt'])
 

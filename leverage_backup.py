@@ -78,7 +78,7 @@ def calculate(result, basis, fx, now=None):
                             priceSource=quote.get('source',result.get('source')),usdEur=rate,
                             currencyModelEvidence=m.get('currencyModelEvidence'),
                             fxDataAt=times[2].isoformat(),fxEffectiveAt=times[3].isoformat(),
-                            fxSource='exchangerate.dev · USD/EUR',priceKind=quote.get('priceKind')),
+                            fxSource=fx.get('provider','exchangerate.dev · USD/EUR'),priceKind=quote.get('priceKind')),
                 note='Rechnerische Näherung mit Delta ±1; kein bestätigter Emittentenhebel oder ausführbarer Kurs.')
 
 

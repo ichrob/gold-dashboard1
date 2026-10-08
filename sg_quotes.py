@@ -56,7 +56,11 @@ def market_input(kind):
             return cached[1]
         url, origin = ((FX_ORIGIN+'v1/latest/USD?symbols=EUR,CHF', FX_ORIGIN) if kind == 'fx'
                        else (SPOT_ORIGIN+'api/v1/spot?compact=1', SPOT_ORIGIN))
-        value = q.issuer_json(url, origin, timeout=12)
+        if kind == 'fx':
+            from fx_data import fetch_rates
+            value = fetch_rates(q.issuer_json, cached[1] if cached else None)
+        else:
+            value = q.issuer_json(url, origin, timeout=12)
         _INPUT_CACHE[kind] = (time.monotonic(), value)
         return value
 

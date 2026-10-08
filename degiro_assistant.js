@@ -2140,7 +2140,9 @@ function productFieldStates(p,now=Date.now()){
   const valid=clocks.every(t=>Number.isFinite(t)&&t<=now);
   const age=valid?Math.max(...clocks.map(t=>now-t)):null;
   const inputState=!valid?'Aktualität unbestätigt':age>(c?.maxAllowedInputAgeSeconds||90)*1000?'veraltet':c?.inputsFresh===true?(age>90000?'innerhalb Altersgrenze (300 s)':'aktuell'):'zeitlich abweichend oder Aktualität unbestätigt';
-  items.leverage.state=(c?.inputs?.basisEstimated?'CFD-basierte Schätzung':'berechneter Hebel')+' · Eingangsdaten: '+inputState;
+  const names=['Goldkurs','Produkt-Briefkurs','USD/EUR-Datenstand','USD/EUR-Kurszeit'];
+  const aged=clocks.flatMap((t,i)=>Number.isFinite(t)&&now-t>(c?.maxAllowedInputAgeSeconds||90)*1000?[names[i]+' '+Math.floor((now-t)/60000)+' Min.']:[]);
+  items.leverage.state=(c?.inputs?.basisEstimated?'CFD-basierte Schätzung':'berechneter Hebel')+' · Eingangsdaten: '+inputState+(aged.length?' ('+aged.join(', ')+')':'');
  }
  return items;
 }

@@ -29,9 +29,9 @@ def current():
                 _quote, _error = q, None
             except (OSError, ValueError, KeyError, TypeError, IndexError, AttributeError) as exc:
                 _error = type(exc).__name__
-        if _error or not _quote:
+        if not _quote or _error not in (None, 'OSError', 'URLError', 'TimeoutError', 'HTTPError'):
             raise ValueError('Gemeinsamer Spot-Abruf nicht verfügbar: ' + str(_error))
         age = (datetime.now(timezone.utc) - datetime.fromisoformat(_quote['at'])).total_seconds()
         if not 0 <= age <= 60:
             raise ValueError('Gemeinsamer Spot-Kurs veraltet oder Kurszeit zukünftig')
-        return dict(_quote)
+        return dict(_quote, refreshWarning='Letzter Abruf fehlgeschlagen; gespeicherter Kurs innerhalb 60 Sekunden' if _error else None)
