@@ -62,11 +62,12 @@ DEGIRO_ASSISTANT_JS = (BASE_DIR / "degiro_assistant.js").read_text(encoding="utf
 UPSTREAM_TIMEOUT = 4
 FRESH_MAX_AGE = 180
 LIVE_CACHE_TTL = 20
-FX_CACHE_TTL = 900
+FX_CACHE_TTL = 30
 _live_cache = None
 _live_cache_at = 0.0
 _fx_cache = {"EUR": None, "CHF": None}
 _fx_cache_at = 0.0
+_fx_meta = {}
 _live_lock = threading.Lock()
 
 def fetch_json(url, retries=2, user_agent="Bob/1.1", timeout=None):
@@ -387,13 +388,16 @@ def build_live_bundle():
                         user_agent="Bob/1.3",
                     )
                     rate = float(fx.get("rate")) if isinstance(fx, dict) else None
-                    if rate and rate > 0:
+                    if rate and math.isfinite(rate) and rate > 0:
                         rates[ccy] = rate
                         _fx_cache[ccy] = rate
+                        _fx_meta[ccy] = {"rate":rate,"fetchedAt":datetime.now(timezone.utc).isoformat(),"sourceAt":None,"source":"GoldPrice.dev conversion API","error":None}
                     else:
                         errors.append(f"Ungültige {ccy}-FX-Rate")
+                        _fx_meta.setdefault(ccy,{})["error"]="Ungültige Wechselkursantwort"
                 except Exception as exc:
                     errors.append(str(exc))
+                    _fx_meta.setdefault(ccy,{})["error"]="Aktualisierung verzögert"
             _fx_cache_at = time.time()
             return rates["EUR"] or _fx_cache["EUR"], rates["CHF"] or _fx_cache["CHF"], errors
 
@@ -533,6 +537,7 @@ def build_live_bundle():
                 "dailyChange": spot_daily_change.change(goldprice_price, spot_price_as_of),
                 "goldprice_age_seconds": goldprice_age,
                 "usd_eur": usd_eur,
+                "usd_eur_meta": dict(_fx_meta.get("EUR", {})),
                 "usd_chf": usd_chf,
                 "yahoo_gc_f_age_seconds": max(0, now - bars_5m[-1]["openTime"] / 1000) if bars_5m else None,
                 "yahoo_1h_age_seconds": max(0, now - bars_1h[-1]["openTime"] / 1000) if bars_1h else None,
@@ -1258,6 +1263,7 @@ if __name__ == "__main__":
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress
+
 
 
 
