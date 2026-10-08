@@ -228,6 +228,8 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
             events[-1]['tag'] = 'bob-personal-risk-' + t['tradeId']
             old['personalRiskSent'] = marker
 
+    main_trend = market.get('trendContext') or {}
+    trend_intact = healthy and main_trend.get('available') is True and main_trend.get('intact') is True and main_trend.get('direction') == t['dir']
     long = t['dir']=='LONG'
     reached = p<=stop if long else p>=stop
     near = max((market.get('atr') or 0)*.25, 1)
@@ -246,7 +248,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     if target_hit and not old.get('targetSent'):
         add('target', 'TRADE-WARNUNG · Ziel erreicht', f"{t['dir']} · Ziel {level_text(t,target)} anhand Goldreferenz erreicht. Ausstieg/Stop prüfen.")
         old['targetSent'] = True
-    if healthy and direction in ('LONG','SHORT') and direction != t['dir'] and direction != old.get('opposite'):
+    if healthy and not trend_intact and direction in ('LONG','SHORT') and direction != t['dir'] and direction != old.get('opposite'):
         add('reversal', 'TRADE-WARNUNG · Richtungswechsel', f"Bestätigtes {direction}-Signal gegen deinen {t['dir']}-Trade. Schließen prüfen.")
         old['opposite'] = direction
     elif healthy and direction == t['dir']:
@@ -282,6 +284,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     strong = (direction==t['dir'] and mtf==t['dir'] and
               isinstance(macd,(int,float)) and isinstance(signal,(int,float)) and
               (macd>=signal and market.get('score',0)>=70 if long else macd<=signal and market.get('score',100)<=30))
+    strong = (main_trend.get('phase') == 'CONTINUATION') if trend_intact else strong
     if target_hit and strong and positive(candidate) and positive(bar) and bar>old.get('targetBarAt',0):
         step=max(risk*.5, (market.get('atr') or 0)*.5)
         beyond = candidate>=max(p,target)+step if long else candidate<=min(p,target)-step
@@ -291,7 +294,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
                 f"{t['dir']} · Bisheriges Ziel erreicht. Neues Ziel {level_text(t,candidate)}; Stop {level_text(t,old['stop'])}. Richtung, MTF und Momentum weiter bestätigt. Vorschlag bei DEGIRO selbst übernehmen.")
     estimated_now=product_price(t.get('product'),p)
     product_in_profit=not t.get('product') or (estimated_now is not None and estimated_now>t['product']['entry'])
-    weak = mtf != t['dir'] or (market.get('score',50)<65 if long else market.get('score',50)>35)
+    weak = not trend_intact and (main_trend.get('phase') == 'WEAKENING' or mtf != t['dir'] or (market.get('score',50)<65 if long else market.get('score',50)>35))
     if weak and r>=1 and product_in_profit and not old.get('weak'):
         add('profit-weak', 'TRADE-WARNUNG · Gewinn schützen', f"{t['dir']} · Momentum schwächer bei {r:.1f}R (Goldplan). Stop/Position prüfen.")
     old['weak'] = weak and r>=1 and product_in_profit

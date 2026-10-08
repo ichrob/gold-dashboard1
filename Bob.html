@@ -760,7 +760,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    if(sm?.stop>0&&target?.target>0)plan={kind:'candidate',direction:state.dir,entry:bundle.spots.xaus,stop:sm.stop,target:target.target,unit:'USD/oz',at:Date.now(),note:'Zeitgleich berechneter Gold-Referenzplan; keine Order und keine Produktfreigabe'};
   }
   if(tradeMgmt?.active&&!tradeMgmt.test)plan={kind:'active-monitor',direction:tradeMgmt.dir,entry:tradeMgmt.entry,stop:tradeMgmt.stop,target:tradeMgmt.target,unit:'USD/oz',at:Date.now(),note:'Gespeicherte Überwachung; kein Ausführungsnachweis',isin:tradeMgmt.product?.isin||null};
-  const payload={plan,ruleVersion:'intraday-responsive-v6' ,direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,entryQuality:intradayEntryContext(bundle,state),minuteEntry:minuteEntryContext(bundle,state),barAt:state.barAt,
+  const payload={plan,ruleVersion:'intraday-trend-follow-v7',trendContext:state.trendContext,direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,entryQuality:intradayEntryContext(bundle,state),minuteEntry:minuteEntryContext(bundle,state),barAt:state.barAt,
    price:bundle?.spots?.xaus,priceAt:bundle?.spots?.spot_price_as_of,score:state.score,
    reason:state.reason,indicators:state.indicators,products:items,selection:[...selected],gateReasons:flow.gateReasons};
   const signature=JSON.stringify([state.dir,state.shadowDirection,state.barAt,state.reason,items,flow.gateReasons,plan&&[plan.kind,plan.direction,plan.entry,plan.stop,plan.target]]);
@@ -1523,7 +1523,7 @@ async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
   reportBobDiag("mtf:success",{bars5m:(tfBars["5m"]||[]).length,bars15m:(tfBars["15m"]||[]).length,bars1h:(tfBars["1h"]||[]).length,bars4h:(tfBars["4h"]||[]).length,available:valid,overall,historyStatus:bundle.history?.data_state?.status||"unknown",source:bundle.history?.data_state?.source||"unknown"});
   const strength=overall!=="NEUTRAL"?"2/2 Intraday-Zeitebenen bestätigt":"15m/5m noch nicht gemeinsam bestätigt";
   const mtfSummary=$("mtfSummary");
-  if(mtfSummary)mtfSummary.innerHTML="<b>"+overall+"</b><br>"+longs+" LONG · "+shorts+" SHORT · "+neutral+" NEUTRAL · "+strength+"<br><span class=\"small\">Intraday: 15m Setup, 5m Einstieg. 1h/4h bleiben Kontext ohne Veto.</span>";
+  if(mtfSummary)mtfSummary.innerHTML="<b>"+overall+"</b><br>"+longs+" LONG · "+shorts+" SHORT · "+neutral+" NEUTRAL · "+strength+"<br><span class=\"small\">Trendfolge: 1h Haupttrend, 15m Struktur, 5m Einstieg. 4h bleibt Kontext.</span>";
   MTF={longs,shorts,neutral,overall,byTf,dirs,hierarchy:mtfHierarchy};
   // The bundle above already contains the server history used by the current
   // analysis. A second server verification is diagnostic only; running it on
@@ -1918,12 +1918,46 @@ function computeFiveMinuteConfirmation(bundle,now=Date.now()){
  const confirmation=result.count?'Einstieg vorbereitet · Wechsel zu '+(result.pending==='NEUTRAL'?'ABWARTEN':result.pending)+': erst 1 von 2 geschlossenen 5m-Kerzen bestätigt':result.dir==='NEUTRAL'?'ABWARTEN – kein bestätigtes Richtungssignal':'Richtung bestätigt · klarer Schluss oder zwei unterstützende Schlusskerzen';
  return {...result,preparedDirection:result.count?result.pending:null,score:samples.at(-1).score,components:samples.at(-1).components,scoreAt:latest.openTime+300000,shadowDirection:cautiousDirection,reason:[confirmation,detail,(rsiS(bars['5m'].map(b=>b.close))>=75||rsiS(bars['5m'].map(b=>b.close))<=25)?'RSI im Extrembereich: Rückschlagrisiko, kein Richtungswechsel allein dadurch':''].filter(Boolean).join(' · ')};
 }
+// Separate the sustained trend from the short entry trigger. Closed bars only.
+function sustainedTrendContext(bundle,now=Date.now()){
+ const out={version:'sustained-trend-v1',available:false,direction:'NEUTRAL',phase:'UNKNOWN',intact:false,reason:'Aktuelle 1h-/15m-Trendbasis fehlt'};
+ const frames=bundle?.history?.bars_by_tf||{},data={};
+ for(const [tf,step] of Object.entries({'1h':3600000,'15m':900000})){
+  const raw=frames[tf]||[],check=timeframeScore(raw,tf,now);
+  if(!check.available||!check.fresh||raw.some(b=>b.instrument!=='XAU/USD'||b.estimated))return {...out,reason:tf+': '+(check.reason||check.ageWarning||out.reason)};
+  const rows=raw.filter(b=>!b.isOpen&&b.openTime+step<=now).slice(-220),a=rows.map(b=>b.close);
+  const e20=ema(a,20),e50=ema(a,50),slope=e20-ema(a.slice(0,-3),20);
+  data[tf]={rows,e20,e50,slope,close:a.at(-1),barAt:rows.at(-1).openTime,dir:e20>e50&&slope>0?'LONG':e20<e50&&slope<0?'SHORT':'NEUTRAL'};
+ }
+ const hour=data['1h'],setup=data['15m'],side=hour.dir,sign=side==='LONG'?1:-1;
+ const base={...out,available:true,hourDirection:side,setupDirection:setup.dir,hourBarAt:hour.barAt,setupBarAt:setup.barAt};
+ if(side==='NEUTRAL')return {...base,phase:'RANGE',reason:'Stundenchart ohne bestätigte Trendrichtung'};
+ // Last confirmed 2x2 swing, never a pivot that still needs future bars.
+ const rows=setup.rows,pivots=[];
+ for(let i=2;i<rows.length-2;i++){
+  const key=side==='LONG'?'low':'high',v=rows[i][key];
+  if([i-2,i-1,i+1,i+2].every(j=>sign*(rows[j][key]-v)>0))pivots.push(v);
+ }
+ const level=pivots.at(-1)??null;
+ const broken=level!==null&&sign*(setup.close-level)<0;
+ const intact=!broken&&sign*(hour.close-hour.e50)>0&&sign*(setup.e20-setup.e50)>0&&sign*(setup.close-setup.e50)>0;
+ if(!intact)return {...base,direction:side,phase:'WEAKENING',structureLevel:level,reason:broken?'Bestätigte 15m-Struktur gebrochen – Ausstieg prüfen':'Haupttrend geschwächt – Fortsetzung nicht bestätigt'};
+ const timing=timeframeScore(frames['5m']||[],'5m',now);
+ const continuing=timing.available&&timing.fresh&&timing.dir===side&&timeframeScore(rows,'15m',now).dir===side;
+ return {...base,direction:side,intact:true,phase:continuing?'CONTINUATION':'PULLBACK',structureLevel:level,
+ reason:continuing?'Haupttrend '+side+' intakt · Fortsetzung bestätigt':'Haupttrend '+side+' intakt · kurzfristiger Rücksetzer; Einstieg abwarten, bestehenden Stop beibehalten'};
+}
+function trendFollowingSignal(bundle,now=Date.now()){
+ const raw=fiveMinuteConfirmation(bundle,now),trend=sustainedTrendContext(bundle,now);
+ const approved=trend.available&&trend.intact&&raw.dir===trend.direction;
+ return {...raw,dir:approved?raw.dir:'NEUTRAL',trendContext:trend,reason:trend.reason+' · '+raw.reason};
+}
 function confirmedSignalDirection(){
  if(window.BobSession?.expired()||analysisAgeWarnings().length||!A.ready||!C.length||!Number.isFinite(A.at)){
   const reasons=[];if(window.BobSession?.expired())reasons.push('Anmeldung erforderlich');if(!C.length)reasons.push('Gold-Kerzendaten fehlen');else if(!A.ready)reasons.push('Analysehistorie unvollständig: '+C.length+' Kerzen');if(!Number.isFinite(A.at))reasons.push('Volatilitätswert ATR fehlt oder ist ungültig');reasons.push(...analysisAgeWarnings());
   A.score=null;signalState={dir:'NEUTRAL',pending:'NEUTRAL',count:0,score:null,reason:reasons.join(' · ')};window.BobDecisionAuditState={...signalState,barAt:C.at(-1)?.openTime};renderDecisionExplanation();renderIntraday();return 'NEUTRAL';
  }
- signalState=fiveMinuteConfirmation(liveBundleCache);
+ signalState=trendFollowingSignal(liveBundleCache);
  const session=intradaySession();if(!session.entryAllowed)signalState={...signalState,dir:'NEUTRAL',shadowDirection:'NEUTRAL',reason:session.reason};
  A.score=Number.isFinite(signalState.score)?signalState.score:null;
  window.BobDecisionAuditState={...signalState,barAt:signalState.lastAt??C.at(-1)?.openTime,score:A.score,indicators:{mtf:getMtfState(),atr:A.at,rsi:A.R,ema20:A.e20,ema50:A.e50,ema200:A.e200,macd:A.macd,signal:A.sig}};
@@ -1933,8 +1967,8 @@ function confirmedSignalDirection(){
 // Product selection consumes the same full-precision 5m evidence as the signal,
 // never rounded text or indicators from a separately selected display timeframe.
 function intradayTechnicalContext(bundle=liveBundleCache,state=null,now=Date.now()){
- state=state||fiveMinuteConfirmation(bundle,now);
- const empty={policy:'intraday-responsive-v6',direction:'NEUTRAL',trend:'NEUTRAL',trend2:'NEUTRAL',mtf:'NEUTRAL',rsi:null,hist:null,momentum:null,atr:null,adx:null};
+ state=state||trendFollowingSignal(bundle,now);
+ const empty={policy:'intraday-trend-follow-v7',direction:'NEUTRAL',trend:'NEUTRAL',trend2:'NEUTRAL',mtf:'NEUTRAL',rsi:null,hist:null,momentum:null,atr:null,adx:null};
  if(!Number.isFinite(state.score)||!intradaySession(now).entryAllowed||window.BobSession?.expired())return empty;
  const bars=(bundle?.history?.bars_by_tf?.['5m']||[]).filter(b=>!b.isOpen&&b.openTime+300000<=now).slice(-220),values=bars.map(b=>b.close);
  if(values.length<100)return empty;
@@ -1999,14 +2033,14 @@ function renderMarketNarrative(){
   lines.push('Die aktuelle Markttendenz ist nicht verlässlich beurteilbar. Vorhandene ältere technische Werte sind keine aktuelle Einschätzung.');
  }else{
   const m=getMtfState().byTf||{};
-  lines.push('1h-Hintergrund (keine Intraday-Freigabe): '+(m['1h']?.available&&m['1h']?.fresh?direction(m['1h'].dir):'Stundenanalyse nicht aktuell verfügbar')+'.');
-  lines.push('Entscheidungsbasis: geschlossene 5m-Kerzen und 15m-Setup. Die folgenden Detailblöcke beschreiben die Analysezeitebene; Kontext ist keine zusätzliche Stimme.');
+  lines.push('Übergeordneter 1h-Trend: '+(m['1h']?.available&&m['1h']?.fresh?direction(m['1h'].dir):'Stundenanalyse nicht aktuell verfügbar')+'.');
+  lines.push('Bobs Ziel: bestätigte längere Trends erkennen und mit nachgezogenem Schutz begleiten. Haupttrend: 1h; Fortsetzung und Struktur: 15m; Einstieg: 5m. '+sustainedTrendContext(liveBundleCache).reason);
   lines.push('Bestätigung im 15-Minuten-Chart: '+(m['15m']?.available?direction(m['15m'].dir):'Angaben fehlen')+'. Einstieg im 5-Minuten-Chart: '+(m['5m']?.available?direction(m['5m'].dir):'Angaben fehlen')+'. Ein klares 5m-Signal kann nach einer Schlusskerze bestätigt werden; schwächere Hinweise benötigen zwei.');
   lines.push('In der angezeigten Analysezeitebene ist der Trend '+direction(read('blockTrend'))+'; das Momentum ist '+direction(read('blockMomentum'))+'. '+read('blockMomentumNote')+'.');
   lines.push('Marktbewegung: '+read('blockVolatilityNote')+'.');
   lines.push('Marktstruktur: '+direction(read('blockStructure'))+'. '+read('blockStructureNote')+'.');
   lines.push('Fibonacci: '+direction(read('blockFibonacci'))+'. '+read('blockFibonacciNote')+'.');
-  lines.push('Die 1h- und 4h-Charts sowie EMA200 dienen als Hintergrund, auch bei Gegenbewegungen. Eine Markttendenz allein bedeutet noch keine Produktfreigabe.');
+  lines.push('Neue Einstiege benötigen einen intakten 1h-/15m-Haupttrend. 4h und EMA200 bleiben Kontext. Eine Markttendenz allein bedeutet noch keine Produktfreigabe.');
  }
  const entry=intradayEntryContext();window.BobEntryQuality=entry;
  lines.push('EINSTIEGSQUALITÄT · VERGLEICHSTEST (keine zusätzliche Freigabe)');
@@ -2196,10 +2230,11 @@ function renderAnalysisBlocks(){
  const trend=A.e20>A.e50?"LONG":A.e20<A.e50?"SHORT":"NEUTRAL";
  const momentum=A.macd>A.sig?"LONG":A.macd<A.sig?"SHORT":"NEUTRAL";
  const mtf=getMtfState(),fib=A.fibonacci;
- put("Trend",trend,"EMA20/50 in der Analysezeitebene; EMA200 nur Kontext");
+ const mainTrend=sustainedTrendContext(liveBundleCache);
+ put("Trend",mainTrend.available?mainTrend.direction:"NEUTRAL",mainTrend.reason);
  put("Momentum",momentum,momentum==="NEUTRAL"?"MACD neutral":"MACD-Histogramm; RSI ergänzt die Einschätzung, ohne allein zu sperren");
  put("Fibonacci",fib?.valid?fib.direction:"NEUTRAL",fib?.valid?"Szenario aus bestätigten Wendepunkten":"Keine bestätigten Level");
- put("Mtf",mtf.overall||"NEUTRAL",mtf.overall==="NEUTRAL"?"Zeitebenen uneinheitlich oder unvollständig":"15m-Setup und 5m-Timing bestätigt; 1h/4h nur Kontext");
+ put("Mtf",mtf.overall||"NEUTRAL",mtf.overall==="NEUTRAL"?"Zeitebenen uneinheitlich oder unvollständig":"15m-Setup und 5m-Timing; Haupttrend separat in der Freigabe geprüft");
  put("Volatility","NEUTRAL",currentRegime()+" · Volatilität gibt allein keine Richtung vor");
  const closes=C.map(b=>Number(b.close)),bb=boll(closes),st=stochastic(C),p=A.signalPrice||closes.at(-1);
  const structure=confirmedMarketStructure(C);
@@ -2317,22 +2352,32 @@ async function manageProfitProtection(){
    const score=Number.isFinite(A.score)?A.score:NaN;
    const mtf=getMtfState().overall||"NEUTRAL";
    const aligned=(tradeMgmt.dir==="LONG"&&mtf==="LONG")||(tradeMgmt.dir==="SHORT"&&mtf==="SHORT");
+   const mainTrend=sustainedTrendContext(liveBundleCache),trendIntact=mainTrend.available&&mainTrend.intact&&mainTrend.direction===tradeMgmt.dir;
    const momentumStrong=aligned&&((tradeMgmt.dir==="LONG"&&A.macd>=A.sig)||(tradeMgmt.dir==="SHORT"&&A.macd<=A.sig))&&((tradeMgmt.dir==="LONG"&&score>=70)||(tradeMgmt.dir==="SHORT"&&score<=30));
-   const momentumWeak=!momentumStrong && ((tradeMgmt.dir==="LONG"&&(score<65||mtf!=="LONG"))||(tradeMgmt.dir==="SHORT"&&(score>35||mtf!=="SHORT")));
+   const momentumWeak=!trendIntact&&!momentumStrong && ((tradeMgmt.dir==="LONG"&&(score<65||mtf!=="LONG"))||(tradeMgmt.dir==="SHORT"&&(score>35||mtf!=="SHORT")));
    let saved={};try{saved=JSON.parse(localStorage.getItem("bobProfitGuardV1")||"{}")}catch(_){}
    const baseKey=tradeMgmt.entry+":"+tradeMgmt.dir;
+   if(tradeMgmt.dir==="LONG"?p<=stop:p>=stop)return;
    if(saved.tradeKey!==baseKey){saved={tradeKey:baseKey};}
 
    if(Number.isFinite(Number(tradeMgmt.target))){
      const target=Number(tradeMgmt.target);
      const reached=tradeMgmt.dir==="LONG"?p>=target:p<=target;
      if(reached&&saved.target!==baseKey){
-       await notifyTrade("🎯 Bob – Trade schließen: Ziel erreicht","Ziel "+target.toFixed(2)+" USD/oz erreicht · Gewinn sichern.",{kind:"trade-close-target",signalId:"target:"+baseKey});
+       await notifyTrade("🎯 Bob – Ziel erreicht","Ziel "+target.toFixed(2)+" USD/oz erreicht · "+(trendIntact?"Haupttrend intakt: Fortsetzung mit geschütztem Stop prüfen.":"Gewinn sichern / Ausstieg prüfen."),{kind:"trade-close-target",signalId:"target:"+baseKey});
        saved.target=baseKey;localStorage.setItem("bobProfitGuardV1",JSON.stringify(saved));
-       return;
      }
    }
 
+   const target=Number(tradeMgmt.target),bar=mainTrend.setupBarAt;
+   if(trendIntact&&mainTrend.phase==='CONTINUATION'&&Number.isFinite(target)&&target>0&&(tradeMgmt.dir==='LONG'?p>=target:p<=target)&&bar>(saved.targetBarAt||0)){
+     const sm=stopModel(tradeMgmt.dir,p,A.at,+($('trailAtr')?.value||1.5));
+     const next=sm.stop?targetModel(tradeMgmt.dir,p,sm.stop,2).target:null,step=Math.max(initialRisk*.5,(intradayRiskData().atr||0)*.5);
+     if(Number.isFinite(next)&&(tradeMgmt.dir==='LONG'?next>=Math.max(p,target)+step:next<=Math.min(p,target)-step)){
+       tradeMgmt.target=next;saveTradeMgmt();saved.targetBarAt=bar;delete saved.target;localStorage.setItem('bobProfitGuardV1',JSON.stringify(saved));
+       await notifyTrade('Bob – Neues Trendziel','Haupttrend bestätigt · neues Ziel '+activeTradeLevel(next)+' · vorhandenen Stop beibehalten/nachziehen.',{kind:'target-extension',signalId:'target-extension:'+baseKey+':'+bar});
+     }
+   }
    const stage=r>=2?2:r>=1.5?1.5:r>=1?1:0;
    if(stage>0&&Number(saved.stage||0)<stage){
      let desired=stop;

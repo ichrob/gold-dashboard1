@@ -26,6 +26,9 @@ def eligible(slot):
     return START<=slot<END and datetime.fromtimestamp(slot/1000,ZoneInfo('Europe/Zurich')).weekday()<5
 
 def observation(market,now):
+    baseline=market.get('comparisonBaseline')
+    if market.get('ruleVersion')=='intraday-trend-follow-v7' and isinstance(baseline,dict):
+        market={**market,**{k:baseline.get(k) for k in ('ruleVersion','direction','shadowDirection','decisionReason')}}
     slot=slot_at(now)
     if not eligible(slot) or not 0<=now-slot<300000:return None
     directions=[market.get('direction'),market.get('shadowDirection')]

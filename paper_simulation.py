@@ -158,7 +158,9 @@ def advance_case(original, market, quote, now):
         realize('stop',c['remaining']);return c
     if now>=c['endsAt']:
         realize('time-exit',c['remaining']);return c
-    if market.get('ready') and market.get('direction') in ('LONG','SHORT') and market['direction']!=t['dir']:
+    trend=market.get('trendContext') or {}
+    trend_intact=market.get('ready') and trend.get('available') is True and trend.get('intact') is True and trend.get('direction')==t['dir']
+    if not trend_intact and market.get('ready') and market.get('direction') in ('LONG','SHORT') and market['direction']!=t['dir']:
         realize('reversal-exit',c['remaining']);return c
     target_hit=p>=t['target'] if long else p<=t['target']
     if target_hit and not c['partialTaken']:
@@ -171,7 +173,7 @@ def advance_case(original, market, quote, now):
     c['engine']=engine;t=engine['trade']
     if t['stop']!=before['stop']:event('stop-raised',old=before['stop'],new=t['stop'],gold=p,reason='Bobs Gewinnschutz / technischer Stop')
     if t.get('target')!=before.get('target'):event('target-extended',old=before.get('target'),new=t['target'],gold=p,ruleVersion=market.get('ruleVersion'))
-    if target_hit and t.get('target')==before.get('target'):
+    if target_hit and not trend_intact and t.get('target')==before.get('target'):
         realize('target-exit',c['remaining'])
     elif market.get('ready') and any(e['data']['eventKind']=='profit-weak' for e in alerts):
         realize('profit-taking',c['remaining'])
