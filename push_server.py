@@ -557,6 +557,7 @@ class Handler(BaseHTTPRequestHandler):
                     key = vapid() if rows else None
                     for sid, sub, monitor in rows:
                         checkpoint, alerts, status = fibonacci_monitor.advance_monitor(monitor, bars_by_tf.get(monitor['timeframe'], []))
+                        checkpoint, alerts = fibonacci_monitor.notification_alerts(checkpoint, alerts)
                         delivered = True
                         old_health = monitor.get('dataHealth')
                         checkpoint['dataHealth'] = status
