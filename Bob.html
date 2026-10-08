@@ -386,7 +386,7 @@ try{
 <details class="technical-metric"><summary><span>ATR (14)</span><b id="atr">—</b><span id="atrDirection" class="technical-direction" data-direction="NEUTRAL">NEUTRAL</span></summary><p>Einfacher Mittelwert (SMA) der True Range über 14 Kerzen in USD, einschließlich Kurslücken. Höher bedeutet stärkere Schwankungen, aber keine LONG- oder SHORT-Richtung.</p></details>
 </div></details></div>
 
-<div class="card chart-card" data-design="readable-chart-v1"><h3 id="chartInstrument">Gold · Basiswert wird geladen</h3><p class="small">Preisverlauf in USD je Feinunze</p><p id="chartProvenance" class="small" aria-live="polite">Quelle und Kerzenzeit werden geladen.</p>
+<div class="card chart-card" data-design="readable-chart-v1"><div class="chart-segment" role="group" aria-label="Gold-Kursreihe"><button type="button" data-chart-market="spot" onclick="setChartMarket('spot')">Gold-Spot</button><button type="button" data-chart-market="future" onclick="setChartMarket('future')">Gold-Future</button></div><h3 id="chartInstrument">Gold · Basiswert wird geladen</h3><p class="small">Preisverlauf in USD je Feinunze</p><p id="chartProvenance" class="small" aria-live="polite">Quelle und Kerzenzeit werden geladen.</p>
 <div class="chart-controls"><div class="chart-segment" role="group" aria-label="Darstellung"><button type="button" data-chart-type="line" onclick="setChartOption('type','line')">Linie</button><button type="button" data-chart-type="candles" onclick="setChartOption('type','candles')">Kerzen</button></div><div class="chart-segment" role="group" aria-label="Zeitraum pro Kerze"><button type="button" data-chart-tf="1m" onclick="setChartOption('tf','1m')">1m</button><button type="button" data-chart-tf="5m" onclick="setChartOption('tf','5m')">5m</button><button type="button" data-chart-tf="15m" onclick="setChartOption('tf','15m')">15m</button><button type="button" data-chart-tf="1h" onclick="setChartOption('tf','1h')">1h</button><button type="button" data-chart-tf="4h" onclick="setChartOption('tf','4h')">4h</button></div><select id="chartType" hidden aria-label="Ansicht"><option value="candles" selected>Kerzen</option><option value="line">Linie</option></select><select id="chartTf" hidden aria-label="Zeitraum pro Kerze"><option value="1m">1 Minute</option><option value="5m">5 Minuten</option><option value="15m" selected>15 Minuten</option><option value="1h">1 Stunde</option><option value="4h">4 Stunden</option></select></div>
 <p id="minuteEntryStatus" class="small" aria-live="polite">1m-Einstiegshilfe · Vergleichstest: Daten werden geladen.</p>
 <div class="small chart-status" id="chartViewStatus" aria-live="polite"></div>
@@ -1272,6 +1272,16 @@ function chartTradingAxis(bars,step){
 }
 let chartHistory={};
 window.addEventListener('resize',()=>{if($('chart').getBoundingClientRect().width)draw();});
+let chartMarket='spot',futureChartHistory={},futureChartBusy=false,futureChartAt={},futureChartError='';
+try{if(localStorage.getItem('bobChartMarket')==='future')chartMarket='future';}catch(_){}
+function setChartMarket(value){chartMarket=value==='future'?'future':'spot';try{localStorage.setItem('bobChartMarket',chartMarket);}catch(_){}draw();}
+async function loadFutureChart(tf){
+ if(futureChartBusy||Date.now()-(futureChartAt[tf]||0)<30000)return;
+ futureChartBusy=true;futureChartAt[tf]=Date.now();
+ try{const r=await fetch('/api/future-chart?tf='+encodeURIComponent(tf));if(!r.ok)throw Error('Abruf fehlgeschlagen');const data=await r.json();futureChartHistory[tf]=data.bars||[];futureChartError=data.error||'';}
+ catch(e){futureChartError='Future-Kursreihe derzeit nicht abrufbar';}
+ finally{futureChartBusy=false;if(chartMarket==='future')draw();}
+}
 function setChartOption(kind,value){$(kind==='type'?'chartType':'chartTf').value=value;saveChartView();draw();}
 function saveChartView(){try{localStorage.setItem('bobChartView',JSON.stringify({type:$('chartType').value,tf:$('chartTf').value,fib:$('chartShowFib').checked,targets:$('chartShowTargets').checked}));}catch(_){}}
 (function(){try{const v=JSON.parse(localStorage.getItem('bobChartView')||'{}');if(['candles','line'].includes(v.type))$('chartType').value=v.type;if(['1m','5m','15m','1h','4h'].includes(v.tf))$('chartTf').value=v.tf;if(typeof v.fib==='boolean')$('chartShowFib').checked=v.fib;if(typeof v.targets==='boolean')$('chartShowTargets').checked=v.targets;}catch(_){}})();
@@ -1284,7 +1294,10 @@ function draw(a){
  document.querySelectorAll('[data-chart-type]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.chartType===$('chartType').value)));
  document.querySelectorAll('[data-chart-tf]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.chartTf===tf)));
  const showFib=$('chartShowFib').checked!==false,showTargets=$('chartShowTargets').checked!==false;
- const raw=chartHistory[tf]||((tf===$('tf').value)?C:[]);
+ const isFuture=chartMarket==='future';
+ document.querySelectorAll('[data-chart-market]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.chartMarket===chartMarket)));
+ if(isFuture)loadFutureChart(tf);
+ const raw=isFuture?(futureChartHistory[tf]||[]):(chartHistory[tf]||((tf===$('tf').value)?C:[])).filter(b=>b.instrument==='XAU/USD');
  const all=raw.filter(b=>!b.isOpen&&Number(b.openTime)+({'1m':60000,'5m':300000,'15m':900000,'1h':3600000,'4h':14400000}[tf]||900000)<=Date.now()&&['open','high','low','close','openTime'].every(k=>b[k]!=null&&b[k]!==''&&Number.isFinite(Number(b[k])))&&Number(b.openTime)>0&&Number(b.low)<=Math.min(Number(b.open),Number(b.close))&&Number(b.high)>=Math.max(Number(b.open),Number(b.close))).sort((a,b)=>Number(a.openTime)-Number(b.openTime));
  const v=all.slice(-120), assessment=timeframeScore(all,tf);
  const ranges=all.slice(-14).map((b,i,bs)=>Math.max(Number(b.high)-Number(b.low),i?Math.abs(Number(b.high)-Number(bs[i-1].close)):0,i?Math.abs(Number(b.low)-Number(bs[i-1].close)):0));
@@ -1303,9 +1316,10 @@ function draw(a){
  const instrumentLabel=instrument==='GC=F'?'Gold-Futures · GC=F':instrument==='XAU/USD'?'Gold-Spot · XAU/USD':v.length?'Gold · Basiswert nicht eindeutig':'Gold · keine Chartdaten';
  const sources=[...new Set(v.map(b=>b.source||(b.instrument==='GC=F'?'Yahoo Finance · GC=F':'Quelle nicht ausgewiesen')))];
  const candleCloseAt=v.length?Number(v.at(-1).openTime)+chartStep:null;
- $('chartInstrument').textContent=instrumentLabel;
+ $('chartInstrument').textContent=isFuture?'Gold-Future · GC=F':instrumentLabel;
  $('chartProvenance').textContent='Quelle: '+(sources.join(' / ')||'nicht verfügbar')+' · Letzter Kerzenschluss: '+(candleCloseAt?new Date(candleCloseAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)':'nicht verfügbar')+(instrument==='GC=F'?' · Futures-Referenz, kein bestätigter GCZ26-Kontrakt':'');
 
+ if(isFuture)$('chartProvenance').textContent+=' · Möglicherweise verzögert'+(futureChartError?' · '+futureChartError:'');
  const irregular=all.some(b=>Number(b.openTime)%chartStep!==0);
  if(irregular)$('chartViewStatus').textContent='Quellenzeitpunkte passen nicht zum gewählten Kerzenraster – Intraday-Test gesperrt';
  $('chartHistoryInfo').textContent=v.length+' Quellenwerte · '+$('chartTf').selectedOptions[0].textContent+(irregular?' · Zeitraster unbestätigt':'')+' · Handelspausen ausgeblendet';

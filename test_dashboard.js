@@ -187,7 +187,7 @@ console.log('Intraday shadow: 15m/5m entry, 1h countertrend, no 4h veto, immedia
 
 // Neutral trading signals must not suppress chart-only confirmed swings.
 const chartChecks=vm.runInContext(`(()=>{
- const bars=Array.from({length:120},(_,i)=>{const p=4200+Math.sin(i/5)*20;return {openTime:Date.UTC(2026,9,2)+i*300000,open:p,close:p,high:p+1,low:p-1};});
+ const bars=Array.from({length:120},(_,i)=>{const p=4200+Math.sin(i/5)*20;return {instrument:"XAU/USD",openTime:Date.UTC(2026,9,2)+i*300000,open:p,close:p,high:p+1,low:p-1};});
  const models=['5m','15m','1h','4h'].map(tf=>{chartHistory[tf]=bars;$('chartTf').value=tf;$('chartType').value='line';draw();return {valid:!!chartFibonacci(bars,3)?.valid,text:$('chartFib').textContent};});
  const flat=chartFibonacci(bars.map(b=>({...b,open:4200,close:4200,high:4200,low:4200})),0);
  const friday=Date.UTC(2026,9,2,20),monday=Date.UTC(2026,9,5,0);
@@ -358,3 +358,13 @@ assert.equal(memoCheck.same.dir,'LONG');assert.equal(memoCheck.same.calls,1);
 assert.equal(memoCheck.expired.calls,2);assert.equal(memoCheck.changed.calls,3);
 assert.equal(memoCheck.boundary.calls,4);
 console.log('Signal replay memo: repaint reuse, result isolation, changed input, exact expiry and new close passed');
+const marketSwitch=vm.runInContext(`(()=>{
+ const before=JSON.stringify(C),tf='15m',at=Date.now()-3600000;
+ chartHistory[tf]=[{instrument:'XAU/USD',openTime:at,open:4000,high:4001,low:3999,close:4000},{instrument:'XAU/USD',openTime:at+900000,open:4000,high:4002,low:3999,close:4001}];
+ futureChartHistory[tf]=chartHistory[tf].map(b=>({...b,instrument:'GC=F',open:b.open+100,high:b.high+100,low:b.low+100,close:b.close+100}));
+ futureChartAt[tf]=Date.now();$('chartTf').value=tf;
+ setChartMarket('future');const future=$('chartInstrument').textContent;
+ setChartMarket('spot');return {future,spot:$('chartInstrument').textContent,unchanged:before===JSON.stringify(C)};
+})()`,env);
+assert(marketSwitch.future.includes('GC=F'));assert(marketSwitch.spot.includes('XAU/USD'));assert(marketSwitch.unchanged);
+console.log('Spot/Future display switch preserves analysis candles');

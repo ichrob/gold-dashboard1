@@ -11,6 +11,7 @@ import bob_auth
 import auto_collection
 import ocr_assets
 import product_quotes
+import future_chart
 import market_cards
 import candle_shadow
 import spot_daily_change
@@ -889,6 +890,17 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if path == "/api/future-chart":
+            tf=parse_qs(urlparse(self.path).query).get('tf',['15m'])[0]
+            payload=future_chart.snapshot(tf if tf in future_chart.STEPS else '15m',fetch_json)
+            body=json.dumps(payload,allow_nan=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type','application/json; charset=utf-8')
+            self.send_header('Cache-Control','no-store')
             self.end_headers()
             self.wfile.write(body)
             return
