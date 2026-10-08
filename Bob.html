@@ -1040,6 +1040,7 @@ async function syncPushPreferencesImpl(){
    if(result?.backgroundEnabled){
     pushState=BobPush.set('backgroundEnabled',true);
     const remote=result.backgroundTrade;
+    if(tradeMgmt?.active)tradeMgmt.continuedCalculation=result.continuedCalculation||null;
     if(remote&&tradeMgmt?.active&&remote.tradeId===tradeMgmt.tradeId&&Number.isFinite(remote.stop)){
      tradeMgmt.stop=tradeMgmt.dir==='LONG'?Math.max(tradeMgmt.stop,remote.stop):Math.min(tradeMgmt.stop,remote.stop);
      if(Number.isFinite(remote.target)&&remote.target>0)tradeMgmt.target=tradeMgmt.dir==='LONG'?Math.max(tradeMgmt.target||remote.target,remote.target):Math.min(tradeMgmt.target||remote.target,remote.target);
@@ -1773,12 +1774,12 @@ function targetObstacle(dir,entry,target,risk,minRR=2,fixed=intradayRiskData()){
   (long?'Widerstand':'Unterstützung')+' vor dem Ziel: '+obstacle.toFixed(2)+' USD/oz · bis dorthin '+obstacleRR.toFixed(2)+'R vor Kosten. '+(entrySuitable?'Mindest-CRV bis zur Hürde erfüllt.':'Mindest-CRV bis zur Hürde nicht erfüllt; neuen Einstieg abwarten.');
  return {available:true,obstacle,obstacleRR,entrySuitable,warning};
 }
-function targetModel(dir,entry,stop,minRR=2){
+function targetModel(dir,entry,stop,minRR=2,fixed=intradayRiskData()){
  minRR=Math.max(1,+minRR||2);
  if(!["LONG","SHORT"].includes(dir)||!Number.isFinite(entry)||entry<=0||!Number.isFinite(stop)||stop<=0||dir==="LONG"&&stop>=entry||dir==="SHORT"&&stop<=entry)return {target:null,rr:null};
  const risk=Math.abs(entry-stop);
  if(!risk)return {target:null,rr:null};
- const fixed=intradayRiskData();if(!fixed.available)return {target:null,rr:null,reason:fixed.reason};
+ if(!fixed.available)return {target:null,rr:null,reason:fixed.reason};
  const fib=fibonacciModel(dir,entry,fixed.atr,fixed.bars);
  const rrTarget=dir==="LONG"?entry+risk*minRR:entry-risk*minRR;
  let target=rrTarget, source="CRV";
@@ -2024,12 +2025,22 @@ function intradayTechnicalContext(bundle=liveBundleCache,state=null,now=Date.now
  return {...empty,direction:state.dir,signalScore:state.score,trend:e20>e50?'LONG':e20<e50?'SHORT':'NEUTRAL',mtf:state.dir,rsi:rsi(values),hist:m.hist,momentum:m.hist,atr:risk.available?risk.atr:null,adx:adxCalc(bars),barAt:bars.at(-1).openTime};
 }
 window.BobTechnicalContext=()=>intradayTechnicalContext();
-function intradayRiskData(bundle=liveBundleCache,now=Date.now()){
+function intradayRiskData(bundle=liveBundleCache,now=Date.now(),allowStale=false){
  const step=900000,raw=bundle?.history?.bars_by_tf?.['15m']||[];
  const rows=raw.filter(b=>b.isOpen===false&&b.openTime+step<=now).slice(-200);
  const valid=rows.length>=40&&rows.every((b,i)=>b.instrument==='XAU/USD'&&Number.isFinite(b.openTime)&&b.openTime%step===0&&['open','high','low','close'].every(k=>Number.isFinite(b[k])&&b[k]>0)&&b.low<=Math.min(b.open,b.close)&&b.high>=Math.max(b.open,b.close)&&(!i||b.openTime>rows[i-1].openTime));
- if(!valid||now-rows.at(-1).openTime>2*step||rows.slice(-3).some((b,i,a)=>i&&b.openTime-a[i-1].openTime!==step))return {available:false,reason:'Vollständige aktuelle 15m-Kerzen für Stop und Ziel fehlen'};
+ if(!valid||!allowStale&&now-rows.at(-1).openTime>2*step||rows.slice(-3).some((b,i,a)=>i&&b.openTime-a[i-1].openTime!==step))return {available:false,reason:'Vollständige aktuelle 15m-Kerzen für Stop und Ziel fehlen'};
  const volatility=atr(rows);return {available:volatility>0,bars:rows,atr:volatility,timeframe:'15m',reason:volatility>0?'':'15m-ATR ist null'};
+}
+function continuedTradePlan(trade,bundle=liveBundleCache,now=Date.now()){
+ if(!trade?.active||!['LONG','SHORT'].includes(trade.dir))return null;
+ const fixed=intradayRiskData(bundle,now,true),price=Number(bundle?.spots?.xaus),dataAt=Date.parse(bundle?.spots?.spot_price_as_of);
+ if(!fixed.available||!(price>0)||!Number.isFinite(dataAt)||dataAt>now)return null;
+ const raw=stopModel(trade.dir,price,fixed.atr,1.5,fixed);
+ if(!(raw.stop>0))return null;
+ const target=targetModel(trade.dir,price,raw.stop,2,fixed);
+ const stop=Number.isFinite(trade.stop)?(trade.dir==='LONG'?Math.max(trade.stop,raw.stop):Math.min(trade.stop,raw.stop)):raw.stop;
+ return {tradeId:trade.tradeId,stop,target:target.target||trade.target,dataAt,analysisBarAt:fixed.bars.at(-1).openTime,computedAt:now,reference:price,estimated:true};
 }
 function intradayEntryContext(bundle=liveBundleCache,state=signalState,now=Date.now()){
  const quality=Object.entries({'5m':300000,'15m':900000,'1h':3600000}).map(([tf,step])=>{
@@ -2175,6 +2186,10 @@ function renderActiveTradePlan(){
  if(!tradeMgmt?.active||tradeMgmt.test||!$('stopPanel'))return;
  const p=tradeMgmt.product;
  $('stopPanel').textContent=(p?p.isin+' · '+tradeMgmt.dir+' · Berechnete Produktwerte':'Goldreferenz · Produktnachweis fehlt')+'\nStop: '+activeTradeLevel(tradeMgmt.stop)+'\nZiel: '+activeTradeLevel(tradeMgmt.target)+(p?'\nReferenz: '+p.referenceAt+' · '+p.source+'\nAktueller verfügbarer Wechselkurs; gespeicherte Produktbedingungen angenommen. Keine bestätigten DEGIRO-Kurse; Änderungen selbst übernehmen. R bezieht sich auf den Gold-Referenzplan bei Beginn der Überwachung, nicht auf den tatsächlichen Eurogewinn.':'');
+ const continued=tradeMgmt.continuedCalculation;
+ if(continued?.stale)$('stopPanel').textContent+='\n'+(continued.available?'Berechnung läuft mit veralteten Werten weiter · Datenstand '+new Date(continued.dataAt).toLocaleString('de-CH')+' · keine aktuelle Bestätigung von Stop/Ziel.':'Berechnung wartet auf den ersten verfügbaren Datenstand; automatische Abrufe laufen weiter.');
+ const fallbackPlan=(continued?.stale||!currentSpotUsable()||analysisAgeWarnings().length)?(continuedTradePlan(tradeMgmt)||continued?.plan):null;
+ if(fallbackPlan)$('stopPanel').textContent+='\nMit veralteten Werten berechnet: Stop '+activeTradeLevel(fallbackPlan.stop)+' · Ziel '+activeTradeLevel(fallbackPlan.target)+' · Kursstand '+new Date(fallbackPlan.dataAt).toLocaleString('de-CH')+' · 15m-Kerze '+new Date(fallbackPlan.analysisBarAt).toLocaleString('de-CH');
  const risk=Number(tradeMgmt.initialRisk)||Math.abs(tradeMgmt.entry-tradeMgmt.stop);
  const check=targetObstacle(tradeMgmt.dir,lastPrice,tradeMgmt.target,risk);
  $('stopPanel').textContent+='\nZielprüfung: '+check.warning;
