@@ -11,7 +11,7 @@ class ReviewTests(unittest.TestCase):
         })
         self.assertEqual(event, 'mtf:verification-skipped')
         self.assertNotIn('secret', details)
-        self.assertEqual(details['error'], 'HTTP 401')
+        self.assertNotIn('error', details)
         self.assertIn('abgelaufener Bob-Anmeldung', details['reason'])
 
         event, details = server.sanitize_client_diagnostic({
