@@ -1,5 +1,6 @@
 """Server-side selection verification and durable notification transitions."""
 import json
+import re
 import subprocess
 import time
 from datetime import datetime
@@ -39,8 +40,20 @@ def transition(previous, checked, now=None):
         kind = 'product-approved'
     elif previous.get('notified'):
         labels = ', '.join(p['isin'] for p in previous.get('products', []))
+        reasons = checked.get('reasons') or []
+        freshness_only = bool(reasons) and all(
+            re.search(r'(Kurszeit|Kursnachweis|Kursabruf|Produktkurs|Quellenantwort|Future-, Produkt- oder FX-Daten)', str(reason), re.I)
+            and re.search(r'(veraltet|abgelaufen|nicht aktuell|nicht prüfbar|Aktualität|fehlt)', str(reason), re.I)
+            and not re.search(r'(KO|Fälligkeit|Kontrakt fehlt|widerspr|inaktiv)', str(reason), re.I)
+            for reason in reasons)
         body = labels + ': nicht mehr freigegeben. ' + '; '.join(checked.get('reasons') or ['Aktuelle Bestätigung abgelaufen']) + '. Prüfung ' + stamp + ' Uhr.'
         title, kind = 'RÜCKNAHME · Produktfreigabe', 'product-withdrawn'
+        if freshness_only:
+            title = 'Kursaktualität nicht gegeben – bitte aktualisieren'
+            body = (labels + ': Produkt bleibt gespeichert. Aktuellen Kursnachweis per Screenshot '
+                    'oder automatischem Abruf ergänzen. Einstiegsfreigabe pausiert bis zur erneuten '
+                    'Markt- und Produktprüfung. Kein Verkaufssignal. Grund: '
+                    + '; '.join(str(reason) for reason in reasons) + '. Prüfung ' + stamp + ' Uhr.')
     else:
         return state, None
     return state, {'title': title, 'body': body[:1000], 'tag': 'bob-product-selection',
