@@ -120,6 +120,27 @@ body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 .chart-card .chart-status{font-size:12px;margin:10px 0}
 .chart-card #chartRangeInfo{line-height:1.6;margin-bottom:8px}
 @media(min-width:700px){.chart-card #chart{height:440px}}
+
+/* Keep the simulation readable without horizontal overflow on phones. */
+#paperSimulationPanel{min-width:0;max-width:100%;overflow-wrap:anywhere}
+#paperCapitalTable caption{text-align:left;font-size:14px;line-height:1.5;margin:12px 0}
+#paperCapitalTable th,#paperCapitalTable td{text-align:left;vertical-align:top}
+@media(max-width:600px){
+#paperCapitalTable,#paperCapitalTable tbody,#paperCapitalTable tr,#paperCapitalTable td,#paperCapitalTable caption{display:block;width:100%}
+#paperCapitalTable thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+#paperCapitalTable tr{margin:12px 0;padding:12px;background:#f5f7fa;border-radius:12px}
+#paperCapitalTable td{padding:8px 0;font-size:15px;line-height:1.5;overflow-wrap:anywhere}
+#paperCapitalTable td:before{display:block;font-size:13px;font-weight:600;color:#536176;margin-bottom:2px}
+#paperCapitalTable td:nth-child(1):before{content:"Tag"}
+#paperCapitalTable td:nth-child(2):before{content:"Anfang"}
+#paperCapitalTable td:nth-child(3):before{content:"Kapital"}
+#paperCapitalTable td:nth-child(4):before{content:"Gewinn / Verlust"}
+#paperCapitalTable td:nth-child(5):before{content:"Bewertung"}
+#paperCapitalTable td:last-child{border-bottom:0}
+#paperSimulationPanel .row{flex-wrap:wrap}
+#paperSimulationPanel .row>*{min-width:0;flex-basis:100%}
+#paperSimulationPanel pre{white-space:pre-wrap;overflow-wrap:anywhere}
+}
 </style>
 </head>
 <body>
@@ -736,7 +757,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <label for="paperDay">Simulationstag (Schweizer Zeit)</label><input id="paperDay" type="date">
 <button id="paperRefresh" type="button">Simulation prüfen</button>
 <p id="paperStats" class="small" style="white-space:pre-line"></p>
-<table><caption>Täglicher Kapitalverlauf · letzte 14 Tage · Bruttomodell, einschließlich offener Positionen</caption><thead><tr><th>Tag</th><th>Anfang</th><th>Kapital</th><th>Gewinn / Verlust</th><th>Bewertung</th></tr></thead><tbody id="paperCapitalDays"></tbody></table>
+<table id="paperCapitalTable"><caption>Täglicher Kapitalverlauf · letzte 14 Tage · Bruttomodell, einschließlich offener Positionen</caption><thead><tr><th>Tag</th><th>Anfang</th><th>Kapital</th><th>Gewinn / Verlust</th><th>Bewertung</th></tr></thead><tbody id="paperCapitalDays"></tbody></table>
 <div id="paperCases"></div>
 <details><summary>Technischer Probelauf · künstliche Folgekurse</summary>
 <p class="small">Zeigt Einstieg, Stop-Nachziehen, Teilgewinn und Ausstieg. Kein reales Marktsignal; bleibt aus der Statistik ausgeschlossen.</p>
