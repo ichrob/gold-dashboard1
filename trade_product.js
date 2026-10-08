@@ -18,7 +18,13 @@
   const eur=m.bid+d*m.ratio*((gold-m.strike)*m.fxScenario-(m.goldReference-m.strike)*m.fxReference);
   return positive(eur)?{available:true,price:eur,pnl:(eur-m.entry)*m.quantity}:{available:false,reason:'Kein positiver Modellkurs'};
  }
- function label(m,gold){const x=price(m,gold);return x.available?'≈ '+x.price.toFixed(4)+' EUR/Stück (berechnet)':x.reason;}
- root.BobTradeProduct={model,price,label};
+ function withFx(m,spots,now=Date.now()){
+  const fx=spots?.usd_eur_meta,rate=Number(fx?.rate),at=Date.parse(fx?.fetchedAt);
+  if(!m||!positive(rate)||!Number.isFinite(at)||at>now)return m;
+  return {...m,fxScenario:rate,fxDetails:{...fx,delayed:!!fx.error||now-at>90000}};
+ }
+ function label(m,gold){const x=price(m,gold);return x.available?'≈ '+x.price.toFixed(4)+' EUR/Stück (geschätzt) · Gold '+gold.toFixed(2)+' USD/oz'+(m.fxDetails?.delayed?' · FX-Aktualisierung verzögert':''):x.reason;}
+ root.BobTradeProduct={model,price,label,withFx};
  if(typeof module!=='undefined')module.exports=root.BobTradeProduct;
 })(typeof window!=='undefined'?window:globalThis);
+
