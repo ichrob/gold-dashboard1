@@ -72,3 +72,25 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(first.result()['language'],'de')
 
 if __name__=='__main__':unittest.main()
+
+class ErrorReportingTests(unittest.TestCase):
+    def test_provider_status_is_safe_and_specific(self):
+        import io
+        import urllib.error
+        for status, code in [(401,'provider_auth'),(429,'provider_limit'),(503,'provider_unavailable'),(404,'provider_video')]:
+            error=urllib.error.HTTPError('https://example.invalid',status,'secret-value',{},io.BytesIO(b'secret-value'))
+            opener=Mock();opener.open.side_effect=error
+            with patch.object(p.urllib.request,'build_opener',return_value=opener):
+                with self.assertRaises(p.TranscriptError) as caught:p.fetch(PAYLOAD['videoId'],'secret-value')
+            self.assertEqual(caught.exception.code,code)
+            self.assertNotIn('secret-value',str(caught.exception))
+
+    def test_internal_error_only_accepts_known_code(self):
+        import io
+        import urllib.error
+        for data, expected in [({'errorCode':'cooldown','error':'secret-value'},'pausiert'),({'errorCode':'secret-value','error':'secret-value'},'HTTP 400')]:
+            error=urllib.error.HTTPError('https://example.invalid',400,'secret-value',{},io.BytesIO(json.dumps(data).encode()))
+            opener=Mock();opener.open.side_effect=error
+            with patch.dict(os.environ,{'PUSH_SERVICE_URL':'https://internal.test','PUSH_SERVICE_TOKEN':'secret-value'}),patch.object(p.urllib.request,'build_opener',return_value=opener):
+                with self.assertRaisesRegex(ValueError,expected) as caught:p.request(PAYLOAD['videoId'])
+            self.assertNotIn('secret-value',str(caught.exception))

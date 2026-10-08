@@ -701,6 +701,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             send_json(self, 404, {"error": "Not found"})
+        except research_transcript_provider.TranscriptError as exc:
+            print('BOB_RESEARCH error_code='+exc.code, flush=True)
+            send_json(self, 400, {'error': str(exc), 'errorCode': exc.code})
         except (ValueError, json.JSONDecodeError) as exc:
             send_json(self, 400, {"error": str(exc)})
         except (BrokenPipeError, ConnectionResetError):

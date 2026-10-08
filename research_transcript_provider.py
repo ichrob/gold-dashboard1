@@ -7,11 +7,29 @@ import os
 import re
 import secrets
 import urllib.request
+import urllib.error
 from urllib.parse import urlencode
 from bob_auth import NoRedirect
 
 CHANNEL='UCsl6Z6p7GOkczo8Cv-GH6Dg'
 MAX_BYTES=600000
+ERRORS = {
+    'provider_auth': 'Transkript-Dienst: API-Schlüssel wird nicht akzeptiert.',
+    'provider_limit': 'Transkript-Dienst: Kontingent oder Abrufrate erreicht.',
+    'provider_unavailable': 'Transkript-Dienst vorübergehend nicht erreichbar.',
+    'provider_video': 'Transkript-Dienst kann für dieses Video derzeit keinen Text liefern.',
+    'provider_invalid': 'Transkript-Dienst liefert keinen verwendbaren deutschen oder englischen Text.',
+    'provider_pending': 'Transkript-Dienst hat den Text noch nicht bereitgestellt.',
+    'not_configured': 'SUPADATA_API_KEY ist im Transkript-Dienst noch nicht eingerichtet.',
+    'cooldown': 'Nach einem fehlgeschlagenen Abruf pausiert dieses Video bis zu 24 Stunden. Andere Videos werden weiter geprüft.',
+    'local_limit': 'Bob-Abruflimit erreicht: maximal 90 Versuche innerhalb von 31 Tagen. Keine automatische Aufladung.',
+}
+
+class TranscriptError(ValueError):
+    def __init__(self, code):
+        self.code = code
+        super().__init__(ERRORS[code])
+
 
 
 def init(conn):
@@ -45,20 +63,27 @@ def fetch(identity,key):
     request=urllib.request.Request(url,headers={'x-api-key':key,'Accept':'application/json'})
     try:
         with urllib.request.build_opener(NoRedirect()).open(request,timeout=15) as response:
-            if response.status!=200:raise ValueError('Transkript noch nicht verfügbar')
+            if response.status!=200:raise TranscriptError('provider_pending')
             raw=response.read(MAX_BYTES+1)
         if len(raw)>MAX_BYTES:raise ValueError('Transkriptantwort zu groß')
         return parse(json.loads(raw))
+    except TranscriptError:
+        raise
+    except urllib.error.HTTPError as exc:
+        code = 'provider_auth' if exc.code in (401,403) else 'provider_limit' if exc.code in (402,429) else 'provider_unavailable' if exc.code >= 500 else 'provider_video'
+        raise TranscriptError(code) from None
+    except (ValueError, TypeError, KeyError):
+        raise TranscriptError('provider_invalid') from None
     except Exception:
-        # Provider error bodies can contain credentials. Never forward them.
-        raise ValueError('Zusätzlicher Transkript-Dienst derzeit nicht verfügbar; Zugang, Kontingent oder Videoabruf prüfen.') from None
+        # Never forward provider bodies, URLs, keys or raw exceptions.
+        raise TranscriptError('provider_unavailable') from None
 
 
 def handle(connect,payload,fetcher=fetch):
     identity=payload.get('videoId','')
     if not isinstance(identity,str) or not re.fullmatch(r'[A-Za-z0-9_-]{11}',identity) or payload.get('channelId')!=CHANNEL:raise ValueError('Ungültige MCO-Videozuordnung')
     key=os.environ.get('SUPADATA_API_KEY','')
-    if not key:raise ValueError('Zusätzlicher Transkript-Abruf vorbereitet; SUPADATA_API_KEY ist noch nicht eingerichtet.')
+    if not key:raise TranscriptError('not_configured')
     claim=secrets.token_hex(16)
     # Durable quota, reservations and cooldown survive rolling deployments.
     # Count attempts conservatively, including failures: <=90 per rolling 31 days.
@@ -66,9 +91,9 @@ def handle(connect,payload,fetcher=fetch):
         conn.execute('SELECT pg_advisory_xact_lock(68431029)')
         row=conn.execute('SELECT result,attempted_at>now()-interval \'24 hours\' FROM bob_research_transcripts WHERE video_id=%s',(identity,)).fetchone()
         if row and row[0]:return row[0]
-        if row and row[1]:raise ValueError('Untertitelabruf für dieses Video pausiert bis zum nächsten Tag.')
+        if row and row[1]:raise TranscriptError('cooldown')
         count=conn.execute("SELECT count(*) FROM bob_research_requests WHERE attempted_at>now()-interval '31 days'").fetchone()[0]
-        if count>=90:raise ValueError('Bob-Abruflimit erreicht: maximal 90 Versuche innerhalb von 31 Tagen. Keine automatische Aufladung.')
+        if count>=90:raise TranscriptError('local_limit')
         conn.execute('INSERT INTO bob_research_requests(claim) VALUES(%s)',(claim,))
         conn.execute('''INSERT INTO bob_research_transcripts(video_id,attempted_at,claim) VALUES(%s,now(),%s)
             ON CONFLICT(video_id) DO UPDATE SET attempted_at=now(),claim=excluded.claim''',(identity,claim))
@@ -89,5 +114,15 @@ def request(identity):
         result=json.loads(raw)
         if not isinstance(result,dict) or not result.get('segments'):raise ValueError('Text fehlt')
         return result
+    except urllib.error.HTTPError as exc:
+        code = None
+        try:
+            body = json.loads(exc.read(4096))
+            candidate = body.get('errorCode') if isinstance(body, dict) else None
+            if isinstance(candidate, str) and candidate in ERRORS:code = candidate
+        except Exception:pass
+        if code:raise TranscriptError(code) from None
+        if exc.code == 401:raise ValueError('Interne Verbindung zum Transkript-Dienst nicht autorisiert.') from None
+        raise ValueError('Transkript-Dienst meldet einen Abruffehler (HTTP '+str(exc.code)+').') from None
     except Exception:
-        raise ValueError('YouTube liefert keinen Text. Der zusätzliche Transkript-Zugang ist noch nicht eingerichtet oder derzeit nicht verfügbar.') from None
+        raise ValueError('Interne Verbindung zum Transkript-Dienst derzeit nicht verfügbar.') from None

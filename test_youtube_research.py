@@ -93,3 +93,19 @@ class YoutubeTests(unittest.TestCase):
             item=y.manual({'url':URL});self.assertEqual(item['url'],URL);self.assertTrue(item['transcriptAnalyzed'])
 
 if __name__=='__main__':unittest.main()
+
+class CaptionRecoveryTests(unittest.TestCase):
+    data=YoutubeTests.data
+    captions=YoutubeTests.captions
+    def test_failed_track_reaches_provider(self):
+        import research_transcript_provider as provider
+        supplied={'segments':y.parse_captions(self.captions()),'language':'en','provider':'Supadata'}
+        for failure in (OSError('timeout'),ValueError('bad caption')):
+            with patch.dict(y._cache,{},clear=True),patch.object(y,'read_url',side_effect=[self.data(),failure]) as fetch,patch.object(provider,'request',return_value=supplied) as request:
+                self.assertTrue(y.analyze(URL,fetch=fetch)['transcriptAnalyzed'])
+                request.assert_called_once_with(ID)
+
+    def test_relative_age_label_is_not_an_exact_timestamp(self):
+        self.assertEqual(g.relative_publication_label('7h ago'),'vor 7 Stunden')
+        self.assertEqual(g.relative_publication_label('1d ago'),'vor 1 Tag')
+        self.assertEqual(g.relative_publication_label('2 days ago'),'vor 2 Tagen')

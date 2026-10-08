@@ -551,7 +551,9 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const rows=r.items.map(x=>{
     const box=node('article','');box.className='research';box.style.marginTop='12px';
     const a=node('a',x.title);const url=new URL(x.url);if(url.protocol==='https:'){a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';}
-    box.append(a,node('p',x.publisher+' · '+x.kind+' · veröffentlicht '+date(x.publishedAt)+' · '+x.coverage+(x.current?' · innerhalb 24 Stunden':' · nicht aktuell / Zeitpunkt unklar')),
+    const published=x.publishedAt?date(x.publishedAt):(x.publishedRelative?'ungefähr '+x.publishedRelative+' (YouTube-Angabe beim Abruf '+date(x.publishedRelativeObservedAt||x.checkedAt)+')':'Zeitpunkt unbekannt');
+    box.append(a,node('p',x.publisher+' · '+x.kind+' · veröffentlicht '+published+' · '+x.coverage+(x.current?' · innerhalb 24 Stunden':x.publishedAt?' · nicht aktuell':' · genaue Aktualität nicht bestätigt')),
+     node('small','Video-ID: '+(url.searchParams.get('v')||x.id)),
      node('p','Kursbericht: '+x.trend+' · Ausblick: '+x.outlook+' · Horizont: '+x.horizon),node('p',x.excerpt),node('small',x.reason+(x.articleStatus?' · '+x.articleStatus:'')));
     if(x.listingInfo)box.append(node('p','YouTube-Angabe: '+x.listingInfo));
     if(x.context)box.append(node('p',(x.contextKind||'Kontext')+': '+x.context));

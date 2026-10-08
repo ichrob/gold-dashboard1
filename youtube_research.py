@@ -157,9 +157,12 @@ def analyze(url, fetch=read_url):
         for track in tracks[:2]:
             caption_url=track['baseUrl']
             if not safe_url(caption_url) or urlparse(caption_url).path!='/api/timedtext' or parse_qs(urlparse(caption_url).query).get('v')!=[identity]:raise ValueError('Untertitel gehören nicht eindeutig zum Video')
-            raw=fetch(caption_url)
-            if not raw.strip():continue
-            result=assess(parse_captions(raw),track['languageCode'],track.get('kind')=='asr')
+            try:
+                raw=fetch(caption_url)
+                if not raw.strip():continue
+                result=assess(parse_captions(raw),track['languageCode'],track.get('kind')=='asr')
+            except (OSError, ValueError, ET.ParseError):
+                continue
             break
         if result is None:
             if fetch is not read_url:raise ValueError('Untertitel vorhanden, aber kein Text abrufbar')

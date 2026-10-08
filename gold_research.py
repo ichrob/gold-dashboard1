@@ -156,6 +156,14 @@ def enrich_article(item):
     except Exception:
         item['articleStatus']='Artikeltext nicht abrufbar oder nicht eindeutig erkennbar; nur Feed-Auszug'
 
+def relative_publication_label(text):
+    match=re.search(r'\b(\d+)\s*(m|min(?:ute)?s?|h|hours?|d|days?|w|weeks?)\s+ago\b',text,re.I)
+    if not match:return text[:100]
+    amount=int(match[1]);unit=match[2].lower()[0]
+    singular,plural={'m':('Minute','Minuten'),'h':('Stunde','Stunden'),'d':('Tag','Tagen'),'w':('Woche','Wochen')}[unit]
+    return 'vor '+str(amount)+' '+(singular if amount==1 else plural)
+
+
 def channel_listing(data, now):
     text=data.decode('utf-8','replace')
     match=re.search(r'(?:var\s+)?ytInitialData\s*=\s*',text)
@@ -178,7 +186,11 @@ def channel_listing(data, now):
         title=meta.get('title',{}).get('content') or ''.join(x.get('text','') for x in old.get('title',{}).get('runs',[]))
         if not re.search(r'\bgold\b|goldpreis|xau\s*/?\s*usd',title,re.I):continue
         parts=[p.get('text',{}).get('content','') for r in meta.get('metadata',{}).get('contentMetadataViewModel',{}).get('metadataRows',[]) for p in r.get('metadataParts',[])]
-        items.append(dict(id='youtube-'+identity,url='https://www.youtube.com/watch?v='+identity,title=title[:240],excerpt='',
+        relative=next((part for part in parts if re.search(r'\bago\b|\bvor\b',part,re.I)), '')
+        if not relative:
+            pub=old.get('publishedTimeText',{})
+            relative=pub.get('simpleText') or ''.join(x.get('text','') for x in pub.get('runs',[]))
+        items.append(dict(publishedRelative=relative_publication_label(relative),publishedRelativeObservedAt=now,id='youtube-'+identity,url='https://www.youtube.com/watch?v='+identity,title=title[:240],excerpt='',
             publisher='MCO Markets',kind='YouTube',channelId=MCO_CHANNEL,sourceId='mco-video',publishedAt=None,checkedAt=now,current=False,
             listingInfo=' · '.join(parts)[:160],coverage='Videometadaten; Veröffentlichungszeit nicht exakt bestätigt',**classify(title,'','YouTube')))
     return items,scanned
