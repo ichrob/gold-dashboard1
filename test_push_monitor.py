@@ -163,7 +163,7 @@ class PushMonitorTests(unittest.TestCase):
         with patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'),patch.object(push_server,'db',db):
             self.assertEqual(self.request('/preferences',dict(endpoint='fixture',activeTrade=False))[0],400)
     def test_delivery_targets_subscription_and_saves_checkpoint(self):
-        monitor,payload=self.monitor();db,conn=self.connection();sub={'endpoint':'https://example.test/fixture'}
+        monitor,payload=self.monitor();monitor['direction']='SHORT';db,conn=self.connection();sub={'endpoint':'https://example.test/fixture'}
         conn.execute.return_value.fetchall.return_value=[(123,sub,monitor)]
         with patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'),patch.object(push_server,'db',db),patch.object(push_server,'vapid',return_value='fixture'),patch.object(push_server,'webpush') as send:
             status,res=self.request('/monitor',payload)
@@ -185,7 +185,7 @@ class PushMonitorTests(unittest.TestCase):
             self.assertIn('keine Entwarnung',json.loads(send.call_args.kwargs['data'])['body'])
 
     def test_failed_delivery_does_not_advance(self):
-        monitor,payload=self.monitor();db,conn=self.connection();conn.execute.return_value.fetchall.return_value=[(123,{},monitor)]
+        monitor,payload=self.monitor();monitor['direction']='SHORT';db,conn=self.connection();conn.execute.return_value.fetchall.return_value=[(123,{},monitor)]
         with patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'),patch.object(push_server,'db',db),patch.object(push_server,'vapid',return_value='fixture'),patch.object(push_server,'webpush',side_effect=push_server.WebPushException('fixture')):
             self.assertEqual(self.request('/monitor',payload)[1]['sent'],0)
             self.assertFalse(any('UPDATE subscriptions SET trade_monitor=' in c.args[0] for c in conn.execute.call_args_list))
