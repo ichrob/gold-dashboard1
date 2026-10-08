@@ -2155,15 +2155,35 @@ async function activateTestTrade(){
  $("stopUpdate").innerHTML="<b>Test-Trade aktiv:</b> "+dir+" · Einstieg "+entry.toFixed(2)+" USD/oz · Test-Stop "+displayStop(testStop)+".";
 }
 function activeTradeLevel(value){
- return tradeMgmt.product&&window.BobTradeProduct?window.BobTradeProduct.label(tradeMgmt.product,value):displayStop(value)+" · Goldreferenz; Produkt noch nicht verbunden";
+ return tradeMgmt.product&&window.BobTradeProduct?window.BobTradeProduct.label(window.BobTradeProduct.withFx(tradeMgmt.product,liveBundleCache?.spots),value):displayStop(value)+" · Goldreferenz; Produkt noch nicht verbunden";
+}
+let activeProductQuote=null,activeProductQuoteRequest=false,activeProductQuoteAttempt=0;
+async function refreshActiveProductQuote(){
+ const isin=tradeMgmt?.active?tradeMgmt.product?.isin:null;
+ if(!isin||activeProductQuoteRequest||Date.now()-activeProductQuoteAttempt<30000)return;
+ activeProductQuoteAttempt=Date.now();activeProductQuoteRequest=true;
+ try{
+  const response=await fetch('/api/degiro/enrich?isin='+encodeURIComponent(isin),{signal:AbortSignal.timeout(10000)});
+  if(!response.ok)throw Error('Abruf fehlgeschlagen');const q=await response.json();
+  if(tradeMgmt?.product?.isin!==isin)return;
+  if(q.isin!==isin||q.productVerified!==true||q.currency!=='EUR'||!(typeof q.bid==='number'&&Number.isFinite(q.bid)&&q.bid>0)||q.estimated||q.calculatedProduct||!q.found)throw Error('Kein gemeldeter EUR-Geldkurs');
+  activeProductQuote={isin,bid:q.bid,at:q.bidAt||q.quoteAt||null,source:q.source,delayed:!!q.delayed,error:false};
+ }catch(e){if(activeProductQuote?.isin===isin)activeProductQuote.error=true;}
+ finally{activeProductQuoteRequest=false;renderActiveTradePlan();}
 }
 function renderActiveTradePlan(){
  if(!tradeMgmt?.active||tradeMgmt.test||!$('stopPanel'))return;
  const p=tradeMgmt.product;
- $('stopPanel').textContent=(p?p.isin+' · '+tradeMgmt.dir+' · Berechnete Produktwerte':'Goldreferenz · Produktnachweis fehlt')+'\nStop: '+activeTradeLevel(tradeMgmt.stop)+'\nZiel: '+activeTradeLevel(tradeMgmt.target)+(p?'\nReferenz: '+p.referenceAt+' · '+p.source+'\nKonstante FX-/Produktbedingungen angenommen. Keine bestätigten DEGIRO-Kurse; Änderungen selbst übernehmen. R bezieht sich auf den Gold-Referenzplan bei Beginn der Überwachung, nicht auf den tatsächlichen Eurogewinn.':'');
+ $('stopPanel').textContent=(p?p.isin+' · '+tradeMgmt.dir+' · Berechnete Produktwerte':'Goldreferenz · Produktnachweis fehlt')+'\nStop: '+activeTradeLevel(tradeMgmt.stop)+'\nZiel: '+activeTradeLevel(tradeMgmt.target)+(p?'\nReferenz: '+p.referenceAt+' · '+p.source+'\nAktueller verfügbarer Wechselkurs; gespeicherte Produktbedingungen angenommen. Keine bestätigten DEGIRO-Kurse; Änderungen selbst übernehmen. R bezieht sich auf den Gold-Referenzplan bei Beginn der Überwachung, nicht auf den tatsächlichen Eurogewinn.':'');
  const risk=Number(tradeMgmt.initialRisk)||Math.abs(tradeMgmt.entry-tradeMgmt.stop);
  const check=targetObstacle(tradeMgmt.dir,lastPrice,tradeMgmt.target,risk);
  $('stopPanel').textContent+='\nZielprüfung: '+check.warning;
+ const q=activeProductQuote?.isin===p?.isin?activeProductQuote:null;
+ const stamp=q?Date.parse(q.at):NaN,quoteFresh=q&&!q.error&&!q.delayed&&Number.isFinite(stamp)&&Date.now()>=stamp&&Date.now()-stamp<=90000;
+ $('stopPanel').textContent+='\n'+(q?(quoteFresh?'Aktueller Geldkurs: ':'Letzter Geldkurs · Aktualisierung verzögert: ')+q.bid.toFixed(4)+' EUR/Stück · Quellenzeit '+(q.at||'unbekannt')+' · '+(q.source||'Quelle unbekannt'):'Gemeldeter Geldkurs: noch nicht verfügbar');
+ let details=$('activeTradeFxDetails');if(!details){details=document.createElement('details');details.id='activeTradeFxDetails';$('stopPanel').insertAdjacentElement('afterend',details);const summary=document.createElement('summary');summary.textContent='Wechselkurs und Berechnungsannahmen';details.appendChild(summary);const text=document.createElement('div');text.id='activeTradeFxText';details.appendChild(text);}
+ const fx=liveBundleCache?.spots?.usd_eur_meta;
+ $('activeTradeFxText').textContent=fx?.rate?'1 USD = '+Number(fx.rate).toFixed(6)+' EUR · Abruf '+fx.fetchedAt+' · Quellenzeit nicht geliefert · '+fx.source+(fx.error||Date.now()-Date.parse(fx.fetchedAt)>90000?' · Aktualisierung verzögert':'')+' · Ziel ist eine Modellschätzung bei diesem Wechselkurs und gespeicherten Produktbedingungen.': 'Kein aktueller Wechselkursnachweis. Berechnung mit gespeicherter Wechselkursannahme.';
  $('stopPanel').style.whiteSpace='pre-line';
  if($('stopCurrent'))$('stopCurrent').textContent=activeTradeLevel(tradeMgmt.stop);
 }
@@ -2183,6 +2203,7 @@ async function activateProductTrade(values){
  tradeMgmt.product=product;tradeMgmt.fibonacciMonitor=tradeMgmt.fibonacciMonitor||captureFibonacciMonitor();
  saveTradeMgmt();pushState=BobPush.setActiveTrade(true);renderPush();renderActiveTradePlan();
  $('tradeEntry').value=tradeMgmt.entry.toFixed(2);$('tradeStop').value=tradeMgmt.stop.toFixed(2);
+ refreshActiveProductQuote();
  const synced=await syncPushPreferences();
  return synced?'Produkt-Trade gespeichert und mit dem Server synchronisiert. Für Meldungen „Aktiver Trade“ einschalten.':'Produkt-Trade lokal gespeichert. Hintergrund-Synchronisierung fehlgeschlagen; Push-Status prüfen und erneut synchronisieren.';
 }
@@ -2768,7 +2789,7 @@ if(typeof MutationObserver!=="undefined"){
  }).observe($("status"),{childList:true,characterData:true,subtree:true});
 }
 loadData();
-setInterval(()=>{ if(document.visibilityState==="visible"){loadData();syncPushPreferences();} }, 30000);
+setInterval(()=>{ if(document.visibilityState==="visible"){loadData();syncPushPreferences();refreshActiveProductQuote();} }, 30000);
 </script><form method="post" action="/logout" style="text-align:center;margin:24px"><button type="submit">Abmelden</button></form>
 
 
