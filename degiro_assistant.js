@@ -1949,9 +1949,42 @@ function termSeriesReference(p,key,e,now=Date.now()){
  const time=selectionTimeWindow(series.text);
  return time&&now>=time.start&&now-time.start<=86400000?{origin:'screenshot',text:series.text,label:'Zeitbezug der Aufnahmeserie'}:null;
 }
-function currentProductTerm(p,key,e,now){return currentDatedTerm(e,now)||!!termSeriesReference(p,key,e,now);}
+const KO_MAX_AGE_MS=8*60*60*1000;
+function koTermTime(p,e,now){
+ if(!e?.source||!(n(e.value)>0)||e.conflict||e.revoked||e.ocrCorrection)return NaN;
+ if(e.at)return Date.parse(e.at);
+ const ref=termSeriesReference(p,'ko',e,now);
+ if(ref)return ref.origin==='automatic'?Date.parse(ref.text):selectionTimeWindow(ref.text)?.start;
+ return NaN;
+}
+function koEvidenceStatus(p,now=Date.now()){
+ const q=p.quote?.isin===p.isin&&p.quote.productVerified?p.quote:null;
+ const shot=p.snapshot?.isin===p.isin&&hasScreenshotIdentity(p.snapshot)?p.snapshot:null;
+ const evidence=[q?.conditions?.ko,shot?.terms?.ko,shot?.evidence?.KO];
+ const matches=evidence.filter(e=>e&&termValueMatches(p.ko,e.value,e));
+ const times=matches.map(e=>({at:koTermTime(p,e,now),source:e.source}));
+ // Preserve the original checkedAt on retained issuer metadata; an unsuccessful
+ // request must never extend the evidence window.
+ if(q?.metadata?.termsDated!==false&&q?.source&&termValueMatches(p.ko,q?.metadata?.ko,shot?.evidence?.KO)&&!q?.conditions?.ko)
+  times.push({at:Date.parse(q.checkedAt),source:q.source});
+ const fixed=window.BobCombined.fixedFor(p);
+ if(fixed)times.push({at:Date.parse(fixed.confirmedAt),source:fixed.source});
+ const latest=times.filter(x=>Number.isFinite(x.at)&&x.at<=now).sort((a,b)=>b.at-a.at)[0];
+ const blocked=matches.some(e=>e.conflict||e.revoked||e.ocrCorrection);
+ const expiresAt=latest?latest.at+KO_MAX_AGE_MS:null;
+ const current=!!latest&&!blocked&&now<expiresAt;
+ return {current,at:latest?new Date(latest.at).toISOString():null,expiresAt:expiresAt?new Date(expiresAt).toISOString():null,
+  source:latest?.source||null,reason:current?'KO-Schwelle: innerhalb der 8-Stunden-Nachweisfrist':
+  latest?'KO-Schwelle: 8-Stunden-Nachweisfrist abgelaufen – automatisch aktualisieren oder neuen Screenshot ergänzen':
+  'KO-Schwelle: belegter Zeitbezug fehlt – aktuellen Abruf oder Screenshot ergänzen'};
+}
+function currentProductTerm(p,key,e,now){
+ if(key==='ko'){const at=koTermTime(p,e,now);return Number.isFinite(at)&&now>=at&&now-at<KO_MAX_AGE_MS;}
+ return currentDatedTerm(e,now)||!!termSeriesReference(p,key,e,now);
+}
 function renderTermSeriesValidity(p,now=Date.now()){
- return ['strike','ko'].map(key=>{
+ const koState=koEvidenceStatus(p,now);
+ return '<div data-ko-validity><b>'+esc(koState.reason)+'</b>'+(koState.expiresAt?'<br>Nachweis bis '+esc(new Date(koState.expiresAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}))+' (Zürich)':'')+'</div>'+ ['strike','ko'].map(key=>{
   const direct=p.quote?.conditions?.[key],shot=p.snapshot?.terms?.[key];
   const ref=termSeriesReference(p,key,direct,now)||termSeriesReference(p,key,shot,now);
   return ref?'<div data-term-series-validity><b>'+esc(key==='strike'?'Basispreis':'KO-Schwelle')+': Seriennachweis für Bob gültig</b><br>'+esc(ref.label+' · '+ref.text)+' · kein separat bestätigtes Emittenten-Gültigkeitsdatum</div>':'';
@@ -1961,7 +1994,7 @@ function screenshotKoCurrent(p,now){
  const x=p.snapshot,e=x?.evidence?.KO,t=x?.terms?.ko;
  if(x?.isin!==p.isin||n(e?.value)!==n(p.ko))return false;
  if(e?.conflict||e?.revoked||e?.ocrCorrection)return false;
- if(e?.at)return currentDatedTerm(e,now);
+ if(e?.at)return currentProductTerm(p,'ko',e,now);
  if(e?.dateText&&e.dateText!==t?.dateText)return false;
  // An undated repeat in a quote image does not invalidate the separate
  // dated terms image. Match identity and amount; never transfer its date.
@@ -2034,11 +2067,11 @@ function productTermsStatus(p,now=Date.now(),allowObserved=false){
  }
  const ko=shot?.evidence?.KO,apiKoAge=now-Date.parse(q?.checkedAt);
  if(!(n(p.ko)>0))reasons.push('Knock-out-Schwelle fehlt');
- else if(!screenshotKoCurrent(p,now)&&!(currentProductTerm(p,'ko',q?.conditions?.ko,now)&&termValueMatches(p.ko,q.conditions.ko.value,ko||q.conditions.ko))&&!(meta&&(meta.termsDated!==false||meta.termsFixed===true&&currentDatedTerm(q.conditions?.ko,now))&&(!meta.termsDate||currentDatedTerm(q.conditions?.ko,now))&&q.source&&termValueMatches(p.ko,meta.ko,ko)&&apiKoAge>=0&&apiKoAge<=86400000)){
-  const observed=terms.ko||ko;
-  if(allowObserved&&observed?.source&&termValueMatches(p.ko,observed.value,ko||observed)&&!observed.ocrCorrection&&!observed.conflict&&!observed.revoked)warnings.push('KO-Schwelle: mit beobachtetem Wert gerechnet; Gültigkeitsdatum nicht bestätigt');
-  else reasons.push('Knock-out-Schwelle: datierter Produktnachweis fehlt oder älter als 24 Stunden');
+ else if(!koEvidenceStatus(p,now).current){
+  if(allowObserved)warnings.push(koEvidenceStatus(p,now).reason+'; mit gespeichertem Wert gerechnet, keine aktuelle Freigabe');
+  else reasons.push(koEvidenceStatus(p,now).reason);
  }
+
  if(meta?.ko&&!termValueMatches(p.ko,meta.ko,ko))reasons.push('Knock-out-Schwelle widerspricht Produktquelle: gespeichert '+p.ko+' USD ('+(ko?.source||'Produktliste / manuelle Eingabe')+'; Stand '+(ko?.at||ko?.dateText||'nicht belegt')+'), Quelle '+meta.ko+' USD ('+(q.termsSource||q.source||'Produktquelle')+'; Gültigkeitsstand '+(meta.termsDated===false?'nicht belegt':q.checkedAt||'nicht belegt')+'). Abrufzeit '+(q.termsCheckedAt||q.checkedAt||'unbekannt')+' ist kein Gültigkeitsdatum.');
  if(meta?.status!==undefined&&(!(meta.status&1)||meta.status&(2|8|16|32)))reasons.push('Produkt laut Emittent nicht aktiv');
  return {complete:reasons.length===0,reasons,values,warnings};
@@ -2932,7 +2965,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
