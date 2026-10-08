@@ -280,7 +280,12 @@ def run_once(conn,bundle,market,selection,quotes,now):
             q=fresh_quote(quotes.get(choice['isin']),now,choice['isin']) if choice and not choice.get('indicative') and not choice.get('estimated') else None
             healthy=market.get('ready') is True and market.get('priceFresh') is True and finite(market.get('dataAt')) and 0<=now-market['dataAt']<=60000
             entry_key=str([market.get('ruleVersion'),market.get('analysisBarAt'),market.get('direction')])
-            if not healthy:reason='Marktanalyse / aktuelle Goldquelle nicht bestätigt'
+            if not healthy:
+                if not market.get('priceFresh') or not finite(market.get('dataAt')) or not 0<=now-market['dataAt']<=60000:
+                    reason='Goldkurs nicht aktuell bestätigt; Quellenzeit prüfen'
+                else:
+                    details=market.get('analysisWarnings') or [market.get('decisionReason') or 'Analysedaten noch unvollständig']
+                    reason='Marktanalyse wartet: '+'; '.join(str(v) for v in details)
             elif not (market.get('session') or {}).get('entryAllowed'):reason='Außerhalb von Bobs Einstiegszeit'
             elif not stop_target_audit.valid_plan(plan):reason='ABWARTEN: kein bestätigter gültiger Goldplan'
             elif not choice:reason='Kein passendes belegtes Produkt: '+'; '.join(selection.get('reasons') or ['Produktliste noch nicht synchronisiert'])
@@ -359,7 +364,7 @@ def _worker(db):
                             selection=json.loads(p.stdout)
                         run_once(conn,bundle,market,selection,quotes,time.time()*1000)
                         conn.commit()
-                        print('BOB_PAPER checked direction='+str(market.get('direction')),flush=True)
+                        print('BOB_PAPER checked direction='+str(market.get('direction'))+' ready='+str(market.get('ready'))+' priceFresh='+str(market.get('priceFresh'))+' reason='+str(market.get('analysisWarnings') or market.get('decisionReason')),flush=True)
             except Exception as exc:print('BOB_PAPER error='+type(exc).__name__,flush=True)
         time.sleep(max(1,30-(time.monotonic()-began)))
 

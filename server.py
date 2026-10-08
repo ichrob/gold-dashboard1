@@ -1190,7 +1190,7 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             length = int(self.headers.get("Content-Length", "0") or 0)
-            if length <= 0 or length > (524288 if path == "/api/push/selection" else 65536):
+            if length <= 0 or length > (524288 if path in ("/api/push/selection", "/api/audit/write") else 65536):
                 raise ValueError("Ungültige Payload-Größe")
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
             body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
