@@ -42,7 +42,7 @@ Ergänzung: Die Anbindung für freie KI-Zusammenfassungen und gespeicherte Zeitl
 
 `research_enhancements.py` ergänzt den regelbasierten Überblick, ohne dessen Richtungsstimme zu ändern. Der interne token-geschützte Endpunkt `/research-enhancement/read` erhält nur das bereits dem öffentlichen MCO-Gold-Video zugeordnete Transkript und seine Videostellen. Manuell eingefügte, ungeprüfte Texte werden nicht übertragen.
 
-Die Gemini-Anbindung über `generateContent` verwendet `gemini-2.5-flash-lite`, das am 8. Oktober 2026 im Standard-Free-Tier mit kostenlosem Text-Eingang/Ausgang dokumentiert ist. Voraussetzung: **ein Google-AI-Studio-Projekt ohne aktivierte Abrechnung**. Ein API-Schlüssel allein beweist den Tarif nicht. Deshalb bleiben externe KI-Anfragen aus, bis im bestehenden Render-Pushdienst beides hinterlegt ist:
+Die Gemini-Anbindung über `generateContent` verwendet `gemini-3.5-flash-lite`, das am 8. Oktober 2026 im Standard-Free-Tier mit kostenlosem Text-Eingang/Ausgang dokumentiert ist. Voraussetzung: **ein Google-AI-Studio-Projekt ohne aktivierte Abrechnung**. Ein API-Schlüssel allein beweist den Tarif nicht. Deshalb bleiben externe KI-Anfragen aus, bis im bestehenden Render-Pushdienst beides hinterlegt ist:
 
 - `GEMINI_API_KEY`: Schlüssel ausschließlich serverseitig als Geheimnis hinterlegen.
 - `BOB_GEMINI_FREE_PROJECT=confirmed-no-billing`: erst setzen, nachdem fehlende Abrechnung beim Projekt bestätigt wurde. Nicht auf einem abgerechneten Projekt aktivieren.
@@ -56,3 +56,5 @@ Standbilder stammen ausschließlich aus öffentlich bereitgestellten YouTube-Sto
 Tests: vollständige Segmentübertragung einschließlich später Aussagen, Pflichtbelege, Zahlenprüfung, unvollständige Antworten, Kostensperre ohne bestätigtes Free-Projekt, Kontingentsperre, Cache-Wiederverwendung, keine Geheimnisse in Fehlern, Host-/Video-Zuordnung und richtige Bildzelle/Zeit.
 
 Quellen: https://ai.google.dev/gemini-api/docs/pricing und https://ai.google.dev/api/generate-content
+
+Modellkorrektur: Neue Google-Projekte erhalten laut offizieller Deprecation-Dokumentation keinen allgemeinen Zugang zu Gemini 2.5. Deshalb verwendet Bob Gemini 3.5 Flash-Lite. Bei geändertem Modell/Transkript darf innerhalb des unveränderten globalen Tageslimits ein neuer Versuch erfolgen; der neue Fingerprint wird bereits vor der Anfrage gespeichert, damit Fehlschläge keine Schleife erzeugen.

@@ -12,7 +12,7 @@ import urllib.error
 from urllib.parse import urlparse
 
 CHANNEL = 'UCsl6Z6p7GOkczo8Cv-GH6Dg'
-MODEL = 'gemini-2.5-flash-lite'
+MODEL = 'gemini-3.5-flash-lite'
 MAX_BYTES = 1000000
 
 
@@ -201,9 +201,9 @@ def handle(connect, payload):
             result['summary'] = row[1]; result['summaryStatus'] = 'KI-Zusammenfassung gespeichert.'
         elif key:
             count = conn.execute("SELECT count(*),count(*) FILTER (WHERE attempted_at>now()-interval '1 minute') FROM bob_research_ai_requests WHERE attempted_at>now()-interval '24 hours'").fetchone()
-            if count[0] < 10 and count[1] == 0 and not (row and row[3]):
+            if count[0] < 10 and count[1] == 0 and not (row and row[0] == fingerprint and row[3]):
                 conn.execute('INSERT INTO bob_research_ai_requests DEFAULT VALUES')
-                conn.execute('UPDATE bob_research_enhancements SET summary_attempt=now() WHERE video_id=%s', (identity,))
+                conn.execute('UPDATE bob_research_enhancements SET summary_attempt=now(),fingerprint=%s,summary=NULL WHERE video_id=%s', (fingerprint, identity))
                 do_summary = True
             else:
                 result['summaryStatus'] = 'KI-Zusammenfassung pausiert: Abruflimit oder Wiederholungspause; vorhandener Überblick bleibt verfügbar.'
