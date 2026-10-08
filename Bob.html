@@ -1670,8 +1670,8 @@ function dxCalc(c,p=14){
  let diP=atrv?100*ap/atrv:0, diM=atrv?100*am/atrv:0;
  return diP+diM?100*Math.abs(diP-diM)/(diP+diM):0;
 }
-function adxCalc(c,p=14){
- if(!Number.isInteger(p)||p<1||c.length<2*p)return 0;
+function dmiCalc(c,p=14){
+ if(!Number.isInteger(p)||p<1||c.length<2*p)return {available:false,plusDI:null,minusDI:null,adx:null};
  const tr=[],plus=[],minus=[];
  for(let i=1;i<c.length;i++){
   const up=c[i].high-c[i-1].high,down=c[i-1].low-c[i].low;
@@ -1685,7 +1685,28 @@ function adxCalc(c,p=14){
  }
  let ad=values.slice(0,p).reduce((a,b)=>a+b,0)/p;
  for(const value of values.slice(p))ad=(ad*(p-1)+value)/p;
- return ad;
+ return {available:true,plusDI:t?100*u/t:0,minusDI:t?100*d/t:0,adx:ad};
+}
+function adxCalc(c,p=14){return dmiCalc(c,p).adx??0;}
+// Shadow-only DMI: no directional score, stop changes or push events.
+function dmiContext(bundle,now=Date.now()){
+ const frames={},steps={'5m':300000,'15m':900000,'1h':3600000};
+ for(const [tf,step] of Object.entries(steps)){
+  const rows=(bundle?.history?.bars_by_tf?.[tf]||[]).filter(b=>!b.isOpen&&Number.isFinite(b.openTime)&&b.openTime+step<=now).sort((a,b)=>a.openTime-b.openTime).slice(-220);
+  const valid=rows.length>=31&&now-rows.at(-1).openTime<=2*step&&rows.every((b,i)=>b.instrument==='XAU/USD'&&!b.estimated&&b.openTime%step===0&&['open','high','low','close'].every(k=>Number.isFinite(b[k])&&b[k]>0)&&b.low<=Math.min(b.open,b.close)&&b.high>=Math.max(b.open,b.close)&&(!i||b.openTime-rows[i-1].openTime===step));
+  if(!valid){frames[tf]={available:false,reason:'Geschlossene, aktuelle und lückenlose Goldkerzen fehlen'};continue;}
+  const current=dmiCalc(rows),previous=dmiCalc(rows.slice(0,-1)),earlier=dmiCalc(rows.slice(0,-3));
+  const gap=current.plusDI-current.minusDI,oldGap=previous.plusDI-previous.minusDI;
+  frames[tf]={...current,barAt:rows.at(-1).openTime,direction:gap>0?'LONG':gap<0?'SHORT':'NEUTRAL',gap,gapChange:gap-oldGap,dominanceChange:Math.abs(gap)-Math.abs(oldGap),adxChange:current.adx-earlier.adx,cross:gap*oldGap<0};
+ }
+ const setup=frames['15m'],hour=frames['1h'];
+ const available=Object.values(frames).every(x=>x.available);
+ const confirmed=available&&setup.direction!=='NEUTRAL'&&setup.direction===hour.direction&&setup.adx>=20&&setup.adxChange>0&&setup.dominanceChange>0;
+ return {version:'dmi-shadow-v1',mode:'shadow',available,frames,direction:confirmed?setup.direction:'NEUTRAL',reason:!available?'DMI-Daten unvollständig':confirmed?setup.direction+' durch DMI bestätigt':setup.cross?'15m-DI-Kreuzung: Gegenbewegung prüfen, kein automatischer Ausstieg':setup.dominanceChange<0?'15m-Richtungsdominanz nimmt ab: Gewinnschutz prüfen':'Keine zusätzliche DMI-Bestätigung',thresholds:{period:14,adx:20},note:'Unbewiesene Testschwelle; kein Einfluss auf Freigabe, Stop oder Push'};
+}
+function dmiSummary(state){
+ const f=n=>Number.isFinite(n)?n.toFixed(1):'—';
+ return 'DMI-VERGLEICH · '+state.reason+'\n'+Object.entries(state.frames).map(([tf,x])=>tf+': '+(x.available?x.direction+' · +DI '+f(x.plusDI)+' / −DI '+f(x.minusDI)+' · ADX '+f(x.adx)+' · Abstand '+f(Math.abs(x.gap))+' · '+(x.dominanceChange>0?'zunehmend':x.dominanceChange<0?'abnehmend':'unverändert'):'Daten fehlen')).join('\n')+'\n'+state.note;
 }
 function confirmedMarketStructure(bars){
  const highs=[],lows=[];
@@ -1926,6 +1947,7 @@ function renderIntraday(){
  text+='\n\nEINSTIEGSLAGE: '+(entry.available?(entry.deviationAtr>1.5?'bereits weit gelaufen · ':entry.direction!=='NEUTRAL'?'günstige Testbedingungen · ':'prüfen · ')+entry.reason:entry.reason);
  if(state.available)text+='\n15m: '+state.setup+' · 5m: '+state.timing+' · 1h-Kontext: '+state.hour+(state.countertrend?' · Gegenbewegung zum 1h-Trend':'')+'\n4h: Hintergrund, kein Veto';
  if(tradeMgmt?.active)text+='\nTrade-Test: '+state.tradeAction+' · '+(state.exitReason||state.reason)+(Number.isFinite(state.suggestedStop)?'\nStop-Vorschlag im Test: '+activeTradeLevel(state.suggestedStop):'');
+ text+='\n\n'+dmiSummary(dmiContext(liveBundleCache));
  out.textContent=text;intradayCache={bundle:liveBundleCache,key:cacheKey};
 }
 
@@ -2853,6 +2875,7 @@ setInterval(()=>{ if(document.visibilityState==="visible"){loadData();syncPushPr
 
 
 </body></html>
+
 
 
 
