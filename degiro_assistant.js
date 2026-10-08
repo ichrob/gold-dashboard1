@@ -214,10 +214,11 @@ function normalizeOcrIsin(value,productText=''){
  const candidate="DE000"+original.slice(-7).replace(/O/g,"0").replace(/I/g,"1");
  // Visually verified user original 1000070573.jpg. Both labelled identifiers
  // and both exact USD terms must agree; this is not general S -> 9 guessing.
+ const identityTerms=normalizeProductTermLayout(productText);
  const bnpTermsContext=/(?:derivate\.bnpparibas\.com|\bBNP\s+PARIBAS\b)/i.test(productText)
   && /\bWKN\s+PJ[SO]NB9\b/i.test(productText)
-  && /Knock[- ]Out\s+Schwelle\s*\(05\.10\.2026\)\s*3\.996,2705\s+USD/i.test(productText)
-  && /Basispreis\s*\(05\.10\.2026\)\s*3\.996,2705\s+USD/i.test(productText)
+  && /Knock-out-Schwelle\s+3\.996,2705\s+USD\s*\(05\.10\.2026\)/i.test(identityTerms)
+  && /Basispreis\s+3\.996,2705\s+USD\s*\(05\.10\.2026\)/i.test(identityTerms)
   && /Typ\s+Unlimited\s+Long/i.test(productText)
   && !/\bSHORT\b|\bPUT\b|FAKTOR|FACTOR/i.test(productText);
  if(['DE000PJSNB98','DE000PJ0NB98'].includes(candidate)&&bnpTermsContext)return {isin:'DE000PJ9NB98',originalIsin:original,identityCorrection:'Produktidentität an BNP-Originalbildern geprüft; WKN und beide USD-Stammdaten stimmen überein'};
