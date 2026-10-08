@@ -1858,7 +1858,20 @@ function renderIntraday(){
  out.textContent=text;intradayCache={bundle:liveBundleCache,key:cacheKey};
 }
 
+let confirmationMemo=null;
 function fiveMinuteConfirmation(bundle,now=Date.now()){
+ // All consumers of a snapshot share the replay. Retain exact expiry behavior,
+ // including the one-millisecond boundary after the last permitted 5m age.
+ const frames=bundle?.history?.bars_by_tf||{};
+ const rows=frames['5m']||[];
+ const latest=Math.max(0,...rows.filter(b=>!b.isOpen&&Number.isFinite(b.openTime)&&b.openTime+300000<=now).map(b=>b.openTime));
+ const key=JSON.stringify([frames['5m'],frames['15m'],Math.floor(now/300000),now-latest>600000]);
+ if(confirmationMemo?.key===key)return JSON.parse(JSON.stringify(confirmationMemo.value));
+ const value=computeFiveMinuteConfirmation(bundle,now);
+ confirmationMemo={key,value:JSON.parse(JSON.stringify(value))};
+ return value;
+}
+function computeFiveMinuteConfirmation(bundle,now=Date.now()){
  const source=bundle?.history?.bars_by_tf||{},steps={'5m':300000,'15m':900000};
  const bars={};
  for(const [tf,step] of Object.entries(steps)){

@@ -158,3 +158,23 @@ References consulted:
 - Fidelity ATR: https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/atr (True Range, Wilder smoothing, volatility not direction).
 - Bailey et al., The Probability of Backtest Overfitting: https://escholarship.org/uc/item/4w1110bb (selection/overfitting risk; no calibration of Bob's parameters).
 - Jin, Performance of intraday technical trading in China's gold market: https://www.sciencedirect.com/science/article/pii/S1042443121001876 (indexed material only; full paper not read; not evidence for an optimal Bob setting).
+
+
+## Live refresh repair — 2026-10-08
+
+Authenticated observation at 03:03–03:05 Zurich found current spot/5m data, stale
+optional minute data and an estimate from 22:03 the previous evening. Exact-contract
+Yahoo reference was available at 03:07, but automatic reference sharing stopped
+at 22:00. Collection now runs all Swiss weekdays, keeping original reference age,
+proxy alignment/gap checks and weekend pause. It is not an exchange-hours claim.
+
+Native 1m history refreshes every 30 seconds (other frames retain 60 seconds).
+Source timestamps and provider-open flags are unchanged; stale or missing native
+minute candles remain unavailable, never fabricated or granted a wider tolerance.
+
+Closed-5m signal replay is memoized across consumers with the full required
+5m/15m content, closed-bar boundary and exact last-bar expiry in its key. Returned
+results are isolated from caller mutation. This removes repeated quadratic replay
+work during one render; all signal rules and study identities remain unchanged.
+Tests cover expiry plus one millisecond, changed data, new close, and browser/worker
+parity. Live UI timing can still be affected by the upstream feed or browser.
