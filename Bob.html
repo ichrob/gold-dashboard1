@@ -530,7 +530,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 </details>
 <details><summary>Quellen und Abrufstatus</summary><div id="goldResearchSources"></div></details>
 <div id="goldResearchItems"></div>
-<details><summary>Methode und Grenzen</summary><p id="goldResearchMethod"></p><p>Die Recherche ist ausschließlich auf Gold-Videos von MCO Markets begrenzt. Mehrere Videos desselben Kanals sind keine unabhängigen Quellen. Bob zeigt kurze Originalaussagen aus tatsächlich gelesenen Untertiteln und ordnet eindeutige Richtungsaussagen mit Textregeln ein. Bedingungen bleiben im Kontext erhalten. Eine KI-Zusammenfassung und Bild-/Chartanalyse sind nicht angebunden.</p><p>Der Abruf läuft alle 15 Minuten, solange Bob läuft. Bei fehlendem oder leerem Transkript bleibt das Video ausdrücklich ungeprüft. Recherche ändert keine Produktfreigabe.</p></details>
+<details><summary>Methode und Grenzen</summary><p id="goldResearchMethod"></p><p>Die Recherche ist ausschließlich auf Gold-Videos von MCO Markets begrenzt. Mehrere Videos desselben Kanals sind keine unabhängigen Quellen. Bob zeigt kurze Originalaussagen aus tatsächlich gelesenen Untertiteln und ordnet eindeutige Richtungsaussagen mit Textregeln ein. Bedingungen bleiben im Kontext erhalten. Der strukturierte Überblick durchsucht das gesamte gelieferte Transkript nach Themen und zeigt ausgewählte Originalsätze mit Belegen. Er ersetzt keine frei formulierte KI-Gesamtzusammenfassung. Videobilder können an Textstellen im Player angesehen werden; eine automatische Bild-/Chartanalyse ist nicht angebunden.</p><p>Der Abruf läuft alle 15 Minuten, solange Bob läuft. Bei fehlendem oder leerem Transkript bleibt das Video ausdrücklich ungeprüft. Recherche ändert keine Produktfreigabe.</p></details>
 </section>
 <script>
 (function(){
@@ -556,14 +556,53 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
      node('small','Video-ID: '+(url.searchParams.get('v')||x.id)),
      node('p','Kursbericht: '+x.trend+' · Ausblick: '+x.outlook+' · Horizont: '+x.horizon),node('p',x.excerpt),node('small',x.reason+(x.articleStatus?' · '+x.articleStatus:'')));
     if(x.listingInfo)box.append(node('p','YouTube-Angabe: '+x.listingInfo));
-    if(x.context)box.append(node('p',(x.contextKind||'Kontext')+': '+x.context));
+    if(x.overview)renderOverview(box,x,url);
+    else if(x.context)box.append(node('p',(x.contextKind||'Kontext')+': '+x.context));
     if(x.transcriptWords)box.append(node('p','Transkript: '+x.transcriptWords+' Wörter · '+x.transcriptLanguage+(x.automaticCaptions?' · automatisch erzeugt':'')));
-    for(const at of x.goldMoments||[]){const jump=node('a','Gold-Stelle '+Math.floor(at/60)+':'+String(at%60).padStart(2,'0')+' ');const target=new URL(x.url);target.searchParams.set('t',String(at));jump.href=target.href;jump.target='_blank';jump.rel='noopener noreferrer';box.append(jump);}
+    for(const at of (x.overview?[]:x.goldMoments)||[]){const jump=node('a','Gold-Stelle '+Math.floor(at/60)+':'+String(at%60).padStart(2,'0')+' ');const target=new URL(x.url);target.searchParams.set('t',String(at));jump.href=target.href;jump.target='_blank';jump.rel='noopener noreferrer';box.append(jump);}
     return box;
    });
    $('goldResearchItems').replaceChildren(...(rows.length?rows:[node('p','Keine passenden Beiträge verfügbar. Fehlende Quellen werden nicht als neutrale Meinung gezählt.')]));
   }catch(e){$('goldResearchStatus').textContent=e.message;$('goldResearchConsensus').textContent='ABWARTEN · Recherche nicht aktuell';$('goldResearchConsensus').className='signal neutral';$('goldResearchCounts').textContent='Vorherige Ergebnisse derzeit nicht bestätigt.';}
   finally{clearTimeout(timer);busy=false;}
+ }
+ function renderOverview(box,item,url){
+  const overview=item.overview, evidence=new Map((overview.evidence||[]).map(e=>[e.id,e]));
+  box.append(node('h4',overview.title),node('p',overview.scope),node('small',overview.method));
+  const topics=node('dl','');
+  for(const section of overview.sections||[]){
+   topics.append(node('dt',section.label));
+   const statements=(section.evidenceIds||[]).map(id=>evidence.get(id)).filter(Boolean);
+   topics.append(node('dd',statements.length?statements.map(e=>e.text).join(' '):'Im Transkript nicht eindeutig erkannt.'));
+  }
+  box.append(topics);
+  const details=node('details','');details.append(node('summary','Originalaussagen und Belegstellen'));
+  function videoLink(at,label){const a=node('a',label),target=new URL(url);target.searchParams.set('t',String(at));a.href=target.href;a.target='_blank';a.rel='noopener noreferrer';return a;}
+  for(const e of evidence.values()){
+   details.append(node('blockquote',e.text));
+   if(Number.isInteger(e.at)&&e.at>=0)details.append(videoLink(e.at,'Videostelle '+Math.floor(e.at/60)+':'+String(e.at%60).padStart(2,'0')));
+  }
+  box.append(details);
+  const id=url.hostname==='www.youtube.com'?url.searchParams.get('v'):null;
+  if(!/^[A-Za-z0-9_-]{11}$/.test(id||''))return;
+  const moments=(overview.moments||[]).filter(m=>Number.isInteger(m.at)&&m.at>=0&&m.at<=86400).slice(0,3);
+  if(!moments.length)return;
+  const visual=node('details','');visual.append(node('summary','Videobilder an passenden Stellen ansehen'));
+  visual.append(node('p','Echte Videobilder im YouTube-Player, keine gespeicherten Standbilder. Die Stellen wurden anhand des Textes ausgewählt; ob dort die passende Chartansicht sichtbar ist, wurde nicht geprüft. YouTube wird erst beim Anklicken geladen.'));
+  const player=node('div','');
+  for(const m of moments){
+   const stamp=Math.floor(m.at/60)+':'+String(m.at%60).padStart(2,'0');
+   const row=node('p',''),button=node('button',m.label+' · '+stamp+' im Video ansehen');button.type='button';
+   button.addEventListener('click',()=>{
+    const frame=document.createElement('iframe');frame.title=item.title+' – '+m.label+' ab '+stamp;
+    frame.src='https://www.youtube-nocookie.com/embed/'+id+'?start='+m.at+'&autoplay=0&rel=0&playsinline=1';
+    frame.width='640';frame.height='360';frame.style.cssText='width:100%;min-height:200px;aspect-ratio:16/9;border:0';
+    frame.referrerPolicy='strict-origin-when-cross-origin';frame.allow='fullscreen; picture-in-picture';frame.allowFullscreen=true;
+    player.replaceChildren(frame,node('p','Wiedergabe starten, um die Stelle zu sehen. Falls das Einbetten gesperrt ist, über den YouTube-Link öffnen.'));
+   });
+   row.append(button,document.createTextNode(' '),videoLink(m.at,'Auf YouTube öffnen'));visual.append(row);
+  }
+  visual.append(player);box.append(visual);
  }
  function showCandidates(rows){
   $('youtubeResearchCandidates').replaceChildren(...rows.slice(0,8).map(row=>{

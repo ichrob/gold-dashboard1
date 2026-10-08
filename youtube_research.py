@@ -116,6 +116,9 @@ def assess(segments, language, automatic=False):
         automaticCaptions=automatic,mentions=bool(re.search(r'\bgold\b|xau\s*/?\s*usd|goldpreis',text,re.I)),
         goldMoments=moments,coverage='Untertitel (automatische Textregeln)',
         reason=('Gesprochener Inhalt anhand '+('automatischer' if automatic else 'veröffentlichter')+' Untertitel regelbasiert geprüft. Keine Bild-/Chartanalyse und keine KI-Sprachanalyse. Erkennungsfehler möglich.' if supported else 'Untertitel abgerufen; Sprache wird noch nicht ausgewertet. Keine Richtungsstimme.'))
+    if supported:
+        from research_overview import overview
+        result['overview']=overview(segments,language)
     if not supported:result['transcriptAnalyzed']=False
     return result
 
@@ -214,6 +217,9 @@ def manual(payload):
         language=payload.get('language','en')
         if language not in ('en','de'):raise ValueError('Bitte Deutsch oder Englisch auswählen')
         result=assess([{'at':0,'text':text}],language)
+        if result.get('overview'):
+            result['overview']['moments']=[]
+            for evidence in result['overview']['evidence']:evidence['at']=None
         result.update(title=metadata['title'],channelId=metadata['channelId'],publisher='MCO Markets',coverage='Eingefügtes Transkript (Zuordnung ungeprüft)',goldMoments=[],checkedAt=time.time())
     else:result=analyze(url)
     item=dict(id='youtube-'+identity,sourceId='manual-youtube',publishedAt=None,current=False,kind='YouTube',excerpt='',trustedTranscript=False)
