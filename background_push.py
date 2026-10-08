@@ -246,7 +246,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     target = old.get('target')
     target_hit = positive(target) and (p>=target if long else p<=target)
     if target_hit and not old.get('targetSent'):
-        add('target', 'TRADE-WARNUNG · Ziel erreicht', f"{t['dir']} · Ziel {level_text(t,target)} anhand Goldreferenz erreicht. Ausstieg/Stop prüfen.")
+        add('target', 'TRADE-WARNUNG · Ziel erreicht', f"{t['dir']} · Ziel {level_text(t,target)} anhand Goldreferenz erreicht. {('Haupttrend intakt: Fortsetzung mit geschütztem Stop prüfen.' if trend_intact else 'Fortsetzung nicht bestätigt: Gewinnschutz und Stop prüfen; kein automatischer Ausstieg.')}")
         old['targetSent'] = True
     if healthy and not trend_intact and direction in ('LONG','SHORT') and direction != t['dir'] and direction != old.get('opposite'):
         add('reversal', 'TRADE-WARNUNG · Richtungswechsel', f"Bestätigtes {direction}-Signal gegen deinen {t['dir']}-Trade. Schließen prüfen.")
@@ -285,13 +285,14 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
               isinstance(macd,(int,float)) and isinstance(signal,(int,float)) and
               (macd>=signal and market.get('score',0)>=70 if long else macd<=signal and market.get('score',100)<=30))
     strong = (main_trend.get('phase') == 'CONTINUATION') if trend_intact else strong
-    if target_hit and strong and positive(candidate) and positive(bar) and bar>old.get('targetBarAt',0):
+    target_plan = market.get('suggestedTargetPlan') or {}
+    if target_hit and strong and target_plan.get('entrySuitable') is not False and positive(candidate) and positive(bar) and bar>old.get('targetBarAt',0):
         step=max(risk*.5, (market.get('atr') or 0)*.5)
         beyond = candidate>=max(p,target)+step if long else candidate<=min(p,target)-step
         if beyond:
             old.update(target=candidate,targetSent=False,targetBarAt=bar)
             add('target-extension','TRADE-PLAN · Ziel erreicht – neues Ziel',
-                f"{t['dir']} · Bisheriges Ziel erreicht. Neues Ziel {level_text(t,candidate)}; Stop {level_text(t,old['stop'])}. {('Haupttrend-Fortsetzung durch geschlossene Kerze bestätigt' if trend_intact else 'Richtung, MTF und Momentum weiter bestätigt')}. Vorschlag bei DEGIRO selbst übernehmen.")
+                f"{t['dir']} · Bisheriges Ziel erreicht. Neues Ziel {level_text(t,candidate)}; Stop {level_text(t,old['stop'])}. {('Haupttrend-Fortsetzung durch geschlossene Kerze bestätigt' if trend_intact else 'Richtung, MTF und Momentum weiter bestätigt')}. Vorschlag bei DEGIRO selbst übernehmen. {target_plan.get('warning','')}")
     estimated_now=product_price(t.get('product'),p)
     product_in_profit=not t.get('product') or (estimated_now is not None and estimated_now>t['product']['entry'])
     weak = not trend_intact and (main_trend.get('phase') == 'WEAKENING' or mtf != t['dir'] or (market.get('score',50)<65 if long else market.get('score',50)>35))
@@ -332,3 +333,4 @@ def compose_events(events):
     if any(e['data']['kind'] == 'trade' for e in ordered):
         message['data']['kind'] = 'trade'
     return message
+
