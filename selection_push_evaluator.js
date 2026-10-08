@@ -29,7 +29,7 @@ function evaluate(input,now=Date.now()){
   duration=lo;
  }
  const products=duration>=5000?candidates.map(p=>({isin:p.isin,name:p.name,direction:p.direction,scope:p.scope,estimated:!!p.estimated,quoteAt:p.at||p.rankingQuoteAt||p.quote?.quoteAt||null,reasons:p.reasons||[]})):[];
- return {products,checkedAt:now,expiresAt:now+duration,reasons:duration<5000?['Pflichtnachweise laufen in wenigen Sekunden ab']:flow.gateReasons.length?flow.gateReasons:flow.notApproved.flatMap(p=>p.reasons).slice(0,3)};
+ return {products,gateReasons:flow.gateReasons,productIssues:flow.notApproved.map(p=>({isin:p.isin,reasons:p.reasons})),checkedAt:now,expiresAt:now+duration,reasons:duration<5000?['Pflichtnachweise laufen in wenigen Sekunden ab']:flow.gateReasons.length?flow.gateReasons:flow.notApproved.flatMap(p=>p.reasons).slice(0,3)};
 }
 module.exports={evaluate};
 if(require.main===module){try{process.stdout.write(JSON.stringify(evaluate(JSON.parse(fs.readFileSync(0,'utf8')))));}catch(e){process.stderr.write(String(e.message));process.exitCode=1;}}
