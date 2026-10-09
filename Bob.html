@@ -780,6 +780,14 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 </main>
 <script src="/push_manager.js"></script>
 <script src="/degiro_assistant.js?v=20261008-manual-trade-test-v4"></script>
+<script src="/real_trade_journal.js"></script>
+<section class="card" id="realTradeJournal">
+<h2>Echter Trade</h2>
+<p class="small">Ab Erfassung in Bob: Trade-Plan, Produktwerte, Marktbeobachtungen, Empfehlungen und Push-Versand. Die Aufzeichnung läuft nach Serverbestätigung auch bei geschlossener App. Probeläufe bleiben getrennt.</p>
+<p class="small">Empfehlungen und Modellkurse sind keine ausgeführten Orders. „In Bob beendet“ bestätigt keinen Verkauf bei DEGIRO. Nach Beendigung kannst du Kaufkurs, Verkaufskurs, Stückzahl und Kosten ergänzen. Erst damit wird ein Ergebnis nach eingetragenen Kosten berechnet; keine automatische DEGIRO-Abrechnung. Push-Annahme durch den Dienst bestätigt keinen Empfang am Handy. Fehlende Beobachtungen lassen sich nicht rückwirkend ergänzen.</p>
+<div id="realTradeStatus" role="status">Neue echte Trades werden bei Aktivierung automatisch protokolliert.</div>
+<button id="realTradeLoad" type="button">Echte Trades laden</button><div id="realTradeList"></div>
+</section>
 <section class="card" id="auditStatistics">
 <h2>Statistik: Treffer und Fehlprognosen</h2>
 <div id="auditStatisticsStatus" class="small" role="status">Statistik wird geladen …</div>
@@ -1067,7 +1075,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   fold(document.querySelector('button[onclick="activateTestTrade()"]'),'Testfunktionen');
   const legacyEntry=document.querySelector('button[onclick="setTradeEntry()"]');if(legacyEntry)fold(legacyEntry,'Goldreferenz-Trade · erweiterte Einrichtung');
 
-  for(const id of ['auditStatistics','improvementPanel','auditPanel'])move(byId(id),'learning');
+  for(const id of ['realTradeJournal','auditStatistics','improvementPanel','auditPanel'])move(byId(id),'learning');
   fold(byId('auditStatistics')?.querySelector(':scope > div.small:not([id])'),'Was bedeuten Treffer und Fehlprognosen?');fold(byId('improvementPanel')?.querySelector(':scope > div.small:not([id])'),'Wie Bob Verbesserungen prüft');
   move(byId('goldResearchPanel'),'research');
   move(byId('fourDayPanel'),'learning');
@@ -1230,7 +1238,7 @@ async function closeTrade(){
  const entry=tradeMgmt.entry, exit=+$("tradePrice").value||lastPrice;
  const msg=entry&&exit ? "Trade geschlossen. Einstieg "+Number(entry).toFixed(2)+" USD/oz · aktueller Kurs "+Number(exit).toFixed(2)+" USD/oz." : "Trade geschlossen.";
  if(pushState.trade)await notifyTrade("Bob – Trade geschlossen",msg);
- tradeMgmt.active=false;saveTradeMgmt();
+ tradeMgmt.closedAt=new Date().toISOString();tradeMgmt.closeGoldReference=exit;tradeMgmt.active=false;saveTradeMgmt();
  pushState=BobPush.setActiveTrade(false);renderPush();await syncPushPreferences();
  $("stopPanel").innerHTML="Trade geschlossen. Management-Pushs sind wieder gesperrt.";
  $("stopUpdate").textContent=msg;
@@ -1253,7 +1261,11 @@ async function notify(kind,title,body,data={}){
  return sent;
 }
 async function notifyGeneral(title,body){return notify("general",title,body)}
-async function notifyTrade(title,body,data={}){return notify("trade",title,body,data)}
+async function notifyTrade(title,body,data={}){
+ const at=new Date().toISOString();window.BobRealTrades?.capture(tradeMgmt,{at,title,body,data,status:'notification-requested'});
+ const sent=await notify("trade",title,body,data);
+ window.BobRealTrades?.capture(tradeMgmt,{at,title,body,data,status:sent?'notification-path-reported-success':'not-sent-or-suppressed',note:'Kein Empfangsnachweis'});return sent;
+}
 async function testPush(){
  if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
  const results=[];
@@ -1910,7 +1922,10 @@ let researchLog=[];try{const raw=localStorage.getItem("goldScannerResearch");con
 let tradeMgmt={};try{const raw=localStorage.getItem("goldScannerTradeMgmt");const p=raw?JSON.parse(raw):{};tradeMgmt=p&&typeof p==="object"?p:{}}catch(e){console.warn("trade state reset",e)}
 let signalState={dir:"NEUTRAL",pending:"NEUTRAL",count:0};
 function saveResearch(){localStorage.setItem("goldScannerResearch",JSON.stringify(researchLog));}
-function saveTradeMgmt(){localStorage.setItem("goldScannerTradeMgmt",JSON.stringify(tradeMgmt));renderActiveTradePlan();renderPositionStatus();}
+function saveTradeMgmt(){
+ if(tradeMgmt.active&&!tradeMgmt.test)tradeMgmt.tradeId=tradeMgmt.tradeId||tradeMgmt.fibonacciMonitor?.tradeId||('trade-'+crypto.randomUUID());
+ if(tradeMgmt.tradeId&&!tradeMgmt.test)window.BobRealTrades?.capture(tradeMgmt);
+ localStorage.setItem("goldScannerTradeMgmt",JSON.stringify(tradeMgmt));renderActiveTradePlan();renderPositionStatus();}
 function currentRegime(){
  if(!C.length||!A.at)return "UNBEKANNT";
  const atrPct=(A.at/(A.signalPrice||C.at(-1).close))*100, ad=A.adx||0;

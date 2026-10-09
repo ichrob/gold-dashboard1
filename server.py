@@ -851,6 +851,20 @@ class Handler(BaseHTTPRequestHandler):
             return
         # Public read-only app resources. No credentials or secrets are returned here.
         # This is required for normal PWA/browser fetch behavior after the initial protected page load.
+        if path == "/real_trade_journal.js":
+            try:
+                body = (BASE_DIR / "real_trade_journal.js").read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/javascript; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
+            except OSError:
+                self.send_response(404)
+                self.end_headers()
+            return
+
         if path == "/push_manager.js":
             try:
                 body = PUSH_MANAGER_JS.encode("utf-8")
@@ -1202,7 +1216,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        if path in ("/api/audit/read", "/api/audit/write", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences") and not worker_ok and (not self.authenticated()):
+        if path in ("/api/real-trades/read", "/api/real-trades/write", "/api/audit/read", "/api/audit/write", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences") and not worker_ok and (not self.authenticated()):
             self.send_response(401)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -1210,7 +1224,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         path = urlparse(self.path).path
-        if path not in ("/api/audit/read", "/api/audit/write", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences"):
+        if path not in ("/api/real-trades/read", "/api/real-trades/write", "/api/audit/read", "/api/audit/write", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences"):
             self.send_response(404)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -1234,6 +1248,8 @@ class Handler(BaseHTTPRequestHandler):
             if not base.startswith("http://") and not base.startswith("https://"):
                 base = "http://" + base
             relay_path = {
+                "/api/real-trades/read": "/real-trades/read",
+                "/api/real-trades/write": "/real-trades/write",
                 "/api/audit/read": "/decision-audit/read",
                 "/api/audit/write": "/decision-audit/write",
                 "/api/push/test-background": "/test-background",

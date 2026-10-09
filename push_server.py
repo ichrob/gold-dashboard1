@@ -13,6 +13,7 @@ import research_transcript_provider
 import research_enhancements
 import bob_market_store
 import bob_validation_store
+import real_trade_journal
 import decision_audit
 import stop_target_audit
 import paper_simulation
@@ -88,6 +89,7 @@ def _init_db_once():
         research_enhancements.init(conn)
         bob_validation_store.init(conn)
         decision_audit.init(conn)
+        real_trade_journal.init(conn)
         conn.execute("""
           CREATE TABLE IF NOT EXISTS subscriptions (
             id BIGSERIAL PRIMARY KEY,
@@ -341,6 +343,16 @@ def run_background(bundle):
                     delivered=False
                     if getattr(getattr(exc,'response',None),'status_code',None) in (404,410):
                         conn.execute('DELETE FROM subscriptions WHERE id=%s',(sid,))
+            if events and (settings.get('trade') or {}).get('tradeId'):
+                try:
+                    with conn.transaction():
+                        real_trade_journal.event(conn,settings['trade']['tradeId'],'push-delivery',
+                            {'at':int(time.time()*1000),'events':events,'message':message,
+                             'outcome':'provider-accepted' if delivered else 'delivery-failed',
+                             'note':'Annahme durch Push-Dienst bestätigt keinen Empfang am Handy'},
+                            str(sid)+':'+str(time.time_ns()))
+                except Exception as exc:
+                    print('BOB_REAL_TRADE push_log_failed='+type(exc).__name__,flush=True)
             if delivered:
                 state['checkedAt']=int(time.time()*1000)
                 conn.execute('UPDATE subscriptions SET background_state=%s::jsonb WHERE id=%s',(json.dumps(state),sid))
@@ -350,6 +362,10 @@ def run_background(bundle):
                     sent += deliver_product_selection(conn,(sid,sub,selection),checked)
                 except Exception as exc:
                     print('BOB_BACKGROUND selection_failed='+type(exc).__name__,flush=True)
+        try:
+            with conn.transaction():real_trade_journal.observe(conn,bundle)
+        except Exception as exc:
+            print('BOB_REAL_TRADE error='+type(exc).__name__,flush=True)
         # A single independent campaign, even with no devices subscribed to Push.
         now=int(time.time()*1000)
         if intraday_comparison.active(now):
@@ -411,6 +427,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         try:
+            if path in ('/real-trades/read','/real-trades/write'):
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'});return
+                payload=json_body(self)
+                with db() as conn:
+                    result=real_trade_journal.handle(conn,path.rsplit('/',1)[-1],payload)
+                    conn.commit()
+                send_json(self,200,result);return
             if path in ('/decision-audit/read','/decision-audit/write'):
                 supplied=self.headers.get('X-Bob-Push-Token','')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
