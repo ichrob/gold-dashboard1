@@ -392,7 +392,7 @@ try{
 <div class="small chart-status" id="chartViewStatus" aria-live="polite"></div>
 <div class="chart-frame"><canvas id="chart" width="800" height="300" aria-label="Preisverlauf: waagerecht Schweizer Zeit, senkrecht Preis in USD"></canvas></div>
 <div id="chartDayExtremes" class="small" aria-live="polite" style="margin:8px 0"></div>
-<div id="chartSelection" class="small" role="status" aria-live="polite" style="min-height:2.5em;margin:8px 0">Kerze oder Kurvenpunkt antippen, um Datum und Uhrzeit anzuzeigen.</div>
+<div id="chartSelection" class="small" role="status" aria-live="polite" style="min-height:2.5em;margin:8px 0">Kerze oder Kurvenpunkt antippen, um Datum, Uhrzeit und Schlusskurs anzuzeigen.</div>
 <div class="chart-overlays"><label><input id="chartShowFib" type="checkbox" checked onchange="saveChartView();draw()"> <span>Fibonacci</span></label><label><input id="chartShowTargets" type="checkbox" checked onchange="saveChartView();draw()"> <span>Kursziele</span></label></div><details class="chart-details"><summary>Fibonacci &amp; Kursziele erklären</summary><div id="chartFib" class="small">Fibonacci: noch keine bestätigten Level.</div><div id="chartFibExplanation" class="research">Fibonacci: noch keine bestätigten Level.</div></details>
 <details class="chart-details"><summary>Datenquelle &amp; Zeitstempel</summary><div class="small" id="chartRangeInfo" aria-live="polite"></div><div id="chartLatest" class="small" aria-live="polite">Letzter Preis: — · Kurszeit: —</div><div id="chartHistoryInfo" class="small"></div><p class="small">Die Chart-Auswahl ändert nur die Darstellung. Analyse und Trade-Überwachung behalten ihre Einstellung.</p></details></div>
 
@@ -1346,7 +1346,7 @@ function draw(a){
  const dpr=window.devicePixelRatio||1;cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);
  ctx.clearRect(0,0,w,h);
  chartHitMap=null;
- $("chartSelection").textContent="Kerze oder Kurvenpunkt antippen, um Datum und Uhrzeit anzuzeigen.";
+ $("chartSelection").textContent="Kerze oder Kurvenpunkt antippen, um Datum, Uhrzeit und Schlusskurs anzuzeigen.";
  renderMinuteEntry();
  const tf=$('chartTf').value, candles=$('chartType').value==='candles';
  document.querySelectorAll('[data-chart-type]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.chartType===$('chartType').value)));
@@ -1442,7 +1442,7 @@ function draw(a){
  if(chosen){
   const at=Number(chosen.openTime),px=x(at);
   ctx.strokeStyle='#2563eb';ctx.lineWidth=2;ctx.setLineDash([4,3]);ctx.beginPath();ctx.moveTo(px,top);ctx.lineTo(px,bottom);ctx.stroke();ctx.setLineDash([]);
-  $('chartSelection').textContent=(candles?'Ausgewählte Kerze: ':'Ausgewählter Kurvenpunkt: ')+rangeDate(at)+' – '+rangeDate(at+chartStep)+' Uhr (Schweizer Zeit)';
+  $('chartSelection').textContent=(candles?'Ausgewählte Kerze: ':'Ausgewählter Kurvenpunkt: ')+rangeDate(at)+' – '+rangeDate(at+chartStep)+' Uhr (Schweizer Zeit) · Schlusskurs: '+priceLabel(Number(chosen.close))+' USD je Feinunze';
  }else chartSelected=null;
  const last=v.at(-1),lastY=y(Number(last.close));
  ctx.strokeStyle="#94a3b8";ctx.lineWidth=1;ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(left,lastY);ctx.lineTo(right,lastY);ctx.stroke();ctx.setLineDash([]);
