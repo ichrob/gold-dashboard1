@@ -593,7 +593,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const rows=r.items.map(x=>{
     const box=node('article','');box.className='research';box.style.marginTop='12px';
     const a=node('a',x.title);const url=new URL(x.url);if(url.protocol==='https:'){a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';}
-    const published=x.publishedAt?date(x.publishedAt):(x.publishedRelative?'ungefähr '+x.publishedRelative+' (YouTube-Angabe beim Abruf '+date(x.publishedRelativeObservedAt||x.checkedAt)+')':'Zeitpunkt unbekannt');
+    const exactPublication=x.publishedAt||(typeof x.publishedDate==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(x.publishedDate)?Date.parse(x.publishedDate)/1000:null);
+    const published=exactPublication?date(exactPublication)+' (Zürich)':(/^\d{4}-\d{2}-\d{2}$/.test(x.publishedDate||'')?x.publishedDate.split('-').reverse().join('.')+' · Uhrzeit nicht verfügbar':x.publishedRelative?'ungefähr '+x.publishedRelative+' · genaues Datum und Uhrzeit nicht verfügbar':'Datum und Uhrzeit nicht verfügbar');
     box.append(a,node('p',x.publisher+' · '+x.kind+' · veröffentlicht '+published+' · '+x.coverage+(x.current?' · innerhalb 24 Stunden':x.publishedAt?' · nicht aktuell':' · genaue Aktualität nicht bestätigt')),
      node('small','Video-ID: '+(url.searchParams.get('v')||x.id)),
      node('p','Kursbericht: '+x.trend+' · Ausblick: '+x.outlook+' · Horizont: '+x.horizon),node('p',x.excerpt),node('small',x.reason+(x.articleStatus?' · '+x.articleStatus:'')));
@@ -606,9 +607,11 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     else if(x.context)box.append(node('p',(x.contextKind||'Kontext')+': '+x.context));
     if(x.transcriptWords)box.append(node('p','Transkript: '+x.transcriptWords+' Wörter · '+x.transcriptLanguage+(x.automaticCaptions?' · automatisch erzeugt':'')));
     for(const at of (x.overview?[]:x.goldMoments)||[]){const jump=node('a','Gold-Stelle '+Math.floor(at/60)+':'+String(at%60).padStart(2,'0')+' ');const target=new URL(x.url);target.searchParams.set('t',String(at));jump.href=target.href;jump.target='_blank';jump.rel='noopener noreferrer';box.append(jump);}
-    const id=videoKey(x),entry=node('details',''),heading=node('summary',(readVideos.has(id)?'':'Neu · ')+x.title);
+    const id=videoKey(x),entry=node('details',''),heading=node('summary',''),headingTitle=node('span',(readVideos.has(id)?'':'Neu · ')+x.title),publication=node('small','Veröffentlicht: '+published);
+    publication.style.cssText='display:block;font-weight:400;margin-top:4px';
+    heading.append(headingTitle,publication);
     entry.append(heading,box);
-    entry.addEventListener('toggle',()=>{if(entry.open){markVideoRead(id);heading.textContent=x.title;}});
+    entry.addEventListener('toggle',()=>{if(entry.open){markVideoRead(id);headingTitle.textContent=x.title;}});
     return entry;
    });
    $('goldResearchItems').replaceChildren(...(rows.length?rows:[node('p','Keine passenden Beiträge verfügbar. Fehlende Quellen werden nicht als neutrale Meinung gezählt.')]));
