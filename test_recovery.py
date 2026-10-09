@@ -112,7 +112,7 @@ class RecoveryTests(unittest.TestCase):
         h=Handler();h.command='GET';h.path='/reset-password?token='+'x'*43
         with patch.object(r,'configured',return_value=True),patch.object(r,'rpc') as rpc:
             r.route(h,'user');rpc.assert_not_called();self.assertEqual(h.status,200)
-            self.assertEqual(h.response_headers['Referrer-Policy'],'no-referrer')
+            self.assertEqual(h.response_headers['Referrer-Policy'],'strict-origin')
     def test_login_new_password_and_session(self):
         a.PENDING['test-csrf']=time.time()+60
         h=Handler({'csrf':'test-csrf','username':'user','password':'new-secure-password'})

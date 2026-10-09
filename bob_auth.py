@@ -117,7 +117,7 @@ def send(handler, status, body=b'', location=None, cookies=()):
     handler.send_header('Cache-Control', 'no-store')
     handler.send_header('X-Content-Type-Options', 'nosniff')
     handler.send_header('X-Frame-Options', 'DENY')
-    handler.send_header('Referrer-Policy', 'no-referrer')
+    handler.send_header('Referrer-Policy', 'strict-origin')
     handler.send_header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
     if location:
         handler.send_header('Location', location)
