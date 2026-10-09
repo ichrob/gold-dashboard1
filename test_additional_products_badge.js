@@ -1,0 +1,16 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const source=fs.readFileSync('degiro_assistant.js','utf8');
+const ctx={Date,knockoutStatus:p=>p.knockedOut,productDirectionDataState:p=>p.state};
+vm.createContext(ctx);
+vm.runInContext(source.slice(source.indexOf('function compactProductExclusion('),source.indexOf('function compactProductCard(')),ctx);
+const good={isin:'DE000FC1CHB7',state:{blocked:false,stale:false}};
+const ended={isin:'DE000FC1CHB7',quote:{isin:'DE000FC1CHB7',productVerified:true,metadata:{status:2}},state:{blocked:true}};
+assert(ctx.additionalProductsComplete([good,ended]));
+assert(ctx.additionalProductsComplete([good,{name:'Faktor Gold',state:{blocked:true}}]));
+assert(ctx.additionalProductsComplete([good,{knockedOut:true,state:{blocked:true}}]));
+assert(!ctx.additionalProductsComplete([good,{state:{blocked:true,stale:false}}]));
+assert(!ctx.additionalProductsComplete([good,{state:{blocked:false,stale:true}}]));
+assert(!ctx.additionalProductsComplete([ended]));
+assert(!ctx.additionalProductsComplete([]));
+assert(ctx.additionalProductsComplete([good,{...good}]));
+console.log('Additional products badge: open, ended, factor, KO, missing, stale and empty cases passed');
