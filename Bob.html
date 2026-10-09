@@ -850,7 +850,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const st=r.stats;
    text('paperStats',r.day+' · Tagesanfang '+paperMoney(st.openingCapital)+' · letzter Kapitalstand '+paperMoney(st.capital)+' · Tagesgewinn/-verlust '+paperMoney(st.dayProfit)+'\n'+(st.closed||0)+' abgeschlossene / '+(st.inconclusive||0)+' unklare Fälle. Goldplan: '+(st.goldPositive||0)+' positiv / '+(st.goldNegative||0)+' negativ / '+(st.goldFlat||0)+' unverändert.\nProdukt-Bruttovergleich: '+(st.productKnown||0)+' auswertbar · '+(st.productPositive||0)+' positiv / '+(st.productNegative||0)+' nicht positiv. Keine Nettogewinn- oder Erfolgsbehauptung.\n'+(st.lastWait?'Letzter Prüfstand: '+st.lastWait:'Noch keine echten Simulationsfälle für diesen Tag.')+'\nFalldetails: höchstens '+r.detailsLimit+' neueste Fälle; rollierend '+r.detailRetentionDays+' Tage. Tagesstatistik bleibt erhalten.');
    const host=document.getElementById('paperCases');host.replaceChildren();r.cases.forEach(caseRecord=>renderPaperCase(caseRecord,host));
-   const demo=document.getElementById('paperDemo');demo.replaceChildren();renderPaperCase(r.demonstration,demo);
+   const demo=document.getElementById('paperDemo');demo.replaceChildren();for(const c of (r.demonstrations||[r.demonstration])){const label=document.createElement('p');label.textContent=c.scenarioName?((c.checkPassed?'✓ Bestanden · ':'✗ Prüfen · ')+c.scenarioName):'LONG-Probelauf';demo.append(label);renderPaperCase(c,demo);}
    text('paperRules',r.note);text('paperDaily',JSON.stringify(r.daily,null,2));
    const days=document.getElementById('paperCapitalDays');days.replaceChildren();
    for(const row of r.daily.slice(0,14)){
@@ -2988,6 +2988,7 @@ setInterval(()=>{ if(document.visibilityState==="visible"){loadData();syncPushPr
 
 
 </body></html>
+
 
 
 
