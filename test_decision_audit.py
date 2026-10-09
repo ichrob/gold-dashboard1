@@ -95,7 +95,7 @@ class ReportCoalescingTests(unittest.TestCase):
  def test_report_query_is_bounded_for_interactive_reads(self):
   from unittest.mock import Mock,patch
   conn=Mock();rows=[]
-  conn.execute.side_effect=[Mock(fetchall=lambda:rows),Mock(fetchone=lambda:(0,))]
+  conn.execute.side_effect=[Mock(fetchall=lambda:rows),Mock(fetchall=lambda:[]),Mock(fetchone=lambda:(0,))]
   with patch.object(a,'harvest') as harvest,patch.object(a.intraday_comparison,'report',return_value={}):
    result=a._build_report(conn)
   harvest.assert_not_called()

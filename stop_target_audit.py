@@ -52,7 +52,7 @@ def register(conn, decision_id, record):
                     plan={k: plan.get(k) for k in ('kind','direction','entry','stop','target','unit','isin')})
     key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     start = datetime.fromtimestamp(now / 1000, timezone.utc)
-    result = dict(version=VERSION, status='pending', note=NOTE, samples=0,
+    result = dict(version=VERSION, lifecycleEnabled=plan.get('kind')=='candidate', status='pending', note=NOTE, samples=0,
                   modelOnly=True, productReturnKnown=False)
     conn.execute('''INSERT INTO bob_stop_target_tests(id,decision_id,started_at,ends_at,plan,result)
         VALUES(%s,%s,%s,%s,%s::jsonb,%s::jsonb) ON CONFLICT(id) DO NOTHING''',
@@ -114,14 +114,18 @@ def harvest(conn):
     if time.monotonic() - _last_check < 30:
         return
     # Small batches outside report reads; skip plans another worker is handling.
-    rows = conn.execute('''SELECT id,started_at,ends_at,plan FROM bob_stop_target_tests
+    rows = conn.execute('''SELECT id,started_at,ends_at,plan,result FROM bob_stop_target_tests
         WHERE complete=FALSE ORDER BY checked_at NULLS FIRST LIMIT 20 FOR UPDATE SKIP LOCKED''').fetchall()
     now = datetime.now(timezone.utc)
-    for key, start, end, plan in rows:
+    for key, start, end, plan, saved in rows:
         points = conn.execute('''SELECT quote_at,price FROM bob_spot_observations
             WHERE stream='gold-api-xau-usd-v1' AND quote_at >= %s AND quote_at <= %s
             ORDER BY quote_at''',(start,min(end,now))).fetchall()
         result = evaluate(plan,start,end,points,now)
+        if saved.get('lifecycleEnabled'):
+            result['lifecycleEnabled']=True
+            result['lifecycle']={k:evaluate_lifecycle(plan,start,end,points,now,trailing=k=='trailing') for k in ('fixed','trailing')}
+            result['complete']=all(x['complete'] for x in result['lifecycle'].values())
         conn.execute('''UPDATE bob_stop_target_tests SET result=%s::jsonb,checked_at=%s,complete=%s
             WHERE id=%s''',(json.dumps(result),now,result['complete'],key))
     _last_check = time.monotonic()
@@ -138,3 +142,40 @@ def report(conn, start, end):
                 tests=[dict(id=k, decisionId=d, startedAt=s.isoformat(), endsAt=e.isoformat(),
                             plan=p,result=r,checkedAt=c.isoformat() if c else None)
                        for k,d,s,e,p,r,c in rows])
+
+
+def evaluate_lifecycle(plan, start, end, points, now, trailing=False):
+    """Frozen shadow model: stop trails by initial risk after >=1R favorable movement.
+    Test old stop before updating it at the current quote. No inferred fills.
+    """
+    p=dict(plan);risk=abs(p.get('entry',0)-p.get('stop',0))
+    result=dict(version='plan-lifecycle-v1',status='pending',complete=False,
+        samples=0,maxGapSeconds=0,maxAdverseR=0.,maxFavorableR=0.,stopUpdates=0,
+        finalStop=p.get('stop'),directionalR=None,modelOnly=True,
+        policy='1R-Abstand ab +1R, Stop nie lockern' if trailing else 'Ursprünglicher Stop und Ziel')
+    if not valid_plan(p):return {**result,'status':'invalid-plan','complete':True}
+    sign=1 if p['direction']=='LONG' else -1
+    elapsed=min(now,end);previous=start;seen={};peak=0;last=None
+    for at,price in sorted(points):
+        if not start<=at<=elapsed or not isinstance(price,(int,float)) or isinstance(price,bool) or not math.isfinite(price) or price<=0:continue
+        if at in seen and seen[at]!=price:return {**result,'status':'inconclusive','complete':True,'reason':'Widersprüchliche Quellenkurse'}
+        seen[at]=price
+    for at,price in sorted(seen.items()):
+        result['samples']+=1;result['maxGapSeconds']=max(result['maxGapSeconds'],(at-previous).total_seconds());previous=at;last=price
+        move=sign*(price-p['entry'])/risk;peak=max(peak,move)
+        result['maxAdverseR']=max(result['maxAdverseR'],-move)
+        result['maxFavorableR']=max(result['maxFavorableR'],move)
+        hit='stop' if sign*(price-p['stop'])<=0 else 'target' if sign*(price-p['target'])>=0 else None
+        if hit:
+            result.update(status='observed-'+hit,complete=True,observedAt=at.isoformat(),observedPrice=price,firstObserved=hit,directionalR=move)
+            break
+        if trailing and peak>=1:
+            candidate=p['entry']+sign*(peak-1)*risk
+            if sign*(candidate-p['stop'])>0:
+                p['stop']=candidate;result['stopUpdates']+=1;result['finalStop']=candidate
+    if not result['complete']:
+        result['maxGapSeconds']=max(result['maxGapSeconds'],max(0,(elapsed-previous).total_seconds()))
+        if now>=end:result.update(status='no-observed-hit',complete=True,directionalR=sign*(last-p['entry'])/risk if last is not None else None)
+    if result['maxGapSeconds']>MAX_GAP_SECONDS:
+        result.update(status='inconclusive',directionalR=None,reason='Kurslücke über 90 Sekunden; Verlauf nicht vollständig belegt')
+    return result

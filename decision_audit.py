@@ -8,6 +8,7 @@ import time
 import threading
 import copy
 import intraday_comparison
+import signal_review
 import audit_history
 import stop_target_audit
 import paper_simulation
@@ -64,9 +65,11 @@ def normalize(payload, now=None):
     entry=result.get('entryQuality')
     if not isinstance(entry,dict) or entry.get('version')!='entry-quality-v1' or entry.get('direction') not in ('LONG','SHORT','NEUTRAL'):result['entryQuality']=None
     result['marketEvaluable'] = positive(result.get('price')) and at is not None and 0 <= now-at <= 180000
+    result['reviewVariants'] = signal_review.capture(result)
     # Each decision revision is frozen once. Refreshes with unchanged evidence are idempotent.
     identity={k:result[k] for k in ('version','ruleVersion','origin','direction','shadowDirection','intraday','barAt','reason','products','selection','gateReasons','plan')}
     if identity.get('plan'):identity['plan']={k:v for k,v in identity['plan'].items() if k!='at'}
+    identity['reviewVersion']=signal_review.VERSION
     identity['minuteEntryVersion']=(result.get('minuteEntry') or {}).get('version')
     identity['entryQualityVersion']=(result.get('entryQuality') or {}).get('version')
     key=hashlib.sha256(json.dumps(identity,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
@@ -193,6 +196,17 @@ def _build_report(conn):
       (SELECT truth FROM bob_decision_outcomes WHERE decision_id=a.id AND horizon=240)
       FROM bob_decision_audit a ORDER BY a.recorded_at DESC LIMIT %s""",(REPORT_LIMIT,)).fetchall()
     result=summarize([(row[0],row[1:]) for row in rows])
+    current=[(r,t) for r,t in [(row[0],row[1:]) for row in rows] if r.get('ruleVersion')==RULE_VERSION]
+    result['signalDiagnostics']=signal_review.diagnostics(current,outcome)
+    prospective_rows=conn.execute("""SELECT a.payload,o.truth FROM (
+        SELECT DISTINCT ON (date_trunc('hour',recorded_at)) id,payload,recorded_at
+        FROM bob_decision_audit WHERE payload->'reviewVariants'->>'version'='signal-review-v1'
+        AND payload->>'origin'='background' AND payload->>'ruleVersion'=%s
+        AND payload->>'direction' IN ('LONG','SHORT')
+        ORDER BY date_trunc('hour',recorded_at),recorded_at,id
+        ) a LEFT JOIN bob_decision_outcomes o ON o.decision_id=a.id AND o.horizon=60
+        ORDER BY a.recorded_at""",(RULE_VERSION,)).fetchall()
+    result['prospectiveReview']=signal_review.prospective([(r,(None,t,None)) for r,t in prospective_rows],outcome)
     result['fourDayComparison']=intraday_comparison.report(conn)
     result['total']=conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0]
     result['reportRecords']=len(rows)

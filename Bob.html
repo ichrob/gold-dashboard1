@@ -769,6 +769,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <h2>Statistik: Treffer und Fehlprognosen</h2>
 <div id="auditStatisticsStatus" class="small" role="status">Statistik wird geladen …</div>
 <div style="overflow-x:auto"><table style="width:100%;text-align:left;border-collapse:collapse"><caption class="small">Nur auswertbare Richtungen / Produktkurse; Anteil innerhalb der jeweiligen Zeile</caption><thead><tr><th>Prüfung</th><th>Treffer</th><th>Fehlprognose</th><th>Unverändert</th><th>Ausgewertet</th></tr></thead><tbody id="auditStatisticsRows"></tbody></table></div>
+<details><summary>Fehleranalyse · Long und Short</summary><div id="signalDiagnostics" class="small" style="white-space:pre-line">Wird geladen …</div></details>
+<details><summary>Neue Regeln parallel prüfen · ohne Signaländerung</summary><div id="prospectiveReview" class="small" style="white-space:pre-line">Wird geladen …</div></details>
 <div id="auditStatisticsOpen" class="small" style="white-space:pre-line;margin-top:8px"></div>
 <div class="small" style="margin-top:8px">Treffer = späterer Kurs bewegt sich in die vorhergesagte Richtung. Fehlprognose = Gegenbewegung. Beim Produkt zählt der spätere Geldkurs gegenüber dem ursprünglichen Briefkurs. Das ist eine Verlaufsauswertung ohne Gebühren, kein Beweis für einen fehlerfreien Entscheidungsprozess oder einen tatsächlichen Gewinn.</div>
 <details><summary>Recherchequalität und Auswahlvergleich</summary><div id="auditStatisticsResearch" class="small" style="white-space:pre-line"></div></details>
@@ -918,6 +920,10 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    row('Produkt nach 60 Min.',p);
    text('auditStatisticsStatus','Stand: '+new Date().toLocaleString('de-CH')+' · '+r.scope);
    text('auditStatisticsOpen',Object.entries(r.metrics).map(([h,m])=>h+' Min.: '+m.missing+' offen / nicht auswertbar; '+m.neutral+' ABWARTEN-Beobachtungen (nicht in der Trefferquote).').join('\n'));
+   const dg=r.signalDiagnostics;
+   if(dg){text('signalDiagnostics',dg.note+'\n\n'+dg.groups.map(g=>g.horizon+' Min. · '+g.label+': '+g.win+' richtig / '+g.loss+' falsch / '+g.flat+' unverändert / '+g.missing+' nicht auswertbar').join('\n')+'\n\nFehlprognosen (bis 30 Beispiele):\n'+dg.examples.map(e=>new Date(e.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · '+e.direction+' · '+e.horizon+' Min. · '+e.changePct.toFixed(3)+' % in Signalrichtung · '+e.tags.join(', ')+' · '+(e.reason||'Grund nicht gespeichert')).join('\n'));}
+   const pr=r.prospectiveReview;
+   if(pr){const lines=[pr.note,'Validierung ab '+pr.validationDay+' (Zürich). Richtig/falsch wird nur für behaltene Signale gezählt.'];for(const [phase,variants] of Object.entries(pr.phases)){lines.push('\n'+(phase==='validation'?'Spätere Validierung':'Erste Datensammlung'));for(const [key,m] of Object.entries(variants)){lines.push(pr.labels[key]+': '+m.cases+' auswertbar · '+m.kept+' behalten / '+m.filtered+' ausgelassen · '+m.wins+' richtig / '+m.losses+' falsch / '+m.flat+' unverändert · '+m.missing+' nicht auswertbar · vermiedene Fehlrichtungen '+m.avoidedLoss+' / verpasste richtige '+m.missedWin+' · mittlere Richtungsbewegung je Vergleich '+(m.cases?(m.sumPct/m.cases).toFixed(3)+' %':'—'));}}text('prospectiveReview',lines.join('\n'));}
    text('auditStatisticsResearch','Recherche: '+research.observations+' Beobachtungen; '+research.conflicts+' mit Widerspruchshinweis; '+research.missingSourceOrTime+' ohne Quelle oder Abrufzeit. Diese Gruppen können sich überschneiden.\nEin fehlender Widerspruch beweist keine korrekte Recherche. Bestätigte Recherchefehler werden bisher nicht gesondert erfasst.\n\nAuswahlvergleich: '+p.selectedBest+' von '+p.comparisons+' auswertbaren Vergleichen mindestens so gut wie die beobachteten geeigneten Alternativen. Fehlende Alternativkurse zählen nicht mit.');
    const lines=['Gespeicherte Entscheidungen: '+r.total+' · Aufbewahrung '+r.retentionDays+' Tage',r.scope,''];
    for(const [h,m]of Object.entries(r.metrics))lines.push(h+' Minuten: '+m.evaluated+' auswertbare Richtungen, '+m.favorable+' günstig, '+m.unfavorable+' ungünstig, '+m.flat+' unverändert; '+m.neutral+' ABWARTEN-Beobachtungen; '+m.missing+' offen / nicht auswertbar');
@@ -966,6 +972,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
       'Testende: '+dayTime(t.endsAt)+' · zuletzt geprüft: '+(t.checkedAt?dayTime(t.checkedAt):'noch nicht'),
       t.result.observedAt?'Erster beobachteter Treffer: '+(labels['observed-'+t.result.firstObserved]||t.result.firstObserved)+' · '+dayTime(t.result.observedAt)+' · Kurs '+t.result.observedPrice+' USD':'Kein Treffer protokolliert',
       'Kursbeobachtungen: '+t.result.samples+' · größte Lücke: '+(t.result.maxGapSeconds??'—')+' Sekunden',
+      ...Object.entries(t.result.lifecycle||{}).map(([key,v])=>(key==='fixed'?'Fester Plan':'Nachgezogener Test-Stop')+': '+(labels[v.status]||v.status)+' · größte Gegenbewegung '+v.maxAdverseR.toFixed(2)+' R / günstige Bewegung '+v.maxFavorableR.toFixed(2)+' R · Ergebnis '+(v.directionalR==null?'nicht belegt':v.directionalR.toFixed(2)+' R')+' · Stopänderungen '+v.stopUpdates+' · letzter Stop '+v.finalStop+' · '+v.policy),
+      t.result.lifecycle?'R = ursprünglicher Gold-Abstand zum Stop. Separates Modell ab Aktivierung, maximal 4 Stunden. Ziel bleibt fix; beobachteter Kurs ist kein Ausführungskurs. Kein Nachweis der tatsächlichen dynamischen Bob-Tradeführung.':'',
       t.result.reason||'', 'Nur Gold-Modelltest; Ausführung, Produktkosten und Nettogewinn nicht belegt.',
       'Entscheidungsnachweis: '+t.decisionId].filter(Boolean).join('\n');
      d.append(title,body);root.append(d);
