@@ -18,7 +18,11 @@ import test_auth as baseline
 class PersistentLoginTests(unittest.TestCase):
     request = baseline.AuthenticationTests.request
     form = baseline.AuthenticationTests.form
-    setUp = baseline.AuthenticationTests.setUp
+    def setUp(self):
+        baseline.AuthenticationTests.setUp(self)
+        state = patch.object(auth.bob_recovery, 'state', return_value={'passwordHash': None, 'version': 0})
+        state.start()
+        self.addCleanup(state.stop)
     @classmethod
     def setUpClass(cls):
         baseline.AuthenticationTests.setUpClass.__func__(cls)
@@ -164,8 +168,11 @@ class PostgresSessionTests(unittest.TestCase):
     def test_authenticated_http_store_round_trip(self):
         import psycopg
         import push_server
+        import bob_recovery
         dsn=os.environ['BOB_TEST_DATABASE_URL']
-        with psycopg.connect(dsn) as conn:store.init(conn)
+        with psycopg.connect(dsn) as conn:
+            store.init(conn)
+            bob_recovery.init(conn)
         backend=push_server.ThreadingHTTPServer(('127.0.0.1',0),push_server.Handler)
         thread=threading.Thread(target=backend.serve_forever,daemon=True);thread.start()
         token='v1_'+secrets.token_urlsafe(32)

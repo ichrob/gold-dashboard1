@@ -44,7 +44,7 @@ class AuthenticationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b'autocomplete="current-password"', body)
         self.assertIn('no-store', headers['Cache-Control'])
-        self.assertEqual(headers['Referrer-Policy'], 'same-origin')
+        self.assertEqual(headers['Referrer-Policy'], 'strict-origin')
         token = re.search(b'name="csrf" value="([^"]+)"', body)[1].decode()
         return token
 
