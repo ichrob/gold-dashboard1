@@ -2764,7 +2764,7 @@ async function inject(){
  const b=document.createElement("div");
  b.id="dgTop3";
  b.style.cssText="margin-top:14px;padding:16px;background:#f7f9fc;border-radius:20px;border:1px solid #e5eaf2";
- b.innerHTML='<style>#dgTop3 > details,#dgTop3Out > section,#dgTop3Out > details{box-sizing:border-box;min-width:0;margin-top:14px;padding:12px;background:#fff;border:1px solid #e1e7f0;border-radius:16px;overflow-wrap:anywhere}#dgTop3 > details > summary,#dgTop3Out > details > summary{cursor:pointer;font-weight:700}#dgTop3 > details[open] > summary,#dgTop3Out > details[open] > summary{margin-bottom:10px}</style><div style="display:flex;align-items:center;gap:9px"><span style="font-size:25px">🎯</span><div><b style="font-size:18px">DEGIRO-Assistent</b></div></div>'+
+ b.innerHTML='<style>#dgTop3 > details,#dgTop3Out > section,#dgTop3Out > details,#dgApprovalOut > details{box-sizing:border-box;min-width:0;margin-top:14px;padding:12px;background:#fff;border:1px solid #e1e7f0;border-radius:16px;overflow-wrap:anywhere}#dgTop3 > details > summary,#dgTop3Out > details > summary,#dgApprovalOut > details > summary{cursor:pointer;font-weight:700}#dgTop3 > details[open] > summary,#dgTop3Out > details[open] > summary,#dgApprovalOut > details[open] > summary{margin-bottom:10px}</style><div style="display:flex;align-items:center;gap:9px"><span style="font-size:25px">🎯</span><div><b style="font-size:18px">DEGIRO-Assistent</b></div></div>'+
  '<div id="dgTop3Out" style="margin-top:12px"></div>'+
  '<details style="margin-top:12px"><summary id="dgSavedProductsSummary" style="cursor:pointer;font-weight:700">Gold-Hebelprodukte</summary><div id="dgMissingProducts" style="margin-top:12px"></div></details>'+
  '<div id="dgScreenshotReturn" hidden style="margin-top:14px;padding:14px;background:#eaf3ff;border:2px solid #1677ff;border-radius:14px;scroll-margin-top:16px"><b>Screenshots für <span data-return-isin></span></b><p class="small">Bilder werden diesem zuvor geöffneten Produkt zugeordnet, auch wenn ISIN oder WKN im Bild fehlen. Eine eindeutig abweichende Produktkennung wird gemeldet.</p><div data-return-product-link></div><div data-return-missing></div><p class="small">Fehlenden Wert erneut aufnehmen: Produktseite öffnen, Screenshot machen und anschließend hier beim selben Produkt hinzufügen.</p><button type="button" data-return-upload style="width:100%;background:#1677ff">↑ Bilder / PDF für dieses Produkt hinzufügen</button><div class="small" style="margin:8px 0">Originaldateien: lokal auf diesem Gerät, bis zu 7 Tage / insgesamt 100 MB. Nach Erkennungsupdates prüft Bob gespeicherte Dateien erneut. Ursprüngliche Datenstände bleiben erhalten.</div><button type="button" data-return-reprocess>Gespeicherte Bilder erneut prüfen</button><button type="button" data-return-delete>Gespeicherte Originaldateien löschen</button><button type="button" data-return-close>Fertig / ausblenden</button><div role="status" data-return-status style="overflow-wrap:anywhere;min-width:0"></div><div role="status" data-return-complete hidden style="margin-top:12px;font-weight:700;color:#15803d">✅ Datenübertragung komplett</div></div>'+
@@ -2778,7 +2778,7 @@ async function inject(){
  '<div id="dgManualSnapshots" style="margin-top:12px" hidden></div>'+
  '<div id="dgConditionalOut" style="margin-top:12px" hidden></div>'+
  '<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:700">Details / manuelle Kursnachweise</summary><div class="small" style="margin:7px 0">Hier lassen sich Screenshotwerte korrigieren und datierte Stuttgart-/Onvista-Nachweise bedingt auswerten.</div><div id="dgTop3Inputs"></div></details>'+
- '<button style="margin-top:10px;width:100%" id="dgRankBtn">🔎 Analyse erneut ausführen</button>';
+ '<button style="margin-top:10px;width:100%" id="dgRankBtn">🔎 Analyse erneut ausführen</button><div id="dgApprovalOut"></div>';
  a.parentNode.insertBefore(b,a.nextSibling);
  const q=b.querySelector("#dgTop3Inputs");
  for(let i=1;i<=12;i++){
@@ -3013,7 +3013,9 @@ function rankUI(){
  window.BobAudit?.capture(ps,flow,bundle);
  window.BobPaperSimulation?.sync({products:ps,references,fixedBarriers:window.BobCombined.fixedBarriers()});
  window.BobPush?.updateSelection?.({products:ps,context:selectionContext,bundle:{spots:bundle?.spots,fetched_at:bundle?.fetched_at,history:{data_state:bundle?.history?.data_state}},references,fixedBarriers:window.BobCombined.fixedBarriers()},flow);
- const flowHtml=renderContinuingAnalysis(ps,selectionContext)+'<details data-product-details="selection-check"><summary>Freigabeprüfung · '+(flow.approved?flow.approvedCount+' geeignete Produkte':'ABWARTEN')+'</summary>'+renderSelectionWorkflow(flow,ps)+'</details>';if(updateProductHtml(o,flowHtml))bindCompactCards(o);return flow;
+ const flowHtml=renderContinuingAnalysis(ps,selectionContext);if(updateProductHtml(o,flowHtml))bindCompactCards(o);
+ const approvalOut=document.getElementById('dgApprovalOut');
+ const approvalHtml='<details data-product-details="selection-check"><summary>Freigabeprüfung · '+(flow.approved?flow.approvedCount+' geeignete Produkte':'ABWARTEN')+'</summary>'+renderSelectionWorkflow(flow,ps)+'</details>';if(approvalOut&&updateProductHtml(approvalOut,approvalHtml))bindCompactCards(approvalOut);return flow;
 
 }
 
