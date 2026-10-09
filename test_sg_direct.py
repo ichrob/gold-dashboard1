@@ -30,7 +30,7 @@ class DirectTests(unittest.TestCase):
         self.assertEqual(out['chartEvidence']['ask'], 10.01)
 
     def test_missing_list_products_route_to_sg(self):
-        for isin, product_id, classification in [('DE000FG5GUN3',6934161,47), ('DE000FG7HZY3',7151899,43)]:
+        for isin, product_id, classification in [('DE000FG5GUN3',6934161,47), ('DE000FG7HZY3',7151899,43), ('DE000FG7Q3N2',7152436,47)]:
             with self.subTest(isin=isin):
                 self.product.update(Isin=isin, Id=product_id, ProductClassificationId=classification)
                 for prop in self.props:

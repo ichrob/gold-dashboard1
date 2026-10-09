@@ -230,7 +230,7 @@ function normalizeOcrIsin(value,productText=''){
  // SL/STR 3996.2705 and R 10. Do not generalise I/1 -> 9 from checksum alone.
  const bnpNbContext=/\bBNP\s+GOLD\s+Unlimited\s+Long\s+SL\s+3996[.,]2705\s+STR\s+3996[.,]2705\s+R\s*10\b/i.test(productText)
   && !/\bSHORT\b|\bPUT\b|FAKTOR|FACTOR/i.test(productText);
- if(candidate==='DE000PJ1NB98'&&bnpNbContext&&validIsin('DE000PJ9NB98'))return {isin:'DE000PJ9NB98',originalIsin:original,identityCorrection:'BNP-Produktidentität am Originalbild 1000070469.jpg belegt'};
+ if(['DE000PJ1NB98','DE000PJ0NB98'].includes(candidate)&&bnpNbContext&&validIsin('DE000PJ9NB98'))return {isin:'DE000PJ9NB98',originalIsin:original,identityCorrection:'BNP-Produktidentität am Originalbild 1000070469.jpg belegt'};
  // Verified visually in the original DEGIRO list 1000069826(1).jpg.
  // A checksum alone cannot justify S/5 substitutions: require this exact product context.
  const sgContext=/\bSG\s+GOLD\s+TURBO\s+BEST\s+OPEN[-\s]?END\s+CALL\b/i.test(productText)
@@ -1111,9 +1111,13 @@ function populateCandidateRows(items){
 // A failed refresh invalidates quotes, not previously verified product evidence.
 // Preserve original evidence dates; never turn the retry time into a source time.
 function invalidateProductQuote(prior){
- return {...prior,found:false,eligible:false,fresh:false,marketOpen:false,futureResearch:null,calculatedProduct:null};
+ const referenceQuote=prior?.found?{...prior,referenceQuote:undefined}:prior?.analysisQuote||prior?.referenceQuote;
+ return {...prior,referenceQuote,found:false,eligible:false,fresh:false,marketOpen:false,futureResearch:null,calculatedProduct:null};
 }
 function retainProductResearch(prior,result,isin){
+ if(result?.isin===isin&&result.productVerified&&result.metadata?.status===1&&!result.found&&!result.analysisQuote&&prior?.isin===isin&&prior.productVerified){
+  return {...result,referenceQuote:invalidateProductQuote(prior).referenceQuote};
+ }
  if(result?.isin!==isin||result.productVerified||!result.sourceFailure||result.sourceDisabled||prior?.isin!==isin||!prior.productVerified)return result;
  return {...invalidateProductQuote(prior),sourceFailure:true,
   quoteFailureCode:result.quoteFailureCode,reason:result.reason||'Abruf fehlgeschlagen',
@@ -1609,10 +1613,10 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben'){
 }
 function renderPrimaryProductValues(p,now=Date.now()){
  const q=p.quote?.isin===p.isin&&p.quote.productVerified?p.quote:null;
- const live=q?.found?q:q?.analysisQuote;
+ const live=q?.found?q:q?.analysisQuote||q?.referenceQuote;
  const fields=productFieldStates(p,now),at=live?.bidAt||live?.askAt||q?.quoteAt;
  const clocks=[live?.bidAt||at,live?.askAt||at].map(t=>Date.parse(t));
- const current=live?.currency==='EUR'&&!live.delayed&&n(live.bid)>0&&n(live.ask)>=n(live.bid)&&clocks.every(t=>Number.isFinite(t)&&now-t>=0&&now-t<=300000)&&Math.max(...clocks)-Math.min(...clocks)<=90000;
+ const current=!q?.sourceFailure&&live!==q?.referenceQuote&&live?.currency==='EUR'&&!live.delayed&&n(live.bid)>0&&n(live.ask)>=n(live.bid)&&clocks.every(t=>Number.isFinite(t)&&now-t>=0&&now-t<=300000)&&Math.max(...clocks)-Math.min(...clocks)<=90000;
  const fmt=v=>n(v)>0?Number(v).toLocaleString('de-CH',{maximumFractionDigits:4}):'—';
  const stamp=at&&Number.isFinite(Date.parse(at))?new Date(at).toLocaleString('de-CH',{timeZone:'Europe/Zurich',hour12:false})+' (Zürich)':'Zeitbezug unbestätigt';
  const currency=current?'EUR':p.snapshot?.currency||p.currency||'EUR';
@@ -2117,7 +2121,7 @@ function bnpSourceIssue(p,now=Date.now()){
 function productFieldStates(p,now=Date.now()){
  const q=p.quote?.isin===p.isin&&p.quote.productVerified?p.quote:null;
  const shot=p.snapshot?.isin===p.isin?p.snapshot:null;
- const live=q?.found?q:q?.analysisQuote;
+ const live=q?.found?q:q?.analysisQuote||q?.referenceQuote;
  const from=(key,value,at,source,limit=90000,kind='')=>{
   const t=typeof at==='string'&&/(Z|[+-]\d{2}:\d{2})$/.test(at)?Date.parse(at):selectionTimeWindow(at)?.start;
   const age=Number.isFinite(t)?now-t:null;
@@ -2128,6 +2132,7 @@ function productFieldStates(p,now=Date.now()){
   const direct=live?.currency==='EUR'&&n(live.bid)>0&&n(live.ask)>=n(live.bid);
   const e=shot?.evidence?.[label];
   items[key]=from(label,direct?live[key]:key==='ask'?(n(p.price)>0?p.price:shot?.currency==='CHF'?null:shot?.ask):shot?.currency==='CHF'?null:shot?.bid,direct?live[key+'At']:e?.at||shot?.sourceTime,direct?live.source:e?.source,direct?analysisLimit:SCREENSHOT_MAX_AGE_MS,direct?live.priceKind:'screenshot');
+  if(direct&&(live===q?.referenceQuote||q?.sourceFailure)&&items[key].state!=='veraltet')items[key].state='Aktualität unbestätigt · letzter erfolgreicher Abruf';
   if(!direct&&e?.fromSeries){items[key].fromSeries=true;items[key].timeText=e.timeText;}
  }
  const le=shot?.evidence?.Hebel,leverage=n(p.leverage)>0?p.leverage:n(q?.leverage)>0?q.leverage:!le?.conflict&&!le?.revoked?le?.value:null,directLev=q&&n(q.leverage)===n(leverage);

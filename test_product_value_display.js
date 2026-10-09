@@ -12,6 +12,17 @@ assert.equal(b.productFieldStates({...shot,snapshot:{...shot.snapshot,isin:'DE00
 assert.equal(b.productFieldStates({...shot,snapshot:{...shot.snapshot,currency:'CHF'}},now).ask.state,'fehlt');
 const stale=JSON.parse(JSON.stringify(p));stale.quote.analysisQuote.bidAt=stale.quote.analysisQuote.askAt=new Date(now-3600000).toISOString();
 assert.equal(b.productFieldStates(stale,now).ask.state,'veraltet');
+const prior={isin,productVerified:true,found:true,currency:'EUR',bid:12,ask:12.1,bidAt:at,askAt:at,metadata:{status:1}};
+const failed=b.retainProductResearch(prior,{isin,sourceFailure:true},isin);
+const preserved=b.productFieldStates({isin,quote:failed},now);
+assert.equal(preserved.bid.value,12);assert.equal(preserved.ask.value,12.1);
+assert(preserved.ask.state.includes('unbestätigt'));
+assert(!b.compactProductCard({isin,quote:failed}).includes('Aktueller Anbieterwert'));
+assert.equal(b.currentQuote({isin,quote:failed},now),false);
+const partial=b.retainProductResearch(prior,{isin,productVerified:true,found:false,metadata:{status:1}},isin);
+assert.equal(b.productFieldStates({isin,quote:partial},now).bid.value,12);
+const ended=b.retainProductResearch(prior,{isin,productVerified:true,found:false,metadata:{status:2}},isin);
+assert.equal(ended.referenceQuote,undefined);
 console.log('Product value display: OK');
 
 const auto=b.compactProductCard(p,['BNP-Kursabruf: Quellenantwort veraltet']);assert(auto.includes('derzeit keine neuen Bilder erforderlich'));

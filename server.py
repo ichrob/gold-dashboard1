@@ -786,7 +786,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(body)
             except Exception as exc:
-                body = json.dumps({"found":False,"source":"Emittentenrecherche","reason":"Zusatzprüfung momentan nicht verfügbar","checkedAt":datetime.now(timezone.utc).isoformat()}, ensure_ascii=False).encode("utf-8")
+                body = json.dumps({"isin":isin,"found":False,"sourceFailure":True,"source":"Emittentenrecherche","reason":"Zusatzprüfung momentan nicht verfügbar","attemptedAt":datetime.now(timezone.utc).isoformat()}, ensure_ascii=False).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")

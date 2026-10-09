@@ -278,6 +278,9 @@ const nb=b.parseScreenshotCandidates(nbLine)[0];
 assert.equal(nb.isin,'DE000PJ9NB98');assert.equal(nb.direction,'LONG');assert.equal(nb.ko,3996.2705);
 assert(nb.identityCorrection);assert(b.validIsin(nb.isin));
 assert.equal(b.parseScreenshotCandidates(nbLine.replace('DEOOOPJINB98','DE000PJ1NB98'))[0].isin,nb.isin);
+assert.equal(b.parseScreenshotCandidates(nbLine.replace('DEOOOPJINB98','DE000PJ0NB98'))[0].isin,nb.isin);
+assert.equal(b.parseScreenshotCandidates(nbLine.replace('DEOOOPJINB98','DE000PJONB98'))[0].isin,nb.isin);
+assert.notEqual(b.normalizeOcrIsin('DE000PJ0NB98').isin,nb.isin);
 for(const bad of [nbLine.replace('BNP','SG'),nbLine.replace('Long','Short'),nbLine.replace('GOLD','DAX'),nbLine.replace('3996.2705','3995.2705'),nbLine.replace('R 10','R 100'),nbLine.replace('PJINB98','PJINB99')]){
  assert.notEqual(b.parseScreenshotCandidates(bad)[0].isin,nb.isin);
 }
