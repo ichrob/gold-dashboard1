@@ -12,7 +12,7 @@ function evaluate(input, {render=false}={}){
  return vm.runInContext(`(()=>{
   // UI rendering repeatedly replays signal history and formats dates. None is
   // needed by the worker: retain the shared math and evaluate direction once.
-  if(!render){draw=()=>{};renderCompactAnalysis=()=>{};renderExtraDirections=()=>{};updateQuick=()=>{};updateResearchPanel=()=>{};}
+  if(!render){draw=()=>{};renderCompactAnalysis=()=>{};renderExtraDirections=()=>{};updateQuick=()=>{};updateResearchPanel=()=>{};renderIntraday=()=>{};renderDecisionExplanation=()=>{};}
   const bundle=input.bundle||{},bars=bundle.history?.bars_by_tf||{},tf=input.timeframe||'15m';
   liveBundleCache=bundle;
   C=(bars[tf]||[]).filter(b=>!b.isOpen&&b.instrument==='XAU/USD').slice(-240);

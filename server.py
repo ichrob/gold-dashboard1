@@ -384,6 +384,23 @@ def fetch_technical_history(interval, range_value):
         raise
 
 
+def live_cache_reusable(now=None):
+    """Do not add a bundle TTL on top of an already ageing source quote."""
+    now = time.time() if now is None else now
+    if _live_cache is None or not 0 <= now - _live_cache_at < LIVE_CACHE_TTL:
+        return False
+    spots = _live_cache.get('spots', {})
+    # Preserve the normal error backoff; retrying unavailable providers on every
+    # browser request would compete with the background monitor.
+    if spots.get('spot_error') or not spots.get('spot_price_as_of'):
+        return True
+    try:
+        stamp = datetime.fromisoformat(spots['spot_price_as_of'].replace('Z', '+00:00'))
+        return stamp.tzinfo is not None and 0 <= now - stamp.timestamp() < 30
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
 def build_live_bundle():
     """Build Bob's live bundle without letting slow secondary sources block the spot heartbeat.
 
@@ -391,11 +408,11 @@ def build_live_bundle():
     response is returned even when technical history or FX is temporarily slow.
     """
     global _live_cache, _live_cache_at, _fx_cache, _fx_cache_at
-    if _live_cache is not None and time.time() - _live_cache_at < LIVE_CACHE_TTL:
+    if live_cache_reusable():
         return _live_cache
 
     with _live_lock:
-        if _live_cache is not None and time.time() - _live_cache_at < LIVE_CACHE_TTL:
+        if live_cache_reusable():
             return _live_cache
 
         now = time.time()
