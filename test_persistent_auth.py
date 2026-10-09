@@ -18,7 +18,11 @@ import test_auth as baseline
 class PersistentLoginTests(unittest.TestCase):
     request = baseline.AuthenticationTests.request
     form = baseline.AuthenticationTests.form
-    setUp = baseline.AuthenticationTests.setUp
+    def setUp(self):
+        baseline.AuthenticationTests.setUp(self)
+        state = patch.object(auth.bob_recovery, 'state', return_value={'passwordHash': None, 'version': 0})
+        state.start()
+        self.addCleanup(state.stop)
     @classmethod
     def setUpClass(cls):
         baseline.AuthenticationTests.setUpClass.__func__(cls)
