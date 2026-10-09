@@ -164,6 +164,20 @@ def relative_publication_label(text):
     return 'vor '+str(amount)+' '+(singular if amount==1 else plural)
 
 
+def publication_sort_time(item):
+    """Relative ages are sorting hints only, never verified publication metadata."""
+    exact=item.get('publishedAt')
+    if isinstance(exact,(int,float)) and exact>0:return exact
+    label=item.get('publishedRelative') or ''
+    observed=item.get('publishedRelativeObservedAt')
+    match=re.search(r'vor\s+(\d+)\s+(Minute[n]?|Stunde[n]?|Tag(?:en|e)?|Woche[n]?|Monat(?:en|e)?|Jahr(?:en|e)?)\b',label,re.I)
+    if match and isinstance(observed,(int,float)) and observed>0:
+        unit=match[2].lower()
+        seconds=next(value for prefix,value in [('minute',60),('stunde',3600),('tag',86400),('woche',604800),('monat',2592000),('jahr',31536000)] if unit.startswith(prefix))
+        return observed-int(match[1])*seconds
+    return timestamp(item.get('publishedDate')) or 0
+
+
 def channel_listing(data, now):
     text=data.decode('utf-8','replace')
     match=re.search(r'(?:var\s+)?ytInitialData\s*=\s*',text)
@@ -268,14 +282,14 @@ def collect(now=None, fetch=download):
     for _,items in results:
         for item in items:
             if allowed_item(item):unique[item['url']]=item
-    items=sorted(unique.values(),key=lambda x:x['publishedAt'] or 0,reverse=True)
+    items=sorted(unique.values(),key=publication_sort_time,reverse=True)
     if fetch is download:
         eligible=[x for x in items if x['kind']=='Internet' and x['current']][:6]
         with ThreadPoolExecutor(max_workers=3,thread_name_prefix='bob-research-article') as pool:
             list(pool.map(enrich_article,eligible))
         with ThreadPoolExecutor(max_workers=3,thread_name_prefix='bob-video-publication') as pool:
             list(pool.map(enrich_publication,[x for x in items if x['kind']=='YouTube']))
-        items.sort(key=lambda x:x.get('publishedAt') or 0,reverse=True)
+        items.sort(key=publication_sort_time,reverse=True)
         import youtube_research
         for item in [x for x in items if x['kind']=='YouTube'][:3]:
             publication={key:item[key] for key in ('publishedAt','publishedDate','publicationSource') if item.get(key) is not None}
@@ -291,6 +305,7 @@ def summarize(report, now=None):
     result['sources']=[s for s in result.get('sources',[]) if s.get('id')=='mco-video']
     fresh=bool(result.get('checkedAt') and 0<=now-result['checkedAt']<=INTERVAL*2)
     items=[x for x in result.get('items',[]) if allowed_item(x)]
+    items.sort(key=publication_sort_time,reverse=True)
     result['items']=items
     for x in items:x['current']=bool(fresh and x['publishedAt'] is not None and 0<=now-x['publishedAt']<=86400)
     counts={k:0 for k in ('LONG','SHORT','UNKLAR')}
