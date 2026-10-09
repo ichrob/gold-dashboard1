@@ -206,7 +206,14 @@ def download_channel():
     return data
 
 
-_publication_cache = {}
+# Verified against the public YouTube player metadata on 2026-10-09.
+# Keep the source timezone; display conversion belongs to the UI.
+_VERIFIED_PUBLICATIONS = {
+    'wjLMQ7QfMiM': dict(publishedAt=timestamp('2026-10-07T20:29:53-07:00'),
+                        publishedDate='2026-10-07T20:29:53-07:00',
+                        publicationSource='YouTube-Videometadaten; geprüft 09.10.2026')
+}
+_publication_cache = dict(_VERIFIED_PUBLICATIONS)
 
 
 def enrich_publication(item, fetch=None):
@@ -313,6 +320,13 @@ def snapshot():
             item.update(publication)
     urls={x['url'] for x in report['items']}
     report['items'] += [x for url,x in manual.items() if url not in urls]
+    # Apply verified metadata to stored/manual entries as well as fresh listings.
+    for item in report['items']:
+        if item.get('publishedAt') is None:
+            try:
+                saved=_VERIFIED_PUBLICATIONS.get(youtube_research.video_id(item['url']))
+                if saved:item.update(saved)
+            except (ValueError, KeyError):pass
     return summarize(report)
 
 def _run():
