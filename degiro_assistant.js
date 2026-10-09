@@ -2773,12 +2773,12 @@ async function inject(){
  '<input id="dgListUpload" type="file" accept="image/*" multiple hidden>'+
  '<details style="margin-top:8px"><summary>Hinweise zum Hochladen</summary><div class="small">Einen oder mehrere Listen-Screenshots gleichzeitig auswählen. Eine neue Auswahl ersetzt die bisherige Liste nach erfolgreichem Einlesen.</div></details>'+
  '<div id="dgCentralStatus" class="small" role="status" aria-live="polite" style="margin-top:9px">Gespeicherte Liste wird geladen …</div><details id="dgSavedListImages"></details></div>'+
- '<details style="margin-top:9px"><summary>Datenabruf und Gültigkeit</summary><div class="small">Automatische Produktrecherche: beim Öffnen und alle 15 Minuten, solange Bob sichtbar ist. Quellenzeiten bleiben unverändert: Emittentenkurse höchstens 90 Sekunden; Screenshot-Kursnachweise 14 Stunden ab Quellenzeit gültig, keine Echtzeitkurse. Neue Kursbilder ersetzen den bisherigen Kursnachweis. Fehlende Kurse bleiben offen, berechnete Werte sind Schätzungen.</div></details>'+
+
  '<div id="dgStorageStatus" class="small" role="status"></div>'+
  '<div id="dgManualSnapshots" style="margin-top:12px" hidden></div>'+
  '<div id="dgConditionalOut" style="margin-top:12px" hidden></div>'+
  '<div id="dgTop3Inputs" hidden></div>' +
- '<button style="margin-top:10px;width:100%" id="dgRankBtn">🔎 Analyse erneut ausführen</button><div id="dgApprovalOut"></div>';
+ '<button style="margin-top:10px;width:100%" id="dgRankBtn" hidden>🔎 Analyse erneut ausführen</button><div id="dgApprovalOut"></div>';
  a.parentNode.insertBefore(b,a.nextSibling);
  const q=b.querySelector("#dgTop3Inputs");
  for(let i=1;i<=12;i++){
