@@ -61,7 +61,9 @@ for(const change of [{at:null},{estimated:true},{atr:null},{rankingUncertaintyUs
 for(const time of [null,'2020-01-01T00:00:00Z']){
  const rows=b.continuingAnalysis([{...p,at:time,quote:{quoteAt:time}}],ctx);
  assert.equal(rows.length,1);assert(rows[0].evaluation.ok);assert(rows[0].warning);
- assert(b.renderContinuingAnalysis([{...p,quote:{quoteAt:time}}],ctx).includes('font-style:italic'));
+ assert(b.renderProductCalculation(rows[0]).includes('font-style:italic'));
+ assert(!b.renderContinuingAnalysis([{...p,quote:{quoteAt:time}}],ctx).includes('data-product-details="calculations"'));
+ assert(b.productUploadCards([{...p,quote:{quoteAt:time}}],ctx.direction,now,null,ctx).includes('Berechnung und Bewertung'));
 }
 assert.equal(b.calculationAge(at,90000,now),'');
 assert(b.calculationAge(null,90000,now).includes('unbekannt'));
