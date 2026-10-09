@@ -391,6 +391,7 @@ try{
 <p id="minuteEntryStatus" class="small" aria-live="polite">1m-Einstiegshilfe · Vergleichstest: Daten werden geladen.</p>
 <div class="small chart-status" id="chartViewStatus" aria-live="polite"></div>
 <div class="chart-frame"><canvas id="chart" width="800" height="300" aria-label="Preisverlauf: waagerecht Schweizer Zeit, senkrecht Preis in USD"></canvas></div>
+<div id="chartSelection" class="small" role="status" aria-live="polite" style="min-height:2.5em;margin:8px 0">Kerze oder Kurvenpunkt antippen, um Datum und Uhrzeit anzuzeigen.</div>
 <div class="chart-overlays"><label><input id="chartShowFib" type="checkbox" checked onchange="saveChartView();draw()"> <span>Fibonacci</span></label><label><input id="chartShowTargets" type="checkbox" checked onchange="saveChartView();draw()"> <span>Kursziele</span></label></div><details class="chart-details"><summary>Fibonacci &amp; Kursziele erklären</summary><div id="chartFib" class="small">Fibonacci: noch keine bestätigten Level.</div><div id="chartFibExplanation" class="research">Fibonacci: noch keine bestätigten Level.</div></details>
 <details class="chart-details"><summary>Datenquelle &amp; Zeitstempel</summary><div class="small" id="chartRangeInfo" aria-live="polite"></div><div id="chartLatest" class="small" aria-live="polite">Letzter Preis: — · Kurszeit: —</div><div id="chartHistoryInfo" class="small"></div><p class="small">Die Chart-Auswahl ändert nur die Darstellung. Analyse und Trade-Überwachung behalten ihre Einstellung.</p></details></div>
 
@@ -1314,10 +1315,22 @@ async function loadFutureChart(tf){
 function setChartOption(kind,value){$(kind==='type'?'chartType':'chartTf').value=value;saveChartView();draw();}
 function saveChartView(){try{localStorage.setItem('bobChartView',JSON.stringify({type:$('chartType').value,tf:$('chartTf').value,fib:$('chartShowFib').checked,targets:$('chartShowTargets').checked}));}catch(_){}}
 (function(){try{const v=JSON.parse(localStorage.getItem('bobChartView')||'{}');if(['candles','line'].includes(v.type))$('chartType').value=v.type;if(['1m','5m','15m','1h','4h'].includes(v.tf))$('chartTf').value=v.tf;if(typeof v.fib==='boolean')$('chartShowFib').checked=v.fib;if(typeof v.targets==='boolean')$('chartShowTargets').checked=v.targets;}catch(_){}})();
+let chartHitMap=null,chartSelected=null;
+function selectChartPoint(event){
+ const map=chartHitMap,cv=$('chart');if(!map||!map.points.length)return;
+ const rect=cv.getBoundingClientRect(),px=(event.clientX-rect.left)*map.width/rect.width;
+ const py=(event.clientY-rect.top)*map.height/rect.height;
+ if(px<map.left-8||px>map.right+8||py<map.top||py>map.bottom+36)return;
+ const nearest=map.points.reduce((a,b)=>Math.abs(b.x-px)<Math.abs(a.x-px)?b:a);
+ chartSelected={key:map.key,at:nearest.at};draw();
+}
+$('chart').addEventListener('click',selectChartPoint);
 function draw(a){
  const cv=$("chart"),ctx=cv.getContext("2d"),w=Math.max(240,cv.getBoundingClientRect().width||800),h=cv.getBoundingClientRect().height||390;
  const dpr=window.devicePixelRatio||1;cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);
  ctx.clearRect(0,0,w,h);
+ chartHitMap=null;
+ $("chartSelection").textContent="Kerze oder Kurvenpunkt antippen, um Datum und Uhrzeit anzuzeigen.";
  renderMinuteEntry();
  const tf=$('chartTf').value, candles=$('chartType').value==='candles';
  document.querySelectorAll('[data-chart-type]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.chartType===$('chartType').value)));
@@ -1399,6 +1412,14 @@ function draw(a){
  }else{
  ctx.strokeStyle="#222";ctx.lineWidth=2;ctx.beginPath();v.forEach((b,i)=>{!axis.startsSegment(i)?ctx.lineTo(x(Number(b.openTime)),y(Number(b.close))):ctx.moveTo(x(Number(b.openTime)),y(Number(b.close)))});ctx.stroke();
  }
+ const selectionKey=chartMarket+':'+tf;
+ chartHitMap={key:selectionKey,width:w,height:h,left,right,top,bottom,points:v.map(b=>({at:Number(b.openTime),x:x(Number(b.openTime))}))};
+ const chosen=chartSelected?.key===selectionKey?v.find(b=>Number(b.openTime)===chartSelected.at):null;
+ if(chosen){
+  const at=Number(chosen.openTime),px=x(at);
+  ctx.strokeStyle='#2563eb';ctx.lineWidth=2;ctx.setLineDash([4,3]);ctx.beginPath();ctx.moveTo(px,top);ctx.lineTo(px,bottom);ctx.stroke();ctx.setLineDash([]);
+  $('chartSelection').textContent=(candles?'Ausgewählte Kerze: ':'Ausgewählter Kurvenpunkt: ')+rangeDate(at)+' – '+rangeDate(at+chartStep)+' Uhr (Schweizer Zeit)';
+ }else chartSelected=null;
  const last=v.at(-1),lastY=y(Number(last.close));
  ctx.strokeStyle="#94a3b8";ctx.lineWidth=1;ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(left,lastY);ctx.lineTo(right,lastY);ctx.stroke();ctx.setLineDash([]);
  ctx.fillStyle="#17212f";ctx.fillRect(right+2,lastY-11,w-right-2,22);ctx.fillStyle="#fff";ctx.font="bold 11px sans-serif";ctx.textAlign="left";ctx.fillText(priceLabel(Number(last.close)),right+7,lastY+4);
