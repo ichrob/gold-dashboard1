@@ -13,7 +13,7 @@ const result=vm.runInContext(`(()=>{
  const ready=A.ready;A.ready=false;renderAnalysisBlocks();return {snapshot,ready};
 })()`,env);
 assert(result.ready);assert(result.snapshot);assert.equal(result.snapshot.timeframe,'15m');assert.equal(result.snapshot.instrument,'XAU/USD');
-for(const n of ['Trend','Momentum','Fibonacci','Mtf','Volatility','Structure'])assert.equal(element('block'+n).textContent,'NEUTRAL');
+for(const n of ['Trend','Momentum','Fibonacci','Mtf','Volatility','Structure'])assert.equal(element('block'+n).textContent,'DATEN UNVOLLSTÄNDIG');
 vm.runInContext('tradeMgmt.test=true;A.ready=true',env);assert.equal(vm.runInContext('captureFibonacciMonitor()',env),null);
 const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);assert.equal(ids.length,new Set(ids).size);
 env.window.BobSession={expired:()=>true};
@@ -22,7 +22,7 @@ assert.equal(expired.direction,'NEUTRAL');assert.equal(expired.mtf,'NEUTRAL');
 assert.equal(expired.bars,expired.before);assert(expired.active&&expired.test);
 assert(element('quickSignal').textContent.includes('Anmeldung erforderlich'));
 assert(element('tradeSignal').textContent.includes('Anmeldung erforderlich'));
-for(const n of ['Trend','Momentum','Fibonacci','Mtf','Volatility','Structure'])assert.equal(element('block'+n).textContent,'NEUTRAL');
+for(const n of ['Trend','Momentum','Fibonacci','Mtf','Volatility','Structure'])assert.equal(element('block'+n).textContent,'ANMELDUNG FEHLT');
 console.log('Dashboard runtime: analysis, six blocks, frozen monitor snapshot and test exclusion OK');
 
 const aggregation=vm.runInContext(`(()=>{
