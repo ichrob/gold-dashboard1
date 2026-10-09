@@ -1542,13 +1542,17 @@ function productDataStatus(p,now=Date.now(),reference){
 function productCompletionBadge(){
  return '';
 }
-function renderProductDirectionStatus(p,now=Date.now()){
+function productDirectionDataState(p,now=Date.now()){
  const fields=productFieldStates(p,now),data=productDataStatus(p,now);
  const terms=productTermsStatus(p,now,true);
  const missing=Object.values(fields).some(f=>f.state==='fehlt')||terms.reasons.some(r=>/: Wert fehlt|Long\/Short fehlt|ungültig|widerspr|nicht eindeutig|ausgeschlossen|Exakter Future-Kontrakt/i.test(r));
  const unresolvedTerms=terms.reasons.some(r=>!/Wert eingelesen.*(?:datier|24 Stunden)|KO.*(?:8.Stunden|Zeitbezug|datier|Gültigkeit|Nachweis)|Aktualität|veraltet/i.test(r));
  const blocked=!!data.terminal||!data.complete&&(missing||unresolvedTerms);
  const stale=!blocked&&(!data.complete||Object.values(fields).some(f=>/veraltet|unbestätigt|abweichend/.test(f.state)));
+ return {blocked,stale,missing};
+}
+function renderProductDirectionStatus(p,now=Date.now()){
+ const {blocked,stale,missing}=productDirectionDataState(p,now);
  const label=blocked?(missing?'Werte fehlen oder sind widersprüchlich':'Datenprüfung offen'):stale?'Werte vorhanden (fehlende Aktualität)':'Daten vollständig';
  return '<span data-direction-data-status role="status" aria-label="'+esc(label)+'" style="display:inline-flex;align-items:center;gap:6px;margin-left:8px"><strong style="font-size:1.6em;font-weight:900;color:'+(blocked?'#b91c1c':'#15803d')+'">'+(blocked?'✗':'✓')+'</strong>'+(stale?'<span style="font-weight:700">(fehlende Aktualität)</span>':'')+'</span>';
 }
@@ -1656,7 +1660,7 @@ function renderSelectionWorkflow(r,products=[]){
  '<div class="small">'+r.total+' unterschiedliche Produkte. Vorauswahl nach Analyse-Richtung '+esc(r.direction)+'; fehlende Preise erhalten keine Rangpunkte.</div>'+
  r.groups.map(g=>'<div style="margin-top:12px"><b>'+esc(g.scope)+' · '+g.total+' bewertbare Produkte</b>'+g.candidates.map((c,i)=>'<div data-product-isin="'+esc(c.isin)+'" style="padding:10px;margin-top:8px;border:1px solid #dbe4f0;border-radius:12px"><b>Platz '+(i+1)+' · '+esc(c.isin)+'</b>'+renderIsinCopy(c.isin)+productCompletionBadge(products.find(p=>p.isin===c.isin)||c)+'<div class="small" data-product-status><div><b>Daten:</b> vollständig</div><div><b>Zeitbezug:</b> für diesen Analyseweg bestätigt</div><div><b>Aktuelle Auswahl:</b> geeignet für '+esc(c.direction)+renderProductDirectionStatus(products.find(p=>p.isin===c.isin)||c)+'</div></div><p><b>Nächster Schritt:</b> Tatsächlichen DEGIRO-Kurs vor einem Einstieg prüfen.</p><button data-product-trade="'+esc(c.isin)+'">Vorhandenen Trade mit diesem Produkt erfassen</button><details data-product-values style="margin-top:10px"><summary><strong>Produktwerte anzeigen</strong></summary><div class="small">'+esc(c.name)+'<br>'+esc(c.priceKind)+' · Brief '+Number(c.price).toFixed(2)+' EUR · Risiko-/Datenwert '+c.score+'/100<br>Warum: '+esc((c.reasons||[]).slice(0,3).join(' · '))+'<br>Quelle '+esc(c.source||'Produktnachweis')+' · Datenzeit '+esc(c.at)+(c.quoteAt?' · Produktkurszeit '+esc(c.quoteAt):'')+(c.quality?'<br>'+esc(qualityText(c.quality,'USD')):'')+'</div>'+renderProductDecision(c)+renderProductSources(c)+'</details></div>').join('')+'</div>').join('')+
  excluded.map(p=>knockoutCard({...products[p.index-1],...p})).join('')+
- (notApproved.length?'<details style="margin-top:14px"><summary>Weitere Produkte · nicht freigegeben ('+notApproved.length+')</summary>'+notApproved.map(p=>compactProductCard({...products[p.index-1],...p},p.missingReasons,p.reasons.some(v=>/neutral|NEUTRAL/.test(v))?'Nicht freigegeben · Marktsignal neutral':'Nicht freigegeben · '+(p.reasons[0]||'Nachweise prüfen'))).join('')+'</details>':'')+
+ (notApproved.length?'<details style="margin-top:14px"><summary>Weitere Produkte · nicht freigegeben ('+notApproved.length+')'+(notApproved.every(p=>{const state=productDirectionDataState({...products[p.index-1],...p});return !state.blocked&&!state.stale;})?' <strong aria-label="Alle Produktdaten und Zeitbezüge bestätigt" style="font-size:1.6em;font-weight:900;color:#15803d">✓</strong>':'')+'</summary>'+notApproved.map(p=>compactProductCard({...products[p.index-1],...p},p.missingReasons,p.reasons.some(v=>/neutral|NEUTRAL/.test(v))?'Nicht freigegeben · Marktsignal neutral':'Nicht freigegeben · '+(p.reasons[0]||'Nachweise prüfen'))).join('')+'</details>':'')+
  '<details class="small" style="margin-top:10px"><summary>Hinweise zur Produktauswahl</summary>Spot und Future werden getrennt bewertet. Weniger als drei belegte Produkte ergeben eine kürzere Liste. Freigabe gilt ausschließlich für diese geprüfte Produktauswahl, nicht als Handelsauftrag oder garantierter bester Trade. Kandidaten mit offenen Nachweisen bleiben gesperrt; tatsächlichen DEGIRO-Preis vor dem Einstieg prüfen.</details>';
 }
 
