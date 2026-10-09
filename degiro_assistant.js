@@ -1554,7 +1554,7 @@ function productDirectionDataState(p,now=Date.now()){
 function renderProductDirectionStatus(p,now=Date.now()){
  const {blocked,stale,missing}=productDirectionDataState(p,now);
  const label=blocked?(missing?'Werte fehlen oder sind widersprüchlich':'Datenprüfung offen'):stale?'Werte vorhanden (fehlende Aktualität)':'Daten vollständig';
- return '<span data-direction-data-status role="status" aria-label="'+esc(label)+'" style="display:inline-flex;align-items:center;gap:6px;margin-left:8px"><strong style="font-size:1.6em;font-weight:900;color:'+(blocked?'#b91c1c':'#15803d')+'">'+(blocked?'✗':'✓')+'</strong>'+(stale?'<span style="font-weight:700">(fehlende Aktualität)</span>':'')+'</span>';
+ return '<span data-direction-data-status role="status" aria-label="'+esc(label)+'" style="display:inline-flex;align-items:center;gap:6px;margin-left:8px"><strong style="font-size:1.6em;font-weight:900;color:'+(blocked?'#b91c1c':'#15803d')+'">'+(blocked?'✗':stale?'(✓)':'✓')+'</strong>'+(stale?'<span style="font-weight:700">(fehlende Aktualität)</span>':'')+'</span>';
 }
 function valuePresenceMark(missing){
  return missing?'<span style="color:#b91c1c;font-weight:700" aria-label="Wert fehlt">✗</span>':'<span style="color:#15803d;font-weight:700" aria-label="Wert vorhanden">✓</span>';
