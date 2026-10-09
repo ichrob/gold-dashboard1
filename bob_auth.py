@@ -1,4 +1,5 @@
 """Password-backed browser sessions; no credentials in cookies or URLs."""
+import bob_recovery
 import base64
 import hmac
 import hashlib
@@ -85,17 +86,25 @@ def cookie(headers, name):
 def authenticated(headers, user, password):
     if not user or not password:
         return False
-    expected = 'Basic ' + base64.b64encode(f'{user}:{password}'.encode()).decode()
-    if hmac.compare_digest(headers.get('Authorization', '').encode(), expected.encode()):
-        return True
-    token = cookie(headers, COOKIE)
-    if persistent_token(token):
-        try:
-            return session_request('check', token, user, password).get('valid') is True
-        except (OSError, ValueError, TypeError):
-            return False
-    with LOCK:
-        return SESSIONS.get(token, 0) > time.time()
+    try:
+        current = bob_recovery.state(user)
+        key = bob_recovery.binding_key(password, current)
+        authorization = headers.get('Authorization', '')
+        if authorization.startswith('Basic '):
+            try:
+                supplied_user, candidate = base64.b64decode(authorization[6:], validate=True).decode().split(':', 1)
+                if len(candidate) <= 1024 and hmac.compare_digest(supplied_user.encode(), user.encode()) and bob_recovery.matches(candidate, password, current):
+                    return True
+            except (ValueError, UnicodeError):
+                pass
+        token = cookie(headers, COOKIE)
+        if persistent_token(token):
+            return session_request('check', token, user, key).get('valid') is True
+        with LOCK:
+            expiry, version = SESSIONS.get(token, (0, -1))
+            return expiry > time.time() and version == current['version']
+    except (OSError, ValueError, TypeError, KeyError):
+        return False
 
 
 def same_origin(headers):
@@ -108,7 +117,7 @@ def send(handler, status, body=b'', location=None, cookies=()):
     handler.send_header('Cache-Control', 'no-store')
     handler.send_header('X-Content-Type-Options', 'nosniff')
     handler.send_header('X-Frame-Options', 'DENY')
-    handler.send_header('Referrer-Policy', 'same-origin')
+    handler.send_header('Referrer-Policy', 'no-referrer')
     handler.send_header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
     if location:
         handler.send_header('Location', location)
@@ -135,7 +144,7 @@ def login_page(handler, error='', status=200):
             PENDING.pop(next(iter(PENDING)))
         PENDING[token] = now + 600
     remember = '<label style="display:flex;align-items:center;gap:10px"><input style="width:auto;margin:0" type="checkbox" name="remember" value="1"> Angemeldet bleiben (7 Tage)</label><p>Nur auf deinem eigenen Gerät verwenden. Abmelden beendet die Sitzung auch nach einem Serverneustart.</p>' if persistent_configured() else ''
-    body = f'''<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Bob – Anmeldung</title><style>body{{font-family:system-ui;background:#f3f5f8;margin:0;padding:24px}}main{{max-width:360px;margin:8vh auto;background:white;border-radius:18px;padding:28px}}label,input,button{{display:block;box-sizing:border-box;width:100%;margin-top:12px}}input,button{{padding:13px;border:1px solid #ccd3dd;border-radius:9px;font:inherit}}button{{background:#2358b6;color:white}}p{{color:#49566a}}.error{{color:#a12222}}</style><main><h1>Bob anmelden</h1><p>Nutze deine bestehenden Bob-Zugangsdaten.</p><p class="error">{html.escape(error)}</p><form method="post" action="/login"><input type="hidden" name="csrf" value="{token}"><label for="username">Benutzername</label><input id="username" name="username" type="text" autocomplete="username" required maxlength="256"><label for="password">Passwort</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024">{remember}<button type="submit">Anmelden</button></form></main></html>'''.encode()
+    body = f'''<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Bob – Anmeldung</title><style>body{{font-family:system-ui;background:#f3f5f8;margin:0;padding:24px}}main{{max-width:360px;margin:8vh auto;background:white;border-radius:18px;padding:28px}}label,input,button{{display:block;box-sizing:border-box;width:100%;margin-top:12px}}input,button{{padding:13px;border:1px solid #ccd3dd;border-radius:9px;font:inherit}}button{{background:#2358b6;color:white}}p{{color:#49566a}}.error{{color:#a12222}}</style><main><h1>Bob anmelden</h1><p>Nutze deine bestehenden Bob-Zugangsdaten.</p><p class="error">{html.escape(error)}</p><form method="post" action="/login"><input type="hidden" name="csrf" value="{token}"><label for="username">Benutzername</label><input id="username" name="username" type="text" autocomplete="username" required maxlength="256"><label for="password">Passwort</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024">{remember}<button type="submit">Anmelden</button></form><p><a href="/forgot-password">Passwort vergessen?</a></p></main></html>'''.encode()
     send(handler, status, body, cookies=[set_cookie(CSRF_COOKIE, token, 600)])
 
 
@@ -161,7 +170,13 @@ def login(handler, user, password):
         if limited:
             send(handler, 429, b'Bitte eine Minute warten.')
             return
-        ok = bool(user and password) and hmac.compare_digest(fields.get('username', [''])[0].encode(), user.encode()) and hmac.compare_digest(fields.get('password', [''])[0].encode(), password.encode())
+        try:
+            current = bob_recovery.state(user)
+        except (OSError, ValueError, TypeError):
+            login_page(handler, 'Passwortspeicher momentan nicht erreichbar. Bitte später erneut versuchen.', status=503)
+            return
+        candidate = fields.get('password', [''])[0]
+        ok = bool(user and password) and len(candidate) <= 1024 and hmac.compare_digest(fields.get('username', [''])[0].encode(), user.encode()) and bob_recovery.matches(candidate, password, current)
         if not ok:
             with LOCK:
                 FAILURES.append(now)
@@ -177,7 +192,7 @@ def login(handler, user, password):
                 if session_request('revoke', old_token).get('ok') is not True:
                     raise ValueError('Sitzung nicht beendet')
             store_action = 'create'
-            if remember and session_request('create', token, user, password, now+age).get('ok') is not True:
+            if remember and session_request('create', token, user, bob_recovery.binding_key(password, current), now+age).get('ok') is not True:
                 raise ValueError('Sitzung nicht gespeichert')
         except (OSError, ValueError, TypeError):
             if store_action == 'revoke':
@@ -187,14 +202,14 @@ def login(handler, user, password):
             login_page(handler, error)
             return
         with LOCK:
-            for key, expiry in list(SESSIONS.items()):
+            for key, (expiry, version) in list(SESSIONS.items()):
                 if expiry <= now:
                     del SESSIONS[key]
             SESSIONS.pop(cookie(handler.headers, COOKIE), None)
             if len(SESSIONS) >= 512:
                 SESSIONS.pop(next(iter(SESSIONS)))
             if not remember:
-                SESSIONS[token] = now + age
+                SESSIONS[token] = (now + age, current['version'])
         send(handler, 303, location='/', cookies=[set_cookie(COOKIE, token, age), set_cookie(CSRF_COOKIE, '', 0)])
     except (ValueError, UnicodeError):
         send(handler, 400, b'Ungueltige Anmeldung.')
@@ -215,3 +230,4 @@ def logout(handler):
     with LOCK:
         SESSIONS.pop(token, None)
     send(handler, 303, location='/login', cookies=[set_cookie(COOKIE, '', 0)])
+

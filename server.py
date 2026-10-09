@@ -8,6 +8,7 @@ import time
 import threading
 import uuid
 import bob_auth
+import bob_recovery
 import auto_collection
 import ocr_assets
 import product_quotes
@@ -739,12 +740,14 @@ class Handler(BaseHTTPRequestHandler):
         return bob_auth.authenticated(self.headers, USER, PASSWORD)
 
     def do_GET(self):
+        if bob_recovery.route(self, USER):
+            return
         path = urlparse(self.path).path
         if path.startswith(ocr_assets.PREFIX):
             ocr_assets.serve(self, path)
             return
         if path == "/login":
-            bob_auth.login_page(self)
+            bob_auth.login_page(self, "Passwort geändert. Bitte mit deinem neuen Passwort anmelden." if parse_qs(urlparse(self.path).query).get("reset") == ["1"] else "")
             return
         if path in ("/", "/index.html", "/bob-live", "/bob-v12") and not self.authenticated():
             bob_auth.send(self, 303, location="/login")
@@ -1135,6 +1138,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
+        if bob_recovery.route(self, USER):
+            return
         path = urlparse(self.path).path
         if path == "/login":
             bob_auth.login(self, USER, PASSWORD)
@@ -1281,7 +1286,7 @@ class Handler(BaseHTTPRequestHandler):
         # trace for diagnosing browser -> Render connectivity.
         try:
             request_id = self.headers.get("Rndr-Id", "-")
-            print(f"BOB_HTTP path={self.path} method={self.command} status={args[1] if len(args)>1 else '-'} rndr_id={request_id}", flush=True)
+            print(f"BOB_HTTP path={urlparse(self.path).path} method={self.command} status={args[1] if len(args)>1 else '-'} rndr_id={request_id}", flush=True)
         except Exception:
             pass
 
@@ -1342,6 +1347,7 @@ if __name__ == "__main__":
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress
+
 
 
 

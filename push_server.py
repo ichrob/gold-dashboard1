@@ -8,6 +8,7 @@ import product_push
 import fibonacci_monitor
 import background_push
 import bob_session_store
+import bob_recovery
 import research_transcript_provider
 import research_enhancements
 import bob_market_store
@@ -81,6 +82,7 @@ def init_db():
 def _init_db_once():
     with db() as conn:
         bob_session_store.init(conn)
+        bob_recovery.init(conn)
         bob_market_store.init(conn)
         research_transcript_provider.init(conn)
         research_enhancements.init(conn)
@@ -463,6 +465,19 @@ class Handler(BaseHTTPRequestHandler):
                     conn.commit()
                 send_json(self,200,result)
                 return
+            if path in ('/auth-recovery/state', '/auth-recovery/issue', '/auth-recovery/reset', '/auth-recovery/cancel'):
+                supplied = self.headers.get('X-Bob-Push-Token', '')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
+                    send_json(self, 401, {'error': 'Unauthorized'})
+                    return
+                payload = json_body(self)
+                if not isinstance(payload, dict):
+                    raise ValueError('Ungültige Wiederherstellungsdaten')
+                with db() as conn:
+                    result = bob_recovery.handle(conn, path.rsplit('/', 1)[-1], payload)
+                    conn.commit()
+                send_json(self, 200, result)
+                return
             if path in ('/auth-session/create', '/auth-session/check', '/auth-session/revoke'):
                 supplied = self.headers.get('X-Bob-Push-Token', '')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
@@ -758,6 +773,7 @@ if __name__ == "__main__":
     print("BOB_PUSH startup=ready", flush=True)
     threading.Thread(target=product_expiry_loop, name="bob-product-expiry", daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+
 
 
 
