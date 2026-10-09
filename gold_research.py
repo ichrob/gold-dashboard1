@@ -206,6 +206,43 @@ def download_channel():
     return data
 
 
+_publication_cache = {}
+
+
+def enrich_publication(item, fetch=None):
+    """Read publication metadata independently of captions; never date relative ages."""
+    if item.get('publishedAt') is not None:
+        return item
+    import youtube_research as y
+    identity = y.video_id(item['url'])
+    cached = _publication_cache.get(identity)
+    if cached:
+        item.update(cached)
+        return item
+    try:
+        player = y.player_metadata((fetch or y.read_url)(item['url']), identity)
+        y.require_mco(player.get('videoDetails', {}))
+        micro = player.get('microformat', {}).get('playerMicroformatRenderer', {})
+        value = micro.get('publishDate')
+        exact = timestamp(value)
+        if exact is not None and exact <= time.time():
+            publication = dict(publishedAt=exact, publishedDate=value,
+                               publicationSource='YouTube-Videometadaten')
+        elif isinstance(value, str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
+            datetime.strptime(value, '%Y-%m-%d')
+            publication = dict(publishedDate=value, publicationSource='YouTube-Videometadaten; Uhrzeit fehlt')
+        else:
+            return item
+        item.update(publication)
+        if exact is not None:
+            if len(_publication_cache) >= 200:
+                _publication_cache.pop(next(iter(_publication_cache)))
+            _publication_cache[identity] = publication
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return item
+
+
 def collect(now=None, fetch=download):
     now=time.time() if now is None else now
     def one(source):
@@ -229,8 +266,14 @@ def collect(now=None, fetch=download):
         eligible=[x for x in items if x['kind']=='Internet' and x['current']][:6]
         with ThreadPoolExecutor(max_workers=3,thread_name_prefix='bob-research-article') as pool:
             list(pool.map(enrich_article,eligible))
+        with ThreadPoolExecutor(max_workers=3,thread_name_prefix='bob-video-publication') as pool:
+            list(pool.map(enrich_publication,[x for x in items if x['kind']=='YouTube']))
+        items.sort(key=lambda x:x.get('publishedAt') or 0,reverse=True)
         import youtube_research
-        for item in [x for x in items if x['kind']=='YouTube'][:3]:youtube_research.enrich(item)
+        for item in [x for x in items if x['kind']=='YouTube'][:3]:
+            publication={key:item[key] for key in ('publishedAt','publishedDate','publicationSource') if item.get(key) is not None}
+            youtube_research.enrich(item)
+            item.update(publication)
     return dict(version='mco-gold-research-v3',checkedAt=now,intervalSeconds=INTERVAL,sources=sources,items=items,
         method='Nur Gold-Videos des bestätigten Kanals MCO Markets. Neue Videos werden alle 15 Minuten gesucht; bis zu drei Videos je Lauf werden auf abrufbare Untertitel geprüft. Kurzer Kontext aus dem tatsächlich gelesenen Transkript mit Quellenstellen. Richtungsbewertung mit Textregeln; zusätzliche KI-Zusammenfassung und gespeicherte Videovorschaubilder abhängig vom ausgewiesenen Abrufstatus. Keine KI-Chartanalyse; fehlender Text bleibt ungeprüft.')
 
@@ -265,7 +308,7 @@ def snapshot():
     manual={x['url']:x for x in youtube_research.manual_items() if allowed_item(x)}
     for item in report['items']:
         if item['url'] in manual and not item.get('transcriptAnalyzed'):
-            publication={key:item[key] for key in ('publishedAt','publishedRelative','publishedRelativeObservedAt','listingInfo') if key in item}
+            publication={key:item[key] for key in ('publishedAt','publishedRelative','publishedRelativeObservedAt','listingInfo') if item.get(key) is not None}
             item.update(manual.pop(item['url']))
             item.update(publication)
     urls={x['url'] for x in report['items']}
