@@ -1097,6 +1097,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const validity=document.createElement('details');validity.className='bob-disclosure';
    const validityHeading=document.createElement('summary');validityHeading.textContent='Datenabruf und Gültigkeit';
    validity.append(validityHeading,productDataStatus);
+   const rankButton=document.getElementById('dgRankBtn');
+   if(rankButton){rankButton.hidden=false;validity.append(rankButton);}
    technicalDetails.append(validity);
    panels.products.append(technicalDetails);
   }
