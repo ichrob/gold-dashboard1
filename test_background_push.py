@@ -46,6 +46,11 @@ class BackgroundRules(unittest.TestCase):
         s,e=b.advance({},self.settings,{**self.market,'price':111,'direction':'SHORT','mtf':'SHORT','score':20},False,True)
         self.assertIn('reversal',self.kinds(e));self.assertIn('profit-weak',self.kinds(e))
         self.assertEqual(b.advance(s,self.settings,{**self.market,'price':111,'direction':'SHORT','mtf':'SHORT','score':20},False,True)[1],[])
+    def test_entry_filter_does_not_suppress_active_trade_reversal(self):
+        market={**self.market,'direction':'NEUTRAL','baseDirection':'SHORT','mtf':'SHORT'}
+        _,events=b.advance({},self.settings,market,True,True)
+        self.assertIn('reversal',self.kinds(events))
+        self.assertNotIn('signal-change',self.kinds(events))
     def test_data_outage_no_false_target_and_recovery(self):
         m={**self.market,'price':180,'priceFresh':False}
         s,e=b.advance({},self.settings,m,False,True,now=0);self.assertEqual(e,[])
@@ -163,10 +168,10 @@ class BackgroundDelivery(PushMonitorTests):
         db,conn=self.connection();settings=b.config({})
         conn.execute.return_value.fetchall.return_value=[(1,{},True,False,False,settings,{'signalPending':{'direction':'LONG','since':0,'dataAt':1}},None,None)]
         market={'ready':True,'priceFresh':True,'direction':'LONG','mtf':'LONG','dataAt':1800000000000}
-        with patch.object(push_server,'db',db),patch.object(push_server.background_push,'analyze',return_value=market),patch.object(push_server,'vapid',return_value='x'),patch.object(push_server,'webpush',side_effect=push_server.WebPushException('fail')):
+        with patch.object(push_server.rule_learning,'tick'),patch.object(push_server.rule_learning,'policy',return_value={}),patch.object(push_server,'db',db),patch.object(push_server.background_push,'analyze',return_value=market),patch.object(push_server,'vapid',return_value='x'),patch.object(push_server,'webpush',side_effect=push_server.WebPushException('fail')):
             self.assertEqual(push_server.run_background({}),0)
             self.assertFalse(any('UPDATE subscriptions SET background_state' in c.args[0] for c in conn.execute.call_args_list))
-        with patch.object(push_server,'db',db),patch.object(push_server.background_push,'analyze',return_value=market),patch.object(push_server,'vapid',return_value='x'),patch.object(push_server,'webpush'):
+        with patch.object(push_server.rule_learning,'tick'),patch.object(push_server.rule_learning,'policy',return_value={}),patch.object(push_server,'db',db),patch.object(push_server.background_push,'analyze',return_value=market),patch.object(push_server,'vapid',return_value='x'),patch.object(push_server,'webpush'):
             self.assertEqual(push_server.run_background({}),1)
             self.assertTrue(any('UPDATE subscriptions SET background_state' in c.args[0] for c in conn.execute.call_args_list))
 

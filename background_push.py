@@ -238,6 +238,8 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     if not t:
         state.pop('trade', None)
         return state, present_events(events, settings, market)
+    # Learned filters govern new entries only; preserve reversal/exit monitoring.
+    direction = market.get('baseDirection', direction) if healthy else 'NEUTRAL'
     old = state.get('trade', {})
     if old.get('tradeId') != t['tradeId']:
         old = {**t, 'stage': 0}

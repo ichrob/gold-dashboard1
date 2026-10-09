@@ -15,6 +15,7 @@ import bob_market_store
 import bob_validation_store
 import real_trade_journal
 import decision_audit
+import rule_learning
 import stop_target_audit
 import paper_simulation
 import evaluator_runtime
@@ -300,10 +301,16 @@ def run_background(bundle):
                 stop_target_audit.harvest(conn)
         except Exception as exc:
             print('BOB_STOP_TARGET error='+type(exc).__name__,flush=True)
+        try:
+            with conn.transaction():rule_learning.tick(conn,bundle,background_push.analyze)
+        except Exception as exc:
+            print('BOB_RULE_LEARNING error='+type(exc).__name__,flush=True)
+        learning_policy=rule_learning.policy(conn)
+        bundle={**bundle,'learningPolicy':learning_policy}
         rows = conn.execute("SELECT id, subscription, general_enabled, trade_enabled, active_trade, background_config, background_state, selection_evidence, product_selection FROM subscriptions WHERE (general_enabled=TRUE OR (trade_enabled=TRUE AND active_trade=TRUE)) AND background_config IS NOT NULL FOR UPDATE").fetchall()
         for sid, sub, general, trade, active, settings, previous, evidence, selection in rows:
             try:
-                market = background_push.analyze(bundle, settings)
+                market = background_push.analyze(bundle, {**settings,'learningPolicy':learning_policy})
             except Exception as exc:
                 print('BOB_BACKGROUND analysis_failed='+type(exc).__name__, flush=True)
                 market = background_push.failed_analysis_market(bundle)
@@ -311,7 +318,7 @@ def run_background(bundle):
             try:
                 with conn.transaction():
                     if market.get('analysisBarAt'):
-                        decision_audit.write(conn,{'ruleVersion':market.get('ruleVersion'),'origin':'background','direction':market.get('direction','NEUTRAL'),
+                        decision_audit.write(conn,{'ruleVersion':market.get('ruleVersion'),'origin':'background','direction':market.get('direction','NEUTRAL'),'baseDirection':market.get('baseDirection'),'learningPolicy':market.get('learningPolicy'),
                             'trendContext':market.get('trendContext'),'plan':market.get('plan'),'minuteEntry':market.get('minuteEntry'),'entryQuality':market.get('entryQuality'),'shadowDirection':market.get('shadowDirection'),'intraday':market.get('intraday'),'barAt':market['analysisBarAt'],
                             'price':market.get('price'),'priceAt':market.get('dataAt'),'reason':market.get('decisionReason'),
                             'score':market.get('score'),'indicators':market.get('context'), 'products':[],
@@ -427,6 +434,17 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         try:
+            if path in ('/rule-learning/read','/rule-learning/rollback'):
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'});return
+                json_body(self)
+                with db() as conn:
+                    result=rule_learning.rollback(conn) if path.endswith('/rollback') else rule_learning.policy(conn)
+                    conn.commit()
+                if path.endswith('/rollback'):
+                    with decision_audit._report_lock: decision_audit._report_cache=None
+                send_json(self,200,result);return
             if path in ('/real-trades/read','/real-trades/write'):
                 supplied=self.headers.get('X-Bob-Push-Token','')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):

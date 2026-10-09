@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import json
+import rule_learning
 import math
 import subprocess
 import evaluator_runtime
@@ -91,7 +92,7 @@ def new_case(market, choice, quote, now, cash=100.):
     p=copy.deepcopy(market['plan']);direction=p['direction'];risk=abs(p['entry']-p['stop'])
     local=datetime.fromtimestamp(now/1000,ZoneInfo('Europe/Zurich'))
     end=min(now+4*3600000,local.replace(hour=21,minute=45,second=0,microsecond=0).timestamp()*1000)
-    key=hashlib.sha256(json.dumps([VERSION,market.get('ruleVersion'),market.get('analysisBarAt'),direction,choice['isin']],sort_keys=True).encode()).hexdigest()
+    key=hashlib.sha256(json.dumps([VERSION,market.get('ruleVersion'),market.get('learningPolicy'),market.get('analysisBarAt'),direction,choice['isin']],sort_keys=True).encode()).hexdigest()
     # No currency model is guessed from a leverage number or future contract.
     q=None if choice.get('indicative') or choice.get('estimated') else fresh_quote(quote,now,choice['isin'])
     quantity=math.floor((cash+1e-9)/q['ask']) if q else None
@@ -105,7 +106,7 @@ def new_case(market, choice, quote, now, cash=100.):
                 allocated=quantity*q['ask'] if quantity else None,availableAtEntry=cash,
                 capitalMode='EUR-Ganzstück-Bruttomodell' if quantity else 'Goldplan ohne Europosition',
                 engine=dict(trade=t),events=[dict(kind='entry',at=market['dataAt'],recordedAt=now,gold=market['price'],quote=q,
-                    reason=market.get('decisionReason'),ruleVersion=market.get('ruleVersion'))])
+                    reason=market.get('decisionReason'),ruleVersion=market.get('ruleVersion'),learningPolicy=market.get('learningPolicy'))])
 
 def advance_case(original, market, quote, now):
     """Stop checks precede trailing; resumed gaps cannot manufacture a win."""
@@ -384,7 +385,7 @@ def _worker(db):
                         evidence=feed[0]
                         active=conn.execute('SELECT payload FROM bob_paper_cases WHERE closed_at IS NULL LIMIT 1').fetchone()
                         now=time.time()*1000
-                        settings=dict(timeframe='15m',trailAtr=1.5)
+                        settings=dict(timeframe='15m',trailAtr=1.5,learningPolicy=rule_learning.policy(conn))
                         if active:settings['trade']=active[0]['engine']['trade']
                         quotes=quote_cache(evidence['products'],active[0]['product']['isin'] if active else None,now)
                         # A closed browser is not needed: exact same headless rules.

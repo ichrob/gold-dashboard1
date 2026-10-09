@@ -1216,7 +1216,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        if path in ("/api/real-trades/read", "/api/real-trades/write", "/api/audit/read", "/api/audit/write", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences") and not worker_ok and (not self.authenticated()):
+        if path in ("/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/audit/read", "/api/audit/write", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences") and not worker_ok and (not self.authenticated()):
             self.send_response(401)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -1224,7 +1224,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         path = urlparse(self.path).path
-        if path not in ("/api/real-trades/read", "/api/real-trades/write", "/api/audit/read", "/api/audit/write", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences"):
+        if path not in ("/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/audit/read", "/api/audit/write", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences"):
             self.send_response(404)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -1248,6 +1248,8 @@ class Handler(BaseHTTPRequestHandler):
             if not base.startswith("http://") and not base.startswith("https://"):
                 base = "http://" + base
             relay_path = {
+                "/api/rule-learning/read": "/rule-learning/read",
+                "/api/rule-learning/rollback": "/rule-learning/rollback",
                 "/api/real-trades/read": "/real-trades/read",
                 "/api/real-trades/write": "/real-trades/write",
                 "/api/audit/read": "/decision-audit/read",

@@ -793,7 +793,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <div id="auditStatisticsStatus" class="small" role="status">Statistik wird geladen …</div>
 <div style="overflow-x:auto"><table style="width:100%;text-align:left;border-collapse:collapse"><caption class="small">Nur auswertbare Richtungen / Produktkurse; Anteil innerhalb der jeweiligen Zeile</caption><thead><tr><th>Prüfung</th><th>Treffer</th><th>Fehlprognose</th><th>Unverändert</th><th>Ausgewertet</th></tr></thead><tbody id="auditStatisticsRows"></tbody></table></div>
 <details><summary>Fehleranalyse · Long und Short</summary><div id="signalDiagnostics" class="small" style="white-space:pre-line">Wird geladen …</div></details>
-<details><summary>Neue Regeln parallel prüfen · ohne Signaländerung</summary><div id="prospectiveReview" class="small" style="white-space:pre-line">Wird geladen …</div></details>
+<details open><summary>Regeln lernen · unabhängig prüfen · übernehmen</summary><div id="ruleLearning" class="small" style="white-space:pre-line">Wird geladen …</div><button id="rollbackLearningRule" type="button" hidden>Zur bisherigen Grundregel zurückkehren</button></details>
+<details><summary>Frühere Filtervergleiche · nur Beobachtung</summary><div id="prospectiveReview" class="small" style="white-space:pre-line">Wird geladen …</div></details>
 <div id="auditStatisticsOpen" class="small" style="white-space:pre-line;margin-top:8px"></div>
 <div class="small" style="margin-top:8px">Treffer = späterer Kurs bewegt sich in die vorhergesagte Richtung. Fehlprognose = Gegenbewegung. Beim Produkt zählt der spätere Geldkurs gegenüber dem ursprünglichen Briefkurs. Das ist eine Verlaufsauswertung ohne Gebühren, kein Beweis für einen fehlerfreien Entscheidungsprozess oder einen tatsächlichen Gewinn.</div>
 <details><summary>Recherchequalität und Auswahlvergleich</summary><div id="auditStatisticsResearch" class="small" style="white-space:pre-line"></div></details>
@@ -920,7 +921,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    if(sm?.stop>0&&target?.target>0)plan={kind:'candidate',direction:state.dir,entry:bundle.spots.xaus,stop:sm.stop,target:target.target,unit:'USD/oz',at:Date.now(),note:'Zeitgleich berechneter Gold-Referenzplan; keine Order und keine Produktfreigabe'};
   }
   if(tradeMgmt?.active&&!tradeMgmt.test)plan={kind:'active-monitor',direction:tradeMgmt.dir,entry:tradeMgmt.entry,stop:tradeMgmt.stop,target:tradeMgmt.target,unit:'USD/oz',at:Date.now(),note:'Gespeicherte Überwachung; kein Ausführungsnachweis',isin:tradeMgmt.product?.isin||null};
-  const payload={plan,ruleVersion:'intraday-trend-follow-v7',trendContext:state.trendContext,direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,entryQuality:intradayEntryContext(bundle,state),minuteEntry:minuteEntryContext(bundle,state),barAt:state.barAt,
+  const payload={plan,baseDirection:state.baseDirection,learningPolicy:state.learningPolicy,ruleVersion:'intraday-trend-follow-v7',trendContext:state.trendContext,direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,entryQuality:intradayEntryContext(bundle,state),minuteEntry:minuteEntryContext(bundle,state),barAt:state.barAt,
    price:bundle?.spots?.xaus,priceAt:bundle?.spots?.spot_price_as_of,score:state.score,
    reason:state.reason,indicators:state.indicators,products:items,selection:[...selected],gateReasons:flow.gateReasons};
   const signature=JSON.stringify([state.dir,state.shadowDirection,state.barAt,state.reason,items,flow.gateReasons,plan&&[plan.kind,plan.direction,plan.entry,plan.stop,plan.target]]);
@@ -945,6 +946,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    text('auditStatisticsOpen',Object.entries(r.metrics).map(([h,m])=>h+' Min.: '+m.missing+' offen / nicht auswertbar; '+m.neutral+' ABWARTEN-Beobachtungen (nicht in der Trefferquote).').join('\n'));
    const dg=r.signalDiagnostics;
    if(dg){text('signalDiagnostics',dg.note+'\n\n'+dg.groups.map(g=>g.horizon+' Min. · '+g.label+': '+g.win+' richtig / '+g.loss+' falsch / '+g.flat+' unverändert / '+g.missing+' nicht auswertbar').join('\n')+'\n\nFehlprognosen (bis 30 Beispiele):\n'+dg.examples.map(e=>new Date(e.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · '+e.direction+' · '+e.horizon+' Min. · '+e.changePct.toFixed(3)+' % in Signalrichtung · '+e.tags.join(', ')+' · '+(e.reason||'Grund nicht gespeichert')).join('\n'));}
+   const rl=r.ruleLearning;
+   if(rl){const phase={collection:'Datensammlung und Auswahl',validation:'Kandidat festgeschrieben · spätere Prüfung läuft',adopted:'Prüfung bestanden · Filter übernommen','rolled-back':'Grundregel wiederhergestellt',rejected:'Keine Übernahme · Kriterien nicht erfüllt',unavailable:'Nicht verfügbar'};const when=v=>new Date(v).toLocaleString('de-CH',{timeZone:'Europe/Zurich'});const lines=[phase[rl.phase]||rl.phase,'Aktive Einstiegsregel: '+(rl.policy.variant==='baseline'?'bisherige Grundregel':rl.policy.variant),'Gespeicherte Prüfzeitpunkte: '+rl.captured,'Auswahlende: '+when(rl.protocol.selectionEnds)+' · Prüfende: '+when(rl.protocol.validationEnds)+' (Zürich)',rl.candidate?'Festgelegter Kandidat: '+rl.candidate:'Noch kein bestätigter Kandidat.',rl.note];if(rl.validation){const m=rl.validation;lines.push('Unabhängige Prüfung: '+m.samples+' Richtungssignale an '+m.days+' Tagen · Abdeckung '+(m.coverage*100).toFixed(1)+' % · Verbesserung '+(m.improvementPct==null?'—':m.improvementPct.toFixed(4)+' Prozentpunkte')+' · untere 99%-Schätzgrenze '+(rl.lowerBound99Pct==null?'nicht auswertbar':rl.lowerBound99Pct.toFixed(4)));}for(const e of rl.history||[])lines.push(when(e.at)+' · '+e.event+' · '+(e.variant||e.candidate||'Grundregel'));text('ruleLearning',lines.join('\n\n'));const revert=$('rollbackLearningRule');revert.hidden=rl.phase!=='adopted';revert.onclick=async()=>{revert.disabled=true;try{const response=await fetch('/api/rule-learning/rollback',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});if(!response.ok)throw Error('Rücknahme fehlgeschlagen');window.BobLearningPolicy=await response.json();await refresh();}catch(e){text('ruleLearning',e.message);}finally{revert.disabled=false;}};}
    const pr=r.prospectiveReview;
    if(pr){const lines=[pr.note,'Validierung ab '+pr.validationDay+' (Zürich). Richtig/falsch wird nur für behaltene Signale gezählt.'];for(const [phase,variants] of Object.entries(pr.phases)){lines.push('\n'+(phase==='validation'?'Spätere Validierung':'Erste Datensammlung'));for(const [key,m] of Object.entries(variants)){lines.push(pr.labels[key]+': '+m.cases+' auswertbar · '+m.kept+' behalten / '+m.filtered+' ausgelassen · '+m.wins+' richtig / '+m.losses+' falsch / '+m.flat+' unverändert · '+m.missing+' nicht auswertbar · vermiedene Fehlrichtungen '+m.avoidedLoss+' / verpasste richtige '+m.missedWin+' · mittlere Richtungsbewegung je Vergleich '+(m.cases?(m.sumPct/m.cases).toFixed(3)+' %':'—'));}}text('prospectiveReview',lines.join('\n'));}
    text('auditStatisticsResearch','Recherche: '+research.observations+' Beobachtungen; '+research.conflicts+' mit Widerspruchshinweis; '+research.missingSourceOrTime+' ohne Quelle oder Abrufzeit. Diese Gruppen können sich überschneiden.\nEin fehlender Widerspruch beweist keine korrekte Recherche. Bestätigte Recherchefehler werden bisher nicht gesondert erfasst.\n\nAuswahlvergleich: '+p.selectedBest+' von '+p.comparisons+' auswertbaren Vergleichen mindestens so gut wie die beobachteten geeigneten Alternativen. Fehlende Alternativkurse zählen nicht mit.');
@@ -1663,7 +1666,7 @@ async function fetchLiveBundle(force=false){
  liveBundlePending=(async()=>{
   const now=Date.now(),controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
   try{
-   const r=await fetch('/api/live',{cache:'no-store',signal:controller.signal});
+   const [r]=await Promise.all([fetch('/api/live',{cache:'no-store',signal:controller.signal}),refreshLearningPolicy()]);
    if(!r.ok)throw Error('Bob-Server HTTP '+r.status);
    const j=await r.json(),spot=j.spots;
    if(!spot||typeof spot.xaus!=='number'||!Number.isFinite(spot.xaus)||spot.xaus<=0||
@@ -2247,6 +2250,25 @@ function trendFollowingSignal(bundle,now=Date.now()){
  const approved=trend.available&&trend.intact&&raw.dir===trend.direction;
  return {...raw,dir:approved?raw.dir:'NEUTRAL',trendContext:trend,reason:trend.reason+' · '+raw.reason};
 }
+// Shared by the browser and the headless worker. Only suppresses new entries.
+function applyLearningFilter(state,bundle,policy=window.BobLearningPolicy,now=Date.now()){
+ const baseDirection=state.dir;
+ const valid=policy&&policy.campaign==='entry-filter-v1-20261009'&&policy.base==='intraday-trend-follow-v7'&&Number.isFinite(policy.issuedAt)&&Number.isFinite(policy.expiresAt)&&policy.issuedAt<=now+5000&&policy.expiresAt>now&&policy.expiresAt-policy.issuedAt<=120000&&['baseline','adx25','adx30'].includes(policy.variant);
+ const version=valid?policy.version:'unavailable';
+ const result={...state,baseDirection,learningPolicy:version};
+ if(!['LONG','SHORT'].includes(baseDirection))return result;
+ if(!valid)return {...result,dir:'NEUTRAL',reason:state.reason+' · Aktuelle Lernregel nicht bestätigt; neue Einstiege pausieren.'};
+ if(policy.variant==='baseline')return result;
+ const bars=(bundle?.history?.bars_by_tf?.['5m']||[]).filter(b=>!b.isOpen&&b.openTime+300000<=now).slice(-220);
+ const adx=bars.length>=100?adxCalc(bars):null,threshold=policy.variant==='adx25'?25:30;
+ return Number.isFinite(adx)&&adx>=threshold?{...result,reason:state.reason+' · Geprüfter Lernfilter: ADX ≥ '+threshold}:{...result,dir:'NEUTRAL',reason:state.reason+' · Geprüfter Lernfilter: 5m-ADX ≥ '+threshold+' nicht bestätigt.'};
+}
+async function refreshLearningPolicy(){
+ const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),8000);
+ try{const r=await fetch('/api/rule-learning/read',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',cache:'no-store',signal:ctl.signal});if(!r.ok)throw Error('Regelstatus nicht erreichbar');window.BobLearningPolicy=await r.json();}
+ catch(_){/* An expired policy suppresses entries; ongoing trade checks continue. */}
+ finally{clearTimeout(timer);}
+}
 function confirmedSignalDirection(){
  if(window.BobSession?.expired()||analysisAgeWarnings().length||!A.ready||!C.length||!Number.isFinite(A.at)){
   const reasons=[];if(window.BobSession?.expired())reasons.push('Anmeldung erforderlich');if(!C.length)reasons.push('Gold-Kerzendaten fehlen');else if(!A.ready)reasons.push('Analysehistorie unvollständig: '+C.length+' Kerzen');if(!Number.isFinite(A.at))reasons.push('Volatilitätswert ATR fehlt oder ist ungültig');reasons.push(...analysisAgeWarnings());
@@ -2254,6 +2276,7 @@ function confirmedSignalDirection(){
  }
  signalState=trendFollowingSignal(liveBundleCache);
  const session=intradaySession();if(!session.entryAllowed)signalState={...signalState,dir:'NEUTRAL',shadowDirection:'NEUTRAL',reason:session.reason};
+ signalState=applyLearningFilter(signalState,liveBundleCache);
  A.score=Number.isFinite(signalState.score)?signalState.score:null;
  window.BobDecisionAuditState={...signalState,barAt:signalState.lastAt??C.at(-1)?.openTime,score:A.score,indicators:{mtf:getMtfState(),atr:A.at,rsi:A.R,ema20:A.e20,ema50:A.e50,ema200:A.e200,macd:A.macd,signal:A.sig}};
  renderDecisionExplanation();renderIntraday();
@@ -2262,7 +2285,7 @@ function confirmedSignalDirection(){
 // Product selection consumes the same full-precision 5m evidence as the signal,
 // never rounded text or indicators from a separately selected display timeframe.
 function intradayTechnicalContext(bundle=liveBundleCache,state=null,now=Date.now()){
- state=state||trendFollowingSignal(bundle,now);
+ state=state||applyLearningFilter(trendFollowingSignal(bundle,now),bundle,window.BobLearningPolicy,now);
  const empty={policy:'intraday-trend-follow-v7',direction:'NEUTRAL',trend:'NEUTRAL',trend2:'NEUTRAL',mtf:'NEUTRAL',rsi:null,hist:null,momentum:null,atr:null,adx:null};
  if(!Number.isFinite(state.score)||!intradaySession(now).entryAllowed||window.BobSession?.expired())return empty;
  const bars=(bundle?.history?.bars_by_tf?.['5m']||[]).filter(b=>!b.isOpen&&b.openTime+300000<=now).slice(-220),values=bars.map(b=>b.close);
@@ -2753,7 +2776,8 @@ async function maybePushAnalysisAlerts(){
    const mtf=getMtfState().overall||"NEUTRAL";
    let saved={};try{saved=JSON.parse(localStorage.getItem("bobAlertV2")||"{}")}catch(_){}
    const now=Date.now();
-   const switched=(saved.dir==="LONG"||saved.dir==="SHORT")&&(dir==="LONG"||dir==="SHORT")&&saved.dir!==dir;
+   const exitDir=signalState.baseDirection||dir;
+   const switched=(saved.baseDir==="LONG"||saved.baseDir==="SHORT")&&(exitDir==="LONG"||exitDir==="SHORT")&&saved.baseDir!==exitDir;
 
    BobPush.beginBatch?.();
    await manageProfitProtection();
@@ -2762,11 +2786,11 @@ async function maybePushAnalysisAlerts(){
    // recommend closing first, then explain the new signal direction.
    const holdingTrend=sustainedTrendContext(liveBundleCache);
    const holdingIntact=holdingTrend.available&&holdingTrend.intact&&holdingTrend.direction===tradeMgmt?.dir;
-   if(switched&&!holdingIntact&&pushState.activeTrade&&pushState.trade&&tradeMgmt?.active&&tradeMgmt.dir!==dir){
-     const closeMarker="reversal:"+tradeMgmt.dir+"-to-"+dir+":"+Math.floor(now/600000);
+   if(switched&&!holdingIntact&&pushState.activeTrade&&pushState.trade&&tradeMgmt?.active&&tradeMgmt.dir!==exitDir){
+     const closeMarker="reversal:"+tradeMgmt.dir+"-to-"+exitDir+":"+Math.floor(now/600000);
      if(saved.tradeCloseWarn!==closeMarker){
        await BobPush.emit("trade","🚨 Bob – DRINGEND: Trade schließen",
-         "Bestätigter Richtungswechsel "+tradeMgmt.dir+" → "+dir+
+         "Bestätigter Richtungswechsel "+tradeMgmt.dir+" → "+exitDir+
          " · Momentum/Parameter gedreht · Kurs "+lastPrice.toFixed(2)+
          ". Deinen "+tradeMgmt.dir+"-Trade prüfen; Schließen prüfen.",
          {kind:"trade-close-recommendation",signalId:closeMarker,priority:"urgent"});
@@ -2784,7 +2808,7 @@ async function maybePushAnalysisAlerts(){
        {kind:"signal-change",direction:dir,signalId:"ui:"+saved.dir+"-to-"+dir+":"+Math.floor(now/60000)});
    }
 
-   saved.dir=dir;saved.mtf=mtf;localStorage.setItem("bobAlertV2",JSON.stringify(saved));
+   saved.baseDir=exitDir;saved.dir=dir;saved.mtf=mtf;localStorage.setItem("bobAlertV2",JSON.stringify(saved));
    if(currentSpotUsable()&&pushState.activeTrade&&pushState.trade&&tradeMgmt?.active&&Number.isFinite(Number(tradeMgmt.stop))){
      const stop=Number(tradeMgmt.stop), distance=Math.abs(lastPrice-stop);
      const near=Math.max((A.at||0)*0.25,1);

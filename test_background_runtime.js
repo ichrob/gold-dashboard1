@@ -11,7 +11,8 @@ for(const slope of [.1,-.1,0]){
  }
  const bundle={spots:{xaus:4124,is_genuine_xauusd_spot:true,spot_price_as_of:new Date(now).toISOString()},history:{bars_by_tf:bars}};
  for(const timeframe of ['5m','15m','1h']){
-  const input={bundle,timeframe,trade:{active:true,dir:slope<0?'SHORT':'LONG'}};
+  const input={bundle,timeframe,learningPolicy:{campaign:'entry-filter-v1-20261009',base:'intraday-trend-follow-v7',variant:'baseline',version:'baseline',issuedAt:now,expiresAt:now+120000},trade:{active:true,dir:slope<0?'SHORT':'LONG'}};
+  if(slope<0)assert.equal(evaluate(input).direction,'SHORT');
   assert.deepStrictEqual(plain(evaluate(input)),plain(evaluate(input,{render:true})),timeframe+' slope '+slope);
  }
  bundle.spots.spot_error='offline';

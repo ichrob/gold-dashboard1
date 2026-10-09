@@ -9,6 +9,7 @@ import threading
 import copy
 import intraday_comparison
 import signal_review
+import rule_learning
 import audit_history
 import stop_target_audit
 import paper_simulation
@@ -42,7 +43,7 @@ def normalize(payload, now=None):
     if bar is None or bar > now:
         raise ValueError('Entscheidungs-Kerzenzeit fehlt oder liegt in der Zukunft')
     # Only explicitly whitelisted evidence; never account credentials or raw images.
-    result = {k: payload.get(k) for k in ('direction','shadowDirection','trendContext','intraday','entryQuality','minuteEntry','barAt','price','priceAt','reason','score','indicators','products','selection','gateReasons','plan')}
+    result = {k: payload.get(k) for k in ('learningPolicy','baseDirection','direction','shadowDirection','trendContext','intraday','entryQuality','minuteEntry','barAt','price','priceAt','reason','score','indicators','products','selection','gateReasons','plan')}
     plan = result.get('plan')
     if (isinstance(plan,dict) and plan.get('kind') in ('candidate','active-monitor')
         and plan.get('direction') in ('LONG','SHORT') and plan.get('unit')=='USD/oz'
@@ -65,9 +66,11 @@ def normalize(payload, now=None):
     entry=result.get('entryQuality')
     if not isinstance(entry,dict) or entry.get('version')!='entry-quality-v1' or entry.get('direction') not in ('LONG','SHORT','NEUTRAL'):result['entryQuality']=None
     result['marketEvaluable'] = positive(result.get('price')) and at is not None and 0 <= now-at <= 180000
+    result['learningPolicy']=result.get('learningPolicy') if isinstance(result.get('learningPolicy'),str) and len(result['learningPolicy'])<150 else None
+    if result.get('baseDirection') not in ('LONG','SHORT','NEUTRAL'):result['baseDirection']=None
     result['reviewVariants'] = signal_review.capture(result)
     # Each decision revision is frozen once. Refreshes with unchanged evidence are idempotent.
-    identity={k:result[k] for k in ('version','ruleVersion','origin','direction','shadowDirection','intraday','barAt','reason','products','selection','gateReasons','plan')}
+    identity={k:result[k] for k in ('learningPolicy','version','ruleVersion','origin','direction','shadowDirection','intraday','barAt','reason','products','selection','gateReasons','plan')}
     if identity.get('plan'):identity['plan']={k:v for k,v in identity['plan'].items() if k!='at'}
     identity['reviewVersion']=signal_review.VERSION
     identity['minuteEntryVersion']=(result.get('minuteEntry') or {}).get('version')
@@ -76,6 +79,7 @@ def normalize(payload, now=None):
     return key,result
 
 def init(conn):
+    rule_learning.init(conn)
     intraday_comparison.init(conn)
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_decision_audit (
         id TEXT PRIMARY KEY, recorded_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
@@ -195,8 +199,14 @@ def _build_report(conn):
       (SELECT truth FROM bob_decision_outcomes WHERE decision_id=a.id AND horizon=60),
       (SELECT truth FROM bob_decision_outcomes WHERE decision_id=a.id AND horizon=240)
       FROM bob_decision_audit a ORDER BY a.recorded_at DESC LIMIT %s""",(REPORT_LIMIT,)).fetchall()
-    result=summarize([(row[0],row[1:]) for row in rows])
-    current=[(r,t) for r,t in [(row[0],row[1:]) for row in rows] if r.get('ruleVersion')==RULE_VERSION]
+    learning=rule_learning.report(conn)
+    active=(learning.get('policy') or {}).get('variant','baseline')
+    matches=lambda r:r.get('learningPolicy')==rule_learning.ID+':'+active or active=='baseline' and r.get('learningPolicy') is None
+    scoped=[row for row in rows if matches(row[0])]
+    result=summarize([(row[0],row[1:]) for row in scoped])
+    current=[(r,t) for r,t in [(row[0],row[1:]) for row in scoped] if r.get('ruleVersion')==RULE_VERSION]
+    result['ruleLearning']=learning
+    result['otherPolicyRecords']=len(rows)-len(scoped)
     result['signalDiagnostics']=signal_review.diagnostics(current,outcome)
     prospective_rows=conn.execute("""SELECT a.payload,o.truth FROM (
         SELECT DISTINCT ON (date_trunc('hour',recorded_at)) id,payload,recorded_at
@@ -210,7 +220,7 @@ def _build_report(conn):
     result['fourDayComparison']=intraday_comparison.report(conn)
     result['total']=conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0]
     result['reportRecords']=len(rows)
-    result['scope']='Aktuelle Intraday-Regel; Auswertung der letzten '+str(len(rows))+' von '+str(result['total'])+' gespeicherten Entscheidungen; frühere Regeln getrennt ('+str(result['legacyCount'])+' ältere Protokolle). Einzelne Tage bleiben vollständig abrufbar. Bis 30 Tage; Gold-Richtung ohne Handelskosten, kein Gewinnnachweis'
+    result['scope']='Aktuelle Einstiegsregel '+active+' ('+str(len(scoped))+' passende, '+str(len(rows)-len(scoped))+' andere Regelstände getrennt); aktuelle Intraday-Regel; Auswertung der letzten '+str(len(rows))+' von '+str(result['total'])+' gespeicherten Entscheidungen; frühere Regeln getrennt ('+str(result['legacyCount'])+' ältere Protokolle). Einzelne Tage bleiben vollständig abrufbar. Bis 30 Tage; Gold-Richtung ohne Handelskosten, kein Gewinnnachweis'
     result['minuteEntryReview']=entry_quality_review([(row[0],row[1:]) for row in rows],field='minuteEntry',version='minute-entry-v1')
     result['entryQualityReview']=entry_quality_review([(row[0],row[1:]) for row in rows])
     result['productReview']=product_review([row[0] for row in rows[:1500]])

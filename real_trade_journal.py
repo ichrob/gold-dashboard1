@@ -70,7 +70,7 @@ def observe(conn,bundle):
         try:
             market=background_push.analyze(bundle,settings)
             next_state,events=background_push.advance(state,settings,market,False,True)
-            evidence={k:market.get(k) for k in ('direction','ready','priceFresh','price','dataAt','analysisBarAt','decisionReason','score','context','trendContext','plan','suggestedStop','suggestedTarget','ruleVersion')}
+            evidence={k:market.get(k) for k in ('baseDirection','learningPolicy','direction','ready','priceFresh','price','dataAt','analysisBarAt','decisionReason','score','context','trendContext','plan','suggestedStop','suggestedTarget','ruleVersion')}
             evidence['planAfter']=next_state.get('trade');evidence['recommendations']=events
             evidence['delivery']='Nur protokolliert; tatsächlicher Push-Versand wird separat erfasst'
             event(conn,tid,'observation',evidence,str(now))
