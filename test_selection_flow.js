@@ -20,7 +20,7 @@ assert(!b.selectionDetailStatus({...p,snapshot:{...p.snapshot,evidence:{...p.sna
 const context={now,direction:'SHORT',spotFresh:true,spot:4140,atr:10,trend:'SHORT',trend2:'SHORT',mtf:'SHORT',rsi:40,hist:-1,adx:30,momentum:-1};
 let r=b.selectionWorkflow([p,p],context,{});assert.equal(r.total,1);assert.equal(r.groups.length,1);assert.equal(r.groups[0].candidates.length,1);assert.equal(r.stage,'TOP3');assert(!r.tradeable);assert(b.renderSelectionWorkflow(r).includes('Warum:'));
 r=b.selectionWorkflow([p],{...context,direction:'NEUTRAL'},{});assert.equal(r.stage,'ABWARTEN');assert.equal(r.groups.length,0);
-r=b.selectionWorkflow([{...p,snapshot:null}],context,{});assert.equal(r.requests.length,1);assert.equal(r.groups.length,0);assert(b.renderSelectionWorkflow(r).includes('Bilder / PDF hinzufügen'));
+r=b.selectionWorkflow([{...p,snapshot:null}],context,{});assert.equal(r.requests.length,1);assert.equal(r.groups.length,0);assert(!b.renderSelectionWorkflow(r).includes('Weitere Produkte'));assert(b.productUploadCards([{...p,snapshot:null}],context.direction,now).includes('Bilder / PDF zu diesem Produkt hinzufügen'));
 assert(b.isFutureProduct({name:'SG Gold Future Turbo Put'}));
 r=b.selectionWorkflow([{...p,name:'SG Gold Future Faktor Long',productDirection:'LONG'}],{...context,direction:'LONG'},{});assert.equal(r.groups.length,0);assert(r.waiting[0].reason.includes('Faktorprodukt'));
 // A Future never enters a Spot ranking from a fresh screenshot alone.
@@ -181,16 +181,16 @@ for(const c of [context,{...context,direction:'NEUTRAL'}, {...context,now:now+14
  const products=[...copies,futureOk];const result=b.selectionWorkflow(products,c,{});
  const selected=new Set(result.groups.flatMap(g=>g.candidates).map(p=>p.isin));
  assert.equal(result.notApproved.length,products.length-selected.size);
- const html=b.renderSelectionWorkflow(result);
+ const html=b.productUploadCards(products,c.direction,c.now||now,result);
  for(const p of result.notApproved){assert(!selected.has(p.isin));assert(p.reasons.length);assert(html.includes(p.isin));}
  assert.equal((html.match(/data-selection-blocked=/g)||[]).length,result.notApproved.length);
  assert.equal((html.match(/<b>Aktuelle Auswahl:<\/b> nicht ausgewählt/g)||[]).length,result.notApproved.length);
  assert.equal((html.match(/Warum derzeit nicht ausgewählt\?/g)||[]).length,result.notApproved.length);
 }
 const allBlocked=b.selectionWorkflow([...copies,futureOk],{...context,direction:'NEUTRAL'},{});
-assert.equal(allBlocked.notApproved.length,4);assert(b.renderSelectionWorkflow(allBlocked).includes('data-selection-blocked="4"'));
-const unidentified=b.selectionWorkflow([{name:'<unsicheres Produkt>'}],context,{});
-assert.equal(unidentified.notApproved.length,1);assert(b.renderSelectionWorkflow(unidentified).includes('&lt;unsicheres Produkt&gt;'));assert(b.renderSelectionWorkflow(unidentified).includes('ISIN fehlt'));
+assert.equal(allBlocked.notApproved.length,4);assert(b.productUploadCards([...copies,futureOk],'NEUTRAL',now,allBlocked).includes('data-selection-blocked="4"'));
+const unidentified=b.selectionWorkflow([{name:'<unsicheres Produkt>',isin:''}],context,{});
+assert.equal(unidentified.notApproved.length,1);assert(b.productUploadCards([{name:'<unsicheres Produkt>',isin:''}],context.direction,now,unidentified).includes('&lt;unsicheres Produkt&gt;'));assert(b.productUploadCards([{name:'<unsicheres Produkt>',isin:''}],context.direction,now,unidentified).includes('ISIN fehlt'));
 
 // Push verification reruns the same evidence checks on the server and ignores
 // client claims about approval. It also accounts for time spent in delivery.
@@ -240,7 +240,7 @@ for(const direction of ['NEUTRAL','LONG']){
  const missing={...f,snapshot:{...f.snapshot,terms:{...f.snapshot.terms,contract:undefined}}};
  const result=b.selectionWorkflow([missing,p],{...context,direction},{});
  assert(result.notApproved.find(x=>x.isin===f.isin).reasons.some(x=>x.includes('Produktdetails → Dokumente')));
- assert(b.renderSelectionWorkflow(result).includes('Referenzkontrakt / Futures Contract'));
+ assert(b.productUploadCards([missing,p],direction,now,result).includes('Referenzkontrakt / Futures Contract'));
  assert(!result.notApproved.find(x=>x.isin===p.isin)?.reasons.some(x=>x.includes('Produktdetails → Dokumente')));
  assert(!result.groups.some(g=>g.candidates.some(x=>x.isin===f.isin)));
 }
@@ -250,7 +250,7 @@ assert(!confirmed.notApproved[0].reasons.some(x=>x.startsWith('Exakter Gold-Futu
 
 // Missing evidence stays collapsed and separate from market reasons.
 const folded=b.selectionWorkflow([{...f,snapshot:null}],{...context,direction:'NEUTRAL'},{});
-const foldedHtml=b.renderSelectionWorkflow(folded);
+const foldedHtml=b.productUploadCards([{...f,snapshot:null}],'NEUTRAL',now,folded);
 assert(folded.notApproved[0].missingReasons.some(x=>x.includes('Bezugsverhältnis')));
 assert(foldedHtml.includes('<strong>Fehlende Werte</strong>'));
 assert(foldedHtml.includes('Fundort auf der SG-Produktseite:'));
@@ -261,7 +261,7 @@ const beforeFold=foldedHtml.slice(0,foldedHtml.indexOf('data-missing-values'));
 assert(beforeFold.includes('Marktsignal neutral'));
 assert(beforeFold.includes('Referenzkontrakt / Futures Contract')); // Location is now also in the compact missing-values disclosure.
 assert(beforeFold.includes('Exakter Gold-Future-Kontrakt fehlt')); // Concrete blocker now visible by user request.
-const completeFold=b.renderSelectionWorkflow(b.selectionWorkflow([p],{...context,direction:'NEUTRAL'},{}));
+const completeFold=b.productUploadCards([p],'NEUTRAL',now,b.selectionWorkflow([p],{...context,direction:'NEUTRAL'},{}));
 assert(!completeFold.includes('data-missing-values'));
 
 for(const value of [undefined,'Ja','Nein','unbekannt']){const x=JSON.parse(JSON.stringify(imageProduct));if(value===undefined)delete x.snapshot.terms.quanto;else x.snapshot.terms.quanto.value=value;assert(b.finalProductStatus(x,now).complete);}
