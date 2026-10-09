@@ -14,6 +14,7 @@ EMAIL = os.environ.get('BOB_RECOVERY_EMAIL', 'robsimon@gmx.de').strip().lower()
 ORIGIN = os.environ.get('BOB_PUBLIC_ORIGIN', 'https://bob-private-scanner.onrender.com').rstrip('/')
 ITERATIONS = 600000
 TOKEN_TTL = 900
+RECOVERY_COOKIE = '__Host-bob_recovery'
 
 
 def init(conn):
@@ -118,15 +119,7 @@ def configured():
 
 def page(handler, reset_token='', message='', status=200):
     import bob_auth as auth
-    csrf = secrets.token_urlsafe(32)
-    with auth.LOCK:
-        now = time.time()
-        for key, expiry in list(auth.PENDING.items()):
-            if expiry <= now:
-                del auth.PENDING[key]
-        if len(auth.PENDING) >= 512:
-            auth.PENDING.pop(next(iter(auth.PENDING)))
-        auth.PENDING[csrf] = now + 600
+    csrf = recovery_csrf()
     reset = bool(reset_token)
     title = 'Neues Passwort festlegen' if reset else 'Passwort vergessen?'
     if reset:
@@ -139,21 +132,43 @@ def page(handler, reset_token='', message='', status=200):
     body = f'''<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Bob – {title}</title>
     <style>body{{font-family:system-ui;background:#f3f5f8;margin:0;padding:24px}}main{{max-width:380px;margin:6vh auto;background:white;border-radius:18px;padding:28px}}label,input,button{{display:block;box-sizing:border-box;width:100%;margin-top:12px}}input,button{{padding:13px;border:1px solid #ccd3dd;border-radius:9px;font:inherit}}button{{background:#2358b6;color:white}}a{{color:#2358b6}}p{{line-height:1.5}}</style>
     <main><h1>{title}</h1><p role="status">{html.escape(message)}</p>{form}<p><a href="/login">Zur Anmeldung</a></p></main></html>'''.encode()
-    auth.send(handler, status, body, cookies=[auth.set_cookie(auth.CSRF_COOKIE, csrf, 600)])
+    auth.send(handler, status, body, cookies=[auth.set_cookie(RECOVERY_COOKIE, csrf, 600)])
+
+
+def recovery_csrf():
+    import bob_auth as auth
+    payload = str(int(time.time())) + '.' + secrets.token_urlsafe(32)
+    signature = hmac.new(auth.STORE_TOKEN.encode(), ('bob-recovery-csrf-v1:'+payload).encode(), hashlib.sha256).hexdigest()
+    return payload + '.' + signature
+
+
+def valid_csrf(token, cookie_value):
+    import bob_auth as auth
+    if not auth.STORE_TOKEN or not isinstance(token, str) or not re.fullmatch(r'[0-9]{10}\.[A-Za-z0-9_-]{43}\.[a-f0-9]{64}', token):
+        return False
+    if not hmac.compare_digest(token.encode(), cookie_value.encode()):
+        return False
+    payload, signature = token.rsplit('.', 1)
+    expected = hmac.new(auth.STORE_TOKEN.encode(), ('bob-recovery-csrf-v1:'+payload).encode(), hashlib.sha256).hexdigest()
+    age = time.time()-int(payload.split('.')[0])
+    return 0 <= age <= 600 and hmac.compare_digest(signature, expected)
 
 
 def read_form(handler):
     import bob_auth as auth
     length = int(handler.headers.get('Content-Length', '0'))
-    if not 0 < length <= 8192 or not auth.same_origin(handler.headers):
+    if not 0 < length <= 8192:
+        print('BOB_RECOVERY rejected=body-size', flush=True)
+        raise ValueError('Ungültige Anfrage')
+    if not auth.same_origin(handler.headers):
+        print('BOB_RECOVERY rejected=origin', flush=True)
         raise ValueError('Ungültige Anfrage')
     if handler.headers.get('Content-Type', '').split(';')[0] != 'application/x-www-form-urlencoded':
         raise ValueError('Ungültige Anfrage')
     fields = parse_qs(handler.rfile.read(length).decode(), max_num_fields=8)
     csrf = fields.get('csrf', [''])[0]
-    with auth.LOCK:
-        valid = bool(csrf) and hmac.compare_digest(csrf.encode(), auth.cookie(handler.headers, auth.CSRF_COOKIE).encode()) and auth.PENDING.pop(csrf, 0) > time.time()
-    if not valid:
+    if not valid_csrf(csrf, auth.cookie(handler.headers, RECOVERY_COOKIE)):
+        print('BOB_RECOVERY rejected=csrf', flush=True)
         raise ValueError('Formular abgelaufen. Bitte erneut öffnen.')
     return {key: values[0] for key, values in fields.items()}
 
@@ -229,7 +244,7 @@ def route(handler, user):
                 with auth.LOCK:
                     auth.SESSIONS.clear()
                 print('BOB_RECOVERY password=reset', flush=True)
-                auth.send(handler, 303, location='/login?reset=1', cookies=[auth.set_cookie(auth.COOKIE, '', 0), auth.set_cookie(auth.CSRF_COOKIE, '', 0)])
+                auth.send(handler, 303, location='/login?reset=1', cookies=[auth.set_cookie(auth.COOKIE, '', 0), auth.set_cookie(RECOVERY_COOKIE, '', 0)])
     except (ValueError, UnicodeError):
         page(handler, message='Ungültige oder abgelaufene Anfrage. Bitte erneut versuchen.', status=400)
     except Exception as exc:

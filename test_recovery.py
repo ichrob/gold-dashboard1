@@ -20,8 +20,12 @@ class Handler:
     command = 'POST'
     path = '/forgot-password'
     def __init__(self, fields=None, origin='https://bob.example'):
-        body = urlencode(fields or {}).encode()
-        self.headers = {'Host':'bob.example', 'Origin':origin, 'Content-Type':'application/x-www-form-urlencoded','Content-Length':str(len(body)),'Cookie':a.CSRF_COOKIE+'=test-csrf'}
+        fields = dict(fields or {})
+        csrf = r.recovery_csrf()
+        if fields.get('csrf') == 'test-csrf':fields['csrf'] = csrf
+        a.PENDING[csrf] = time.time()+60
+        body = urlencode(fields).encode()
+        self.headers = {'Host':'bob.example', 'Origin':origin, 'Content-Type':'application/x-www-form-urlencoded','Content-Length':str(len(body)),'Cookie':a.CSRF_COOKIE+'='+csrf+'; '+r.RECOVERY_COOKIE+'='+csrf}
         self.rfile = io.BytesIO(body); self.wfile = io.BytesIO(); self.response_headers = {}
     def send_response(self, status):self.status=status
     def send_header(self,k,v):self.response_headers[k]=v
@@ -29,6 +33,7 @@ class Handler:
 
 class RecoveryTests(unittest.TestCase):
     def setUp(self):
+        self.secret_patch=patch.object(a,'STORE_TOKEN','test-only-secret');self.secret_patch.start();self.addCleanup(self.secret_patch.stop)
         self.db=DB(); self.account='a'*64; self.token='b'*64; self.now=10000
         self.data={'account':self.account,'tokenHash':self.token}
         a.SESSIONS.clear();a.PENDING.clear();a.FAILURES.clear()
@@ -63,9 +68,22 @@ class RecoveryTests(unittest.TestCase):
     def test_csrf_and_cross_origin(self):
         a.PENDING['test-csrf']=time.time()+60
         h=Handler({'csrf':'test-csrf'})
-        self.assertEqual(r.read_form(h)['csrf'],'test-csrf')
-        with self.assertRaises(ValueError):r.read_form(Handler({'csrf':'test-csrf'}))
+        self.assertTrue(r.read_form(h)['csrf'])
+        with self.assertRaises(ValueError):r.read_form(Handler({'csrf':'tampered'}))
         with self.assertRaises(ValueError):r.read_form(Handler({'csrf':'test-csrf'},'https://evil.example'))
+    def test_csrf_survives_restart_and_login_cookie_change(self):
+        h=Handler({'csrf':'test-csrf'})
+        a.PENDING.clear()
+        h.headers['Cookie']=h.headers['Cookie'].split('; ',1)[1]+'; '+a.CSRF_COOKIE+'=other-login-page'
+        self.assertTrue(r.read_form(h)['csrf'])
+    def test_csrf_signature_expiry_and_mismatch(self):
+        token=r.recovery_csrf()
+        self.assertTrue(r.valid_csrf(token,token))
+        self.assertFalse(r.valid_csrf(token,token+'x'))
+        forged=token[:-1]+('a' if token[-1]!='a' else 'b')
+        self.assertFalse(r.valid_csrf(forged,forged))
+        with patch.object(r.time,'time',return_value=time.time()+601):
+            self.assertFalse(r.valid_csrf(token,token))
     def test_old_sessions_fail_after_reset(self):
         a.SESSIONS['token']=(time.time()+3600,0)
         with patch.object(r,'state',return_value={'passwordHash':None,'version':0}):
