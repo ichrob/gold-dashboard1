@@ -2772,7 +2772,7 @@ async function inject(){
  '<div id="dgCentralStatus" class="small" role="status" aria-live="polite" style="margin-top:9px">Gespeicherte Liste wird geladen …</div><details id="dgSavedListImages"></details></div>'+
  '<div class="small" style="margin-top:9px">Automatische Produktrecherche: beim Öffnen und alle 15 Minuten, solange Bob sichtbar ist. Quellenzeiten bleiben unverändert: Emittentenkurse höchstens 90 Sekunden; Screenshot-Kursnachweise 14 Stunden ab Quellenzeit gültig, keine Echtzeitkurse. Neue Kursbilder ersetzen den bisherigen Kursnachweis. Fehlende Kurse bleiben offen, berechnete Werte sind Schätzungen.</div>'+
  '<div id="dgTop3Out" style="margin-top:12px"></div>'+
- '<details style="margin-top:12px"><summary id="dgSavedProductsSummary" style="cursor:pointer;font-weight:700">Alle gespeicherten Produkte</summary><div id="dgMissingProducts" style="margin-top:12px"></div></details>'+
+ '<details style="margin-top:12px"><summary id="dgSavedProductsSummary" style="cursor:pointer;font-weight:700">Gold-Hebelprodukte</summary><div id="dgMissingProducts" style="margin-top:12px"></div></details>'+
  '<div id="dgStorageStatus" class="small" role="status"></div>'+
  '<div id="dgManualSnapshots" style="margin-top:12px" hidden></div>'+
  '<div id="dgConditionalOut" style="margin-top:12px" hidden></div>'+
@@ -2972,7 +2972,7 @@ function rankUI(){
  for(let i=1;i<=12;i++){const out=document.getElementById("dgCombinedState"+i),ref=combinedReferences.get(i);if(ref&&ref.isin!==ps[i-1].isin)combinedReferences.delete(i);if(out)updateProductHtml(out,window.BobCombined.render(window.BobCombined.assess(ps[i-1],combinedReferences.get(i),bundle))+window.BobCombined.renderComparison(window.BobCombined.compareSnapshot(ps[i-1],combinedReferences.get(i),combinedDrafts.get(i),productQuotes.get(i))));}
  const savedProducts=ps.filter(p=>p.name||p.isin);
  const savedSummary=document.getElementById("dgSavedProductsSummary");
- if(savedSummary)updateProductHtml(savedSummary,'Alle gespeicherten Produkte'+(additionalProductsComplete(savedProducts)?' <strong aria-label="Alle Produktdaten und Zeitbezüge bestätigt" style="font-size:1.6em;font-weight:900;color:#15803d">✓</strong>':''));
+ if(savedSummary)updateProductHtml(savedSummary,'Gold-Hebelprodukte'+(additionalProductsComplete(savedProducts)?' <strong aria-label="Alle Produktdaten und Zeitbezüge bestätigt" style="font-size:1.6em;font-weight:900;color:#15803d">✓</strong>':''));
  const manualOut=document.getElementById("dgManualSnapshots");
  if(manualOut){
   const ctx={direction:d,spotFresh,spot:s,atr:a,trend:document.getElementById('trend')?.textContent,trend2:document.getElementById('trend2')?.textContent,...selectionUiSignals(),rsi:n(document.getElementById('rsi')?.textContent),hist:n(document.getElementById('hist')?.textContent),adx:n(document.getElementById('adx')?.textContent),...technical};
