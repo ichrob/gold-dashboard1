@@ -1069,7 +1069,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   for(const id of ['price','mtfSummary','momentumSummary','adx','signal']){const el=card(id);if(el)technical.append(el);}
   move(byId('economicTitle')?.closest('section'),'overview');fold(byId('economicTitle')?.closest('section'),'Wirtschaftstermine');
   const selection=document.createElement('div');selection.className='card';selection.innerHTML='<h3>Produktauswahl</h3><p id="bobSelectionSummary" class="small">Auswahl wird geprüft …</p><button type="button" class="bob-primary" data-view="products">Produkte und fehlende Werte ansehen</button>';quick.after(selection);
-  move(byId('dgTop3'),'products');fold(byId('dgTop3')?.querySelector(':scope > div.small'),'Datenabruf und Gültigkeit');if(manual)manual.hidden=true;
+  move(byId('dgTop3'),'products');if(manual)manual.hidden=true;
   move(card('tradeStateBtn'),'trade');
   const guide=document.createElement('div');guide.className='card';guide.innerHTML='<h3>Trade in Bob erfassen</h3><ol><li>Produkt wählen und Nachweise übernehmen.</li><li>Tatsächlichen Einstieg und Stückzahl ergänzen.</li><li>Produktbedingungen prüfen und Überwachung starten.</li></ol><p class="small">Bob überwacht eine von dir erfasste Position. Einen Kauf führst du selbst bei DEGIRO aus.</p><p id="bobTradeNext" class="bob-short"></p><button type="button" class="bob-primary" data-view="products">1 · Produkt auswählen</button><button type="button" id="bobTradeOpen">2 · Einstieg und Stückzahl ergänzen</button><button type="button" id="bobTradeTestOpen">Trade-Test · Produkt auswählen</button>';panels.trade.append(guide);window.BobManualTradeTest?.mount(guide);
   byId('bobTradeOpen').addEventListener('click',()=>{const upload=byId('bobTradeUpload')||byId('bobExitEstimate');if(upload?.parentElement.tagName==='DETAILS')upload.parentElement.open=true;upload?.scrollIntoView({behavior:'smooth',block:'start'});byId('exit-isin')?.focus();});
@@ -1086,6 +1086,20 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   move(card('researchStatus'),'learning');fold(card('researchStatus'),'Research und manuelle Auswertung');
   move(byId('bobAutoCollection'),'learning');fold(byId('bobAutoCollection'),'Genauigkeit der Future-Schätzung');
   const disclaimer=main.querySelector(':scope > .card.warning');if(disclaimer){move(disclaimer,'learning');fold(disclaimer,'Hinweise zur Nutzung');}
+  // Keep the existing live data-status node, but display it only once at the end of Products.
+  const productDataStatus=byId('dgTop3')?.querySelector(':scope > div.small');
+  if(productDataStatus){
+   const technicalDetails=document.createElement('details');
+   technicalDetails.className='card bob-disclosure';
+   technicalDetails.id='bobProductTechnicalDetails';
+   const heading=document.createElement('summary');heading.textContent='Technische Details';
+   technicalDetails.append(heading);
+   const validity=document.createElement('details');validity.className='bob-disclosure';
+   const validityHeading=document.createElement('summary');validityHeading.textContent='Datenabruf und Gültigkeit';
+   validity.append(validityHeading,productDataStatus);
+   technicalDetails.append(validity);
+   panels.products.append(technicalDetails);
+  }
   const logout=document.querySelector('form[action="/logout"]');move(logout,'learning');
   if(header){header.className='bob-heading';header.querySelector('h1').textContent='Bob';header.querySelector('.sub').textContent='Dein Gold- und Produktassistent';main.prepend(header);}
   Object.values(panels).forEach(el=>main.append(el));
