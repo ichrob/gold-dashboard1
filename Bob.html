@@ -564,6 +564,22 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  const readKey='bobResearchReadVideosV1';
  let readVideos=new Set(),latestVideoIds=[];
  try{const saved=JSON.parse(localStorage.getItem(readKey)||'[]');if(Array.isArray(saved))readVideos=new Set(saved);}catch(e){}
+ function publicationLabel(x){
+  const exact=x.publishedAt||(typeof x.publishedDate==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(x.publishedDate)?Date.parse(x.publishedDate)/1000:null);
+  if(Number.isFinite(exact)&&exact>0)return date(exact)+' (Zürich)';
+  const knownDate=/^\d{4}-\d{2}-\d{2}$/.test(x.publishedDate||'')?x.publishedDate.split('-').reverse().join('.'):null;
+  const relative=x.publishedRelative||'',observed=Number(x.publishedRelativeObservedAt);
+  const match=relative.match(/vor\s+(\d+)\s+(Minute[n]?|Stunde[n]?|Tag(?:en|e)?|Woche[n]?|Monat(?:en|e)?|Jahr(?:en|e)?)\b/i);
+  if(match&&Number.isFinite(observed)&&observed>0){
+   const unit=match[2].toLowerCase(),seconds=Object.entries({minute:60,stunde:3600,tag:86400,woche:604800,monat:2592000,jahr:31536000}).find(([prefix])=>unit.startsWith(prefix))[1];
+   const estimated=new Date((observed-Number(match[1])*seconds)*1000);
+   const day=estimated.toLocaleDateString('de-CH',{timeZone:'Europe/Zurich'});
+   const hour=new Intl.DateTimeFormat('de-CH',{timeZone:'Europe/Zurich',hour:'2-digit',hourCycle:'h23'}).formatToParts(estimated).find(p=>p.type==='hour').value;
+   if(knownDate)return knownDate+' · Uhrzeit nicht verfügbar';
+   return day+(seconds<=3600?' · ungefähr '+hour+' Uhr':' · Uhrzeit nicht ableitbar')+' (Zürich) · geschätzt aus „'+relative+'“';
+  }
+  return knownDate?knownDate+' · Uhrzeit nicht verfügbar':relative?'ungefähr '+relative+' · Datum und Uhrzeit nicht ableitbar':'Datum und Uhrzeit nicht verfügbar';
+ }
  function videoKey(item){try{const u=new URL(item.url);return u.searchParams.get('v')||item.id||item.url;}catch(e){return item.id||item.url;}}
  function updateUnreadBadge(){
   const button=document.querySelector('[data-view="research"]');if(!button)return;
@@ -595,8 +611,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const rows=r.items.map(x=>{
     const box=node('article','');box.className='research';box.style.marginTop='12px';
     const a=node('a',x.title);const url=new URL(x.url);if(url.protocol==='https:'){a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';}
-    const exactPublication=x.publishedAt||(typeof x.publishedDate==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(x.publishedDate)?Date.parse(x.publishedDate)/1000:null);
-    const published=exactPublication?date(exactPublication)+' (Zürich)':(/^\d{4}-\d{2}-\d{2}$/.test(x.publishedDate||'')?x.publishedDate.split('-').reverse().join('.')+' · Uhrzeit nicht verfügbar':x.publishedRelative?'ungefähr '+x.publishedRelative+' · genaues Datum und Uhrzeit nicht verfügbar':'Datum und Uhrzeit nicht verfügbar');
+    const published=publicationLabel(x);
     box.append(a,node('p',x.publisher+' · '+x.kind+' · veröffentlicht '+published+' · '+x.coverage+(x.current?' · innerhalb 24 Stunden':x.publishedAt?' · nicht aktuell':' · genaue Aktualität nicht bestätigt')),
      node('small','Video-ID: '+(url.searchParams.get('v')||x.id)),
      node('p','Kursbericht: '+x.trend+' · Ausblick: '+x.outlook+' · Horizont: '+x.horizon),node('p',x.excerpt),node('small',x.reason+(x.articleStatus?' · '+x.articleStatus:'')));
