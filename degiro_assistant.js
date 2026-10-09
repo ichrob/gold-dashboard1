@@ -1565,7 +1565,8 @@ function compactProductExclusion(p){
  return direct?.metadata?.status===2?'Produkt beendet oder ausgeknockt – ausgeschlossen':/FAKTOR|FACTOR/i.test([p.name,direct?.metadata?.name,p.snapshot?.terms?.type?.value].join(' '))?'Faktorprodukt ausgeschlossen':null;
 }
 function additionalProductsComplete(products,now=Date.now()){
- return products.length>0&&products.every(p=>{if(knockoutStatus(p)||compactProductExclusion(p))return false;const state=productDirectionDataState(p,now);return !state.blocked&&!state.stale;});
+ const remaining=products.filter(p=>!knockoutStatus(p)&&!compactProductExclusion(p));
+ return remaining.length>0&&remaining.every(p=>{const state=productDirectionDataState(p,now);return !state.blocked&&!state.stale;});
 }
 function compactProductCard(p,reasons=[],status='Nicht freigegeben'){
  reasons=reasons.map(reason=>productEvidenceReason(p,reason));
