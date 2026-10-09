@@ -223,7 +223,37 @@ def report(conn, day=None):
                 products=[dict(isin=p.get('isin'),direction=p.get('productDirection'),name=p.get('name')) for p in feed[0]['products'] if p.get('isin')] if feed else [],
                 productSyncedAt=feed[1].isoformat() if feed else None,cases=[r[0] for r in cases],
                 daily=[dict(day=d,**s) for d,s in totals],detailsLimit=100,detailRetentionDays=30,
-                demonstration=technical_demo(control.get('lastGold'),next((p for p in feed[0]['products'] if p.get('productDirection')=='LONG'),None) if feed else None))
+                demonstrations=technical_scenarios(), demonstration=technical_demo(control.get('lastGold'),next((p for p in feed[0]['products'] if p.get('productDirection')=='LONG'),None) if feed else None))
+
+def technical_scenarios():
+    """Isolated deterministic checks; never persist cases or dispatch alerts."""
+    results=[]
+    for name, direction, mode in [('LONG: Stop und Ziel','LONG','path'),('SHORT: Stop und Ziel','SHORT','path'),('Rücksetzer: Position halten','LONG','hold'),('Gegenrichtung: Ausstieg','LONG','reverse'),('Momentum schwächer: Gewinnmitnahme','LONG','weak'),('Datenlücke: keine Ergebnisfreigabe','LONG','gap')]:
+        now=datetime(2026,10,8,9,tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000
+        sign=1 if direction=='LONG' else -1
+        m=dict(plan=dict(kind='candidate',direction=direction,entry=4100.,stop=4100.-sign*10,target=4100.+sign*20,unit='USD/oz'),price=4100.,priceFresh=True,ready=True,dataAt=now,analysisBarAt=now,ruleVersion='artificial-active-trade-v1',direction=direction,mtf=direction,score=80 if sign==1 else 20,macd=2*sign,signal=sign,atr=10.,decisionReason=name)
+        c=new_case(m,dict(isin='TEST',indicative=True,approval='Künstlicher Goldplan ohne Produktkauf'),None,now)
+        steps=[.5,1.,2.,2.5,.9] if mode=='path' else [.5,.2] if mode=='hold' else [.5] if mode=='reverse' else [1.2] if mode=='weak' else [0.]
+        stops=[c['engine']['trade']['stop']]
+        for i,r in enumerate(steps,1):
+            at=now+(120000 if mode=='gap' else i*30000)
+            p=4100.+sign*r*10
+            tick={**m,'price':p,'dataAt':at,'analysisBarAt':now+i*300000,'suggestedTarget':p+sign*20}
+            if mode=='hold':tick.update(direction='NEUTRAL',mtf='NEUTRAL',trendContext=dict(available=True,intact=True,direction=direction,phase='PULLBACK'))
+            if mode=='reverse':tick.update(direction='SHORT',trendContext=dict(available=True,intact=False,direction='SHORT'))
+            if mode=='weak':tick.update(direction='NEUTRAL',mtf='NEUTRAL',score=50,trendContext=dict(available=True,intact=False,phase='WEAKENING'))
+            c=advance_case(c,tick,None,at)
+            stops.append(c['engine']['trade']['stop'])
+        kinds=[e['kind'] for e in c['events']]
+        monotonic=all(sign*(b-a)>=0 for a,b in zip(stops,stops[1:]))
+        expected={'path':'stop','reverse':'reversal-exit','weak':'profit-taking','gap':'data-gap'}.get(mode)
+        passed=monotonic and (c['status']=='open' if mode=='hold' else expected in kinds)
+        if mode=='path':passed=passed and all(k in kinds for k in ('partial-profit','target-extended','stop-raised')) and c['remaining']==0
+        if mode=='gap':passed=passed and c['status']=='inconclusive'
+        c.update(demonstration=True,scenarioName=name,checkPassed=passed,note='Künstlicher Funktionstest. Keine Orders, keine Push-Zustellung, keine Euro-Produktstop-Prüfung; nicht in der Handelsstatistik.')
+        results.append(c)
+    return results
+
 
 def technical_demo(reference=None, product=None):
     """Artificial future path, never inserted into observed-case statistics."""
@@ -377,3 +407,4 @@ def enqueue(bundle, db):
         _bundle_ready.set()
         if _thread is None or not _thread.is_alive():
             _thread=threading.Thread(target=_worker,args=(db,),daemon=True,name='bob-paper-simulation');_thread.start()
+
