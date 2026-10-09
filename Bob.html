@@ -391,6 +391,7 @@ try{
 <p id="minuteEntryStatus" class="small" aria-live="polite">1m-Einstiegshilfe · Vergleichstest: Daten werden geladen.</p>
 <div class="small chart-status" id="chartViewStatus" aria-live="polite"></div>
 <div class="chart-frame"><canvas id="chart" width="800" height="300" aria-label="Preisverlauf: waagerecht Schweizer Zeit, senkrecht Preis in USD"></canvas></div>
+<div id="chartDayExtremes" class="small" aria-live="polite" style="margin:8px 0"></div>
 <div id="chartSelection" class="small" role="status" aria-live="polite" style="min-height:2.5em;margin:8px 0">Kerze oder Kurvenpunkt antippen, um Datum und Uhrzeit anzuzeigen.</div>
 <div class="chart-overlays"><label><input id="chartShowFib" type="checkbox" checked onchange="saveChartView();draw()"> <span>Fibonacci</span></label><label><input id="chartShowTargets" type="checkbox" checked onchange="saveChartView();draw()"> <span>Kursziele</span></label></div><details class="chart-details"><summary>Fibonacci &amp; Kursziele erklären</summary><div id="chartFib" class="small">Fibonacci: noch keine bestätigten Level.</div><div id="chartFibExplanation" class="research">Fibonacci: noch keine bestätigten Level.</div></details>
 <details class="chart-details"><summary>Datenquelle &amp; Zeitstempel</summary><div class="small" id="chartRangeInfo" aria-live="polite"></div><div id="chartLatest" class="small" aria-live="polite">Letzter Preis: — · Kurszeit: —</div><div id="chartHistoryInfo" class="small"></div><p class="small">Die Chart-Auswahl ändert nur die Darstellung. Analyse und Trade-Überwachung behalten ihre Einstellung.</p></details></div>
@@ -1315,6 +1316,13 @@ async function loadFutureChart(tf){
 function setChartOption(kind,value){$(kind==='type'?'chartType':'chartTf').value=value;saveChartView();draw();}
 function saveChartView(){try{localStorage.setItem('bobChartView',JSON.stringify({type:$('chartType').value,tf:$('chartTf').value,fib:$('chartShowFib').checked,targets:$('chartShowTargets').checked}));}catch(_){}}
 (function(){try{const v=JSON.parse(localStorage.getItem('bobChartView')||'{}');if(['candles','line'].includes(v.type))$('chartType').value=v.type;if(['1m','5m','15m','1h','4h'].includes(v.tf))$('chartTf').value=v.tf;if(typeof v.fib==='boolean')$('chartShowFib').checked=v.fib;if(typeof v.targets==='boolean')$('chartShowTargets').checked=v.targets;}catch(_){}})();
+function chartDayExtremes(bars,step,now=Date.now()){
+ const day=t=>new Date(t).toLocaleDateString('en-CA',{timeZone:'Europe/Zurich'}),today=day(now);
+ const rows=bars.filter(b=>Number.isFinite(Number(b.openTime))&&day(Number(b.openTime))===today&&day(Number(b.openTime)+step-1)===today&&Number(b.openTime)+step<=now&&!b.isOpen&&Number.isFinite(Number(b.high))&&Number.isFinite(Number(b.low))).sort((a,b)=>Number(a.openTime)-Number(b.openTime));
+ if(!rows.length)return null;
+ const high=rows.reduce((a,b)=>Number(b.high)>Number(a.high)?b:a),low=rows.reduce((a,b)=>Number(b.low)<Number(a.low)?b:a);
+ return {high:Number(high.high),low:Number(low.low),highAt:Number(high.openTime),lowAt:Number(low.openTime),start:Number(rows[0].openTime),end:Number(rows.at(-1).openTime)+step};
+}
 let chartHitMap=null,chartSelected=null;
 function selectChartPoint(event){
  const map=chartHitMap,cv=$('chart');if(!map||!map.points.length)return;
@@ -1354,6 +1362,9 @@ function draw(a){
  $('chartRangeInfo').textContent=frameLabel+' pro '+(candles?'Kerze':'Kurvenpunkt')+' · '+v.length+' Werte'+(v.length?' · '+rangeDate(Number(v[0].openTime))+' bis '+rangeDate(Number(v.at(-1).openTime)):' · Daten für diese Zeitebene fehlen');
 
  const chartStep=({'1m':60000,'5m':300000,'15m':900000,'1h':3600000,'4h':14400000})[tf];
+ const dayExtremes=chartDayExtremes(all,chartStep);
+ const period=t=>rangeDate(t)+' – '+rangeDate(t+chartStep);
+ $('chartDayExtremes').textContent=dayExtremes?'Heute · Hoch '+dayExtremes.high.toFixed(2)+' USD ('+period(dayExtremes.highAt)+') · Tief '+dayExtremes.low.toFixed(2)+' USD ('+period(dayExtremes.lowAt)+'). Schweizer Zeit · Hoch/Tief im aufgezeichneten Zeitraum '+rangeDate(dayExtremes.start)+' – '+rangeDate(dayExtremes.end)+'. Aus geschlossenen Kerzen; Zeitpunkt innerhalb der jeweiligen Kerze unbekannt. Vollständiger Tagesverlauf nicht bestätigt.':'Heute: noch keine abgeschlossenen Kerzen für Hoch/Tief vorhanden.';
  const instruments=[...new Set(v.map(b=>b.instrument||'unbekannt'))];
  const instrument=instruments.length===1?instruments[0]:null;
  const instrumentLabel=instrument==='GC=F'?'Gold-Futures · GC=F':instrument==='XAU/USD'?'Gold-Spot · XAU/USD':v.length?'Gold · Basiswert nicht eindeutig':'Gold · keine Chartdaten';
@@ -1383,7 +1394,7 @@ function draw(a){
  const fibRows=fib?[["38,2 %",fib.levels.r382],["50 %",fib.levels.r500],["61,8 %",fib.levels.r618],["78,6 %",fib.levels.r786],["Ext. 127,2 %",fib.levels.e1272],["Ext. 161,8 %",fib.levels.e1618]].filter(r=>Number.isFinite(r[1])):[];
  $("chartFib").textContent=fibRows.length?"Fibonacci · "+fibRows.map(r=>r[0]+": "+priceLabel(r[1])+" USD").join(" · "):"Fibonacci: keine bestätigten Level verfügbar.";
  const visibleFib=fibRows.filter(r=>r[0].startsWith('Ext.')?showTargets:showFib);
- const ps=[...v.flatMap(b=>candles?[Number(b.low),Number(b.high)]:[Number(b.close)]),...visibleFib.map(r=>r[1])],lo=Math.min(...ps),hi=Math.max(...ps),margin=Math.max((hi-lo)*.08,.5),mn=lo-margin,mx=hi+margin;
+ const ps=[...v.flatMap(b=>candles?[Number(b.low),Number(b.high)]:[Number(b.close)]),...visibleFib.map(r=>r[1]),...(dayExtremes?[dayExtremes.high,dayExtremes.low]:[])],lo=Math.min(...ps),hi=Math.max(...ps),margin=Math.max((hi-lo)*.08,.5),mn=lo-margin,mx=hi+margin;
  const left=8,right=w-78,top=24,bottom=h-44,start=Number(v[0].openTime),end=Number(v.at(-1).openTime);
  const axis=chartTradingAxis(v,chartStep);
  const x=t=>left+axis.position(t)*(right-left),y=p=>bottom-(p-mn)/(mx-mn)*(bottom-top);
@@ -1403,6 +1414,11 @@ function draw(a){
   const text=row.target?(row.label.includes("127")?"Ziel 1 · 127,2 %":"Ziel 2 · 161,8 %"):row.label;
   const labelWidth=Math.min(ctx.measureText(text).width+8,right-left-8);
   ctx.fillStyle=row.target?"#1e40af":"#b45309";ctx.fillText(text,left+8,row.labelY,labelWidth-8);
+ }
+ if(dayExtremes){
+  for(const [label,value,color] of [['Hoch',dayExtremes.high,'#15803d'],['Tief',dayExtremes.low,'#dc2626']]){
+   const py=y(value);ctx.strokeStyle=color;ctx.lineWidth=1;ctx.setLineDash([3,4]);ctx.beginPath();ctx.moveTo(left,py);ctx.lineTo(right,py);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=color;ctx.font='bold 11px sans-serif';ctx.textAlign='right';ctx.fillText(label+' heute (beobachtet) '+priceLabel(value),right-4,py+(label==='Hoch'?-5:14));
+  }
  }
  // Draw prices last so level labels never cover the price path or candles.
  if(candles){
