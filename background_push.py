@@ -96,7 +96,7 @@ def analyze(bundle, settings, *, priority=None):
             raise TimeoutError('Zeitlimit der Hintergrundanalyse erreicht')
         p = evaluator_runtime.run(['node', str(Path(__file__).with_name('background_analysis.js'))],
                            input=payload, text=True, capture_output=True, timeout=remaining,
-                           priority=(0 if settings.get('trade', {}).get('active') else 1) if priority is None else priority)
+                           priority=(0 if (settings.get('trade') or {}).get('active') else 1) if priority is None else priority)
         if p.returncode != -signal.SIGABRT or attempt:
             break
         print('BOB_ANALYSIS_RETRY signal=SIGABRT attempt=1', flush=True)
