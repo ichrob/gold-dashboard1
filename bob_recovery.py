@@ -8,6 +8,7 @@ import re
 import secrets
 import time
 from urllib.parse import parse_qs, urlparse
+from urllib.error import HTTPError
 from urllib.request import Request, build_opener
 
 EMAIL = os.environ.get('BOB_RECOVERY_EMAIL', 'robsimon@gmx.de').strip().lower()
@@ -180,9 +181,24 @@ def email_link(token):
         'subject': 'Bob: Passwort zurücksetzen',
         'text': 'Für dein Bob-Konto wurde ein neues Passwort angefordert.\n\n'+link+'\n\nDieser Link gilt 15 Minuten und kann nur einmal verwendet werden. Erst nach dem Speichern eines neuen Passworts ändert sich dein Zugang. Falls du das nicht angefordert hast, ignoriere diese E-Mail.'}
     request = Request('https://api.resend.com/emails', data=json.dumps(body).encode(),
-        headers={'Content-Type': 'application/json', 'Authorization': 'Bearer '+os.environ['RESEND_API_KEY']}, method='POST')
-    with build_opener(auth.NoRedirect()).open(request, timeout=15) as response:
-        result = json.loads(response.read(4096))
+        headers={'Content-Type': 'application/json', 'Authorization': 'Bearer '+os.environ['RESEND_API_KEY'].strip(), 'User-Agent': 'Bob/1.0'}, method='POST')
+    try:
+        with build_opener(auth.NoRedirect()).open(request, timeout=15) as response:
+            result = json.loads(response.read(4096))
+    except HTTPError as exc:
+        # Categorize without exposing provider text, keys, recipient or reset URL.
+        detail = exc.read(4096).decode('utf-8', errors='replace').lower()
+        reason = 'provider-rejected'
+        if 'only send testing emails' in detail:
+            reason = 'account-email-mismatch'
+        elif 'api key' in detail:
+            reason = 'api-key'
+        elif 'domain' in detail and 'verif' in detail:
+            reason = 'sender-domain'
+        elif '1010' in detail or 'cloudflare' in detail:
+            reason = 'provider-client-block'
+        print(f'BOB_RECOVERY mail_status={exc.code} reason={reason}', flush=True)
+        raise
     if not result.get('id'):
         raise OSError('Mail nicht angenommen')
     print('BOB_RECOVERY email=provider-accepted', flush=True)
