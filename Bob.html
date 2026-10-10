@@ -741,7 +741,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     if(x.listingInfo)box.append(node('p','YouTube-Angabe: '+x.listingInfo));
     if(x.enhancements)renderEnhancements(box,x,url);
     if(x.transcriptAnalyzed&&x.trustedTranscript&&window.BobMcoClip?.mount)
-     window.BobMcoClip.mount(box,x,url,()=>window.BobMcoFibSnapshot?.());
+     window.BobMcoClip.mount(box,x,url,bars=>window.BobMcoFibSnapshot?.(bars));
     if(x.transcriptAnalyzed)renderMcoFibonacci(box,x,url);
     if(x.overview){
      if(x.enhancements&&x.enhancements.summary){const original=node('details','');original.append(node('summary','Zusätzlicher Überblick aus Originalsätzen'));renderOverview(original,x,url);box.append(original);}
@@ -1581,8 +1581,8 @@ function chartFibonacci(bars,atr){
 }
 
  // Independent Bob fib values: closed 15-minute spot OHLC and the existing pivot algorithm.
- window.BobMcoFibSnapshot=function(){
-  const step=900000,raw=chartHistory['15m']||($('tf')?.value==='15m'?C:[]);
+ window.BobMcoFibSnapshot=function(providedBars){
+  const step=900000,raw=Array.isArray(providedBars)?providedBars:(chartHistory['15m']||($('tf')?.value==='15m'?C:[]));
   const bars=raw.filter(b=>b&&b.instrument==='XAU/USD'&&!b.isOpen&&!b.observedOnly&&Number.isFinite(Number(b.openTime))&&Number(b.openTime)+step<=Date.now()&&
     ['open','high','low','close'].every(k=>b[k]!=null&&Number.isFinite(Number(b[k])))&&Number(b.low)<=Math.min(Number(b.open),Number(b.close))&&Number(b.high)>=Math.max(Number(b.open),Number(b.close)))
    .sort((a,b)=>Number(a.openTime)-Number(b.openTime)).slice(-120);
