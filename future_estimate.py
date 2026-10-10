@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 import estimate_quality
 import bob_market_store
 import bob_validation_store
+import background_push
 
 URL = 'https://www.investing.com/commodities/gold'
 CONTRACT = 'GCZ26'
@@ -169,6 +170,10 @@ def record_spot_tick(tick, now=None):
 def _collect():
     global _spot_source_error, _storage_loaded, _storage_status
     while True:
+        remaining = background_push.gold_weekend_seconds_remaining()
+        if remaining:
+            threading.Event().wait(remaining)
+            continue
         started=time.monotonic()
         with _lock:active=started<_active_until
         if active:
