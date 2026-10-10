@@ -99,8 +99,17 @@ def snapshot():
     global _cache, _cached_at
     with _lock:
         weekend = background_push.gold_weekend_seconds_remaining() > 0
-        if _cache is not None and (weekend or time.monotonic() - _cached_at < 30):
-            return _cache
+        if weekend and _cache is not None:
+            # Explicitly revoke freshness flags without losing the last quote time.
+            import copy
+            frozen = copy.deepcopy(_cache)
+            for key in ('spot','future','estimate','cfd'):
+                quote = frozen.get(key)
+                if isinstance(quote, dict) and positive(quote.get('price')):
+                    quote.update(marketClosed=True, realtimeCfd=False, isExchangeRealtime=False,
+                                 note='Markt geschlossen · letzter gespeicherter Kurs')
+            frozen['sessionAdvisory'] = market_session_calendar.advisory()
+            return frozen
         if weekend:
             # No network requests, Yahoo retrials or synthetic freshness at closed market.
             # A remembered close keeps its original source timestamp.
