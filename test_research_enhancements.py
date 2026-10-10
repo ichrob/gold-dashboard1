@@ -54,7 +54,7 @@ class ResearchTests(unittest.TestCase):
 
     def test_images_share_one_ai_request_and_only_coarse_visual_notes_survive(self):
         frame = {'at': 450, 'dataUrl': 'data:image/jpeg;base64,'+
-                 base64.b64encode(b'\\xff\\xd8' + bytes(120) + b'\\xff\\xd9').decode()}
+                 base64.b64encode(bytes.fromhex('ffd8') + bytes(120) + bytes.fromhex('ffd9')).decode()}
         def reader(req, timeout):
             body=json.loads(req.data)
             self.assertEqual(len(body['contents']), 1)
@@ -69,7 +69,7 @@ class ResearchTests(unittest.TestCase):
         out = r.generate(SEGMENTS, 'secret', reader, frames=[frame])
         self.assertEqual(out['sections'][0]['evidence'][0]['at'],450)
         self.assertEqual(out['visualNotes'], [{'frameId': 0, 'kind': 'chart', 'label': 'Mögliche Chartansicht'}])
-        self.assertIn('keine', out['scope'])
+        self.assertIn('nicht daraus abgelesen', out['scope'])
 
     def test_no_untrusted_frame_or_unverified_numbers(self):
         bad={'at': 4, 'dataUrl':'data:image/png;base64,'+('A'*150)}
