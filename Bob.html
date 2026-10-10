@@ -154,6 +154,12 @@ window.BobWeekendPause=function(now=Date.now()){
  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Zurich',weekday:'short',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now)).map(x=>[x.type,x.value]));
  return parts.weekday==='Sat'||parts.weekday==='Sun'||parts.weekday==='Fri'&&Number(parts.hour)>=23;
 };
+window.BobDegiroPhase=function(now=Date.now()){
+ const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Zurich',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now)).map(x=>[x.type,x.value]));
+ if(window.BobWeekendPause(now))return 'weekend';
+ const minute=Number(parts.hour)*60+Number(parts.minute),weekday=!['Sat','Sun'].includes(parts.weekday);
+ return weekday&&minute>=480&&minute<1320?'trading':weekday&&minute>=450&&minute<480?'preparation':'night';
+};
 // A protected API rejection must not become an endless background error loop.
 // Keep local test/trade state intact; reauthentication is an explicit user action.
 (function(){
@@ -1604,8 +1610,9 @@ function buildMtfHierarchy(byTf,valid=true){
 function intradaySession(now=Date.now()){
  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Zurich',weekday:'short',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now)).map(p=>[p.type,p.value]));
  const minute=Number(parts.hour)*60+Number(parts.minute),weekday=!['Sat','Sun'].includes(parts.weekday);
- return {entryAllowed:weekday,closeReminder:false,date:parts.year+'-'+parts.month+'-'+parts.day,
- reason:'Bob analysiert Mo–Fr rund um die Uhr (Zürich). Produkt-Handelszeiten und aktuelle Kurse bleiben erforderlich; keine automatische Schließung.'};
+ const mode=window.BobWeekendPause?.(now)?'weekend':weekday&&minute>=480&&minute<1320?'trading':weekday&&minute>=450&&minute<480?'preparation':'night';
+ return {entryAllowed:mode==='trading',mode,closeReminder:false,date:parts.year+'-'+parts.month+'-'+parts.day,
+ reason:mode==='trading'?'DEGIRO-Zeitfenster 08:00–22:00 (Zürich) angenommen; tatsächliche Produkt- und Handelsplatzzeiten separat prüfen.':mode==='preparation'?'Vorbereitung ab 07:30 Uhr: Marktanalyse aktiv, neue DEGIRO-Einstiege erst ab 08:00 Uhr.':mode==='night'?'DEGIRO-Nachtmodus · neue Einstiege pausiert, Goldmarkt weiterhin aktiv.':'Gold-Wochenendpause · keine neuen Einstiege.'};
 }
 function aggregateBrowserBars(bars, minutes){
  const base=({15:5,240:60})[minutes];if(!base)return [];
