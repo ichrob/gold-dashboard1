@@ -10,6 +10,7 @@ import uuid
 import bob_auth
 import bob_recovery
 import auto_collection
+import background_push
 import ocr_assets
 import product_quotes
 import future_chart
@@ -72,7 +73,9 @@ def background_health():
     state = dict(FIB_MONITOR_HEALTH)
     last = state.get("lastSuccessAt")
     age = max(0, int(time.time()) - last) if last is not None else None
-    healthy = bool(state["configured"] and age is not None and age <= 120
+    paused = bool(state["configured"] and background_push.gold_weekend_seconds_remaining()
+                  and state["status"] == "paused" and _FIB_THREAD and _FIB_THREAD.is_alive())
+    healthy = paused or bool(state["configured"] and age is not None and age <= 120
                    and state["status"] in ("active", "idle", "checking"))
     return {"status": "ok" if healthy else "unavailable", "service": "bob-background",
             "monitorStatus": state["status"], "lastSuccessAt": last, "ageSeconds": age}
@@ -1318,6 +1321,12 @@ def fibonacci_monitor_loop():
     if not base.startswith(("https://", "http://")):
         base = "http://" + base
     while True:
+        remaining = background_push.gold_weekend_seconds_remaining()
+        if remaining:
+            FIB_MONITOR_HEALTH.update(status="paused", lastCheckedAt=int(time.time()))
+            print("BOB_FIB weekend_paused", flush=True)
+            time.sleep(remaining)
+            continue
         cycle_started = time.monotonic()
         try:
             request = Request(base+"/monitor-status", headers={"X-Bob-Push-Token":PUSH_SERVICE_TOKEN})
