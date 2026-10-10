@@ -37,3 +37,9 @@ assert(html.includes("if(isFuture&&!window.BobWeekendPause?.())loadFutureChart(t
 assert(html.includes("result.cfdHistory?.[tf]"));
 assert(html.includes("Keine vollständigen OHLC-Kerzen")||html.includes("keine vollständigen OHLC-Kerzen"));
 console.log('Persistent Spot and CFD chart recovery hooks OK');
+
+assert(html.includes("const model=sampledSpot?null:chartFibonacci(v,chartAtr);"));
+assert(html.includes("Aufzeichnung vom '+dayExtremes.date"));
+assert(html.includes("Fibonacci/Kursziele nicht berechnet"));
+assert(html.includes("dayExtremes.historical?' beobachtet':' heute'"));
+console.log('Historical chart: sample-only Fibonacci blocked, dates labeled correctly');

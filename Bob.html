@@ -1408,12 +1408,15 @@ async function loadFutureChart(tf){
 function setChartOption(kind,value){$(kind==='type'?'chartType':'chartTf').value=value;saveChartView();draw();}
 function saveChartView(){try{localStorage.setItem('bobChartView',JSON.stringify({type:$('chartType').value,tf:$('chartTf').value,fib:$('chartShowFib').checked,targets:$('chartShowTargets').checked}));}catch(_){}}
 (function(){try{const v=JSON.parse(localStorage.getItem('bobChartView')||'{}');if(['candles','line'].includes(v.type))$('chartType').value=v.type;if(['1m','5m','15m','1h','4h'].includes(v.tf))$('chartTf').value=v.tf;if(typeof v.fib==='boolean')$('chartShowFib').checked=v.fib;if(typeof v.targets==='boolean')$('chartShowTargets').checked=v.targets;}catch(_){}})();
-function chartDayExtremes(bars,step,now=Date.now()){
- const day=t=>new Date(t).toLocaleDateString('en-CA',{timeZone:'Europe/Zurich'}),today=day(now);
- const rows=bars.filter(b=>Number.isFinite(Number(b.openTime))&&day(Number(b.openTime))===today&&day(Number(b.openTime)+step-1)===today&&Number(b.openTime)+step<=now&&!b.isOpen&&Number.isFinite(Number(b.high))&&Number.isFinite(Number(b.low))).sort((a,b)=>Number(a.openTime)-Number(b.openTime));
+function chartDayExtremes(bars,step,now=Date.now(),historical=false){
+ const day=t=>new Date(t).toLocaleDateString('en-CA',{timeZone:'Europe/Zurich'});
+ const candidates=bars.filter(b=>Number.isFinite(Number(b.openTime))&&Number(b.openTime)+step<=now&&!b.isOpen&&Number.isFinite(Number(b.high))&&Number.isFinite(Number(b.low)));
+ const latest=candidates.reduce((max,b)=>Math.max(max,Number(b.openTime)),-Infinity);
+ const selectedDay=historical&&Number.isFinite(latest)?day(latest):day(now);
+ const rows=candidates.filter(b=>day(Number(b.openTime))===selectedDay&&day(Number(b.openTime)+step-1)===selectedDay).sort((a,b)=>Number(a.openTime)-Number(b.openTime));
  if(!rows.length)return null;
  const high=rows.reduce((a,b)=>Number(b.high)>Number(a.high)?b:a),low=rows.reduce((a,b)=>Number(b.low)<Number(a.low)?b:a);
- return {high:Number(high.high),low:Number(low.low),highAt:Number(high.openTime),lowAt:Number(low.openTime),start:Number(rows[0].openTime),end:Number(rows.at(-1).openTime)+step};
+ return {high:Number(high.high),low:Number(low.low),highAt:Number(high.openTime),lowAt:Number(low.openTime),start:Number(rows[0].openTime),end:Number(rows.at(-1).openTime)+step,date:selectedDay,historical,observedOnly:rows.some(b=>b.observedOnly)};
 }
 let chartHitMap=null,chartSelected=null;
 function selectChartPoint(event){
@@ -1444,7 +1447,9 @@ function draw(a){
  const v=all.slice(-120), assessment=timeframeScore(all,tf);
  const ranges=all.slice(-14).map((b,i,bs)=>Math.max(Number(b.high)-Number(b.low),i?Math.abs(Number(b.high)-Number(bs[i-1].close)):0,i?Math.abs(Number(b.low)-Number(bs[i-1].close)):0));
  const chartAtr=ranges.length?ranges.reduce((a,b)=>a+b,0)/ranges.length:0;
- const model=chartFibonacci(v,chartAtr);
+ const sampledSpot=!isFuture&&v.some(b=>b.observedOnly);
+ // Real archived Spot samples lack confirmed OHLC wick and swing evidence.
+ const model=sampledSpot?null:chartFibonacci(v,chartAtr);
  const fib=!isFuture&&model?.valid?model:null;
  $('chartViewStatus').textContent=v.length<2?'Keine Chartdaten verfügbar':assessment.fresh===false?'Historische Daten · nicht aktuell':'Verlauf geschlossener Kerzen';
  if(isFuture)$('chartViewStatus').textContent=v.length<2?(window.BobWeekendPause?.()?'Kein gespeicherter CFD-Verlauf verfügbar':'CFD-Kursverlauf wird gesammelt – für eine erste Kurve 1m wählen'):'CFD-Verlauf aus beobachteten Kursen · Lücken möglich';
@@ -1454,9 +1459,11 @@ function draw(a){
  $('chartRangeInfo').textContent=frameLabel+' pro '+(candles?'Kerze':'Kurvenpunkt')+' · '+v.length+' Werte'+(v.length?' · '+rangeDate(Number(v[0].openTime))+' bis '+rangeDate(Number(v.at(-1).openTime)):' · Daten für diese Zeitebene fehlen');
 
  const chartStep=({'1m':60000,'5m':300000,'15m':900000,'1h':3600000,'4h':14400000})[tf];
- const dayExtremes=chartDayExtremes(all,chartStep);
+ const closedMarket=Boolean(window.BobWeekendPause?.());
+ const dayExtremes=chartDayExtremes(all,chartStep,Date.now(),closedMarket||sampledSpot);
  const period=t=>rangeDate(t)+' – '+rangeDate(t+chartStep);
- $('chartDayExtremes').textContent=dayExtremes?'Heute · Hoch '+dayExtremes.high.toFixed(2)+' USD ('+period(dayExtremes.highAt)+') · Tief '+dayExtremes.low.toFixed(2)+' USD ('+period(dayExtremes.lowAt)+'). Schweizer Zeit · Hoch/Tief im aufgezeichneten Zeitraum '+rangeDate(dayExtremes.start)+' – '+rangeDate(dayExtremes.end)+'. Aus geschlossenen Kerzen; Zeitpunkt innerhalb der jeweiligen Kerze unbekannt. Vollständiger Tagesverlauf nicht bestätigt.':'Heute: noch keine abgeschlossenen Kerzen für Hoch/Tief vorhanden.';
+ const extremaDay=dayExtremes?.historical?'Aufzeichnung vom '+dayExtremes.date:'Heute';
+ $('chartDayExtremes').textContent=dayExtremes?extremaDay+' · Hoch '+dayExtremes.high.toFixed(2)+' USD ('+period(dayExtremes.highAt)+') · Tief '+dayExtremes.low.toFixed(2)+' USD ('+period(dayExtremes.lowAt)+'). Schweizer Zeit · '+(dayExtremes.observedOnly?'Nur beobachtete Messpunkte, keine bestätigten Tageshochs/-tiefs.':'Hoch/Tief im aufgezeichneten Zeitraum '+rangeDate(dayExtremes.start)+' – '+rangeDate(dayExtremes.end)+'. Vollständiger Tagesverlauf nicht bestätigt.'):(closedMarket||sampledSpot?'Kein aufgezeichneter Tagesverlauf für diese Zeitebene verfügbar.':'Heute: noch keine abgeschlossenen Kerzen für Hoch/Tief vorhanden.');
  const instruments=[...new Set(v.map(b=>b.instrument||'unbekannt'))];
  const instrument=instruments.length===1?instruments[0]:null;
  const instrumentLabel=instrument==='GC=F'?'Gold-Futures · GC=F':instrument==='XAU/USD'?'Gold-Spot · XAU/USD':v.length?'Gold · Basiswert nicht eindeutig':'Gold · keine Chartdaten';
@@ -1471,7 +1478,7 @@ function draw(a){
  if(irregular)$('chartViewStatus').textContent='Quellenzeitpunkte passen nicht zum gewählten Kerzenraster – Intraday-Test gesperrt';
  $('chartHistoryInfo').textContent=v.length+' Quellenwerte · '+$('chartTf').selectedOptions[0].textContent+(irregular?' · Zeitraster unbestätigt':'')+' · Handelspausen ausgeblendet';
  cv.setAttribute('aria-label',(candles?'Kerzenchart':'Linienchart')+' '+tf+'; waagerecht Schweizer Zeit, senkrecht Preis');
- $('chartFibExplanation').textContent=fibonacciExplanation(fib)+(fib?' Grundlage: bestätigte Swing-Punkte dieser Zeitebene; keine Handelsfreigabe.':'');
+ $('chartFibExplanation').textContent=sampledSpot?'Fibonacci und Kursziele pausiert: Diese historischen Messpunkte enthalten keine vollständigen OHLC-Kerzen oder bestätigten Swing-Punkte.':fibonacciExplanation(fib)+(fib?' Grundlage: bestätigte Swing-Punkte dieser Zeitebene; keine Handelsfreigabe.':'');
  const bundle=typeof liveBundleCache!=="undefined"?liveBundleCache:null;
  $('chartHistoryInfo').textContent+=' · Quelle: '+(all.at(-1)?.source||bundle?.history?.data_state?.source||'nicht ausgewiesen')+' · Preismarke: letzter Kerzenschluss';
  const sourceTime=bundle?.spots?.spot_price_as_of;
@@ -1485,7 +1492,7 @@ function draw(a){
  if(v.length<2){$("chartFib").textContent="Fibonacci: keine bestätigten Level verfügbar.";ctx.fillStyle="#666";ctx.font="16px sans-serif";ctx.fillText("Keine Chartdaten verfügbar",16,140);return;}
  v.sort((a,b)=>Number(a.openTime)-Number(b.openTime));
  const fibRows=fib?[["38,2 %",fib.levels.r382],["50 %",fib.levels.r500],["61,8 %",fib.levels.r618],["78,6 %",fib.levels.r786],["Ext. 127,2 %",fib.levels.e1272],["Ext. 161,8 %",fib.levels.e1618]].filter(r=>Number.isFinite(r[1])):[];
- $("chartFib").textContent=fibRows.length?"Fibonacci · "+fibRows.map(r=>r[0]+": "+priceLabel(r[1])+" USD").join(" · "):"Fibonacci: keine bestätigten Level verfügbar.";
+ $("chartFib").textContent=sampledSpot?"Fibonacci/Kursziele nicht berechnet · nur gespeicherte Messpunkte":fibRows.length?"Fibonacci · "+fibRows.map(r=>r[0]+": "+priceLabel(r[1])+" USD").join(" · "):"Fibonacci: keine bestätigten Level verfügbar.";
  const visibleFib=fibRows.filter(r=>r[0].startsWith('Ext.')?showTargets:showFib);
  const ps=[...v.flatMap(b=>candles?[Number(b.low),Number(b.high)]:[Number(b.close)]),...visibleFib.map(r=>r[1]),...(dayExtremes?[dayExtremes.high,dayExtremes.low]:[])],lo=Math.min(...ps),hi=Math.max(...ps),margin=Math.max((hi-lo)*.08,.5),mn=lo-margin,mx=hi+margin;
  const left=8,right=w-78,top=24,bottom=h-44,start=Number(v[0].openTime),end=Number(v.at(-1).openTime);
@@ -1510,7 +1517,7 @@ function draw(a){
  }
  if(dayExtremes){
   for(const [label,value,color] of [['Hoch',dayExtremes.high,'#15803d'],['Tief',dayExtremes.low,'#dc2626']]){
-   const py=y(value);ctx.strokeStyle=color;ctx.lineWidth=1;ctx.setLineDash([3,4]);ctx.beginPath();ctx.moveTo(left,py);ctx.lineTo(right,py);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=color;ctx.font='bold 11px sans-serif';ctx.textAlign='right';ctx.fillText(label+' heute (beobachtet) '+priceLabel(value),right-4,py+(label==='Hoch'?-5:14));
+   const py=y(value);ctx.strokeStyle=color;ctx.lineWidth=1;ctx.setLineDash([3,4]);ctx.beginPath();ctx.moveTo(left,py);ctx.lineTo(right,py);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=color;ctx.font='bold 11px sans-serif';ctx.textAlign='right';ctx.fillText(label+(dayExtremes.historical?' beobachtet':' heute')+' '+priceLabel(value),right-4,py+(label==='Hoch'?-5:14));
   }
  }
  // Draw prices last so level labels never cover the price path or candles.
