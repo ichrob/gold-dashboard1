@@ -133,6 +133,18 @@ def collect_once():
 def _collect(stop=None):
     stop = stop or threading.Event()
     while not stop.is_set():
+        remaining = background_push.gold_weekend_seconds_remaining()
+        if remaining:
+            with _state_lock:
+                if _health['state'] != 'unavailable':
+                    source = _health.get('sourceAt')
+                    source_ms = datetime.fromisoformat(source).timestamp() * 1000 if source else None
+                    _health['state'] = ('closed' if background_push.weekend_quote_at_close(time.time() * 1000, source_ms)
+                                        else 'paused')
+                _health['lastCheckedAt'] = time.time()
+            print('BOB_CFD weekend_paused', flush=True)
+            stop.wait(remaining)
+            continue
         started = time.monotonic()
         collect_once()
         stop.wait(max(1, POLL_SECONDS-(time.monotonic()-started)))
