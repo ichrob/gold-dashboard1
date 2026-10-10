@@ -1331,6 +1331,7 @@ def fibonacci_monitor_loop():
             time.sleep(remaining)
             continue
         cycle_started = time.monotonic()
+        poll_seconds = 30  # Connection failure: retry promptly to protect an unknown active trade.
         try:
             request = Request(base+"/monitor-status", headers={"X-Bob-Push-Token":PUSH_SERVICE_TOKEN})
             with urlopen(request, timeout=10) as response:
@@ -1370,8 +1371,7 @@ def fibonacci_monitor_loop():
         except Exception as exc:
             FIB_MONITOR_HEALTH.update(status="unavailable", lastCheckedAt=int(time.time()))
             print("BOB_FIB monitor_error="+type(exc).__name__, flush=True)
-        time.sleep(max(1, poll_seconds - (time.monotonic() - cycle_started))
-                   if 'poll_seconds' in locals() else 30)
+        time.sleep(max(1, poll_seconds - (time.monotonic() - cycle_started)))
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "10000"))
