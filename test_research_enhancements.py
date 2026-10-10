@@ -215,6 +215,20 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(calls, ['https://www.youtube.com/embed/' + VIDEO,
                                  'https://www.youtube-nocookie.com/embed/' + VIDEO])
 
+    def test_official_mobile_player_used_only_when_both_embed_pages_lack_data(self):
+        player = {'videoDetails': {'videoId': VIDEO, 'channelId': r.CHANNEL},
+                  'playabilityStatus': {'status': 'OK'},
+                  'storyboards': {'playerStoryboardSpecRenderer': {'spec': SPEC}}}
+        visited = []
+        def reader(req, timeout):
+            visited.append(req.full_url)
+            if 'm.youtube.com/watch' in req.full_url:
+                return ('var ytInitialPlayerResponse = ' + json.dumps(player) + ';').encode()
+            return b'<html>No public player data</html>'
+        self.assertEqual(r.public_embed_storyboard(VIDEO, reader), SPEC)
+        self.assertEqual(len(visited), 3)
+        self.assertTrue(visited[2].startswith('https://m.youtube.com/watch?v='))
+
     def test_public_embed_storyboard_checks_video_and_access(self):
         player = {'videoDetails': {'videoId': VIDEO, 'channelId': r.CHANNEL},
                   'playabilityStatus': {'status': 'OK'},
