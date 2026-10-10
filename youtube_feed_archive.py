@@ -109,8 +109,13 @@ def handle(conn,action,payload):
                 # Only previously unseen videos may move ahead of the retained
                 # ordering in an incomplete feed. A fragment listing just an
                 # old video must never displace a newer archived upload.
+                dates=[x.get('publishedAt') for x in remembered]
+                oldest=min(dates) if len(dates)==KEEP_VIDEOS and all(
+                    isinstance(value,(int,float)) and value>0 for value in dates) else None
                 newcomers=[entry for entry in entries
-                           if entry['id'].removeprefix('youtube-') not in remembered_ids]
+                           if entry['id'].removeprefix('youtube-') not in remembered_ids
+                           and (oldest is None or entry.get('publishedAt') is None
+                                or entry['publishedAt']>oldest)]
                 entries=sanitize(newcomers+remembered)
         conn.execute("""INSERT INTO bob_youtube_feed_archive(feed_key,saved_at,items)
             VALUES(%s,now(),%s::jsonb)
