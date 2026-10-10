@@ -92,3 +92,8 @@ Die Bilder werden **vor** dem KI-Zusammenfassungsversuch geladen, damit eine erl
 Die YouTube-Oberfläche ordnet gespeicherte Standbilder nach den Original-Zeitstempeln direkt der jeweils passenden KI-Zusammenfassung zu. Nicht zugeordnete Bilder bleiben in der eingeklappten Restgalerie; alle Bilder haben einen Zeitlink zum Originalvideo sowie sichtbare Hinweise auf die fehlende visuelle Verifizierung. Bei einem zeitweiligen Abrufausfall bleiben die bestehenden Transkriptauszüge und der Player verfügbar.
 
 Die bestehende Regel höchstens drei Videos insgesamt bleibt unangetastet. Wird ein älteres Video entfernt, verschwinden seine Standbilder zusammen mit Transkripten und KI-Zusammenfassungen aus den gespeicherten Datensätzen. Tests prüfen Auswahl der Videostellen, gemeinsame Text-Bild-Anfrage, Bildtyp-Whitelist, Preisbelege und weiterhin wirksame Free-Tier-/Request-Sperren.
+
+
+### Fallback bei nicht abrufbaren Videobildern
+
+Wenn YouTube keine öffentlich lesbaren Standbilder des verifizierten Videos liefert, erscheint direkt bei der jeweiligen belegten KI-Aussage ein einklappbarer Abschnitt „Videobild zu dieser Aussage ansehen“. Der Nutzer kann den offiziellen YouTube-Player erst durch Tippen am belegten Zeitstempel öffnen oder direkt zu YouTube wechseln. Es wird kein komplettes Video heruntergeladen, kein Standbild fingiert und kein zusätzlicher KI-Aufruf ausgeführt; die Einschränkung („Chart nicht automatisch geprüft“) bleibt sichtbar.
