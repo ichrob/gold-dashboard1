@@ -42,3 +42,31 @@ class WeekendArchiveTests(unittest.TestCase):
             self.assertEqual(card['at'],at.isoformat())
             conn.execute("DELETE FROM bob_weekend_archive WHERE data_key='spot'")
 if __name__=='__main__':unittest.main()
+
+class WeekendObservationBackfillTests(unittest.TestCase):
+    def test_sparse_spot_observations_are_labeled_and_no_empty_buckets_added(self):
+        now=datetime.now(timezone.utc)
+        step=900
+        base=(int(now.timestamp())//step-4)*step
+        rows=[(datetime.fromtimestamp(base+10,timezone.utc),4100.),
+              (datetime.fromtimestamp(base+20,timezone.utc),4102.),
+              (datetime.fromtimestamp(base+step*2+10,timezone.utc),4101.)]
+        history=w.observation_bars(rows,['15m'],now=now.timestamp())
+        candles=history['15m']
+        self.assertEqual(len(candles),2)
+        self.assertEqual(candles[0]['high'],4102.)
+        self.assertTrue(candles[0]['observedOnly'])
+        self.assertEqual(candles[0]['samples'],2)
+        self.assertEqual(candles[1]['openTime']-candles[0]['openTime'],2*step*1000)
+
+    def test_synthetic_cfd_cannot_be_mistaken_for_spot(self):
+        now=datetime.now(timezone.utc)
+        step=60000
+        end=(int(now.timestamp()*1000)//step)*step
+        bar=dict(open=4000.,high=4001.,low=3999.,close=4000.,isOpen=False,
+                 instrument='GOLD-CFD',source='Investing.com')
+        bars=[dict(bar,openTime=end-2*step),dict(bar,openTime=end-step)]
+        q=dict(at=datetime.fromtimestamp(end/1000,timezone.utc).isoformat(),bars=bars)
+        self.assertIsNotNone(w.valid('cfd-chart:1m',q))
+        self.assertIsNone(w.valid('chart:1m',q))
+        self.assertIsNone(w.valid('cfd-chart:1m',dict(q,bars=[dict(bars[0],instrument='XAU/USD'),bars[1]])))

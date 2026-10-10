@@ -32,3 +32,8 @@ assert(html.includes("fetch('/api/weekend-archive'"));
 assert(html.includes('chartHistory=history;'));
 assert(html.includes('restoreServerWeekendArchive();'));
 console.log('Weekend persistent display-only recovery hooks OK');
+
+assert(html.includes("if(isFuture&&!window.BobWeekendPause?.())loadFutureChart(tf);"));
+assert(html.includes("result.cfdHistory?.[tf]"));
+assert(html.includes("Keine vollständigen OHLC-Kerzen")||html.includes("keine vollständigen OHLC-Kerzen"));
+console.log('Persistent Spot and CFD chart recovery hooks OK');

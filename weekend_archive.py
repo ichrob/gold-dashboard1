@@ -9,6 +9,7 @@ from urllib.request import Request, urlopen
 
 FRAMES = {'1m':60000,'5m':300000,'15m':900000,'30m':1800000,'1h':3600000,'4h':14400000}
 CARD_KEYS = ('spot','cfd','future','estimate')
+CFD_CHART_KEYS = tuple('cfd-chart:'+tf for tf in FRAMES)
 MAX_AGE = 7 * 86400
 _worker = None
 _lock = threading.Lock()
@@ -28,7 +29,7 @@ def positive(n):
 
 def valid(key, item, now=None):
     now = time.time() if now is None else now
-    if key not in CARD_KEYS and key not in ('chart:'+x for x in FRAMES):
+    if key not in CARD_KEYS and key not in ('chart:'+x for x in FRAMES) and key not in CFD_CHART_KEYS:
         return None
     if not isinstance(item,dict):
         return None
@@ -44,13 +45,14 @@ def valid(key, item, now=None):
             if key=='cfd' and item.get('kind')!='cfd':
                 return None
         else:
-            tf=key[6:]
+            is_cfd=key.startswith('cfd-chart:')
+            tf=key[10:] if is_cfd else key[6:]
             bars=item.get('bars')
             if not isinstance(bars,list) or not 2<=len(bars)<=180:
                 return None
             previous=-1
             for b in bars:
-                if not isinstance(b,dict) or b.get('instrument')!='XAU/USD' or b.get('isOpen') is not False:
+                if not isinstance(b,dict) or b.get('instrument')!=('GOLD-CFD' if is_cfd else 'XAU/USD') or b.get('isOpen') is not False:
                     return None
                 stamp=b.get('openTime')
                 if not isinstance(stamp,(int,float)) or isinstance(stamp,bool) or stamp<=previous or stamp>now*1000:
@@ -67,10 +69,42 @@ def valid(key, item, now=None):
         return None
 
 
+
+def observation_bars(rows, frames=None, now=None):
+    """Sparse real Spot ticks grouped without filling gaps or inventing highs/lows."""
+    now=time.time() if now is None else now
+    grouped={tf:{} for tf in (frames if frames is not None else FRAMES)}
+    for timestamp,price in rows:
+        if timestamp.tzinfo is None or not positive(price):
+            continue
+        epoch=timestamp.timestamp()*1000
+        if not 0 <= now*1000-epoch <= MAX_AGE*1000:
+            continue
+        for tf,bytime in grouped.items():
+            step=FRAMES[tf]
+            bucket=int(epoch//step)*step
+            # Only confirmed complete intervals are suitable as chart points.
+            if bucket+step>now*1000:
+                continue
+            bar=bytime.get(bucket)
+            if bar is None:
+                bytime[bucket]=dict(openTime=bucket,open=price,high=price,
+                    low=price,close=price,isOpen=False,instrument='XAU/USD',
+                    source='Gold API · gespeicherte Spot-Messpunkte',
+                    observedOnly=True,samples=1)
+            else:
+                bar['high']=max(bar['high'],price)
+                bar['low']=min(bar['low'],price)
+                bar['close']=price
+                bar['samples']+=1
+    return {tf:list(sorted(bars.values(),key=lambda b:b['openTime']))[-180:]
+            for tf,bars in grouped.items() if len(bars)>=2}
+
+
 def handle(conn, action, payload):
     if action=='write':
         items=payload.get('items')
-        if not isinstance(items,dict) or len(items)>len(FRAMES)+len(CARD_KEYS):
+        if not isinstance(items,dict) or len(items)>2*len(FRAMES)+len(CARD_KEYS):
             raise ValueError('Ungültige Wochenendarchivdaten')
         count=0
         for key,item in items.items():
@@ -98,8 +132,30 @@ def handle(conn, action, payload):
             if key in CARD_KEYS:
                 result['cards'][key]=dict(item,marketClosed=True,historical=True,
                                            realtimeCfd=False,isExchangeRealtime=False)
+            elif key.startswith('cfd-chart:'):
+                result.setdefault('cfdHistory',{})[key[10:]]=item['bars']
             else:
                 result['history'][key[6:]]=item['bars']
+
+        # Fallback for a previously deployed Friday: reconstruct only from
+        # original persisted XAU/USD Spot observations. These are SAMPLE-derived
+        # bars, not complete exchange OHLC. They never enter signal generation.
+        missing=[tf for tf in FRAMES if tf not in result['history']]
+        if missing:
+            try:
+                import bob_market_store
+                rows=conn.execute("""SELECT quote_at,price FROM bob_spot_observations
+                    WHERE stream=%s AND quote_at >= now()-interval '7 days'
+                    ORDER BY quote_at DESC LIMIT 12000""",
+                    (bob_market_store.STREAM,)).fetchall()
+                rebuilt=observation_bars(reversed(rows),missing)
+                for tf,bars in rebuilt.items():
+                    if bars:
+                        result['history'][tf]=bars
+                if rebuilt:
+                    result['spotHistoryNote']='Nur beobachtete Gold-Spot-Messpunkte; keine vollständigen OHLC-Kerzen'
+            except Exception:
+                pass
         # Recover genuine Spot observations that were archived by Bob before
         # deployment of this new table, without manufacturing a fresh quote.
         if 'spot' not in result['cards']:
@@ -164,6 +220,26 @@ def collect_items(bundle,cards,now=None):
         q=dict(at=at,bars=closed)
         if valid('chart:'+tf,q,now) is not None:
             items['chart:'+tf]=q
+
+    # Investing.com CFD candles are explicitly sampled from Bob's observations;
+    # never backfill with Spot, Yahoo futures or a synthetic price.
+    try:
+        import investing_card
+        for tf,step in FRAMES.items():
+            if tf == '30m':
+                continue
+            bars=investing_card.chart_snapshot(tf).get('bars') or []
+            closed=[dict(b) for b in bars if isinstance(b,dict)
+                and b.get('instrument')=='GOLD-CFD'
+                and b.get('isOpen') is False and b.get('openTime',0)+step<=now*1000][-180:]
+            if len(closed)<2:
+                continue
+            q=dict(at=datetime.fromtimestamp((closed[-1]['openTime']+step)/1000,
+                timezone.utc).isoformat(),bars=closed)
+            if valid('cfd-chart:'+tf,q,now) is not None:
+                items['cfd-chart:'+tf]=q
+    except (OSError,ValueError,TypeError,KeyError,AttributeError) as exc:
+        print('BOB_WEEKEND_ARCHIVE cfd_chart_error='+type(exc).__name__,flush=True)
     return items
 
 

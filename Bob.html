@@ -288,7 +288,7 @@ try{
   const phase=window.BobDegiroPhase?.();
   el.textContent=phase==='night'?' · DEGIRO-Nachtmodus (22:00–07:30 Zürich), Goldmarkt weiterhin aktiv.':phase==='preparation'?' · Vorbereitung (07:30–08:00), noch keine Einstiege.':phase==='weekend'?' · Goldmarkt am Wochenende geschlossen.':'';
  }
- window.BobGoldCards={weekendArchive(cards){for(const key of ['spot','future','estimate','cfd']){const q=cards?.[key];if(positive(q?.price))accept(key,{...q,marketClosed:true,historical:true,realtimeCfd:false,isExchangeRealtime:false});}},spot(bundle){const s=bundle?.spots;if(!s||!positive(s.xaus))return;accept('spot',{price:s.xaus,at:s.spot_price_as_of,source:s.primary||s.goldprice_status||'Bob Spotquelle',kind:'spot',note:s.spot_error?'Aktualisierung pausiert':'',changePct:s.dailyChange?.changePct??null,changeLabel:s.dailyChange?.changeLabel});},refresh,restoreWeekendCards};
+ window.BobGoldCards={weekendArchive(cards){for(const key of ['spot','future','estimate','cfd']){const q=cards?.[key];if(positive(q?.price))accept(key,{...q,marketClosed:true,historical:true,realtimeCfd:false,isExchangeRealtime:false});else render(key);}},spot(bundle){const s=bundle?.spots;if(!s||!positive(s.xaus))return;accept('spot',{price:s.xaus,at:s.spot_price_as_of,source:s.primary||s.goldprice_status||'Bob Spotquelle',kind:'spot',note:s.spot_error?'Aktualisierung pausiert':'',changePct:s.dailyChange?.changePct??null,changeLabel:s.dailyChange?.changeLabel});},refresh,restoreWeekendCards};
  restoreWeekendCards();renderSessionMode();if(!window.BobWeekendPause?.())refresh();setInterval(()=>{render('spot');render('future');render('estimate');render('cfd');renderSessionMode();if(document.visibilityState!=='hidden'&&!window.BobWeekendPause?.())refresh();},30000);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!window.BobWeekendPause?.())refresh();});
 })();
@@ -1438,7 +1438,7 @@ function draw(a){
  const showFib=$('chartShowFib').checked!==false,showTargets=$('chartShowTargets').checked!==false;
  const isFuture=chartMarket==='future';
  document.querySelectorAll('[data-chart-market]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.chartMarket===chartMarket)));
- if(isFuture)loadFutureChart(tf);
+ if(isFuture&&!window.BobWeekendPause?.())loadFutureChart(tf);
  const raw=isFuture?(futureChartHistory[tf]||[]):(chartHistory[tf]||((tf===$('tf').value)?C:[])).filter(b=>b.instrument==='XAU/USD');
  const all=raw.filter(b=>!b.isOpen&&Number(b.openTime)+({'1m':60000,'5m':300000,'15m':900000,'1h':3600000,'4h':14400000}[tf]||900000)<=Date.now()&&['open','high','low','close','openTime'].every(k=>b[k]!=null&&b[k]!==''&&Number.isFinite(Number(b[k])))&&Number(b.openTime)>0&&Number(b.low)<=Math.min(Number(b.open),Number(b.close))&&Number(b.high)>=Math.max(Number(b.open),Number(b.close))).sort((a,b)=>Number(a.openTime)-Number(b.openTime));
  const v=all.slice(-120), assessment=timeframeScore(all,tf);
@@ -1447,7 +1447,7 @@ function draw(a){
  const model=chartFibonacci(v,chartAtr);
  const fib=!isFuture&&model?.valid?model:null;
  $('chartViewStatus').textContent=v.length<2?'Keine Chartdaten verfügbar':assessment.fresh===false?'Historische Daten · nicht aktuell':'Verlauf geschlossener Kerzen';
- if(isFuture)$('chartViewStatus').textContent=v.length<2?'CFD-Kursverlauf wird gesammelt – für eine erste Kurve 1m wählen':'CFD-Verlauf aus beobachteten Kursen · Lücken möglich';
+ if(isFuture)$('chartViewStatus').textContent=v.length<2?(window.BobWeekendPause?.()?'Kein gespeicherter CFD-Verlauf verfügbar':'CFD-Kursverlauf wird gesammelt – für eine erste Kurve 1m wählen'):'CFD-Verlauf aus beobachteten Kursen · Lücken möglich';
  $('chartViewStatus').dataset.stale=String(assessment.fresh===false);
  const frameLabel={"1m":"1 Minute","5m":"5 Minuten","15m":"15 Minuten","1h":"1 Stunde","4h":"4 Stunden"}[tf]||tf;
  const rangeDate=t=>new Date(t).toLocaleString("de-CH",{timeZone:"Europe/Zurich",day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
@@ -1465,7 +1465,8 @@ function draw(a){
  $('chartInstrument').textContent=isFuture?'Gold-CFD · Investing.com':instrumentLabel;
  $('chartProvenance').textContent='Quelle: '+(sources.join(' / ')||'nicht verfügbar')+' · Letzter Kerzenschluss: '+(candleCloseAt?new Date(candleCloseAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)':'nicht verfügbar')+(instrument==='GC=F'?' · Futures-Referenz, kein bestätigter GCZ26-Kontrakt':'');
 
- if(isFuture)$('chartProvenance').textContent+=' · Aus 30-Sekunden-Beobachtungen seit Serverstart; keine vollständigen historischen Kerzen'+(futureChartError?' · '+futureChartError:'');
+ if(isFuture)$('chartProvenance').textContent+=' · Aus beobachteten CFD-Kursen; keine vollständigen historischen Kerzen'+(!window.BobWeekendPause?.()&&futureChartError?' · '+futureChartError:'');
+ if(!isFuture&&v.some(b=>b.observedOnly))$('chartProvenance').textContent+=' · Nur gespeicherte Spot-Messpunkte, keine vollständigen OHLC-Kerzen';
  const irregular=all.some(b=>Number(b.openTime)%chartStep!==0);
  if(irregular)$('chartViewStatus').textContent='Quellenzeitpunkte passen nicht zum gewählten Kerzenraster – Intraday-Test gesperrt';
  $('chartHistoryInfo').textContent=v.length+' Quellenwerte · '+$('chartTf').selectedOptions[0].textContent+(irregular?' · Zeitraster unbestätigt':'')+' · Handelspausen ausgeblendet';
@@ -3165,10 +3166,12 @@ async function restoreServerWeekendArchive(){
    const bars=result.history?.[tf];
    if(Array.isArray(bars)&&bars.length>=2)history[tf]=bars;
   }
-  if(Object.keys(history).length){
-   chartHistory=history;
-   draw(); // Historical display only: never analyze, release products or confirm stop/target.
+  if(Object.keys(history).length)chartHistory=history;
+  for(const tf of ['1m','5m','15m','1h','4h']){
+   const cfdBars=result.cfdHistory?.[tf];
+   if(Array.isArray(cfdBars)&&cfdBars.length>=2)futureChartHistory[tf]=cfdBars;
   }
+  draw(); // Historical display only: never analyze, release products or confirm stop/target.
  }catch(error){
   console.warn('[BOB] Weekend archive not loaded',error?.message||error);
  }
