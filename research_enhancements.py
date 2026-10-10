@@ -225,6 +225,10 @@ def handle(connect, payload):
     key = os.environ.get('GEMINI_API_KEY', '') if enabled else ''
     do_summary = False; do_frames = False
     with connect() as conn:
+        import youtube_feed_archive
+        if not youtube_feed_archive.is_retained(conn, identity):
+            return {'summaryStatus': 'Video außerhalb der drei neuesten MCO-Gold-Videos; keine Speicherung.',
+                    'frames': [], 'frameStatus': 'Kein Videobild für bereits entfernte Videos gespeichert.'}
         conn.execute('SELECT pg_advisory_xact_lock(68431030)')
         row = conn.execute('SELECT fingerprint,summary,frames,summary_attempt>now()-interval \'24 hours\',frame_attempt>now()-interval \'24 hours\' FROM bob_research_enhancements WHERE video_id=%s', (identity,)).fetchone()
         conn.execute('INSERT INTO bob_research_enhancements(video_id,fingerprint) VALUES(%s,%s) ON CONFLICT(video_id) DO NOTHING', (identity, fingerprint))
