@@ -13,7 +13,8 @@ from urllib.parse import urlparse
 
 CHANNEL = 'UCsl6Z6p7GOkczo8Cv-GH6Dg'
 MODEL = 'gemini-3.5-flash-lite'
-SUMMARY_FORMAT_VERSION = 'evidence-visual-v1'
+SUMMARY_FORMAT_VERSION = 'evidence-visual-v2'
+FRAME_FORMAT_VERSION = 'storyboard-thumbnail-fallback-v2'
 MAX_FRAMES = 5
 MAX_BYTES = 1000000
 
@@ -36,6 +37,8 @@ def init(conn):
         video_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL,
         summary JSONB, frames JSONB, summary_attempt TIMESTAMPTZ,
         frame_attempt TIMESTAMPTZ, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())''')
+    conn.execute('ALTER TABLE bob_research_enhancements ADD COLUMN IF NOT EXISTS frame_version TEXT')
+    conn.execute('ALTER TABLE bob_research_enhancements ADD COLUMN IF NOT EXISTS frame_status TEXT')
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_research_ai_requests (
         id BIGSERIAL PRIMARY KEY, attempted_at TIMESTAMPTZ NOT NULL DEFAULT now())''')
 
@@ -66,7 +69,7 @@ def validated_frames(frames):
             continue
         url = item.get('dataUrl')
         at = item.get('at')
-        if (not isinstance(url, str) or not re.fullmatch(r'data:image/jpeg;base64,[A-Za-z0-9+/=]{100,140000}', url) or
+        if (item.get('isCover') is True or not isinstance(url, str) or not re.fullmatch(r'data:image/jpeg;base64,[A-Za-z0-9+/=]{100,140000}', url) or
                 isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at) or not 0 <= at <= 86400):
             continue
         valid.append(item)
@@ -225,29 +228,68 @@ def storyboard_plan(spec, identity, moments):
 
 
 def frames_saved(identity, spec, moments, reader=read):
-    # Pillow is loaded only by the push service, never by the dependency-free scanner.
+    """Public YouTube storyboard cells, best effort per tile; never fake timestamps."""
     from PIL import Image
     sheets = {}; frames = []
     for plan in storyboard_plan(spec, identity, moments):
-        url = plan['url']
-        if url not in sheets:
-            raw = reader(urllib.request.Request(url, headers={'User-Agent': 'Bob-GoldResearch/1.0'}), timeout=4)
-            with Image.open(io.BytesIO(raw)) as im:
-                if im.format != 'JPEG' or im.width * im.height > 8000000:
-                    raise ValueError('Invalid storyboard image')
-                sheets[url] = im.convert('RGB')
-        im = sheets[url]; w = plan['width']; h = plan['height']
-        x = plan['col'] * w; y = plan['row'] * h
-        if im.width != w * plan['cols'] or im.height > h * plan['rows'] or x + w > im.width or y + h > im.height:
+        try:
+            url = plan['url']
+            if url not in sheets:
+                raw = reader(urllib.request.Request(url, headers={'User-Agent': 'Bob-GoldResearch/1.0'}), timeout=8)
+                with Image.open(io.BytesIO(raw)) as im:
+                    if im.format != 'JPEG' or im.width * im.height > 8000000:
+                        continue
+                    sheets[url] = im.convert('RGB')
+            im = sheets[url]; w = plan['width']; h = plan['height']
+            x = plan['col'] * w; y = plan['row'] * h
+            # The last YouTube sprite sheet may have fewer rows/columns.
+            if im.width > w * plan['cols'] or im.height > h * plan['rows'] or x + w > im.width or y + h > im.height:
+                continue
+            buffer = io.BytesIO(); im.crop((x, y, x + w, y + h)).save(buffer, 'JPEG', quality=82)
+            if buffer.tell() > 100000:
+                continue
+            frames.append({k: plan[k] for k in ('at', 'requestedAt', 'label', 'width', 'height')} |
+                          {'dataUrl': 'data:image/jpeg;base64,' + base64.b64encode(buffer.getvalue()).decode(),
+                           'source': 'Echtes YouTube-Storyboardbild, zeitlich nur angenähert und visuell nicht verifiziert.'})
+        except (OSError, ValueError, TimeoutError, urllib.error.URLError):
+            # A blocked sprite or malformed tile must not discard other images.
             continue
-        buffer = io.BytesIO(); im.crop((x, y, x + w, y + h)).save(buffer, 'JPEG', quality=85)
-        if buffer.tell() > 100000:
-            continue
-        frames.append({k: plan[k] for k in ('at', 'requestedAt', 'label', 'width', 'height')} |
-                      {'dataUrl': 'data:image/jpeg;base64,' + base64.b64encode(buffer.getvalue()).decode(),
-                       'source': 'Gespeichertes YouTube-Vorschaubild der Zeitleiste; Zeitpunkt näherungsweise, nicht visuell geprüft.'})
-    return frames
+    return frames[:MAX_FRAMES]
 
+
+def public_cover(identity, reader=read):
+    """Genuine public YouTube thumbnail when timed storyboards are unavailable.
+
+    A cover is not a frame at 00:00, and must not count as visual evidence.
+    """
+    from PIL import Image
+    if not isinstance(identity, str) or not re.fullmatch(r'[A-Za-z0-9_-]{11}', identity):
+        raise ValueError('Invalid video identity')
+    url = 'https://i.ytimg.com/vi/' + identity + '/hqdefault.jpg'
+    raw = reader(urllib.request.Request(url, headers={'User-Agent': 'Bob-GoldResearch/1.0'}), timeout=8)
+    with Image.open(io.BytesIO(raw)) as image:
+        if image.format != 'JPEG' or not 200 <= image.width <= 1280 or not 100 <= image.height <= 720:
+            raise ValueError('Invalid public thumbnail')
+        cover = image.convert('RGB')
+        cover.thumbnail((480, 360))
+        buffer = io.BytesIO(); cover.save(buffer, 'JPEG', quality=78, optimize=True)
+    if buffer.tell() > 100000:
+        raise ValueError('Thumbnail too large')
+    return {'at': 0, 'isCover': True, 'label': 'YouTube-Titelbild',
+            'width': cover.width, 'height': cover.height,
+            'dataUrl': 'data:image/jpeg;base64,' + base64.b64encode(buffer.getvalue()).decode(),
+            'source': 'Original-YouTube-Titelbild, nicht aus einer zeitlich bestimmten Videostelle; keine Chartanalyse.'}
+
+
+def summary_fingerprint(segments, frames=None):
+    # An actual timestamped image change may trigger ONE newly quota-gated
+    # image-assisted summary, but public title covers never alter this hash.
+    image_ids = [(f['at'], hashlib.sha256(f['dataUrl'].encode()).hexdigest()[:20])
+                 for f in validated_frames(frames)]
+    parts = [MODEL, SUMMARY_FORMAT_VERSION, segments]
+    if image_ids:
+        parts.append(image_ids)
+    return hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest()
 
 def failure_code(exc):
     if isinstance(exc, urllib.error.HTTPError):
@@ -266,56 +308,101 @@ def handle(connect, payload):
     if not isinstance(identity, str) or not re.fullmatch(r'[A-Za-z0-9_-]{11}', identity) or payload.get('channelId') != CHANNEL:
         raise ValueError('Invalid video')
     segments = segments_checked(payload.get('segments'))
-    fingerprint = hashlib.sha256(json.dumps([MODEL, SUMMARY_FORMAT_VERSION, segments], sort_keys=True).encode()).hexdigest()
     result = {'summaryStatus': 'KI-Zusammenfassung noch nicht eingerichtet: kostenloser Gemini-Zugang fehlt.', 'frames': []}
     enabled = os.environ.get('BOB_GEMINI_FREE_PROJECT') == 'confirmed-no-billing'
     key = os.environ.get('GEMINI_API_KEY', '') if enabled else ''
-    do_summary = False; do_frames = False
+    do_frames = False
+    frame_state = 'no_attempt'
     with connect() as conn:
         import youtube_feed_archive
         if not youtube_feed_archive.is_retained(conn, identity):
             return {'summaryStatus': 'Video außerhalb der drei neuesten MCO-Gold-Videos; keine Speicherung.',
                     'frames': [], 'frameStatus': 'Kein Videobild für bereits entfernte Videos gespeichert.'}
         conn.execute('SELECT pg_advisory_xact_lock(68431030)')
-        row = conn.execute('SELECT fingerprint,summary,frames,summary_attempt>now()-interval \'24 hours\',frame_attempt>now()-interval \'24 hours\' FROM bob_research_enhancements WHERE video_id=%s', (identity,)).fetchone()
-        conn.execute('INSERT INTO bob_research_enhancements(video_id,fingerprint) VALUES(%s,%s) ON CONFLICT(video_id) DO NOTHING', (identity, fingerprint))
-        if row and row[0] == fingerprint and row[1]:
-            result['summary'] = row[1]; result['summaryStatus'] = 'KI-Zusammenfassung gespeichert.'
-        elif key:
-            count = conn.execute("SELECT count(*),count(*) FILTER (WHERE attempted_at>now()-interval '1 minute') FROM bob_research_ai_requests WHERE attempted_at>now()-interval '24 hours'").fetchone()
-            if count[0] < 10 and count[1] == 0 and not (row and row[0] == fingerprint and row[3]):
-                conn.execute('INSERT INTO bob_research_ai_requests DEFAULT VALUES')
-                conn.execute('UPDATE bob_research_enhancements SET summary_attempt=now(),fingerprint=%s,summary=NULL WHERE video_id=%s', (fingerprint, identity))
-                do_summary = True
-            else:
-                result['summaryStatus'] = 'KI-Zusammenfassung pausiert: Abruflimit oder Wiederholungspause; vorhandener Überblick bleibt verfügbar.'
+        row = conn.execute("""SELECT fingerprint,summary,frames,
+            summary_attempt>now()-interval '24 hours',
+            frame_attempt>now()-interval '24 hours',
+            frame_version,frame_status
+            FROM bob_research_enhancements WHERE video_id=%s""", (identity,)).fetchone()
+        conn.execute('INSERT INTO bob_research_enhancements(video_id,fingerprint) VALUES(%s,%s) ON CONFLICT(video_id) DO NOTHING',
+                     (identity, summary_fingerprint(segments)))
         if row and row[2]:
             result['frames'] = row[2]
-        elif not (row and row[4]):
-            conn.execute('UPDATE bob_research_enhancements SET frame_attempt=now() WHERE video_id=%s', (identity,))
+            frame_state = 'stored'
+        elif not row or len(row) < 6 or row[5] != FRAME_FORMAT_VERSION or not row[4]:
+            # A newer extractor gets one recovery attempt even when the old
+            # implementation recorded a failed attempt in the last 24h.
+            conn.execute('UPDATE bob_research_enhancements SET frame_attempt=now(),frame_version=%s,frame_status=%s WHERE video_id=%s',
+                         (FRAME_FORMAT_VERSION, 'attempting', identity))
             do_frames = True
-        conn.execute("DELETE FROM bob_research_ai_requests WHERE attempted_at<now()-interval '32 days'")
-        conn.execute("DELETE FROM bob_research_enhancements WHERE updated_at<now()-interval '32 days'")
+            frame_state = 'attempting'
+        else:
+            frame_state = row[6] if len(row) > 6 and row[6] else 'retry_paused'
         conn.commit()
     if do_frames:
-        try:
-            spec = payload.get('storyboardSpec', '')
-            if not spec:
+        source = 'storyboard_unavailable'
+        spec = payload.get('storyboardSpec', '')
+        if not spec:
+            try:
                 from youtube_research import read_url, player_metadata, require_mco
                 player = player_metadata(read_url('https://www.youtube.com/watch?v=' + identity), identity)
                 require_mco(player['videoDetails'])
                 spec = player.get('storyboards', {}).get('playerStoryboardSpecRenderer', {}).get('spec', '')
-            result['frames'] = frames_saved(identity, spec, payload.get('moments', []))
-            if result['frames']:
-                with connect() as conn:
-                    conn.execute('UPDATE bob_research_enhancements SET frames=%s::jsonb,updated_at=now() WHERE video_id=%s', (json.dumps(result['frames']), identity)); conn.commit()
-        except Exception:
-            result['frames'] = []
+            except (OSError, ValueError, KeyError, TypeError):
+                source = 'player_metadata_unavailable'
+        if spec:
+            try:
+                result['frames'] = frames_saved(identity, spec, payload.get('moments', []))
+                if result['frames']:
+                    source = 'storyboard'
+                else:
+                    source = 'storyboard_cells_unavailable'
+            except (OSError, ValueError, TimeoutError):
+                source = 'storyboard_processing_failed'
+        if not result['frames']:
+            try:
+                result['frames'] = [public_cover(identity)]
+                source = 'public_thumbnail'
+            except (OSError, ValueError, TimeoutError, urllib.error.URLError):
+                source += '_and_thumbnail_unavailable'
+        frame_state = source
+        with connect() as conn:
+            # UPDATE never recreates a record evicted by the three-video rule.
+            conn.execute('UPDATE bob_research_enhancements SET frames=%s::jsonb,frame_status=%s,updated_at=now() WHERE video_id=%s',
+                         (json.dumps(result['frames']), frame_state, identity))
+            conn.commit()
+        print('BOB_RESEARCH_FRAME video=' + identity + ' result=' + frame_state +
+              ' images=' + str(len(result['frames'])), flush=True)
+    fp = summary_fingerprint(segments, result['frames'])
+    do_summary = False
+    with connect() as conn:
+        import youtube_feed_archive
+        if not youtube_feed_archive.is_retained(conn, identity):
+            return {'summaryStatus': 'Video nicht mehr gespeichert.', 'frames': []}
+        conn.execute('SELECT pg_advisory_xact_lock(68431030)')
+        row = conn.execute("""SELECT fingerprint,summary,
+            summary_attempt>now()-interval '24 hours' FROM bob_research_enhancements WHERE video_id=%s""", (identity,)).fetchone()
+        if row and row[0] == fp and row[1]:
+            result['summary'] = row[1]
+            result['summaryStatus'] = 'KI-Zusammenfassung gespeichert.'
+        elif key:
+            count = conn.execute("SELECT count(*),count(*) FILTER (WHERE attempted_at>now()-interval '1 minute') FROM bob_research_ai_requests WHERE attempted_at>now()-interval '24 hours'").fetchone()
+            if count[0] < 10 and count[1] == 0 and not (row and row[0] == fp and row[2]):
+                conn.execute('INSERT INTO bob_research_ai_requests DEFAULT VALUES')
+                conn.execute('UPDATE bob_research_enhancements SET summary_attempt=now(),fingerprint=%s,summary=NULL WHERE video_id=%s',
+                             (fp, identity))
+                do_summary = True
+            else:
+                result['summaryStatus'] = 'KI-Zusammenfassung pausiert: Abruflimit oder Wiederholungspause; vorhandener Überblick bleibt verfügbar.'
+        conn.execute("DELETE FROM bob_research_ai_requests WHERE attempted_at<now()-interval '32 days'")
+        conn.execute("DELETE FROM bob_research_enhancements WHERE updated_at<now()-interval '32 days'")
+        conn.commit()
     if do_summary:
         try:
             result['summary'] = generate(segments, key, frames=result.get('frames'))
             with connect() as conn:
-                conn.execute('UPDATE bob_research_enhancements SET fingerprint=%s,summary=%s::jsonb,updated_at=now() WHERE video_id=%s', (fingerprint, json.dumps(result['summary']), identity)); conn.commit()
+                conn.execute('UPDATE bob_research_enhancements SET fingerprint=%s,summary=%s::jsonb,updated_at=now() WHERE video_id=%s',
+                             (fp, json.dumps(result['summary']), identity)); conn.commit()
             result['summaryStatus'] = 'KI-Zusammenfassung gespeichert.'
         except Exception as exc:
             result.pop('summary', None)
@@ -323,11 +410,18 @@ def handle(connect, payload):
             result['summaryError'] = code
             result['summaryStatus'] = 'KI-Abruf oder Belegprüfung fehlgeschlagen (' + code + '). Kein kostenpflichtiger Ersatzabruf.'
             print('BOB_RESEARCH_AI_ERROR video=' + identity + ' code=' + code, flush=True)
-    result['frameStatus'] = ('Videovorschaubilder gespeichert.' if result['frames'] else
-        'Keine zeitlich zugeordneten Videobilder öffentlich abrufbar. Der Videoplayer bleibt verfügbar.')
-    print('BOB_RESEARCH_ENHANCEMENT video='+identity+' summary='+str(bool(result.get('summary'))).lower()+' free_access_configured='+str(bool(key)).lower()+' frames='+str(len(result['frames'])), flush=True)
+    if result['frames'] and all(f.get('isCover') is True for f in result['frames']):
+        result['frameStatus'] = 'YouTube-Titelbild gespeichert. Zeitlich passende Videobilder nicht abrufbar; originale Videostellen im Player öffnen.'
+    elif result['frames']:
+        result['frameStatus'] = 'Zeitlich angenäherte YouTube-Videobilder gespeichert; Chartzahlen nicht überprüft.'
+    else:
+        result['frameStatus'] = ('Bildabruf in Wiederholungspause; originale Videostellen im Player öffnen.' if
+                                 frame_state == 'retry_paused' else
+                                 'Öffentliche Videobilder nicht abrufbar (' + frame_state + '); originale Videostellen im Player öffnen.')
+    print('BOB_RESEARCH_ENHANCEMENT video=' + identity + ' summary=' +
+          str(bool(result.get('summary'))).lower() + ' free_access_configured=' +
+          str(bool(key)).lower() + ' frames=' + str(len(result['frames'])), flush=True)
     return result
-
 
 def request(identity, segments, player, moments):
     base = os.environ.get('PUSH_SERVICE_URL', '').rstrip('/'); token = os.environ.get('PUSH_SERVICE_TOKEN', '')
