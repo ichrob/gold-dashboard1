@@ -125,11 +125,45 @@ def transcript_context(segments):
 
 
 # Exact subtitle evidence only; never infer values from YouTube cover images.
-_FIB_RATIO = re.compile(r'(?<![\d.,])(38[.,]2|50(?:[.,]0)?|61[.,]8|78[.,]6|127[.,]2|161[.,]8)\s*(?:%|prozent|percent)(?!\w)', re.I)
-_FIB_ANCHOR = re.compile(r'fibonacci|fibo\b|retracement|extension', re.I)
+# YouTube ASR sometimes writes a decimal mark as a spoken word.
+# Spell-out variants below are exact, enumerated Fibonacci ratios, not guessed numbers.
+_FIB_SPOKEN = {
+    'achtunddreissig komma zwei': 'r382',
+    'achtunddreißig komma zwei': 'r382',
+    'einundsechzig komma acht': 'r618',
+    'achtundsiebzig komma sechs': 'r786',
+    'hundertsiebenundzwanzig komma zwei': 'e1272',
+    'hunderteinundsechzig komma acht': 'e1618',
+    'fünfzig': 'r500', 'fuenfzig': 'r500',
+    'thirty eight point two': 'r382',
+    'sixty one point eight': 'r618',
+    'seventy eight point six': 'r786',
+    'one hundred twenty seven point two': 'e1272',
+    'one hundred sixty one point eight': 'e1618',
+    'fifty': 'r500',
+}
+_FIB_DECIMAL = r'(?:[.,]|\s+(?:komma|punkt|point)\s+)'
+_FIB_NUMERIC = '|'.join(rf'{whole}\s*{_FIB_DECIMAL}\s*{fraction}'
+                        for whole, fraction in (('38','2'),('61','8'),('78','6'),('127','2'),('161','8')))
+_FIB_WORDS = '|'.join(re.escape(phrase).replace(r'\ ', r'[-\s]+') for phrase in _FIB_SPOKEN)
+_FIB_RATIO = re.compile(r'(?<![\d.,])(' + _FIB_NUMERIC + r'|50(?:[.,]0)?|' + _FIB_WORDS +
+                        r')\s*(?:%|prozent|percent)(?!\w)', re.I)
+_FIB_ANCHOR = re.compile(r'fibonacci|fibo\b|\bfib\b|retracement|extension', re.I)
 _FIB_PRICE = re.compile(r'(?<![\w.,])(?:\$ ?)?(?:[1-9]\d{3,4}(?:[.,]\d{1,2})?|[1-9]\d?[.,]\d{3}(?:[.,]\d{1,2})?)(?![\d.,%])')
 _FIB_JOIN = re.compile(r'\b(?:bei|um|liegt|kurs|ziel|marke|level|at|around|target|usd|dollar)\b|[:=]', re.I)
 _FIB_KEYS = {'38.2':'r382','50':'r500','61.8':'r618','78.6':'r786','127.2':'e1272','161.8':'e1618'}
+
+def _fib_ratio_key(raw):
+    """Recognize only an explicit known Fibonacci percentage, including ASR spelling."""
+    normalized = re.sub(r'\s+', ' ', raw.strip().casefold().replace('-', ' '))
+    if normalized in _FIB_SPOKEN:
+        return _FIB_SPOKEN[normalized]
+    normalized = re.sub(r'\s*(?:komma|punkt|point)\s*', '.', normalized).replace(',', '.')
+    try:
+        return _FIB_KEYS.get(f'{float(normalized):g}')
+    except ValueError:
+        return None
+
 
 
 def _fib_price(raw):
@@ -156,10 +190,16 @@ def extract_fibonacci_levels(segments):
                   if isinstance(s.get('text'),str) and isinstance(s.get('at'),(int,float))
                   and 0 <= at-s['at'] <= 22]
         text = ' '.join(s['text'] for s in window)
+        # Associate evidence with the subtitle containing the ratio, not the last
+        # subtitle in a sliding window (which could be up to 22 seconds later).
+        spans, offset = [], 0
+        for segment in window:
+            spans.append((offset, offset + len(segment['text']), int(segment['at'])))
+            offset += len(segment['text']) + 1
         for ratio in _FIB_RATIO.finditer(text):
             if not _FIB_ANCHOR.search(text[max(0,ratio.start()-145):ratio.end()+100]):
                 continue
-            key = _FIB_KEYS.get(str(float(ratio.group(1).replace(',','.'))).rstrip('0').rstrip('.'))
+            key = _fib_ratio_key(ratio.group(1))
             if not key:
                 continue
             options = []
@@ -183,8 +223,10 @@ def extract_fibonacci_levels(segments):
                 continue
             seen.add((key,price))
             quote = text[max(0,ratio.start()-105):min(len(text),ratio.end()+125)].strip()
+            ratio_at = next((stamp for start, end, stamp in spans
+                             if start <= ratio.start() < end), int(at))
             found.append({'key':key,'ratio':ratio.group(1).replace('.',',')+' %',
-                          'price':price,'at':int(at),'quote':quote[:300]})
+                          'price':price,'at':ratio_at,'quote':quote[:300]})
             if len(found)>=12:
                 return found
     return found

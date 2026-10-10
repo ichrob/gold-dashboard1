@@ -42,5 +42,40 @@ class McoFibonacciTranscriptTests(unittest.TestCase):
         self.assertEqual(result['mcoFibonacci'][0]['price'], 4200)
 
 
+    def test_spoken_decimal_markers_and_exact_number_words(self):
+        examples = [
+            ('Fibonacci 61 Komma 8 Prozent bei 4.200 Dollar.', 'r618', 4200),
+            ('Das 38 point 2 percent retracement is at 4,050.25 USD.', 'r382', 4050.25),
+            ('Fibonacci einundsechzig komma acht Prozent bei 4200 Dollar.', 'r618', 4200),
+            ('Fibonacci achtunddreißig komma zwei Prozent bei 4050 Dollar.', 'r382', 4050),
+            ('Fib thirty-eight point two percent at 4050 USD.', 'r382', 4050),
+            ('Fibo fifty percent at 4100 dollars.', 'r500', 4100),
+            ('Fibo 127 Punkt 2 Prozent bei 4300 Dollar.', 'e1272', 4300),
+        ]
+        for quote, key, price in examples:
+            with self.subTest(quote=quote):
+                found = y.extract_fibonacci_levels([{'at': 15, 'text': quote}])
+                self.assertEqual([(x['key'], x['price']) for x in found], [(key, price)])
+
+    def test_timestamp_is_ratio_subtitle_not_followup_line(self):
+        rows = [
+            {'at': 10, 'text': 'Fibonacci, das 61 Komma 8 Prozent Level'},
+            {'at': 19, 'text': 'liegt bei 4200 Dollar.'},
+            {'at': 21, 'text': 'Der Goldpreis bewegt sich weiter.'},
+        ]
+        found = y.extract_fibonacci_levels(rows)
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]['at'], 10)
+
+    def test_no_guessing_without_explicit_price_ratio_join_or_anchor(self):
+        rows = [
+            {'at': 0, 'text': 'Fibonacci 61 Komma 8 Prozent ist interessant. Der Goldpreis liegt bei 4200 Dollar.'},
+            {'at': 40, 'text': 'Heute ist der Markt bei 4200 Dollar.'},
+        ]
+        self.assertEqual(y.extract_fibonacci_levels(rows), [])
+        self.assertEqual(y.extract_fibonacci_levels([{'at': 10, 'text': '61 Komma 8 Prozent bei 4200 Dollar.'}]), [])
+        self.assertEqual(y.extract_fibonacci_levels([{'at': 10, 'text': 'Fibonacci 62 Komma 8 Prozent bei 4200 Dollar.'}]), [])
+
+
 if __name__ == '__main__':
     unittest.main()
