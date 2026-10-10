@@ -740,6 +740,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
      node('p','Kursbericht: '+x.trend+' · Ausblick: '+x.outlook+' · Horizont: '+x.horizon),node('p',x.excerpt),node('small',x.reason+(x.articleStatus?' · '+x.articleStatus:'')));
     if(x.listingInfo)box.append(node('p','YouTube-Angabe: '+x.listingInfo));
     if(x.enhancements)renderEnhancements(box,x,url);
+    if(x.transcriptAnalyzed)renderMcoFibonacci(box,x,url);
     if(x.overview){
      if(x.enhancements&&x.enhancements.summary){const original=node('details','');original.append(node('summary','Zusätzlicher Überblick aus Originalsätzen'));renderOverview(original,x,url);box.append(original);}
      else renderOverview(box,x,url);
@@ -758,6 +759,65 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   }catch(e){$('goldResearchStatus').textContent=e.message;$('goldResearchConsensus').textContent='MCO Markets · Noch nicht analysiert · Abruf nicht verfügbar';$('goldResearchConsensus').className='signal neutral';$('goldResearchCounts').textContent='Vorherige Ergebnisse derzeit nicht bestätigt.';showLastVideos('Live-Abruf fehlgeschlagen');}
   finally{clearTimeout(timer);busy=false;}
  }
+
+ function renderMcoFibonacci(box,item,url){
+  const permitted=new Set(['r382','r500','r618','r786','e1272','e1618']);
+  const marks=(Array.isArray(item.mcoFibonacci)?item.mcoFibonacci:[]).filter(x=>x&&permitted.has(x.key)&&typeof x.price==='number'&&x.price>=500&&x.price<=25000).slice(0,12);
+  const pane=node('details','');pane.className='research';pane.open=true;pane.style.cssText='margin:12px 0;padding:12px;border:1px solid #dbe3ea;border-radius:10px';
+  pane.append(node('summary','Fibonacci · MCO (blau) / Bob (orange)'));
+  const legend=node('p','');legend.style.cssText='display:flex;gap:12px;flex-wrap:wrap';
+  for(const [name,color] of [['● MCO','#2563eb'],['● Bob','#c2410c'],['● Nahe Kursmarken','#15803d']]){const tag=node('b',name);tag.style.color=color;legend.append(tag);}
+  pane.append(legend,node('small','Eigene Bob-Darstellung, kein MCO-Originalchart. Kurse in USD je Unze Gold. Die Angaben werden nicht für die Handelsfreigabe verwendet.'));
+  const snapshot=typeof window.BobMcoFibSnapshot==='function'?window.BobMcoFibSnapshot():null;
+  const fmt=p=>Number(p).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2});
+  if(!item.trustedTranscript)pane.append(node('p','Hinweis: Das Transkript ist nicht unabhängig bestätigt; markierte Aussagen sind ungeprüft.'));
+  if(!marks.length){pane.append(node('p','Keine explizite Fibonacci-Prozentzahl mit dazugehöriger Kursmarke im Transkript gefunden. MCO-Werte werden nicht geschätzt.'));box.append(pane);return;}
+  if(!snapshot?.available)pane.append(node('p','Bob hat derzeit keine bestätigten Vergleichswerte aus 15-Minuten-Kerzen: '+(snapshot?.reason||'Marktdaten fehlen')+'.'));
+  else pane.append(node('p','Bob: bestätigte 15m-Swings aus '+snapshot.source+' · Stand '+new Date(snapshot.asOf).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)'+(snapshot.fresh?'':' · ältere Kursdaten')));
+  const pairings=marks.map(m=>{
+   const maybe=snapshot?.available?Number(snapshot.levels?.[m.key]):NaN;
+   const bob=Number.isFinite(maybe)&&maybe>0?maybe:null;
+   const difference=bob===null?null:Math.abs(m.price-bob);
+   const maxGap=Math.max(5,m.price*.0015);
+   return {...m,bob,difference,near:difference!==null&&difference<=maxGap};
+  });
+  const close=snapshot?.bars||[],prices=[...pairings.map(m=>m.price),...pairings.filter(m=>m.bob!==null).map(m=>m.bob),...close.map(b=>b.close)];
+  if(prices.length){
+   const lo=Math.min(...prices),hi=Math.max(...prices),pad=Math.max(5,(hi-lo)*.1),min=lo-pad,max=hi+pad;
+   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+   svg.setAttribute('viewBox','0 0 640 268');svg.setAttribute('role','img');
+   svg.setAttribute('aria-label','Blau: MCO-Level, orange: Bob-Level, grün: Kurszahlen nahe beieinander. Graue Linie: Bobs 15-Minuten-Goldkurse.');
+   svg.style.cssText='width:100%;height:auto;background:#fff;border:1px solid #e5e7eb;border-radius:8px';
+   function drawSvg(name,attrs,content){const n=document.createElementNS('http://www.w3.org/2000/svg',name);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,String(v));if(content!=null)n.textContent=String(content);svg.append(n);}
+   const x0=73,x1=535,y0=19,y1=241,Y=p=>y1-(p-min)/(max-min)*(y1-y0);
+   for(let i=0;i<=4;i++){const p=min+(max-min)*i/4,yy=Y(p);drawSvg('line',{x1:x0,y1:yy,x2:x1,y2:yy,stroke:'#e2e8f0'});drawSvg('text',{x:2,y:yy+4,fill:'#475569','font-size':11},fmt(p));}
+   drawSvg('text',{x:2,y:12,fill:'#475569','font-size':11},'USD');
+   if(close.length>1){
+    drawSvg('polyline',{points:close.map((c,i)=>(x0+i/(close.length-1)*(x1-x0)).toFixed(1)+','+Y(c.close).toFixed(1)).join(' '),stroke:'#64748b','stroke-width':1.7,fill:'none'});
+   }
+   for(const m of pairings){
+    const yy=Y(m.price);drawSvg('line',{x1:x0,y1:yy,x2:x1,y2:yy,stroke:'#2563eb','stroke-width':1.6,'stroke-dasharray':'7 4'});
+    if(m.bob!==null){const by=Y(m.bob);drawSvg('line',{x1:x0,y1:by,x2:x1,y2:by,stroke:'#c2410c','stroke-width':1.6,'stroke-dasharray':'3 4'});
+     if(m.near){drawSvg('line',{x1:x1-7,y1:Math.min(yy,by),x2:x1-7,y2:Math.max(yy,by),stroke:'#15803d','stroke-width':6});drawSvg('circle',{cx:x1-7,cy:(yy+by)/2,r:4,fill:'#15803d'});}
+    }
+   }
+   drawSvg('text',{x:x0,y:261,fill:'#475569','font-size':11},close.length?'Graue Kurve: Bob, geschlossene 15m-Kerzen':'Nur Kursmarken · keine Bob-Kursreihe');
+   pane.append(svg);
+  }
+  for(const m of pairings){
+   const row=node('p','');row.style.cssText='border-top:1px solid #e2e8f0;padding-top:9px;line-height:1.5';
+   const mc=node('b',m.ratio+' MCO: '+fmt(m.price)+' USD');mc.style.color='#2563eb';row.append(mc);
+   if(m.bob!==null){const b=node('b',' · Bob: '+fmt(m.bob)+' USD');b.style.color='#c2410c';row.append(b);
+    const diff=node('span',' · Abstand: '+fmt(m.difference)+' USD'+(m.near?' · numerisch nahe':' · unterschiedlich'));diff.style.color=m.near?'#15803d':'#475569';row.append(diff);
+   }else row.append(node('span',' · Bob: entsprechendes Level nicht bestätigt'));
+   const q=node('small','Originaluntertitel: „'+String(m.quote||'').slice(0,300)+'“');q.style.cssText='display:block;margin:4px 0';row.append(q);
+   if(item.trustedTranscript&&Number.isInteger(m.at)){const a=node('a','Videostelle '+Math.floor(m.at/60)+':'+String(m.at%60).padStart(2,'0'));const dest=new URL(url);dest.searchParams.set('t',String(m.at));a.href=dest.href;a.target='_blank';a.rel='noopener noreferrer';row.append(a);}
+   pane.append(row);
+  }
+  pane.append(node('small','Grün = Preisabstand höchstens 5 USD oder 0,15 % des MCO-Werts (größere Grenze zählt). Nur numerischer Vergleich: MCOs Zeitpunkt, Swing-Punkte, Zeitrahmen und Spot-/Future-Bezug können von Bobs 15m-Spot abweichen. Keine Bestätigung eines Marktsignals oder einer Produktfreigabe.'));
+  box.append(pane);
+ }
+
  function renderEnhancements(box,item,url){
   const extra=item.enhancements;
   const frames=(extra.frames||[]).filter(f=>typeof f.dataUrl==='string'&&/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(f.dataUrl)&&f.dataUrl.length<140000&&Number.isFinite(f.at)&&f.at>=0&&f.at<=86400).slice(0,5);
@@ -1516,6 +1576,22 @@ function chartFibonacci(bars,atr){
  return ['LONG','SHORT'].map(dir=>fibonacciModel(dir,entry,atr,bars))
   .filter(m=>m.valid).sort((a,b)=>Math.max(b.swingHighIndex,b.swingLowIndex)-Math.max(a.swingHighIndex,a.swingLowIndex))[0]||null;
 }
+
+ // Independent Bob fib values: closed 15-minute spot OHLC and the existing pivot algorithm.
+ window.BobMcoFibSnapshot=function(){
+  const step=900000,raw=chartHistory['15m']||($('tf')?.value==='15m'?C:[]);
+  const bars=raw.filter(b=>b&&b.instrument==='XAU/USD'&&!b.isOpen&&!b.observedOnly&&Number.isFinite(Number(b.openTime))&&Number(b.openTime)+step<=Date.now()&&
+    ['open','high','low','close'].every(k=>b[k]!=null&&Number.isFinite(Number(b[k])))&&Number(b.low)<=Math.min(Number(b.open),Number(b.close))&&Number(b.high)>=Math.max(Number(b.open),Number(b.close)))
+   .sort((a,b)=>Number(a.openTime)-Number(b.openTime)).slice(-120);
+  if(bars.length<12)return {available:false,reason:'Zu wenige geschlossene 15m-Kerzen'};
+  if(bars.some((b,i)=>i&&Number(b.openTime)<=Number(bars[i-1].openTime)))return {available:false,reason:'Ungültige Kerzenreihenfolge'};
+  const sample=bars.slice(-14),ranges=sample.map((b,i)=>Math.max(Number(b.high)-Number(b.low),i?Math.abs(Number(b.high)-Number(sample[i-1].close)):0,i?Math.abs(Number(b.low)-Number(sample[i-1].close)):0));
+  const atr=ranges.reduce((a,b)=>a+b,0)/ranges.length,fib=chartFibonacci(bars,atr);
+  if(!fib?.valid)return {available:false,reason:'Keine bestätigten Fibonacci-Swingpunkte'};
+  const asOf=Number(bars.at(-1).openTime)+step;
+  return {available:true,levels:fib.levels,bars:bars.map(b=>({close:Number(b.close)})),asOf,fresh:Date.now()-asOf<=5400000,source:bars.at(-1).source||'Quelle nicht ausgewiesen'};
+ };
+
 function chartTradingAxis(bars,step){
  const indices=new Map(bars.map((b,i)=>[Number(b.openTime),i]));
  return {position:t=>(indices.get(Number(t))??0)/Math.max(1,bars.length-1),
