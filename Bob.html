@@ -144,6 +144,12 @@ body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 </style>
 </head>
 <body>
+<script>
+window.BobWeekendPause=function(now=Date.now()){
+ const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Zurich',weekday:'short',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now)).map(x=>[x.type,x.value]));
+ return parts.weekday==='Sat'||parts.weekday==='Sun'||parts.weekday==='Fri'&&Number(parts.hour)>=23;
+};
+</script>
 <div id="bobSessionNotice" hidden role="alert" class="warning" style="margin:14px">
  Bob-Anmeldung abgelaufen. Serverprüfung und aktuelle Trade-Freigabe sind gesperrt.
  <a href="/login" target="_blank" rel="noopener">Bob in einem neuen Tab anmelden</a>.
@@ -254,14 +260,14 @@ try{
   quotes[key]=q;render(key);
  }
  async function refresh(){
-  if(busy||window.BobSession?.expired())return;
+  if(busy||window.BobSession?.expired()||window.BobWeekendPause())return;
   busy=true;const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),10000);
   try{const r=await fetch('/api/market-cards',{cache:'no-store',signal:ctl.signal});if(!r.ok)throw Error('quote unavailable');const data=await r.json();accept('future',data.future);accept('estimate',data.estimate);accept('cfd',data.cfd);}catch(_){}
   finally{clearTimeout(timer);busy=false;render('spot');render('future');render('estimate');render('cfd');}
  }
  window.BobGoldCards={spot(bundle){const s=bundle?.spots;if(!s||!positive(s.xaus))return;accept('spot',{price:s.xaus,at:s.spot_price_as_of,source:s.primary||s.goldprice_status||'Bob Spotquelle',kind:'spot',note:s.spot_error?'Aktualisierung pausiert':'',changePct:s.dailyChange?.changePct??null,changeLabel:s.dailyChange?.changeLabel});},refresh};
- refresh();setInterval(()=>{render('spot');render('future');render('estimate');render('cfd');if(document.visibilityState!=='hidden')refresh();},30000);
- document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refresh();});
+ refresh();setInterval(()=>{render('spot');render('future');render('estimate');render('cfd');if(document.visibilityState!=='hidden'&&!window.BobWeekendPause())refresh();},30000);
+ document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!window.BobWeekendPause())refresh();});
 })();
 </script>
 <section class="card" aria-labelledby="economicTitle">
@@ -312,8 +318,8 @@ try{
   catch(_){lastSuccess=0;}finally{clearTimeout(timer);busy=false;render();}
  }
  refresh();setTimeout(refresh,15000);
- setInterval(()=>{render();if(document.visibilityState!=='hidden')refresh();},60000);
- document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refresh();});
+ setInterval(()=>{render();if(document.visibilityState!=='hidden'&&!window.BobWeekendPause())refresh();},60000);
+ document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!window.BobWeekendPause())refresh();});
 })();
 </script>
 <div class="card">
@@ -878,14 +884,14 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   if(paperBusy)return;paperBusy=true;
   try{
    const r=await api('read',{mode:'simulation',day:document.getElementById('paperDay').value});
-   const c=r.control,stale=c.checkedAt&&Date.now()-c.checkedAt>90000;
+   const c=r.control,weekend=window.BobWeekendPause(),stale=!weekend&&c.checkedAt&&Date.now()-c.checkedAt>90000;
    text('paperCapital','Fiktives Startkapital '+paperMoney(c.initialCapital)+' · aktueller Kapitalstand '+paperMoney(c.equity)+'\nBargeld '+paperMoney(c.cash)+' · offene Produktstücke '+(c.openUnits||0)+'\nHeute '+paperMoney(c.dayProfit)+' · seit Start '+paperMoney(c.totalProfit)+'\nDavon gebuchtes Ergebnis seit Start '+paperMoney(c.realizedProfit)+'\nBruttomodell einschließlich offener Positionen zum beobachteten Geldkurs. Ohne Gebühren, Finanzierung und Slippage; kein Nettogewinn. Guthaben wird über die Tage weitergeführt.');
    text('paperStatus',[
-    'Start '+paperTime(c.startAt)+' · ohne festes Enddatum · '+(c.status==='scheduled'?'START GEPLANT':c.status==='paused'?'PAUSIERT':'SIMULATION AKTIV'),
-    c.reason||'',
+    'Start '+paperTime(c.startAt)+' · ohne festes Enddatum · '+(weekend?'MARKT GESCHLOSSEN · SIMULATION PAUSIERT':c.status==='scheduled'?'START GEPLANT':c.status==='paused'?'PAUSIERT':'SIMULATION AKTIV'),
+    (weekend?'Keine neuen Marktzyklen. Gespeicherte Fälle und Ergebnisse bleiben erhalten.':c.reason||''),
     'Letzte Hintergrundprüfung '+paperTime(c.checkedAt)+(stale?' · Überwachung derzeit nicht aktuell bestätigt':''),
     'Produktuniversum: '+(r.products.length?r.products.map(p=>p.isin+' · '+(p.direction||'Richtung offen')).join(', '):'noch nicht synchronisiert'),
-    'Abgleich '+paperTime(r.productSyncedAt)+' · Anbieterwerte werden im Hintergrund erneut abgerufen. Keine Order und keine Trade-Pushs.'
+    'Abgleich '+paperTime(r.productSyncedAt)+(weekend?' · Anbieterabrufe bis Montag 00:00 Uhr (Zürich) pausiert.':' · Anbieterwerte werden im Hintergrund erneut abgerufen.')+' Keine Order und keine Trade-Pushs.'
    ].join('\n'));
    const st=r.stats;
    text('paperStats',r.day+' · Tagesanfang '+paperMoney(st.openingCapital)+' · letzter Kapitalstand '+paperMoney(st.capital)+' · Tagesgewinn/-verlust '+paperMoney(st.dayProfit)+'\n'+(st.closed||0)+' abgeschlossene / '+(st.inconclusive||0)+' unklare Fälle. Goldplan: '+(st.goldPositive||0)+' positiv / '+(st.goldNegative||0)+' negativ / '+(st.goldFlat||0)+' unverändert.\nProdukt-Bruttovergleich: '+(st.productKnown||0)+' auswertbar · '+(st.productPositive||0)+' positiv / '+(st.productNegative||0)+' nicht positiv. Keine Nettogewinn- oder Erfolgsbehauptung.\n'+(st.lastWait?'Letzter Prüfstand: '+st.lastWait:'Noch keine echten Simulationsfälle für diesen Tag.')+'\nFalldetails: höchstens '+r.detailsLimit+' neueste Fälle; rollierend '+r.detailRetentionDays+' Tage. Tagesstatistik bleibt erhalten.');
@@ -907,7 +913,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  }};
  document.getElementById('paperDay').value=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Zurich'}).format(new Date());
  document.getElementById('paperRefresh').addEventListener('click',refreshPaper);
- refreshPaper();setInterval(()=>{if(!document.hidden)refreshPaper();},60000);
+ refreshPaper();setInterval(()=>{if(!document.hidden&&!window.BobWeekendPause())refreshPaper();},60000);
  window.BobAudit={capture:async(products,flow,bundle)=>{
   const state=window.BobDecisionAuditState;if(!state?.barAt||busy||Date.now()<next)return;
   const selected=new Set(flow.groups.flatMap(g=>g.candidates).map(p=>p.isin));
@@ -3123,7 +3129,7 @@ if(typeof MutationObserver!=="undefined"){
  }).observe($("status"),{childList:true,characterData:true,subtree:true});
 }
 loadData();
-setInterval(()=>{ if(document.visibilityState==="visible"){loadData();syncPushPreferences();refreshActiveProductQuote();} }, 30000);
+setInterval(()=>{ if(document.visibilityState==="visible"&&!window.BobWeekendPause()){loadData();syncPushPreferences();refreshActiveProductQuote();} }, 30000);
 </script><form method="post" action="/logout" style="text-align:center;margin:24px"><button type="submit">Abmelden</button></form>
 
 
