@@ -180,6 +180,41 @@ class ResearchTests(unittest.TestCase):
             out = r.handle(lambda: db, {'videoId': VIDEO, 'channelId': r.CHANNEL, 'segments': SEGMENTS})
         self.assertEqual(call.call_count, 1); self.assertNotIn('secret', json.dumps(out))
 
+    @unittest.skipIf(Image is None, "Pillow required")
+    def test_blocked_high_resolution_uses_public_lower_resolution_sprite(self):
+        spec = ('https://i.ytimg.com/sb/' + VIDEO + '/storyboard3_L$L/$N.jpg?sqp=x'
+                '|80#45#100#10#10#5000#M$M#signaturelow'
+                '|160#90#100#5#5#5000#M$M#signaturehigh')
+        img = Image.new('RGB', (800, 450), 'green')
+        buf = io.BytesIO(); img.save(buf, 'JPEG')
+        calls = []
+        def reader(req, timeout):
+            calls.append(req.full_url)
+            if 'L1/' in req.full_url:
+                raise OSError('highest quality blocked')
+            return buf.getvalue()
+        frames = r.frames_saved(VIDEO, spec, [{'at': 10, 'label': 'Chart'}], reader)
+        self.assertEqual(len(frames), 1)
+        self.assertEqual((frames[0]['width'], frames[0]['height']), (80, 45))
+        self.assertEqual(frames[0]['requestedAt'], 10)
+        self.assertEqual(len(calls), 2)
+        self.assertIn('L0/', calls[-1])
+
+    def test_official_privacy_embed_fallback_and_referrer(self):
+        player = {'videoDetails': {'videoId': VIDEO, 'channelId': r.CHANNEL},
+                  'playabilityStatus': {'status': 'OK'},
+                  'storyboards': {'playerStoryboardSpecRenderer': {'spec': SPEC}}}
+        calls = []
+        def reader(req, timeout):
+            self.assertEqual(req.get_header('Referer'), 'https://bob-private-scanner.onrender.com/')
+            calls.append(req.full_url)
+            if 'www.youtube-nocookie.com' not in req.full_url:
+                return b'<html>Public embed without exposed player metadata</html>'
+            return ('<script>var ytInitialPlayerResponse = ' + json.dumps(player) + ';</script>').encode()
+        self.assertEqual(r.public_embed_storyboard(VIDEO, reader), SPEC)
+        self.assertEqual(calls, ['https://www.youtube.com/embed/' + VIDEO,
+                                 'https://www.youtube-nocookie.com/embed/' + VIDEO])
+
     def test_public_embed_storyboard_checks_video_and_access(self):
         player = {'videoDetails': {'videoId': VIDEO, 'channelId': r.CHANNEL},
                   'playabilityStatus': {'status': 'OK'},
