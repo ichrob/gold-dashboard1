@@ -61,6 +61,15 @@ class YoutubeFeedArchiveTests(unittest.TestCase):
             self.assertEqual(store.handle(conn,'write',{'items':[example(vid) for vid in ids]})['saved'],3)
             self.assertFalse(store.is_retained(conn,ids[-1]))
             self.assertTrue(store.is_retained(conn,ids[0]))
+            # A new arrival replaces the third slot; a partial stale feed
+            # must not reintroduce previously evicted entries.
+            newest='AaBbCcDdE05'
+            self.assertEqual(store.handle(conn,'write',{'items':[example(newest)]})['saved'],3)
+            current=store.handle(conn,'read',{})['items']
+            self.assertEqual(store.selected_ids(current),[newest,ids[0],ids[1]])
+            self.assertFalse(store.is_retained(conn,ids[2]))
+            self.assertEqual(store.handle(conn,'write',{'items':[example(ids[3])]})['saved'],3)
+            self.assertEqual(store.selected_ids(store.handle(conn,'read',{})['items']),[newest,ids[0],ids[1]])
             rows=conn.execute('SELECT video_id FROM bob_research_transcripts').fetchall()
             self.assertNotIn(ids[-1], [x[0] for x in rows])
             self.assertEqual(conn.execute('SELECT count(*) FROM bob_research_enhancements WHERE video_id=%s',
