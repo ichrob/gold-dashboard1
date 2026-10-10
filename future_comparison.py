@@ -110,7 +110,8 @@ def _run():
         except Exception as exc:
             with _lock:_report.update(state='error', current=None, reason='Vergleich unterbrochen; automatischer Wiederholungsversuch')
             print('BOB_COMPARISON error='+type(exc).__name__, flush=True)
-        threading.Event().wait(max(1, 30-(time.monotonic()-started)))
+        interval = background_push.degiro_poll_seconds()
+        threading.Event().wait(max(1, interval-(time.monotonic()-started)))
 
 
 def start():
