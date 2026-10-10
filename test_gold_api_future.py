@@ -64,6 +64,6 @@ class SpotFutureTests(unittest.TestCase):
   class Stop(Exception):pass
   event=type('Event',(),{'wait':lambda self,seconds:(_ for _ in ()).throw(Stop())})()
   t=f.parse_gold_api(payload(),NOW)
-  with patch.object(f,'_active_until',time.monotonic()+60),patch.object(f,'fetch_spot_tick',return_value=t) as spot,patch.object(f,'fetch_tick') as cfd,patch.object(f,'record_spot_tick') as record,patch.object(f.threading,'Event',return_value=event):
+  with patch.object(f.background_push,'gold_weekend_seconds_remaining',return_value=0),patch.object(f,'_active_until',time.monotonic()+60),patch.object(f,'fetch_spot_tick',return_value=t) as spot,patch.object(f,'fetch_tick') as cfd,patch.object(f,'record_spot_tick') as record,patch.object(f.threading,'Event',return_value=event):
    with self.assertRaises(Stop):f._collect()
    spot.assert_called_once();record.assert_called_once_with(t);cfd.assert_not_called()
