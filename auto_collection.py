@@ -203,6 +203,9 @@ def status():
     with _lock:
         report = copy.deepcopy(_report)
         running = bool(_thread and _thread.is_alive())
+    phase = background_push.degiro_session()
+    report['updateIntervalSeconds'] = 300 if phase == 'night' else 30 if phase != 'weekend' else None
+    report['sessionMode'] = phase
     return dict(report, cfdFeed=investing_card.health(), comparison=future_comparison.status(), enabled=enabled(), running=running,
                 state=report.get('state', 'starting' if enabled() else 'disabled'))
 
