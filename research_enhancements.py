@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 CHANNEL = 'UCsl6Z6p7GOkczo8Cv-GH6Dg'
 MODEL = 'gemini-3.5-flash-lite'
 SUMMARY_FORMAT_VERSION = 'evidence-visual-v2'
-FRAME_FORMAT_VERSION = 'storyboard-public-embed-v3'
+FRAME_FORMAT_VERSION = 'storyboard-public-level-retry-v4'
 MAX_FRAMES = 5
 MAX_BYTES = 1000000
 
@@ -187,7 +187,7 @@ def generate(segments, key, reader=read, frames=None):
                      if isinstance(part, dict) and not part.get('thought') and isinstance(part.get('text'), str))
     return summary_checked(json.loads(answer), segments, keep_valid_sections=True, frames=images)
 
-def storyboard_plan(spec, identity, moments):
+def storyboard_plan(spec, identity, moments, quality=0):
     if not isinstance(spec, str) or len(spec) > 16000:
         return []
     parts = spec.split('|'); choices = []
@@ -205,7 +205,10 @@ def storyboard_plan(spec, identity, moments):
         choices.append((w, h, count, cols, rows, interval, level, fields[6], fields[7]))
     if not choices:
         return []
-    w, h, count, cols, rows, interval, level, name, signature = max(choices)
+    choices.sort(key=lambda choice: choice[0] * choice[1], reverse=True)
+    if quality >= len(choices):
+        return []
+    w, h, count, cols, rows, interval, level, name, signature = choices[quality]
     out = []; seen = set()
     for moment in moments[:MAX_FRAMES]:
         at = moment.get('at')
@@ -230,8 +233,13 @@ def storyboard_plan(spec, identity, moments):
 def frames_saved(identity, spec, moments, reader=read):
     """Public YouTube storyboard cells, best effort per tile; never fake timestamps."""
     from PIL import Image
-    sheets = {}; frames = []
-    for plan in storyboard_plan(spec, identity, moments):
+    sheets = {}; frames = []; saved_moments = set()
+    plans = (storyboard_plan(spec, identity, moments, quality=0) +
+             storyboard_plan(spec, identity, moments, quality=1) +
+             storyboard_plan(spec, identity, moments, quality=2))
+    for plan in plans:
+        if plan['requestedAt'] in saved_moments:
+            continue
         try:
             url = plan['url']
             if url not in sheets:
@@ -251,19 +259,20 @@ def frames_saved(identity, spec, moments, reader=read):
             frames.append({k: plan[k] for k in ('at', 'requestedAt', 'label', 'width', 'height')} |
                           {'dataUrl': 'data:image/jpeg;base64,' + base64.b64encode(buffer.getvalue()).decode(),
                            'source': 'Echtes YouTube-Storyboardbild, zeitlich nur angenähert und visuell nicht verifiziert.'})
+            saved_moments.add(plan['requestedAt'])
         except (OSError, ValueError, TimeoutError, urllib.error.URLError):
             # A blocked sprite or malformed tile must not discard other images.
             continue
     return frames[:MAX_FRAMES]
 
 
-def public_embed_storyboard(identity, reader=read):
+def _public_embed_storyboard_single(identity, reader=read, *, host='www.youtube.com'):
     """Read public YouTube embed player metadata, never download the video."""
     if not isinstance(identity, str) or not re.fullmatch(r'[A-Za-z0-9_-]{11}', identity):
         raise ValueError('Invalid video identity')
-    req = urllib.request.Request('https://www.youtube.com/embed/' + identity,
+    req = urllib.request.Request('https://' + host + '/embed/' + identity,
         headers={'User-Agent': 'Mozilla/5.0 (compatible; Bob-GoldResearch/1.0)',
-                 'Accept': 'text/html'})
+                 'Accept': 'text/html', 'Referer': 'https://bob-private-scanner.onrender.com/'})
     html_body = reader(req, timeout=9).decode('utf-8', 'replace')
     player = None
     match = re.search(r'(?:var\s+)?ytInitialPlayerResponse\s*=\s*', html_body)
@@ -289,6 +298,22 @@ def public_embed_storyboard(identity, reader=read):
             player.get('playabilityStatus', {}).get('status') not in (None, 'OK')):
         raise ValueError('Public embed video identity or access not verified')
     return player.get('storyboards', {}).get('playerStoryboardSpecRenderer', {}).get('spec', '') or ''
+
+
+def public_embed_storyboard(identity, reader=read):
+    """Try both official public players. Never bypass denied video access."""
+    try:
+        spec = _public_embed_storyboard_single(identity, reader)
+        if spec:
+            return spec
+    except ValueError as exc:
+        # Missing public metadata can differ between official embedded players.
+        # Explicit denied access, wrong video or wrong channel are final.
+        if str(exc) != 'Public embed has no player data':
+            raise
+    except (OSError, TimeoutError, urllib.error.URLError):
+        pass
+    return _public_embed_storyboard_single(identity, reader, host='www.youtube-nocookie.com')
 
 
 def public_cover(identity, reader=read):
