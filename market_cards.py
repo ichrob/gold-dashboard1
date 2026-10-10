@@ -1,6 +1,7 @@
 """Display-only gold quotes. Never feed card data into trade authorization."""
 import json
 import investing_card
+import background_push
 import math
 import threading
 import time
@@ -96,6 +97,23 @@ def last_estimate(previous=None, now=None):
 def snapshot():
     global _cache, _cached_at
     with _lock:
+        weekend = background_push.gold_weekend_seconds_remaining() > 0
+        if _cache is not None and (weekend or time.monotonic() - _cached_at < 30):
+            return _cache
+        if weekend:
+            # No network requests, Yahoo retrials or synthetic freshness at closed market.
+            # A remembered close keeps its original source timestamp.
+            result = dict(spot=unavailable('XAU/USD'), future=unavailable('GCZ26'),
+                          estimate=unavailable('GCZ26'), cfd=unavailable('Gold CFD'))
+            for key in ('spot','future','cfd'):
+                result[key]['note'] = 'Markt geschlossen · kein gespeicherter Kurs verfügbar'
+            historical = last_estimate()
+            if historical:
+                result['estimate'] = historical
+            else:
+                result['estimate']['note'] = 'Markt geschlossen · letzte Schätzung nicht gespeichert'
+            _cache, _cached_at = result, time.monotonic()
+            return result
         if _cache is not None and time.monotonic() - _cached_at < 30:
             return _cache
         result = dict(spot=unavailable('XAU/USD'), future=unavailable('GCZ26'), estimate=unavailable('GCZ26'), cfd=unavailable('Gold CFD'))
