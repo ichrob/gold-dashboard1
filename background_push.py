@@ -31,6 +31,18 @@ def gold_weekend_close(now_ms):
     return int(datetime.combine(friday, clock_time(23), tzinfo=zurich).timestamp() * 1000)
 
 
+def gold_weekend_seconds_remaining(now_ms=None):
+    """Seconds until Monday 00:00 Europe/Zurich, including DST transitions."""
+    now_ms = int(time.time() * 1000) if now_ms is None else now_ms
+    close_ms = gold_weekend_close(now_ms)
+    if close_ms is None:
+        return 0
+    zurich = ZoneInfo('Europe/Zurich')
+    friday = datetime.fromtimestamp(close_ms / 1000, zurich).date()
+    monday = datetime.combine(friday + timedelta(days=3), clock_time(0), tzinfo=zurich)
+    return max(0, (monday.timestamp() * 1000 - now_ms) / 1000)
+
+
 def weekend_quote_at_close(now_ms, data_at):
     """Only a near-close quote can justify a normal weekend pause, never old failures."""
     close_at = gold_weekend_close(now_ms)
