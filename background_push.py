@@ -304,7 +304,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         add('intraday-end', 'INTRADAY · Tagesende', 'Bobs Tagesende-Zeit 21:45 (Zürich) ist erreicht. Offene Position und Schließung bei DEGIRO prüfen. Produkthandelszeiten können abweichen. Keine automatische Order.')
         old['intradayEndDate'] = session['date']
         events[-1]['tag'] = 'bob-intraday-end-' + t['tradeId']
-    if not market.get('priceFresh') or not positive(market.get('price')):
+    if market_closed or not market.get('priceFresh') or not positive(market.get('price')):
         return state, present_events(events, settings, market)
     p, stop, entry, risk = market['price'], old['stop'], t['entry'], t['initialRisk']
     personal, model = t.get('personalRisk'), t.get('product')
