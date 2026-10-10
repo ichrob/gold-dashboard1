@@ -212,6 +212,13 @@ try{
  const positive=n=>typeof n==='number'&&Number.isFinite(n)&&n>0;
  const el=(key,part)=>document.getElementById('gold-'+key+'-'+part);
  const number=n=>n.toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2});
+ function goldWeekendCloseQuote(stamp,now=Date.now()){
+  if(!Number.isFinite(stamp)||stamp>now||now-stamp>3*86400000)return false;
+  const time=x=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Zurich',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(x)).map(p=>[p.type,p.value]));
+  const current=time(now),last=time(stamp),currentMinute=Number(current.hour)*60+Number(current.minute),lastMinute=Number(last.hour)*60+Number(last.minute);
+  return (current.weekday==='Fri'&&currentMinute>=1380||current.weekday==='Sat'||current.weekday==='Sun')&&
+   last.weekday==='Fri'&&lastMinute>=1360&&lastMinute<=1385;
+ }
  function render(key){
   if(!el(key,'price'))return;
   const q=quotes[key],has=q&&positive(q.price),stamp=q?.at?Date.parse(q.at):NaN;
@@ -220,7 +227,7 @@ try{
   if(key==='estimate'){
    const old=!Number.isFinite(stamp)||Date.now()-stamp>120000||stamp>Date.now()+5000||q?.historical;
    el(key,'price').textContent=has?'≈ '+number(q.price):'—';
-   el(key,'state').textContent=expired?'Anmeldung erforderlich':!has?'Schätzung nicht verfügbar':old?'Letzte Schätzung · nicht aktuell':'Berechnet · keine Börsenquotierung';
+   el(key,'state').textContent=expired?'Anmeldung erforderlich':!has?'Schätzung nicht verfügbar':old?(goldWeekendCloseQuote(stamp)?'Markt geschlossen · letzte Schätzung':'Letzte Schätzung · nicht aktuell'):'Berechnet · keine Börsenquotierung';
    el(key,'time').textContent=Number.isFinite(stamp)?'Stand: '+new Date(stamp).toLocaleString('de-CH',{timeZone:'Europe/Zurich',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})+' (Zürich)':'Stand: nicht verfügbar';
    return;
   }
@@ -228,10 +235,12 @@ try{
   el(key,'change').textContent=pct===null?'— %':(pct>0?'↑ +':pct<0?'↓ −':'→ ')+number(Math.abs(pct))+' %';
   el(key,'change').className='gold-change'+(pct>0?' up':pct<0?' down':'');
   el(key,'basis').textContent=pct===null?'Tagesänderung fehlt':q.changeLabel||'zum Vortagesschluss';
-  el(key,'price').style.fontStyle=has&&(!Number.isFinite(stamp)||Date.now()-stamp>120000||stamp>Date.now()||q.historical)?'italic':'';
+  const marketPause=has&&goldWeekendCloseQuote(stamp);
+  el(key,'price').style.fontStyle=has&&!marketPause&&(!Number.isFinite(stamp)||Date.now()-stamp>120000||stamp>Date.now()||q.historical)?'italic':'';
   const old=Number.isFinite(stamp)&&(Date.now()-stamp>120000||stamp>Date.now()+5000);
   el(key,'state').textContent=expired?'Anmeldung erforderlich':!has?(q?.note||(key==='estimate'?'Schätzung wartet auf aktuelle Eingangsdaten':'Kurs momentan nicht verfügbar')):!Number.isFinite(stamp)?'Aktualität unbekannt – Zeitstempel fehlt':q.historical?'Letzte gespeicherte Schätzung · Aktualisierung pausiert':old?(q.kind==='calculated'?'Letzte Schätzung · nicht aktuell':''):q.kind==='calculated'?'Future-Schätzung · automatisch':q.note||'';
-  if(key==='cfd'&&has&&old&&!expired)el(key,'state').textContent='CFD-Kurs nicht aktuell';
+  if(key==='cfd'&&has&&old&&!expired&&!marketPause)el(key,'state').textContent='CFD-Kurs nicht aktuell';
+  if(marketPause&&!expired)el(key,'state').textContent='Markt geschlossen · letzter Kurs';
   if(key==='estimate')el(key,'state').textContent=!expired&&has&&Number.isFinite(stamp)&&!old&&!q.historical?'Aktualisierung aktiv':'Aktualisierung pausiert';
   else if(el(key,'state').textContent==='Spot · Quellenzeit')el(key,'state').textContent='';
   el(key,'time').textContent=Number.isFinite(stamp)?'Stand: '+new Date(stamp).toLocaleString('de-CH',{timeZone:'Europe/Zurich',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})+' (Zürich)':'Stand: nicht verfügbar';
@@ -1621,10 +1630,18 @@ async function reportBobDiag(event,details={}){
 }
 var liveBundleCache=null, liveBundleAt=0;
 var directSpotBundle=null;
+function goldWeekendCloseQuote(stamp,now=Date.now()){
+ if(!Number.isFinite(stamp)||stamp>now||now-stamp>3*86400000)return false;
+ const time=x=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Zurich',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(x)).map(p=>[p.type,p.value]));
+ const current=time(now),last=time(stamp),currentMinute=Number(current.hour)*60+Number(current.minute),lastMinute=Number(last.hour)*60+Number(last.minute);
+ return (current.weekday==='Fri'&&currentMinute>=1380||current.weekday==='Sat'||current.weekday==='Sun')&&
+  last.weekday==='Fri'&&lastMinute>=1360&&lastMinute<=1385;
+}
 function dataAge(at,limit=180000,now=Date.now()){
  const parsed=typeof at==='number'?at:typeof at==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(at)?Date.parse(at):NaN;
  const fresh=Number.isFinite(parsed)&&parsed>0&&now>=parsed&&now-parsed<=limit;
- return {fresh,label:fresh?'':!Number.isFinite(parsed)||parsed<=0?'Aktualität unbekannt – Zeitstempel fehlt oder ist unklar':parsed>now?'Aktualität unbekannt – Zeitstempel liegt in der Zukunft':'veraltet – Stand: '+new Date(parsed).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)'};
+ const marketClosed=goldWeekendCloseQuote(parsed,now);
+ return {fresh,marketClosed,label:marketClosed?'Markt geschlossen · letzter Kursstand '+new Date(parsed).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)':fresh?'':!Number.isFinite(parsed)||parsed<=0?'Aktualität unbekannt – Zeitstempel fehlt oder ist unklar':parsed>now?'Aktualität unbekannt – Zeitstempel liegt in der Zukunft':'veraltet – Stand: '+new Date(parsed).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)'};
 }
 function currentSpotUsable(){
  const spot=liveBundleCache?.spots;
@@ -1643,9 +1660,10 @@ function analysisAgeWarnings(){
 function renderAnalysisAge(){
  renderPositionStatus();
  const warnings=analysisAgeWarnings(),uncertain=warnings.length>0;
- for(const id of ['price','quickPrice','rsi','ema20','ema50','ema200','atr','macd','macds','hist','signal','quickSignal']){const el=$(id);if(el)el.style.fontStyle=uncertain?'italic':'';}
- const status=$('status');if(uncertain&&status)status.textContent=status.textContent.replace(/^LIVE/, 'LETZTER DATENSTAND');
- const el=$('analysisAge');if(el){el.hidden=!uncertain;el.textContent=uncertain?'Mit veralteten Daten oder Daten unbekannter Aktualität berechnet. Keine aktuell bestätigte Freigabe. '+warnings.join(' · '):'';}
+ const weekendClosed=goldWeekendCloseQuote(Date.parse(liveBundleCache?.spots?.spot_price_as_of));
+ for(const id of ['price','quickPrice','rsi','ema20','ema50','ema200','atr','macd','macds','hist','signal','quickSignal']){const el=$(id);if(el)el.style.fontStyle=uncertain&&!weekendClosed?'italic':'';}
+ const status=$('status');if(status){if(weekendClosed)status.textContent=status.textContent.replace(/^LIVE|^LETZTER DATENSTAND/, 'MARKT GESCHLOSSEN');else if(uncertain)status.textContent=status.textContent.replace(/^LIVE/, 'LETZTER DATENSTAND');}
+ const el=$('analysisAge');if(el){el.hidden=!uncertain&&!weekendClosed;el.textContent=weekendClosed?'Goldmarkt geschlossen (Freitag 23:00 bis Montag 00:00, Zürich). Letzter Kursstand wird angezeigt; keine aktuellen Einstiegssignale oder Stop-/Zielbestätigungen. '+warnings.join(' · '):uncertain?'Mit veralteten Daten oder Daten unbekannter Aktualität berechnet. Keine aktuell bestätigte Freigabe. '+warnings.join(' · '):'';}
  return warnings;
 }
 window.BobAnalysisAge=analysisAgeWarnings;
