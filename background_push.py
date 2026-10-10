@@ -10,6 +10,35 @@ import time
 from pathlib import Path
 
 
+from datetime import datetime, time as clock_time, timedelta
+from zoneinfo import ZoneInfo
+
+
+def gold_weekend_close(now_ms):
+    """Friday 23:00 until Monday 00:00, in Zurich local time. Holidays are separate."""
+    zurich = ZoneInfo('Europe/Zurich')
+    current = datetime.fromtimestamp(now_ms / 1000, zurich)
+    weekday = current.weekday()
+    if weekday == 4 and current.hour >= 23:
+        days_since_friday = 0
+    elif weekday == 5:
+        days_since_friday = 1
+    elif weekday == 6:
+        days_since_friday = 2
+    else:
+        return None
+    friday = current.date() - timedelta(days=days_since_friday)
+    return int(datetime.combine(friday, clock_time(23), tzinfo=zurich).timestamp() * 1000)
+
+
+def weekend_quote_at_close(now_ms, data_at):
+    """Only a near-close quote can justify a normal weekend pause, never old failures."""
+    close_at = gold_weekend_close(now_ms)
+    return (close_at is not None and positive(data_at) and
+            close_at - 20 * 60000 <= data_at <= close_at + 5 * 60000 and
+            data_at <= now_ms)
+
+
 def positive(value):
     return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value) and value > 0
 
@@ -163,14 +192,24 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         events.append({'title': title, 'body': reason, 'tag': 'bob-background-'+channel,
                        'data': {'kind': channel, 'eventKind': kind, 'url': '/', 'dataAt': market.get('dataAt'),
                                 'expiresAt': now+180000, 'tradeId': (settings.get('trade') or {}).get('tradeId')}})
+    # Market closure is a third status, not a source outage or a fresh quote.
+    # Keep the last genuine timestamp and do not hide failures already seen while open.
+    raw_healthy = market.get('ready') is True and market.get('priceFresh') is True
+    previous_state = previous or {}
+    last_data_at = market.get('dataAt')
+    if not positive(last_data_at):
+        last_data_at = (state.get('lastAnalysis') or {}).get('dataAt')
+    market_closed = (weekend_quote_at_close(now, last_data_at) and
+                     (previous_state.get('dataStatus') == 'closed' or
+                      previous_state.get('healthy', True) is not False))
+    healthy = raw_healthy and not market_closed
     # Keep computing with the last usable observations, without renewing their clocks.
-    healthy = market.get('ready') is True and market.get('priceFresh') is True
     snapshot = state.get('lastAnalysis') or {}
     if positive(market.get('price')) and positive(market.get('dataAt')) and market['dataAt'] <= now:
         snapshot = {**snapshot, **{key: copy.deepcopy(market.get(key)) for key in
                     ('price', 'dataAt', 'analysisBarAt', 'score', 'atr', 'macd', 'signal', 'analysisSnapshot', 'trendContext', 'continuedPlan') if market.get(key) is not None}}
         state['lastAnalysis'] = snapshot
-    calculation = {'available': bool(snapshot), 'stale': not healthy, 'computedAt': now,
+    calculation = {'available': bool(snapshot), 'stale': not healthy, 'marketClosed': market_closed, 'computedAt': now,
                    'dataAt': snapshot.get('dataAt'), 'price': snapshot.get('price'),
                    'score': snapshot.get('score'), 'analysisBarAt': snapshot.get('analysisBarAt'),
                    'plan': copy.deepcopy(snapshot.get('continuedPlan'))}
@@ -192,28 +231,39 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
                            productEstimate=product_price(model_trade.get('product'), reference))
     state['continuedCalculation'] = calculation
     channel = 'trade' if trade_enabled and settings.get('trade') else 'general'
-    # Notification debounce never makes unhealthy data eligible for analysis.
-    announced = state.setdefault('announcedHealthy', state.get('healthy', True))
-    pending = state.get('healthPending')
-    if healthy == announced:
+    # Market closure does not produce a stale/recovery push. On reopening,
+    # freshness is checked as usual and a persistent outage still alerts.
+    if market_closed:
+        state['announcedHealthy'] = True
         state.pop('healthPending', None)
-    elif not pending or pending['value'] != healthy:
-        state['healthPending'] = {'value': healthy, 'since': now, 'count': 1, 'checkedAt': now}
-    elif now-pending['checkedAt'] >= 25000:
-        pending.update(count=pending['count']+1, checkedAt=now)
-    pending = state.get('healthPending')
-    confirmed = pending and pending['count'] >= (2 if healthy else 3) and now-pending['since'] >= (30000 if healthy else 60000)
-    if healthy != announced and not confirmed:
-        audit('data-status', 'suppressed', 'Statuswechsel noch nicht mehrfach bestätigt')
-    if confirmed:
-        if not healthy:
-            reason = ('Die Hintergrundanalyse ist fehlgeschlagen. Bob rechnet mit dem letzten verfügbaren Datenstand weiter, sofern vorhanden; keine aktuelle Marktbestätigung.'
-                      if market.get('analysisError') else 'Aktualität oder zeitliche Abstimmung der vorhandenen Markt-/Analysedaten nicht bestätigt. Berechnung mit vorhandenen Werten läuft weiter; Überwachung eingeschränkt.')
-            add('data-unavailable', 'DATENSTATUS · Berechnung mit veralteten Werten', reason, channel)
-        else:
-            add('data-recovered', 'DATENSTATUS · Überwachung fortgesetzt', 'Aktuelle Daten wieder vorhanden. Keine Entwarnung für einen Trade.', channel)
-        state['announcedHealthy'] = healthy
-        state.pop('healthPending', None)
+        state['dataStatus'] = 'closed'
+    else:
+        if previous_state.get('dataStatus') == 'closed' and healthy:
+            state['announcedHealthy'] = True
+            state.pop('healthPending', None)
+        # Notification debounce never makes unhealthy data eligible for analysis.
+        announced = state.setdefault('announcedHealthy', state.get('healthy', True))
+        pending = state.get('healthPending')
+        if healthy == announced:
+            state.pop('healthPending', None)
+        elif not pending or pending['value'] != healthy:
+            state['healthPending'] = {'value': healthy, 'since': now, 'count': 1, 'checkedAt': now}
+        elif now-pending['checkedAt'] >= 25000:
+            pending.update(count=pending['count']+1, checkedAt=now)
+        pending = state.get('healthPending')
+        confirmed = pending and pending['count'] >= (2 if healthy else 3) and now-pending['since'] >= (30000 if healthy else 60000)
+        if healthy != announced and not confirmed:
+            audit('data-status', 'suppressed', 'Statuswechsel noch nicht mehrfach bestätigt')
+        if confirmed:
+            if not healthy:
+                reason = ('Die Hintergrundanalyse ist fehlgeschlagen. Bob rechnet mit dem letzten verfügbaren Datenstand weiter, sofern vorhanden; keine aktuelle Marktbestätigung.'
+                          if market.get('analysisError') else 'Aktualität oder zeitliche Abstimmung der vorhandenen Markt-/Analysedaten nicht bestätigt. Berechnung mit vorhandenen Werten läuft weiter; Überwachung eingeschränkt.')
+                add('data-unavailable', 'DATENSTATUS · Berechnung mit veralteten Werten', reason, channel)
+            else:
+                add('data-recovered', 'DATENSTATUS · Überwachung fortgesetzt', 'Aktuelle Daten wieder vorhanden. Keine Entwarnung für einen Trade.', channel)
+            state['announcedHealthy'] = healthy
+            state.pop('healthPending', None)
+        state['dataStatus'] = 'active' if healthy else 'unavailable'
     state['healthy'] = healthy
     direction = market.get('direction', 'NEUTRAL') if healthy else 'NEUTRAL'
     mtf = market.get('mtf', 'NEUTRAL') if healthy else 'NEUTRAL'
