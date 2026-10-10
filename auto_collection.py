@@ -179,7 +179,8 @@ def _run():
                                reason='Sammlung unterbrochen; automatischer Wiederholungsversuch',
                                errorType=type(exc).__name__)
             print('BOB_COLLECTION error='+type(exc).__name__, flush=True)
-        threading.Event().wait(max(1, 30-(time.monotonic()-started)))
+        interval = background_push.degiro_poll_seconds()
+        threading.Event().wait(max(1, interval-(time.monotonic()-started)))
 
 
 def start():
