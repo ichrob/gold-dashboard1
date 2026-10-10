@@ -35,6 +35,23 @@ class InvestingCardTests(unittest.TestCase):
         with patch.object(c, '_health', {'state': 'unavailable', 'sourceAt': q['at'], 'lastCheckedAt': friday}), patch.object(c.time, 'time', return_value=saturday):
             self.assertEqual(c.health()['state'], 'unavailable')
 
+    def test_weekend_collector_sleeps_without_network(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        from unittest.mock import patch
+        import threading
+        friday = datetime(2026, 10, 9, 23, 0, tzinfo=ZoneInfo('Europe/Zurich')).timestamp()
+        saturday = datetime(2026, 10, 10, 6, 0, tzinfo=ZoneInfo('Europe/Zurich')).timestamp()
+        stop = threading.Event()
+        def wait(seconds):
+            self.assertGreater(seconds, 60 * 60)
+            stop.set()
+            return True
+        with patch.object(c.time, 'time', return_value=saturday), patch.object(c, '_health', {'state': 'current', 'sourceAt': datetime.fromtimestamp(friday, ZoneInfo('UTC')).isoformat(), 'lastCheckedAt': friday}), patch.object(c, 'collect_once') as poll, patch.object(stop, 'wait', side_effect=wait):
+            c._collect(stop)
+            poll.assert_not_called()
+            self.assertEqual(c._health['state'], 'closed')
+
     def test_original_time_and_provider_change(self):
         q=self.parse(self.fixture())
         self.assertEqual(q['at'], '2026-10-04T22:34:31+00:00')
