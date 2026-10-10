@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from urllib.request import Request, urlopen
+import background_push
 
 URL = 'https://de.investing.com/currencies/xau-usd'
 _lock = threading.Lock()
@@ -81,6 +82,10 @@ def change(price, at, now=None):
 
 def _run():
     while True:
+        remaining=background_push.gold_weekend_seconds_remaining()
+        if remaining:
+            threading.Event().wait(remaining)
+            continue
         started=time.monotonic()
         try:refresh()
         except Exception as exc:print('BOB_SPOT_CHANGE error='+type(exc).__name__,flush=True)
