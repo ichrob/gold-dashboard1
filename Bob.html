@@ -289,7 +289,7 @@ try{
   el.textContent=phase==='night'?' · DEGIRO-Nachtmodus (22:00–07:30 Zürich), Goldmarkt weiterhin aktiv.':phase==='preparation'?' · Vorbereitung (07:30–08:00), noch keine Einstiege.':phase==='weekend'?' · Goldmarkt am Wochenende geschlossen.':'';
  }
  window.BobGoldCards={weekendArchive(cards){for(const key of ['spot','future','estimate','cfd']){const q=cards?.[key];if(positive(q?.price))accept(key,{...q,marketClosed:true,historical:true,realtimeCfd:false,isExchangeRealtime:false});else render(key);}},spot(bundle){const s=bundle?.spots;if(!s||!positive(s.xaus))return;accept('spot',{price:s.xaus,at:s.spot_price_as_of,source:s.primary||s.goldprice_status||'Bob Spotquelle',kind:'spot',note:s.spot_error?'Aktualisierung pausiert':'',changePct:s.dailyChange?.changePct??null,changeLabel:s.dailyChange?.changeLabel});},refresh,restoreWeekendCards};
- restoreWeekendCards();renderSessionMode();if(!window.BobWeekendPause?.())refresh();setInterval(()=>{render('spot');render('future');render('estimate');render('cfd');renderSessionMode();if(document.visibilityState!=='hidden'&&!window.BobWeekendPause?.())refresh();},30000);
+ restoreWeekendCards();renderSessionMode();if(window.BobWeekendPause?.()){for(const key of ['spot','future','estimate','cfd'])render(key);}else refresh();setInterval(()=>{render('spot');render('future');render('estimate');render('cfd');renderSessionMode();if(document.visibilityState!=='hidden'&&!window.BobWeekendPause?.())refresh();},30000);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!window.BobWeekendPause?.())refresh();});
 })();
 </script>
