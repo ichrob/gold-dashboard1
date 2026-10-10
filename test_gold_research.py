@@ -24,6 +24,7 @@ class ResearchTests(unittest.TestCase):
         data=dict(checkedAt=closed-3600,items=[],sources=[])
         self.assertTrue(g.summarize(data,closed)['fresh'])
         self.assertEqual(g.summarize(data,closed)['intervalSeconds'],7200)
+        self.assertEqual(g.summarize(data,weekday)['intervalSeconds'],900)
 
     def test_only_mco_gold_and_distinct_video_ids(self):
         self.assertEqual(len(g.SOURCES),1);self.assertEqual(g.SOURCES[0]['publisher'],'MCO Markets')
