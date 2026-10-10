@@ -57,7 +57,17 @@ def service_health():
     background = background_health()
     feed = collection.get('cfdFeed') or {}
     reasons = []
-    if collection.get('enabled') and (not collection.get('running') or feed.get('state') not in (('current', 'closed', 'paused') if background_push.gold_weekend_seconds_remaining() else ('current', 'closed'))):
+    session = background_push.degiro_session()
+    normal_feed = feed.get('state') in (('current', 'closed', 'paused') if session == 'weekend' else ('current', 'closed'))
+    # Night samples retain original source time; 120-second intraday freshness
+    # must not turn the deliberate five-minute night cadence into an outage.
+    sampled_at = feed.get('lastCheckedAt')
+    nightly_feed = (session == 'night' and feed.get('state') == 'stale'
+                    and isinstance(feed.get('sourceAgeSeconds'), (int,float))
+                    and 0 <= feed['sourceAgeSeconds'] <= 420
+                    and isinstance(sampled_at, (int,float))
+                    and 0 <= time.time() - sampled_at <= 650)
+    if collection.get('enabled') and (not collection.get('running') or not (normal_feed or nightly_feed)):
         reasons.append('market-feed-not-current')
     if FIB_MONITOR_HEALTH['configured'] and background['status'] != 'ok':
         reasons.append('background-not-current')
