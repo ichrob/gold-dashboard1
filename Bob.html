@@ -244,7 +244,7 @@ try{
   const marketPause=has&&goldWeekendCloseQuote(stamp);
   el(key,'price').style.fontStyle=has&&!marketPause&&(!Number.isFinite(stamp)||Date.now()-stamp>120000||stamp>Date.now()||q.historical)?'italic':'';
   const old=Number.isFinite(stamp)&&(Date.now()-stamp>120000||stamp>Date.now()+5000);
-  el(key,'state').textContent=expired?'Anmeldung erforderlich':!has?(q?.note||(key==='estimate'?'Schätzung wartet auf aktuelle Eingangsdaten':'Kurs momentan nicht verfügbar')):!Number.isFinite(stamp)?'Aktualität unbekannt – Zeitstempel fehlt':q.historical?'Letzte gespeicherte Schätzung · Aktualisierung pausiert':old?(q.kind==='calculated'?'Letzte Schätzung · nicht aktuell':''):q.kind==='calculated'?'Future-Schätzung · automatisch':q.note||'';
+  el(key,'state').textContent=expired?'Anmeldung erforderlich':!has?(window.BobWeekendPause?.()?'Markt geschlossen · letzter Kurs nicht gespeichert':q?.note||(key==='estimate'?'Schätzung wartet auf aktuelle Eingangsdaten':'Kurs momentan nicht verfügbar')):!Number.isFinite(stamp)?'Aktualität unbekannt – Zeitstempel fehlt':q.historical?'Letzte gespeicherte Schätzung · Aktualisierung pausiert':old?(q.kind==='calculated'?'Letzte Schätzung · nicht aktuell':''):q.kind==='calculated'?'Future-Schätzung · automatisch':q.note||'';
   if(key==='cfd'&&has&&old&&!expired&&!marketPause&&q?.providerMarketOpen!==false)el(key,'state').textContent='CFD-Kurs nicht aktuell';
   if(marketPause&&!expired)el(key,'state').textContent='Markt geschlossen · letzter Kurs';
   if(key==='estimate')el(key,'state').textContent=!expired&&has&&Number.isFinite(stamp)&&!old&&!q.historical?'Aktualisierung aktiv':'Aktualisierung pausiert';
@@ -257,17 +257,30 @@ try{
   if(!positive(q.price)){if(key==='estimate'){quotes[key]=q;render(key);}return;}
   const old=quotes[key],at=Date.parse(q.at),before=Date.parse(old?.at);
   if(old&&Number.isFinite(before)&&(!Number.isFinite(at)||at<before))return;
-  quotes[key]=q;render(key);
+  quotes[key]=q;
+  // Display-only historical cache; never fed to trade/technical eligibility.
+  if(window.BobWeekendPause&&!window.BobWeekendPause()&&Number.isFinite(at)&&at<=Date.now()){
+   try{localStorage.setItem('bob-last-market-card-'+key,JSON.stringify(q));}catch(_){}
+  }
+  render(key);
+ }
+ function restoreWeekendCards(){
+  if(!window.BobWeekendPause?.())return;
+  for(const key of ['spot','future','estimate','cfd']){
+   try{const q=JSON.parse(localStorage.getItem('bob-last-market-card-'+key)||'null'),stamp=Date.parse(q?.at);
+    if(positive(q?.price)&&Number.isFinite(stamp)&&stamp<=Date.now()&&Date.now()-stamp<4*86400000)accept(key,q);
+   }catch(_){}
+  }
  }
  async function refresh(){
-  if(busy||window.BobSession?.expired()||window.BobWeekendPause())return;
+  if(busy||window.BobSession?.expired()||window.BobWeekendPause?.())return;
   busy=true;const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),10000);
   try{const r=await fetch('/api/market-cards',{cache:'no-store',signal:ctl.signal});if(!r.ok)throw Error('quote unavailable');const data=await r.json();accept('future',data.future);accept('estimate',data.estimate);accept('cfd',data.cfd);const notice=document.getElementById('gold-special-session');if(notice)notice.textContent=data.sessionAdvisory?' · Börsenkalender: '+data.sessionAdvisory.name+' · '+data.sessionAdvisory.note:'';}catch(_){}
   finally{clearTimeout(timer);busy=false;render('spot');render('future');render('estimate');render('cfd');}
  }
- window.BobGoldCards={spot(bundle){const s=bundle?.spots;if(!s||!positive(s.xaus))return;accept('spot',{price:s.xaus,at:s.spot_price_as_of,source:s.primary||s.goldprice_status||'Bob Spotquelle',kind:'spot',note:s.spot_error?'Aktualisierung pausiert':'',changePct:s.dailyChange?.changePct??null,changeLabel:s.dailyChange?.changeLabel});},refresh};
- refresh();setInterval(()=>{render('spot');render('future');render('estimate');render('cfd');if(document.visibilityState!=='hidden'&&!window.BobWeekendPause())refresh();},30000);
- document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!window.BobWeekendPause())refresh();});
+ window.BobGoldCards={spot(bundle){const s=bundle?.spots;if(!s||!positive(s.xaus))return;accept('spot',{price:s.xaus,at:s.spot_price_as_of,source:s.primary||s.goldprice_status||'Bob Spotquelle',kind:'spot',note:s.spot_error?'Aktualisierung pausiert':'',changePct:s.dailyChange?.changePct??null,changeLabel:s.dailyChange?.changeLabel});},refresh,restoreWeekendCards};
+ restoreWeekendCards();if(!window.BobWeekendPause?.())refresh();setInterval(()=>{render('spot');render('future');render('estimate');render('cfd');if(document.visibilityState!=='hidden'&&!window.BobWeekendPause?.())refresh();},30000);
+ document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!window.BobWeekendPause?.())refresh();});
 })();
 </script>
 <section class="card" aria-labelledby="economicTitle">
@@ -318,8 +331,8 @@ try{
   catch(_){lastSuccess=0;}finally{clearTimeout(timer);busy=false;render();}
  }
  refresh();setTimeout(refresh,15000);
- setInterval(()=>{render();if(document.visibilityState!=='hidden'&&!window.BobWeekendPause())refresh();},60000);
- document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!window.BobWeekendPause())refresh();});
+ setInterval(()=>{render();if(document.visibilityState!=='hidden'&&!window.BobWeekendPause?.())refresh();},60000);
+ document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!window.BobWeekendPause?.())refresh();});
 })();
 </script>
 <div class="card">
@@ -884,7 +897,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   if(paperBusy)return;paperBusy=true;
   try{
    const r=await api('read',{mode:'simulation',day:document.getElementById('paperDay').value});
-   const c=r.control,weekend=window.BobWeekendPause(),stale=!weekend&&c.checkedAt&&Date.now()-c.checkedAt>90000;
+   const c=r.control,weekend=window.BobWeekendPause?.(),stale=!weekend&&c.checkedAt&&Date.now()-c.checkedAt>90000;
    text('paperCapital','Fiktives Startkapital '+paperMoney(c.initialCapital)+' · aktueller Kapitalstand '+paperMoney(c.equity)+'\nBargeld '+paperMoney(c.cash)+' · offene Produktstücke '+(c.openUnits||0)+'\nHeute '+paperMoney(c.dayProfit)+' · seit Start '+paperMoney(c.totalProfit)+'\nDavon gebuchtes Ergebnis seit Start '+paperMoney(c.realizedProfit)+'\nBruttomodell einschließlich offener Positionen zum beobachteten Geldkurs. Ohne Gebühren, Finanzierung und Slippage; kein Nettogewinn. Guthaben wird über die Tage weitergeführt.');
    text('paperStatus',[
     'Start '+paperTime(c.startAt)+' · ohne festes Enddatum · '+(weekend?'MARKT GESCHLOSSEN · SIMULATION PAUSIERT':c.status==='scheduled'?'START GEPLANT':c.status==='paused'?'PAUSIERT':'SIMULATION AKTIV'),
@@ -913,7 +926,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  }};
  document.getElementById('paperDay').value=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Zurich'}).format(new Date());
  document.getElementById('paperRefresh').addEventListener('click',refreshPaper);
- refreshPaper();setInterval(()=>{if(!document.hidden&&!window.BobWeekendPause())refreshPaper();},60000);
+ refreshPaper();setInterval(()=>{if(!document.hidden&&!window.BobWeekendPause?.())refreshPaper();},60000);
  window.BobAudit={capture:async(products,flow,bundle)=>{
   const state=window.BobDecisionAuditState;if(!state?.barAt||busy||Date.now()<next)return;
   const selected=new Set(flow.groups.flatMap(g=>g.candidates).map(p=>p.isin));
@@ -3128,8 +3141,14 @@ if(typeof MutationObserver!=="undefined"){
   }
  }).observe($("status"),{childList:true,characterData:true,subtree:true});
 }
-loadData();
-setInterval(()=>{ if(document.visibilityState==="visible"&&!window.BobWeekendPause()){loadData();syncPushPreferences();refreshActiveProductQuote();} }, 30000);
+if(window.BobWeekendPause?.()){
+ $("quickSignal").textContent="ABWARTEN";
+ $("quickSignal").className="signal neutral";
+ $("quickReason").textContent="Goldmarkt geschlossen · letzte gespeicherte Kursstände, keine aktuellen Handelsfreigaben.";
+ $("status").textContent="MARKT GESCHLOSSEN · Freitag 23:00 bis Montag 00:00 (Zürich)";
+ window.BobGoldCards?.restoreWeekendCards?.();
+}else loadData();
+setInterval(()=>{ if(document.visibilityState==="visible"&&!window.BobWeekendPause?.()){loadData();syncPushPreferences();refreshActiveProductQuote();} }, 30000);
 </script><form method="post" action="/logout" style="text-align:center;margin:24px"><button type="submit">Abmelden</button></form>
 
 
