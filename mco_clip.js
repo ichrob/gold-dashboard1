@@ -37,7 +37,7 @@
   });
   const levelText=levels.length
     ? levels.slice(0,2).map(l=>String(l.ratio||'Fibonacci')+' bei '+num(l.price)+' USD').join(' · ')
-    : 'Keine eindeutig belegte Fibonacci-Kursmarke in den Untertiteln.';
+    : bobLevels.length?'MCO nennt keine belegte Fibonacci-Kursmarke. Orange zeigt ausschließlich Bobs eigene Fibonacci-Berechnung.':'Keine eindeutig belegte Fibonacci-Kursmarke in den Untertiteln.';
   const fallback='In den bestätigten Untertiteln ist hierzu keine eindeutige Aussage belegt.';
   const source=cap(item.title||'MCO Markets: Goldanalyse',88);
   return {title:source, videoId:String(item.id||''), from:'MCO Markets · geprüfte Untertitel',
@@ -67,6 +67,7 @@
   const toggle=mk('button','▶ Clip mit Ton abspielen');toggle.type='button';
   const again=mk('button','↻ Neu starten');again.type='button';
   const voice=mk('button','Ton: an');voice.type='button';
+  const soundTest=mk('button','🔊 Ton testen');soundTest.type='button';
   const supportsVoice=typeof window.speechSynthesis!=='undefined'&&typeof window.SpeechSynthesisUtterance==='function';
   if(!supportsVoice){voice.disabled=true;voice.textContent='Ton nicht verfügbar';voice.title='Keine Gerätevorlesestimme verfügbar';}
   const progress=mk('input');progress.type='range';progress.min='0';progress.max=String(DURATION);progress.step='0.1';progress.value='0';
@@ -77,7 +78,7 @@
   const evidence=mk('a','Originalvideo öffnen');evidence.href=String(url);evidence.target='_blank';evidence.rel='noopener noreferrer';
   const note=mk('small','Der Clip wird kostenlos auf deinem Gerät gezeichnet. Die Audioausgabe ist eine Gerätevorlesestimme; bitte Medienlautstärke und Android-Sprachausgabe prüfen, falls stumm. Im Bereich 00:25 erscheinen MCO-Marken in Blau und bestätigte Bob-Fibonacci-Werte in Orange. Fehlen die Daten, werden keine Kurszahlen erfunden.');
   note.style.cssText='display:block;margin-top:8px';
-  actions.append(toggle,again,backwards,forwards,toFib,fullscreen,voice,evidence);
+  actions.append(toggle,again,backwards,forwards,toFib,fullscreen,voice,soundTest,evidence);
   section.append(label,intro,canvas,actions,progress,status,note);parent.append(section);
   let prepared=null,elapsed=0,started=0,running=false,ended=false,voiced=supportsVoice,lastScene=-1,handle=0;
   let fullOverlay=false,fullNative=false,priorOverflow='',marketFetching=false,speechIssue=false;
@@ -104,6 +105,7 @@
   document.addEventListener('fullscreenchange',()=>{if(fullNative&&!document.fullscreenElement){fullNative=false;updateScreen();}});
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&fullOverlay){fullOverlay=false;document.body.style.overflow=priorOverflow;updateScreen();}});
   voice.textContent=supportsVoice?'Ton: an':'Ton nicht verfügbar';
+  if(!supportsVoice)soundTest.disabled=true;
   const ctx=canvas.getContext('2d');
   if(!ctx){status.textContent='Video-Zeichnung wird von diesem Browser nicht unterstützt.';toggle.disabled=again.disabled=true;return section;}
   const wrap=(text,x,y,maxWidth,maxLines=3,lineHeight=29,color='#ecf2ff',font='22px sans-serif')=>{
@@ -284,6 +286,9 @@
    else play();
   });
   again.addEventListener('click',()=>{stop();elapsed=0;ended=false;lastScene=-1;play();});
+  soundTest.addEventListener('click',()=>{if(!supportsVoice)return;voiced=true;voice.textContent='Ton: an';
+    speak({type:'test',title:'Tonprüfung',text:'Dies ist die deutsche Sprachausgabe von Bob. Wenn Sie mich hören, funktioniert der Ton.'});
+  });
   voice.addEventListener('click',()=>{
    voiced=!voiced;voice.textContent=voiced?'Ton: an':'Ton: aus';
    if(!voiced)cancelVoice();else if(running&&prepared){lastScene=sceneIndex(elapsed);speak(prepared.scenes[lastScene]);}
