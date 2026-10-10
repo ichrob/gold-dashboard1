@@ -168,7 +168,9 @@ def start():
 
 def health():
     with _state_lock:
-        result = dict(_health, running=bool(_thread and _thread.is_alive()), intervalSeconds=POLL_SECONDS)
+        actual_interval = 300 if background_push.degiro_session() == 'night' else POLL_SECONDS
+        result = dict(_health, running=bool(_thread and _thread.is_alive()), intervalSeconds=actual_interval,
+                      sessionMode=background_push.degiro_session())
     if result['sourceAt']:
         age = time.time()-datetime.fromisoformat(result['sourceAt']).timestamp()
         result['sourceAgeSeconds'] = round(age)
