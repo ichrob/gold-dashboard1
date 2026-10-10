@@ -52,6 +52,32 @@ class ResearchTests(unittest.TestCase):
             return json.dumps({'candidates': [{'finishReason': 'STOP', 'content': {'parts': [{'text': json.dumps({'sections': [{'label': 'Fazit', 'text': 'Gold unter 4000.', 'segmentIds': [0]}]})}]}}]}).encode()
         self.assertEqual(r.generate(SEGMENTS, 'secret', reader)['kind'], 'ai')
 
+    def test_images_share_one_ai_request_and_only_coarse_visual_notes_survive(self):
+        frame = {'at': 450, 'dataUrl': 'data:image/jpeg;base64,'+
+                 base64.b64encode(bytes.fromhex('ffd8') + bytes(120) + bytes.fromhex('ffd9')).decode()}
+        def reader(req, timeout):
+            body=json.loads(req.data)
+            self.assertEqual(len(body['contents']), 1)
+            parts=body['contents'][0]['parts']
+            self.assertEqual(parts[-1]['inlineData']['mimeType'], 'image/jpeg')
+            self.assertEqual(parts[-1]['inlineData']['data'], frame['dataUrl'].split(',')[1])
+            self.assertIn('frameNotes', body['generationConfig']['responseSchema']['properties'])
+            response={'sections':[{'label':'Bedingung','text':'Gold über 4100.','segmentIds':[1]}],
+                      'frameNotes':[{'frameId':0,'kind':'chart'},{'frameId':3,'kind':'chart'},
+                                    {'frameId':0,'kind':'speaker'}]}
+            return json.dumps({'candidates':[{'finishReason':'STOP','content':{'parts':[{'text':json.dumps(response)}]}}]}).encode()
+        out = r.generate(SEGMENTS, 'secret', reader, frames=[frame])
+        self.assertEqual(out['sections'][0]['evidence'][0]['at'],450)
+        self.assertEqual(out['visualNotes'], [{'frameId': 0, 'kind': 'chart', 'label': 'Mögliche Chartansicht'}])
+        self.assertIn('nicht daraus abgelesen', out['scope'])
+
+    def test_no_untrusted_frame_or_unverified_numbers(self):
+        bad={'at': 4, 'dataUrl':'data:image/png;base64,'+('A'*150)}
+        self.assertEqual(r.validated_frames([bad]),[])
+        with self.assertRaises(ValueError):
+            r.summary_checked({'sections':[{'label':'Kursziel','text':'Der Chart zeigt 5000.','segmentIds':[0]}]},SEGMENTS,
+                              frames=[bad])
+
     def test_partial_grounding_retains_only_supported_sections(self):
         sections = [
             {'label': 'Kurzfazit', 'text': 'Gold bleibt unter 4000.', 'segmentIds': [0]},

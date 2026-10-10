@@ -50,11 +50,11 @@ def overview(segments, language):
         sections.append({'key':key,'label':label,'evidenceIds':refs,'status':'found' if refs else 'not_identified'})
     moments=[]
     for section in sections:
-        if section['key'] not in ('overview','levels','conditions'):continue
+        if section['key'] not in ('overview','bullish','bearish','levels','conditions'):continue
         for ref in section['evidenceIds']:
             e=next(e for e in evidence if e['id']==ref)
             if all(abs(e['at']-m['at'])>=15 for m in moments):moments.append({'at':e['at'],'label':section['label'],'evidenceId':ref})
     return {'version':1,'kind':'extractive','title':'Strukturierter Transkript-Überblick',
         'method':'Das gesamte gelieferte Transkript wurde nach Themen durchsucht. Die Übersicht verwendet ausgewählte vollständige Originalsätze; sie ist keine frei formulierte KI-Gesamtzusammenfassung. Wichtige Aussagen können fehlen.',
         'scope':'Nur gesprochener Inhalt; eingeblendete Charts und Bilder wurden nicht ausgewertet.',
-        'sourceWords':len(body.split()),'sections':sections,'evidence':evidence,'moments':moments[:3]}
+        'sourceWords':len(body.split()),'sections':sections,'evidence':evidence,'moments':moments[:5]}

@@ -213,7 +213,7 @@ def analyze(url, fetch=read_url, *, verified_item=None):
             extra=research_enhancements.request(identity,segments,p,(result.get('overview') or {}).get('moments',[]))
             result['enhancements']=extra
             if extra.get('summary'):
-                result['reason']='Richtungsbewertung aus Untertiteln mit Textregeln; zusätzliche KI-Zusammenfassung mit Originalbelegen. Keine KI-Chartanalyse.'
+                result['reason']='Richtungsbewertung aus Untertiteln mit Textregeln; zusätzliche KI-Zusammenfassung mit Originalbelegen; niedrig aufgelöste Videobilder dienen ausschließlich der Orientierung, nicht als Kursnachweis.'
         result.update(videoId=identity,title=d.get('title','YouTube-Video')[:240],channelId=d.get('channelId'),publisher=d.get('author','Unbekannter Kanal')[:160],publishedDate=micro.get('publishDate'),checkedAt=now,url='https://www.youtube.com/watch?v='+identity)
         if fetch is read_url:
             with _lock:
