@@ -104,7 +104,14 @@ def handle(conn,action,payload):
         if len(entries)<KEEP_VIDEOS:
             old=conn.execute('SELECT items FROM bob_youtube_feed_archive WHERE feed_key=%s',(KEY,)).fetchone()
             if old:
-                entries=sanitize(entries + sanitize(old[0]))
+                remembered=sanitize(old[0])
+                remembered_ids=set(selected_ids(remembered))
+                # Only previously unseen videos may move ahead of the retained
+                # ordering in an incomplete feed. A fragment listing just an
+                # old video must never displace a newer archived upload.
+                newcomers=[entry for entry in entries
+                           if entry['id'].removeprefix('youtube-') not in remembered_ids]
+                entries=sanitize(newcomers+remembered)
         conn.execute("""INSERT INTO bob_youtube_feed_archive(feed_key,saved_at,items)
             VALUES(%s,now(),%s::jsonb)
             ON CONFLICT(feed_key) DO UPDATE SET saved_at=excluded.saved_at,items=excluded.items""",
