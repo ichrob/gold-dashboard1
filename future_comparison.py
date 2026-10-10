@@ -8,6 +8,7 @@ import bob_validation_store
 import comparison_store
 import future_estimate
 import investing_card
+import background_push
 
 _lock = threading.Lock()
 _thread = None
@@ -97,6 +98,13 @@ def tick(now=None):
 def _run():
     import auto_collection
     while auto_collection.enabled():
+        remaining = background_push.gold_weekend_seconds_remaining()
+        if remaining:
+            with _lock:
+                _report.update(state='paused', current=None,
+                               reason='Goldmarkt geschlossen · Vergleich bis Montag 00:00 (Zürich) pausiert')
+            threading.Event().wait(remaining)
+            continue
         started = time.monotonic()
         try:tick()
         except Exception as exc:
