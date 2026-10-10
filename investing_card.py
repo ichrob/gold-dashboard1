@@ -4,6 +4,7 @@ import math
 import re
 import time
 import threading
+import background_push
 from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 
@@ -44,9 +45,10 @@ def parse(body, now=None):
     if not numeric(price) or price <= 0 or epoch > now + 5:
         raise ValueError('CFD Kurs oder Quellenzeit ungültig')
     fresh = 0 <= now - epoch <= 120
-    realtime = fresh and base.get('isOpen') is True and quote.get('isDelayed') is False
+    paused = background_push.weekend_quote_at_close(now * 1000, epoch * 1000)
+    realtime = fresh and not paused and base.get('isOpen') is True and quote.get('isDelayed') is False
     note = ('Echtzeit CFD · laut Investing.com' if realtime else
-            'Markt geschlossen · letzter CFD-Kurs' if base.get('isOpen') is False else
+            'Markt geschlossen · letzter CFD-Kurs' if paused or base.get('isOpen') is False else
             'CFD-Kurs verzögert' if quote.get('isDelayed') is True else
             'CFD-Kurs nicht aktuell' if not fresh else 'CFD · Echtzeitstatus unbestätigt')
     metrics = store.get('keyMetrics', {})
@@ -104,7 +106,10 @@ def aged(quote, now=None):
     now = time.time() if now is None else now
     q = dict(quote)
     age = now - datetime.fromisoformat(q['at']).timestamp()
-    if not 0 <= age <= 120:
+    if background_push.weekend_quote_at_close(now * 1000, datetime.fromisoformat(q['at']).timestamp() * 1000):
+        q['realtimeCfd'] = False
+        q['note'] = 'Markt geschlossen · letzter CFD-Kurs'
+    elif not 0 <= age <= 120:
         q['realtimeCfd'] = False
         q['note'] = 'CFD-Kurs nicht aktuell'
     return q
@@ -113,7 +118,9 @@ def aged(quote, now=None):
 def collect_once():
     try:
         q = fetch()
-        state = 'current' if q.get('realtimeCfd') else 'stale'
+        source_ms = datetime.fromisoformat(q['at']).timestamp() * 1000
+        state = ('closed' if background_push.weekend_quote_at_close(time.time() * 1000, source_ms)
+                 else 'current' if q.get('realtimeCfd') else 'stale')
         with _state_lock:
             _health.update(state=state, lastCheckedAt=time.time(), sourceAt=q['at'])
         print('BOB_CFD checked state='+state+' source_at='+q['at'], flush=True)
@@ -146,7 +153,9 @@ def health():
     if result['sourceAt']:
         age = time.time()-datetime.fromisoformat(result['sourceAt']).timestamp()
         result['sourceAgeSeconds'] = round(age)
-        if result['state'] == 'current' and not 0 <= age <= 120:
+        if result['state'] != 'unavailable' and background_push.weekend_quote_at_close(time.time() * 1000, datetime.fromisoformat(result['sourceAt']).timestamp() * 1000):
+            result['state'] = 'closed'
+        elif result['state'] in ('current', 'closed') and not 0 <= age <= 120:
             result['state'] = 'stale'
     return result
 
