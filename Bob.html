@@ -740,6 +740,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
      node('p','Kursbericht: '+x.trend+' · Ausblick: '+x.outlook+' · Horizont: '+x.horizon),node('p',x.excerpt),node('small',x.reason+(x.articleStatus?' · '+x.articleStatus:'')));
     if(x.listingInfo)box.append(node('p','YouTube-Angabe: '+x.listingInfo));
     if(x.enhancements)renderEnhancements(box,x,url);
+    if(x.transcriptAnalyzed&&x.trustedTranscript&&window.BobMcoClip?.mount)
+     window.BobMcoClip.mount(box,x,url,()=>window.BobMcoFibSnapshot?.());
     if(x.transcriptAnalyzed)renderMcoFibonacci(box,x,url);
     if(x.overview){
      if(x.enhancements&&x.enhancements.summary){const original=node('details','');original.append(node('summary','Zusätzlicher Überblick aus Originalsätzen'));renderOverview(original,x,url);box.append(original);}
@@ -1002,6 +1004,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  setInterval(()=>{if(document.visibilityState==='visible'&&($('bob-view-research')?.hidden||!$('goldResearchItems').querySelector('details[open]')))load();},60000);
 })();
 </script>
+<script src="/mco_clip.js?v=20261010-60s-v1"></script>
 
 </main>
 <script src="/push_manager.js"></script>
