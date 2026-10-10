@@ -1091,7 +1091,11 @@ function createQuoteRefresh({rows,request,visible=()=>true,now=()=>Date.now(),in
  return {refresh};
 }
 let quoteRefresh=null;
-function refreshImportedProducts(force=false){return quoteRefresh?quoteRefresh.refresh(force):Promise.resolve();}
+function refreshImportedProducts(force=false){
+ // Do not repeatedly query issuers at night; manual refresh remains available.
+ if(!force&&['night','weekend'].includes(window.BobDegiroPhase?.()))return Promise.resolve();
+ return quoteRefresh?quoteRefresh.refresh(force):Promise.resolve();
+}
 function populateCandidateRows(items){
  // Replacing a screenshot must not retain prices, confirmation or surplus products.
  for(let i=1;i<=12;i++){
@@ -2848,7 +2852,7 @@ async function inject(){
   rows:()=>Array.from({length:12},(_,idx)=>{const id=idx+1,isin=(document.querySelector('[data-dg="isin"][data-i="'+id+'"]')?.value.trim()||'').toUpperCase();return {id,isin,key:isin+':'+(rowVersions.get(id)||0)};}),
   request:enrichProduct,visible:()=>!document.hidden,interval:30000,limit:4
  });
- refreshImportedProducts(true);
+ refreshImportedProducts(!['night','weekend'].includes(window.BobDegiroPhase?.()));
  const savedCount=restoredProducts.length;
  b.querySelector('#dgCentralStatus').textContent=listArchive?.files?.length?'Gespeicherte Liste: '+listArchive.files.length+' Bild(er) · '+savedCount+' Produkte. Gespeichert bis 22 Uhr Schweizer Zeit.':savedCount?savedCount+' Produkte gespeichert. Frühere Originalbilder sind nicht gespeichert; die Produktdaten bleiben bis 22 Uhr erhalten.':'Bitte für heute neue Listenbilder einlesen. Tageslisten gelten bis 22 Uhr Schweizer Zeit.';
  const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgListUploadButton'),uploadStatus=b.querySelector('#dgCentralStatus');
