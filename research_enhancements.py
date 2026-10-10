@@ -199,7 +199,7 @@ def storyboard_plan(spec, identity, moments, quality=0):
             w, h, count, cols, rows, interval = map(int, fields[:6])
         except ValueError:
             continue
-        if not (100 <= w <= 480 and 50 <= h <= 360 and 1 <= count <= 20000 and
+        if not (48 <= w <= 480 and 27 <= h <= 360 and 1 <= count <= 20000 and
                 1 <= cols <= 10 and 1 <= rows <= 10 and 0 < interval <= 20000):
             continue
         choices.append((w, h, count, cols, rows, interval, level, fields[6], fields[7]))
