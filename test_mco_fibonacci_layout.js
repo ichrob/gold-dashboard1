@@ -1,0 +1,11 @@
+const assert=require('assert'),fs=require('fs');
+const html=fs.readFileSync('Bob.html','utf8');
+assert(html.includes('function renderMcoFibonacci(box,item,url)'));
+assert(html.includes('if(x.transcriptAnalyzed)renderMcoFibonacci(box,x,url);'));
+assert(html.includes('window.BobMcoFibSnapshot=function()'));
+for(const color of ['#2563eb','#c2410c','#15803d'])assert(html.includes(color));
+assert(html.includes('Kein')||html.includes('Keine explizite Fibonacci-Prozentzahl'));
+assert(html.includes('Keine Bestätigung')||html.includes('Keine Bestätigung eines Marktsignals'));
+assert(html.includes("m.key==='r618'")||html.includes("'r618'"));
+assert(html.includes("Number(b.openTime)+step<=Date.now()"));
+console.log('MCO Fibonacci transcript, source colors and independent market chart linked');
