@@ -75,7 +75,10 @@ def background_health():
     age = max(0, int(time.time()) - last) if last is not None else None
     paused = bool(state["configured"] and background_push.gold_weekend_seconds_remaining()
                   and state["status"] == "paused" and _FIB_THREAD and _FIB_THREAD.is_alive())
-    healthy = paused or bool(state["configured"] and age is not None and age <= 120
+    normal_interval = state.get('expectedCycleSeconds', 30)
+    # Five-minute off-hours monitoring is healthy when the documented schedule is met.
+    allowed_age = max(120, 2 * normal_interval + 60)
+    healthy = paused or bool(state["configured"] and age is not None and age <= allowed_age
                    and state["status"] in ("active", "idle", "checking"))
     return {"status": "ok" if healthy else "unavailable", "service": "bob-background",
             "monitorStatus": state["status"], "lastSuccessAt": last, "ageSeconds": age}
@@ -1331,8 +1334,12 @@ def fibonacci_monitor_loop():
         try:
             request = Request(base+"/monitor-status", headers={"X-Bob-Push-Token":PUSH_SERVICE_TOKEN})
             with urlopen(request, timeout=10) as response:
-                active = json.loads(response.read(4096)).get("activeMonitors", 0)
-            FIB_MONITOR_HEALTH.update(status="checking", lastCheckedAt=int(time.time()))
+                monitors = json.loads(response.read(4096))
+                active = monitors.get("activeMonitors", 0)
+                active_trades = monitors.get("activeTrades", 0)
+            poll_seconds = background_push.degiro_poll_seconds(active_trade=bool(active_trades))
+            FIB_MONITOR_HEALTH.update(status="checking", lastCheckedAt=int(time.time()),
+                                      expectedCycleSeconds=poll_seconds, session=background_push.degiro_session())
             background_ok = True
             print("BOB_FIB monitor_connected active="+str(active), flush=True)
             if active or intraday_comparison.active():
@@ -1363,7 +1370,8 @@ def fibonacci_monitor_loop():
         except Exception as exc:
             FIB_MONITOR_HEALTH.update(status="unavailable", lastCheckedAt=int(time.time()))
             print("BOB_FIB monitor_error="+type(exc).__name__, flush=True)
-        time.sleep(max(1, 30 - (time.monotonic() - cycle_started)))
+        time.sleep(max(1, poll_seconds - (time.monotonic() - cycle_started))
+                   if 'poll_seconds' in locals() else 30)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "10000"))
