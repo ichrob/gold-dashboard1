@@ -3162,8 +3162,8 @@ setInterval(()=>{
  if(Date.now()-lastAutoMarketAt<interval)return;
  lastAutoMarketAt=Date.now();
  loadData();
- if(phase==='trading')refreshActiveProductQuote();
- if(activeTrade||phase==='trading')syncPushPreferences();
+ if(phase==='trading'||phase==='preparation')refreshActiveProductQuote();
+ if(activeTrade||phase==='trading'||phase==='preparation')syncPushPreferences();
 },30000);
 </script><form method="post" action="/logout" style="text-align:center;margin:24px"><button type="submit">Abmelden</button></form>
 
