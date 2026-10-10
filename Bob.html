@@ -144,18 +144,16 @@ body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 </style>
 </head>
 <body>
-<script>
-window.BobWeekendPause=function(now=Date.now()){
- const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Zurich',weekday:'short',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now)).map(x=>[x.type,x.value]));
- return parts.weekday==='Sat'||parts.weekday==='Sun'||parts.weekday==='Fri'&&Number(parts.hour)>=23;
-};
-</script>
 <div id="bobSessionNotice" hidden role="alert" class="warning" style="margin:14px">
  Bob-Anmeldung abgelaufen. Serverprüfung und aktuelle Trade-Freigabe sind gesperrt.
  <a href="/login" target="_blank" rel="noopener">Bob in einem neuen Tab anmelden</a>.
  Danach diese Ansicht neu laden. Ein laufender Test wird nicht automatisch beendet.
 </div>
 <script>
+window.BobWeekendPause=function(now=Date.now()){
+ const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Zurich',weekday:'short',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now)).map(x=>[x.type,x.value]));
+ return parts.weekday==='Sat'||parts.weekday==='Sun'||parts.weekday==='Fri'&&Number(parts.hour)>=23;
+};
 // A protected API rejection must not become an endless background error loop.
 // Keep local test/trade state intact; reauthentication is an explicit user action.
 (function(){
