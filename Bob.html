@@ -593,7 +593,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 </div>
 <section id="goldResearchPanel" class="card youtube-panel">
 <h3>YouTube · MCO Markets</h3>
-<p class="small youtube-intro">Gold-Videos von MCO Markets. Bob sucht automatisch nach neuen Videos und trennt geprüfte Inhalte von ungeprüften Einträgen.</p>
+<p class="small youtube-intro">Bob speichert höchstens die drei neuesten Gold-Videos von MCO Markets. Beim nächsten neuen Video entfernt er das älteste samt Transkript, KI-Zusammenfassung und gespeicherten Bildern.</p>
 
 <div class="youtube-group" id="youtubeOverview">
 <h4>Aktueller Überblick</h4>
@@ -691,10 +691,10 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   try{const u=new URL(raw);return u.protocol==='https:'&&['www.youtube.com','youtube.com'].includes(u.hostname)&&u.pathname==='/watch'&&/^[A-Za-z0-9_-]{11}$/.test(u.searchParams.get('v')||'')}catch(_){return false}
  }
  function cachedVideos(){
-  try{const v=JSON.parse(localStorage.getItem(videoCacheKey)||'null');return v&&Array.isArray(v.items)&&Date.now()-v.savedAt<30*86400000?v.items.filter(x=>x&&isVideoUrl(x.url)):[]}catch(_){return []}
+  try{const v=JSON.parse(localStorage.getItem(videoCacheKey)||'null');return v&&Array.isArray(v.items)&&Date.now()-v.savedAt<30*86400000?v.items.filter(x=>x&&isVideoUrl(x.url)).slice(0,3):[]}catch(_){return []}
  }
  function rememberVideos(items){
-  try{const safe=items.filter(x=>x&&x.kind==='YouTube'&&x.channelId==='UCsl6Z6p7GOkczo8Cv-GH6Dg'&&isVideoUrl(x.url)).slice(0,24).map(x=>({title:String(x.title||'').slice(0,240),url:x.url,publishedDate:x.publishedDate||''}));
+  try{const safe=items.filter(x=>x&&x.kind==='YouTube'&&x.channelId==='UCsl6Z6p7GOkczo8Cv-GH6Dg'&&isVideoUrl(x.url)).slice(0,3).map(x=>({title:String(x.title||'').slice(0,240),url:x.url,publishedDate:x.publishedDate||''}));
    if(safe.length)localStorage.setItem(videoCacheKey,JSON.stringify({savedAt:Date.now(),items:safe}));
   }catch(_){}
  }
@@ -716,7 +716,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    if(!res.ok)throw Error(res.status===401?'Bitte erneut anmelden.':'Recherche momentan nicht erreichbar.');
    const r=await res.json();
    if(!Array.isArray(r.items)||!Array.isArray(r.sources)||!r.counts)throw Error('YouTube-Liste momentan unvollständig.');
-   if(r.items.length){rememberVideos(r.items);$('youtubeListStatus').textContent=r.items.length+' Video(s) gefunden.';}
+   if(r.items.length){rememberVideos(r.items);$('youtubeListStatus').textContent=r.items.length+' von höchstens 3 gespeicherten Videos.';}
    else showLastVideos('Keine Videos vom Kanalabruf erhalten');
    $('goldResearchStatus').textContent=(r.fresh?'Stand: ':'Nicht aktuell / noch nicht verfügbar: ')+date(r.checkedAt)+' (Zürich) · automatischer Abruf etwa alle '+Math.round((r.intervalSeconds||900)/60)+' Minuten';
    $('goldResearchCounts').textContent=r.scanned+' Kanal-Einträge geprüft · '+r.successfulFeeds+'/'+r.sources.length+' Kanalabrufe erfolgreich · '+r.videosFound+' Gold-Videos gefunden · '+r.videosAnalyzed+' Videos mit auswertbarem Text. Die MCO-Einschätzung beruht nur auf bestätigten Untertiteln.';
@@ -726,7 +726,10 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    c.className='signal '+(r.fresh&&mco==='LONG'?'ok':r.fresh&&mco==='SHORT'?'bad':'neutral');
    $('goldResearchReason').textContent=(r.mcoReason||'Noch keine bestätigte Videoauswertung.')+(r.fresh?'':' Letzter Kanalabruf ist nicht aktuell.');$('goldResearchMethod').textContent=r.method;
    $('goldResearchSources').replaceChildren(...r.sources.map(s=>node('p',s.publisher+' · '+s.kind+' · '+(s.status==='ok'?s.scanned+' Einträge geprüft': 'Abruf nicht verfügbar')+' · '+s.scope)));
-   latestVideoIds=[...new Set(r.items.map(videoKey).filter(Boolean))];updateUnreadBadge();
+   latestVideoIds=[...new Set(r.items.map(videoKey).filter(Boolean))].slice(0,3);
+   readVideos=new Set([...readVideos].filter(id=>latestVideoIds.includes(id)));
+   try{localStorage.setItem(readKey,JSON.stringify([...readVideos]));}catch(_){}
+   updateUnreadBadge();
    if(!r.items.length)return;
    const rows=r.items.filter(x=>isVideoUrl(x.url)).map(x=>{
     const box=node('article','');box.className='research';box.style.marginTop='12px';
