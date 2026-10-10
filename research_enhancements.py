@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 CHANNEL = 'UCsl6Z6p7GOkczo8Cv-GH6Dg'
 MODEL = 'gemini-3.5-flash-lite'
 SUMMARY_FORMAT_VERSION = 'evidence-visual-v2'
-FRAME_FORMAT_VERSION = 'storyboard-thumbnail-fallback-v2'
+FRAME_FORMAT_VERSION = 'storyboard-public-embed-v3'
 MAX_FRAMES = 5
 MAX_BYTES = 1000000
 
@@ -257,6 +257,40 @@ def frames_saved(identity, spec, moments, reader=read):
     return frames[:MAX_FRAMES]
 
 
+def public_embed_storyboard(identity, reader=read):
+    """Read public YouTube embed player metadata, never download the video."""
+    if not isinstance(identity, str) or not re.fullmatch(r'[A-Za-z0-9_-]{11}', identity):
+        raise ValueError('Invalid video identity')
+    req = urllib.request.Request('https://www.youtube.com/embed/' + identity,
+        headers={'User-Agent': 'Mozilla/5.0 (compatible; Bob-GoldResearch/1.0)',
+                 'Accept': 'text/html'})
+    html_body = reader(req, timeout=9).decode('utf-8', 'replace')
+    player = None
+    match = re.search(r'(?:var\s+)?ytInitialPlayerResponse\s*=\s*', html_body)
+    if match:
+        try:
+            player, _ = json.JSONDecoder().raw_decode(html_body[match.end():])
+        except ValueError:
+            pass
+    # Some public YouTube embeds hold JSON-escaped playerResponse metadata.
+    if not isinstance(player, dict):
+        match = re.search(r'"playerResponse"\s*:\s*', html_body)
+        if match:
+            try:
+                decoded, _ = json.JSONDecoder().raw_decode(html_body[match.end():])
+                player = json.loads(decoded) if isinstance(decoded, str) else decoded
+            except (ValueError, TypeError):
+                pass
+    if not isinstance(player, dict):
+        raise ValueError('Public embed has no player data')
+    details = player.get('videoDetails') or {}
+    if (details.get('videoId') != identity or
+            details.get('channelId') not in (None, CHANNEL) or
+            player.get('playabilityStatus', {}).get('status') not in (None, 'OK')):
+        raise ValueError('Public embed video identity or access not verified')
+    return player.get('storyboards', {}).get('playerStoryboardSpecRenderer', {}).get('spec', '') or ''
+
+
 def public_cover(identity, reader=read):
     """Genuine public YouTube thumbnail when timed storyboards are unavailable.
 
@@ -326,12 +360,15 @@ def handle(connect, payload):
             FROM bob_research_enhancements WHERE video_id=%s""", (identity,)).fetchone()
         conn.execute('INSERT INTO bob_research_enhancements(video_id,fingerprint) VALUES(%s,%s) ON CONFLICT(video_id) DO NOTHING',
                      (identity, summary_fingerprint(segments)))
-        if row and row[2]:
-            result['frames'] = row[2]
+        stored = row[2] if row and isinstance(row[2], list) else []
+        real_frames = any(isinstance(f, dict) and f.get('isCover') is not True for f in stored)
+        if stored:
+            result['frames'] = stored
+        if real_frames:
             frame_state = 'stored'
         elif not row or len(row) < 6 or row[5] != FRAME_FORMAT_VERSION or not row[4]:
-            # A newer extractor gets one recovery attempt even when the old
-            # implementation recorded a failed attempt in the last 24h.
+            # A saved title image is a placeholder, not an extracted storyboard.
+            # Retry after 24h or immediately when the extractor is upgraded.
             conn.execute('UPDATE bob_research_enhancements SET frame_attempt=now(),frame_version=%s,frame_status=%s WHERE video_id=%s',
                          (FRAME_FORMAT_VERSION, 'attempting', identity))
             do_frames = True
@@ -341,30 +378,59 @@ def handle(connect, payload):
         conn.commit()
     if do_frames:
         source = 'storyboard_unavailable'
-        spec = payload.get('storyboardSpec', '')
-        if not spec:
+        previous_cover = [f for f in result['frames'] if isinstance(f, dict) and f.get('isCover') is True]
+        specs = []
+        supplied = payload.get('storyboardSpec', '')
+        if isinstance(supplied, str) and supplied:
+            specs.append(('collector', supplied))
+        if not specs:
             try:
                 from youtube_research import read_url, player_metadata, require_mco
                 player = player_metadata(read_url('https://www.youtube.com/watch?v=' + identity), identity)
                 require_mco(player['videoDetails'])
                 spec = player.get('storyboards', {}).get('playerStoryboardSpecRenderer', {}).get('spec', '')
-            except (OSError, ValueError, KeyError, TypeError):
-                source = 'player_metadata_unavailable'
-        if spec:
+                if spec:
+                    specs.append(('watch', spec))
+            except (OSError, ValueError, KeyError, TypeError, urllib.error.URLError):
+                source = 'watch_metadata_unavailable'
+        try_embed = not specs
+        for origin, spec in specs:
             try:
-                result['frames'] = frames_saved(identity, spec, payload.get('moments', []))
-                if result['frames']:
-                    source = 'storyboard'
-                else:
-                    source = 'storyboard_cells_unavailable'
+                frames = frames_saved(identity, spec, payload.get('moments', []))
+                if frames:
+                    result['frames'] = frames
+                    source = 'storyboard_' + origin
+                    break
+                source = 'storyboard_cells_unavailable'
+                try_embed = True
             except (OSError, ValueError, TimeoutError):
                 source = 'storyboard_processing_failed'
-        if not result['frames']:
+                try_embed = True
+        if try_embed and not any(f.get('isCover') is not True for f in result['frames']):
             try:
-                result['frames'] = [public_cover(identity)]
-                source = 'public_thumbnail'
+                spec = public_embed_storyboard(identity)
+                if spec:
+                    frames = frames_saved(identity, spec, payload.get('moments', []))
+                    if frames:
+                        result['frames'] = frames
+                        source = 'storyboard_embed'
+                    else:
+                        source = 'embed_storyboard_cells_unavailable'
+                else:
+                    source = 'embed_storyboard_unavailable'
             except (OSError, ValueError, TimeoutError, urllib.error.URLError):
-                source += '_and_thumbnail_unavailable'
+                source = 'embed_metadata_unavailable'
+        if not result['frames'] or all(f.get('isCover') is True for f in result['frames']):
+            # Never discard a saved title image during transient YouTube errors.
+            if not previous_cover:
+                try:
+                    result['frames'] = [public_cover(identity)]
+                    source = 'public_thumbnail_' + source
+                except (OSError, ValueError, TimeoutError, urllib.error.URLError):
+                    source += '_and_thumbnail_unavailable'
+            else:
+                result['frames'] = previous_cover
+                source = 'retained_thumbnail_' + source
         frame_state = source
         with connect() as conn:
             # UPDATE never recreates a record evicted by the three-video rule.

@@ -180,5 +180,62 @@ class ResearchTests(unittest.TestCase):
             out = r.handle(lambda: db, {'videoId': VIDEO, 'channelId': r.CHANNEL, 'segments': SEGMENTS})
         self.assertEqual(call.call_count, 1); self.assertNotIn('secret', json.dumps(out))
 
+    def test_public_embed_storyboard_checks_video_and_access(self):
+        player = {'videoDetails': {'videoId': VIDEO, 'channelId': r.CHANNEL},
+                  'playabilityStatus': {'status': 'OK'},
+                  'storyboards': {'playerStoryboardSpecRenderer': {'spec': SPEC}}}
+        def reader(req, timeout):
+            self.assertEqual(req.full_url, 'https://www.youtube.com/embed/' + VIDEO)
+            return ('<script>var ytInitialPlayerResponse = '+json.dumps(player)+';</script>').encode()
+        self.assertEqual(r.public_embed_storyboard(VIDEO, reader), SPEC)
+        player['videoDetails']['videoId'] = 'wrong-video'
+        with self.assertRaises(ValueError): r.public_embed_storyboard(VIDEO, reader)
+        player['videoDetails']['videoId'] = VIDEO
+        player['playabilityStatus']['status'] = 'LOGIN_REQUIRED'
+        with self.assertRaises(ValueError): r.public_embed_storyboard(VIDEO, reader)
+
+    def test_public_embed_supports_json_encoded_player_response(self):
+        player={'videoDetails': {'videoId': VIDEO, 'channelId': r.CHANNEL},
+                'playabilityStatus': {'status': 'OK'},
+                'storyboards': {'playerStoryboardSpecRenderer': {'spec': SPEC}}}
+        body='<script>let p={"playerResponse":'+json.dumps(json.dumps(player))+'};</script>'
+        self.assertEqual(r.public_embed_storyboard(VIDEO, lambda req,timeout:body.encode()), SPEC)
+
+    def test_stored_cover_is_replaced_by_real_storyboard_on_upgrade(self):
+        cover={'at':0,'isCover':True,'dataUrl':'data:image/jpeg;base64,'+'A'*120}
+        frame={'at':450,'dataUrl':'data:image/jpeg;base64,'+'B'*120}
+        db=DB(row=('old', {'kind':'ai'}, [cover], True, True, 'old-extractor', 'public_thumbnail'))
+        with (patch.dict(os.environ,{},clear=True),
+              patch('youtube_research.read_url',side_effect=ValueError('watch unavailable')),
+              patch.object(r,'public_embed_storyboard',return_value=SPEC) as embed,
+              patch.object(r,'frames_saved',return_value=[frame]) as crop,
+              patch.object(r,'public_cover') as get_cover, patch.object(r,'generate') as ai):
+            out=r.handle(lambda:db,{'videoId':VIDEO,'channelId':r.CHANNEL,'segments':SEGMENTS,
+                                   'moments':[{'at':450,'label':'Gold'}]})
+        embed.assert_called_once_with(VIDEO)
+        crop.assert_called_once()
+        get_cover.assert_not_called(); ai.assert_not_called()
+        self.assertEqual(out['frames'],[frame])
+        self.assertIn('Videobilder gespeichert',out['frameStatus'])
+
+    def test_stored_cover_does_not_retry_until_24h_expire(self):
+        cover={'at':0,'isCover':True,'dataUrl':'data:image/jpeg;base64,'+'A'*120}
+        existing=('old', {'kind':'ai'}, [cover], True, True, r.FRAME_FORMAT_VERSION, 'public_thumbnail')
+        with (patch.dict(os.environ,{},clear=True), patch.object(r,'public_embed_storyboard') as embed,
+              patch('youtube_research.read_url') as watch):
+            db=DB(row=existing)
+            out=r.handle(lambda:db,{'videoId':VIDEO,'channelId':r.CHANNEL,'segments':SEGMENTS})
+        self.assertEqual(out['frames'],[cover]);embed.assert_not_called();watch.assert_not_called()
+        expired=('old', {'kind':'ai'}, [cover], True, False, r.FRAME_FORMAT_VERSION, 'public_thumbnail')
+        with (patch.dict(os.environ,{},clear=True),
+              patch('youtube_research.read_url',side_effect=ValueError('offline')),
+              patch.object(r,'public_embed_storyboard',side_effect=ValueError('offline')),
+              patch.object(r,'public_cover') as again):
+            db=DB(row=expired)
+            out=r.handle(lambda:db,{'videoId':VIDEO,'channelId':r.CHANNEL,'segments':SEGMENTS})
+        again.assert_not_called()
+        self.assertEqual(out['frames'],[cover])
+        self.assertTrue(any('frame_attempt=now()' in sql for sql,_ in db.queries))
+
 
 if __name__ == '__main__': unittest.main()
