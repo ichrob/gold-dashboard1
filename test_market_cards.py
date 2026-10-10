@@ -27,6 +27,20 @@ class MarketCardsTests(unittest.TestCase):
         meta.update(values)
         return {'chart': {'result': [{'meta': meta}]}}
 
+    def test_cached_friday_cards_are_frozen_not_falsely_realtime(self):
+        friday=dict(spot=dict(price=4100.,at='2026-10-09T21:01:14+00:00',kind='spot'),
+                    cfd=dict(price=4101.,at='2026-10-09T21:01:14+00:00',realtimeCfd=True,kind='cfd'),
+                    future=dict(price=4102.,at='2026-10-09T21:01:14+00:00'),
+                    estimate=dict(price=4103.,at='2026-10-09T21:01:14+00:00'),
+                    sessionAdvisory=None)
+        with patch.object(m.background_push,'gold_weekend_seconds_remaining',return_value=3600),patch.object(m,'_cache',friday),patch.object(m,'fetch_spot') as fetch:
+            frozen=m.snapshot()
+        self.assertTrue(frozen['cfd']['marketClosed'])
+        self.assertFalse(frozen['cfd']['realtimeCfd'])
+        self.assertEqual(frozen['spot']['at'],friday['spot']['at'])
+        self.assertTrue(friday['cfd']['realtimeCfd'])
+        fetch.assert_not_called()
+
     def test_day_change(self):
         q=m.parse_quote(self.payload(), 'GCZ26.CMX', 1100)
         self.assertAlmostEqual(q['changePct'], -.718654, places=5)
