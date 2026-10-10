@@ -771,7 +771,7 @@ class Handler(BaseHTTPRequestHandler):
         # Sensitive data APIs must be authenticated before any data generation.
         # Keep static PWA resources and /health public, but never expose live,
         # MTF, or DEGIRO enrichment data without the existing Bob credentials.
-        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research")
+        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/weekend-archive", "/api/economic-calendar", "/api/gold-research")
         if protected_api_path:
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
@@ -955,6 +955,24 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Cache-Control','no-store')
             self.end_headers()
             self.wfile.write(body)
+            return
+
+        if path == "/api/weekend-archive":
+            try:
+                import weekend_archive
+                payload=weekend_archive.request('read',{})
+                data=json.dumps(payload,ensure_ascii=False,allow_nan=False).encode('utf-8')
+                status=200
+            except Exception as exc:
+                print('BOB_WEEKEND_ARCHIVE read_error='+type(exc).__name__,flush=True)
+                data=b'{"error":"Wochenendarchiv nicht erreichbar"}'
+                status=503
+            self.send_response(status)
+            self.send_header('Content-Type','application/json; charset=utf-8')
+            self.send_header('Cache-Control','no-store')
+            self.send_header('X-Content-Type-Options','nosniff')
+            self.end_headers()
+            self.wfile.write(data)
             return
 
         if path == "/api/market-cards":
@@ -1389,6 +1407,8 @@ if __name__ == "__main__":
     ensure_fibonacci_monitor()
     auto_collection.start()
     gold_research.start()
+    import weekend_archive
+    weekend_archive.start(build_live_bundle,market_cards.snapshot)
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress

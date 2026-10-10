@@ -27,3 +27,8 @@ assert(html.includes('else loadData();'));
 
 assert(html.includes('const notice=document.getElementById(\'gold-special-session\')'));
 console.log('Weekend UI: Friday/Monday and DST behavior; paused market polling and simulation labels OK');
+
+assert(html.includes("fetch('/api/weekend-archive'"));
+assert(html.includes('chartHistory=history;'));
+assert(html.includes('restoreServerWeekendArchive();'));
+console.log('Weekend persistent display-only recovery hooks OK');

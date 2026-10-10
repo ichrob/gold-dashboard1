@@ -245,7 +245,7 @@ try{
   el(key,'change').textContent=pct===null?'— %':(pct>0?'↑ +':pct<0?'↓ −':'→ ')+number(Math.abs(pct))+' %';
   el(key,'change').className='gold-change'+(pct>0?' up':pct<0?' down':'');
   el(key,'basis').textContent=pct===null?'Tagesänderung fehlt':q.changeLabel||'zum Vortagesschluss';
-  const marketPause=has&&goldWeekendCloseQuote(stamp);
+  const marketPause=has&&(window.BobWeekendPause?.()||q?.marketClosed||goldWeekendCloseQuote(stamp));
   el(key,'price').style.fontStyle=has&&!marketPause&&(!Number.isFinite(stamp)||Date.now()-stamp>120000||stamp>Date.now()||q.historical)?'italic':'';
   const old=Number.isFinite(stamp)&&(Date.now()-stamp>120000||stamp>Date.now()+5000);
   el(key,'state').textContent=expired?'Anmeldung erforderlich':!has?(window.BobWeekendPause?.()?'Markt geschlossen · letzter Kurs nicht gespeichert':q?.note||(key==='estimate'?'Schätzung wartet auf aktuelle Eingangsdaten':'Kurs momentan nicht verfügbar')):!Number.isFinite(stamp)?'Aktualität unbekannt – Zeitstempel fehlt':q.historical?'Letzte gespeicherte Schätzung · Aktualisierung pausiert':old?(q.kind==='calculated'?'Letzte Schätzung · nicht aktuell':''):q.kind==='calculated'?'Future-Schätzung · automatisch':q.note||'';
@@ -288,7 +288,7 @@ try{
   const phase=window.BobDegiroPhase?.();
   el.textContent=phase==='night'?' · DEGIRO-Nachtmodus (22:00–07:30 Zürich), Goldmarkt weiterhin aktiv.':phase==='preparation'?' · Vorbereitung (07:30–08:00), noch keine Einstiege.':phase==='weekend'?' · Goldmarkt am Wochenende geschlossen.':'';
  }
- window.BobGoldCards={spot(bundle){const s=bundle?.spots;if(!s||!positive(s.xaus))return;accept('spot',{price:s.xaus,at:s.spot_price_as_of,source:s.primary||s.goldprice_status||'Bob Spotquelle',kind:'spot',note:s.spot_error?'Aktualisierung pausiert':'',changePct:s.dailyChange?.changePct??null,changeLabel:s.dailyChange?.changeLabel});},refresh,restoreWeekendCards};
+ window.BobGoldCards={weekendArchive(cards){for(const key of ['spot','future','estimate','cfd']){const q=cards?.[key];if(positive(q?.price))accept(key,{...q,marketClosed:true,historical:true,realtimeCfd:false,isExchangeRealtime:false});}},spot(bundle){const s=bundle?.spots;if(!s||!positive(s.xaus))return;accept('spot',{price:s.xaus,at:s.spot_price_as_of,source:s.primary||s.goldprice_status||'Bob Spotquelle',kind:'spot',note:s.spot_error?'Aktualisierung pausiert':'',changePct:s.dailyChange?.changePct??null,changeLabel:s.dailyChange?.changeLabel});},refresh,restoreWeekendCards};
  restoreWeekendCards();renderSessionMode();if(!window.BobWeekendPause?.())refresh();setInterval(()=>{render('spot');render('future');render('estimate');render('cfd');renderSessionMode();if(document.visibilityState!=='hidden'&&!window.BobWeekendPause?.())refresh();},30000);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!window.BobWeekendPause?.())refresh();});
 })();
@@ -3152,12 +3152,34 @@ if(typeof MutationObserver!=="undefined"){
   }
  }).observe($("status"),{childList:true,characterData:true,subtree:true});
 }
+async function restoreServerWeekendArchive(){
+ if(!window.BobWeekendPause?.())return;
+ try{
+  const response=await fetch('/api/weekend-archive',{cache:'no-store'});
+  if(!response.ok)throw Error('Archiv nicht verfügbar');
+  const result=await response.json();
+  if(!window.BobWeekendPause?.()||result?.displayOnly!==true)return;
+  window.BobGoldCards?.weekendArchive?.(result.cards||{});
+  const history={};
+  for(const tf of ['1m','5m','15m','30m','1h','4h']){
+   const bars=result.history?.[tf];
+   if(Array.isArray(bars)&&bars.length>=2)history[tf]=bars;
+  }
+  if(Object.keys(history).length){
+   chartHistory=history;
+   draw(); // Historical display only: never analyze, release products or confirm stop/target.
+  }
+ }catch(error){
+  console.warn('[BOB] Weekend archive not loaded',error?.message||error);
+ }
+}
 if(window.BobWeekendPause?.()){
  $("quickSignal").textContent="ABWARTEN";
  $("quickSignal").className="signal neutral";
  $("quickReason").textContent="Goldmarkt geschlossen · letzte gespeicherte Kursstände, keine aktuellen Handelsfreigaben.";
  $("status").textContent="MARKT GESCHLOSSEN · Freitag 23:00 bis Montag 00:00 (Zürich)";
  window.BobGoldCards?.restoreWeekendCards?.();
+ restoreServerWeekendArchive();
 }else loadData();
 let lastAutoMarketAt=0;
 setInterval(()=>{
