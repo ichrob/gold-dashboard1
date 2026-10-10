@@ -1,0 +1,54 @@
+name: Bob Monday market reopen
+on:
+  schedule:
+    # Zurich Monday 00:20 is Sunday 22:20 UTC (summer) or 23:20 UTC (winter).
+    - cron: '20 22,23 * * 0'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  market-reopen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Select Zurich Monday reopening
+        id: opening
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          local=datetime.now(ZoneInfo('Europe/Zurich'))
+          valid=local.weekday()==0 and local.hour==0
+          print('check='+str(valid).lower())
+          print('local='+local.isoformat())
+          PY
+      - name: Verify Bob and background after reopening
+        if: steps.opening.outputs.check == 'true' || github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          # Render free service may need a cold start. Never invent a market quote.
+          curl --fail --silent --show-error --max-time 90 --retry 4 --retry-delay 12 --retry-all-errors \
+            https://bob-private-scanner.onrender.com/health -o /tmp/bob-reopen-health.json
+          curl --fail --silent --show-error --max-time 30 --retry 5 --retry-delay 15 --retry-all-errors \
+            https://bob-private-scanner.onrender.com/health/background -o /tmp/bob-reopen-background.json
+          python - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          health=json.load(open('/tmp/bob-reopen-health.json'))
+          monitor=json.load(open('/tmp/bob-reopen-background.json'))
+          collector=health.get('automaticCollection') or {}
+          assert health.get('status')=='ok', 'Bob still degraded at reopening'
+          assert collector.get('enabled') is True and collector.get('running') is True, 'Gold collector not running'
+          assert monitor.get('status')=='ok' and monitor.get('monitorStatus') in ('active','idle','checking'), 'Background worker has not resumed'
+          cycle=collector.get('lastCycleAt')
+          assert isinstance(cycle,str), 'Collector has no actual post-reopening cycle'
+          observed=datetime.fromisoformat(cycle.replace('Z','+00:00')).timestamp()
+          age=datetime.now(timezone.utc).timestamp()-observed
+          assert 0<=age<=900, 'Collector cycle not recent'
+          feed=(collector.get('cfdFeed') or {})
+          if feed.get('state')=='closed':
+              print('Bob resumed; CFD provider reports a special closed session. No fresh trading approval asserted.')
+          else:
+              assert feed.get('state')=='current', 'CFD provider not current after reopening'
+              print('Bob resumed; CFD feed current and background monitor operational.')
+          PY
