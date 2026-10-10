@@ -63,3 +63,12 @@ Modellkorrektur: Neue Google-Projekte erhalten laut offizieller Deprecation-Doku
 ## MCO-Richtungsanzeige (10. Oktober 2026)
 
 Die Kopfzeile „MCO Markets“ zeigt die Auswertung von höchstens drei neuesten Gold-Videos, nicht den für Handelszwecke unverändert strengen unabhängigen Quellenkonsens. Ausschließlich automatisch bestätigte MCO-Transkripte mit tatsächlich erfolgter Textauswertung tragen zur Kopfeinschätzung bei; bloße Titel, nicht lesbare Untertitel und manuell eingefügte, nicht verifizierte Texte zählen nicht. Bei bekanntem Veröffentlichungszeitpunkt sind Clips älter als sieben Tage ausgeschlossen. Stimmen die klaren Richtungen überein, steht LONG oder SHORT; bei widersprüchlichen oder ausschließlich unklaren Aussagen steht „Unklar“. Ohne bestätigtes Transkript steht „Noch nicht analysiert“. Eine fehlende oder veraltete Serveraktualisierung wird zusätzlich gekennzeichnet. Der separate Konsenswert bleibt konservativ und kann keine Handelsfreigabe auslösen.
+
+
+## KI-Zusammenfassungen mit verpflichtenden Belegen (10. Oktober 2026)
+
+Die laufenden Protokolle der Vorversion zeigten zwei Gemini-Antworten mit fehlenden Segmentbelegen (09.10.2026), vorher außerdem HTTP-404-/HTTP-503- und Timeout-Fehler (08.10.2026). Die Ausgabe wurde deshalb enger geregelt: explizit nummerierte Untertitelsegmente und ein JSON-Schema verlangen pro Abschnitt Beleg-IDs. Das Modell soll auf Deutsch eine kurze MCO-Autorensicht mit Fazit, Long-/Short-Szenarien, Kursmarken, Bedingungen, Risiken und Zeithorizont formulieren, ohne nicht genannte Themen oder visuelle Chartinterpretationen zu erfinden.
+
+Vollständig unbelegte KI-Texte bleiben gesperrt. Bei mehreren Abschnitten kann Bob nur diejenigen mit gültigen Referenzen, zulässiger Länge und in den Referenzen belegten Zahlen übernehmen. Das Ergebnis ist dann ausdrücklich als teilweise belegte KI-Zusammenfassung gekennzeichnet; fehlende Inhalte werden nicht erfunden und der regelbasierte Originalsatz-Überblick bleibt verfügbar. Die Belegprüfung verhindert keine sämtlichen semantischen Fehler; Originalstellen sollten vor einem Trade geprüft werden.
+
+Die neue Formatversion erlaubt bei ausreichendem Restkontingent einen neuen Versuch, jedoch weiterhin nur unter der bestätigten Bedingung eines Google-Projekts ohne Abrechnung. Maximale Versuche (10 in 24 Stunden, höchstens einer pro Minute), die Wiederholungspause und der Verzicht auf kostenpflichtige Ersatzabrufe bleiben unverändert. Eine tatsächlich erfolgreiche Live-Zusammenfassung muss gesondert nachgewiesen werden.
