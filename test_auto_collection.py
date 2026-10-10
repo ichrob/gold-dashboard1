@@ -71,7 +71,8 @@ class AutoCollectionTests(unittest.TestCase):
             self.assertEqual(a.status()['sourceFailures'], 1)
             self.assertGreater(a.status()['nextSourceInSeconds'], 0)
 
-    def test_each_cycle_merges_saved_real_ticks_and_preserves_gaps(self):
+    @patch.object(a.background_push, 'degiro_session', return_value='trading')
+    def test_each_cycle_merges_saved_real_ticks_and_preserves_gaps(self, _session):
         rows = [dict(at=(NOW-timedelta(seconds=s)).isoformat(), price=4100+(800-s)*.01,
                      symbol='XAU', currency='USD') for s in range(800, -1, -20)]
         research = dict(contract='GCZ26', underlyingAt=(NOW-timedelta(seconds=790)).isoformat(),
