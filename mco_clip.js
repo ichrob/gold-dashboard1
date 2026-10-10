@@ -170,7 +170,7 @@
    if(german)utter.voice=german;
    window.speechSynthesis.speak(utter);
   }
-  function stop(){if(handle)cancelAnimationFrame(handle);handle=0;running=false;cancelVoice();}
+  function stop(){if(handle)cancelAnimationFrame(handle);handle=0;running=false;cancelVoice();document.removeEventListener('visibilitychange',backgroundPause);}
   function tick(t){
    if(!running)return;
    if(!canvas.isConnected){stop();return;}
@@ -180,7 +180,7 @@
    handle=requestAnimationFrame(tick);
   }
   function play(){
-   if(!prepared){
+   if(!prepared||elapsed===0||ended){
     let snapshot=null;try{snapshot=typeof snapshotProvider==='function'?snapshotProvider():null;}catch(_){}
     prepared=prepare(item,snapshot);
    }
@@ -189,6 +189,7 @@
    root.BobMcoClip.active=stop;
    if(ended){elapsed=0;ended=false;lastScene=-1;}
    running=true;started=performance.now()-elapsed*1000;toggle.textContent='Ⅱ Pause';
+   document.addEventListener('visibilitychange',backgroundPause);
    if(voiced){lastScene=-1;}
    handle=requestAnimationFrame(tick);
   }
@@ -199,9 +200,9 @@
   again.addEventListener('click',()=>{stop();elapsed=0;ended=false;lastScene=-1;play();});
   voice.addEventListener('click',()=>{
    voiced=!voiced;voice.textContent=voiced?'Ton: an':'Ton: aus';
-   if(!voiced)cancelVoice();else if(running&&prepared){lastScene=-1;speak(prepared.scenes[Math.min(4,EDGES.findIndex((v,i)=>i<5&&elapsed>=v&&elapsed<EDGES[i+1]))]);}
+   if(!voiced)cancelVoice();else if(running&&prepared){lastScene=Math.max(0,EDGES.findIndex((v,i)=>i<5&&elapsed>=v&&elapsed<EDGES[i+1]));speak(prepared.scenes[lastScene]);}
   });
-  document.addEventListener('visibilitychange',()=>{if(document.hidden&&running){stop();toggle.textContent='▶ Fortsetzen';status.textContent='Pausiert (App im Hintergrund)';}});
+  function backgroundPause(){if(document.hidden&&running){stop();toggle.textContent='▶ Fortsetzen';status.textContent='Pausiert (App im Hintergrund)';}}
   prepared=prepare(item,typeof snapshotProvider==='function'?snapshotProvider():null);
   if(prepared){render(0);}
   else {status.textContent='Noch kein bestätigtes Transkript für diesen Clip.';toggle.disabled=true;again.disabled=true;}
