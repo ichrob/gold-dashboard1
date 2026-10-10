@@ -52,6 +52,20 @@ class InvestingCardTests(unittest.TestCase):
             poll.assert_not_called()
             self.assertEqual(c._health['state'], 'closed')
 
+    def test_provider_declared_closed_is_not_reported_as_fresh_on_holiday(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        from unittest.mock import patch
+        state=self.fixture()
+        state['instrument']['base']['isOpen']=False
+        q=self.parse(state)
+        self.assertIs(q['providerMarketOpen'], False)
+        self.assertFalse(q['realtimeCfd'])
+        self.assertIn('geschlossen',q['note'])
+        with patch.object(c, 'fetch', return_value=q),patch.object(c.time,'time',return_value=datetime.fromisoformat(q['at']).timestamp()+15),patch.object(c,'_health', {'state':'starting', 'sourceAt':None,'lastCheckedAt':None}):
+            c.collect_once()
+            self.assertEqual(c._health['state'],'closed')
+
     def test_original_time_and_provider_change(self):
         q=self.parse(self.fixture())
         self.assertEqual(q['at'], '2026-10-04T22:34:31+00:00')
