@@ -115,8 +115,47 @@ class ResearchTests(unittest.TestCase):
         crop = Image.open(io.BytesIO(base64.b64decode(frames[0]['dataUrl'].split(',')[1])))
         self.assertEqual(crop.size, (160, 90)); self.assertGreater(crop.getpixel((80, 40))[1], 240)
 
+    @unittest.skipIf(Image is None, "Pillow required")
+    def test_public_thumbnail_is_real_jpeg_and_explicitly_not_visual_evidence(self):
+        image=Image.new('RGB', (480, 360), 'red')
+        buf=io.BytesIO(); image.save(buf, 'JPEG')
+        frame=r.public_cover(VIDEO, lambda req,timeout:buf.getvalue())
+        self.assertTrue(frame['isCover'])
+        self.assertIn('Titelbild',frame['source'])
+        self.assertEqual(r.validated_frames([frame]),[])
+        self.assertEqual(r.summary_fingerprint(SEGMENTS,[frame]),r.summary_fingerprint(SEGMENTS))
+        Image.open(io.BytesIO(base64.b64decode(frame['dataUrl'].split(',',1)[1]))).verify()
+
+    def test_new_frame_extractor_retries_old_failed_24h_attempt_without_ai_billing(self):
+        db=DB(row=('other',None,None,False,True,'legacy','retry_paused'))
+        thumbnail={'at':0,'isCover':True,'dataUrl':'data:image/jpeg;base64,'+'A'*120}
+        with (patch.dict(os.environ,{},clear=True),
+              patch('youtube_research.read_url',side_effect=ValueError('YouTube metadata unavailable')),
+              patch.object(r,'public_cover',return_value=thumbnail) as cover,
+              patch.object(r,'generate') as ai):
+            out=r.handle(lambda:db,{'videoId':VIDEO,'channelId':r.CHANNEL,'segments':SEGMENTS})
+        cover.assert_called_once()
+        ai.assert_not_called()
+        self.assertEqual(out['frames'][0]['isCover'],True)
+        self.assertIn('Titelbild',out['frameStatus'])
+        self.assertTrue(any('frame_version=%s' in q for q,_ in db.queries))
+
+    @unittest.skipIf(Image is None, "Pillow required")
+    def test_missing_storyboard_cell_does_not_discard_another_valid_cell(self):
+        spec='https://i.ytimg.com/sb/'+VIDEO+'/storyboard3_L$L/$N.jpg?sqp=x|160#90#80#5#5#5000#M$M#signature'
+        image=Image.new('RGB',(800,450),'green'); buf=io.BytesIO(); image.save(buf,'JPEG')
+        calls=[]
+        def reader(req,timeout):
+            calls.append(req.full_url)
+            if 'M0.jpg' in req.full_url: raise OSError('first sprite unavailable')
+            return buf.getvalue()
+        frames=r.frames_saved(VIDEO,spec,[{'at':5,'label':'First'},{'at':130,'label':'Second'}],reader)
+        self.assertEqual(len(frames),1)
+        self.assertEqual(frames[0]['at'],130)
+        self.assertGreaterEqual(len(calls),2)
+
     def test_no_billing_confirmation_means_no_ai_request(self):
-        db = DB(row=('other', None, None, False, True))
+        db = DB(row=('other', None, None, False, True, r.FRAME_FORMAT_VERSION, 'retry_paused'))
         with patch.dict(os.environ, {'GEMINI_API_KEY': 'secret'}, clear=True), patch.object(r, 'generate') as call:
             out = r.handle(lambda: db, {'videoId': VIDEO, 'channelId': r.CHANNEL, 'segments': SEGMENTS})
         call.assert_not_called(); self.assertIn('fehlt', out['summaryStatus'])
@@ -130,13 +169,13 @@ class ResearchTests(unittest.TestCase):
 
     def test_persisted_result_reused_without_key(self):
         fp = r.hashlib.sha256(json.dumps([r.MODEL, r.SUMMARY_FORMAT_VERSION, SEGMENTS], sort_keys=True).encode()).hexdigest()
-        db = DB(row=(fp, {'kind': 'ai'}, [{'at': 5}], True, True))
+        db = DB(row=(fp, {'kind': 'ai'}, [{'at': 5}], True, True, r.FRAME_FORMAT_VERSION, 'stored'))
         with patch.dict(os.environ, {}, clear=True), patch.object(r, 'generate') as call:
             out = r.handle(lambda: db, {'videoId': VIDEO, 'channelId': r.CHANNEL, 'segments': SEGMENTS})
         call.assert_not_called(); self.assertEqual(out['summary']['kind'], 'ai'); self.assertEqual(len(out['frames']), 1)
 
     def test_failure_hides_provider_details_and_no_retry(self):
-        db = DB(row=('other', None, None, False, True))
+        db = DB(row=('other', None, None, False, True, r.FRAME_FORMAT_VERSION, 'retry_paused'))
         with patch.dict(os.environ, {'GEMINI_API_KEY': 'secret', 'BOB_GEMINI_FREE_PROJECT': 'confirmed-no-billing'}, clear=True), patch.object(r, 'generate', side_effect=RuntimeError('secret raw provider body')) as call:
             out = r.handle(lambda: db, {'videoId': VIDEO, 'channelId': r.CHANNEL, 'segments': SEGMENTS})
         self.assertEqual(call.call_count, 1); self.assertNotIn('secret', json.dumps(out))
