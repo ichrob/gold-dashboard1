@@ -22,6 +22,11 @@ class AutoCollectionTests(unittest.TestCase):
     def test_window_handles_swiss_dst_and_weekends(self):
         self.assertTrue(a.in_window(NOW))
         self.assertTrue(a.in_window(NOW.replace(hour=20)))
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo('Europe/Zurich')
+        self.assertTrue(a.in_window(datetime(2026, 10, 9, 22, 59, tzinfo=tz)))
+        self.assertFalse(a.in_window(datetime(2026, 10, 9, 23, 0, tzinfo=tz)))
+        self.assertTrue(a.in_window(datetime(2026, 10, 12, 0, 0, tzinfo=tz)))
         self.assertFalse(a.in_window(NOW+timedelta(days=1)))
         # Switzerland is UTC+1 in December: 05 UTC is 06 local.
         self.assertTrue(a.in_window(datetime(2026, 12, 1, 5, tzinfo=timezone.utc)))
