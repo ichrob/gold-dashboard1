@@ -2,6 +2,7 @@
 import json
 import investing_card
 import background_push
+import market_session_calendar
 import math
 import threading
 import time
@@ -104,7 +105,8 @@ def snapshot():
             # No network requests, Yahoo retrials or synthetic freshness at closed market.
             # A remembered close keeps its original source timestamp.
             result = dict(spot=unavailable('XAU/USD'), future=unavailable('GCZ26'),
-                          estimate=unavailable('GCZ26'), cfd=unavailable('Gold CFD'))
+                          estimate=unavailable('GCZ26'), cfd=unavailable('Gold CFD'),
+                          sessionAdvisory=market_session_calendar.advisory())
             for key in ('spot','future','cfd'):
                 result[key]['note'] = 'Markt geschlossen · kein gespeicherter Kurs verfügbar'
             historical = last_estimate()
@@ -116,7 +118,7 @@ def snapshot():
             return result
         if _cache is not None and time.monotonic() - _cached_at < 30:
             return _cache
-        result = dict(spot=unavailable('XAU/USD'), future=unavailable('GCZ26'), estimate=unavailable('GCZ26'), cfd=unavailable('Gold CFD'))
+        result = dict(spot=unavailable('XAU/USD'), future=unavailable('GCZ26'), estimate=unavailable('GCZ26'), cfd=unavailable('Gold CFD'), sessionAdvisory=market_session_calendar.advisory())
         with ThreadPoolExecutor(max_workers=3) as pool:
             jobs = {'spot': pool.submit(fetch_spot), 'future': pool.submit(fetch_quote, 'GCZ26.CMX'), 'cfd': pool.submit(investing_card.fetch)}
             for key, job in jobs.items():
