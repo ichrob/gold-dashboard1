@@ -165,6 +165,7 @@ def generate(segments, key, reader=read, frames=None):
                     'frameId': {'type': 'INTEGER', 'minimum': 0, 'maximum': len(images)-1},
                     'kind': {'type': 'STRING', 'enum': ['chart','speaker','slide','other','unclear']}},
                 'required': ['frameId','kind']}}
+        schema['propertyOrdering'] = ['sections', 'frameNotes']
         for i, frame in enumerate(images):
             parts.append({'text': 'Bild '+str(i)+' bei ca. '+str(round(frame['at']))+
                           ' Sekunden; niedrig aufgelöste YouTube-Zeitleistenvorschau.'})
