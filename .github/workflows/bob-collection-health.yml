@@ -3,7 +3,9 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
+    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * 1-5'
+    # Monday 00:00 in Zurich is Sunday 22:00 UTC (summer) or 23:00 UTC (winter).
+    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 22,23 * * 0'
   workflow_dispatch:
 permissions:
   contents: read
@@ -15,7 +17,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 65
     steps:
+      - name: Skip expected Zurich gold weekend closure
+        id: session
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          local = datetime.now(ZoneInfo("Europe/Zurich"))
+          closed = local.weekday() == 5 or local.weekday() == 6 or (local.weekday() == 4 and local.hour >= 23)
+          print("open=" + ("false" if closed else "true"))
+          PY
       - name: Verify both services and completed background cycle
+        if: steps.session.outputs.open == 'true'
         run: |
           failed=0
           for attempt in $(seq 1 12); do
