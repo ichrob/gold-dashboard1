@@ -13,7 +13,30 @@ _MAX = 2000000
 _lock = threading.Lock()
 _cache = {}
 _manual = {}
+_retained_video_ids = set()
 _busy = threading.Semaphore(2)
+
+
+def retain_only(items):
+    """Evict old in-process subtitles, summaries and manual imports."""
+    ids = set()
+    for item in items:
+        try:
+            if item.get('channelId') == 'UCsl6Z6p7GOkczo8Cv-GH6Dg':
+                ids.add(video_id(item['url']))
+        except (AttributeError, ValueError, KeyError):
+            continue
+    if not ids:
+        return
+    ids = set(list(ids)[:3])
+    with _lock:
+        _retained_video_ids.clear()
+        _retained_video_ids.update(ids)
+        for cache in (_cache, _manual):
+            for identity in list(cache):
+                if identity not in ids:
+                    del cache[identity]
+
 
 
 def video_id(url):
@@ -194,8 +217,9 @@ def analyze(url, fetch=read_url, *, verified_item=None):
         result.update(videoId=identity,title=d.get('title','YouTube-Video')[:240],channelId=d.get('channelId'),publisher=d.get('author','Unbekannter Kanal')[:160],publishedDate=micro.get('publishDate'),checkedAt=now,url='https://www.youtube.com/watch?v='+identity)
         if fetch is read_url:
             with _lock:
-                if len(_cache)>=40:_cache.pop(next(iter(_cache)))
-                _cache[identity]=(now,dict(result))
+                if not _retained_video_ids or identity in _retained_video_ids:
+                    if len(_cache)>=3:_cache.pop(next(iter(_cache)))
+                    _cache[identity]=(now,dict(result))
         return result
     finally:_busy.release()
 
@@ -217,6 +241,9 @@ def enrich(item):
 
 def manual(payload):
     identity=video_id(payload.get('url'));url='https://www.youtube.com/watch?v='+identity
+    with _lock:
+        if _retained_video_ids and identity not in _retained_video_ids:
+            raise ValueError('Bob speichert ausschließlich die drei neuesten MCO-Gold-Videos. Dieses Video gehört nicht dazu.')
     transcript=payload.get('transcript','')
     if not isinstance(transcript,str) or len(transcript)>200000:raise ValueError('Transkript zu groß oder ungültig')
     if transcript.strip():
@@ -236,7 +263,7 @@ def manual(payload):
     # Date-only metadata is informational, not an exact source timestamp for intraday.
     item['url']=url
     with _lock:
-        if len(_manual)>=20:_manual.pop(next(iter(_manual)))
+        if len(_manual)>=3:_manual.pop(next(iter(_manual)))
         _manual[identity]=item
     return item
 
