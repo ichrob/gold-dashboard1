@@ -152,7 +152,8 @@
     }
     if(current!==null&&Number.isFinite(current)){rounded(583,134,201,42,6,'#22423f');
      ctx.fillStyle='#eafff4';ctx.font='bold 23px sans-serif';ctx.fillText(num(current),590,163);
-     ctx.font='13px sans-serif';ctx.fillStyle='#d8f4e8';ctx.fillText(prepared.bars.length?'Bobs 15m · USD/oz':'Spotquelle · USD/oz',589,189);}
+     ctx.font='13px sans-serif';ctx.fillStyle='#d8f4e8';ctx.fillText(prepared.bars.length?'Bobs 15m · USD/oz':'Spotquelle · USD/oz',589,189);
+     if(prepared.quote?.asOf){ctx.font='12px sans-serif';ctx.fillStyle='#d8f4e8';ctx.fillText('Stand: '+new Date(prepared.quote.asOf).toLocaleString('de-CH'),589,205);}}
     else {ctx.fillStyle='#f4c4a9';ctx.font='16px sans-serif';ctx.fillText('Kein belegter Goldkurs',580,156);}
     const selected=levels.length?levels.slice(0,3).map(m=>({label:m.ratio,price:m.price,kind:'MCO',key:m.key,near:m.near})):
       bobList.slice(0,4).map(m=>({label:({'r382':'38,2 %','r500':'50 %','r618':'61,8 %','r786':'78,6 %','e1272':'127,2 %','e1618':'161,8 %'})[m.key]||m.key,price:m.price,kind:'Bob',key:m.key}));
