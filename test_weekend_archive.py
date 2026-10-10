@@ -70,3 +70,42 @@ class WeekendObservationBackfillTests(unittest.TestCase):
         self.assertIsNotNone(w.valid('cfd-chart:1m',q))
         self.assertIsNone(w.valid('chart:1m',q))
         self.assertIsNone(w.valid('cfd-chart:1m',dict(q,bars=[dict(bars[0],instrument='XAU/USD'),bars[1]])))
+
+
+class WeekendRestartHistoryTests(unittest.TestCase):
+    def test_merge_retains_pre_restart_candles_without_filling_missing_intervals(self):
+        now=datetime.now(timezone.utc)
+        minute=60000
+        end=int(now.timestamp()*1000)//minute*minute
+        def bar(offset,price):
+            return dict(openTime=end-offset*minute,open=price,high=price+1,
+                low=price-1,close=price,isOpen=False,instrument='GOLD-CFD',
+                source='Investing.com · gespeicherte Stichproben',samples=2)
+        earlier=[bar(7,4000),bar(5,4002)]
+        later=[bar(2,4005),bar(1,4008)]
+        merged=w.merge_chart_history({'bars':earlier},{'bars':later,'at':now.isoformat()})
+        self.assertEqual([b['openTime'] for b in merged['bars']],
+            [b['openTime'] for b in earlier+later])
+        self.assertIsNotNone(w.valid('cfd-chart:1m',
+            dict(merged,at=datetime.fromtimestamp(end/1000,timezone.utc).isoformat())))
+        self.assertEqual(len(merged['bars']),4)
+
+    @unittest.skipUnless(__import__('os').environ.get('BOB_TEST_DATABASE_URL'),'Postgres integration')
+    def test_db_preserves_chart_across_separate_connections(self):
+        import os,psycopg
+        minute=60000
+        end=int(datetime.now(timezone.utc).timestamp()*1000)//minute*minute
+        def bars(offsets):
+            return [dict(openTime=end-offset*minute,open=4000.,high=4001.,
+                low=3999.,close=4000.,isOpen=False,instrument='GOLD-CFD',
+                source='Investing.com · saved samples',samples=2) for offset in offsets]
+        a={'at':datetime.fromtimestamp((end-4*minute)/1000,timezone.utc).isoformat(),'bars':bars([6,5])}
+        b={'at':datetime.fromtimestamp(end/1000,timezone.utc).isoformat(),'bars':bars([2,1])}
+        # a's last candle closes at end-4 minutes; b's closes at end.
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            w.init(conn)
+            w.handle(conn,'write',{'items':{'cfd-chart:1m':a}})
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            w.handle(conn,'write',{'items':{'cfd-chart:1m':b}})
+            self.assertEqual(len(w.handle(conn,'read',{})['cfdHistory']['1m']),4)
+            conn.execute("DELETE FROM bob_weekend_archive WHERE data_key='cfd-chart:1m'")
