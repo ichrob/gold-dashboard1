@@ -6,9 +6,9 @@ import gold_research as research
 import os
 
 CHANNEL=store.CHANNEL
-def example(vid='AaBbCcDdE01'):
+def example(vid='AaBbCcDdE01', published=1760000000):
     return dict(channelId=CHANNEL,kind='YouTube',title='Gold Marktanalyse heute',
-        url='https://www.youtube.com/watch?v='+vid,publishedAt=1760000000,
+        url='https://www.youtube.com/watch?v='+vid,publishedAt=published,
         transcript='DO NOT STORE MY PRIVATE TRANSCRIPT',sourceId='mco-video')
 
 class YoutubeFeedArchiveTests(unittest.TestCase):
@@ -58,17 +58,17 @@ class YoutubeFeedArchiveTests(unittest.TestCase):
                     VALUES(%s,'fixture','{"sections":[]}','[{"dataUrl":"base64-heavy"}]')""",(vid,))
             conn.execute('INSERT INTO bob_research_requests(claim,video_id) VALUES(%s,%s)',
                          ('retention-fixture',ids[-1]))
-            self.assertEqual(store.handle(conn,'write',{'items':[example(vid) for vid in ids]})['saved'],3)
+            self.assertEqual(store.handle(conn,'write',{'items':[example(vid,1760000000+(4-i)*3600) for i,vid in enumerate(ids)]})['saved'],3)
             self.assertFalse(store.is_retained(conn,ids[-1]))
             self.assertTrue(store.is_retained(conn,ids[0]))
             # A new arrival replaces the third slot; a partial stale feed
             # must not reintroduce previously evicted entries.
             newest='AaBbCcDdE05'
-            self.assertEqual(store.handle(conn,'write',{'items':[example(newest)]})['saved'],3)
+            self.assertEqual(store.handle(conn,'write',{'items':[example(newest,1760000000+5*3600)]})['saved'],3)
             current=store.handle(conn,'read',{})['items']
             self.assertEqual(store.selected_ids(current),[newest,ids[0],ids[1]])
             self.assertFalse(store.is_retained(conn,ids[2]))
-            self.assertEqual(store.handle(conn,'write',{'items':[example(ids[3])]})['saved'],3)
+            self.assertEqual(store.handle(conn,'write',{'items':[example(ids[3],1760000000+3600)]})['saved'],3)
             self.assertEqual(store.selected_ids(store.handle(conn,'read',{})['items']),[newest,ids[0],ids[1]])
             rows=conn.execute('SELECT video_id FROM bob_research_transcripts').fetchall()
             self.assertNotIn(ids[-1], [x[0] for x in rows])
