@@ -39,6 +39,9 @@ class DatabaseTests(unittest.TestCase):
         import psycopg
         self.connect=lambda:psycopg.connect(os.environ['BOB_TEST_DATABASE_URL'])
         with self.connect() as conn:
+            import youtube_feed_archive as archive
+            archive.init(conn)
+            conn.execute('DELETE FROM bob_youtube_feed_archive WHERE feed_key=%s',(archive.KEY,))
             p.init(conn);conn.execute('DELETE FROM bob_research_transcripts');conn.execute('DELETE FROM bob_research_requests')
         self.key=patch.dict(os.environ,{'SUPADATA_API_KEY':'fixture-secret'});self.key.start();self.addCleanup(self.key.stop)
     def tearDown(self):
@@ -100,6 +103,8 @@ class RetryBudgetTests(unittest.TestCase):
         for recent,video_count,total,expected in [(True,0,0,'cooldown'),(False,3,3,'video_limit'),(False,2,90,'local_limit'),(False,2,89,None)]:
             conn=Mock();conn.__enter__=Mock(return_value=conn);conn.__exit__=Mock(return_value=False)
             def execute(sql,params=None):
+                if 'FROM bob_youtube_feed_archive' in sql:
+                    return Mock(fetchone=Mock(return_value=None))
                 if sql.startswith('SELECT result'):
                     self.assertIn("interval '1 hour'",sql)
                     return Mock(fetchone=Mock(return_value=(None,recent)))
