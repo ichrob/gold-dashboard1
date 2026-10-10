@@ -22,6 +22,25 @@ def tick(price,seconds=30,direction='LONG',**values):
     return {**market(direction),'price':price,'dataAt':NOW+seconds*1000,**values}
 
 class SimulationTests(unittest.TestCase):
+    def test_weekend_enqueuing_does_not_start_quote_worker(self):
+        from unittest.mock import patch
+        with patch.object(sim.background_push,'gold_weekend_seconds_remaining',return_value=3600):
+            with patch.object(sim,'_bundle_ready') as event:
+                sim.enqueue({'spots':{'xaus':4000}}, lambda:None)
+                event.set.assert_not_called()
+
+    def test_weekend_paper_report_explicitly_closed_without_database_mutation(self):
+        from unittest.mock import patch
+        conn=Mock()
+        conn.execute.return_value.fetchone.side_effect=[
+            ({'startAt':sim.START,'enabled':True,'status':'running'},),None,None]
+        conn.execute.return_value.fetchall.side_effect=[[],[]]
+        with patch.object(sim.background_push,'gold_weekend_seconds_remaining',return_value=3600):
+            out=sim.report(conn,'2026-10-10')
+        self.assertTrue(out['marketClosed'])
+        self.assertEqual(out['control']['status'],'market-closed')
+        self.assertTrue(all(call.args[0].startswith('SELECT') for call in conn.execute.call_args_list))
+
     def test_100_euro_whole_units_cash_and_loss(self):
         c=sim.new_case(market(),dict(isin=ISIN),quote(),NOW)
         self.assertEqual(c['quantity'],9);self.assertAlmostEqual(c['allocated'],90.9)
