@@ -8,6 +8,10 @@ assert(order[0]<order[1]&&order[1]<order[2]);
 assert(html.includes('showLastVideos(\'Live-Abruf fehlgeschlagen\')'));
 assert(html.includes('if(!r.items.length)return;'));
 assert(html.includes('id="youtubeListStatus"'));
+assert(html.includes('.slice(0,3).map(x=>({title:String(x.title||'), 'Browser must retain only three video links');
+assert(html.includes('v.items.filter(x=>x&&isVideoUrl(x.url)).slice(0,3)'), 'Old browser caches must show at most three videos');
+assert(html.includes('readVideos=new Set([...readVideos].filter(id=>latestVideoIds.includes(id)))'), 'Evicted read flags must be deleted');
+
 assert(html.includes('Math.round((r.intervalSeconds||900)/60)'), 'YouTube refresh cadence must follow the server interval');
 assert(html.includes("research:'YouTube'"));
 assert(html.includes('r.mcoOutlook'), 'MCO heading must read the verified video direction, not consensus');
