@@ -218,7 +218,7 @@ try{
 
 <script>
 (function(){
- const quotes={spot:null,future:null,estimate:null};quotes.cfd=null;let busy=false;
+ const quotes={spot:null,future:null,estimate:null};quotes.cfd=null;let busy=false,lastRequestAt=0;
  const positive=n=>typeof n==='number'&&Number.isFinite(n)&&n>0;
  const el=(key,part)=>document.getElementById('gold-'+key+'-'+part);
  const number=n=>n.toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -278,7 +278,8 @@ try{
  }
  async function refresh(){
   if(busy||window.BobSession?.expired()||window.BobWeekendPause?.())return;
-  busy=true;const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),10000);
+  if(window.BobDegiroPhase?.()==='night' && Date.now()-lastRequestAt<300000)return;
+  lastRequestAt=Date.now();busy=true;const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),10000);
   try{const r=await fetch('/api/market-cards',{cache:'no-store',signal:ctl.signal});if(!r.ok)throw Error('quote unavailable');const data=await r.json();accept('future',data.future);accept('estimate',data.estimate);accept('cfd',data.cfd);const notice=document.getElementById('gold-special-session');if(notice)notice.textContent=data.sessionAdvisory?' · Börsenkalender: '+data.sessionAdvisory.name+' · '+data.sessionAdvisory.note:'';}catch(_){}
   finally{clearTimeout(timer);busy=false;render('spot');render('future');render('estimate');render('cfd');}
  }
@@ -901,14 +902,14 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   if(paperBusy)return;paperBusy=true;
   try{
    const r=await api('read',{mode:'simulation',day:document.getElementById('paperDay').value});
-   const c=r.control,weekend=window.BobWeekendPause?.(),stale=!weekend&&c.checkedAt&&Date.now()-c.checkedAt>90000;
+   const c=r.control,weekend=window.BobWeekendPause?.(),phase=window.BobDegiroPhase?.(),night=phase==='night',stale=!weekend&&!night&&c.checkedAt&&Date.now()-c.checkedAt>90000;
    text('paperCapital','Fiktives Startkapital '+paperMoney(c.initialCapital)+' · aktueller Kapitalstand '+paperMoney(c.equity)+'\nBargeld '+paperMoney(c.cash)+' · offene Produktstücke '+(c.openUnits||0)+'\nHeute '+paperMoney(c.dayProfit)+' · seit Start '+paperMoney(c.totalProfit)+'\nDavon gebuchtes Ergebnis seit Start '+paperMoney(c.realizedProfit)+'\nBruttomodell einschließlich offener Positionen zum beobachteten Geldkurs. Ohne Gebühren, Finanzierung und Slippage; kein Nettogewinn. Guthaben wird über die Tage weitergeführt.');
    text('paperStatus',[
-    'Start '+paperTime(c.startAt)+' · ohne festes Enddatum · '+(weekend?'MARKT GESCHLOSSEN · SIMULATION PAUSIERT':c.status==='scheduled'?'START GEPLANT':c.status==='paused'?'PAUSIERT':'SIMULATION AKTIV'),
-    (weekend?'Keine neuen Marktzyklen. Gespeicherte Fälle und Ergebnisse bleiben erhalten.':c.reason||''),
+    'Start '+paperTime(c.startAt)+' · ohne festes Enddatum · '+(weekend?'MARKT GESCHLOSSEN · SIMULATION PAUSIERT':night?'DEGIRO-NACHTMODUS · SIMULATION PAUSIERT':phase==='preparation'?'MARKTVORBEREITUNG · SIMULATION PAUSIERT':c.status==='scheduled'?'START GEPLANT':c.status==='paused'?'PAUSIERT':'SIMULATION AKTIV'),
+    (weekend?'Keine neuen Marktzyklen. Gespeicherte Fälle und Ergebnisse bleiben erhalten.':night||phase==='preparation'?'Keine neuen fiktiven Produkteinstiege oder Produktkursabrufe. Kapital und Fälle bleiben erhalten.':c.reason||''),
     'Letzte Hintergrundprüfung '+paperTime(c.checkedAt)+(stale?' · Überwachung derzeit nicht aktuell bestätigt':''),
     'Produktuniversum: '+(r.products.length?r.products.map(p=>p.isin+' · '+(p.direction||'Richtung offen')).join(', '):'noch nicht synchronisiert'),
-    'Abgleich '+paperTime(r.productSyncedAt)+(weekend?' · Anbieterabrufe bis Montag 00:00 Uhr (Zürich) pausiert.':' · Anbieterwerte werden im Hintergrund erneut abgerufen.')+' Keine Order und keine Trade-Pushs.'
+    'Abgleich '+paperTime(r.productSyncedAt)+(weekend?' · Anbieterabrufe bis Montag 00:00 Uhr (Zürich) pausiert.':night||phase==='preparation'?' · Automatische DEGIRO-Produktabrufe bis 08:00 Uhr pausiert.':' · Anbieterwerte werden im Hintergrund erneut abgerufen.')+' Keine Order und keine Trade-Pushs.'
    ].join('\n'));
    const st=r.stats;
    text('paperStats',r.day+' · Tagesanfang '+paperMoney(st.openingCapital)+' · letzter Kapitalstand '+paperMoney(st.capital)+' · Tagesgewinn/-verlust '+paperMoney(st.dayProfit)+'\n'+(st.closed||0)+' abgeschlossene / '+(st.inconclusive||0)+' unklare Fälle. Goldplan: '+(st.goldPositive||0)+' positiv / '+(st.goldNegative||0)+' negativ / '+(st.goldFlat||0)+' unverändert.\nProdukt-Bruttovergleich: '+(st.productKnown||0)+' auswertbar · '+(st.productPositive||0)+' positiv / '+(st.productNegative||0)+' nicht positiv. Keine Nettogewinn- oder Erfolgsbehauptung.\n'+(st.lastWait?'Letzter Prüfstand: '+st.lastWait:'Noch keine echten Simulationsfälle für diesen Tag.')+'\nFalldetails: höchstens '+r.detailsLimit+' neueste Fälle; rollierend '+r.detailRetentionDays+' Tage. Tagesstatistik bleibt erhalten.');
@@ -3153,7 +3154,17 @@ if(window.BobWeekendPause?.()){
  $("status").textContent="MARKT GESCHLOSSEN · Freitag 23:00 bis Montag 00:00 (Zürich)";
  window.BobGoldCards?.restoreWeekendCards?.();
 }else loadData();
-setInterval(()=>{ if(document.visibilityState==="visible"&&!window.BobWeekendPause?.()){loadData();syncPushPreferences();refreshActiveProductQuote();} }, 30000);
+let lastAutoMarketAt=0;
+setInterval(()=>{
+ if(document.visibilityState!=="visible"||window.BobWeekendPause?.())return;
+ const phase=window.BobDegiroPhase?.(),activeTrade=!!tradeMgmt.active&&!tradeMgmt.test;
+ const interval=phase==='night'&&!activeTrade?300000:30000;
+ if(Date.now()-lastAutoMarketAt<interval)return;
+ lastAutoMarketAt=Date.now();
+ loadData();
+ if(phase==='trading')refreshActiveProductQuote();
+ if(activeTrade||phase==='trading')syncPushPreferences();
+},30000);
 </script><form method="post" action="/logout" style="text-align:center;margin:24px"><button type="submit">Abmelden</button></form>
 
 
