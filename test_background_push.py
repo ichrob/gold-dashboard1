@@ -25,6 +25,20 @@ class BackgroundRules(unittest.TestCase):
         self.assertNotIn('Berechnung mit vorhandenen Werten läuft weiter',events[0]['body'])
         self.assertIsNone(b.failed_analysis_market({'spots':{'spot_price_as_of':'2026-01-01T10:00:00'}})['dataAt'])
 
+    def test_weekend_sleep_wakes_at_monday_midnight_in_swiss_timezone(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        from unittest.mock import patch
+        tz = ZoneInfo('Europe/Zurich')
+        def stamp(month, day, hour, minute=0):
+            return int(datetime(2026, month, day, hour, minute, tzinfo=tz).timestamp()*1000)
+        self.assertEqual(b.gold_weekend_seconds_remaining(stamp(10, 9, 22, 59)), 0)
+        self.assertEqual(b.gold_weekend_seconds_remaining(stamp(10, 9, 23, 0)), 49*3600)
+        self.assertEqual(b.gold_weekend_seconds_remaining(stamp(10, 11, 23, 59)), 60)
+        self.assertEqual(b.gold_weekend_seconds_remaining(stamp(10, 12, 0, 0)), 0)
+        self.assertEqual(b.gold_weekend_seconds_remaining(stamp(3, 27, 23, 0)), 48*3600)
+        self.assertEqual(b.gold_weekend_seconds_remaining(stamp(10, 23, 23, 0)), 50*3600)
+
     def test_zurich_weekend_hours_and_quote_gate(self):
         from datetime import datetime
         from zoneinfo import ZoneInfo
