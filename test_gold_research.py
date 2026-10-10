@@ -11,6 +11,20 @@ class ResearchTests(unittest.TestCase):
         for identity,title in [('abcdefghijk','Gold outlook'),('lmnopqrstuv','Gold outlook'),('silverabcde','Silver outlook')]:
             entries+=f'<entry><yt:channelId>{channel}</yt:channelId><title>{title}</title><published>2026-10-07T00:00:00Z</published><link href="https://www.youtube.com/watch?v={identity}"/><media:group><media:description>Gold is mentioned in a standard channel footer.</media:description></media:group></entry>'
         return f'<feed xmlns="http://www.w3.org/2005/Atom" xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/"><yt:channelId>{channel}</yt:channelId>{entries}</feed>'.encode()
+    def test_reduced_weekend_research_schedule(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        utc = ZoneInfo('UTC')
+        weekday=datetime(2026,10,9,22,59,tzinfo=ZoneInfo('Europe/Zurich')).timestamp()
+        closed=datetime(2026,10,10,9,0,tzinfo=ZoneInfo('Europe/Zurich')).timestamp()
+        monday=datetime(2026,10,12,0,0,tzinfo=ZoneInfo('Europe/Zurich')).timestamp()
+        self.assertEqual(g.refresh_interval(weekday),900)
+        self.assertEqual(g.refresh_interval(closed),7200)
+        self.assertEqual(g.refresh_interval(monday),900)
+        data=dict(checkedAt=closed-3600,items=[],sources=[])
+        self.assertTrue(g.summarize(data,closed)['fresh'])
+        self.assertEqual(g.summarize(data,closed)['intervalSeconds'],7200)
+
     def test_only_mco_gold_and_distinct_video_ids(self):
         self.assertEqual(len(g.SOURCES),1);self.assertEqual(g.SOURCES[0]['publisher'],'MCO Markets')
         r=g.collect(self.now,lambda _:self.feed())
