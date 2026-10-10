@@ -199,7 +199,8 @@ def _collect():
                 with _lock:_spot_source_error=error
         # Respect the provider's documented 30-second cache interval.
         # This daemon never delays an /api/live request.
-        threading.Event().wait(max(1,POLL_SECONDS-(time.monotonic()-started)))
+        interval = background_push.degiro_poll_seconds()
+        threading.Event().wait(max(1,interval-(time.monotonic()-started)))
 
 
 def ensure_collector():
