@@ -39,6 +39,42 @@ class BackgroundRules(unittest.TestCase):
         self.assertEqual(b.gold_weekend_seconds_remaining(stamp(3, 27, 23, 0)), 48*3600)
         self.assertEqual(b.gold_weekend_seconds_remaining(stamp(10, 23, 23, 0)), 50*3600)
 
+    def test_degiro_night_hours_prepare_and_trade_window(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        zurich=ZoneInfo('Europe/Zurich')
+        def at(month,day,h,m=0):
+            return int(datetime(2026,month,day,h,m,tzinfo=zurich).timestamp()*1000)
+        cases=[(10,12,0,0,'night'),(10,12,7,29,'night'),
+               (10,12,7,30,'preparation'),(10,12,7,59,'preparation'),
+               (10,12,8,0,'trading'),(10,12,21,59,'trading'),
+               (10,12,22,0,'night'),(10,9,22,59,'night'),
+               (10,9,23,0,'weekend'),(10,10,12,0,'weekend'),
+               (10,11,23,59,'weekend'),(10,26,7,30,'preparation'),
+               (3,30,8,0,'trading')]
+        for month,day,h,m,mode in cases:
+            with self.subTest(date=(month,day,h,m)):
+                stamp=at(month,day,h,m)
+                self.assertEqual(b.degiro_session(stamp),mode)
+                self.assertEqual(b.degiro_entry_allowed(stamp),mode=='trading')
+        self.assertEqual(b.degiro_poll_seconds(at(10,12,7,29)),60)
+        self.assertEqual(b.degiro_poll_seconds(at(10,12,7,30)),30)
+        self.assertEqual(b.degiro_poll_seconds(at(10,12,22)),300)
+        self.assertEqual(b.degiro_poll_seconds(at(10,12,23),True),30)
+        self.assertEqual(b.degiro_poll_seconds(at(10,12,8)),30)
+
+    def test_degiro_closed_window_blocks_new_entries_but_not_trade_risk(self):
+        market={**self.market,'session':{'entryAllowed':False,'mode':'night'}}
+        state,events=b.advance({},self.settings,market,True,False,now=0)
+        self.assertEqual(events,[])
+        market['dataAt']+=30000
+        state,events=b.advance(state,self.settings,market,True,False,now=30000)
+        self.assertNotIn('signal-change',self.kinds(events))
+        risk={**market,'direction':'SHORT','baseDirection':'SHORT','price':111}
+        _,events=b.advance({},self.settings,risk,True,True,now=0)
+        self.assertIn('reversal',self.kinds(events))
+        self.assertNotIn('signal-change',self.kinds(events))
+
     def test_zurich_weekend_hours_and_quote_gate(self):
         from datetime import datetime
         from zoneinfo import ZoneInfo
