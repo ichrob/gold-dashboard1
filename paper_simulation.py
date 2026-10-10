@@ -220,7 +220,11 @@ def report(conn, day=None):
     cases=conn.execute('SELECT payload FROM bob_paper_cases WHERE day=%s ORDER BY started_at DESC LIMIT 100',(day,)).fetchall()
     stats=conn.execute('SELECT payload FROM bob_paper_days WHERE day=%s',(day,)).fetchone()
     totals=conn.execute('SELECT day,payload FROM bob_paper_days ORDER BY day DESC LIMIT 366').fetchall()
-    return dict(ok=True,version=VERSION,note=NOTE,control=control,day=day,stats=stats[0] if stats else {},
+    closed = background_push.gold_weekend_seconds_remaining() > 0
+    status = dict(control)
+    if closed and status.get('enabled') and time.time()*1000 >= status.get('startAt', START):
+        status.update(status='market-closed', reason='Markt geschlossen – Simulation pausiert; keine neuen Kurse oder Ausstiegsereignisse.')
+    return dict(ok=True,version=VERSION,note=NOTE,control=status,marketClosed=closed,day=day,stats=stats[0] if stats else {},
                 products=[dict(isin=p.get('isin'),direction=p.get('productDirection'),name=p.get('name')) for p in feed[0]['products'] if p.get('isin')] if feed else [],
                 productSyncedAt=feed[1].isoformat() if feed else None,cases=[r[0] for r in cases],
                 daily=[dict(day=d,**s) for d,s in totals],detailsLimit=100,detailRetentionDays=30,
@@ -284,6 +288,10 @@ def run_once(conn,bundle,market,selection,quotes,now):
     if control.get('ledgerDay')!=day:
         control.update(ledgerDay=day,dayOpeningEquity=control.get('equity'),dayOpeningRealized=control['realizedProfit'])
     control.update(checkedAt=now,ruleVersion=market.get('ruleVersion'),lastDirection=market.get('direction','NEUTRAL'),lastGold=market.get('price'),goldAt=market.get('dataAt'))
+    if now >= control['startAt'] and control.get('enabled') and background_push.gold_weekend_close(now) is not None:
+        control.update(status='market-closed', reason='Markt geschlossen – fiktive Handelsprüfung pausiert, bisheriger Kapitalstand erhalten.')
+        conn.execute('UPDATE bob_paper_control SET payload=%s::jsonb WHERE id=1',(json.dumps(control),))
+        return
     if now<control['startAt']:
         control.update(status='scheduled',reason='Start am 8.10.2026, danach fortlaufend')
     elif not control.get('enabled'):
@@ -402,6 +410,10 @@ def _worker(db):
             except Exception as exc:print('BOB_PAPER error='+type(exc).__name__,flush=True)
 
 def enqueue(bundle, db):
+    # Avoid starting the quote/analysis worker because someone calls the API
+    # during a scheduled weekend closure.
+    if background_push.gold_weekend_seconds_remaining() > 0:
+        return
     global _latest,_thread
     with _guard:
         _latest=bundle
