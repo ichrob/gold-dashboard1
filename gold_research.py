@@ -315,7 +315,7 @@ def collect(now=None, fetch=download):
             youtube_research.enrich(item)
             item.update(publication)
     return dict(version='mco-gold-research-v3',checkedAt=now,intervalSeconds=INTERVAL,sources=sources,items=items[:3],
-        method='Nur Gold-Videos des bestätigten Kanals MCO Markets. Neue Videos werden bei geöffnetem Markt etwa alle 15 Minuten und am Wochenende alle zwei Stunden gesucht; bis zu drei Videos je Lauf werden auf abrufbare Untertitel geprüft. Kurzer Kontext aus dem tatsächlich gelesenen Transkript mit Quellenstellen. Richtungsbewertung mit Textregeln; zusätzliche KI-Zusammenfassung und gespeicherte Videovorschaubilder abhängig vom ausgewiesenen Abrufstatus. Keine KI-Chartanalyse; fehlender Text bleibt ungeprüft.')
+        method='Nur Gold-Videos des bestätigten Kanals MCO Markets. Neue Videos werden bei geöffnetem Markt etwa alle 15 Minuten und am Wochenende alle zwei Stunden gesucht; bis zu drei Videos je Lauf werden auf abrufbare Untertitel geprüft. Kurzer Kontext aus dem tatsächlich gelesenen Transkript mit Quellenstellen. Richtungsbewertung mit Textregeln; zusätzliche KI-Zusammenfassung und gespeicherte Videovorschaubilder abhängig vom ausgewiesenen Abrufstatus. Nur grobe KI-Bildtypeinordnung von niedrig aufgelösten Vorschaubildern, keine Kursablesung; fehlender Text bleibt ungeprüft.')
 
 
 def mco_video_direction(items, now):
