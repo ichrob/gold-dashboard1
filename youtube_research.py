@@ -148,7 +148,7 @@ _FIB_NUMERIC = '|'.join(rf'{whole}\s*{_FIB_DECIMAL}\s*{fraction}'
 _FIB_WORDS = '|'.join(re.escape(phrase).replace(r'\ ', r'[-\s]+') for phrase in _FIB_SPOKEN)
 _FIB_RATIO = re.compile(r'(?<![\d.,])(' + _FIB_NUMERIC + r'|50(?:[.,]0)?|' + _FIB_WORDS +
                         r')\s*(?:%|prozent|percent)(?!\w)', re.I)
-_FIB_ANCHOR = re.compile(r'fibonacci|fibo\b|retracement|extension', re.I)
+_FIB_ANCHOR = re.compile(r'fibonacci|fibo\b|\bfib\b|retracement|extension', re.I)
 _FIB_PRICE = re.compile(r'(?<![\w.,])(?:\$ ?)?(?:[1-9]\d{3,4}(?:[.,]\d{1,2})?|[1-9]\d?[.,]\d{3}(?:[.,]\d{1,2})?)(?![\d.,%])')
 _FIB_JOIN = re.compile(r'\b(?:bei|um|liegt|kurs|ziel|marke|level|at|around|target|usd|dollar)\b|[:=]', re.I)
 _FIB_KEYS = {'38.2':'r382','50':'r500','61.8':'r618','78.6':'r786','127.2':'e1272','161.8':'e1618'}
