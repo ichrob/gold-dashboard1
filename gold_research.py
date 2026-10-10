@@ -7,6 +7,7 @@ import re
 import threading
 import time
 import background_push
+import youtube_feed_archive
 import urllib.request
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
@@ -312,7 +313,7 @@ def summarize(report, now=None):
     result=copy.deepcopy(report)
     result['sources']=[s for s in result.get('sources',[]) if s.get('id')=='mco-video']
     interval=refresh_interval(now)
-    fresh=bool(result.get('checkedAt') and 0<=now-result['checkedAt']<=interval*2)
+    fresh=bool(not result.get('archived') and result.get('checkedAt') and 0<=now-result['checkedAt']<=interval*2)
     items=[x for x in result.get('items',[]) if allowed_item(x)]
     items.sort(key=publication_sort_time,reverse=True)
     result['items']=items
@@ -355,11 +356,35 @@ def snapshot():
 
 def _run():
     global _report
+    # Restore only public metadata from the persistent push-service database.
+    # Missing source feeds never silently erase the last known channel links.
+    try:
+        remembered=youtube_feed_archive.request('read', {})
+        if remembered.get('items'):
+            with _lock:
+                _report=dict(checkedAt=None,sources=[],items=remembered['items'],archived=True,
+                    method='Gespeicherte MCO-YouTube-Videolinks. Quelle und Veröffentlichungszeit nicht neu geprüft.')
+    except Exception as exc:
+        print('BOB_YOUTUBE_ARCHIVE restore_error='+type(exc).__name__,flush=True)
     while True:
         try:
             report=collect()
+            if report.get('items'):
+                try:
+                    stored=youtube_feed_archive.request('write',{'items':report['items']})
+                    print('BOB_YOUTUBE_ARCHIVE saved='+str(stored.get('saved',0)),flush=True)
+                except Exception as exc:
+                    print('BOB_YOUTUBE_ARCHIVE write_error='+type(exc).__name__,flush=True)
+            else:
+                with _lock:
+                    previous=copy.deepcopy(_report)
+                if previous and previous.get('items'):
+                    report['items']=previous['items']
+                    report['archived']=True
+                    report['method']='Aktueller Kanalabruf ohne Videoliste. Zuletzt bestätigte öffentliche YouTube-Links bleiben sichtbar, ohne aktuelle Signalfreigabe.'
             with _lock:_report=report
-        except Exception:pass
+        except Exception as exc:
+            print('BOB_YOUTUBE_COLLECT error='+type(exc).__name__,flush=True)
         threading.Event().wait(refresh_interval())
 
 def start():

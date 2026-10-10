@@ -13,6 +13,7 @@ import research_transcript_provider
 import research_enhancements
 import bob_market_store
 import weekend_archive
+import youtube_feed_archive
 import bob_validation_store
 import real_trade_journal
 import decision_audit
@@ -88,6 +89,7 @@ def _init_db_once():
         bob_recovery.init(conn)
         bob_market_store.init(conn)
         weekend_archive.init(conn)
+        youtube_feed_archive.init(conn)
         research_transcript_provider.init(conn)
         research_enhancements.init(conn)
         bob_validation_store.init(conn)
@@ -500,6 +502,19 @@ class Handler(BaseHTTPRequestHandler):
                 payload=json_body(self)
                 if not isinstance(payload,dict):raise ValueError('Ungültige Recherche-Anfrage')
                 send_json(self,200,research_transcript_provider.handle(db,payload))
+                return
+            if path in ('/youtube-feed/read','/youtube-feed/write'):
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'})
+                    return
+                payload=json_body(self)
+                if not isinstance(payload,dict):
+                    raise ValueError('Ungültige Videoarchivanfrage')
+                with db() as conn:
+                    result=youtube_feed_archive.handle(conn,path.rsplit('/',1)[-1],payload)
+                    conn.commit()
+                send_json(self,200,result)
                 return
             if path in ('/weekend-archive/read','/weekend-archive/write'):
                 supplied=self.headers.get('X-Bob-Push-Token','')
