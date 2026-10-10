@@ -3,8 +3,11 @@ const html=fs.readFileSync('Bob.html','utf8');
 for(const [key,id] of [['overview','youtubeOverview'],['manual','youtubeManualDetails'],['latest','youtubeLatest']]){
  assert(html.includes('id="'+id+'"'),key+' section must exist');
 }
-const order=['youtubeOverview','youtubeManual','youtubeLatest'].map(id=>html.indexOf('id="'+id+'"'));
+const order=['youtubeOverview','youtubeLatest','youtubeManual'].map(id=>html.indexOf('id="'+id+'"'));
 assert(order[0]<order[1]&&order[1]<order[2]);
+assert(html.includes('showLastVideos(\'Live-Abruf fehlgeschlagen\')'));
+assert(html.includes('if(!r.items.length)return;'));
+assert(html.includes('id="youtubeListStatus"'));
 assert(html.includes("research:'YouTube'"));
 assert(html.includes("['research','▶','YouTube']"));
 assert(html.includes("count?'YouTube: '+count+' ungelesene Videos':'YouTube'"));

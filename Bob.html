@@ -604,6 +604,14 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <button type="button" id="goldResearchRefresh">YouTube-Auswertung aktualisieren</button>
 </div>
 
+<div class="youtube-group" id="youtubeLatest">
+<h4>Neueste Videos</h4>
+<p id="youtubeListStatus" class="small" aria-live="polite">Videoliste wird geladen …</p>
+<p class="small">Ein Video antippen, um die Auswertung, Originalstellen und gegebenenfalls den Player zu öffnen. Neue Videos sind gekennzeichnet.</p>
+<div id="goldResearchItems"></div>
+</div>
+
+
 <div class="youtube-group" id="youtubeManual">
 <details id="youtubeManualDetails">
 <summary>Video selbst prüfen</summary>
@@ -626,12 +634,6 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <p class="small">Bob untersucht den gesprochenen Text regelbasiert. Eingeblendete Charts werden nicht automatisch erkannt; ungeprüfte Videos führen zu keiner Produktfreigabe.</p>
 </div>
 </details>
-</div>
-
-<div class="youtube-group" id="youtubeLatest">
-<h4>Neueste Videos</h4>
-<p class="small">Ein Video antippen, um die Auswertung, Originalstellen und gegebenenfalls den Player zu öffnen. Neue Videos sind gekennzeichnet.</p>
-<div id="goldResearchItems"></div>
 </div>
 
 <div class="youtube-extra">
@@ -684,19 +686,46 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  }
  window.addEventListener('storage',e=>{if(e.key!==readKey)return;try{const saved=JSON.parse(e.newValue||'[]');if(Array.isArray(saved)){readVideos=new Set(saved);updateUnreadBadge();}}catch(err){}});
 
+ const videoCacheKey='bobYoutubeVideoListV1';
+ function isVideoUrl(raw){
+  try{const u=new URL(raw);return u.protocol==='https:'&&['www.youtube.com','youtube.com'].includes(u.hostname)&&u.pathname==='/watch'&&/^[A-Za-z0-9_-]{11}$/.test(u.searchParams.get('v')||'')}catch(_){return false}
+ }
+ function cachedVideos(){
+  try{const v=JSON.parse(localStorage.getItem(videoCacheKey)||'null');return v&&Array.isArray(v.items)&&Date.now()-v.savedAt<30*86400000?v.items.filter(x=>x&&isVideoUrl(x.url)):[]}catch(_){return []}
+ }
+ function rememberVideos(items){
+  try{const safe=items.filter(x=>x&&x.kind==='YouTube'&&x.channelId==='UCsl6Z6p7GOkczo8Cv-GH6Dg'&&isVideoUrl(x.url)).slice(0,24).map(x=>({title:String(x.title||'').slice(0,240),url:x.url,publishedDate:x.publishedDate||''}));
+   if(safe.length)localStorage.setItem(videoCacheKey,JSON.stringify({savedAt:Date.now(),items:safe}));
+  }catch(_){}
+ }
+ function showLastVideos(reason){
+  const list=cachedVideos();
+  if(!list.length){
+   $('youtubeListStatus').textContent=reason+' · Keine früher gespeicherten Videolinks auf diesem Gerät.';
+   $('goldResearchItems').replaceChildren(node('p','Keine Videos verfügbar. Über „YouTube-Auswertung aktualisieren“ kannst du es erneut versuchen.'));
+   return false;
+  }
+  $('youtubeListStatus').textContent=reason+' · Zuletzt gespeicherte Videoliste (nicht aktuell).';
+  $('goldResearchItems').replaceChildren(...list.map(x=>{const row=node('p','');const a=node('a',x.title);a.href=x.url;a.target='_blank';a.rel='noopener noreferrer';row.append(a,node('small',' · gespeicherter Link · '+(x.publishedDate||'Uhrzeit unbestätigt')));return row;}));
+  return true;
+ }
  async function load(){
   if(busy)return;busy=true;const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),10000);
   try{
    const res=await fetch('/api/gold-research',{cache:'no-store',signal:ctl.signal});
    if(!res.ok)throw Error(res.status===401?'Bitte erneut anmelden.':'Recherche momentan nicht erreichbar.');
    const r=await res.json();
+   if(!Array.isArray(r.items)||!Array.isArray(r.sources)||!r.counts)throw Error('YouTube-Liste momentan unvollständig.');
+   if(r.items.length){rememberVideos(r.items);$('youtubeListStatus').textContent=r.items.length+' Video(s) gefunden.';}
+   else showLastVideos('Keine Videos vom Kanalabruf erhalten');
    $('goldResearchStatus').textContent=(r.fresh?'Stand: ':'Nicht aktuell / noch nicht verfügbar: ')+date(r.checkedAt)+' (Zürich) · automatischer Abruf alle 15 Minuten';
    $('goldResearchCounts').textContent=r.scanned+' Kanal-Einträge geprüft · '+r.successfulFeeds+'/'+r.sources.length+' Kanalabrufe erfolgreich · '+r.videosFound+' Gold-Videos gefunden · '+r.videosAnalyzed+' Videos inhaltlich geprüft. Aktuelle Ausblicke: '+r.counts.LONG+' LONG / '+r.counts.SHORT+' SHORT / '+r.counts.UNKLAR+' unklar.';
    const c=$('goldResearchConsensus');c.textContent='MCO Markets · '+r.consensus;c.className='signal '+(r.consensus==='LONG'?'ok':r.consensus==='SHORT'?'bad':'neutral');
    $('goldResearchReason').textContent=r.reason;$('goldResearchMethod').textContent=r.method;
    $('goldResearchSources').replaceChildren(...r.sources.map(s=>node('p',s.publisher+' · '+s.kind+' · '+(s.status==='ok'?s.scanned+' Einträge geprüft': 'Abruf nicht verfügbar')+' · '+s.scope)));
    latestVideoIds=[...new Set(r.items.map(videoKey).filter(Boolean))];updateUnreadBadge();
-   const rows=r.items.map(x=>{
+   if(!r.items.length)return;
+   const rows=r.items.filter(x=>isVideoUrl(x.url)).map(x=>{
     const box=node('article','');box.className='research';box.style.marginTop='12px';
     const a=node('a',x.title);const url=new URL(x.url);if(url.protocol==='https:'){a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';}
     const published=publicationLabel(x);
@@ -720,7 +749,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     return entry;
    });
    $('goldResearchItems').replaceChildren(...(rows.length?rows:[node('p','Keine passenden Beiträge verfügbar. Fehlende Quellen werden nicht als neutrale Meinung gezählt.')]));
-  }catch(e){$('goldResearchStatus').textContent=e.message;$('goldResearchConsensus').textContent='ABWARTEN · Recherche nicht aktuell';$('goldResearchConsensus').className='signal neutral';$('goldResearchCounts').textContent='Vorherige Ergebnisse derzeit nicht bestätigt.';}
+  }catch(e){$('goldResearchStatus').textContent=e.message;$('goldResearchConsensus').textContent='ABWARTEN · Recherche nicht aktuell';$('goldResearchConsensus').className='signal neutral';$('goldResearchCounts').textContent='Vorherige Ergebnisse derzeit nicht bestätigt.';showLastVideos('Live-Abruf fehlgeschlagen');}
   finally{clearTimeout(timer);busy=false;}
  }
  function renderEnhancements(box,item,url){
@@ -859,7 +888,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  $('youtubeResearchImport').addEventListener('click',()=>inspectVideo(true));
  $('goldResearchRefresh').addEventListener('click',load);
  document.addEventListener('click',e=>{if(e.target.closest?.('[data-view="research"]'))load();});
- document.addEventListener('DOMContentLoaded',()=>{updateUnreadBadge();load();});
+ document.addEventListener('DOMContentLoaded',()=>{updateUnreadBadge();showLastVideos('Aktualisierung läuft');load();});
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!$('goldResearchItems').querySelector('details[open]'))load();});
  setInterval(()=>{if(document.visibilityState==='visible'&&($('bob-view-research')?.hidden||!$('goldResearchItems').querySelector('details[open]')))load();},60000);
 })();
