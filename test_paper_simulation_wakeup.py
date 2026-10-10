@@ -6,7 +6,7 @@ class WakeupTest(unittest.TestCase):
     def test_new_bundle_wakes_existing_worker_and_keeps_latest(self):
         event=__import__('threading').Event()
         worker=Mock();worker.is_alive.return_value=True
-        with patch.object(sim,'_bundle_ready',event), patch.object(sim,'_thread',worker), patch.object(sim,'_latest',None):
+        with patch.object(sim.background_push,'gold_weekend_seconds_remaining',return_value=0),patch.object(sim,'_bundle_ready',event), patch.object(sim,'_thread',worker), patch.object(sim,'_latest',None):
             first={'spots':{'xaus':1}}
             newest={'spots':{'xaus':2}}
             sim.enqueue(first,Mock())
