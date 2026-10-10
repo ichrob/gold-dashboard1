@@ -25,6 +25,66 @@ class BackgroundRules(unittest.TestCase):
         self.assertNotIn('Berechnung mit vorhandenen Werten läuft weiter',events[0]['body'])
         self.assertIsNone(b.failed_analysis_market({'spots':{'spot_price_as_of':'2026-01-01T10:00:00'}})['dataAt'])
 
+    def test_zurich_weekend_hours_and_quote_gate(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo('Europe/Zurich')
+        def stamp(day, hour, minute, second=0):
+            return int(datetime(2026, 10, day, hour, minute, second, tzinfo=tz).timestamp() * 1000)
+        close = stamp(9, 23, 0)
+        self.assertIsNone(b.gold_weekend_close(stamp(9, 22, 59)))
+        self.assertEqual(b.gold_weekend_close(stamp(9, 23, 0)), close)
+        self.assertEqual(b.gold_weekend_close(stamp(10, 6, 0)), close)
+        self.assertEqual(b.gold_weekend_close(stamp(11, 23, 59)), close)
+        self.assertIsNone(b.gold_weekend_close(stamp(12, 0, 0)))
+        self.assertTrue(b.weekend_quote_at_close(stamp(10, 6, 0), stamp(9, 23, 1, 14)))
+        self.assertFalse(b.weekend_quote_at_close(stamp(10, 6, 0), stamp(9, 22, 0)))
+        self.assertFalse(b.weekend_quote_at_close(stamp(9, 22, 59), stamp(9, 22, 59)))
+        # The local trading times must survive Switzerland's DST change.
+        self.assertEqual(datetime.fromtimestamp(b.gold_weekend_close(stamp(24, 6, 0)) / 1000, tz).hour, 23)
+
+    def test_weekend_pause_no_false_data_push_or_trade_signal(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo('Europe/Zurich')
+        def stamp(day, hour, minute, second=0):
+            return int(datetime(2026, 10, day, hour, minute, second, tzinfo=tz).timestamp() * 1000)
+        quote_at = stamp(9, 22, 59, 50)
+        good = {**self.market, 'dataAt': quote_at}
+        state, events = b.advance({}, self.settings, good, True, True, now=quote_at)
+        self.assertEqual(events, [])
+        bad = {**good, 'priceFresh': False, 'ready': False, 'price': 180}
+        state, events = b.advance(state, self.settings, bad, True, True, now=stamp(9, 23, 1))
+        self.assertEqual(events, [])
+        self.assertEqual(state['dataStatus'], 'closed')
+        self.assertTrue(state['continuedCalculation']['marketClosed'])
+        state, events = b.advance(state, self.settings, bad, True, True, now=stamp(10, 6, 1))
+        self.assertEqual(events, [])
+        self.assertEqual(state['dataStatus'], 'closed')
+        # A quote that looks fresh after close must not trigger target/stop messages.
+        tempting = {**good, 'price': 180}
+        state, events = b.advance(state, self.settings, tempting, True, True, now=stamp(10, 6, 2))
+        self.assertNotIn('target', self.kinds(events))
+        self.assertNotIn('signal-change', self.kinds(events))
+        self.assertEqual(state['dataStatus'], 'closed')
+        # Reopening without a fresh quote must eventually alert as a real outage.
+        monday = datetime(2026, 10, 12, 0, 0, tzinfo=tz).timestamp() * 1000
+        for offset, wanted in ((1, []), (31000, []), (61000, ['data-unavailable'])):
+            state, events = b.advance(state, self.settings, bad, True, True, now=int(monday + offset))
+            self.assertEqual(self.kinds(events), wanted)
+        self.assertEqual(state['dataStatus'], 'unavailable')
+
+    def test_weekend_pause_never_hides_old_preclose_failure(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo('Europe/Zurich')
+        now = int(datetime(2026, 10, 10, 6, 0, tzinfo=tz).timestamp() * 1000)
+        stale = {**self.market, 'ready': False, 'priceFresh': False,
+                 'dataAt': int(datetime(2026, 10, 9, 19, 0, tzinfo=tz).timestamp() * 1000)}
+        state, _ = b.advance({}, self.settings, stale, True, False, now=now)
+        self.assertEqual(state['dataStatus'], 'unavailable')
+        self.assertFalse(state['continuedCalculation']['marketClosed'])
+
     def test_stop_once_per_trade(self):
         m={**self.market,'price':89}
         s,e=b.advance({},self.settings,m,False,True);self.assertIn('stop-hit',self.kinds(e))
