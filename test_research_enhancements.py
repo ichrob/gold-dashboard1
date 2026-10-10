@@ -42,11 +42,31 @@ class ResearchTests(unittest.TestCase):
     def test_full_transcript_request_and_no_tools(self):
         def reader(req, timeout):
             body = json.loads(req.data)
-            self.assertEqual(json.loads(body['contents'][0]['parts'][0]['text']), SEGMENTS)
+            indexed = json.loads(body['contents'][0]['parts'][0]['text'])
+            self.assertEqual([{'at': item['at'], 'text': item['text']} for item in indexed], SEGMENTS)
+            self.assertEqual([item['id'] for item in indexed], [0, 1])
+            schema = body['generationConfig']['responseSchema']
+            self.assertEqual(schema['properties']['sections']['items']['required'], ['label', 'text', 'segmentIds'])
             self.assertNotIn('tools', body)
             self.assertNotIn('secret', req.full_url)
             return json.dumps({'candidates': [{'finishReason': 'STOP', 'content': {'parts': [{'text': json.dumps({'sections': [{'label': 'Fazit', 'text': 'Gold unter 4000.', 'segmentIds': [0]}]})}]}}]}).encode()
         self.assertEqual(r.generate(SEGMENTS, 'secret', reader)['kind'], 'ai')
+
+    def test_partial_grounding_retains_only_supported_sections(self):
+        sections = [
+            {'label': 'Kurzfazit', 'text': 'Gold bleibt unter 4000.', 'segmentIds': [0]},
+            {'label': 'Long-Szenario', 'text': 'Gold steigt bis 4500.', 'segmentIds': [1]},
+            {'label': 'Risiken', 'text': 'Gold steigt.', 'segmentIds': []},
+        ]
+        result = r.summary_checked({'sections': sections}, SEGMENTS, keep_valid_sections=True)
+        self.assertTrue(result['partial'])
+        self.assertEqual(len(result['sections']), 1)
+        self.assertEqual(result['sections'][0]['evidence'][0]['at'], 0)
+        self.assertIn('verworfen', result['note'])
+        with self.assertRaises(ValueError):
+            r.summary_checked({'sections': sections[1:]}, SEGMENTS, keep_valid_sections=True)
+        with self.assertRaises(ValueError):
+            r.summary_checked({'sections': sections}, SEGMENTS)
 
     def test_partial_generation_rejected(self):
         with self.assertRaises(ValueError):
@@ -83,7 +103,7 @@ class ResearchTests(unittest.TestCase):
         call.assert_not_called(); self.assertIn('Abruflimit', out['summaryStatus'])
 
     def test_persisted_result_reused_without_key(self):
-        fp = r.hashlib.sha256(json.dumps([r.MODEL, SEGMENTS], sort_keys=True).encode()).hexdigest()
+        fp = r.hashlib.sha256(json.dumps([r.MODEL, r.SUMMARY_FORMAT_VERSION, SEGMENTS], sort_keys=True).encode()).hexdigest()
         db = DB(row=(fp, {'kind': 'ai'}, [{'at': 5}], True, True))
         with patch.dict(os.environ, {}, clear=True), patch.object(r, 'generate') as call:
             out = r.handle(lambda: db, {'videoId': VIDEO, 'channelId': r.CHANNEL, 'segments': SEGMENTS})
