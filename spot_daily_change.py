@@ -89,7 +89,8 @@ def _run():
         started=time.monotonic()
         try:refresh()
         except Exception as exc:print('BOB_SPOT_CHANGE error='+type(exc).__name__,flush=True)
-        threading.Event().wait(max(1,60-(time.monotonic()-started)))
+        interval = 60 if background_push.degiro_session() != 'night' else background_push.degiro_poll_seconds()
+        threading.Event().wait(max(1,interval-(time.monotonic()-started)))
 
 
 def start():
