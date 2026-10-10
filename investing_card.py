@@ -153,7 +153,8 @@ def _collect(stop=None):
             continue
         started = time.monotonic()
         collect_once()
-        stop.wait(max(1, POLL_SECONDS-(time.monotonic()-started)))
+        interval = background_push.degiro_poll_seconds()
+        stop.wait(max(1, interval-(time.monotonic()-started)))
 
 
 def start():
