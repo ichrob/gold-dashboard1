@@ -60,7 +60,9 @@ def parse(body, now=None):
                 changePct=quote.get('changePcr') if numeric(quote.get('changePcr')) else None,
                 change=quote.get('change') if numeric(quote.get('change')) else None,
                 symbol='Gold CFD', source='Investing.com', sourceUrl=URL, kind='cfd',
-                note=note, realtimeCfd=realtime, isExchangeRealtime=False,
+                note=note, realtimeCfd=realtime,
+                providerMarketOpen=base.get('isOpen') if type(base.get('isOpen')) is bool else None,
+                isExchangeRealtime=False,
                 changeLabel='zum Vortagesschluss')
 
 
@@ -106,7 +108,10 @@ def aged(quote, now=None):
     now = time.time() if now is None else now
     q = dict(quote)
     age = now - datetime.fromisoformat(q['at']).timestamp()
-    if background_push.weekend_quote_at_close(now * 1000, datetime.fromisoformat(q['at']).timestamp() * 1000):
+    if q.get('providerMarketOpen') is False:
+        q['realtimeCfd'] = False
+        q['note'] = 'CFD-Markt laut Anbieter geschlossen · letzter Kurs'
+    elif background_push.weekend_quote_at_close(now * 1000, datetime.fromisoformat(q['at']).timestamp() * 1000):
         q['realtimeCfd'] = False
         q['note'] = 'Markt geschlossen · letzter CFD-Kurs'
     elif not 0 <= age <= 120:
@@ -119,7 +124,8 @@ def collect_once():
     try:
         q = fetch()
         source_ms = datetime.fromisoformat(q['at']).timestamp() * 1000
-        state = ('closed' if background_push.weekend_quote_at_close(time.time() * 1000, source_ms)
+        state = ('closed' if q.get('providerMarketOpen') is False or
+                 background_push.weekend_quote_at_close(time.time() * 1000, source_ms)
                  else 'current' if q.get('realtimeCfd') else 'stale')
         with _state_lock:
             _health.update(state=state, lastCheckedAt=time.time(), sourceAt=q['at'])
