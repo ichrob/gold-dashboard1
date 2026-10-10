@@ -101,6 +101,23 @@ def observation_bars(rows, frames=None, now=None):
             for tf,bars in grouped.items() if len(bars)>=2}
 
 
+
+def merge_chart_history(old, new):
+    """Keep earlier measured closed candles after a scanner restart.
+
+    A later, partial in-memory collector must not erase Friday's stored history.
+    Identical timestamps retain the better-sampled version; no missing bars are filled.
+    """
+    combined={}
+    for row in old.get('bars',[]):
+        combined[row['openTime']]=dict(row)
+    for row in new['bars']:
+        earlier=combined.get(row['openTime'])
+        if earlier is None or row.get('samples',0)>=earlier.get('samples',0):
+            combined[row['openTime']]=dict(row)
+    return dict(new,bars=[combined[t] for t in sorted(combined)][-180:])
+
+
 def handle(conn, action, payload):
     if action=='write':
         items=payload.get('items')
@@ -111,6 +128,15 @@ def handle(conn, action, payload):
             stamp=valid(key,item)
             if stamp is None:
                 continue
+            if key.startswith(('chart:', 'cfd-chart:')):
+                old=conn.execute("SELECT payload FROM bob_weekend_archive WHERE data_key=%s FOR UPDATE",(key,)).fetchone()
+                if old:
+                    prior=old[0] if isinstance(old[0],dict) else json.loads(old[0])
+                    previous_at=valid(key,prior)
+                    if previous_at is not None and stamp>previous_at:
+                        merged=merge_chart_history(prior,item)
+                        if valid(key,merged) is not None:
+                            item=merged
             conn.execute("""INSERT INTO bob_weekend_archive(data_key,quote_at,payload)
                 VALUES(%s,%s,%s::jsonb)
                 ON CONFLICT(data_key) DO UPDATE
