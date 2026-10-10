@@ -167,7 +167,7 @@ def extract_fibonacci_levels(segments):
             for match in _FIB_PRICE.finditer(text):
                 lo,hi = sorted((ratio.start(),match.start()))
                 between = text[lo+(len(ratio.group()) if lo==ratio.start() else len(match.group())):hi]
-                if len(between)>65 or not _FIB_JOIN.search(between):
+                if len(between)>65 or re.search(r'[.!?]\s', between) or not _FIB_JOIN.search(between):
                     continue
                 if any(lo < other.start() < hi and other.start()!=ratio.start() for other in ratios):
                     continue
