@@ -4,7 +4,11 @@ const scripts=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
 const source=scripts.map(x=>x[1]).find(x=>x.includes('window.BobWeekendPause=function'));
 assert(source,'Weekend helper must be loaded before pollers');
 const sandbox={window:{},Date,Intl,Object,Number};
-vm.createContext(sandbox);vm.runInContext(source,sandbox);
+vm.createContext(sandbox);
+const start=source.indexOf('window.BobWeekendPause=function');
+const end=source.indexOf('\n};',start);
+assert(start>=0&&end>start,'Weekend helper is declared');
+vm.runInContext(source.slice(start,end+3),sandbox);
 function epoch(iso){return Date.parse(iso)}
 const closed=sandbox.window.BobWeekendPause;
 assert.equal(closed(epoch('2026-10-09T20:59:00Z')),false);
