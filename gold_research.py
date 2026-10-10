@@ -6,6 +6,7 @@ import json
 import re
 import threading
 import time
+import background_push
 import urllib.request
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
@@ -15,6 +16,13 @@ from html.parser import HTMLParser
 from urllib.parse import urlparse, urlunparse
 
 INTERVAL = 900
+WEEKEND_INTERVAL = 7200  # MCO videos remain discoverable with less weekend work.
+
+
+def refresh_interval(now=None):
+    now = time.time() if now is None else now
+    return WEEKEND_INTERVAL if background_push.gold_weekend_close(now * 1000) is not None else INTERVAL
+
 MCO_CHANNEL = 'UCsl6Z6p7GOkczo8Cv-GH6Dg'
 SOURCES = [dict(id='mco-video', publisher='MCO Markets', kind='YouTube',
     url='https://www.youtube.com/feeds/videos.xml?channel_id='+MCO_CHANNEL,
@@ -303,7 +311,8 @@ def summarize(report, now=None):
     now=time.time() if now is None else now
     result=copy.deepcopy(report)
     result['sources']=[s for s in result.get('sources',[]) if s.get('id')=='mco-video']
-    fresh=bool(result.get('checkedAt') and 0<=now-result['checkedAt']<=INTERVAL*2)
+    interval=refresh_interval(now)
+    fresh=bool(result.get('checkedAt') and 0<=now-result['checkedAt']<=interval*2)
     items=[x for x in result.get('items',[]) if allowed_item(x)]
     items.sort(key=publication_sort_time,reverse=True)
     result['items']=items
@@ -316,7 +325,7 @@ def summarize(report, now=None):
         if x['current'] and (x['kind']=='Internet' or x.get('trustedTranscript')) and x['horizon']=='Intraday' and x['outlook'] in ('LONG','SHORT'):votes.setdefault(x['publisher'],set()).add(x['outlook'])
     longs=sum(v=={'LONG'} for v in votes.values());shorts=sum(v=={'SHORT'} for v in votes.values())
     consensus='LONG' if longs>=2 and not shorts and all(len(v)==1 for v in votes.values()) else 'SHORT' if shorts>=2 and not longs and all(len(v)==1 for v in votes.values()) else 'ABWARTEN'
-    result.update(fresh=fresh,counts=counts,consensus=consensus,independentLong=longs,independentShort=shorts,
+    result.update(fresh=fresh,intervalSeconds=interval,counts=counts,consensus=consensus,independentLong=longs,independentShort=shorts,
         scanned=sum(s['scanned'] for s in result.get('sources',[])),successfulFeeds=sum(s['status']=='ok' for s in result.get('sources',[])),
         publishers=len({s['publisher'] for s in result.get('sources',[]) if s['status']=='ok'}),
         articles=sum(x['kind']=='Internet' for x in items),fullTexts=sum(x['coverage'].startswith('Artikeltext') for x in items),videosFound=sum(x['kind']=='YouTube' for x in items),videosAnalyzed=sum(bool(x.get('transcriptAnalyzed')) for x in items),
@@ -351,7 +360,7 @@ def _run():
             report=collect()
             with _lock:_report=report
         except Exception:pass
-        threading.Event().wait(INTERVAL)
+        threading.Event().wait(refresh_interval())
 
 def start():
     global _thread
