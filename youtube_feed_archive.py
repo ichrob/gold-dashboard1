@@ -16,6 +16,7 @@ CHANNEL='UCsl6Z6p7GOkczo8Cv-GH6Dg'
 VIDEO_ID=re.compile(r'^[A-Za-z0-9_-]{11}$')
 GOLD=re.compile(r'\bgold\b|goldpreis|xau\s*/?\s*usd',re.I)
 MAX_DAYS=30
+KEEP_VIDEOS=3
 KEY='mco-markets-gold-youtube'
 
 
@@ -61,29 +62,69 @@ def sanitize(items):
                 reason='Aus zuletzt bestätigter MCO-Kanalliste wiederhergestellt; keine aktuelle Transkriptprüfung.',
                 transcriptAnalyzed=False,trustedTranscript=False)
             result.append(saved)
-            if len(result)==25:break
+            if len(result)==KEEP_VIDEOS:break
         except (ValueError,TypeError,AttributeError):
             continue
     return result
+
+
+def selected_ids(entries):
+    return [entry['id'].removeprefix('youtube-') for entry in entries]
+
+
+def is_retained(conn, identity):
+    """Existing whitelist blocks stale requests from recreating evicted content.
+
+    Before the first confirmed channel list is stored, preserve the previous
+    behavior; the next confirmed archive update cleans any historical records.
+    """
+    row=conn.execute('SELECT items FROM bob_youtube_feed_archive WHERE feed_key=%s',(KEY,)).fetchone()
+    return row is None or identity in selected_ids(sanitize(row[0]))
+
+
+def purge_unselected(conn, entries):
+    """Delete heavyweight data, retaining only anonymous quota timestamps.
+
+    No quota reset: provider requests remain counted for 31 days after a video
+    leaves the retained set, but their historical video IDs are anonymized.
+    """
+    keep=selected_ids(entries)
+    if not keep:return
+    conn.execute('DELETE FROM bob_research_transcripts WHERE video_id <> ALL(%s::text[])',(keep,))
+    conn.execute('DELETE FROM bob_research_enhancements WHERE video_id <> ALL(%s::text[])',(keep,))
+    conn.execute('UPDATE bob_research_requests SET video_id=NULL WHERE video_id IS NOT NULL AND video_id <> ALL(%s::text[])',(keep,))
 
 
 def handle(conn,action,payload):
     if action=='write':
         entries=sanitize(payload.get('items',[]))
         if not entries:return {'ok':False,'saved':0}
+        # A partial feed may be truncated by YouTube. Do not erase previously
+        # retained videos just because fewer than three were returned.
+        if len(entries)<KEEP_VIDEOS:
+            old=conn.execute('SELECT items FROM bob_youtube_feed_archive WHERE feed_key=%s',(KEY,)).fetchone()
+            if old:
+                entries=sanitize(entries + sanitize(old[0]))
         conn.execute("""INSERT INTO bob_youtube_feed_archive(feed_key,saved_at,items)
             VALUES(%s,now(),%s::jsonb)
             ON CONFLICT(feed_key) DO UPDATE SET saved_at=excluded.saved_at,items=excluded.items""",
             (KEY,json.dumps(entries,ensure_ascii=False)))
+        purge_unselected(conn,entries)
         return {'ok':True,'saved':len(entries)}
     if action=='read':
         row=conn.execute("""SELECT saved_at,items FROM bob_youtube_feed_archive
             WHERE feed_key=%s AND saved_at>now()-interval '30 days'""",(KEY,)).fetchone()
         if row:
-            return {'items':sanitize(row[1]),'savedAt':row[0].astimezone(timezone.utc).isoformat(),'displayOnly':True}
+            entries=sanitize(row[1])
+            if entries:
+                # Upgrade the existing 25-entry archive in place on first read.
+                if len(row[1])>KEEP_VIDEOS:
+                    conn.execute('UPDATE bob_youtube_feed_archive SET items=%s::jsonb WHERE feed_key=%s',
+                                 (json.dumps(entries,ensure_ascii=False),KEY))
+                purge_unselected(conn,entries)
+            return {'items':entries,'savedAt':row[0].astimezone(timezone.utc).isoformat(),'displayOnly':True}
         return {'items':[],'savedAt':None,'displayOnly':True}
     raise ValueError('Unbekannte Videoarchivaktion')
-
 
 def request(action,payload):
     base=os.environ.get('PUSH_SERVICE_URL','').rstrip('/')
