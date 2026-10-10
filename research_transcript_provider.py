@@ -21,6 +21,7 @@ ERRORS = {
     'provider_invalid': 'Transkript-Dienst liefert keinen verwendbaren deutschen oder englischen Text.',
     'provider_pending': 'Transkript-Dienst hat den Text noch nicht bereitgestellt.',
     'not_configured': 'SUPADATA_API_KEY ist im Transkript-Dienst noch nicht eingerichtet.',
+    'not_retained': 'Dieses Video ist nicht mehr unter den drei neuesten MCO-Gold-Videos gespeichert.',
     'cooldown': 'Nach einem fehlgeschlagenen Abruf pausiert dieses Video eine Stunde. Andere Videos werden weiter geprüft.',
     'video_limit': 'Für dieses Video wurden die drei Abrufversuche innerhalb von 24 Stunden erreicht. Bob versucht es später automatisch erneut.',
     'local_limit': 'Bob-Abruflimit erreicht: maximal 90 Versuche innerhalb von 31 Tagen. Keine automatische Aufladung.',
@@ -90,6 +91,9 @@ def handle(connect,payload,fetcher=fetch):
     # Durable quota, reservations and cooldown survive rolling deployments.
     # Count attempts conservatively, including failures: <=90 per rolling 31 days.
     with connect() as conn:
+        import youtube_feed_archive
+        if not youtube_feed_archive.is_retained(conn, identity):
+            raise TranscriptError('not_retained')
         conn.execute('SELECT pg_advisory_xact_lock(68431029)')
         row=conn.execute('SELECT result,attempted_at>now()-interval \'1 hour\' FROM bob_research_transcripts WHERE video_id=%s',(identity,)).fetchone()
         if row and row[0]:return row[0]
