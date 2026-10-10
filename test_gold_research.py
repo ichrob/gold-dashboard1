@@ -49,7 +49,7 @@ class ResearchTests(unittest.TestCase):
         item = dict(kind='YouTube', title='Gold outlook', channelId=g.MCO_CHANNEL,
                     publishedAt=self.now-120, trustedTranscript=True,
                     transcriptAnalyzed=True, outlook='LONG', horizon='Intraday',
-                    publisher='MCO Markets')
+                    publisher='MCO Markets', coverage='Untertitel (automatische Textregeln)')
         report = g.summarize(dict(checkedAt=self.now, sources=[], items=[item]), self.now)
         self.assertEqual(report['mcoOutlook'], 'LONG')
         self.assertEqual(report['mcoAnalyzed'], 1)
@@ -59,7 +59,8 @@ class ResearchTests(unittest.TestCase):
     def test_mco_direction_unavailable_conflicted_and_indecisive(self):
         base = dict(kind='YouTube', title='Gold outlook', channelId=g.MCO_CHANNEL,
                     publishedAt=self.now-120, trustedTranscript=True,
-                    transcriptAnalyzed=True, horizon='Intraday', publisher='MCO Markets')
+                    transcriptAnalyzed=True, horizon='Intraday', publisher='MCO Markets',
+                    coverage='Untertitel (automatische Textregeln)')
         summarize = lambda items: g.summarize(dict(checkedAt=self.now, sources=[], items=items), self.now)
         self.assertEqual(summarize([{**base, 'outlook':'LONG'}, {**base, 'outlook':'SHORT'}])['mcoOutlook'], 'UNKLAR')
         self.assertEqual(summarize([{**base, 'outlook':'UNKLAR'}])['mcoOutlook'], 'UNKLAR')
@@ -72,7 +73,8 @@ class ResearchTests(unittest.TestCase):
 
     def test_newer_unanalyzed_videos_prevent_old_opinions_displacing_them(self):
         base = dict(kind='YouTube', title='Gold outlook', channelId=g.MCO_CHANNEL,
-                    trustedTranscript=False, transcriptAnalyzed=False, outlook='UNKLAR')
+                    trustedTranscript=False, transcriptAnalyzed=False, outlook='UNKLAR',
+                    horizon='unbekannt', publisher='MCO Markets', coverage='Videometadaten')
         recent = [{**base, 'publishedAt':self.now-i*60} for i in range(3)]
         old = {**base, 'publishedAt':self.now-500, 'trustedTranscript':True,
                'transcriptAnalyzed':True, 'outlook':'LONG'}
