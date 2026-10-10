@@ -1663,7 +1663,11 @@ function renderAnalysisAge(){
  const weekendClosed=goldWeekendCloseQuote(Date.parse(liveBundleCache?.spots?.spot_price_as_of));
  for(const id of ['price','quickPrice','rsi','ema20','ema50','ema200','atr','macd','macds','hist','signal','quickSignal']){const el=$(id);if(el)el.style.fontStyle=uncertain&&!weekendClosed?'italic':'';}
  const status=$('status');if(status){if(weekendClosed)status.textContent=status.textContent.replace(/^LIVE|^LETZTER DATENSTAND/, 'MARKT GESCHLOSSEN');else if(uncertain)status.textContent=status.textContent.replace(/^LIVE/, 'LETZTER DATENSTAND');}
- const el=$('analysisAge');if(el){el.hidden=!uncertain&&!weekendClosed;el.textContent=weekendClosed?'Goldmarkt geschlossen (Freitag 23:00 bis Montag 00:00, Zürich). Letzter Kursstand wird angezeigt; keine aktuellen Einstiegssignale oder Stop-/Zielbestätigungen. '+warnings.join(' · '):uncertain?'Mit veralteten Daten oder Daten unbekannter Aktualität berechnet. Keine aktuell bestätigte Freigabe. '+warnings.join(' · '):'';}
+ const el=$('analysisAge');if(el){
+  const realIssues=warnings.filter(w=>/Daten fehlen|Zeitstempel fehlt|unbekannt|Quellenfehler|nicht bestätigt|nicht verfügbar|Anmeldung/i.test(w));
+  el.hidden=!uncertain&&!weekendClosed;
+  el.textContent=weekendClosed?'Goldmarkt geschlossen (Freitag 23:00 bis Montag 00:00, Zürich). Letzter Kursstand wird angezeigt; keine aktuellen Einstiegssignale oder Stop-/Zielbestätigungen.'+(realIssues.length?' Weitere Hinweise: '+realIssues.join(' · '):''):uncertain?'Mit veralteten Daten oder Daten unbekannter Aktualität berechnet. Keine aktuell bestätigte Freigabe. '+warnings.join(' · '):'';
+ }
  return warnings;
 }
 window.BobAnalysisAge=analysisAgeWarnings;
@@ -2490,7 +2494,7 @@ function renderActiveTradePlan(){
  const p=tradeMgmt.product;
  $('stopPanel').textContent=(p?p.isin+' · '+tradeMgmt.dir+' · Berechnete Produktwerte':'Goldreferenz · Produktnachweis fehlt')+'\nStop: '+activeTradeLevel(tradeMgmt.stop)+'\nZiel: '+activeTradeLevel(tradeMgmt.target)+(p?'\nReferenz: '+p.referenceAt+' · '+p.source+'\nAktueller verfügbarer Wechselkurs; gespeicherte Produktbedingungen angenommen. Keine bestätigten DEGIRO-Kurse; Änderungen selbst übernehmen. R bezieht sich auf den Gold-Referenzplan bei Beginn der Überwachung, nicht auf den tatsächlichen Eurogewinn.':'');
  const continued=tradeMgmt.continuedCalculation;
- if(continued?.stale)$('stopPanel').textContent+='\n'+(continued.available?'Berechnung läuft mit veralteten Werten weiter · Datenstand '+new Date(continued.dataAt).toLocaleString('de-CH')+' · keine aktuelle Bestätigung von Stop/Ziel.':'Berechnung wartet auf den ersten verfügbaren Datenstand; automatische Abrufe laufen weiter.');
+ if(continued?.stale)$('stopPanel').textContent+='\n'+(continued.marketClosed?'Markt geschlossen · letzter bestätigter Stand '+(continued.dataAt?new Date(continued.dataAt).toLocaleString('de-CH'):'unbekannt')+' · Stop und Ziel werden während der Pause nicht neu bestätigt.':continued.available?'Berechnung läuft mit veralteten Werten weiter · Datenstand '+new Date(continued.dataAt).toLocaleString('de-CH')+' · keine aktuelle Bestätigung von Stop/Ziel.':'Berechnung wartet auf den ersten verfügbaren Datenstand; automatische Abrufe laufen weiter.');
  const fallbackPlan=(continued?.stale||!currentSpotUsable()||analysisAgeWarnings().length)?(continuedTradePlan(tradeMgmt)||continued?.plan):null;
  if(fallbackPlan)$('stopPanel').textContent+='\nMit veralteten Werten berechnet: Stop '+activeTradeLevel(fallbackPlan.stop)+' · Ziel '+activeTradeLevel(fallbackPlan.target)+' · Kursstand '+new Date(fallbackPlan.dataAt).toLocaleString('de-CH')+' · 15m-Kerze '+new Date(fallbackPlan.analysisBarAt).toLocaleString('de-CH');
  const risk=Number(tradeMgmt.initialRisk)||Math.abs(tradeMgmt.entry-tradeMgmt.stop);
