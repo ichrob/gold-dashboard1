@@ -6,6 +6,21 @@ from datetime import datetime, timezone, timedelta
 import market_cards as m
 
 class MarketCardsTests(unittest.TestCase):
+    def setUp(self):
+        market=patch.object(m.background_push,'gold_weekend_seconds_remaining',return_value=0)
+        market.start();self.addCleanup(market.stop)
+
+    def test_weekend_quiet_source_cards_preserve_original_estimate(self):
+        with patch.object(m.background_push,'gold_weekend_seconds_remaining',return_value=3600), \
+             patch.object(m,'_cache',None),patch.object(m,'fetch_spot') as spot, \
+             patch.object(m,'fetch_quote') as future,patch.object(m.investing_card,'fetch') as cfd, \
+             patch.object(m,'last_estimate',return_value=None) as archive:
+            result=m.snapshot()
+            spot.assert_not_called();future.assert_not_called();cfd.assert_not_called()
+            archive.assert_called_once()
+            self.assertIn('geschlossen',result['spot']['note'])
+            self.assertIsNone(result['future']['price'])
+
     def payload(self, **values):
         meta=dict(symbol='GCZ26.CMX', currency='USD', instrumentType='FUTURE', regularMarketPrice=4172.1,
                   regularMarketTime=1000, chartPreviousClose=4202.3)
