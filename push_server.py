@@ -647,7 +647,19 @@ class Handler(BaseHTTPRequestHandler):
                     rows = conn.execute("SELECT id, subscription, trade_monitor FROM subscriptions WHERE trade_enabled=TRUE AND active_trade=TRUE AND trade_monitor IS NOT NULL FOR UPDATE").fetchall()
                     key = vapid() if rows else None
                     for sid, sub, monitor in rows:
-                        checkpoint, alerts, status = fibonacci_monitor.advance_monitor(monitor, bars_by_tf.get(monitor['timeframe'], []))
+                        monitor_bars = bars_by_tf.get(monitor['timeframe'], [])
+                        checkpoint, alerts, status = fibonacci_monitor.advance_monitor(monitor, monitor_bars)
+                        # Weekend candle gaps are not failures when a genuine
+                        # final Friday candle is present. Do not silence older outages.
+                        clock_ms = int(time.time() * 1000)
+                        if status == 'unavailable' and monitor.get('dataHealth') != 'unavailable' and background_push.gold_weekend_close(clock_ms) is not None:
+                            step = fibonacci_monitor.STEPS[monitor['timeframe']]
+                            last_close = max((bar['openTime'] + step for bar in monitor_bars
+                                              if isinstance(bar, dict) and type(bar.get('openTime')) in (int, float)
+                                              and bar.get('instrument') == monitor['instrument']
+                                              and bar.get('isOpen') is False), default=None)
+                            if background_push.weekend_quote_at_close(clock_ms, last_close):
+                                status = 'closed'
                         checkpoint, alerts = fibonacci_monitor.notification_alerts(checkpoint, alerts)
                         delivered = True
                         old_health = monitor.get('dataHealth')
