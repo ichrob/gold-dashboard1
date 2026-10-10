@@ -718,7 +718,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    if(!Array.isArray(r.items)||!Array.isArray(r.sources)||!r.counts)throw Error('YouTube-Liste momentan unvollständig.');
    if(r.items.length){rememberVideos(r.items);$('youtubeListStatus').textContent=r.items.length+' Video(s) gefunden.';}
    else showLastVideos('Keine Videos vom Kanalabruf erhalten');
-   $('goldResearchStatus').textContent=(r.fresh?'Stand: ':'Nicht aktuell / noch nicht verfügbar: ')+date(r.checkedAt)+' (Zürich) · automatischer Abruf alle 15 Minuten';
+   $('goldResearchStatus').textContent=(r.fresh?'Stand: ':'Nicht aktuell / noch nicht verfügbar: ')+date(r.checkedAt)+' (Zürich) · automatischer Abruf etwa alle '+Math.round((r.intervalSeconds||900)/60)+' Minuten';
    $('goldResearchCounts').textContent=r.scanned+' Kanal-Einträge geprüft · '+r.successfulFeeds+'/'+r.sources.length+' Kanalabrufe erfolgreich · '+r.videosFound+' Gold-Videos gefunden · '+r.videosAnalyzed+' Videos mit auswertbarem Text. Die MCO-Einschätzung beruht nur auf bestätigten Untertiteln.';
    const c=$('goldResearchConsensus'),mco=r.mcoOutlook||'NICHT_ANALYSIERT';
    const label={LONG:'LONG',SHORT:'SHORT',UNKLAR:'Unklar',NICHT_ANALYSIERT:'Noch nicht analysiert'}[mco]||'Noch nicht analysiert';
