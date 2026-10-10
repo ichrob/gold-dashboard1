@@ -43,6 +43,57 @@ def gold_weekend_seconds_remaining(now_ms=None):
     return max(0, (monday.timestamp() * 1000 - now_ms) / 1000)
 
 
+def degiro_session(now_ms=None):
+    """User-confirmed routine 08:00–22:00 Zurich, with 07:30 warm-up.
+
+    This is a user trading workflow window, not an exchange-hours guarantee.
+    Never use it to claim the underlying gold market is closed.
+    """
+    now_ms = int(time.time() * 1000) if now_ms is None else now_ms
+    local = datetime.fromtimestamp(now_ms / 1000, ZoneInfo('Europe/Zurich'))
+    if gold_weekend_close(now_ms) is not None:
+        return 'weekend'
+    minute = local.hour * 60 + local.minute
+    if 450 <= minute < 480 and local.weekday() < 5:
+        return 'preparation'
+    if 480 <= minute < 1320 and local.weekday() < 5:
+        return 'trading'
+    return 'night'
+
+
+def degiro_entry_allowed(now_ms=None):
+    return degiro_session(now_ms) == 'trading'
+
+
+def degiro_seconds_to_transition(now_ms=None):
+    """Bound polling sleeps so the 07:30/08:00/22:00 phase is not missed."""
+    now_ms = int(time.time() * 1000) if now_ms is None else now_ms
+    local = datetime.fromtimestamp(now_ms / 1000, ZoneInfo('Europe/Zurich'))
+    boundaries = []
+    for offset in range(5):
+        day = local.date() + timedelta(days=offset)
+        if day.weekday() >= 5:
+            continue
+        for h, m in ((7, 30), (8, 0), (22, 0), (23, 0)):
+            boundary = datetime.combine(day, clock_time(h, m), tzinfo=local.tzinfo)
+            delta = boundary.timestamp() - now_ms / 1000
+            if delta > 0:
+                boundaries.append(delta)
+    weekend_left = gold_weekend_seconds_remaining(now_ms)
+    if weekend_left:
+        boundaries.append(weekend_left)
+    return min(boundaries) if boundaries else 300
+
+
+def degiro_poll_seconds(now_ms=None, active_trade=False):
+    phase = degiro_session(now_ms)
+    if phase == 'weekend':
+        return gold_weekend_seconds_remaining(now_ms)
+    if active_trade or phase in ('trading', 'preparation'):
+        return 30
+    return min(300, degiro_seconds_to_transition(now_ms))
+
+
 def weekend_quote_at_close(now_ms, data_at):
     """Only a near-close quote can justify a normal weekend pause, never old failures."""
     close_at = gold_weekend_close(now_ms)
@@ -279,7 +330,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     state['healthy'] = healthy
     direction = market.get('direction', 'NEUTRAL') if healthy else 'NEUTRAL'
     mtf = market.get('mtf', 'NEUTRAL') if healthy else 'NEUTRAL'
-    if general and healthy:
+    if general and healthy and (market.get('session') or {}).get('entryAllowed', True):
         notified = state.setdefault('notifiedDirection', state.get('direction'))
         pending = state.get('signalPending')
         if direction not in ('LONG', 'SHORT') or direction == notified:
