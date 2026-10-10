@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 CHANNEL = 'UCsl6Z6p7GOkczo8Cv-GH6Dg'
 MODEL = 'gemini-3.5-flash-lite'
 SUMMARY_FORMAT_VERSION = 'evidence-visual-v2'
-FRAME_FORMAT_VERSION = 'storyboard-public-level-retry-v4'
+FRAME_FORMAT_VERSION = 'storyboard-three-official-players-v5'
 MAX_FRAMES = 5
 MAX_BYTES = 1000000
 
@@ -266,11 +266,11 @@ def frames_saved(identity, spec, moments, reader=read):
     return frames[:MAX_FRAMES]
 
 
-def _public_embed_storyboard_single(identity, reader=read, *, host='www.youtube.com'):
+def _public_embed_storyboard_single(identity, reader=read, *, host='www.youtube.com', prefix='/embed/'):
     """Read public YouTube embed player metadata, never download the video."""
     if not isinstance(identity, str) or not re.fullmatch(r'[A-Za-z0-9_-]{11}', identity):
         raise ValueError('Invalid video identity')
-    req = urllib.request.Request('https://' + host + '/embed/' + identity,
+    req = urllib.request.Request('https://' + host + prefix + identity,
         headers={'User-Agent': 'Mozilla/5.0 (compatible; Bob-GoldResearch/1.0)',
                  'Accept': 'text/html', 'Referer': 'https://bob-private-scanner.onrender.com/'})
     html_body = reader(req, timeout=9).decode('utf-8', 'replace')
@@ -301,19 +301,29 @@ def _public_embed_storyboard_single(identity, reader=read, *, host='www.youtube.
 
 
 def public_embed_storyboard(identity, reader=read):
-    """Try both official public players. Never bypass denied video access."""
-    try:
-        spec = _public_embed_storyboard_single(identity, reader)
-        if spec:
-            return spec
-    except ValueError as exc:
-        # Missing public metadata can differ between official embedded players.
-        # Explicit denied access, wrong video or wrong channel are final.
-        if str(exc) != 'Public embed has no player data':
-            raise
-    except (OSError, TimeoutError, urllib.error.URLError):
-        pass
-    return _public_embed_storyboard_single(identity, reader, host='www.youtube-nocookie.com')
+    """Try only official public player metadata, without login or proxy bypass."""
+    sources = [('www.youtube.com', '/embed/'),
+               ('www.youtube-nocookie.com', '/embed/'),
+               ('m.youtube.com', '/watch?v=')]
+    for host, prefix in sources:
+        try:
+            spec = _public_embed_storyboard_single(identity, reader, host=host, prefix=prefix)
+            if spec:
+                return spec
+            reason = 'storyboard_missing'
+        except ValueError as exc:
+            # Denied access, wrong video or wrong channel are final, not fallback.
+            if str(exc) != 'Public embed has no player data':
+                raise
+            reason = 'player_missing'
+        except urllib.error.HTTPError as exc:
+            reason = 'http_' + str(exc.code)
+        except (OSError, TimeoutError, urllib.error.URLError):
+            reason = 'network_unavailable'
+        # Do not log signed storyboard URLs, cookies, credentials, or raw body.
+        print('BOB_RESEARCH_PUBLIC_PLAYER video=' + identity +
+              ' host=' + host + ' code=' + reason, flush=True)
+    raise ValueError('Public video metadata unavailable')
 
 
 def public_cover(identity, reader=read):
