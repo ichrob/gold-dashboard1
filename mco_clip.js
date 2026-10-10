@@ -60,7 +60,7 @@
   const mk=(tag,text)=>{const e=document.createElement(tag);if(text!=null)e.textContent=text;return e;};
   const section=mk('section'),label=mk('h4','60-Sekunden-Erklärclip · Bob erstellt die Bilder');
   section.style.cssText='margin:12px 0;padding:12px;border:1px solid #d9e2ef;border-radius:12px;';
-  const intro=mk('p','Kostenloser animierter Kurzfilm aus belegten MCO-Aussagen und Bobs eigenen Diagrammen. Kein Originalvideo, keine neue KI-Anfrage.');
+  const intro=mk('p','Kostenloser animierter Kurzfilm aus belegten MCO-Aussagen und Bobs eigenen Diagrammen. Starte den Clip für Audio und verifizierte Goldpreise.');
   const canvas=mk('canvas');canvas.width=800;canvas.height=450;canvas.setAttribute('aria-label','Animierter 60-Sekunden-Erklärclip mit Untertiteln zu MCO Markets');
   canvas.style.cssText='display:block;width:100%;max-width:800px;aspect-ratio:16/9;border-radius:9px;background:#101a2b';
   const actions=mk('div');actions.style.cssText='display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px';
@@ -75,7 +75,7 @@
   for(const btn of [backwards,forwards,toFib,fullscreen])btn.type='button';
   const status=mk('p','Bereit · 00:00 / 01:00');status.setAttribute('role','status');status.style.cssText='font-size:.9em;margin:6px 0';
   const evidence=mk('a','Originalvideo öffnen');evidence.href=String(url);evidence.target='_blank';evidence.rel='noopener noreferrer';
-  const note=mk('small','Der Clip wird kostenlos auf deinem Gerät gezeichnet. Deutsche Gerätevorlesestimme nach dem Start; falls stumm, Medienlautstärke und Android-Sprachausgabe prüfen. Ohne bestätigte Preise werden keine Zahlen erfunden. Kein MP4-Export.');
+  const note=mk('small','Der Clip wird kostenlos auf deinem Gerät gezeichnet. Die Audioausgabe ist eine Gerätevorlesestimme; bitte Medienlautstärke und Android-Sprachausgabe prüfen, falls stumm. Im Bereich 00:25 erscheinen MCO-Marken in Blau und bestätigte Bob-Fibonacci-Werte in Orange. Fehlen die Daten, werden keine Kurszahlen erfunden.');
   note.style.cssText='display:block;margin-top:8px';
   actions.append(toggle,again,backwards,forwards,toFib,fullscreen,voice,evidence);
   section.append(label,intro,canvas,actions,progress,status,note);parent.append(section);
@@ -136,7 +136,7 @@
    if(scene.type==='fib'){
     // Use only the values from sourced transcript marks and validated Bob candles.
     // Never imply that Bob's independently computed levels were spoken by MCO.
-    const levels=prepared.levels||[],bobList=prepared.bobLevels||[],current=prepared.bars.at(-1)??prepared.quote?.price??null;
+    const levels=prepared.levels||[],bobList=prepared.bobLevels||[],current=prepared.quote?.price??prepared.bars.at(-1)??null;
     const values=[...levels.map(v=>v.price),...bobList.map(v=>v.price),...prepared.bars];
     if(current!==null)values.push(current);
     const min0=values.length?Math.min(...values):null,max0=values.length?Math.max(...values):null;
@@ -152,8 +152,8 @@
     }
     if(current!==null&&Number.isFinite(current)){rounded(583,134,201,42,6,'#22423f');
      ctx.fillStyle='#eafff4';ctx.font='bold 23px sans-serif';ctx.fillText(num(current),590,163);
-     ctx.font='13px sans-serif';ctx.fillStyle='#d8f4e8';ctx.fillText('Bob XAU/USD · USD/oz',589,189);}
-    else {ctx.fillStyle='#f4c4a9';ctx.font='16px sans-serif';ctx.fillText('Kein aktueller Goldkurs belegt',577,156);}
+     ctx.font='13px sans-serif';ctx.fillStyle='#d8f4e8';ctx.fillText(prepared.bars.length?'Bobs 15m · USD/oz':'Spotquelle · USD/oz',589,189);}
+    else {ctx.fillStyle='#f4c4a9';ctx.font='16px sans-serif';ctx.fillText('Kein belegter Goldkurs',580,156);}
     const selected=levels.length?levels.slice(0,3).map(m=>({label:m.ratio,price:m.price,kind:'MCO',key:m.key,near:m.near})):
       bobList.slice(0,4).map(m=>({label:({'r382':'38,2 %','r500':'50 %','r618':'61,8 %','r786':'78,6 %','e1272':'127,2 %','e1618':'161,8 %'})[m.key]||m.key,price:m.price,kind:'Bob',key:m.key}));
     const display=selected.length?selected:[],
@@ -172,7 +172,7 @@
      if(bob){ctx.fillStyle=ORANGE;ctx.font='16px sans-serif';ctx.fillText('Bob '+num(bob.price)+' USD',581,351);}
     }
     if(!levels.length){ctx.fillStyle='#e3bd75';ctx.font='14px sans-serif';ctx.fillText('Keine MCO-Level im Transkript belegt – orange zeigt nur Bobs Berechnung.',21,356);}
-    if(prepared.marketAt){ctx.fillStyle='#d4e2ee';ctx.font='13px sans-serif';ctx.fillText((prepared.marketFresh?'Bobs 15m-Daten · ':'Ältere 15m-Daten · ')+new Date(prepared.marketAt).toLocaleString('de-CH'),19,370);}
+    if(prepared.marketAt){ctx.fillStyle='#d4e2ee';ctx.font='12px sans-serif';ctx.fillText((prepared.marketFresh?'Bobs 15m-Daten':'Ältere 15m-Daten'),23,341);}
    }
    if(scene.type==='conditions'){
     rounded(68,182,660,139,14,'#243747');
@@ -226,6 +226,31 @@
    if(elapsed>=DURATION){stop();ended=true;toggle.textContent='▶ Erneut abspielen';status.textContent='Fertig · 01:00 / 01:00';return;}
    handle=requestAnimationFrame(tick);
   }
+  async function refreshMarket(){
+   if(marketFetching||typeof window.fetch!=='function')return;
+   marketFetching=true;
+   const ctl=typeof AbortController==='function'?new AbortController():null;
+   const tm=setTimeout(()=>ctl?.abort(),12000);
+   try{
+    const response=await window.fetch('/api/live',{cache:'no-store',...(ctl?{signal:ctl.signal}:{})});
+    if(!response.ok)throw Error('Bob Marktdaten nicht erreichbar');
+    const payload=await response.json(),spot=payload?.spots||{};
+    const bars=payload?.history?.bars_by_tf?.['15m'];
+    const snap=Array.isArray(bars)&&typeof snapshotProvider==='function'?snapshotProvider(bars):snapshotProvider?.();
+    const next=prepare(item,snap);
+    if(!next)return;
+    const spotPrice=Number(spot.xaus),spotAt=Date.parse(spot.spot_price_as_of);
+    if(spot.is_genuine_xauusd_spot===true&&Number.isFinite(spotPrice)&&spotPrice>0&&Number.isFinite(spotAt))
+     next.quote={price:spotPrice,asOf:spotAt,source:String(spot.primary||'XAU/USD Spot')};
+    prepared=next;
+    render(elapsed);
+    if(elapsed>=25&&elapsed<39&&!prepared.bobLevels.length&&!prepared.levels.length)
+     status.textContent='Keine belegten Fibonacci-Kurswerte verfügbar; Bob erfindet keine Level.';
+   }catch(_){
+    if(prepared&&!prepared.bars.length&&!prepared.levels.length)
+     status.textContent='Marktdaten momentan nicht abrufbar. Fibonacci-Kurswerte nicht verfügbar.';
+   }finally{clearTimeout(tm);marketFetching=false;}
+  }
   function play(){
    if(!prepared||elapsed===0||ended){
     let snapshot=null;try{snapshot=typeof snapshotProvider==='function'?snapshotProvider():null;}catch(_){}
@@ -238,6 +263,7 @@
    running=true;started=performance.now()-elapsed*1000;toggle.textContent='Ⅱ Pause';
    document.addEventListener('visibilitychange',backgroundPause);
    if(voiced){lastScene=sceneIndex(elapsed);speak(prepared.scenes[lastScene]);}
+   refreshMarket();
    handle=requestAnimationFrame(tick);
   }
   function sceneIndex(seconds){const at=EDGES.findIndex((v,i)=>i<5&&seconds>=v&&seconds<EDGES[i+1]);return at<0?4:at;}
@@ -249,7 +275,7 @@
   progress.addEventListener('input',()=>seek(progress.value));
   backwards.addEventListener('click',()=>seek(elapsed-10));
   forwards.addEventListener('click',()=>seek(elapsed+10));
-  toFib.addEventListener('click',()=>seek(25));
+  toFib.addEventListener('click',()=>{seek(25);refreshMarket();});
   toggle.addEventListener('click',()=>{
    if(running){stop();toggle.textContent='▶ Fortsetzen';status.textContent='Pausiert · '+timestamp(Math.floor(elapsed))+' / 01:00';}
    else play();
