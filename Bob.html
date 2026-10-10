@@ -760,7 +760,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  }
  function renderEnhancements(box,item,url){
   const extra=item.enhancements;
-  const frames=(extra.frames||[]).filter(f=>typeof f.dataUrl==='string'&&/^data:image\\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(f.dataUrl)&&f.dataUrl.length<140000&&Number.isFinite(f.at)&&f.at>=0&&f.at<=86400).slice(0,5);
+  const frames=(extra.frames||[]).filter(f=>typeof f.dataUrl==='string'&&/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(f.dataUrl)&&f.dataUrl.length<140000&&Number.isFinite(f.at)&&f.at>=0&&f.at<=86400).slice(0,5);
   const notes=new Map((extra.summary?.visualNotes||[]).filter(n=>Number.isInteger(n.frameId)&&n.frameId>=0&&n.frameId<frames.length).map(n=>[n.frameId,n.label]));
   const used=new Set();
   function makeFigure(frame,index){
