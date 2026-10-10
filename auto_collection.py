@@ -14,6 +14,7 @@ import sg_quotes
 import future_analysis
 import cme_reference
 import investing_card
+import background_push
 
 ISIN = 'DE000FG309G0'
 _lock = threading.Lock()
@@ -32,7 +33,7 @@ def enabled():
 
 def in_window(now):
     local = now.astimezone(ZoneInfo('Europe/Zurich'))
-    return local.weekday() < 5
+    return background_push.gold_weekend_close(now.timestamp() * 1000) is None
 
 
 def paused_report(now):
@@ -72,11 +73,10 @@ def tick(now=None):
         return
     # Gold outcomes are needed for the round-the-clock weekday signal study.
     # The spot archive must survive restarts outside the separate futures window.
-    if now.astimezone(ZoneInfo('Europe/Zurich')).weekday() < 5:
-        future_estimate.ensure_collector()
     if not in_window(now):
         paused_report(now)
         return
+    future_estimate.ensure_collector()
     if time.monotonic() >= _next_source:
         try:
             # Exact-contract source only. The SG/Onvista product-page fallback
@@ -163,6 +163,12 @@ def tick(now=None):
 def _run():
     while enabled():
         started = time.monotonic()
+        remaining = background_push.gold_weekend_seconds_remaining()
+        if remaining:
+            paused_report(datetime.now(timezone.utc))
+            print('BOB_COLLECTION weekend_paused until=Monday 00:00 Europe/Zurich', flush=True)
+            threading.Event().wait(remaining)
+            continue
         try:
             tick()
         except Exception as exc:
