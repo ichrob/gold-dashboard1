@@ -6,6 +6,9 @@ for(const [key,id] of [['overview','youtubeOverview'],['manual','youtubeManualDe
 const order=['youtubeOverview','youtubeLatest','youtubeManual'].map(id=>html.indexOf('id="'+id+'"'));
 assert(order[0]<order[1]&&order[1]<order[2]);
 assert(html.includes('showLastVideos(\'Live-Abruf fehlgeschlagen\')'));
+assert(html.includes('Videobild zu dieser Aussage ansehen'), 'Missing storyboard must fall back to optional source player');
+assert(html.includes("new URL(url),identity=source.searchParams.get('v')"), 'Fallback video must be restricted to the source video ID');
+assert(html.includes('button.addEventListener(\'click\',()=>{'), 'Video player must load on demand');
 assert(html.includes('if(!r.items.length)return;'));
 assert(html.includes('id="youtubeListStatus"'));
 assert(html.includes('.slice(0,3).map(x=>({title:String(x.title||'), 'Browser must retain only three video links');
