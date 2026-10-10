@@ -237,7 +237,9 @@
     if(!response.ok)throw Error('Bob Marktdaten nicht erreichbar');
     const payload=await response.json(),spot=payload?.spots||{};
     const bars=payload?.history?.bars_by_tf?.['15m'];
-    const snap=Array.isArray(bars)&&typeof snapshotProvider==='function'?snapshotProvider(bars):snapshotProvider?.();
+    const fromServer=Array.isArray(bars)&&typeof snapshotProvider==='function'?snapshotProvider(bars):null;
+    const fromLocal=typeof snapshotProvider==='function'?snapshotProvider():null;
+    const snap=fromServer?.available?fromServer:(fromLocal?.available?fromLocal:fromServer||fromLocal);
     const next=prepare(item,snap);
     if(!next)return;
     const spotPrice=Number(spot.xaus),spotAt=Date.parse(spot.spot_price_as_of);
