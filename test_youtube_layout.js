@@ -9,6 +9,9 @@ assert(html.includes('showLastVideos(\'Live-Abruf fehlgeschlagen\')'));
 assert(html.includes('if(!r.items.length)return;'));
 assert(html.includes('id="youtubeListStatus"'));
 assert(html.includes("research:'YouTube'"));
+assert(html.includes('r.mcoOutlook'), 'MCO heading must read the verified video direction, not consensus');
+assert(!html.includes("c.textContent='MCO Markets · '+r.consensus"), 'Do not display independent-source consensus as MCO view');
+assert(html.includes('MCO Markets · Noch nicht analysiert'), 'No video text must be labeled not analyzed');
 assert(html.includes("['research','▶','YouTube']"));
 assert(html.includes("count?'YouTube: '+count+' ungelesene Videos':'YouTube'"));
 for(const id of ['goldResearchStatus','goldResearchCounts','goldResearchConsensus','goldResearchItems','goldResearchSources','youtubeScreenshotButton','youtubeScreenshotInput','youtubeResearchUrl','youtubeResearchAnalyze','youtubeResearchTranscript','youtubeResearchImport','youtubeResearchStatus']){

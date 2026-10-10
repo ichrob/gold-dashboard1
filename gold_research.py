@@ -308,6 +308,48 @@ def collect(now=None, fetch=download):
         method='Nur Gold-Videos des bestätigten Kanals MCO Markets. Neue Videos werden alle 15 Minuten gesucht; bis zu drei Videos je Lauf werden auf abrufbare Untertitel geprüft. Kurzer Kontext aus dem tatsächlich gelesenen Transkript mit Quellenstellen. Richtungsbewertung mit Textregeln; zusätzliche KI-Zusammenfassung und gespeicherte Videovorschaubilder abhängig vom ausgewiesenen Abrufstatus. Keine KI-Chartanalyse; fehlender Text bleibt ungeprüft.')
 
 
+def mco_video_direction(items, now):
+    """Editorial direction of verified MCO transcripts, never a trade consensus."""
+    # Use only the three newest listed videos; older archived opinions must not
+    # displace newer uploads that could not be transcribed.
+    latest = items[:3]
+    checked = []
+    for item in latest:
+        published = item.get('publishedAt')
+        if published is not None and (
+            not isinstance(published, (int, float)) or
+            not 0 <= now - published <= 7 * 86400
+        ):
+            continue
+        # Pasted transcripts are useful to inspect individually, but their
+        # provenance is not verified and they cannot vote for the channel.
+        if (item.get('trustedTranscript') is True and
+                item.get('transcriptAnalyzed') is True and
+                item.get('outlook') in ('LONG', 'SHORT', 'UNKLAR')):
+            checked.append(item)
+    base = dict(mcoAnalyzed=len(checked), mcoConsidered=len(latest))
+    if not checked:
+        return dict(**base, mcoOutlook='NICHT_ANALYSIERT',
+                    mcoReason='Für die neuesten MCO-Gold-Videos liegt keine automatisch bestätigte Inhaltsauswertung vor. Gefundene Titel oder ungeprüft eingefügte Texte zählen nicht als Meinung.')
+    tally = {kind: sum(x['outlook'] == kind for x in checked)
+             for kind in ('LONG', 'SHORT', 'UNKLAR')}
+    direction = ('LONG' if tally['LONG'] and not tally['SHORT'] else
+                 'SHORT' if tally['SHORT'] and not tally['LONG'] else
+                 'UNKLAR')
+    reason = (str(len(checked)) + ' von ' + str(len(latest)) +
+              ' neuesten MCO-Gold-Videos anhand bestätigter Untertitel ausgewertet: ' +
+              str(tally['LONG']) + ' Long, ' + str(tally['SHORT']) +
+              ' Short, ' + str(tally['UNKLAR']) + ' unklar. ')
+    if tally['LONG'] and tally['SHORT']:
+        reason += 'Widersprüchliche Richtungsangaben; deshalb unklar. '
+    elif not tally['LONG'] and not tally['SHORT']:
+        reason += 'Keine eindeutige Richtung im gesprochenen Text erkannt. '
+    if any(x.get('publishedAt') is None for x in checked):
+        reason += 'Mindestens ein Veröffentlichungszeitpunkt ist nicht bestätigt. '
+    reason += 'Nur die MCO-Videoeinschätzung, kein unabhängiger Quellenkonsens und keine Handelsfreigabe.'
+    return dict(**base, mcoOutlook=direction, mcoReason=reason)
+
+
 def summarize(report, now=None):
     now=time.time() if now is None else now
     result=copy.deepcopy(report)
@@ -326,6 +368,8 @@ def summarize(report, now=None):
         if x['current'] and (x['kind']=='Internet' or x.get('trustedTranscript')) and x['horizon']=='Intraday' and x['outlook'] in ('LONG','SHORT'):votes.setdefault(x['publisher'],set()).add(x['outlook'])
     longs=sum(v=={'LONG'} for v in votes.values());shorts=sum(v=={'SHORT'} for v in votes.values())
     consensus='LONG' if longs>=2 and not shorts and all(len(v)==1 for v in votes.values()) else 'SHORT' if shorts>=2 and not longs and all(len(v)==1 for v in votes.values()) else 'ABWARTEN'
+    mco=mco_video_direction(items, now)
+    result.update(**mco)
     result.update(fresh=fresh,intervalSeconds=interval,counts=counts,consensus=consensus,independentLong=longs,independentShort=shorts,
         scanned=sum(s['scanned'] for s in result.get('sources',[])),successfulFeeds=sum(s['status']=='ok' for s in result.get('sources',[])),
         publishers=len({s['publisher'] for s in result.get('sources',[]) if s['status']=='ok'}),

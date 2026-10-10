@@ -58,3 +58,8 @@ Tests: vollständige Segmentübertragung einschließlich später Aussagen, Pflic
 Quellen: https://ai.google.dev/gemini-api/docs/pricing und https://ai.google.dev/api/generate-content
 
 Modellkorrektur: Neue Google-Projekte erhalten laut offizieller Deprecation-Dokumentation keinen allgemeinen Zugang zu Gemini 2.5. Deshalb verwendet Bob Gemini 3.5 Flash-Lite. Bei geändertem Modell/Transkript darf innerhalb des unveränderten globalen Tageslimits ein neuer Versuch erfolgen; der neue Fingerprint wird bereits vor der Anfrage gespeichert, damit Fehlschläge keine Schleife erzeugen.
+
+
+## MCO-Richtungsanzeige (10. Oktober 2026)
+
+Die Kopfzeile „MCO Markets“ zeigt die Auswertung von höchstens drei neuesten Gold-Videos, nicht den für Handelszwecke unverändert strengen unabhängigen Quellenkonsens. Ausschließlich automatisch bestätigte MCO-Transkripte mit tatsächlich erfolgter Textauswertung tragen zur Kopfeinschätzung bei; bloße Titel, nicht lesbare Untertitel und manuell eingefügte, nicht verifizierte Texte zählen nicht. Bei bekanntem Veröffentlichungszeitpunkt sind Clips älter als sieben Tage ausgeschlossen. Stimmen die klaren Richtungen überein, steht LONG oder SHORT; bei widersprüchlichen oder ausschließlich unklaren Aussagen steht „Unklar“. Ohne bestätigtes Transkript steht „Noch nicht analysiert“. Eine fehlende oder veraltete Serveraktualisierung wird zusätzlich gekennzeichnet. Der separate Konsenswert bleibt konservativ und kann keine Handelsfreigabe auslösen.

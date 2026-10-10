@@ -599,7 +599,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <h4>Aktueller Überblick</h4>
 <p id="goldResearchStatus" class="small" aria-live="polite">Noch keine Quellen geprüft.</p>
 <div id="goldResearchCounts" class="research"></div>
-<p id="goldResearchConsensus" class="signal neutral">ABWARTEN</p>
+<p id="goldResearchConsensus" class="signal neutral">MCO Markets · Noch nicht analysiert</p>
 <p id="goldResearchReason" class="small"></p>
 <button type="button" id="goldResearchRefresh">YouTube-Auswertung aktualisieren</button>
 </div>
@@ -640,7 +640,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <details><summary>Quellen und Abrufstatus</summary><div id="goldResearchSources"></div></details>
 <details><summary>Methode und Grenzen</summary>
 <p id="goldResearchMethod"></p>
-<p>Die Recherche ist ausschließlich auf Gold-Videos von MCO Markets begrenzt. Mehrere Videos desselben Kanals sind keine unabhängigen Quellen. Bob zeigt kurze Originalaussagen aus tatsächlich gelesenen Untertiteln und ordnet eindeutige Richtungsaussagen mit Textregeln ein. Bedingungen bleiben im Kontext erhalten. Der strukturierte Überblick durchsucht das gesamte gelieferte Transkript nach Themen und zeigt ausgewählte Originalsätze mit Belegen. Er ersetzt keine frei formulierte KI-Gesamtzusammenfassung. Videobilder können an Textstellen im Player angesehen werden; eine automatische Bild-/Chartanalyse ist nicht angebunden.</p>
+<p>Die obere MCO-Richtung ist ausschließlich eine Zusammenfassung der drei neuesten geprüften Videos. Sie kann LONG, SHORT, Unklar oder Noch nicht analysiert sein. Ungeprüfte und nur manuell eingefügte Transkripte werden nicht als bestätigte MCO-Stimme gezählt. Sie ist kein Handels- oder Quellenkonsens. Die Recherche ist ausschließlich auf Gold-Videos von MCO Markets begrenzt. Mehrere Videos desselben Kanals sind keine unabhängigen Quellen. Bob zeigt kurze Originalaussagen aus tatsächlich gelesenen Untertiteln und ordnet eindeutige Richtungsaussagen mit Textregeln ein. Bedingungen bleiben im Kontext erhalten. Der strukturierte Überblick durchsucht das gesamte gelieferte Transkript nach Themen und zeigt ausgewählte Originalsätze mit Belegen. Er ersetzt keine frei formulierte KI-Gesamtzusammenfassung. Videobilder können an Textstellen im Player angesehen werden; eine automatische Bild-/Chartanalyse ist nicht angebunden.</p>
 <p>Der Abruf läuft alle 15 Minuten, solange Bob läuft. Bei fehlendem oder leerem Transkript bleibt das Video ausdrücklich ungeprüft. Recherche ändert keine Produktfreigabe.</p>
 </details>
 </div>
@@ -719,9 +719,12 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    if(r.items.length){rememberVideos(r.items);$('youtubeListStatus').textContent=r.items.length+' Video(s) gefunden.';}
    else showLastVideos('Keine Videos vom Kanalabruf erhalten');
    $('goldResearchStatus').textContent=(r.fresh?'Stand: ':'Nicht aktuell / noch nicht verfügbar: ')+date(r.checkedAt)+' (Zürich) · automatischer Abruf alle 15 Minuten';
-   $('goldResearchCounts').textContent=r.scanned+' Kanal-Einträge geprüft · '+r.successfulFeeds+'/'+r.sources.length+' Kanalabrufe erfolgreich · '+r.videosFound+' Gold-Videos gefunden · '+r.videosAnalyzed+' Videos inhaltlich geprüft. Aktuelle Ausblicke: '+r.counts.LONG+' LONG / '+r.counts.SHORT+' SHORT / '+r.counts.UNKLAR+' unklar.';
-   const c=$('goldResearchConsensus');c.textContent='MCO Markets · '+r.consensus;c.className='signal '+(r.consensus==='LONG'?'ok':r.consensus==='SHORT'?'bad':'neutral');
-   $('goldResearchReason').textContent=r.reason;$('goldResearchMethod').textContent=r.method;
+   $('goldResearchCounts').textContent=r.scanned+' Kanal-Einträge geprüft · '+r.successfulFeeds+'/'+r.sources.length+' Kanalabrufe erfolgreich · '+r.videosFound+' Gold-Videos gefunden · '+r.videosAnalyzed+' Videos mit auswertbarem Text. Die MCO-Einschätzung beruht nur auf bestätigten Untertiteln.';
+   const c=$('goldResearchConsensus'),mco=r.mcoOutlook||'NICHT_ANALYSIERT';
+   const label={LONG:'LONG',SHORT:'SHORT',UNKLAR:'Unklar',NICHT_ANALYSIERT:'Noch nicht analysiert'}[mco]||'Noch nicht analysiert';
+   c.textContent='MCO Markets · '+label+(r.fresh?'':' · Auswertung nicht aktuell');
+   c.className='signal '+(r.fresh&&mco==='LONG'?'ok':r.fresh&&mco==='SHORT'?'bad':'neutral');
+   $('goldResearchReason').textContent=(r.mcoReason||'Noch keine bestätigte Videoauswertung.')+(r.fresh?'':' Letzter Kanalabruf ist nicht aktuell.');$('goldResearchMethod').textContent=r.method;
    $('goldResearchSources').replaceChildren(...r.sources.map(s=>node('p',s.publisher+' · '+s.kind+' · '+(s.status==='ok'?s.scanned+' Einträge geprüft': 'Abruf nicht verfügbar')+' · '+s.scope)));
    latestVideoIds=[...new Set(r.items.map(videoKey).filter(Boolean))];updateUnreadBadge();
    if(!r.items.length)return;
@@ -749,7 +752,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     return entry;
    });
    $('goldResearchItems').replaceChildren(...(rows.length?rows:[node('p','Keine passenden Beiträge verfügbar. Fehlende Quellen werden nicht als neutrale Meinung gezählt.')]));
-  }catch(e){$('goldResearchStatus').textContent=e.message;$('goldResearchConsensus').textContent='ABWARTEN · Recherche nicht aktuell';$('goldResearchConsensus').className='signal neutral';$('goldResearchCounts').textContent='Vorherige Ergebnisse derzeit nicht bestätigt.';showLastVideos('Live-Abruf fehlgeschlagen');}
+  }catch(e){$('goldResearchStatus').textContent=e.message;$('goldResearchConsensus').textContent='MCO Markets · Noch nicht analysiert · Abruf nicht verfügbar';$('goldResearchConsensus').className='signal neutral';$('goldResearchCounts').textContent='Vorherige Ergebnisse derzeit nicht bestätigt.';showLastVideos('Live-Abruf fehlgeschlagen');}
   finally{clearTimeout(timer);busy=false;}
  }
  function renderEnhancements(box,item,url){

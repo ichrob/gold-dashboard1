@@ -45,6 +45,41 @@ class ResearchTests(unittest.TestCase):
         r=g.summarize(dict(checkedAt=self.now,items=items,sources=[]),self.now)
         self.assertEqual(r['consensus'],'ABWARTEN');self.assertEqual(r['counts']['LONG'],2)
         self.assertEqual(g.summarize(dict(checkedAt=self.now,items=items,sources=[]),self.now+1801)['counts']['LONG'],0)
+    def test_mco_direction_from_verified_video_without_second_source(self):
+        item = dict(kind='YouTube', title='Gold outlook', channelId=g.MCO_CHANNEL,
+                    publishedAt=self.now-120, trustedTranscript=True,
+                    transcriptAnalyzed=True, outlook='LONG', horizon='Intraday',
+                    publisher='MCO Markets')
+        report = g.summarize(dict(checkedAt=self.now, sources=[], items=[item]), self.now)
+        self.assertEqual(report['mcoOutlook'], 'LONG')
+        self.assertEqual(report['mcoAnalyzed'], 1)
+        self.assertEqual(report['consensus'], 'ABWARTEN')
+        self.assertIn('kein unabhängiger Quellenkonsens', report['mcoReason'])
+
+    def test_mco_direction_unavailable_conflicted_and_indecisive(self):
+        base = dict(kind='YouTube', title='Gold outlook', channelId=g.MCO_CHANNEL,
+                    publishedAt=self.now-120, trustedTranscript=True,
+                    transcriptAnalyzed=True, horizon='Intraday', publisher='MCO Markets')
+        summarize = lambda items: g.summarize(dict(checkedAt=self.now, sources=[], items=items), self.now)
+        self.assertEqual(summarize([{**base, 'outlook':'LONG'}, {**base, 'outlook':'SHORT'}])['mcoOutlook'], 'UNKLAR')
+        self.assertEqual(summarize([{**base, 'outlook':'UNKLAR'}])['mcoOutlook'], 'UNKLAR')
+        self.assertEqual(summarize([{**base, 'outlook':'SHORT'}])['mcoOutlook'], 'SHORT')
+        self.assertEqual(summarize([{**base, 'outlook':'LONG'}, {**base, 'outlook':'UNKLAR'}])['mcoOutlook'], 'LONG')
+        self.assertEqual(summarize([{**base, 'outlook':'LONG', 'trustedTranscript':False}])['mcoOutlook'], 'NICHT_ANALYSIERT')
+        self.assertEqual(summarize([{**base, 'outlook':'LONG', 'transcriptAnalyzed':False}])['mcoOutlook'], 'NICHT_ANALYSIERT')
+        self.assertEqual(summarize([{**base, 'outlook':'LONG', 'publishedAt':self.now-8*86400}])['mcoOutlook'], 'NICHT_ANALYSIERT')
+        self.assertEqual(summarize([])['mcoOutlook'], 'NICHT_ANALYSIERT')
+
+    def test_newer_unanalyzed_videos_prevent_old_opinions_displacing_them(self):
+        base = dict(kind='YouTube', title='Gold outlook', channelId=g.MCO_CHANNEL,
+                    trustedTranscript=False, transcriptAnalyzed=False, outlook='UNKLAR')
+        recent = [{**base, 'publishedAt':self.now-i*60} for i in range(3)]
+        old = {**base, 'publishedAt':self.now-500, 'trustedTranscript':True,
+               'transcriptAnalyzed':True, 'outlook':'LONG'}
+        report = g.summarize(dict(checkedAt=self.now, sources=[], items=recent+[old]), self.now)
+        self.assertEqual(report['mcoOutlook'], 'NICHT_ANALYSIERT')
+        self.assertEqual(report['mcoConsidered'], 3)
+
     def test_channel_page_fallback_scoped_to_selected_uploads(self):
         def row(title,identity):return {'richItemRenderer':{'content':{'lockupViewModel':{'contentId':identity,'contentType':'LOCKUP_CONTENT_TYPE_VIDEO','metadata':{'lockupMetadataViewModel':{'title':{'content':title}}}}}}}
         root={'metadata':{'channelMetadataRenderer':{'externalId':g.MCO_CHANNEL}},'contents':{'twoColumnBrowseResultsRenderer':{'tabs':[{'tabRenderer':{'selected':True,'content':{'richGridRenderer':{'contents':[row('Gold outlook','abcdefghijk'),row('Silver outlook','lmnopqrstuv')]}}}}]}},'recommendations':row('Gold other channel','wrongabcdef')}
