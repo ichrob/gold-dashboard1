@@ -129,6 +129,7 @@ def transcript_context(segments):
 # Spell-out variants below are exact, enumerated Fibonacci ratios, not guessed numbers.
 _FIB_SPOKEN = {
     'achtunddreissig komma zwei': 'r382',
+    'achtunddreißig komma zwei': 'r382',
     'einundsechzig komma acht': 'r618',
     'achtundsiebzig komma sechs': 'r786',
     'hundertsiebenundzwanzig komma zwei': 'e1272',
