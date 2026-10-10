@@ -47,6 +47,7 @@ class McoFibonacciTranscriptTests(unittest.TestCase):
             ('Fibonacci 61 Komma 8 Prozent bei 4.200 Dollar.', 'r618', 4200),
             ('Das 38 point 2 percent retracement is at 4,050.25 USD.', 'r382', 4050.25),
             ('Fibonacci einundsechzig komma acht Prozent bei 4200 Dollar.', 'r618', 4200),
+            ('Fibonacci achtunddreißig komma zwei Prozent bei 4050 Dollar.', 'r382', 4050),
             ('Fib thirty-eight point two percent at 4050 USD.', 'r382', 4050),
             ('Fibo fifty percent at 4100 dollars.', 'r500', 4100),
             ('Fibo 127 Punkt 2 Prozent bei 4300 Dollar.', 'e1272', 4300),
