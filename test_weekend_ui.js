@@ -16,7 +16,10 @@ assert.equal(closed(epoch('2026-10-23T21:00:00Z')),true);
 assert.equal(closed(epoch('2026-10-25T22:59:00Z')),true);
 assert.equal(closed(epoch('2026-10-25T23:00:00Z')),false);
 // Pollers stay disabled on weekend; explicit manual user actions remain available.
-assert(html.includes('document.visibilityState==="visible"&&!window.BobWeekendPause()'));
+assert(html.includes('document.visibilityState==="visible"&&!window.BobWeekendPause?.()'));
 assert(html.includes('MARKT GESCHLOSSEN · SIMULATION PAUSIERT'));
+assert(html.includes('restoreWeekendCards'));
+assert(html.includes('else loadData();'));
+
 assert(html.includes('const notice=document.getElementById(\'gold-special-session\')'));
 console.log('Weekend UI: Friday/Monday and DST behavior; paused market polling and simulation labels OK');
