@@ -15,6 +15,26 @@ class InvestingCardTests(unittest.TestCase):
         body='<script id="__NEXT_DATA__">'+json.dumps(dict(props=dict(pageProps=dict(state=dict(commodityStore=state)))))+'</script>'
         return c.parse(body, 1791153271 + age)
 
+    def test_friday_close_cfd_stays_visible_without_false_stale_label(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        from unittest.mock import patch
+        tz = ZoneInfo('Europe/Zurich')
+        stamp = lambda day, hour, minute: datetime(2026, 10, day, hour, minute, tzinfo=tz).timestamp()
+        friday = stamp(9, 23, 1)
+        saturday = stamp(10, 6, 0)
+        q = {'at': datetime.fromtimestamp(friday, ZoneInfo('UTC')).isoformat(),
+             'price': 4200., 'realtimeCfd': False, 'note': 'CFD-Kurs nicht aktuell'}
+        closed = c.aged(q, now=saturday)
+        self.assertEqual(closed['note'], 'Markt geschlossen · letzter CFD-Kurs')
+        self.assertFalse(closed['realtimeCfd'])
+        self.assertEqual(c.aged(q, now=stamp(12, 0, 0))['note'], 'CFD-Kurs nicht aktuell')
+        with patch.object(c, '_health', {'state': 'stale', 'sourceAt': q['at'], 'lastCheckedAt': friday}), patch.object(c.time, 'time', return_value=saturday):
+            self.assertEqual(c.health()['state'], 'closed')
+        # A source outage is still a genuine service error during the weekend.
+        with patch.object(c, '_health', {'state': 'unavailable', 'sourceAt': q['at'], 'lastCheckedAt': friday}), patch.object(c.time, 'time', return_value=saturday):
+            self.assertEqual(c.health()['state'], 'unavailable')
+
     def test_original_time_and_provider_change(self):
         q=self.parse(self.fixture())
         self.assertEqual(q['at'], '2026-10-04T22:34:31+00:00')
