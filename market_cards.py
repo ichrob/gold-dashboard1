@@ -125,7 +125,8 @@ def snapshot():
                 result['estimate']['note'] = 'Markt geschlossen · letzte Schätzung nicht gespeichert'
             _cache, _cached_at = result, time.monotonic()
             return result
-        if _cache is not None and time.monotonic() - _cached_at < 30:
+        interval = 300 if background_push.degiro_session() == 'night' else 30
+        if _cache is not None and time.monotonic() - _cached_at < interval:
             return _cache
         result = dict(spot=unavailable('XAU/USD'), future=unavailable('GCZ26'), estimate=unavailable('GCZ26'), cfd=unavailable('Gold CFD'), sessionAdvisory=market_session_calendar.advisory())
         with ThreadPoolExecutor(max_workers=3) as pool:
