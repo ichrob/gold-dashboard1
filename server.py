@@ -57,7 +57,7 @@ def service_health():
     background = background_health()
     feed = collection.get('cfdFeed') or {}
     reasons = []
-    if collection.get('enabled') and (not collection.get('running') or feed.get('state') not in ('current', 'closed')):
+    if collection.get('enabled') and (not collection.get('running') or feed.get('state') not in (('current', 'closed', 'paused') if background_push.gold_weekend_seconds_remaining() else ('current',))):
         reasons.append('market-feed-not-current')
     if FIB_MONITOR_HEALTH['configured'] and background['status'] != 'ok':
         reasons.append('background-not-current')
