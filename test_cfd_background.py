@@ -50,7 +50,7 @@ class CfdBackgroundTests(unittest.TestCase):
         def wait(seconds):
             cycles.append(seconds)
             if len(cycles)==2:stop.set()
-        with patch.object(stop,'wait',side_effect=wait),patch.object(c,'collect_once') as collect:
+        with patch.object(c.background_push,'gold_weekend_seconds_remaining',return_value=0),patch.object(stop,'wait',side_effect=wait),patch.object(c,'collect_once') as collect:
             c._collect(stop)
             self.assertEqual(collect.call_count,2)
             self.assertTrue(all(1<=seconds<=30 for seconds in cycles))
