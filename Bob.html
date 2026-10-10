@@ -32,6 +32,32 @@ summary{cursor:pointer;font-weight:700;padding:10px 0}details[open]>summary{marg
 .gold-change{display:inline-block;background:#f1f3f5;color:#526070;border-radius:9px;padding:7px 10px;font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}.gold-change.up{color:#137442;background:#e9f8ef}.gold-change.down{color:#c22c42;background:#fff0f2}.gold-change-label{color:#64748b;font-size:11px;margin-top:5px;min-height:15px}.gold-meta{border-top:1px solid #eceff2;margin-top:14px;padding-top:10px;font-size:11px;color:#64748b;line-height:1.5;overflow-wrap:anywhere}.gold-state{font-weight:600;color:#526070}.gold-market-note{color:#64748b;font-size:11px;margin:9px 2px 0}
 @media(max-width:480px){.gold-quotes{gap:8px}.gold-quote{padding:18px;border-radius:15px}.gold-quote header{gap:6px}.gold-quote h3{font-size:19px}.gold-icon{width:23px}.gold-price{font-size:clamp(30px,9vw,40px)}.gold-price-row{margin-top:15px;gap:4px}.gold-change{font-size:14px;padding:6px 8px}.gold-currency{font-size:11px}}
 
+
+/* YouTube workspace: four clearly separated areas; all existing actions/IDs retained. */
+.youtube-panel .youtube-intro{margin:0 0 12px;line-height:1.5}
+.youtube-panel .youtube-group{min-width:0;border:1px solid #dfe5ee;border-radius:14px;background:#fff;padding:14px;margin:12px 0}
+.youtube-panel .youtube-group h4{font-size:16px;margin:0 0 8px;color:#172b44}
+.youtube-panel .youtube-group .research{line-height:1.55;overflow-wrap:anywhere}
+.youtube-panel .youtube-group .signal{margin:10px 0;padding:10px 12px;border-radius:10px}
+.youtube-panel .youtube-group p{overflow-wrap:anywhere}
+.youtube-panel .youtube-group #goldResearchRefresh{margin-top:4px}
+.youtube-panel .youtube-group details summary{font-weight:650;cursor:pointer;padding:8px 0}
+.youtube-panel .youtube-group #youtubeManualDetails>summary{font-size:16px;min-height:40px}
+.youtube-panel .youtube-inner{padding-top:8px}
+.youtube-panel .youtube-inner input,.youtube-panel .youtube-inner textarea,.youtube-panel .youtube-inner select{max-width:100%;box-sizing:border-box}
+.youtube-panel .youtube-inner details{border-top:1px solid #e6eaf0;margin-top:12px;padding-top:6px}
+.youtube-panel .youtube-extra{margin:14px 0 0}
+.youtube-panel .youtube-extra>details{border-top:1px solid #dfe5ee;padding:6px 2px}
+.youtube-panel #goldResearchItems>details{border-top:1px solid #e5e9ef;padding:9px 0}
+.youtube-panel #goldResearchItems>details:first-child{border-top:0}
+.youtube-panel #goldResearchItems summary{overflow-wrap:anywhere}
+.youtube-panel #goldResearchItems article{margin:6px 0 12px!important}
+@media(max-width:520px){
+ .bob-mobile .youtube-panel{padding:14px}
+ .bob-mobile .youtube-panel .youtube-group{padding:12px;margin:10px 0}
+ .bob-mobile .youtube-panel .youtube-group button{max-width:100%;white-space:normal}
+}
+
 /* Four mobile workspaces. Existing inputs and calculation nodes stay intact. */
 body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 .bob-mobile main{max-width:880px;padding:16px 16px 110px}
@@ -565,33 +591,57 @@ Bob platziert keine Orders und behauptet keine Gewinn-Garantie.
 Hoher Hebel kann Verluste sehr schnell vergrößern. Die App platziert keine Orders und greift nicht auf DEGIRO zu.
 Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanzierung und Bezugsverhältnis müssen direkt in deinem DEGIRO-Konto geprüft werden.
 </div>
-<section id="goldResearchPanel" class="card">
-<h3>Gold-Recherche · MCO Markets</h3>
-<p>Ausschließlich Gold-Videos von MCO Markets. Neue Videos werden automatisch gesucht. Gelesene Inhalte und noch ungeprüfte Videos sind getrennt gekennzeichnet.</p>
-<p id="goldResearchStatus" aria-live="polite">Noch keine Quellen geprüft.</p>
+<section id="goldResearchPanel" class="card youtube-panel">
+<h3>YouTube · MCO Markets</h3>
+<p class="small youtube-intro">Gold-Videos von MCO Markets. Bob sucht automatisch nach neuen Videos und trennt geprüfte Inhalte von ungeprüften Einträgen.</p>
+
+<div class="youtube-group" id="youtubeOverview">
+<h4>Aktueller Überblick</h4>
+<p id="goldResearchStatus" class="small" aria-live="polite">Noch keine Quellen geprüft.</p>
 <div id="goldResearchCounts" class="research"></div>
 <p id="goldResearchConsensus" class="signal neutral">ABWARTEN</p>
 <p id="goldResearchReason" class="small"></p>
-<button type="button" id="goldResearchRefresh">Recherche-Stand laden</button>
-<details><summary>YouTube-Video prüfen</summary>
+<button type="button" id="goldResearchRefresh">YouTube-Auswertung aktualisieren</button>
+</div>
+
+<div class="youtube-group" id="youtubeManual">
+<details id="youtubeManualDetails">
+<summary>Video selbst prüfen</summary>
+<div class="youtube-inner">
+<p class="small">Screenshot oder YouTube-Link verwenden, um ein Video zu erkennen und die verfügbaren Untertitel auszuwerten.</p>
 <button type="button" id="youtubeScreenshotButton">YouTube-Screenshot einlesen</button>
 <input id="youtubeScreenshotInput" type="file" accept="image/png,image/jpeg,image/webp" hidden>
-<p class="small">Vollständigen Videotitel und Kanalnamen sichtbar abfotografieren, möglichst ohne weitere Videovorschläge. Ein sichtbarer YouTube-Link funktioniert ebenfalls. Bob erkennt das Video und versucht anschließend die Untertitelanalyse.</p>
+<p class="small">Auf dem Screenshot sollten der vollständige Videotitel und der Kanalname erkennbar sein.</p>
 <p id="youtubeResearchResolved" class="small"></p>
 <div id="youtubeResearchCandidates"></div>
-<details><summary>Alternativ: Link eingeben</summary>
+<details><summary>Alternativ: YouTube-Link eingeben</summary>
 <label for="youtubeResearchUrl">YouTube-Link</label><input id="youtubeResearchUrl" type="url" placeholder="https://www.youtube.com/watch?v=…">
 <button type="button" id="youtubeResearchAnalyze">Untertitel abrufen und auswerten</button></details>
 <p id="youtubeResearchStatus" class="small" aria-live="polite"></p>
-<details><summary>Vorhandenes Transkript einfügen</summary><p class="small">Falls der automatische Abruf nicht klappt: Text aus „Transkript anzeigen“ bei YouTube einfügen. Bob prüft Kanal und Gold-Titel; der eingefügte Text bleibt als manuelle Übernahme gekennzeichnet.</p>
+<details><summary>Wenn Untertitel fehlen: Transkript einfügen</summary>
+<p class="small">Falls der automatische Abruf nicht klappt, kannst du den Text aus „Transkript anzeigen“ einfügen. Bob kennzeichnet diese Auswertung als manuelle Übernahme.</p>
 <label for="youtubeResearchLanguage">Sprache</label><select id="youtubeResearchLanguage"><option value="de">Deutsch</option><option value="en">Englisch</option></select>
 <label for="youtubeResearchTranscript">Transkript</label><textarea id="youtubeResearchTranscript" rows="6" maxlength="200000" placeholder="Gesprochener Text oder SRT/VTT-Untertitel"></textarea>
 <button type="button" id="youtubeResearchImport">Eingefügten Text auswerten</button></details>
-<p class="small">Auswertung des gesprochenen Textes mit Regeln; eingeblendete Charts und Bilder werden nicht erkannt. Direkte Prüfungen bleiben bis zum Serverneustart verfügbar. Unbestätigte Kanäle und fehlende genaue Veröffentlichungszeiten zählen nicht zum Intraday-Ausblick.</p>
+<p class="small">Bob untersucht den gesprochenen Text regelbasiert. Eingeblendete Charts werden nicht automatisch erkannt; ungeprüfte Videos führen zu keiner Produktfreigabe.</p>
+</div>
 </details>
-<details><summary>Quellen und Abrufstatus</summary><div id="goldResearchSources"></div></details>
+</div>
+
+<div class="youtube-group" id="youtubeLatest">
+<h4>Neueste Videos</h4>
+<p class="small">Ein Video antippen, um die Auswertung, Originalstellen und gegebenenfalls den Player zu öffnen. Neue Videos sind gekennzeichnet.</p>
 <div id="goldResearchItems"></div>
-<details><summary>Methode und Grenzen</summary><p id="goldResearchMethod"></p><p>Die Recherche ist ausschließlich auf Gold-Videos von MCO Markets begrenzt. Mehrere Videos desselben Kanals sind keine unabhängigen Quellen. Bob zeigt kurze Originalaussagen aus tatsächlich gelesenen Untertiteln und ordnet eindeutige Richtungsaussagen mit Textregeln ein. Bedingungen bleiben im Kontext erhalten. Der strukturierte Überblick durchsucht das gesamte gelieferte Transkript nach Themen und zeigt ausgewählte Originalsätze mit Belegen. Er ersetzt keine frei formulierte KI-Gesamtzusammenfassung. Videobilder können an Textstellen im Player angesehen werden; eine automatische Bild-/Chartanalyse ist nicht angebunden.</p><p>Der Abruf läuft alle 15 Minuten, solange Bob läuft. Bei fehlendem oder leerem Transkript bleibt das Video ausdrücklich ungeprüft. Recherche ändert keine Produktfreigabe.</p></details>
+</div>
+
+<div class="youtube-extra">
+<details><summary>Quellen und Abrufstatus</summary><div id="goldResearchSources"></div></details>
+<details><summary>Methode und Grenzen</summary>
+<p id="goldResearchMethod"></p>
+<p>Die Recherche ist ausschließlich auf Gold-Videos von MCO Markets begrenzt. Mehrere Videos desselben Kanals sind keine unabhängigen Quellen. Bob zeigt kurze Originalaussagen aus tatsächlich gelesenen Untertiteln und ordnet eindeutige Richtungsaussagen mit Textregeln ein. Bedingungen bleiben im Kontext erhalten. Der strukturierte Überblick durchsucht das gesamte gelieferte Transkript nach Themen und zeigt ausgewählte Originalsätze mit Belegen. Er ersetzt keine frei formulierte KI-Gesamtzusammenfassung. Videobilder können an Textstellen im Player angesehen werden; eine automatische Bild-/Chartanalyse ist nicht angebunden.</p>
+<p>Der Abruf läuft alle 15 Minuten, solange Bob läuft. Bei fehlendem oder leerem Transkript bleibt das Video ausdrücklich ungeprüft. Recherche ändert keine Produktfreigabe.</p>
+</details>
+</div>
 </section>
 <script>
 (function(){
@@ -625,7 +675,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   if(!badge){badge=node('b','');badge.className='research-unread-badge';badge.style.cssText='position:absolute;top:2px;right:12%;min-width:18px;padding:1px 5px;border-radius:99px;background:#dc2626;color:white;font-size:11px;line-height:16px';button.style.position='relative';button.append(badge);}
   const count=latestVideoIds.filter(id=>!readVideos.has(id)).length;
   badge.textContent=String(count);badge.hidden=count===0;
-  button.setAttribute('aria-label',count?'Recherche: '+count+' ungelesene Videos':'Recherche');
+  button.setAttribute('aria-label',count?'YouTube: '+count+' ungelesene Videos':'YouTube');
  }
  function markVideoRead(id){
   readVideos.add(id);
@@ -1076,7 +1126,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const quick=card('quickSignal'),manual=card('dgType'),push=card('generalPushBtn');
   const header=document.querySelector('h1')?.parentElement;
   const panels={};
-  for(const [key,label] of Object.entries({overview:'Übersicht',products:'Produkte',trade:'Mein Trade',research:'Recherche',learning:'Lernen'})){
+  for(const [key,label] of Object.entries({overview:'Übersicht',products:'Produkte',trade:'Mein Trade',research:'YouTube',learning:'Lernen'})){
    const el=document.createElement('section');el.id='bob-view-'+key;el.setAttribute('aria-label',label);el.hidden=key!=='overview';
    if(key!=='overview'){const h=document.createElement('h2');h.textContent=label;h.tabIndex=-1;el.append(h);}
    panels[key]=el;main.append(el);
@@ -1144,7 +1194,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   if(header){header.className='bob-heading';header.querySelector('h1').textContent='Bob';header.querySelector('.sub').textContent='Dein Gold- und Produktassistent';main.prepend(header);}
   Object.values(panels).forEach(el=>main.append(el));
   const nav=document.createElement('nav');nav.id='bobNavigation';nav.className='bob-nav';nav.setAttribute('aria-label','Hauptnavigation');
-  nav.innerHTML=[['overview','◫','Übersicht'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['research','⌕','Recherche'],['learning','↗','Lernen']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+'</button>').join('');document.body.append(nav);
+  nav.innerHTML=[['overview','◫','Übersicht'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['research','▶','YouTube'],['learning','↗','Lernen']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+'</button>').join('');document.body.append(nav);
   function show(key,focus=true){if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key)btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
   document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b){show(b.dataset.view);history.replaceState(null,'','#'+b.dataset.view);}});
   window.addEventListener('hashchange',()=>show(location.hash.slice(1)));
