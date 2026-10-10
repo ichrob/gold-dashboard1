@@ -293,18 +293,28 @@ def collect(now=None, fetch=download):
             if allowed_item(item):unique[item['url']]=item
     items=sorted(unique.values(),key=publication_sort_time,reverse=True)
     if fetch is download:
+        # Archive the confirmed three-video list BEFORE costly transcript/AI
+        # calls, so neither provider can recreate data for an evicted video.
+        # A failed YouTube scan does not delete the last confirmed list.
+        with ThreadPoolExecutor(max_workers=3,thread_name_prefix='bob-video-publication') as pool:
+            list(pool.map(enrich_publication,items[:3]))
+        items.sort(key=publication_sort_time,reverse=True)
+        if items:
+            try:
+                stored=youtube_feed_archive.request('write',{'items':items[:3]})
+                print('BOB_YOUTUBE_ARCHIVE saved='+str(stored.get('saved',0)),flush=True)
+            except Exception as exc:
+                print('BOB_YOUTUBE_ARCHIVE write_error='+type(exc).__name__,flush=True)
+            import youtube_research
+            youtube_research.retain_only(items[:3])
         eligible=[x for x in items if x['kind']=='Internet' and x['current']][:6]
         with ThreadPoolExecutor(max_workers=3,thread_name_prefix='bob-research-article') as pool:
             list(pool.map(enrich_article,eligible))
-        with ThreadPoolExecutor(max_workers=3,thread_name_prefix='bob-video-publication') as pool:
-            list(pool.map(enrich_publication,[x for x in items if x['kind']=='YouTube']))
-        items.sort(key=publication_sort_time,reverse=True)
-        import youtube_research
-        for item in [x for x in items if x['kind']=='YouTube'][:3]:
+        for item in items[:3]:
             publication={key:item[key] for key in ('publishedAt','publishedDate','publicationSource') if item.get(key) is not None}
             youtube_research.enrich(item)
             item.update(publication)
-    return dict(version='mco-gold-research-v3',checkedAt=now,intervalSeconds=INTERVAL,sources=sources,items=items,
+    return dict(version='mco-gold-research-v3',checkedAt=now,intervalSeconds=INTERVAL,sources=sources,items=items[:3],
         method='Nur Gold-Videos des bestätigten Kanals MCO Markets. Neue Videos werden bei geöffnetem Markt etwa alle 15 Minuten und am Wochenende alle zwei Stunden gesucht; bis zu drei Videos je Lauf werden auf abrufbare Untertitel geprüft. Kurzer Kontext aus dem tatsächlich gelesenen Transkript mit Quellenstellen. Richtungsbewertung mit Textregeln; zusätzliche KI-Zusammenfassung und gespeicherte Videovorschaubilder abhängig vom ausgewiesenen Abrufstatus. Keine KI-Chartanalyse; fehlender Text bleibt ungeprüft.')
 
 
@@ -358,7 +368,8 @@ def summarize(report, now=None):
     fresh=bool(not result.get('archived') and result.get('checkedAt') and 0<=now-result['checkedAt']<=interval*2)
     items=[x for x in result.get('items',[]) if allowed_item(x)]
     items.sort(key=publication_sort_time,reverse=True)
-    result['items']=items
+    result['items']=items[:3]
+    items=result['items']
     for x in items:x['current']=bool(fresh and x['publishedAt'] is not None and 0<=now-x['publishedAt']<=86400)
     counts={k:0 for k in ('LONG','SHORT','UNKLAR')}
     for x in items:
@@ -381,7 +392,8 @@ def snapshot():
     with _lock:report=copy.deepcopy(_report)
     import youtube_research
     report=report or dict(checkedAt=None,sources=[],items=[],method='Recherche startet; noch keine Quellen geprüft.',intervalSeconds=INTERVAL)
-    manual={x['url']:x for x in youtube_research.manual_items() if allowed_item(x)}
+    kept={x['url'] for x in report['items'][:3]}
+    manual={x['url']:x for x in youtube_research.manual_items() if allowed_item(x) and x['url'] in kept}
     for item in report['items']:
         if item['url'] in manual and not item.get('transcriptAnalyzed'):
             publication={key:item[key] for key in ('publishedAt','publishedRelative','publishedRelativeObservedAt','listingInfo') if item.get(key) is not None}
@@ -389,6 +401,7 @@ def snapshot():
             item.update(publication)
     urls={x['url'] for x in report['items']}
     report['items'] += [x for url,x in manual.items() if url not in urls]
+    report['items']=report['items'][:3]
     # Apply verified metadata to stored/manual entries as well as fresh listings.
     for item in report['items']:
         if item.get('publishedAt') is None:
@@ -405,6 +418,8 @@ def _run():
     try:
         remembered=youtube_feed_archive.request('read', {})
         if remembered.get('items'):
+            import youtube_research
+            youtube_research.retain_only(remembered['items'])
             with _lock:
                 _report=dict(checkedAt=None,sources=[],items=remembered['items'],archived=True,
                     method='Gespeicherte MCO-YouTube-Videolinks. Quelle und Veröffentlichungszeit nicht neu geprüft.')
@@ -414,11 +429,7 @@ def _run():
         try:
             report=collect()
             if report.get('items'):
-                try:
-                    stored=youtube_feed_archive.request('write',{'items':report['items']})
-                    print('BOB_YOUTUBE_ARCHIVE saved='+str(stored.get('saved',0)),flush=True)
-                except Exception as exc:
-                    print('BOB_YOUTUBE_ARCHIVE write_error='+type(exc).__name__,flush=True)
+                pass  # collect() already persisted the verified three-video list
             else:
                 with _lock:
                     previous=copy.deepcopy(_report)
