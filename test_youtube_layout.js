@@ -8,6 +8,7 @@ assert(order[0]<order[1]&&order[1]<order[2]);
 assert(html.includes('showLastVideos(\'Live-Abruf fehlgeschlagen\')'));
 assert(html.includes('if(!r.items.length)return;'));
 assert(html.includes('id="youtubeListStatus"'));
+assert(html.includes('Math.round((r.intervalSeconds||900)/60)'), 'YouTube refresh cadence must follow the server interval');
 assert(html.includes("research:'YouTube'"));
 assert(html.includes('r.mcoOutlook'), 'MCO heading must read the verified video direction, not consensus');
 assert(!html.includes("c.textContent='MCO Markets · '+r.consensus"), 'Do not display independent-source consensus as MCO view');
