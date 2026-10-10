@@ -867,6 +867,21 @@ class Handler(BaseHTTPRequestHandler):
             return
         # Public read-only app resources. No credentials or secrets are returned here.
         # This is required for normal PWA/browser fetch behavior after the initial protected page load.
+
+        if path == "/mco_clip.js":
+            try:
+                body = (BASE_DIR / "mco_clip.js").read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/javascript; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
+            except OSError:
+                self.send_response(404)
+                self.end_headers()
+            return
+
         if path == "/real_trade_journal.js":
             try:
                 body = (BASE_DIR / "real_trade_journal.js").read_bytes()
