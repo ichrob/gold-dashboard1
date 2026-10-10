@@ -136,7 +136,7 @@ def _fib_price(raw):
     raw = raw.strip().lstrip('$').strip()
     if re.fullmatch(r'\d{1,2}[.,]\d{3}(?:[.,]\d{1,2})?', raw):
         first = next(i for i, c in enumerate(raw) if c in '.,')
-        raw = raw[:first] + raw[first+4:]
+        raw = raw[:first] + raw[first+1:]
     raw = raw.replace(',', '.')
     try:
         value = float(raw)
