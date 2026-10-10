@@ -640,7 +640,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <details><summary>Quellen und Abrufstatus</summary><div id="goldResearchSources"></div></details>
 <details><summary>Methode und Grenzen</summary>
 <p id="goldResearchMethod"></p>
-<p>Die obere MCO-Richtung ist ausschließlich eine Zusammenfassung der drei neuesten geprüften Videos. Sie kann LONG, SHORT, Unklar oder Noch nicht analysiert sein. Ungeprüfte und nur manuell eingefügte Transkripte werden nicht als bestätigte MCO-Stimme gezählt. Sie ist kein Handels- oder Quellenkonsens. Die Recherche ist ausschließlich auf Gold-Videos von MCO Markets begrenzt. Mehrere Videos desselben Kanals sind keine unabhängigen Quellen. Bob zeigt kurze Originalaussagen aus tatsächlich gelesenen Untertiteln und ordnet eindeutige Richtungsaussagen mit Textregeln ein. Bedingungen bleiben im Kontext erhalten. Der strukturierte Überblick durchsucht das gesamte gelieferte Transkript nach Themen und zeigt ausgewählte Originalsätze mit Belegen. Er ersetzt keine frei formulierte KI-Gesamtzusammenfassung. Videobilder können an Textstellen im Player angesehen werden; eine automatische Bild-/Chartanalyse ist nicht angebunden.</p>
+<p>Die obere MCO-Richtung ist ausschließlich eine Zusammenfassung der drei neuesten geprüften Videos. Sie kann LONG, SHORT, Unklar oder Noch nicht analysiert sein. Ungeprüfte und nur manuell eingefügte Transkripte werden nicht als bestätigte MCO-Stimme gezählt. Sie ist kein Handels- oder Quellenkonsens. Die Recherche ist ausschließlich auf Gold-Videos von MCO Markets begrenzt. Mehrere Videos desselben Kanals sind keine unabhängigen Quellen. Bob zeigt kurze Originalaussagen aus tatsächlich gelesenen Untertiteln und ordnet eindeutige Richtungsaussagen mit Textregeln ein. Bedingungen bleiben im Kontext erhalten. Der strukturierte Überblick durchsucht das gesamte gelieferte Transkript nach Themen und zeigt ausgewählte Originalsätze mit Belegen. Er ersetzt keine frei formulierte KI-Gesamtzusammenfassung. Bis zu fünf Vorschaubilder werden an passenden Textstellen dargestellt und bei verfügbarer KI grob nach Bildtyp eingeordnet; wegen der niedrigen Auflösung werden daraus keine Kurswerte, Chartmarken oder Handelssignale abgeleitet.</p>
 <p>Der Abruf läuft alle 15 Minuten, solange Bob läuft. Bei fehlendem oder leerem Transkript bleibt das Video ausdrücklich ungeprüft. Recherche ändert keine Produktfreigabe.</p>
 </details>
 </div>
@@ -760,10 +760,30 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  }
  function renderEnhancements(box,item,url){
   const extra=item.enhancements;
+  const frames=(extra.frames||[]).filter(f=>typeof f.dataUrl==='string'&&/^data:image\\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(f.dataUrl)&&f.dataUrl.length<140000&&Number.isFinite(f.at)&&f.at>=0&&f.at<=86400).slice(0,5);
+  const notes=new Map((extra.summary?.visualNotes||[]).filter(n=>Number.isInteger(n.frameId)&&n.frameId>=0&&n.frameId<frames.length).map(n=>[n.frameId,n.label]));
+  const used=new Set();
+  function makeFigure(frame,index){
+   const figure=node('figure',''),img=document.createElement('img');
+   img.src=frame.dataUrl;img.alt='Vorschaubild aus dem MCO-Video, Videominute '+Math.floor(frame.at/60);
+   img.loading='lazy';img.style.cssText='display:block;width:100%;max-width:480px;height:auto;border-radius:8px';
+   const at=Math.floor(frame.at),target=new URL(url),link=node('a','Originalvideo ca. '+Math.floor(at/60)+':'+String(at%60).padStart(2,'0'));
+   target.searchParams.set('t',String(at));link.href=target.href;link.target='_blank';link.rel='noopener noreferrer';
+   const description='Näherungsweise Videostelle · '+(notes.has(index)?'KI-Bildeindruck: '+notes.get(index)+' (nicht verifiziert). ':'')+'Niedrig aufgelöste Vorschau, keine bestätigten Chartzahlen.';
+   figure.style.cssText='margin:12px 0;padding:10px;border:1px solid #e5e9ef;border-radius:12px';
+   figure.append(img,node('figcaption',description),link);
+   return figure;
+  }
   if(extra.summary&&extra.summary.kind==='ai'){
    box.append(node('h4','KI-Gesamtzusammenfassung'),node('small',extra.summary.scope));
    for(const section of extra.summary.sections||[]){
     box.append(node('h5',section.label),node('p',section.text));
+    const times=(section.evidence||[]).map(s=>s.at).filter(t=>Number.isFinite(t)&&t>=0&&t<=86400);
+    if(times.length){
+     const ranked=frames.map((f,i)=>({i,d:Math.min(...times.map(t=>Math.abs((f.requestedAt??f.at)-t)))}))
+      .filter(x=>x.d<=180&&!used.has(x.i)).sort((a,b)=>a.d-b.d);
+     if(ranked.length){const index=ranked[0].i;used.add(index);box.append(makeFigure(frames[index],index));}
+    }
     const evidence=node('details','');evidence.append(node('summary','Originalstellen zu diesem Abschnitt'));
     for(const source of section.evidence||[]){
      evidence.append(node('blockquote',source.text));
@@ -776,16 +796,13 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    }
    box.append(node('small',extra.summary.note));
   }else box.append(node('p',extra.summaryStatus||'KI-Zusammenfassung noch nicht verfügbar.'));
-  const frames=(extra.frames||[]).filter(f=>typeof f.dataUrl==='string'&&/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(f.dataUrl)&&f.dataUrl.length<140000).slice(0,3);
-  if(frames.length){
-   const gallery=node('details','');gallery.append(node('summary','Gespeicherte Bilder aus dem Video'));
-   for(const frame of frames){
-    const figure=node('figure',''),img=document.createElement('img');img.src=frame.dataUrl;img.alt=frame.label+' – YouTube-Zeitleistenvorschau';img.loading='lazy';img.style.cssText='display:block;width:100%;max-width:640px;height:auto';
-    const at=Math.floor(frame.at),link=node('a','Videostelle ca. '+Math.floor(at/60)+':'+String(at%60).padStart(2,'0'));const target=new URL(url);target.searchParams.set('t',String(at));link.href=target.href;link.target='_blank';link.rel='noopener noreferrer';
-    figure.append(img,node('figcaption',frame.label+' · '+frame.source),link);gallery.append(figure);
-   }
+  const remaining=frames.map((frame,i)=>({frame,i})).filter(({i})=>!used.has(i));
+  if(remaining.length){
+   const gallery=node('details','');gallery.append(node('summary','Weitere Videobilder ('+remaining.length+')'));
+   gallery.append(node('p','Standbilder dienen der Orientierung. Der Originalchart kann nur im verlinkten Video zuverlässig geprüft werden.'));
+   for(const entry of remaining)gallery.append(makeFigure(entry.frame,entry.i));
    box.append(gallery);
-  }else box.append(node('small',extra.frameStatus||'Noch keine gespeicherten Videobilder.'));
+  }else if(!frames.length)box.append(node('small',extra.frameStatus||'Noch keine gespeicherten Videobilder.'));
  }
  function renderOverview(box,item,url){
   const overview=item.overview, evidence=new Map((overview.evidence||[]).map(e=>[e.id,e]));
@@ -809,7 +826,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   box.append(details);
   const id=url.hostname==='www.youtube.com'?url.searchParams.get('v'):null;
   if(!/^[A-Za-z0-9_-]{11}$/.test(id||''))return;
-  const moments=(overview.moments||[]).filter(m=>Number.isInteger(m.at)&&m.at>=0&&m.at<=86400).slice(0,3);
+  const moments=(overview.moments||[]).filter(m=>Number.isInteger(m.at)&&m.at>=0&&m.at<=86400).slice(0,5);
   if(!moments.length)return;
   const visual=node('details','');visual.append(node('summary','Videobilder an passenden Stellen ansehen'));
   visual.append(node('p','Echte Videobilder im YouTube-Player, keine gespeicherten Standbilder. Die Stellen wurden anhand des Textes ausgewählt; ob dort die passende Chartansicht sichtbar ist, wurde nicht geprüft. YouTube wird erst beim Anklicken geladen.'));
