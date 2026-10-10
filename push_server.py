@@ -248,7 +248,9 @@ def expire_product_selections():
 def product_expiry_loop():
     while True:
         try:
-            expire_product_selections()
+            if background_push.degiro_entry_allowed():
+                expire_product_selections()
+            # Explicit tests are always permitted, including at night.
             deliver_background_tests()
         except Exception as exc:
             print('BOB_PRODUCT expiry_error='+type(exc).__name__, flush=True)
@@ -363,7 +365,7 @@ def run_background(bundle):
             if delivered:
                 state['checkedAt']=int(time.time()*1000)
                 conn.execute('UPDATE subscriptions SET background_state=%s::jsonb WHERE id=%s',(json.dumps(state),sid))
-            if general and evidence:
+            if general and evidence and background_push.degiro_entry_allowed():
                 try:
                     checked=product_push.evaluate({**evidence,'capturedAt':int(time.time()*1000),'bundle':bundle,'context':market.get('context',{'direction':'NEUTRAL'})})
                     sent += deliver_product_selection(conn,(sid,sub,selection),checked)
@@ -419,7 +421,8 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 with db() as conn:
                     count = conn.execute("SELECT count(*) FROM subscriptions WHERE general_enabled=TRUE OR (trade_enabled=TRUE AND active_trade=TRUE)").fetchone()[0]
-                send_json(self, 200, {"activeMonitors": count})
+                    trades = conn.execute("SELECT count(*) FROM subscriptions WHERE trade_enabled=TRUE AND active_trade=TRUE").fetchone()[0]
+                send_json(self, 200, {"activeMonitors": count, "activeTrades": trades})
                 return
             if path == "/vapid-public-key":
                 send_json(self, 200, {"publicKey": vapid_public_key()})
