@@ -6,7 +6,7 @@ import paper_simulation as sim
 from test_paper_simulation import market, tick, quote, NOW, ISIN
 
 
-def issuer_quote(at, ko=98.6, direction='LONG'):
+def issuer_quote(at, ko=99.3, direction='LONG'):
     return {**quote(at), 'productVerified': True, 'direction': direction,
             'ko': ko, 'metadata': {'underlyingType': 'SPOT', 'ko': ko}}
 
@@ -49,9 +49,9 @@ class KoGuardIntegrationTests(unittest.TestCase):
     def test_short_ko_guard_exits_on_confirmed_bid(self):
         m=market('SHORT')
         c=sim.new_case(m,{'isin':ISIN,'scope':'XAU/USD'},
-                       issuer_quote(NOW,ko=101.4,direction='SHORT'),NOW,cash=101.)
+                       issuer_quote(NOW,ko=100.7,direction='SHORT'),NOW,cash=101.)
         advanced=sim.advance_case(c,tick(100,atr=.5,direction='SHORT'),
-                                  issuer_quote(NOW+30000,ko=101.4,direction='SHORT'),NOW+30000)
+                                  issuer_quote(NOW+30000,ko=100.7,direction='SHORT'),NOW+30000)
         self.assertEqual(advanced['exitReason'],'ko-protective-exit')
 
     def test_live_position_has_pre_ko_warning_not_broker_order(self):
