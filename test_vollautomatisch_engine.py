@@ -54,6 +54,21 @@ class PaperEngineTest(unittest.TestCase):
                             {"fee_eur_per_order": 1.0})
         self.assertEqual(r["events"][0]["event"], "BLOCKED")
 
+    def test_adverse_scenarios_have_different_outcomes(self):
+        win = engine.demonstration("target")
+        loss = engine.demonstration("stop_gap")
+        stale = engine.demonstration("stale")
+        trailing = engine.demonstration("trailing")
+        self.assertGreater(win["equity_eur"], 100)
+        self.assertLess(loss["equity_eur"], 100)
+        self.assertEqual(stale["equity_eur"], 100)
+        self.assertTrue(any(e["event"] == "BLOCKED" for e in stale["events"]))
+        self.assertTrue(any(e["event"] == "TRAIL_PAPER" for e in trailing["events"]))
+        self.assertTrue(all(r["live_order_capable"] is False
+                            for r in (win, loss, stale, trailing)))
+        with self.assertRaises(ValueError):
+            engine.demonstration("live")
+
     def test_demo_is_explicitly_synthetic(self):
         r = engine.demonstration()
         self.assertTrue(r["synthetic"])
