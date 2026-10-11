@@ -1,3 +1,5 @@
+import vollautomatisch_panel
+import vollautomatisch_engine
 import intraday_comparison
 import os
 import base64
@@ -105,6 +107,7 @@ ICON_PATH = BASE_DIR / "icon.svg"
 HTML = HTML_PATH.read_bytes() if HTML_PATH.exists() else b""
 HTML = HTML.replace(b"</body>", auto_collection.PANEL.encode('utf-8')+b"</body>")
 HTML = HTML.replace(b"</body>", candle_shadow.PANEL.encode('utf-8')+b"</body>")
+HTML = HTML.replace(b"</body>", vollautomatisch_panel.PANEL.encode("utf-8")+b"</body>")
 SW = SW_PATH.read_bytes() if SW_PATH.exists() else None
 MANIFEST = MANIFEST_PATH.read_bytes() if MANIFEST_PATH.exists() else None
 ICON = ICON_PATH.read_bytes() if ICON_PATH.exists() else None
@@ -771,7 +774,7 @@ class Handler(BaseHTTPRequestHandler):
         # Sensitive data APIs must be authenticated before any data generation.
         # Keep static PWA resources and /health public, but never expose live,
         # MTF, or DEGIRO enrichment data without the existing Bob credentials.
-        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path == "/api/weekend-archive"
+        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive"
         if protected_api_path:
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
@@ -783,6 +786,25 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(b"Authentication required.")
                 return
+
+        if path == "/api/vollautomatisch/demo":
+            # Authenticated and read-only. Runs fixed synthetic quotes; never
+            # dispatches live signals or connects to a brokerage account.
+            scenario = parse_qs(urlparse(self.path).query).get("scenario", ["target"])[0]
+            if scenario not in ("target", "stop_gap", "stale", "trailing"):
+                self.send_response(400)
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                return
+            body = json.dumps(vollautomatisch_engine.demonstration(scenario),
+                              ensure_ascii=False, allow_nan=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body)
+            return
 
         if path == "/api/gold-research":
             body = json.dumps(gold_research.snapshot(), ensure_ascii=False, allow_nan=False).encode('utf-8')

@@ -1,0 +1,29 @@
+name: Vollautomatisch Paper Simulator
+
+on:
+  pull_request:
+    paths:
+      - 'vollautomatisch_engine.py'
+      - 'vollautomatisch_panel.py'
+      - 'server.py'
+      - 'test_vollautomatisch_engine.py'
+      - 'test_vollautomatisch_http.py'
+      - '.github/workflows/vollautomatisch.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile simulator and server
+        run: python -m py_compile vollautomatisch_engine.py vollautomatisch_panel.py server.py
+      - name: Run isolated paper trading tests
+        run: python -m unittest -v test_vollautomatisch_engine.py test_vollautomatisch_http.py
