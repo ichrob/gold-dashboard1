@@ -1037,7 +1037,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <div class="card" id="fourDayPanel"><h3>Schnell oder vorsichtig · Vier Tage</h3><div id="fourDayComparison" class="small" style="white-space:pre-line">Vergleich wird mit der Statistik geladen.</div></div>
 <section class="card" id="auditPanel">
 <h2>Prüfprotokoll &amp; Lernen</h2>
-<details id="paperSimulationPanel" open><summary>Fortlaufende Marktsimulation · Gold &amp; DEGIRO-Produkte</summary>
+<details id="paperSimulationPanel" open><summary>Bisheriger Einzel-Simulationstest · Archiv bis 11. Oktober</summary>
+<p class="small"><b>Archiv:</b> Ab Montag laufen die drei getrennten Testkonten unter „Vollautomatisch“. Diese ältere Einzelsimulation erzeugt keine neuen Trades.</p>
 <p id="paperStatus" class="small" role="status" style="white-space:pre-line">Start 8.10.2026 · ohne festes Enddatum. Simulation wird geladen …</p>
 <p id="paperCapital" style="white-space:pre-line;font-weight:bold">Fiktives Startkapital: 100 EUR · Bruttomodell</p>
 <label for="paperDay">Simulationstag (Schweizer Zeit)</label><input id="paperDay" type="date">
@@ -1101,7 +1102,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const c=r.control,weekend=window.BobWeekendPause?.(),phase=window.BobDegiroPhase?.(),night=phase==='night',stale=!weekend&&!night&&c.checkedAt&&Date.now()-c.checkedAt>90000;
    text('paperCapital','Fiktives Startkapital '+paperMoney(c.initialCapital)+' · aktueller Kapitalstand '+paperMoney(c.equity)+'\nBargeld '+paperMoney(c.cash)+' · offene Produktstücke '+(c.openUnits||0)+'\nHeute '+paperMoney(c.dayProfit)+' · seit Start '+paperMoney(c.totalProfit)+'\nDavon gebuchtes Ergebnis seit Start '+paperMoney(c.realizedProfit)+'\nBruttomodell einschließlich offener Positionen zum beobachteten Geldkurs. Ohne Gebühren, Finanzierung und Slippage; kein Nettogewinn. Guthaben wird über die Tage weitergeführt.');
    text('paperStatus',[
-    'Start '+paperTime(c.startAt)+' · ohne festes Enddatum · '+(weekend?'MARKT GESCHLOSSEN · SIMULATION PAUSIERT':night?'DEGIRO-NACHTMODUS · SIMULATION PAUSIERT':phase==='preparation'?'MARKTVORBEREITUNG · SIMULATION PAUSIERT':c.status==='scheduled'?'START GEPLANT':c.status==='paused'?'PAUSIERT':'SIMULATION AKTIV'),
+    'Start '+paperTime(c.startAt)+' · ohne festes Enddatum · '+(weekend?'MARKT GESCHLOSSEN · SIMULATION PAUSIERT':night?'DEGIRO-NACHTMODUS · SIMULATION PAUSIERT':phase==='preparation'?'MARKTVORBEREITUNG · SIMULATION PAUSIERT':c.status==='scheduled'?'START GEPLANT':c.status==='paused'?'PAUSIERT':'ARCHIV · KEINE NEUEN EINZEL-TRADES'),
     (weekend?'Keine neuen Marktzyklen. Gespeicherte Fälle und Ergebnisse bleiben erhalten.':night||phase==='preparation'?'Keine neuen fiktiven Produkteinstiege oder Produktkursabrufe. Kapital und Fälle bleiben erhalten.':c.reason||''),
     'Letzte Hintergrundprüfung '+paperTime(c.checkedAt)+(stale?' · Überwachung derzeit nicht aktuell bestätigt':''),
     'Produktuniversum: '+(r.products.length?r.products.map(p=>p.isin+' · '+(p.direction||'Richtung offen')).join(', '):'noch nicht synchronisiert'),
@@ -1313,7 +1314,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const autoPanel=document.createElement('div');autoPanel.className='card';autoPanel.id='bobFullyAutomatic';
   autoPanel.innerHTML=`
    <h3>Vollautomatisch · Entwicklungsbereich</h3>
-   <p class="small"><strong>Status: Live-Paper-Prüfung ab Montag, 12.10.2026, 08:00 Uhr (Zürich) vorgesehen.</strong> Kein Echtgeldhandel. Keine Broker-Verbindung. Keine automatische Orderausführung.</p>
+   <p class="small"><strong>Status: Drei getrennte Live-Paper-Konten ab 12.10.2026, 08:00 Uhr (Zürich).</strong> Kein Echtgeldhandel. Keine Broker-Verbindung. Keine automatische Orderausführung.</p>
    <div class="technical-metric"><strong>Unser Ziel</strong><p>Bob soll Goldsignale unabhängig bewerten, simulierte Ein- und Ausstiege durchführen, Stop-Loss und Gewinnmitnahme berechnen und jeden Entscheid nachvollziehbar dokumentieren. Erst nach unabhängiger Prüfung kommt ein Broker mit offiziell erlaubter API infrage.</p></div>
    <details open class="bob-disclosure"><summary><b>Entwicklungsphasen</b></summary>
     <ol><li><b>Phase 1 · Simulationskern:</b> Vorhandene Goldanalyse, Produktauswahl und fiktives Startkapital verwenden. Keine echten Orders.</li>
@@ -1326,16 +1327,9 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    <p class="small"><b>Freigaberegel:</b> Echtgeld bleibt gesperrt, bis ein rechtlich und technisch geeigneter Broker vorhanden ist und du die Live-Freigabe ausdrücklich erteilst. Ein profitables System lässt sich nicht garantieren.</p>
    <button type="button" data-view="learning" class="bob-primary">Vorhandene Marktsimulation und Ergebnisse öffnen</button>`;
   panels.auto.append(autoPanel);
-  // Forward-market paper test is distinct from the synthetic demo above.
-  // Reuse the existing persistent ledger and all its event listeners.
-  const forwardTest=document.createElement('h3');
-  forwardTest.textContent='Live-Paper-Test · fortlaufend bei geöffnetem Markt';
-  panels.auto.append(forwardTest);
-  const forwardHint=document.createElement('p');
-  forwardHint.className='small';
-  forwardHint.textContent='Automatische Prüfung im Hintergrund ohne geöffnetes Handy. Nur beobachtete Goldsignale und aktuelle Produkt-Geld-/Briefkurse. Kein echter Auftrag. Ohne belastbaren Produktkurs bleibt Bob bei ABWARTEN; eine erfolgreiche Simulation wird nicht erfunden.';
-  panels.auto.append(forwardHint);
-  move(byId('paperSimulationPanel'),'auto');
+  // The October 8 single-account forward study is retained solely as history;
+  // the active three-account comparison is mounted by vollautomatisch_panel.py.
+  move(byId('paperSimulationPanel'),'learning');
   move(byId('goldResearchPanel'),'research');
   move(byId('fourDayPanel'),'learning');
   move(byId('intradayComparisonDetails'),'learning');
