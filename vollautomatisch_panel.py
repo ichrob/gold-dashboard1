@@ -7,6 +7,13 @@ PANEL = r"""
 <section id="bob-vollautomatisch-demo" class="card" style="margin:12px 0;padding:16px;border:1px solid #b6c3d2;border-radius:14px;background:#fff;color:#16263c">
  <h3>100 € · Simulations-Probelauf</h3>
  <p class="small" style="color:#475569">Getrennter Rechenkern mit synthetischen Produktkursen in Euro. Er testet Kauf, Positionsgrösse, Stop-Loss, Gewinnziel, Trailing-Stop und Kostenannahmen. Noch kein automatischer Handel mit Marktdaten.</p>
+ <label for="bobAutoDemoScenario"><b>Testszenario</b></label>
+ <select id="bobAutoDemoScenario" style="display:block;margin:8px 0 12px;max-width:100%;width:100%;padding:10px;border-radius:8px">
+  <option value="target">Gewinnziel erreicht</option>
+  <option value="stop_gap">Kurslücke und Stop-Verlust</option>
+  <option value="trailing">Nachgezogener Stop</option>
+  <option value="stale">Veralteter Kurs blockiert Einstieg</option>
+ </select>
  <button type="button" id="bobAutoDemoRun" class="bob-primary">Probelauf mit Beispieldaten starten</button>
  <p class="small" id="bobAutoDemoStatus" role="status">Noch nicht ausgeführt · keine Echtgeld-Orders möglich.</p>
  <div id="bobAutoDemoResults" hidden>
@@ -25,6 +32,7 @@ PANEL = r"""
   const auto=document.getElementById('bob-view-auto');
   if(auto)auto.append(root);
   const run=document.getElementById('bobAutoDemoRun');
+  const scenario=document.getElementById('bobAutoDemoScenario');
   const status=document.getElementById('bobAutoDemoStatus');
   const results=document.getElementById('bobAutoDemoResults');
   const summary=document.getElementById('bobAutoDemoNumbers');
@@ -34,7 +42,7 @@ PANEL = r"""
    run.disabled=true;status.textContent='Synthetische Trades werden berechnet …';
    results.hidden=true;
    try{
-    const response=await fetch('/api/vollautomatisch/demo',{credentials:'same-origin',cache:'no-store'});
+    const response=await fetch('/api/vollautomatisch/demo?scenario='+encodeURIComponent(scenario.value),{credentials:'same-origin',cache:'no-store'});
     if(!response.ok)throw Error('Probelauf konnte nicht geladen werden (HTTP '+response.status+').');
     const data=await response.json();
     if(data.mode!=='PAPER_ONLY'||data.live_order_capable!==false||data.synthetic!==true)throw Error('Unsicherer Simulationsstatus');
@@ -65,7 +73,7 @@ PANEL = r"""
      line.textContent=name+' · '+e.at+amount+price+stop+gain+(e.reason?' · '+e.reason:'');
      events.append(line);
     }
-    status.textContent='Funktionstest berechnet · '+data.quotes_processed+' künstliche Kursbeobachtungen · keine echte Order';
+    status.textContent='Funktionstest ('+scenario.options[scenario.selectedIndex].text+') berechnet · '+data.quotes_processed+' künstliche Kursbeobachtungen · keine echte Order';
     results.hidden=false;
    }catch(error){status.textContent='Probelauf nicht verfügbar: '+String(error.message||error);}
    finally{run.disabled=false;}
