@@ -1252,6 +1252,13 @@ class Handler(BaseHTTPRequestHandler):
                 # Save only a safe structured result, never the original email
                 # body, attachment, personal account details or webhook secret.
                 record = trade_email_import.import_event(event, os.environ["BOB_EMAIL_ALLOWED_FROM"])
+                # Strictly scoped attachment retrieval. If a relevant PDF
+                # cannot be fetched, return 503 for AgentMail retry instead
+                # of silently acknowledging a discarded trade confirmation.
+                import trade_attachment_import
+                record = trade_attachment_import.enrich_event(
+                    event, record, os.environ["BOB_EMAIL_ALLOWED_FROM"],
+                    os.environ.get("BOB_AGENTMAIL_API_KEY", ""))
                 message = event.get("message") if isinstance(event.get("message"), dict) else {}
                 message_id = message.get("message_id") or signed_id
                 if not isinstance(message_id, str) or len(message_id) > 200:
