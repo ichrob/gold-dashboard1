@@ -105,6 +105,19 @@ class KoGuardTests(unittest.TestCase):
         self.assertEqual(out['koWatchStatus'],'unverified')
         self.assertFalse(any(e['kind']=='ko-safety-exit' for e in out['events']))
 
+    def test_unsynchronized_bid_never_claims_protective_sale(self):
+        opened=sim.new_case(market(),choice(),quote(),NOW,cash=100.)
+        # EUR bid is still within the general 90-second freshness window,
+        # but arrived eight seconds before the triggering Gold observation.
+        bid=quote(NOW+22000,bid=8.)
+        out=sim.advance_case(opened,market(price=3940.,at=NOW+30000),
+                             bid,NOW+30000)
+        self.assertEqual(out['status'],'open')
+        self.assertEqual(out['koWatchStatus'],'unverified')
+        self.assertIn('zeitlich nicht abgestimmt',out['koWatchReason'])
+        self.assertEqual(out['cashReleased'],0)
+        self.assertNotIn('exitReason',out)
+
     def test_terminal_waits_for_real_settlement_not_zero_or_new_cash(self):
         c=sim.new_case(market(),choice(),quote(),NOW,cash=100.)
         terminal=quote(NOW+30000,status=2)
