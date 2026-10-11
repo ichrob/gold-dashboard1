@@ -516,7 +516,7 @@ function koProtection(p){
  const unknown={level:'unknown',distanceUsd:null,distancePct:null,atrMultiple:null,protectiveStopGold:null};
  if(isFutureProduct(p))return {...unknown,reason:'Future-KO benötigt denselben bestätigten Kontraktkurs'};
  if(!['LONG','SHORT'].includes(direction)||!(gold>0&&ko>0))return {...unknown,reason:'Basiswert, Produktrichtung oder KO fehlt'};
- const sign=direction==='LONG'?1:-1,delta=sign*(gold-ko),critical=Math.max(gold*.01,atr>0?1.5*atr:0),warning=Math.max(gold*.02,atr>0?2*atr:0);
+ const sign=direction==='LONG'?1:-1,delta=sign*(gold-ko),critical=Math.max(gold*.015,atr>0?1.5*atr:0),warning=Math.max(gold*.02,atr>0?2*atr:0);
  const level=delta<=0?'crossed':delta<=critical?'critical':delta<=warning?'warning':'safe';
  return {level,distanceUsd:delta,distancePct:100*delta/gold,atrMultiple:atr>0?delta/atr:null,
    protectiveStopGold:ko+sign*critical,reason:level==='critical'?'Kritischer KO-Abstand':level==='warning'?'KO-Frühwarnung':level==='crossed'?'KO-Barriere erreicht':'KO-Puffer oberhalb der Warnschwelle'};
