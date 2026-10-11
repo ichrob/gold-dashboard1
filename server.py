@@ -798,7 +798,10 @@ class Handler(BaseHTTPRequestHandler):
                 rows = retain_technical_history("1h", [])
                 if len(rows) < 580:
                     rows = fetch_technical_history("1h", "3mo")
-                report = strategy_lab.run(rows)
+                # A provider's last bucket may still be forming even if it
+                # incorrectly reports isOpen=False. Recheck the clock here.
+                closed_checked = mark_bar_state([dict(x) for x in rows], 60)
+                report = strategy_lab.run(closed_checked)
                 report["brokerReadiness"] = broker_bridge.status()
             except (ValueError, RuntimeError, OSError) as exc:
                 report = {"status": "unavailable", "mode": "RESEARCH_ONLY",
