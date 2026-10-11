@@ -14,6 +14,9 @@ const FIELDS=[
  {id:'cost',name:'Hebel, KO und Nettokosten',phase:'Strategie',state:'unvollständig',
   trial:'Brief beim Einstieg, Geld beim Ausstieg, Spread, Gebühren, Finanzierung, Slippage, Währung und KO-/Gap-Risiko je simuliertem Trade prüfen.',
   gate:'Vollständige belegte Netto-Ergebnisse; kein Hebelvorteil ohne Verlust- und KO-Prüfung. Spread bleibt ausserhalb der Produkterangliste.'},
+ {id:'learning',name:'Experimentelle ML-Filter und externe Analysen',phase:'Strategie',state:'Forschung',
+  trial:'Nur als optionales Shadow-Modell untersuchen, ob ML oder belegte MCO-Kontexte schlechte Signale aussortieren; keine Kurse oder Fibonacci-Level erfinden.',
+  gate:'Unabhängiger Nettovorteil gegenüber Bobs festen Regeln, vollständige Belege, keine direkten MCO-Auslösungssignale.'},
  {id:'backtest',name:'Walk-forward und unbekannte Testdaten',phase:'Beweise',state:'geplant',
   trial:'Zeitlich getrennte Train-/Validierungs-/Testfenster, rollierende Walk-forward-Auswertung, verschiedene Volatilitätsregime und Konfidenzintervalle einsetzen.',
   gate:'Kein zufälliges Durchmischen der Zeitreihe; Version vor unabhängigen Tests festschreiben und Ergebnisse archivieren.'},
@@ -80,10 +83,13 @@ function snapshot(raw){
   if(!['conservative','balanced','offensive','trend800'].includes(a.profile)||names.has(a.profile))
    throw Error('Doppelte oder unbekannte Kontenkennung');names.add(a.profile);
   const ctl=a.control||{},p=a.performance||{},day=a.stats||{};
+  const daily=Array.isArray(a.daily)?a.daily:[];
+  const observedDays=new Set(daily.filter(x=>x&&/^\d{4}-\d{2}-\d{2}$/.test(x.day)&&typeof x.lastCheckedAt!=='undefined').map(x=>x.day)).size;
   const safe=n=>typeof n==='number'&&Number.isFinite(n)?n:null;
   items.push({
    id:a.profile, initial:safe(ctl.initialCapital),equity:safe(ctl.equity),
    priced:safe(p.pricedTrades),positive:safe(p.positivePricedTrades),
+   closedTotal:safe(p.closedTrades),observationDays:observedDays,
    drawdown:safe(p.observedMaxDrawdownPct),missing:safe(p.quoteMissingChecks),
    closedToday:safe(day.closed),openUnits:safe(ctl.openUnits),
    checkedAt:typeof ctl.checkedAt==='string'?ctl.checkedAt:null,
@@ -111,7 +117,7 @@ function mount(parent){
  const paperStatus=el('p','Noch nicht in dieser Ansicht abgerufen. Start/Stand und Handelstage nicht abschliessend überprüft.');
  paperStatus.className='small';paperStatus.setAttribute('role','status');
  const paperCards=el('div');paperCards.style.cssText='display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px';
- const paperSummary=el('p','Eine erste Prüfschwelle von 30 Handelstagen und 100 auswertbaren abgeschlossenen Trades ersetzt keine unabhängigen Tests. Solche Langzeitnachweise werden hier nicht automatisch als bestanden ausgegeben.');
+ const paperSummary=el('p','Eine erste Prüfschwelle von 30 Handelstagen und 100 auswertbaren abgeschlossenen Trades ersetzt keine unabhängigen Tests. Protokollierte Tage sind nicht automatisch bestätigte Handelstage; nur bepreiste abgeschlossene Trades gelten als auswertbar. Solche Langzeitnachweise werden hier nicht automatisch als bestanden ausgegeben.');
  paperSummary.className='small';
  paper.append(paperTitle,paperText,paperBtn,paperStatus,paperCards,paperSummary);shell.append(paper);
  const displayName={conservative:'Konservativ · 100 €',balanced:'Ausgewogen · 100 €',offensive:'Offensiv · 100 €',trend800:'Trendfolge · 800 €'};
@@ -135,7 +141,9 @@ function mount(parent){
     const h=el('strong',displayName[a.id]);box.append(h);
     const metrics=[
      'Kapital brutto: '+(a.equity===null?'offen':format(a.equity)+' €'),
-     'Auswertbare bepreiste Trades: '+format(a.priced),
+     'Abgeschlossene Fälle seit Start: '+format(a.closedTotal),
+     'Davon bepreiste Trades: '+format(a.priced),
+     'Tage mit protokollierter Prüfung: '+format(a.observationDays),
      'Davon positiv: '+format(a.positive),
      'Grösster beobachteter Rückgang: '+(a.drawdown===null?'offen':format(a.drawdown)+' %'),
      'Kursprüfungen ohne gültige Quote: '+format(a.missing),
