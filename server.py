@@ -1408,7 +1408,10 @@ def fibonacci_monitor_loop():
                                       expectedCycleSeconds=poll_seconds, session=background_push.degiro_session())
             background_ok = True
             print("BOB_FIB monitor_connected active="+str(active), flush=True)
-            if active or intraday_comparison.active():
+            # A paper-trading forward test must receive market bundles even with
+            # the browser closed, no Push subscriber and the old four-day study ended.
+            # Only trading hours initiate fresh product analysis.
+            if active or intraday_comparison.active() or background_push.degiro_session() == "trading":
                 try:
                     bundle = build_live_bundle()
                     bars = bundle.get("history", {}).get("bars_by_tf", {})
@@ -1424,11 +1427,12 @@ def fibonacci_monitor_loop():
                 except Exception as exc:
                     background_ok = False
                     print("BOB_BACKGROUND error="+type(exc).__name__,flush=True)
-                payload = {"barsByTf":{tf:bars.get(tf, [])[-12:] for tf in ("5m","15m","1h")}}
-                request = Request(base+"/monitor", data=json.dumps(payload).encode(), method="POST", headers={"Content-Type":"application/json","X-Bob-Push-Token":PUSH_SERVICE_TOKEN})
-                with urlopen(request, timeout=20) as response:
-                    result = json.loads(response.read(4096))
-                print("BOB_FIB monitor_checked active="+str(active)+" sent="+str(result.get("sent",0)), flush=True)
+                if active:
+                    payload = {"barsByTf":{tf:bars.get(tf, [])[-12:] for tf in ("5m","15m","1h")}}
+                    request = Request(base+"/monitor", data=json.dumps(payload).encode(), method="POST", headers={"Content-Type":"application/json","X-Bob-Push-Token":PUSH_SERVICE_TOKEN})
+                    with urlopen(request, timeout=20) as response:
+                        result = json.loads(response.read(4096))
+                    print("BOB_FIB monitor_checked active="+str(active)+" sent="+str(result.get("sent",0)), flush=True)
             if background_ok:
                 FIB_MONITOR_HEALTH.update(status="active" if active else "idle", lastSuccessAt=int(time.time()))
             else:
