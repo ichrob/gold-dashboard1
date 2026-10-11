@@ -1005,6 +1005,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 })();
 </script>
 <script src="/mco_clip.js?v=20261011-fib-axis-v3"></script>
+<script src="/future_lab.js?v=20261011-v1"></script>
 
 </main>
 <script src="/push_manager.js"></script>
@@ -1371,6 +1372,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    </div>
   `;
   panels.future.append(futurePanel);
+  // Read-only research cockpit; never exposes broker credentials or execution controls.
+  window.BobFutureLab?.mount(futurePanel);
   // The October 8 single-account forward study is retained solely as history;
   // the active three-account comparison is mounted by vollautomatisch_panel.py.
   move(byId('paperSimulationPanel'),'learning');
