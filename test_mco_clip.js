@@ -1,5 +1,5 @@
 const assert=require('assert'),fs=require('fs');
-const {prepare,DURATION}=require('./mco_clip.js');
+const {prepare,DURATION,fibChartModel}=require('./mco_clip.js');
 assert.strictEqual(DURATION,60);
 const valid={title:'Gold – MCO erklärt die Lage',transcriptAnalyzed:true,trustedTranscript:true,
  outlook:'LONG',mcoFibonacci:[{key:'r618',ratio:'61,8 %',price:4100,at:144,quote:'61,8 Prozent bei 4100'},
@@ -31,7 +31,25 @@ assert.strictEqual(stale.bars.length,1);
 const independentlyCalculated=prepare({...valid,mcoFibonacci:[]},{available:true,fresh:false,levels:{r382:4041},bars:[{close:4050}]});
 assert.strictEqual(independentlyCalculated.levels.length,0,'Never invent MCO marks');
 assert.strictEqual(independentlyCalculated.bobLevels.length,1,'Show verified Bob levels even when MCO speaks no explicit Fibonacci marks');
+const fibonacci=fibChartModel({
+ levels:[],bobLevels:[{key:'r382',price:4221.62},{key:'r500',price:4222.80},{key:'r618',price:4223.98},{key:'r786',price:4225.66}],
+ bars:[4143.97,4195.60,4237.83],quote:{price:4195.60,asOf:1000}});
+assert.strictEqual(fibonacci.points.length,4,'Show all four standard independently sourced Bob levels');
+assert.deepStrictEqual(new Set(fibonacci.points.map(x=>x.label)).size,4,'Each level has its own price-linked label');
+assert(fibonacci.points.every((x,i,arr)=>i===0||x.labelY-arr[i-1].labelY>=19),'Labels do not collide for tight Fibonacci price bands');
+assert(fibonacci.min<4143.97&&fibonacci.max>4237.83,'Visible axis contains observed prices and every Fibonacci mark');
+assert.strictEqual(fibonacci.current,4195.60,'Gold quote is highlighted on the true price scale');
+assert.strictEqual(fibonacci.zones.length,3,'Shade actual price bands without fabricating levels');
+const paired=fibChartModel({levels:[{key:'r618',ratio:'61,8 %',price:4100,near:true}],bobLevels:[{key:'r618',price:4104}],
+ bars:[4080,4090],quote:null});
+assert.deepStrictEqual(paired.points.map(x=>x.kind).sort(),['Bob','MCO'],'Independently sourced values remain separate');
+assert(paired.points.every(x=>x.near),'Green agreement marker uses calculated proximity');
+assert.strictEqual(fibChartModel({levels:[],bobLevels:[],bars:[],quote:null}).min,null,'Never invent prices');
 const clip=fs.readFileSync('mco_clip.js','utf8');
+assert(clip.includes('Blau MCO · Orange Bob · Grün Kurs/Nähe'),'Clear source and current-quote legend');
+assert(clip.includes('sichtbare Kursgrenzen')&&clip.includes('Letzter 15m-Schlusskurs'),'Visible price axis and honest stale quote labelling');
+assert(clip.includes('line(plot.right,py,577,m.labelY'),'Leader from accurate Fibonacci price level to the spaced right-hand label');
+assert(clip.includes('Bobs Fibonacci-Level'),'Title must identify Bob-only prices');
 assert(clip.includes('voiced=supportsVoice'),'Sound enabled by default with device TTS');
 assert(clip.includes('window.speechSynthesis.speak(utter)'),'Free device narration required');
 assert(clip.includes('uiContainer.requestFullscreen')&&clip.includes('fullOverlay=true'),'Android fullscreen with fallback');
@@ -42,7 +60,7 @@ assert(clip.includes('spot.is_genuine_xauusd_spot===true'),'Only verified gold s
 assert(clip.includes("ctx.fillText(num(value)"),'Display exact chart axis prices');
 assert(!clip.includes('canvas.toDataURL('),'Never scrape copyrighted frames');
 const html=fs.readFileSync('Bob.html','utf8'),server=fs.readFileSync('server.py','utf8');
-assert(html.includes('src="/mco_clip.js?v=20261010-60s-v2"'));
+assert(html.includes('src="/mco_clip.js?v=20261011-fib-axis-v3"'));
 assert(html.includes('window.BobMcoClip.mount(box,x,url'));
 assert(html.includes('x.trustedTranscript&&window.BobMcoClip?.mount'));
 assert(server.includes('if path == "/mco_clip.js"'));
