@@ -162,6 +162,12 @@ def advance_case(original, market, quote, now):
         realize('stop',c['remaining']);return c
     if now>=c['endsAt']:
         realize('time-exit',c['remaining']);return c
+    if c.get('trendFollow') is True:
+        # Separate trend lifecycle: no automatic sale at first profit target;
+        # original stop, source-freshness and gap protection above stay intact.
+        import trend_follow
+        trend_follow.step(c,market,p,t,event,realize)
+        return c
     trend=market.get('trendContext') or {}
     trend_intact=market.get('ready') and trend.get('available') is True and trend.get('intact') is True and trend.get('direction')==t['dir']
     if not trend_intact and market.get('ready') and market.get('direction') in ('LONG','SHORT') and market['direction']!=t['dir']:
@@ -356,6 +362,18 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                 if profile_policy:
                     c['profile']=profile_policy['id']
                     c['availableAtEntry']=control['cash']
+                    if profile_policy.get('hold_trend'):
+                        # Lengthened intraday strategy, never carries past Bob's
+                        # recorded 21:45 Europe/Zurich product monitoring limit.
+                        local_at=datetime.fromtimestamp(now/1000,ZoneInfo('Europe/Zurich'))
+                        close_ms=local_at.replace(hour=21,minute=45,second=0,microsecond=0).timestamp()*1000
+                        c['endsAt']=min(now+8*3600000,close_ms)
+                        c['trendFollow']=True
+                        c['exitPolicy']='trend-follow-v1'
+                        c['trendHighWater']=market['price'] if market['direction']=='LONG' else None
+                        c['trendLowWater']=market['price'] if market['direction']=='SHORT' else None
+                        c['trendReversalBars']=0
+                        c['trendExtensions']=0
                 inserted=conn.execute('''INSERT INTO bob_paper_cases(id,day,started_at,payload)
                     VALUES(%s,%s,to_timestamp(%s),%s::jsonb) ON CONFLICT DO NOTHING RETURNING id''',
                     (c['id'],day,now/1000,json.dumps(c))).fetchone()
@@ -425,7 +443,7 @@ def _worker(db):
                         # Same unmodified market evaluation for all three accounts.
                         market=background_push.analyze(bundle,settings,priority=2)
                         selection=dict(choices=[],reasons=[])
-                        if len(active_cases)<3 and market.get('ready') and market.get('direction') in ('LONG','SHORT'):
+                        if len(active_cases)<len(paper_portfolios.POLICIES) and market.get('ready') and market.get('direction') in ('LONG','SHORT'):
                             request={**evidence,'quotes':quotes,'market':market,'bundle':bundle}
                             p=evaluator_runtime.run(['node',str(Path(__file__).with_name('paper_selection.js'))],input=json.dumps(request),
                                              text=True,capture_output=True,timeout=6,check=True,priority=2)
