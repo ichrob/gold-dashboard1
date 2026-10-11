@@ -1391,6 +1391,11 @@ class Handler(BaseHTTPRequestHandler):
             with urlopen(req, timeout=12) as response:
                 result = response.read()
                 status = response.status
+            if path == "/api/trade-email/read" and status == 200:
+                record = json.loads(result)
+                record["configured"] = bool(os.environ.get("BOB_AGENTMAIL_WEBHOOK_SECRET") and
+                                            os.environ.get("BOB_EMAIL_ALLOWED_FROM"))
+                result = json.dumps(record, separators=(",", ":")).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
