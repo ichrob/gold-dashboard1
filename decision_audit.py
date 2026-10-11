@@ -88,6 +88,8 @@ def init(conn):
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_decision_outcomes (decision_id TEXT REFERENCES bob_decision_audit(id) ON DELETE CASCADE, horizon INTEGER NOT NULL, truth JSONB NOT NULL, PRIMARY KEY(decision_id,horizon))''')
     stop_target_audit.init(conn)
     paper_simulation.init(conn)
+    import zukunft_capture
+    zukunft_capture.init(conn)
     import manual_paper_watch
     manual_paper_watch.init(conn)
 
@@ -284,6 +286,9 @@ def handle(conn,action,payload):
     if action=='read' and payload.get('mode')=='simulation-profiles':
         import paper_portfolios
         return paper_portfolios.report(conn,payload.get('day'))
+    if action=='read' and mode=='zukunft-research':
+        import zukunft_capture
+        return zukunft_capture.report(conn,payload)
     if action=='write':
         result=write(conn,payload)
         harvest(conn)
