@@ -61,7 +61,7 @@ class ProfileTests(unittest.TestCase):
         for profile in profiles.POLICIES:
             profiles.Ledger(conn,profile).execute(
                 'SELECT payload FROM bob_paper_cases WHERE closed_at IS NULL')
-        self.assertEqual(len(set(sql)),3)
+        self.assertEqual(len(set(sql)),4)
         self.assertNotIn('bob_paper_cases WHERE',sql[0])
         profiles.Ledger(conn,'balanced').execute(
             'SELECT payload FROM bob_paper_products')
