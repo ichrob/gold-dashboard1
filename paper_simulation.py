@@ -28,6 +28,8 @@ NOTE = ('Vorwärts-Simulation ohne Orders. Eine Position, rund 50 % Teilgewinn a
         'Teilgewinn rund 50 %, auf ganze Stücke abgerundet. Ein Stück wird am ersten Ziel ganz verkauft. '
         'Fehlt der Ausstiegskurs, bleibt Kapital unbewertet bis zum nächsten frischen Geldkurs; '
         'dieser spätere simulierte Verkauf wird separat protokolliert. '
+        'Bei automatisch ausgewählten Produkten: verifizierter KO-Puffer, beobachteter fiktiver Sicherheitsausstieg; '
+        'kein garantierter Stop oder Kurs. Bei bestätigtem Produktende ohne Abrechnungskurs bleibt das Ergebnis offen. '
         '30 Tage Falldetails; Tagesstatistik fortlaufend ohne festes Enddatum.')
 
 def finite(v):
@@ -119,7 +121,9 @@ def advance_case(original, market, quote, now):
     c=copy.deepcopy(original)
     def event(kind,**extra):c['events'].append(dict(kind=kind,at=market.get('dataAt'),recordedAt=now,**extra))
     q=fresh_quote(quote,now,c['product']['isin']) if c.get('quantity') else None
-    if c.get('pendingUnits') and q and stamp(q.get('bidAt') or q.get('quoteAt'))>=c['pendingSince']:
+    if (c.get('pendingUnits') and q and
+            c.get('koWatchStatus') not in ('knockout-confirmed','product-terminated') and
+            stamp(q.get('bidAt') or q.get('quoteAt'))>=c['pendingSince']):
         units=c['pendingUnits'];c['cashReleased']+=units*q['bid'];c['bookedUnits']+=units;c['pendingUnits']=0
         event('deferred-sale',units=units,quote=q,reason='Späterer Modellverkauf zum ersten verfügbaren frischen Geldkurs; kein rückdatierter Ausstieg')
         if not c.get('remainingUnits'):
