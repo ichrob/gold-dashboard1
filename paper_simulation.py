@@ -66,6 +66,8 @@ def init(conn):
     conn.execute('CREATE INDEX IF NOT EXISTS bob_paper_open ON bob_paper_cases(started_at) WHERE closed_at IS NULL')
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_paper_days (
         day TEXT PRIMARY KEY, payload JSONB NOT NULL)''')
+    import paper_portfolios
+    paper_portfolios.init(conn)
 
 def sync(conn, payload):
     products=payload.get('products')
@@ -284,7 +286,7 @@ def technical_demo(reference=None, product=None):
              note='Künstliche Folgekursfolge zur Funktionsprüfung. Kein historischer Marktfall, keine Renditewertung, keine echte Produktauswahl.')
     return c
 
-def run_once(conn,bundle,market,selection,quotes,now):
+def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
     row=conn.execute('SELECT payload FROM bob_paper_control WHERE id=1 FOR UPDATE').fetchone()
     control=row[0]
     control.setdefault('initialCapital',100.);control.setdefault('cash',100.);control.setdefault('equity',100.);control.setdefault('realizedProfit',0.)
@@ -337,13 +339,23 @@ def run_once(conn,bundle,market,selection,quotes,now):
             elif not choice:reason='Kein passendes belegtes Produkt: '+'; '.join(selection.get('reasons') or ['Produktliste noch nicht synchronisiert'])
             elif choice.get('indicative') or choice.get('estimated'):reason='Unverbindlicher Kandidat: kein virtueller Eurokauf ohne Produktfreigabe'
             elif not q:reason='Kein aktueller, ausführbarer Geld-/Briefkurs in EUR: virtueller Produkteinstieg gesperrt'
-            elif q['ask']>control['cash']:reason='Fiktives Kapital reicht nicht für ein ganzes Produktstück'
+            elif profile_policy and __import__('paper_portfolios').entry_block_reason(profile_policy,market):
+                reason=__import__('paper_portfolios').entry_block_reason(profile_policy,market)
+            elif q['ask']>min(control['cash'], (control.get('equity') or control['cash'])*
+                   (profile_policy['exposure_fraction'] if profile_policy else 1.)):
+                reason='Risikobudget reicht nicht für ein ganzes Produktstück'
             elif (control.get('dayProfit') is not None and control.get('dayOpeningEquity') is not None
-                  and control['dayOpeningEquity']>0 and control['dayProfit']<=-0.03*control['dayOpeningEquity']):
-                reason='Tagesverlustgrenze für neue virtuelle Einstiege erreicht (3 %)'
+                  and control['dayOpeningEquity']>0 and control['dayProfit']<=-
+                  (profile_policy['daily_loss_fraction'] if profile_policy else .03)*control['dayOpeningEquity']):
+                reason='Tagesverlustgrenze für neue virtuelle Einstiege erreicht ('+str(round(100*(profile_policy['daily_loss_fraction'] if profile_policy else .03)))+' %)'
             elif control.get('lastEntryKey')==entry_key:reason='Diese Signal-Kerze wurde bereits simuliert'
             else:
-                c=new_case(market,choice,quotes.get(choice['isin']),now,cash=control['cash'])
+                budget=min(control['cash'], (control.get('equity') or control['cash'])*
+                           (profile_policy['exposure_fraction'] if profile_policy else 1.))
+                c=new_case(market,choice,quotes.get(choice['isin']),now,cash=budget)
+                if profile_policy:
+                    c['profile']=profile_policy['id']
+                    c['availableAtEntry']=control['cash']
                 inserted=conn.execute('''INSERT INTO bob_paper_cases(id,day,started_at,payload)
                     VALUES(%s,%s,to_timestamp(%s),%s::jsonb) ON CONFLICT DO NOTHING RETURNING id''',
                     (c['id'],day,now/1000,json.dumps(c))).fetchone()
@@ -369,7 +381,8 @@ def quote_cache(products, active, now):
         try:_quotes[isin]=future.result()
         except Exception as exc:print('BOB_PAPER quote_failed='+type(exc).__name__,flush=True)
         del _pending[isin]
-    isins=list(dict.fromkeys(([active] if active else [])+[p.get('isin') for p in products if p.get('isin')]))
+    active_isins=active if isinstance(active,(list,tuple,set)) else [active] if active else []
+    isins=list(dict.fromkeys([i for i in active_isins if i]+[p.get('isin') for p in products if p.get('isin')]))
     from product_quotes import get_quote
     for isin in isins:
         if len(_pending)>=4:break
@@ -403,22 +416,27 @@ def _worker(db):
                             known=dict(products=[dict(isin='DE000PJ9NCK0',name='GOLD Unlimited Long',productDirection='LONG',isinConfirmed=True)])
                             sync(conn,known);feed=(known,)
                         evidence=feed[0]
-                        active=conn.execute('SELECT payload FROM bob_paper_cases WHERE closed_at IS NULL LIMIT 1').fetchone()
+                        import paper_portfolios
+                        active_cases=paper_portfolios.active_cases(conn)
                         now=time.time()*1000
                         settings=dict(timeframe='15m',trailAtr=1.5,learningPolicy=rule_learning.policy(conn))
-                        if active:settings['trade']=active[0]['engine']['trade']
-                        quotes=quote_cache(evidence['products'],active[0]['product']['isin'] if active else None,now)
-                        # A closed browser is not needed: exact same headless rules.
+                        active_isins=[c['product']['isin'] for c in active_cases.values() if c.get('product',{}).get('isin')]
+                        quotes=quote_cache(evidence['products'],active_isins,now)
+                        # Same unmodified market evaluation for all three accounts.
                         market=background_push.analyze(bundle,settings,priority=2)
                         selection=dict(choices=[],reasons=[])
-                        if not active and market.get('ready') and market.get('direction') in ('LONG','SHORT'):
+                        if len(active_cases)<3 and market.get('ready') and market.get('direction') in ('LONG','SHORT'):
                             request={**evidence,'quotes':quotes,'market':market,'bundle':bundle}
                             p=evaluator_runtime.run(['node',str(Path(__file__).with_name('paper_selection.js'))],input=json.dumps(request),
                                              text=True,capture_output=True,timeout=6,check=True,priority=2)
                             selection=json.loads(p.stdout)
-                        run_once(conn,bundle,market,selection,quotes,time.time()*1000)
+                        outcomes=paper_portfolios.run_all(conn,bundle,market,selection,quotes,
+                                                          time.time()*1000,settings,active_cases)
                         conn.commit()
-                        print('BOB_PAPER checked direction='+str(market.get('direction'))+' ready='+str(market.get('ready'))+' priceFresh='+str(market.get('priceFresh'))+' reason='+str(market.get('analysisWarnings') or market.get('decisionReason')),flush=True)
+                        print('BOB_PAPER checked profiles='+str(outcomes)+
+                              ' direction='+str(market.get('direction'))+
+                              ' ready='+str(market.get('ready'))+
+                              ' priceFresh='+str(market.get('priceFresh')),flush=True)
             except Exception as exc:print('BOB_PAPER error='+type(exc).__name__,flush=True)
 
 def enqueue(bundle, db):
