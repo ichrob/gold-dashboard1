@@ -400,7 +400,14 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             plan=market.get('plan')
             excluded=control.get('koExcluded') or {}
             blocked=set(excluded.get('isins') or []) if excluded.get('day')==day else set()
-            choice=next((x for x in (selection.get('choices') or []) if x.get('isin') not in blocked),None)
+            candidates=[x for x in (selection.get('choices') or []) if x.get('isin') not in blocked]
+            # Keep ranking, but do not let the top ranked unsafe KO product
+            # hide the next genuinely eligible candidate.
+            safe_candidates=[x for x in candidates
+                 if not x.get('koGuardRequired') or (
+                     fresh_quote(quotes.get(x['isin']),now,x['isin'])
+                     and paper_ko_guard.entry_reason(x,quotes.get(x['isin']),market,now)[0] is None)]
+            choice=next(iter(safe_candidates or candidates),None)
             q=fresh_quote(quotes.get(choice['isin']),now,choice['isin']) if choice and not choice.get('indicative') and not choice.get('estimated') else None
             healthy=market.get('ready') is True and market.get('priceFresh') is True and finite(market.get('dataAt')) and 0<=now-market['dataAt']<=60000
             entry_key=str([market.get('ruleVersion'),market.get('analysisBarAt'),market.get('direction')])
