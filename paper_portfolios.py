@@ -144,6 +144,12 @@ def report(conn, day=None):
         # Six synthetic demos are already available under the separate demo tab.
         data.pop('demonstrations', None)
         data.pop('demonstration', None)
+        if policy.get('hold_trend'):
+            data['note']=('Trendfolge über maximal acht Stunden bis 21:45 Zürich, '
+                          'kein automatischer Teilverkauf am ersten Ziel, '
+                          'nachgezogener Goldpreis-Stop und bestätigter Richtungswechsel; '
+                          'EUR-Geldkurse dienen der virtuellen Produktbewertung. '
+                          'Kein garantierter Stop oder echter Orderfill.')
         accounts.append(dict(profile=profile, title=policy['title'],
                              riskPolicy={k: policy[k] for k in ('exposure_fraction',
                                   'daily_loss_fraction','score_long','score_short',
