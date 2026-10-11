@@ -24,6 +24,14 @@ PANEL = r"""
   <p class="small">Die Kurse sind frei erfunden und nachträglich festgelegt. Der Probelauf ist ein Funktionstest, kein Erfolgsnachweis. Einstieg zum Briefkurs, Ausstieg zum Geldkurs, zusätzliche Slippage; Gebühren im Probelauf auf 0 € gesetzt.</p>
  </div>
 </section>
+<section class="card" id="bob-portfolio-comparison" style="margin:12px 0;padding:15px;border:1px solid #cbd5e1;border-radius:14px;background:#fff;color:#17263a">
+ <h3>Drei unabhängige Geldsimulationen</h3>
+ <p class="small">Start Montag, 12.10.2026 · 08:00 Uhr (Zürich), mit je 100 € fiktivem Geld. Keine echten Orders, kein DEGIRO-Zugriff. Die drei Konten erhalten dieselben Kursbeobachtungen und unterscheiden sich nur durch vorab definierte Einstiegs-/Risikoregeln.</p>
+ <button type="button" id="bobProfilesRefresh" class="bob-primary">Drei Simulationen prüfen</button>
+ <p id="bobProfilesStatus" class="small" role="status">Prüfstand wird geladen …</p>
+ <div id="bobProfilesCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:12px"></div>
+ <details><summary>Grenzen des Tests</summary><p class="small">Konservativ: bestätigter Trend, mindestens 80/20 Punkte, bis 35 % Kapital je Einstieg, 1 % Tagesverlustgrenze. Ausgewogen: 70/30 Punkte, bis 65 %, 3 %. Offensiv: 65/35 Punkte bei bereits von Bob bestätigter Richtung, bis 95 %, 5 %. Die Prozentangaben beziehen sich auf das virtuelle Kapital, nicht auf den KO-Abstand. Alle Varianten verwenden gleiche Produktnachweise und Bobs bestehenden Stop-/Zielalgorithmus. Bruttomodell ohne vollständig belegte Gebühren, Finanzierung und Slippage; Stopps sind wegen Kurslücken keine garantierten Verlustgrenzen.</p></details>
+</section>
 <script>
 (function(){
  function mount(){
@@ -31,6 +39,70 @@ PANEL = r"""
   if(!root)return;
   const auto=document.getElementById('bob-view-auto');
   if(auto)auto.append(root);
+  const comparison=document.getElementById('bob-portfolio-comparison');
+  if(auto&&comparison)auto.insertBefore(comparison,root);
+  const profilesStatus=document.getElementById('bobProfilesStatus');
+  const profilesCards=document.getElementById('bobProfilesCards');
+  const money=new Intl.NumberFormat('de-CH',{style:'currency',currency:'EUR'});
+  const time=v=>v?new Date(v).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch kein Hintergrundzyklus';
+  let profileBusy=false;
+  async function refreshProfiles(){
+   if(profileBusy)return;
+   profileBusy=true;
+   profilesStatus.textContent='Alle drei Testkonten werden geprüft …';
+   try{
+    const day=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Zurich'}).format(new Date());
+    const response=await fetch('/api/audit/read',{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},cache:'no-store',
+      body:JSON.stringify({mode:'simulation-profiles',day})});
+    if(!response.ok)throw Error('HTTP '+response.status);
+    const data=await response.json();
+    if(data.mode!=='three-independent-paper-accounts'||data.realOrders!==false||
+       !Array.isArray(data.accounts)||data.accounts.length!==3)throw Error('Drei-Konten-Auswertung ungültig');
+    profilesCards.replaceChildren();
+    const names={conservative:'Konservativ',balanced:'Ausgewogen',offensive:'Offensiv'};
+    for(const acc of data.accounts){
+     const c=acc.control||{},p=acc.riskPolicy||{},st=acc.stats||{};
+     const card=document.createElement('div');card.style='padding:12px;border:1px solid #cbd5e1;border-radius:12px;min-width:0';
+     const heading=document.createElement('h4');heading.style='margin:0 0 8px';heading.textContent=names[acc.profile]||acc.profile;card.append(heading);
+     const lines=[
+      'Fiktiver Anfang: '+money.format(c.initialCapital??100),
+      'Kapital: '+(Number.isFinite(c.equity)?money.format(c.equity):'Bewertung offen'),
+      'Bargeld: '+(Number.isFinite(c.cash)?money.format(c.cash):'unbekannt'),
+      'Offene Stücke: '+(c.openUnits??0),
+      'Tagesverlustgrenze: '+Math.round((p.daily_loss_fraction||0)*100)+' %',
+      'Max. Kapitaleinsatz: '+Math.round((p.exposure_fraction||0)*100)+' %',
+      'Abgeschlossene Fälle heute: '+(st.closed||0),
+      'Status: '+(c.status||'nicht bestätigt'),
+      'Letzte Prüfung: '+time(c.checkedAt),
+      'Grund: '+(c.reason||'Noch kein protokollierter Durchlauf')
+     ];
+     const detail=document.createElement('p');detail.className='small';detail.style='white-space:pre-line;overflow-wrap:anywhere';
+     detail.textContent=lines.join('\n');card.append(detail);
+     const events=document.createElement('details');const label=document.createElement('summary');
+     label.textContent='Trades und Entscheidungen ('+(acc.cases||[]).length+')';
+     events.append(label);
+     const host=document.createElement('div');
+     for(const trade of (acc.cases||[])){
+      const row=document.createElement('p');row.className='small';
+      row.textContent=(trade.startedAt?time(trade.startedAt):'')+' · '+
+        (trade.plan?.direction||'NEUTRAL')+' · '+(trade.product?.isin||'ohne ISIN')+
+        ' · '+(trade.status||'unbekannt')+' · '+(trade.productReturnKnown?
+          (Number(trade.productGrossPct)||0).toFixed(2)+' % brutto':'Produktbewertung offen');
+      host.append(row);
+     }
+     if(!host.childNodes.length){const empty=document.createElement('p');empty.className='small';
+      empty.textContent='Noch keine virtuellen Trades; Gründe siehe Status.';host.append(empty);}
+     events.append(host);card.append(events);profilesCards.append(card);
+    }
+    profilesStatus.textContent='Drei getrennte Konten · Bericht für '+day+
+      ' · 300 € fiktives Startkapital · keine Live-Orders';
+   }catch(error){profilesStatus.textContent='Kontostand nicht abrufbar: '+String(error.message||error)+'. Kein Testerfolg bestätigt.';}
+   finally{profileBusy=false;}
+  }
+  document.getElementById('bobProfilesRefresh').addEventListener('click',refreshProfiles);
+  refreshProfiles();
+  setInterval(()=>{if(document.visibilityState==='visible'&&!window.BobWeekendPause?.())refreshProfiles();},60000);
   const run=document.getElementById('bobAutoDemoRun');
   const scenario=document.getElementById('bobAutoDemoScenario');
   const status=document.getElementById('bobAutoDemoStatus');
