@@ -1313,7 +1313,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const autoPanel=document.createElement('div');autoPanel.className='card';autoPanel.id='bobFullyAutomatic';
   autoPanel.innerHTML=`
    <h3>Vollautomatisch · Entwicklungsbereich</h3>
-   <p class="small"><strong>Status: Paper-Probelauf verfügbar, automatische Hintergrund-Trades noch nicht aktiv.</strong> Kein Echtgeldhandel. Keine Broker-Verbindung. Keine automatische Orderausführung.</p>
+   <p class="small"><strong>Status: Live-Paper-Prüfung ab Montag, 12.10.2026, 08:00 Uhr (Zürich) vorgesehen.</strong> Kein Echtgeldhandel. Keine Broker-Verbindung. Keine automatische Orderausführung.</p>
    <div class="technical-metric"><strong>Unser Ziel</strong><p>Bob soll Goldsignale unabhängig bewerten, simulierte Ein- und Ausstiege durchführen, Stop-Loss und Gewinnmitnahme berechnen und jeden Entscheid nachvollziehbar dokumentieren. Erst nach unabhängiger Prüfung kommt ein Broker mit offiziell erlaubter API infrage.</p></div>
    <details open class="bob-disclosure"><summary><b>Entwicklungsphasen</b></summary>
     <ol><li><b>Phase 1 · Simulationskern:</b> Vorhandene Goldanalyse, Produktauswahl und fiktives Startkapital verwenden. Keine echten Orders.</li>
@@ -1326,6 +1326,16 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    <p class="small"><b>Freigaberegel:</b> Echtgeld bleibt gesperrt, bis ein rechtlich und technisch geeigneter Broker vorhanden ist und du die Live-Freigabe ausdrücklich erteilst. Ein profitables System lässt sich nicht garantieren.</p>
    <button type="button" data-view="learning" class="bob-primary">Vorhandene Marktsimulation und Ergebnisse öffnen</button>`;
   panels.auto.append(autoPanel);
+  // Forward-market paper test is distinct from the synthetic demo above.
+  // Reuse the existing persistent ledger and all its event listeners.
+  const forwardTest=document.createElement('h3');
+  forwardTest.textContent='Live-Paper-Test · fortlaufend bei geöffnetem Markt';
+  panels.auto.append(forwardTest);
+  const forwardHint=document.createElement('p');
+  forwardHint.className='small';
+  forwardHint.textContent='Automatische Prüfung im Hintergrund ohne geöffnetes Handy. Nur beobachtete Goldsignale und aktuelle Produkt-Geld-/Briefkurse. Kein echter Auftrag. Ohne belastbaren Produktkurs bleibt Bob bei ABWARTEN; eine erfolgreiche Simulation wird nicht erfunden.';
+  panels.auto.append(forwardHint);
+  move(byId('paperSimulationPanel'),'auto');
   move(byId('goldResearchPanel'),'research');
   move(byId('fourDayPanel'),'learning');
   move(byId('intradayComparisonDetails'),'learning');
