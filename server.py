@@ -1,5 +1,6 @@
 import vollautomatisch_panel
 import vollautomatisch_engine
+import trade_email_panel
 import intraday_comparison
 import os
 import base64
@@ -108,6 +109,7 @@ HTML = HTML_PATH.read_bytes() if HTML_PATH.exists() else b""
 HTML = HTML.replace(b"</body>", auto_collection.PANEL.encode('utf-8')+b"</body>")
 HTML = HTML.replace(b"</body>", candle_shadow.PANEL.encode('utf-8')+b"</body>")
 HTML = HTML.replace(b"</body>", vollautomatisch_panel.PANEL.encode("utf-8")+b"</body>")
+HTML = HTML.replace(b"</body>", trade_email_panel.PANEL.encode("utf-8")+b"</body>")
 SW = SW_PATH.read_bytes() if SW_PATH.exists() else None
 MANIFEST = MANIFEST_PATH.read_bytes() if MANIFEST_PATH.exists() else None
 ICON = ICON_PATH.read_bytes() if ICON_PATH.exists() else None
