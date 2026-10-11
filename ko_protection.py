@@ -26,7 +26,7 @@ def assess(gold, barrier, direction, atr=None, underlying='XAU/USD'):
     distance = sign * (gold - barrier)
     pct = 100 * distance / gold
     multiple = distance / atr if positive(atr) else None
-    critical_buffer = max(gold * .01, 1.5 * atr if positive(atr) else 0)
+    critical_buffer = max(gold * .015, 1.5 * atr if positive(atr) else 0)
     warning_buffer = max(gold * .02, 2 * atr if positive(atr) else 0)
     level = ('crossed' if distance <= 0 else
              'critical' if distance <= critical_buffer else
