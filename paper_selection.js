@@ -15,7 +15,7 @@ function evaluate(input,now=Date.now()){
   const flow=api.selectionWorkflow(products,context,input.bundle,input.references||[]);
   const approved=flow.groups.flatMap(g=>g.candidates).sort((a,b)=>b.score-a.score||a.isin.localeCompare(b.isin));
   const valid=p=>!/FAKTOR|FACTOR/i.test(p.name||'')&&!api.knockoutStatus(p);
-  const choices=approved.filter(c=>valid(products.find(p=>p.isin===c.isin)||{})).map(c=>({...c,approval:'Bob-Pflichtprüfung bestanden'}));
+  const choices=approved.filter(c=>valid(products.find(p=>p.isin===c.isin)||{})).map(c=>({...c,approval:'Bob-Pflichtprüfung bestanden',koGuardRequired:true}));
   // The user's existing indicative mode remains a separate Gold-only model.
   if(!choices.length&&!flow.gateReasons.length)for(const x of api.indicativeRecommendations(products.filter(valid),context))
    choices.push({isin:x.p.isin,name:x.p.name,direction:context.direction,scope:api.isFutureProduct(x.p)?'FUTURE':'XAU/USD',score:x.evaluation.score,reasons:x.evaluation.reasons,approval:'Unverbindliche Berechnung mit vorhandenen Werten',indicative:true,warning:x.warning});
