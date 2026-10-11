@@ -84,7 +84,7 @@ function snapshot(raw){
    throw Error('Doppelte oder unbekannte Kontenkennung');names.add(a.profile);
   const ctl=a.control||{},p=a.performance||{},day=a.stats||{};
   const daily=Array.isArray(a.daily)?a.daily:[];
-  const observedDays=new Set(daily.filter(x=>x&&/^\d{4}-\d{2}-\d{2}$/.test(x.day)&&typeof x.lastCheckedAt!=='undefined').map(x=>x.day)).size;
+  const observedDays=new Set(daily.filter(x=>x&&/^\d{4}-\d{2}-\d{2}$/.test(x.day)&&Number.isFinite(Number(x.lastCheckedAt))&&Number(x.lastCheckedAt)>0).map(x=>x.day)).size;
   const safe=n=>typeof n==='number'&&Number.isFinite(n)?n:null;
   items.push({
    id:a.profile, initial:safe(ctl.initialCapital),equity:safe(ctl.equity),
