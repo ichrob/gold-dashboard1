@@ -1,5 +1,7 @@
 import vollautomatisch_panel
 import vollautomatisch_engine
+import strategy_lab
+import broker_bridge
 import trade_email_panel
 import intraday_comparison
 import os
@@ -776,7 +778,7 @@ class Handler(BaseHTTPRequestHandler):
         # Sensitive data APIs must be authenticated before any data generation.
         # Keep static PWA resources and /health public, but never expose live,
         # MTF, or DEGIRO enrichment data without the existing Bob credentials.
-        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive"
+        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research"
         if protected_api_path:
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
@@ -788,6 +790,37 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(b"Authentication required.")
                 return
+
+        if path == "/api/zukunft/research":
+            # Authenticated, explicitly read-only and research-only. No DB, broker
+            # sessions, order APIs, live policies or trading state are touched.
+            try:
+                rows = retain_technical_history("1h", [])
+                if len(rows) < 580:
+                    rows = fetch_technical_history("1h", "3mo")
+                # A provider's last bucket may still be forming even if it
+                # incorrectly reports isOpen=False. Recheck the clock here.
+                closed_checked = mark_bar_state([dict(x) for x in rows], 60)
+                report = strategy_lab.run(closed_checked)
+                report["brokerReadiness"] = broker_bridge.status()
+            except (ValueError, RuntimeError, OSError) as exc:
+                report = {"status": "unavailable", "mode": "RESEARCH_ONLY",
+                          "approved": False, "orderExecutionEnabled": False,
+                          "reason": str(exc)[:180], "brokerReadiness": broker_bridge.status()}
+            except Exception as exc:
+                print("BOB_STRATEGY_LAB_ERROR "+type(exc).__name__, flush=True)
+                report = {"status": "unavailable", "mode": "RESEARCH_ONLY",
+                          "approved": False, "orderExecutionEnabled": False,
+                          "reason": "Historie oder Auswertung momentan nicht verfügbar",
+                          "brokerReadiness": broker_bridge.status()}
+            body = json.dumps(report, ensure_ascii=False, allow_nan=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body)
+            return
 
         if path == "/api/vollautomatisch/demo":
             # Authenticated and read-only. Runs fixed synthetic quotes; never

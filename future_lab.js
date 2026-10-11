@@ -158,6 +158,63 @@ function mount(parent){
   }catch(e){paperStatus.textContent='Paper-Daten konnten nicht bestätigt werden ('+String(e.message||'unbekannt')+'). Keine geschätzten Resultate angezeigt.';}
   finally{busy=false;paperBtn.disabled=false;}
  });
+ const research=el('section');research.style.cssText='border-top:1px solid #dbe3ee;margin-top:14px;padding-top:12px';
+ research.append(el('h4','Automatischer Strategievergleich · Walk-forward'));
+ const expl=el('p','Bob vergleicht Basismodell, strenge Trendfolge, Ausbruch, Gegenbewegung und ein trainiertes lineares Lernmodell. Jede Runde trennt Training, Auswahl und spätere Testdaten. Die Kurse sind Referenz-Kerzen und keine ausführbaren DEGIRO-Geld-/Briefkurse.');
+ expl.className='small';research.append(expl);
+ const runBtn=el('button','Strategievergleich aktualisieren');runBtn.type='button';runBtn.className='bob-primary';
+ const rStatus=el('p','Noch keine historische Prüfung abgerufen. Ergebnisse werden nicht zur aktuellen Handelsregel.');
+ rStatus.className='small';rStatus.setAttribute('role','status');
+ const reportBox=el('div');research.append(runBtn,rStatus,reportBox);shell.append(research);
+ let researchBusy=false,researchLoaded=false;
+ async function loadResearch(){
+  if(researchBusy)return;
+  researchBusy=true;runBtn.disabled=true;rStatus.textContent='Getrennte historische Testfenster werden geprüft …';
+  try{
+   const controller=typeof AbortController==='function'?new AbortController():null;
+   const timeout=setTimeout(()=>controller?.abort(),20000);
+   let res;try{res=await fetch('/api/zukunft/research',{credentials:'same-origin',cache:'no-store',...(controller?{signal:controller.signal}:{})});}
+   finally{clearTimeout(timeout);}
+   if(!res.ok)throw Error('Abruf HTTP '+res.status);
+   const info=await res.json();
+   reportBox.replaceChildren();
+   if(info.mode!=='RESEARCH_ONLY'||info.orderExecutionEnabled!==false||info.approved!==false)
+    throw Error('Sperrstatus der Studie nicht bestätigt');
+   const brokers=info.brokerReadiness||{};
+   if(info.status==='evaluated'&&Array.isArray(info.folds)){
+    const ev=info.evidence||{},agg=info.validationSelected||{},base=info.samePeriodBaseline||{};
+    const n=v=>typeof v==='number'&&Number.isFinite(v)?new Intl.NumberFormat('de-CH',{maximumFractionDigits:2}).format(v):'offen';
+    rStatus.textContent=info.folds.length+' unabhängige Testfenster berechnet; '+n(info.closedBars)+' geschlossene 1h-Kerzen · '+info.historicalInstrument+'. Keine automatische Regelübernahme.';
+    const detail=el('p','Auf Validierung gewählte Varianten, spätere Tests: '+n(agg.trades)+' abgeschlossene hypothetische Positionen; mittlere Testrendite je Fenster '+n(agg.meanFoldNetPct)+' %, grösster Fenster-Rückgang '+n(agg.maxFoldDrawdownPct)+' %. Gleiche Zeiträume mit Basismodell: '+n(base.meanFoldNetPct)+' %. Angenommene Kosten: '+n(info.costBpsPerSide)+' Basispunkte je Seite. Kein Produktnettogewinn.');
+    detail.className='small';reportBox.append(detail);
+    const table=el('table'),head=el('tr');
+    for(const h of ['Regelvariante','Testtrades','Ø Fenster (%)','Max. Rückgang (%)'])head.append(el('th',h));
+    table.append(head);
+    for(const [id,label] of [['baseline','Bob-Forschungsbasis'],['trend-strict','Strenge Trendfolge'],['breakout','Ausbruch'],['mean-revert','Gegenbewegung'],['learned-linear','Gelerntes Modell']]){
+     const m=info.outOfSampleByStrategy?.[id];if(!m)continue;
+     const row=el('tr');for(const v of [label,n(m.trades),n(m.meanFoldNetPct),n(m.maxFoldDrawdownPct)])row.append(el('td',v));
+     table.append(row);
+    }
+    reportBox.append(table);
+    const warning=el('p',ev.sufficientForResearch?'Historische Forschungsmenge erreicht, aber weiterhin KEINE Regel- oder Brokerfreigabe.':'Forschungsmenge unzureichend: weitere unabhängige Historie erforderlich.');
+    warning.className='small';reportBox.append(warning);
+   }else{
+    rStatus.textContent='Strategielabor: '+(info.status==='insufficient'?'zu wenige verwendbare historische 1h-Kerzen':'nicht verfügbar')+'. Es werden keine Vergleichsergebnisse erfunden.';
+    reportBox.append(el('p',info.note||info.reason||'Datenquelle prüfen.'));
+   }
+   const brokerHead=el('h4','Broker-Anbindung · technische Vorbereitung');reportBox.append(brokerHead);
+   for(const b of brokers.brokers||[]){
+    const p=el('p',b.name+': '+(b.connection==='not-connected'?'nicht verbunden':'Verbindung unbekannt')+' · Schweizer Handelserlaubnis und DEGIRO-ISIN nicht verifiziert. API-Vertragsschlüssel: '+b.identifier+'. Keine Paper- oder Echtgeldorder.');
+    p.className='small';reportBox.append(p);
+   }
+   researchLoaded=true;
+  }catch(error){rStatus.textContent='Strategielabor konnte nicht zuverlässig gelesen werden ('+String(error.message||'Fehler')+'). Keine Resultate übernommen.';}
+  finally{researchBusy=false;runBtn.disabled=false;}
+ }
+ runBtn.addEventListener('click',loadResearch);
+ document.addEventListener('click',event=>{
+  if(!researchLoaded&&event.target?.closest?.('[data-view="future"]'))loadResearch();
+ });
  const tests=el('section');tests.style.cssText='border-top:1px solid #dbe3ee;margin-top:14px;padding-top:12px';
  const testsHeading=el('h4','Sicherheitstest mit Beispieldaten');
  const testsP=el('p','Diese neun lokalen Tests prüfen nur den vorgeschlagenen Sperrmechanismus gegen Fehlersituationen. Sie testen keine echte Broker-API, kein Produkt, keine Order und nicht die bisherigen Marktregeln.');
