@@ -25,12 +25,12 @@ PANEL = r"""
  </div>
 </section>
 <section class="card" id="bob-portfolio-comparison" style="margin:12px 0;padding:15px;border:1px solid #cbd5e1;border-radius:14px;background:#fff;color:#17263a">
- <h3>Drei unabhängige Geldsimulationen</h3>
- <p class="small">Start Montag, 12.10.2026 · 08:00 Uhr (Zürich), mit je 100 € fiktivem Geld. Keine echten Orders, kein DEGIRO-Zugriff. Die drei Konten erhalten dieselben Kursbeobachtungen und unterscheiden sich nur durch vorab definierte Einstiegs-/Risikoregeln.</p>
- <button type="button" id="bobProfilesRefresh" class="bob-primary">Drei Simulationen prüfen</button>
+ <h3>Vier unabhängige Geldsimulationen</h3>
+ <p class="small">Start Montag, 12.10.2026 · 08:00 Uhr (Zürich): dreimal 100 € und einmal 800 € virtuelles Kapital. Keine echten Orders, kein DEGIRO-Zugriff. Alle vier Konten nutzen dieselben beobachteten Kurse. Der bestehende manuelle 800-Euro-Test unter Mein Trade bleibt vollständig unangetastet.</p>
+ <button type="button" id="bobProfilesRefresh" class="bob-primary">Vier Simulationen prüfen</button>
  <p id="bobProfilesStatus" class="small" role="status">Prüfstand wird geladen …</p>
  <div id="bobProfilesCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:12px"></div>
- <details><summary>Grenzen des Tests</summary><p class="small">Konservativ: bestätigter Trend, mindestens 80/20 Punkte, bis 35 % Kapital je Einstieg, 1 % Tagesverlustgrenze. Ausgewogen: 70/30 Punkte, bis 65 %, 3 %. Offensiv: 65/35 Punkte bei bereits von Bob bestätigter Richtung, bis 95 %, 5 %. Die Prozentangaben beziehen sich auf das virtuelle Kapital, nicht auf den KO-Abstand. Alle Varianten verwenden gleiche Produktnachweise und Bobs bestehenden Stop-/Zielalgorithmus. Bruttomodell ohne vollständig belegte Gebühren, Finanzierung und Slippage; Stopps sind wegen Kurslücken keine garantierten Verlustgrenzen.</p></details>
+ <details><summary>Grenzen des Tests</summary><p class="small">Konservativ: bestätigter Trend, Richtungswert 80/20, bis 35 % Kapitaleinsatz, 1 % Tages-Einstiegssperre. Ausgewogen: 70/30, bis 65 %, 3 %. Offensiv: 65/35, bis 95 %, 5 %. Trendfolge 800 €: Trend bestätigt, 70/30, bis 65 %, 3 %. Anders als die 100-Euro-Varianten verkauft die Trendfolge am ersten Ziel nicht automatisch einen Teil: Zielmarken werden verlängert, Stopps nur in günstige Richtung nachgezogen, Ausstieg bei bestätigter Gegenrichtung über zwei verschiedene Signal-Kerzen, Stop oder spätestens nach 8 Stunden beziehungsweise 21:45 Uhr Zürich. Keine Nachtposition. Prozentuale Rendite statt absoluter Eurogewinne vergleichen. Die Tagesgrenzen stoppen nur weitere Einstiege. Alle Varianten verwenden dieselben Produktnachweise. Bruttomodell ohne vollständig belegte Gebühren, Finanzierung und Slippage; Stopps sind wegen Kurslücken keine garantierten Verlustgrenzen.</p></details>
 </section>
 <script>
 (function(){
@@ -49,7 +49,7 @@ PANEL = r"""
   async function refreshProfiles(){
    if(profileBusy)return;
    profileBusy=true;
-   profilesStatus.textContent='Alle drei Testkonten werden geprüft …';
+   profilesStatus.textContent='Alle vier Testkonten werden geprüft …';
    try{
     const day=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Zurich'}).format(new Date());
     const response=await fetch('/api/audit/read',{method:'POST',credentials:'same-origin',
@@ -57,10 +57,10 @@ PANEL = r"""
       body:JSON.stringify({mode:'simulation-profiles',day})});
     if(!response.ok)throw Error('HTTP '+response.status);
     const data=await response.json();
-    if(data.mode!=='three-independent-paper-accounts'||data.realOrders!==false||
-       !Array.isArray(data.accounts)||data.accounts.length!==3)throw Error('Drei-Konten-Auswertung ungültig');
+    if(data.mode!=='four-independent-paper-accounts'||data.realOrders!==false||
+       !Array.isArray(data.accounts)||data.accounts.length!==4)throw Error('Drei-Konten-Auswertung ungültig');
     profilesCards.replaceChildren();
-    const names={conservative:'Konservativ',balanced:'Ausgewogen',offensive:'Offensiv'};
+    const names={conservative:'Konservativ',balanced:'Ausgewogen',offensive:'Offensiv',trend800:'Trendfolge 800 €'};
     for(const acc of data.accounts){
      const c=acc.control||{},p=acc.riskPolicy||{},st=acc.stats||{};
      const card=document.createElement('div');card.style='padding:12px;border:1px solid #cbd5e1;border-radius:12px;min-width:0';
@@ -69,9 +69,11 @@ PANEL = r"""
       'Fiktiver Anfang: '+money.format(c.initialCapital??100),
       'Kapital: '+(Number.isFinite(c.equity)?money.format(c.equity):'Bewertung offen'),
       'Bargeld: '+(Number.isFinite(c.cash)?money.format(c.cash):'unbekannt'),
+      'Rendite seit Start: '+(Number.isFinite(c.equity)&&Number.isFinite(c.initialCapital)&&c.initialCapital>0?((c.equity/c.initialCapital-1)*100).toFixed(2)+' %':'Bewertung offen'),
       'Offene Stücke: '+(c.openUnits??0),
       'Tagesverlustgrenze: '+Math.round((p.daily_loss_fraction||0)*100)+' %',
       'Max. Kapitaleinsatz: '+Math.round((p.exposure_fraction||0)*100)+' %',
+      'Ausstiegsmodell: '+(acc.exitPolicy==='trend-follow-v1'?'Längeren Trend halten · kein Teilverkauf am 1. Ziel':'Bob: Teilgewinn und Zielverlängerung'),
       'Abgeschlossene Fälle heute: '+(st.closed||0),
       'Status: '+(c.status||'nicht bestätigt'),
       'Letzte Prüfung: '+time(c.checkedAt),
@@ -95,8 +97,8 @@ PANEL = r"""
       empty.textContent='Noch keine virtuellen Trades; Gründe siehe Status.';host.append(empty);}
      events.append(host);card.append(events);profilesCards.append(card);
     }
-    profilesStatus.textContent='Drei getrennte Konten · Bericht für '+day+
-      ' · 300 € fiktives Startkapital · keine Live-Orders';
+    profilesStatus.textContent='Vier getrennte Konten · Bericht für '+day+
+      ' · 1.100 € fiktives Startkapital (3 × 100 €, 1 × 800 €) · keine echten Orders';
    }catch(error){profilesStatus.textContent='Kontostand nicht abrufbar: '+String(error.message||error)+'. Kein Testerfolg bestätigt.';}
    finally{profileBusy=false;}
   }

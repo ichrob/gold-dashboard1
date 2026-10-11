@@ -1,4 +1,4 @@
-"""Three isolated, forward-only PAPER accounts. No brokerage endpoints.
+"""Four isolated, forward-only PAPER accounts. No brokerage endpoints.
 
 All profiles consume the same timestamped observations; their ledger tables,
 trade IDs, cash and risk decisions are kept separate in PostgreSQL. The existing
@@ -22,6 +22,11 @@ POLICIES = {
     'offensive': dict(id='offensive', title='Offensiv', exposure_fraction=.95,
                       daily_loss_fraction=.05, score_long=65, score_short=35,
                       require_trend=False),
+    'trend800': dict(id='trend800', title='Trendfolge 800 €',
+                     initial_capital_eur=800.,
+                     exposure_fraction=.65, daily_loss_fraction=.03,
+                     score_long=70, score_short=30, require_trend=True,
+                     hold_trend=True),
 }
 
 _TABLES = ('bob_paper_control', 'bob_paper_cases', 'bob_paper_days')
@@ -38,7 +43,7 @@ def names(profile):
 class Ledger:
     """Use the validated legacy paper lifecycle against a separate table set.
 
-    SQL substitution is restricted to three private paper-ledger tables.
+    SQL substitution is restricted to three types of private paper-ledger tables.
     The shared, read-only quote universe stays bob_paper_products.
     """
     def __init__(self, conn, profile):
@@ -56,10 +61,11 @@ def init(conn):
         n = names(profile)
         conn.execute(f"""CREATE TABLE IF NOT EXISTS {n['bob_paper_control']} (
             id INTEGER PRIMARY KEY CHECK(id=1), payload JSONB NOT NULL)""")
-        starting = dict(version='paper-three-v1', startAt=START, enabled=True,
+        seed=float(POLICIES[profile].get('initial_capital_eur',100.))
+        starting = dict(version='paper-four-v1', startAt=START, enabled=True,
                         status='scheduled', portfolio=profile,
-                        initialCapital=100., cash=100., equity=100.,
-                        dayOpeningEquity=100., dayProfit=0., totalProfit=0.,
+                        initialCapital=seed, cash=seed, equity=seed,
+                        dayOpeningEquity=seed, dayProfit=0., totalProfit=0.,
                         realizedProfit=0., currency='EUR',
                         capitalPolicy='separate-whole-units-gross-v1')
         conn.execute(f"""INSERT INTO {n['bob_paper_control']} (id,payload)
@@ -138,11 +144,19 @@ def report(conn, day=None):
         # Six synthetic demos are already available under the separate demo tab.
         data.pop('demonstrations', None)
         data.pop('demonstration', None)
+        if policy.get('hold_trend'):
+            data['note']=('Trendfolge über maximal acht Stunden bis 21:45 Zürich, '
+                          'kein automatischer Teilverkauf am ersten Ziel, '
+                          'nachgezogener Goldpreis-Stop und bestätigter Richtungswechsel; '
+                          'EUR-Geldkurse dienen der virtuellen Produktbewertung. '
+                          'Kein garantierter Stop oder echter Orderfill.')
         accounts.append(dict(profile=profile, title=policy['title'],
                              riskPolicy={k: policy[k] for k in ('exposure_fraction',
                                   'daily_loss_fraction','score_long','score_short',
-                                  'require_trend')}, **data))
-    return dict(ok=True, mode='three-independent-paper-accounts',
-                simulatedCapitalEur=300, realOrders=False, startAt=START,
-                note='Je Konto 100 EUR virtuell; historische Beobachtung, Bruttomodell ohne vollständige Gebühren, Finanzierung oder Slippage. Nicht als reale Order oder Nettogewinn interpretieren.',
+                                  'require_trend')},
+                             exitPolicy='trend-follow-v1' if policy.get('hold_trend') else 'bob-partial-target-v2',
+                             **data))
+    return dict(ok=True, mode='four-independent-paper-accounts',
+                simulatedCapitalEur=1100, realOrders=False, startAt=START,
+                note='3 × 100 EUR plus 1 × 800 EUR virtuell. Der ursprüngliche manuelle 800-EUR-Test bleibt separat. Bruttomodell ohne vollständige Gebühren, Finanzierung oder Slippage. Renditen stets auch prozentual vergleichen; kein realer Handel.',
                 accounts=accounts)
