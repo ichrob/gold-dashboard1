@@ -171,12 +171,27 @@ def parse_confirmation(subject, text):
 
 
 def import_event(event, allowed_sender):
-    if event.get("type") != "event" or event.get("event_type") != "message.received":
+    if event.get("type", "event") != "event" or event.get("event_type") != "message.received":
         return {"status":"ignored", "reason":"Kein eingegangener E-Mail-Event"}
     message = event.get("message")
     if not isinstance(message, dict):
         raise ValueError("message missing")
-    sender = parseaddr(message.get("from", ""))[1].lower()
+    raw_from = message.get("from_") or message.get("from") or ""
+    if isinstance(raw_from, list):
+        if len(raw_from) != 1 or not isinstance(raw_from[0], str):
+            return {"status":"sender-unconfirmed", "reason":"Absender mehrdeutig"}
+        raw_from = raw_from[0]
+    if not isinstance(raw_from, str):
+        return {"status":"sender-unconfirmed", "reason":"Absender nicht lesbar"}
+    sender = parseaddr(raw_from)[1].lower()
+    recipients = message.get("to") or []
+    if isinstance(recipients, str):
+        recipients = [recipients]
+    if (not isinstance(recipients, list) or
+            any(not isinstance(x, str) for x in recipients) or
+            recipients and not any(parseaddr(x)[1].lower() == "bob-degiro@agentmail.to"
+                                   for x in recipients)):
+        return {"status":"ignored", "reason":"Andere Empfängeradresse"}
     allowed = parseaddr(allowed_sender or "")[1].lower()
     # A sender address is not DKIM proof. Do not activate trades from it.
     if not sender or not allowed or not hmac.compare_digest(sender, allowed):
