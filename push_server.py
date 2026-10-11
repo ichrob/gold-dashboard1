@@ -94,7 +94,6 @@ def _init_db_once():
         research_enhancements.init(conn)
         bob_validation_store.init(conn)
         decision_audit.init(conn)
-        paper_simulation.init(conn)  # Durable paper ledger exists before Monday's first scan.
         real_trade_journal.init(conn)
         conn.execute("""
           CREATE TABLE IF NOT EXISTS subscriptions (
@@ -470,16 +469,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload=json_body(self)
                 if path.endswith('/write'):payload['origin']='browser'
                 with db() as conn:
-                    mode = payload.get('mode') if isinstance(payload, dict) else None
-                    if mode == 'simulation' and path.endswith('/read'):
-                        result = paper_simulation.report(conn, payload.get('day'))
-                    elif mode == 'simulation-sync' and path.endswith('/write'):
-                        result = paper_simulation.sync(conn, payload)
-                    elif mode in ('simulation', 'simulation-sync'):
-                        send_json(self, 400, {'error': 'Ungültiger Simulationszugriff'})
-                        return
-                    else:
-                        result = decision_audit.handle(conn,path.rsplit('/',1)[-1],payload)
+                    result=decision_audit.handle(conn,path.rsplit('/',1)[-1],payload)
                     conn.commit()
                 send_json(self,200,result)
                 return
