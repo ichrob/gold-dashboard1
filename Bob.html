@@ -1267,7 +1267,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const quick=card('quickSignal'),manual=card('dgType'),push=card('generalPushBtn');
   const header=document.querySelector('h1')?.parentElement;
   const panels={};
-  for(const [key,label] of Object.entries({overview:'Übersicht',products:'Produkte',trade:'Mein Trade',research:'YouTube',learning:'Lernen'})){
+  for(const [key,label] of Object.entries({overview:'Übersicht',products:'Produkte',trade:'Mein Trade',auto:'Vollautomatisch',research:'YouTube',learning:'Lernen'})){
    const el=document.createElement('section');el.id='bob-view-'+key;el.setAttribute('aria-label',label);el.hidden=key!=='overview';
    if(key!=='overview'){const h=document.createElement('h2');h.textContent=label;h.tabIndex=-1;el.append(h);}
    panels[key]=el;main.append(el);
@@ -1309,6 +1309,23 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 
   for(const id of ['realTradeJournal','auditStatistics','improvementPanel','auditPanel'])move(byId(id),'learning');
   fold(byId('auditStatistics')?.querySelector(':scope > div.small:not([id])'),'Was bedeuten Treffer und Fehlprognosen?');fold(byId('improvementPanel')?.querySelector(':scope > div.small:not([id])'),'Wie Bob Verbesserungen prüft');
+  // Separate, SIMULATION-ONLY planning space. No broker credentials or order endpoints.
+  const autoPanel=document.createElement('div');autoPanel.className='card';autoPanel.id='bobFullyAutomatic';
+  autoPanel.innerHTML=`
+   <h3>Vollautomatisch · Entwicklungsbereich</h3>
+   <p class="small"><strong>Status: Konzept und Testvorbereitung.</strong> Kein Echtgeldhandel. Keine Broker-Verbindung. Keine automatische Orderausführung.</p>
+   <div class="technical-metric"><strong>Unser Ziel</strong><p>Bob soll Goldsignale unabhängig bewerten, simulierte Ein- und Ausstiege durchführen, Stop-Loss und Gewinnmitnahme berechnen und jeden Entscheid nachvollziehbar dokumentieren. Erst nach unabhängiger Prüfung kommt ein Broker mit offiziell erlaubter API infrage.</p></div>
+   <details open class="bob-disclosure"><summary><b>Entwicklungsphasen</b></summary>
+    <ol><li><b>Phase 1 · Simulationskern:</b> Vorhandene Goldanalyse, Produktauswahl und fiktives Startkapital verwenden. Keine echten Orders.</li>
+    <li><b>Phase 2 · Handelssystem:</b> Long/Short/Abwarten, Einstieg, Positionsgröße, Stop, Gewinnziel und Trailing-Stop auf Produktkursbasis nachvollziehbar testen.</li>
+    <li><b>Phase 3 · Langzeittest:</b> Gebühren, Spreads als reale Kosten (nicht als Rankinggewicht), Slippage, Kurslücken, Ausfälle und realistische Kauf-/Verkaufskurse berücksichtigen.</li>
+    <li><b>Phase 4 · Unabhängige Freigabe:</b> Mindestens 30 Handelstage und mindestens 100 abgeschlossene Simulations-Trades als erste Prüfgrenze; danach zusätzliche Out-of-sample- und Stresstests. Keine automatische Freigabe aufgrund dieser Zahlen.</li>
+    <li><b>Phase 5 · API-Broker:</b> Geeigneten Broker, verfügbare Goldinstrumente, schweizerische Kontoberechtigung, Produktkosten und ausdrückliche API-Erlaubnis prüfen; zunächst dessen Demo-/Paper-Konto anbinden.</li></ol>
+   </details>
+   <details class="bob-disclosure"><summary><b>Sicherheitsregeln</b></summary><p class="small">Ohne aktuelle Kursdaten, vollständige Produktdaten, geeignete Liquidität oder bestätigte Marktrichtung: ABWARTEN. Vorgesehen: Maximalverlust je Trade, Tagesverlustgrenze, maximale offene Positionen, Schutz vor Doppelorders, Not-Aus sowie Unterbrechung bei Verbindungsproblemen. Alle Grenzen müssen vor Tests festgelegt und auf Wirksamkeit überprüft werden.</p></details>
+   <p class="small"><b>Freigaberegel:</b> Echtgeld bleibt gesperrt, bis ein rechtlich und technisch geeigneter Broker vorhanden ist und du die Live-Freigabe ausdrücklich erteilst. Ein profitables System lässt sich nicht garantieren.</p>
+   <button type="button" data-view="learning" class="bob-primary">Vorhandene Marktsimulation und Ergebnisse öffnen</button>`;
+  panels.auto.append(autoPanel);
   move(byId('goldResearchPanel'),'research');
   move(byId('fourDayPanel'),'learning');
   move(byId('intradayComparisonDetails'),'learning');
@@ -1335,7 +1352,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   if(header){header.className='bob-heading';header.querySelector('h1').textContent='Bob';header.querySelector('.sub').textContent='Dein Gold- und Produktassistent';main.prepend(header);}
   Object.values(panels).forEach(el=>main.append(el));
   const nav=document.createElement('nav');nav.id='bobNavigation';nav.className='bob-nav';nav.setAttribute('aria-label','Hauptnavigation');
-  nav.innerHTML=[['overview','◫','Übersicht'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['research','▶','YouTube'],['learning','↗','Lernen']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+'</button>').join('');document.body.append(nav);
+  nav.innerHTML=[['overview','◫','Übersicht'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['auto','⚙','Auto'],['research','▶','YouTube'],['learning','↗','Lernen']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+'</button>').join('');document.body.append(nav);
   function show(key,focus=true){if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key)btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
   document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b){show(b.dataset.view);history.replaceState(null,'','#'+b.dataset.view);}});
   window.addEventListener('hashchange',()=>show(location.hash.slice(1)));
