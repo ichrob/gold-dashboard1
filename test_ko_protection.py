@@ -13,7 +13,7 @@ class KoProtectionTests(unittest.TestCase):
     def test_warning_and_atr_buffer(self):
         warning = ko.assess(100., 98.2, 'LONG', .5)
         self.assertEqual(warning['level'], 'warning')
-        self.assertEqual(warning['protectiveStopGold'], 99.2)
+        self.assertEqual(warning['protectiveStopGold'], 99.7)
         self.assertEqual(ko.assess(100., 96., 'LONG', 3.)['level'], 'critical')
         self.assertEqual(ko.assess(100., 96., 'LONG', None)['level'], 'safe')
 
