@@ -1,5 +1,7 @@
 """KO guard regression: real source clocks, no synthetic liquidation or broker actions."""
 import unittest
+import json
+from unittest.mock import Mock
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -105,6 +107,36 @@ class KoGuardTests(unittest.TestCase):
         self.assertNotIn('exitReason',result)
         self.assertEqual(guard.terminal(quote(status=2),ISIN),'product-terminated')
         self.assertIsNone(guard.terminal(quote(),ISIN))
+
+    def test_next_cycle_selects_different_isin_after_ko_exit(self):
+        replacement='DE000PJ9NCK1'
+        other=choice()
+        other['isin']=replacement
+        other_quote=quote()
+        other_quote['isin']=replacement
+        chosen=[]
+        current=dict(startAt=NOW-1, enabled=True, initialCapital=100., cash=100.,
+                     equity=100., realizedProfit=0.,
+                     koExcluded={'day':'2026-10-12','isins':[ISIN]})
+        conn=Mock()
+
+        def sql(query, args=()):
+            result=Mock()
+            result.fetchone.return_value=None
+            if query.startswith('SELECT payload FROM bob_paper_control'):
+                result.fetchone.return_value=(current.copy(),)
+            if query.startswith('INSERT INTO bob_paper_cases'):
+                chosen.append(json.loads(args[3])['product']['isin'])
+                result.fetchone.return_value=(args[0],)
+            return result
+
+        conn.execute.side_effect=sql
+        sim.run_once(conn, {}, market(),
+                     {'choices':[choice(),other]},
+                     {ISIN:quote(),replacement:other_quote},NOW)
+        self.assertEqual(chosen,[replacement])
+        self.assertEqual(guard.entry_reason(other,other_quote,market(),NOW)[0],None)
+
 
 
 if __name__ == '__main__':
