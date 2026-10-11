@@ -136,6 +136,14 @@ class KoGuardTests(unittest.TestCase):
                      {ISIN:quote(),replacement:other_quote},NOW)
         self.assertEqual(chosen,[replacement])
         self.assertEqual(guard.entry_reason(other,other_quote,market(),NOW)[0],None)
+        # Even with no explicit block, an unsafe top candidate must not hide
+        # the next ranked, verified and sufficiently distant product.
+        chosen.clear()
+        current['koExcluded']={'day':'2026-10-12','isins':[]}
+        sim.run_once(conn, {}, market(),
+                     {'choices':[choice(),other]},
+                     {ISIN:quote(ko=3970.),replacement:other_quote},NOW)
+        self.assertEqual(chosen,[replacement])
 
 
 
