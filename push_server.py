@@ -473,7 +473,9 @@ class Handler(BaseHTTPRequestHandler):
                         # This endpoint trusts ONLY the private Bob->push token.
                         # Sender/Svix verification happens on Bob's public front.
                         safe={k:record.get(k) for k in (
-                            "status","reason","isin","side","quantity","priceEur","executedAt")
+                            "status","reason","isin","side","quantity","priceEur","executedAt",
+                            "executedLocal","timezoneConfirmed","sourceKind",
+                            "orderIdDigest","costsChf")
                               if k in record}
                         if len(json.dumps(safe))>4096:
                             raise ValueError("Zu viele Importdaten")
