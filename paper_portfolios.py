@@ -167,6 +167,7 @@ def report(conn, day=None):
                           'kein automatischer Teilverkauf am ersten Ziel, '
                           'nachgezogener Goldpreis-Stop und bestätigter Richtungswechsel; '
                           'EUR-Geldkurse dienen der virtuellen Produktbewertung. '
+                          'KO-Sicherheitsausstieg nur bei verifizierter heutiger Barriere und frischem Euro-Geldkurs. '
                           'Kein garantierter Stop oder echter Orderfill.')
         accounts.append(dict(profile=profile, title=policy['title'],
                              riskPolicy={k: policy[k] for k in ('exposure_fraction',
@@ -176,5 +177,5 @@ def report(conn, day=None):
                              performance=performance_snapshot(data),**data))
     return dict(ok=True, mode='four-independent-paper-accounts',
                 simulatedCapitalEur=1100, realOrders=False, startAt=START,
-                note='3 × 100 EUR plus 1 × 800 EUR virtuell. Der ursprüngliche manuelle 800-EUR-Test bleibt separat. Bruttomodell ohne vollständige Gebühren, Finanzierung oder Slippage. Renditen stets auch prozentual vergleichen; kein realer Handel.',
+                note='3 × 100 EUR plus 1 × 800 EUR virtuell. Der ursprüngliche manuelle 800-EUR-Test bleibt separat. KO-Schutz verlangt eine bestätigte heutige Spot-Barriere und aktuelle Euro-Kurse; er garantiert keinen rechtzeitigen Ausstieg. Ohne belegten Abrechnungswert bleiben Produktverlust und freies Kapital offen. Bruttomodell ohne vollständige Gebühren, Finanzierung oder Slippage.',
                 accounts=accounts)
