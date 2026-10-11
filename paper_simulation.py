@@ -181,10 +181,21 @@ def advance_case(original, market, quote, now):
         if ko_state:
             c['koWatch']=ko_state
             c['koWatchStatus']='confirmed'
+            if ko_state['crossed']:
+                # An issuer KO is NOT certified by a spot crossing alone.
+                # Equally, a bid sampled near that crossing cannot establish
+                # that an exit was available before the barrier was struck.
+                c.update(status='inconclusive',closedAt=now,
+                         productReturnKnown=False,productGrossPct=None,
+                         koWatchStatus='crossed-observed')
+                defer_remaining()
+                event('ko-barrier-crossed-observed',barrierUsd=ko_state['barrierUsd'],
+                      reason='Barriere im Goldkurs überschritten; Produktstatus und Abrechnungswert ungeklärt')
+                return c
             if ko_state['danger']:
-                # This is a simulated SELL at an observed fresh bid, not a
-                # guaranteed stop fill or proof that knock-out was avoided.
-                c['koWatchStatus']='crossed-observed' if ko_state['crossed'] else 'proximity-exit'
+                # Only a pre-barrier risk warning and a fresh bid may create
+                # an observed virtual exit. No fill or loss limit guaranteed.
+                c['koWatchStatus']='proximity-exit'
                 realize('ko-safety-exit',c['remaining'])
                 return c
         else:
@@ -377,7 +388,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
         if active:
             key,c=active;released=c.get('cashReleased',0);booked=c.get('bookedUnits',0);q=quotes.get(c['product']['isin'])
             c=advance_case(c,market,q,now)
-            if c.get('exitReason')=='ko-safety-exit' or c.get('koWatchStatus') in ('knockout-confirmed','product-terminated'):
+            if c.get('exitReason')=='ko-safety-exit' or c.get('koWatchStatus') in ('knockout-confirmed','product-terminated','crossed-observed'):
                 excluded=control.get('koExcluded') or {}
                 if excluded.get('day')!=day:excluded={'day':day,'isins':[]}
                 if c['product']['isin'] not in excluded['isins']:
