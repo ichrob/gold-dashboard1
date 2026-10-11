@@ -14,7 +14,6 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 import background_push
 import stop_target_audit
-import ko_protection
 
 VERSION = 'paper-lifecycle-v2'
 START = datetime(2026, 10, 8, tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000
@@ -49,30 +48,6 @@ def fresh_quote(q, now, isin):
     times=[stamp(q.get(k) or q.get('quoteAt')) for k in ('bidAt','askAt')]
     if not all(at is not None and 0<=now-at<=90000 for at in times):return None
     return {k:q.get(k) for k in ('isin','bid','ask','currency','source','quoteAt','bidAt','askAt')}
-
-def verified_spot_barrier(choice, quote, direction):
-    """Only identity-checked issuer KO evidence for the exact Spot instrument.
-
-    A screenshot, a Gold Future barrier or a quoted price alone cannot authorize
-    a KO exit for a different instrument.
-    """
-    if not isinstance(choice, dict) or choice.get('scope') != 'XAU/USD':
-        return None
-    if not isinstance(quote, dict) or quote.get('isin') != choice.get('isin') or quote.get('productVerified') is not True:
-        return None
-    if quote.get('direction') not in (None, direction) or quote.get('currency') != 'EUR':
-        return None
-    metadata = quote.get('metadata') or {}
-    if metadata.get('underlyingType') == 'FUTURE' or metadata.get('underlying') not in (None, 'XAU/USD', 'GOLD', 'Gold'):
-        return None
-    condition = (quote.get('conditions') or {}).get('ko') or {}
-    values = [v for v in (condition.get('value'), quote.get('ko'), metadata.get('ko')) if finite(v)]
-    if not values or max(values) - min(values) > 1.0:
-        return None
-    return dict(value=values[0], source=quote.get('source'),
-                observedAt=quote.get('bidAt') or quote.get('quoteAt'),
-                underlying='XAU/USD', verified=True)
-
 
 def init(conn):
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_paper_control (
@@ -125,9 +100,8 @@ def new_case(market, choice, quote, now, cash=100.):
     quantity=math.floor((cash+1e-9)/q['ask']) if q else None
     if quantity==0:raise ValueError('Kapital reicht nicht für ein Produktstück')
     t=dict(tradeId=key,dir=direction,entry=p['entry'],stop=p['stop'],target=p['target'],initialRisk=risk,instrument='XAU/USD',active=True,product=None)
-    ko_reference = verified_spot_barrier(choice, quote, direction) if q else None
     return dict(id=key,version=VERSION,status='open',day=local.date().isoformat(),startedAt=now,endsAt=end,
-                plan=p,product=copy.deepcopy(choice),koReference=ko_reference,entryQuote=q,entryAsk=q['ask'] if q else None,
+                plan=p,product=copy.deepcopy(choice),entryQuote=q,entryAsk=q['ask'] if q else None,
                 analysis=copy.deepcopy(market),lastAt=market['dataAt'],remaining=1.,goldR=0.,productGrossPct=0. if q else None,
                 productReturnKnown=bool(q),netReturnKnown=False,modelOnly=True,partialTaken=False,
                 quantity=quantity,remainingUnits=quantity,pendingUnits=0,cashReleased=0.,bookedUnits=0,
@@ -185,30 +159,6 @@ def advance_case(original, market, quote, now):
             c.update(status='closed',closedAt=now,exitReason=kind)
             if c.get('quantity') and not c.get('pendingUnits'):
                 c.update(productReturnKnown=True,productGrossPct=(c['cashReleased']/c['allocated']-1)*100)
-    # A verified issuer barrier complements Gold stops across all portfolios.
-    # Only a close-in-time observed EUR bid can support a protective paper exit.
-    # Missing quotes produce an alert, NEVER an invented execution.
-    barrier=verified_spot_barrier(c['product'],quote,t['dir'])
-    if barrier:
-        previous=c.get('koReference')
-        if previous is None or barrier['value']!=previous.get('value'):
-            event('ko-reference-update',old=previous,new=barrier)
-        c['koReference']=barrier
-    barrier=c.get('koReference')
-    if barrier and barrier.get('verified') and barrier.get('underlying')=='XAU/USD':
-        guard=ko_protection.assess(p,barrier['value'],t['dir'],market.get('atr'))
-        c['koProtection']=guard
-        if guard['level'] in ('critical','crossed'):
-            near_quote=q and stamp(q.get('bidAt') or q.get('quoteAt'))>=at-5000
-            if near_quote:
-                realize('ko-protective-exit',c['remaining'])
-                return c
-            if c.get('koWarningLevel')!=guard['level']:
-                event('ko-risk-no-sale',gold=p,level=guard['level'],
-                      reason='KO-Gefahr, aber kein bestätigter aktueller Euro-Geldkurs zur Goldbeobachtung; kein fiktiver Verkauf angenommen')
-            c['koWarningLevel']=guard['level']
-        else:
-            c['koWarningLevel']=guard['level']
     stopped=p<=t['stop'] if long else p>=t['stop']
     if stopped:
         realize('stop',c['remaining']);return c
