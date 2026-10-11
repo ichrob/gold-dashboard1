@@ -108,7 +108,9 @@ def _init_db_once():
             ORDER BY imported_at DESC LIMIT 4
         """).fetchall()
         print("BOB_EMAIL_IMPORT_AUDIT " + json.dumps([
-            {"status": row[0], "source": row[1], "pdfCount": row[2]}
+            {"status": row[0] if len(row) > 0 else None,
+             "source": row[1] if len(row) > 1 else None,
+             "pdfCount": row[2] if len(row) > 2 else None}
             for row in states], ensure_ascii=True), flush=True)
         conn.execute("""
           CREATE TABLE IF NOT EXISTS subscriptions (
