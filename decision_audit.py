@@ -88,6 +88,8 @@ def init(conn):
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_decision_outcomes (decision_id TEXT REFERENCES bob_decision_audit(id) ON DELETE CASCADE, horizon INTEGER NOT NULL, truth JSONB NOT NULL, PRIMARY KEY(decision_id,horizon))''')
     stop_target_audit.init(conn)
     paper_simulation.init(conn)
+    import manual_paper_watch
+    manual_paper_watch.init(conn)
 
 def write(conn,payload):
     key,record=normalize(payload)
@@ -267,6 +269,16 @@ def product_review(records):
             'note':'Beobachteter Geldkurs nach 60 Minuten gegen damaligen Briefkurs; ohne Gebühren. Alternativen nur bei damaliger Eignung und passenden späteren Kursen. Fehlende Kurse werden nicht geschätzt; begrenzter Rückblick, kein Optimalitätsnachweis.'}
 
 def handle(conn,action,payload):
+    mode=payload.get('mode') if isinstance(payload,dict) else None
+    if mode in ('manual-paper-watch-sync','manual-paper-watch-levels','manual-paper-watch'):
+        import manual_paper_watch
+        if action=='write' and mode=='manual-paper-watch-sync':
+            return manual_paper_watch.sync(conn,payload)
+        if action=='write' and mode=='manual-paper-watch-levels':
+            return manual_paper_watch.set_levels(conn,payload)
+        if action=='read' and mode=='manual-paper-watch':
+            return manual_paper_watch.report(conn,payload)
+        raise ValueError('Nicht unterstützte Beobachtungsaktion')
     if action=='write' and payload.get('mode')=='simulation-sync':return paper_simulation.sync(conn,payload)
     if action=='read' and payload.get('mode')=='simulation':return paper_simulation.report(conn,payload.get('day'))
     if action=='read' and payload.get('mode')=='simulation-profiles':
