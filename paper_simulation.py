@@ -106,6 +106,8 @@ def new_case(market, choice, quote, now, cash=100.):
                 productReturnKnown=bool(q),netReturnKnown=False,modelOnly=True,partialTaken=False,
                 quantity=quantity,remainingUnits=quantity,pendingUnits=0,cashReleased=0.,bookedUnits=0,
                 allocated=quantity*q['ask'] if quantity else None,availableAtEntry=cash,
+                entrySpreadEur=round(quantity*(q['ask']-q['bid']),8) if quantity else None,
+                entrySpreadPct=round((q['ask']/q['bid']-1)*100,4) if quantity else None,
                 capitalMode='EUR-Ganzstück-Bruttomodell' if quantity else 'Goldplan ohne Europosition',
                 engine=dict(trade=t),events=[dict(kind='entry',at=market['dataAt'],recordedAt=now,gold=market['price'],quote=q,
                     reason=market.get('decisionReason'),ruleVersion=market.get('ruleVersion'),learningPolicy=market.get('learningPolicy'))])
@@ -190,12 +192,36 @@ def advance_case(original, market, quote, now):
     return c
 
 def capital_snapshot(control,case,quote,now):
-    units=(case.get('remainingUnits') or 0)+(case.get('pendingUnits') or 0) if case else 0
+    """Equity and drawdown use observed, fresh EUR bids; gaps stay unknown."""
+    units=((case.get('remainingUnits') or 0)+(case.get('pendingUnits') or 0)) if case else 0
     q=fresh_quote(quote,now,case['product']['isin']) if units else None
-    control.update(equity=control['cash']+units*q['bid'] if q else None if units else control['cash'],
-                   openUnits=units,capitalAt=now,valuationKnown=not units or bool(q))
-    control['dayProfit']=control['equity']-control['dayOpeningEquity'] if control.get('equity') is not None and control.get('dayOpeningEquity') is not None else None
-    control['totalProfit']=control['equity']-control['initialCapital'] if control.get('equity') is not None else None
+    equity=(control['cash']+units*q['bid']) if q else (None if units else control['cash'])
+    control.update(equity=equity,openUnits=units,capitalAt=now,
+                   valuationKnown=equity is not None)
+    if units:
+        counter='quoteConfirmedChecks' if q else 'quoteMissingChecks'
+        control[counter]=control.get(counter,0)+1
+        control['quoteStatus']='confirmed' if q else 'missing-or-stale'
+        if q:
+            control['lastConfirmedQuoteAt']=q.get('bidAt') or q.get('quoteAt')
+            control['lastConfirmedQuoteSource']=q.get('source')
+    else:
+        control['quoteStatus']='no-open-units'
+    if equity is not None:
+        peak=control.get('peakEquity')
+        if not finite(peak):peak=control.get('initialCapital')
+        if not finite(peak):peak=equity
+        peak=max(peak,equity)
+        control['peakEquity']=peak
+        dd=max(0.,(peak-equity)/peak*100) if peak>0 else 0.
+        control['currentDrawdownPct']=dd
+        control['maxDrawdownPct']=max(control.get('maxDrawdownPct') or 0.,dd)
+    else:
+        control['currentDrawdownPct']=None
+    control['dayProfit']=(equity-control['dayOpeningEquity']
+                          if equity is not None and control.get('dayOpeningEquity') is not None
+                          else None)
+    control['totalProfit']=equity-control['initialCapital'] if equity is not None else None
 
 def day_update(conn, day, closed=None, wait=None, now=None,capital=None,product=None):
     row=conn.execute('SELECT payload FROM bob_paper_days WHERE day=%s',(day,)).fetchone()
@@ -205,7 +231,10 @@ def day_update(conn, day, closed=None, wait=None, now=None,capital=None,product=
     if capital:
         d.update(openingCapital=capital.get('dayOpeningEquity'),capital=capital.get('equity'),cash=capital['cash'],
                  dayProfit=capital.get('dayProfit'),totalProfit=capital.get('totalProfit'),openUnits=capital.get('openUnits',0),
-                 capitalAt=now,valuationKnown=capital.get('valuationKnown',True),initialCapital=capital['initialCapital'])
+                 capitalAt=now,valuationKnown=capital.get('valuationKnown',True),initialCapital=capital['initialCapital'],
+                  observedMaxDrawdownPct=capital.get('maxDrawdownPct'),
+                  quoteMissingChecksSinceStart=capital.get('quoteMissingChecks',0),
+                  quoteConfirmedChecksSinceStart=capital.get('quoteConfirmedChecks',0))
         d.update(realizedProfit=capital.get('realizedProfit',0),dayRealizedProfit=capital.get('realizedProfit',0)-capital.get('dayOpeningRealized',0))
     if wait:d.update(waitChecks=d['waitChecks']+1,lastWait=wait)
     if closed:

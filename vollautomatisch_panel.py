@@ -30,7 +30,8 @@ PANEL = r"""
  <button type="button" id="bobProfilesRefresh" class="bob-primary">Vier Simulationen prüfen</button>
  <p id="bobProfilesStatus" class="small" role="status">Prüfstand wird geladen …</p>
  <div id="bobProfilesCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:12px"></div>
- <details><summary>Grenzen des Tests</summary><p class="small">Konservativ: bestätigter Trend, Richtungswert 80/20, bis 35 % Kapitaleinsatz, 1 % Tages-Einstiegssperre. Ausgewogen: 70/30, bis 65 %, 3 %. Offensiv: 65/35, bis 95 %, 5 %. Trendfolge 800 €: Trend bestätigt, 70/30, bis 65 %, 3 %. Anders als die 100-Euro-Varianten verkauft die Trendfolge am ersten Ziel nicht automatisch einen Teil: Zielmarken werden verlängert, Stopps nur in günstige Richtung nachgezogen, Ausstieg bei bestätigter Gegenrichtung über zwei verschiedene Signal-Kerzen, Stop oder spätestens nach 8 Stunden beziehungsweise 21:45 Uhr Zürich. Keine Nachtposition. Prozentuale Rendite statt absoluter Eurogewinne vergleichen. Die Tagesgrenzen stoppen nur weitere Einstiege. Alle Varianten verwenden dieselben Produktnachweise. Bruttomodell ohne vollständig belegte Gebühren, Finanzierung und Slippage; Stopps sind wegen Kurslücken keine garantierten Verlustgrenzen.</p></details>
+ <p class="small">Bruttoergebnisse: Spread ist im Brief-/Geldkurs enthalten. Gebühren, Finanzierung und Slippage sind nicht vollständig belegt. Erfolgsquote zählt nur mit frischem Produktkurs bewertete Trades; Drawdown nur beobachtete Kurse, keine unbekannten Kurslücken.</p>
+  <details><summary>Grenzen des Tests</summary><p class="small">Konservativ: bestätigter Trend, Richtungswert 80/20, bis 35 % Kapitaleinsatz, 1 % Tages-Einstiegssperre. Ausgewogen: 70/30, bis 65 %, 3 %. Offensiv: 65/35, bis 95 %, 5 %. Trendfolge 800 €: Trend bestätigt, 70/30, bis 65 %, 3 %. Anders als die 100-Euro-Varianten verkauft die Trendfolge am ersten Ziel nicht automatisch einen Teil: Zielmarken werden verlängert, Stopps nur in günstige Richtung nachgezogen, Ausstieg bei bestätigter Gegenrichtung über zwei verschiedene Signal-Kerzen, Stop oder spätestens nach 8 Stunden beziehungsweise 21:45 Uhr Zürich. Keine Nachtposition. Prozentuale Rendite statt absoluter Eurogewinne vergleichen. Die Tagesgrenzen stoppen nur weitere Einstiege. Alle Varianten verwenden dieselben Produktnachweise. Bruttomodell ohne vollständig belegte Gebühren, Finanzierung und Slippage; Stopps sind wegen Kurslücken keine garantierten Verlustgrenzen.</p></details>
 </section>
 <script>
 (function(){
@@ -58,18 +59,25 @@ PANEL = r"""
     if(!response.ok)throw Error('HTTP '+response.status);
     const data=await response.json();
     if(data.mode!=='four-independent-paper-accounts'||data.realOrders!==false||
-       !Array.isArray(data.accounts)||data.accounts.length!==4)throw Error('Drei-Konten-Auswertung ungültig');
+       !Array.isArray(data.accounts)||data.accounts.length!==4)throw Error('Vier-Konten-Auswertung ungültig');
     profilesCards.replaceChildren();
     const names={conservative:'Konservativ',balanced:'Ausgewogen',offensive:'Offensiv',trend800:'Trendfolge 800 €'};
     for(const acc of data.accounts){
-     const c=acc.control||{},p=acc.riskPolicy||{},st=acc.stats||{};
+     const c=acc.control||{},p=acc.riskPolicy||{},st=acc.stats||{},perf=acc.performance||{};
      const card=document.createElement('div');card.style='padding:12px;border:1px solid #cbd5e1;border-radius:12px;min-width:0';
      const heading=document.createElement('h4');heading.style='margin:0 0 8px';heading.textContent=names[acc.profile]||acc.profile;card.append(heading);
      const lines=[
       'Fiktiver Anfang: '+money.format(c.initialCapital??100),
       'Kapital: '+(Number.isFinite(c.equity)?money.format(c.equity):'Bewertung offen'),
       'Bargeld: '+(Number.isFinite(c.cash)?money.format(c.cash):'unbekannt'),
-      'Rendite seit Start: '+(Number.isFinite(c.equity)&&Number.isFinite(c.initialCapital)&&c.initialCapital>0?((c.equity/c.initialCapital-1)*100).toFixed(2)+' %':'Bewertung offen'),
+      'Rendite seit Start (brutto): '+(Number.isFinite(c.equity)&&Number.isFinite(c.initialCapital)&&c.initialCapital>0?((c.equity/c.initialCapital-1)*100).toFixed(2)+' %':'Bewertung offen'),
+      'Grösster beobachteter Kapitalrückgang: '+(Number.isFinite(perf.observedMaxDrawdownPct)?perf.observedMaxDrawdownPct.toFixed(2)+' %':'noch kein belegter Wert'),
+      'Positive vollständig bepreiste Trades: '+(perf.pricedTrades>0?(perf.positivePricedTrades+'/'+perf.pricedTrades+' · '+perf.productPositiveRatePct.toFixed(1)+' %'):'noch keine'),
+      'Nicht auswertbare Fälle: '+(perf.inconclusiveTrades??0),
+      'Preisprüfungen ohne gültigen Kurs: '+(perf.quoteMissingChecks??0)+' (seit Start)',
+      'Preisprüfungen mit gültigem Kurs: '+(perf.quoteConfirmedChecks??0)+' (seit Start)',
+      'Produktbewertung: '+(perf.quoteStatus==='missing-or-stale'?'Geldkurs fehlt oder ist veraltet':perf.quoteStatus==='confirmed'?'bestätigter Geldkurs':perf.quoteStatus==='no-open-units'?'keine offenen Stücke':'noch keine Beobachtung'),
+      'Heute realisiert (brutto): '+(Number.isFinite(st.dayRealizedProfit)?money.format(st.dayRealizedProfit):'noch unbekannt'),
       'Offene Stücke: '+(c.openUnits??0),
       'Tagesverlustgrenze: '+Math.round((p.daily_loss_fraction||0)*100)+' %',
       'Max. Kapitaleinsatz: '+Math.round((p.exposure_fraction||0)*100)+' %',
@@ -90,7 +98,8 @@ PANEL = r"""
       row.textContent=(trade.startedAt?time(trade.startedAt):'')+' · '+
         (trade.plan?.direction||'NEUTRAL')+' · '+(trade.product?.isin||'ohne ISIN')+
         ' · '+(trade.status||'unbekannt')+' · '+(trade.productReturnKnown?
-          (Number(trade.productGrossPct)||0).toFixed(2)+' % brutto':'Produktbewertung offen');
+          (Number(trade.productGrossPct)||0).toFixed(2)+' % brutto':'Produktbewertung offen')+
+           (Number.isFinite(trade.entrySpreadEur)?' · Spread beim Kauf: '+money.format(trade.entrySpreadEur)+' (im Bruttoergebnis enthalten)':'');
       host.append(row);
      }
      if(!host.childNodes.length){const empty=document.createElement('p');empty.className='small';
