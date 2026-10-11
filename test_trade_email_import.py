@@ -92,6 +92,18 @@ class EmailImportTests(unittest.TestCase):
         self.assertEqual(m.import_event(event("Account notice"),
                                         "forwarder@example.test")["status"],"incomplete")
 
+    def test_real_agentmail_sender_array_and_inbox_scope(self):
+        actual=event()
+        actual['message'].pop('from')
+        actual['message']['from_']=['forwarder@example.test']
+        actual['message']['to']=['bob-degiro@agentmail.to']
+        self.assertEqual(m.import_event(actual,'forwarder@example.test')['status'],'pending-review')
+        actual['message']['from_']=['forwarder@example.test','spoof@example.test']
+        self.assertEqual(m.import_event(actual,'forwarder@example.test')['status'],'sender-unconfirmed')
+        actual['message']['from_']=['forwarder@example.test']
+        actual['message']['to']=['other@agentmail.to']
+        self.assertEqual(m.import_event(actual,'forwarder@example.test')['status'],'ignored')
+
     def test_database_dedup_never_starts_trade(self):
         conn=Mock()
         conn.execute.return_value.fetchone.side_effect=[("mail1",),None]
