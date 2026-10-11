@@ -20,6 +20,7 @@ import decision_audit
 import rule_learning
 import stop_target_audit
 import paper_simulation
+import manual_paper_watch
 import evaluator_runtime
 import intraday_comparison
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -663,6 +664,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 bundle=payload.get('bundle') or {}
                 paper_simulation.enqueue(bundle,db)
+                manual_paper_watch.enqueue(db)
                 sent = run_background(bundle)
                 send_json(self, 200, {'ok': True, 'sent': sent})
                 return

@@ -3323,7 +3323,7 @@ window.BobTradeUpload={parse,draft,reviewed,merge,init};if(typeof document!=='un
  function mount(guide){
   const opener=guide.querySelector('#bobTradeTestOpen');if(!opener)return;
   const panel=document.createElement('div');panel.id='bobManualTradeTest';panel.hidden=true;
-  panel.innerHTML='<h3>Trade-Test · fiktiv</h3><p>Produkt frei auswählen – auch bei ABWARTEN oder ohne Empfehlungsfreigabe. Kein Kauf, keine Trade-Pushs. Separater Test auf diesem Gerät; dein echter Trade bleibt erhalten.</p><label for="manualTestProduct">Produkt</label><select id="manualTestProduct"></select><button type="button" data-test-refresh>Produktliste und Kurse aktualisieren</button><div class="grid"><label>Angenommener Einstieg EUR/Stück<input data-test-entry type="number" min="0" step="any"></label><label>Fiktive Stückzahl<input data-test-quantity type="number" min="1" step="1" value="1"></label></div><button type="button" data-test-save>Fiktiven Trade erfassen</button><button type="button" data-test-clear>Test entfernen</button><p data-test-message role="status"></p><p data-test-result style="white-space:pre-line"></p><p class="small">Bewertung zum verfügbaren Geldkurs, ohne Gebühren und Finanzierung. Dieser manuelle Test prüft Produktauswahl und Kursentwicklung; er startet keine Stop-/Zielüberwachung im Hintergrund.</p>';
+  panel.innerHTML='<h3>Trade-Test · fiktiv</h3><p>Produkt frei auswählen – auch bei ABWARTEN oder ohne Empfehlungsfreigabe. Kein Kauf, keine Trade-Pushs. Separater Test auf diesem Gerät; dein echter Trade bleibt erhalten.</p><label for="manualTestProduct">Produkt</label><select id="manualTestProduct"></select><button type="button" data-test-refresh>Produktliste und Kurse aktualisieren</button><div class="grid"><label>Angenommener Einstieg EUR/Stück<input data-test-entry type="number" min="0" step="any"></label><label>Fiktive Stückzahl<input data-test-quantity type="number" min="1" step="1" value="1"></label></div><button type="button" data-test-save>Fiktiven Trade erfassen</button><button type="button" data-test-clear>Test entfernen</button><p data-test-message role="status"></p><p data-test-result style="white-space:pre-line"></p><p class="small">Bewertung zum verfügbaren Geldkurs, ohne Gebühren und Finanzierung. Dieser manuelle Test bleibt lokal unverändert. Eine separate schreibgeschützte Kopie kann bei bestehender Bob-Anmeldung neue Anbieter-Geldkurse im Hintergrund beobachten. Stop-/Zielschwellen werden nur gemeldet, wenn du sie ausdrücklich festlegst. Keine Order, keine automatische Glattstellung oder Trade-Pushs.</p>';
   const checklist=document.createElement('details');checklist.id='bobEveningCheck';
   checklist.innerHTML='<summary>Abendtest · Checkliste öffnen</summary><p>Fiktiver Test, kein Kauf. Die Häkchen dokumentieren deine Beobachtungen auf diesem Gerät; sie sind kein automatischer Nachweis.</p><p>Vorab am 8.10.2026: 48 automatische Prüfungen für Modellablauf, Stop/Ziel und Push-Regeln bestanden. Handy-Empfang und Live-Hintergrundbetrieb sind damit noch nicht bestätigt.</p>';
   const steps=[
@@ -3338,9 +3338,68 @@ window.BobTradeUpload={parse,draft,reviewed,merge,init};if(typeof document!=='un
   steps.forEach((text,i)=>{const label=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.checked=checked.includes(i);box.style.width='auto';label.style.display='block';label.style.margin='12px 0';label.append(box,document.createTextNode(' '+text));checklist.append(label);box.addEventListener('change',()=>{checked=box.checked?[...new Set([...checked,i])]:checked.filter(x=>x!==i);try{localStorage.setItem('bobEveningChecksV1',JSON.stringify(checked));}catch(_){box.checked=false;}});});
   const limit=document.createElement('p');limit.textContent='Noch separater Testbedarf: echte Stop-/Ziel-Pushs bei geschlossener App, berechnete EUR-Stopps und durchgehende Hintergrundüberwachung. Der manuelle Trade-Test startet diese Überwachung nicht. Konto/Risiko dürfen für die obigen Schritte leer bleiben.';checklist.append(limit);panel.append(checklist);
   guide.append(panel);
+  // Read-only server shadow; NEVER write, replace or remove bobManualTradeTestV1.
+  const watch=document.createElement('section');watch.style.cssText='border:1px solid #cbd5e1;border-radius:12px;padding:12px;margin:12px 0;';
+  watch.innerHTML='<h4>Hintergrundbeobachtung · bestehender Test bleibt unverändert</h4><p class="small" data-watch-status role="status">Verbindung wird geprüft …</p><p class="small" data-watch-value style="white-space:pre-line"></p><div class="grid"><label>Optional: Stop EUR/Stück<input type="number" min="0" step="any" data-watch-stop placeholder="Nicht gesetzt"></label><label>Optional: Ziel EUR/Stück<input type="number" min="0" step="any" data-watch-target placeholder="Nicht gesetzt"></label></div><button type="button" data-watch-levels>Separate Schwellen speichern</button><button type="button" data-watch-refresh>Beobachtung prüfen</button><p class="small">Nur bestätigte neue EUR-Geldkurse werden gespeichert. Kein nachträglicher Kursverlauf, keine fiktiven Verkäufe, keine automatischen Push-Nachrichten. Kurs- und Datenausfälle sind sichtbar. Für den erstmaligen Datenabgleich Bob einmal öffnen.</p>';
+  panel.append(watch);
+  const wStatus=watch.querySelector('[data-watch-status]'),wValue=watch.querySelector('[data-watch-value]');
+  const wStop=watch.querySelector('[data-watch-stop]'),wTarget=watch.querySelector('[data-watch-target]');
+  async function watchApi(action,payload){
+   const response=await fetch('/api/audit/'+action,{method:'POST',credentials:'same-origin',
+     cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+   if(!response.ok)throw Error('Hintergrundspeicher HTTP '+response.status);
+   return response.json();
+  }
+  let watchConnected=false;
+  async function refreshWatch(){
+   try{
+    const data=await watchApi('read',{mode:'manual-paper-watch'});
+    if(!data.connected){wStatus.textContent=data.reason||'Noch nicht mit dem Server verbunden';return;}
+    watchConnected=true;
+    const w=data.watch||{},v=w.valuation;
+    wStatus.textContent='Server-Beobachtung: '+(w.status||'unbestätigt')+' · '+(w.reason||'')+
+      ' · zuletzt geprüft '+(w.checkedAt?new Date(w.checkedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch nicht');
+    wValue.textContent='Getrennt gespeicherter Test: '+w.position.isin+' · '+w.position.direction+
+      ' · Einstieg '+w.position.entry.toFixed(4)+' EUR · '+w.position.quantity+' Stück'+
+      '\\n'+(v?'Neuer beobachteter Geldkurs '+v.bidEur.toFixed(4)+' EUR · '+v.source+
+        ' · '+new Date(v.quoteAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+
+        ' · fiktives Bruttoergebnis '+v.pnlEur.toFixed(2)+' EUR':'Aktuell kein bestätigter Kurs · fiktiver Gewinn/Verlust nicht neu berechenbar')+
+      '\\nNeue gespeicherte Kursbeobachtungen: '+(w.eventsCount||0)+
+      '\\nBeobachtete Stop-/Zielüberschreitungen: '+((w.alerts||[]).length||0);
+    wStop.value=w.stopEur??'';wTarget.value=w.targetEur??'';
+   }catch(e){wStatus.textContent='Server-Beobachtung nicht bestätigt: '+e.message;}
+  }
+  async function syncWatch(position){
+   if(!position)return;
+   try{
+    const response=await watchApi('write',{mode:'manual-paper-watch-sync',position});
+    if(!response.ok){wStatus.textContent=response.reason||'Server-Kopie konnte nicht verbunden werden';return;}
+    watchConnected=true;
+    await refreshWatch();
+   }catch(e){wStatus.textContent='Hintergrundabgleich noch nicht möglich: '+e.message;}
+  }
+  watch.querySelector('[data-watch-refresh]').addEventListener('click',refreshWatch);
+  watch.querySelector('[data-watch-levels]').addEventListener('click',async()=>{
+   if(!watchConnected){wStatus.textContent='Zuerst den bestehenden Test mit dem Server verbinden';return;}
+   const stopEur=wStop.value.trim()===''?null:Number(wStop.value);
+   const targetEur=wTarget.value.trim()===''?null:Number(wTarget.value);
+   if((stopEur!==null&&(!Number.isFinite(stopEur)||stopEur<=0))||
+      (targetEur!==null&&(!Number.isFinite(targetEur)||targetEur<=0))){
+    wStatus.textContent='Schwellen müssen positive EUR-Beträge sein.';return;
+   }
+   try{
+    const response=await watchApi('write',{mode:'manual-paper-watch-levels',stopEur,targetEur});
+    if(!response.ok){wStatus.textContent=response.reason||'Grenzen nicht gespeichert';return;}
+    await refreshWatch();
+   }catch(e){wStatus.textContent='Grenzen nicht gespeichert: '+e.message;}
+  });
   const select=panel.querySelector('select'),entry=panel.querySelector('[data-test-entry]'),quantity=panel.querySelector('[data-test-quantity]'),message=panel.querySelector('[data-test-message]'),result=panel.querySelector('[data-test-result]');
   let saved=null,products=[];
   try{const x=JSON.parse(localStorage.getItem(KEY)||'null');if(x?.mode==='manual-paper-test')saved=position(x.isin,x.direction,x.entry,x.quantity,Date.parse(x.createdAt));}catch(_){}
+  // The one-time sync is an explicit read of the existing browser record;
+  // no modification to the local test or any automated portfolio.
+  if(saved)void syncWatch(saved);
+  else wStatus.textContent='Kein gespeicherter manueller Trade auf diesem Gerät gefunden.';
   function render(){
    if(!saved){result.textContent='Noch kein fiktiver Trade erfasst.';return;}
    const item=root.BobDegiro.tradeTestProducts().find(x=>x.isin===saved.isin),v=valuation(saved,item?.quote);
@@ -3361,7 +3420,7 @@ window.BobTradeUpload={parse,draft,reviewed,merge,init};if(typeof document!=='un
    if(products.some(p=>p.isin===selected))select.value=selected;
    render();
   }
-  opener.addEventListener('click',()=>{panel.hidden=!panel.hidden;if(!panel.hidden){refresh();if(saved){entry.value=saved.entry;quantity.value=saved.quantity;}panel.scrollIntoView({behavior:'smooth',block:'start'});}});
+  opener.addEventListener('click',()=>{panel.hidden=!panel.hidden;if(!panel.hidden){refresh();if(saved){entry.value=saved.entry;quantity.value=saved.quantity;void syncWatch(saved);}panel.scrollIntoView({behavior:'smooth',block:'start'});}});
   panel.querySelector('[data-test-refresh]').addEventListener('click',async e=>{
    const button=e.currentTarget;button.disabled=true;message.textContent='Produktkurse werden abgerufen …';
    try{await root.BobDegiro.refreshTradeTestQuotes();refresh();message.textContent='Kursabruf abgeschlossen. Verfügbaren Kursstand siehe Testbewertung.';}

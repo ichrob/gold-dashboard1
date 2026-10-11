@@ -1,0 +1,147 @@
+"""Regression: preserve manual test, avoid stale/phantom outcomes, observe server-side."""
+import datetime as dt
+import os
+import unittest
+from unittest.mock import Mock
+
+import manual_paper_watch as watch
+
+ISIN='DE000FC1CHB7'
+
+
+def position():
+    return dict(mode='manual-paper-test',isin=ISIN,direction='LONG',
+                entry=8.,quantity=100,
+                createdAt=(dt.datetime.now(dt.timezone.utc)-dt.timedelta(days=1)).isoformat())
+
+
+def current_quote(at=None):
+    at=at or dt.datetime.now(dt.timezone.utc)
+    return dict(isin=ISIN, productVerified=True,found=True,marketOpen=True,
+                currency='EUR',source='Anbieter-Muster',bid=8.5,ask=8.6,
+                bidAt=at.isoformat(),isExecutableQuote=True)
+
+
+class FakeConn:
+    def __init__(self):
+        self.state=None
+        self.observations={}
+        self.last=None
+
+    def execute(self,sql,args=()):
+        import json
+        self.last=None
+        if 'FROM bob_manual_paper_watch' in sql and sql.lstrip().startswith('SELECT'):
+            if self.state is not None:self.last=(dict(self.state),)
+        elif sql.startswith('INSERT INTO bob_manual_paper_watch'):
+            if self.state is None:self.state=json.loads(args[0])
+        elif sql.startswith('UPDATE bob_manual_paper_watch'):
+            self.state=json.loads(args[0])
+        elif 'INSERT INTO bob_manual_paper_observations' in sql:
+            key=(args[1],args[0])
+            if key not in self.observations:
+                self.observations[key]=args
+                self.last=(args[0],)
+        elif 'FROM bob_manual_paper_observations' in sql:
+            self._many=[(at,rec[2],rec[3],rec[4],rec[5])
+                        for (isin,at),rec in self.observations.items() if isin==args[0]]
+        return self
+
+    def fetchone(self):return self.last
+    def fetchall(self):return getattr(self,'_many',[])
+
+
+class ManualWatchTests(unittest.TestCase):
+    def test_original_800_eur_trade_identity(self):
+        p=watch.validate_position(position())
+        self.assertEqual(p['isin'],ISIN)
+        self.assertEqual(p['quantity'],100)
+        self.assertEqual(p['entry']*p['quantity'],800)
+        with self.assertRaises(ValueError):
+            watch.validate_position({**position(),'quantity':0})
+
+    def test_connect_once_and_never_overwrite_local_trade(self):
+        db=FakeConn()
+        original=position()
+        r=watch.sync(db,{'position':original})
+        self.assertTrue(r['ok'])
+        self.assertEqual(db.state['position']['entry'],8)
+        self.assertIsNone(db.state['valuation'])
+        r=watch.sync(db,{'position':original})
+        self.assertTrue(r['ok'])
+        self.assertTrue(r['existing'])
+        rejected=watch.sync(db,{'position':{**original,'entry':9.}})
+        self.assertFalse(rejected['ok'])
+        self.assertEqual(db.state['position']['entry'],8.)
+
+    def test_quote_freshness_and_source_gates(self):
+        now=int(dt.datetime.now(dt.timezone.utc).timestamp()*1000)
+        self.assertIsNotNone(watch.quote_observation(current_quote(),ISIN,now)[0])
+        stale=current_quote(dt.datetime.now(dt.timezone.utc)-dt.timedelta(minutes=3))
+        self.assertIsNone(watch.quote_observation(stale,ISIN,now)[0])
+        self.assertIsNone(watch.quote_observation({**current_quote(),'productVerified':False},ISIN,now)[0])
+        self.assertIsNone(watch.quote_observation({**current_quote(),'priceKind':'issuer-chart'},ISIN,now)[0])
+        self.assertIsNone(watch.quote_observation({**current_quote(),'currency':'CHF'},ISIN,now)[0])
+
+    def test_background_observations_do_not_create_trades(self):
+        db=FakeConn()
+        watch.sync(db,{'position':position()})
+        now=int(dt.datetime.now(dt.timezone.utc).timestamp()*1000)
+        watch.observe(db,current_quote(),now)
+        self.assertEqual(len(db.observations),1)
+        self.assertEqual(db.state['eventsCount'],1)
+        self.assertEqual(db.state['valuation']['pnlEur'],50)
+        self.assertEqual(db.state['valuation']['valueEur'],850)
+        watch.observe(db,current_quote(),now)
+        self.assertEqual(db.state['eventsCount'],1)
+        # An unavailable quote must never leave old equity labeled as current.
+        watch.observe(db,None,now)
+        self.assertEqual(db.state['status'],'waiting-quote')
+        self.assertIsNone(db.state['valuation'])
+        self.assertEqual(db.state['position']['entry'],8.)
+        self.assertEqual(db.state['position']['quantity'],100)
+
+    def test_stop_and_target_require_explicit_approved_levels(self):
+        db=FakeConn()
+        watch.sync(db,{'position':position()})
+        self.assertEqual(db.state['alerts'],[])
+        self.assertFalse(db.state['stopEur'])
+        self.assertFalse(db.state['targetEur'])
+        with self.assertRaises(ValueError):
+            watch.set_levels(db,dict(stopEur=9.,targetEur=10.))
+        watch.set_levels(db,dict(stopEur=7.5,targetEur=8.25))
+        now=int(dt.datetime.now(dt.timezone.utc).timestamp()*1000)
+        watch.observe(db,current_quote(),now)
+        self.assertEqual(db.state['alerts'][-1]['kind'],'target-observed')
+        self.assertEqual(db.state['position']['entry'],8.)
+
+    @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),
+                         'Requires ephemeral CI database')
+    def test_database_isolation_and_restart_resume(self):
+        import psycopg
+        con=psycopg.connect(os.environ['BOB_TEST_DATABASE_URL'])
+        try:
+            watch.init(con)
+            p=position()
+            self.assertTrue(watch.sync(con,{'position':p})['ok'])
+            before=con.execute('SELECT count(*) FROM bob_paper_cases').fetchone()[0] if con.execute(
+                "SELECT to_regclass('bob_paper_cases')").fetchone()[0] else None
+            r=watch.observe(con,current_quote())
+            self.assertEqual(r['watch']['eventsCount'],1)
+            check=watch.report(con)
+            self.assertTrue(check['connected'])
+            self.assertEqual(check['watch']['position']['quantity'],100)
+            self.assertEqual(len(check['observations']),1)
+            con.commit()
+            # Re-attach to existing durable record after a separate DB session.
+            again=watch.report(con)
+            self.assertEqual(again['watch']['eventsCount'],1)
+            if before is not None:
+                self.assertEqual(con.execute('SELECT count(*) FROM bob_paper_cases').fetchone()[0],before)
+        finally:
+            # CI database is discarded after tests.
+            con.close()
+
+
+if __name__=='__main__':
+    unittest.main()
