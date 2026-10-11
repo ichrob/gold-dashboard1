@@ -81,6 +81,20 @@ class KoGuardTests(unittest.TestCase):
         self.assertTrue(out['productReturnKnown'])
         self.assertFalse(c['status']=='closed')
 
+    def test_crossed_barrier_is_not_reported_as_a_successful_exit(self):
+        opened=sim.new_case(market(),choice(),quote(),NOW,cash=100.)
+        # Even when a nominal EUR bid is observed, the model cannot know
+        # whether that price was executable before a possible knock-out.
+        out=sim.advance_case(opened,market(price=3890.,at=NOW+30000),
+                             quote(NOW+30000,bid=7.5),NOW+30000)
+        self.assertEqual(out['status'],'inconclusive')
+        self.assertEqual(out['koWatchStatus'],'crossed-observed')
+        self.assertEqual(out['cashReleased'],0)
+        self.assertEqual(out['pendingUnits'],opened['quantity'])
+        self.assertIsNone(out['productGrossPct'])
+        self.assertTrue(any(e['kind']=='ko-barrier-crossed-observed'
+                            for e in out['events']))
+
     def test_no_trusted_terms_never_fake_ko_sale(self):
         c=sim.new_case(market(),choice(),quote(),NOW,cash=100.)
         stale=quote(NOW+30000)
