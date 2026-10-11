@@ -139,6 +139,13 @@ def parse_confirmation(subject, text):
     """
     if not isinstance(subject, str) or not isinstance(text, str):
         return {"status":"incomplete", "reason":"Mailtext fehlt"}
+    # The real DEGIRO transaction PDF and some notification mail bodies use
+    # table labels "Auftrag" and "Kurs", not "Transaktion"/"Ausführungskurs".
+    # Use a dedicated fail-closed parser, never turn its historical clock into
+    # a UTC market timestamp, and never activate positions from email alone.
+    if "Die folgende Order wurde ausgeführt" in text and "Auftrag" in text:
+        import trade_document_import
+        return trade_document_import.parse_document_text(text)
     if len(text) > MAX_BODY:
         return {"status":"incomplete", "reason":"Mail zu groß"}
     if not re.search(r"\bDEGIRO\b", subject + "\n" + text, re.I):
