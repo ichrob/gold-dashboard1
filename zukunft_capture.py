@@ -71,7 +71,7 @@ def record(conn, market, selection, quotes, now):
             continue
         at_iso = datetime.fromtimestamp(now/1000, timezone.utc).isoformat()
         source_iso = datetime.fromtimestamp(min(bid_at,ask_at)/1000, timezone.utc).isoformat()
-        item = dict(at=at_iso, source_at=source_iso, bid_eur=valid["bid"],
+        item = dict(at=at_iso, source_at=source_iso, side=choice["direction"], bid_eur=valid["bid"],
                     ask_eur=valid["ask"], underlying_usd=market["price"],
                     score=score, trend=trend_direction, approved=bool(verified),
                     market_open=True, bar_closed=True,
@@ -132,16 +132,15 @@ def report(conn, request=None):
         return result
     costs = dict(fee_eur_per_side=1.0, slippage_bps=20.0,
                  financing_eur_per_day_per_unit=0.0)
-    payload = dict(schema="bob-zukunft-observed-v1", synthetic=False, realOrders=False,
-                   isin=chosen,side=("LONG" if observations[0]["score"] >= 50 else "SHORT"),
-                   costs=costs, observations=observations)
-    # An instrument must keep its direction; no inference from spot price movements.
-    explicit_side = request.get("side")
-    if explicit_side not in ("LONG", "SHORT"):
+    # All observed rows must agree on the EXACT product direction.
+    sides = {item.get("side") for item in observations}
+    if len(sides) != 1 or next(iter(sides)) not in ("LONG", "SHORT"):
         result["status"] = "blocked"
-        result["reason"] = "Richtung muss als LONG oder SHORT ausdrücklich ausgewählt werden"
+        result["reason"] = "Produkt hat keinen einheitlich nachgewiesenen Long-/Short-Typ"
         return result
-    payload["side"] = explicit_side
+    payload = dict(schema="bob-zukunft-observed-v1", synthetic=False, realOrders=False,
+                   isin=chosen, side=next(iter(sides)), costs=costs,
+                   observations=observations)
     try:
         comparison = zukunft_research.compare(payload)
     except (ValueError, TypeError) as exc:
