@@ -269,6 +269,9 @@ def product_review(records):
 def handle(conn,action,payload):
     if action=='write' and payload.get('mode')=='simulation-sync':return paper_simulation.sync(conn,payload)
     if action=='read' and payload.get('mode')=='simulation':return paper_simulation.report(conn,payload.get('day'))
+    if action=='read' and payload.get('mode')=='simulation-profiles':
+        import paper_portfolios
+        return paper_portfolios.report(conn,payload.get('day'))
     if action=='write':
         result=write(conn,payload)
         harvest(conn)
