@@ -178,14 +178,26 @@ def simulate(quotes, setup, config=None):
             "equity_curve": equity_curve, "quotes_processed": len(quotes)}
 
 
-def demonstration():
-    """Fixed synthetic quotes for functional regression checks, never live outcomes."""
-    at = ["2026-10-09T08:00:00Z", "2026-10-09T08:00:30Z",
-          "2026-10-09T08:01:00Z", "2026-10-09T08:01:30Z"]
-    quotes = [dict(at=t, bid=b, ask=a, age_seconds=5) for t,b,a in zip(
-        at, [0.99, 1.04, 1.11, 1.18], [1.01, 1.06, 1.13, 1.20])]
+def demonstration(scenario="target"):
+    """Fixed synthetic scenarios for regression tests, never live outcomes."""
+    paths = {
+        "target": [(0.99, 1.01, 5), (1.04, 1.06, 5),
+                   (1.11, 1.13, 5), (1.18, 1.20, 5)],
+        "stop_gap": [(0.99, 1.01, 5), (0.81, 0.83, 5)],
+        "stale": [(0.99, 1.01, 125), (1.08, 1.10, 5)],
+        "trailing": [(0.99, 1.01, 5), (1.08, 1.10, 5),
+                     (1.07, 1.09, 5), (0.98, 1.00, 5)],
+    }
+    if scenario not in paths:
+        raise ValueError("Unbekanntes Testszenario")
+    quotes = [
+        dict(at=f"2026-10-09T08:{i:02d}:00Z", bid=bid, ask=ask,
+             age_seconds=age)
+        for i, (bid, ask, age) in enumerate(paths[scenario])
+    ]
     result = simulate(quotes, {"isin": "DE0000000000", "side": "LONG",
                                "score": 82, "approved_product": True,
                                "ko_distance_fraction": 0.15})
+    result["scenario"] = scenario
     result["notice"] = "Künstliche Beispieldaten. Keine Marktprognose, kein echter Trade."
     return result
