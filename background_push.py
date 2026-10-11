@@ -6,6 +6,7 @@ import re
 import signal
 import subprocess
 import evaluator_runtime
+import ko_protection
 import time
 from pathlib import Path
 
@@ -371,6 +372,25 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         return state, present_events(events, settings, market)
     p, stop, entry, risk = market['price'], old['stop'], t['entry'], t['initialRisk']
     personal, model = t.get('personalRisk'), t.get('product')
+    # Shared KO proximity guard for Bob's real-position advisory push, not
+    # merely the automated paper portfolios. Trade remains user-controlled.
+    # A fresh, source-clocked XAU/USD price and a verified Spot model are
+    # mandatory: never compare a Gold Future KO level with Spot.
+    market_at = market.get('dataAt')
+    if model and raw_healthy and positive(market_at) and 0 <= now-market_at <= 60000:
+        guard = ko_protection.assess(p, model['ko'], t['dir'], market.get('atr'))
+        old['koProtection'] = guard
+        level = guard['level']
+        previous_level = old.get('koAlertLevel')
+        if level in ('warning', 'critical') and level != previous_level:
+            text = (f"KO-Abstand {guard['distancePct']:.2f}% / "
+                    + (f"{guard['atrMultiple']:.2f} ATR. " if guard['atrMultiple'] is not None else "ATR nicht bestätigt. ")
+                    + f"Schutzmarke Gold ≈ {guard['protectiveStopGold']:.2f} USD/oz. "
+                    + "Produkt-Geldkurs, KO-Status und eigenen Stop-Loss bei DEGIRO prüfen. "
+                    + "Kein automatischer Verkauf und keine garantierte Ausführung.")
+            add('ko-risk-critical' if level == 'critical' else 'ko-risk-warning',
+                'TRADE-WARNUNG · KO-Gefahr' if level == 'critical' else 'TRADE-HINWEIS · KO-Abstand', text)
+        old['koAlertLevel'] = level
     if model and (p <= model['ko'] if t['dir']=='LONG' else p >= model['ko']) and not old.get('koSent'):
         add('ko-hit', 'TRADE-WARNUNG · KO-Barriere erreicht', 'Goldreferenz erreicht die gespeicherte KO-Barriere. Produktstatus bei DEGIRO prüfen; kein bestätigter Emittentenstatus.')
         old['koSent'] = True

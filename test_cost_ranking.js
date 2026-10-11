@@ -7,6 +7,18 @@ const p={isin:'DE000FC1CHB7',name:'Synthetic Gold Turbo',spot:4000,isinConfirmed
 const assess=changes=>b.evaluateProduct({...p,...ctx,...changes});
 const rank=products=>b.rankProducts(products,ctx);
 const base=assess({});assert(base.fit);assert.equal(base.costRisk.totalCostsPct,null);
+// Global KO guard reports the same risk levels as background and paper.
+assert.equal(b.koProtection({...p,ko:3700,atr:20}).level,'safe');
+assert.equal(b.koProtection({...p,ko:3930,atr:20}).level,'warning');
+assert.equal(b.koProtection({...p,ko:3965,atr:20}).level,'critical');
+assert.equal(b.koProtection({...p,ko:4000,atr:20}).level,'crossed');
+assert.equal(b.koProtection({...p,productDirection:'SHORT',ko:4070,atr:20}).level,'warning');
+assert.equal(b.koProtection({...p,productDirection:'SHORT',ko:4035,atr:20}).level,'critical');
+assert.equal(b.koProtection({...p,productDirection:'SHORT',ko:4000,atr:20}).level,'crossed');
+assert.equal(b.koProtection({...p,ko:null,atr:20}).level,'unknown');
+assert.equal(b.koProtection({...p,quote:{metadata:{underlyingType:'FUTURE'}}}).level,'unknown');
+assert(!assess({ko:3965,atr:20}).fit);
+assert(assess({ko:3930,atr:20}).warnings.some(x=>x.includes('KO-Frühwarnung')));
 assert.equal(base.score,100); // trading 1, financing .05 points; spread unweighted
 const wide=assess({spread:.4});assert(wide.fit);assert.equal(wide.score,base.score);
 for(const spread of [null,undefined,'',-1,0,.4,2,39,100]){const e=assess({spread});assert.equal(e.score,base.score);assert.equal(e.fit,base.fit);assert.equal(e.costRisk.parts.spread,0);}
