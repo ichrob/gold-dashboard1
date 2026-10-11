@@ -7,6 +7,7 @@ active account. Accounts begin at Monday 2026-10-12 08:00 Europe/Zurich.
 """
 import copy
 import json
+import math
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -88,7 +89,7 @@ def active_cases(conn):
 def entry_block_reason(policy, market):
     direction = market.get('direction')
     score = market.get('score')
-    if direction not in ('LONG', 'SHORT') or type(score) not in (int, float):
+    if direction not in ('LONG', 'SHORT') or type(score) not in (int, float) or not math.isfinite(score):
         return 'ABWARTEN: keine bestätigte Richtung'
     if direction == 'LONG' and score < policy['score_long']:
         return 'Kollektivrichtungswert für dieses Testkonto zu schwach'
