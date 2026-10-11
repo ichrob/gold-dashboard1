@@ -1,5 +1,6 @@
 import vollautomatisch_panel
 import vollautomatisch_engine
+import trade_email_panel
 import intraday_comparison
 import os
 import base64
@@ -108,6 +109,7 @@ HTML = HTML_PATH.read_bytes() if HTML_PATH.exists() else b""
 HTML = HTML.replace(b"</body>", auto_collection.PANEL.encode('utf-8')+b"</body>")
 HTML = HTML.replace(b"</body>", candle_shadow.PANEL.encode('utf-8')+b"</body>")
 HTML = HTML.replace(b"</body>", vollautomatisch_panel.PANEL.encode("utf-8")+b"</body>")
+HTML = HTML.replace(b"</body>", trade_email_panel.PANEL.encode("utf-8")+b"</body>")
 SW = SW_PATH.read_bytes() if SW_PATH.exists() else None
 MANIFEST = MANIFEST_PATH.read_bytes() if MANIFEST_PATH.exists() else None
 ICON = ICON_PATH.read_bytes() if ICON_PATH.exists() else None
@@ -1232,6 +1234,49 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/logout":
             bob_auth.logout(self)
             return
+        # Signed AgentMail webhook; no browser cookie, no Basic auth and no
+        # trading action. Disabled until the mailbox/signing secret is set.
+        if path == "/api/trade-email/webhook":
+            try:
+                import trade_email_import
+                secret = os.environ.get("BOB_AGENTMAIL_WEBHOOK_SECRET", "")
+                if not secret or not os.environ.get("BOB_EMAIL_ALLOWED_FROM"):
+                    raise RuntimeError("E-Mail-Eingang nicht verbunden")
+                if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
+                    raise RuntimeError("Speicher nicht konfiguriert")
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= trade_email_import.MAX_BODY:
+                    raise ValueError("Anfragegröße ungültig")
+                raw = self.rfile.read(length)
+                event, signed_id = trade_email_import.verify_svix(raw, self.headers, secret)
+                # Save only a safe structured result, never the original email
+                # body, attachment, personal account details or webhook secret.
+                record = trade_email_import.import_event(event, os.environ["BOB_EMAIL_ALLOWED_FROM"])
+                message = event.get("message") if isinstance(event.get("message"), dict) else {}
+                message_id = message.get("message_id") or signed_id
+                if not isinstance(message_id, str) or len(message_id) > 200:
+                    raise ValueError("Message-ID ungültig")
+                payload = {"messageId":message_id,"record":record}
+                base = PUSH_SERVICE_URL if PUSH_SERVICE_URL.startswith(("https://","http://")) else "http://" + PUSH_SERVICE_URL
+                req = Request(base.rstrip("/") + "/email-import/receive",
+                              method="POST", data=json.dumps(payload).encode("utf-8"),
+                              headers={"Content-Type":"application/json",
+                                       "X-Bob-Push-Token":PUSH_SERVICE_TOKEN})
+                with urlopen(req, timeout=9) as response:
+                    response.read(4096)
+                self.send_response(204)
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+            except (ValueError, json.JSONDecodeError):
+                self.send_response(401)
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+            except Exception as exc:
+                print("BOB_EMAIL_IMPORT unavailable="+type(exc).__name__,flush=True)
+                self.send_response(503)
+                self.send_header("Cache-Control","no-store")
+                self.end_headers()
+            return
         if bob_auth.cookie(self.headers, bob_auth.COOKIE) and not bob_auth.same_origin(self.headers):
             bob_auth.send(self, 403)
             return
@@ -1287,7 +1332,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        if path in ("/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/audit/read", "/api/audit/write", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences") and not worker_ok and (not self.authenticated()):
+        if path in ("/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences") and not worker_ok and (not self.authenticated()):
             self.send_response(401)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -1295,7 +1340,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         path = urlparse(self.path).path
-        if path not in ("/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/audit/read", "/api/audit/write", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences"):
+        if path not in ("/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences"):
             self.send_response(404)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -1324,6 +1369,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/real-trades/read": "/real-trades/read",
                 "/api/real-trades/write": "/real-trades/write",
                 "/api/audit/read": "/decision-audit/read",
+                "/api/trade-email/read": "/email-import/read",
                 "/api/audit/write": "/decision-audit/write",
                 "/api/push/test-background": "/test-background",
                 "/api/push/selection": "/selection",
@@ -1345,6 +1391,11 @@ class Handler(BaseHTTPRequestHandler):
             with urlopen(req, timeout=12) as response:
                 result = response.read()
                 status = response.status
+            if path == "/api/trade-email/read" and status == 200:
+                record = json.loads(result)
+                record["configured"] = bool(os.environ.get("BOB_AGENTMAIL_WEBHOOK_SECRET") and
+                                            os.environ.get("BOB_EMAIL_ALLOWED_FROM"))
+                result = json.dumps(record, separators=(",", ":")).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")

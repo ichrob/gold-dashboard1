@@ -16,6 +16,7 @@ import weekend_archive
 import youtube_feed_archive
 import bob_validation_store
 import real_trade_journal
+import trade_email_import
 import decision_audit
 import rule_learning
 import stop_target_audit
@@ -96,6 +97,7 @@ def _init_db_once():
         bob_validation_store.init(conn)
         decision_audit.init(conn)
         real_trade_journal.init(conn)
+        trade_email_import.init(conn)
         conn.execute("""
           CREATE TABLE IF NOT EXISTS subscriptions (
             id BIGSERIAL PRIMARY KEY,
@@ -452,6 +454,35 @@ class Handler(BaseHTTPRequestHandler):
                     conn.commit()
                 if path.endswith('/rollback'):
                     with decision_audit._report_lock: decision_audit._report_cache=None
+                send_json(self,200,result);return
+            if path in ("/email-import/receive", "/email-import/read"):
+                supplied=self.headers.get("X-Bob-Push-Token","")
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{"error":"Unauthorized"});return
+                payload=json_body(self)
+                if not isinstance(payload,dict):
+                    raise ValueError("Ungültige E-Mail-Daten")
+                with db() as conn:
+                    if path.endswith("/read"):
+                        result=trade_email_import.report(conn)
+                    else:
+                        message_id=payload.get("messageId")
+                        record=payload.get("record")
+                        if not isinstance(message_id,str) or not 1<=len(message_id)<=200 or not isinstance(record,dict):
+                            raise ValueError("Ungültige Mail-ID oder Nachricht")
+                        # This endpoint trusts ONLY the private Bob->push token.
+                        # Sender/Svix verification happens on Bob's public front.
+                        safe={k:record.get(k) for k in (
+                            "status","reason","isin","side","quantity","priceEur","executedAt")
+                              if k in record}
+                        if len(json.dumps(safe))>4096:
+                            raise ValueError("Zu viele Importdaten")
+                        inserted=conn.execute("""INSERT INTO bob_trade_email_import(message_id,payload)
+                            VALUES(%s,%s::jsonb) ON CONFLICT DO NOTHING RETURNING message_id""",
+                            (message_id,json.dumps({"version":trade_email_import.VERSION,
+                                "result":safe,"receivedAt":int(time.time()*1000)}))).fetchone()
+                        result={"ok":True,"new":bool(inserted)}
+                    conn.commit()
                 send_json(self,200,result);return
             if path in ('/real-trades/read','/real-trades/write'):
                 supplied=self.headers.get('X-Bob-Push-Token','')

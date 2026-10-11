@@ -1,0 +1,110 @@
+"""Signed inbox ingestion / conservative DEGIRO proposal tests."""
+import base64
+import hashlib
+import hmac
+import json
+import time
+import unittest
+from unittest.mock import Mock
+
+import trade_email_import as m
+
+EMAIL = """DEGIRO
+Transaktion: Kauf
+ISIN: DE000PJ9NCK0
+Anzahl: 10
+Ausführungskurs: 4,25 EUR
+Währung: EUR
+Ausführungsdatum: 2026-10-12T09:12:03+02:00
+Order wurde ausgeführt
+"""
+SECRET = "whsec_" + base64.b64encode(b"local-test-only-secret-material-1234").decode()
+
+
+def signed(payload, now=1000000):
+    body=json.dumps(payload,separators=(",",":")).encode()
+    msg_id="msg-123"
+    when=str(now)
+    key=base64.b64decode(SECRET[6:])
+    digest=base64.b64encode(hmac.new(key, msg_id.encode()+b"."+when.encode()+b"."+body,
+                                      hashlib.sha256).digest()).decode()
+    headers={"svix-id":msg_id,"svix-timestamp":when,
+             "svix-signature":"v1,"+digest}
+    return body,headers
+
+
+def event(body=EMAIL, sender="forwarder@example.test", msgid="mail1"):
+    return {"type":"event","event_type":"message.received","event_id":"event-1",
+        "message":{"message_id":msgid,"inbox_id":"mock","from":sender,
+                   "subject":"DEGIRO Ausführung", "text":body}}
+
+
+class EmailImportTests(unittest.TestCase):
+    def test_signature_and_replay(self):
+        body,headers=signed(event())
+        result,key=m.verify_svix(body,headers,SECRET,now=1000000)
+        self.assertEqual(key,"msg-123")
+        self.assertEqual(result["message"]["text"],EMAIL)
+        with self.assertRaises(ValueError):
+            m.verify_svix(body+b" ",headers,SECRET,now=1000000)
+        with self.assertRaises(ValueError):
+            m.verify_svix(body,headers,SECRET,now=1000301)
+        with self.assertRaises(ValueError):
+            m.verify_svix(body,headers,"",now=1000000)
+        with self.assertRaises(ValueError):
+            m.verify_svix(body,{"svix-id":"msg-123"},SECRET,now=1000000)
+        altered=dict(headers, **{"svix-signature":"v1,not-a-valid-signature"})
+        with self.assertRaises(ValueError):
+            m.verify_svix(body,altered,SECRET,now=1000000)
+
+    def test_extract_explicit_buy(self):
+        p=m.parse_confirmation("DEGIRO Ausführung",EMAIL)
+        self.assertEqual(p["status"],"pending-review")
+        self.assertEqual(p["isin"],"DE000PJ9NCK0")
+        self.assertEqual((p["side"],p["quantity"],p["priceEur"]),("BUY",10,4.25))
+        self.assertEqual(p["executedAt"],"2026-10-12T07:12:03+00:00")
+        self.assertNotIn("activeTrade",p)
+
+    def test_sell_and_duplicate_conflicting_terms_fail_closed(self):
+        p=m.parse_confirmation("DEGIRO Ausführung",
+            EMAIL.replace("Transaktion: Kauf","Transaktion: Verkauf"))
+        self.assertEqual(p["side"],"SELL")
+        for extra in ["\nISIN: DE000FG5GUT0",
+                      "\nAnzahl: 20", "\nTransaktion: Verkauf"]:
+            q=m.parse_confirmation("DEGIRO Ausführung",EMAIL+extra)
+            self.assertEqual(q["status"],"incomplete")
+        for text in [EMAIL.replace("Order wurde ausgeführt","Order pending"),
+                     EMAIL.replace("Transaktion: Kauf","Produkt Long"),
+                     EMAIL.replace("Ausführungskurs: 4,25 EUR","Kurs: 4,25 EUR"),
+                     EMAIL.replace("Anzahl: 10","Anzahl: unklar"),
+                     EMAIL.replace("Währung: EUR","Währung: CHF").replace("4,25 EUR","4,25 CHF"),
+                     EMAIL.replace("2026-10-12T09:12:03+02:00","2026-10-12 09:12")]:
+            q=m.parse_confirmation("DEGIRO Ausführung",text)
+            self.assertNotEqual(q["status"],"pending-review")
+
+    def test_signed_message_is_not_broker_authentication(self):
+        e=event()
+        self.assertEqual(m.import_event(e,"forwarder@example.test")["status"],"pending-review")
+        self.assertEqual(m.import_event(e,"other@example.test")["status"],"sender-unconfirmed")
+        self.assertEqual(m.import_event(e,"")["status"],"sender-unconfirmed")
+        self.assertEqual(m.import_event({**e,"event_type":"message.received.spam"},
+                                        "forwarder@example.test")["status"],"ignored")
+        self.assertEqual(m.import_event(event("Account notice"),
+                                        "forwarder@example.test")["status"],"incomplete")
+
+    def test_database_dedup_never_starts_trade(self):
+        conn=Mock()
+        conn.execute.return_value.fetchone.side_effect=[("mail1",),None]
+        first=m.receive(conn,event(),"signed-1","forwarder@example.test")
+        second=m.receive(conn,event(),"signed-1","forwarder@example.test")
+        self.assertEqual(first,{"ok":True,"new":True})
+        self.assertEqual(second,{"ok":True,"new":False})
+        self.assertEqual(conn.execute.call_count,2)
+        written=json.loads(conn.execute.call_args_list[0].args[1][1])
+        self.assertEqual(written["result"]["status"],"pending-review")
+        self.assertNotIn("text",str(written).lower())
+        self.assertNotIn("activate",str(written).lower())
+
+
+if __name__ == "__main__":
+    unittest.main()
