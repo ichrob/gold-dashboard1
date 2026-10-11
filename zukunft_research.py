@@ -65,8 +65,8 @@ def prepare(payload):
     cfg = dict(DEFAULTS)
     cfg.update(supplied)
     params = payload.get("settings", {})
-    if not isinstance(params, dict) or set(params) - set(DEFAULTS):
-        raise EvidenceError("Unknown research setting")
+    if not isinstance(params, dict) or set(params) - set(DEFAULTS) or set(params) & set(supplied):
+        raise EvidenceError("Unknown research setting or duplicate cost assumption")
     cfg.update(params)
     for key in ("start_capital_eur", "exposure_fraction", "risk_fraction", "stop_fraction",
                 "target_fraction", "trailing_fraction", "max_quote_age_seconds",
@@ -107,6 +107,8 @@ def prepare(payload):
             raise EvidenceError("Explicit approval and market state required")
         if item.get("trend") not in ("LONG", "SHORT", "NEUTRAL"):
             raise EvidenceError("Trend missing")
+        if "side" in item and item["side"] != side:
+            raise EvidenceError("Observed product direction changed")
         if not isinstance(item.get("quote_source"), str) or not item["quote_source"].strip():
             raise EvidenceError("Quote provenance missing")
         ko = _number(item.get("ko_distance_fraction"), "ko_distance_fraction")
@@ -219,6 +221,7 @@ def replay(rows, side, cfg, strategy, threshold, start, stop, model=None):
     uncertain = []
     for i in range(start, stop):
         now = rows[i]
+        closed_this_row = False
         if i and _gap(rows[i-1], now, cfg) and position is not None:
             uncertain.append("Unobserved price gap with open paper position")
             position = None   # never invent an exit
@@ -241,9 +244,10 @@ def replay(rows, side, cfg, strategy, threshold, start, stop, model=None):
                                        qty=position["qty"], net_eur=round(net, 6),
                                        reason=reason))
                     position = None
+                    closed_this_row = True
                 else:
                     position["stop"] = max(position["stop"], now["bid"]*(1-cfg["trailing_fraction"]))
-        if position is None and i > start and _entry_signal(rows, i, side, strategy, threshold, cfg, model):
+        if position is None and not closed_this_row and i > start and _entry_signal(rows, i, side, strategy, threshold, cfg, model):
             buy = now["ask"]*(1+cfg["slippage_bps"]/10000)
             risk_eur = buy*cfg["stop_fraction"]
             qty = int(min(cfg["start_capital_eur"]*cfg["exposure_fraction"]/buy,
