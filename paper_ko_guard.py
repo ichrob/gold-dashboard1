@@ -85,6 +85,9 @@ def assess(choice, quote, market, now):
 
 def entry_reason(choice, quote, market, now):
     """Require extra room at entry so the guard doesn't trigger immediately."""
+    if (choice.get('direction') != market.get('direction') or
+            (market.get('plan') or {}).get('direction') != choice.get('direction')):
+        return 'KO-Markt- und Produktrichtung stimmen nicht überein', None
     snapshot, reason = assess(choice, quote, market, now)
     if reason:
         return reason, None
