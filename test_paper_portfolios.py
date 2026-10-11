@@ -28,11 +28,11 @@ def quote(at=NOW):
 
 
 class ProfileTests(unittest.TestCase):
-    def test_three_exact_accounts_100_eur_each(self):
+    def test_three_100_and_one_800_eur_accounts(self):
         self.assertEqual(list(profiles.POLICIES),
-                         ['conservative','balanced','offensive'])
+                         ['conservative','balanced','offensive','trend800'])
         self.assertEqual(len(set(profiles.names(p)['bob_paper_cases']
-                                 for p in profiles.POLICIES)),3)
+                                 for p in profiles.POLICIES)),4)
         self.assertEqual(profiles.START, int(datetime(
             2026,10,12,8,tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000))
         self.assertFalse(hasattr(profiles, 'place_order'))
@@ -79,14 +79,15 @@ class ProfileTests(unittest.TestCase):
             for profile in profiles.POLICIES:
                 control=conn.execute('SELECT payload FROM '+
                    profiles.names(profile)['bob_paper_control']+' WHERE id=1').fetchone()[0]
-                self.assertEqual(control['cash'],100.)
-                self.assertEqual(control['equity'],100.)
+                expected_capital=800. if profile=='trend800' else 100.
+                self.assertEqual(control['cash'],expected_capital)
+                self.assertEqual(control['equity'],expected_capital)
                 self.assertEqual(control['startAt'],profiles.START)
             found=profiles.run_all(conn,{},market(),
                 {'choices':[{'isin':ISIN,'approval':'Bob-Pflichtprüfung bestanden'}]},
                 {ISIN:quote()},NOW,settings={})
             self.assertEqual(found,{name:'checked' for name in profiles.POLICIES})
-            expected={'conservative':3,'balanced':6,'offensive':9}
+            expected={'conservative':3,'balanced':6,'offensive':9,'trend800':51}
             for profile in profiles.POLICIES:
                 ns=profiles.names(profile)
                 row=conn.execute('SELECT payload FROM '+ns['bob_paper_cases']).fetchone()
@@ -95,14 +96,16 @@ class ProfileTests(unittest.TestCase):
                 self.assertEqual(row[0]['profile'],profile)
                 self.assertNotIn('DEGIRO',row[0]['capitalMode'])
                 control=conn.execute('SELECT payload FROM '+ns['bob_paper_control']).fetchone()[0]
-                self.assertAlmostEqual(control['cash'],100-expected[profile]*10.1)
+                self.assertAlmostEqual(control['cash'],(800 if profile=='trend800' else 100)-expected[profile]*10.1)
+                self.assertEqual(bool(row[0].get('trendFollow')),profile=='trend800')
             # The older single-account ledger receives no new entry.
             count=conn.execute('SELECT count(*) FROM bob_paper_cases').fetchone()[0]
             self.assertEqual(count,0)
             view=profiles.report(conn, '2026-10-12')
-            self.assertEqual(view['mode'],'three-independent-paper-accounts')
+            self.assertEqual(view['mode'],'four-independent-paper-accounts')
+            self.assertEqual(view['simulatedCapitalEur'],1100)
             self.assertFalse(view['realOrders'])
-            self.assertEqual(len(view['accounts']),3)
+            self.assertEqual(len(view['accounts']),4)
             self.assertEqual({x['profile'] for x in view['accounts']},set(profiles.POLICIES))
         finally:
             conn.rollback()
