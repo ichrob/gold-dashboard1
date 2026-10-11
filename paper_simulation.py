@@ -14,6 +14,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 import background_push
 import stop_target_audit
+import paper_ko_guard
 
 VERSION = 'paper-lifecycle-v2'
 START = datetime(2026, 10, 8, tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000
@@ -101,7 +102,8 @@ def new_case(market, choice, quote, now, cash=100.):
     if quantity==0:raise ValueError('Kapital reicht nicht für ein Produktstück')
     t=dict(tradeId=key,dir=direction,entry=p['entry'],stop=p['stop'],target=p['target'],initialRisk=risk,instrument='XAU/USD',active=True,product=None)
     return dict(id=key,version=VERSION,status='open',day=local.date().isoformat(),startedAt=now,endsAt=end,
-                plan=p,product=copy.deepcopy(choice),entryQuote=q,entryAsk=q['ask'] if q else None,
+                plan=p,product=copy.deepcopy(choice),koGuardRequired=choice.get('koGuardRequired') is True,
+                entryQuote=q,entryAsk=q['ask'] if q else None,
                 analysis=copy.deepcopy(market),lastAt=market['dataAt'],remaining=1.,goldR=0.,productGrossPct=0. if q else None,
                 productReturnKnown=bool(q),netReturnKnown=False,modelOnly=True,partialTaken=False,
                 quantity=quantity,remainingUnits=quantity,pendingUnits=0,cashReleased=0.,bookedUnits=0,
@@ -127,6 +129,16 @@ def advance_case(original, market, quote, now):
         if c.get('remainingUnits'):
             c['pendingUnits']+=c['remainingUnits'];c['remainingUnits']=0;c['remaining']=0.
             c['pendingSince']=now
+    terminal_status = paper_ko_guard.terminal(quote, c['product']['isin'])
+    if terminal_status:
+        # Provider-confirmed terminal status is not a known executable price
+        # or a proven zero recovery. Keep unpriced units pending.
+        c.update(status='inconclusive',closedAt=now,
+                 productReturnKnown=False,productGrossPct=None,
+                 koWatchStatus=terminal_status)
+        defer_remaining()
+        event(terminal_status,reason='Emittent meldet Produktende; Abrechnungswert unbekannt, kein erfundener Verkauf')
+        return c
     at=market.get('dataAt');last=c['lastAt']
     if not finite(at) or not 0<=now-at<=60000 or not market.get('priceFresh') or not finite(market.get('price')):
         if now-last>90000:
@@ -159,6 +171,21 @@ def advance_case(original, market, quote, now):
             c.update(status='closed',closedAt=now,exitReason=kind)
             if c.get('quantity') and not c.get('pendingUnits'):
                 c.update(productReturnKnown=True,productGrossPct=(c['cashReleased']/c['allocated']-1)*100)
+    if c.get('koGuardRequired'):
+        ko_state, ko_error = paper_ko_guard.assess(c['product'], quote, market, now)
+        if ko_state:
+            c['koWatch']=ko_state
+            c['koWatchStatus']='confirmed'
+            if ko_state['danger']:
+                # This is a simulated SELL at an observed fresh bid, not a
+                # guaranteed stop fill or proof that knock-out was avoided.
+                c['koWatchStatus']='crossed-observed' if ko_state['crossed'] else 'proximity-exit'
+                realize('ko-safety-exit',c['remaining'])
+                return c
+        else:
+            c['koWatchStatus']='unverified'
+            c['koWatchReason']=ko_error
+            # Missing terms never become an invented issuer event or fill.
     stopped=p<=t['stop'] if long else p>=t['stop']
     if stopped:
         realize('stop',c['remaining']);return c
@@ -345,6 +372,12 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
         if active:
             key,c=active;released=c.get('cashReleased',0);booked=c.get('bookedUnits',0);q=quotes.get(c['product']['isin'])
             c=advance_case(c,market,q,now)
+            if c.get('exitReason')=='ko-safety-exit' or c.get('koWatchStatus') in ('knockout-confirmed','product-terminated'):
+                excluded=control.get('koExcluded') or {}
+                if excluded.get('day')!=day:excluded={'day':day,'isins':[]}
+                if c['product']['isin'] not in excluded['isins']:
+                    excluded['isins'].append(c['product']['isin'])
+                control['koExcluded']=excluded
             control['cash']+=c.get('cashReleased',0)-released
             control['realizedProfit']+=c.get('cashReleased',0)-released-(c.get('bookedUnits',0)-booked)*(c.get('entryAsk') or 0)
             capital_snapshot(control,c,q,now)
@@ -359,7 +392,10 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             day_update(conn,day,now=now,capital=control)
         else:
             capital_snapshot(control,None,None,now)
-            plan=market.get('plan');choice=next(iter(selection.get('choices') or []),None)
+            plan=market.get('plan')
+            excluded=control.get('koExcluded') or {}
+            blocked=set(excluded.get('isins') or []) if excluded.get('day')==day else set()
+            choice=next((x for x in (selection.get('choices') or []) if x.get('isin') not in blocked),None)
             q=fresh_quote(quotes.get(choice['isin']),now,choice['isin']) if choice and not choice.get('indicative') and not choice.get('estimated') else None
             healthy=market.get('ready') is True and market.get('priceFresh') is True and finite(market.get('dataAt')) and 0<=now-market['dataAt']<=60000
             entry_key=str([market.get('ruleVersion'),market.get('analysisBarAt'),market.get('direction')])
@@ -371,9 +407,12 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                     reason='Marktanalyse wartet: '+'; '.join(str(v) for v in details)
             elif not (market.get('session') or {}).get('entryAllowed'):reason='Außerhalb von Bobs Einstiegszeit'
             elif not stop_target_audit.valid_plan(plan):reason='ABWARTEN: kein bestätigter gültiger Goldplan'
-            elif not choice:reason='Kein passendes belegtes Produkt: '+'; '.join(selection.get('reasons') or ['Produktliste noch nicht synchronisiert'])
+            elif not choice:
+                reason=('KO-Schutz: heute ausgeschlossene ISIN; ' if blocked else 'Kein passendes belegtes Produkt: ')+ '; '.join(selection.get('reasons') or ['kein geeigneter neuer Kandidat'])
             elif choice.get('indicative') or choice.get('estimated'):reason='Unverbindlicher Kandidat: kein virtueller Eurokauf ohne Produktfreigabe'
             elif not q:reason='Kein aktueller, ausführbarer Geld-/Briefkurs in EUR: virtueller Produkteinstieg gesperrt'
+            elif choice.get('koGuardRequired') and paper_ko_guard.entry_reason(choice,quotes.get(choice['isin']),market,now)[0]:
+                reason='KO-Schutz: '+paper_ko_guard.entry_reason(choice,quotes.get(choice['isin']),market,now)[0]
             elif profile_policy and __import__('paper_portfolios').entry_block_reason(profile_policy,market):
                 reason=__import__('paper_portfolios').entry_block_reason(profile_policy,market)
             elif q['ask']>min(control['cash'], (control.get('equity') or control['cash'])*
@@ -388,6 +427,9 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                 budget=min(control['cash'], (control.get('equity') or control['cash'])*
                            (profile_policy['exposure_fraction'] if profile_policy else 1.))
                 c=new_case(market,choice,quotes.get(choice['isin']),now,cash=budget)
+                if c.get('koGuardRequired'):
+                    _,c['koWatch']=paper_ko_guard.entry_reason(choice,quotes.get(choice['isin']),market,now)
+                    c['koWatchStatus']='confirmed'
                 if profile_policy:
                     c['profile']=profile_policy['id']
                     c['availableAtEntry']=control['cash']
