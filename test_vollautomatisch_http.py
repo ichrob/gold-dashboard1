@@ -17,6 +17,8 @@ class PaperHTTPTest(unittest.TestCase):
     def setUpClass(cls):
         import server
         cls.server_module = server
+        cls.original_credentials = (server.USER, server.PASSWORD)
+        server.USER, server.PASSWORD = "paper-ci-user", "paper-ci-password"
         cls.http = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
         cls.thread = threading.Thread(target=cls.http.serve_forever, daemon=True)
         cls.thread.start()
@@ -27,6 +29,7 @@ class PaperHTTPTest(unittest.TestCase):
         cls.http.shutdown()
         cls.http.server_close()
         cls.thread.join(timeout=5)
+        cls.server_module.USER, cls.server_module.PASSWORD = cls.original_credentials
 
     def test_shell_contains_demo_and_script(self):
         html = self.server_module.HTML.decode("utf-8")
@@ -41,7 +44,7 @@ class PaperHTTPTest(unittest.TestCase):
 
     def test_authenticated_paper_result(self):
         b64 = base64.b64encode(
-            (os.environ["BOB_USER"] + ":" + os.environ["BOB_PASSWORD"]).encode()
+            (self.server_module.USER + ":" + self.server_module.PASSWORD).encode()
         ).decode()
         request = Request(self.url, headers={"Authorization": "Basic " + b64})
         with urlopen(request, timeout=5) as response:
