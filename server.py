@@ -790,7 +790,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/vollautomatisch/demo":
             # Authenticated and read-only. Runs fixed synthetic quotes; never
             # dispatches live signals or connects to a brokerage account.
-            body = json.dumps(vollautomatisch_engine.demonstration(),
+            scenario = parse_qs(urlparse(self.path).query).get("scenario", ["target"])[0]
+            if scenario not in ("target", "stop_gap", "stale", "trailing"):
+                self.send_response(400)
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                return
+            body = json.dumps(vollautomatisch_engine.demonstration(scenario),
                               ensure_ascii=False, allow_nan=False).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
