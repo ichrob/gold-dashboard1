@@ -98,6 +98,20 @@ def _init_db_once():
         decision_audit.init(conn)
         real_trade_journal.init(conn)
         trade_email_import.init(conn)
+        # Operational receipt-only audit. Never log message contents, sender,
+        # ISIN, order ID, security tokens or any identifying values.
+        states = conn.execute("""
+            SELECT payload->'result'->>'status',
+                   payload->'result'->>'sourceKind',
+                   (payload->'result'->>'attachmentCount')::integer
+            FROM bob_trade_email_import
+            ORDER BY imported_at DESC LIMIT 4
+        """).fetchall()
+        print("BOB_EMAIL_IMPORT_AUDIT " + json.dumps([
+            {"status": row[0] if len(row) > 0 else None,
+             "source": row[1] if len(row) > 1 else None,
+             "pdfCount": row[2] if len(row) > 2 else None}
+            for row in states], ensure_ascii=True), flush=True)
         conn.execute("""
           CREATE TABLE IF NOT EXISTS subscriptions (
             id BIGSERIAL PRIMARY KEY,
