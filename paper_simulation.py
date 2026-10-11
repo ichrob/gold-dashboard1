@@ -544,6 +544,17 @@ def _worker(db):
                             selection=json.loads(p.stdout)
                         outcomes=paper_portfolios.run_all(conn,bundle,market,selection,quotes,
                                                           time.time()*1000,settings,active_cases)
+                        # Observational research MUST NOT interrupt existing paper ledgers.
+                        # A PostgreSQL savepoint contains all collector failures.
+                        conn.execute('SAVEPOINT bob_zukunft_capture')
+                        try:
+                            import zukunft_capture
+                            zukunft_capture.record(conn,market,selection,quotes,time.time()*1000)
+                            conn.execute('RELEASE SAVEPOINT bob_zukunft_capture')
+                        except Exception as capture_error:
+                            conn.execute('ROLLBACK TO SAVEPOINT bob_zukunft_capture')
+                            conn.execute('RELEASE SAVEPOINT bob_zukunft_capture')
+                            print('BOB_ZUKUNFT capture_error='+type(capture_error).__name__,flush=True)
                         conn.commit()
                         print('BOB_PAPER checked profiles='+str(outcomes)+
                               ' direction='+str(market.get('direction'))+

@@ -120,6 +120,58 @@ function mount(parent){
  const paperSummary=el('p','Eine erste Prüfschwelle von 30 Handelstagen und 100 auswertbaren abgeschlossenen Trades ersetzt keine unabhängigen Tests. Protokollierte Tage sind nicht automatisch bestätigte Handelstage; nur bepreiste abgeschlossene Trades gelten als auswertbar. Solche Langzeitnachweise werden hier nicht automatisch als bestanden ausgegeben.');
  paperSummary.className='small';
  paper.append(paperTitle,paperText,paperBtn,paperStatus,paperCards,paperSummary);shell.append(paper);
+ // Observed-only strategy laboratory. No order action and no client-invented prices.
+ const obsPanel=el('section');obsPanel.style.cssText='border-top:1px solid #dbe3ee;margin-top:14px;padding-top:12px';
+ obsPanel.append(el('h4','Schritt 2 und 3 · Beobachtete Strategien und Walk-forward'));
+ const obsHelp=el('p','Ab Montag sammeln wir je bestätigtem Gold-Spot-Produkt maximal eine belegte Momentaufnahme pro fünf Minuten. Erst wenn einheitliche ISIN, Euro-Geld-/Briefkurse, Quellenzeiten, bestätigte KO-Distanz und ausreichend Daten vorhanden sind, vergleichen wir die Strategien auf zeitlich späteren Testperioden. Kosten sind Modellannahmen, keine belegten Brokerabrechnungen.');
+ obsHelp.className='small';obsPanel.append(obsHelp);
+ const obsButton=el('button','Forschungsdaten und Walk-forward prüfen');obsButton.type='button';obsButton.className='bob-primary';
+ const obsStatus=el('p','Forschungsstand noch nicht abgerufen. Keine automatische Strategiefreigabe.');
+ obsStatus.className='small';obsStatus.setAttribute('role','status');
+ const obsResults=el('div');obsPanel.append(obsButton,obsStatus,obsResults);shell.append(obsPanel);
+ let obsBusy=false;
+ obsButton.addEventListener('click',async()=>{
+  if(obsBusy)return;obsBusy=true;obsButton.disabled=true;obsStatus.textContent='Beobachtete Daten werden geprüft …';
+  try {
+   const control=typeof AbortController==='function'?new AbortController():null;
+   const timer=setTimeout(()=>control?.abort(),15000);
+   let response;
+   try {response=await fetch('/api/audit/read',{method:'POST',credentials:'same-origin',
+     headers:{'Content-Type':'application/json'},cache:'no-store',
+     body:JSON.stringify({mode:'zukunft-research'}),...(control?{signal:control.signal}:{})});}
+   finally {clearTimeout(timer);}
+   if(!response.ok)throw Error('HTTP '+response.status);
+   const x=await response.json();
+   if(x.mode!=='zukunft-observed-research'||x.realOrders!==false||x.brokerConnected!==false)
+     throw Error('Sicherer Forschungsstatus konnte nicht bestätigt werden');
+   obsResults.replaceChildren();
+   const details=[
+    'Datenstatus: '+String(x.status||'unbekannt'),
+    'Aktuelle ISIN: '+String(x.chosenIsin||'keine'),
+    'Beobachtete 5-Minuten-Quellen: '+String(x.samples??0),
+    'Davon mit bestätigter KO-Basis: '+String(x.verifiedSamples??0),
+    'Unvollständige Nachweise: '+String(x.incompleteSamples??0),
+    'Unabhängige Testperioden: '+String(x.totalFolds??0),
+    'Begründung: '+String(x.reason||'Weiterhin Daten sammeln')
+   ];
+   for(const v of details){const p=el('p',v);p.className='small';obsResults.append(p);}
+   if(Array.isArray(x.instruments)){
+    const d=el('details');const heading=el('summary','Beobachtete Produkte ('+x.instruments.length+')');d.append(heading);
+    for(const i of x.instruments){const p=el('p',String(i.isin)+' · '+String(i.observations)+' Messpunkte · '+String(i.verifiedKoSamples)+' gültige KO-Referenzen');p.className='small';d.append(p);}
+    obsResults.append(d);
+   }
+   if(x.status==='research_only'&&x.strategies&&typeof x.strategies==='object'){
+    const names={baseline:'Bob-Basis',strict_trend:'Bestätigter Trend',breakout:'Ausbruch',pullback:'Rücksetzer',ml_shadow:'ML-Schattenmodell'};
+    for(const [key,value] of Object.entries(x.strategies)){
+     if(!Object.prototype.hasOwnProperty.call(names,key))continue;
+     const p=el('p',names[key]+': '+String(value.folds??0)+' auswertbare Perioden · '+String(value.trades??0)+' abgeschlossene Replays · '+String(value.net_eur??0)+' € modelliertes Ergebnis'+(value.qualifying?' · Forschungsschwelle erreicht':' · keine ausreichende Evidenz'));
+     p.className='small';obsResults.append(p);
+    }
+   }
+   obsStatus.textContent='Nur Forschungsdaten · keine echten Orders und keine automatische Regelübernahme.';
+  }catch(e){obsStatus.textContent='Forschungsdaten nicht verfügbar: '+String(e.message||e)+'. Keine Ergebnisse erfunden.';}
+  finally{obsBusy=false;obsButton.disabled=false;}
+ });
  const displayName={conservative:'Konservativ · 100 €',balanced:'Ausgewogen · 100 €',offensive:'Offensiv · 100 €',trend800:'Trendfolge · 800 €'};
  let busy=false;
  paperBtn.addEventListener('click',async()=>{
