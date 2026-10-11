@@ -136,6 +136,24 @@ def run_all(conn, bundle, market, selection, quotes, now, settings, active=None)
     return outcomes
 
 
+def performance_snapshot(data):
+    """Compare only settled, quote-supported gross outcomes; never infer net P/L."""
+    ctl=data.get('control') or {}
+    days=data.get('daily') or []
+    priced=sum(d.get('productKnown',0) for d in days)
+    positive=sum(d.get('productPositive',0) for d in days)
+    return dict(pricedTrades=priced,positivePricedTrades=positive,
+        productPositiveRatePct=round(100*positive/priced,2) if priced else None,
+        closedTrades=sum(d.get('closed',0) for d in days),
+        inconclusiveTrades=sum(d.get('inconclusive',0) for d in days),
+        observedMaxDrawdownPct=ctl.get('maxDrawdownPct'),
+        currentDrawdownPct=ctl.get('currentDrawdownPct'),
+        quoteMissingChecks=ctl.get('quoteMissingChecks',0),
+        quoteConfirmedChecks=ctl.get('quoteConfirmedChecks',0),
+        quoteStatus=ctl.get('quoteStatus','no-observation'),
+        netReturnKnown=False,sampleBased=True)
+
+
 def report(conn, day=None):
     import paper_simulation
     accounts = []
@@ -155,7 +173,7 @@ def report(conn, day=None):
                                   'daily_loss_fraction','score_long','score_short',
                                   'require_trend')},
                              exitPolicy='trend-follow-v1' if policy.get('hold_trend') else 'bob-partial-target-v2',
-                             **data))
+                             performance=performance_snapshot(data),**data))
     return dict(ok=True, mode='four-independent-paper-accounts',
                 simulatedCapitalEur=1100, realOrders=False, startAt=START,
                 note='3 × 100 EUR plus 1 × 800 EUR virtuell. Der ursprüngliche manuelle 800-EUR-Test bleibt separat. Bruttomodell ohne vollständige Gebühren, Finanzierung oder Slippage. Renditen stets auch prozentual vergleichen; kein realer Handel.',
