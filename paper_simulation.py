@@ -172,7 +172,8 @@ def advance_case(original, market, quote, now):
             if c.get('quantity') and not c.get('pendingUnits'):
                 c.update(productReturnKnown=True,productGrossPct=(c['cashReleased']/c['allocated']-1)*100)
     if c.get('koGuardRequired'):
-        ko_state, ko_error = paper_ko_guard.assess(c['product'], quote, market, now)
+        ko_state, ko_error = (paper_ko_guard.assess(c['product'], quote, market, now)
+                              if q else (None, 'Kein frischer bestätigter Euro-Produktkurs'))
         if ko_state:
             c['koWatch']=ko_state
             c['koWatchStatus']='confirmed'
