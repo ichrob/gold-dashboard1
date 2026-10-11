@@ -335,7 +335,12 @@ def run_once(conn,bundle,market,selection,quotes,now):
             elif not (market.get('session') or {}).get('entryAllowed'):reason='Außerhalb von Bobs Einstiegszeit'
             elif not stop_target_audit.valid_plan(plan):reason='ABWARTEN: kein bestätigter gültiger Goldplan'
             elif not choice:reason='Kein passendes belegtes Produkt: '+'; '.join(selection.get('reasons') or ['Produktliste noch nicht synchronisiert'])
-            elif q and q['ask']>control['cash']:reason='Fiktives Kapital reicht nicht für ein ganzes Produktstück'
+            elif choice.get('indicative') or choice.get('estimated'):reason='Unverbindlicher Kandidat: kein virtueller Eurokauf ohne Produktfreigabe'
+            elif not q:reason='Kein aktueller, ausführbarer Geld-/Briefkurs in EUR: virtueller Produkteinstieg gesperrt'
+            elif q['ask']>control['cash']:reason='Fiktives Kapital reicht nicht für ein ganzes Produktstück'
+            elif (control.get('dayProfit') is not None and control.get('dayOpeningEquity') is not None
+                  and control['dayOpeningEquity']>0 and control['dayProfit']<=-0.03*control['dayOpeningEquity']):
+                reason='Tagesverlustgrenze für neue virtuelle Einstiege erreicht (3 %)'
             elif control.get('lastEntryKey')==entry_key:reason='Diese Signal-Kerze wurde bereits simuliert'
             else:
                 c=new_case(market,choice,quotes.get(choice['isin']),now,cash=control['cash'])
