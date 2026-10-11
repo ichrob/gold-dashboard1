@@ -66,6 +66,31 @@ def assess(choice, quote, market, now):
             or not isinstance(cond.get('source'), str) or not cond['source']
             or date != datetime.fromtimestamp(now / 1000, ZURICH).strftime('%d.%m.%Y')):
         return None, 'KO-Barriere ohne gültigen heutigen Emittenten-Datenstand'
+    # The displayed EUR bid/ask and the Gold tick must describe essentially
+    # the same observed moment. Otherwise an old issuer bid could falsely
+    # appear to be an available protective sale before a KO event.
+    def observed_ms(value):
+        if positive(value):
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                return parsed.timestamp() * 1000 if parsed.tzinfo else None
+            except (ValueError, OverflowError):
+                return None
+        return None
+
+    gold_at = observed_ms(market.get('dataAt'))
+    bid_at = observed_ms(quote.get('bidAt') or quote.get('quoteAt'))
+    ask_at = observed_ms(quote.get('askAt') or quote.get('quoteAt'))
+    if (market.get('priceFresh') is not True or not positive(gold_at)
+            or not 0 <= now - gold_at <= 60000):
+        return None, 'Gold-Kurszeit nicht aktuell bestätigt'
+    if (not positive(bid_at) or not positive(ask_at)
+            or not all(0 <= now - t <= 90000 for t in (bid_at, ask_at))
+            or abs(bid_at - gold_at) > 5000
+            or abs(ask_at - gold_at) > 5000):
+        return None, 'Gold- und Euro-Produktkurse zeitlich nicht abgestimmt'
     price = market.get('price')
     if not positive(price) or (market.get('plan') or {}).get('unit') != 'USD/oz':
         return None, 'Gold-Spot-Referenz nicht bestätigt'
