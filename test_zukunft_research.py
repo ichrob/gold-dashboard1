@@ -36,7 +36,7 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(r["mode"], "RESEARCH_ONLY")
         self.assertFalse(r["realOrders"])
         self.assertFalse(r["qualified_for_live_trading"])
-        self.assertEqual(len(r["folds"]), 3)
+        self.assertEqual(len(r["folds"]), 4)
         self.assertEqual(set(r["totals"]), set(zr.STRATEGIES)|{"ml_shadow"})
         self.assertEqual(r["cost_assumptions"]["fee_eur_per_side"], 0)
 
