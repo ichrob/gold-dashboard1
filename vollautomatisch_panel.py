@@ -1,35 +1,77 @@
-"""Bob Vollautomatisch: safe, simulation-only planning panel.
+"""Isolated UI for an authenticated, fixed-quote PAPER-ONLY regression demo.
 
-No broker credentials, no brokerage endpoints, no real-money orders.
-The UI is deliberately read-only regarding order execution.
+Existing mobile navigation in Bob.html provides the Vollautomatisch workspace.
+This panel adds an actual executable prototype without duplicate navigation.
 """
 PANEL = r"""
-<section id="bob-vollautomatisch" style="margin:18px 0;padding:18px;border:1px solid #475569;border-radius:14px;background:#101d2b;color:#f1f5f9;font-family:inherit">
- <h2 style="margin:0 0 9px">🤖 Vollautomatisch</h2>
- <p style="margin:0 0 14px;color:#cbd5e1">Eigenständiger Gold-Trading-Simulator · Entwicklung · keine echten Orders</p>
- <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-  <span style="border:1px solid #eab308;color:#fde68a;border-radius:20px;padding:5px 10px">ENTWICKLUNG</span>
-  <span style="border:1px solid #64748b;border-radius:20px;padding:5px 10px">Broker nicht verbunden</span>
-  <span style="border:1px solid #22c55e;border-radius:20px;padding:5px 10px">Echtgeldhandel deaktiviert</span>
- </div>
- <details open><summary style="cursor:pointer;font-weight:bold;padding:6px 0">Ziele und Funktionsumfang</summary>
-  <p>Bob soll später Einstiege, Positionsgrösse, Stop-Loss, Gewinnmitnahme, Trailing-Stop und Ausstieg selbstständig steuern – zunächst ausschliesslich mit simulierten Orders.</p>
-  <p>Die bestehende DEGIRO-Ansicht bleibt unverändert. Es findet keine DEGIRO-Automatisierung statt.</p>
- </details>
- <details><summary style="cursor:pointer;font-weight:bold;padding:6px 0">Sicherheitsregeln</summary>
-  <ul><li>Kein Trade bei fehlenden oder veralteten Daten, Marktstatus ABWARTEN oder engen KO-Schwellen</li>
-   <li>Keine Doppelorders; maximal eine offene Position je Basiswert/Strategie</li>
-   <li>Fester Stop-Loss vor Eröffnung; Stop niemals weiter vom Einstieg entfernen</li>
-   <li>Tagesverlustlimit, Maximalverlust pro Position, maximaler Drawdown und Not-Aus</li>
-   <li>Broker-API nur nach separater Prüfung, Zulassung und ausdrücklicher Live-Freigabe</li></ul>
- </details>
- <details><summary style="cursor:pointer;font-weight:bold;padding:6px 0">Testplan und Erfolgsmessung</summary>
-  <p>1. Historische Simulation mit realistischen Spreads, Gebühren, Slippage und zeitlich korrekten Daten. 2. Mehrwöchiger Live-Paper-Test, auch bei Serverneustarts und Kursausfällen. 3. Unabhängige Prüfung mit bislang ungesehenen Markttagen. 4. Erst danach Brokervergleich.</p>
-  <p>Pro Trade: Zeit, Marktsignal, ISIN, Quelle, Kursalter, Einstiegsgrund, Stop/Ziel, Orderereignisse, Kosten und Ergebnis revisionssicher protokollieren.</p>
-  <p>Erfolg nicht an Trefferquote allein messen: Nettoergebnis, maximaler Drawdown, Profit-Faktor, Risiko/Ertrag, Regelverstösse und Systemverfügbarkeit.</p>
- </details>
- <div style="padding:12px;border:1px dashed #64748b;border-radius:9px;margin-top:12px">
-  <strong>Simulationsstatus:</strong> Noch nicht mit einer eigenständigen Order-Engine verbunden.<p style="margin:5px 0 0;color:#cbd5e1">Keine erfundenen Testresultate. Diese Sparte zeigt bis zur Engine-Anbindung nur Konzept und Prüfkriterien.</p>
+<section id="bob-vollautomatisch-demo" class="card" style="margin:12px 0;padding:16px;border:1px solid #b6c3d2;border-radius:14px;background:#fff;color:#16263c">
+ <h3>100 € · Simulations-Probelauf</h3>
+ <p class="small" style="color:#475569">Getrennter Rechenkern mit synthetischen Produktkursen in Euro. Er testet Kauf, Positionsgrösse, Stop-Loss, Gewinnziel, Trailing-Stop und Kostenannahmen. Noch kein automatischer Handel mit Marktdaten.</p>
+ <button type="button" id="bobAutoDemoRun" class="bob-primary">Probelauf mit Beispieldaten starten</button>
+ <p class="small" id="bobAutoDemoStatus" role="status">Noch nicht ausgeführt · keine Echtgeld-Orders möglich.</p>
+ <div id="bobAutoDemoResults" hidden>
+  <div id="bobAutoDemoNumbers" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:10px 0"></div>
+  <details open><summary><b>Simulierter Orderverlauf</b></summary>
+   <ol id="bobAutoDemoEvents" style="padding-left:22px;line-height:1.7"></ol>
+  </details>
+  <p class="small">Die Kurse sind frei erfunden und nachträglich festgelegt. Der Probelauf ist ein Funktionstest, kein Erfolgsnachweis. Einstieg zum Briefkurs, Ausstieg zum Geldkurs, zusätzliche Slippage; Gebühren im Probelauf auf 0 € gesetzt.</p>
  </div>
 </section>
+<script>
+(function(){
+ function mount(){
+  const root=document.getElementById('bob-vollautomatisch-demo');
+  if(!root)return;
+  const auto=document.getElementById('bob-view-auto');
+  if(auto)auto.append(root);
+  const run=document.getElementById('bobAutoDemoRun');
+  const status=document.getElementById('bobAutoDemoStatus');
+  const results=document.getElementById('bobAutoDemoResults');
+  const summary=document.getElementById('bobAutoDemoNumbers');
+  const events=document.getElementById('bobAutoDemoEvents');
+  const eur=new Intl.NumberFormat('de-CH',{style:'currency',currency:'EUR'});
+  run.addEventListener('click',async()=>{
+   run.disabled=true;status.textContent='Synthetische Trades werden berechnet …';
+   results.hidden=true;
+   try{
+    const response=await fetch('/api/vollautomatisch/demo',{credentials:'same-origin',cache:'no-store'});
+    if(!response.ok)throw Error('Probelauf konnte nicht geladen werden (HTTP '+response.status+').');
+    const data=await response.json();
+    if(data.mode!=='PAPER_ONLY'||data.live_order_capable!==false||data.synthetic!==true)throw Error('Unsicherer Simulationsstatus');
+    summary.replaceChildren();events.replaceChildren();
+    const cells=[
+      ['Startkapital',eur.format(data.initial_eur)],
+      ['Virtuelles Endkapital',eur.format(data.equity_eur)],
+      ['Veränderung',eur.format(data.equity_eur-data.initial_eur)],
+      ['Maximaler Rückgang',(data.max_drawdown_fraction*100).toFixed(2)+' %']
+    ];
+    for(const [label,value] of cells){
+     const cell=document.createElement('div');cell.style='padding:10px;border:1px solid #e2e8f0;border-radius:10px;min-width:0';
+     const title=document.createElement('small');title.style='display:block;color:#475569';title.textContent=label;
+     const body=document.createElement('strong');body.textContent=value;cell.append(title,body);summary.append(cell);
+    }
+    const descriptions={
+      BUY_PAPER:'Virtueller Kauf',SELL_PAPER:'Virtueller Verkauf',
+      TRAIL_PAPER:'Stop nachgezogen',BLOCKED:'Einstieg gesperrt',
+      STALE_FEED:'Kurs veraltet'
+    };
+    for(const e of data.events){
+     const line=document.createElement('li');
+     const name=descriptions[e.event]||'Testereignis';
+     const price=typeof e.price_eur==='number'?' · '+eur.format(e.price_eur):'';
+     const stop=typeof e.stop_eur==='number'?' · Stop '+eur.format(e.stop_eur):'';
+     const amount=typeof e.quantity==='number'?' · '+e.quantity+' Stück':'';
+     const gain=typeof e.pnl_eur==='number'?' · Ergebnis '+eur.format(e.pnl_eur):'';
+     line.textContent=name+' · '+e.at+amount+price+stop+gain+(e.reason?' · '+e.reason:'');
+     events.append(line);
+    }
+    status.textContent='Funktionstest berechnet · '+data.quotes_processed+' künstliche Kursbeobachtungen · keine echte Order';
+    results.hidden=false;
+   }catch(error){status.textContent='Probelauf nicht verfügbar: '+String(error.message||error);}
+   finally{run.disabled=false;}
+  });
+ }
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);else mount();
+})();
+</script>
 """
