@@ -212,7 +212,7 @@ function mount(parent){
  });
  const research=el('section');research.style.cssText='border-top:1px solid #dbe3ee;margin-top:14px;padding-top:12px';
  research.append(el('h4','Automatischer Strategievergleich · Walk-forward'));
- const expl=el('p','Bob vergleicht Basismodell, strenge Trendfolge, Ausbruch, Gegenbewegung und ein trainiertes lineares Lernmodell. Jede Runde trennt Training, Auswahl und spätere Testdaten. Die Kurse sind Referenz-Kerzen und keine ausführbaren DEGIRO-Geld-/Briefkurse.');
+ const expl=el('p','Bob vergleicht Basismodell, verschiedene Trendfolge- und Ausbruchparameter, Gegenbewegung und ein trainiertes lineares Lernmodell. Jede Runde trennt Training, Auswahl und spätere Testdaten. Die Kurse sind Referenz-Kerzen und keine ausführbaren DEGIRO-Geld-/Briefkurse.');
  expl.className='small';research.append(expl);
  const runBtn=el('button','Gespeicherten Vergleich neu anzeigen');runBtn.type='button';runBtn.className='bob-primary';
  const rStatus=el('p','Bob prüft automatisch an Handelstagen ab 08:00 Uhr (Zürich) und kontrolliert am Wochenende das Forschungsarchiv. Kein Knopfdruck notwendig.');
@@ -260,7 +260,8 @@ function mount(parent){
      'paper-required':'Historischer Vorteil und spätere Referenztests · echter EUR-Produkt-/Paper-Nachweis fehlt',
      rejected:'Kandidat im unabhängigen Test verworfen',
      blocked:'Daten-/Instrumentkonflikt · keine Lernfreigabe',
-     'weekend-maintenance':'Wochenendprüfung · keine neue unabhängige Evidenz'
+     'weekend-maintenance':'Wochenendprüfung · keine neue unabhängige Evidenz',
+     'archive-missing':'Wochenendprüfung: belegbares Forschungsarchiv fehlt'
     };
     const label=descriptions[cycle.status]||'Wissenschaftliche Forschung, nicht Live-Handel';
     area.append(el('p','Status: '+label));
@@ -277,6 +278,11 @@ function mount(parent){
      area.append(el('p','Letzte neue Evidenz: '+progress.lastObservation.day+
          ' · '+scalar(progress.lastObservation.newBars)+' neu beobachtete 1h-Kerzen'));
     area.append(el('p',String(cycle.reason||'Weitere unabhängige Ergebnisse erforderlich.')));
+    if(Array.isArray(cycle.completed)&&cycle.completed.length){
+     const history=el('details');history.append(el('summary','Abgeschlossene unabhängige Kandidatenprüfungen ('+cycle.completed.length+')'));
+     for(const item of cycle.completed){const p=el('p',(item.strategy||'unbekannt')+' · '+(item.result||'offen')+' · '+(item.finishedOn||'ohne Zeitnachweis'));p.className='small';history.append(p);}
+     area.append(history);
+    }
     const note=el('p','Forschungsmodelle und hypothetische Spotkosten: keine vollständige Bob-v7-Strategie, keine echten DEGIRO-EUR-Nettogewinne und keine automatische Live-Regeländerung.');
     note.className='small';area.append(note);
     reportBox.append(area);
@@ -290,7 +296,7 @@ function mount(parent){
     const table=el('table'),head=el('tr');
     for(const h of ['Regelvariante','Testtrades','Ø Fenster (%)','Max. Rückgang (%)'])head.append(el('th',h));
     table.append(head);
-    for(const [id,label] of [['baseline','Bob-Forschungsbasis'],['trend-strict','Strenge Trendfolge'],['breakout','Ausbruch'],['mean-revert','Gegenbewegung'],['learned-linear','Gelerntes Modell']]){
+    for(const [id,label] of [['baseline','Bob-Forschungsbasis'],['trend-strict','Strenge Trendfolge'],['trend-tight','Engere Trendbestätigung'],['breakout','Ausbruch'],['breakout-confirmed','Bestätigter Ausbruch'],['mean-revert','Gegenbewegung'],['learned-linear','Gelerntes Modell']]){
      const m=info.outOfSampleByStrategy?.[id];if(!m)continue;
      const row=el('tr');for(const v of [label,n(m.trades),n(m.meanFoldNetPct),n(m.maxFoldDrawdownPct)])row.append(el('td',v));
      table.append(row);

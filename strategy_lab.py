@@ -8,14 +8,14 @@ import math
 import statistics
 import time
 
-VERSION = "zukunft-walkforward-v1"
+VERSION = "zukunft-walkforward-v2"
 HORIZON = 4
 WARMUP = 210
 TRAIN_END = 420
 VALIDATION = 72
 TEST = 72
 COST_BPS_PER_SIDE = 8.0  # hypothetical fee + slippage, each side; NOT observed
-STRATEGIES = ("baseline", "trend-strict", "breakout", "mean-revert", "learned-linear")
+STRATEGIES = ("baseline", "trend-strict", "trend-tight", "breakout", "breakout-confirmed", "mean-revert", "learned-linear")
 
 
 def finite(value):
@@ -133,10 +133,21 @@ def direction(name, i, bars, f, weights):
             return 1
         if c < x["e20"] < x["e50"] < x["e200"] and 30 < x["rsi"] < 48 and x["x"][4] < -.4:
             return -1
+    elif name == "trend-tight":
+        if c > x["e20"] > x["e50"] > x["e200"] and 55 < x["rsi"] < 68 and x["x"][4] > .8:
+            return 1
+        if c < x["e20"] < x["e50"] < x["e200"] and 32 < x["rsi"] < 45 and x["x"][4] < -.8:
+            return -1
     elif name == "breakout":
         if c > x["high20"] and x["e20"] > x["e50"]:
             return 1
         if c < x["low20"] and x["e20"] < x["e50"]:
+            return -1
+    elif name == "breakout-confirmed":
+        # Strict hypothesis: breakout plus stronger RSI and EMA confirmation.
+        if c > x["high20"] and x["e20"] > x["e50"] > x["e200"] and x["rsi"] > 55:
+            return 1
+        if c < x["low20"] and x["e20"] < x["e50"] < x["e200"] and x["rsi"] < 45:
             return -1
     elif name == "mean-revert":
         if x["rsi"] < 30 and c > x["e200"]:
