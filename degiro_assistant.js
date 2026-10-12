@@ -2497,6 +2497,7 @@ async function deleteProductOriginals(isin){
 }
 async function processProductImages(i,files,context,records=null){
  if(activeProductImports.has(i))return;
+ const activeGeneration=listArchive?.storedAt||null;
  activeProductImports.add(i);
  const input=document.getElementById('dgDetailShot'+i),status=document.getElementById('dgOcrStatus'+i);
  const isin=document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value;
@@ -2504,14 +2505,16 @@ async function processProductImages(i,files,context,records=null){
  if(input)input.disabled=true;
  try{
   for(let j=0;j<files.length;j++){
-   if(document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value!==isin)break;
+   if(document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value!==isin ||
+      (listArchive?.storedAt||null)!==activeGeneration)break;
    const file=files[j];let record=records?.[j];
    if(!records)try{record=await saveProductOriginal(file,isin,context,batch);}catch(e){storageWarnings.push('Original nicht gespeichert: '+e.message);}
    const result=await readScreenshot(i,file,context);
    if(result)outcomes.push({name:file.name,...result});
    try{await markOriginalProcessed(record,result);}catch(e){storageWarnings.push('Erkennungsstand nicht gespeichert: '+e.message);}
   }
-  if(document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value===isin){
+  if(document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value===isin &&
+     (listArchive?.storedAt||null)===activeGeneration){
    const series=linkScreenshotSeries(outcomes);
    if(series){
     // Rebuild the series in source-time order; a newer quote always wins.
@@ -2528,7 +2531,13 @@ async function processProductImages(i,files,context,records=null){
 }
 async function reprocessOriginals(automatic=false){
  const rows=Array.from(document.querySelectorAll('[data-dg="isin"]')).map(el=>({isin:el.value,index:Number(el.dataset.i)}));
- const records=(await loadProductOriginals()).filter(r=>automatic||r.isin===returnProductIsin).sort((a,b)=>a.savedAt-b.savedAt);
+ // Replaying a product detail from an earlier screenshot universe could
+ // inject old KO/quote evidence into the newly replaced list.
+ const activeAt=Date.parse(listArchive?.storedAt||'');
+ const records=(await loadProductOriginals())
+   .filter(r=>(automatic||r.isin===returnProductIsin) &&
+      (!Number.isFinite(activeAt)||r.savedAt>=activeAt))
+   .sort((a,b)=>a.savedAt-b.savedAt);
  const groups=new Map();for(const r of records){const key=r.isin+':'+r.batch;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(r);}
  if(!records.length&&!automatic){const status=document.querySelector('[data-return-status]');if(status)status.textContent='Keine gespeicherten Originaldateien für dieses Produkt vorhanden. Frühere Uploads müssen einmal erneut ausgewählt werden.';}
  for(const batch of groups.values()){
@@ -2960,13 +2969,15 @@ async function inject(){
    const files=await retainSelectedImages(upload);
    const items=await readListBatch(files,recognizeOcr,(i,total,name)=>{uploadStatus.textContent='📷 Bild '+i+' von '+total+' wird gelesen: '+name;});
    await saveListArchive(files,items);
-   populateCandidateRows(items);rankUI();
+   populateCandidateRows(items);
+   // Persist the new generation before any normal/periodic background snapshot.
+   window.BobPaperSimulation?.sync?.(buildPaperListEvidence(),true);
+   rankUI();
    uploadStatus.textContent='✅ Neue aktive Liste: '+files.length+' Bild(er) · '+items.length+' unterschiedliche Produkte. Vorherige Liste ersetzt und gespeichert – bleibt bis zum nächsten Upload erhalten. Kurszeiten werden unabhängig geprüft.';
    const uncertain=items.filter(x=>!validIsin(x.isin)).length;
    if(uncertain)uploadStatus.textContent+=' ⚠️ '+uncertain+' ISIN(s) unsicher – unter Details prüfen.';
    // The paper/background service is refreshed immediately, independently of its
    // ordinary 60-second cadence. Never send removed ISINs from the old list.
-   window.BobPaperSimulation?.sync?.(buildPaperListEvidence(),true);
    refreshImportedProducts(true).then(()=>refreshImportedProducts());
   }catch(e){uploadStatus.textContent='⚠️ '+(e?.message||'Bilder konnten nicht gelesen werden')+' Die bisherige Produktliste bleibt erhalten.';}
   finally{upload.value='';upload.disabled=false;uploadButton.disabled=false;}
