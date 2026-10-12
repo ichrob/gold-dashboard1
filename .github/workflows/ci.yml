@@ -71,6 +71,22 @@ jobs:
           node --check push_manager.js
           node --check degiro_assistant.js
           node --check selection_push_evaluator.js
+      # One-off issuer connectivity audit on an isolated CI branch.
+      - name: Probe current SG product discovery
+        if: startsWith(github.ref, 'refs/heads/ci/sg-source-live-')
+        run: |
+          python - <<'PY'
+          import sg_direct
+          for isin in ('DE000FG7N6Z2', 'DE000FG8NHQ3'):
+              r = sg_direct.get_quote(isin)
+              chart = r.get('chartEvidence') or {}
+              print('SG_PROBE', isin, 'identity=', r.get('productVerified'),
+                    'currency=', (r.get('metadata') or {}).get('currency'),
+                    'chart=', bool(chart), 'chart_fresh=', chart.get('current'),
+                    'diagnostic=', r.get('quoteFailureCode'),
+                    'source_fail=', r.get('sourceFailure'),
+                    'eligible=', r.get('eligible'), 'reason=', r.get('reason'))
+          PY
       - name: Python regression tests (including database integration)
         run: python -m unittest discover -p 'test_*.py'
       - name: JavaScript regression tests
