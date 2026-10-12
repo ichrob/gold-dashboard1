@@ -56,13 +56,18 @@ def from_issues(rows, *, now=None):
             continue
         seen.add(code)
         created = row.get("created_at")
-        if not isinstance(created, str) or not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", created):
+        updated = row.get("updated_at")
+        stamp_pattern = r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ"
+        if not isinstance(created, str) or not re.fullmatch(stamp_pattern, created):
             created = None
+        if not isinstance(updated, str) or not re.fullmatch(stamp_pattern, updated):
+            updated = None
         items.append({
             "number": number,
             "code": code,
             "message": description,
             "createdAt": created,
+            "updatedAt": updated,
             "url": REPOSITORY_URL + "/issues/" + str(number),
         })
     items.sort(key=lambda problem: problem["number"], reverse=True)
@@ -104,6 +109,21 @@ def snapshot(*, fetcher=fetch_open_issues, clock=time.monotonic):
 PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
 <h3>Offene KI-Hilfeanfragen</h3>
 <p id="bobProblemsSummary" role="status" class="small">Lade gespeicherte Probleme …</p>
+<p id="bobProblemsLastUpdate" class="small">Letzte Aktualisierung: wird geladen …</p>
+<div id="bobRepairStatistics" style="border:1px solid #dce3ed;border-radius:12px;padding:12px;margin:12px 0">
+ <h3 style="margin:0 0 8px">Bobs automatische Fehlerbehebung</h3>
+ <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">
+  <div><div class="small">Selbstständig erkannt</div><strong id="bobRepairDetected">—</strong></div>
+  <div><div class="small">Selbst repariert · geprüft</div><strong id="bobRepairVerified">—</strong></div>
+  <div><div class="small">Ohne bestätigten Neustart wieder gesund</div><strong id="bobRepairNormalized">—</strong></div>
+  <div><div class="small">Reparaturversuche</div><strong id="bobRepairAttempts">—</strong></div>
+ </div>
+ <p id="bobRepairStatsAt" class="small" role="status">Lade dauerhaften Fehlerzähler …</p>
+ <details><summary>Letzte automatische Problemerkennung und Reparatur</summary>
+ <div id="bobRepairEvents" class="small">Noch keine gespeicherten Ereignisse.</div>
+ </details>
+ <p class="small">Gezählt werden dokumentierte Fehlerereignisse seit Aktivierung dieser Statistik, nicht sämtliche Fehler aus Bobs Vergangenheit. Ein Neustartversuch ist noch keine bestätigte Lösung. Die Zahlen liegen im privaten Speicher und bleiben nach einem Render-Neustart erhalten.</p>
+</div>
 <div id="bobProblemsList"></div>
 <p class="small">Der Zähler zeigt, wie viele Probleme noch KI-Hilfe benötigen. Weitere Probleme erhöhen die Zahl. Nach bestätigter Behebung sinkt sie wieder. Das Öffnen der Sparte löscht keine Einträge.</p>
 <button id="bobProblemsRefresh" type="button">Probleme aktualisieren</button>
@@ -161,7 +181,38 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
    badge(data.count);
    const items=document.getElementById('bobProblemsList');items.replaceChildren();
    summary.textContent=(data.count===1?'1 offenes Problem':data.count+' offene Probleme')+
-    (data.status==='stale'?' · letzter gespeicherter Stand, Aktualisierung momentan nicht möglich':' · Status geprüft '+readableDate(data.checkedAt));
+    (data.status==='stale'?' · letzter bekannter Stand':'');
+   document.getElementById('bobProblemsLastUpdate').textContent=
+    'Letzte Aktualisierung der offenen KI-Hilfeanfragen: '+readableDate(data.checkedAt)+
+    ' (Schweizer Zeit)'+(data.status==='stale'?' · GitHub momentan nicht erreichbar':'');
+   const stats=data.selfHealingStatistics||{};
+   const statsOk=(stats.status==='ok'||stats.status==='stale')&&
+      Number.isInteger(stats.detected)&&Number.isInteger(stats.verifiedRepairs);
+   for(const [key,id] of [['detected','bobRepairDetected'],
+                          ['verifiedRepairs','bobRepairVerified'],
+                          ['normalizedWithoutVerifiedRepair','bobRepairNormalized'],
+                          ['repairAttempts','bobRepairAttempts']]){
+      document.getElementById(id).textContent=statsOk&&Number.isInteger(stats[key])?
+       String(stats[key]):'—';
+   }
+   document.getElementById('bobRepairStatsAt').textContent=
+      statsOk?'Zähler seit Aktivierung · zuletzt aus privatem Archiv geladen: '+
+       readableDate(stats.checkedAt)+' (Schweizer Zeit)'+
+       (stats.status==='stale'?' · veralteter Speicherstand':''):
+       'Statistik derzeit nicht erreichbar; keine erfundenen Nullwerte.';
+   const repairs=document.getElementById('bobRepairEvents');repairs.replaceChildren();
+   const eventNames={'detected':'Problem erkannt','repair-attempt':'Neustart versucht',
+     'repair-failed':'Neustart fehlgeschlagen','repair-verified':'Reparatur bestätigt',
+     'recovered':'Störung nicht mehr erkennbar'};
+   if(statsOk&&Array.isArray(stats.events)&&stats.events.length){
+     for(const event of stats.events.slice(0,10)){
+       const p=document.createElement('p');
+       p.textContent=readableDate(event.at)+' · '+(eventNames[event.kind]||'Ereignis')+
+          ' · '+(event.code||'unbekannte Ursache');repairs.append(p);
+     }
+   }else{
+     repairs.textContent=statsOk?'Noch keine archivierten Ereignisse.':'Ereignisarchiv derzeit nicht erreichbar.';
+   }
    if(data.count===0){
     const p=document.createElement('p');p.textContent='✅ Keine offenen KI-Hilfeanfragen.';items.append(p);
    }
@@ -170,7 +221,10 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
     article.className='bob-problem-item';
     article.style.cssText='border:1px solid #dce3ed;border-radius:12px;padding:12px;margin:10px 0';
     const title=document.createElement('strong');title.textContent='Problem #'+issue.number+' · '+issue.message;
-    const meta=document.createElement('p');meta.className='small';meta.textContent='Erkannt: '+readableDate(issue.createdAt)+' · offen · KI-Hilfe erforderlich';
+    const meta=document.createElement('p');meta.className='small';
+    meta.textContent='Erkannt: '+readableDate(issue.createdAt)+
+      ' · Letzte Änderung: '+readableDate(issue.updatedAt)+
+      ' · offen · KI-Hilfe erforderlich';
     const link=document.createElement('a');link.href=issue.url;link.target='_blank';link.rel='noopener noreferrer';link.textContent='Technischen Eintrag öffnen';
     const button=document.createElement('button');button.type='button';button.textContent='KI-Hilfebericht kopieren';
     const note=document.createElement('p');note.className='small';note.setAttribute('role','status');
@@ -180,6 +234,8 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
    }
   }catch(_){
    summary.textContent=latest?'⚠️ Probleme können derzeit nicht neu abgefragt werden; letzter Stand bleibt sichtbar.':'⚠️ Problemarchiv momentan nicht erreichbar – Zahl unbekannt. Bitte GitHub prüfen.';
+   document.getElementById('bobProblemsLastUpdate').textContent=
+     'Letzte erfolgreiche Aktualisierung: '+(latest?readableDate(latest.checkedAt):'unbekannt');
    if(!latest)badge(null);
   }
  }
