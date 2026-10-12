@@ -52,6 +52,21 @@ summary{cursor:pointer;font-weight:700;padding:10px 0}details[open]>summary{marg
 .youtube-panel #goldResearchItems>details:first-child{border-top:0}
 .youtube-panel #goldResearchItems summary{overflow-wrap:anywhere}
 .youtube-panel #goldResearchItems article{margin:6px 0 12px!important}
+.youtube-panel .mco-brief{background:#f8fbff;border:1px solid #dce6f4;border-radius:13px;padding:12px;margin:9px 0}
+.youtube-panel .mco-brief h4{margin:0 0 6px;font-size:17px}
+.youtube-panel .mco-brief h5{margin:2px 0 5px;font-size:14px;color:#173c68}
+.youtube-panel .mco-brief p{margin:5px 0 9px;line-height:1.6;font-size:14px}
+.youtube-panel .mco-brief .mco-section{border-top:1px solid #dce6f4;padding:10px 0 5px}
+.youtube-panel .mco-brief figure{max-width:100%;margin:9px 0!important;background:#fff}
+.youtube-panel .mco-brief figcaption{font-size:12px;line-height:1.5;color:#42546e;margin:7px 0}
+.youtube-panel .mco-original{margin:9px 0;padding:10px;border:1px solid #d7e3f3;border-radius:10px;background:#fff}
+.youtube-panel .mco-original button{margin:5px 0;font-size:14px;background:#15395f}
+.youtube-panel .mco-original a{display:inline-block;margin:4px 0;font-size:13px}
+.youtube-panel .bob-mco-clip{border:1px solid #dce6f4;border-radius:12px;padding:5px 10px;margin:12px 0;background:#f8fbff}
+.youtube-panel .bob-mco-clip>summary{font-size:14px;color:#173c68}
+.youtube-panel .bob-mco-clip .bob-clip-actions button,.youtube-panel .bob-mco-clip .bob-clip-extra button{font-size:13px;white-space:normal;padding:9px 4px;min-width:0}
+.youtube-panel .bob-mco-clip .bob-clip-extra>summary{font-size:13px}
+.youtube-panel .youtube-source-details{margin:10px 0;border-top:1px solid #dce6f4}
 @media(max-width:520px){
  .bob-mobile .youtube-panel{padding:14px}
  .bob-mobile .youtube-panel .youtube-group{padding:12px;margin:10px 0}
@@ -605,9 +620,9 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 </div>
 
 <div class="youtube-group" id="youtubeLatest">
-<h4>Neueste Videos</h4>
+<h4>Neueste Videos · Analyse mit Originalstellen</h4>
 <p id="youtubeListStatus" class="small" aria-live="polite">Videoliste wird geladen …</p>
-<p class="small">Ein Video antippen, um die Auswertung, Originalstellen und gegebenenfalls den Player zu öffnen. Neue Videos sind gekennzeichnet.</p>
+<p class="small">Video antippen: zuerst die verständliche Zusammenfassung, darunter echte MCO-Videostellen. Bobs eigener Erklärclip ist optional und bleibt eingeklappt.</p>
 <div id="goldResearchItems"></div>
 </div>
 
@@ -735,20 +750,22 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     const box=node('article','');box.className='research';box.style.marginTop='12px';
     const a=node('a',x.title);const url=new URL(x.url);if(url.protocol==='https:'){a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';}
     const published=publicationLabel(x);
-    box.append(a,node('p',x.publisher+' · '+x.kind+' · veröffentlicht '+published+' · '+x.coverage+(x.current?' · innerhalb 24 Stunden':x.publishedAt?' · nicht aktuell':' · genaue Aktualität nicht bestätigt')),
-     node('small','Video-ID: '+(url.searchParams.get('v')||x.id)),
-     node('p','Kursbericht: '+x.trend+' · Ausblick: '+x.outlook+' · Horizont: '+x.horizon),node('p',x.excerpt),node('small',x.reason+(x.articleStatus?' · '+x.articleStatus:'')));
-    if(x.listingInfo)box.append(node('p','YouTube-Angabe: '+x.listingInfo));
     if(x.enhancements)renderEnhancements(box,x,url);
+    if(x.overview){
+     const original=node('details','');
+     original.append(node('summary',x.enhancements?.summary?.kind==='ai'?'Ausführlicher Transkript-Überblick':'Weitere belegte Originalaussagen'));
+     renderOverview(original,x,url);box.append(original);
+    }else if(x.context)box.append(node('p',(x.contextKind||'Kontext')+': '+x.context));
     if(x.transcriptAnalyzed&&x.trustedTranscript&&window.BobMcoClip?.mount)
      window.BobMcoClip.mount(box,x,url,bars=>window.BobMcoFibSnapshot?.(bars));
     if(x.transcriptAnalyzed)renderMcoFibonacci(box,x,url);
-    if(x.overview){
-     if(x.enhancements&&x.enhancements.summary){const original=node('details','');original.append(node('summary','Zusätzlicher Überblick aus Originalsätzen'));renderOverview(original,x,url);box.append(original);}
-     else renderOverview(box,x,url);
-    }
-    else if(x.context)box.append(node('p',(x.contextKind||'Kontext')+': '+x.context));
-    if(x.transcriptWords)box.append(node('p','Transkript: '+x.transcriptWords+' Wörter · '+x.transcriptLanguage+(x.automaticCaptions?' · automatisch erzeugt':'')));
+    const meta=node('details','');meta.className='youtube-source-details';meta.append(node('summary','Quelle, Abrufstatus und technische Angaben'));
+    meta.append(a,node('p',x.publisher+' · '+x.kind+' · veröffentlicht '+published+' · '+x.coverage+(x.current?' · innerhalb 24 Stunden':x.publishedAt?' · nicht aktuell':' · genaue Aktualität nicht bestätigt')),
+     node('small','Video-ID: '+(url.searchParams.get('v')||x.id)),
+     node('p','Regelbericht: '+x.trend+' · Ausblick: '+x.outlook+' · Horizont: '+x.horizon),node('p',x.excerpt),node('small',x.reason+(x.articleStatus?' · '+x.articleStatus:'')));
+    if(x.listingInfo)meta.append(node('p','YouTube-Angabe: '+x.listingInfo));
+    if(x.transcriptWords)meta.append(node('p','Transkript: '+x.transcriptWords+' Wörter · '+x.transcriptLanguage+(x.automaticCaptions?' · automatisch erzeugt':'')));
+    box.append(meta);
     for(const at of (x.overview?[]:x.goldMoments)||[]){const jump=node('a','Gold-Stelle '+Math.floor(at/60)+':'+String(at%60).padStart(2,'0')+' ');const target=new URL(x.url);target.searchParams.set('t',String(at));jump.href=target.href;jump.target='_blank';jump.rel='noopener noreferrer';box.append(jump);}
     const id=videoKey(x),entry=node('details',''),heading=node('summary',''),headingTitle=node('span',(readVideos.has(id)?'':'Neu · ')+x.title),publication=node('small','Veröffentlicht: '+published);
     publication.style.cssText='display:block;font-weight:400;margin-top:4px';
@@ -765,8 +782,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  function renderMcoFibonacci(box,item,url){
   const permitted=new Set(['r382','r500','r618','r786','e1272','e1618']);
   const marks=(Array.isArray(item.mcoFibonacci)?item.mcoFibonacci:[]).filter(x=>x&&permitted.has(x.key)&&typeof x.price==='number'&&x.price>=500&&x.price<=25000).slice(0,12);
-  const pane=node('details','');pane.className='research';pane.open=true;pane.style.cssText='margin:12px 0;padding:12px;border:1px solid #dbe3ea;border-radius:10px';
-  pane.append(node('summary','Fibonacci · MCO (blau) / Bob (orange)'));
+  const pane=node('details','');pane.className='research';pane.style.cssText='margin:12px 0;padding:12px;border:1px solid #dbe3ea;border-radius:10px';
+  pane.append(node('summary','Optional: Fibonacci-Kursmarken · MCO und Bob (eigene Grafik)'));
   const legend=node('p','');legend.style.cssText='display:flex;gap:12px;flex-wrap:wrap';
   for(const [name,color] of [['● MCO','#2563eb'],['● Bob','#c2410c'],['● Nahe Kursmarken','#15803d']]){const tag=node('b',name);tag.style.color=color;legend.append(tag);}
   pane.append(legend,node('small','Eigene Bob-Darstellung, kein MCO-Originalchart. Kurse in USD je Unze Gold. Die Angaben werden nicht für die Handelsfreigabe verwendet.'));
@@ -1004,7 +1021,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  setInterval(()=>{if(document.visibilityState==='visible'&&($('bob-view-research')?.hidden||!$('goldResearchItems').querySelector('details[open]')))load();},60000);
 })();
 </script>
-<script src="/mco_clip.js?v=20261011-fib-axis-v3"></script>
+<script src="/mco_clip.js?v=20261012-mobile-summary-v1"></script>
 <script src="/future_lab.js?v=20261011-v1"></script>
 
 </main>
