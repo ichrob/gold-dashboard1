@@ -1751,7 +1751,7 @@ function showListArchive(){
 async function saveListArchive(files,items){
  if(!Array.isArray(items)||!items.some(p=>validIsin(p?.isin)))throw Error('Keine gültige Produkt-ISIN erkannt. Alte Liste bleibt erhalten.');
  const record={files:files.map(file=>({name:file.name,blob:file})),items,storedAt:new Date().toISOString()};
- await archiveTransaction('readwrite',store=>{store.put(JSON.stringify({version:2,products:items.map(cleanStoredProduct).filter(Boolean)}),'products');return store.put(record,'list');});
+ await archiveTransaction('readwrite',store=>{store.put(JSON.stringify({version:2,products:items.map(cleanStoredProduct).filter(Boolean),listUploadedAt:record.storedAt}),'products');return store.put(record,'list');});
  localStorage.setItem(LIST_DAY_KEY,zurichListDay(Date.parse(record.storedAt)).day);
  listArchive=record;showListArchive();
  // Best effort: storage persistence does not change quote/evidence timestamps.
@@ -1764,7 +1764,18 @@ async function restoreListArchive(){
   // Upload date is provenance, not a daily deletion deadline.
   if(day)localStorage.setItem(LIST_DAY_KEY,day);
   const backup=await archiveTransaction('readonly',store=>store.get('products'));
-  if(!localStorage.getItem(PRODUCT_STORE_KEY)&&backup){localStorage.setItem(PRODUCT_STORE_KEY,backup);}
+  if(backup){
+   // IndexedDB holds the atomic image+identity replacement. If a browser
+   // closed between its transaction and localStorage update, prefer the newer
+   // committed screenshot generation rather than resurrecting older rows.
+   const current=localStorage.getItem(PRODUCT_STORE_KEY);
+   let saved=null,local=null;
+   try{saved=JSON.parse(backup);local=current?JSON.parse(current):null;}catch(_){}
+   if(!current || (saved?.listUploadedAt &&
+       (!local?.listUploadedAt || saved.listUploadedAt>local.listUploadedAt))){
+     localStorage.setItem(PRODUCT_STORE_KEY,backup);
+   }
+  }
   // Never turn a restart/current date into the original screenshot date.
   showListArchive();
  }catch(_){productStorageMessage='Bildspeicher nicht erreichbar. Vorhandene Produktdaten werden weiterhin geladen.';}
@@ -1786,7 +1797,7 @@ function cleanStoredProduct(x){
 }
 function writeStoredProducts(items){
  if(productStorageBlocked)return false;
- try{const rows=items.map(cleanStoredProduct).filter(Boolean).slice(0,12),payload=JSON.stringify({version:2,products:rows});
+ try{const rows=items.map(cleanStoredProduct).filter(Boolean).slice(0,12),payload=JSON.stringify({version:2,products:rows,listUploadedAt:listArchive?.storedAt||null});
   // Only an actual screenshot upload sets its original observation date.
   if(localStorage.getItem(PRODUCT_STORE_KEY)!==payload)localStorage.setItem(PRODUCT_STORE_KEY,payload);
   if(localStorage.getItem(PRODUCT_STORE_KEY)!==payload)throw Error('Speicherung nicht bestätigt');
