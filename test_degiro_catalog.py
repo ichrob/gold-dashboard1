@@ -91,6 +91,7 @@ class IssuerCatalogueTests(unittest.TestCase):
         self.assertIn('or path == "/api/degiro/candidates"',py)
         self.assertIn('if path == "/api/degiro/candidates":',py)
         self.assertIn('degiro_catalog.start()',py)
+        self.assertIn("build(product_quotes.get_issuer_quote)",Path("degiro_catalog.py").read_text())
         self.assertIn("Automatische Gold-Produktrecherche · externe Kandidaten",js)
         self.assertIn('completeDegiroCatalog!==false',js)
         self.assertIn('p.eligibleForTop3!==false',js)
