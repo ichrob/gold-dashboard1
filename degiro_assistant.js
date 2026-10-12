@@ -2777,6 +2777,86 @@ async function readListBatch(files,recognize,progress=()=>{}){
  for(const x of items)if(recoveries[x.isin]){x.originalIsin=recoveries[x.isin];x.ocrRecovery=true;}
  return items;
 }
+// Separate research panel. These are issuer-checked historical candidates,
+// NEVER verified DEGIRO availability, a fresh screenshot, or Top-3 approval.
+function showIssuerCandidates(data){
+ const host=document.getElementById('dgIssuerCandidates'),status=document.getElementById('dgIssuerStatus');
+ if(!host||!status)return;
+ host.replaceChildren();
+ const make=(tag,value)=>{const node=document.createElement(tag);if(value!==undefined)node.textContent=String(value);return node;};
+ if(data?.completeDegiroCatalog!==false||data?.degiroAccountConnected!==false||
+    data?.canAutoImportVerifiedDegiroList!==false||data?.automaticOrders!==false||
+    data?.sourceType!=='historic-user-list-plus-issuer-research'||
+    !Array.isArray(data.candidates)||!Array.isArray(data.excluded)){
+  status.textContent='Externe Kandidatenquelle nicht eindeutig bestätigt. Kein Import.';
+  return;
+ }
+ status.textContent=data.lastScanAt
+  ?'Letzte Emittentenprüfung: '+new Date(data.lastScanAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+
+      ' · '+data.candidates.length+' historische Kandidaten · '+data.excluded.length+' ausgeschlossen · '+(data.errors||0)+' Abruffehler.'
+  :'Server sammelt Emittentendaten; noch kein abgeschlossener automatischer Suchlauf.';
+ const caution=make('p',data.warning||'Kein bestätigter DEGIRO-Bestand.');
+ caution.className='small';host.append(caution);
+ const list=make('div');
+ list.style.cssText='display:grid;gap:8px';
+ for(const p of data.candidates.slice(0,12)){
+  if(!validIsin(p?.isin)||!['LONG','SHORT'].includes(p.direction)||
+     p.degiroListed!==null||p.degiroTradingEnabled!==null||
+     p.liveApproved!==false||p.eligibleForTop3!==false)continue;
+  const item=make('div');
+  item.style.cssText='border:1px solid #e2e8f0;padding:9px;border-radius:10px;overflow-wrap:anywhere';
+  const strong=make('strong',p.isin+' · '+p.direction);item.append(strong);
+  item.append(make('p',p.issuerVerified===true
+      ?'Emittenten-Identität geprüft · DEGIRO-Handelbarkeit unbekannt'
+      :'Emittenten-Identität offen · DEGIRO-Handelbarkeit unbekannt'));
+  item.append(make('p',p.issuerReason||'Keine neuen Quellendaten'));
+  const button=make('button','ISIN kopieren');button.type='button';
+  button.addEventListener('click',()=>{
+   const value=p.isin;
+   if(navigator.clipboard?.writeText)navigator.clipboard.writeText(value).then(()=>{
+    button.textContent='Kopiert';
+   }).catch(()=>{button.textContent='Kopieren fehlgeschlagen';});
+   else button.textContent='Kopieren auf diesem Gerät nicht verfügbar';
+  });
+  item.append(button);
+  // Only a trusted issuer HTTPS link; no external arbitrary/javascript URLs.
+  if(typeof p.sourceUrl==='string'){
+   try{
+    const url=new URL(p.sourceUrl);
+    if(url.protocol==='https:'&&
+       ['sg-zertifikate.de','www.sg-zertifikate.de','www.sg-zertifikate.ch',
+        'sg-zertifikate.ch','derivate.bnpparibas.com'].includes(url.hostname)){
+      const link=make('a','Emittentenseite');link.href=url.href;
+      link.target='_blank';link.rel='noopener noreferrer';link.style.marginLeft='12px';item.append(link);
+    }
+   }catch(_){}
+  }
+  list.append(item);
+ }
+ host.append(list);
+ if(data.excluded.length){
+  const details=make('details'),heading=make('summary','Ausgeschlossene frühere Produkte ('+data.excluded.length+')');
+  details.append(heading);
+  for(const p of data.excluded.slice(0,12))details.append(make('p',String(p.isin||'')+' · '+String(p.reason||'')));
+  host.append(details);
+ }
+}
+let issuerCatalogLoading=false;
+async function refreshIssuerCandidates(){
+ if(issuerCatalogLoading)return;
+ issuerCatalogLoading=true;
+ const status=document.getElementById('dgIssuerStatus');
+ try{
+  const ctl=new AbortController(), timer=setTimeout(()=>ctl.abort(),12000);
+  let response;
+  try{response=await fetch('/api/degiro/candidates',{cache:'no-store',signal:ctl.signal});}
+  finally{clearTimeout(timer);}
+  if(!response.ok)throw Error('HTTP '+response.status);
+  showIssuerCandidates(await response.json());
+ }catch(e){if(status)status.textContent='Automatische Emittentenrecherche vorübergehend nicht erreichbar: '+String(e.message||e);}
+ finally{issuerCatalogLoading=false;}
+}
+
 async function inject(){
  if(document.getElementById("dgTop3"))return;
  const a=document.getElementById("dgProductOut"); if(!a)return;
@@ -2788,7 +2868,7 @@ async function inject(){
  '<details style="margin-top:12px"><summary id="dgSavedProductsSummary" style="cursor:pointer;font-weight:700">Gold-Hebelprodukte</summary><div id="dgMissingProducts" style="margin-top:12px"></div></details>'+
  '<div id="dgScreenshotReturn" hidden style="margin-top:14px;padding:14px;background:#eaf3ff;border:2px solid #1677ff;border-radius:14px;scroll-margin-top:16px"><b>Screenshots für <span data-return-isin></span></b><p class="small">Bilder werden diesem zuvor geöffneten Produkt zugeordnet, auch wenn ISIN oder WKN im Bild fehlen. Eine eindeutig abweichende Produktkennung wird gemeldet.</p><div data-return-product-link></div><div data-return-missing></div><p class="small">Fehlenden Wert erneut aufnehmen: Produktseite öffnen, Screenshot machen und anschließend hier beim selben Produkt hinzufügen.</p><button type="button" data-return-upload style="width:100%;background:#1677ff">↑ Bilder / PDF für dieses Produkt hinzufügen</button><div class="small" style="margin:8px 0">Originaldateien: lokal auf diesem Gerät, bis zu 7 Tage / insgesamt 100 MB. Nach Erkennungsupdates prüft Bob gespeicherte Dateien erneut. Ursprüngliche Datenstände bleiben erhalten.</div><button type="button" data-return-reprocess>Gespeicherte Bilder erneut prüfen</button><button type="button" data-return-delete>Gespeicherte Originaldateien löschen</button><button type="button" data-return-close>Fertig / ausblenden</button><div role="status" data-return-status style="overflow-wrap:anywhere;min-width:0"></div><div role="status" data-return-complete hidden style="margin-top:12px;font-weight:700;color:#15803d">✅ Datenübertragung komplett</div></div>'+
  '<div style="margin-top:14px;padding:12px;background:#fff;border-radius:16px;border:1px solid #e1e7f0">'+
- '<b>📷 DEGIRO-Liste</b><button type="button" id="dgListUploadButton" style="margin-top:10px;width:100%;background:#1677ff">↑ DEGIRO-Liste hochladen</button>'+
+ '<details id="dgIssuerCatalogPanel" style="margin-bottom:12px;border:1px solid #d7e0ea;border-radius:10px;padding:10px"><summary><b>Automatische Gold-Produktrecherche · externe Kandidaten</b></summary><p class="small">Bob überprüft die früher in DEGIRO beobachteten ISINs ohne Screenshot bei Emittenten. Nicht die vollständige aktuelle DEGIRO-Liste; Handelbarkeit und neue Produkte sind nicht bestätigt. Keine automatische Top-3-Freigabe.</p><div role="status" class="small" id="dgIssuerStatus">Noch keine Serverprüfung.</div><div id="dgIssuerCandidates"></div></details>'+ '<b>📷 DEGIRO-Liste</b><button type="button" id="dgListUploadButton" style="margin-top:10px;width:100%;background:#1677ff">↑ DEGIRO-Liste hochladen</button>'+
  '<input id="dgListUpload" type="file" accept="image/*" multiple hidden>'+
  '<details style="margin-top:8px"><summary>Hinweise zum Hochladen</summary><div class="small">Einen oder mehrere Listen-Screenshots gleichzeitig auswählen. Eine neue Auswahl ersetzt die bisherige Liste nach erfolgreichem Einlesen.</div></details>'+
  '<div id="dgCentralStatus" class="small" role="status" aria-live="polite" style="margin-top:9px">Gespeicherte Liste wird geladen …</div><details id="dgSavedListImages"></details></div>'+
@@ -2869,6 +2949,9 @@ async function inject(){
  });
  refreshImportedProducts(!['night','weekend'].includes(window.BobDegiroPhase?.()));
  const savedCount=restoredProducts.length;
+ refreshIssuerCandidates();
+ setInterval(()=>{if(!document.hidden)refreshIssuerCandidates();},10*60*1000);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshIssuerCandidates();});
  b.querySelector('#dgCentralStatus').textContent=listArchive?.files?.length?'Gespeicherte Liste: '+listArchive.files.length+' Bild(er) · '+savedCount+' Produkte. Gespeichert bis 22 Uhr Schweizer Zeit.':savedCount?savedCount+' Produkte gespeichert. Frühere Originalbilder sind nicht gespeichert; die Produktdaten bleiben bis 22 Uhr erhalten.':'Bitte für heute neue Listenbilder einlesen. Tageslisten gelten bis 22 Uhr Schweizer Zeit.';
  const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgListUploadButton'),uploadStatus=b.querySelector('#dgCentralStatus');
  uploadButton.addEventListener('click',()=>upload.click());
