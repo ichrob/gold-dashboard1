@@ -215,7 +215,7 @@ function mount(parent){
  const expl=el('p','Bob vergleicht Basismodell, verschiedene Trendfolge- und Ausbruchparameter, Gegenbewegung und ein trainiertes lineares Lernmodell. Jede Runde trennt Training, Auswahl und spätere Testdaten. Die Kurse sind Referenz-Kerzen und keine ausführbaren DEGIRO-Geld-/Briefkurse.');
  expl.className='small';research.append(expl);
  const runBtn=el('button','Gespeicherten Vergleich neu anzeigen');runBtn.type='button';runBtn.className='bob-primary';
- const rStatus=el('p','Bob prüft automatisch an Handelstagen ab 08:00 Uhr (Zürich) und kontrolliert am Wochenende das Forschungsarchiv. Kein Knopfdruck notwendig.');
+ const rStatus=el('p','Bob prüft morgens und ab 20:00 Uhr an Handelstagen (Zürich) und kontrolliert am Wochenende das Forschungsarchiv. Kein Knopfdruck notwendig.');
  rStatus.className='small';rStatus.setAttribute('role','status');
  const reportBox=el('div');research.append(runBtn,rStatus,reportBox);shell.append(research);
  let researchBusy=false,researchLoaded=false;
