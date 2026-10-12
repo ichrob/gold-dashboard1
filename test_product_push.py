@@ -10,6 +10,19 @@ class ProductPushTransitions(unittest.TestCase):
         checked=evaluate({'products': [], 'capturedAt': int(time.time()*1000)})
         self.assertEqual(checked['products'],[])
 
+    def test_invalid_or_stale_selection_is_a_client_error_and_fails_closed(self):
+        import subprocess
+        from unittest.mock import patch
+        for reason in ('Prüfanfrage veraltet','Produktliste ungültig'):
+            failure=subprocess.CalledProcessError(1,'node',stderr=reason)
+            with patch('product_push.evaluator_runtime.run', side_effect=failure):
+                with self.assertRaisesRegex(ValueError,reason):
+                    evaluate({'products': [], 'capturedAt': int(time.time()*1000)})
+        failure=subprocess.CalledProcessError(1,'node',stderr='Unexpected internal failure')
+        with patch('product_push.evaluator_runtime.run', side_effect=failure):
+            with self.assertRaisesRegex(RuntimeError,'nicht unabhängig geprüft'):
+                evaluate({'products': [], 'capturedAt': int(time.time()*1000)})
+
     def test_zero_one_two_three(self):
         for count in range(4):
             state, message=transition(None,self.checked(count),self.now)
