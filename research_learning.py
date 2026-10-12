@@ -177,6 +177,6 @@ def maintenance(previous, day):
         status="maintenance", approved=False, orderExecutionEnabled=False,
         affectsLiveSignals=False, brokerConnected=False,
         historicalInstrument=prior.get("historicalInstrument"),
-        closedBars=prior.get("closedBars", 0), rangeMs=prior.get("rangeMs"),
+        closedBars=prior.get("closedBars", 0), rangeMs=prior.get("rangeMs") or [None, None],
         folds=[], noNewEvidence=True, learningCycle=cycle,
         note="Archiv- und Sicherheitsprüfung am geschlossenen Markt; kein zusätzlicher Backtest.")
