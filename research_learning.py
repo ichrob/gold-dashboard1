@@ -30,7 +30,7 @@ def _previous_cycle(previous):
 
 def _new_cycle():
     return dict(version=VERSION, status="collecting", proposal=None,
-                rejectedStrategies=[], prospective=dict(sessions=0, trades=0,
+                rejectedStrategies=[], completedStrategies=[], completed=[], prospective=dict(sessions=0, trades=0,
                     baselineTrades=0, candidateIndex=1.0, baselineIndex=1.0,
                     lastEvaluatedBarAt=None), experiments=list(strategy_lab.STRATEGIES),
                 liveRuleChanged=False, productNetValidated=False, automaticOrder=False,
@@ -145,8 +145,25 @@ def enrich(report, bars, previous=None, *, day):
             else:
                 state["status"] = "shadow"
                 state["reason"] = "Eingefrorener Kandidat wird auf späteren, geschlossenen Kerzen geprüft."
-    if not state.get("proposal") or state["proposal"].get("state") == "rejected":
-        candidate = _choose(result, state.get("rejectedStrategies", []))
+    # Completed candidates remain in the audit log; later trading days can
+    # research another candidate instead of getting stuck after one trial.
+    finished = state.get("proposal") or {}
+    if finished.get("state") in ("paper-required", "rejected"):
+        signature = (finished.get("strategy"), finished.get("proposedOn"))
+        if not any((x.get("strategy"), x.get("proposedOn")) == signature
+                   for x in state.get("completed", [])):
+            state.setdefault("completed", []).append(dict(
+                strategy=finished.get("strategy"), proposedOn=finished.get("proposedOn"),
+                finishedOn=day, result=finished.get("state"),
+                prospective=copy.deepcopy(state.get("prospective", {}))))
+            state["completed"] = state["completed"][-12:]
+        if finished.get("state") == "paper-required":
+            seen = state.setdefault("completedStrategies", [])
+            if finished.get("strategy") not in seen:
+                seen.append(finished["strategy"])
+    if not state.get("proposal") or state["proposal"].get("state") in ("rejected", "paper-required"):
+        excluded = state.get("rejectedStrategies", []) + state.get("completedStrategies", [])
+        candidate = _choose(result, excluded)
         if candidate:
             state["proposal"] = dict(strategy=candidate, state="shadow",
                  proposedOn=day, frozenAtBar=current_end, mode="SHADOW_ONLY",
@@ -170,13 +187,27 @@ def maintenance(previous, day):
     """Audit the prior archive without treating a closed market as fresh learning."""
     prior = previous if isinstance(previous, dict) else {}
     cycle = _previous_cycle(prior) or _new_cycle()
-    cycle.update(day=day, status="weekend-maintenance", newIndependentEvidence=False,
+    archive_verified = (prior.get("mode") == "RESEARCH_ONLY" and
+                        prior.get("version") == strategy_lab.VERSION and
+                        prior.get("approved") is False and
+                        prior.get("orderExecutionEnabled") is False and
+                        prior.get("affectsLiveSignals") is False and
+                        isinstance(prior.get("rangeMs"), list) and
+                        len(prior["rangeMs"]) == 2 and
+                        _finite(prior["rangeMs"][1]) and
+                        isinstance(prior.get("closedBars"), int) and prior["closedBars"] > 0)
+    cycle.update(day=day,
+                 status="weekend-maintenance" if archive_verified else "archive-missing",
+                 newIndependentEvidence=False,
                  liveRuleChanged=False, productNetValidated=False, automaticOrder=False,
-                 reason="Wochenend-Archiv geprüft. Keine neuen Kurse, Trades oder Freigaben behauptet.")
+                 reason=("Wochenend-Archiv vorhanden und Sperrstatus überprüft."
+                         if archive_verified else
+                         "Kein ausreichend belegtes vorheriges Archiv; Forschung bleibt gesperrt.") +
+                        " Keine neuen Kurse, Trades oder Freigaben behauptet.")
     return dict(version=strategy_lab.VERSION, mode="RESEARCH_ONLY",
         status="maintenance", approved=False, orderExecutionEnabled=False,
         affectsLiveSignals=False, brokerConnected=False,
         historicalInstrument=prior.get("historicalInstrument"),
         closedBars=prior.get("closedBars", 0), rangeMs=prior.get("rangeMs") or [None, None],
-        folds=[], noNewEvidence=True, learningCycle=cycle,
+        folds=[], noNewEvidence=True, archiveVerified=archive_verified, learningCycle=cycle,
         note="Archiv- und Sicherheitsprüfung am geschlossenen Markt; kein zusätzlicher Backtest.")
