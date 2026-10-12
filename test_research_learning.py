@@ -92,9 +92,30 @@ class AutonomousLearningTests(unittest.TestCase):
         maintenance=learning.maintenance(before,"2026-10-17")
         self.assertEqual(maintenance["status"],"maintenance")
         self.assertTrue(maintenance["noNewEvidence"])
+        self.assertTrue(maintenance["archiveVerified"])
         self.assertFalse(maintenance["learningCycle"]["newIndependentEvidence"])
         self.assertEqual(maintenance["learningCycle"]["proposal"],before["learningCycle"]["proposal"])
         self.assertEqual(maintenance["rangeMs"],before["rangeMs"])
+
+    def test_missing_weekend_archive_is_not_passed_off_as_success(self):
+        result=learning.maintenance(None,"2026-10-17")
+        self.assertFalse(result["archiveVerified"])
+        self.assertEqual(result["learningCycle"]["status"],"archive-missing")
+        self.assertFalse(result["learningCycle"]["newIndependentEvidence"])
+
+    def test_completed_candidate_does_not_block_following_trials(self):
+        rows=candles()
+        first=learning.enrich(report(rows),rows,day="2026-10-12")
+        first["learningCycle"]["proposal"]["state"]="paper-required"
+        variant=report(candles(930))
+        variant["outOfSampleByStrategy"]["breakout"].update(
+            meanFoldNetPct=.5,worstFoldNetPct=-1,maxFoldDrawdownPct=4)
+        result=learning.enrich(variant,candles(930),first,day="2026-10-13")
+        cycle=result["learningCycle"]
+        self.assertEqual(cycle["proposal"]["strategy"],"breakout")
+        self.assertIn("trend-strict",cycle["completedStrategies"])
+        self.assertEqual(cycle["completed"][0]["result"],"paper-required")
+        self.assertFalse(cycle["liveRuleChanged"])
 
     def test_weekend_archive_runs_without_fetching_quotes(self):
         self.assertIsNone(worker.trading_day(datetime(2026,10,17,12,tzinfo=TZ)))
