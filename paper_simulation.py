@@ -474,6 +474,8 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             elif not stop_target_audit.valid_plan(plan):reason='ABWARTEN: kein bestätigter gültiger Goldplan'
             elif not choice:
                 reason=('KO-Schutz: heute ausgeschlossene ISIN; ' if blocked else 'Kein passendes belegtes Produkt: ')+ '; '.join(selection.get('reasons') or ['kein geeigneter neuer Kandidat'])
+            elif profile_policy and profile_policy.get('early_impulse') and choice.get('koGuardRequired') is not True:
+                reason='Frühimpuls-KO-Schutz: Nur ausdrücklich vollständig geprüfte Produkte zulässig'
             elif choice.get('indicative') or choice.get('estimated'):reason='Unverbindlicher Kandidat: kein virtueller Eurokauf ohne Produktfreigabe'
             elif not q:reason='Kein aktueller, ausführbarer Geld-/Briefkurs in EUR: virtueller Produkteinstieg gesperrt'
             elif choice.get('koGuardRequired') and paper_ko_guard.entry_reason(choice,quotes.get(choice['isin']),market,now)[0]:
