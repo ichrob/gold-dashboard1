@@ -11,6 +11,15 @@ function fixedBarriers(){try{const x=JSON.parse(localStorage.getItem(FIXED_KO_KE
 function fixedFor(p){const all=fixedBarriers(),x=Object.prototype.hasOwnProperty.call(all,p.isin)?all[p.isin]:FIXED_KO_DEFAULTS[p.isin];return x&&x.isin===p.isin&&x.direction===p.productDirection&&x.userConfirmed===true&&number(x.value)>0&&x.currency==='USD'&&(number(p.ko)===null||number(p.ko)===number(x.value))?x:null;}
 function saveFixed(p,image){if(!window.BobDegiro.validIsin(p.isin)||!['LONG','SHORT'].includes(p.productDirection)||!(number(p.ko)>0))return false;try{const all=fixedBarriers();all[p.isin]={isin:p.isin,direction:p.productDirection,value:number(p.ko),currency:'USD',source:'DEGIRO-Screenshot, vom Nutzer bestätigt',imageSource:image||'manuell aus DEGIRO-Screenshot',userConfirmed:true,confirmedAt:new Date().toISOString()};localStorage.setItem(FIXED_KO_KEY,JSON.stringify(all));return true;}catch(_){return false;}}
 function removeFixed(isin){try{const all=fixedBarriers();all[isin]=null;localStorage.setItem(FIXED_KO_KEY,JSON.stringify(all));}catch(_){} }
+function resetFixedList(){
+ // A new screenshot generation revokes the older hand-confirmed barriers,
+ // including fixed defaults on historically known ISINs.
+ try{
+  const ids=new Set([...Object.keys(FIXED_KO_DEFAULTS),...Object.keys(fixedBarriers())]);
+  localStorage.setItem(FIXED_KO_KEY,JSON.stringify(Object.fromEntries([...ids].map(id=>[id,null]))));
+  return true;
+ }catch(_){return false;}
+}
 function assess(p,r,bundle,now=Date.now()){
  const out={eligible:false,tradeable:false,estimated:false,reasons:[],quote:null,ko:null,distanceUsd:null,distancePct:null};
  const fail=s=>out.reasons.push(s);
@@ -186,7 +195,7 @@ function renderComparison(x){
  const row=(label,q)=>'<tr><td>'+escape(label)+'</td><td>'+escape(q.bid.toFixed(2))+' / '+escape(q.ask.toFixed(2))+' EUR</td><td>'+escape(q.source)+' · '+escape(q.venue)+'</td><td>'+escape(q.at)+'</td></tr>';
  return '<div class="small"><b>Screenshot / frischer Produktkurs · '+escape(x.isin)+'</b><table><thead><tr><th>Stand</th><th>Geld / Brief</th><th>Quelle / Handelsplatz</th><th>Kurszeit laut Quelle</th></tr></thead><tbody>'+row('Momentaufnahme',x.snapshot)+(x.current?row('Frisch abgerufen',x.current):'')+'</tbody></table>'+(x.current?'Änderung Geld '+escape(x.bidChange.toFixed(2))+' EUR · Brief '+escape(x.askChange.toFixed(2))+' EUR. '+(x.sameVenue?'Gleicher Handelsplatz.':'Handelsplätze können abweichen; Preisunterschiede sind keine reine Kursbewegung.'):'Offen: '+escape(x.reason))+'. Screenshot bleibt eine Momentaufnahme; fehlende Sekunden bleiben unbekannt.</div>';
 }
-window.BobCombined={fixedBarriers,compareSnapshot,renderComparison,fixedFor,saveFixed,removeFixed,assess,render,form,time,rank,renderTop3,screenshotDraft,mergeDraft};
+window.BobCombined={fixedBarriers,resetFixedList,compareSnapshot,renderComparison,fixedFor,saveFixed,removeFixed,assess,render,form,time,rank,renderTop3,screenshotDraft,mergeDraft};
 })();
 
 /* Bob DEGIRO assistant: deterministic risk math, product-fit checks and Top-3 ranking. No order execution. */
@@ -2980,6 +2989,12 @@ async function inject(){
    const files=await retainSelectedImages(upload);
    const items=await readListBatch(files,recognizeOcr,(i,total,name)=>{uploadStatus.textContent='📷 Bild '+i+' von '+total+' wird gelesen: '+name;});
    await saveListArchive(files,items);
+   // The old screenshot universe is now replaced. Its manual KO and PDF
+   // attestations must not silently apply to the new list, even for a shared ISIN.
+   window.BobCombined.resetFixedList();
+   try{localStorage.removeItem(PDF_REFERENCE_STORE);}catch(_){}
+   returnProductIsin='';returnProductPending=false;
+   try{localStorage.removeItem(RETURN_PRODUCT_KEY);}catch(_){}
    populateCandidateRows(items);
    // Persist the new generation before any normal/periodic background snapshot.
    window.BobPaperSimulation?.sync?.(buildPaperListEvidence(),true);
