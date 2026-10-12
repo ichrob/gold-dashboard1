@@ -232,6 +232,16 @@ class UnattendedBackgroundAuditWriterTests(unittest.TestCase):
             self.assertEqual(payload['direction'],'NEUTRAL')
             self.assertEqual(payload['earlyImpulse']['direction'],'SHORT')
             self.assertFalse(payload['earlyImpulse']['affectsApproval'])
-            harvest.assert_called_once_with(conn)
+            harvest.assert_not_called()
             self.assertFalse(record_market_observation(conn,{}))
             self.assertEqual(write.call_count,1)
+
+    def test_outcomes_are_backfilled_in_a_separate_transaction(self):
+        from unittest.mock import MagicMock, patch
+        from push_server import run_audit_harvest_once
+        database=MagicMock()
+        conn=database.return_value.__enter__.return_value
+        with patch('push_server.decision_audit.harvest') as harvest:
+            run_audit_harvest_once(database)
+        harvest.assert_called_once_with(conn)
+        conn.commit.assert_called_once()

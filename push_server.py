@@ -326,8 +326,24 @@ def record_market_observation(conn, market):
         'price':market.get('price'),'priceAt':market.get('dataAt'),'reason':market.get('decisionReason'),
         'score':market.get('score'),'indicators':market.get('context'), 'products':[],
         'selection':[], 'gateReasons':[] if market.get('ready') else ['Marktdaten nicht freigegeben']})
-    decision_audit.harvest(conn)
     return True
+
+
+def run_audit_harvest_once(database):
+    """Backfill real forward prices without blocking trade/Push request transactions."""
+    with database() as conn:
+        decision_audit.harvest(conn)
+        conn.commit()
+
+
+def audit_outcome_loop():
+    while True:
+        try:
+            run_audit_harvest_once(db)
+        except Exception as exc:
+            # A failed read-only outcome calculation must not stop live monitoring.
+            print('BOB_AUDIT_HARVEST error='+type(exc).__name__, flush=True)
+        time.sleep(120)
 
 
 def run_background(bundle):
@@ -946,6 +962,7 @@ if __name__ == "__main__":
     init_db()
     print("BOB_PUSH startup=ready", flush=True)
     threading.Thread(target=product_expiry_loop, name="bob-product-expiry", daemon=True).start()
+    threading.Thread(target=audit_outcome_loop, name="bob-audit-outcomes", daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
 
 
