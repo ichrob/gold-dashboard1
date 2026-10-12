@@ -580,16 +580,33 @@ def _worker(db):
                         settings=dict(timeframe='15m',trailAtr=1.5,learningPolicy=rule_learning.policy(conn))
                         active_isins=[c['product']['isin'] for c in active_cases.values() if c.get('product',{}).get('isin')]
                         quotes=quote_cache(evidence['products'],active_isins,now)
-                        # Same unmodified market evaluation for all three accounts.
+                        # Original four paper policies consume unchanged confirmed direction.
                         market=background_push.analyze(bundle,settings,priority=2)
                         selection=dict(choices=[],reasons=[])
-                        if len(active_cases)<len(paper_portfolios.POLICIES) and market.get('ready') and market.get('direction') in ('LONG','SHORT'):
+                        if market.get('ready') and market.get('direction') in ('LONG','SHORT') and any(
+                             p not in active_cases for p in ('conservative','balanced','offensive','trend800')):
                             request={**evidence,'quotes':quotes,'market':market,'bundle':bundle}
                             p=evaluator_runtime.run(['node',str(Path(__file__).with_name('paper_selection.js'))],input=json.dumps(request),
                                              text=True,capture_output=True,timeout=6,check=True,priority=2)
                             selection=json.loads(p.stdout)
+                        # Independent extra research account receives its own direction
+                        # and derived stop/target; same exact product validator and quotes.
+                        early_market=paper_portfolios.early_paper_market(market,now)
+                        early_selection=dict(choices=[],reasons=['Kein freigegebenes Produkt zur Frühwarnung'])
+                        if ('early100' not in active_cases and
+                            early_market.get('paperEntrySource')=='early-impulse-paper-v1'):
+                            request={**evidence,'quotes':quotes,'market':early_market,'bundle':bundle}
+                            try:
+                                p=evaluator_runtime.run(['node',str(Path(__file__).with_name('paper_selection.js'))],
+                                    input=json.dumps(request),text=True,capture_output=True,timeout=6,
+                                    check=True,priority=2)
+                                early_selection=json.loads(p.stdout)
+                            except Exception as early_exc:
+                                early_selection['reasons']=['Frühimpuls-Produktprüfung nicht verfügbar: '+type(early_exc).__name__]
+                                print('BOB_EARLY_PAPER_SELECTION error='+type(early_exc).__name__,flush=True)
                         outcomes=paper_portfolios.run_all(conn,bundle,market,selection,quotes,
-                                                          time.time()*1000,settings,active_cases)
+                                                          time.time()*1000,settings,active_cases,
+                                                          early_market=early_market,early_selection=early_selection)
                         # Observational research MUST NOT interrupt existing paper ledgers.
                         # A PostgreSQL savepoint contains all collector failures.
                         conn.execute('SAVEPOINT bob_zukunft_capture')
