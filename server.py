@@ -2,6 +2,7 @@ import vollautomatisch_panel
 import vollautomatisch_engine
 import strategy_lab
 import strategy_lab_background
+import degiro_catalog
 import broker_bridge
 import trade_email_panel
 import intraday_comparison
@@ -780,7 +781,7 @@ class Handler(BaseHTTPRequestHandler):
         # Sensitive data APIs must be authenticated before any data generation.
         # Keep static PWA resources and /health public, but never expose live,
         # MTF, or DEGIRO enrichment data without the existing Bob credentials.
-        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research"
+        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates"
         if protected_api_path:
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
@@ -859,6 +860,20 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if path == "/api/degiro/candidates":
+            # Historical DEGIRO list seeds researched through existing issuer
+            # adapters. Never an authenticated DEGIRO account or tradability list.
+            degiro_catalog.start()
+            body = json.dumps(degiro_catalog.snapshot(),ensure_ascii=False,
+                              separators=(",",":")).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type","application/json; charset=utf-8")
+            self.send_header("Cache-Control","no-store")
+            self.send_header("X-Content-Type-Options","nosniff")
             self.end_headers()
             self.wfile.write(body)
             return
@@ -1556,6 +1571,7 @@ if __name__ == "__main__":
     print(f"BOB_START port={port} host=0.0.0.0 version=runtime-http-trace-v2 process={PROCESS_ID}", flush=True)
     ensure_fibonacci_monitor()
     auto_collection.start()
+    degiro_catalog.start()
     strategy_lab_background.start(fetch_technical_history, mark_bar_state)
     gold_research.start()
     import weekend_archive
