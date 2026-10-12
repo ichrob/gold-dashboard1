@@ -22,6 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Allow push deployment to reach both Render services
+        if: github.event_name == 'push'
+        run: sleep 100
       - name: Respect scheduled Swiss weekend
         id: session
         run: |
