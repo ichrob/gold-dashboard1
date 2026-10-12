@@ -25,13 +25,13 @@ PANEL = r"""
  </div>
 </section>
 <section class="card" id="bob-portfolio-comparison" style="margin:12px 0;padding:15px;border:1px solid #cbd5e1;border-radius:14px;background:#fff;color:#17263a">
- <h3>Vier unabhängige Geldsimulationen</h3>
- <p class="small">Start Montag, 12.10.2026 · 08:00 Uhr (Zürich): dreimal 100 € und einmal 800 € virtuelles Kapital. Keine echten Orders, kein DEGIRO-Zugriff. Alle vier Konten nutzen dieselben beobachteten Kurse. Der bestehende manuelle 800-Euro-Test unter Mein Trade bleibt vollständig unangetastet.</p>
- <button type="button" id="bobProfilesRefresh" class="bob-primary">Vier Simulationen prüfen</button>
+ <h3>Fünf unabhängige Geldsimulationen</h3>
+ <p class="small">Vier 100-€-Testkonten und ein 800-€-Trendfolgekonto. Die ersten vier bisherigen Konten starten wie bisher am Montag, 12.10.2026 um 08:00 Uhr (Zürich); das neue Frühimpuls-Testkonto erst ab seiner Aktivierung. Keine echten Orders, kein DEGIRO-Zugriff. Alle fünf Konten nutzen dieselben beobachteten Kurse. Der bestehende manuelle 800-Euro-Test unter Mein Trade bleibt vollständig unangetastet.</p>
+ <button type="button" id="bobProfilesRefresh" class="bob-primary">Fünf Simulationen prüfen</button>
  <p id="bobProfilesStatus" class="small" role="status">Prüfstand wird geladen …</p>
  <div id="bobProfilesCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:12px"></div>
  <p class="small">Bruttoergebnisse: Spread ist im Brief-/Geldkurs enthalten. Gebühren, Finanzierung und Slippage sind nicht vollständig belegt. Erfolgsquote zählt nur mit frischem Produktkurs bewertete Trades; Drawdown nur beobachtete Kurse, keine unbekannten Kurslücken.</p>
-  <details><summary>Grenzen des Tests</summary><p class="small">Konservativ: bestätigter Trend, Richtungswert 80/20, bis 35 % Kapitaleinsatz, 1 % Tages-Einstiegssperre. Ausgewogen: 70/30, bis 65 %, 3 %. Offensiv: 65/35, bis 95 %, 5 %. Trendfolge 800 €: Trend bestätigt, 70/30, bis 65 %, 3 %. Anders als die 100-Euro-Varianten verkauft die Trendfolge am ersten Ziel nicht automatisch einen Teil: Zielmarken werden verlängert, Stopps nur in günstige Richtung nachgezogen, Ausstieg bei bestätigter Gegenrichtung über zwei verschiedene Signal-Kerzen, Stop oder spätestens nach 8 Stunden beziehungsweise 21:45 Uhr Zürich. Keine Nachtposition. Prozentuale Rendite statt absoluter Eurogewinne vergleichen. Die Tagesgrenzen stoppen nur weitere Einstiege. Alle Varianten verwenden dieselben Produktnachweise. Bruttomodell ohne vollständig belegte Gebühren, Finanzierung und Slippage; Stopps sind wegen Kurslücken keine garantierten Verlustgrenzen.</p></details>
+  <details><summary>Grenzen des Tests</summary><p class="small">Konservativ: bestätigter Trend, Richtungswert 80/20, bis 35 % Kapitaleinsatz, 1 % Tages-Einstiegssperre. Ausgewogen: 70/30, bis 65 %, 3 %. Offensiv: 65/35, bis 95 %, 5 %. Trendfolge 800 €: Trend bestätigt, 70/30, bis 65 %, 3 %. Anders als die 100-Euro-Varianten verkauft die Trendfolge am ersten Ziel nicht automatisch einen Teil: Zielmarken werden verlängert, Stopps nur in günstige Richtung nachgezogen, Ausstieg bei bestätigter Gegenrichtung über zwei verschiedene Signal-Kerzen, Stop oder spätestens nach 8 Stunden beziehungsweise 21:45 Uhr Zürich. Keine Nachtposition. Prozentuale Rendite statt absoluter Eurogewinne vergleichen. Frühimpuls 100 €: eigenständiger früher 5m/15m-LONG/SHORT-Einstiegsversuch, ohne Änderung der Hauptrichtung und nur mit gültigem Euro-Produktkurs, verifiziertem KO und Gold-Stop/Ziel-Plan. Fehlende Nachweise blockieren auch den virtuellen Einstieg. Die Tagesgrenzen stoppen nur weitere Einstiege. Alle Varianten verwenden dieselben Produktnachweise. Bruttomodell ohne vollständig belegte Gebühren, Finanzierung und Slippage; Stopps sind wegen Kurslücken keine garantierten Verlustgrenzen.</p></details>
 </section>
 <script>
 (function(){
@@ -50,7 +50,7 @@ PANEL = r"""
   async function refreshProfiles(){
    if(profileBusy)return;
    profileBusy=true;
-   profilesStatus.textContent='Alle vier Testkonten werden geprüft …';
+   profilesStatus.textContent='Alle fünf Testkonten werden geprüft …';
    try{
     const day=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Zurich'}).format(new Date());
     const response=await fetch('/api/audit/read',{method:'POST',credentials:'same-origin',
@@ -58,10 +58,10 @@ PANEL = r"""
       body:JSON.stringify({mode:'simulation-profiles',day})});
     if(!response.ok)throw Error('HTTP '+response.status);
     const data=await response.json();
-    if(data.mode!=='four-independent-paper-accounts'||data.realOrders!==false||
-       !Array.isArray(data.accounts)||data.accounts.length!==4)throw Error('Vier-Konten-Auswertung ungültig');
+    if(data.mode!=='five-independent-paper-accounts'||data.realOrders!==false||
+       !Array.isArray(data.accounts)||data.accounts.length!==5)throw Error('Fünf-Konten-Auswertung ungültig');
     profilesCards.replaceChildren();
-    const names={conservative:'Konservativ',balanced:'Ausgewogen',offensive:'Offensiv',trend800:'Trendfolge 800 €'};
+    const names={conservative:'Konservativ',balanced:'Ausgewogen',offensive:'Offensiv',trend800:'Trendfolge 800 €',early100:'Frühimpuls 100 € (LONG/SHORT)'};
     for(const acc of data.accounts){
      const c=acc.control||{},p=acc.riskPolicy||{},st=acc.stats||{},perf=acc.performance||{};
      const card=document.createElement('div');card.style='padding:12px;border:1px solid #cbd5e1;border-radius:12px;min-width:0';
@@ -81,6 +81,8 @@ PANEL = r"""
       'Offene Stücke: '+(c.openUnits??0),
       'Tagesverlustgrenze: '+Math.round((p.daily_loss_fraction||0)*100)+' %',
       'Max. Kapitaleinsatz: '+Math.round((p.exposure_fraction||0)*100)+' %',
+      'Strategie: '+(acc.profile==='early100'?'Frühimpuls LONG/SHORT · nur virtuell':'bestätigte Hauptrichtung') ,
+      'Beginn der Konto-Historie: '+time(c.startAt),
       'Ausstiegsmodell: '+(acc.exitPolicy==='trend-follow-v1'?'Längeren Trend halten · kein Teilverkauf am 1. Ziel':'Bob: Teilgewinn und Zielverlängerung'),
       'Abgeschlossene Fälle heute: '+(st.closed||0),
       'Status: '+(c.status||'nicht bestätigt'),
