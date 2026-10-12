@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 from bob_auth import NoRedirect
 import strategy_lab
+import research_learning
 
 TZ = ZoneInfo("Europe/Zurich")
 POLL_SECONDS = 300
@@ -29,6 +30,18 @@ def trading_day(now=None):
     now = now or datetime.now(TZ)
     local = now.astimezone(TZ)
     return local.date().isoformat() if local.weekday() < 5 and 8 <= local.hour < 21 else None
+
+
+def research_day(now=None):
+    """Weekday research plus a single mid-day weekend integrity audit."""
+    now = now or datetime.now(TZ)
+    local = now.astimezone(TZ)
+    normal = trading_day(local)
+    if normal:
+        return normal
+    if local.weekday() >= 5 and 11 <= local.hour < 17:
+        return local.date().isoformat()
+    return None
 
 
 def request(action, payload):
@@ -53,7 +66,7 @@ def request(action, payload):
 
 def evaluate_and_store(fetcher, marker, *, now=None, storage=request):
     """One atomic per-date research snapshot, subject to archived-day dedupe."""
-    day=trading_day(now)
+    day=research_day(now)
     if day is None:
         return dict(status="paused", reason="ausserhalb der automatischen Marktzeit")
     previous=storage("read",{})
@@ -61,13 +74,19 @@ def evaluate_and_store(fetcher, marker, *, now=None, storage=request):
         raise ValueError("Forschungsarchiv nicht bestätigt")
     auto=previous.get("automation") or {}
     old=previous.get("latestReport") or {}
-    if auto.get("lastDay")==day and old.get("status")=="evaluated" and old.get("version")==strategy_lab.VERSION:
+    if auto.get("lastDay")==day and old.get("status") in ("evaluated", "maintenance") and old.get("version")==strategy_lab.VERSION:
         return dict(status="already-stored", day=day)
-    rows=fetcher("1h","3mo")
-    closed=marker([dict(row) for row in rows],60)
-    report=strategy_lab.run(closed)
-    if report.get("status") not in ("evaluated","insufficient"):
-        raise ValueError("Forschungsbericht nicht speicherfähig")
+    local=(now or datetime.now(TZ)).astimezone(TZ)
+    if local.weekday() >= 5:
+        # Weekends verify durable state only: do not refit models on stale prices.
+        report=research_learning.maintenance(old,day)
+    else:
+        rows=fetcher("1h","3mo")
+        closed=marker([dict(row) for row in rows],60)
+        report=strategy_lab.run(closed)
+        if report.get("status") not in ("evaluated","insufficient"):
+            raise ValueError("Forschungsbericht nicht speicherfähig")
+        report=research_learning.enrich(report,closed,old,day=day)
     ack=storage("write",dict(day=day,report=report))
     if not isinstance(ack,dict) or ack.get("saved") is not True or ack.get("day")!=day:
         raise ValueError("Forschungsarchiv hat Speicherung nicht bestätigt")
@@ -99,7 +118,7 @@ def start(fetcher, marker):
 def _loop(fetcher,marker):
     next_attempt=0.
     while True:
-        day=trading_day()
+        day=research_day()
         now=time.monotonic()
         if day is None:
             with _lock:
@@ -117,10 +136,10 @@ def _loop(fetcher,marker):
             with _lock:
                 _state["phase"]=phase
                 _state["lastRunDay"]=result.get("day")
-                if phase in ("evaluated","already-stored"):
+                if phase in ("evaluated","maintenance","already-stored"):
                     _state["lastSuccessAt"]=int(time.time()*1000)
             print("BOB_STRATEGY_DAILY status="+phase+" day="+str(result.get("day")),flush=True)
-            next_attempt=time.monotonic()+(3600 if phase in ("evaluated","already-stored") else RETRY_SECONDS)
+            next_attempt=time.monotonic()+(3600 if phase in ("evaluated","maintenance","already-stored") else RETRY_SECONDS)
         except Exception as exc:
             with _lock:
                 _state.update(phase="retry",error=type(exc).__name__)

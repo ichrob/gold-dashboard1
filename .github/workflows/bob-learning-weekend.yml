@@ -1,0 +1,35 @@
+name: Bob weekend research audit
+on:
+  # Wake the free Render worker during the documented Zurich weekend window.
+  # Repeated wake-ups are harmless: the database stores at most one audit per day.
+  schedule:
+    - cron: "20 10,12,14 * * 6,0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bob-weekend-research-audit
+  cancel-in-progress: false
+
+jobs:
+  wake-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Wake Bob and check server availability
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 90 --retry 2 --retry-all-errors --retry-delay 12 \
+            https://bob-private-scanner.onrender.com/health -o /tmp/bob-weekend-health.json
+          python - <<'PY'
+          import json
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          d = json.load(open("/tmp/bob-weekend-health.json"))
+          assert d.get("service") == "bob", "Wrong service"
+          local = datetime.now(ZoneInfo("Europe/Zurich"))
+          assert local.weekday() >= 5, "Not a Zurich weekend"
+          print("Worker wake-up requested; individual research runs require authenticated archived proof.")
+          PY

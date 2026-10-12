@@ -34,13 +34,22 @@ def validate(payload):
         raise ValueError("Ungültiger Berichtstag") from exc
     now = datetime.now(timezone.utc)
     today = now.astimezone(ZONE).date()
-    if d > today or (today-d).days > 2 or d.weekday() >= 5:
-        raise ValueError("Berichtstag ausserhalb automatischer Handelszeit")
+    if d > today or (today-d).days > 2:
+        raise ValueError("Berichtstag ausserhalb automatischer Forschungszeit")
     report = payload.get("report")
     if not isinstance(report, dict) or report.get("mode") != "RESEARCH_ONLY" or report.get("version") != strategy_lab.VERSION:
         raise ValueError("Ungültige Forschungs-Version")
-    if report.get("status") not in ("evaluated", "insufficient") or report.get("approved") is not False or report.get("orderExecutionEnabled") is not False or report.get("affectsLiveSignals") is not False:
+    status = report.get("status")
+    if status not in ("evaluated", "insufficient", "maintenance") or report.get("approved") is not False or report.get("orderExecutionEnabled") is not False or report.get("affectsLiveSignals") is not False:
         raise ValueError("Forschungs-Sperrstatus ungültig")
+    if (d.weekday() >= 5) != (status == "maintenance") or (status == "maintenance" and report.get("noNewEvidence") is not True):
+        raise ValueError("Wochenend-Prüfung darf keine neue Evidenz behaupten")
+    cycle = report.get("learningCycle")
+    if cycle is not None and (not isinstance(cycle, dict) or
+            cycle.get("liveRuleChanged") is not False or
+            cycle.get("automaticOrder") is not False or
+            cycle.get("productNetValidated") is not False):
+        raise ValueError("Unzulässige automatische Regel- oder Brokerfreigabe")
     if report.get("brokerConnected") is not False or not isinstance(report.get("closedBars"), int):
         raise ValueError("Forschungsnachweis unvollständig")
     last = report.get("rangeMs", [None, None])[-1]

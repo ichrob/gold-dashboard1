@@ -215,7 +215,7 @@ function mount(parent){
  const expl=el('p','Bob vergleicht Basismodell, strenge Trendfolge, Ausbruch, Gegenbewegung und ein trainiertes lineares Lernmodell. Jede Runde trennt Training, Auswahl und spätere Testdaten. Die Kurse sind Referenz-Kerzen und keine ausführbaren DEGIRO-Geld-/Briefkurse.');
  expl.className='small';research.append(expl);
  const runBtn=el('button','Gespeicherten Vergleich neu anzeigen');runBtn.type='button';runBtn.className='bob-primary';
- const rStatus=el('p','Bob prüft automatisch an Handelstagen ab 08:00 Uhr (Zürich). Du musst keinen Vergleich starten; hier werden nur gespeicherte Resultate angezeigt.');
+ const rStatus=el('p','Bob prüft automatisch an Handelstagen ab 08:00 Uhr (Zürich) und kontrolliert am Wochenende das Forschungsarchiv. Kein Knopfdruck notwendig.');
  rStatus.className='small';rStatus.setAttribute('role','status');
  const reportBox=el('div');research.append(runBtn,rStatus,reportBox);shell.append(research);
  let researchBusy=false,researchLoaded=false;
@@ -239,16 +239,48 @@ function mount(parent){
    const runtime=info.runtime||{};
    const running=runtime.enabled===true&&runtime.running===true;
    const state=running?(runtime.phase==='retry'?'Fehler · erneuter Versuch geplant':runtime.phase==='market-closed'?'ausserhalb des Prüfzeitfensters pausiert':'läuft'):'nicht bestätigt';
-   const latest=el('p','Hintergrundbetrieb: '+state+' · Mo–Fr ab 08:00 Uhr (Zürich). Letzte gespeicherte Prüfung: '+fmt(auto.lastRunAt)+'. Browser muss nicht geöffnet bleiben.');
+   const latest=el('p','Hintergrundbetrieb: '+state+' · werktags 08–21 Uhr und Wochenend-Archivprüfung 11–17 Uhr (Zürich). Letzte gespeicherte Prüfung: '+fmt(auto.lastRunAt)+'. Browser muss nicht geöffnet bleiben.');
    latest.className='small';reportBox.append(latest);
    if(Array.isArray(auto.history)&&auto.history.length){
     const log=el('details');log.className='bob-disclosure';
     log.append(el('summary','Archivierte Tagesprüfungen ('+auto.history.length+')'));
     const ul=el('ul');
-    for(const h of auto.history)ul.append(el('li',h.day+' · '+(h.status==='evaluated'?'ausgewertet':h.status==='insufficient'?'noch nicht ausreichend':'offen')+' · '+(h.closedBars||0)+' geschlossene 1h-Kerzen'));
+    for(const h of auto.history)ul.append(el('li',h.day+' · '+(h.status==='evaluated'?'ausgewertet':h.status==='maintenance'?'Wochenendprüfung ohne neue Kurse':h.status==='insufficient'?'noch nicht ausreichend':'offen')+' · '+(h.closedBars||0)+' geschlossene 1h-Kerzen'));
     log.append(ul);reportBox.append(log);
    }
 
+   const cycle=info.learningCycle;
+   if(cycle&&cycle.version==='bob-rolling-shadow-v1'){
+    const area=el('section');area.className='bob-disclosure';
+    area.style.cssText='padding:10px;border:1px solid #d7e0ea;border-radius:10px;margin:12px 0';
+    area.append(el('h4','Bob · tägliche Weiterentwicklung'));
+    const descriptions={
+     shadow:'Kandidat eingefroren · prospektiver Referenztest läuft',
+     collecting:'Noch kein belastbarer neuer Kandidat',
+     'paper-required':'Historischer Vorteil und spätere Referenztests · echter EUR-Produkt-/Paper-Nachweis fehlt',
+     rejected:'Kandidat im unabhängigen Test verworfen',
+     blocked:'Daten-/Instrumentkonflikt · keine Lernfreigabe',
+     'weekend-maintenance':'Wochenendprüfung · keine neue unabhängige Evidenz'
+    };
+    const label=descriptions[cycle.status]||'Wissenschaftliche Forschung, nicht Live-Handel';
+    area.append(el('p','Status: '+label));
+    const proposal=cycle.proposal||{};
+    area.append(el('p','Aktueller Forschungsversuch: '+(proposal.strategy||'kein Kandidat')+
+      ' · erstmals vorgeschlagen: '+(proposal.proposedOn||'noch nicht')+
+      ' · Zustand: '+(proposal.state||'offen')));
+    const progress=cycle.prospective||{};
+    const scalar=x=>typeof x==='number'&&Number.isFinite(x)?String(x):'0';
+    area.append(el('p','Nachfolgende Prüfsitzungen: '+scalar(progress.sessions)+
+      ' / '+String(20)+' · hypothetische Referenzabschlüsse: '+scalar(progress.trades)+
+      ' / '+String(30)+' · letzter unabhängiger Kurs: '+fmt(progress.lastEvaluatedBarAt)));
+    if(progress.lastObservation&&cycle.newIndependentEvidence===true)
+     area.append(el('p','Letzte neue Evidenz: '+progress.lastObservation.day+
+         ' · '+scalar(progress.lastObservation.newBars)+' neu beobachtete 1h-Kerzen'));
+    area.append(el('p',String(cycle.reason||'Weitere unabhängige Ergebnisse erforderlich.')));
+    const note=el('p','Forschungsmodelle und hypothetische Spotkosten: keine vollständige Bob-v7-Strategie, keine echten DEGIRO-EUR-Nettogewinne und keine automatische Live-Regeländerung.');
+    note.className='small';area.append(note);
+    reportBox.append(area);
+   }
    if(info.status==='evaluated'&&Array.isArray(info.folds)){
     const ev=info.evidence||{},agg=info.validationSelected||{},base=info.samePeriodBaseline||{};
     const n=v=>typeof v==='number'&&Number.isFinite(v)?new Intl.NumberFormat('de-CH',{maximumFractionDigits:2}).format(v):'offen';
@@ -267,7 +299,7 @@ function mount(parent){
     const warning=el('p',ev.sufficientForResearch?'Historische Forschungsmenge erreicht, aber weiterhin KEINE Regel- oder Brokerfreigabe.':'Forschungsmenge unzureichend: weitere unabhängige Historie erforderlich.');
     warning.className='small';reportBox.append(warning);
    }else{
-    rStatus.textContent='Automatisches Strategielabor: '+(info.status==='pending'?'erste Berechnung steht aus':info.status==='insufficient'?'zu wenige verwendbare historische 1h-Kerzen':'gespeicherter Stand vorübergehend nicht verfügbar')+'. Es werden keine Vergleichsergebnisse erfunden.';
+    rStatus.textContent='Automatisches Strategielabor: '+(info.status==='maintenance'?'Wochenend-Archivprüfung gespeichert; ohne neue Kurse oder neue Freigaben':info.status==='pending'?'erste Berechnung steht aus':info.status==='insufficient'?'zu wenige verwendbare historische 1h-Kerzen':'gespeicherter Stand vorübergehend nicht verfügbar')+'. Es werden keine Vergleichsergebnisse erfunden.';
     reportBox.append(el('p',info.note||info.reason||'Datenquelle prüfen.'));
    }
    const brokerHead=el('h4','Broker-Anbindung · technische Vorbereitung');reportBox.append(brokerHead);
