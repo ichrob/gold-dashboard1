@@ -260,7 +260,8 @@ function mount(parent){
      'paper-required':'Historischer Vorteil und spätere Referenztests · echter EUR-Produkt-/Paper-Nachweis fehlt',
      rejected:'Kandidat im unabhängigen Test verworfen',
      blocked:'Daten-/Instrumentkonflikt · keine Lernfreigabe',
-     'weekend-maintenance':'Wochenendprüfung · keine neue unabhängige Evidenz'
+     'weekend-maintenance':'Wochenendprüfung · keine neue unabhängige Evidenz',
+     'archive-missing':'Wochenendprüfung: belegbares Forschungsarchiv fehlt'
     };
     const label=descriptions[cycle.status]||'Wissenschaftliche Forschung, nicht Live-Handel';
     area.append(el('p','Status: '+label));
@@ -277,6 +278,11 @@ function mount(parent){
      area.append(el('p','Letzte neue Evidenz: '+progress.lastObservation.day+
          ' · '+scalar(progress.lastObservation.newBars)+' neu beobachtete 1h-Kerzen'));
     area.append(el('p',String(cycle.reason||'Weitere unabhängige Ergebnisse erforderlich.')));
+    if(Array.isArray(cycle.completed)&&cycle.completed.length){
+     const history=el('details');history.append(el('summary','Abgeschlossene unabhängige Kandidatenprüfungen ('+cycle.completed.length+')'));
+     for(const item of cycle.completed){const p=el('p',(item.strategy||'unbekannt')+' · '+(item.result||'offen')+' · '+(item.finishedOn||'ohne Zeitnachweis'));p.className='small';history.append(p);}
+     area.append(history);
+    }
     const note=el('p','Forschungsmodelle und hypothetische Spotkosten: keine vollständige Bob-v7-Strategie, keine echten DEGIRO-EUR-Nettogewinne und keine automatische Live-Regeländerung.');
     note.className='small';area.append(note);
     reportBox.append(area);
