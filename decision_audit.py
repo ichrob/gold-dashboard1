@@ -405,9 +405,9 @@ def handle(conn,action,payload):
         import zukunft_capture
         return zukunft_capture.report(conn,payload)
     if action=='write':
-        result=write(conn,payload)
-        harvest(conn)
-        return result
+        # Interactive writes must not wait for seven-day outcome backfills.
+        # A separate low-priority worker harvests outcomes independently.
+        return write(conn,payload)
     if action=='read':
         if payload.get('day') is not None:return audit_history.report(conn,payload)
         return report(conn)
