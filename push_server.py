@@ -22,6 +22,7 @@ import rule_learning
 import strategy_lab_store
 import stop_target_audit
 import paper_simulation
+import paper_health
 import manual_paper_watch
 import evaluator_runtime
 import intraday_comparison
@@ -435,7 +436,14 @@ class Handler(BaseHTTPRequestHandler):
                 vapid()
                 with db() as conn:
                     conn.execute("SELECT 1").fetchone()
-                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status()})
+                    try:
+                        paper_heartbeat = paper_health.snapshot(conn)
+                    except Exception as paper_exc:
+                        print("BOB_PAPER_HEALTH error=" + type(paper_exc).__name__, flush=True)
+                        paper_heartbeat = {"state":"unavailable", "accountsTotal":4,
+                                           "accountsChecked":0,"realOrders":False,
+                                           "scope":"paper-account-heartbeat-not-quote-quality"}
+                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "paperObservation":paper_heartbeat})
                 return
             if path == "/monitor-status":
                 supplied = self.headers.get("X-Bob-Push-Token", "")
