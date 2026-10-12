@@ -18,6 +18,7 @@ import bob_auth
 import bob_recovery
 import bob_self_healing
 import bob_problems
+import bob_repair_store
 import auto_collection
 import background_push
 import ocr_assets
@@ -89,6 +90,52 @@ def service_health():
             'strategyResearch': strategy_lab_background.status()}
     bob_self_healing.observe(result)
     return result
+
+
+_HEALING_WATCH_THREAD = None
+_HEALING_WATCH_LOCK = threading.Lock()
+
+
+def maintain_known_workers():
+    """Safe repairs only: existing idempotent starts, never trade or config changes."""
+    collection_state = auto_collection.health()
+    bob_self_healing.restart_worker(
+        "market-worker-stopped",
+        bool(collection_state.get("enabled") and not collection_state.get("running")),
+        auto_collection.start)
+    research_state = strategy_lab_background.status()
+    bob_self_healing.restart_worker(
+        "research-worker-stopped",
+        bool(PUSH_SERVICE_URL and PUSH_SERVICE_TOKEN and not research_state.get("running")),
+        lambda: strategy_lab_background.start(fetch_technical_history, mark_bar_state))
+    bob_self_healing.restart_worker(
+        "background-worker-stopped",
+        bool(FIB_MONITOR_HEALTH["configured"] and
+             (_FIB_THREAD is None or not _FIB_THREAD.is_alive())),
+        ensure_fibonacci_monitor)
+
+
+def _healing_watch_loop():
+    # Avoid classifying cold-start warmup as a repair incident.
+    time.sleep(90)
+    while True:
+        try:
+            maintain_known_workers()
+            service_health()
+        except Exception as exc:
+            print("BOB_HEALING_WATCH error=" + type(exc).__name__, flush=True)
+        time.sleep(30)
+
+
+def start_healing_watch():
+    global _HEALING_WATCH_THREAD
+    with _HEALING_WATCH_LOCK:
+        if _HEALING_WATCH_THREAD is None or not _HEALING_WATCH_THREAD.is_alive():
+            _HEALING_WATCH_THREAD = threading.Thread(
+                target=_healing_watch_loop, name="bob-self-healing-watch",
+                daemon=True)
+            _HEALING_WATCH_THREAD.start()
+
 
 def background_health():
     """Only a completed cycle proves that background monitoring works."""
@@ -803,7 +850,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/problems":
             # Authenticated, read-only index. Public GitHub issues are filtered
             # to the watchdog's fixed diagnostic codes; never emit raw bodies.
-            body = json.dumps(bob_problems.snapshot(), ensure_ascii=False,
+            report = bob_problems.snapshot()
+            report["selfHealingStatistics"] = bob_repair_store.statistics()
+            body = json.dumps(report, ensure_ascii=False,
                               separators=(",", ":")).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -960,23 +1009,10 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if path == "/health":
-            # The external watchdog invokes this public liveness probe; only
-            # approved, idempotent worker restarts are allowed here.
-            collection_state = auto_collection.health()
-            bob_self_healing.restart_worker(
-                "market-worker-stopped",
-                bool(collection_state.get("enabled") and not collection_state.get("running")),
-                auto_collection.start)
-            research_state = strategy_lab_background.status()
-            bob_self_healing.restart_worker(
-                "research-worker-stopped",
-                bool(PUSH_SERVICE_URL and PUSH_SERVICE_TOKEN and not research_state.get("running")),
-                lambda: strategy_lab_background.start(fetch_technical_history, mark_bar_state))
-            bob_self_healing.restart_worker(
-                "background-worker-stopped",
-                bool(FIB_MONITOR_HEALTH["configured"] and
-                     (_FIB_THREAD is None or not _FIB_THREAD.is_alive())),
-                ensure_fibonacci_monitor)
+            # Idempotent worker checks; the independent 30-second local watcher
+            # provides the same checks while the browser is closed.
+            start_healing_watch()
+            maintain_known_workers()
             body = json.dumps(service_health(),separators=(",",":")).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -1618,6 +1654,7 @@ if __name__ == "__main__":
     degiro_catalog.start()
     strategy_lab_background.start(fetch_technical_history, mark_bar_state)
     gold_research.start()
+    start_healing_watch()
     import weekend_archive
     weekend_archive.start(build_live_bundle,market_cards.snapshot)
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

@@ -40,3 +40,17 @@ Jeder Diagnosecode erhält beim unabhängigen Wächter seine **eigene GitHub-Iss
 Der authentifizierte, lesende Endpunkt `/api/problems` lädt ausschließlich GitHub-Issue-Titel aus einer festen Allowlist und liest weder Freitexte noch fremde Issues aus. Servercache 90 Sekunden. Bei GitHub-Ausfall zeigt Bob „nicht erreichbar“ oder „letzter Stand“, **niemals fälschlich 0**. GitHub Actions prüft weiterhin ungefähr alle 10 Minuten: neue Fälle können dadurch mit Verzögerung angezeigt werden.
 
 Der Zähler bedeutet **noch offene KI-Hilfeanfragen**, nicht ungelesene Meldungen. Bei 0 ist die Zahl ausgeblendet. Keine Veränderung am Trading oder den Risikoregeln.
+
+## Zeitstempel und dauerhafte Erfolgsstatistik (12.10.2026)
+
+Im Menüpunkt **Problem → Offene KI-Hilfeanfragen** wird die letzte erfolgreiche Abfrage der GitHub-Issue-Liste mit **Datum und Uhrzeit in Europe/Zurich** angezeigt. Für jeden einzelnen Eintrag werden **Erkannt** und **Letzte Änderung** getrennt ausgewiesen. Während einer Störung zeigt die Oberfläche weiterhin den Zeitpunkt der letzten bestätigten Aktualisierung, nicht fälschlich die aktuelle Uhrzeit.
+
+Unter **Bobs automatische Fehlerbehebung** werden vier Kennzahlen aus dem privaten PostgreSQL-Archiv angezeigt:
+- **Selbstständig erkannt**: dokumentierte Störungsereignisse aus den überwachten Komponenten, keine absolute Zahl aller Codefehler.
+- **Selbst repariert · geprüft**: ausschließlich Worker-Neustarts, die nach dem Versuch in mindestens zwei Prüfungen mit mindestens 20 Sekunden Abstand als gesund bestätigt wurden.
+- **Ohne bestätigten Neustart wieder gesund**: Probleme, die später nicht mehr festgestellt wurden; eine von Bob verursachte Reparatur wird damit ausdrücklich **nicht** behauptet.
+- **Reparaturversuche**: angestoßene, erlaubte Neustarts (einschließlich erfolgloser Versuche).
+
+Der neue Zähler startet **erst ab Aktivierung der dauerhaften Erfassung**; ältere flüchtige Ereignisse können nicht nachträglich vollständig rekonstruiert werden. Aufbewahrung im bereits bestehenden privaten PostgreSQL ohne automatische Löschung dieser kleinen, strikt standardisierten Ereignisse. Die Daten bleiben bei regulären Render-Neustarts erhalten. Ein asynchroner Ereignispuffer versucht die sichere Zustellung erneut, ist aber während eines vollständigen App-Ausfalls selbst nicht lückenlos. Bei Datenbankausfall erscheinen ausdrücklich **unbekannte/alte Werte**, keine erfundenen Nullen.
+
+Der unabhängige GitHub-Wächter bleibt für nicht behobene KI-Hilfeanfragen zuständig. Der neue lokale 30-Sekunden-Wächter erkennt abgestürzte Worker auch bei geschlossener App und versucht ausschließlich die bekannten idempotenten Restart-Methoden. **Keine** selbstständigen Quellcodeänderungen, Trades oder neue externe Kosten.
