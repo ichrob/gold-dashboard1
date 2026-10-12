@@ -75,6 +75,8 @@ def init(conn):
 def sync(conn, payload):
     products=payload.get('products')
     if not isinstance(products,list) or not 0<len(products)<=12:raise ValueError('Produktliste ungültig')
+    if not any(isinstance(p,dict) and p.get('isin') for p in products):
+        return dict(ok=True,products=0,preserved=True)
     # The screenshot upload timestamp tracks the active list generation.
     # It must NEVER count as a quote/KO source timestamp.
     uploaded=payload.get('listUploadedAt')
