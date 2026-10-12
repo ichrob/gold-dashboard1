@@ -125,7 +125,13 @@ def sync(conn, payload):
     if len(text)>180000:raise ValueError('Produktnachweise zu groß')
     conn.execute('''INSERT INTO bob_paper_products(id,payload) VALUES(1,%s::jsonb)
         ON CONFLICT(id) DO UPDATE SET payload=EXCLUDED.payload,synced_at=now()''',(text,))
-    return dict(ok=True,products=len(safe['products']))
+    if new_time is not None and (old_time is None or new_time > old_time):
+        # Previously approved product-Push candidates belong to the old list.
+        # Clear just their selection evidence; leave active trade/stop monitors,
+        # trade journals and independent market alerts untouched.
+        conn.execute('''UPDATE subscriptions SET selection_evidence=NULL, product_selection=NULL
+            WHERE selection_evidence IS NOT NULL OR product_selection IS NOT NULL''')
+    return dict(ok=True,products=len(safe['products']),listUploadedAt=uploaded)
 
 def new_case(market, choice, quote, now, cash=100.):
     p=copy.deepcopy(market['plan']);direction=p['direction'];risk=abs(p['entry']-p['stop'])
