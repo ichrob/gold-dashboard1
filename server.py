@@ -915,7 +915,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/health":
             auto_collection.start()
-    strategy_lab_background.start(fetch_technical_history, mark_bar_state)
+            strategy_lab_background.start(fetch_technical_history, mark_bar_state)
             ensure_fibonacci_monitor()
             body = json.dumps(service_health(),separators=(",",":")).encode()
             self.send_response(200)
@@ -1555,6 +1555,7 @@ if __name__ == "__main__":
     print(f"BOB_START port={port} host=0.0.0.0 version=runtime-http-trace-v2 process={PROCESS_ID}", flush=True)
     ensure_fibonacci_monitor()
     auto_collection.start()
+    strategy_lab_background.start(fetch_technical_history, mark_bar_state)
     gold_research.start()
     import weekend_archive
     weekend_archive.start(build_live_bundle,market_cards.snapshot)
