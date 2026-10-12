@@ -43,12 +43,12 @@ class PaperHeartbeatTests(unittest.TestCase):
 
     def test_startup_grace_is_limited_to_first_ten_minutes(self):
         self.assertEqual(paper_health.snapshot(connection([None]*5),millis(12,8,9))["state"],"warming")
-        self.assertEqual(paper_health.snapshot(connection([None]*4),millis(12,8,11))["state"],"degraded")
+        self.assertEqual(paper_health.snapshot(connection([None]*5),millis(12,8,11))["state"],"degraded")
 
     def test_no_false_failure_outside_scheduled_trading(self):
         for now in (millis(12,7,30),millis(12,22,20),millis(11,15,0)):
             with self.subTest(now=now):
-                r=paper_health.snapshot(connection([None]*4),now)
+                r=paper_health.snapshot(connection([None]*5),now)
                 self.assertEqual(r["state"],"paused")
 
     def test_future_timestamp_does_not_count_as_success(self):
