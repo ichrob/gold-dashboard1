@@ -16,7 +16,7 @@ MIN_HISTORIC_TRADES = 30
 MIN_FORWARD_SESSIONS = 20
 MIN_FORWARD_TRADES = 30
 # Logistic weights would need separately frozen coefficients to be prospective.
-SHADOWABLE = ("trend-strict", "breakout", "mean-revert")
+SHADOWABLE = ("trend-strict", "trend-tight", "breakout", "breakout-confirmed", "mean-revert")
 
 
 def _finite(x):
