@@ -9,6 +9,9 @@ on:
     branches:
       - main
   workflow_dispatch:
+  # Daily autonomous regression safety checks even on days without commits.
+  schedule:
+    - cron: '17 5 * * *'
 
 concurrency:
   group: bob-ci-${{ github.ref }}
