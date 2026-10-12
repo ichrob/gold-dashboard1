@@ -236,7 +236,10 @@ function mount(parent){
    const brokers=info.brokerReadiness||{};
    const auto=info.automation||{};
    const fmt=t=>t?new Date(t).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch keine';
-   const latest=el('p','Hintergrundbetrieb: '+(auto.enabled?'aktiviert':'nicht bestätigt')+' · täglich Mo–Fr ab 08:00 Uhr (Zürich). Letzte gespeicherte Prüfung: '+fmt(auto.lastRunAt)+'. Browser muss nicht geöffnet bleiben.');
+   const runtime=info.runtime||{};
+   const running=runtime.enabled===true&&runtime.running===true;
+   const state=running?(runtime.phase==='retry'?'Fehler · erneuter Versuch geplant':runtime.phase==='market-closed'?'ausserhalb des Prüfzeitfensters pausiert':'läuft'):'nicht bestätigt';
+   const latest=el('p','Hintergrundbetrieb: '+state+' · Mo–Fr ab 08:00 Uhr (Zürich). Letzte gespeicherte Prüfung: '+fmt(auto.lastRunAt)+'. Browser muss nicht geöffnet bleiben.');
    latest.className='small';reportBox.append(latest);
    if(Array.isArray(auto.history)&&auto.history.length){
     const log=el('details');log.className='bob-disclosure';
