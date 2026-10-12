@@ -469,6 +469,8 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                     details=market.get('analysisWarnings') or [market.get('decisionReason') or 'Analysedaten noch unvollständig']
                     reason='Marktanalyse wartet: '+'; '.join(str(v) for v in details)
             elif not (market.get('session') or {}).get('entryAllowed'):reason='Außerhalb von Bobs Einstiegszeit'
+            elif profile_policy and profile_policy.get('early_impulse') and market.get('paperEntrySource')!='early-impulse-paper-v1':
+                reason='Frühimpuls-Strategie: '+str(market.get('earlyPaperBlockReason') or 'kein bestätigter 5m/15m-Frühimpuls')
             elif not stop_target_audit.valid_plan(plan):reason='ABWARTEN: kein bestätigter gültiger Goldplan'
             elif not choice:
                 reason=('KO-Schutz: heute ausgeschlossene ISIN; ' if blocked else 'Kein passendes belegtes Produkt: ')+ '; '.join(selection.get('reasons') or ['kein geeigneter neuer Kandidat'])
@@ -495,6 +497,10 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                     c['koWatchStatus']='confirmed'
                 if profile_policy:
                     c['profile']=profile_policy['id']
+                    if profile_policy.get('early_impulse'):
+                        c['entryHypothesis']='early-impulse-paper-v1'
+                        c['entrySignalAt']=(market.get('earlyImpulse') or {}).get('barAt')
+                        c['entryConfirmedMainTrend']=False
                     c['availableAtEntry']=control['cash']
                     if profile_policy.get('hold_trend'):
                         # Lengthened intraday strategy, never carries past Bob's
