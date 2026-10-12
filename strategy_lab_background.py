@@ -74,12 +74,16 @@ def evaluate_and_store(fetcher, marker, *, now=None, storage=request):
         raise ValueError("Forschungsarchiv nicht bestätigt")
     auto=previous.get("automation") or {}
     old=previous.get("latestReport") or {}
-    if auto.get("lastDay")==day and old.get("status") in ("evaluated", "maintenance") and old.get("version")==strategy_lab.VERSION:
-        return dict(status="already-stored", day=day)
     local=(now or datetime.now(TZ)).astimezone(TZ)
+    same_day=auto.get("lastDay")==day and old.get("version")==strategy_lab.VERSION
+    if same_day and (old.get("status")=="maintenance" or
+         (old.get("status")=="evaluated" and
+          (local.hour<20 or (old.get("learningCycle") or {}).get("checkpoint")=="evening"))):
+        return dict(status="already-stored", day=day)
     if local.weekday() >= 5:
         # Weekends verify durable state only: do not refit models on stale prices.
         report=research_learning.maintenance(old,day)
+        report["learningCycle"]["checkpoint"]="weekend"
     else:
         rows=fetcher("1h","3mo")
         closed=marker([dict(row) for row in rows],60)
@@ -87,6 +91,7 @@ def evaluate_and_store(fetcher, marker, *, now=None, storage=request):
         if report.get("status") not in ("evaluated","insufficient"):
             raise ValueError("Forschungsbericht nicht speicherfähig")
         report=research_learning.enrich(report,closed,old,day=day)
+        report["learningCycle"]["checkpoint"]="evening" if local.hour>=20 else "morning"
     ack=storage("write",dict(day=day,report=report))
     if not isinstance(ack,dict) or ack.get("saved") is not True or ack.get("day")!=day:
         raise ValueError("Forschungsarchiv hat Speicherung nicht bestätigt")
