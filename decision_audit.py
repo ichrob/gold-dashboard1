@@ -168,43 +168,105 @@ def summarize(rows):
                     'automaticRuleChange':False},'version':VERSION,'retentionDays':30}
 
 def early_impulse_review(rows):
-    """Prospective, paired 60-minute XAU/USD outcomes; same first hourly observation for both policies."""
-    sides={d:{'evaluated':0,'favorable':0,'unfavorable':0,'flat':0,'beforeApproval':0,'sumPct':0.0} for d in ('LONG','SHORT')}
+    """Frozen out-of-sample LONG/SHORT study. All returns are *spot direction only*."""
+    from zoneinfo import ZoneInfo
+    validation_start=datetime(2026,10,19,tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000
+    def empty_side():
+        return {'evaluated':0,'favorable':0,'unfavorable':0,'flat':0,'beforeApproval':0,
+                'sumPct':0.0,'baselineSumPct':0.0,'meanDirectionalPct':None}
+    def empty_phase():
+        return {'evaluated':0,'long':empty_side(),'short':empty_side(),'days':0}
+    sides={d:empty_side() for d in ('LONG','SHORT')}
+    phases={name:empty_phase() for name in ('collection','validation')}
+    series={str(h):{'evaluated':0,'favorable':0,'unfavorable':0,'flat':0,'missing':0,
+                    'earlySumPct':0.0,'baselineSumPct':0.0} for h in (15,60,240)}
     result={'version':'early-impulse-v1','evaluated':0,'favorable':0,'unfavorable':0,'flat':0,
             'beforeApproval':0,'missing':0,'long':sides['LONG'],'short':sides['SHORT'],
+            'phases':phases,'horizons':series,'validationFrom':'2026-10-19',
+            'baselineSumPct':0.0,'earlySumPct':0.0,'incrementalPct':None,
+            'unconfirmedFavorable':0,'unconfirmedUnfavorable':0,'matchedActive':0,
+            'uniqueDays':0,'status':'Daten sammeln','promising':False,
             'automaticRuleChange':False}
-    occupied=set()
+    occupied=set();seen_days=set();phase_days={name:set() for name in phases}
     for record,truths in sorted(rows,key=lambda row:row[0].get('recordedAt',0)):
         early=record.get('earlyImpulse') or {}
         if (record.get('ruleVersion')!=RULE_VERSION or record.get('origin')!='background'
             or early.get('version')!=result['version'] or early.get('available') is not True
-            or early.get('direction') not in sides):continue
-        # Do not multiply one directional observation with every 30-second refresh.
-        hour=int(record.get('recordedAt',0)//3600000)
-        if hour in occupied:continue
+            or early.get('direction') not in sides or not isinstance(record.get('recordedAt'),(int,float))):
+            continue
+        # An hourly first-observation snapshot prevents repeatedly counting a 5m signal.
+        hour=int(record['recordedAt']//3600000)
+        if hour in occupied: continue
         occupied.add(hour)
-        test=outcome(record,truths[1],60)
-        if test is None:
+        d=early['direction']
+        phase='validation' if record['recordedAt']>=validation_start else 'collection'
+        day=datetime.fromtimestamp(record['recordedAt']/1000,ZoneInfo('Europe/Zurich')).date().isoformat()
+        valid60=None
+        for h,truth in zip((15,60,240),truths):
+            score=outcome(record,truth,h);stats=series[str(h)]
+            if score is None:
+                stats['missing']+=1
+                continue
+            value=score['changePct'] if d=='LONG' else -score['changePct']
+            baseline=score['directionalPct'] or 0.0
+            category='favorable' if value>0 else 'unfavorable' if value<0 else 'flat'
+            stats['evaluated']+=1;stats[category]+=1
+            stats['earlySumPct']+=value;stats['baselineSumPct']+=baseline
+            if h==60:valid60=(value,baseline,category)
+        if valid60 is None:
             result['missing']+=1
             continue
-        d=early['direction']
-        value=test['changePct'] if d=='LONG' else -test['changePct']
-        result['evaluated']+=1
-        sides[d]['evaluated']+=1
-        category='favorable' if value>0 else 'unfavorable' if value<0 else 'flat'
-        result[category]+=1
-        sides[d][category]+=1
-        sides[d]['sumPct']+=value
-        if record.get('direction')!=d:
+        value,baseline,category=valid60
+        result['evaluated']+=1;result[category]+=1
+        for stats in (sides[d],phases[phase][d]):
+            stats['evaluated']+=1;stats[category]+=1
+            stats['sumPct']+=value;stats['baselineSumPct']+=baseline
+        phases[phase]['evaluated']+=1
+        result['baselineSumPct']+=baseline;result['earlySumPct']+=value
+        seen_days.add(day);phase_days[phase].add(day)
+        if record.get('direction')==d:
+            result['matchedActive']+=1
+        else:
             result['beforeApproval']+=1
             sides[d]['beforeApproval']+=1
-    for d in sides:
-        sample=sides[d]
-        sample['meanDirectionalPct']=sample['sumPct']/sample['evaluated'] if sample['evaluated'] else None
-    result['note']=('Prospektiver Vergleich: erste Hintergrund-Frühwarnung je UTC-Stunde, danach nur real archivierte '
-       'XAU/USD-Kurse nach 60 Minuten. Vor Freigabe bedeutet noch nicht als identischer Richtungseinstieg bestätigt. '
-       'Fehlende Folgepreise bleiben fehlend. Kein Rücktest mit Zukunftsdaten; keine Gebühren, kein KO-Produktgewinn '
-       'und kein Nachweis eines besseren Live-Einstiegs. LONG/SHORT getrennt; keine automatische Regeländerung.')
+            phases[phase][d]['beforeApproval']+=1
+            result['unconfirmedFavorable']+=value>0
+            result['unconfirmedUnfavorable']+=value<0
+    result['uniqueDays']=len(seen_days)
+    for name,stats in phases.items():
+        stats['days']=len(phase_days[name])
+        for side in (stats['long'],stats['short']):
+            if side['evaluated']:
+                side['meanDirectionalPct']=side['sumPct']/side['evaluated']
+    for side in sides.values():
+        if side['evaluated']:
+            side['meanDirectionalPct']=side['sumPct']/side['evaluated']
+    if result['evaluated']:
+        result['incrementalPct']=(result['earlySumPct']-result['baselineSumPct'])/result['evaluated']
+    training=phases['collection'];validation=phases['validation']
+    # A signal is a research candidate only after chronological unseen validation,
+    # never after selecting thresholds on the same early observations.
+    sufficient=(training['long']['evaluated']>=8 and training['short']['evaluated']>=8
+                and validation['long']['evaluated']>=10 and validation['short']['evaluated']>=10
+                and validation['days']>=5)
+    if not sufficient:
+        result['status']='Datensammlung / unabhängige Validierung noch nicht ausreichend'
+    else:
+        v=validation
+        positive=(all(v[d]['favorable']>v[d]['unfavorable'] and v[d]['sumPct']>0 for d in ('long','short'))
+                  and sum(v[d]['sumPct']-v[d]['baselineSumPct'] for d in ('long','short'))>0)
+        result['promising']=positive
+        result['status']=('ERSTE POSITIVE HINWEISE – kein Netto-Gewinnnachweis' if positive
+                          else 'KEIN VORTEIL GEGENÜBER DER BESTEHENDEN REGEL BELEGT')
+    result['note']=(
+        'Nur erstmals je UTC-Stunde beobachtete, künftig archivierte XAU/USD-Frühimpulse; '
+        'gleicher Startzeitpunkt, 15/60/240-Minuten-Folgekurse und bestehende Marktrichtung als Kontrollfall '
+        '(NEUTRAL = keine Position). LONG/SHORT sowie Datensammlung vor 19.10. und spätere Validierung getrennt. '
+        'Vor Freigabe = noch nicht dieselbe aktive Richtung. Die Vergleichsstrategie '
+        'enthält keine KO-Schwellen, Euro-Spreads, Produktkosten, Stop-Ausführung oder Slippage. '
+        'Überlappende Stunden und Kursschwankungen können Ergebnisse verzerren. '
+        'Fehlende Folgekurse werden nicht ersetzt. Weder Profitabilität noch eine automatische Regeländerung '
+        'wird behauptet.')
     return result
 
 
