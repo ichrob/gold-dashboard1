@@ -93,7 +93,7 @@ def sync(conn, payload):
     # Serialize competing tabs/devices. An old tab must not restore an earlier
     # product set after a newer screenshot replaced it.
     old=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1 FOR UPDATE').fetchone()
-    previous=old[0] if old and isinstance(old[0],dict) else {}
+    previous=old[0] if isinstance(old,(tuple,list)) and old and isinstance(old[0],dict) else {}
     old_time=stamp(previous.get('listUploadedAt'))
     new_time=generation.timestamp()*1000 if generation else None
     if old_time is not None and (new_time is None or new_time<old_time):
