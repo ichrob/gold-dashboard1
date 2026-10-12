@@ -10,8 +10,17 @@ from zoneinfo import ZoneInfo
 
 
 def evaluate(payload):
-    process = evaluator_runtime.run(['node', str(Path(__file__).with_name('selection_push_evaluator.js'))],
-                             input=json.dumps(payload), text=True, capture_output=True, timeout=8, check=True)
+    try:
+        process = evaluator_runtime.run(['node', str(Path(__file__).with_name('selection_push_evaluator.js'))],
+                                 input=json.dumps(payload), text=True, capture_output=True, timeout=8, check=True)
+    except subprocess.CalledProcessError as exc:
+        # The JS verifier deliberately rejects stale or invalid requests.
+        # These are client validation failures, not a broken Push service.
+        reason = (exc.stderr or '').strip()
+        if reason in ('Prüfanfrage veraltet', 'Produktliste ungültig'):
+            raise ValueError(reason) from exc
+        # Never fall back to a browser-supplied approval on a verifier crash.
+        raise RuntimeError('Produktauswahl konnte nicht unabhängig geprüft werden') from exc
     return json.loads(process.stdout)
 
 
