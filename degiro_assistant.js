@@ -1704,13 +1704,13 @@ function productUploadCards(products,direction,now=Date.now(),flow=null,context=
 
 // Original list images live in IndexedDB, independently of Android's file picker.
 let listArchive=null,listArchiveUrls=[],productArchivePayload='';
-const LIST_DAY_KEY='bobDegiroListDayV1';
+const LIST_DAY_KEY='bobDegiroListDayV1'; // Legacy upload date: never expires a saved list.
 function zurichListDay(now=Date.now()){
  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Zurich',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now));
  const get=k=>parts.find(p=>p.type===k).value;
  return {day:get('year')+'-'+get('month')+'-'+get('day'),closed:Number(get('hour'))>=22};
 }
-function listExpired(day,now=Date.now()){const current=zurichListDay(now);return !!day&&(day!==current.day||current.closed);}
+function listExpired(day,now=Date.now()){return false; /* Product identity does not expire; only dated quotes do. */}
 function clearDailyList(){
  const empty=JSON.stringify({version:2,products:[]});
  listArchive=null;productArchivePayload=empty;
@@ -1719,10 +1719,8 @@ function clearDailyList(){
  return archiveTransaction('readwrite',store=>{store.delete('list');return store.put(empty,'products');});
 }
 function expireVisibleList(){
- const day=localStorage.getItem(LIST_DAY_KEY);
- if(!listExpired(day))return;
- clearDailyList().catch(()=>{});populateCandidateRows([]);
- const label=document.getElementById('dgCentralStatus');if(label)label.textContent='Tagesliste um 22 Uhr abgelaufen. Bitte am nächsten Morgen neue Listenbilder einlesen.';
+ // Retain the last screenshot list across days, browser restarts and weekends.
+ // Source age is assessed separately on every quote and term; never renew it.
 }
 
 function archiveTransaction(mode,action){
@@ -1751,7 +1749,7 @@ function showListArchive(){
  }
 }
 async function saveListArchive(files,items){
- if(zurichListDay().closed)throw Error('Tagesliste endet um 22 Uhr Schweizer Zeit. Bitte am nächsten Morgen neu einlesen.');
+ if(!Array.isArray(items)||!items.some(p=>validIsin(p?.isin)))throw Error('Keine gültige Produkt-ISIN erkannt. Alte Liste bleibt erhalten.');
  const record={files:files.map(file=>({name:file.name,blob:file})),items,storedAt:new Date().toISOString()};
  await archiveTransaction('readwrite',store=>{store.put(JSON.stringify({version:2,products:items.map(cleanStoredProduct).filter(Boolean)}),'products');return store.put(record,'list');});
  localStorage.setItem(LIST_DAY_KEY,zurichListDay(Date.parse(record.storedAt)).day);
@@ -1763,11 +1761,11 @@ async function restoreListArchive(){
  try{
   listArchive=await archiveTransaction('readonly',store=>store.get('list'));
   const day=listArchive?.storedAt?zurichListDay(Date.parse(listArchive.storedAt)).day:localStorage.getItem(LIST_DAY_KEY);
-  if(listExpired(day)||(!day&&zurichListDay().closed)){await clearDailyList();return;}
+  // Upload date is provenance, not a daily deletion deadline.
   if(day)localStorage.setItem(LIST_DAY_KEY,day);
   const backup=await archiveTransaction('readonly',store=>store.get('products'));
   if(!localStorage.getItem(PRODUCT_STORE_KEY)&&backup){localStorage.setItem(PRODUCT_STORE_KEY,backup);}
-  if(!day&&localStorage.getItem(PRODUCT_STORE_KEY))localStorage.setItem(LIST_DAY_KEY,zurichListDay().day);
+  // Never turn a restart/current date into the original screenshot date.
   showListArchive();
  }catch(_){productStorageMessage='Bildspeicher nicht erreichbar. Vorhandene Produktdaten werden weiterhin geladen.';}
 }
@@ -1789,7 +1787,7 @@ function cleanStoredProduct(x){
 function writeStoredProducts(items){
  if(productStorageBlocked)return false;
  try{const rows=items.map(cleanStoredProduct).filter(Boolean).slice(0,12),payload=JSON.stringify({version:2,products:rows});
-  if(rows.length&&!localStorage.getItem(LIST_DAY_KEY))localStorage.setItem(LIST_DAY_KEY,zurichListDay().day);
+  // Only an actual screenshot upload sets its original observation date.
   if(localStorage.getItem(PRODUCT_STORE_KEY)!==payload)localStorage.setItem(PRODUCT_STORE_KEY,payload);
   if(localStorage.getItem(PRODUCT_STORE_KEY)!==payload)throw Error('Speicherung nicht bestätigt');
   if(productArchivePayload!==payload&&typeof indexedDB!=='undefined'){productArchivePayload=payload;archiveTransaction('readwrite',store=>store.put(payload,'products')).catch(()=>{productArchivePayload='';});}
@@ -2952,7 +2950,7 @@ async function inject(){
  refreshIssuerCandidates();
  setInterval(()=>{if(!document.hidden)refreshIssuerCandidates();},10*60*1000);
  document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshIssuerCandidates();});
- b.querySelector('#dgCentralStatus').textContent=listArchive?.files?.length?'Gespeicherte Liste: '+listArchive.files.length+' Bild(er) · '+savedCount+' Produkte. Gespeichert bis 22 Uhr Schweizer Zeit.':savedCount?savedCount+' Produkte gespeichert. Frühere Originalbilder sind nicht gespeichert; die Produktdaten bleiben bis 22 Uhr erhalten.':'Bitte für heute neue Listenbilder einlesen. Tageslisten gelten bis 22 Uhr Schweizer Zeit.';
+ b.querySelector('#dgCentralStatus').textContent=listArchive?.files?.length?'Aktive Liste: '+listArchive.files.length+' Screenshot(s) · '+savedCount+' Produkte · aufgenommen '+new Date(listArchive.storedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+'. Bleibt aktiv bis zum nächsten erfolgreichen Upload; aktuelle Produktkurse werden separat geprüft.':savedCount?savedCount+' gespeicherte Produkte · die letzte Liste bleibt erhalten; Kursdaten können veralten.':'Noch keine gespeicherte Liste. Bitte einmal DEGIRO-Screenshots einlesen.';
  const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgListUploadButton'),uploadStatus=b.querySelector('#dgCentralStatus');
  uploadButton.addEventListener('click',()=>upload.click());
  upload.addEventListener('change',async()=>{
@@ -2963,9 +2961,12 @@ async function inject(){
    const items=await readListBatch(files,recognizeOcr,(i,total,name)=>{uploadStatus.textContent='📷 Bild '+i+' von '+total+' wird gelesen: '+name;});
    await saveListArchive(files,items);
    populateCandidateRows(items);rankUI();
-   uploadStatus.textContent='✅ '+files.length+' Bild(er) gelesen · '+items.length+' unterschiedliche Produkte erkannt. Bilder und Produkte bis heute 22 Uhr Schweizer Zeit gespeichert – auch nach dem Schließen.';
+   uploadStatus.textContent='✅ Neue aktive Liste: '+files.length+' Bild(er) · '+items.length+' unterschiedliche Produkte. Vorherige Liste ersetzt und gespeichert – bleibt bis zum nächsten Upload erhalten. Kurszeiten werden unabhängig geprüft.';
    const uncertain=items.filter(x=>!validIsin(x.isin)).length;
    if(uncertain)uploadStatus.textContent+=' ⚠️ '+uncertain+' ISIN(s) unsicher – unter Details prüfen.';
+   // The paper/background service is refreshed immediately, independently of its
+   // ordinary 60-second cadence. Never send removed ISINs from the old list.
+   window.BobPaperSimulation?.sync?.(buildPaperListEvidence(),true);
    refreshImportedProducts(true).then(()=>refreshImportedProducts());
   }catch(e){uploadStatus.textContent='⚠️ '+(e?.message||'Bilder konnten nicht gelesen werden')+' Die bisherige Produktliste bleibt erhalten.';}
   finally{upload.value='';upload.disabled=false;uploadButton.disabled=false;}
@@ -3026,6 +3027,24 @@ function renderContinuingAnalysis(products,context){
  const leverageHint=leveragePlaces.length?'<div data-risk-leverage style="margin:8px 0"><strong>Risiko: '+(leveragePlaces.length>1?'Plätze ':'Platz ')+leveragePlaces.join(' / ')+' · höchster Hebel: '+highestLeverage.toFixed(2)+'×</strong><details><summary>Erklärung zum Hebelrisiko</summary><div class="small">Unter den angezeigten Empfehlungen; verstärkt Gewinne und Verluste. Hebel laut vorhandenen Werten.</div></details></div>':'';
  const recommendations=ranked.map(({p,warning,evaluation:e},i)=>'<div style="margin:10px 0"><b>'+ (i+1)+'. '+esc(p.isin)+'</b>'+renderIsinCopy(p.isin,true)+'<b> · '+esc(e.direction)+'</b><br><strong>'+esc(warning&&warning.includes('veraltet')?'Mit veralteten Werten gerechnet':warning?'Mit Werten unbekannter Aktualität gerechnet':marketWarnings.length?'Marktdaten-Aktualität eingeschränkt':'Rechnerische Empfehlung mit vorhandenen Werten')+'</strong><br>Risiko-/Datenwert '+e.score+'/100 · KO-Abstand '+e.koDistancePct.toFixed(2)+'%<details data-product-details="recommendation-'+esc(p.isin)+'"><summary>Begründung und Datenhinweise</summary>'+esc(warning||'Produktkurs innerhalb des Zeitfensters; weitere Feldzeiten siehe Details')+'<br>'+esc(e.reasons.join(' · ')).replace(/\bHebel\b/g,'<strong>Hebel</strong>')+'</details></div>').join('');
  return '<section data-indicative-recommendations><b>Rechnerische Empfehlung · <span style="color:'+({LONG:'#15803d',SHORT:'#b91c1c'}[context.direction]||'#ca8a04')+'">'+esc(['LONG','SHORT'].includes(context.direction)?context.direction:'ABWARTEN')+'</span></b>'+leverageHint+ (recommendations||'<p>ABWARTEN: '+(['LONG','SHORT'].includes(context.direction)?'Aktuell erfüllt kein Produkt alle Auswahlkriterien.':'Keine bestätigte Long-/Short-Marktrichtung.')+'</p>')+'</section>';
+}
+// Source-of-truth generation for the server-side paper universe.
+function buildPaperListEvidence(){
+ const products=Array.from({length:12},(_,z)=>{
+  const i=z+1,read=k=>document.querySelector('[data-dg="'+k+'"][data-i="'+i+'"]')?.value||'';
+  const isin=String(read('isin')).trim().toUpperCase();
+  if(!validIsin(isin))return null;
+  const quote=productQuotes.get(i)||futureResearchQuotes.get(i);
+  return {isin,name:read('name'),productDirection:read('dir'),price:n(read('price')),
+   leverage:n(read('lev')),ko:n(read('ko')),spread:n(read('spread')),
+   isinConfirmed:!!(quote?.productVerified),snapshot:detailScreenshots.get(i)||null,
+   quote:quote?.isin===isin?quote:null};
+ }).filter(Boolean);
+ return {products,references:products.map(p=>{
+    const idx=Array.from({length:12},(_,z)=>z+1).find(i=>document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value?.trim().toUpperCase()===p.isin);
+    return combinedReferences.get(idx)||null;
+   }),fixedBarriers:window.BobCombined.fixedBarriers(),
+   listUploadedAt:listArchive?.storedAt||null,origin:listArchive?.storedAt?'degiro-screenshot':'legacy'};
 }
 function rankUI(){
  expireVisibleList();
@@ -3113,7 +3132,7 @@ function rankUI(){
  }
 
  window.BobAudit?.capture(ps,flow,bundle);
- window.BobPaperSimulation?.sync({products:ps,references,fixedBarriers:window.BobCombined.fixedBarriers()});
+ window.BobPaperSimulation?.sync({...buildPaperListEvidence(),products:ps,references});
  window.BobPush?.updateSelection?.({products:ps,context:selectionContext,bundle:{spots:bundle?.spots,fetched_at:bundle?.fetched_at,history:{data_state:bundle?.history?.data_state}},references,fixedBarriers:window.BobCombined.fixedBarriers()},flow);
  const flowHtml=renderContinuingAnalysis(ps,selectionContext);if(updateProductHtml(o,flowHtml))bindCompactCards(o);
  const approvalOut=document.getElementById('dgApprovalOut');
