@@ -119,7 +119,8 @@ def enrich(report, bars, previous=None, *, day):
                 a = observation["candidate"]
                 b = observation["baseline"]
                 if a["trades"] or b["trades"]:
-                    p["sessions"] += 1
+                    if proposal.get("lastIndependentDay") != day:
+                        p["sessions"] += 1
                     p["trades"] += a["trades"]
                     p["baselineTrades"] += b["trades"]
                     p["candidateIndex"] = round(p["candidateIndex"] * (1+a["netReturnPct"]/100), 10)
