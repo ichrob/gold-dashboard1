@@ -405,7 +405,7 @@ try{
 <div class="analysis-block neutral"><span>MTF-Bestätigung · Zeitebenen</span><b id="blockMtf">DATEN FEHLEN</b><small id="blockMtfNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Volatilität · Schwankungsstärke</span><b id="blockVolatility">DATEN FEHLEN</b><small id="blockVolatilityNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Marktstruktur · Hochs und Tiefs</span><b id="blockStructure">DATEN FEHLEN</b><small id="blockStructureNote">Daten fehlen</small></div>
-</div><details id="intradayComparisonDetails" style="margin-top:12px"><summary><b>Analyse-Regeln und Intraday-Vergleichstest</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">Aktiv v6: 15m Setup und 5m Einstieg. Erste Schlusskerze: Einstieg vorbereitet; ein klar bestätigter Schluss oder zwei unterstützende Schlüsse bestätigen die Richtung. 1h, 4h und EMA200 dienen als Kontext. EMA20/50, RSI14 und MACD bilden ein gemeinsames Kurskollektiv. DX unter 20 und nicht zunehmend ab 15 verlangt eine zweite Kerze statt einer pauschalen Sperre. Analyse Mo–Fr rund um die Uhr (Zürich). Produkt-Handelszeiten zusätzlich prüfen. Darunter bleibt die bisherige 15m/5m-Testvariante getrennt erhalten. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div>
+</div><div id="earlyImpulseStatus" class="small" style="margin-top:12px;padding:12px;border:1px solid #cbd5e1;border-radius:12px;white-space:pre-line">Frühimpuls LONG/SHORT · Vergleichstest wird geladen …</div><details id="intradayComparisonDetails" style="margin-top:12px"><summary><b>Analyse-Regeln und Intraday-Vergleichstest</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">Aktiv v6: 15m Setup und 5m Einstieg. Erste Schlusskerze: Einstieg vorbereitet; ein klar bestätigter Schluss oder zwei unterstützende Schlüsse bestätigen die Richtung. 1h, 4h und EMA200 dienen als Kontext. EMA20/50, RSI14 und MACD bilden ein gemeinsames Kurskollektiv. DX unter 20 und nicht zunehmend ab 15 verlangt eine zweite Kerze statt einer pauschalen Sperre. Analyse Mo–Fr rund um die Uhr (Zürich). Produkt-Handelszeiten zusätzlich prüfen. Darunter bleibt die bisherige 15m/5m-Testvariante getrennt erhalten. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div>
 <details style="margin-top:10px"><summary>Warum entscheidet Bob so?</summary><div id="decisionExplanation" class="small" style="white-space:pre-line">Noch keine bestätigte Analyse.</div></details>
 <div id="quickReason" class="small" style="margin-top:10px">Lade Daten, um das Setup zu bewerten.</div>
 <details id="bobMarketAnalysis" class="bob-disclosure" style="margin-top:12px"><summary>Marktanalyse von Bob</summary><div id="bobMarketNarrative" class="small" style="white-space:pre-line;margin-top:10px">Noch keine aktuelle Marktanalyse verfügbar.</div></details>
@@ -1250,10 +1250,10 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    if(sm?.stop>0&&target?.target>0)plan={kind:'candidate',direction:state.dir,entry:bundle.spots.xaus,stop:sm.stop,target:target.target,unit:'USD/oz',at:Date.now(),note:'Zeitgleich berechneter Gold-Referenzplan; keine Order und keine Produktfreigabe'};
   }
   if(tradeMgmt?.active&&!tradeMgmt.test)plan={kind:'active-monitor',direction:tradeMgmt.dir,entry:tradeMgmt.entry,stop:tradeMgmt.stop,target:tradeMgmt.target,unit:'USD/oz',at:Date.now(),note:'Gespeicherte Überwachung; kein Ausführungsnachweis',isin:tradeMgmt.product?.isin||null};
-  const payload={plan,baseDirection:state.baseDirection,learningPolicy:state.learningPolicy,ruleVersion:'intraday-trend-follow-v7',trendContext:state.trendContext,direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,entryQuality:intradayEntryContext(bundle,state),minuteEntry:minuteEntryContext(bundle,state),barAt:state.barAt,
+  const payload={plan,baseDirection:state.baseDirection,learningPolicy:state.learningPolicy,ruleVersion:'intraday-trend-follow-v7',trendContext:state.trendContext,earlyImpulse:earlyImpulseContext(bundle),direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,entryQuality:intradayEntryContext(bundle,state),minuteEntry:minuteEntryContext(bundle,state),barAt:state.barAt,
    price:bundle?.spots?.xaus,priceAt:bundle?.spots?.spot_price_as_of,score:state.score,
    reason:state.reason,indicators:state.indicators,products:items,selection:[...selected],gateReasons:flow.gateReasons};
-  const signature=JSON.stringify([state.dir,state.shadowDirection,state.barAt,state.reason,items,flow.gateReasons,plan&&[plan.kind,plan.direction,plan.entry,plan.stop,plan.target]]);
+  const signature=JSON.stringify([state.dir,state.shadowDirection,earlyImpulseContext(bundle).direction,state.barAt,state.reason,items,flow.gateReasons,plan&&[plan.kind,plan.direction,plan.entry,plan.stop,plan.target]]);
   if(signature===last)return;busy=true;next=Date.now()+30000;
   try{await api('write',payload);last=signature;text('auditSave','Dauerhaft protokolliert: '+new Date().toLocaleTimeString('de-CH')+' · Daten, Quellenzeiten, Gründe und Regelversion gespeichert.');}
   catch(e){text('auditSave','Protokoll NICHT gespeichert: '+e.message+'. Bob versucht es erneut; die Analyse läuft weiter.');}
@@ -1284,6 +1284,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    for(const [h,m]of Object.entries(r.metrics))lines.push(h+' Minuten: '+m.evaluated+' auswertbare Richtungen, '+m.favorable+' günstig, '+m.unfavorable+' ungünstig, '+m.flat+' unverändert; '+m.neutral+' ABWARTEN-Beobachtungen; '+m.missing+' offen / nicht auswertbar');
    lines.push('','Produktauswahl: '+p.evaluated+' vergleichbare Kursverläufe nach 60 Minuten; '+p.favorable+' positiv.',p.note,'Vergleich mit geeigneten Alternativen: '+p.comparisons+' Fälle; Auswahl in '+p.selectedBest+' Fällen mindestens gleich gut.','','Recherche: '+research.observations+' Beobachtungen, '+research.conflicts+' Widerspruchshinweise, '+research.missingSourceOrTime+' ohne Quelle/Abrufzeit.',research.note,'','Wiederkehrende Freigabehindernisse:',...(r.issues.length?r.issues.map(([reason,count])=>count+'× '+reason):['Noch keine wiederkehrenden Freigabehindernisse erfasst.']),
     '',l.mode,l.status+' · '+l.training+' Entwicklungsfälle / '+l.holdout+' zeitlich spätere Prüffälle.','Anpassungsvorschläge werden getrennt geprüft. Keine automatische Code- oder Regeländerung. Ein positiver Kursverlauf beweist keine fehlerfreie Recherche; fehlende Nachweise bleiben offen.');
+   const early=r.earlyImpulseReview;
+   if(early)lines.push('','Frühimpuls LONG/SHORT · Hintergrund-Vergleichstest: '+early.evaluated+' auswertbare Fälle (früh vor Freigabe: '+early.beforeApproval+'), davon '+early.long.evaluated+' LONG und '+early.short.evaluated+' SHORT.','Kurs nach 60 Minuten in Impulsrichtung: '+early.favorable+' günstig, '+early.unfavorable+' ungünstig, '+early.flat+' unverändert; '+early.missing+' ohne gültigen Folgepreis.',early.note);
    const mq=r.minuteEntryReview;if(mq){const num=v=>Number.isFinite(v)?v.toFixed(3)+' %':'noch nicht auswertbar';lines.push('','1m-Einstiegshilfe · Vergleichstest: '+mq.evaluated+' gepaarte 60-Minuten-Fälle; '+mq.kept+' bestätigt, '+mq.filtered+' abgewartet.','Mittlere Richtungsbewegung: bisher '+num(mq.baselineMeanPct)+'; 1m-Test '+num(mq.candidateMeanPct)+'. Verpasste günstige: '+mq.missedFavorable+'; vermiedene ungünstige: '+mq.avoidedUnfavorable+'.',mq.note);}
    const eq=r.entryQualityReview;if(eq){const num=v=>Number.isFinite(v)?v.toFixed(3)+' %':'noch nicht auswertbar';lines.push('','Einstiegsqualität · Vergleichstest: '+eq.evaluated+' gepaarte Fälle nach 60 Minuten; '+eq.kept+' beibehalten, '+eq.filtered+' gefiltert.','Treffer: bisher '+eq.baselineWins+'/'+eq.evaluated+'; Test '+eq.candidateWins+'/'+eq.kept+' freigegebene Testfälle.','Mittlere Richtungsbewegung pro Vergleichsfall: bisher '+num(eq.baselineMeanPct)+'; Test '+num(eq.candidateMeanPct)+'.','Verpasste günstige Bewegungen: '+eq.missedFavorable+' · vermiedene ungünstige: '+eq.avoidedUnfavorable+'.','Mittlere beobachtete Gegenbewegung: bisher '+num(eq.meanObservedAdversePct)+'; Test '+num(eq.candidateMeanObservedAdversePct)+' ('+eq.excursions+' Fälle).',eq.note);}
    const c=r.fourDayComparison;if(c){const n=v=>Number.isFinite(v)?v.toFixed(3):'—',date=v=>new Date(v).toLocaleString('de-CH',{timeZone:'Europe/Zurich'});const cs=['VIERTAGE-TEST · '+c.status,date(c.start)+' bis '+date(c.end)+' (Zürich)','Schnell: eine klare / zwei schwächere Schlusskerzen. Vorsichtig: drei Schlusskerzen.','Auswertbar: '+c.evaluated+' / '+c.expected+' · Datenabdeckung '+n(c.coveragePct)+' % · fehlend '+c.missing+' · offen '+c.pending];for(const [key,label] of [['fast','Schnell'],['cautious','Vorsichtig']]){const m=c.variants[key];cs.push(label+': '+m.signals+' Richtungssignale · '+m.wait+' Abwarten · '+m.wins+' Treffer / '+m.losses+' Fehlrichtungen / '+m.flat+' unverändert · Trefferquote '+n(m.hitRate)+' %','Mittlere Gold-Richtungsbewegung je Vergleichsfall '+n(m.meanPct)+' % · schlechtester Fall '+n(m.worstPct)+' % · beobachtete Gegenbewegung '+n(m.meanAdversePct)+' % ('+m.adverseCases+' Fälle)');}cs.push('Vorsichtig ausgelassen: '+c.avoidedUnfavorable+' ungünstige und '+c.missedFavorable+' günstige Bewegungen.',c.conclusion,c.note);text('fourDayComparison',cs.join('\n'));}
@@ -1965,6 +1967,51 @@ function timeframeScore(bars,tf="",now=Date.now()){
   return {dir,score,rsi:R,fresh:timing.fresh,ageWarning:timing.label,price:a.at(-1),openTime:closed.at(-1).openTime,components,available:true,fullHistory:a.length>=200};
 }
 // Optional closed-minute experiment. It cannot grant/veto live signals or move stops.
+// Independent, symmetrical LONG/SHORT impulse *observation*. Never feeds a trade, product release, stop or push.
+function earlyImpulseContext(bundle,now=Date.now()){
+ const base={version:'early-impulse-v1',available:false,direction:'NEUTRAL',extensionRisk:false,comparisonOnly:true,affectsApproval:false,barAt:null,reason:'Aktuelle geschlossene Goldkerzen fehlen'};
+ const input=bundle?.history?.bars_by_tf||{},frames={};
+ for(const [tf,step] of [['5m',300000],['15m',900000]]){
+  const raw=input[tf];
+  if(!Array.isArray(raw)||raw.some(b=>b&&!b.isOpen&&Number.isFinite(b.openTime)&&b.openTime>now))return {...base,reason:tf+': ungültige Kerzenzeit'};
+  const rows=(raw||[]).filter(b=>b&&!b.isOpen&&Number.isFinite(b.openTime)&&b.openTime+step<=now).slice(-100);
+  if(rows.length<100)return {...base,reason:tf+': weniger als 100 geschlossene Kerzen'};
+  if(rows.some((b,i)=>b.instrument!=='XAU/USD'||b.estimated||!Number.isFinite(b.openTime)||b.openTime%step!==0||
+   ['open','high','low','close'].some(k=>!Number.isFinite(b[k])||b[k]<=0)||b.high<Math.max(b.open,b.close)||b.low>Math.min(b.open,b.close)||b.low>b.high||(i&&b.openTime<=rows[i-1].openTime)))
+   return {...base,reason:tf+': Quelle, OHLC oder Zeitfolge unzuverlässig'};
+  if(now-rows.at(-1).openTime<step||now-rows.at(-1).openTime>2*step)return {...base,reason:tf+': letzter Kerzenschluss nicht aktuell'};
+  if(rows.slice(-5).some((b,i,a)=>i>0&&b.openTime-a[i-1].openTime!==step))return {...base,reason:tf+': jüngste Kerzenfolge enthält eine Lücke'};
+  let sum=0;
+  for(let i=rows.length-14;i<rows.length;i++){
+   const b=rows[i],previous=rows[i-1].close;
+   sum+=Math.max(b.high-b.low,Math.abs(b.high-previous),Math.abs(b.low-previous));
+  }
+  const atr14=sum/14;
+  if(!(Number.isFinite(atr14)&&atr14>0))return {...base,reason:tf+': keine belastbare ATR'};
+  frames[tf]={rows,atr14};
+ }
+ const a=frames['5m'],b=frames['15m'],last5=a.rows.at(-1),last15=b.rows.at(-1);
+ const move5=last5.close-a.rows.at(-4).close,side=Math.sign(move5),move15=last15.close-b.rows.at(-2).close;
+ const follow5=side*(last5.close-a.rows.at(-2).close)>0&&side*(last5.close-last5.open)>0;
+ const follow15=side*move15>=b.atr14*0.20&&side*(last15.close-last15.open)>0;
+ const triggered=side!==0&&Math.abs(move5)>=a.atr14*0.85&&follow5&&follow15;
+ const direction=triggered?(side>0?'LONG':'SHORT'):'NEUTRAL';
+ const extensionRisk=triggered&&Math.abs(move5)>=a.atr14*2.5;
+ return {...base,available:true,direction,barAt:last5.openTime,extensionRisk,
+  impulseAtr:Number((move5/a.atr14).toFixed(2)),
+  reason:!triggered?'Kein gleichgerichteter, ausreichend kräftiger 5m-/15m-Impuls aus geschlossenen Kerzen':
+   '5m-Bewegung '+Math.abs(move5/a.atr14).toFixed(2)+' ATR; letzte 5m- und 15m-Kerzen zeigen '+direction+
+   (extensionRisk?' · bereits stark ausgedehnt, Rückschlagrisiko':' · Bestätigung des Haupttrends noch separat erforderlich')};
+}
+function renderEarlyImpulseStatus(){
+ const el=$('earlyImpulseStatus');if(!el)return;
+ const q=earlyImpulseContext(liveBundleCache),dir=q.available?q.direction:'NEUTRAL';
+ el.className='small';
+ el.style.borderLeft='5px solid '+(dir==='LONG'?'#15803d':dir==='SHORT'?'#b91c1c':'#94a3b8');
+ el.textContent=(!q.available?'FRÜHERKENNUNG NICHT VERFÜGBAR':dir==='NEUTRAL'?'FRÜHIMPULS · KEIN KLARES SIGNAL':'FRÜHWARNUNG · '+dir+' (TEST)')+
+  '\n'+q.reason+'\nNur Beobachtung: keine Produktfreigabe, keine Order, kein Stop-Eingriff und kein Push. LONG und SHORT werden gleich geprüft.';
+}
+
 function minuteEntryContext(bundle,state,now=Date.now()){
  const result={version:'minute-entry-v1',available:false,direction:'NEUTRAL',barAt:null,reason:'1m-Daten fehlen oder sind nicht aktuell'};
  const raw=bundle?.history?.bars_by_tf?.['1m']||[];
@@ -3036,6 +3083,7 @@ function analysisBlockDataLabel(expired,count,warnings){
 }
 function renderAnalysisBlocks(){
  renderIntraday();
+ renderEarlyImpulseStatus();
  const current=confirmedSignalDirection();
  const ready=!window.BobSession?.expired()&&!!A.ready&&C.length>=100&&Number.isFinite(signalState.score);
  const put=(name,dir,note)=>{const el=$("block"+name),detail=$("block"+name+"Note");if(!el)return;el.textContent=dir;el.parentElement.className="analysis-block "+(dir==="LONG"?"long":dir==="SHORT"?"short":"neutral");if(detail)detail.textContent=note;};
