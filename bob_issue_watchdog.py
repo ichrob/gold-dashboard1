@@ -132,34 +132,64 @@ def github_request(method, api_path, *, token, repo, data=None, opener=urlopen):
     return json.loads(raw) if raw else {}
 
 
+def issue_title(code):
+    """Stable, allowlisted issue identity: one open issue per fault category."""
+    if code not in CODES:
+        raise ValueError("Unbekannter Fehlercode")
+    return "[Bob KI-Hilfe] " + code
+
+
 def sync_issue(codes, *, token, repo, at=None, requester=github_request):
+    """Keep individual open GitHub problems in sync with confirmed health faults.
+
+    The public issue list is only an incident index, not a source of raw logs.
+    A recovered fault is closed (history preserved); unrelated issues untouched.
+    """
     if not token or repo != "ichrob/gold-dashboard1":
         raise ValueError("GitHub-Umgebung nicht freigegeben")
     at = at or utc_now()
     issues = requester("GET", "/issues?state=open&per_page=100", token=token, repo=repo)
     if not isinstance(issues, list):
         raise ValueError("Issue-Liste ungültig")
-    existing = next((row for row in issues
-                     if isinstance(row, dict) and row.get("title") == ISSUE_TITLE
-                     and "pull_request" not in row), None)
-    if codes:
-        if existing:
-            return "already-open"
+    indexed = {
+        row["title"]: row["number"]
+        for row in issues
+        if isinstance(row, dict) and "pull_request" not in row
+        and isinstance(row.get("number"), int)
+        and (row.get("title") == ISSUE_TITLE or row.get("title") in
+             {issue_title(code) for code in CODES})
+    }
+    detected = sorted(set(code for code in codes if code in CODES))
+    actions = []
+
+    # First create any missing problem; each fault maps to precisely one open
+    # help request. No copies of private runtime logs are ever published.
+    for code in detected:
+        title = issue_title(code)
+        if title in indexed:
+            continue
         result = requester("POST", "/issues", token=token, repo=repo,
-                           data={"title": ISSUE_TITLE, "body": issue_body(codes, at)})
-        return "opened-" + str(result.get("number", "?"))
-    if existing:
-        number = existing.get("number")
-        if not isinstance(number, int):
-            raise ValueError("Ungültige Issue-Nummer")
+                           data={"title": title, "body": issue_body([code], at)})
+        actions.append("opened-" + str(result.get("number", "?")))
+
+    # Keep incidents open while failing, even if the user opened/read them.
+    # Close only those problem categories that are now independently healthy.
+    for title, number in indexed.items():
+        if title != ISSUE_TITLE and title in {issue_title(code) for code in detected}:
+            continue
+        if title == ISSUE_TITLE and not detected:
+            # Compatibility with old combined issue title.
+            message = "Neue Einzelprobleme oder normalisierte Dienste; historischer Sammelbericht geschlossen."
+        elif title == ISSUE_TITLE:
+            message = "Durch einzeln gezählte KI-Hilfeanfragen ersetzt. Diese Sammelmeldung bleibt archiviert."
+        else:
+            message = "Unabhängige Nachprüfung: Diese Fehlerart ist nicht mehr aktiv."
         requester("POST", "/issues/" + str(number) + "/comments", token=token, repo=repo,
-                  data={"body": "Automatische Nachprüfung um " + at +
-                        " UTC: Die überwachten Dienste melden wieder einen gesunden Zustand. "
-                        "Issue automatisch geschlossen; Vorfall bleibt dokumentiert."})
+                  data={"body": message + " Stand: " + at + " UTC."})
         requester("PATCH", "/issues/" + str(number), token=token, repo=repo,
                   data={"state": "closed"})
-        return "closed-" + str(number)
-    return "healthy"
+        actions.append("closed-" + str(number))
+    return ",".join(actions) if actions else ("already-open" if detected else "healthy")
 
 
 def main():
