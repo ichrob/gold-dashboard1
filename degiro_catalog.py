@@ -89,6 +89,12 @@ def build(lookup, now=None):
             continue
         try:
             response = lookup(isin)
+            # Existing issuer adapters usually return a structured source failure
+            # instead of raising. Treat it as degraded and retry: never label an
+            # unverified/provider-disabled universe as a successful full scan.
+            if not isinstance(response, dict) or any(response.get(key) for key in
+                ("sourceFailure", "sourceDisabled", "quoteFailureCode", "sourceFailureCode")):
+                errors += 1
             item, exclusion = normalize(isin, direction, response)
         except Exception:
             errors += 1
@@ -141,7 +147,7 @@ def _loop():
                 if not is_current and time.monotonic() >= last_retry:
                     with _LOCK:
                         _CURRENT["running"] = True
-                    result=build(product_quotes.get_quote)
+                    result=build(product_quotes.get_issuer_quote)
                     with _LOCK:
                         _CURRENT.update(result, lastSession=period[1], running=False)
                     print("BOB_ISSUER_CATALOG status="+result["status"]+" checked="+str(result["attempted"])+" errors="+str(result["errors"]),flush=True)

@@ -55,6 +55,16 @@ class IssuerCatalogueTests(unittest.TestCase):
         self.assertFalse(item["issuerVerified"])
         self.assertFalse(item["issuerQuoteFresh"])
 
+    def test_soft_provider_failures_trigger_retries(self):
+        def lookup(isin):
+            return dict(isin=isin,found=False,sourceFailure=True,
+                        quoteFailureCode="CONNECTION",
+                        reason="Provider offline")
+        result=catalog.build(lookup,datetime(2026,10,12,9,tzinfo=Z))
+        self.assertEqual(result["status"],"partial")
+        self.assertEqual(result["errors"],len(catalog.SEEDS))
+        self.assertFalse(any(x["issuerVerified"] for x in result["candidates"]))
+
     def test_no_network_credential_or_delayed_adapter_fallback(self):
         attempts=[]
         def lookup(isin):
@@ -81,6 +91,7 @@ class IssuerCatalogueTests(unittest.TestCase):
         self.assertIn('or path == "/api/degiro/candidates"',py)
         self.assertIn('if path == "/api/degiro/candidates":',py)
         self.assertIn('degiro_catalog.start()',py)
+        self.assertIn("build(product_quotes.get_issuer_quote)",Path("degiro_catalog.py").read_text())
         self.assertIn("Automatische Gold-Produktrecherche · externe Kandidaten",js)
         self.assertIn('completeDegiroCatalog!==false',js)
         self.assertIn('p.eligibleForTop3!==false',js)
