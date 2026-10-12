@@ -16,6 +16,7 @@ import threading
 import uuid
 import bob_auth
 import bob_recovery
+import bob_self_healing
 import auto_collection
 import background_push
 import ocr_assets
@@ -78,13 +79,15 @@ def service_health():
         reasons.append('market-feed-not-current')
     if FIB_MONITOR_HEALTH['configured'] and background['status'] != 'ok':
         reasons.append('background-not-current')
-    return {'status': 'degraded' if reasons else 'ok', 'service': 'bob',
+    result = {'status': 'degraded' if reasons else 'ok', 'service': 'bob',
             'build': os.environ.get('RENDER_GIT_COMMIT'),
             'runtime': {'processId': PROCESS_ID, 'startedAt': datetime.fromtimestamp(PROCESS_STARTED_AT, timezone.utc).isoformat(),
                         'uptimeSeconds': max(0, int(time.monotonic()-PROCESS_STARTED_MONOTONIC))},
             'ready': not reasons, 'reasons': reasons,
             'fibonacciMonitor': dict(FIB_MONITOR_HEALTH), 'automaticCollection': collection,
             'strategyResearch': strategy_lab_background.status()}
+    bob_self_healing.observe(result)
+    return result
 
 def background_health():
     """Only a completed cycle proves that background monitoring works."""
@@ -115,6 +118,7 @@ HTML = HTML.replace(b"</body>", auto_collection.PANEL.encode('utf-8')+b"</body>"
 HTML = HTML.replace(b"</body>", candle_shadow.PANEL.encode('utf-8')+b"</body>")
 HTML = HTML.replace(b"</body>", vollautomatisch_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", trade_email_panel.PANEL.encode("utf-8")+b"</body>")
+HTML = HTML.replace(b"</body>", bob_self_healing.PANEL.encode("utf-8")+b"</body>")
 SW = SW_PATH.read_bytes() if SW_PATH.exists() else None
 MANIFEST = MANIFEST_PATH.read_bytes() if MANIFEST_PATH.exists() else None
 ICON = ICON_PATH.read_bytes() if ICON_PATH.exists() else None
@@ -781,7 +785,7 @@ class Handler(BaseHTTPRequestHandler):
         # Sensitive data APIs must be authenticated before any data generation.
         # Keep static PWA resources and /health public, but never expose live,
         # MTF, or DEGIRO enrichment data without the existing Bob credentials.
-        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates"
+        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates" or path == "/api/self-healing"
         if protected_api_path:
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
@@ -793,6 +797,17 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(b"Authentication required.")
                 return
+
+        if path == "/api/self-healing":
+            body = json.dumps(bob_self_healing.snapshot(service_health()), ensure_ascii=False,
+                              separators=(",", ":")).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body)
+            return
 
         if path == "/api/zukunft/research":
             # Display ONLY the last stored daily background result. Never run
@@ -930,9 +945,23 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if path == "/health":
-            auto_collection.start()
-            strategy_lab_background.start(fetch_technical_history, mark_bar_state)
-            ensure_fibonacci_monitor()
+            # The external watchdog invokes this public liveness probe; only
+            # approved, idempotent worker restarts are allowed here.
+            collection_state = auto_collection.health()
+            bob_self_healing.restart_worker(
+                "market-worker-stopped",
+                bool(collection_state.get("enabled") and not collection_state.get("running")),
+                auto_collection.start)
+            research_state = strategy_lab_background.status()
+            bob_self_healing.restart_worker(
+                "research-worker-stopped",
+                bool(PUSH_SERVICE_URL and PUSH_SERVICE_TOKEN and not research_state.get("running")),
+                lambda: strategy_lab_background.start(fetch_technical_history, mark_bar_state))
+            bob_self_healing.restart_worker(
+                "background-worker-stopped",
+                bool(FIB_MONITOR_HEALTH["configured"] and
+                     (_FIB_THREAD is None or not _FIB_THREAD.is_alive())),
+                ensure_fibonacci_monitor)
             body = json.dumps(service_health(),separators=(",",":")).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
