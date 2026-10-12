@@ -317,6 +317,19 @@ def deliver_background_tests():
         conn.commit()
 
 
+def record_market_observation(conn, market):
+    """Persist the frozen read-only observation; no order, Push or product release."""
+    if not market.get('analysisBarAt'):
+        return False
+    decision_audit.write(conn,{'ruleVersion':market.get('ruleVersion'),'origin':'background','direction':market.get('direction','NEUTRAL'),'baseDirection':market.get('baseDirection'),'learningPolicy':market.get('learningPolicy'),
+        'trendContext':market.get('trendContext'),'earlyImpulse':market.get('earlyImpulse'),'plan':market.get('plan'),'minuteEntry':market.get('minuteEntry'),'entryQuality':market.get('entryQuality'),'shadowDirection':market.get('shadowDirection'),'intraday':market.get('intraday'),'barAt':market['analysisBarAt'],
+        'price':market.get('price'),'priceAt':market.get('dataAt'),'reason':market.get('decisionReason'),
+        'score':market.get('score'),'indicators':market.get('context'), 'products':[],
+        'selection':[], 'gateReasons':[] if market.get('ready') else ['Marktdaten nicht freigegeben']})
+    decision_audit.harvest(conn)
+    return True
+
+
 def run_background(bundle):
     sent = 0
     with db() as conn:
@@ -334,22 +347,24 @@ def run_background(bundle):
         learning_policy=rule_learning.policy(conn)
         bundle={**bundle,'learningPolicy':learning_policy}
         rows = conn.execute("SELECT id, subscription, general_enabled, trade_enabled, active_trade, background_config, background_state, selection_evidence, product_selection FROM subscriptions WHERE (general_enabled=TRUE OR (trade_enabled=TRUE AND active_trade=TRUE)) AND background_config IS NOT NULL FOR UPDATE").fetchall()
+        # Research must continue even when the app is closed and nobody has Push enabled.
+        # Only an ordinary authenticated /background bundle is used; no extra HTTP polling.
+        if not rows and background_push.degiro_session() == 'trading':
+            try:
+                shadow = background_push.analyze(bundle, {'timeframe':'15m', 'learningPolicy':learning_policy}, priority=2)
+                with conn.transaction():
+                    record_market_observation(conn, shadow)
+            except Exception as exc:
+                print('BOB_EARLY_SHADOW error='+type(exc).__name__,flush=True)
         for sid, sub, general, trade, active, settings, previous, evidence, selection in rows:
             try:
                 market = background_push.analyze(bundle, {**settings,'learningPolicy':learning_policy})
             except Exception as exc:
                 print('BOB_BACKGROUND analysis_failed='+type(exc).__name__, flush=True)
                 market = background_push.failed_analysis_market(bundle)
-            # Audit failures must not interrupt stop/target monitoring or its transaction.
+            # Subscriber-specific monitoring continues independently of audit failures.
             try:
-                with conn.transaction():
-                    if market.get('analysisBarAt'):
-                        decision_audit.write(conn,{'ruleVersion':market.get('ruleVersion'),'origin':'background','direction':market.get('direction','NEUTRAL'),'baseDirection':market.get('baseDirection'),'learningPolicy':market.get('learningPolicy'),
-                            'trendContext':market.get('trendContext'),'earlyImpulse':market.get('earlyImpulse'),'plan':market.get('plan'),'minuteEntry':market.get('minuteEntry'),'entryQuality':market.get('entryQuality'),'shadowDirection':market.get('shadowDirection'),'intraday':market.get('intraday'),'barAt':market['analysisBarAt'],
-                            'price':market.get('price'),'priceAt':market.get('dataAt'),'reason':market.get('decisionReason'),
-                            'score':market.get('score'),'indicators':market.get('context'), 'products':[],
-                            'selection':[], 'gateReasons':[] if market.get('ready') else ['Marktdaten nicht freigegeben']})
-                        decision_audit.harvest(conn)
+                with conn.transaction(): record_market_observation(conn, market)
             except Exception as exc:
                 print('BOB_AUDIT write_failed='+type(exc).__name__,flush=True)
             state, events = background_push.advance(previous, settings, market, general, trade and active)

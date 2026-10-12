@@ -1140,6 +1140,10 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <details><summary>Originalnachweise dieser Seite</summary><pre id="auditDayRaw" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>
 </details>
 <div id="auditSave" class="small">Warte auf eine protokollierbare Entscheidung.</div>
+<details id="earlyImpulseDetails" open>
+<summary><b>Frühwarnungen LONG/SHORT · automatischer Erfolgstest</b></summary>
+<div id="earlyImpulseResult" class="small" role="status" style="white-space:pre-line;margin-top:10px">Warte auf die automatisch erfassten Kursbeobachtungen.</div>
+</details>
 <details id="auditDetails"><summary>Auswertung und Lernstand öffnen</summary>
 <button id="auditRefresh" type="button">Auswertung aktualisieren</button>
 <div id="auditReport" class="small" style="white-space:pre-line">Noch nicht geladen.</div>
@@ -1285,12 +1289,29 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    lines.push('','Produktauswahl: '+p.evaluated+' vergleichbare Kursverläufe nach 60 Minuten; '+p.favorable+' positiv.',p.note,'Vergleich mit geeigneten Alternativen: '+p.comparisons+' Fälle; Auswahl in '+p.selectedBest+' Fällen mindestens gleich gut.','','Recherche: '+research.observations+' Beobachtungen, '+research.conflicts+' Widerspruchshinweise, '+research.missingSourceOrTime+' ohne Quelle/Abrufzeit.',research.note,'','Wiederkehrende Freigabehindernisse:',...(r.issues.length?r.issues.map(([reason,count])=>count+'× '+reason):['Noch keine wiederkehrenden Freigabehindernisse erfasst.']),
     '',l.mode,l.status+' · '+l.training+' Entwicklungsfälle / '+l.holdout+' zeitlich spätere Prüffälle.','Anpassungsvorschläge werden getrennt geprüft. Keine automatische Code- oder Regeländerung. Ein positiver Kursverlauf beweist keine fehlerfreie Recherche; fehlende Nachweise bleiben offen.');
    const early=r.earlyImpulseReview;
-   if(early)lines.push('','Frühimpuls LONG/SHORT · Hintergrund-Vergleichstest: '+early.evaluated+' auswertbare Fälle (früh vor Freigabe: '+early.beforeApproval+'), davon '+early.long.evaluated+' LONG und '+early.short.evaluated+' SHORT.','Kurs nach 60 Minuten in Impulsrichtung: '+early.favorable+' günstig, '+early.unfavorable+' ungünstig, '+early.flat+' unverändert; '+early.missing+' ohne gültigen Folgepreis.',early.note);
+   if(early){
+    const fmt=v=>Number.isFinite(v)?v.toFixed(3)+' %':'noch nicht auswertbar';
+    const horizon=h=>{const x=early.horizons?.[String(h)];return x?h+' Minuten: '+x.evaluated+' verwertbar · '+x.favorable+' günstig / '+x.unfavorable+' ungünstig · '+x.missing+' ohne gültigen Folgepreis':'keine Daten';};
+    const phase=(name,label)=>{const a=early.phases?.[name];return a?label+': '+a.evaluated+' verwertbar an '+a.days+' Tagen (LONG '+a.long.evaluated+', SHORT '+a.short.evaluated+')':'noch keine Daten';};
+    const earlyLines=[
+      'Prüfstand: '+early.status,
+      'LONG: '+early.long.evaluated+' auswertbar, '+early.long.favorable+' günstig / '+early.long.unfavorable+' ungünstig · mittlere Kursbewegung '+fmt(early.long.meanDirectionalPct),
+      'SHORT: '+early.short.evaluated+' auswertbar, '+early.short.favorable+' günstig / '+early.short.unfavorable+' ungünstig · mittlere Kursbewegung '+fmt(early.short.meanDirectionalPct),
+      'Vor Handelsfreigabe: '+early.beforeApproval+' Frühwarnungen · '+early.unconfirmedFavorable+' später günstig / '+early.unconfirmedUnfavorable+' später ungünstig.',
+      'Bisherige Bestätigungsregel gegen Früherkennung (jeweils gleicher Startzeitpunkt): '+fmt(early.evaluated?early.baselineSumPct/early.evaluated:null)+' gegen '+fmt(early.evaluated?early.earlySumPct/early.evaluated:null)+'.',
+      horizon(15),horizon(60),horizon(240),
+      phase('collection','Datensammlung ab 12.10.2026'),
+      phase('validation','Unabhängige Prüfung ab 19.10.2026'),
+      'Automatische Regeländerung: NEIN. Ein guter Gold-Spot-Verlauf beweist keinen profitablen DEGIRO-Handel.',
+      early.note];
+    text('earlyImpulseResult',earlyLines.join('\n'));
+    lines.push('','Früherkennung LONG/SHORT: '+early.status,'60-Minuten-Auswertung: '+early.evaluated+' Fälle · '+early.favorable+' günstige, '+early.unfavorable+' ungünstige Bewegungen.','Details im eigenen Bereich „Frühwarnungen LONG/SHORT“.');
+   }else text('earlyImpulseResult','Noch keine belastbaren Frühwarn-Daten vorhanden.');
    const mq=r.minuteEntryReview;if(mq){const num=v=>Number.isFinite(v)?v.toFixed(3)+' %':'noch nicht auswertbar';lines.push('','1m-Einstiegshilfe · Vergleichstest: '+mq.evaluated+' gepaarte 60-Minuten-Fälle; '+mq.kept+' bestätigt, '+mq.filtered+' abgewartet.','Mittlere Richtungsbewegung: bisher '+num(mq.baselineMeanPct)+'; 1m-Test '+num(mq.candidateMeanPct)+'. Verpasste günstige: '+mq.missedFavorable+'; vermiedene ungünstige: '+mq.avoidedUnfavorable+'.',mq.note);}
    const eq=r.entryQualityReview;if(eq){const num=v=>Number.isFinite(v)?v.toFixed(3)+' %':'noch nicht auswertbar';lines.push('','Einstiegsqualität · Vergleichstest: '+eq.evaluated+' gepaarte Fälle nach 60 Minuten; '+eq.kept+' beibehalten, '+eq.filtered+' gefiltert.','Treffer: bisher '+eq.baselineWins+'/'+eq.evaluated+'; Test '+eq.candidateWins+'/'+eq.kept+' freigegebene Testfälle.','Mittlere Richtungsbewegung pro Vergleichsfall: bisher '+num(eq.baselineMeanPct)+'; Test '+num(eq.candidateMeanPct)+'.','Verpasste günstige Bewegungen: '+eq.missedFavorable+' · vermiedene ungünstige: '+eq.avoidedUnfavorable+'.','Mittlere beobachtete Gegenbewegung: bisher '+num(eq.meanObservedAdversePct)+'; Test '+num(eq.candidateMeanObservedAdversePct)+' ('+eq.excursions+' Fälle).',eq.note);}
    const c=r.fourDayComparison;if(c){const n=v=>Number.isFinite(v)?v.toFixed(3):'—',date=v=>new Date(v).toLocaleString('de-CH',{timeZone:'Europe/Zurich'});const cs=['VIERTAGE-TEST · '+c.status,date(c.start)+' bis '+date(c.end)+' (Zürich)','Schnell: eine klare / zwei schwächere Schlusskerzen. Vorsichtig: drei Schlusskerzen.','Auswertbar: '+c.evaluated+' / '+c.expected+' · Datenabdeckung '+n(c.coveragePct)+' % · fehlend '+c.missing+' · offen '+c.pending];for(const [key,label] of [['fast','Schnell'],['cautious','Vorsichtig']]){const m=c.variants[key];cs.push(label+': '+m.signals+' Richtungssignale · '+m.wait+' Abwarten · '+m.wins+' Treffer / '+m.losses+' Fehlrichtungen / '+m.flat+' unverändert · Trefferquote '+n(m.hitRate)+' %','Mittlere Gold-Richtungsbewegung je Vergleichsfall '+n(m.meanPct)+' % · schlechtester Fall '+n(m.worstPct)+' % · beobachtete Gegenbewegung '+n(m.meanAdversePct)+' % ('+m.adverseCases+' Fälle)');}cs.push('Vorsichtig ausgelassen: '+c.avoidedUnfavorable+' ungünstige und '+c.missedFavorable+' günstige Bewegungen.',c.conclusion,c.note);text('fourDayComparison',cs.join('\n'));}
    text('auditReport',lines.join('\n'));text('auditRecords',JSON.stringify(r.latest,null,2));
-  }catch(e){text('fourDayComparison','Vergleich aktuell nicht abrufbar. Bitte später erneut laden.');text('auditStatisticsStatus','Statistik nicht aktuell abrufbar; eventuell angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.');text('auditReport','Auswertung nicht verfügbar: '+e.message);text('improvementStatus','Lernstand derzeit nicht abrufbar. Ein zuvor angezeigter Vorschlag ist nicht erneut geprüft.');}
+  }catch(e){text('earlyImpulseResult','Frühwarn-Testdaten momentan nicht abrufbar: '+e.message);text('fourDayComparison','Vergleich aktuell nicht abrufbar. Bitte später erneut laden.');text('auditStatisticsStatus','Statistik nicht aktuell abrufbar; eventuell angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.');text('auditReport','Auswertung nicht verfügbar: '+e.message);text('improvementStatus','Lernstand derzeit nicht abrufbar. Ein zuvor angezeigter Vorschlag ist nicht erneut geprüft.');}
  }
  refresh();
  setInterval(()=>{if(!document.hidden)refresh();},300000);
