@@ -70,6 +70,7 @@ def init(conn):
         seed=float(POLICIES[profile].get('initial_capital_eur',100.))
         # The experimental account starts with the first real deployment/initialization.
         # Existing live accounts retain their original Monday starting timestamps.
+        policy=POLICIES[profile]
         started = int(time.time()*1000) if policy.get('early_impulse') else START
         starting = dict(version='paper-five-v1' if policy.get('early_impulse') else 'paper-four-v1',
                         startAt=started, enabled=True,
