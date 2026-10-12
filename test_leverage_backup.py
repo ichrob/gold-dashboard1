@@ -9,6 +9,35 @@ class Tests(unittest.TestCase):
   self.r=dict(found=True,productVerified=True,eligible=False,currency='EUR',ask=4,askAt=T,source='Onvista',metadata=dict(status=1,simpleNonQuantoTurbo=True,underlyingType='SPOT',ratio=.01))
   self.g=dict(price=4000,at=T,underlying='XAU/USD',source='Gold')
   self.fx=dict(result='success',base='USD',rates=dict(EUR=1),data_updated_at=T,effective_at=dict(EUR=T),source='live',sources=dict(EUR='live'),market_session='open')
+ def test_native_chf_research_gearing_without_eur_quote(self):
+  original=dict(self.r,found=False,currency='CHF',nativeChartEvidence=dict(
+      bid=3.99,ask=4.0,currency='CHF',pointAt=T),metadata=dict(
+      status=1,simpleNonQuantoTurbo=True,underlyingType='SPOT',ratio=.01))
+  fx=dict(self.fx,rates={'CHF':.8},sources={'CHF':'live'},
+          effective_at={'CHF':T})
+  with patch('spot_data.current',return_value=self.g),patch('sg_quotes.market_input',return_value=fx):
+   out=b.apply(original,N)
+  self.assertAlmostEqual(out['leverage'],8)
+  self.assertTrue(out['leverageEstimated'])
+  self.assertTrue(out['leverageCalculation']['fresh'])
+  self.assertEqual(out['leverageCalculation']['inputs']['quoteCurrency'],'CHF')
+  self.assertEqual(out['leverageCalculation']['inputs']['askNative'],4)
+  self.assertIsNone(out['leverageCalculation']['inputs']['askEur'])
+  self.assertNotIn('chartEvidence',out)
+  self.assertFalse(out['found'])
+  self.assertFalse(out['eligible'])
+  self.assertIn('keine EUR-Handelsquotierung',out['leverageNote'])
+  fx['sources']['CHF']='cached'
+  with patch('spot_data.current',return_value=self.g),patch('sg_quotes.market_input',return_value=fx):
+   not_current=b.apply(original,N)
+  self.assertFalse(not_current['leverageCalculation']['fresh'])
+  self.assertFalse(not_current['eligible'])
+  fx['sources']['CHF']='live'
+  fx['effective_at']['CHF']='2026-10-07T09:29:59Z'
+  with patch('spot_data.current',return_value=self.g),patch('sg_quotes.market_input',return_value=fx):
+   too_old=b.apply(original,N)
+  self.assertFalse(too_old['leverageCalculation']['available'])
+
  def test_formula_and_clocks(self):
   x=b.calculate(self.r,self.g,self.fx,N)
   self.assertEqual(x['value'],10);self.assertTrue(x['fresh']);self.assertEqual(x['at'],'2026-10-07T09:59:50+00:00')

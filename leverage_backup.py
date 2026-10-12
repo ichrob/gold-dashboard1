@@ -40,7 +40,7 @@ def select_analysis_quote(result, now=None):
     return quote
 
 
-def calculate(result, basis, fx, now=None):
+def calculate(result, basis, fx, now=None, quote_override=None):
     now = now or datetime.now(timezone.utc)
     m = result['metadata']
     if not result.get('productVerified') or m.get('status') != 1 or not m.get('simpleNonQuantoTurbo'):
@@ -54,19 +54,24 @@ def calculate(result, basis, fx, now=None):
             raise ValueError('Passender Future-Kontrakt fehlt')
     else:
         raise ValueError('Basiswert nicht unterstützt')
-    quote = select_analysis_quote(result, now)
-    if quote.get('currency') != 'EUR' or fx.get('result') != 'success' or fx.get('base') != 'USD':
+    quote = quote_override if quote_override is not None else select_analysis_quote(result, now)
+    currency = quote.get('currency')
+    # Native CHF research is possible without silently turning the product
+    # into EUR. Executable quote and product release stay independently gated.
+    if (currency not in ('EUR', 'CHF') or fx.get('result') != 'success'
+            or fx.get('base') != 'USD'):
         raise ValueError('Produkt- oder Wechselkurswährung nicht bestätigt')
-    price, gold, ratio, rate = (q.number(v) for v in (quote['ask'], basis['price'], m['ratio'], fx['rates']['EUR']))
+    price, gold, ratio, rate = (q.number(v) for v in
+                               (quote['ask'], basis['price'], m['ratio'], fx['rates'][currency]))
     if min(price, gold, ratio, rate) <= 0:
         raise ValueError('Positive Berechnungswerte fehlen')
-    times = [q.stamp(v) for v in (quote['askAt'], basis['at'], fx['data_updated_at'], fx['effective_at']['EUR'])]
+    times = [q.stamp(v) for v in (quote['askAt'], basis['at'], fx['data_updated_at'], fx['effective_at'][currency])]
     ages = [(now-t).total_seconds() for t in times]
     if min(ages) < 0 or max(ages) > 1800:
         raise ValueError('Eingangsdaten zukünftig oder älter als 30 Minuten')
     skew = (max(times)-min(times)).total_seconds()
     inputs_fresh = (max(ages) <= MAX_INPUT_AGE_SECONDS and skew <= MAX_SKEW_SECONDS and basis.get('delayed') is not True
-             and fx.get('source') == 'live' and fx.get('sources', {}).get('EUR') == 'live'
+             and fx.get('source') == 'live' and fx.get('sources', {}).get(currency) == 'live'
              and fx.get('market_session') == 'open')
     return dict(available=True,value=gold*rate*ratio/price, at=min(times).isoformat(), calculatedAt=now.isoformat(),
                 fresh=inputs_fresh and not basis.get('estimated',False), inputsFresh=inputs_fresh, state='CFD-basierte Schätzung; Quellenalter und Zeitabstand separat prüfen' if basis.get('estimated') else 'aktuelle Eingangsdaten' if inputs_fresh else 'veraltete oder zeitlich abweichende Eingangsdaten',
@@ -74,11 +79,12 @@ def calculate(result, basis, fx, now=None):
                 maxInputAgeSeconds=round(max(ages),1), skewSeconds=round(skew,1),
                 maxAllowedInputAgeSeconds=MAX_INPUT_AGE_SECONDS, maxAllowedSkewSeconds=MAX_SKEW_SECONDS,
                 inputs=dict(priceSide='ask',basisEstimated=bool(basis.get('estimated',False)),basisDelayed=bool(basis.get('delayed',False)),basisPriceUsd=gold,basisAt=times[1].isoformat(),basisSource=basis['source'],
-                            contract=m.get('contract'),ratio=ratio,askEur=price,askAt=times[0].isoformat(),
+                            contract=m.get('contract'),ratio=ratio,askEur=price if currency=='EUR' else None,
+                            askNative=price,quoteCurrency=currency,askAt=times[0].isoformat(),
                             priceSource=quote.get('source',result.get('source')),usdEur=rate,
                             currencyModelEvidence=m.get('currencyModelEvidence'),
                             fxDataAt=times[2].isoformat(),fxEffectiveAt=times[3].isoformat(),
-                            fxSource=fx.get('provider','exchangerate.dev · USD/EUR'),priceKind=quote.get('priceKind')),
+                            fxSource=fx.get('provider','exchangerate.dev · USD/'+currency),priceKind=quote.get('priceKind')),
                 note='Rechnerische Näherung mit Delta ±1; kein bestätigter Emittentenhebel oder ausführbarer Kurs.')
 
 
@@ -107,7 +113,19 @@ def apply(result, now=None):
                          contract=cfd['declaredContract'], underlyingType='FUTURE', estimated=True,
                          delayed=not cfd.get('realtimeCfd',False))
         from sg_quotes import market_input
-        evidence = calculate(out,basis,market_input('fx'),supplied_now or datetime.now(timezone.utc))
+        native = out.get('nativeChartEvidence') or {}
+        native_quote = None
+        if (not out.get('chartEvidence') and native.get('currency') == 'CHF'
+                and q.number(native.get('bid', 0)) > 0
+                and q.number(native.get('ask', 0)) >= q.number(native['bid'])
+                and native.get('pointAt')):
+            native_quote = dict(bid=native['bid'], ask=native['ask'],
+                bidAt=native['pointAt'], askAt=native['pointAt'], currency='CHF',
+                source='SG · datierte CHF-Chartbeobachtung',
+                priceKind='issuer-chart', isExecutableQuote=False)
+        evidence = calculate(out,basis,market_input('fx'),
+                             supplied_now or datetime.now(timezone.utc),
+                             quote_override=native_quote)
         out['leverageCalculation'] = evidence
         old = out.get('leverageAt')
         out['leverageComparison'] = compare(out, evidence, supplied_now or datetime.now(timezone.utc))
@@ -122,6 +140,8 @@ def apply(result, now=None):
                    leverageNote=evidence['label']+' · '+evidence['state']+'. '+evidence['note'])
         if m.get('currencyModelEvidence'):
             out['leverageNote'] += ' Währungsumrechnung: nicht währungsgesichert laut Onvista-Produktbedingungen; USD/EUR berücksichtigt.'
+        if evidence['inputs'].get('quoteCurrency') == 'CHF':
+            out['leverageNote'] += ' Berechnung in CHF (USD/CHF); keine EUR-Handelsquotierung.'
         out['reason'] = 'Produktwerte übernommen; '+out['leverageNote']
     except (KeyError,TypeError,ValueError,OSError,AttributeError) as exc:
         out['leverageCalculation'] = dict(available=False,reason=str(exc) if isinstance(exc,ValueError) else 'Eingangsdaten nicht verfügbar')
