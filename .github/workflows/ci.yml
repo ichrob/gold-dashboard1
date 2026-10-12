@@ -62,6 +62,17 @@ jobs:
           Path('/tmp/bob-auto-ui.js').write_text(re.search(r'<script>(.*)</script>',PANEL,re.S)[1])
           PY
           node --check /tmp/bob-auto-ui.js
+      - name: Problem panel JavaScript syntax
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          from bob_problems import PANEL
+          script = re.search(r'<script>(.*?)</script>', PANEL, re.S)
+          assert script, 'Problem panel script not embedded'
+          Path('/tmp/bob-problem-panel.js').write_text(script.group(1), encoding='utf-8')
+          PY
+          node --check /tmp/bob-problem-panel.js
       - name: JSON and Bob validation
         run: node validate_bob.js
       - name: Service worker syntax
