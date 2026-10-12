@@ -20,9 +20,12 @@ ORIGIN = 'https://derivate.bnpparibas.com/'
 SG_ORIGIN = 'https://www.sg-zertifikate.de/'
 # SG's own product IDs, not the independent onvista instrument IDs.
 SG_CH_PRODUCTS = {'DE000FG34XV8': 7039911}
+# SG identities whose official product ID must be verified dynamically.
+SG_DISCOVERY_PRODUCTS = frozenset(('DE000FG7N6Z2', 'DE000FG8NHQ3'))
+SG_CH_MARKET = frozenset((*SG_CH_PRODUCTS, 'DE000FG8NHQ3'))
 
 def sg_market(isin):
-    return ('https://www.sg-zertifikate.ch/', 'CBSW', 'CHF') if isin in SG_CH_PRODUCTS else (SG_ORIGIN, 'CBDE', 'EUR')
+    return ('https://www.sg-zertifikate.ch/', 'CBSW', 'CHF') if isin in SG_CH_MARKET else (SG_ORIGIN, 'CBDE', 'EUR')
 
 SG_DIRECT_PRODUCTS = {
     **SG_CH_PRODUCTS,
@@ -167,7 +170,7 @@ def get_sg_quote(isin):
     return get_quote(isin)
 
 
-def parse_sg_chart_research(product, points, isin, now=None):
+def parse_sg_chart_research(product, points, isin, now=None, verified_id=None):
     """Parse the public Prices/Live chart for bounded research only.
 
     The request's productId must come from a verified product response. A chart
@@ -176,6 +179,8 @@ def parse_sg_chart_research(product, points, isin, now=None):
     """
     now = now or datetime.now(timezone.utc)
     expected = SG_DIRECT_PRODUCTS.get(isin)
+    if isin in SG_DISCOVERY_PRODUCTS and type(verified_id) is int and verified_id > 0:
+        expected = verified_id
     if (expected is None or product.get('Isin') != isin
             or type(product.get('Id')) is not int or product['Id'] != expected
             or product.get('ExchangeCode') != sg_market(isin)[1]
@@ -486,7 +491,7 @@ def get_issuer_quote(isin):
     # Known SG identities are local routing information, not verified terms.
     # Check before cache: an earlier SG response must never be reused as live.
     from sg_quotes import PRODUCT_IDS
-    if isin in PRODUCT_IDS or isin in SG_GOLD_FUTURES or isin in SG_DIRECT_PRODUCTS:
+    if isin in PRODUCT_IDS or isin in SG_GOLD_FUTURES or isin in SG_DIRECT_PRODUCTS or isin in SG_DISCOVERY_PRODUCTS:
         return get_sg_quote(isin)
     with _LOCK:
         cached = _CACHE.get(isin)
@@ -604,7 +609,7 @@ def _get_quote_bounded(isin):
     from onvista_backup import apply_backup
     isin = str(isin or '').strip().upper()
     result = apply_backup(_get_quote_primary(isin), isin)
-    if isin in SG_CH_PRODUCTS:
+    if isin in SG_CH_MARKET:
         from sg_chf import convert_analysis
         result = convert_analysis(result)
     chart = result.get('chartEvidence')
