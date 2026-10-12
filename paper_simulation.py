@@ -75,6 +75,36 @@ def init(conn):
 def sync(conn, payload):
     products=payload.get('products')
     if not isinstance(products,list) or not 0<len(products)<=12:raise ValueError('Produktliste ungültig')
+    # The screenshot upload timestamp tracks the active list generation.
+    # It must NEVER count as a quote/KO source timestamp.
+    uploaded=payload.get('listUploadedAt')
+    generation=None
+    if uploaded is not None:
+        if not isinstance(uploaded,str):
+            raise ValueError('Ungültiger Screenshot-Listenstand')
+        try:
+            generation=datetime.fromisoformat(uploaded.replace('Z','+00:00'))
+        except ValueError as exc:
+            raise ValueError('Ungültiger Screenshot-Listenstand') from exc
+        if generation.tzinfo is None or generation.timestamp()>time.time()+120:
+            raise ValueError('Ungültiger zukünftiger Screenshot-Listenstand')
+        if payload.get('origin')!='degiro-screenshot':
+            raise ValueError('Screenshot-Quellenzuordnung fehlt')
+    # Serialize competing tabs/devices. An old tab must not restore an earlier
+    # product set after a newer screenshot replaced it.
+    old=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1 FOR UPDATE').fetchone()
+    previous=old[0] if old and isinstance(old[0],dict) else {}
+    old_time=stamp(previous.get('listUploadedAt'))
+    new_time=generation.timestamp()*1000 if generation else None
+    if old_time is not None and (new_time is None or new_time<old_time):
+        return dict(ok=True,products=len(previous.get('products') or []),
+                    preserved=True, reason='Älterer Screenshot-Stand; neuere Produktliste bleibt aktiv')
+    if old_time is not None and new_time==old_time:
+        expected={p.get('isin') for p in previous.get('products') or [] if isinstance(p,dict)}
+        current={p.get('isin') for p in products if isinstance(p,dict) and p.get('isin')}
+        if expected!=current:
+            return dict(ok=True,products=len(previous.get('products') or []),
+                        preserved=True, reason='Dieselbe Upload-Version enthält widersprüchliche ISINs')
     keys=('isin','name','productDirection','direction','isinConfirmed','price','leverage','ko','spread','spot',
           'quote','snapshot','type','currency','basisPrice','ratio','underlying','contract','maturity')
     def clean(value):
@@ -84,7 +114,9 @@ def sync(conn, payload):
         if isinstance(value,str):return value[:2000]
         return value
     safe=dict(products=[{k:clean(p[k]) for k in keys if k in p} for p in products if isinstance(p,dict)],
-              references=clean(payload.get('references') or []),fixedBarriers=clean(payload.get('fixedBarriers') or {}))
+              references=clean(payload.get('references') or []),fixedBarriers=clean(payload.get('fixedBarriers') or {}),
+              listUploadedAt=uploaded if generation else None,
+              listOrigin='degiro-screenshot' if generation else 'legacy')
     if not any(p.get('isin') for p in safe['products']):
         return dict(ok=True,products=0,preserved=True)
     text=json.dumps(safe,allow_nan=False)
