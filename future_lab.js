@@ -214,14 +214,14 @@ function mount(parent){
  research.append(el('h4','Automatischer Strategievergleich · Walk-forward'));
  const expl=el('p','Bob vergleicht Basismodell, strenge Trendfolge, Ausbruch, Gegenbewegung und ein trainiertes lineares Lernmodell. Jede Runde trennt Training, Auswahl und spätere Testdaten. Die Kurse sind Referenz-Kerzen und keine ausführbaren DEGIRO-Geld-/Briefkurse.');
  expl.className='small';research.append(expl);
- const runBtn=el('button','Strategievergleich aktualisieren');runBtn.type='button';runBtn.className='bob-primary';
- const rStatus=el('p','Noch keine historische Prüfung abgerufen. Ergebnisse werden nicht zur aktuellen Handelsregel.');
+ const runBtn=el('button','Gespeicherten Vergleich neu anzeigen');runBtn.type='button';runBtn.className='bob-primary';
+ const rStatus=el('p','Bob prüft automatisch an Handelstagen ab 08:00 Uhr (Zürich). Du musst keinen Vergleich starten; hier werden nur gespeicherte Resultate angezeigt.');
  rStatus.className='small';rStatus.setAttribute('role','status');
  const reportBox=el('div');research.append(runBtn,rStatus,reportBox);shell.append(research);
  let researchBusy=false,researchLoaded=false;
  async function loadResearch(){
   if(researchBusy)return;
-  researchBusy=true;runBtn.disabled=true;rStatus.textContent='Getrennte historische Testfenster werden geprüft …';
+  researchBusy=true;runBtn.disabled=true;rStatus.textContent='Gespeicherte automatische Auswertung wird gelesen …';
   try{
    const controller=typeof AbortController==='function'?new AbortController():null;
    const timeout=setTimeout(()=>controller?.abort(),20000);
@@ -232,11 +232,24 @@ function mount(parent){
    reportBox.replaceChildren();
    if(info.mode!=='RESEARCH_ONLY'||info.orderExecutionEnabled!==false||info.approved!==false)
     throw Error('Sperrstatus der Studie nicht bestätigt');
+
    const brokers=info.brokerReadiness||{};
+   const auto=info.automation||{};
+   const fmt=t=>t?new Date(t).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch keine';
+   const latest=el('p','Hintergrundbetrieb: '+(auto.enabled?'aktiviert':'nicht bestätigt')+' · täglich Mo–Fr ab 08:00 Uhr (Zürich). Letzte gespeicherte Prüfung: '+fmt(auto.lastRunAt)+'. Browser muss nicht geöffnet bleiben.');
+   latest.className='small';reportBox.append(latest);
+   if(Array.isArray(auto.history)&&auto.history.length){
+    const log=el('details');log.className='bob-disclosure';
+    log.append(el('summary','Archivierte Tagesprüfungen ('+auto.history.length+')'));
+    const ul=el('ul');
+    for(const h of auto.history)ul.append(el('li',h.day+' · '+(h.status==='evaluated'?'ausgewertet':h.status==='insufficient'?'noch nicht ausreichend':'offen')+' · '+(h.closedBars||0)+' geschlossene 1h-Kerzen'));
+    log.append(ul);reportBox.append(log);
+   }
+
    if(info.status==='evaluated'&&Array.isArray(info.folds)){
     const ev=info.evidence||{},agg=info.validationSelected||{},base=info.samePeriodBaseline||{};
     const n=v=>typeof v==='number'&&Number.isFinite(v)?new Intl.NumberFormat('de-CH',{maximumFractionDigits:2}).format(v):'offen';
-    rStatus.textContent=info.folds.length+' unabhängige Testfenster berechnet; '+n(info.closedBars)+' geschlossene 1h-Kerzen · '+info.historicalInstrument+'. Keine automatische Regelübernahme.';
+    rStatus.textContent='Automatisch gespeichert · '+info.folds.length+' unabhängige Testfenster berechnet; '+n(info.closedBars)+' geschlossene 1h-Kerzen · '+info.historicalInstrument+'. Keine automatische Regelübernahme.';
     const detail=el('p','Auf Validierung gewählte Varianten, spätere Tests: '+n(agg.trades)+' abgeschlossene hypothetische Positionen; mittlere Testrendite je Fenster '+n(agg.meanFoldNetPct)+' %, grösster Fenster-Rückgang '+n(agg.maxFoldDrawdownPct)+' %. Gleiche Zeiträume mit Basismodell: '+n(base.meanFoldNetPct)+' %. Angenommene Kosten: '+n(info.costBpsPerSide)+' Basispunkte je Seite. Kein Produktnettogewinn.');
     detail.className='small';reportBox.append(detail);
     const table=el('table'),head=el('tr');
@@ -251,7 +264,7 @@ function mount(parent){
     const warning=el('p',ev.sufficientForResearch?'Historische Forschungsmenge erreicht, aber weiterhin KEINE Regel- oder Brokerfreigabe.':'Forschungsmenge unzureichend: weitere unabhängige Historie erforderlich.');
     warning.className='small';reportBox.append(warning);
    }else{
-    rStatus.textContent='Strategielabor: '+(info.status==='insufficient'?'zu wenige verwendbare historische 1h-Kerzen':'nicht verfügbar')+'. Es werden keine Vergleichsergebnisse erfunden.';
+    rStatus.textContent='Automatisches Strategielabor: '+(info.status==='pending'?'erste Berechnung steht aus':info.status==='insufficient'?'zu wenige verwendbare historische 1h-Kerzen':'gespeicherter Stand vorübergehend nicht verfügbar')+'. Es werden keine Vergleichsergebnisse erfunden.';
     reportBox.append(el('p',info.note||info.reason||'Datenquelle prüfen.'));
    }
    const brokerHead=el('h4','Broker-Anbindung · technische Vorbereitung');reportBox.append(brokerHead);
