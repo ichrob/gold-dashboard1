@@ -6,7 +6,7 @@ Stand: 2026-10-11. Die Funktion ist ausdrücklich **Forschung, nicht Handel**.
 
 - GET /api/zukunft/research (nur nach bestehender Bob-Anmeldung). Liest geschlossene 1h-Historie aus Bobs Quellen; bei zu wenig Historie wird kein Sieger behauptet.
 - Reproduzierbare historische Simulation auf einem **einzigen, eindeutig bezeichneten Referenzinstrument**. Keine Mischung aus Spot/GC=F/KO-Zertifikat; Kerzen mit offenen oder unmöglichen OHLC-Werten werden ignoriert bzw. abgewiesen. Grössere Zeitlücken blockieren fiktive Trades über die Lücke.
-- Fünf Forschungsmodelle: vereinfachte EMA/RSI-Trend-Baseline, strenge Trendfolge, Ausbruch, Gegenbewegung und deterministisch trainierter logistischer Linearfilter. Der Filter ist **kein Ersatz** für Bobs v7-Live-Logik.
+- Sieben Forschungsmodelle: vereinfachte EMA/RSI-Trend-Baseline, strenge und engere Trendfolge, Ausbruch mit und ohne Zusatzbestätigung, Gegenbewegung und deterministisch trainierter logistischer Linearfilter. Der Filter ist **kein Ersatz** für Bobs v7-Live-Logik.
 - Rollierende, nicht gemischte **Train → Purge → Validierung → Purge → Out-of-sample-Test**-Fenster (4h Prognosehorizont auf 1h-Bars; 72 Bars Validierung, 72 Bars Test). Das Lernmodell wird ausschliesslich auf vergangenen Trainingsdaten angepasst. Variantenwahl erfolgt nur auf Validierungsdaten, nie auf Testdaten.
 - Hypothetische beidseitige Gebühren-/Slippageannahme von 8 Basispunkten je Seite, keine Datenquelle für echte Produktkosten. Einstieg frühestens am nächsten Open, keine überlappenden Positionen. Netto-Simulationsrendite, Testtrades, Profitfaktor, Trefferquote, Drawdown und Datenlücken.
 - Ansicht **Zukunft** lädt den Forschungsbericht beim Öffnen; Button für erneuten Abruf. Bestehende vier Paper-Konten bleiben unverändert.
