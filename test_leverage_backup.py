@@ -33,7 +33,7 @@ class Tests(unittest.TestCase):
   self.assertFalse(not_current['leverageCalculation']['fresh'])
   self.assertFalse(not_current['eligible'])
   fx['sources']['CHF']='live'
-  fx['effective_at']['CHF']='2026-10-07T09:30:00Z'
+  fx['effective_at']['CHF']='2026-10-07T09:29:59Z'
   with patch('spot_data.current',return_value=self.g),patch('sg_quotes.market_input',return_value=fx):
    too_old=b.apply(original,N)
   self.assertFalse(too_old['leverageCalculation']['available'])
