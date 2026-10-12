@@ -473,7 +473,7 @@ class Handler(BaseHTTPRequestHandler):
                         paper_heartbeat = paper_health.snapshot(conn)
                     except Exception as paper_exc:
                         print("BOB_PAPER_HEALTH error=" + type(paper_exc).__name__, flush=True)
-                        paper_heartbeat = {"state":"unavailable", "accountsTotal":4,
+                        paper_heartbeat = {"state":"unavailable", "accountsTotal":5,
                                            "accountsChecked":0,"realOrders":False,
                                            "scope":"paper-account-heartbeat-not-quote-quality"}
                 send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "paperObservation":paper_heartbeat})

@@ -1,7 +1,7 @@
 """Public aggregate PAPER heartbeat, intentionally without ISINs or account details.
 
 A successful HTTP request is NOT proof that paper observations advanced.
-This reports all four durable account check timestamps from PostgreSQL.
+This reports all five durable account check timestamps from PostgreSQL.
 """
 import math
 import time

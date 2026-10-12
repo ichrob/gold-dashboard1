@@ -234,3 +234,30 @@ live superiority is claimed by this implementation.
 - No backfilled synthetic profit, no fee/KO product assumption and no automatic
   promotion to trading rules. This is a new prospective hypothesis; thresholds are
   starting values for evaluation, not validated optimal parameters.
+
+
+## Fourth independent 100 EUR experimental paper portfolio — 2026-10-12
+
+The four original paper profiles remain untouched (three 100 EUR and one 800 EUR).
+A fifth PostgreSQL-isolated account called early100 has 100 EUR simulated
+capital and a stored first-run activation timestamp; no retrospective fills,
+cash transfer, broker authentication, or real execution.
+
+The entry hypothesis uses only a time-valid early LONG/SHORT impulse measured
+from native, closed 5m/15m XAU/USD candles. The same shared analyzer generates
+a separate direction-matching gold stop/target plan for the experiment.
+Excessive extension (>=2.5 5m ATR), stale sources, incomplete bars or an invalid
+gold plan block new simulated entries. A separate paper_selection.js call uses
+the existing product identity, issuer, term, KO and quote validators. Every
+virtual trade additionally requires issuer-dated SPOT KO evidence and fresh
+bid/ask quotes in EUR; unverified / indicative products never generate EUR
+fills or assumed gains. All failed attempts expose the actual reason.
+
+The main decision, Push, DEGIRO release and four original paper policies
+are not altered. The experimental account uses the existing 4-hour/21:45
+virtual exit, conservative stop/no-loosening, KO monitoring, actual EUR bid
+proceeds and 65% investment / 3% daily loss start values. Historical paper
+trades are never fabricated to capture an earlier price move. Its separate
+portfolio return, skipped entries and cases are shown in Vollautomatisch.
+Any claimed edge needs an independent sample and costs/realism evaluation;
+simulation alone is not proof of a profitable product strategy.
