@@ -149,7 +149,7 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
  const panel=document.getElementById('bobProblemPanel');
  const source=document.querySelector('main h1')?.closest('.card');
  if(source)source.after(panel);
- let latest=null;
+ let latest=null, lastStats=null, browserSnapshot=null, browserSnapshotAt=0;
  const counter=()=>document.querySelector('#bobNavigation [data-problem-count]');
  function badge(count){
   const b=counter();
@@ -183,26 +183,13 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
    label.textContent='Kopiert – Bericht hier in ChatGPT einfügen.';
   } catch(_){label.textContent='Kopieren blockiert. Bitte den GitHub-Link verwenden.';}
  }
- async function refresh(){
-  if(document.visibilityState==='hidden'||window.BobSession?.expired?.())return;
-  const summary=document.getElementById('bobProblemsSummary');
-  try {
-   const response=await fetch('/api/problems',{cache:'no-store',credentials:'same-origin'});
-   if(!response.ok)throw Error('Status nicht verfügbar');
-   const data=await response.json();
-   if(data.status==='unavailable'||!Array.isArray(data.problems)||!Number.isInteger(data.count))
-    throw Error('Index nicht verfügbar');
-   latest=data;
-   badge(data.count);
-   const items=document.getElementById('bobProblemsList');items.replaceChildren();
-   summary.textContent=(data.count===1?'1 offenes Problem':data.count+' offene Probleme')+
-    (data.status==='stale'?' · letzter bekannter Stand':'');
-   document.getElementById('bobProblemsLastUpdate').textContent=
-    'Letzte Aktualisierung der offenen KI-Hilfeanfragen: '+readableDate(data.checkedAt)+
-    ' (Schweizer Zeit)'+(data.status==='stale'?' · GitHub momentan nicht erreichbar':'');
-   const stats=data.selfHealingStatistics||{};
-   const statsOk=(stats.status==='ok'||stats.status==='stale')&&
+ function renderStatistics(stats){
+  const statsOk=(stats.status==='ok'||stats.status==='stale')&&
       Number.isInteger(stats.detected)&&Number.isInteger(stats.verifiedRepairs);
+  if(statsOk)lastStats=stats;
+  else if(lastStats&&Number.isInteger(lastStats.detected)){
+   stats={...lastStats,status:'stale'};
+  }
    for(const [key,id] of [['detected','bobRepairDetected'],
                           ['verifiedRepairs','bobRepairVerified'],
                           ['normalizedWithoutVerifiedRepair','bobRepairNormalized'],
@@ -228,6 +215,91 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
    }else{
      repairs.textContent=statsOk?'Noch keine archivierten Ereignisse.':'Ereignisarchiv derzeit nicht erreichbar.';
    }
+ }
+ async function refreshStatistics(){
+  try{
+   const response=await fetch('/api/repair-statistics',{cache:'no-store',credentials:'same-origin'});
+   if(!response.ok)throw Error('Reparaturarchiv nicht erreichbar');
+   renderStatistics(await response.json());
+  }catch(_){
+   renderStatistics({status:'unavailable'});
+  }
+ }
+ const publicCodes={
+  'scanner-unreachable':'Bob-Webdienst nicht erreichbar',
+  'scanner-degraded':'Markt-/Hintergrunddaten werden als beeinträchtigt gemeldet',
+  'market-worker-stopped':'Marktdatensammlung läuft nicht',
+  'background-not-current':'Trade-/Fibonacci-Überwachung nicht aktuell',
+  'research-worker-stopped':'Täglicher Forschungs-Worker läuft nicht',
+  'push-unreachable':'Push-/Datenbankdienst nicht erreichbar',
+  'push-unhealthy':'Push-/Datenbank-Gesundheitsprüfung fehlgeschlagen',
+  'paper-unhealthy':'Papierkonten-Hintergrundstatus beeinträchtigt'
+ };
+ async function publicIndex(){
+  // Browser fallback is intentionally rare: Render's shared egress IP can
+  // hit GitHub's unauthenticated quota despite healthy Bob services.
+  const now=Date.now();
+  if(browserSnapshot&&now-browserSnapshotAt<600000)
+   return {...browserSnapshot,status:'stale'};
+  const response=await fetch('https://api.github.com/repos/ichrob/gold-dashboard1/issues?state=open&per_page=100',
+    {cache:'no-store',headers:{Accept:'application/vnd.github+json'}});
+  if(!response.ok)throw Error('Öffentliche GitHub-Liste nicht erreichbar');
+  const raw=await response.json();
+  if(!Array.isArray(raw))throw Error('Ungültige GitHub-Liste');
+  const problems=[],seen=new Set();
+  const prefix='[Bob KI-Hilfe] ';
+  for(const issue of raw){
+   if(!issue||typeof issue!=='object'||issue.pull_request||
+      !Number.isInteger(issue.number)||issue.number<=0)continue;
+   const title=issue.title;
+   let code='',message='';
+   if(title===prefix+'Ungelöste Gesundheitsstörung'){
+    code='legacy-incident';message='Ältere zusammengefasste KI-Hilfeanfrage';
+   }else if(typeof title==='string'&&title.startsWith(prefix)){
+    const rest=title.slice(prefix.length);
+    if(Object.hasOwn(publicCodes,rest)){
+     code=rest;message=publicCodes[rest];
+    }else if(issue.user?.login==='ichrob'&&rest.length>0&&rest.length<=150&&!/[\x00-\x1f]/.test(rest)){
+     code='manual-'+issue.number;message=rest;
+    }
+   }
+   if(!code||seen.has(code))continue;
+   seen.add(code);
+   const stamp=x=>typeof x==='string'&&/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(x)?x:null;
+   problems.push({number:issue.number,code,message,
+      createdAt:stamp(issue.created_at),updatedAt:stamp(issue.updated_at),
+      url:'https://github.com/ichrob/gold-dashboard1/issues/'+issue.number});
+  }
+  problems.sort((x,y)=>y.number-x.number);
+  browserSnapshot={status:'ok',count:problems.length,problems,
+     checkedAt:new Date().toISOString(),source:'public-github-browser'};
+  browserSnapshotAt=now;
+  return browserSnapshot;
+ }
+ async function refresh(){
+  if(document.visibilityState==='hidden'||window.BobSession?.expired?.())return;
+  const summary=document.getElementById('bobProblemsSummary');
+  // Private repair counters must render even if the public issue index fails.
+  void refreshStatistics();
+  try {
+   let data;
+   try{
+    const response=await fetch('/api/problems',{cache:'no-store',credentials:'same-origin'});
+    if(!response.ok)throw Error('Status nicht verfügbar');
+    data=await response.json();
+    if(data.status==='unavailable'||!Array.isArray(data.problems)||!Number.isInteger(data.count))
+     throw Error('GitHub-Index nicht verfügbar');
+   }catch(_){
+    data=await publicIndex();
+   }
+   latest=data;
+   badge(data.count);
+   const items=document.getElementById('bobProblemsList');items.replaceChildren();
+   summary.textContent=(data.count===1?'1 offenes Problem':data.count+' offene Probleme')+
+    (data.status==='stale'?' · letzter bekannter Stand':'');
+   document.getElementById('bobProblemsLastUpdate').textContent=
+    'Letzte Aktualisierung der offenen KI-Hilfeanfragen: '+readableDate(data.checkedAt)+
+    ' (Schweizer Zeit)'+(data.status==='stale'?' · GitHub momentan nicht erreichbar':'');
    if(data.count===0){
     const p=document.createElement('p');p.textContent='✅ Keine offenen KI-Hilfeanfragen.';items.append(p);
    }
