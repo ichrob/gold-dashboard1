@@ -750,6 +750,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     const box=node('article','');box.className='research';box.style.marginTop='12px';
     const a=node('a',x.title);const url=new URL(x.url);if(url.protocol==='https:'){a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';}
     const published=publicationLabel(x);
+    if(!x.transcriptAnalyzed)renderUnanalyzedMco(box,x,url);
     if(x.enhancements)renderEnhancements(box,x,url);
     if(x.overview){
      const original=node('details','');
@@ -759,16 +760,22 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     if(x.transcriptAnalyzed&&x.trustedTranscript&&window.BobMcoClip?.mount)
      window.BobMcoClip.mount(box,x,url,bars=>window.BobMcoFibSnapshot?.(bars));
     if(x.transcriptAnalyzed)renderMcoFibonacci(box,x,url);
-    const meta=node('details','');meta.className='youtube-source-details';meta.append(node('summary','Quelle, Abrufstatus und technische Angaben'));
-    meta.append(a,node('p',x.publisher+' · '+x.kind+' · veröffentlicht '+published+' · '+x.coverage+(x.current?' · innerhalb 24 Stunden':x.publishedAt?' · nicht aktuell':' · genaue Aktualität nicht bestätigt')),
+    const meta=node('details','');meta.className='youtube-source-details';meta.append(node('summary','Quelle und Abrufstatus'));
+    const sourceLabel=x.transcriptAnalyzed?'Transkript ausgewertet':'Transkript noch nicht ausgewertet';
+    meta.append(node('p',sourceLabel+' · '+(x.publisher||'MCO Markets')),a);
+    if(x.articleStatus)meta.append(node('p','Abrufhinweis: '+x.articleStatus));
+    const technical=node('details','');technical.append(node('summary','Alle technischen Angaben'));
+    technical.append(node('p','Veröffentlicht '+published+' · '+x.coverage+(x.current?' · innerhalb 24 Stunden':x.publishedAt?' · nicht aktuell':' · genaue Aktualität nicht bestätigt')),
      node('small','Video-ID: '+(url.searchParams.get('v')||x.id)),
-     node('p','Regelbericht: '+x.trend+' · Ausblick: '+x.outlook+' · Horizont: '+x.horizon),node('p',x.excerpt),node('small',x.reason+(x.articleStatus?' · '+x.articleStatus:'')));
-    if(x.listingInfo)meta.append(node('p','YouTube-Angabe: '+x.listingInfo));
-    if(x.transcriptWords)meta.append(node('p','Transkript: '+x.transcriptWords+' Wörter · '+x.transcriptLanguage+(x.automaticCaptions?' · automatisch erzeugt':'')));
-    box.append(meta);
+     node('p','Regelbericht: '+x.trend+' · Ausblick: '+x.outlook+' · Horizont: '+x.horizon),
+     node('p',x.excerpt),node('small',x.reason));
+    if(x.listingInfo)technical.append(node('p','YouTube-Angabe: '+x.listingInfo));
+    if(x.transcriptWords)technical.append(node('p','Transkript: '+x.transcriptWords+' Wörter · '+x.transcriptLanguage+(x.automaticCaptions?' · automatisch erzeugt':'')));
+    meta.append(technical);box.append(meta);
     for(const at of (x.overview?[]:x.goldMoments)||[]){const jump=node('a','Gold-Stelle '+Math.floor(at/60)+':'+String(at%60).padStart(2,'0')+' ');const target=new URL(x.url);target.searchParams.set('t',String(at));jump.href=target.href;jump.target='_blank';jump.rel='noopener noreferrer';box.append(jump);}
     const id=videoKey(x),entry=node('details',''),heading=node('summary',''),headingTitle=node('span',(readVideos.has(id)?'':'Neu · ')+x.title),publication=node('small','Veröffentlicht: '+published);
     publication.style.cssText='display:block;font-weight:400;margin-top:4px';
+    if(!x.transcriptAnalyzed)publication.textContent+=' · noch keine Inhaltsanalyse';
     heading.append(headingTitle,publication);
     entry.append(heading,box);
     entry.addEventListener('toggle',()=>{if(entry.open){markVideoRead(id);headingTitle.textContent=x.title;}});
@@ -835,6 +842,38 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   }
   pane.append(node('small','Grün = Preisabstand höchstens 5 USD oder 0,15 % des MCO-Werts (größere Grenze zählt). Nur numerischer Vergleich: MCOs Zeitpunkt, Swing-Punkte, Zeitrahmen und Spot-/Future-Bezug können von Bobs 15m-Spot abweichen. Keine Bestätigung eines Marktsignals oder einer Produktfreigabe.'));
   box.append(pane);
+ }
+
+
+ function renderUnanalyzedMco(box,item,url){
+  const section=node('section','');section.className='mco-brief';
+  const status=String(item.articleStatus||'');
+  const capped=/Abrufversuche innerhalb von 24 Stunden/i.test(status);
+  section.append(node('h4','Noch keine Inhaltsanalyse möglich'),
+   node('p',capped
+    ?'Die erlaubten Transkript-Abrufe sind für dieses Video vorläufig ausgeschöpft. Bob versucht es nach Ablauf der Sperre erneut.'
+    :'Noch kein überprüftes Transkript vorhanden. Deshalb kann Bob dieses Video nicht zuverlässig zusammenfassen.'),
+   node('small','Die Charts können trotzdem im MCO-Originalvideo betrachtet werden. Titel und Videobilder allein sind keine geprüfte Analyse.'));
+  const controls=node('div','');controls.className='mco-original';
+  const identity=url.searchParams.get('v');
+  const link=node('a','Originalvideo auf YouTube öffnen');
+  link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';
+  if(/^[A-Za-z0-9_-]{11}$/.test(identity||'')){
+   const button=node('button','▶ Originalvideo hier ansehen');button.type='button';
+   const target=node('div','');
+   button.addEventListener('click',()=>{
+    const frame=document.createElement('iframe');
+    frame.title='Originalvideo von MCO Markets';frame.src='https://www.youtube-nocookie.com/embed/'+identity+'?autoplay=0&rel=0&playsinline=1';
+    frame.width='640';frame.height='360';frame.loading='lazy';
+    frame.style.cssText='display:block;width:100%;aspect-ratio:16/9;border:0;border-radius:8px;margin:10px 0';
+    frame.referrerPolicy='strict-origin-when-cross-origin';
+    frame.allow='fullscreen; picture-in-picture';frame.allowFullscreen=true;
+    target.replaceChildren(frame,node('small','Falls die Einbettung blockiert ist: Originalvideo auf YouTube öffnen.'));
+    button.hidden=true;
+   });
+   controls.append(button,link,target);
+  }else controls.append(link);
+  section.append(controls);box.append(section);
  }
 
  function renderEnhancements(box,item,url){
