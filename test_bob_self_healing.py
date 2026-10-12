@@ -17,6 +17,10 @@ class SelfHealingTests(unittest.TestCase):
         sh._LAST_ATTEMPTS.clear()
         sh._EVENTS.clear()
         sh._ACTIVE = ()
+        sh._UNRESOLVED.clear()
+        sh._SUSPECT.clear()
+        sh._HEALTHY.clear()
+        sh._PENDING.clear()
 
     def test_reasons_are_allowlisted(self):
         data = healthy()
@@ -48,7 +52,10 @@ class SelfHealingTests(unittest.TestCase):
         broken = healthy()
         broken["status"] = "degraded"
         broken["reasons"] = ["background-not-current"]
-        sh.snapshot(broken)
+        sh.observe(broken, now=100)
+        sh.observe(broken, now=121)
+        sh.observe(healthy(), now=140)
+        sh.observe(healthy(), now=161)
         out = sh.snapshot(healthy())
         self.assertEqual(out["status"], "bereit")
         self.assertEqual(out["recentEvents"][0]["kind"], "recovered")
