@@ -855,17 +855,17 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    return figure;
   }
   if(extra.summary&&extra.summary.kind==='ai'){
-   box.append(node('h4','KI-Gesamtzusammenfassung'),node('small',extra.summary.scope));
-   const coverIndex=frames.findIndex(f=>f.isCover===true);
-   if(coverIndex!==-1){used.add(coverIndex);box.append(makeFigure(frames[coverIndex],coverIndex));}
+   const brief=node('section','');brief.className='mco-brief';
+   brief.append(node('h4','KI-Kurzzusammenfassung · MCO Markets'),node('small','Aussagen von MCO, belegt durch Untertitel. Keine eigene Prognose von Bob.'));
+   const how=node('details','');how.append(node('summary','Methode und Grenzen'),node('small',extra.summary.scope));brief.append(how);
    for(const section of extra.summary.sections||[]){
-    box.append(node('h5',section.label),node('p',section.text));
+    const part=node('section','');part.className='mco-section';part.append(node('h5',section.label),node('p',section.text));
     const times=(section.evidence||[]).map(s=>s.at).filter(t=>Number.isFinite(t)&&t>=0&&t<=86400);
     let imageShown=false;
     if(times.length){
      const ranked=frames.map((f,i)=>({i,d:f.isCover?Infinity:Math.min(...times.map(t=>Math.abs((f.requestedAt??f.at)-t)))}))
-      .filter(x=>x.d<=180&&!used.has(x.i)).sort((a,b)=>a.d-b.d);
-     if(ranked.length){const index=ranked[0].i;used.add(index);box.append(makeFigure(frames[index],index));imageShown=true;}
+      .filter(x=>x.d<=60&&!used.has(x.i)).sort((a,b)=>a.d-b.d);
+     if(ranked.length){const index=ranked[0].i;used.add(index);part.append(makeFigure(frames[index],index));imageShown=true;}
     }
     // Storyboard metadata is sometimes unavailable: offer the actual video frame in
     // YouTube's own player without downloading or caching full copyrighted videos.
@@ -873,10 +873,10 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
      const source=new URL(url),identity=source.searchParams.get('v');
      if(source.protocol==='https:'&&['www.youtube.com','youtube.com'].includes(source.hostname)&&/^[A-Za-z0-9_-]{11}$/.test(identity||'')){
       const at=Math.floor(times[0]),stamp=Math.floor(at/60)+':'+String(at%60).padStart(2,'0');
-      const visual=node('details',''),heading=node('summary','Videobild zu dieser Aussage ansehen · '+stamp);
+      const visual=node('div',''),heading=node('strong','MCO-Originalstelle · '+stamp);visual.className='mco-original';
       const placeholder=node('div','');
-      visual.append(heading,node('p','Kein gespeichertes Standbild verfügbar. Das Originalvideo öffnet sich erst nach dem Tippen. Das sichtbare Chart wurde nicht automatisch geprüft.'));
-      const button=node('button','Video bei '+stamp+' anzeigen');button.type='button';
+      visual.append(heading,node('p','Kein passendes Standbild gespeichert. Die Originalstelle lässt sich hier direkt ansehen. Ob dort der besprochene Chart sichtbar ist, wurde nicht geprüft.'));
+      const button=node('button','▶ MCO-Originalstelle '+stamp+' hier ansehen');button.type='button';
       button.addEventListener('click',()=>{
        const iframe=document.createElement('iframe');iframe.title='MCO-Originalvideo ab '+stamp;
        iframe.src='https://www.youtube-nocookie.com/embed/'+identity+'?start='+at+'&autoplay=0&rel=0&playsinline=1';
@@ -886,7 +886,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
        button.hidden=true;
       });
       const direct=node('a','Auf YouTube bei '+stamp+' öffnen');source.searchParams.set('t',String(at));direct.href=source.href;direct.target='_blank';direct.rel='noopener noreferrer';
-      visual.append(button,document.createTextNode(' '),direct,placeholder);box.append(visual);
+      visual.append(button,direct,placeholder);part.append(visual);
      }
     }
     const evidence=node('details','');evidence.append(node('summary','Originalstellen zu diesem Abschnitt'));
@@ -897,10 +897,14 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
       const target=new URL(url);target.searchParams.set('t',String(at));link.href=target.href;link.target='_blank';link.rel='noopener noreferrer';evidence.append(link);
      }
     }
-    box.append(evidence);
+    part.append(evidence);brief.append(part);
    }
-   box.append(node('small',extra.summary.note));
-  }else box.append(node('p',extra.summaryStatus||'KI-Zusammenfassung noch nicht verfügbar.'));
+   brief.append(node('small',extra.summary.note));box.append(brief);
+  }else {
+   const fallback=node('section','');fallback.className='mco-brief';
+   fallback.append(node('h4','KI-Kurzüberblick derzeit nicht verfügbar'),node('p',extra.summaryStatus||'KI-Zusammenfassung noch nicht verfügbar.'),node('small','Belegte Originalaussagen stehen unter „Weitere belegte Originalaussagen“. Bobs Bilder ersetzen keine MCO-Charts.'));
+   box.append(fallback);
+  }
   const remaining=frames.map((frame,i)=>({frame,i})).filter(({i})=>!used.has(i));
   if(remaining.length){
    const gallery=node('details','');gallery.append(node('summary',remaining.every(({frame})=>frame.isCover)?'YouTube-Titelbild':'Weitere Videobilder ('+remaining.length+')'));
