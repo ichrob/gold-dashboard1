@@ -103,3 +103,46 @@ class ReportCoalescingTests(unittest.TestCase):
   self.assertIn('LIMIT %s',query);self.assertEqual(params,(a.REPORT_LIMIT,))
   self.assertEqual(result['reportRecords'],0)
 
+
+
+class EarlyImpulseAuditTests(unittest.TestCase):
+    def test_normalization_identity_and_no_trade_permission(self):
+        now=1800000000000
+        payload=dict(ruleVersion=a.RULE_VERSION,direction='NEUTRAL',barAt=now-300000,price=4200,
+                     priceAt=now,origin='background',earlyImpulse=dict(
+                       version='early-impulse-v1',available=True,direction='LONG',barAt=now-300000,
+                       comparisonOnly=True,affectsApproval=False,reason='gold price advancing'))
+        key,record=a.normalize(payload,now)
+        self.assertEqual(record['direction'],'NEUTRAL')
+        self.assertEqual(record['earlyImpulse']['direction'],'LONG')
+        self.assertFalse(record['earlyImpulse']['affectsApproval'])
+        self.assertNotEqual(key,a.normalize({**payload,'earlyImpulse':{**payload['earlyImpulse'],'direction':'SHORT'}},now)[0])
+        bad={**payload,'earlyImpulse':{**payload['earlyImpulse'],'affectsApproval':True}}
+        self.assertIsNone(a.normalize(bad,now)[1]['earlyImpulse'])
+
+    def test_forward_outcomes_both_directions_and_dedup(self):
+        now=1800000000000
+        def make(side,direction,price,offset=0,origin='background'):
+            t=now+offset
+            payload=dict(ruleVersion=a.RULE_VERSION,direction=direction,barAt=t-300000,price=100,
+                         priceAt=t,origin=origin,earlyImpulse=dict(
+                           version='early-impulse-v1',available=True,direction=side,
+                           barAt=t-300000,comparisonOnly=True,affectsApproval=False))
+            record=a.normalize(payload,t)[1]
+            return (record,[None,{'at':t+3600000,'price':price},None])
+        long=make('LONG','NEUTRAL',101)
+        short=make('SHORT','NEUTRAL',99,3600000)
+        duplicate=make('LONG','NEUTRAL',90,300000)
+        browser=make('SHORT','NEUTRAL',90,7200000,'browser')
+        result=a.early_impulse_review([duplicate,browser,short,long])
+        self.assertEqual(result['evaluated'],2)
+        self.assertEqual(result['favorable'],2)
+        self.assertEqual(result['beforeApproval'],2)
+        self.assertEqual(result['long']['evaluated'],1)
+        self.assertEqual(result['short']['evaluated'],1)
+        self.assertFalse(result['automaticRuleChange'])
+        missing=make('LONG','NEUTRAL',101,10800000)
+        missing=(missing[0],[None,None,None])
+        result=a.early_impulse_review([long,short,missing])
+        self.assertEqual(result['missing'],1)
+
