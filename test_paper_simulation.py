@@ -35,7 +35,10 @@ class SimulationTests(unittest.TestCase):
         conn.execute.return_value.fetchone.side_effect=[
             ({'startAt':sim.START,'enabled':True,'status':'running'},),None,None]
         conn.execute.return_value.fetchall.side_effect=[[],[]]
-        with patch.object(sim.background_push,'gold_weekend_seconds_remaining',return_value=3600):
+        # Fix the simulated market session: selected archive day is Saturday,
+        # while CI may execute this test on a live weekday in Zurich.
+        with patch.object(sim.background_push,'gold_weekend_seconds_remaining',return_value=3600), \
+             patch.object(sim.background_push,'degiro_session',return_value='weekend'):
             out=sim.report(conn,'2026-10-10')
         self.assertTrue(out['marketClosed'])
         self.assertEqual(out['control']['status'],'market-closed')

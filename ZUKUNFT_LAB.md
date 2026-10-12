@@ -12,10 +12,18 @@ Stand: 2026-10-11. Die Funktion ist ausdrücklich **Forschung, nicht Handel**.
 - Ansicht **Zukunft** lädt den Forschungsbericht beim Öffnen; Button für erneuten Abruf. Bestehende vier Paper-Konten bleiben unverändert.
 - broker_bridge.py: fail-closed Schnittstellenvertrag für **IBKR** (Kontrakt-ID conid) und **IG Bank** (Markt-ID epic). ISIN-Format mit ISO-6166-Prüfziffer, unmögliche Auftragsausführung, klare Anzeige "nicht verbunden". Weder Keys noch Kontoinformationen noch API-HTTP-Aufrufe werden ausgelöst.
 
+## Automatisierter Hintergrundvergleich (12.10.2026)
+
+- Bobs eigener unabhängiger Hintergrundthread prüft Montag–Freitag ab **08:00 Europe/Zurich** einmal täglich die neue historische 1h-Historie (innerhalb 08–21 Uhr). Die App muss dafür nicht offen sein. Nach Netz- oder Datenfehlern und zu kurzer Historie gibt es mindestens alle 30 Minuten weitere Versuche innerhalb des Handelsfensters. Bei Neustart prüft Bob das Datum des zuletzt gespeicherten Ergebnisses in der Datenbank.
+- Reports werden ausschliesslich im bestehenden, privaten PostgreSQL gespeichert: höchstens ein Tagesdatensatz mit sicherem UPSERT, maximal 90 Tage Archiv. Bei einem erneuten Versuch darf eine bereits vollständig ausgewertete Studie nicht zu "insufficient" zurückgestuft werden.
+- Die Zukunft-Oberfläche lädt gespeicherte Resultate beim Betreten, aktualisiert sie während längerer Nutzung alle zehn Minuten und zeigt den letzten Tag/Zeitstempel und die archivierten Tagesprüfungen. Der optionale Button lädt **nur den angezeigten Stand neu**; er startet keine rechenintensive Analyse.
+- Der Hintergrundprozess verwendet ausschliesslich bestehende freie Marktdaten- und Persistenzkomponenten. Fehlende Quellen oder Archivverbindung werden als unbestätigt gemeldet, niemals still als bestandene Untersuchung interpretiert.
+- **Kein autonomes Nachlernen oder Übernehmen in die Live-Strategie; keine Broker-Order.** Die täglichen Berichte sind historische Referenzstudien, keine neue unabhängige Prospektiv-Validierung.
+
 ## Noch NICHT implementiert / gesperrt
 
 1. Kein belastbarer **vollständiger** Vergleich der gesamten aktiven Bob-v7-Entscheidungslogik, weil dafür synchronisierte, historisch vollständige 5m/15m/30m/1h/4h-Kerzen und historische Produktauswahl/ISIN-Quoten fehlen. Die Baseline hier ist bewusst als **vereinfachte Forschungsbasis** gekennzeichnet.
-2. Keine dauerhafte persistierte tägliche Versuchsserie/Modellversion in einer unabhängigen Datenbank und keine automatische Übernahme lernender Regeln. Labor läuft bei Aufruf; vier bestehende prospektive Paper-Konten laufen separat.
+2. Die täglichen Referenzberichte werden jetzt im bestehenden privaten Bob-Archiv gespeichert. Eine unabhängige prospektive Versuchsserie und automatische Übernahme lernender Regeln fehlen weiterhin; vier bestehende prospektive Paper-Konten laufen separat.
 3. Keine tatsächlich belegten DEGIRO-KO-Einstiege/-Ausstiege in EUR; keine echten Bid/Ask/Finanzierungskosten und keine Nettoergebnisse einer Bank- oder Brokerrechnung.
 4. Keine Brokeranmeldung, keine tatsächliche Abfrage von IBKR-/IG-Instrumenten, keine CH-Produktberechtigungsprüfung und keine Test- oder Echtgeldorder. Diese Aufgaben erfordern einen separaten zulässigen Konto-/Demo-Zugang, explizite Erlaubnisse und kontrollierte Paper-API-End-to-End-Tests.
 

@@ -1,6 +1,7 @@
 import vollautomatisch_panel
 import vollautomatisch_engine
 import strategy_lab
+import strategy_lab_background
 import broker_bridge
 import trade_email_panel
 import intraday_comparison
@@ -792,26 +793,27 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
         if path == "/api/zukunft/research":
-            # Authenticated, explicitly read-only and research-only. No DB, broker
-            # sessions, order APIs, live policies or trading state are touched.
+            # Display ONLY the last stored daily background result. Never run
+            # research in a browser request; never alter live trade decisions.
             try:
-                rows = retain_technical_history("1h", [])
-                if len(rows) < 580:
-                    rows = fetch_technical_history("1h", "3mo")
-                # A provider's last bucket may still be forming even if it
-                # incorrectly reports isOpen=False. Recheck the clock here.
-                closed_checked = mark_bar_state([dict(x) for x in rows], 60)
-                report = strategy_lab.run(closed_checked)
+                snapshot = strategy_lab_background.request("read", {})
+                if snapshot.get("mode") != "RESEARCH_ONLY":
+                    raise ValueError("Forschungsarchiv nicht bestätigt")
+                report = snapshot.get("latestReport") or {
+                    "status": "pending", "mode": "RESEARCH_ONLY", "approved": False,
+                    "orderExecutionEnabled": False, "note": "Erste automatische Auswertung steht aus."
+                }
+                report = dict(report)
+                report["automation"] = snapshot.get("automation") or {}
+                report["runtime"] = strategy_lab_background.status()
                 report["brokerReadiness"] = broker_bridge.status()
-            except (ValueError, RuntimeError, OSError) as exc:
-                report = {"status": "unavailable", "mode": "RESEARCH_ONLY",
-                          "approved": False, "orderExecutionEnabled": False,
-                          "reason": str(exc)[:180], "brokerReadiness": broker_bridge.status()}
             except Exception as exc:
-                print("BOB_STRATEGY_LAB_ERROR "+type(exc).__name__, flush=True)
+                print("BOB_STRATEGY_READ error="+type(exc).__name__,flush=True)
                 report = {"status": "unavailable", "mode": "RESEARCH_ONLY",
                           "approved": False, "orderExecutionEnabled": False,
-                          "reason": "Historie oder Auswertung momentan nicht verfügbar",
+                          "reason": "Gespeichertes Forschungsarchiv momentan nicht erreichbar",
+                          "automation": {"enabled": False, "history": []},
+                          "runtime": strategy_lab_background.status(),
                           "brokerReadiness": broker_bridge.status()}
             body = json.dumps(report, ensure_ascii=False, allow_nan=False).encode("utf-8")
             self.send_response(200)
@@ -913,6 +915,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/health":
             auto_collection.start()
+            strategy_lab_background.start(fetch_technical_history, mark_bar_state)
             ensure_fibonacci_monitor()
             body = json.dumps(service_health(),separators=(",",":")).encode()
             self.send_response(200)
@@ -1552,6 +1555,7 @@ if __name__ == "__main__":
     print(f"BOB_START port={port} host=0.0.0.0 version=runtime-http-trace-v2 process={PROCESS_ID}", flush=True)
     ensure_fibonacci_monitor()
     auto_collection.start()
+    strategy_lab_background.start(fetch_technical_history, mark_bar_state)
     gold_research.start()
     import weekend_archive
     weekend_archive.start(build_live_bundle,market_cards.snapshot)
