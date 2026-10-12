@@ -212,7 +212,7 @@ function mount(parent){
  });
  const research=el('section');research.style.cssText='border-top:1px solid #dbe3ee;margin-top:14px;padding-top:12px';
  research.append(el('h4','Automatischer Strategievergleich · Walk-forward'));
- const expl=el('p','Bob vergleicht Basismodell, strenge Trendfolge, Ausbruch, Gegenbewegung und ein trainiertes lineares Lernmodell. Jede Runde trennt Training, Auswahl und spätere Testdaten. Die Kurse sind Referenz-Kerzen und keine ausführbaren DEGIRO-Geld-/Briefkurse.');
+ const expl=el('p','Bob vergleicht Basismodell, verschiedene Trendfolge- und Ausbruchparameter, Gegenbewegung und ein trainiertes lineares Lernmodell. Jede Runde trennt Training, Auswahl und spätere Testdaten. Die Kurse sind Referenz-Kerzen und keine ausführbaren DEGIRO-Geld-/Briefkurse.');
  expl.className='small';research.append(expl);
  const runBtn=el('button','Gespeicherten Vergleich neu anzeigen');runBtn.type='button';runBtn.className='bob-primary';
  const rStatus=el('p','Bob prüft automatisch an Handelstagen ab 08:00 Uhr (Zürich) und kontrolliert am Wochenende das Forschungsarchiv. Kein Knopfdruck notwendig.');
@@ -296,7 +296,7 @@ function mount(parent){
     const table=el('table'),head=el('tr');
     for(const h of ['Regelvariante','Testtrades','Ø Fenster (%)','Max. Rückgang (%)'])head.append(el('th',h));
     table.append(head);
-    for(const [id,label] of [['baseline','Bob-Forschungsbasis'],['trend-strict','Strenge Trendfolge'],['breakout','Ausbruch'],['mean-revert','Gegenbewegung'],['learned-linear','Gelerntes Modell']]){
+    for(const [id,label] of [['baseline','Bob-Forschungsbasis'],['trend-strict','Strenge Trendfolge'],['trend-tight','Engere Trendbestätigung'],['breakout','Ausbruch'],['breakout-confirmed','Bestätigter Ausbruch'],['mean-revert','Gegenbewegung'],['learned-linear','Gelerntes Modell']]){
      const m=info.outOfSampleByStrategy?.[id];if(!m)continue;
      const row=el('tr');for(const v of [label,n(m.trades),n(m.meanFoldNetPct),n(m.maxFoldDrawdownPct)])row.append(el('td',v));
      table.append(row);
