@@ -82,7 +82,8 @@ def service_health():
             'runtime': {'processId': PROCESS_ID, 'startedAt': datetime.fromtimestamp(PROCESS_STARTED_AT, timezone.utc).isoformat(),
                         'uptimeSeconds': max(0, int(time.monotonic()-PROCESS_STARTED_MONOTONIC))},
             'ready': not reasons, 'reasons': reasons,
-            'fibonacciMonitor': dict(FIB_MONITOR_HEALTH), 'automaticCollection': collection}
+            'fibonacciMonitor': dict(FIB_MONITOR_HEALTH), 'automaticCollection': collection,
+            'strategyResearch': strategy_lab_background.status()}
 
 def background_health():
     """Only a completed cycle proves that background monitoring works."""
