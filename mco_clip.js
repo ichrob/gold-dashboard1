@@ -84,12 +84,15 @@
   if(!valid||!/^[A-Za-z0-9_-]{11}$/.test(id||''))return null;
   if(item.trustedTranscript!==true||item.transcriptAnalyzed!==true)return null;
   const mk=(tag,text)=>{const e=document.createElement(tag);if(text!=null)e.textContent=text;return e;};
-  const section=mk('section'),label=mk('h4','60-Sekunden-Erklärclip · Bob erstellt die Bilder');
-  section.style.cssText='margin:12px 0;padding:12px;border:1px solid #d9e2ef;border-radius:12px;';
-  const intro=mk('p','Kostenloser animierter Kurzfilm aus belegten MCO-Aussagen und Bobs eigenen Diagrammen. Starte den Clip für Audio und verifizierte Goldpreise.');
+  const disclosure=mk('details'),section=mk('section');
+  disclosure.className='bob-mco-clip';
+  disclosure.append(mk('summary','Optionaler 60-Sekunden-Erklärclip · Bobs eigene Grafiken'));
+  section.style.cssText='margin:8px 0 0;padding:10px;border-radius:10px;background:#f7faff;';
+  const intro=mk('p','Zusatzangebot: Bob illustriert belegte Textaussagen mit eigenen Grafiken. Für echte Charts bitte die MCO-Videostellen oben öffnen.');
+  intro.style.cssText='font-size:13px;line-height:1.5;margin:0 0 8px';
   const canvas=mk('canvas');canvas.width=800;canvas.height=450;canvas.setAttribute('aria-label','Animierter 60-Sekunden-Erklärclip mit Untertiteln zu MCO Markets');
   canvas.style.cssText='display:block;width:100%;max-width:800px;aspect-ratio:16/9;border-radius:9px;background:#101a2b';
-  const actions=mk('div');actions.style.cssText='display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px';
+  const actions=mk('div');actions.className='bob-clip-actions';actions.style.cssText='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px';
   const toggle=mk('button','▶ Clip mit Ton abspielen');toggle.type='button';
   const again=mk('button','↻ Neu starten');again.type='button';
   const voice=mk('button','Ton: an');voice.type='button';
@@ -104,8 +107,12 @@
   const evidence=mk('a','Originalvideo öffnen');evidence.href=String(url);evidence.target='_blank';evidence.rel='noopener noreferrer';
   const note=mk('small','Der Clip wird kostenlos auf deinem Gerät gezeichnet. Die Audioausgabe ist eine Gerätevorlesestimme; bitte Medienlautstärke und Android-Sprachausgabe prüfen, falls stumm. Im Bereich 00:25 erscheinen MCO-Marken in Blau und bestätigte Bob-Fibonacci-Werte in Orange. Fehlen die Daten, werden keine Kurszahlen erfunden.');
   note.style.cssText='display:block;margin-top:8px';
-  actions.append(toggle,again,backwards,forwards,toFib,fullscreen,voice,soundTest,evidence);
-  section.append(label,intro,canvas,actions,progress,status,note);parent.append(section);
+  const more=mk('details');more.className='bob-clip-extra';more.append(mk('summary','Weitere Funktionen · Spulen und Ton')); 
+  const moreActions=mk('div');moreActions.style.cssText='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px';
+  moreActions.append(backwards,forwards,voice,soundTest);more.append(moreActions);
+  evidence.style.cssText='display:block;grid-column:1/-1;padding:8px 0;font-size:13px';
+  actions.append(toggle,again,toFib,fullscreen,evidence);
+  section.append(intro,canvas,actions,progress,status,more,note);disclosure.append(section);parent.append(disclosure);
   let prepared=null,elapsed=0,started=0,running=false,ended=false,voiced=supportsVoice,lastScene=-1,handle=0;
   let fullOverlay=false,fullNative=false,priorOverflow='',marketFetching=false,speechIssue=false;
   const uiContainer=section;
@@ -343,7 +350,7 @@
   prepared=prepare(item,typeof snapshotProvider==='function'?snapshotProvider():null);
   if(prepared){render(0);}
   else {status.textContent='Noch kein bestätigtes Transkript für diesen Clip.';toggle.disabled=true;again.disabled=true;}
-  return section;
+  return disclosure;
  }
  root.BobMcoClip={DURATION,prepare,mount,active:null};
  if(typeof module!=='undefined'&&module.exports)module.exports={DURATION,prepare,fibChartModel};
