@@ -78,7 +78,7 @@ class IssuerCatalogueTests(unittest.TestCase):
         from pathlib import Path
         py=Path("server.py").read_text()
         js=Path("degiro_assistant.js").read_text()
-        self.assertIn('"/api/degiro/candidates", "/api/collection-status"',py)
+        self.assertIn('or path == "/api/degiro/candidates"',py)
         self.assertIn('if path == "/api/degiro/candidates":',py)
         self.assertIn('degiro_catalog.start()',py)
         self.assertIn("Automatische Gold-Produktrecherche · externe Kandidaten",js)
