@@ -70,22 +70,51 @@ class WatchdogTests(unittest.TestCase):
         self.assertIn("scanner-unreachable", report)
         self.assertNotIn("unrecognized-diagnostic", report)
 
-    def test_issue_deduplicates_and_closes(self):
+    def test_distinct_issues_are_counted_and_recovered_individually(self):
         actions = []
         current = []
+        next_number = [5]
+
         def requester(method, path, **kw):
-            actions.append((method, path, kw.get("data")))
+            data = kw.get("data")
+            actions.append((method, path, data))
             if method == "GET":
                 return list(current)
-            if path == "/issues":
-                return {"number": 5}
+            if method == "POST" and path == "/issues":
+                number = next_number[0]
+                next_number[0] += 1
+                current.append({"title": data["title"], "number": number})
+                return {"number": number}
+            if method == "PATCH":
+                number = int(path.split("/")[2])
+                current[:] = [item for item in current if item["number"] != number]
+            return {}
+
+        args = {"token": "test", "repo": "ichrob/gold-dashboard1", "requester": requester}
+        both = ["scanner-unreachable", "push-unreachable"]
+        self.assertEqual(watchdog.sync_issue(both, **args), "opened-5,opened-6")
+        self.assertEqual(len(current), 2)
+        self.assertEqual(watchdog.sync_issue(both, **args), "already-open")
+        self.assertEqual(watchdog.sync_issue(["scanner-unreachable"], **args), "closed-5")
+        self.assertEqual([item["number"] for item in current], [6])
+        self.assertEqual(watchdog.sync_issue([], **args), "closed-6")
+        self.assertEqual(current, [])
+        self.assertEqual(sum(1 for method, path, _ in actions
+                             if method == "POST" and path == "/issues"), 2)
+
+    def test_legacy_combined_issue_is_archived(self):
+        actions = []
+        current = [{"title": watchdog.ISSUE_TITLE, "number": 20}]
+        def requester(method, path, **kw):
+            actions.append((method, path))
+            if method == "GET":
+                return list(current)
+            if method == "POST" and path == "/issues":
+                return {"number": 21}
             return {}
         args = {"token": "test", "repo": "ichrob/gold-dashboard1", "requester": requester}
-        self.assertEqual(watchdog.sync_issue(["scanner-unreachable"], **args), "opened-5")
-        current[:] = [{"title": watchdog.ISSUE_TITLE, "number": 5}]
-        self.assertEqual(watchdog.sync_issue(["scanner-unreachable"], **args), "already-open")
-        self.assertEqual(watchdog.sync_issue([], **args), "closed-5")
-        self.assertEqual([a[0] for a in actions], ["GET", "POST", "GET", "GET", "POST", "PATCH"])
+        self.assertEqual(watchdog.sync_issue(["scanner-unreachable"], **args), "opened-21,closed-20")
+        self.assertIn(("PATCH", "/issues/20"), actions)
 
     def test_scope_prevents_other_repo_access(self):
         with self.assertRaises(ValueError):

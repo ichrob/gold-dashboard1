@@ -85,6 +85,9 @@ body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 .bob-nav{position:fixed;bottom:0;left:0;right:0;z-index:50;background:#ffffffed;backdrop-filter:blur(14px);border-top:1px solid #dce3ed;padding:8px 8px calc(8px + env(safe-area-inset-bottom));display:flex;justify-content:center;gap:4px}
 .bob-nav button{max-width:180px;flex:1;min-width:0;background:transparent;color:#536176;font-size:clamp(10px,2.75vw,12px);padding:9px 1px;border-radius:12px;letter-spacing:-.1px}
 .bob-nav button[aria-current=page]{background:#e8f1ff;color:#125bc0}.bob-nav span{display:block;font-size:19px;margin-bottom:2px}
+.bob-nav{gap:2px}.bob-nav button{font-size:clamp(9px,2.5vw,11px);position:relative}
+.bob-nav .bob-problem-count{position:absolute;top:1px;right:2px;display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;padding:1px 4px;border-radius:999px;background:#bc2440;color:white;font-size:11px;font-weight:750;line-height:1;box-sizing:border-box}
+.bob-nav .bob-problem-count[hidden]{display:none!important}
 .bob-heading{display:flex;align-items:center;justify-content:space-between;margin:2px 0 16px}.bob-heading h1{font-size:27px}.bob-heading small{color:#6b7788}
 .bob-status{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}.bob-status button{font-size:12px;width:auto;background:#edf0f5;color:#42536a;padding:7px 10px;min-height:36px}
 .bob-mobile .signal.neutral{background:#eef0f3;color:#526070}.bob-mobile #quickSignal{font-size:27px;padding:15px}
@@ -1390,7 +1393,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const quick=card('quickSignal'),manual=card('dgType'),push=card('generalPushBtn');
   const header=document.querySelector('h1')?.parentElement;
   const panels={};
-  for(const [key,label] of Object.entries({overview:'Übersicht',products:'Produkte',trade:'Mein Trade',auto:'Vollautomatisch',future:'Zukunft',research:'YouTube',learning:'Lernen'})){
+  for(const [key,label] of Object.entries({overview:'Übersicht',products:'Produkte',trade:'Mein Trade',auto:'Vollautomatisch',future:'Zukunft',research:'YouTube',learning:'Lernen',problems:'Problem'})){
    const el=document.createElement('section');el.id='bob-view-'+key;el.setAttribute('aria-label',label);el.hidden=key!=='overview';
    if(key!=='overview'){const h=document.createElement('h2');h.textContent=label;h.tabIndex=-1;el.append(h);}
    panels[key]=el;main.append(el);
@@ -1503,6 +1506,9 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   move(byId('intradayComparisonDetails'),'learning');
   move(card('researchStatus'),'learning');fold(card('researchStatus'),'Research und manuelle Auswertung');
   move(byId('bobAutoCollection'),'learning');fold(byId('bobAutoCollection'),'Genauigkeit der Future-Schätzung');
+  // Dedicated Problem section: archived KI help requests plus existing recovery log.
+  move(byId('bobProblemPanel'),'problems');
+  move(byId('bobSelfHealing'),'problems');
   const disclaimer=main.querySelector(':scope > .card.warning');if(disclaimer){move(disclaimer,'learning');fold(disclaimer,'Hinweise zur Nutzung');}
   // Keep the existing live data-status node, but display it only once at the end of Products.
   const productDataStatus=byId('dgTop3')?.querySelector(':scope > div.small');
@@ -1524,7 +1530,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   if(header){header.className='bob-heading';header.querySelector('h1').textContent='Bob';header.querySelector('.sub').textContent='Dein Gold- und Produktassistent';main.prepend(header);}
   Object.values(panels).forEach(el=>main.append(el));
   const nav=document.createElement('nav');nav.id='bobNavigation';nav.className='bob-nav';nav.setAttribute('aria-label','Hauptnavigation');
-  nav.innerHTML=[['overview','◫','Übersicht'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['auto','⚙','Auto'],['future','◇','Zukunft'],['research','▶','YouTube'],['learning','↗','Lernen']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+'</button>').join('');document.body.append(nav);
+  nav.innerHTML=[['overview','◫','Übersicht'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['auto','⚙','Auto'],['future','◇','Zukunft'],['research','▶','YouTube'],['learning','↗','Lernen'],['problems','⚠','Problem']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+(key==='problems'?'<strong class="bob-problem-count" data-problem-count hidden aria-hidden="true"></strong>':'')+'</button>').join('');document.body.append(nav);
   function show(key,focus=true){if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key)btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
   document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b){show(b.dataset.view);history.replaceState(null,'','#'+b.dataset.view);}});
   window.addEventListener('hashchange',()=>show(location.hash.slice(1)));
@@ -1555,6 +1561,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   // Observe only original outputs, never our derived labels (avoids observer loops).
   const observer=new MutationObserver(update);for(const id of ['quickSignal','analysisQuality','analysisAge','decisionExplanation','blockTrendNote','blockMomentumNote','blockVolatilityNote','blockStructureNote','quickReason','sourceSummary','pushStatus','fibMonitorStatus','auditSave','improvementStatus','generalPushBtn','dgTop3Out','tradeStateBtn']){const el=byId(id);if(el)observer.observe(el,{childList:true,subtree:true,characterData:true});}
   document.body.classList.add('bob-mobile');update();show(location.hash.slice(1),false);
+  // In case the archive response arrived before the navigation existed.
+  window.BobProblems?.refresh?.();
  }
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initMobile);else initMobile();
 })();

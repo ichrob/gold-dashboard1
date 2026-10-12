@@ -23,3 +23,20 @@ Bob führt **keine selbstständigen Codeänderungen, Echtgeldorders oder Änderu
 - GitHub → Issues → Titel `Bob KI-Hilfe` für das Archiv.
 
 Zusätzliche Render-Umgebungsvariablen sind nicht erforderlich. Der Wächter nutzt das von GitHub Actions bereitgestellte `GITHUB_TOKEN` mit begrenzter Berechtigung `issues:write`.
+
+
+## Eigene Sparte „Problem“ (12.10.2026)
+
+Im mobilen Hauptmenü von Bob gibt es einen zusätzlichen Reiter **Problem**.
+Daneben steht eine rote Zahl für die Anzahl der **offenen, dauerhaft gespeicherten KI-Hilfeanfragen**:
+- Erstes ungelöstes Problem: **1**
+- Zweite unabhängige Fehlerart: **2**
+- Weitere Fehler: **3, 4, …**
+- Nach unabhängig bestätigter Behebung sinkt die Zahl wieder; das Archiv bleibt auf GitHub erhalten.
+- Das reine Lesen der Meldung löscht sie nicht.
+
+Jeder Diagnosecode erhält beim unabhängigen Wächter seine **eigene GitHub-Issue** mit sanitisiertem Standardbericht; dieselbe weiterhin aktive Fehlerart wird nicht dupliziert. Unter `Problem` erscheinen pro Fall Erkennungszeit, Fehlerbeschreibung, GitHub-Link und **KI-Hilfebericht kopieren**. Der vorherige Bereich `Fehlerüberwachung & Selbstreparatur` befindet sich jetzt ebenfalls in dieser Sparte.
+
+Der authentifizierte, lesende Endpunkt `/api/problems` lädt ausschließlich GitHub-Issue-Titel aus einer festen Allowlist und liest weder Freitexte noch fremde Issues aus. Servercache 90 Sekunden. Bei GitHub-Ausfall zeigt Bob „nicht erreichbar“ oder „letzter Stand“, **niemals fälschlich 0**. GitHub Actions prüft weiterhin ungefähr alle 10 Minuten: neue Fälle können dadurch mit Verzögerung angezeigt werden.
+
+Der Zähler bedeutet **noch offene KI-Hilfeanfragen**, nicht ungelesene Meldungen. Bei 0 ist die Zahl ausgeblendet. Keine Veränderung am Trading oder den Risikoregeln.
