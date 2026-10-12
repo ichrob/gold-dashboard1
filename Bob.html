@@ -1196,11 +1196,34 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   }catch(e){text('paperStatus','Simulation derzeit nicht abrufbar: '+e.message+'. Aktivität nicht bestätigt.');}
   finally{paperBusy=false;}
  }
- window.BobPaperSimulation={sync:async evidence=>{
-  if(!evidence.products?.length||paperSyncBusy||Date.now()-paperSyncAt<60000)return;
+ // A successful screenshot replacement takes priority over the ordinary
+ // once-per-minute sync. If a previous request is still in flight, queue the
+ // latest generation and dispatch it as soon as that request completes.
+ let pendingPaperEvidence=null;
+ window.BobPaperSimulation={sync:async(evidence,force=false)=>{
+  if(!evidence?.products?.length)return false;
+  const revision=typeof evidence.listUploadedAt==='string'?evidence.listUploadedAt:'';
+  if(paperSyncBusy){
+   if(force)pendingPaperEvidence={evidence,force:true};
+   return false;
+  }
+  if(!force&&Date.now()-paperSyncAt<60000)return false;
   paperSyncBusy=true;
-  try{await api('write',{mode:'simulation-sync',...evidence});paperSyncAt=Date.now();}catch(_){text('paperStatus','Produktabgleich für die Simulation noch nicht bestätigt. Bitte „Simulation prüfen“ öffnen.');}
-  finally{paperSyncBusy=false;}
+  try{
+   const response=await api('write',{mode:'simulation-sync',...evidence});
+   if(response.preserved===true){
+    text('paperStatus','Ältere Screenshotliste wurde nicht übernommen; aktive Serverliste bleibt geschützt.');
+    return false;
+   }
+   if(response.ok!==true)throw Error('Server hat Produktliste nicht bestätigt');
+   paperSyncAt=Date.now();
+   return true;
+  }catch(e){text('paperStatus','Produktliste noch nicht mit Hintergrund-Simulation abgeglichen: '+e.message+'. Automatischer Wiederholungsversuch folgt.');return false;}
+  finally{
+   paperSyncBusy=false;
+   const queued=pendingPaperEvidence;pendingPaperEvidence=null;
+   if(queued)window.BobPaperSimulation.sync(queued.evidence,true);
+  }
  }};
  document.getElementById('paperDay').value=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Zurich'}).format(new Date());
  document.getElementById('paperRefresh').addEventListener('click',refreshPaper);
