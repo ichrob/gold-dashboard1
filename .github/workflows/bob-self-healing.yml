@@ -1,0 +1,32 @@
+name: Bob independent self-healing escalation
+
+on:
+  schedule:
+    # Short checks; market-specific false alerts are skipped outside Swiss market time.
+    - cron: '4,14,24,34,44,54 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: bob-self-healing-watchdog
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout monitored build
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Probe both Render services and file a sanitized KI help issue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python bob_issue_watchdog.py
