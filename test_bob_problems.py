@@ -55,7 +55,7 @@ class BobProblemsTests(unittest.TestCase):
         two = problems.snapshot(fetcher=fetcher, clock=lambda: 105)
         self.assertEqual((one["count"], two["count"]), (1, 1))
         self.assertEqual(len(calls), 1)
-        stale = problems.snapshot(fetcher=fetcher, clock=lambda: 191)
+        stale = problems.snapshot(fetcher=fetcher, clock=lambda: 701)
         self.assertEqual(stale["status"], "stale")
         self.assertEqual(stale["count"], 1)
 
@@ -66,6 +66,41 @@ class BobProblemsTests(unittest.TestCase):
         self.assertEqual(data["status"], "unavailable")
         self.assertIsNone(data["count"])
         self.assertEqual(problems.from_issues([])["count"], 0)
+
+    def test_owner_curated_manual_ki_help_is_counted(self):
+        manual = {
+            "number": 351,
+            "title": "[Bob KI-Hilfe] Offener Emittenten-Datenzugang",
+            "user": {"login": "ichrob"},
+            "created_at": "2026-10-12T20:00:00Z",
+            "updated_at": "2026-10-12T20:10:00Z",
+            "body": "untrusted technical details",
+        }
+        data = problems.from_issues([manual, issue("paper-unhealthy", 101)])
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(data["problems"][0]["code"], "manual-351")
+        self.assertEqual(data["problems"][0]["message"], "Offener Emittenten-Datenzugang")
+        self.assertNotIn("untrusted", str(data))
+        self.assertEqual(problems.from_issues([dict(manual, user={"login": "attacker"})])["count"], 0)
+        self.assertEqual(problems.from_issues([dict(manual, title="Unrelated")])["count"], 0)
+        self.assertEqual(problems.from_issues([dict(manual, title="[Bob KI-Hilfe] " + "x"*151)])["count"], 0)
+
+    def test_outage_has_shorter_retry_than_success(self):
+        attempts = []
+        def offline():
+            attempts.append(1)
+            raise OSError("unavailable")
+        self.assertEqual(problems.snapshot(fetcher=offline, clock=lambda: 100)["status"], "unavailable")
+        problems.snapshot(fetcher=offline, clock=lambda: 200)
+        self.assertEqual(len(attempts), 1)
+        problems.snapshot(fetcher=offline, clock=lambda: 221)
+        self.assertEqual(len(attempts), 2)
+
+    def test_ui_fetches_private_counters_separately(self):
+        self.assertIn("fetch('/api/repair-statistics'", problems.PANEL)
+        self.assertIn("void refreshStatistics();", problems.PANEL)
+        self.assertIn("await publicIndex()", problems.PANEL)
+        self.assertIn("public-github-browser", problems.PANEL)
 
     def test_legacy_issue_is_one_problem(self):
         data = problems.from_issues([{
