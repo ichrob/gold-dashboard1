@@ -137,6 +137,35 @@ class AutonomousLearningTests(unittest.TestCase):
         self.assertEqual(outcome["status"],"maintenance")
         self.assertEqual(calls,["read","write"])
 
+    def test_morning_and_evening_checkpoints_do_not_repeat(self):
+        stored=dict(version=lab.VERSION, status="evaluated", mode="RESEARCH_ONLY",
+                    approved=False,orderExecutionEnabled=False,
+                    affectsLiveSignals=False,brokerConnected=False,
+                    closedBars=650,folds=[],rangeMs=[1700000000000,1702300000000],
+                    learningCycle=dict(version=learning.VERSION,checkpoint="morning",
+                        proposal=None, rejectedStrategies=[],prospective={}))
+        writes=[]
+        def storage(action,payload):
+            if action=="read":
+                return dict(mode="RESEARCH_ONLY",
+                    automation=dict(lastDay="2026-10-12"),latestReport=stored)
+            writes.append(payload)
+            stored.update(payload["report"])
+            return dict(saved=True,day="2026-10-12")
+        with patch.object(worker.strategy_lab,"run",return_value=dict(stored)) as engine:
+            at_morning=worker.evaluate_and_store(lambda *_:[],lambda *_:[],
+                now=datetime(2026,10,12,9,tzinfo=TZ),storage=storage)
+            self.assertEqual(at_morning["status"],"already-stored")
+            at_evening=worker.evaluate_and_store(lambda *_:[],lambda *_:[],
+                now=datetime(2026,10,12,20,15,tzinfo=TZ),storage=storage)
+            self.assertEqual(at_evening["status"],"evaluated")
+            self.assertEqual(writes[0]["report"]["learningCycle"]["checkpoint"],"evening")
+            repeated=worker.evaluate_and_store(lambda *_:self.fail("duplicate run"),
+                lambda *_:self.fail("duplicate marking"),
+                now=datetime(2026,10,12,20,30,tzinfo=TZ),storage=storage)
+            self.assertEqual(repeated["status"],"already-stored")
+        engine.assert_called_once()
+
     def test_storage_weekends_only_accept_maintenance(self):
         rows=candles()
         before=learning.enrich(report(rows),rows,day="2026-10-16")
