@@ -22,6 +22,45 @@ def tick(price,seconds=30,direction='LONG',**values):
     return {**market(direction),'price':price,'dataAt':NOW+seconds*1000,**values}
 
 class SimulationTests(unittest.TestCase):
+    def test_new_screenshot_generation_replaces_previous_background_universe(self):
+        import json
+        class Memory:
+            def __init__(self):self.current=None
+            def execute(self,sql,args=()):
+                if 'SELECT payload FROM bob_paper_products' in sql:
+                    self.last=(copy.deepcopy(self.current),) if self.current is not None else None
+                elif 'INSERT INTO bob_paper_products' in sql:
+                    self.current=json.loads(args[0]);self.last=None
+                else: self.last=None
+                return self
+            def fetchone(self):return self.last
+        conn=Memory()
+        old=dict(listUploadedAt='2026-10-10T08:00:00.000Z',origin='degiro-screenshot',
+                 products=[{'isin':'DE000FG4JXV7','productDirection':'SHORT','price':12}])
+        newer=dict(listUploadedAt='2026-10-12T08:00:00.000Z',origin='degiro-screenshot',
+                   products=[{'isin':'DE000FC1CHB7','productDirection':'LONG','price':18}])
+        # Request timestamps are immutable list versions; mocked time is later than both.
+        self.assertFalse(sim.sync(conn,old).get('preserved',False))
+        self.assertFalse(sim.sync(conn,newer).get('preserved',False))
+        self.assertEqual([p['isin'] for p in conn.current['products']],['DE000FC1CHB7'])
+        self.assertEqual(conn.current['listUploadedAt'],newer['listUploadedAt'])
+        self.assertTrue(sim.sync(conn,old)['preserved'])
+        self.assertTrue(sim.sync(conn,{'products':old['products']})['preserved'])
+        self.assertTrue(sim.sync(conn,{**newer,'products':old['products']})['preserved'])
+        self.assertEqual([p['isin'] for p in conn.current['products']],['DE000FC1CHB7'])
+        newer_quote={**newer,'products':[{'isin':'DE000FC1CHB7','productDirection':'LONG','price':19}]}
+        self.assertFalse(sim.sync(conn,newer_quote).get('preserved',False))
+        self.assertEqual(conn.current['products'][0]['price'],19,
+                         'The same active list may receive newer independently verified quotes')
+
+    def test_invalid_screenshot_timestamp_rejected(self):
+        conn=Mock()
+        for when in ('not-a-date','2026-10-12T09:00:00',
+                     '2099-01-01T00:00:00Z'):
+            with self.assertRaises(ValueError):
+                sim.sync(conn,dict(products=[{'isin':ISIN}],origin='degiro-screenshot',
+                                   listUploadedAt=when))
+
     def test_weekend_enqueuing_does_not_start_quote_worker(self):
         from unittest.mock import patch
         with patch.object(sim.background_push,'gold_weekend_seconds_remaining',return_value=3600):
