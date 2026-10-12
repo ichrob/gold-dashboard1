@@ -25,12 +25,14 @@ class SimulationTests(unittest.TestCase):
     def test_new_screenshot_generation_replaces_previous_background_universe(self):
         import json
         class Memory:
-            def __init__(self):self.current=None
+            def __init__(self):self.current=None;self.invalidations=0
             def execute(self,sql,args=()):
                 if 'SELECT payload FROM bob_paper_products' in sql:
                     self.last=(copy.deepcopy(self.current),) if self.current is not None else None
                 elif 'INSERT INTO bob_paper_products' in sql:
                     self.current=json.loads(args[0]);self.last=None
+                elif 'UPDATE subscriptions SET selection_evidence=NULL' in sql:
+                    self.invalidations+=1;self.last=None
                 else: self.last=None
                 return self
             def fetchone(self):return self.last
@@ -44,12 +46,14 @@ class SimulationTests(unittest.TestCase):
         self.assertFalse(sim.sync(conn,newer).get('preserved',False))
         self.assertEqual([p['isin'] for p in conn.current['products']],['DE000FC1CHB7'])
         self.assertEqual(conn.current['listUploadedAt'],newer['listUploadedAt'])
+        self.assertEqual(conn.invalidations,2,'Each new list invalidates old product-Push evidence')
         self.assertTrue(sim.sync(conn,old)['preserved'])
         self.assertTrue(sim.sync(conn,{'products':old['products']})['preserved'])
         self.assertTrue(sim.sync(conn,{**newer,'products':old['products']})['preserved'])
         self.assertEqual([p['isin'] for p in conn.current['products']],['DE000FC1CHB7'])
         newer_quote={**newer,'products':[{'isin':'DE000FC1CHB7','productDirection':'LONG','price':19}]}
         self.assertFalse(sim.sync(conn,newer_quote).get('preserved',False))
+        self.assertEqual(conn.invalidations,2,'Same-generation quote updates retain the push-list revision')
         self.assertEqual(conn.current['products'][0]['price'],19,
                          'The same active list may receive newer independently verified quotes')
 
