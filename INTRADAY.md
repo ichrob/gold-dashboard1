@@ -210,3 +210,27 @@ Trade-off: requiring main-trend alignment can delay entries and exclude early
 reversals. Retaining runners allows profit giveback up to the protected stop.
 Synthetic regression tests establish mechanics only; no October 6/7 replay or
 live superiority is claimed by this implementation.
+
+
+## Bidirectional early impulse shadow v1 — 2026-10-12
+
+- The dashboard now shows a separately labeled LONG or SHORT early warning, or neutral / unavailable.
+  This is not a seventh weighted vote, an active market signal, an order, a product release or a Push event.
+- Both sides use identical absolute ATR-normalized tests on **closed native XAU/USD** 5m/15m bars.
+  A 5m three-close move of at least 0.85 ATR, a continuing directional 5m body/close,
+  and an aligned 15m body with at least 0.20 ATR close progress are needed.
+  A 2.5 ATR 5m extension is separately flagged for reversal/chase risk.
+- 100 bars in both frames, reliable OHLC, correct instrument, no estimated bars,
+  5 recent consecutive bars, matching bar grid and two-candle freshness are required.
+  Missing or contaminated data fail closed; an open candle is never counted.
+- The 1h/15m main-trend, 5m confirmed signal, product checks, stops, learning filters,
+  paper trade entries, notifications and all permissions remain **unchanged**.
+- The same function runs in Bob.html and in the headless evaluator.
+  Background audit snapshots carry immutable earlyImpulse evidence.
+  The review takes the first actual background early signal per UTC hour and
+  compares its LONG/SHORT direction with the *subsequently recorded* 60-minute
+  real XAU/USD spot quote; missing outcomes remain missing. Counts are separated
+  by direction and whether the active signal was already aligned.
+- No backfilled synthetic profit, no fee/KO product assumption and no automatic
+  promotion to trading rules. This is a new prospective hypothesis; thresholds are
+  starting values for evaluation, not validated optimal parameters.

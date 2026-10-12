@@ -43,7 +43,7 @@ def normalize(payload, now=None):
     if bar is None or bar > now:
         raise ValueError('Entscheidungs-Kerzenzeit fehlt oder liegt in der Zukunft')
     # Only explicitly whitelisted evidence; never account credentials or raw images.
-    result = {k: payload.get(k) for k in ('learningPolicy','baseDirection','direction','shadowDirection','trendContext','intraday','entryQuality','minuteEntry','barAt','price','priceAt','reason','score','indicators','products','selection','gateReasons','plan')}
+    result = {k: payload.get(k) for k in ('learningPolicy','baseDirection','direction','shadowDirection','trendContext','intraday','entryQuality','minuteEntry','earlyImpulse','barAt','price','priceAt','reason','score','indicators','products','selection','gateReasons','plan')}
     plan = result.get('plan')
     if (isinstance(plan,dict) and plan.get('kind') in ('candidate','active-monitor')
         and plan.get('direction') in ('LONG','SHORT') and plan.get('unit')=='USD/oz'
@@ -63,6 +63,16 @@ def normalize(payload, now=None):
     at = milliseconds(result.get('priceAt'))
     minute=result.get('minuteEntry')
     if not isinstance(minute,dict) or minute.get('version')!='minute-entry-v1' or minute.get('direction') not in ('LONG','SHORT','NEUTRAL'):result['minuteEntry']=None
+    early=result.get('earlyImpulse')
+    if (not isinstance(early,dict) or early.get('version')!='early-impulse-v1'
+        or early.get('direction') not in ('LONG','SHORT','NEUTRAL')
+        or type(early.get('available')) is not bool
+        or early.get('comparisonOnly') is not True
+        or early.get('affectsApproval') is not False):
+        result['earlyImpulse']=None
+    else:
+        result['earlyImpulse']={k:early.get(k) for k in ('version','direction','available','comparisonOnly','affectsApproval','extensionRisk','barAt')}
+        result['earlyImpulse']['reason']=str(early.get('reason') or '')[:350]
     entry=result.get('entryQuality')
     if not isinstance(entry,dict) or entry.get('version')!='entry-quality-v1' or entry.get('direction') not in ('LONG','SHORT','NEUTRAL'):result['entryQuality']=None
     result['marketEvaluable'] = positive(result.get('price')) and at is not None and 0 <= now-at <= 180000
@@ -73,6 +83,7 @@ def normalize(payload, now=None):
     identity={k:result[k] for k in ('learningPolicy','version','ruleVersion','origin','direction','shadowDirection','intraday','barAt','reason','products','selection','gateReasons','plan')}
     if identity.get('plan'):identity['plan']={k:v for k,v in identity['plan'].items() if k!='at'}
     identity['reviewVersion']=signal_review.VERSION
+    identity['earlyImpulseEvidence']=(lambda q:{'version':q['version'],'direction':q['direction'],'barAt':q['barAt']} if q else None)(result.get('earlyImpulse'))
     identity['minuteEntryVersion']=(result.get('minuteEntry') or {}).get('version')
     identity['entryQualityVersion']=(result.get('entryQuality') or {}).get('version')
     key=hashlib.sha256(json.dumps(identity,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
@@ -156,6 +167,47 @@ def summarize(rows):
                     'status':'Verbesserungskandidat zur Prüfung vorhanden' if better else 'Vergleich ohne belegte Verbesserung' if ready else 'Sammelt unabhängige Vergleiche; noch keine Regeländerung',
                     'automaticRuleChange':False},'version':VERSION,'retentionDays':30}
 
+def early_impulse_review(rows):
+    """Prospective, paired 60-minute XAU/USD outcomes; same first hourly observation for both policies."""
+    sides={d:{'evaluated':0,'favorable':0,'unfavorable':0,'flat':0,'beforeApproval':0,'sumPct':0.0} for d in ('LONG','SHORT')}
+    result={'version':'early-impulse-v1','evaluated':0,'favorable':0,'unfavorable':0,'flat':0,
+            'beforeApproval':0,'missing':0,'long':sides['LONG'],'short':sides['SHORT'],
+            'automaticRuleChange':False}
+    occupied=set()
+    for record,truths in sorted(rows,key=lambda row:row[0].get('recordedAt',0)):
+        early=record.get('earlyImpulse') or {}
+        if (record.get('ruleVersion')!=RULE_VERSION or record.get('origin')!='background'
+            or early.get('version')!=result['version'] or early.get('available') is not True
+            or early.get('direction') not in sides):continue
+        # Do not multiply one directional observation with every 30-second refresh.
+        hour=int(record.get('recordedAt',0)//3600000)
+        if hour in occupied:continue
+        occupied.add(hour)
+        test=outcome(record,truths[1],60)
+        if test is None:
+            result['missing']+=1
+            continue
+        d=early['direction']
+        value=test['changePct'] if d=='LONG' else -test['changePct']
+        result['evaluated']+=1
+        sides[d]['evaluated']+=1
+        category='favorable' if value>0 else 'unfavorable' if value<0 else 'flat'
+        result[category]+=1
+        sides[d][category]+=1
+        sides[d]['sumPct']+=value
+        if record.get('direction')!=d:
+            result['beforeApproval']+=1
+            sides[d]['beforeApproval']+=1
+    for d in sides:
+        sample=sides[d]
+        sample['meanDirectionalPct']=sample['sumPct']/sample['evaluated'] if sample['evaluated'] else None
+    result['note']=('Prospektiver Vergleich: erste Hintergrund-Frühwarnung je UTC-Stunde, danach nur real archivierte '
+       'XAU/USD-Kurse nach 60 Minuten. Vor Freigabe bedeutet noch nicht als identischer Richtungseinstieg bestätigt. '
+       'Fehlende Folgepreise bleiben fehlend. Kein Rücktest mit Zukunftsdaten; keine Gebühren, kein KO-Produktgewinn '
+       'und kein Nachweis eines besseren Live-Einstiegs. LONG/SHORT getrennt; keine automatische Regeländerung.')
+    return result
+
+
 _harvest_at=0
 
 def harvest(conn):
@@ -225,6 +277,7 @@ def _build_report(conn):
     result['total']=conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0]
     result['reportRecords']=len(rows)
     result['scope']='Aktuelle Einstiegsregel '+active+' ('+str(len(scoped))+' passende, '+str(len(rows)-len(scoped))+' andere Regelstände getrennt); aktuelle Intraday-Regel; Auswertung der letzten '+str(len(rows))+' von '+str(result['total'])+' gespeicherten Entscheidungen; frühere Regeln getrennt ('+str(result['legacyCount'])+' ältere Protokolle). Einzelne Tage bleiben vollständig abrufbar. Bis 30 Tage; Gold-Richtung ohne Handelskosten, kein Gewinnnachweis'
+    result['earlyImpulseReview']=early_impulse_review([(row[0],row[1:]) for row in rows])
     result['minuteEntryReview']=entry_quality_review([(row[0],row[1:]) for row in rows],field='minuteEntry',version='minute-entry-v1')
     result['entryQualityReview']=entry_quality_review([(row[0],row[1:]) for row in rows])
     result['productReview']=product_review([row[0] for row in rows[:1500]])
