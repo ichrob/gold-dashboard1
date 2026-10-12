@@ -146,3 +146,72 @@ class EarlyImpulseAuditTests(unittest.TestCase):
         result=a.early_impulse_review([long,short,missing])
         self.assertEqual(result['missing'],1)
 
+
+
+class ProspectiveEarlyImpulseTests(unittest.TestCase):
+    def _sample(self,timestamp,side,shift,active='NEUTRAL',include=True):
+        payload=dict(ruleVersion=a.RULE_VERSION,direction=active,origin='background',
+                     barAt=timestamp-300000,priceAt=timestamp,price=4000,
+                     earlyImpulse={'version':'early-impulse-v1','available':True,
+                                   'direction':side,'barAt':timestamp-300000,
+                                   'comparisonOnly':True,'affectsApproval':False})
+        row=a.normalize(payload,timestamp)[1]
+        truth={'at':timestamp+3600000,'price':4000+shift}
+        return row,(None,truth if include else None,None)
+
+    def test_only_prospective_independent_validation_can_label_promising(self):
+        from datetime import timedelta
+        from zoneinfo import ZoneInfo
+        zone=ZoneInfo('Europe/Zurich')
+        stamp=lambda date,hour:int(datetime.fromisoformat(date).replace(tzinfo=zone).timestamp()*1000)+hour*3600000
+        samples=[]
+        for date in ('2026-10-12','2026-10-13','2026-10-14','2026-10-15'):
+            for hour,side in ((9,'LONG'),(11,'SHORT'),(13,'LONG'),(15,'SHORT')):
+                samples.append(self._sample(stamp(date,hour),side,20 if side=='LONG' else -20))
+        first=a.early_impulse_review(samples)
+        self.assertEqual(first['phases']['collection']['evaluated'],16)
+        self.assertFalse(first['promising'])
+        self.assertIn('nicht ausreichend',first['status'])
+        for date in ('2026-10-19','2026-10-20','2026-10-21','2026-10-22','2026-10-23'):
+            for hour,side in ((9,'LONG'),(11,'SHORT'),(13,'LONG'),(15,'SHORT')):
+                samples.append(self._sample(stamp(date,hour),side,20 if side=='LONG' else -20))
+        report=a.early_impulse_review(samples)
+        self.assertEqual(report['phases']['validation']['evaluated'],20)
+        self.assertEqual(report['phases']['validation']['days'],5)
+        self.assertTrue(report['promising'])
+        self.assertFalse(report['automaticRuleChange'])
+        self.assertEqual(report['evaluated'],36)
+        self.assertEqual(report['beforeApproval'],36)
+        self.assertEqual(report['unconfirmedFavorable'],36)
+        self.assertAlmostEqual(report['baselineSumPct'],0)
+        negative=[self._sample(stamp('2026-10-23',15),'SHORT',20)]
+        loss_samples=samples[:-1]+negative
+        # One isolated adverse event is not automatically evidence of failure;
+        # replace the entire SHORT validation group to test an adverse alternative.
+        adverse=[(r,({**t[0]} if t[0] else None,t[1],t[2])) for r,t in []]
+        changed=[]
+        for r,t in loss_samples:
+            if r['recordedAt']>=stamp('2026-10-19',0) and r['earlyImpulse']['direction']=='SHORT':
+                changed.append((r,(None,{'at':r['recordedAt']+3600000,'price':4020},None)))
+            else:
+                changed.append((r,t))
+        weak=a.early_impulse_review(changed)
+        self.assertFalse(weak['promising'])
+        self.assertIn('KEIN VORTEIL',weak['status'])
+
+    def test_hourly_dedup_strict_future_and_baseline(self):
+        now=int(datetime(2026,10,19,10,tzinfo=timezone.utc).timestamp()*1000)
+        first=self._sample(now,'LONG',20,active='LONG')
+        next_in_same_hour=self._sample(now+300000,'SHORT',-20)
+        second=self._sample(now+3600000,'SHORT',-20)
+        missed=self._sample(now+7200000,'LONG',20,include=False)
+        r=a.early_impulse_review([next_in_same_hour,second,missed,first])
+        self.assertEqual(r['evaluated'],2)
+        self.assertEqual(r['missing'],1)
+        self.assertEqual(r['matchedActive'],1)
+        self.assertEqual(r['beforeApproval'],1)
+        self.assertAlmostEqual(r['earlySumPct'],1.0,places=9)
+        self.assertAlmostEqual(r['baselineSumPct'],0.5,places=9)
+        self.assertAlmostEqual(r['incrementalPct'],0.25,places=9)
+        self.assertEqual(r['horizons']['15']['missing'],3)
+        self.assertEqual(r['horizons']['240']['missing'],3)
