@@ -106,7 +106,7 @@ def conditions(product, properties, result):
 
 def get_quote(isin, terms_only=False):
     origin = q.sg_market(isin)[0]
-    if isin not in q.SG_DIRECT_PRODUCTS:
+    if isin not in q.SG_DIRECT_PRODUCTS and isin not in q.SG_DISCOVERY_PRODUCTS:
         return q.sg_disabled(isin)
     # Serialize per product; a slow source for one ISIN must not block all others.
     with _LOCK:
@@ -129,8 +129,10 @@ def get_quote(isin, terms_only=False):
                 origin = q.sg_market(isin)[0]
                 base = origin+'EmcWebApi/api/'
                 product = q.issuer_json(base+'Products/'+isin, origin, timeout=12)
+                expected_id = q.SG_DIRECT_PRODUCTS.get(isin)
                 if (product.get('Isin') != isin or type(product.get('Id')) is not int
-                        or product['Id'] != q.SG_DIRECT_PRODUCTS[isin]
+                        or product['Id'] <= 0
+                        or (expected_id is not None and product['Id'] != expected_id)
                         or product.get('ProductClassificationId') not in (43, 45, 47, 44100)):
                     raise ValueError('SG-Produktidentität nicht bestätigt')
                 if product['ProductClassificationId'] == 44100:
@@ -162,7 +164,8 @@ def get_quote(isin, terms_only=False):
             else:
                 stage = 'dated-quotes'
                 points = q.issuer_json(origin+'EmcWebApi/api/Prices/Live?productId='+str(product['Id']), origin, timeout=12)
-                chart = q.parse_sg_chart_research(product, points, isin)
+                chart = q.parse_sg_chart_research(product, points, isin,
+                    verified_id=product['Id'] if isin in q.SG_DISCOVERY_PRODUCTS else None)
                 result['chartEvidence'] = chart['chartEvidence']
                 result['reason'] = ('SG-Direktimport aktiv (30 s): Stammdaten übernommen; '
                     'Geld/Brief als datierter Chartnachweis. Basispreis/KO verwenden den Zeitbezug der automatischen Abrufserie; Hebelnachweise werden separat geprüft.')
