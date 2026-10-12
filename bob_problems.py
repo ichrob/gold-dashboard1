@@ -184,11 +184,12 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
   } catch(_){label.textContent='Kopieren blockiert. Bitte den GitHub-Link verwenden.';}
  }
  function renderStatistics(stats){
-  const statsOk=(stats.status==='ok'||stats.status==='stale')&&
+  let statsOk=(stats.status==='ok'||stats.status==='stale')&&
       Number.isInteger(stats.detected)&&Number.isInteger(stats.verifiedRepairs);
   if(statsOk)lastStats=stats;
   else if(lastStats&&Number.isInteger(lastStats.detected)){
    stats={...lastStats,status:'stale'};
+   statsOk=true;
   }
    for(const [key,id] of [['detected','bobRepairDetected'],
                           ['verifiedRepairs','bobRepairVerified'],
