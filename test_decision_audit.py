@@ -188,7 +188,6 @@ class ProspectiveEarlyImpulseTests(unittest.TestCase):
         loss_samples=samples[:-1]+negative
         # One isolated adverse event is not automatically evidence of failure;
         # replace the entire SHORT validation group to test an adverse alternative.
-        adverse=[(r,({**t[0]} if t[0] else None,t[1],t[2])) for r,t in []]
         changed=[]
         for r,t in loss_samples:
             if r['recordedAt']>=stamp('2026-10-19',0) and r['earlyImpulse']['direction']=='SHORT':
@@ -215,3 +214,24 @@ class ProspectiveEarlyImpulseTests(unittest.TestCase):
         self.assertAlmostEqual(r['incrementalPct'],0.25,places=9)
         self.assertEqual(r['horizons']['15']['missing'],3)
         self.assertEqual(r['horizons']['240']['missing'],3)
+
+
+class UnattendedBackgroundAuditWriterTests(unittest.TestCase):
+    def test_audit_writer_is_independent_of_push_subscription(self):
+        from unittest.mock import Mock, patch
+        from push_server import record_market_observation
+        conn=Mock()
+        market=dict(ruleVersion=a.RULE_VERSION,analysisBarAt=1800000000000-300000,
+                    direction='NEUTRAL',ready=True,price=4200,dataAt=1800000000000,
+                    earlyImpulse=dict(version='early-impulse-v1',available=True,
+                                      direction='SHORT',comparisonOnly=True,
+                                      affectsApproval=False,barAt=1800000000000-300000))
+        with patch('push_server.decision_audit.write') as write,patch('push_server.decision_audit.harvest') as harvest:
+            self.assertTrue(record_market_observation(conn,market))
+            payload=write.call_args.args[1]
+            self.assertEqual(payload['direction'],'NEUTRAL')
+            self.assertEqual(payload['earlyImpulse']['direction'],'SHORT')
+            self.assertFalse(payload['earlyImpulse']['affectsApproval'])
+            harvest.assert_called_once_with(conn)
+            self.assertFalse(record_market_observation(conn,{}))
+            self.assertEqual(write.call_count,1)
