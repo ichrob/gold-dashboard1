@@ -60,7 +60,7 @@ assert(clip.includes('spot.is_genuine_xauusd_spot===true'),'Only verified gold s
 assert(clip.includes("ctx.fillText(num(value)"),'Display exact chart axis prices');
 assert(!clip.includes('canvas.toDataURL('),'Never scrape copyrighted frames');
 const html=fs.readFileSync('Bob.html','utf8'),server=fs.readFileSync('server.py','utf8');
-assert(html.includes('src="/mco_clip.js?v=20261011-fib-axis-v3"'));
+assert(/src="\/mco_clip\.js\?v=[^"]+"/.test(html),'MCO module must be versioned for safe browser cache refresh');
 assert(html.includes('window.BobMcoClip.mount(box,x,url'));
 assert(html.includes('x.trustedTranscript&&window.BobMcoClip?.mount'));
 assert(server.includes('if path == "/mco_clip.js"'));
