@@ -62,7 +62,10 @@ def parse(data):
 
 
 def fetch(identity,key):
-    url='https://api.supadata.ai/v1/transcript?'+urlencode({'url':'https://www.youtube.com/watch?v='+identity,'mode':'native','lang':'de','text':'false'})
+    # MCO videos are commonly in English. Let Supadata choose the first existing
+    # native caption language instead of requesting German and rejecting English-only captions.
+    # Keep mode=native: no AI transcription costs or automatic paid fallback.
+    url='https://api.supadata.ai/v1/transcript?'+urlencode({'url':'https://www.youtube.com/watch?v='+identity,'mode':'native','text':'false'})
     request=urllib.request.Request(url,headers={'x-api-key':key,'Accept':'application/json'})
     try:
         with urllib.request.build_opener(NoRedirect()).open(request,timeout=15) as response:
