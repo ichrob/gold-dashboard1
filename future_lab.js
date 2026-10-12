@@ -277,6 +277,11 @@ function mount(parent){
   finally{researchBusy=false;runBtn.disabled=false;}
  }
  runBtn.addEventListener('click',loadResearch);
+ // Open Zukunft screens refresh the archived status, never execute new research.
+ setInterval(()=>{
+  const view=document.getElementById('bob-view-future');
+  if(view&&!view.hidden&&!researchBusy)loadResearch();
+ },10*60*1000);
  document.addEventListener('click',event=>{
   if(!researchLoaded&&event.target?.closest?.('[data-view="future"]'))loadResearch();
  });
