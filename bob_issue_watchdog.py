@@ -35,7 +35,7 @@ def utc_now():
 def active_session(now=None):
     """Never interpret a market weekend pause as a failed trading worker."""
     local = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo("Europe/Zurich"))
-    return local.weekday() < 5 and 7 <= local.hour < 23
+    return local.weekday() < 5 and 8 <= local.hour < 22
 
 
 def decode(url, *, opener=urlopen):
