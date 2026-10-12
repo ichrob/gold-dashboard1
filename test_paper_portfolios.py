@@ -97,10 +97,22 @@ class ProfileTests(unittest.TestCase):
                          stop=4020.,target=3960.,unit='USD/oz'))
             em=profiles.early_paper_market(m,NOW)
             chosen={'choices':[{'isin':ISIN,'direction':'SHORT','approval':'Bob-Pflichtprüfung bestanden'}]}
+            # A product missing KO verification must never be bought, even
+            # in a fictional research account.
             status=profiles.run_all(conn,{},m,{'choices':[]},{ISIN:quote()},NOW,{},
                                     early_market=em,early_selection=chosen)
-            self.assertEqual(status['early100'],'checked')
             ns=profiles.names('early100')
+            self.assertIsNone(conn.execute('SELECT payload FROM '+ns['bob_paper_cases']).fetchone())
+            blocked=conn.execute('SELECT payload FROM '+ns['bob_paper_control']).fetchone()[0]
+            self.assertIn('KO-Schutz',blocked['reason'])
+            safe={'choices':[{'isin':ISIN,'direction':'SHORT',
+                              'approval':'Bob-Pflichtprüfung bestanden',
+                              'koGuardRequired':True,'scope':'XAU/USD'}]}
+            with patch('paper_ko_guard.entry_reason',return_value=(None,{'ok':True})) as verify:
+                status=profiles.run_all(conn,{},m,{'choices':[]},{ISIN:quote()},NOW,{},
+                                        early_market=em,early_selection=safe)
+                self.assertTrue(verify.called)
+            self.assertEqual(status['early100'],'checked')
             case=conn.execute('SELECT payload FROM '+ns['bob_paper_cases']).fetchone()
             self.assertIsNotNone(case)
             self.assertEqual(case[0]['entryHypothesis'],'early-impulse-paper-v1')
