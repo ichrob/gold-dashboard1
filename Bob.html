@@ -902,7 +902,22 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    brief.append(node('small',extra.summary.note));box.append(brief);
   }else {
    const fallback=node('section','');fallback.className='mco-brief';
-   fallback.append(node('h4','KI-Kurzüberblick derzeit nicht verfügbar'),node('p',extra.summaryStatus||'KI-Zusammenfassung noch nicht verfügbar.'),node('small','Belegte Originalaussagen stehen unter „Weitere belegte Originalaussagen“. Bobs Bilder ersetzen keine MCO-Charts.'));
+   fallback.append(node('h4','KI-Kurzüberblick derzeit nicht verfügbar'),node('p',extra.summaryStatus||'KI-Zusammenfassung noch nicht verfügbar.'),node('small','Stattdessen drei ausgewählte Originalsätze aus den Untertiteln. Keine KI-Paraphrase und keine geprüften Bildwerte.'));
+   const sourceById=new Map((item.overview?.evidence||[]).map(e=>[e.id,e]));
+   let shown=0;
+   for(const section of item.overview?.sections||[]){
+    if(shown>=3)break;
+    const source=(section.evidenceIds||[]).map(id=>sourceById.get(id)).find(e=>e&&e.text);
+    if(!source)continue;
+    const part=node('section','');part.className='mco-section';
+    part.append(node('h5',section.label+' · Originalzitat'),node('p',source.text));
+    if(Number.isFinite(source.at)&&source.at>=0){
+     const dest=new URL(url),at=Math.floor(source.at);dest.searchParams.set('t',String(at));
+     const link=node('a','MCO-Originalstelle '+Math.floor(at/60)+':'+String(at%60).padStart(2,'0'));
+     link.href=dest.href;link.target='_blank';link.rel='noopener noreferrer';part.append(link);
+    }
+    fallback.append(part);shown++;
+   }
    box.append(fallback);
   }
   const remaining=frames.map((frame,i)=>({frame,i})).filter(({i})=>!used.has(i));
