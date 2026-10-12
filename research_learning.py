@@ -156,7 +156,7 @@ def enrich(report, bars, previous=None, *, day):
                 candidateIndex=1.0, baselineIndex=1.0, lastEvaluatedBarAt=current_end)
             state["status"] = "shadow"
             state["reason"] = "Neuer Kandidat vorgeschlagen; noch keine prospektive Bestätigung."
-        elif state.get("proposal", {}).get("state") != "rejected":
+        elif (state.get("proposal") or {}).get("state") != "rejected":
             state["status"] = "collecting"
             state["reason"] = "Noch kein Kandidat mit hinreichendem historischem Vorteil."
     state["lastResearchBarAt"] = current_end
