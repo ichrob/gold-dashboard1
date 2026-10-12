@@ -1635,7 +1635,8 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  const neutral=/ABWARTEN|NEUTRAL/.test(signalText)||allReasons.some(r=>/Marktsignal neutral/.test(r));
  const data=productDataStatus(p),temporal=allReasons.some(r=>/zeit|Aktualität|datier|veraltet|Gültigkeit|Nachweis/i.test(r));
  const missingNumbers=Object.values(fieldStates).filter(f=>f.state==='fehlt').map(f=>f.key);
- const dataText=data.complete?'Werte vorhanden':missingNumbers.length?'Fehlende Kurswerte: '+missingNumbers.join(', '):'Geld, Brief und Hebel vorhanden';
+ const hasSgChart=!!direct?.analysisQuote&&direct.analysisQuote.priceKind==='issuer-chart'||!!direct?.nativeChartEvidence;
+ const dataText=hasSgChart&&!missingNumbers.length?'Analysewerte vorhanden · ausführbarer Kurs separat offen':data.complete?'Werte vorhanden':missingNumbers.length?'Fehlende Kurswerte: '+missingNumbers.join(', '):'Geld, Brief und Hebel vorhanden';
  const shortReason=r=>String(r).split('. Öffne')[0].split(' · Fundort:')[0].slice(0,160);
  const automaticQuoteIssue=!complete&&groups.length>0&&groups.every(r=>/^(Live-Kursbestätigung|Kursart und Aktualität|Hebel berechnet|Hebel vorhanden|BNP-Kursabruf)/.test(r));
  const evidenceTitle=automaticQuoteIssue?'Werte vorhanden · Aktualitätsprüfung offen':missingNumbers.length?'Fehlende Werte und Nachweise':'Werte und Aktualitätsprüfung';
@@ -1656,13 +1657,33 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
 function renderPrimaryProductValues(p,now=Date.now()){
  const q=p.quote?.isin===p.isin&&p.quote.productVerified?p.quote:null;
  const live=q?.found?q:q?.analysisQuote||q?.referenceQuote;
- const fields=productFieldStates(p,now),at=live?.bidAt||live?.askAt||q?.quoteAt;
- const clocks=[live?.bidAt||at,live?.askAt||at].map(t=>Date.parse(t));
- const current=!q?.sourceFailure&&live!==q?.referenceQuote&&live?.currency==='EUR'&&!live.delayed&&n(live.bid)>0&&n(live.ask)>=n(live.bid)&&clocks.every(t=>Number.isFinite(t)&&now-t>=0&&now-t<=300000)&&Math.max(...clocks)-Math.min(...clocks)<=90000;
+ const fields=productFieldStates(p,now);
+ const native=q?.nativeChartEvidence;
+ const nativeChf=!!q?.productVerified&&native?.currency==='CHF'&&n(native.bid)>0
+  &&n(native.ask)>=n(native.bid)&&typeof native.pointAt==='string';
+ const euroPair=!!live&&!q?.sourceFailure&&live!==q?.referenceQuote&&live.currency==='EUR'
+  &&!live.delayed&&n(live.bid)>0&&n(live.ask)>=n(live.bid);
+ const pair=euroPair?live:nativeChf?{...native,bidAt:native.pointAt,
+  askAt:native.pointAt,source:'SG · datierter CHF-Chartkurs',priceKind:'issuer-chart',
+  isExecutableQuote:false}:null;
+ const at=pair?.bidAt||pair?.askAt||q?.quoteAt;
+ const clocks=[pair?.bidAt,pair?.askAt].map(t=>Date.parse(t));
+ const current=!!pair&&clocks.every(t=>Number.isFinite(t)&&now-t>=0&&now-t<=300000)
+  &&Math.max(...clocks)-Math.min(...clocks)<=90000;
+ const chart=pair?.priceKind==='issuer-chart'||pair?.isExecutableQuote===false;
  const fmt=v=>n(v)>0?Number(v).toLocaleString('de-CH',{maximumFractionDigits:4}):'—';
  const stamp=at&&Number.isFinite(Date.parse(at))?new Date(at).toLocaleString('de-CH',{timeZone:'Europe/Zurich',hour12:false})+' (Zürich)':'Zeitbezug unbestätigt';
- const currency=current?'EUR':p.snapshot?.currency||p.currency||'EUR';
- return '<div class="small" data-primary-product-values><b>'+(current?'Aktueller Anbieterwert':'Gespeicherte Referenz')+'</b><br>'+valuePresenceMark(fields.bid.state==='fehlt')+' Geld '+fmt(current?live.bid:fields.bid.value)+' / '+valuePresenceMark(fields.ask.state==='fehlt')+' Brief '+fmt(current?live.ask:fields.ask.value)+' '+esc(currency)+(current&&live.priceKind==='issuer-chart'?' · Chartkurs, kein bestätigter Ausführungskurs':'')+'<br>'+(current?'Quelle: '+esc(live.source||q.source||'Produktanbieter')+' · '+esc(stamp):'Datenstand: '+esc(fields.ask.state))+'<br>'+valuePresenceMark(fields.leverage.state==='fehlt')+' Hebel '+fmt(fields.leverage.value)+' · '+esc(fields.leverage.state)+(fields.leverage.state==='fehlt'&&q?.leverageCalculation?.reason?'<br>Berechnung derzeit nicht möglich: '+esc(q.leverageCalculation.reason):'')+'</div>';
+ const currency=pair?.currency||p.snapshot?.currency||p.currency||'EUR';
+ const headline=chart?(current?'Aktuelle SG-Chartbeobachtung':'SG-Chartbeobachtung · nicht aktuell'):current?'Aktueller Anbieterwert':'Gespeicherte Referenz';
+ const labels=chart?' · Chartkurs, kein bestätigter Ausführungskurs':'';
+ const note=pair&&!current?' · Datenalter überschreitet Analysefenster':'';
+ return '<div class="small" data-primary-product-values><b>'+esc(headline)+'</b><br>'+
+  valuePresenceMark(fields.bid.state==='fehlt')+' Geld '+fmt(pair?pair.bid:fields.bid.value)+
+  ' / '+valuePresenceMark(fields.ask.state==='fehlt')+' Brief '+fmt(pair?pair.ask:fields.ask.value)+' '+esc(currency)+
+  labels+note+'<br>'+(pair?'Quelle: '+esc(pair.source||q.source||'Produktanbieter')+' · '+esc(stamp):'Datenstand: '+esc(fields.ask.state))+
+  '<br>'+valuePresenceMark(fields.leverage.state==='fehlt')+' Hebel '+fmt(fields.leverage.value)+
+  ' · '+esc(fields.leverage.state)+(q?.leverageEstimated?' · rechnerische Näherung, kein bestätigter Emittentenhebel':'')+
+  (fields.leverage.state==='fehlt'&&q?.leverageCalculation?.reason?'<br>Berechnung derzeit nicht möglich: '+esc(q.leverageCalculation.reason):'')+'</div>';
 }
 function bindCompactCards(root){
  bindIsinCopy(root);
@@ -2183,10 +2204,19 @@ function productFieldStates(p,now=Date.now()){
   return {key,value,at:at||null,source:source||'gespeicherter Wert',kind,ageSeconds:age===null?null:Math.floor(age/1000),state:!(n(value)>0)?'fehlt':age===null||age<0?'Aktualität unbestätigt':age>limit?'veraltet':kind==='screenshot'?'Momentaufnahme · innerhalb Nachweisfrist (14 h)':limit===300000&&age>90000?'innerhalb Altersgrenze (300 s)':'aktuell'};
  };
  const items={},analysisLimit=(q?.analysisMaxAgeSeconds||90)*1000;
+ const native=q?.nativeChartEvidence;
+ // Preserve the issuer's native CHF price observation even when a current
+ // CHF/EUR conversion is unavailable. Do not label it an executable quote.
+ const nativeChf=!!q?.productVerified&&native?.currency==='CHF'
+  &&n(native.bid)>0&&n(native.ask)>=n(native.bid)&&typeof native.pointAt==='string';
  for(const [key,label] of [['bid','Geld'],['ask','Brief']]){
   const direct=live?.currency==='EUR'&&n(live.bid)>0&&n(live.ask)>=n(live.bid);
   const e=shot?.evidence?.[label];
-  items[key]=from(label,direct?live[key]:key==='ask'?(n(p.price)>0?p.price:shot?.currency==='CHF'?null:shot?.ask):shot?.currency==='CHF'?null:shot?.bid,direct?live[key+'At']:e?.at||shot?.sourceTime,direct?live.source:e?.source,direct?analysisLimit:SCREENSHOT_MAX_AGE_MS,direct?live.priceKind:'screenshot');
+  const observed=direct?live:nativeChf?{...native,bidAt:native.pointAt,askAt:native.pointAt,
+   source:'SG · datierter CHF-Chartkurs',priceKind:'issuer-chart'}:null;
+  items[key]=from(label,observed?observed[key]:key==='ask'?(n(p.price)>0?p.price:shot?.currency==='CHF'?null:shot?.ask):shot?.currency==='CHF'?null:shot?.bid,
+   observed?observed[key+'At']:e?.at||shot?.sourceTime,observed?observed.source:e?.source,
+   observed?analysisLimit:SCREENSHOT_MAX_AGE_MS,observed?observed.priceKind:'screenshot');
   if(direct&&(live===q?.referenceQuote||q?.sourceFailure)&&items[key].state!=='veraltet')items[key].state='Aktualität unbestätigt · letzter erfolgreicher Abruf';
   if(!direct&&e?.fromSeries){items[key].fromSeries=true;items[key].timeText=e.timeText;}
  }
@@ -2208,7 +2238,7 @@ function productFieldStates(p,now=Date.now()){
 function renderProductFieldStates(p){
  const fields=productFieldStates(p);
  const calculation=p.quote?.leverageCalculation, comparison=p.quote?.leverageComparison;
- const detail=calculation?.available?'<div>Berechnungsbasis: Briefkurs '+esc(calculation.inputs?.askEur)+' EUR · Quellenzeit '+esc(calculation.inputs?.askAt)+' · '+esc(calculation.inputs?.priceKind==='issuer-chart'?'Chartbeobachtung':calculation.inputs?.priceSource)+'<br>Basiswert: '+esc(calculation.inputs?.basisEstimated?'geschätzt':calculation.inputs?.basisDelayed?'verzögerter Quellenkurs':'Quellenkurs')+' · '+esc(calculation.inputs?.basisSource)+' · '+esc(calculation.inputs?.contract||'Gold Spot')+'<br>Zeitabstand der Eingangskurse: '+esc(calculation.skewSeconds)+' s (Analysetoleranz: '+esc(calculation.maxAllowedSkewSeconds||30)+' s; maximales Datenalter: '+esc(calculation.maxAllowedInputAgeSeconds||90)+' s)</div>':'';
+ const detail=calculation?.available?'<div>Berechnungsbasis: Briefkurs '+esc(calculation.inputs?.askNative??calculation.inputs?.askEur)+' '+esc(calculation.inputs?.quoteCurrency||'EUR')+' · Quellenzeit '+esc(calculation.inputs?.askAt)+' · '+esc(calculation.inputs?.priceKind==='issuer-chart'?'Chartbeobachtung':calculation.inputs?.priceSource)+'<br>Basiswert: '+esc(calculation.inputs?.basisEstimated?'geschätzt':calculation.inputs?.basisDelayed?'verzögerter Quellenkurs':'Quellenkurs')+' · '+esc(calculation.inputs?.basisSource)+' · '+esc(calculation.inputs?.contract||'Gold Spot')+'<br>Zeitabstand der Eingangskurse: '+esc(calculation.skewSeconds)+' s (Analysetoleranz: '+esc(calculation.maxAllowedSkewSeconds||30)+' s; maximales Datenalter: '+esc(calculation.maxAllowedInputAgeSeconds||90)+' s)</div>':'';
  const comparisonDetail=comparison?'<div>Hebelvergleich: '+esc(comparison.comparable?(comparison.warning?'Auffällige Abweichung: ':'Abweichung: ')+comparison.relativeDifferencePct+' % · '+comparison.note:comparison.reason)+'</div>':'';
  const native=p.quote?.nativeChartEvidence,fx=p.quote?.currencyConversion;
  const nativeInfo=native?'<div><b>Originalkurs CHF: Geld '+esc(native.bid)+' / Brief '+esc(native.ask)+'</b><br>Quellenzeit '+esc(native.pointAt)+(fx?'<br>Für die Analyse in EUR umgerechnet · CHF/EUR '+esc(fx.rate)+' · '+esc(fx.at):'<br>EUR-Umrechnung noch nicht verfügbar')+'</div>':'';
