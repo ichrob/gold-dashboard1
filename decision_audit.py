@@ -218,7 +218,7 @@ def early_impulse_review(rows):
             continue
         value,baseline,category=valid60
         result['evaluated']+=1;result[category]+=1
-        for stats in (sides[d],phases[phase][d]):
+        for stats in (sides[d],phases[phase][d.lower()]):
             stats['evaluated']+=1;stats[category]+=1
             stats['sumPct']+=value;stats['baselineSumPct']+=baseline
         phases[phase]['evaluated']+=1
@@ -229,7 +229,7 @@ def early_impulse_review(rows):
         else:
             result['beforeApproval']+=1
             sides[d]['beforeApproval']+=1
-            phases[phase][d]['beforeApproval']+=1
+            phases[phase][d.lower()]['beforeApproval']+=1
             result['unconfirmedFavorable']+=value>0
             result['unconfirmedUnfavorable']+=value<0
     result['uniqueDays']=len(seen_days)
