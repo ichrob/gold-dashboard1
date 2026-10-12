@@ -1204,7 +1204,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   if(!evidence?.products?.length)return false;
   const revision=typeof evidence.listUploadedAt==='string'?evidence.listUploadedAt:'';
   if(paperSyncBusy){
-   if(force||!pendingPaperEvidence)pendingPaperEvidence={evidence,force};
+   if(force)pendingPaperEvidence={evidence,force:true};
    return false;
   }
   if(!force&&Date.now()-paperSyncAt<60000)return false;
