@@ -37,7 +37,7 @@ class SimulationTests(unittest.TestCase):
         conn=Memory()
         old=dict(listUploadedAt='2026-10-10T08:00:00.000Z',origin='degiro-screenshot',
                  products=[{'isin':'DE000FG4JXV7','productDirection':'SHORT','price':12}])
-        newer=dict(listUploadedAt='2026-10-12T08:00:00.000Z',origin='degiro-screenshot',
+        newer=dict(listUploadedAt='2026-10-12T06:00:00.000Z',origin='degiro-screenshot',
                    products=[{'isin':'DE000FC1CHB7','productDirection':'LONG','price':18}])
         # Request timestamps are immutable list versions; mocked time is later than both.
         self.assertFalse(sim.sync(conn,old).get('preserved',False))
@@ -63,7 +63,8 @@ class SimulationTests(unittest.TestCase):
 
     def test_weekend_enqueuing_does_not_start_quote_worker(self):
         from unittest.mock import patch
-        with patch.object(sim.background_push,'gold_weekend_seconds_remaining',return_value=3600):
+        with patch.object(sim.background_push,'gold_weekend_seconds_remaining',return_value=3600), \
+             patch.object(sim.background_push,'degiro_session',return_value='weekend'):
             with patch.object(sim,'_bundle_ready') as event:
                 sim.enqueue({'spots':{'xaus':4000}}, lambda:None)
                 event.set.assert_not_called()
