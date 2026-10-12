@@ -1,63 +1,90 @@
 name: Bob collection health
+
 on:
   push:
     branches: [main]
   schedule:
+    # A short independent watchdog every five minutes. 30-second live polling
+    # is performed by Bob, NOT by GitHub Actions.
     - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * 1-5'
-    # Monday 00:00 in Zurich is Sunday 22:00 UTC (summer) or 23:00 UTC (winter).
+    # Monday 00:00 Zurich is Sunday 22:00/23:00 UTC (DST aware below).
     - cron: '2,7,12,17,22,27,32,37,42,47,52,57 22,23 * * 0'
   workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: bob-collection-health
-  cancel-in-progress: false
+
+# Important: NEVER keep a scheduled job alive for 60 minutes while dispatching
+# more jobs every 5 minutes. GitHub's concurrency queue cancels older pending
+# runs, causing gaps and misleading "cancelled" statuses.
+# Read-only checks may overlap safely if scheduling is delayed.
 jobs:
   collection-health:
     runs-on: ubuntu-latest
-    timeout-minutes: 65
+    timeout-minutes: 5
     steps:
-      - name: Skip expected Zurich gold weekend closure
+      - name: Respect scheduled Swiss weekend
         id: session
         run: |
           python - <<'PY' >> "$GITHUB_OUTPUT"
           from datetime import datetime
           from zoneinfo import ZoneInfo
-          local = datetime.now(ZoneInfo("Europe/Zurich"))
-          closed = local.weekday() == 5 or local.weekday() == 6 or (local.weekday() == 4 and local.hour >= 23)
-          print("open=" + ("false" if closed else "true"))
+          now=datetime.now(ZoneInfo("Europe/Zurich"))
+          closed=(now.weekday() in (5,6) or (now.weekday()==4 and now.hour>=23))
+          print("open="+str(not closed).lower())
+          print("time="+now.isoformat())
           PY
-      - name: Verify both services and completed background cycle
+      - name: Check Bob, push, paper accounts and research
         if: steps.session.outputs.open == 'true'
         run: |
-          failed=0
-          for attempt in $(seq 1 12); do
-            echo "Health check ${attempt}/12 at $(date -u +%FT%TZ)"
-            if (
-          curl --fail --silent --show-error --max-time 90 --retry 1 --retry-delay 5 https://bob-push-service.onrender.com/health > /tmp/bob-store-health.json || exit 1
-          curl --fail --silent --show-error --max-time 90 --retry 2 --retry-delay 5 https://bob-private-scanner.onrender.com/health > /tmp/bob-health.json || exit 1
-          python - <<'PY' || exit 1
+          set -euo pipefail
+          # A fixed number of bounded retries handles Render free cold starts.
+          # Every scheduled run is short; never sleep through the next 5-min slot.
+          curl -fsS --max-time 30 --retry 2 --retry-delay 6 --retry-all-errors \
+            https://bob-push-service.onrender.com/health -o /tmp/bob-push-health.json
+          curl -fsS --max-time 30 --retry 2 --retry-delay 6 --retry-all-errors \
+            https://bob-private-scanner.onrender.com/health -o /tmp/bob-health.json
+          curl -fsS --max-time 25 --retry 2 --retry-delay 6 --retry-all-errors \
+            https://bob-private-scanner.onrender.com/health/background -o /tmp/bob-monitor-health.json
+          python - <<'PY'
           import json
-          d=json.load(open('/tmp/bob-health.json'))
-          assert d.get('status')=='ok', 'Bob unavailable'
-          c=d.get('automaticCollection',{})
-          assert c.get('enabled') is True and c.get('running') is True, 'Automatic collection not running'
-          print('Bob automatic collector available; detailed measurements remain private')
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+
+          def read(path):
+              with open(path,encoding='utf-8') as f:
+                  return json.load(f)
+          local=datetime.now(ZoneInfo("Europe/Zurich"))
+          active=local.weekday()<5 and 8<=local.hour<22
+          research_active=local.weekday()<5 and 8<=local.hour<21
+          health=read('/tmp/bob-health.json')
+          monitor=read('/tmp/bob-monitor-health.json')
+          push=read('/tmp/bob-push-health.json')
+          assert push.get('ok') is True, 'Push/database unavailable'
+          assert health.get('status')=='ok', 'Bob reports degraded market collection'
+          collector=health.get('automaticCollection') or {}
+          assert collector.get('enabled') is True and collector.get('running') is True, 'Market collector not running'
+          assert monitor.get('status')=='ok', 'Background monitoring cycle stale or failed'
+          assert monitor.get('monitorStatus') in ('active','idle','checking'), 'Monitor not reporting a completed cycle'
+
+          research=health.get('strategyResearch') or {}
+          assert research.get('enabled') is True and research.get('running') is True, 'Daily strategy research worker stopped'
+          if research_active and (local.hour>8 or local.minute>=25):
+              assert research.get('phase') not in ('retry','unconfigured','starting'), 'Research failed; waiting for retry'
+              assert research.get('lastAttemptAt') is not None, 'Research has not attempted a daily check'
+
+          paper=push.get('paperObservation') or {}
+          assert paper.get('accountsTotal')==4, 'Paper health data not present'
+          assert paper.get('realOrders') is False, 'Paper-only safety marker missing'
+          if active:
+              if local.hour==8 and local.minute<10:
+                  assert paper.get('state') in ('ok','warming'), 'Paper heartbeat unexpected at market open'
+              else:
+                  assert paper.get('state')=='ok', 'Not all four paper ledgers are advancing'
+                  assert paper.get('accountsChecked')==4, 'Missing paper-account heartbeat'
+                  assert isinstance(paper.get('maxCheckAgeSeconds'),int) and paper['maxCheckAgeSeconds']<=300, 'Paper heartbeat too old'
+          else:
+              assert paper.get('state')=='paused', 'Off-hours paper should be paused'
+          # These are heartbeat checks, NOT validation of real market quotes,
+          # independently verified net returns, broker fills or trading success.
+          print('Bob health checks passed: market, monitor, 4 paper heartbeats, research worker')
           PY
-          # A live HTTP listener does not prove the monitor completed its work.
-          # Allow cold starts and the first 30-second cycle to finish.
-          curl --fail --silent --show-error --max-time 20 --retry 6 --retry-delay 10 --retry-all-errors https://bob-private-scanner.onrender.com/health/background
-            ); then
-              echo "Background checks passed"
-            else
-              failed=1
-              echo "::error::Background health check failed; continuing recovery checks"
-            fi
-            # Cover delayed scheduler dispatches during the collection window.
-            # Outside it, retain the original single check to limit runtime.
-            if ! python -c 'from datetime import datetime; from zoneinfo import ZoneInfo; n=datetime.now(ZoneInfo("Europe/Zurich")); raise SystemExit(0 if n.weekday()<5 and 6<=n.hour<22 else 1)'; then
-              break
-            fi
-            if [ "$attempt" -lt 12 ]; then sleep 300; fi
-          done
-          exit "$failed"
