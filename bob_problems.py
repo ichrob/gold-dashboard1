@@ -14,7 +14,8 @@ from bob_issue_watchdog import CODES, ISSUE_TITLE, issue_title
 
 REPOSITORY_URL = "https://github.com/ichrob/gold-dashboard1"
 ISSUES_URL = "https://api.github.com/repos/ichrob/gold-dashboard1/issues?state=open&per_page=100"
-CACHE_SECONDS = 90
+CACHE_SECONDS = 600  # Public GitHub requests share an egress IP quota.
+FAILURE_RETRY_SECONDS = 120  # Retry outages sooner than successful snapshots.
 _LOCK = threading.Lock()
 _CACHED = None
 _LAST_TRY = 0.0
@@ -49,9 +50,21 @@ def from_issues(rows, *, now=None):
             continue
         title = row.get("title")
         number = row.get("number")
-        if title not in allowed or not isinstance(number, int) or isinstance(number, bool) or not 1 <= number <= 999999999:
+        if not isinstance(number, int) or isinstance(number, bool) or not 1 <= number <= 999999999:
             continue
-        code, description = allowed[title]
+        if title in allowed:
+            code, description = allowed[title]
+        elif (isinstance(title, str) and title.startswith("[Bob KI-Hilfe] ")
+              and isinstance(row.get("user"), dict)
+              and row["user"].get("login") == "ichrob"):
+            # Curated manual help requests from the repository owner. Never
+            # reflect arbitrary public GitHub issue bodies or unknown authors.
+            description = title[len("[Bob KI-Hilfe] "):].strip()
+            if not description or len(description) > 150 or any(ord(c) < 32 for c in description):
+                continue
+            code = "manual-" + str(number)
+        else:
+            continue
         if code in seen:
             continue
         seen.add(code)
@@ -87,7 +100,9 @@ def snapshot(*, fetcher=fetch_open_issues, clock=time.monotonic):
     global _CACHED, _LAST_TRY
     now = clock()
     with _LOCK:
-        if _CACHED is not None and now - _LAST_TRY < CACHE_SECONDS:
+        ttl = (FAILURE_RETRY_SECONDS if _CACHED is not None
+               and _CACHED.get('status') != 'ok' else CACHE_SECONDS)
+        if _CACHED is not None and now - _LAST_TRY < ttl:
             return dict(_CACHED)
         try:
             result = from_issues(fetcher())
