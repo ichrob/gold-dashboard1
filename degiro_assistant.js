@@ -1186,6 +1186,11 @@ async function enrichProduct(i,termsOnly=false){
   }
   if(x.analysisQuote&&x.isin===isin&&x.productVerified&&n(x.analysisQuote.price)>0&&field('price'))field('price').value=x.analysisQuote.price;
   if(x.leverageEstimated&&x.isin===isin&&x.productVerified&&n(x.leverage)>0&&field('lev'))field('lev').value=x.leverage;
+  // The actual SG reference and chart were collected for one verified ISIN.
+  // This is analysis input, not a confirmed executable broker quote.
+  const observedSgLeverage=sharedSgIssuerLeverage({isin,quote:x});
+  if(observedSgLeverage&&field('lev')&&!(n(field('lev').value)>=1))
+   field('lev').value=observedSgLeverage.value;
   if(x.sourceDisabled&&x.isin===isin){
    if(meta)meta.textContent=x.reason+" Die Produktauswahl prüft die vorhandenen Screenshotnachweise separat.";
   }else if(x.found&&x.isin===isin){
@@ -1771,10 +1776,11 @@ function renderPrimaryProductValues(p,now=Date.now()){
   :' · Technischer Abrufzeitpunkt unbekannt.';
  const linkedAt=undatedLever?.sharedContextAt;
  const linked=typeof linkedAt==='string'&&q?.sharedTimeContext?.at===linkedAt
-  &&q.sharedTimeContext.isin===p.isin&&Number.isFinite(Date.parse(linkedAt));
+  &&q.sharedTimeContext.isin===p.isin&&Number.isFinite(Date.parse(linkedAt))
+  &&!!sharedSgIssuerLeverage(p,now);
  const sharedStamp=linked?new Date(linkedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich',hour12:false})+' (Zürich)':'';
  const refNote=undatedLever?.dated===false&&n(undatedLever.value)>0
-  ?'<br><b>SG-Referenzhebel ('+(linked?'gemeinsamer Zeitbezug':'ohne Kurszeit')+'): '+esc(fmt(undatedLever.value))+'×</b> · '+(linked?'SG-Chartzeit derselben automatischen Abrufserie: '+esc(sharedStamp)+' · alle dort erfassten Kennzahlen und Stammdaten teilen diesen Beobachtungsbezug. Keine eigene Hebelquellenzeit. ':'')+'Nur Information, keine aktuelle Hebelbestätigung oder Handelsfreigabe.'+refRetrievedNote
+  ?'<br><b>SG-Referenzhebel ('+(linked?'gemeinsamer Zeitbezug':'ohne Kurszeit')+'): '+esc(fmt(undatedLever.value))+'×</b> · '+(linked?'Gemeinsamer Hebel-Zeitbezug bestätigt: SG-Chartzeit derselben automatischen Abrufserie '+esc(sharedStamp)+' · gilt für die dort beobachteten Produktwerte. Keine zusätzlich separat veröffentlichte Hebelquellenzeit. ':'')+'Für die Analyse verwendbar, sofern der Beobachtungszeitpunkt aktuell ist; kein Nachweis einer DEGIRO-Ausführung.'+refRetrievedNote
   :'';
  const missingSgReferenceNote=q?.importActive===true&&q?.productVerified===true
   &&fields.leverage.state==='fehlt'&&!(n(undatedLever?.value)>0)
@@ -2300,6 +2306,21 @@ function bnpSourceIssue(p,now=Date.now()){
  const timing=quoteTiming(q,now);
  return timing.fresh?'':'BNP-Kursabruf: Quellenantwort veraltet oder Geld-/Brief-/Hebelzeit nicht prüfbar';
 }
+function sharedSgIssuerLeverage(p,now=Date.now()){
+ const q=p?.quote,ref=q?.issuerLeverageReference,ctx=q?.sharedTimeContext;
+ if(!q?.productVerified||q.isin!==p.isin||q.metadata?.status!==1
+  ||!(n(ref?.value)>=1)||ref?.dated!==false||ref?.eligible!==false
+  ||!ctx||ctx.isin!==p.isin||ctx.kind!=='issuer-collection'
+  ||ctx.at!==ref.sharedContextAt||!Array.isArray(ctx.fields)
+  ||!ctx.fields.includes('Referenzhebel'))return null;
+ // Check the genuine issuer chart point, not a fresh local retrieval time.
+ const at=ctx.at;
+ if(at!==q.chartEvidence?.pointAt&&at!==q.nativeChartEvidence?.pointAt)return null;
+ const t=typeof at==='string'&&/(Z|[+-]\\d{2}:\\d{2})$/.test(at)?Date.parse(at):NaN;
+ if(!Number.isFinite(t)||t>now||now-t>300000)return null;
+ return {value:n(ref.value),at,source:ref.source,
+  kind:'shared-issuer-observation',analysisOnly:true};
+}
 function productFieldStates(p,now=Date.now()){
  const q=p.quote?.isin===p.isin&&p.quote.productVerified?p.quote:null;
  const shot=p.snapshot?.isin===p.isin?p.snapshot:null;
@@ -2327,10 +2348,17 @@ function productFieldStates(p,now=Date.now()){
   if(!direct&&e?.fromSeries){items[key].fromSeries=true;items[key].timeText=e.timeText;}
   else if(!direct&&e?.fromSharedContext){items[key].fromSharedContext=true;items[key].timeText=e.contextTimeText;}
  }
- const le=shot?.evidence?.Hebel,leverage=n(p.leverage)>0?p.leverage:n(q?.leverage)>0?q.leverage:!le?.conflict&&!le?.revoked?le?.value:null,directLev=q&&n(q.leverage)===n(leverage);
- items.leverage=from('Hebel',leverage,directLev?q.leverageAt:n(le?.value)===n(leverage)?le?.at:null,directLev?(q.leverageSource||q.source):le?.source,directLev?90000:SCREENSHOT_MAX_AGE_MS,directLev?'':'screenshot');
- if(!directLev&&le?.fromSeries){items.leverage.fromSeries=true;items.leverage.timeText=le.timeText;}
- else if(!directLev&&le?.fromSharedContext){items.leverage.fromSharedContext=true;items.leverage.timeText=le.contextTimeText;}
+ const le=shot?.evidence?.Hebel,shared=sharedSgIssuerLeverage(p,now);
+ const hasShot=!le?.conflict&&!le?.revoked&&n(le?.value)>=1;
+ const leverage=n(q?.leverage)>=1?q.leverage:hasShot?le.value:shared?.value??(n(p.leverage)>=1?p.leverage:null);
+ const directLev=q&&n(q.leverage)===n(leverage);
+ const sharedLev=!directLev&&shared&&n(leverage)===shared.value&&!hasShot;
+ items.leverage=from('Hebel',leverage,directLev?q.leverageAt:sharedLev?shared.at:hasShot&&n(le.value)===n(leverage)?le.at:null,
+  directLev?(q.leverageSource||q.source):sharedLev?shared.source:le?.source,
+  directLev?90000:sharedLev?300000:SCREENSHOT_MAX_AGE_MS,directLev?'':sharedLev?'issuer-reference':'screenshot');
+ if(sharedLev){items.leverage.state='gemeinsamer SG-Zeitbezug · aktuell (nur Analyse)';items.leverage.fromSharedContext=true;}
+ if(!directLev&&!sharedLev&&le?.fromSeries){items.leverage.fromSeries=true;items.leverage.timeText=le.timeText;}
+ else if(!directLev&&!sharedLev&&le?.fromSharedContext){items.leverage.fromSharedContext=true;items.leverage.timeText=le.contextTimeText;}
  if(directLev&&q.leverageEstimated&&n(leverage)>0){
   const c=q.leverageCalculation;
   const clocks=[c?.inputs?.basisAt,c?.inputs?.askAt,c?.inputs?.fxDataAt,c?.inputs?.fxEffectiveAt].map(v=>typeof v==='string'?Date.parse(v):NaN);
