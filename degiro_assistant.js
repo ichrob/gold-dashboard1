@@ -1323,6 +1323,9 @@ function sharedProductFieldTime(p,key,value,now=Date.now()){
  const linked=observed.contextAt?Date.parse(observed.contextAt):
    kind==='image-series'?interval?.start:NaN;
  if(!interval||!Number.isFinite(linked)||linked!==interval.start)return null;
+ // Never let a stored field timestamp contradict the source image's common
+ // clock, including after a merge or a subsequently altered OCR record.
+ if(observed.at&&Date.parse(observed.at)!==linked)return null;
  // A real field-specific clock takes precedence over the common observation.
  // It may not be refreshed or concealed by a newer timestamp elsewhere.
  if(own&&x.times?.[own]?.present&&!x.times[own].fromSeries
