@@ -173,7 +173,10 @@ def associate_shared_observation(result):
     except (ValueError, TypeError, KeyError):
         return
     seconds = (observed - source).total_seconds()
-    if not (0 <= seconds <= 90):
+    # A chart point can be a few seconds newer than the properties response
+    # even within the same verified ISIN collection. Preserve that shared
+    # observation context, without turning it into a leverage source clock.
+    if not (-5 <= seconds <= 90):
         return
     fields = ['Geld', 'Brief', 'ISIN', 'Produktwährung', 'Produktrichtung']
     fields += sorted(result.get('conditions', {}))
