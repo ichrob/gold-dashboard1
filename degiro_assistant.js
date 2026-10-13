@@ -1319,6 +1319,10 @@ function sharedProductFieldTime(p,key,value,now=Date.now()){
  const interval=selectionTimeWindow(raw);
  const linked=observed.contextAt?Date.parse(observed.contextAt):interval?.start;
  if(!interval||!Number.isFinite(linked)||linked!==interval.start)return null;
+ // A real field-specific clock takes precedence over the common observation.
+ // It may not be refreshed or concealed by a newer timestamp elsewhere.
+ if(own&&x.times?.[own]?.present&&!x.times[own].fromSeries
+    &&Date.parse(x.times[own].at)!==linked)return null;
  return make(raw,kind,raw,observed.source,duration);
 }
 function manualSnapshotStatus(p,x,now=Date.now()){
