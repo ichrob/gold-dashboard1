@@ -25,7 +25,22 @@ const singleViewProduct={...product,snapshot:sameView};
 assert.equal(sameView.evidence.KO.contextAt,b.sourceTimestamp(at));
 assert.equal(sameView.terms.ko,undefined,'KO must also work when stored only as a recognized image value');
 assert.equal(b.koEvidenceStatus(singleViewProduct,now).current,true);
+const koShared=b.sharedProductFieldTime(singleViewProduct,'KO',4460,now);
+const leverageShared=b.sharedProductFieldTime(singleViewProduct,'Hebel',14.01,now);
+assert.equal(koShared.kind,'image-view');
+assert.equal(koShared.at,b.sourceTimestamp(at));
+assert.equal(koShared.valid,true);
+assert.equal(leverageShared.at,koShared.at);
+assert(b.manualSnapshotStatus(product,sameView,now).complete,
+ JSON.stringify(b.manualSnapshotStatus(product,sameView,now)));
 assert.equal(b.koEvidenceStatus(singleViewProduct,now+8*3600000).current,false);
+assert.equal(b.sharedProductFieldTime(singleViewProduct,'KO',4460,now+8*3600000).valid,false);
+assert.equal(b.sharedProductFieldTime(singleViewProduct,'Hebel',14.01,now+8*3600000).valid,true);
+const mismatchedScreenshot={...singleViewProduct,snapshot:{...sameView,evidence:{
+ ...sameView.evidence,KO:{...sameView.evidence.KO,contextTimeText:'01/10/2026 06:01:00 CEST'}}}};
+assert.equal(b.sharedProductFieldTime(mismatchedScreenshot,'KO',4460,now),null);
+const foreignProduct={...singleViewProduct,isin:'DE000FG7K283'};
+assert.equal(b.sharedProductFieldTime(foreignProduct,'KO',4460,now),null);
 const withStrike=b.mergeScreenshotEvidence(null,
  b.detailScreenshotData(isin+'\nEUR\nSHORT\nGeld 24,81\nBrief 24,82\nHebel 14.01\nKO 4460\nBasispreis 4430 USD\nKurszeit: '+at,isin),
  'same-view-terms.jpg');
@@ -40,8 +55,8 @@ assert(!b.currentQuote({...product,snapshot:sameView},now)); // shared evidence 
 
 assert(b.manualSnapshotStatus(product,snapshot,now).complete);
 assert(!b.manualSnapshotStatus(product,snapshot,now).liveVerified);
-assert(b.manualSnapshotStatus(product,snapshot,now+14*3600000-30000).complete); // exactly 14 hours
-assert(!b.manualSnapshotStatus(product,snapshot,now+14*3600000-29999).complete);
+assert(b.manualSnapshotStatus(product,snapshot,now+8*3600000-30001).complete); // KO just inside 8h
+assert(!b.manualSnapshotStatus(product,snapshot,now+8*3600000-30000).complete); // KO exactly 8h
 assert(!b.manualSnapshotStatus(product,snapshot,now-30001).complete); // future source time
 assert(!b.manualSnapshotStatus({...product,isinConfirmed:false},snapshot,now).complete);
 assert(!b.manualSnapshotStatus({...product,leverage:15},snapshot,now).complete);
