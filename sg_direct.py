@@ -106,7 +106,7 @@ def conditions(product, properties, result):
 
 def get_quote(isin, terms_only=False):
     origin = q.sg_market(isin)[0]
-    if isin not in q.SG_DIRECT_PRODUCTS and isin not in q.SG_DISCOVERY_PRODUCTS:
+    if isin not in q.SG_DIRECT_PRODUCTS and isin not in q.SG_DISCOVERY_PRODUCTS and not q.sg_on_demand_candidate(isin):
         return q.sg_disabled(isin)
     # Serialize per product; a slow source for one ISIN must not block all others.
     with _LOCK:
@@ -173,5 +173,11 @@ def get_quote(isin, terms_only=False):
             result.update(sourceFailure=not result['productVerified'],
                           quoteFailureCode='SG_SOURCE_UNAVAILABLE', reason=q.sg_source_error(exc, stage))
         # Time starts after completion; errors are also rate-limited.
+        # User-supplied ISINs can change daily. Bound cached failed searches
+        # and discovered terms; original observation clocks are preserved.
+        if len(_CACHE) >= 256 and isin not in _CACHE:
+            _CACHE.pop(next(iter(_CACHE)))
+        if len(_TERMS) >= 256:
+            _TERMS.pop(next(iter(_TERMS)))
         _CACHE[isin] = (time.monotonic(), copy.deepcopy(result))
         return refresh_evidence(result)
