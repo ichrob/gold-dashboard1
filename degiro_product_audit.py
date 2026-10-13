@@ -98,7 +98,8 @@ def examine(product, quote, now_ms):
         missing.append("direction")
     if metadata.get("type") == "FACTOR":
         missing.append("factor")
-    if metadata.get("status") in (2, 8, 16, 32) or quote.get("terminated") is True:
+    status = metadata.get("status")
+    if (type(status) is int and (status & (2 | 8 | 16 | 32) or not status & 1)) or quote.get("terminated") is True:
         missing.append("terminated")
     if metadata.get("underlyingType") == "FUTURE":
         missing.append("future")
