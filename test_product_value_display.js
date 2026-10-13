@@ -58,7 +58,7 @@ const sgReference={
 };
 const refFields=b.productFieldStates(sgReference,now);
 assert.equal(refFields.leverage.state,'fehlt');
-assert.equal(refFields.leverage.value,null);
+assert(refFields.leverage.value == null);
 const refHtml=b.compactProductCard(sgReference);
 assert(refHtml.includes('SG-Hebelreferenz vorhanden · eigene Quellenzeit fehlt'),refHtml);
 assert(refHtml.includes('72.9254'),refHtml);
