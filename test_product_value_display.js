@@ -78,13 +78,35 @@ assert(!b.currentQuote(noIssuerReference,now));
 
 // A verified common collection time is visible but not a tradeable gearing clock.
 const linkedSg=structuredClone(sgReference);
-linkedSg.quote.sharedTimeContext={at,isin:researchIsin,timeOrigin:'SG-Chartzeit'};
+linkedSg.quote.metadata.status=1;
+linkedSg.quote.chartEvidence={pointAt:at,bid:4.91,ask:4.92,currency:'EUR'};
+linkedSg.quote.sharedTimeContext={at,isin:researchIsin,kind:'issuer-collection',
+ timeOrigin:'SG-Chartzeit',fields:['Geld','Brief','Referenzhebel']};
 linkedSg.quote.issuerLeverageReference.sharedContextAt=at;
+linkedSg.quote.issuerLeverageReference.eligible=false;
+const linkedFields=b.productFieldStates(linkedSg,now);
+assert.equal(linkedFields.leverage.value,72.9254);
+assert.equal(linkedFields.leverage.at,at);
+assert(linkedFields.leverage.state.includes('gemeinsamer SG-Zeitbezug'),linkedFields.leverage.state);
+assert.equal(linkedFields.leverage.kind,'issuer-reference');
 const linkedHtml=b.compactProductCard(linkedSg);
 assert(linkedHtml.includes('SG-Referenzhebel (gemeinsamer Zeitbezug)'),linkedHtml);
-assert(linkedHtml.includes('SG-Chartzeit derselben automatischen Abrufserie'),linkedHtml);
-assert(linkedHtml.includes('Keine eigene Hebelquellenzeit'),linkedHtml);
+assert(linkedHtml.includes('Gemeinsamer Hebel-Zeitbezug bestätigt'),linkedHtml);
+assert(linkedHtml.includes('72.9254'),linkedHtml);
 assert(!b.currentQuote(linkedSg,now));
+const badChartTime=structuredClone(linkedSg);
+badChartTime.quote.chartEvidence.pointAt=new Date(now-5000).toISOString();
+assert.equal(b.productFieldStates(badChartTime,now).leverage.state,'fehlt');
+const badIsin=structuredClone(linkedSg);
+badIsin.quote.sharedTimeContext.isin='DE000FG4JXV7';
+assert.equal(b.productFieldStates(badIsin,now).leverage.state,'fehlt');
+const outdatedLinked=structuredClone(linkedSg);
+const older=new Date(now-600000).toISOString();
+outdatedLinked.quote.chartEvidence.pointAt=older;
+outdatedLinked.quote.sharedTimeContext.at=older;
+outdatedLinked.quote.issuerLeverageReference.sharedContextAt=older;
+assert(b.productFieldStates(outdatedLinked,now).leverage.state.includes('veraltet'));
+assert.equal(b.productFieldStates(outdatedLinked,now).leverage.value,72.9254);
 
 const oldChf=structuredClone(chf);
 oldChf.quote.nativeChartEvidence.pointAt=new Date(now-600000).toISOString();
