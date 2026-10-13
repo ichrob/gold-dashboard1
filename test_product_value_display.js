@@ -20,6 +20,17 @@ const separatelySourced={...listOnly,snapshot:{isin:listOnly.isin,currency:'EUR'
 assert.equal(b.productFieldStates(separatelySourced,now).bid.state,'fehlt');
 assert.equal(b.productFieldStates(separatelySourced,now).ask.value,6.58);
 
+// A correct shared time is not red merely because another field is absent.
+const timedOnly={isin,index:1,quote:{isin,productVerified:true,found:false,eligible:false,
+  metadata:{status:1},analysisQuote:{bid:8,ask:8.02,currency:'EUR',priceKind:'issuer-chart',
+  source:'SG',bidAt:at,askAt:at}}};
+const timeStatus=b.productObservedTimeStatus(timedOnly,now);
+assert.equal(timeStatus.confirmed,true);
+assert.equal(timeStatus.confirmedCount,2);
+assert.deepEqual(Array.from(timeStatus.missing),['Hebel']);
+assert(b.compactProductCard(timedOnly).includes('Zeitbezug für 2 vorhandene Kurs-/Hebelwerte bestätigt'));
+assert(!b.finalProductStatus(timedOnly,now).complete);
+assert.equal(b.productObservedTimeStatus(listOnly,now).confirmed,false);
 const shot={isin,index:1,snapshot:{isin,currency:'EUR',bid:10,ask:10.01,sourceTime:at,evidence:{Hebel:{value:5,at,source:'image'}}}};
 f=b.productFieldStates(shot,now);assert.equal(f.ask.value,10.01);assert.equal(f.leverage.value,5);
 assert(b.compactProductCard({isin,index:2}).includes('Fehlende Kurswerte: Geld, Brief, Hebel'));
