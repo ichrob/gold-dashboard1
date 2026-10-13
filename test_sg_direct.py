@@ -58,6 +58,19 @@ class DirectTests(unittest.TestCase):
                 self.assertIn('Referenzhebel', got['sharedTimeContext']['fields'])
                 self.assertIn('ko', got['sharedTimeContext']['fields'])
                 self.assertEqual(got['conditions']['ko']['contextAt'], got['chartEvidence']['pointAt'])
+                # Every observed SG value has the same verified observation
+                # context. Original source clocks and term validity remain separate.
+                observed=got['sharedValueObservations']
+                self.assertEqual(set(observed), set(got['sharedTimeContext']['fields']))
+                for key in ('ISIN','Geld','Brief','direction','currency',
+                            'underlying','status','ko','strike','ratio',
+                            'Referenzhebel'):
+                    self.assertIn(key,observed)
+                    self.assertEqual(observed[key]['contextAt'],got['chartEvidence']['pointAt'])
+                    self.assertEqual(observed[key]['isin'],ISIN)
+                self.assertEqual(observed['Geld']['sourceAt'],got['chartEvidence']['pointAt'])
+                self.assertIsNone(observed['Referenzhebel']['sourceAt'])
+                self.assertIsNone(observed['ko']['sourceAt'])
                 self.assertIsNone(got['conditions']['ko']['at'])
                 self.assertIsNone(got['issuerLeverageReference']['sourceAt'])
                 self.assertFalse(got['issuerLeverageReference']['eligible'])
