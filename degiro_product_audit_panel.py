@@ -5,7 +5,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
 <p id="bobProductAuditUpdated" class="small">Letzte Prüfung: noch unbekannt</p>
 <details><summary>Werte, Zeitstempel und automatische Nachprüfung pro ISIN</summary>
 <div id="bobProductAuditItems" class="small"></div></details>
-<p class="small">Bob überprüft ausschließlich die aktive Screenshotliste mit Emittenten- und vorhandenen Ersatzquellen. Fehlende Daten werden erneut abgefragt, aber niemals ersetzt oder als aktuell ausgegeben, solange der Originalnachweis fehlt. Kurse sind keine DEGIRO-Handelsbestätigung.</p>
+<p class="small">Bob überprüft ausschließlich die aktive Screenshotliste mit Emittenten- und vorhandenen Ersatzquellen. Fehlende Daten werden erneut abgefragt, aber niemals ersetzt oder als aktuell ausgegeben, solange der Originalnachweis fehlt. Die Quellenvergleichsanzeige nutzt nur bereits vorhandene datierte Beobachtungen. Onvista darf ohne schriftliche Freigabe nicht automatisiert abgefragt werden. Kurse sind keine DEGIRO-Handelsbestätigung.</p>
 </section>
 <section id="bobProductAuditProblem" class="card">
 <h3>Produktdaten · Offene Prüfprobleme</h3>
@@ -56,6 +56,30 @@ PANEL = r'''<section id="bobProductAudit" class="card">
         (item.venueAction?'\nHandelsplatzprüfung: '+item.issuerVenue+' · '+item.venueAction:'')+
         '\nKeine automatische DEGIRO-Handelsfreigabe.';
    node.append(summary,list);
+   const obs=Array.isArray(item.sourceObservations)?item.sourceObservations:[];
+   const comparison=document.createElement('div');comparison.className='small';
+   const title=document.createElement('b');title.textContent='Quellenvergleich (keine Handelsfreigabe):';
+   comparison.append(title);
+   if(!obs.length){
+     const empty=document.createElement('p');empty.textContent='Noch kein zweiter datierter Kursnachweis verfügbar. Bob erfindet keine Quellzeit.';comparison.append(empty);
+   }
+   for(const q of obs){
+     const p=document.createElement('p');
+     p.textContent=(q.current?'Zeitaktuell':'Veraltet')+' · '+q.label+' · '+q.source+
+       ' · '+q.bid+' / '+q.ask+' '+q.currency+
+       ' · Geld: '+fmt(q.bidAt)+' · Brief: '+fmt(q.askAt)+
+       ' · '+q.note;
+     comparison.append(p);
+   }
+   const links=Array.isArray(item.researchLinks)?item.researchLinks:[];
+   for(const candidate of links){
+     if(candidate.mode!=='manual-only'||!/^https:\/\/(?:www\.)?onvista\.de\//.test(candidate.url))continue;
+     const p=document.createElement('p');
+     const a=document.createElement('a');a.href=candidate.url;a.target='_blank';a.rel='noopener noreferrer';
+     a.textContent=candidate.name+' (manuell öffnen)';
+     p.append(a,document.createTextNode(' · '+candidate.note));comparison.append(p);
+   }
+   node.append(comparison);
    if(item.isin==='DE000FG8NHQ3'&&item.issuerVenue==='Swiss DOTS (CHF)'){
      const link=document.createElement('a');
      link.href='https://www.swissquote.com/de-ch/private/trade/products/swiss-dots';

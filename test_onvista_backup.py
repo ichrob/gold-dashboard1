@@ -18,6 +18,13 @@ def page():
 def html(data):
     return '<script id="__NEXT_DATA__" type="application/json">'+json.dumps({'props':{'pageProps':{'data':{'snapshot':data}}}})+'</script>'
 class BackupTests(unittest.TestCase):
+    def test_unapproved_automated_onvista_request_is_blocked(self):
+        self.assertFalse(b.ONVISTA_AUTOMATION_APPROVED)
+        with patch.object(b, 'urlopen', side_effect=AssertionError('network must not run')) as opener:
+            self.assertIsNone(b.fetch(ISIN))
+            opener.assert_not_called()
+        self.assertEqual(b._FAILURES[ISIN]['code'], 'ONVISTA_AUTOMATION_NOT_APPROVED')
+
     def test_explicit_knockout_overrides_stale_active_metadata(self):
         data=page();data['derivativesDetails']['hasBarrierBeenHit']=True
         evidence=b.parse_knockout_evidence(html(data),ISIN,NOW)

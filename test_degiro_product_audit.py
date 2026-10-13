@@ -94,6 +94,44 @@ class ProductAuditTests(unittest.TestCase):
         item=audit.examine(feed()["products"][0],q,NOW)
         self.assertIn("quote-time",item["missing"])
 
+    def test_read_only_multisource_keeps_original_quote_clocks(self):
+        q = provider()
+        q["chartEvidence"] = {"bid": 5.98, "ask": 6.01, "currency": "EUR",
+                              "pointAt": iso(NOW-15000)}
+        q["secondaryQuote"] = {"source": "Stuttgart · unabhängige Beobachtung",
+                               "bid": 5.99, "ask": 6.03, "currency": "EUR",
+                               "bidAt": iso(NOW-12000), "askAt": iso(NOW-10000)}
+        item = audit.examine(feed()["products"][0], q, NOW)
+        observations = item["sourceObservations"]
+        self.assertEqual(len(observations), 3)
+        self.assertTrue(all(x["researchOnly"] and not x["degiroExecutable"] for x in observations))
+        self.assertTrue(all(x["current"] for x in observations))
+        self.assertEqual(observations[1]["bidAt"], iso(NOW-15000))
+        self.assertEqual(observations[1]["askAt"], iso(NOW-15000))
+        self.assertFalse(item["tradeApproved"])
+        self.assertFalse(item["degiroVerified"])
+
+        # Fetch time and chart age must never manufacture original bid/ask times.
+        q["secondaryQuote"].pop("askAt")
+        q["chartEvidence"]["pointAt"] = iso(NOW-100000)
+        item = audit.examine(feed()["products"][0], q, NOW)
+        self.assertEqual(len(item["sourceObservations"]), 2)
+        self.assertFalse(item["sourceObservations"][1]["current"])
+        self.assertNotIn("researchLinks", {
+            k:v for k,v in item.items() if k == "researchLinks" and v
+        })
+        self.assertFalse(item["tradeApproved"])
+
+    def test_known_onvista_link_is_manual_only_and_no_quote(self):
+        item = audit.examine({"isin": "DE000FG7N6Z2", "isinConfirmed": True,
+                              "productDirection": "LONG"}, {}, NOW)
+        self.assertEqual(len(item["researchLinks"]), 1)
+        self.assertEqual(item["researchLinks"][0]["mode"], "manual-only")
+        self.assertEqual(item["sourceObservations"], [])
+        self.assertIn("quote", item["missing"])
+        self.assertFalse(item["tradeApproved"])
+        self.assertEqual(audit.examine(feed()["products"][0], {}, NOW)["researchLinks"], [])
+
     def test_ko_requires_specific_evidence_not_just_recent_receipt(self):
         q=provider()
         q["metadata"].pop("termsFixed")

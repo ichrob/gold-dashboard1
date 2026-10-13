@@ -57,6 +57,66 @@ def _recent(value, now_ms, max_age):
     return t is not None and 0 <= now_ms - t <= max_age
 
 
+
+def _observed_prices(quote, isin, now_ms):
+    """Read-only provenance. Independent bid/ask clocks, never an execution feed."""
+    observations = []
+    quote = quote if isinstance(quote, dict) else {}
+    variants = [
+        ("Produktquelle", quote),
+        ("SG-Chart", quote.get("chartEvidence")),
+        ("Vorhandene Vergleichsquelle", quote.get("secondaryQuote")),
+    ]
+    seen = set()
+    for label, row in variants:
+        if not isinstance(row, dict):
+            continue
+        if label == "Produktquelle" and quote.get("found") is not True:
+            continue
+        # The issuer chart has one genuine chart-point clock for both plotted
+        # values; it is NOT independent bid- and ask-execution evidence.
+        chart = label == "SG-Chart"
+        bid_at = row.get("pointAt") if chart else row.get("bidAt")
+        ask_at = row.get("pointAt") if chart else row.get("askAt")
+        bid, ask = row.get("bid"), row.get("ask")
+        if not (_positive(bid) and _positive(ask) and ask >= bid):
+            continue
+        bts, ats = _time_ms(bid_at), _time_ms(ask_at)
+        if bts is None or ats is None or bts > now_ms + 5000 or ats > now_ms + 5000:
+            continue
+        source = "SG · datierter Chartpunkt" if chart else str(row.get("source") or quote.get("source") or "Unbekannt")[:90]
+        currency = row.get("currency") or quote.get("currency") or (quote.get("metadata") or {}).get("currency")
+        if currency not in ("EUR", "CHF"):
+            continue
+        key = (source, currency, bid, ask, bts, ats)
+        if key in seen:
+            continue
+        seen.add(key)
+        observations.append({
+            "label": label, "source": source, "currency": currency,
+            "bid": bid, "ask": ask, "bidAt": bid_at, "askAt": ask_at,
+            "ageSeconds": round(max(now_ms - bts, now_ms - ats) / 1000, 1),
+            "current": _recent(bid_at, now_ms, QUOTE_MAX_MS)
+                       and _recent(ask_at, now_ms, QUOTE_MAX_MS),
+            "researchOnly": True, "degiroExecutable": False,
+            "note": ("Ein SG-Chartpunkt ist keine handelbare Geld-/Briefquote."
+                     if chart else "Börsen-/Anbieterkurs ist kein verbindlicher DEGIRO-OTC-Ausführungskurs."),
+        })
+    return observations[:3]
+
+
+def _research_links(isin):
+    """Only identity-verified destination URLs; links never run a crawler."""
+    if isin == "DE000FG7N6Z2":
+        return [{
+            "name": "Onvista – SG OTC / Frankfurt / Stuttgart",
+            "url": "https://www.onvista.de/derivate/Knock-Outs/341942224-FG7N6Z-DE000FG7N6Z2",
+            "mode": "manual-only",
+            "note": "Geld/Brief, Originaluhrzeit, Stückzahl und Handelsplatz im Browser vergleichen. Automatische Onvista-Abfragen sind ohne Anbietergenehmigung gesperrt.",
+        }]
+    return []
+
+
 def _dated_barrier(quote, metadata, now_ms):
     """Source-specific effective date PLUS recent issuer recheck, never receipt alone."""
     term = (quote.get("conditions") or {}).get("ko") or {}
@@ -160,6 +220,8 @@ def examine(product, quote, now_ms):
         "quoteSourceAt": quote.get("bidAt") if "quote-time" not in codes else None,
         "leverageSourceAt": quote.get("leverageAt") if "leverage-time" not in codes else None,
         "source": str(quote.get("source") or "Emittenten- und Ersatzquellen")[:80],
+        "sourceObservations": _observed_prices(quote, isin, now_ms),
+        "researchLinks": _research_links(isin),
         "issuerVenue": "Swiss DOTS (CHF)" if swiss_dots else None,
         "venueEvidence": "https://www.finanzen.ch/derivate/de000fg8nhq3" if swiss_dots else None,
         "venueAction": ("Keine Swiss-DOTS-Quotierung als DEGIRO-Kurs verwenden. "
