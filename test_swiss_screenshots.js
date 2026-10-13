@@ -122,7 +122,8 @@ console.log('Series analysis completeness separated from live validity, with ide
 ctx.Date=class extends Date {static now(){return now;}};
 const neutralCard=b.compactProductCard(p,b.finalProductStatus(p,now).reasons,'Marktsignal neutral');
 assert(!neutralCard.includes('data-series-complete'));
-assert(neutralCard.includes('Aktualität nicht bestätigt'));
+assert(neutralCard.includes('Zeitbezug vorhandener Kurs-/Hebelwerte:'));
+assert(neutralCard.includes('Zeitbezug für')||neutralCard.includes('aktueller Zeitnachweis'));
 assert(neutralCard.includes('Aktuelle Auswahl:</b> nicht ausgewählt'));
 assert(neutralCard.includes('Marktsignal neutral'));
 assert(neutralCard.includes('Live-Freigabe'));
