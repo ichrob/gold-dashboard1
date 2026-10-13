@@ -1331,7 +1331,12 @@ function manualSnapshotStatus(p,x,now=Date.now()){
  if(e.Geld?.at!==e.Brief?.at)reasons.push('Geld-/Briefzeiten stimmen nicht überein');
  const pairs={Geld:x?.bid,Brief:x?.ask,Hebel:p.leverage,KO:p.ko};
  for(const [key,value] of Object.entries(pairs)){
-  if(n(value)===null||n(e[key]?.value)!==n(value)||!evidenceTiming(e[key],now).fresh)reasons.push(key+': eigener Zeitnachweis fehlt oder älter als 14 Stunden');
+  const own=evidenceTiming(e[key],now);
+  const limit=key==='KO'?KO_MAX_AGE_MS:SCREENSHOT_MAX_AGE_MS;
+  const shared=sharedProductFieldTime(p,key,value,now);
+  if(n(value)===null||n(e[key]?.value)!==n(value)
+   ||!(own.fresh&&own.ageSeconds*1000<limit||shared?.valid))
+   reasons.push(key+': eigener oder gemeinsamer Zeitbezug fehlt bzw. ist abgelaufen');
  }
  if(n(p.price)!==n(x?.ask)||!(n(p.leverage)>=1)||!(n(p.ko)>0))reasons.push('Produktwerte unvollständig oder widersprüchlich');
  if(x?.delayed)reasons.push('Bild weist auf verzögerte Kurse hin');
@@ -1377,7 +1382,10 @@ function selectionDetailStatus(p,now=Date.now(),seriesAnalysis=false){
  }
  if(x?.times?.leverage?.present&&!evidenceTiming(e.Hebel,now).fresh)reasons.push('Eigene Hebelzeit ist ungültig oder veraltet');
  if(x?.delayed)reasons.push('Nicht verzögerten Produktkurs ergänzen');
- if(!(n(e.Hebel?.value)>=1&&(seriesAnalysis||n(e.Hebel?.value)===n(p.leverage)))||!evidenceTiming(e.Hebel,now).fresh&&!(pair&&e.Hebel?.source===e.Geld?.source&&time&&now-time.start<=SCREENSHOT_MAX_AGE_MS))reasons.push('Aktuelles Detailbild mit Hebel und zugehöriger Zeit');
+ const commonLeverage=sharedProductFieldTime(p,'Hebel',e.Hebel?.value,now);
+ if(!(n(e.Hebel?.value)>=1&&(seriesAnalysis||n(e.Hebel?.value)===n(p.leverage)))
+  ||!evidenceTiming(e.Hebel,now).fresh&&!commonLeverage?.valid)
+  reasons.push('Aktuelles Detailbild mit Hebel und zugehöriger Zeit');
  const fixed=window.BobCombined.fixedFor(p),meta=p.quote?.productVerified?p.quote.metadata:null;
  if(!(n(p.ko)>0)||!(fixed||termValueMatches(p.ko,meta?.ko,x?.terms?.ko||e.KO)||screenshotKoCurrent(p,now)))reasons.push('KO-Barriere mit gültigem Nachweis oder festen Screenshotwert bestätigen');
  return {complete:!reasons.length,reasons,at:time?new Date(time.start).toISOString():null,timeLabel:time?.label,source:e.Geld?.source};
@@ -1639,14 +1647,26 @@ function productDataStatus(p,now=Date.now(),reference){
  const live=finalProductStatus(p,now,reference);
  if(live.complete||live.terminal)return {...live,basis:'live'};
  const x=p.snapshot,series=x?.captureSeries,time=selectionTimeWindow(series?.text);
- if(x?.isin!==p.isin||!series?.userDeclaredSimultaneous||!time||now<time.start||now-time.start>SCREENSHOT_MAX_AGE_MS)return {...live,basis:'incomplete'};
+ const sameView=x?.isin===p.isin&&hasScreenshotIdentity(x)
+  &&['Geld','Brief','Hebel'].every(key=>{
+   const current=key==='Geld'?x.bid:key==='Brief'?x.ask:p.leverage;
+   const evidence=sharedProductFieldTime(p,key,current,now);
+   return evidence?.kind==='image-view'&&evidence.valid;
+  });
+ const seriesCurrent=!!series?.userDeclaredSimultaneous&&!!time
+  &&now>=time.start&&now-time.start<=SCREENSHOT_MAX_AGE_MS;
+ if(x?.isin!==p.isin||!sameView&&!seriesCurrent)return {...live,basis:'incomplete'};
  const result=selectionDetailStatus(p,now,true),reasons=result.reasons.slice();
  // Undated terms must actually belong to this series, not an older merged import.
  for(const key of ['strike','ko']){
   const term=x.terms?.[key]||(key==='ko'?x.evidence?.KO:null);
-  if(!currentDatedTerm(term,now)&&!currentDatedTerm(p.quote?.conditions?.[key],now)&&(!series.members?.includes(term?.source)||term?.conflict||term?.revoked))reasons.push((key==='strike'?'Basispreis':'KO-Barriere')+': Wert gehört nicht zur aktuellen Aufnahmeserie');
+  if(!currentProductTerm(p,key,term,now)&&!currentDatedTerm(p.quote?.conditions?.[key],now)
+    &&(term?.conflict||term?.revoked||!term?.source
+      ||!seriesCurrent&&!sameView||seriesCurrent&&!series.members?.includes(term.source)))
+    reasons.push((key==='strike'?'Basispreis':'KO-Barriere')+': Wert gehört nicht zum gültigen gemeinsamen Zeitbezug');
  }
- return {...result,complete:!reasons.length,reasons,basis:'series',warnings:productTermsStatus(p,now,true).warnings};
+ return {...result,complete:!reasons.length,reasons,
+  basis:sameView?'shared-view':'series',warnings:productTermsStatus(p,now,true).warnings};
 }
 function productCompletionBadge(){
  return '';
