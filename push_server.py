@@ -478,7 +478,16 @@ class Handler(BaseHTTPRequestHandler):
                         paper_heartbeat = {"state":"unavailable", "accountsTotal":5,
                                            "accountsChecked":0,"realOrders":False,
                                            "scope":"paper-account-heartbeat-not-quote-quality"}
-                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "paperObservation":paper_heartbeat})
+                    # The public endpoint reveals ONLY allowlisted diagnostic
+                    # categories. No private instrument names, quantities,
+                    # prices, timestamps or screenshot-list metadata.
+                    try:
+                        product_codes = degiro_product_audit.public_help_codes(
+                            degiro_product_audit.read(conn))
+                    except Exception as audit_exc:
+                        print("BOB_PRODUCT_AUDIT health_error="+type(audit_exc).__name__, flush=True)
+                        product_codes = None  # Unknown is NOT a confirmed repair.
+                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "paperObservation":paper_heartbeat, "productAuditCodes":product_codes})
                 return
             if path == "/product-audit":
                 # Private product universe; never publish it in /health or
