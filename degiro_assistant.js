@@ -1299,8 +1299,7 @@ function sharedProductFieldTime(p,key,value,now=Date.now()){
     if(result)return result;
   }
  }
- const x=p?.snapshot,term=x?.terms?.[termKey],valueKey=({strike:null,ratio:null,
-  underlying:null,currency:null,type:null,maturity:null,contract:null})[termKey];
+ const x=p?.snapshot,term=x?.terms?.[termKey];
  const label=({bid:'Geld',ask:'Brief',leverage:'Hebel',ko:'KO',
   direction:'Richtung'})[termKey]||null;
  const ev=label?x?.evidence?.[label]:null;
@@ -2242,6 +2241,11 @@ function currentDatedTerm(e,now){
 function termSeriesReference(p,key,e,now=Date.now()){
  if(!['strike','ko'].includes(key)||!e?.source||!(n(e.value)>0)||e.at||e.dateText||e.sourceTimeRaw||e.conflict||e.revoked||e.ocrCorrection)return null;
  const q=p.quote?.isin===p.isin&&p.quote.productVerified?p.quote:null,direct=q?.conditions?.[key],automatic=e.validitySeries;
+ // Central proof wins for both origins, but only for the exact value and
+ // source. A separately declared term/effective date is handled above.
+ const shared=sharedProductFieldTime(p,key,e.value,now);
+ if(shared?.valid&&shared.kind==='issuer-collection'&&direct===e)
+  return {origin:'automatic',text:shared.at,label:'Gemeinsamer Zeitbezug der SG-Abrufserie'};
  if(automatic?.policy==='declared-series-v1'&&automatic.origin==='automatic'&&automatic.isin===p.isin&&automatic.source===e.source&&direct?.source===e.source&&n(direct.value)===n(e.value)){
   const age=now-Date.parse(automatic.observedAt);
   if(Number.isFinite(age)&&age>=0&&age<=86400000)return {origin:'automatic',text:automatic.observedAt,label:'Zeitbezug der automatischen Abrufserie'};
@@ -2253,19 +2257,12 @@ function termSeriesReference(p,key,e,now=Date.now()){
  if(term&&(term.conflict||term.revoked||n(term.value)!==n(e.value)))return null;
  const own=term||key==='ko'&&x?.evidence?.KO;
  if(x?.isin!==p.isin||!hasScreenshotIdentity(x)||own?.source!==e.source||n(own.value)!==n(e.value))return null;
- // A value in ONE dated, identified product view has the same observation
- // context as all other values in that view; a multi-image selection may
- // establish the context when the corresponding source image belongs to it.
- if(e.contextKind==='image-view'&&e.contextTimeText){
-  const time=selectionTimeWindow(e.contextTimeText);
-  const recorded=e.contextAt?Date.parse(e.contextAt):time?.start;
-  if(time&&Number.isFinite(recorded)&&recorded===time.start
-     &&now>=recorded&&now-recorded<=86400000)
-   return {origin:'image-view',text:e.contextTimeText,label:'Gemeinsamer Zeitbezug derselben Produktansicht'};
- }
- if(!series?.userDeclaredSimultaneous||!series.members?.includes(e.source))return null;
- const time=selectionTimeWindow(series.text);
- return time&&now>=time.start&&now-time.start<=86400000?{origin:'screenshot',text:series.text,label:'Zeitbezug der Aufnahmeserie'}:null;
+ // Both single views and grouped screenshots now use the SAME verified
+ // field-time function as the issuer import, without copying another source.
+ if(shared?.valid&&shared.source===e.source&&['image-view','image-series'].includes(shared.kind))
+  return {origin:shared.kind==='image-view'?'image-view':'screenshot',text:shared.text,
+   label:shared.kind==='image-view'?'Gemeinsamer Zeitbezug derselben Produktansicht':'Zeitbezug der Aufnahmeserie'};
+ return null;
 }
 const KO_MAX_AGE_MS=8*60*60*1000;
 function koTermTime(p,e,now){
