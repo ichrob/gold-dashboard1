@@ -59,6 +59,47 @@ class CandleTests(unittest.TestCase):
             self.assertEqual(fetch.call_count,2)
             self.assertEqual(first,second)
 
+    def test_15m_boundary_poll_at_most_every_30s_without_fake_close(self):
+        p = self.payload()
+        p['interval'] = '15m'
+        p['bars'][0]['openTime'] = '2026-10-06T08:45:00Z'
+        p['bars'][0]['isOpen'] = True  # Provider has not confirmed the close.
+        with patch.dict(tc._cache, {}, clear=True), patch.object(server, 'fetch_json', return_value=p) as upstream:
+            def check(offset):
+                with patch.object(tc.time, 'time', return_value=self.now + offset):
+                    return tc.fetch('15m', upstream)
+            first = check(0)
+            self.assertEqual(upstream.call_count, 1)
+            self.assertTrue(first[0]['isOpen'])
+            self.assertTrue(check(29)[0]['isOpen'])
+            self.assertEqual(upstream.call_count, 1)
+            self.assertTrue(check(30)[0]['isOpen'])
+            self.assertEqual(upstream.call_count, 2)
+            self.assertTrue(check(60)[0]['isOpen'])
+            self.assertEqual(upstream.call_count, 3)
+            check(90)  # Outside short boundary window; regular 60s TTL.
+            self.assertEqual(upstream.call_count, 3)
+            check(120)
+            self.assertEqual(upstream.call_count, 4)
+
+    def test_15m_boundary_accepts_only_provider_confirmed_close(self):
+        p = self.payload()
+        p['interval'] = '15m'
+        p['bars'][0]['openTime'] = '2026-10-06T08:45:00Z'
+        p['bars'][0]['isOpen'] = True
+        with patch.dict(tc._cache, {}, clear=True), patch.object(server, 'fetch_json', return_value=p) as upstream:
+            with patch.object(tc.time, 'time', return_value=self.now):
+                old = tc.fetch('15m', upstream)
+            self.assertTrue(old[0]['providerIsOpen'])
+            self.assertTrue(old[0]['isOpen'])
+            p['bars'][0]['isOpen'] = False
+            with patch.object(tc.time, 'time', return_value=self.now + 30):
+                accepted = tc.fetch('15m', upstream)
+            self.assertEqual(upstream.call_count, 2)
+            self.assertEqual(accepted[0]['openTime'], old[0]['openTime'])
+            self.assertFalse(accepted[0]['isOpen'])
+            self.assertFalse(accepted[0]['providerIsOpen'])
+
     def test_independent_fresh_history_does_not_call_legacy(self):
         with patch.object(server.time,'time',return_value=self.now),patch.dict(server._technical_history,{},clear=True),patch.object(tc,'fetch',return_value=tc.normalize(self.payload(),'5m',self.now)),patch.object(server,'fetch_json') as legacy:
             rows=server.fetch_technical_history('5m','5d')
