@@ -3,6 +3,7 @@ import vollautomatisch_engine
 import strategy_lab
 import strategy_lab_background
 import degiro_catalog
+import degiro_product_audit_panel
 import broker_bridge
 import trade_email_panel
 import intraday_comparison
@@ -168,6 +169,7 @@ HTML = HTML.replace(b"</body>", vollautomatisch_panel.PANEL.encode("utf-8")+b"</
 HTML = HTML.replace(b"</body>", trade_email_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", bob_self_healing.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", bob_problems.PANEL.encode("utf-8")+b"</body>")
+HTML = HTML.replace(b"</body>", degiro_product_audit_panel.PANEL.encode("utf-8")+b"</body>")
 SW = SW_PATH.read_bytes() if SW_PATH.exists() else None
 MANIFEST = MANIFEST_PATH.read_bytes() if MANIFEST_PATH.exists() else None
 ICON = ICON_PATH.read_bytes() if ICON_PATH.exists() else None
@@ -834,7 +836,7 @@ class Handler(BaseHTTPRequestHandler):
         # Sensitive data APIs must be authenticated before any data generation.
         # Keep static PWA resources and /health public, but never expose live,
         # MTF, or DEGIRO enrichment data without the existing Bob credentials.
-        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates" or path == "/api/self-healing" or path == "/api/problems" or path == "/api/repair-statistics"
+        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates" or path == "/api/degiro/audit" or path == "/api/self-healing" or path == "/api/problems" or path == "/api/repair-statistics"
         if protected_api_path:
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
@@ -952,6 +954,36 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if path == "/api/degiro/audit":
+            # Private proxy; the push service owns the active screenshot list.
+            # Never call the issuer or DEGIRO from an interactive status GET.
+            try:
+                if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
+                    raise RuntimeError("Product audit service not configured")
+                base = PUSH_SERVICE_URL.rstrip("/")
+                if not base.startswith(("https://", "http://")):
+                    base = "https://" + base
+                request = Request(base + "/product-audit", method="GET",
+                    headers={"X-Bob-Push-Token": PUSH_SERVICE_TOKEN,
+                             "Accept": "application/json"})
+                with urlopen(request, timeout=8) as response:
+                    body = response.read(65537)
+                if len(body) > 65536:
+                    raise ValueError("Audit report too large")
+                status = 200
+            except (OSError, ValueError, RuntimeError, HTTPError, URLError, TimeoutError):
+                status = 503
+                body = json.dumps({"status": "unavailable", "items": [],
+                    "reason": "Privater Produktprüfbericht momentan nicht erreichbar"},
+                    ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(body)
             return
