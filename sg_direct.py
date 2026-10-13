@@ -23,10 +23,19 @@ def refresh_evidence(result):
     result = copy.deepcopy(result)
     evidence = result.get('chartEvidence')
     if evidence:
+        reference = result.get('issuerLeverageReference') or {}
+        context = result.get('sharedTimeContext') or {}
+        shared = (reference.get('sharedContextAt') == evidence.get('pointAt')
+                  and context.get('at') == evidence.get('pointAt')
+                  and context.get('isin') == result.get('isin')
+                  and reference.get('value') is not None)
+        leverage_note = ('Vorhandener SG-Referenzhebel mit gemeinsamem Zeitbezug der Abrufserie bestätigt; Aktualität separat prüfen.'
+                         if shared else 'SG-Referenzhebel vorhanden, aber gemeinsamer Zeitbezug nicht bestätigt.'
+                         if reference.get('value') is not None else 'SG-Referenzhebel von der Quelle nicht geliefert; erneuter Abruf erforderlich.')
         age = (datetime.now(timezone.utc)-q.stamp(evidence['pointAt'])).total_seconds()
         evidence.update(ageSeconds=round(age, 1), current=0 <= age <= q.MAX_AGE_SECONDS)
         result['reason'] = ('SG-Direktimport aktiv (30 s): Chart Geld {:.3f} / Brief {:.3f} {}, Stand {} ({}). '
-            'Stammdaten übernommen; '+('KO/Basispreis nachgewiesen; ' if (result.get('metadata', {}).get('termsDated') or result.get('metadata', {}).get('termsFixed')) else 'Basispreis/KO mit Zeitbezug der automatischen Abrufserie übernommen; ')+'Im Direktabruf liegt kein separat datierter Hebel vor; ergänzende Bildnachweise werden in Bob separat berücksichtigt.').format(
+            'Stammdaten übernommen; '+('KO/Basispreis nachgewiesen; ' if (result.get('metadata', {}).get('termsDated') or result.get('metadata', {}).get('termsFixed')) else 'Basispreis/KO mit Zeitbezug der automatischen Abrufserie übernommen; ')+leverage_note+' Chartbeobachtung, kein DEGIRO-Ausführungsnachweis.').format(
                 evidence['bid'], evidence['ask'], evidence['currency'], evidence['pointAt'],
                 'aktuell' if evidence['current'] else 'veraltet')
     return result

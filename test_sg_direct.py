@@ -17,6 +17,21 @@ class DirectTests(unittest.TestCase):
             ('ClassificationName','BEST Turbo (Open-End)',''))]
         self.at = (datetime.now(timezone.utc)-timedelta(seconds=2)).isoformat()
         self.points = [dict(Bid=10, Ask=10.01, Date=self.at)]
+    def test_shared_leverage_reason_does_not_claim_missing_timestamp(self):
+        self.props.append(dict(Name='CurrentLeverage', Value='18,25', Suffix=''))
+        with patch.object(q, 'issuer_json', side_effect=[self.product, self.props, self.points]):
+            out = sg.get_quote(ISIN)
+        self.assertIn('gemeinsamem Zeitbezug', out['reason'])
+        self.assertNotIn('kein separat datierter Hebel', out['reason'])
+        self.assertFalse(out['eligible'])
+        self.assertIsNone(out['issuerLeverageReference']['sourceAt'])
+
+    def test_missing_leverage_reason_names_missing_value(self):
+        with patch.object(q, 'issuer_json', side_effect=[self.product, self.props, self.points]):
+            out = sg.get_quote(ISIN)
+        self.assertIn('von der Quelle nicht geliefert', out['reason'])
+        self.assertNotIn('issuerLeverageReference', out)
+
     def test_sq02jq_mini_direct_route(self):
         isin = 'DE000SQ02JQ6'
         self.product.update(Id=2829392, Isin=isin, ProductClassificationId=45)

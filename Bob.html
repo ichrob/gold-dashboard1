@@ -3411,7 +3411,7 @@ async function fetchSpotSources(bundle=null){
  const sourceWarning=Number.isFinite(pct)&&Math.abs(pct)>0.50?"⚠️ Spot/Kerzen-Abweichung "+pct.toFixed(3)+"% – Kerzenquelle prüfen":"";
  return {xaus,gp,reference,diff,pct,sourceWarning,usd_eur:Number(s.usd_eur),usd_chf:Number(s.usd_chf)};
 }
-function hydrateTechnicalFromBundle(bundle, requestedN=200){try{const tfBars=bundle?.history?.bars_by_tf||{};const preferred=Array.isArray(tfBars["5m"])&&tfBars["5m"].length?tfBars["5m"]:Array.isArray(tfBars["15m"])&&tfBars["15m"].length?tfBars["15m"]:Array.isArray(tfBars["1h"])&&tfBars["1h"].length?tfBars["1h"]:[];const closed=preferred.filter(b=>!b.isOpen);if(closed.length<30)return false;const n=Math.max(30,Number(requestedN)||200);C=closed.slice(-n);const p=Number(bundle?.spots?.xaus);if(Number.isFinite(p)&&p>0)lastPrice=p;analyze();return true;}catch(e){reportBobDiag("analysis:hydrate-error",{error:e?.message||String(e)});return false;}}
+function hydrateTechnicalFromBundle(bundle, requestedN=200){try{const tfBars=bundle?.history?.bars_by_tf||{};const preferred=Array.isArray(tfBars["5m"])&&tfBars["5m"].length?tfBars["5m"]:Array.isArray(tfBars["15m"])&&tfBars["15m"].length?tfBars["15m"]:Array.isArray(tfBars["1h"])&&tfBars["1h"].length?tfBars["1h"]:[];const closed=preferred.filter(b=>!b.isOpen);if(closed.length<30)return false;const n=Math.max(240,Number(requestedN)||200);C=closed.slice(-n);const p=Number(bundle?.spots?.xaus);if(Number.isFinite(p)&&p>0)lastPrice=p;analyze();return true;}catch(e){reportBobDiag("analysis:hydrate-error",{error:e?.message||String(e)});return false;}}
 async function loadData(force=false){
  const generation=++loadGeneration;
  try{
@@ -3488,7 +3488,8 @@ async function loadData(force=false){
    return;
   }
 
-  C=bars.filter(b=>!b.isOpen).slice(-n);
+  // Keep the EMA200 warm-up independently of the visible chart length.
+  C=bars.filter(b=>!b.isOpen).slice(-Math.max(240,n));
   // Paint MTF from the exact bundle that produced this analysis immediately.
   // Do not wait for the rest of the UI/analysis pipeline.
   loadMTF(false,generation,bundle);
