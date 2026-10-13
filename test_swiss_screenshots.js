@@ -129,8 +129,8 @@ assert(neutralCard.includes('Live-Freigabe'));
 assert(!neutralCard.includes('datierter Hebel weiterhin erforderlich'));
 
 const validity=b.renderTermSeriesValidity(p,now);
-assert(validity.includes('Basispreis: Seriennachweis für Bob gültig'));
-assert(validity.includes('KO-Schwelle: Seriennachweis für Bob gültig'));
+assert(validity.includes('Basispreis: gemeinsamer Zeitbezug für Bob gültig'));
+assert(validity.includes('KO-Schwelle: gemeinsamer Zeitbezug für Bob gültig'));
 assert(!b.productTermsStatus({...p,snapshot:{...snapshot,captureSeries:null}},now).complete);
 assert(!b.productTermsStatus(p,now+25*3600000).complete);
 for(const mutate of [
