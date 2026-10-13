@@ -14,7 +14,9 @@ from bob_auth import NoRedirect
 CHANNEL='UCsl6Z6p7GOkczo8Cv-GH6Dg'
 MAX_BYTES=600000
 ERRORS = {
-    'provider_auth': 'Transkript-Dienst: API-Schlüssel wird nicht akzeptiert.',
+    'provider_auth': 'Transkript-Dienst weist die Anmeldung oder Berechtigung zurück (401/403).',
+    'provider_auth_paused': 'Transkript-Dienst hat zuletzt die Berechtigung zurückgewiesen. Zum Schutz des kostenlosen Kontingents wird höchstens alle sechs Stunden erneut probiert.',
+    'provider_limit_paused': 'Transkript-Dienst meldete eine Kontingent- oder Ratenbegrenzung. Bob pausiert neue Versuche eine Stunde.',
     'provider_limit': 'Transkript-Dienst: Kontingent oder Abrufrate erreicht.',
     'provider_unavailable': 'Transkript-Dienst vorübergehend nicht erreichbar.',
     'provider_video': 'Transkript-Dienst kann für dieses Video derzeit keinen Text liefern.',
@@ -41,6 +43,9 @@ def init(conn):
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_research_requests (
         claim TEXT PRIMARY KEY, attempted_at TIMESTAMPTZ NOT NULL DEFAULT now())''')
     conn.execute('ALTER TABLE bob_research_requests ADD COLUMN IF NOT EXISTS video_id TEXT')
+    # Track provider-wide failure classification, never provider bodies or keys.
+    # Backoff stays durable across rolling Render restarts.
+    conn.execute('ALTER TABLE bob_research_requests ADD COLUMN IF NOT EXISTS error_code TEXT')
 
 
 def parse(data):
@@ -101,6 +106,16 @@ def handle(connect,payload,fetcher=fetch):
         row=conn.execute('SELECT result,attempted_at>now()-interval \'1 hour\' FROM bob_research_transcripts WHERE video_id=%s',(identity,)).fetchone()
         if row and row[0]:return row[0]
         if row and row[1]:raise TranscriptError('cooldown')
+        # An auth rejection applies to all videos, not only one. Avoid using
+        # the remaining free allowance to repeat the same rejected credential.
+        auth_blocked = conn.execute(
+            "SELECT EXISTS (SELECT 1 FROM bob_research_requests WHERE error_code='provider_auth' "
+            "AND attempted_at>now()-interval '6 hours')").fetchone()[0]
+        if auth_blocked:raise TranscriptError('provider_auth_paused')
+        rate_blocked = conn.execute(
+            "SELECT EXISTS (SELECT 1 FROM bob_research_requests WHERE error_code='provider_limit' "
+            "AND attempted_at>now()-interval '1 hour')").fetchone()[0]
+        if rate_blocked:raise TranscriptError('provider_limit_paused')
         video_count=conn.execute("SELECT count(*) FROM bob_research_requests WHERE video_id=%s AND attempted_at>now()-interval '24 hours'",(identity,)).fetchone()[0]
         if video_count>=3:raise TranscriptError('video_limit')
         count=conn.execute("SELECT count(*) FROM bob_research_requests WHERE attempted_at>now()-interval '31 days'").fetchone()[0]
@@ -108,7 +123,18 @@ def handle(connect,payload,fetcher=fetch):
         conn.execute('INSERT INTO bob_research_requests(claim,video_id) VALUES(%s,%s)',(claim,identity))
         conn.execute('''INSERT INTO bob_research_transcripts(video_id,attempted_at,claim) VALUES(%s,now(),%s)
             ON CONFLICT(video_id) DO UPDATE SET attempted_at=now(),claim=excluded.claim''',(identity,claim))
-    result=fetcher(identity,key)
+    try:
+        result=fetcher(identity,key)
+    except TranscriptError as exc:
+        if exc.code in ('provider_auth','provider_limit'):
+            try:
+                with connect() as conn:
+                    conn.execute('UPDATE bob_research_requests SET error_code=%s WHERE claim=%s',
+                                 (exc.code,claim))
+            except Exception:
+                # A failed audit must not disguise the actual provider rejection.
+                pass
+        raise
     with connect() as conn:
         conn.execute('UPDATE bob_research_transcripts SET result=%s::jsonb WHERE video_id=%s AND claim=%s',(json.dumps(result),identity,claim))
     return result
