@@ -165,7 +165,7 @@ def get_quote(isin, terms_only=False):
                 stage = 'dated-quotes'
                 points = q.issuer_json(origin+'EmcWebApi/api/Prices/Live?productId='+str(product['Id']), origin, timeout=12)
                 chart = q.parse_sg_chart_research(product, points, isin,
-                    verified_id=product['Id'] if isin in q.SG_DISCOVERY_PRODUCTS else None)
+                    verified_id=product['Id'] if (isin in q.SG_DISCOVERY_PRODUCTS or q.sg_on_demand_candidate(isin)) else None)
                 result['chartEvidence'] = chart['chartEvidence']
                 result['reason'] = ('SG-Direktimport aktiv (30 s): Stammdaten übernommen; '
                     'Geld/Brief als datierter Chartnachweis. Basispreis/KO verwenden den Zeitbezug der automatischen Abrufserie; Hebelnachweise werden separat geprüft.')
