@@ -111,8 +111,11 @@ class ManualWatchTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             watch.set_levels(db,dict(stopEur=9.,targetEur=10.))
         watch.set_levels(db,dict(stopEur=7.5,targetEur=8.25))
+        # Capture the quote before the observation clock; otherwise a
+        # millisecond-later mock quote can appear "from the future".
+        quote=current_quote()
         now=int(dt.datetime.now(dt.timezone.utc).timestamp()*1000)
-        watch.observe(db,current_quote(),now)
+        watch.observe(db,quote,now)
         self.assertEqual(db.state['alerts'][-1]['kind'],'target-observed')
         self.assertEqual(db.state['position']['entry'],8.)
 
