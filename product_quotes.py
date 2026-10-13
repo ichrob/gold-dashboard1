@@ -24,6 +24,18 @@ SG_CH_PRODUCTS = {'DE000FG34XV8': 7039911}
 SG_DISCOVERY_PRODUCTS = frozenset(('DE000FG7N6Z2', 'DE000FG8NHQ3'))
 SG_CH_MARKET = frozenset((*SG_CH_PRODUCTS, 'DE000FG8NHQ3'))
 
+def sg_on_demand_candidate(isin):
+    """Exact, checksum-valid SG issuer lookup for user-supplied FC/FG ISINs.
+
+    The prefix is a *search hint*, never issuer or trading confirmation.
+    Identity, venue, classification and underlying still require the official
+    SG product response before any prices or metadata can be consumed.
+    No scanning/range enumeration or broker-account access is performed.
+    """
+    return (isinstance(isin, str) and len(isin) == 12
+            and isin.startswith(('DE000FC', 'DE000FG')) and valid_isin(isin))
+
+
 def sg_market(isin):
     return ('https://www.sg-zertifikate.ch/', 'CBSW', 'CHF') if isin in SG_CH_MARKET else (SG_ORIGIN, 'CBDE', 'EUR')
 
@@ -180,7 +192,7 @@ def parse_sg_chart_research(product, points, isin, now=None, verified_id=None):
     """
     now = now or datetime.now(timezone.utc)
     expected = SG_DIRECT_PRODUCTS.get(isin)
-    if isin in SG_DISCOVERY_PRODUCTS and type(verified_id) is int and verified_id > 0:
+    if (isin in SG_DISCOVERY_PRODUCTS or sg_on_demand_candidate(isin)) and type(verified_id) is int and verified_id > 0:
         expected = verified_id
     if (expected is None or product.get('Isin') != isin
             or type(product.get('Id')) is not int or product['Id'] != expected
@@ -494,12 +506,26 @@ def get_issuer_quote(isin):
     from sg_quotes import PRODUCT_IDS
     if isin in PRODUCT_IDS or isin in SG_GOLD_FUTURES or isin in SG_DIRECT_PRODUCTS or isin in SG_DISCOVERY_PRODUCTS:
         return get_sg_quote(isin)
+    # New FC/FG codes from a DEGIRO screenshot previously fell through to
+    # BNP-only lookup. Verify the exact requested ISIN at SG first; an
+    # unverified/wrong-channel/error response is never used as market data.
+    sg_attempt = None
+    if sg_on_demand_candidate(isin):
+        sg_attempt = get_sg_quote(isin)
+        if sg_attempt.get('productVerified') is True:
+            return sg_attempt
     with _LOCK:
         cached = _CACHE.get(isin)
         if cached and time.monotonic()-cached[0] < 15 and str(cached[1].get('source', '')).startswith('BNP Paribas'):
             return freshness(cached[1])
     # Unknown products may be researched at BNP only. No speculative SG request.
     result = get_bnp_quote(isin)
+    if sg_attempt and not result.get('productVerified'):
+        # A failed SG identity lookup is diagnostic evidence only. Never copy
+        # its undated quotes into the BNP (or any other) product result.
+        result = dict(result, sgDiscovery=dict(
+            attempted=True, verified=False,
+            reason=sg_attempt.get('reason', 'SG-Identität nicht bestätigt')))
     with _LOCK:
         if len(_CACHE) >= 256:
             _CACHE.pop(next(iter(_CACHE)))
