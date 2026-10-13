@@ -124,6 +124,31 @@ class DirectTests(unittest.TestCase):
         self.assertFalse(refreshed['metadata']['termsDated'])
         self.assertFalse(refreshed['eligible'])
 
+    def test_slightly_newer_chart_within_same_collection_keeps_context_only(self):
+        # Official point observation may follow the properties response by
+        # a few seconds while both were collected for the exact same ISIN.
+        point_at = datetime.now(timezone.utc) - timedelta(seconds=2)
+        props_at = point_at - timedelta(seconds=3)
+        result = dict(isin=ISIN, productVerified=True,
+            termsCheckedAt=props_at.isoformat(),
+            chartEvidence={'pointAt': point_at.isoformat()},
+            conditions={'strike': {'value': 4400}},
+            issuerLeverageReference={'value': 18.25, 'sourceAt': None,
+                                     'dated': False, 'eligible': False})
+        sg.associate_shared_observation(result)
+        self.assertEqual(result['sharedTimeContext']['at'], point_at.isoformat())
+        self.assertEqual(result['issuerLeverageReference']['sharedContextAt'], point_at.isoformat())
+        self.assertIsNone(result['issuerLeverageReference']['sourceAt'])
+        self.assertFalse(result['issuerLeverageReference']['eligible'])
+        self.assertNotIn('leverageAt', result)
+        self.assertIsNone(result['conditions']['strike'].get('at'))
+        # More than five seconds of inverted timing is not the same context.
+        result.pop('sharedTimeContext')
+        result['termsCheckedAt'] = (point_at - timedelta(seconds=6)).isoformat()
+        result['issuerLeverageReference'].pop('sharedContextAt')
+        sg.associate_shared_observation(result)
+        self.assertNotIn('sharedTimeContext', result)
+
     def test_stale_sg_chart_cannot_date_reference_or_static_conditions(self):
         self.points = [dict(Bid=10, Ask=10.01,
             Date=(datetime.now(timezone.utc)-timedelta(minutes=6)).isoformat())]
