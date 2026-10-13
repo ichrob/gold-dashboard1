@@ -2164,7 +2164,12 @@ function termSeriesReference(p,key,e,now=Date.now()){
   const age=now-Date.parse(automatic.observedAt);
   if(Number.isFinite(age)&&age>=0&&age<=86400000)return {origin:'automatic',text:automatic.observedAt,label:'Zeitbezug der automatischen Abrufserie'};
  }
- const x=p.snapshot,series=x?.captureSeries,own=x?.terms?.[key];
+ const x=p.snapshot,series=x?.captureSeries;
+ const term=x?.terms?.[key];
+ // KO can be recognized as a priced image field without a duplicate
+ // 'terms.ko' record. Its original observation context still counts.
+ if(term&&(term.conflict||term.revoked||n(term.value)!==n(e.value)))return null;
+ const own=term||key==='ko'&&x?.evidence?.KO;
  if(x?.isin!==p.isin||!hasScreenshotIdentity(x)||own?.source!==e.source||n(own.value)!==n(e.value))return null;
  // A value in ONE dated, identified product view has the same observation
  // context as all other values in that view; a multi-image selection may
@@ -2227,7 +2232,10 @@ function screenshotKoCurrent(p,now){
  if(x?.isin!==p.isin||n(e?.value)!==n(p.ko))return false;
  if(e?.conflict||e?.revoked||e?.ocrCorrection)return false;
  if(e?.at)return currentProductTerm(p,'ko',e,now);
- if(e?.dateText&&e.dateText!==t?.dateText)return false;
+ if(e?.dateText&&t?.dateText&&e.dateText!==t.dateText)return false;
+ // An actual KO field from the very same dated image carries the shared
+ // observation context even when no separate terms.ko entry was extracted.
+ if(hasScreenshotIdentity(x)&&currentProductTerm(p,'ko',e,now))return true;
  // An undated repeat in a quote image does not invalidate the separate
  // dated terms image. Match identity and amount; never transfer its date.
  return hasScreenshotIdentity(x)&&n(t?.value)===n(p.ko)&&currentProductTerm(p,'ko',t,now);
