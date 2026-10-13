@@ -65,9 +65,57 @@ def validate_isin(isin):
     return isin
 
 
+def route_signal(broker, direction, isin=None):
+    """Build a non-executing handoff, independent of market-signal generation.
+
+    DEGIRO is permanently manual. A future API broker requires its own
+    supported instrument, authenticated session and separately authorized
+    paper/live risk gate; the same DEGIRO ISIN is never assumed tradable.
+    This function performs no IO and never calls submit_order.
+    """
+    if broker != "degiro" and broker not in BROKERS:
+        raise ValueError("Unbekannter Broker")
+    if direction not in ("LONG", "SHORT", "ABWARTEN", "NEUTRAL"):
+        raise ValueError("Ungültige Marktrichtung")
+    if isin is not None:
+        validate_isin(isin)
+    idle = direction in ("ABWARTEN", "NEUTRAL")
+    manual = broker == "degiro"
+    return {
+        "broker": broker,
+        "direction": direction,
+        "isin": isin,
+        "route": "NO_ACTION" if idle else (
+            "DEGIRO_MANUAL_SIGNAL" if manual else "API_ADAPTER_NOT_CONNECTED"
+        ),
+        "analysisCanContinue": True,
+        "manualDecisionRequired": bool(manual and not idle),
+        "brokerExecutionQuoteVerified": False,
+        "instrumentMappingVerified": False,
+        "paperOrderEnabled": False,
+        "liveOrderEnabled": False,
+        "orderSubmitted": False,
+        "orderId": None,
+        "reason": ("Kein Handelssignal; kein Auftrag." if idle else
+                   "DEGIRO: Markt-/Produktsignal zur manuellen Prüfung. "
+                   "Ausführbaren Preis im DEGIRO-Orderfenster selbst prüfen."
+                   if manual else
+                   "Broker-API als Zukunftsadapter vorbereitet: zuerst "
+                   "separates Instrument, Broker-Berechtigung, Preise und "
+                   "kontrollierten Demo-/Papierhandel nachweisen."),
+    }
+
+
 def status():
     return {
         "mode": "CONNECTION_SCAFFOLD_ONLY",
+        "analysisIndependentOfExecution": True,
+        "defaultManualBroker": "degiro",
+        "manualBroker": {"id": "degiro", "name": "DEGIRO",
+                         "mode": "MANUAL_ONLY", "apiConnected": False,
+                         "orderExecutionEnabled": False,
+                         "signalDelivery": "ANALYSIS_AND_MANUAL_REVIEW"},
+        "futureBrokerMode": "PAPER_API_CONNECTION_REQUIRED",
         "executionEnabled": False,
         "liveOrders": False,
         "paperOrders": False,
@@ -75,11 +123,14 @@ def status():
         "brokers": [{
             "id": identifier, **spec,
             "connection": "not-connected",
+            "route": "PAPER_FIRST_API_FUTURE",
+            "liveOrdersRequireSeparateApproval": True,
             "swissAccount": "not-verified",
             "degiroIsinTradability": "not-verified",
             "apiOrderSupport": "not-verified",
         } for identifier, spec in BROKERS.items()],
-        "notice": "Offizielle APIs dokumentiert, aber kein Konto verbunden. "
+        "notice": "DEGIRO-Handel bleibt manuell; Bob kann Analysesignale unabhängig davon liefern. "
+                  "IBKR/IG sind nur vorbereitete Zukunftsadapter: kein API-Konto, keine Paper- oder Live-Orders. "
                   "DEGIRO-ISIN-Verfügbarkeit, Kosten, API-Orders und CH-Handelsberechtigung müssen "
                   "pro Broker und pro ISIN unabhängig nachgewiesen werden."
     }
