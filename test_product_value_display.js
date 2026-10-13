@@ -84,6 +84,23 @@ linkedSg.quote.sharedTimeContext={at,isin:researchIsin,kind:'issuer-collection',
  timeOrigin:'SG-Chartzeit',fields:['Geld','Brief','Referenzhebel']};
 linkedSg.quote.issuerLeverageReference.sharedContextAt=at;
 linkedSg.quote.issuerLeverageReference.eligible=false;
+linkedSg.quote.sharedTimeContext.fields=['Geld','Brief','Referenzhebel','ko','ratio','currency'];
+linkedSg.quote.sharedValueObservations={
+ Geld:{value:4.91,contextAt:at,isin:researchIsin},
+ Brief:{value:4.92,contextAt:at,isin:researchIsin},
+ ko:{value:4075,contextAt:at,isin:researchIsin},
+ ratio:{value:0.1,contextAt:at,isin:researchIsin},
+ currency:{value:'EUR',contextAt:at,isin:researchIsin},
+ 'Referenzhebel':{value:72.9254,contextAt:at,isin:researchIsin}
+};
+for(const [field,value] of Object.entries({'Geld':4.91,'Brief':4.92,ko:4075,
+ ratio:0.1,currency:'EUR',Hebel:72.9254})){
+ const evidence=b.sharedProductFieldTime(linkedSg,field,value,now);
+ assert(evidence&&evidence.valid,field);
+ assert.equal(evidence.at,at);
+ assert.equal(evidence.kind,'issuer-collection');
+}
+assert.equal(b.sharedProductFieldTime(linkedSg,'ko',4076,now),null);
 const linkedFields=b.productFieldStates(linkedSg,now);
 assert.equal(linkedFields.leverage.value,72.9254);
 assert.equal(linkedFields.leverage.at,at);
