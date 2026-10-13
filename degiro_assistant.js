@@ -1189,7 +1189,7 @@ async function enrichProduct(i,termsOnly=false){
   // The actual SG reference and chart were collected for one verified ISIN.
   // This is analysis input, not a confirmed executable broker quote.
   const observedSgLeverage=sharedSgIssuerLeverage({isin,quote:x});
-  if(observedSgLeverage&&field('lev')&&!(n(field('lev').value)>=1))
+  if(observedSgLeverage?.fresh&&field('lev')&&!(n(field('lev').value)>=1))
    field('lev').value=observedSgLeverage.value;
   if(x.sourceDisabled&&x.isin===isin){
    if(meta)meta.textContent=x.reason+" Die Produktauswahl prüft die vorhandenen Screenshotnachweise separat.";
@@ -2316,10 +2316,10 @@ function sharedSgIssuerLeverage(p,now=Date.now()){
  // Check the genuine issuer chart point, not a fresh local retrieval time.
  const at=ctx.at;
  if(at!==q.chartEvidence?.pointAt&&at!==q.nativeChartEvidence?.pointAt)return null;
- const t=typeof at==='string'&&/(Z|[+-]\\d{2}:\\d{2})$/.test(at)?Date.parse(at):NaN;
- if(!Number.isFinite(t)||t>now||now-t>300000)return null;
+ const t=typeof at==='string'&&/(Z|[+-]\d{2}:\d{2})$/.test(at)?Date.parse(at):NaN;
+ if(!Number.isFinite(t)||t>now)return null;
  return {value:n(ref.value),at,source:ref.source,
-  kind:'shared-issuer-observation',analysisOnly:true};
+  fresh:now-t<=300000,kind:'shared-issuer-observation',analysisOnly:true};
 }
 function productFieldStates(p,now=Date.now()){
  const q=p.quote?.isin===p.isin&&p.quote.productVerified?p.quote:null;
@@ -2356,7 +2356,10 @@ function productFieldStates(p,now=Date.now()){
  items.leverage=from('Hebel',leverage,directLev?q.leverageAt:sharedLev?shared.at:hasShot&&n(le.value)===n(leverage)?le.at:null,
   directLev?(q.leverageSource||q.source):sharedLev?shared.source:le?.source,
   directLev?90000:sharedLev?300000:SCREENSHOT_MAX_AGE_MS,directLev?'':sharedLev?'issuer-reference':'screenshot');
- if(sharedLev){items.leverage.state='gemeinsamer SG-Zeitbezug · aktuell (nur Analyse)';items.leverage.fromSharedContext=true;}
+ if(sharedLev){
+  items.leverage.state=shared.fresh?'gemeinsamer SG-Zeitbezug · aktuell (nur Analyse)':'veraltet · gemeinsamer SG-Zeitbezug';
+  items.leverage.fromSharedContext=true;
+ }
  if(!directLev&&!sharedLev&&le?.fromSeries){items.leverage.fromSeries=true;items.leverage.timeText=le.timeText;}
  else if(!directLev&&!sharedLev&&le?.fromSharedContext){items.leverage.fromSharedContext=true;items.leverage.timeText=le.contextTimeText;}
  if(directLev&&q.leverageEstimated&&n(leverage)>0){
