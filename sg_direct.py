@@ -87,7 +87,8 @@ def conditions(product, properties, result):
     if 0 < value <= 10000:
         result['issuerLeverageReference'] = dict(
             value=value, source='SG · AllProperties.CurrentLeverage',
-            sourceAt=None, dated=False, eligible=False,
+            sourceAt=None, retrievedAt=result.get('termsCheckedAt'),
+            dated=False, eligible=False,
             note='Undatierter SG-Referenzhebel; keine Kurszeit, kein Handelsnachweis')
     ratio = attrs.get('Ratio', {})
     if ratio.get('Suffix', '').strip() == ':1':
