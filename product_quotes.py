@@ -635,7 +635,8 @@ def get_quote(isin):
 def _get_quote_bounded(isin):
     from onvista_backup import apply_backup
     isin = str(isin or '').strip().upper()
-    result = apply_backup(_get_quote_primary(isin), isin)
+    from finanzen_terms import apply as apply_terms_backup
+    result = apply_backup(apply_terms_backup(_get_quote_primary(isin), isin), isin)
     if isin in SG_CH_MARKET:
         from sg_chf import convert_analysis
         result = convert_analysis(result)

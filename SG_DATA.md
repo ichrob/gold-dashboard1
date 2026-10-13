@@ -363,3 +363,27 @@ and displayed with original source clocks. The Onvista indicative pair uses the
 same 300-second window. Provider comparison remains at 30-second alignment and
 90-second age. These changes do not turn charts or calculations into executable
 quotes or grant live trade clearance. Older values keep their disclosed age.
+
+## 13 October 2026: Swiss leverage field and missing-term fallback
+
+Swiss SG `AllProperties.Gearing` with `RealtimeFieldName=current_leverage`
+now supplies the issuer reference alongside the German `CurrentLeverage`
+variant. Conflicting values are rejected. The actual property name and the
+existing shared observation context are retained; no independent issuer clock
+or execution approval is invented.
+
+`finanzen_terms.py` is a missing-term fallback for already issuer-verified,
+active SG Gold spot products. The public finanzen.ch page (data attributed to
+dp Derivative Partners) must match the ISIN, issuer, knock-out type, underlying,
+direction and currency. It fills only missing type, underlying, currency,
+maturity, barrier and strike conditions. Issuer values always take precedence.
+Barrier/strike are observations with unconfirmed validity, not newly dated
+issuer terms. No ratio convention, quote, provider leverage, underlying price,
+terminal status or broker route is inferred from this secondary page.
+
+Live verification for DE000FG8NHQ3 returned a real SG Gearing value and the
+finanzen.ch product terms. The latter's unrelated underlying price was dated
+2023, confirming why it must not enter live analysis. Successful and failed
+secondary requests are cached for 15 minutes, with an 8-second timeout and
+bounded response/cache size. Challenges, identity mismatches and failures leave
+existing evidence intact. The fallback adds no account, fee or order action.

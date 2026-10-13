@@ -85,20 +85,32 @@ def conditions(product, properties, result):
         and quanto_state == 'non-quanto')
     # The SG AllProperties indicative leverage has no authenticated market
     # clock. Keep it as reference-only; do NOT populate live leverage/At.
-    indicated = attrs.get('CurrentLeverage', {}).get('Value')
-    try:
-        if isinstance(indicated, str) and re.fullmatch(r'[0-9]{1,4}(?:[.,][0-9]{1,4})?', indicated.strip()):
-            value = float(indicated.strip().replace(',', '.'))
-        else:
-            value = q.number(indicated) if indicated is not None else 0
-    except (ValueError, TypeError):
-        value = 0
-    if 0 < value <= 10000:
+    # CH publishes the same current_leverage field under Gearing, DE under
+    # CurrentLeverage. Preserve the actual property name and shared context.
+    references = []
+    for name in ('CurrentLeverage', 'Gearing'):
+        prop = attrs.get(name, {})
+        if name == 'Gearing' and prop.get('RealtimeFieldName') != 'current_leverage':
+            continue
+        indicated = prop.get('Value')
+        try:
+            if isinstance(indicated, str) and re.fullmatch(r'[0-9]{1,4}(?:[.,][0-9]{1,4})?', indicated.strip()):
+                value = float(indicated.strip().replace(',', '.'))
+            else:
+                value = q.number(indicated) if indicated is not None else 0
+        except (ValueError, TypeError):
+            value = 0
+        if not isinstance(indicated, bool) and 0 < value <= 10000:
+            references.append((name, value))
+    if references and len({value for _, value in references}) == 1:
+        name, value = references[0]
         result['issuerLeverageReference'] = dict(
-            value=value, source='SG · AllProperties.CurrentLeverage',
+            value=value, source='SG · AllProperties.'+name,
             sourceAt=None, retrievedAt=result.get('termsCheckedAt'),
             dated=False, eligible=False,
             note='Undatierter SG-Referenzhebel; keine Kurszeit, kein Handelsnachweis')
+    elif references:
+        result['leverageReferenceIssue'] = 'Widersprüchliche SG-Hebelwerte'
     ratio = attrs.get('Ratio', {})
     if ratio.get('Suffix', '').strip() == ':1':
         units = q.number(ratio['Value'])

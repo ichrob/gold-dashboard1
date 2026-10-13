@@ -26,6 +26,26 @@ class DirectTests(unittest.TestCase):
         self.assertFalse(out['eligible'])
         self.assertIsNone(out['issuerLeverageReference']['sourceAt'])
 
+    def test_swiss_gearing_alias_retains_provenance_and_shared_time(self):
+        self.props.append(dict(Name='Gearing', Value=17.944,
+                               RealtimeFieldName='current_leverage'))
+        with patch.object(q, 'issuer_json', side_effect=[self.product, self.props, self.points]):
+            out = sg.get_quote(ISIN)
+        ref = out['issuerLeverageReference']
+        self.assertEqual(ref['value'], 17.944)
+        self.assertEqual(ref['source'], 'SG · AllProperties.Gearing')
+        self.assertEqual(ref['sharedContextAt'], self.at)
+        self.assertIsNone(ref['sourceAt'])
+        self.assertFalse(out['eligible'])
+
+    def test_conflicting_leverage_aliases_are_not_selected(self):
+        self.props.extend([dict(Name='Gearing', Value=17.944, RealtimeFieldName='current_leverage'),
+                           dict(Name='CurrentLeverage', Value=18.0)])
+        with patch.object(q, 'issuer_json', side_effect=[self.product, self.props, self.points]):
+            out = sg.get_quote(ISIN)
+        self.assertNotIn('issuerLeverageReference', out)
+        self.assertIn('leverageReferenceIssue', out)
+
     def test_missing_leverage_reason_names_missing_value(self):
         with patch.object(q, 'issuer_json', side_effect=[self.product, self.props, self.points]):
             out = sg.get_quote(ISIN)

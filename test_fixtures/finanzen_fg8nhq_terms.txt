@@ -1,0 +1,3 @@
+Wichtige Stammdaten und Kennzahlen Kennzahl Wert Kennzahl Wert Strike 4’400.00 Knock-Out 4’400.00 Ratio 10.00 Abstand Strike % -5.74 % Abstand Knock Out % 5.74 % T. bis Verfall 168 
+Stammdaten Name Warrant with Knock-Out Valor 159788766 ISIN DE000FG8NHQ3 Art Warrant with Knock-Out Typ Bear Ausübungsstil European Emissionstag 05.10.2026 Fälligkeitstag 19.03.2027 Rückzahlungsdatum 30.03.2027 Letzter Handelstag 19.03.2027 Währung CHF Währungssicherheit Nein COSI Produkt? Nein Handelsplatz DOTS Emittent Société Générale 
+Basiswerte Name ISIN Gold (USD) XD0002747026 SVSP Kategorie SVSP Code 2200 Typ Knock-Out Warrants SVSP Kategorie Code 22 SVSP Kategorie Name Hebelprodukte mit Knock-Out Management Aktiv gemanagt Nein Quelle: dp Derivative Partners 
