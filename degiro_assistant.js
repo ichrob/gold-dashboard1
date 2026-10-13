@@ -1885,6 +1885,9 @@ function renderPrimaryProductValues(p,now=Date.now()){
  const headline=chart?(current?'Aktuelle SG-Chartbeobachtung':'SG-Chartbeobachtung · nicht aktuell'):current?'Aktueller Anbieterwert':'Gespeicherte Referenz';
  const labels=chart?' · Chartkurs, kein bestätigter Ausführungskurs':'';
  const note=pair&&!current?' · Datenalter überschreitet Analysefenster':'';
+ const unpairedReference=n(p.price)>0&&fields.ask.state==='fehlt'&&!pair
+  ?'<br><b>Gespeicherter Produkt-/Listenpreis: '+fmt(p.price)+' EUR</b> · kein bestätigter Briefkurs, Geld/Brief weiter abrufen.'
+  :'';
  return '<div class="small" data-primary-product-values><b>'+esc(headline)+'</b><br>'+
   valuePresenceMark(fields.bid.state==='fehlt')+' Geld '+fmt(pair?pair.bid:fields.bid.value)+
   ' / '+valuePresenceMark(fields.ask.state==='fehlt')+' Brief '+fmt(pair?pair.ask:fields.ask.value)+' '+esc(currency)+
@@ -1892,7 +1895,7 @@ function renderPrimaryProductValues(p,now=Date.now()){
   '<br>'+valuePresenceMark(fields.leverage.state==='fehlt')+(fields.leverage.state==='fehlt'&&undatedLever?.dated===false&&n(undatedLever.value)>0?' Aktueller Hebel nicht zeitlich bestätigt':' Hebel '+fmt(fields.leverage.value))+
   ' · '+esc(fields.leverage.state)+(q?.leverageEstimated?' · rechnerische Näherung, kein bestätigter Emittentenhebel':'')+
   (fields.leverage.state==='fehlt'&&q?.leverageCalculation?.reason?'<br>Berechnung derzeit nicht möglich: '+esc(q.leverageCalculation.reason):'')+
-  refNote+missingSgReferenceNote+'</div>';
+  refNote+missingSgReferenceNote+unpairedReference+'</div>';
 }
 function bindCompactCards(root){
  bindIsinCopy(root);
@@ -2453,13 +2456,22 @@ function productFieldStates(p,now=Date.now()){
  const nativeChf=!!q?.productVerified&&native?.currency==='CHF'
   &&n(native.bid)>0&&n(native.ask)>=n(native.bid)&&typeof native.pointAt==='string';
  for(const [key,label] of [['bid','Geld'],['ask','Brief']]){
-  const direct=live?.currency==='EUR'&&n(live.bid)>0&&n(live.ask)>=n(live.bid);
+  // A DEGIRO list "price" (last/reference) is NOT an evidenced bid or ask.
+  // Only named provider fields or a paired/individually sourced screenshot
+  // may populate Geld/Brief, even when the generic price input is nonempty.
+  const direct=live?.currency==='EUR'&&n(live[key])>0&&
+    (n(live.bid)===null||n(live.ask)===null||n(live.ask)>=n(live.bid));
   const e=shot?.evidence?.[label];
-  const observed=direct?live:nativeChf?{...native,bidAt:native.pointAt,askAt:native.pointAt,
-   source:'SG · datierter CHF-Chartkurs',priceKind:'issuer-chart'}:null;
-  items[key]=from(label,observed?observed[key]:key==='ask'?(n(p.price)>0?p.price:shot?.currency==='CHF'?null:shot?.ask):shot?.currency==='CHF'?null:shot?.bid,
-   observed?observed[key+'At']:e?.at||shot?.sourceTime,observed?observed.source:e?.source,
-   observed?analysisLimit:SCREENSHOT_MAX_AGE_MS,observed?observed.priceKind:'screenshot');
+  const paired=shot?.currency==='EUR'&&n(shot.bid)>0&&n(shot.ask)>=n(shot.bid);
+  const single=shot?.currency==='EUR'&&!!e?.source&&n(e.value)>0;
+  const nativeObserved=nativeChf?{...native,bidAt:native.pointAt,askAt:native.pointAt,
+    source:'SG · datierter CHF-Chartkurs',priceKind:'issuer-chart'}:null;
+  const observed=direct?live:nativeObserved;
+  const imageValue=paired?n(shot[key]):single?n(e.value):null;
+  items[key]=from(label,observed?observed[key]:imageValue,
+    observed?observed[key+'At']:imageValue!==null?(e?.at||shot?.sourceTime):null,
+    observed?observed.source:imageValue!==null?e?.source:null,
+    observed?analysisLimit:SCREENSHOT_MAX_AGE_MS,observed?observed.priceKind:'screenshot');
   if(direct&&(live===q?.referenceQuote||q?.sourceFailure)&&items[key].state!=='veraltet')items[key].state='Aktualität unbestätigt · letzter erfolgreicher Abruf';
   if(!direct&&e?.fromSeries){items[key].fromSeries=true;items[key].timeText=e.timeText;}
   else if(!direct&&e?.fromSharedContext){items[key].fromSharedContext=true;items[key].timeText=e.contextTimeText;}
