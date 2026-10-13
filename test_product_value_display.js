@@ -232,3 +232,21 @@ assert.equal(companion.evidence.Geld?.value,13.31);
 assert.equal(companion.evidence.Brief?.value,13.32);
 assert(!b.currentQuote({isin:'DE000BOB0018',price:13.32,quote:{...companion}},Date.parse('2026-10-13T15:24:00+02:00')));
 
+
+// Native CHF broker observations stay CHF and never become EUR execution prices.
+const chfDisplay=degiroText.replaceAll('€','CHF');
+const chfObserved=b.parseDegiroDisplayedQuote(chfDisplay,'DE000BOB0018');
+assert(chfObserved,'CHF bid/ask must be recognized');
+assert.equal(chfObserved.currency,'CHF');
+assert.equal(chfObserved.bid,13.31);
+assert.equal(chfObserved.ask,13.32);
+const chfParsed=b.detailScreenshotData(chfDisplay,'DE000BOB0018');
+assert(chfParsed.ok,chfParsed.reason);
+assert.equal(chfParsed.currency,'CHF');
+assert.equal(chfParsed.price,'');
+assert.equal(chfParsed.degiroDisplayedQuote.currency,'CHF');
+const chfDisplayCard={isin:'DE000BOB0018',snapshot:chfParsed};
+assert(b.renderDegiroDisplayedQuote(chfDisplayCard).includes('13.32 CHF'));
+assert.equal(b.currentQuote(chfDisplayCard),false);
+assert.equal(b.parseDegiroDisplayedQuote(degiroText.replace('Brief €','Brief CHF'),'DE000BOB0018'),null);
+assert.equal(b.parseDegiroDisplayedQuote(degiroText.replaceAll('€','USD'),'DE000BOB0018'),null);

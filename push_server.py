@@ -984,8 +984,8 @@ class Handler(BaseHTTPRequestHandler):
             send_json(self, 400, {"error": str(exc)})
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True
-        except TRANSIENT_DB_ERRORS:
-            print(f"BOB_PUSH database_busy path={path}", flush=True)
+        except TRANSIENT_DB_ERRORS + (psycopg.errors.QueryCanceled,) as exc:
+            print(f"BOB_PUSH database_busy path={path} error={type(exc).__name__}", flush=True)
             send_json(self, 503, {"error": "Push-Service kurzzeitig belegt", "retryable": True})
         except Exception as exc:
             print("push-service error:", type(exc).__name__, flush=True)

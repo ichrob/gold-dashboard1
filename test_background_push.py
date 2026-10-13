@@ -315,3 +315,10 @@ class DisconnectedHttpTests(unittest.TestCase):
         with patch.object(push_server,'PUSH_SERVICE_TOKEN','test'),patch.object(push_server,'json_body',side_effect=ConnectionResetError()),patch.object(push_server,'send_json') as send:
             h.do_POST();send.assert_not_called();self.assertTrue(h.close_connection)
 
+
+    def test_database_timeout_returns_retryable_service_unavailable(self):
+        h=object.__new__(push_server.Handler);h.path='/decision-audit/read';h.headers={'X-Bob-Push-Token':'test'}
+        with patch.object(push_server,'PUSH_SERVICE_TOKEN','test'),patch.object(push_server,'json_body',return_value={}),patch.object(push_server,'db',side_effect=push_server.psycopg.errors.QueryCanceled('statement timeout')),patch.object(push_server,'send_json') as send:
+            h.do_POST()
+            self.assertEqual(send.call_args.args[1],503)
+            self.assertTrue(send.call_args.args[2]['retryable'])

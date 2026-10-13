@@ -41,3 +41,17 @@ class QuoteRuntimeTests(unittest.TestCase):
         with patch.dict(q._PENDING,pending,clear=True):
             result=q.run('fifth',lambda isin:dict(isin=isin))
             self.assertEqual(result,{'isin':'fifth'})
+
+    def test_completed_result_ttl_starts_at_completion(self):
+        f=Future();f.set_result({'isin':'late','quoteAt':'original'})
+        f._bob_completed_at=100
+        with patch.dict(q._PENDING,{'late':f},clear=True),patch.object(q.time,'monotonic',return_value=110):
+            first=q.run('late',lambda _:self.fail('unnecessary fetch'))
+            self.assertEqual(first['quoteAt'],'original')
+            self.assertEqual(q._READY['late'][0],100+q.RESULT_TTL)
+
+    def test_expired_uncollected_results_are_refetched(self):
+        for result in ({'quoteAt':'stale'},q.unavailable('late','PRODUCT_SOURCE_FAILED')):
+            f=Future();f.set_result(result);f._bob_completed_at=100
+            with self.subTest(result=result),patch.dict(q._PENDING,{'late':f},clear=True),patch.object(q.time,'monotonic',return_value=1000):
+                self.assertEqual(q.run('late',lambda _: {'quoteAt':'fresh'}),{'quoteAt':'fresh'})

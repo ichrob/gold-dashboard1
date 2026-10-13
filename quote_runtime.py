@@ -32,8 +32,12 @@ def run(isin, fetch):
                 except Exception:
                     result = unavailable(key, 'PRODUCT_SOURCE_FAILED')
                 ttl = ERROR_TTL if result.get('sourceFailure') else RESULT_TTL
-                _READY[key] = (now+ttl, copy.deepcopy(result))
-                _READY.move_to_end(key)
+                # Age starts when source work finishes, not when another
+                # request happens to collect it (possibly hours later).
+                expires = getattr(value, '_bob_completed_at', now) + ttl
+                if expires > now:
+                    _READY[key] = (expires, copy.deepcopy(result))
+                    _READY.move_to_end(key)
                 _PENDING.pop(key, None)
         for key, (expires, _) in list(_READY.items()):
             if expires <= now:
@@ -49,6 +53,7 @@ def run(isin, fetch):
                 print('BOB_PRODUCT_RUNTIME capacity_exhausted',flush=True)
                 return unavailable(isin,'PRODUCT_CAPACITY')
             future = _POOL.submit(fetch, isin)
+            future.add_done_callback(lambda done: setattr(done, '_bob_completed_at', time.monotonic()))
             _PENDING[isin] = future
     try:
         return copy.deepcopy(future.result(timeout=WAIT_SECONDS))

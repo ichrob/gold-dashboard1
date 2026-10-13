@@ -8,6 +8,20 @@ class AuditTests(unittest.TestCase):
         self.now=1800000000000
         self.payload=dict(ruleVersion=a.RULE_VERSION,direction='LONG',shadowDirection='NEUTRAL',barAt=self.now-300000,price=100,priceAt=self.now,products=[],selection=[],origin='background')
     def record(self):return a.normalize(self.payload,self.now)[1]
+    def test_malformed_nested_evidence_rejected_before_persistence(self):
+        from unittest.mock import Mock
+        invalid=[{'products':[None]}, {'products':[[]]},
+                 {'products':[{'reasons':'incorrect shape'}]},
+                 {'products':[{'isin':[]}]}, {'products':[{'researchAt':{}}]},
+                 {'gateReasons':'incorrect shape'}]
+        for update in invalid:
+            with self.subTest(update=update):
+                conn=Mock()
+                with self.assertRaises(ValueError):a.write(conn,{**self.payload,**update})
+                conn.execute.assert_not_called()
+    def test_optional_product_reasons_may_be_null(self):
+        record=a.normalize({**self.payload,'products':[{'isin':'DE000BOB0018','reasons':None}]},self.now)[1]
+        self.assertEqual(record['products'][0]['isin'],'DE000BOB0018')
     def test_idempotent_frozen_decision(self):
         key,r=a.normalize(self.payload,self.now)
         self.assertEqual(key,a.normalize(self.payload,self.now+1000)[0])

@@ -39,6 +39,8 @@ def rejection_code(exc):
         'Entscheidungs-Kerzenzeit fehlt oder liegt in der Zukunft': 'bar-time-invalid',
         'Zu viele Produkte': 'product-count-invalid',
         'Ungültige Protokollquelle': 'origin-invalid',
+        'Ungültige Produktdaten im Prüfprotokoll': 'product-shape-invalid',
+        'Ungültige Prüfhinweise': 'reasons-invalid',
     }
     return known.get(str(exc), 'other-validation-error')
 
@@ -74,6 +76,16 @@ def normalize(payload, now=None):
     if not isinstance(intraday,dict) or intraday.get('version')!='intraday-v1' or intraday.get('direction') not in ('LONG','SHORT','NEUTRAL'):result['intraday']=None
     if not isinstance(result.get('products'), list): result['products'] = []
     if len(result['products']) > 12: raise ValueError('Zu viele Produkte')
+    # Reject malformed nested evidence before persistence: a single null or
+    # list here otherwise breaks every report that reads the stored record.
+    if any(not isinstance(p, dict) or
+           (p.get('isin') is not None and not isinstance(p['isin'], str)) or
+           isinstance(p.get('researchAt'), (list, dict)) or
+           (p.get('reasons') is not None and not isinstance(p['reasons'], list))
+           for p in result['products']):
+        raise ValueError('Ungültige Produktdaten im Prüfprotokoll')
+    if result.get('gateReasons') is not None and not isinstance(result['gateReasons'], list):
+        raise ValueError('Ungültige Prüfhinweise')
     at = milliseconds(result.get('priceAt'))
     minute=result.get('minuteEntry')
     if not isinstance(minute,dict) or minute.get('version')!='minute-entry-v1' or minute.get('direction') not in ('LONG','SHORT','NEUTRAL'):result['minuteEntry']=None
@@ -363,7 +375,7 @@ def _build_report(conn):
             key=(p.get('isin'),p.get('researchAt'))
             if key in seen:continue
             seen.add(key)
-            conflicts=[str(x) for x in p.get('reasons',[]) if 'widerspr' in str(x).lower()]
+            conflicts=[str(x) for x in (p.get('reasons') or []) if 'widerspr' in str(x).lower()]
             research.append({'isin':p.get('isin'),'source':p.get('researchSource'),'at':p.get('researchAt'),'conflicts':conflicts})
     result['researchReview']={'observations':len(research),'conflicts':sum(bool(p['conflicts']) for p in research),'missingSourceOrTime':sum(not p['source'] or not p['at'] for p in research),'examples':[p for p in research if p['conflicts']][:10],'note':'Widersprüche sind Prüfhinweise, keine automatisch bewiesenen Recherchefehler. Abrufzeit beweist keine Aktualität der Produktwerte.'}
     return result
