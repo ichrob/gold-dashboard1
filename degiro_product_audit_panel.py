@@ -80,6 +80,17 @@ PANEL = r'''<section id="bobProductAudit" class="card">
      p.append(a,document.createTextNode(' · '+candidate.note));comparison.append(p);
    }
    node.append(comparison);
+   const check=item.marketCrossCheck;
+   if(check&&typeof check==='object'){
+     const p=document.createElement('p');p.className='small';
+     const reasons=Array.isArray(check.reasons)?check.reasons:[];
+     const number=x=>typeof x==='number'&&Number.isFinite(x)?x.toLocaleString('de-CH',{maximumFractionDigits:4}):'unbekannt';
+     p.textContent='Automatischer Börsen-/SG-Kursvergleich: '+
+       (check.checked?'Zeitlicher Abgleich mit separater ISIN und Handelsplatz möglich · Preisabweichung '+
+         number(check.deviationPct)+' % · maximaler Zeitversatz '+number(check.timeSkewSeconds)+' s':'noch nicht vollständig belegbar')+
+       '. '+reasons.join(' ')+' Kein Zugriff auf DEGIRO-Orderkurse; keine Ausführungszusage.';
+     node.append(p);
+   }
    if(item.isin==='DE000FG8NHQ3'&&item.issuerVenue==='Swiss DOTS (CHF)'){
      const link=document.createElement('a');
      link.href='https://www.swissquote.com/de-ch/private/trade/products/swiss-dots';
