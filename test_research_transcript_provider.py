@@ -11,8 +11,9 @@ RAW={'lang':'de','content':[{'lang':'de','offset':1500,'text':'Gold bleibt unter
 class ProviderTests(unittest.TestCase):
     def test_disabled_without_key_and_invalid_identity(self):
         connect=Mock()
-        with patch.dict(os.environ,{'SUPADATA_API_KEY':''}):
-            with self.assertRaisesRegex(ValueError,'noch nicht eingerichtet'):p.handle(connect,PAYLOAD)
+        for key in ('', ' \t\n '):
+            with patch.dict(os.environ,{'SUPADATA_API_KEY':key}):
+                with self.assertRaisesRegex(ValueError,'noch nicht eingerichtet'):p.handle(connect,PAYLOAD)
         connect.assert_not_called()
         for payload in [dict(PAYLOAD,channelId='other'),dict(PAYLOAD,videoId='https://evil.test')]:
             with self.assertRaises(ValueError):p.handle(connect,payload)
@@ -55,6 +56,12 @@ class DatabaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):p.handle(self.connect,other,failure)
         with self.assertRaisesRegex(ValueError,'pausiert'):p.handle(self.connect,other,failure)
         failure.assert_called_once()
+    def test_surrounding_whitespace_in_env_key_is_removed_before_provider_call(self):
+        fetch=Mock(return_value=p.parse(RAW))
+        with patch.dict(os.environ,{'SUPADATA_API_KEY':' \tfixture-secret\n '}):
+            p.handle(self.connect,PAYLOAD,fetch)
+        fetch.assert_called_once_with(PAYLOAD['videoId'],'fixture-secret')
+
     def test_provider_auth_blocks_other_video_without_burning_credits(self):
         bad=Mock(side_effect=p.TranscriptError('provider_auth'))
         with self.assertRaises(p.TranscriptError) as first:
