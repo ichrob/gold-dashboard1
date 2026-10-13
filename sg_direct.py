@@ -178,23 +178,41 @@ def associate_shared_observation(result):
     # observation context, without turning it into a leverage source clock.
     if not (-5 <= seconds <= 90):
         return
-    fields = ['Geld', 'Brief', 'ISIN', 'Produktwährung', 'Produktrichtung']
-    fields += sorted(result.get('conditions', {}))
+    # One observation series dates *every value actually read* in this cycle.
+    # A separately published/effective timestamp remains authoritative and
+    # must never be replaced by the chart time.
+    observations = {}
+    def observed(name, value, source_at=None, source_date=None):
+        if value is not None and value != '':
+            observations[name] = dict(value=value, contextAt=at,
+                contextKind='issuer-collection', sourceAt=source_at,
+                sourceDate=source_date, isin=result['isin'])
+    observed('ISIN', result['isin'])
+    observed('Geld', chart.get('bid'), at)
+    observed('Brief', chart.get('ask'), at)
+    for key in ('name', 'direction', 'currency', 'underlying',
+                'underlyingType', 'status', 'ko', 'strike', 'ratio',
+                'contract'):
+        observed(key, result.get('metadata', {}).get(key))
+    for key, condition in result.get('conditions', {}).items():
+        # An observed term has a shared *observation* clock; an explicit
+        # condition/effective time is retained separately.
+        observed(key, condition.get('value'), condition.get('at'),
+                 condition.get('dateText'))
+        if condition.get('value') is not None:
+            condition.update(contextAt=at, contextKind='issuer-collection')
     if reference:
-        fields.append('Referenzhebel')
-    result['sharedTimeContext'] = dict(
-        at=at, kind='issuer-collection', isin=result['isin'],
-        timeOrigin='SG-Chartzeit aus derselben Emittenten-Abrufserie',
-        timeDistanceSeconds=round(seconds, 1), fields=fields,
-        note='Gemeinsamer Abrufzeitbezug; keine separat datierte Quellenzeit für Kennzahlen und keine DEGIRO-Ausführung.')
-    for condition in result.get('conditions', {}).values():
-        # Context is shown for every observed field, but cannot renew a KO
-        # validity date or substitute a genuine quote / term sourceAt.
-        condition.update(contextAt=at, contextKind='issuer-collection')
-    if reference:
+        observed('Referenzhebel', reference.get('value'), reference.get('sourceAt'))
         reference.update(sharedContextAt=at,
                          sharedContextKind='issuer-collection',
                          sharedContextNote='Im selben SG-Abruf beobachtet; Chartquellenzeit, keine eigene Hebelquellenzeit.')
+    result['sharedValueObservations'] = observations
+    result['sharedTimeContext'] = dict(
+        at=at, kind='issuer-collection', isin=result['isin'],
+        timeOrigin='SG-Chartzeit aus derselben Emittenten-Abrufserie',
+        timeDistanceSeconds=round(seconds, 1),
+        fields=list(observations),
+        note='Alle tatsächlich beobachteten Werte derselben ISIN teilen diesen Beobachtungszeitbezug. Eigene Quellen- und Gültigkeitszeiten bleiben erhalten; keine DEGIRO-Ausführung.')
 
 
 def get_quote(isin, terms_only=False):
