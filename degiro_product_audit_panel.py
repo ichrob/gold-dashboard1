@@ -42,6 +42,8 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   status.className='small '+(good&&incomplete===0?'ok':'bad');
   updated.textContent='Letzte Hintergrundprüfung (Zürich): '+(r.lastCheckedAt?fmt(r.lastCheckedAt):'noch nicht bestätigt')+' · Listenstand: '+(r.listUploadedAt?fmt(r.listUploadedAt):'nicht bestätigt');
   const help=good?items.filter(i=>i.needsKiHelp):[];
+  window.BobProductAuditHelpCount=help.length;
+  window.BobProblems?.badge?.(window.BobProblemsArchiveCount??null);
   problem.textContent=!good?'Produktüberwachung nicht aktuell · Prüfstatus unbestätigt':(help.length+' Produkte benötigen noch KI-Hilfe · '+incomplete+' insgesamt unvollständig');
   for(const item of items){
    const node=document.createElement('details'),summary=document.createElement('summary');
