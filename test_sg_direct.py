@@ -42,6 +42,50 @@ class DirectTests(unittest.TestCase):
                 self.assertEqual(out['chartEvidence']['ask'],10.01)
                 self.assertFalse(out['eligible'])
 
+    def test_quanto_explicit_flags_and_undated_reference_are_not_trade_proofs(self):
+        for value in (False, 0, 'Nein', 'No', 'false', '0'):
+            with self.subTest(value=value):
+                sg._CACHE.clear(); sg._TERMS.clear()
+                props=self.props+[dict(Name='IsQuanto', Value=value, Suffix=''),
+                                  dict(Name='CurrentLeverage', Value='18,25', Suffix='')]
+                with patch.object(q, 'issuer_json', side_effect=[self.product, props, self.points]):
+                    got=sg.get_quote(ISIN)
+                self.assertEqual(got['metadata']['quantoState'], 'non-quanto')
+                self.assertTrue(got['metadata']['simpleNonQuantoTurbo'])
+                self.assertEqual(got['issuerLeverageReference']['value'], 18.25)
+                self.assertIsNone(got['issuerLeverageReference']['sourceAt'])
+                self.assertFalse(got['issuerLeverageReference']['eligible'])
+                self.assertNotIn('leverageAt', got)
+                self.assertNotIn('leverage', got)
+                self.assertFalse(got['found'])
+                self.assertFalse(got['eligible'])
+
+    def test_missing_conflicting_or_quanto_true_never_enables_model(self):
+        cases=(
+            ([], 'unknown'),
+            ([dict(Name='IsQuanto', Value='perhaps', Suffix='')], 'unknown'),
+            ([dict(Name='IsQuanto', Value='Nein', Suffix=''),
+              dict(Name='Quanto', Value='Ja', Suffix='')], 'unknown'),
+            ([dict(Name='Quanto', Value='Yes', Suffix='')], 'quanto'),
+        )
+        for extra, expected in cases:
+            with self.subTest(expected=expected, extra=extra):
+                sg._CACHE.clear(); sg._TERMS.clear()
+                with patch.object(q, 'issuer_json', side_effect=[self.product, self.props+extra, self.points]):
+                    got=sg.get_quote(ISIN)
+                self.assertEqual(got['metadata']['quantoState'], expected)
+                self.assertFalse(got['metadata']['simpleNonQuantoTurbo'])
+                self.assertFalse(got['eligible'])
+
+    def test_product_level_quanto_must_not_contradict_property(self):
+        sg._CACHE.clear(); sg._TERMS.clear()
+        product=dict(self.product,IsQuanto=True)
+        props=self.props+[dict(Name='IsQuanto',Value=False,Suffix='')]
+        with patch.object(q, 'issuer_json', side_effect=[product, props, self.points]):
+            got=sg.get_quote(ISIN)
+        self.assertEqual(got['metadata']['quantoState'],'unknown')
+        self.assertFalse(got['metadata']['simpleNonQuantoTurbo'])
+
     def test_import_cache_and_no_false_trade_release(self):
         with patch.object(q,'issuer_json',side_effect=[self.product,self.props,self.points]) as fetch:
             out=sg.get_quote(ISIN); cached=sg.get_quote(ISIN)
