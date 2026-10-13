@@ -123,5 +123,5 @@ assert.equal(companion.leverage,27.76);
 assert.equal(companion.degiroDisplayedQuote?.sourceTime,'13/10/2026 15:23');
 assert.equal(companion.evidence.Geld?.value,13.31);
 assert.equal(companion.evidence.Brief?.value,13.32);
-assert.equal(b.currentQuote({isin:'DE000BOB0018',price:13.32,quote:{...companion}},Date.parse('2026-10-13T15:24:00+02:00')),false);
+assert(!b.currentQuote({isin:'DE000BOB0018',price:13.32,quote:{...companion}},Date.parse('2026-10-13T15:24:00+02:00')));
 
