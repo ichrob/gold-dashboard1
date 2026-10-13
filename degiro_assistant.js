@@ -1388,7 +1388,12 @@ function selectionDetailStatus(p,now=Date.now(),seriesAnalysis=false){
   const own=selectionTimeWindow(x.times[key].text);
   if(!own||now<own.start||now-own.start>SCREENSHOT_MAX_AGE_MS||!time||own.end<time.start||own.start>time.end)reasons.push('Widersprüchliche oder ungültige '+(key==='bid'?'Geldzeit':'Briefzeit')+' am Original prüfen');
  }
- if(x?.times?.leverage?.present&&!evidenceTiming(e.Hebel,now).fresh)reasons.push('Eigene Hebelzeit ist ungültig oder veraltet');
+ if(x?.times?.leverage?.present&&!x.times.leverage.fromSeries){
+  const own=selectionTimeWindow(x.times.leverage.text),actual=Date.parse(x.times.leverage.at);
+  if(!own||!Number.isFinite(actual)||actual!==own.start
+   ||!evidenceTiming(e.Hebel,now).fresh||Date.parse(e.Hebel?.at)!==actual)
+   reasons.push('Eigene Hebelzeit ist ungültig oder veraltet');
+ }
  if(x?.delayed)reasons.push('Nicht verzögerten Produktkurs ergänzen');
  const commonLeverage=sharedProductFieldTime(p,'Hebel',e.Hebel?.value,now);
  if(!(n(e.Hebel?.value)>=1&&(seriesAnalysis||n(e.Hebel?.value)===n(p.leverage)))
