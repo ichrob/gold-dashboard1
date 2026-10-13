@@ -22,7 +22,8 @@ assert.equal(sameView.evidence.Richtung.contextAt,b.sourceTimestamp(at));
 // KO and strike from this SAME dated view receive the shared observation
 // time, without inventing independent publisher or execution timestamps.
 const singleViewProduct={...product,snapshot:sameView};
-assert.equal(sameView.terms.ko.contextAt,b.sourceTimestamp(at));
+assert.equal(sameView.evidence.KO.contextAt,b.sourceTimestamp(at));
+assert.equal(sameView.terms.ko,undefined,'KO must also work when stored only as a recognized image value');
 assert.equal(b.koEvidenceStatus(singleViewProduct,now).current,true);
 assert.equal(b.koEvidenceStatus(singleViewProduct,now+8*3600000).current,false);
 const withStrike=b.mergeScreenshotEvidence(null,
