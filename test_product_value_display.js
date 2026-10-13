@@ -44,6 +44,29 @@ assert(chfCard.includes('kein bestätigter Ausführungskurs'),chfCard);
 assert(chfCard.includes('rechnerische Näherung'),chfCard);
 assert(chfCard.includes('Analysewerte vorhanden'),chfCard);
 assert.equal(b.currentQuote(chf,now),false);
+// An undated SG issuer gearing is a known reference number, not a missing
+// value or a dated leverage proof. Its issuer snapshot retrieval timestamp
+// cannot change the trade eligibility gate or create leverageAt.
+const researchIsin='DE000FG7N6Z2';
+const sgReference={
+ isin:researchIsin,index:7,isinConfirmed:true,productDirection:'LONG',
+ quote:{isin:researchIsin,productVerified:true,found:false,eligible:false,
+  metadata:{status:1,direction:'LONG',underlyingType:'SPOT',underlying:'XAU/USD'},
+  analysisQuote:{bid:4.91,ask:4.92,currency:'EUR',
+   priceKind:'issuer-chart',isExecutableQuote:false,bidAt:at,askAt:at},
+  issuerLeverageReference:{value:72.9254,dated:false,sourceAt:null,retrievedAt:at}}
+};
+const refFields=b.productFieldStates(sgReference,now);
+assert.equal(refFields.leverage.state,'fehlt');
+assert.equal(refFields.leverage.value,null);
+const refHtml=b.compactProductCard(sgReference);
+assert(refHtml.includes('SG-Hebelreferenz vorhanden · eigene Quellenzeit fehlt'),refHtml);
+assert(refHtml.includes('72.9254'),refHtml);
+assert(refHtml.includes('Aktueller Hebel nicht zeitlich bestätigt'),refHtml);
+assert(refHtml.includes('keine SG-Hebelquellenzeit'),refHtml);
+assert(!refHtml.includes('Daten vollständig'),refHtml);
+assert(!b.currentQuote(sgReference,now));
+
 const oldChf=structuredClone(chf);
 oldChf.quote.nativeChartEvidence.pointAt=new Date(now-600000).toISOString();
 assert(b.compactProductCard(oldChf).includes('nicht aktuell'));
