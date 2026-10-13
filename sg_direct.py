@@ -154,6 +154,46 @@ def conditions(product, properties, result):
         result['metadata']['strike'] = observed['strike']
 
 
+def associate_shared_observation(result):
+    """Record a common *observation context*, never an invented issuer clock.
+
+    The properties and SG chart are separate endpoints. Associate their values
+    only when the same verified ISIN was read in one recent, coherent cycle.
+    The chart point time remains a chart time, NOT a dated issuer leverage.
+    """
+    reference = result.get('issuerLeverageReference')
+    chart = result.get('chartEvidence') or {}
+    at = chart.get('pointAt')
+    terms_at = result.get('termsCheckedAt')
+    if not (at and terms_at and result.get('productVerified')):
+        return
+    try:
+        source = q.stamp(at)
+        observed = q.stamp(terms_at)
+    except (ValueError, TypeError, KeyError):
+        return
+    seconds = (observed - source).total_seconds()
+    if not (0 <= seconds <= 90):
+        return
+    fields = ['Geld', 'Brief', 'ISIN', 'Produktwährung', 'Produktrichtung']
+    fields += sorted(result.get('conditions', {}))
+    if reference:
+        fields.append('Referenzhebel')
+    result['sharedTimeContext'] = dict(
+        at=at, kind='issuer-collection', isin=result['isin'],
+        timeOrigin='SG-Chartzeit aus derselben Emittenten-Abrufserie',
+        timeDistanceSeconds=round(seconds, 1), fields=fields,
+        note='Gemeinsamer Abrufzeitbezug; keine separat datierte Quellenzeit für Kennzahlen und keine DEGIRO-Ausführung.')
+    for condition in result.get('conditions', {}).values():
+        # Context is shown for every observed field, but cannot renew a KO
+        # validity date or substitute a genuine quote / term sourceAt.
+        condition.update(contextAt=at, contextKind='issuer-collection')
+    if reference:
+        reference.update(sharedContextAt=at,
+                         sharedContextKind='issuer-collection',
+                         sharedContextNote='Im selben SG-Abruf beobachtet; Chartquellenzeit, keine eigene Hebelquellenzeit.')
+
+
 def get_quote(isin, terms_only=False):
     origin = q.sg_market(isin)[0]
     if isin not in q.SG_DIRECT_PRODUCTS and isin not in q.SG_DISCOVERY_PRODUCTS and not q.sg_on_demand_candidate(isin):
@@ -173,7 +213,7 @@ def get_quote(isin, terms_only=False):
         stage = 'identity'
         try:
             terms = _TERMS.get(isin)
-            if terms and time.monotonic()-terms[0] < 300:
+            if terms and time.monotonic()-terms[0] < INTERVAL:
                 product, properties, observed_at = terms[1:]
             else:
                 origin = q.sg_market(isin)[0]
@@ -217,6 +257,7 @@ def get_quote(isin, terms_only=False):
                 chart = q.parse_sg_chart_research(product, points, isin,
                     verified_id=product['Id'] if (isin in q.SG_DISCOVERY_PRODUCTS or q.sg_on_demand_candidate(isin)) else None)
                 result['chartEvidence'] = chart['chartEvidence']
+                associate_shared_observation(result)
                 result['reason'] = ('SG-Direktimport aktiv (30 s): Stammdaten übernommen; '
                     'Geld/Brief als datierter Chartnachweis. Basispreis/KO verwenden den Zeitbezug der automatischen Abrufserie; Hebelnachweise werden separat geprüft.')
         except Exception as exc:
