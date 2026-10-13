@@ -124,7 +124,12 @@ vm.runInContext(code,context);const b=context.window.BobDegiro;b.setTestWorker(w
  for(const items of [[[terms,'terms.jpg'],[quote,'quote.jpg']],[[quote,'quote.jpg'],[terms,'terms.jpg']]]){
   const snapshot=make(items),p={isin,isinConfirmed:true,productDirection:'SHORT',price:8.65,leverage:45,ko:4246.7452,snapshot};
   const result=b.finalProductStatus(p,now);
-  assert(!result.complete);assert.deepEqual(Array.from(result.reasons).filter(r=>!/^KO-/.test(r)),['Basiswert ungenau: Gold allein bestätigt keinen Spot-Basiswert']);assert(result.reasons.some(r=>r.includes('belegter Zeitbezug fehlt')));
+  assert(!result.complete);
+  assert(result.reasons.some(r=>r.includes('Basiswert ungenau: Gold allein bestätigt keinen Spot-Basiswert')));
+  // The quote image shows no timezone, so its independent leverage clock is
+  // not proven just because the neighboring product price was recognized.
+  assert(result.reasons.some(r=>r.includes('Aktuelles Detailbild mit Hebel und zugehöriger Zeit')));
+  assert(result.reasons.some(r=>r.includes('belegter Zeitbezug fehlt')));
   assert(!b.compactProductCard(p,result.reasons).includes('Geld, Brief und Quellenzeit'));
   assert(b.compactProductCard(p,result.reasons).includes('Basiswert „Gold“ erkannt'));
   assert(b.productTermsStatus(p,now+86400000).reasons.some(r=>/Knock-out|KO-Schwelle/.test(r)));
