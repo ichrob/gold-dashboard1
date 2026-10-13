@@ -53,6 +53,12 @@ class DirectTests(unittest.TestCase):
                 self.assertEqual(got['metadata']['quantoState'], 'non-quanto')
                 self.assertTrue(got['metadata']['simpleNonQuantoTurbo'])
                 self.assertEqual(got['issuerLeverageReference']['value'], 18.25)
+                self.assertEqual(got['issuerLeverageReference']['sharedContextAt'], got['chartEvidence']['pointAt'])
+                self.assertEqual(got['sharedTimeContext']['isin'], ISIN)
+                self.assertIn('Referenzhebel', got['sharedTimeContext']['fields'])
+                self.assertIn('ko', got['sharedTimeContext']['fields'])
+                self.assertEqual(got['conditions']['ko']['contextAt'], got['chartEvidence']['pointAt'])
+                self.assertIsNone(got['conditions']['ko']['at'])
                 self.assertIsNone(got['issuerLeverageReference']['sourceAt'])
                 self.assertFalse(got['issuerLeverageReference']['eligible'])
                 self.assertNotIn('leverageAt', got)
@@ -99,20 +105,36 @@ class DirectTests(unittest.TestCase):
         self.assertEqual(out['observedTerms']['strike'],4400)
         self.assertEqual(out['metadata']['status'],1)
         self.assertEqual(out['metadata']['sgStatus'],65)
-    def test_term_series_cache_does_not_gain_quote_refresh_time(self):
+    def test_term_series_refreshes_only_after_reobserving_same_product(self):
         with patch.object(sg.time,'monotonic',return_value=0), patch.object(q,'issuer_json',side_effect=[self.product,self.props,self.points]):
             first=sg.get_quote(ISIN)
-        with patch.object(sg.time,'monotonic',return_value=31), patch.object(q,'issuer_json',return_value=self.points):
+        # A new 30-second cycle re-fetches ALL SG values; unlike a chart
+        # refresh alone, it produces new provenance for newly observed terms.
+        with patch.object(sg.time,'monotonic',return_value=31), patch.object(q,'issuer_json',side_effect=[self.product,self.props,self.points]) as fetch:
             refreshed=sg.get_quote(ISIN)
+        self.assertEqual(fetch.call_count,3)
         for key in ('strike','ko'):
             before=first['conditions'][key]['validitySeries']
             after=refreshed['conditions'][key]['validitySeries']
-            self.assertEqual(before,after)
-            self.assertEqual(after['observedAt'],first['termsCheckedAt'])
+            self.assertEqual(before['observedAt'],first['termsCheckedAt'])
+            self.assertEqual(after['observedAt'],refreshed['termsCheckedAt'])
             self.assertEqual(after['isin'],ISIN)
             self.assertIsNone(refreshed['conditions'][key]['at'])
+            self.assertFalse(refreshed['conditions'][key]['conditionVerified'])
         self.assertFalse(refreshed['metadata']['termsDated'])
         self.assertFalse(refreshed['eligible'])
+
+    def test_stale_sg_chart_cannot_date_reference_or_static_conditions(self):
+        self.points = [dict(Bid=10, Ask=10.01,
+            Date=(datetime.now(timezone.utc)-timedelta(minutes=6)).isoformat())]
+        props = self.props + [dict(Name='CurrentLeverage', Value='31.4', Suffix='')]
+        with patch.object(q,'issuer_json',side_effect=[self.product, props, self.points]):
+            old = sg.get_quote(ISIN)
+        self.assertNotIn('sharedTimeContext', old)
+        self.assertNotIn('sharedContextAt', old['issuerLeverageReference'])
+        self.assertIsNone(old['issuerLeverageReference']['sourceAt'])
+        self.assertIsNone(old['conditions']['ko']['at'])
+        self.assertFalse(old['eligible'])
 
     def test_identity_mismatch_stops_before_properties(self):
         self.product['Isin']='DE000FG4JXV7'

@@ -11,6 +11,19 @@ for(const t of ['01/10/2026 06:00 CEST','01/10/2026 06:00:00','31/02/2026 06:00:
 const read=extra=>b.detailScreenshotData(isin+'\nEUR\nSHORT\nGeld 24,81\nBrief 24,82\nHebel 14.01\nKO 4460\n'+extra,isin);
 const snapshot=b.mergeScreenshotEvidence(null,read('Kurszeit: '+at+'\nHebelzeit: '+at+'\nKO-Zeit: '+at),'full.jpg');
 const product={isin,price:24.82,spread:0.01,leverage:14.01,ko:4460,productDirection:'SHORT',isinConfirmed:true,spot:4000};
+// A single timestamp on the same verified view dates the OBSERVATION of all
+// values. Explicit field times take precedence, KO validity is unchanged.
+const sameView=b.mergeScreenshotEvidence(null,read('Kurszeit: '+at),'same-sg-view.jpg');
+assert.equal(sameView.evidence.Hebel.at,b.sourceTimestamp(at));
+assert.equal(sameView.evidence.Hebel.fromSharedContext,true);
+assert.equal(sameView.evidence.KO.at,null);
+assert.equal(sameView.evidence.KO.contextAt,b.sourceTimestamp(at));
+assert.equal(sameView.evidence.Richtung.contextAt,b.sourceTimestamp(at));
+const conflictingLeverage=b.mergeScreenshotEvidence(null,read('Kurszeit: '+at+'\nHebelzeit: 01/10/2026 06:00:00'),'invalid-gear-clock.jpg');
+assert.equal(conflictingLeverage.evidence.Hebel.at,null);
+assert.equal(conflictingLeverage.evidence.Hebel.contextAt,b.sourceTimestamp(at));
+assert(!b.currentQuote({...product,snapshot:sameView},now)); // shared evidence never becomes a broker feed
+
 assert(b.manualSnapshotStatus(product,snapshot,now).complete);
 assert(!b.manualSnapshotStatus(product,snapshot,now).liveVerified);
 assert(b.manualSnapshotStatus(product,snapshot,now+14*3600000-30000).complete); // exactly 14 hours
