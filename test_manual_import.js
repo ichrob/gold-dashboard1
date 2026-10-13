@@ -41,6 +41,12 @@ const mismatchedScreenshot={...singleViewProduct,snapshot:{...sameView,evidence:
 assert.equal(b.sharedProductFieldTime(mismatchedScreenshot,'KO',4460,now),null);
 const foreignProduct={...singleViewProduct,isin:'DE000FG7K283'};
 assert.equal(b.sharedProductFieldTime(foreignProduct,'KO',4460,now),null);
+const independentOldKo=b.mergeScreenshotEvidence(null,
+ read('Kurszeit: '+at+'\nKO-Zeit: 30/09/2026 21:00:00 CEST'),'own-ko.jpg');
+const independentOldProduct={...product,snapshot:independentOldKo};
+assert.equal(b.sharedProductFieldTime(independentOldProduct,'KO',4460,now),null,
+ 'an older independent KO clock must not be renewed by shared price time');
+assert.equal(b.manualSnapshotStatus(product,independentOldKo,now).complete,false);
 const withStrike=b.mergeScreenshotEvidence(null,
  b.detailScreenshotData(isin+'\nEUR\nSHORT\nGeld 24,81\nBrief 24,82\nHebel 14.01\nKO 4460\nBasispreis 4430 USD\nKurszeit: '+at,isin),
  'same-view-terms.jpg');
