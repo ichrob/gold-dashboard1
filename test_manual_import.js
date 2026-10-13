@@ -19,7 +19,6 @@ assert.equal(sameView.evidence.Hebel.fromSharedContext,true);
 assert.equal(sameView.evidence.KO.at,null);
 assert.equal(sameView.evidence.KO.contextAt,b.sourceTimestamp(at));
 assert.equal(sameView.evidence.Richtung.contextAt,b.sourceTimestamp(at));
-assert.equal(sameView.evidence.Richtung.contextAt,b.sourceTimestamp(at));
 // KO and strike from this SAME dated view receive the shared observation
 // time, without inventing independent publisher or execution timestamps.
 const singleViewProduct={...product,snapshot:sameView};
@@ -27,7 +26,7 @@ assert.equal(sameView.terms.ko.contextAt,b.sourceTimestamp(at));
 assert.equal(b.koEvidenceStatus(singleViewProduct,now).current,true);
 assert.equal(b.koEvidenceStatus(singleViewProduct,now+8*3600000).current,false);
 const withStrike=b.mergeScreenshotEvidence(null,
- b.detailScreenshotData(isin+'\\nEUR\\nSHORT\\nGeld 24,81\\nBrief 24,82\\nHebel 14.01\\nKO 4460\\nBasispreis 4430 USD\\nKurszeit: '+at,isin),
+ b.detailScreenshotData(isin+'\nEUR\nSHORT\nGeld 24,81\nBrief 24,82\nHebel 14.01\nKO 4460\nBasispreis 4430 USD\nKurszeit: '+at,isin),
  'same-view-terms.jpg');
 assert.equal(withStrike.terms.strike?.contextAt,b.sourceTimestamp(at));
 assert(b.productTermsStatus({...product,snapshot:withStrike},now,true).values.strike>0);
