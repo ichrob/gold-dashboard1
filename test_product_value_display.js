@@ -67,6 +67,16 @@ assert(refHtml.includes('keine SG-Hebelquellenzeit'),refHtml);
 assert(!refHtml.includes('Daten vollständig'),refHtml);
 assert(!b.currentQuote(sgReference,now));
 
+// A verified common collection time is visible but not a tradeable gearing clock.
+const linkedSg=structuredClone(sgReference);
+linkedSg.quote.sharedTimeContext={at,isin:researchIsin,timeOrigin:'SG-Chartzeit'};
+linkedSg.quote.issuerLeverageReference.sharedContextAt=at;
+const linkedHtml=b.compactProductCard(linkedSg);
+assert(linkedHtml.includes('SG-Referenzhebel (gemeinsamer Zeitbezug)'),linkedHtml);
+assert(linkedHtml.includes('SG-Chartzeit derselben automatischen Abrufserie'),linkedHtml);
+assert(linkedHtml.includes('Keine eigene Hebelquellenzeit'),linkedHtml);
+assert(!b.currentQuote(linkedSg,now));
+
 const oldChf=structuredClone(chf);
 oldChf.quote.nativeChartEvidence.pointAt=new Date(now-600000).toISOString();
 assert(b.compactProductCard(oldChf).includes('nicht aktuell'));
