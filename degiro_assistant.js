@@ -2169,8 +2169,9 @@ function termSeriesReference(p,key,e,now=Date.now()){
  // A value in ONE dated, identified product view has the same observation
  // context as all other values in that view; a multi-image selection may
  // establish the context when the corresponding source image belongs to it.
- if(e.contextKind==='image-view'&&e.contextTimeText&&e.contextAt){
-  const time=selectionTimeWindow(e.contextTimeText),recorded=Date.parse(e.contextAt);
+ if(e.contextKind==='image-view'&&e.contextTimeText){
+  const time=selectionTimeWindow(e.contextTimeText);
+  const recorded=e.contextAt?Date.parse(e.contextAt):time?.start;
   if(time&&Number.isFinite(recorded)&&recorded===time.start
      &&now>=recorded&&now-recorded<=86400000)
    return {origin:'image-view',text:e.contextTimeText,label:'Gemeinsamer Zeitbezug derselben Produktansicht'};
@@ -2390,8 +2391,20 @@ function renderProductFieldStates(p){
  const detail=calculation?.available?'<div>Berechnungsbasis: Briefkurs '+esc(calculation.inputs?.askNative??calculation.inputs?.askEur)+' '+esc(calculation.inputs?.quoteCurrency||'EUR')+' · Quellenzeit '+esc(calculation.inputs?.askAt)+' · '+esc(calculation.inputs?.priceKind==='issuer-chart'?'Chartbeobachtung':calculation.inputs?.priceSource)+'<br>Basiswert: '+esc(calculation.inputs?.basisEstimated?'geschätzt':calculation.inputs?.basisDelayed?'verzögerter Quellenkurs':'Quellenkurs')+' · '+esc(calculation.inputs?.basisSource)+' · '+esc(calculation.inputs?.contract||'Gold Spot')+'<br>Zeitabstand der Eingangskurse: '+esc(calculation.skewSeconds)+' s (Analysetoleranz: '+esc(calculation.maxAllowedSkewSeconds||30)+' s; maximales Datenalter: '+esc(calculation.maxAllowedInputAgeSeconds||90)+' s)</div>':'';
  const comparisonDetail=comparison?'<div>Hebelvergleich: '+esc(comparison.comparable?(comparison.warning?'Auffällige Abweichung: ':'Abweichung: ')+comparison.relativeDifferencePct+' % · '+comparison.note:comparison.reason)+'</div>':'';
  const native=p.quote?.nativeChartEvidence,fx=p.quote?.currencyConversion;
+ const shared=p.quote?.isin===p.isin&&p.quote?.productVerified?p.quote?.sharedTimeContext:null;
+ const observations=p.quote?.sharedValueObservations||{};
+ const allValues=shared&&shared.isin===p.isin&&Array.isArray(shared.fields)
+  ?shared.fields.filter(k=>observations[k]?.isin===p.isin&&observations[k].contextAt===shared.at)
+  :[];
+ const commonBlock=allValues.length?
+  '<details data-shared-product-values><summary>Gemeinsamer SG-Zeitbezug · alle erfassten Werte ('+allValues.length+')</summary>'+
+  '<div>Beobachtungszeitpunkt: '+esc(shared.at)+' · alle angezeigten Werte wurden für dieselbe ISIN in dieser SG-Abrufserie erfasst. Eigene Quellenzeit und Gültigkeitsdatum bleiben vorrangig.</div>'+
+  allValues.map(k=>'<div><b>'+esc(k)+': '+esc(observations[k].value)+'</b> · gemeinsamer Zeitbezug '+esc(observations[k].contextAt)+
+  (observations[k].sourceAt?' · eigene Quellenzeit '+esc(observations[k].sourceAt):'')+
+  (observations[k].sourceDate?' · eigenes Gültigkeitsdatum '+esc(observations[k].sourceDate):'')+'</div>').join('')+
+  '</details>':'';
  const nativeInfo=native?'<div><b>Originalkurs CHF: Geld '+esc(native.bid)+' / Brief '+esc(native.ask)+'</b><br>Quellenzeit '+esc(native.pointAt)+(fx?'<br>Für die Analyse in EUR umgerechnet · CHF/EUR '+esc(fx.rate)+' · '+esc(fx.at):'<br>EUR-Umrechnung noch nicht verfügbar')+'</div>':'';
- return '<div class="small" data-field-status>'+nativeInfo+detail+comparisonDetail+Object.values(fields).map(f=>'<div><b>'+valuePresenceMark(f.state==='fehlt')+' '+esc(f.key)+(f.kind==='issuer-chart'?' (Chartkurs)':'')+': '+esc(f.key==='Hebel'&&n(f.value)>0?Number(f.value).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2}):f.value??'—')+' · '+esc(f.state)+'</b>'+ (f.at?'<br>'+ (f.fromSeries?'Zeitbezug der Aufnahmeserie ':f.kind==='issuer-reference'?'Gemeinsamer SG-Hebel-Zeitbezug ':f.fromSharedContext?'Gemeinsamer Zeitbezug derselben Produktansicht ':'Quellenzeit ')+esc(f.at)+' · '+esc(f.ageSeconds)+' s alt':f.fromSeries&&f.timeText?'<br>Zeitbezug der Aufnahmeserie '+esc(f.timeText)+(/\d{2}[/.]\d{2}[/.]\d{4}/.test(f.timeText)?' · Sekunden unbekannt':' · Kursdatum fehlt'):'')+'<br>'+esc(f.source)+(f.kind==='issuer-chart'?' · Chartbeobachtung, kein ausführbarer Kursnachweis':'')+'</div>').join('')+(p.quote?.leverageEstimated?'<div>'+esc(p.quote.leverageNote)+'</div>':'')+(p.quote?.leverageCalculation?.available===false?'<div>Hebelberechnung: '+esc(p.quote.leverageCalculation.reason)+'</div>':'')+(p.quote?.backupStatus?.state==='unavailable'?'<div>Onvista-Backup derzeit nicht verfügbar: '+esc(p.quote.backupStatus.code)+'</div>':'')+'</div>';
+ return '<div class="small" data-field-status>'+nativeInfo+commonBlock+detail+comparisonDetail+Object.values(fields).map(f=>'<div><b>'+valuePresenceMark(f.state==='fehlt')+' '+esc(f.key)+(f.kind==='issuer-chart'?' (Chartkurs)':'')+': '+esc(f.key==='Hebel'&&n(f.value)>0?Number(f.value).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2}):f.value??'—')+' · '+esc(f.state)+'</b>'+ (f.at?'<br>'+ (f.fromSeries?'Zeitbezug der Aufnahmeserie ':f.kind==='issuer-reference'?'Gemeinsamer SG-Hebel-Zeitbezug ':f.fromSharedContext?'Gemeinsamer Zeitbezug derselben Produktansicht ':'Quellenzeit ')+esc(f.at)+' · '+esc(f.ageSeconds)+' s alt':f.fromSeries&&f.timeText?'<br>Zeitbezug der Aufnahmeserie '+esc(f.timeText)+(/\d{2}[/.]\d{2}[/.]\d{4}/.test(f.timeText)?' · Sekunden unbekannt':' · Kursdatum fehlt'):'')+'<br>'+esc(f.source)+(f.kind==='issuer-chart'?' · Chartbeobachtung, kein ausführbarer Kursnachweis':'')+'</div>').join('')+(p.quote?.leverageEstimated?'<div>'+esc(p.quote.leverageNote)+'</div>':'')+(p.quote?.leverageCalculation?.available===false?'<div>Hebelberechnung: '+esc(p.quote.leverageCalculation.reason)+'</div>':'')+(p.quote?.backupStatus?.state==='unavailable'?'<div>Onvista-Backup derzeit nicht verfügbar: '+esc(p.quote.backupStatus.code)+'</div>':'')+'</div>';
 }
 // A current native quote and its own FX evidence supersede the old screenshot
 // quote for analysis selection. The image and its gearing retain original clocks.
