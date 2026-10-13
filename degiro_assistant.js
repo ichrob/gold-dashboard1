@@ -1776,6 +1776,9 @@ function renderPrimaryProductValues(p,now=Date.now()){
  const refNote=undatedLever?.dated===false&&n(undatedLever.value)>0
   ?'<br><b>SG-Referenzhebel ('+(linked?'gemeinsamer Zeitbezug':'ohne Kurszeit')+'): '+esc(fmt(undatedLever.value))+'×</b> · '+(linked?'SG-Chartzeit derselben automatischen Abrufserie: '+esc(sharedStamp)+' · alle dort erfassten Kennzahlen und Stammdaten teilen diesen Beobachtungsbezug. Keine eigene Hebelquellenzeit. ':'')+'Nur Information, keine aktuelle Hebelbestätigung oder Handelsfreigabe.'+refRetrievedNote
   :'';
+ const missingSgReferenceNote=q?.importActive===true&&q?.productVerified===true
+  &&fields.leverage.state==='fehlt'&&!(n(undatedLever?.value)>0)
+  ?'<br>SG-Referenzhebel: Von der automatisch abgefragten SG-Quelle nicht geliefert. Ein gemeinsamer Zeitbezug belegt nur vorhandene Werte; er ersetzt keinen fehlenden Hebel.':'';
  const headline=chart?(current?'Aktuelle SG-Chartbeobachtung':'SG-Chartbeobachtung · nicht aktuell'):current?'Aktueller Anbieterwert':'Gespeicherte Referenz';
  const labels=chart?' · Chartkurs, kein bestätigter Ausführungskurs':'';
  const note=pair&&!current?' · Datenalter überschreitet Analysefenster':'';
@@ -1786,7 +1789,7 @@ function renderPrimaryProductValues(p,now=Date.now()){
   '<br>'+valuePresenceMark(fields.leverage.state==='fehlt')+(fields.leverage.state==='fehlt'&&undatedLever?.dated===false&&n(undatedLever.value)>0?' Aktueller Hebel nicht zeitlich bestätigt':' Hebel '+fmt(fields.leverage.value))+
   ' · '+esc(fields.leverage.state)+(q?.leverageEstimated?' · rechnerische Näherung, kein bestätigter Emittentenhebel':'')+
   (fields.leverage.state==='fehlt'&&q?.leverageCalculation?.reason?'<br>Berechnung derzeit nicht möglich: '+esc(q.leverageCalculation.reason):'')+
-  refNote+'</div>';
+  refNote+missingSgReferenceNote+'</div>';
 }
 function bindCompactCards(root){
  bindIsinCopy(root);
