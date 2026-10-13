@@ -32,11 +32,22 @@ def handle(conn, action, payload, now=None):
     account = payload.get('account', '')
     if not isinstance(account, str) or not re.fullmatch('[a-f0-9]{64}', account):
         raise ValueError('Ungültiges Konto')
+    # Authentication checks are read-only and frequent. Do not INSERT or lock
+    # this row on every page request: a write transaction or FOR UPDATE here
+    # serializes unrelated checks and can trip the database statement timeout.
+    # PostgreSQL MVCC returns the last committed password version; password
+    # resets still invalidate old sessions through the existing version check.
+    if action == 'state':
+        row = conn.execute(
+            'SELECT password_hash,version FROM bob_recovery WHERE account=%s',
+            (account,),
+        ).fetchone()
+        return {'passwordHash': row[0], 'version': row[1]} if row else {'passwordHash': None, 'version': 0}
+
+    # Only token issuance, cancellation and reset need serialized mutations.
     conn.execute('INSERT INTO bob_recovery(account) VALUES(%s) ON CONFLICT DO NOTHING', (account,))
     row = conn.execute('''SELECT password_hash,version,token_hash,expires_at,last_request,window_start,requests
         FROM bob_recovery WHERE account=%s FOR UPDATE''', (account,)).fetchone()
-    if action == 'state':
-        return {'passwordHash': row[0], 'version': row[1]}
     digest = payload.get('tokenHash', '')
     if not isinstance(digest, str) or not re.fullmatch('[a-f0-9]{64}', digest):
         raise ValueError('Ungültiger Rücksetzlink')
