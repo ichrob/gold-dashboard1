@@ -93,7 +93,7 @@ def classify(app, background, push, *, market_open=True):
             else:
                 # Accept ONLY fixed diagnostic identifiers; never publish
                 # arbitrary source errors, raw data or per-product values.
-                errors.extend(code for code in product_codes if code in PRODUCT_CODES)
+                errors.extend(code for code in product_codes if isinstance(code, str) and code in PRODUCT_CODES)
     return sorted(set(errors))
 
 
