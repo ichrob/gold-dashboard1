@@ -93,7 +93,9 @@ def fetch(identity,key):
 def handle(connect,payload,fetcher=fetch):
     identity=payload.get('videoId','')
     if not isinstance(identity,str) or not re.fullmatch(r'[A-Za-z0-9_-]{11}',identity) or payload.get('channelId')!=CHANNEL:raise ValueError('Ungültige MCO-Videozuordnung')
-    key=os.environ.get('SUPADATA_API_KEY','')
+    # Render env values copied with surrounding whitespace must not break API auth.
+    # Only normalize accidental whitespace; never print, hash, or disclose the key.
+    key=os.environ.get('SUPADATA_API_KEY','').strip()
     if not key:raise TranscriptError('not_configured')
     claim=secrets.token_hex(16)
     # Durable quota, reservations and cooldown survive rolling deployments.
