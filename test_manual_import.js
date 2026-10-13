@@ -19,7 +19,7 @@ assert.equal(sameView.evidence.Hebel.fromSharedContext,true);
 assert.equal(sameView.evidence.KO.at,null);
 assert.equal(sameView.evidence.KO.contextAt,b.sourceTimestamp(at));
 assert.equal(sameView.evidence.Richtung.contextAt,b.sourceTimestamp(at));
-const conflictingLeverage=b.mergeScreenshotEvidence(null,read('Kurszeit: '+at+'\\nHebelzeit: 01/10/2026 06:00:00'),'invalid-gear-clock.jpg');
+const conflictingLeverage=b.mergeScreenshotEvidence(null,read('Kurszeit: '+at+'\nHebelzeit: 01/10/2026 06:00:00'),'invalid-gear-clock.jpg');
 assert.equal(conflictingLeverage.evidence.Hebel.at,null);
 assert.equal(conflictingLeverage.evidence.Hebel.contextAt,b.sourceTimestamp(at));
 assert(!b.currentQuote({...product,snapshot:sameView},now)); // shared evidence never becomes a broker feed
