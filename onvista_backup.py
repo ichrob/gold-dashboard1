@@ -15,6 +15,8 @@ _FAILURES = {}
 _MODEL = {}
 _LOCK = threading.Lock()
 ANALYSIS_MAX_AGE_SECONDS = 300
+# Explicit user opt-out and portal terms: no automatic calls without written permission.
+ONVISTA_AUTOMATION_APPROVED = False
 
 def clock(value):
     if not isinstance(value, str) or not re.search(r'(Z|[+-]\d{2}:\d{2})$', value):
@@ -125,8 +127,12 @@ def apply_model(primary, isin, now):
 
 
 def fetch(isin):
-    # Portal automation remains disabled until written provider approval.
-    return None
+    # Check before the existing cache and network route: fail closed.
+    if not ONVISTA_AUTOMATION_APPROVED:
+        with _LOCK:
+            _FAILURES[isin] = {'state': 'blocked', 'code': 'ONVISTA_AUTOMATION_NOT_APPROVED',
+                               'checkedAt': datetime.now(timezone.utc).isoformat()}
+        return None
     with _LOCK:
         cached = _CACHE.get(isin)
         if cached and time.monotonic() < cached[0]:
