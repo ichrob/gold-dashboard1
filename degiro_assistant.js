@@ -2448,7 +2448,7 @@ function detailScreenshotData(text,expectedIsin,productContext=null,excludedFiel
  }
  if(!terms.currency&&['EUR','CHF'].includes(currency)&&bid!==null&&ask!==null)terms.currency={value:currency,at:null,fromQuote:true};
  if(terms.ko)x.ko=String(terms.ko.value);
- return{ok:true,...x,importWarnings,importNotes,identityBasis:identity.basis,identityValor:identity.valor||null,identityContext:identity.context||null,bid,ask,currency,degiroDisplayedQuote,sourceTime:stamp,times:screenshotTimes(raw),terms,delayed:/verzögert|delayed/i.test(raw),combinedDraft:draft};
+ return{ok:true,...x,importWarnings,importNotes,identityBasis:identity.basis,identityValor:identity.valor||null,identityContext:identity.context||null,bid,ask,currency,...(degiroDisplayedQuote?{degiroDisplayedQuote}:{}),sourceTime:stamp,times:screenshotTimes(raw),terms,delayed:/verzögert|delayed/i.test(raw),combinedDraft:draft};
 }
 // Registered issuer identity, verified against its ISIN/Valor table. Never infer
 // an arbitrary numeric title from the currently selected product.
