@@ -1668,6 +1668,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  reasons=reasons.map(reason=>productEvidenceReason(p,reason));
  if(knockoutStatus(p))return knockoutCard(p);
  const direct=p.quote?.isin===p.isin&&p.quote?.productVerified?p.quote:null;
+ const undatedReference=direct?.issuerLeverageReference?.dated===false&&n(direct.issuerLeverageReference.value)>0;
  const excluded=compactProductExclusion(p);
  if(excluded)return '<div data-product-isin="'+esc(p.isin)+'" style="padding:14px;margin-top:10px;border:1px solid #dc2626;border-radius:12px"><b>'+esc(p.isin)+'</b><p>'+esc(excluded)+'</p><p>Keine weiteren Daten oder Screenshots erforderlich.</p>'+(direct?.lifecycleEvidence?'<p>'+esc(direct.reason)+'</p>':'')+renderProductSources(p)+'</div>';
  const selected=status==='Freigegeben · ausgewählt';
@@ -1687,6 +1688,11 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
    if(!unconfirmed.includes(label))unconfirmed.push(label);
    const open='Kursart und Aktualität noch nicht bestätigt';if(!groups.includes(open)){groups.push(open);locations.set(open,missingValueLocation(reason,p));}continue;
   }
+  if(/Hebel/.test(reason)&&fieldStates.leverage.state==='fehlt'&&undatedReference){
+   const open='SG-Referenzhebel vorhanden · eigener Quellenzeitpunkt fehlt';
+   if(!groups.includes(open)){groups.push(open);locations.set(open,'SG → Kennzahlen / Hebel. Der SG-Wert ist vorhanden, aber ohne eigenen Quellenzeitstempel. Bob prüft dies selbstständig weiter; ein SG-Chartzeitpunkt darf nicht als Hebelzeit ausgegeben werden.');}
+   continue;
+  }
   if(/Hebel/.test(reason)&&fieldStates.leverage.state!=='fehlt'){
    const label='Hebel vorhanden · '+fieldStates.leverage.state+'; ursprünglichen Datenstand siehe oben.';
    if(!unconfirmed.includes(label))unconfirmed.push(label);
@@ -1704,9 +1710,9 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  const data=productDataStatus(p),temporal=allReasons.some(r=>/zeit|Aktualität|datier|veraltet|Gültigkeit|Nachweis/i.test(r));
  const missingNumbers=Object.values(fieldStates).filter(f=>f.state==='fehlt').map(f=>f.key);
  const hasSgChart=!!direct?.analysisQuote&&direct.analysisQuote.priceKind==='issuer-chart'||!!direct?.nativeChartEvidence;
- const dataText=hasSgChart&&!missingNumbers.length?'Analysewerte vorhanden · ausführbarer Kurs separat offen':data.complete?'Werte vorhanden':missingNumbers.length?'Fehlende Kurswerte: '+missingNumbers.join(', '):'Geld, Brief und Hebel vorhanden';
+ const dataText=hasSgChart&&!missingNumbers.length?'Analysewerte vorhanden · ausführbarer Kurs separat offen':data.complete?'Werte vorhanden':missingNumbers.length===1&&missingNumbers[0]==='Hebel'&&undatedReference?'SG-Hebelreferenz vorhanden · eigene Quellenzeit fehlt':missingNumbers.length?'Fehlende Kurswerte: '+missingNumbers.join(', '):'Geld, Brief und Hebel vorhanden';
  const shortReason=r=>String(r).split('. Öffne')[0].split(' · Fundort:')[0].slice(0,160);
- const automaticQuoteIssue=!complete&&groups.length>0&&groups.every(r=>/^(Live-Kursbestätigung|Kursart und Aktualität|Hebel berechnet|Hebel vorhanden|BNP-Kursabruf)/.test(r));
+ const automaticQuoteIssue=!complete&&groups.length>0&&groups.every(r=>/^(Live-Kursbestätigung|Kursart und Aktualität|Hebel berechnet|Hebel vorhanden|SG-Referenzhebel|BNP-Kursabruf)/.test(r));
  const evidenceTitle=automaticQuoteIssue?'Werte vorhanden · Aktualitätsprüfung offen':missingNumbers.length?'Fehlende Werte und Nachweise':'Werte und Aktualitätsprüfung';
  const automaticRecoveryPending=!complete&&validIsin(p.isin)&&!knockoutStatus(p);
  const swissSgVenue=direct?.metadata?.issuerExchangeCode==='CBSW'&&
@@ -1746,8 +1752,12 @@ function renderPrimaryProductValues(p,now=Date.now()){
  const stamp=at&&Number.isFinite(Date.parse(at))?new Date(at).toLocaleString('de-CH',{timeZone:'Europe/Zurich',hour12:false})+' (Zürich)':'Zeitbezug unbestätigt';
  const currency=pair?.currency||p.snapshot?.currency||p.currency||'EUR';
  const undatedLever=q?.issuerLeverageReference;
+ const refRetrieved=Date.parse(undatedLever?.retrievedAt);
+ const refRetrievedNote=Number.isFinite(refRetrieved)
+  ?' · Technischer Abruf '+esc(new Date(refRetrieved).toLocaleString('de-CH',{timeZone:'Europe/Zurich',hour12:false}))+' (Zürich), keine SG-Hebelquellenzeit.'
+  :' · Technischer Abrufzeitpunkt unbekannt.';
  const refNote=undatedLever?.dated===false&&n(undatedLever.value)>0
-  ?'<br><b>SG-Referenzhebel (ohne Kurszeit): '+esc(fmt(undatedLever.value))+'×</b> · nur Information, keine aktuelle Hebelbestätigung oder Handelsfreigabe.'
+  ?'<br><b>SG-Referenzhebel (ohne Kurszeit): '+esc(fmt(undatedLever.value))+'×</b> · nur Information, keine aktuelle Hebelbestätigung oder Handelsfreigabe.'+refRetrievedNote
   :'';
  const headline=chart?(current?'Aktuelle SG-Chartbeobachtung':'SG-Chartbeobachtung · nicht aktuell'):current?'Aktueller Anbieterwert':'Gespeicherte Referenz';
  const labels=chart?' · Chartkurs, kein bestätigter Ausführungskurs':'';
@@ -1756,7 +1766,7 @@ function renderPrimaryProductValues(p,now=Date.now()){
   valuePresenceMark(fields.bid.state==='fehlt')+' Geld '+fmt(pair?pair.bid:fields.bid.value)+
   ' / '+valuePresenceMark(fields.ask.state==='fehlt')+' Brief '+fmt(pair?pair.ask:fields.ask.value)+' '+esc(currency)+
   labels+note+'<br>'+(pair?'Quelle: '+esc(pair.source||q.source||'Produktanbieter')+' · '+esc(stamp):'Datenstand: '+esc(fields.ask.state))+
-  '<br>'+valuePresenceMark(fields.leverage.state==='fehlt')+' Hebel '+fmt(fields.leverage.value)+
+  '<br>'+valuePresenceMark(fields.leverage.state==='fehlt')+(fields.leverage.state==='fehlt'&&undatedLever?.dated===false&&n(undatedLever.value)>0?' Aktueller Hebel nicht zeitlich bestätigt':' Hebel '+fmt(fields.leverage.value))+
   ' · '+esc(fields.leverage.state)+(q?.leverageEstimated?' · rechnerische Näherung, kein bestätigter Emittentenhebel':'')+
   (fields.leverage.state==='fehlt'&&q?.leverageCalculation?.reason?'<br>Berechnung derzeit nicht möglich: '+esc(q.leverageCalculation.reason):'')+
   refNote+'</div>';
