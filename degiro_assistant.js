@@ -1745,6 +1745,10 @@ function renderPrimaryProductValues(p,now=Date.now()){
  const fmt=v=>n(v)>0?Number(v).toLocaleString('de-CH',{maximumFractionDigits:4}):'—';
  const stamp=at&&Number.isFinite(Date.parse(at))?new Date(at).toLocaleString('de-CH',{timeZone:'Europe/Zurich',hour12:false})+' (Zürich)':'Zeitbezug unbestätigt';
  const currency=pair?.currency||p.snapshot?.currency||p.currency||'EUR';
+ const undatedLever=q?.issuerLeverageReference;
+ const refNote=undatedLever?.dated===false&&n(undatedLever.value)>0
+  ?'<br><b>SG-Referenzhebel (ohne Kurszeit): '+esc(fmt(undatedLever.value))+'×</b> · nur Information, keine aktuelle Hebelbestätigung oder Handelsfreigabe.'
+  :'';
  const headline=chart?(current?'Aktuelle SG-Chartbeobachtung':'SG-Chartbeobachtung · nicht aktuell'):current?'Aktueller Anbieterwert':'Gespeicherte Referenz';
  const labels=chart?' · Chartkurs, kein bestätigter Ausführungskurs':'';
  const note=pair&&!current?' · Datenalter überschreitet Analysefenster':'';
@@ -1754,7 +1758,8 @@ function renderPrimaryProductValues(p,now=Date.now()){
   labels+note+'<br>'+(pair?'Quelle: '+esc(pair.source||q.source||'Produktanbieter')+' · '+esc(stamp):'Datenstand: '+esc(fields.ask.state))+
   '<br>'+valuePresenceMark(fields.leverage.state==='fehlt')+' Hebel '+fmt(fields.leverage.value)+
   ' · '+esc(fields.leverage.state)+(q?.leverageEstimated?' · rechnerische Näherung, kein bestätigter Emittentenhebel':'')+
-  (fields.leverage.state==='fehlt'&&q?.leverageCalculation?.reason?'<br>Berechnung derzeit nicht möglich: '+esc(q.leverageCalculation.reason):'')+'</div>';
+  (fields.leverage.state==='fehlt'&&q?.leverageCalculation?.reason?'<br>Berechnung derzeit nicht möglich: '+esc(q.leverageCalculation.reason):'')+
+  refNote+'</div>';
 }
 function bindCompactCards(root){
  bindIsinCopy(root);
