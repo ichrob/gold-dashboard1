@@ -100,6 +100,30 @@ class CandleTests(unittest.TestCase):
             self.assertFalse(accepted[0]['isOpen'])
             self.assertFalse(accepted[0]['providerIsOpen'])
 
+    def test_rolling_window_preserves_only_older_confirmed_candles(self):
+        p = self.payload()
+        old = tc.normalize(p, '5m', self.now)
+        unconfirmed = dict(old[0], openTime=old[0]['openTime']-300000,
+                           isOpen=True, providerIsOpen=True)
+        fresh = copy.deepcopy(p)
+        fresh['bars'][0]['openTime'] = '2026-10-06T09:00:00Z'
+        fresh['bars'][0]['close'] = 4102
+        with patch.dict(tc._cache, {'5m': (self.now-100, [unconfirmed]+old)}, clear=True), patch.object(tc.time, 'time', return_value=self.now+600):
+            merged = tc.fetch('5m', lambda *a, **k: fresh)
+        self.assertEqual(len(merged), 2)
+        self.assertEqual(merged[0], old[0])
+        self.assertEqual(merged[1]['close'], 4102)
+        self.assertEqual(merged[1]['openTime']-merged[0]['openTime'], 300000)
+
+    def test_fresh_correction_wins_and_gaps_are_not_filled(self):
+        old = tc.normalize(self.payload(), '5m', self.now)
+        fresh = self.payload()
+        fresh['bars'][0]['close'] = 4102
+        with patch.dict(tc._cache, {'5m': (self.now-100, old)}, clear=True), patch.object(tc.time, 'time', return_value=self.now):
+            merged = tc.fetch('5m', lambda *a, **k: fresh)
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]['close'], 4102)
+
     def test_independent_fresh_history_does_not_call_legacy(self):
         with patch.object(server.time,'time',return_value=self.now),patch.dict(server._technical_history,{},clear=True),patch.object(tc,'fetch',return_value=tc.normalize(self.payload(),'5m',self.now)),patch.object(server,'fetch_json') as legacy:
             rows=server.fetch_technical_history('5m','5d')

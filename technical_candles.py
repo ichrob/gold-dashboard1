@@ -55,7 +55,13 @@ def fetch(interval, fetch_json):
             payload = fetch_json(f'https://biquote.io/api/XAUUSD/ohlc?interval={interval}&limit=1000', retries=0, timeout=12)
             fresh = normalize(payload, interval)
             if fresh:
-                rows = fresh
+                # Retain older, provider-confirmed candles as the upstream
+                # rolling window advances. Never close a candle locally or
+                # splice old values into a gap inside the fresh response.
+                first = fresh[0]['openTime']
+                older = [b for b in rows if b['openTime'] < first
+                         and not b['isOpen'] and not b.get('providerIsOpen')]
+                rows = (older + fresh)[-1000:]
                 closed = [b for b in rows if not b['isOpen']]
                 last = closed[-1]['openTime'] if closed else 0
                 print(f'BOB_CANDLES source=biquote interval={interval} count={len(rows)} last_closed={last} age_seconds={int(time.time()-last/1000)}', flush=True)
