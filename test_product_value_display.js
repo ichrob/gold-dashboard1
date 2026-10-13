@@ -67,6 +67,15 @@ assert(refHtml.includes('keine SG-Hebelquellenzeit'),refHtml);
 assert(!refHtml.includes('Daten vollständig'),refHtml);
 assert(!b.currentQuote(sgReference,now));
 
+// A missing numeric SG source field is not cured by attaching a timestamp.
+const noIssuerReference=structuredClone(sgReference);
+delete noIssuerReference.quote.issuerLeverageReference;
+noIssuerReference.quote.importActive=true;
+const withoutReferenceHtml=b.compactProductCard(noIssuerReference);
+assert(withoutReferenceHtml.includes('SG-Referenzhebel: Von der automatisch abgefragten SG-Quelle nicht geliefert'),withoutReferenceHtml);
+assert(withoutReferenceHtml.includes('Ein gemeinsamer Zeitbezug belegt nur vorhandene Werte'),withoutReferenceHtml);
+assert(!b.currentQuote(noIssuerReference,now));
+
 // A verified common collection time is visible but not a tradeable gearing clock.
 const linkedSg=structuredClone(sgReference);
 linkedSg.quote.sharedTimeContext={at,isin:researchIsin,timeOrigin:'SG-Chartzeit'};
