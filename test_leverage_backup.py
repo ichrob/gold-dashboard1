@@ -38,6 +38,23 @@ class Tests(unittest.TestCase):
    too_old=b.apply(original,N)
   self.assertFalse(too_old['leverageCalculation']['available'])
 
+ def test_unknown_and_explicit_quanto_are_distinguished(self):
+  original=copy.deepcopy(self.r)
+  for state, expected in (
+      ('unknown', 'nicht eindeutig'),
+      ('quanto', 'Quanto-Produkt'),
+  ):
+   with self.subTest(state=state):
+    r=copy.deepcopy(original)
+    r['metadata'].update(simpleNonQuantoTurbo=False, quantoState=state)
+    r['issuerLeverageReference']={'value':12,'dated':False,'sourceAt':None}
+    result=b.apply(r,N)
+    self.assertFalse(result['leverageCalculation']['available'])
+    self.assertIn(expected,result['leverageCalculation']['reason'])
+    self.assertNotIn('leverage',result)
+    self.assertFalse(result['eligible'])
+    self.assertEqual(result['issuerLeverageReference']['value'],12)
+
  def test_formula_and_clocks(self):
   x=b.calculate(self.r,self.g,self.fx,N)
   self.assertEqual(x['value'],10);self.assertTrue(x['fresh']);self.assertEqual(x['at'],'2026-10-07T09:59:50+00:00')
