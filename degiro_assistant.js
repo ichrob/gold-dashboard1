@@ -1237,10 +1237,23 @@ function evidenceTiming(e,now=Date.now()){
  const age=now-parsed;
  return{fresh:Number.isFinite(age)&&age>=0&&age<=SCREENSHOT_MAX_AGE_MS,ageSeconds:Number.isFinite(age)?Math.ceil(age/1000):null};
 }
+// Share a source-observation context across all fields in the same identified
+// product view / contemporaneous screenshot series, not an invented issuer clock.
+function sharedSourceContext(x){
+ if(!x||!validIsin(x.isin))return null;
+ const quote=x.times?.quote;
+ if(quote?.present&&(!quote.text||!selectionTimeWindow(quote.text)))return null;
+ const text=quote?.present?quote.text:x.captureSeries?.text||
+  (x.bid!==null&&x.bid!==undefined&&x.ask!==null&&x.ask!==undefined?x.sourceTime:null);
+ if(!text||!selectionTimeWindow(text))return null;
+ return {at:quote?.present?quote.at||null:x.captureSeries?.at||null,
+  text,basis:x.captureSeries?'gemeinsame Bilderserie':'dieselbe datierte Produktansicht',
+  type:x.captureSeries?'image-series':'image-view'};
+}
 function fieldSourceTime(x,key){
  const field={Geld:'bid',Brief:'ask',Hebel:'leverage',KO:'ko'}[key];
  if(x.times?.[field]?.present)return x.times[field].at;
- return ['Geld','Brief','Kurs','Spread'].includes(key)?x.times?.quote?.at||null:null;
+ return ['Geld','Brief','Kurs','Spread','Hebel'].includes(key)?sharedSourceContext(x)?.at||null:null;
 }
 function manualSnapshotStatus(p,x,now=Date.now()){
  const reasons=[],e=x?.evidence||{};
@@ -1756,8 +1769,12 @@ function renderPrimaryProductValues(p,now=Date.now()){
  const refRetrievedNote=Number.isFinite(refRetrieved)
   ?' · Technischer Abruf '+esc(new Date(refRetrieved).toLocaleString('de-CH',{timeZone:'Europe/Zurich',hour12:false}))+' (Zürich), keine SG-Hebelquellenzeit.'
   :' · Technischer Abrufzeitpunkt unbekannt.';
+ const linkedAt=undatedLever?.sharedContextAt;
+ const linked=typeof linkedAt==='string'&&q?.sharedTimeContext?.at===linkedAt
+  &&q.sharedTimeContext.isin===p.isin&&Number.isFinite(Date.parse(linkedAt));
+ const sharedStamp=linked?new Date(linkedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich',hour12:false})+' (Zürich)':'';
  const refNote=undatedLever?.dated===false&&n(undatedLever.value)>0
-  ?'<br><b>SG-Referenzhebel (ohne Kurszeit): '+esc(fmt(undatedLever.value))+'×</b> · nur Information, keine aktuelle Hebelbestätigung oder Handelsfreigabe.'+refRetrievedNote
+  ?'<br><b>SG-Referenzhebel ('+(linked?'gemeinsamer Zeitbezug':'ohne Kurszeit')+'): '+esc(fmt(undatedLever.value))+'×</b> · '+(linked?'SG-Chartzeit derselben automatischen Abrufserie: '+esc(sharedStamp)+' · alle dort erfassten Kennzahlen und Stammdaten teilen diesen Beobachtungsbezug. Keine eigene Hebelquellenzeit. ':'')+'Nur Information, keine aktuelle Hebelbestätigung oder Handelsfreigabe.'+refRetrievedNote
   :'';
  const headline=chart?(current?'Aktuelle SG-Chartbeobachtung':'SG-Chartbeobachtung · nicht aktuell'):current?'Aktueller Anbieterwert':'Gespeicherte Referenz';
  const labels=chart?' · Chartkurs, kein bestätigter Ausführungskurs':'';
@@ -2305,10 +2322,12 @@ function productFieldStates(p,now=Date.now()){
    observed?analysisLimit:SCREENSHOT_MAX_AGE_MS,observed?observed.priceKind:'screenshot');
   if(direct&&(live===q?.referenceQuote||q?.sourceFailure)&&items[key].state!=='veraltet')items[key].state='Aktualität unbestätigt · letzter erfolgreicher Abruf';
   if(!direct&&e?.fromSeries){items[key].fromSeries=true;items[key].timeText=e.timeText;}
+  else if(!direct&&e?.fromSharedContext){items[key].fromSharedContext=true;items[key].timeText=e.contextTimeText;}
  }
  const le=shot?.evidence?.Hebel,leverage=n(p.leverage)>0?p.leverage:n(q?.leverage)>0?q.leverage:!le?.conflict&&!le?.revoked?le?.value:null,directLev=q&&n(q.leverage)===n(leverage);
  items.leverage=from('Hebel',leverage,directLev?q.leverageAt:n(le?.value)===n(leverage)?le?.at:null,directLev?(q.leverageSource||q.source):le?.source,directLev?90000:SCREENSHOT_MAX_AGE_MS,directLev?'':'screenshot');
  if(!directLev&&le?.fromSeries){items.leverage.fromSeries=true;items.leverage.timeText=le.timeText;}
+ else if(!directLev&&le?.fromSharedContext){items.leverage.fromSharedContext=true;items.leverage.timeText=le.contextTimeText;}
  if(directLev&&q.leverageEstimated&&n(leverage)>0){
   const c=q.leverageCalculation;
   const clocks=[c?.inputs?.basisAt,c?.inputs?.askAt,c?.inputs?.fxDataAt,c?.inputs?.fxEffectiveAt].map(v=>typeof v==='string'?Date.parse(v):NaN);
@@ -2328,7 +2347,7 @@ function renderProductFieldStates(p){
  const comparisonDetail=comparison?'<div>Hebelvergleich: '+esc(comparison.comparable?(comparison.warning?'Auffällige Abweichung: ':'Abweichung: ')+comparison.relativeDifferencePct+' % · '+comparison.note:comparison.reason)+'</div>':'';
  const native=p.quote?.nativeChartEvidence,fx=p.quote?.currencyConversion;
  const nativeInfo=native?'<div><b>Originalkurs CHF: Geld '+esc(native.bid)+' / Brief '+esc(native.ask)+'</b><br>Quellenzeit '+esc(native.pointAt)+(fx?'<br>Für die Analyse in EUR umgerechnet · CHF/EUR '+esc(fx.rate)+' · '+esc(fx.at):'<br>EUR-Umrechnung noch nicht verfügbar')+'</div>':'';
- return '<div class="small" data-field-status>'+nativeInfo+detail+comparisonDetail+Object.values(fields).map(f=>'<div><b>'+valuePresenceMark(f.state==='fehlt')+' '+esc(f.key)+(f.kind==='issuer-chart'?' (Chartkurs)':'')+': '+esc(f.key==='Hebel'&&n(f.value)>0?Number(f.value).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2}):f.value??'—')+' · '+esc(f.state)+'</b>'+ (f.at?'<br>'+ (f.fromSeries?'Zeitbezug der Aufnahmeserie ':'Quellenzeit ')+esc(f.at)+' · '+esc(f.ageSeconds)+' s alt':f.fromSeries&&f.timeText?'<br>Zeitbezug der Aufnahmeserie '+esc(f.timeText)+(/\d{2}[/.]\d{2}[/.]\d{4}/.test(f.timeText)?' · Sekunden unbekannt':' · Kursdatum fehlt'):'')+'<br>'+esc(f.source)+(f.kind==='issuer-chart'?' · Chartbeobachtung, kein ausführbarer Kursnachweis':'')+'</div>').join('')+(p.quote?.leverageEstimated?'<div>'+esc(p.quote.leverageNote)+'</div>':'')+(p.quote?.leverageCalculation?.available===false?'<div>Hebelberechnung: '+esc(p.quote.leverageCalculation.reason)+'</div>':'')+(p.quote?.backupStatus?.state==='unavailable'?'<div>Onvista-Backup derzeit nicht verfügbar: '+esc(p.quote.backupStatus.code)+'</div>':'')+'</div>';
+ return '<div class="small" data-field-status>'+nativeInfo+detail+comparisonDetail+Object.values(fields).map(f=>'<div><b>'+valuePresenceMark(f.state==='fehlt')+' '+esc(f.key)+(f.kind==='issuer-chart'?' (Chartkurs)':'')+': '+esc(f.key==='Hebel'&&n(f.value)>0?Number(f.value).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2}):f.value??'—')+' · '+esc(f.state)+'</b>'+ (f.at?'<br>'+ (f.fromSeries?'Zeitbezug der Aufnahmeserie ':f.fromSharedContext?'Gemeinsamer Zeitbezug derselben Produktansicht ':'Quellenzeit ')+esc(f.at)+' · '+esc(f.ageSeconds)+' s alt':f.fromSeries&&f.timeText?'<br>Zeitbezug der Aufnahmeserie '+esc(f.timeText)+(/\d{2}[/.]\d{2}[/.]\d{4}/.test(f.timeText)?' · Sekunden unbekannt':' · Kursdatum fehlt'):'')+'<br>'+esc(f.source)+(f.kind==='issuer-chart'?' · Chartbeobachtung, kein ausführbarer Kursnachweis':'')+'</div>').join('')+(p.quote?.leverageEstimated?'<div>'+esc(p.quote.leverageNote)+'</div>':'')+(p.quote?.leverageCalculation?.available===false?'<div>Hebelberechnung: '+esc(p.quote.leverageCalculation.reason)+'</div>':'')+(p.quote?.backupStatus?.state==='unavailable'?'<div>Onvista-Backup derzeit nicht verfügbar: '+esc(p.quote.backupStatus.code)+'</div>':'')+'</div>';
 }
 // A current native quote and its own FX evidence supersede the old screenshot
 // quote for analysis selection. The image and its gearing retain original clocks.
@@ -2824,6 +2843,7 @@ function mergeScreenshotEvidence(previous,x,source){
  const hasQuote=!companion&&(n(x.price)!==null||x.bid!==null&&x.bid!==undefined||x.ask!==null&&x.ask!==undefined);
  // Keep the original quote's timestamp when adding only static product details.
  const merged={...previous,...x,evidence,clearSpread:false};
+ const commonTime=sharedSourceContext(x);
  if(x.lifecycle?.status==='KNOCKED_OUT'&&x.lifecycle.isin===x.isin){merged.lifecycle={...x.lifecycle,source};rememberKnockout(merged.lifecycle);}
  else if(previous.lifecycle)merged.lifecycle=previous.lifecycle;
 
@@ -2838,13 +2858,26 @@ function mergeScreenshotEvidence(previous,x,source){
   if(merged.terms[key]?.value===value.value&&!value.at&&!value.dateText&&!value.ocrCorrection&&(merged.terms[key].at||merged.terms[key].dateText))continue;
   const termDay=e=>/^(\d{2})\.(\d{2})\.(\d{4})$/.test(e?.dateText||'')?e.dateText.split('.').reverse().join('-'):null;
   if(termDay(merged.terms[key])&&termDay(value)&&termDay(value)<termDay(merged.terms[key])){if(key==='ko')x={...x,ko:''};continue;}
-  const incoming={...value,source};
+  const incoming={...value,source,
+   ...(commonTime?{contextAt:commonTime.at,contextTimeText:commonTime.text,
+      contextBasis:commonTime.basis,contextKind:commonTime.type}:{})};
   incoming.automatic=hasScreenshotIdentity(x)&&automaticCondition(incoming,key);
   merged.terms[key]=incoming;
  }
  if(!hasQuote){for(const key of ["bid","ask","currency","sourceTime","delayed"])merged[key]=previous[key]??x[key];if(companion)for(const key of ["price","spread"])merged[key]=previous[key]??x[key];}
  else {for(const key of ["Kurs","Geld","Brief","Spread"])delete evidence[key];merged.clearSpread=n(x.spread)===null;}
  for(const [key,value] of Object.entries({Richtung:x.direction,Kurs:x.price,Hebel:x.leverage,KO:x.ko,Geld:x.bid,Brief:x.ask,Spread:x.spread})){if(companion&&['Kurs','Geld','Brief','Spread'].includes(key))continue;if(value!==""&&value!==null&&value!==undefined)evidence[key]={value,source,at:fieldSourceTime(x,key),dateText:key==='KO'?x.terms?.ko?.dateText:null,...(['Geld','Brief','Kurs','Spread'].includes(key)?{currency:x.currency}:{}),...(key==='KO'?{displayDecimals:x.terms?.ko?.displayDecimals}:{}),...((key==='Hebel'?x.times?.leverage?.fromSeries:['Geld','Brief','Kurs','Spread'].includes(key)&&!x.times?.[{Geld:'bid',Brief:'ask'}[key]]?.present&&x.times?.quote?.fromSeries)?{fromSeries:true,timeBasis:(key==='Hebel'?'Hebel aus derselben Aufnahmeserie · ':'')+(x.captureSeries?.basis||'Zeit aus gemeinsamer Bilderserie'),timeText:x.captureSeries?.text,timeOrigin:x.captureSeries?.timeOrigin,timeSources:[...(x.captureSeries?.sources||[])]}:{})};}
+ // Keep common observation metadata on every detected value without
+ // changing the KO validity date, static terms or a broker execution proof.
+ if(commonTime)for(const [key,value] of Object.entries(
+  {Richtung:x.direction,Kurs:x.price,Hebel:x.leverage,KO:x.ko,Geld:x.bid,Brief:x.ask,Spread:x.spread})){
+  const e=evidence[key];
+  if(value===undefined||value===null||value===''||!e||e.source!==source)continue;
+  e.contextAt=commonTime.at;e.contextTimeText=commonTime.text;
+  e.contextBasis=commonTime.basis;e.contextKind=commonTime.type;
+  const own={Geld:'bid',Brief:'ask',Hebel:'leverage',KO:'ko'}[key];
+  if(!x.times?.[own]?.present && !(e.fromSeries))e.fromSharedContext=true;
+ }
  if(hasQuote&&evidence.Spread){const times=[evidence.Geld?.at,evidence.Brief?.at];evidence.Spread.at=times.every(Boolean)?times.sort()[0]:null;}
  for(const [key,field] of Object.entries({Kurs:"price",Hebel:"leverage",KO:"ko",Spread:"spread",Richtung:"direction"})){merged[field]=evidence[key]?.value??"";}
  return merged;
@@ -2865,11 +2898,11 @@ function screenshotSummary(x){
  const documentNote=x.referenceDocument?'<div><b>PDF-Goldreferenz</b><br>'+esc(x.referenceDocument.underlying)+'<br>KO: '+esc(x.referenceDocument.knockOutReference)+'<br>Abrechnung: '+esc(x.referenceDocument.settlementReference)+'</div>':'';
  const seriesNote=documentNote+(x.captureSeries?'<div><b>Gemeinsame Aufnahmeserie: '+esc(x.captureSeries.text)+'</b><br>'+esc(x.captureSeries.basis)+' · '+esc(x.captureSeries.timezone)+'<br>Bildquellen: '+esc(x.captureSeries.sources.join(', '))+'</div>':'');
  const labels={ratio:'Bezugsverhältnis',strike:'Basispreis USD',underlying:'Basiswert',contract:'Future-Kontrakt',type:'Produkttyp',maturity:'Laufzeit',currency:'Produktwährung',ko:'KO-Barriere'};
- const card=(label,e,time)=>'<div style="min-width:0;max-width:100%;overflow-wrap:anywhere;border-bottom:1px solid #ddd;padding:10px 0;'+(calculationAge(e.at,SCREENSHOT_MAX_AGE_MS)&&!e.conditionVerified?'font-style:italic':'')+'"><b>'+esc(label)+': '+esc(e.value)+'</b>'+(e.ocrCorrection?'<div>'+esc(e.ocrCorrection)+'</div>':'')+'<div>Quelle: '+esc(e.source||'nicht angegeben')+'</div><div>'+esc(time)+'</div></div>';
+ const card=(label,e,time)=>'<div style="min-width:0;max-width:100%;overflow-wrap:anywhere;border-bottom:1px solid #ddd;padding:10px 0;'+(calculationAge(e.at,SCREENSHOT_MAX_AGE_MS)&&!e.conditionVerified?'font-style:italic':'')+'"><b>'+esc(label)+': '+esc(e.value)+'</b>'+(e.ocrCorrection?'<div>'+esc(e.ocrCorrection)+'</div>':'')+'<div>Quelle: '+esc(e.source||'nicht angegeben')+'</div><div>'+esc(time)+(e.contextTimeText&&!String(time).includes('Gemeinsamer Zeitbezug')&&!String(time).includes('Zeitbezug ')?'<br>Gemeinsamer Bildzeitbezug: '+esc(e.contextTimeText)+' · kein eigener Emittentenzeitstempel':'')+'</div></div>';
  const terms=x.terms||{},ko=x.evidence?.KO;
  const sameKo=terms.ko&&ko&&n(terms.ko.value)===n(ko.value);
  const rows=Object.entries(x.evidence||{}).filter(([key])=>key!=='Spread'&&!(key==='KO'&&sameKo)).map(([key,e])=>{
-  const t=evidenceTiming(e);return card(key==='KO'?'KO-Barriere':['Geld','Brief','Kurs','Spread'].includes(key)?key+' '+(e.currency||x.currency||''):key,e,(e.fromSeries?e.timeBasis+' · Zeitbezug '+e.at+' · keine separat bestätigte Hebelzeit':e.at)||(e.dateText?'Datenstand '+e.dateText+(currentDatedTerm(e,Date.now())?' · für diesen Kalendertag belegt; keine Kurszeit':' · nicht für heute bestätigt'):key==='Richtung'?'Eingelesen · am Original prüfen':'Wert eingelesen · Quellenzeit fehlt'));
+  const t=evidenceTiming(e);return card(key==='KO'?'KO-Barriere':['Geld','Brief','Kurs','Spread'].includes(key)?key+' '+(e.currency||x.currency||''):key,e,(e.fromSeries?e.timeBasis+' · Zeitbezug '+e.at+' · keine separat bestätigte Hebelzeit':e.fromSharedContext?'Gemeinsamer Zeitbezug: '+e.contextTimeText+' · keine separate Feldquellenzeit':e.at)||(e.dateText?'Datenstand '+e.dateText+(currentDatedTerm(e,Date.now())?' · für diesen Kalendertag belegt; keine Kurszeit':' · nicht für heute bestätigt'):key==='Richtung'?'Eingelesen · am Original prüfen':'Wert eingelesen · Quellenzeit fehlt'));
  }).join('');
  const termRows=Object.entries(terms).filter(([key,e])=>key!=='quanto'&&e).map(([key,e])=>card(labels[key]||key,e,(e.automatic||hasScreenshotIdentity(x)&&automaticCondition(e,key))?'Automatisch aus zugeordnetem Bild gelesen · keine Kurszeit':e.conditionVerified?'Produktbedingung recherchiert '+e.reviewedAt+' · keine Kurszeit':e.reviewed&&['type','currency','maturity'].includes(key)?'Geprüfte Produktbedingung · keine Kurszeit':e.at||(e.dateText?'Datenstand '+e.dateText+(currentDatedTerm(e,Date.now())?' · für diesen Kalendertag belegt; keine Kurszeit':' · nicht für heute bestätigt'):'Wert eingelesen · Produktnachweis noch nicht bestätigt; Datenstand fehlt'))).join('');
  const ratio=terms.ratio;
