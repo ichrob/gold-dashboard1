@@ -1331,10 +1331,11 @@ function manualSnapshotStatus(p,x,now=Date.now()){
  const pairs={Geld:x?.bid,Brief:x?.ask,Hebel:p.leverage,KO:p.ko};
  for(const [key,value] of Object.entries(pairs)){
   const own=evidenceTiming(e[key],now);
+  const ownAge=typeof e[key]?.at==='string'?now-Date.parse(e[key].at):NaN;
   const limit=key==='KO'?KO_MAX_AGE_MS:SCREENSHOT_MAX_AGE_MS;
   const shared=sharedProductFieldTime(p,key,value,now);
   if(n(value)===null||n(e[key]?.value)!==n(value)
-   ||!(own.fresh&&own.ageSeconds*1000<limit||shared?.valid))
+   ||!(own.fresh&&Number.isFinite(ownAge)&&ownAge<limit||shared?.valid))
    reasons.push(key+': eigener oder gemeinsamer Zeitbezug fehlt bzw. ist abgelaufen');
  }
  if(n(p.price)!==n(x?.ask)||!(n(p.leverage)>=1)||!(n(p.ko)>0))reasons.push('Produktwerte unvollständig oder widersprüchlich');
@@ -1659,9 +1660,8 @@ function productDataStatus(p,now=Date.now(),reference){
  // Undated terms must actually belong to this series, not an older merged import.
  for(const key of ['strike','ko']){
   const term=x.terms?.[key]||(key==='ko'?x.evidence?.KO:null);
-  if(!currentProductTerm(p,key,term,now)&&!currentDatedTerm(p.quote?.conditions?.[key],now)
-    &&(term?.conflict||term?.revoked||!term?.source
-      ||!seriesCurrent&&!sameView||seriesCurrent&&!series.members?.includes(term.source)))
+  if(!currentProductTerm(p,key,term,now)
+    &&!currentProductTerm(p,key,p.quote?.conditions?.[key],now))
     reasons.push((key==='strike'?'Basispreis':'KO-Barriere')+': Wert gehört nicht zum gültigen gemeinsamen Zeitbezug');
  }
  return {...result,complete:!reasons.length,reasons,
