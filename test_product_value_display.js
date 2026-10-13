@@ -48,6 +48,24 @@ const oldChf=structuredClone(chf);
 oldChf.quote.nativeChartEvidence.pointAt=new Date(now-600000).toISOString();
 assert(b.compactProductCard(oldChf).includes('nicht aktuell'));
 assert.equal(b.productFieldStates(oldChf,now).ask.state,'veraltet');
+// A morning DEGIRO list screenshot proves only a seen ISIN, not an order quote.
+const morningIsin='DE000SQ02JQ6',morning=Date.parse('2026-10-13T09:00:00+02:00');
+const noon=Date.parse('2026-10-13T12:00:00+02:00'),late=Date.parse('2026-10-13T22:05:00+02:00');
+const listArchive={storedAt:new Date(morning).toISOString(),files:[{name:'degiro-list.png'}],items:[{isin:morningIsin}]};
+let listProof=b.degiroListObservation(morningIsin,listArchive,noon);
+assert.equal(listProof.observed,true);
+assert.equal(listProof.currentDay,true);
+assert.equal(listProof.executable,false);
+assert.equal(listProof.quoteConfirmed,false);
+let listHtml=b.renderDegiroListEvidence({isin:morningIsin},noon,listArchive);
+assert(listHtml.includes('ISIN heute erkannt'));
+assert(listHtml.includes('kein Nachweis von aktueller Handelbarkeit'));
+assert.equal(b.degiroListObservation(morningIsin,listArchive,late).currentDay,false);
+assert(b.renderDegiroListEvidence({isin:morningIsin},late,listArchive).includes('älterer Liste'));
+assert.equal(b.degiroListObservation(chfIsin,listArchive,noon).observed,false);
+assert.equal(b.degiroListObservation(morningIsin,{...listArchive,storedAt:null},noon).observed,false);
+assert.equal(b.degiroListObservation(morningIsin,{...listArchive,files:[]},noon).observed,false);
+assert.equal(b.degiroListObservation(morningIsin,{...listArchive,items:[]},noon).observed,false);
 console.log('Product value display: OK');
 
 const auto=b.compactProductCard(p,['BNP-Kursabruf: Quellenantwort veraltet']);assert(auto.includes('derzeit keine neuen Bilder erforderlich'));
