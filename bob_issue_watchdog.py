@@ -231,10 +231,10 @@ def main():
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     if not token or not repo:
         print("No GitHub issue token; local diagnostic mode only", flush=True)
-        return 1 if detected else 0
+        return 1 if any(code in CODES for code in detected) else 0
     result = sync_issue(detected, token=token, repo=repo, at=at)
     print("BOB_WATCHDOG issue=" + result, flush=True)
-    return 1 if detected else 0
+    return 1 if any(code in CODES for code in detected) else 0
 
 
 if __name__ == "__main__":
