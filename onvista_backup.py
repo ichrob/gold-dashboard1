@@ -125,6 +125,8 @@ def apply_model(primary, isin, now):
 
 
 def fetch(isin):
+    # Portal automation remains disabled until written provider approval.
+    return None
     with _LOCK:
         cached = _CACHE.get(isin)
         if cached and time.monotonic() < cached[0]:
