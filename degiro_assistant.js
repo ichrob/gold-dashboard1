@@ -2275,6 +2275,15 @@ function koTermTime(p,e,now){
  if(p.quote?.isin===p.isin&&p.quote.productVerified&&p.quote.conditions?.ko===e&&e.conditionVerified&&currentDatedTerm(e,now))return Date.parse(e.reviewedAt);
  const ref=termSeriesReference(p,'ko',e,now);
  if(ref)return ref.origin==='automatic'?Date.parse(ref.text):selectionTimeWindow(ref.text)?.start;
+ // Keep the original, now-expired shared observation visible as "8h
+ // abgelaufen" instead of incorrectly reporting that a value never existed.
+ const shared=sharedProductFieldTime(p,'KO',e.value,now);
+ const q=p.quote,shot=p.snapshot;
+ const sameIssuer=q?.isin===p.isin&&q.conditions?.ko===e&&shared?.kind==='issuer-collection';
+ const sameImage=(shot?.terms?.ko===e||shot?.evidence?.KO===e)
+  &&['image-view','image-series'].includes(shared?.kind)
+  &&shared.source===e.source;
+ if(shared&&(sameIssuer||sameImage))return Date.parse(shared.at);
  return NaN;
 }
 function koEvidenceStatus(p,now=Date.now()){
