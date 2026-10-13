@@ -4,6 +4,7 @@ The user confirmed SG's 7 October reply covers the requested private use.
 Chart observations remain research evidence; missing clocks are never invented.
 """
 import copy
+import re
 import threading
 import time
 from zoneinfo import ZoneInfo
@@ -77,7 +78,10 @@ def conditions(product, properties, result):
     # clock. Keep it as reference-only; do NOT populate live leverage/At.
     indicated = attrs.get('CurrentLeverage', {}).get('Value')
     try:
-        value = q.number(indicated) if indicated is not None else 0
+        if isinstance(indicated, str) and re.fullmatch(r'[0-9]{1,4}(?:[.,][0-9]{1,4})?', indicated.strip()):
+            value = float(indicated.strip().replace(',', '.'))
+        else:
+            value = q.number(indicated) if indicated is not None else 0
     except (ValueError, TypeError):
         value = 0
     if 0 < value <= 10000:
