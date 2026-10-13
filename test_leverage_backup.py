@@ -1,4 +1,5 @@
 import unittest
+import copy
 from datetime import datetime,timezone
 from unittest.mock import patch
 import leverage_backup as b
@@ -37,6 +38,23 @@ class Tests(unittest.TestCase):
   with patch('spot_data.current',return_value=self.g),patch('sg_quotes.market_input',return_value=fx):
    too_old=b.apply(original,N)
   self.assertFalse(too_old['leverageCalculation']['available'])
+
+ def test_unknown_and_explicit_quanto_are_distinguished(self):
+  original=copy.deepcopy(self.r)
+  for state, expected in (
+      ('unknown', 'nicht eindeutig'),
+      ('quanto', 'Quanto-Produkt'),
+  ):
+   with self.subTest(state=state):
+    r=copy.deepcopy(original)
+    r['metadata'].update(simpleNonQuantoTurbo=False, quantoState=state)
+    r['issuerLeverageReference']={'value':12,'dated':False,'sourceAt':None}
+    result=b.apply(r,N)
+    self.assertFalse(result['leverageCalculation']['available'])
+    self.assertIn(expected,result['leverageCalculation']['reason'])
+    self.assertNotIn('leverage',result)
+    self.assertFalse(result['eligible'])
+    self.assertEqual(result['issuerLeverageReference']['value'],12)
 
  def test_formula_and_clocks(self):
   x=b.calculate(self.r,self.g,self.fx,N)

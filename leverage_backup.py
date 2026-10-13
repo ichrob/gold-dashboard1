@@ -97,8 +97,17 @@ def apply(result, now=None):
     if 'simpleNonQuantoTurbo' not in m:
         return result
     if not m.get('simpleNonQuantoTurbo'):
-        return dict(result,leverageCalculation=dict(available=False,
-            reason='Berechnungsmodell nicht bestätigt: Bestätigung zur Währungsabsicherung oder zum einfachen Turbo-Modell fehlt'))
+        # Distinguish a proven Quanto from an absent issuer field. An
+        # undated provider reference cannot substitute for model proof.
+        if m.get('quantoState') == 'quanto':
+            reason = 'Quanto-Produkt: einfaches Nicht-Quanto-Hebelmodell nicht anwendbar'
+        elif m.get('simpleTurbo') is False:
+            reason = 'SG-Produkttyp nicht als einfaches Turbo-Modell bestätigt'
+        else:
+            reason = ('SG hat das Quanto-Merkmal nicht eindeutig bestätigt; '
+                      'ein automatischer Hebel aus Spot/FX wäre nur eine ungesicherte Annahme')
+        return dict(result, leverageCalculation=dict(
+            available=False, reason=reason, modelConfirmed=False))
     out = copy.deepcopy(result)
     try:
         if m.get('underlyingType') == 'SPOT':

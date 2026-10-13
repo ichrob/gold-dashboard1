@@ -4,6 +4,7 @@ The user confirmed SG's 7 October reply covers the requested private use.
 Chart observations remain research evidence; missing clocks are never invented.
 """
 import copy
+import re
 import threading
 import time
 from zoneinfo import ZoneInfo
@@ -31,15 +32,63 @@ def refresh_evidence(result):
     return result
 
 
+def _quanto_flag(raw):
+    """Recognize only an explicit issuer boolean, never missing/ambiguous data."""
+    if type(raw) is bool:
+        return raw
+    if type(raw) is int and raw in (0, 1):
+        return bool(raw)
+    if isinstance(raw, str):
+        normalized = raw.strip().casefold()
+        if normalized in ('nein', 'no', 'false', '0'):
+            return False
+        if normalized in ('ja', 'yes', 'true', '1'):
+            return True
+    return None
+
+
+def _quanto_status(product, attrs):
+    """Corroborate issuer fields; disagreements fail closed."""
+    fields = (
+        ('AllProperties.IsQuanto', attrs.get('IsQuanto', {}).get('Value')),
+        ('AllProperties.Quanto', attrs.get('Quanto', {}).get('Value')),
+        ('Products.IsQuanto', product.get('IsQuanto')),
+    )
+    flags = [(name, _quanto_flag(value)) for name, value in fields if value is not None]
+    confirmed = [(name, flag) for name, flag in flags if flag is not None]
+    if any(flag is None for _, flag in flags) or len({flag for _, flag in confirmed}) > 1:
+        return 'unknown', None, 'SG-Felder unklar oder widersprüchlich'
+    if not confirmed:
+        return 'unknown', None, 'Kein ausdrückliches SG-Quanto-Merkmal'
+    is_quanto = confirmed[0][1]
+    return ('quanto' if is_quanto else 'non-quanto'), ', '.join(name for name, _ in confirmed), None
+
+
 def conditions(product, properties, result):
     attrs = {p['Name']: p for p in properties}
     values = {'underlying': result['metadata']['underlying'], 'currency': product['Currency']}
-    quanto = attrs.get('IsQuanto', {}).get('Value')
+    quanto_state, quanto_source, quanto_issue = _quanto_status(product, attrs)
     result['metadata']['simpleTurbo'] = product.get('ProductClassificationId') in (43,45,47)
-    result['metadata']['quantoState'] = ('non-quanto' if quanto is False or quanto in ('Nein','No')
-        else 'quanto' if quanto is True or quanto in ('Ja','Yes') else 'unknown')
+    result['metadata']['quantoState'] = quanto_state
+    result['metadata']['quantoProof'] = dict(
+        confirmed=quanto_source is not None, source=quanto_source, issue=quanto_issue)
     result['metadata']['simpleNonQuantoTurbo'] = (result['metadata']['simpleTurbo']
-        and result['metadata']['quantoState'] == 'non-quanto')
+        and quanto_state == 'non-quanto')
+    # The SG AllProperties indicative leverage has no authenticated market
+    # clock. Keep it as reference-only; do NOT populate live leverage/At.
+    indicated = attrs.get('CurrentLeverage', {}).get('Value')
+    try:
+        if isinstance(indicated, str) and re.fullmatch(r'[0-9]{1,4}(?:[.,][0-9]{1,4})?', indicated.strip()):
+            value = float(indicated.strip().replace(',', '.'))
+        else:
+            value = q.number(indicated) if indicated is not None else 0
+    except (ValueError, TypeError):
+        value = 0
+    if 0 < value <= 10000:
+        result['issuerLeverageReference'] = dict(
+            value=value, source='SG · AllProperties.CurrentLeverage',
+            sourceAt=None, dated=False, eligible=False,
+            note='Undatierter SG-Referenzhebel; keine Kurszeit, kein Handelsnachweis')
     ratio = attrs.get('Ratio', {})
     if ratio.get('Suffix', '').strip() == ':1':
         units = q.number(ratio['Value'])
