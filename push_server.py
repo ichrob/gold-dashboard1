@@ -23,6 +23,7 @@ import rule_learning
 import strategy_lab_store
 import stop_target_audit
 import paper_simulation
+import degiro_product_audit
 import paper_health
 import manual_paper_watch
 import evaluator_runtime
@@ -103,6 +104,7 @@ def _init_db_once():
         decision_audit.init(conn)
         real_trade_journal.init(conn)
         trade_email_import.init(conn)
+        degiro_product_audit.init(conn)
         # Operational receipt-only audit. Never log message contents, sender,
         # ISIN, order ID, security tokens or any identifying values.
         states = conn.execute("""
@@ -477,6 +479,17 @@ class Handler(BaseHTTPRequestHandler):
                                            "accountsChecked":0,"realOrders":False,
                                            "scope":"paper-account-heartbeat-not-quote-quality"}
                 send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "paperObservation":paper_heartbeat})
+                return
+            if path == "/product-audit":
+                # Private product universe; never publish it in /health or
+                # public GitHub issues. Browser access goes through Bob auth.
+                supplied = self.headers.get("X-Bob-Push-Token", "")
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
+                    send_json(self, 401, {"error": "Unauthorized"})
+                    return
+                with db() as conn:
+                    result = degiro_product_audit.read(conn)
+                send_json(self, 200, result)
                 return
             if path == "/monitor-status":
                 supplied = self.headers.get("X-Bob-Push-Token", "")
