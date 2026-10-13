@@ -582,6 +582,18 @@ def _worker(db):
                         settings=dict(timeframe='15m',trailAtr=1.5,learningPolicy=rule_learning.policy(conn))
                         active_isins=[c['product']['isin'] for c in active_cases.values() if c.get('product',{}).get('isin')]
                         quotes=quote_cache(evidence['products'],active_isins,now)
+                        # Evaluate ONLY the active screenshot list against the
+                        # already refreshed quotes. Audit failure must never roll
+                        # back paper positions, stop logic or signal delivery.
+                        conn.execute('SAVEPOINT bob_degiro_audit')
+                        try:
+                            import degiro_product_audit
+                            degiro_product_audit.store(conn,evidence,quotes,now)
+                            conn.execute('RELEASE SAVEPOINT bob_degiro_audit')
+                        except Exception as audit_exc:
+                            conn.execute('ROLLBACK TO SAVEPOINT bob_degiro_audit')
+                            conn.execute('RELEASE SAVEPOINT bob_degiro_audit')
+                            print('BOB_PRODUCT_AUDIT error='+type(audit_exc).__name__,flush=True)
                         # Original four paper policies consume unchanged confirmed direction.
                         market=background_push.analyze(bundle,settings,priority=2)
                         selection=dict(choices=[],reasons=[])

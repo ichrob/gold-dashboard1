@@ -152,13 +152,17 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
  let latest=null, lastStats=null, browserSnapshot=null, browserSnapshotAt=0;
  const counter=()=>document.querySelector('#bobNavigation [data-problem-count]');
  function badge(count){
+  window.BobProblemsArchiveCount=count;
+  // Private per-product KI-help counts stay off public GitHub issues.
+  const extra=Number.isInteger(window.BobProductAuditHelpCount)?window.BobProductAuditHelpCount:0;
+  const combined=Number.isInteger(count)?count+extra:(extra>0?extra:null);
   const b=counter();
   if(!b)return;
-  b.hidden=!(Number.isInteger(count)&&count>0);
-  b.textContent=b.hidden?'':String(count);
+  b.hidden=!(Number.isInteger(combined)&&combined>0);
+  b.textContent=b.hidden?'':String(combined);
   const button=b.closest('button');
-  if(button)button.setAttribute('aria-label',count===null?'Problem, Anzahl unbekannt':
-    count===1?'Problem, 1 offene KI-Hilfeanfrage':'Problem, '+count+' offene KI-Hilfeanfragen');
+  if(button)button.setAttribute('aria-label',combined===null?'Problem, Anzahl unbekannt':
+    combined===1?'Problem, 1 offene KI-Hilfeanfrage':'Problem, '+combined+' offene KI-Hilfeanfragen');
  }
  function readableDate(s){
   if(!s)return 'Zeitpunkt unbekannt';
