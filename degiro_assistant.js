@@ -1798,6 +1798,23 @@ function productObservedTimeStatus(p,now=Date.now()){
    'Zeitbezug für '+confirmed.length+' vorhandene Kurs-/Hebelwerte bestätigt'+
     (missing.length?' · '+missing.join(', ')+' weiterhin nicht vorhanden':'')};
 }
+function renderAutomaticProductCheck(p){
+ const recent=p?.index!=null?researchResults.get(p.index):null;
+ const q=recent?.isin===p?.isin?recent:p?.quote?.isin===p?.isin?p.quote:null;
+ if(!q)return '<div class="small" data-product-auto-check>Emittentenprüfung: noch kein Abrufresultat für diese ISIN vorhanden.</div>';
+ const date=q.attemptedAt||q.checkedAt||q.termsCheckedAt;
+ const parsed=date?Date.parse(date):NaN;
+ const at=Number.isFinite(parsed)?new Date(parsed).toLocaleString('de-CH',
+  {timeZone:'Europe/Zurich',hour12:false})+' (Zürich)':'Zeit unbekannt';
+ const label=q.sourceFailure?'Abrufproblem':
+  q.productVerified&&q.analysisQuote?.priceKind==='issuer-chart'?'Produkt bestätigt · SG-Chartkurse für Analyse':
+  q.productVerified?'Produktidentität bestätigt · aktuelle Kurse separat prüfen':
+  'Emittentenidentität noch nicht bestätigt';
+ const reason=String(q.reason||q.sgDiscovery?.reason||'').slice(0,230);
+ return '<div class="small" data-product-auto-check style="margin:6px 0;color:#536176">'+
+   '<b>Letzter automatischer Emittentenabruf:</b> '+esc(at)+' · '+esc(label)+
+   (reason?'<div>'+esc(reason)+'</div>':'')+'</div>';
+}
 function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationHtml=''){
  reasons=reasons.map(reason=>productEvidenceReason(p,reason));
  if(knockoutStatus(p))return knockoutCard(p);
@@ -1855,7 +1872,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  const next=automaticQuoteIssue?'Automatischer Kurs- und Hebelabruf wird erneut geprüft. Vorhandene Werte bleiben mit ihrem ursprünglichen Datenstand nutzbar; derzeit keine neuen Bilder erforderlich.':complete&&neutral?'Marktsignal neutral – auf eine bestätigte Richtung warten. Dafür sind keine neuen Bilder nötig.':complete?'Produktdaten vollständig – Auswahlgrund unter „Warum derzeit nicht ausgewählt?“ prüfen.':temporal&&data.complete?'Werte vorhanden – den offenen Zeitbezug unter „Werte und Aktualitätsprüfung“ prüfen.':automaticRecoveryPending?'Bob prüft die zugelassenen Emittentenquellen automatisch erneut. Fehlende oder unklare Nachweise bleiben gesperrt und werden unter „Problem“ dokumentiert. Nur wenn diese Quellen keine ausreichenden Daten liefern, können zusätzliche Originalbelege notwendig sein.':'Offene Angaben unter „Werte und Aktualitätsprüfung“ ansehen und nur diese ergänzen.';
  return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" '+(selected?'data-selection-approved':'data-selection-blocked')+'="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere"><b>'+esc(p.isin)+'</b>'+renderIsinCopy(p.isin)+productCompletionBadge(p)+'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'</div>'+
  renderDegiroListEvidence(p)+renderDegiroDisplayedQuote(p)+(swissSgVenue?'<div class="small" data-swiss-dots-warning><b>SG Swiss DOTS · CHF:</b> Chartkurs und EUR-Umrechnung sind kein Nachweis einer DEGIRO-Handelsroute. Automatische Handelsfreigabe gesperrt, bis der Brokerzugang für diese ISIN belegt ist.</div>':'')+'<div class="small" data-product-status><div><b>Daten:</b> '+valuePresenceMark(missingNumbers.length>0)+' '+esc(dataText)+'</div><div><b>Zeitbezug vorhandener Kurs-/Hebelwerte:</b> '+valuePresenceMark(!timeEvidence.confirmed)+' '+esc(timeEvidence.label)+'</div><div><b>Aktuelle Auswahl:</b> '+(selected?'freigegeben · ausgewählt':'nicht ausgewählt')+(neutral?' · Marktsignal neutral':'')+'</div></div>'+
- '<p data-product-next><b>Nächster Schritt:</b> '+esc(selected?'Tatsächlichen DEGIRO-Kurs vor einem Einstieg prüfen.':next)+'</p>'+renderPrimaryProductValues(p)+
+ '<p data-product-next><b>Nächster Schritt:</b> '+esc(selected?'Tatsächlichen DEGIRO-Kurs vor einem Einstieg prüfen.':next)+'</p>'+renderAutomaticProductCheck(p)+renderPrimaryProductValues(p)+
  (allReasons.length?'<div class="small">'+allReasons.slice(0,2).map(shortReason).map(esc).join('<br>')+'</div>':'')+
  (selected?'': '<details style="margin-top:8px"><summary>Warum derzeit nicht ausgewählt?</summary><div class="small">'+(allReasons.length?allReasons.map(esc).join('<br>'):neutral?'Keine bestätigte Long-/Short-Marktrichtung. Die vollständigen Produktdaten müssen dafür nicht erneut hochgeladen werden.':'Die aktuelle Markt- und Risikoprüfung hat das Produkt nicht ausgewählt; vollständige Daten allein erteilen keine Freigabe.')+'</div></details>')+
  '<details data-product-values style="margin-top:10px"><summary><strong>Gespeicherte Bildwerte, Quellen und Zeitbezug</strong></summary>'+
