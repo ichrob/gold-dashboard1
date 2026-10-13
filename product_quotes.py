@@ -135,6 +135,7 @@ def parse_sg(product, properties, isin, now=None):
                               underlyingType='FUTURE' if contract else 'SPOT',
                               contract=contract['ric'] if contract else None,
                               underlyingIsin=product.get('AssetIsin'), currency=sg_market(isin)[2],
+                              issuerExchangeCode=product['ExchangeCode'],
                               direction='LONG' if side == 'Call' else 'SHORT', ko=ko,
                               status=status, koEvidence=ko_evidence), maxAgeSeconds=MAX_AGE_SECONDS)
 
