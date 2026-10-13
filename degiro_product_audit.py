@@ -98,11 +98,60 @@ def _observed_prices(quote, isin, now_ms):
             "ageSeconds": round(max(now_ms - bts, now_ms - ats) / 1000, 1),
             "current": _recent(bid_at, now_ms, QUOTE_MAX_MS)
                        and _recent(ask_at, now_ms, QUOTE_MAX_MS),
+            "isinBound": row.get("isin") == isin if label == "Vorhandene Vergleichsquelle" else
+                         quote.get("isin") == isin and quote.get("productVerified") is True,
+            "venue": str(row.get("venue") or row.get("exchange") or "")[:80],
             "researchOnly": True, "degiroExecutable": False,
             "note": ("Ein SG-Chartpunkt ist keine handelbare Geld-/Briefquote."
-                     if chart else "Börsen-/Anbieterkurs ist kein verbindlicher DEGIRO-OTC-Ausführungskurs."),
+                     if chart else "Börsen-/Anbieterkurs ist kein verbindlicher DEGIRO-Ausführungskurs."),
         })
     return observations[:3]
+
+
+def _market_cross_check(observations):
+    """Read-only, synchronous issuer/secondary-market price plausibility test.
+
+    No DEGIRO login, no order, no actual DEGIRO executable quote.
+    """
+    result = dict(status="unverified", checked=False, degiroExecutable=False,
+                  brokerConnected=False, deviationPct=None, reasons=[])
+    primary = next((x for x in observations if x["label"] == "Produktquelle"
+                    and x["isinBound"]), None)
+    if primary is None:
+        primary = next((x for x in observations if x["label"] == "SG-Chart"
+                        and x["isinBound"]), None)
+    secondary = next((x for x in observations if x["label"] == "Vorhandene Vergleichsquelle"), None)
+    if primary is None or secondary is None:
+        result["reasons"].append("Kein zweites zeitlich belegtes Kurspaar. DEGIRO-Ausführung ohne Brokerdaten nicht nachweisbar.")
+        return result
+    if not secondary["isinBound"]:
+        result["reasons"].append("Vergleichsquelle ist nicht durch eigene ISIN eindeutig gebunden.")
+    if not secondary["venue"]:
+        result["reasons"].append("Handelsplatz der Vergleichsquelle fehlt.")
+    if primary["source"] == secondary["source"]:
+        result["reasons"].append("Quellen sind nicht unabhängig.")
+    if primary["currency"] != secondary["currency"]:
+        result["reasons"].append("Unterschiedliche Währungen; datierte Umrechnung fehlt.")
+    if not primary["current"] or not secondary["current"]:
+        result["reasons"].append("Mindestens ein Kurs älter als 90 Sekunden.")
+    if result["reasons"]:
+        return result
+    stamps = [_time_ms(x[k]) for x in (primary, secondary) for k in ("bidAt", "askAt")]
+    if any(x is None for x in stamps) or max(stamps)-min(stamps) > 30_000:
+        result["reasons"].append("Kurszeiten der Quellen liegen mehr als 30 Sekunden auseinander.")
+        return result
+    primary_mid = (primary["bid"]+primary["ask"])/2
+    secondary_mid = (secondary["bid"]+secondary["ask"])/2
+    pct = abs(secondary_mid-primary_mid)/primary_mid*100
+    result.update(checked=True, status="outlier" if pct > 1 else "price-comparable",
+                  deviationPct=round(pct, 4), sourceA=primary["source"],
+                  sourceB=secondary["source"], currency=primary["currency"],
+                  venue=secondary["venue"], timeSkewSeconds=round((max(stamps)-min(stamps))/1000, 1))
+    result["reasons"].append(
+        ("Preisabweichung über 1 %; Börsenplatz und Kursart genauer prüfen."
+         if pct > 1 else "Zeitnaher Quellenvergleich gelungen.")
+        + " Keine Bestätigung eines ausführbaren DEGIRO-Kurses.")
+    return result
 
 
 def _research_links(isin):
@@ -211,6 +260,8 @@ def examine(product, quote, now_ms):
     # No independent DEGIRO feed exists: even a perfect issuer audit can NEVER
     # validate actual DEGIRO executable quotes/tradability.
     codes = list(dict.fromkeys(missing))
+    observations = _observed_prices(quote, isin, now_ms) if verified else []
+    cross_check = _market_cross_check(observations)
     return {
         "isin": isin if valid_isin(isin) else None,
         "direction": direction if direction in ("LONG", "SHORT") else None,
@@ -220,7 +271,8 @@ def examine(product, quote, now_ms):
         "quoteSourceAt": quote.get("bidAt") if "quote-time" not in codes else None,
         "leverageSourceAt": quote.get("leverageAt") if "leverage-time" not in codes else None,
         "source": str(quote.get("source") or "Emittenten- und Ersatzquellen")[:80],
-        "sourceObservations": _observed_prices(quote, isin, now_ms),
+        "sourceObservations": observations,
+        "marketCrossCheck": cross_check,
         "researchLinks": _research_links(isin),
         "issuerVenue": "Swiss DOTS (CHF)" if swiss_dots else None,
         "venueEvidence": "https://www.finanzen.ch/derivate/de000fg8nhq3" if swiss_dots else None,

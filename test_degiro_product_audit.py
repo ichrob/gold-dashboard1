@@ -122,6 +122,66 @@ class ProductAuditTests(unittest.TestCase):
         })
         self.assertFalse(item["tradeApproved"])
 
+    def test_broker_execution_stays_unverified_after_independent_quote_agreement(self):
+        q = provider()
+        q["chartEvidence"] = {"bid": 6.0, "ask": 6.02,
+                              "currency": "EUR", "pointAt": iso(NOW-4000)}
+        q["secondaryQuote"] = {"isin": ISIN, "venue": "Stuttgart",
+                               "source": "Zweiter autorisierter Anbieter",
+                               "bid": 6.01, "ask": 6.03,
+                               "currency": "EUR", "bidAt": iso(NOW-6000),
+                               "askAt": iso(NOW-3500)}
+        item = audit.examine(feed()["products"][0], q, NOW)
+        check = item["marketCrossCheck"]
+        self.assertTrue(check["checked"])
+        self.assertEqual(check["status"], "price-comparable")
+        self.assertLess(check["deviationPct"], 1)
+        self.assertFalse(check["brokerConnected"])
+        self.assertFalse(check["degiroExecutable"])
+        self.assertFalse(item["tradeApproved"])
+        self.assertFalse(item["degiroVerified"])
+        self.assertEqual(item["state"], "issuer-evidence-complete")
+
+    def test_cross_check_rejects_mismatched_identity_venue_source_currency_and_clocks(self):
+        q = provider()
+        q["secondaryQuote"] = {"isin": "DE000FC1CHB7", "venue": "Stuttgart",
+                               "source": "Another provider", "bid": 6.01, "ask": 6.03,
+                               "currency": "EUR", "bidAt": iso(NOW-3000),
+                               "askAt": iso(NOW-2500)}
+        check = audit.examine(feed()["products"][0], q, NOW)["marketCrossCheck"]
+        self.assertFalse(check["checked"])
+        self.assertIn("ISIN", " ".join(check["reasons"]))
+        q["secondaryQuote"]["isin"] = ISIN
+        q["secondaryQuote"].pop("venue")
+        self.assertFalse(audit.examine(feed()["products"][0], q, NOW)["marketCrossCheck"]["checked"])
+        q["secondaryQuote"]["venue"] = "Stuttgart"
+        q["secondaryQuote"]["source"] = "SG"
+        self.assertFalse(audit.examine(feed()["products"][0], q, NOW)["marketCrossCheck"]["checked"])
+        q["secondaryQuote"]["source"] = "Independent"
+        q["secondaryQuote"]["currency"] = "CHF"
+        self.assertFalse(audit.examine(feed()["products"][0], q, NOW)["marketCrossCheck"]["checked"])
+        q["secondaryQuote"]["currency"] = "EUR"
+        q["secondaryQuote"]["bidAt"] = iso(NOW-50_000)
+        self.assertFalse(audit.examine(feed()["products"][0], q, NOW)["marketCrossCheck"]["checked"])
+        q["secondaryQuote"]["bidAt"] = iso(NOW-120_000)
+        self.assertFalse(audit.examine(feed()["products"][0], q, NOW)["marketCrossCheck"]["checked"])
+
+    def test_cross_check_outlier_and_no_reuse_of_unverified_identity(self):
+        q = provider()
+        q["secondaryQuote"] = {"isin": ISIN, "venue": "Stuttgart",
+                               "source": "Zweiter Anbieter", "bid": 5.0,
+                               "ask": 5.02, "currency": "EUR",
+                               "bidAt": iso(NOW-2000), "askAt": iso(NOW-1800)}
+        item = audit.examine(feed()["products"][0], q, NOW)
+        self.assertEqual(item["marketCrossCheck"]["status"], "outlier")
+        self.assertGreater(item["marketCrossCheck"]["deviationPct"], 1)
+        self.assertFalse(item["tradeApproved"])
+        q["productVerified"] = False
+        blocked = audit.examine(feed()["products"][0], q, NOW)
+        self.assertEqual(blocked["sourceObservations"], [])
+        self.assertFalse(blocked["marketCrossCheck"]["checked"])
+        self.assertIn("identity", blocked["missing"])
+
     def test_known_onvista_link_is_manual_only_and_no_quote(self):
         item = audit.examine({"isin": "DE000FG7N6Z2", "isinConfirmed": True,
                               "productDirection": "LONG"}, {}, NOW)
