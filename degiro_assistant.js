@@ -1287,7 +1287,7 @@ function sharedProductFieldTime(p,key,value,now=Date.now()){
   const sgKey=({Richtung:'direction',KO:'ko',Hebel:'Referenzhebel',
    Geld:'Geld',Brief:'Brief'})[field]||field;
   const obs=q.sharedValueObservations?.[sgKey],ref=q.issuerLeverageReference;
-  const refValid=field==='Hebel'&&ref?.sharedContextAt===ctx?.at
+  const refValid=field==='Hebel'&&!!ref&&!!ctx&&ref.sharedContextAt===ctx.at
     &&sameValue(ref.value)&&ref.eligible===false;
   const explicit=obs&&obs.isin===p.isin&&obs.contextAt===ctx?.at
     &&sameValue(obs.value);
