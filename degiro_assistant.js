@@ -1337,7 +1337,7 @@ function manualSnapshotStatus(p,x,now=Date.now()){
   const own=evidenceTiming(e[key],now);
   const ownAge=typeof e[key]?.at==='string'?now-Date.parse(e[key].at):NaN;
   const limit=key==='KO'?KO_MAX_AGE_MS:SCREENSHOT_MAX_AGE_MS;
-  const shared=sharedProductFieldTime(p,key,value,now);
+  const shared=sharedProductFieldTime({...p,snapshot:x},key,value,now);
   if(n(value)===null||n(e[key]?.value)!==n(value)
    ||!(own.fresh&&Number.isFinite(ownAge)&&ownAge<limit||shared?.valid))
    reasons.push(key+': eigener oder gemeinsamer Zeitbezug fehlt bzw. ist abgelaufen');
