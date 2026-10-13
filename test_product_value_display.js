@@ -105,3 +105,23 @@ assert(quoteHtml.includes('keine Orderannahme oder ausführbare Preisgarantie'))
 assert(b.compactProductCard(quoteProduct).includes('DEGIRO zeigt Geld/Brief'));
 assert(!b.compactProductCard({isin:'DE000FG4JXV7',snapshot:quoteProduct.snapshot}).includes('DEGIRO zeigt Geld/Brief'));
 assert.equal(b.currentQuote({...quoteProduct,price:13.32},Date.parse('2026-10-13T15:24:00+02:00')),false);
+const parsed=b.detailScreenshotData(degiroText,'DE000BOB0018');
+assert(parsed.ok,parsed.reason);
+assert(parsed.degiroDisplayedQuote?.brokerDisplayConfirmed);
+assert.equal(parsed.degiroDisplayedQuote?.venue,'Societe Generale OTC');
+assert.equal(parsed.ask,13.32);
+assert.equal(parsed.bid,13.31);
+const savedQuote=b.mergeScreenshotEvidence(null,parsed,'dated-market-screen.png');
+const companion=b.mergeScreenshotEvidence(savedQuote,{
+ isin:'DE000BOB0018',direction:'LONG',price:'13.31',leverage:'27.76',
+ bid:null,ask:null,currency:'EUR',sourceTime:'',times:{},terms:{}
+},'product-overview-no-bid-ask.png');
+assert.equal(companion.bid,13.31);
+assert.equal(companion.ask,13.32);
+assert.equal(companion.price,13.32);
+assert.equal(companion.leverage,27.76);
+assert.equal(companion.degiroDisplayedQuote?.sourceTime,'13/10/2026 15:23');
+assert.equal(companion.evidence.Geld?.value,13.31);
+assert.equal(companion.evidence.Brief?.value,13.32);
+assert.equal(b.currentQuote({isin:'DE000BOB0018',price:13.32,quote:{...companion}},Date.parse('2026-10-13T15:24:00+02:00')),false);
+
