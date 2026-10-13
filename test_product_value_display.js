@@ -5,6 +5,21 @@ const p={isin,index:0,price:100,quote:{isin,productVerified:true,found:false,ana
 let f=b.productFieldStates(p,now);
 assert.equal(f.ask.value,180.21);assert.equal(f.bid.value,180.2);assert.equal(f.leverage.value,2.0447);
 assert(b.compactProductCard(p).includes('Analysewerte vorhanden · ausführbarer Kurs separat offen'));
+// A displayed DEGIRO list/reference price is not a confirmed issuer ask.
+const listOnly={isin:'DE000FG7K3G2',index:9,productDirection:'SHORT',price:6.58,leverage:56.4793};
+const listFields=b.productFieldStates(listOnly,now);
+assert.equal(listFields.bid.state,'fehlt');
+assert.equal(listFields.ask.state,'fehlt');
+assert.equal(listFields.leverage.value,56.4793);
+const listCard=b.compactProductCard(listOnly);
+assert(listCard.includes('Gespeicherter Produkt-/Listenpreis: 6.58 EUR'),listCard);
+assert(listCard.includes('Fehlende Kurswerte: Geld, Brief'),listCard);
+assert(!listCard.includes('✓</span> Brief 6.58'),listCard);
+const separatelySourced={...listOnly,snapshot:{isin:listOnly.isin,currency:'EUR',
+ bid:null,ask:6.58,evidence:{Brief:{value:6.58,source:'DEGIRO-Kursansicht',at}}}};
+assert.equal(b.productFieldStates(separatelySourced,now).bid.state,'fehlt');
+assert.equal(b.productFieldStates(separatelySourced,now).ask.value,6.58);
+
 const shot={isin,index:1,snapshot:{isin,currency:'EUR',bid:10,ask:10.01,sourceTime:at,evidence:{Hebel:{value:5,at,source:'image'}}}};
 f=b.productFieldStates(shot,now);assert.equal(f.ask.value,10.01);assert.equal(f.leverage.value,5);
 assert(b.compactProductCard({isin,index:2}).includes('Fehlende Kurswerte: Geld, Brief, Hebel'));
