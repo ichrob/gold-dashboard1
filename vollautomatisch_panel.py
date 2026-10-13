@@ -4,6 +4,13 @@ Existing mobile navigation in Bob.html provides the Vollautomatisch workspace.
 This panel adds an actual executable prototype without duplicate navigation.
 """
 PANEL = r"""
+<section id="bob-broker-route-status" class="card" style="margin:12px 0;padding:15px;border:1px solid #cbd5e1;border-radius:14px;background:#fff;color:#17263a">
+ <h3>Broker &amp; Ausführung · Status</h3>
+ <p class="small"><b>DEGIRO:</b> Bob analysiert LONG/SHORT und unterstützt deine manuelle Kauf- oder Verkaufsentscheidung. Keine API-Verbindung, keine automatische Order. Den angebotenen Preis prüfst du im DEGIRO-Orderfenster.</p>
+ <p class="small"><b>Andere Broker:</b> Interactive Brokers und IG Bank Schweiz sind als zukünftige API-Routen vorbereitet. Erst offizielle Konto-/Instrumentenprüfung, dann Demo-/Paper-Tests, anschließend nur nach gesonderter Zustimmung eine mögliche Live-Anbindung.</p>
+ <p id="bob-broker-route-confirmation" class="small" role="status">Automatische Brokerorders deaktiviert · keine Zugangsdaten erforderlich.</p>
+ <button type="button" id="bob-broker-route-refresh">Brokermodus prüfen</button>
+</section>
 <section id="bob-vollautomatisch-demo" class="card" style="margin:12px 0;padding:16px;border:1px solid #b6c3d2;border-radius:14px;background:#fff;color:#16263c">
  <h3>100 € · Simulations-Probelauf</h3>
  <p class="small" style="color:#475569">Getrennter Rechenkern mit synthetischen Produktkursen in Euro. Er testet Kauf, Positionsgrösse, Stop-Loss, Gewinnziel, Trailing-Stop und Kostenannahmen. Noch kein automatischer Handel mit Marktdaten.</p>
@@ -39,7 +46,28 @@ PANEL = r"""
   const root=document.getElementById('bob-vollautomatisch-demo');
   if(!root)return;
   const auto=document.getElementById('bob-view-auto');
+  const brokerPanel=document.getElementById('bob-broker-route-status');
+  if(auto&&brokerPanel)auto.append(brokerPanel);
   if(auto)auto.append(root);
+  const brokerStatus=document.getElementById('bob-broker-route-confirmation');
+  const brokerRefresh=document.getElementById('bob-broker-route-refresh');
+  async function refreshBrokerStatus(){
+    if(!brokerStatus||!brokerRefresh)return;
+    brokerRefresh.disabled=true;
+    try{
+      const response=await fetch('/api/zukunft/research',{credentials:'same-origin',cache:'no-store'});
+      if(!response.ok)throw Error('not available');
+      const readiness=(await response.json()).brokerReadiness;
+      if(!readiness||readiness.defaultManualBroker!=='degiro'||readiness.executionEnabled!==false||
+         readiness.liveOrders!==false||readiness.paperOrders!==false||
+         readiness.manualBroker?.mode!=='MANUAL_ONLY')throw Error('unexpected policy');
+      brokerStatus.textContent='Bestätigt: DEGIRO nur manuell · API-Broker nicht verbunden · Paper- und Echtgeldorders deaktiviert.';
+    }catch(_){
+      brokerStatus.textContent='Aktueller Brokerstatus nicht abrufbar. Keine automatische Orderfreigabe.';
+    }finally{brokerRefresh.disabled=false;}
+  }
+  if(brokerRefresh)brokerRefresh.addEventListener('click',refreshBrokerStatus);
+
   const comparison=document.getElementById('bob-portfolio-comparison');
   if(auto&&comparison)auto.insertBefore(comparison,root);
   const profilesStatus=document.getElementById('bobProfilesStatus');
