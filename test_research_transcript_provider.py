@@ -55,6 +55,39 @@ class DatabaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):p.handle(self.connect,other,failure)
         with self.assertRaisesRegex(ValueError,'pausiert'):p.handle(self.connect,other,failure)
         failure.assert_called_once()
+    def test_provider_auth_blocks_other_video_without_burning_credits(self):
+        bad=Mock(side_effect=p.TranscriptError('provider_auth'))
+        with self.assertRaises(p.TranscriptError) as first:
+            p.handle(self.connect,PAYLOAD,bad)
+        self.assertEqual(first.exception.code,'provider_auth')
+        other=dict(PAYLOAD,videoId='abcdefghijk')
+        unused=Mock(return_value=p.parse(RAW))
+        with self.assertRaises(p.TranscriptError) as blocked:
+            p.handle(self.connect,other,unused)
+        self.assertEqual(blocked.exception.code,'provider_auth_paused')
+        unused.assert_not_called()
+        with self.connect() as conn:
+            count=conn.execute('SELECT count(*) FROM bob_research_requests').fetchone()[0]
+            self.assertEqual(count,1)
+            code=conn.execute('SELECT error_code FROM bob_research_requests').fetchone()[0]
+            self.assertEqual(code,'provider_auth')
+            conn.execute("UPDATE bob_research_requests SET attempted_at=now()-interval '7 hours' WHERE error_code='provider_auth'")
+        restored=p.handle(self.connect,other,unused)
+        self.assertEqual(restored['language'],'de')
+        unused.assert_called_once()
+
+    def test_provider_rate_limit_pauses_all_videos_one_hour(self):
+        bad=Mock(side_effect=p.TranscriptError('provider_limit'))
+        with self.assertRaises(p.TranscriptError) as first:
+            p.handle(self.connect,PAYLOAD,bad)
+        self.assertEqual(first.exception.code,'provider_limit')
+        other=dict(PAYLOAD,videoId='abcdefghijk')
+        untouched=Mock()
+        with self.assertRaises(p.TranscriptError) as blocked:
+            p.handle(self.connect,other,untouched)
+        self.assertEqual(blocked.exception.code,'provider_limit_paused')
+        untouched.assert_not_called()
+
     def test_quota_blocks_before_network(self):
         with self.connect() as conn:
             for i in range(90):conn.execute('INSERT INTO bob_research_requests(claim) VALUES(%s)',(str(i),))
@@ -108,6 +141,8 @@ class RetryBudgetTests(unittest.TestCase):
                 if sql.startswith('SELECT result'):
                     self.assertIn("interval '1 hour'",sql)
                     return Mock(fetchone=Mock(return_value=(None,recent)))
+                if sql.startswith('SELECT EXISTS'):
+                    return Mock(fetchone=Mock(return_value=(False,)))
                 if sql.startswith('SELECT count'):
                     return Mock(fetchone=Mock(return_value=(video_count if 'video_id=%s' in sql else total,)))
                 return Mock()
