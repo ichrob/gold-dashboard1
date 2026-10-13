@@ -218,3 +218,40 @@ def read(conn, now_ms=None):
     if not _recent(report.get("lastCheckedAt"), now_ms, REPORT_MAX_MS):
         report.update(status="stale", needsHelp=None, incomplete=None)
     return report
+
+
+# Public health transports ONLY fixed diagnostics. Never include ISINs, product
+# counts, prices, timestamps or the private screenshot list in a GitHub Issue.
+PUBLIC_HELP_CODES = frozenset((
+    "product-quote-evidence-missing",
+    "product-leverage-clock-missing",
+    "product-ko-validity-missing",
+    "product-terms-evidence-missing",
+))
+
+
+def public_help_codes(report):
+    """Strictly sanitized escalation for the independent GitHub watchdog.
+
+    A stale check never proves that the underlying data problem disappeared.
+    Closed markets alone, ended products, factors and mismatched futures are
+    deliberate exclusions and not reparable missing-timestamp incidents.
+    """
+    if not isinstance(report, dict) or report.get("status") not in ("ok", "stale"):
+        return []
+    codes = set()
+    for item in report.get("items", [])[:12]:
+        if not isinstance(item, dict) or item.get("needsKiHelp") is not True:
+            continue
+        missing = set(item.get("missing") or [])
+        if missing & {"factor", "future", "terminated"}:
+            continue
+        if missing & {"quote", "quote-time"}:
+            codes.add("product-quote-evidence-missing")
+        if missing & {"leverage", "leverage-time"}:
+            codes.add("product-leverage-clock-missing")
+        if missing & {"ko", "ko-time"}:
+            codes.add("product-ko-validity-missing")
+        if missing & {"identity", "direction", "underlying", "strike", "ratio", "maturity"}:
+            codes.add("product-terms-evidence-missing")
+    return sorted(codes & PUBLIC_HELP_CODES)
