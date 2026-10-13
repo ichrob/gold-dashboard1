@@ -23,10 +23,10 @@ CODES = {
     "future": "Anderer Basiswert/Future-Kontrakt: nicht als Spotprodukt freigegeben",
     "venue": "Swiss DOTS ist ein eigener, exklusiver OTC-Handelsplatz. Ein Kurs dort ist kein DEGIRO-Ausführungsnachweis; nur eine gesondert belegte DEGIRO-Handelsroute zählt.",
     "terminated": "Produkt vom Emittenten als beendet gemeldet",
-    "quote": "Kein bestätigtes Geld-/Briefkurspaar des Emittenten",
-    "quote-time": "Geld-/Briefkurs-Zeitstempel fehlen oder sind veraltet",
+    "quote": "Ausführbarer Geld-/Briefnachweis fehlt; vorhandene Chartwerte stehen separat unter Quellenbeobachtungen",
+    "quote-time": "Zeitbezug des ausführbaren Geld-/Briefnachweises fehlt oder ist veraltet",
     "leverage": "Emittentenhebel fehlt",
-    "leverage-time": "Unabhängiger aktueller Zeitstempel für den Emittentenhebel fehlt",
+    "leverage-time": "Aktueller eigener oder eindeutig gemeinsamer Zeitbezug für den Emittentenhebel fehlt",
     "ko": "KO-Schwelle fehlt",
     "ko-time": "KO-Gültigkeitsnachweis fehlt oder ist älter als acht Stunden",
     "strike": "Basispreis fehlt",
@@ -192,6 +192,30 @@ def _dated_barrier(quote, metadata, now_ms):
     return False
 
 
+def _shared_leverage(quote, isin, now_ms):
+    """Accept the same verified observation series as the product cards."""
+    ref = quote.get("issuerLeverageReference") or {}
+    ctx = quote.get("sharedTimeContext") or {}
+    obs = (quote.get("sharedValueObservations") or {}).get("Referenzhebel") or {}
+    chart = quote.get("chartEvidence") or quote.get("nativeChartEvidence") or {}
+    at = ctx.get("at")
+    if (quote.get("isin") != isin or quote.get("productVerified") is not True
+            or (quote.get("metadata") or {}).get("status") != 1
+            or ctx.get("kind") != "issuer-collection" or ctx.get("isin") != isin
+            or not at or at != chart.get("pointAt") or at != ref.get("sharedContextAt")
+            or "Referenzhebel" not in (ctx.get("fields") or [])
+            or obs.get("isin") != isin or obs.get("contextAt") != at
+            or not _positive(ref.get("value")) or obs.get("value") != ref["value"]
+            or ref.get("dated") is not False or ref.get("eligible") is not False):
+        return None
+    # Never override a contradictory separately published source timestamp.
+    if ref.get("sourceAt") is not None and not _recent(ref["sourceAt"], now_ms, QUOTE_MAX_MS):
+        return None
+    return {"value": ref["value"], "at": at,
+            "current": _recent(at, now_ms, 300_000),
+            "kind": "shared-issuer-observation", "researchOnly": True}
+
+
 def examine(product, quote, now_ms):
     """Return diagnostic evidence, not a new eligibility verdict."""
     isin = str(product.get("isin") or "").upper()
@@ -239,9 +263,11 @@ def examine(product, quote, now_ms):
     quote_times = (quote.get("bidAt"), quote.get("askAt"))
     if not all(_recent(at, now_ms, QUOTE_MAX_MS) for at in quote_times):
         missing.append("quote-time")
-    if not _positive(quote.get("leverage")):
+    shared_leverage = _shared_leverage(quote, isin, now_ms) if verified else None
+    if not _positive(quote.get("leverage")) and not shared_leverage:
         missing.append("leverage")
-    if not _recent(quote.get("leverageAt"), now_ms, QUOTE_MAX_MS):
+    if not _recent(quote.get("leverageAt"), now_ms, QUOTE_MAX_MS) and not (
+            shared_leverage and shared_leverage["current"]):
         missing.append("leverage-time")
     if not _positive(metadata.get("ko") or quote.get("ko")):
         missing.append("ko")
@@ -269,6 +295,7 @@ def examine(product, quote, now_ms):
         "missing": codes,
         "messages": [CODES[code] for code in codes],
         "quoteSourceAt": quote.get("bidAt") if "quote-time" not in codes else None,
+        "leverageObservation": shared_leverage,
         "leverageSourceAt": quote.get("leverageAt") if "leverage-time" not in codes else None,
         "source": str(quote.get("source") or "Emittenten- und Ersatzquellen")[:80],
         "sourceObservations": observations,

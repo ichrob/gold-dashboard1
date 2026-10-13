@@ -52,7 +52,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    const list=document.createElement('p');list.style.whiteSpace='pre-line';
    list.textContent=(item.messages||[]).join('\n')+'\nPrüfungen in Folge: '+(item.consecutiveChecks||0)+' · Nächster Schritt: '+item.autoRecovery+
         '\nGeldkurszeit: '+(item.quoteSourceAt?fmt(item.quoteSourceAt):'nicht nachgewiesen')+
-        ' · Hebelzeit: '+(item.leverageSourceAt?fmt(item.leverageSourceAt):'nicht nachgewiesen')+
+        ' · Hebelzeit: '+(item.leverageObservation?.current?fmt(item.leverageObservation.at)+' (gemeinsamer SG-Zeitbezug)':item.leverageSourceAt?fmt(item.leverageSourceAt):'nicht aktuell nachgewiesen')+
         (item.venueAction?'\nHandelsplatzprüfung: '+item.issuerVenue+' · '+item.venueAction:'')+
         '\nKeine automatische DEGIRO-Handelsfreigabe.';
    node.append(summary,list);

@@ -34,6 +34,49 @@ def feed():
 
 
 class ProductAuditTests(unittest.TestCase):
+    def shared_quote(self):
+        q=provider()
+        q.pop("leverage");q.pop("leverageAt")
+        q.update(found=False,isExecutableQuote=False)
+        at=iso(NOW-1000)
+        q["chartEvidence"]={"pointAt":at,"bid":6,"ask":6.02,"currency":"EUR"}
+        q["issuerLeverageReference"]={"value":18.4,"dated":False,"eligible":False,
+                                      "sourceAt":None,"sharedContextAt":at}
+        q["sharedTimeContext"]={"at":at,"kind":"issuer-collection","isin":ISIN,
+                                "fields":["Referenzhebel"]}
+        q["sharedValueObservations"]={"Referenzhebel":{"value":18.4,"contextAt":at,"isin":ISIN}}
+        return q
+
+    def test_shared_leverage_agrees_with_cards_without_execution_approval(self):
+        q=self.shared_quote()
+        item=audit.examine(feed()["products"][0],q,NOW)
+        self.assertNotIn("leverage",item["missing"])
+        self.assertNotIn("leverage-time",item["missing"])
+        self.assertIsNone(item["leverageSourceAt"])
+        self.assertTrue(item["leverageObservation"]["current"])
+        self.assertIn("quote",item["missing"])
+        self.assertFalse(item["tradeApproved"])
+        self.assertFalse(item["degiroVerified"])
+        stale=audit.examine(feed()["products"][0],q,NOW+300001)
+        self.assertNotIn("leverage",stale["missing"])
+        self.assertIn("leverage-time",stale["missing"])
+
+    def test_shared_leverage_rejects_mismatched_or_missing_evidence(self):
+        cases=[("sharedTimeContext","isin","DE000FG309G0"),
+               ("sharedTimeContext","fields",[]),
+               ("sharedTimeContext","kind","retrieval"),
+               ("issuerLeverageReference","value",None),
+               ("issuerLeverageReference","sharedContextAt",iso(NOW)),
+               ("issuerLeverageReference","sourceAt",iso(NOW-90001)),
+               ("chartEvidence","pointAt",iso(NOW))]
+        for group,key,value in cases:
+            with self.subTest(group=group,key=key):
+                q=self.shared_quote();q[group][key]=value
+                item=audit.examine(feed()["products"][0],q,NOW)
+                self.assertIn("leverage-time",item["missing"])
+                self.assertIsNone(item["leverageObservation"])
+                self.assertFalse(item["tradeApproved"])
+
     def test_complete_issuer_evidence_is_never_degiro_trade_approval(self):
         item=audit.examine(feed()["products"][0],provider(),NOW)
         self.assertEqual(item["missing"],[])
