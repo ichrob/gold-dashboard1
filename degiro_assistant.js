@@ -1317,7 +1317,11 @@ function sharedProductFieldTime(p,key,value,now=Date.now()){
  if(!['image-series','image-view'].includes(kind))return null;
  const raw=observed.contextTimeText;
  const interval=selectionTimeWindow(raw);
- const linked=observed.contextAt?Date.parse(observed.contextAt):interval?.start;
+ // A lone screenshot without a source timezone cannot establish an exact
+ // instant. A verified simultaneous image series may instead use the
+ // explicitly labelled Europe/Zurich assumption of that series.
+ const linked=observed.contextAt?Date.parse(observed.contextAt):
+   kind==='image-series'?interval?.start:NaN;
  if(!interval||!Number.isFinite(linked)||linked!==interval.start)return null;
  // A real field-specific clock takes precedence over the common observation.
  // It may not be refreshed or concealed by a newer timestamp elsewhere.
