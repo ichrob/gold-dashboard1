@@ -1607,8 +1607,8 @@ function degiroListObservation(isin,archive=listArchive,now=Date.now()){
  return {observed:true,currentDay:day===clock.day&&!clock.closed,
   uploadedAt:archive.storedAt,executable:false,quoteConfirmed:false};
 }
-function renderDegiroListEvidence(p,now=Date.now()){
- const proof=degiroListObservation(p?.isin,listArchive,now);
+function renderDegiroListEvidence(p,now=Date.now(),archive=listArchive){
+ const proof=degiroListObservation(p?.isin,archive,now);
  if(!proof.observed)return '';
  const uploaded=new Date(proof.uploadedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich',hour12:false});
  return '<div class="small" data-degiro-list-evidence><b>DEGIRO-Listenbild:</b> '+
