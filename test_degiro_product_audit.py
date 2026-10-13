@@ -82,6 +82,11 @@ class ProductAuditTests(unittest.TestCase):
         q["isin"]="DE000FC1CHB7"
         self.assertIn("identity",audit.examine(feed()["products"][0],q,NOW)["missing"])
 
+    def test_emitter_terminal_bitmask_blocks(self):
+        q=provider()
+        q["metadata"]["status"]=9  # SG active bit together with terminal bit
+        self.assertIn("terminated",audit.examine(feed()["products"][0],q,NOW)["missing"])
+
     def test_active_screenshot_generation_not_historic_research_seeds(self):
         self.assertEqual(audit.build({}, {}, NOW)["status"],"waiting-for-screenshot")
         self.assertEqual(audit.build({"products":[{"isin":ISIN}]},{},NOW)["total"],0)
