@@ -37,11 +37,17 @@ def normalize(payload, interval, now=None):
 
 
 def fetch(interval, fetch_json):
-    """One request per minute, or 30 seconds for 1m; preserve source times."""
+    """Use source-provided candles only; briefly poll a new 15m close faster.
+
+    At most one request per 30 seconds in the first 90 seconds following
+    a 15m boundary. Normal 15m polling stays at 60 seconds. This shortens
+    cache-induced delays but cannot accelerate the upstream publisher.
+    """
     with _locks[interval]:
         now = time.time()
         saved = _cache.get(interval)
-        cache_seconds = 30 if interval == '1m' else 60
+        near_15m_close = interval == '15m' and 0 <= now % 900 < 90
+        cache_seconds = 30 if interval == '1m' or near_15m_close else 60
         if saved and now-saved[0] < cache_seconds:
             return [dict(b) for b in saved[1]]
         rows = saved[1] if saved else []

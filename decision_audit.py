@@ -29,6 +29,20 @@ def milliseconds(value):
     except (ValueError, TypeError, AttributeError):
         return None
 
+def rejection_code(exc):
+    """Safe fixed-category diagnostics: never return payload text or secrets."""
+    if isinstance(exc, json.JSONDecodeError):
+        return 'invalid-json'
+    known = {
+        'Prüfprotokoll zu groß oder ungültig': 'payload-invalid-or-large',
+        'Ungültige Richtung': 'direction-invalid',
+        'Entscheidungs-Kerzenzeit fehlt oder liegt in der Zukunft': 'bar-time-invalid',
+        'Zu viele Produkte': 'product-count-invalid',
+        'Ungültige Protokollquelle': 'origin-invalid',
+    }
+    return known.get(str(exc), 'other-validation-error')
+
+
 def positive(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
 

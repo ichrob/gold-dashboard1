@@ -977,6 +977,10 @@ class Handler(BaseHTTPRequestHandler):
             print('BOB_RESEARCH error_code='+exc.code, flush=True)
             send_json(self, 400, {'error': str(exc), 'errorCode': exc.code})
         except (ValueError, json.JSONDecodeError) as exc:
+            if path == '/decision-audit/write':
+                # Previous browser writes returned HTTP 400 without any
+                # actionable trace. Log category only, never client contents.
+                print('BOB_AUDIT rejected code='+decision_audit.rejection_code(exc), flush=True)
             send_json(self, 400, {"error": str(exc)})
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True
