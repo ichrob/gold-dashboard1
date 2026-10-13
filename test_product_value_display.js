@@ -70,3 +70,58 @@ console.log('Product value display: OK');
 
 const auto=b.compactProductCard(p,['BNP-Kursabruf: Quellenantwort veraltet']);assert(auto.includes('derzeit keine neuen Bilder erforderlich'));
 const actualMissing=b.compactProductCard(p,['Bezugsverhältnis fehlt']);assert(!actualMissing.includes('derzeit keine neuen Bilder erforderlich'));
+
+
+// Only a broker-visible *market-data display* is proven by a DEGIRO product page.
+// All unrelated personal account data is excluded from the test fixture.
+const degiroText=[
+ 'Kursdaten','Zuletzt € 13,31   13/10/2026 15:23',
+ 'Geld € 13,31','Brief € 13,32','Geld Vol. 25K','Brief Vol. 25K',
+ 'Symbol | ISIN','DE000BOB0018','Börse','Societe Generale OTC'
+].join('\n');
+const observed=b.parseDegiroDisplayedQuote(degiroText,'DE000BOB0018');
+assert(observed, 'DEGIRO market quote pair should be readable');
+assert.equal(observed.bid,13.31);
+assert.equal(observed.ask,13.32);
+assert.equal(observed.venue,'Societe Generale OTC');
+assert.equal(observed.sourceTime,'13/10/2026 15:23');
+assert(observed.brokerDisplayConfirmed);
+assert.strictEqual(observed.orderWindowVerified,false);
+assert.strictEqual(observed.executionGuaranteed,false);
+assert.strictEqual(observed.isExecutableQuote,false);
+assert.strictEqual(observed.orderSubmitted,false);
+assert.equal(b.parseDegiroDisplayedQuote(degiroText,'DE000FG4JXV7'),null);
+assert.equal(b.parseDegiroDisplayedQuote(degiroText.replace('13/10/2026 15:23','13/10/2026 15:23\n14/10/2026 16:00'),'DE000BOB0018'),null);
+assert.equal(b.parseDegiroDisplayedQuote(degiroText.replace('Brief € 13,32','Brief Vol. 25K'),'DE000BOB0018'),null);
+assert.equal(b.parseDegiroDisplayedQuote(degiroText.replace('Börse\nSociete Generale OTC',''),'DE000BOB0018'),null);
+assert.equal(b.parseDegiroDisplayedQuote(degiroText.replace('Kursdaten','Kurshistorie'),'DE000BOB0018'),null);
+assert.equal(b.parseDegiroDisplayedQuote(degiroText.replace('Brief € 13,32','Brief € 12,99'),'DE000BOB0018'),null);
+const quoteProduct={isin:'DE000BOB0018',snapshot:{isin:'DE000BOB0018',degiroDisplayedQuote:observed}};
+const quoteHtml=b.renderDegiroDisplayedQuote(quoteProduct,Date.parse('2026-10-13T15:24:00+02:00'));
+assert(quoteHtml.includes('13.31'));
+assert(quoteHtml.includes('13.32'));
+assert(quoteHtml.includes('Societe Generale OTC'));
+assert(quoteHtml.includes('keine Orderannahme oder ausführbare Preisgarantie'));
+assert(b.compactProductCard(quoteProduct).includes('DEGIRO zeigt Geld/Brief'));
+assert(!b.compactProductCard({isin:'DE000FG4JXV7',snapshot:quoteProduct.snapshot}).includes('DEGIRO zeigt Geld/Brief'));
+assert.equal(b.currentQuote({...quoteProduct,price:13.32},Date.parse('2026-10-13T15:24:00+02:00')),false);
+const parsed=b.detailScreenshotData(degiroText,'DE000BOB0018');
+assert(parsed.ok,parsed.reason);
+assert(parsed.degiroDisplayedQuote?.brokerDisplayConfirmed);
+assert.equal(parsed.degiroDisplayedQuote?.venue,'Societe Generale OTC');
+assert.equal(parsed.ask,13.32);
+assert.equal(parsed.bid,13.31);
+const savedQuote=b.mergeScreenshotEvidence(null,parsed,'dated-market-screen.png');
+const companion=b.mergeScreenshotEvidence(savedQuote,{
+ isin:'DE000BOB0018',direction:'LONG',price:'13.31',leverage:'27.76',
+ bid:null,ask:null,currency:'EUR',sourceTime:'',times:{},terms:{}
+},'product-overview-no-bid-ask.png');
+assert.equal(companion.bid,13.31);
+assert.equal(companion.ask,13.32);
+assert.equal(companion.price,13.32);
+assert.equal(companion.leverage,27.76);
+assert.equal(companion.degiroDisplayedQuote?.sourceTime,'13/10/2026 15:23');
+assert.equal(companion.evidence.Geld?.value,13.31);
+assert.equal(companion.evidence.Brief?.value,13.32);
+assert(!b.currentQuote({isin:'DE000BOB0018',price:13.32,quote:{...companion}},Date.parse('2026-10-13T15:24:00+02:00')));
+
