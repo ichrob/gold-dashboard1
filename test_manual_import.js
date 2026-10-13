@@ -75,7 +75,10 @@ assert(!b.needsDirectionalData(product,'NEUTRAL'));
 assert(b.needsDirectionalData({...product,productDirection:'LONG'},'LONG'));
 assert(!b.rankProducts([{...product,snapshot}],{requireFreshQuotes:true,spotFresh:true,direction:'SHORT',now}).tradeable);
 for(const extra of ['Kurszeit: '+at,'Kurszeit: 01/10/2026 06:00:00','Kurszeit: 01/10/2026 06:00 CEST',at,'Uploadzeit: '+at]){
- const x=b.mergeScreenshotEvidence(null,read(extra),'unknown.jpg');assert(!b.manualSnapshotStatus(product,x,now).complete,extra);
+ const x=b.mergeScreenshotEvidence(null,read(extra),'unknown.jpg');
+ // A single fully dated, verified product view is now sufficient for its
+ // observed field times; an ambiguous/device timestamp still is not.
+ assert.equal(b.manualSnapshotStatus(product,x,now).complete,extra==='Kurszeit: '+at,extra);
 }
 const delayed=b.mergeScreenshotEvidence(null,read('Kurszeit: '+at+'\nHebelzeit: '+at+'\nKO-Zeit: '+at+'\nKurse verzögert'),'delayed.jpg');
 assert(!b.manualSnapshotStatus(product,delayed,now).complete);
