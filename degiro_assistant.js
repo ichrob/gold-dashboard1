@@ -1260,6 +1260,68 @@ function fieldSourceTime(x,key){
  if(x.times?.[field]?.present)return x.times[field].at;
  return ['Geld','Brief','Kurs','Spread','Hebel'].includes(key)?sharedSourceContext(x)?.at||null:null;
 }
+// One field-level observation rule for both verified issuer collections and
+// identified screenshots. This is evidence of observation, NOT an order quote.
+function sharedProductFieldTime(p,key,value,now=Date.now()){
+ const field=({bid:'Geld',ask:'Brief',leverage:'Hebel',ko:'KO',strike:'strike',
+  ratio:'ratio',underlying:'underlying',direction:'Richtung',currency:'currency',
+  type:'type',maturity:'maturity',contract:'contract'})[key]||key;
+ const termKey=({KO:'ko',Basispreis:'strike',Richtung:'direction',
+  Geld:'bid',Brief:'ask',Hebel:'leverage'})[field]||field;
+ const numeric=['Geld','Brief','Hebel','KO','strike','ratio'].includes(field);
+ const sameValue=(actual)=>numeric?n(actual)!==null&&n(actual)===n(value):
+   actual!==undefined&&actual!==null&&String(actual)===String(value);
+ const duration=field==='KO'?KO_MAX_AGE_MS:
+  field==='strike'?86400000:SCREENSHOT_MAX_AGE_MS;
+ const make=(at,kind,text,source,limit)=> {
+  const window=selectionTimeWindow(at);
+  const iso=typeof at==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(at)?Date.parse(at):window?.start;
+  const age=now-iso;
+  if(!Number.isFinite(iso)||age<0)return null;
+  return {at:new Date(iso).toISOString(),text:text||at,kind,source,
+   ageMs:age,valid:age<limit,limitMs:limit,analysisOnly:true};
+ };
+ const q=p?.quote;
+ if(q?.isin===p?.isin&&q.productVerified&&q.metadata?.status===1){
+  const ctx=q.sharedTimeContext,chart=q.chartEvidence||q.nativeChartEvidence;
+  const sgKey=({Richtung:'direction',KO:'ko',Hebel:'Referenzhebel',
+   Geld:'Geld',Brief:'Brief'})[field]||field;
+  const obs=q.sharedValueObservations?.[sgKey],ref=q.issuerLeverageReference;
+  const refValid=field==='Hebel'&&ref?.sharedContextAt===ctx?.at
+    &&sameValue(ref.value)&&ref.eligible===false;
+  const explicit=obs&&obs.isin===p.isin&&obs.contextAt===ctx?.at
+    &&sameValue(obs.value);
+  if(ctx?.kind==='issuer-collection'&&ctx.isin===p.isin
+   &&ctx.at===chart?.pointAt&&Array.isArray(ctx.fields)
+   &&ctx.fields.includes(sgKey)&&(explicit||refValid)){
+    const result=make(ctx.at,'issuer-collection',ctx.at,q.source,field==='KO'?KO_MAX_AGE_MS:
+      field==='strike'?86400000:300000);
+    if(result)return result;
+  }
+ }
+ const x=p?.snapshot,term=x?.terms?.[termKey],valueKey=({strike:null,ratio:null,
+  underlying:null,currency:null,type:null,maturity:null,contract:null})[termKey];
+ const label=({bid:'Geld',ask:'Brief',leverage:'Hebel',ko:'KO',
+  direction:'Richtung'})[termKey]||null;
+ const ev=label?x?.evidence?.[label]:null;
+ const observed=term||ev;
+ if(x?.isin!==p?.isin||!hasScreenshotIdentity(x)||!observed?.source
+  ||observed.conflict||observed.revoked||observed.ocrCorrection
+  ||!sameValue(observed.value))return null;
+ const own={bid:'bid',ask:'ask',leverage:'leverage',ko:'ko'}[termKey];
+ // A separately shown but unparsable clock is a conflict, not permission to
+ // silently borrow a different one from the same page.
+ if(own&&x.times?.[own]?.present&&!x.times[own].at)return null;
+ const kind=observed.contextKind,series=x.captureSeries;
+ if(kind==='image-series'&&(!series?.userDeclaredSimultaneous
+   ||!series.members?.includes(observed.source)))return null;
+ if(!['image-series','image-view'].includes(kind))return null;
+ const raw=observed.contextTimeText;
+ const interval=selectionTimeWindow(raw);
+ const linked=observed.contextAt?Date.parse(observed.contextAt):interval?.start;
+ if(!interval||!Number.isFinite(linked)||linked!==interval.start)return null;
+ return make(raw,kind,raw,observed.source,duration);
+}
 function manualSnapshotStatus(p,x,now=Date.now()){
  const reasons=[],e=x?.evidence||{};
  if(isFutureProduct(p))reasons.push(p.quote?.futureResearch?.contractAnalysis?.available?"Gold-Future: Kontraktanalyse vorhanden; bedingten Vergleich beachten. Keine Spot-Freigabe":"Gold-Future: eigene Basiswertdaten und Trendprüfung erforderlich; keine Spot-Freigabe");
