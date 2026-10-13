@@ -53,8 +53,17 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    list.textContent=(item.messages||[]).join('\n')+'\nPrüfungen in Folge: '+(item.consecutiveChecks||0)+' · Nächster Schritt: '+item.autoRecovery+
         '\nGeldkurszeit: '+(item.quoteSourceAt?fmt(item.quoteSourceAt):'nicht nachgewiesen')+
         ' · Hebelzeit: '+(item.leverageSourceAt?fmt(item.leverageSourceAt):'nicht nachgewiesen')+
+        (item.venueAction?'\nHandelsplatzprüfung: '+item.issuerVenue+' · '+item.venueAction:'')+
         '\nKeine automatische DEGIRO-Handelsfreigabe.';
-   node.append(summary,list);out.append(node);
+   node.append(summary,list);
+   if(item.isin==='DE000FG8NHQ3'&&item.issuerVenue==='Swiss DOTS (CHF)'){
+     const link=document.createElement('a');
+     link.href='https://www.swissquote.com/de-ch/private/trade/products/swiss-dots';
+     link.target='_blank';link.rel='noopener noreferrer';
+     link.textContent='Swissquote: Handelsplatz und Zugangsweg prüfen';
+     node.append(link);
+   }
+   out.append(node);
   }
   for(const item of help){
    const p=document.createElement('p');

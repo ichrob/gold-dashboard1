@@ -41,7 +41,41 @@ class ProductAuditTests(unittest.TestCase):
         self.assertFalse(item["degiroVerified"])
         self.assertFalse(item["tradeApproved"])
 
-    def test_missing_independent_leverage_clock_fails_closed(self):
+    def test_sg_swiss_dots_chf_is_not_degiro_quote(self):
+        # Confirmed by official Swissquote platform and independent SG product
+        # listing: DE000FG8NHQ3 is a CHF Swiss DOTS knock-out warrant.
+        isin="DE000FG8NHQ3"
+        product={"isin": isin, "productDirection": "SHORT", "isinConfirmed": True}
+        quote=provider()
+        quote.update(isin=isin,currency="CHF",found=True,
+                     priceKind="observed-issuer",isExecutableQuote=True)
+        quote["metadata"].update(currency="CHF",issuerExchangeCode="CBSW")
+        result=audit.examine(product,quote,NOW)
+        self.assertIn("venue",result["missing"])
+        self.assertIn("underlying",result["missing"])
+        self.assertEqual(result["issuerVenue"],"Swiss DOTS (CHF)")
+        self.assertFalse(result["degiroVerified"])
+        self.assertFalse(result["tradeApproved"])
+        self.assertIn("DEGIRO",result["venueAction"])
+        # Only source-validated exact products may carry this conclusion.
+        quote["productVerified"]=False
+        self.assertNotIn("venue",audit.examine(product,quote,NOW)["missing"])
+        # A separate SG Germany EUR product must not inherit Swiss DOTS.
+        other=provider()
+        other["metadata"]["issuerExchangeCode"]="CBDE"
+        self.assertEqual(audit.examine(
+            {"isin":ISIN,"productDirection":"SHORT","isinConfirmed":True},
+            other,NOW)["missing"],[])
+
+    def test_swiss_dots_not_counted_as_public_recoverable_timestamp_error(self):
+        item={"isin":"DE000FG8NHQ3","needsKiHelp":True,
+              "missing":["venue","underlying","quote","quote-time","leverage-time"]}
+        report={"status":"ok","items":[item]}
+        self.assertEqual(audit.public_help_codes(report),[])
+        # The private Problem list still explains the venue conflict.
+        self.assertIn("Swiss DOTS",audit.CODES["venue"])
+
+
         q=provider()
         q.pop("leverageAt")
         q["leverageCalculation"]={"available":True,"fresh":True,"value":18.4}

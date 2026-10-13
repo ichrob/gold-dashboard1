@@ -21,6 +21,7 @@ CODES = {
     "underlying": "Gold-Spot-Basiswert oder Produktwährung nicht bestätigt",
     "factor": "Faktorprodukt ausgeschlossen",
     "future": "Anderer Basiswert/Future-Kontrakt: nicht als Spotprodukt freigegeben",
+    "venue": "Swiss DOTS ist ein eigener, exklusiver OTC-Handelsplatz. Ein Kurs dort ist kein DEGIRO-Ausführungsnachweis; nur eine gesondert belegte DEGIRO-Handelsroute zählt.",
     "terminated": "Produkt vom Emittenten als beendet gemeldet",
     "quote": "Kein bestätigtes Geld-/Briefkurspaar des Emittenten",
     "quote-time": "Geld-/Briefkurs-Zeitstempel fehlen oder sind veraltet",
@@ -92,6 +93,17 @@ def examine(product, quote, now_ms):
     if not valid_isin(isin) or not product.get("isinConfirmed"):
         missing.append("identity")
     verified = quote.get("isin") == isin and quote.get("productVerified") is True
+    # This exact ISIN is independently listed as SG's CHF Swiss DOTS
+    # knock-out, not as an EUWAX/Frankfurt security. Swissquote describes
+    # Swiss DOTS as its exclusive OTC platform. Even an issuer snapshot
+    # cannot establish availability at DEGIRO.
+    swiss_dots = (
+        isin == "DE000FG8NHQ3" and verified
+        and metadata.get("issuerExchangeCode") == "CBSW"
+        and (quote.get("currency") or metadata.get("currency")) == "CHF"
+    )
+    if swiss_dots:
+        missing.append("venue")
     if not verified:
         missing.append("identity") if "identity" not in missing else None
     if direction not in ("LONG", "SHORT") or metadata.get("direction", quote.get("direction")) != direction:
@@ -148,6 +160,12 @@ def examine(product, quote, now_ms):
         "quoteSourceAt": quote.get("bidAt") if "quote-time" not in codes else None,
         "leverageSourceAt": quote.get("leverageAt") if "leverage-time" not in codes else None,
         "source": str(quote.get("source") or "Emittenten- und Ersatzquellen")[:80],
+        "issuerVenue": "Swiss DOTS (CHF)" if swiss_dots else None,
+        "venueEvidence": "https://www.finanzen.ch/derivate/de000fg8nhq3" if swiss_dots else None,
+        "venueAction": ("Keine Swiss-DOTS-Quotierung als DEGIRO-Kurs verwenden. "
+                        "Nur eine bei DEGIRO selbst nachgewiesene Handelsroute "
+                        "oder ein dort handelbares EUR-Produkt zum Vergleich heranziehen."
+                        if swiss_dots else None),
         "autoRecovery": "Vorhandene Emittenten- und Ersatzquellen werden bei der nächsten Aktualisierung erneut geprüft",
         "degiroVerified": False,
         "tradeApproved": False,
@@ -244,7 +262,7 @@ def public_help_codes(report):
         if not isinstance(item, dict) or item.get("needsKiHelp") is not True:
             continue
         missing = set(item.get("missing") or [])
-        if missing & {"factor", "future", "terminated"}:
+        if missing & {"factor", "future", "terminated", "venue"}:
             continue
         if missing & {"quote", "quote-time"}:
             codes.add("product-quote-evidence-missing")
