@@ -1812,7 +1812,7 @@ function renderAutomaticProductCheck(p){
   'Emittentenidentität noch nicht bestätigt';
  const reason=String(q.reason||q.sgDiscovery?.reason||'').slice(0,230);
  return '<div class="small" data-product-auto-check style="margin:6px 0;color:#536176">'+
-   '<b>Letzter automatischer Emittentenabruf:</b> '+esc(at)+' · '+esc(label)+
+   '<b>Letzter automatischer Emittentenabruf (Prüfzeit, keine Kurszeit):</b> '+esc(at)+' · '+esc(label)+
    (reason?'<div>'+esc(reason)+'</div>':'')+'</div>';
 }
 function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationHtml=''){
