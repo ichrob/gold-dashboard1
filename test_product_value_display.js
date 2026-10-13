@@ -77,9 +77,9 @@ const actualMissing=b.compactProductCard(p,['Bezugsverhältnis fehlt']);assert(!
 const degiroText=[
  'Kursdaten','Zuletzt € 13,31   13/10/2026 15:23',
  'Geld € 13,31','Brief € 13,32','Geld Vol. 25K','Brief Vol. 25K',
- 'Symbol | ISIN','DE000FC1CHB7','Börse','Societe Generale OTC'
+ 'Symbol | ISIN','DE000BOB0018','Börse','Societe Generale OTC'
 ].join('\n');
-const observed=b.parseDegiroDisplayedQuote(degiroText,'DE000FC1CHB7');
+const observed=b.parseDegiroDisplayedQuote(degiroText,'DE000BOB0018');
 assert(observed, 'DEGIRO market quote pair should be readable');
 assert.equal(observed.bid,13.31);
 assert.equal(observed.ask,13.32);
@@ -91,12 +91,12 @@ assert.strictEqual(observed.executionGuaranteed,false);
 assert.strictEqual(observed.isExecutableQuote,false);
 assert.strictEqual(observed.orderSubmitted,false);
 assert.equal(b.parseDegiroDisplayedQuote(degiroText,'DE000FG4JXV7'),null);
-assert.equal(b.parseDegiroDisplayedQuote(degiroText.replace('13/10/2026 15:23','13/10/2026 15:23\n14/10/2026 16:00'),'DE000FC1CHB7'),null);
-assert.equal(b.parseDegiroDisplayedQuote(degiroText.replace('Brief € 13,32','Brief Vol. 25K'),'DE000FC1CHB7'),null);
-assert.equal(b.parseDegiroDisplayedQuote(degiroText.replace('Börse\nSociete Generale OTC',''),'DE000FC1CHB7'),null);
-assert.equal(b.parseDegiroDisplayedQuote(degiroText.replace('Kursdaten','Kurshistorie'),'DE000FC1CHB7'),null);
-assert.equal(b.parseDegiroDisplayedQuote(degiroText.replace('Brief € 13,32','Brief € 12,99'),'DE000FC1CHB7'),null);
-const quoteProduct={isin:'DE000FC1CHB7',snapshot:{isin:'DE000FC1CHB7',degiroDisplayedQuote:observed}};
+assert.equal(b.parseDegiroDisplayedQuote(degiroText.replace('13/10/2026 15:23','13/10/2026 15:23\n14/10/2026 16:00'),'DE000BOB0018'),null);
+assert.equal(b.parseDegiroDisplayedQuote(degiroText.replace('Brief € 13,32','Brief Vol. 25K'),'DE000BOB0018'),null);
+assert.equal(b.parseDegiroDisplayedQuote(degiroText.replace('Börse\nSociete Generale OTC',''),'DE000BOB0018'),null);
+assert.equal(b.parseDegiroDisplayedQuote(degiroText.replace('Kursdaten','Kurshistorie'),'DE000BOB0018'),null);
+assert.equal(b.parseDegiroDisplayedQuote(degiroText.replace('Brief € 13,32','Brief € 12,99'),'DE000BOB0018'),null);
+const quoteProduct={isin:'DE000BOB0018',snapshot:{isin:'DE000BOB0018',degiroDisplayedQuote:observed}};
 const quoteHtml=b.renderDegiroDisplayedQuote(quoteProduct,Date.parse('2026-10-13T15:24:00+02:00'));
 assert(quoteHtml.includes('13.31'));
 assert(quoteHtml.includes('13.32'));
