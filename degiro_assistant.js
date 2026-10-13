@@ -2165,7 +2165,17 @@ function termSeriesReference(p,key,e,now=Date.now()){
   if(Number.isFinite(age)&&age>=0&&age<=86400000)return {origin:'automatic',text:automatic.observedAt,label:'Zeitbezug der automatischen Abrufserie'};
  }
  const x=p.snapshot,series=x?.captureSeries,own=x?.terms?.[key];
- if(x?.isin!==p.isin||!hasScreenshotIdentity(x)||!series?.userDeclaredSimultaneous||!series.members?.includes(e.source)||own?.source!==e.source||n(own.value)!==n(e.value))return null;
+ if(x?.isin!==p.isin||!hasScreenshotIdentity(x)||own?.source!==e.source||n(own.value)!==n(e.value))return null;
+ // A value in ONE dated, identified product view has the same observation
+ // context as all other values in that view; a multi-image selection may
+ // establish the context when the corresponding source image belongs to it.
+ if(e.contextKind==='image-view'&&e.contextTimeText&&e.contextAt){
+  const time=selectionTimeWindow(e.contextTimeText),recorded=Date.parse(e.contextAt);
+  if(time&&Number.isFinite(recorded)&&recorded===time.start
+     &&now>=recorded&&now-recorded<=86400000)
+   return {origin:'image-view',text:e.contextTimeText,label:'Gemeinsamer Zeitbezug derselben Produktansicht'};
+ }
+ if(!series?.userDeclaredSimultaneous||!series.members?.includes(e.source))return null;
  const time=selectionTimeWindow(series.text);
  return time&&now>=time.start&&now-time.start<=86400000?{origin:'screenshot',text:series.text,label:'Zeitbezug der Aufnahmeserie'}:null;
 }
@@ -2208,7 +2218,7 @@ function renderTermSeriesValidity(p,now=Date.now()){
  return '<div data-ko-validity><b>'+esc(koState.reason)+'</b>'+(koState.expiresAt?'<br>Nachweis bis '+esc(new Date(koState.expiresAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}))+' (Zürich)':'')+'</div>'+ ['strike','ko'].map(key=>{
   const direct=p.quote?.conditions?.[key],shot=p.snapshot?.terms?.[key];
   const ref=termSeriesReference(p,key,direct,now)||termSeriesReference(p,key,shot,now);
-  return ref?'<div data-term-series-validity><b>'+esc(key==='strike'?'Basispreis':'KO-Schwelle')+': Seriennachweis für Bob gültig</b><br>'+esc(ref.label+' · '+ref.text)+' · kein separat bestätigtes Emittenten-Gültigkeitsdatum</div>':'';
+  return ref?'<div data-term-series-validity><b>'+esc(key==='strike'?'Basispreis':'KO-Schwelle')+': gemeinsamer Zeitbezug für Bob gültig</b><br>'+esc(ref.label+' · '+ref.text)+' · kein separat bestätigtes Emittenten-Gültigkeitsdatum</div>':'';
  }).join('');
 }
 function screenshotKoCurrent(p,now){
@@ -2938,7 +2948,13 @@ function screenshotSummary(x){
  const rows=Object.entries(x.evidence||{}).filter(([key])=>key!=='Spread'&&!(key==='KO'&&sameKo)).map(([key,e])=>{
   const t=evidenceTiming(e);return card(key==='KO'?'KO-Barriere':['Geld','Brief','Kurs','Spread'].includes(key)?key+' '+(e.currency||x.currency||''):key,e,(e.fromSeries?e.timeBasis+' · Zeitbezug '+e.at+' · keine separat bestätigte Hebelzeit':e.fromSharedContext?'Gemeinsamer Zeitbezug: '+e.contextTimeText+' · keine separate Feldquellenzeit':e.at)||(e.dateText?'Datenstand '+e.dateText+(currentDatedTerm(e,Date.now())?' · für diesen Kalendertag belegt; keine Kurszeit':' · nicht für heute bestätigt'):key==='Richtung'?'Eingelesen · am Original prüfen':'Wert eingelesen · Quellenzeit fehlt'));
  }).join('');
- const termRows=Object.entries(terms).filter(([key,e])=>key!=='quanto'&&e).map(([key,e])=>card(labels[key]||key,e,(e.automatic||hasScreenshotIdentity(x)&&automaticCondition(e,key))?'Automatisch aus zugeordnetem Bild gelesen · keine Kurszeit':e.conditionVerified?'Produktbedingung recherchiert '+e.reviewedAt+' · keine Kurszeit':e.reviewed&&['type','currency','maturity'].includes(key)?'Geprüfte Produktbedingung · keine Kurszeit':e.at||(e.dateText?'Datenstand '+e.dateText+(currentDatedTerm(e,Date.now())?' · für diesen Kalendertag belegt; keine Kurszeit':' · nicht für heute bestätigt'):'Wert eingelesen · Produktnachweis noch nicht bestätigt; Datenstand fehlt'))).join('');
+ const termRows=Object.entries(terms).filter(([key,e])=>key!=='quanto'&&e).map(([key,e])=>card(labels[key]||key,e,
+  e.at?'Eigene Quellenzeit '+e.at:
+  e.dateText?'Eigener Datenstand '+e.dateText:
+  e.contextTimeText?'Gemeinsamer Zeitbezug: '+e.contextTimeText+' · aus derselben Produktansicht oder Bildserie':
+  (e.automatic||hasScreenshotIdentity(x)&&automaticCondition(e,key))?'Automatisch aus zugeordnetem Bild gelesen · Zeitbezug nicht belegt':
+  e.conditionVerified?'Produktbedingung recherchiert '+e.reviewedAt:
+  'Wert eingelesen · Produktnachweis noch nicht bestätigt; Datenstand fehlt')).join('');
  const ratio=terms.ratio;
  const ratioNote=ratio?'Bezugsverhältnis eingelesen: '+ratio.value+(durableCondition(ratio,'ratio',Date.now())?' · Produktbedingung bestätigt':' · Nachweis nicht eindeutig'):x.listEvidence?.ratioText||'';
  return '<div class="small" style="min-width:0;max-width:100%;overflow-wrap:anywhere">'+(x.listEvidence?'<div>ISIN/Bildzuordnung geprüft: '+esc(x.listEvidence.source)+' · historischer Bildnachweis.</div>':'')+'<div>'+esc(ratioNote)+'</div><b>Automatisch erkannte Angaben</b>'+seriesNote+rows+termRows+'<div>'+esc(screenshotTimeLabel(x))+'</div></div>';
