@@ -25,7 +25,16 @@ CODES = {
     "push-unreachable": "Push-/Datenbankdienst nicht erreichbar",
     "push-unhealthy": "Push-/Datenbank-Gesundheitsprüfung fehlgeschlagen",
     "paper-unhealthy": "Papierkonten-Hintergrundstatus beeinträchtigt",
+    "product-quote-evidence-missing": "Emittentenkurse oder eigenständige Kurszeiten unvollständig",
+    "product-leverage-clock-missing": "Emittentenhebel oder dessen unabhängiger Zeitstempel fehlt",
+    "product-ko-validity-missing": "KO-Wert oder dessen gültiger Datennachweis fehlt",
+    "product-terms-evidence-missing": "Produktstammdaten oder zugehörige Nachweise unvollständig",
 }
+
+# Internal marker to avoid closing unresolved incidents on an unavailable
+# private audit. This marker is NOT an issue type and is never published.
+PRODUCT_AUDIT_UNKNOWN = "_private-product-audit-unavailable"
+PRODUCT_CODES = frozenset(code for code in CODES if code.startswith("product-"))
 
 
 def utc_now():
@@ -72,10 +81,19 @@ def classify(app, background, push, *, market_open=True):
         errors.append("push-unreachable")
     elif push.get("ok") is not True:
         errors.append("push-unhealthy")
-    elif market_open and 8 <= datetime.now(ZoneInfo("Europe/Zurich")).hour < 22:
-        paper = push.get("paperObservation")
-        if isinstance(paper, dict) and paper.get("state") not in ("ok", "warming"):
-            errors.append("paper-unhealthy")
+    else:
+        if market_open and 8 <= datetime.now(ZoneInfo("Europe/Zurich")).hour < 22:
+            paper = push.get("paperObservation")
+            if isinstance(paper, dict) and paper.get("state") not in ("ok", "warming"):
+                errors.append("paper-unhealthy")
+        if "productAuditCodes" in push:
+            product_codes = push["productAuditCodes"]
+            if not isinstance(product_codes, list):
+                errors.append(PRODUCT_AUDIT_UNKNOWN)
+            else:
+                # Accept ONLY fixed diagnostic identifiers; never publish
+                # arbitrary source errors, raw data or per-product values.
+                errors.extend(code for code in product_codes if code in PRODUCT_CODES)
     return sorted(set(errors))
 
 
@@ -160,6 +178,8 @@ def sync_issue(codes, *, token, repo, at=None, requester=github_request):
              {issue_title(code) for code in CODES})
     }
     detected = sorted(set(code for code in codes if code in CODES))
+    preserve_product = (PRODUCT_AUDIT_UNKNOWN in codes
+                        or "push-unreachable" in codes or "push-unhealthy" in codes)
     actions = []
 
     # First create any missing problem; each fault maps to precisely one open
@@ -176,6 +196,9 @@ def sync_issue(codes, *, token, repo, at=None, requester=github_request):
     # Close only those problem categories that are now independently healthy.
     for title, number in indexed.items():
         if title != ISSUE_TITLE and title in {issue_title(code) for code in detected}:
+            continue
+        if preserve_product and title in {issue_title(code) for code in PRODUCT_CODES}:
+            # No positive product recheck -> never declare the proof recovered.
             continue
         if title == ISSUE_TITLE and not detected:
             # Compatibility with old combined issue title.
