@@ -157,11 +157,21 @@ def outcome(record, truth, horizon):
     return {'horizon':horizon,'changePct':change,'directionalPct':score(record['direction']),
             'intradayPct':score((record.get('intraday') or {}).get('direction')) if (record.get('intraday') or {}).get('available') else None,'shadowPct':score(record.get('shadowDirection')),'at':truth['at']}
 
-def summarize(rows):
+def missing_reason(record, horizon, now, unavailable=False):
+    if unavailable:return 'signalUnavailable'
+    if not record.get('marketEvaluable'):return 'invalidStart'
+    if now < record['recordedAt']+horizon*60000:return 'pending'
+    return 'missingFollowup'
+
+
+def summarize(rows, now=None):
+    now = time.time()*1000 if now is None else now
     legacy_count=sum(r.get('ruleVersion')!=RULE_VERSION for r,_ in rows)
     rows=[(r,t) for r,t in rows if r.get('ruleVersion')==RULE_VERSION]
     metrics={str(h):{'evaluated':0,'favorable':0,'unfavorable':0,'flat':0,'neutral':0,'missing':0,'directionalSumPct':0} for h in (15,60,240)}
     intraday_metrics={h:dict(m) for h,m in metrics.items()}
+    for m in [*metrics.values(),*intraday_metrics.values()]:
+        m['missingReasons']={k:0 for k in ('signalUnavailable','invalidStart','pending','missingFollowup')}
     seen=set();pairs=[];issues={};latest=[r for r,_ in rows[:30]]
     for record,truths in sorted(rows,key=lambda row:row[0].get('origin')!='background'):
         for reason in record.get('gateReasons') or []:
@@ -174,11 +184,17 @@ def summarize(rows):
             m=metrics[str(h)];result=outcome(record,truth,h)
             im=intraday_metrics[str(h)]
             iv=result.get('intradayPct') if result else None
-            if not record.get('intraday') or not record['intraday'].get('available') or result is None:im['missing']+=1
+            unavailable=not record.get('intraday') or not record['intraday'].get('available')
+            if unavailable or result is None:
+                im['missing']+=1
+                im['missingReasons'][missing_reason(record,h,now,unavailable)]+=1
             elif iv is None:im['neutral']+=1
             else:
                 im['evaluated']+=1;im['directionalSumPct']+=iv;im['favorable' if iv>0 else 'unfavorable' if iv<0 else 'flat']+=1
-            if result is None:m['missing']+=1;continue
+            if result is None:
+                m['missing']+=1
+                m['missingReasons'][missing_reason(record,h,now)]+=1
+                continue
             value=result['directionalPct']
             # Compare both policies on the same timeline; ABWARTEN contributes zero exposure.
             if h==60 and record.get('origin')=='background' and record.get('shadowDirection') in ('LONG','SHORT','NEUTRAL'):
@@ -434,8 +450,10 @@ def _load_prospective_rows(conn):
         ORDER BY s.recorded_at""",(RULE_VERSION,)).fetchall()
 
 
-def product_review(records):
+def product_review(records, now=None):
     """Compare real bid/ask observations; never turn estimated prices into ground truth."""
+    now=time.time()*1000 if now is None else now
+    diagnostics={k:0 for k in ('noSelection','invalidStart','pending','missingFollowup')}
     ordered=sorted(records,key=lambda r:r['recordedAt']);results=[];seen=set();quotes={};comparisons=[]
     for r in ordered:
         for p in r.get('products',[]):
@@ -445,13 +463,19 @@ def product_review(records):
     for isin in quotes:quotes[isin]=sorted(set(quotes[isin]))
     for record in ordered:
         selected=[p for p in record.get('products',[]) if p.get('selected')]
-        if not selected:continue
+        if not selected:
+            diagnostics['noSelection']+=1
+            continue
         direction=record.get('direction');returns=[]
         for product in record.get('products',[]):
             isin=product.get('isin');start=milliseconds(product.get('quoteAt'));ask=product.get('ask')
-            if not positive(ask) or start is None or not 0<=record['recordedAt']-start<=90000:continue
+            if not positive(ask) or start is None or not 0<=record['recordedAt']-start<=90000:
+                if product.get('selected'):diagnostics['invalidStart']+=1
+                continue
             target=record['recordedAt']+3600000;history=quotes.get(isin,[]);index=bisect.bisect_left(history,(target,0))
-            if index>=len(history) or history[index][0]>target+300000:continue
+            if index>=len(history) or history[index][0]>target+300000:
+                if product.get('selected'):diagnostics['pending' if now<target else 'missingFollowup']+=1
+                continue
             value=(history[index][1]/ask-1)*100
             if product.get('selected'):
                 key=(isin,int(record['recordedAt']//3600000))
@@ -462,6 +486,7 @@ def product_review(records):
         if len(returns)>=2 and any(selected for _,selected in returns) and any(not selected for _,selected in returns):
             comparisons.append(max(v for v,selected in returns if selected)>=max(v for v,_ in returns))
     return {'evaluated':len(results),'favorable':sum(r['changePct']>0 for r in results),'unfavorable':sum(r['changePct']<0 for r in results),'flat':sum(r['changePct']==0 for r in results),'latest':results[-20:],
+            'observations':len(records),'diagnostics':diagnostics,
             'comparisons':len(comparisons),'selectedBest':sum(comparisons),
             'note':'Beobachteter Geldkurs nach 60 Minuten gegen damaligen Briefkurs; ohne Gebühren. Alternativen nur bei damaliger Eignung und passenden späteren Kursen. Fehlende Kurse werden nicht geschätzt; begrenzter Rückblick, kein Optimalitätsnachweis.'}
 

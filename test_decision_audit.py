@@ -52,6 +52,26 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(report['metrics']['60']['unfavorable'],1)
         r['intraday']['available']=False
         self.assertEqual(a.summarize([(r,truths)])['intraday']['60']['evaluated'],0)
+    def test_missing_reasons_are_separate_for_each_horizon_and_test(self):
+        r=self.record()
+        report=a.summarize([(r,[None,None,None])],now=self.now+3600000)
+        self.assertEqual(report['metrics']['15']['missingReasons']['missingFollowup'],1)
+        self.assertEqual(report['metrics']['240']['missingReasons']['pending'],1)
+        self.assertEqual(report['intraday']['15']['missingReasons']['signalUnavailable'],1)
+        self.assertEqual(report['metrics']['15']['evaluated'],0)
+        r['marketEvaluable']=False
+        self.assertEqual(a.summarize([(r,[None]*3)],now=self.now)['metrics']['15']['missingReasons']['invalidStart'],1)
+    def test_product_diagnostics_do_not_invent_results(self):
+        r=self.record()
+        self.assertEqual(a.product_review([r],now=self.now)['diagnostics']['noSelection'],1)
+        r['products']=[dict(isin='DE000FG5NMF2',selected=True,ask=10,quoteAt=self.now)]
+        self.assertEqual(a.product_review([r],now=self.now)['diagnostics']['pending'],1)
+        report=a.product_review([r],now=self.now+3900001)
+        self.assertEqual(report['diagnostics']['missingFollowup'],1)
+        self.assertEqual(report['evaluated'],0)
+        r['products'][0]['quoteAt']=self.now-90001
+        self.assertEqual(a.product_review([r],now=self.now)['diagnostics']['invalidStart'],1)
+
     def test_product_requires_real_fresh_bid(self):
         r=self.record();r['products']=[dict(isin='DE000FG5NMF2',selected=True,ask=10,quoteAt=self.now)]
         later={**r,'recordedAt':self.now+3600000,'products':[dict(isin='DE000FG5NMF2',bid=11,quoteAt=self.now+3600000)]}

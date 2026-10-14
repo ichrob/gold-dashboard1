@@ -115,7 +115,7 @@ body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 .bob-mobile #auditStatistics table,.bob-mobile #auditStatistics tbody,.bob-mobile #auditStatistics tr,.bob-mobile #auditStatistics td{display:block;width:100%}
 .bob-mobile #auditStatistics caption{display:block;text-align:left;margin-bottom:10px}.bob-mobile #auditStatistics thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 .bob-mobile #auditStatistics tr{background:#f5f7fa;border-radius:12px;padding:8px;margin:10px 0}.bob-mobile #auditStatistics td{display:flex;justify-content:space-between;gap:12px}.bob-mobile #auditStatistics td:first-child{font-weight:700}
-.bob-mobile #auditStatistics td:nth-child(2):before{content:"Treffer"}.bob-mobile #auditStatistics td:nth-child(3):before{content:"Fehlprognosen"}.bob-mobile #auditStatistics td:nth-child(4):before{content:"Unverändert"}.bob-mobile #auditStatistics td:nth-child(5):before{content:"Ausgewertet"}
+.bob-mobile #auditStatistics td:nth-child(2):before{content:"Treffer"}.bob-mobile #auditStatistics td:nth-child(3):before{content:"Fehlprognosen"}.bob-mobile #auditStatistics td:nth-child(4):before{content:"Unverändert"}.bob-mobile #auditStatistics td:nth-child(5):before{content:"Ausgewertet"}.bob-mobile #auditStatistics td:nth-child(6){display:block;color:#536176;font-size:13px}
 }
 
 /* Compact gold-market list: prices below names, percentage badges beside prices. */
@@ -1099,7 +1099,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <section class="card" id="auditStatistics">
 <h2>Statistik: Treffer und Fehlprognosen</h2>
 <div id="auditStatisticsStatus" class="small" role="status">Statistik wird geladen …</div>
-<div style="overflow-x:auto"><table style="width:100%;text-align:left;border-collapse:collapse"><caption class="small">Nur auswertbare Richtungen / Produktkurse; Anteil innerhalb der jeweiligen Zeile</caption><thead><tr><th>Prüfung</th><th>Treffer</th><th>Fehlprognose</th><th>Unverändert</th><th>Ausgewertet</th></tr></thead><tbody id="auditStatisticsRows"></tbody></table></div>
+<div style="overflow-x:auto"><table style="width:100%;text-align:left;border-collapse:collapse"><caption class="small">Nur auswertbare Richtungen / Produktkurse; Anteil innerhalb der jeweiligen Zeile</caption><thead><tr><th>Prüfung</th><th>Treffer</th><th>Fehlprognose</th><th>Unverändert</th><th>Ausgewertet</th><th>Auswertungsstand</th></tr></thead><tbody id="auditStatisticsRows"></tbody></table></div>
 <details><summary>Fehleranalyse · Long und Short</summary><div id="signalDiagnostics" class="small" style="white-space:pre-line">Wird geladen …</div></details>
 <details open><summary>Regeln lernen · unabhängig prüfen · übernehmen</summary><div id="ruleLearning" class="small" style="white-space:pre-line">Wird geladen …</div><button id="rollbackLearningRule" type="button" hidden>Zur bisherigen Grundregel zurückkehren</button></details>
 <details><summary>Frühere Filtervergleiche · nur Beobachtung</summary><div id="prospectiveReview" class="small" style="white-space:pre-line">Wird geladen …</div></details>
@@ -1280,12 +1280,20 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    text('improvementEvidence','Was wird geprüft?\nAktive adaptive Bestätigung gegen drei abgeschlossene 5-Minuten-Kerzen.\n\nDatenbasis\n'+l.training+'/100 Entwicklungsfälle und '+l.holdout+'/100 zeitlich spätere Prüffälle (Mindestzahlen).\n\nGemessener Unterschied gegenüber der aktuellen Regel\nEntwicklungsfälle: '+delta(l.trainingDeltaPct)+'\nSpätere Prüffälle: '+delta(l.holdoutDeltaPct)+'\n\nWas spricht dagegen?\nEine längere Bestätigung reagiert später. Der Vergleich bewertet Goldbewegungen ohne Handelskosten; er beweist keine höhere Produktrendite.\n\nUmsetzung\n'+(l.candidateBetter?'Vorschlag erkannt, noch nicht übernommen. Weitere Prüfung erforderlich.':'Aktuelle Regel bleibt unverändert.')+'\nAutomatische Anpassung: noch nicht verfügbar.');
    const tbody=document.getElementById('auditStatisticsRows');tbody.replaceChildren();
    const part=(count,total)=>Number.isFinite(count)?count+' ('+(total>0?(100*count/total).toFixed(1)+' %':'—')+')':'noch nicht verfügbar';
-   const row=(label,m)=>{const tr=document.createElement('tr');for(const value of [label,part(m.favorable,m.evaluated),part(m.unfavorable,m.evaluated),part(m.flat,m.evaluated),m.evaluated]){const td=document.createElement('td');td.textContent=String(value);td.style.padding='8px 6px';tr.appendChild(td);}tbody.appendChild(tr);};
+   const status=m=>{
+    const reasons=m.diagnostics||m.missingReasons||{};
+    const labels={noSelection:'Beobachtungen ohne Produktauswahl',signalUnavailable:'ohne verfügbares Testsignal',invalidStart:'ohne gültigen Startkurs',pending:'Zeitraum noch nicht abgelaufen',missingFollowup:'ohne passenden Folgepreis'};
+    const details=Object.entries(reasons).filter(([,n])=>n>0).map(([k,n])=>n+' '+(labels[k]||k));
+    if(m.neutral>0)details.push(m.neutral+' ABWARTEN-Beobachtungen');
+    if(!details.length&&m.missing>0)details.push(m.missing+' offen / nicht auswertbar');
+    return (m.evaluated>0?'Ergebnisse vorhanden. ': 'Noch keine auswertbaren Ergebnisse. ')+(details.length?details.join(' · '):m.evaluated>0?'':'Keine passenden Beobachtungen im Auswertungsfenster.');
+   };
+   const row=(label,m)=>{const tr=document.createElement('tr');for(const value of [label,part(m.favorable,m.evaluated),part(m.unfavorable,m.evaluated),part(m.flat,m.evaluated),m.evaluated,status(m)]){const td=document.createElement('td');td.textContent=String(value);td.style.padding='8px 6px';tr.appendChild(td);}tbody.appendChild(tr);};
    for(const h of ['15','60','240'])row('Gold nach '+h+' Min.',r.metrics[h]);
    if(r.intraday)for(const h of ['15','60','240'])row('Intraday-Test Gold nach '+h+' Min.',r.intraday[h]);
    row('Produkt nach 60 Min.',p);
    text('auditStatisticsStatus','Stand: '+new Date().toLocaleString('de-CH')+' · '+r.scope);
-   text('auditStatisticsOpen',Object.entries(r.metrics).map(([h,m])=>h+' Min.: '+m.missing+' offen / nicht auswertbar; '+m.neutral+' ABWARTEN-Beobachtungen (nicht in der Trefferquote).').join('\n'));
+   text('auditStatisticsOpen','Offene und nicht auswertbare Fälle sind je Test ausgewiesen. ABWARTEN zählt nicht als Fehlprognose. Produktdiagnosen zählen Beobachtungen; Treffer zählen eindeutige auswertbare Produktverläufe.');
    const dg=r.signalDiagnostics;
    if(dg){text('signalDiagnostics',dg.note+'\n\n'+dg.groups.map(g=>g.horizon+' Min. · '+g.label+': '+g.win+' richtig / '+g.loss+' falsch / '+g.flat+' unverändert / '+g.missing+' nicht auswertbar').join('\n')+'\n\nFehlprognosen (bis 30 Beispiele):\n'+dg.examples.map(e=>new Date(e.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · '+e.direction+' · '+e.horizon+' Min. · '+e.changePct.toFixed(3)+' % in Signalrichtung · '+e.tags.join(', ')+' · '+(e.reason||'Grund nicht gespeichert')).join('\n'));}
    const rl=r.ruleLearning;
