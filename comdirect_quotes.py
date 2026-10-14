@@ -20,9 +20,13 @@ _PENDING = set()
 def parse_page(html, isin, now=None):
     # Validate full product identity, currency and knockout status, not just a
     # search result mentioning the ISIN. Prices come from ONE labelled row.
-    terms = parse_terms(html, isin, now)
-    if terms['metadata']['status'] != 1:
+    from comdirect_fields import parse_page as parse_fields
+    terms = parse_fields(html, isin, now)
+    observed = terms['observations']
+    if terms['inactive']:
         raise ValueError('PRODUCT_INACTIVE')
+    if observed.get('currency', {}).get('value') != 'EUR' or observed.get('issuer', {}).get('value') != 'Société Générale':
+        raise ValueError('UNSUPPORTED_QUOTE_IDENTITY')
     candidates = []
     for row in re.findall(r'<tr\b[^>]*>(.*?)</tr>', html, re.S | re.I):
         cells = {}
@@ -70,7 +74,13 @@ def _refresh(isin):
             data = response.read(2_000_001)
         if len(data) > 2_000_000:
             raise ValueError('RESPONSE_TOO_LARGE')
-        result = dict(state='observed', quote=parse_page(data.decode('utf-8'), isin))
+        html = data.decode('utf-8')
+        from comdirect_fields import parse_page as parse_fields
+        result = dict(state='observed', fields=parse_fields(html, isin))
+        try:
+            result['quote'] = parse_page(html, isin)
+        except (ValueError, KeyError):
+            result['quoteState'] = 'unavailable'
     except Exception:
         pass
     finally:
