@@ -34,6 +34,36 @@ def feed():
 
 
 class ProductAuditTests(unittest.TestCase):
+    def test_direct_sg_maturity_condition_is_recognized(self):
+        q=provider()
+        q['metadata'].pop('maturity')
+        q['conditions']={'maturity':dict(value='Open End', conditionVerified=True,
+            source='https://www.sg-zertifikate.de/product', reviewedAt=iso(NOW))}
+        self.assertNotIn('maturity',audit.examine(feed()['products'][0],q,NOW)['missing'])
+        for change in ({'source':None},{'conditionVerified':False},{'value':''},
+                       {'revoked':True},{'conflict':True},{'reviewedAt':iso(NOW-28800001)}):
+            with self.subTest(change=change):
+                import copy
+                bad=copy.deepcopy(q);bad['conditions']['maturity'].update(change)
+                self.assertIn('maturity',audit.examine(feed()['products'][0],bad,NOW)['missing'])
+        q['productVerified']=False
+        self.assertIn('maturity',audit.examine(feed()['products'][0],q,NOW)['missing'])
+
+    def test_missing_list_confirmation_is_not_missing_issuer_identity(self):
+        p=feed()['products'][0];p.pop('isinConfirmed')
+        item=audit.examine(p,provider(),NOW)
+        self.assertIn('list-identity',item['missing'])
+        self.assertNotIn('identity',item['missing'])
+        self.assertFalse(item['tradeApproved'])
+
+    def test_unknown_market_status_is_not_reported_as_closed(self):
+        q=provider();q.pop('marketOpen')
+        missing=audit.examine(feed()['products'][0],q,NOW)['missing']
+        self.assertIn('market-status',missing)
+        self.assertNotIn('market-closed',missing)
+        q['marketOpen']=False
+        self.assertIn('market-closed',audit.examine(feed()['products'][0],q,NOW)['missing'])
+
     def shared_quote(self):
         q=provider()
         q.pop("leverage");q.pop("leverageAt")
