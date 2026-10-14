@@ -270,7 +270,7 @@ def receive(conn, event, signed_id, allowed_sender):
         msg_id = signed_id
     if not isinstance(msg_id, str) or len(msg_id) > 200:
         raise ValueError("invalid message id")
-    record = dict(version=VERSION, result=result, receivedAt=datetime.now(timezone.utc).isoformat())
+    record = dict(messageId=msg_id, version=VERSION, result=result, receivedAt=datetime.now(timezone.utc).isoformat())
     inserted = conn.execute("""INSERT INTO bob_trade_email_import(message_id,payload)
           VALUES(%s,%s::jsonb) ON CONFLICT DO NOTHING RETURNING message_id""",
           (msg_id,json.dumps(record))).fetchone()
@@ -279,7 +279,7 @@ def receive(conn, event, signed_id, allowed_sender):
 
 
 def report(conn):
-    rows=conn.execute("""SELECT payload FROM bob_trade_email_import
+    rows=conn.execute("""SELECT payload || jsonb_build_object('messageId',message_id) FROM bob_trade_email_import
        ORDER BY imported_at DESC LIMIT 30""").fetchall()
     return {"ok":True, "configured":bool(os.environ.get("BOB_AGENTMAIL_WEBHOOK_SECRET") and
                                      os.environ.get("BOB_EMAIL_ALLOWED_FROM")),

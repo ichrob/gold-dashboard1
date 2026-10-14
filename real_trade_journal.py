@@ -94,6 +94,9 @@ def settled_purchase(purchase, closed):
     return bool(receipt) and all(product.get(k)==sold.get(k) for k in ('isin','entry','quantity')) and buy.get('at')==receipt.get('purchasedAt') and buy.get('feesCHF')==receipt.get('purchaseFeesCHF') and buy.get('totalCHF')==receipt.get('purchaseTotalCHF')
 
 def handle(conn,action,payload):
+    if action=='write' and payload.get('emailReceiptId'):
+        from trade_workflow import import_purchase
+        return import_purchase(conn,payload)
     if action=='write':
         t=payload.get('trade') or {}
         if t.get('recordOnly') is True:return record_purchase(conn,t)
@@ -196,6 +199,11 @@ def sale_matches(snapshot, receipt):
     if product.get('isin')!=receipt.get('isin') or product.get('quantity')!=receipt.get('quantity'):return False
     if not background_push.positive(receipt.get('priceEur')):return False
     try:
+        if not snapshot['purchase'].get('at'):
+            from trade_workflow import receipt_clock
+            bought_local=receipt_clock({'executedLocal':snapshot['purchase']['executedLocal']})
+            sold_local=receipt_clock(receipt)
+            return bought_local<sold_local<=datetime.now(ZoneInfo('Europe/Zurich')).replace(tzinfo=None)
         bought=datetime.fromisoformat(snapshot['purchase']['at'].replace('Z','+00:00'))
         if bought.tzinfo is None:return False
         if receipt.get('executedAt'):

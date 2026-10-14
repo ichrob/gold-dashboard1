@@ -254,7 +254,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         if product:
             reason=reason+' · '+product['isin']+' · Modellreferenz '+product['referenceAt']+'; verfügbarer Wechselkurs und gespeicherte Produktbedingungen. Kein bestätigter DEGIRO-Kurs.'
         events.append({'title': title, 'body': reason, 'tag': 'bob-background-'+channel,
-                       'data': {'kind': channel, 'eventKind': kind, 'url': '/', 'dataAt': market.get('dataAt'),
+                       'data': {'kind': channel, 'eventKind': kind, 'url': '/#trade' if channel=='trade' else '/', 'dataAt': market.get('dataAt'),
                                 'expiresAt': now+180000, 'tradeId': (settings.get('trade') or {}).get('tradeId')}})
     # Market closure is a third status, not a source outage or a fresh quote.
     # Keep the last genuine timestamp and do not hide failures already seen while open.
@@ -432,6 +432,9 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         old['opposite'] = None
     if reached or not healthy:
         return state, present_events(events, settings, market)
+    if model and not old.get('initialPlanSent') and product_price(model, stop) is not None and product_price(model, old.get('target')) is not None:
+        add('initial-stop', 'TRADE-PLAN · Stop und Ziel', f"Stop: {level_text(t,stop)} · Ziel: {level_text(t,old['target'])}. Initialer Überwachungsplan; bei DEGIRO selbst eintragen.")
+        old['initialPlanSent'] = True
     r = (p-entry if long else entry-p)/risk
     stage = 2 if r>=2 else 1.5 if r>=1.5 else 1 if r>=1 else 0
     desired = stop
@@ -503,7 +506,7 @@ def compose_events(events):
     ordered = sorted(events, key=lambda e: priority.get(e['data']['eventKind'], 8))
     message = copy.deepcopy(ordered[0])
     urgent = ordered[0]['data']['eventKind'] in ('ko-hit', 'stop-hit', 'reversal')
-    advisory = {'target', 'target-extension', 'trailing-stop', 'profit-protection', 'profit-weak', 'signal-change'}
+    advisory = {'target', 'target-extension', 'trailing-stop', 'profit-protection', 'profit-weak', 'signal-change', 'initial-stop'}
     visible = [e for e in ordered if not urgent or e['data']['eventKind'] not in advisory]
     message['body'] = ' | '.join(e['body'] for e in visible)
     message['data']['events'] = [e['data']['eventKind'] for e in ordered]

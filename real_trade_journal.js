@@ -20,10 +20,60 @@
  }
  async function load(){await flush();try{const r=await request('read',{}),root=el('realTradeList');root.replaceChildren();for(const t of r.trades){const d=document.createElement('details'),s=document.createElement('summary'),body=document.createElement('div');s.textContent=time(t.openedAt)+' · '+(t.snapshot.product?.isin||'Goldreferenz ohne Produktdaten')+' · '+t.snapshot.dir+' · '+(t.snapshot.consumed?'Kaufbeleg · abgeschlossener Trade':t.snapshot.recordOnly?'Kauf erfasst · Überwachung offen':t.active?'aktiv':'in Bob beendet');d.append(s,details('Erfasster Trade und Produktwerte',t.snapshot));if(t.active){const note=document.createElement('p');note.textContent=t.pushDevices>0?'Server-Push: '+t.pushDevices+' registrierte Geräte mit diesem Trade verbunden. Empfang am Handy erst durch Test bestätigt.':'Serverüberwachung aktiv. Kein Gerät für diesen Trade verbunden: Auf dem Handy Trade-Push einschalten und Gerät registrieren.';d.append(note);}if(!t.active&&!t.snapshot.recordOnly)d.append(executionForm(t));d.append(body);d.addEventListener('toggle',()=>{if(d.open&&!body.childNodes.length)history(t.id,body);});root.append(d);}if(!r.trades.length)root.textContent='Noch kein echter Trade protokolliert. Nach deinem Kauf den Trade unter „Mein Trade“ erfassen und aktivieren.';}catch(e){status('Echte Trades nicht abrufbar: '+e.message);}}
 
+
+ let latestTrades=[],emailState='E-Mail-Eingang wird automatisch geprüft.',workflowError='',loadingPurchases=false;
+ function workflowState(trades,current,plan){
+  const active=trades.find(t=>t.active&&t.id===current?.tradeId)||trades.find(t=>t.active);
+  const pending=trades.find(t=>t.snapshot.recordOnly&&!t.snapshot.consumed);
+  const closed=trades.find(t=>!t.active&&!t.snapshot.recordOnly&&(t.snapshot.exitReceipt||t.snapshot.actualExecution||t.snapshot.settlement));
+  const chosen=active||pending||closed;
+  const same=chosen&&chosen.id===current?.tradeId;
+  const validPlan=!!(same&&current?.active&&plan?.available);
+  return {chosen,active,pending,closed:!active&&!pending?closed:null,validPlan,
+   steps:[!!chosen,!!(chosen?.snapshot.product?.referenceConfirmed||validPlan),validPlan,
+    !!active,!!(active&&active.pushDevices>0),!!(!active&&!pending&&closed),!!(!active&&!pending&&closed)]};
+ }
+ function renderWorkflow(){
+  const root=el('tradeWorkflow');if(!root)return;
+  const current=window.BobTradeSync?.current(),plan=window.BobTradeSync?.plan?.();
+  const state=workflowState(latestTrades,current,plan),labels=['Kauf erkannt und gespeichert','Produkt- und Referenzdaten ergänzt','Stop-Loss und Ziel berechnet','Hintergrundüberwachung eingerichtet','Trade-Push mit Gerät verbunden','Verkauf erkannt · Überwachung beendet','Ergebnis und Verlauf dokumentiert'];
+  root.replaceChildren();const h=document.createElement('h3');h.textContent='Dein Trade · Schritt für Schritt';root.append(h);
+  const list=document.createElement('ol');list.style.paddingLeft='26px';
+  labels.forEach((label,i)=>{const li=document.createElement('li');li.style.cssText='padding:6px 0;'+(state.steps[i]?'color:#15803d;font-weight:600':'');li.textContent=(state.steps[i]?'✓ Erledigt · ':'○ Offen · ')+label;list.append(li);});root.append(list);
+  const note=document.createElement('p');note.setAttribute('role','status');
+  note.textContent=workflowError||(!state.chosen?emailState:state.closed?'Verkauf dokumentiert. Kosten und Nettoergebnis nur, soweit belegt.':state.active?'Serverüberwachung eingerichtet. Ein grüner Push-Haken bestätigt die Geräteverbindung, nicht den Empfang jeder Nachricht.':'Kauf gespeichert. Bob ergänzt fehlende Produktdaten automatisch; erneuter Versuch alle 30 Sekunden bei geöffneter App.');root.append(note);
+  if(state.closed){const snap=state.closed.snapshot,p=snap.product||{},sale=snap.exitReceipt;const result=document.createElement('p');if(snap.actualExecution?.netEUR!==undefined)result.textContent='Ergebnis nach erfassten Kosten: '+Number(snap.actualExecution.netEUR).toFixed(2)+' EUR';else if(sale&&Number.isFinite(p.entry)&&Number.isFinite(sale.priceEur))result.textContent='Ergebnis vor Kosten: '+((sale.priceEur-p.entry)*sale.quantity).toFixed(2)+' EUR · Nettoergebnis wartet auf vollständige Gebühren/Abrechnung.';else result.textContent='Abrechnung unter Lernen → Echter Trade.';root.append(result);}
+  if(state.chosen){const identity=document.createElement('p');identity.textContent=state.chosen.snapshot.product?.isin||'';root.append(identity);}
+  if(state.validPlan){
+   for(const [key,label] of [['stop','Stop-Loss'],['target','Ziel']]){
+    const line=document.createElement('p'),b=document.createElement('button');line.textContent=label+': ≈ '+plan[key].toFixed(4)+' '+plan.currency+' pro Stück (berechnet) ';b.type='button';b.textContent=label+' kopieren';
+    b.onclick=async()=>{try{await navigator.clipboard.writeText(plan[key].toFixed(4).replace('.',','));b.textContent='✓ Kopiert';}catch(_){b.textContent='Kopieren nicht möglich · Wert oben markieren';}};line.append(b);root.append(line);
+   }
+   const note=document.createElement('p');note.textContent='Stop bei DEGIRO selbst eintragen. Bob kann die Übernahme beim Broker nicht bestätigen.';root.append(note);
+  }
+  if(!state.closed){const b=document.createElement('button');b.type='button';b.textContent=!state.chosen?'Ausführungsbeleg hinzufügen':state.active?'Trade und Push-Status ansehen':'Fehlenden Nachweis ansehen';b.onclick=()=>{const target=!state.chosen?el('bobTradeUpload'):state.active?el('stopPanel'):el('bobExitEstimate');for(let n=target;n;n=n.parentElement)if(n.tagName==='DETAILS')n.open=true;target?.scrollIntoView({behavior:'smooth',block:'start'});};root.append(b);}
+ }
+ async function importMailPurchase(){
+  if(latestTrades.some(t=>t.active||t.snapshot.recordOnly&&!t.snapshot.consumed))return;
+  const response=await fetch('/api/trade-email/read',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(15000)});
+  if(!response.ok)throw Error('E-Mail-Prüfung: HTTP '+response.status);
+  const data=await response.json(),items=data.items||[],today=new Date().toLocaleDateString('en-CA',{timeZone:'Europe/Zurich'});
+  const day=r=>r.executedAt?new Date(r.executedAt).toLocaleDateString('en-CA',{timeZone:'Europe/Zurich'}):r.executedLocal?.slice(0,10).split('.').reverse().join('-');
+  const candidates=items.filter(x=>x.messageId&&x.result?.status==='pending-review'&&x.result.side==='BUY'&&day(x.result)===today);
+  emailState=data.configured?'Warte auf eine eindeutige Kaufbestätigung. Alternativ Ausführungsbeleg hinzufügen.':'E-Mail-Empfang noch nicht verbunden. Bitte den Ausführungsbeleg hinzufügen.';
+  if(candidates.length!==1){if(candidates.length>1)emailState='Mehrere Käufe erkannt. Bitte den gewünschten Trade auswählen; Bob überschreibt keine Position.';return;}
+  const item=candidates[0],r=item.result;
+  if(latestTrades.some(t=>t.snapshot.product?.isin===r.isin&&t.snapshot.product?.entry===r.priceEur&&t.snapshot.product?.quantity===r.quantity))return;
+  const q=await fetch('/api/degiro/enrich?isin='+encodeURIComponent(r.isin),{signal:AbortSignal.timeout(65000)});if(!q.ok)throw Error('Produktdaten für Kauf-Mail noch nicht erreichbar');
+  const quote=await q.json(),fields=window.BobExitEstimate.issuerTradeFields(quote,r.isin);
+  if(quote.productVerified!==true||!['LONG','SHORT'].includes(fields.direction))throw Error('Produktrichtung der Kauf-Mail noch nicht bestätigt');
+  await request('write',{emailReceiptId:item.messageId,direction:fields.direction});
+  emailState='Kauf aus E-Mail gespeichert. Produktprüfung folgt automatisch.';
+ }
  function purchasePanel(){
   const parent=el('bobExitEstimate'),existing=el('bobPurchaseRecord'),viewNow=el('bob-view-trade');if(existing){if(viewNow&&existing.parentElement!==viewNow){const h=viewNow.querySelector('h2');if(h)h.after(existing);else viewNow.prepend(existing);}return;}if(!parent)return;
   const box=document.createElement('section');box.id='bobPurchaseRecord';box.className='card';
-  box.innerHTML='<h3>Bestätigten Kauf geräteübergreifend speichern</h3><p>Kaufkurs, Stückzahl und Richtung werden aus dem Formular oben übernommen. Die Speicherung benötigt keine Gold-/FX-Referenz. Stopp-, Ziel- und KO-Überwachung bleiben bis zur vollständigen Einrichtung offen.</p><form id="purchaseForm"><label>DEGIRO-Transaktions-ID<input id="purchaseTx" required maxlength="80"></label><label>Kaufzeit mit Zeitzone<input id="purchaseAt" required placeholder="2026-10-14T10:54:59+02:00"></label><label>Gesamtgebühren CHF<input id="purchaseFees" type="number" min="0" step="0.01" required></label><label>Gesamtbelastung CHF<input id="purchaseTotal" type="number" min="0" step="0.01" required></label><button type="submit">Bestätigten Kauf auf Server speichern</button></form><p id="purchaseStatus" role="status"></p><button id="purchaseReload">Gespeicherte Käufe laden</button><div id="purchaseList"></div>';
+  box.innerHTML='<div id="tradeWorkflow"></div><h3>Bestätigten Kauf geräteübergreifend speichern</h3><p>Kaufkurs, Stückzahl und Richtung werden aus dem Formular oben übernommen. Die Speicherung benötigt keine Gold-/FX-Referenz. Stopp-, Ziel- und KO-Überwachung bleiben bis zur vollständigen Einrichtung offen.</p><form id="purchaseForm"><label>DEGIRO-Transaktions-ID<input id="purchaseTx" required maxlength="80"></label><label>Kaufzeit mit Zeitzone<input id="purchaseAt" required placeholder="2026-10-14T10:54:59+02:00"></label><label>Gesamtgebühren CHF<input id="purchaseFees" type="number" min="0" step="0.01" required></label><label>Gesamtbelastung CHF<input id="purchaseTotal" type="number" min="0" step="0.01" required></label><button type="submit">Bestätigten Kauf auf Server speichern</button></form><p id="purchaseStatus" role="status"></p><button id="purchaseReload">Gespeicherte Käufe laden</button><div id="purchaseList"></div>';
   const view=el('bob-view-trade');
   if(view){const heading=view.querySelector('h2');if(heading)heading.after(box);else view.prepend(box);}else parent.after(box);
   box.querySelector('h3').textContent='Dein gespeicherter Kauf';
@@ -40,19 +90,19 @@
   el('purchaseReload').onclick=loadPurchases;loadPurchases();
  }
  async function loadPurchases(){
-  const root=el('purchaseList');if(!root)return;
-  try{const r=await request('read',{});reconcileClosed(r.trades);await flush();if(queue.length||busy)return;root.replaceChildren();
+  const root=el('purchaseList');if(!root||loadingPurchases)return;loadingPurchases=true;
+  try{let r=await request('read',{});latestTrades=r.trades;try{await importMailPurchase();r=await request('read',{});latestTrades=r.trades;workflowError='';}catch(err){workflowError=err.message;}renderWorkflow();reconcileClosed(r.trades);await flush();if(queue.length||busy)return;root.replaceChildren();
    const active=r.trades.filter(t=>t.active&&!t.snapshot.recordOnly);
    if(active.length===1&&window.BobTradeSync?.restore(active[0].snapshot)){el('purchaseStatus').textContent='Überwachung vom Server übernommen · Stopp und Ziel werden automatisch aktualisiert.';return;}
    for(const t of r.trades.filter(t=>t.snapshot.recordOnly&&!t.snapshot.consumed)){
     const p=t.snapshot.product,e=t.snapshot.purchase,line=document.createElement('p'),b=document.createElement('button');
-    line.textContent=p.isin+' · '+t.snapshot.dir+' · '+p.quantity+' Stück zu '+p.entry+' EUR · '+time(e.at)+' · Kauf gespeichert, Überwachung offen. ';
+    line.textContent=p.isin+' · '+t.snapshot.dir+' · '+p.quantity+' Stück zu '+p.entry+' EUR · '+(e.at?time(e.at):e.executedLocal+' (Quellenzeit)')+' · Kauf gespeichert, Überwachung offen. ';
     b.textContent='Kauf vorbereiten · Daten automatisch laden';b.onclick=()=>preparePurchase(t);line.append(b);root.append(line);
    }
    if(!root.childNodes.length)root.textContent='Noch kein gespeicherter Kauf. E-Mail-Eingang unten prüfen oder Kauf manuell erfassen.';
    const pending=r.trades.filter(t=>t.snapshot.recordOnly&&!t.snapshot.consumed),field=k=>document.querySelector('[data-exit="'+k+'"]');
-   if(pending.length===1&&!r.trades.some(t=>t.active)&&!window.BobTradeSync?.current()?.active&&['isin','entry','quantity','direction'].every(k=>field(k)&&((k==='direction'&&!field('isin').value.trim())||!field(k).value.trim()||String(field(k).value).trim()===String(k==='direction'?pending[0].snapshot.dir:pending[0].snapshot.product[k]))))await preparePurchase(pending[0]);
-  }catch(e){el('purchaseStatus').textContent='Serverkäufe nicht abrufbar: '+e.message;}
+   if(pending.length===1&&!r.trades.some(t=>t.active)&&!window.BobTradeSync?.current()?.active&&['isin','entry','quantity','direction'].every(k=>field(k)&&((k==='direction'&&!field('isin').value.trim())||!field(k).value.trim()||String(field(k).value).trim()===String(k==='direction'?pending[0].snapshot.dir:pending[0].snapshot.product[k])||String(field(k).value).trim()===String(k==='direction'?window.BobTradeSync?.current()?.dir:window.BobTradeSync?.current()?.product?.[k]))))await preparePurchase(pending[0]);
+  }catch(e){workflowError='Serverkäufe nicht abrufbar: '+e.message;el('purchaseStatus').textContent=workflowError;}finally{loadingPurchases=false;renderWorkflow();}
  }
  function reconcileClosed(trades){
   const closed=new Map(trades.filter(t=>!t.active&&!t.snapshot.recordOnly).map(t=>[t.id,t.snapshot]));
@@ -72,20 +122,22 @@
   for(const [k,v] of Object.entries({isin:p.isin,entry:p.entry,quantity:p.quantity,direction:t.snapshot.dir})){
    const input=document.querySelector('[data-exit="'+k+'"]');if(!input)return;input.value=v;input.dispatchEvent(new Event('input',{bubbles:true}));
   }
-  el('purchaseTx').value=e.transactionId;el('purchaseAt').value=e.at;el('purchaseFees').value=e.feesCHF;el('purchaseTotal').value=e.totalCHF;
+  el('purchaseTx').value=e.transactionId;el('purchaseAt').value=e.at||'';el('purchaseFees').value=e.feesCHF??'';el('purchaseTotal').value=e.totalCHF??'';
   el('purchaseStatus').textContent='Kauf übernommen. Produkt- und Gold-/FX-Daten werden automatisch ergänzt …';
   preparing=true;
   try{if(!window.BobExitEstimate?.automaticTradeReference)throw Error('Bitte nach dem vollständigen Laden erneut versuchen.');const values=await window.BobExitEstimate.automaticTradeReference();
-   if(!values)throw Error('Produkt- oder zeitlich passende Referenzdaten fehlen noch. Automatischer Wiederholungsversuch folgt.');
+   if(!values)throw Error(document.querySelector('[data-exit-output]')?.textContent||'Produkt- oder zeitlich passende Referenzdaten fehlen noch. Automatischer Wiederholungsversuch folgt.');
    if(values.isin!==p.isin||Number(values.entry)!==p.entry||Number(values.quantity)!==p.quantity||values.direction!==t.snapshot.dir)throw Error('Kaufdaten wurden während der Prüfung geändert.');
    if(typeof window.loadData==='function')await window.loadData(true);
-   await window.activateProductTrade(values,t);
+   const activation=await window.activateProductTrade(values,t);
+   if(!window.BobTradeSync?.current()?.active)throw Error(activation);
    await flush();
    el('purchaseStatus').textContent=queue.length?'Überwachung lokal vorbereitet; Serverspeicherung wird erneut versucht.':'Überwachung automatisch gestartet und gespeichert · Stopp und Ziel in EUR pro Stück (geschätzt).';
-  }catch(err){el('purchaseStatus').textContent='Kauf übernommen; Datenabruf noch offen: '+err.message;}finally{preparing=false;}
+  }catch(err){workflowError='Datenabruf noch offen: '+err.message;el('purchaseStatus').textContent=workflowError;}finally{preparing=false;}
  }
- window.BobRealTrades={capture,load,reconcileClosed};
+ window.BobRealTrades={capture,load,reconcileClosed,workflowState,renderWorkflow};
  document.addEventListener('DOMContentLoaded',()=>{el('realTradeLoad')?.addEventListener('click',load);flush();purchasePanel();});
  document.addEventListener('click',e=>{if(e.target.closest?.('[data-view="learning"]'))load();purchasePanel();});
+ if(typeof navigator!=='undefined'&&navigator.serviceWorker)navigator.serviceWorker.addEventListener('message',event=>{if(event.data?.type==='BOB_PUSH_CLICK'&&event.data.data?.kind==='trade'){location.hash='trade';loadPurchases();}});
  window.addEventListener('online',()=>{flush();loadPurchases();});setInterval(()=>{flush();if(!preparing)loadPurchases();},30000);
 })();

@@ -19,7 +19,7 @@ PANEL = r"""
     summary.textContent='E-Mail-Eingang · DEGIRO-Bestätigungen';
     const note=document.createElement('p');
     note.className='small';
-    note.textContent='Eingehende DEGIRO-Mails werden nach Einrichtung automatisch ausgelesen. Die hier gezeigten Datensätze sind Vorschläge, keine geprüften Brokerpositionen. Es wird kein Trade aktiviert, keine Order ausgeführt und keine Push-Überwachung aus einer E-Mail eingeschaltet.';
+    note.textContent='Eingehende DEGIRO-Mails werden nach Einrichtung automatisch ausgelesen. Die hier gezeigten Datensätze sind Vorschläge, keine geprüften Brokerpositionen. Ein eindeutiger heutiger Kauf kann automatisch in Bob erfasst werden. Die Überwachung startet erst nach erfolgreicher Produkt- und Referenzprüfung. Bob führt keine Brokerorder aus.';
     const button=document.createElement('button');
     button.type='button';
     button.textContent='E-Mail-Import prüfen';
@@ -42,7 +42,7 @@ PANEL = r"""
         });
         if(!response.ok)throw Error('HTTP '+response.status);
         const data=await response.json();
-        status.textContent=data.configured?'Empfang konfiguriert · E-Mail-Inhalt wird nur als Vorschlag erfasst.':'E-Mail-Empfang ist noch nicht verbunden. Keine automatische Überwachung.';
+        status.textContent=data.configured?'Empfang konfiguriert · Übernahmestatus unter Mein Trade → Schritt für Schritt.':'E-Mail-Empfang ist noch nicht verbunden. Keine automatische Überwachung.';
         records.replaceChildren();
         const archive=document.createElement('details');
         const archiveTitle=document.createElement('summary');

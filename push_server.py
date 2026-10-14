@@ -602,7 +602,7 @@ class Handler(BaseHTTPRequestHandler):
                             raise ValueError("Zu viele Importdaten")
                         inserted=conn.execute("""INSERT INTO bob_trade_email_import(message_id,payload)
                             VALUES(%s,%s::jsonb) ON CONFLICT DO NOTHING RETURNING message_id""",
-                            (message_id,json.dumps({"version":trade_email_import.VERSION,
+                            (message_id,json.dumps({"messageId":message_id,"version":trade_email_import.VERSION,
                                 "result":safe,"receivedAt":int(time.time()*1000)}))).fetchone()
                         result={"ok":True,"new":bool(inserted)}
                         real_trade_journal.reconcile_sales(conn)

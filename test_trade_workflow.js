@@ -1,0 +1,16 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const src=fs.readFileSync('real_trade_journal.js','utf8'),ctx={};vm.createContext(ctx);
+vm.runInContext(src.slice(src.indexOf(' function workflowState('),src.indexOf(' function renderWorkflow(')),ctx);
+const f=ctx.workflowState;
+assert(f([],null,null).steps.every(x=>!x));
+const pending={id:'a',active:false,snapshot:{recordOnly:true,product:{isin:'DE000FG309G0'}}};
+assert.equal(f([pending],null,null).steps[0],true);assert.equal(f([pending],null,null).steps[3],false);
+const active={id:'a',active:true,pushDevices:0,snapshot:{product:{referenceConfirmed:true}}};
+assert.equal(f([active],{tradeId:'a',active:true},{available:true}).steps[2],true);
+assert.equal(f([active],{tradeId:'other',active:true},{available:true}).steps[2],false);
+assert.equal(f([active],{tradeId:'a',active:true},{available:true}).steps[4],false);
+assert.equal(f([{...active,pushDevices:1}],null,null).steps[4],true);
+const closed={id:'a',active:false,snapshot:{exitReceipt:{},product:{}}};
+assert.equal(f([closed],null,null).steps[5],true);
+assert.equal(f([pending,closed],null,null).steps[5],false);
+console.log('Trade workflow: honest step status, identity, push registration, closure passed');
