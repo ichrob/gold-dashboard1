@@ -1813,9 +1813,16 @@ function renderAutomaticProductCheck(p){
   q.productVerified?'Produktidentität bestätigt · aktuelle Kurse separat prüfen':
   'Emittentenidentität noch nicht bestätigt';
  const reason=String(q.reason||q.sgDiscovery?.reason||'').slice(0,230);
+ const backup=q.comdirectFieldsBackup;
+ const names={direction:'Long/Short',type:'Produktart',underlying:'Basiswert',currency:'Währung',maturity:'Laufzeit',lastTradingDay:'Letzter Handelstag',ratio:'Bezugsverhältnis',issuer:'Emittent',ko:'KO-Schwelle',strike:'Basispreis',leverage:'Hebel',koDistancePct:'KO-Abstand %',financingCosts:'Finanzierungskosten'};
+ const backupHtml=backup?'<details data-comdirect-fields><summary>comdirect · zweite Quelle</summary>'+
+  '<div>'+esc(({checking:'Abruf läuft',unavailable:'Abruf nicht verfügbar',observed:'Quelle gelesen',active:'Werte abgeglichen',conflict:'Abweichungen gefunden',inactive:'Quelle meldet Produkt beendet',rejected:'Produktzuordnung abgelehnt'})[backup.state]||backup.state)+'</div>'+
+  Object.entries(backup.observations||{}).map(([key,item])=>'<div>'+esc(names[key]||key)+': '+esc(item.value)+' · '+esc((backup.conflicts||[]).includes(key)?'Abweichung · nicht ersetzt':(backup.filledFields||[]).includes(key)?'ergänzt':'Quellenbeobachtung')+(item.conditionVerified===false?' · Datenstand nicht bestätigt':'')+'</div>').join('')+
+  ((backup.missing||[]).length?'<div>Nicht geliefert: '+esc(backup.missing.map(k=>names[k]||k).join(', '))+'</div>':'')+
+  '<div>Die Abrufzeit ist keine veröffentlichte Kurs- oder Hebelzeit. Geld/Brief werden separat mit ihrem Kurszeitpunkt geprüft.</div></details>':'';
  return '<div class="small" data-product-auto-check style="margin:6px 0;color:#536176">'+
    '<b>Letzter automatischer Emittentenabruf (Prüfzeit, keine Kurszeit):</b> '+esc(at)+' · '+esc(label)+
-   (reason?'<div>'+esc(reason)+'</div>':'')+'</div>';
+   (reason?'<div>'+esc(reason)+'</div>':'')+backupHtml+'</div>';
 }
 function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationHtml=''){
  reasons=reasons.map(reason=>productEvidenceReason(p,reason));
