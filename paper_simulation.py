@@ -50,21 +50,21 @@ def paper_quote(q, now, isin):
     """
     if not isinstance(q, dict) or q.get('isin') != isin:
         return q
-    if q.get('found') is True and q.get('isExecutableQuote') is not False:
+    if (q.get('found') is True and q.get('isExecutableQuote') is not False
+            and all(stamp(q.get(k)) is not None and 0 <= now-stamp(q[k]) <= 90000 for k in ('bidAt','askAt'))):
         return q
     meta = q.get('metadata') or {}
     if (q.get('productVerified') is not True or q.get('sourceDisabled')
-            or meta.get('status') != 1 or meta.get('tradingHalted') is True
-            or meta.get('issuerExchangeCode') != 'CBDE'):
+            or meta.get('status') != 1 or meta.get('tradingHalted') is True):
         return q
+    from comdirect_quotes import matches_primary
     candidates = [q.get('analysisQuote'), q.get('secondaryQuote')]
     valid = []
     for pair in candidates:
         if not isinstance(pair, dict):
             continue
         if (pair.get('isin') != isin or pair.get('currency') != 'EUR'
-                or pair.get('source') != 'comdirect · SG LiveTrading'
-                or pair.get('venue') != 'LT Societe Generale'
+                or not matches_primary(q, pair)
                 or pair.get('priceKind') != 'market-observation'
                 or pair.get('delayed') or pair.get('isExecutableQuote') is not False
                 or pair.get('degiroExecutable') is not False
@@ -83,7 +83,8 @@ def paper_quote(q, now, isin):
     out = copy.deepcopy(q)
     out.update(copy.deepcopy(pair))
     out.update(found=True, marketOpen=True, paperQuoteAccepted=True,
-               paperQuoteLabel='Simulationskurs · comdirect SG LiveTrading · keine bestätigte DEGIRO-Ausführung')
+               paperIssuerSource=q.get('source'), paperIssuerSourceUrl=q.get('sourceUrl'),
+               paperQuoteLabel='Simulationskurs · '+pair['source']+' · keine bestätigte DEGIRO-Ausführung')
     return out
 
 def quote_block_reason(q, now, isin):
