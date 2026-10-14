@@ -10,9 +10,11 @@ import re
 import secrets
 import threading
 import time
+import ssl
+from functools import lru_cache
 from http.cookies import SimpleCookie, CookieError
 from urllib.parse import parse_qs
-from urllib.request import Request, build_opener, HTTPRedirectHandler
+from urllib.request import Request, build_opener, HTTPRedirectHandler, HTTPSHandler
 from urllib.error import HTTPError
 
 COOKIE = '__Host-bob_session'
@@ -30,6 +32,13 @@ FAILURES = []
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
+
+
+@lru_cache(maxsize=1)
+def verified_tls_context():
+    # Reuse only certificate configuration, never an authentication decision.
+    # Fresh openers retain per-request redirect handling and no cookie sharing.
+    return ssl.create_default_context()
 
 
 def persistent_configured():
@@ -54,7 +63,7 @@ def session_request(action, token, user='', password='', expiry=None):
     # authenticated request pending through that start instead of falsely rejecting
     # a valid browser session after twelve seconds. No redirect or auth bypass.
     try:
-        with build_opener(NoRedirect()).open(request, timeout=75) as response:
+        with build_opener(NoRedirect(), HTTPSHandler(context=verified_tls_context())).open(request, timeout=75) as response:
             data = response.read(4097)
         if len(data)>4096:
             raise ValueError('Sitzungsantwort zu groß')
