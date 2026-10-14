@@ -89,6 +89,10 @@ def handle(conn,action,payload):
         tid=payload.get('tradeId');before=payload.get('before')
         trades=conn.execute('SELECT id,opened_at,updated_at,active,snapshot FROM bob_real_trades ORDER BY opened_at DESC LIMIT 100').fetchall()
         result={'trades':[dict(id=i,openedAt=o.isoformat(),updatedAt=u.isoformat(),active=a,snapshot=s) for i,o,u,a,s in trades]}
+        devices=conn.execute("SELECT trade_enabled,active_trade,background_config FROM subscriptions").fetchall()
+        for item in result['trades']:
+            item['pushDevices']=sum(1 for enabled,active,cfg in devices if enabled and active and
+                ((cfg or {}).get('trade') or {}).get('tradeId')==item['id'])
         if tid:
             rows=conn.execute('''SELECT seq,recorded_at,kind,payload FROM bob_real_trade_events
               WHERE trade_id=%s AND (%s::bigint IS NULL OR seq<%s::bigint) ORDER BY seq DESC LIMIT 501''',(tid,before,before)).fetchall()
@@ -114,3 +118,48 @@ def observe(conn,bundle):
             conn.execute('UPDATE bob_real_trades SET state=%s::jsonb,updated_at=now() WHERE id=%s',(json.dumps(next_state),tid))
         except Exception as exc:
             event(conn,tid,'observation-error',{'error':type(exc).__name__,'at':now},str(now))
+
+
+def device_plan(settings, active, journals):
+    """Private single-owner Bob: attach only opted-in idle devices, never replace another trade."""
+    settings=dict(settings or {'timeframe':'15m','trailAtr':1.5})
+    linked=settings.get('journalTradeId')
+    current=(settings.get('trade') or {}).get('tradeId')
+    if linked and current==linked and linked not in journals:
+        settings.pop('journalTradeId',None)
+        settings['trade']=None
+        return settings,False
+    if linked and current!=linked:
+        # A device has selected another trade; leave its plan untouched.
+        return None
+    if active and current and not linked:
+        return None
+    if len(journals)!=1 and not linked:
+        return None
+    tid=linked or next(iter(journals),None)
+    if tid not in journals:
+        return None
+    saved,state=journals[tid]
+    plan=dict(saved.get('trade') or {})
+    if not plan.get('active') or plan.get('tradeId')!=tid:
+        return None
+    # Preserve gains in the central monitor when attaching a new device.
+    watched=state.get('trade') or {}
+    if watched.get('tradeId')==tid and background_push.positive(watched.get('stop')):
+        plan['stop']=(max if plan['dir']=='LONG' else min)(plan['stop'],watched['stop'])
+    settings.update(trade=plan,journalTradeId=tid)
+    return settings,True
+
+
+def sync_devices(conn):
+    # Same authenticated private application scope as the journal. Opt-outs are never changed.
+    journals={tid:(settings,state) for tid,settings,state in conn.execute(
+        'SELECT id,settings,state FROM bob_real_trades WHERE active=TRUE').fetchall()}
+    rows=conn.execute('SELECT id,active_trade,background_config FROM subscriptions WHERE trade_enabled=TRUE FOR UPDATE').fetchall()
+    for sid,active,settings in rows:
+        selected=device_plan(settings,active,journals)
+        if selected is None:continue
+        updated,new_active=selected
+        if updated==settings and active==new_active:continue
+        conn.execute('UPDATE subscriptions SET background_config=%s::jsonb,active_trade=%s,updated_at=now() WHERE id=%s',
+                     (json.dumps(updated),new_active,sid))
