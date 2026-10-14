@@ -89,6 +89,15 @@ def paper_quote(q, now, isin):
 def quote_block_reason(q, now, isin):
     if not isinstance(q,dict):return 'Noch keine Kursantwort vorhanden'
     if q.get('isin')!=isin:return 'ISIN der Kursantwort stimmt nicht überein'
+    if not q.get('paperQuoteAccepted'):
+        pair=q.get('secondaryQuote') or {}
+        at=stamp(pair.get('quoteAt'))
+        # Explain a structurally valid but expired backup rather than blaming
+        # the newer chart. Validation at its original clock never permits entry.
+        if at is not None and at <= now and now-at > 90000:
+            historical=paper_quote(q,at,isin)
+            if historical.get('paperQuoteAccepted'):
+                return 'comdirect-Geld-/Briefkurs älter als 90 Sekunden; neue Quellenquote wird abgerufen'
     if q.get('priceKind') in ('calculated','issuer-chart') or (q.get('isExecutableQuote') is False and q.get('paperQuoteAccepted') is not True):
         return 'Nur Chart-, Rechen- oder Recherchekurs; kein bestätigter zweiseitiger Handelskurs'
     if q.get('found') is not True:
@@ -650,7 +659,16 @@ def quote_cache(products, active, now):
         if now-_requested.get(isin,0)>=30000:
             _requested[isin]=now;_pending[isin]=_pool.submit(get_quote,isin)
     by_isin={p['isin']:p.get('quote') for p in products if p.get('isin')}
-    return {isin:_quotes.get(isin,by_isin.get(isin)) for isin in isins}
+    # Primary issuer work is limited to four products per cycle. Completed
+    # backup observations must not wait for that slow rotation to reach the
+    # ledgers (ten products otherwise take at least three 30-second cycles).
+    # apply() is nonblocking and shares the bounded 30-second source cache.
+    from comdirect_quotes import apply as refresh_backup
+    observations={}
+    for isin in isins:
+        raw=_quotes.get(isin,by_isin.get(isin))
+        observations[isin]=refresh_backup(raw,isin) if isinstance(raw,dict) else raw
+    return observations
 
 def _worker(db):
     while True:
