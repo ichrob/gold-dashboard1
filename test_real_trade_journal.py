@@ -4,7 +4,9 @@ import real_trade_journal as j
 class JournalTests(unittest.TestCase):
  def trade(self,**kw):return dict(tradeId='real-1',active=True,dir='LONG',entry=100,stop=90,target=120,initialRisk=10,**kw)
  def conn(self,previous=None):
-  c=Mock();c.execute.return_value.fetchone.return_value=previous;return c
+  c=Mock();c.execute.return_value.fetchone.return_value=previous
+  c.execute.return_value.fetchall.return_value=[]
+  return c
  def test_test_trade_rejected(self):
   c=self.conn()
   with self.assertRaises(ValueError):j.handle(c,'write',{'trade':self.trade(test=True)})
@@ -63,7 +65,8 @@ class AutomaticMonitoringTests(JournalTests):
  def test_confirmed_purchase_can_start_same_position(self):
   old=PurchaseTests().purchase();t=self.monitored(old)
   c=self.conn((False,old));j.handle(c,'write',{'trade':t})
-  saved=json.loads(c.execute.call_args_list[1].args[1][2])
+  insert=next(call for call in c.execute.call_args_list if 'INSERT INTO bob_real_trades' in call.args[0])
+  saved=json.loads(insert.args[1][2])
   self.assertTrue(saved['active']);self.assertEqual(saved['purchase'],old['purchase'])
  def test_purchase_cannot_start_different_position(self):
   old=PurchaseTests().purchase();t=self.monitored(old);t['product']['quantity']=3
