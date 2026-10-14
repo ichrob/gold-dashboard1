@@ -25,7 +25,7 @@ SG_DISCOVERY_PRODUCTS = frozenset(('DE000FG7N6Z2', 'DE000FG8NHQ3'))
 SG_CH_MARKET = frozenset((*SG_CH_PRODUCTS, 'DE000FG8NHQ3'))
 
 def sg_on_demand_candidate(isin):
-    """Exact, checksum-valid SG issuer lookup for user-supplied FC/FG ISINs.
+    """Exact, checksum-valid SG issuer lookup for user-supplied SG-family ISINs.
 
     The prefix is a *search hint*, never issuer or trading confirmation.
     Identity, venue, classification and underlying still require the official
@@ -33,7 +33,7 @@ def sg_on_demand_candidate(isin):
     No scanning/range enumeration or broker-account access is performed.
     """
     return (isinstance(isin, str) and len(isin) == 12
-            and isin.startswith(('DE000FC', 'DE000FG')) and valid_isin(isin))
+            and isin.startswith(('DE000FC', 'DE000FD', 'DE000FE', 'DE000FG', 'DE000SQ')) and valid_isin(isin))
 
 
 def sg_market(isin):
@@ -89,7 +89,7 @@ def issuer_json(url, origin, timeout=6):
         raise ValueError('Produktantwort zu groß')
     return json.loads(body)
 
-def parse_sg(product, properties, isin, now=None):
+def parse_sg(product, properties, isin, now=None, market=None):
     """SG's AllProperties is metadata, not a dated live quote snapshot.
 
     Its TimeStamp is BIDTIME only, has no offset, and does not date ASK or
@@ -97,10 +97,11 @@ def parse_sg(product, properties, isin, now=None):
     to an executable snapshot. Preserve identified metadata separately.
     """
     now = now or datetime.now(timezone.utc)
+    market = market or sg_market(isin)
     contract = sg_future_contract(product, isin)
-    if (product.get('Isin') != isin or product.get('ExchangeCode') != sg_market(isin)[1]
+    if (product.get('Isin') != isin or product.get('ExchangeCode') != market[1]
             or (product.get('AssetNMP') != 'XAUUSD' and contract is None) or product.get('AssetCurrency') != 'USD'
-            or product.get('Currency') != sg_market(isin)[2] or not isinstance(properties, list)):
+            or product.get('Currency') != market[2] or not isinstance(properties, list)):
         raise ValueError('SG-Produktidentität oder Gold-Basiswert nicht bestätigt')
     attrs = {}
     for item in properties:
@@ -143,12 +144,12 @@ def parse_sg(product, properties, isin, now=None):
               'SG-Produkt erkannt; getrennte aktuelle Zeitstempel für Geld, Brief und Hebel fehlen')
     return dict(found=False, productVerified=True, eligible=False, fresh=False,
                 isin=isin, source='Société Générale · offizielle Produktdaten',
-                sourceUrl=sg_market(isin)[0]+'product-details/'+isin.lower(),
+                sourceUrl=market[0]+'product-details/'+isin.lower(),
                 checkedAt=now.isoformat(), reason=reason,
                 metadata=dict(name=product.get('Name', ''), underlying=contract['name'] if contract else 'XAU/USD',
                               underlyingType='FUTURE' if contract else 'SPOT',
                               contract=contract['ric'] if contract else None,
-                              underlyingIsin=product.get('AssetIsin'), currency=sg_market(isin)[2],
+                              underlyingIsin=product.get('AssetIsin'), currency=market[2],
                               issuerExchangeCode=product['ExchangeCode'],
                               direction='LONG' if side == 'Call' else 'SHORT', ko=ko,
                               status=status, koEvidence=ko_evidence), maxAgeSeconds=MAX_AGE_SECONDS)
@@ -185,7 +186,7 @@ def get_sg_quote(isin):
     return get_quote(isin)
 
 
-def parse_sg_chart_research(product, points, isin, now=None, verified_id=None):
+def parse_sg_chart_research(product, points, isin, now=None, verified_id=None, market=None):
     """Parse the public Prices/Live chart for bounded research only.
 
     The request's productId must come from a verified product response. A chart
@@ -193,14 +194,15 @@ def parse_sg_chart_research(product, points, isin, now=None, verified_id=None):
     or KO terms. This pure parser performs no network calls or persistence.
     """
     now = now or datetime.now(timezone.utc)
+    market = market or sg_market(isin)
     expected = SG_DIRECT_PRODUCTS.get(isin)
     if (isin in SG_DISCOVERY_PRODUCTS or sg_on_demand_candidate(isin)) and type(verified_id) is int and verified_id > 0:
         expected = verified_id
     if (expected is None or product.get('Isin') != isin
             or type(product.get('Id')) is not int or product['Id'] != expected
-            or product.get('ExchangeCode') != sg_market(isin)[1]
+            or product.get('ExchangeCode') != market[1]
             or (product.get('AssetNMP') != 'XAUUSD' and sg_future_contract(product, isin) is None)
-            or product.get('AssetCurrency') != 'USD' or product.get('Currency') != sg_market(isin)[2]):
+            or product.get('AssetCurrency') != 'USD' or product.get('Currency') != market[2]):
         raise ValueError('SG-Chartprodukt nicht eindeutig bestätigt')
     if not isinstance(points, list) or not points or len(points) > 10000:
         raise ValueError('SG-Chartdaten fehlen oder sind zu groß')
@@ -214,8 +216,8 @@ def parse_sg_chart_research(product, points, isin, now=None, verified_id=None):
     age = (now-at).total_seconds()
     return dict(found=False, eligible=False, fresh=False, productVerified=True,
                 isin=isin, source='SG · Live-Chart, Recherche',
-                sourceUrl=sg_market(isin)[0]+'product-details/'+isin.lower(),
-                chartEvidence=dict(bid=bid, ask=ask, currency=sg_market(isin)[2],
+                sourceUrl=market[0]+'product-details/'+isin.lower(),
+                chartEvidence=dict(bid=bid, ask=ask, currency=market[2],
                                    pointAt=at.isoformat(), ageSeconds=age,
                                    current=age <= MAX_AGE_SECONDS),
                 reason='Datierter Chartpunkt; separate Hebelzeit und vollständige Kursfreigabe fehlen')
@@ -640,7 +642,7 @@ def _get_quote_bounded(isin):
     from finanzen_terms import apply as apply_terms_backup
     from comdirect_fields import apply as apply_comdirect_fields
     result = apply_backup(apply_terms_backup(apply_comdirect_fields(_get_quote_primary(isin), isin), isin), isin)
-    if isin in SG_CH_MARKET:
+    if result.get('metadata', {}).get('currency') == 'CHF':
         from sg_chf import convert_analysis
         result = convert_analysis(result)
     chart = result.get('chartEvidence')
