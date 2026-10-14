@@ -326,7 +326,9 @@ def examine(product, quote, now_ms):
                 quote.get("isExecutableQuote") is not False and
                 _positive(quote.get("bid")) and _positive(quote.get("ask")) and
                 quote["ask"] >= quote["bid"])
-    backup_pair = _backup_pair(quote, isin, now_ms) if not quote_ok else None
+    primary_current = quote_ok and all(_recent(quote.get(k), now_ms, QUOTE_MAX_MS)
+                                       for k in ('bidAt', 'askAt'))
+    backup_pair = _backup_pair(quote, isin, now_ms) if not primary_current else None
     if not quote_ok and not backup_pair:
         missing.append("quote")
     # Do not use quoteAt as a substitute for independent bid/ask stamps.

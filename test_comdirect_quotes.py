@@ -36,6 +36,12 @@ class ComdirectQuoteTests(unittest.TestCase):
         with patch.object(q, 'get_observation', return_value=dict(state='observed', quote=pair)):
             out = q.apply(primary, isin, self.now)
         self.assertEqual(_backup_pair(out, isin, self.now.timestamp()*1000), pair)
+        from degiro_product_audit import examine
+        out.update(bid=5, ask=5.01, bidAt=(self.now-timedelta(minutes=3)).isoformat(),
+                   askAt=(self.now-timedelta(minutes=3)).isoformat())
+        item = examine(dict(isin=isin, direction='LONG'), out, self.now.timestamp()*1000)
+        self.assertNotIn('quote-time', item['missing'])
+        self.assertEqual(item['dataQuoteSource'], pair['source'])
         self.assertIsNone(_backup_pair(out, isin, (self.now+timedelta(seconds=91)).timestamp()*1000))
         self.assertFalse(out['eligible'])
         self.assertNotIn('leverageAt', out)
