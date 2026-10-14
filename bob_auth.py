@@ -29,6 +29,10 @@ PENDING = {}
 FAILURES = []
 
 
+class AuthenticationUnavailable(Exception):
+    """Current authorization could not be checked; never treat as invalid credentials."""
+
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -96,7 +100,10 @@ def authenticated(headers, user, password):
     if not user or not password:
         return False
     try:
-        current = bob_recovery.state(user)
+        try:
+            current = bob_recovery.state(user)
+        except (OSError, ValueError, TypeError, KeyError):
+            raise AuthenticationUnavailable() from None
         key = bob_recovery.binding_key(password, current)
         authorization = headers.get('Authorization', '')
         if authorization.startswith('Basic '):
@@ -108,7 +115,10 @@ def authenticated(headers, user, password):
                 pass
         token = cookie(headers, COOKIE)
         if persistent_token(token):
-            return session_request('check', token, user, key).get('valid') is True
+            try:
+                return session_request('check', token, user, key).get('valid') is True
+            except (OSError, ValueError, TypeError, KeyError):
+                raise AuthenticationUnavailable() from None
         with LOCK:
             expiry, version = SESSIONS.get(token, (0, -1))
             return expiry > time.time() and version == current['version']

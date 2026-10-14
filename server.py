@@ -824,6 +824,14 @@ class Handler(BaseHTTPRequestHandler):
     def handle(self):
         try:
             super().handle()
+        except bob_auth.AuthenticationUnavailable:
+            # A transient store outage is not evidence that a session expired.
+            # Deny this request without emitting the 401 that logs the PWA out.
+            self.close_connection = True
+            try:
+                bob_auth.send(self, 503, 'Sitzungsprüfung vorübergehend nicht erreichbar. Bitte erneut versuchen.'.encode())
+            except (BrokenPipeError, ConnectionResetError):
+                pass
         except (BrokenPipeError, ConnectionResetError):
             # A navigation/refresh can close the client after a successful upstream call.
             # Never retry that completed POST or send a second HTTP response.
