@@ -133,8 +133,8 @@ def _market_cross_check(observations):
         result["reasons"].append("Handelsplatz der Vergleichsquelle fehlt.")
     if primary["source"] == secondary["source"]:
         result["reasons"].append("Quellen sind nicht unabhängig.")
-    if secondary.get("upstream") == "SG" and (primary.get("upstream") == "SG" or "SG" in primary["source"]):
-        result["reasons"].append("Zwei Abrufwege, aber derselbe SG-Kursgeber; keine unabhängige Preisbestätigung.")
+    if secondary.get("upstream") in ("SG", "BNP") and (primary.get("upstream") == secondary["upstream"] or secondary["upstream"] in primary["source"]):
+        result["reasons"].append("Zwei Abrufwege, aber derselbe "+secondary["upstream"]+"-Kursgeber; keine unabhängige Preisbestätigung.")
     if primary["currency"] != secondary["currency"]:
         result["reasons"].append("Unterschiedliche Währungen; datierte Umrechnung fehlt.")
     if not primary["current"] or not secondary["current"]:
@@ -230,7 +230,8 @@ def _condition_value(quote, key, now_ms):
 
 
 def _backup_pair(quote, isin, now_ms):
-    """A dated SG LiveTrading pair supplies data, never DEGIRO execution."""
+    """A dated issuer LiveTrading pair supplies data, never DEGIRO execution."""
+    from comdirect_quotes import matches_primary
     row = quote.get('secondaryQuote') or {}
     meta = quote.get('metadata') or {}
     backup = quote.get('comdirectFieldsBackup') or {}
@@ -238,10 +239,8 @@ def _backup_pair(quote, isin, now_ms):
             or quote.get('sourceDisabled') or meta.get('status') != 1
             or backup.get('state') == 'inactive'
             or set(backup.get('conflicts') or []) & {'direction', 'currency', 'underlying'}
-            or meta.get('issuerExchangeCode') != 'CBDE'
-            or row.get('isin') != isin or row.get('currency') != 'EUR'
-            or row.get('source') != 'comdirect · SG LiveTrading'
-            or row.get('venue') != 'LT Societe Generale'
+            or not matches_primary(quote, row)
+            or row.get('isin') != isin
             or row.get('priceKind') != 'market-observation' or row.get('delayed')
             or row.get('isExecutableQuote') is not False
             or row.get('degiroExecutable') is not False
@@ -327,7 +326,9 @@ def examine(product, quote, now_ms):
                 quote.get("isExecutableQuote") is not False and
                 _positive(quote.get("bid")) and _positive(quote.get("ask")) and
                 quote["ask"] >= quote["bid"])
-    backup_pair = _backup_pair(quote, isin, now_ms) if not quote_ok else None
+    primary_current = quote_ok and all(_recent(quote.get(k), now_ms, QUOTE_MAX_MS)
+                                       for k in ('bidAt', 'askAt'))
+    backup_pair = _backup_pair(quote, isin, now_ms) if not primary_current else None
     if not quote_ok and not backup_pair:
         missing.append("quote")
     # Do not use quoteAt as a substitute for independent bid/ask stamps.
