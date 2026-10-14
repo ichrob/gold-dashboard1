@@ -3681,7 +3681,7 @@ window.BobDegiro={recoverArchivedList,productObservedTimeStatus,sharedProductFie
   if(!m||!positive(rate)||!Number.isFinite(at)||at>now)return m;
   return {...m,fxScenario:rate,fxDetails:{...fx,delayed:!!fx.error||now-at>90000}};
  }
- function label(m,gold){const x=price(m,gold);return x.available?'≈ '+x.price.toFixed(4)+' EUR/Stück (geschätzt) · Gold '+gold.toFixed(2)+' USD/oz'+(m.fxDetails?.delayed?' · FX-Aktualisierung verzögert':''):x.reason;}
+ function label(m,gold){const x=price(m,gold);return x.available?'≈ '+x.price.toFixed(4)+' EUR/Stück (geschätzt)'+(m.fxDetails?.delayed?' · FX-Aktualisierung verzögert':''):x.reason;}
  root.BobTradeProduct={model,price,label,withFx};
  if(typeof module!=='undefined')module.exports=root.BobTradeProduct;
 })(typeof window!=='undefined'?window:globalThis);

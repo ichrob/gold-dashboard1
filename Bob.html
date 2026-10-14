@@ -2937,7 +2937,7 @@ function updateResearchPanel(){
  if($("stopCurrent"))$("stopCurrent").textContent=tradeMgmt.active?activeTradeLevel(tradeMgmt.stop):displayStop(stop);
  if(tradeMgmt.active)renderActiveTradePlan();
  if($("stopRisk"))$("stopRisk").textContent=stop?Math.abs(lastPrice-stop).toFixed(2)+" USD/oz":"—";
- if($("stopPanel")&&!tradeMgmt.active&&sm?.stop)$("stopPanel").innerHTML="<b>Technischer Referenz-Stop:</b> "+displayStop(sm.stop)+"<br><span class='small'>"+sm.reason+" · Struktur "+displayStop(sm.structureStop)+" · ATR "+displayStop(sm.atrStop)+"</span>";
+ if($("stopPanel")&&!tradeMgmt.active)$("stopPanel").textContent="Produkt-Stop noch nicht verfügbar: Die Produktüberwachung ist nicht aktiv. Unter „Produktnachweise und Ausstiegskurse“ die fehlenden Referenzwerte prüfen und „Produkt-Trade überwachen“ wählen. Erst dann kann Bob einen Stop-Kurs in der Produktwährung pro Stück berechnen.";
  if($("hysteresis"))$("hysteresis").textContent=(dir==='NEUTRAL'?'ABWARTEN':dir)+' · '+(signalState.reason||'Bestätigung ausstehend');
  if($("researchStatus"))$("researchStatus").textContent=researchLog.length?researchLog.length+" Snapshots lokal gespeichert.":"Noch keine Snapshots.";
 }
@@ -2966,7 +2966,7 @@ async function activateTestTrade(){
  $("stopUpdate").innerHTML="<b>Test-Trade aktiv:</b> "+dir+" · Einstieg "+entry.toFixed(2)+" USD/oz · Test-Stop "+displayStop(testStop)+".";
 }
 function activeTradeLevel(value){
- return tradeMgmt.product&&window.BobTradeProduct?window.BobTradeProduct.label(window.BobTradeProduct.withFx(tradeMgmt.product,liveBundleCache?.spots),value):displayStop(value)+" · Goldreferenz; Produkt noch nicht verbunden";
+ return tradeMgmt.product&&window.BobTradeProduct?window.BobTradeProduct.label(window.BobTradeProduct.withFx(tradeMgmt.product,liveBundleCache?.spots),value):"Produktkurs nicht berechenbar · Produktnachweis fehlt";
 }
 let activeProductQuote=null,activeProductQuoteRequest=false,activeProductQuoteAttempt=0;
 async function refreshActiveProductQuote(){
@@ -2985,7 +2985,7 @@ async function refreshActiveProductQuote(){
 function renderActiveTradePlan(){
  if(!tradeMgmt?.active||tradeMgmt.test||!$('stopPanel'))return;
  const p=tradeMgmt.product;
- $('stopPanel').textContent=(p?p.isin+' · '+tradeMgmt.dir+' · Berechnete Produktwerte':'Goldreferenz · Produktnachweis fehlt')+'\nStop: '+activeTradeLevel(tradeMgmt.stop)+'\nZiel: '+activeTradeLevel(tradeMgmt.target)+(p?'\nReferenz: '+p.referenceAt+' · '+p.source+'\nAktueller verfügbarer Wechselkurs; gespeicherte Produktbedingungen angenommen. Keine bestätigten DEGIRO-Kurse; Änderungen selbst übernehmen. R bezieht sich auf den Gold-Referenzplan bei Beginn der Überwachung, nicht auf den tatsächlichen Eurogewinn.':'');
+ $('stopPanel').textContent=(p?p.isin+' · '+tradeMgmt.dir+' · Berechnete Produktwerte':'Goldreferenz · Produktnachweis fehlt')+'\nBerechneter Stop-Loss pro Stück: '+activeTradeLevel(tradeMgmt.stop)+'\nBerechnetes Ziel pro Stück: '+activeTradeLevel(tradeMgmt.target)+(p?'\nReferenz: '+p.referenceAt+' · '+p.source+'\nAktueller verfügbarer Wechselkurs; gespeicherte Produktbedingungen angenommen. Keine bestätigten DEGIRO-Kurse; Änderungen selbst übernehmen. R bezieht sich auf den Gold-Referenzplan bei Beginn der Überwachung, nicht auf den tatsächlichen Eurogewinn.':'');
  const continued=tradeMgmt.continuedCalculation;
  if(continued?.stale)$('stopPanel').textContent+='\n'+(continued.marketClosed?'Markt geschlossen · letzter bestätigter Stand '+(continued.dataAt?new Date(continued.dataAt).toLocaleString('de-CH'):'unbekannt')+' · Stop und Ziel werden während der Pause nicht neu bestätigt.':continued.available?'Berechnung läuft mit veralteten Werten weiter · Datenstand '+new Date(continued.dataAt).toLocaleString('de-CH')+' · keine aktuelle Bestätigung von Stop/Ziel.':'Berechnung wartet auf den ersten verfügbaren Datenstand; automatische Abrufe laufen weiter.');
  const fallbackPlan=(continued?.stale||!currentSpotUsable()||analysisAgeWarnings().length)?(continuedTradePlan(tradeMgmt)||continued?.plan):null;
@@ -2999,6 +2999,7 @@ function renderActiveTradePlan(){
  let details=$('activeTradeFxDetails');if(!details){details=document.createElement('details');details.id='activeTradeFxDetails';$('stopPanel').insertAdjacentElement('afterend',details);const summary=document.createElement('summary');summary.textContent='Wechselkurs und Berechnungsannahmen';details.appendChild(summary);const text=document.createElement('div');text.id='activeTradeFxText';details.appendChild(text);}
  const fx=liveBundleCache?.spots?.usd_eur_meta;
  $('activeTradeFxText').textContent=fx?.rate?'1 USD = '+Number(fx.rate).toFixed(6)+' EUR · Abruf '+fx.fetchedAt+' · Quellenzeit nicht geliefert · '+fx.source+(fx.error||Date.now()-Date.parse(fx.fetchedAt)>90000?' · Aktualisierung verzögert':'')+' · Ziel ist eine Modellschätzung bei diesem Wechselkurs und gespeicherten Produktbedingungen.': 'Kein aktueller Wechselkursnachweis. Berechnung mit gespeicherter Wechselkursannahme.';
+ $('activeTradeFxText').textContent+=' · Technische Goldreferenz: Stop '+displayStop(tradeMgmt.stop)+' · Ziel '+displayStop(tradeMgmt.target);
  $('stopPanel').style.whiteSpace='pre-line';
  if($('stopCurrent'))$('stopCurrent').textContent=activeTradeLevel(tradeMgmt.stop);
 }

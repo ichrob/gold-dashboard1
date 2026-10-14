@@ -15,7 +15,7 @@ const now=Date.parse('2026-10-08T10:00:00Z');
 const fx={rate:.95,fetchedAt:new Date(now-30000).toISOString(),source:'test'};
 const updated=api.withFx(long,{usd_eur_meta:fx},now);
 assert.equal(long.fxScenario,.9);assert.equal(updated.fxScenario,.95);
-assert(!updated.fxDetails.delayed);assert(api.label(updated,4250).includes('Gold 4250.00 USD/oz'));
+assert(!updated.fxDetails.delayed);assert(!api.label(updated,4250).includes('USD/oz'));assert(api.label(updated,4250).includes('EUR/Stück'));
 assert(api.withFx(long,{usd_eur_meta:fx},now+90000).fxDetails.delayed);
 assert(api.withFx(long,{usd_eur_meta:{...fx,error:'failed'}},now).fxDetails.delayed);
 assert.equal(api.withFx(long,{usd_eur_meta:{...fx,fetchedAt:new Date(now+1).toISOString()}},now),long);
