@@ -35,7 +35,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   }else if(r.status==='stale'){
    status.textContent='⚠️ Der Prüfbericht ist veraltet. Keine aktuelle Produktbestätigung.';
   }else if(good){
-   status.textContent=items.length+' Produkte geprüft · '+(incomplete===0?'alle Emittentennachweise vollständig (DEGIRO-Verfügbarkeit weiterhin unbestätigt)':incomplete+' mit fehlenden oder veralteten Werten')+' · Hintergrundüberwachung';
+   status.textContent=items.length+' Produkte geprüft · '+incomplete+' mit fehlenden oder veralteten Werten · '+(r.terminated||0)+' beendet · Hintergrundüberwachung';
   }else{
    status.textContent='Prüfung derzeit nicht erreichbar; aktuelle Produktnachweise fehlen.';
   }
@@ -44,11 +44,12 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   const help=good?items.filter(i=>i.needsKiHelp):[];
   window.BobProductAuditHelpCount=help.length;
   window.BobProblems?.badge?.(window.BobProblemsArchiveCount??null);
-  problem.textContent=!good?'Produktüberwachung nicht aktuell · Prüfstatus unbestätigt':(help.length+' Produkte benötigen noch KI-Hilfe · '+incomplete+' insgesamt unvollständig');
+  problem.textContent=!good?'Produktüberwachung nicht aktuell · Prüfstatus unbestätigt':(help.length+' Produkte benötigen noch KI-Hilfe · '+incomplete+' insgesamt unvollständig · '+(r.terminated||0)+' beendet (kein Datenfehler)');
   for(const item of items){
    const node=document.createElement('details'),summary=document.createElement('summary');
    const healthy=item.state==='issuer-evidence-complete';
-   summary.textContent=(healthy?'✓ ':'⚠ ') +(item.isin||'ISIN unbekannt')+' · '+(healthy?'Emittentennachweise vorhanden':'Fehlende Nachweise: '+(item.missing||[]).length);
+   const ended=item.state==='terminated';
+   summary.textContent=(ended?'⛔ ':healthy?'✓ ':'⚠ ') +(item.isin||'ISIN unbekannt')+' · '+(ended?'Beendet laut Emittent · gesperrt':healthy?'Emittentennachweise vorhanden':'Fehlende Nachweise: '+(item.missing||[]).length);
    const list=document.createElement('p');list.style.whiteSpace='pre-line';
    list.textContent=(item.messages||[]).join('\n')+'\nPrüfungen in Folge: '+(item.consecutiveChecks||0)+' · Nächster Schritt: '+item.autoRecovery+
         '\nGeldkurszeit: '+(item.quoteSourceAt?fmt(item.quoteSourceAt):'nicht nachgewiesen')+

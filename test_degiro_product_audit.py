@@ -319,6 +319,32 @@ class ProductAuditTests(unittest.TestCase):
         q["metadata"]["status"]=9  # SG active bit together with terminal bit
         self.assertIn("terminated",audit.examine(feed()["products"][0],q,NOW)["missing"])
 
+    def test_verified_ended_product_is_not_a_repair_incident(self):
+        q = provider()
+        q['metadata']['status'] = 9
+        q.update(found=False, marketOpen=False, leverage=None, leverageAt=None)
+        report = None
+        for _ in range(4):
+            report = audit.build(feed(), {ISIN: q}, NOW, report)
+        self.assertEqual(report['terminated'], 1)
+        self.assertEqual(report['incomplete'], 0)
+        self.assertEqual(report['needsHelp'], 0)
+        self.assertEqual(report['items'][0]['state'], 'terminated')
+        self.assertFalse(report['items'][0]['tradeApproved'])
+        self.assertEqual(audit.public_help_codes(report), [])
+        # A different product or an unknown status cannot hide missing proof.
+        for change in ('identity', 'unknown-status'):
+            bad = provider()
+            bad['metadata']['status'] = 9 if change == 'identity' else 0
+            if change == 'identity':
+                bad['isin'] = 'DE000FC1CHB7'
+            self.assertNotEqual(audit.examine(feed()['products'][0], bad, NOW)['state'], 'terminated')
+
+    def test_unfinished_or_stale_audit_cannot_certify_recovery(self):
+        for state in ('checking-new-list', 'waiting-for-screenshot', 'stale', 'unavailable'):
+            self.assertIsNone(audit.public_help_codes({'status': state, 'items': []}))
+        self.assertEqual(audit.public_help_codes({'status': 'ok', 'items': []}), [])
+
     def test_active_screenshot_generation_not_historic_research_seeds(self):
         self.assertEqual(audit.build({}, {}, NOW)["status"],"waiting-for-screenshot")
         self.assertEqual(audit.build({"products":[{"isin":ISIN}]},{},NOW)["total"],0)

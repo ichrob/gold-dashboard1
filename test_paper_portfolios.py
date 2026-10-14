@@ -181,7 +181,9 @@ class ProfileTests(unittest.TestCase):
                 self.assertNotIn('DEGIRO',row[0]['capitalMode'])
                 control=conn.execute('SELECT payload FROM '+ns['bob_paper_control']).fetchone()[0]
                 self.assertAlmostEqual(control['cash'],(800 if profile=='trend800' else 100)-expected[profile]*10.1)
-                self.assertEqual(bool(row[0].get('trendFollow')),profile=='trend800')
+                self.assertFalse(bool(row[0].get('trendFollow')))
+                if profile == 'trend800':
+                    self.assertEqual(row[0]['exitPolicy'], 'bob-stop-reentry-v1')
             # A normal market direction never authorizes the experimental account.
             experimental=profiles.names('early100')
             self.assertIsNone(conn.execute('SELECT payload FROM '+experimental['bob_paper_cases']).fetchone())

@@ -368,3 +368,28 @@ const marketSwitch=vm.runInContext(`(()=>{
 })()`,env);
 assert(marketSwitch.future.includes('Investing.com'));assert(marketSwitch.spot.includes('XAU/USD'));assert(marketSwitch.unchanged);
 console.log('Spot/Future display switch preserves analysis candles');
+
+// A timeout of the secondary historical review must preserve the main report.
+(async()=>{
+ const start=html.indexOf(" async function refresh(){\n  text('auditReport'");
+ assert(start>=0);
+ const end=html.indexOf('\n refresh();',start);
+ const source=html.slice(start,end);
+ const metric={evaluated:1,favorable:1,unfavorable:0,flat:0,missing:0,neutral:0};
+ const report={learning:{training:1,holdout:0},productReview:metric,researchReview:{},
+  metrics:{15:metric,60:metric,240:metric},issues:[],total:3,retentionDays:30,latest:[],scope:'fixture',
+  prospectiveReview:{available:false,retryable:true,reason:'Teilbericht wegen Zeitüberschreitung nicht verfügbar'}};
+ const texts={};
+ const node=()=>({replaceChildren(){},appendChild(){},style:{}});
+ const context={api:async()=>report,text:(id,value)=>texts[id]=value,document:{getElementById:node,createElement:node},Date,Number,JSON};
+ vm.createContext(context);
+ await vm.runInContext(source+'\nrefresh()',context);
+ assert(texts.auditReport.includes('Gespeicherte Entscheidungen: 3'));
+ assert(texts.prospectiveReview.includes('Zeitüberschreitung'));
+ assert(!texts.improvementStatus.includes('nicht abrufbar'));
+ report.prospectiveReview={available:true,phases:{collection:{}},labels:{},note:'Validiert',validationDay:'2026-10-19'};
+ await vm.runInContext('refresh()',context);
+ assert(texts.prospectiveReview.includes('Validiert'));
+ assert(texts.auditReport.includes('Gespeicherte Entscheidungen: 3'));
+ console.log('Partial audit timeout preserves learning and main report');
+})().catch(error=>{console.error(error);process.exitCode=1;});

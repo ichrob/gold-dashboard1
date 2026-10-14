@@ -249,7 +249,8 @@ def examine(product, quote, now_ms):
     if metadata.get("type") == "FACTOR":
         missing.append("factor")
     status = metadata.get("status")
-    if (type(status) is int and (status & (2 | 8 | 16 | 32) or not status & 1)) or quote.get("terminated") is True:
+    terminated = verified and ((type(status) is int and bool(status & (2 | 8 | 16 | 32))) or quote.get("terminated") is True)
+    if terminated:
         missing.append("terminated")
     if metadata.get("underlyingType") == "FUTURE":
         missing.append("future")
@@ -307,7 +308,7 @@ def examine(product, quote, now_ms):
     return {
         "isin": isin if valid_isin(isin) else None,
         "direction": direction if direction in ("LONG", "SHORT") else None,
-        "state": "issuer-evidence-complete" if not codes else "incomplete",
+        "state": "terminated" if terminated else "issuer-evidence-complete" if not codes else "incomplete",
         "missing": codes,
         "messages": [CODES[code] for code in codes],
         "quoteSourceAt": quote.get("bidAt") if "quote-time" not in codes else None,
@@ -323,7 +324,8 @@ def examine(product, quote, now_ms):
                         "Nur eine bei DEGIRO selbst nachgewiesene Handelsroute "
                         "oder ein dort handelbares EUR-Produkt zum Vergleich heranziehen."
                         if swiss_dots else None),
-        "autoRecovery": "Vorhandene Emittenten- und Ersatzquellen werden bei der nächsten Aktualisierung erneut geprüft",
+        "autoRecovery": ("Vom Emittenten als beendet gemeldet · keine neue Handelsfreigabe; fehlende laufende Kurse sind kein Reparaturfehler"
+                         if terminated else "Vorhandene Emittenten- und Ersatzquellen werden bei der nächsten Aktualisierung erneut geprüft"),
         "degiroVerified": False,
         "tradeApproved": False,
     }
@@ -352,7 +354,7 @@ def build(feed, quotes, now_ms=None, previous=None):
             previous_counts = {code: int(before.get("consecutiveChecks", 0))
                                for code in before.get("missing", [])}
         counts = {code: min(99999, int(previous_counts.get(code, 0)) + 1)
-                  for code in item["missing"]}
+                  for code in item["missing"] if item["state"] != "terminated"}
         item["missingChecks"] = counts
         same = bool(set(before.get("missing", [])) & set(item["missing"]))
         item["consecutiveChecks"] = max(counts.values(), default=0)
@@ -360,10 +362,11 @@ def build(feed, quotes, now_ms=None, previous=None):
         item["needsKiHelp"] = item["consecutiveChecks"] >= 3 and bool(item["missing"])
         items.append(item)
     checked = datetime.fromtimestamp(now_ms/1000,timezone.utc).isoformat()
-    incomplete = sum(item["state"] != "issuer-evidence-complete" for item in items)
+    incomplete = sum(item["state"] == "incomplete" for item in items)
     return {"status": "ok" if items else "waiting-for-screenshot", "lastCheckedAt": checked,
             "listUploadedAt": generation, "total": len(items), "incomplete": incomplete,
             "needsHelp": sum(item["needsKiHelp"] for item in items), "items": items,
+            "terminated": sum(item["state"] == "terminated" for item in items),
             "readOnly": True, "degiroConnected": False,
             "sourcePolicy": "issuer-and-existing-authorised-backups",
             "note": "Ausführbare DEGIRO-Kurse und Kontoverfügbarkeit sind nicht angeschlossen. Fehlende Nachweise sperren die Freigabe. Kein Echtgeldhandel."}
@@ -421,8 +424,8 @@ def public_help_codes(report):
     Closed markets alone, ended products, factors and mismatched futures are
     deliberate exclusions and not reparable missing-timestamp incidents.
     """
-    if not isinstance(report, dict) or report.get("status") not in ("ok", "stale"):
-        return []
+    if not isinstance(report, dict) or report.get("status") != "ok":
+        return None  # No completed current audit: never certify recovery.
     codes = set()
     for item in report.get("items", [])[:12]:
         if not isinstance(item, dict) or item.get("needsKiHelp") is not True:
