@@ -808,6 +808,18 @@ def sanitize_client_diagnostic(payload):
         safe["reason"] = "Serverprüfung wegen abgelaufener Bob-Anmeldung ausgesetzt"
     return event, safe
 
+class BobHTTPServer(ThreadingHTTPServer):
+    # Python 3.12 defaults to only five pending TCP connections. Parallel PWA
+    # refreshes can exhaust that queue before the login handler is even reached.
+    request_queue_size = 128
+
+    def get_request(self):
+        connection, address = super().get_request()
+        # A client that never finishes its headers must not retain a thread forever.
+        connection.settimeout(30)
+        return connection, address
+
+
 class Handler(BaseHTTPRequestHandler):
     def handle(self):
         try:
@@ -1705,7 +1717,7 @@ if __name__ == "__main__":
     start_healing_watch()
     import weekend_archive
     weekend_archive.start(build_live_bundle,market_cards.snapshot)
-    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    BobHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress
 
