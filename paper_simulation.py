@@ -491,7 +491,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             elif profile_policy and profile_policy.get('early_impulse') and choice.get('koGuardRequired') is not True:
                 reason='Frühimpuls-KO-Schutz: Nur ausdrücklich vollständig geprüfte Produkte zulässig'
             elif choice.get('indicative') or choice.get('estimated'):reason='Unverbindlicher Kandidat: kein virtueller Eurokauf ohne Produktfreigabe'
-            elif not q:reason='Produkteinstieg gesperrt · '+choice['isin']+': '+str(quote_block_reason(quotes.get(choice['isin']),now,choice['isin']))
+            elif not q:reason='Geld-/Briefkurs nicht freigegeben · Produkteinstieg gesperrt · '+choice['isin']+': '+str(quote_block_reason(quotes.get(choice['isin']),now,choice['isin']))
             elif choice.get('koGuardRequired') and paper_ko_guard.entry_reason(choice,quotes.get(choice['isin']),market,now)[0]:
                 reason='KO-Schutz: '+paper_ko_guard.entry_reason(choice,quotes.get(choice['isin']),market,now)[0]
             elif profile_policy and __import__('paper_portfolios').entry_block_reason(profile_policy,market):
