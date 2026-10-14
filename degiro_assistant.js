@@ -1288,7 +1288,8 @@ function sharedProductFieldTime(p,key,value,now=Date.now()){
  };
  const q=p?.quote;
  if(q?.isin===p?.isin&&q.productVerified&&q.metadata?.status===1){
-  const ctx=q.sharedTimeContext,chart=q.chartEvidence||q.nativeChartEvidence;
+  // Shared issuer values belong to the original quote, before FX conversion.
+  const ctx=q.sharedTimeContext,chart=q.nativeChartEvidence||q.chartEvidence;
   const sgKey=({Richtung:'direction',KO:'ko',Hebel:'Referenzhebel',
    Geld:'Geld',Brief:'Brief'})[field]||field;
   const obs=q.sharedValueObservations?.[sgKey],ref=q.issuerLeverageReference;
