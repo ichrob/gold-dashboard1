@@ -24,8 +24,13 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   else {const main=document.querySelector('main');if(main)main.append(byId('bobProductAuditProblem'));}
  }
  function render(r){
+  const update=()=>renderReport(r);
+  return window.BobDegiro?.preserveReadingPosition?window.BobDegiro.preserveReadingPosition(update):update();
+ }
+ function renderReport(r){
   const status=byId('bobProductAuditStatus'),updated=byId('bobProductAuditUpdated'),out=byId('bobProductAuditItems');
   const problem=byId('bobProductAuditProblemCount'),details=byId('bobProductAuditProblemItems');
+  const opened=new Map([...out.children].map(el=>[el.dataset.isin,el.open]));
   out.replaceChildren();details.replaceChildren();
   const good=r.status==='ok',items=Array.isArray(r.items)?r.items:[],incomplete=Number.isInteger(r.incomplete)?r.incomplete:null;
   if(r.status==='waiting-for-screenshot'){
@@ -47,6 +52,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   problem.textContent=!good?'Produktüberwachung nicht aktuell · Prüfstatus unbestätigt':(help.length+' Produkte benötigen noch KI-Hilfe · '+incomplete+' insgesamt unvollständig · '+(r.terminated||0)+' beendet (kein Datenfehler)');
   for(const item of items){
    const node=document.createElement('details'),summary=document.createElement('summary');
+   node.dataset.isin=item.isin;node.dataset.productIsin=item.isin;node.open=opened.get(item.isin)===true;
    const healthy=item.state==='issuer-evidence-complete';
    const ended=item.state==='terminated';
    summary.textContent=(ended?'⛔ ':healthy?'✓ ':'⚠ ') +(item.isin||'ISIN unbekannt')+' · '+(ended?'Beendet laut Emittent · gesperrt':healthy?'Produktnachweise vorhanden':'Fehlende Nachweise: '+(item.missing||[]).length);
