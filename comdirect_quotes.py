@@ -153,7 +153,7 @@ def apply(result, isin, now=None):
     if (not secondary or secondary.get('source') == quote['source']
             and datetime.fromisoformat(quote['quoteAt']) >= secondary_at):
         out['secondaryQuote'] = copy.deepcopy(quote)
-    if 0 <= age <= 90 and not out.get('found'):
+    if 0 <= age <= 90:
         current = out.get('analysisQuote') or {}
         try:
             current_at = datetime.fromisoformat(current['askAt'].replace('Z', '+00:00'))

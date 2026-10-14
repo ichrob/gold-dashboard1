@@ -57,6 +57,28 @@ class EntryPipelineTests(unittest.TestCase):
             daily=next(args for sql,args in calls if 'INSERT INTO bob_paper_days' in sql)
             self.assertNotIn('entryBlocks',json.loads(daily[1]))
 
+    def test_bnp_backup_and_provider_leverage_reach_selector(self):
+        import copy
+        q,m=self.fixture()
+        at=q['askAt']
+        pair={k:q[k] for k in ('isin','currency','bid','ask','price','bidAt','askAt','quoteAt','priceKind','isExecutableQuote','degiroExecutable')}
+        pair.update(source='comdirect · BNP LiveTrading',venue='LT BNP Paribas')
+        q.update(source='BNP Paribas · Emittent OTC',sourceUrl='https://derivate.bnpparibas.com/product-details/'+ISIN+'/',
+                 secondaryQuote=pair,found=True,isExecutableQuote=True,leverage=30.,leverageAt=at,leverageEstimated=False)
+        q['metadata'].pop('issuerExchangeCode')
+        q['bidAt']=q['askAt']='2026-10-14T11:40:00+00:00'
+        projected=sim.paper_quote(q,NOW,ISIN)
+        self.assertTrue(projected['paperQuoteAccepted'])
+        self.assertEqual(projected['source'],pair['source'])
+        request=dict(products=[dict(isin=ISIN,name='Gold SHORT',productDirection='SHORT')],quotes={ISIN:projected},market=m,bundle={})
+        script="const fs=require('fs'),x=JSON.parse(fs.readFileSync(0,'utf8')),p=require('./paper_selection');process.stdout.write(JSON.stringify({q:p.selectionQuote(x.quotes['"+ISIN+"'],"+str(NOW)+"),selection:p.evaluate(x,"+str(NOW)+")}));"
+        out=json.loads(subprocess.run(['node','-e',script],input=json.dumps(request),text=True,capture_output=True,check=True).stdout)
+        self.assertEqual(out['q']['leverage'],30.)
+        self.assertEqual(out['q']['paperLeverage']['kind'],'provider')
+        self.assertTrue(out['selection']['choices'][0]['paperOnly'])
+        bad=copy.deepcopy(q);bad['secondaryQuote']['venue']='LT Societe Generale'
+        self.assertNotEqual(sim.paper_quote(bad,NOW,ISIN)['source'],pair['source'])
+
     def test_block_history_counts_checks_and_retains_changed_direction(self):
         data={'waitChecks':0};conn=Mock()
         conn.execute.return_value.fetchone.return_value=(data,)

@@ -3,10 +3,10 @@ const fs=require('fs'),vm=require('vm');
 function selectionQuote(q,now){
  if(q?.paperQuoteAccepted!==true)return q;
  const m=q.metadata||{},i=q.leverageCalculation?.inputs;
+ const route=(m.issuerExchangeCode==='CBDE'&&q.source==='comdirect · SG LiveTrading'&&q.venue==='LT Societe Generale')||(q.source==='comdirect · BNP LiveTrading'&&q.venue==='LT BNP Paribas'&&q.paperIssuerSource?.startsWith('BNP Paribas ·')&&q.paperIssuerSourceUrl==='https://derivate.bnpparibas.com/product-details/'+q.isin+'/');
  const positive=x=>typeof x==='number'&&Number.isFinite(x)&&x>0;
  if(!q.productVerified||q.sourceDisabled||m.status!==1||m.tradingHalted||m.underlyingType!=='SPOT'
-  ||m.underlying!=='XAU/USD'||m.issuerExchangeCode!=='CBDE'||q.currency!=='EUR'
-  ||q.source!=='comdirect · SG LiveTrading'||q.venue!=='LT Societe Generale'
+  ||m.underlying!=='XAU/USD'||!route||q.currency!=='EUR'
   ||q.priceKind!=='market-observation'||q.isExecutableQuote!==false||q.degiroExecutable!==false
   ||!positive(q.bid)||!positive(q.ask)||q.ask<q.bid||q.delayed
   ||!i||i.basisEstimated||i.basisDelayed||!positive(i.basisPriceUsd)||!positive(i.usdEur)
@@ -15,13 +15,15 @@ function selectionQuote(q,now){
  const fields=[q.quoteAt,q.bidAt,q.askAt,i.basisAt,i.fxDataAt,i.fxEffectiveAt];
  const clocks=fields.map(x=>typeof x==='string'&&/(Z|[+-]\d{2}:\d{2})$/.test(x)?Date.parse(x):NaN);
  if(clocks.some(t=>!Number.isFinite(t)||t>now||now-t>90000)||clocks[0]!==clocks[1]||clocks[0]!==clocks[2]||Math.max(...clocks)-Math.min(...clocks)>90000)return q;
- const leverage=i.basisPriceUsd*i.usdEur*i.ratio/q.ask;
+ const providerAt=Date.parse(q.leverageAt);
+ const useProvider=!q.leverageEstimated&&positive(q.leverage)&&Number.isFinite(providerAt)&&providerAt<=now&&now-providerAt<=90000;
+ const leverage=useProvider?q.leverage:i.basisPriceUsd*i.usdEur*i.ratio/q.ask;
  if(!Number.isFinite(leverage)||leverage<1)return q;
  // Private copy for the paper selector only. Provider/broker flags and original
  // clocks remain unchanged; the public product quote never becomes executable.
  return {...q,paperSelectionOnly:true,direction:m.direction,ko:q.conditions?.ko?.value,
-  leverage,paperLeverage:{value:leverage,kind:'calculated-gearing',
-   source:'Bob · berechneter Simulationshebel aus beobachtetem Briefkurs',
+  leverage,paperLeverage:{value:leverage,kind:useProvider?'provider':'calculated-gearing',
+   source:useProvider?(q.leverageSource||q.paperIssuerSource||q.source):'Bob · berechneter Simulationshebel aus beobachtetem Briefkurs',
    inputs:{...i,askEur:q.ask,askAt:q.askAt,priceSource:q.source},
    oldestSourceAt:new Date(Math.min(...clocks)).toISOString()}};
 }
