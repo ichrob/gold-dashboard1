@@ -1,0 +1,12 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
+const html=fs.readFileSync('Bob.html','utf8');const c={};vm.runInNewContext(html.slice(html.indexOf('function selectActiveProductQuote('),html.indexOf('let activeProductQuote=null')),c);
+const isin='DE000FG7K275',base={isin,productVerified:true,found:true,currency:'EUR',bid:15,bidAt:'2026-10-14T13:20:00Z',source:'issuer'};
+const select=q=>c.selectActiveProductQuote(q,isin);
+assert.equal(select({...base,calculatedProduct:{available:false}}).bid,15);
+assert.equal(select({...base,calculatedProduct:{available:true}}).chart,false);
+const chart={...base,found:false,analysisQuote:{...base,priceKind:'issuer-chart'}};
+assert.equal(select(chart).chart,true);
+assert.equal(select({...chart,secondaryQuote:{...base,bid:14,priceKind:'observed-issuer'}}).chart,false);
+for(const q of [{...base,isin:'other'},{...base,bidAt:null},{...base,estimated:true},{...base,priceKind:'calculated'},{...base,currency:'USD'}])assert.throws(()=>select(q));
+assert.equal(select({...base,bidAt:'2020-01-01T00:00:00Z'}).at,'2020-01-01T00:00:00Z');
+console.log('10 quote cases passed: source identity, timestamps, chart distinction, model exclusion, currency, retained historical time');
