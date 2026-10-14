@@ -38,7 +38,7 @@ PANEL = r"""
  <p id="bobProfilesStatus" class="small" role="status">Prüfstand wird geladen …</p>
  <div id="bobProfilesCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:12px"></div>
  <p class="small">Bruttoergebnisse: Spread ist im Brief-/Geldkurs enthalten. Gebühren, Finanzierung und Slippage sind nicht vollständig belegt. Erfolgsquote zählt nur mit frischem Produktkurs bewertete Trades; Drawdown nur beobachtete Kurse, keine unbekannten Kurslücken.</p>
-  <details><summary>Grenzen des Tests</summary><p class="small">Konservativ: bestätigter Trend, Richtungswert 80/20, bis 35 % Kapitaleinsatz, 1 % Tages-Einstiegssperre. Ausgewogen: 70/30, bis 65 %, 3 %. Offensiv: 65/35, bis 95 %, 5 %. Trendfolge 800 €: Trend bestätigt, 70/30, bis 65 %, 3 %. Anders als die 100-Euro-Varianten verkauft die Trendfolge am ersten Ziel nicht automatisch einen Teil: Zielmarken werden verlängert, Stopps nur in günstige Richtung nachgezogen, Ausstieg bei bestätigter Gegenrichtung über zwei verschiedene Signal-Kerzen, Stop oder spätestens nach 8 Stunden beziehungsweise 21:45 Uhr Zürich. Keine Nachtposition. Prozentuale Rendite statt absoluter Eurogewinne vergleichen. Frühimpuls 100 €: eigenständiger früher 5m/15m-LONG/SHORT-Einstiegsversuch, ohne Änderung der Hauptrichtung und nur mit gültigem Euro-Produktkurs, verifiziertem KO und Gold-Stop/Ziel-Plan. Fehlende Nachweise blockieren auch den virtuellen Einstieg. Die Tagesgrenzen stoppen nur weitere Einstiege. Alle Varianten verwenden dieselben Produktnachweise. Bruttomodell ohne vollständig belegte Gebühren, Finanzierung und Slippage; Stopps sind wegen Kurslücken keine garantierten Verlustgrenzen.</p></details>
+  <details><summary>Grenzen des Tests</summary><p class="small">Konservativ: bestätigter Trend, Richtungswert 80/20, bis 35 % Kapitaleinsatz, 1 % Tages-Einstiegssperre. Ausgewogen: 70/30, bis 65 %, 3 %. Offensiv: 65/35, bis 95 %, 5 %. 800 € · Bob-Stopp & Wiedereinstieg: Trend bestätigt, 70/30, bis 65 %, 3 %. Dieselbe Bob-Stopp-/Zielverwaltung wie die Haupt-Testkonten: Stoppvorschläge übernehmen, niemals lockern, am beobachteten Stopp beenden. Danach neues bestätigtes Setup und vollständige Produktfreigabe vor dem Wiedereinstieg. Teilgewinn und Zielverlängerung bleiben Teil von Bobs gemeinsamer Verwaltung. Höchstens vier Stunden pro neuem Trade beziehungsweise bis 21:45 Uhr Zürich. Keine Nachtposition. Prozentuale Rendite statt absoluter Eurogewinne vergleichen. Frühimpuls 100 €: eigenständiger früher 5m/15m-LONG/SHORT-Einstiegsversuch, ohne Änderung der Hauptrichtung und nur mit gültigem Euro-Produktkurs, verifiziertem KO und Gold-Stop/Ziel-Plan. Fehlende Nachweise blockieren auch den virtuellen Einstieg. Die Tagesgrenzen stoppen nur weitere Einstiege. Alle Varianten verwenden dieselben Produktnachweise. Bruttomodell ohne vollständig belegte Gebühren, Finanzierung und Slippage; Stopps sind wegen Kurslücken keine garantierten Verlustgrenzen.</p></details>
 </section>
 <script>
 (function(){
@@ -89,7 +89,7 @@ PANEL = r"""
     if(data.mode!=='five-independent-paper-accounts'||data.realOrders!==false||
        !Array.isArray(data.accounts)||data.accounts.length!==5)throw Error('Fünf-Konten-Auswertung ungültig');
     profilesCards.replaceChildren();
-    const names={conservative:'Konservativ',balanced:'Ausgewogen',offensive:'Offensiv',trend800:'Trendfolge 800 €',early100:'Frühimpuls 100 € (LONG/SHORT)'};
+    const names={conservative:'Konservativ',balanced:'Ausgewogen',offensive:'Offensiv',trend800:'800 € · Bob-Stopp & Wiedereinstieg',early100:'Frühimpuls 100 € (LONG/SHORT)'};
     for(const acc of data.accounts){
      const c=acc.control||{},p=acc.riskPolicy||{},st=acc.stats||{},perf=acc.performance||{};
      const card=document.createElement('div');card.style='padding:12px;border:1px solid #cbd5e1;border-radius:12px;min-width:0';
@@ -111,7 +111,7 @@ PANEL = r"""
       'Max. Kapitaleinsatz: '+Math.round((p.exposure_fraction||0)*100)+' %',
       'Strategie: '+(acc.profile==='early100'?'Frühimpuls LONG/SHORT · nur virtuell':'bestätigte Hauptrichtung') ,
       'Beginn der Konto-Historie: '+time(c.startAt),
-      'Ausstiegsmodell: '+(acc.exitPolicy==='trend-follow-v1'?'Längeren Trend halten · kein Teilverkauf am 1. Ziel':'Bob: Teilgewinn und Zielverlängerung'),
+      'Ausstiegsmodell: '+(acc.exitPolicy==='bob-stop-reentry-v1'?'Bobs Stopp übernehmen → am Stopp beenden → bei neuem bestätigtem Setup wieder einsteigen':acc.exitPolicy==='trend-follow-v1'?'Längeren Trend halten · kein Teilverkauf am 1. Ziel':'Bob: Teilgewinn und Zielverlängerung'),
       'Abgeschlossene Fälle heute: '+(st.closed||0),
       'Status: '+(c.status||'nicht bestätigt'),
       'Letzte Prüfung: '+time(c.checkedAt),

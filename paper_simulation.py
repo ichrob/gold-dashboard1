@@ -501,6 +501,11 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
         active=conn.execute('SELECT id,payload FROM bob_paper_cases WHERE closed_at IS NULL ORDER BY started_at LIMIT 1 FOR UPDATE').fetchone()
         if active:
             key,c=active;released=c.get('cashReleased',0);booked=c.get('bookedUnits',0);q=quotes.get(c['product']['isin'])
+            if profile_policy and profile_policy.get('bob_stop_reentry') and c.get('trendFollow'):
+                c=copy.deepcopy(c)
+                c.update(trendFollow=False,exitPolicy='bob-stop-reentry-v1')
+                c['events'].append(dict(kind='stop-policy-changed',at=market.get('dataAt'),recordedAt=now,
+                  stop=c['engine']['trade']['stop'],reason='800-EUR-Test übernimmt Bobs gemeinsame Stoppverwaltung; vorhandener Schutzstopp bleibt erhalten'))
             c=advance_case(c,market,q,now)
             if c.get('exitReason')=='ko-safety-exit' or c.get('koWatchStatus') in ('knockout-confirmed','product-terminated','crossed-observed'):
                 excluded=control.get('koExcluded') or {}
@@ -516,6 +521,8 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             elif c['status']!='open' and c['productReturnKnown'] and not c.get('productCounted'):
                 day_update(conn,c['day'],product=c,now=now);c['productCounted']=True
             finished=c['status']!='open' and not c.get('pendingUnits')
+            if finished and c.get('exitReason')=='stop':
+                control.update(lastStopAt=c.get('closedAt'),lastStopBar=market.get('analysisBarAt'))
             conn.execute('UPDATE bob_paper_cases SET payload=%s::jsonb,closed_at=to_timestamp(%s) WHERE id=%s',
                          (json.dumps(c),(c.get('settledAt') or c.get('closedAt'))/1000 if finished else None,key))
             control.update(status='running',reason='Simulationsfall '+c['status']+(' · Euroverkauf wartet auf Kurs' if c.get('pendingUnits') else ''),activeCase=None if finished else key)
@@ -566,6 +573,8 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                   and control['dayOpeningEquity']>0 and control['dayProfit']<=-
                   (profile_policy['daily_loss_fraction'] if profile_policy else .03)*control['dayOpeningEquity']):
                 reason='Tagesverlustgrenze für neue virtuelle Einstiege erreicht ('+str(round(100*(profile_policy['daily_loss_fraction'] if profile_policy else .03)))+' %)'
+            elif finite(control.get('lastStopBar')) and (not finite(market.get('analysisBarAt')) or market['analysisBarAt']<=control['lastStopBar']):
+                reason='Nach Stop-Loss: neue bestätigte Signal-Kerze für Wiedereinstieg abwarten'
             elif control.get('lastEntryKey')==entry_key:reason='Diese Signal-Kerze wurde bereits simuliert'
             else:
                 budget=min(control['cash'], (control.get('equity') or control['cash'])*
@@ -576,6 +585,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                     c['koWatchStatus']='confirmed'
                 if profile_policy:
                     c['profile']=profile_policy['id']
+                    if profile_policy.get('bob_stop_reentry'):c['exitPolicy']='bob-stop-reentry-v1'
                     if profile_policy.get('early_impulse'):
                         c['entryHypothesis']='early-impulse-paper-v1'
                         c['entrySignalAt']=(market.get('earlyImpulse') or {}).get('barAt')

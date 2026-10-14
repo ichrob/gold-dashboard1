@@ -28,11 +28,11 @@ POLICIES = {
                      initial_capital_eur=100., exposure_fraction=.65,
                      daily_loss_fraction=.03, score_long=70, score_short=30,
                      require_trend=False, early_impulse=True),
-    'trend800': dict(id='trend800', title='Trendfolge 800 €',
+    'trend800': dict(id='trend800', title='800 € · Bob-Stopp & Wiedereinstieg',
                      initial_capital_eur=800.,
                      exposure_fraction=.65, daily_loss_fraction=.03,
                      score_long=70, score_short=30, require_trend=True,
-                     hold_trend=True),
+                     hold_trend=False, bob_stop_reentry=True),
 }
 
 _TABLES = ('bob_paper_control', 'bob_paper_cases', 'bob_paper_days')
@@ -233,11 +233,18 @@ def report(conn, day=None):
                           'EUR-Geldkurse dienen der virtuellen Produktbewertung. '
                           'KO-Sicherheitsausstieg nur bei verifizierter heutiger Barriere und frischem Euro-Geldkurs. '
                           'Kein garantierter Stop oder echter Orderfill.')
+        if policy.get('bob_stop_reentry'):
+            data['note']=('800-EUR-Test mit derselben Bob-Stopp-/Zielverwaltung wie die Haupt-Testkonten. '
+                          'Bobs vorgeschlagener Stopp wird übernommen und niemals gelockert. '
+                          'Nach einem Stopp: neuer bestätigter Signal-Kerzenschluss, vollständige '
+                          'Produktfreigabe und frischer Geld-/Briefkurs vor dem Wiedereinstieg. '
+                          'Fehlt der Verkaufskurs, bleibt das Kapital bis zur beobachteten Bewertung gebunden. '
+                          'Nur virtuelle Trades, keine DEGIRO-Orders.')
         accounts.append(dict(profile=profile, title=policy['title'],
                              riskPolicy={k: policy[k] for k in ('exposure_fraction',
                                   'daily_loss_fraction','score_long','score_short',
                                   'require_trend')},
-                             exitPolicy='trend-follow-v1' if policy.get('hold_trend') else 'bob-partial-target-v2',
+                             exitPolicy='bob-stop-reentry-v1' if policy.get('bob_stop_reentry') else 'trend-follow-v1' if policy.get('hold_trend') else 'bob-partial-target-v2',
                              performance=performance_snapshot(data),**data))
     return dict(ok=True, mode='five-independent-paper-accounts',
                 simulatedCapitalEur=1200, realOrders=False, startAt=START,
