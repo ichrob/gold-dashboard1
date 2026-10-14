@@ -1,5 +1,5 @@
 (function(){
- const storage='bobRealTradeJournalQueueV1';let queue=[],busy=false;const prepared=new Set();let preparing=false;
+ const storage='bobRealTradeJournalQueueV1';let queue=[],busy=false;let preparing=false;
  try{queue=JSON.parse(localStorage.getItem(storage)||'[]');if(!Array.isArray(queue))queue=[];}catch(e){}
  const el=id=>document.getElementById(id),time=x=>new Date(x).toLocaleString('de-CH',{timeZone:'Europe/Zurich'});
  function status(text){if(el('realTradeStatus'))el('realTradeStatus').textContent=text;}
@@ -23,7 +23,7 @@
   const view=el('bob-view-trade');
   if(view){const heading=view.querySelector('h2');if(heading)heading.after(box);else view.prepend(box);}else parent.after(box);
   box.querySelector('h3').textContent='Dein gespeicherter Kauf';
-  box.querySelector('p').textContent='Kauf laden → Daten automatisch ergänzen → Überwachung prüfen und starten.';
+  box.querySelector('p').textContent='Kauf gespeichert → Daten automatisch prüfen → Überwachung automatisch starten.';
   const manual=document.createElement('details'),label=document.createElement('summary');label.textContent='Weiteren Kauf manuell erfassen';manual.append(label,el('purchaseForm'));box.append(manual);
   el('purchaseReload').textContent='Käufe aktualisieren';
   const review=document.createElement('button');review.textContent='Datenprüfung öffnen';review.onclick=()=>{for(let n=parent;n;n=n.parentElement)if(n.tagName==='DETAILS')n.open=true;parent.scrollIntoView({behavior:'smooth',block:'start'});};el('purchaseList').after(review);
@@ -37,7 +37,9 @@
  }
  async function loadPurchases(){
   const root=el('purchaseList');if(!root)return;
-  try{const r=await request('read',{});root.replaceChildren();
+  try{await flush();if(queue.length||busy)return;const r=await request('read',{});root.replaceChildren();
+   const active=r.trades.filter(t=>t.active&&!t.snapshot.recordOnly);
+   if(active.length===1&&window.BobTradeSync?.restore(active[0].snapshot)){el('purchaseStatus').textContent='Überwachung vom Server übernommen · Stopp und Ziel werden automatisch aktualisiert.';return;}
    for(const t of r.trades.filter(t=>t.snapshot.recordOnly)){
     const p=t.snapshot.product,e=t.snapshot.purchase,line=document.createElement('p'),b=document.createElement('button');
     line.textContent=p.isin+' · '+t.snapshot.dir+' · '+p.quantity+' Stück zu '+p.entry+' EUR · '+time(e.at)+' · Kauf gespeichert, Überwachung offen. ';
@@ -45,7 +47,7 @@
    }
    if(!root.childNodes.length)root.textContent='Noch kein gespeicherter Kauf. E-Mail-Eingang unten prüfen oder Kauf manuell erfassen.';
    const pending=r.trades.filter(t=>t.snapshot.recordOnly),field=k=>document.querySelector('[data-exit="'+k+'"]');
-   if(pending.length===1&&!prepared.has(pending[0].id)&&!r.trades.some(t=>t.active)&&['isin','entry','quantity','direction'].every(k=>field(k)&&!field(k).value.trim()))preparePurchase(pending[0]);
+   if(pending.length===1&&!r.trades.some(t=>t.active)&&!window.BobTradeSync?.current()?.active&&['isin','entry','quantity','direction'].every(k=>field(k)&&((k==='direction'&&!field('isin').value.trim())||!field(k).value.trim()||String(field(k).value).trim()===String(k==='direction'?pending[0].snapshot.dir:pending[0].snapshot.product[k]))))await preparePurchase(pending[0]);
   }catch(e){el('purchaseStatus').textContent='Serverkäufe nicht abrufbar: '+e.message;}
  }
  async function preparePurchase(t){
@@ -56,13 +58,18 @@
   }
   el('purchaseTx').value=e.transactionId;el('purchaseAt').value=e.at;el('purchaseFees').value=e.feesCHF;el('purchaseTotal').value=e.totalCHF;
   el('purchaseStatus').textContent='Kauf übernommen. Produkt- und Gold-/FX-Daten werden automatisch ergänzt …';
-  prepared.add(t.id);preparing=true;
-  try{if(!window.BobExitEstimate?.automaticTradeReference)throw Error('Bitte nach dem vollständigen Laden erneut versuchen.');await window.BobExitEstimate.automaticTradeReference();
-   el('purchaseStatus').textContent='Kauf vorbereitet. Die Datenprüfung unten zeigt noch fehlende Angaben. Überwachung erst nach Prüfung starten.';
+  preparing=true;
+  try{if(!window.BobExitEstimate?.automaticTradeReference)throw Error('Bitte nach dem vollständigen Laden erneut versuchen.');const values=await window.BobExitEstimate.automaticTradeReference();
+   if(!values)throw Error('Produkt- oder zeitlich passende Referenzdaten fehlen noch. Automatischer Wiederholungsversuch folgt.');
+   if(values.isin!==p.isin||Number(values.entry)!==p.entry||Number(values.quantity)!==p.quantity||values.direction!==t.snapshot.dir)throw Error('Kaufdaten wurden während der Prüfung geändert.');
+   if(typeof window.loadData==='function')await window.loadData(true);
+   await window.activateProductTrade(values,t);
+   await flush();
+   el('purchaseStatus').textContent=queue.length?'Überwachung lokal vorbereitet; Serverspeicherung wird erneut versucht.':'Überwachung automatisch gestartet und gespeichert · Stopp und Ziel in EUR pro Stück (geschätzt).';
   }catch(err){el('purchaseStatus').textContent='Kauf übernommen; Datenabruf noch offen: '+err.message;}finally{preparing=false;}
  }
  window.BobRealTrades={capture,load};
  document.addEventListener('DOMContentLoaded',()=>{el('realTradeLoad')?.addEventListener('click',load);flush();purchasePanel();});
  document.addEventListener('click',e=>{if(e.target.closest?.('[data-view="learning"]'))load();purchasePanel();});
- window.addEventListener('online',flush);setInterval(flush,30000);
+ window.addEventListener('online',()=>{flush();loadPurchases();});setInterval(()=>{flush();if(!preparing)loadPurchases();},30000);
 })();

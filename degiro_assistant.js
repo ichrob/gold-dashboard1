@@ -3817,10 +3817,14 @@ async function automaticTradeReference(){
   for(const [k,v] of Object.entries(fields))if(get(k))get(k).value=v;
   panel.dispatchEvent(new Event('change',{bubbles:true}));
   out.textContent='Produktwerte übernommen. Quelle: '+(x.source||x.sourceUrl||'ISIN-Abfrage')+'. Produktbedingungen und zeitliche Referenz bleiben getrennt prüfbar.';
-  if(fields.referenceAt&&fields.bid)await researchReference();
+  const evidence=fields.referenceAt&&fields.bid?await researchReference():null;
   if(get('isin').value.trim().toUpperCase()!==isin)return;
   const values=Object.fromEntries(Array.from(panel.querySelectorAll('[data-exit]')).map(el=>[el.dataset.exit,el.type==='checkbox'?el.checked:el.value.trim()]));
   localStorage.setItem('bobExitScenarioV1',JSON.stringify(values));
+  if(x.productModel?.verifiedSimpleTurbo===true&&x.productModel?.isin===isin&&evidence?.available===true&&evidence.originalTime===fields.referenceAt&&evidence.maxSkewSeconds<=90){
+   values.simpleSpotTurbo=true;values.referenceConfirmed=true;
+   return values;
+  }
   out.textContent+=' Kaufkurs und Stückzahl bleiben unverändert. Fehlende Vertragswerte werden nicht geschätzt; Gold-/FX-Referenzen und Verkaufskurse sind ausdrücklich Näherungen. Überwachung noch nicht aktiviert.';
  }catch(e){out.textContent='Automatischer Abruf noch unvollständig: '+e.message+' Vorhandene Kaufdaten bleiben erhalten.';}
  finally{autoReferenceBusy=false;}
@@ -3851,7 +3855,7 @@ async function researchReference(){
   get('goldReference').value=x.goldReference;get('fxReference').value=x.fxReference;get('fxScenario').value=x.fxReference;
   get('source').value=source+' · Historische Näherungsreferenz: '+x.goldSource+' @ '+x.goldAt+'; '+x.fxSource+' @ '+x.fxStart+' bis '+x.fxEnd+'; Zeitzone Europe/Zurich angenommen; maximaler Zeitversatz '+x.maxSkewSeconds+' s';
   try{const all=JSON.parse(localStorage.getItem('bobTradeMarketReferencesV1')||'{}');all[isin]={at,bid,goldReference:x.goldReference,fxReference:x.fxReference,fxScenario:x.fxReference,source:get('source').value,evidence:x};localStorage.setItem('bobTradeMarketReferencesV1',JSON.stringify(all));}catch(_){}
-  out.innerHTML=referenceHtml(x);
+  out.innerHTML=referenceHtml(x);return x;
  }catch(_){if(get('isin').value===isin&&get('referenceAt').value===at)out.textContent='Referenzabruf fehlgeschlagen. Keine historischen Werte ersetzt.';}
 }
 window.BobExitEstimate={calculate,render,init,researchReference,restoreReference,planInput,issuerTradeFields,automaticTradeReference};

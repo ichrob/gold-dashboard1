@@ -74,11 +74,21 @@ def handle(conn,action,payload):
             execution['netEUR']=(execution['exitEUR']-execution['entryEUR'])*execution['quantity']-execution['feesEUR']
             execution['source']='Vom Nutzer erfasst, nicht mit DEGIRO abgeglichen'
             t={**t,'actualExecution':execution}
-        snapshot={k:t.get(k) for k in ('tradeId','active','dir','entry','stop','target','initialRisk','product','monitorStartedAt','closedAt','closeGoldReference','actualExecution')}
+        snapshot={k:t.get(k) for k in ('tradeId','active','dir','entry','stop','target','initialRisk','product','monitorStartedAt','closedAt','closeGoldReference','actualExecution','purchase')}
         settings=background_push.config({'timeframe':payload.get('timeframe','15m'),'trade':{**snapshot,'active':True,'instrument':'XAU/USD'}})
         previous=conn.execute('SELECT active,snapshot FROM bob_real_trades WHERE id=%s FOR UPDATE',(tid,)).fetchone()
         if previous and previous[1].get('actualExecution') and not snapshot.get('actualExecution'):snapshot['actualExecution']=previous[1]['actualExecution']
-        if previous and not previous[0] and active:raise ValueError('Geschlossener Trade darf nicht erneut geöffnet werden')
+        if previous and not previous[0] and active:
+            old=previous[1]
+            if not old.get('recordOnly'):raise ValueError('Geschlossener Trade darf nicht erneut geöffnet werden')
+            if old.get('dir')!=t.get('dir') or any((old.get('product') or {}).get(k)!=(t.get('product') or {}).get(k) for k in ('isin','entry','quantity')):
+                raise ValueError('Überwachung passt nicht zum gespeicherten Kauf')
+            snapshot['purchase']=old.get('purchase')
+        if previous and previous[1].get('purchase'):snapshot['purchase']=previous[1]['purchase']
+        if previous and previous[0] and active and previous[1].get('dir')==snapshot['dir']:
+            old_stop=previous[1].get('stop')
+            if background_push.positive(old_stop):snapshot['stop']=(max if snapshot['dir']=='LONG' else min)(old_stop,snapshot['stop'])
+        settings['trade']['stop']=snapshot['stop']
         conn.execute('''INSERT INTO bob_real_trades(id,active,snapshot,settings) VALUES(%s,%s,%s::jsonb,%s::jsonb)
           ON CONFLICT(id) DO UPDATE SET active=excluded.active,snapshot=excluded.snapshot,settings=excluded.settings,updated_at=now()''',
           (tid,active,json.dumps(snapshot),json.dumps(settings)))
@@ -89,6 +99,11 @@ def handle(conn,action,payload):
         tid=payload.get('tradeId');before=payload.get('before')
         trades=conn.execute('SELECT id,opened_at,updated_at,active,snapshot FROM bob_real_trades ORDER BY opened_at DESC LIMIT 100').fetchall()
         result={'trades':[dict(id=i,openedAt=o.isoformat(),updatedAt=u.isoformat(),active=a,snapshot=s) for i,o,u,a,s in trades]}
+        states={i:s for i,s in conn.execute('SELECT id,state FROM bob_real_trades WHERE active=TRUE').fetchall()}
+        for item in result['trades']:
+            if item['active']:
+                selected=device_plan({},False,{item['id']:({'trade':item['snapshot']},states.get(item['id']) or {})})
+                if selected:item['snapshot']=selected[0]['trade']
         devices=conn.execute("SELECT trade_enabled,active_trade,background_config FROM subscriptions").fetchall()
         for item in result['trades']:
             item['pushDevices']=sum(1 for enabled,active,cfg in devices if enabled and active and

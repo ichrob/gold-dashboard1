@@ -52,3 +52,19 @@ class PurchaseTests(unittest.TestCase):
    with self.assertRaises(ValueError):j.handle(c,'write',{'trade':t})
    c.execute.assert_not_called()
 if __name__=='__main__':unittest.main()
+
+class AutomaticMonitoringTests(JournalTests):
+ def monitored(self,old):
+  t=self.trade();t.update(dir=old['dir'],product={**old['product'],
+   'direction':old['dir'],'simpleSpotTurbo':True,'referenceConfirmed':True,'currency':'EUR',
+   'bid':9.73,'goldReference':100,'fxReference':.9,'fxScenario':.9,'ratio':.1,'strike':200,'ko':200,
+   'source':'test','referenceAt':'2026-10-14T10:54:59+02:00'})
+  return t
+ def test_confirmed_purchase_can_start_same_position(self):
+  old=PurchaseTests().purchase();t=self.monitored(old)
+  c=self.conn((False,old));j.handle(c,'write',{'trade':t})
+  saved=json.loads(c.execute.call_args_list[1].args[1][2])
+  self.assertTrue(saved['active']);self.assertEqual(saved['purchase'],old['purchase'])
+ def test_purchase_cannot_start_different_position(self):
+  old=PurchaseTests().purchase();t=self.monitored(old);t['product']['quantity']=3
+  with self.assertRaises(ValueError):j.handle(self.conn((False,old)),'write',{'trade':t})

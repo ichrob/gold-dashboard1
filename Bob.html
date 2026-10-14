@@ -3003,7 +3003,7 @@ function renderActiveTradePlan(){
  $('stopPanel').style.whiteSpace='pre-line';
  if($('stopCurrent'))$('stopCurrent').textContent=activeTradeLevel(tradeMgmt.stop);
 }
-async function activateProductTrade(values){
+async function activateProductTrade(values,purchase=null){
  const product=window.BobTradeProduct.model(values);
  if(!BobDegiro.validIsin(product.isin))throw Error('Ungültige Produkt-ISIN.');
  const plan=window.BobExitEstimate.planInput(liveBundleCache,A,C,product.direction);
@@ -3016,6 +3016,10 @@ async function activateProductTrade(values){
   tradeMgmt={active:true,dir:product.direction,entry,stop:sm.stop,target:target.target,initialRisk:Math.abs(entry-sm.stop),rr:target.rr,monitorStartedAt:new Date().toISOString()};
  }
  if(!window.BobTradeProduct.price(product,lastPrice).available||!window.BobTradeProduct.price(product,tradeMgmt.stop).available||!window.BobTradeProduct.price(product,tradeMgmt.target).available)throw Error('Stop/Ziel liegt außerhalb des gültigen Produktmodells oder an der KO-Barriere.');
+ if(purchase){
+  if(tradeMgmt.tradeId&&tradeMgmt.tradeId!==purchase.id)throw Error('Ein anderer Trade wird bereits überwacht.');
+  tradeMgmt.tradeId=purchase.id;tradeMgmt.purchase=purchase.snapshot.purchase;
+ }
  tradeMgmt.product=product;tradeMgmt.fibonacciMonitor=tradeMgmt.fibonacciMonitor||captureFibonacciMonitor();
  saveTradeMgmt();pushState=BobPush.setActiveTrade(true);renderPush();renderActiveTradePlan();
  $('tradeEntry').value=tradeMgmt.entry.toFixed(2);$('tradeStop').value=tradeMgmt.stop.toFixed(2);
@@ -3024,6 +3028,18 @@ async function activateProductTrade(values){
  return synced?'Produkt-Trade gespeichert und mit dem Server synchronisiert. Für Meldungen „Aktiver Trade“ einschalten.':'Produkt-Trade lokal gespeichert. Hintergrund-Synchronisierung fehlgeschlagen; Push-Status prüfen und erneut synchronisieren.';
 }
 window.activateProductTrade=activateProductTrade;
+window.BobTradeSync={
+ current:()=>JSON.parse(JSON.stringify(tradeMgmt)),
+ restore(snapshot){
+  if(!snapshot?.active||snapshot.recordOnly||!snapshot.product||tradeMgmt.test)return false;
+  if(tradeMgmt.active&&tradeMgmt.tradeId!==snapshot.tradeId)return false;
+  const next=JSON.parse(JSON.stringify(snapshot));
+  if(tradeMgmt.tradeId===next.tradeId&&Number.isFinite(tradeMgmt.stop))next.stop=(next.dir==='LONG'?Math.max:Math.min)(next.stop,tradeMgmt.stop);
+  tradeMgmt=next;localStorage.setItem('goldScannerTradeMgmt',JSON.stringify(tradeMgmt));
+  renderActiveTradePlan();renderPositionStatus();restoreTradeMgmt();return true;
+ }
+};
+
 async function setTradeEntry(){
  if(!lastPrice||!A.at)return;
  const dir=confirmedSignalDirection();
