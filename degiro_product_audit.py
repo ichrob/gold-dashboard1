@@ -17,6 +17,7 @@ BARRIER_MAX_MS = 8 * 3_600_000
 REPORT_MAX_MS = 180_000
 CODES = {
     "identity": "Produktidentität beim Emittenten fehlt oder ist widersprüchlich",
+    "list-identity": "ISIN-Bestätigung der gespeicherten Produktliste fehlt; Emittentennachweis wird separat geprüft",
     "direction": "Richtung nicht übereinstimmend bestätigt",
     "underlying": "Gold-Spot-Basiswert oder Produktwährung nicht bestätigt",
     "factor": "Faktorprodukt ausgeschlossen",
@@ -33,6 +34,7 @@ CODES = {
     "ratio": "Bezugsverhältnis fehlt",
     "maturity": "Laufzeit oder ausdrücklich unbegrenzte Laufzeit fehlt",
     "market-closed": "Emittentenhandel momentan geschlossen",
+    "market-status": "Handelsstatus vom Emittenten nicht bestätigt",
 }
 
 
@@ -227,7 +229,7 @@ def examine(product, quote, now_ms):
     metadata = quote.get("metadata") if isinstance(quote.get("metadata"), dict) else {}
     missing = []
     if not valid_isin(isin) or not product.get("isinConfirmed"):
-        missing.append("identity")
+        missing.append("list-identity")
     verified = quote.get("isin") == isin and quote.get("productVerified") is True
     # This exact ISIN is independently listed as SG's CHF Swiss DOTS
     # knock-out, not as an EUWAX/Frankfurt security. Swissquote describes
@@ -280,12 +282,23 @@ def examine(product, quote, now_ms):
         missing.append("strike")
     if not _positive(metadata.get("ratio") or quote.get("ratio")):
         missing.append("ratio")
-    if not (metadata.get("termsFixed") and (metadata.get("maturity") or metadata.get("expiry"))) and not (
+    # SG direct publishes verified contract fields in conditions, not metadata.
+    # Require the same product, provenance and a recent verification; a bare
+    # value or a contradicted/revoked condition is not evidence.
+    maturity = (quote.get("conditions") or {}).get("maturity") or {}
+    maturity_ok = (verified and isinstance(maturity, dict)
+        and maturity.get("conditionVerified") is True and bool(maturity.get("source"))
+        and not any(maturity.get(key) for key in ("conflict", "revoked", "ocrCorrection"))
+        and isinstance(maturity.get("value"), str) and bool(maturity["value"].strip())
+        and _recent(maturity.get("reviewedAt"), now_ms, BARRIER_MAX_MS))
+    if not maturity_ok and not (metadata.get("termsFixed") and (metadata.get("maturity") or metadata.get("expiry"))) and not (
             metadata.get("openEnded") is True or metadata.get("maturity") or
             metadata.get("expiry") or metadata.get("maturityDate")):
         missing.append("maturity")
-    if quote.get("marketOpen") is not True:
+    if quote.get("marketOpen") is False:
         missing.append("market-closed")
+    elif quote.get("marketOpen") is not True:
+        missing.append("market-status")
     # No independent DEGIRO feed exists: even a perfect issuer audit can NEVER
     # validate actual DEGIRO executable quotes/tradability.
     codes = list(dict.fromkeys(missing))
@@ -414,6 +427,6 @@ def public_help_codes(report):
             codes.add("product-leverage-clock-missing")
         if missing & {"ko", "ko-time"}:
             codes.add("product-ko-validity-missing")
-        if missing & {"identity", "direction", "underlying", "strike", "ratio", "maturity"}:
+        if missing & {"identity", "list-identity", "direction", "underlying", "strike", "ratio", "maturity"}:
             codes.add("product-terms-evidence-missing")
     return sorted(codes & PUBLIC_HELP_CODES)
