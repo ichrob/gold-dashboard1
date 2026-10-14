@@ -1421,7 +1421,7 @@ function selectionMarketGate(context={}){
  const d=String(context.direction||'NEUTRAL').toUpperCase(),reasons=[];
  if(!['LONG','SHORT'].includes(d))return {ok:false,reasons:['Marktsignal neutral: keine bestätigte Long-/Short-Richtung']};
  const side=v=>{const x=String(v||'').toUpperCase();if(/NEUTRAL|ABWARTEN|MIXED|GEMISCHT/.test(x))return '';const long=/LONG|BULL|UP/.test(x),short=/SHORT|BEAR|DOWN/.test(x);return long===short?'':long?'LONG':'SHORT';};
- for(const [key,label] of [['trend','EMA-Trend'],...(['intraday-shadow-v1','intraday-fast-v3','intraday-consistent-v4','intraday-responsive-v6'].includes(context.policy)?[]:[['trend2','Langfristtrend']]),['mtf','MTF']]){
+ for(const [key,label] of [['trend','EMA-Trend'],...(['intraday-shadow-v1','intraday-fast-v3','intraday-consistent-v4','intraday-responsive-v6','intraday-trend-follow-v7'].includes(context.policy)?[]:[['trend2','Langfristtrend']]),['mtf','MTF']]){
   const value=side(context[key]);if(!value)reasons.push(label+' neutral oder nicht bestätigt');else if(value!==d)reasons.push(label+' widerspricht '+d);
  }
  for(const [key,label] of [['hist','MACD'],['momentum','Momentum']]){

@@ -153,7 +153,9 @@ def early_paper_market(market, now):
         or plan.get('direction')!=impulse['direction']
         or plan.get('unit')!='USD/oz'
         or abs(plan['entry']-market.get('price',0))>0.01):
-        result['earlyPaperBlockReason']='Frühimpuls vorhanden, aber kein gültiger unabhängiger Gold-Stop/Ziel-Plan'
+        result['earlyPaperBlockReason']=('Frühimpuls: '+market['earlyPaperPlanReason']
+            if isinstance(market.get('earlyPaperPlanReason'),str) and market['earlyPaperPlanReason']
+            else 'Frühimpuls vorhanden, aber kein gültiger unabhängiger Gold-Stop/Ziel-Plan')
         return result
     result.update(direction=impulse['direction'],plan=plan,
                   paperEntrySource='early-impulse-paper-v1',

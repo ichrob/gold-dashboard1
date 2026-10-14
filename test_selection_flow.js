@@ -676,3 +676,13 @@ assert(b.analysisReleaseQuote(backupAnalysisProduct,now));
 assert(b.finalProductStatus(backupAnalysisProduct,now).complete);
 assert(b.conditionalCandidate(backupAnalysisProduct,context,now).priceKind.includes('Ersatzquellenkurs'));
 assert(!b.selectionWorkflow([backupAnalysisProduct],{...context,direction:'NEUTRAL'},{}).approved);
+
+// v7 deliberately supplies no slow trend; profile-specific trend checks run separately.
+for(const direction of ['LONG','SHORT']){
+ const sign=direction==='LONG'?1:-1;
+ const c={policy:'intraday-trend-follow-v7',direction,trend:direction,trend2:'NEUTRAL',mtf:direction,hist:sign,momentum:sign,atr:2};
+ assert(b.selectionMarketGate(c).ok);
+ for(const change of [{hist:-sign},{momentum:0},{atr:null},{trend:'NEUTRAL'},{mtf:'NEUTRAL'}])
+  assert(!b.selectionMarketGate({...c,...change}).ok);
+ assert(!b.selectionMarketGate({...c,policy:'unknown'}).ok);
+}
