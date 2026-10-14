@@ -82,6 +82,18 @@ class ProfileTests(unittest.TestCase):
                 self.assertIsNone(blocked['plan'])
                 self.assertIsNotNone(profiles.entry_block_reason(profiles.POLICIES['early100'],blocked))
 
+    def test_early_plan_rejection_preserves_specific_reason(self):
+        m=market()
+        m.update(ruleVersion='intraday-trend-follow-v7',
+                 earlyImpulse=dict(version='early-impulse-v1',direction='SHORT',
+                     available=True,comparisonOnly=True,affectsApproval=False,
+                     extensionRisk=False,barAt=NOW-300000),
+                 earlyPaperPlan=None,earlyPaperPlanReason='Unterstützung vor dem Ziel: Mindest-CRV nicht erfüllt')
+        result=profiles.early_paper_market(m,NOW)
+        self.assertIn('Unterstützung vor dem Ziel',result['earlyPaperBlockReason'])
+        self.assertEqual(result['direction'],'NEUTRAL')
+        self.assertIsNone(result['plan'])
+
     @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'Postgres integration requires CI database')
     def test_new_early_account_virtual_entry_independent_from_other_accounts(self):
         import psycopg

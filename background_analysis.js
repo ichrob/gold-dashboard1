@@ -33,12 +33,14 @@ function evaluate(input, {render=false}={}){
   // Additional paper-only setup from the same checked evidence; never substitutes
   // the confirmed market signal, existing plan, active trade, or product gate.
   const earlyImpulse=earlyImpulseContext(bundle);
-  let earlyPaperPlan=null;
+  let earlyPaperPlan=null,earlyPaperPlanReason=null;
   if(ready&&priceFresh&&earlyImpulse.available&&['LONG','SHORT'].includes(earlyImpulse.direction)
      &&!earlyImpulse.extensionRisk&&Number.isFinite(earlyImpulse.barAt)){
    const side=earlyImpulse.direction;
    const stop=stopModel(side,price,A.at,input.trailAtr||1.5).stop;
    const targetPlan=Number.isFinite(stop)&&stop>0?targetModel(side,price,stop,2):{};
+   earlyPaperPlanReason=targetPlan.entrySuitable===false?targetPlan.warning:
+    !Number.isFinite(targetPlan.target)||targetPlan.target<=0?(targetPlan.reason||riskData.reason||'Kein gültiger Gold-Stop/Ziel-Plan berechenbar'):null;
    if(Number.isFinite(targetPlan.target)&&targetPlan.target>0&&targetPlan.entrySuitable!==false){
     earlyPaperPlan={kind:'candidate',direction:side,entry:price,stop,target:targetPlan.target,
       unit:'USD/oz',at:Date.now(),experimental:true,source:'early-impulse-paper-v1'};
@@ -52,7 +54,7 @@ function evaluate(input, {render=false}={}){
    if(Number.isFinite(target)&&target>0)plan={targetCheck:targetPlan,entrySuitable:targetPlan.entrySuitable,kind:'candidate',direction,entry:price,stop,target,unit:'USD/oz',at:Date.now()};
   }
   if(input.trade?.active&&['entry','stop','target'].every(k=>Number.isFinite(input.trade[k])&&input.trade[k]>0))plan={kind:'active-monitor',direction:input.trade.dir,entry:input.trade.entry,stop:input.trade.stop,target:input.trade.target,unit:'USD/oz',at:Date.now(),isin:input.trade.product?.isin||null};
-  return {baseDirection:signalState.baseDirection||direction,learningPolicy:signalState.learningPolicy,dmi:dmiContext(bundle),continuedPlan:continuedTradePlan(input.trade,bundle),fx:bundle.spots?.usd_eur_meta||null,plan,trendContext,earlyImpulse,earlyPaperPlan,comparisonBaseline:{ruleVersion:'intraday-responsive-v6',direction:intradaySession().entryAllowed?baseline.dir:'NEUTRAL',shadowDirection:intradaySession().entryAllowed?baseline.shadowDirection:'NEUTRAL',decisionReason:baseline.reason},analysisSnapshot:{timeframe:tf,...A,mtf:MTF},minuteEntry:minuteEntryContext(bundle,signalState),entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-trend-follow-v7',session:intradaySession(),intraday:intradayState(bundle,input.trade),analysisWarnings:analysisAgeWarnings(),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,suggestedTargetPlan,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
+  return {baseDirection:signalState.baseDirection||direction,learningPolicy:signalState.learningPolicy,dmi:dmiContext(bundle),continuedPlan:continuedTradePlan(input.trade,bundle),fx:bundle.spots?.usd_eur_meta||null,plan,trendContext,earlyImpulse,earlyPaperPlan,earlyPaperPlanReason,comparisonBaseline:{ruleVersion:'intraday-responsive-v6',direction:intradaySession().entryAllowed?baseline.dir:'NEUTRAL',shadowDirection:intradaySession().entryAllowed?baseline.shadowDirection:'NEUTRAL',decisionReason:baseline.reason},analysisSnapshot:{timeframe:tf,...A,mtf:MTF},minuteEntry:minuteEntryContext(bundle,signalState),entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-trend-follow-v7',session:intradaySession(),intraday:intradayState(bundle,input.trade),analysisWarnings:analysisAgeWarnings(),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,suggestedTargetPlan,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
  })()`,env,{timeout:8000});
 }
 module.exports={evaluate};
