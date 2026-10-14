@@ -119,6 +119,15 @@ PANEL = r"""
      ];
      const detail=document.createElement('p');detail.className='small';detail.style='white-space:pre-line;overflow-wrap:anywhere';
      detail.textContent=lines.join('\n');card.append(detail);
+     const blocks=document.createElement('details'),blockTitle=document.createElement('summary');
+     blockTitle.textContent='Einstiegssperren · Tagesprotokoll';blocks.append(blockTitle);
+     const blockText=document.createElement('p');blockText.className='small';blockText.style='white-space:pre-line';
+     blockText.textContent=[
+      ...(Object.entries(st.entryBlockCounts||{}).map(([reason,count])=>count+' Prüfungen: '+reason)),
+      ...(st.entryBlocks||[]).map(x=>time(x.at)+' bis '+time(x.lastAt)+' · '+x.direction+(x.isin?' · '+x.isin:'')+' · '+x.reason),
+      st.entryBlocksTruncated?'Letzte 200 Änderungen der Sperrgründe; Tageszähler vollständig.':'',
+      !(st.entryBlocks||[]).length?'Noch keine Sperrgründe seit Aktivierung dieses Protokolls gespeichert. Frühere Gründe werden nicht rückwirkend ergänzt.':''
+     ].filter(Boolean).join('\n');blocks.append(blockText);card.append(blocks);
      const events=document.createElement('details');const label=document.createElement('summary');
      label.textContent='Trades und Entscheidungen ('+(acc.cases||[]).length+')';
      events.append(label);
@@ -136,8 +145,8 @@ PANEL = r"""
       empty.textContent='Noch keine virtuellen Trades; Gründe siehe Status.';host.append(empty);}
      events.append(host);card.append(events);profilesCards.append(card);
     }
-    profilesStatus.textContent='Vier getrennte Konten · Bericht für '+day+
-      ' · 1.100 € fiktives Startkapital (3 × 100 €, 1 × 800 €) · keine echten Orders';
+    profilesStatus.textContent='Fünf getrennte Konten · Bericht für '+day+
+      ' · 1.200 € fiktives Startkapital (4 × 100 €, 1 × 800 €) · keine echten Orders';
    }catch(error){profilesStatus.textContent='Kontostand nicht abrufbar: '+String(error.message||error)+'. Kein Testerfolg bestätigt.';}
    finally{profileBusy=false;}
   }

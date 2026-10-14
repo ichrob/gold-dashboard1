@@ -1,0 +1,26 @@
+const assert=require('assert/strict'),{evaluate,selectionQuote}=require('./paper_selection');
+const now=Date.parse('2026-10-14T14:50:30Z'),at=new Date(now-30000).toISOString(),isin='DE000FG7K275';
+const conditions=Object.fromEntries(Object.entries({underlying:'XAU/USD',currency:'EUR',ratio:.1,type:'BEST Turbo-Optionsscheine (Open-End)',maturity:'Open End',ko:4400,strike:4400}).map(([k,value])=>[k,{value,source:'https://issuer.test/'+isin,at,reviewedAt:at,conditionVerified:true,dateText:'14.10.2026'}]));
+const q={isin,productVerified:true,paperQuoteAccepted:true,found:true,eligible:false,marketOpen:true,
+ source:'comdirect · SG LiveTrading',venue:'LT Societe Generale',currency:'EUR',priceKind:'market-observation',
+ isExecutableQuote:false,degiroExecutable:false,bid:9.99,ask:10,price:10,bidAt:at,askAt:at,quoteAt:at,checkedAt:at,
+ leverage:35,leverageCalculation:{available:true,inputsFresh:true,inputs:{basisPriceUsd:4000,basisAt:at,usdEur:.9,ratio:.1,askEur:10,fxDataAt:at,fxEffectiveAt:at}},
+ metadata:{status:1,direction:'SHORT',underlyingType:'SPOT',underlying:'XAU/USD',issuerExchangeCode:'CBDE',currency:'EUR',ratio:.1,ko:4400,strike:4400,termsDated:true,termsDate:'14.10.2026'},conditions};
+const input={products:[{isin,name:'SG Gold BEST SHORT',productDirection:'SHORT',isinConfirmed:false}],quotes:{[isin]:q},market:{direction:'SHORT',price:4000,priceFresh:true,context:{policy:'intraday-trend-follow-v7',signalScore:0,trend:'SHORT',trend2:'NEUTRAL',mtf:'SHORT',hist:-1,momentum:-1,rsi:40,atr:10}},bundle:{}};
+const before=JSON.stringify(input),projected=selectionQuote(q,now);
+assert.equal(projected.leverage,36);assert.equal(projected.eligible,false);
+assert.equal(projected.isExecutableQuote,false);assert.equal(projected.degiroExecutable,false);
+const r=evaluate(input,now);assert.equal(r.choices.length,1,JSON.stringify(r));
+assert.equal(r.choices[0].paperOnly,true);assert.equal(r.choices[0].koGuardRequired,true);
+assert.equal(JSON.stringify(input),before,'provider payload must remain unchanged');
+for(const change of [{bidAt:new Date(now-90001).toISOString()},{isin:'wrong'},{currency:'CHF'},
+ {source:'SG chart'},{venue:'other'},{priceKind:'issuer-chart'},{paperQuoteAccepted:false},
+ {leverageCalculation:{inputs:{}}},{metadata:{...q.metadata,status:2}},
+ {conditions:{...conditions,ratio:{...conditions.ratio,conditionVerified:false}}}]){
+ const changed={...q,...change};
+ if(change.isin)continue; // Exact identity is checked in the full selector.
+ assert.notEqual(selectionQuote(changed,now).paperSelectionOnly,true,JSON.stringify(change));
+}
+assert.equal(evaluate({...input,quotes:{[isin]:{...q,isin:'wrong'}}},now).choices.filter(c=>!c.indicative).length,0);
+assert.equal(evaluate({...input,market:{...input.market,direction:'NEUTRAL'}},now).choices.length,0);
+console.log('Paper selection: observed bid/ask reaches approved candidate; identity, dates, terms, market and broker isolation pass');

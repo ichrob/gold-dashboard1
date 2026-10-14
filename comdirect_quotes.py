@@ -122,7 +122,14 @@ def apply(result, isin, now=None):
     out['comdirectQuoteBackup'].update(state='current' if 0 <= age <= 90 else 'stale',
                                      sourceAt=quote['quoteAt'])
     # The audit can display historical evidence without granting freshness.
-    if not out.get('secondaryQuote'):
+    secondary = out.get('secondaryQuote') or {}
+    try:
+        secondary_at = datetime.fromisoformat(str(secondary.get('quoteAt','')).replace('Z','+00:00'))
+        if secondary_at.tzinfo is None:raise ValueError('undated source clock')
+    except ValueError:
+        secondary_at = datetime.min.replace(tzinfo=timezone.utc)
+    if (not secondary or secondary.get('source') == quote['source']
+            and datetime.fromisoformat(quote['quoteAt']) >= secondary_at):
         out['secondaryQuote'] = copy.deepcopy(quote)
     if 0 <= age <= 90 and not out.get('found'):
         current = out.get('analysisQuote') or {}

@@ -38,6 +38,13 @@ def quote(at=NOW, ko=3900., side='LONG', bid=10., status=1):
 
 
 class KoGuardTests(unittest.TestCase):
+    def test_entry_accepts_source_pair_within_90_seconds_but_exit_stays_strict(self):
+        q=quote(NOW-30000)
+        self.assertIsNone(guard.entry_reason(choice(),q,market(),NOW)[0])
+        self.assertIn('zeitlich',guard.assess(choice(),q,market(),NOW)[1])
+        self.assertIsNotNone(guard.entry_reason(choice(),quote(NOW-90001),market(),NOW)[0])
+        self.assertIsNotNone(guard.entry_reason(choice(),quote(NOW+1),market(),NOW)[0])
+
     def test_healthy_entry_and_spot_short_direction(self):
         result, reason = guard.assess(choice(), quote(), market(), NOW)
         self.assertIsNone(reason)

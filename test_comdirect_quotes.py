@@ -64,6 +64,15 @@ class ComdirectQuoteTests(unittest.TestCase):
         self.assertFalse(result['checked'])
         self.assertTrue(any('derselbe SG-Kursgeber' in r for r in result['reasons']))
 
+    def test_newer_comdirect_row_replaces_retained_secondary_with_original_clock(self):
+        primary=copy.deepcopy(self.primary)
+        primary['secondaryQuote']={**self.quote,'ask':7,'quoteAt':(self.now-timedelta(minutes=30)).isoformat()}
+        out=self.apply(primary=primary)
+        self.assertEqual(out['secondaryQuote'],self.quote)
+        self.assertEqual(primary['secondaryQuote']['ask'],7)
+        primary['secondaryQuote']={**self.quote,'ask':9,'quoteAt':(self.now+timedelta(seconds=30)).isoformat()}
+        self.assertEqual(self.apply(primary=primary)['secondaryQuote']['ask'],9)
+
     def test_paper_accepts_pair_without_claiming_broker_execution(self):
         import paper_simulation as sim
         raw = self.apply(60)

@@ -30,7 +30,7 @@ def terminal(quote, isin):
     return None
 
 
-def assess(choice, quote, market, now):
+def assess(choice, quote, market, now, *, entry=False):
     """Return trusted KO distance and its protective threshold, or a blocker.
 
     Issuer's dated KO condition must belong to the exact EUR product and to
@@ -88,8 +88,8 @@ def assess(choice, quote, market, now):
         return None, 'Gold-Kurszeit nicht aktuell bestätigt'
     if (not positive(bid_at) or not positive(ask_at)
             or not all(0 <= now - t <= 90000 for t in (bid_at, ask_at))
-            or abs(bid_at - gold_at) > 5000
-            or abs(ask_at - gold_at) > 5000):
+            or abs(bid_at - gold_at) > (90000 if entry else 5000)
+            or abs(ask_at - gold_at) > (90000 if entry else 5000)):
         return None, 'Gold- und Euro-Produktkurse zeitlich nicht abgestimmt'
     price = market.get('price')
     if not positive(price) or (market.get('plan') or {}).get('unit') != 'USD/oz':
@@ -113,7 +113,9 @@ def entry_reason(choice, quote, market, now):
     if (choice.get('direction') != market.get('direction') or
             (market.get('plan') or {}).get('direction') != choice.get('direction')):
         return 'KO-Markt- und Produktrichtung stimmen nicht überein', None
-    snapshot, reason = assess(choice, quote, market, now)
+    # Entries use the established 90-second reference-pair tolerance. An exit
+    # still needs the tighter timing above to avoid claiming a pre-KO sale.
+    snapshot, reason = assess(choice, quote, market, now, entry=True)
     if reason:
         return reason, None
     buffer = snapshot['protectiveDistancePct'] / 100

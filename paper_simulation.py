@@ -368,7 +368,7 @@ def capital_snapshot(control,case,quote,now):
                           else None)
     control['totalProfit']=equity-control['initialCapital'] if equity is not None else None
 
-def day_update(conn, day, closed=None, wait=None, now=None,capital=None,product=None):
+def day_update(conn, day, closed=None, wait=None, now=None,capital=None,product=None,entry=None):
     row=conn.execute('SELECT payload FROM bob_paper_days WHERE day=%s',(day,)).fetchone()
     d=row[0] if row else dict(cases=0,closed=0,inconclusive=0,goldPositive=0,goldNegative=0,goldFlat=0,
                              productKnown=0,productPositive=0,productNegative=0,waitChecks=0)
@@ -381,7 +381,19 @@ def day_update(conn, day, closed=None, wait=None, now=None,capital=None,product=
                   quoteMissingChecksSinceStart=capital.get('quoteMissingChecks',0),
                   quoteConfirmedChecksSinceStart=capital.get('quoteConfirmedChecks',0))
         d.update(realizedProfit=capital.get('realizedProfit',0),dayRealizedProfit=capital.get('realizedProfit',0)-capital.get('dayOpeningRealized',0))
-    if wait:d.update(waitChecks=d['waitChecks']+1,lastWait=wait)
+    if wait:
+        d.update(waitChecks=d['waitChecks']+1,lastWait=wait)
+        if entry:
+            counts=d.setdefault('entryBlockCounts',{})
+            counts[wait]=counts.get(wait,0)+1
+            records=d.setdefault('entryBlocks',[])
+            observed=dict(at=now,reason=wait,**entry)
+            if records and all(records[-1].get(k)==observed.get(k) for k in ('reason','direction','isin')):
+                records[-1].update(lastAt=now,checks=records[-1].get('checks',1)+1)
+            else:records.append({**observed,'lastAt':now,'checks':1})
+            if len(records)>200:
+                d['entryBlocksTruncated']=True
+                del records[:-200]
     if closed:
         d['cases']+=1
         if closed['status']=='closed':
@@ -510,6 +522,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             day_update(conn,day,now=now,capital=control)
         else:
             capital_snapshot(control,None,None,now)
+            entered=False
             plan=market.get('plan')
             excluded=control.get('koExcluded') or {}
             blocked=set(excluded.get('isins') or []) if excluded.get('day')==day else set()
@@ -533,7 +546,9 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             elif not (market.get('session') or {}).get('entryAllowed'):reason='Außerhalb von Bobs Einstiegszeit'
             elif profile_policy and profile_policy.get('early_impulse') and market.get('paperEntrySource')!='early-impulse-paper-v1':
                 reason='Frühimpuls-Strategie: '+str(market.get('earlyPaperBlockReason') or 'kein bestätigter 5m/15m-Frühimpuls')
-            elif not stop_target_audit.valid_plan(plan):reason='ABWARTEN: kein bestätigter gültiger Goldplan'
+            elif not stop_target_audit.valid_plan(plan):
+                reason=('ABWARTEN: kein bestätigter gültiger Goldplan' if market.get('direction') not in ('LONG','SHORT')
+                        else 'Stopp-/Zielplan fehlt oder ist ungültig: '+str(market.get('decisionReason') or 'Planprüfung nicht bestanden'))
             elif not choice:
                 reason=('KO-Schutz: heute ausgeschlossene ISIN; ' if blocked else 'Kein passendes belegtes Produkt: ')+ '; '.join(selection.get('reasons') or ['kein geeigneter neuer Kandidat'])
             elif profile_policy and profile_policy.get('early_impulse') and choice.get('koGuardRequired') is not True:
@@ -581,13 +596,17 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                 inserted=conn.execute('''INSERT INTO bob_paper_cases(id,day,started_at,payload)
                     VALUES(%s,%s,to_timestamp(%s),%s::jsonb) ON CONFLICT DO NOTHING RETURNING id''',
                     (c['id'],day,now/1000,json.dumps(c))).fetchone()
+                entered=bool(inserted)
                 control.update(lastEntryKey=entry_key,activeCase=c['id'] if inserted else None)
                 if inserted:
                     control['cash']-=c.get('allocated') or 0
                     capital_snapshot(control,c,quotes.get(choice['isin']),now)
                 reason='Neuer Simulationsfall gespeichert' if inserted else 'Signal bereits dokumentiert'
             control.update(status='running',reason=reason)
-            day_update(conn,day,wait=reason,now=now,capital=control)
+            day_update(conn,day,wait=reason,now=now,capital=control,
+                       entry=dict(direction=market.get('direction','NEUTRAL'),
+                         isin=choice.get('isin') if choice else None,
+                         goldAt=market.get('dataAt'),ruleVersion=market.get('ruleVersion')) if not entered else None)
         conn.execute("DELETE FROM bob_paper_cases WHERE closed_at < now()-interval '30 days'")
     conn.execute('UPDATE bob_paper_control SET payload=%s::jsonb WHERE id=1',(json.dumps(control),))
 
