@@ -42,14 +42,28 @@ def stamp(value):
         return at.timestamp()*1000 if at.tzinfo else None
     except (TypeError,ValueError,AttributeError): return None
 
-def fresh_quote(q, now, isin):
-    if not isinstance(q,dict) or q.get('isin')!=isin or q.get('currency')!='EUR':return None
-    if (q.get('found') is not True or q.get('marketOpen') is not True
-            or q.get('priceKind') in ('calculated','issuer-chart') or q.get('isExecutableQuote') is False
-            or not q.get('source') or not finite(q.get('bid')) or not finite(q.get('ask'))
-            or q['ask']<q['bid']):return None
+def quote_block_reason(q, now, isin):
+    if not isinstance(q,dict):return 'Noch keine Kursantwort vorhanden'
+    if q.get('isin')!=isin:return 'ISIN der Kursantwort stimmt nicht überein'
+    if q.get('priceKind') in ('calculated','issuer-chart') or q.get('isExecutableQuote') is False:
+        return 'Nur Chart-, Rechen- oder Recherchekurs; kein bestätigter zweiseitiger Handelskurs'
+    if q.get('found') is not True:
+        code=q.get('quoteFailureCode') or q.get('sourceFailureCode')
+        return 'Anbieter liefert keinen bestätigten Handelskurs'+(' ('+str(code)+')' if code else '')
+    if q.get('currency')!='EUR':return 'Handelskurs nicht in EUR bestätigt'
+    if q.get('marketOpen') is not True:return 'Handelbarkeit beim Kursanbieter nicht bestätigt'
+    if not q.get('source'):return 'Kursquelle fehlt'
+    if not finite(q.get('bid')) or not finite(q.get('ask')):return 'Geld- oder Briefkurs fehlt'
+    if q['ask']<q['bid']:return 'Widersprüchlicher Geld-/Briefkurs'
     times=[stamp(q.get(k) or q.get('quoteAt')) for k in ('bidAt','askAt')]
-    if not all(at is not None and 0<=now-at<=90000 for at in times):return None
+    if any(at is None for at in times):return 'Quellzeit für Geld-/Briefkurs fehlt'
+    if any(at>now for at in times):return 'Kurszeit liegt in der Zukunft'
+    if any(now-at>90000 for at in times):return 'Geld-/Briefkurs älter als 90 Sekunden'
+    return None
+
+
+def fresh_quote(q, now, isin):
+    if quote_block_reason(q,now,isin):return None
     return {k:q.get(k) for k in ('isin','bid','ask','currency','source','quoteAt','bidAt','askAt')}
 
 def init(conn):
@@ -477,7 +491,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             elif profile_policy and profile_policy.get('early_impulse') and choice.get('koGuardRequired') is not True:
                 reason='Frühimpuls-KO-Schutz: Nur ausdrücklich vollständig geprüfte Produkte zulässig'
             elif choice.get('indicative') or choice.get('estimated'):reason='Unverbindlicher Kandidat: kein virtueller Eurokauf ohne Produktfreigabe'
-            elif not q:reason='Kein aktueller, ausführbarer Geld-/Briefkurs in EUR: virtueller Produkteinstieg gesperrt'
+            elif not q:reason='Produkteinstieg gesperrt · '+choice['isin']+': '+str(quote_block_reason(quotes.get(choice['isin']),now,choice['isin']))
             elif choice.get('koGuardRequired') and paper_ko_guard.entry_reason(choice,quotes.get(choice['isin']),market,now)[0]:
                 reason='KO-Schutz: '+paper_ko_guard.entry_reason(choice,quotes.get(choice['isin']),market,now)[0]
             elif profile_policy and __import__('paper_portfolios').entry_block_reason(profile_policy,market):
@@ -544,9 +558,14 @@ def quote_cache(products, active, now):
     active_isins=active if isinstance(active,(list,tuple,set)) else [active] if active else []
     isins=list(dict.fromkeys([i for i in active_isins if i]+[p.get('isin') for p in products if p.get('isin')]))
     from product_quotes import get_quote
-    for isin in isins:
+    # Oldest request first: slow sources must not repeatedly monopolize the
+    # four slots just because their products occur first in the uploaded list.
+    # Active positions retain priority among equally due requests.
+    due=sorted((isin for isin in isins if isin not in _pending),
+               key=lambda isin: (_requested.get(isin,0), isin not in active_isins))
+    for isin in due:
         if len(_pending)>=4:break
-        if isin not in _pending and now-_requested.get(isin,0)>=60000:
+        if now-_requested.get(isin,0)>=30000:
             _requested[isin]=now;_pending[isin]=_pool.submit(get_quote,isin)
     by_isin={p['isin']:p.get('quote') for p in products if p.get('isin')}
     return {isin:_quotes.get(isin,by_isin.get(isin)) for isin in isins}

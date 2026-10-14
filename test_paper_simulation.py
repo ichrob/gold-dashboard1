@@ -22,6 +22,49 @@ def tick(price,seconds=30,direction='LONG',**values):
     return {**market(direction),'price':price,'dataAt':NOW+seconds*1000,**values}
 
 class SimulationTests(unittest.TestCase):
+    def test_slow_quote_refresh_cannot_starve_end_of_list(self):
+        from concurrent.futures import Future
+        from unittest.mock import patch
+        submitted=[]
+        def submit(fetch, isin):
+            future=Future();submitted.append((isin,future));return future
+        pool=Mock();pool.submit.side_effect=submit
+        products=[dict(isin='product-'+str(i)) for i in range(12)]
+        active=products[-1]['isin']
+        with patch.object(sim,'_pool',pool), patch.object(sim,'_pending',{}), \
+             patch.object(sim,'_quotes',{}), patch.object(sim,'_requested',{}):
+            sim.quote_cache(products,[active],NOW)
+            self.assertEqual(submitted[0][0],active)
+            self.assertEqual(len(submitted),4)
+            # A refresh with all slots busy neither blocks nor duplicates requests.
+            sim.quote_cache(products,[active],NOW+30000)
+            self.assertEqual(len(submitted),4)
+            for cycle in (1,2):
+                for isin,future in submitted:
+                    if not future.done():future.set_result(dict(isin=isin,bidAt=NOW))
+                sim.quote_cache(products,[active],NOW+cycle*60000)
+            self.assertEqual(len(submitted),12)
+            self.assertEqual(len({i for i,_ in submitted}),12)
+            self.assertEqual(sim._quotes[active]['bidAt'],NOW,'Never refresh source clocks')
+
+    def test_quote_rejection_diagnostics_preserve_gates(self):
+        cases=[(None,'Kursantwort'),({**quote(),'isin':'wrong'},'ISIN'),
+               ({**quote(),'currency':'CHF'},'EUR'),
+               ({**quote(),'marketOpen':False},'Handelbarkeit'),
+               ({**quote(),'found':False,'quoteFailureCode':'PRODUCT_TIMEOUT'},'PRODUCT_TIMEOUT'),
+               ({**quote(),'priceKind':'issuer-chart'},'Chart'),
+               ({**quote(),'isExecutableQuote':False},'Recherchekurs'),
+               ({**quote(),'bid':None},'Geld- oder Briefkurs'),
+               ({**quote(),'ask':1},'Widersprüchlicher'),
+               (quote(NOW-90001),'90 Sekunden'),(quote(NOW+1),'Zukunft'),
+               ({**quote(),'bidAt':None},'Quellzeit')]
+        for value,expected in cases:
+            with self.subTest(expected=expected):
+                self.assertIn(expected,sim.quote_block_reason(value,NOW,ISIN))
+                self.assertIsNone(sim.fresh_quote(value,NOW,ISIN))
+        self.assertIsNone(sim.quote_block_reason(quote(),NOW,ISIN))
+        self.assertIsNotNone(sim.fresh_quote(quote(NOW-90000),NOW,ISIN))
+
     def test_new_screenshot_generation_replaces_previous_background_universe(self):
         import json
         class Memory:
