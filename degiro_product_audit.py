@@ -101,6 +101,7 @@ def _observed_prices(quote, isin, now_ms):
             "isinBound": row.get("isin") == isin if label == "Vorhandene Vergleichsquelle" else
                          quote.get("isin") == isin and quote.get("productVerified") is True,
             "venue": str(row.get("venue") or row.get("exchange") or "")[:80],
+            "upstream": row.get("upstream") or ("SG" if chart else None),
             "researchOnly": True, "degiroExecutable": False,
             "note": ("Ein SG-Chartpunkt ist keine handelbare Geld-/Briefquote."
                      if chart else "Börsen-/Anbieterkurs ist kein verbindlicher DEGIRO-Ausführungskurs."),
@@ -130,6 +131,8 @@ def _market_cross_check(observations):
         result["reasons"].append("Handelsplatz der Vergleichsquelle fehlt.")
     if primary["source"] == secondary["source"]:
         result["reasons"].append("Quellen sind nicht unabhängig.")
+    if secondary.get("upstream") == "SG" and (primary.get("upstream") == "SG" or "SG" in primary["source"]):
+        result["reasons"].append("Zwei Abrufwege, aber derselbe SG-Kursgeber; keine unabhängige Preisbestätigung.")
     if primary["currency"] != secondary["currency"]:
         result["reasons"].append("Unterschiedliche Währungen; datierte Umrechnung fehlt.")
     if not primary["current"] or not secondary["current"]:
