@@ -10,6 +10,17 @@ class Tests(unittest.TestCase):
   self.r=dict(found=True,productVerified=True,eligible=False,currency='EUR',ask=4,askAt=T,source='Onvista',metadata=dict(status=1,simpleNonQuantoTurbo=True,underlyingType='SPOT',ratio=.01))
   self.g=dict(price=4000,at=T,underlying='XAU/USD',source='Gold')
   self.fx=dict(result='success',base='USD',rates=dict(EUR=1),data_updated_at=T,effective_at=dict(EUR=T),source='live',sources=dict(EUR='live'),market_session='open')
+ def test_calculated_evidence_requires_reproducible_fresh_inputs(self):
+  r=copy.deepcopy(self.r)
+  r['leverageCalculation']=b.calculate(r,self.g,self.fx,N)
+  self.assertEqual(b.current_evidence(r,N)['value'],10)
+  self.assertIsNone(b.current_evidence(r,N.replace(minute=10)))
+  for key,value in [('value',11),('fresh',False)]:
+   bad=copy.deepcopy(r);bad['leverageCalculation'][key]=value
+   self.assertIsNone(b.current_evidence(bad,N))
+  r['leverageCalculation']['inputs']['basisEstimated']=True
+  self.assertIsNone(b.current_evidence(r,N))
+
  def test_native_chf_research_gearing_without_eur_quote(self):
   original=dict(self.r,found=False,currency='CHF',nativeChartEvidence=dict(
       bid=3.99,ask=4.0,currency='CHF',pointAt=T),metadata=dict(
