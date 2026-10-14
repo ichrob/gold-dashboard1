@@ -46,4 +46,54 @@ class BrokerVenueTests(unittest.TestCase):
         self.assertNotIn('bid',result['evidence']);self.assertNotIn('eligible',result['evidence'])
         self.assertFalse(result['evidence']['executionConfirmed'])
 
+    def detail_product(self):
+        isin = 'DE000FG5GUP8'  # Additional checksum-valid product; synthetic display.
+        q = dict(isin=isin, source='DEGIRO-Produktdetail', venue='Societe Generale OTC',
+            currency='CHF', bid=2, ask=2.01, sourceTime='14/10/2026 20:13',
+            brokerDisplayConfirmed=True, orderWindowVerified=False, orderSubmitted=False,
+            executionGuaranteed=False, isExecutableQuote=False)
+        p = dict(isin=isin, snapshot=dict(isin=isin, degiroDisplayedQuote=q))
+        feed = dict(self.feed, products=[p])
+        return p, feed
+
+    def test_new_product_automatically_proves_display_without_manual_confirmation(self):
+        p, feed = self.detail_product()
+        conn=Mock();conn.execute.return_value.fetchall.return_value=[]
+        got=b.attach(conn,feed,self.now)['products'][0]
+        e=got['brokerVenueEvidence']
+        self.assertEqual(e['kind'],'automatic-detail-screenshot')
+        self.assertTrue(b.confirmed(e,p['isin'],'CHF',self.now.timestamp()*1000))
+        self.assertFalse(e['executionConfirmed'])
+        self.assertNotIn('bid',e)
+        q=provider();q.update(isin=p['isin'],found=False)
+        q['metadata'].update(currency='CHF',issuerExchangeCode='CBSW')
+        self.assertIn('venue',audit.examine(p,q,self.now.timestamp()*1000)['missing'])
+        report=audit.examine(got,q,self.now.timestamp()*1000)
+        self.assertNotIn('venue',report['missing'])
+        self.assertIn('quote',report['missing'])
+        self.assertFalse(report['tradeApproved'])
+
+    def test_automatic_never_infers_missing_identity_time_currency_or_execution(self):
+        for changes in [dict(isin=self.isin),dict(source='issuer'),dict(venue='—'),
+                        dict(currency='USD'),dict(bid=True),dict(ask=1),dict(ask=float('nan')),
+                        dict(sourceTime=None),dict(sourceTime='13/10/2026 20:13'),
+                        dict(sourceTime='14/10/2026 20:16'),dict(sourceTime='14/10/2026 20:15:30'),
+                        dict(brokerDisplayConfirmed=False),dict(isExecutableQuote=True)]:
+            p,feed=self.detail_product();p['snapshot']['degiroDisplayedQuote'].update(changes)
+            self.assertIsNone(b.automatic(p,feed,self.now),changes)
+        p,feed=self.detail_product()
+        self.assertIsNone(b.automatic(p,feed,self.now.replace(hour=22)))
+        p['snapshot']['isin']=self.isin
+        self.assertIsNone(b.automatic(p,feed,self.now))
+        p,feed=self.detail_product();feed['listOrigin']='legacy'
+        self.assertIsNone(b.automatic(p,feed,self.now))
+
+    def test_new_venue_and_currency_remain_bound_to_original_display(self):
+        p,feed=self.detail_product()
+        p['snapshot']['degiroDisplayedQuote'].update(venue='Tradegate',currency='EUR')
+        e=b.automatic(p,feed,self.now)
+        self.assertEqual(e['venue'],'Tradegate')
+        self.assertTrue(b.confirmed(e,p['isin'],'EUR',self.now.timestamp()*1000))
+        self.assertFalse(b.confirmed(e,p['isin'],'CHF',self.now.timestamp()*1000))
+
 if __name__=='__main__':unittest.main()

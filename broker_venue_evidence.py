@@ -1,6 +1,7 @@
-"""Owner-reviewed DEGIRO screenshots prove listing/venue, never execution."""
+"""DEGIRO detail screenshots prove listing/venue, never execution."""
 import copy
 import json
+import math
 import re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -52,8 +53,9 @@ def confirmed(evidence, isin, currency, now_ms):
         now = datetime.fromtimestamp(now_ms/1000, timezone.utc)
         end = at.replace(hour=22, minute=0)
         return (evidence.get('isin') == isin and evidence.get('currency') == currency
-            and evidence.get('broker') == 'DEGIRO' and evidence.get('venue') == VENUE
-            and evidence.get('kind') == 'owner-reviewed-screenshot'
+            and evidence.get('broker') == 'DEGIRO'
+            and ((evidence.get('kind') == 'owner-reviewed-screenshot' and evidence.get('venue') == VENUE)
+                 or (evidence.get('kind') == 'automatic-detail-screenshot' and valid_venue(evidence.get('venue'))))
             and evidence.get('listingConfirmed') is True and evidence.get('executionConfirmed') is False
             and evidence.get('timezone') == 'Europe/Zurich' and evidence.get('timePrecision') == 'minute'
             and bool(evidence.get('imageReference')) and bool(evidence.get('listUploadedAt'))
@@ -72,12 +74,65 @@ def save(conn, payload, now=None):
     return dict(ok=True, evidence=record, message='Handelsplatznachweis gespeichert · keine Order ausgelöst')
 
 
-def attach(conn, feed):
+def valid_venue(value):
+    return (isinstance(value, str) and 1 <= len(value.strip()) <= 100
+            and value.strip().lower() not in ('-', '—', 'unbekannt', 'unknown')
+            and not any(ord(c) < 32 for c in value))
+
+
+def automatic(product, feed, now=None):
+    """Use the identity-bound detail parser output; never infer from a title/list.
+
+    The authenticated screenshot feed is the input boundary, just as for manual
+    confirmation. This proves a broker display, never executable prices.
+    """
+    from product_quotes import valid_isin
+    now = now or datetime.now(timezone.utc)
+    snapshot = product.get('snapshot') or {}
+    q = snapshot.get('degiroDisplayedQuote') if isinstance(snapshot, dict) else None
+    isin = product.get('isin')
+    if (not isinstance(q, dict) or not isinstance(isin, str) or not valid_isin(isin)
+            or snapshot.get('isin') != isin or q.get('isin') != isin
+            or feed.get('listOrigin') != 'degiro-screenshot' or not feed.get('listUploadedAt')
+            or q.get('source') != 'DEGIRO-Produktdetail' or not valid_venue(q.get('venue'))
+            or q.get('currency') not in ('EUR', 'CHF')
+            or q.get('brokerDisplayConfirmed') is not True
+            or any(q.get(k) is not False for k in ('orderWindowVerified', 'orderSubmitted',
+                   'executionGuaranteed', 'isExecutableQuote'))):
+        return None
+    bid, ask = q.get('bid'), q.get('ask')
+    if not all(type(v) in (int, float) and math.isfinite(v) and v > 0 for v in (bid, ask)) or ask < bid:
+        return None
+    raw = q.get('sourceTime')
+    if not isinstance(raw, str) or not re.fullmatch(r'\d{2}[/.]\d{2}[/.]\d{4} \d{2}:\d{2}(?::\d{2})?', raw):
+        return None
+    try:
+        local = datetime.strptime(raw.replace('/', '.'), '%d.%m.%Y %H:%M:%S' if len(raw) == 19 else '%d.%m.%Y %H:%M').replace(tzinfo=ZONE)
+        if local > now:
+            return None
+        record = validate(dict(isin=isin, reviewed=True, venue=VENUE, currency=q['currency'],
+            observedMinute=local.strftime('%Y-%m-%dT%H:%M'),
+            imageReference='DEGIRO-Produktdetail · strukturierter Screenshotnachweis'), feed, now)
+    except (ValueError, TypeError):
+        return None
+    record.update(kind='automatic-detail-screenshot', venue=q['venue'].strip(),
+                  sourceTime=raw, timezoneBasis='Europe/Zurich assumed from broker display')
+    record.pop('reviewedAt', None)
+    return record
+
+
+def attach(conn, feed, now=None):
     out = copy.deepcopy(feed)
+    now = now or datetime.now(timezone.utc)
     rows = conn.execute('SELECT isin,payload FROM bob_broker_venue_evidence').fetchall()
     evidence = {isin: row for isin, row in rows if row.get('listUploadedAt') == feed.get('listUploadedAt')}
     for product in out.get('products') or []:
         product.pop('brokerVenueEvidence', None)
-        if product.get('isin') in evidence:
-            product['brokerVenueEvidence'] = evidence[product['isin']]
+        record = automatic(product, feed, now)
+        manual = evidence.get(product.get('isin'))
+        # A fresh automatic observation can replace an expired manual proof.
+        if manual and (not record or manual.get('observedMinute', '') >= record['observedMinute']):
+            record = manual
+        if record:
+            product['brokerVenueEvidence'] = record
     return out

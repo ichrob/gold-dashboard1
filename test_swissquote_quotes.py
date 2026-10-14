@@ -89,4 +89,28 @@ class SwissquoteTests(unittest.TestCase):
             self.assertEqual(q.get_observation('DE000PJ9NB98')['state'], 'unsupported')
             submit.assert_not_called()
 
+    def test_new_verified_chf_product_uses_third_source_without_allowlist(self):
+        isin='DE000FG5GUP8'
+        primary=dict(self.primary,isin=isin)
+        payload=copy.deepcopy(self.payload)
+        payload['fullQuoteData']['stockKey']['isin']=isin
+        evidence=q.parse_payload(payload,isin,self.now)
+        with patch.object(q,'get_observation',return_value=evidence) as observe:
+            out=q.apply(primary,isin,self.now)
+        observe.assert_called_once_with(isin,primary)
+        self.assertEqual(out['thirdQuote']['isin'],isin)
+        self.assertIsNotNone(q.current_pair(out,self.now))
+        self.assertFalse(out['eligible'])
+        mismatched=dict(primary,direction='SHORT',metadata=dict(primary['metadata'],direction='SHORT'))
+        self.assertFalse(q.matches_primary(mismatched,evidence['quote']))
+        with patch.dict(q._CACHE,{},clear=True), patch.object(q,'_PENDING',set()), patch.object(q._POOL,'submit') as submit:
+            self.assertEqual(q.get_observation(isin,primary)['state'],'checking')
+            q.get_observation(isin,primary)
+            submit.assert_called_once_with(q._refresh,isin)
+        for bad in [dict(primary,productVerified=False),dict(primary,sourceDisabled=True),
+                    dict(primary,metadata=dict(primary['metadata'],currency='EUR'))]:
+            with patch.object(q._POOL,'submit') as submit:
+                self.assertEqual(q.get_observation(isin,bad)['state'],'unsupported')
+                submit.assert_not_called()
+
 if __name__ == '__main__': unittest.main()

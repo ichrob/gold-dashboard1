@@ -61,9 +61,9 @@ PANEL = r'''<section id="bobProductAudit" class="card">
         (item.lastRecoveredAt?'\nAutomatisch wiederhergestellte Nachweise: '+(item.recoveredFields||[]).join(', ')+' · '+fmt(item.lastRecoveredAt):'')+
         '\nKeine automatische DEGIRO-Handelsfreigabe.';
    node.append(summary,list);
-   if(item.issuerVenue){
+   if(item.issuerVenue&&!item.brokerVenueEvidence){
     const form=document.createElement('form');
-    const heading=document.createElement('b');heading.textContent='DEGIRO-Handelsplatz aus Screenshot bestätigen';form.append(heading);
+    const heading=document.createElement('b');heading.textContent='Falls Bob das Kursdatenbild nicht eindeutig erkennt: Handelsplatz bestätigen';form.append(heading);
     function input(label,type,name,value=''){
      const wrap=document.createElement('label');wrap.textContent=label+' ';
      const field=document.createElement('input');field.type=type;field.name=name;field.value=value;field.required=true;
@@ -145,12 +145,13 @@ PANEL = r'''<section id="bobProductAudit" class="card">
  }
  let busy=false;
  async function refresh(){
-  if(busy||window.BobSession?.expired?.())return;busy=true;
+  if(busy||window.BobSession?.expired?.()||byId('bobProductAuditItems')?.contains(document.activeElement))return;busy=true;
   const ctl=new AbortController(), timer=setTimeout(()=>ctl.abort(),10000);
   try{
    const response=await fetch('/api/degiro/audit',{cache:'no-store',credentials:'same-origin',signal:ctl.signal});
    if(!response.ok)throw Error('unavailable');
-   render(await response.json());
+   const report=await response.json();
+   if(!byId('bobProductAuditItems')?.contains(document.activeElement))render(report);
   }catch(_){render({status:'unavailable',items:[]});}
   finally{clearTimeout(timer);busy=false;}
  }
