@@ -10,7 +10,7 @@ from urllib.request import Request, urlopen
 
 ORIGIN = 'https://www.swissquote.ch/'
 SOURCE = 'Swissquote · Swiss DOTS'
-# Verified public stock keys. Never guess an exchange/currency for other ISINs.
+# Previously verified stock keys for prewarming. New products require issuer metadata.
 PRODUCTS = {'DE000FG14AV8': 'LONG', 'DE000FG8NHQ3': 'SHORT'}
 _POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix='swissquote')
 _LOCK = threading.Lock()
@@ -40,11 +40,13 @@ def parse_payload(payload, isin, now=None):
     data = payload['fullQuoteData']
     underlying = data.get('underlyings') or []
     direction = {'CALL': 'LONG', 'PUT': 'SHORT'}.get(data.get('optionType'))
-    if (isin not in PRODUCTS or data.get('stockKey') != dict(isin=isin, exchangeId=672, currency='CHF')
+    from product_quotes import valid_isin
+    if (not isinstance(isin, str) or not valid_isin(isin) or data.get('stockKey') != dict(isin=isin, exchangeId=672, currency='CHF')
             or data.get('issuerName') != 'Societe Generale'
             or data.get('stockExchangeName') != 'Swiss DOTS' or data.get('marketCode') != 'DOTS'
             or data.get('productType') != 'WARRANT' or data.get('eusipaCode') != '2200'
-            or direction != PRODUCTS[isin] or len(underlying) != 1
+            or direction not in ('LONG', 'SHORT')
+            or (isin in PRODUCTS and direction != PRODUCTS[isin]) or len(underlying) != 1
             or underlying[0].get('isin') != 'XC0009655157' or underlying[0].get('currency') != 'USD'):
         raise ValueError('IDENTITY_MISMATCH')
     url = source_url(isin)
@@ -89,7 +91,8 @@ def parse_payload(payload, isin, now=None):
 
 
 def fetch(isin):
-    if isin not in PRODUCTS:
+    from product_quotes import valid_isin
+    if not isinstance(isin, str) or not valid_isin(isin):
         return dict(state='unsupported')
     try:
         url = ORIGIN+'securities-retail-fullquote-plugin/api/fullQuote/'+isin+'/672_CHF'
@@ -113,17 +116,30 @@ def _refresh(isin):
         evidence = fetch(isin)
         with _LOCK:
             _CACHE[isin] = (time.monotonic(), evidence)
+            while len(_CACHE) > 64:
+                oldest = min(_CACHE, key=lambda key: _CACHE[key][0])
+                del _CACHE[oldest]
     finally:
         with _LOCK:
             _PENDING.discard(isin)
 
 
-def get_observation(isin):
-    if isin not in PRODUCTS:
+def eligible_primary(result, isin):
+    from product_quotes import valid_isin
+    meta = result.get('metadata') or {}
+    return (isinstance(isin, str) and valid_isin(isin) and result.get('isin') == isin
+        and result.get('productVerified') is True and not result.get('sourceDisabled')
+        and meta.get('status') == 1 and meta.get('issuerExchangeCode') == 'CBSW'
+        and meta.get('currency') == 'CHF'
+        and (meta.get('direction') or result.get('direction')) in ('LONG', 'SHORT'))
+
+
+def get_observation(isin, primary=None):
+    if isin not in PRODUCTS and not eligible_primary(primary or {}, isin):
         return dict(state='unsupported')
     with _LOCK:
         cached = _CACHE.get(isin)
-        if (not cached or time.monotonic()-cached[0] >= 30) and isin not in _PENDING:
+        if (not cached or time.monotonic()-cached[0] >= 30) and isin not in _PENDING and len(_PENDING) < 12:
             _PENDING.add(isin)
             _POOL.submit(_refresh, isin)
         return copy.deepcopy(cached[1]) if cached else dict(state='checking')
@@ -132,11 +148,9 @@ def get_observation(isin):
 def matches_primary(result, row):
     meta = result.get('metadata') or {}
     isin = result.get('isin')
-    return (isin in PRODUCTS and result.get('productVerified') is True
-        and not result.get('sourceDisabled') and meta.get('status') == 1
-        and meta.get('issuerExchangeCode') == 'CBSW' and meta.get('currency') == 'CHF'
-        and (meta.get('direction') or result.get('direction')) == PRODUCTS[isin]
-        and row.get('isin') == isin and row.get('direction') == PRODUCTS[isin]
+    return (eligible_primary(result, isin)
+        and row.get('isin') == isin
+        and row.get('direction') == (meta.get('direction') or result.get('direction'))
         and row.get('currency') == 'CHF' and row.get('source') == SOURCE
         and row.get('sourceUrl') == source_url(isin) and row.get('venue') == 'Swiss DOTS')
 
@@ -158,11 +172,11 @@ def current_pair(result, now):
 
 
 def apply(result, isin, now=None):
-    if isin not in PRODUCTS or result.get('isin') != isin:
+    if not eligible_primary(result, isin):
         return result
     now = now or datetime.now(timezone.utc)
     out = copy.deepcopy(result)
-    evidence = get_observation(isin)
+    evidence = get_observation(isin, result)
     out['swissquoteBackup'] = dict(evidence, refreshSeconds=30)
     row = evidence.get('quote')
     if not row or not matches_primary(result, row):

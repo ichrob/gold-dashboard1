@@ -300,12 +300,11 @@ def examine(product, quote, now_ms):
              (metadata.get('currency') or quote.get('currency'))))
     if not valid_isin(isin) or not (product.get('isinConfirmed') or identity_matches):
         missing.append('list-identity')
-    # This exact ISIN is independently listed as SG's CHF Swiss DOTS
-    # knock-out, not as an EUWAX/Frankfurt security. Swissquote describes
-    # Swiss DOTS as its exclusive OTC platform. Even an issuer snapshot
+    # Apply the same broker-display requirement to every verified Swiss DOTS
+    # product, including newly discovered ISINs. Issuer availability alone
     # cannot establish availability at DEGIRO.
     swiss_dots = (
-        isin in ("DE000FG14AV8", "DE000FG8NHQ3") and verified
+        verified
         and metadata.get("issuerExchangeCode") == "CBSW"
         and metadata.get("currency") == "CHF"
     )
@@ -410,8 +409,8 @@ def examine(product, quote, now_ms):
         "venueEvidence": "https://www.finanzen.ch/derivate/"+isin.lower() if swiss_dots else None,
         "brokerVenueEvidence": broker_venue if has_broker_venue else None,
         "venueAction": ("Keine Swiss-DOTS-Quotierung als DEGIRO-Kurs verwenden. "
-                        "Nur eine bei DEGIRO selbst nachgewiesene Handelsroute "
-                        "oder ein dort handelbares EUR-Produkt zum Vergleich heranziehen."
+                        "DEGIRO-Kursdatenbild mit ISIN, Börse, Währung und Datum hochladen; "
+                        "Bob übernimmt eindeutige Angaben automatisch."
                         if swiss_dots and not has_broker_venue else None),
         "autoRecovery": ("Vom Emittenten als beendet gemeldet · keine neue Handelsfreigabe; fehlende laufende Kurse sind kein Reparaturfehler"
                          if terminated else "Vorhandene Emittenten- und Ersatzquellen werden bei der nächsten Aktualisierung erneut geprüft"),
@@ -478,7 +477,7 @@ def init(conn):
 
 def store(conn, feed, quotes, now_ms):
     import broker_venue_evidence
-    feed = broker_venue_evidence.attach(conn, feed)
+    feed = broker_venue_evidence.attach(conn, feed, datetime.fromtimestamp(now_ms/1000, timezone.utc))
     row = conn.execute("SELECT payload FROM bob_degiro_product_audit WHERE id=1").fetchone()
     report = build(feed, quotes, now_ms, row[0] if row else None)
     conn.execute("""INSERT INTO bob_degiro_product_audit(id,payload,checked_at)
