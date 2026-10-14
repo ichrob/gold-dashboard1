@@ -1,6 +1,7 @@
 """Append-only real trade observations. Never executes orders or infers fills."""
 import json,time,hashlib,math,re
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import background_push
 
 def init(conn):
@@ -111,7 +112,7 @@ def handle(conn,action,payload):
             execution['source']='Vom Nutzer erfasst, nicht mit DEGIRO abgeglichen'
             t={**t,'actualExecution':execution}
         snapshot={k:t.get(k) for k in ('tradeId','active','dir','entry','stop','target','initialRisk','product','monitorStartedAt','closedAt','closeGoldReference','actualExecution','purchase','settlement')}
-        settings=background_push.config({'timeframe':payload.get('timeframe','15m'),'trade':{**snapshot,'active':True,'instrument':'XAU/USD'}})
+        settings=background_push.config({'timeframe':payload.get('timeframe','15m'),'trade':{**snapshot,'active':True,'instrument':'XAU/USD'} if active else None})
         previous=conn.execute('SELECT active,snapshot FROM bob_real_trades WHERE id=%s FOR UPDATE',(tid,)).fetchone()
         if t.get('settlement') is not None:
             if active:raise ValueError('Abrechnung nur für geschlossenen Trade')
@@ -129,15 +130,19 @@ def handle(conn,action,payload):
                 raise ValueError('Überwachung passt nicht zum gespeicherten Kauf')
             snapshot['purchase']=old.get('purchase')
         if previous and previous[1].get('purchase'):snapshot['purchase']=previous[1]['purchase']
+        if previous and previous[1].get('exitReceipt'):
+            snapshot['exitReceipt']=previous[1]['exitReceipt']
+            snapshot['closedAt']=previous[1].get('closedAt')
         if previous and previous[0] and active and previous[1].get('dir')==snapshot['dir']:
             old_stop=previous[1].get('stop')
             if background_push.positive(old_stop):snapshot['stop']=(max if snapshot['dir']=='LONG' else min)(old_stop,snapshot['stop'])
-        settings['trade']['stop']=snapshot['stop']
+        if active:settings['trade']['stop']=snapshot['stop']
         conn.execute('''INSERT INTO bob_real_trades(id,active,snapshot,settings) VALUES(%s,%s,%s::jsonb,%s::jsonb)
           ON CONFLICT(id) DO UPDATE SET active=excluded.active,snapshot=excluded.snapshot,settings=excluded.settings,updated_at=now()''',
           (tid,active,json.dumps(snapshot),json.dumps(settings)))
         event(conn,tid,'trade-opened' if not previous else 'trade-closed-in-bob' if previous[0] and not active else 'trade-updated',snapshot)
         if isinstance(payload.get('event'),dict):event(conn,tid,'browser-event',payload['event'])
+        if not active:sync_devices(conn)
         return {'ok':True,'tradeId':tid}
     if action=='read':
         tid=payload.get('tradeId');before=payload.get('before')
@@ -183,11 +188,63 @@ def observe(conn,bundle):
             event(conn,tid,'observation-error',{'error':type(exc).__name__,'at':now},str(now))
 
 
-def device_plan(settings, active, journals):
+def sale_matches(snapshot, receipt):
+    """Full sale only. Source clock stays local when the receipt has no zone."""
+    if receipt.get('status')!='pending-review' or receipt.get('side')!='SELL':return False
+    if not isinstance(receipt.get('orderIdDigest'),str) or not re.fullmatch(r'[0-9a-f]{64}',receipt['orderIdDigest']):return False
+    product=snapshot.get('product') or {}
+    if product.get('isin')!=receipt.get('isin') or product.get('quantity')!=receipt.get('quantity'):return False
+    if not background_push.positive(receipt.get('priceEur')):return False
+    try:
+        bought=datetime.fromisoformat(snapshot['purchase']['at'].replace('Z','+00:00'))
+        if bought.tzinfo is None:return False
+        if receipt.get('executedAt'):
+            sold=datetime.fromisoformat(receipt['executedAt'].replace('Z','+00:00'))
+            return sold.tzinfo is not None and bought<sold<=datetime.now(timezone.utc)
+        # DEGIRO CH receipts print a local wall clock; use it only for ordering,
+        # never manufacture an execution UTC timestamp or a quote timestamp.
+        sold=datetime.strptime(receipt['executedLocal'],'%d.%m.%Y %H:%M:%S')
+        return bought.astimezone(ZoneInfo('Europe/Zurich')).replace(tzinfo=None)<sold<=datetime.now(ZoneInfo('Europe/Zurich')).replace(tzinfo=None)
+    except (KeyError,TypeError,ValueError):return False
+
+
+def reconcile_sales(conn):
+    """Authenticated mailbox evidence ends monitoring; never submits an order."""
+    rows=conn.execute('SELECT id,snapshot FROM bob_real_trades WHERE active=TRUE FOR UPDATE').fetchall()
+    if not rows:return 0
+    receipts=conn.execute('SELECT message_id,payload FROM bob_trade_email_import ORDER BY imported_at DESC LIMIT 100').fetchall()
+    count=0
+    for mid,payload in receipts:
+        receipt=payload.get('result') or {}
+        candidates=[row for row in rows if (row[1].get('product') or {}).get('isin')==receipt.get('isin')]
+        if len(candidates)!=1:continue
+        matches=[(tid,snap) for tid,snap in candidates if sale_matches(snap,receipt)]
+        if len(matches)!=1:continue
+        # One broker sale may not consume two Bob positions, including on retry.
+        prior=conn.execute("SELECT id FROM bob_real_trades WHERE snapshot->'exitReceipt'->>'orderIdDigest'=%s LIMIT 1",(receipt['orderIdDigest'],)).fetchone()
+        if prior:continue
+        tid,snapshot=matches[0]
+        snapshot={**snapshot,'active':False,'closedAt':datetime.now(timezone.utc).isoformat(),
+          'exitReceipt':{**receipt,'messageId':mid,'source':'Automatisch zugeordnete weitergeleitete DEGIRO-Verkaufsbestätigung'},
+          'closureSource':'sale-email','monitoringStatus':'closed'}
+        conn.execute('''UPDATE bob_real_trades SET active=FALSE,snapshot=%s::jsonb,
+          settings=jsonb_set(settings,'{trade}','null'::jsonb),
+          state=state-'trade',updated_at=now() WHERE id=%s''',(json.dumps(snapshot),tid))
+        event(conn,tid,'sale-email-monitoring-closed',snapshot['exitReceipt'],receipt['orderIdDigest'])
+        rows=[row for row in rows if row[0]!=tid];count+=1
+    if count:sync_devices(conn)
+    return count
+
+
+def device_plan(settings, active, journals, closed=()):
     """Private single-owner Bob: attach only opted-in idle devices, never replace another trade."""
     settings=dict(settings or {'timeframe':'15m','trailAtr':1.5})
     linked=settings.get('journalTradeId')
     current=(settings.get('trade') or {}).get('tradeId')
+    if current in closed:
+        settings.pop('journalTradeId',None)
+        settings['trade']=None
+        return settings,False
     if linked and current==linked and linked not in journals:
         settings.pop('journalTradeId',None)
         settings['trade']=None
@@ -218,11 +275,20 @@ def sync_devices(conn):
     # Same authenticated private application scope as the journal. Opt-outs are never changed.
     journals={tid:(settings,state) for tid,settings,state in conn.execute(
         'SELECT id,settings,state FROM bob_real_trades WHERE active=TRUE').fetchall()}
-    rows=conn.execute('SELECT id,active_trade,background_config FROM subscriptions WHERE trade_enabled=TRUE FOR UPDATE').fetchall()
-    for sid,active,settings in rows:
-        selected=device_plan(settings,active,journals)
+    closed={tid for tid, in conn.execute("SELECT id FROM bob_real_trades WHERE active=FALSE AND COALESCE((snapshot->>'recordOnly')::boolean,FALSE)=FALSE").fetchall()}
+    if closed:
+        conn.execute('''UPDATE subscriptions SET trade_monitor=NULL,active_trade=FALSE,updated_at=now()
+          WHERE trade_monitor->>'tradeId'=ANY(%s)
+          AND (background_config->'trade'->>'tradeId' IS NULL
+               OR background_config->'trade'->>'tradeId'=trade_monitor->>'tradeId')''',(list(closed),))
+    rows=conn.execute('SELECT id,active_trade,background_config,trade_enabled FROM subscriptions FOR UPDATE').fetchall()
+    for sid,active,settings,enabled in rows:
+        if not enabled and ((settings or {}).get('trade') or {}).get('tradeId') not in closed:continue
+        selected=device_plan(settings,active,journals,closed)
         if selected is None:continue
         updated,new_active=selected
         if updated==settings and active==new_active:continue
-        conn.execute('UPDATE subscriptions SET background_config=%s::jsonb,active_trade=%s,updated_at=now() WHERE id=%s',
-                     (json.dumps(updated),new_active,sid))
+        conn.execute('''UPDATE subscriptions SET background_config=%s::jsonb,active_trade=%s,
+          background_state=CASE WHEN %s THEN background_state ELSE background_state-'trade'-'journalConnected' END,
+          trade_monitor=CASE WHEN %s THEN trade_monitor ELSE NULL END,updated_at=now() WHERE id=%s''',
+                     (json.dumps(updated),new_active,new_active,new_active,sid))

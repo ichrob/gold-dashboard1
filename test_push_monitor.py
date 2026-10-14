@@ -159,9 +159,9 @@ class PushMonitorTests(unittest.TestCase):
         with patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'),patch.object(push_server,'db',db):
             status,res=self.request('/preferences',dict(endpoint='fixture',activeTrade=True,trade=True,fibonacciMonitor=monitor))
             self.assertEqual(status,200);self.assertEqual(res['fibonacciMonitor'],'active')
-            params=conn.execute.call_args.args[1];self.assertEqual(json.loads(params[3])['processedAt'],old['processedAt'])
+            params=next(call.args[1] for call in reversed(conn.execute.call_args_list) if 'SET general_enabled' in call.args[0]);self.assertEqual(json.loads(params[3])['processedAt'],old['processedAt'])
             status,res=self.request('/preferences',dict(endpoint='fixture',activeTrade=False,trade=True))
-            self.assertEqual(res['fibonacciMonitor'],'inactive');self.assertIsNone(conn.execute.call_args.args[1][3])
+            self.assertEqual(res['fibonacciMonitor'],'inactive');self.assertIsNone(next(call.args[1] for call in reversed(conn.execute.call_args_list) if 'SET general_enabled' in call.args[0])[3])
     def test_unknown_subscription_not_confirmed(self):
         db,conn=self.connection();conn.execute.return_value.fetchone.return_value=None
         with patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'),patch.object(push_server,'db',db):

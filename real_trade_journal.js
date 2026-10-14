@@ -42,6 +42,9 @@
  async function loadPurchases(){
   const root=el('purchaseList');if(!root)return;
   try{await flush();if(queue.length||busy)return;const r=await request('read',{});root.replaceChildren();
+   const current=window.BobTradeSync?.current();
+   const closed=r.trades.find(t=>!t.active&&!t.snapshot.recordOnly&&t.id===current?.tradeId);
+   if(closed&&window.BobTradeSync?.close({...closed.snapshot,active:false})){el('purchaseStatus').textContent='Trade geschlossen · Trade-Push und Überwachung beendet. Verlauf unter Lernen → Echter Trade.';}
    const active=r.trades.filter(t=>t.active&&!t.snapshot.recordOnly);
    if(active.length===1&&window.BobTradeSync?.restore(active[0].snapshot)){el('purchaseStatus').textContent='Überwachung vom Server übernommen · Stopp und Ziel werden automatisch aktualisiert.';return;}
    for(const t of r.trades.filter(t=>t.snapshot.recordOnly&&!t.snapshot.consumed)){

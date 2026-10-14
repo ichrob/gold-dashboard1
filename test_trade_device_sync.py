@@ -16,6 +16,11 @@ class DevicePlanTest(unittest.TestCase):
     def test_closed_link_detaches(self):
         cfg,on=device_plan({'trade':self.plan,'journalTradeId':'real-1'},True,{})
         self.assertFalse(on);self.assertIsNone(cfg['trade'])
+    def test_closed_unlinked_trade_also_detaches(self):
+        cfg,on=device_plan({'trade':self.plan},True,{}, {'real-1'})
+        self.assertFalse(on);self.assertIsNone(cfg['trade'])
+    def test_closed_trade_does_not_replace_a_new_position(self):
+        self.assertIsNone(device_plan({'trade':{'tradeId':'other'}},True,{}, {'real-1'}))
     def test_device_selected_other_trade_untouched(self):
         self.assertIsNone(device_plan({'trade':{'tradeId':'other'},'journalTradeId':'real-1'},True,self.j))
     def test_central_stop_never_loosened(self):

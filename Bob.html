@@ -3039,6 +3039,15 @@ async function activateProductTrade(values,purchase=null){
 window.activateProductTrade=activateProductTrade;
 window.BobTradeSync={
  current:()=>JSON.parse(JSON.stringify(tradeMgmt)),
+ close(snapshot){
+  if(snapshot?.active!==false||!snapshot.tradeId||snapshot.tradeId!==tradeMgmt.tradeId||tradeMgmt.test||!tradeMgmt.active)return false;
+  tradeMgmt={...tradeMgmt,...snapshot,active:false,fibonacciMonitor:null};
+  localStorage.setItem('goldScannerTradeMgmt',JSON.stringify(tradeMgmt));
+  if(typeof navigator!=='undefined'&&navigator.serviceWorker)navigator.serviceWorker.ready.then(reg=>reg.active?.postMessage({type:'BOB_TRADE_CLOSED',tradeId:snapshot.tradeId})).catch(()=>{});
+  pushState=BobPush.setActiveTrade(false);renderPush();
+  renderActiveTradePlan();renderPositionStatus();restoreTradeMgmt();
+  syncPushPreferences();return true;
+ },
  restore(snapshot){
   if(!snapshot?.active||snapshot.recordOnly||!snapshot.product||tradeMgmt.test)return false;
   if(tradeMgmt.active&&tradeMgmt.tradeId!==snapshot.tradeId)return false;

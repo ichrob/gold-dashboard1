@@ -383,7 +383,9 @@ def run_background(bundle):
         learning_policy=rule_learning.policy(conn)
         bundle={**bundle,'learningPolicy':learning_policy}
         try:
-            with conn.transaction():real_trade_journal.sync_devices(conn)
+            with conn.transaction():
+                real_trade_journal.reconcile_sales(conn)
+                real_trade_journal.sync_devices(conn)
         except Exception as exc:
             print('BOB_REAL_TRADE device_sync_failed='+type(exc).__name__,flush=True)
         rows = conn.execute("SELECT id, subscription, general_enabled, trade_enabled, active_trade, background_config, background_state, selection_evidence, product_selection FROM subscriptions WHERE (general_enabled=TRUE OR (trade_enabled=TRUE AND active_trade=TRUE)) AND background_config IS NOT NULL FOR UPDATE").fetchall()
@@ -603,6 +605,7 @@ class Handler(BaseHTTPRequestHandler):
                             (message_id,json.dumps({"version":trade_email_import.VERSION,
                                 "result":safe,"receivedAt":int(time.time()*1000)}))).fetchone()
                         result={"ok":True,"new":bool(inserted)}
+                        real_trade_journal.reconcile_sales(conn)
                     conn.commit()
                 send_json(self,200,result);return
             if path in ('/real-trades/read','/real-trades/write'):
@@ -794,6 +797,7 @@ class Handler(BaseHTTPRequestHandler):
                           product_selection=CASE WHEN %s THEN product_selection ELSE NULL END, updated_at=now()
                       WHERE endpoint=%s
                     """, (general, trade, active, json.dumps(monitor) if monitor else None, general, endpoint))
+                    real_trade_journal.sync_devices(conn)
                     conn.commit()
                 send_json(self, 200, {"ok": True, "fibonacciMonitor": "active" if monitor else "inactive", "backgroundEnabled": settings is not None, "backgroundTrade": (background_state or {}).get("trade"), "continuedCalculation": (background_state or {}).get("continuedCalculation")})
                 return

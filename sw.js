@@ -1,4 +1,4 @@
-const CACHE_VERSION = "bob-shell-v24";
+const CACHE_VERSION = "bob-shell-v25";
 
 self.addEventListener("install", event => { self.skipWaiting(); });
 self.addEventListener("activate", event => {
@@ -21,7 +21,7 @@ self.addEventListener("push", event => {
     tag: data.tag || "bob",
     renotify: Boolean(data.renotify),
     requireInteraction: Boolean(data.requireInteraction),
-    data: { url: details.url || "/", kind: details.kind || "general", signalId: details.signalId || null }
+    data: { url: details.url || "/", kind: details.kind || "general", signalId: details.signalId || null, tradeId:details.tradeId||null }
   };
   event.waitUntil((async()=>{
     if(Number.isFinite(details.expiresAt)&&Date.now()>=details.expiresAt)return;
@@ -33,6 +33,7 @@ self.addEventListener("push", event => {
       const cache=await caches.open('bob-push-settings');
       const response=await cache.match('/__bob_push_preferences__');
       const prefs=response?await response.json():{};
+      if(details.tradeId&&await cache.match('/__bob_closed_trade__/'+encodeURIComponent(details.tradeId)))return;
       if(!prefs.trade)return;
       // Server-journal plans are shared across this private Bob account.
       // Keep the device opt-out and protect a different locally active trade.
@@ -71,6 +72,13 @@ self.addEventListener("message", event => {
     await cache.put('/__bob_push_preferences__',new Response(JSON.stringify({general,trade,activeTrade,tradeId:event.data.tradeId||null})));
     if(!trade||!activeTrade){const notices=await self.registration.getNotifications();notices.filter(n=>n.data?.kind==='trade').forEach(n=>n.close());}
     if(!general){const notifications=await self.registration.getNotifications({tag:'bob-product-selection'});notifications.forEach(n=>n.close());}
+  })());
+  if(event.data?.type==='BOB_TRADE_CLOSED'&&typeof event.data.tradeId==='string')event.waitUntil((async()=>{
+    const cache=await caches.open('bob-push-settings');
+    const id=event.data.tradeId;
+    await cache.put('/__bob_closed_trade__/'+encodeURIComponent(id),new Response('closed'));
+    const notices=await self.registration.getNotifications();
+    notices.filter(n=>n.data?.kind==='trade'&&n.data.tradeId===id).forEach(n=>n.close());
   })());
 });
 
