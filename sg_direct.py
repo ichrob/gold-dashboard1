@@ -7,6 +7,7 @@ import copy
 import re
 import threading
 import time
+from urllib.error import HTTPError
 from zoneinfo import ZoneInfo
 from datetime import datetime, timezone
 import product_quotes as q
@@ -16,6 +17,7 @@ _LOCK = threading.Lock()
 _PRODUCT_LOCKS = {}
 _CACHE = {}
 _TERMS = {}
+_MARKETS = {}  # Exact ISIN -> market, only after validated issuer properties.
 INTERVAL = 30
 
 
@@ -237,7 +239,8 @@ def associate_shared_observation(result):
 
 
 def get_quote(isin, terms_only=False):
-    origin = q.sg_market(isin)[0]
+    market = _MARKETS.get(isin, q.sg_market(isin))
+    origin = market[0]
     if isin not in q.SG_DIRECT_PRODUCTS and isin not in q.SG_DISCOVERY_PRODUCTS and not q.sg_on_demand_candidate(isin):
         return q.sg_disabled(isin)
     # Serialize per product; a slow source for one ISIN must not block all others.
@@ -249,18 +252,30 @@ def get_quote(isin, terms_only=False):
             return refresh_evidence(cached[1])
         result = dict(found=False, eligible=False, fresh=False, productVerified=False,
                       isin=isin, source='Société Générale · Direktimport',
-                      sourceUrl=q.sg_market(isin)[0]+'product-details/'+isin.lower(),
+                      sourceUrl=origin+'product-details/'+isin.lower(),
                       importActive=True, refreshIntervalSeconds=INTERVAL, analysisMaxAgeSeconds=300,
                       checkedAt=datetime.now(timezone.utc).isoformat())
         stage = 'identity'
         try:
             terms = _TERMS.get(isin)
             if terms and time.monotonic()-terms[0] < INTERVAL:
-                product, properties, observed_at = terms[1:]
+                product, properties, observed_at, market = terms[1:]
+                origin = market[0]
             else:
-                origin = q.sg_market(isin)[0]
+                origin = market[0]
                 base = origin+'EmcWebApi/api/'
-                product = q.issuer_json(base+'Products/'+isin, origin, timeout=12)
+                try:
+                    product = q.issuer_json(base+'Products/'+isin, origin, timeout=12)
+                except HTTPError as exc:
+                    # Only a missing identity permits one other public market.
+                    # Never retry access denials or accept a wrong-channel reply.
+                    known = isin in q.SG_DIRECT_PRODUCTS or isin in q.SG_DISCOVERY_PRODUCTS
+                    if exc.code != 404 or known or market[1] != 'CBDE':
+                        raise
+                    market = ('https://www.sg-zertifikate.ch/', 'CBSW', 'CHF')
+                    origin = market[0]
+                    base = origin+'EmcWebApi/api/'
+                    product = q.issuer_json(base+'Products/'+isin, origin, timeout=12)
                 expected_id = q.SG_DIRECT_PRODUCTS.get(isin)
                 if (product.get('Isin') != isin or type(product.get('Id')) is not int
                         or product['Id'] <= 0
@@ -278,10 +293,13 @@ def get_quote(isin, terms_only=False):
                     return result
                 stage = 'properties'
                 properties = q.issuer_json(base+'Products/AllProperties/'+str(product['Id']), origin, timeout=12)
-                q.parse_sg(product, properties, isin)
+                q.parse_sg(product, properties, isin, market=market)
+                if len(_MARKETS) >= 256 and isin not in _MARKETS:
+                    _MARKETS.pop(next(iter(_MARKETS)))
+                _MARKETS[isin] = market
                 observed_at = datetime.now(timezone.utc).isoformat()
-                _TERMS[isin] = (time.monotonic(), product, properties, observed_at)
-            result.update(q.parse_sg(product, properties, isin))
+                _TERMS[isin] = (time.monotonic(), product, properties, observed_at, market)
+            result.update(q.parse_sg(product, properties, isin, market=market))
             # UI uses normalized 1=active / 2=ended, not SG's bit flags (65).
             result['metadata']['sgStatus'] = product['Status']
             result['metadata']['status'] = (2 if product['Status'] & (2|8|16|32)
@@ -297,7 +315,7 @@ def get_quote(isin, terms_only=False):
                 stage = 'dated-quotes'
                 points = q.issuer_json(origin+'EmcWebApi/api/Prices/Live?productId='+str(product['Id']), origin, timeout=12)
                 chart = q.parse_sg_chart_research(product, points, isin,
-                    verified_id=product['Id'] if (isin in q.SG_DISCOVERY_PRODUCTS or q.sg_on_demand_candidate(isin)) else None)
+                    verified_id=product['Id'] if (isin in q.SG_DISCOVERY_PRODUCTS or q.sg_on_demand_candidate(isin)) else None, market=market)
                 result['chartEvidence'] = chart['chartEvidence']
                 associate_shared_observation(result)
                 result['reason'] = ('SG-Direktimport aktiv (30 s): Stammdaten übernommen; '

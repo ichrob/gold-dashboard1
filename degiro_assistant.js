@@ -1998,6 +1998,7 @@ function productUploadCards(products,direction,now=Date.now(),flow=null,context=
 
 // Original list images live in IndexedDB, independently of Android's file picker.
 let listArchive=null,listArchiveUrls=[],productArchivePayload='';
+let listRevision=0,listRecoveryBusy=false,listRecoveryAttempt=null;
 const LIST_DAY_KEY='bobDegiroListDayV1'; // Legacy upload date: never expires a saved list.
 function zurichListDay(now=Date.now()){
  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Zurich',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now));
@@ -2044,12 +2045,56 @@ function showListArchive(){
 }
 async function saveListArchive(files,items){
  if(!Array.isArray(items)||!items.some(p=>validIsin(p?.isin)))throw Error('Keine gültige Produkt-ISIN erkannt. Alte Liste bleibt erhalten.');
+ listRevision++;
  const record={files:files.map(file=>({name:file.name,blob:file})),items,storedAt:new Date().toISOString()};
  await archiveTransaction('readwrite',store=>{store.put(JSON.stringify({version:2,products:items.map(cleanStoredProduct).filter(Boolean),listUploadedAt:record.storedAt}),'products');return store.put(record,'list');});
  localStorage.setItem(LIST_DAY_KEY,zurichListDay(Date.parse(record.storedAt)).day);
  listArchive=record;showListArchive();
  // Best effort: storage persistence does not change quote/evidence timestamps.
  try{navigator.storage?.persist?.().catch(()=>{});}catch(_){}
+}
+async function recoverArchivedList(recognize=recognizeOcr,progress=()=>{}){
+ const original=listArchive,revision=listRevision,now=Date.now();
+ if(listRecoveryBusy||!original?.files?.length||!original.items?.some(x=>!validIsin(x.isin)))return null;
+ if(listRecoveryAttempt?.at===original.storedAt&&now-listRecoveryAttempt.time<30*60*1000)return null;
+ listRecoveryAttempt={at:original.storedAt,time:now};listRecoveryBusy=true;
+ try{
+  const reread=await readListBatch(original.files.map(x=>x.blob),recognize,progress);
+  if(original!==listArchive||revision!==listRevision)return null;
+  const known=original.items.filter(x=>validIsin(x.isin));
+  // A reread may repair rows, never remove or exchange previously valid IDs.
+  if(known.some(x=>!reread.some(y=>y.isin===x.isin)))return null;
+  const ids=reread.filter(x=>validIsin(x.isin)).map(x=>x.isin);
+  let repaired=0;
+  const items=original.items.map(x=>{
+   if(validIsin(x.isin))return x;
+   const recovered=recoverOcrIsins(x.isin,ids.join('\n')).text;
+   const match=reread.find(y=>y.isin===recovered);
+   if(!match||!validIsin(recovered)||known.some(y=>y.isin===recovered)||!x.direction||match.direction!==x.direction)return x;
+   repaired++;
+   return {isin:recovered,name:match.name,direction:match.direction,originalIsin:x.isin,
+    isinConfirmed:false,identityCorrection:'Automatische Zweitlesung des gespeicherten Originalbildes; Emittentenprüfung folgt'};
+  });
+  if(!repaired||new Set(items.map(x=>x.isin)).size!==items.length)return null;
+  const existing=loadIdentities();
+  const rows=items.map(x=>existing.find(y=>y.isin===x.isin)||cleanStoredProduct(x)).filter(Boolean);
+  const record={...original,items,recovery:{checkedAt:new Date().toISOString(),corrected:repaired}};
+  const payload=JSON.stringify({version:2,products:rows,listUploadedAt:original.storedAt});
+  let committed=false;
+  await archiveTransaction('readwrite',store=>{
+   const request=store.get('list');
+   request.onsuccess=()=>{
+    if(original!==listArchive||revision!==listRevision||request.result?.storedAt!==original.storedAt)return;
+    store.put(record,'list');store.put(payload,'products');committed=true;
+   };
+   return request;
+  });
+  if(!committed||original!==listArchive||revision!==listRevision)return null;
+  listArchive=record;
+  localStorage.setItem(PRODUCT_STORE_KEY,payload);
+  // The original upload date and all valid rows' evidence stay unchanged.
+  return {rows,corrected:repaired};
+ }finally{listRecoveryBusy=false;}
 }
 async function restoreListArchive(){
  try{
@@ -3339,7 +3384,7 @@ async function inject(){
    finally{input.value='';input.disabled=activeProductImports.has(i);rankUI();}
   });
   r.querySelector('[data-research]').addEventListener('click',()=>enrichProduct(i));
-  r.querySelectorAll('[data-dg]').forEach(el=>el.addEventListener('input',()=>{if(el.dataset.dg!=="confirmed"){combinedReferences.delete(i);productQuotes.delete(i);futureResearchQuotes.delete(i);if(["isin","dir"].includes(el.dataset.dg)){detailScreenshots.delete(i);}else if(["price","lev","ko","spread"].includes(el.dataset.dg)){}rowVersions.set(i,(rowVersions.get(i)||0)+1);if(el.dataset.dg==="isin"){combinedDrafts.delete(i);resetCombinedForm(i);}}rankUI();}));
+  r.querySelectorAll('[data-dg]').forEach(el=>el.addEventListener('input',()=>{listRevision++;if(el.dataset.dg!=="confirmed"){combinedReferences.delete(i);productQuotes.delete(i);futureResearchQuotes.delete(i);if(["isin","dir"].includes(el.dataset.dg)){detailScreenshots.delete(i);}else if(["price","lev","ko","spread"].includes(el.dataset.dg)){}rowVersions.set(i,(rowVersions.get(i)||0)+1);if(el.dataset.dg==="isin"){combinedDrafts.delete(i);resetCombinedForm(i);}}rankUI();}));
  }
  await restoreListArchive();
  const restoredProducts=loadIdentities();
@@ -3375,6 +3420,7 @@ async function inject(){
  uploadButton.addEventListener('click',()=>upload.click());
  upload.addEventListener('change',async()=>{
   if(!upload.files?.length)return;
+  listRevision++; // Invalidate an older asynchronous reread immediately.
   uploadButton.disabled=true;upload.disabled=true;
   try{
    const files=await retainSelectedImages(upload);
@@ -3397,8 +3443,22 @@ async function inject(){
    // ordinary 60-second cadence. Never send removed ISINs from the old list.
    refreshImportedProducts(true).then(()=>refreshImportedProducts());
   }catch(e){uploadStatus.textContent='⚠️ '+(e?.message||'Bilder konnten nicht gelesen werden')+' Die bisherige Produktliste bleibt erhalten.';}
-  finally{upload.value='';upload.disabled=false;uploadButton.disabled=false;}
+  finally{upload.value='';upload.disabled=false;uploadButton.disabled=false;setTimeout(retrySavedList,1000);}
  });
+ const retrySavedList=async()=>{
+  if(document.hidden||upload.disabled||activeProductImports.size)return;
+  try{
+   const recovered=await recoverArchivedList(recognizeOcr);
+   if(!recovered)return;
+   restoreProductRows(recovered.rows);rankUI();
+   uploadStatus.textContent='✅ '+recovered.corrected+' Produktkennung(en) aus gespeicherten Originalbildern automatisch korrigiert. Ursprüngliche Bildzeit bleibt erhalten; Produktdaten werden erneut geprüft.';
+   window.BobPaperSimulation?.sync?.(buildPaperListEvidence(),true);
+   await refreshImportedProducts(true);
+  }catch(_){uploadStatus.textContent='⚠️ Automatische Zweitlesung noch nicht erfolgreich. Gespeicherte Liste bleibt erhalten; Bob versucht es später erneut.';}
+ };
+ setTimeout(retrySavedList,1000);
+ setInterval(retrySavedList,30*60*1000);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)retrySavedList();});
  // Navigation can move this button while restoreListArchive() is awaiting IndexedDB.
  document.getElementById("dgRankBtn").addEventListener("click",async e=>{const button=e.currentTarget;button.disabled=true;rankUI();try{await refreshImportedProducts(true);}finally{button.disabled=false;rankUI();}});
  setInterval(()=>{if(!document.hidden){rankUI();refreshImportedProducts();}},10000);
@@ -3591,7 +3651,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={recoverArchivedList,productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 

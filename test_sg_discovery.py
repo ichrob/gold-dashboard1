@@ -2,6 +2,7 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 import product_quotes as quotes
 import sg_direct
@@ -11,6 +12,7 @@ class SGDiscoveryTests(unittest.TestCase):
     def setUp(self):
         sg_direct._CACHE.clear()
         sg_direct._TERMS.clear()
+        sg_direct._MARKETS.clear()
         self.time = (datetime.now(timezone.utc) - timedelta(seconds=2)).isoformat()
         self.points = [{'Bid': 8.0, 'Ask': 8.01, 'Date': self.time}]
 
@@ -37,6 +39,43 @@ class SGDiscoveryTests(unittest.TestCase):
         self.assertEqual(quotes.sg_market('DE000FG7N6Z2')[1:], ('CBDE', 'EUR'))
         self.assertEqual(quotes.sg_market('DE000FG8NHQ3')[1:], ('CBSW', 'CHF'))
         self.assertEqual(quotes.sg_market('DE000FG7K275')[1:], ('CBDE', 'EUR'))
+
+    def test_unknown_swiss_product_is_discovered_and_remembered(self):
+        isin = 'DE000FG5GUP8'
+        product, props = self.fixture(isin, 'CBSW', 'CHF', 8162999)
+        missing = HTTPError('https://www.sg-zertifikate.de/', 404, 'Not found', {}, None)
+        with patch.object(quotes, 'issuer_json', side_effect=[missing, product, props, self.points]) as fetch:
+            got = sg_direct.get_quote(isin)
+        self.assertTrue(got['productVerified'])
+        self.assertEqual(got['metadata']['currency'], 'CHF')
+        self.assertEqual(got['chartEvidence']['currency'], 'CHF')
+        self.assertIn('sg-zertifikate.ch', got['sourceUrl'])
+        self.assertEqual(fetch.call_count, 4)
+        self.assertFalse(got['eligible'])
+        sg_direct._CACHE.clear()
+        sg_direct._TERMS.clear()
+        with patch.object(quotes, 'issuer_json', side_effect=[product, props, self.points]) as fetch:
+            sg_direct.get_quote(isin)
+        self.assertIn('sg-zertifikate.ch', fetch.call_args_list[0].args[0])
+        self.assertEqual(fetch.call_count, 3)
+
+    def test_access_denial_does_not_try_other_country(self):
+        isin = 'DE000FG5GUP8'
+        denied = HTTPError('https://www.sg-zertifikate.de/', 403, 'Forbidden', {}, None)
+        with patch.object(quotes, 'issuer_json', side_effect=denied) as fetch:
+            got = sg_direct.get_quote(isin)
+        self.assertEqual(fetch.call_count, 1)
+        self.assertFalse(got['productVerified'])
+        self.assertNotIn(isin, sg_direct._MARKETS)
+
+    def test_bad_swiss_fallback_never_establishes_market(self):
+        isin = 'DE000FG5GUP8'
+        product, props = self.fixture(isin, 'CBSW', 'EUR', 8162999)
+        missing = HTTPError('https://www.sg-zertifikate.de/', 404, 'Not found', {}, None)
+        with patch.object(quotes, 'issuer_json', side_effect=[missing, product, props]):
+            got = sg_direct.get_quote(isin)
+        self.assertFalse(got['productVerified'])
+        self.assertNotIn(isin, sg_direct._MARKETS)
 
     def test_october_14_list_routes_to_verified_sg_market(self):
         for isin, venue, currency, product_id in (
