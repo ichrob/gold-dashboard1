@@ -3387,7 +3387,8 @@ async function inject(){
   }catch(e){uploadStatus.textContent='⚠️ '+(e?.message||'Bilder konnten nicht gelesen werden')+' Die bisherige Produktliste bleibt erhalten.';}
   finally{upload.value='';upload.disabled=false;uploadButton.disabled=false;}
  });
- b.querySelector("#dgRankBtn").addEventListener("click",async e=>{const button=e.currentTarget;button.disabled=true;rankUI();try{await refreshImportedProducts(true);}finally{button.disabled=false;rankUI();}});
+ // Navigation can move this button while restoreListArchive() is awaiting IndexedDB.
+ document.getElementById("dgRankBtn").addEventListener("click",async e=>{const button=e.currentTarget;button.disabled=true;rankUI();try{await refreshImportedProducts(true);}finally{button.disabled=false;rankUI();}});
  setInterval(()=>{if(!document.hidden){rankUI();refreshImportedProducts();}},10000);
  document.addEventListener('visibilitychange',()=>{if(!document.hidden){rankUI();refreshImportedProducts();updateScreenshotReturn(true);}});
  window.addEventListener('online',()=>refreshImportedProducts());
