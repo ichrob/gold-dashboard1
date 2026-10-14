@@ -409,16 +409,17 @@ def run_background(bundle):
                 print('BOB_AUDIT write_failed='+type(exc).__name__,flush=True)
             state, events = background_push.advance(previous, settings, market, general, trade and active)
             linked=settings.get('journalTradeId')
-            if trade and active and linked and (previous or {}).get('journalConnected')!=linked:
+            if trade and active and linked and (previous or {}).get('journalConnected')!=linked+':v2':
                 events.append({'title':'BOB · Trade-Push verbunden',
                     'body':'Der gespeicherte Trade ist jetzt mit diesem Gerät verbunden. Stopp, Ziel und KO werden auf dem Server überwacht. Keine automatische DEGIRO-Order.',
                     'tag':'bob-trade-connected-'+linked,
-                    'data':{'kind':'trade','eventKind':'trade-connected','tradeId':linked,'url':'/#trade','expiresAt':int(time.time()*1000)+180000}})
-                state['journalConnected']=linked
+                    'data':{'kind':'trade','eventKind':'trade-connected','test':True,'tradeId':linked,'url':'/#trade','expiresAt':int(time.time()*1000)+180000}})
+                state['journalConnected']=linked+':v2'
             delivered = True
             if events:
                 # One delivery/checkpoint per device, so a failure cannot consume an alert.
                 message = background_push.compose_events(events)
+                if linked:message['data']['journalManaged']=True
                 at=market.get('dataAt')
                 if at:
                     from datetime import datetime

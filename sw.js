@@ -1,4 +1,4 @@
-const CACHE_VERSION = "bob-shell-v23";
+const CACHE_VERSION = "bob-shell-v24";
 
 self.addEventListener("install", event => { self.skipWaiting(); });
 self.addEventListener("activate", event => {
@@ -33,8 +33,12 @@ self.addEventListener("push", event => {
       const cache=await caches.open('bob-push-settings');
       const response=await cache.match('/__bob_push_preferences__');
       const prefs=response?await response.json():{};
-      if(!prefs.trade||(!details.test&&!prefs.activeTrade))return;
-      if(!details.test&&details.tradeId&&details.tradeId!==prefs.tradeId)return;
+      if(!prefs.trade)return;
+      // Server-journal plans are shared across this private Bob account.
+      // Keep the device opt-out and protect a different locally active trade.
+      const journal=details.journalManaged===true&&typeof details.tradeId==='string'&&!!details.tradeId;
+      if(!details.test&&!journal&&!prefs.activeTrade)return;
+      if(!details.test&&details.tradeId&&details.tradeId!==prefs.tradeId&&(!journal||prefs.activeTrade))return;
     }
     if(String(details.kind||'').startsWith('product-')){
       const cache=await caches.open('bob-push-settings');
