@@ -13,6 +13,7 @@ import re
 import time
 from datetime import datetime, timezone
 from email.utils import parseaddr
+from html.parser import HTMLParser
 from zoneinfo import ZoneInfo
 
 VERSION = "degiro-email-staging-v1"
@@ -177,6 +178,38 @@ def parse_confirmation(subject, text):
             "priceEur":price, "executedAt":timestamp}
 
 
+def confirmation_html_text(raw):
+    """Read table text locally, without executing HTML or loading resources."""
+    if not isinstance(raw, str) or len(raw) > MAX_BODY:
+        return ""
+
+    class TextReader(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.parts = []
+            self.skip = 0
+
+        def handle_starttag(self, tag, attrs):
+            if tag in ("script", "style"):
+                self.skip += 1
+            if not self.skip and tag in ("td", "th", "tr", "p", "div", "br"):
+                self.parts.append("\n")
+
+        def handle_endtag(self, tag):
+            if tag in ("script", "style"):
+                self.skip = max(0, self.skip - 1)
+            if not self.skip and tag in ("td", "th", "tr", "p", "div"):
+                self.parts.append("\n")
+
+        def handle_data(self, data):
+            if not self.skip:
+                self.parts.append(re.sub(r"\s+", " ", data))
+
+    reader = TextReader()
+    reader.feed(raw)
+    return "\n".join(line.strip() for line in "".join(reader.parts).splitlines() if line.strip())
+
+
 def import_event(event, allowed_sender):
     if event.get("type", "event") != "event" or event.get("event_type") != "message.received":
         return {"status":"ignored", "reason":"Kein eingegangener E-Mail-Event"}
@@ -206,7 +239,16 @@ def import_event(event, allowed_sender):
     body = message.get("text") or message.get("extracted_text") or ""
     if not isinstance(body, str):
         body = ""
-    return parse_confirmation(message.get("subject",""), body)
+    # GMX Android forwards can be HTML-only. The extracted reply omits the
+    # quoted broker confirmation, so use the full HTML when text is absent.
+    html_source = not body.strip() and isinstance(message.get("html"), str)
+    if html_source:
+        body = confirmation_html_text(message["html"])
+    result = parse_confirmation(message.get("subject",""), body)
+    if html_source and result.get("status") == "pending-review":
+        result["sourceKind"] = "DEGIRO-execution-email-HTML"
+        result["reason"] = "DEGIRO-HTML-Bestätigung erkannt; Prüfung der Ausführung und Zeitzone erforderlich"
+    return result
 
 
 def init(conn):

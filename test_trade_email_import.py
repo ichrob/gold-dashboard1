@@ -118,5 +118,31 @@ class EmailImportTests(unittest.TestCase):
         self.assertNotIn("activate",str(written).lower())
 
 
+class HtmlForwardTests(unittest.TestCase):
+    def test_html_only_forward_preserves_confirmation(self):
+        rows = [('Order-ID', '11111111-2222-3333-4444-555555555555'),
+                ('Ausführungsdatum', '14.10.2026, 10:54:59'),
+                ('ISIN', 'DE000PJ9NCK0'), ('Auftrag', 'Kauf'),
+                ('Anzahl', '2'), ('Kurs', 'EUR 9.7300')]
+        html = '<div>DEGIRO</div><p>Die folgende Order wurde ausgeführt:</p><table>'
+        html += ''.join('<tr><td>'+k+'</td><td><strong>'+v+'</strong></td></tr>' for k,v in rows)
+        html += '</table><script>Anzahl 999</script><style>ISIN invalid</style>'
+        e = event()
+        e['message'].pop('text')
+        e['message']['html'] = html
+        e['message']['extracted_html'] = '<div>Gesendet mit GMX</div>'
+        r = m.import_event(e, 'forwarder@example.test')
+        self.assertEqual(r['status'], 'pending-review')
+        self.assertEqual((r['quantity'], r['priceEur']), (2, 9.73))
+        self.assertEqual(r['sourceKind'], 'DEGIRO-execution-email-HTML')
+        self.assertFalse(r['activeTrade'])
+        self.assertEqual(m.import_event(e, 'other@example.test')['status'], 'sender-unconfirmed')
+        e['message']['html'] += '<table><tr><td>Anzahl</td><td>3</td></tr></table>'
+        self.assertEqual(m.import_event(e, 'forwarder@example.test')['status'], 'incomplete')
+
+    def test_html_limits(self):
+        self.assertEqual(m.confirmation_html_text('x' * (m.MAX_BODY + 1)), '')
+
+
 if __name__ == "__main__":
     unittest.main()
