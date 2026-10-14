@@ -14,6 +14,12 @@ _lock = threading.Lock()
 _cache = None
 
 def screenshot_interval(raw):
+    # API/issuer timestamps carry an explicit offset; preserve their instant.
+    if re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})', str(raw)):
+        dt = datetime.fromisoformat(str(raw).replace('Z', '+00:00'))
+        start = dt.timestamp()
+        minute_only = bool(re.fullmatch(r'.*T\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})', str(raw)))
+        return start, start+59.999 if minute_only else start
     m = re.fullmatch(r'(\d{2})[./](\d{2})[./](\d{4})[ ,]+(\d{2}):(\d{2})(?::(\d{2}))?', str(raw))
     if not m:
         raise ValueError('Originalzeit mit Datum fehlt')

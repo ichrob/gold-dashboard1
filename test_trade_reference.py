@@ -8,6 +8,12 @@ class ReferenceTests(unittest.TestCase):
         f={'chart':{'result':[{'meta':{'symbol':'EURUSD=X','currency':'USD','instrumentType':'CURRENCY','dataGranularity':'1m'},'timestamp':[s],'indicators':{'quote':[{'close':[1.125745]}]}}]}}
         return s,g,f
 
+    def test_iso_issuer_time_preserves_offset_and_precision(self):
+        start,end=screenshot_interval('2026-10-14T10:55:00+02:00')
+        self.assertEqual((start,end),screenshot_interval('14/10/2026 10:55:00'))
+        a,b=screenshot_interval('2026-10-14T08:55Z')
+        self.assertEqual(a,start);self.assertAlmostEqual(b-a,59.999,places=3)
+
     def test_original_minute_and_inverse(self):
         s,g,f=self.fixture();r=align('02/10/2026 19:49',g,f,s+3600)
         self.assertTrue(r['available']);self.assertFalse(r['isExchangeRealtime'])

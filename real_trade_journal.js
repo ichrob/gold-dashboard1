@@ -35,7 +35,7 @@
    for(const t of r.trades.filter(t=>t.snapshot.recordOnly)){
     const p=t.snapshot.product,e=t.snapshot.purchase,line=document.createElement('p'),b=document.createElement('button');
     line.textContent=p.isin+' · '+t.snapshot.dir+' · '+p.quantity+' Stück zu '+p.entry+' EUR · '+time(e.at)+' · Kauf gespeichert, Überwachung offen. ';
-    b.textContent='Kauf ins Formular übernehmen';b.onclick=()=>{for(const [k,v] of Object.entries({isin:p.isin,entry:p.entry,quantity:p.quantity,direction:t.snapshot.dir})){const input=document.querySelector('[data-exit="'+k+'"]');input.value=v;input.dispatchEvent(new Event('input',{bubbles:true}));}el('purchaseTx').value=e.transactionId;el('purchaseAt').value=e.at;el('purchaseFees').value=e.feesCHF;el('purchaseTotal').value=e.totalCHF;};line.append(b);root.append(line);
+    b.textContent='Kauf ins Formular übernehmen';b.onclick=()=>{for(const [k,v] of Object.entries({isin:p.isin,entry:p.entry,quantity:p.quantity,direction:t.snapshot.dir})){const input=document.querySelector('[data-exit="'+k+'"]');input.value=v;input.dispatchEvent(new Event('input',{bubbles:true}));}el('purchaseTx').value=e.transactionId;el('purchaseAt').value=e.at;el('purchaseFees').value=e.feesCHF;el('purchaseTotal').value=e.totalCHF;window.BobExitEstimate?.automaticTradeReference();};line.append(b);root.append(line);
    }
    if(!root.childNodes.length)root.textContent='Noch keine separat erfassten Käufe.';
   }catch(e){el('purchaseStatus').textContent='Serverkäufe nicht abrufbar: '+e.message;}

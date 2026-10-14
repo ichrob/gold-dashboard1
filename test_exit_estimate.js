@@ -8,3 +8,10 @@ for(const changes of [{ratio:''},{quantity:1.5},{simpleSpotTurbo:false},{referen
 const ko=b.calculate({...p,stopGold:4460});assert(!ko.rows[1].available);assert(ko.rows[1].reason.includes('KO'));
 assert(b.render(x).includes('02/10/2026 15:04'));assert(!b.render(x).includes('15:04:30'));assert(b.render(x).includes('Genauigkeit noch nicht gemessen'));
 console.log('Exit scenarios: long/short, FX, PnL, missing evidence, KO and minute precision passed');
+const issuer={isin:p.isin,productVerified:true,metadata:{status:1,underlyingType:'SPOT',currency:'EUR',direction:'SHORT',ratio:.1,strike:4460,ko:4460},analysisQuote:{bid:20,bidAt:'2026-10-14T08:55:00Z',source:'SG Chart'}};
+const picked=b.issuerTradeFields(issuer,p.isin);assert.equal(picked.ratio,.1);assert.equal(picked.bid,20);assert.equal(picked.referenceAt,'2026-10-14T08:55:00Z');assert(!('entry' in picked));assert(!('referenceConfirmed' in picked));
+assert.throws(()=>b.issuerTradeFields({...issuer,isin:'other'},p.isin));
+assert.throws(()=>b.issuerTradeFields({...issuer,metadata:{...issuer.metadata,underlyingType:'FUTURE'}},p.isin));
+assert.throws(()=>b.issuerTradeFields({...issuer,metadata:{...issuer.metadata,status:2}},p.isin));
+assert(!('bid' in b.issuerTradeFields({...issuer,analysisQuote:{bid:20}},p.isin)));
+console.log('ISIN acquisition keeps identity, quote time and purchase inputs separate');
