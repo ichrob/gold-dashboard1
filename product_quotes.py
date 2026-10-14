@@ -645,6 +645,8 @@ def _get_quote_bounded(isin):
     if valid_isin(isin) and isin not in TERMINAL:
         from comdirect_quotes import get_observation
         get_observation(isin)
+        from swissquote_quotes import get_observation as get_swissquote
+        get_swissquote(isin)
     from finanzen_terms import apply as apply_terms_backup
     from comdirect_fields import apply as apply_comdirect_fields
     result = apply_backup(apply_terms_backup(apply_comdirect_fields(_get_quote_primary(isin), isin), isin), isin)
@@ -660,6 +662,8 @@ def _get_quote_bounded(isin):
             isExecutableQuote=False)
     from comdirect_quotes import apply as apply_comdirect_quotes
     result = apply_comdirect_quotes(result, isin)
+    from swissquote_quotes import apply as apply_swissquote
+    result = apply_swissquote(result, isin)
     from leverage_backup import apply, select_analysis_quote
     selected = select_analysis_quote(result)
     if (selected.get('priceKind') == 'issuer-chart' and result.get('productVerified')

@@ -123,8 +123,10 @@ def apply(result, now=None):
                          delayed=not cfd.get('realtimeCfd',False))
         from sg_quotes import market_input
         native = out.get('nativeChartEvidence') or {}
-        native_quote = None
+        from swissquote_quotes import current_pair
+        native_quote = current_pair(out, supplied_now or datetime.now(timezone.utc))
         if (not out.get('chartEvidence') and native.get('currency') == 'CHF'
+                and native_quote is None
                 and q.number(native.get('bid', 0)) > 0
                 and q.number(native.get('ask', 0)) >= q.number(native['bid'])
                 and native.get('pointAt')):

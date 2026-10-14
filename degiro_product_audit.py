@@ -68,6 +68,7 @@ def _observed_prices(quote, isin, now_ms):
         ("Produktquelle", quote),
         ("SG-Chart", quote.get("chartEvidence")),
         ("Vorhandene Vergleichsquelle", quote.get("secondaryQuote")),
+        ("Dritte Quelle", quote.get("thirdQuote")),
     ]
     seen = set()
     for label, row in variants:
@@ -100,7 +101,7 @@ def _observed_prices(quote, isin, now_ms):
             "ageSeconds": round(max(now_ms - bts, now_ms - ats) / 1000, 1),
             "current": _recent(bid_at, now_ms, QUOTE_MAX_MS)
                        and _recent(ask_at, now_ms, QUOTE_MAX_MS),
-            "isinBound": row.get("isin") == isin if label == "Vorhandene Vergleichsquelle" else
+            "isinBound": row.get("isin") == isin if label in ("Vorhandene Vergleichsquelle", "Dritte Quelle") else
                          quote.get("isin") == isin and quote.get("productVerified") is True,
             "venue": str(row.get("venue") or row.get("exchange") or "")[:80],
             "upstream": row.get("upstream") or ("SG" if chart else None),
@@ -231,6 +232,10 @@ def _condition_value(quote, key, now_ms):
 
 def _backup_pair(quote, isin, now_ms):
     """A dated issuer LiveTrading pair supplies data, never DEGIRO execution."""
+    from swissquote_quotes import current_pair
+    swiss = current_pair(quote, datetime.fromtimestamp(now_ms/1000, timezone.utc))
+    if quote.get('isin') == isin and swiss:
+        return swiss
     from comdirect_quotes import matches_primary
     row = quote.get('secondaryQuote') or {}
     meta = quote.get('metadata') or {}
@@ -388,6 +393,7 @@ def examine(product, quote, now_ms):
         "leverageSourceAt": quote.get("leverageAt") if "leverage-time" not in codes else None,
         "source": str(quote.get("source") or "Emittenten- und Ersatzquellen")[:80],
         "sourceObservations": observations,
+        "thirdSourceEvidence": quote.get("swissquoteBackup"),
         "marketCrossCheck": cross_check,
         "researchLinks": _research_links(isin),
         "issuerVenue": "Swiss DOTS (CHF)" if swiss_dots else None,
