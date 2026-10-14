@@ -21,6 +21,16 @@ def select_analysis_quote(result, now=None):
     quote = result if result.get('found') else result.get('analysisQuote') or {}
     if result.get('eligible'):
         return quote
+    backup = result.get('analysisQuote') or {}
+    try:
+        if (backup.get('priceKind') == 'market-observation'
+                and backup.get('currency') == 'EUR'
+                and 0 < q.number(backup['bid']) <= q.number(backup['ask'])
+                and 0 <= (now-q.stamp(backup['askAt'])).total_seconds() <= 90
+                and (not quote.get('askAt') or q.stamp(backup['askAt']) > q.stamp(quote['askAt']))):
+            quote = backup
+    except (KeyError, TypeError, ValueError):
+        pass
     chart = result.get('chartEvidence') or {}
     try:
         chart_at = q.stamp(chart['pointAt'])
@@ -169,7 +179,7 @@ def apply(result, now=None):
         old = out.get('leverageAt')
         out['leverageComparison'] = compare(out, evidence, supplied_now or datetime.now(timezone.utc))
         prefer_analysis = out.get('backupActive') and evidence['fresh']
-        if not prefer_analysis and old and out.get('leverage') and not out.get('leverageEstimated') and 0 <= (now-q.stamp(old)).total_seconds() <= 90:
+        if old and out.get('leverage') and not out.get('leverageEstimated') and 0 <= (now-q.stamp(old)).total_seconds() <= 90:
             return out
         if not prefer_analysis and old and out.get('leverage') and q.stamp(old) >= q.stamp(evidence['at']):
             return out
