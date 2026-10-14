@@ -134,6 +134,9 @@ def init(conn):
 def sync(conn, payload):
     products=payload.get('products')
     if not isinstance(products,list) or not 0<len(products)<=12:raise ValueError('Produktliste ungültig')
+    # Empty UI slots are not products. Keep nonempty uncertain OCR rows visible.
+    products=[p for p in products if isinstance(p,dict) and
+              (str(p.get('isin') or '').strip() or str(p.get('name') or '').strip())]
     if not any(isinstance(p,dict) and p.get('isin') for p in products):
         return dict(ok=True,products=0,preserved=True)
     # The screenshot upload timestamp tracks the active list generation.
@@ -161,7 +164,7 @@ def sync(conn, payload):
         return dict(ok=True,products=len(previous.get('products') or []),
                     preserved=True, reason='Älterer Screenshot-Stand; neuere Produktliste bleibt aktiv')
     if old_time is not None and new_time==old_time:
-        expected={p.get('isin') for p in previous.get('products') or [] if isinstance(p,dict)}
+        expected={p.get('isin') for p in previous.get('products') or [] if isinstance(p,dict) and p.get('isin')}
         current={p.get('isin') for p in products if isinstance(p,dict) and p.get('isin')}
         if expected!=current:
             return dict(ok=True,products=len(previous.get('products') or []),

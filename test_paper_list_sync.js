@@ -1,0 +1,20 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const html=fs.readFileSync('Bob.html','utf8');
+const source=html.slice(html.indexOf(' let pendingPaperEvidence='),html.indexOf(" document.getElementById('paperDay').value="));
+let calls=[],timers=[],fail=true;
+const ctx={window:{},paperSyncBusy:false,paperSyncAt:0,Date,text(){},clearTimeout(){},setTimeout(fn){timers.push(fn);return timers.length;},api:async(a,p)=>{calls.push(p);if(fail)throw Error('offline');return {ok:true};}};
+vm.createContext(ctx);vm.runInContext(source,ctx);
+(async()=>{
+ const old={products:[{isin:'old'}],listUploadedAt:'2026-10-14T08:00:00Z'};
+ const fresh={products:[{isin:'fresh'}],listUploadedAt:'2026-10-14T09:12:00Z'};
+ assert.equal(await ctx.window.BobPaperSimulation.sync(old,true),false);
+ assert.equal(timers.length,1);
+ fail=false;
+ assert.equal(await ctx.window.BobPaperSimulation.sync(fresh,true),true);
+ await timers[0]();
+ assert.equal(calls.at(-1).listUploadedAt,fresh.listUploadedAt,'retry cannot restore old generation');
+ assert.equal(await ctx.window.BobPaperSimulation.sync(old,true),false);
+ assert.equal(calls.at(-1).listUploadedAt,fresh.listUploadedAt);
+ assert(html.includes('paperRetryTimer=setTimeout'));
+ console.log('List sync retry and generation protection passed');
+})().catch(e=>{console.error(e);process.exit(1)});

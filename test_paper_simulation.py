@@ -99,6 +99,13 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual(conn.invalidations,2,'Same-generation quote updates retain the push-list revision')
         self.assertEqual(conn.current['products'][0]['price'],19,
                          'The same active list may receive newer independently verified quotes')
+        # Legacy snapshots contained all twelve UI slots, including empty rows.
+        conn.current['products'].extend([{'isin':'','name':''},{'isin':None}])
+        self.assertFalse(sim.sync(conn,newer_quote).get('preserved',False))
+        self.assertEqual(len(conn.current['products']),1)
+        padded={**newer_quote,'products':newer_quote['products']+[{'isin':'','name':''}]}
+        self.assertFalse(sim.sync(conn,padded).get('preserved',False))
+        self.assertEqual(len(conn.current['products']),1)
 
     def test_invalid_screenshot_timestamp_rejected(self):
         conn=Mock()
