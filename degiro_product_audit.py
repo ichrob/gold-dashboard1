@@ -19,7 +19,8 @@ CODES = {
     "identity": "Produktidentität beim Emittenten fehlt oder ist widersprüchlich",
     "list-identity": "ISIN-Bestätigung der gespeicherten Produktliste fehlt; Emittentennachweis wird separat geprüft",
     "direction": "Richtung nicht übereinstimmend bestätigt",
-    "underlying": "Gold-Spot-Basiswert oder Produktwährung nicht bestätigt",
+    "underlying": "Gold-Spot-Basiswert nicht bestätigt",
+    "currency": "Produktwährung fehlt, ist nicht unterstützt oder widerspricht der Produktliste",
     "factor": "Faktorprodukt ausgeschlossen",
     "future": "Anderer Basiswert/Future-Kontrakt: nicht als Spotprodukt freigegeben",
     "venue": "Swiss DOTS ist ein eigener, exklusiver OTC-Handelsplatz. Ein Kurs dort ist kein DEGIRO-Ausführungsnachweis; nur eine gesondert belegte DEGIRO-Handelsroute zählt.",
@@ -296,7 +297,7 @@ def examine(product, quote, now_ms):
         and (not snapshot.get('isin') or snapshot['isin'] == isin)
         and (not snapshot.get('direction') or snapshot['direction'] == direction)
         and (not product.get('currency') or product['currency'] ==
-             (quote.get('currency') or metadata.get('currency'))))
+             (metadata.get('currency') or quote.get('currency'))))
     if not valid_isin(isin) or not (product.get('isinConfirmed') or identity_matches):
         missing.append('list-identity')
     # This exact ISIN is independently listed as SG's CHF Swiss DOTS
@@ -304,9 +305,9 @@ def examine(product, quote, now_ms):
     # Swiss DOTS as its exclusive OTC platform. Even an issuer snapshot
     # cannot establish availability at DEGIRO.
     swiss_dots = (
-        isin == "DE000FG8NHQ3" and verified
+        isin in ("DE000FG14AV8", "DE000FG8NHQ3") and verified
         and metadata.get("issuerExchangeCode") == "CBSW"
-        and (quote.get("currency") or metadata.get("currency")) == "CHF"
+        and metadata.get("currency") == "CHF"
     )
     if swiss_dots:
         missing.append("venue")
@@ -323,9 +324,13 @@ def examine(product, quote, now_ms):
     if metadata.get("underlyingType") == "FUTURE":
         missing.append("future")
     if (metadata.get("underlyingType") != "SPOT" or
-            metadata.get("underlying") not in ("XAU/USD", "Gold", "Gold Spot") or
-            (quote.get("currency") or metadata.get("currency")) != "EUR"):
+            metadata.get("underlying") not in ("XAU/USD", "Gold", "Gold Spot")):
         missing.append("underlying")
+    # Product identity uses the native contract currency, never a converted
+    # analysis quote. Both supported currencies can have complete data proofs.
+    native_currency = metadata.get("currency") or quote.get("currency")
+    if native_currency not in ("EUR", "CHF") or (product.get("currency") and product["currency"] != native_currency):
+        missing.append("currency")
     quote_ok = (verified and quote.get("found") is True and
                 quote.get("priceKind") not in ("calculated", "issuer-chart") and
                 quote.get("isExecutableQuote") is not False and
@@ -399,7 +404,7 @@ def examine(product, quote, now_ms):
         "marketCrossCheck": cross_check,
         "researchLinks": _research_links(isin),
         "issuerVenue": "Swiss DOTS (CHF)" if swiss_dots else None,
-        "venueEvidence": "https://www.finanzen.ch/derivate/de000fg8nhq3" if swiss_dots else None,
+        "venueEvidence": "https://www.finanzen.ch/derivate/"+isin.lower() if swiss_dots else None,
         "venueAction": ("Keine Swiss-DOTS-Quotierung als DEGIRO-Kurs verwenden. "
                         "Nur eine bei DEGIRO selbst nachgewiesene Handelsroute "
                         "oder ein dort handelbares EUR-Produkt zum Vergleich heranziehen."
@@ -528,6 +533,6 @@ def public_help_codes(report):
             codes.add("product-leverage-clock-missing")
         if missing & {"ko", "ko-time"}:
             codes.add("product-ko-validity-missing")
-        if missing & {"identity", "list-identity", "direction", "underlying", "strike", "ratio", "maturity"}:
+        if missing & {"identity", "list-identity", "direction", "underlying", "currency", "strike", "ratio", "maturity"}:
             codes.add("product-terms-evidence-missing")
     return sorted(codes & PUBLIC_HELP_CODES)

@@ -664,10 +664,11 @@ def quote_cache(products, active, now):
     # ledgers (ten products otherwise take at least three 30-second cycles).
     # apply() is nonblocking and shares the bounded 30-second source cache.
     from comdirect_quotes import apply as refresh_backup
+    from swissquote_quotes import apply as refresh_third_source
     observations={}
     for isin in isins:
         raw=_quotes.get(isin,by_isin.get(isin))
-        observations[isin]=refresh_backup(raw,isin) if isinstance(raw,dict) else raw
+        observations[isin]=refresh_third_source(refresh_backup(raw,isin),isin) if isinstance(raw,dict) else raw
     return observations
 
 def _worker(db):
