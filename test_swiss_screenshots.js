@@ -213,3 +213,16 @@ for(const mutate of [
  x=>x.quote.productVerified=false
 ]){const bad=JSON.parse(JSON.stringify(chfCurrent));mutate(bad);assert(!b.currentConvertedChfEvidence(bad,now));}
 console.log('Current CHF/FX selection: coherent timestamps and arithmetic, snapshot preservation, market/risk gates passed');
+// A reproducible current calculation replaces only the leverage screenshot.
+const calculatedChf=structuredClone(chfCurrent);
+delete calculatedChf.snapshot.evidence.Hebel;
+calculatedChf.quote.metadata.simpleNonQuantoTurbo=true;
+calculatedChf.quote.metadata.ratio=.01;
+calculatedChf.leverage=4000*.84*.01/nativeAsk;
+calculatedChf.quote.leverage=calculatedChf.leverage;
+calculatedChf.quote.leverageCalculation={available:true,fresh:true,value:calculatedChf.leverage,at,
+ inputs:{basisPriceUsd:4000,usdEur:.84,ratio:.01,askNative:nativeAsk,quoteCurrency:'CHF',askAt:at,basisAt:at,fxDataAt:at,fxEffectiveAt:at}};
+assert.equal(b.currentConvertedChfEvidence(calculatedChf,now)?.leverageKind,'calculated-gearing');
+assert(b.finalProductStatus(calculatedChf,now).complete);
+calculatedChf.quote.leverageCalculation.fresh=false;
+assert(!b.currentConvertedChfEvidence(calculatedChf,now));
