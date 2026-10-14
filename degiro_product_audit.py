@@ -67,7 +67,7 @@ def _observed_prices(quote, isin, now_ms):
     quote = quote if isinstance(quote, dict) else {}
     variants = [
         ("Produktquelle", quote),
-        ("SG-Chart", quote.get("chartEvidence")),
+        ("SG-Chart", quote.get("nativeChartEvidence") or quote.get("chartEvidence")),
         ("Vorhandene Vergleichsquelle", quote.get("secondaryQuote")),
         ("Dritte Quelle", quote.get("thirdQuote")),
     ]
@@ -110,7 +110,7 @@ def _observed_prices(quote, isin, now_ms):
             "note": ("Ein SG-Chartpunkt ist keine handelbare Geld-/Briefquote."
                      if chart else "Börsen-/Anbieterkurs ist kein verbindlicher DEGIRO-Ausführungskurs."),
         })
-    return observations[:3]
+    return observations
 
 
 def _market_cross_check(observations):
