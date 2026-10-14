@@ -26,7 +26,7 @@ CODES = {
     "push-unhealthy": "Push-/Datenbank-Gesundheitsprüfung fehlgeschlagen",
     "paper-unhealthy": "Papierkonten-Hintergrundstatus beeinträchtigt",
     "product-quote-evidence-missing": "Emittentenkurse oder eigenständige Kurszeiten unvollständig",
-    "product-leverage-clock-missing": "Emittentenhebel oder dessen unabhängiger Zeitstempel fehlt",
+    "product-leverage-clock-missing": "Emittentenhebel oder dessen eigener bzw. eindeutig gemeinsamer Zeitbezug fehlt",
     "product-ko-validity-missing": "KO-Wert oder dessen gültiger Datennachweis fehlt",
     "product-terms-evidence-missing": "Produktstammdaten oder zugehörige Nachweise unvollständig",
 }
@@ -94,6 +94,8 @@ def classify(app, background, push, *, market_open=True):
                 # Accept ONLY fixed diagnostic identifiers; never publish
                 # arbitrary source errors, raw data or per-product values.
                 errors.extend(code for code in product_codes if isinstance(code, str) and code in PRODUCT_CODES)
+        else:
+            errors.append(PRODUCT_AUDIT_UNKNOWN)
     return sorted(set(errors))
 
 

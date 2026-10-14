@@ -64,7 +64,7 @@ class SelfHealingTests(unittest.TestCase):
 class WatchdogTests(unittest.TestCase):
     def test_fixed_public_diagnostic_codes(self):
         app = healthy()
-        push = {"ok": True, "paperObservation": {"state": "ok"}}
+        push = {"ok": True, "paperObservation": {"state": "ok"}, "productAuditCodes": []}
         self.assertEqual(watchdog.classify(app, {"status": "ok"}, push, market_open=False), [])
         self.assertIn("background-not-current", watchdog.classify(app, None, push, market_open=True))
         app["automaticCollection"]["running"] = False
@@ -76,6 +76,17 @@ class WatchdogTests(unittest.TestCase):
         report = watchdog.issue_body(["scanner-unreachable", "unrecognized-diagnostic"], "2026-10-12T13:00:00Z")
         self.assertIn("scanner-unreachable", report)
         self.assertNotIn("unrecognized-diagnostic", report)
+
+    def test_unfinished_audit_does_not_close_product_incident(self):
+        for push in ({"ok": True}, {"ok": True, "productAuditCodes": None}):
+            codes = watchdog.classify(healthy(), {"status": "ok"}, push, market_open=False)
+            self.assertIn(watchdog.PRODUCT_AUDIT_UNKNOWN, codes)
+            calls = []
+            def requester(method, path, **kwargs):
+                calls.append(method)
+                return [{"title": watchdog.issue_title("product-quote-evidence-missing"), "number": 77}]
+            watchdog.sync_issue(codes, token="test", repo="ichrob/gold-dashboard1", requester=requester)
+            self.assertEqual(calls, ["GET"])
 
     def test_distinct_issues_are_counted_and_recovered_individually(self):
         actions = []
