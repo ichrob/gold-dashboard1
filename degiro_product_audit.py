@@ -341,11 +341,13 @@ def examine(product, quote, now_ms):
     quote_times = (data_pair.get("bidAt"), data_pair.get("askAt"))
     if not all(_recent(at, now_ms, QUOTE_MAX_MS) for at in quote_times):
         missing.append("quote-time")
+    from leverage_backup import current_evidence
+    calculated_leverage = current_evidence(quote, datetime.fromtimestamp(now_ms/1000, timezone.utc)) if verified else None
     shared_leverage = _shared_leverage(quote, isin, now_ms) if verified else None
-    if not _positive(quote.get("leverage")) and not shared_leverage:
+    if not _positive(quote.get("leverage")) and not shared_leverage and not calculated_leverage:
         missing.append("leverage")
     if not _recent(quote.get("leverageAt"), now_ms, QUOTE_MAX_MS) and not (
-            shared_leverage and shared_leverage["current"]):
+            shared_leverage and shared_leverage["current"]) and not calculated_leverage:
         missing.append("leverage-time")
     if not _positive(metadata.get("ko") or quote.get("ko") or _condition_value(quote, 'ko', now_ms)):
         missing.append("ko")
@@ -389,7 +391,7 @@ def examine(product, quote, now_ms):
         "dataQuoteSource": data_pair.get('source') if quote_ok or backup_pair else None,
         "dataQuoteKind": "market-observation" if backup_pair else "issuer" if quote_ok else None,
         "executionNote": "Datenabgleich abgeschlossen; keine Bestätigung eines ausführbaren DEGIRO-Kurses",
-        "leverageObservation": shared_leverage,
+        "leverageObservation": calculated_leverage or shared_leverage,
         "leverageSourceAt": quote.get("leverageAt") if "leverage-time" not in codes else None,
         "source": str(quote.get("source") or "Emittenten- und Ersatzquellen")[:80],
         "sourceObservations": observations,
