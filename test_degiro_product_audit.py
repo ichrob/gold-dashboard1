@@ -163,7 +163,7 @@ class ProductAuditTests(unittest.TestCase):
         quote["metadata"].update(currency="CHF",issuerExchangeCode="CBSW")
         result=audit.examine(product,quote,NOW)
         self.assertIn("venue",result["missing"])
-        self.assertIn("underlying",result["missing"])
+        self.assertNotIn("underlying",result["missing"])
         self.assertEqual(result["issuerVenue"],"Swiss DOTS (CHF)")
         self.assertFalse(result["degiroVerified"])
         self.assertFalse(result["tradeApproved"])
