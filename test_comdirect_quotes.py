@@ -64,6 +64,44 @@ class ComdirectQuoteTests(unittest.TestCase):
         self.assertFalse(result['checked'])
         self.assertTrue(any('derselbe SG-Kursgeber' in r for r in result['reasons']))
 
+    def test_paper_accepts_pair_without_claiming_broker_execution(self):
+        import paper_simulation as sim
+        raw = self.apply(60)
+        before = copy.deepcopy(raw)
+        now = (self.now+timedelta(seconds=60)).timestamp()*1000
+        projected = sim.paper_quote(raw, now, ISIN)
+        accepted = sim.fresh_quote(projected, now, ISIN)
+        self.assertEqual(accepted['ask'], 5.44)
+        self.assertEqual(accepted['bid'], 5.43)
+        self.assertFalse(accepted['isExecutableQuote'])
+        self.assertFalse(accepted['degiroExecutable'])
+        self.assertIn('Simulationskurs', accepted['paperQuoteLabel'])
+        self.assertFalse(projected['eligible'])
+        self.assertEqual(accepted['quoteAt'], self.quote['quoteAt'])
+        self.assertEqual(raw, before)
+        # The ledger uses the observed ask, with no invented fill or midpoint.
+        from test_paper_simulation import market
+        case = sim.new_case(market(), dict(isin=ISIN), projected, now)
+        self.assertEqual(case['entryAsk'], 5.44)
+        self.assertEqual(case['quantity'], 18)
+        self.assertIn('Simulationskurs', case['entryQuote']['paperQuoteLabel'])
+
+    def test_paper_rejects_bad_secondary_evidence(self):
+        import paper_simulation as sim
+        now = self.now.timestamp()*1000
+        for change in (dict(isin='wrong'), dict(currency='CHF'), dict(bid=None),
+                       dict(ask=1), dict(delayed=True), dict(priceKind='issuer-chart'),
+                       dict(venue='other'), dict(quoteAt=None),
+                       dict(bidAt=(self.now-timedelta(seconds=91)).isoformat())):
+            raw = copy.deepcopy(self.primary)
+            raw['secondaryQuote'] = dict(self.quote, **change)
+            self.assertIsNone(sim.fresh_quote(raw, now, ISIN), change)
+        for age in (-1, 91):
+            self.assertIsNone(sim.fresh_quote(self.apply(age), now+age*1000, ISIN))
+        for change in (dict(sourceDisabled=True), dict(productVerified=False),
+                       dict(metadata=dict(status=2, issuerExchangeCode='CBDE'))):
+            self.assertIsNone(sim.fresh_quote(dict(self.apply(), **change), now, ISIN))
+
     def test_wrong_market_currency_inactive_and_disabled_do_not_fetch(self):
         for change in (dict(currency='CHF'), dict(sourceDisabled=True),
                        dict(metadata=dict(status=2, issuerExchangeCode='CBDE')),
