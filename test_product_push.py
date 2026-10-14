@@ -10,6 +10,18 @@ class ProductPushTransitions(unittest.TestCase):
         checked=evaluate({'products': [], 'capturedAt': int(time.time()*1000)})
         self.assertEqual(checked['products'],[])
 
+    def test_only_internal_quote_map_reaches_verifier(self):
+        import json
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        payload={'products': [], 'quotes': {'untrusted': {'approved': True}}}
+        with patch('product_push.evaluator_runtime.run', return_value=SimpleNamespace(stdout='{}')) as run:
+            evaluate(payload)
+            self.assertEqual(json.loads(run.call_args.kwargs['input'])['quotes'], {})
+            evaluate(payload, quotes={'verified-source': {'isin': 'example'}})
+            self.assertIn('verified-source', json.loads(run.call_args.kwargs['input'])['quotes'])
+        self.assertIn('untrusted', payload['quotes'])
+
     def test_invalid_or_stale_selection_is_a_client_error_and_fails_closed(self):
         import subprocess
         from unittest.mock import patch

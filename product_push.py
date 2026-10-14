@@ -9,7 +9,10 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 
-def evaluate(payload):
+def evaluate(payload, *, quotes=None):
+    # Only the background worker may supply refreshed issuer observations.
+    # Ignore a browser-submitted quotes map at the HTTP boundary.
+    payload = {**payload, 'quotes': quotes or {}}
     try:
         process = evaluator_runtime.run(['node', str(Path(__file__).with_name('selection_push_evaluator.js'))],
                                  input=json.dumps(payload), text=True, capture_output=True, timeout=8, check=True)

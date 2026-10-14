@@ -595,6 +595,11 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
 _guard=threading.Lock();_latest=None;_thread=None
 _bundle_ready=threading.Event()
 _pool=None;_pending={};_quotes={};_requested={}
+def observed_quotes(products):
+    """Read completed raw issuer observations without network work or paper projection."""
+    return {p['isin']: copy.deepcopy(_quotes[p['isin']])
+            for p in products if p.get('isin') in _quotes}
+
 def quote_cache(products, active, now):
     global _pool
     if _pool is None:_pool=ThreadPoolExecutor(max_workers=4,thread_name_prefix='bob-paper-quotes')

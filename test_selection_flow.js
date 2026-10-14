@@ -549,6 +549,23 @@ const expiredLive=b.selectionWorkflow([liveBnp],{...context,now:now+91000},{});
 assert.equal(expiredLive.groups.length,0);assert(expiredLive.requests.length>0);
 console.log('BNP direct-only import: no false screenshot requests, neutral and expiry remain blocked');
 
+// Closed-app push evaluation must consume completed issuer research rather
+// than repeatedly diagnosing an incomplete pre-import browser snapshot.
+const savedPushProduct={isin:liveBnp.isin,name:liveBnp.name,productDirection:'SHORT',isinConfirmed:false};
+const recoveredPush={...pushInput([savedPushProduct]),quotes:{[liveBnp.isin]:liveBnp.quote}};
+assert.equal(verifyPush(pushInput([savedPushProduct]),now).products.length,0);
+assert.equal(verifyPush(recoveredPush,now).products.length,1);
+assert.equal(savedPushProduct.isinConfirmed,false); // no mutation of stored evidence
+for(const q of [
+ {...liveBnp.quote,isin:isin},
+ {...liveBnp.quote,productVerified:false},
+ {...liveBnp.quote,direction:'LONG'},
+ {...liveBnp.quote,leverageAt:at(-91)},
+ {...liveBnp.quote,metadata:{...liveBnp.quote.metadata,status:2}}
+])assert.equal(verifyPush({...recoveredPush,quotes:{[liveBnp.isin]:q}},now).products.length,0);
+assert.equal(verifyPush({...recoveredPush,products:[{...savedPushProduct,quote:{...liveBnp.quote,checkedAt:at(1),metadata:{status:2}}}]},now).products.length,0);
+console.log('Background push uses refreshed issuer evidence; wrong identity, direction, expired clocks and KO remain blocked');
+
 // A fresh bid/ask pair cannot conceal an expired independent leverage clock.
 const staleLeverage={...liveBnp,quote:{...liveBnp.quote,leverageAt:at(-91)}};
 const staleStatus=b.finalProductStatus(staleLeverage,now);

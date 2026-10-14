@@ -454,7 +454,8 @@ def run_background(bundle):
                 conn.execute('UPDATE subscriptions SET background_state=%s::jsonb WHERE id=%s',(json.dumps(state),sid))
             if general and evidence and background_push.degiro_entry_allowed():
                 try:
-                    checked=product_push.evaluate({**evidence,'capturedAt':int(time.time()*1000),'bundle':bundle,'context':market.get('context',{'direction':'NEUTRAL'})})
+                    checked=product_push.evaluate({**evidence,'capturedAt':int(time.time()*1000),'bundle':bundle,'context':market.get('context',{'direction':'NEUTRAL'})},
+                        quotes=paper_simulation.observed_quotes(evidence.get('products', [])))
                     sent += deliver_product_selection(conn,(sid,sub,selection),checked)
                 except Exception as exc:
                     print('BOB_BACKGROUND selection_failed='+type(exc).__name__,flush=True)

@@ -16,7 +16,19 @@ function evaluate(input,now=Date.now()){
    const fresh=spots.xaus_age_seconds!=null&&bundle.fetched_at!=null&&age>=0&&age<=60&&!spots.spot_error&&Number(spots.xaus)>0;
    const context={...input.context,now,spot:Number(spots.xaus),spotFresh:fresh};
    if(!fresh||bundle.history?.data_state?.status!=='fresh')context.direction='NEUTRAL';
-   return window.BobDegiro.selectionWorkflow(input.products,context,bundle,input.references||[]);
+   const api=window.BobDegiro;
+   const products=input.products.map(p=>{
+    const q=input.quotes?.[p.isin];
+    if(!q||q.isin!==p.isin)return p;
+    // Do not replace a newer browser observation with an older worker cache.
+    if(Date.parse(p.quote?.checkedAt)>Date.parse(q.checkedAt))return p;
+    const updated={...p,quote:q,price:q.price??p.price,leverage:q.leverage??p.leverage,
+     ko:q.conditions?.ko?.value??q.ko??q.metadata?.ko??p.ko};
+    // Same identity/conflict rules as the UI; no unconditional approval flag.
+    updated.isinConfirmed=api.automaticIdentity(updated);
+    return updated;
+   });
+   return api.selectionWorkflow(products,context,bundle,input.references||[]);
   })()`,sandbox,{timeout:2000});
  };
  const flow=run(now),candidates=flow.groups.flatMap(g=>g.candidates);
