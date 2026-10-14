@@ -34,6 +34,33 @@ def feed():
 
 
 class ProductAuditTests(unittest.TestCase):
+    def test_changing_clock_does_not_clear_persistent_quote_problem(self):
+        report = None
+        for index in range(4):
+            q = provider()
+            q['found'] = False
+            if index % 2:
+                q.pop('leverageAt')
+            report = audit.build(feed(), {ISIN:q}, NOW, report)
+        self.assertIn('product-quote-evidence-missing', audit.public_help_codes(report))
+        self.assertNotIn('product-leverage-clock-missing', audit.public_help_codes(report))
+        self.assertEqual(report['items'][0]['missingChecks']['quote'], 4)
+        # A genuinely recovered quote clears, even while another fault remains.
+        q = provider(); q.pop('leverageAt')
+        healed = audit.build(feed(), {ISIN:q}, NOW, report)
+        self.assertNotIn('product-quote-evidence-missing', audit.public_help_codes(healed))
+        self.assertFalse(healed['items'][0]['tradeApproved'])
+
+    def test_legacy_escalation_survives_changed_missing_fields(self):
+        q = provider(); q['found'] = False
+        report = audit.build(feed(), {ISIN:q}, NOW)
+        report['items'][0].pop('missingChecks')
+        report['items'][0]['consecutiveChecks'] = 3
+        q.pop('leverageAt')
+        report = audit.build(feed(), {ISIN:q}, NOW, report)
+        self.assertIn('product-quote-evidence-missing', audit.public_help_codes(report))
+        self.assertNotIn('product-leverage-clock-missing', audit.public_help_codes(report))
+
     def test_direct_sg_maturity_condition_is_recognized(self):
         q=provider()
         q['metadata'].pop('maturity')

@@ -345,8 +345,17 @@ def build(feed, quotes, now_ms=None, previous=None):
         isin = str(product.get("isin") or "").upper()
         item = examine(product, quotes.get(isin), now_ms)
         before = old.get(isin, {})
-        same = before.get("missing") == item["missing"] and item["missing"]
-        item["consecutiveChecks"] = min(99999, int(before.get("consecutiveChecks",0)) + 1) if same else (1 if item["missing"] else 0)
+        # Track each missing proof independently. A changing leverage clock
+        # must not reset a persistent quote/identity fault and falsely close it.
+        previous_counts = before.get("missingChecks")
+        if not isinstance(previous_counts, dict):
+            previous_counts = {code: int(before.get("consecutiveChecks", 0))
+                               for code in before.get("missing", [])}
+        counts = {code: min(99999, int(previous_counts.get(code, 0)) + 1)
+                  for code in item["missing"]}
+        item["missingChecks"] = counts
+        same = bool(set(before.get("missing", [])) & set(item["missing"]))
+        item["consecutiveChecks"] = max(counts.values(), default=0)
         item["firstSeenAt"] = before.get("firstSeenAt") if same else datetime.fromtimestamp(now_ms/1000,timezone.utc).isoformat()
         item["needsKiHelp"] = item["consecutiveChecks"] >= 3 and bool(item["missing"])
         items.append(item)
@@ -421,6 +430,8 @@ def public_help_codes(report):
         missing = set(item.get("missing") or [])
         if missing & {"factor", "future", "terminated", "venue"}:
             continue
+        if isinstance(item.get("missingChecks"), dict):
+            missing = {code for code in missing if item["missingChecks"].get(code, 0) >= 3}
         if missing & {"quote", "quote-time"}:
             codes.add("product-quote-evidence-missing")
         if missing & {"leverage", "leverage-time"}:
