@@ -41,10 +41,7 @@
  }
  async function loadPurchases(){
   const root=el('purchaseList');if(!root)return;
-  try{await flush();if(queue.length||busy)return;const r=await request('read',{});root.replaceChildren();
-   const current=window.BobTradeSync?.current();
-   const closed=r.trades.find(t=>!t.active&&!t.snapshot.recordOnly&&t.id===current?.tradeId);
-   if(closed&&window.BobTradeSync?.close({...closed.snapshot,active:false})){el('purchaseStatus').textContent='Trade geschlossen · Trade-Push und Überwachung beendet. Verlauf unter Lernen → Echter Trade.';}
+  try{const r=await request('read',{});reconcileClosed(r.trades);await flush();if(queue.length||busy)return;root.replaceChildren();
    const active=r.trades.filter(t=>t.active&&!t.snapshot.recordOnly);
    if(active.length===1&&window.BobTradeSync?.restore(active[0].snapshot)){el('purchaseStatus').textContent='Überwachung vom Server übernommen · Stopp und Ziel werden automatisch aktualisiert.';return;}
    for(const t of r.trades.filter(t=>t.snapshot.recordOnly&&!t.snapshot.consumed)){
@@ -56,6 +53,18 @@
    const pending=r.trades.filter(t=>t.snapshot.recordOnly&&!t.snapshot.consumed),field=k=>document.querySelector('[data-exit="'+k+'"]');
    if(pending.length===1&&!r.trades.some(t=>t.active)&&!window.BobTradeSync?.current()?.active&&['isin','entry','quantity','direction'].every(k=>field(k)&&((k==='direction'&&!field('isin').value.trim())||!field(k).value.trim()||String(field(k).value).trim()===String(k==='direction'?pending[0].snapshot.dir:pending[0].snapshot.product[k]))))await preparePurchase(pending[0]);
   }catch(e){el('purchaseStatus').textContent='Serverkäufe nicht abrufbar: '+e.message;}
+ }
+ function reconcileClosed(trades){
+  const closed=new Map(trades.filter(t=>!t.active&&!t.snapshot.recordOnly).map(t=>[t.id,t.snapshot]));
+  const current=window.BobTradeSync?.current(),snapshot=closed.get(current?.tradeId);
+  if(snapshot&&window.BobTradeSync?.close({...snapshot,active:false})&&el('purchaseStatus'))el('purchaseStatus').textContent='Trade geschlossen · Trade-Push und Überwachung beendet. Verlauf unter Lernen → Echter Trade.';
+  // An old device may have queued plan updates. Keep their evidence in the
+  // closed journal without trying to reopen the position and blocking sync.
+  queue=queue.map(item=>item.trade?.active&&closed.has(item.trade.tradeId)?{
+   ...item,trade:{...closed.get(item.trade.tradeId),active:false},
+   event:{...item.event,staleClientTrade:item.trade}
+  }:item);
+  localStorage.setItem(storage,JSON.stringify(queue));
  }
  async function preparePurchase(t){
   if(preparing)return;
@@ -75,7 +84,7 @@
    el('purchaseStatus').textContent=queue.length?'Überwachung lokal vorbereitet; Serverspeicherung wird erneut versucht.':'Überwachung automatisch gestartet und gespeichert · Stopp und Ziel in EUR pro Stück (geschätzt).';
   }catch(err){el('purchaseStatus').textContent='Kauf übernommen; Datenabruf noch offen: '+err.message;}finally{preparing=false;}
  }
- window.BobRealTrades={capture,load};
+ window.BobRealTrades={capture,load,reconcileClosed};
  document.addEventListener('DOMContentLoaded',()=>{el('realTradeLoad')?.addEventListener('click',load);flush();purchasePanel();});
  document.addEventListener('click',e=>{if(e.target.closest?.('[data-view="learning"]'))load();purchasePanel();});
  window.addEventListener('online',()=>{flush();loadPurchases();});setInterval(()=>{flush();if(!preparing)loadPurchases();},30000);
