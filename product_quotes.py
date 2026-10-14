@@ -639,6 +639,12 @@ def get_quote(isin):
 def _get_quote_bounded(isin):
     from onvista_backup import apply_backup
     isin = str(isin or '').strip().upper()
+    # Start the authorised backup while the issuer is being read. The bounded
+    # shared cache deduplicates this request; its original clocks are retained.
+    from public_product_terms import TERMINAL
+    if valid_isin(isin) and isin not in TERMINAL:
+        from comdirect_quotes import get_observation
+        get_observation(isin)
     from finanzen_terms import apply as apply_terms_backup
     from comdirect_fields import apply as apply_comdirect_fields
     result = apply_backup(apply_terms_backup(apply_comdirect_fields(_get_quote_primary(isin), isin), isin), isin)
@@ -660,7 +666,9 @@ def _get_quote_bounded(isin):
             and result.get('metadata', {}).get('status') == 1):
         if result.get('found'):
             result['secondaryQuote'] = {key: result.get(key) for key in
-                ('bid', 'ask', 'price', 'bidAt', 'askAt', 'currency', 'source', 'sourceUrl', 'priceKind')}
+                ('isin', 'bid', 'ask', 'price', 'quoteAt', 'bidAt', 'askAt', 'currency',
+                 'source', 'sourceUrl', 'priceKind', 'venue', 'upstream',
+                 'isExecutableQuote', 'degiroExecutable', 'researchOnly')}
         # Preserve the other venue as evidence, but never pair its older price
         # with the gearing calculated from the newer chart observation.
         result.update(selected)

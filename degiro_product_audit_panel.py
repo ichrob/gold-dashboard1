@@ -49,12 +49,15 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    const node=document.createElement('details'),summary=document.createElement('summary');
    const healthy=item.state==='issuer-evidence-complete';
    const ended=item.state==='terminated';
-   summary.textContent=(ended?'⛔ ':healthy?'✓ ':'⚠ ') +(item.isin||'ISIN unbekannt')+' · '+(ended?'Beendet laut Emittent · gesperrt':healthy?'Emittentennachweise vorhanden':'Fehlende Nachweise: '+(item.missing||[]).length);
+   summary.textContent=(ended?'⛔ ':healthy?'✓ ':'⚠ ') +(item.isin||'ISIN unbekannt')+' · '+(ended?'Beendet laut Emittent · gesperrt':healthy?'Produktnachweise vorhanden':'Fehlende Nachweise: '+(item.missing||[]).length);
    const list=document.createElement('p');list.style.whiteSpace='pre-line';
    list.textContent=(item.messages||[]).join('\n')+'\nPrüfungen in Folge: '+(item.consecutiveChecks||0)+' · Nächster Schritt: '+item.autoRecovery+
         '\nGeldkurszeit: '+(item.quoteSourceAt?fmt(item.quoteSourceAt):'nicht nachgewiesen')+
         ' · Hebelzeit: '+(item.leverageObservation?.current?fmt(item.leverageObservation.at)+' (gemeinsamer SG-Zeitbezug)':item.leverageSourceAt?fmt(item.leverageSourceAt):'nicht aktuell nachgewiesen')+
         (item.venueAction?'\nHandelsplatzprüfung: '+item.issuerVenue+' · '+item.venueAction:'')+
+        (item.identityEvidence==='source-matched'?'\n✓ ISIN und Richtung automatisch mit der Produktquelle abgeglichen.':'')+
+        (item.dataQuoteSource?'\nKursnachweis: '+item.dataQuoteSource+(item.dataQuoteKind==='market-observation'?' · beobachtetes Geld/Brief, keine DEGIRO-Ausführungszusage':''):'')+
+        (item.lastRecoveredAt?'\nAutomatisch wiederhergestellte Nachweise: '+(item.recoveredFields||[]).join(', ')+' · '+fmt(item.lastRecoveredAt):'')+
         '\nKeine automatische DEGIRO-Handelsfreigabe.';
    node.append(summary,list);
    const obs=Array.isArray(item.sourceObservations)?item.sourceObservations:[];

@@ -76,10 +76,11 @@ class ProductAuditTests(unittest.TestCase):
         q['productVerified']=False
         self.assertIn('maturity',audit.examine(feed()['products'][0],q,NOW)['missing'])
 
-    def test_missing_list_confirmation_is_not_missing_issuer_identity(self):
+    def test_issuer_identity_automatically_matches_unconfirmed_list(self):
         p=feed()['products'][0];p.pop('isinConfirmed')
         item=audit.examine(p,provider(),NOW)
-        self.assertIn('list-identity',item['missing'])
+        self.assertNotIn('list-identity',item['missing'])
+        self.assertEqual(item['identityEvidence'], 'source-matched')
         self.assertNotIn('identity',item['missing'])
         self.assertFalse(item['tradeApproved'])
 

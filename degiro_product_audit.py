@@ -24,8 +24,8 @@ CODES = {
     "future": "Anderer Basiswert/Future-Kontrakt: nicht als Spotprodukt freigegeben",
     "venue": "Swiss DOTS ist ein eigener, exklusiver OTC-Handelsplatz. Ein Kurs dort ist kein DEGIRO-Ausführungsnachweis; nur eine gesondert belegte DEGIRO-Handelsroute zählt.",
     "terminated": "Produkt vom Emittenten als beendet gemeldet",
-    "quote": "Ausführbarer Geld-/Briefnachweis fehlt; vorhandene Chartwerte stehen separat unter Quellenbeobachtungen",
-    "quote-time": "Zeitbezug des ausführbaren Geld-/Briefnachweises fehlt oder ist veraltet",
+    "quote": "Belegtes Geld-/Briefpaar aus Produkt- oder Ersatzquelle fehlt; Chartwerte bleiben separat",
+    "quote-time": "Originalzeit des Geld-/Briefpaares fehlt oder ist veraltet",
     "leverage": "Emittentenhebel fehlt",
     "leverage-time": "Aktueller eigener oder eindeutig gemeinsamer Zeitbezug für den Emittentenhebel fehlt",
     "ko": "KO-Schwelle fehlt",
@@ -176,6 +176,20 @@ def _dated_barrier(quote, metadata, now_ms):
     term = (quote.get("conditions") or {}).get("ko") or {}
     if not isinstance(term, dict):
         term = {}
+    if any(term.get(k) for k in ('conflict', 'revoked', 'ocrCorrection')):
+        return False
+    # Same declared-series policy used by the product cards, with the original
+    # observation time and exact eight-hour expiry, not the latest request time.
+    series = term.get('validitySeries') or {}
+    if (quote.get('productVerified') is True and _positive(term.get('value'))
+            and not any(term.get(k) for k in ('at', 'dateText', 'sourceTimeRaw'))
+            and series.get('policy') == 'declared-series-v1'
+            and series.get('origin') == 'automatic'
+            and series.get('isin') == quote.get('isin')
+            and term.get('source') and series.get('source') == term['source']
+            and (metadata.get('ko') is None or metadata['ko'] == term['value'])):
+        age = now_ms - (_time_ms(series.get('observedAt')) or 0)
+        return 0 <= age < BARRIER_MAX_MS
     checked = quote.get("termsCheckedAt") or quote.get("checkedAt")
     if not _recent(checked, now_ms, BARRIER_MAX_MS):
         return False
@@ -195,6 +209,48 @@ def _dated_barrier(quote, metadata, now_ms):
         # Fixed-contract verification still expires after 8h of rechecks.
         return True
     return False
+
+
+def _condition_value(quote, key, now_ms):
+    """Use verified field-local fallback evidence without rewriting metadata."""
+    item = (quote.get('conditions') or {}).get(key) or {}
+    if (quote.get('productVerified') is not True or not isinstance(item, dict)
+            or not item.get('source')
+            or any(item.get(k) for k in ('conflict', 'revoked', 'ocrCorrection'))
+            or not _recent(item.get('reviewedAt'), now_ms, BARRIER_MAX_MS)):
+        return None
+    if item.get('conditionVerified') is not True:
+        series = item.get('validitySeries') or {}
+        if (key not in ('strike', 'ko') or any(item.get(k) for k in ('at', 'dateText', 'sourceTimeRaw'))
+                or series.get('policy') != 'declared-series-v1' or series.get('origin') != 'automatic'
+                or series.get('isin') != quote.get('isin') or series.get('source') != item['source']
+                or not 0 <= now_ms - (_time_ms(series.get('observedAt')) or 0) < BARRIER_MAX_MS):
+            return None
+    return item.get('value')
+
+
+def _backup_pair(quote, isin, now_ms):
+    """A dated SG LiveTrading pair supplies data, never DEGIRO execution."""
+    row = quote.get('secondaryQuote') or {}
+    meta = quote.get('metadata') or {}
+    backup = quote.get('comdirectFieldsBackup') or {}
+    if (quote.get('isin') != isin or quote.get('productVerified') is not True
+            or quote.get('sourceDisabled') or meta.get('status') != 1
+            or backup.get('state') == 'inactive'
+            or set(backup.get('conflicts') or []) & {'direction', 'currency', 'underlying'}
+            or meta.get('issuerExchangeCode') != 'CBDE'
+            or row.get('isin') != isin or row.get('currency') != 'EUR'
+            or row.get('source') != 'comdirect · SG LiveTrading'
+            or row.get('venue') != 'LT Societe Generale'
+            or row.get('priceKind') != 'market-observation' or row.get('delayed')
+            or row.get('isExecutableQuote') is not False
+            or row.get('degiroExecutable') is not False
+            or not _positive(row.get('bid')) or not _positive(row.get('ask'))
+            or row['ask'] < row['bid']
+            or row.get('bidAt') != row.get('askAt')
+            or not _recent(row.get('bidAt'), now_ms, QUOTE_MAX_MS)):
+        return None
+    return row
 
 
 def _shared_leverage(quote, isin, now_ms):
@@ -228,9 +284,17 @@ def examine(product, quote, now_ms):
     quote = quote if isinstance(quote, dict) else {}
     metadata = quote.get("metadata") if isinstance(quote.get("metadata"), dict) else {}
     missing = []
-    if not valid_isin(isin) or not product.get("isinConfirmed"):
-        missing.append("list-identity")
     verified = quote.get("isin") == isin and quote.get("productVerified") is True
+    snapshot = product.get('snapshot') or {}
+    identity_matches = (valid_isin(isin) and verified
+        and direction in ('LONG', 'SHORT')
+        and (quote.get('direction') or metadata.get('direction')) == direction
+        and (not snapshot.get('isin') or snapshot['isin'] == isin)
+        and (not snapshot.get('direction') or snapshot['direction'] == direction)
+        and (not product.get('currency') or product['currency'] ==
+             (quote.get('currency') or metadata.get('currency'))))
+    if not valid_isin(isin) or not (product.get('isinConfirmed') or identity_matches):
+        missing.append('list-identity')
     # This exact ISIN is independently listed as SG's CHF Swiss DOTS
     # knock-out, not as an EUWAX/Frankfurt security. Swissquote describes
     # Swiss DOTS as its exclusive OTC platform. Even an issuer snapshot
@@ -263,10 +327,12 @@ def examine(product, quote, now_ms):
                 quote.get("isExecutableQuote") is not False and
                 _positive(quote.get("bid")) and _positive(quote.get("ask")) and
                 quote["ask"] >= quote["bid"])
-    if not quote_ok:
+    backup_pair = _backup_pair(quote, isin, now_ms) if not quote_ok else None
+    if not quote_ok and not backup_pair:
         missing.append("quote")
     # Do not use quoteAt as a substitute for independent bid/ask stamps.
-    quote_times = (quote.get("bidAt"), quote.get("askAt"))
+    data_pair = backup_pair or quote
+    quote_times = (data_pair.get("bidAt"), data_pair.get("askAt"))
     if not all(_recent(at, now_ms, QUOTE_MAX_MS) for at in quote_times):
         missing.append("quote-time")
     shared_leverage = _shared_leverage(quote, isin, now_ms) if verified else None
@@ -275,13 +341,14 @@ def examine(product, quote, now_ms):
     if not _recent(quote.get("leverageAt"), now_ms, QUOTE_MAX_MS) and not (
             shared_leverage and shared_leverage["current"]):
         missing.append("leverage-time")
-    if not _positive(metadata.get("ko") or quote.get("ko")):
+    if not _positive(metadata.get("ko") or quote.get("ko") or _condition_value(quote, 'ko', now_ms)):
         missing.append("ko")
     if not _dated_barrier(quote, metadata, now_ms):
         missing.append("ko-time")
-    if not _positive(metadata.get("strike") or metadata.get("basisPrice") or quote.get("basisPrice")):
+    if not _positive(metadata.get("strike") or metadata.get("basisPrice") or quote.get("basisPrice")
+                     or _condition_value(quote, 'strike', now_ms)):
         missing.append("strike")
-    if not _positive(metadata.get("ratio") or quote.get("ratio")):
+    if not _positive(metadata.get("ratio") or quote.get("ratio") or _condition_value(quote, 'ratio', now_ms)):
         missing.append("ratio")
     # SG direct publishes verified contract fields in conditions, not metadata.
     # Require the same product, provenance and a recent verification; a bare
@@ -298,7 +365,7 @@ def examine(product, quote, now_ms):
         missing.append("maturity")
     if quote.get("marketOpen") is False:
         missing.append("market-closed")
-    elif quote.get("marketOpen") is not True:
+    elif quote.get("marketOpen") is not True and not backup_pair:
         missing.append("market-status")
     # No independent DEGIRO feed exists: even a perfect issuer audit can NEVER
     # validate actual DEGIRO executable quotes/tradability.
@@ -311,7 +378,11 @@ def examine(product, quote, now_ms):
         "state": "terminated" if terminated else "issuer-evidence-complete" if not codes else "incomplete",
         "missing": codes,
         "messages": [CODES[code] for code in codes],
-        "quoteSourceAt": quote.get("bidAt") if "quote-time" not in codes else None,
+        "quoteSourceAt": data_pair.get("bidAt") if "quote-time" not in codes else None,
+        "identityEvidence": "source-matched" if identity_matches else "list-confirmed" if product.get('isinConfirmed') else "missing",
+        "dataQuoteSource": data_pair.get('source') if quote_ok or backup_pair else None,
+        "dataQuoteKind": "market-observation" if backup_pair else "issuer" if quote_ok else None,
+        "executionNote": "Datenabgleich abgeschlossen; keine Bestätigung eines ausführbaren DEGIRO-Kurses",
         "leverageObservation": shared_leverage,
         "leverageSourceAt": quote.get("leverageAt") if "leverage-time" not in codes else None,
         "source": str(quote.get("source") or "Emittenten- und Ersatzquellen")[:80],
@@ -360,6 +431,13 @@ def build(feed, quotes, now_ms=None, previous=None):
         item["consecutiveChecks"] = max(counts.values(), default=0)
         item["firstSeenAt"] = before.get("firstSeenAt") if same else datetime.fromtimestamp(now_ms/1000,timezone.utc).isoformat()
         item["needsKiHelp"] = item["consecutiveChecks"] >= 3 and bool(item["missing"])
+        recovered = sorted(set(before.get('missing', [])) - set(item['missing']))
+        if recovered and item['state'] != 'terminated':
+            item['lastRecoveredAt'] = datetime.fromtimestamp(now_ms/1000, timezone.utc).isoformat()
+            item['recoveredFields'] = recovered
+        else:
+            item['lastRecoveredAt'] = before.get('lastRecoveredAt')
+            item['recoveredFields'] = before.get('recoveredFields', [])
         items.append(item)
     checked = datetime.fromtimestamp(now_ms/1000,timezone.utc).isoformat()
     incomplete = sum(item["state"] == "incomplete" for item in items)
