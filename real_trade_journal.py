@@ -84,6 +84,14 @@ def validate_settlement(raw, execution):
     if abs(expected-execution['feesEUR'])>0.0001:raise ValueError('EUR-Kosten passen nicht zur CHF-Abrechnung')
     return out
 
+def settled_purchase(purchase, closed):
+    """DEGIRO execution IDs and order IDs differ; require exact receipt values."""
+    receipt=closed.get('settlement') or {}
+    buy=purchase.get('purchase') or {}
+    if buy.get('transactionId')==receipt.get('purchaseTransactionId'):return True
+    product=purchase.get('product') or {};sold=closed.get('product') or {}
+    return bool(receipt) and all(product.get(k)==sold.get(k) for k in ('isin','entry','quantity')) and buy.get('at')==receipt.get('purchasedAt') and buy.get('feesCHF')==receipt.get('purchaseFeesCHF') and buy.get('totalCHF')==receipt.get('purchaseTotalCHF')
+
 def handle(conn,action,payload):
     if action=='write':
         t=payload.get('trade') or {}
@@ -114,8 +122,8 @@ def handle(conn,action,payload):
         if previous and not previous[0] and active:
             old=previous[1]
             if not old.get('recordOnly'):raise ValueError('Geschlossener Trade darf nicht erneut geöffnet werden')
-            tx=(old.get('purchase') or {}).get('transactionId')
-            if tx and conn.execute("SELECT id FROM bob_real_trades WHERE active=FALSE AND snapshot->'settlement'->>'purchaseTransactionId'=%s LIMIT 1",(tx,)).fetchone():
+            closed=conn.execute("SELECT snapshot FROM bob_real_trades WHERE active=FALSE AND snapshot->'settlement' IS NOT NULL").fetchall()
+            if any(settled_purchase(old,row[0]) for row in closed):
                 raise ValueError('Dieser Kauf ist bereits durch einen bestätigten Verkauf abgeschlossen')
             if old.get('dir')!=t.get('dir') or any((old.get('product') or {}).get(k)!=(t.get('product') or {}).get(k) for k in ('isin','entry','quantity')):
                 raise ValueError('Überwachung passt nicht zum gespeicherten Kauf')
@@ -135,9 +143,9 @@ def handle(conn,action,payload):
         tid=payload.get('tradeId');before=payload.get('before')
         trades=conn.execute('SELECT id,opened_at,updated_at,active,snapshot FROM bob_real_trades ORDER BY opened_at DESC LIMIT 100').fetchall()
         result={'trades':[dict(id=i,openedAt=o.isoformat(),updatedAt=u.isoformat(),active=a,snapshot=s) for i,o,u,a,s in trades]}
-        settled={item['snapshot']['settlement']['purchaseTransactionId'] for item in result['trades'] if not item['active'] and item['snapshot'].get('settlement')}
+        settled=[item['snapshot'] for item in result['trades'] if not item['active'] and item['snapshot'].get('settlement')]
         for item in result['trades']:
-            if item['snapshot'].get('recordOnly') and (item['snapshot'].get('purchase') or {}).get('transactionId') in settled:
+            if item['snapshot'].get('recordOnly') and any(settled_purchase(item['snapshot'],closed) for closed in settled):
                 item['snapshot']={**item['snapshot'],'consumed':True}
         states={i:s for i,s in conn.execute('SELECT id,state FROM bob_real_trades WHERE active=TRUE').fetchall()}
         for item in result['trades']:
