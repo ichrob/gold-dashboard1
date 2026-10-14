@@ -258,3 +258,11 @@ assert(b.renderDegiroDisplayedQuote(chfDisplayCard).includes('13.32 CHF'));
 assert.equal(b.currentQuote(chfDisplayCard),false);
 assert.equal(b.parseDegiroDisplayedQuote(degiroText.replace('Brief €','Brief CHF'),'DE000BOB0018'),null);
 assert.equal(b.parseDegiroDisplayedQuote(degiroText.replaceAll('€','USD'),'DE000BOB0018'),null);
+
+const calcProduct={isin:researchIsin,leverage:10,quote:{isin:researchIsin,productVerified:true,
+ metadata:{status:1,simpleNonQuantoTurbo:true,ratio:.01},leverageCalculation:{available:true,fresh:true,value:10,at,
+ inputs:{basisPriceUsd:4000,usdEur:1,ratio:.01,askNative:4,quoteCurrency:'CHF',askAt:at,basisAt:at,fxDataAt:at,fxEffectiveAt:at}}}};
+assert.equal(b.calculatedLeverageEvidence(calcProduct,now).value,10);
+assert.equal(b.calculatedLeverageEvidence(calcProduct,now+301000),null);
+calcProduct.quote.leverageCalculation.value=11;calcProduct.leverage=11;
+assert.equal(b.calculatedLeverageEvidence(calcProduct,now),null);
