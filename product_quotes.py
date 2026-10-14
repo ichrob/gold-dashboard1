@@ -647,6 +647,8 @@ def _get_quote_bounded(isin):
             bidAt=chart['pointAt'], askAt=chart['pointAt'], currency=chart['currency'],
             source='SG · datierter Chartkurs'+(' · CHF in EUR umgerechnet' if result.get('currencyConversion') else ''), priceKind='issuer-chart',
             isExecutableQuote=False)
+    from comdirect_quotes import apply as apply_comdirect_quotes
+    result = apply_comdirect_quotes(result, isin)
     from leverage_backup import apply, select_analysis_quote
     selected = select_analysis_quote(result)
     if (selected.get('priceKind') == 'issuer-chart' and result.get('productVerified')

@@ -1899,7 +1899,8 @@ function renderPrimaryProductValues(p,now=Date.now()){
   isExecutableQuote:false}:null;
  const at=pair?.bidAt||pair?.askAt||q?.quoteAt;
  const clocks=[pair?.bidAt,pair?.askAt].map(t=>Date.parse(t));
- const current=!!pair&&clocks.every(t=>Number.isFinite(t)&&now-t>=0&&now-t<=300000)
+ const marketObservation=pair?.priceKind==='market-observation';
+ const current=!!pair&&clocks.every(t=>Number.isFinite(t)&&now-t>=0&&now-t<=(marketObservation?90000:300000))
   &&Math.max(...clocks)-Math.min(...clocks)<=90000;
  const chart=pair?.priceKind==='issuer-chart'||pair?.isExecutableQuote===false;
  const fmt=v=>n(v)>0?Number(v).toLocaleString('de-CH',{maximumFractionDigits:4}):'—';
@@ -1921,8 +1922,8 @@ function renderPrimaryProductValues(p,now=Date.now()){
  const missingSgReferenceNote=q?.importActive===true&&q?.productVerified===true
   &&fields.leverage.state==='fehlt'&&!(n(undatedLever?.value)>0)
   ?'<br>SG-Referenzhebel: Von der automatisch abgefragten SG-Quelle nicht geliefert. Ein gemeinsamer Zeitbezug belegt nur vorhandene Werte; er ersetzt keinen fehlenden Hebel.':'';
- const headline=chart?(current?'Aktuelle SG-Chartbeobachtung':'SG-Chartbeobachtung · nicht aktuell'):current?'Aktueller Anbieterwert':'Gespeicherte Referenz';
- const labels=chart?' · Chartkurs, kein bestätigter Ausführungskurs':'';
+ const headline=marketObservation?(current?'Aktuelle comdirect-Kursbeobachtung':'comdirect-Kursbeobachtung · nicht aktuell'):chart?(current?'Aktuelle SG-Chartbeobachtung':'SG-Chartbeobachtung · nicht aktuell'):current?'Aktueller Anbieterwert':'Gespeicherte Referenz';
+ const labels=marketObservation?' · SG LiveTrading, kein bestätigter DEGIRO-Ausführungskurs':chart?' · Chartkurs, kein bestätigter Ausführungskurs':'';
  const note=pair&&!current?' · Datenalter überschreitet Analysefenster':'';
  const unpairedReference=n(p.price)>0&&fields.ask.state==='fehlt'&&!pair
   ?'<br><b>Gespeicherter Produkt-/Listenpreis: '+fmt(p.price)+' EUR</b> · kein bestätigter Briefkurs, Geld/Brief weiter abrufen.'
