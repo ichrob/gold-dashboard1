@@ -1,4 +1,4 @@
-"""Public SG LiveTrading observations; never a DEGIRO execution guarantee."""
+"""Public SG/BNP LiveTrading observations; never a DEGIRO execution guarantee."""
 import copy
 import math
 import re
@@ -16,6 +16,25 @@ _LOCK = threading.Lock()
 _CACHE = {}
 _PENDING = set()
 
+# Exact issuer/venue bindings verified on comdirect product pages.
+ISSUERS = {
+    'Société Générale': ('SG', 'LT Societe Generale'),
+    'BNP Paribas': ('BNP', 'LT BNP Paribas'),
+}
+
+
+def matches_primary(result, row):
+    meta = result.get('metadata') or {}
+    if row.get('currency') != 'EUR' or (result.get('currency') or meta.get('currency')) != 'EUR':
+        return False
+    if row.get('source') == 'comdirect · SG LiveTrading' and row.get('venue') == 'LT Societe Generale':
+        return meta.get('issuerExchangeCode') == 'CBDE'
+    if row.get('source') == 'comdirect · BNP LiveTrading' and row.get('venue') == 'LT BNP Paribas':
+        return (str(result.get('source', '')).startswith('BNP Paribas ·')
+                and result.get('sourceUrl') == 'https://derivate.bnpparibas.com/product-details/'+str(result.get('isin'))+'/')
+    return False
+
+
 
 def parse_page(html, isin, now=None):
     # Validate full product identity, currency and knockout status, not just a
@@ -25,8 +44,9 @@ def parse_page(html, isin, now=None):
     observed = terms['observations']
     if terms['inactive']:
         raise ValueError('PRODUCT_INACTIVE')
-    if observed.get('currency', {}).get('value') != 'EUR' or observed.get('issuer', {}).get('value') != 'Société Générale':
+    if observed.get('currency', {}).get('value') != 'EUR' or observed.get('issuer', {}).get('value') not in ISSUERS:
         raise ValueError('UNSUPPORTED_QUOTE_IDENTITY')
+    issuer, venue = ISSUERS[observed['issuer']['value']]
     candidates = []
     for row in re.findall(r'<tr\b[^>]*>(.*?)</tr>', html, re.S | re.I):
         cells = {}
@@ -34,7 +54,7 @@ def parse_page(html, isin, now=None):
             if label in cells:
                 raise ValueError('AMBIGUOUS_ROW')
             cells[label] = plain(value)
-        if cells.get('LiveTrading') != 'LT Societe Generale':
+        if cells.get('LiveTrading') != venue:
             continue
         def price(label):
             raw = cells.get(label, '')
@@ -54,8 +74,8 @@ def parse_page(html, isin, now=None):
         at = at.replace(tzinfo=zone).isoformat()
         candidates.append(dict(isin=isin, bid=bid, ask=ask, price=ask,
             bidAt=at, askAt=at, quoteAt=at, currency='EUR',
-            source='comdirect · SG LiveTrading', sourceUrl=ORIGIN+'inf/zertifikate/'+isin,
-            venue='LT Societe Generale', upstream='SG', priceKind='market-observation',
+            source='comdirect · '+issuer+' LiveTrading', sourceUrl=ORIGIN+'inf/zertifikate/'+isin,
+            venue=venue, upstream=issuer, priceKind='market-observation',
             timeBasis='Gemeinsame Kurszeile; Europe/Berlin; Minutenauflösung',
             researchOnly=True, isExecutableQuote=False, degiroExecutable=False))
     if len(candidates) != 1:
@@ -79,10 +99,11 @@ def _refresh(isin):
         result = dict(state='observed', fields=parse_fields(html, isin))
         try:
             result['quote'] = parse_page(html, isin)
-        except (ValueError, KeyError):
+        except (ValueError, KeyError) as exc:
             result['quoteState'] = 'unavailable'
-    except Exception:
-        pass
+            result['reasonCode'] = str(exc)[:80]
+    except Exception as exc:
+        result['reasonCode'] = 'HTTP_'+str(exc.code) if hasattr(exc, 'code') else 'SOURCE_UNAVAILABLE'
     finally:
         with _LOCK:
             if len(_CACHE) >= 128:
@@ -108,15 +129,16 @@ def apply(result, isin, now=None):
     meta = result.get('metadata') or {}
     if (not valid_isin(isin) or result.get('isin') != isin or not result.get('productVerified')
             or result.get('sourceDisabled') or result.get('eligible')
-            or meta.get('status') != 1 or meta.get('issuerExchangeCode') != 'CBDE'
+            or meta.get('status') != 1
+            or not (meta.get('issuerExchangeCode') == 'CBDE' or str(result.get('source', '')).startswith('BNP Paribas ·'))
             or (result.get('currency') or meta.get('currency')) != 'EUR'):
         return result
     now = now or datetime.now(timezone.utc)
     out = copy.deepcopy(result)
     evidence = get_observation(isin)
-    out['comdirectQuoteBackup'] = dict(state=evidence['state'], refreshSeconds=30)
+    out['comdirectQuoteBackup'] = dict(state=evidence['state'], refreshSeconds=30, reasonCode=evidence.get('reasonCode'))
     quote = evidence.get('quote')
-    if not quote:
+    if not quote or not matches_primary(result, quote):
         return out
     age = (now-datetime.fromisoformat(quote['quoteAt'])).total_seconds()
     out['comdirectQuoteBackup'].update(state='current' if 0 <= age <= 90 else 'stale',

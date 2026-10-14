@@ -22,6 +22,29 @@ class ComdirectQuoteTests(unittest.TestCase):
         with patch.object(q, 'get_observation', return_value=dict(state='observed', quote=self.quote)):
             return q.apply(primary or self.primary, ISIN, self.now+timedelta(seconds=age))
 
+    def test_bnp_live_trading_and_audit_recovery(self):
+        from degiro_product_audit import _backup_pair
+        isin = 'DE000PJ9NB98'
+        html = HTML.replace(ISIN, isin).replace(ISIN[5:11], isin[5:11]).replace('Société Générale', 'BNP Paribas').replace('LT Societe Generale', 'LT BNP Paribas')
+        pair = q.parse_page(html, isin)
+        self.assertEqual(pair['source'], 'comdirect · BNP LiveTrading')
+        self.assertEqual(pair['upstream'], 'BNP')
+        primary = dict(isin=isin, productVerified=True, found=True, eligible=False,
+                       currency='EUR', source='BNP Paribas · Emittent OTC',
+                       sourceUrl='https://derivate.bnpparibas.com/product-details/'+isin+'/',
+                       metadata=dict(status=1))
+        with patch.object(q, 'get_observation', return_value=dict(state='observed', quote=pair)):
+            out = q.apply(primary, isin, self.now)
+        self.assertEqual(_backup_pair(out, isin, self.now.timestamp()*1000), pair)
+        self.assertIsNone(_backup_pair(out, isin, (self.now+timedelta(seconds=91)).timestamp()*1000))
+        self.assertFalse(out['eligible'])
+        self.assertNotIn('leverageAt', out)
+        for change in (dict(sourceUrl='https://example.com/'), dict(source='SG'),
+                       dict(currency='CHF'), dict(metadata=dict(status=2))):
+            self.assertIsNone(_backup_pair(dict(out, **change), isin, self.now.timestamp()*1000))
+        with self.assertRaises(ValueError):
+            q.parse_page(html.replace('LT BNP Paribas', 'LT Societe Generale'), isin)
+
     def test_original_row_not_other_venue_or_fetch_clock(self):
         self.assertEqual((self.quote['bid'], self.quote['ask']), (5.43, 5.44))
         self.assertEqual(self.quote['quoteAt'], '2026-10-13T21:59:00+02:00')

@@ -133,8 +133,8 @@ def _market_cross_check(observations):
         result["reasons"].append("Handelsplatz der Vergleichsquelle fehlt.")
     if primary["source"] == secondary["source"]:
         result["reasons"].append("Quellen sind nicht unabhängig.")
-    if secondary.get("upstream") == "SG" and (primary.get("upstream") == "SG" or "SG" in primary["source"]):
-        result["reasons"].append("Zwei Abrufwege, aber derselbe SG-Kursgeber; keine unabhängige Preisbestätigung.")
+    if secondary.get("upstream") in ("SG", "BNP") and (primary.get("upstream") == secondary["upstream"] or secondary["upstream"] in primary["source"]):
+        result["reasons"].append("Zwei Abrufwege, aber derselbe "+secondary["upstream"]+"-Kursgeber; keine unabhängige Preisbestätigung.")
     if primary["currency"] != secondary["currency"]:
         result["reasons"].append("Unterschiedliche Währungen; datierte Umrechnung fehlt.")
     if not primary["current"] or not secondary["current"]:
@@ -230,7 +230,8 @@ def _condition_value(quote, key, now_ms):
 
 
 def _backup_pair(quote, isin, now_ms):
-    """A dated SG LiveTrading pair supplies data, never DEGIRO execution."""
+    """A dated issuer LiveTrading pair supplies data, never DEGIRO execution."""
+    from comdirect_quotes import matches_primary
     row = quote.get('secondaryQuote') or {}
     meta = quote.get('metadata') or {}
     backup = quote.get('comdirectFieldsBackup') or {}
@@ -238,10 +239,8 @@ def _backup_pair(quote, isin, now_ms):
             or quote.get('sourceDisabled') or meta.get('status') != 1
             or backup.get('state') == 'inactive'
             or set(backup.get('conflicts') or []) & {'direction', 'currency', 'underlying'}
-            or meta.get('issuerExchangeCode') != 'CBDE'
-            or row.get('isin') != isin or row.get('currency') != 'EUR'
-            or row.get('source') != 'comdirect · SG LiveTrading'
-            or row.get('venue') != 'LT Societe Generale'
+            or not matches_primary(quote, row)
+            or row.get('isin') != isin
             or row.get('priceKind') != 'market-observation' or row.get('delayed')
             or row.get('isExecutableQuote') is not False
             or row.get('degiroExecutable') is not False
