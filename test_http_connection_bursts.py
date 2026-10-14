@@ -5,6 +5,10 @@ from http.server import BaseHTTPRequestHandler
 from server import BobHTTPServer
 
 class ConnectionBurstTests(unittest.TestCase):
+    def test_session_service_uses_same_burst_protection(self):
+        import push_server
+        self.assertIs(push_server.BobHTTPServer, BobHTTPServer)
+
     def test_parallel_connections_queue_before_handler_can_run(self):
         clients=[]
         with BobHTTPServer(('127.0.0.1',0),BaseHTTPRequestHandler) as server:
