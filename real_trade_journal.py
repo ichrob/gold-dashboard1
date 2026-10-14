@@ -56,6 +56,34 @@ def record_purchase(conn,t):
     event(conn,tid,'purchase-recorded',snapshot)
     return {'ok':True,'tradeId':tid,'recordOnly':True}
 
+
+def validate_settlement(raw, execution):
+    """Actual broker receipt values; observations remain separate and immutable."""
+    if not isinstance(raw,dict) or not execution:raise ValueError('Abrechnung benötigt Ausführungswerte')
+    out={}
+    for k in ('purchaseTransactionId','saleTransactionId'):
+        v=str(raw.get(k,''))
+        if not re.fullmatch(r'[A-Za-z0-9-]{1,80}',v):raise ValueError('Transaktions-ID fehlt')
+        out[k]=v
+    for k in ('purchasedAt','soldAt'):
+        dt=datetime.fromisoformat(str(raw.get(k,'')).replace('Z','+00:00'))
+        if dt.tzinfo is None:raise ValueError('Ausführungszeit benötigt Zeitzone')
+        out[k]=dt.isoformat()
+    if datetime.fromisoformat(out['soldAt'])<datetime.fromisoformat(out['purchasedAt']):raise ValueError('Verkauf vor Kauf')
+    for k in ('purchaseTotalCHF','saleTotalCHF','purchaseFeesCHF','saleFeesCHF','purchaseFX','saleFX'):
+        v=raw.get(k)
+        if isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or v<0 or (k.endswith('FX') and v==0):raise ValueError('Ungültige CHF-Abrechnung')
+        out[k]=v
+    if raw.get('exitReason') not in ('stop-loss-user-confirmed','manual','other'):raise ValueError('Ausstiegsgrund fehlt')
+    out['exitReason']=raw['exitReason']
+    out['source']='DEGIRO-Bestätigungen, vom Nutzer zur Dokumentation freigegeben'
+    out['netCHF']=round(out['saleTotalCHF']-out['purchaseTotalCHF'],2)
+    out['holdingSeconds']=(datetime.fromisoformat(out['soldAt'])-datetime.fromisoformat(out['purchasedAt'])).total_seconds()
+    out['feesEURMethod']='CHF-Kosten je Abrechnung mit deren EUR/CHF-Kurs umgerechnet'
+    expected=out['purchaseFeesCHF']*out['purchaseFX']+out['saleFeesCHF']*out['saleFX']
+    if abs(expected-execution['feesEUR'])>0.0001:raise ValueError('EUR-Kosten passen nicht zur CHF-Abrechnung')
+    return out
+
 def handle(conn,action,payload):
     if action=='write':
         t=payload.get('trade') or {}
@@ -74,9 +102,14 @@ def handle(conn,action,payload):
             execution['netEUR']=(execution['exitEUR']-execution['entryEUR'])*execution['quantity']-execution['feesEUR']
             execution['source']='Vom Nutzer erfasst, nicht mit DEGIRO abgeglichen'
             t={**t,'actualExecution':execution}
-        snapshot={k:t.get(k) for k in ('tradeId','active','dir','entry','stop','target','initialRisk','product','monitorStartedAt','closedAt','closeGoldReference','actualExecution','purchase')}
+        snapshot={k:t.get(k) for k in ('tradeId','active','dir','entry','stop','target','initialRisk','product','monitorStartedAt','closedAt','closeGoldReference','actualExecution','purchase','settlement')}
         settings=background_push.config({'timeframe':payload.get('timeframe','15m'),'trade':{**snapshot,'active':True,'instrument':'XAU/USD'}})
         previous=conn.execute('SELECT active,snapshot FROM bob_real_trades WHERE id=%s FOR UPDATE',(tid,)).fetchone()
+        if t.get('settlement') is not None:
+            if active:raise ValueError('Abrechnung nur für geschlossenen Trade')
+            snapshot['settlement']=validate_settlement(t['settlement'],snapshot.get('actualExecution'))
+        elif previous and previous[1].get('settlement'):
+            snapshot['settlement']=previous[1]['settlement']
         if previous and previous[1].get('actualExecution') and not snapshot.get('actualExecution'):snapshot['actualExecution']=previous[1]['actualExecution']
         if previous and not previous[0] and active:
             old=previous[1]
@@ -99,6 +132,10 @@ def handle(conn,action,payload):
         tid=payload.get('tradeId');before=payload.get('before')
         trades=conn.execute('SELECT id,opened_at,updated_at,active,snapshot FROM bob_real_trades ORDER BY opened_at DESC LIMIT 100').fetchall()
         result={'trades':[dict(id=i,openedAt=o.isoformat(),updatedAt=u.isoformat(),active=a,snapshot=s) for i,o,u,a,s in trades]}
+        settled={item['snapshot']['settlement']['purchaseTransactionId'] for item in result['trades'] if not item['active'] and item['snapshot'].get('settlement')}
+        for item in result['trades']:
+            if item['snapshot'].get('recordOnly') and (item['snapshot'].get('purchase') or {}).get('transactionId') in settled:
+                item['snapshot']={**item['snapshot'],'consumed':True}
         states={i:s for i,s in conn.execute('SELECT id,state FROM bob_real_trades WHERE active=TRUE').fetchall()}
         for item in result['trades']:
             if item['active']:
