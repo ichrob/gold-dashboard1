@@ -309,7 +309,10 @@ def examine(product, quote, now_ms):
         and metadata.get("issuerExchangeCode") == "CBSW"
         and metadata.get("currency") == "CHF"
     )
-    if swiss_dots:
+    from broker_venue_evidence import confirmed as venue_confirmed
+    broker_venue = product.get('brokerVenueEvidence')
+    has_broker_venue = verified and venue_confirmed(broker_venue, isin, metadata.get('currency'), now_ms)
+    if swiss_dots and not has_broker_venue:
         missing.append("venue")
     if not verified:
         missing.append("identity") if "identity" not in missing else None
@@ -405,10 +408,11 @@ def examine(product, quote, now_ms):
         "researchLinks": _research_links(isin),
         "issuerVenue": "Swiss DOTS (CHF)" if swiss_dots else None,
         "venueEvidence": "https://www.finanzen.ch/derivate/"+isin.lower() if swiss_dots else None,
+        "brokerVenueEvidence": broker_venue if has_broker_venue else None,
         "venueAction": ("Keine Swiss-DOTS-Quotierung als DEGIRO-Kurs verwenden. "
                         "Nur eine bei DEGIRO selbst nachgewiesene Handelsroute "
                         "oder ein dort handelbares EUR-Produkt zum Vergleich heranziehen."
-                        if swiss_dots else None),
+                        if swiss_dots and not has_broker_venue else None),
         "autoRecovery": ("Vom Emittenten als beendet gemeldet · keine neue Handelsfreigabe; fehlende laufende Kurse sind kein Reparaturfehler"
                          if terminated else "Vorhandene Emittenten- und Ersatzquellen werden bei der nächsten Aktualisierung erneut geprüft"),
         "degiroVerified": False,
@@ -465,12 +469,16 @@ def build(feed, quotes, now_ms=None, previous=None):
 
 
 def init(conn):
+    import broker_venue_evidence
+    broker_venue_evidence.init(conn)
     conn.execute("""CREATE TABLE IF NOT EXISTS bob_degiro_product_audit (
         id INTEGER PRIMARY KEY CHECK(id=1), payload JSONB NOT NULL,
         checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""")
 
 
 def store(conn, feed, quotes, now_ms):
+    import broker_venue_evidence
+    feed = broker_venue_evidence.attach(conn, feed)
     row = conn.execute("SELECT payload FROM bob_degiro_product_audit WHERE id=1").fetchone()
     report = build(feed, quotes, now_ms, row[0] if row else None)
     conn.execute("""INSERT INTO bob_degiro_product_audit(id,payload,checked_at)

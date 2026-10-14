@@ -54,12 +54,39 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    list.textContent=(item.messages||[]).join('\n')+'\nPrüfungen in Folge: '+(item.consecutiveChecks||0)+' · Nächster Schritt: '+item.autoRecovery+
         '\nGeldkurszeit: '+(item.quoteSourceAt?fmt(item.quoteSourceAt):'nicht nachgewiesen')+
         ' · Hebelzeit: '+(item.leverageObservation?.current?fmt(item.leverageObservation.at)+' (gemeinsamer SG-Zeitbezug)':item.leverageSourceAt?fmt(item.leverageSourceAt):'nicht aktuell nachgewiesen')+
+        (item.brokerVenueEvidence?'\n✓ DEGIRO-Handelsplatz am Screenshot bestätigt: '+item.brokerVenueEvidence.venue+' · '+item.brokerVenueEvidence.observedMinute.replace('T',' ')+' · gültig bis '+fmt(item.brokerVenueEvidence.validUntil):'')+
         (item.venueAction?'\nHandelsplatzprüfung: '+item.issuerVenue+' · '+item.venueAction:'')+
         (item.identityEvidence==='source-matched'?'\n✓ ISIN und Richtung automatisch mit der Produktquelle abgeglichen.':'')+
         (item.dataQuoteSource?'\nKursnachweis: '+item.dataQuoteSource+(item.dataQuoteKind==='market-observation'?' · beobachtetes Geld/Brief, keine DEGIRO-Ausführungszusage':''):'')+
         (item.lastRecoveredAt?'\nAutomatisch wiederhergestellte Nachweise: '+(item.recoveredFields||[]).join(', ')+' · '+fmt(item.lastRecoveredAt):'')+
         '\nKeine automatische DEGIRO-Handelsfreigabe.';
    node.append(summary,list);
+   if(item.issuerVenue){
+    const form=document.createElement('form');
+    const heading=document.createElement('b');heading.textContent='DEGIRO-Handelsplatz aus Screenshot bestätigen';form.append(heading);
+    function input(label,type,name,value=''){
+     const wrap=document.createElement('label');wrap.textContent=label+' ';
+     const field=document.createElement('input');field.type=type;field.name=name;field.value=value;field.required=true;
+     wrap.append(field);form.append(wrap,document.createElement('br'));return field;
+    }
+    const venue=input('Handelsplatz','text','venue','Societe Generale OTC');venue.readOnly=true;
+    const currency=input('Produktwährung','text','currency','CHF');currency.readOnly=true;
+    const observed=input('Datum und Uhrzeit im Bild (Schweiz)','datetime-local','observedMinute');
+    const reference=input('Bildname oder Bildreferenz','text','imageReference');reference.maxLength=200;
+    const reviewed=input('ISIN und Handelsplatz am Original geprüft','checkbox','reviewed');
+    const button=document.createElement('button');button.type='submit';button.textContent='Handelsplatznachweis speichern';form.append(button);
+    const message=document.createElement('p');message.setAttribute('role','status');form.append(message);
+    form.addEventListener('submit',async event=>{
+     event.preventDefault();button.disabled=true;
+     try{
+      const response=await fetch('/api/degiro/venue',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({isin:item.isin,venue:venue.value,currency:currency.value,observedMinute:observed.value,imageReference:reference.value,reviewed:reviewed.checked})});
+      const result=await response.json();if(!response.ok||!result.ok)throw Error(result.error||'Speichern fehlgeschlagen');
+      message.textContent=result.message+' · gültig bis '+fmt(result.evidence.validUntil)+'. Die Hintergrundprüfung übernimmt den Nachweis im nächsten Zyklus.';
+     }catch(error){message.textContent=error.message;}finally{button.disabled=false;}
+    });
+    node.append(form);
+   }
    const obs=Array.isArray(item.sourceObservations)?item.sourceObservations:[];
    const comparison=document.createElement('div');comparison.className='small';
    const title=document.createElement('b');title.textContent='Quellenvergleich (keine Handelsfreigabe):';
