@@ -107,8 +107,8 @@ class ReportCoalescingTests(unittest.TestCase):
   with patch.object(a,'_build_report',return_value={'metrics':{}}) as build,patch.object(a.time,'monotonic',side_effect=[100,100+a.REPORT_CACHE_SECONDS+1,100+a.REPORT_CACHE_SECONDS+1]):
    a.report(None);a.report(None);self.assertEqual(build.call_count,2)
  def test_report_query_is_bounded_for_interactive_reads(self):
-  from unittest.mock import Mock,patch
-  conn=Mock();rows=[]
+  from unittest.mock import Mock,MagicMock,patch
+  conn=MagicMock();rows=[]
   conn.execute.side_effect=[Mock(fetchall=lambda:rows),Mock(fetchall=lambda:[]),Mock(fetchone=lambda:(0,))]
   with patch.object(a,'harvest') as harvest,patch.object(a.rule_learning,'report',return_value={}),patch.object(a.intraday_comparison,'report',return_value={}):
    result=a._build_report(conn)
@@ -297,4 +297,46 @@ class ReportBatchRowsTests(unittest.TestCase):
             self.assertEqual(actual,expected)
             self.assertEqual(len(actual),3)
             self.assertIsNone(actual[0][1])
+            conn.rollback()
+
+
+class ReportTimeoutRecoveryTests(unittest.TestCase):
+    def test_canceled_report_retries_a_smaller_window_and_labels_it(self):
+        from unittest.mock import MagicMock, Mock, patch
+        import psycopg
+        conn=MagicMock()
+        conn.execute.side_effect=[Mock(fetchall=lambda:[]),Mock(fetchone=lambda:(10000,))]
+        with patch.object(a,'_load_report_rows',side_effect=[psycopg.errors.QueryCanceled('timeout'),[]]) as load, patch.object(a.rule_learning,'report',return_value={}), patch.object(a.intraday_comparison,'report',return_value={}):
+            result=a._build_report(conn)
+        self.assertEqual(load.call_args_list[1].args,(conn,a.REPORT_BUSY_LIMIT))
+        self.assertTrue(result['reportWindowReduced'])
+        self.assertIn('verkleinertes Auswertungsfenster',result['scope'])
+        self.assertEqual(conn.transaction.call_count,2)
+
+    def test_second_timeout_is_not_reported_as_a_success(self):
+        from unittest.mock import MagicMock, patch
+        import psycopg
+        with patch.object(a,'_load_report_rows',side_effect=psycopg.errors.QueryCanceled('timeout')):
+            with self.assertRaises(psycopg.errors.QueryCanceled):a._build_report(MagicMock())
+
+    @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'test database unavailable')
+    def test_postgres_cancellation_rolls_back_savepoint_before_retry(self):
+        import psycopg
+        from unittest.mock import patch
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute('CREATE TEMP TABLE bob_decision_audit (id TEXT PRIMARY KEY, recorded_at TIMESTAMPTZ, payload JSONB)')
+            conn.execute('CREATE TEMP TABLE bob_decision_outcomes (decision_id TEXT, horizon INTEGER, truth JSONB, PRIMARY KEY(decision_id,horizon))')
+            conn.execute("INSERT INTO bob_decision_audit VALUES ('kept', now(), '{}'::jsonb)")
+            calls=[]
+            def load(db,limit=None):
+                calls.append(limit)
+                if len(calls)==1:
+                    db.execute("SET LOCAL statement_timeout='1ms'")
+                    db.execute('SELECT pg_sleep(0.05)')
+                return []
+            with patch.object(a,'_load_report_rows',side_effect=load), patch.object(a.rule_learning,'report',return_value={}), patch.object(a.intraday_comparison,'report',return_value={}):
+                result=a._build_report(conn)
+            self.assertEqual(calls,[None,a.REPORT_BUSY_LIMIT])
+            self.assertTrue(result['reportWindowReduced'])
+            self.assertEqual(conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0],1)
             conn.rollback()

@@ -1586,7 +1586,10 @@ class Handler(BaseHTTPRequestHandler):
                     "Accept": "application/json",
                 },
             )
-            with urlopen(req, timeout=12) as response:
+            # Audit reports may recover from a 10s database cancellation and
+            # retry a smaller window; allow the bounded recovery to finish.
+            relay_timeout = 45 if path == "/api/audit/read" else 12
+            with urlopen(req, timeout=relay_timeout) as response:
                 result = response.read()
                 status = response.status
             if path == "/api/trade-email/read" and status == 200:
