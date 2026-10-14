@@ -13,6 +13,13 @@ class RejectionCodeTests(unittest.TestCase):
             'Entscheidungs-Kerzenzeit fehlt oder liegt in der Zukunft': 'bar-time-invalid',
             'Zu viele Produkte': 'product-count-invalid',
             'Ungültige Protokollquelle': 'origin-invalid',
+            'Screenshot-Quellenzuordnung fehlt': 'screenshot-origin-missing',
+            'Ungültiger Screenshot-Listenstand': 'screenshot-generation-invalid',
+            'Ungültiger zukünftiger Screenshot-Listenstand': 'screenshot-generation-time-invalid',
+            'Produktliste ungültig': 'simulation-products-invalid',
+            'Produktnachweise zu groß': 'simulation-evidence-large',
+            'Prüfprotokoll muss ein Objekt sein': 'payload-shape-invalid',
+            'Ungültige Payload-Größe': 'payload-size-invalid',
         }
         for message, code in cases.items():
             self.assertEqual(decision_audit.rejection_code(ValueError(message)), code)

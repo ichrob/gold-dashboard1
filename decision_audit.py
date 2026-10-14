@@ -41,6 +41,13 @@ def rejection_code(exc):
         'Ungültige Protokollquelle': 'origin-invalid',
         'Ungültige Produktdaten im Prüfprotokoll': 'product-shape-invalid',
         'Ungültige Prüfhinweise': 'reasons-invalid',
+        'Screenshot-Quellenzuordnung fehlt': 'screenshot-origin-missing',
+        'Ungültiger Screenshot-Listenstand': 'screenshot-generation-invalid',
+        'Ungültiger zukünftiger Screenshot-Listenstand': 'screenshot-generation-time-invalid',
+        'Produktliste ungültig': 'simulation-products-invalid',
+        'Produktnachweise zu groß': 'simulation-evidence-large',
+        'Prüfprotokoll muss ein Objekt sein': 'payload-shape-invalid',
+        'Ungültige Payload-Größe': 'payload-size-invalid',
     }
     return known.get(str(exc), 'other-validation-error')
 
@@ -335,14 +342,27 @@ def report(conn):
         return result
 
 
+def _load_report_rows(conn):
+    # Fetch the bounded decision window first, then all three horizons in one
+    # indexed batch instead of 7,500 correlated subqueries on a cold report.
+    decisions = conn.execute("""SELECT id,payload FROM bob_decision_audit
+        ORDER BY recorded_at DESC LIMIT %s""", (REPORT_LIMIT,)).fetchall()
+    if not decisions:
+        return []
+    outcomes = conn.execute("""SELECT decision_id,horizon,truth
+        FROM bob_decision_outcomes
+        WHERE decision_id = ANY(%s::text[]) AND horizon IN (15,60,240)""",
+        ([row[0] for row in decisions],)).fetchall()
+    by_id = {}
+    for decision_id, horizon, truth in outcomes:
+        by_id.setdefault(decision_id, {})[horizon] = truth
+    return [(payload, *(by_id.get(key, {}).get(h) for h in (15,60,240)))
+            for key, payload in decisions]
+
+
 def _build_report(conn):
-    # Outcomes are harvested by the writer/background worker. Reading must not
-    # run a seven-day backfill inside an interactive request transaction.
-    rows=conn.execute("""SELECT a.payload,
-      (SELECT truth FROM bob_decision_outcomes WHERE decision_id=a.id AND horizon=15),
-      (SELECT truth FROM bob_decision_outcomes WHERE decision_id=a.id AND horizon=60),
-      (SELECT truth FROM bob_decision_outcomes WHERE decision_id=a.id AND horizon=240)
-      FROM bob_decision_audit a ORDER BY a.recorded_at DESC LIMIT %s""",(REPORT_LIMIT,)).fetchall()
+    # Reading must not run the seven-day outcome backfill.
+    rows = _load_report_rows(conn)
     learning=rule_learning.report(conn)
     active=(learning.get('policy') or {}).get('variant','baseline')
     matches=lambda r:r.get('learningPolicy')==rule_learning.ID+':'+active or active=='baseline' and r.get('learningPolicy') is None

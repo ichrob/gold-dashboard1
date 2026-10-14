@@ -259,3 +259,42 @@ class UnattendedBackgroundAuditWriterTests(unittest.TestCase):
             run_audit_harvest_once(database)
         harvest.assert_called_once_with(conn)
         conn.commit.assert_called_once()
+
+
+class ReportBatchRowsTests(unittest.TestCase):
+    def test_batch_preserves_order_horizon_alignment_and_missing_evidence(self):
+        from unittest.mock import Mock
+        conn=Mock()
+        conn.execute.side_effect=[
+            Mock(fetchall=lambda:[('new',{'id':'new'}),('old',{'id':'old'})]),
+            Mock(fetchall=lambda:[('old',240,{'price':240}),('new',60,{'price':60}),('old',15,{'price':15})])]
+        self.assertEqual(a._load_report_rows(conn),[
+            ({'id':'new'},None,{'price':60},None),
+            ({'id':'old'},{'price':15},None,{'price':240})])
+        self.assertEqual(conn.execute.call_count,2)
+        self.assertEqual(conn.execute.call_args.args[1],(['new','old'],))
+
+    @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'test database unavailable')
+    def test_postgres_batch_matches_original_report_window(self):
+        import psycopg
+        from unittest.mock import patch
+        from psycopg.types.json import Jsonb
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute('CREATE TEMP TABLE bob_decision_audit (id TEXT PRIMARY KEY, recorded_at TIMESTAMPTZ, payload JSONB)')
+            conn.execute('CREATE TEMP TABLE bob_decision_outcomes (decision_id TEXT, horizon INTEGER, truth JSONB, PRIMARY KEY(decision_id,horizon))')
+            for n in range(5):
+                conn.execute("INSERT INTO bob_decision_audit VALUES (%s,now() + %s * interval '1 second',%s)",(str(n),n,Jsonb({'id':n})))
+                for h in (15,60,240):
+                    if n==4 and h!=60:continue
+                    conn.execute('INSERT INTO bob_decision_outcomes VALUES (%s,%s,%s)',(str(n),h,Jsonb({'price':n+h})))
+            expected=conn.execute("""SELECT a.payload,
+              (SELECT truth FROM bob_decision_outcomes WHERE decision_id=a.id AND horizon=15),
+              (SELECT truth FROM bob_decision_outcomes WHERE decision_id=a.id AND horizon=60),
+              (SELECT truth FROM bob_decision_outcomes WHERE decision_id=a.id AND horizon=240)
+              FROM bob_decision_audit a ORDER BY a.recorded_at DESC LIMIT 3""").fetchall()
+            with patch.object(a,'REPORT_LIMIT',3):
+                actual=a._load_report_rows(conn)
+            self.assertEqual(actual,expected)
+            self.assertEqual(len(actual),3)
+            self.assertIsNone(actual[0][1])
+            conn.rollback()
