@@ -120,6 +120,40 @@ class ComdirectQuoteTests(unittest.TestCase):
                 self.assertEqual(q.apply(primary, ISIN), primary)
                 fetch.assert_not_called()
 
+    def test_paper_harvests_completed_backup_while_primary_slots_are_busy(self):
+        import paper_simulation as sim
+        from concurrent.futures import Future
+        from unittest.mock import Mock
+        raw=copy.deepcopy(self.primary)
+        raw.update(priceKind='issuer-chart',isExecutableQuote=False)
+        raw['secondaryQuote']={**self.quote,'quoteAt':(self.now-timedelta(minutes=3)).isoformat()}
+        before=copy.deepcopy(raw)
+        busy={str(i):Future() for i in range(4)}
+        pool=Mock()
+        now=self.now.timestamp()*1000+30000
+        with patch.object(sim,'_pool',pool),patch.object(sim,'_pending',busy), \
+             patch.object(sim,'_quotes',{ISIN:raw}),patch.object(sim,'_requested',{}), \
+             patch.object(q,'get_observation',return_value=dict(state='observed',quote=self.quote)), \
+             patch.object(q,'datetime') as clock:
+            clock.now.return_value=self.now+timedelta(seconds=30)
+            clock.fromisoformat=datetime.fromisoformat
+            clock.min=datetime.min
+            result=sim.quote_cache([dict(isin=ISIN)],[],now)[ISIN]
+        pool.submit.assert_not_called()
+        accepted=sim.fresh_quote(result,now,ISIN)
+        self.assertEqual(accepted['ask'],self.quote['ask'])
+        self.assertEqual(accepted['quoteAt'],self.quote['quoteAt'])
+        self.assertFalse(accepted['degiroExecutable'])
+        self.assertEqual(raw,before)
+
+    def test_expired_backup_has_specific_reason_and_still_blocks(self):
+        import paper_simulation as sim
+        raw=self.apply(120)
+        raw.update(priceKind='issuer-chart',isExecutableQuote=False)
+        now=self.now.timestamp()*1000+120000
+        self.assertIsNone(sim.fresh_quote(raw,now,ISIN))
+        self.assertIn('comdirect-Geld-/Briefkurs älter als 90 Sekunden',sim.quote_block_reason(raw,now,ISIN))
+
 
 if __name__ == '__main__':
     unittest.main()

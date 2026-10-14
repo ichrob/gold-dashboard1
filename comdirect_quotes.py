@@ -11,7 +11,7 @@ from urllib.request import Request
 
 from public_product_terms import ORIGIN, open_public_page, plain, parse_page as parse_terms
 
-_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix='comdirect-quotes')
+_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix='comdirect-quotes')
 _LOCK = threading.Lock()
 _CACHE = {}
 _PENDING = set()
@@ -96,7 +96,7 @@ def get_observation(isin):
         cached = _CACHE.get(isin)
         if cached and time.monotonic()-cached[0] < 30:
             return copy.deepcopy(cached[1])
-        if isin not in _PENDING and len(_PENDING) < 8:
+        if isin not in _PENDING and len(_PENDING) < 16:
             _PENDING.add(isin)
             _POOL.submit(_refresh, isin)
         # Retain the original timestamp while refreshing; apply rechecks age.
