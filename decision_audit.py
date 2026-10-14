@@ -41,6 +41,13 @@ def rejection_code(exc):
         'Ungültige Protokollquelle': 'origin-invalid',
         'Ungültige Produktdaten im Prüfprotokoll': 'product-shape-invalid',
         'Ungültige Prüfhinweise': 'reasons-invalid',
+        'Screenshot-Quellenzuordnung fehlt': 'screenshot-origin-missing',
+        'Ungültiger Screenshot-Listenstand': 'screenshot-generation-invalid',
+        'Ungültiger zukünftiger Screenshot-Listenstand': 'screenshot-generation-time-invalid',
+        'Produktliste ungültig': 'simulation-products-invalid',
+        'Produktnachweise zu groß': 'simulation-evidence-large',
+        'Prüfprotokoll muss ein Objekt sein': 'payload-shape-invalid',
+        'Ungültige Payload-Größe': 'payload-size-invalid',
     }
     return known.get(str(exc), 'other-validation-error')
 

@@ -322,3 +322,26 @@ class DisconnectedHttpTests(unittest.TestCase):
             h.do_POST()
             self.assertEqual(send.call_args.args[1],503)
             self.assertTrue(send.call_args.args[2]['retryable'])
+
+
+class AuditOriginRouteTests(unittest.TestCase):
+    def test_route_preserves_screenshot_provenance_but_forces_audit_writer(self):
+        from unittest.mock import MagicMock
+        for mode, expected in [('simulation-sync', 'degiro-screenshot'), (None, 'browser')]:
+            with self.subTest(mode=mode):
+                payload={'origin':'degiro-screenshot','mode':mode}
+                h=object.__new__(push_server.Handler)
+                h.path='/decision-audit/write';h.headers={'X-Bob-Push-Token':'test'}
+                conn=MagicMock()
+                with patch.object(push_server,'PUSH_SERVICE_TOKEN','test'), patch.object(push_server,'json_body',return_value=payload), patch.object(push_server,'db',return_value=conn), patch.object(push_server.decision_audit,'handle',return_value={'ok':True}) as handle, patch.object(push_server,'send_json') as send:
+                    h.do_POST()
+                    self.assertEqual(handle.call_args.args[2]['origin'],expected)
+                    self.assertEqual(send.call_args.args[1],200)
+
+    def test_non_object_payload_is_rejected_before_database_access(self):
+        h=object.__new__(push_server.Handler)
+        h.path='/decision-audit/write';h.headers={'X-Bob-Push-Token':'test'}
+        with patch.object(push_server,'PUSH_SERVICE_TOKEN','test'), patch.object(push_server,'json_body',return_value=[]), patch.object(push_server,'db') as db, patch.object(push_server,'send_json') as send:
+            h.do_POST()
+            db.assert_not_called()
+            self.assertEqual(send.call_args.args[1],400)

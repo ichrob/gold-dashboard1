@@ -591,7 +591,13 @@ class Handler(BaseHTTPRequestHandler):
                     send_json(self,401,{'error':'Unauthorized'})
                     return
                 payload=json_body(self)
-                if path.endswith('/write'):payload['origin']='browser'
+                if not isinstance(payload, dict):
+                    raise ValueError('Prüfprotokoll muss ein Objekt sein')
+                # Simulation sync carries screenshot provenance, not audit-writer identity.
+                if path.endswith('/write') and payload.get('mode') not in (
+                    'simulation-sync', 'manual-paper-watch-sync', 'manual-paper-watch-levels'
+                ):
+                    payload['origin']='browser'
                 with db() as conn:
                     result=decision_audit.handle(conn,path.rsplit('/',1)[-1],payload)
                     conn.commit()
