@@ -42,10 +42,54 @@ def stamp(value):
         return at.timestamp()*1000 if at.tzinfo else None
     except (TypeError,ValueError,AttributeError): return None
 
+def paper_quote(q, now, isin):
+    """Project a validated public LiveTrading pair into the paper ledger only.
+
+    Never change the provider payload, source clocks or broker execution flags.
+    Product approval, leverage, KO and strategy checks remain independent.
+    """
+    if not isinstance(q, dict) or q.get('isin') != isin:
+        return q
+    if q.get('found') is True and q.get('isExecutableQuote') is not False:
+        return q
+    meta = q.get('metadata') or {}
+    if (q.get('productVerified') is not True or q.get('sourceDisabled')
+            or meta.get('status') != 1 or meta.get('tradingHalted') is True
+            or meta.get('issuerExchangeCode') != 'CBDE'):
+        return q
+    candidates = [q.get('analysisQuote'), q.get('secondaryQuote')]
+    valid = []
+    for pair in candidates:
+        if not isinstance(pair, dict):
+            continue
+        if (pair.get('isin') != isin or pair.get('currency') != 'EUR'
+                or pair.get('source') != 'comdirect · SG LiveTrading'
+                or pair.get('venue') != 'LT Societe Generale'
+                or pair.get('priceKind') != 'market-observation'
+                or pair.get('delayed') or pair.get('isExecutableQuote') is not False
+                or pair.get('degiroExecutable') is not False
+                or not finite(pair.get('bid')) or not finite(pair.get('ask'))
+                or pair['ask'] < pair['bid']):
+            continue
+        times = [stamp(pair.get(k)) for k in ('bidAt', 'askAt', 'quoteAt')]
+        if not all(t is not None and 0 <= now-t <= 90000 for t in times):
+            continue
+        if len(set(times)) != 1:
+            continue
+        valid.append(pair)
+    if not valid:
+        return q
+    pair = max(valid, key=lambda x: stamp(x['quoteAt']))
+    out = copy.deepcopy(q)
+    out.update(copy.deepcopy(pair))
+    out.update(found=True, marketOpen=True, paperQuoteAccepted=True,
+               paperQuoteLabel='Simulationskurs · comdirect SG LiveTrading · keine bestätigte DEGIRO-Ausführung')
+    return out
+
 def quote_block_reason(q, now, isin):
     if not isinstance(q,dict):return 'Noch keine Kursantwort vorhanden'
     if q.get('isin')!=isin:return 'ISIN der Kursantwort stimmt nicht überein'
-    if q.get('priceKind') in ('calculated','issuer-chart') or q.get('isExecutableQuote') is False:
+    if q.get('priceKind') in ('calculated','issuer-chart') or (q.get('isExecutableQuote') is False and q.get('paperQuoteAccepted') is not True):
         return 'Nur Chart-, Rechen- oder Recherchekurs; kein bestätigter zweiseitiger Handelskurs'
     if q.get('found') is not True:
         code=q.get('quoteFailureCode') or q.get('sourceFailureCode')
@@ -63,8 +107,9 @@ def quote_block_reason(q, now, isin):
 
 
 def fresh_quote(q, now, isin):
+    q=paper_quote(q,now,isin)
     if quote_block_reason(q,now,isin):return None
-    return {k:q.get(k) for k in ('isin','bid','ask','currency','source','quoteAt','bidAt','askAt')}
+    return {k:q.get(k) for k in ('isin','bid','ask','currency','source','quoteAt','bidAt','askAt','paperQuoteLabel','isExecutableQuote','degiroExecutable')}
 
 def init(conn):
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_paper_control (
@@ -613,6 +658,7 @@ def _worker(db):
                             conn.execute('ROLLBACK TO SAVEPOINT bob_degiro_audit')
                             conn.execute('RELEASE SAVEPOINT bob_degiro_audit')
                             print('BOB_PRODUCT_AUDIT error='+type(audit_exc).__name__,flush=True)
+                        quotes={isin:paper_quote(q,now,isin) for isin,q in quotes.items()}
                         # Original four paper policies consume unchanged confirmed direction.
                         market=background_push.analyze(bundle,settings,priority=2)
                         selection=dict(choices=[],reasons=[])
