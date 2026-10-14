@@ -14,9 +14,34 @@
  const b=document.createElement('button'),note=document.createElement('p');b.type='submit';b.textContent='Ausführung speichern';form.append(b,note);
  form.onsubmit=async e=>{e.preventDefault();b.disabled=true;try{const actualExecution=Object.fromEntries(Object.entries(fields).map(([k,v])=>[k,Number(v.value)]));await request('write',{trade:{...t.snapshot,actualExecution},timeframe:'15m'});note.textContent='Gespeichert · Ergebnis nach eingetragenen Kosten: '+((actualExecution.exitEUR-actualExecution.entryEUR)*actualExecution.quantity-actualExecution.feesEUR).toFixed(2)+' EUR. Angaben nicht mit DEGIRO abgeglichen.';}catch(err){note.textContent='Nicht gespeichert: '+err.message;}finally{b.disabled=false;}};return form;
  }
- async function load(){await flush();try{const r=await request('read',{}),root=el('realTradeList');root.replaceChildren();for(const t of r.trades){const d=document.createElement('details'),s=document.createElement('summary'),body=document.createElement('div');s.textContent=time(t.openedAt)+' · '+(t.snapshot.product?.isin||'Goldreferenz ohne Produktdaten')+' · '+t.snapshot.dir+' · '+(t.active?'aktiv':'in Bob beendet');d.append(s,details('Erfasster Trade und Produktwerte',t.snapshot));if(!t.active)d.append(executionForm(t));d.append(body);d.addEventListener('toggle',()=>{if(d.open&&!body.childNodes.length)history(t.id,body);});root.append(d);}if(!r.trades.length)root.textContent='Noch kein echter Trade protokolliert. Nach deinem Kauf den Trade unter „Mein Trade“ erfassen und aktivieren.';}catch(e){status('Echte Trades nicht abrufbar: '+e.message);}}
+ async function load(){await flush();try{const r=await request('read',{}),root=el('realTradeList');root.replaceChildren();for(const t of r.trades){const d=document.createElement('details'),s=document.createElement('summary'),body=document.createElement('div');s.textContent=time(t.openedAt)+' · '+(t.snapshot.product?.isin||'Goldreferenz ohne Produktdaten')+' · '+t.snapshot.dir+' · '+(t.snapshot.recordOnly?'Kauf erfasst · Überwachung offen':t.active?'aktiv':'in Bob beendet');d.append(s,details('Erfasster Trade und Produktwerte',t.snapshot));if(!t.active&&!t.snapshot.recordOnly)d.append(executionForm(t));d.append(body);d.addEventListener('toggle',()=>{if(d.open&&!body.childNodes.length)history(t.id,body);});root.append(d);}if(!r.trades.length)root.textContent='Noch kein echter Trade protokolliert. Nach deinem Kauf den Trade unter „Mein Trade“ erfassen und aktivieren.';}catch(e){status('Echte Trades nicht abrufbar: '+e.message);}}
+
+ function purchasePanel(){
+  const parent=el('bobExitEstimate');if(!parent||el('bobPurchaseRecord'))return;
+  const box=document.createElement('section');box.id='bobPurchaseRecord';box.className='card';
+  box.innerHTML='<h3>Bestätigten Kauf geräteübergreifend speichern</h3><p>Kaufkurs, Stückzahl und Richtung werden aus dem Formular oben übernommen. Die Speicherung benötigt keine Gold-/FX-Referenz. Stopp-, Ziel- und KO-Überwachung bleiben bis zur vollständigen Einrichtung offen.</p><form id="purchaseForm"><label>DEGIRO-Transaktions-ID<input id="purchaseTx" required maxlength="80"></label><label>Kaufzeit mit Zeitzone<input id="purchaseAt" required placeholder="2026-10-14T10:54:59+02:00"></label><label>Gesamtgebühren CHF<input id="purchaseFees" type="number" min="0" step="0.01" required></label><label>Gesamtbelastung CHF<input id="purchaseTotal" type="number" min="0" step="0.01" required></label><button type="submit">Bestätigten Kauf auf Server speichern</button></form><p id="purchaseStatus" role="status"></p><button id="purchaseReload">Gespeicherte Käufe laden</button><div id="purchaseList"></div>';
+  parent.after(box);
+  el('purchaseForm').onsubmit=async event=>{event.preventDefault();const b=event.submitter;b.disabled=true;
+   try{const field=k=>parent.querySelector('[data-exit="'+k+'"]').value;
+    const trade={recordOnly:true,active:false,dir:field('direction'),product:{isin:field('isin').trim().toUpperCase(),entry:Number(field('entry')),quantity:Number(field('quantity'))},purchase:{transactionId:el('purchaseTx').value.trim(),at:el('purchaseAt').value.trim(),feesCHF:Number(el('purchaseFees').value),totalCHF:Number(el('purchaseTotal').value)}};
+    await request('write',{trade});el('purchaseStatus').textContent='Kauf auf dem Server gespeichert. Auf anderen Geräten abrufbar. Überwachung noch offen.';await loadPurchases();
+   }catch(e){el('purchaseStatus').textContent='Nicht gespeichert: '+e.message;}finally{b.disabled=false;}
+  };
+  el('purchaseReload').onclick=loadPurchases;loadPurchases();
+ }
+ async function loadPurchases(){
+  const root=el('purchaseList');if(!root)return;
+  try{const r=await request('read',{});root.replaceChildren();
+   for(const t of r.trades.filter(t=>t.snapshot.recordOnly)){
+    const p=t.snapshot.product,e=t.snapshot.purchase,line=document.createElement('p'),b=document.createElement('button');
+    line.textContent=p.isin+' · '+t.snapshot.dir+' · '+p.quantity+' Stück zu '+p.entry+' EUR · '+time(e.at)+' · Kauf gespeichert, Überwachung offen. ';
+    b.textContent='Kauf ins Formular übernehmen';b.onclick=()=>{for(const [k,v] of Object.entries({isin:p.isin,entry:p.entry,quantity:p.quantity,direction:t.snapshot.dir})){const input=document.querySelector('[data-exit="'+k+'"]');input.value=v;input.dispatchEvent(new Event('input',{bubbles:true}));}el('purchaseTx').value=e.transactionId;el('purchaseAt').value=e.at;el('purchaseFees').value=e.feesCHF;el('purchaseTotal').value=e.totalCHF;};line.append(b);root.append(line);
+   }
+   if(!root.childNodes.length)root.textContent='Noch keine separat erfassten Käufe.';
+  }catch(e){el('purchaseStatus').textContent='Serverkäufe nicht abrufbar: '+e.message;}
+ }
  window.BobRealTrades={capture,load};
- document.addEventListener('DOMContentLoaded',()=>{el('realTradeLoad')?.addEventListener('click',load);flush();});
- document.addEventListener('click',e=>{if(e.target.closest?.('[data-view="learning"]'))load();});
+ document.addEventListener('DOMContentLoaded',()=>{el('realTradeLoad')?.addEventListener('click',load);flush();purchasePanel();});
+ document.addEventListener('click',e=>{if(e.target.closest?.('[data-view="learning"]'))load();purchasePanel();});
  window.addEventListener('online',flush);setInterval(flush,30000);
 })();

@@ -1,5 +1,6 @@
 """Append-only real trade observations. Never executes orders or infers fills."""
-import json,time,hashlib,math
+import json,time,hashlib,math,re
+from datetime import datetime
 import background_push
 
 def init(conn):
@@ -21,9 +22,44 @@ def event(conn,trade_id,kind,payload,key=None):
       SELECT id,%s,%s,%s::jsonb FROM bob_real_trades WHERE id=%s ON CONFLICT(dedup) DO NOTHING''',
       (kind,dedup,raw,trade_id))
 
+def record_purchase(conn,t):
+    """Persist a confirmed purchase independently of the monitoring model."""
+    if t.get('active') or t.get('test'):raise ValueError('Kauferfassung aktiviert keine Überwachung')
+    p=t.get('product') or {};e=t.get('purchase') or {}
+    isin=str(p.get('isin','')).upper()
+    if not re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]',isin):raise ValueError('ISIN fehlt')
+    if t.get('dir') not in ('LONG','SHORT'):raise ValueError('Richtung fehlt')
+    for k in ('entry','quantity'):
+        v=p.get(k)
+        if isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or v<=0:raise ValueError('Kaufkurs und Stückzahl fehlen')
+    if not float(p['quantity']).is_integer():raise ValueError('Ganzzahlige Stückzahl erforderlich')
+    tx=str(e.get('transactionId',''))
+    if not re.fullmatch(r'[A-Za-z0-9-]{1,80}',tx):raise ValueError('Transaktions-ID fehlt')
+    at=datetime.fromisoformat(str(e.get('at','')).replace('Z','+00:00'))
+    if at.tzinfo is None:raise ValueError('Kaufzeit benötigt Zeitzone')
+    for k in ('feesCHF','totalCHF'):
+        v=e.get(k)
+        if isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or v<0:raise ValueError('CHF-Beträge fehlen')
+    tid='degiro-purchase-'+tx
+    snapshot={'tradeId':tid,'active':False,'recordOnly':True,'dir':t['dir'],
+      'product':{'isin':isin,'entry':p['entry'],'quantity':p['quantity']},
+      'purchase':{'transactionId':tx,'at':at.isoformat(),'feesCHF':e['feesCHF'],'totalCHF':e['totalCHF'],
+      'source':'Vom Nutzer bestätigte DEGIRO-Ausführung'},'monitoringStatus':'pending-evidence'}
+    previous=conn.execute('SELECT active,snapshot FROM bob_real_trades WHERE id=%s FOR UPDATE',(tid,)).fetchone()
+    if previous:
+        if previous[1]!=snapshot:raise ValueError('Transaktion bereits gespeichert; abweichende Daten nicht überschrieben')
+        return {'ok':True,'tradeId':tid,'recordOnly':True,'duplicate':True}
+    inserted=conn.execute("""INSERT INTO bob_real_trades(id,active,snapshot,settings)
+      VALUES(%s,FALSE,%s::jsonb,%s::jsonb) ON CONFLICT DO NOTHING RETURNING id""",
+      (tid,json.dumps(snapshot),json.dumps({'timeframe':'15m','trade':None}))).fetchone()
+    if not inserted:raise ValueError('Transaktion wurde gleichzeitig gespeichert; bitte neu laden')
+    event(conn,tid,'purchase-recorded',snapshot)
+    return {'ok':True,'tradeId':tid,'recordOnly':True}
+
 def handle(conn,action,payload):
     if action=='write':
         t=payload.get('trade') or {}
+        if t.get('recordOnly') is True:return record_purchase(conn,t)
         if t.get('test'):raise ValueError('Probelauf ist kein echter Trade')
         tid=t.get('tradeId')
         if not isinstance(tid,str) or not 1<=len(tid)<=100:raise ValueError('Trade-ID fehlt')
