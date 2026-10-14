@@ -237,9 +237,14 @@ function normalizeOcrIsin(value,productText=''){
  if(['DE000PJ1NCK0','DE000PJ0NCK0'].includes(candidate)&&/\bBNP\s+GOLD\s+Unlimited\s+Long\b/i.test(productText)&&!/\bSHORT\b|\bPUT\b|FAKTOR|FACTOR/i.test(productText)&&validIsin('DE000PJ9NCK0'))return {isin:'DE000PJ9NCK0',originalIsin:original,identityCorrection:'BNP-Produktidentität am Originalbild belegt'};
  // Original DEGIRO list 1000070469.jpg shows PJ9NB98, BNP Gold Long,
  // SL/STR 3996.2705 and R 10. Do not generalise I/1 -> 9 from checksum alone.
- const bnpNbContext=/\bBNP\s+GOLD\s+Unlimited\s+Long\s+SL\s+3996[.,]2705\s+STR\s+3996[.,]2705\s+R\s*10\b/i.test(productText)
+ // The same identity is visible in 1000072797.jpg with adjusted daily terms.
+ // Restrict the correction to the reviewed alias and full product signature;
+ // equal positive SL/STR values corroborate the row, not a fixed old price.
+ const bnpNbTerms=productText.match(/\bBNP\s+GOLD\s+Unlimited\s+Long\s+SL\s+(\d+[.,]\d+)\s+STR\s+(\d+[.,]\d+)\s+R\s*10\b/i);
+ const bnpNbContext=!!bnpNbTerms&&Number(bnpNbTerms[1].replace(',','.'))>0
+  && Number(bnpNbTerms[1].replace(',','.'))===Number(bnpNbTerms[2].replace(',','.'))
   && !/\bSHORT\b|\bPUT\b|FAKTOR|FACTOR/i.test(productText);
- if(['DE000PJ1NB98','DE000PJ0NB98'].includes(candidate)&&bnpNbContext&&validIsin('DE000PJ9NB98'))return {isin:'DE000PJ9NB98',originalIsin:original,identityCorrection:'BNP-Produktidentität am Originalbild 1000070469.jpg belegt'};
+ if(['DE000PJ1NB98','DE000PJ0NB98'].includes(candidate)&&bnpNbContext&&validIsin('DE000PJ9NB98'))return {isin:'DE000PJ9NB98',originalIsin:original,identityCorrection:'BNP-Produktidentität an Originalbildern 1000070469.jpg und 1000072797.jpg belegt'};
  // Verified visually in the original DEGIRO list 1000069826(1).jpg.
  // A checksum alone cannot justify S/5 substitutions: require this exact product context.
  const sgContext=/\bSG\s+GOLD\s+TURBO\s+BEST\s+OPEN[-\s]?END\s+CALL\b/i.test(productText)
