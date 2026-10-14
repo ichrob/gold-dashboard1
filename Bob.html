@@ -3287,7 +3287,8 @@ async function manageProfitProtection(){
      const moved=tradeMgmt.dir==="LONG"?desired>stop+0.0001:desired<stop-0.0001;
      if(moved){
        tradeMgmt.stop=desired;tradeMgmt.lastUpdate=new Date().toISOString();tradeMgmt.profitStage=stage;saveTradeMgmt();$("tradeStop").value=desired.toFixed(2);
-       await notifyTrade("🛡️ Bob – Gewinn absichern",stage===1?"+1R erreicht · Stop auf mindestens Einstieg absichern.":stage===1.5?"+1,5R erreicht · bereits erzielten Gewinn weiter schützen.":"+2R erreicht · mindestens +1R Gewinn schützen.",{kind:"profit-protection",signalId:"profit:"+baseKey+":"+stage});
+       renderActiveTradePlan();
+       await notifyTrade("🛡️ Bob – Gewinn absichern",`Neuer Modell-Stop: ${activeTradeLevel(desired)}. Bisheriger Modell-Stop: ${activeTradeLevel(stop)}. +${stage}R (Goldplan). Bei DEGIRO selbst prüfen und anpassen.`,{kind:"profit-protection",signalId:"profit:"+baseKey+":"+stage});
        captureResearchSnapshot("PROFIT_PROTECTION");updateResearchPanel();
      } else {
        saved.stage=stage;localStorage.setItem("bobProfitGuardV1",JSON.stringify(saved));
@@ -3295,7 +3296,7 @@ async function manageProfitProtection(){
    }
 
    if(momentumWeak&&r>=1&&saved.weak!==baseKey){
-     await notifyTrade("⚠️ Bob – Gewinn schützen","Momentum schwächt sich ab · "+r.toFixed(1)+"R im Gewinn · Stop-Loss prüfen/nachziehen.",{kind:"profit-protection-warning",signalId:"weak:"+baseKey});
+     await notifyTrade("⚠️ Bob – Gewinn schützen","Momentum schwächt sich ab · "+r.toFixed(1)+"R im Gewinn · Aktueller Modell-Stop: "+activeTradeLevel(tradeMgmt.stop)+". Stop-Loss und Position prüfen.",{kind:"profit-protection-warning",signalId:"weak:"+baseKey});
      saved.weak=baseKey;localStorage.setItem("bobProfitGuardV1",JSON.stringify(saved));
    }
  }catch(e){console.warn("Bob profit protection",e)}

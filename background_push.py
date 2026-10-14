@@ -474,7 +474,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     product_in_profit=not t.get('product') or (estimated_now is not None and estimated_now>t['product']['entry'])
     weak = not trend_intact and (main_trend.get('phase') == 'WEAKENING' or mtf != t['dir'] or (market.get('score',50)<65 if long else market.get('score',50)>35))
     if weak and r>=1 and product_in_profit and not old.get('weak'):
-        add('profit-weak', 'TRADE-WARNUNG · Gewinn schützen', f"{t['dir']} · Momentum schwächer bei {r:.1f}R (Goldplan). Stop/Position prüfen.")
+        add('profit-weak', 'TRADE-WARNUNG · Gewinn schützen', f"{t['dir']} · Aktueller Modell-Stop {level_text(t,old['stop'])}. Momentum schwächer bei {r:.1f}R (Goldplan). Stop/Position prüfen.")
     old['weak'] = weak and r>=1 and product_in_profit
     return state, present_events(events, settings, market)
 
