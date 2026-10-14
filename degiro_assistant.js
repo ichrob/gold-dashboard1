@@ -3434,9 +3434,10 @@ async function inject(){
    try{localStorage.removeItem(RETURN_PRODUCT_KEY);}catch(_){}
    populateCandidateRows(items);
    // Persist the new generation before any normal/periodic background snapshot.
-   window.BobPaperSimulation?.sync?.(buildPaperListEvidence(),true);
+   const backgroundSynced=await window.BobPaperSimulation?.sync?.(buildPaperListEvidence(),true);
    rankUI();
    uploadStatus.textContent='✅ Neue aktive Liste: '+files.length+' Bild(er) · '+items.length+' unterschiedliche Produkte. Vorherige Liste ersetzt und gespeichert – bleibt bis zum nächsten Upload erhalten. Kurszeiten werden unabhängig geprüft.';
+   uploadStatus.textContent+=backgroundSynced?' Hintergrundübernahme bestätigt.':' ⚠️ Hintergrundübernahme noch offen; automatischer Abgleich läuft.';
    const uncertain=items.filter(x=>!validIsin(x.isin)).length;
    if(uncertain)uploadStatus.textContent+=' ⚠️ '+uncertain+' ISIN(s) unsicher – unter Details prüfen.';
    // The paper/background service is refreshed immediately, independently of its
