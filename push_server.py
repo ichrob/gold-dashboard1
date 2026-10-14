@@ -1,4 +1,5 @@
 import base64
+import atexit
 import json
 import os
 import secrets
@@ -32,6 +33,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 import psycopg
+from psycopg_pool import ConnectionPool, TooManyRequests
 from cryptography.hazmat.primitives import serialization
 from py_vapid import Vapid
 from pywebpush import webpush as _webpush, WebPushException
@@ -45,12 +47,25 @@ BOB_ORIGIN = os.environ.get("BOB_ORIGIN", "")
 TRANSIENT_DB_ERRORS = (psycopg.errors.LockNotAvailable,
                        psycopg.errors.DeadlockDetected,
                        psycopg.errors.SerializationFailure)
+_db_pool = None
+_db_pool_lock = threading.Lock()
 
 def db():
+    global _db_pool
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL fehlt")
-    return psycopg.connect(DATABASE_URL, connect_timeout=5,
-                           options="-c lock_timeout=3000 -c statement_timeout=10000")
+    # Reuse a bounded set of connections across HTTP and background workers.
+    # The context commits/rolls back and returns the connection to the pool.
+    with _db_pool_lock:
+        if _db_pool is None:
+            _db_pool = ConnectionPool(
+                DATABASE_URL, min_size=1, max_size=8, timeout=5,
+                max_waiting=16, max_idle=60, open=True,
+                check=ConnectionPool.check_connection,
+                kwargs=dict(connect_timeout=5,
+                    options="-c lock_timeout=3000 -c statement_timeout=10000"))
+            atexit.register(_db_pool.close)
+    return _db_pool.connection()
 
 def webpush(**kwargs):
     # Never hold subscription locks indefinitely on an unreachable push provider.
@@ -82,7 +97,7 @@ def init_db():
         try:
             _init_db_once()
             return
-        except TRANSIENT_DB_ERRORS + (psycopg.errors.ConnectionTimeout,):
+        except (psycopg.OperationalError, TooManyRequests):
             if attempt == 2:
                 raise
             print(f'BOB_PUSH startup=database_retry attempt={attempt + 1}', flush=True)
@@ -990,7 +1005,7 @@ class Handler(BaseHTTPRequestHandler):
             send_json(self, 400, {"error": str(exc)})
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True
-        except TRANSIENT_DB_ERRORS + (psycopg.errors.QueryCanceled,) as exc:
+        except (psycopg.OperationalError, TooManyRequests) as exc:
             print(f"BOB_PUSH database_busy path={path} error={type(exc).__name__}", flush=True)
             send_json(self, 503, {"error": "Push-Service kurzzeitig belegt", "retryable": True})
         except Exception as exc:

@@ -66,8 +66,10 @@ def summarize(rows, now=None):
 
 
 def handle(conn, action, payload):
-    conn.execute('SELECT pg_advisory_xact_lock(68431027)')
+    if action not in ('read', 'write'):
+        raise ValueError('Unbekannte Vergleichsaktion')
     if action == 'write':
+        conn.execute('SELECT pg_advisory_xact_lock(68431027)')
         events = payload.get('events', [])
         if not isinstance(events, list) or len(events) > 4:raise ValueError('Vergleichspaket zu groß')
         values = [(e, checked(e)) for e in events]

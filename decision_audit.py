@@ -384,15 +384,17 @@ def _build_report(conn):
     result['ruleLearning']=learning
     result['otherPolicyRecords']=len(rows)-len(scoped)
     result['signalDiagnostics']=signal_review.diagnostics(current,outcome)
-    prospective_rows=conn.execute("""SELECT a.payload,o.truth FROM (
-        SELECT DISTINCT ON (date_trunc('hour',recorded_at)) id,payload,recorded_at
-        FROM bob_decision_audit WHERE payload->'reviewVariants'->>'version'='signal-review-v1'
-        AND payload->>'origin'='background' AND payload->>'ruleVersion'=%s
-        AND payload->>'direction' IN ('LONG','SHORT')
-        ORDER BY date_trunc('hour',recorded_at),recorded_at,id
-        ) a LEFT JOIN bob_decision_outcomes o ON o.decision_id=a.id AND o.horizon=60
-        ORDER BY a.recorded_at""",(RULE_VERSION,)).fetchall()
-    result['prospectiveReview']=signal_review.prospective([(r,(None,t,None)) for r,t in prospective_rows],outcome)
+    try:
+        with conn.transaction():
+            prospective_rows = _load_prospective_rows(conn)
+        result['prospectiveReview']=signal_review.prospective([(r,(None,t,None)) for r,t in prospective_rows],outcome)
+        result['prospectiveReview']['available']=True
+    except psycopg.errors.QueryCanceled:
+        # A secondary research report must not discard the decision report.
+        # No empty statistics or invented success when the query was canceled.
+        result['prospectiveReview']={'available':False,'retryable':True,
+            'reason':'Historische Strategieauswertung wegen Datenbank-Zeitüberschreitung vorübergehend nicht verfügbar'}
+        print('BOB_AUDIT prospective_unavailable reason=query-timeout', flush=True)
     result['fourDayComparison']=intraday_comparison.report(conn)
     result['total']=conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0]
     result['reportRecords']=len(rows)
@@ -400,6 +402,8 @@ def _build_report(conn):
     result['scope']='Aktuelle Einstiegsregel '+active+' ('+str(len(scoped))+' passende, '+str(len(rows)-len(scoped))+' andere Regelstände getrennt); aktuelle Intraday-Regel; Auswertung der letzten '+str(len(rows))+' von '+str(result['total'])+' gespeicherten Entscheidungen; frühere Regeln getrennt ('+str(result['legacyCount'])+' ältere Protokolle). Einzelne Tage bleiben vollständig abrufbar. Bis 30 Tage; Gold-Richtung ohne Handelskosten, kein Gewinnnachweis'
     if reduced_window:
         result['scope']+=' · Datenbank ausgelastet: vorübergehend verkleinertes Auswertungsfenster (höchstens '+str(REPORT_BUSY_LIMIT)+' Entscheidungen). Vollständige Tagesprotokolle bleiben abrufbar.'
+    if not result['prospectiveReview']['available']:
+        result['scope']+=' · '+result['prospectiveReview']['reason']+'.'
     result['earlyImpulseReview']=early_impulse_review([(row[0],row[1:]) for row in rows])
     result['minuteEntryReview']=entry_quality_review([(row[0],row[1:]) for row in rows],field='minuteEntry',version='minute-entry-v1')
     result['entryQualityReview']=entry_quality_review([(row[0],row[1:]) for row in rows])
@@ -414,6 +418,21 @@ def _build_report(conn):
             research.append({'isin':p.get('isin'),'source':p.get('researchSource'),'at':p.get('researchAt'),'conflicts':conflicts})
     result['researchReview']={'observations':len(research),'conflicts':sum(bool(p['conflicts']) for p in research),'missingSourceOrTime':sum(not p['source'] or not p['at'] for p in research),'examples':[p for p in research if p['conflicts']][:10],'note':'Widersprüche sind Prüfhinweise, keine automatisch bewiesenen Recherchefehler. Abrufzeit beweist keine Aktualität der Produktwerte.'}
     return result
+
+def _load_prospective_rows(conn):
+    # Sort only identifiers, then load the payloads of the selected hourly cases.
+    # Preserve the full archive and the original outcome-independent sampling.
+    return conn.execute("""WITH sampled AS MATERIALIZED (
+        SELECT DISTINCT ON (date_trunc('hour',recorded_at)) id,recorded_at
+        FROM bob_decision_audit WHERE payload->'reviewVariants'->>'version'='signal-review-v1'
+        AND payload->>'origin'='background' AND payload->>'ruleVersion'=%s
+        AND payload->>'direction' IN ('LONG','SHORT')
+        ORDER BY date_trunc('hour',recorded_at),recorded_at,id
+        ) SELECT a.payload,o.truth FROM sampled s
+        JOIN bob_decision_audit a ON a.id=s.id
+        LEFT JOIN bob_decision_outcomes o ON o.decision_id=s.id AND o.horizon=60
+        ORDER BY s.recorded_at""",(RULE_VERSION,)).fetchall()
+
 
 def product_review(records):
     """Compare real bid/ask observations; never turn estimated prices into ground truth."""
