@@ -88,6 +88,34 @@ def calculate(result, basis, fx, now=None, quote_override=None):
                 note='Rechnerische Näherung mit Delta ±1; kein bestätigter Emittentenhebel oder ausführbarer Kurs.')
 
 
+def current_evidence(result, now=None):
+    """Validate calculated gearing as a dated value, never a broker quote."""
+    now = now or datetime.now(timezone.utc)
+    try:
+        c = result['leverageCalculation']; i = c['inputs']; m = result['metadata']
+        if (not result.get('productVerified') or m.get('status') != 1
+                or not m.get('simpleNonQuantoTurbo') or not c.get('available')
+                or not c.get('fresh') or i.get('basisEstimated') or i.get('basisDelayed')):
+            return None
+        times = [q.stamp(i[k]) for k in ('askAt','basisAt','fxDataAt','fxEffectiveAt')]
+        if any(not 0 <= (now-t).total_seconds() <= MAX_INPUT_AGE_SECONDS for t in times):
+            return None
+        if (max(times)-min(times)).total_seconds() > MAX_SKEW_SECONDS:
+            return None
+        gold, rate, ratio, ask, value = [q.number(v) for v in
+            (i['basisPriceUsd'], i['usdEur'], i['ratio'], i['askNative'], c['value'])]
+        if min(gold, rate, ratio, ask, value) <= 0 or i['quoteCurrency'] not in ('EUR','CHF'):
+            return None
+        if ratio != m.get('ratio') or not math.isclose(value,gold*rate*ratio/ask,rel_tol=1e-9):
+            return None
+        if q.stamp(c['at']) != min(times):
+            return None
+        return dict(value=value, at=min(times).isoformat(), current=True,
+                    kind='calculated-gearing', label='Berechneter Hebel · Zeitnachweis bestätigt')
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+
+
 def apply(result, now=None):
     supplied_now = now
     now = now or datetime.now(timezone.utc)
