@@ -62,7 +62,7 @@ def align(raw, gold, fx, now=None):
                 fxUrl='https://finance.yahoo.com/quote/EURUSD=X/',
                 note='Historische Näherungsreferenz; Gold-Beobachtung kann vor oder nach der Screenshotzeit liegen. Sekunden nicht ergänzt. Zeitzone Schweiz angenommen. Kein bestätigter Echtzeit- oder Ausführungskurs. FX am Ausstieg bleibt eine Annahme.')
 
-def lookup(raw):
+def historical_lookup(raw):
     global _cache
     screenshot_interval(raw)
     with _lock:
@@ -72,3 +72,54 @@ def lookup(raw):
                 f=pool.submit(issuer_json,FX_URL,'https://query1.finance.yahoo.com/',12)
                 _cache=(time.monotonic(),g.result(),f.result())
         return align(raw,_cache[1],_cache[2])
+
+
+def align_live(raw, gold, fx, now=None):
+    """Use actual source timestamps; never substitute retrieval time."""
+    now = time.time() if now is None else now
+    start,end = screenshot_interval(raw)
+    if (gold.get('stale') is not False or gold.get('data_state',{}).get('status')!='fresh'
+        or gold.get('xau',{}).get('currency')!='USD' or gold.get('xau',{}).get('unit')!='troy_oz'
+        or fx.get('result')!='success' or fx.get('base')!='USD'
+        or fx.get('source')!='live' or fx.get('sources',{}).get('EUR')!='live'
+        or fx.get('market_session')!='open'):
+        raise ValueError('Live-Gold-/FX-Identität oder Aktualität nicht bestätigt')
+    def stamp(raw):
+        dt=datetime.fromisoformat(str(raw).replace('Z','+00:00'))
+        if dt.tzinfo is None:raise ValueError('Quellenzeitzone fehlt')
+        return dt.timestamp()
+    gt=stamp(gold.get('price_as_of'));ft=stamp(fx.get('effective_at',{}).get('EUR'));updated=stamp(fx.get('data_updated_at'))
+    gp=gold.get('spot_usd_oz');rate=fx.get('rates',{}).get('EUR')
+    times=[start,end,gt,ft,updated]
+    if not positive(gp) or not positive(rate):raise ValueError('Positive Live-Werte fehlen')
+    if any(t>now or now-t>90 for t in times) or max(times)-min(times)>90:
+        return dict(available=False,reason='Live-Quellen liegen nicht gemeinsam innerhalb von 90 Sekunden zur Produktreferenz.')
+    iso=lambda t:datetime.fromtimestamp(t,timezone.utc).isoformat()
+    return dict(available=True,isEstimate=True,isExchangeRealtime=False,originalTime=raw,
+        timezone='UTC',timezoneAssumed=False,goldReference=gp,fxReference=rate,
+        goldAt=iso(gt),fxStart=iso(ft),fxEnd=iso(ft),fxDataAt=iso(updated),
+        maxSkewSeconds=round(max(times)-min(times),3),
+        goldSource='XAUS · datierte Gold-Spot-Beobachtung',goldUrl='https://xaus.com/api/v1/spot?compact=1',
+        fxSource=fx.get('provider','Datierter USD/EUR-Kurs'),
+        fxUrl='https://biquote.io/' if fx.get('backupActive') else 'https://api.exchangerate.dev/',
+        note='Zeitlich abgeglichene Live-Beobachtungen; indikative Modellreferenz, kein ausführbarer Produktkurs. FX am Ausstieg bleibt eine Annahme.')
+
+def lookup(raw):
+    # Recent issuer observations must not depend on a delayed minute archive.
+    start,end=screenshot_interval(raw)
+    now=time.time()
+    if start>now:raise ValueError('Kurszeit liegt in der Zukunft')
+    live_reason=None
+    if now-start<=90:
+        try:
+            from sg_quotes import market_input
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                g=pool.submit(market_input,'spot');f=pool.submit(market_input,'fx')
+                live=align_live(raw,g.result(),f.result())
+            if live['available']:return live
+            live_reason=live['reason']
+        except (OSError,ValueError,KeyError,TypeError) as exc:
+            live_reason='Live-Referenz: '+str(exc)
+    result=historical_lookup(raw)
+    if not result.get('available') and live_reason:result['reason']+=' '+live_reason
+    return result
