@@ -258,7 +258,7 @@ def _shared_leverage(quote, isin, now_ms):
     ref = quote.get("issuerLeverageReference") or {}
     ctx = quote.get("sharedTimeContext") or {}
     obs = (quote.get("sharedValueObservations") or {}).get("Referenzhebel") or {}
-    chart = quote.get("chartEvidence") or quote.get("nativeChartEvidence") or {}
+    chart = quote.get("nativeChartEvidence") or quote.get("chartEvidence") or {}
     at = ctx.get("at")
     if (quote.get("isin") != isin or quote.get("productVerified") is not True
             or (quote.get("metadata") or {}).get("status") != 1

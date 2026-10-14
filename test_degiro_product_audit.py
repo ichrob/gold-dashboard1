@@ -119,6 +119,16 @@ class ProductAuditTests(unittest.TestCase):
         self.assertNotIn("leverage",stale["missing"])
         self.assertIn("leverage-time",stale["missing"])
 
+    def test_chf_conversion_preserves_original_leverage_context(self):
+        q=self.shared_quote()
+        q['nativeChartEvidence']=dict(q['chartEvidence'], currency='CHF')
+        q['chartEvidence']=dict(q['chartEvidence'], pointAt=iso(NOW-30000))
+        item=audit.examine(feed()['products'][0],q,NOW)
+        self.assertNotIn('leverage-time',item['missing'])
+        self.assertFalse(item['tradeApproved'])
+        q['nativeChartEvidence']['pointAt']=iso(NOW-5000)
+        self.assertIn('leverage-time',audit.examine(feed()['products'][0],q,NOW)['missing'])
+
     def test_shared_leverage_rejects_mismatched_or_missing_evidence(self):
         cases=[("sharedTimeContext","isin","DE000FG309G0"),
                ("sharedTimeContext","fields",[]),

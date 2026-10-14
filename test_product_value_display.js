@@ -137,6 +137,14 @@ assert(linkedHtml.includes('SG-Referenzhebel (gemeinsamer Zeitbezug)'),linkedHtm
 assert(linkedHtml.includes('Gemeinsamer Hebel-Zeitbezug bestätigt'),linkedHtml);
 assert(linkedHtml.includes('72.9254'),linkedHtml);
 assert(!b.currentQuote(linkedSg,now));
+// FX may be older than the source chart; the issuer context stays native.
+const convertedLinked=structuredClone(linkedSg);
+convertedLinked.quote.nativeChartEvidence={...linkedSg.quote.chartEvidence,currency:'CHF'};
+convertedLinked.quote.chartEvidence.pointAt=new Date(now-30000).toISOString();
+assert.equal(b.sharedProductFieldTime(convertedLinked,'Hebel',72.9254,now).at,at);
+assert(!b.currentQuote(convertedLinked,now));
+convertedLinked.quote.nativeChartEvidence.pointAt=new Date(now-5000).toISOString();
+assert.equal(b.sharedProductFieldTime(convertedLinked,'Hebel',72.9254,now),null);
 const badChartTime=structuredClone(linkedSg);
 badChartTime.quote.chartEvidence.pointAt=new Date(now-5000).toISOString();
 assert.equal(b.productFieldStates(badChartTime,now).leverage.state,'fehlt');
