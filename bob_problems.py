@@ -230,16 +230,7 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
    renderStatistics({status:'unavailable'});
   }
  }
- const publicCodes={
-  'scanner-unreachable':'Bob-Webdienst nicht erreichbar',
-  'scanner-degraded':'Markt-/Hintergrunddaten werden als beeinträchtigt gemeldet',
-  'market-worker-stopped':'Marktdatensammlung läuft nicht',
-  'background-not-current':'Trade-/Fibonacci-Überwachung nicht aktuell',
-  'research-worker-stopped':'Täglicher Forschungs-Worker läuft nicht',
-  'push-unreachable':'Push-/Datenbankdienst nicht erreichbar',
-  'push-unhealthy':'Push-/Datenbank-Gesundheitsprüfung fehlgeschlagen',
-  'paper-unhealthy':'Papierkonten-Hintergrundstatus beeinträchtigt'
- };
+ const publicCodes=__BOB_PUBLIC_CODES__;
  async function publicIndex(){
   // Browser fallback is intentionally rare: Render's shared egress IP can
   // hit GitHub's unauthenticated quota despite healthy Bob services.
@@ -292,10 +283,14 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
     const response=await fetch('/api/problems',{cache:'no-store',credentials:'same-origin'});
     if(!response.ok)throw Error('Status nicht verfügbar');
     data=await response.json();
-    if(data.status==='unavailable'||!Array.isArray(data.problems)||!Number.isInteger(data.count))
+    if(data.status==='stale'||data.status==='unavailable'||!Array.isArray(data.problems)||!Number.isInteger(data.count))
      throw Error('GitHub-Index nicht verfügbar');
    }catch(_){
-    data=await publicIndex();
+    try{data=await publicIndex();}
+    catch(error){
+     if(!data||!Array.isArray(data.problems)||!Number.isInteger(data.count))throw error;
+     data={...data,status:'stale'};
+    }
    }
    latest=data;
    badge(data.count);
@@ -339,3 +334,6 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refresh();});
 })();
 </script>'''
+
+# Keep server and browser fallback categories identical as new monitors are added.
+PANEL = PANEL.replace("__BOB_PUBLIC_CODES__", json.dumps(CODES, ensure_ascii=True))

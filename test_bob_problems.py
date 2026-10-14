@@ -1,4 +1,6 @@
 import unittest
+import json
+import re
 import bob_problems as problems
 import bob_issue_watchdog as watchdog
 
@@ -101,6 +103,11 @@ class BobProblemsTests(unittest.TestCase):
         self.assertIn("void refreshStatistics();", problems.PANEL)
         self.assertIn("await publicIndex()", problems.PANEL)
         self.assertIn("public-github-browser", problems.PANEL)
+
+    def test_browser_fallback_includes_all_product_categories(self):
+        match=re.search(r'const publicCodes=(\{.*?\});',problems.PANEL)
+        self.assertEqual(json.loads(match.group(1)),watchdog.CODES)
+        self.assertNotIn('__BOB_PUBLIC_CODES__',problems.PANEL)
 
     def test_legacy_issue_is_one_problem(self):
         data = problems.from_issues([{

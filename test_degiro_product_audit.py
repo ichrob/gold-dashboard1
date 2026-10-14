@@ -34,6 +34,20 @@ def feed():
 
 
 class ProductAuditTests(unittest.TestCase):
+    def test_all_sources_and_native_chart_survive_reporting(self):
+        q=provider()
+        q['chartEvidence']=dict(bid=6,ask=6.02,currency='EUR',pointAt=iso(NOW-80000))
+        q['nativeChartEvidence']=dict(bid=7,ask=7.02,currency='CHF',pointAt=iso(NOW-1000))
+        for key,source in [('secondaryQuote','comdirect'),('thirdQuote','Swissquote')]:
+            q[key]=dict(isin=ISIN,bid=7,ask=7.02,currency='CHF',source=source,
+                        bidAt=iso(NOW-1000),askAt=iso(NOW-1000),venue='Swiss DOTS')
+        rows=audit.examine(feed()['products'][0],q,NOW)['sourceObservations']
+        self.assertEqual(len(rows),4)
+        self.assertEqual(rows[-1]['source'],'Swissquote')
+        self.assertEqual(rows[1]['currency'],'CHF')
+        self.assertEqual(rows[1]['bidAt'],iso(NOW-1000))
+        self.assertTrue(all(not row['degiroExecutable'] for row in rows))
+
     def test_changing_clock_does_not_clear_persistent_quote_problem(self):
         report = None
         for index in range(4):
