@@ -285,6 +285,17 @@ for(const bad of [nbLine.replace('BNP','SG'),nbLine.replace('Long','Short'),nbLi
  assert.notEqual(b.parseScreenshotCandidates(bad)[0].isin,nb.isin);
 }
 assert.notEqual(b.normalizeOcrIsin('DEOOOPJINB98').isin,nb.isin);
+// The verified BNP identity survives daily financing adjustments (14 October original).
+for(const terms of ['4004.1466','4005.1234']){
+ const today=nbLine.replaceAll('3996.2705',terms).replace('DEOOOPJINB98','DEOOOPJONB98');
+ const recovered=b.parseScreenshotCandidates(today)[0];
+ assert.equal(recovered.isin,'DE000PJ9NB98');
+ assert.equal(Number(recovered.ko),Number(terms));
+ assert(recovered.identityCorrection);
+ for(const bad of [today.replace('Long','Short'),today.replace('GOLD','DAX'),today.replace('BNP','SG'),today.replace(terms,'4000.0000'),today.replace('R 10','R 100')]){
+  assert.notEqual(b.parseScreenshotCandidates(bad)[0].isin,'DE000PJ9NB98');
+ }
+}
 assert(!b.finalProductStatus({isin:nb.isin,name:nb.name,productDirection:nb.direction,isinConfirmed:true},now).complete);
 console.log('Original-image BNP NB98 identity recovery and negative contexts passed');
 

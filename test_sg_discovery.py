@@ -33,9 +33,34 @@ class SGDiscoveryTests(unittest.TestCase):
         return product, props
 
     def test_market_channels_are_explicit(self):
+        self.assertEqual(quotes.sg_market('DE000FG14AV8')[1:], ('CBSW', 'CHF'))
         self.assertEqual(quotes.sg_market('DE000FG7N6Z2')[1:], ('CBDE', 'EUR'))
         self.assertEqual(quotes.sg_market('DE000FG8NHQ3')[1:], ('CBSW', 'CHF'))
         self.assertEqual(quotes.sg_market('DE000FG7K275')[1:], ('CBDE', 'EUR'))
+
+    def test_october_14_list_routes_to_verified_sg_market(self):
+        for isin, venue, currency, product_id in (
+            ('DE000FG14AV8', 'CBSW', 'CHF', 6901337),
+            ('DE000FD0S0G4', 'CBDE', 'EUR', 5824714),
+        ):
+            with self.subTest(isin=isin):
+                product, props = self.fixture(isin, venue, currency, product_id)
+                with patch.object(quotes, 'issuer_json', side_effect=[product, props, self.points]) as fetch, \
+                     patch.object(quotes, 'get_bnp_quote') as bnp:
+                    got = quotes.get_issuer_quote(isin)
+                bnp.assert_not_called()
+                self.assertTrue(fetch.call_args_list[0].args[0].startswith(quotes.sg_market(isin)[0]))
+                self.assertTrue(got['productVerified'])
+                self.assertEqual(got['chartEvidence']['currency'], currency)
+                self.assertFalse(got['eligible'])
+
+    def test_new_swiss_identity_cannot_accept_german_market(self):
+        isin = 'DE000FG14AV8'
+        product, props = self.fixture(isin, 'CBDE', 'EUR', 6901337)
+        with patch.object(quotes, 'issuer_json', side_effect=[product, props]):
+            got = quotes.get_issuer_quote(isin)
+        self.assertFalse(got['productVerified'])
+        self.assertFalse(got['eligible'])
 
     def test_verified_issuer_id_permits_research_chart_only(self):
         for isin, venue, currency, product_id in (

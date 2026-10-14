@@ -19,7 +19,7 @@ _LOCK = threading.Lock()
 ORIGIN = 'https://derivate.bnpparibas.com/'
 SG_ORIGIN = 'https://www.sg-zertifikate.de/'
 # SG's own product IDs, not the independent onvista instrument IDs.
-SG_CH_PRODUCTS = {'DE000FG34XV8': 7039911}
+SG_CH_PRODUCTS = {'DE000FG34XV8': 7039911, 'DE000FG14AV8': 6901337}
 # SG identities whose official product ID must be verified dynamically.
 SG_DISCOVERY_PRODUCTS = frozenset(('DE000FG7N6Z2', 'DE000FG8NHQ3'))
 SG_CH_MARKET = frozenset((*SG_CH_PRODUCTS, 'DE000FG8NHQ3'))
@@ -44,6 +44,8 @@ SG_DIRECT_PRODUCTS = {
     'DE000FA06UL6': 5447361, 'DE000FG5GUX2': 6933779,
     'DE000FG5NMH8': 6953143, 'DE000FG7MTA6': 7136701,
     'DE000SQ02JQ6': 2829392,
+    # DEGIRO original 1000072799.jpg; exact SG identity verified 14 October.
+    'DE000FD0S0G4': 5824714,
     'DE000FG7K283': 7127448, 'DE000FG4JXV7': 7069123,
     # Confirmed against SG Products/<ISIN> on 7 October 2026.
     'DE000FG5GUT0': 6933892, 'DE000FG7EPT1': 7102845,
