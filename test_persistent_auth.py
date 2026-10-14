@@ -60,8 +60,20 @@ class PersistentLoginTests(unittest.TestCase):
             status,_,body,headers=self.sign_remember()
             self.assertEqual(status,200);self.assertIn('momentan nicht verfügbar'.encode(),body)
             self.assertFalse(any(v.startswith(auth.COOKIE+'=') for k,v in headers if k=='Set-Cookie'))
-            self.assertFalse(auth.authenticated({'Cookie':cookie},'test-user','test-only-password'))
+            with self.assertRaises(auth.AuthenticationUnavailable):
+                auth.authenticated({'Cookie':cookie},'test-user','test-only-password')
+            for method,path in [('GET','/'),('GET','/api/live'),('POST','/api/audit/read')]:
+                status,_,body,headers=self.request(method,path,headers={'Cookie':cookie,'Origin':'https://bob.example'})
+                self.assertEqual(status,503)
+                self.assertFalse(any(k=='Set-Cookie' for k,v in headers))
             self.assertEqual(self.request('POST','/logout',headers={'Cookie':cookie,'Origin':'https://bob.example'})[0],503)
+
+    def test_store_recovery_uses_same_cookie_without_new_login(self):
+        token='v1_'+secrets.token_urlsafe(32);cookie=auth.COOKIE+'='+token
+        with patch.object(auth,'session_request',side_effect=[OSError('temporary'),{'valid':True},{'valid':True},{'valid':False}]):
+            self.assertEqual(self.request('GET','/',headers={'Cookie':cookie})[0],503)
+            self.assertEqual(self.request('GET','/',headers={'Cookie':cookie})[0],200)
+            self.assertEqual(self.request('GET','/',headers={'Cookie':cookie})[0],303)
 
     def test_normal_login_with_old_persistent_cookie_revokes_before_rotation(self):
         old='v1_'+secrets.token_urlsafe(32)

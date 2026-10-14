@@ -96,7 +96,8 @@ class RecoveryTests(unittest.TestCase):
             self.assertTrue(a.authenticated({'Authorization':new},'user','original'))
     def test_store_failure_fails_closed(self):
         with patch.object(r,'state',side_effect=OSError):
-            self.assertFalse(a.authenticated({'Authorization':'Basic '+base64.b64encode(b'user:original').decode()},'user','original'))
+            with self.assertRaises(a.AuthenticationUnavailable):
+                a.authenticated({'Authorization':'Basic '+base64.b64encode(b'user:original').decode()},'user','original')
     def test_unknown_email_never_sends(self):
         a.PENDING['test-csrf']=time.time()+60
         h=Handler({'csrf':'test-csrf','email':'other@example.com'})

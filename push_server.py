@@ -30,6 +30,7 @@ import manual_paper_watch
 import evaluator_runtime
 import intraday_comparison
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from bob_http import BobHTTPServer
 from urllib.parse import urlparse
 
 import psycopg
@@ -1023,7 +1024,7 @@ if __name__ == "__main__":
     print("BOB_PUSH startup=ready", flush=True)
     threading.Thread(target=product_expiry_loop, name="bob-product-expiry", daemon=True).start()
     threading.Thread(target=audit_outcome_loop, name="bob-audit-outcomes", daemon=True).start()
-    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+    BobHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
 
 
 

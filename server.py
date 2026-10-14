@@ -37,6 +37,7 @@ import gold_research
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from bob_http import BobHTTPServer
 
 USER = os.environ.get("BOB_USER", "")
 PASSWORD = os.environ.get("BOB_PASSWORD", "")
@@ -808,22 +809,20 @@ def sanitize_client_diagnostic(payload):
         safe["reason"] = "Serverprüfung wegen abgelaufener Bob-Anmeldung ausgesetzt"
     return event, safe
 
-class BobHTTPServer(ThreadingHTTPServer):
-    # Python 3.12 defaults to only five pending TCP connections. Parallel PWA
-    # refreshes can exhaust that queue before the login handler is even reached.
-    request_queue_size = 128
-
-    def get_request(self):
-        connection, address = super().get_request()
-        # A client that never finishes its headers must not retain a thread forever.
-        connection.settimeout(30)
-        return connection, address
 
 
 class Handler(BaseHTTPRequestHandler):
     def handle(self):
         try:
             super().handle()
+        except bob_auth.AuthenticationUnavailable:
+            # A transient store outage is not evidence that a session expired.
+            # Deny this request without emitting the 401 that logs the PWA out.
+            self.close_connection = True
+            try:
+                bob_auth.send(self, 503, 'Sitzungsprüfung vorübergehend nicht erreichbar. Bitte erneut versuchen.'.encode())
+            except (BrokenPipeError, ConnectionResetError):
+                pass
         except (BrokenPipeError, ConnectionResetError):
             # A navigation/refresh can close the client after a successful upstream call.
             # Never retry that completed POST or send a second HTTP response.
