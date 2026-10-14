@@ -36,6 +36,9 @@ class ComdirectQuoteTests(unittest.TestCase):
         with patch.object(q, 'get_observation', return_value=dict(state='observed', quote=pair)):
             out = q.apply(primary, isin, self.now)
         self.assertEqual(_backup_pair(out, isin, self.now.timestamp()*1000), pair)
+        self.assertEqual(out['analysisQuote'], pair)
+        from leverage_backup import select_analysis_quote
+        self.assertEqual(select_analysis_quote(out, self.now), pair)
         from degiro_product_audit import examine
         out.update(bid=5, ask=5.01, bidAt=(self.now-timedelta(minutes=3)).isoformat(),
                    askAt=(self.now-timedelta(minutes=3)).isoformat())
