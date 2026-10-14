@@ -7,15 +7,19 @@ import os
 import re
 import secrets
 import time
+import threading
 from urllib.parse import parse_qs, urlparse
 from urllib.error import HTTPError
-from urllib.request import Request, build_opener
+from urllib.request import Request, build_opener, HTTPSHandler
 
 EMAIL = os.environ.get('BOB_RECOVERY_EMAIL', 'robsimon@gmx.de').strip().lower()
 ORIGIN = os.environ.get('BOB_PUBLIC_ORIGIN', 'https://bob-private-scanner.onrender.com').rstrip('/')
 ITERATIONS = 600000
 TOKEN_TTL = 900
 RECOVERY_COOKIE = '__Host-bob_recovery'
+_VERIFIED = {}
+_VERIFY_LOCK = threading.Lock()
+_VERIFY_KEY = secrets.token_bytes(32)
 
 
 def init(conn):
@@ -88,7 +92,7 @@ def rpc(action, user, **fields):
     payload = {'account': hashlib.sha256(user.encode()).hexdigest(), **fields}
     request = Request(base+'/auth-recovery/'+action, data=json.dumps(payload).encode(),
         headers={'Content-Type': 'application/json', 'X-Bob-Push-Token': auth.STORE_TOKEN}, method='POST')
-    with build_opener(auth.NoRedirect()).open(request, timeout=12) as response:
+    with build_opener(auth.NoRedirect(), HTTPSHandler(context=auth.verified_tls_context())).open(request, timeout=12) as response:
         data = response.read(4097)
     if len(data) > 4096:
         raise ValueError('Ungültige Antwort')
@@ -115,9 +119,22 @@ def matches(candidate, configured, current):
         return bool(configured) and hmac.compare_digest(candidate.encode(), configured.encode())
     if not re.fullmatch(r'pbkdf2_sha256\$600000\$[a-f0-9]{32}\$[a-f0-9]{64}', encoded):
         return False
+    # Legacy Basic-auth clients send the same password on every asset/API call.
+    # Cache successful expensive derivations only, bound to the exact CURRENT
+    # stored hash. No password, failed attempt or session validity is cached.
+    proof = hmac.digest(_VERIFY_KEY, (encoded+'\0'+candidate).encode(), 'sha256')
+    with _VERIFY_LOCK:
+        if proof in _VERIFIED:
+            return True
     _, iterations, salt, expected = encoded.split('$')
     digest = hashlib.pbkdf2_hmac('sha256', candidate.encode(), bytes.fromhex(salt), int(iterations)).hex()
-    return hmac.compare_digest(digest, expected)
+    valid = hmac.compare_digest(digest, expected)
+    if valid:
+        with _VERIFY_LOCK:
+            if len(_VERIFIED) >= 32:
+                _VERIFIED.pop(next(iter(_VERIFIED)))
+            _VERIFIED[proof] = True
+    return valid
 
 
 def binding_key(configured, current):
@@ -194,7 +211,7 @@ def email_link(token):
     request = Request('https://api.resend.com/emails', data=json.dumps(body).encode(),
         headers={'Content-Type': 'application/json', 'Authorization': 'Bearer '+os.environ['RESEND_API_KEY'].strip(), 'User-Agent': 'Bob/1.0'}, method='POST')
     try:
-        with build_opener(auth.NoRedirect()).open(request, timeout=15) as response:
+        with build_opener(auth.NoRedirect(), HTTPSHandler(context=auth.verified_tls_context())).open(request, timeout=15) as response:
             result = json.loads(response.read(4096))
     except HTTPError as exc:
         # Categorize without exposing provider text, keys, recipient or reset URL.
