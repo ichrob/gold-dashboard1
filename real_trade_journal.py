@@ -114,6 +114,9 @@ def handle(conn,action,payload):
         if previous and not previous[0] and active:
             old=previous[1]
             if not old.get('recordOnly'):raise ValueError('Geschlossener Trade darf nicht erneut geöffnet werden')
+            tx=(old.get('purchase') or {}).get('transactionId')
+            if tx and conn.execute("SELECT id FROM bob_real_trades WHERE active=FALSE AND snapshot->'settlement'->>'purchaseTransactionId'=%s LIMIT 1",(tx,)).fetchone():
+                raise ValueError('Dieser Kauf ist bereits durch einen bestätigten Verkauf abgeschlossen')
             if old.get('dir')!=t.get('dir') or any((old.get('product') or {}).get(k)!=(t.get('product') or {}).get(k) for k in ('isin','entry','quantity')):
                 raise ValueError('Überwachung passt nicht zum gespeicherten Kauf')
             snapshot['purchase']=old.get('purchase')
