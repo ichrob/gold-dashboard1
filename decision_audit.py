@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 VERSION = 'decision-audit-v1'
 RULE_VERSION = 'intraday-trend-follow-v7'
 REPORT_LIMIT = 2500
+REPORT_BUSY_LIMIT = 500
 REPORT_CACHE_SECONDS = 300
 
 def milliseconds(value):
@@ -342,11 +343,11 @@ def report(conn):
         return result
 
 
-def _load_report_rows(conn):
+def _load_report_rows(conn, limit=None):
     # Fetch the bounded decision window first, then all three horizons in one
     # indexed batch instead of 7,500 correlated subqueries on a cold report.
     decisions = conn.execute("""SELECT id,payload FROM bob_decision_audit
-        ORDER BY recorded_at DESC LIMIT %s""", (REPORT_LIMIT,)).fetchall()
+        ORDER BY recorded_at DESC LIMIT %s""", (REPORT_LIMIT if limit is None else limit,)).fetchall()
     if not decisions:
         return []
     outcomes = conn.execute("""SELECT decision_id,horizon,truth
@@ -362,7 +363,18 @@ def _load_report_rows(conn):
 
 def _build_report(conn):
     # Reading must not run the seven-day outcome backfill.
-    rows = _load_report_rows(conn)
+    import psycopg
+    reduced_window = False
+    try:
+        # Roll back a canceled statement before retrying; preserve an enclosing
+        # transaction through psycopg's nested savepoint handling.
+        with conn.transaction():
+            rows = _load_report_rows(conn)
+    except psycopg.errors.QueryCanceled:
+        print('BOB_AUDIT report_window_reduced reason=query-timeout limit='+str(REPORT_BUSY_LIMIT), flush=True)
+        with conn.transaction():
+            rows = _load_report_rows(conn, REPORT_BUSY_LIMIT)
+        reduced_window = True
     learning=rule_learning.report(conn)
     active=(learning.get('policy') or {}).get('variant','baseline')
     matches=lambda r:r.get('learningPolicy')==rule_learning.ID+':'+active or active=='baseline' and r.get('learningPolicy') is None
@@ -384,7 +396,10 @@ def _build_report(conn):
     result['fourDayComparison']=intraday_comparison.report(conn)
     result['total']=conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0]
     result['reportRecords']=len(rows)
+    result['reportWindowReduced']=reduced_window
     result['scope']='Aktuelle Einstiegsregel '+active+' ('+str(len(scoped))+' passende, '+str(len(rows)-len(scoped))+' andere Regelstände getrennt); aktuelle Intraday-Regel; Auswertung der letzten '+str(len(rows))+' von '+str(result['total'])+' gespeicherten Entscheidungen; frühere Regeln getrennt ('+str(result['legacyCount'])+' ältere Protokolle). Einzelne Tage bleiben vollständig abrufbar. Bis 30 Tage; Gold-Richtung ohne Handelskosten, kein Gewinnnachweis'
+    if reduced_window:
+        result['scope']+=' · Datenbank ausgelastet: vorübergehend verkleinertes Auswertungsfenster (höchstens '+str(REPORT_BUSY_LIMIT)+' Entscheidungen). Vollständige Tagesprotokolle bleiben abrufbar.'
     result['earlyImpulseReview']=early_impulse_review([(row[0],row[1:]) for row in rows])
     result['minuteEntryReview']=entry_quality_review([(row[0],row[1:]) for row in rows],field='minuteEntry',version='minute-entry-v1')
     result['entryQualityReview']=entry_quality_review([(row[0],row[1:]) for row in rows])
