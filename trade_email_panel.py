@@ -16,7 +16,7 @@ PANEL = r"""
     wrapper.id='bobEmailTradeImport';
     wrapper.style.cssText='margin-top:14px;padding:12px;border:1px solid #cbd5e1;border-radius:13px;background:#fff';
     const summary=document.createElement('summary');
-    summary.textContent='DEGIRO-Kaufbestätigungen per E-Mail';
+    summary.textContent='E-Mail-Eingang · DEGIRO-Bestätigungen';
     const note=document.createElement('p');
     note.className='small';
     note.textContent='Eingehende DEGIRO-Mails werden nach Einrichtung automatisch ausgelesen. Die hier gezeigten Datensätze sind Vorschläge, keine geprüften Brokerpositionen. Es wird kein Trade aktiviert, keine Order ausgeführt und keine Push-Überwachung aus einer E-Mail eingeschaltet.';
@@ -44,6 +44,11 @@ PANEL = r"""
         const data=await response.json();
         status.textContent=data.configured?'Empfang konfiguriert · E-Mail-Inhalt wird nur als Vorschlag erfasst.':'E-Mail-Empfang ist noch nicht verbunden. Keine automatische Überwachung.';
         records.replaceChildren();
+        const archive=document.createElement('details');
+        const archiveTitle=document.createElement('summary');
+        archiveTitle.textContent='Frühere Importe und Fehlversuche';
+        archive.append(archiveTitle);
+        let latestShown=false;
         for(const item of data.items||[]) {
           const e=item.result||{};
           if(e.status==='ignored')continue;
@@ -53,11 +58,14 @@ PANEL = r"""
           title.textContent=(e.status==='pending-review'?'Prüfung erforderlich': 'Nicht übernommen: '+(e.status||'unvollständig'));
           const detail=document.createElement('p');
           detail.className='small';
-          detail.textContent=[e.isin,e.side,e.quantity&&e.quantity+' Stück',
-              e.priceEur&&e.priceEur+' EUR/Stück',e.executedAt,e.reason]
+          detail.textContent=[e.isin,({BUY:'Kauf',SELL:'Verkauf'}[e.side]||e.side),e.quantity&&e.quantity+' Stück',
+              e.priceEur&&e.priceEur+' EUR/Stück',e.executedLocal||e.executedAt,e.reason]
               .filter(Boolean).join(' · ');
-          row.append(title,detail);records.append(row);
+          row.append(title,detail);
+          if(!latestShown&&e.status==='pending-review'){records.append(row);latestShown=true;}
+          else archive.append(row);
         }
+        if(archive.childElementCount>1)records.append(archive);
         if(!records.childElementCount){
           const empty=document.createElement('p');
           empty.className='small';empty.textContent='Noch keine DEGIRO-Bestätigung erfasst.';
