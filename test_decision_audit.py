@@ -311,7 +311,7 @@ class ReportTimeoutRecoveryTests(unittest.TestCase):
         self.assertEqual(load.call_args_list[1].args,(conn,a.REPORT_BUSY_LIMIT))
         self.assertTrue(result['reportWindowReduced'])
         self.assertIn('verkleinertes Auswertungsfenster',result['scope'])
-        self.assertEqual(conn.transaction.call_count,2)
+        self.assertEqual(conn.transaction.call_count,3)
 
     def test_second_timeout_is_not_reported_as_a_success(self):
         from unittest.mock import MagicMock, patch

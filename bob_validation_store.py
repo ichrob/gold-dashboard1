@@ -64,9 +64,10 @@ def handle(conn, action, payload):
     if payload.get('key') == 'future:GCZ26:spot-cfd-comparison-v1':
         import comparison_store
         return comparison_store.handle(conn, action, payload)
-    # Serialize pairing and writes across scanner instances. Caller commits.
-    conn.execute('SELECT pg_advisory_xact_lock(68431026)')
     if action=='write':
+        # Readers use committed snapshots and must not queue behind pairing.
+        # Serialize pairing and writes across scanner instances. Caller commits.
+        conn.execute('SELECT pg_advisory_xact_lock(68431026)')
         events=payload.get('events')
         if not isinstance(events,list) or len(events)>40:raise ValueError('Ungültiges Messpaket')
         checked=[event(e) for e in events]

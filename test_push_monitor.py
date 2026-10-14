@@ -90,10 +90,14 @@ class PushMonitorTests(unittest.TestCase):
             self.assertEqual(send.call_args.kwargs['timeout'], 8)
 
     def test_database_waits_are_bounded(self):
-        with patch.object(push_server, 'DATABASE_URL', 'fixture'), patch.object(push_server.psycopg, 'connect') as connect:
+        with patch.object(push_server, 'DATABASE_URL', 'fixture'), patch.object(push_server, '_db_pool', None), patch.object(push_server, 'ConnectionPool') as pool, patch.object(push_server.atexit, 'register'):
             push_server.db()
-            self.assertEqual(connect.call_args.kwargs['connect_timeout'], 5)
-            self.assertIn('lock_timeout=3000', connect.call_args.kwargs['options'])
+            push_server.db()
+            pool.assert_called_once()
+            self.assertEqual(pool.call_args.kwargs['kwargs']['connect_timeout'], 5)
+            self.assertIn('lock_timeout=3000', pool.call_args.kwargs['kwargs']['options'])
+            self.assertEqual(pool.call_args.kwargs['max_size'], 8)
+            self.assertEqual(pool.call_args.kwargs['timeout'], 5)
 
     def test_selection_off_does_not_evaluate_or_send(self):
         db,conn=self.connection();conn.execute.return_value.fetchone.return_value=(False,)
