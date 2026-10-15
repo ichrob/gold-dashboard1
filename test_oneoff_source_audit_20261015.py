@@ -10,6 +10,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 import product_quotes
 import comdirect_quotes
+import sg_direct
 
 ISINS = ("DE000FC1CHB7", "DE000FG4JXV7")
 
@@ -75,6 +76,29 @@ class OneShotPublicSourceAudit(unittest.TestCase):
         for isin in ISINS:
             co=comdirect_quotes.get_observation(isin)
             record=classify(isin,results[isin],co)
+            raw=sg_direct.get_quote(isin,terms_only=True)
+            row=co.get('quote') or {}
+            main=results[isin]
+            meta=main.get('metadata') or {}
+            sgmeta=raw.get('metadata') or {}
+            direct=comdirect_quotes.apply(main,isin)
+            record.update(
+                result_source=main.get('source'),
+                result_metadata_keys=sorted(meta.keys()),
+                result_issuer_code=meta.get('issuerExchangeCode'),
+                result_import_active=main.get('importActive'),
+                result_source_disabled=main.get('sourceDisabled'),
+                result_found=main.get('found'),
+                result_comdirect_fields_state=(main.get('comdirectFieldsBackup') or {}).get('state'),
+                sg_direct_verified=raw.get('productVerified'),
+                sg_direct_direction=sgmeta.get('direction'),
+                sg_direct_status=sgmeta.get('status'),
+                sg_direct_issuer_code=sgmeta.get('issuerExchangeCode'),
+                sg_direct_terms_at=raw.get('termsCheckedAt'),
+                comdirect_pair_matches=comdirect_quotes.matches_primary(main,row) if row else False,
+                comdirect_applied_after_warm=bool((direct.get('secondaryQuote') or {}).get('source','').startswith('comdirect')),
+                comdirect_backup_state_after_warm=(direct.get('comdirectQuoteBackup') or {}).get('state'),
+            )
             print("BOB_READONLY_SOURCE_AUDIT "+json.dumps(record,sort_keys=True),flush=True)
             self.assertEqual(record['isin'],isin)
 
