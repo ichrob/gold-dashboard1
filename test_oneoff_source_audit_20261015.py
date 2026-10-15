@@ -99,6 +99,14 @@ class OneShotPublicSourceAudit(unittest.TestCase):
                 comdirect_applied_after_warm=bool((direct.get('secondaryQuote') or {}).get('source','').startswith('comdirect')),
                 comdirect_backup_state_after_warm=(direct.get('comdirectQuoteBackup') or {}).get('state'),
             )
+            # Force one further source-composition cycle while all provider
+            # caches are warm; this tests stale fallback and metadata loss.
+            second=product_quotes._get_quote_bounded(isin)
+            record.update(second_source=second.get('source'),
+               second_metadata_direction=(second.get('metadata') or {}).get('direction'),
+               second_metadata_code=(second.get('metadata') or {}).get('issuerExchangeCode'),
+               second_comdirect_applied=bool((second.get('secondaryQuote') or {}).get('source','').startswith('comdirect')),
+               second_comdirect_state=(second.get('comdirectQuoteBackup') or {}).get('state'))
             print("BOB_READONLY_SOURCE_AUDIT "+json.dumps(record,sort_keys=True),flush=True)
             self.assertEqual(record['isin'],isin)
 
