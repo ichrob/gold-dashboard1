@@ -22,6 +22,28 @@ INTERVAL = 30
 
 
 
+def cached_verified_observation(isin):
+    """Return one already-fetched SG observation; NEVER start another request.
+
+    It can repair metadata lost during first-pass source composition, but cannot
+    refresh quote, terms, leverage or request clocks, or certify execution.
+    """
+    with _LOCK:
+        row = _CACHE.get(isin)
+    if not row or not 0 <= time.monotonic() - row[0] < INTERVAL:
+        return None
+    evidence = row[1]
+    if (not isinstance(evidence, dict) or evidence.get('isin') != isin
+            or evidence.get('productVerified') is not True
+            or evidence.get('sourceFailure') or evidence.get('quoteFailureCode')
+            or evidence.get('metadata', {}).get('status') != 1
+            or not evidence.get('metadata', {}).get('issuerExchangeCode')
+            or not evidence.get('chartEvidence', {}).get('pointAt')):
+        return None
+    return copy.deepcopy(evidence)
+
+
+
 def retain_last_verified_observation(previous, failed, stage):
     """Keep dated research observations through a transient provider failure.
 
