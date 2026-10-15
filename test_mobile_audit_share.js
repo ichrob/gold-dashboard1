@@ -35,7 +35,7 @@ assert(stale.includes('Keine einzelnen Produktdaten abrufbar.'));
 assert(!stale.includes('Keine offenen Probleme'));
 const unavailable=isolated.build({status:'unavailable',items:[]});
 assert(unavailable.includes('Prüfstatus: unavailable'));
-for(const needle of ['id="bobAuditShareChatGPT"','id="bobAuditCopyChatGPT"',
+for(const needle of ['id="bobAuditShareChatGPT"','<h3>Diag Produkte Probleme</h3>',
                      'navigator.share({title:','navigator.clipboard.writeText(value)',
                      "latestReport=null;render({status:'unavailable'","credentials:'same-origin'",
                      "byId('bobAuditShareChatGPT')?.addEventListener('click',shareMobileAudit)"])
