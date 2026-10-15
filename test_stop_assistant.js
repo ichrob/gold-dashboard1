@@ -35,6 +35,26 @@ for(const patch of [
 assert.equal(assistant.selectQuote({...baseQuote,metadata:{status:2},secondaryQuote:alt},isin,now),null);
 assert.equal(assistant.selectQuote({...baseQuote,productVerified:false,secondaryQuote:alt},isin,now),null);
 assert.equal(assistant.selectQuote({...baseQuote,found:false,sourceDisabled:true,secondaryQuote:alt},isin,now),null);
+// Original clocks from independently linked sources may be compared, never copied.
+const multi=assistant.compareQuoteSources({...baseQuote,secondaryQuote:alt},isin,now);
+assert.equal(multi.quotes.length,2);
+assert.equal(multi.quotes[0].origin,'comdirect');
+assert.equal(multi.quotes[0].at,alt.bidAt);
+assert.equal(multi.quotes[1].at,baseQuote.bidAt);
+assert.equal(multi.comparisons.length,1);
+assert.equal(multi.comparisons[0].clockGapSeconds,10);
+assert.equal(multi.comparisons[0].bidDifference,-0.2);
+assert.equal(multi.comparisons[0].askDifference,-0.2);
+assert.equal(multi.automaticOrder,false);
+assert.equal(multi.degiroExecutable,false);
+assert.equal(chosen.comparison.quotes.length,2);
+assert.equal(assistant.compareQuoteSources({...baseQuote,secondaryQuote:{...alt,bidAt:asAt(80000),askAt:asAt(80000)}},isin,now).comparisons.length,0);
+assert.equal(assistant.compareQuoteSources({...baseQuote,secondaryQuote:{...alt,askAt:null}},isin,now).quotes.length,1);
+assert.equal(assistant.compareQuoteSources({...baseQuote,secondaryQuote:{...alt,isin:'DE000FC1CHB7'}},isin,now).quotes.length,1);
+assert.equal(assistant.compareQuoteSources({...baseQuote,secondaryQuote:{...alt,bid:16,ask:16.02,bidAt:baseQuote.bidAt,askAt:baseQuote.askAt}},isin,now).comparisons[0].divergent,true);
+assert.equal(assistant.compareQuoteSources({...baseQuote,secondaryQuote:{...alt,estimated:true}},isin,now).quotes.length,1);
+// No live issuer quote can be manufactured from a screenshot/model/secondary source.
+assert.equal(assistant.selectQuote({...baseQuote,found:false,secondaryQuote:alt},isin,now).kind,'research');
 const spots={xaus:4225,is_genuine_xauusd_spot:true,
  spot_price_as_of:asAt(15000),usd_eur_meta:{rate:.9,fetchedAt:asAt(12000),source:'FX research'}};
 const evaluate=(patch={})=>assistant.evaluate({product,stopGold:4230,targetGold:4150,spots,quote:chosen,now,...patch});
@@ -79,4 +99,7 @@ const html=fs.readFileSync('Bob.html','utf8');
 assert(html.includes('/bob_stop_assistant.js?'));
 assert(html.includes('window.BobStopAssistant?.update({product:p'));
 assert(html.includes('window.BobStopAssistant?.selectQuote(q,isin)'));
+assert(fs.readFileSync('bob_stop_assistant.js','utf8').includes('Quellenvergleich und Originalzeiten'));
+assert(fs.readFileSync('bob_stop_assistant.js','utf8').includes('data-stop-sources'));
+assert(fs.readFileSync('bob_stop_assistant.js','utf8').includes('comparison.quotes.length'));
 console.log('Read-only source switch, verified bid/ask clocks, theoretical stop tier, issuer tier, FX/KO fail-closed and manual DEGIRO help passed');
