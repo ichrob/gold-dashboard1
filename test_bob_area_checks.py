@@ -19,7 +19,7 @@ class WholeAppAreaChecksTests(unittest.TestCase):
                     "research", "learning", "problems"):
             self.assertIn(f"['{key}',", self.javascript)
         self.assertIn("bob-view-", self.javascript)
-        self.assertIn("bob-area-check-marker", self.javascript)
+        self.assertNotIn("bob-area-check-marker", self.javascript)
 
     def test_honest_fail_closed_evidence_states(self):
         self.assertIn("ok:'✓'", self.javascript)
