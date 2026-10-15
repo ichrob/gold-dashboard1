@@ -36,6 +36,25 @@ class IssuerCatalogueTests(unittest.TestCase):
             self.assertFalse(x["liveApproved"])
             self.assertFalse(x["screenshotToday"])
 
+    def test_all_historically_confirmed_bnp_gold_isins_are_researched_safely(self):
+        expected = ("DE000PJ9NCK0", "DE000PJ9NB98", "DE000PG0XK25")
+        self.assertEqual([side for isin, side in catalog.SEEDS if isin in expected],
+                         ["LONG", "LONG", "LONG"])
+        self.assertEqual(len({isin for isin, _ in catalog.SEEDS}), len(catalog.SEEDS))
+        scanned = []
+        def fetch(isin):
+            scanned.append(isin)
+            return issuer(isin, next(side for candidate, side in catalog.SEEDS if candidate == isin))
+        result = catalog.build(fetch, datetime(2026, 10, 15, 16, tzinfo=Z))
+        for isin in expected:
+            self.assertEqual(scanned.count(isin), 1)
+            item = next(x for x in result["candidates"] if x["isin"] == isin)
+            self.assertTrue(item["issuerVerified"])
+            self.assertFalse(item["eligibleForTop3"])
+            self.assertFalse(item["liveApproved"])
+            self.assertIsNone(item["degiroListed"])
+            self.assertFalse(item["screenshotToday"])
+
     def test_future_invalid_status_and_mismatch_excluded(self):
         isin="DE000FG309G0"
         item, bad=catalog.normalize(isin,"SHORT",issuer(isin,"SHORT",spot=False))
