@@ -90,7 +90,7 @@ class BobProblemsTests(unittest.TestCase):
     def test_trusted_ki_status_marker_only_and_no_body_leak(self):
         row = issue("product-quote-evidence-missing", 410)
         row["user"] = {"login": "github-actions[bot]"}
-        row["body"] = "Technical text: PRIVATE_DETAILS_SHOULD_NEVER_LEAK\\n<!-- BOB_KI_STATUS:in-progress -->"
+        row["body"] = "Technical text: PRIVATE_DETAILS_SHOULD_NEVER_LEAK\n<!-- BOB_KI_STATUS:in-progress -->"
         result = problems.from_issues([row])
         self.assertEqual(result["problems"][0]["kiStatus"], "in-progress")
         self.assertEqual(result["problems"][0]["kiStatusLabel"], "KI prüft die Ursache")
