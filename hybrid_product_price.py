@@ -32,7 +32,10 @@ def positive(v):
 
 def model_for(result, now):
     m = result.get('metadata') or {}
-    if (result.get('productVerified') is not True
+    if (not isinstance(result.get('isin'), str)
+            or result.get('sourceUrl') !=
+                'https://www.sg-zertifikate.de/product-details/'+result['isin'].lower()
+            or result.get('productVerified') is not True
             or result.get('sourceDisabled') or result.get('sourceFailure')
             or result.get('quoteFailureCode')
             or result.get('importActive') is not True
@@ -86,7 +89,10 @@ def observations(result):
                 and row.get('degiroExecutable') is False
                 and row.get('delayed') is not True
                 and row.get('estimated') is not True
-                and 'comdirect' in str(row.get('source','')).lower()
+                and row.get('source') == 'comdirect · SG LiveTrading'
+                and row.get('venue') == 'LT Societe Generale'
+                and row.get('sourceUrl') ==
+                    'https://www.comdirect.de/inf/zertifikate/'+result['isin']
                 and all(positive(row.get(k)) for k in ('bid','ask'))
                 and row['ask'] >= row['bid']):
             pool.append(row)
@@ -159,6 +165,11 @@ def apply(result, now=None, fetch_spot=None, fetch_fx=None):
                 candidate=dict(at=min(a,b), row=row,skew=(max(joined)-min(joined)).total_seconds())
         with _LOCK:
             previous=_ANCHORS.get(key)
+            if (candidate and previous and candidate['at'] == utc(previous['referenceAt'])
+                    and (candidate['row']['bid'] != previous['bid']
+                         or candidate['row']['ask'] != previous['ask'])):
+                _ANCHORS.pop(key,None)
+                return result  # Same original source clock cannot have two prices.
             if candidate and (previous is None or candidate['at'] > utc(previous['referenceAt'])):
                 new=dict(model,bid=float(candidate['row']['bid']),
                          ask=float(candidate['row']['ask']),
