@@ -1574,7 +1574,6 @@ class Handler(BaseHTTPRequestHandler):
             if (not self.headers.get("Authorization", "").startswith("Basic ")
                     or not self.authenticated()):
                 self.send_response(401)
-                self.send_header("WWW-Authenticate", 'Basic realm="Bob private product audit"')
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("Content-Length", "0")
                 self.end_headers()
