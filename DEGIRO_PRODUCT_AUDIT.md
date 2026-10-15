@@ -8,7 +8,7 @@ Das Modul `degiro_product_audit.py` bewertet je Produkt:
 
 - korrekt bestätigte ISIN, Richtung, Spot-Gold statt Futures/Faktor, Status und EUR;
 - Emittenten-Geld-/Briefkurs mit **separaten Originalzeiten** und maximal 90 Sekunden Alter;
-- Emittentenhebel und **unabhängigen Originalhebelzeitstempel** (kein berechneter Hebel als Ersatz);
+- Emittentenhebel mit **eigenem Originalzeitstempel oder eindeutig zugeordnetem gemeinsamen SG-Beobachtungszeitbezug** (gemeinsame Beobachtung wird als solche gekennzeichnet, nicht als separate Original-Hebelzeit; kein berechneter Hebel als Ersatz);
 - Basispreis, Bezugsverhältnis, KO-Barriere, fixen Vertrag oder belegte Gültigkeit der KO-Barriere mit 8-Stunden-Nachprüfung;
 - Laufzeit oder ausdrücklich offene Laufzeit sowie Marktstatus.
 

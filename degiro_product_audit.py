@@ -351,10 +351,13 @@ def examine(product, quote, now_ms):
     from leverage_backup import current_evidence
     calculated_leverage = current_evidence(quote, datetime.fromtimestamp(now_ms/1000, timezone.utc)) if verified else None
     shared_leverage = _shared_leverage(quote, isin, now_ms) if verified else None
+    # Bob's calculated gearing may carry a model-input timestamp in leverageAt.
+    # That timestamp is NOT the issuer's original leverage clock.
+    issuer_leverage_at = quote.get("leverageAt") if quote.get("leverageEstimated") is not True else None
     if not _positive(quote.get("leverage")) and not shared_leverage and not calculated_leverage:
         missing.append("leverage")
-    if not _recent(quote.get("leverageAt"), now_ms, QUOTE_MAX_MS) and not (
-            shared_leverage and shared_leverage["current"]) and not calculated_leverage:
+    if not _recent(issuer_leverage_at, now_ms, QUOTE_MAX_MS) and not (
+            shared_leverage and shared_leverage["current"]):
         missing.append("leverage-time")
     if not _positive(metadata.get("ko") or quote.get("ko") or _condition_value(quote, 'ko', now_ms)):
         missing.append("ko")
@@ -400,7 +403,7 @@ def examine(product, quote, now_ms):
         "executionNote": "Datenabgleich abgeschlossen; keine Bestätigung eines ausführbaren DEGIRO-Kurses",
         "leverageObservation": (shared_leverage if shared_leverage and shared_leverage["current"]
                                 else calculated_leverage or shared_leverage),
-        "leverageSourceAt": quote.get("leverageAt") if "leverage-time" not in codes else None,
+        "leverageSourceAt": issuer_leverage_at if "leverage-time" not in codes else None,
         "source": str(quote.get("source") or "Emittenten- und Ersatzquellen")[:80],
         "sourceObservations": observations,
         "thirdSourceEvidence": quote.get("swissquoteBackup"),
