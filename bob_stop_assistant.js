@@ -19,7 +19,8 @@
    // different evidence. Neither is an authenticated DEGIRO execution.
    if(origin==='issuer'&&q.found!==true) continue;
    const issuer=origin==='issuer'&&q.found===true&&row.isExecutableQuote===true
-     &&row.priceKind!=='issuer-chart'&&row.priceKind!=='research';
+     &&!q.sourceFailure&&!q.quoteFailureCode&&!q.sourceFailureCode
+     &&row.priceKind!=='issuer-chart'&&row.priceKind!=='research'&&row.researchOnly!==true;
    if(origin!=='issuer'&&(row.isExecutableQuote!==false||row.degiroExecutable!==false)) continue;
    if(origin==='issuer'&&!issuer&&row.isExecutableQuote!==false) continue;
    candidates.push({isin,bid:row.bid,ask:row.ask,at:row.bidAt,askAt:row.askAt,
@@ -74,12 +75,18 @@
      positive(quote.bid)&&positive(quote.ask)&&quote.ask>=quote.bid
      &&recent(quote.at,now,90000)&&recent(quote.askAt,now,90000)
      &&quote.error!==true&&quote.delayed!==true){
-   const signal=quote.bid<=result.stopEur?'issuer-stop-observed':
+   // Only compare the issuer bid against stop/target levels when current
+   // Spot AND FX have independently qualified this scenario. An old FX
+   // assumption must never transform an issuer price into a stop alert.
+   const signal=!result.model?'issuer-price-only':
+     quote.bid<=result.stopEur?'issuer-stop-observed':
      quote.bid>=result.targetEur?'issuer-target-observed':'issuer-ok';
    result.observed={signal,bid:quote.bid,at:quote.at,source:quote.source,
      note:'Datierte Anbieterbeobachtung, kein DEGIRO-Brokerkurs und keine garantierte Orderausführung.'};
    result.stage=signal;
-   result.reason='Originalanbieter-Kurs geprüft; bei Schwellenüberschreitung DEGIRO selbst kontrollieren.';
+   result.reason=result.model?
+     'Originalanbieter-Kurs gegen den aktuellen Modellstopp geprüft; bei Schwellenüberschreitung DEGIRO selbst kontrollieren.':
+     'Originalanbieter-Geldkurs vorhanden, aber ohne aktuellen Gold-/FX-Modellstopp keine Schwellenbestätigung.';
   }
   // Research-only quotes deliberately never promote to "issuer observed".
   return result;
