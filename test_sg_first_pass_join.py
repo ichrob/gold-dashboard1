@@ -54,7 +54,6 @@ class FirstPassJoinTests(unittest.TestCase):
         self.assertEqual(r['conditions']['ko']['at'],None)
         self.assertEqual(r['termsCheckedAt'],self.verified['termsCheckedAt'])
         self.assertFalse(r['found']);self.assertFalse(r['eligible']);self.assertFalse(r['fresh'])
-        self.assertNotIn('metadata',self.partial) if False else None
 
     def test_restore_short_with_matching_product(self):
         v,p=fixture(SHORT)
