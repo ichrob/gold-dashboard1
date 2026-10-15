@@ -7,7 +7,7 @@
  const side=x=>x==='LONG'||x==='SHORT';
  function eligibleQuoteSources(q,isin,now=Date.now()){
   if(!q||q.isin!==isin||q.productVerified!==true||q.sourceDisabled
-    ||q.metadata?.status!==1||q.metadata?.tradingHalted===true) return null;
+    ||q.metadata?.status!==1||q.metadata?.tradingHalted===true) return [];
   const candidates=[];
   for(const [origin,row] of [['issuer',q],['comdirect',q.secondaryQuote],
     ['analysis',q.analysisQuote],['swissquote',q.thirdQuote]]){
