@@ -57,8 +57,9 @@ class SGOutageRetentionTests(unittest.TestCase):
     def test_changed_contract_or_terms_must_not_reuse_old_price(self):
         for difference in (dict(metadata=dict(self.old['metadata'], ko=4250)),
                            dict(conditions=dict(ko=dict(value=4250)))):
-            failed = dict(self.failed, productVerified=True,
-                          metadata=copy.deepcopy(self.old['metadata']), **difference)
+            failed = dict(self.failed, productVerified=True)
+            failed['metadata'] = copy.deepcopy(self.old['metadata'])
+            failed.update(difference)
             self.assertIs(sg_direct.retain_last_verified_observation(
                 self.old, failed, 'dated-quotes'), failed)
 
