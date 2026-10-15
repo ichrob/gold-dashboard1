@@ -14,7 +14,8 @@ from bob_auth import NoRedirect
 CHANNEL='UCsl6Z6p7GOkczo8Cv-GH6Dg'
 MAX_BYTES=600000
 ERRORS = {
-    'provider_auth': 'Transkript-Dienst weist die Anmeldung oder Berechtigung zurück (401/403).',
+    'provider_auth': 'Supadata weist den API-Schlüssel zurück (HTTP 401). Schlüssel und Anbieter-Konto prüfen.',
+    'provider_forbidden': 'Supadata kann auf dieses Video nicht zugreifen (HTTP 403). Andere Videos werden weiter geprüft.',
     'provider_auth_paused': 'Transkript-Dienst hat zuletzt die Berechtigung zurückgewiesen. Zum Schutz des kostenlosen Kontingents wird höchstens alle sechs Stunden erneut probiert.',
     'provider_limit_paused': 'Transkript-Dienst meldete eine Kontingent- oder Ratenbegrenzung. Bob pausiert neue Versuche eine Stunde.',
     'provider_limit': 'Transkript-Dienst: Kontingent oder Abrufrate erreicht.',
@@ -81,7 +82,7 @@ def fetch(identity,key):
     except TranscriptError:
         raise
     except urllib.error.HTTPError as exc:
-        code = 'provider_auth' if exc.code in (401,403) else 'provider_limit' if exc.code in (402,429) else 'provider_unavailable' if exc.code >= 500 else 'provider_video'
+        code = 'provider_auth' if exc.code == 401 else 'provider_forbidden' if exc.code == 403 else 'provider_limit' if exc.code in (402,429) else 'provider_unavailable' if exc.code >= 500 else 'provider_video'
         raise TranscriptError(code) from None
     except (ValueError, TypeError, KeyError):
         raise TranscriptError('provider_invalid') from None
@@ -128,7 +129,7 @@ def handle(connect,payload,fetcher=fetch):
     try:
         result=fetcher(identity,key)
     except TranscriptError as exc:
-        if exc.code in ('provider_auth','provider_limit'):
+        if exc.code in ERRORS:
             try:
                 with connect() as conn:
                     conn.execute('UPDATE bob_research_requests SET error_code=%s WHERE claim=%s',
