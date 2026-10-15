@@ -42,6 +42,46 @@ def stamp(value):
         return at.timestamp()*1000 if at.tzinfo else None
     except (TypeError,ValueError,AttributeError): return None
 
+def chf_paper_quote(q, now, isin):
+    """Dated native CHF observations projected into EUR for paper ledgers only."""
+    from swissquote_quotes import eligible_primary, current_pair
+    if not eligible_primary(q, isin) or (q.get('metadata') or {}).get('tradingHalted'):
+        return None
+    clock=datetime.fromtimestamp(now/1000, timezone.utc)
+    native=current_pair(q, clock)
+    if native is None:
+        if q.get('marketOpen') is False:return None
+        chart=q.get('nativeChartEvidence') or q.get('chartEvidence') or {}
+        if chart.get('currency') != 'CHF' or chart.get('delayed'):
+            return None
+        native=dict(isin=isin, currency='CHF',bid=chart.get('bid'),ask=chart.get('ask'),
+                    bidAt=chart.get('pointAt'),askAt=chart.get('pointAt'),quoteAt=chart.get('pointAt'),
+                    source='SG · datierter CHF-Chartkurs',priceKind='issuer-chart')
+    times=[stamp(native.get(k)) for k in ('bidAt','askAt')]
+    if (not finite(native.get('bid')) or not finite(native.get('ask')) or native['ask']<native['bid']
+            or any(t is None or not 0<=now-t<=90000 for t in times)):
+        return None
+    from sg_chf import convert_analysis
+    converted=convert_analysis(dict(chartEvidence=dict(bid=native['bid'],ask=native['ask'],
+        currency='CHF',pointAt=datetime.fromtimestamp(min(times)/1000,timezone.utc).isoformat())), now=clock)
+    fx=converted.get('currencyConversion');chart=converted.get('chartEvidence')
+    if not fx or not chart or not 0<=now-stamp(fx['at'])<=90000:
+        return None
+    out=copy.deepcopy(q)
+    out.update(isin=isin,found=True,marketOpen=True,paperQuoteAccepted=True,
+        paperNativeQuote=copy.deepcopy(native),paperFxConversion=fx,currencyConversion=fx,
+        paperIssuerSource=q.get('source'),paperIssuerSourceUrl=q.get('sourceUrl'),
+        source=native['source'],venue='Swiss DOTS',currency='EUR',bid=chart['bid'],ask=chart['ask'],
+        price=chart['ask'],bidAt=fx['at'],askAt=fx['at'],quoteAt=fx['at'],
+        priceKind=native['priceKind'],isExecutableQuote=False,degiroExecutable=False,
+        paperQuoteLabel='Simulationskurs · '+native['source']+' · CHF in EUR umgerechnet · keine DEGIRO-Ausführung')
+    inputs=(out.get('leverageCalculation') or {}).get('inputs')
+    if isinstance(inputs,dict):
+        inputs.update(usdEur=fx['evidence']['eur'],quoteCurrency='EUR',askEur=chart['ask'],
+                      fxDataAt=fx['evidence']['dataAt'],fxEffectiveAt=fx['evidence']['eurAt'])
+    return out
+
+
 def paper_quote(q, now, isin):
     """Project a validated public LiveTrading pair into the paper ledger only.
 
@@ -50,6 +90,8 @@ def paper_quote(q, now, isin):
     """
     if not isinstance(q, dict) or q.get('isin') != isin:
         return q
+    converted=chf_paper_quote(q,now,isin)
+    if converted is not None:return converted
     if (q.get('found') is True and q.get('isExecutableQuote') is not False
             and all(stamp(q.get(k)) is not None and 0 <= now-stamp(q[k]) <= 90000 for k in ('bidAt','askAt'))):
         return q
@@ -99,7 +141,7 @@ def quote_block_reason(q, now, isin):
             historical=paper_quote(q,at,isin)
             if historical.get('paperQuoteAccepted'):
                 return 'comdirect-Geld-/Briefkurs älter als 90 Sekunden; neue Quellenquote wird abgerufen'
-    if q.get('priceKind') in ('calculated','issuer-chart') or (q.get('isExecutableQuote') is False and q.get('paperQuoteAccepted') is not True):
+    if (q.get('priceKind') in ('calculated','issuer-chart') and not q.get('paperFxConversion')) or (q.get('isExecutableQuote') is False and q.get('paperQuoteAccepted') is not True):
         return 'Nur Chart-, Rechen- oder Recherchekurs; kein bestätigter zweiseitiger Handelskurs'
     if q.get('found') is not True:
         code=q.get('quoteFailureCode') or q.get('sourceFailureCode')
@@ -119,7 +161,7 @@ def quote_block_reason(q, now, isin):
 def fresh_quote(q, now, isin):
     q=paper_quote(q,now,isin)
     if quote_block_reason(q,now,isin):return None
-    return {k:q.get(k) for k in ('isin','bid','ask','currency','source','quoteAt','bidAt','askAt','paperQuoteLabel','isExecutableQuote','degiroExecutable')}
+    return {k:q.get(k) for k in ('isin','bid','ask','currency','source','quoteAt','bidAt','askAt','paperQuoteLabel','paperNativeQuote','paperFxConversion','isExecutableQuote','degiroExecutable')}
 
 def init(conn):
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_paper_control (
