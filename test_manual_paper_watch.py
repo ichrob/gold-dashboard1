@@ -19,7 +19,7 @@ def current_quote(at=None):
     at=at or dt.datetime.now(dt.timezone.utc)
     return dict(isin=ISIN, productVerified=True,found=True,marketOpen=True,
                 currency='EUR',source='Anbieter-Muster',bid=8.5,ask=8.6,
-                bidAt=at.isoformat(),isExecutableQuote=True)
+                bidAt=at.isoformat(),askAt=at.isoformat(),isExecutableQuote=True)
 
 
 class FakeConn:
@@ -82,6 +82,30 @@ class ManualWatchTests(unittest.TestCase):
         self.assertIsNone(watch.quote_observation({**current_quote(),'productVerified':False},ISIN,now)[0])
         self.assertIsNone(watch.quote_observation({**current_quote(),'priceKind':'issuer-chart'},ISIN,now)[0])
         self.assertIsNone(watch.quote_observation({**current_quote(),'currency':'CHF'},ISIN,now)[0])
+
+    def test_request_clock_is_not_bid_or_ask_source_clock(self):
+        now=int(dt.datetime.now(dt.timezone.utc).timestamp()*1000)
+        baseline=current_quote()
+        self.assertIsNotNone(watch.quote_observation(baseline,ISIN,now)[0])
+        for patch in (
+            dict(bidAt=None,quoteAt=baseline['askAt']),
+            dict(askAt=None,quoteAt=baseline['bidAt']),
+            dict(bidAt=None,askAt=None,quoteAt=baseline['bidAt']),
+            dict(ask=None),
+            dict(ask=8.4),
+            dict(askAt=(dt.datetime.now(dt.timezone.utc)-dt.timedelta(minutes=3)).isoformat()),
+            dict(bidAt=(dt.datetime.now(dt.timezone.utc)+dt.timedelta(minutes=2)).isoformat()),
+        ):
+            with self.subTest(patch=patch):
+                row={**baseline,**patch}
+                self.assertIsNone(watch.quote_observation(row,ISIN,now)[0])
+        db=FakeConn()
+        watch.sync(db,{'position':position()})
+        watch.set_levels(db,dict(stopEur=7.5,targetEur=8.25))
+        watch.observe(db,{**baseline,'bidAt':None,'quoteAt':baseline['askAt']},now)
+        self.assertEqual(db.state['status'],'waiting-quote')
+        self.assertEqual(db.state['alerts'],[])
+        self.assertIsNone(db.state['valuation'])
 
     def test_background_observations_do_not_create_trades(self):
         db=FakeConn()
