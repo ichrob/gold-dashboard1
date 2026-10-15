@@ -14,7 +14,7 @@ _LOCK = threading.Lock()
 _ANCHORS = {}
 MAX_ANCHOR_AGE_SECONDS = 1800
 MAX_QUOTE_AGE_SECONDS = 90
-MAX_MODEL_SKEW_SECONDS = 90
+MAX_MODEL_SKEW_SECONDS = 30  # Larger source/Gold/FX gaps undermine accurate calibration.
 
 
 def utc(at):
@@ -191,11 +191,15 @@ def apply(result, now=None, fetch_spot=None, fetch_fx=None):
         projected.update(anchorKind='research-hybrid',
                          source='Bob · SG/comdirect + Gold/FX',
                          referenceSource=anchor['researchSource'],
+                         referenceClockGapSeconds=anchor['referenceSkewSeconds'],
+                         referenceTimeReliability='original source times, <=30 s apart',
                          referencePriceKind=anchor['researchKind'],
                          validation=dict(ready=False,sampleCount=0,
                               reason='Noch keine unabhängige Genauigkeitsmessung'),
                          note='Nur indikative Recherche-Kalibrierung mit beobachtetem '
                               'SG-/comdirect-Preis und aktuellem Gold/FX. '
+                              'Quellzeiten beim Kalibrieren bis 30 s auseinander; '
+                              'bei starken Goldbewegungen verbleibt Modellrisiko. '
                               'Kein tatsächlicher DEGIRO-Kurs, keine garantierte Genauigkeit.')
         out=dict(result)
         out['productModel']=model
