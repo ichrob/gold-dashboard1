@@ -83,6 +83,22 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(restored['language'],'de')
         unused.assert_called_once()
 
+    def test_forbidden_video_does_not_block_other_videos(self):
+        bad=Mock(side_effect=p.TranscriptError('provider_forbidden'))
+        with self.assertRaises(p.TranscriptError) as first:
+            p.handle(self.connect,PAYLOAD,bad)
+        self.assertEqual(first.exception.code,'provider_forbidden')
+        with self.connect() as conn:
+            self.assertEqual(conn.execute('SELECT error_code FROM bob_research_requests').fetchone()[0],'provider_forbidden')
+        with self.assertRaises(p.TranscriptError) as retry:
+            p.handle(self.connect,PAYLOAD,bad)
+        self.assertEqual(retry.exception.code,'cooldown')
+        bad.assert_called_once()
+        other=dict(PAYLOAD,videoId='abcdefghijk')
+        allowed=Mock(return_value=p.parse(RAW))
+        self.assertEqual(p.handle(self.connect,other,allowed)['language'],'de')
+        allowed.assert_called_once()
+
     def test_provider_rate_limit_pauses_all_videos_one_hour(self):
         bad=Mock(side_effect=p.TranscriptError('provider_limit'))
         with self.assertRaises(p.TranscriptError) as first:
@@ -120,7 +136,7 @@ class ErrorReportingTests(unittest.TestCase):
     def test_provider_status_is_safe_and_specific(self):
         import io
         import urllib.error
-        for status, code in [(401,'provider_auth'),(429,'provider_limit'),(503,'provider_unavailable'),(404,'provider_video')]:
+        for status, code in [(401,'provider_auth'),(403,'provider_forbidden'),(429,'provider_limit'),(503,'provider_unavailable'),(404,'provider_video')]:
             error=urllib.error.HTTPError('https://example.invalid',status,'secret-value',{},io.BytesIO(b'secret-value'))
             opener=Mock();opener.open.side_effect=error
             with patch.object(p.urllib.request,'build_opener',return_value=opener):
@@ -131,7 +147,7 @@ class ErrorReportingTests(unittest.TestCase):
     def test_internal_error_only_accepts_known_code(self):
         import io
         import urllib.error
-        for data, expected in [({'errorCode':'cooldown','error':'secret-value'},'pausiert'),({'errorCode':'secret-value','error':'secret-value'},'HTTP 400')]:
+        for data, expected in [({'errorCode':'provider_forbidden','error':'secret-value'},'HTTP 403'),({'errorCode':'provider_auth','error':'secret-value'},'HTTP 401'),({'errorCode':'cooldown','error':'secret-value'},'pausiert'),({'errorCode':'secret-value','error':'secret-value'},'HTTP 400')]:
             error=urllib.error.HTTPError('https://example.invalid',400,'secret-value',{},io.BytesIO(json.dumps(data).encode()))
             opener=Mock();opener.open.side_effect=error
             with patch.dict(os.environ,{'PUSH_SERVICE_URL':'https://internal.test','PUSH_SERVICE_TOKEN':'secret-value'}),patch.object(p.urllib.request,'build_opener',return_value=opener):
