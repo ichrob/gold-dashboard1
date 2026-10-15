@@ -1995,6 +1995,8 @@ function responsiveConfirmation(samples){
  return state;
 }
 function timeframeScore(bars,tf="",now=Date.now()){
+  // A delayed GC=F fallback must never confirm a spot (XAU/USD) signal.
+  if((bars||[]).some(b=>b&&!b.isOpen&&b.instrument&&b.instrument!=='XAU/USD'))return {dir:'NEUTRAL',available:false,fresh:false,reason:'Futures-/Fremdbasis statt XAU/USD-Spotkerzen'};
   const step={'1m':60000,'5m':300000,'15m':900000,'1h':3600000,'4h':14400000}[tf]||900000;
   if((bars||[]).some(b=>!b.isOpen&&(!Number.isFinite(b.openTime)||b.openTime>now)))return {dir:'NEUTRAL',available:false,fresh:false,reason:'Kerzenzeit fehlt oder liegt in der Zukunft'};
   const closed=(bars||[]).filter(x=>!x.isOpen&&x.openTime+step<=now).slice(-220);

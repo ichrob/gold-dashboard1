@@ -823,6 +823,10 @@ def _rsi(values, period=14):
     return 50.0 if gains == losses == 0 else 100.0 if losses == 0 else 100.0 - 100.0 / (1.0 + gains / losses)
 
 def _mtf_score(bars, tf):
+    # Futures are a separate reference basis, never confirmed XAU/USD candles.
+    # Historical unit-test fixtures without identity retain their old behavior.
+    if any(b.get('instrument') not in (None, 'XAU/USD') for b in (bars or []) if isinstance(b, dict) and not b.get('isOpen')):
+        return {'dir':'NEUTRAL','available':False,'fresh':False,'reason':'Futures-/Fremdbasis statt XAU/USD-Spotkerzen'}
     step={"1m":60000,"5m":300000,"15m":900000,"30m":1800000,"1h":3600000,"4h":14400000}.get(tf,900000)
     now=int(time.time()*1000)
     if any(not b.get("isOpen") and (not isinstance(b.get("openTime"),(int,float)) or b["openTime"]>now) for b in (bars or [])):
