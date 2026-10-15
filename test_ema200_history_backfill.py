@@ -46,6 +46,18 @@ class EMA200HistoryWarmupTests(unittest.TestCase):
         self.assertEqual(provider.call_count, 1, 'The alternate must be rate-limited')
         self.assertEqual(len(second), 240)
 
+    def test_fresh_195_fifteen_minute_bars_backfill_without_mixing_sources(self):
+        step = 900000
+        original = candle_series(195, step=step)
+        longer = candle_series(222, step=step, value=4270)
+        with patch.object(server.technical_candles, 'fetch', return_value=original), \\
+             patch.object(server, 'fetch_json', return_value={'points': xaus_points(longer)}) as provider:
+            result = server.fetch_technical_history('15m', '5d')
+        self.assertEqual(len(result), 222)
+        self.assertEqual(result[0]['open'], longer[0]['open'])
+        self.assertTrue(server._ema_history_sufficient(result, 15))
+        provider.assert_called_once()
+
     def test_short_history_does_not_block_ema20_ema50_signals(self):
         short = candle_series(170)
         self.assertFalse(server._ema_history_sufficient(short, 60))
