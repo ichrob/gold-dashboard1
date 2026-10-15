@@ -636,6 +636,58 @@ def get_quote(isin):
     return run(str(isin or "").strip().upper(), _get_quote_bounded)
 
 
+
+def _restore_exact_sg_metadata(result, isin):
+    """Recover first-pass SG terms ONLY from its already validated source cache.
+
+    This does not fetch, re-date or elevate a chart to a broker quote.
+    Requiring an identical chart point and prices prevents linking unrelated
+    products, delayed versions or provider timestamps.
+    """
+    from sg_direct import cached_verified_observation
+    meta = result.get('metadata') or {}
+    chart = result.get('chartEvidence') or {}
+    if (isin not in SG_DIRECT_PRODUCTS or result.get('isin') != isin
+            or result.get('productVerified') is not True
+            or result.get('sourceFailure') or result.get('quoteFailureCode')
+            or meta.get('status') != 1 or meta.get('issuerExchangeCode')
+            or not chart.get('pointAt')):
+        return result
+    reference = cached_verified_observation(isin)
+    if not reference or reference.get('isin') != isin:
+        return result
+    canonical = reference.get('metadata') or {}
+    fresh_chart = reference.get('chartEvidence') or {}
+    if (canonical.get('status') != 1
+            or canonical.get('issuerExchangeCode') != 'CBDE'
+            or canonical.get('currency') != 'EUR'
+            or any(chart.get(key) != fresh_chart.get(key)
+                   for key in ('pointAt', 'bid', 'ask', 'currency'))
+            or any(meta[key] != canonical[key] for key in
+                   ('direction', 'status', 'currency', 'issuerExchangeCode',
+                    'underlying', 'underlyingType', 'contract', 'ko',
+                    'strike', 'ratio') if key in meta and key in canonical)
+            or not canonical.get('direction') in ('LONG', 'SHORT')
+            or not reference.get('conditions')):
+        return result
+    import copy
+    out = copy.deepcopy(result)
+    out['metadata'] = copy.deepcopy(canonical)
+    out['conditions'] = copy.deepcopy(reference['conditions'])
+    for key in ('observedTerms', 'issuerLeverageReference',
+                'sharedTimeContext', 'sharedValueObservations',
+                'termsCheckedAt', 'termsSource', 'termsSourceUrl'):
+        if key in reference:
+            out[key] = copy.deepcopy(reference[key])
+    out['importActive'] = True
+    out['sgCachedIdentityRestored'] = True
+    # Chart remains a historical issuer observation. These are NOT authorizations.
+    out['found'] = False
+    out['eligible'] = False
+    out['fresh'] = False
+    return out
+
+
 def _get_quote_bounded(isin):
     from onvista_backup import apply_backup
     isin = str(isin or '').strip().upper()
@@ -650,6 +702,7 @@ def _get_quote_bounded(isin):
     from finanzen_terms import apply as apply_terms_backup
     from comdirect_fields import apply as apply_comdirect_fields
     result = apply_backup(apply_terms_backup(apply_comdirect_fields(_get_quote_primary(isin), isin), isin), isin)
+    result = _restore_exact_sg_metadata(result, isin)
     if result.get('metadata', {}).get('currency') == 'CHF':
         from sg_chf import convert_analysis
         result = convert_analysis(result)
