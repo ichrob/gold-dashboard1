@@ -41,7 +41,7 @@ class EMA200HistoryWarmupTests(unittest.TestCase):
         self.assertEqual(result[0]['close'], full[0]['close'])
         self.assertEqual([b['source'] for b in result], ['XAUS · datierte XAU/USD-Historie'] * 240)
         self.assertTrue(server._ema_history_sufficient(result, 60))
-        self.assertEqual(server._ema(full[:200] and [b['close'] for b in result], 200),
+        self.assertEqual(server._ema([b['close'] for b in result], 200),
                          server._ema([b['close'] for b in second], 200))
         self.assertEqual(provider.call_count, 1, 'The alternate must be rate-limited')
         self.assertEqual(len(second), 240)
