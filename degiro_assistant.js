@@ -1749,7 +1749,7 @@ function currentSgChfAnalysisProof(p,now=Date.now()){
  const chartAt=Date.parse(chart.pointAt);
  if(!Number.isFinite(chartAt)||chartAt>now||now-chartAt>300000)return null;
  const leverage=sharedSgIssuerLeverage(p,now);
- if(!leverage?.fresh||leverage.at!==chart.pointAt||!(leverage.value>=1))return null;
+ if(!leverage?.fresh||Date.parse(leverage.at)!==chartAt||!(leverage.value>=1))return null;
  return {bid:chart.bid,ask:chart.ask,leverage:leverage.value,
   at:chart.pointAt,currency:'CHF',analysisOnly:true,degiroExecutable:false};
 }
