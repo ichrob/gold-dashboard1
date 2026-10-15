@@ -15,7 +15,7 @@ assert(block.includes("Es werden keine Zugangsdaten oder privaten Produktwerte �
 assert(block.includes("Nur Desktop"),"Explicitly explain the native plugin restriction");
 assert(!block.includes("localStorage")&&!block.includes("Authorization"),"Do not copy authentication material to ChatGPT");
 assert(!block.includes("fetch("),"Never automatically upload private diagnostics");
-assert(block.includes("Keine echten Orders")||block.includes("keine Echtgeldorders")||block.includes("keine Echtgeldorders")||block.includes("keine echten Orders")||block.includes("keine Echtgeldorders")||block.includes("keine Echtgeldorders")||block.includes("keine echten Orders")||block.includes("keine Echtgeldorders")||block.includes("Keine Echtgeldorders")||block.includes("Ändere keine Echtgeldorders"),"Trade safety reminder required");
+assert(block.includes("Ändere keine Echtgeldorders"),"Trade safety reminder required");
 const scripts=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
 const mobileScript=scripts.find(s=>s[1].includes("const mobileHelp=document.createElement"));
 assert(mobileScript, "Mobile handoff must be in a script tag");
