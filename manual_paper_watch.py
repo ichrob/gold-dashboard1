@@ -97,12 +97,11 @@ def set_levels(conn,payload):
             raise ValueError('Grenzwert muss positiv sein')
         levels[k]=float(x) if x is not None else None
     stop,target=levels['stopEur'],levels['targetEur']
-    if p['direction']=='LONG':
-        if (stop is not None and stop>=entry) or (target is not None and target<=entry):
-            raise ValueError('LONG: Stop unter, Ziel über Einstieg')
-    else:
-        if (stop is not None and stop<=entry) or (target is not None and target>=entry):
-            raise ValueError('SHORT: Stop über, Ziel unter Einstieg')
+    # Both LONG and SHORT knock-out certificates are PURCHASED securities.
+    # A short certificate rises when gold falls, but the bought certificate
+    # still gains when its own bid rises. Stop/target are PRODUCT EUR prices.
+    if (stop is not None and stop>=entry) or (target is not None and target<=entry):
+        raise ValueError('Gekauftes Knock-out-Produkt: Stop unter, Ziel über Einstieg')
     s.update(levels)
     conn.execute('UPDATE bob_manual_paper_watch SET payload=%s::jsonb WHERE id=1',(json.dumps(s),))
     return dict(ok=True,watch=public_record(s))
@@ -143,13 +142,65 @@ def quote_observation(q,isin,now_ms):
     return dict(at=at,bid=float(q['bid']),source=q['source'][:160]),None
 
 
+
+def research_observation(quote, isin, now_ms):
+    """Use existing fail-closed paper projection for MODEL valuation only.
+
+    This is never an issuer execution quote and MUST NOT trigger confirmed
+    stop/target notices. Currency conversion and source clocks are validated
+    in paper_simulation.paper_quote, not inferred from the latest spot tick.
+    """
+    if not isinstance(quote, dict) or quote.get('isin') != isin or quote.get('sourceDisabled'):
+        return None
+    meta = quote.get('metadata') or {}
+    if (quote.get('productVerified') is not True or meta.get('status') != 1
+            or meta.get('tradingHalted') is True):
+        return None
+    from paper_simulation import paper_quote
+    projected = paper_quote(quote, now_ms, isin)
+    if (not isinstance(projected, dict) or projected.get('paperQuoteAccepted') is not True
+            or projected.get('isin') != isin or projected.get('currency') != 'EUR'
+            or projected.get('marketOpen') is not True
+            or projected.get('isExecutableQuote') is not False
+            or projected.get('degiroExecutable') is not False
+            or not str(projected.get('paperQuoteLabel') or '').startswith('Simulationskurs')
+            or not positive(projected.get('bid')) or not positive(projected.get('ask'))
+            or projected['ask'] < projected['bid']):
+        return None
+    try:
+        times = [iso_stamp(projected[k]) for k in ('bidAt', 'askAt', 'quoteAt')]
+    except (KeyError, ValueError):
+        return None
+    if any(not 0 <= now_ms - int(t.timestamp()*1000) <= MAX_QUOTE_AGE_MS for t in times):
+        return None
+    fx = projected.get('paperFxConversion')
+    native = projected.get('paperNativeQuote')
+    if native and (not isinstance(fx, dict) or fx.get('fromCurrency') != 'CHF'
+                   or fx.get('toCurrency') != 'EUR' or not fx.get('evidence')):
+        return None
+    return dict(at=min(times), bid=float(projected['bid']),
+                source=str(projected.get('source') or '')[:160],
+                referenceOnly=True, label=projected['paperQuoteLabel'][:180])
+
+
+
 def observe(conn,quote,now_ms=None):
     """Persist one quote timestamp once; do not invent interpolation or fills."""
     if now_ms is None:now_ms=int(time.time()*1000)
     row=conn.execute('SELECT payload FROM bob_manual_paper_watch WHERE id=1 FOR UPDATE').fetchone()
     if not row:return dict(ok=False,reason='Manueller Test noch nicht synchronisiert')
     s=row[0];p=s['position'];s['checkedAt']=dt.datetime.fromtimestamp(now_ms/1000,dt.timezone.utc).isoformat()
-    obs,error=quote_observation(quote,p['isin'],now_ms)
+    metadata = quote.get('metadata') or {} if isinstance(quote, dict) else {}
+    issuer_direction = (quote.get('direction') or metadata.get('direction')) if isinstance(quote, dict) else None
+    if issuer_direction in ('LONG', 'SHORT') and issuer_direction != p['direction']:
+        obs,error = None,'Produktrichtung widerspricht Emittent; keine Kursbewertung'
+    else:
+        obs,error=quote_observation(quote,p['isin'],now_ms)
+        if error:
+            # A coherent market-observation may value the PAPER position;
+            # only the original verified issuer bid can trigger stop/target.
+            obs = research_observation(quote,p['isin'],now_ms)
+            if obs:error=None
     if error:
         s.update(status='waiting-quote',reason=error,valuation=None)
     else:
@@ -159,24 +210,39 @@ def observe(conn,quote,now_ms=None):
             s.update(status='waiting-quote',reason='Keine neue datierte Anbieterquote',valuation=None)
         else:
             bid=obs['bid']
-            pnl=(bid-p['entry'])*p['quantity']*(1 if p['direction']=='LONG' else -1)
-            # SHORT is a direction model only; this does not model actual shorting cost.
+            # Profit depends on the PURCHASED certificate price for both sides.
+            # SHORT describes the GOLD exposure, not a short sale of shares.
+            pnl=(bid-p['entry'])*p['quantity']
             value=bid*p['quantity']
             inserted=conn.execute("""INSERT INTO bob_manual_paper_observations
                 (quote_at,isin,bid,source,pnl_eur,value_eur)
                 VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING RETURNING quote_at""",
                 (obs['at'],p['isin'],bid,obs['source'],pnl,value)).fetchone()
-            s.update(status='observed',reason='Neuer bestätigter Geldkurs · nur Modellbewertung',
+            research = obs.get('referenceOnly') is True
+            s.update(status='model-observed' if research else 'observed',
+                     reason=('Datierter Simulationskurs für die Modellbewertung; '
+                             'keine ausführbare DEGIRO-Quote und keine bestätigten Stop-/Zielereignisse'
+                             if research else 'Neuer bestätigter Anbieter-Geldkurs · nur Modellbewertung'),
                      lastSourceAt=stamp,valuation=dict(bidEur=bid,quoteAt=stamp,source=obs['source'],
                                                       pnlEur=round(pnl,2),valueEur=round(value,2),
+                                                      referenceOnly=research,degiroExecutable=False,
                                                       grossOnly=True))
+            # Legacy SHORT-paper records may still contain reversed levels.
+            # Preserve owner data but prohibit spurious alerts until corrected.
+            stop,target=s.get('stopEur'),s.get('targetEur')
+            levels_valid=((stop is None or positive(stop) and stop<p['entry'])
+                          and (target is None or positive(target) and target>p['entry']))
+            if not levels_valid:
+                s.update(status='levels-need-review',
+                         reason='Gespeicherte Produkt-Stopp-/Zielwerte widersprechen einem gekauften Zertifikat; '
+                                'Stopp muss unter, Ziel über dem Einstieg liegen. '
+                                'Bis zur Korrektur keine Stop-/Zielmeldungen.')
             if inserted:
                 s['eventsCount']=s.get('eventsCount',0)+1
                 hit=[]
-                stop,target=s.get('stopEur'),s.get('targetEur')
-                if stop is not None and ((p['direction']=='LONG' and bid<=stop) or (p['direction']=='SHORT' and bid>=stop)):
+                if levels_valid and not research and stop is not None and bid<=stop:
                     hit.append('stop-observed')
-                if target is not None and ((p['direction']=='LONG' and bid>=target) or (p['direction']=='SHORT' and bid<=target)):
+                if levels_valid and not research and target is not None and bid>=target:
                     hit.append('target-observed')
                 for kind in hit:
                     if s.get('lastEventKind') != kind:
