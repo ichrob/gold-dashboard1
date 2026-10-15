@@ -44,6 +44,7 @@ assert.equal(result.observed,null);
 assert.equal(result.model.signal,'model-stop-near');
 assert(result.model.stopEur>0&&result.model.targetEur>0);
 assert.equal(result.degiroExecutable,false);
+assert.equal(evaluate({spots:{...spots,spot_error:'outage'},quote:{...issuer,bid:16,ask:16.02}}).stage,'issuer-price-only');
 assert.equal(result.automaticOrder,false);
 let hit=evaluate({spots:{...spots,xaus:4235}});
 assert.equal(hit.stage,'model-stop-zone'); // Gold down/short up, closer to KO? model stop breached
