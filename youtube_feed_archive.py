@@ -128,11 +128,13 @@ def handle(conn,action,payload):
             WHERE feed_key=%s AND saved_at>now()-interval '30 days'""",(KEY,)).fetchone()
         if row:
             entries=sanitize(row[1])
-            if entries:
-                # Upgrade the existing 25-entry archive in place on first read.
-                if len(row[1])>KEEP_VIDEOS:
-                    conn.execute('UPDATE bob_youtube_feed_archive SET items=%s::jsonb WHERE feed_key=%s',
-                                 (json.dumps(entries,ensure_ascii=False),KEY))
+            # Ordinary reads must stay read-only. Repeating the retention DELETEs
+            # here raced transcript writes and could deadlock the push database.
+            # The write path already purges evicted videos; retain cleanup only
+            # for the one-time migration of legacy archives with more entries.
+            if entries and len(row[1])>KEEP_VIDEOS:
+                conn.execute('UPDATE bob_youtube_feed_archive SET items=%s::jsonb WHERE feed_key=%s',
+                             (json.dumps(entries,ensure_ascii=False),KEY))
                 purge_unselected(conn,entries)
             return {'items':entries,'savedAt':row[0].astimezone(timezone.utc).isoformat(),'displayOnly':True}
         return {'items':[],'savedAt':None,'displayOnly':True}
