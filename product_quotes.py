@@ -656,7 +656,7 @@ def _get_quote_bounded(isin):
     chart = result.get('chartEvidence')
     if (not result.get('found') and result.get('productVerified') and
             result.get('metadata', {}).get('status') == 1 and chart):
-        result['analysisQuote'] = dict(bid=chart['bid'], ask=chart['ask'], price=chart['ask'],
+        result['analysisQuote'] = dict(isin=isin, bid=chart['bid'], ask=chart['ask'], price=chart['ask'],
             bidAt=chart['pointAt'], askAt=chart['pointAt'], currency=chart['currency'],
             source='SG · datierter Chartkurs'+(' · CHF in EUR umgerechnet' if result.get('currencyConversion') else ''), priceKind='issuer-chart',
             isExecutableQuote=False)
