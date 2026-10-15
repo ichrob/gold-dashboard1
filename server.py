@@ -783,6 +783,14 @@ def build_live_bundle():
                 "age_seconds": goldprice_age,
             },
         }
+        # Transparent input diagnostics: never influence market direction or orders.
+        try:
+            import market_review
+            bundle['marketReview'] = market_review.review(bundle, now=time.time())
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            bundle['marketReview'] = {'version':'market-input-review-v1', 'readOnly':True,
+                                      'affectsTradeApproval':False, 'warnings':['Markt-Diagnose vorübergehend nicht verfügbar']}
+            print('BOB_MARKET_REVIEW unavailable '+type(exc).__name__, flush=True)
         # Research output only. No selection, score, ranking or push consumes it.
         try:
             bundle['candleShadow'] = candle_shadow.snapshot(
