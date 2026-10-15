@@ -5,9 +5,9 @@
  const atMs=v=>typeof v==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(v)?Date.parse(v):NaN;
  const recent=(v,now,age)=>Number.isFinite(atMs(v))&&now>=atMs(v)&&now-atMs(v)<=age;
  const side=x=>x==='LONG'||x==='SHORT';
- function selectQuote(q,isin,now=Date.now()){
+ function eligibleQuoteSources(q,isin,now=Date.now()){
   if(!q||q.isin!==isin||q.productVerified!==true||q.sourceDisabled
-    ||q.metadata?.status!==1||q.metadata?.tradingHalted===true) return null;
+    ||q.metadata?.status!==1||q.metadata?.tradingHalted===true) return [];
   const candidates=[];
   for(const [origin,row] of [['issuer',q],['comdirect',q.secondaryQuote],
     ['analysis',q.analysisQuote],['swissquote',q.thirdQuote]]){
@@ -24,13 +24,39 @@
    if(origin!=='issuer'&&(row.isExecutableQuote!==false||row.degiroExecutable!==false)) continue;
    if(origin==='issuer'&&!issuer&&row.isExecutableQuote!==false) continue;
    candidates.push({isin,bid:row.bid,ask:row.ask,at:row.bidAt,askAt:row.askAt,
-     source:row.source,origin,kind:issuer?'issuer':'research',chart:row.priceKind==='issuer-chart',
+     source:row.source,venue:row.venue||'',origin,kind:issuer?'issuer':'research',chart:row.priceKind==='issuer-chart',
      delayed:false,error:false,degiroExecutable:false});
   }
   // Latest original bid clock wins; prefer a native issuer quote on equal time.
   candidates.sort((a,b)=>atMs(b.at)-atMs(a.at)||
     Number(b.kind==='issuer')-Number(a.kind==='issuer'));
-  return candidates[0]||null;
+  return candidates;
+ }
+ // Every provider contributes only its OWN independently sourced timestamps.
+ // Pairwise differences are observations, not proofs of executable broker quotes.
+ function compareQuoteSources(q,isin,now=Date.now()){
+  const quotes=eligibleQuoteSources(q,isin,now);
+  const comparisons=[];
+  for(let i=0;i<quotes.length;i++)for(let j=i+1;j<quotes.length;j++){
+   const left=quotes[i],right=quotes[j];
+   const bidGap=Math.abs(atMs(left.at)-atMs(right.at));
+   const askGap=Math.abs(atMs(left.askAt)-atMs(right.askAt));
+   if(bidGap>30000||askGap>30000||
+      Math.abs(atMs(left.at)-atMs(left.askAt))>30000||
+      Math.abs(atMs(right.at)-atMs(right.askAt))>30000)continue;
+   const bidDifference=Number((left.bid-right.bid).toFixed(6));
+   const askDifference=Number((left.ask-right.ask).toFixed(6));
+   const bidPct=Math.abs(bidDifference)/Math.max(left.bid,right.bid)*100;
+   const askPct=Math.abs(askDifference)/Math.max(left.ask,right.ask)*100;
+   comparisons.push({sources:[left.source,right.source],origins:[left.origin,right.origin],
+    bidDifference,askDifference,clockGapSeconds:Math.max(bidGap,askGap)/1000,
+    sameVenue:!!left.venue&&left.venue===right.venue,divergent:Math.max(bidPct,askPct)>1});
+  }
+  return {isin,quotes,comparisons,automaticOrder:false,degiroExecutable:false};
+ }
+ function selectQuote(q,isin,now=Date.now()){
+  const comparison=compareQuoteSources(q,isin,now);
+  return comparison.quotes.length?{...comparison.quotes[0],comparison}:null;
  }
  function evaluate({product,stopGold,targetGold,spots,quote,now=Date.now()}={}){
   const unavailable=(reason)=>({available:false,stage:'unavailable',reason,
@@ -112,7 +138,7 @@
   const {product,stopGold,targetGold,spots,quote,now=Date.now()}=info||{};
   if(!panel){
    panel=document.createElement('section');panel.id='bobTwoStageStop';panel.style.cssText='border:1px solid #cbd5e1;border-radius:12px;padding:12px;margin:12px 0;';
-   panel.innerHTML='<h4>Zweistufiger Produkt-Stopp · ohne automatische Orders</h4><p data-stop-stage role="status"></p><p data-stop-model></p><p data-stop-issuer></p><details><summary>Manuellen DEGIRO-Schutzstopp vorbereiten</summary><p data-stop-instructions style="white-space:pre-line"></p><p><button type="button" data-copy-isin>ISIN kopieren</button> <button type="button" data-copy-stop>Modell-Stopp kopieren</button></p><p data-copy-status role="status"></p></details>';
+   panel.innerHTML='<h4>Zweistufiger Produkt-Stopp · ohne automatische Orders</h4><p data-stop-stage role="status"></p><p data-stop-model></p><p data-stop-issuer></p><details><summary>Quellenvergleich und Originalzeiten</summary><p data-stop-sources style="white-space:pre-line"></p></details><details><summary>Manuellen DEGIRO-Schutzstopp vorbereiten</summary><p data-stop-instructions style="white-space:pre-line"></p><p><button type="button" data-copy-isin>ISIN kopieren</button> <button type="button" data-copy-stop>Modell-Stopp kopieren</button></p><p data-copy-status role="status"></p></details>';
    stopPanel.insertAdjacentElement('afterend',panel);
    panel.addEventListener('click',async e=>{
     const key=e.target?.dataset?.copyIsin!==undefined?'isin':
@@ -142,6 +168,23 @@
    'Stufe B · Anbieter-Geldkurs '+fmt(v.observed.bid)+' · '+v.observed.at+
    ' · '+v.observed.source+' · '+v.observed.note:
    'Stufe B: kein vollständig datierter originaler Anbieter-Geld-/Briefkurs. Kein bestätigtes Stop-/Zielereignis.';
+  const comparison=quote?.error===true?null:quote?.comparison;
+  const rows=(comparison?.quotes||[]).filter(row=>
+    recent(row.at,now,90000)&&recent(row.askAt,now,90000));
+  const compareLines=rows.length?[
+   rows.length+' aktuell datierte Kursquelle(n) dieser ISIN; kein DEGIRO-Ausführungsnachweis.',
+   ...rows.map(row=>(row.kind==='issuer'?'Emittent':'Recherche')+' · '+row.source+
+     ' · Geld '+row.bid.toFixed(4)+' EUR ('+row.at+')'+
+     ' · Brief '+row.ask.toFixed(4)+' EUR ('+row.askAt+')'+
+     (row.venue?' · '+row.venue:'')),
+   ...(rows.length===comparison.quotes.length?comparison.comparisons.map(pair=>
+     pair.sources.join(' / ')+' · Geld-Differenz '+pair.bidDifference.toFixed(4)+
+     ' EUR · Brief-Differenz '+pair.askDifference.toFixed(4)+' EUR'+
+     (pair.divergent?' · Abweichung über 1 %':'')+
+     (pair.sameVenue?' · gleicher gemeldeter Handelsplatz':' · Handelsplätze nicht gleich bestätigt')):[]),
+   'Zeitvergleich nur bei höchstens 30 Sekunden Unterschied der getrennten Originalzeiten. Übereinstimmung ist keine Ausführungszusage.'
+  ]:['Kein aktuelles, vollständig datiertes Geld-/Briefpaar aus den verbundenen Quellen. Modellvorwarnungen bleiben getrennt.'];
+  panel.querySelector('[data-stop-sources]').textContent=compareLines.join('\n');
   const guide=instructions({isin:product?.isin,quantity:product?.quantity,
     stopEur:v.model?.stopEur,currency:product?.currency});
   panel.querySelector('[data-stop-instructions]').textContent=guide.available?
@@ -149,6 +192,6 @@
   panel.querySelector('[data-copy-stop]').disabled=!guide.available;
   panel.querySelector('[data-copy-isin]').disabled=!product?.isin;
  }
- root.BobStopAssistant={selectQuote,evaluate,instructions,update};
+ root.BobStopAssistant={selectQuote,compareQuoteSources,evaluate,instructions,update};
  if(typeof module!=='undefined')module.exports=root.BobStopAssistant;
 })(typeof window!=='undefined'?window:globalThis);
