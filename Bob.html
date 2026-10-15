@@ -1317,6 +1317,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
       'LONG: '+early.long.evaluated+' auswertbar, '+early.long.favorable+' günstig / '+early.long.unfavorable+' ungünstig · mittlere Kursbewegung '+fmt(early.long.meanDirectionalPct),
       'SHORT: '+early.short.evaluated+' auswertbar, '+early.short.favorable+' günstig / '+early.short.unfavorable+' ungünstig · mittlere Kursbewegung '+fmt(early.short.meanDirectionalPct),
       'Vor Handelsfreigabe: '+early.beforeApproval+' Frühwarnungen · '+early.unconfirmedFavorable+' später günstig / '+early.unconfirmedUnfavorable+' später ungünstig.',
+      'Zeitvorsprung der Frühwarnung: '+(early.leadTime?.laterConfirmed||0)+' spätere gleichgerichtete Bestätigungen · mittlerer Abstand '+(Number.isFinite(early.leadTime?.meanLeadMinutes)?early.leadTime.meanLeadMinutes.toFixed(1)+' Min.':'noch nicht messbar')+
+      ' · bereits gleichzeitig bestätigt '+(early.leadTime?.alreadyConfirmed||0)+' · ohne Bestätigung binnen 60 Min. '+(early.leadTime?.noConfirmationWithinHour||0)+' · offene Prüfungen '+(early.leadTime?.pending||0)+'.',
       'Bisherige Bestätigungsregel gegen Früherkennung (jeweils gleicher Startzeitpunkt): '+fmt(early.evaluated?early.baselineSumPct/early.evaluated:null)+' gegen '+fmt(early.evaluated?early.earlySumPct/early.evaluated:null)+'.',
       horizon(15),horizon(60),horizon(240),
       phase('collection','Datensammlung ab 12.10.2026'),
