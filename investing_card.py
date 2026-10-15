@@ -16,7 +16,8 @@ _chart_observations = []
 _next_fetch = 0
 _thread = None
 _state_lock = threading.Lock()
-_health = {"state": "starting", "lastCheckedAt": None, "sourceAt": None}
+_health = {"state": "starting", "lastCheckedAt": None, "sourceAt": None,
+           "providerMarketOpen": None}
 POLL_SECONDS = 30
 
 
@@ -128,7 +129,8 @@ def collect_once():
                  background_push.weekend_quote_at_close(time.time() * 1000, source_ms)
                  else 'current' if q.get('realtimeCfd') else 'stale')
         with _state_lock:
-            _health.update(state=state, lastCheckedAt=time.time(), sourceAt=q['at'])
+            _health.update(state=state, lastCheckedAt=time.time(), sourceAt=q['at'],
+                           providerMarketOpen=q.get('providerMarketOpen'))
         print('BOB_CFD checked state='+state+' source_at='+q['at'], flush=True)
     except Exception as exc:
         with _state_lock:
@@ -172,9 +174,18 @@ def health():
         result = dict(_health, running=bool(_thread and _thread.is_alive()), intervalSeconds=actual_interval,
                       sessionMode=background_push.degiro_session())
     if result['sourceAt']:
-        age = time.time()-datetime.fromisoformat(result['sourceAt']).timestamp()
+        now = time.time()
+        age = now-datetime.fromisoformat(result['sourceAt']).timestamp()
         result['sourceAgeSeconds'] = round(age)
-        if result['state'] != 'unavailable' and background_push.weekend_quote_at_close(time.time() * 1000, datetime.fromisoformat(result['sourceAt']).timestamp() * 1000):
+        checked = result.get('lastCheckedAt')
+        checked_recently = (isinstance(checked, (int, float)) and
+                            0 <= now-checked <= max(120, actual_interval*2+50))
+        if result['state'] != 'unavailable' and result.get('providerMarketOpen') is False and checked_recently:
+            # A provider-declared close may legitimately retain an older quote.
+            # Require a recent successful source check so a stuck worker cannot
+            # hide behind that closed flag indefinitely.
+            result['state'] = 'closed'
+        elif result['state'] != 'unavailable' and background_push.weekend_quote_at_close(now * 1000, datetime.fromisoformat(result['sourceAt']).timestamp() * 1000):
             result['state'] = 'closed'
         elif result['state'] in ('current', 'closed') and not 0 <= age <= 120:
             result['state'] = 'stale'

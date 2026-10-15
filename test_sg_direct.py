@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from unittest.mock import patch
 import sg_direct as sg
 import product_quotes as q
@@ -253,7 +254,7 @@ class DirectTests(unittest.TestCase):
                 self.assertFalse(out['eligible'])
 
     def test_today_term_date_does_not_invent_a_quote_clock(self):
-        today=datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        today=datetime.now(ZoneInfo('Europe/Zurich')).strftime('%Y-%m-%d')
         self.props.append(dict(Name='StrikeBarrierUpdateTime',Value=today+'T03:35:31.247'))
         with patch.object(q,'issuer_json',side_effect=[self.product,self.props,self.points]):
             out=sg.get_quote(ISIN)
@@ -266,7 +267,7 @@ class DirectTests(unittest.TestCase):
     def test_yesterday_and_future_term_dates_remain_unconfirmed(self):
         for offset in (-1,1):
             sg._CACHE.clear();sg._TERMS.clear()
-            date=(datetime.now(timezone.utc)+timedelta(days=offset)).strftime('%Y-%m-%d')
+            date=(datetime.now(ZoneInfo('Europe/Zurich'))+timedelta(days=offset)).strftime('%Y-%m-%d')
             props=self.props+[dict(Name='StrikeBarrierUpdateTime',Value=date+'T03:35:31')]
             with patch.object(q,'issuer_json',side_effect=[self.product,props,self.points]):
                 out=sg.get_quote(ISIN)
