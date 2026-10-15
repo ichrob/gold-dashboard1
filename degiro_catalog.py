@@ -36,6 +36,8 @@ SEEDS = (
     ("DE000FG309G0", "SHORT"),
 )
 LIMIT = 12
+# Historical user-reviewed BNP identities, not a current broker/portfolio list.
+HISTORICAL_BNP = frozenset(("DE000PJ9NCK0", "DE000PJ9NB98", "DE000PG0XK25"))
 _LOCK = threading.Lock()
 _THREAD = None
 _CURRENT = {
@@ -87,9 +89,18 @@ def build(lookup, now=None):
     """One bounded issuer refresh, no credentials or public DEGIRO calls."""
     now = now or datetime.now(ZONE)
     candidates, excluded, errors = [], [], 0
+    source_checks = {
+        "historicalBNP": dict(attempted=0, verified=0, datedFreshQuote=0, sourceErrors=0),
+        "otherHistorical": dict(attempted=0, verified=0, datedFreshQuote=0, sourceErrors=0),
+    }
     for isin, direction in SEEDS:
+        group = source_checks["historicalBNP" if isin in HISTORICAL_BNP else "otherHistorical"]
+        group["attempted"] += 1
+        had_error = False
+        response = {}
         if not valid_isin(isin):
             errors += 1
+            group["sourceErrors"] += 1
             continue
         try:
             response = lookup(isin)
@@ -99,18 +110,33 @@ def build(lookup, now=None):
             if not isinstance(response, dict) or any(response.get(key) for key in
                 ("sourceFailure", "sourceDisabled", "quoteFailureCode", "sourceFailureCode")):
                 errors += 1
+                had_error = True
             item, exclusion = normalize(isin, direction, response)
         except Exception:
             errors += 1
+            had_error = True
             item, exclusion = normalize(isin, direction, {})
             item["issuerReason"] = "Emittentenabruf momentan fehlgeschlagen; nicht als aktuell bestätigt"
+        if had_error:
+            group["sourceErrors"] += 1
+        if (isinstance(response, dict) and response.get("productVerified") is True
+                and response.get("isin") == isin):
+            group["verified"] += 1
+            # Count original issuer clocks only, never chart/research observations
+            # as executable DEGIRO quotes. Existing eligible/fresh gates stay.
+            if (not had_error and response.get("found") is True
+                    and response.get("eligible") is True and response.get("fresh") is True
+                    and all(isinstance(response.get(k), str)
+                            and re.search(r"(?:Z|[+-]\d{2}:\d{2})$", response[k])
+                            for k in ("bidAt", "askAt", "leverageAt", "snapshotAt"))):
+                group["datedFreshQuote"] += 1
         if exclusion:
             excluded.append(exclusion)
         elif item:
             candidates.append(item)
     return dict(status=("ok" if errors == 0 else "partial"), queriedAt=now.isoformat(),
                 lastScanAt=now.isoformat(), lastDay=now.date().isoformat(),
-                attempted=len(SEEDS), errors=errors,
+                attempted=len(SEEDS), errors=errors, sourceChecks=source_checks,
                 candidates=candidates[:LIMIT], excluded=excluded,
                 sourceType="historic-user-list-plus-issuer-research",
                 completeDegiroCatalog=False, degiroAccountConnected=False,
@@ -154,7 +180,15 @@ def _loop():
                     result=build(product_quotes.get_issuer_quote)
                     with _LOCK:
                         _CURRENT.update(result, lastSession=period[1], running=False)
-                    print("BOB_ISSUER_CATALOG status="+result["status"]+" checked="+str(result["attempted"])+" errors="+str(result["errors"]),flush=True)
+                    bnp = result["sourceChecks"]["historicalBNP"]
+                    other = result["sourceChecks"]["otherHistorical"]
+                    print("BOB_ISSUER_CATALOG status="+result["status"]
+                          +" checked="+str(result["attempted"])+" errors="+str(result["errors"])
+                          +" bnpChecked="+str(bnp["attempted"])
+                          +" bnpVerified="+str(bnp["verified"])
+                          +" bnpDatedQuotes="+str(bnp["datedFreshQuote"])
+                          +" bnpErrors="+str(bnp["sourceErrors"])
+                          +" otherErrors="+str(other["sourceErrors"]),flush=True)
                     last_retry=time.monotonic()+(1800 if result["status"]=="partial" else 7200)
         except Exception as exc:
             with _LOCK:
