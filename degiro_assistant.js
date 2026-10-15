@@ -1748,8 +1748,10 @@ function currentSgChfAnalysisProof(p,now=Date.now()){
     ||!(n(chart.bid)>0&&n(chart.ask)>=n(chart.bid)))return null;
  const chartAt=Date.parse(chart.pointAt);
  if(!Number.isFinite(chartAt)||chartAt>now||now-chartAt>300000)return null;
- const leverage=sharedSgIssuerLeverage(p,now);
- if(!leverage?.fresh||Date.parse(leverage.at)!==chartAt||!(leverage.value>=1))return null;
+ const leverage=sharedSgIssuerLeverage(p,now),observed=q.sharedValueObservations?.Referenzhebel;
+ if(!leverage?.fresh||Date.parse(leverage.at)!==chartAt||!(leverage.value>=1)
+    ||observed?.isin!==p.isin||observed.contextAt!==chart.pointAt
+    ||n(observed.value)!==leverage.value)return null;
  return {bid:chart.bid,ask:chart.ask,leverage:leverage.value,
   at:chart.pointAt,currency:'CHF',analysisOnly:true,degiroExecutable:false};
 }
