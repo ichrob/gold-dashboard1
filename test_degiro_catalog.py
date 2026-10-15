@@ -55,6 +55,59 @@ class IssuerCatalogueTests(unittest.TestCase):
             self.assertIsNone(item["degiroListed"])
             self.assertFalse(item["screenshotToday"])
 
+    def test_bnp_source_health_separated_from_sg_and_never_promotes_execution(self):
+        from datetime import timezone
+        listed = {"DE000PJ9NCK0", "DE000PJ9NB98", "DE000PG0XK25"}
+        def healthy(isin):
+            side = next(side for known, side in catalog.SEEDS if known == isin)
+            row = issuer(isin, side)
+            if isin == "DE000PJ9NCK0":
+                for key in ("bidAt", "askAt", "leverageAt", "snapshotAt"):
+                    row[key] = "2026-10-15T16:00:00+02:00"
+            return row
+        at = datetime(2026, 10, 15, 16, tzinfo=Z)
+        healthy_result = catalog.build(healthy, at)
+        bn = healthy_result["sourceChecks"]["historicalBNP"]
+        others = healthy_result["sourceChecks"]["otherHistorical"]
+        self.assertEqual(bn, dict(attempted=3, verified=3, datedFreshQuote=1, sourceErrors=0))
+        self.assertEqual(others["attempted"], len(catalog.SEEDS) - 3)
+        self.assertEqual(others["sourceErrors"], 0)
+        self.assertFalse(healthy_result["automaticOrders"])
+        self.assertTrue(all(not item["liveApproved"] and item["degiroListed"] is None
+                            for item in healthy_result["candidates"]))
+
+        # One provider failure must be attributed to the correct historical group,
+        # without rewriting response quotes, source times, or approval gates.
+        def bnp_failure(isin):
+            row = healthy(isin)
+            if isin == "DE000PJ9NB98":
+                row["sourceFailure"] = True
+                row["quoteFailureCode"] = "CONNECTION"
+            return row
+        failed = catalog.build(bnp_failure, at)
+        self.assertEqual(failed["status"], "partial")
+        self.assertEqual(failed["sourceChecks"]["historicalBNP"]["sourceErrors"], 1)
+        self.assertEqual(failed["sourceChecks"]["otherHistorical"]["sourceErrors"], 0)
+        self.assertEqual(failed["sourceChecks"]["historicalBNP"]["datedFreshQuote"], 1)
+
+        def sg_failure(isin):
+            row = healthy(isin)
+            if isin not in listed and isin == "DE000FG4JXV7":
+                row["sourceFailure"] = True
+            return row
+        failed_sg = catalog.build(sg_failure, at)
+        self.assertEqual(failed_sg["sourceChecks"]["historicalBNP"]["sourceErrors"], 0)
+        self.assertEqual(failed_sg["sourceChecks"]["otherHistorical"]["sourceErrors"], 1)
+
+        # A model/chart pair, however recent, does not count as independently
+        # dated issuer bid/ask/leverage/snapshot evidence.
+        def model_only(isin):
+            row = healthy(isin)
+            if isin == "DE000PJ9NCK0":
+                row["leverageAt"] = None
+            return row
+        self.assertEqual(catalog.build(model_only, at)["sourceChecks"]["historicalBNP"]["datedFreshQuote"], 0)
+
     def test_future_invalid_status_and_mismatch_excluded(self):
         isin="DE000FG309G0"
         item, bad=catalog.normalize(isin,"SHORT",issuer(isin,"SHORT",spot=False))
