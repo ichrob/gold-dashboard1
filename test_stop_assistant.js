@@ -50,6 +50,8 @@ assert.equal(multi.degiroExecutable,false);
 assert.equal(chosen.comparison.quotes.length,2);
 assert.equal(assistant.compareQuoteSources({...baseQuote,secondaryQuote:{...alt,bidAt:asAt(80000),askAt:asAt(80000)}},isin,now).comparisons.length,0);
 assert.equal(assistant.compareQuoteSources({...baseQuote,secondaryQuote:{...alt,askAt:null}},isin,now).quotes.length,1);
+assert.equal(assistant.compareQuoteSources({...baseQuote,secondaryQuote:{...alt,bidAt:asAt(10000),askAt:asAt(65000)}},isin,now).comparisons.length,0);
+
 assert.equal(assistant.compareQuoteSources({...baseQuote,secondaryQuote:{...alt,isin:'DE000FC1CHB7'}},isin,now).quotes.length,1);
 assert.equal(assistant.compareQuoteSources({...baseQuote,secondaryQuote:{...alt,bid:16,ask:16.02,bidAt:baseQuote.bidAt,askAt:baseQuote.askAt}},isin,now).comparisons[0].divergent,true);
 assert.equal(assistant.compareQuoteSources({...baseQuote,secondaryQuote:{...alt,estimated:true}},isin,now).quotes.length,1);
