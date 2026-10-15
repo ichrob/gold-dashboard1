@@ -110,6 +110,39 @@ class AuthenticationTests(unittest.TestCase):
             analyze.assert_called_once()
             self.assertEqual(self.request('POST','/api/research/youtube','[]',{'Authorization':basic})[0],400)
 
+    def test_mcp_private_audit_requires_basic_and_never_uses_cookie_auth(self):
+        import json
+        from unittest.mock import patch
+        payload = json.dumps({"jsonrpc":"2.0","id":5,"method":"tools/call",
+                              "params":{"name":"bob_product_gaps","arguments":{}}})
+        meta = {"Content-Type":"application/json"}
+        audit = {"status":"ok","total":1,"items":[{"isin":"DE000FG4JXV7",
+                 "state":"incomplete","missing":["leverage-time"],"tradeApproved":False}]}
+        with patch.object(server,"read_private_product_audit_for_mcp",return_value=audit) as reader:
+            self.assertEqual(self.request('GET','/mcp')[0],405)
+            self.assertEqual(self.request('POST','/mcp',payload,meta)[0],401)
+            self.assertEqual(self.request('POST','/mcp',payload,
+                {**meta,'Cookie':f'{bob_auth.COOKIE}=made-up'})[0],401)
+            wrong = 'Basic '+base64.b64encode(b'test-user:incorrect').decode()
+            self.assertEqual(self.request('POST','/mcp',payload,
+                {**meta,'Authorization':wrong})[0],401)
+            reader.assert_not_called()
+            basic = 'Basic '+base64.b64encode(b'test-user:test-only-password').decode()
+            code, headers, body, _ = self.request('POST','/mcp',payload,
+                {**meta,'Authorization':basic})
+            self.assertEqual(code,200)
+            self.assertEqual(headers["Cache-Control"],"no-store")
+            self.assertEqual(json.loads(body)["result"]["content"][0]["type"],"text")
+            self.assertFalse(json.loads(json.loads(body)["result"]["content"][0]["text"])["items"][0]["tradeApproved"])
+            reader.assert_called_once()
+            reader.reset_mock()
+            code,_,_,_=self.request('POST','/mcp',
+                json.dumps({"jsonrpc":"2.0","id":6,"method":"tools/call",
+                            "params":{"name":"place_order","arguments":{}}}),
+                {**meta,'Authorization':basic})
+            self.assertEqual(code,200)
+            reader.assert_not_called()
+
     def test_rate_limit(self):
         bob_auth.FAILURES.extend([time.time()]*30)
         self.assertEqual(self.sign_in()[0],429)
