@@ -106,6 +106,14 @@ def _refresh(isin):
         result['reasonCode'] = 'HTTP_'+str(exc.code) if hasattr(exc, 'code') else 'SOURCE_UNAVAILABLE'
     finally:
         with _LOCK:
+            prior = _CACHE.get(isin)
+            historical = prior[1].get('quote') if prior else None
+            if (not result.get('quote') and isinstance(historical, dict)
+                    and historical.get('isin') == isin
+                    and not (result.get('fields') or {}).get('inactive')):
+                # Carry the ORIGINAL quote clock; this never renews freshness.
+                result['quote'] = copy.deepcopy(historical)
+                result['retainedAfterFailure'] = True
             if len(_CACHE) >= 128:
                 _CACHE.pop(next(iter(_CACHE)))
             _CACHE[isin] = (time.monotonic(), result)
