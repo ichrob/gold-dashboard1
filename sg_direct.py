@@ -21,6 +21,42 @@ _MARKETS = {}  # Exact ISIN -> market, only after validated issuer properties.
 INTERVAL = 30
 
 
+
+def retain_last_verified_observation(previous, failed, stage):
+    """Keep dated research observations through a transient provider failure.
+
+    Do not copy prior values onto an explicitly ended product or new terms.
+    Source clocks and the terms verification time must remain unchanged.
+    """
+    if not isinstance(previous, dict) or not previous.get('productVerified'):
+        return failed
+    if not previous.get('chartEvidence') or previous.get('metadata', {}).get('status') != 1:
+        return failed
+    if failed.get('productVerified'):
+        current = failed.get('metadata') or {}
+        old = previous.get('metadata') or {}
+        if current.get('status') != 1:
+            return failed
+        for key in ('currency', 'underlying', 'direction', 'ko', 'strike',
+                    'ratio', 'issuerExchangeCode', 'contract'):
+            if key in current and old.get(key) != current[key]:
+                return failed
+        for key in ('ko', 'strike', 'ratio'):
+            value = (failed.get('conditions') or {}).get(key, {}).get('value')
+            if value is not None and value != (previous.get('conditions') or {}).get(key, {}).get('value'):
+                return failed
+    carried = copy.deepcopy(previous)
+    carried.update(sourceFailure=True, quoteFailureCode='SG_SOURCE_UNAVAILABLE',
+                   checkedAt=failed['checkedAt'], lastSourceAttemptAt=failed['checkedAt'],
+                   lastSourceFailureStage=stage,
+                   reason=failed.get('reason', 'SG-Abruf fehlgeschlagen')
+                       + '; letzte bestätigte Beobachtung mit ORIGINAL-Kurszeit erhalten, '
+                         'Aktualität weiterhin separat prüfen')
+    # A failed request is neither a new issuer observation nor a renewal of
+    # KO/strike validity. In particular, keep termsCheckedAt and pointAt.
+    return carried
+
+
 def refresh_evidence(result):
     result = copy.deepcopy(result)
     evidence = result.get('chartEvidence')
@@ -36,7 +72,8 @@ def refresh_evidence(result):
                          if reference.get('value') is not None else 'SG-Referenzhebel von der Quelle nicht geliefert; erneuter Abruf erforderlich.')
         age = (datetime.now(timezone.utc)-q.stamp(evidence['pointAt'])).total_seconds()
         evidence.update(ageSeconds=round(age, 1), current=0 <= age <= q.MAX_AGE_SECONDS)
-        result['reason'] = ('SG-Direktimport aktiv (30 s): Chart Geld {:.3f} / Brief {:.3f} {}, Stand {} ({}). '
+        if not result.get('sourceFailure') and not result.get('quoteFailureCode'):
+            result['reason'] = ('SG-Direktimport aktiv (30 s): Chart Geld {:.3f} / Brief {:.3f} {}, Stand {} ({}). '
             'Stammdaten übernommen; '+('KO/Basispreis nachgewiesen; ' if (result.get('metadata', {}).get('termsDated') or result.get('metadata', {}).get('termsFixed')) else 'Basispreis/KO mit Zeitbezug der automatischen Abrufserie übernommen; ')+leverage_note+' Chartbeobachtung, kein DEGIRO-Ausführungsnachweis.').format(
                 evidence['bid'], evidence['ask'], evidence['currency'], evidence['pointAt'],
                 'aktuell' if evidence['current'] else 'veraltet')
@@ -323,6 +360,7 @@ def get_quote(isin, terms_only=False):
         except Exception as exc:
             result.update(sourceFailure=not result['productVerified'],
                           quoteFailureCode='SG_SOURCE_UNAVAILABLE', reason=q.sg_source_error(exc, stage))
+            result = retain_last_verified_observation(cached[1] if cached else None, result, stage)
         # Time starts after completion; errors are also rate-limited.
         # User-supplied ISINs can change daily. Bound cached failed searches
         # and discovered terms; original observation clocks are preserved.
