@@ -1518,6 +1518,50 @@ function screenshotProductLink(p){
  const issuer=productIssuerLabel(p),url=p.isin==='DE000FG34XV8'?'https://www.sg-zertifikate.ch/product-details/159787428':issuer==='SG'?'https://www.sg-zertifikate.de/product-details/'+p.isin.slice(5,11).toLowerCase():issuer==='BNP'?'https://derivate.bnpparibas.com/product-details/'+p.isin+'/':null;
  return url?'<a data-screenshot-product="'+esc(p.isin)+'" href="'+esc(url)+'" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 0;font-weight:700">'+esc(issuer)+'-Produkt öffnen ↗</a>':'';
 }
+// Only evidence failures belong beside the ISIN; market/ranking reasons stay below.
+function productProblemLabels(p){
+ if(knockoutStatus(p)||compactProductExclusion(p))return [];
+ const result=finalProductStatus(p);
+ if(result.complete)return [];
+ const labels=[];
+ for(const reason of result.reasons){
+  const r=String(reason),found=[];
+  if(/Hebel/i.test(r))found.push('Hebel');
+  if(/Kurszeit|Quellenzeit|Zeitstempel|Kurs.*(alt|zeit)|Geld.*Brief.*Zeit/i.test(r))found.push('Kurszeit');
+  if(/Geld|Brief|Kursbild|Produktkurs|Kursnachweis|Live-Nachweis|BNP-Kursabruf/i.test(r))found.push('Kursnachweis');
+  if(/Basispreis|Finanzierungslevel/i.test(r))found.push('Basispreis');
+  if(/KO|Knock-out|Barriere/i.test(r))found.push('KO-Nachweis');
+  if(/Bezugsverhältnis/i.test(r))found.push('Bezugsverhältnis');
+  if(/Basiswert|Future|Referenzkontrakt/i.test(r))found.push('Basiswert');
+  if(/Laufzeit|Fälligkeit/i.test(r))found.push('Laufzeit');
+  if(/Währung|CHF|Wechselkurs/i.test(r))found.push('Währung / Umrechnung');
+  if(/Produkttyp|Produktrichtung|Long\/Short/i.test(r))found.push('Produkttyp');
+  if(/ISIN|Bildzuordnung|Detailbild|Original|Produktzuordnung/i.test(r))found.push('Produktnachweis');
+  if(!found.length)found.push('Nachweis prüfen');
+  for(const label of found)if(!labels.includes(label))labels.push(label);
+ }
+ return labels;
+}
+function renderProductProblemSummary(p){
+ const labels=productProblemLabels(p);
+ return labels.length?'<strong data-product-problems style="font-size:16px;line-height:1.5;color:#b45309;margin-left:6px">('+esc(labels.join(', '))+')</strong>':'';
+}
+function renderScreenshotSources(p){
+ const labels=productProblemLabels(p);
+ if(!labels.length||!validIsin(p.isin))return '';
+ const web='https://trader.degiro.nl/';
+ const android=typeof navigator!=='undefined'&&/Android/i.test(navigator.userAgent||'');
+ // No invented ISIN deep route: open the broker, then search the copied ISIN.
+ // The browser fallback remains usable if the app does not accept this URL.
+ const href=android?'intent://trader.degiro.nl/#Intent;scheme=https;package=nl.degiro.trader;S.browser_fallback_url='+encodeURIComponent(web)+';end':web;
+ const issuer=screenshotProductLink(p);
+ return '<div data-screenshot-sources style="margin:8px 0 12px;padding:10px;border:1px solid #93c5fd;border-radius:8px">'+
+ '<a data-screenshot-product="'+esc(p.isin)+'" href="'+esc(href)+'" style="display:inline-block;min-height:44px;font-weight:700;line-height:44px">'+(android?'DEGIRO-App öffnen ↗':'DEGIRO öffnen ↗')+'</a> · <b>erste Wahl</b>'+
+ '<div>ISIN oben kopieren → in DEGIRO suchen → Produkt öffnen. Screenshot mit <b>'+esc(labels.join(', '))+'</b>, ISIN und angezeigtem Datenstand aufnehmen. Geld/Brief in der Produktwährung und die zugehörige Kurszeit zeigen.</div>'+
+ '<div class="small">'+(android?'Falls sich nur die Webseite öffnet: DEGIRO-App über dein App-Symbol starten. ':'')+'Danach zu Bob zurückkehren und „Bilder / PDF zu diesem Produkt hinzufügen“ wählen.</div>'+
+ '<div style="margin-top:8px"><b>Falls die Angaben bei DEGIRO fehlen:</b> '+(issuer||'Emittent in den DEGIRO-Produktdetails nachsehen und dessen Produktseite mit dieser ISIN öffnen.')+'</div>'+
+ '<div class="small">Hebel: Kennzahlen mit Datenstand. KO, Basispreis und Bezugsverhältnis: Stammdaten; genauer Basiswert und Laufzeit: Produktdetails / Dokumente. Für den DEGIRO-Handelsplatz weiterhin den DEGIRO-Kursbereich aufnehmen. Bei einer gemeinsamen Bildserie muss der Zeitbezug eindeutig erkennbar sein.</div></div>';
+}
 function renderTestScreenshotRequest(p){
  if(knockoutStatus(p))return '';
  if(productDataStatus(p).complete)return '';
@@ -1950,7 +1994,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  const swissSgVenue=direct?.metadata?.issuerExchangeCode==='CBSW'&&
    (direct?.metadata?.currency==='CHF'||direct?.nativeChartEvidence?.currency==='CHF');
  const next=automaticQuoteIssue?'Automatischer Kurs- und Hebelabruf wird erneut geprüft. Vorhandene Werte bleiben mit ihrem ursprünglichen Datenstand nutzbar; derzeit keine neuen Bilder erforderlich.':complete&&neutral?'Marktsignal neutral – auf eine bestätigte Richtung warten. Dafür sind keine neuen Bilder nötig.':complete?'Produktdaten vollständig – Auswahlgrund unter „Warum derzeit nicht ausgewählt?“ prüfen.':temporal&&data.complete?'Werte vorhanden – den offenen Zeitbezug unter „Werte und Aktualitätsprüfung“ prüfen.':automaticRecoveryPending?'Bob prüft die zugelassenen Emittentenquellen automatisch erneut. Fehlende oder unklare Nachweise bleiben gesperrt und werden unter „Problem“ dokumentiert. Nur wenn diese Quellen keine ausreichenden Daten liefern, können zusätzliche Originalbelege notwendig sein.':'Offene Angaben unter „Werte und Aktualitätsprüfung“ ansehen und nur diese ergänzen.';
- return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" '+(selected?'data-selection-approved':'data-selection-blocked')+'="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere"><b>'+esc(p.isin)+'</b>'+renderIsinCopy(p.isin)+productCompletionBadge(p)+'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'</div>'+
+ return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" '+(selected?'data-selection-approved':'data-selection-blocked')+'="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere"><b>'+esc(p.isin)+'</b>'+renderIsinCopy(p.isin)+renderProductProblemSummary(p)+productCompletionBadge(p)+renderScreenshotSources(p)+'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'</div>'+
  renderDegiroListEvidence(p)+renderDegiroDisplayedQuote(p)+(swissSgVenue?'<div class="small" data-swiss-dots-warning><b>SG Swiss DOTS · CHF:</b> Chartkurs und EUR-Umrechnung sind kein Nachweis einer DEGIRO-Handelsroute. DEGIRO-Ausführbarkeit unbestätigt. Analyse und Simulation werden separat anhand der Produktdaten, Kurszeiten und Marktrichtung geprüft.</div>':'')+'<div class="small" data-product-status><div><b>Daten:</b> '+valuePresenceMark(missingNumbers.length>0)+' '+esc(dataText)+'</div><div><b>Zeitbezug vorhandener Kurs-/Hebelwerte:</b> '+valuePresenceMark(!timeEvidence.confirmed)+' '+esc(timeEvidence.label)+'</div><div><b>Aktuelle Auswahl:</b> '+(selected?'freigegeben · ausgewählt':'nicht ausgewählt')+(neutral?' · Marktsignal neutral':'')+'</div></div>'+
  '<p data-product-next><b>Nächster Schritt:</b> '+esc(selected?'Tatsächlichen DEGIRO-Kurs vor einem Einstieg prüfen.':next)+'</p>'+renderAutomaticProductCheck(p)+renderPrimaryProductValues(p)+
  (allReasons.length?'<div class="small">'+allReasons.slice(0,2).map(shortReason).map(esc).join('<br>')+'</div>':'')+
