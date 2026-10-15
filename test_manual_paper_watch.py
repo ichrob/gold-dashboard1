@@ -224,6 +224,95 @@ class ManualWatchTests(unittest.TestCase):
                 self.assertIsNone(db.state['valuation'])
                 self.assertEqual(db.state['alerts'],[])
 
+    def sg_chart_research(self, at=None):
+        at=at or (dt.datetime.now(dt.timezone.utc)-dt.timedelta(seconds=2))
+        return dict(isin=ISIN,productVerified=True,importActive=True,
+                    found=False,eligible=False,
+                    source='Société Générale · Direktimport',
+                    metadata=dict(status=1,direction='LONG',
+                                  issuerExchangeCode='CBDE',currency='EUR',
+                                  underlyingType='SPOT',underlying='XAU/USD'),
+                    chartEvidence=dict(bid=8.5,ask=8.6,currency='EUR',
+                                       pointAt=at.isoformat()))
+
+    def test_sg_live_chart_research_fallback_with_original_clock_only(self):
+        db=FakeConn()
+        watch.sync(db,{'position':position()})
+        watch.set_levels(db,dict(stopEur=7.5,targetEur=8.25))
+        raw=self.sg_chart_research()
+        now=int(dt.datetime.now(dt.timezone.utc).timestamp()*1000)
+        before=raw.copy()
+        result=watch.observe(db,raw,now)
+        self.assertEqual(result['watch']['status'],'model-observed')
+        self.assertEqual(db.state['valuation']['sourceKind'],'sg-chart')
+        self.assertTrue(db.state['valuation']['referenceOnly'])
+        self.assertFalse(db.state['valuation']['degiroExecutable'])
+        self.assertEqual(db.state['valuation']['pnlEur'],50)
+        self.assertEqual(db.state['valuation']['quoteAt'],
+                         dt.datetime.fromisoformat(raw['chartEvidence']['pointAt']).isoformat())
+        self.assertEqual(db.state['alerts'],[])
+        self.assertEqual(raw,before)
+        self.assertEqual(db.state['eventsCount'],1)
+        # Same provider clock is not a new tick and never duplicates events.
+        repeat=watch.observe(db,raw,now+1000)
+        self.assertEqual(repeat['watch']['status'],'model-observed')
+        self.assertIn('kein neuer Kurszeitpunkt',repeat['watch']['reason'])
+        self.assertEqual(repeat['watch']['eventsCount'],1)
+        self.assertEqual(len(db.observations),1)
+        # A stale chart never becomes new just because the server polled again.
+        watch.observe(db,raw,now+92000)
+        self.assertEqual(db.state['status'],'waiting-quote')
+        self.assertIsNone(db.state['valuation'])
+        self.assertEqual(db.state['alerts'],[])
+
+    def test_sg_chart_incomplete_or_wrong_identity_never_research_fills(self):
+        for name, patch in (
+            ('other-isin',{'isin':'DE000FG4JXV7'}),
+            ('unverified',{'productVerified':False}),
+            ('disabled',{'sourceDisabled':True}),
+            ('source-failed',{'sourceFailure':True}),
+            ('quote-failed',{'quoteFailureCode':'SG_SOURCE_UNAVAILABLE'}),
+            ('not-imported',{'importActive':False}),
+            ('inactive',{'metadata':dict(status=2)}),
+            ('future',{'metadata':dict(status=1,issuerExchangeCode='CBDE',
+                                       underlying='XAU/USD',underlyingType='FUTURE',currency='EUR')}),
+            ('different-venue',{'metadata':dict(status=1,issuerExchangeCode='CBSW',
+                                       underlying='XAU/USD',underlyingType='SPOT',currency='EUR')}),
+            ('currency',{'chartEvidence':dict(bid=8.5,ask=8.6,currency='CHF',
+                                             pointAt=dt.datetime.now(dt.timezone.utc).isoformat())}),
+            ('crossed',{'chartEvidence':dict(bid=8.6,ask=8.5,currency='EUR',
+                                            pointAt=dt.datetime.now(dt.timezone.utc).isoformat())}),
+            ('no-time',{'chartEvidence':dict(bid=8.5,ask=8.6,currency='EUR',pointAt=None)}),
+            ('future-clock',{'chartEvidence':dict(bid=8.5,ask=8.6,currency='EUR',
+                                   pointAt=(dt.datetime.now(dt.timezone.utc)+dt.timedelta(seconds=5)).isoformat())}),
+            ('old-clock',{'chartEvidence':dict(bid=8.5,ask=8.6,currency='EUR',
+                                   pointAt=(dt.datetime.now(dt.timezone.utc)-dt.timedelta(minutes=3)).isoformat())}),
+        ):
+            with self.subTest(case=name):
+                db=FakeConn()
+                watch.sync(db,{'position':position()})
+                q=self.sg_chart_research()
+                q.update(patch)
+                now=int(dt.datetime.now(dt.timezone.utc).timestamp()*1000)
+                watch.observe(db,q,now)
+                self.assertEqual(db.state['status'],'waiting-quote')
+                self.assertIsNone(db.state['valuation'])
+                self.assertEqual(db.state['alerts'],[])
+                self.assertEqual(len(db.observations),0)
+
+    def test_repeated_original_issuer_bid_retained_only_while_fresh(self):
+        db=FakeConn()
+        watch.sync(db,{'position':position()})
+        q=current_quote(dt.datetime.now(dt.timezone.utc)-dt.timedelta(seconds=2))
+        now=int(dt.datetime.now(dt.timezone.utc).timestamp()*1000)
+        watch.observe(db,q,now)
+        watch.observe(db,q,now+1000)
+        self.assertEqual(db.state['status'],'observed')
+        self.assertEqual(db.state['eventsCount'],1)
+        watch.observe(db,q,now+92000)
+        self.assertEqual(db.state['status'],'waiting-quote')
+        self.assertIsNone(db.state['valuation'])
+
     def test_conflicting_issuer_direction_never_values_existing_test(self):
         db=FakeConn()
         watch.sync(db,{'position':position()})
