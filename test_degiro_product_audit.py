@@ -218,6 +218,21 @@ class ProductAuditTests(unittest.TestCase):
         self.assertIsNone(item["leverageSourceAt"])
         self.assertFalse(item["tradeApproved"])
 
+    def test_bob_calculated_leverage_clock_is_not_original_issuer_time(self):
+        q=provider()
+        q.update(leverageEstimated=True, leverageSource="Bob · berechneter Hebel")
+        item=audit.examine(feed()["products"][0], q, NOW)
+        self.assertIn("leverage-time", item["missing"])
+        self.assertIsNone(item["leverageSourceAt"])
+        self.assertFalse(item["tradeApproved"])
+        from unittest.mock import patch
+        with patch("leverage_backup.current_evidence", return_value=dict(
+                kind="calculated-gearing", value=18.4, current=True, at=iso(NOW-3000))):
+            item=audit.examine(feed()["products"][0], q, NOW)
+        self.assertIn("leverage-time", item["missing"])
+        self.assertEqual(item["leverageObservation"]["kind"], "calculated-gearing")
+        self.assertIsNone(item["leverageSourceAt"])
+
     def test_chart_and_cached_prices_cannot_be_promoted(self):
         q=provider()
         q.update(found=False,priceKind="issuer-chart",isExecutableQuote=False)
