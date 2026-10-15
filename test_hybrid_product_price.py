@@ -19,7 +19,8 @@ def record():
        'underlyingType':'SPOT','underlying':'XAU/USD',
        'simpleNonQuantoTurbo':True,'classificationId':45,'direction':'LONG',
        'ko':4000.,'strike':4000.,'ratio':0.1}
-    return dict(isin=ISIN,productVerified=True,found=False,eligible=False,
+    return dict(isin=ISIN,sourceUrl='https://www.sg-zertifikate.de/product-details/'+ISIN.lower(),
+                productVerified=True,found=False,eligible=False,
                 importActive=True,sourceFailure=False,metadata=m,
                 conditions={'maturity':dict(value='Open End')},
                 chartEvidence=dict(bid=13.3,ask=13.32,currency='EUR',
@@ -71,6 +72,8 @@ class TestHybridProjection(unittest.TestCase):
         r['analysisQuote']=dict(isin=ISIN,currency='EUR',
             bid=10,ask=10.03,bidAt=at(6),askAt=at(6),
             priceKind='market-observation',source='comdirect · SG LiveTrading',
+            venue='LT Societe Generale',
+            sourceUrl='https://www.comdirect.de/inf/zertifikate/'+ISIN,
             isExecutableQuote=False,degiroExecutable=False)
         s,fx=inputs();v=h.apply(r,BASE,s,fx)
         self.assertEqual(v['calculatedProduct']['referenceSource'],
@@ -81,6 +84,7 @@ class TestHybridProjection(unittest.TestCase):
         r=record();s,fx=inputs()
         for field,p in (
             ('root',dict(isin='DE000FG4JXV7')),
+            ('root',dict(sourceUrl='https://www.sg-zertifikate.de/product-details/de000fg4jxv7')),
             ('root',dict(productVerified=False)),
             ('root',dict(sourceFailure=True)),
             ('root',dict(sourceDisabled=True)),
@@ -128,6 +132,34 @@ class TestHybridProjection(unittest.TestCase):
         f3=lambda:dict(fx(),data_updated_at=late.isoformat(),
                  effective_at={'EUR':late.isoformat()})
         self.assertNotIn('calculatedProduct',h.apply(r,late,s3,f3))
+
+    def test_comdirect_wrong_venue_or_mismatched_url_rejected(self):
+        r=record();r.pop('chartEvidence')
+        r['analysisQuote']=dict(isin=ISIN,currency='EUR',
+            bid=10,ask=10.03,bidAt=at(6),askAt=at(6),
+            priceKind='market-observation',source='comdirect · SG LiveTrading',
+            venue='LT Societe Generale',
+            sourceUrl='https://www.comdirect.de/inf/zertifikate/'+ISIN,
+            isExecutableQuote=False,degiroExecutable=False)
+        s,fx=inputs()
+        for key,bad in [('venue','LT BNP Paribas'),
+                        ('source','comdirect · BNP LiveTrading'),
+                        ('sourceUrl','https://www.comdirect.de/inf/zertifikate/DE000FG4JXV7'),
+                        ('degiroExecutable',True),
+                        ('isExecutableQuote',True)]:
+            p=copy.deepcopy(r);p['analysisQuote'][key]=bad
+            with self.subTest(key=key):
+                self.assertNotIn('calculatedProduct',h.apply(p,BASE,s,fx))
+
+    def test_conflicting_prices_with_same_clock_are_not_reanchored(self):
+        p=record();s,fx=inputs()
+        self.assertIn('calculatedProduct',h.apply(p,BASE,s,fx))
+        p['chartEvidence']['bid']=14.2
+        p['chartEvidence']['ask']=14.22
+        self.assertNotIn('calculatedProduct',h.apply(p,BASE,s,fx))
+        # Changed original quote can be accepted only with a *new* timestamp.
+        p['chartEvidence']['pointAt']=at(3)
+        self.assertEqual(h.apply(p,BASE,s,fx)['calculatedProduct']['referenceAt'],at(3))
 
     def test_quote_does_not_derive_bid_from_single_list_price(self):
         r=record();r.pop('chartEvidence')
