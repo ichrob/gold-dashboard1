@@ -148,6 +148,46 @@ def quote_observation(q,isin,now_ms):
 
 
 
+
+def sg_chart_research_observation(quote, isin, now_ms):
+    """SG's ONE dated chart point is usable for research valuation, not execution.
+
+    Never infer independent bid/ask/leverage clocks from pointAt. The verified
+    exact SG/CBDE EUR Gold Spot identity must be live in the issuer adapter;
+    source failures, KO/terminal status and expired points fail closed.
+    """
+    if not isinstance(quote, dict) or quote.get('isin') != isin:
+        return None
+    meta = quote.get('metadata') or {}
+    chart = quote.get('chartEvidence') or {}
+    if (quote.get('productVerified') is not True
+            or quote.get('importActive') is not True
+            or quote.get('sourceDisabled') or quote.get('sourceFailure')
+            or quote.get('quoteFailureCode')
+            or meta.get('issuerExchangeCode') != 'CBDE'
+            or meta.get('status') != 1 or meta.get('tradingHalted') is True
+            or meta.get('underlyingType') != 'SPOT'
+            or meta.get('underlying') != 'XAU/USD'
+            or meta.get('currency') != 'EUR'
+            or meta.get('type') == 'FACTOR'):
+        return None
+    if (chart.get('currency') != 'EUR' or not positive(chart.get('bid'))
+            or not positive(chart.get('ask')) or chart['ask'] < chart['bid']):
+        return None
+    try:
+        point_at = iso_stamp(chart.get('pointAt'))
+    except ValueError:
+        return None
+    if not 0 <= now_ms - int(point_at.timestamp() * 1000) <= MAX_QUOTE_AGE_MS:
+        return None
+    return dict(at=point_at, bid=float(chart['bid']),
+                source='SG · datierter Live-Chart, nur Recherche',
+                sourceKind='sg-chart', referenceOnly=True,
+                label='SG-Chartbeobachtung · kein separater Bid/Ask-/Hebelzeitnachweis; '
+                      'kein DEGIRO-Ausführungskurs')
+
+
+
 def research_observation(quote, isin, now_ms):
     """Use existing fail-closed paper projection for MODEL valuation only.
 
@@ -171,7 +211,7 @@ def research_observation(quote, isin, now_ms):
             or not str(projected.get('paperQuoteLabel') or '').startswith('Simulationskurs')
             or not positive(projected.get('bid')) or not positive(projected.get('ask'))
             or projected['ask'] < projected['bid']):
-        return None
+        return sg_chart_research_observation(quote, isin, now_ms)
     try:
         times = [iso_stamp(projected[k]) for k in ('bidAt', 'askAt', 'quoteAt')]
     except (KeyError, ValueError):
@@ -185,7 +225,8 @@ def research_observation(quote, isin, now_ms):
         return None
     return dict(at=min(times), bid=float(projected['bid']),
                 source=str(projected.get('source') or '')[:160],
-                referenceOnly=True, label=projected['paperQuoteLabel'][:180])
+                referenceOnly=True, sourceKind='comdirect-market-observation',
+                label=projected['paperQuoteLabel'][:180])
 
 
 
@@ -212,7 +253,19 @@ def observe(conn,quote,now_ms=None):
         last=s.get('lastSourceAt')
         stamp=obs['at'].isoformat()
         if last and iso_stamp(last)>=obs['at']:
-            s.update(status='waiting-quote',reason='Keine neue datierte Anbieterquote',valuation=None)
+            # A repeated point stays an observation at its ORIGINAL source time,
+            # not a new market tick. Retain a still-qualifying valuation from
+            # the same exact source/clock/kind without incrementing events.
+            old=s.get('valuation') or {}
+            same=(last == stamp and old.get('quoteAt') == stamp
+                  and old.get('source') == obs['source']
+                  and old.get('referenceOnly') is (obs.get('referenceOnly') is True))
+            if same:
+                s.update(status='model-observed' if old.get('referenceOnly') else 'observed',
+                         reason='Unveränderte, weiterhin aktuelle Quellenbeobachtung; '
+                                'kein neuer Kurszeitpunkt und keine neue Stopp-/Zielbestätigung')
+            else:
+                s.update(status='waiting-quote',reason='Keine neuere datierte Anbieterquote',valuation=None)
         else:
             bid=obs['bid']
             # Profit depends on the PURCHASED certificate price for both sides.
@@ -225,12 +278,13 @@ def observe(conn,quote,now_ms=None):
                 (obs['at'],p['isin'],bid,obs['source'],pnl,value)).fetchone()
             research = obs.get('referenceOnly') is True
             s.update(status='model-observed' if research else 'observed',
-                     reason=('Datierter Simulationskurs für die Modellbewertung; '
+                     reason=('Datierte Recherche-/Modellbeobachtung für die Bewertung; '
                              'keine ausführbare DEGIRO-Quote und keine bestätigten Stop-/Zielereignisse'
                              if research else 'Neuer bestätigter Anbieter-Geldkurs · nur Modellbewertung'),
                      lastSourceAt=stamp,valuation=dict(bidEur=bid,quoteAt=stamp,source=obs['source'],
                                                       pnlEur=round(pnl,2),valueEur=round(value,2),
                                                       referenceOnly=research,degiroExecutable=False,
+                                                      sourceKind=obs.get('sourceKind','issuer-original'),
                                                       grossOnly=True))
             # Legacy SHORT-paper records may still contain reversed levels.
             # Preserve owner data but prohibit spurious alerts until corrected.
