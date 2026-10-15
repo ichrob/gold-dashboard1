@@ -15,6 +15,10 @@ _thread = None
 _reference = None
 
 
+class SourceStale(ValueError):
+    """The verified source is temporarily quiet, not malformed."""
+
+
 def positive(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
 
@@ -35,8 +39,10 @@ def parse(body, now=None):
     if not re.fullmatch(r'\d{13}', raw):
         raise ValueError('Spot-Quellenzeit fehlt')
     at = int(raw)/1000
-    if not 0 <= now-at <= 300 or not positive(quote.get('lastClose')):
+    if not positive(quote.get('lastClose')) or at > now:
         raise ValueError('Spot-Vergleichskurs oder Quellenzeit ungültig')
+    if now-at > 300:
+        raise SourceStale('Spot-Quelle liefert vorübergehend keinen aktuellen Stand')
     return dict(previousClose=quote['lastClose'], observedAt=at,
                 source='Investing.com · XAU/USD', sourceUrl=URL)
 
@@ -88,6 +94,12 @@ def _run():
             continue
         started=time.monotonic()
         try:refresh()
+        except SourceStale:
+            # A verified but unchanged source is expected during provider market
+            # pauses. Keep the display unavailable without turning that into a
+            # service-error signal; the next scheduled fetch must pass all
+            # identity, timestamp and price checks before it is accepted.
+            print('BOB_SPOT_CHANGE source_stale', flush=True)
         except Exception as exc:print('BOB_SPOT_CHANGE error='+type(exc).__name__,flush=True)
         interval = 60 if background_push.degiro_session() != 'night' else background_push.degiro_poll_seconds()
         threading.Event().wait(max(1,interval-(time.monotonic()-started)))
