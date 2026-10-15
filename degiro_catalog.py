@@ -18,8 +18,10 @@ from zoneinfo import ZoneInfo
 from product_quotes import valid_isin
 
 ZONE = ZoneInfo("Europe/Zurich")
-# User-reviewed 05 October 2026 list image identities. Deliberately skip
-# FG5NMF2 (issuer-confirmed ended) and FE4UF01 (factor, prohibited in Bob).
+# Historical user-reviewed DEGIRO list identities, including the BNP products
+# confirmed in the 30 September/October screenshot records. This is NOT a
+# current DEGIRO list and never grants broker tradability.
+# Deliberately skip FG5NMF2 (issuer-confirmed ended) and FE4UF01 (factor).
 # Future-linked FG309G0 is retained only as a separately excluded diagnostic.
 SEEDS = (
     ("DE000FG4JXV7", "SHORT"),
@@ -27,6 +29,8 @@ SEEDS = (
     ("DE000FG7EPT1", "SHORT"),
     ("DE000FG5GUT0", "LONG"),
     ("DE000PJ9NCK0", "LONG"),
+    ("DE000PJ9NB98", "LONG"),
+    ("DE000PG0XK25", "LONG"),
     ("DE000FG6XB39", "SHORT"),
     ("DE000FG7K3L2", "SHORT"),
     ("DE000FG309G0", "SHORT"),
