@@ -2039,7 +2039,10 @@ function calculatedProductDisplay(p,now=Date.now()){
          referenceSource:c.anchorKind==='research-hybrid'?c.referenceSource:null,
          referenceClockGapSeconds:c.referenceSkewSeconds,
          priceKind:'calculated',referenceOnly:true,degiroExecutable:false,
-         validationReady:c.validation?.ready===true};
+         validationReady:c.validation?.ready===true,
+         validationSamples:Number.isInteger(c.validation?.sampleCount)?c.validation.sampleCount:0,
+         validationMeanErrorEur:Number.isFinite(c.validation?.meanAbsoluteError)?c.validation.meanAbsoluteError:null,
+         validationPersistence:c.validation?.persistence||null};
 }
 function renderPrimaryProductValues(p,now=Date.now()){
  const q=p.quote?.isin===p.isin&&p.quote.productVerified?p.quote:null;
@@ -2094,6 +2097,9 @@ function renderPrimaryProductValues(p,now=Date.now()){
   (modelPrice.referenceSource?' · Kalibrierung '+esc(modelPrice.referenceSource):'')+
   ' · Originalzeitabstand '+esc(modelPrice.referenceClockGapSeconds)+' s'+
   ' · '+esc(modelPrice.validationReady?'Genauigkeitsmessung vorhanden':'Genauigkeit noch nicht ausreichend bestätigt')+
+  ' · Vorhersagevergleich: '+esc(modelPrice.validationSamples)+' echte, spätere Originalkurse'+
+  (Number.isFinite(modelPrice.validationMeanErrorEur)?' · mittlere absolute Abweichung '+esc(modelPrice.validationMeanErrorEur.toFixed(3))+' EUR':'')+
+  (modelPrice.validationPersistence?' · Messhistorie: nach Neustart erneut ermitteln':'')+
   ' · Modell nur für Bewertung und Vorwarnungen; kein automatischer Stopp, keine Handelsfreigabe.': '';
  const previousSource=estimated&&pair?'<br>Letzter originaler Datenstand (nicht aktuell): Geld '+esc(fmt(pair.bid))+
   ' / Brief '+esc(fmt(pair.ask))+' '+esc(pair.currency||'EUR')+' · '+esc(pair.bidAt||pair.askAt||'Zeit unbekannt'):'';

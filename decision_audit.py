@@ -238,6 +238,13 @@ def early_impulse_review(rows):
             'uniqueDays':0,'status':'Daten sammeln','promising':False,
             'automaticRuleChange':False}
     occupied=set();seen_days=set();phase_days={name:set() for name in phases}
+    # Descriptive lead-time audit only: never retrospectively change a trade.
+    timeline=sorted((r for r,_ in rows if r.get('ruleVersion')==RULE_VERSION
+                     and r.get('origin')=='background'
+                     and type(r.get('recordedAt')) in (int,float)),
+                    key=lambda r:r['recordedAt'])
+    latest_observed=timeline[-1]['recordedAt'] if timeline else 0
+    early_first=[]
     for record,truths in sorted(rows,key=lambda row:row[0].get('recordedAt',0)):
         early=record.get('earlyImpulse') or {}
         if (record.get('ruleVersion')!=RULE_VERSION or record.get('origin')!='background'
@@ -249,6 +256,7 @@ def early_impulse_review(rows):
         if hour in occupied: continue
         occupied.add(hour)
         d=early['direction']
+        early_first.append((record['recordedAt'],d,record.get('direction')))
         phase='validation' if record['recordedAt']>=validation_start else 'collection'
         day=datetime.fromtimestamp(record['recordedAt']/1000,ZoneInfo('Europe/Zurich')).date().isoformat()
         valid60=None
@@ -283,6 +291,34 @@ def early_impulse_review(rows):
             result['unconfirmedFavorable']+=value>0
             result['unconfirmedUnfavorable']+=value<0
     result['uniqueDays']=len(seen_days)
+    lead=dict(version='early-lead-v1',alreadyConfirmed=0,laterConfirmed=0,
+              noConfirmationWithinHour=0,pending=0,meanLeadMinutes=None,
+              medianLeadMinutes=None,matchedLeadMinutes=[],
+              note='Abstand zwischen erster Frühwarnung je UTC-Stunde und einer später protokollierten '
+                   'gleichgerichteten aktiven Bestätigung innerhalb 60 Minuten. Kein Echt-Entry '
+                   'und kein Gewinn-/Trefferbeleg; laufende Stunden bleiben offen.')
+    leads=[]
+    for start,side,active in early_first:
+        if active==side:
+            lead['alreadyConfirmed']+=1
+            continue
+        subsequent=next((r for r in timeline if start<r['recordedAt']<=start+3600000
+                         and r.get('direction')==side),None)
+        if subsequent:
+            delta=(subsequent['recordedAt']-start)/60000
+            leads.append(delta);lead['laterConfirmed']+=1
+        elif latest_observed<start+3600000:
+            lead['pending']+=1
+        else:
+            lead['noConfirmationWithinHour']+=1
+    if leads:
+        lead['meanLeadMinutes']=round(sum(leads)/len(leads),2)
+        sorted_leads=sorted(leads);i=len(leads)//2
+        lead['medianLeadMinutes']=round(sorted_leads[i] if len(leads)%2
+                                        else (sorted_leads[i-1]+sorted_leads[i])/2,2)
+        # Aggregate metrics suffice; never expose personal input records.
+        lead['matchedLeadMinutes']=[]
+    result['leadTime']=lead
     for name,stats in phases.items():
         stats['days']=len(phase_days[name])
         for side in (stats['long'],stats['short']):

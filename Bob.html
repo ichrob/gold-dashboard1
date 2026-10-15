@@ -408,7 +408,7 @@ try{
 <div class="analysis-block neutral"><span>MTF-Bestätigung · Zeitebenen</span><b id="blockMtf">DATEN FEHLEN</b><small id="blockMtfNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Volatilität · Schwankungsstärke</span><b id="blockVolatility">DATEN FEHLEN</b><small id="blockVolatilityNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Marktstruktur · Hochs und Tiefs</span><b id="blockStructure">DATEN FEHLEN</b><small id="blockStructureNote">Daten fehlen</small></div>
-</div><div id="earlyImpulseStatus" class="small" style="margin-top:12px;padding:12px;border:1px solid #cbd5e1;border-radius:12px;white-space:pre-line">Frühimpuls LONG/SHORT · Vergleichstest wird geladen …</div><details id="intradayComparisonDetails" style="margin-top:12px"><summary><b>Analyse-Regeln und Intraday-Vergleichstest</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">Aktiv v6: 15m Setup und 5m Einstieg. Erste Schlusskerze: Einstieg vorbereitet; ein klar bestätigter Schluss oder zwei unterstützende Schlüsse bestätigen die Richtung. 1h, 4h und EMA200 dienen als Kontext. EMA20/50, RSI14 und MACD bilden ein gemeinsames Kurskollektiv. DX unter 20 und nicht zunehmend ab 15 verlangt eine zweite Kerze statt einer pauschalen Sperre. Analyse Mo–Fr rund um die Uhr (Zürich). Produkt-Handelszeiten zusätzlich prüfen. Darunter bleibt die bisherige 15m/5m-Testvariante getrennt erhalten. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div>
+</div><div id="earlyImpulseStatus" class="small" style="margin-top:12px;padding:12px;border:1px solid #cbd5e1;border-radius:12px;white-space:pre-line">Frühimpuls LONG/SHORT · Vergleichstest wird geladen …</div><details id="intradayComparisonDetails" style="margin-top:12px"><summary><b>Analyse-Regeln und Intraday-Vergleichstest</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">Aktiv v6: 15m Setup und 5m Einstieg. Erste Schlusskerze: Einstieg vorbereitet; ein klar bestätigter Schluss oder zwei unterstützende Schlüsse bestätigen die Richtung. 1h, 4h und EMA200 dienen als Kontext. EMA20/50, RSI14 und MACD bilden ein gemeinsames Kurskollektiv. DX unter 20 und nicht zunehmend ab 15 verlangt eine zweite Kerze statt einer pauschalen Sperre. Analyse Mo–Fr rund um die Uhr (Zürich). Produkt-Handelszeiten zusätzlich prüfen. Darunter bleibt die bisherige 15m/5m-Testvariante getrennt erhalten. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div><div id="marketInputQuality" class="small" style="margin-top:10px;padding:10px;border:1px solid #cbd5e1;border-radius:10px;white-space:pre-line">Datenqualität wird geprüft …</div>
 <details style="margin-top:10px"><summary>Warum entscheidet Bob so?</summary><div id="decisionExplanation" class="small" style="white-space:pre-line">Noch keine bestätigte Analyse.</div></details>
 <div id="quickReason" class="small" style="margin-top:10px">Lade Daten, um das Setup zu bewerten.</div>
 <details id="bobMarketAnalysis" class="bob-disclosure" style="margin-top:12px"><summary>Marktanalyse von Bob</summary><div id="bobMarketNarrative" class="small" style="white-space:pre-line;margin-top:10px">Noch keine aktuelle Marktanalyse verfügbar.</div></details>
@@ -1317,6 +1317,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
       'LONG: '+early.long.evaluated+' auswertbar, '+early.long.favorable+' günstig / '+early.long.unfavorable+' ungünstig · mittlere Kursbewegung '+fmt(early.long.meanDirectionalPct),
       'SHORT: '+early.short.evaluated+' auswertbar, '+early.short.favorable+' günstig / '+early.short.unfavorable+' ungünstig · mittlere Kursbewegung '+fmt(early.short.meanDirectionalPct),
       'Vor Handelsfreigabe: '+early.beforeApproval+' Frühwarnungen · '+early.unconfirmedFavorable+' später günstig / '+early.unconfirmedUnfavorable+' später ungünstig.',
+      'Zeitvorsprung der Frühwarnung: '+(early.leadTime?.laterConfirmed||0)+' spätere gleichgerichtete Bestätigungen · mittlerer Abstand '+(Number.isFinite(early.leadTime?.meanLeadMinutes)?early.leadTime.meanLeadMinutes.toFixed(1)+' Min.':'noch nicht messbar')+
+      ' · bereits gleichzeitig bestätigt '+(early.leadTime?.alreadyConfirmed||0)+' · ohne Bestätigung binnen 60 Min. '+(early.leadTime?.noConfirmationWithinHour||0)+' · offene Prüfungen '+(early.leadTime?.pending||0)+'.',
       'Bisherige Bestätigungsregel gegen Früherkennung (jeweils gleicher Startzeitpunkt): '+fmt(early.evaluated?early.baselineSumPct/early.evaluated:null)+' gegen '+fmt(early.evaluated?early.earlySumPct/early.evaluated:null)+'.',
       horizon(15),horizon(60),horizon(240),
       phase('collection','Datensammlung ab 12.10.2026'),
@@ -2055,8 +2057,10 @@ function renderEarlyImpulseStatus(){
  const q=earlyImpulseContext(liveBundleCache),dir=q.available?q.direction:'NEUTRAL';
  el.className='small';
  el.style.borderLeft='5px solid '+(dir==='LONG'?'#15803d':dir==='SHORT'?'#b91c1c':'#94a3b8');
- el.textContent=(!q.available?'FRÜHERKENNUNG NICHT VERFÜGBAR':dir==='NEUTRAL'?'FRÜHIMPULS · KEIN KLARES SIGNAL':'FRÜHWARNUNG · '+dir+' (TEST)')+
-  '\n'+q.reason+'\nNur Beobachtung: keine Produktfreigabe, keine Order, kein Stop-Eingriff und kein Push. LONG und SHORT werden gleich geprüft.';
+ const active=signalState?.dir||'NEUTRAL',stage=!['LONG','SHORT'].includes(dir)?'':active===dir?' · aktive Richtung bereits bestätigt':' · VOR aktiver '+dir+'-Freigabe';
+ el.textContent=(!q.available?'FRÜHERKENNUNG NICHT VERFÜGBAR':dir==='NEUTRAL'?'FRÜHIMPULS · KEIN KLARES SIGNAL':'FRÜHWARNUNG · '+dir+' (TEST)'+stage)+
+  '\n'+q.reason+'\nZeitpunkt: '+(q.barAt?new Date(q.barAt+300000).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'}):'unbekannt')+' · Signalstand: '+active+
+  '\nNur Beobachtung: keine Produktfreigabe, keine Order, kein Stop-Eingriff und kein Push. LONG und SHORT werden gleich geprüft.';
 }
 
 function minuteEntryContext(bundle,state,now=Date.now()){
@@ -3193,7 +3197,37 @@ function volatilityDisplay(value,price){
 function analysisBlockDataLabel(expired,count,warnings){
  return expired?'ANMELDUNG FEHLT':!count?'DATEN FEHLEN':warnings.length?'AKTUALITÄT UNBESTÄTIGT':'DATEN UNVOLLSTÄNDIG';
 }
+// Read-only source and conversion health from the *same* server bundle as the signal.
+function renderMarketInputQuality(bundle=liveBundleCache){
+ const el=$('marketInputQuality');if(!el)return;
+ const q=bundle?.marketReview;
+ if(!q||q.version!=='market-input-review-v1'){
+  el.textContent='DATENPRÜFUNG NICHT VERFÜGBAR · Originalquellen und Kurszeiten noch nicht bestätigt. Keine zusätzliche Freigabe.';
+  return;
+ }
+ const clock=v=>typeof v==='string'?new Date(v).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'}):'unbekannt';
+ const frames=q.frames||{},f=Object.entries({'5m':'5m','15m':'15m','1h':'1h'}).map(([tf,label])=>{
+  const v=frames[tf]||{},count=Number.isInteger(v.closed)?v.closed:0;
+  const state=v.state==='ok'?'aktuell':v.state==='stale'?'veraltet':
+   v.state==='wrong-basis'?'falsche Kursbasis':v.state==='recent-gap'?'jüngste Kerzenlücke':
+   v.state==='insufficient'?'zu wenig Historie':v.state==='invalid-ohlc'?'Kursfehler':'fehlt';
+  return label+': '+state+' · '+count+' geschlossene Kerzen · EMA200 '+(v.ema200==='available'?'vorhanden':'Kontext fehlt')+' · '+clock(v.lastClosedAt?new Date(v.lastClosedAt).toISOString():null);
+ });
+ const c=q.spotComparison||{},fx=q.fx||{};
+ const compare=c.status==='aligned'?'Spot / 5m-Schluss plausibel':
+  c.status==='deviation'?'ACHTUNG · Spot / 5m-Schluss weichen auffällig ab':
+  'Spot / 5m-Schluss nicht zeitgleich vergleichbar';
+ const fxLabel=fx.state==='current'?'unabhängig datiert':
+  fx.state==='source-time-unknown'?'nur Abrufzeit, Original-Kurszeit fehlt':
+  fx.state==='stale'?'veraltet':'nicht vollständig';
+ const rate=Number.isFinite(fx.eurPerChf)?' · 1 CHF ≈ '+fx.eurPerChf.toFixed(6)+' EUR (indikativ)':'';
+ const issues=(q.warnings||[]).length?'Hinweise: '+q.warnings.slice(0,5).join(' · '):'Keine der geprüften Datenlücken erkannt';
+ el.textContent='DATENQUALITÄT · Diagnose ohne Handelsfreigabe\nGold-Spot: '+(q.spot?.state==='ok'?'aktuell':'nicht bestätigt')+' · Zeit '+clock(q.spot?.at)+
+  '\n'+f.join('\n')+'\n'+compare+(Number.isFinite(c.clockGapSeconds)?' · Zeitabstand '+c.clockGapSeconds.toFixed(0)+' s':'')+
+  '\nUSD/CHF + USD/EUR: '+fxLabel+rate+'\n'+issues;
+}
 function renderAnalysisBlocks(){
+ renderMarketInputQuality();
  renderIntraday();
  renderEarlyImpulseStatus();
  const current=confirmedSignalDirection();

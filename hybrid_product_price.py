@@ -9,6 +9,7 @@ from datetime import datetime, timezone, time as clock_time
 from zoneinfo import ZoneInfo
 
 import product_estimate
+import estimate_quality
 
 _LOCK = threading.Lock()
 _ANCHORS = {}
@@ -99,6 +100,11 @@ def observations(result):
     return pool
 
 
+def validation_key(model, side):
+    # Separate from issuer/legacy and Future quality; one exact product identity.
+    return 'research-hybrid:'+repr(product_estimate.identity(model))+':'+side
+
+
 def adapter_spot(source, now):
     s=source()
     # spot_data.current validates the original source at <=60 seconds.
@@ -185,6 +191,24 @@ def apply(result, now=None, fetch_spot=None, fetch_fx=None):
             anchor=dict(anchor) if anchor else None
         if not anchor:
             return result
+        # Prospective-only forecast validation. The prediction must already have
+        # been frozen in an earlier request before today's new quote arrives.
+        # Never validate against the same source pair that calibrated the anchor.
+        if candidate and previous and candidate['at'] > utc(previous['referenceAt']):
+            for side in ('bid','ask'):
+                estimate_quality.observe(validation_key(model,side),
+                    float(candidate['row'][side]),
+                    candidate['row'][side+'At'],now.isoformat())
+        if previous and (candidate is None or candidate['at']>utc(previous['referenceAt'])):
+            frozen=product_estimate.calculate(model,previous,spot,fx,now)
+            if frozen.get('available'):
+                prediction_time=utc(frozen['priceAt'])
+                quote_is_same=candidate and abs((candidate['at']-prediction_time).total_seconds())<=5
+                if not quote_is_same:
+                    for side in ('bid','ask'):
+                        estimate_quality.record(validation_key(model,side),
+                            frozen[side+'Eur'],frozen['priceAt'],
+                            previous['referenceAt'],now.isoformat())
         projected=product_estimate.calculate(model,anchor,spot,fx,now)
         if not projected['available']:
             return result
@@ -194,13 +218,19 @@ def apply(result, now=None, fetch_spot=None, fetch_fx=None):
                          referenceClockGapSeconds=anchor['referenceSkewSeconds'],
                          referenceTimeReliability='original source times, <=30 s apart',
                          referencePriceKind=anchor['researchKind'],
-                         validation=dict(ready=False,sampleCount=0,
-                              reason='Noch keine unabhängige Genauigkeitsmessung'),
+                         validation=dict(
+                             estimate_quality.quality(validation_key(model,'ask'),
+                                max(1,(now-utc(anchor['referenceAt'])).total_seconds()),now),
+                             source='prospective-sg-comdirect',
+                             basis='Originaler späterer Emittentenkurs gegen zuvor eingefrorene Modellprognose',
+                             persistence='in-memory; nach Neustart erneut messen',
+                             affectsApproval=False),
                          note='Nur indikative Recherche-Kalibrierung mit beobachtetem '
                               'SG-/comdirect-Preis und aktuellem Gold/FX. '
                               'Quellzeiten beim Kalibrieren bis 30 s auseinander; '
                               'bei starken Goldbewegungen verbleibt Modellrisiko. '
-                              'Kein tatsächlicher DEGIRO-Kurs, keine garantierte Genauigkeit.')
+                              'Messfehler nur aus unabhängigen späteren Originalkursen; '
+                              'kein tatsächlicher DEGIRO-Kurs, keine garantierte Genauigkeit.')
         out=dict(result)
         out['productModel']=model
         out['calculatedProduct']=projected
