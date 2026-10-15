@@ -81,7 +81,8 @@ class ResearchBackoffTests(unittest.TestCase):
         with patch.object(research.urllib.request,'build_opener',return_value=opener), \
              patch.object(research,'player_metadata',return_value=original), \
              patch.object(research,'read_url',side_effect=[b'player',data]) as fetch, \
-             patch.object(provider,'request') as request:
+             patch.object(provider,'request') as request, \
+             patch('research_enhancements.request',return_value={'summaryStatus':'test'}):
             # A caller-supplied reader is intentionally independent from the
             # live negative cache. It must still validate the caption URL.
             result=research.analyze(URL,fetch=fetch)
