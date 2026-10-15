@@ -182,7 +182,7 @@
      (pair.sameVenue?' · gleicher gemeldeter Handelsplatz':' · Handelsplätze nicht gleich bestätigt')):[]),
    'Zeitvergleich nur bei höchstens 30 Sekunden Unterschied der getrennten Originalzeiten. Übereinstimmung ist keine Ausführungszusage.'
   ]:['Kein aktuelles, vollständig datiertes Geld-/Briefpaar aus den verbundenen Quellen. Modellvorwarnungen bleiben getrennt.'];
-  panel.querySelector('[data-stop-sources]').textContent=compareLines.join('\\n');
+  panel.querySelector('[data-stop-sources]').textContent=compareLines.join('\n');
   const guide=instructions({isin:product?.isin,quantity:product?.quantity,
     stopEur:v.model?.stopEur,currency:product?.currency});
   panel.querySelector('[data-stop-instructions]').textContent=guide.available?
