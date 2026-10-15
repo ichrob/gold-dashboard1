@@ -124,10 +124,13 @@ class CandleTests(unittest.TestCase):
         self.assertEqual(len(merged), 1)
         self.assertEqual(merged[0]['close'], 4102)
 
-    def test_independent_fresh_history_does_not_call_legacy(self):
-        with patch.object(server.time,'time',return_value=self.now),patch.dict(server._technical_history,{},clear=True),patch.object(tc,'fetch',return_value=tc.normalize(self.payload(),'5m',self.now)),patch.object(server,'fetch_json') as legacy:
+    def test_short_but_fresh_independent_history_triggers_bounded_ema_warmup(self):
+        # A single fresh provider candle cannot compute EMA200. The alternate
+        # XAU/USD history is checked, without ever querying a futures feed.
+        with patch.object(server.time,'time',return_value=self.now),patch.dict(server._technical_history,{},clear=True),patch.dict(server._ema_backfill_attempted,{},clear=True),patch.dict(server._ema_backfill_series,{},clear=True),patch.object(tc,'fetch',return_value=tc.normalize(self.payload(),'5m',self.now)),patch.object(server,'fetch_json',return_value={'points':[]}) as history:
             rows=server.fetch_technical_history('5m','5d')
             self.assertEqual(rows[0]['instrument'],'XAU/USD')
-            legacy.assert_not_called()
+            history.assert_called_once()
+            self.assertTrue(history.call_args.args[0].startswith('https://xaus.com/api/v1/chart?'))
 
 if __name__=='__main__':unittest.main()
