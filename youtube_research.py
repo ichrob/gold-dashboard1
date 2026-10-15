@@ -13,6 +13,15 @@ _MAX = 2000000
 _lock = threading.Lock()
 _cache = {}
 _manual = {}
+_provider_failures = {}  # Bounded local retry hints, never a substitute for server quota.
+_PROVIDER_BACKOFF = {
+    'cooldown': 2700, 'video_limit': 3600, 'local_limit': 3600,
+    'provider_auth': 3600, 'provider_auth_paused': 3600,
+    'provider_forbidden': 3600, 'provider_limit': 3600,
+    'provider_limit_paused': 3600, 'provider_invalid': 1800,
+    'provider_unavailable': 900, 'provider_video': 1800,
+    'provider_pending': 300, 'not_configured': 3600,
+}
 _retained_video_ids = set()
 _busy = threading.Semaphore(2)
 
@@ -32,7 +41,7 @@ def retain_only(items):
     with _lock:
         _retained_video_ids.clear()
         _retained_video_ids.update(ids)
-        for cache in (_cache, _manual):
+        for cache in (_cache, _manual, _provider_failures):
             for identity in list(cache):
                 if identity not in ids:
                     del cache[identity]
@@ -312,7 +321,26 @@ def analyze(url, fetch=read_url, *, verified_item=None):
         if result is None:
             if fetch is not read_url:raise ValueError('Untertitel vorhanden, aber kein Text abrufbar')
             import research_transcript_provider
-            supplied=research_transcript_provider.request(identity)
+            # A failed provider attempt already has a durable, server-side
+            # cooldown. Remember a bounded local hint so automatic collector
+            # cycles do not repeatedly hit the same protected internal route.
+            # This never bypasses an external API quota or blocks direct
+            # publicly available YouTube captions.
+            with _lock:
+                failed = _provider_failures.get(identity)
+            if failed and now-failed[0] < _PROVIDER_BACKOFF.get(failed[1], 0):
+                raise research_transcript_provider.TranscriptError(failed[1])
+            try:
+                supplied=research_transcript_provider.request(identity)
+            except research_transcript_provider.TranscriptError as exc:
+                if exc.code in _PROVIDER_BACKOFF:
+                    with _lock:
+                        if len(_provider_failures) >= 3 and identity not in _provider_failures:
+                            _provider_failures.pop(next(iter(_provider_failures)))
+                        _provider_failures[identity] = (now, exc.code)
+                raise
+            with _lock:
+                _provider_failures.pop(identity, None)
             segments=supplied['segments']
             result=assess(segments,supplied['language'])
             result['automaticCaptions']=None
