@@ -20,6 +20,7 @@ import bob_mcp
 import bob_recovery
 import bob_self_healing
 import bob_problems
+import bob_area_checks
 import bob_repair_store
 import auto_collection
 import background_push
@@ -192,6 +193,7 @@ HTML = HTML.replace(b"</body>", vollautomatisch_panel.PANEL.encode("utf-8")+b"</
 HTML = HTML.replace(b"</body>", trade_email_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", bob_self_healing.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", bob_problems.PANEL.encode("utf-8")+b"</body>")
+HTML = HTML.replace(b"</body>", bob_area_checks.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", degiro_product_audit_panel.PANEL.encode("utf-8")+b"</body>")
 SW = SW_PATH.read_bytes() if SW_PATH.exists() else None
 MANIFEST = MANIFEST_PATH.read_bytes() if MANIFEST_PATH.exists() else None
