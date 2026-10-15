@@ -3,6 +3,12 @@ PANEL = r'''<section id="bobProductAudit" class="card">
 <h3>Automatische Prüfung der gespeicherten DEGIRO-Produkte</h3>
 <p id="bobProductAuditStatus" role="status" class="small">Prüfbericht wird geladen …</p>
 <p id="bobProductAuditUpdated" class="small">Letzte Prüfung: noch unbekannt</p>
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0">
+<button id="bobAuditShareChatGPT" type="button">An ChatGPT teilen</button>
+<button id="bobAuditCopyChatGPT" type="button">Bericht kopieren</button>
+</div>
+<p id="bobAuditShareStatus" role="status" class="small">Handy: Erst durch Antippen werden private ISINs und fehlende Nachweise mit einer anderen App geteilt. Keine Kontodaten, Trades oder Zugangsdaten.</p>
+<textarea id="bobAuditShareFallback" hidden readonly aria-label="Privaten Bericht zum manuellen Kopieren" style="width:100%;min-height:140px"></textarea>
 <details><summary>Werte, Zeitstempel und automatische Nachprüfung pro ISIN</summary>
 <div id="bobProductAuditItems" class="small"></div></details>
 <p class="small">Bob überprüft ausschließlich die aktive Screenshotliste mit Emittenten- und vorhandenen Ersatzquellen. Fehlende Daten werden erneut abgefragt, aber niemals ersetzt oder als aktuell ausgegeben, solange der Originalnachweis fehlt. Die Quellenvergleichsanzeige nutzt nur bereits vorhandene datierte Beobachtungen. Onvista darf ohne schriftliche Freigabe nicht automatisiert abgefragt werden. Kurse sind keine DEGIRO-Handelsbestätigung.</p>
@@ -17,6 +23,77 @@ PANEL = r'''<section id="bobProductAudit" class="card">
 <script>
 (function(){
  const byId=id=>document.getElementById(id);
+ let latestReport=null;
+ const safe=value=>String(value??'unbekannt').replace(/[\r\n\t\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').slice(0,180);
+ // Privacy boundary: user initiated only. No account, order, quote amounts,
+ // raw stored screenshots, credentials or automatic outbound transmission.
+ function auditTextForChatGPT(r){
+  const items=Array.isArray(r?.items)?r.items.slice(0,12):[];
+  const time=value=>typeof value==='string'&&Number.isFinite(Date.parse(value))?safe(value):'nicht nachgewiesen';
+  const lines=[
+   'Bob – privater Gold-Hebelprodukt-Prüfbericht (vom Nutzer bewusst geteilt)',
+   'Auftrag an ChatGPT: Fehlende Werte pro ISIN untersuchen, vorhandene freigegebene Datenquellen und Bob-Code prüfen, Fehler beheben. Original-Zeitstempel nicht erfinden. Keine Orders oder Handelsfreigaben.',
+   'Prüfstatus: '+safe(r?.status),
+   'Letzte Hintergrundprüfung: '+time(r?.lastCheckedAt),
+   'DEGIRO-Listenstand: '+time(r?.listUploadedAt),
+   'Produkte im Prüfbericht: '+(Number.isInteger(r?.total)?r.total:'unbekannt'),
+   'Unvollständige Produkte: '+(Number.isInteger(r?.incomplete)?r.incomplete:'unbekannt'),
+   'Wichtig: Bei Status stale, unavailable oder checking-new-list keine Fehler als behoben werten.'
+  ];
+  for(const [index,item] of items.entries()){
+   const isin=typeof item.isin==='string'&&/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(item.isin)?item.isin:'nicht bestätigt';
+   const missing=Array.isArray(item.missing)?item.missing.slice(0,22).map(safe):[];
+   const messages=Array.isArray(item.messages)?item.messages.slice(0,22).map(safe):[];
+   const lev=item.leverageObservation||{};
+   lines.push(
+    '',
+    (index+1)+'. '+isin+' · '+safe(item.direction)+' · '+safe(item.state),
+    'Fehlende Nachweise: '+(missing.length?missing.join(', '):'keine aufgelistet'),
+    'Fehlerbeschreibung: '+(messages.length?messages.join(' | '):'keine'),
+    'Quelle: '+safe(item.source),
+    'Geld/Brief-Quelle: '+safe(item.dataQuoteSource),
+    'Geld/Brief-Zeit: '+time(item.quoteSourceAt),
+    'Emittentenhebel-Originalzeit: '+time(item.leverageSourceAt),
+    'Hebel-Näherung/Zeitart: '+safe(lev.kind)+' · '+time(lev.at),
+    'Handelsplatz: '+safe(item.issuerVenue),
+    'Nachprüfungsstand: '+(item.needsKiHelp===true?'KI-Hilfe offen':'keine bestätigte KI-Eskalation'),
+    'Automatische Handelsfreigabe: '+(item.tradeApproved===true?'laut Bericht ja (unabhängig prüfen)':'nein')
+   );
+  }
+  if(!items.length)lines.push('Keine einzelnen Produktdaten abrufbar. Liste oder aktuelle Prüfung fehlen; keine Entwarnung.');
+  return lines.join('\n');
+ }
+ function mobileAuditPayload(){
+  if(!latestReport||typeof latestReport!=='object')return null;
+  return auditTextForChatGPT(latestReport);
+ }
+ function handoffStatus(message){const node=byId('bobAuditShareStatus');if(node)node.textContent=message;}
+ async function copyMobileAudit(){
+  const value=mobileAuditPayload();
+  if(!value){handoffStatus('Bitte erst auf den Prüfbericht warten und danach erneut tippen.');return;}
+  try{
+   if(!navigator.clipboard?.writeText)throw Error('Clipboard not available');
+   await navigator.clipboard.writeText(value);
+   handoffStatus('Bericht kopiert. Jetzt in ChatGPT einfügen. Es wurden keine Daten automatisch versendet.');
+  }catch(_){
+   // Visible, selectable fallback when clipboard access is blocked by Android.
+   const target=byId('bobAuditShareFallback');if(!target)return;
+   target.value=value;target.hidden=false;target.focus();target.select();
+   handoffStatus('Automatisches Kopieren nicht verfügbar. Text unten markieren und kopieren, dann in ChatGPT einfügen.');
+  }
+ }
+ async function shareMobileAudit(){
+  const value=mobileAuditPayload();
+  if(!value){handoffStatus('Bitte erst auf den Prüfbericht warten und danach erneut tippen.');return;}
+  if(!navigator.share){await copyMobileAudit();return;}
+  try{
+   await navigator.share({title:'Bob · Gold-Hebelprodukte Prüfbericht',text:value});
+   handoffStatus('Teilen abgeschlossen. Bitte in ChatGPT die Prüfung der ISINs starten.');
+  }catch(error){
+   if(error?.name==='AbortError')return;
+   handoffStatus('Android-Teilen nicht möglich. Bitte „Bericht kopieren“ verwenden.');
+  }
+ }
  const fmt=iso=>{const d=new Date(iso);return Number.isNaN(d.getTime())?'unbekannt':d.toLocaleString('de-CH',{timeZone:'Europe/Zurich',dateStyle:'short',timeStyle:'medium'});};
  function leverageTimeLabel(item){
   if(item.leverageSourceAt)return fmt(item.leverageSourceAt)+' (eigene Emittenten-Quellenzeit)';
@@ -167,11 +244,15 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    const response=await fetch('/api/degiro/audit',{cache:'no-store',credentials:'same-origin',signal:ctl.signal});
    if(!response.ok)throw Error('unavailable');
    const report=await response.json();
+   latestReport=report;
    if(!byId('bobProductAuditItems')?.contains(document.activeElement))render(report);
-  }catch(_){render({status:'unavailable',items:[]});}
+  }catch(_){latestReport=null;render({status:'unavailable',items:[]});}
   finally{clearTimeout(timer);busy=false;}
  }
- function init(){mount();refresh();setInterval(()=>{if(document.visibilityState!=='hidden')refresh();},30000);
+ function init(){mount();
+  byId('bobAuditShareChatGPT')?.addEventListener('click',shareMobileAudit);
+  byId('bobAuditCopyChatGPT')?.addEventListener('click',copyMobileAudit);
+  refresh();setInterval(()=>{if(document.visibilityState!=='hidden')refresh();},30000);
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refresh();});}
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
