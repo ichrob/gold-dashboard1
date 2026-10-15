@@ -10,6 +10,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
 <section id="bobProductAuditProblem" class="card">
 <h3>Produktdaten · Offene Prüfprobleme</h3>
 <p id="bobProductAuditProblemCount" role="status">Produktprüfung wird geladen …</p>
+<p id="bobSeriesEvidenceRuleDone" class="small">✓ Erledigt: Die Serienregel für den eindeutig gemeinsamen Zeitbezug derselben ISIN/Quelle und zugehöriger Screenshots oder SG-Werte ist in Bob umgesetzt. Das bestätigt eine zusammengehörende Beobachtung, nicht automatisch eine separate Original-Hebelzeit oder einen bei DEGIRO ausführbaren Kurs.</p>
 <div id="bobProductAuditProblemItems" class="small"></div>
 <p class="small">Ab drei aufeinanderfolgenden unvollständigen Prüfungen erscheint ein KI-Hilfebedarf. Die private Produktliste und ISINs werden nicht in öffentlichen GitHub-Issues veröffentlicht. Die Prüfung ändert keine echten Orders, Produktfreigaben oder Stopps.</p>
 </section>
@@ -17,6 +18,15 @@ PANEL = r'''<section id="bobProductAudit" class="card">
 (function(){
  const byId=id=>document.getElementById(id);
  const fmt=iso=>{const d=new Date(iso);return Number.isNaN(d.getTime())?'unbekannt':d.toLocaleString('de-CH',{timeZone:'Europe/Zurich',dateStyle:'short',timeStyle:'medium'});};
+ function leverageTimeLabel(item){
+  if(item.leverageSourceAt)return fmt(item.leverageSourceAt)+' (eigene Emittenten-Quellenzeit)';
+  const observation=item.leverageObservation;
+  if(observation?.kind==='shared-issuer-observation'&&observation.current)
+   return fmt(observation.at)+' (✓ Serienregel erfüllt: gemeinsamer SG-Zeitbezug, keine separate Original-Hebelzeit)';
+  if(observation?.kind==='calculated-gearing')
+   return 'nur errechneter Hebel · eigene Emittenten-Hebelzeit nicht nachgewiesen';
+  return 'nicht aktuell nachgewiesen';
+ }
  function mount(){
   const product=byId('bob-view-products'),problems=byId('bob-view-problems');
   if(product)product.append(byId('bobProductAudit'));
@@ -59,7 +69,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    const list=document.createElement('p');list.style.whiteSpace='pre-line';
    list.textContent=(item.messages||[]).join('\n')+'\nPrüfungen in Folge: '+(item.consecutiveChecks||0)+' · Nächster Schritt: '+item.autoRecovery+
         '\nGeldkurszeit: '+(item.quoteSourceAt?fmt(item.quoteSourceAt):'nicht nachgewiesen')+
-        ' · Hebelzeit: '+(item.leverageObservation?.current?fmt(item.leverageObservation.at)+' (gemeinsamer SG-Zeitbezug)':item.leverageSourceAt?fmt(item.leverageSourceAt):'nicht aktuell nachgewiesen')+
+        ' · Hebelzeit: '+leverageTimeLabel(item)+
         (item.brokerVenueEvidence?'\n✓ DEGIRO-Handelsplatz am Screenshot bestätigt: '+item.brokerVenueEvidence.venue+' · '+item.brokerVenueEvidence.observedMinute.replace('T',' ')+' · gültig bis '+fmt(item.brokerVenueEvidence.validUntil):'')+
         (item.venueAction?'\nHandelsplatzprüfung: '+item.issuerVenue+' · '+item.venueAction:'')+
         (item.identityEvidence==='source-matched'?'\n✓ ISIN und Richtung automatisch mit der Produktquelle abgeglichen.':'')+
