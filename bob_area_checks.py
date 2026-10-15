@@ -5,14 +5,14 @@ certificate that all code in a feature is bug-free or that a trade is safe.
 Data stays in the authenticated app; the browser only reads existing APIs.
 """
 
-PANEL = r'''<section id="bobAreaChecks" class="card" aria-label="Gesamtprüfung aller Bob-Bereiche" style="margin:12px 0">
-<h3>Gesamtprüfung · alle Bereiche</h3>
+PANEL = r'''<details id="bobAreaChecks" hidden class="card bob-disclosure" aria-label="Gesamtprüfung aller Bob-Bereiche" style="margin:12px 0">
+<summary>Gesamtprüfung · alle Bereiche</summary>
 <p id="bobAreaSummary" role="status" class="small">Bereichsprüfung noch nicht abgeschlossen.</p>
 <p id="bobAreaCheckedAt" class="small">Letzter Prüfversuch: noch keiner.</p>
 <div id="bobAreaRows" style="display:grid;gap:8px"></div>
 <button type="button" id="bobAreaRefresh" style="margin-top:12px">Alle Bereiche jetzt prüfen</button>
 <p class="small">✓ = genau die genannten Prüfungen bestätigt; ⚠ = erkannte Störung oder offenes Problem; ? = Nachweis fehlt bzw. Bereich nur teilweise prüfbar. Ein Haken ist keine Garantie für Fehlerfreiheit oder Handelsfreigabe. Keine Push-Nachrichten, Orders oder Änderungen an Risikoregeln.</p>
-</section>
+</details>
 <script>
 (function(){
  'use strict';
@@ -79,16 +79,7 @@ PANEL = r'''<section id="bobAreaChecks" class="card" aria-label="Gesamtprüfung 
  }
  function mount(){
   const parent=byId('bob-view-problems');
-  if(parent)parent.prepend(root);
-  for(const [key] of areas){
-   const button=document.querySelector('#bobNavigation button[data-view="'+key+'"]');
-   if(button&&!button.querySelector('.bob-area-check-marker')){
-    const icon=document.createElement('span');icon.className='bob-area-check-marker';
-    icon.style.cssText='margin-left:3px;font-size:12px;font-weight:700';
-    icon.textContent='?';icon.setAttribute('aria-hidden','true');
-    button.append(icon);
-   }
-  }
+  if(parent){parent.prepend(root);root.hidden=false;}
  }
  function render(result){
   const summary={ok:0,warning:0,unknown:0};
@@ -99,8 +90,7 @@ PANEL = r'''<section id="bobAreaChecks" class="card" aria-label="Gesamtprüfung 
    const n=nodes[key];n.flag.textContent=marker[status];n.flag.style.color=colors[status];
    n.state.textContent=statuses[status];n.state.style.color=colors[status];
    n.detail.textContent=entry.reason;
-   const badge=document.querySelector('#bobNavigation button[data-view="'+key+'"] .bob-area-check-marker');
-   if(badge){badge.textContent=marker[status];badge.style.color=colors[status];}
+
   }
   byId('bobAreaSummary').textContent=summary.ok+' bestätigt · '+summary.warning+' mit Problemen · '+summary.unknown+' nicht vollständig geprüft.';
   byId('bobAreaCheckedAt').textContent='Letzter Prüfversuch: '+fmt(at)+' (Schweizer Zeit). Daten nur beim Anzeigen der App aktualisiert.';
@@ -184,7 +174,8 @@ PANEL = r'''<section id="bobAreaChecks" class="card" aria-label="Gesamtprüfung 
   }finally{busy=false;byId('bobAreaRefresh').disabled=false;}
  }
  makeNodes();
- mount();
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});
+ else mount();
  byId('bobAreaRefresh').addEventListener('click',refresh);
  window.BobAreaChecks={refresh};
  refresh();
