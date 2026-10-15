@@ -399,6 +399,83 @@ def technical_history_fresh(bars, minutes, now=None):
     return bool(latest and 0 <= now*1000-latest <= minutes*120000)
 
 
+
+# EMA200 requires 200 *completed* observations of one XAU/USD timeframe.
+# The ordinary independent candle feed may publish fewer than 200 fresh 1h
+# bars. Preserve its signal behavior, but try a bounded complete historical
+# series from the already configured XAUS alternative.
+EMA200_WARMUP_BARS = 200
+_EMA_BACKFILL_INTERVAL_SECONDS = 300
+_ema_backfill_lock = threading.Lock()
+_ema_backfill_attempted = {}
+_ema_backfill_series = {}
+
+
+def _ema_history_sufficient(rows, minutes, now=None):
+    """Validate a single, source-provided XAU/USD series without splicing feeds."""
+    now = time.time() if now is None else now
+    step = minutes * 60000
+    if not isinstance(rows, list):
+        return False
+    closed = [b for b in rows if not b.get('isOpen') and
+              type(b.get('openTime')) in (int, float) and b['openTime'] + step <= now * 1000]
+    if len(closed) < EMA200_WARMUP_BARS or not technical_history_fresh(closed, minutes, now):
+        return False
+    if any(b.get('instrument') != 'XAU/USD' or b.get('estimated') or
+           type(b.get('openTime')) not in (int, float) or b['openTime'] % step != 0 or
+           any(type(b.get(k)) not in (int, float) or not math.isfinite(b[k]) or b[k] <= 0
+               for k in ('open', 'high', 'low', 'close')) or
+           b['low'] > min(b['open'], b['close']) or
+           b['high'] < max(b['open'], b['close']) or
+           (i > 0 and b['openTime'] <= closed[i - 1]['openTime'])
+           for i, b in enumerate(closed)):
+        return False
+    # Provider session breaks outside current trading are retained; no synthetic
+    # candles are inserted. The latest three closed candles must be contiguous.
+    return all(b['openTime'] - a['openTime'] == step
+               for a, b in zip(closed[-3:], closed[-2:]))
+
+
+def _ema200_history_backfill(interval, range_value, observed):
+    """Research-only history warmup; no spot substitution or new order gate.
+
+    One provider attempt per timeframe per five minutes. Failed attempts leave
+    the independent current series in place. A cached longer series is used
+    only when it is still source-fresh and not behind the independent source.
+    """
+    minutes = technical_candles.MINUTES[interval]
+    now = time.time()
+    with _ema_backfill_lock:
+        retry = now - _ema_backfill_attempted.get(interval, -1e12) >= _EMA_BACKFILL_INTERVAL_SECONDS
+        if retry:
+            _ema_backfill_attempted[interval] = now
+    if retry:
+        try:
+            payload = fetch_json(
+                f"https://xaus.com/api/v1/chart?symbol=xau&range={range_value}&interval={interval}&fresh={int(now // 60) * 60000}",
+                retries=0, user_agent="Bob/1.4", timeout=8)
+            points = payload.get('points') if isinstance(payload, dict) else None
+            if isinstance(points, list):
+                rows = normalize_chart_points(points, minutes)
+                for row in rows:
+                    row['source'] = 'XAUS · datierte XAU/USD-Historie'
+                mark_bar_state(rows, minutes)
+                if _ema_history_sufficient(rows, minutes):
+                    with _ema_backfill_lock:
+                        _ema_backfill_series[interval] = [dict(row) for row in rows[-1000:]]
+                    print(f"BOB_EMA200_BACKFILL interval={interval} completed={sum(not b['isOpen'] for b in rows)}", flush=True)
+        except (OSError, ValueError, TypeError, KeyError, RuntimeError):
+            print(f"BOB_EMA200_BACKFILL interval={interval} unavailable", flush=True)
+    with _ema_backfill_lock:
+        historical = [dict(row) for row in _ema_backfill_series.get(interval, [])]
+    mark_bar_state(historical, minutes)
+    if (_ema_history_sufficient(historical, minutes)
+            and technical_history_latest(historical, minutes) >=
+                technical_history_latest(observed, minutes)):
+        return historical
+    return observed
+
+
 def fetch_technical_history(interval, range_value):
     primary = []
     minutes = technical_candles.MINUTES[interval]
@@ -406,6 +483,11 @@ def fetch_technical_history(interval, range_value):
     if independent:
         retain_technical_history(interval, independent)
         if technical_history_fresh(independent, minutes):
+            # EMA200 is context only: a fresh 100-199 bar series remains
+            # sufficient for EMA20/50-driven signals, while the older 200-bar
+            # reference is fetched independently and never fabricated.
+            if interval in ('5m', '1h') and not _ema_history_sufficient(independent, minutes):
+                return _ema200_history_backfill(interval, range_value, independent)
             return independent
     if interval in ("1m", "15m", "4h"):
         return retain_technical_history(interval, independent)
