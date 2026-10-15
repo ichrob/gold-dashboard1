@@ -142,6 +142,28 @@ class KoGuardTests(unittest.TestCase):
         self.assertEqual(guard.terminal(quote(status=2),ISIN),'product-terminated')
         self.assertIsNone(guard.terminal(quote(),ISIN))
 
+    def test_terminal_after_data_gap_blocks_pending_sale_and_is_remembered(self):
+        for terminal_kind in ('expiry', 'knocked_out'):
+            with self.subTest(terminal_kind=terminal_kind):
+                c=sim.new_case(market(),choice(),quote(),NOW,cash=100.)
+                c=sim.advance_case(c,market(at=NOW),None,NOW+100000)
+                self.assertEqual(c['status'],'inconclusive')
+                q=quote(NOW+120000,status=2)
+                # A nominal quote can remain present beside a terminal flag.
+                q['marketOpen']=True
+                if terminal_kind=='knocked_out':
+                    q['terminalEvidence']=dict(status='knocked_out')
+                result=sim.advance_case(c,market(at=NOW+120000),q,NOW+120000)
+                self.assertEqual(result['cashReleased'],0)
+                self.assertEqual(result['pendingUnits'],c['quantity'])
+                self.assertFalse(result['productReturnKnown'])
+                self.assertIn(result['koWatchStatus'],('product-terminated','knockout-confirmed'))
+                later=sim.advance_case(result,market(at=NOW+150000),quote(NOW+150000),NOW+150000)
+                self.assertEqual(later['cashReleased'],0)
+                self.assertEqual(later['pendingUnits'],c['quantity'])
+                repeated=sim.advance_case(result,market(at=NOW+120000),q,NOW+120000)
+                self.assertEqual(repeated['events'],result['events'])
+
     def test_next_cycle_selects_different_isin_after_ko_exit(self):
         replacement='DE000PJ9NCK1'
         other=choice()
