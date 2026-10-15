@@ -35,7 +35,7 @@ for(const patch of [
 assert.equal(assistant.selectQuote({...baseQuote,metadata:{status:2},secondaryQuote:alt},isin,now),null);
 assert.equal(assistant.selectQuote({...baseQuote,productVerified:false,secondaryQuote:alt},isin,now),null);
 assert.equal(assistant.selectQuote({...baseQuote,found:false,sourceDisabled:true,secondaryQuote:alt},isin,now),null);
-const spots={xaus:4220,is_genuine_xauusd_spot:true,
+const spots={xaus:4225,is_genuine_xauusd_spot:true,
  spot_price_as_of:asAt(15000),usd_eur_meta:{rate:.9,fetchedAt:asAt(12000),source:'FX research'}};
 const evaluate=(patch={})=>assistant.evaluate({product,stopGold:4230,targetGold:4150,spots,quote:chosen,now,...patch});
 let result=evaluate();
