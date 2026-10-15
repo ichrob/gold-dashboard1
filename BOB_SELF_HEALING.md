@@ -68,3 +68,21 @@ Im Menü **Problem** zeigt die neue **Gesamtprüfung** einen Status für Übersi
 
 Der Browser prüft beim Anzeigen von Bob und dann etwa alle zwei Minuten, solange die App sichtbar und angemeldet ist. Dafür verwendet er die bereits vorhandenen lesenden Endpunkte für System/Markt, Hintergrundüberwachung, Live-Analyse, privaten Produktbericht, Videorecherche, Zukunftsforschung und das öffentliche KI-Hilfe-Archiv. Er ändert keine Trade-/Risikoregeln, veröffentlicht keine ISINs und verschickt keine Push-Nachrichten. Ohne laufenden Browser bleibt der bereits existierende **unabhängige** GitHub-Gesundheitswächter zuständig; die neue Gesamtprüfung ist keine dauerhafte vollständige Funktionstestabdeckung aller Browser-/Brokerabläufe.
 
+
+
+## Rueckkanal ChatGPT ↔ Bob und Handy-Anzeige (15.10.2026)
+
+Die bestehende GitHub-Action `.github/workflows/bob-self-healing.yml` erfasst technische Stoerungen ca. alle 10 Minuten und legt pro allowlistiertem Fehlertyp eine sanitisiert oeffentliche Issue `[Bob KI-Hilfe] …` an. Zusaetzlich kann ein eigenstaendiger ChatGPT-Reparaturwaechter diese offenen Issues einmal pro Stunde ueber separat verbundene GitHub- und Render-Werkzeuge bearbeiten. GitHub-Action und ChatGPT-Waechter sind unterschiedliche Prozesse; ein GitHub-Issue allein startet keine neue ChatGPT-Sitzung.
+
+Der ChatGPT-Waechter kann bei einem bereits existierenden, offenen Issue einen dieser **exakten Marker** in die Issue-Beschreibung eintragen; immer nur ein aktueller Statusmarker, alleine in eigener Zeile:
+
+- `<!-- BOB_KI_STATUS:in-progress -->` — KI prueft die Ursache
+- `<!-- BOB_KI_STATUS:testing -->` — Reparatur in technischer Pruefung
+- `<!-- BOB_KI_STATUS:waiting-for-evidence -->` — Originalnachweis fehlt weiterhin
+- `<!-- BOB_KI_STATUS:waiting-for-review -->` — Aenderung wartet auf Freigabepruefung
+
+Ohne gueltigen Marker wird in Bob **Wartet auf KI-Pruefung** gezeigt, selbst wenn das Issue schon lange existiert. Die Statusanzeige ist *kein Nachweis*, dass die automatische Aufgabe bereits gelaufen ist oder eine Reparatur funktioniert. Bei Erfolg muss die KI sichere Aenderungen testen, die PR/Deployment referenzieren und den Befund im Issue dokumentieren. Eine technische Health-Wiederherstellung kann die vorhandene GitHub-Action nach bestaetigter Nachpruefung schliessen; fehlende Produkt-Originalnachweise niemals allein wegen fehlender Fehlercodes schliessen.
+
+Bobs mobiles **Problem**-Panel liest ausschliesslich die exakt erlaubten Marker aus Issue-Beschreibungen vom Repository-Eigentuemer bzw. GitHub-Actions-Bot. Rohe Freitexte, Logs und sonstige Daten werden **nicht** an die UI weitergereicht. Der Browser-Fallback folgt derselben Marker-Allowlist. Kein KI-Status verleiht Handelsfreigabe; unveraenderte Sicherheitsgrenzen gelten. Bei fehlender GitHub-Verbindung zeigt die Anzeige alte/ungewisse Daten statt einer erfundenen Erfolgsmeldung.
+
+Die automatische ChatGPT-Pruefung ist auf hoechstens stuendlich konfiguriert; Laufzeiten, verfuegbare App-Werkzeuge und moegliche Host-Berechtigungsabfragen sind nicht garantiert. Der Nutzer moechte ausschliesslich Status in **Problem**, keine allgemeinen ChatGPT-Pushs oder E-Mails fuer diese KI-Hilfe. Es gibt keine unaufgeforderte Uebertragung privater ISIN-Listen, Zugangsdaten oder Rohlogs in oeffentliche GitHub-Issues.
