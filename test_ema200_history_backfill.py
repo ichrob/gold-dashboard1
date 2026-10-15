@@ -50,7 +50,7 @@ class EMA200HistoryWarmupTests(unittest.TestCase):
         step = 900000
         original = candle_series(195, step=step)
         longer = candle_series(222, step=step, value=4270)
-        with patch.object(server.technical_candles, 'fetch', return_value=original), \\
+        with patch.object(server.technical_candles, 'fetch', return_value=original), \
              patch.object(server, 'fetch_json', return_value={'points': xaus_points(longer)}) as provider:
             result = server.fetch_technical_history('15m', '5d')
         self.assertEqual(len(result), 222)
