@@ -20,7 +20,11 @@ def select_analysis_quote(result, now=None):
     now = now or datetime.now(timezone.utc)
     quote = result if result.get('found') else result.get('analysisQuote') or {}
     if result.get('eligible'):
-        return quote
+        try:
+            if all(0 <= (now-q.stamp(quote[k])).total_seconds() <= 90 for k in ('bidAt','askAt')):
+                return quote
+        except (KeyError, TypeError, ValueError):
+            pass
     backup = result.get('analysisQuote') or {}
     try:
         if (backup.get('priceKind') == 'market-observation'

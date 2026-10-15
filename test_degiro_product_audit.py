@@ -133,6 +133,15 @@ class ProductAuditTests(unittest.TestCase):
         self.assertNotIn("leverage",stale["missing"])
         self.assertIn("leverage-time",stale["missing"])
 
+    def test_current_shared_provider_observation_precedes_calculation(self):
+        from unittest.mock import patch
+        q=self.shared_quote()
+        calculated=dict(value=20,at=iso(NOW-1000),current=True,kind='calculated-gearing')
+        with patch('leverage_backup.current_evidence',return_value=calculated):
+            row=audit.examine(feed()['products'][0],q,NOW)
+        self.assertEqual(row['leverageObservation']['kind'],'shared-issuer-observation')
+        self.assertEqual(row['leverageObservation']['value'],18.4)
+
     def test_chf_conversion_preserves_original_leverage_context(self):
         q=self.shared_quote()
         q['nativeChartEvidence']=dict(q['chartEvidence'], currency='CHF')

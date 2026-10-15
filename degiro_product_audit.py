@@ -398,7 +398,8 @@ def examine(product, quote, now_ms):
         "dataQuoteSource": data_pair.get('source') if quote_ok or backup_pair else None,
         "dataQuoteKind": "market-observation" if backup_pair else "issuer" if quote_ok else None,
         "executionNote": "Datenabgleich abgeschlossen; keine Bestätigung eines ausführbaren DEGIRO-Kurses",
-        "leverageObservation": calculated_leverage or shared_leverage,
+        "leverageObservation": (shared_leverage if shared_leverage and shared_leverage["current"]
+                                else calculated_leverage or shared_leverage),
         "leverageSourceAt": quote.get("leverageAt") if "leverage-time" not in codes else None,
         "source": str(quote.get("source") or "Emittenten- und Ersatzquellen")[:80],
         "sourceObservations": observations,

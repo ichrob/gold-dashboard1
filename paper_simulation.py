@@ -708,10 +708,12 @@ def quote_cache(products, active, now):
     # apply() is nonblocking and shares the bounded 30-second source cache.
     from comdirect_quotes import apply as refresh_backup
     from swissquote_quotes import apply as refresh_third_source
+    from leverage_backup import apply as refresh_leverage
     observations={}
     for isin in isins:
         raw=_quotes.get(isin,by_isin.get(isin))
-        observations[isin]=refresh_third_source(refresh_backup(raw,isin),isin) if isinstance(raw,dict) else raw
+        refreshed=refresh_third_source(refresh_backup(raw,isin),isin) if isinstance(raw,dict) else raw
+        observations[isin]=refresh_leverage(refreshed) if isinstance(refreshed,dict) else refreshed
     return observations
 
 def _worker(db):
@@ -745,6 +747,9 @@ def _worker(db):
                         settings=dict(timeframe='15m',trailAtr=1.5,learningPolicy=rule_learning.policy(conn))
                         active_isins=[c['product']['isin'] for c in active_cases.values() if c.get('product',{}).get('isin')]
                         quotes=quote_cache(evidence['products'],active_isins,now)
+                        # Source refresh may fetch newer timestamps. Audit against
+                        # completion time, never the clock from before those reads.
+                        now=time.time()*1000
                         # Evaluate ONLY the active screenshot list against the
                         # already refreshed quotes. Audit failure must never roll
                         # back paper positions, stop logic or signal delivery.

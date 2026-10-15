@@ -10,6 +10,15 @@ class Tests(unittest.TestCase):
   self.r=dict(found=True,productVerified=True,eligible=False,currency='EUR',ask=4,askAt=T,source='Onvista',metadata=dict(status=1,simpleNonQuantoTurbo=True,underlyingType='SPOT',ratio=.01))
   self.g=dict(price=4000,at=T,underlying='XAU/USD',source='Gold')
   self.fx=dict(result='success',base='USD',rates=dict(EUR=1),data_updated_at=T,effective_at=dict(EUR=T),source='live',sources=dict(EUR='live'),market_session='open')
+ def test_stale_eligible_flag_does_not_hide_fresh_backup(self):
+  r=copy.deepcopy(self.r)
+  r.update(eligible=True,bid=3.99,bidAt='2026-10-07T09:50:00Z',askAt='2026-10-07T09:50:00Z')
+  r['analysisQuote']=dict(bid=4.99,ask=5,askAt=T,bidAt=T,currency='EUR',priceKind='market-observation')
+  self.assertEqual(b.select_analysis_quote(r,N)['ask'],5)
+  self.assertEqual(b.calculate(r,self.g,self.fx,N)['value'],8)
+  r['bidAt']=r['askAt']=T
+  self.assertEqual(b.select_analysis_quote(r,N)['ask'],4)
+
  def test_calculated_evidence_requires_reproducible_fresh_inputs(self):
   r=copy.deepcopy(self.r)
   r['leverageCalculation']=b.calculate(r,self.g,self.fx,N)
