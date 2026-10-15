@@ -1,31 +1,13 @@
 """Minimal read-only MCP transport for Bob's private product-audit report.
 
-Uses the existing authenticated push service's DB connection, not a public DB
-port, browser cookies, broker credentials or GitHub issues. No write tools.
+Uses the existing Bob login Basic-auth session and its private audit proxy.
+It does not expose the PostgreSQL port, accept browser cookies, or provide write tools.
 """
-import hashlib
-import hmac
 import json
-import re
 
 PROTOCOL = "2025-03-26"
-TOKEN_CONTEXT = b"bob-chatgpt-product-audit-readonly-v1"
 _MAX_RESULT_BYTES = 200_000
 _TOOL_NAMES = ("bob_product_audit", "bob_product_gaps")
-
-
-def read_token(service_secret):
-    if not isinstance(service_secret, str) or len(service_secret) < 24:
-        return None
-    return "bob_ro_" + hmac.new(service_secret.encode(), TOKEN_CONTEXT, hashlib.sha256).hexdigest()
-
-
-def authorized(authorization, service_secret):
-    expected = read_token(service_secret)
-    if not expected or not isinstance(authorization, str) or not authorization.startswith("Bearer "):
-        return False
-    candidate = authorization[7:]
-    return len(candidate) == len(expected) and hmac.compare_digest(candidate, expected)
 
 
 def tool_definitions():
