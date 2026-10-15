@@ -7,7 +7,7 @@
  const side=x=>x==='LONG'||x==='SHORT';
  function selectQuote(q,isin,now=Date.now()){
   if(!q||q.isin!==isin||q.productVerified!==true||q.sourceDisabled
-    ||q.metadata?.status===2||q.metadata?.tradingHalted===true) return null;
+    ||q.metadata?.status!==1||q.metadata?.tradingHalted===true) return null;
   const candidates=[];
   for(const [origin,row] of [['issuer',q],['comdirect',q.secondaryQuote],
     ['analysis',q.analysisQuote],['swissquote',q.thirdQuote]]){
@@ -17,6 +17,7 @@
       ||!String(row.source||'').trim()||['calculated','unavailable'].includes(row.priceKind)) continue;
    // A native issuer orderable quote and a secondary market observation are
    // different evidence. Neither is an authenticated DEGIRO execution.
+   if(origin==='issuer'&&q.found!==true) continue;
    const issuer=origin==='issuer'&&q.found===true&&row.isExecutableQuote===true
      &&row.priceKind!=='issuer-chart'&&row.priceKind!=='research';
    if(origin!=='issuer'&&(row.isExecutableQuote!==false||row.degiroExecutable!==false)) continue;
