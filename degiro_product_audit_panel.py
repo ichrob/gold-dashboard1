@@ -1,24 +1,18 @@
 """Private visualisation of server-side DEGIRO list evidence checks."""
 PANEL = r'''<section id="bobProductAudit" class="card">
-<h3>Automatische Prüfung der gespeicherten DEGIRO-Produkte</h3>
-<p id="bobProductAuditStatus" role="status" class="small">Prüfbericht wird geladen …</p>
-<p id="bobProductAuditUpdated" class="small">Letzte Prüfung: noch unbekannt</p>
-<div style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0">
-<button id="bobAuditShareChatGPT" type="button">An ChatGPT teilen</button>
-<button id="bobAuditCopyChatGPT" type="button">Bericht kopieren</button>
-</div>
-<p id="bobAuditShareStatus" role="status" class="small">Handy: Erst durch Antippen werden private ISINs und fehlende Nachweise mit einer anderen App geteilt. Keine Kontodaten, Trades oder Zugangsdaten.</p>
+<h3>Diag Produkte Probleme</h3>
+<button id="bobAuditShareChatGPT" type="button">ChatGPT Teil</button>
+<p id="bobAuditShareStatus" hidden role="status" class="small"></p>
 <textarea id="bobAuditShareFallback" hidden readonly aria-label="Privaten Bericht zum manuellen Kopieren" style="width:100%;min-height:140px"></textarea>
-<details><summary>Werte, Zeitstempel und automatische Nachprüfung pro ISIN</summary>
-<div id="bobProductAuditItems" class="small"></div></details>
-<p class="small">Bob überprüft ausschließlich die aktive Screenshotliste mit Emittenten- und vorhandenen Ersatzquellen. Fehlende Daten werden erneut abgefragt, aber niemals ersetzt oder als aktuell ausgegeben, solange der Originalnachweis fehlt. Die Quellenvergleichsanzeige nutzt nur bereits vorhandene datierte Beobachtungen. Onvista darf ohne schriftliche Freigabe nicht automatisiert abgefragt werden. Kurse sind keine DEGIRO-Handelsbestätigung.</p>
+<div hidden>
+<p id="bobProductAuditStatus"></p>
+<p id="bobProductAuditUpdated"></p>
+<div id="bobProductAuditItems"></div>
+</div>
 </section>
-<section id="bobProductAuditProblem" class="card">
-<h3>Produktdaten · Offene Prüfprobleme</h3>
-<p id="bobProductAuditProblemCount" role="status">Produktprüfung wird geladen …</p>
-<p id="bobSeriesEvidenceRuleDone" class="small">✓ Erledigt: Die Serienregel für den eindeutig gemeinsamen Zeitbezug derselben ISIN/Quelle und zugehöriger Screenshots oder SG-Werte ist in Bob umgesetzt. Das bestätigt eine zusammengehörende Beobachtung, nicht automatisch eine separate Original-Hebelzeit oder einen bei DEGIRO ausführbaren Kurs.</p>
-<div id="bobProductAuditProblemItems" class="small"></div>
-<p class="small">Ab drei aufeinanderfolgenden unvollständigen Prüfungen erscheint ein KI-Hilfebedarf. Die private Produktliste und ISINs werden nicht in öffentlichen GitHub-Issues veröffentlicht. Die Prüfung ändert keine echten Orders, Produktfreigaben oder Stopps.</p>
+<section id="bobProductAuditProblem" hidden>
+<p id="bobProductAuditProblemCount"></p>
+<div id="bobProductAuditProblemItems"></div>
 </section>
 <script>
 (function(){
@@ -67,7 +61,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   if(!latestReport||typeof latestReport!=='object')return null;
   return auditTextForChatGPT(latestReport);
  }
- function handoffStatus(message){const node=byId('bobAuditShareStatus');if(node)node.textContent=message;}
+ function handoffStatus(message){const node=byId('bobAuditShareStatus');if(node){node.textContent=message;node.hidden=false;}}
  async function copyMobileAudit(){
   const value=mobileAuditPayload();
   if(!value){handoffStatus('Bitte erst auf den Prüfbericht warten und danach erneut tippen.');return;}
@@ -88,10 +82,10 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   if(!navigator.share){await copyMobileAudit();return;}
   try{
    await navigator.share({title:'Bob · Gold-Hebelprodukte Prüfbericht',text:value});
-   handoffStatus('Teilen abgeschlossen. Bitte in ChatGPT die Prüfung der ISINs starten.');
+   handoffStatus('In ChatGPT nur noch absenden. Der Prüf- und Reparaturauftrag ist enthalten.');
   }catch(error){
    if(error?.name==='AbortError')return;
-   handoffStatus('Android-Teilen nicht möglich. Bitte „Bericht kopieren“ verwenden.');
+   await copyMobileAudit();
   }
  }
  const fmt=iso=>{const d=new Date(iso);return Number.isNaN(d.getTime())?'unbekannt':d.toLocaleString('de-CH',{timeZone:'Europe/Zurich',dateStyle:'short',timeStyle:'medium'});};
@@ -105,8 +99,8 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   return 'nicht aktuell nachgewiesen';
  }
  function mount(){
-  const product=byId('bob-view-products'),problems=byId('bob-view-problems');
-  if(product)product.append(byId('bobProductAudit'));
+  const problems=byId('bob-view-problems');
+  if(problems)problems.append(byId('bobProductAudit'));
   if(problems)problems.append(byId('bobProductAuditProblem'));
   else {const main=document.querySelector('main');if(main)main.append(byId('bobProductAuditProblem'));}
  }
@@ -251,7 +245,6 @@ PANEL = r'''<section id="bobProductAudit" class="card">
  }
  function init(){mount();
   byId('bobAuditShareChatGPT')?.addEventListener('click',shareMobileAudit);
-  byId('bobAuditCopyChatGPT')?.addEventListener('click',copyMobileAudit);
   refresh();setInterval(()=>{if(document.visibilityState!=='hidden')refresh();},30000);
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refresh();});}
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
