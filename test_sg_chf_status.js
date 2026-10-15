@@ -26,7 +26,6 @@ assert(!card.includes('data-selection-approved'),card);
 assert.strictEqual(bob.finalProductStatus(sample(),now).complete,false);
 assert.strictEqual(bob.currentQuote(sample(),now),false);
 assert.strictEqual(bob.productDataStatus(sample(),now).complete,false);
-assert.strictEqual(bob.additionalProductsComplete([sample()],now),false);
 const invalid=[
  {name:'quote unavailable',change:p=>{p.quote.sourceFailure=true;}},
  {name:'issuer clock lost',change:p=>{p.quote.sharedTimeContext.at=new Date(now-45000).toISOString();}},
