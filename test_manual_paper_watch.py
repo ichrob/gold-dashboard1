@@ -119,6 +119,77 @@ class ManualWatchTests(unittest.TestCase):
         self.assertEqual(db.state['alerts'][-1]['kind'],'target-observed')
         self.assertEqual(db.state['position']['entry'],8.)
 
+    def test_bought_short_certificate_uses_product_price_for_profit_stop_target(self):
+        # SHORT is the gold exposure; the customer BOUGHT the certificate.
+        db=FakeConn()
+        watch.sync(db,{'position':{**position(),'direction':'SHORT'}})
+        watch.set_levels(db,dict(stopEur=7.5,targetEur=8.25))
+        one=current_quote(dt.datetime.now(dt.timezone.utc)-dt.timedelta(seconds=2))
+        now=int(dt.datetime.now(dt.timezone.utc).timestamp()*1000)
+        watch.observe(db,one,now)
+        self.assertEqual(db.state['valuation']['pnlEur'],50)
+        self.assertEqual(db.state['alerts'][-1]['kind'],'target-observed')
+        two=current_quote(dt.datetime.now(dt.timezone.utc)-dt.timedelta(seconds=1))
+        two.update(bid=7,ask=7.02)
+        watch.observe(db,two,now)
+        self.assertEqual(db.state['valuation']['pnlEur'],-100)
+        self.assertEqual(db.state['alerts'][-1]['kind'],'stop-observed')
+        with self.assertRaises(ValueError):
+            watch.set_levels(db,dict(stopEur=8.4,targetEur=7.2))
+
+    def verified_comdirect_paper_research(self,age_seconds=2):
+        at=(dt.datetime.now(dt.timezone.utc)-dt.timedelta(seconds=age_seconds)).isoformat()
+        pair=dict(isin=ISIN,bid=8.5,ask=8.6,quoteAt=at,bidAt=at,askAt=at,
+                  currency='EUR',source='comdirect · SG LiveTrading',
+                  venue='LT Societe Generale',priceKind='market-observation',
+                  isExecutableQuote=False,degiroExecutable=False)
+        return dict(isin=ISIN,productVerified=True,found=False,eligible=False,
+                    currency='EUR',source='Société Générale · Direktimport',
+                    metadata=dict(status=1,direction='LONG',issuerExchangeCode='CBDE'),
+                    secondaryQuote=pair)
+
+    def test_researched_comdirect_pair_values_paper_only_without_stop_alert(self):
+        db=FakeConn()
+        watch.sync(db,{'position':position()})
+        watch.set_levels(db,dict(stopEur=7.5,targetEur=8.25))
+        now=int(dt.datetime.now(dt.timezone.utc).timestamp()*1000)
+        raw=self.verified_comdirect_paper_research()
+        result=watch.observe(db,raw,now)
+        self.assertEqual(result['watch']['status'],'model-observed')
+        self.assertEqual(result['watch']['valuation']['pnlEur'],50)
+        self.assertTrue(result['watch']['valuation']['referenceOnly'])
+        self.assertFalse(result['watch']['valuation']['degiroExecutable'])
+        self.assertIn('keine ausführbare DEGIRO-Quote',result['watch']['reason'])
+        self.assertEqual(result['watch']['alerts'],[])
+        self.assertFalse(raw.get('paperQuoteAccepted',False))
+        self.assertFalse(raw['secondaryQuote']['isExecutableQuote'])
+
+    def test_research_fallback_never_backfills_bad_or_undated_quotes(self):
+        for change in ('old','mismatch','inactive','wrong-currency','wrong-upstream'):
+            with self.subTest(change=change):
+                db=FakeConn()
+                watch.sync(db,{'position':position()})
+                raw=self.verified_comdirect_paper_research(181 if change=='old' else 2)
+                if change=='mismatch':raw['secondaryQuote']['isin']='DE000FG4JXV7'
+                if change=='inactive':raw['metadata']['status']=2
+                if change=='wrong-currency':raw['secondaryQuote']['currency']='CHF'
+                if change=='wrong-upstream':raw['secondaryQuote']['source']='unknown'
+                now=int(dt.datetime.now(dt.timezone.utc).timestamp()*1000)
+                watch.observe(db,raw,now)
+                self.assertEqual(db.state['status'],'waiting-quote')
+                self.assertIsNone(db.state['valuation'])
+                self.assertEqual(db.state['alerts'],[])
+
+    def test_conflicting_issuer_direction_never_values_existing_test(self):
+        db=FakeConn()
+        watch.sync(db,{'position':position()})
+        raw=current_quote()
+        raw['metadata']=dict(status=1,direction='SHORT')
+        watch.observe(db,raw)
+        self.assertEqual(db.state['status'],'waiting-quote')
+        self.assertIn('Produktrichtung',db.state['reason'])
+        self.assertFalse(db.observations)
+
     @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),
                          'Requires ephemeral CI database')
     def test_database_isolation_and_restart_resume(self):
