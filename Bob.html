@@ -2074,7 +2074,7 @@ function minuteEntryContext(bundle,state,now=Date.now()){
 function renderMinuteEntry(){
  const el=$('minuteEntryStatus');if(!el)return;
  const q=minuteEntryContext(liveBundleCache,signalState);
- el.textContent='1m-Einstiegshilfe · Vergleichstest: '+q.reason+'.'+(q.barAt?' Kerzenschluss '+new Date(q.barAt+60000).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich).':'')+' Hauptrichtung und Produktfreigabe bleiben eigenständig.';
+ el.textContent='1m-Einstiegshilfe: '+q.reason+'.'+(q.barAt?' Kerzenschluss '+new Date(q.barAt+60000).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich).':'')+' Zwei bestätigende 1m-Schlüsse können die zweite 5m-Wartekerze ersetzen; Haupttrend und Produktfreigabe bleiben erforderlich.';
 }
 
 function buildMtfHierarchy(byTf,valid=true){
@@ -2786,9 +2786,35 @@ function renderPositionStatus(){
  const detailReason=$('tradePositionReason');if(detailReason)detailReason.textContent=state.reason;
 }
 function trendFollowingSignal(bundle,now=Date.now()){
- const raw=fiveMinuteConfirmation(bundle,now),trend=sustainedTrendContext(bundle,now);
+ const baseline=fiveMinuteConfirmation(bundle,now),trend=sustainedTrendContext(bundle,now);
+ const fast=acceleratedMinuteConfirmation(bundle,baseline,now);
+ const raw=fast||baseline;
  const approved=trend.available&&trend.intact&&raw.dir===trend.direction;
  return {...raw,dir:approved?raw.dir:'NEUTRAL',trendContext:trend,reason:trend.reason+' · '+raw.reason};
+}
+// Replace only the second 5m waiting close, never the setup or risk gates.
+function acceleratedMinuteConfirmation(bundle,state,now=Date.now()){
+ const side=state.preparedDirection;
+ if(state.count!==1||!['LONG','SHORT'].includes(side)||!Number.isFinite(state.lastAt))return null;
+ const frames=bundle?.history?.bars_by_tf||{},raw=frames['1m']||[];
+ if(raw.some(b=>b.instrument!=='XAU/USD'||b.estimated))return null;
+ const minute=minuteEntryContext(bundle,{dir:side},now);
+ if(!minute.available||minute.direction!==side)return null;
+ const end=state.lastAt+300000;
+ // Evidence must arrive after the prepared 5m close, within its waiting period.
+ const rows=raw.filter(b=>!b.isOpen&&b.openTime+60000<=now),pair=rows.slice(-2);
+ if(pair.length!==2||pair[0].openTime<end||pair[1].openTime-pair[0].openTime!==60000||now>=end+300000||now-pair[1].openTime-60000>=60000)return null;
+ const setup=(frames['5m']||[]).filter(b=>!b.isOpen&&b.openTime+300000<=now);
+ const bar=setup.at(-1),sign=side==='LONG'?1:-1;
+ if(!bar||bar.openTime!==state.lastAt||setup.some(b=>b.estimated||b.instrument!=='XAU/USD'))return null;
+ const level=side==='LONG'?bar.high:bar.low;
+ const vol=atr(setup),average=ema(setup.map(b=>b.close),20);
+ if(!Number.isFinite(vol)||vol<=0||Math.abs(pair[1].close-average)>1.5*vol)return null;
+ if(!pair.every(b=>sign*(b.close-b.open)>0&&sign*(b.close-level)>0)||sign*(pair[1].close-pair[0].close)<=0)return null;
+ return {...state,dir:side,count:0,pending:side,preparedDirection:null,
+  confirmedAt:state.lastAt,confirmationAt:pair[1].openTime+60000,
+  entryTiming:'two-minute-follow-through-v1',
+  reason:'Früher bestätigt: zwei geschlossene 1m-Kerzen nach dem 5m-Signal, jenseits seiner Spanne; kein überdehnter Einstieg · '+state.reason};
 }
 // Shared by the browser and the headless worker. Only suppresses new entries.
 function applyLearningFilter(state,bundle,policy=window.BobLearningPolicy,now=Date.now()){
