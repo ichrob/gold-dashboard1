@@ -43,7 +43,7 @@ PANEL = r'''<section id="bobAreaChecks" class="card" aria-label="Gesamtprüfung 
   const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),ms);
   try{
    const res=await fetch(path,{credentials:'same-origin',cache:'no-store',signal:ctl.signal});
-   if(!res.ok)return null;
+   if(!res.ok&&!(path==='/health/background'&&res.status===503))return null;
    const data=await res.json();
    return known(data)?data:null;
   }catch(_){return null;}finally{clearTimeout(timer);}
@@ -134,7 +134,8 @@ PANEL = r'''<section id="bobAreaChecks" class="card" aria-label="Gesamtprüfung 
    else out.overview=say('unknown','Marktanalyse derzeit nicht vollständig belegbar (Kurszeit, Kerzen, Quellabgleich oder Serverabruf).');
    const rows=Array.isArray(audit?.items)?audit.items:null;
    const recent=age(audit?.lastCheckedAt)>=0&&age(audit?.lastCheckedAt)<=300000;
-   const listToday=audit?.listUploadedAt&&swissDay(time(audit.listUploadedAt))===swissDay(Date.now());
+   const listTime=time(audit?.listUploadedAt);
+   const listToday=Number.isFinite(listTime)&&swissDay(listTime)===swissDay(Date.now());
    if(audit?.status==='ok'&&rows&&rows.length>0&&Number.isInteger(audit.incomplete)&&
       audit.incomplete>0)
     out.products=say('warning',audit.incomplete+' Produkte mit fehlenden oder veralteten Nachweisen. Details unter Gold-Hebelprodukte.');
