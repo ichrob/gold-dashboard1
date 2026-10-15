@@ -261,3 +261,15 @@ trades are never fabricated to capture an earlier price move. Its separate
 portfolio return, skipped entries and cases are shown in Vollautomatisch.
 Any claimed edge needs an independent sample and costs/realism evaluation;
 simulation alone is not proof of a profitable product strategy.
+
+
+## Read-only market quality and prospective valuation audit — 2026-10-15
+
+The shared live XAU/USD bundle now includes `marketReview`, which displays without affecting any entry, paper-fill, stop, ranking or execution gate:
+- Original Gold-spot freshness, separate 1m/5m/15m/30m/1h source identity, closed-bar count, OHLC integrity, short recent gaps and EMA200 warmup (200 closed, same-instrument bars). Missing EMA200 is context missing, not an entry veto.
+- A spot versus 5m-close plausibility check ONLY if real source timestamps differ by at most 90 seconds (and spot follows that closed candle). The alert threshold is the larger of 3×ATR14 or 0.25% of the same-basis closed price, an uncalibrated diagnostic tolerance. It never compares untimed GC=F/CFD references as equivalent spot.
+- Indicative CHF→EUR = CHF × (USD/EUR ÷ USD/CHF) cross conversion. Merely fetching the existing GoldPrice.dev currency values does not establish original market-source quote time. Without source-side original timestamps the diagnostic must state `source-time-unknown`, even if the API call succeeded. No derived rate is promoted to a broker quote.
+- The early-impulse observation now identifies whether the same side is already approved and the historical audit measures minutes until a subsequently *observed* same-side active confirmation (within 60 minutes), plus no-confirmation/pending counts. It remains completely separate from trading policy and historic spot-direction result statistics.
+- For verified simple SG EUR spot turbos, independently observed later issuer/comdirect quote times can be matched to previously frozen research-only product estimates (<=5 seconds observation-time separation); same-call initial calibration never counts as a successful forecast. The displayed absolute EUR error and comparison count are descriptive and in-memory only; Render restarts reset this research sample. At least 20 temporally spread samples are required before the quality helper labels a bucket ready. This is *not* a DEGIRO execution quote, proof of future accuracy or permission to trade.
+
+Existing actual v7 main-trend entry rules, DX/ADX thresholds, stops/KO gates, product identity checks, simulation rules and risk controls remain unchanged. These read-only diagnostic changes do not imply that the live scanner is uninterrupted or profitable. Test the baseline and revised warnings prospectively before any strategy promotion.
