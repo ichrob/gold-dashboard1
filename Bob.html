@@ -1527,6 +1527,48 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   // Dedicated Problem section: archived KI help requests plus existing recovery log.
   move(byId('bobProblemPanel'),'problems');
   move(byId('bobSelfHealing'),'problems');
+
+  // Smartphone handoff: never rely on ChatGPT's desktop-only MCP plugin here.
+  // Only the user can share/copy; no private report or credential is sent automatically.
+  const mobileHelp=document.createElement('section');
+  mobileHelp.id='bobMobileHelp';mobileHelp.className='card';
+  mobileHelp.innerHTML=
+    '<h3>Bob KI-Zentrale · Handy</h3>'+
+    '<p class="small">Nutze ChatGPT direkt auf dem Handy. Die verbundenen GitHub- und Render-Werkzeuge helfen bei der Fehleranalyse, auch wenn das private Bob-Plugin als „Nur Desktop“ markiert ist.</p>'+
+    '<p class="small"><b>1.</b> Hilferuf an ChatGPT teilen oder kopieren. <b>2.</b> ChatGPT öffnen und die Nachricht absenden.</p>'+
+    '<button type="button" class="bob-primary" id="bobMobileHelpShare">1 · KI-Hilferuf teilen / kopieren</button>'+
+    '<a id="bobMobileHelpOpen" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer" style="display:block;padding:12px;text-align:center;margin-top:9px;border-radius:10px;background:#e8f1ff;color:#125bc0;font-weight:700;text-decoration:none;min-height:44px">2 · ChatGPT öffnen</a>'+
+    '<p id="bobMobileHelpFeedback" class="small" role="status" aria-live="polite">Es werden keine Zugangsdaten oder privaten Produktwerte übertragen.</p>';
+  panels.problems.prepend(mobileHelp);
+  const mobileHelpPrompt=[
+    'Bitte prüfe das Projekt Bob und hilf mir, technische Probleme selbstständig zu beheben.',
+    'GitHub: ichrob/gold-dashboard1',
+    'Render: bob-private-scanner und bob-push-service.',
+    'Nutze die bereits verbundenen GitHub- und Render-Werkzeuge. Prüfe Fehler, offene Probleme, aktuelle Deployments und Tests.',
+    'Wenn der private Bob-Produktbericht am Handy nicht zugänglich ist, melde diese Grenze ausdrücklich und nutze nur autorisierte Ersatzprüfungen.',
+    'Ändere keine Echtgeldorders, Handelsfreigaben, Risiko- oder Knock-out-Regeln ohne gesonderte Prüfung und Freigabe.',
+    'Erkläre mir kurz, was behoben, veröffentlicht und tatsächlich kontrolliert wurde.'
+  ].join('\n');
+  async function copyMobileHelp(){
+    if(navigator.clipboard && navigator.clipboard.writeText){await navigator.clipboard.writeText(mobileHelpPrompt);return;}
+    const input=document.createElement('textarea');input.value=mobileHelpPrompt;
+    input.setAttribute('readonly','');input.style.position='fixed';input.style.left='-9999px';
+    document.body.append(input);input.select();
+    const copied=document.execCommand('copy');input.remove();
+    if(!copied)throw new Error('copy-unavailable');
+  }
+  byId('bobMobileHelpShare').addEventListener('click',async()=>{
+    const feedback=byId('bobMobileHelpFeedback');
+    if(typeof navigator.share==='function'){
+      try{
+        await navigator.share({title:'Bob KI-Hilferuf',text:mobileHelpPrompt});
+        feedback.textContent='Teilen abgeschlossen. Bitte prüfe, ob die Nachricht in ChatGPT angekommen ist, und sende sie dort ab.';
+        return;
+      }catch(err){if(err && err.name==='AbortError'){feedback.textContent='Teilen abgebrochen. Es wurde nichts versendet.';return;}}
+    }
+    try{await copyMobileHelp();feedback.textContent='Hilferuf kopiert. Jetzt auf „ChatGPT öffnen“ tippen und den Text einfügen.';}
+    catch(_){feedback.textContent='Automatisches Kopieren nicht verfügbar. Öffne ChatGPT und schreibe: „Prüfe Bob über GitHub und Render.“';}
+  });
   const disclaimer=main.querySelector(':scope > .card.warning');if(disclaimer){move(disclaimer,'learning');fold(disclaimer,'Hinweise zur Nutzung');}
   // Keep the existing live data-status node, but display it only once at the end of Products.
   const productDataStatus=byId('dgTop3')?.querySelector(':scope > div.small');
