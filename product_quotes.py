@@ -650,6 +650,7 @@ def _restore_exact_sg_metadata(result, isin):
     if (isin not in SG_DIRECT_PRODUCTS or result.get('isin') != isin
             or result.get('productVerified') is not True
             or result.get('sourceFailure') or result.get('quoteFailureCode')
+            or result.get('sourceDisabled') or result.get('found')
             or meta.get('status') != 1 or meta.get('issuerExchangeCode')
             or not chart.get('pointAt')):
         return result
