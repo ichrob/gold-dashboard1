@@ -137,6 +137,26 @@ class ManualWatchTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             watch.set_levels(db,dict(stopEur=8.4,targetEur=7.2))
 
+    def test_legacy_reversed_short_levels_never_generate_false_alert(self):
+        db=FakeConn()
+        watch.sync(db,{'position':{**position(),'direction':'SHORT'}})
+        # Earlier server versions stored SHORT-product model levels inverted.
+        db.state['stopEur']=9.5
+        db.state['targetEur']=7.
+        now=int(dt.datetime.now(dt.timezone.utc).timestamp()*1000)
+        watch.observe(db,current_quote(dt.datetime.now(dt.timezone.utc)-dt.timedelta(seconds=2)),now)
+        self.assertEqual(db.state['valuation']['pnlEur'],50)
+        self.assertEqual(db.state['status'],'levels-need-review')
+        self.assertIn('Stopp muss unter',db.state['reason'])
+        self.assertEqual(db.state['alerts'],[])
+        self.assertEqual(db.state['stopEur'],9.5)
+        self.assertEqual(db.state['targetEur'],7.)
+        # An explicit corrected owner input restores ordinary monitoring.
+        watch.set_levels(db,dict(stopEur=7.5,targetEur=8.25))
+        q=current_quote(dt.datetime.now(dt.timezone.utc)-dt.timedelta(seconds=1))
+        watch.observe(db,q,now)
+        self.assertEqual(db.state['alerts'][-1]['kind'],'target-observed')
+
     def verified_comdirect_paper_research(self,age_seconds=2):
         at=(dt.datetime.now(dt.timezone.utc)-dt.timedelta(seconds=age_seconds)).isoformat()
         pair=dict(isin=ISIN,bid=8.5,ask=8.6,quoteAt=at,bidAt=at,askAt=at,
