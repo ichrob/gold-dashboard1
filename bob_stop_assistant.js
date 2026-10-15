@@ -41,7 +41,9 @@
    const left=quotes[i],right=quotes[j];
    const bidGap=Math.abs(atMs(left.at)-atMs(right.at));
    const askGap=Math.abs(atMs(left.askAt)-atMs(right.askAt));
-   if(bidGap>30000||askGap>30000)continue;
+   if(bidGap>30000||askGap>30000||
+      Math.abs(atMs(left.at)-atMs(left.askAt))>30000||
+      Math.abs(atMs(right.at)-atMs(right.askAt))>30000)continue;
    const bidDifference=Number((left.bid-right.bid).toFixed(6));
    const askDifference=Number((left.ask-right.ask).toFixed(6));
    const bidPct=Math.abs(bidDifference)/Math.max(left.bid,right.bid)*100;
