@@ -131,15 +131,20 @@ def quote_observation(q,isin,now_ms):
         return None,'Kein aktuell handelbarer bestätigter Anbieter-Geldkurs'
     if q.get('currency')!='EUR' or q.get('isExecutableQuote') is False or q.get('priceKind') in ('calculated','issuer-chart'):
         return None,'Kein ausführbarer Euro-Geldkurs'
-    if not positive(q.get('bid')) or not isinstance(q.get('source'),str) or not q['source']:
-        return None,'Geldkurs oder Quelle fehlt'
+    if (not positive(q.get('bid')) or not positive(q.get('ask'))
+            or q['ask'] < q['bid'] or not isinstance(q.get('source'),str)
+            or not q['source']):
+        return None,'Belegtes zweiseitiges Geld-/Briefpaar oder Quelle fehlt'
     try:
-        at=iso_stamp(q.get('bidAt') or q.get('quoteAt'))
-    except ValueError:return None,'Quellenzeit fehlt'
-    age=now_ms-int(at.timestamp()*1000)
-    if not 0<=age<=MAX_QUOTE_AGE_MS or q.get('delayed'):
-        return None,'Kurs veraltet oder Zeitbezug unbestätigt'
-    return dict(at=at,bid=float(q['bid']),source=q['source'][:160]),None
+        # A generic request/quote time is NOT a source-time proof for bid/ask.
+        # Stop/target events require both original issuer clocks independently.
+        bid_at=iso_stamp(q.get('bidAt'))
+        ask_at=iso_stamp(q.get('askAt'))
+    except ValueError:return None,'Geld- oder Brief-Quellenzeit fehlt'
+    ages=[now_ms-int(t.timestamp()*1000) for t in (bid_at,ask_at)]
+    if any(not 0<=age<=MAX_QUOTE_AGE_MS for age in ages) or q.get('delayed'):
+        return None,'Geld-/Briefkurs veraltet oder Zeitbezug unbestätigt'
+    return dict(at=bid_at,bid=float(q['bid']),source=q['source'][:160]),None
 
 
 
