@@ -163,7 +163,9 @@ def sync_issue(codes, *, token, repo, at=None, requester=github_request):
     """Keep individual open GitHub problems in sync with confirmed health faults.
 
     The public issue list is only an incident index, not a source of raw logs.
-    A recovered fault is closed (history preserved); unrelated issues untouched.
+    Only infrastructure faults automatically close after verified recovery.
+    Product proof incidents require original-source confirmation and explicit
+    review. Missing diagnostic codes are not evidence of recovery.
     """
     if not token or repo != "ichrob/gold-dashboard1":
         raise ValueError("GitHub-Umgebung nicht freigegeben")
@@ -180,8 +182,9 @@ def sync_issue(codes, *, token, repo, at=None, requester=github_request):
              {issue_title(code) for code in CODES})
     }
     detected = sorted(set(code for code in codes if code in CODES))
-    preserve_product = (PRODUCT_AUDIT_UNKNOWN in codes
-                        or "push-unreachable" in codes or "push-unhealthy" in codes)
+    # This public watchdog sees only anonymous error codes. It cannot verify
+    # the underlying broker or issuer records, so never auto-close product issues.
+    product_titles = {issue_title(code) for code in PRODUCT_CODES}
     actions = []
 
     # First create any missing problem; each fault maps to precisely one open
@@ -199,8 +202,9 @@ def sync_issue(codes, *, token, repo, at=None, requester=github_request):
     for title, number in indexed.items():
         if title != ISSUE_TITLE and title in {issue_title(code) for code in detected}:
             continue
-        if preserve_product and title in {issue_title(code) for code in PRODUCT_CODES}:
-            # No positive product recheck -> never declare the proof recovered.
+        if title in product_titles:
+            # A disappearing error code (or unavailable audit) cannot prove
+            # source validity. Closure requires separately confirmed evidence.
             continue
         if title == ISSUE_TITLE and not detected:
             # Compatibility with old combined issue title.
@@ -214,7 +218,11 @@ def sync_issue(codes, *, token, repo, at=None, requester=github_request):
         requester("PATCH", "/issues/" + str(number), token=token, repo=repo,
                   data={"state": "closed"})
         actions.append("closed-" + str(number))
-    return ",".join(actions) if actions else ("already-open" if detected else "healthy")
+    if actions:
+        return ",".join(actions)
+    if PRODUCT_AUDIT_UNKNOWN in codes:
+        return "audit-unavailable"
+    return "already-open" if detected or any(t in product_titles for t in indexed) else "healthy"
 
 
 def main():
