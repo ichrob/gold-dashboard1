@@ -274,6 +274,21 @@ def advance_case(original, market, quote, now):
     """Stop checks precede trailing; resumed gaps cannot manufacture a win."""
     c=copy.deepcopy(original)
     def event(kind,**extra):c['events'].append(dict(kind=kind,at=market.get('dataAt'),recordedAt=now,**extra))
+    def defer_remaining():
+        if c.get('remainingUnits'):
+            c['pendingUnits']+=c['remainingUnits'];c['remainingUnits']=0;c['remaining']=0.
+            c['pendingSince']=now
+    terminal_status = paper_ko_guard.terminal(quote, c['product']['isin'])
+    if terminal_status and (c['status']=='open' or c.get('pendingUnits')):
+        # Provider-confirmed terminal status is not a known executable price
+        # or a proven zero recovery. Keep unpriced units pending.
+        changed = c.get('koWatchStatus') != terminal_status
+        c.update(status='inconclusive',closedAt=c.get('closedAt') or now,
+                 productReturnKnown=False,productGrossPct=None,
+                 koWatchStatus=terminal_status)
+        defer_remaining()
+        if changed:event(terminal_status,reason='Emittent meldet Produktende; Abrechnungswert unbekannt, kein erfundener Verkauf')
+        return c
     q=fresh_quote(quote,now,c['product']['isin']) if c.get('quantity') else None
     if (c.get('pendingUnits') and q and
             c.get('koWatchStatus') not in ('knockout-confirmed','product-terminated') and
@@ -283,20 +298,6 @@ def advance_case(original, market, quote, now):
         if not c.get('remainingUnits'):
             c.update(productReturnKnown=True,productGrossPct=(c['cashReleased']/c['allocated']-1)*100,settledAt=now)
     if c['status']!='open':return c
-    def defer_remaining():
-        if c.get('remainingUnits'):
-            c['pendingUnits']+=c['remainingUnits'];c['remainingUnits']=0;c['remaining']=0.
-            c['pendingSince']=now
-    terminal_status = paper_ko_guard.terminal(quote, c['product']['isin'])
-    if terminal_status:
-        # Provider-confirmed terminal status is not a known executable price
-        # or a proven zero recovery. Keep unpriced units pending.
-        c.update(status='inconclusive',closedAt=now,
-                 productReturnKnown=False,productGrossPct=None,
-                 koWatchStatus=terminal_status)
-        defer_remaining()
-        event(terminal_status,reason='Emittent meldet Produktende; Abrechnungswert unbekannt, kein erfundener Verkauf')
-        return c
     at=market.get('dataAt');last=c['lastAt']
     if not finite(at) or not 0<=now-at<=60000 or not market.get('priceFresh') or not finite(market.get('price')):
         if now-last>90000:
