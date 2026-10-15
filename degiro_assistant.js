@@ -519,7 +519,7 @@ function rememberKnockout(e){
 }
 function knockoutCard(p){
  const e=knockoutStatus(p);if(!e)return '';
- return '<div data-product-isin="'+esc(p.isin)+'" data-product-knocked-out style="padding:14px;margin-top:10px;border:1px solid #dc2626;border-radius:12px;background:#fff7f7"><b>'+esc(p.isin)+'</b> · '+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'<div style="color:#b91c1c;font-weight:700;margin-top:8px">Ausgeknockt – Produkt ausgeschlossen</div><p class="small">Der Emittent meldet „KNOCKED OUT“. Keine weiteren Daten oder Screenshots erforderlich. Dieses Produkt wird nicht mehr für die Produktauswahl oder eine Produktfreigabe berücksichtigt.</p><div class="small">Nachweis: '+esc(e.source)+(e.observedDate?' · gesehen am '+esc(e.observedDate):'')+'. Der genaue Knock-out-Zeitpunkt ist damit nicht belegt.</div></div>';
+ return '<div data-product-isin="'+esc(p.isin)+'" data-product-knocked-out style="padding:14px;margin-top:10px;border:1px solid #dc2626;border-radius:12px;background:#fff7f7"><b>'+esc(p.isin)+'</b>'+renderIsinCopy(p.isin)+' · '+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'<div style="color:#b91c1c;font-weight:700;margin-top:8px">Ausgeknockt – Produkt ausgeschlossen</div><p class="small">Der Emittent meldet „KNOCKED OUT“. Keine weiteren Daten oder Screenshots erforderlich. Dieses Produkt wird nicht mehr für die Produktauswahl oder eine Produktfreigabe berücksichtigt.</p><div class="small">Nachweis: '+esc(e.source)+(e.observedDate?' · gesehen am '+esc(e.observedDate):'')+'. Der genaue Knock-out-Zeitpunkt ist damit nicht belegt.</div></div>';
 }
 function evaluateProduct(p){if(knockoutStatus(p))return{ok:false,fit:false,score:0,reasons:["Ausgeknockt – Produkt ausgeschlossen. Keine weiteren Daten erforderlich."],warnings:[]};if(p.quote?.isin===p.isin&&p.quote?.productVerified&&p.quote?.metadata?.status!==undefined&&p.quote.metadata.status!==1)return{ok:false,fit:false,score:0,reasons:["Produkt laut Quelle ausgeknockt oder beendet – ausgeschlossen."],warnings:[]};if(/FAKTOR|FACTOR/i.test([p.name,p.quote?.name,p.snapshot?.terms?.type?.value].join(" ")))return{ok:false,fit:false,score:0,reasons:["Faktorprodukt ausgeschlossen – keine Produktfreigabe."],warnings:[]};if(isFutureProduct(p))return{ok:false,fit:false,score:0,reasons:["Gold-Future benötigt eigene Basiswertdaten und Trendprüfung; keine XAU/USD-Spot-Freigabe."],warnings:[]};return evaluateProductCore(p);}
 // Bob ranking policy v1: product costs/risk, never a profit probability.
@@ -1565,9 +1565,13 @@ function rememberScreenshotProduct(isin){
  try{localStorage.setItem(RETURN_PRODUCT_KEY,isin);}catch(_){}
  updateScreenshotReturn();
 }
-function renderIsinCopy(isin,compact=false){
- if(compact)return validIsin(isin)?'<span style="display:inline-block;vertical-align:middle"><button type="button" data-copy-product-isin="'+esc(isin)+'" aria-label="ISIN '+esc(isin)+' kopieren" title="ISIN kopieren" style="width:36px;min-height:36px;padding:4px;margin:0 4px;font-size:18px">⧉</button><span class="small" role="status" data-copy-status></span></span>':'';
- return validIsin(isin)?'<span style="display:inline-block;margin:4px 8px"><button type="button" data-copy-product-isin="'+esc(isin)+'" aria-label="ISIN '+esc(isin)+' kopieren" style="min-height:44px">📋 ISIN kopieren</button><span role="status" data-copy-status></span></span>':'';
+function renderIsinCopy(isin){
+ // The same one-tap control appears beside every identified product, including
+ // blocked and knocked-out products. Only copying is allowed; no trade action.
+ if(!validIsin(isin))return '';
+ return '<span data-isin-copy style="display:inline-flex;align-items:center;vertical-align:middle;gap:4px;margin-left:6px;white-space:nowrap">'+
+  '<button type="button" data-copy-product-isin="'+esc(isin)+'" aria-label="ISIN '+esc(isin)+' kopieren" title="ISIN kopieren" style="min-width:44px;min-height:44px;padding:5px;margin:0;font-size:20px;line-height:1">📋</button>'+
+  '<span class="small" role="status" aria-live="polite" data-copy-status style="font-size:12px"></span></span>';
 }
 function bindIsinCopy(root){
  root.querySelectorAll('[data-screenshot-product]').forEach(link=>{
@@ -1579,12 +1583,12 @@ function bindIsinCopy(root){
   button.addEventListener('click',async()=>{
    const isin=(button.parentNode.querySelector('[data-dg="isin"]')?.value||button.dataset.copyProductIsin||'').trim().toUpperCase(),status=button.parentNode.querySelector('[data-copy-status]');
    if(!validIsin(isin)){if(status)status.textContent=' Bitte zuerst eine gültige ISIN eintragen.';return;}
-   try{await navigator.clipboard.writeText(isin);if(status)status.textContent=' ISIN kopiert: '+isin;}
+   try{await navigator.clipboard.writeText(isin);if(status)status.textContent=' ✓ Kopiert';}
    catch(_){
     const field=document.createElement('textarea');field.value=isin;field.readOnly=true;field.style.cssText='position:fixed;left:0;top:0;opacity:0';
     document.body.append(field);field.select();field.setSelectionRange(0,isin.length);
     let copied=false;try{copied=document.execCommand('copy');}catch(_){}finally{field.remove();}
-    if(status)status.textContent=copied?' ISIN kopiert: '+isin:' Bitte manuell kopieren: '+isin;
+    if(status)status.textContent=copied?' ✓ Kopiert':' Kopieren nicht möglich: '+isin;
    }
   });
  });
@@ -1897,7 +1901,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  const direct=p.quote?.isin===p.isin&&p.quote?.productVerified?p.quote:null;
  const undatedReference=direct?.issuerLeverageReference?.dated===false&&n(direct.issuerLeverageReference.value)>0;
  const excluded=compactProductExclusion(p);
- if(excluded)return '<div data-product-isin="'+esc(p.isin)+'" style="padding:14px;margin-top:10px;border:1px solid #dc2626;border-radius:12px"><b>'+esc(p.isin)+'</b><p>'+esc(excluded)+'</p><p>Keine weiteren Daten oder Screenshots erforderlich.</p>'+(direct?.lifecycleEvidence?'<p>'+esc(direct.reason)+'</p>':'')+renderProductSources(p)+'</div>';
+ if(excluded)return '<div data-product-isin="'+esc(p.isin)+'" style="padding:14px;margin-top:10px;border:1px solid #dc2626;border-radius:12px"><b>'+esc(p.isin)+'</b>'+renderIsinCopy(p.isin)+'<p>'+esc(excluded)+'</p><p>Keine weiteren Daten oder Screenshots erforderlich.</p>'+(direct?.lifecycleEvidence?'<p>'+esc(direct.reason)+'</p>':'')+renderProductSources(p)+'</div>';
  const selected=status==='Freigegeben · ausgewählt';
  const complete=finalProductStatus(p).complete;
  const x=p.snapshot,terms={...(x?.terms||{}),...(direct?.conditions||{})},values=[];
@@ -3419,7 +3423,7 @@ async function inject(){
  for(let i=1;i<=12;i++){
   const r=document.createElement("div");
   r.style.cssText="margin:8px 0;padding:9px;background:#fff;border-radius:10px";
-  r.innerHTML='<b>Kandidat '+i+'</b><div id="dgOcrStatus'+i+'" class="small" style="margin-top:5px">Wartet auf Screenshot.</div><div id="dgResearch'+i+'" class="small research" style="margin-top:5px">🌐 Zusatzdaten: warten auf ISIN.</div><div class="grid" style="margin-top:6px"><input data-dg="name" data-i="'+i+'" placeholder="Produktname / ISIN"><select data-dg="dir" data-i="'+i+'"><option value="">Richtung</option><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select><input data-dg="price" data-i="'+i+'" type="number" step=".0001" placeholder="Produktkurs"><input data-dg="lev" data-i="'+i+'" type="number" step=".1" placeholder="Hebel"><input data-dg="ko" data-i="'+i+'" type="number" step=".01" placeholder="KO-Level"><div><input data-dg="isin" data-i="'+i+'" placeholder="ISIN" aria-label="ISIN"><button type="button" data-copy-product-isin="" style="min-height:44px">ISIN kopieren</button><span role="status" data-copy-status></span></div><span id="dgCompletion'+i+'" role="status"></span></div><button data-research="'+i+'">Aktuelle Produktdaten laden</button>';
+  r.innerHTML='<b>Kandidat '+i+'</b><div id="dgOcrStatus'+i+'" class="small" style="margin-top:5px">Wartet auf Screenshot.</div><div id="dgResearch'+i+'" class="small research" style="margin-top:5px">🌐 Zusatzdaten: warten auf ISIN.</div><div class="grid" style="margin-top:6px"><input data-dg="name" data-i="'+i+'" placeholder="Produktname / ISIN"><select data-dg="dir" data-i="'+i+'"><option value="">Richtung</option><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select><input data-dg="price" data-i="'+i+'" type="number" step=".0001" placeholder="Produktkurs"><input data-dg="lev" data-i="'+i+'" type="number" step=".1" placeholder="Hebel"><input data-dg="ko" data-i="'+i+'" type="number" step=".01" placeholder="KO-Level"><div><input data-dg="isin" data-i="'+i+'" placeholder="ISIN" aria-label="ISIN"><button type="button" data-copy-product-isin="" aria-label="ISIN kopieren" title="ISIN kopieren" style="min-width:44px;min-height:44px;padding:6px;margin-left:6px;font-size:20px">📋</button><span role="status" data-copy-status></span></div><span id="dgCompletion'+i+'" role="status"></span></div><button data-research="'+i+'">Aktuelle Produktdaten laden</button>';
   bindIsinCopy(r);
   r.insertAdjacentHTML("beforeend",'<div id="dgEvidence'+i+'"></div><div style="margin-top:8px"><label for="dgDetailShot'+i+'">📎 Bilder / PDF für dieses Produkt hochladen</label><input id="dgDetailShot'+i+'" type="file" accept="image/*,application/pdf,.pdf" multiple><div class="small">PDF-Endgültige Bedingungen oder Produktdetail oder Kursdaten mit sichtbarer ISIN. Mehrere Bilder können nacheinander ergänzt werden. Kurszeit braucht Datum, Sekunden und Zeitzone. Hebelbild und Kursbild direkt nacheinander aufnehmen und gemeinsam auswählen: Der Hebel erhält den Zeitbezug dieser Aufnahmeserie. Eine eigene Hebelzeit bleibt erhalten; KO benötigt einen eigenen Datenstand.</div></div>');
   r.insertAdjacentHTML("beforeend",window.BobCombined.form(i));
