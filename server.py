@@ -486,7 +486,7 @@ def fetch_technical_history(interval, range_value):
             # EMA200 is context only: a fresh 100-199 bar series remains
             # sufficient for EMA20/50-driven signals, while the older 200-bar
             # reference is fetched independently and never fabricated.
-            if interval in ('5m', '1h') and not _ema_history_sufficient(independent, minutes):
+            if interval in ('5m', '15m', '1h') and not _ema_history_sufficient(independent, minutes):
                 return _ema200_history_backfill(interval, range_value, independent)
             return independent
     if interval in ("1m", "15m", "4h"):
