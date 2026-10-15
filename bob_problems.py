@@ -20,6 +20,32 @@ _LOCK = threading.Lock()
 _CACHED = None
 _LAST_TRY = 0.0
 
+# A tiny machine-readable, public-safe status marker in issue bodies is the
+# return channel from the hourly ChatGPT repair task back to Bob's phone UI.
+# Markers never imply that a product quote, lever, KO or trade is approved.
+KI_STATUS_LABELS = {
+    "new": "Wartet auf KI-Prüfung",
+    "in-progress": "KI prüft die Ursache",
+    "testing": "Reparatur in technischer Prüfung",
+    "waiting-for-evidence": "Originalnachweis fehlt weiterhin",
+    "waiting-for-review": "Änderung wartet auf Freigabeprüfung",
+}
+_KI_MARKER = re.compile(r"(?m)^<!-- BOB_KI_STATUS:(in-progress|testing|waiting-for-evidence|waiting-for-review) -->$")
+
+
+def ki_status(issue):
+    # All arbitrary issue prose is ignored; only allowlisted markers from
+    # the trusted repository owner or the GitHub Actions watchdog are used.
+    author = issue.get("user")
+    if not isinstance(author, dict) or author.get("login") not in ("ichrob", "github-actions[bot]"):
+        return "new"
+    body = issue.get("body")
+    if not isinstance(body, str) or len(body) > 8000:
+        return "new"
+    matches = _KI_MARKER.findall(body)
+    return matches[-1] if matches else "new"
+
+
 
 def fetch_open_issues(*, opener=urlopen):
     req = Request(ISSUES_URL, headers={
@@ -75,6 +101,7 @@ def from_issues(rows, *, now=None):
             created = None
         if not isinstance(updated, str) or not re.fullmatch(stamp_pattern, updated):
             updated = None
+        state = ki_status(row)
         items.append({
             "number": number,
             "code": code,
@@ -82,6 +109,8 @@ def from_issues(rows, *, now=None):
             "createdAt": created,
             "updatedAt": updated,
             "url": REPOSITORY_URL + "/issues/" + str(number),
+            "kiStatus": state,
+            "kiStatusLabel": KI_STATUS_LABELS[state],
         })
     items.sort(key=lambda problem: problem["number"], reverse=True)
     at = (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")
@@ -231,6 +260,13 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
   }
  }
  const publicCodes=__BOB_PUBLIC_CODES__;
+ const kiStatusLabels={
+   'new':'Wartet auf KI-Prüfung',
+   'in-progress':'KI prüft die Ursache',
+   'testing':'Reparatur in technischer Prüfung',
+   'waiting-for-evidence':'Originalnachweis fehlt weiterhin',
+   'waiting-for-review':'Änderung wartet auf Freigabeprüfung'
+ };
  async function publicIndex(){
   // Browser fallback is intentionally rare: Render's shared egress IP can
   // hit GitHub's unauthenticated quota despite healthy Bob services.
@@ -262,7 +298,13 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
    if(!code||seen.has(code))continue;
    seen.add(code);
    const stamp=x=>typeof x==='string'&&/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(x)?x:null;
-   problems.push({number:issue.number,code,message,
+   let kiStatus='new';
+   if(['ichrob','github-actions[bot]'].includes(issue.user?.login)&&
+      typeof issue.body==='string'&&issue.body.length<=8000){
+     const matches=[...issue.body.matchAll(/^<!-- BOB_KI_STATUS:(in-progress|testing|waiting-for-evidence|waiting-for-review) -->$/gm)];
+     if(matches.length)kiStatus=matches[matches.length-1][1];
+   }
+   problems.push({number:issue.number,code,message,kiStatus,kiStatusLabel:kiStatusLabels[kiStatus],
       createdAt:stamp(issue.created_at),updatedAt:stamp(issue.updated_at),
       url:'https://github.com/ichrob/gold-dashboard1/issues/'+issue.number});
   }
@@ -311,7 +353,7 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
     const meta=document.createElement('p');meta.className='small';
     meta.textContent='Erkannt: '+readableDate(issue.createdAt)+
       ' · Letzte Änderung: '+readableDate(issue.updatedAt)+
-      ' · offen · KI-Hilfe erforderlich';
+      ' · offen · '+(issue.kiStatusLabel||kiStatusLabels.new);
     const link=document.createElement('a');link.href=issue.url;link.target='_blank';link.rel='noopener noreferrer';link.textContent='Technischen Eintrag öffnen';
     const button=document.createElement('button');button.type='button';button.textContent='KI-Hilfebericht kopieren';
     const note=document.createElement('p');note.className='small';note.setAttribute('role','status');
