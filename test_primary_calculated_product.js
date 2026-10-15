@@ -79,6 +79,26 @@ for(const [name,field,change] of [
  assert.strictEqual(bob.calculatedProductDisplay(x,now),null,name);
  assert(!bob.renderPrimaryProductValues(x,now).includes('data-price-kind="calculated"'),name);
 }
+const researchPrice=patch('calc',{anchorKind:'research-hybrid',
+ referenceSource:'comdirect · SG LiveTrading',referenceSkewSeconds:25});
+const researchDisplay=bob.calculatedProductDisplay(researchPrice,now);
+assert(researchDisplay,'Time-aligned SG/comdirect research quote is displayable');
+assert(researchDisplay.source.includes('SG/comdirect'));
+assert.strictEqual(researchDisplay.referenceSource,'comdirect · SG LiveTrading');
+assert.strictEqual(researchDisplay.referenceClockGapSeconds,25);
+const researchHtml=bob.renderPrimaryProductValues(researchPrice,now);
+assert(researchHtml.includes('Kalibrierung comdirect · SG LiveTrading'),researchHtml);
+assert(researchHtml.includes('Originalzeitabstand 25 s'),researchHtml);
+assert(researchHtml.includes('≈ errechnet'),researchHtml);
+assert.strictEqual(bob.currentQuote(researchPrice,now),false);
+assert(!bob.finalProductStatus(researchPrice,now).complete);
+for(const skew of [30.001,45,90]){
+ const unsafe=patch('calc',{anchorKind:'research-hybrid',
+  referenceSource:'SG · Live-Chart',referenceSkewSeconds:skew});
+ assert.strictEqual(bob.calculatedProductDisplay(unsafe,now),null,
+  'Time-shifted anchor >30s cannot show as near-current price');
+}
+
 const originalAt=at(16);
 const q={...p.quote,found:true,currency:'EUR',bid:10.61,ask:10.63,
  bidAt:originalAt,askAt:originalAt,source:'SG OTC',

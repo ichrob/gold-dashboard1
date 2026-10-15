@@ -2026,7 +2026,7 @@ function calculatedProductDisplay(p,now=Date.now()){
     !freshTimes([c.referenceAt],now,1800)||
     !Number.isFinite(Date.parse(m.tradingEndAt))||
     now>Date.parse(m.tradingEndAt)||
-    !(n(c.referenceSkewSeconds)>=0&&n(c.referenceSkewSeconds)<=(c.anchorKind==='research-hybrid'?90:5))||
+    !(n(c.referenceSkewSeconds)>=0&&n(c.referenceSkewSeconds)<=(c.anchorKind==='research-hybrid'?30:5))||
     !(n(c.bidEur)>0&&n(c.askEur)>=n(c.bidEur))||
     !(n(c.goldUsd)>0&&n(c.usdEur)>0))return null;
  const currentGold=n(c.goldUsd),ko=n(m.ko),strike=n(m.strike);
@@ -2035,8 +2035,10 @@ function calculatedProductDisplay(p,now=Date.now()){
         currentGold<Math.min(ko,strike))))return null;
  return {isin:p.isin,bid:c.bidEur,ask:c.askEur,currency:'EUR',
          at:c.priceAt,referenceAt:c.referenceAt,
-         source:'Bob · Gold-Spot/FX-Modell',priceKind:'calculated',
-         referenceOnly:true,degiroExecutable:false,
+         source:c.anchorKind==='research-hybrid'?'Bob · SG/comdirect + Gold/FX':'Bob · Gold-Spot/FX-Modell',
+         referenceSource:c.anchorKind==='research-hybrid'?c.referenceSource:null,
+         referenceClockGapSeconds:c.referenceSkewSeconds,
+         priceKind:'calculated',referenceOnly:true,degiroExecutable:false,
          validationReady:c.validation?.ready===true};
 }
 function renderPrimaryProductValues(p,now=Date.now()){
@@ -2088,7 +2090,10 @@ function renderPrimaryProductValues(p,now=Date.now()){
  const labels=estimated?' · theoretische Geld-/Brief-Schätzung, kein bestätigter DEGIRO-Ausführungskurs':marketObservation?' · SG LiveTrading, kein bestätigter DEGIRO-Ausführungskurs':chart?' · Chartkurs, kein bestätigter Ausführungskurs':'';
  const note=!estimated&&pair&&!current?' · Datenalter überschreitet Analysefenster':'';
  const calculationInfo=estimated?'<br>≈ Datenstand '+esc(stamp)+' · Produktreferenz '+esc(modelPrice.referenceAt)+
-  ' · Quelle '+esc(modelPrice.source)+' · '+esc(modelPrice.validationReady?'Genauigkeitsmessung vorhanden':'Genauigkeit noch nicht ausreichend bestätigt')+
+  ' · Quelle '+esc(modelPrice.source)+
+  (modelPrice.referenceSource?' · Kalibrierung '+esc(modelPrice.referenceSource):'')+
+  ' · Originalzeitabstand '+esc(modelPrice.referenceClockGapSeconds)+' s'+
+  ' · '+esc(modelPrice.validationReady?'Genauigkeitsmessung vorhanden':'Genauigkeit noch nicht ausreichend bestätigt')+
   ' · Modell nur für Bewertung und Vorwarnungen; kein automatischer Stopp, keine Handelsfreigabe.': '';
  const previousSource=estimated&&pair?'<br>Letzter originaler Datenstand (nicht aktuell): Geld '+esc(fmt(pair.bid))+
   ' / Brief '+esc(fmt(pair.ask))+' '+esc(pair.currency||'EUR')+' · '+esc(pair.bidAt||pair.askAt||'Zeit unbekannt'):'';

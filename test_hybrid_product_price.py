@@ -115,6 +115,25 @@ class TestHybridProjection(unittest.TestCase):
         self.assertNotIn('calculatedProduct',h.apply(r,BASE,*inputs(spot_age=90)))
         self.assertNotIn('calculatedProduct',h.apply(r,BASE,*inputs(fx_age=61)))
 
+    def test_clock_gap_more_than_30_seconds_rejected_for_new_anchor(self):
+        r=record()
+        # The SG price was observed 45 seconds ago, while the current Gold
+        # price is 5 seconds old; anchoring them together would distort price
+        # projections during a fast XAUUSD move.
+        r['chartEvidence']['pointAt']=at(46)
+        s,fx=inputs(spot_age=5,fx_age=6)
+        self.assertNotIn('calculatedProduct',h.apply(r,BASE,s,fx))
+        self.assertFalse(h._ANCHORS)
+        # Sources can be 29 s apart and still be analysed with original clocks.
+        r['chartEvidence']['pointAt']=at(33)
+        v=h.apply(r,BASE,s,fx)
+        self.assertEqual(v['hybridModelState'],'research-only')
+        c=v['calculatedProduct']
+        self.assertEqual(c['referenceClockGapSeconds'],28)
+        self.assertFalse(c['eligible'])
+        self.assertFalse(c['isDegiroQuote'])
+        self.assertIn('bis 30 s',c['note'])
+
     def test_quote_clock_skew_blocks_reanchor_but_retains_old_anchor(self):
         r=record()
         s,fx=inputs();h.apply(r,BASE,s,fx)
