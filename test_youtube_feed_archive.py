@@ -1,6 +1,6 @@
 import unittest
 from datetime import datetime,timezone,timedelta
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import youtube_feed_archive as store
 import gold_research as research
 import os
@@ -12,6 +12,39 @@ def example(vid='AaBbCcDdE01', published=1760000000):
         transcript='DO NOT STORE MY PRIVATE TRANSCRIPT',sourceId='mco-video')
 
 class YoutubeFeedArchiveTests(unittest.TestCase):
+    def test_current_archive_read_is_strictly_read_only(self):
+        saved_at=datetime.now(timezone.utc)
+        items=[example('AaBbCcDdE03'),example('AaBbCcDdE02'),example('AaBbCcDdE01')]
+        conn=Mock()
+        conn.execute.return_value.fetchone.return_value=(saved_at,items)
+
+        result=store.handle(conn,'read',{})
+
+        self.assertEqual(store.selected_ids(result['items']),
+                         ['AaBbCcDdE03','AaBbCcDdE02','AaBbCcDdE01'])
+        self.assertEqual(conn.execute.call_count,1)
+        self.assertTrue(conn.execute.call_args.args[0].lstrip().startswith('SELECT saved_at,items'))
+
+    def test_legacy_archive_read_migrates_and_purges_once(self):
+        saved_at=datetime.now(timezone.utc)
+        items=[example(vid) for vid in
+               ('AaBbCcDdE04','AaBbCcDdE03','AaBbCcDdE02','AaBbCcDdE01')]
+        conn=Mock()
+        conn.execute.return_value.fetchone.return_value=(saved_at,items)
+
+        result=store.handle(conn,'read',{})
+
+        self.assertEqual(len(result['items']),store.KEEP_VIDEOS)
+        statements=[item.args[0] for item in conn.execute.call_args_list]
+        self.assertEqual(sum('UPDATE bob_youtube_feed_archive SET items=' in sql
+                             for sql in statements),1)
+        self.assertEqual(sum(sql.startswith('DELETE FROM bob_research_transcripts')
+                             for sql in statements),1)
+        self.assertEqual(sum(sql.startswith('DELETE FROM bob_research_enhancements')
+                             for sql in statements),1)
+        self.assertEqual(sum(sql.startswith('UPDATE bob_research_requests SET video_id=NULL')
+                             for sql in statements),1)
+
     def test_verified_public_video_only(self):
         accepted=store.sanitize([example(),dict(example(),channelId='wrong'),dict(example(),url='https://evil.test/watch?v=AaBbCcDdE01'),dict(example(),title='Markets other metals'),dict(example(),url='https://www.youtube.com/watch?v=bad')])
         self.assertEqual(len(accepted),1)
