@@ -139,6 +139,7 @@ def conditions(product, properties, result):
     values = {'underlying': result['metadata']['underlying'], 'currency': product['Currency']}
     quanto_state, quanto_source, quanto_issue = _quanto_status(product, attrs)
     result['metadata']['simpleTurbo'] = product.get('ProductClassificationId') in (43,45,47)
+    result['metadata']['classificationId'] = product.get('ProductClassificationId')
     result['metadata']['quantoState'] = quanto_state
     result['metadata']['quantoProof'] = dict(
         confirmed=quanto_source is not None, source=quanto_source, issue=quanto_issue)
