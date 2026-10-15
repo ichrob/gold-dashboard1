@@ -735,4 +735,6 @@ def _get_quote_bounded(isin):
         result.update(analysisQuote=dict(selected), found=False, eligible=False, fresh=False,
                       analysisMaxAgeSeconds=300)
     from secondary_validity import apply as apply_secondary_validity
-    return apply_secondary_validity(apply(result), isin)
+    validated = apply_secondary_validity(apply(result), isin)
+    from hybrid_product_price import apply as apply_hybrid_research
+    return apply_hybrid_research(validated)

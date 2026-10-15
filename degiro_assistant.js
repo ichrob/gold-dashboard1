@@ -2026,7 +2026,7 @@ function calculatedProductDisplay(p,now=Date.now()){
     !freshTimes([c.referenceAt],now,1800)||
     !Number.isFinite(Date.parse(m.tradingEndAt))||
     now>Date.parse(m.tradingEndAt)||
-    !(n(c.referenceSkewSeconds)>=0&&n(c.referenceSkewSeconds)<=5)||
+    !(n(c.referenceSkewSeconds)>=0&&n(c.referenceSkewSeconds)<=(c.anchorKind==='research-hybrid'?90:5))||
     !(n(c.bidEur)>0&&n(c.askEur)>=n(c.bidEur))||
     !(n(c.goldUsd)>0&&n(c.usdEur)>0))return null;
  const currentGold=n(c.goldUsd),ko=n(m.ko),strike=n(m.strike);
