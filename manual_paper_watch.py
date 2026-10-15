@@ -227,13 +227,22 @@ def observe(conn,quote,now_ms=None):
                                                       pnlEur=round(pnl,2),valueEur=round(value,2),
                                                       referenceOnly=research,degiroExecutable=False,
                                                       grossOnly=True))
+            # Legacy SHORT-paper records may still contain reversed levels.
+            # Preserve owner data but prohibit spurious alerts until corrected.
+            stop,target=s.get('stopEur'),s.get('targetEur')
+            levels_valid=((stop is None or positive(stop) and stop<p['entry'])
+                          and (target is None or positive(target) and target>p['entry']))
+            if not levels_valid:
+                s.update(status='levels-need-review',
+                         reason='Gespeicherte Produkt-Stopp-/Zielwerte widersprechen einem gekauften Zertifikat; '
+                                'Stopp muss unter, Ziel über dem Einstieg liegen. '
+                                'Bis zur Korrektur keine Stop-/Zielmeldungen.')
             if inserted:
                 s['eventsCount']=s.get('eventsCount',0)+1
                 hit=[]
-                stop,target=s.get('stopEur'),s.get('targetEur')
-                if not research and stop is not None and bid<=stop:
+                if levels_valid and not research and stop is not None and bid<=stop:
                     hit.append('stop-observed')
-                if not research and target is not None and bid>=target:
+                if levels_valid and not research and target is not None and bid>=target:
                     hit.append('target-observed')
                 for kind in hit:
                     if s.get('lastEventKind') != kind:
