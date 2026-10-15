@@ -134,6 +134,60 @@ class WatchdogTests(unittest.TestCase):
         self.assertEqual(watchdog.sync_issue(["scanner-unreachable"], **args), "opened-21,closed-20")
         self.assertIn(("PATCH", "/issues/20"), actions)
 
+    def test_product_proof_requires_actual_source_review_before_closure(self):
+        calls = []
+        current = [
+            {"title": watchdog.issue_title("product-quote-evidence-missing"), "number": 81},
+            {"title": watchdog.issue_title("scanner-unreachable"), "number": 82},
+        ]
+        def requester(method, path, **kwargs):
+            calls.append((method, path))
+            if method == "GET":
+                return list(current)
+            if method == "PATCH":
+                number = int(path.split("/")[2])
+                current[:] = [row for row in current if row["number"] != number]
+            return {}
+        opts = {"token": "test", "repo": "ichrob/gold-dashboard1", "requester": requester}
+        self.assertEqual(watchdog.sync_issue([], **opts), "closed-82")
+        self.assertEqual([r["number"] for r in current], [81])
+        self.assertNotIn(("PATCH", "/issues/81"), calls)
+        self.assertEqual(watchdog.sync_issue([], **opts), "already-open")
+
+    def test_product_code_change_does_not_erase_existing_proof_problem(self):
+        current = [{"title": watchdog.issue_title("product-ko-validity-missing"), "number": 91}]
+        calls = []
+        def requester(method, path, **kwargs):
+            calls.append((method, path))
+            if method == "GET":
+                return list(current)
+            if method == "POST" and path == "/issues":
+                current.append({"title": kwargs["data"]["title"], "number": 92})
+                return {"number": 92}
+            return {}
+        opts = {"token": "test", "repo": "ichrob/gold-dashboard1", "requester": requester}
+        self.assertEqual(watchdog.sync_issue(["product-leverage-clock-missing"], **opts),
+                         "opened-92")
+        self.assertFalse(any(method == "PATCH" for method, _ in calls))
+        self.assertEqual(len(current), 2)
+
+    def test_private_audit_unavailable_does_not_report_healthy_or_close_issues(self):
+        calls = []
+        current = [{"title": watchdog.issue_title("product-quote-evidence-missing"), "number": 99}]
+        def requester(method, path, **kwargs):
+            calls.append((method, path))
+            return list(current) if method == "GET" else {}
+        opts = {"token": "test", "repo": "ichrob/gold-dashboard1", "requester": requester}
+        self.assertEqual(watchdog.sync_issue([watchdog.PRODUCT_AUDIT_UNKNOWN], **opts),
+                         "audit-unavailable")
+        self.assertEqual(calls, [("GET", "/issues?state=open&per_page=100")])
+
+    def test_never_publish_private_product_content_on_issues(self):
+        body = watchdog.issue_body(["product-ko-validity-missing",
+                                   "PRIVATE_ACCOUNT_VALUE"], "2026-10-15T06:30:00Z")
+        self.assertIn("product-ko-validity-missing", body)
+        self.assertNotIn("PRIVATE_ACCOUNT_VALUE", body)
+
     def test_scope_prevents_other_repo_access(self):
         with self.assertRaises(ValueError):
             watchdog.sync_issue(["scanner-unreachable"], token="test", repo="wrong/repo")
