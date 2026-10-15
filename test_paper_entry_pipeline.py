@@ -57,6 +57,67 @@ class EntryPipelineTests(unittest.TestCase):
             daily=next(args for sql,args in calls if 'INSERT INTO bob_paper_days' in sql)
             self.assertNotIn('entryBlocks',json.loads(daily[1]))
 
+    def test_chf_sources_convert_and_select_without_broker_execution(self):
+        import copy
+        from unittest.mock import patch
+        from swissquote_quotes import source_url
+        for source in ('chart','swissquote'):
+            q,m=self.fixture();at=q['askAt']
+            q.update(found=False,paperQuoteAccepted=False,currency='CHF')
+            q['metadata'].update(issuerExchangeCode='CBSW',currency='CHF')
+            q['conditions']['currency']['value']='CHF'
+            q['leverageCalculation']['inputs'].update(quoteCurrency='CHF',usdEur=.8,askNative=8.)
+            q['nativeChartEvidence']=dict(bid=7.99,ask=8.,currency='CHF',pointAt=at)
+            if source=='swissquote':
+                q.pop('nativeChartEvidence')
+                q['thirdQuote']=dict(isin=ISIN,direction='SHORT',source='Swissquote · Swiss DOTS',
+                    sourceUrl=source_url(ISIN),venue='Swiss DOTS',currency='CHF',bid=7.99,ask=8.,
+                    bidAt=at,askAt=at,quoteAt=at,priceKind='market-observation',delayed=False,
+                    marketOpen=True,isExecutableQuote=False,degiroExecutable=False)
+            fx=dict(result='success',base='USD',market_session='open',sources=dict(EUR='live',CHF='live'),
+                    rates=dict(EUR=.9,CHF=.8),data_updated_at=at,effective_at=dict(EUR=at,CHF=at))
+            original=copy.deepcopy(q)
+            with patch('sg_quotes.market_input',return_value=fx):
+                projected=sim.paper_quote(q,NOW,ISIN)
+                saved=sim.fresh_quote(projected,NOW,ISIN)
+            self.assertEqual(q,original)
+            self.assertAlmostEqual(projected['ask'],9.)
+            self.assertEqual(saved['paperNativeQuote']['ask'],8.)
+            self.assertFalse(saved['degiroExecutable'])
+            request=dict(products=[dict(isin=ISIN,name='SG Gold SHORT',productDirection='SHORT')],quotes={ISIN:projected},market=m,bundle={})
+            script="const fs=require('fs'),x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(require('./paper_selection').evaluate(x,"+str(NOW)+")));"
+            selected=json.loads(subprocess.run(['node','-e',script],input=json.dumps(request),text=True,capture_output=True,check=True).stdout)
+            self.assertTrue(selected['choices'],selected)
+            self.assertTrue(selected['choices'][0]['paperOnly'],selected)
+            with patch('sg_quotes.market_input',return_value=fx):
+                case=sim.new_case(m,selected['choices'][0],projected,NOW,cash=100.)
+            self.assertEqual(case['entryQuote']['paperNativeQuote']['currency'],'CHF')
+            self.assertEqual(case['entryAsk'],9.)
+            for profile in ('conservative','balanced','offensive','trend800'):
+                calls=[]
+                def execute(sql,args=()):
+                    calls.append((sql,args));cursor=Mock()
+                    cursor.fetchone.return_value=({'startAt':NOW-1,'enabled':True},) if 'FROM bob_paper_control' in sql else ('inserted',) if 'INSERT INTO bob_paper_cases' in sql else None
+                    return cursor
+                conn=Mock();conn.execute.side_effect=execute
+                with patch('sg_quotes.market_input',return_value=fx):
+                    sim.run_once(conn,{},m,selected,{ISIN:projected},NOW,profile_policy=profiles.POLICIES[profile])
+                saved_case=json.loads(next(args for sql,args in calls if 'INSERT INTO bob_paper_cases' in sql)[3])
+                self.assertEqual(saved_case['entryAsk'],9.)
+                self.assertEqual(saved_case['entryQuote']['paperNativeQuote']['currency'],'CHF')
+            changed=copy.deepcopy(fx);changed['rates']['EUR']=1.
+            with patch('sg_quotes.market_input',return_value=changed):
+                exit_quote=sim.fresh_quote(q,NOW,ISIN)
+            self.assertAlmostEqual(exit_quote['bid'],7.99*1.25)
+            self.assertEqual(exit_quote['paperFxConversion']['rate'],1.25)
+            with patch('sg_quotes.market_input',return_value=fx):
+                self.assertIsNone(sim.fresh_quote(q,NOW+90001,ISIN))
+
+            for bad in ({**fx,'sources':dict(EUR='live',CHF='cached')},
+                        {**fx,'data_updated_at':'2026-10-14T00:00:00+00:00'}):
+                with patch('sg_quotes.market_input',return_value=bad):
+                    self.assertFalse(sim.paper_quote(q,NOW,ISIN).get('paperQuoteAccepted'))
+
     def test_bnp_backup_and_provider_leverage_reach_selector(self):
         import copy
         q,m=self.fixture()
