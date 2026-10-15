@@ -16,6 +16,7 @@ import time
 import threading
 import uuid
 import bob_auth
+import bob_mcp
 import bob_recovery
 import bob_self_healing
 import bob_problems
@@ -44,6 +45,27 @@ PASSWORD = os.environ.get("BOB_PASSWORD", "")
 PUSH_SERVICE_URL = os.environ.get("PUSH_SERVICE_URL", "")
 PUSH_SERVICE_TOKEN = os.environ.get("PUSH_SERVICE_TOKEN", "")
 SIGNAL_WORKER_TOKEN = os.environ.get("SIGNAL_WORKER_TOKEN", "")
+
+
+def read_private_product_audit_for_mcp():
+    """Fetch the existing internal report without adding a public database port."""
+    if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
+        raise RuntimeError("Private audit unavailable")
+    base = PUSH_SERVICE_URL.rstrip("/")
+    if not base.startswith(("https://", "http://")):
+        base = "https://" + base
+    request = Request(base + "/product-audit", method="GET",
+                      headers={"X-Bob-Push-Token": PUSH_SERVICE_TOKEN,
+                               "Accept": "application/json"})
+    with urlopen(request, timeout=8) as response:
+        body = response.read(65537)
+    if len(body) > 65536:
+        raise ValueError("Private audit too large")
+    result = json.loads(body)
+    if not isinstance(result, dict):
+        raise ValueError("Private audit unavailable")
+    return result
+
 FIB_MONITOR_HEALTH = {"configured": bool(PUSH_SERVICE_URL and PUSH_SERVICE_TOKEN), "status": "starting", "lastCheckedAt": None, "lastSuccessAt": None}
 
 PROCESS_STARTED_AT = time.time()
@@ -932,6 +954,13 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith(ocr_assets.PREFIX):
             ocr_assets.serve(self, path)
             return
+        if path == "/mcp":
+            self.send_response(405)
+            self.send_header("Allow", "POST")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if path == "/login":
             bob_auth.login_page(self, "Passwort geändert. Bitte mit deinem neuen Passwort anmelden." if parse_qs(urlparse(self.path).query).get("reset") == ["1"] else "")
             return
@@ -1538,6 +1567,43 @@ class Handler(BaseHTTPRequestHandler):
         if bob_recovery.route(self, USER):
             return
         path = urlparse(self.path).path
+        if path == "/mcp":
+            # Basic credentials are checked by Bob's established login layer.
+            # Cookie-based auth is deliberately NOT accepted for this route;
+            # the plugin can only request the allowlisted read-only tools.
+            if (not self.headers.get("Authorization", "").startswith("Basic ")
+                    or not self.authenticated()):
+                self.send_response(401)
+                self.send_header("WWW-Authenticate", 'Basic realm="Bob private product audit"')
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            try:
+                if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+                    raise ValueError("MCP expects JSON")
+                length = self.headers.get("Content-Length", "")
+                if not length.isdecimal() or not 0 < int(length) <= 16384:
+                    raise ValueError("MCP request size invalid")
+                payload = json.loads(self.rfile.read(int(length)).decode("utf-8"))
+                status, output = bob_mcp.handle(payload, read_private_product_audit_for_mcp)
+            except (ValueError, UnicodeError):
+                status, output = 400, bob_mcp.error(None, -32700, "Invalid JSON request")
+            except (HTTPError, URLError, OSError, TimeoutError, RuntimeError):
+                status, output = 503, bob_mcp.error(None, -32001, "Private audit temporarily unavailable")
+            if output is None:
+                body = b""
+            else:
+                body = json.dumps(output, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if body:
+                self.wfile.write(body)
+            return
         if path == "/login":
             bob_auth.login(self, USER, PASSWORD)
             return
