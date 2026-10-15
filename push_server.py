@@ -25,6 +25,7 @@ import strategy_lab_store
 import stop_target_audit
 import paper_simulation
 import degiro_product_audit
+import bob_mcp
 import paper_health
 import manual_paper_watch
 import evaluator_runtime
@@ -498,6 +499,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         try:
+            if path == "/mcp":
+                # Stateless MCP server accepts POST JSON-RPC only.
+                send_json(self, 405, {"error": "Use POST for MCP requests"})
+                return
             if path == "/health":
                 vapid()
                 with db() as conn:
@@ -554,6 +559,38 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         try:
+            if path == "/mcp":
+                # Separate, derived read-only credential; NEVER accept the
+                # broad internal push-service token, browser cookies or Basic.
+                if not bob_mcp.authorized(self.headers.get("Authorization", ""), PUSH_SERVICE_TOKEN):
+                    send_json(self, 401, {"error": "Unauthorized"})
+                    return
+                if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+                    send_json(self, 415, {"error": "JSON required"})
+                    return
+                size = self.headers.get("Content-Length", "")
+                if not size.isdecimal() or not 0 < int(size) <= 16384:
+                    send_json(self, 413, {"error": "Invalid request size"})
+                    return
+                try:
+                    payload = json.loads(self.rfile.read(int(size)).decode("utf-8"))
+                except (ValueError, UnicodeError):
+                    send_json(self, 400, bob_mcp.error(None, -32700, "Parse error"))
+                    return
+                # Database is consulted only for an explicitly requested
+                # allowlisted read tool, after validating authentication.
+                def read_report():
+                    with db() as conn:
+                        return degiro_product_audit.read(conn)
+                status, response = bob_mcp.handle(payload, read_report)
+                if response is None:
+                    self.send_response(status)
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                else:
+                    send_json(self, status, response)
+                return
             if path in ("/self-heal-events/read", "/self-heal-events/write"):
                 supplied = self.headers.get("X-Bob-Push-Token", "")
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
