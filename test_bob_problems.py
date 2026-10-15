@@ -87,6 +87,33 @@ class BobProblemsTests(unittest.TestCase):
         self.assertEqual(problems.from_issues([dict(manual, title="Unrelated")])["count"], 0)
         self.assertEqual(problems.from_issues([dict(manual, title="[Bob KI-Hilfe] " + "x"*151)])["count"], 0)
 
+    def test_trusted_ki_status_marker_only_and_no_body_leak(self):
+        row = issue("product-quote-evidence-missing", 410)
+        row["user"] = {"login": "github-actions[bot]"}
+        row["body"] = "Technical text: PRIVATE_DETAILS_SHOULD_NEVER_LEAK\\n<!-- BOB_KI_STATUS:in-progress -->"
+        result = problems.from_issues([row])
+        self.assertEqual(result["problems"][0]["kiStatus"], "in-progress")
+        self.assertEqual(result["problems"][0]["kiStatusLabel"], "KI prüft die Ursache")
+        self.assertNotIn("PRIVATE_DETAILS_SHOULD_NEVER_LEAK", str(result))
+        row["body"] = "<!-- BOB_KI_STATUS:waiting-for-evidence -->"
+        self.assertEqual(problems.from_issues([row])["problems"][0]["kiStatus"], "waiting-for-evidence")
+        row["body"] = "<!-- BOB_KI_STATUS:done -->"
+        self.assertEqual(problems.from_issues([row])["problems"][0]["kiStatus"], "new")
+        row["body"] = "<!-- BOB_KI_STATUS:testing -->"
+        row["user"] = {"login": "unknown-public-author"}
+        self.assertEqual(problems.from_issues([row])["problems"][0]["kiStatus"], "new")
+
+    def test_untrusted_status_text_and_browser_fallback_sanitization(self):
+        row = issue("scanner-degraded", 34)
+        row["user"] = {"login": "ichrob"}
+        row["body"] = "Somebody wrote <!-- BOB_KI_STATUS:testing --> in prose"
+        self.assertEqual(problems.from_issues([row])["problems"][0]["kiStatus"], "new")
+        row["body"] = "<!-- BOB_KI_STATUS:testing -->"
+        self.assertEqual(problems.from_issues([row])["problems"][0]["kiStatus"], "testing")
+        self.assertIn("issue.body.matchAll(", problems.PANEL)
+        self.assertIn("kiStatusLabels[kiStatus]", problems.PANEL)
+        self.assertIn("issue.kiStatusLabel||kiStatusLabels.new", problems.PANEL)
+
     def test_outage_has_shorter_retry_than_success(self):
         attempts = []
         def offline():
