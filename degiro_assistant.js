@@ -1571,9 +1571,9 @@ function productProblemLabels(reasons){
  for(const reason of reasons||[]){
   const r=String(reason);let matched=false;
   for(const [pattern,label] of [
-   [/Hebel/i,'Hebel'],[/Kurszeit|Kursbild|Kursnachweis|Live.Nachweis|Aktualität.*Kurs|Quellenzeit|BNP-Kursabruf/i,'Kurszeit'],
+   [/Hebel/i,'Hebel'],[/Kurszeit|Kursbild|Kursnachweis|Live.Nachweis|Aktualität.*Kurs|(?:Kurs|Geld|Brief).*Quellenzeit|BNP-Kursabruf/i,'Kurszeit'],
    [/Geld|Brief|Produktkurs/i,'Kurs'],[/Basispreis|Finanzierungslevel/i,'Basispreis'],
-   [/KO|Knock.out|Barriere/i,'KO-Schwelle'],[/Bezugsverhältnis/i,'Bezugsverhältnis'],
+   [/\bKO\b|Knock.out|Barriere/i,'KO-Schwelle'],[/Bezugsverhältnis/i,'Bezugsverhältnis'],
    [/Future.Kontrakt|Futures.Kontrakt|Referenzkontrakt|Basiswert/i,'Basiswert'],
    [/Wechselkurs|CHF-Kursbild/i,'Wechselkurs'],[/Währung/i,'Währung'],
    [/Laufzeit|Fälligkeit/i,'Laufzeit'],[/Produkttyp|Produktrichtung|Long\/Short/i,'Produkttyp'],
@@ -1602,7 +1602,7 @@ function renderScreenshotSources(p,reasons){
   '<div>ISIN oben kopieren, in DEGIRO suchen und das Produkt öffnen. Kursbereich: Geld/Brief, Währung und angezeigte Kurszeit aufnehmen. Für Hebel und Produktdaten die Kennzahlen / Produktdetails öffnen, soweit dort vorhanden.</div>'+
   (android?'<div>Falls die App nicht öffnet: DEGIRO am Handy direkt starten und die ISIN einfügen. '+link(web,'Alternativ DEGIRO im Browser öffnen')+'</div>':'')+
   '<div><b>2. Falls die Angaben bei DEGIRO fehlen:</b> '+(issuer||link('https://www.comdirect.de/inf/zertifikate/'+p.isin,'comdirect-Produkt öffnen ↗'))+'</div>'+
-  '<div>'+[...new Set(reasons.map(r=>missingValueLocation(r,p)))].map(esc).join('<br>')+'</div>'+
+  '<details><summary style="padding:8px 0;cursor:pointer">Welche Werte dort aufnehmen?</summary><div>'+[...new Set(reasons.map(r=>missingValueLocation(r,p)))].map(esc).join('<br>')+'</div></details>'+
   '<div style="margin-top:8px">Screenshot mit ISIN, fehlenden Werten und zugehörigem Datenstand aufnehmen. Bei einer zusammengehörigen Bilderserie derselben Quelle genügt der eindeutig zugeordnete Zeitbezug; die Handy-Uhr allein ist kein Kurszeitnachweis. Danach hier „Bilder / PDF zu diesem Produkt hinzufügen“ wählen.</div></div>';
 }
 function renderIsinCopy(isin){
