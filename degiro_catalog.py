@@ -10,6 +10,7 @@ orders, modify a manual list, or add an unlicensed feed.
 """
 import copy
 import os
+import re
 import threading
 import time
 from datetime import datetime
