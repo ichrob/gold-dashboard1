@@ -2007,6 +2007,38 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  calculationHtml+'<button data-selection-upload="'+p.index+'">Bilder / PDF zu diesem Produkt hinzufügen</button><button data-product-trade="'+esc(p.isin)+'">Vorhandenen Trade mit diesem Produkt erfassen</button>'+renderImageImportStatus(p.index)+
  '<details data-product-details="'+p.index+'" style="margin-top:10px"><summary>Quellen und Einzelheiten</summary><div class="small">'+esc(p.name||'')+'</div>'+renderProductSources(p)+renderMissingValues(reasons,p)+renderProductDecision(p,selected,[status,...reasons])+screenshotSummary(x)+'<button data-card-research="'+p.index+'">Daten erneut abrufen</button></details></div>';
 }
+// Display-only: a bounded, proven-identity turbo projection shares the NORMAL
+// product-price row, but never enters quote/freshness, ranking or trade approval.
+// An 08:00 list price without paired Gold/FX reference is not a model anchor.
+function calculatedProductDisplay(p,now=Date.now()){
+ const q=p?.quote,c=q?.calculatedProduct,m=q?.productModel,meta=q?.metadata||{};
+ if(!p||!validIsin(p.isin)||q?.isin!==p.isin||q.productVerified!==true||
+    q.sourceDisabled||q.sourceFailure||q.quoteFailureCode||meta.status!==1||
+    meta.tradingHalted===true||meta.currency!=='EUR'||meta.underlyingType!=='SPOT'||
+    meta.underlying!=='XAU/USD'||!['LONG','SHORT'].includes(meta.direction)||
+    !m||m.isin!==p.isin||m.verifiedSimpleTurbo!==true||
+    m.underlying!=='XAU/USD'||m.direction!==meta.direction||
+    m.ratio!==meta.ratio||m.strike!==meta.strike||m.ko!==meta.ko||
+    !c||c.available!==true||c.kind!=='calculated-turbo'||
+    c.currency!=='EUR'||c.isDegiroQuote!==false||c.eligible!==false||
+    c.direction!==m.direction||c.ratio!==m.ratio||c.strikeUsd!==m.strike||
+    !freshTimes([c.priceAt,c.goldAt,c.fxDataAt,c.fxEffectiveAt],now,60)||
+    !freshTimes([c.referenceAt],now,1800)||
+    !Number.isFinite(Date.parse(m.tradingEndAt))||
+    now>Date.parse(m.tradingEndAt)||
+    !(n(c.referenceSkewSeconds)>=0&&n(c.referenceSkewSeconds)<=5)||
+    !(n(c.bidEur)>0&&n(c.askEur)>=n(c.bidEur))||
+    !(n(c.goldUsd)>0&&n(c.usdEur)>0))return null;
+ const currentGold=n(c.goldUsd),ko=n(m.ko),strike=n(m.strike);
+ if(!(currentGold>0&&ko>0&&strike>0&&
+      (m.direction==='LONG'?currentGold>Math.max(ko,strike):
+        currentGold<Math.min(ko,strike))))return null;
+ return {isin:p.isin,bid:c.bidEur,ask:c.askEur,currency:'EUR',
+         at:c.priceAt,referenceAt:c.referenceAt,
+         source:'Bob · Gold-Spot/FX-Modell',priceKind:'calculated',
+         referenceOnly:true,degiroExecutable:false,
+         validationReady:c.validation?.ready===true};
+}
 function renderPrimaryProductValues(p,now=Date.now()){
  const q=p.quote?.isin===p.isin&&p.quote.productVerified?p.quote:null;
  const live=q?.found?q:q?.analysisQuote||q?.referenceQuote;
@@ -2019,11 +2051,19 @@ function renderPrimaryProductValues(p,now=Date.now()){
  const pair=euroPair?live:nativeChf?{...native,bidAt:native.pointAt,
   askAt:native.pointAt,source:'SG · datierter CHF-Chartkurs',priceKind:'issuer-chart',
   isExecutableQuote:false}:null;
- const at=pair?.bidAt||pair?.askAt||q?.quoteAt;
  const clocks=[pair?.bidAt,pair?.askAt].map(t=>Date.parse(t));
  const marketObservation=pair?.priceKind==='market-observation';
  const current=!!pair&&clocks.every(t=>Number.isFinite(t)&&now-t>=0&&now-t<=(marketObservation?90000:300000))
   &&Math.max(...clocks)-Math.min(...clocks)<=90000;
+ // Prefer an original observation no older than 90 s. Older research quotes
+ // remain visible in the source history while an independently refreshed
+ // theoretical price takes the primary slot.
+ const originalRecent=!!pair&&clocks.every(t=>Number.isFinite(t)&&now>=t&&now-t<=90000)
+  &&Math.max(...clocks)-Math.min(...clocks)<=90000;
+ const modelPrice=calculatedProductDisplay(p,now);
+ const estimated=!!modelPrice&&!originalRecent;
+ const displayed=estimated?modelPrice:pair;
+ const at=estimated?modelPrice.at:pair?.bidAt||pair?.askAt||q?.quoteAt;
  const chart=pair?.priceKind==='issuer-chart'||pair?.isExecutableQuote===false;
  const fmt=v=>n(v)>0?Number(v).toLocaleString('de-CH',{maximumFractionDigits:4}):'—';
  const stamp=at&&Number.isFinite(Date.parse(at))?new Date(at).toLocaleString('de-CH',{timeZone:'Europe/Zurich',hour12:false})+' (Zürich)':'Zeitbezug unbestätigt';
@@ -2044,16 +2084,22 @@ function renderPrimaryProductValues(p,now=Date.now()){
  const missingSgReferenceNote=q?.importActive===true&&q?.productVerified===true
   &&fields.leverage.state==='fehlt'&&!(n(undatedLever?.value)>0)
   ?'<br>SG-Referenzhebel: Von der automatisch abgefragten SG-Quelle nicht geliefert. Ein gemeinsamer Zeitbezug belegt nur vorhandene Werte; er ersetzt keinen fehlenden Hebel.':'';
- const headline=marketObservation?(current?'Aktuelle comdirect-Kursbeobachtung':'comdirect-Kursbeobachtung · nicht aktuell'):chart?(current?'Aktuelle SG-Chartbeobachtung':'SG-Chartbeobachtung · nicht aktuell'):current?'Aktueller Anbieterwert':'Gespeicherte Referenz';
- const labels=marketObservation?' · SG LiveTrading, kein bestätigter DEGIRO-Ausführungskurs':chart?' · Chartkurs, kein bestätigter Ausführungskurs':'';
- const note=pair&&!current?' · Datenalter überschreitet Analysefenster':'';
+ const headline=estimated?'Produktkurs · ≈ errechnet':marketObservation?(current?'Aktuelle comdirect-Kursbeobachtung':'comdirect-Kursbeobachtung · nicht aktuell'):chart?(current?'Aktuelle SG-Chartbeobachtung':'SG-Chartbeobachtung · nicht aktuell'):current?'Aktueller Anbieterwert':'Gespeicherte Referenz';
+ const labels=estimated?' · theoretische Geld-/Brief-Schätzung, kein bestätigter DEGIRO-Ausführungskurs':marketObservation?' · SG LiveTrading, kein bestätigter DEGIRO-Ausführungskurs':chart?' · Chartkurs, kein bestätigter Ausführungskurs':'';
+ const note=!estimated&&pair&&!current?' · Datenalter überschreitet Analysefenster':'';
+ const calculationInfo=estimated?'<br>≈ Datenstand '+esc(stamp)+' · Produktreferenz '+esc(modelPrice.referenceAt)+
+  ' · Quelle '+esc(modelPrice.source)+' · '+esc(modelPrice.validationReady?'Genauigkeitsmessung vorhanden':'Genauigkeit noch nicht ausreichend bestätigt')+
+  ' · Modell nur für Bewertung und Vorwarnungen; kein automatischer Stopp, keine Handelsfreigabe.': '';
+ const previousSource=estimated&&pair?'<br>Letzter originaler Datenstand (nicht aktuell): Geld '+esc(fmt(pair.bid))+
+  ' / Brief '+esc(fmt(pair.ask))+' '+esc(pair.currency||'EUR')+' · '+esc(pair.bidAt||pair.askAt||'Zeit unbekannt'):'';
  const unpairedReference=n(p.price)>0&&fields.ask.state==='fehlt'&&!pair
   ?'<br><b>Gespeicherter Produkt-/Listenpreis: '+fmt(p.price)+' EUR</b> · kein bestätigter Briefkurs, Geld/Brief weiter abrufen.'
   :'';
- return '<div class="small" data-primary-product-values><b>'+esc(headline)+'</b><br>'+
-  valuePresenceMark(fields.bid.state==='fehlt')+' Geld '+fmt(pair?pair.bid:fields.bid.value)+
-  ' / '+valuePresenceMark(fields.ask.state==='fehlt')+' Brief '+fmt(pair?pair.ask:fields.ask.value)+' '+esc(currency)+
-  labels+note+'<br>'+(pair?'Quelle: '+esc(pair.source||q.source||'Produktanbieter')+' · '+esc(stamp):'Datenstand: '+esc(fields.ask.state))+
+ return '<div class="small" data-primary-product-values data-price-kind="'+(estimated?'calculated':'observation')+'"><b>'+esc(headline)+'</b><br>'+
+  (estimated?'≈ ':valuePresenceMark(fields.bid.state==='fehlt'))+' Geld '+fmt(displayed?displayed.bid:fields.bid.value)+
+  ' / '+(estimated?'≈ ':valuePresenceMark(fields.ask.state==='fehlt'))+' Brief '+fmt(displayed?displayed.ask:fields.ask.value)+' '+esc(estimated?'EUR':currency)+
+  labels+note+'<br>'+(displayed?'Quelle: '+esc(displayed.source||q.source||'Produktanbieter')+' · '+esc(stamp):'Datenstand: '+esc(fields.ask.state))+
+  calculationInfo+previousSource+
   '<br>'+valuePresenceMark(fields.leverage.state==='fehlt')+(fields.leverage.state==='fehlt'&&undatedLever?.dated===false&&n(undatedLever.value)>0?' Aktueller Hebel nicht zeitlich bestätigt':' Hebel '+fmt(fields.leverage.value))+
   ' · '+esc(fields.leverage.state)+(q?.leverageEstimated?' · rechnerische Näherung, kein bestätigter Emittentenhebel':'')+
   (fields.leverage.state==='fehlt'&&q?.leverageCalculation?.reason?'<br>Berechnung derzeit nicht möglich: '+esc(q.leverageCalculation.reason):'')+
@@ -3774,7 +3820,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={calculatedLeverageEvidence,recoverArchivedList,productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,preserveReadingPosition,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={calculatedLeverageEvidence,recoverArchivedList,productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,preserveReadingPosition,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,calculatedProductDisplay,renderPrimaryProductValues,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
