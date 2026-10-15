@@ -1734,7 +1734,33 @@ function productDirectionDataState(p,now=Date.now()){
  const stale=!blocked&&(!data.complete||Object.values(fields).some(f=>/veraltet|unbestätigt|abweichend/.test(f.state)));
  return {blocked,stale,missing};
 }
+function currentSgChfAnalysisProof(p,now=Date.now()){
+ // This is a *display-only* evidence tier, not finalProductStatus or execution.
+ // Only the authentic, single-ISIN CHF chart and its matching SG reference
+ // leverage observed in the same issuer collection cycle qualify.
+ const q=p?.quote,m=q?.metadata,chart=q?.nativeChartEvidence;
+ if(!validIsin(p?.isin)||q?.isin!==p.isin||q.productVerified!==true
+    ||q.sourceFailure||q.quoteFailureCode||m?.status!==1
+    ||m.issuerExchangeCode!=='CBSW'||m.currency!=='CHF'
+    ||m.underlyingType!=='SPOT'||m.underlying!=='XAU/USD'
+    ||!['LONG','SHORT'].includes(p.productDirection)||m.direction!==p.productDirection
+    ||chart?.currency!=='CHF'||chart.delayed===true
+    ||!(n(chart.bid)>0&&n(chart.ask)>=n(chart.bid)))return null;
+ const chartAt=Date.parse(chart.pointAt);
+ if(!Number.isFinite(chartAt)||chartAt>now||now-chartAt>300000)return null;
+ const leverage=sharedSgIssuerLeverage(p,now);
+ if(!leverage?.fresh||leverage.at!==chart.pointAt||!(leverage.value>=1))return null;
+ return {bid:chart.bid,ask:chart.ask,leverage:leverage.value,
+  at:chart.pointAt,currency:'CHF',analysisOnly:true,degiroExecutable:false};
+}
 function renderProductDirectionStatus(p,now=Date.now()){
+ const analysis=currentSgChfAnalysisProof(p,now);
+ if(analysis){
+  // A red X meant "product values missing" despite current SG bid/ask/gearing.
+  // Show their verified research status separately from the still-open broker
+  // execution check; never change complete, eligible, rank or tradeApproved.
+  return '<span data-direction-data-status data-sg-chf-analysis-only role="status" aria-label="SG-Geld, Brief und Hebel aktuell für die Analyse; DEGIRO-Handelsnachweis offen" style="display:inline-flex;align-items:center;gap:6px;margin-left:8px;flex-wrap:wrap"><strong style="font-size:1.6em;font-weight:900;color:#15803d">(✓)</strong><span style="font-weight:700">Kurs/Hebel · nur Analyse</span><span style="color:#92400e">⚠ DEGIRO-Handelsnachweis offen</span></span>';
+ }
  const {blocked,stale,missing}=productDirectionDataState(p,now);
  const label=blocked?(missing?'Werte fehlen oder sind widersprüchlich':'Datenprüfung offen'):stale?'Werte vorhanden (fehlende Aktualität)':'Daten vollständig';
  return '<span data-direction-data-status role="status" aria-label="'+esc(label)+'" style="display:inline-flex;align-items:center;gap:6px;margin-left:8px"><strong style="font-size:1.6em;font-weight:900;color:'+(blocked?'#b91c1c':'#15803d')+'">'+(blocked?'✗':stale?'(✓)':'✓')+'</strong>'+(stale?'<span style="font-weight:700">(fehlende Aktualität)</span>':'')+'</span>';
