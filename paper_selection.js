@@ -1,13 +1,32 @@
 // Same product gates/ranking as Bob; no submitted approval is trusted.
 const fs=require('fs'),vm=require('vm');
+function chfPaperEvidence(q,now){
+ const n=q.paperNativeQuote,f=q.paperFxConversion,e=f?.evidence,m=q.metadata||{};
+ const pos=x=>typeof x==='number'&&Number.isFinite(x)&&x>0;
+ if(!n||!e||q.priceKind!==n.priceKind||m.issuerExchangeCode!=='CBSW'||m.currency!=='CHF'||n.isin!==q.isin||n.currency!=='CHF'
+  ||f.fromCurrency!=='CHF'||f.toCurrency!=='EUR'||!f.source||e.base!=='USD'
+  ||e.marketSession!=='open'||e.eurSource!=='live'||e.chfSource!=='live'
+  ||!pos(e.eur)||!pos(e.chf)||!pos(f.rate)||Math.abs(f.rate-e.eur/e.chf)>1e-10
+  ||!pos(n.bid)||!pos(n.ask)||n.ask<n.bid||n.delayed
+  ||Math.abs(q.bid-n.bid*f.rate)>1e-9||Math.abs(q.ask-n.ask*f.rate)>1e-9)return false;
+ const swiss=n.source==='Swissquote · Swiss DOTS'&&n.venue==='Swiss DOTS'&&n.direction===m.direction
+  &&n.sourceUrl==='https://www.swissquote.ch/trading-platform/#fullQuote/'+q.isin+'/672_CHF'
+  &&n.priceKind==='market-observation'&&n.marketOpen===true&&n.delayed===false;
+ const chart=n.source==='SG · datierter CHF-Chartkurs'&&n.priceKind==='issuer-chart';
+ if(!swiss&&!chart)return false;
+ const clocks=[n.bidAt,n.askAt,e.dataAt,e.eurAt,e.chfAt].map(Date.parse);
+ return clocks.every(t=>Number.isFinite(t)&&t<=now&&now-t<=90000)
+  &&Math.max(...clocks)-Math.min(...clocks)<=90000&&Date.parse(q.quoteAt)===Math.min(...clocks);
+}
 function selectionQuote(q,now){
  if(q?.paperQuoteAccepted!==true)return q;
  const m=q.metadata||{},i=q.leverageCalculation?.inputs;
- const route=(m.issuerExchangeCode==='CBDE'&&q.source==='comdirect · SG LiveTrading'&&q.venue==='LT Societe Generale')||(q.source==='comdirect · BNP LiveTrading'&&q.venue==='LT BNP Paribas'&&q.paperIssuerSource?.startsWith('BNP Paribas ·')&&q.paperIssuerSourceUrl==='https://derivate.bnpparibas.com/product-details/'+q.isin+'/');
+ const chf=chfPaperEvidence(q,now);
+ const route=chf||(m.issuerExchangeCode==='CBDE'&&q.source==='comdirect · SG LiveTrading'&&q.venue==='LT Societe Generale')||(q.source==='comdirect · BNP LiveTrading'&&q.venue==='LT BNP Paribas'&&q.paperIssuerSource?.startsWith('BNP Paribas ·')&&q.paperIssuerSourceUrl==='https://derivate.bnpparibas.com/product-details/'+q.isin+'/');
  const positive=x=>typeof x==='number'&&Number.isFinite(x)&&x>0;
  if(!q.productVerified||q.sourceDisabled||m.status!==1||m.tradingHalted||m.underlyingType!=='SPOT'
   ||m.underlying!=='XAU/USD'||!route||q.currency!=='EUR'
-  ||q.priceKind!=='market-observation'||q.isExecutableQuote!==false||q.degiroExecutable!==false
+  ||(!chf&&q.priceKind!=='market-observation')||q.isExecutableQuote!==false||q.degiroExecutable!==false
   ||!positive(q.bid)||!positive(q.ask)||q.ask<q.bid||q.delayed
   ||!i||i.basisEstimated||i.basisDelayed||!positive(i.basisPriceUsd)||!positive(i.usdEur)
   ||!positive(i.ratio)||i.ratio!==m.ratio||q.conditions?.ratio?.value!==m.ratio
@@ -49,11 +68,11 @@ function evaluate(input,now=Date.now()){
    const e=api.evaluateProduct({...p,...context});
    if(!e.ok||!e.fit||e.direction!==context.direction||e.setupScore<35||e.conflictCount>=3)continue;
    papers.push({isin:p.isin,name:p.name,direction:e.direction,scope:'XAU/USD',score:e.score,
-    price:p.price,at:p.quote.quoteAt,source:p.quote.source,priceKind:'Simulationskurs · beobachteter comdirect-Geld/Brief',
+    price:p.price,at:p.quote.quoteAt,source:p.quote.source,priceKind:p.quote.paperQuoteLabel||'Simulationskurs · beobachteter Geld/Brief',
     reasons:e.reasons,warnings:e.warnings});
   }
   const approved=[...flow.groups.flatMap(g=>g.candidates).filter(c=>!papers.some(p=>p.isin===c.isin)),...papers].sort((a,b)=>b.score-a.score||a.isin.localeCompare(b.isin));
-  const choices=approved.filter(c=>valid(products.find(p=>p.isin===c.isin)||{})).map(c=>({...c,approval:input.quotes[c.isin]?.paperSelectionOnly?'Simulationsfreigabe · beobachteter comdirect-Kurs, keine DEGIRO-Ausführung':'Bob-Pflichtprüfung bestanden',paperOnly:input.quotes[c.isin]?.paperSelectionOnly===true,koGuardRequired:true}));
+  const choices=approved.filter(c=>valid(products.find(p=>p.isin===c.isin)||{})).map(c=>({...c,approval:input.quotes[c.isin]?.paperSelectionOnly?'Simulationsfreigabe · beobachteter oder umgerechneter Kurs, keine DEGIRO-Ausführung':'Bob-Pflichtprüfung bestanden',paperOnly:input.quotes[c.isin]?.paperSelectionOnly===true,koGuardRequired:true}));
   // The user's existing indicative mode remains a separate Gold-only model.
   if(!choices.length&&!flow.gateReasons.length)for(const x of api.indicativeRecommendations(products.filter(valid),context))
    choices.push({isin:x.p.isin,name:x.p.name,direction:context.direction,scope:api.isFutureProduct(x.p)?'FUTURE':'XAU/USD',score:x.evaluation.score,reasons:x.evaluation.reasons,approval:'Unverbindliche Berechnung mit vorhandenen Werten',indicative:true,warning:x.warning});
