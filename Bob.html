@@ -1088,6 +1088,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 </main>
 <script src="/push_manager.js"></script>
 <script src="/degiro_assistant.js?v=20261008-manual-trade-test-v4"></script>
+<script src="/bob_stop_assistant.js?v=20261015-two-stage-v1"></script>
 <script src="/real_trade_journal.js"></script>
 <section class="card" id="realTradeJournal">
 <h2>Echter Trade</h2>
@@ -3004,14 +3005,11 @@ function activeTradeLevel(value){
  return tradeMgmt.product&&window.BobTradeProduct?window.BobTradeProduct.label(window.BobTradeProduct.withFx(tradeMgmt.product,liveBundleCache?.spots),value):"Produktkurs nicht berechenbar · Produktnachweis fehlt";
 }
 function selectActiveProductQuote(q,isin){
- if(q?.isin!==isin||q.productVerified!==true)throw Error('Produktidentität des Kurses nicht bestätigt.');
- const valid=x=>x&&x.currency==='EUR'&&typeof x.bid==='number'&&Number.isFinite(x.bid)&&x.bid>0&&!x.estimated&&Number.isFinite(Date.parse(x.bidAt||x.quoteAt));
- const direct=[q.secondaryQuote,q].filter(x=>valid(x)&&x.priceKind!=='issuer-chart'&&x.priceKind!=='calculated'&&x.priceKind!=='unavailable'&&(x===q?q.found===true:true));
- direct.sort((a,b)=>Date.parse(b.bidAt||b.quoteAt)-Date.parse(a.bidAt||a.quoteAt));
- const chart=q.analysisQuote?.priceKind==='issuer-chart'&&valid(q.analysisQuote)?q.analysisQuote:null;
- const selected=direct[0]||chart;
- if(!selected)throw Error(q.reason||'Keine datierte EUR-Geldkurs- oder Chartreferenz geliefert.');
- return {isin,bid:selected.bid,at:selected.bidAt||selected.quoteAt,source:selected.source||q.source,chart:selected===chart,delayed:!!selected.delayed,error:false};
+ // Shared safety-checked selection: native issuer first if newest;
+ // otherwise use the freshest qualified read-only issuer/comdirect backup.
+ const selected=window.BobStopAssistant?.selectQuote(q,isin);
+ if(!selected)throw Error(q?.reason||'Kein ausreichend aktueller, unabhängig datierter EUR-Geld-/Briefkurs für diese ISIN.');
+ return selected;
 }
 let activeProductQuote=null,activeProductQuoteRequest=false,activeProductQuoteAttempt=0,activeProductQuoteError='';
 async function refreshActiveProductQuote(){
@@ -3038,8 +3036,11 @@ function renderActiveTradePlan(){
  const check=targetObstacle(tradeMgmt.dir,lastPrice,tradeMgmt.target,risk);
  $('stopPanel').textContent+='\nZielprüfung: '+check.warning;
  const q=activeProductQuote?.isin===p?.isin?activeProductQuote:null;
+ window.BobStopAssistant?.update({product:p,stopGold:tradeMgmt.stop,
+  targetGold:tradeMgmt.target,spots:liveBundleCache?.spots,quote:q});
+
  const stamp=q?Date.parse(q.at):NaN,quoteFresh=q&&!q.error&&!q.delayed&&Number.isFinite(stamp)&&Date.now()>=stamp&&Date.now()-stamp<=90000;
- $('stopPanel').textContent+='\n'+(q?(q.chart?'SG-Chart-Referenz (kein bestätigter Verkaufskurs)'+(quoteFresh?': ':' · veraltet oder Abruf gestört: '):(quoteFresh?'Gemeldeter Geldkurs: ':'Letzter gemeldeter Geldkurs · veraltet oder Abruf gestört: '))+q.bid.toFixed(4)+' EUR/Stück · Quellenzeit '+new Date(q.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · '+(q.source||'Quelle unbekannt')+' · Kein zugesicherter DEGIRO-Ausführungskurs.':'Gemeldeter Geldkurs: '+(activeProductQuoteError||'Abruf läuft.'))+(q&&activeProductQuoteError?'\nKursabruf: '+activeProductQuoteError:'');
+ $('stopPanel').textContent+='\n'+(q?(q.kind!=='issuer'?'Anbieter-Referenz / Ersatzquelle (keine bestätigte DEGIRO-Ausführung)'+(quoteFresh?': ':' · veraltet oder Abruf gestört: '):(quoteFresh?'Gemeldeter Geldkurs: ':'Letzter gemeldeter Geldkurs · veraltet oder Abruf gestört: '))+q.bid.toFixed(4)+' EUR/Stück · Quellenzeit '+new Date(q.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · '+(q.source||'Quelle unbekannt')+' · Kein zugesicherter DEGIRO-Ausführungskurs.':'Gemeldeter Geldkurs: '+(activeProductQuoteError||'Abruf läuft.'))+(q&&activeProductQuoteError?'\nKursabruf: '+activeProductQuoteError:'');
  let details=$('activeTradeFxDetails');if(!details){details=document.createElement('details');details.id='activeTradeFxDetails';$('stopPanel').insertAdjacentElement('afterend',details);const summary=document.createElement('summary');summary.textContent='Wechselkurs und Berechnungsannahmen';details.appendChild(summary);const text=document.createElement('div');text.id='activeTradeFxText';details.appendChild(text);}
  const fx=liveBundleCache?.spots?.usd_eur_meta;
  $('activeTradeFxText').textContent=fx?.rate?'1 USD = '+Number(fx.rate).toFixed(6)+' EUR · Abruf '+fx.fetchedAt+' · Quellenzeit nicht geliefert · '+fx.source+(fx.error||Date.now()-Date.parse(fx.fetchedAt)>90000?' · Aktualisierung verzögert':'')+' · Ziel ist eine Modellschätzung bei diesem Wechselkurs und gespeicherten Produktbedingungen.': 'Kein aktueller Wechselkursnachweis. Berechnung mit gespeicherter Wechselkursannahme.';
