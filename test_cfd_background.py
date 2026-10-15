@@ -11,7 +11,7 @@ class CfdBackgroundTests(unittest.TestCase):
     def setUp(self):
         self.quote = dict(price=4171.75, at=datetime.now(timezone.utc).isoformat(),
                           realtimeCfd=True, isExchangeRealtime=False, kind='cfd')
-        for name, value in (('_cached', None), ('_last_observed', None), ('_next_fetch', 0), ('_health', {'state':'starting','lastCheckedAt':None,'sourceAt':None})):
+        for name, value in (('_cached', None), ('_last_observed', None), ('_next_fetch', 0), ('_health', {'state':'starting','lastCheckedAt':None,'sourceAt':None,'providerMarketOpen':None})):
             p=patch.object(c,name,value);p.start();self.addCleanup(p.stop)
 
     def test_background_collection_without_browser_and_shared_fetch(self):
@@ -42,6 +42,19 @@ class CfdBackgroundTests(unittest.TestCase):
             q=c.fetch()
             self.assertFalse(q['realtimeCfd'])
             self.assertEqual(q['at'],self.quote['at'])
+            self.assertEqual(c.health()['state'],'stale')
+
+    def test_provider_close_is_healthy_only_while_source_checks_continue(self):
+        now=datetime(2026,10,15,21,30,tzinfo=timezone.utc).timestamp()
+        closed={**self.quote,'at':datetime.fromtimestamp(now-1800,timezone.utc).isoformat(),
+                'realtimeCfd':False,'providerMarketOpen':False}
+        with patch.object(c.time,'time',return_value=now), \
+             patch.object(c.background_push,'degiro_session',return_value='night'), \
+             patch.object(c,'_fetch',return_value=closed):
+            c.collect_once()
+            self.assertEqual(c.health()['state'],'closed')
+        with patch.object(c.time,'time',return_value=now+651), \
+             patch.object(c.background_push,'degiro_session',return_value='night'):
             self.assertEqual(c.health()['state'],'stale')
 
     def test_collector_repeats_without_any_browser_request(self):
