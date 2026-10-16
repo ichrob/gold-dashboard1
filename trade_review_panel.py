@@ -26,6 +26,7 @@ PANEL = r"""
         <p class="small">Screenshot auswählen, Felder aus dem Beleg prüfen. Nur den vollständig verkauften Trade bestätigen.</p>
         <label style="display:block;margin:6px 0">Aktiver Trade<select id="bobTradeSaleSelect" style="width:100%;padding:7px"></select></label>
         <label style="display:block;margin:6px 0">Original-Screenshot<input id="bobTradeSaleImage" type="file" accept="image/*" style="display:block;width:100%"></label>
+        <button type="button" id="bobTradeSaleOcr">Werte aus Screenshot erkennen</button>
         <div id="bobTradeSaleFields" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px"></div>
         <label style="display:block;margin:6px 0">Verkaufsgrund
           <select id="bobTradeSaleReason" style="width:100%;padding:7px">
@@ -133,6 +134,44 @@ PANEL = r"""
     }
     $('bobTradeReviewRefresh').onclick=()=>refresh().catch(e=>$('bobTradeReviewResults').textContent=e.message);
     root.addEventListener('toggle',()=>{if(root.open)refresh().catch(e=>$('bobTradeReviewResults').textContent=e.message)});
+    $('bobTradeSaleOcr').onclick=async()=>{
+      const status=$('bobTradeSaleStatus');
+      try{
+        const file=$('bobTradeSaleImage').files[0];
+        if(!file||!file.type.startsWith('image/')||file.size>8_000_000)throw Error('Bitte ein Bild bis 8 MB auswählen');
+        if(!window.BobDegiro?.recognizePlainOcr)throw Error('Lokale Bilderkennung nicht verfügbar. Werte bitte selbst eingeben');
+        status.textContent='Screenshot wird auf dem Gerät gelesen …';
+        const result=await window.BobDegiro.recognizePlainOcr(file,'bobTradeSaleStatus');
+        const raw=String(result?.data?.text||'');
+        if(raw.length<30)throw Error('Screenshot nicht ausreichend lesbar');
+        const selection=active.find(t=>t.id===$('bobTradeSaleSelect').value);
+        const evidence=raw.match(/\\bDE[A-Z0-9]{10}\\b/i);
+        if(evidence&&selection&&evidence[0].toUpperCase()!==selection.snapshot?.product?.isin)
+          throw Error('Erkannte ISIN stimmt nicht mit dem gewählten Trade überein');
+        const pick=(pattern)=>{const match=raw.match(pattern);return match?match[1]:null;};
+        const decimal=value=>Number(value.replace(/\\s/g,'').replace(/\\./g,'').replace(',','.'));
+        const fields={
+          transactionId:pick(/Transaktions[-\\s]*ID[^0-9\\n]*([0-9]{5,14})/i),
+          price:pick(/^\\s*Kurs\\s*(?:€|EUR)?\\s*([0-9][0-9.,]*)/im),
+          saleValueCHF:pick(/^\\s*Wert\\s*CHF\\s*([0-9][0-9.,]*)/im),
+          feesCHF:pick(/^\\s*Gesamtgebühr\\s*CHF\\s*-?\\s*([0-9][0-9.,]*)/im),
+          saleNetCHF:pick(/^\\s*Gesamt\\s*CHF\\s*([0-9][0-9.,]*)/im),
+          eurPerCHF:pick(/^\\s*Wechselkurs\\s*([0-9][0-9.,]*)/im)
+        };
+        const time=raw.match(/(?:Datum)\\s*(\\d{1,2}[./]\\d{1,2}[./]\\d{4})\\s+(\\d{2}:\\d{2}:\\d{2})/i);
+        if(time)fields.executedLocal=time[1].replace(/\\//g,'.')+' '+time[2];
+        let count=0;
+        for(const [name,value] of Object.entries(fields)){
+          if(value===null||value===undefined)continue;
+          const input=$('bobTradeSaleFields').querySelector('[name='+name+']');
+          if(!input)continue;
+          const normalized=input.type==='number'?decimal(value):value;
+          if(input.type==='number'&&!Number.isFinite(normalized))continue;
+          input.value=normalized;count++;
+        }
+        status.textContent='OCR hat '+count+' Angaben vorausgefüllt. Bitte alle Werte mit dem DEGIRO-Beleg vergleichen. Keine automatische Freigabe.';
+      }catch(error){status.textContent='OCR-Hinweis: '+error.message;}
+    };
     $('bobTradeSaleSave').onclick=async()=>{
       const status=$('bobTradeSaleStatus');status.textContent='Prüfe Beleg …';
       try {
