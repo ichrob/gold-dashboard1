@@ -57,6 +57,8 @@ def init(conn):
         frame_attempt TIMESTAMPTZ, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())''')
     conn.execute('ALTER TABLE bob_research_enhancements ADD COLUMN IF NOT EXISTS frame_version TEXT')
     conn.execute('ALTER TABLE bob_research_enhancements ADD COLUMN IF NOT EXISTS frame_status TEXT')
+    conn.execute('ALTER TABLE bob_research_enhancements ADD COLUMN IF NOT EXISTS summary_error TEXT')
+    conn.execute('ALTER TABLE bob_research_enhancements ADD COLUMN IF NOT EXISTS summary_failures INTEGER NOT NULL DEFAULT 0')
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_research_ai_requests (
         id BIGSERIAL PRIMARY KEY, attempted_at TIMESTAMPTZ NOT NULL DEFAULT now())''')
 
@@ -426,6 +428,22 @@ def failure_code(exc):
     return 'internal_error'
 
 
+TRANSIENT_SUMMARY_ERRORS = {'http_429', 'http_500', 'http_502', 'http_503', 'http_504', 'network_timeout'}
+
+
+def summary_paused(row, fingerprint):
+    if not row or row[0] != fingerprint or not row[2]:
+        return False
+    error, failures, recent = row[3:6]
+    # Legacy failures did not record a cause. Permit one quota-gated recovery;
+    # new reservations are marked pending before the network call.
+    if error is None and not row[1]:
+        return False
+    if error in TRANSIENT_SUMMARY_ERRORS and failures < 3 and not recent:
+        return False
+    return True
+
+
 def handle(connect, payload):
     identity = payload.get('videoId', '')
     if not isinstance(identity, str) or not re.fullmatch(r'[A-Za-z0-9_-]{11}', identity) or payload.get('channelId') != CHANNEL:
@@ -539,7 +557,10 @@ def handle(connect, payload):
             return {'summaryStatus': 'Video nicht mehr gespeichert.', 'frames': []}
         conn.execute('SELECT pg_advisory_xact_lock(68431030)')
         row = conn.execute("""SELECT fingerprint,summary,
-            summary_attempt>now()-interval '24 hours' FROM bob_research_enhancements WHERE video_id=%s""", (identity,)).fetchone()
+            summary_attempt>now()-interval '24 hours',summary_error,summary_failures,
+            summary_attempt>now()-interval '5 minutes'
+            FROM bob_research_enhancements WHERE video_id=%s""", (identity,)).fetchone()
+        paused = summary_paused(row, fp)
         saved = dict(row[1]) if row and isinstance(row[1], dict) else None
         if saved:
             saved.setdefault('_sourceFingerprint', row[0])
@@ -554,15 +575,27 @@ def handle(connect, payload):
             result['summaryStatus'] = 'KI-Zusammenfassung gespeichert.'
         elif key:
             count = conn.execute("SELECT count(*),count(*) FILTER (WHERE attempted_at>now()-interval '1 minute') FROM bob_research_ai_requests WHERE attempted_at>now()-interval '24 hours'").fetchone()
-            if count[0] < 10 and count[1] == 0 and not (row and row[0] == fp and row[2]):
+            if count[0] < 10 and count[1] == 0 and not paused:
                 conn.execute('INSERT INTO bob_research_ai_requests DEFAULT VALUES')
-                conn.execute('UPDATE bob_research_enhancements SET summary_attempt=now(),fingerprint=%s,summary=%s::jsonb WHERE video_id=%s',
-                             (fp, json.dumps(saved), identity))
+                conn.execute('''UPDATE bob_research_enhancements SET summary_attempt=now(),
+                    summary_failures=CASE WHEN fingerprint=%s THEN summary_failures ELSE 0 END,
+                    fingerprint=%s,summary=%s::jsonb,summary_error='pending' WHERE video_id=%s''',
+                             (fp, fp, json.dumps(saved), identity))
                 do_summary = True
             else:
-                if count[0] < 10 and count[1] > 0 and not (row and row[0] == fp and row[2]):
+                if count[0] >= 10:
+                    reason = 'Kostenloses Tageskontingent erreicht; automatische Wiederholung nach Freigabe des Kontingents.'
+                elif paused:
+                    if row[3] in TRANSIENT_SUMMARY_ERRORS and row[4] < 3:
+                        reason = 'KI-Dienst vorübergehend nicht verfügbar; automatische Wiederholung nach fünf Minuten.'
+                        result['summaryRetryAfterSeconds'] = 300
+                    else:
+                        reason = 'Wiederholung nach fehlgeschlagenem Abruf pausiert (maximal 24 Stunden).'
+                else:
+                    reason = 'Kurze Abrufpause; automatische Wiederholung in etwa einer Minute.'
                     result['summaryRetryAfterSeconds'] = 65
-                result['summaryStatus'] = 'KI-Zusammenfassung pausiert: Abruflimit oder Wiederholungspause; vorhandener Überblick bleibt verfügbar.'
+                suffix = ' Vorhandene Zusammenfassung bleibt verfügbar.' if saved else ' Noch keine deutsche KI-Zusammenfassung gespeichert.'
+                result['summaryStatus'] = reason + suffix
         conn.execute("DELETE FROM bob_research_ai_requests WHERE attempted_at<now()-interval '32 days'")
         conn.execute("DELETE FROM bob_research_enhancements WHERE updated_at<now()-interval '32 days'")
         conn.commit()
@@ -570,13 +603,20 @@ def handle(connect, payload):
         try:
             result['summary'] = generate(segments, key, frames=result.get('frames'))
             with connect() as conn:
-                conn.execute('UPDATE bob_research_enhancements SET fingerprint=%s,summary=%s::jsonb,updated_at=now() WHERE video_id=%s',
+                conn.execute('UPDATE bob_research_enhancements SET fingerprint=%s,summary=%s::jsonb,summary_error=NULL,summary_failures=0,updated_at=now() WHERE video_id=%s',
                              (fp, json.dumps(result['summary']), identity)); conn.commit()
             result['summaryStatus'] = 'KI-Zusammenfassung gespeichert.'
         except Exception as exc:
             code = failure_code(exc)
+            with connect() as conn:
+                conn.execute('UPDATE bob_research_enhancements SET summary_error=%s,summary_failures=summary_failures+1 WHERE video_id=%s AND fingerprint=%s',
+                             (code, identity, fp)); conn.commit()
             result['summaryError'] = code
             result['summaryStatus'] = 'KI-Abruf oder Belegprüfung fehlgeschlagen (' + code + '). Kein kostenpflichtiger Ersatzabruf.'
+            previous_failures = row[4] if row and row[0] == fp else 0
+            if code in TRANSIENT_SUMMARY_ERRORS and previous_failures < 2:
+                result['summaryRetryAfterSeconds'] = 300
+                result['summaryStatus'] = 'KI-Dienst vorübergehend nicht verfügbar; automatische Wiederholung nach fünf Minuten.'
             print('BOB_RESEARCH_AI_ERROR video=' + identity + ' code=' + code, flush=True)
     if result['frames'] and all(f.get('isCover') is True for f in result['frames']):
         result['frameStatus'] = 'YouTube-Titelbild gespeichert. Zeitlich passende Videobilder nicht abrufbar; originale Videostellen im Player öffnen.'
@@ -588,7 +628,8 @@ def handle(connect, payload):
                                  'Öffentliche Videobilder nicht abrufbar (' + frame_state + '); originale Videostellen im Player öffnen.')
     print('BOB_RESEARCH_ENHANCEMENT video=' + identity + ' summary=' +
           str(bool(result.get('summary'))).lower() + ' free_access_configured=' +
-          str(bool(key)).lower() + ' frames=' + str(len(result['frames'])), flush=True)
+          str(bool(key)).lower() + ' frames=' + str(len(result['frames'])) +
+          ' status=' + result['summaryStatus'], flush=True)
     return result
 
 def request(identity, segments, player, moments):
