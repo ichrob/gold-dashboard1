@@ -163,15 +163,15 @@
   const ctx=canvas.getContext('2d');if(!ctx)return;
   const w=canvas.width,hgt=canvas.height,rows=(h?.rows||[]).filter(x=>finite(x.price));
   ctx.clearRect(0,0,w,hgt);ctx.fillStyle='#334155';ctx.font='19px system-ui';
-  const valid=[...rows.map(x=>x.price),result?.stop,result?.target].filter(positive);
+  const valid=[...rows.map(x=>x.price),result?.available?result.price:null,...(zoom==='all'?[result?.stop,result?.target]:[])].filter(positive);
   if(!valid.length){ctx.fillText('Noch kein datierter Produktkurs verfügbar',40,165);return;}
-  const low=Math.min(...valid),high=Math.max(...valid),pad=Math.max(.02,(high-low)*.12),min=Math.max(0,low-pad),max=high+pad;
-  const x0=64,x1=w-20,y0=28,y1=hgt-52;
+  const low=Math.min(...valid),high=Math.max(...valid),pad=Math.max(.12,high*.012,(high-low)*.12),min=Math.max(0,low-pad),max=high+pad;
+  const x0=82,x1=w-32,y0=28,y1=hgt-67;
   const y=value=>y1-(value-min)/Math.max(.0001,max-min)*(y1-y0);
   const start=rows[0]?.at??Date.now(),end=rows.at(-1)?.at??start,period=Math.max(30000,end-start);
   const x=at=>x0+(at-start)/period*(x1-x0);
   ctx.lineWidth=1;ctx.font='16px system-ui';
-  for(let i=0;i<4;i++){const v=min+(max-min)*i/3,py=y(v);
+  for(let i=0;i<=4;i++){const v=min+(max-min)*i/4,py=y(v);
    line(ctx,[[x0,py],[x1,py]],'#dde5ed');ctx.fillStyle='#475569';ctx.fillText(v.toFixed(2),5,py+5);}
   for(const [name,value,color] of [['Stopp ≈',result?.stop,'#b91c1c'],['Ziel ≈',result?.target,'#15803d']]){
    if(!positive(value))continue;
@@ -191,7 +191,7 @@
   }
   ctx.fillStyle='#475569';ctx.font='16px system-ui';
   ctx.fillText(clock(start),x0,y1+24);ctx.fillText(clock(end),x1-95,y1+24);
-  ctx.fillText('EUR/CHF je Stück · je nach Produkt',x0+170,hgt-8);
+  ctx.fillText((result?.currency||'EUR')+' je Stück · datierte Beobachtungen',x0+155,hgt-8);
  }
  function update(input,now=Date.now()){
   if(!panel)return;
@@ -216,6 +216,12 @@
     result.ko!=null?'KO-Schwelle '+result.ko.toFixed(2)+' USD/oz Gold':'KO-Schwelle: nicht bestätigt',
     finite(result.koDistancePct)?'KO-Abstand ca. '+result.koDistancePct.toFixed(2)+' % (Gold)':'KO-Abstand derzeit nicht prüfbar'].join(' · ');
   show('[data-curve-levels]',levels);
+  const fib=fibonacci(h.rows);
+  show('[data-curve-fib-note]',fib?
+   'Fibonacci aus beobachtetem Produktswing ('+(fib.rising?'Tief → Hoch':'Hoch → Tief')+
+   '): '+fmt(fib.low,result.currency)+' bis '+fmt(fib.high,result.currency)+
+   ' · Orientierungslevel, keine garantierten Signale.':
+   'Fibonacci erscheint automatisch ab 6 datierten Kursbeobachtungen über mindestens 2 Minuten mit messbarer Kursspanne.');
   show('[data-curve-action]',result.action||'Keine Handelsempfehlung; Daten prüfen.');
   if(repaint)draw(result,h);
   showPicked();
