@@ -13,3 +13,15 @@
 Ab 26.10.2026 (Europe/Zurich) werden neue Fälle separat als spätere Prüfung ausgewiesen. Das Datum und alle Varianten sind vor Ergebnissen festgelegt. Keine automatische Auswahl oder Übernahme. Die Darstellung verwendet das bestehende begrenzte Berichtsfenster (2500, bei Datenbanklast 500 Entscheidungen), dessen Umfang sichtbar bleibt; Datenhaltung unverändert 30 Tage. Es ist kein vollständiges Langzeitexperiment. Im Spotvergleich werden rein beispielhafte 0,04 % pro Richtungstrade abgezogen; das ist keine gehebelte Produktrendite. Fehlende Daten sind nicht Gewinn 0.
 
 Tests: `test_optimization_review.py`, `test_ki_help_source_refresh.py`, `test_future_lab.js`, `test_dashboard.js`, gesamte bestehende CI einschließlich PostgreSQL.
+
+## Ergänzung: Marktanalyse, 16. Oktober 2026
+
+Alle fünf vorgeschlagenen Verbesserungen werden über das bestehende Analyse- und Vergleichssystem umgesetzt:
+
+- Die Richtungserklärung ordnet den konkreten gespeicherten Abwartegrund verständlichen Kategorien zu und nennt den nächsten Prüfschritt. Der Originalgrund bleibt sichtbar; mehrere Ursachen können gleichzeitig gelten.
+- `market-review-v1` friert neue Hintergrundfälle mit 1/5/15/30-Minuten-Folgeauswertung ein. Neue Horizonte werden nur für diesen neuen Protokolltyp erhoben. Bestehende 15/60/240-Minuten-Berichte bleiben erhalten. Keine Rückfüllung alter Modellvarianten.
+- Eine starke Bewegung kann entweder 0,15 % oder eine volle, vorab bekannte 5m-ATR erreichen. ATR stammt aus der bereits geprüften geschlossenen 5m-Historie, mit eigener Schlusszeit. Fehlende ATR bleibt unbekannt. Die Schwelle ist eine Diagnosehypothese, keine neue Live-Signalregel.
+- Aktuelle Regel, ergänzender Frühimpuls, vorhandener Marktphasenfilter und vorhandener Einstiegsfilter werden auf denselben Fällen je Horizont verglichen, getrennt nach Marktphase und Sammlung/Prüfung. Der Einstiegsfilter prüft bereits EMA-Abstand über 1,5 ATR, Platz unter 2R und fehlendes/über 15 Minuten altes Signal. Keine automatisch gelockerten Einstiegsregeln.
+- Pro Prüffall erscheinen EMA-Abstand, Platz in R und Signalalter, soweit vorab vorhanden. Beobachtete Richtungsumkehr ist ausschließlich ein Vergleich der 1-/30-Minuten-Endpunkte, kein lückenloser Verlauf oder handelbarer Rücksetzer.
+
+Stichproben mindestens 31 Minuten auseinander, vor Ergebnisprüfung ausgewählt. 1-Minuten-Folgekurs höchstens 30 Sekunden nach Zielzeit; sonst 60 Sekunden. Fehlende Eingänge, Varianten und Folgekurse werden ausgeschlossen, nicht als Nullgewinn gewertet. Alle Varianten werden mit ausdrücklich beispielhaften 0,04 % Spotkosten verglichen; das sind keine Produktgewinne. Ergebnisse erscheinen in Lernen → Statistik im bestehenden einklappbaren Optimierungsvergleich. Der Signalvergleich ab 26.10. bleibt getrennt; keine automatische Gewinnerauswahl oder Änderung der aktiven Handelsregeln.
