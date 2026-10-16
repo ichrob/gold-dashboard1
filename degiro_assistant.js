@@ -1523,7 +1523,8 @@ function productProblemLabels(p){
  if(knockoutStatus(p)||compactProductExclusion(p))return [];
  const result=finalProductStatus(p);
  if(result.complete)return [];
- const labels=[];
+ const analysis=typeof currentSgChfAnalysisProof==='function'?currentSgChfAnalysisProof(p):null;
+ const labels=analysis?['DEGIRO-Handelsnachweis']:[];
  // Missing evidence is different from a missing numeric value. A datable
  // analysis quote must not be shown as an absent Geld/Brief pair merely because
  // the independent DEGIRO trade-execution evidence remains unconfirmed.
@@ -1532,6 +1533,9 @@ function productProblemLabels(p){
  const leveragePresent=!!fields&&n(fields.leverage?.value)>=1;
  for(const reason of result.reasons){
   const r=String(reason),found=[];
+  // These are fallback screenshot requirements, not absent issuer analysis data.
+  // Keep contradictory evidence and all contract/KO failures visible.
+  if(analysis&&/^(?:Zusätzlicher Live-Nachweis offen|Detailbild mit derselben ISIN|Aktuelles Kursbild mit Geld\/Brief in EUR|Kurszeit mit Datum: höchstens 14 Stunden alt; keine ergänzten Sekunden|Aktuelles Detailbild mit Hebel und zugehöriger Zeit)$/.test(r))continue;
   if(/Hebel/i.test(r))found.push(leveragePresent?'Hebelzeit / Quellenprüfung':'Hebel');
   if(/Kurszeit|Quellenzeit|Zeitstempel|Kurs.*(alt|zeit)|Geld.*Brief.*Zeit/i.test(r))found.push('Kurszeit');
   if(/Geld|Brief|Kursbild|Produktkurs|Kursnachweis|Live-Nachweis|BNP-Kursabruf/i.test(r))found.push(pairPresent?'Kursart / DEGIRO-Handelsnachweis':'Kursnachweis');
@@ -2764,7 +2768,7 @@ function productFieldStates(p,now=Date.now()){
   items[key]=from(label,observed?observed[key]:imageValue,
     observed?observed[key+'At']:imageValue!==null?(e?.at||shot?.sourceTime):null,
     observed?observed.source:imageValue!==null?e?.source:null,
-    observed?analysisLimit:SCREENSHOT_MAX_AGE_MS,observed?observed.priceKind:'screenshot');
+    observed?(observed===nativeObserved?300000:analysisLimit):SCREENSHOT_MAX_AGE_MS,observed?observed.priceKind:'screenshot');
   if(direct&&(live===q?.referenceQuote||q?.sourceFailure)&&items[key].state!=='veraltet')items[key].state='Aktualität unbestätigt · letzter erfolgreicher Abruf';
   if(!direct&&e?.fromSeries){items[key].fromSeries=true;items[key].timeText=e.timeText;}
   else if(!direct&&e?.fromSharedContext){items[key].fromSharedContext=true;items[key].timeText=e.contextTimeText;}

@@ -41,6 +41,8 @@ const chart={...product,isin:"DE000FG14AV8",productDirection:"LONG",quote:{
 const rendered=api.renderPrimaryProductValues(chart,delayed);
 assert(rendered.includes("Aktuelle SG-Chartbeobachtung · nur Analyse"));
 assert(rendered.includes("CHF"));
+assert.equal(api.productFieldStates(chart,delayed).bid.state,"innerhalb Altersgrenze (300 s)");
+assert.equal(api.productFieldStates(chart,Date.parse(observedAt)+300001).bid.state,"veraltet");
 
 // Isolate just the status mapper with controlled diagnostic reasons.
 // A numeric value can exist while its independent clock or trade evidence is missing.
@@ -73,3 +75,23 @@ assert.equal(help.manual,false,"Do not demand new screenshots merely because a c
 assert(help.status.includes("Kurs und Hebel vorhanden"));
 assert(help.action.includes("automatisch"));
 console.log("Evidence status: correct 90s BNP clock, native CHF research 300s, values versus proofs distinguishable.");
+
+// A valid issuer analysis observation satisfies the analysis clock, while the
+// independent broker evidence and contradictory/contract diagnostics remain.
+helper.currentSgChfAnalysisProof=()=>({analysisOnly:true});
+helper.finalProductStatus=()=>({complete:false,reasons:[
+ "Detailbild mit derselben ISIN",
+ "Aktuelles Kursbild mit Geld/Brief in EUR",
+ "Kurszeit mit Datum: höchstens 14 Stunden alt; keine ergänzten Sekunden",
+ "Aktuelles Detailbild mit Hebel und zugehöriger Zeit",
+ "KO-Barriere mit gültigem Nachweis oder festen Screenshotwert bestätigen",
+ "Widersprüchliche oder ungültige Geldzeit am Original prüfen"
+]});
+const analysisLabels=Array.from(helper.productProblemLabels(product));
+assert(analysisLabels.includes("DEGIRO-Handelsnachweis"));
+assert(analysisLabels.includes("KO-Nachweis"));
+assert(!analysisLabels.includes("Produktnachweis"));
+assert(!analysisLabels.includes("Hebelzeit / Quellenprüfung"));
+assert(analysisLabels.includes("Kursnachweis"),"Conflicting original quote evidence must remain visible");
+helper.currentSgChfAnalysisProof=()=>null;
+assert(Array.from(helper.productProblemLabels(product)).includes("Produktnachweis"),"Unconfirmed or expired analysis must retain screenshot requirements");
