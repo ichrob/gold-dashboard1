@@ -133,7 +133,7 @@ assert.equal(combined.rows[0].price,20);
 
 const html=fs.readFileSync('Bob.html','utf8'),server=fs.readFileSync('server.py','utf8');
 assert(html.includes('<script src="/product_trade_curve.js?'));
-assert(html.includes('20261016-fib-v2'), 'Versioned script URL refreshes mobile cache');
+assert(html.includes('20261016-trade-v3'), 'Versioned script URL refreshes mobile cache');
 assert(html.includes("window.BobProductCurve?.mount(curveRoot)"));
 assert(html.includes("window.BobProductCurve?.update(window.BobTradeSync?.chartData?.())"));
 assert(html.includes('chartData(){'));
