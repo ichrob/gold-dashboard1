@@ -1922,9 +1922,28 @@ function currentSgChfAnalysisProof(p,now=Date.now()){
  return {bid:chart.bid,ask:chart.ask,leverage:leverage.value,
   at:chart.pointAt,currency:'CHF',analysisOnly:true,degiroExecutable:false};
 }
-function renderProductDirectionStatus(p,now=Date.now()){
- if(expectedQuotePause(p,now))return '<span data-direction-data-status data-regular-trading-pause>Reguläre Handelspause · letzter Kursstand gespeichert</span>';
+// One visual check state for both each card and the collection heading.
+// This describes displayed data, never trading approval.
+function productDirectionCheck(p,now=Date.now()){
+ if(expectedQuotePause(p,now))return {kind:'none',paused:true};
  const analysis=currentSgChfAnalysisProof(p,now);
+ if(analysis)return {kind:'qualified',analysis};
+ const state=productDirectionDataState(p,now);
+ return {kind:state.blocked?'none':state.stale?'qualified':'confirmed',state};
+}
+function renderGoldProductsHeading(products,now=Date.now()){
+ const remaining=products.filter(p=>!knockoutStatus(p)&&!compactProductExclusion(p));
+ const checks=remaining.map(p=>productDirectionCheck(p,now));
+ if(!checks.length||checks.some(c=>c.kind==='none'))return 'Gold-Hebelprodukte';
+ const qualified=checks.some(c=>c.kind==='qualified');
+ return 'Gold-Hebelprodukte <strong data-products-check="'+(qualified?'qualified':'confirmed')+
+  '" aria-label="'+(qualified?'Alle berücksichtigten Produkte zeigen einen grünen Haken, teilweise mit Einschränkung':'Alle berücksichtigten Produkte zeigen einen vollständigen grünen Haken')+
+  '" style="font-size:1.6em;font-weight:900;color:#15803d">'+(qualified?'(✓)':'✓')+'</strong>';
+}
+function renderProductDirectionStatus(p,now=Date.now()){
+ const check=productDirectionCheck(p,now);
+ if(check.paused)return '<span data-direction-data-status data-regular-trading-pause>Reguläre Handelspause · letzter Kursstand gespeichert</span>';
+ const analysis=check.analysis;
  if(analysis){
   if(degiroVenueObserved(p))return '<span data-direction-data-status data-sg-chf-analysis-only role="status" style="display:inline-flex;gap:6px;flex-wrap:wrap"><strong style="color:#15803d">(✓) Kurs/Hebel · Analyse</strong><span style="color:#15803d">✓ DEGIRO-Handelsplatz belegt</span></span>';
   if(degiroVenueInferred(p,listArchive,now))return '<span data-direction-data-status data-sg-chf-analysis-only><strong style="color:#15803d">(✓) Kurs/Hebel · Analyse</strong> · Handelsplatz aus Quellen abgeleitet</span>';
@@ -1933,7 +1952,7 @@ function renderProductDirectionStatus(p,now=Date.now()){
   // execution check; never change complete, eligible, rank or tradeApproved.
   return '<span data-direction-data-status data-sg-chf-analysis-only role="status" aria-label="SG-Geld, Brief und Hebel aktuell für die Analyse; DEGIRO-Handelsplatznachweis offen" style="display:inline-flex;align-items:center;gap:6px;margin-left:8px;flex-wrap:wrap"><strong style="font-size:1.6em;font-weight:900;color:#15803d">(✓)</strong><span style="font-weight:700">Kurs/Hebel · nur Analyse</span><span style="color:#92400e">⚠ DEGIRO-Handelsplatznachweis offen</span></span>';
  }
- const {blocked,stale,missing}=productDirectionDataState(p,now);
+ const {blocked,stale,missing}=check.state;
  const label=blocked?(missing?'Werte fehlen oder sind widersprüchlich':'Datenprüfung offen'):stale?'Werte vorhanden (fehlende Aktualität)':'Daten vollständig';
  return '<span data-direction-data-status role="status" aria-label="'+esc(label)+'" style="display:inline-flex;align-items:center;gap:6px;margin-left:8px"><strong style="font-size:1.6em;font-weight:900;color:'+(blocked?'#b91c1c':'#15803d')+'">'+(blocked?'✗':stale?'(✓)':'✓')+'</strong>'+(stale?'<span style="font-weight:700">(fehlende Aktualität)</span>':'')+'</span>';
 }
@@ -4001,7 +4020,7 @@ function renderRankUI(){
  for(let i=1;i<=12;i++){const out=document.getElementById("dgCombinedState"+i),ref=combinedReferences.get(i);if(ref&&ref.isin!==ps[i-1].isin)combinedReferences.delete(i);if(out)updateProductHtml(out,window.BobCombined.render(window.BobCombined.assess(ps[i-1],combinedReferences.get(i),bundle))+window.BobCombined.renderComparison(window.BobCombined.compareSnapshot(ps[i-1],combinedReferences.get(i),combinedDrafts.get(i),productQuotes.get(i))));}
  const savedProducts=ps.filter(p=>p.name||p.isin);
  const savedSummary=document.getElementById("dgSavedProductsSummary");
- if(savedSummary)updateProductHtml(savedSummary,'Gold-Hebelprodukte'+(additionalProductsComplete(savedProducts)?' <strong aria-label="Alle Produktdaten und Zeitbezüge bestätigt" style="font-size:1.6em;font-weight:900;color:#15803d">✓</strong>':''));
+ if(savedSummary)updateProductHtml(savedSummary,renderGoldProductsHeading(savedProducts));
  const manualOut=document.getElementById("dgManualSnapshots");
  if(manualOut){
   const ctx={direction:d,spotFresh,spot:s,atr:a,trend:document.getElementById('trend')?.textContent,trend2:document.getElementById('trend2')?.textContent,...selectionUiSignals(),rsi:n(document.getElementById('rsi')?.textContent),hist:n(document.getElementById('hist')?.textContent),adx:n(document.getElementById('adx')?.textContent),...technical};
