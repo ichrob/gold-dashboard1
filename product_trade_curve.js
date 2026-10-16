@@ -334,6 +334,16 @@
   lastResult=result;lastHistory=h;
   if(picked&&!h.rows.some(v=>v.at===picked.at)){picked=null;}
   const show=(sel,value)=>{const node=panel.querySelector(sel);if(node)node.textContent=value;};
+  const match=result.comparison;
+  const qualityText=match?
+   'Zeitgleicher Preisabgleich · Anbieter '+fmt(match.quoted,result.currency)+
+   ' · unkalibriertes Modell '+fmt(match.estimated,result.currency)+
+   ' · Differenz '+((match.estimated/match.quoted-1)*100).toFixed(2)+' % (kein DEGIRO-Kurs).':
+   'Kein zeitgleicher Anbieterpreis zum aktuellen Modell verfügbar.';
+  show('[data-curve-quality]',qualityText+' Kalibrierung: '+(quality.usable?
+   quality.count+' geprüfte Paare; Korrektur '+(quality.offset>=0?'+':'')+
+   quality.offset.toFixed(3)+' '+result.currency+' · nur Modellanzeige.':
+   quality.count+' Paare; '+quality.reason+'.'));
   show('[data-curve-isin]',result.isin?result.isin+' · '+result.currency+' pro Stück':'Kein aktiver Produkttrade');
   show('[data-curve-price]',result.available?(result.kind==='model'?'≈ ':'')+fmt(result.price,result.currency):'—');
   show('[data-curve-source]',result.available?
