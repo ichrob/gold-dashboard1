@@ -227,10 +227,16 @@ def import_event(event, allowed_sender):
     recipients = message.get("to") or []
     if isinstance(recipients, str):
         recipients = [recipients]
-    if (not isinstance(recipients, list) or
-            any(not isinstance(x, str) for x in recipients) or
-            recipients and not any(parseaddr(x)[1].lower() == "bob-degiro@agentmail.to"
-                                   for x in recipients)):
+    # AgentMail's signed inbox_id identifies delivery. Redirected mail retains
+    # the original To header; that header does not identify the receiving inbox.
+    # A contradictory inbox must never be rescued by a matching To header.
+    inbox = message.get("inbox_id")
+    if inbox is not None and inbox != "bob-degiro@agentmail.to":
+        return {"status":"ignored", "reason":"Anderes AgentMail-Postfach"}
+    if (inbox is None and (not isinstance(recipients, list) or
+            not recipients or any(not isinstance(x, str) for x in recipients) or
+            not any(parseaddr(x)[1].lower() == "bob-degiro@agentmail.to"
+                    for x in recipients))):
         return {"status":"ignored", "reason":"Andere Empfängeradresse"}
     allowed = parseaddr(allowed_sender or "")[1].lower()
     # A sender address is not DKIM proof. Do not activate trades from it.
