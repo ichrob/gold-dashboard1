@@ -100,12 +100,22 @@
  }
  function save(h){try{root.localStorage?.setItem(STORE,JSON.stringify(h));}catch(_){}}
  function fibonacci(rows){
-  const p=(Array.isArray(rows)?rows:[]).filter(x=>x&&positive(x.price)&&finite(x.at)).sort((a,b)=>a.at-b.at);
+  // Fibonacci needs one continuous, like-kind source series. Outages/issuer-to-model
+  // transitions break the swing; long unattended gaps never become fake price moves.
+  const ordered=(Array.isArray(rows)?rows:[]).filter(x=>x&&positive(x.price)&&finite(x.at))
+   .sort((a,b)=>a.at-b.at);
+  const p=[];
+  for(const x of ordered){
+   const prev=p.at(-1);
+   if(prev&&(x.at-prev.at>180000||x.kind!==prev.kind||x.source!==prev.source))p.length=0;
+   if(!prev||x.at>prev.at||!p.length)p.push(x);
+  }
   if(p.length<6||new Set(p.map(x=>x.at)).size<6||p.at(-1).at-p[0].at<120000)return null;
   let low=p[0],high=p[0];for(const x of p){if(x.price<low.price)low=x;if(x.price>high.price)high=x;}
   const d=high.price-low.price;if(d<Math.max(.03,high.price*.0015))return null;
   const rising=low.at<high.at;
-  return {low:low.price,high:high.price,rising,levels:[0,.236,.382,.5,.618,.786,1].map(r=>({ratio:r,price:rising?high.price-r*d:low.price+r*d}))};
+  return {low:low.price,high:high.price,rising,samples:p.length,source:p.at(-1).source||p.at(-1).kind||'Preisbeobachtung',
+   levels:[0,.236,.382,.5,.618,.786,1].map(r=>({ratio:r,price:rising?high.price-r*d:low.price+r*d}))};
  }
  let panel=null,canvas=null,picked=null,lastResult=null,lastHistory=null,zoom='price',showFib=true;
  let background={tradeId:null,rows:[],checkedAt:0,status:'noch nicht synchronisiert',busy:false};
@@ -289,7 +299,7 @@
   show('[data-curve-fib-note]',fib?
    'Fibonacci aus beobachtetem Produktswing ('+(fib.rising?'Tief → Hoch':'Hoch → Tief')+
    '): '+fmt(fib.low,result.currency)+' bis '+fmt(fib.high,result.currency)+
-   ' · Orientierungslevel, keine garantierten Signale.':
+   ' · '+fib.samples+' zusammenhängende Punkte · keine garantierten Signale.':
    'Fibonacci erscheint automatisch ab 6 datierten Kursbeobachtungen über mindestens 2 Minuten mit messbarer Kursspanne.');
   show('[data-curve-action]',result.action||'Keine Handelsempfehlung; Daten prüfen.');
   if(repaint)draw(result,h);
