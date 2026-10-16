@@ -35,7 +35,7 @@ def signed(payload, now=1000000):
 
 def event(body=EMAIL, sender="forwarder@example.test", msgid="mail1"):
     return {"type":"event","event_type":"message.received","event_id":"event-1",
-        "message":{"message_id":msgid,"inbox_id":"mock","from":sender,
+        "message":{"message_id":msgid,"inbox_id":"bob-degiro@agentmail.to","from":sender,
                    "subject":"DEGIRO Ausführung", "text":body}}
 
 
@@ -102,7 +102,24 @@ class EmailImportTests(unittest.TestCase):
         self.assertEqual(m.import_event(actual,'forwarder@example.test')['status'],'sender-unconfirmed')
         actual['message']['from_']=['forwarder@example.test']
         actual['message']['to']=['other@agentmail.to']
+        self.assertEqual(m.import_event(actual,'forwarder@example.test')['status'],'pending-review')
+        actual['message']['inbox_id']='other@agentmail.to'
+        actual['message']['to']=['bob-degiro@agentmail.to']
         self.assertEqual(m.import_event(actual,'forwarder@example.test')['status'],'ignored')
+
+    def test_redirected_mail_scope_does_not_bypass_sender_or_signature(self):
+        e = event()
+        e['message']['to'] = ['original-recipient@example.test']
+        body, headers = signed(e)
+        verified, _ = m.verify_svix(body, headers, SECRET, now=1000000)
+        self.assertEqual(m.import_event(verified, 'forwarder@example.test')['status'], 'pending-review')
+        self.assertEqual(m.import_event(verified, 'other@example.test')['status'], 'sender-unconfirmed')
+        e['message'].pop('inbox_id')
+        self.assertEqual(m.import_event(e, 'forwarder@example.test')['status'], 'ignored')
+        e['message']['to'] = ['bob-degiro@agentmail.to']
+        self.assertEqual(m.import_event(e, 'forwarder@example.test')['status'], 'pending-review')
+        e['message'].pop('to')
+        self.assertEqual(m.import_event(e, 'forwarder@example.test')['status'], 'ignored')
 
     def test_database_dedup_never_starts_trade(self):
         conn=Mock()
