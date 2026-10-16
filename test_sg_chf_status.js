@@ -47,3 +47,9 @@ for(const item of invalid){
  assert.equal(bob.currentQuote(p,now),false,item.name);
 }
 console.log('SG Swiss DOTS CHF display-only timestamp and broker gate regression passed');
+
+// Broker proof cannot be recovered by a quote retry alone.
+const venueCard=bob.compactProductCard(sample(),['BNP-Kursabruf: Quellenantwort veraltet']);
+assert(venueCard.includes('DEGIRO-Produktdetail mit ISIN, Börse, Währung und Datum erforderlich'));
+assert(!venueCard.includes('derzeit keine neuen Bilder erforderlich'));
+assert(!venueCard.includes('Du musst jetzt nichts tun.'));
