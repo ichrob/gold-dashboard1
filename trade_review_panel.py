@@ -16,6 +16,7 @@ PANEL = r"""
       <p class="small">Nur Berechnung und Dokumentation. Keine DEGIRO-Order.</p>
       <details style="margin:10px 0">
         <summary><b>1. Vor dem Kauf · Stopp, Risiko &amp; Gebühren</b></summary>
+        <label style="display:block;margin:9px 0">Produktwährung <select id="bobTradeRiskCurrency"><option value="EUR">EUR</option><option value="CHF">CHF</option></select></label>
         <div id="bobTradeRiskFields" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:9px 0"></div>
         <button type="button" id="bobTradeRiskButton">Risiko berechnen</button>
         <p id="bobTradeRiskResult" class="small" role="status"></p>
@@ -94,8 +95,8 @@ PANEL = r"""
       output.textContent='Berechne …';
       try {
         const fields=readFields('bobTradeRiskFields',risk);
-        const result=(await request('risk',{plan:{currency:'EUR',...fields,sourceVerified:false}})).review;
-        output.textContent='Risiko '+fmt(result.riskPct)+' % · Break-even '+fmt(result.breakEvenProduct,4)+' Produkt-EUR · Stopp netto '+fmt(result.riskStopCHF)+' CHF · Ziel netto '+fmt(result.targetNetCHF)+' CHF. '+result.warnings.join(' · ');
+        const result=(await request('risk',{plan:{...fields,currency:$('bobTradeRiskCurrency').value,sourceVerified:false}})).review;
+        output.textContent='Risiko '+fmt(result.riskPct)+' % · Break-even '+fmt(result.breakEvenProduct,4)+' '+result.currency+' · Stopp netto '+fmt(result.riskStopCHF)+' CHF · Ziel netto '+fmt(result.targetNetCHF)+' CHF. '+result.warnings.join(' · ');
       } catch(e){output.textContent='Prüfung: '+e.message;}
     };
     let active=[];
@@ -114,6 +115,12 @@ PANEL = r"""
       const container=$('bobTradeReviewResults');container.replaceChildren();
       let closed=(data.trades||[]).filter(t=>!t.active&&!t.snapshot?.recordOnly).slice(0,10);
       for(const t of closed){
+        if(closed.indexOf(t)<3){
+          try {const detailed=await request('read',{tradeId:t.id});
+            const matched=(detailed.trades||[]).find(x=>x.id===t.id);
+            if(matched&&matched.evaluation)t.evaluation=matched.evaluation;
+          } catch (_) { /* Preserve existing summary when model history is unavailable. */ }
+        }
         const div=document.createElement('div');div.style.cssText='border-top:1px solid #cbd5e1;padding:9px 0';
         const ev=t.evaluation||{},title=document.createElement('b'),body=document.createElement('p');
         title.textContent=t.snapshot?.product?.isin||'Trade';
