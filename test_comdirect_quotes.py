@@ -54,6 +54,13 @@ class ComdirectQuoteTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             q.parse_page(html.replace('LT BNP Paribas', 'LT Societe Generale'), isin)
 
+    def test_currency_treatment_requires_explicit_matched_field(self):
+        from comdirect_fields import parse_page
+        for raw, expected in [('Nein', False), ('Ja', True)]:
+            page=HTML.replace('gesichert Nein', 'gesichert '+raw)
+            self.assertIs(parse_page(page, ISIN)['observations']['quanto']['value'], expected)
+        self.assertNotIn('quanto', parse_page(HTML.replace('gesichert Nein', 'gesichert --'), ISIN)['observations'])
+
     def test_original_row_not_other_venue_or_fetch_clock(self):
         self.assertEqual((self.quote['bid'], self.quote['ask']), (5.43, 5.44))
         self.assertEqual(self.quote['quoteAt'], '2026-10-13T21:59:00+02:00')

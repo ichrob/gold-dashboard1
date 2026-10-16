@@ -43,6 +43,9 @@ def parse_page(html, isin, now=None):
     currency = field('Währung', 'Währungs\u00adgesichert')
     if currency in ('EUR', 'CHF'):
         values['currency'] = currency
+    hedge = field('Währungs\u00adgesichert', 'Symbol')
+    if hedge in ('Ja', 'Nein'):
+        values['quanto'] = hedge == 'Ja'
     issuer = field('Emittent', 'Währung')
     if issuer and issuer != '--':
         values['issuer'] = issuer

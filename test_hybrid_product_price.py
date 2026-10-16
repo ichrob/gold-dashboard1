@@ -41,6 +41,50 @@ class TestHybridProjection(unittest.TestCase):
         self.p=patch.object(h,'_ANCHORS',{})
         self.p.start();self.addCleanup(self.p.stop)
 
+    def bnp(self):
+        r=record();r.pop('chartEvidence')
+        r.update(source='BNP Paribas · Emittent OTC',
+                 sourceUrl='https://derivate.bnpparibas.com/product-details/'+ISIN+'/',
+                 found=True, currency='EUR', bid=13.3, ask=13.32,
+                 bidAt=at(6),askAt=at(6),eligible=True)
+        r['metadata'].update(simpleTurbo=True)
+        for k in ('ko','strike'):
+            r['conditions'][k]=dict(value=r['metadata'][k],conditionVerified=True,dateText='15.10.2026')
+        obs={k:dict(value=r['metadata'][k]) for k in ('ratio','direction','currency','underlying')}
+        obs.update(quanto=dict(value=False),issuer=dict(value='BNP Paribas'))
+        r['comdirectFieldsBackup']=dict(isin=ISIN,state='active',conflicts=[],inactive=False,
+            source='https://www.comdirect.de/inf/zertifikate/'+ISIN,checkedAt=at(2),observations=obs)
+        return r
+
+    def test_bnp_original_warms_anchor_then_stale_uses_model_and_recovers(self):
+        r=self.bnp();s,fx=inputs()
+        direct=h.apply(r,BASE,s,fx)
+        self.assertNotIn('calculatedProduct',direct)
+        later=BASE+dt.timedelta(seconds=120)
+        stale=copy.deepcopy(r);stale.update(eligible=False,fresh=False,
+            quoteFailureCode='STALE_OR_INVALID_SOURCE_TIME')
+        ls=lambda:dict(price=4160,at=later.isoformat())
+        lf=lambda:dict(fx(),data_updated_at=later.isoformat(),effective_at={'EUR':later.isoformat()})
+        value=h.apply(stale,later,ls,lf)
+        self.assertAlmostEqual(value['calculatedProduct']['askEur'],14.24)
+        self.assertEqual(value['calculatedProduct']['referenceAt'],at(6))
+        self.assertEqual(value['quoteFailureCode'],'STALE_OR_INVALID_SOURCE_TIME')
+        self.assertEqual(value['bidAt'],r['bidAt'])
+        self.assertFalse(value['eligible'])
+        recovered=dict(r,bidAt=later.isoformat(),askAt=later.isoformat())
+        self.assertNotIn('calculatedProduct',h.apply(recovered,later,ls,lf))
+
+    def test_bnp_rejects_unproved_currency_model_expired_terms_and_wrong_identity(self):
+        r=self.bnp()
+        for mutate in (lambda x:x['comdirectFieldsBackup']['observations'].pop('quanto'),
+                       lambda x:x['comdirectFieldsBackup']['observations']['quanto'].update(value=True),
+                       lambda x:x['conditions']['ko'].update(dateText='14.10.2026'),
+                       lambda x:x['comdirectFieldsBackup'].update(isin='wrong'),
+                       lambda x:x.update(quoteFailureCode='INVALID_RESPONSE'),
+                       lambda x:x['metadata'].update(status=2)):
+            bad=copy.deepcopy(r);mutate(bad)
+            self.assertIsNone(h.model_for(bad,BASE))
+
     def test_sg_chart_anchor_then_forward_with_same_original_clock(self):
         r=record();s,fx=inputs()
         v=h.apply(r,BASE,s,fx)
