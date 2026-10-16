@@ -95,13 +95,54 @@ assert.equal(curve.fibonacci(rise.slice(0,2)),null,'Two chart points must never 
 assert.equal(curve.fibonacci(rise.map((v,i)=>({...v,at:NOW+i*1000}))),null,'Require a real observation period');
 assert.equal(curve.fibonacci(rise.map(v=>({...v,price:12}))),null,'Never draw levels from flat prices');
 
+const matched=curve.assess({...input,quote},NOW).comparison;
+assert(matched&&matched.quoted===19.15&&matched.estimated===19.1);
+assert.equal(curve.assess({...input,quote:{...quote,at:at(49000),askAt:at(49000)}},NOW).comparison,null);
+assert.equal(curve.assess({...input,quote:null},NOW).comparison,null);
+let comparisons=null;
+for(let i=0;i<5;i++){
+ const t=NOW-300000+i*75000;
+ comparisons=curve.learnComparison(comparisons,
+   {at:t,quoted:20.2+i*.01,estimated:20+i*.01,kind:'issuer',quotedSource:'SG',currency:'EUR'},
+   'product|trade-1',t+1000);
+}
+const calibrated=curve.calibrate(comparisons,NOW);
+assert(calibrated.usable);
+assert.equal(calibrated.count,5);
+assert(Math.abs(calibrated.offset-.2)<1e-9);
+assert.equal(curve.learnComparison(comparisons,
+ {at:NOW,quoted:20.2,estimated:20,kind:'issuer',quotedSource:'SG',currency:'EUR'},
+ 'product|trade-1',NOW).rows.length,5,'No duplicate calibration clocks');
+assert.equal(curve.calibrate({rows:comparisons.rows.map(v=>({...v,quoted:v.estimated+2}))},NOW).usable,false);
+assert.equal(curve.calibrate(comparisons,NOW+1801000).usable,false);
+const row=(price,i,kind='model',source='Bob')=>({price,at:NOW+i*30000,
+ sourceAt:NOW+i*30000,fxAt:NOW+i*30000,kind,source,currency:'EUR'});
+const contiguous=Array.from({length:12},(_,i)=>row(19+i*.3,i));
+const tighten=curve.reviewStop({...model,price:22.4,stop:19,target:27,
+ stage:'observing'},{rows:contiguous},{product:{entry:20}});
+assert(tighten.suggestedStop>19&&tighten.suggestedStop<22.4);
+assert(!curve.reviewStop({...model,price:20.1,stop:19,target:27,
+ stage:'observing'},{rows:contiguous},{product:{entry:20}}).suggestedStop);
+assert.equal(curve.fibonacci([...rise.map((x,i)=>({...x,kind:'issuer',source:'SG'})),
+ ...[12.5,13,12.9].map((v,i)=>row(v,8+i,'model','Bob'))]),null,
+ 'Fibonacci must not bridge data-source transitions');
+const remote=[row(20,0),row(21,1)];
+const combined=curve.mergedHistory({tradeKey:'T',rows:[row(20,0),row(22,2)]},remote,'T');
+assert.equal(combined.rows.length,3);
+assert.equal(combined.rows[0].price,20);
+
 const html=fs.readFileSync('Bob.html','utf8'),server=fs.readFileSync('server.py','utf8');
 assert(html.includes('<script src="/product_trade_curve.js?'));
-assert(html.includes('20261016-fib-v2'), 'Versioned script URL refreshes mobile cache');
+assert(html.includes('20261016-trade-v3'), 'Versioned script URL refreshes mobile cache');
 assert(html.includes("window.BobProductCurve?.mount(curveRoot)"));
 assert(html.includes("window.BobProductCurve?.update(window.BobTradeSync?.chartData?.())"));
 assert(html.includes('chartData(){'));
 assert(server.includes('if path == "/product_trade_curve.js":'));
+assert(server.includes('/api/real-trades/curve'));
+assert(fs.readFileSync('push_server.py','utf8').includes('/real-trades/curve'));
+assert(fs.readFileSync('real_trade_journal.py','utf8').includes('product_trade_history.append'));
+assert(html.includes('20261016-trade-v3'));
+
 const scripts=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
 for(const item of scripts){
  if(item[1].includes('window.BobTradeSync={')||item[1].includes('function initMobile(){'))

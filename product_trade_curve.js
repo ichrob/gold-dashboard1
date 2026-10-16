@@ -36,6 +36,11 @@
     &&positive(q.bid)&&positive(q.ask)&&q.ask>=q.bid
     &&q.error!==true&&q.delayed!==true
     &&recent(qAt,now,90000)&&recent(qAskAt,now,90000);
+  // A same-time issuer observation can independently test the stored model.
+  // This is NOT an estimate of the difference to an executable DEGIRO quote.
+  const comparison=quoteOk&&modelOk&&Math.abs(qAt-spotAt)<=30000&&Math.abs(qAt-fxAt)<=30000
+   ?{quoted:q.bid,estimated:calculated.price,at:qAt,fxAt,spotAt,
+     quotedSource:String(q.source||'Anbieterbeobachtung'),kind:q.kind,currency} :null;
   let kind=null,price=null,source='',sourceAt=null;
   if(quoteOk){
    price=q.bid;source=String(q.source||'Anbieterbeobachtung');sourceAt=qAt;
@@ -69,7 +74,7 @@
     ?actionBase+' Zusätzlich KO-Abstand höchstens 2 %: Knock-out-Risiko prüfen.'
     :actionBase;
   return {available:positive(price),tradeKey,isin:p.isin,currency,price,kind,source,sourceAt,
-   spotAt,fxAt,fxRate:fxFresh?number(fx.rate):null,
+   spotAt,fxAt,fxRate:fxFresh?number(fx.rate):null,comparison,
    ko:positive(ko)?ko:null,koDistancePct:distance,knockedOut,
    underlyingGold:spotFresh?gold:null,stop:levels?stop.price:null,target:levels?target.price:null,
    stopGold:positive(stopGold)?stopGold:null,targetGold:positive(targetGold)?targetGold:null,
@@ -91,7 +96,7 @@
   if(last&&(last.sourceAt===result.sourceAt&&last.kind===result.kind))return {tradeKey:result.tradeKey,rows,added:false};
   if(last&&now-last.at<MIN_SAMPLE_MS)return {tradeKey:result.tradeKey,rows,added:false};
   rows.push({at:now,sourceAt:result.sourceAt,price:result.price,kind:result.kind,
-   source:result.source.slice(0,100),currency:result.currency,
+   source:result.source.slice(0,100),currency:result.currency,fxAt:result.fxAt,
    gold:result.underlyingGold,koDistancePct:result.koDistancePct});
   return {tradeKey:result.tradeKey,rows:rows.slice(-MAX_SAMPLES),added:true};
  }
@@ -99,15 +104,132 @@
   try{const v=JSON.parse(root.localStorage?.getItem(STORE)||'null');return v&&typeof v==='object'?v:null;}catch(_){return null;}
  }
  function save(h){try{root.localStorage?.setItem(STORE,JSON.stringify(h));}catch(_){}}
+ function compatible(a,b){
+  return a?.kind===b?.kind&&a?.currency===b?.currency&&
+   (a?.kind==='model'||a?.source===b?.source);
+ }
  function fibonacci(rows){
-  const p=(Array.isArray(rows)?rows:[]).filter(x=>x&&positive(x.price)&&finite(x.at)).sort((a,b)=>a.at-b.at);
+  // Fibonacci needs one continuous, like-kind source series. Outages/issuer-to-model
+  // transitions break the swing; long unattended gaps never become fake price moves.
+  const ordered=(Array.isArray(rows)?rows:[]).filter(x=>x&&positive(x.price)&&finite(x.at))
+   .sort((a,b)=>a.at-b.at);
+  const p=[];
+  for(const x of ordered){
+   const prev=p.at(-1);
+   if(prev&&(x.at-prev.at>180000||!compatible(x,prev)))p.length=0;
+   if(!prev||x.at>prev.at||!p.length)p.push(x);
+  }
   if(p.length<6||new Set(p.map(x=>x.at)).size<6||p.at(-1).at-p[0].at<120000)return null;
   let low=p[0],high=p[0];for(const x of p){if(x.price<low.price)low=x;if(x.price>high.price)high=x;}
   const d=high.price-low.price;if(d<Math.max(.03,high.price*.0015))return null;
   const rising=low.at<high.at;
-  return {low:low.price,high:high.price,rising,levels:[0,.236,.382,.5,.618,.786,1].map(r=>({ratio:r,price:rising?high.price-r*d:low.price+r*d}))};
+  return {low:low.price,high:high.price,rising,samples:p.length,source:p.at(-1).source||p.at(-1).kind||'Preisbeobachtung',
+   levels:[0,.236,.382,.5,.618,.786,1].map(r=>({ratio:r,price:rising?high.price-r*d:low.price+r*d}))};
  }
  let panel=null,canvas=null,picked=null,lastResult=null,lastHistory=null,zoom='price',showFib=true;
+ const QUALITY_STORE='bobProviderModelCalibrationV1';
+ function median(values){const a=[...values].sort((x,y)=>x-y);return a.length?(a.length%2?a[(a.length-1)/2]:(a[a.length/2-1]+a[a.length/2])/2):null;}
+ function calibrate(history,now=Date.now()){
+  const all=(history?.rows||[]).filter(x=>x&&positive(x.quoted)&&positive(x.estimated)
+    &&finite(x.at)&&now>=x.at&&now-x.at<=86400000);
+  const last=all.at(-1);
+  // Never transfer bias between different issuer feeds or research quote types.
+  const samples=last?all.filter(x=>x.kind===last.kind&&x.source===last.source):[];
+  if(samples.length<5)return {usable:false,count:samples.length,reason:'Mindestens 5 unabhängige zeitgleiche Anbieterbeobachtungen benötigt'};
+  const span=samples.at(-1).at-samples[0].at;
+  if(span<300000)return {usable:false,count:samples.length,reason:'Kalibrierung braucht mindestens 5 Minuten getrennte Beobachtungen'};
+  const deviations=samples.map(x=>x.quoted-x.estimated);
+  const offset=median(deviations),scale=median(samples.map(x=>x.estimated));
+  const dispersion=median(deviations.map(x=>Math.abs(x-offset)));
+  if(!positive(scale)||!finite(offset)||!finite(dispersion)||Math.abs(offset)>scale*.03||dispersion>scale*.01)
+   return {usable:false,count:samples.length,reason:'Abweichungen sind zu groß oder uneinheitlich; keine automatische Korrektur'};
+  if(now-samples.at(-1).at>1800000)return {usable:false,count:samples.length,reason:'Kalibrierung über 30 Minuten alt'};
+  return {usable:true,count:samples.length,offset,dispersion,reason:'Zeitgleicher SG/comdirect-Anbieterabgleich · nur indikative Modellkorrektur'};
+ }
+ function learnComparison(previous,comparison,tradeKey,now=Date.now()){
+  const base=previous?.tradeKey===tradeKey&&Array.isArray(previous.rows)?previous:{tradeKey,rows:[]};
+  const rows=base.rows.filter(x=>x&&finite(x.at)&&now-x.at<86400000&&now>=x.at).slice(-29);
+  if(comparison&&positive(comparison.quoted)&&positive(comparison.estimated)
+     &&finite(comparison.at)&&now-comparison.at>=0&&now-comparison.at<=90000
+     &&!rows.some(x=>x.at===comparison.at&&x.kind===comparison.kind)
+     &&(!rows.length||comparison.at-rows.at(-1).at>=60000)){
+   rows.push({at:comparison.at,quoted:comparison.quoted,estimated:comparison.estimated,
+    kind:comparison.kind,currency:comparison.currency,source:comparison.quotedSource});
+  }
+  return {tradeKey,rows:rows.slice(-30)};
+ }
+ function readQuality(){try{return JSON.parse(root.localStorage?.getItem(QUALITY_STORE)||'null')}catch(_){return null}}
+ function saveQuality(value){try{root.localStorage?.setItem(QUALITY_STORE,JSON.stringify(value))}catch(_){}}
+
+ function reviewStop(result,history,trade){
+  if(!result?.available||!positive(result.price)||!positive(result.stop)||!positive(result.target)
+     ||result.stage==='ko'||!positive(trade?.product?.entry))return {ready:false,reason:'Stopp-Prüfung wartet auf aktuellen Modell-/Anbieterkurs und gültigen Produktplan.'};
+  const entry=trade.product.entry,price=result.price,stop=result.stop,target=result.target;
+  if(!(stop<target))return {ready:false,reason:'Stopp/Ziel widersprüchlich, keine Anpassung.'};
+  const riskPct=(price-stop)/price*100,rewardPct=(target-price)/price*100;
+  const rr=riskPct>0&&rewardPct>0?rewardPct/riskPct:null;
+  let detail='Aktueller Stopp-Abstand '+riskPct.toFixed(1)+' %; '+
+   (positive(rr)?'verbleibendes Chancen/Risiko ≈ '+rr.toFixed(2)+':1. ':'Ziel bereits erreicht oder Stoppzone unterschritten. ')+
+   (riskPct>10?'Weit für einen kurzfristigen Trade – an Marktvolatilität und KO-Risiko prüfen. ':'');
+  if(result.stage==='stop'||riskPct<=0)return {ready:false,riskPct,rr,reason:detail+'Stoppzone erreicht; bei DEGIRO prüfen.'};
+  const sequence=[];
+  for(const row of history?.rows||[]){
+   if(!positive(row.price)||!finite(row.at))continue;
+   const last=sequence.at(-1);
+   if(last&&(!compatible(row,last)||row.at-last.at>180000))sequence.length=0;
+   sequence.push(row);
+  }
+  if(sequence.length<12||sequence.at(-1).at-sequence[0].at<300000)
+   return {ready:true,riskPct,rr,reason:detail+'Für Nachzieh-Vorschlag mindestens 12 zusammenhängende Kursbeobachtungen nötig.'};
+  const moves=sequence.slice(-12).map((row,i,all)=>i?Math.abs(row.price-all[i-1].price):0).slice(1);
+  const movement=moves.reduce((a,b)=>a+b,0)/moves.length;
+  const margin=Math.max(price*.0075,3*movement);
+  const possible=price-margin;
+  // Only suggest protecting profit after at least one initial R gained.
+  const initialRisk=Math.max(.01,entry-stop);
+  if(price-entry<initialRisk||possible<=stop+.02||possible>=price)
+   return {ready:true,riskPct,rr,reason:detail+'Kein ausreichend abgesicherter Gewinn für einen engeren Stopp; bestehenden Stopp nicht lockern.'};
+  return {ready:true,riskPct,rr,suggestedStop:Math.max(stop,possible),
+   reason:detail+'Indikativer engerer Stopp aus Kursbewegungen; nur nach Prüfung bei DEGIRO selbst setzen.'};
+ }
+ let background={tradeId:null,rows:[],checkedAt:0,status:'noch nicht synchronisiert',busy:false};
+ function mergedHistory(local,remote,tradeKey){
+  const pool=new Map();
+  for(const row of [...(remote||[]),...(local?.rows||[])]){
+   if(!row||!positive(row.price)||!finite(row.at)||!finite(row.sourceAt)
+       ||!['issuer','research','model'].includes(row.kind))continue;
+   const fxTime=typeof row.fxAt==='string'?Date.parse(row.fxAt):row.fxAt;
+   const id=row.kind+'|'+row.sourceAt+'|'+(row.kind==='model'?(finite(fxTime)?fxTime:''):'');
+   pool.set(id,row);
+  }
+  return {tradeKey,rows:[...pool.values()].sort((a,b)=>a.at-b.at).slice(-800)};
+ }
+ function refreshBackground(trade,now=Date.now()){
+  const id=trade?.active&&!trade.test&&trade.tradeId?String(trade.tradeId):null;
+  if(!id||!root.fetch)return;
+  if(background.tradeId!==id)background={tradeId:id,rows:[],checkedAt:0,status:'warte auf Hintergrunddaten',busy:false};
+  if(background.busy||now-background.checkedAt<30000)return;
+  background.checkedAt=now;background.busy=true;
+  root.fetch('/api/real-trades/curve',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({tradeId:id}),signal:root.AbortSignal?.timeout?.(12000)})
+   .then(r=>{if(!r.ok)throw Error('HTTP '+r.status);return r.json()})
+   .then(data=>{
+    if(background.tradeId!==id)return;
+    if(data?.tradeId!==id||!Array.isArray(data.rows))throw Error('Ungültige Hintergrundantwort');
+    background.rows=data.rows.filter(v=>v&&positive(v.price)&&finite(v.at)&&finite(v.sourceAt));
+    background.status='Serveraufzeichnung · '+background.rows.length+' datierte Modellpunkte';
+    if(lastHistory?.tradeKey?.endsWith('|'+id)){
+     lastHistory=mergedHistory(read(),background.rows,lastHistory.tradeKey);
+     draw(lastResult,lastHistory);showStatus();
+    }
+   }).catch(()=>{if(background.tradeId===id)background.status='Serveraufzeichnung vorübergehend nicht erreichbar';showStatus()})
+    .finally(()=>{if(background.tradeId===id)background.busy=false;});
+ }
+ function showStatus(){
+  if(panel)panel.querySelector('[data-curve-background]').textContent=background.status+
+   ' · Modellpunkte sind keine DEGIRO-Ausführung. Fehlende Kurse bleiben Lücken.';
+ }
+
  function mount(element){
   if(!root.document||!element||panel)return;
   panel=root.document.createElement('section');panel.id='bobProductCurvePanel';panel.className='card';
@@ -115,20 +237,24 @@
    '<div class="small" data-curve-isin role="status">Produkttrade wird geprüft …</div>'+
    '<div data-curve-price style="font-size:29px;font-weight:800;letter-spacing:-.5px;margin:6px 0">—</div>'+
    '<div class="small" data-curve-source></div>'+
-   '<div style="display:flex;flex-wrap:wrap;gap:7px;margin:12px 0 8px">'+
-   '<button type="button" data-curve-zoom="price" aria-pressed="true">Kursfokus</button>'+
-   '<button type="button" data-curve-zoom="all" aria-pressed="false">Stopp &amp; Ziel</button>'+
-   '<button type="button" data-curve-fib aria-pressed="true">Fibonacci ✓</button></div>'+
+   '<div style="display:flex;gap:5px;align-items:center;margin:10px 0 8px">'+
+   '<button type="button" data-curve-zoom="price" aria-pressed="true" style="width:auto;flex:1 1 0;min-width:0;padding:8px 3px;font-size:12px;border:1px solid #94a3b8;border-radius:18px;background:#e2e8f0;color:#0f172a">Kursfokus</button>'+
+   '<button type="button" data-curve-zoom="all" aria-pressed="false" style="width:auto;flex:1 1 0;min-width:0;padding:8px 3px;font-size:12px;border:1px solid #94a3b8;border-radius:18px;background:#f8fafc;color:#0f172a">Stopp &amp; Ziel</button>'+
+   '<button type="button" data-curve-fib aria-pressed="true" style="width:auto;flex:1 1 0;min-width:0;padding:8px 3px;font-size:12px;border:1px solid #94a3b8;border-radius:18px;background:#f1f5f9;color:#0f172a">Fibonacci ✓</button></div>'+
    '<canvas data-curve-chart width="900" height="430" style="width:100%;height:auto;border-radius:12px;background:#f8fafc;touch-action:manipulation" aria-label="Beobachteter Kursverlauf des Gold-Hebelprodukts in seiner Produktwährung. Stop und Ziel als berechnete Linien."></canvas>'+
+   '<div class="small" data-curve-levels></div>'+
+   '<div class="small" data-curve-stop-review role="status"></div>'+
+   '<p data-curve-action role="status"></p>'+
+   '<details data-curve-evidence style="margin-top:10px"><summary style="font-size:13px;color:#475569;cursor:pointer">Kursnachweise, Preisabgleich &amp; Fibonacci</summary>'+
+   '<div class="small" data-curve-quality role="status"></div>'+
+   '<div class="small" data-curve-background></div>'+
    '<div class="small" data-curve-fib-note></div>'+
    '<div class="small" data-curve-picked aria-live="polite"></div>'+
-   '<div class="small" data-curve-levels></div>'+
-   '<p data-curve-action role="status"></p>'+
-   '<p class="small">Kurve ab Beginn dieser Aufzeichnung auf diesem Handy: echte datierte Anbieterbeobachtungen und klar gekennzeichnete Modellpunkte. Keine erfundene rückwirkende Historie, keine Ausführungskurse. Bei geschlossener App entstehen hier keine neuen Punkte. KO-Schwelle in Gold-USD, nicht auf der Produktpreisachse. Bob empfiehlt nur; du handelst selbst bei DEGIRO.</p>';
+   '<p class="small">Lokale Anbieter-/Modellpunkte und serverseitig datierte Modellpunkte ab Beginn der Überwachung. Keine erfundene Vergangenheit, keine ausführbaren DEGIRO-Kurse. Nur der bestätigte aktive Echtgeld-Trade wird im Hintergrund aufgezeichnet; bei Quellen- oder Serverausfall entstehen Lücken. KO-Schwelle in Gold-USD, nicht auf der Produktpreisachse. Bob schlägt vor, du handelst selbst bei DEGIRO.</p></details>';
   element.append(panel);canvas=panel.querySelector('canvas');
   panel.querySelectorAll('[data-curve-zoom]').forEach(button=>button.addEventListener('click',()=>{
    zoom=button.getAttribute('data-curve-zoom');
-   panel.querySelectorAll('[data-curve-zoom]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));
+   panel.querySelectorAll('[data-curve-zoom]').forEach(b=>{const chosen=b===button;b.setAttribute('aria-pressed',String(chosen));b.style.background=chosen?'#e2e8f0':'#f8fafc';});
    draw(lastResult,lastHistory);
   }));
   panel.querySelector('[data-curve-fib]').addEventListener('click',event=>{
@@ -143,6 +269,7 @@
    const first=h.rows[0].at,last=h.rows.at(-1).at,span=Math.max(last-first,30000);
    const target=first+Math.max(0,Math.min(1,(x-82)/(canvas.width-114)))*span;
    picked=h.rows.reduce((best,v)=>!best||Math.abs(v.at-target)<Math.abs(best.at-target)?v:best,null);
+   panel.querySelector('[data-curve-evidence]').open=true;
    showPicked();
   });
  }
@@ -223,16 +350,45 @@
  }
  function update(input,now=Date.now()){
   if(!panel)return;
-  const result=assess(input,now),existing=read();
-  const h=addObservation(existing,result,now);
-  if(h.added||!existing||existing.tradeKey!==h.tradeKey)save(h);
-  const repaint=h.added||lastHistory?.tradeKey!==h.tradeKey
+  const rawResult=assess(input,now);
+  let result=rawResult;
+  const before=readQuality(),learned=learnComparison(before,result.comparison,result.tradeKey,now);
+  if(learned.rows.length!==(before?.tradeKey===learned.tradeKey?before?.rows?.length:0))saveQuality(learned);
+  const quality=calibrate(learned,now);
+  if(result.available&&result.kind==='model'&&quality.usable){
+   // Display-only correction: never changes saved stop, gold decisions or orders.
+   const adjusted=result.price+quality.offset;
+   if(positive(adjusted)){
+    result={...result,rawModelPrice:result.price,price:adjusted,
+     stop:positive(result.stop)?result.stop+quality.offset:result.stop,
+     target:positive(result.target)?result.target+quality.offset:result.target,
+     source:result.source+' · indikativ kalibriert',calibrated:true};
+   }
+  }
+  const existing=read();
+  // Historical chart remains immutable raw observed/model data; a subsequently
+  // learned offset only affects the current indicative display marker.
+  const local=addObservation(existing,rawResult,now);
+  if(local.added||!existing||existing.tradeKey!==local.tradeKey)save(local);
+  const h=mergedHistory(local,background.tradeId===input?.trade?.tradeId?background.rows:[],local.tradeKey);
+  refreshBackground(input?.trade,now);
+  const repaint=local.added||lastHistory?.tradeKey!==h.tradeKey
     ||lastResult?.stage!==result.stage||lastResult?.stop!==result.stop
     ||lastResult?.target!==result.target||lastResult?.kind!==result.kind
     ||lastResult?.price!==result.price||lastResult?.koDistancePct!==result.koDistancePct;
   lastResult=result;lastHistory=h;
   if(picked&&!h.rows.some(v=>v.at===picked.at)){picked=null;}
   const show=(sel,value)=>{const node=panel.querySelector(sel);if(node)node.textContent=value;};
+  const match=result.comparison;
+  const qualityText=match?
+   'Zeitgleicher Preisabgleich · Anbieter '+fmt(match.quoted,result.currency)+
+   ' · unkalibriertes Modell '+fmt(match.estimated,result.currency)+
+   ' · Differenz '+((match.estimated/match.quoted-1)*100).toFixed(2)+' % (kein DEGIRO-Kurs).':
+   'Kein zeitgleicher Anbieterpreis zum aktuellen Modell verfügbar.';
+  show('[data-curve-quality]',qualityText+' Kalibrierung: '+(quality.usable?
+   quality.count+' geprüfte Paare; Korrektur '+(quality.offset>=0?'+':'')+
+   quality.offset.toFixed(3)+' '+result.currency+' · nur Modellanzeige.':
+   quality.count+' Paare; '+quality.reason+'.'));
   show('[data-curve-isin]',result.isin?result.isin+' · '+result.currency+' pro Stück':'Kein aktiver Produkttrade');
   show('[data-curve-price]',result.available?(result.kind==='model'?'≈ ':'')+fmt(result.price,result.currency):'—');
   show('[data-curve-source]',result.available?
@@ -244,16 +400,20 @@
     result.ko!=null?'KO-Schwelle '+result.ko.toFixed(2)+' USD/oz Gold':'KO-Schwelle: nicht bestätigt',
     finite(result.koDistancePct)?'KO-Abstand ca. '+result.koDistancePct.toFixed(2)+' % (Gold)':'KO-Abstand derzeit nicht prüfbar'].join(' · ');
   show('[data-curve-levels]',levels);
+  const stopReview=reviewStop(result,h,input?.trade);
+  show('[data-curve-stop-review]','Automatische Stopp-Prüfung: '+stopReview.reason+
+   (positive(stopReview.suggestedStop)?' Nur Vorschlag: Stopp ≈ '+fmt(stopReview.suggestedStop,result.currency)+'.':'') );
   const fib=fibonacci(h.rows);
   show('[data-curve-fib-note]',fib?
    'Fibonacci aus beobachtetem Produktswing ('+(fib.rising?'Tief → Hoch':'Hoch → Tief')+
    '): '+fmt(fib.low,result.currency)+' bis '+fmt(fib.high,result.currency)+
-   ' · Orientierungslevel, keine garantierten Signale.':
+   ' · '+fib.samples+' zusammenhängende Punkte · keine garantierten Signale.':
    'Fibonacci erscheint automatisch ab 6 datierten Kursbeobachtungen über mindestens 2 Minuten mit messbarer Kursspanne.');
   show('[data-curve-action]',result.action||'Keine Handelsempfehlung; Daten prüfen.');
   if(repaint)draw(result,h);
+  showStatus();
   showPicked();
  }
- root.BobProductCurve={assess,addObservation,fibonacci,mount,update};
- if(typeof module!=='undefined'&&module.exports)module.exports={assess,addObservation,fibonacci};
+ root.BobProductCurve={assess,addObservation,mergedHistory,learnComparison,calibrate,reviewStop,fibonacci,mount,update};
+ if(typeof module!=='undefined'&&module.exports)module.exports={assess,addObservation,mergedHistory,learnComparison,calibrate,reviewStop,fibonacci};
 })(typeof window!=='undefined'?window:globalThis);
