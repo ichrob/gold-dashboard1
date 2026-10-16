@@ -68,6 +68,28 @@ def parse_document_text(raw):
     costs = _unique_label(text, "Gesamte Kosten",
                           r"CHF[ \t]+-?[0-9]+(?:[.,][0-9]{1,2})?")
     costs_chf = abs(float(costs.split()[1].replace(",", "."))) if costs else None
+    gross = _unique_label(text, "Wert", r"CHF[ \t]+-?[0-9]+(?:[.,][0-9]{1,2})?")
+    total = _unique_label(text, "Gesamt", r"CHF[ \t]+-?[0-9]+(?:[.,][0-9]{1,2})?")
+    eur_total = _unique_label(text, "Wert in Lokalwährung",
+                              r"EUR[ \t]+-?[0-9]+(?:[.,][0-9]{1,4})?")
+    fx = _unique_label(text, "Wechselkurs", r"[0-9]+(?:[.,][0-9]{1,8})?")
+    gross_chf = float(gross.split()[1].replace(",", ".")) if gross else None
+    total_chf = float(total.split()[1].replace(",", ".")) if total else None
+    eur_value = float(eur_total.split()[1].replace(",", ".")) if eur_total else None
+    fx_rate = float(fx.replace(",", ".")) if fx else None
+    expected_sign = -1 if side.lower() == "kauf" else 1
+    if (gross_chf is not None and gross_chf * expected_sign <= 0
+            or total_chf is not None and total_chf * expected_sign <= 0
+            or eur_value is not None and eur_value * expected_sign <= 0
+            or eur_value is not None and abs(abs(eur_value)-eur*amount)>0.015
+            or gross_chf is not None and total_chf is not None and costs_chf is not None
+                and abs(total_chf - (gross_chf - costs_chf)) > 0.025
+            or fx_rate is not None and not (0.1 <= fx_rate <= 5)
+            or fx_rate is not None and gross_chf is not None
+                and abs(eur*amount/fx_rate-abs(gross_chf))>0.08):
+        return incomplete("Beträge, Gebühren, Währung oder Wechselkurs widersprüchlich")
+    # Only a complete, arithmetically consistent CHF triplet is net evidence.
+    complete_chf = all(x is not None for x in (gross_chf, total_chf, costs_chf))
     # No explicit timezone is printed. Preserve the source clock verbatim;
     # never fabricate a UTC timestamp, an intraday quote or a current position.
     return {
@@ -79,5 +101,8 @@ def parse_document_text(raw):
         "executedLocal": dt.strftime("%d.%m.%Y %H:%M:%S"),
         "timezoneConfirmed": False, "executedAt": None,
         "orderIdDigest": hashlib.sha256(order_id.lower().encode("ascii")).hexdigest(),
-        "costsChf": costs_chf, "activeTrade": False,
+        "costsChf": costs_chf,
+        "grossChf": round(abs(gross_chf),2) if complete_chf else None,
+        "totalChf": round(abs(total_chf),2) if complete_chf else None,
+        "fxEurPerChf": fx_rate, "activeTrade": False,
     }
