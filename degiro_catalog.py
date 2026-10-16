@@ -86,10 +86,29 @@ def normalize(isin, expected_direction, raw):
     return item, None
 
 
-def build(lookup, now=None):
+def _failed_source(response, raised=False):
+    return (raised or not isinstance(response, dict)
+            or any(response.get(key) for key in
+                   ("sourceFailure", "sourceDisabled", "quoteFailureCode",
+                    "sourceFailureCode")))
+
+
+def _retryable_bnp_failure(isin, response, raised=False):
+    if isin not in HISTORICAL_BNP or (isinstance(response, dict)
+                                      and response.get("sourceDisabled")):
+        return False
+    if raised or not isinstance(response, dict) or response.get("sourceFailure"):
+        return True
+    code = str(response.get("quoteFailureCode") or
+               response.get("sourceFailureCode") or "")
+    return code == "CONNECTION" or code == "MISSING_QUOTE_TIME" or code.startswith("HTTP_")
+
+
+def build(lookup, now=None, *, retry_limit=0, retry_wait_seconds=16, sleeper=time.sleep):
     """One bounded issuer refresh, no credentials or public DEGIRO calls."""
     now = now or datetime.now(ZONE)
     candidates, excluded, errors = [], [], 0
+    retry_attempts = retry_recovered = 0
     source_checks = {
         "historicalBNP": dict(attempted=0, verified=0, datedFreshQuote=0, sourceErrors=0),
         "otherHistorical": dict(attempted=0, verified=0, datedFreshQuote=0, sourceErrors=0),
@@ -105,18 +124,28 @@ def build(lookup, now=None):
             continue
         try:
             response = lookup(isin)
-            # Existing issuer adapters usually return a structured source failure
-            # instead of raising. Treat it as degraded and retry: never label an
-            # unverified/provider-disabled universe as a successful full scan.
-            if not isinstance(response, dict) or any(response.get(key) for key in
-                ("sourceFailure", "sourceDisabled", "quoteFailureCode", "sourceFailureCode")):
-                errors += 1
-                had_error = True
-            item, exclusion = normalize(isin, direction, response)
+            raised = False
         except Exception:
+            response, raised = {}, True
+        # BNP responses are cached for 15 seconds. Retry only transient failures,
+        # at most retry_limit products per scan, after crossing that cache window.
+        # The repeated response is accepted only after the normal source checks.
+        if (_retryable_bnp_failure(isin, response, raised)
+                and retry_attempts < retry_limit):
+            retry_attempts += 1
+            sleeper(retry_wait_seconds)
+            try:
+                response = lookup(isin)
+                raised = False
+            except Exception:
+                response, raised = {}, True
+            if not _failed_source(response, raised):
+                retry_recovered += 1
+        had_error = _failed_source(response, raised)
+        if had_error:
             errors += 1
-            had_error = True
-            item, exclusion = normalize(isin, direction, {})
+        item, exclusion = normalize(isin, direction, response)
+        if raised and item:
             item["issuerReason"] = "Emittentenabruf momentan fehlgeschlagen; nicht als aktuell bestätigt"
         if had_error:
             group["sourceErrors"] += 1
@@ -138,6 +167,7 @@ def build(lookup, now=None):
     return dict(status=("ok" if errors == 0 else "partial"), queriedAt=now.isoformat(),
                 lastScanAt=now.isoformat(), lastDay=now.date().isoformat(),
                 attempted=len(SEEDS), errors=errors, sourceChecks=source_checks,
+                retryAttempts=retry_attempts, retryRecovered=retry_recovered,
                 candidates=candidates[:LIMIT], excluded=excluded,
                 sourceType="historic-user-list-plus-issuer-research",
                 completeDegiroCatalog=False, degiroAccountConnected=False,
@@ -178,7 +208,8 @@ def _loop():
                 if not is_current and time.monotonic() >= last_retry:
                     with _LOCK:
                         _CURRENT["running"] = True
-                    result=build(product_quotes.get_issuer_quote)
+                    result=build(product_quotes.get_issuer_quote, retry_limit=2,
+                                 retry_wait_seconds=16)
                     with _LOCK:
                         _CURRENT.update(result, lastSession=period[1], running=False)
                     bnp = result["sourceChecks"]["historicalBNP"]
@@ -189,7 +220,9 @@ def _loop():
                           +" bnpVerified="+str(bnp["verified"])
                           +" bnpDatedQuotes="+str(bnp["datedFreshQuote"])
                           +" bnpErrors="+str(bnp["sourceErrors"])
-                          +" otherErrors="+str(other["sourceErrors"]),flush=True)
+                          +" otherErrors="+str(other["sourceErrors"])
+                          +" retries="+str(result["retryAttempts"])
+                          +" recovered="+str(result["retryRecovered"]),flush=True)
                     last_retry=time.monotonic()+(1800 if result["status"]=="partial" else 7200)
         except Exception as exc:
             with _LOCK:
