@@ -333,7 +333,14 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     state['healthy'] = healthy
     direction = market.get('direction', 'NEUTRAL') if healthy else 'NEUTRAL'
     mtf = market.get('mtf', 'NEUTRAL') if healthy else 'NEUTRAL'
-    if general and healthy and (market.get('session') or {}).get('entryAllowed', True):
+    # Timeliness applies only to newly suggested entries, not risk alerts
+    # or ongoing monitoring of a real position.
+    timing = market.get('entryTimingGate')
+    timely = not isinstance(timing, dict) or timing.get('allowed') is True
+    if general and healthy and (market.get('session') or {}).get('entryAllowed', True) and not timely:
+        state.pop('signalPending', None)
+        audit('late-entry', 'suppressed', 'ABWARTEN: '+str(timing.get('reason') or 'Einstiegszeit nicht geprüft')[:120])
+    if general and healthy and timely and (market.get('session') or {}).get('entryAllowed', True):
         notified = state.setdefault('notifiedDirection', state.get('direction'))
         pending = state.get('signalPending')
         if direction not in ('LONG', 'SHORT') or direction == notified:
