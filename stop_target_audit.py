@@ -137,6 +137,7 @@ def report(conn, start, end):
         FROM bob_stop_target_tests WHERE started_at >= %s AND started_at < %s
         ORDER BY started_at,id LIMIT 100''',(start,end)).fetchall()
     return dict(version=VERSION, counts=dict(counts), total=sum(n for _,n in counts),
+                exitComparison=exit_comparison([row[5] for row in rows]),
                 detailsLimit=100, detailsTruncated=sum(n for _,n in counts)>100,
                 maxGapSeconds=MAX_GAP_SECONDS, windowSeconds=WINDOW_SECONDS, note=NOTE,
                 tests=[dict(id=k, decisionId=d, startedAt=s.isoformat(), endsAt=e.isoformat(),
@@ -179,3 +180,26 @@ def evaluate_lifecycle(plan, start, end, points, now, trailing=False):
     if result['maxGapSeconds']>MAX_GAP_SECONDS:
         result.update(status='inconclusive',directionalR=None,reason='Kurslücke über 90 Sekunden; Verlauf nicht vollständig belegt')
     return result
+
+
+def exit_comparison(results):
+    """Same plans, same observed paths; exclude pending or gapped outcomes."""
+    paired=[]
+    for result in results:
+        life=result.get('lifecycle') or {}
+        pair=[life.get(k) or {} for k in ('fixed','trailing')]
+        if all(v.get('complete') and v.get('status') in ('observed-stop','observed-target','no-observed-hit')
+               and type(v.get('directionalR')) in (int,float) and math.isfinite(v['directionalR']) for v in pair):
+            paired.append(pair)
+    variants={}
+    for index,key in enumerate(('fixed','trailing')):
+        records=[p[index] for p in paired]
+        variants[key]=dict(evaluated=len(records), stops=sum(r.get('firstObserved')=='stop' for r in records),
+            meanR=sum(r['directionalR'] for r in records)/len(records) if records else None,
+            meanGivebackR=sum(max(0.,r.get('maxFavorableR',0)-r['directionalR']) for r in records)/len(records) if records else None)
+    return dict(paired=len(paired), excluded=len(results)-len(paired), variants=variants,
+                automaticRuleChange=False,
+                note='Gleiche vollständig beobachtete Planverläufe; nur angezeigte Tagesdetails. '
+                'Rückgabe = größte beobachtete günstige Bewegung minus Modellergebnis in R. '
+                'Planversionen können überlappen; keine unabhängigen Trades, keine Produktkosten. '
+                'Weniger Stopptreffer allein bedeutet keine bessere Strategie.')

@@ -12,6 +12,23 @@ from test_degiro_product_audit import provider, NOW
 
 
 class SourceRefreshTests(unittest.TestCase):
+    def test_fields_are_harvested_before_issuer_slot_becomes_available(self):
+        from test_comdirect_fields import HTML, ISIN as isin
+        raw={'isin':isin,'sourceDisabled':False}
+        import comdirect_fields
+        # Use parser-owned observations; no identity or source clock invented.
+        html=HTML
+        fields=comdirect_fields.parse_page(html,isin)
+        with patch.object(sim,'_pool',Mock()), patch.object(sim,'_pending',{str(i):Future() for i in range(4)}), \
+             patch.object(sim,'_quotes',{isin:raw}), patch.object(sim,'_requested',{}), \
+             patch('comdirect_quotes.get_observation',return_value={'state':'observed','fields':fields}), \
+             patch('leverage_backup.apply',side_effect=lambda r:r):
+            rows=sim.quote_cache([{'isin':isin}],[],NOW)
+        self.assertIn('conditions',rows[isin])
+        self.assertNotIn('conditions',raw)
+        self.assertNotIn('eligible',rows[isin])
+        self.assertEqual(rows[isin]['conditions']['ko'],fields['observations']['ko'])
+
     def test_third_source_reaches_audit_while_issuer_slots_are_busy(self):
         isin='DE000FG14AV8'
         now=datetime.fromisoformat('2026-10-14T18:54:02+02:00')
