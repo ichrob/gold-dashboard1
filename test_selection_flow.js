@@ -195,7 +195,22 @@ assert.equal(unidentified.notApproved.length,1);assert(b.productUploadCards([{na
 // Push verification reruns the same evidence checks on the server and ignores
 // client claims about approval. It also accounts for time spent in delivery.
 const verifyPush=require('./selection_push_evaluator').evaluate;
-const pushInput=products=>({products,context,capturedAt:now,bundle:{fetched_at:now/1000,spots:{xaus:4140,xaus_age_seconds:0},history:{data_state:{status:'fresh'}}}});
+// Server approval now also requires real XAU/USD source-clocked candles and
+// an identifiable recent confirmation. Empty browser claims must not pass.
+const clocked=(step)=>{const latest=Math.floor(now/step)*step-step;return Array.from({length:100},(_,i)=>{
+  const close=4140+0.04*(99-i),open=close+0.04;
+  return {openTime:latest-(99-i)*step,open,close,high:open+1,low:close-1,
+          instrument:'XAU/USD',isOpen:false};
+});};
+const verifiedHistory={'5m':clocked(300000),'15m':clocked(900000)};
+const pushInput=products=>({products,context:{...context,confirmationAt:now-5*60000},
+  capturedAt:now,bundle:{fetched_at:now/1000,spots:{
+    xaus:4140,xaus_age_seconds:0,spot_price_as_of:new Date(now-10000).toISOString(),
+    is_genuine_xauusd_spot:true,spot_error:null},
+    history:{bars_by_tf:verifiedHistory,data_state:{status:'fresh'}}}});
+assert.equal(verifyPush({...pushInput(copies),bundle:{fetched_at:now/1000,
+  spots:{xaus:4140,xaus_age_seconds:0},history:{data_state:{status:'fresh'}}}},now).products.length,0,
+  'No entry candidates without clocked original candles');
 for(let count=0;count<=3;count++){
  const verified=verifyPush({...pushInput(copies.slice(0,count)),approved:true},now);
  assert.equal(verified.products.length,count);
