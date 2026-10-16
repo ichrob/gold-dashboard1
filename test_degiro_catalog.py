@@ -137,6 +137,44 @@ class IssuerCatalogueTests(unittest.TestCase):
         self.assertEqual(result["errors"],len(catalog.SEEDS))
         self.assertFalse(any(x["issuerVerified"] for x in result["candidates"]))
 
+    def test_transient_bnp_failures_retry_after_cache_window_and_recover(self):
+        failing = {"DE000PJ9NCK0", "DE000PJ9NB98"}
+        calls, waits = {}, []
+        def flaky(isin):
+            calls[isin] = calls.get(isin, 0) + 1
+            side = next(side for known, side in catalog.SEEDS if known == isin)
+            row = issuer(isin, side)
+            if isin in failing and calls[isin] == 1:
+                row.update(sourceFailure=True, quoteFailureCode="CONNECTION")
+            return row
+        result = catalog.build(flaky, datetime(2026, 10, 16, 10, tzinfo=Z),
+                               retry_limit=2, retry_wait_seconds=16,
+                               sleeper=waits.append)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["errors"], 0)
+        self.assertEqual(result["retryAttempts"], 2)
+        self.assertEqual(result["retryRecovered"], 2)
+        self.assertEqual(waits, [16, 16])
+        self.assertTrue(all(calls[isin] == (2 if isin in failing else 1)
+                            for isin, _ in catalog.SEEDS))
+
+    def test_retry_budget_is_global_and_fail_closed(self):
+        calls, waits = [], []
+        def unavailable(isin):
+            calls.append(isin)
+            return dict(isin=isin, found=False, sourceFailure=True,
+                        quoteFailureCode="HTTP_503", reason="Provider unavailable")
+        result = catalog.build(unavailable, datetime(2026, 10, 16, 10, tzinfo=Z),
+                               retry_limit=2, retry_wait_seconds=16,
+                               sleeper=waits.append)
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["errors"], len(catalog.SEEDS))
+        self.assertEqual(result["retryAttempts"], 2)
+        self.assertEqual(result["retryRecovered"], 0)
+        self.assertEqual(waits, [16, 16])
+        self.assertEqual(len(calls), len(catalog.SEEDS) + 2)
+        self.assertFalse(any(row["liveApproved"] for row in result["candidates"]))
+
     def test_no_network_credential_or_delayed_adapter_fallback(self):
         attempts=[]
         def lookup(isin):
@@ -163,7 +201,9 @@ class IssuerCatalogueTests(unittest.TestCase):
         self.assertIn('or path == "/api/degiro/candidates"',py)
         self.assertIn('if path == "/api/degiro/candidates":',py)
         self.assertIn('degiro_catalog.start()',py)
-        self.assertIn("build(product_quotes.get_issuer_quote)",Path("degiro_catalog.py").read_text())
+        code=Path("degiro_catalog.py").read_text()
+        self.assertIn("build(product_quotes.get_issuer_quote, retry_limit=2",code)
+        self.assertIn("retry_wait_seconds=16",code)
         self.assertIn("Automatische Gold-Produktrecherche · externe Kandidaten",js)
         self.assertIn('completeDegiroCatalog!==false',js)
         self.assertIn('p.eligibleForTop3!==false',js)
