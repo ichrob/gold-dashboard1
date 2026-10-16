@@ -308,7 +308,21 @@
  }
  function update(input,now=Date.now()){
   if(!panel)return;
-  const result=assess(input,now),existing=read();
+  let result=assess(input,now);
+  const before=readQuality(),learned=learnComparison(before,result.comparison,result.tradeKey,now);
+  if(learned.rows.length!==(before?.tradeKey===learned.tradeKey?before?.rows?.length:0))saveQuality(learned);
+  const quality=calibrate(learned,now);
+  if(result.available&&result.kind==='model'&&quality.usable){
+   // Display-only correction: never changes saved stop, gold decisions or orders.
+   const adjusted=result.price+quality.offset;
+   if(positive(adjusted)){
+    result={...result,rawModelPrice:result.price,price:adjusted,
+     stop:positive(result.stop)?result.stop+quality.offset:result.stop,
+     target:positive(result.target)?result.target+quality.offset:result.target,
+     source:result.source+' · indikativ kalibriert',calibrated:true};
+   }
+  }
+  const existing=read();
   const local=addObservation(existing,result,now);
   if(local.added||!existing||existing.tradeKey!==local.tradeKey)save(local);
   const h=mergedHistory(local,background.tradeId===input?.trade?.tradeId?background.rows:[],local.tradeKey);
