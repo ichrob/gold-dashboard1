@@ -90,6 +90,15 @@ class CostTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             paper_costs.evaluate(self.case(),dict(feeEurPerOrder=-1,slippageBpsPerSide=0,extraHoldingBpsPerDay=0))
 
+    def test_costs_can_turn_gross_profit_into_loss(self):
+        c=self.case();c['cashReleased']=102.
+        report=paper_costs.report([c])
+        for scenario in report['scenarios']:
+            self.assertEqual(scenario['grossEur'],2.)
+            self.assertLess(scenario['modelNetEur'],0)
+        self.assertLess(report['scenarios'][1]['modelNetEur'],report['scenarios'][0]['modelNetEur'])
+        self.assertFalse(report['netReturnKnown'])
+
     def test_no_cases_not_zero_profit(self):
         self.assertIsNone(paper_costs.report([])['scenarios'][0]['modelNetEur'])
 

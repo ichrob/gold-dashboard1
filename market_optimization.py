@@ -43,7 +43,8 @@ def capture(r):
                 automaticRuleChange=False)
 
 
-def report(rows, score, now=None):
+def report(rows, score, now=None, labels=None):
+    labels = LABELS if labels is None else labels
     now=time.time()*1000 if now is None else now
     ordered=sorted((r for r,_ in rows if r.get('origin')=='background'),key=lambda r:r['recordedAt'])
     groups={}; moves=[]; reasons={}; sampled=0; last=None; pending=0; missing=0; atr_missing=0
@@ -67,17 +68,21 @@ def report(rows, score, now=None):
             result=score(r,truth,h) if f.get('inputFresh') else None
             # A 1-minute result must not actually be an almost 2-minute price.
             if result and h==1 and milliseconds(result['at'])>at+90000:result=None
-            if not result or any(values.get(k) not in ('LONG','SHORT','NEUTRAL') for k in LABELS):
+            if not result or any(values.get(k) not in ('LONG','SHORT','NEUTRAL') for k in labels):
                 if now<at+h*60000+(30000 if h==1 else 60000):pending+=1
                 else:missing+=1
                 continue
             results[h]=result
             change=result['changePct']
-            group=groups.setdefault((phase,f['regime'],h),dict(cases=0,variants={k:dict(signals=0,wait=0,sumPct=0.,wins=0,losses=0) for k in LABELS}))
+            group=groups.setdefault((phase,f['regime'],h),dict(cases=0,variants={k:dict(signals=0,wait=0,sumPct=0.,wins=0,losses=0,avoidedLosses=0,missedWins=0) for k in labels}))
             group['cases']+=1
             for k,d in values.items():
                 m=group['variants'][k]
                 value=(change if d=='LONG' else -change)-.04 if d!='NEUTRAL' else 0.
+                base = values['baseline']
+                base_value = (change if base=='LONG' else -change)-.04 if base!='NEUTRAL' else 0.
+                m['avoidedLosses'] += d=='NEUTRAL' and base_value<0
+                m['missedWins'] += d=='NEUTRAL' and base_value>0
                 m['sumPct']+=value;m['signals']+=d!='NEUTRAL';m['wait']+=d=='NEUTRAL'
                 m['wins']+=d!='NEUTRAL' and value>0;m['losses']+=d!='NEUTRAL' and value<0
             # ATR is a fixed, prior 5m reference, not a forecast or a
@@ -98,7 +103,7 @@ def report(rows, score, now=None):
             for item in moves:
                 if item['at']==at:item['endpointReversal']=first*end<0
     return dict(version=VERSION,sampled=sampled,pending=pending,missing=missing,atrMissing=atr_missing,
-        labels=LABELS,horizons=list(HORIZONS),groups=[dict(phase=p,regime=g,horizon=h,**v) for (p,g,h),v in groups.items()],
+        labels=labels,horizons=list(HORIZONS),groups=[dict(phase=p,regime=g,horizon=h,**v) for (p,g,h),v in groups.items()],
         moves=moves[-20:],moveCount=len(moves),waitReasons=reasons,automaticRuleChange=False,
         note='Neue Fälle, mindestens 31 Minuten Abstand. Je Zeitraum dieselben Fälle für alle Varianten. '
         'Bewegungsschwellen: 0,15 % oder 1 vorher bekannte 5m-ATR; keine Gewinnprognose. '
