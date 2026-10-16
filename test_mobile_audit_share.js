@@ -5,7 +5,7 @@ const end=panel.indexOf(' function mobileAuditPayload(){',start);
 assert(start>0&&end>start,'Pure mobile handoff formatter exists');
 const isolated={};
 vm.createContext(isolated);
-vm.runInContext(panel.slice(start,end)+';globalThis.build=auditTextForChatGPT;',isolated);
+vm.runInContext(panel.slice(start,end)+';globalThis.build=auditTextForChatGPT;globalThis.merge=problemReport;globalThis.collect=displayedProductProblems;',isolated);
 const sample={
  status:'ok',lastCheckedAt:'2026-10-15T19:00:00Z',listUploadedAt:'2026-10-15T08:00:00Z',
  total:1,incomplete:1,
@@ -31,7 +31,7 @@ assert(!msg.includes('do-not-export')&&!msg.includes('sensitive account'));
 assert(!msg.includes('300')&&!msg.includes('3.5'));
 const stale=isolated.build({status:'stale',total:1,incomplete:null,items:[]});
 assert(stale.includes('Prüfstatus: stale'));
-assert(stale.includes('Keine einzelnen Produktdaten abrufbar.'));
+assert(stale.includes('Keine Problemprodukte im Bericht enthalten.'));
 assert(!stale.includes('Keine offenen Probleme'));
 const unavailable=isolated.build({status:'unavailable',items:[]});
 assert(unavailable.includes('Prüfstatus: unavailable'));
@@ -53,3 +53,17 @@ const nodes={dgSavedProductsSummary:{closest(tag){assert.strictEqual(tag,'detail
 vm.runInNewContext(mountCode+';mount();',{byId:id=>nodes[id]});
 assert(placed,'Share button is placed outside and directly below the product list');
 console.log('Android private audit handoff: format, no secrets or prices, stale state, share, copy and auth passed');
+
+const local=[{isin:'DE000FG14AV8',labels:'DEGIRO-Handelsnachweis',messages:['Kurs und Hebel vorhanden · Nachweisprüfung läuft']},{isin:'DE000FG8NHQ3',labels:'DEGIRO-Handelsnachweis',messages:['DEGIRO-Handelsnachweis offen']}];
+const report=isolated.merge({status:'ok',items:[{isin:local[0].isin,state:'issuer-evidence-complete',missing:[]},{isin:'HEALTHY',state:'issuer-evidence-complete',missing:[]},sample.items[0]]},local);
+assert.strictEqual(report.items.length,3);
+const text=isolated.build(report);
+for(const card of local)assert(text.includes(card.isin)&&text.includes(card.messages[0]));
+assert(!text.includes('HEALTHY'));
+assert.strictEqual(report.items.filter(p=>p.isin===local[0].isin).length,1);
+const offline=isolated.build(isolated.merge(null,local));
+assert(offline.includes('Prüfstatus: unavailable')&&offline.includes(local[1].isin));
+assert(!offline.includes('Automatische Handelsfreigabe: laut Bericht ja'));
+isolated.document={querySelectorAll(selector){assert.strictEqual(selector,'#dgMissingProducts [data-product-isin]');return local.map(card=>({dataset:{productIsin:card.isin},querySelector(){return {textContent:card.labels}},querySelectorAll(){return card.messages.map(textContent=>({textContent}))}}));}};
+assert.strictEqual(isolated.collect().length,2);
+console.log('Problem-only handoff: both displayed broker-evidence problems, server merge, deduplication and offline fallback passed');
