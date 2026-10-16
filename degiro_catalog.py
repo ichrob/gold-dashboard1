@@ -101,14 +101,24 @@ def _retryable_bnp_failure(isin, response, raised=False):
         return True
     code = str(response.get("quoteFailureCode") or
                response.get("sourceFailureCode") or "")
-    return code == "CONNECTION" or code == "MISSING_QUOTE_TIME" or code.startswith("HTTP_")
+    if code == "STALE_OR_INVALID_SOURCE_TIME":
+        # A stale original BNP bid/ask/leverage is not a healthy quote, but
+        # the same authorised endpoint may deliver a newer issuer snapshot on
+        # the next bounded request. Do not retry closed/ended products, a
+        # different ISIN or a non-BNP research/model quote.
+        return (response.get("isin") == isin
+                and response.get("productVerified") is True
+                and response.get("found") is True
+                and response.get("marketOpen") is True
+                and str(response.get("source") or "").startswith("BNP Paribas ·"))
+    return code in ("CONNECTION", "MISSING_QUOTE_TIME") or code.startswith("HTTP_")
 
 
 def build(lookup, now=None, *, retry_limit=0, retry_wait_seconds=16, sleeper=time.sleep):
     """One bounded issuer refresh, no credentials or public DEGIRO calls."""
     now = now or datetime.now(ZONE)
     candidates, excluded, errors = [], [], 0
-    retry_attempts = retry_recovered = 0
+    retry_attempts = retry_recovered = bnp_stale = 0
     source_checks = {
         "historicalBNP": dict(attempted=0, verified=0, datedFreshQuote=0, sourceErrors=0),
         "otherHistorical": dict(attempted=0, verified=0, datedFreshQuote=0, sourceErrors=0),
@@ -142,6 +152,10 @@ def build(lookup, now=None, *, retry_limit=0, retry_wait_seconds=16, sleeper=tim
             if not _failed_source(response, raised):
                 retry_recovered += 1
         had_error = _failed_source(response, raised)
+        if isin in HISTORICAL_BNP and isinstance(response, dict) and response.get("quoteFailureCode") == "STALE_OR_INVALID_SOURCE_TIME":
+            # Diagnostic only: a delayed issuer clock is NOT cured by a new
+            # local fetch time. Always preserve original issuer timestamps.
+            bnp_stale += 1
         if had_error:
             errors += 1
         item, exclusion = normalize(isin, direction, response)
@@ -168,6 +182,7 @@ def build(lookup, now=None, *, retry_limit=0, retry_wait_seconds=16, sleeper=tim
                 lastScanAt=now.isoformat(), lastDay=now.date().isoformat(),
                 attempted=len(SEEDS), errors=errors, sourceChecks=source_checks,
                 retryAttempts=retry_attempts, retryRecovered=retry_recovered,
+                bnpStaleSourceClocks=bnp_stale,
                 candidates=candidates[:LIMIT], excluded=excluded,
                 sourceType="historic-user-list-plus-issuer-research",
                 completeDegiroCatalog=False, degiroAccountConnected=False,
@@ -208,7 +223,7 @@ def _loop():
                 if not is_current and time.monotonic() >= last_retry:
                     with _LOCK:
                         _CURRENT["running"] = True
-                    result=build(product_quotes.get_issuer_quote, retry_limit=2,
+                    result=build(product_quotes.get_issuer_quote, retry_limit=3,
                                  retry_wait_seconds=16)
                     with _LOCK:
                         _CURRENT.update(result, lastSession=period[1], running=False)
@@ -222,8 +237,11 @@ def _loop():
                           +" bnpErrors="+str(bnp["sourceErrors"])
                           +" otherErrors="+str(other["sourceErrors"])
                           +" retries="+str(result["retryAttempts"])
-                          +" recovered="+str(result["retryRecovered"]),flush=True)
-                    last_retry=time.monotonic()+(1800 if result["status"]=="partial" else 7200)
+                          +" recovered="+str(result["retryRecovered"])
+                          +" bnpStaleClocks="+str(result["bnpStaleSourceClocks"]),flush=True)
+                    # Retry a partial historical catalogue after 10 minutes,
+                    # not 30. Active-trade 30s polling remains independent.
+                    last_retry=time.monotonic()+(600 if result["status"]=="partial" else 7200)
         except Exception as exc:
             with _LOCK:
                 _CURRENT.update(status="error",running=False,errors=_CURRENT["errors"]+1)

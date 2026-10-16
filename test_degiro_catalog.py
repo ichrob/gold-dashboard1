@@ -202,13 +202,102 @@ class IssuerCatalogueTests(unittest.TestCase):
         self.assertIn('if path == "/api/degiro/candidates":',py)
         self.assertIn('degiro_catalog.start()',py)
         code=Path("degiro_catalog.py").read_text()
-        self.assertIn("build(product_quotes.get_issuer_quote, retry_limit=2",code)
+        self.assertIn("build(product_quotes.get_issuer_quote, retry_limit=3",code)
         self.assertIn("retry_wait_seconds=16",code)
         self.assertIn("Automatische Gold-Produktrecherche · externe Kandidaten",js)
         self.assertIn('completeDegiroCatalog!==false',js)
         self.assertIn('p.eligibleForTop3!==false',js)
         self.assertIn("Keine automatische Top-3-Freigabe",js)
         self.assertNotIn('document.querySelector("#dgListUpload").files',js)
+
+
+    def test_stale_original_bnp_clocks_trigger_bounded_authorised_retry(self):
+        """Three BNP issuer clocks may recover without new feeds or false ages."""
+        isins = catalog.HISTORICAL_BNP
+        calls, waits = {}, []
+        original = "2026-10-16T08:01:00+02:00"
+        current = "2026-10-16T13:00:00+02:00"
+        def lookup(isin):
+            calls[isin] = calls.get(isin, 0) + 1
+            side = next(side for known, side in catalog.SEEDS if known == isin)
+            row = issuer(isin, side)
+            if isin in isins:
+                row.update(source="BNP Paribas · Emittent OTC", marketOpen=True)
+                if calls[isin] == 1:
+                    row.update(found=True, eligible=False, fresh=False,
+                               quoteFailureCode="STALE_OR_INVALID_SOURCE_TIME",
+                               quoteAt=original,
+                               bidAt=original, askAt=original,
+                               leverageAt=original, snapshotAt=original)
+                else:
+                    row.update(found=True, eligible=True, fresh=True,
+                               quoteAt=current,
+                               bidAt=current, askAt=current,
+                               leverageAt=current, snapshotAt=current)
+            return row
+        result = catalog.build(lookup, datetime(2026, 10, 16, 13, tzinfo=Z),
+                               retry_limit=3, retry_wait_seconds=16,
+                               sleeper=waits.append)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["retryAttempts"], 3)
+        self.assertEqual(result["retryRecovered"], 3)
+        self.assertEqual(result["bnpStaleSourceClocks"], 0)
+        self.assertEqual(result["sourceChecks"]["historicalBNP"]["datedFreshQuote"], 3)
+        self.assertEqual(waits, [16, 16, 16])
+        for isin in isins:
+            self.assertEqual(calls[isin], 2)
+            item = next(x for x in result["candidates"] if x["isin"] == isin)
+            self.assertEqual(item["quoteSourceAt"], current)
+            self.assertTrue(item["issuerQuoteFresh"])
+            self.assertFalse(item["liveApproved"])
+            self.assertFalse(item["eligibleForTop3"])
+
+    def test_persistently_old_bnp_clock_stays_old_and_unapproved(self):
+        one = "DE000PJ9NCK0"
+        old = "2026-10-16T08:01:00+02:00"
+        calls = []
+        def lookup(isin):
+            calls.append(isin)
+            side = next(side for known, side in catalog.SEEDS if known == isin)
+            row = issuer(isin, side)
+            if isin == one:
+                row.update(source="BNP Paribas · Emittent OTC", marketOpen=True,
+                           found=True, eligible=False, fresh=False,
+                           quoteFailureCode="STALE_OR_INVALID_SOURCE_TIME",
+                           quoteAt=old, bidAt=old, askAt=old,
+                           leverageAt=old, snapshotAt=old)
+            return row
+        result = catalog.build(lookup, datetime(2026, 10, 16, 13, tzinfo=Z),
+                               retry_limit=3, retry_wait_seconds=16,
+                               sleeper=lambda _: None)
+        self.assertEqual(calls.count(one), 2)
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["bnpStaleSourceClocks"], 1)
+        self.assertEqual(result["retryAttempts"], 1)
+        self.assertEqual(result["retryRecovered"], 0)
+        item = next(x for x in result["candidates"] if x["isin"] == one)
+        self.assertEqual(item["quoteSourceAt"], old)
+        self.assertFalse(item["issuerQuoteFresh"])
+        self.assertFalse(item["liveApproved"])
+
+    def test_stale_research_or_closed_bnp_does_not_trigger_network_retry(self):
+        isin = "DE000PJ9NCK0"
+        for changed in ({"marketOpen": False},
+                        {"productVerified": False},
+                        {"source": "comdirect · BNP LiveTrading"},
+                        {"isin": "DE000PJ9NB98"},
+                        {"found": False}):
+            row = issuer(isin)
+            row.update(source="BNP Paribas · Emittent OTC", marketOpen=True,
+                       quoteFailureCode="STALE_OR_INVALID_SOURCE_TIME",
+                       found=True, eligible=False, fresh=False)
+            row.update(changed)
+            self.assertFalse(catalog._retryable_bnp_failure(isin, row))
+        row = issuer(isin)
+        row.update(source="BNP Paribas · Emittent OTC", marketOpen=True,
+                   found=True, eligible=False, fresh=False,
+                   quoteFailureCode="STALE_OR_INVALID_SOURCE_TIME")
+        self.assertTrue(catalog._retryable_bnp_failure(isin, row))
 
 
 if __name__=="__main__":
