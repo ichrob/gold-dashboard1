@@ -303,3 +303,28 @@ def report(conn):
                                      os.environ.get("BOB_EMAIL_ALLOWED_FROM")),
             "items":[r[0] for r in rows], "mode":"read-only-pending-review",
             "notice":"Keine Brokerorders. E-Mail-Daten sind noch kein bestätigter Trade."}
+
+
+def receipt_enrichment(previous, incoming):
+    """Permit missing CHF evidence only for the identical recorded execution."""
+    if not isinstance(previous, dict) or not isinstance(incoming, dict):
+        return False
+    if previous.get('status') != 'pending-review' or incoming.get('status') != 'pending-review':
+        return False
+    if previous.get('totalChf') is not None:
+        return False
+    identity = ('orderIdDigest', 'isin', 'side', 'quantity', 'priceEur')
+    if any(previous.get(k) is None or previous.get(k) != incoming.get(k) for k in identity):
+        return False
+    clock = 'executedAt' if previous.get('executedAt') else 'executedLocal'
+    if not previous.get(clock) or previous.get(clock) != incoming.get(clock):
+        return False
+    for key in ('grossChf', 'totalChf', 'costsChf', 'fxEurPerChf'):
+        old, new = previous.get(key), incoming.get(key)
+        if old is not None and old != new:
+            return False
+        if key != 'fxEurPerChf' and (type(new) not in (int, float) or not math.isfinite(new) or new < 0):
+            return False
+    gross, total, costs = (incoming[k] for k in ('grossChf', 'totalChf', 'costsChf'))
+    expected = gross + costs if incoming.get('side') == 'BUY' else gross - costs
+    return incoming.get('side') in ('BUY', 'SELL') and gross > 0 and total > 0 and abs(total - expected) <= .025
