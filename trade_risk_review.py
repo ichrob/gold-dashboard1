@@ -24,6 +24,9 @@ def preview(payload):
     """Compute numbers only from user-provided product-priced evidence; no orders."""
     if not isinstance(payload, dict):
         raise ValueError('Produktdaten fehlen')
+    currency=payload.get('currency','EUR')
+    if currency not in ('EUR','CHF'):
+        raise ValueError('Nur EUR- und CHF-Produktkurse unterstützt')
     entry = number(payload.get('entry'), 'Produkt-Einstieg')
     qty = number(payload.get('quantity'), 'Stückzahl')
     if not qty.is_integer() or qty > 100000:
@@ -32,10 +35,11 @@ def preview(payload):
     target = optional_number(payload, 'target')
     atr = optional_number(payload, 'atr')
     structure = optional_number(payload, 'structureStop')
-    fx = optional_number(payload, 'chfPerUnit')
+    fx = 1.0 if currency == 'CHF' else optional_number(payload, 'chfPerUnit')
     buy_fee = optional_number(payload, 'buyFeeCHF', True)
     sell_fee = optional_number(payload, 'sellFeeCHF', True)
-    max_risk = optional_number(payload, 'maxRiskPct') or 5.
+    max_risk = optional_number(payload, 'maxRiskPct')
+    if max_risk is None: max_risk = 5.
     if stop is not None and stop >= entry:
         raise ValueError('Stopp eines gekauften Zertifikats muss unter Kaufkurs liegen')
     if structure is not None and structure >= entry:
@@ -70,7 +74,7 @@ def preview(payload):
     if payload.get('sourceVerified') is not True:
         warnings.append('Keine unabhängige aktuelle Anbieter-/Brokerkursbestätigung')
     return {
-        'kind': 'product-price-pretrade-review', 'currency': payload.get('currency', 'EUR'),
+        'kind': 'product-price-pretrade-review', 'currency': currency,
         'entry': round(entry, 4), 'quantity': int(qty),
         'stop': stop, 'target': target, 'suggestedStop': suggestion,
         'atrStop': suggested_atr, 'structureStop': structure,
