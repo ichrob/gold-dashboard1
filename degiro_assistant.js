@@ -1557,9 +1557,12 @@ function productHelpState(p){
  const q=attempt?.isin===p.isin?attempt:p.quote?.isin===p.isin?p.quote:null;
  const checking=pendingQuotes.has(p.index)||q?.secondaryValidity?.state==='checking'||q?.comdirectFieldsBackup?.state==='checking';
  const failed=!!q?.sourceFailure;
- const manual=labels.length>0&&!checking&&!!q&&(failed||q.productVerified!==true||labels.some(label=>/Basispreis|KO-Nachweis|Bezugsverhältnis|Basiswert|Laufzeit|Produkttyp|Produktnachweis/.test(label)));
  const fields=typeof productFieldStates==='function'?productFieldStates(p):null;
  const valuesPresent=q?.productVerified===true&&fields&&['bid','ask'].every(key=>n(fields[key]?.value)>0)&&n(fields.leverage?.value)>=1;
+ const needsTerms=labels.some(label=>/Basispreis|KO-Nachweis|Bezugsverhältnis|Basiswert|Laufzeit|Produkttyp|Produktnachweis/.test(label));
+ // A temporary issuer outage with retained, correctly identified values
+ // needs automatic retries rather than an immediate request for more images.
+ const manual=labels.length>0&&!checking&&!!q&&(q.productVerified!==true||needsTerms||(failed&&!valuesPresent));
  return {labels,checking,manual,
   status:!labels.length?'Produktdaten vollständig':checking?'Bob sucht gerade automatisch':manual?'Zusätzlicher Nachweis hilfreich':valuesPresent?'Kurs und Hebel vorhanden · Nachweisprüfung läuft':'Automatische Prüfung noch offen',
   action:!labels.length?'Keine neuen Bilder nötig.':checking?'Du musst jetzt nichts tun.':manual?'Öffne DEGIRO und ergänze nur die genannten Angaben als Screenshot.':valuesPresent?'Bob prüft Kursart und Originalzeiten weiterhin automatisch. Die gespeicherten Zahlen bleiben für die Analyse sichtbar; die DEGIRO-Handelbarkeit ist nicht bestätigt.':'Du musst die Werte nicht erneut eingeben. Den letzten Abruf findest du unter Details.'};
