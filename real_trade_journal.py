@@ -3,6 +3,7 @@ import json,time,hashlib,math,re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 import background_push
+import product_trade_history
 
 def init(conn):
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_real_trades (
@@ -14,6 +15,7 @@ def init(conn):
       recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(), kind TEXT NOT NULL,
       dedup TEXT UNIQUE NOT NULL, payload JSONB NOT NULL)''')
     conn.execute('CREATE INDEX IF NOT EXISTS bob_real_trade_events_trade ON bob_real_trade_events(trade_id,seq)')
+    product_trade_history.init(conn)
 
 def event(conn,trade_id,kind,payload,key=None):
     if not trade_id:return
@@ -96,6 +98,7 @@ def settled_purchase(purchase, closed):
     return bool(receipt) and all(product.get(k)==sold.get(k) for k in ('isin','entry','quantity')) and buy.get('at')==receipt.get('purchasedAt') and buy.get('feesCHF')==receipt.get('purchaseFeesCHF') and buy.get('totalCHF')==receipt.get('purchaseTotalCHF')
 
 def handle(conn,action,payload):
+    if action=='curve':return product_trade_history.read(conn,payload.get('tradeId'))
     if action=='write' and payload.get('emailReceiptId'):
         from trade_workflow import import_purchase
         return import_purchase(conn,payload)
@@ -187,6 +190,9 @@ def observe(conn,bundle):
         now=int(time.time()*1000)
         if now-state.get('journalCheckedAt',0)<25000:continue
         try:
+            # Record estimates independently of the notification and technical-analysis pipelines.
+            # Only correctly sourced, fresh spot/FX pairs produce historical points.
+            product_trade_history.append(conn,tid,(settings.get('trade') or {}).get('product'),bundle.get('spots'))
             market=background_push.analyze(bundle,settings)
             next_state,events=background_push.advance(state,settings,market,False,True)
             evidence={k:market.get(k) for k in ('baseDirection','learningPolicy','direction','ready','priceFresh','price','dataAt','analysisBarAt','decisionReason','score','context','trendContext','plan','suggestedStop','suggestedTarget','ruleVersion')}
