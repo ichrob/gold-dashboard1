@@ -19,6 +19,7 @@
    return absent('Noch kein bestätigter EUR-/CHF-Gold-Spot-Produkttrade. Zuerst Produkt und Kaufdaten erfassen.');
   const key=String(trade.tradeId||trade.monitorStartedAt||p.isin);
   const tradeKey=p.isin+'|'+key;
+  const modelKey=JSON.stringify(['model-v2',p.isin,p.currency,p.direction,p.ratio,p.strike,p.ko,p.bid,p.goldReference,p.fxReference,p.referenceAt]);
   const spot=input.spots||{},gold=number(spot.xaus),spotAt=stamp(spot.spot_price_as_of);
   const spotFresh=spot.is_genuine_xauusd_spot===true&&!spot.spot_error&&positive(gold)&&recent(spotAt,now,60000);
   const fx=spot[currency==='CHF'?'usd_chf_meta':'usd_eur_meta']||{};
@@ -39,7 +40,7 @@
   // A same-time issuer observation can independently test the stored model.
   // This is NOT an estimate of the difference to an executable DEGIRO quote.
   const comparison=quoteOk&&modelOk&&Math.abs(qAt-spotAt)<=30000&&Math.abs(qAt-fxAt)<=30000
-   ?{quoted:q.bid,estimated:calculated.price,at:qAt,fxAt,spotAt,
+   ?{modelKey,quoted:q.bid,estimated:calculated.price,at:qAt,fxAt,spotAt,
      quotedSource:String(q.source||'Anbieterbeobachtung'),kind:q.kind,currency} :null;
   let kind=null,price=null,source='',sourceAt=null;
   if(quoteOk){
@@ -73,7 +74,7 @@
   const action=finite(distance)&&distance<=2&&stage!=='ko'&&stage!=='ko-near'
     ?actionBase+' Zusätzlich KO-Abstand höchstens 2 %: Knock-out-Risiko prüfen.'
     :actionBase;
-  return {available:positive(price),tradeKey,isin:p.isin,currency,price,kind,source,sourceAt,
+  return {available:positive(price),tradeKey,modelKey,isin:p.isin,currency,price,kind,source,sourceAt,
    spotAt,fxAt,fxRate:fxFresh?number(fx.rate):null,comparison,
    ko:positive(ko)?ko:null,koDistancePct:distance,knockedOut,
    underlyingGold:spotFresh?gold:null,stop:levels?stop.price:null,target:levels?target.price:null,
@@ -131,23 +132,30 @@
  function median(values){const a=[...values].sort((x,y)=>x-y);return a.length?(a.length%2?a[(a.length-1)/2]:(a[a.length/2-1]+a[a.length/2])/2):null;}
  function calibrate(history,now=Date.now()){
   const all=(history?.rows||[]).filter(x=>x&&positive(x.quoted)&&positive(x.estimated)
-    &&finite(x.at)&&now>=x.at&&now-x.at<=86400000);
-  const last=all.at(-1);
-  // Never transfer bias between different issuer feeds or research quote types.
-  const samples=last?all.filter(x=>x.kind===last.kind&&x.source===last.source):[];
+    &&finite(x.at)&&now>=x.at&&now-x.at<=86400000).sort((a,b)=>a.at-b.at);
+  const last=all.at(-1),seen=new Set();
+  const samples=last?all.filter(x=>{
+   if(x.kind!==last.kind||x.source!==last.source||x.currency!==last.currency||seen.has(x.at))return false;
+   seen.add(x.at);return true;
+  }):[];
   if(samples.length<5)return {usable:false,count:samples.length,reason:'Mindestens 5 unabhängige zeitgleiche Anbieterbeobachtungen benötigt'};
-  const span=samples.at(-1).at-samples[0].at;
-  if(span<300000)return {usable:false,count:samples.length,reason:'Kalibrierung braucht mindestens 5 Minuten getrennte Beobachtungen'};
-  const deviations=samples.map(x=>x.quoted-x.estimated);
-  const offset=median(deviations),scale=median(samples.map(x=>x.estimated));
-  const dispersion=median(deviations.map(x=>Math.abs(x-offset)));
+  if(samples.at(-1).at-samples[0].at<300000)return {usable:false,count:samples.length,reason:'Kalibrierung braucht mindestens 5 Minuten getrennte Beobachtungen'};
+  if(now-samples.at(-1).at>1800000)return {usable:false,count:samples.length,reason:'Kalibrierung über 30 Minuten alt'};
+  // Fit on earlier observations, then test the fixed correction on later pairs.
+  // Held-out pairs never participate in fitting the offset applied below.
+  const split=Math.max(3,Math.floor(samples.length*.6)),training=samples.slice(0,split),validation=samples.slice(split);
+  const deviations=training.map(x=>x.quoted-x.estimated),offset=median(deviations);
+  const scale=median(samples.map(x=>x.estimated)),dispersion=median(deviations.map(x=>Math.abs(x-offset)));
   if(!positive(scale)||!finite(offset)||!finite(dispersion)||Math.abs(offset)>scale*.03||dispersion>scale*.01)
    return {usable:false,count:samples.length,reason:'Abweichungen sind zu groß oder uneinheitlich; keine automatische Korrektur'};
-  if(now-samples.at(-1).at>1800000)return {usable:false,count:samples.length,reason:'Kalibrierung über 30 Minuten alt'};
-  return {usable:true,count:samples.length,offset,dispersion,reason:'Zeitgleicher SG/comdirect-Anbieterabgleich · nur indikative Modellkorrektur'};
+  const rawMae=validation.reduce((sum,x)=>sum+Math.abs(x.quoted-x.estimated),0)/validation.length;
+  const correctedMae=validation.reduce((sum,x)=>sum+Math.abs(x.quoted-x.estimated-offset),0)/validation.length;
+  const metrics={count:samples.length,trainingCount:training.length,validationCount:validation.length,rawMae,correctedMae,offset,dispersion};
+  if(!(rawMae>1e-8&&correctedMae<rawMae*.9))return {...metrics,usable:false,reason:'Korrektur verbessert spätere Vergleichskurse nicht um mindestens 10 %; Rohmodell bleibt erhalten'};
+  return {...metrics,usable:true,reason:'Anbieterabgleich mit späteren getrennten Prüfwerten · indikative Modellkorrektur, kein Ausführungskurs'};
  }
- function learnComparison(previous,comparison,tradeKey,now=Date.now()){
-  const base=previous?.tradeKey===tradeKey&&Array.isArray(previous.rows)?previous:{tradeKey,rows:[]};
+ function learnComparison(previous,comparison,tradeKey,now=Date.now(),modelKey=comparison?.modelKey||'legacy'){
+  const base=previous?.tradeKey===tradeKey&&(previous.modelKey||'legacy')===modelKey&&Array.isArray(previous.rows)?previous:{tradeKey,modelKey,rows:[]};
   const rows=base.rows.filter(x=>x&&finite(x.at)&&now-x.at<86400000&&now>=x.at).slice(-29);
   if(comparison&&positive(comparison.quoted)&&positive(comparison.estimated)
      &&finite(comparison.at)&&now-comparison.at>=0&&now-comparison.at<=90000
@@ -156,7 +164,7 @@
    rows.push({at:comparison.at,quoted:comparison.quoted,estimated:comparison.estimated,
     kind:comparison.kind,currency:comparison.currency,source:comparison.quotedSource});
   }
-  return {tradeKey,rows:rows.slice(-30)};
+  return {tradeKey,modelKey,rows:rows.slice(-30)};
  }
  function readQuality(){try{return JSON.parse(root.localStorage?.getItem(QUALITY_STORE)||'null')}catch(_){return null}}
  function saveQuality(value){try{root.localStorage?.setItem(QUALITY_STORE,JSON.stringify(value))}catch(_){}}
@@ -352,10 +360,10 @@
   if(!panel)return;
   const rawResult=assess(input,now);
   let result=rawResult;
-  const before=readQuality(),learned=learnComparison(before,result.comparison,result.tradeKey,now);
-  if(learned.rows.length!==(before?.tradeKey===learned.tradeKey?before?.rows?.length:0))saveQuality(learned);
+  const before=readQuality(),learned=learnComparison(before,result.comparison,result.tradeKey,now,result.modelKey);
+  if(learned.rows.length!==(before?.tradeKey===learned.tradeKey?before?.rows?.length:0)||learned.modelKey!==before?.modelKey||learned.rows.at(-1)?.at!==before?.rows?.at(-1)?.at)saveQuality(learned);
   const quality=calibrate(learned,now);
-  if(result.available&&result.kind==='model'&&quality.usable){
+  if(result.available&&result.stage!=='ko'&&result.kind==='model'&&quality.usable&&learned.modelKey===result.modelKey){
    // Display-only correction: never changes saved stop, gold decisions or orders.
    const adjusted=result.price+quality.offset;
    if(positive(adjusted)){
@@ -387,7 +395,7 @@
    'Kein zeitgleicher Anbieterpreis zum aktuellen Modell verfügbar.';
   show('[data-curve-quality]',qualityText+' Kalibrierung: '+(quality.usable?
    quality.count+' geprüfte Paare; Korrektur '+(quality.offset>=0?'+':'')+
-   quality.offset.toFixed(3)+' '+result.currency+' · nur Modellanzeige.':
+   quality.offset.toFixed(3)+' '+result.currency+' · Fehler an '+quality.validationCount+' späteren Prüfwerten: '+quality.rawMae.toFixed(4)+' → '+quality.correctedMae.toFixed(4)+' '+result.currency+' · nur Modellanzeige.':
    quality.count+' Paare; '+quality.reason+'.'));
   show('[data-curve-isin]',result.isin?result.isin+' · '+result.currency+' pro Stück':'Kein aktiver Produkttrade');
   show('[data-curve-price]',result.available?(result.kind==='model'?'≈ ':'')+fmt(result.price,result.currency):'—');

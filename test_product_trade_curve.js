@@ -149,3 +149,16 @@ for(const item of scripts){
   new vm.Script(item[1],{filename:'Bob.html-inline'});
 }
 console.log('Product curve: verified quote/model, CHF, stop/target, KO, provenance, bounded observation and syntax passed');
+
+// New correction is fit on early pairs and measured on later, held-out observations.
+assert.equal(calibrated.trainingCount,3);assert.equal(calibrated.validationCount,2);
+assert(calibrated.correctedMae<calibrated.rawMae*.9);
+const shifted={rows:comparisons.rows.map((v,i)=>({...v,quoted:v.estimated+(i<3?.2:-.2)}))};
+assert.equal(curve.calibrate(shifted,NOW).usable,false,'A correction that worsens later observations must stop');
+const exact={rows:comparisons.rows.map(v=>({...v,quoted:v.estimated}))};
+assert.equal(curve.calibrate(exact,NOW).usable,false,'No forced correction when raw model already matches');
+assert.equal(curve.calibrate({rows:comparisons.rows.map((v,i)=>({...v,currency:i<3?'EUR':'CHF'}))},NOW).usable,false,'Never pool currencies');
+const changedModel=curve.learnComparison({...comparisons,modelKey:'old'},null,'product|trade-1',NOW,'new');
+assert.equal(changedModel.rows.length,0,'Changed terms/reference reset calibration');
+assert.notEqual(curve.assess(input,NOW).modelKey,curve.assess({...input,trade:{...input.trade,product:{...input.trade.product,strike:input.trade.product.strike+1}}},NOW).modelKey);
+console.log('Calibration: later error improvement, regime reversal, zero-error baseline and model identity isolation passed');

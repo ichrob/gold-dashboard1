@@ -4184,6 +4184,75 @@ function render(x){
  if(x.reasons.length)return '<div class="warning">Offen: '+x.reasons.map(esc).join(' · ')+'</div>';
  return '<b>Geschätzter Verkaufskurs pro Stück</b><table><tr><th>Szenario Gold USD</th><th>Geldkurs '+esc(x.currency||'EUR')+'/Stück</th><th>Erlös '+esc(x.currency||'EUR')+'</th><th>Gewinn/Verlust '+esc(x.currency||'EUR')+'</th></tr>'+x.rows.map(r=>'<tr><td>'+esc(r.label)+' · '+r.gold.toFixed(2)+'</td>'+(r.available?'<td>≈ '+r.price.toFixed(2)+'</td><td>≈ '+r.proceeds.toFixed(2)+'</td><td>≈ '+r.pnl.toFixed(2)+'</td>':'<td colspan="3">'+esc(r.reason)+'</td>')+'</tr>').join('')+'</table><div class="small">Referenz: '+esc(x.source)+' · '+esc(x.referenceAt)+' (Originalzeit; keine Sekunden ergänzt). Angenommener USD→'+esc(x.currency||'EUR')+'-Kurs am Ausstieg: '+x.fxScenario+'. Linearer Turbo-Ansatz mit konstantem Preisaufschlag, konstantem Basispreis und Bezugsverhältnis; ohne Gebühren, Steuern und künftige Finanzierung. KO-Berührung auf dem Weg, Preisstellung und Ausführung unbestätigt. Genauigkeit noch nicht gemessen. Kein bestätigter zukünftiger Geldkurs.</div><details><summary>Rechenweg</summary>'+esc(x.formula)+'</details>';
 }
+function assessPlan(values){
+ const result={available:false,tradeable:false,automaticOrder:false,reasons:[],currency:values.currency||'EUR'};
+ const budget=num(values.lossBudget),minBuffer=num(values.minKoBuffer??0),minRR=num(values.minPlanRR??2);
+ if(!(budget>0))result.reasons.push('Verlustbudget in der Produktwährung eingeben');
+ if(!(minBuffer>=0))result.reasons.push('Mindestabstand Stopp–KO muss mindestens null sein');
+ if(!(minRR>0))result.reasons.push('Positives Mindest-CRV eingeben');
+ const scenario=calculate(values);
+ if(scenario.reasons.length)result.reasons.push(...scenario.reasons);
+ if(result.reasons.length)return result;
+ const target=scenario.rows.find(r=>r.label==='Am Ziel'),stop=scenario.rows.find(r=>r.label==='Am Stop');
+ if(!stop?.available||!target?.available){result.reasons.push('Stopp oder Ziel erreicht die KO-Barriere oder ergibt keinen gültigen Modellkurs');return result;}
+ const entry=num(values.entry),quantity=num(values.quantity),lossPerUnit=entry-stop.price,gainPerUnit=target.price-entry;
+ if(!(lossPerUnit>0&&gainPerUnit>0)){result.reasons.push('Für einen neuen Trade muss der geplante Einstieg zwischen Modell-Stoppkurs und Modell-Zielkurs liegen');return result;}
+ const loss=lossPerUnit*quantity,gain=gainPerUnit*quantity,rr=gainPerUnit/lossPerUnit;
+ const buffer=(values.direction==='LONG'?1:-1)*(num(values.stopGold)-num(values.ko));
+ const maxQuantity=Math.floor(budget/lossPerUnit+1e-10);
+ const checks=[{ok:loss<=budget+1e-8,text:'Geplanter Verlust am Stopp innerhalb des Budgets'},
+  {ok:buffer>0&&buffer+1e-8>=minBuffer,text:'Stopp liegt vor KO und erfüllt deinen Mindestabstand'},
+  {ok:rr+1e-10>=minRR,text:'Chance-Risiko-Verhältnis erreicht deinen Mindestwert'}];
+ return {...result,available:true,fits:checks.every(c=>c.ok),checks,loss,gain,rr,buffer,maxQuantity,
+  stopPrice:stop.price,targetPrice:target.price,capital:entry*quantity,budget,minBuffer,minRR,
+  source:scenario.source,referenceAt:scenario.referenceAt,isEstimate:true};
+}
+function renderPlan(x){
+ if(!x.available)return '<div role="status">Planprüfung offen: '+x.reasons.map(esc).join(' · ')+'</div>';
+ const money=v=>v.toFixed(2)+' '+esc(x.currency);
+ return '<div role="status"><b>'+(x.fits?'✓ Passt rechnerisch zu deinen Planvorgaben':'Plan anpassen · Vorgaben noch nicht erfüllt')+'</b></div>'+
+  '<ul>'+x.checks.map(c=>'<li>'+(c.ok?'✓ ':'✗ ')+esc(c.text)+'</li>').join('')+'</ul>'+
+  '<div>Einsatz: '+money(x.capital)+'<br><strong>Verlust am Stopp: ≈ −'+money(x.loss)+'</strong> · Budget '+money(x.budget)+
+  '<br><strong>Gewinn am Ziel: ≈ +'+money(x.gain)+'</strong><br>Chance/Risiko: '+x.rr.toFixed(2)+':1 · Mindestwert '+x.minRR+
+  '<br>Stopp–KO-Abstand: '+x.buffer.toFixed(2)+' USD im Goldpreis · Mindestabstand '+x.minBuffer.toFixed(2)+' USD'+
+  '<br>Modell-Stopp: ≈ '+money(x.stopPrice)+' je Stück · Modell-Ziel: ≈ '+money(x.targetPrice)+' je Stück'+
+  '<br>Nach Verlustbudget rechnerisch höchstens '+x.maxQuantity+' Stück (vor Kosten; keine Kaufempfehlung).</div>'+
+  '<p class="small">Szenario vor Gebühren, Finanzierung und Ausführungsabweichungen. Das Verlustbudget ist keine garantierte Verlustgrenze; Kurslücken können den Verlust erhöhen. Referenz: '+esc(x.source)+' · '+esc(x.referenceAt)+'. Planung aktiviert keinen Trade.</p>';
+}
+function mountPlan(panel,readMain){
+ const box=document.createElement('details');box.id='bobTradePlanFit';
+ const fields=[['entry','Geplanter Einstieg je Stück'],['quantity','Geplante Stückzahl'],['planGold','Goldpreis beim geplanten Einstieg (USD)'],['stopGold','Geplanter Gold-Stopp (USD)'],['targetGold','Geplantes Gold-Ziel (USD)'],['lossBudget','Verlustbudget'],['minKoBuffer','Mindestabstand Stopp–KO (Gold USD)'],['minPlanRR','Mindest-Chance/Risiko']];
+ box.innerHTML='<summary><b>Trade planen · Produktpassung</b></summary><p>Zusatz vor einem Kauf: Produkt und Referenzwerte aus dem Formular verwenden. Geplante Kaufdaten bleiben getrennt von deiner tatsächlichen Position.</p><p data-plan-identity></p><div class="grid">'+fields.map(([k,label])=>'<div><label for="plan-'+k+'" data-plan-label="'+k+'">'+label+'</label><input id="plan-'+k+'" data-plan="'+k+'" type="number" min="0" step="'+(k==='quantity'?'1':'any')+'"></div>').join('')+'</div><button type="button" data-plan-copy>Vorhandene Eingaben in Planung übernehmen</button> <button type="button" data-plan-evaluate>Produktpassung prüfen</button><div data-plan-result class="small" style="margin-top:10px">Noch keine Planprüfung.</div>';
+ panel.querySelector('h3').after(box);
+ const get=k=>box.querySelector('[data-plan="'+k+'"]'),out=box.querySelector('[data-plan-result]');
+ const keyFor=()=>{const v=readMain();return 'bobTradePlanDraftV1:'+v.isin+':'+v.currency;};
+ let activeKey='';
+ function refresh(){
+  const v=readMain(),key=keyFor(),currency=v.currency||'EUR';
+  if(key!==activeKey){
+   activeKey=key;for(const [k]of fields)get(k).value=k==='minPlanRR'?'2':k==='minKoBuffer'?'0':'';
+   try{const saved=JSON.parse(localStorage.getItem(key)||'null');if(saved)for(const [k]of fields)if(saved[k]!==undefined)get(k).value=saved[k];}catch(_){}
+  }
+  box.querySelector('[data-plan-identity]').textContent='Produkt: '+(v.isin||'oben auswählen')+' · '+(v.direction||'Richtung offen')+' · '+currency;
+  box.querySelector('[data-plan-label="entry"]').textContent='Geplanter Einstieg '+currency+'/Stück';
+  box.querySelector('[data-plan-label="lossBudget"]').textContent='Verlustbudget '+currency;
+  out.textContent='Eingaben oder Produktreferenz geändert. Produktpassung erneut prüfen.';
+ }
+ function draft(){return Object.fromEntries(fields.map(([k])=>[k,get(k).value]));}
+ box.addEventListener('input',()=>{try{localStorage.setItem(activeKey,JSON.stringify(draft()));}catch(_){}out.textContent='Plan geändert. Produktpassung erneut prüfen.';});
+ box.querySelector('[data-plan-copy]').addEventListener('click',()=>{
+  const v=readMain();for(const k of ['entry','quantity','planGold','stopGold','targetGold'])if(num(v[k])>0)get(k).value=v[k];
+  try{localStorage.setItem(activeKey,JSON.stringify(draft()));}catch(_){}
+  out.textContent='In die Planung kopiert. Verlustbudget und gewünschte Mindestwerte prüfen.';
+ });
+ box.querySelector('[data-plan-evaluate]').addEventListener('click',()=>{const v=readMain();out.innerHTML=renderPlan(assessPlan({...v,...draft()}));try{localStorage.setItem(activeKey,JSON.stringify(draft()));}catch(_){}});
+ panel.addEventListener('input',e=>{if(!box.contains(e.target))refresh();});
+ panel.addEventListener('change',e=>{if(!box.contains(e.target))refresh();});
+ // Programmatic reference/plan copies must invalidate an old result as well.
+ for(const selector of ['[data-exit-reference]','[data-exit-plan]'])panel.querySelector(selector)?.addEventListener('click',()=>{out.textContent='Referenz oder Goldplan wird übernommen. Anschließend Planung übernehmen und erneut prüfen.';});
+ refresh();
+}
+
 function init(){
  if(document.getElementById('bobExitEstimate'))return;
  const parent=document.getElementById('dgTop3');if(!parent)return;
@@ -4221,6 +4290,7 @@ function init(){
  panel.addEventListener('click',()=>queueMicrotask(updateForm));
  try{const saved=JSON.parse(localStorage.getItem('bobExitScenarioV1')||'null');if(saved)for(const el of panel.querySelectorAll('[data-exit]'))if(Object.prototype.hasOwnProperty.call(saved,el.dataset.exit)){if(el.type==='checkbox')el.checked=saved[el.dataset.exit]===true;else el.value=saved[el.dataset.exit];}}catch(_){}
  const get=k=>panel.querySelector('[data-exit="'+k+'"]'),read=()=>Object.fromEntries(Array.from(panel.querySelectorAll('[data-exit]')).map(el=>[el.dataset.exit,el.type==='checkbox'?el.checked:el.value.trim()]));
+ mountPlan(panel,read);
  panel.querySelector('[data-exit-reference]').addEventListener('click',()=>{
   const isin=get('isin').value.trim().toUpperCase()||document.getElementById('dgIsin')?.value.trim().toUpperCase();
   const r=window.BobDegiro.exitReference?.(isin);
@@ -4360,9 +4430,10 @@ async function researchReference(){
   out.innerHTML=referenceHtml(x);return x;
  }catch(_){if(get('isin').value===isin&&get('referenceAt').value===at)out.textContent='Referenzabruf fehlgeschlagen. Keine historischen Werte ersetzt.';}
 }
-window.BobExitEstimate={selectProduct,calculate,render,init,researchReference,restoreReference,planInput,issuerTradeFields,automaticTradeReference};
+window.BobExitEstimate={assessPlan,renderPlan,mountPlan,selectProduct,calculate,render,init,researchReference,restoreReference,planInput,issuerTradeFields,automaticTradeReference};
 if(typeof document!=='undefined'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();}
 })();
+
 
 /* Dated personal trade evidence. No orders and no invented quote precision. */
 (function(){
