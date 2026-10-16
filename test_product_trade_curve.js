@@ -81,8 +81,23 @@ assert.equal(curve.addObservation(history,{available:false,tradeKey:null},NOW+61
 const next=curve.addObservation(history,{...issuer,tradeKey:'DE000ANOTHER|trade2'},NOW+60000);
 assert.equal(next.rows.length,1,'Never mix different trades');
 
+const rise=[12,12.3,12.15,12.7,13.1,13.5].map((price,i)=>({price,at:NOW+i*30000}));
+const upFib=curve.fibonacci(rise);
+assert(upFib&&upFib.rising,'Fibonacci must use observed low-to-high product prices');
+assert.equal(upFib.levels[0].price,13.5);
+assert.equal(upFib.levels[3].price,12.75);
+assert.equal(upFib.levels.at(-1).price,12);
+const downFib=curve.fibonacci([...rise].reverse().map((row,i)=>({...row,at:NOW+i*30000})));
+assert(downFib&&!downFib.rising,'High-to-low swing must reverse retracement direction');
+assert.equal(downFib.levels[0].price,12);
+assert.equal(downFib.levels.at(-1).price,13.5);
+assert.equal(curve.fibonacci(rise.slice(0,2)),null,'Two chart points must never imply a price swing');
+assert.equal(curve.fibonacci(rise.map((v,i)=>({...v,at:NOW+i*1000}))),null,'Require a real observation period');
+assert.equal(curve.fibonacci(rise.map(v=>({...v,price:12}))),null,'Never draw levels from flat prices');
+
 const html=fs.readFileSync('Bob.html','utf8'),server=fs.readFileSync('server.py','utf8');
 assert(html.includes('<script src="/product_trade_curve.js?'));
+assert(html.includes('20261016-fib-v2'), 'Versioned script URL refreshes mobile cache');
 assert(html.includes("window.BobProductCurve?.mount(curveRoot)"));
 assert(html.includes("window.BobProductCurve?.update(window.BobTradeSync?.chartData?.())"));
 assert(html.includes('chartData(){'));

@@ -99,7 +99,15 @@
   try{const v=JSON.parse(root.localStorage?.getItem(STORE)||'null');return v&&typeof v==='object'?v:null;}catch(_){return null;}
  }
  function save(h){try{root.localStorage?.setItem(STORE,JSON.stringify(h));}catch(_){}}
- let panel=null,canvas=null,picked=null,lastResult=null,lastHistory=null;
+ function fibonacci(rows){
+  const p=(Array.isArray(rows)?rows:[]).filter(x=>x&&positive(x.price)&&finite(x.at)).sort((a,b)=>a.at-b.at);
+  if(p.length<6||new Set(p.map(x=>x.at)).size<6||p.at(-1).at-p[0].at<120000)return null;
+  let low=p[0],high=p[0];for(const x of p){if(x.price<low.price)low=x;if(x.price>high.price)high=x;}
+  const d=high.price-low.price;if(d<Math.max(.03,high.price*.0015))return null;
+  const rising=low.at<high.at;
+  return {low:low.price,high:high.price,rising,levels:[0,.236,.382,.5,.618,.786,1].map(r=>({ratio:r,price:rising?high.price-r*d:low.price+r*d}))};
+ }
+ let panel=null,canvas=null,picked=null,lastResult=null,lastHistory=null,zoom='price',showFib=true;
  function mount(element){
   if(!root.document||!element||panel)return;
   panel=root.document.createElement('section');panel.id='bobProductCurvePanel';panel.className='card';
@@ -107,18 +115,33 @@
    '<div class="small" data-curve-isin role="status">Produkttrade wird geprüft …</div>'+
    '<div data-curve-price style="font-size:29px;font-weight:800;letter-spacing:-.5px;margin:6px 0">—</div>'+
    '<div class="small" data-curve-source></div>'+
-   '<canvas data-curve-chart width="900" height="340" style="width:100%;height:auto;border-radius:12px;background:#f8fafc;touch-action:manipulation" aria-label="Beobachteter Kursverlauf des Gold-Hebelprodukts in seiner Produktwährung. Stop und Ziel als berechnete Linien."></canvas>'+
+   '<div style="display:flex;flex-wrap:wrap;gap:7px;margin:12px 0 8px">'+
+   '<button type="button" data-curve-zoom="price" aria-pressed="true">Kursfokus</button>'+
+   '<button type="button" data-curve-zoom="all" aria-pressed="false">Stopp &amp; Ziel</button>'+
+   '<button type="button" data-curve-fib aria-pressed="true">Fibonacci ✓</button></div>'+
+   '<canvas data-curve-chart width="900" height="430" style="width:100%;height:auto;border-radius:12px;background:#f8fafc;touch-action:manipulation" aria-label="Beobachteter Kursverlauf des Gold-Hebelprodukts in seiner Produktwährung. Stop und Ziel als berechnete Linien."></canvas>'+
+   '<div class="small" data-curve-fib-note></div>'+
    '<div class="small" data-curve-picked aria-live="polite"></div>'+
    '<div class="small" data-curve-levels></div>'+
    '<p data-curve-action role="status"></p>'+
    '<p class="small">Kurve ab Beginn dieser Aufzeichnung auf diesem Handy: echte datierte Anbieterbeobachtungen und klar gekennzeichnete Modellpunkte. Keine erfundene rückwirkende Historie, keine Ausführungskurse. Bei geschlossener App entstehen hier keine neuen Punkte. KO-Schwelle in Gold-USD, nicht auf der Produktpreisachse. Bob empfiehlt nur; du handelst selbst bei DEGIRO.</p>';
   element.append(panel);canvas=panel.querySelector('canvas');
+  panel.querySelectorAll('[data-curve-zoom]').forEach(button=>button.addEventListener('click',()=>{
+   zoom=button.getAttribute('data-curve-zoom');
+   panel.querySelectorAll('[data-curve-zoom]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));
+   draw(lastResult,lastHistory);
+  }));
+  panel.querySelector('[data-curve-fib]').addEventListener('click',event=>{
+   showFib=!showFib;event.currentTarget.setAttribute('aria-pressed',String(showFib));
+   event.currentTarget.textContent=showFib?'Fibonacci ✓':'Fibonacci aus';
+   draw(lastResult,lastHistory);
+  });
   canvas.addEventListener('pointerdown',event=>{
    const h=lastHistory;if(!h?.rows?.length)return;
    const rect=canvas.getBoundingClientRect();if(!rect.width)return;
    const x=(event.clientX-rect.left)*canvas.width/rect.width;
    const first=h.rows[0].at,last=h.rows.at(-1).at,span=Math.max(last-first,30000);
-   const target=first+Math.max(0,Math.min(1,(x-64)/(canvas.width-84)))*span;
+   const target=first+Math.max(0,Math.min(1,(x-82)/(canvas.width-114)))*span;
    picked=h.rows.reduce((best,v)=>!best||Math.abs(v.at-target)<Math.abs(best.at-target)?v:best,null);
    showPicked();
   });
@@ -140,35 +163,63 @@
   const ctx=canvas.getContext('2d');if(!ctx)return;
   const w=canvas.width,hgt=canvas.height,rows=(h?.rows||[]).filter(x=>finite(x.price));
   ctx.clearRect(0,0,w,hgt);ctx.fillStyle='#334155';ctx.font='19px system-ui';
-  const valid=[...rows.map(x=>x.price),result?.stop,result?.target].filter(positive);
+  const valid=[...rows.map(x=>x.price),result?.available?result.price:null,...(zoom==='all'?[result?.stop,result?.target]:[])].filter(positive);
   if(!valid.length){ctx.fillText('Noch kein datierter Produktkurs verfügbar',40,165);return;}
-  const low=Math.min(...valid),high=Math.max(...valid),pad=Math.max(.02,(high-low)*.12),min=Math.max(0,low-pad),max=high+pad;
-  const x0=64,x1=w-20,y0=28,y1=hgt-52;
+  const low=Math.min(...valid),high=Math.max(...valid),pad=Math.max(.12,high*.012,(high-low)*.12),min=Math.max(0,low-pad),max=high+pad;
+  const x0=82,x1=w-32,y0=28,y1=hgt-67;
   const y=value=>y1-(value-min)/Math.max(.0001,max-min)*(y1-y0);
   const start=rows[0]?.at??Date.now(),end=rows.at(-1)?.at??start,period=Math.max(30000,end-start);
   const x=at=>x0+(at-start)/period*(x1-x0);
   ctx.lineWidth=1;ctx.font='16px system-ui';
-  for(let i=0;i<4;i++){const v=min+(max-min)*i/3,py=y(v);
+  for(let i=0;i<=4;i++){const v=min+(max-min)*i/4,py=y(v);
    line(ctx,[[x0,py],[x1,py]],'#dde5ed');ctx.fillStyle='#475569';ctx.fillText(v.toFixed(2),5,py+5);}
-  for(const [name,value,color] of [['Stopp ≈',result?.stop,'#b91c1c'],['Ziel ≈',result?.target,'#15803d']]){
-   if(!positive(value))continue;
-   const py=y(value);line(ctx,[[x0,py],[x1,py]],color,[9,7]);
-   ctx.fillStyle=color;ctx.fillText(name+' '+value.toFixed(2),x0+5,py-7);
-  }
   if(rows.length<2){ctx.fillStyle='#64748b';ctx.fillText('Verlauf wird ab jetzt aufgezeichnet …',x0+15,y1-30);}
   for(let i=1;i<rows.length;i++){
    const a=rows[i-1],b=rows[i];
-   if(a.kind!==b.kind)continue; // Never connect unlike source/estimated series as one continuous measured price.
+   if(a.kind!==b.kind||b.at-a.at>180000)continue; // Do not bridge source switches or data outages.
    const color=b.kind==='issuer'?'#0f766e':b.kind==='research'?'#64748b':'#2563eb';
+   ctx.beginPath();ctx.moveTo(x(a.at),y1);ctx.lineTo(x(a.at),y(a.price));
+   ctx.lineTo(x(b.at),y(b.price));ctx.lineTo(x(b.at),y1);ctx.closePath();
+   const fill=ctx.createLinearGradient(0,y0,0,y1);
+   fill.addColorStop(0,'rgba(56,189,248,.23)');fill.addColorStop(1,'rgba(56,189,248,.02)');
+   ctx.fillStyle=fill;ctx.fill();
    line(ctx,[[x(a.at),y(a.price)],[x(b.at),y(b.price)]],color,b.kind==='model'?[8,5]:[]);
   }
   for(const row of rows.slice(-200)){
    ctx.beginPath();ctx.arc(x(row.at),y(row.price),row===rows.at(-1)?5:2.5,0,2*Math.PI);
    ctx.fillStyle=row.kind==='issuer'?'#0f766e':row.kind==='research'?'#64748b':'#2563eb';ctx.fill();
   }
+  const fib=fibonacci(rows);
+  if(showFib&&fib){
+   const labelled=[];
+   for(const level of fib.levels){
+    const py=y(level.price);if(py<y0||py>y1)continue;
+    line(ctx,[[x0,py],[x1,py]],'#b98739',[5,7]);
+    if(!labelled.some(v=>Math.abs(v-py)<19)){
+     ctx.fillStyle='#98651f';ctx.font='13px system-ui';
+     ctx.fillText('F '+(level.ratio*100).toFixed(1)+'% · '+level.price.toFixed(2),x0+8,Math.max(y0+16,py-6));
+     labelled.push(py);
+    }
+   }
+  }
+  ctx.font='17px system-ui';
+  for(const [name,value,color] of [['Stopp ≈',result?.stop,'#b91c1c'],['Ziel ≈',result?.target,'#15803d']]){
+   if(!positive(value))continue;
+   const below=value<min,above=value>max,py=y(Math.max(min,Math.min(max,value)));
+   if(!below&&!above)line(ctx,[[x0,py],[x1,py]],color,[9,7]);
+   ctx.fillStyle=color;
+   ctx.fillText(name+' '+value.toFixed(2)+(above?' ↑':below?' ↓':''),x0+5,
+    above?y0+18:below?y1-10:Math.max(y0+18,py-7));
+  }
+  if(result?.available&&positive(result.price)){
+   const py=y(Math.max(min,Math.min(max,result.price)));
+   ctx.beginPath();ctx.arc(x1,py,5,0,2*Math.PI);ctx.fillStyle='#0f766e';ctx.fill();
+   ctx.fillStyle='#0f766e';ctx.font='17px system-ui';
+   ctx.fillText('Aktuell '+result.price.toFixed(2),x1-160,Math.max(y0+17,py-11));
+  }
   ctx.fillStyle='#475569';ctx.font='16px system-ui';
   ctx.fillText(clock(start),x0,y1+24);ctx.fillText(clock(end),x1-95,y1+24);
-  ctx.fillText('EUR/CHF je Stück · je nach Produkt',x0+170,hgt-8);
+  ctx.fillText((result?.currency||'EUR')+' je Stück · datierte Beobachtungen',x0+155,hgt-8);
  }
  function update(input,now=Date.now()){
   if(!panel)return;
@@ -193,10 +244,16 @@
     result.ko!=null?'KO-Schwelle '+result.ko.toFixed(2)+' USD/oz Gold':'KO-Schwelle: nicht bestätigt',
     finite(result.koDistancePct)?'KO-Abstand ca. '+result.koDistancePct.toFixed(2)+' % (Gold)':'KO-Abstand derzeit nicht prüfbar'].join(' · ');
   show('[data-curve-levels]',levels);
+  const fib=fibonacci(h.rows);
+  show('[data-curve-fib-note]',fib?
+   'Fibonacci aus beobachtetem Produktswing ('+(fib.rising?'Tief → Hoch':'Hoch → Tief')+
+   '): '+fmt(fib.low,result.currency)+' bis '+fmt(fib.high,result.currency)+
+   ' · Orientierungslevel, keine garantierten Signale.':
+   'Fibonacci erscheint automatisch ab 6 datierten Kursbeobachtungen über mindestens 2 Minuten mit messbarer Kursspanne.');
   show('[data-curve-action]',result.action||'Keine Handelsempfehlung; Daten prüfen.');
   if(repaint)draw(result,h);
   showPicked();
  }
- root.BobProductCurve={assess,addObservation,mount,update};
- if(typeof module!=='undefined'&&module.exports)module.exports={assess,addObservation};
+ root.BobProductCurve={assess,addObservation,fibonacci,mount,update};
+ if(typeof module!=='undefined'&&module.exports)module.exports={assess,addObservation,fibonacci};
 })(typeof window!=='undefined'?window:globalThis);
