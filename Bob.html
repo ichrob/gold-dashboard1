@@ -1716,6 +1716,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const tradeSummary=document.createElement('section');tradeSummary.id='bobTradeSummary';tradeSummary.className='card';
   tradeSummary.innerHTML='<h3>Mein Trade auf einen Blick</h3><p data-trade-identity></p><div class="bob-trade-values"><div>Gewinn / Verlust<strong data-trade-pnl>—</strong></div><div>Stop · berechnet<strong data-trade-stop>—</strong></div><div>Ziel · berechnet<strong data-trade-target>—</strong></div></div><p data-trade-action></p><p class="small" data-trade-price-note></p>';
   panels.trade.prepend(tradeSummary);
+  if(push)panels.trade.prepend(push);
   // The existing push switches retain first place. Price and curve appear
   // directly below, before the entry form; no trade rules change.
   const curveRoot=document.createElement('div');
