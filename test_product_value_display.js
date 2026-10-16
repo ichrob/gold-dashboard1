@@ -266,3 +266,31 @@ assert.equal(b.calculatedLeverageEvidence(calcProduct,now).value,10);
 assert.equal(b.calculatedLeverageEvidence(calcProduct,now+301000),null);
 calcProduct.quote.leverageCalculation.value=11;calcProduct.leverage=11;
 assert.equal(b.calculatedLeverageEvidence(calcProduct,now),null);
+
+// Visually reviewed user original 1000073369.jpg, including independent Symbol.
+const reviewedChf=`Kursdaten
+Zuletzt CHF 16,95 16/10/2026 18:51
+Geld CHF 16,95 Brief CHF 16,97
+Geld Vol. 5K Brief Vol. 5K
+Schluss CHF 15,88
+Hoch CHF 19,06
+Tief CHF 14,16
+Symbol | ISIN
+159788766 | DE000FG8NHQ3
+Börse Societe Generale OTC`;
+for(const alias of ['DE000FG8NHQ3','DEOOOFGSNHQ3','DE000FGSNHQ3']){
+ const raw=reviewedChf.replace('DE000FG8NHQ3',alias);
+ const parsed=b.detailScreenshotData(raw,'DE000FG8NHQ3');
+ assert(parsed.ok,parsed.reason);
+ assert.equal(parsed.degiroDisplayedQuote.venue,'Societe Generale OTC');
+ assert.equal(parsed.degiroDisplayedQuote.bid,16.95);
+ assert.equal(parsed.degiroDisplayedQuote.ask,16.97);
+ assert.equal(parsed.degiroDisplayedQuote.currency,'CHF');
+ assert.equal(parsed.degiroDisplayedQuote.sourceTime,'16/10/2026 18:51');
+ assert.equal(parsed.degiroDisplayedQuote.isExecutableQuote,false);
+ assert(!b.detailScreenshotData(raw,'DE000FG34XV8').ok);
+}
+const confusedChf=reviewedChf.replace('DE000FG8NHQ3','DEOOOFGSNHQ3');
+for(const bad of [confusedChf.replace('159788766','159788767'),confusedChf.replace('Societe Generale OTC','Other Venue'),confusedChf+'\nISIN DE000FG34XV8']){
+ assert(!b.detailScreenshotData(bad,'DE000FG8NHQ3').ok,'Do not guess identity without matching independent evidence');
+}

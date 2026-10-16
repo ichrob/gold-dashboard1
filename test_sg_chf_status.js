@@ -53,3 +53,13 @@ const venueCard=bob.compactProductCard(sample(),['BNP-Kursabruf: Quellenantwort 
 assert(venueCard.includes('Konkret offen: Welcher DEGIRO-Handelsplatz gehört zu dieser ISIN und Handelswährung?'));
 assert(!venueCard.includes('derzeit keine neuen Bilder erforderlich'));
 assert(!venueCard.includes('Du musst jetzt nichts tun.'));
+const observed=sample();
+observed.snapshot={isin,degiroDisplayedQuote:{isin,brokerDisplayConfirmed:true,isExecutableQuote:false,
+ currency:'CHF',venue:'Societe Generale OTC',sourceTime:'16/10/2026 18:51',bid:16.95,ask:16.97}};
+const observedCard=bob.compactProductCard(observed);
+assert(observedCard.includes('DEGIRO-Handelsplatz belegt'));
+assert(!observedCard.includes('DEGIRO-Handelsplatznachweis offen'));
+assert(!observedCard.includes('data-swiss-dots-warning'));
+assert.equal(bob.currentQuote(observed,now),false);
+observed.snapshot.degiroDisplayedQuote.isin='DE000FG34XV8';
+assert(bob.compactProductCard(observed).includes('DEGIRO-Handelsplatznachweis offen'));
