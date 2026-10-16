@@ -97,7 +97,7 @@ assert.equal(curve.fibonacci(rise.map(v=>({...v,price:12}))),null,'Never draw le
 
 const matched=curve.assess({...input,quote},NOW).comparison;
 assert(matched&&matched.quoted===19.15&&matched.estimated===19.1);
-assert.equal(curve.assess({...input,quote:{...quote,at:at(35000),askAt:at(35000)}},NOW).comparison,null);
+assert.equal(curve.assess({...input,quote:{...quote,at:at(49000),askAt:at(49000)}},NOW).comparison,null);
 assert.equal(curve.assess({...input,quote:null},NOW).comparison,null);
 let comparisons=null;
 for(let i=0;i<5;i++){
