@@ -45,3 +45,13 @@ class LearningReviewTests(unittest.TestCase):
   self.assertEqual(j.recover_closed_settlements(c),0);self.assertEqual(c.execute.call_count,1)
 
 if __name__=='__main__':unittest.main()
+
+class ReceiptEnrichmentTests(unittest.TestCase):
+ def test_exact_receipt_only_and_conflicts_preserved(self):
+  from trade_email_import import receipt_enrichment
+  old=dict(status='pending-review',orderIdDigest='b'*64,isin='test',side='BUY',quantity=2,priceEur=10,executedLocal='01.10.2026 10:00:00',costsChf=.5,totalChf=None)
+  new=dict(old,grossChf=18,totalChf=18.5)
+  self.assertTrue(receipt_enrichment(old,new))
+  for changed in (dict(new,quantity=3),dict(new,costsChf=.6),dict(new,totalChf=20),dict(new,executedLocal='02.10.2026 10:00:00')):
+   self.assertFalse(receipt_enrichment(old,changed))
+  self.assertFalse(receipt_enrichment(new,new))
