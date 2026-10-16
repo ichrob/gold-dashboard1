@@ -85,12 +85,14 @@ body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 .bob-nav{position:fixed;bottom:0;left:0;right:0;z-index:50;background:#ffffffed;backdrop-filter:blur(14px);border-top:1px solid #dce3ed;padding:8px 8px calc(8px + env(safe-area-inset-bottom));display:flex;justify-content:center;gap:4px}
 .bob-nav button{max-width:180px;flex:1;min-width:0;background:transparent;color:#536176;font-size:clamp(10px,2.75vw,12px);padding:9px 1px;border-radius:12px;letter-spacing:-.1px}
 .bob-nav button[aria-current=page]{background:#e8f1ff;color:#125bc0}.bob-nav span{display:block;font-size:19px;margin-bottom:2px}
-.bob-nav{gap:2px}.bob-nav button{font-size:clamp(9px,2.5vw,11px);position:relative}
+.bob-nav{gap:4px}.bob-nav button{font-size:clamp(11px,3vw,13px);position:relative;min-height:56px}
+.bob-more-menu{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.bob-more-menu button{text-align:left;padding:16px;background:#e8f1ff;color:#18283c}.bob-more-menu small{display:block;margin-top:6px;font-weight:400}
+.bob-mobile #bobNextStep{font-weight:650;color:#18283c}.bob-mobile #bobNextAction{width:100%;margin-bottom:12px}
 .bob-nav .bob-problem-count{position:absolute;top:1px;right:2px;display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;padding:1px 4px;border-radius:999px;background:#bc2440;color:white;font-size:11px;font-weight:750;line-height:1;box-sizing:border-box}
 .bob-nav .bob-problem-count[hidden]{display:none!important}
 .bob-heading{display:flex;align-items:center;justify-content:space-between;margin:2px 0 16px}.bob-heading h1{font-size:27px}.bob-heading small{color:#6b7788}
 .bob-status{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}.bob-status button{font-size:12px;width:auto;background:#edf0f5;color:#42536a;padding:7px 10px;min-height:36px}
-.bob-mobile .signal.neutral{background:#eef0f3;color:#526070}.bob-mobile #quickSignal{font-size:27px;padding:15px}
+.bob-mobile .signal.neutral{background:#fff3cd;color:#755500}.bob-mobile #quickSignal{font-size:27px;padding:15px}
 .bob-mobile .analysis-blocks{gap:9px}.bob-mobile .analysis-block{padding:11px;font-size:13px}.bob-mobile .analysis-block b{font-size:16px}.bob-mobile .analysis-block details{font-size:12px}.bob-mobile .analysis-block summary{font-weight:500;padding:4px 0;min-height:30px}
 .bob-mobile .metric b{font-size:18px}.bob-mobile #hysteresis{font-size:13px;font-weight:500;max-height:180px;overflow:auto}
 .bob-mobile #tradeSignal{font-size:14px!important;text-align:left;max-height:160px;overflow:auto}
@@ -1457,7 +1459,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const quick=card('quickSignal'),manual=card('dgType'),push=card('generalPushBtn');
   const header=document.querySelector('h1')?.parentElement;
   const panels={};
-  for(const [key,label] of Object.entries({overview:'Übersicht',products:'Produkte',trade:'Mein Trade',auto:'Vollautomatisch',future:'Zukunft',research:'YouTube',learning:'Lernen',problems:'Problem'})){
+  for(const [key,label] of Object.entries({overview:'Übersicht',products:'Produkte',trade:'Mein Trade',auto:'Vollautomatisch',future:'Zukunft',research:'YouTube',learning:'Lernen',problems:'Problem',more:'Mehr'})){
    const el=document.createElement('section');el.id='bob-view-'+key;el.setAttribute('aria-label',label);el.hidden=key!=='overview';
    if(key!=='overview'){const h=document.createElement('h2');h.textContent=label;h.tabIndex=-1;el.append(h);}
    panels[key]=el;main.append(el);
@@ -1468,10 +1470,19 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   if(quick){quick.querySelector('h2').textContent='Bobs Einschätzung';
    const short=document.createElement('p');short.id='bobShortReason';short.className='bob-short';byId('quickSignal').after(short);
    const next=document.createElement('p');next.id='bobNextStep';next.className='bob-short';short.after(next);
+   const action=document.createElement('button');action.id='bobNextAction';action.type='button';action.className='bob-primary';action.textContent='Datenstatus ansehen';next.after(action);
    fold(byId('analysisQuality'),'5-Minuten-Richtungswert und Einzelindikatoren');
    fold(byId('quickReason'),'Datenstand und Sperrgründe');
    fold(quick.querySelector('.metrics'),'Marktwerte und Risiko');
    for(const block of quick.querySelectorAll('.analysis-block')){const note=block.querySelector('small');fold(note,'Einzelheiten');}
+  }
+  if(quick){
+   const blocks=quick.querySelector('.analysis-blocks');
+   const blockNote=blocks?.previousElementSibling;
+   const explanation=fold(blocks,'Marktanalyse verstehen');
+   if(explanation&&blockNote?.matches('p.small'))explanation.append(blockNote);
+   fold(byId('earlyImpulseStatus'),'Frühe Signale · Vergleichstest');
+   fold(byId('marketInputQuality'),'Qualität der Eingangsdaten');
   }
   const status=document.createElement('div');status.className='bob-status';status.innerHTML='<button type="button" data-status="data">Marktdaten: prüfen</button><button type="button" data-status="connection">Verbindung: prüfen</button><button type="button" data-status="push">Push: prüfen</button>';
   panels.overview.prepend(status);
@@ -1487,7 +1498,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const technical=document.createElement('details');technical.className='card';technical.innerHTML='<summary>Analyse im Detail</summary>';panels.overview.append(technical);
   for(const id of ['price','mtfSummary','momentumSummary','adx','signal']){const el=card(id);if(el)technical.append(el);}
   move(byId('economicTitle')?.closest('section'),'overview');fold(byId('economicTitle')?.closest('section'),'Wirtschaftstermine');
-  const selection=document.createElement('div');selection.className='card';selection.innerHTML='<h3>Produktauswahl</h3><p id="bobSelectionSummary" class="small">Auswahl wird geprüft …</p><button type="button" class="bob-primary" data-view="products">Produkte und fehlende Werte ansehen</button>';quick.after(selection);
+  const selection=document.createElement('div');selection.className='card';selection.innerHTML='<h3>Produktauswahl</h3><p id="bobSelectionSummary" class="small">Auswahl wird geprüft …</p><button type="button" class="bob-primary" data-view="products">Gold-Hebelprodukte ansehen</button>';quick.after(selection);
   move(byId('dgTop3'),'products');if(manual)manual.hidden=true;
   move(card('tradeStateBtn'),'trade');
   const guide=document.createElement('div');guide.className='card';guide.innerHTML='<h3>Belege und zusätzliche Eingaben</h3><p class="small">Bob überwacht eine von dir erfasste Position. Einen Kauf führst du selbst bei DEGIRO aus.</p><p id="bobTradeNext" class="bob-short"></p><button type="button" class="bob-primary" data-view="products">1 · Produkt auswählen</button><button type="button" id="bobTradeOpen">2 · Einstieg und Stückzahl ergänzen</button><button type="button" id="bobTradeTestOpen">Trade-Test · Produkt auswählen</button>';panels.trade.append(guide);window.BobManualTradeTest?.mount(guide);
@@ -1636,11 +1647,19 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   if(header){header.className='bob-heading';header.querySelector('h1').textContent='Bob';header.querySelector('.sub').textContent='Dein Gold- und Produktassistent';main.prepend(header);}
   Object.values(panels).forEach(el=>main.append(el));
   const nav=document.createElement('nav');nav.id='bobNavigation';nav.className='bob-nav';nav.setAttribute('aria-label','Hauptnavigation');
-  nav.innerHTML=[['overview','◫','Übersicht'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['auto','⚙','Auto'],['future','◇','Zukunft'],['research','▶','YouTube'],['learning','↗','Lernen'],['problems','⚠','Problem']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+(key==='problems'?'<strong class="bob-problem-count" data-problem-count hidden aria-hidden="true"></strong>':'')+'</button>').join('');document.body.append(nav);
-  function show(key,focus=true){if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key)btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
+  const moreMenu=document.createElement('div');moreMenu.className='bob-more-menu';
+  moreMenu.innerHTML=[['auto','⚙','Auto','Simulationen ansehen'],['future','◇','Zukunft','Pläne und Broker'],['research','▶','YouTube','Gold-Recherche'],['learning','↗','Lernen','Tests und Ergebnisse']].map(([key,icon,label,note])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'">'+icon+' '+label+'<small>'+note+'</small></button>').join('');panels.more.append(moreMenu);
+  nav.innerHTML=[['overview','◫','Übersicht'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['problems','⚠','Problem'],['more','☰','Mehr']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+(key==='problems'?'<strong class="bob-problem-count" data-problem-count hidden aria-hidden="true"></strong>':'')+'</button>').join('');document.body.append(nav);
+  function show(key,focus=true){if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&['auto','future','research','learning'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
   document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b){show(b.dataset.view);history.replaceState(null,'','#'+b.dataset.view);}});
   window.addEventListener('hashchange',()=>show(location.hash.slice(1)));
   for(const b of status.querySelectorAll('button'))b.addEventListener('click',()=>{system.open=true;system.scrollIntoView({behavior:'smooth',block:'start'});});
+  byId('bobNextAction')?.addEventListener('click',()=>{
+   const destination=byId('bobNextAction').dataset.destination;
+   if(destination==='data'){system.open=true;system.scrollIntoView({behavior:'smooth',block:'start'});system.querySelector('summary')?.focus();}
+   else if(destination==='analysis'){const details=byId('bobMarketAnalysis');if(details){details.open=true;details.scrollIntoView({behavior:'smooth',block:'start'});details.querySelector('summary')?.focus();}}
+   else{show(destination);history.replaceState(null,'','#'+destination);}
+  });
   function text(id){return byId(id)?.textContent.trim()||'';}
   function update(){
    const close=document.querySelector('button[onclick="closeTrade()"]');if(close)close.hidden=/Kein aktiver Trade/i.test(text('tradeStateBtn'));
@@ -1649,7 +1668,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const unavailable=/veraltet|Aktualität|Zeitstempel|Daten fehlen|Historie fehlt|Anmeldung/i.test(reason);
    const scoreText=text('analysisQuality'),scoreMatch=scoreText.match(/Richtungswert:\s*(\d+)\/100/),score=scoreMatch?Number(scoreMatch[1]):null;
    if(short)short.textContent=unavailable?'Die Aktualität oder Vollständigkeit der Marktdaten ist nicht bestätigt.':/ABWARTEN/.test(signal)&&score!==null&&(score>=70||score<=30)?'Kurzfristig '+(score>=70?'aufwärts':'abwärts')+', aber die Bestätigung für einen Einstieg fehlt noch.':reason.split(' · ')[0]||'Analyse wird geladen …';
-   const next=byId('bobNextStep');if(next)next.textContent=unavailable?'Nächster Schritt: Datenstatus öffnen und den angegebenen Grund prüfen.':/ABWARTEN/.test(signal)?'Nächster Schritt: Auf eine bestätigte Richtung warten. Für das neutrale Marktsignal brauchst du keine neuen Bilder.':'Nächster Schritt: Unter Produkte prüfen, welche Kandidaten für diese Richtung geeignet sind.';
+   const next=byId('bobNextStep');
    const source=text('sourceSummary');status.querySelector('[data-status=data]').textContent='Marktdaten: '+(unavailable?'Bestätigung offen':/live|aktuell/i.test(source)&&!/nicht|unbekannt|veraltet|Aktualität|Zeitstempel/i.test(source)?'aktuell':'Status unbestätigt');
    const errors=[text('pushStatus'),text('fibMonitorStatus'),text('auditSave'),text('improvementStatus')].join(' ');
    const failed=/502|503|nicht erreichbar|nicht abrufbar|fehlgeschlagen|Fehler/i.test(errors);
@@ -1659,6 +1678,13 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const pushEnabled=ps.general||ps.trade;
    status.querySelector('[data-status=push]').textContent='Push: '+(!pushEnabled?'ausgeschaltet':permission==='denied'?'im Browser blockiert':!ps.serverRegistered||permission!=='granted'?'Einrichtung offen':failed?'Verbindung prüfen':ps.general?'Marktsignale aktiviert':ps.activeTrade?'Trade-Warnungen aktiviert':'Trade-Warnungen warten auf Trade');
    const active=/Trade aktiv/.test(text('tradeStateBtn'))&&!/Kein aktiver/.test(text('tradeStateBtn'));
+   const pending=!/LONG|SHORT|ABWARTEN/.test(signal);
+   const action=byId('bobNextAction');
+   if(action){
+    action.dataset.destination=active?'trade':unavailable||pending?'data':/ABWARTEN/.test(signal)?'analysis':'products';
+    action.textContent=active?'Meinen Trade und Stop ansehen':unavailable||pending?'Datenstatus ansehen':/ABWARTEN/.test(signal)?'Warum wartet Bob?':'Passende Produkte ansehen';
+   }
+   if(next)next.textContent=active?'Dein nächster Schritt: Prüfe deinen Trade und den vorgeschlagenen Stop.':unavailable?'Bob kann die Marktdaten noch nicht bestätigen. Öffne den Datenstatus für den Grund.':pending?'Bob lädt die Einschätzung. Warte auf das Ergebnis.':/ABWARTEN/.test(signal)?'Jetzt abwarten. Für dieses Signal musst du keine neuen Bilder hochladen.':'Dein nächster Schritt: Öffne die Produkte und prüfe Bobs Auswahl.';
    const refresh=document.querySelector('button[onclick="suggestStopUpdate()"]');if(refresh){refresh.disabled=!active;refresh.title=active?'Berechneten Stop und Ziel prüfen':'Zuerst einen Produkt-Trade erfassen und die Überwachung starten';}
    if(legacyEntry){legacyEntry.disabled=!active;legacyEntry.title='Für Goldreferenz-Trades; Produkt-Trades über den geführten Ablauf erfassen';}
    const tradeNext=byId('bobTradeNext');if(tradeNext)tradeNext.textContent=active?'Überwachung aktiv. Berechneten Stop und Ziel unten prüfen; Änderungen selbst bei DEGIRO übernehmen.':'Noch keine Überwachung aktiv. Beginne mit Schritt 1 und ergänze danach Einstieg und Stückzahl.';

@@ -3,7 +3,7 @@ const assert=require('assert'),fs=require('fs');
 const html=fs.readFileSync('Bob.html','utf8');
 const one=(s)=>html.split(s).length-1;
 assert(html.includes("future:'Zukunft'"),'Zukunft must have a dedicated panel');
-assert(html.includes("['future','◇','Zukunft']"),'Zukunft needs a bottom navigation button');
+assert(html.includes("['future','◇','Zukunft','Pläne und Broker']"),'Zukunft must remain accessible from Mehr');
 assert(html.includes("panels.future.append(futurePanel)"),'Roadmap must be mounted to its own panel');
 assert.equal(one("futurePanel.id='bobFuturePlan'"),1,'The future roadmap must be unique');
 const plan=html.split("futurePanel.innerHTML=`")[1]?.split("`;")[0];
