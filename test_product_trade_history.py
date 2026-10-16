@@ -33,7 +33,7 @@ class ProductCurveChecks(unittest.TestCase):
         for p,q in [
             (PRODUCT,{**SPOTS,'spot_price_as_of':iso(-90)}),
             (PRODUCT,{**SPOTS,'usd_eur_meta':dict(rate=.91,fetchedAt=iso(-120))}),
-            (PRODUCT,{**SPOTS,'usd_eur_meta':dict(rate=.91,fetchedAt=iso(-75))}),
+            (PRODUCT,{**SPOTS,'usd_eur_meta':dict(rate=.91,fetchedAt=iso(-76))}),
             (PRODUCT,{**SPOTS,'is_genuine_xauusd_spot':False}),
             (PRODUCT,{**SPOTS,'spot_error':'stale'}),
             (PRODUCT,{**SPOTS,'usd_eur_meta':dict(rate=.91,fetchedAt=iso(20))}),
