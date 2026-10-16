@@ -491,10 +491,26 @@ def sync_devices(conn):
         'SELECT id,settings,state FROM bob_real_trades WHERE active=TRUE').fetchall()}
     closed={tid for tid, in conn.execute("SELECT id FROM bob_real_trades WHERE active=FALSE AND COALESCE((snapshot->>'recordOnly')::boolean,FALSE)=FALSE").fetchall()}
     if closed:
-        conn.execute('''UPDATE subscriptions SET trade_monitor=NULL,active_trade=FALSE,updated_at=now()
-          WHERE trade_monitor->>'tradeId'=ANY(%s)
-          AND (background_config->'trade'->>'tradeId' IS NULL
-               OR background_config->'trade'->>'tradeId'=trade_monitor->>'tradeId')''',(list(closed),))
+        # An imported DEGIRO SELL or confirmed screenshot must stop the exact
+        # trade's PUSH, including on devices that still have stale local state.
+        # Keep trade_enabled/general_enabled: those are preferences for future
+        # trades and for unrelated market signals, not this active position.
+        # Never touch a device now monitoring another trade.
+        conn.execute("""UPDATE subscriptions SET
+            active_trade=FALSE,
+            trade_monitor=NULL,
+            background_config=CASE WHEN background_config IS NULL THEN NULL ELSE
+                jsonb_set(background_config - 'journalTradeId',
+                          '{trade}', 'null'::jsonb, true) END,
+            background_state=COALESCE(background_state,'{}'::jsonb)
+                             - 'trade' - 'journalConnected',
+            updated_at=now()
+          WHERE (trade_monitor->>'tradeId'=ANY(%s)
+             OR background_config->'trade'->>'tradeId'=ANY(%s)
+             OR background_config->>'journalTradeId'=ANY(%s))
+            AND (background_config->'trade'->>'tradeId' IS NULL
+              OR background_config->'trade'->>'tradeId'=ANY(%s))""",
+          (list(closed),list(closed),list(closed),list(closed)))
     rows=conn.execute('SELECT id,active_trade,background_config,trade_enabled FROM subscriptions FOR UPDATE').fetchall()
     for sid,active,settings,enabled in rows:
         if not enabled and ((settings or {}).get('trade') or {}).get('tradeId') not in closed:continue
