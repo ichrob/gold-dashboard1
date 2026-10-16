@@ -206,7 +206,7 @@ def snapshot():
 
 def session(now=None):
     now = (now or datetime.now(ZONE)).astimezone(ZONE)
-    if now.weekday() >= 5 or not 8 <= now.hour < 21:
+    if now.weekday() >= 5 or not 8 <= now.hour < 22:
         return None
     return (now.date().isoformat(), "morning" if now.hour < 18 else "evening")
 

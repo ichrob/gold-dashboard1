@@ -227,12 +227,13 @@ class IssuerCatalogueTests(unittest.TestCase):
         self.assertFalse(any(c["issuerVerified"] for c in result["candidates"]))
         self.assertFalse(any(c["issuerQuoteFresh"] for c in result["candidates"]))
 
-    def test_session_gates_weekends_nights_and_two_daily_scans(self):
+    def test_session_gates_weekends_nights_and_reviewed_22h_close(self):
         self.assertIsNone(catalog.session(datetime(2026,10,11,10,tzinfo=Z)))
         self.assertIsNone(catalog.session(datetime(2026,10,12,7,tzinfo=Z)))
-        self.assertIsNone(catalog.session(datetime(2026,10,12,21,tzinfo=Z)))
         self.assertEqual(catalog.session(datetime(2026,10,12,8,tzinfo=Z))[1],"morning")
         self.assertEqual(catalog.session(datetime(2026,10,12,18,tzinfo=Z))[1],"evening")
+        self.assertEqual(catalog.session(datetime(2026,10,12,21,59,tzinfo=Z))[1],"evening")
+        self.assertIsNone(catalog.session(datetime(2026,10,12,22,tzinfo=Z)))
 
     def test_server_endpoint_requires_auth_and_ui_keeps_separate_list(self):
         from pathlib import Path
