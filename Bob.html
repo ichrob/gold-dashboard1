@@ -2984,10 +2984,27 @@ function sustainedTrendContext(bundle,now=Date.now()){
   const key=side==='LONG'?'low':'high',v=rows[i][key];
   if([i-2,i-1,i+1,i+2].every(j=>sign*(rows[j][key]-v)>0))pivots.push(v);
  }
- const level=pivots.at(-1)??null;
- const broken=level!==null&&sign*(setup.close-level)<0;
- const intact=!broken&&sign*(hour.close-hour.e50)>0&&sign*(setup.e20-setup.e50)>0&&sign*(setup.close-setup.e50)>0;
- if(!intact)return {...base,direction:side,phase:'WEAKENING',structureBroken:broken,structureLevel:level,reason:broken?'Bestätigte 15m-Struktur gebrochen – Ausstieg prüfen':'Haupttrend geschwächt – Fortsetzung nicht bestätigt'};
+ const level=pivots.at(-1)??null,last=rows.at(-1),previous=rows.at(-2);
+ // A confirmed swing is not a confirmed BREAK: one closed 15m bar beyond the
+ // swing is preliminary. Require two distinct consecutive 15m closes beyond
+ // the same swing, with a small volatility buffer to reject boundary noise.
+ const volatility=atr(rows),buffer=Number.isFinite(volatility)&&volatility>0?Math.max(.05,volatility*.1):.05;
+ const crossed=bar=>level!==null&&bar&&sign*(bar.close-level)<-buffer;
+ const breach=!!crossed(last);
+ const broken=breach&&crossed(previous)&&last.openTime-previous.openTime===900000;
+ const intact=!breach&&sign*(hour.close-hour.e50)>0&&sign*(setup.e20-setup.e50)>0&&sign*(setup.close-setup.e50)>0;
+ if(!intact){
+  const directionWord=side==='LONG'?'unter':'über',shownLevel=Number.isFinite(level)?level.toFixed(2):'—';
+  const stamp=bar=>new Date(bar.openTime+900000).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich',hour:'2-digit',minute:'2-digit'});
+  const evidence=breach?'15m-Goldschluss '+last.close.toFixed(2)+' USD ('+stamp(last)+') '+directionWord+' Strukturniveau '+shownLevel+' USD; Abstand mindestens '+buffer.toFixed(2)+' USD. ':'';
+  const reason=broken?'Zwei aufeinanderfolgende 15m-Schlüsse bestätigen den Strukturbruch. '+evidence+'Früherer Schluss '+previous.close.toFixed(2)+' USD ('+stamp(previous)+'). Ausstieg bei DEGIRO selbst prüfen; kein automatischer Verkauf.':
+   breach?'Erste 15m-Strukturwarnung, noch KEIN bestätigter Ausstieg. '+evidence+'Weitere geschlossene Kerze und Schutzstopp prüfen.':
+   'Haupttrend geschwächt – Fortsetzung nicht bestätigt; kein bestätigter Ausstieg.';
+  return {...base,direction:side,phase:broken?'BREAK_CONFIRMED':'WEAKENING',
+   structureBreach:breach,structureBroken:broken,structureLevel:level,
+   structureBuffer:buffer,structureConfirmations:broken?2:breach?1:0,
+   reason};
+ }
  const timing=timeframeScore(frames['5m']||[],'5m',now);
  const continuing=timing.available&&timing.fresh&&timing.dir===side&&timeframeScore(rows,'15m',now).dir===side;
  return {...base,direction:side,intact:true,phase:continuing?'CONTINUATION':'PULLBACK',structureLevel:level,
@@ -3004,7 +3021,9 @@ function positionManagementState(trade,trend,price,priceFresh){
  if(Number.isFinite(stop)&&stop>0&&(side==='LONG'?price<=stop:price>=stop))return result('EXIT','STOP ERREICHT · BEENDEN','Gespeicherter Gold-Schutzstop erreicht. Ausführung bei DEGIRO prüfen; Bob schließt keine Order.','bad');
  if(!trend?.available)return result('UNAVAILABLE','ÜBERWACHUNG EINGESCHRÄNKT',trend?.reason||'Aktuelle Trenddaten fehlen.');
  if(trend.intact&&trend.direction===side)return result('HOLD','HALTEN',trend.reason+' · Einstiegssignal und offene Position werden getrennt bewertet. Stop nicht lockern.',side==='LONG'?'ok':'bad');
- if(trend.structureBroken&&trend.direction===side||trend.intact&&['LONG','SHORT'].includes(trend.direction)&&trend.direction!==side)return result('EXIT','BEENDEN PRÜFEN',trend.reason+' · Bestehenden Trade zuerst prüfen. Ein Gegen-Trade braucht eine eigene Einstiegsfreigabe.','bad');
+ if(trend.structureBroken&&trend.direction===side)return result('REVIEW','STRUKTURBRUCH BESTÄTIGT · AUSSTIEG PRÜFEN',trend.reason+' · Erst der Schutzstopp oder eine eigene überprüfte Ausstiegsentscheidung erfordert Handeln. Bob führt keine Order aus.');
+ if(trend.structureBreach&&trend.direction===side)return result('PROTECT','STRUKTURWARNUNG · STOPP PRÜFEN',trend.reason+' · Ein einzelner Kerzenschluss bedeutet noch keinen bestätigten Ausstieg. Bestehenden Stopp nicht lockern.');
+ if(trend.intact&&['LONG','SHORT'].includes(trend.direction)&&trend.direction!==side)return result('REVIEW','GEGENTREND · AUSSTIEG PRÜFEN',trend.reason+' · Gegenrichtung im Haupttrend ist ein Warnsignal, kein ausgelöster Schutzstopp.');
  return result('PROTECT','GEWINN SCHÜTZEN · TREND PRÜFEN',trend.reason+' · Fortsetzung nicht bestätigt. Kein automatischer Richtungswechsel; Stop nicht lockern.');
 }
 function renderPositionStatus(){

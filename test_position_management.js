@@ -9,9 +9,14 @@ for(const dir of ['LONG','SHORT']){
  assert.equal(state(trade,trend,100,false).action,'UNAVAILABLE');
  assert.equal(state(trade,{available:false},100,true).action,'UNAVAILABLE');
  assert.equal(state(trade,{available:false},trade.stop,true).action,'EXIT');
- assert.equal(state(trade,{...trend,intact:false,structureBroken:true},100,true).action,'EXIT');
+ assert.equal(state(trade,{...trend,intact:false,structureBreach:true,structureBroken:false},100,true).action,'PROTECT');
+ assert(state(trade,{...trend,intact:false,structureBreach:true,structureBroken:false},100,true).label.includes('STRUKTURWARNUNG'));
+ assert.equal(state(trade,{...trend,intact:false,structureBroken:true},100,true).action,'REVIEW');
+ assert(!state(trade,{...trend,intact:false,structureBroken:true},100,true).label.includes('BEENDEN'));
+ // Gold stop has higher priority than every trend interpretation.
+ assert.equal(state(trade,{...trend,intact:false,structureBroken:true},trade.stop,true).action,'EXIT');
  assert.equal(state(trade,{...trend,intact:false},100,true).action,'PROTECT');
- assert.equal(state(trade,{...trend,direction:dir==='LONG'?'SHORT':'LONG'},100,true).action,'EXIT');
+ assert.equal(state(trade,{...trend,direction:dir==='LONG'?'SHORT':'LONG'},100,true).action,'REVIEW');
  assert.equal(trade.dir,dir);assert.equal(trade.stop,dir==='LONG'?90:110);
 }
 const els={activePositionSignal:{},activePositionReason:{}};
