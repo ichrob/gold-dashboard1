@@ -104,6 +104,10 @@
   try{const v=JSON.parse(root.localStorage?.getItem(STORE)||'null');return v&&typeof v==='object'?v:null;}catch(_){return null;}
  }
  function save(h){try{root.localStorage?.setItem(STORE,JSON.stringify(h));}catch(_){}}
+ function compatible(a,b){
+  return a?.kind===b?.kind&&a?.currency===b?.currency&&
+   (a?.kind==='model'||a?.source===b?.source);
+ }
  function fibonacci(rows){
   // Fibonacci needs one continuous, like-kind source series. Outages/issuer-to-model
   // transitions break the swing; long unattended gaps never become fake price moves.
@@ -112,7 +116,7 @@
   const p=[];
   for(const x of ordered){
    const prev=p.at(-1);
-   if(prev&&(x.at-prev.at>180000||x.kind!==prev.kind||x.source!==prev.source))p.length=0;
+   if(prev&&(x.at-prev.at>180000||!compatible(x,prev)))p.length=0;
    if(!prev||x.at>prev.at||!p.length)p.push(x);
   }
   if(p.length<6||new Set(p.map(x=>x.at)).size<6||p.at(-1).at-p[0].at<120000)return null;
@@ -172,7 +176,7 @@
   for(const row of history?.rows||[]){
    if(!positive(row.price)||!finite(row.at))continue;
    const last=sequence.at(-1);
-   if(last&&(row.kind!==last.kind||row.source!==last.source||row.at-last.at>180000))sequence.length=0;
+   if(last&&(!compatible(row,last)||row.at-last.at>180000))sequence.length=0;
    sequence.push(row);
   }
   if(sequence.length<12||sequence.at(-1).at-sequence[0].at<300000)
@@ -343,7 +347,8 @@
  }
  function update(input,now=Date.now()){
   if(!panel)return;
-  let result=assess(input,now);
+  const rawResult=assess(input,now);
+  let result=rawResult;
   const before=readQuality(),learned=learnComparison(before,result.comparison,result.tradeKey,now);
   if(learned.rows.length!==(before?.tradeKey===learned.tradeKey?before?.rows?.length:0))saveQuality(learned);
   const quality=calibrate(learned,now);
@@ -358,7 +363,9 @@
    }
   }
   const existing=read();
-  const local=addObservation(existing,result,now);
+  // Historical chart remains immutable raw observed/model data; a subsequently
+  // learned offset only affects the current indicative display marker.
+  const local=addObservation(existing,rawResult,now);
   if(local.added||!existing||existing.tradeKey!==local.tradeKey)save(local);
   const h=mergedHistory(local,background.tradeId===input?.trade?.tradeId?background.rows:[],local.tradeKey);
   refreshBackground(input?.trade,now);
