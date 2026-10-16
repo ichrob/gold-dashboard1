@@ -619,7 +619,8 @@ class Handler(BaseHTTPRequestHandler):
                         safe={k:record.get(k) for k in (
                             "status","reason","isin","side","quantity","priceEur","executedAt",
                             "executedLocal","timezoneConfirmed","sourceKind",
-                            "orderIdDigest","costsChf","attachmentCount")
+                            "orderIdDigest","costsChf","grossChf","totalChf",
+                            "fxEurPerChf","senderKind","attachmentCount")
                               if k in record}
                         if len(json.dumps(safe))>4096:
                             raise ValueError("Zu viele Importdaten")
