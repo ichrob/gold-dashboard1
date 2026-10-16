@@ -250,7 +250,7 @@ function mount(parent){
    }
 
    const cycle=info.learningCycle;
-   if(cycle&&cycle.version==='bob-rolling-shadow-v1'){
+   if(cycle&&['bob-rolling-shadow-v1','bob-rolling-shadow-v2'].includes(cycle.version)){
     const area=el('section');area.className='bob-disclosure';
     area.style.cssText='padding:10px;border:1px solid #d7e0ea;border-radius:10px;margin:12px 0';
     area.append(el('h4','Bob · tägliche Weiterentwicklung'));
@@ -274,6 +274,11 @@ function mount(parent){
     area.append(el('p','Nachfolgende Prüfsitzungen: '+scalar(progress.sessions)+
       ' / '+String(20)+' · hypothetische Referenzabschlüsse: '+scalar(progress.trades)+
       ' / '+String(30)+' · letzter unabhängiger Kurs: '+fmt(progress.lastEvaluatedBarAt)));
+    for(const [name,g] of Object.entries(progress.costScenarios||{})){
+     const a=g.candidate||{},b=g.baseline||{};
+     area.append(el('p',(name==='stress'?'Stresskosten':'Standardkosten')+' · '+g.costBpsPerSide+' Basispunkte je Seite (Annahme): Kandidat '+((a.index-1)*100).toFixed(2)+' % / Referenz '+((b.index-1)*100).toFixed(2)+' % · größter Rückgang '+Number(a.maxDrawdownPct).toFixed(2)+' % / '+Number(b.maxDrawdownPct).toFixed(2)+' %. Kein Produkt-Nettoergebnis.'));
+    }
+    if(proposal.protocol)area.append(el('p','Vorab fixiert: gleiche spätere Kursfenster, gleiche Kosten je Seite, mindestens 20 Sitzungen und jeweils 30 Abschlüsse. Vorteil muss auch unter dreifachen Kosten und beim Drawdown bestehen.'));
     if(progress.lastObservation&&cycle.newIndependentEvidence===true)
      area.append(el('p','Letzte neue Evidenz: '+progress.lastObservation.day+
          ' · '+scalar(progress.lastObservation.newBars)+' neu beobachtete 1h-Kerzen'));
