@@ -1,7 +1,7 @@
 """Private visualisation of server-side DEGIRO list evidence checks."""
 PANEL = r'''<section id="bobProductAudit" class="card">
 <button id="bobAuditShareChatGPT" type="button" style="width:100%;white-space:normal" aria-describedby="bobAuditShareHint">DEGIRO Goldhebelprodukte Probleme</button>
-<p id="bobAuditShareHint" class="small">Prüfbericht mit Reparaturauftrag teilen: ChatGPT auswählen und dort absenden.</p>
+<p id="bobAuditShareHint" class="small">Produkte mit Problemen samt Fehlermeldungen teilen – ohne Screenshots. ChatGPT auswählen und dort absenden.</p>
 <p id="bobAuditShareStatus" hidden role="status" class="small"></p>
 <textarea id="bobAuditShareFallback" hidden readonly aria-label="Privaten Bericht zum manuellen Kopieren" style="width:100%;min-height:140px"></textarea>
 <div hidden>
@@ -31,6 +31,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    'Letzte Hintergrundprüfung: '+time(r?.lastCheckedAt),
    'DEGIRO-Listenstand: '+time(r?.listUploadedAt),
    'Produkte im Prüfbericht: '+(Number.isInteger(r?.total)?r.total:'unbekannt'),
+   'Geteilte Problemprodukte: '+items.length,
    'Unvollständige Produkte: '+(Number.isInteger(r?.incomplete)?r.incomplete:'unbekannt'),
    'Wichtig: Bei Status stale, unavailable oder checking-new-list keine Fehler als behoben werten.'
   ];
@@ -44,6 +45,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
     (index+1)+'. '+isin+' · '+safe(item.direction)+' · '+safe(item.state),
     'Fehlende Nachweise: '+(missing.length?missing.join(', '):'keine aufgelistet'),
     'Fehlerbeschreibung: '+(messages.length?messages.join(' | '):'keine'),
+    'Hinweise aus der aktuellen Produktkarte: '+(Array.isArray(item.cardMessages)&&item.cardMessages.length?item.cardMessages.map(safe).join(' | '):'keine zusätzlichen Kartenhinweise'),
     'Quelle: '+safe(item.source),
     'Geld/Brief-Quelle: '+safe(item.dataQuoteSource),
     'Geld/Brief-Zeit: '+time(item.quoteSourceAt),
@@ -54,17 +56,41 @@ PANEL = r'''<section id="bobProductAudit" class="card">
     'Automatische Handelsfreigabe: '+(item.tradeApproved===true?'laut Bericht ja (unabhängig prüfen)':'nein')
    );
   }
-  if(!items.length)lines.push('Keine einzelnen Produktdaten abrufbar. Liste oder aktuelle Prüfung fehlen; keine Entwarnung.');
+  if(!items.length)lines.push('Keine Problemprodukte im Bericht enthalten. Bei fehlender Liste oder nicht aktueller Prüfung keine Entwarnung.');
   return lines.join('\n');
  }
+ function displayedProductProblems(){
+  const cards=document.querySelectorAll('#dgMissingProducts [data-product-isin]');
+  return [...cards].flatMap(card=>{
+   const labels=card.querySelector('[data-product-problems]')?.textContent?.trim();
+   if(!labels)return [];
+   const messages=[...card.querySelectorAll('[data-product-help], [data-direction-data-status], [data-product-next], [data-product-auto-check]')]
+    .map(node=>node.textContent.trim()).filter(Boolean);
+   return [{isin:card.dataset.productIsin,labels,messages}];
+  });
+ }
+ function problemReport(report,local){
+  const source=Array.isArray(report?.items)?report.items:[];
+  const selected=new Map(source.filter(item=>item.state!=='terminated'&&
+   (item.state==='incomplete'||item.needsKiHelp===true||(Array.isArray(item.missing)&&item.missing.length)))
+   .map(item=>[item.isin,{...item}]));
+  for(const card of local){
+   const original=selected.get(card.isin)||source.find(item=>item.isin===card.isin)||{isin:card.isin,state:'local-product-problem'};
+   selected.set(card.isin,{...original,cardMessages:[card.labels,...card.messages]});
+  }
+  return {...(report||{status:'unavailable'}),items:[...selected.values()]};
+ }
  function mobileAuditPayload(){
-  if(!latestReport||typeof latestReport!=='object')return null;
-  return auditTextForChatGPT(latestReport);
+  const local=displayedProductProblems();
+  if(!latestReport&&!local.length)return null;
+  const report=problemReport(latestReport,local);
+  if(!report.items.length)return null;
+  return auditTextForChatGPT(report);
  }
  function handoffStatus(message){const node=byId('bobAuditShareStatus');if(node){node.textContent=message;node.hidden=false;}}
  async function copyMobileAudit(){
   const value=mobileAuditPayload();
-  if(!value){handoffStatus('Bitte erst auf den Prüfbericht warten und danach erneut tippen.');return;}
+  if(!value){handoffStatus('Noch keine Problemprodukte zum Teilen verfügbar. Bitte die Produktliste und den Prüfbericht laden lassen.');return;}
   try{
    if(!navigator.clipboard?.writeText)throw Error('Clipboard not available');
    await navigator.clipboard.writeText(value);
@@ -78,7 +104,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
  }
  async function shareMobileAudit(){
   const value=mobileAuditPayload();
-  if(!value){handoffStatus('Bitte erst auf den Prüfbericht warten und danach erneut tippen.');return;}
+  if(!value){handoffStatus('Noch keine Problemprodukte zum Teilen verfügbar. Bitte die Produktliste und den Prüfbericht laden lassen.');return;}
   if(!navigator.share){await copyMobileAudit();return;}
   try{
    await navigator.share({title:'Bob · Gold-Hebelprodukte Prüfbericht',text:value});
