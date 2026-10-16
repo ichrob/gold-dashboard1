@@ -14,6 +14,7 @@ import audit_history
 import stop_target_audit
 import paper_simulation
 import optimization_review
+import market_optimization
 from datetime import datetime, timezone
 
 VERSION = 'decision-audit-v1'
@@ -115,11 +116,13 @@ def normalize(payload, now=None):
     if result.get('baseDirection') not in ('LONG','SHORT','NEUTRAL'):result['baseDirection']=None
     result['reviewVariants'] = signal_review.capture(result)
     result['optimization'] = optimization_review.capture(result)
+    result['marketOptimization'] = market_optimization.capture(result)
     # Each decision revision is frozen once. Refreshes with unchanged evidence are idempotent.
     identity={k:result[k] for k in ('learningPolicy','version','ruleVersion','origin','direction','shadowDirection','intraday','barAt','reason','products','selection','gateReasons','plan')}
     if identity.get('plan'):identity['plan']={k:v for k,v in identity['plan'].items() if k!='at'}
     identity['reviewVersion']=signal_review.VERSION
     identity['optimizationVersion']=optimization_review.VERSION
+    identity['marketOptimizationVersion']=market_optimization.VERSION
     identity['earlyImpulseEvidence']=(lambda q:{'version':q['version'],'direction':q['direction'],'barAt':q['barAt']} if q else None)(result.get('earlyImpulse'))
     identity['minuteEntryVersion']=(result.get('minuteEntry') or {}).get('version')
     identity['entryQualityVersion']=(result.get('entryQuality') or {}).get('version')
@@ -366,7 +369,7 @@ def harvest(conn):
     if time.time()-_harvest_at<60:return
     conn.execute("""INSERT INTO bob_decision_outcomes(decision_id,horizon,truth)
       SELECT a.id,h.minutes,json_build_object('at',s.quote_at,'price',s.price,'minPrice',ext.lo,'maxPrice',ext.hi)::jsonb
-      FROM bob_decision_audit a CROSS JOIN (VALUES (15),(60),(240)) h(minutes)
+      FROM bob_decision_audit a CROSS JOIN (VALUES (1),(5),(15),(30),(60),(240)) h(minutes)
       CROSS JOIN LATERAL (SELECT quote_at,price FROM bob_spot_observations
         WHERE stream='gold-api-xau-usd-v1'
         AND quote_at>=a.recorded_at+h.minutes*interval '1 minute'
@@ -374,8 +377,10 @@ def harvest(conn):
         ORDER BY quote_at LIMIT 1) s
       LEFT JOIN LATERAL (SELECT min(price) lo,max(price) hi FROM bob_spot_observations
         WHERE stream='gold-api-xau-usd-v1' AND quote_at>=a.recorded_at AND quote_at<=s.quote_at
+        AND h.minutes IN (15,60,240)
         AND a.payload->'entryQuality'->>'version'='entry-quality-v1') ext ON TRUE
       WHERE a.recorded_at>=now()-interval '7 days'
+      AND (h.minutes IN (15,60,240) OR a.payload->'marketOptimization'->>'version'='market-review-v1')
       AND NOT EXISTS (SELECT 1 FROM bob_decision_outcomes o WHERE o.decision_id=a.id AND o.horizon=h.minutes)
       ON CONFLICT DO NOTHING""")
     _harvest_at=time.time()
@@ -407,12 +412,13 @@ def _load_report_rows(conn, limit=None):
         return []
     outcomes = conn.execute("""SELECT decision_id,horizon,truth
         FROM bob_decision_outcomes
-        WHERE decision_id = ANY(%s::text[]) AND horizon IN (15,60,240)""",
+        WHERE decision_id = ANY(%s::text[]) AND horizon IN (1,5,15,30,60,240)""",
         ([row[0] for row in decisions],)).fetchall()
     by_id = {}
     for decision_id, horizon, truth in outcomes:
         by_id.setdefault(decision_id, {})[horizon] = truth
-    return [(payload, *(by_id.get(key, {}).get(h) for h in (15,60,240)))
+    return [({**payload, '_marketReviewTruths':by_id.get(key,{})} if payload.get('marketOptimization') else payload,
+             *(by_id.get(key, {}).get(h) for h in (15,60,240)))
             for key, payload in decisions]
 
 
@@ -440,6 +446,7 @@ def _build_report(conn):
     result['otherPolicyRecords']=len(rows)-len(scoped)
     result['signalDiagnostics']=signal_review.diagnostics(current,outcome)
     result['optimizationReview']=optimization_review.report(current,outcome)
+    result['optimizationReview']['marketReview']=market_optimization.report(current,outcome)
     try:
         with conn.transaction():
             prospective_rows = _load_prospective_rows(conn)

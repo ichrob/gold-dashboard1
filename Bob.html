@@ -1181,6 +1181,23 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   for(const g of o.regimes||[])lines.push(phaseNames[g.phase]+' · '+(regimeNames[g.regime]||g.regime)+': '+g.cases+' Fälle · aktuell '+n(g.baselineSumPct/g.cases)+' % / Trendvariante '+n(g.regimeSumPct/g.cases)+' % je Fall nach Beispielkosten.');
   lines.push('\nStarke Bewegungen: '+o.strongMovePct+' % in '+o.horizonMinutes+' Minuten (rückblickende Prüfschwelle)');
   for(const e of o.missed||[])lines.push(when(e.at)+' · '+e.direction+' · '+n(e.changePct)+' %\n'+e.reason+'\n'+(e.signalAlreadyPresent?'Richtung bereits erkannt; Produkt-/Einstiegssperre getrennt prüfen.':e.laterSignalMinutes!==null?'Passendes späteres Signal nach '+n(e.laterSignalMinutes)+' Minuten protokolliert.':'Kein passendes späteres Signal im Prüfzeitraum protokolliert; Aufzeichnung kann Lücken haben.'));
+  const review=o.marketReview;
+  if(review?.version==='market-review-v1'){
+   lines.push('\nMarktanalyse: 1 / 5 / 15 / 30 Minuten',review.sampled+' Startpunkte · '+review.missing+' nicht auswertbare Zeiträume · '+review.pending+' ausstehend · '+review.atrMissing+' ohne belegte ATR.');
+   lines.push('Einstiegsfilter: vorhandener Test auf Überdehnung, Platz bis zum Hindernis und Signalalter. Marktphasenfilter: Frühimpuls nur im passenden intakten Trend.');
+   for(const g of review.groups||[]){
+    lines.push('\n'+phaseNames[g.phase]+' · '+(regimeNames[g.regime]||g.regime)+' · '+g.horizon+' Min. · '+g.cases+' gemeinsame Fälle');
+    for(const [k,m] of Object.entries(g.variants))lines.push(review.labels[k]+': '+m.signals+' Signale / '+m.wait+' Abwarten · '+m.wins+' positiv / '+m.losses+' negativ · Mittel '+n(m.sumPct/g.cases)+' % nach Beispielkosten.');
+   }
+   lines.push('\nProtokollierte Abwartegründe');
+   for(const [reason,count] of Object.entries(review.waitReasons||{}))lines.push(count+' × '+reason);
+   lines.push('\nBewegungen nach fester oder ATR-Schwelle: '+review.moveCount+' Prüffälle (Zeiträume können denselben Start teilen)');
+   for(const e of review.moves||[])lines.push(when(e.at)+' · '+e.horizon+' Min. · '+e.direction+' · '+n(e.changePct)+' % / '+n(e.moveAtr)+' vorherige 5m-ATR\n'+e.reason+'\n'+
+    (e.alreadyPresent?'Richtung bereits vorhanden.':e.delayMinutes!==null?'Späteres Signal nach '+n(e.delayMinutes)+' Min.':'Kein späteres Signal im Zeitraum protokolliert.')+
+    (typeof e.endpointReversal==='boolean'?' 1-/30-Minuten-Endpunkte: '+(e.endpointReversal?'Richtungsumkehr.':'Keine Richtungsumkehr.'): '')+
+    '\nEinstieg: EMA-Abstand '+n(e.entry?.deviationAtr)+' ATR · Platz '+n(e.entry?.roomR)+' R · Signalalter '+n(e.entry?.signalAgeMinutes)+' Min. '+(e.entryReasons||[]).join(' · '));
+   lines.push(review.note);
+  }
   lines.push(o.note);text('optimizationDetails',lines.join('\n'));
  }
  async function api(action,payload){const r=await fetch('/api/audit/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!r.ok)throw Error('Speicher nicht erreichbar ('+r.status+')');return r.json();}
@@ -2981,7 +2998,7 @@ function intradayEntryContext(bundle=liveBundleCache,state=signalState,now=Date.
  const dir=state.dir,stop=['LONG','SHORT'].includes(dir)?stopModel(dir,price,risk.atr,1.5,risk).stop:null,obstacle=dir==='LONG'?resistance:dir==='SHORT'?support:null;
  const roomR=Number.isFinite(stop)&&stop!==price&&Number.isFinite(obstacle)?Math.abs(obstacle-price)/Math.abs(price-stop):null;
  const reasons=[];if(deviationAtr>1.5)reasons.push('Abstand zur EMA20 über 1,5 ATR');if(roomR===null)reasons.push('Platz bis zum nächsten Hindernis nicht belegt');else if(roomR<2)reasons.push('Weniger als 2R bis zum nächsten Hindernis');if(signalAgeMinutes===null||signalAgeMinutes>15)reasons.push('Signalalter fehlt oder über 15 Minuten');
- return {...result,available:true,price,priceAt:rows.at(-1).openTime+300000,reference:'Schlusskurs der Technikhistorie; keine Mischung mit Spot/CFD',support,resistance,currentDay,previousDay,deviationAtr,signalAgeMinutes,roomR,trendStrength:dxCalc(setup),trendStrengthChange:dxCalc(setup)-dxCalc(setup.slice(0,-3)),direction:['LONG','SHORT'].includes(dir)&&!reasons.length?dir:'NEUTRAL',baselineDirection:dir,reasons,reason:reasons.join(' · ')||'Testbedingungen erfüllt',thresholds:{maxDeviationAtr:1.5,minRoomR:2,maxSignalMinutes:15}};
+ return {...result,available:true,price,atr5m:vol,priceAt:rows.at(-1).openTime+300000,reference:'Schlusskurs der Technikhistorie; keine Mischung mit Spot/CFD',support,resistance,currentDay,previousDay,deviationAtr,signalAgeMinutes,roomR,trendStrength:dxCalc(setup),trendStrengthChange:dxCalc(setup)-dxCalc(setup.slice(0,-3)),direction:['LONG','SHORT'].includes(dir)&&!reasons.length?dir:'NEUTRAL',baselineDirection:dir,reasons,reason:reasons.join(' · ')||'Testbedingungen erfüllt',thresholds:{maxDeviationAtr:1.5,minRoomR:2,maxSignalMinutes:15}};
 }
 
 function nextCandleScenario(bundle=liveBundleCache,now=Date.now()){
@@ -3033,12 +3050,26 @@ function renderMarketNarrative(){
  out.textContent=lines.filter(Boolean).join('\n\n');
 }
 
+function waitExplanation(state){
+ const reason=String(state?.reason||'Entscheidungsgrund fehlt');
+ const rules=[
+  [/veraltet|ungültig|daten.*fehl|historie|kerzenlücke|quellenzeit|zu wenige/i,'Daten fehlen oder sind nicht aktuell','Aktuelle vollständige Eingangsdaten abwarten.'],
+  [/zeitplan|handelszeit|außerhalb|wochenende|session/i,'Außerhalb des Analyse-/Einstiegszeitplans','Das nächste freigegebene Zeitfenster abwarten.'],
+  [/widerspr|uneinheit|gegen.*trend|gegenrichtung/i,'Richtungen widersprechen sich','Eine übereinstimmende Bestätigung der erforderlichen Zeitebenen abwarten.'],
+  [/überdehn|ausgedehnt|rückschlag|abstand.*atr/i,'Bewegung bereits weit gelaufen','Einen Rücksetzer oder ein neues, weniger ausgedehntes Signal abwarten.'],
+  [/bestät|schluss|vorbereitet/i,'Signal noch nicht bestätigt','Die nächste erforderliche Kerzenbestätigung abwarten.'],
+  [/seitwärts|ohne.*trend|neutral|kein.*richtung/i,'Keine eindeutige Richtung','Eine klare Richtung nach Bobs bestehenden Regeln abwarten.']
+ ];
+ const matches=rules.filter(([pattern])=>pattern.test(reason));
+ return 'ABWARTEN · '+(matches.length?matches.map(x=>x[1]).join(' · '):'Bedingungen noch nicht erfüllt')+
+  '\nKonkreter Grund: '+reason+'\nNächster Prüfschritt: '+(matches.length?[...new Set(matches.map(x=>x[2]))].join(' '):'Den genannten Grund bei der nächsten Aktualisierung erneut prüfen.');
+}
 function renderDecisionExplanation(){
  const out=$('decisionExplanation');if(!out)return;
  const state=signalState,active=['LONG','SHORT'].includes(state.dir),m=getMtfState().byTf||{};
  const frames=['5m','15m','1h','4h'].map(tf=>tf+': '+(m[tf]?.available?m[tf].dir:'Angaben fehlen')).join(' · ');
  const preparation=state.preparedDirection?'Einstieg vorbereitet: '+state.preparedDirection+' · erste geschlossene 5m-Kerze bestätigt, noch keine neue Freigabe.\n':'';
- const why=active?'Bestätigte Richtung '+state.dir+' aus abgeschlossenen 5m-Kerzen nach der adaptiven Bestätigungsregel. EMA20/50 und MACD bilden den Richtungskern; Kursposition und RSI ergänzen die Stärke.': 'Keine bestätigte Richtung: '+(state.reason||'Angaben fehlen');
+ const why=active?'Bestätigte Richtung '+state.dir+' aus abgeschlossenen 5m-Kerzen nach der adaptiven Bestätigungsregel. EMA20/50 und MACD bilden den Richtungskern; Kursposition und RSI ergänzen die Stärke.':waitExplanation(state);
  const against=state.dir==='NEUTRAL'?state.reason:state.count?'Ein Wechsel zu '+(state.pending==='NEUTRAL'?'ABWARTEN':state.pending)+' zeichnet sich ab; erst 1 von 2 Kerzen bestätigt. Die bisherige Richtung bleibt bis zur Bestätigung bestehen.':active?'Kein ausstehender Richtungswechsel in der aktuellen Prüfung. Das ist keine Garantie für den weiteren Kursverlauf.':state.reason;
  out.textContent=preparation+'Warum diese Richtung?\n'+why+'\n'+frames+'\n\nWas spricht dagegen / ist unsicher?\n'+against+'\n\nWann entfällt die Richtungsfreigabe?\nSofort bei fehlender Intraday-Bestätigung oder außerhalb des Bob-Zeitplans; eine neue Richtung benötigt einen klaren Schluss oder zwei unterstützende 5m-Schlüsse. Bei fehlenden, ungültigen oder veralteten erforderlichen Daten sofort. Ein Produkt benötigt zusätzlich seine eigenen Nachweise und Risikoprüfungen.';
 }

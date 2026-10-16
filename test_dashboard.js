@@ -394,3 +394,16 @@ console.log('Spot/Future display switch preserves analysis candles');
  assert(texts.auditReport.includes('Gespeicherte Entscheidungen: 3'));
  console.log('Partial audit timeout preserves learning and main report');
 })().catch(error=>{console.error(error);process.exitCode=1;});
+
+const waitCases=vm.runInContext(`[
+ waitExplanation({reason:'5m-Historie veraltet'}),
+ waitExplanation({reason:'Trend widerspricht der Gegenrichtung'}),
+ waitExplanation({reason:'Bewegung stark ausgedehnt, Rückschlagrisiko'}),
+ waitExplanation({reason:'Erste Schlusskerze bestätigt, zweite Bestätigung fehlt'})
+]`,env);
+assert(waitCases[0].includes('Daten fehlen oder sind nicht aktuell'));
+assert(waitCases[1].includes('Richtungen widersprechen sich'));
+assert(waitCases[2].includes('Rücksetzer'));
+assert(waitCases[3].includes('Signal noch nicht bestätigt'));
+assert(waitCases.every(x=>x.includes('Konkreter Grund:')&&x.includes('Nächster Prüfschritt:')));
+console.log('Wait explanation: concrete evidence, categories and next checks passed');
