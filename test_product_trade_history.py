@@ -50,17 +50,24 @@ class ProductCurveChecks(unittest.TestCase):
         class FakeDB:
             def execute(self,*a):raise AssertionError('Unverified data must not reach database')
         self.assertFalse(chart.append(FakeDB(),'trade-1',PRODUCT,{'xaus':4200},NOW))
-    def test_keep_original_clocks_in_insert(self):
+    def test_keep_original_clocks_in_insert_and_prune_only_old_model_points(self):
         class FakeDB:
-            args=None
+            def __init__(self):
+                self.calls=[]
             def execute(self,sql,args):
-                assert 'ON CONFLICT DO NOTHING' in sql
-                self.args=args
+                self.calls.append((sql,args))
         db=FakeDB()
         self.assertTrue(chart.append(db,'trade-1',PRODUCT,SPOTS,NOW))
-        self.assertEqual(db.args[1],iso(-15))
-        self.assertEqual(db.args[2],iso(-20))
-        self.assertEqual(db.args[4],'EUR')
-        self.assertEqual(__import__('json').loads(db.args[5])['provenance'],'estimated-not-executable')
+        self.assertEqual(len(db.calls),2)
+        prune_sql,prune_args=db.calls[0]
+        self.assertIn('DELETE FROM bob_real_trade_price_curve',prune_sql)
+        self.assertIn("interval '7 days'",prune_sql)
+        self.assertEqual(prune_args,('trade-1',))
+        insert_sql,args=db.calls[1]
+        self.assertIn('ON CONFLICT DO NOTHING',insert_sql)
+        self.assertEqual(args[1],iso(-15))
+        self.assertEqual(args[2],iso(-20))
+        self.assertEqual(args[4],'EUR')
+        self.assertEqual(__import__('json').loads(args[5])['provenance'],'estimated-not-executable')
 
 if __name__=='__main__':unittest.main()
