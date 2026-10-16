@@ -43,7 +43,9 @@ assert.equal(curve.assess({...input,quote:{...quote,askAt:null}},NOW).kind,'mode
 assert.equal(curve.assess({...input,quote:{...quote,error:true}},NOW).kind,'model');
 assert.equal(curve.assess({...input,quote:{...quote,bid:16.3,ask:16.32}},NOW).stage,'stop');
 assert.equal(curve.assess({...input,quote:{...quote,bid:22,ask:22.05}},NOW).stage,'target');
-assert.equal(curve.assess({...input,spots:{...spots,xaus:4440}},NOW).stage,'ko-near');
+const near=curve.assess({...input,spots:{...spots,xaus:4390}},NOW);
+assert(near.koDistancePct<2);
+assert(near.action.includes('KO-Abstand'));
 const knocked=curve.assess({...input,spots:{...spots,xaus:4460}},NOW);
 assert.equal(knocked.stage,'ko');
 assert.equal(knocked.available,false);
