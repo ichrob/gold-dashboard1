@@ -89,6 +89,17 @@ for(const testSpots of [
  assert.equal(v.model,null);
  assert(!['issuer-stop-observed','model-stop-zone'].includes(v.stage));
 }
+// A profitable SHORT may tighten its Gold stop below original 4200 entry,
+// which means product STOP is ABOVE the purchase value. This is valid risk
+// protection, not a reason to disable the two-stage stop assistant.
+const profitProtected=evaluate({stopGold:4180,targetGold:4120,
+ spots:{...spots,xaus:4150},quote:null});
+assert(profitProtected.available,'A stop protecting gains must remain supported');
+assert(profitProtected.model);
+assert(profitProtected.stopEur>product.entry);
+assert(profitProtected.targetEur>profitProtected.stopEur);
+assert.equal(profitProtected.automaticOrder,false);
+assert.equal(profitProtected.degiroExecutable,false);
 assert(!evaluate({stopGold:4460}).available);
 assert(!evaluate({product:{...product,currency:'GBP'}}).available);
 const guide=assistant.instructions({isin,quantity:10,stopEur:result.model.stopEur});
