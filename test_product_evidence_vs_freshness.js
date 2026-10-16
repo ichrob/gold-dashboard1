@@ -48,6 +48,7 @@ assert.equal(api.productFieldStates(chart,Date.parse(observedAt)+300001).bid.sta
 // A numeric value can exist while its independent clock or trade evidence is missing.
 const fragment=source.slice(source.indexOf("function productProblemLabels("),source.indexOf("function renderProductProblemSummary("));
 const helper={
+ degiroVenueObserved:()=>false,
  knockoutStatus:()=>false,compactProductExclusion:()=>false,
  finalProductStatus:()=>({complete:false,reasons:["Hebel mit Zeitstempel fehlt","Geld-/Briefkurs Nachweis nicht ausreichend","Produktwerte mit Originalquellenzeit nicht geprüft"]}),
  productFieldStates:()=>({bid:{value:16.14},ask:{value:16.15},leverage:{value:23.05}}),
@@ -93,5 +94,8 @@ assert(analysisLabels.includes("KO-Nachweis"));
 assert(!analysisLabels.includes("Produktnachweis"));
 assert(!analysisLabels.includes("Hebelzeit / Quellenprüfung"));
 assert(analysisLabels.includes("Kursnachweis"),"Conflicting original quote evidence must remain visible");
+helper.degiroVenueObserved=()=>true;
+assert(!Array.from(helper.productProblemLabels(product)).includes("DEGIRO-Handelsplatznachweis"));
+assert(Array.from(helper.productProblemLabels(product)).includes("KO-Nachweis"));
 helper.currentSgChfAnalysisProof=()=>null;
 assert(Array.from(helper.productProblemLabels(product)).includes("Produktnachweis"),"Unconfirmed or expired analysis must retain screenshot requirements");
