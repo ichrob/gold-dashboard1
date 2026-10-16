@@ -154,6 +154,37 @@
  function readQuality(){try{return JSON.parse(root.localStorage?.getItem(QUALITY_STORE)||'null')}catch(_){return null}}
  function saveQuality(value){try{root.localStorage?.setItem(QUALITY_STORE,JSON.stringify(value))}catch(_){}}
 
+ function reviewStop(result,history,trade){
+  if(!result?.available||!positive(result.price)||!positive(result.stop)||!positive(result.target)
+     ||result.stage==='ko'||!positive(trade?.product?.entry))return {ready:false,reason:'Stopp-Prüfung wartet auf aktuellen Modell-/Anbieterkurs und gültigen Produktplan.'};
+  const entry=trade.product.entry,price=result.price,stop=result.stop,target=result.target;
+  if(!(stop<target))return {ready:false,reason:'Stopp/Ziel widersprüchlich, keine Anpassung.'};
+  const riskPct=(price-stop)/price*100,rewardPct=(target-price)/price*100;
+  const rr=riskPct>0&&rewardPct>0?rewardPct/riskPct:null;
+  let detail='Aktueller Stopp-Abstand '+riskPct.toFixed(1)+' %; '+
+   (positive(rr)?'verbleibendes Chancen/Risiko ≈ '+rr.toFixed(2)+':1. ':'Ziel bereits erreicht oder Stoppzone unterschritten. ')+
+   (riskPct>10?'Weit für einen kurzfristigen Trade – an Marktvolatilität und KO-Risiko prüfen. ':'');
+  if(result.stage==='stop'||riskPct<=0)return {ready:false,riskPct,rr,reason:detail+'Stoppzone erreicht; bei DEGIRO prüfen.'};
+  const sequence=[];
+  for(const row of history?.rows||[]){
+   if(!positive(row.price)||!finite(row.at))continue;
+   const last=sequence.at(-1);
+   if(last&&(row.kind!==last.kind||row.source!==last.source||row.at-last.at>180000))sequence.length=0;
+   sequence.push(row);
+  }
+  if(sequence.length<12||sequence.at(-1).at-sequence[0].at<300000)
+   return {ready:true,riskPct,rr,reason:detail+'Für Nachzieh-Vorschlag mindestens 12 zusammenhängende Kursbeobachtungen nötig.'};
+  const moves=sequence.slice(-12).map((row,i,all)=>i?Math.abs(row.price-all[i-1].price):0).slice(1);
+  const movement=moves.reduce((a,b)=>a+b,0)/moves.length;
+  const margin=Math.max(price*.0075,3*movement);
+  const possible=price-margin;
+  // Only suggest protecting profit after at least one initial R gained.
+  const initialRisk=Math.max(.01,entry-stop);
+  if(price-entry<initialRisk||possible<=stop+.02||possible>=price)
+   return {ready:true,riskPct,rr,reason:detail+'Kein ausreichend abgesicherter Gewinn für einen engeren Stopp; bestehenden Stopp nicht lockern.'};
+  return {ready:true,riskPct,rr,suggestedStop:Math.max(stop,possible),
+   reason:detail+'Indikativer engerer Stopp aus Kursbewegungen; nur nach Prüfung bei DEGIRO selbst setzen.'};
+ }
  let background={tradeId:null,rows:[],checkedAt:0,status:'noch nicht synchronisiert',busy:false};
  function mergedHistory(local,remote,tradeKey){
   const pool=new Map();
@@ -366,6 +397,6 @@
   showStatus();
   showPicked();
  }
- root.BobProductCurve={assess,addObservation,mergedHistory,learnComparison,calibrate,fibonacci,mount,update};
- if(typeof module!=='undefined'&&module.exports)module.exports={assess,addObservation,mergedHistory,learnComparison,calibrate,fibonacci};
+ root.BobProductCurve={assess,addObservation,mergedHistory,learnComparison,calibrate,reviewStop,fibonacci,mount,update};
+ if(typeof module!=='undefined'&&module.exports)module.exports={assess,addObservation,mergedHistory,learnComparison,calibrate,reviewStop,fibonacci};
 })(typeof window!=='undefined'?window:globalThis);
