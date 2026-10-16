@@ -387,9 +387,22 @@ def matched_email_chf_settlement(snapshot, sale, imported):
         if not purchased<sold or (sold-purchased).total_seconds()>7*86400:
             continue
         candidates.append((record,purchased))
-    if len(candidates)!=1:
+    # Forwarded and original AgentMail copies can describe the SAME DEGIRO
+    # execution. Deduplicate by the verified-in-text order ID digest only when
+    # every relevant number/time agrees; conflicting copies must fail closed.
+    unique={}
+    for record, purchased in candidates:
+        key=record.get('orderIdDigest')
+        if not isinstance(key,str) or not re.fullmatch(r'[0-9a-f]{64}',key):
+            return None
+        fingerprint=(record.get('isin'),record.get('quantity'),record.get('priceEur'),
+                     record.get('totalChf'),record.get('costsChf'),purchased)
+        if key in unique and unique[key][2]!=fingerprint:
+            return None
+        unique[key]=(record,purchased,fingerprint)
+    if len(unique)!=1:
         return None
-    buy, purchased = candidates[0]
+    buy, purchased, _=next(iter(unique.values()))
     return {'purchaseTotalCHF':buy['totalChf'],
             'saleTotalCHF':sale['totalChf'],
             'purchaseFeesCHF':buy['costsChf'],
