@@ -263,6 +263,7 @@ def handle(conn,action,payload):
         if not active:sync_devices(conn)
         return {'ok':True,'tradeId':tid}
     if action=='read':
+        recover_closed_settlements(conn)
         tid=payload.get('tradeId');before=payload.get('before')
         trades=conn.execute('SELECT id,opened_at,updated_at,active,snapshot FROM bob_real_trades ORDER BY opened_at DESC LIMIT 100').fetchall()
         result={'trades':[dict(id=i,openedAt=o.isoformat(),updatedAt=u.isoformat(),active=a,snapshot=s) for i,o,u,a,s in trades]}
@@ -289,8 +290,9 @@ def handle(conn,action,payload):
             result['events']=[dict(seq=s,at=a.isoformat(),kind=k,payload=p) for s,a,k,p in rows]
             for item in result['trades']:
                 if item['id']==tid and not item['active']:
-                    points=conn.execute('SELECT price FROM bob_real_trade_price_curve WHERE trade_id=%s ORDER BY spot_at DESC LIMIT 400',(tid,)).fetchall()
-                    item['evaluation']=trade_risk_review.evaluation(item['snapshot'],[r[0] for r in points])
+                    from trade_learning_review import review
+                    item['evaluation']=review(conn,item['snapshot'])
+                    result['evaluation']=item['evaluation']
             result['nextBefore']=rows[-1][0] if rows else None
         return result
     raise ValueError('Unbekannte Journalaktion')
@@ -358,10 +360,13 @@ def matched_email_chf_settlement(snapshot, sale, imported):
         return None
     if (type(sale.get('totalChf')) not in (int,float)
             or type(sale.get('costsChf')) not in (int,float)
+            or not math.isfinite(sale['totalChf']) or not math.isfinite(sale['costsChf'])
             or sale['totalChf']<=0 or sale['costsChf']<0):
         return None
     try:
         sold=receipt_clock(sale)
+        purchase=snapshot.get('purchase') or {}
+        anchored=receipt_clock({'executedAt':purchase.get('at'),'executedLocal':purchase.get('executedLocal')}) if purchase.get('at') or purchase.get('executedLocal') else None
     except (KeyError,TypeError,ValueError):
         return None
     candidates=[]
@@ -378,11 +383,14 @@ def matched_email_chf_settlement(snapshot, sale, imported):
             continue
         if (type(record.get('totalChf')) not in (float,int)
                 or type(record.get('costsChf')) not in (float,int)
+                or not math.isfinite(record['totalChf']) or not math.isfinite(record['costsChf'])
                 or record['totalChf']<=0 or record['costsChf']<0):
             continue
         try:
             purchased=receipt_clock(record)
         except (KeyError,TypeError,ValueError):
+            continue
+        if anchored is not None and purchased!=anchored:
             continue
         if not purchased<sold or (sold-purchased).total_seconds()>7*86400:
             continue
@@ -414,6 +422,31 @@ def matched_email_chf_settlement(snapshot, sale, imported):
             'saleOrderIdDigest':sale.get('orderIdDigest'),
             'source':'Zwei abgeglichene Original-Mailbelege, keine direkte DEGIRO-API',
             'exitReason':'other'}
+
+
+def recover_closed_settlements(conn):
+    """Retry late receipts for closed trades without reopening or overwriting fills."""
+    rows=conn.execute("""SELECT id,snapshot FROM bob_real_trades WHERE active=FALSE
+      AND snapshot->'exitReceipt' IS NOT NULL
+      AND (snapshot->'settlement' IS NULL OR snapshot->'settlement'='null'::jsonb)
+      AND (snapshot->'actualExecution' IS NULL OR snapshot->'actualExecution'='null'::jsonb)
+      ORDER BY updated_at DESC LIMIT 100 FOR UPDATE""").fetchall()
+    if not rows:return 0
+    receipts=conn.execute('SELECT payload FROM bob_trade_email_import ORDER BY imported_at DESC LIMIT 500').fetchall()
+    imported=[p.get('result') or {} for (p,) in receipts]
+    count=0
+    for tid,snapshot in rows:
+        sale=snapshot.get('exitReceipt') or {}
+        if not sale_matches(snapshot,sale):continue
+        pair=matched_email_chf_settlement(snapshot,sale,imported)
+        if pair is None:continue
+        snapshot={**snapshot,'settlement':pair}
+        snapshot['evaluation']=trade_risk_review.evaluation(snapshot)
+        conn.execute('UPDATE bob_real_trades SET snapshot=%s::jsonb,updated_at=now() WHERE id=%s',
+                     (json.dumps(snapshot),tid))
+        event(conn,tid,'settlement-recovered',snapshot['evaluation'],'settlement-'+sale['orderIdDigest'])
+        count+=1
+    return count
 
 
 def reconcile_sales(conn):
