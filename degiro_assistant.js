@@ -1546,6 +1546,20 @@ function renderProductProblemSummary(p){
  const labels=productProblemLabels(p);
  return labels.length?'<strong data-product-problems style="font-size:16px;line-height:1.5;color:#b45309;margin-left:6px">('+esc(labels.join(', '))+')</strong>':'';
 }
+function productHelpState(p){
+ const labels=productProblemLabels(p),attempt=researchResults.get(p.index);
+ const q=attempt?.isin===p.isin?attempt:p.quote?.isin===p.isin?p.quote:null;
+ const checking=pendingQuotes.has(p.index)||q?.secondaryValidity?.state==='checking'||q?.comdirectFieldsBackup?.state==='checking';
+ const failed=!!q?.sourceFailure;
+ const manual=labels.length>0&&!checking&&!!q&&(failed||q.productVerified!==true||labels.some(label=>/Basispreis|KO-Nachweis|Bezugsverhältnis|Basiswert|Laufzeit|Produkttyp|Produktnachweis/.test(label)));
+ return {labels,checking,manual,
+  status:!labels.length?'Produktdaten vollständig':checking?'Bob sucht gerade automatisch':manual?'Zusätzlicher Nachweis hilfreich':'Automatische Prüfung noch offen',
+  action:!labels.length?'Keine neuen Bilder nötig.':checking?'Du musst jetzt nichts tun.':manual?'Öffne DEGIRO und ergänze nur die genannten Angaben als Screenshot.':'Du musst die Werte nicht erneut eingeben. Den letzten Abruf findest du unter Details.'};
+}
+function renderProductHelp(p){
+ const h=productHelpState(p);
+ return '<div data-product-help role="status"><b>'+esc(h.status)+'</b><div>'+esc(h.action)+'</div></div>';
+}
 function renderScreenshotSources(p){
  const labels=productProblemLabels(p);
  if(!labels.length||!validIsin(p.isin))return '';
@@ -1555,12 +1569,13 @@ function renderScreenshotSources(p){
  // The browser fallback remains usable if the app does not accept this URL.
  const href=android?'intent://trader.degiro.nl/#Intent;scheme=https;package=nl.degiro.trader;S.browser_fallback_url='+encodeURIComponent(web)+';end':web;
  const issuer=screenshotProductLink(p);
- return '<div data-screenshot-sources style="margin:8px 0 12px;padding:10px;border:1px solid #93c5fd;border-radius:8px">'+
+ const help=productHelpState(p);
+ return '<details'+(help.manual?' open':'')+'><summary>Angaben per Screenshot ergänzen · DEGIRO zuerst</summary><div data-screenshot-sources style="margin:8px 0 12px;padding:10px;border:1px solid #93c5fd;border-radius:8px">'+
  '<a data-screenshot-product="'+esc(p.isin)+'" href="'+esc(href)+'" style="display:inline-block;min-height:44px;font-weight:700;line-height:44px">'+(android?'DEGIRO-App öffnen ↗':'DEGIRO öffnen ↗')+'</a> · <b>erste Wahl</b>'+
  '<div>ISIN oben kopieren → in DEGIRO suchen → Produkt öffnen. Screenshot mit <b>'+esc(labels.join(', '))+'</b>, ISIN und angezeigtem Datenstand aufnehmen. Geld/Brief in der Produktwährung und die zugehörige Kurszeit zeigen.</div>'+
  '<div class="small">'+(android?'Falls sich nur die Webseite öffnet: DEGIRO-App über dein App-Symbol starten. ':'')+'Danach zu Bob zurückkehren und „Bilder / PDF zu diesem Produkt hinzufügen“ wählen.</div>'+
  '<div style="margin-top:8px"><b>Falls die Angaben bei DEGIRO fehlen:</b> '+(issuer||'Emittent in den DEGIRO-Produktdetails nachsehen und dessen Produktseite mit dieser ISIN öffnen.')+'</div>'+
- '<div class="small">Hebel: Kennzahlen mit Datenstand. KO, Basispreis und Bezugsverhältnis: Stammdaten; genauer Basiswert und Laufzeit: Produktdetails / Dokumente. Für den DEGIRO-Handelsplatz weiterhin den DEGIRO-Kursbereich aufnehmen. Bei einer gemeinsamen Bildserie muss der Zeitbezug eindeutig erkennbar sein.</div></div>';
+ '<div class="small">Hebel: Kennzahlen mit Datenstand. KO, Basispreis und Bezugsverhältnis: Stammdaten; genauer Basiswert und Laufzeit: Produktdetails / Dokumente. Für den DEGIRO-Handelsplatz weiterhin den DEGIRO-Kursbereich aufnehmen. Bei einer gemeinsamen Bildserie muss der Zeitbezug eindeutig erkennbar sein.</div></div></details>';
 }
 function renderTestScreenshotRequest(p){
  if(knockoutStatus(p))return '';
@@ -1994,9 +2009,9 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  const swissSgVenue=direct?.metadata?.issuerExchangeCode==='CBSW'&&
    (direct?.metadata?.currency==='CHF'||direct?.nativeChartEvidence?.currency==='CHF');
  const next=automaticQuoteIssue?'Automatischer Kurs- und Hebelabruf wird erneut geprüft. Vorhandene Werte bleiben mit ihrem ursprünglichen Datenstand nutzbar; derzeit keine neuen Bilder erforderlich.':complete&&neutral?'Marktsignal neutral – auf eine bestätigte Richtung warten. Dafür sind keine neuen Bilder nötig.':complete?'Produktdaten vollständig – Auswahlgrund unter „Warum derzeit nicht ausgewählt?“ prüfen.':temporal&&data.complete?'Werte vorhanden – den offenen Zeitbezug unter „Werte und Aktualitätsprüfung“ prüfen.':automaticRecoveryPending?'Bob prüft die zugelassenen Emittentenquellen automatisch erneut. Fehlende oder unklare Nachweise bleiben gesperrt und werden unter „Problem“ dokumentiert. Nur wenn diese Quellen keine ausreichenden Daten liefern, können zusätzliche Originalbelege notwendig sein.':'Offene Angaben unter „Werte und Aktualitätsprüfung“ ansehen und nur diese ergänzen.';
- return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" '+(selected?'data-selection-approved':'data-selection-blocked')+'="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere"><b>'+esc(p.isin)+'</b>'+renderIsinCopy(p.isin)+renderProductProblemSummary(p)+productCompletionBadge(p)+renderScreenshotSources(p)+'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'</div>'+
+ return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" '+(selected?'data-selection-approved':'data-selection-blocked')+'="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere"><b>'+esc(p.isin)+'</b>'+renderIsinCopy(p.isin)+renderProductProblemSummary(p)+productCompletionBadge(p)+renderProductHelp(p)+renderScreenshotSources(p)+'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'</div>'+
  renderDegiroListEvidence(p)+renderDegiroDisplayedQuote(p)+(swissSgVenue?'<div class="small" data-swiss-dots-warning><b>SG Swiss DOTS · CHF:</b> Chartkurs und EUR-Umrechnung sind kein Nachweis einer DEGIRO-Handelsroute. DEGIRO-Ausführbarkeit unbestätigt. Analyse und Simulation werden separat anhand der Produktdaten, Kurszeiten und Marktrichtung geprüft.</div>':'')+'<div class="small" data-product-status><div><b>Daten:</b> '+valuePresenceMark(missingNumbers.length>0)+' '+esc(dataText)+'</div><div><b>Zeitbezug vorhandener Kurs-/Hebelwerte:</b> '+valuePresenceMark(!timeEvidence.confirmed)+' '+esc(timeEvidence.label)+'</div><div><b>Aktuelle Auswahl:</b> '+(selected?'freigegeben · ausgewählt':'nicht ausgewählt')+(neutral?' · Marktsignal neutral':'')+'</div></div>'+
- '<p data-product-next><b>Nächster Schritt:</b> '+esc(selected?'Tatsächlichen DEGIRO-Kurs vor einem Einstieg prüfen.':next)+'</p>'+renderAutomaticProductCheck(p)+renderPrimaryProductValues(p)+
+ '<p data-product-next><b>Nächster Schritt:</b> '+esc(selected?'Tatsächlichen DEGIRO-Kurs vor einem Einstieg prüfen.':next)+'</p><details><summary>Automatische Suche · letzter Stand</summary>'+renderAutomaticProductCheck(p)+'</details>'+renderPrimaryProductValues(p)+
  (allReasons.length?'<div class="small">'+allReasons.slice(0,2).map(shortReason).map(esc).join('<br>')+'</div>':'')+
  (selected?'': '<details style="margin-top:8px"><summary>Warum derzeit nicht ausgewählt?</summary><div class="small">'+(allReasons.length?allReasons.map(esc).join('<br>'):neutral?'Keine bestätigte Long-/Short-Marktrichtung. Die vollständigen Produktdaten müssen dafür nicht erneut hochgeladen werden.':'Die aktuelle Markt- und Risikoprüfung hat das Produkt nicht ausgewählt; vollständige Daten allein erteilen keine Freigabe.')+'</div></details>')+
  '<details data-product-values style="margin-top:10px"><summary><strong>Gespeicherte Bildwerte, Quellen und Zeitbezug</strong></summary>'+
@@ -2120,12 +2135,11 @@ function bindCompactCards(root){
  bindIsinCopy(root);
  root.querySelectorAll('[data-product-trade]').forEach(btn=>btn.addEventListener('click',()=>{
   const input=document.getElementById('exit-isin');if(!input)return;
-  input.value=btn.dataset.productTrade;
-  input.dispatchEvent(new Event('input',{bubbles:true}));
-  document.querySelector('[data-exit-reference]')?.click();
+  window.BobExitEstimate?.selectProduct(btn.dataset.productTrade);
   document.querySelector('#bobNavigation [data-view="trade"]')?.click();
-  const panel=document.getElementById('bobTradeUpload')||document.getElementById('bobExitEstimate');
-  if(panel?.parentElement.tagName==='DETAILS')panel.parentElement.open=true;
+  const panel=document.getElementById('bobExitEstimate');
+  for(let node=panel;node;node=node.parentElement)if(node.tagName==='DETAILS')node.open=true;
+  panel?.scrollIntoView({behavior:'smooth',block:'start'});
   document.getElementById('exit-entry')?.focus();
  }));
  root.querySelectorAll('[data-selection-upload]').forEach(btn=>btn.addEventListener('click',()=>document.getElementById('dgDetailShot'+btn.dataset.selectionUpload)?.click()));
@@ -3851,7 +3865,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={calculatedLeverageEvidence,recoverArchivedList,productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,preserveReadingPosition,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,calculatedProductDisplay,renderPrimaryProductValues,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={productHelpState,renderProductHelp,calculatedLeverageEvidence,recoverArchivedList,productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,preserveReadingPosition,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,calculatedProductDisplay,renderPrimaryProductValues,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
@@ -3932,21 +3946,22 @@ function init(){
  const fields=[['isin','Produkt-ISIN','text'],['entry','Tatsächlicher Einstieg EUR/Stück','number'],['quantity','Stückzahl','number'],['bid','Geldkurs der Referenz EUR/Stück','number'],['goldReference','Gold Spot USD zur Referenz','number'],['fxReference','USD→EUR zur Referenz','number'],['source','Referenzquelle (z. B. DEGIRO-Screenshot)','text'],['referenceAt','Kurszeit laut Referenz','text'],['ratio','Bezugsverhältnis','number'],['strike','Basispreis USD','number'],['ko','KO-Barriere USD','number'],['planGold','Gold Spot USD für den Handelsplan','number'],['targetGold','Gold-Ziel USD','number'],['stopGold','Gold-Stop USD','number'],['fxScenario','Angenommener USD→EUR-Kurs am Ausstieg','number']];
  panel.innerHTML='<h3>Geschätzter Ausstiegskurs pro Stück</h3><div class="small">Referenz-Geldkurs und gleichzeitig beobachtete Gold-/FX-Werte eingeben oder aus vorhandenen Produktnachweisen übernehmen. Dieses Szenario ersetzt keinen aktuellen Verkaufskurs. Eingaben werden beim Berechnen auf diesem Gerät gespeichert.</div><div class="grid">'+fields.map(([k,l,t])=>'<div><label for="exit-'+k+'">'+l+'</label><input id="exit-'+k+'" data-exit="'+k+'" type="'+t+'" '+(t==='number'?'step="any" min="0"':'')+'></div>').join('')+'<div><label for="exit-direction">Produktrichtung</label><select id="exit-direction" data-exit="direction"><option value="">Auswählen</option><option>LONG</option><option>SHORT</option></select></div></div><label><input type="checkbox" data-exit="simpleSpotTurbo"> Einfaches Gold-Spot-Turbo in EUR, ohne Quanto; Bedingungen am Produkt geprüft</label><br><label><input type="checkbox" data-exit="referenceConfirmed"> Referenz-Geldkurs, Gold und FX gehören zeitlich zusammen; Quelle und Kurszeit geprüft</label><div class="grid"><button data-exit-reference>Produktnachweis übernehmen</button><button data-exit-plan>Ziel/Stop aus aktueller Goldanalyse</button><button data-exit-calculate>Verkaufskurse schätzen</button><button data-exit-monitor>Produkt-Trade überwachen / aktualisieren</button></div><div data-exit-output class="small">Noch keine Schätzung. Tatsächliche Position eingeben; keine Order oder Trade-Aktivierung.</div>';
  parent.after(panel);
- const autoButton=document.createElement('button');autoButton.type='button';autoButton.textContent='Fehlende Werte automatisch per ISIN abrufen';autoButton.onclick=automaticTradeReference;panel.append(autoButton);
+ const autoButton=document.createElement('button');autoButton.type='button';autoButton.dataset.tradeReferenceRetry='';autoButton.textContent='Fehlende Werte automatisch per ISIN abrufen';autoButton.onclick=automaticTradeReference;panel.append(autoButton);
  // Keep identity and actual position visible; technical references remain available.
  const reference=document.createElement('details'),summary=document.createElement('summary'),grid=document.createElement('div');
  summary.textContent='Referenzwerte und Produktbedingungen prüfen';grid.className='grid';reference.append(summary,grid);
  const positionGrid=panel.querySelector('.grid');
  for(const el of panel.querySelectorAll('[data-exit]'))if(!['isin','entry','quantity','direction','simpleSpotTurbo','referenceConfirmed'].includes(el.dataset.exit))grid.append(el.closest('div'));
  positionGrid.after(reference);
- panel.querySelector('h3').textContent='2 · Einstieg und Stückzahl / 3 · Überwachung starten';
+ panel.querySelector('h3').textContent='2 · Kaufdaten ergänzen';
  const hint=document.createElement('p');hint.className='small';hint.id='bobTradeFormHint';reference.after(hint);
  const updateForm=()=>{
   const read=k=>panel.querySelector('[data-exit="'+k+'"]');
-  const ready=/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(read('isin').value.trim().toUpperCase())&&Number(read('entry').value)>0&&Number(read('quantity').value)>0&&['LONG','SHORT'].includes(read('direction').value)&&read('simpleSpotTurbo').checked&&read('referenceConfirmed').checked;
+  const ready=/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(read('isin').value.trim().toUpperCase())&&Number(read('entry').value)>0&&Number.isInteger(Number(read('quantity').value))&&Number(read('quantity').value)>0&&['LONG','SHORT'].includes(read('direction').value)&&read('simpleSpotTurbo').checked&&read('referenceConfirmed').checked;
   const monitor=panel.querySelector('[data-exit-monitor]');monitor.disabled=!ready;
   monitor.textContent='3 · Produkt-Überwachung starten / aktualisieren';
-  hint.textContent=ready?'Position erfasst. Beim Start prüft Bob zusätzlich Referenzwerte, Produktmodell und aktuelle Marktdaten.':'Zum Start: Produkt, Einstieg und Stückzahl ergänzen; Richtung, Bedingungen und zeitliche Zuordnung der Referenzwerte prüfen.';
+  const missing=[];if(!read('isin').value)missing.push('Produkt');if(!(Number(read('entry').value)>0))missing.push('Kaufkurs');if(!(Number.isInteger(Number(read('quantity').value))&&Number(read('quantity').value)>0))missing.push('ganze Stückzahl');if(!read('direction').value)missing.push('Richtung');if(!read('simpleSpotTurbo').checked||!read('referenceConfirmed').checked)missing.push('Produkt- und Referenzprüfung');
+  hint.textContent=ready?'✓ Kaufdaten ergänzt. Jetzt Überwachung starten; Bob prüft dabei die aktuellen Marktdaten.':'Noch offen: '+missing.join(', ')+'. Vorhandene Angaben bleiben erhalten.';
  };
  panel.addEventListener('input',()=>queueMicrotask(updateForm));panel.addEventListener('change',updateForm);
  panel.addEventListener('click',()=>queueMicrotask(updateForm));
@@ -3981,8 +3996,27 @@ function init(){
   try{const values=read();out.textContent=await window.activateProductTrade(values);localStorage.setItem('bobExitScenarioV1',JSON.stringify(values));}
   catch(e){out.textContent=e.message||'Produkt-Trade konnte nicht übernommen werden.';}
  });
- panel.querySelectorAll('[data-exit]').forEach(el=>el.addEventListener('input',()=>{if(el.dataset.exit!=='referenceConfirmed')get('referenceConfirmed').checked=false;panel.querySelector('[data-exit-output]').textContent='Eingaben geändert; Schätzung erneut berechnen.';}));
+ panel.querySelectorAll('[data-exit]').forEach(el=>el.addEventListener('input',()=>{if(!['referenceConfirmed','entry','quantity'].includes(el.dataset.exit))get('referenceConfirmed').checked=false;panel.querySelector('[data-exit-output]').textContent='Eingaben geändert; Schätzung erneut berechnen.';}));
  updateForm();
+}
+function selectProduct(isin){
+ const panel=document.getElementById('bobExitEstimate');if(!panel||!window.BobDegiro.validIsin(isin))return;
+ const get=k=>panel.querySelector('[data-exit="'+k+'"]');
+ const changed=get('isin').value.trim().toUpperCase()!==isin;
+ if(changed)for(const el of panel.querySelectorAll('[data-exit]')){if(el.type==='checkbox')el.checked=false;else el.value='';}
+ get('isin').value=isin;
+ const reference=window.BobDegiro.exitReference?.(isin);
+ if(reference)for(const [key,value] of Object.entries(reference))if(get(key)&&!get(key).value&&value!==null&&value!==undefined)get(key).value=value;
+ let saved;try{saved=JSON.parse(localStorage.getItem('bobExitScenarioV1')||'null');}catch(_){}
+ if(saved?.isin===isin)for(const [key,value]of Object.entries(saved))if(get(key)&&get(key).type!=='checkbox'&&!get(key).value&&value!==null&&value!==undefined)get(key).value=value;
+ let receipt;try{receipt=JSON.parse(localStorage.getItem('bobTradeEvidenceV1')||'{}')[isin];}catch(_){}
+ if(receipt?.isin===isin){
+  const known={entry:receipt.entry?.price,quantity:receipt.entry?.quantity,direction:receipt.direction,ratio:receipt.ratio,strike:receipt.strike,ko:receipt.ko};
+  for(const [key,value]of Object.entries(known))if(!get(key).value&&value!==null&&value!==undefined)get(key).value=value;
+ }
+ // Stored confirmations are rechecked by the existing issuer/reference validation.
+ panel.dispatchEvent(new Event('change',{bubbles:true}));
+ automaticTradeReference();
 }
 function issuerTradeFields(x,isin){
  if(!x||x.isin!==isin||x.productVerified!==true)throw Error('Produktidentität noch nicht bestätigt.');
@@ -4005,11 +4039,13 @@ async function automaticTradeReference(){
  const get=k=>panel.querySelector('[data-exit="'+k+'"]'),out=panel.querySelector('[data-exit-output]');
  const isin=get('isin').value.trim().toUpperCase(),direction=get('direction').value;
  if(!window.BobDegiro.validIsin(isin)){out.textContent='Für den automatischen Abruf ist eine gültige ISIN erforderlich.';return;}
+ const before=Object.fromEntries(Array.from(panel.querySelectorAll('[data-exit]')).filter(el=>!['entry','quantity'].includes(el.dataset.exit)).map(el=>[el.dataset.exit,el.type==='checkbox'?el.checked:el.value]));
  autoReferenceBusy=true;out.textContent='Produktwerte per ISIN bei SG und vorhandenen Ersatzquellen abrufen …';
  try{
   const r=await fetch('/api/degiro/enrich?isin='+encodeURIComponent(isin),{cache:'no-store',signal:AbortSignal.timeout(65000)});
   if(!r.ok)throw Error('Produktquelle antwortet mit '+r.status);
   const x=await r.json();if(get('isin').value.trim().toUpperCase()!==isin)return;
+  if(Object.entries(before).some(([key,value])=>(get(key).type==='checkbox'?get(key).checked:get(key).value)!==value)){out.textContent='Eingaben wurden während des Abrufs geändert und bleiben erhalten. Bitte den Abruf erneut starten.';return;}
   const fields=issuerTradeFields(x,isin);
   if(direction&&fields.direction&&direction!==fields.direction)throw Error('Produktrichtung widerspricht dem Kauf; keine Werte übernommen.');
   get('referenceConfirmed').checked=false;get('simpleSpotTurbo').checked=false;
@@ -4020,13 +4056,18 @@ async function automaticTradeReference(){
   if(get('isin').value.trim().toUpperCase()!==isin)return;
   const values=Object.fromEntries(Array.from(panel.querySelectorAll('[data-exit]')).map(el=>[el.dataset.exit,el.type==='checkbox'?el.checked:el.value.trim()]));
   localStorage.setItem('bobExitScenarioV1',JSON.stringify(values));
-  if(x.productModel?.verifiedSimpleTurbo===true&&x.productModel?.isin===isin&&evidence?.available===true&&evidence.originalTime===fields.referenceAt&&evidence.maxSkewSeconds<=90){
+  const unchanged=['direction','ratio','strike','ko','bid','referenceAt'].every(k=>fields[k]===undefined||String(get(k).value)===String(fields[k]));
+  if(unchanged&&x.productModel?.verifiedSimpleTurbo===true&&x.productModel?.isin===isin&&evidence?.available===true&&evidence.originalTime===fields.referenceAt&&Number.isFinite(evidence.maxSkewSeconds)&&evidence.maxSkewSeconds>=0&&evidence.maxSkewSeconds<=90){
    values.simpleSpotTurbo=true;values.referenceConfirmed=true;
+   get('simpleSpotTurbo').checked=true;get('referenceConfirmed').checked=true;
+   panel.dispatchEvent(new Event('change',{bubbles:true}));
+   localStorage.setItem('bobExitScenarioV1',JSON.stringify(values));
+   out.textContent='✓ Produktwerte und zeitliche Zuordnung automatisch geprüft. Ergänze nur noch fehlende Kaufdaten und starte die Überwachung.';
    return values;
   }
   out.textContent+=' Kaufkurs und Stückzahl bleiben unverändert. Fehlende Vertragswerte werden nicht geschätzt; Gold-/FX-Referenzen und Verkaufskurse sind ausdrücklich Näherungen. Überwachung noch nicht aktiviert.';
  }catch(e){out.textContent='Automatischer Abruf noch unvollständig: '+e.message+' Vorhandene Kaufdaten bleiben erhalten.';}
- finally{autoReferenceBusy=false;}
+ finally{autoReferenceBusy=false;panel.dispatchEvent(new Event('change',{bubbles:true}));if(get('isin').value.trim().toUpperCase()!==isin&&window.BobDegiro.validIsin(get('isin').value.trim().toUpperCase()))queueMicrotask(automaticTradeReference);}
 }
 function referenceHtml(x){
  const local=t=>new Date(t).toLocaleString('de-CH',{timeZone:'Europe/Zurich',hour12:false})+' Schweizer Zeit';
@@ -4057,7 +4098,7 @@ async function researchReference(){
   out.innerHTML=referenceHtml(x);return x;
  }catch(_){if(get('isin').value===isin&&get('referenceAt').value===at)out.textContent='Referenzabruf fehlgeschlagen. Keine historischen Werte ersetzt.';}
 }
-window.BobExitEstimate={calculate,render,init,researchReference,restoreReference,planInput,issuerTradeFields,automaticTradeReference};
+window.BobExitEstimate={selectProduct,calculate,render,init,researchReference,restoreReference,planInput,issuerTradeFields,automaticTradeReference};
 if(typeof document!=='undefined'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();}
 })();
 
@@ -4115,7 +4156,7 @@ function merge(old,x,source){
 function init(){
  const exit=document.getElementById('bobExitEstimate');if(!exit||document.getElementById('bobTradeUpload'))return;
  const p=document.createElement('div');p.id='bobTradeUpload';p.className='card';p.innerHTML='<h3>Mein Trade · Screenshots</h3><p class="small">Kaufbestätigung einmal, Kursbilder bei Aktualisierung. Produktkopf/Details gemeinsam ergänzen. Jedes Bild braucht die ISIN. Originalzeiten bleiben erhalten. Speicherung auf diesem Gerät.</p><label for="trade-images">Trade erfassen / Kurs aktualisieren</label><input id="trade-images" type="file" accept="image/*" multiple><div id="trade-ocr-status" class="small"></div><label for="trade-select">Gespeichertes Produkt</label><select id="trade-select"></select><div id="trade-review"></div><div id="trade-result" class="small"></div>';exit.before(p);
- const research=document.createElement('button');research.textContent='Gold-/FX-Referenz zur Kurszeit suchen';research.addEventListener('click',()=>window.BobExitEstimate.researchReference());exit.querySelector('[data-exit-calculate]').before(research);
+ const research=document.createElement('button');research.dataset.tradeReferenceRetry='';research.textContent='Gold-/FX-Referenz zur Kurszeit suchen';research.addEventListener('click',()=>window.BobExitEstimate.researchReference());exit.querySelector('[data-exit-calculate]').before(research);
  const details=document.createElement('details');details.innerHTML='<summary>Produktbedingungen und Zeitbezug bestätigen</summary>';const grid=exit.querySelector('.grid');if(grid&&!grid.querySelector('#exit-entry'))details.append(grid);for(const el of [...exit.children])if(el.tagName==='LABEL'||el.tagName==='BR')details.append(el);exit.querySelector('h3').after(details);p.append(exit);exit.className='';
  let all={};try{all=JSON.parse(localStorage.getItem(KEY)||'{}');}catch(_){}let drafts=[];
  const select=p.querySelector('select'),review=p.querySelector('#trade-review'),result=p.querySelector('#trade-result');
