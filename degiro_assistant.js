@@ -1608,7 +1608,7 @@ function productProblemLabels(p){
  const result=finalProductStatus(p);
  if(result.complete)return [];
  const analysis=typeof currentSgChfAnalysisProof==='function'?currentSgChfAnalysisProof(p):null;
- const labels=analysis&&!degiroVenueObserved(p)?['DEGIRO-Handelsplatznachweis']:[];
+ const labels=analysis&&!degiroVenueObserved(p)&&!degiroVenueInferred(p)?['DEGIRO-Handelsplatznachweis']:[];
  // Missing evidence is different from a missing numeric value. A datable
  // analysis quote must not be shown as an absent Geld/Brief pair merely because
  // the independent DEGIRO trade-execution evidence remains unconfirmed.
@@ -1622,7 +1622,7 @@ function productProblemLabels(p){
   if(analysis&&/^(?:Zusätzlicher Live-Nachweis offen|Detailbild mit derselben ISIN|Aktuelles Kursbild mit Geld\/Brief in EUR|Kurszeit mit Datum: höchstens 14 Stunden alt; keine ergänzten Sekunden|Aktuelles Detailbild mit Hebel und zugehöriger Zeit)$/.test(r))continue;
   if(/Hebel/i.test(r))found.push(leveragePresent?'Hebelzeit / Quellenprüfung':'Hebel');
   if(/Kurszeit|Quellenzeit|Zeitstempel|Kurs.*(alt|zeit)|Geld.*Brief.*Zeit/i.test(r))found.push('Kurszeit');
-  if(/Geld|Brief|Kursbild|Produktkurs|Kursnachweis|Live-Nachweis|BNP-Kursabruf/i.test(r))found.push(pairPresent?'Kursart / DEGIRO-Handelsplatznachweis':'Kursnachweis');
+  if(/Geld|Brief|Kursbild|Produktkurs|Kursnachweis|Live-Nachweis|BNP-Kursabruf/i.test(r))found.push(pairPresent?(degiroVenueInferred(p)?'Kursart / Ausführbarkeit':'Kursart / DEGIRO-Handelsplatznachweis'):'Kursnachweis');
   if(/Basispreis|Finanzierungslevel/i.test(r))found.push('Basispreis');
   if(/KO|Knock-out|Barriere/i.test(r))found.push('KO-Nachweis');
   if(/Bezugsverhältnis/i.test(r))found.push('Bezugsverhältnis');
@@ -1675,7 +1675,7 @@ function renderScreenshotSources(p){
  '<div>ISIN oben kopieren → in DEGIRO suchen → Produkt öffnen. Screenshot mit <b>'+esc(labels.join(', '))+'</b>, ISIN und angezeigtem Datenstand aufnehmen. Geld/Brief in der Produktwährung und die zugehörige Kurszeit zeigen.</div>'+
  '<div class="small">'+(android?'Falls sich nur die Webseite öffnet: DEGIRO-App über dein App-Symbol starten. ':'')+'Danach zu Bob zurückkehren und „Bilder / PDF zu diesem Produkt hinzufügen“ wählen.</div>'+
  '<div style="margin-top:8px"><b>Falls die Angaben bei DEGIRO fehlen:</b> '+(issuer||'Emittent in den DEGIRO-Produktdetails nachsehen und dessen Produktseite mit dieser ISIN öffnen.')+'</div>'+
- '<div class="small">Hebel: Kennzahlen mit Datenstand. KO, Basispreis und Bezugsverhältnis: Stammdaten; genauer Basiswert und Laufzeit: Produktdetails / Dokumente. Für den DEGIRO-Handelsplatz weiterhin den DEGIRO-Kursbereich aufnehmen. Bei einer gemeinsamen Bildserie muss der Zeitbezug eindeutig erkennbar sein.</div></div></details>';
+ '<div class="small">Hebel: Kennzahlen mit Datenstand. KO, Basispreis und Bezugsverhältnis: Stammdaten; genauer Basiswert und Laufzeit: Produktdetails / Dokumente. '+(degiroVenueObserved(p)||degiroVenueInferred(p)?'':'Für den DEGIRO-Handelsplatz den DEGIRO-Kursbereich aufnehmen. ')+' Bei einer gemeinsamen Bildserie muss der Zeitbezug eindeutig erkennbar sein.</div></div></details>';
 }
 function renderTestScreenshotRequest(p){
  if(knockoutStatus(p))return '';
@@ -1922,6 +1922,7 @@ function renderProductDirectionStatus(p,now=Date.now()){
  const analysis=currentSgChfAnalysisProof(p,now);
  if(analysis){
   if(degiroVenueObserved(p))return '<span data-direction-data-status data-sg-chf-analysis-only role="status" style="display:inline-flex;gap:6px;flex-wrap:wrap"><strong style="color:#15803d">(✓) Kurs/Hebel · Analyse</strong><span style="color:#15803d">✓ DEGIRO-Handelsplatz belegt</span></span>';
+  if(degiroVenueInferred(p,listArchive,now))return '<span data-direction-data-status data-sg-chf-analysis-only><strong style="color:#15803d">(✓) Kurs/Hebel · Analyse</strong> · Handelsplatz aus Quellen abgeleitet</span>';
   // A red X meant "product values missing" despite current SG bid/ask/gearing.
   // Show their verified research status separately from the still-open broker
   // execution check; never change complete, eligible, rank or tradeApproved.
@@ -1978,6 +1979,42 @@ function degiroVenueObserved(p){
  return !!q&&q.isin===p.isin&&q.brokerDisplayConfirmed===true&&q.isExecutableQuote===false
   &&q.currency==='CHF'&&/Soci[eé]t[eé]\s+G[eé]n[eé]rale\s+OTC/i.test(q.venue||'')
   &&!!selectionTimeWindow(q.sourceTime);
+}
+// Reviewed public policy supports a venue inference, never per-product broker proof.
+// Re-evaluate on every render; stale list/issuer/policy evidence cannot persist it.
+function degiroVenueInferred(p,archive=listArchive,now=Date.now()){
+ const reviewedAt='2026-10-16T17:00:00Z',reviewed=Date.parse(reviewedAt);
+ const q=p?.quote,m=q?.metadata,broker=p?.snapshot?.degiroDisplayedQuote;
+ if(degiroVenueObserved(p)||!degiroListObservation(p?.isin,archive,now).currentDay
+    ||now<reviewed||now-reviewed>30*86400000
+    ||q?.isin!==p.isin||q.productVerified!==true||q.sourceFailure||q.sourceDisabled
+    ||!/^Soci[eé]t[eé] G[eé]n[eé]rale\b|^SG\b/i.test(q.source||'')
+    ||m?.status!==1||m.tradingHalted===true||m.issuerExchangeCode!=='CBSW'
+    ||m.currency!=='CHF'||m.underlyingType!=='SPOT'||m.underlying!=='XAU/USD'
+    ||!['LONG','SHORT'].includes(p.productDirection)||m.direction!==p.productDirection
+    ||compactProductExclusion(p)||knockoutStatus(p))return null;
+ const checked=Date.parse(q.checkedAt);
+ if(!Number.isFinite(checked)||checked>now||now-checked>86400000)return null;
+ // Never overrule conflicting broker details, even when old or incomplete.
+ if(broker&&(broker.isin!==p.isin||broker.currency!=='CHF'
+    ||!/^Soci[eé]t[eé]\s+G[eé]n[eé]rale\s+OTC$/i.test(broker.venue||'')))return null;
+ return {isin:p.isin,venue:'Société Générale OTC',currency:'CHF',
+  kind:'source-inference',brokerDisplayConfirmed:false,isExecutableQuote:false,
+  executionGuaranteed:false,reviewedAt,listAt:archive.storedAt,issuerCheckedAt:q.checkedAt,
+  sourceUrl:'https://www.degiro.ch/fr/produits-and-places-boursieres',
+  policyUrl:'https://www.degiro.ch/data/pdf/ch-fr/PSP_Ordres_et_politique_dexecution_des_ordres.pdf'};
+}
+function renderDegiroVenueInference(p){
+ const proof=degiroVenueInferred(p);
+ if(!proof)return '';
+ return '<div class="small" data-degiro-venue-inferred><b>Société Générale OTC – aus Quellen abgeleitet</b>'+
+  '<div>Zuordnung: heutiger DEGIRO-Listeneintrag dieser ISIN + bestätigte SG-Produktdaten in CHF + öffentliche DEGIRO-Handelsplatzangaben. Dafür ist kein weiteres Bild nötig.</div>'+
+  '<div>Kein direkter DEGIRO-Einzelnachweis und kein ausführbarer Kurs.</div>'+
+  '<details><summary>Quellen der Zuordnung</summary><div>Listenbild: '+esc(proof.listAt)+
+  ' · SG-Stammdaten abgerufen: '+esc(proof.issuerCheckedAt)+
+  '</div><a href="'+proof.sourceUrl+'" target="_blank" rel="noopener noreferrer">DEGIRO: Produkte und Handelsplätze</a> · '+
+  '<a href="'+proof.policyUrl+'" target="_blank" rel="noopener noreferrer">DEGIRO: Ausführungsrichtlinie</a>'+
+  '<div>Öffentliche Quellen geprüft am 16.10.2026; für diese Ableitung höchstens 30 Tage verwendet.</div></details></div>';
 }
 function parseDegiroDisplayedQuote(raw,expectedIsin){
  raw=normalizeReviewedDegiroIdentity(raw);
@@ -2126,7 +2163,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  const venueMissing=productProblemLabels(p).includes('DEGIRO-Handelsplatznachweis');
  const next=venueMissing?productHelpState(p).action:automaticQuoteIssue?'Automatischer Kurs- und Hebelabruf wird erneut geprüft. Vorhandene Werte bleiben mit ihrem ursprünglichen Datenstand nutzbar; derzeit keine neuen Bilder erforderlich.':complete&&neutral?'Marktsignal neutral – auf eine bestätigte Richtung warten. Dafür sind keine neuen Bilder nötig.':complete?'Produktdaten vollständig – Auswahlgrund unter „Warum derzeit nicht ausgewählt?“ prüfen.':temporal&&data.complete?'Werte vorhanden – den offenen Zeitbezug unter „Werte und Aktualitätsprüfung“ prüfen.':automaticRecoveryPending?'Bob prüft die zugelassenen Emittentenquellen automatisch erneut. Fehlende oder unklare Nachweise bleiben gesperrt und werden unter „Problem“ dokumentiert. Nur wenn diese Quellen keine ausreichenden Daten liefern, können zusätzliche Originalbelege notwendig sein.':'Offene Angaben unter „Werte und Aktualitätsprüfung“ ansehen und nur diese ergänzen.';
  return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" '+(selected?'data-selection-approved':'data-selection-blocked')+'="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere"><b>'+esc(p.isin)+'</b>'+renderIsinCopy(p.isin)+renderProductProblemSummary(p)+productCompletionBadge(p)+renderDegiroListEvidence(p)+renderProductHelp(p)+renderScreenshotSources(p)+'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'</div>'+
- renderDegiroDisplayedQuote(p)+(swissSgVenue&&!degiroVenueObserved(p)?'<div class="small" data-swiss-dots-warning><b>SG Swiss DOTS · CHF:</b> Offen ist die Zuordnung dieses CHF-Produkts zu einem DEGIRO-Handelsplatz. Die vorhandenen SG-Kurse werden für die Analyse verwendet.</div>':'')+'<div class="small" data-product-status><div><b>Daten:</b> '+valuePresenceMark(missingNumbers.length>0)+' '+esc(dataText)+'</div><div><b>Zeitbezug vorhandener Kurs-/Hebelwerte:</b> '+valuePresenceMark(!timeEvidence.confirmed)+' '+esc(timeEvidence.label)+'</div><div><b>Aktuelle Auswahl:</b> '+(selected?'freigegeben · ausgewählt':'nicht ausgewählt')+(neutral?' · Marktsignal neutral':'')+'</div></div>'+
+ renderDegiroDisplayedQuote(p)+renderDegiroVenueInference(p)+(swissSgVenue&&!degiroVenueObserved(p)&&!degiroVenueInferred(p)?'<div class="small" data-swiss-dots-warning><b>SG Swiss DOTS · CHF:</b> Offen ist die Zuordnung dieses CHF-Produkts zu einem DEGIRO-Handelsplatz. Die vorhandenen SG-Kurse werden für die Analyse verwendet.</div>':'')+'<div class="small" data-product-status><div><b>Daten:</b> '+valuePresenceMark(missingNumbers.length>0)+' '+esc(dataText)+'</div><div><b>Zeitbezug vorhandener Kurs-/Hebelwerte:</b> '+valuePresenceMark(!timeEvidence.confirmed)+' '+esc(timeEvidence.label)+'</div><div><b>Aktuelle Auswahl:</b> '+(selected?'freigegeben · ausgewählt':'nicht ausgewählt')+(neutral?' · Marktsignal neutral':'')+'</div></div>'+
  '<p data-product-next><b>Nächster Schritt:</b> '+esc(selected?'Tatsächlichen DEGIRO-Kurs vor einem Einstieg prüfen.':next)+'</p><details><summary>Automatische Suche · letzter Stand</summary>'+renderAutomaticProductCheck(p)+'</details>'+renderPrimaryProductValues(p)+
  (allReasons.length?'<div class="small">'+allReasons.slice(0,2).map(shortReason).map(esc).join('<br>')+'</div>':'')+
  (selected?'': '<details style="margin-top:8px"><summary>Warum derzeit nicht ausgewählt?</summary><div class="small">'+(allReasons.length?allReasons.map(esc).join('<br>'):neutral?'Keine bestätigte Long-/Short-Marktrichtung. Die vollständigen Produktdaten müssen dafür nicht erneut hochgeladen werden.':'Die aktuelle Markt- und Risikoprüfung hat das Produkt nicht ausgewählt; vollständige Daten allein erteilen keine Freigabe.')+'</div></details>')+
