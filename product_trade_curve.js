@@ -198,7 +198,8 @@
   for(const row of [...(remote||[]),...(local?.rows||[])]){
    if(!row||!positive(row.price)||!finite(row.at)||!finite(row.sourceAt)
        ||!['issuer','research','model'].includes(row.kind))continue;
-   const id=row.kind+'|'+row.sourceAt+'|'+(row.kind==='model'?(row.fxAt??''):'');
+   const fxTime=typeof row.fxAt==='string'?Date.parse(row.fxAt):row.fxAt;
+   const id=row.kind+'|'+row.sourceAt+'|'+(row.kind==='model'?(finite(fxTime)?fxTime:''):'');
    pool.set(id,row);
   }
   return {tradeKey,rows:[...pool.values()].sort((a,b)=>a.at-b.at).slice(-800)};
