@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 import product_estimate
 import estimate_quality
+import product_validation_store
 
 _LOCK = threading.Lock()
 _ANCHORS = {}
@@ -156,7 +157,8 @@ def observations(result):
 
 def validation_key(model, side):
     # Separate from issuer/legacy and Future quality; one exact product identity.
-    return 'research-hybrid:'+repr(product_estimate.identity(model))+':'+side
+    import product_validation_store
+    return product_validation_store.key(model, side, family='hybrid')
 
 
 def adapter_spot(source, now):
@@ -284,7 +286,7 @@ def apply(result, now=None, fetch_spot=None, fetch_fx=None):
                                 max(1,(now-utc(anchor['referenceAt'])).total_seconds()),now),
                              source='prospective-sg-comdirect',
                              basis='Originaler späterer Emittentenkurs gegen zuvor eingefrorene Modellprognose',
-                             persistence='in-memory; nach Neustart erneut messen',
+                             persistence=product_validation_store.status(validation_key(model,'ask')),
                              affectsApproval=False),
                          note='Nur indikative Recherche-Kalibrierung mit beobachtetem '
                               'Emittenten-/comdirect-Preis und aktuellem Gold/FX. '
