@@ -3255,10 +3255,24 @@ async function refreshActiveProductQuote(){
  }catch(e){if(tradeMgmt?.product?.isin===isin){activeProductQuoteError=e.name==='TimeoutError'?'Kursquelle antwortet zu langsam; automatischer Neuabruf folgt.':e.message;if(activeProductQuote?.isin===isin)activeProductQuote.error=true;}}
  finally{activeProductQuoteRequest=false;renderActiveTradePlan();}
 }
+function activeCalculatedTradePlan(){
+ // Display-only calculation: never changes the confirmed stop or sends orders.
+ const calculated=continuedTradePlan(tradeMgmt);
+ const stale=!!tradeMgmt.continuedCalculation?.stale||!currentSpotUsable()||analysisAgeWarnings().length>0;
+ const model=window.BobTradeProduct?.withFx(tradeMgmt.product,liveBundleCache?.spots);
+ const stopGold=calculated?.stop??tradeMgmt.stop;
+ const targetGold=calculated?.target??tradeMgmt.target;
+ const stop=window.BobTradeProduct?.price(model,stopGold),target=window.BobTradeProduct?.price(model,targetGold);
+ // Invalid/KO-crossing model results must not replace a usable saved plan.
+ const usable=!!(stop?.available&&target?.available);
+ return {stopGold:usable?stopGold:tradeMgmt.stop,targetGold:usable?targetGold:tradeMgmt.target,
+  dataAt:calculated?.dataAt??null,stale,calculated:!!calculated&&usable};
+}
 function renderActiveTradePlan(){
  if(!tradeMgmt?.active||tradeMgmt.test||!$('stopPanel'))return;
- const p=tradeMgmt.product;
- $('stopPanel').textContent=(p?p.isin+' · '+tradeMgmt.dir+' · Berechnete Produktwerte':'Goldreferenz · Produktnachweis fehlt')+'\nBerechneter Stop-Loss pro Stück: '+activeTradeLevel(tradeMgmt.stop)+'\nBerechnetes Ziel pro Stück: '+activeTradeLevel(tradeMgmt.target)+(p?'\nReferenz: '+p.referenceAt+' · '+p.source+'\nAktueller verfügbarer Wechselkurs; gespeicherte Produktbedingungen angenommen. Keine bestätigten DEGIRO-Kurse; Änderungen selbst übernehmen. R bezieht sich auf den Gold-Referenzplan bei Beginn der Überwachung, nicht auf den tatsächlichen Gewinn in der Produktwährung.':'');
+ const p=tradeMgmt.product,displayPlan=activeCalculatedTradePlan();
+ $('stopPanel').textContent=(p?p.isin+' · '+tradeMgmt.dir+' · Berechnete Produktwerte':'Goldreferenz · Produktnachweis fehlt')+'\nBerechneter Stop-Loss pro Stück: '+activeTradeLevel(displayPlan.stopGold)+'\nBerechnetes Ziel pro Stück: '+activeTradeLevel(displayPlan.targetGold)+(p?'\nReferenz: '+p.referenceAt+' · '+p.source+'\nAktueller verfügbarer Wechselkurs; gespeicherte Produktbedingungen angenommen. Keine bestätigten DEGIRO-Kurse; Änderungen selbst übernehmen. R bezieht sich auf den Gold-Referenzplan bei Beginn der Überwachung, nicht auf den tatsächlichen Gewinn in der Produktwährung.':'');
+ if($('stopUpdate'))$('stopUpdate').textContent='Automatische Stop-Loss-Berechnung aktiv · '+(displayPlan.stale?'letzter verfügbarer Datenstand; aktuelle Bestätigung ausstehend.':'Marktdaten aktuell bestätigt.')+' Berechneter Stop: '+activeTradeLevel(displayPlan.stopGold)+' · Ziel: '+activeTradeLevel(displayPlan.targetGold)+'.';
  const continued=tradeMgmt.continuedCalculation;
  if(continued?.stale)$('stopPanel').textContent+='\n'+(continued.marketClosed?'Markt geschlossen · letzter bestätigter Stand '+(continued.dataAt?new Date(continued.dataAt).toLocaleString('de-CH'):'unbekannt')+' · Stop und Ziel werden während der Pause nicht neu bestätigt.':continued.available?'Berechnung läuft mit veralteten Werten weiter · Datenstand '+new Date(continued.dataAt).toLocaleString('de-CH')+' · keine aktuelle Bestätigung von Stop/Ziel.':'Berechnung wartet auf den ersten verfügbaren Datenstand; automatische Abrufe laufen weiter.');
  const fallbackPlan=(continued?.stale||!currentSpotUsable()||analysisAgeWarnings().length)?(continuedTradePlan(tradeMgmt)||continued?.plan):null;
@@ -3267,8 +3281,8 @@ function renderActiveTradePlan(){
  const check=targetObstacle(tradeMgmt.dir,lastPrice,tradeMgmt.target,risk);
  $('stopPanel').textContent+='\nZielprüfung: '+check.warning;
  const q=activeProductQuote?.isin===p?.isin?activeProductQuote:null;
- window.BobStopAssistant?.update({product:p,stopGold:tradeMgmt.stop,
-  targetGold:tradeMgmt.target,spots:liveBundleCache?.spots,quote:q});
+ window.BobStopAssistant?.update({product:p,stopGold:displayPlan.stopGold,
+  targetGold:displayPlan.targetGold,spots:liveBundleCache?.spots,quote:q});
 
  const stamp=q?Date.parse(q.at):NaN,quoteFresh=q&&!q.error&&!q.delayed&&Number.isFinite(stamp)&&Date.now()>=stamp&&Date.now()-stamp<=90000;
  $('stopPanel').textContent+='\n'+(q?(q.kind!=='issuer'?'Anbieter-Referenz / Ersatzquelle (keine bestätigte DEGIRO-Ausführung)'+(quoteFresh?': ':' · veraltet oder Abruf gestört: '):(quoteFresh?'Gemeldeter Geldkurs: ':'Letzter gemeldeter Geldkurs · veraltet oder Abruf gestört: '))+q.bid.toFixed(4)+' '+(p?.currency||'EUR')+'/Stück · Quellenzeit '+new Date(q.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · '+(q.source||'Quelle unbekannt')+' · Kein zugesicherter DEGIRO-Ausführungskurs.':'Gemeldeter Geldkurs: '+(activeProductQuoteError||'Abruf läuft.'))+(q&&activeProductQuoteError?'\nKursabruf: '+activeProductQuoteError:'');
@@ -3277,7 +3291,7 @@ function renderActiveTradePlan(){
  $('activeTradeFxText').textContent=fx?.rate?'1 USD = '+Number(fx.rate).toFixed(6)+' '+currency+' · Abruf '+fx.fetchedAt+' · Quellenzeit nicht geliefert · '+fx.source+(fx.error||Date.now()-Date.parse(fx.fetchedAt)>90000?' · Aktualisierung verzögert':'')+' · Ziel ist eine Modellschätzung bei diesem Wechselkurs und gespeicherten Produktbedingungen.': 'Kein aktueller Wechselkursnachweis. Berechnung mit gespeicherter Wechselkursannahme.';
  $('activeTradeFxText').textContent+=' · Technische Goldreferenz: Stop '+displayStop(tradeMgmt.stop)+' · Ziel '+displayStop(tradeMgmt.target);
  $('stopPanel').style.whiteSpace='pre-line';
- if($('stopCurrent'))$('stopCurrent').textContent=activeTradeLevel(tradeMgmt.stop);
+ if($('stopCurrent'))$('stopCurrent').textContent=activeTradeLevel(displayPlan.stopGold);
  window.BobRealTrades?.renderWorkflow?.();
 }
 async function activateProductTrade(values,purchase=null){
@@ -3312,7 +3326,8 @@ window.BobTradeSync={
  overview(){
   const p=tradeMgmt.product,model=window.BobTradeProduct?.withFx(p,liveBundleCache?.spots);
   const currency=p?.currency||'EUR';
-  const stop=window.BobTradeProduct?.price(model,tradeMgmt.stop),target=window.BobTradeProduct?.price(model,tradeMgmt.target);
+  const displayPlan=activeCalculatedTradePlan();
+  const stop=window.BobTradeProduct?.price(model,displayPlan.stopGold),target=window.BobTradeProduct?.price(model,displayPlan.targetGold);
   const q=activeProductQuote?.isin===p?.isin?activeProductQuote:null,at=Date.parse(q?.at);
   const fresh=q&&(q.currency||'EUR')===currency&&!q.error&&!q.delayed&&Number.isFinite(at)&&Date.now()>=at&&Date.now()-at<=90000;
   const estimated=currentSpotUsable()&&model?.fxDetails?.delayed===false?window.BobTradeProduct?.price(model,lastPrice):null;
@@ -3323,8 +3338,8 @@ window.BobTradeSync={
   const format=x=>valid&&x?.available?'≈ '+x.price.toFixed(4)+' '+currency:'Noch nicht berechenbar';
   return {stop:format(stop),target:format(target),pnlValue,
    pnl:pnlValue==null?'Noch kein Kurs':(fresh?'':'≈ ')+(pnlValue>=0?'+':'')+pnlValue.toFixed(2)+' '+currency,
-   action:stale?'Marktdaten noch nicht aktuell bestätigt. Bestehenden Stop bei DEGIRO prüfen.':valid&&stop?.available?'Vorgeschlagenen Stop bei DEGIRO prüfen: '+stop.price.toFixed(4)+' '+currency+' je Stück. Nicht lockern.':'Produktnachweise ergänzen, damit Bob den Stop berechnen kann.',
-   note:(fresh?'Geldkurs des Anbieters · '+q.at:estimated?.available?'Gewinn/Verlust aus berechnetem Produktkurs':'Aktueller Produktkurs fehlt')+' · vor Gebühren und Finanzierung. Stop und Ziel sind berechnet; keine automatische DEGIRO-Order.'};
+   action:stale?'Automatisch berechnet mit dem letzten verfügbaren Datenstand · aktuelle Bestätigung ausstehend. Bestehenden Stop nicht lockern.':valid&&stop?.available?'Vorgeschlagenen Stop bei DEGIRO prüfen: '+stop.price.toFixed(4)+' '+currency+' je Stück. Nicht lockern.':'Produktnachweise ergänzen, damit Bob den Stop berechnen kann.',
+   note:(displayPlan.dataAt?'Stop-/Ziel-Berechnung · Datenstand '+new Date(displayPlan.dataAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · ':'')+(fresh?'Geldkurs des Anbieters · '+q.at:estimated?.available?'Gewinn/Verlust aus berechnetem Produktkurs':'Aktueller Produktkurs fehlt')+' · vor Gebühren und Finanzierung. Stop und Ziel sind berechnet; keine automatische DEGIRO-Order.'};
  },
  plan(){const model=window.BobTradeProduct?.withFx(tradeMgmt.product,liveBundleCache?.spots),stop=window.BobTradeProduct?.price(model,tradeMgmt.stop),target=window.BobTradeProduct?.price(model,tradeMgmt.target);return {available:!!(stop?.available&&target?.available),stop:stop?.price,target:target?.price,currency:model?.currency||'EUR'};},
  close(snapshot){
