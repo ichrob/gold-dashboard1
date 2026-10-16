@@ -935,7 +935,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  function renderEnhancements(box,item,url){
   const extra=item.enhancements;
   const frames=(extra.frames||[]).filter(f=>typeof f.dataUrl==='string'&&/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(f.dataUrl)&&f.dataUrl.length<140000&&Number.isFinite(f.at)&&f.at>=0&&f.at<=86400).slice(0,5);
-  const notes=new Map((extra.summary?.visualNotes||[]).filter(n=>Number.isInteger(n.frameId)&&n.frameId>=0&&n.frameId<frames.length).map(n=>[n.frameId,n.label]));
+  const timedFrames=frames.filter(f=>!f.isCover);
+  const notes=new Map((extra.summary?.visualNotes||[]).filter(n=>Number.isInteger(n.frameId)&&n.frameId>=0&&n.frameId<timedFrames.length).map(n=>[frames.indexOf(timedFrames[n.frameId]),n]));
   const used=new Set();
   function makeFigure(frame,index){
    const figure=node('figure',''),img=document.createElement('img');
@@ -943,7 +944,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    img.loading='lazy';img.style.cssText='display:block;width:100%;max-width:480px;height:auto;border-radius:8px';
    const at=Math.floor(frame.at),target=new URL(url),link=node('a','Originalvideo ca. '+Math.floor(at/60)+':'+String(at%60).padStart(2,'0'));
    target.searchParams.set('t',String(at));link.href=target.href;link.target='_blank';link.rel='noopener noreferrer';
-   const description=frame.isCover?'Original-YouTube-Titelbild · nicht aus einer bestimmten Videostelle · kein Beleg für eingeblendete Chartwerte.':'Näherungsweise Videostelle · '+(notes.has(index)?'KI-Bildeindruck: '+notes.get(index)+' (nicht verifiziert). ':'')+'Niedrig aufgelöste Vorschau, keine bestätigten Chartzahlen.';
+   const description=frame.isCover?'Original-YouTube-Titelbild · nicht aus einer bestimmten Videostelle · kein Beleg für eingeblendete Chartwerte.':'Näherungsweise Videostelle · '+(notes.has(index)?'KI-Bildeindruck: '+notes.get(index).label+' (nicht verifiziert). ':'')+'Niedrig aufgelöste Vorschau, keine bestätigten Chartzahlen.';
    figure.style.cssText='margin:12px 0;padding:10px;border:1px solid #e5e9ef;border-radius:12px';
    if(frame.isCover){link.textContent='Originalvideo auf YouTube öffnen';target.searchParams.delete('t');link.href=target.href;}
    figure.append(img,node('figcaption',description),link);
@@ -951,16 +952,19 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   }
   if(extra.summary&&extra.summary.kind==='ai'){
    const brief=node('section','');brief.className='mco-brief';
-   brief.append(node('h4','KI-Kurzzusammenfassung · MCO Markets'),node('small','Aussagen von MCO, belegt durch Untertitel. Keine eigene Prognose von Bob.'));
+   brief.append(node('h4','Zusammenfassung mit Videobildern · MCO Markets'),node('small','Aussagen von MCO, belegt durch Untertitel. Keine eigene Prognose von Bob.'));
    const how=node('details','');how.append(node('summary','Methode und Grenzen'),node('small',extra.summary.scope));brief.append(how);
-   for(const section of extra.summary.sections||[]){
-    const part=node('section','');part.className='mco-section';part.append(node('h5',section.label),node('p',section.text));
+   for(const [sectionIndex,section] of (extra.summary.sections||[]).entries()){
+    const part=node('section','');part.className='mco-section';part.append(node('h5',(sectionIndex+1)+'. '+section.label),node('p',section.text));
     const times=(section.evidence||[]).map(s=>s.at).filter(t=>Number.isFinite(t)&&t>=0&&t<=86400);
     let imageShown=false;
     if(times.length){
-     const ranked=frames.map((f,i)=>({i,d:f.isCover?Infinity:Math.min(...times.map(t=>Math.abs((f.requestedAt??f.at)-t)))}))
-      .filter(x=>x.d<=60&&!used.has(x.i)).sort((a,b)=>a.d-b.d);
-     if(ranked.length){const index=ranked[0].i;used.add(index);part.append(makeFigure(frames[index],index));imageShown=true;}
+     const ranked=frames.map((f,i)=>({i,d:f.isCover?Infinity:Math.min(...times.map(t=>Math.abs(f.at-t))),matched:notes.get(i)?.sectionIds?.includes(sectionIndex)}))
+      .filter(x=>x.d<=15).sort((a,b)=>Number(b.matched)-Number(a.matched)||a.d-b.d);
+     if(ranked.length){const index=ranked[0].i;used.add(index);part.append(makeFigure(frames[index],index));
+      if(ranked[0].matched&&notes.get(index)?.description)part.append(node('p','Bildbezug (KI): '+notes.get(index).description));
+      else part.append(node('small','Bild aus derselben Videopassage; inhaltliche Übereinstimmung nicht bestätigt.'));
+      imageShown=true;}
     }
     // Storyboard metadata is sometimes unavailable: offer the actual video frame in
     // YouTube's own player without downloading or caching full copyrighted videos.
