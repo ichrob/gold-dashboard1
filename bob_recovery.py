@@ -102,9 +102,45 @@ def rpc(action, user, **fields):
     return result
 
 
+# Concurrent auth checks for many mobile assets previously exhausted the
+# push-service database pool. Share only an *in-flight* lookup: never retain a
+# successful password state after its request has finished, so password reset
+# and session revocation still become visible to the very next lookup.
+_STATE_READ_LOCK = threading.Lock()
+_STATE_READS = {}
+
+
 def state(user):
     import bob_auth as auth
-    return rpc('state', user) if auth.persistent_configured() else {'passwordHash': None, 'version': 0}
+    if not auth.persistent_configured():
+        return {'passwordHash': None, 'version': 0}
+    with _STATE_READ_LOCK:
+        pending = _STATE_READS.get(user)
+        leader = pending is None
+        if leader:
+            pending = {'done': threading.Event(), 'result': None, 'error': None}
+            _STATE_READS[user] = pending
+    if not leader:
+        # The leader's HTTP timeout is 12 seconds. Fail closed if its thread
+        # stalls; a waiter must never invent a valid password state.
+        if not pending['done'].wait(13):
+            raise OSError('Passwortstatus derzeit nicht erreichbar')
+        if pending['error'] is not None:
+            raise pending['error']
+        return dict(pending['result'])
+    try:
+        result = rpc('state', user)
+        if not isinstance(result, dict):
+            raise ValueError('Ungültige Passwortstatus-Antwort')
+        pending['result'] = result
+        return dict(result)
+    except Exception as exc:
+        pending['error'] = exc
+        raise
+    finally:
+        with _STATE_READ_LOCK:
+            _STATE_READS.pop(user, None)
+            pending['done'].set()
 
 
 def hash_password(password):
