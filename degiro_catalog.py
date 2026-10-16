@@ -218,9 +218,10 @@ def _loop():
         try:
             period=session()
             if period:
-                with _LOCK:
-                    is_current = _CURRENT["lastDay"] == period[0] and _CURRENT["lastSession"] == period[1] and _CURRENT["status"] == "ok"
-                if not is_current and time.monotonic() >= last_retry:
+                # A successful snapshot is not a session-long health guarantee.
+                # Continue checking after recovery so a later issuer outage is
+                # detected without requiring a restart or a session change.
+                if time.monotonic() >= last_retry:
                     with _LOCK:
                         _CURRENT["running"] = True
                     result=build(product_quotes.get_issuer_quote, retry_limit=3,
@@ -239,9 +240,9 @@ def _loop():
                           +" retries="+str(result["retryAttempts"])
                           +" recovered="+str(result["retryRecovered"])
                           +" bnpStaleClocks="+str(result["bnpStaleSourceClocks"]),flush=True)
-                    # Retry a partial historical catalogue after 10 minutes,
-                    # not 30. Active-trade 30s polling remains independent.
-                    last_retry=time.monotonic()+(600 if result["status"]=="partial" else 7200)
+                    # Recheck both healthy and partial catalogues after ten
+                    # minutes. Active-trade 30s polling remains independent.
+                    last_retry=time.monotonic()+600
         except Exception as exc:
             with _LOCK:
                 _CURRENT.update(status="error",running=False,errors=_CURRENT["errors"]+1)
