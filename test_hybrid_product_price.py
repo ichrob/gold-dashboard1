@@ -61,11 +61,26 @@ class TestHybridProjection(unittest.TestCase):
         def later_spot():return {'price':4160,'at':later.isoformat(),'source':'Gold Spot Test'}
         def later_fx():return dict(fx(),data_updated_at=later.isoformat(),
               effective_at={'EUR':later.isoformat()})
-        projected=h.apply(r,later,later_spot,later_fx)
+        # Reuse the returned cached payload, as the background refresh does.
+        projected=h.apply(v,later,later_spot,later_fx)
         value=projected['calculatedProduct']
         self.assertAlmostEqual(value['askEur'],14.24)
         self.assertEqual(value['referenceAt'],at(6))
         self.assertLess(value['referenceAgeSeconds'],60)
+        self.assertAlmostEqual(v['calculatedProduct']['askEur'],13.32)
+
+    def test_cached_projection_disappears_when_inputs_or_terms_fail(self):
+        s,fx=inputs()
+        cached=h.apply(record(),BASE,s,fx)
+        self.assertTrue(cached['calculatedProduct']['available'])
+        for change,spot in (({},inputs(spot_age=90)[0]),
+                            ({'sourceDisabled':True},s),
+                            ({'metadata':dict(record()['metadata'],ko=4200)},s)):
+            with self.subTest(change=change):
+                result=h.apply(dict(cached,**change),BASE,spot,fx)
+                self.assertNotIn('calculatedProduct',result)
+                self.assertNotIn('hybridModelState',result)
+        self.assertTrue(cached['calculatedProduct']['available'])
 
     def test_comdirect_anchor_without_sg_chart(self):
         r=record();r.pop('chartEvidence')
