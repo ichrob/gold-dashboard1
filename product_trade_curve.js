@@ -126,8 +126,11 @@
  const QUALITY_STORE='bobProviderModelCalibrationV1';
  function median(values){const a=[...values].sort((x,y)=>x-y);return a.length?(a.length%2?a[(a.length-1)/2]:(a[a.length/2-1]+a[a.length/2])/2):null;}
  function calibrate(history,now=Date.now()){
-  const samples=(history?.rows||[]).filter(x=>x&&positive(x.quoted)&&positive(x.estimated)
+  const all=(history?.rows||[]).filter(x=>x&&positive(x.quoted)&&positive(x.estimated)
     &&finite(x.at)&&now>=x.at&&now-x.at<=86400000);
+  const last=all.at(-1);
+  // Never transfer bias between different issuer feeds or research quote types.
+  const samples=last?all.filter(x=>x.kind===last.kind&&x.source===last.source):[];
   if(samples.length<5)return {usable:false,count:samples.length,reason:'Mindestens 5 unabhängige zeitgleiche Anbieterbeobachtungen benötigt'};
   const span=samples.at(-1).at-samples[0].at;
   if(span<300000)return {usable:false,count:samples.length,reason:'Kalibrierung braucht mindestens 5 Minuten getrennte Beobachtungen'};
