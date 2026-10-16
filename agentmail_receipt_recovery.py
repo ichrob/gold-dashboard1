@@ -6,6 +6,7 @@ AgentMail's exact v0 API endpoint and the configured private Bob push service.
 """
 import datetime as dt
 import json
+import time
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
@@ -15,6 +16,7 @@ INBOX = "bob-degiro@agentmail.to"
 BASE = "https://api.agentmail.to/v0/inboxes/" + quote(INBOX, safe="") + "/messages"
 MAX_LIST = 30
 MAX_MESSAGE_BYTES = 130000
+_message_cache = {}
 
 
 def api_json(url, api_key, byte_limit):
@@ -58,6 +60,10 @@ def recover(api_key, allowed_sender, fetch=api_json, now=None):
             continue
         if not str(item.get("subject") or "").lower().startswith(("degiro", "wg: degiro","wg: degiro")):
             continue
+        cache_key=(mid,item.get('updated_at'),item.get('size'))
+        cached=_message_cache.get(cache_key) if fetch is api_json else None
+        if cached and time.monotonic()-cached[0]<300:
+            outputs.append(cached[1]);continue
         detail=fetch(BASE+"/"+quote(mid,safe=""),api_key,MAX_MESSAGE_BYTES)
         if detail.get("message_id")!=mid or detail.get("inbox_id")!=INBOX:
             continue
@@ -65,7 +71,11 @@ def recover(api_key, allowed_sender, fetch=api_json, now=None):
                "message":{**detail,"inbox_id":INBOX}}
         record=trade_email_import.import_event(event,allowed_sender)
         if record.get("status")=="pending-review":
-            outputs.append({"messageId":mid,"record":record})
+            parsed={"messageId":mid,"record":record}
+            outputs.append(parsed)
+            if fetch is api_json:
+                if len(_message_cache)>60:_message_cache.clear()
+                _message_cache[cache_key]=(time.monotonic(),parsed)
     return outputs
 
 
