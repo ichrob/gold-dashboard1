@@ -91,7 +91,7 @@
   if(last&&(last.sourceAt===result.sourceAt&&last.kind===result.kind))return {tradeKey:result.tradeKey,rows,added:false};
   if(last&&now-last.at<MIN_SAMPLE_MS)return {tradeKey:result.tradeKey,rows,added:false};
   rows.push({at:now,sourceAt:result.sourceAt,price:result.price,kind:result.kind,
-   source:result.source.slice(0,100),currency:result.currency,
+   source:result.source.slice(0,100),currency:result.currency,fxAt:result.fxAt,
    gold:result.underlyingGold,koDistancePct:result.koDistancePct});
   return {tradeKey:result.tradeKey,rows:rows.slice(-MAX_SAMPLES),added:true};
  }
@@ -108,6 +108,43 @@
   return {low:low.price,high:high.price,rising,levels:[0,.236,.382,.5,.618,.786,1].map(r=>({ratio:r,price:rising?high.price-r*d:low.price+r*d}))};
  }
  let panel=null,canvas=null,picked=null,lastResult=null,lastHistory=null,zoom='price',showFib=true;
+ let background={tradeId:null,rows:[],checkedAt:0,status:'noch nicht synchronisiert',busy:false};
+ function mergedHistory(local,remote,tradeKey){
+  const pool=new Map();
+  for(const row of [...(remote||[]),...(local?.rows||[])]){
+   if(!row||!positive(row.price)||!finite(row.at)||!finite(row.sourceAt)
+       ||!['issuer','research','model'].includes(row.kind))continue;
+   const id=row.kind+'|'+row.sourceAt+'|'+(row.kind==='model'?(row.fxAt??''):'');
+   pool.set(id,row);
+  }
+  return {tradeKey,rows:[...pool.values()].sort((a,b)=>a.at-b.at).slice(-800)};
+ }
+ function refreshBackground(trade,now=Date.now()){
+  const id=trade?.active&&!trade.test&&trade.tradeId?String(trade.tradeId):null;
+  if(!id||!root.fetch)return;
+  if(background.tradeId!==id)background={tradeId:id,rows:[],checkedAt:0,status:'warte auf Hintergrunddaten',busy:false};
+  if(background.busy||now-background.checkedAt<30000)return;
+  background.checkedAt=now;background.busy=true;
+  root.fetch('/api/real-trades/curve',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({tradeId:id}),signal:root.AbortSignal?.timeout?.(12000)})
+   .then(r=>{if(!r.ok)throw Error('HTTP '+r.status);return r.json()})
+   .then(data=>{
+    if(background.tradeId!==id)return;
+    if(data?.tradeId!==id||!Array.isArray(data.rows))throw Error('Ungültige Hintergrundantwort');
+    background.rows=data.rows.filter(v=>v&&positive(v.price)&&finite(v.at)&&finite(v.sourceAt));
+    background.status='Serveraufzeichnung · '+background.rows.length+' datierte Modellpunkte';
+    if(lastHistory?.tradeKey?.endsWith('|'+id)){
+     lastHistory=mergedHistory(read(),background.rows,lastHistory.tradeKey);
+     draw(lastResult,lastHistory);showStatus();
+    }
+   }).catch(()=>{if(background.tradeId===id)background.status='Serveraufzeichnung vorübergehend nicht erreichbar';showStatus()})
+    .finally(()=>{if(background.tradeId===id)background.busy=false;});
+ }
+ function showStatus(){
+  if(panel)panel.querySelector('[data-curve-background]').textContent=background.status+
+   ' · Modellpunkte sind keine DEGIRO-Ausführung. Fehlende Kurse bleiben Lücken.';
+ }
+
  function mount(element){
   if(!root.document||!element||panel)return;
   panel=root.document.createElement('section');panel.id='bobProductCurvePanel';panel.className='card';
@@ -226,9 +263,11 @@
  function update(input,now=Date.now()){
   if(!panel)return;
   const result=assess(input,now),existing=read();
-  const h=addObservation(existing,result,now);
-  if(h.added||!existing||existing.tradeKey!==h.tradeKey)save(h);
-  const repaint=h.added||lastHistory?.tradeKey!==h.tradeKey
+  const local=addObservation(existing,result,now);
+  if(local.added||!existing||existing.tradeKey!==local.tradeKey)save(local);
+  const h=mergedHistory(local,background.tradeId===input?.trade?.tradeId?background.rows:[],local.tradeKey);
+  refreshBackground(input?.trade,now);
+  const repaint=local.added||lastHistory?.tradeKey!==h.tradeKey
     ||lastResult?.stage!==result.stage||lastResult?.stop!==result.stop
     ||lastResult?.target!==result.target||lastResult?.kind!==result.kind
     ||lastResult?.price!==result.price||lastResult?.koDistancePct!==result.koDistancePct;
@@ -254,8 +293,9 @@
    'Fibonacci erscheint automatisch ab 6 datierten Kursbeobachtungen über mindestens 2 Minuten mit messbarer Kursspanne.');
   show('[data-curve-action]',result.action||'Keine Handelsempfehlung; Daten prüfen.');
   if(repaint)draw(result,h);
+  showStatus();
   showPicked();
  }
- root.BobProductCurve={assess,addObservation,fibonacci,mount,update};
- if(typeof module!=='undefined'&&module.exports)module.exports={assess,addObservation,fibonacci};
+ root.BobProductCurve={assess,addObservation,mergedHistory,fibonacci,mount,update};
+ if(typeof module!=='undefined'&&module.exports)module.exports={assess,addObservation,mergedHistory,fibonacci};
 })(typeof window!=='undefined'?window:globalThis);
