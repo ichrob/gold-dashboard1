@@ -782,6 +782,7 @@ def build_live_bundle():
                 "usd_eur": usd_eur,
                 "usd_eur_meta": dict(_fx_meta.get("EUR", {})),
                 "usd_chf": usd_chf,
+                "usd_chf_meta": dict(_fx_meta.get("CHF", {})),
                 "yahoo_gc_f_age_seconds": max(0, now - bars_5m[-1]["openTime"] / 1000) if bars_5m else None,
                 "yahoo_1h_age_seconds": max(0, now - bars_1h[-1]["openTime"] / 1000) if bars_1h else None,
                 "technical_4h_status": "available" if bars_4h else "unavailable",
@@ -1418,7 +1419,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 import trade_reference
                 raw = parse_qs(urlparse(self.path).query).get('at', [''])[0]
-                payload = trade_reference.lookup(raw)
+                currency=parse_qs(urlparse(self.path).query).get('currency',['EUR'])[0]
+                payload = trade_reference.lookup(raw,currency=currency)
                 status = 200
             except ValueError as exc:
                 payload = {'available': False, 'reason': str(exc)}

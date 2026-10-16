@@ -13,12 +13,13 @@ function planInput(bundle,analysis,bars,direction,now=Date.now()){
  return {available:true,gold,atr,at:raw,source:b.primary||'XAU/USD Spot',historyAt:new Date(Number(last.openTime)+interval).toISOString(),direction};
 }
 function calculate(p){
- const out={available:false,reasons:[],rows:[],isEstimate:true,tradeable:false};
+ const out={available:false,reasons:[],rows:[],isEstimate:true,tradeable:false,currency:p.currency||'EUR'};
+ if(!['EUR','CHF'].includes(out.currency))out.reasons.push('Produktwährung EUR oder CHF fehlt');
  const required=['bid','goldReference','fxReference','fxScenario','ratio','strike','ko','entry','quantity','planGold','targetGold','stopGold'];
  const v=Object.fromEntries(required.map(k=>[k,num(p[k])]));
  if(!window.BobDegiro?.validIsin(p.isin))out.reasons.push('Gültige Produkt-ISIN fehlt');
  if(!['LONG','SHORT'].includes(p.direction))out.reasons.push('Long-/Short-Richtung fehlt');
- if(p.simpleSpotTurbo!==true)out.reasons.push('Einfaches Gold-Spot-Turbo in EUR ohne Quanto bestätigen; kein Future oder Optionsschein');
+ if(p.simpleSpotTurbo!==true)out.reasons.push('Einfaches Gold-Spot-Turbo in EUR oder CHF ohne Quanto bestätigen; kein Future oder Optionsschein');
  if(p.referenceConfirmed!==true||!String(p.source||'').trim()||!String(p.referenceAt||'').trim())out.reasons.push('Zusammengehörige Referenzwerte mit Quelle und Kurszeit bestätigen');
  for(const k of required)if(!(v[k]>0))out.reasons.push('Positiver Wert fehlt: '+k);
  if(v.quantity!==null&&!Number.isInteger(v.quantity))out.reasons.push('Stückzahl muss ganzzahlig sein');
@@ -36,21 +37,53 @@ function calculate(p){
 }
 function render(x){
  if(x.reasons.length)return '<div class="warning">Offen: '+x.reasons.map(esc).join(' · ')+'</div>';
- return '<b>Geschätzter Verkaufskurs pro Stück</b><table><tr><th>Szenario Gold USD</th><th>Geldkurs EUR/Stück</th><th>Erlös EUR</th><th>Gewinn/Verlust EUR</th></tr>'+x.rows.map(r=>'<tr><td>'+esc(r.label)+' · '+r.gold.toFixed(2)+'</td>'+(r.available?'<td>≈ '+r.price.toFixed(2)+'</td><td>≈ '+r.proceeds.toFixed(2)+'</td><td>≈ '+r.pnl.toFixed(2)+'</td>':'<td colspan="3">'+esc(r.reason)+'</td>')+'</tr>').join('')+'</table><div class="small">Referenz: '+esc(x.source)+' · '+esc(x.referenceAt)+' (Originalzeit; keine Sekunden ergänzt). Angenommener USD→EUR-Kurs am Ausstieg: '+x.fxScenario+'. Linearer Turbo-Ansatz mit konstantem Preisaufschlag, konstantem Basispreis und Bezugsverhältnis; ohne Gebühren, Steuern und künftige Finanzierung. KO-Berührung auf dem Weg, Preisstellung und Ausführung unbestätigt. Genauigkeit noch nicht gemessen. Kein bestätigter zukünftiger Geldkurs.</div><details><summary>Rechenweg</summary>'+esc(x.formula)+'</details>';
+ return '<b>Geschätzter Verkaufskurs pro Stück</b><table><tr><th>Szenario Gold USD</th><th>Geldkurs '+esc(x.currency||'EUR')+'/Stück</th><th>Erlös '+esc(x.currency||'EUR')+'</th><th>Gewinn/Verlust '+esc(x.currency||'EUR')+'</th></tr>'+x.rows.map(r=>'<tr><td>'+esc(r.label)+' · '+r.gold.toFixed(2)+'</td>'+(r.available?'<td>≈ '+r.price.toFixed(2)+'</td><td>≈ '+r.proceeds.toFixed(2)+'</td><td>≈ '+r.pnl.toFixed(2)+'</td>':'<td colspan="3">'+esc(r.reason)+'</td>')+'</tr>').join('')+'</table><div class="small">Referenz: '+esc(x.source)+' · '+esc(x.referenceAt)+' (Originalzeit; keine Sekunden ergänzt). Angenommener USD→'+esc(x.currency||'EUR')+'-Kurs am Ausstieg: '+x.fxScenario+'. Linearer Turbo-Ansatz mit konstantem Preisaufschlag, konstantem Basispreis und Bezugsverhältnis; ohne Gebühren, Steuern und künftige Finanzierung. KO-Berührung auf dem Weg, Preisstellung und Ausführung unbestätigt. Genauigkeit noch nicht gemessen. Kein bestätigter zukünftiger Geldkurs.</div><details><summary>Rechenweg</summary>'+esc(x.formula)+'</details>';
 }
 function init(){
  if(document.getElementById('bobExitEstimate'))return;
  const parent=document.getElementById('dgTop3');if(!parent)return;
  const panel=document.createElement('div');panel.id='bobExitEstimate';panel.className='card';
- const fields=[['isin','Produkt-ISIN','text'],['entry','Tatsächlicher Einstieg EUR/Stück','number'],['quantity','Stückzahl','number'],['bid','Geldkurs der Referenz EUR/Stück','number'],['goldReference','Gold Spot USD zur Referenz','number'],['fxReference','USD→EUR zur Referenz','number'],['source','Referenzquelle (z. B. DEGIRO-Screenshot)','text'],['referenceAt','Kurszeit laut Referenz','text'],['ratio','Bezugsverhältnis','number'],['strike','Basispreis USD','number'],['ko','KO-Barriere USD','number'],['planGold','Gold Spot USD für den Handelsplan','number'],['targetGold','Gold-Ziel USD','number'],['stopGold','Gold-Stop USD','number'],['fxScenario','Angenommener USD→EUR-Kurs am Ausstieg','number']];
- panel.innerHTML='<h3>Geschätzter Ausstiegskurs pro Stück</h3><div class="small">Referenz-Geldkurs und gleichzeitig beobachtete Gold-/FX-Werte eingeben oder aus vorhandenen Produktnachweisen übernehmen. Dieses Szenario ersetzt keinen aktuellen Verkaufskurs. Eingaben werden beim Berechnen auf diesem Gerät gespeichert.</div><div class="grid">'+fields.map(([k,l,t])=>'<div><label for="exit-'+k+'">'+l+'</label><input id="exit-'+k+'" data-exit="'+k+'" type="'+t+'" '+(t==='number'?'step="any" min="0"':'')+'></div>').join('')+'<div><label for="exit-direction">Produktrichtung</label><select id="exit-direction" data-exit="direction"><option value="">Auswählen</option><option>LONG</option><option>SHORT</option></select></div></div><label><input type="checkbox" data-exit="simpleSpotTurbo"> Einfaches Gold-Spot-Turbo in EUR, ohne Quanto; Bedingungen am Produkt geprüft</label><br><label><input type="checkbox" data-exit="referenceConfirmed"> Referenz-Geldkurs, Gold und FX gehören zeitlich zusammen; Quelle und Kurszeit geprüft</label><div class="grid"><button data-exit-reference>Produktnachweis übernehmen</button><button data-exit-plan>Ziel/Stop aus aktueller Goldanalyse</button><button data-exit-calculate>Verkaufskurse schätzen</button><button data-exit-monitor>Produkt-Trade überwachen / aktualisieren</button></div><div data-exit-output class="small">Noch keine Schätzung. Tatsächliche Position eingeben; keine Order oder Trade-Aktivierung.</div>';
+ const fields=[['isin','Produkt-ISIN','text'],['currency','Produktwährung (EUR oder CHF)','text'],['entry','Tatsächlicher Einstieg EUR/Stück','number'],['quantity','Stückzahl','number'],['bid','Geldkurs der Referenz EUR/Stück','number'],['goldReference','Gold Spot USD zur Referenz','number'],['fxReference','USD→EUR zur Referenz','number'],['source','Referenzquelle (z. B. DEGIRO-Screenshot)','text'],['referenceAt','Kurszeit laut Referenz','text'],['ratio','Bezugsverhältnis','number'],['strike','Basispreis USD','number'],['ko','KO-Barriere USD','number'],['planGold','Gold Spot USD für den Handelsplan','number'],['targetGold','Gold-Ziel USD','number'],['stopGold','Gold-Stop USD','number'],['fxScenario','Angenommener USD→EUR-Kurs am Ausstieg','number']];
+ panel.innerHTML='<h3>Geschätzter Ausstiegskurs pro Stück</h3><div class="small">Referenz-Geldkurs und gleichzeitig beobachtete Gold-/FX-Werte eingeben oder aus vorhandenen Produktnachweisen übernehmen. Dieses Szenario ersetzt keinen aktuellen Verkaufskurs. Eingaben werden beim Berechnen auf diesem Gerät gespeichert.</div><div class="grid">'+fields.map(([k,l,t])=>'<div><label for="exit-'+k+'">'+l+'</label><input id="exit-'+k+'" data-exit="'+k+'" type="'+t+'" '+(t==='number'?'step="any" min="0"':'')+'></div>').join('')+'<div><label for="exit-direction">Produktrichtung</label><select id="exit-direction" data-exit="direction"><option value="">Auswählen</option><option>LONG</option><option>SHORT</option></select></div></div><label><input type="checkbox" data-exit="simpleSpotTurbo"> Einfaches Gold-Spot-Turbo in EUR oder CHF, ohne Quanto; Bedingungen am Produkt geprüft</label><br><label><input type="checkbox" data-exit="referenceConfirmed"> Referenz-Geldkurs, Gold und FX gehören zeitlich zusammen; Quelle und Kurszeit geprüft</label><div class="grid"><button data-exit-reference>Produktnachweis übernehmen</button><button data-exit-plan>Ziel/Stop aus aktueller Goldanalyse</button><button data-exit-calculate>Verkaufskurse schätzen</button><button data-exit-monitor>Produkt-Trade überwachen / aktualisieren</button></div><div data-exit-output class="small">Noch keine Schätzung. Tatsächliche Position eingeben; keine Order oder Trade-Aktivierung.</div>';
  parent.after(panel);
+ const currencyInput=panel.querySelector('[data-exit="currency"]'),currencySelect=document.createElement('select');
+ currencySelect.id='exit-currency';currencySelect.dataset.exit='currency';currencySelect.innerHTML='<option>EUR</option><option>CHF</option>';currencyInput.replaceWith(currencySelect);
+ currencySelect.addEventListener('change',()=>{
+  for(const key of ['entry','bid','goldReference','fxReference','fxScenario','referenceAt','source'])panel.querySelector('[data-exit="'+key+'"]').value='';
+  for(const key of ['referenceConfirmed','simpleSpotTurbo'])panel.querySelector('[data-exit="'+key+'"]').checked=false;
+  panel.querySelector('[data-exit-output]').textContent='Währung geändert: Kaufkurs und Referenzwerte in der gewählten Währung ergänzen. Keine Beträge wurden umetikettiert.';
+ });
+ const autoButton=document.createElement('button');autoButton.type='button';autoButton.dataset.tradeReferenceRetry='';autoButton.textContent='Fehlende Werte automatisch per ISIN abrufen';autoButton.onclick=automaticTradeReference;panel.append(autoButton);
+ // Keep identity and actual position visible; technical references remain available.
+ const reference=document.createElement('details'),summary=document.createElement('summary'),grid=document.createElement('div');
+ summary.textContent='Referenzwerte und Produktbedingungen prüfen';grid.className='grid';reference.append(summary,grid);
+ const positionGrid=panel.querySelector('.grid');
+ for(const el of panel.querySelectorAll('[data-exit]'))if(!['isin','currency','entry','quantity','direction','simpleSpotTurbo','referenceConfirmed'].includes(el.dataset.exit))grid.append(el.closest('div'));
+ positionGrid.after(reference);
+ panel.querySelector('h3').textContent='2 · Kaufdaten ergänzen';
+ const hint=document.createElement('p');hint.className='small';hint.id='bobTradeFormHint';reference.after(hint);
+ const updateForm=()=>{
+  const read=k=>panel.querySelector('[data-exit="'+k+'"]');
+  const currency=read('currency').value||'EUR';
+  for(const [key,label]of Object.entries({entry:'Tatsächlicher Einstieg '+currency+'/Stück',bid:'Geldkurs der Referenz '+currency+'/Stück',fxReference:'USD→'+currency+' zur Referenz',fxScenario:'Angenommener USD→'+currency+'-Kurs am Ausstieg'})){const l=panel.querySelector('label[for="exit-'+key+'"]');if(l)l.textContent=label;}
+  const ready=/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(read('isin').value.trim().toUpperCase())&&Number(read('entry').value)>0&&Number.isInteger(Number(read('quantity').value))&&Number(read('quantity').value)>0&&['LONG','SHORT'].includes(read('direction').value)&&read('simpleSpotTurbo').checked&&read('referenceConfirmed').checked;
+  const monitor=panel.querySelector('[data-exit-monitor]');monitor.disabled=!ready;
+  monitor.textContent='3 · Produkt-Überwachung starten / aktualisieren';
+  const missing=[];if(!read('isin').value)missing.push('Produkt');if(!(Number(read('entry').value)>0))missing.push('Kaufkurs');if(!(Number.isInteger(Number(read('quantity').value))&&Number(read('quantity').value)>0))missing.push('ganze Stückzahl');if(!read('direction').value)missing.push('Richtung');if(!read('simpleSpotTurbo').checked||!read('referenceConfirmed').checked)missing.push('Produkt- und Referenzprüfung');
+  hint.textContent=ready?'✓ Kaufdaten ergänzt. Jetzt Überwachung starten; Bob prüft dabei die aktuellen Marktdaten.':'Noch offen: '+missing.join(', ')+'. Vorhandene Angaben bleiben erhalten.';
+ };
+ panel.addEventListener('input',()=>queueMicrotask(updateForm));panel.addEventListener('change',updateForm);
+ panel.addEventListener('click',()=>queueMicrotask(updateForm));
  try{const saved=JSON.parse(localStorage.getItem('bobExitScenarioV1')||'null');if(saved)for(const el of panel.querySelectorAll('[data-exit]'))if(Object.prototype.hasOwnProperty.call(saved,el.dataset.exit)){if(el.type==='checkbox')el.checked=saved[el.dataset.exit]===true;else el.value=saved[el.dataset.exit];}}catch(_){}
  const get=k=>panel.querySelector('[data-exit="'+k+'"]'),read=()=>Object.fromEntries(Array.from(panel.querySelectorAll('[data-exit]')).map(el=>[el.dataset.exit,el.type==='checkbox'?el.checked:el.value.trim()]));
  panel.querySelector('[data-exit-reference]').addEventListener('click',()=>{
   const isin=get('isin').value.trim().toUpperCase()||document.getElementById('dgIsin')?.value.trim().toUpperCase();
   const r=window.BobDegiro.exitReference?.(isin);
   if(!r){panel.querySelector('[data-exit-output]').textContent='Kein zugehöriger Produktnachweis vorhanden. Referenzwerte manuell eintragen.';return;}
+  if((r.currency||'EUR')!==(get('currency').value||'EUR')){
+   if(Number(get('entry').value)>0){panel.querySelector('[data-exit-output]').textContent='Produktwährung weicht vom Kauf ab. Währung und Kaufkurs zuerst prüfen.';return;}
+   for(const k of ['bid','goldReference','fxReference','fxScenario','source','referenceAt'])get(k).value='';
+  }
   for(const [k,v] of Object.entries(r))if(get(k)&&v!==null&&v!==undefined&&v!=='')get(k).value=v;
   get('referenceConfirmed').checked=false;get('simpleSpotTurbo').checked=false;
   panel.querySelector('[data-exit-output]').textContent='Vorhandene Werte übernommen. Fehlende Referenzwerte und tatsächlichen Einstieg/Stückzahl ergänzen; Bedingungen und zeitliche Zuordnung prüfen.';
@@ -76,17 +109,91 @@ function init(){
   try{const values=read();out.textContent=await window.activateProductTrade(values);localStorage.setItem('bobExitScenarioV1',JSON.stringify(values));}
   catch(e){out.textContent=e.message||'Produkt-Trade konnte nicht übernommen werden.';}
  });
- panel.querySelectorAll('[data-exit]').forEach(el=>el.addEventListener('input',()=>{if(el.dataset.exit!=='referenceConfirmed')get('referenceConfirmed').checked=false;panel.querySelector('[data-exit-output]').textContent='Eingaben geändert; Schätzung erneut berechnen.';}));
+ panel.querySelectorAll('[data-exit]').forEach(el=>el.addEventListener('input',()=>{if(!['referenceConfirmed','entry','quantity'].includes(el.dataset.exit))get('referenceConfirmed').checked=false;panel.querySelector('[data-exit-output]').textContent='Eingaben geändert; Schätzung erneut berechnen.';}));
+ updateForm();
+}
+function selectProduct(isin){
+ const panel=document.getElementById('bobExitEstimate');if(!panel||!window.BobDegiro.validIsin(isin))return;
+ const get=k=>panel.querySelector('[data-exit="'+k+'"]');
+ const changed=get('isin').value.trim().toUpperCase()!==isin;
+ if(changed)for(const el of panel.querySelectorAll('[data-exit]')){if(el.type==='checkbox')el.checked=false;else el.value='';}
+ get('isin').value=isin;
+ const reference=window.BobDegiro.exitReference?.(isin);
+ if(reference&&(changed||(reference.currency||'EUR')===(get('currency').value||'EUR')))for(const [key,value] of Object.entries(reference))if(get(key)&&(key==='currency'||!get(key).value)&&value!==null&&value!==undefined)get(key).value=value;
+ let saved;try{saved=JSON.parse(localStorage.getItem('bobExitScenarioV1')||'null');}catch(_){}
+ if(saved?.isin===isin&&(!get('currency').value||(saved.currency||'EUR')===get('currency').value))for(const [key,value]of Object.entries(saved))if(get(key)&&get(key).type!=='checkbox'&&!get(key).value&&value!==null&&value!==undefined)get(key).value=value;
+ let receipt;try{receipt=JSON.parse(localStorage.getItem('bobTradeEvidenceV1')||'{}')[isin];}catch(_){}
+ if(receipt?.isin===isin&&(!get('currency').value||(receipt.currency||'EUR')===get('currency').value)){
+  const known={currency:receipt.currency||'EUR',entry:receipt.entry?.price,quantity:receipt.entry?.quantity,direction:receipt.direction,ratio:receipt.ratio,strike:receipt.strike,ko:receipt.ko};
+  for(const [key,value]of Object.entries(known))if(!get(key).value&&value!==null&&value!==undefined)get(key).value=value;
+ }
+ if(!get('currency').value)get('currency').value='EUR';
+ // Stored confirmations are rechecked by the existing issuer/reference validation.
+ panel.dispatchEvent(new Event('change',{bubbles:true}));
+ automaticTradeReference();
+}
+function issuerTradeFields(x,isin){
+ if(!x||x.isin!==isin||x.productVerified!==true)throw Error('Produktidentität noch nicht bestätigt.');
+ const m=x.metadata||{},model=x.productModel||{},c=x.conditions||{};
+ if(m.status===2||m.tradingHalted===true)throw Error('Produkt beendet oder Handel ausgesetzt.');
+ if(m.underlyingType!=='SPOT'&&model.underlying!=='XAU/USD')throw Error('Gold-Spot-Basiswert nicht bestätigt; kein Spot-Modell für Futures.');
+ const currency=m.currency||x.currency;if(!['EUR','CHF'].includes(currency))throw Error('Produktwährung EUR/CHF nicht bestätigt.');
+ const fields={currency},put=(k,v)=>{if(num(v)>0)fields[k]=num(v);};
+ for(const k of ['ratio','strike','ko'])put(k,c[k]?.value??model[k]??m[k]);
+ if(['LONG','SHORT'].includes(m.direction||model.direction))fields.direction=m.direction||model.direction;
+ const q=currency==='CHF'?(x.currency==='CHF'?x:x.nativeChartEvidence):x.analysisQuote||x;
+ if(!q||(q.currency||(currency==='EUR'?'EUR':null))!==currency)throw Error('Referenzkurs in '+currency+' fehlt; umgerechnete Kurse werden nicht als Originalkurs übernommen.');
+ if(num(q.bid)>0&&(q.bidAt||q.quoteAt||q.pointAt)&&Number.isFinite(Date.parse(q.bidAt||q.quoteAt||q.pointAt))){
+  fields.bid=num(q.bid);fields.referenceAt=q.bidAt||q.quoteAt||q.pointAt;fields.source=(q.source||x.source||'Emittentenabfrage')+' · '+(x.sourceUrl||'')+' · Referenz für Berechnung, kein zugesicherter DEGIRO-Ausführungskurs';
+ }
+ return fields;
+}
+let autoReferenceBusy=false;
+async function automaticTradeReference(){
+ const panel=document.getElementById('bobExitEstimate');if(!panel||autoReferenceBusy)return;
+ const get=k=>panel.querySelector('[data-exit="'+k+'"]'),out=panel.querySelector('[data-exit-output]');
+ const isin=get('isin').value.trim().toUpperCase(),direction=get('direction').value;
+ if(!window.BobDegiro.validIsin(isin)){out.textContent='Für den automatischen Abruf ist eine gültige ISIN erforderlich.';return;}
+ const before=Object.fromEntries(Array.from(panel.querySelectorAll('[data-exit]')).filter(el=>!['entry','quantity'].includes(el.dataset.exit)).map(el=>[el.dataset.exit,el.type==='checkbox'?el.checked:el.value]));
+ autoReferenceBusy=true;out.textContent='Produktwerte per ISIN bei SG und vorhandenen Ersatzquellen abrufen …';
+ try{
+  const r=await fetch('/api/degiro/enrich?isin='+encodeURIComponent(isin),{cache:'no-store',signal:AbortSignal.timeout(65000)});
+  if(!r.ok)throw Error('Produktquelle antwortet mit '+r.status);
+  const x=await r.json();if(get('isin').value.trim().toUpperCase()!==isin)return;
+  if(Object.entries(before).some(([key,value])=>(get(key).type==='checkbox'?get(key).checked:get(key).value)!==value)){out.textContent='Eingaben wurden während des Abrufs geändert und bleiben erhalten. Bitte den Abruf erneut starten.';return;}
+  const fields=issuerTradeFields(x,isin);
+  if(fields.currency!==(get('currency').value||'EUR')&&Number(get('entry').value)>0)throw Error('Produktwährung ist '+fields.currency+'. Währung im Formular zuerst korrigieren und Kaufkurs in dieser Währung eingeben.');
+  if(direction&&fields.direction&&direction!==fields.direction)throw Error('Produktrichtung widerspricht dem Kauf; keine Werte übernommen.');
+  get('referenceConfirmed').checked=false;get('simpleSpotTurbo').checked=false;
+  for(const [k,v] of Object.entries(fields))if(get(k))get(k).value=v;
+  panel.dispatchEvent(new Event('change',{bubbles:true}));
+  out.textContent='Produktwerte übernommen. Quelle: '+(x.source||x.sourceUrl||'ISIN-Abfrage')+'. Produktbedingungen und zeitliche Referenz bleiben getrennt prüfbar.';
+  const evidence=fields.referenceAt&&fields.bid?await researchReference():null;
+  if(get('isin').value.trim().toUpperCase()!==isin)return;
+  const values=Object.fromEntries(Array.from(panel.querySelectorAll('[data-exit]')).map(el=>[el.dataset.exit,el.type==='checkbox'?el.checked:el.value.trim()]));
+  localStorage.setItem('bobExitScenarioV1',JSON.stringify(values));
+  const unchanged=['currency','direction','ratio','strike','ko','bid','referenceAt'].every(k=>fields[k]===undefined||String(get(k).value)===String(fields[k]));
+  if(unchanged&&x.productModel?.verifiedSimpleTurbo===true&&x.productModel?.isin===isin&&evidence?.available===true&&evidence.originalTime===fields.referenceAt&&Number.isFinite(evidence.maxSkewSeconds)&&evidence.maxSkewSeconds>=0&&evidence.maxSkewSeconds<=90){
+   values.simpleSpotTurbo=true;values.referenceConfirmed=true;
+   get('simpleSpotTurbo').checked=true;get('referenceConfirmed').checked=true;
+   panel.dispatchEvent(new Event('change',{bubbles:true}));
+   localStorage.setItem('bobExitScenarioV1',JSON.stringify(values));
+   out.textContent='✓ Produktwerte und zeitliche Zuordnung automatisch geprüft. Ergänze nur noch fehlende Kaufdaten und starte die Überwachung.';
+   return values;
+  }
+  out.textContent+=' Kaufkurs und Stückzahl bleiben unverändert. Fehlende Vertragswerte werden nicht geschätzt; Gold-/FX-Referenzen und Verkaufskurse sind ausdrücklich Näherungen. Überwachung noch nicht aktiviert.';
+ }catch(e){out.textContent='Automatischer Abruf noch unvollständig: '+e.message+' Vorhandene Kaufdaten bleiben erhalten.';}
+ finally{autoReferenceBusy=false;panel.dispatchEvent(new Event('change',{bubbles:true}));if(get('isin').value.trim().toUpperCase()!==isin&&window.BobDegiro.validIsin(get('isin').value.trim().toUpperCase()))queueMicrotask(automaticTradeReference);}
 }
 function referenceHtml(x){
  const local=t=>new Date(t).toLocaleString('de-CH',{timeZone:'Europe/Zurich',hour12:false})+' Schweizer Zeit';
- return 'Gold-/FX-Werte übernommen: Gold '+esc(x.goldReference)+' USD · USD→EUR '+esc(x.fxReference)+'.<br>Gold-Beobachtung: '+esc(local(x.goldAt))+' · FX-Minute: '+esc(local(x.fxStart))+' bis '+esc(local(x.fxEnd))+' · maximaler Zeitversatz '+esc(x.maxSkewSeconds)+' Sekunden.<br><a href="'+esc(x.goldUrl)+'" target="_blank" rel="noopener">Goldquelle</a> · <a href="'+esc(x.fxUrl)+'" target="_blank" rel="noopener">FX-Quelle</a><br>'+esc(x.note)+'<br>Referenz in den Berechnungsdetails prüfen und bestätigen. Ziel/Stop ergänzen. Ausstiegs-FX zunächst konstant angenommen.';
+ return 'Gold-/FX-Werte übernommen: Gold '+esc(x.goldReference)+' USD · USD→'+esc(x.currency||'EUR')+' '+esc(x.fxReference)+'.<br>Gold-Beobachtung: '+esc(local(x.goldAt))+' · FX-Minute: '+esc(local(x.fxStart))+' bis '+esc(local(x.fxEnd))+' · maximaler Zeitversatz '+esc(x.maxSkewSeconds)+' Sekunden.<br><a href="'+esc(x.goldUrl)+'" target="_blank" rel="noopener">Goldquelle</a> · <a href="'+esc(x.fxUrl)+'" target="_blank" rel="noopener">FX-Quelle</a><br>'+esc(x.note)+'<br>Referenz in den Berechnungsdetails prüfen und bestätigen. Ziel/Stop ergänzen. Ausstiegs-FX zunächst konstant angenommen.';
 }
 function restoreReference(){
  const p=document.getElementById('bobExitEstimate');if(!p)return false;
  const get=k=>p.querySelector('[data-exit="'+k+'"]');
  try{const x=JSON.parse(localStorage.getItem('bobTradeMarketReferencesV1')||'{}')[get('isin').value];
- if(!x||x.at!==get('referenceAt').value||x.bid!==get('bid').value)return false;
+ if(!x||(x.currency||'EUR')!==(get('currency').value||'EUR')||x.at!==get('referenceAt').value||x.bid!==get('bid').value)return false;
  for(const k of ['goldReference','fxReference','fxScenario','source'])get(k).value=x[k];
  if(x.evidence)p.querySelector('[data-exit-output]').innerHTML=referenceHtml(x.evidence);return true;
  }catch(_){return false;}
@@ -94,19 +201,20 @@ function restoreReference(){
 async function researchReference(){
  const panel=document.getElementById('bobExitEstimate');if(!panel)return;
  const get=k=>panel.querySelector('[data-exit="'+k+'"]'),out=panel.querySelector('[data-exit-output]');
- const isin=get('isin').value,at=get('referenceAt').value,bid=get('bid').value,source=get('source').value.split(' · Historische Näherungsreferenz:')[0];
+ const currency=get('currency').value||'EUR',isin=get('isin').value,at=get('referenceAt').value,bid=get('bid').value,source=get('source').value.split(' · Historische Näherungsreferenz:')[0];
  if(!window.BobDegiro?.validIsin(isin)||!at||!(num(bid)>0)){out.textContent='Zuerst Produkt-ISIN und datierten Geldkurs übernehmen.';return;}
  get('referenceConfirmed').checked=false;out.textContent='Historische Gold-/FX-Referenz zur Originalzeit wird gesucht …';
  try{
-  const response=await fetch('/api/trade-reference?at='+encodeURIComponent(at),{cache:'no-store'}),x=await response.json();
-  if(get('isin').value!==isin||get('referenceAt').value!==at||get('bid').value!==bid)return;
+  const response=await fetch('/api/trade-reference?at='+encodeURIComponent(at)+'&currency='+encodeURIComponent(currency),{cache:'no-store'}),x=await response.json();
+  if(get('currency').value!==currency||get('isin').value!==isin||get('referenceAt').value!==at||get('bid').value!==bid)return;
   if(!response.ok||!x.available){out.textContent=x.reason||'Referenz fehlt.';return;}
+  if((x.currency||'EUR')!==currency)throw Error('Referenzwährung stimmt nicht überein');
   get('goldReference').value=x.goldReference;get('fxReference').value=x.fxReference;get('fxScenario').value=x.fxReference;
   get('source').value=source+' · Historische Näherungsreferenz: '+x.goldSource+' @ '+x.goldAt+'; '+x.fxSource+' @ '+x.fxStart+' bis '+x.fxEnd+'; Zeitzone Europe/Zurich angenommen; maximaler Zeitversatz '+x.maxSkewSeconds+' s';
-  try{const all=JSON.parse(localStorage.getItem('bobTradeMarketReferencesV1')||'{}');all[isin]={at,bid,goldReference:x.goldReference,fxReference:x.fxReference,fxScenario:x.fxReference,source:get('source').value,evidence:x};localStorage.setItem('bobTradeMarketReferencesV1',JSON.stringify(all));}catch(_){}
-  out.innerHTML=referenceHtml(x);
+  try{const all=JSON.parse(localStorage.getItem('bobTradeMarketReferencesV1')||'{}');all[isin]={currency,at,bid,goldReference:x.goldReference,fxReference:x.fxReference,fxScenario:x.fxReference,source:get('source').value,evidence:x};localStorage.setItem('bobTradeMarketReferencesV1',JSON.stringify(all));}catch(_){}
+  out.innerHTML=referenceHtml(x);return x;
  }catch(_){if(get('isin').value===isin&&get('referenceAt').value===at)out.textContent='Referenzabruf fehlgeschlagen. Keine historischen Werte ersetzt.';}
 }
-window.BobExitEstimate={calculate,render,init,researchReference,restoreReference,planInput};
+window.BobExitEstimate={selectProduct,calculate,render,init,researchReference,restoreReference,planInput,issuerTradeFields,automaticTradeReference};
 if(typeof document!=='undefined'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();}
 })();

@@ -22,3 +22,15 @@ assert.equal(api.withFx(long,{usd_eur_meta:{...fx,fetchedAt:new Date(now+1).toIS
 assert.equal(api.withFx(long,{usd_eur_meta:{...fx,rate:0}},now),long);
 assert.equal(env.window.BobTradeProduct.withFx(long,{usd_eur_meta:fx},now).fxScenario,.95);
 console.log('FX updates are immutable, stale/failure marked, future data rejected, served module matches');
+const chfLong=api.model({...values,currency:'CHF',direction:'LONG',strike:4000,ko:4000,fxReference:.8,fxScenario:.8});
+const chfShort=api.model({...values,currency:'CHF',fxReference:.8,fxScenario:.8});
+assert.equal(api.price(chfLong,4250).price,24);
+assert.equal(api.price(chfShort,4150).price,24);
+assert(!api.price(chfShort,4460).available);
+assert(api.label(chfLong,4250).includes('CHF/Stück'));
+assert.equal(api.withFx(chfLong,{usd_eur_meta:fx},now),chfLong);
+assert.equal(api.withFx(chfLong,{usd_eur_meta:fx,usd_chf_meta:{...fx,rate:.82}},now).fxScenario,.82);
+assert(api.withFx(chfLong,{usd_chf_meta:fx},now+90000).fxDetails.delayed);
+assert.equal(env.window.BobTradeProduct.price(chfLong,4250).price,24);
+assert.throws(()=>api.model({...values,currency:'GBP'}));
+console.log('CHF long/short native pricing, KO and currency-isolated FX passed');

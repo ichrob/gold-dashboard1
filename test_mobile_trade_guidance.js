@@ -1,6 +1,6 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const source=fs.readFileSync('degiro_assistant.js','utf8');
-const keys=['isin','entry','quantity','bid','goldReference','fxReference','fxScenario','source','referenceAt','ratio','strike','ko','direction','simpleSpotTurbo','referenceConfirmed'];
+const keys=['isin','currency','entry','quantity','bid','goldReference','fxReference','fxScenario','source','referenceAt','ratio','strike','ko','direction','simpleSpotTurbo','referenceConfirmed'];
 const fields=Object.fromEntries(keys.map(k=>[k,{dataset:{exit:k},value:'',type:/Confirmed|Turbo/.test(k)?'checkbox':'text',checked:false}]));
 const output={textContent:''};let events=0,calls=0,saved=null;
 const panel={querySelector:s=>s==='[data-exit-output]'?output:fields[s.match(/"([^"]+)"/)[1]],querySelectorAll:()=>Object.values(fields),dispatchEvent:()=>events++};

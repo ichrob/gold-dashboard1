@@ -7,3 +7,9 @@ console.log('Trade evidence: execution, quote preservation, duplicate/conflict, 
 const d=a.draft('SG Gold Call BAR 4074 BP 4074\nAusfahrungsdatum 02.10.2026, 19:46:08\nISIN DEO0OFGSGUX2\nAuftrag Kauf\nAnzahl 1\nKurs EUR 5.9500\nGesamte Kosten CHF -0.48');assert.equal(d.entry,'5.9500');assert.equal(d.isin,'DEO0OFGSGUX2');assert(!a.reviewed(d).ok);d.isin='DE000FG5GUX2';assert(a.reviewed(d).ok);assert.equal(a.reviewed(d).feesChf,.48);
 assert(!a.reviewed({...d,entry:'5 EUR'}).ok);assert(!a.reviewed({...d,quantity:'1,5'}).ok);assert(a.reviewed({isin:'DE000FG5GUX2',kind:'quote',time:'02/10/2026 20:02',bid:'5,88',ask:'5,89'}).ok);assert.equal(a.reviewed({isin:'DE000FG5GUX2',kind:'details',ratio:'0,1'}).ratio,.1);
 console.log('Structured OCR review: uncertain identity, numeric validation and raw time preservation passed');
+const chfEntry=a.parse('DE000FG5GUX2 LONG\nAuftrag Kauf\nOrder-ID abc\n02.10.2026 19:46:08\nAnzahl 2\nKurs CHF 5.20\nGesamte Kosten CHF 0.48');
+assert(chfEntry.ok);assert.equal(chfEntry.currency,'CHF');
+assert.equal(entry.currency,'EUR');
+assert(!a.parse('DE000FG5GUX2 Kauf Order-ID abc 02.10.2026 19:46:08 Anzahl 2 Kurs 5.20 Gesamte Kosten CHF 0.48').ok);
+assert.throws(()=>a.merge(t,{...q,currency:'CHF'},'CHF.jpg'));
+assert.equal(a.reviewed({isin:'DE000FG5GUX2',currency:'CHF',kind:'details',ratio:'0.1'}).currency,'CHF');
