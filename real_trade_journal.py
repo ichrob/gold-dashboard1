@@ -315,7 +315,7 @@ def observe(conn,bundle):
             product_trade_history.append(conn,tid,(settings.get('trade') or {}).get('product'),bundle.get('spots'))
             market=background_push.analyze(bundle,settings)
             next_state,events=background_push.advance(state,settings,market,False,True)
-            evidence={k:market.get(k) for k in ('baseDirection','learningPolicy','direction','ready','priceFresh','price','dataAt','analysisBarAt','decisionReason','score','context','trendContext','plan','suggestedStop','suggestedTarget','ruleVersion')}
+            evidence={k:market.get(k) for k in ('baseDirection','learningPolicy','direction','ready','priceFresh','price','dataAt','analysisBarAt','decisionReason','score','context','trendContext','plan','suggestedStop','suggestedTarget','ruleVersion','entryTimingGate','entryQuality','minuteEntry','analysisWarnings')}
             evidence['planAfter']=next_state.get('trade');evidence['recommendations']=events
             model=(settings.get('trade') or {}).get('product')
             point=product_trade_history.calculate(model,bundle.get('spots'))
