@@ -197,6 +197,9 @@ def confirmed_screenshot_sale(conn, payload):
 
 
 def handle(conn,action,payload):
+    if action=='write' and payload.get('stopConfirmation') is not None:
+        from trade_stop_review import confirm
+        return confirm(conn,payload['stopConfirmation'])
     if action=='curve':return product_trade_history.read(conn,payload.get('tradeId'))
     if action=='risk':return {'ok':True,'review':trade_risk_review.preview(payload.get('plan'))}
     if action=='confirm-sale':return confirmed_screenshot_sale(conn,payload)
@@ -266,8 +269,10 @@ def handle(conn,action,payload):
         recover_closed_settlements(conn)
         tid=payload.get('tradeId');before=payload.get('before')
         trades=conn.execute('SELECT id,opened_at,updated_at,active,snapshot FROM bob_real_trades ORDER BY opened_at DESC LIMIT 100').fetchall()
-        result={'trades':[dict(id=i,openedAt=o.isoformat(),updatedAt=u.isoformat(),active=a,snapshot=s) for i,o,u,a,s in trades]}
+        import trade_auto_monitor
+        result={'automaticMonitor':trade_auto_monitor.status(),'trades':[dict(id=i,openedAt=o.isoformat(),updatedAt=u.isoformat(),active=a,snapshot=s) for i,o,u,a,s in trades]}
         for row in result['trades']:
+            row['monitorTiming']=trade_auto_monitor.timing(row['snapshot'])
             if not row['active']:
                 row['evaluation']=row['snapshot'].get('evaluation') or trade_risk_review.evaluation(row['snapshot'])
         settled=[item['snapshot'] for item in result['trades'] if not item['active'] and item['snapshot'].get('settlement')]
@@ -284,6 +289,8 @@ def handle(conn,action,payload):
             item['pushDevices']=sum(1 for enabled,active,cfg in devices if enabled and active and
                 ((cfg or {}).get('trade') or {}).get('tradeId')==item['id'])
         if tid:
+            from trade_stop_review import read as read_stops
+            result['stopReview']=read_stops(conn,tid)
             rows=conn.execute('''SELECT seq,recorded_at,kind,payload FROM bob_real_trade_events
               WHERE trade_id=%s AND (%s::bigint IS NULL OR seq<%s::bigint) ORDER BY seq DESC LIMIT 501''',(tid,before,before)).fetchall()
             result['more']=len(rows)>500;rows=rows[:500]
@@ -310,6 +317,13 @@ def observe(conn,bundle):
             next_state,events=background_push.advance(state,settings,market,False,True)
             evidence={k:market.get(k) for k in ('baseDirection','learningPolicy','direction','ready','priceFresh','price','dataAt','analysisBarAt','decisionReason','score','context','trendContext','plan','suggestedStop','suggestedTarget','ruleVersion')}
             evidence['planAfter']=next_state.get('trade');evidence['recommendations']=events
+            model=(settings.get('trade') or {}).get('product')
+            point=product_trade_history.calculate(model,bundle.get('spots'))
+            if point:
+                stop=(evidence.get('planAfter') or {}).get('stop')
+                product_stop=background_push.product_price({**model,'fxScenario':point['fxRate']},stop)
+                evidence['productEvidence']={**point,'stop':product_stop,'provenance':'contemporaneous-model-not-broker'}
+
             evidence['delivery']='Nur protokolliert; tatsächlicher Push-Versand wird separat erfasst'
             event(conn,tid,'observation',evidence,str(now))
             next_state['journalCheckedAt']=now
