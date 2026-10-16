@@ -495,6 +495,29 @@ class Handler(BaseHTTPRequestHandler):
         cors(self)
         self.end_headers()
 
+    def do_HEAD(self):
+        # Render probes the root path with HEAD while bringing up a deploy.
+        # Treat it as a readiness check for the dependencies required by the
+        # push service, but never expose a response body or private state.
+        path = urlparse(self.path).path
+        if path not in ("/", "/health"):
+            status = 404
+        else:
+            try:
+                vapid()
+                with db() as conn:
+                    conn.execute("SELECT 1").fetchone()
+                status = 200
+            except Exception as exc:
+                print("BOB_PUSH_HEAD readiness_error=" + type(exc).__name__, flush=True)
+                status = 503
+        self.send_response(status)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        cors(self)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_GET(self):
         path = urlparse(self.path).path
         try:
