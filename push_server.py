@@ -625,15 +625,19 @@ class Handler(BaseHTTPRequestHandler):
                               if k in record}
                         if len(json.dumps(safe))>4096:
                             raise ValueError("Zu viele Importdaten")
+                        old_row=conn.execute("SELECT payload->'result' FROM bob_trade_email_import WHERE message_id=%s FOR UPDATE",(message_id,)).fetchone()
+                        old_record=old_row[0] if old_row else None
+                        enrich=trade_email_import.receipt_enrichment(old_record,safe)
                         inserted=conn.execute("""INSERT INTO bob_trade_email_import(message_id,payload)
                             VALUES(%s,%s::jsonb) ON CONFLICT(message_id)
                             DO UPDATE SET payload=EXCLUDED.payload
-                            WHERE bob_trade_email_import.payload->'result'->>'status'
+                            WHERE (bob_trade_email_import.payload->'result'->>'status'
                                 IN ('sender-unconfirmed','incomplete')
-                              AND EXCLUDED.payload->'result'->>'status'='pending-review'
+                              AND EXCLUDED.payload->'result'->>'status'='pending-review')
+                              OR (%s AND bob_trade_email_import.payload->'result'=%s::jsonb)
                             RETURNING message_id""",
                             (message_id,json.dumps({"messageId":message_id,"version":trade_email_import.VERSION,
-                                "result":safe,"receivedAt":int(time.time()*1000)}))).fetchone()
+                                "result":safe,"receivedAt":int(time.time()*1000)}),enrich,json.dumps(old_record))).fetchone()
                         result={"ok":True,"new":bool(inserted)}
                         real_trade_journal.reconcile_sales(conn)
                     conn.commit()
