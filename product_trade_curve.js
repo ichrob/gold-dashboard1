@@ -194,8 +194,13 @@
   if(rows.length<2){ctx.fillStyle='#64748b';ctx.fillText('Verlauf wird ab jetzt aufgezeichnet …',x0+15,y1-30);}
   for(let i=1;i<rows.length;i++){
    const a=rows[i-1],b=rows[i];
-   if(a.kind!==b.kind)continue; // Never connect unlike source/estimated series as one continuous measured price.
+   if(a.kind!==b.kind||b.at-a.at>180000)continue; // Do not bridge source switches or data outages.
    const color=b.kind==='issuer'?'#0f766e':b.kind==='research'?'#64748b':'#2563eb';
+   ctx.beginPath();ctx.moveTo(x(a.at),y1);ctx.lineTo(x(a.at),y(a.price));
+   ctx.lineTo(x(b.at),y(b.price));ctx.lineTo(x(b.at),y1);ctx.closePath();
+   const fill=ctx.createLinearGradient(0,y0,0,y1);
+   fill.addColorStop(0,'rgba(56,189,248,.23)');fill.addColorStop(1,'rgba(56,189,248,.02)');
+   ctx.fillStyle=fill;ctx.fill();
    line(ctx,[[x(a.at),y(a.price)],[x(b.at),y(b.price)]],color,b.kind==='model'?[8,5]:[]);
   }
   for(const row of rows.slice(-200)){
