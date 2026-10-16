@@ -23,7 +23,8 @@ def identity(model):
 
 
 def quality_key(model,side):
-    return 'turbo:'+repr(identity(model))+':'+side
+    import product_validation_store
+    return product_validation_store.key(model, side, family='turbo')
 
 
 def validate_model(model):
