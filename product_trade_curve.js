@@ -238,7 +238,8 @@
    '<div class="small" data-curve-background></div>'+ 
    '<div class="small" data-curve-fib-note></div>'+
    '<div class="small" data-curve-picked aria-live="polite"></div>'+
-   '<div class="small" data-curve-levels></div>'+
+   '<div class="small" data-curve-levels></div>'+ 
+   '<div class="small" data-curve-stop-review role="status"></div>'+ 
    '<p data-curve-action role="status"></p>'+
    '<p class="small">Kurve ab Beginn dieser Aufzeichnung auf diesem Handy: echte datierte Anbieterbeobachtungen und klar gekennzeichnete Modellpunkte. Keine erfundene rückwirkende Historie, keine Ausführungskurse. Bei geschlossener App entstehen hier keine neuen Punkte. KO-Schwelle in Gold-USD, nicht auf der Produktpreisachse. Bob empfiehlt nur; du handelst selbst bei DEGIRO.</p>';
   element.append(panel);canvas=panel.querySelector('canvas');
@@ -386,6 +387,9 @@
     result.ko!=null?'KO-Schwelle '+result.ko.toFixed(2)+' USD/oz Gold':'KO-Schwelle: nicht bestätigt',
     finite(result.koDistancePct)?'KO-Abstand ca. '+result.koDistancePct.toFixed(2)+' % (Gold)':'KO-Abstand derzeit nicht prüfbar'].join(' · ');
   show('[data-curve-levels]',levels);
+  const stopReview=reviewStop(result,h,input?.trade);
+  show('[data-curve-stop-review]','Automatische Stopp-Prüfung: '+stopReview.reason+
+   (positive(stopReview.suggestedStop)?' Nur Vorschlag: Stopp ≈ '+fmt(stopReview.suggestedStop,result.currency)+'.':'') );
   const fib=fibonacci(h.rows);
   show('[data-curve-fib-note]',fib?
    'Fibonacci aus beobachtetem Produktswing ('+(fib.rising?'Tief → Hoch':'Hoch → Tief')+
