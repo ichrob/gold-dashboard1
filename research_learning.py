@@ -10,7 +10,7 @@ import math
 
 import strategy_lab
 
-VERSION = "bob-rolling-shadow-v1"
+VERSION = "bob-rolling-shadow-v2"
 MIN_FOLDS = 3
 MIN_HISTORIC_TRADES = 30
 MIN_FORWARD_SESSIONS = 20
@@ -64,7 +64,7 @@ def _choose(report, rejected):
     return max(scored)[1] if scored else None
 
 
-def _forward(bars, previous_bar, candidate):
+def _forward(bars, previous_bar, candidate, protocol=None):
     """Score only positions whose signal and exit occur *after* the frozen cutoff.
 
     An unchanged or gapped feed adds no independent evidence. The baseline and
@@ -79,13 +79,49 @@ def _forward(bars, previous_bar, candidate):
                   if r["openTime"] > previous_bar), len(normalized))
     if start < strategy_lab.WARMUP or start + strategy_lab.HORIZON >= len(normalized):
         return None
+    protocol = protocol or frozen_protocol()
+    if protocol != frozen_protocol():
+        return None
     f = strategy_lab.features(normalized)
-    baseline = strategy_lab.score(normalized, f, "baseline", None, start,
-                                  len(normalized), strategy_lab.COST_BPS_PER_SIDE)
-    alternative = strategy_lab.score(normalized, f, candidate, None, start,
-                                     len(normalized), strategy_lab.COST_BPS_PER_SIDE)
-    return dict(baseline=baseline, candidate=alternative,
-                lastBarAt=normalized[-1]["openTime"], newBars=len(normalized)-start)
+    scenarios = {}
+    for name,cost in protocol['costBpsPerSide'].items():
+        scenarios[name] = dict(costBpsPerSide=cost,
+            baseline=strategy_lab.score(normalized,f,'baseline',None,start,len(normalized),cost),
+            candidate=strategy_lab.score(normalized,f,candidate,None,start,len(normalized),cost))
+    return dict(**scenarios['standard'], scenarios=scenarios,
+                lastBarAt=normalized[-1]['openTime'],newBars=len(normalized)-start)
+
+
+def frozen_protocol():
+    return dict(version='paired-reference-cost-v1',engineVersion=strategy_lab.VERSION,
+        horizonBars=strategy_lab.HORIZON,baseline='baseline',
+        costBpsPerSide=dict(standard=strategy_lab.COST_BPS_PER_SIDE,
+                            stress=3*strategy_lab.COST_BPS_PER_SIDE),
+        minSessions=MIN_FORWARD_SESSIONS,minTradesEach=MIN_FORWARD_TRADES,
+        costKind='assumed-reference-fee-and-slippage',productNetValidated=False)
+
+
+def accumulate_scenarios(progress, observation):
+    for name, scores in observation['scenarios'].items():
+        group = progress.setdefault('costScenarios',{}).setdefault(name,dict(costBpsPerSide=scores['costBpsPerSide']))
+        for side in ('candidate','baseline'):
+            stats = group.setdefault(side,dict(index=1.,peak=1.,maxDrawdownPct=0.,trades=0))
+            score = scores[side]
+            before = stats['index']
+            stats['maxDrawdownPct'] = max(stats['maxDrawdownPct'],score['maxDrawdownPct'],
+                100*(1-before*score['minEquityIndex']/stats['peak']))
+            stats['peak'] = max(stats['peak'],before*score['maxEquityIndex'])
+            stats['index'] = before*(1+score['netReturnPct']/100)
+            stats['trades'] += score['trades']
+
+
+def robust_advantage(progress):
+    groups = progress.get('costScenarios') or {}
+    return set(groups)=={'standard','stress'} and all(
+        g['candidate']['trades']>=MIN_FORWARD_TRADES and g['baseline']['trades']>=MIN_FORWARD_TRADES
+        and g['candidate']['index']>max(1.,g['baseline']['index'])
+        and g['candidate']['maxDrawdownPct']<=g['baseline']['maxDrawdownPct']
+        for g in groups.values())
 
 
 def enrich(report, bars, previous=None, *, day):
@@ -97,6 +133,11 @@ def enrich(report, bars, previous=None, *, day):
     result = copy.deepcopy(report)
     old = _previous_cycle(previous)
     state = old or _new_cycle()
+    if not old and isinstance(previous,dict) and previous.get('learningCycle'):
+        prior = previous['learningCycle']
+        state['previousProtocolArchive'] = dict(version=prior.get('version'),
+            proposal=prior.get('proposal'),prospective=prior.get('prospective'),
+            note='Vorheriges Protokoll archiviert; zählt nicht zum neuen Kostenvergleich.')
     state["experiments"] = list(strategy_lab.STRATEGIES)
     state["day"] = day
     state["liveRuleChanged"] = False
@@ -112,10 +153,14 @@ def enrich(report, bars, previous=None, *, day):
                 previous["historicalInstrument"] != result.get("historicalInstrument")):
             state["status"] = "blocked"
             state["reason"] = "Referenzinstrument gewechselt; kein historischer Vergleich erlaubt."
+        elif proposal.get("protocol") != frozen_protocol():
+            state["status"] = "blocked"
+            state["reason"] = "Testprotokoll verändert; bisherige und neue Ergebnisse werden nicht vermischt."
         elif result.get("status") == "evaluated":
-            observation = _forward(bars, previous_end, proposal.get("strategy"))
+            observation = _forward(bars, previous_end, proposal.get("strategy"), proposal.get("protocol"))
             if observation:
                 p = state["prospective"]
+                accumulate_scenarios(p, observation)
                 a = observation["candidate"]
                 b = observation["baseline"]
                 if a["trades"] or b["trades"]:
@@ -130,9 +175,10 @@ def enrich(report, bars, previous=None, *, day):
                     candidate=a, baseline=b)
                 proposal["lastIndependentDay"] = day
             if (state["prospective"]["sessions"] >= MIN_FORWARD_SESSIONS and
-                    state["prospective"]["trades"] >= MIN_FORWARD_TRADES):
+                    state["prospective"]["trades"] >= MIN_FORWARD_TRADES and
+                    state["prospective"]["baselineTrades"] >= MIN_FORWARD_TRADES):
                 p = state["prospective"]
-                if p["candidateIndex"] > 1.0 and p["candidateIndex"] > p["baselineIndex"]:
+                if robust_advantage(p):
                     proposal["state"] = "paper-required"
                     state["status"] = "paper-required"
                     state["reason"] = ("Historische und spätere Referenztests positiv. "
@@ -142,7 +188,7 @@ def enrich(report, bars, previous=None, *, day):
                     state["rejectedStrategies"] = (state.get("rejectedStrategies", [])
                                                   + [proposal["strategy"]])[-len(SHADOWABLE):]
                     state["status"] = "rejected"
-                    state["reason"] = "Prospektiver Vergleich nicht besser als Referenz; Kandidat abgelehnt."
+                    state["reason"] = "Kein robuster Vorteil bei Standard-/Stresskosten und Drawdown; Kandidat abgelehnt."
             else:
                 state["status"] = "shadow"
                 state["reason"] = "Eingefrorener Kandidat wird auf späteren, geschlossenen Kerzen geprüft."
@@ -167,7 +213,7 @@ def enrich(report, bars, previous=None, *, day):
         candidate = _choose(result, excluded)
         if candidate:
             state["proposal"] = dict(strategy=candidate, state="shadow",
-                 proposedOn=day, frozenAtBar=current_end, mode="SHADOW_ONLY",
+                 proposedOn=day, frozenAtBar=current_end, mode="SHADOW_ONLY",protocol=frozen_protocol(),
                  source="historical-out-of-sample-discovery",
                  note="Nur neue spätere Kerzen zählen für die unabhängige Prüfung.")
             state["prospective"] = dict(sessions=0, trades=0, baselineTrades=0,
