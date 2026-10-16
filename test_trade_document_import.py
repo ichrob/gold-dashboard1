@@ -69,6 +69,21 @@ class PdfReceiptTests(unittest.TestCase):
             with self.subTest(s=s[-80:]):
                 self.assertNotEqual(m.parse_document_text(s)["status"],"pending-review")
 
+    def test_signed_chf_totals_from_full_receipt(self):
+        buy=m.parse_document_text(TEXT)
+        self.assertEqual(buy['grossChf'],5.55)
+        self.assertEqual(buy['totalChf'],6.04)
+        self.assertEqual(buy['costsChf'],0.48)
+        sale=(TEXT.replace("Auftrag\nKauf","Auftrag\nVerkauf")
+                  .replace("EUR -5.95","EUR 5.95")
+                  .replace("CHF -5.55","CHF 5.55")
+                  .replace("CHF -6.04","CHF 5.07"))
+        result=m.parse_document_text(sale)
+        self.assertEqual(result['status'],'pending-review')
+        self.assertEqual(result['totalChf'],5.07)
+        tampered=sale.replace("CHF 5.07","CHF 8.99")
+        self.assertEqual(m.parse_document_text(tampered)['status'],'incomplete')
+
     def test_sell(self):
         p=m.parse_document_text(TEXT.replace("Auftrag\nKauf","Auftrag\nVerkauf"))
         self.assertEqual(p["side"],"SELL")
