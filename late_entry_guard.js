@@ -62,7 +62,7 @@
    const prev=bars.at(-2),prev2=bars.at(-3);
    // A new, CLOSED pullback-and-resumption is a fresh opportunity, even in an
    // older trend. It is not inferred from a still-forming candle.
-   const reset=sign*(prev.low-ema20)<=0.65*atr &&
+   const reset=sign*((sign>0?prev.low:prev.high)-ema20)<=0.65*atr &&
       sign*(latest.close-prev.close)>0 &&
       sign*(latest.close-latest.open)>0 &&
       sign*(prev2.close-prev.close)>0 &&
