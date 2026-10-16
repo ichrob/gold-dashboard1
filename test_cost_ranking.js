@@ -19,7 +19,7 @@ assert.equal(b.koProtection({...p,ko:null,atr:20}).level,'unknown');
 assert.equal(b.koProtection({...p,quote:{metadata:{underlyingType:'FUTURE'}}}).level,'unknown');
 assert(!assess({ko:3965,atr:20}).fit);
 assert(assess({ko:3930,atr:20}).warnings.some(x=>x.includes('KO-Frühwarnung')));
-assert.equal(base.score,100); // trading 1, financing .05 points; spread unweighted
+assert.equal(base.score,83.3); // continuous buffer: 400 / (400 + 80), not a probability
 const wide=assess({spread:.4});assert(wide.fit);assert.equal(wide.score,base.score);
 for(const spread of [null,undefined,'',-1,0,.4,2,39,100]){const e=assess({spread});assert.equal(e.score,base.score);assert.equal(e.fit,base.fit);assert.equal(e.costRisk.parts.spread,0);}
 assert(rank([{...p,spread:2}]).tradeable,'wide spread cannot trigger a gate');
