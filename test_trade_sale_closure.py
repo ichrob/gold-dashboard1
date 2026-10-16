@@ -35,7 +35,8 @@ class SaleClosureTests(unittest.TestCase):
         with patch.object(j,'sync_devices') as sync,patch.object(j,'event') as event:
             self.assertEqual(j.reconcile_sales(conn),1)
             sync.assert_called_once_with(conn)
-            event.assert_called_once()
+            self.assertEqual(event.call_count,2)
+            self.assertEqual([c.args[2] for c in event.call_args_list],['sale-email-monitoring-closed','trade-evaluated'])
         update=next(c for c in conn.execute.call_args_list if 'UPDATE bob_real_trades' in c.args[0])
         saved=json.loads(update.args[1][0])
         self.assertFalse(saved['active']);self.assertEqual(saved['purchase'],self.trade['purchase'])
