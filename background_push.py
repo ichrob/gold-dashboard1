@@ -110,8 +110,8 @@ def positive(value):
 def product_model(value, direction):
     if value is None:
         return None
-    if not isinstance(value, dict) or value.get('simpleSpotTurbo') is not True or value.get('referenceConfirmed') is not True or value.get('currency') != 'EUR':
-        raise ValueError('Bestätigtes Gold-Spot-Turbo-Modell in EUR fehlt')
+    if not isinstance(value, dict) or value.get('simpleSpotTurbo') is not True or value.get('referenceConfirmed') is not True or value.get('currency') not in ('EUR','CHF'):
+        raise ValueError('Bestätigtes Gold-Spot-Turbo-Modell in EUR oder CHF fehlt')
     if value.get('direction') != direction or not re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]', str(value.get('isin', ''))):
         raise ValueError('Produktidentität oder Trade-Richtung widersprüchlich')
     keys = ('bid','goldReference','fxReference','fxScenario','ratio','strike','ko','entry','quantity')
@@ -139,7 +139,7 @@ def level_text(trade, gold):
     model=trade.get('product')
     price=product_price(model,gold)
     if model:
-        return f"≈ {price:.4f} EUR/Stück (geschätzt) · Gold {gold:.2f} USD/oz" + (' · FX-Aktualisierung verzögert' if model.get('fxDelayed') else '') if price else 'Eurokurs nicht berechenbar (KO/Modellgrenze)'
+        return f"≈ {price:.4f} {model.get('currency','EUR')}/Stück (geschätzt) · Gold {gold:.2f} USD/oz" + (' · FX-Aktualisierung verzögert' if model.get('fxDelayed') else '') if price else 'Produktkurs nicht berechenbar (KO/Modellgrenze)'
     return f"{gold:.2f} USD/oz (Goldreferenz; Produktdaten fehlen)"
 
 
@@ -221,11 +221,13 @@ def failed_analysis_market(bundle):
 
 
 def advance(previous, settings, market, general, trade_enabled, now=None, log=True):
+    from datetime import datetime
     settings = copy.deepcopy(settings)
-    fx = market.get('fx') or {}
     model = (settings.get('trade') or {}).get('product')
+    currency=(model or {}).get('currency','EUR')
+    fx = (market.get('fxByCurrency') or {}).get(currency) or (market.get('fx') or {} if currency=='EUR' else {})
+    if model:model['fxDelayed']=True
     if model and positive(fx.get('rate')):
-        from datetime import datetime
         try:
             stamp = datetime.fromisoformat(fx.get('fetchedAt','').replace('Z','+00:00')).timestamp()*1000
             clock = time.time()*1000 if now is None else now
@@ -397,9 +399,16 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     if personal and model:
         budget = personal['account'] * personal['percent'] / 100
         estimated = product_price(model, p)
+        conversion=1.0 if model.get('currency')=='EUR' else None
+        if model.get('currency')=='CHF':
+            eur=(market.get('fxByCurrency') or {}).get('EUR') or {}
+            try:
+                clocks=[datetime.fromisoformat(v['fetchedAt'].replace('Z','+00:00')).timestamp()*1000 for v in (eur,fx)]
+                if all(positive(v.get('rate')) and not v.get('error') for v in (eur,fx)) and all(0<=now-c<=90000 for c in clocks) and abs(clocks[0]-clocks[1])<=90000:conversion=eur['rate']/fx['rate']
+            except (KeyError,ValueError,TypeError):pass
         marker = [personal['account'], personal['percent'], model['entry'], model['quantity']]
-        if estimated is not None and (model['entry'] - estimated) * model['quantity'] >= budget and old.get('personalRiskSent') != marker:
-            loss = (model['entry'] - estimated) * model['quantity']
+        if estimated is not None and conversion is not None and (model['entry'] - estimated) * model['quantity'] * conversion >= budget and old.get('personalRiskSent') != marker:
+            loss = (model['entry'] - estimated) * model['quantity'] * conversion
             add('personal-risk', 'Persönliche Verlustgrenze erreicht',
                 f"Berechneter Verlust ≈ {loss:.2f} EUR; Risikobudget {budget:.2f} EUR ({personal['percent']:g}% von {personal['account']:g} EUR). Ohne Gebühren. Position prüfen; kein automatischer Verkauf.")
             events[-1]['tag'] = 'bob-personal-risk-' + t['tradeId']

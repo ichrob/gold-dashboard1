@@ -3860,8 +3860,12 @@ function exitReference(isin){
  for(let i=1;i<=12;i++){
   if(document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value.trim().toUpperCase()!==isin)continue;
   const r=combinedReferences.get(i)||combinedDrafts.get(i)?.fields,q=productQuotes.get(i),m=q?.productModel;
-  if(r&&n(r.bid)>0)return {isin,direction:document.querySelector('[data-dg="dir"][data-i="'+i+'"]')?.value,bid:r.bid,source:r.source,referenceAt:r.quoteAt,goldReference:r.goldReference,fxReference:r.fxReference,fxScenario:r.fxReference,ko:r.barriers?.[0]?.value||r.ko1||document.querySelector('[data-dg="ko"][data-i="'+i+'"]')?.value,strike:m?.strike,ratio:m?.ratio};
-  if(q?.found&&q.isin===isin&&m?.underlying==='XAU/USD')return {isin,direction:m.direction,bid:q.bid,source:q.source,referenceAt:q.bidAt||q.quoteAt,goldReference:q.leverageInputs?.spotUsd,fxReference:q.leverageInputs?.usdEur,fxScenario:q.leverageInputs?.usdEur,ratio:m.ratio,strike:m.strike,ko:m.ko};
+  if(q?.isin===isin&&q.productVerified&&q.metadata?.currency==='CHF'){
+   const native=q.currency==='CHF'?q:q.nativeChartEvidence;
+   return {isin,currency:'CHF',direction:q.metadata.direction||m?.direction,bid:native?.bid,referenceAt:native?.bidAt||native?.pointAt,source:native?.source||q.source,ratio:q.conditions?.ratio?.value||m?.ratio,strike:q.conditions?.strike?.value||m?.strike,ko:q.conditions?.ko?.value||m?.ko};
+  }
+  if(r&&n(r.bid)>0)return {isin,currency:'EUR',direction:document.querySelector('[data-dg="dir"][data-i="'+i+'"]')?.value,bid:r.bid,source:r.source,referenceAt:r.quoteAt,goldReference:r.goldReference,fxReference:r.fxReference,fxScenario:r.fxReference,ko:r.barriers?.[0]?.value||r.ko1||document.querySelector('[data-dg="ko"][data-i="'+i+'"]')?.value,strike:m?.strike,ratio:m?.ratio};
+  if(q?.found&&q.isin===isin&&m?.underlying==='XAU/USD')return {isin,currency:q.currency||'EUR',direction:m.direction,bid:q.bid,source:q.source,referenceAt:q.bidAt||q.quoteAt,goldReference:q.leverageInputs?.spotUsd,fxReference:q.leverageInputs?.usdEur,fxScenario:q.leverageInputs?.usdEur,ratio:m.ratio,strike:m.strike,ko:m.ko};
  }
  return null;
 }
@@ -3873,9 +3877,10 @@ window.BobDegiro={productHelpState,renderProductHelp,calculatedLeverageEvidence,
 (function(root){
  const positive=v=>typeof v==='number'&&Number.isFinite(v)&&v>0;
  function model(values){
-  if(!values||values.simpleSpotTurbo!==true||values.referenceConfirmed!==true)throw Error('Produktbedingungen und zusammengehörige Referenzwerte bestätigen. Unterstützt: einfaches Gold-Spot-Turbo in EUR.');
+  if(!values||values.simpleSpotTurbo!==true||values.referenceConfirmed!==true)throw Error('Produktbedingungen und zusammengehörige Referenzwerte bestätigen. Unterstützt: einfaches Gold-Spot-Turbo in EUR oder CHF.');
   if(!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(values.isin||'')||!['LONG','SHORT'].includes(values.direction))throw Error('Produkt-ISIN oder Richtung fehlt.');
-  const x={isin:values.isin,direction:values.direction,simpleSpotTurbo:true,referenceConfirmed:true,currency:'EUR'};
+  const currency=values.currency||'EUR';if(!['EUR','CHF'].includes(currency))throw Error('Produktwährung muss EUR oder CHF sein.');
+  const x={isin:values.isin,direction:values.direction,simpleSpotTurbo:true,referenceConfirmed:true,currency};
   for(const k of ['bid','goldReference','fxReference','fxScenario','ratio','strike','ko','entry','quantity']){x[k]=Number(values[k]);if(!positive(x[k]))throw Error('Produktwert fehlt: '+k);}
   if(!Number.isInteger(x.quantity))throw Error('Stückzahl muss ganzzahlig sein.');
   for(const k of ['source','referenceAt']){x[k]=String(values[k]||'').trim();if(!x[k])throw Error('Produktnachweis fehlt: '+k);}
@@ -3890,14 +3895,15 @@ window.BobDegiro={productHelpState,renderProductHelp,calculatedLeverageEvidence,
   return positive(eur)?{available:true,price:eur,pnl:(eur-m.entry)*m.quantity}:{available:false,reason:'Kein positiver Modellkurs'};
  }
  function withFx(m,spots,now=Date.now()){
-  const fx=spots?.usd_eur_meta,rate=Number(fx?.rate),at=Date.parse(fx?.fetchedAt);
+  const fx=spots?.[m?.currency==='CHF'?'usd_chf_meta':'usd_eur_meta'],rate=Number(fx?.rate),at=Date.parse(fx?.fetchedAt);
   if(!m||!positive(rate)||!Number.isFinite(at)||at>now)return m;
   return {...m,fxScenario:rate,fxDetails:{...fx,delayed:!!fx.error||now-at>90000}};
  }
- function label(m,gold){const x=price(m,gold);return x.available?'≈ '+x.price.toFixed(4)+' EUR/Stück (geschätzt)'+(m.fxDetails?.delayed?' · FX-Aktualisierung verzögert':''):x.reason;}
+ function label(m,gold){const x=price(m,gold);return x.available?'≈ '+x.price.toFixed(4)+' '+(m.currency||'EUR')+'/Stück (geschätzt)'+(m.fxDetails?.delayed?' · FX-Aktualisierung verzögert':''):x.reason;}
  root.BobTradeProduct={model,price,label,withFx};
  if(typeof module!=='undefined')module.exports=root.BobTradeProduct;
 })(typeof window!=='undefined'?window:globalThis);
+
 
 /* Scenario estimates from a dated user reference; never executable quotes. */
 (function(){
@@ -3914,12 +3920,13 @@ function planInput(bundle,analysis,bars,direction,now=Date.now()){
  return {available:true,gold,atr,at:raw,source:b.primary||'XAU/USD Spot',historyAt:new Date(Number(last.openTime)+interval).toISOString(),direction};
 }
 function calculate(p){
- const out={available:false,reasons:[],rows:[],isEstimate:true,tradeable:false};
+ const out={available:false,reasons:[],rows:[],isEstimate:true,tradeable:false,currency:p.currency||'EUR'};
+ if(!['EUR','CHF'].includes(out.currency))out.reasons.push('Produktwährung EUR oder CHF fehlt');
  const required=['bid','goldReference','fxReference','fxScenario','ratio','strike','ko','entry','quantity','planGold','targetGold','stopGold'];
  const v=Object.fromEntries(required.map(k=>[k,num(p[k])]));
  if(!window.BobDegiro?.validIsin(p.isin))out.reasons.push('Gültige Produkt-ISIN fehlt');
  if(!['LONG','SHORT'].includes(p.direction))out.reasons.push('Long-/Short-Richtung fehlt');
- if(p.simpleSpotTurbo!==true)out.reasons.push('Einfaches Gold-Spot-Turbo in EUR ohne Quanto bestätigen; kein Future oder Optionsschein');
+ if(p.simpleSpotTurbo!==true)out.reasons.push('Einfaches Gold-Spot-Turbo in EUR oder CHF ohne Quanto bestätigen; kein Future oder Optionsschein');
  if(p.referenceConfirmed!==true||!String(p.source||'').trim()||!String(p.referenceAt||'').trim())out.reasons.push('Zusammengehörige Referenzwerte mit Quelle und Kurszeit bestätigen');
  for(const k of required)if(!(v[k]>0))out.reasons.push('Positiver Wert fehlt: '+k);
  if(v.quantity!==null&&!Number.isInteger(v.quantity))out.reasons.push('Stückzahl muss ganzzahlig sein');
@@ -3937,26 +3944,35 @@ function calculate(p){
 }
 function render(x){
  if(x.reasons.length)return '<div class="warning">Offen: '+x.reasons.map(esc).join(' · ')+'</div>';
- return '<b>Geschätzter Verkaufskurs pro Stück</b><table><tr><th>Szenario Gold USD</th><th>Geldkurs EUR/Stück</th><th>Erlös EUR</th><th>Gewinn/Verlust EUR</th></tr>'+x.rows.map(r=>'<tr><td>'+esc(r.label)+' · '+r.gold.toFixed(2)+'</td>'+(r.available?'<td>≈ '+r.price.toFixed(2)+'</td><td>≈ '+r.proceeds.toFixed(2)+'</td><td>≈ '+r.pnl.toFixed(2)+'</td>':'<td colspan="3">'+esc(r.reason)+'</td>')+'</tr>').join('')+'</table><div class="small">Referenz: '+esc(x.source)+' · '+esc(x.referenceAt)+' (Originalzeit; keine Sekunden ergänzt). Angenommener USD→EUR-Kurs am Ausstieg: '+x.fxScenario+'. Linearer Turbo-Ansatz mit konstantem Preisaufschlag, konstantem Basispreis und Bezugsverhältnis; ohne Gebühren, Steuern und künftige Finanzierung. KO-Berührung auf dem Weg, Preisstellung und Ausführung unbestätigt. Genauigkeit noch nicht gemessen. Kein bestätigter zukünftiger Geldkurs.</div><details><summary>Rechenweg</summary>'+esc(x.formula)+'</details>';
+ return '<b>Geschätzter Verkaufskurs pro Stück</b><table><tr><th>Szenario Gold USD</th><th>Geldkurs '+esc(x.currency||'EUR')+'/Stück</th><th>Erlös '+esc(x.currency||'EUR')+'</th><th>Gewinn/Verlust '+esc(x.currency||'EUR')+'</th></tr>'+x.rows.map(r=>'<tr><td>'+esc(r.label)+' · '+r.gold.toFixed(2)+'</td>'+(r.available?'<td>≈ '+r.price.toFixed(2)+'</td><td>≈ '+r.proceeds.toFixed(2)+'</td><td>≈ '+r.pnl.toFixed(2)+'</td>':'<td colspan="3">'+esc(r.reason)+'</td>')+'</tr>').join('')+'</table><div class="small">Referenz: '+esc(x.source)+' · '+esc(x.referenceAt)+' (Originalzeit; keine Sekunden ergänzt). Angenommener USD→'+esc(x.currency||'EUR')+'-Kurs am Ausstieg: '+x.fxScenario+'. Linearer Turbo-Ansatz mit konstantem Preisaufschlag, konstantem Basispreis und Bezugsverhältnis; ohne Gebühren, Steuern und künftige Finanzierung. KO-Berührung auf dem Weg, Preisstellung und Ausführung unbestätigt. Genauigkeit noch nicht gemessen. Kein bestätigter zukünftiger Geldkurs.</div><details><summary>Rechenweg</summary>'+esc(x.formula)+'</details>';
 }
 function init(){
  if(document.getElementById('bobExitEstimate'))return;
  const parent=document.getElementById('dgTop3');if(!parent)return;
  const panel=document.createElement('div');panel.id='bobExitEstimate';panel.className='card';
- const fields=[['isin','Produkt-ISIN','text'],['entry','Tatsächlicher Einstieg EUR/Stück','number'],['quantity','Stückzahl','number'],['bid','Geldkurs der Referenz EUR/Stück','number'],['goldReference','Gold Spot USD zur Referenz','number'],['fxReference','USD→EUR zur Referenz','number'],['source','Referenzquelle (z. B. DEGIRO-Screenshot)','text'],['referenceAt','Kurszeit laut Referenz','text'],['ratio','Bezugsverhältnis','number'],['strike','Basispreis USD','number'],['ko','KO-Barriere USD','number'],['planGold','Gold Spot USD für den Handelsplan','number'],['targetGold','Gold-Ziel USD','number'],['stopGold','Gold-Stop USD','number'],['fxScenario','Angenommener USD→EUR-Kurs am Ausstieg','number']];
- panel.innerHTML='<h3>Geschätzter Ausstiegskurs pro Stück</h3><div class="small">Referenz-Geldkurs und gleichzeitig beobachtete Gold-/FX-Werte eingeben oder aus vorhandenen Produktnachweisen übernehmen. Dieses Szenario ersetzt keinen aktuellen Verkaufskurs. Eingaben werden beim Berechnen auf diesem Gerät gespeichert.</div><div class="grid">'+fields.map(([k,l,t])=>'<div><label for="exit-'+k+'">'+l+'</label><input id="exit-'+k+'" data-exit="'+k+'" type="'+t+'" '+(t==='number'?'step="any" min="0"':'')+'></div>').join('')+'<div><label for="exit-direction">Produktrichtung</label><select id="exit-direction" data-exit="direction"><option value="">Auswählen</option><option>LONG</option><option>SHORT</option></select></div></div><label><input type="checkbox" data-exit="simpleSpotTurbo"> Einfaches Gold-Spot-Turbo in EUR, ohne Quanto; Bedingungen am Produkt geprüft</label><br><label><input type="checkbox" data-exit="referenceConfirmed"> Referenz-Geldkurs, Gold und FX gehören zeitlich zusammen; Quelle und Kurszeit geprüft</label><div class="grid"><button data-exit-reference>Produktnachweis übernehmen</button><button data-exit-plan>Ziel/Stop aus aktueller Goldanalyse</button><button data-exit-calculate>Verkaufskurse schätzen</button><button data-exit-monitor>Produkt-Trade überwachen / aktualisieren</button></div><div data-exit-output class="small">Noch keine Schätzung. Tatsächliche Position eingeben; keine Order oder Trade-Aktivierung.</div>';
+ const fields=[['isin','Produkt-ISIN','text'],['currency','Produktwährung (EUR oder CHF)','text'],['entry','Tatsächlicher Einstieg EUR/Stück','number'],['quantity','Stückzahl','number'],['bid','Geldkurs der Referenz EUR/Stück','number'],['goldReference','Gold Spot USD zur Referenz','number'],['fxReference','USD→EUR zur Referenz','number'],['source','Referenzquelle (z. B. DEGIRO-Screenshot)','text'],['referenceAt','Kurszeit laut Referenz','text'],['ratio','Bezugsverhältnis','number'],['strike','Basispreis USD','number'],['ko','KO-Barriere USD','number'],['planGold','Gold Spot USD für den Handelsplan','number'],['targetGold','Gold-Ziel USD','number'],['stopGold','Gold-Stop USD','number'],['fxScenario','Angenommener USD→EUR-Kurs am Ausstieg','number']];
+ panel.innerHTML='<h3>Geschätzter Ausstiegskurs pro Stück</h3><div class="small">Referenz-Geldkurs und gleichzeitig beobachtete Gold-/FX-Werte eingeben oder aus vorhandenen Produktnachweisen übernehmen. Dieses Szenario ersetzt keinen aktuellen Verkaufskurs. Eingaben werden beim Berechnen auf diesem Gerät gespeichert.</div><div class="grid">'+fields.map(([k,l,t])=>'<div><label for="exit-'+k+'">'+l+'</label><input id="exit-'+k+'" data-exit="'+k+'" type="'+t+'" '+(t==='number'?'step="any" min="0"':'')+'></div>').join('')+'<div><label for="exit-direction">Produktrichtung</label><select id="exit-direction" data-exit="direction"><option value="">Auswählen</option><option>LONG</option><option>SHORT</option></select></div></div><label><input type="checkbox" data-exit="simpleSpotTurbo"> Einfaches Gold-Spot-Turbo in EUR oder CHF, ohne Quanto; Bedingungen am Produkt geprüft</label><br><label><input type="checkbox" data-exit="referenceConfirmed"> Referenz-Geldkurs, Gold und FX gehören zeitlich zusammen; Quelle und Kurszeit geprüft</label><div class="grid"><button data-exit-reference>Produktnachweis übernehmen</button><button data-exit-plan>Ziel/Stop aus aktueller Goldanalyse</button><button data-exit-calculate>Verkaufskurse schätzen</button><button data-exit-monitor>Produkt-Trade überwachen / aktualisieren</button></div><div data-exit-output class="small">Noch keine Schätzung. Tatsächliche Position eingeben; keine Order oder Trade-Aktivierung.</div>';
  parent.after(panel);
+ const currencyInput=panel.querySelector('[data-exit="currency"]'),currencySelect=document.createElement('select');
+ currencySelect.id='exit-currency';currencySelect.dataset.exit='currency';currencySelect.innerHTML='<option>EUR</option><option>CHF</option>';currencyInput.replaceWith(currencySelect);
+ currencySelect.addEventListener('change',()=>{
+  for(const key of ['entry','bid','goldReference','fxReference','fxScenario','referenceAt','source'])panel.querySelector('[data-exit="'+key+'"]').value='';
+  for(const key of ['referenceConfirmed','simpleSpotTurbo'])panel.querySelector('[data-exit="'+key+'"]').checked=false;
+  panel.querySelector('[data-exit-output]').textContent='Währung geändert: Kaufkurs und Referenzwerte in der gewählten Währung ergänzen. Keine Beträge wurden umetikettiert.';
+ });
  const autoButton=document.createElement('button');autoButton.type='button';autoButton.dataset.tradeReferenceRetry='';autoButton.textContent='Fehlende Werte automatisch per ISIN abrufen';autoButton.onclick=automaticTradeReference;panel.append(autoButton);
  // Keep identity and actual position visible; technical references remain available.
  const reference=document.createElement('details'),summary=document.createElement('summary'),grid=document.createElement('div');
  summary.textContent='Referenzwerte und Produktbedingungen prüfen';grid.className='grid';reference.append(summary,grid);
  const positionGrid=panel.querySelector('.grid');
- for(const el of panel.querySelectorAll('[data-exit]'))if(!['isin','entry','quantity','direction','simpleSpotTurbo','referenceConfirmed'].includes(el.dataset.exit))grid.append(el.closest('div'));
+ for(const el of panel.querySelectorAll('[data-exit]'))if(!['isin','currency','entry','quantity','direction','simpleSpotTurbo','referenceConfirmed'].includes(el.dataset.exit))grid.append(el.closest('div'));
  positionGrid.after(reference);
  panel.querySelector('h3').textContent='2 · Kaufdaten ergänzen';
  const hint=document.createElement('p');hint.className='small';hint.id='bobTradeFormHint';reference.after(hint);
  const updateForm=()=>{
   const read=k=>panel.querySelector('[data-exit="'+k+'"]');
+  const currency=read('currency').value||'EUR';
+  for(const [key,label]of Object.entries({entry:'Tatsächlicher Einstieg '+currency+'/Stück',bid:'Geldkurs der Referenz '+currency+'/Stück',fxReference:'USD→'+currency+' zur Referenz',fxScenario:'Angenommener USD→'+currency+'-Kurs am Ausstieg'})){const l=panel.querySelector('label[for="exit-'+key+'"]');if(l)l.textContent=label;}
   const ready=/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(read('isin').value.trim().toUpperCase())&&Number(read('entry').value)>0&&Number.isInteger(Number(read('quantity').value))&&Number(read('quantity').value)>0&&['LONG','SHORT'].includes(read('direction').value)&&read('simpleSpotTurbo').checked&&read('referenceConfirmed').checked;
   const monitor=panel.querySelector('[data-exit-monitor]');monitor.disabled=!ready;
   monitor.textContent='3 · Produkt-Überwachung starten / aktualisieren';
@@ -3971,6 +3987,10 @@ function init(){
   const isin=get('isin').value.trim().toUpperCase()||document.getElementById('dgIsin')?.value.trim().toUpperCase();
   const r=window.BobDegiro.exitReference?.(isin);
   if(!r){panel.querySelector('[data-exit-output]').textContent='Kein zugehöriger Produktnachweis vorhanden. Referenzwerte manuell eintragen.';return;}
+  if((r.currency||'EUR')!==(get('currency').value||'EUR')){
+   if(Number(get('entry').value)>0){panel.querySelector('[data-exit-output]').textContent='Produktwährung weicht vom Kauf ab. Währung und Kaufkurs zuerst prüfen.';return;}
+   for(const k of ['bid','goldReference','fxReference','fxScenario','source','referenceAt'])get(k).value='';
+  }
   for(const [k,v] of Object.entries(r))if(get(k)&&v!==null&&v!==undefined&&v!=='')get(k).value=v;
   get('referenceConfirmed').checked=false;get('simpleSpotTurbo').checked=false;
   panel.querySelector('[data-exit-output]').textContent='Vorhandene Werte übernommen. Fehlende Referenzwerte und tatsächlichen Einstieg/Stückzahl ergänzen; Bedingungen und zeitliche Zuordnung prüfen.';
@@ -4006,14 +4026,15 @@ function selectProduct(isin){
  if(changed)for(const el of panel.querySelectorAll('[data-exit]')){if(el.type==='checkbox')el.checked=false;else el.value='';}
  get('isin').value=isin;
  const reference=window.BobDegiro.exitReference?.(isin);
- if(reference)for(const [key,value] of Object.entries(reference))if(get(key)&&!get(key).value&&value!==null&&value!==undefined)get(key).value=value;
+ if(reference&&(changed||(reference.currency||'EUR')===(get('currency').value||'EUR')))for(const [key,value] of Object.entries(reference))if(get(key)&&(key==='currency'||!get(key).value)&&value!==null&&value!==undefined)get(key).value=value;
  let saved;try{saved=JSON.parse(localStorage.getItem('bobExitScenarioV1')||'null');}catch(_){}
- if(saved?.isin===isin)for(const [key,value]of Object.entries(saved))if(get(key)&&get(key).type!=='checkbox'&&!get(key).value&&value!==null&&value!==undefined)get(key).value=value;
+ if(saved?.isin===isin&&(!get('currency').value||(saved.currency||'EUR')===get('currency').value))for(const [key,value]of Object.entries(saved))if(get(key)&&get(key).type!=='checkbox'&&!get(key).value&&value!==null&&value!==undefined)get(key).value=value;
  let receipt;try{receipt=JSON.parse(localStorage.getItem('bobTradeEvidenceV1')||'{}')[isin];}catch(_){}
- if(receipt?.isin===isin){
-  const known={entry:receipt.entry?.price,quantity:receipt.entry?.quantity,direction:receipt.direction,ratio:receipt.ratio,strike:receipt.strike,ko:receipt.ko};
+ if(receipt?.isin===isin&&(!get('currency').value||(receipt.currency||'EUR')===get('currency').value)){
+  const known={currency:receipt.currency||'EUR',entry:receipt.entry?.price,quantity:receipt.entry?.quantity,direction:receipt.direction,ratio:receipt.ratio,strike:receipt.strike,ko:receipt.ko};
   for(const [key,value]of Object.entries(known))if(!get(key).value&&value!==null&&value!==undefined)get(key).value=value;
  }
+ if(!get('currency').value)get('currency').value='EUR';
  // Stored confirmations are rechecked by the existing issuer/reference validation.
  panel.dispatchEvent(new Event('change',{bubbles:true}));
  automaticTradeReference();
@@ -4023,13 +4044,14 @@ function issuerTradeFields(x,isin){
  const m=x.metadata||{},model=x.productModel||{},c=x.conditions||{};
  if(m.status===2||m.tradingHalted===true)throw Error('Produkt beendet oder Handel ausgesetzt.');
  if(m.underlyingType!=='SPOT'&&model.underlying!=='XAU/USD')throw Error('Gold-Spot-Basiswert nicht bestätigt; kein Spot-Modell für Futures.');
- if(m.currency!=='EUR'&&x.currency!=='EUR')throw Error('Produktwährung EUR nicht bestätigt.');
- const fields={},put=(k,v)=>{if(num(v)>0)fields[k]=num(v);};
+ const currency=m.currency||x.currency;if(!['EUR','CHF'].includes(currency))throw Error('Produktwährung EUR/CHF nicht bestätigt.');
+ const fields={currency},put=(k,v)=>{if(num(v)>0)fields[k]=num(v);};
  for(const k of ['ratio','strike','ko'])put(k,c[k]?.value??model[k]??m[k]);
  if(['LONG','SHORT'].includes(m.direction||model.direction))fields.direction=m.direction||model.direction;
- const q=x.analysisQuote||x;
- if(num(q.bid)>0&&(q.bidAt||q.quoteAt)&&Number.isFinite(Date.parse(q.bidAt||q.quoteAt))){
-  fields.bid=num(q.bid);fields.referenceAt=q.bidAt||q.quoteAt;fields.source=(q.source||x.source||'Emittentenabfrage')+' · '+(x.sourceUrl||'')+' · Referenz für Berechnung, kein zugesicherter DEGIRO-Ausführungskurs';
+ const q=currency==='CHF'?(x.currency==='CHF'?x:x.nativeChartEvidence):x.analysisQuote||x;
+ if(!q||(q.currency||(currency==='EUR'?'EUR':null))!==currency)throw Error('Referenzkurs in '+currency+' fehlt; umgerechnete Kurse werden nicht als Originalkurs übernommen.');
+ if(num(q.bid)>0&&(q.bidAt||q.quoteAt||q.pointAt)&&Number.isFinite(Date.parse(q.bidAt||q.quoteAt||q.pointAt))){
+  fields.bid=num(q.bid);fields.referenceAt=q.bidAt||q.quoteAt||q.pointAt;fields.source=(q.source||x.source||'Emittentenabfrage')+' · '+(x.sourceUrl||'')+' · Referenz für Berechnung, kein zugesicherter DEGIRO-Ausführungskurs';
  }
  return fields;
 }
@@ -4047,6 +4069,7 @@ async function automaticTradeReference(){
   const x=await r.json();if(get('isin').value.trim().toUpperCase()!==isin)return;
   if(Object.entries(before).some(([key,value])=>(get(key).type==='checkbox'?get(key).checked:get(key).value)!==value)){out.textContent='Eingaben wurden während des Abrufs geändert und bleiben erhalten. Bitte den Abruf erneut starten.';return;}
   const fields=issuerTradeFields(x,isin);
+  if(fields.currency!==(get('currency').value||'EUR')&&Number(get('entry').value)>0)throw Error('Produktwährung ist '+fields.currency+'. Währung im Formular zuerst korrigieren und Kaufkurs in dieser Währung eingeben.');
   if(direction&&fields.direction&&direction!==fields.direction)throw Error('Produktrichtung widerspricht dem Kauf; keine Werte übernommen.');
   get('referenceConfirmed').checked=false;get('simpleSpotTurbo').checked=false;
   for(const [k,v] of Object.entries(fields))if(get(k))get(k).value=v;
@@ -4056,7 +4079,7 @@ async function automaticTradeReference(){
   if(get('isin').value.trim().toUpperCase()!==isin)return;
   const values=Object.fromEntries(Array.from(panel.querySelectorAll('[data-exit]')).map(el=>[el.dataset.exit,el.type==='checkbox'?el.checked:el.value.trim()]));
   localStorage.setItem('bobExitScenarioV1',JSON.stringify(values));
-  const unchanged=['direction','ratio','strike','ko','bid','referenceAt'].every(k=>fields[k]===undefined||String(get(k).value)===String(fields[k]));
+  const unchanged=['currency','direction','ratio','strike','ko','bid','referenceAt'].every(k=>fields[k]===undefined||String(get(k).value)===String(fields[k]));
   if(unchanged&&x.productModel?.verifiedSimpleTurbo===true&&x.productModel?.isin===isin&&evidence?.available===true&&evidence.originalTime===fields.referenceAt&&Number.isFinite(evidence.maxSkewSeconds)&&evidence.maxSkewSeconds>=0&&evidence.maxSkewSeconds<=90){
    values.simpleSpotTurbo=true;values.referenceConfirmed=true;
    get('simpleSpotTurbo').checked=true;get('referenceConfirmed').checked=true;
@@ -4071,13 +4094,13 @@ async function automaticTradeReference(){
 }
 function referenceHtml(x){
  const local=t=>new Date(t).toLocaleString('de-CH',{timeZone:'Europe/Zurich',hour12:false})+' Schweizer Zeit';
- return 'Gold-/FX-Werte übernommen: Gold '+esc(x.goldReference)+' USD · USD→EUR '+esc(x.fxReference)+'.<br>Gold-Beobachtung: '+esc(local(x.goldAt))+' · FX-Minute: '+esc(local(x.fxStart))+' bis '+esc(local(x.fxEnd))+' · maximaler Zeitversatz '+esc(x.maxSkewSeconds)+' Sekunden.<br><a href="'+esc(x.goldUrl)+'" target="_blank" rel="noopener">Goldquelle</a> · <a href="'+esc(x.fxUrl)+'" target="_blank" rel="noopener">FX-Quelle</a><br>'+esc(x.note)+'<br>Referenz in den Berechnungsdetails prüfen und bestätigen. Ziel/Stop ergänzen. Ausstiegs-FX zunächst konstant angenommen.';
+ return 'Gold-/FX-Werte übernommen: Gold '+esc(x.goldReference)+' USD · USD→'+esc(x.currency||'EUR')+' '+esc(x.fxReference)+'.<br>Gold-Beobachtung: '+esc(local(x.goldAt))+' · FX-Minute: '+esc(local(x.fxStart))+' bis '+esc(local(x.fxEnd))+' · maximaler Zeitversatz '+esc(x.maxSkewSeconds)+' Sekunden.<br><a href="'+esc(x.goldUrl)+'" target="_blank" rel="noopener">Goldquelle</a> · <a href="'+esc(x.fxUrl)+'" target="_blank" rel="noopener">FX-Quelle</a><br>'+esc(x.note)+'<br>Referenz in den Berechnungsdetails prüfen und bestätigen. Ziel/Stop ergänzen. Ausstiegs-FX zunächst konstant angenommen.';
 }
 function restoreReference(){
  const p=document.getElementById('bobExitEstimate');if(!p)return false;
  const get=k=>p.querySelector('[data-exit="'+k+'"]');
  try{const x=JSON.parse(localStorage.getItem('bobTradeMarketReferencesV1')||'{}')[get('isin').value];
- if(!x||x.at!==get('referenceAt').value||x.bid!==get('bid').value)return false;
+ if(!x||(x.currency||'EUR')!==(get('currency').value||'EUR')||x.at!==get('referenceAt').value||x.bid!==get('bid').value)return false;
  for(const k of ['goldReference','fxReference','fxScenario','source'])get(k).value=x[k];
  if(x.evidence)p.querySelector('[data-exit-output]').innerHTML=referenceHtml(x.evidence);return true;
  }catch(_){return false;}
@@ -4085,16 +4108,17 @@ function restoreReference(){
 async function researchReference(){
  const panel=document.getElementById('bobExitEstimate');if(!panel)return;
  const get=k=>panel.querySelector('[data-exit="'+k+'"]'),out=panel.querySelector('[data-exit-output]');
- const isin=get('isin').value,at=get('referenceAt').value,bid=get('bid').value,source=get('source').value.split(' · Historische Näherungsreferenz:')[0];
+ const currency=get('currency').value||'EUR',isin=get('isin').value,at=get('referenceAt').value,bid=get('bid').value,source=get('source').value.split(' · Historische Näherungsreferenz:')[0];
  if(!window.BobDegiro?.validIsin(isin)||!at||!(num(bid)>0)){out.textContent='Zuerst Produkt-ISIN und datierten Geldkurs übernehmen.';return;}
  get('referenceConfirmed').checked=false;out.textContent='Historische Gold-/FX-Referenz zur Originalzeit wird gesucht …';
  try{
-  const response=await fetch('/api/trade-reference?at='+encodeURIComponent(at),{cache:'no-store'}),x=await response.json();
-  if(get('isin').value!==isin||get('referenceAt').value!==at||get('bid').value!==bid)return;
+  const response=await fetch('/api/trade-reference?at='+encodeURIComponent(at)+'&currency='+encodeURIComponent(currency),{cache:'no-store'}),x=await response.json();
+  if(get('currency').value!==currency||get('isin').value!==isin||get('referenceAt').value!==at||get('bid').value!==bid)return;
   if(!response.ok||!x.available){out.textContent=x.reason||'Referenz fehlt.';return;}
+  if((x.currency||'EUR')!==currency)throw Error('Referenzwährung stimmt nicht überein');
   get('goldReference').value=x.goldReference;get('fxReference').value=x.fxReference;get('fxScenario').value=x.fxReference;
   get('source').value=source+' · Historische Näherungsreferenz: '+x.goldSource+' @ '+x.goldAt+'; '+x.fxSource+' @ '+x.fxStart+' bis '+x.fxEnd+'; Zeitzone Europe/Zurich angenommen; maximaler Zeitversatz '+x.maxSkewSeconds+' s';
-  try{const all=JSON.parse(localStorage.getItem('bobTradeMarketReferencesV1')||'{}');all[isin]={at,bid,goldReference:x.goldReference,fxReference:x.fxReference,fxScenario:x.fxReference,source:get('source').value,evidence:x};localStorage.setItem('bobTradeMarketReferencesV1',JSON.stringify(all));}catch(_){}
+  try{const all=JSON.parse(localStorage.getItem('bobTradeMarketReferencesV1')||'{}');all[isin]={currency,at,bid,goldReference:x.goldReference,fxReference:x.fxReference,fxScenario:x.fxReference,source:get('source').value,evidence:x};localStorage.setItem('bobTradeMarketReferencesV1',JSON.stringify(all));}catch(_){}
   out.innerHTML=referenceHtml(x);return x;
  }catch(_){if(get('isin').value===isin&&get('referenceAt').value===at)out.textContent='Referenzabruf fehlgeschlagen. Keine historischen Werte ersetzt.';}
 }
@@ -4109,13 +4133,15 @@ function number(v){let s=String(v||'').trim();if(s.includes(','))s=s.replace(/\.
 function parse(text){
  const raw=String(text||''),ids=[...new Set(raw.toUpperCase().match(/\b(?=[A-Z0-9]*[0-9])[A-Z]{2}[A-Z0-9]{10}\b/g)||[])].filter(x=>window.BobDegiro.validIsin(x));
  if(ids.length!==1)return{ok:false,reason:'Genau eine gültige ISIN muss im Bild sichtbar sein. Kursbild bitte mit ISIN erneut aufnehmen.'};
- const match=re=>{const m=raw.match(re);return m?m[1].trim():null;},val=label=>number(match(new RegExp('\\b(?:'+label+')(?!\\s*(?:Vol|Volumen))\\s*[:=]?\\s*(?:€|EUR)?\\s*([0-9]+(?:[.,][0-9]+)?)','i')));
+ const match=re=>{const m=raw.match(re);return m?m[1].trim():null;},val=label=>number(match(new RegExp('\\b(?:'+label+')(?!\\s*(?:Vol|Volumen))\\s*[:=]?\\s*(?:€|EUR|CHF)?\\s*([0-9]+(?:[.,][0-9]+)?)','i')));
  const time=match(/\b(\d{2}[/.]\d{2}[/.]\d{4},?\s+\d{2}:\d{2}(?::\d{2})?)\b/),direction=/\b(?:CALL|LONG)\b/i.test(raw)?'LONG':/\b(?:PUT|SHORT)\b/i.test(raw)?'SHORT':null;
- if(!/\bEUR\b|€/.test(raw)&&/\bGeld\b|\bBid\b|\bKauf\b/i.test(raw))return{ok:false,reason:'EUR-Währung am Original nachweisen.'};
+ const explicit=raw.match(/(?:Kurs|Geld|Brief|Bid|Ask)\s*[:=]?\s*(EUR|CHF)\b/i);
+ const currency=explicit?explicit[1].toUpperCase():/\bEUR\b|€/.test(raw)?'EUR':null;
+ if(!currency&&/\bGeld\b|\bBid\b|\bKauf\b/i.test(raw))return{ok:false,reason:'Produktwährung EUR oder CHF am Original nachweisen.'};
  if(/\b(?:CALL|LONG)\b/i.test(raw)&&/\b(?:PUT|SHORT)\b/i.test(raw))return{ok:false,reason:'Produktrichtung widersprüchlich.'};
  if((raw.match(/\b(?:Geld|Bid)(?!\s*(?:Vol|Volumen))/gi)||[]).length>1)return{ok:false,reason:'Mehrere Geldkurse: ein einziges Geld-/Briefpaar zeigen.'};
  const purchase=/\bKauf\b/i.test(raw)&&/Ausf.hrungsdatum|Transaktions.ID|Order.[I1l]?D/i.test(raw);
- const x={ok:true,isin:ids[0],direction,time,kind:purchase?'entry':/\bGeld\b|\bBid\b/i.test(raw)?'quote':'details'};
+ const x={ok:true,isin:ids[0],currency:currency||raw.match(/Produktwährung\s+(EUR|CHF)/)?.[1]||'EUR',direction,time,kind:purchase?'entry':/\bGeld\b|\bBid\b/i.test(raw)?'quote':'details'};
  if(purchase){x.entry=val('Kurs');x.quantity=val('Anzahl|Anz\\.');x.orderId=match(/Order.ID\s*[:=]?\s*([a-z0-9-]+(?:\s*\n\s*[a-z0-9-]+)?)/i)||match(/Transaktions.ID\s*[:=]?\s*(\d+)/i);x.feesChf=number(match(/(?:Gesamte Kosten|Gesamtgebühr)\s*CHF\s*-?\s*([0-9]+(?:[.,][0-9]+)?)/i));if(!(x.entry>0&&Number.isInteger(x.quantity)&&x.quantity>0&&time))return{ok:false,reason:'Kaufpreis, ganzzahlige Stückzahl oder Ausführungsdatum fehlt. OCR-Text am Original korrigieren.'};}
  else if(x.kind==='quote'){x.bid=val('Geld|Bid');x.ask=val('Brief|Ask');if(!(x.bid>0&&x.ask>=x.bid&&time))return{ok:false,reason:'Zusammengehörige Geld-/Briefkurse und originales Kursdatum fehlen.'};}
  x.ko=val('BAR|KO|K\\.O\\.-Schwelle|KO-Barriere');x.strike=val('BP|Basispreis');x.ratio=val('Bezugsverhältnis');return x;
@@ -4125,16 +4151,18 @@ function draft(raw){
  const ids=[...new Set(String(raw).toUpperCase().match(/\b(?=[A-Z0-9]*[0-9])[A-Z]{2}[A-Z0-9]{10}\b/g)||[])];
  const candidate=ids.length===1?ids[0]:'';
  const fallback=parse(String(raw).replace(candidate,'DE000FG5GUX2'));
- const val=label=>{const m=raw.match(new RegExp('\\b(?:'+label+')(?!\\s*(?:Vol|Volumen))\\s*[:=]?\\s*(?:€|EUR)?\\s*([0-9]+(?:[.,][0-9]+)?)','i'));return m?m[1]:'';};
- return {isin:candidate,kind:/\bKauf\b/i.test(raw)?'entry':/\bGeld\b|\bBid\b/i.test(raw)?'quote':'details',direction:/\bCall\b|\bLong\b/i.test(raw)?'LONG':/\bPut\b|\bShort\b/i.test(raw)?'SHORT':'',time:(raw.match(/\b\d{2}[/.]\d{2}[/.]\d{4},?\s+\d{2}:\d{2}(?::\d{2})?\b/)||[])[0]||'',entry:val('Kurs'),quantity:val('Anzahl'),feesChf:fallback.ok?fallback.feesChf??'':'',bid:val('Geld|Bid'),ask:val('Brief|Ask'),ko:val('BAR|KO|KO-Barriere'),strike:val('BP|Basispreis'),ratio:val('Bezugsverhältnis')};
+ const val=label=>{const m=raw.match(new RegExp('\\b(?:'+label+')(?!\\s*(?:Vol|Volumen))\\s*[:=]?\\s*(?:€|EUR|CHF)?\\s*([0-9]+(?:[.,][0-9]+)?)','i'));return m?m[1]:'';};
+ return {isin:candidate,currency:(raw.match(/(?:Kurs|Geld|Brief|Bid|Ask)\s*[:=]?\s*(EUR|CHF)\b/i)?.[1]||(/\bEUR\b|€/.test(raw)?'EUR':/\bCHF\b/.test(raw)?'CHF':'EUR')).toUpperCase(),kind:/\bKauf\b/i.test(raw)?'entry':/\bGeld\b|\bBid\b/i.test(raw)?'quote':'details',direction:/\bCall\b|\bLong\b/i.test(raw)?'LONG':/\bPut\b|\bShort\b/i.test(raw)?'SHORT':'',time:(raw.match(/\b\d{2}[/.]\d{2}[/.]\d{4},?\s+\d{2}:\d{2}(?::\d{2})?\b/)||[])[0]||'',entry:val('Kurs'),quantity:val('Anzahl'),feesChf:fallback.ok?fallback.feesChf??'':'',bid:val('Geld|Bid'),ask:val('Brief|Ask'),ko:val('BAR|KO|KO-Barriere'),strike:val('BP|Basispreis'),ratio:val('Bezugsverhältnis')};
 }
 function reviewed(v){
  if(!window.BobDegiro.validIsin(v.isin))return{ok:false,reason:'ISIN am Original korrigieren; eine unsichere OCR-ISIN wird nicht übernommen.'};
+ if(v.currency&&!['EUR','CHF'].includes(v.currency))return{ok:false,reason:'Produktwährung EUR oder CHF wählen.'};
+ const currency=v.currency||'EUR';
  const keys=['entry','quantity','feesChf','bid','ask','ko','strike','ratio'];
  for(const k of keys)if(String(v[k]??'').trim()!==''&&number(v[k])===null)return{ok:false,reason:'Ungültige Zahl: '+k};
- const lines=['ISIN '+v.isin,v.direction||'',v.time||''];
- if(v.kind==='entry')lines.push('Auftrag Kauf','Ausführungsdatum '+v.time,'Anzahl '+v.quantity,'Kurs EUR '+v.entry,'Gesamte Kosten CHF '+v.feesChf);
- else if(v.kind==='quote')lines.push('Geld EUR '+v.bid,'Brief EUR '+v.ask);
+ const lines=['ISIN '+v.isin,v.direction||'',v.time||'','Produktwährung '+currency];
+ if(v.kind==='entry')lines.push('Auftrag Kauf','Ausführungsdatum '+v.time,'Anzahl '+v.quantity,'Kurs '+currency+' '+v.entry,'Gesamte Kosten CHF '+v.feesChf);
+ else if(v.kind==='quote')lines.push('Geld '+currency+' '+v.bid,'Brief '+currency+' '+v.ask);
  else if(v.kind!=='details')return{ok:false,reason:'Bildtyp wählen.'};
  if(v.ko)lines.push('KO '+v.ko);if(v.strike)lines.push('Basispreis '+v.strike);if(v.ratio)lines.push('Bezugsverhältnis '+v.ratio);
  return parse(lines.join('\n'));
@@ -4142,6 +4170,8 @@ function reviewed(v){
 function merge(old,x,source){
  const out=JSON.parse(JSON.stringify(old||{isin:x.isin}));
  if(out.isin!==x.isin)throw Error('ISIN stimmt nicht überein');
+ if(old&&(old.currency||'EUR')!==(x.currency||'EUR'))throw Error('Produktwährung widerspricht gespeicherten Belegen; keine Beträge ersetzt.');
+ out.currency=x.currency||'EUR';
  if(x.kind==='entry'){
   if(out.entry&&JSON.stringify([out.entry.price,out.entry.quantity,out.entry.at])!==JSON.stringify([x.entry,x.quantity,x.time]))throw Error('Weiterer oder abweichender Kauf: Einstieg bleibt erhalten. Mehrere Ausführungen müssen gesondert zusammengeführt werden.');
   out.entry={price:x.entry,quantity:x.quantity,at:x.time,feesChf:x.feesChf,source,orderId:x.orderId};
@@ -4164,19 +4194,20 @@ function init(){
   // A different product must never inherit another product's model/reference.
   for(const e of exit.querySelectorAll('[data-exit]')){if(e.type==='checkbox')e.checked=false;else e.value='';}
   const r=window.BobDegiro.exitReference?.(t.isin),catalog=PRODUCT_REFERENCES[t.isin];if(r)for(const [k,v]of Object.entries(r))set(k,v);
-  set('isin',t.isin);set('direction',t.direction);set('entry',t.entry?.price);set('quantity',t.entry?.quantity);set('ko',t.ko??r?.ko);set('strike',t.strike??r?.strike);set('ratio',t.ratio??r?.ratio??catalog?.ratio);
+  set('isin',t.isin);set('currency',t.currency||'EUR');set('direction',t.direction);set('entry',t.entry?.price);set('quantity',t.entry?.quantity);set('ko',t.ko??r?.ko);set('strike',t.strike??r?.strike);set('ratio',t.ratio??r?.ratio??catalog?.ratio);
   if(t.quote){set('bid',t.quote.bid);set('source',t.quote.source);set('referenceAt',t.quote.at);set('goldReference','');set('fxReference','');set('fxScenario','');}
   const fields={entry:'Kaufbestätigung mit Preis und Stückzahl',quote:'Kursbild mit ISIN, Geld/Brief und Datum',direction:'Produktkopf mit Long/Short',ratio:'Produktdetails: Bezugsverhältnis',strike:'Produktdetails: Basispreis',ko:'Produktkopf: Barriere'};
   const missing=Object.entries(fields).filter(([k])=>!t[k]&&!(r&&r[k])&&!(catalog&&catalog[k])).map(([,v])=>v);
-  result.innerHTML='<b>'+esc(t.isin)+'</b> · '+esc(t.direction||'Richtung offen')+'<br>Einstieg: '+(t.entry?esc(t.entry.price)+' EUR × '+esc(t.entry.quantity)+' · '+esc(t.entry.at):'offen')+(t.entry?.feesChf!==null&&t.entry?.feesChf!==undefined?'<br>Kaufgebühren: '+esc(t.entry.feesChf)+' CHF':'')+'<br>Kursmomentaufnahme: '+(t.quote?esc(t.quote.bid)+' EUR Geld · '+esc(t.quote.at):'offen')+(t.entry&&t.quote?'<br>Rechnerischer G/V vor Kosten und FX: '+((t.quote.bid-t.entry.price)*t.entry.quantity).toFixed(2)+' EUR':'')+'<br>'+esc(missing.length?'Benötigtes Bild: '+missing.join(' · '):'Produktnachweise vorhanden.')+(catalog?'<br>Bezugsverhältnis: '+esc(catalog.ratio)+' · '+esc(catalog.source)+' <a target="_blank" rel="noopener" href="'+esc(catalog.url)+'">Quelle</a>':'')+'<br>Für die Ausstiegsschätzung: Gold-/USD→EUR-Referenz prüfen und Ziel/Stop übernehmen. Minutenzeiten sind keine sekundengenauen Echtzeitnachweise.';
+  result.innerHTML='<b>'+esc(t.isin)+'</b> · '+esc(t.direction||'Richtung offen')+'<br>Einstieg: '+(t.entry?esc(t.entry.price)+' '+esc(t.currency||'EUR')+' × '+esc(t.entry.quantity)+' · '+esc(t.entry.at):'offen')+(t.entry?.feesChf!==null&&t.entry?.feesChf!==undefined?'<br>Kaufgebühren: '+esc(t.entry.feesChf)+' CHF':'')+'<br>Kursmomentaufnahme: '+(t.quote?esc(t.quote.bid)+' '+esc(t.currency||'EUR')+' Geld · '+esc(t.quote.at):'offen')+(t.entry&&t.quote?'<br>Rechnerischer G/V vor Kosten und FX: '+((t.quote.bid-t.entry.price)*t.entry.quantity).toFixed(2)+' '+esc(t.currency||'EUR'):'')+'<br>'+esc(missing.length?'Benötigtes Bild: '+missing.join(' · '):'Produktnachweise vorhanden.')+(catalog?'<br>Bezugsverhältnis: '+esc(catalog.ratio)+' · '+esc(catalog.source)+' <a target="_blank" rel="noopener" href="'+esc(catalog.url)+'">Quelle</a>':'')+'<br>Für die Ausstiegsschätzung: Gold-/FX-Referenz in Produktwährung prüfen und Ziel/Stop übernehmen. Minutenzeiten sind keine sekundengenauen Echtzeitnachweise.';
   exit.querySelector('[data-exit-output]').textContent='Trade übernommen. Fehlende Referenzen prüfen; Verkaufskurse darunter schätzen.';
+  exit.dispatchEvent(new Event('change',{bubbles:true}));
   window.BobExitEstimate.restoreReference();
   if(lookup&&t.quote)window.BobExitEstimate.researchReference();
  };
  const refresh=isin=>{select.innerHTML=Object.keys(all).map(id=>'<option>'+esc(id)+'</option>').join('');if(isin)select.value=isin;fill(!!isin);};select.addEventListener('change',fill);refresh();
  p.querySelector('input').addEventListener('change',async e=>{const files=[...e.target.files];drafts=[];review.innerHTML='';if(files.length>4){result.textContent='Bitte höchstens vier Bilder gleichzeitig auswählen.';return;}
   for(const file of files){try{const o=await window.BobDegiro.recognizeOcr(file,'trade-ocr-status');drafts.push({source:file.name,raw:o.data.text});}catch(err){result.textContent='Bild '+file.name+': '+err.message;}}
-  const fields=[['isin','ISIN'],['time','Originaldatum und Uhrzeit'],['entry','Kaufpreis EUR/Stück'],['quantity','Stückzahl'],['feesChf','Kaufgebühren CHF'],['bid','Geldkurs EUR'],['ask','Briefkurs EUR'],['ko','Angezeigte Barriere USD'],['strike','Basispreis USD'],['ratio','Bezugsverhältnis']];
+  const fields=[['isin','ISIN'],['currency','Produktwährung EUR oder CHF'],['time','Originaldatum und Uhrzeit'],['entry','Kaufpreis in Produktwährung/Stück'],['quantity','Stückzahl'],['feesChf','Kaufgebühren CHF'],['bid','Geldkurs in Produktwährung'],['ask','Briefkurs in Produktwährung'],['ko','Angezeigte Barriere USD'],['strike','Basispreis USD'],['ratio','Bezugsverhältnis']];
   review.innerHTML=drafts.map((d,i)=>{const v=draft(d.raw);return '<fieldset data-trade-card="'+i+'"><legend>'+esc(d.source)+'</legend><label>Bildtyp<select data-review="kind"><option value="entry" '+(v.kind==='entry'?'selected':'')+'>Kaufbestätigung</option><option value="quote" '+(v.kind==='quote'?'selected':'')+'>Kursdaten</option><option value="details" '+(v.kind==='details'?'selected':'')+'>Produktdetails</option></select></label><label>Richtung<select data-review="direction"><option value="">Offen</option><option '+(v.direction==='LONG'?'selected':'')+'>LONG</option><option '+(v.direction==='SHORT'?'selected':'')+'>SHORT</option></select></label><div class="grid">'+fields.map(([k,l])=>'<label data-review-field="'+k+'">'+l+'<input data-review="'+k+'" value="'+esc(v[k])+'"></label>').join('')+'</div><div class="small">Leere oder unsichere Werte am Original ergänzen. Sekunden nicht erfinden. Barriere und Basispreis dürfen bei Produktdetails offen bleiben.</div><details><summary>Original-OCR-Text anzeigen</summary><pre style="white-space:pre-wrap">'+esc(d.raw)+'</pre></details></fieldset>';}).join('')+(drafts.length?'<label><input type="checkbox" id="trade-confirm"> ISIN, Preise, Stückzahl und Originalzeiten am Bild geprüft</label><button id="trade-save">Geprüfte Bilder übernehmen</button>':'');
   for(const card of review.querySelectorAll('[data-trade-card]')){const type=card.querySelector('[data-review="kind"]');const show=()=>{for(const el of card.querySelectorAll('[data-review-field]')){const k=el.dataset.reviewField;el.hidden=['entry','quantity','feesChf'].includes(k)?type.value!=='entry':['bid','ask'].includes(k)?type.value!=='quote':false;}};type.addEventListener('change',show);show();}
   review.querySelector('#trade-save')?.addEventListener('click',()=>{if(!review.querySelector('#trade-confirm').checked){result.textContent='Bitte erkannte Werte am Original prüfen und bestätigen.';return;}

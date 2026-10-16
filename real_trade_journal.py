@@ -27,6 +27,8 @@ def record_purchase(conn,t):
     """Persist a confirmed purchase independently of the monitoring model."""
     if t.get('active') or t.get('test'):raise ValueError('Kauferfassung aktiviert keine Überwachung')
     p=t.get('product') or {};e=t.get('purchase') or {}
+    currency=p.get('currency','EUR')
+    if currency not in ('EUR','CHF'):raise ValueError('Produktwährung muss EUR oder CHF sein')
     isin=str(p.get('isin','')).upper()
     if not re.fullmatch(r'[A-Z]{2}[A-Z0-9]{9}[0-9]',isin):raise ValueError('ISIN fehlt')
     if t.get('dir') not in ('LONG','SHORT'):raise ValueError('Richtung fehlt')
@@ -43,7 +45,7 @@ def record_purchase(conn,t):
         if isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or v<0:raise ValueError('CHF-Beträge fehlen')
     tid='degiro-purchase-'+tx
     snapshot={'tradeId':tid,'active':False,'recordOnly':True,'dir':t['dir'],
-      'product':{'isin':isin,'entry':p['entry'],'quantity':p['quantity']},
+      'product':{'isin':isin,'currency':currency,'entry':p['entry'],'quantity':p['quantity']},
       'purchase':{'transactionId':tx,'at':at.isoformat(),'feesCHF':e['feesCHF'],'totalCHF':e['totalCHF'],
       'source':'Vom Nutzer bestätigte DEGIRO-Ausführung'},'monitoringStatus':'pending-evidence'}
     previous=conn.execute('SELECT active,snapshot FROM bob_real_trades WHERE id=%s FOR UPDATE',(tid,)).fetchone()
@@ -107,18 +109,24 @@ def handle(conn,action,payload):
         execution=t.get('actualExecution')
         if execution is not None:
             if not isinstance(execution,dict) or active:raise ValueError('Ausführung erst nach Beendigung erfassen')
-            for k in ('entryEUR','exitEUR','quantity','feesEUR'):
+            currency=(t.get('product') or {}).get('currency','EUR')
+            if currency not in ('EUR','CHF'):raise ValueError('Produktwährung fehlt')
+            keys=('entry'+currency,'exit'+currency,'quantity','fees'+currency)
+            for k in keys:
                 v=execution.get(k)
-                if isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or (v<0 if k=='feesEUR' else v<=0):raise ValueError('Ungültige Ausführungswerte')
-            execution={k:execution[k] for k in ('entryEUR','exitEUR','quantity','feesEUR')}
-            execution['netEUR']=(execution['exitEUR']-execution['entryEUR'])*execution['quantity']-execution['feesEUR']
+                if isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or (v<0 if k.startswith('fees') else v<=0):raise ValueError('Ungültige Ausführungswerte in Produktwährung')
+            execution={k:execution[k] for k in keys}
+            execution['net'+currency]=(execution['exit'+currency]-execution['entry'+currency])*execution['quantity']-execution['fees'+currency]
             execution['source']='Vom Nutzer erfasst, nicht mit DEGIRO abgeglichen'
             t={**t,'actualExecution':execution}
         snapshot={k:t.get(k) for k in ('tradeId','active','dir','entry','stop','target','initialRisk','product','monitorStartedAt','closedAt','closeGoldReference','actualExecution','purchase','settlement')}
         settings=background_push.config({'timeframe':payload.get('timeframe','15m'),'trade':{**snapshot,'active':True,'instrument':'XAU/USD'} if active else None})
         previous=conn.execute('SELECT active,snapshot FROM bob_real_trades WHERE id=%s FOR UPDATE',(tid,)).fetchone()
+        if previous and previous[1].get('product') and (previous[1]['product'].get('currency','EUR')!=(snapshot.get('product') or {}).get('currency','EUR')):
+            raise ValueError('Produktwährung eines gespeicherten Trades darf nicht geändert werden')
         if t.get('settlement') is not None:
             if active:raise ValueError('Abrechnung nur für geschlossenen Trade')
+            if (snapshot.get('product') or {}).get('currency','EUR')!='EUR':raise ValueError('Für CHF-Produkte die native CHF-Ausführung erfassen')
             snapshot['settlement']=validate_settlement(t['settlement'],snapshot.get('actualExecution'))
         elif previous and previous[1].get('settlement'):
             snapshot['settlement']=previous[1]['settlement']
@@ -129,7 +137,7 @@ def handle(conn,action,payload):
             closed=conn.execute("SELECT snapshot FROM bob_real_trades WHERE active=FALSE AND snapshot->'settlement' IS NOT NULL").fetchall()
             if any(settled_purchase(old,row[0]) for row in closed):
                 raise ValueError('Dieser Kauf ist bereits durch einen bestätigten Verkauf abgeschlossen')
-            if old.get('dir')!=t.get('dir') or any((old.get('product') or {}).get(k)!=(t.get('product') or {}).get(k) for k in ('isin','entry','quantity')):
+            if (old.get('product') or {}).get('currency','EUR')!=(t.get('product') or {}).get('currency','EUR') or old.get('dir')!=t.get('dir') or any((old.get('product') or {}).get(k)!=(t.get('product') or {}).get(k) for k in ('isin','entry','quantity')):
                 raise ValueError('Überwachung passt nicht zum gespeicherten Kauf')
             snapshot['purchase']=old.get('purchase')
         if previous and previous[1].get('purchase'):snapshot['purchase']=previous[1]['purchase']
@@ -196,6 +204,7 @@ def sale_matches(snapshot, receipt):
     if receipt.get('status')!='pending-review' or receipt.get('side')!='SELL':return False
     if not isinstance(receipt.get('orderIdDigest'),str) or not re.fullmatch(r'[0-9a-f]{64}',receipt['orderIdDigest']):return False
     product=snapshot.get('product') or {}
+    if product.get('currency','EUR')!='EUR':return False  # EUR receipt prices must not close a native CHF position.
     if product.get('isin')!=receipt.get('isin') or product.get('quantity')!=receipt.get('quantity'):return False
     if not background_push.positive(receipt.get('priceEur')):return False
     try:

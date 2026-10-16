@@ -5,13 +5,15 @@
  const atMs=v=>typeof v==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(v)?Date.parse(v):NaN;
  const recent=(v,now,age)=>Number.isFinite(atMs(v))&&now>=atMs(v)&&now-atMs(v)<=age;
  const side=x=>x==='LONG'||x==='SHORT';
- function eligibleQuoteSources(q,isin,now=Date.now()){
+ function eligibleQuoteSources(q,isin,now=Date.now(),currency='EUR'){
   if(!q||q.isin!==isin||q.productVerified!==true||q.sourceDisabled
     ||q.metadata?.status!==1||q.metadata?.tradingHalted===true) return [];
+  if(!['EUR','CHF'].includes(currency))return [];
   const candidates=[];
+  const native=q.nativeChartEvidence?.currency===currency?{...q.nativeChartEvidence,isin,bidAt:q.nativeChartEvidence.pointAt,askAt:q.nativeChartEvidence.pointAt,source:q.nativeChartEvidence.source||q.source||'SG · CHF-Chart',priceKind:'issuer-chart',isExecutableQuote:false,degiroExecutable:false}:null;
   for(const [origin,row] of [['issuer',q],['comdirect',q.secondaryQuote],
-    ['analysis',q.analysisQuote],['swissquote',q.thirdQuote]]){
-   if(!row||row.isin!==isin||row.currency!=='EUR'||!positive(row.bid)
+    ['analysis',q.analysisQuote],['swissquote',q.thirdQuote],['native-chart',native]]){
+   if(!row||row.isin!==isin||row.currency!==currency||!positive(row.bid)
       ||!positive(row.ask)||row.ask<row.bid||!recent(row.bidAt,now,90000)
       ||!recent(row.askAt,now,90000)||row.delayed===true||row.estimated===true
       ||!String(row.source||'').trim()||['calculated','unavailable'].includes(row.priceKind)) continue;
@@ -23,7 +25,7 @@
      &&row.priceKind!=='issuer-chart'&&row.priceKind!=='research'&&row.researchOnly!==true;
    if(origin!=='issuer'&&(row.isExecutableQuote!==false||row.degiroExecutable!==false)) continue;
    if(origin==='issuer'&&!issuer&&row.isExecutableQuote!==false) continue;
-   candidates.push({isin,bid:row.bid,ask:row.ask,at:row.bidAt,askAt:row.askAt,
+   candidates.push({isin,currency,bid:row.bid,ask:row.ask,at:row.bidAt,askAt:row.askAt,
      source:row.source,venue:row.venue||'',origin,kind:issuer?'issuer':'research',chart:row.priceKind==='issuer-chart',
      delayed:false,error:false,degiroExecutable:false});
   }
@@ -34,8 +36,8 @@
  }
  // Every provider contributes only its OWN independently sourced timestamps.
  // Pairwise differences are observations, not proofs of executable broker quotes.
- function compareQuoteSources(q,isin,now=Date.now()){
-  const quotes=eligibleQuoteSources(q,isin,now);
+ function compareQuoteSources(q,isin,now=Date.now(),currency='EUR'){
+  const quotes=eligibleQuoteSources(q,isin,now,currency);
   const comparisons=[];
   for(let i=0;i<quotes.length;i++)for(let j=i+1;j<quotes.length;j++){
    const left=quotes[i],right=quotes[j];
@@ -54,17 +56,17 @@
   }
   return {isin,quotes,comparisons,automaticOrder:false,degiroExecutable:false};
  }
- function selectQuote(q,isin,now=Date.now()){
-  const comparison=compareQuoteSources(q,isin,now);
+ function selectQuote(q,isin,now=Date.now(),currency='EUR'){
+  const comparison=compareQuoteSources(q,isin,now,currency);
   return comparison.quotes.length?{...comparison.quotes[0],comparison}:null;
  }
  function evaluate({product,stopGold,targetGold,spots,quote,now=Date.now()}={}){
   const unavailable=(reason)=>({available:false,stage:'unavailable',reason,
     model:null,observed:null,degiroExecutable:false,automaticOrder:false});
-  if(!product||!side(product.direction)||product.currency!=='EUR'
+  if(!product||!side(product.direction)||!['EUR','CHF'].includes(product.currency)
     ||product.simpleSpotTurbo!==true||product.referenceConfirmed!==true
     ||!positive(stopGold)||!positive(targetGold))
-    return unavailable('Bestätigtes einfaches EUR-Gold-Spot-Turbo und Gold-Stopp-/Zielplan fehlen.');
+    return unavailable('Bestätigtes einfaches EUR-/CHF-Gold-Spot-Turbo und Gold-Stopp-/Zielplan fehlen.');
   const calc=root.BobTradeProduct;
   if(!calc)return unavailable('Produktrechner nicht geladen.');
   const stop=calc.price(product,stopGold),target=calc.price(product,targetGold);
@@ -72,9 +74,9 @@
     ||!(stop.price<product.entry&&target.price>product.entry))
     return unavailable('Stopp/Ziel im Produktkurs nicht verlässlich berechenbar (Produktbedingungen oder KO prüfen).');
   const result={available:true,stage:'waiting-market',reason:'Aktuelle Gold-/FX-Referenz fehlt.',
-    stopEur:stop.price,targetEur:target.price,currency:'EUR',
+    stopEur:stop.price,targetEur:target.price,currency:product.currency,
     model:null,observed:null,degiroExecutable:false,automaticOrder:false};
-  const fx=spots?.usd_eur_meta,stamp=spots?.spot_price_as_of;
+  const fx=spots?.[product.currency==='CHF'?'usd_chf_meta':'usd_eur_meta'],stamp=spots?.spot_price_as_of;
   if(spots?.is_genuine_xauusd_spot===true&&!spots?.spot_error
      &&recent(stamp,now,60000)&&positive(spots.xaus)
      &&positive(fx?.rate)&&!fx?.error&&recent(fx?.fetchedAt,now,90000)){
@@ -88,7 +90,7 @@
      const signal=current.price<=st.price?'model-stop-zone':
        current.price-st.price<=boundary?'model-stop-near':
        current.price>=tg.price?'model-target-zone':'model-ok';
-     result.model={signal,price:current.price,stopEur:st.price,targetEur:tg.price,
+     result.model={signal,currency:product.currency,price:current.price,stopEur:st.price,targetEur:tg.price,
        spotAt:stamp,fxFetchedAt:fx.fetchedAt,
        note:'Nur theoretisch: gleicher Gold-Spot-Datensatz, aktuelle FX-Abrufzeit, konstante Produktannahmen. Keine bestätigte Ausführung.'};
      result.stopEur=st.price;result.targetEur=tg.price;
@@ -97,7 +99,7 @@
     }
    }
   }
-  if(quote?.isin===product.isin&&quote.kind==='issuer'&&
+  if(quote?.isin===product.isin&&(quote.currency||'EUR')===product.currency&&quote.kind==='issuer'&&
      positive(quote.bid)&&positive(quote.ask)&&quote.ask>=quote.bid
      &&recent(quote.at,now,90000)&&recent(quote.askAt,now,90000)
      &&quote.error!==true&&quote.delayed!==true){
@@ -119,8 +121,8 @@
  }
  function instructions({isin,quantity,stopEur,currency='EUR'}={}){
   if(!/^[A-Z]{2}[A-Z0-9]{10}$/.test(isin||'')||
-     !Number.isSafeInteger(quantity)||quantity<=0||!positive(stopEur)||currency!=='EUR')
-     return {available:false,reason:'ISIN, ganze Stückzahl und bestätigter EUR-Modell-Stopp fehlen. Brokerkurs separat prüfen.'};
+     !Number.isSafeInteger(quantity)||quantity<=0||!positive(stopEur)||!['EUR','CHF'].includes(currency))
+     return {available:false,reason:'ISIN, ganze Stückzahl und bestätigter Produkt-Modell-Stopp fehlen. Brokerkurs separat prüfen.'};
   return {available:true,isin,quantity,stopEur,currency,
    steps:[
     '1. DEGIRO öffnen, im Portfolio die exakt gleiche ISIN und die gehaltene Stückzahl prüfen.',
@@ -155,7 +157,7 @@
    });
   }
   const v=evaluate({product,stopGold,targetGold,spots,quote,now});
-  const fmt=n=>positive(n)?n.toFixed(4)+' EUR/Stück':'nicht verfügbar';
+  const fmt=n=>positive(n)?n.toFixed(4)+' '+(product?.currency||'EUR')+'/Stück':'nicht verfügbar';
   panel.dataset.isin=product?.isin||'';
   panel.dataset.stop=v.model?String(Number(v.model.stopEur.toFixed(4))):'';
   const stage=panel.querySelector('[data-stop-stage]');
@@ -174,12 +176,12 @@
   const compareLines=rows.length?[
    rows.length+' aktuell datierte Kursquelle(n) dieser ISIN; kein DEGIRO-Ausführungsnachweis.',
    ...rows.map(row=>(row.kind==='issuer'?'Emittent':'Recherche')+' · '+row.source+
-     ' · Geld '+row.bid.toFixed(4)+' EUR ('+row.at+')'+
-     ' · Brief '+row.ask.toFixed(4)+' EUR ('+row.askAt+')'+
+     ' · Geld '+row.bid.toFixed(4)+' '+(row.currency||'EUR')+' ('+row.at+')'+
+     ' · Brief '+row.ask.toFixed(4)+' '+(row.currency||'EUR')+' ('+row.askAt+')'+
      (row.venue?' · '+row.venue:'')),
    ...(rows.length===comparison.quotes.length?comparison.comparisons.map(pair=>
      pair.sources.join(' / ')+' · Geld-Differenz '+pair.bidDifference.toFixed(4)+
-     ' EUR · Brief-Differenz '+pair.askDifference.toFixed(4)+' EUR'+
+     ' '+(product?.currency||'EUR')+' · Brief-Differenz '+pair.askDifference.toFixed(4)+' '+(product?.currency||'EUR')+
      (pair.divergent?' · Abweichung über 1 %':'')+
      (pair.sameVenue?' · gleicher gemeldeter Handelsplatz':' · Handelsplätze nicht gleich bestätigt')):[]),
    'Zeitvergleich nur bei höchstens 30 Sekunden Unterschied der getrennten Originalzeiten. Übereinstimmung ist keine Ausführungszusage.'
