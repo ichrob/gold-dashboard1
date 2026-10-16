@@ -1940,7 +1940,7 @@ def _agentmail_recovery_loop():
             print("BOB_EMAIL_RECOVERY status=error phase="+phase+
                   " kind="+type(exc).__name__+
                   " httpStatus="+str(http_status),flush=True)
-        time.sleep(300)
+        time.sleep(30)
 
 def start_agentmail_recovery():
     global _AGENTMAIL_RECOVERY_THREAD

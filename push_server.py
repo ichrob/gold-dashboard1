@@ -882,6 +882,8 @@ class Handler(BaseHTTPRequestHandler):
                     send_json(self, 401, {"error": "Unauthorized"})
                     return
                 bundle=payload.get('bundle') or {}
+                import trade_auto_monitor
+                trade_auto_monitor.enqueue(db,bundle)
                 paper_simulation.enqueue(bundle,db)
                 manual_paper_watch.enqueue(db)
                 sent = run_background(bundle)
