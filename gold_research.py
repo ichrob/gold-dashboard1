@@ -440,7 +440,8 @@ def _run():
             with _lock:_report=report
         except Exception as exc:
             print('BOB_YOUTUBE_COLLECT error='+type(exc).__name__,flush=True)
-        threading.Event().wait(refresh_interval())
+        pending = any(item.get('enhancements',{}).get('summaryRetryAfterSeconds') for item in (locals().get('report') or {}).get('items',[]))
+        threading.Event().wait(min(refresh_interval(),65) if pending else refresh_interval())
 
 def start():
     global _thread

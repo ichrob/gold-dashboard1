@@ -30,6 +30,10 @@ class DB:
 
 
 class ResearchTests(unittest.TestCase):
+    def setUp(self):
+        blocker=patch.object(r,'read_public_video',side_effect=OSError('offline fixture'))
+        blocker.start();self.addCleanup(blocker.stop)
+
     def test_summary_keeps_late_evidence(self):
         out = r.summary_checked({'sections': [{'label': 'Bedingung', 'text': 'Bullisch erst über 4100.', 'segmentIds': [1]}]}, SEGMENTS)
         self.assertEqual(out['sections'][0]['evidence'][0]['at'], 450)
@@ -77,6 +81,33 @@ class ResearchTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             r.summary_checked({'sections':[{'label':'Kursziel','text':'Der Chart zeigt 5000.','segmentIds':[0]}]},SEGMENTS,
                               frames=[bad])
+
+    def test_visual_association_requires_real_frame_near_cited_passage(self):
+        frame={'at':450,'dataUrl':'data:image/jpeg;base64,'+'A'*120}
+        data={'sections':[{'label':'Bedingung','text':'Gold über 4100.','segmentIds':[1]}],
+              'frameNotes':[{'frameId':0,'kind':'chart','sectionIds':[0],
+                             'description':'Der Chart veranschaulicht das besprochene Szenario.'}]}
+        result=r.summary_checked(data,SEGMENTS,frames=[frame])
+        self.assertEqual(result['visualNotes'][0]['sectionIds'],[0])
+        for changed in [dict(frame,at=400),dict(frame,isCover=True)]:
+            notes=r.summary_checked(data,SEGMENTS,frames=[changed])['visualNotes']
+            self.assertFalse(any(n.get('sectionIds') for n in notes))
+        data['frameNotes'][0]['description']='Der Chart zeigt 9000.'
+        notes=r.summary_checked(data,SEGMENTS,frames=[frame])['visualNotes']
+        self.assertNotIn('description',notes[0])
+
+    def test_summary_moments_follow_cited_passages_not_even_video_spacing(self):
+        summary={'sections':[{'label':'Bedingung','evidence':[SEGMENTS[1]]},
+                             {'label':'Wiederholung','evidence':[SEGMENTS[1]]}]}
+        self.assertEqual(r.summary_moments(summary),[{'at':450,'label':'Bedingung'}])
+
+    def test_minute_limit_schedules_retry_without_spending_another_request(self):
+        db=DB(row=('other',None,None,False,True,r.FRAME_FORMAT_VERSION,'retry_paused'),count=(2,1))
+        with patch.dict(os.environ,{'GEMINI_API_KEY':'secret','BOB_GEMINI_FREE_PROJECT':'confirmed-no-billing'},clear=True),patch.object(r,'generate') as ai:
+            result=r.handle(lambda:db,{'videoId':VIDEO,'channelId':r.CHANNEL,'segments':SEGMENTS})
+        self.assertEqual(result['summaryRetryAfterSeconds'],65)
+        ai.assert_not_called()
+        self.assertFalse(any('INSERT INTO bob_research_ai_requests' in q for q,_ in db.queries))
 
     def test_partial_grounding_retains_only_supported_sections(self):
         sections = [

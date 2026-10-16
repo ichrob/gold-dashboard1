@@ -282,7 +282,8 @@ def analyze(url, fetch=read_url, *, verified_item=None):
     identity=video_id(url);now=time.time()
     with _lock:
         saved=_cache.get(identity)
-        ttl=60 if saved and saved[1].get('enhancements',{}).get('unavailable') else 3600
+        extra=saved[1].get('enhancements',{}) if saved else {}
+        ttl=60 if extra.get('unavailable') or extra.get('summaryRetryAfterSeconds') else 3600
         if fetch is read_url and saved and now-saved[0]<ttl:return dict(saved[1])
     if not _busy.acquire(blocking=False):raise ValueError('YouTube-Prüfung läuft bereits; bitte später erneut versuchen')
     try:

@@ -105,3 +105,11 @@ Wenn YouTube keine öffentlich lesbaren Standbilder des verifizierten Videos lie
 Der dokumentierte Python-Client `requests` konnte für das zuvor blockierte Referenzvideo 119 englische Untertitelsegmente liefern; der bisherige urllib-Aufruf erhielt HTTP 403. Bob verwendet deshalb das dokumentierte Python-Verfahren ohne eigene Browserkennung, Cookies, Proxies, Weiterleitungen oder Zugangsdaten. Antwortgröße und Zeitlimits bleiben begrenzt. `requests` wird nur im Pushdienst importiert; der Scanner benötigt weiterhin keine zusätzliche Bibliothek.
 
 Eine Transportkennung erlaubt nach der Korrektur einen erneuten Versuch trotz alter urllib-Fehlerpause. Alle bisherigen FreeTranscriptAPI-Versuche zählen weiterhin gegen die unveränderten Stunden- und Video-Limits. Neue Fehlversuche pausieren wie zuvor. Produktionsnachweis bleibt getrennt von diesem erfolgreichen Entwicklungstest.
+
+## Zusammenfassung mit zugeordneten Videobildern (16. Oktober 2026)
+
+Die deutsche KI-Zusammenfassung zeigt nummerierte Aussagen mit ihren Untertitel-Belegen. Originale YouTube-Storyboardbilder werden über den normalen öffentlichen Requests-Client geladen. Bei einer Bildaktualisierung bestimmen vorhandene Zusammenfassungsbelege die gesuchten Zeitpunkte. Bilder werden einem Abschnitt nur bei höchstens 15 Sekunden Abstand ihrer tatsächlichen Bildzeit zu einem Textbeleg zugeordnet (zuvor bis 60 Sekunden anhand des gewünschten Zeitpunkts). Dasselbe Bild darf mehrere passende Abschnitte illustrieren.
+
+Die KI kann sichtbaren Bildinhalt knapp beschreiben und mit einem Abschnitt verknüpfen. Diese Zuordnung wird als KI-Bildbezug gekennzeichnet. Sie setzt echte Bilder, gültige Abschnittsnummern und Zeitnähe voraus; Titelbilder und frei erfundene Chartzahlen werden ausgeschlossen. Ohne passende Aufnahme bleibt die Originalstelle im Player erreichbar. Ein bloß zeitnahes Bild wird nicht als semantisch bestätigter Beleg ausgegeben.
+
+Ein durch die kostenlose Ein-Minuten-Sperre vertagter KI-Abruf erhält einen erneuten Hintergrundlauf nach 65 Sekunden statt bis zu einer Stunde im Analysecache zu verbleiben. Zehn KI-Versuche pro Tag, Ein-Minuten-Abstand und fehlgeschlagene 24h-Pausen bleiben unverändert; kein kostenpflichtiger Ersatz.
