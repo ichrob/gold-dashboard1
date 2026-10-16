@@ -132,6 +132,13 @@ def adapter_fx(source, now):
 def apply(result, now=None, fetch_spot=None, fetch_fx=None):
     """Attach a provenance-labelled display-only model, never replace quotes."""
     now=now or datetime.now(timezone.utc)
+    # A cached projection is an output, never an anchor or a reason to skip
+    # recalculation. Drop it before validation so expired/invalid inputs cannot
+    # leave yesterday's projection marked available. Keep caller data intact.
+    if (result.get('calculatedProduct') or {}).get('anchorKind') == 'research-hybrid':
+        result=dict(result)
+        result.pop('calculatedProduct',None)
+        result.pop('hybridModelState',None)
     model=model_for(result,now)
     if not model or result.get('eligible') is True:
         return result

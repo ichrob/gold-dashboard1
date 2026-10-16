@@ -12,6 +12,33 @@ from test_degiro_product_audit import provider, NOW
 
 
 class SourceRefreshTests(unittest.TestCase):
+    def test_calculated_price_refreshes_while_all_issuer_slots_are_busy(self):
+        from test_hybrid_product_price import record, inputs, BASE, ISIN
+        import hybrid_product_price as hybrid
+        from datetime import timedelta
+        spot,fx=inputs()
+        later=BASE+timedelta(seconds=40)
+        with patch.object(hybrid,'_ANCHORS',{}):
+            raw=hybrid.apply(record(),BASE,spot,fx)
+            with patch.object(sim,'_pool',Mock()), \
+                 patch.object(sim,'_pending',{str(i):Future() for i in range(4)}), \
+                 patch.object(sim,'_quotes',{ISIN:raw}),patch.object(sim,'_requested',{}), \
+                 patch('comdirect_fields.apply',side_effect=lambda q,i:q), \
+                 patch('comdirect_quotes.apply',side_effect=lambda q,i:q), \
+                 patch.object(swiss,'apply',side_effect=lambda q,i:q), \
+                 patch('leverage_backup.apply',side_effect=lambda q:q), \
+                 patch('spot_data.current',return_value={'price':4160,'at':later.isoformat()}), \
+                 patch('sg_quotes.market_input',return_value=dict(fx(),data_updated_at=later.isoformat(),
+                       effective_at={'EUR':later.isoformat()})), \
+                 patch.object(hybrid,'datetime',wraps=datetime) as clock:
+                clock.now.return_value=later
+                clock.fromisoformat=datetime.fromisoformat
+                result=sim.quote_cache([{'isin':ISIN}],[],later.timestamp()*1000)[ISIN]
+        self.assertAlmostEqual(result['calculatedProduct']['askEur'],14.24)
+        self.assertFalse(result['calculatedProduct']['isDegiroQuote'])
+        self.assertFalse(result['eligible'])
+        self.assertAlmostEqual(raw['calculatedProduct']['askEur'],13.32)
+
     def test_fields_are_harvested_before_issuer_slot_becomes_available(self):
         from test_comdirect_fields import HTML, ISIN as isin
         raw={'isin':isin,'sourceDisabled':False}
