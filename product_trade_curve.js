@@ -242,14 +242,15 @@
    '<button type="button" data-curve-zoom="all" aria-pressed="false" style="width:auto;flex:1 1 0;min-width:0;padding:8px 3px;font-size:12px;border:1px solid #94a3b8;border-radius:18px;background:#f8fafc;color:#0f172a">Stopp &amp; Ziel</button>'+
    '<button type="button" data-curve-fib aria-pressed="true" style="width:auto;flex:1 1 0;min-width:0;padding:8px 3px;font-size:12px;border:1px solid #94a3b8;border-radius:18px;background:#f1f5f9;color:#0f172a">Fibonacci ✓</button></div>'+
    '<canvas data-curve-chart width="900" height="430" style="width:100%;height:auto;border-radius:12px;background:#f8fafc;touch-action:manipulation" aria-label="Beobachteter Kursverlauf des Gold-Hebelprodukts in seiner Produktwährung. Stop und Ziel als berechnete Linien."></canvas>'+
-   '<div class="small" data-curve-quality role="status"></div>'+ 
-   '<div class="small" data-curve-background></div>'+ 
+   '<div class="small" data-curve-levels></div>'+
+   '<div class="small" data-curve-stop-review role="status"></div>'+
+   '<p data-curve-action role="status"></p>'+
+   '<details data-curve-evidence style="margin-top:10px"><summary style="font-size:13px;color:#475569;cursor:pointer">Kursnachweise, Preisabgleich &amp; Fibonacci</summary>'+
+   '<div class="small" data-curve-quality role="status"></div>'+
+   '<div class="small" data-curve-background></div>'+
    '<div class="small" data-curve-fib-note></div>'+
    '<div class="small" data-curve-picked aria-live="polite"></div>'+
-   '<div class="small" data-curve-levels></div>'+ 
-   '<div class="small" data-curve-stop-review role="status"></div>'+ 
-   '<p data-curve-action role="status"></p>'+
-   '<p class="small">Kurve ab Beginn dieser Aufzeichnung auf diesem Handy: echte datierte Anbieterbeobachtungen und klar gekennzeichnete Modellpunkte. Keine erfundene rückwirkende Historie, keine Ausführungskurse. Bei geschlossener App entstehen hier keine neuen Punkte. KO-Schwelle in Gold-USD, nicht auf der Produktpreisachse. Bob empfiehlt nur; du handelst selbst bei DEGIRO.</p>';
+   '<p class="small">Lokale Anbieter-/Modellpunkte und serverseitig datierte Modellpunkte ab Beginn der Überwachung. Keine erfundene Vergangenheit, keine ausführbaren DEGIRO-Kurse. Nur der bestätigte aktive Echtgeld-Trade wird im Hintergrund aufgezeichnet; bei Quellen- oder Serverausfall entstehen Lücken. KO-Schwelle in Gold-USD, nicht auf der Produktpreisachse. Bob schlägt vor, du handelst selbst bei DEGIRO.</p></details>';
   element.append(panel);canvas=panel.querySelector('canvas');
   panel.querySelectorAll('[data-curve-zoom]').forEach(button=>button.addEventListener('click',()=>{
    zoom=button.getAttribute('data-curve-zoom');
@@ -268,6 +269,7 @@
    const first=h.rows[0].at,last=h.rows.at(-1).at,span=Math.max(last-first,30000);
    const target=first+Math.max(0,Math.min(1,(x-82)/(canvas.width-114)))*span;
    picked=h.rows.reduce((best,v)=>!best||Math.abs(v.at-target)<Math.abs(best.at-target)?v:best,null);
+   panel.querySelector('[data-curve-evidence]').open=true;
    showPicked();
   });
  }
