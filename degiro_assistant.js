@@ -2764,6 +2764,26 @@ function productFieldStates(p,now=Date.now()){
   const aged=clocks.flatMap((t,i)=>Number.isFinite(t)&&now-t>(c?.maxAllowedInputAgeSeconds||90)*1000?[names[i]+' '+Math.floor((now-t)/60000)+' Min.']:[]);
   items.leverage.state=(c?.inputs?.basisEstimated?'CFD-basierte Schätzung':'berechneter Hebel')+' · Eingangsdaten: '+inputState+(aged.length?' ('+aged.join(', ')+')':'');
  }
+ // Use the same validated fallback as the main price display. A field is
+ // present even when calculated; its provenance is separate from presence.
+ // Fresh original observations retain precedence, including screenshots.
+ const calculated=calculatedProductDisplay(p,now);
+ if(calculated){
+  const current=f=>f&&n(f.value)>0&&Number.isFinite(f.ageSeconds)&&f.ageSeconds>=0&&f.ageSeconds<=90
+    &&!/(unbestätigt|veraltet|abweichend)/i.test(f.state);
+  for(const key of ['bid','ask'])if(!current(items[key])){
+   items[key]=from(key==='bid'?'Geld':'Brief',calculated[key],calculated.at,calculated.source,60000,'calculated');
+   items[key].state='berechnet · aktuell';
+  }
+  if(!current(items.leverage)){
+   const c=q.calculatedProduct;
+   const value=n(c.goldUsd)*n(c.usdEur)*n(c.ratio)/n(c.askEur);
+   if(Number.isFinite(value)&&value>0){
+    items.leverage=from('Hebel',value,calculated.at,calculated.source,60000,'calculated');
+    items.leverage.state='berechnet · aktuell';
+   }
+  }
+ }
  return items;
 }
 function renderProductFieldStates(p){
