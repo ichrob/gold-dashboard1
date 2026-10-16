@@ -189,6 +189,15 @@ body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 #paperSimulationPanel .row>*{min-width:0;flex-basis:100%}
 #paperSimulationPanel pre{white-space:pre-wrap;overflow-wrap:anywhere}
 }
+
+/* Smartphone push controls at the very top of Mein Trade. */
+.bob-mobile #bobTradePushControls .bob-trade-push-toggles{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.bob-mobile #bobTradePushControls .bob-trade-push-toggles .metric{min-width:0}
+.bob-mobile #bobTradePushControls .bob-trade-push-toggles label{font-size:14px;color:#18283c;font-weight:700}
+.bob-mobile #bobTradePushControls .bob-trade-push-toggles button[aria-pressed="true"]{background:#166534;color:#fff}
+.bob-mobile #bobTradePushControls .bob-trade-push-toggles button[aria-pressed="false"]{background:#e5e9ef;color:#334155}
+.bob-mobile #bobTradePushControls .row{flex-wrap:wrap}
+.bob-mobile #bobTradePushControls .row>button{min-width:130px}
 </style>
 </head>
 <body>
@@ -1490,8 +1499,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   panels.overview.prepend(status);
   const system=document.createElement('details');system.className='card';system.id='bobSystemDetails';system.innerHTML='<summary>Daten und Verbindung prüfen</summary>';
   panels.overview.append(system);
-  for(const el of [byId('analysisAge'),card('sourceSummary'),push])if(el)system.append(el);
-  if(push)fold(push.querySelector('.warning'),'Welche Nachrichten sendet Bob?');
+  for(const el of [byId('analysisAge'),card('sourceSummary')])if(el)system.append(el);
   const goldMarket=document.querySelector('.gold-market');
   if(goldMarket){goldMarket.classList.add('bob-top-quotes');panels.overview.prepend(goldMarket);}
   // Decision first; market prices and connectivity follow it.
@@ -1502,6 +1510,53 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   move(byId('economicTitle')?.closest('section'),'overview');fold(byId('economicTitle')?.closest('section'),'Wirtschaftstermine');
   const selection=document.createElement('div');selection.className='card';selection.innerHTML='<h3>Produktauswahl</h3><p id="bobSelectionSummary" class="small">Auswahl wird geprüft …</p><button type="button" class="bob-primary" data-view="products">Gold-Hebelprodukte ansehen</button>';quick.after(selection);
   move(byId('dgTop3'),'products');if(manual)manual.hidden=true;
+  // The original push controls are moved, not cloned: both buttons keep their
+  // existing notification, registration and server-preference handlers.
+  move(push,'trade');
+  if(push){
+   push.id='bobTradePushControls';
+   const heading=push.querySelector('h3');
+   if(heading)heading.textContent='🔔 Push-Nachrichten';
+   const pushGrid=push.querySelector('.grid');
+   pushGrid?.classList.add('bob-trade-push-toggles');
+   const names=pushGrid?.querySelectorAll('.metric label')||[];
+   if(names[0])names[0].textContent='Marktbeobachtung';
+   if(names[1])names[1].textContent='Aktiver Trade';
+   const registrationRow=push.querySelector('.row');
+   const testButton=registrationRow?.querySelector('button[onclick="testPush()"]');
+   const pushStatus=byId('pushStatus');
+   const advanced=document.createElement('details');advanced.className='bob-disclosure';
+   const advancedHeading=document.createElement('summary');
+   advancedHeading.textContent='Weitere Push-Einstellungen und Tests';
+   advanced.append(advancedHeading);
+   for(const child of [...push.children]){
+    if(child!==heading&&child!==pushGrid&&child!==registrationRow&&child!==pushStatus)advanced.append(child);
+   }
+   if(testButton)advanced.append(testButton);
+   const syncNotice=document.createElement('p');syncNotice.id='bobTradePushSyncStatus';
+   syncNotice.className='small';syncNotice.setAttribute('role','status');
+   syncNotice.setAttribute('aria-live','polite');
+   syncNotice.textContent='Ein/Aus schaltet die jeweilige Kategorie. Mit „Push aktualisieren“ wird die Einstellung mit dem Server abgeglichen.';
+   const refreshButton=document.createElement('button');refreshButton.type='button';
+   refreshButton.id='bobTradePushRefresh';refreshButton.textContent='↻ Push aktualisieren';
+   refreshButton.addEventListener('click',async()=>{
+    refreshButton.disabled=true;
+    syncNotice.textContent='⏳ Push-Einstellungen werden geprüft …';
+    try{
+     if(!window.BobPush?.state?.().serverRegistered){
+      const registered=await registerNotifications();
+      if(!registered){syncNotice.textContent='⚠️ Registrierung fehlgeschlagen. Meldung unten prüfen und erneut versuchen.';return;}
+     }
+     const synced=await syncPushPreferences();
+     syncNotice.textContent=synced?'✅ Push-Einstellungen am Server aktualisiert.':'⚠️ Server-Synchronisierung nicht bestätigt. Registrierung und Verbindung prüfen.';
+    }catch(_){syncNotice.textContent='⚠️ Push-Aktualisierung nicht möglich. Verbindung prüfen.';}
+    finally{refreshButton.disabled=false;}
+   });
+   if(registrationRow)registrationRow.append(refreshButton);
+   push.append(syncNotice);
+   if(pushStatus)push.append(pushStatus);
+   push.append(advanced);
+  }
   move(card('tradeStateBtn'),'trade');
   const guide=document.createElement('div');guide.className='card';guide.id='bobTradeGuide';guide.innerHTML='<h3>Trade erfassen · drei Schritte</h3><p class="small">Bob überwacht eine von dir erfasste Position. Einen Kauf führst du selbst bei DEGIRO aus.</p><p id="bobTradeNext" class="bob-short"></p><button type="button" class="bob-primary" data-view="products">1 · Produkt auswählen</button><button type="button" id="bobTradeOpen">2 · Einstieg und Stückzahl ergänzen</button><button type="button" id="bobTradeTestOpen">Trade-Test · Produkt auswählen</button>';panels.trade.append(guide);window.BobManualTradeTest?.mount(guide);fold(byId('bobTradeTestOpen'),'Fiktiven Trade testen');
   byId('bobTradeOpen').addEventListener('click',()=>{const upload=byId('bobExitEstimate');for(let node=upload;node;node=node.parentElement)if(node.tagName==='DETAILS')node.open=true;upload?.scrollIntoView({behavior:'smooth',block:'start'});byId('exit-entry')?.focus();});
@@ -1746,8 +1801,8 @@ let pushState=BobPush.state();
 function savePush(){pushState=BobPush.save(pushState);renderPush();}
 function renderPush(){
  const gb=$("generalPushBtn"),tb=$("tradePushBtn"),ts=$("tradeStateBtn"),tp=$("tradePushState"),ps=$("pushStatus");
- if(gb)gb.textContent=pushState.general?"🔔 Ein":"🔕 Aus";
- if(tb)tb.textContent=pushState.trade?"🔔 Ein":"🔕 Aus";
+ if(gb){gb.textContent=pushState.general?"🔔 Ein":"🔕 Aus";gb.setAttribute('aria-pressed',String(!!pushState.general));}
+ if(tb){tb.textContent=pushState.trade?"🔔 Ein":"🔕 Aus";tb.setAttribute('aria-pressed',String(!!pushState.trade));}
  if(ts)ts.textContent=pushState.activeTrade?"✅ Trade aktiv":"❌ Kein aktiver Trade";
  if(tp)tp.textContent=pushState.activeTrade?"Aktiv – Stop-Loss/Schließen":"Gesperrt – kein aktiver Trade";
  if(ps && pushState.serverRegistered)ps.textContent="✅ Geräte-Registrierung gespeichert. Aktuelle Verbindung wird beim Synchronisieren geprüft.";
@@ -1845,7 +1900,9 @@ async function togglePush(kind){
  try{
    if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
    pushState=BobPush.set(kind,!pushState[kind]);renderPush();
-   await syncPushPreferences();
+   const synced=await syncPushPreferences();
+   const note=$("bobTradePushSyncStatus");
+   if(note)note.textContent=synced?'✅ Push-Einstellung am Server aktualisiert.':'⚠️ Einstellung lokal geändert; Server-Push nicht bestätigt. Bitte „Push aktualisieren“ antippen.';
  }catch(e){
    $("pushStatus").textContent="❌ "+(e?.message||"Push-Einstellung konnte nicht geändert werden.");
  }
