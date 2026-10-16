@@ -99,7 +99,15 @@
   try{const v=JSON.parse(root.localStorage?.getItem(STORE)||'null');return v&&typeof v==='object'?v:null;}catch(_){return null;}
  }
  function save(h){try{root.localStorage?.setItem(STORE,JSON.stringify(h));}catch(_){}}
- let panel=null,canvas=null,picked=null,lastResult=null,lastHistory=null;
+ function fibonacci(rows){
+  const p=(Array.isArray(rows)?rows:[]).filter(x=>x&&positive(x.price)&&finite(x.at)).sort((a,b)=>a.at-b.at);
+  if(p.length<6||new Set(p.map(x=>x.at)).size<6||p.at(-1).at-p[0].at<120000)return null;
+  let low=p[0],high=p[0];for(const x of p){if(x.price<low.price)low=x;if(x.price>high.price)high=x;}
+  const d=high.price-low.price;if(d<Math.max(.03,high.price*.0015))return null;
+  const rising=low.at<high.at;
+  return {low:low.price,high:high.price,rising,levels:[0,.236,.382,.5,.618,.786,1].map(r=>({ratio:r,price:rising?high.price-r*d:low.price+r*d}))};
+ }
+ let panel=null,canvas=null,picked=null,lastResult=null,lastHistory=null,zoom='price',showFib=true;
  function mount(element){
   if(!root.document||!element||panel)return;
   panel=root.document.createElement('section');panel.id='bobProductCurvePanel';panel.className='card';
@@ -197,6 +205,6 @@
   if(repaint)draw(result,h);
   showPicked();
  }
- root.BobProductCurve={assess,addObservation,mount,update};
- if(typeof module!=='undefined'&&module.exports)module.exports={assess,addObservation};
+ root.BobProductCurve={assess,addObservation,fibonacci,mount,update};
+ if(typeof module!=='undefined'&&module.exports)module.exports={assess,addObservation,fibonacci};
 })(typeof window!=='undefined'?window:globalThis);
