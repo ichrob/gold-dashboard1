@@ -173,10 +173,23 @@
   ctx.lineWidth=1;ctx.font='16px system-ui';
   for(let i=0;i<=4;i++){const v=min+(max-min)*i/4,py=y(v);
    line(ctx,[[x0,py],[x1,py]],'#dde5ed');ctx.fillStyle='#475569';ctx.fillText(v.toFixed(2),5,py+5);}
+  const fib=fibonacci(rows);
+  if(showFib&&fib){
+   for(const level of fib.levels){
+    const py=y(level.price);if(py<y0||py>y1)continue;
+    line(ctx,[[x0,py],[x1,py]],'#b98739',[5,7]);
+    ctx.fillStyle='#98651f';ctx.font='13px system-ui';
+    ctx.fillText('F '+(level.ratio*100).toFixed(1)+'% · '+level.price.toFixed(2),x0+8,Math.max(y0+16,py-6));
+   }
+  }
+  ctx.font='17px system-ui';
   for(const [name,value,color] of [['Stopp ≈',result?.stop,'#b91c1c'],['Ziel ≈',result?.target,'#15803d']]){
    if(!positive(value))continue;
-   const py=y(value);line(ctx,[[x0,py],[x1,py]],color,[9,7]);
-   ctx.fillStyle=color;ctx.fillText(name+' '+value.toFixed(2),x0+5,py-7);
+   const below=value<min,above=value>max,py=y(Math.max(min,Math.min(max,value)));
+   if(!below&&!above)line(ctx,[[x0,py],[x1,py]],color,[9,7]);
+   ctx.fillStyle=color;
+   ctx.fillText(name+' '+value.toFixed(2)+(above?' ↑':below?' ↓':''),x0+5,
+    above?y0+18:below?y1-10:Math.max(y0+18,py-7));
   }
   if(rows.length<2){ctx.fillStyle='#64748b';ctx.fillText('Verlauf wird ab jetzt aufgezeichnet …',x0+15,y1-30);}
   for(let i=1;i<rows.length;i++){
