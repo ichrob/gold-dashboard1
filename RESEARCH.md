@@ -12,15 +12,17 @@ Offene Grenze: Beim real geprüften Video GB1n0fEkfn4 liefert der direkte Server
 
 Tests decken Kanal-/Themenfilter, gleichnamige Videos, Kanal-Fallback ohne Empfehlungen, Ausschluss alter Fremdquellen, Alternativspur, leere Antworten und Erhalt von Bedingungen im Kontext ab.
 
-## Optionaler zusätzlicher Transkript-Zugang (vorbereitet, noch kein Live-Nachweis)
+## Kostenloser zusätzlicher Transkript-Zugang (16. Oktober 2026)
 
-`research_transcript_provider.py` bindet Supadata über dessen dokumentierten nativen Transkript-Endpunkt an. Der Schlüssel `SUPADATA_API_KEY` gehört ausschließlich in die Umgebung des bestehenden Push-/Speicherdiensts. Keine Schlüssel im Browser, Repository oder Chat. Ohne Schlüssel bleibt der Dienst deaktiviert.
+`research_transcript_provider.py` verwendet jetzt den dokumentierten anonymen Zugang von **FreeTranscriptAPI** (`https://api.freetranscriptapi.com/v1/transcript`). Kein Konto, API-Schlüssel, Abo, Kreditkartenhinterlegung oder automatischer kostenpflichtiger Ersatz. Ein eventuell noch gesetzter `SUPADATA_API_KEY` wird nicht gelesen oder gesendet. Übermittelt werden ausschließlich öffentliche, zuvor geprüfte MCO-Video-IDs. Der interne Endpunkt bleibt tokenpflichtig.
 
-Die bestehende interne Tokenprüfung schützt den neuen Endpunkt. Die Hauptanwendung bestätigt zuvor Kanal-ID und Gold-Titel. Übermittelt werden nur öffentliche MCO-Video-IDs. Bei leerem Direktabruf fragt Bob vorhandene Untertitel mit `mode=native` an; keine Audio-Generierung, Übersetzung, automatische Aufladung oder Tarifänderung. Die Datenbank reserviert jeden Versuch vor der Anfrage, begrenzt auf 90 Versuche in rollenden 31 Tagen, speichert erfolgreiche Texte dauerhaft und pausiert fehlgeschlagene Videoabrufe 24 Stunden. Auch fehlgeschlagene Versuche zählen lokal. Das Limit bezieht sich nur auf Bob; weitere Nutzer desselben API-Schlüssels teilen das Anbieterkontingent.
+Bob reserviert Versuche in PostgreSQL unter einer Transaktionssperre: maximal **18 Versuche pro rollender Stunde** (Anbietergrenze 20/h/IP), drei Versuche pro Video/24h und eine Stunde Pause nach Fehlern. HTTP 402/429 pausiert alle neuen Anbieterabrufe eine Stunde; danach wird im regulären Lauf erneut geprüft. Das globale kostenlose Tageslimit des Anbieters kann längere Wartezeiten verursachen. Fehlversuche zählen mit. Es gibt keinen Wechsel auf bezahlte Credits.
 
-Aktivierung: kostenlosen Supadata-Zugang anlegen, Schlüssel im Render-Pushdienst hinterlegen, dann das Beispiel GB1n0fEkfn4 und ein neues MCO-Gold-Video vollständig testen. Der Free-Tarif weist derzeit 100 monatliche Credits ohne Kreditkarte aus. Das ist keine Erfolgsgarantie für konkrete Videos. Ohne diesen Live-Test ist die automatische Inhaltsanalyse nicht als behoben zu melden.
+Erfolgreiche Texte werden gespeichert und wiederverwendet. Historische Supadata-Texte bleiben verwendbar; alte Supadata-Fehlversuche blockieren den neuen Anbieter nicht. Die Migration ergänzt Anbieterkennungen, löscht keine Nachweise und setzt keine Limits desselben Anbieters zurück. Zeitmarken des neuen Anbieters sind Sekunden, nicht Millisekunden.
 
-Dokumentation: https://supadata.ai/pricing und https://github.com/supadata-ai/skills/blob/main/skills/supadata/references/video.md
+Die Anbindung ist unabhängig von einem erfolgreichen Live-Abruf zu bewerten: Der erste Probeabruf aus der Entwicklungsumgebung wurde mit HTTP 403 abgewiesen. Erst ein erfolgreicher Abruf im Betrieb bestätigt die Versorgung. Sichere Betriebslogs nennen Anbieter, Fehlercode oder Segmentanzahl, niemals Untertiteltexte oder Zugangsdaten.
+
+Anbieterdokumentation: https://freetranscriptapi.com/docs (20/h/IP anonym, gemeinsames Tageslimit 100.000). Kostenlose Verfügbarkeit kann sich ändern; dann pausiert Bob, statt einen Kauf auszulösen.
 
 ## Fehlerbehebung 8. Oktober 2026
 

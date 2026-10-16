@@ -1,4 +1,4 @@
-"""Optional native-caption provider, disabled until a server-side key is configured.
+"""Free anonymous native-caption provider; no account or API key required.
 Public video IDs only. No paid mode, auto recharge, proxies, or client cookies.
 """
 import json
@@ -11,11 +11,12 @@ import urllib.error
 from urllib.parse import urlencode
 from bob_auth import NoRedirect
 
+PROVIDER='freetranscriptapi'
 CHANNEL='UCsl6Z6p7GOkczo8Cv-GH6Dg'
 MAX_BYTES=600000
 ERRORS = {
-    'provider_auth': 'Supadata weist den API-Schlüssel zurück (HTTP 401). Schlüssel und Anbieter-Konto prüfen.',
-    'provider_forbidden': 'Supadata kann auf dieses Video nicht zugreifen (HTTP 403). Andere Videos werden weiter geprüft.',
+    'provider_auth': 'FreeTranscriptAPI weist den kostenlosen Zugang zurück (HTTP 401). Kein kostenpflichtiger Wechsel.',
+    'provider_forbidden': 'FreeTranscriptAPI verweigert den Abruf (HTTP 403). Zugriff oder Video derzeit nicht verfügbar.',
     'provider_auth_paused': 'Transkript-Dienst hat zuletzt die Berechtigung zurückgewiesen. Zum Schutz des kostenlosen Kontingents wird höchstens alle sechs Stunden erneut probiert.',
     'provider_limit_paused': 'Transkript-Dienst meldete eine Kontingent- oder Ratenbegrenzung. Bob pausiert neue Versuche eine Stunde.',
     'provider_limit': 'Transkript-Dienst: Kontingent oder Abrufrate erreicht.',
@@ -23,11 +24,11 @@ ERRORS = {
     'provider_video': 'Transkript-Dienst kann für dieses Video derzeit keinen Text liefern.',
     'provider_invalid': 'Transkript-Dienst liefert keinen verwendbaren deutschen oder englischen Text.',
     'provider_pending': 'Transkript-Dienst hat den Text noch nicht bereitgestellt.',
-    'not_configured': 'SUPADATA_API_KEY ist im Transkript-Dienst noch nicht eingerichtet.',
+    'not_configured': 'Transkript-Dienst ist noch nicht eingerichtet.',
     'not_retained': 'Dieses Video ist nicht mehr unter den drei neuesten MCO-Gold-Videos gespeichert.',
     'cooldown': 'Nach einem fehlgeschlagenen Abruf pausiert dieses Video eine Stunde. Andere Videos werden weiter geprüft.',
     'video_limit': 'Für dieses Video wurden die drei Abrufversuche innerhalb von 24 Stunden erreicht. Bob versucht es später automatisch erneut.',
-    'local_limit': 'Bob-Abruflimit erreicht: maximal 90 Versuche innerhalb von 31 Tagen. Keine automatische Aufladung.',
+    'local_limit': 'Bob-Abruflimit erreicht: maximal 18 Versuche pro Stunde. Automatische Fortsetzung, keine Kosten.',
 }
 
 class TranscriptError(ValueError):
@@ -47,32 +48,34 @@ def init(conn):
     # Track provider-wide failure classification, never provider bodies or keys.
     # Backoff stays durable across rolling Render restarts.
     conn.execute('ALTER TABLE bob_research_requests ADD COLUMN IF NOT EXISTS error_code TEXT')
+    # Historical reservations belong to Supadata; they must not block the new provider.
+    conn.execute("ALTER TABLE bob_research_requests ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'supadata'")
+    conn.execute("ALTER TABLE bob_research_transcripts ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'supadata'")
 
 
 def parse(data):
-    if not isinstance(data,dict) or not isinstance(data.get('content'),list):raise ValueError('Transkript-Dienst liefert keinen verwendbaren Text')
-    language=data.get('lang')
+    if not isinstance(data,dict) or not isinstance(data.get('transcript'),list):raise ValueError('Transkript-Dienst liefert keinen verwendbaren Text')
+    language=data.get('language')
     if not isinstance(language,str) or language.split('-')[0] not in ('de','en'):raise ValueError('Transkript-Sprache wird nicht unterstützt')
     segments=[];size=0
-    for row in data['content']:
+    for row in data['transcript']:
         if not isinstance(row,dict):raise ValueError('Ungültige Transkriptzeile')
-        text=row.get('text');at=row.get('offset')
-        if not isinstance(text,str) or isinstance(at,bool) or not isinstance(at,(float,int)) or not math.isfinite(at) or not 0<=at<=86400000:raise ValueError('Ungültige Transkriptzeile')
+        text=row.get('text');at=row.get('start')
+        if not isinstance(text,str) or isinstance(at,bool) or not isinstance(at,(float,int)) or not math.isfinite(at) or not 0<=at<=86400:raise ValueError('Ungültige Transkriptzeile')
         row_language=row.get('lang',language)
         if not isinstance(row_language,str) or row_language.split('-')[0]!=language.split('-')[0]:raise ValueError('Gemischte Transkriptsprachen')
         size+=len(text)
         if size>200000 or len(segments)>=30000:raise ValueError('Transkript zu groß')
-        if text.strip():segments.append({'at':at/1000,'text':text.strip()})
+        if text.strip():segments.append({'at':at,'text':text.strip()})
     if len(' '.join(s['text'] for s in segments).split())<40:raise ValueError('Transkript zu kurz')
-    return {'segments':segments,'language':language,'provider':'Supadata · vorhandene YouTube-Untertitel'}
+    return {'segments':segments,'language':language,'provider':'FreeTranscriptAPI · vorhandene YouTube-Untertitel'}
 
 
-def fetch(identity,key):
-    # MCO videos are commonly in English. Let Supadata choose the first existing
-    # native caption language instead of requesting German and rejecting English-only captions.
-    # Keep mode=native: no AI transcription costs or automatic paid fallback.
-    url='https://api.supadata.ai/v1/transcript?'+urlencode({'url':'https://www.youtube.com/watch?v='+identity,'mode':'native','text':'false'})
-    request=urllib.request.Request(url,headers={'x-api-key':key,'Accept':'application/json'})
+def fetch(identity):
+    # Documented anonymous endpoint. Never send old Supadata credentials, request
+    # AI generation, follow redirects, or switch to a paid/account-credit endpoint.
+    url='https://api.freetranscriptapi.com/v1/transcript?'+urlencode({'video_url':identity,'lang':'en','format':'json'})
+    request=urllib.request.Request(url,headers={'Accept':'application/json'})
     try:
         with urllib.request.build_opener(NoRedirect()).open(request,timeout=15) as response:
             if response.status!=200:raise TranscriptError('provider_pending')
@@ -94,41 +97,38 @@ def fetch(identity,key):
 def handle(connect,payload,fetcher=fetch):
     identity=payload.get('videoId','')
     if not isinstance(identity,str) or not re.fullmatch(r'[A-Za-z0-9_-]{11}',identity) or payload.get('channelId')!=CHANNEL:raise ValueError('Ungültige MCO-Videozuordnung')
-    # Render env values copied with surrounding whitespace must not break API auth.
-    # Only normalize accidental whitespace; never print, hash, or disclose the key.
-    key=os.environ.get('SUPADATA_API_KEY','').strip()
-    if not key:raise TranscriptError('not_configured')
     claim=secrets.token_hex(16)
     # Durable quota, reservations and cooldown survive rolling deployments.
-    # Count attempts conservatively, including failures: <=90 per rolling 31 days.
+    # Count failures too: <=18 per rolling hour, below the anonymous 20/h limit.
     with connect() as conn:
         import youtube_feed_archive
         if not youtube_feed_archive.is_retained(conn, identity):
             raise TranscriptError('not_retained')
         conn.execute('SELECT pg_advisory_xact_lock(68431029)')
-        row=conn.execute('SELECT result,attempted_at>now()-interval \'1 hour\' FROM bob_research_transcripts WHERE video_id=%s',(identity,)).fetchone()
+        row=conn.execute('SELECT result,(provider=\'freetranscriptapi\' AND attempted_at>now()-interval \'1 hour\') FROM bob_research_transcripts WHERE video_id=%s',(identity,)).fetchone()
         if row and row[0]:return row[0]
         if row and row[1]:raise TranscriptError('cooldown')
         # An auth rejection applies to all videos, not only one. Avoid using
         # the remaining free allowance to repeat the same rejected credential.
         auth_blocked = conn.execute(
-            "SELECT EXISTS (SELECT 1 FROM bob_research_requests WHERE error_code='provider_auth' "
+            "SELECT EXISTS (SELECT 1 FROM bob_research_requests WHERE provider='freetranscriptapi' AND error_code='provider_auth' "
             "AND attempted_at>now()-interval '6 hours')").fetchone()[0]
         if auth_blocked:raise TranscriptError('provider_auth_paused')
         rate_blocked = conn.execute(
-            "SELECT EXISTS (SELECT 1 FROM bob_research_requests WHERE error_code='provider_limit' "
+            "SELECT EXISTS (SELECT 1 FROM bob_research_requests WHERE provider='freetranscriptapi' AND error_code='provider_limit' "
             "AND attempted_at>now()-interval '1 hour')").fetchone()[0]
         if rate_blocked:raise TranscriptError('provider_limit_paused')
-        video_count=conn.execute("SELECT count(*) FROM bob_research_requests WHERE video_id=%s AND attempted_at>now()-interval '24 hours'",(identity,)).fetchone()[0]
+        video_count=conn.execute("SELECT count(*) FROM bob_research_requests WHERE provider='freetranscriptapi' AND video_id=%s AND attempted_at>now()-interval '24 hours'",(identity,)).fetchone()[0]
         if video_count>=3:raise TranscriptError('video_limit')
-        count=conn.execute("SELECT count(*) FROM bob_research_requests WHERE attempted_at>now()-interval '31 days'").fetchone()[0]
-        if count>=90:raise TranscriptError('local_limit')
-        conn.execute('INSERT INTO bob_research_requests(claim,video_id) VALUES(%s,%s)',(claim,identity))
-        conn.execute('''INSERT INTO bob_research_transcripts(video_id,attempted_at,claim) VALUES(%s,now(),%s)
-            ON CONFLICT(video_id) DO UPDATE SET attempted_at=now(),claim=excluded.claim''',(identity,claim))
+        count=conn.execute("SELECT count(*) FROM bob_research_requests WHERE provider='freetranscriptapi' AND attempted_at>now()-interval '1 hour'").fetchone()[0]
+        if count>=18:raise TranscriptError('local_limit')
+        conn.execute('INSERT INTO bob_research_requests(claim,video_id,provider) VALUES(%s,%s,\'freetranscriptapi\')',(claim,identity))
+        conn.execute('''INSERT INTO bob_research_transcripts(video_id,attempted_at,claim,provider) VALUES(%s,now(),%s,'freetranscriptapi')
+            ON CONFLICT(video_id) DO UPDATE SET attempted_at=now(),claim=excluded.claim,provider=excluded.provider''',(identity,claim))
     try:
-        result=fetcher(identity,key)
+        result=fetcher(identity)
     except TranscriptError as exc:
+        print('BOB_RESEARCH provider='+PROVIDER+' error_code='+exc.code,flush=True)
         if exc.code in ERRORS:
             try:
                 with connect() as conn:
@@ -140,6 +140,7 @@ def handle(connect,payload,fetcher=fetch):
         raise
     with connect() as conn:
         conn.execute('UPDATE bob_research_transcripts SET result=%s::jsonb WHERE video_id=%s AND claim=%s',(json.dumps(result),identity,claim))
+    print('BOB_RESEARCH provider='+PROVIDER+' status=ok segments='+str(len(result.get('segments',[]))),flush=True)
     return result
 
 

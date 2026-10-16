@@ -6,15 +6,11 @@ from urllib.parse import urlparse,parse_qs
 import research_transcript_provider as p
 
 PAYLOAD={'videoId':'GB1n0fEkfn4','channelId':p.CHANNEL}
-RAW={'lang':'de','content':[{'lang':'de','offset':1500,'text':'Gold bleibt unter dem Widerstand. '+('Weitere wirtschaftliche Bedingungen bleiben für dieses Szenario relevant. '*8)}]}
+RAW={'language':'de','transcript':[{'lang':'de','start':1.5,'text':'Gold bleibt unter dem Widerstand. '+('Weitere wirtschaftliche Bedingungen bleiben für dieses Szenario relevant. '*8)}]}
 
 class ProviderTests(unittest.TestCase):
-    def test_disabled_without_key_and_invalid_identity(self):
+    def test_invalid_identity_never_reaches_database(self):
         connect=Mock()
-        for key in ('', ' \t\n '):
-            with patch.dict(os.environ,{'SUPADATA_API_KEY':key}):
-                with self.assertRaisesRegex(ValueError,'noch nicht eingerichtet'):p.handle(connect,PAYLOAD)
-        connect.assert_not_called()
         for payload in [dict(PAYLOAD,channelId='other'),dict(PAYLOAD,videoId='https://evil.test')]:
             with self.assertRaises(ValueError):p.handle(connect,payload)
         connect.assert_not_called()
@@ -22,16 +18,20 @@ class ProviderTests(unittest.TestCase):
         response=Mock();response.status=200;response.read.return_value=json.dumps(RAW).encode()
         response.__enter__=Mock(return_value=response);response.__exit__=Mock(return_value=False)
         opener=Mock();opener.open.return_value=response
-        with patch.object(p.urllib.request,'build_opener',return_value=opener):result=p.fetch(PAYLOAD['videoId'],'fixture-secret')
+        with patch.object(p.urllib.request,'build_opener',return_value=opener):result=p.fetch(PAYLOAD['videoId'])
         request=opener.open.call_args.args[0];query=parse_qs(urlparse(request.full_url).query)
-        self.assertEqual(query['mode'],['native']);self.assertNotIn('fixture-secret',request.full_url)
+        self.assertEqual(urlparse(request.full_url).netloc,'api.freetranscriptapi.com')
+        self.assertEqual(query['video_url'],[PAYLOAD['videoId']])
+        self.assertEqual(set(request.headers),{'Accept'})
+        self.assertNotIn('mode',query)
+        self.assertIn('FreeTranscriptAPI',result['provider'])
         self.assertEqual(result['segments'][0]['at'],1.5)
         opener.open.side_effect=OSError('fixture-secret')
         with patch.object(p.urllib.request,'build_opener',return_value=opener):
-            with self.assertRaises(ValueError) as caught:p.fetch(PAYLOAD['videoId'],'fixture-secret')
+            with self.assertRaises(ValueError) as caught:p.fetch(PAYLOAD['videoId'])
         self.assertNotIn('fixture-secret',str(caught.exception))
     def test_bad_response_and_unsupported_language(self):
-        for data in [{},{'lang':'de','content':[]},dict(RAW,lang='fr'),{'lang':'de','content':[{'text':'x','offset':float('nan')}]}, {'lang':'de','content':[{'text':'x','offset':0,'lang':None}]}]:
+        for data in [{},{'language':'de','transcript':[]},dict(RAW,language='fr'),{'language':'de','transcript':[{'text':'x','start':float('nan')}]}, {'language':'de','transcript':[{'text':'x','start':0,'lang':None}]}]:
             with self.assertRaises(ValueError):p.parse(data)
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
@@ -56,11 +56,11 @@ class DatabaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):p.handle(self.connect,other,failure)
         with self.assertRaisesRegex(ValueError,'pausiert'):p.handle(self.connect,other,failure)
         failure.assert_called_once()
-    def test_surrounding_whitespace_in_env_key_is_removed_before_provider_call(self):
+    def test_no_key_needed_and_legacy_key_never_sent(self):
         fetch=Mock(return_value=p.parse(RAW))
         with patch.dict(os.environ,{'SUPADATA_API_KEY':' \tfixture-secret\n '}):
             p.handle(self.connect,PAYLOAD,fetch)
-        fetch.assert_called_once_with(PAYLOAD['videoId'],'fixture-secret')
+        fetch.assert_called_once_with(PAYLOAD['videoId'])
 
     def test_provider_auth_blocks_other_video_without_burning_credits(self):
         bad=Mock(side_effect=p.TranscriptError('provider_auth'))
@@ -113,10 +113,21 @@ class DatabaseTests(unittest.TestCase):
 
     def test_quota_blocks_before_network(self):
         with self.connect() as conn:
-            for i in range(90):conn.execute('INSERT INTO bob_research_requests(claim) VALUES(%s)',(str(i),))
+            for i in range(18):conn.execute("INSERT INTO bob_research_requests(claim,provider) VALUES(%s,'freetranscriptapi')",(str(i),))
         fetch=Mock()
-        with self.assertRaisesRegex(ValueError,'90 Versuche'):p.handle(self.connect,PAYLOAD,fetch)
+        with self.assertRaisesRegex(ValueError,'18 Versuche'):p.handle(self.connect,PAYLOAD,fetch)
         fetch.assert_not_called()
+    def test_old_provider_limits_do_not_block_free_provider(self):
+        with self.connect() as conn:
+            for i in range(90):
+                conn.execute("INSERT INTO bob_research_requests(claim,video_id,error_code) VALUES(%s,%s,'provider_auth')",(str(i),PAYLOAD['videoId']))
+            conn.execute("INSERT INTO bob_research_transcripts(video_id,attempted_at,claim) VALUES(%s,now(),'legacy')",(PAYLOAD['videoId'],))
+        fetch=Mock(return_value=p.parse(RAW))
+        with patch.dict(os.environ,{'SUPADATA_API_KEY':''}):
+            result=p.handle(self.connect,PAYLOAD,fetch)
+        self.assertIn('FreeTranscriptAPI',result['provider'])
+        fetch.assert_called_once_with(PAYLOAD['videoId'])
+
     def test_concurrent_calls_only_reserve_once(self):
         import threading
         from concurrent.futures import ThreadPoolExecutor
@@ -140,7 +151,7 @@ class ErrorReportingTests(unittest.TestCase):
             error=urllib.error.HTTPError('https://example.invalid',status,'secret-value',{},io.BytesIO(b'secret-value'))
             opener=Mock();opener.open.side_effect=error
             with patch.object(p.urllib.request,'build_opener',return_value=opener):
-                with self.assertRaises(p.TranscriptError) as caught:p.fetch(PAYLOAD['videoId'],'secret-value')
+                with self.assertRaises(p.TranscriptError) as caught:p.fetch(PAYLOAD['videoId'])
             self.assertEqual(caught.exception.code,code)
             self.assertNotIn('secret-value',str(caught.exception))
 
@@ -156,7 +167,7 @@ class ErrorReportingTests(unittest.TestCase):
 
 class RetryBudgetTests(unittest.TestCase):
     def test_hourly_retry_and_video_budget_preserve_global_limit(self):
-        for recent,video_count,total,expected in [(True,0,0,'cooldown'),(False,3,3,'video_limit'),(False,2,90,'local_limit'),(False,2,89,None)]:
+        for recent,video_count,total,expected in [(True,0,0,'cooldown'),(False,3,3,'video_limit'),(False,2,18,'local_limit'),(False,2,17,None)]:
             conn=Mock();conn.__enter__=Mock(return_value=conn);conn.__exit__=Mock(return_value=False)
             def execute(sql,params=None):
                 if 'FROM bob_youtube_feed_archive' in sql:
@@ -177,4 +188,4 @@ class RetryBudgetTests(unittest.TestCase):
                     self.assertEqual(caught.exception.code,expected);fetch.assert_not_called()
                 else:
                     p.handle(lambda:conn,PAYLOAD,fetch);fetch.assert_called_once()
-                    self.assertTrue(any('INSERT INTO bob_research_requests(claim,video_id)' in call.args[0] for call in conn.execute.call_args_list))
+                    self.assertTrue(any('INSERT INTO bob_research_requests(claim,video_id,provider)' in call.args[0] for call in conn.execute.call_args_list))
