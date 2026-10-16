@@ -690,7 +690,6 @@ def _restore_exact_sg_metadata(result, isin):
 
 
 def _get_quote_bounded(isin):
-    from onvista_backup import apply_backup
     isin = str(isin or '').strip().upper()
     # Start the authorised backup while the issuer is being read. The bounded
     # shared cache deduplicates this request; its original clocks are retained.
@@ -702,7 +701,7 @@ def _get_quote_bounded(isin):
         get_swissquote(isin)
     from finanzen_terms import apply as apply_terms_backup
     from comdirect_fields import apply as apply_comdirect_fields
-    result = apply_backup(apply_terms_backup(apply_comdirect_fields(_get_quote_primary(isin), isin), isin), isin)
+    result = apply_terms_backup(apply_comdirect_fields(_get_quote_primary(isin), isin), isin)
     result = _restore_exact_sg_metadata(result, isin)
     if result.get('metadata', {}).get('currency') == 'CHF':
         from sg_chf import convert_analysis

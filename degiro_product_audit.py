@@ -28,7 +28,7 @@ CODES = {
     "quote": "Belegtes Geld-/Briefpaar aus Produkt- oder Ersatzquelle fehlt; Chartwerte bleiben separat",
     "quote-time": "Originalzeit des Geld-/Briefpaares fehlt oder ist veraltet",
     "leverage": "Emittentenhebel fehlt",
-    "leverage-time": "Aktueller eigener oder eindeutig gemeinsamer Zeitbezug für den Emittentenhebel fehlt",
+    "leverage-time": "Aktueller Zeitnachweis für Originalhebel, gemeinsamen Quellenbezug oder gültige Hebelberechnung fehlt",
     "ko": "KO-Schwelle fehlt",
     "ko-time": "KO-Gültigkeitsnachweis fehlt oder ist älter als acht Stunden",
     "strike": "Basispreis fehlt",
@@ -357,7 +357,7 @@ def examine(product, quote, now_ms):
     if not _positive(quote.get("leverage")) and not shared_leverage and not calculated_leverage:
         missing.append("leverage")
     if not _recent(issuer_leverage_at, now_ms, QUOTE_MAX_MS) and not (
-            shared_leverage and shared_leverage["current"]):
+            shared_leverage and shared_leverage["current"]) and not calculated_leverage:
         missing.append("leverage-time")
     if not _positive(metadata.get("ko") or quote.get("ko") or _condition_value(quote, 'ko', now_ms)):
         missing.append("ko")
@@ -393,7 +393,7 @@ def examine(product, quote, now_ms):
     return {
         "isin": isin if valid_isin(isin) else None,
         "direction": direction if direction in ("LONG", "SHORT") else None,
-        "state": "terminated" if terminated else "issuer-evidence-complete" if not codes else "incomplete",
+        "state": "terminated" if terminated else ("analysis-evidence-complete" if calculated_leverage and not issuer_leverage_at else "issuer-evidence-complete") if not codes else "incomplete",
         "missing": codes,
         "messages": [CODES[code] for code in codes],
         "quoteSourceAt": data_pair.get("bidAt") if "quote-time" not in codes else None,
