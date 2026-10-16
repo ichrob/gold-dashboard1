@@ -120,8 +120,8 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   const observation=item.leverageObservation;
   if(observation?.kind==='shared-issuer-observation'&&observation.current)
    return fmt(observation.at)+' (✓ Serienregel erfüllt: gemeinsamer SG-Zeitbezug, keine separate Original-Hebelzeit)';
-  if(observation?.kind==='calculated-gearing')
-   return 'nur errechneter Hebel · eigene Emittenten-Hebelzeit nicht nachgewiesen';
+  if(observation?.kind==='calculated-gearing'&&observation.current)
+   return fmt(observation.at)+' (✓ berechnet · gültiger Analysewert)';
   return 'nicht aktuell nachgewiesen';
  }
  function mount(){
@@ -163,7 +163,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   for(const item of items){
    const node=document.createElement('details'),summary=document.createElement('summary');
    node.dataset.isin=item.isin;node.dataset.productIsin=item.isin;node.open=opened.get(item.isin)===true;
-   const healthy=item.state==='issuer-evidence-complete';
+   const healthy=['issuer-evidence-complete','analysis-evidence-complete'].includes(item.state);
    const ended=item.state==='terminated';
    summary.textContent=(ended?'⛔ ':healthy?'✓ ':'⚠ ') +(item.isin||'ISIN unbekannt')+' · '+(ended?'Beendet laut Emittent · gesperrt':healthy?'Produktnachweise vorhanden':'Fehlende Nachweise: '+(item.missing||[]).length);
    const list=document.createElement('p');list.style.whiteSpace='pre-line';
