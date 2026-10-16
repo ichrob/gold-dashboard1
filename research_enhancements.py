@@ -540,15 +540,24 @@ def handle(connect, payload):
         conn.execute('SELECT pg_advisory_xact_lock(68431030)')
         row = conn.execute("""SELECT fingerprint,summary,
             summary_attempt>now()-interval '24 hours' FROM bob_research_enhancements WHERE video_id=%s""", (identity,)).fetchone()
-        if row and row[0] == fp and row[1]:
+        saved = dict(row[1]) if row and isinstance(row[1], dict) else None
+        if saved:
+            saved.setdefault('_sourceFingerprint', row[0])
+            result['summary'] = dict(saved)
+            if saved['_sourceFingerprint'] != fp:
+                # Image indices from a previous extraction must not label new images.
+                result['summary']['visualNotes'] = []
+                result['summary']['previousVersion'] = True
+                result['summary']['note'] = 'Vorhandene Zusammenfassung; Aktualisierung noch ausstehend. ' + str(saved.get('note', ''))
+        if saved and saved['_sourceFingerprint'] == fp:
             result['summary'] = row[1]
             result['summaryStatus'] = 'KI-Zusammenfassung gespeichert.'
         elif key:
             count = conn.execute("SELECT count(*),count(*) FILTER (WHERE attempted_at>now()-interval '1 minute') FROM bob_research_ai_requests WHERE attempted_at>now()-interval '24 hours'").fetchone()
             if count[0] < 10 and count[1] == 0 and not (row and row[0] == fp and row[2]):
                 conn.execute('INSERT INTO bob_research_ai_requests DEFAULT VALUES')
-                conn.execute('UPDATE bob_research_enhancements SET summary_attempt=now(),fingerprint=%s,summary=NULL WHERE video_id=%s',
-                             (fp, identity))
+                conn.execute('UPDATE bob_research_enhancements SET summary_attempt=now(),fingerprint=%s,summary=%s::jsonb WHERE video_id=%s',
+                             (fp, json.dumps(saved), identity))
                 do_summary = True
             else:
                 if count[0] < 10 and count[1] > 0 and not (row and row[0] == fp and row[2]):
@@ -565,7 +574,6 @@ def handle(connect, payload):
                              (fp, json.dumps(result['summary']), identity)); conn.commit()
             result['summaryStatus'] = 'KI-Zusammenfassung gespeichert.'
         except Exception as exc:
-            result.pop('summary', None)
             code = failure_code(exc)
             result['summaryError'] = code
             result['summaryStatus'] = 'KI-Abruf oder Belegprüfung fehlgeschlagen (' + code + '). Kein kostenpflichtiger Ersatzabruf.'

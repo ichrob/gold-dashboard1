@@ -211,6 +211,24 @@ class ResearchTests(unittest.TestCase):
             out = r.handle(lambda: db, {'videoId': VIDEO, 'channelId': r.CHANNEL, 'segments': SEGMENTS})
         self.assertEqual(call.call_count, 1); self.assertNotIn('secret', json.dumps(out))
 
+    def test_failed_refresh_preserves_summary_and_retry_pause(self):
+        saved = {'kind':'ai','sections':[{'label':'Gold','text':'Vorsichtig.','evidence':[]}],
+                 'visualNotes':[{'frameId':0}]}
+        db = DB(row=('old',saved,None,False,True,r.FRAME_FORMAT_VERSION,'retry_paused'))
+        env = {'GEMINI_API_KEY':'secret','BOB_GEMINI_FREE_PROJECT':'confirmed-no-billing'}
+        payload = {'videoId':VIDEO,'channelId':r.CHANNEL,'segments':SEGMENTS}
+        with patch.dict(os.environ,env,clear=True), patch.object(r,'generate',side_effect=OSError('offline')) as call:
+            out = r.handle(lambda:db,payload)
+            self.assertEqual(out['summary']['sections'],saved['sections'])
+            self.assertEqual(out['summary']['visualNotes'],[])
+            update = next(args for q,args in db.queries if 'SET summary_attempt=now()' in q)
+            preserved = json.loads(update[1])
+            self.assertEqual(preserved['_sourceFingerprint'],'old')
+            db.row = (update[0],preserved,True,False,True,r.FRAME_FORMAT_VERSION,'retry_paused')
+            again = r.handle(lambda:db,payload)
+            self.assertEqual(call.call_count,1)
+            self.assertEqual(again['summary']['sections'],saved['sections'])
+
     @unittest.skipIf(Image is None, "Pillow required")
     def test_blocked_high_resolution_uses_public_lower_resolution_sprite(self):
         spec = ('https://i.ytimg.com/sb/' + VIDEO + '/storyboard3_L$L/$N.jpg?sqp=x'
