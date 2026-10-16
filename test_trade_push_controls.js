@@ -34,7 +34,7 @@ assert(html.includes("tb.setAttribute('aria-pressed',String(!!pushState.trade))"
 assert(html.includes("if(note)note.textContent=synced?"),"Toggling should report server-sync success/failure");
 assert(html.includes("#bobTradePushControls .bob-trade-push-toggles"));
 
-const scripts=[...html.matchAll(/<script(?:\\s[^>]*)?>([\\s\\S]*?)<\\/script>/gi)];
+const scripts=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
 const mobileScript=scripts.find(x=>x[1].includes("function initMobile(){"));
 const pushScript=scripts.find(x=>x[1].includes("async function togglePush(kind){"));
 assert(mobileScript&&pushScript,"Required inline scripts not found");
