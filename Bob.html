@@ -262,6 +262,22 @@ try{
 <div class="sub">XAU/USD · technische Analyse · DEGIRO bleibt manuell</div>
 </div>
 
+<section class="card" id="vollautomatisch" aria-labelledby="vollautomatischTitle">
+<details>
+<summary id="vollautomatischTitle" style="cursor:pointer;font-weight:700;font-size:1.18em">🤖 Vollautomatisch <span class="small">· Entwicklung / ausschließlich Simulation</span></summary>
+<p class="small">Neuer unabhängiger Entwicklungsbereich. DEGIRO-Trades bleiben manuell. Keine Brokerverbindung und keine Echtgeld-Order.</p>
+<div class="grid">
+<div class="metric"><label>Handelsmodus</label><strong>Paper-Trading geplant</strong></div>
+<div class="metric"><label>Automatische Orders</label><strong>Deaktiviert</strong></div>
+<div class="metric"><label>Echtgeld</label><strong>Gesperrt</strong></div>
+</div>
+<h3>Entwicklungsfahrplan</h3>
+<ol><li>Signale und Preis-/Zeitdaten verifizieren</li><li>Virtuelle Orders, Stop-Loss, Take-Profit, Handelskosten und Knock-out simulieren</li><li>Jeden Trade dauerhaft protokollieren und unabhängig auswerten</li><li>Ausfall-, Neustart- und Risikotests durchführen</li><li>Geeignete offizielle Broker-API prüfen; Live-Handel nur nach neuer ausdrücklicher Freigabe</li></ol>
+<p class="small">Geplante Testparameter: 100 EUR virtuelles Startkapital, höchstens 0,5 % Risikobudget je Trade, 2 % tägliche Verlustgrenze und 8 % Gesamt-Drawdown-Halt. Die Ausführung und Hintergrundüberwachung dieser neuen Sparte sind noch nicht implementiert.</p>
+<details><summary>Erfolgskriterien und Risikokontrolle</summary><p>Mindestens 30 Handelstage unabhängiger Forwardtest mit ausreichend Trades und unterschiedlichen Marktphasen. Auswertung nach Nettogewinn/-verlust, maximalem Drawdown, Gebühren, Slippage, Stabilität und Regelverletzungen. Positiver Test allein löst niemals Echtgeldhandel aus.</p></details>
+</details>
+</section>
+
 <section class="gold-market" aria-labelledby="goldMarketTitle" data-design="kompakte-liste-v2"><h2 id="goldMarketTitle">Goldmarkt</h2><div class="gold-quotes"><article class="gold-quote"><header><svg class="gold-icon" viewBox="0 0 40 32" aria-hidden="true"><path d="M15 2h10l5 12H10zM6 17h10l5 12H1zM24 17h10l5 12H19z" fill="currentColor"/><path d="M15 3l-4 10h18M6 18L2 28h17M24 18l-4 10h18" fill="none" stroke="#efd397" stroke-width="2"/></svg><div><h3>Gold-Spot</h3><div class="gold-symbol">XAU/USD</div></div></header><div class="gold-price-row"><span class="gold-price" id="gold-spot-price">—</span><span class="gold-currency">USD</span><span class="gold-change" id="gold-spot-change">— %</span></div><div class="gold-change-label" id="gold-spot-basis">Tagesänderung fehlt</div><div class="gold-meta"><div class="gold-state" id="gold-spot-state">Lade Kurs …</div><div id="gold-spot-time">Kurszeit fehlt</div><div id="gold-spot-source"></div></div></article><article class="gold-quote"><header><svg class="gold-icon" viewBox="0 0 40 32" aria-hidden="true"><path d="M15 2h10l5 12H10zM6 17h10l5 12H1zM24 17h10l5 12H19z" fill="currentColor"/><path d="M15 3l-4 10h18M6 18L2 28h17M24 18l-4 10h18" fill="none" stroke="#efd397" stroke-width="2"/></svg><div><h3>Gold-CFD</h3><div class="gold-symbol">Investing.com</div></div></header><div class="gold-price-row"><span class="gold-price" id="gold-cfd-price">—</span><span class="gold-currency">USD</span><span class="gold-change" id="gold-cfd-change">— %</span></div><div class="gold-change-label" id="gold-cfd-basis">Tagesänderung fehlt</div><div class="gold-meta"><div class="gold-state" id="gold-cfd-state">Lade Kurs …</div><div id="gold-cfd-time">Kurszeit fehlt</div><div id="gold-cfd-source"></div></div><div class="gold-estimate-inline"><div><span id="gold-estimate-price">—</span> USD · Bobs Futures-Schätzung</div><div class="gold-meta"><div id="gold-estimate-state">Lade Schätzung …</div><div id="gold-estimate-time">Stand: nicht verfügbar</div></div></div></article></div><p class="gold-market-note">USD je Feinunze · Veränderung zum Vortagesschluss der jeweiligen Quelle.<br>Gold-CFD: Normalbetrieb 30 Sekunden, Nachtmodus fünf Minuten – bei aktiven Trades bleibt die engmaschige Risikoüberwachung erhalten. Quellenzeiten bleiben erhalten.<span id="gold-session-mode" role="status"></span><span id="gold-special-session" role="status"></span></p></section>
 
 <script>
