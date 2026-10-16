@@ -17,6 +17,46 @@ def issuer(isin, side="LONG", *, spot=True, status=1, verified=True):
 
 
 class IssuerCatalogueTests(unittest.TestCase):
+    def test_worker_detects_relapse_and_recovery_after_success_without_restart(self):
+        from unittest.mock import patch
+        import copy
+
+        class StopWorker(BaseException):
+            pass
+
+        clock = [0]
+        states = []
+        scan_times = []
+        original = copy.deepcopy(catalog._CURRENT)
+        def scan(*args, **kwargs):
+            scan_times.append(clock[0])
+            status = ["ok", "partial", "ok"][len(scan_times)-1]
+            return dict(status=status, errors=int(status == "partial"),
+                        lastDay="2026-10-16", lastSession="evening",
+                        sourceChecks={"historicalBNP": dict(attempted=3, verified=3,
+                            datedFreshQuote=0 if status == "partial" else 3,
+                            sourceErrors=3 if status == "partial" else 0),
+                            "otherHistorical": dict(sourceErrors=0)},
+                        attempted=10, retryAttempts=0, retryRecovered=0,
+                        bnpStaleSourceClocks=3 if status == "partial" else 0)
+        def wait(seconds):
+            states.append(catalog._CURRENT["status"])
+            clock[0] += seconds
+            if clock[0] > 1200:
+                raise StopWorker
+        try:
+            with patch.object(catalog, "session", return_value=("2026-10-16", "evening")), \
+                 patch.object(catalog, "build", side_effect=scan), \
+                 patch.object(catalog.time, "monotonic", side_effect=lambda: clock[0]), \
+                 patch.object(catalog.time, "sleep", side_effect=wait):
+                with self.assertRaises(StopWorker):
+                    catalog._loop()
+            self.assertEqual(scan_times, [0, 600, 1200])
+            self.assertEqual(states, ["ok", "ok", "partial", "partial", "ok"])
+        finally:
+            catalog._CURRENT.clear()
+            catalog._CURRENT.update(original)
+
     def test_no_deferred_degirosession_or_account_connection(self):
         self.assertGreaterEqual(len(catalog.SEEDS),5)
         self.assertLessEqual(len(catalog.SEEDS),catalog.LIMIT)
