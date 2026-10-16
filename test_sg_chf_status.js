@@ -19,7 +19,7 @@ function sample(){
 const card=bob.compactProductCard(sample());
 assert(card.includes('data-sg-chf-analysis-only'),card);
 assert(card.includes('Kurs/Hebel · nur Analyse'),card);
-assert(card.includes('DEGIRO-Handelsnachweis offen'),card);
+assert(card.includes('DEGIRO-Handelsplatznachweis offen'),card);
 assert(card.includes('18.46')&&card.includes('18.48'),card);
 assert(card.includes('data-selection-blocked'),card);
 assert(!card.includes('data-selection-approved'),card);
@@ -50,6 +50,6 @@ console.log('SG Swiss DOTS CHF display-only timestamp and broker gate regression
 
 // Broker proof cannot be recovered by a quote retry alone.
 const venueCard=bob.compactProductCard(sample(),['BNP-Kursabruf: Quellenantwort veraltet']);
-assert(venueCard.includes('DEGIRO-Produktdetail mit ISIN, Börse, Währung und Datum erforderlich'));
+assert(venueCard.includes('Konkret offen: Welcher DEGIRO-Handelsplatz gehört zu dieser ISIN und Handelswährung?'));
 assert(!venueCard.includes('derzeit keine neuen Bilder erforderlich'));
 assert(!venueCard.includes('Du musst jetzt nichts tun.'));
