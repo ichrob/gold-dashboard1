@@ -839,6 +839,63 @@ async function readSgIdentity(worker,image,data){
   return ids[0]===ids[1]?ids[0]:'';
  }finally{bitmap.close();await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});}
 }
+function focusedImageIdentityRect(data,width,height){
+ const words=data?.words||[];
+ const labels=words.filter(w=>/^ISIN$/i.test(w.text));
+ if(labels.length!==1)return null;
+ const b=labels[0].bbox,h=b.y1-b.y0;
+ if(!(h>=6&&width>0&&height>0))return null;
+ const tokens=words.filter(w=>/^[A-Z]{2}[A-Z0-9]{10}$/i.test(w.text)
+  &&Math.abs((w.bbox.y0+w.bbox.y1-b.y0-b.y1)/2)<4*h);
+ if(tokens.length>1)return null;
+ const t=tokens[0]?.bbox;
+ const x=Math.max(0,Math.floor(t?t.x0-h:b.x1));
+ const y=Math.max(0,Math.floor(t?t.y0-h:b.y0-h));
+ const right=Math.min(width,t?t.x1+h:width),bottom=Math.min(height,t?t.y1+h:b.y1+3*h);
+ if(right<=x||bottom<=y)return null;
+ return{x,y,width:right-x,height:bottom-y};
+}
+async function readFocusedImageIdentity(worker,image,data){
+ const bitmap=await createImageBitmap(image);
+ try{
+  const rect=focusedImageIdentityRect(data,bitmap.width,bitmap.height);
+  if(!rect||rect.width*rect.height>1500000)return '';
+  const ids=[];
+  for(const [scale,mode] of [[2,'7'],[3,'6']]){
+   const canvas=document.createElement('canvas');canvas.width=Math.ceil(rect.width*scale);canvas.height=Math.ceil(rect.height*scale);
+   const ctx=canvas.getContext('2d',{alpha:false});ctx.imageSmoothingEnabled=scale===2;
+   ctx.drawImage(bitmap,rect.x,rect.y,rect.width,rect.height,0,0,canvas.width,canvas.height);
+   const crop=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!crop)return '';
+   await worker.setParameters({tessedit_pageseg_mode:mode,tessedit_char_whitelist:'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'});
+   const result=await ocrTimeout(worker.recognize(crop),12000,'Automatische ISIN-Bildprüfung beendet');
+   const candidates=[...new Set((String(result.data?.text||'').toUpperCase().match(/\b[A-Z]{2}[A-Z0-9]{10}\b/g)||[])
+    .map(id=>normalizeOcrIsin(id).isin).filter(validIsin))];
+   if(candidates.length!==1)return '';
+   ids.push(candidates[0]);
+  }
+  return ids.length===2&&ids[0]===ids[1]?ids[0]:'';
+ }finally{bitmap.close();await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});}
+}
+function recoverFocusedImageIdentity(primary,observed){
+ const text=String(primary||'');
+ if(!validIsin(observed))return{text,corrected:false};
+ const ids=[...new Set((text.toUpperCase().match(/\b[A-Z]{2}[A-Z0-9]{10}\b/g)||[]))];
+ if(ids.length===0)return{text:text+'\nISIN '+observed,corrected:true};
+ if(ids.length!==1)return{text,corrected:false};
+ const raw=ids[0];
+ // A different valid identity is a real conflict, not an OCR correction.
+ if(validIsin(normalizeOcrIsin(raw).isin))return{text,corrected:false};
+ let differences=0;
+ for(let i=0;i<12;i++){
+  if(raw[i]===observed[i])continue;
+  if(i<2)return{text,corrected:false};
+  if(i<5&&/[0OQ]/.test(raw[i])&&observed[i]==='0')continue;
+  if(!ocrGlyphPair(raw[i],observed[i])&&!(/[8S]/.test(raw[i])&&/[8S]/.test(observed[i])))return{text,corrected:false};
+  differences++;
+ }
+ if(differences>2)return{text,corrected:false};
+ return{text:text.replace(new RegExp('\\b'+raw+'\\b','gi'),observed),corrected:raw!==observed};
+}
 // Focus only the labelled amount cell in the original image; never a neighbour.
 function termLabelRows(data,key){
  const words=data.words||[],label=key==='strike'?/^(Basispreis|Finanzierungslevel|Strike)$/i:/^(Knock-Out-Barriere|Knock-out-Schwelle|Stoppschwelle)$/i;
@@ -957,7 +1014,7 @@ function recognizePlainOcr(file,statusId){
  });
  ocrQueue=job.catch(()=>{});return job;
 }
-function recognizeOcr(file,statusId,allowPartial=false){
+function recognizeOcr(file,statusId,allowPartial=false,expectedIsin=''){
  const job=ocrQueue.then(async()=>{
   const reviewed=await reviewedImageText(file);
   if(reviewed)return {data:{text:reviewed,reviewedOriginal:true}};
@@ -1072,6 +1129,22 @@ function recognizeOcr(file,statusId,allowPartial=false){
   if(!parseScreenshotCandidates(result.data.text||'').some(x=>validIsin(x.isin))&&hasIdentityTable(identityData)){
    const id=await readSgIdentity(worker,prepared,identityData);
    if(id){const recovered=recoverOcrIsins(result.data.text,id);result.data.text=recovered.text+'\nISIN '+id;result.data.isinRecoveries={...result.data.isinRecoveries,...recovered.corrections};}
+  }
+  if(allowPartial&&validIsin(expectedIsin)&&!screenshotIdentity(normalizeReviewedDegiroIdentity(result.data.text),expectedIsin).ok){
+   const status=document.getElementById(statusId||'');
+   if(status)status.textContent='🔎 Bildzuordnung unklar: Bob prüft den ISIN-Bildausschnitt automatisch in zwei Vergrößerungen …';
+   result.data.imageRecovery={attempted:true,accepted:false};
+   try{
+    const observed=await readFocusedImageIdentity(worker,prepared,identityData);
+    const recovered=recoverFocusedImageIdentity(result.data.text,observed);
+    if(recovered.corrected){
+     result.data.text=recovered.text;
+     result.data.imageRecovery={attempted:true,accepted:true,observedIsin:observed,
+      note:'ISIN automatisch aus dem Bildausschnitt bestätigt (zwei übereinstimmende Lesungen).'};
+    }
+   }catch(e){
+    result.data.imageRecovery.note='Automatische Bild-Zweitprüfung konnte nicht abgeschlossen werden.';
+   }
   }
   return result;
  });
@@ -3158,7 +3231,7 @@ async function readProductPdf(file,expected){
  }finally{await task.destroy();}
 }
 // Local originals support reprocessing after OCR updates. Never refresh source clocks.
-const PRODUCT_OCR_VERSION='2026-10-16-degiro-identity-v7';
+const PRODUCT_OCR_VERSION='2026-10-16-focused-identity-v8';
 const ORIGINAL_TTL=7*86400000,ORIGINAL_LIMIT=100*1024*1024;
 const activeProductImports=new Set();
 function originalRetention(records,now=Date.now()){
@@ -3273,11 +3346,12 @@ async function readScreenshot(i,file,productContext=null){
    detailScreenshots.set(i,mergeScreenshotEvidence(old,x,x.terms.underlying.source));
    rankUI();return {ok:true,reason:'PDF: Gold-Spot-Referenz geprüft und gespeichert (Seiten '+x.referenceDocument.pages.join(', ')+')'};
   }
-  const result=await recognizeOcr(file,"dgOcrStatus"+i,true);
+  const result=await recognizeOcr(file,"dgOcrStatus"+i,true,expected);
   if((rowVersions.get(i)||0)!==version||(field("isin")?.value||"").trim().toUpperCase()!==expected)return;
   const x=detailScreenshotData(result.data.text,expected,productContext,result.data.unconfirmedFields||[]);
+  if(x.ok&&result.data.imageRecovery?.accepted)(x.importNotes||(x.importNotes=[])).push(result.data.imageRecovery.note);
   if(x.ok)removeUnconfirmedFields(x,result.data.unconfirmedFields||[]);
-  if(!x.ok){const reason=x.reason+" "+imageIdentityDiagnostic(result.data.text)+" · Bildimport 05.10-15";if(status)status.textContent="⚠️ "+reason;return{ok:false,reason};}
+  if(!x.ok){const reason=x.reason+" "+imageIdentityDiagnostic(result.data.text)+(result.data.imageRecovery?.attempted?' · Automatische Bild-Zweitprüfung: Produktkennung weiterhin nicht eindeutig.':'')+" · Bildimport 16.10";if(status)status.textContent="⚠️ "+reason;return{ok:false,reason};}
   const merged=mergeScreenshotEvidence(detailScreenshots.get(i),x,file.name);
   const priorResearch=productQuotes.get(i);
   if(priorResearch?.isin===expected&&priorResearch.productVerified)productQuotes.set(i,invalidateProductQuote(priorResearch));
