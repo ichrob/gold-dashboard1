@@ -86,3 +86,17 @@ Ohne gueltigen Marker wird in Bob **Wartet auf KI-Pruefung** gezeigt, selbst wen
 Bobs mobiles **Problem**-Panel liest ausschliesslich die exakt erlaubten Marker aus Issue-Beschreibungen vom Repository-Eigentuemer bzw. GitHub-Actions-Bot. Rohe Freitexte, Logs und sonstige Daten werden **nicht** an die UI weitergereicht. Der Browser-Fallback folgt derselben Marker-Allowlist. Kein KI-Status verleiht Handelsfreigabe; unveraenderte Sicherheitsgrenzen gelten. Bei fehlender GitHub-Verbindung zeigt die Anzeige alte/ungewisse Daten statt einer erfundenen Erfolgsmeldung.
 
 Die automatische ChatGPT-Pruefung ist auf hoechstens stuendlich konfiguriert; Laufzeiten, verfuegbare App-Werkzeuge und moegliche Host-Berechtigungsabfragen sind nicht garantiert. Der Nutzer moechte ausschliesslich Status in **Problem**, keine allgemeinen ChatGPT-Pushs oder E-Mails fuer diese KI-Hilfe. Es gibt keine unaufgeforderte Uebertragung privater ISIN-Listen, Zugangsdaten oder Rohlogs in oeffentliche GitHub-Issues.
+
+
+## Verbindlich abgeschlossene Anbieterentscheidungen (16.10.2026)
+
+Auf ausdrücklichen Nutzerwunsch gelten die Supadata-Korrespondenz, der nicht
+angebotene separate SG-Datenfeed und die Onvista-Freigabe als abgeschlossen.
+Die früheren Fälle #42, #351 und #353 sind keine laufenden Warteaufträge.
+Keine routinemäßige Prüfung auf Antworten und keine erneuten Problemmeldungen
+allein wegen ausbleibender Anbieterantworten oder fehlender separater Feeds.
+Onvista bleibt aus automatisierten Abfragen ausgeschlossen. Die vorhandene
+Quellenkombination wird weiter verwendet. Neue belegte Fehler dieser Quellen
+und konkrete fehlende Produktfelder bleiben eigenständige technische Fälle;
+die Entscheidung ersetzt keine Originalzeit, Datenfreigabe oder Brokerquote.
+Die drei ChatGPT-Wächteraufträge wurden entsprechend aktualisiert.
