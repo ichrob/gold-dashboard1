@@ -44,7 +44,8 @@
    price=calculated.price;source='Bob · Gold/FX-Produktmodell';sourceAt=spotAt;kind='model';
   }
   const stopGold=number(input.stopGold),targetGold=number(input.targetGold);
-  const stop=fxFresh&&engine?.price(model,stopGold),target=fxFresh&&engine?.price(model,targetGold);
+  // Stop/target model comparison needs the same verified fresh Gold/FX pair as Bob's existing stop assistant.
+  const stop=spotFresh&&fxFresh&&engine?.price(model,stopGold),target=spotFresh&&fxFresh&&engine?.price(model,targetGold);
   const levels=stop?.available===true&&target?.available===true
      &&stop.price<target.price&&stop.price>0;
   let stage='waiting';
@@ -75,6 +76,7 @@
    observationOnly:true,degiroExecutable:false,automaticOrder:false};
  }
  function addObservation(history,result,now=Date.now()){
+  if(!result?.tradeKey)return {tradeKey:history?.tradeKey||null,rows:Array.isArray(history?.rows)?history.rows:[],added:false};
   const base=history&&history.tradeKey===result?.tradeKey&&Array.isArray(history.rows)
    ?history:{tradeKey:result?.tradeKey,rows:[]};
   const rows=base.rows.filter(x=>x&&positive(x.price)&&['issuer','research','model'].includes(x.kind)
