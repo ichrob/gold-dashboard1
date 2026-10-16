@@ -15,7 +15,14 @@ for(const slope of [.1,-.1,0]){
   if(slope<0)assert.equal(evaluate(input).direction,'SHORT');
   assert.deepStrictEqual(plain(evaluate(input)),plain(evaluate(input,{render:true})),timeframe+' slope '+slope);
  }
+ for(const side of ['LONG','SHORT']){
+  const result=evaluate({bundle,timeframe:'15m',monitorDirection:side});
+  assert(result.monitorPlan,'An existing purchase needs a monitor plan independent of new entry direction');
+  assert.equal(result.monitorPlan.direction,side);
+  assert(side==='LONG'?result.monitorPlan.stop<result.monitorPlan.entry:result.monitorPlan.stop>result.monitorPlan.entry);
+ }
  bundle.spots.spot_error='offline';
+ assert(!evaluate({bundle,monitorDirection:'LONG'}).monitorPlan,'No monitoring start from stale source data');
  assert.deepStrictEqual(plain(evaluate({bundle})),plain(evaluate({bundle},{render:true})));
 }
 console.log('Worker and dashboard outputs match for LONG/SHORT/neutral paths, all timeframes, stop/target and spot outages.');
