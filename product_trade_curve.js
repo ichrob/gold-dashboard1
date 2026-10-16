@@ -115,18 +115,33 @@
    '<div class="small" data-curve-isin role="status">Produkttrade wird geprüft …</div>'+
    '<div data-curve-price style="font-size:29px;font-weight:800;letter-spacing:-.5px;margin:6px 0">—</div>'+
    '<div class="small" data-curve-source></div>'+
-   '<canvas data-curve-chart width="900" height="340" style="width:100%;height:auto;border-radius:12px;background:#f8fafc;touch-action:manipulation" aria-label="Beobachteter Kursverlauf des Gold-Hebelprodukts in seiner Produktwährung. Stop und Ziel als berechnete Linien."></canvas>'+
+   '<div style="display:flex;flex-wrap:wrap;gap:7px;margin:12px 0 8px">'+
+   '<button type="button" data-curve-zoom="price" aria-pressed="true">Kursfokus</button>'+
+   '<button type="button" data-curve-zoom="all" aria-pressed="false">Stopp &amp; Ziel</button>'+
+   '<button type="button" data-curve-fib aria-pressed="true">Fibonacci ✓</button></div>'+
+   '<canvas data-curve-chart width="900" height="430" style="width:100%;height:auto;border-radius:12px;background:#f8fafc;touch-action:manipulation" aria-label="Beobachteter Kursverlauf des Gold-Hebelprodukts in seiner Produktwährung. Stop und Ziel als berechnete Linien."></canvas>'+
+   '<div class="small" data-curve-fib-note></div>'+
    '<div class="small" data-curve-picked aria-live="polite"></div>'+
    '<div class="small" data-curve-levels></div>'+
    '<p data-curve-action role="status"></p>'+
    '<p class="small">Kurve ab Beginn dieser Aufzeichnung auf diesem Handy: echte datierte Anbieterbeobachtungen und klar gekennzeichnete Modellpunkte. Keine erfundene rückwirkende Historie, keine Ausführungskurse. Bei geschlossener App entstehen hier keine neuen Punkte. KO-Schwelle in Gold-USD, nicht auf der Produktpreisachse. Bob empfiehlt nur; du handelst selbst bei DEGIRO.</p>';
   element.append(panel);canvas=panel.querySelector('canvas');
+  panel.querySelectorAll('[data-curve-zoom]').forEach(button=>button.addEventListener('click',()=>{
+   zoom=button.getAttribute('data-curve-zoom');
+   panel.querySelectorAll('[data-curve-zoom]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));
+   draw(lastResult,lastHistory);
+  }));
+  panel.querySelector('[data-curve-fib]').addEventListener('click',event=>{
+   showFib=!showFib;event.currentTarget.setAttribute('aria-pressed',String(showFib));
+   event.currentTarget.textContent=showFib?'Fibonacci ✓':'Fibonacci aus';
+   draw(lastResult,lastHistory);
+  });
   canvas.addEventListener('pointerdown',event=>{
    const h=lastHistory;if(!h?.rows?.length)return;
    const rect=canvas.getBoundingClientRect();if(!rect.width)return;
    const x=(event.clientX-rect.left)*canvas.width/rect.width;
    const first=h.rows[0].at,last=h.rows.at(-1).at,span=Math.max(last-first,30000);
-   const target=first+Math.max(0,Math.min(1,(x-64)/(canvas.width-84)))*span;
+   const target=first+Math.max(0,Math.min(1,(x-82)/(canvas.width-114)))*span;
    picked=h.rows.reduce((best,v)=>!best||Math.abs(v.at-target)<Math.abs(best.at-target)?v:best,null);
    showPicked();
   });
