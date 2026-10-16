@@ -1,11 +1,12 @@
 // Reuse the browser's complete selection rules on the server. No submitted
 // "approved" flag, ranking or notification text is trusted.
 const fs=require('fs'),vm=require('vm');
+const LateEntry=require('./late_entry_guard.js');
 function evaluate(input,now=Date.now()){
  if(!input||!Array.isArray(input.products)||input.products.length>12)throw Error('Produktliste ungültig');
  const captured=Number(input.capturedAt);
  if(!Number.isFinite(captured)||captured>now+1000||now-captured>15000)throw Error('Prüfanfrage veraltet');
- const sandbox={window:{},localStorage:{getItem:key=>key==='bobFixedScreenshotKoV1'?JSON.stringify(input.fixedBarriers||{}):null}};
+ const sandbox={window:{BobLateEntryGuard:LateEntry},localStorage:{getItem:key=>key==='bobFixedScreenshotKoV1'?JSON.stringify(input.fixedBarriers||{}):null}};
  vm.createContext(sandbox);
  vm.runInContext(fs.readFileSync(__dirname+'/degiro_assistant.js','utf8'),sandbox,{timeout:2000});
  sandbox.input=JSON.parse(JSON.stringify(input));
