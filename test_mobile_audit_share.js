@@ -35,10 +35,21 @@ assert(stale.includes('Keine einzelnen Produktdaten abrufbar.'));
 assert(!stale.includes('Keine offenen Probleme'));
 const unavailable=isolated.build({status:'unavailable',items:[]});
 assert(unavailable.includes('Prüfstatus: unavailable'));
-for(const needle of ['id="bobAuditShareChatGPT"','<h3>Diag Produkte Probleme</h3>',
+for(const needle of ['id="bobAuditShareChatGPT"','DEGIRO Goldhebelprodukte Probleme',
                      'navigator.share({title:','navigator.clipboard.writeText(value)',
                      "latestReport=null;render({status:'unavailable'","credentials:'same-origin'",
                      "byId('bobAuditShareChatGPT')?.addEventListener('click',shareMobileAudit)"])
  assert(panel.includes(needle),needle);
 assert(!panel.includes('window.open('),'Avoid opening an external URL with ISINs in query strings');
+const full=isolated.build({...sample,items:Array.from({length:15},(_,i)=>({...sample.items[0],messages:['Problem '+i]}))});
+assert(full.includes('Problem 14'),'Include problems beyond the first twelve products');
+const mountCode=panel.slice(panel.indexOf(' function mount(){'),panel.indexOf(' function render(r){'));
+let placed=false;
+const audit={},problem={};
+const productList={after(node){assert.strictEqual(node,audit);placed=true;}};
+const nodes={dgSavedProductsSummary:{closest(tag){assert.strictEqual(tag,'details');return productList;}},
+ bobProductAudit:audit,bobProductAuditProblem:problem,
+ 'bob-view-problems':{append(node){assert.strictEqual(node,problem,'Share button must not stay in Problem');}}};
+vm.runInNewContext(mountCode+';mount();',{byId:id=>nodes[id]});
+assert(placed,'Share button is placed outside and directly below the product list');
 console.log('Android private audit handoff: format, no secrets or prices, stale state, share, copy and auth passed');
