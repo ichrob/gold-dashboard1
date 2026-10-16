@@ -642,7 +642,7 @@ class Handler(BaseHTTPRequestHandler):
                     conn.commit()
                 send_json(self, 200, result)
                 return
-            if path in ('/real-trades/read','/real-trades/write','/real-trades/curve'):
+            if path in ('/real-trades/read','/real-trades/write','/real-trades/curve','/real-trades/risk','/real-trades/confirm-sale'):
                 supplied=self.headers.get('X-Bob-Push-Token','')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
                     send_json(self,401,{'error':'Unauthorized'});return
