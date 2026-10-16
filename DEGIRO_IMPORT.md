@@ -139,3 +139,7 @@ Ein Produktdatenstand oder Fälligkeitsdatum wird nicht als Kurszeit verwendet.
 Regressionstest: `node test_selection_flow.js` umfasst den Weg von OCR-Texten
 über beide Bildreihenfolgen, Zusammenführung, Pflichtdaten- und Altersprüfung
 bis zur Top 3. Synthetische OCR-Texte belegen keine Erkennungsquote realer Bilder.
+
+### Automatische ISIN-Bildzweitprüfung
+
+Scheitert die Identitätsprüfung eines Produktdetailbilds nach den bisherigen Lesungen, liest Bob den eindeutig beschrifteten ISIN-Bereich erneut aus denselben Bildpixeln. Zwei Vergrößerungen und Segmentierungen müssen dieselbe prüfziffergültige Kennung ergeben. Die ausgewählte Produktkarte wird nicht als Lesung verwendet. Eine andere bereits gültige ISIN oder mehrere Kennungen bleiben ein Konflikt. Verwechselbare Zeichen dürfen nur anhand dieser übereinstimmenden Bildlesungen berichtigt werden, nicht anhand der Prüfziffer allein. Pro Bild gibt es höchstens zwei zusätzliche Ausschnittlesungen mit je zwölf Sekunden Zeitlimit; keine externen KI-Anfragen oder Abos. Bestehende Zahlen-, Währungs- und Zeitprüfungen bleiben aktiv. Eine erfolgreiche Korrektur steht im Importergebnis, ungelöste Identitäten bleiben ausdrücklich offen. Die neue OCR-Version stößt die vorhandene automatische Neuauswertung aufbewahrter Originale an.
