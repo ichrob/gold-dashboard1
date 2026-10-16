@@ -85,7 +85,11 @@ class PdfReceiptTests(unittest.TestCase):
         self.assertEqual(m.parse_document_text(tampered)['status'],'incomplete')
 
     def test_sell(self):
-        p=m.parse_document_text(TEXT.replace("Auftrag\nKauf","Auftrag\nVerkauf"))
+        sold=(TEXT.replace("Auftrag\\nKauf","Auftrag\\nVerkauf")
+              .replace("EUR -5.95","EUR 5.95")
+              .replace("CHF -5.55","CHF 5.55")
+              .replace("CHF -6.04","CHF 5.07"))
+        p=m.parse_document_text(sold)
         self.assertEqual(p["side"],"SELL")
 
 
