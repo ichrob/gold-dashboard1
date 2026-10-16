@@ -36,6 +36,11 @@
     &&positive(q.bid)&&positive(q.ask)&&q.ask>=q.bid
     &&q.error!==true&&q.delayed!==true
     &&recent(qAt,now,90000)&&recent(qAskAt,now,90000);
+  // A same-time issuer observation can independently test the stored model.
+  // This is NOT an estimate of the difference to an executable DEGIRO quote.
+  const comparison=quoteOk&&modelOk&&Math.abs(qAt-spotAt)<=30000&&Math.abs(qAt-fxAt)<=30000
+   ?{quoted:q.bid,estimated:calculated.price,at:qAt,fxAt,spotAt,
+     quotedSource:String(q.source||'Anbieterbeobachtung'),kind:q.kind,currency} :null;
   let kind=null,price=null,source='',sourceAt=null;
   if(quoteOk){
    price=q.bid;source=String(q.source||'Anbieterbeobachtung');sourceAt=qAt;
@@ -69,7 +74,7 @@
     ?actionBase+' Zusätzlich KO-Abstand höchstens 2 %: Knock-out-Risiko prüfen.'
     :actionBase;
   return {available:positive(price),tradeKey,isin:p.isin,currency,price,kind,source,sourceAt,
-   spotAt,fxAt,fxRate:fxFresh?number(fx.rate):null,
+   spotAt,fxAt,fxRate:fxFresh?number(fx.rate):null,comparison,
    ko:positive(ko)?ko:null,koDistancePct:distance,knockedOut,
    underlyingGold:spotFresh?gold:null,stop:levels?stop.price:null,target:levels?target.price:null,
    stopGold:positive(stopGold)?stopGold:null,targetGold:positive(targetGold)?targetGold:null,
@@ -118,6 +123,37 @@
    levels:[0,.236,.382,.5,.618,.786,1].map(r=>({ratio:r,price:rising?high.price-r*d:low.price+r*d}))};
  }
  let panel=null,canvas=null,picked=null,lastResult=null,lastHistory=null,zoom='price',showFib=true;
+ const QUALITY_STORE='bobProviderModelCalibrationV1';
+ function median(values){const a=[...values].sort((x,y)=>x-y);return a.length?(a.length%2?a[(a.length-1)/2]:(a[a.length/2-1]+a[a.length/2])/2):null;}
+ function calibrate(history,now=Date.now()){
+  const samples=(history?.rows||[]).filter(x=>x&&positive(x.quoted)&&positive(x.estimated)
+    &&finite(x.at)&&now>=x.at&&now-x.at<=86400000);
+  if(samples.length<5)return {usable:false,count:samples.length,reason:'Mindestens 5 unabhängige zeitgleiche Anbieterbeobachtungen benötigt'};
+  const span=samples.at(-1).at-samples[0].at;
+  if(span<300000)return {usable:false,count:samples.length,reason:'Kalibrierung braucht mindestens 5 Minuten getrennte Beobachtungen'};
+  const deviations=samples.map(x=>x.quoted-x.estimated);
+  const offset=median(deviations),scale=median(samples.map(x=>x.estimated));
+  const dispersion=median(deviations.map(x=>Math.abs(x-offset)));
+  if(!positive(scale)||!finite(offset)||!finite(dispersion)||Math.abs(offset)>scale*.03||dispersion>scale*.01)
+   return {usable:false,count:samples.length,reason:'Abweichungen sind zu groß oder uneinheitlich; keine automatische Korrektur'};
+  if(now-samples.at(-1).at>1800000)return {usable:false,count:samples.length,reason:'Kalibrierung über 30 Minuten alt'};
+  return {usable:true,count:samples.length,offset,dispersion,reason:'Zeitgleicher SG/comdirect-Anbieterabgleich · nur indikative Modellkorrektur'};
+ }
+ function learnComparison(previous,comparison,tradeKey,now=Date.now()){
+  const base=previous?.tradeKey===tradeKey&&Array.isArray(previous.rows)?previous:{tradeKey,rows:[]};
+  const rows=base.rows.filter(x=>x&&finite(x.at)&&now-x.at<86400000&&now>=x.at).slice(-29);
+  if(comparison&&positive(comparison.quoted)&&positive(comparison.estimated)
+     &&finite(comparison.at)&&now-comparison.at>=0&&now-comparison.at<=90000
+     &&!rows.some(x=>x.at===comparison.at&&x.kind===comparison.kind)
+     &&(!rows.length||comparison.at-rows.at(-1).at>=60000)){
+   rows.push({at:comparison.at,quoted:comparison.quoted,estimated:comparison.estimated,
+    kind:comparison.kind,currency:comparison.currency,source:comparison.quotedSource});
+  }
+  return {tradeKey,rows:rows.slice(-30)};
+ }
+ function readQuality(){try{return JSON.parse(root.localStorage?.getItem(QUALITY_STORE)||'null')}catch(_){return null}}
+ function saveQuality(value){try{root.localStorage?.setItem(QUALITY_STORE,JSON.stringify(value))}catch(_){}}
+
  let background={tradeId:null,rows:[],checkedAt:0,status:'noch nicht synchronisiert',busy:false};
  function mergedHistory(local,remote,tradeKey){
   const pool=new Map();
@@ -306,6 +342,6 @@
   showStatus();
   showPicked();
  }
- root.BobProductCurve={assess,addObservation,mergedHistory,fibonacci,mount,update};
- if(typeof module!=='undefined'&&module.exports)module.exports={assess,addObservation,mergedHistory,fibonacci};
+ root.BobProductCurve={assess,addObservation,mergedHistory,learnComparison,calibrate,fibonacci,mount,update};
+ if(typeof module!=='undefined'&&module.exports)module.exports={assess,addObservation,mergedHistory,learnComparison,calibrate,fibonacci};
 })(typeof window!=='undefined'?window:globalThis);
