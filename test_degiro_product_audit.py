@@ -229,9 +229,33 @@ class ProductAuditTests(unittest.TestCase):
         with patch("leverage_backup.current_evidence", return_value=dict(
                 kind="calculated-gearing", value=18.4, current=True, at=iso(NOW-3000))):
             item=audit.examine(feed()["products"][0], q, NOW)
-        self.assertIn("leverage-time", item["missing"])
+        self.assertNotIn("leverage-time", item["missing"])
+        self.assertEqual(item["state"], "analysis-evidence-complete")
+        self.assertFalse(item["tradeApproved"])
         self.assertEqual(item["leverageObservation"]["kind"], "calculated-gearing")
         self.assertIsNone(item["leverageSourceAt"])
+
+    def test_real_calculation_closes_gap_until_inputs_expire(self):
+        from leverage_backup import calculate
+        q = provider()
+        q.update(leverageEstimated=True)
+        q['metadata']['simpleNonQuantoTurbo'] = True
+        at = iso(NOW-3000)
+        basis = dict(price=4000, at=at, underlying='XAU/USD', source='Gold')
+        fx = dict(result='success', base='USD', rates={'EUR':.9},
+                  data_updated_at=at, effective_at={'EUR':at}, source='live',
+                  sources={'EUR':'live'}, market_session='open')
+        q['leverageCalculation'] = calculate(q, basis, fx,
+            datetime.fromtimestamp(NOW/1000, ZoneInfo('UTC')))
+        item = audit.examine(feed()['products'][0], q, NOW)
+        self.assertNotIn('leverage-time', item['missing'])
+        self.assertEqual(item['state'], 'analysis-evidence-complete')
+        self.assertIsNone(item['leverageSourceAt'])
+        self.assertFalse(item['tradeApproved'])
+        expired = audit.examine(feed()['products'][0], q, NOW+300001)
+        self.assertIn('leverage-time', expired['missing'])
+        q['leverageCalculation']['value'] *= 2
+        self.assertIn('leverage-time', audit.examine(feed()['products'][0], q, NOW)['missing'])
 
     def test_chart_and_cached_prices_cannot_be_promoted(self):
         q=provider()
