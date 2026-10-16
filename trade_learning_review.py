@@ -33,6 +33,7 @@ def window(snapshot):
 def review(conn, snapshot):
     out = trade_risk_review.evaluation(snapshot)
     out['lessons'] = []
+    out['findings'] = []
     out['learning'] = dict(state='review-only', automaticRuleChange=False,
         independentTestRequired=True, productNetValidated=False,
         note='Trade-Befund ist ein Verbesserungsvorschlag. Erst spätere unabhängige Vergleiche mit Produktkosten können einen Vorteil bestätigen.')
@@ -84,6 +85,46 @@ def review(conn, snapshot):
         out['lessons'].append('Gelockerte protokollierte Stopps gefunden: Planwechsel prüfen; keine Broker-Ausführung daraus ableiten.')
     if not stops:
         out['lessons'].append('Kein auswertbarer Stopp-Verlauf im gehaltenen Zeitraum gespeichert.')
+    out['findings'] = findings(rows, start, end, direction, out)
     if not out['lessons']:
         out['lessons'].append('Abrechnung und Verlauf vorhanden; dieser Einzeltrade belegt noch keine bessere Handelsregel.')
+    return out
+
+
+def findings(rows, start, end, direction, result):
+    """Evidence describes observations, never asserts a causal loss attribution."""
+    out = []
+    def add(code, status, text, at=None):
+        out.append(dict(code=code,status=status,text=text,
+            evidenceAt=at.isoformat() if at else None,causalLossProven=False))
+    # A post-purchase signal cannot prove what was known at the purchase.
+    entry = [(at,p) for at,p in rows if at == start]
+    if entry:
+        at,p = entry[0]
+        gate = p.get('entryTimingGate') or {}
+        if gate.get('allowed') is False:
+            add('entry-timing','observed','Einstiegsfilter war zum Kaufzeitpunkt gesperrt: '+str(gate.get('reason') or 'Timing nicht bestätigt'),at)
+        else:
+            add('entry-timing','unknown','Verspäteter Einstieg ist aus diesem Protokoll nicht belegt.')
+        if p.get('ready') is False or p.get('priceFresh') is False or p.get('direction') != direction:
+            add('entry-signal','observed','Zum Kaufzeitpunkt fehlt im Protokoll ein frisches freigegebenes Signal in Handelsrichtung.',at)
+        else:
+            add('entry-signal','observed','Frisches Signal in Handelsrichtung zum Kaufzeitpunkt protokolliert.',at)
+    else:
+        add('entry-timing','unknown','Einstiegstiming und Signalstärke beim Kauf nicht belegbar: kein zeitgleicher Entscheidungsdatensatz.')
+    if result.get('unobservedStartMinutes',0)>1:
+        add('monitoring-gap','observed','Die ersten '+str(result['unobservedStartMinutes'])+' Minuten nach Kauf fehlen im Modellverlauf. Das beweist keinen verspäteten Einstieg.')
+    opposite = 'SHORT' if direction=='LONG' else 'LONG'
+    adverse = [(at,p) for at,p in rows if p.get('ready') is True and p.get('priceFresh') is True and p.get('direction')==opposite]
+    if adverse:
+        add('opposite-signal','observed','Erstes frisches freigegebenes Gegensignal während der Haltedauer. Stopp-Reaktion als separate Testhypothese prüfen.',adverse[0][0])
+    last = None
+    for at,p in rows:
+        stop = (p.get('planAfter') or {}).get('stop')
+        if type(stop) not in (int,float) or not math.isfinite(stop): continue
+        if last is not None and (stop<last if direction=='LONG' else stop>last):
+            add('stop-loosening','observed','Protokollierter Gold-Stopp wurde von '+str(last)+' auf '+str(stop)+' gelockert. Keine bestätigte Broker-Änderung.',at)
+            break
+        last=stop
+    add('stop-outcome','unknown','Ob ein anderer Stopp den Nettoverlust vermindert hätte, benötigt einen vorab festgelegten Vergleich einschließlich Kosten und Ausführungsnachweis.')
     return out

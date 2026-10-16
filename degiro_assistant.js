@@ -2338,7 +2338,7 @@ function renderPrimaryProductValues(p,now=Date.now()){
   ' · '+esc(modelPrice.validationReady?'Genauigkeitsmessung vorhanden':'Genauigkeit noch nicht ausreichend bestätigt')+
   ' · Vorhersagevergleich: '+esc(modelPrice.validationSamples)+' echte, spätere Originalkurse'+
   (Number.isFinite(modelPrice.validationMeanErrorEur)?' · mittlere absolute Abweichung '+esc(modelPrice.validationMeanErrorEur.toFixed(3))+' EUR':'')+
-  (modelPrice.validationPersistence?' · Messhistorie: nach Neustart erneut ermitteln':'')+
+  (modelPrice.validationPersistence?' · '+esc(modelPrice.validationPersistence):'')+
   ' · Modell nur für Bewertung und Vorwarnungen; kein automatischer Stopp, keine Handelsfreigabe.': '';
  const previousSource=estimated&&pair?'<br>Letzter originaler Datenstand (nicht aktuell): Geld '+esc(fmt(pair.bid))+
   ' / Brief '+esc(fmt(pair.ask))+' '+esc(pair.currency||'EUR')+' · '+esc(pair.bidAt||pair.askAt||'Zeit unbekannt'):'';

@@ -46,6 +46,8 @@ def event(payload, now=None):
 
 def init(conn):
     import comparison_store
+    import product_validation_store
+    product_validation_store.init(conn)
     comparison_store.init(conn)
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_future_predictions (
         bucket TEXT NOT NULL, quote_at TIMESTAMPTZ NOT NULL, price DOUBLE PRECISION NOT NULL,
@@ -61,6 +63,9 @@ def init(conn):
 
 def handle(conn, action, payload):
     if action not in ('read','write'):raise ValueError('Unbekannte Messaktion')
+    if str(payload.get('key', '')).startswith('product:'):
+        import product_validation_store
+        return product_validation_store.handle(conn, action, payload)
     if payload.get('key') == 'future:GCZ26:spot-cfd-comparison-v1':
         import comparison_store
         return comparison_store.handle(conn, action, payload)
@@ -139,6 +144,9 @@ def status():
 
 def enqueue(key, kind, value, at, reference_at=None):
     global _thread,_last_truth,_active_until
+    if isinstance(key,str) and key.startswith('product:'):
+        import product_validation_store
+        return product_validation_store.enqueue(key,kind,value,at,reference_at)
     if key!=KEY or not os.environ.get('PUSH_SERVICE_URL') or not os.environ.get('PUSH_SERVICE_TOKEN'):return
     e=dict(key=key,type=kind,value=value,at=at)
     if reference_at is not None:e['referenceAt']=reference_at

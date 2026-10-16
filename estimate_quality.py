@@ -89,7 +89,10 @@ def observe(key, value, at, received_at):
         return
 
 
-def restore_durable(pairs, now=None):
+def restore_durable(pairs, now=None, *, key=bob_validation_store.KEY):
+    import product_validation_store
+    if key != bob_validation_store.KEY and not product_validation_store.valid_key(key):
+        raise ValueError("Unbekannte Messidentität")
     now=now or datetime.now(timezone.utc)
     if not isinstance(pairs,list) or len(pairs)>40320:raise ValueError('Messarchiv nicht verwendbar')
     grouped={};predictions={};truths={}
@@ -102,7 +105,7 @@ def restore_durable(pairs, now=None):
                 or any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or v<=0 for v in values)):
             raise ValueError('Gespeicherter Vergleich nicht verwendbar')
         if now.timestamp()-received>604800:continue
-        scoped=(bob_validation_store.KEY,b)
+        scoped=(key,b)
         rows=grouped.setdefault(scoped,[])
         seen_truths=truths.setdefault(scoped,set())
         if truth in seen_truths:raise ValueError('Doppelter gespeicherter Vergleich')
@@ -111,7 +114,7 @@ def restore_durable(pairs, now=None):
         predictions.setdefault(scoped,set()).add(point)
     with _lock:
         for b in ('0–60s','61–300s','301–900s','901–1800s'):
-            scoped=(bob_validation_store.KEY,b)
+            scoped=(key,b)
             rows=sorted(grouped.get(scoped,[]),key=lambda r:r['received'])[-10080:]
             _errors[scoped]=rows
             _seen[scoped]=[r['at'] for r in rows]
@@ -140,7 +143,8 @@ def quality(key, horizon, now=None):
              kind='empirical-observed-errors',isConfidenceInterval=False,
              note='Bisher gemessene Abweichungen; zukünftige Fehler können größer sein.')
     if rows:
-        out.update(meanAbsoluteError=sum(abs(r['error']) for r in rows)/count,
+        out.update(meanSignedError=sum(r['error'] for r in rows)/count,
+                   meanAbsoluteError=sum(abs(r['error']) for r in rows)/count,
                    maxAbsoluteError=max(abs(r['error']) for r in rows),
                    lastValidationAt=datetime.fromtimestamp(last,timezone.utc).isoformat())
     if not ready:

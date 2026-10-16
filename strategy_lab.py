@@ -168,6 +168,7 @@ def contiguous(bars, start, end):
 def score(bars, f, name, weights, start, end, cost_bps):
     """Enter on next OPEN; exit at future CLOSE; never overlap positions."""
     trades, skipped, equity, peak, drawdown = [], 0, 1., 1., 0.
+    floor = 1.
     i = max(WARMUP, start)
     while i + HORIZON < end:
         side = direction(name, i, bars, f, weights)
@@ -184,12 +185,14 @@ def score(bars, f, name, weights, start, end, cost_bps):
         pnl_pct = max(-99., pnl_pct)
         trades.append(pnl_pct)
         equity *= 1 + pnl_pct/100
+        floor = min(floor, equity)
         peak = max(peak, equity)
         drawdown = max(drawdown, 100*(1-equity/peak))
         i += HORIZON
     wins = [t for t in trades if t > 0]
     losses = [t for t in trades if t < 0]
     return dict(trades=len(trades), skippedGap=skipped,
+                minEquityIndex=floor,maxEquityIndex=peak,
                 winRatePct=round(100*len(wins)/len(trades), 3) if trades else None,
                 avgNetPct=round(sum(trades)/len(trades), 4) if trades else None,
                 netReturnPct=round(100*(equity-1), 4),

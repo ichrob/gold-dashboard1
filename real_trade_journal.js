@@ -16,6 +16,7 @@
   if(e.windowNote)lines.push(e.windowNote);
   if(e.trace)lines.push(e.trace.observations+' Beobachtungen innerhalb der Haltedauer · '+e.trace.recommendations+' Empfehlungen · '+e.trace.adverseObservations+' Gegenrichtungs-Signale · '+e.trace.stopLoosenings+' Stopp-Lockerungen. Keine bestätigte Broker-Ausführung.');
   if(e.modelObservations)lines.push(e.modelObservations+' berechnete Produktwerte · größte beobachtete Bewegung ab Einstieg: '+e.modelMaePct+' % bis +'+e.modelMfePct+' %. Modellverlauf, keine ausführbaren Kurse.');
+  for(const f of e.findings||[])lines.push((f.status==='observed'?'Beobachtet: ':'Nicht belegt: ')+f.text+(f.evidenceAt?' · '+new Date(f.evidenceAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):''));
   lines.push(...(e.lessons||[]));
   if(e.learning)lines.push(e.learning.note+' Der bestehende Vorwärtstest prüft Referenzstrategien; ein Produkt-Nettovorteil ist damit noch nicht belegt.');
   return lines;
