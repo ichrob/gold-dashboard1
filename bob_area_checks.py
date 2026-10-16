@@ -130,7 +130,7 @@ PANEL = r'''<details id="bobAreaChecks" hidden class="card bob-disclosure" aria-
       audit.incomplete>0)
     out.products=say('warning',audit.incomplete+' Produkte mit fehlenden oder veralteten Nachweisen. Details unter Gold-Hebelprodukte.');
    else if(audit?.status==='ok'&&rows&&rows.length>0&&audit.incomplete===0&&recent&&listToday&&
-      rows.every(x=>['issuer-evidence-complete','terminated'].includes(x.state)))
+      rows.every(x=>['issuer-evidence-complete','analysis-evidence-complete','terminated'].includes(x.state)))
     out.products=say('ok',rows.length+' Produkte mit geprüften Emittenten-Nachweisen bzw. korrekt als beendet markiert. Keine DEGIRO-Orderfreigabe.');
    else out.products=say('unknown','Aktuelle Screenshotliste, letzte Prüfung oder vollständige Quellen-/Zeitnachweise nicht bestätigt.');
    out.trade=background?.status==='unavailable'
