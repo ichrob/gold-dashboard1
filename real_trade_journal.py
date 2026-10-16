@@ -134,15 +134,26 @@ def confirmed_screenshot_sale(conn, payload):
       WHERE snapshot->'exitReceipt'->>'transactionId'=%s LIMIT 1""",(tx,)).fetchone()
     if duplicate:
         raise ValueError('Dieser DEGIRO-Verkaufsbeleg wurde bereits verbucht')
-    at=receipt_clock(sale)
+    try:
+        at=receipt_clock(sale)
+    except (ValueError,KeyError,TypeError) as exc:
+        raise ValueError('DEGIRO-Verkaufszeit nicht eindeutig lesbar') from exc
     now=datetime.now(ZoneInfo('Europe/Zurich')).replace(tzinfo=None)
     if at > now or at.year < 2020:
         raise ValueError('Ungültiger oder zukünftiger Ausführungszeitpunkt')
     buy=(snapshot.get('purchase') or {})
     try:
-        buy_at=receipt_clock(buy) if buy.get('executedLocal') or buy.get('at') else None
-    except (ValueError,KeyError,TypeError):
-        buy_at=None
+        if buy.get('at'):
+            purchase_at=datetime.fromisoformat(str(buy['at']).replace('Z','+00:00'))
+            if purchase_at.tzinfo is None:
+                raise ValueError('Kaufbelegzeit ohne Zeitzone')
+            buy_at=purchase_at.astimezone(ZoneInfo('Europe/Zurich')).replace(tzinfo=None)
+        elif buy.get('executedLocal'):
+            buy_at=receipt_clock(buy)
+        else:
+            buy_at=None
+    except (ValueError,KeyError,TypeError) as exc:
+        raise ValueError('Gespeicherte Kaufzeit unklar; Verkauf nicht automatisch zuordnen') from exc
     if buy_at is not None and at<=buy_at:
         raise ValueError('Verkauf muss zeitlich nach bestätigtem Kauf erfolgen')
     p=trade_risk_review.number(sale.get('price'),'Verkaufskurs')
