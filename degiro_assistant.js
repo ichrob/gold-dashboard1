@@ -1524,11 +1524,17 @@ function productProblemLabels(p){
  const result=finalProductStatus(p);
  if(result.complete)return [];
  const labels=[];
+ // Missing evidence is different from a missing numeric value. A datable
+ // analysis quote must not be shown as an absent Geld/Brief pair merely because
+ // the independent DEGIRO trade-execution evidence remains unconfirmed.
+ const fields=typeof productFieldStates==='function'?productFieldStates(p):null;
+ const pairPresent=!!fields&&['bid','ask'].every(key=>n(fields[key]?.value)>0);
+ const leveragePresent=!!fields&&n(fields.leverage?.value)>=1;
  for(const reason of result.reasons){
   const r=String(reason),found=[];
-  if(/Hebel/i.test(r))found.push('Hebel');
+  if(/Hebel/i.test(r))found.push(leveragePresent?'Hebelzeit / Quellenprüfung':'Hebel');
   if(/Kurszeit|Quellenzeit|Zeitstempel|Kurs.*(alt|zeit)|Geld.*Brief.*Zeit/i.test(r))found.push('Kurszeit');
-  if(/Geld|Brief|Kursbild|Produktkurs|Kursnachweis|Live-Nachweis|BNP-Kursabruf/i.test(r))found.push('Kursnachweis');
+  if(/Geld|Brief|Kursbild|Produktkurs|Kursnachweis|Live-Nachweis|BNP-Kursabruf/i.test(r))found.push(pairPresent?'Kursart / DEGIRO-Handelsnachweis':'Kursnachweis');
   if(/Basispreis|Finanzierungslevel/i.test(r))found.push('Basispreis');
   if(/KO|Knock-out|Barriere/i.test(r))found.push('KO-Nachweis');
   if(/Bezugsverhältnis/i.test(r))found.push('Bezugsverhältnis');
@@ -1536,7 +1542,7 @@ function productProblemLabels(p){
   if(/Laufzeit|Fälligkeit/i.test(r))found.push('Laufzeit');
   if(/Währung|CHF|Wechselkurs/i.test(r))found.push('Währung / Umrechnung');
   if(/Produkttyp|Produktrichtung|Long\/Short/i.test(r))found.push('Produkttyp');
-  if(/ISIN|Bildzuordnung|Detailbild|Original|Produktzuordnung/i.test(r))found.push('Produktnachweis');
+  if(/ISIN|Bildzuordnung|Detailbild|Produktzuordnung/i.test(r))found.push('Produktnachweis');
   if(!found.length)found.push('Nachweis prüfen');
   for(const label of found)if(!labels.includes(label))labels.push(label);
  }
@@ -1552,9 +1558,11 @@ function productHelpState(p){
  const checking=pendingQuotes.has(p.index)||q?.secondaryValidity?.state==='checking'||q?.comdirectFieldsBackup?.state==='checking';
  const failed=!!q?.sourceFailure;
  const manual=labels.length>0&&!checking&&!!q&&(failed||q.productVerified!==true||labels.some(label=>/Basispreis|KO-Nachweis|Bezugsverhältnis|Basiswert|Laufzeit|Produkttyp|Produktnachweis/.test(label)));
+ const fields=typeof productFieldStates==='function'?productFieldStates(p):null;
+ const valuesPresent=q?.productVerified===true&&fields&&['bid','ask'].every(key=>n(fields[key]?.value)>0)&&n(fields.leverage?.value)>=1;
  return {labels,checking,manual,
-  status:!labels.length?'Produktdaten vollständig':checking?'Bob sucht gerade automatisch':manual?'Zusätzlicher Nachweis hilfreich':'Automatische Prüfung noch offen',
-  action:!labels.length?'Keine neuen Bilder nötig.':checking?'Du musst jetzt nichts tun.':manual?'Öffne DEGIRO und ergänze nur die genannten Angaben als Screenshot.':'Du musst die Werte nicht erneut eingeben. Den letzten Abruf findest du unter Details.'};
+  status:!labels.length?'Produktdaten vollständig':checking?'Bob sucht gerade automatisch':manual?'Zusätzlicher Nachweis hilfreich':valuesPresent?'Kurs und Hebel vorhanden · Nachweisprüfung läuft':'Automatische Prüfung noch offen',
+  action:!labels.length?'Keine neuen Bilder nötig.':checking?'Du musst jetzt nichts tun.':manual?'Öffne DEGIRO und ergänze nur die genannten Angaben als Screenshot.':valuesPresent?'Bob prüft Kursart und Originalzeiten weiterhin automatisch. Die gespeicherten Zahlen bleiben für die Analyse sichtbar; die DEGIRO-Handelbarkeit ist nicht bestätigt.':'Du musst die Werte nicht erneut eingeben. Den letzten Abruf findest du unter Details.'};
 }
 function renderProductHelp(p){
  const h=productHelpState(p);
@@ -2073,7 +2081,11 @@ function renderPrimaryProductValues(p,now=Date.now()){
   isExecutableQuote:false}:null;
  const clocks=[pair?.bidAt,pair?.askAt].map(t=>Date.parse(t));
  const marketObservation=pair?.priceKind==='market-observation';
- const current=!!pair&&clocks.every(t=>Number.isFinite(t)&&now-t>=0&&now-t<=(marketObservation?90000:300000))
+ // Only native chart observations get the documented five-minute research
+ // window. BNP issuer/other genuine bid-ask quotes use the 90-second clock.
+ // Previously a five-minute-old BNP quote could still say "Aktueller Anbieterwert".
+ const chartOnly=pair?.priceKind==='issuer-chart';
+ const current=!!pair&&clocks.every(t=>Number.isFinite(t)&&now-t>=0&&now-t<=(chartOnly?300000:90000))
   &&Math.max(...clocks)-Math.min(...clocks)<=90000;
  // Prefer an original observation no older than 90 s. Older research quotes
  // remain visible in the source history while an independently refreshed
@@ -2104,7 +2116,7 @@ function renderPrimaryProductValues(p,now=Date.now()){
  const missingSgReferenceNote=q?.importActive===true&&q?.productVerified===true
   &&fields.leverage.state==='fehlt'&&!(n(undatedLever?.value)>0)
   ?'<br>SG-Referenzhebel: Von der automatisch abgefragten SG-Quelle nicht geliefert. Ein gemeinsamer Zeitbezug belegt nur vorhandene Werte; er ersetzt keinen fehlenden Hebel.':'';
- const headline=estimated?'Produktkurs · ≈ errechnet':marketObservation?(current?'Aktuelle comdirect-Kursbeobachtung':'comdirect-Kursbeobachtung · nicht aktuell'):chart?(current?'Aktuelle SG-Chartbeobachtung':'SG-Chartbeobachtung · nicht aktuell'):current?'Aktueller Anbieterwert':'Gespeicherte Referenz';
+ const headline=estimated?'Produktkurs · ≈ errechnet':marketObservation?(current?'Aktuelle comdirect-Kursbeobachtung':'comdirect-Kursbeobachtung · nicht aktuell'):chart?(current?'Aktuelle SG-Chartbeobachtung · nur Analyse':'SG-Chartbeobachtung · nicht aktuell'):current?'Aktueller Anbieterwert':'Gespeicherter Anbieterwert · Originalzeit abgelaufen';
  const labels=estimated?' · theoretische Geld-/Brief-Schätzung, kein bestätigter DEGIRO-Ausführungskurs':marketObservation?' · SG LiveTrading, kein bestätigter DEGIRO-Ausführungskurs':chart?' · Chartkurs, kein bestätigter Ausführungskurs':'';
  const note=!estimated&&pair&&!current?' · Datenalter überschreitet Analysefenster':'';
  const calculationInfo=estimated?'<br>≈ Datenstand '+esc(stamp)+' · Produktreferenz '+esc(modelPrice.referenceAt)+
