@@ -6,6 +6,7 @@ import degiro_catalog
 import degiro_product_audit_panel
 import broker_bridge
 import trade_email_panel
+import trade_review_panel
 import intraday_comparison
 import os
 import base64
@@ -191,6 +192,7 @@ HTML = HTML.replace(b"</body>", auto_collection.PANEL.encode('utf-8')+b"</body>"
 HTML = HTML.replace(b"</body>", candle_shadow.PANEL.encode('utf-8')+b"</body>")
 HTML = HTML.replace(b"</body>", vollautomatisch_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", trade_email_panel.PANEL.encode("utf-8")+b"</body>")
+HTML = HTML.replace(b"</body>", trade_review_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", bob_self_healing.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", bob_problems.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", bob_area_checks.PANEL.encode("utf-8")+b"</body>")
@@ -1732,7 +1734,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        if path in ("/api/degiro/venue", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences") and not worker_ok and (not self.authenticated()):
+        if path in ("/api/degiro/venue", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/real-trades/risk", "/api/real-trades/confirm-sale", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences") and not worker_ok and (not self.authenticated()):
             self.send_response(401)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -1740,7 +1742,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         path = urlparse(self.path).path
-        if path not in ("/api/degiro/venue", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences"):
+        if path not in ("/api/degiro/venue", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/real-trades/risk", "/api/real-trades/confirm-sale", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences"):
             self.send_response(404)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -1770,6 +1772,8 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/real-trades/read": "/real-trades/read",
                 "/api/real-trades/write": "/real-trades/write",
                 "/api/real-trades/curve": "/real-trades/curve",
+                "/api/real-trades/risk": "/real-trades/risk",
+                "/api/real-trades/confirm-sale": "/real-trades/confirm-sale",
                 "/api/audit/read": "/decision-audit/read",
                 "/api/trade-email/read": "/email-import/read",
                 "/api/audit/write": "/decision-audit/write",

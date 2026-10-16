@@ -19,6 +19,7 @@ _EVENT = threading.Event()
 _LAST_ATTEMPT = 0.0
 VERSION = 'manual-paper-observation-v1'
 MAX_QUOTE_AGE_MS = 90_000
+WATCH_POLL_INTERVAL_MS = 30_000
 
 
 def init(conn):
@@ -320,7 +321,7 @@ def _run(db):
         _EVENT.wait(timeout=30)
         _EVENT.clear()
         now_ms=int(time.time()*1000)
-        if _LAST_ATTEMPT and now_ms-_LAST_ATTEMPT<60_000:
+        if _LAST_ATTEMPT and now_ms-_LAST_ATTEMPT<WATCH_POLL_INTERVAL_MS:
             continue
         # Closed app still receives the scanner's background cycles.
         import background_push

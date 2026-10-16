@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 import background_push
 import product_trade_history
+import trade_risk_review
 
 def init(conn):
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_real_trades (
@@ -97,8 +98,108 @@ def settled_purchase(purchase, closed):
     product=purchase.get('product') or {};sold=closed.get('product') or {}
     return bool(receipt) and all(product.get(k)==sold.get(k) for k in ('isin','entry','quantity')) and buy.get('at')==receipt.get('purchasedAt') and buy.get('feesCHF')==receipt.get('purchaseFeesCHF') and buy.get('totalCHF')==receipt.get('purchaseTotalCHF')
 
+def confirmed_screenshot_sale(conn, payload):
+    """Manually confirmed screenshot evidence closes ONE matching live trade.
+
+    This is a read-only broker integration: never infer a fill from model prices.
+    No image bytes are stored, only a user-supplied SHA256 for audit.
+    """
+    from trade_workflow import receipt_clock
+    if payload.get('userConfirmed') is not True:
+        raise ValueError('DEGIRO-Ausführung muss ausdrücklich bestätigt werden')
+    tid=payload.get('tradeId')
+    sale=payload.get('sale') or {}
+    if not isinstance(tid,str) or not 1<=len(tid)<=100 or not isinstance(sale,dict):
+        raise ValueError('Trade-ID oder Verkaufsbeleg fehlt')
+    row=conn.execute('SELECT active,snapshot FROM bob_real_trades WHERE id=%s FOR UPDATE',(tid,)).fetchone()
+    if not row or row[0] is not True:
+        raise ValueError('Kein passender aktiver Trade: niemals automatisch erneut schließen')
+    snapshot=dict(row[1]); product=snapshot.get('product') or {}
+    currency=product.get('currency','EUR')
+    if currency not in ('EUR','CHF'):
+        raise ValueError('Produktwährung nicht unterstützt')
+    if sale.get('side')!='SELL' or sale.get('isin')!=product.get('isin'):
+        raise ValueError('Verkauf/ISIN stimmt nicht mit dem aktiven Trade überein')
+    quantity=sale.get('quantity')
+    if type(quantity) is not int or quantity<=0 or quantity!=product.get('quantity'):
+        raise ValueError('Nur vollständiger Verkauf der bestätigten Stückzahl zulässig')
+    tx=str(sale.get('transactionId',''))
+    if not re.fullmatch(r'[A-Za-z0-9-]{1,80}',tx):
+        raise ValueError('DEGIRO-Transaktionsnummer fehlt')
+    image_hash=str(sale.get('imageSha256',''))
+    if not re.fullmatch(r'[0-9a-f]{64}',image_hash):
+        raise ValueError('Original-Screenshot und SHA256-Nachweis fehlen')
+    # Transaction IDs across all previous sales cannot be reassigned.
+    duplicate=conn.execute("""SELECT id FROM bob_real_trades
+      WHERE snapshot->'exitReceipt'->>'transactionId'=%s LIMIT 1""",(tx,)).fetchone()
+    if duplicate:
+        raise ValueError('Dieser DEGIRO-Verkaufsbeleg wurde bereits verbucht')
+    try:
+        at=receipt_clock(sale)
+    except (ValueError,KeyError,TypeError) as exc:
+        raise ValueError('DEGIRO-Verkaufszeit nicht eindeutig lesbar') from exc
+    now=datetime.now(ZoneInfo('Europe/Zurich')).replace(tzinfo=None)
+    if at > now or at.year < 2020:
+        raise ValueError('Ungültiger oder zukünftiger Ausführungszeitpunkt')
+    buy=(snapshot.get('purchase') or {})
+    try:
+        if buy.get('at'):
+            purchase_at=datetime.fromisoformat(str(buy['at']).replace('Z','+00:00'))
+            if purchase_at.tzinfo is None:
+                raise ValueError('Kaufbelegzeit ohne Zeitzone')
+            buy_at=purchase_at.astimezone(ZoneInfo('Europe/Zurich')).replace(tzinfo=None)
+        elif buy.get('executedLocal'):
+            buy_at=receipt_clock(buy)
+        else:
+            buy_at=None
+    except (ValueError,KeyError,TypeError) as exc:
+        raise ValueError('Gespeicherte Kaufzeit unklar; Verkauf nicht automatisch zuordnen') from exc
+    if buy_at is not None and at<=buy_at:
+        raise ValueError('Verkauf muss zeitlich nach bestätigtem Kauf erfolgen')
+    p=trade_risk_review.number(sale.get('price'),'Verkaufskurs')
+    value=trade_risk_review.number(sale.get('saleValueCHF'),'Bruttoerlös CHF')
+    fees=trade_risk_review.number(sale.get('feesCHF'),'Verkaufsgebühren CHF',True)
+    net=trade_risk_review.number(sale.get('saleNetCHF'),'Nettoerlös CHF',True)
+    if abs(value-fees-net)>0.025:
+        raise ValueError('CHF-Nettoerlös passt nicht zu Bruttoerlös minus Gebühren')
+    if currency=='EUR':
+        fx=trade_risk_review.number(sale.get('eurPerCHF'),'DEGIRO-Umrechnungskurs')
+        if abs(p*quantity/fx-value)>0.045:
+            raise ValueError('EUR-Kurs, Anzahl, Umrechnung und CHF-Bruttoerlös widersprechen sich')
+    elif abs(p*quantity-value)>0.045:
+        raise ValueError('CHF-Produktkurs und CHF-Bruttoerlös widersprechen sich')
+    receipt={'side':'SELL','isin':product['isin'],'quantity':quantity,'price':p,
+        'productCurrency':currency,'saleValueCHF':value,'feesCHF':fees,
+        'saleNetCHF':net,'transactionId':tx,'executedLocal':sale['executedLocal'],
+        'imageSha256':image_hash,'eurPerCHF':sale.get('eurPerCHF') if currency=='EUR' else None,
+        'source':'Vom Nutzer bestätigter DEGIRO-Screenshot, nicht unabhängig geprüft',
+        'exitReason':sale.get('exitReason') if sale.get('exitReason') in
+          ('stop-loss-user-confirmed','manual','other') else 'other'}
+    snapshot.update(active=False,closedAt=datetime.now(timezone.utc).isoformat(),
+                    exitReceipt=receipt,closureSource='confirmed-screenshot',
+                    monitoringStatus='closed')
+    # Do not fabricate total buy cost, FX or a precise realized net when missing.
+    if type(product.get('entry')) in (float,int) and product['entry']>0:
+        snapshot['actualExecution']={'entry'+currency:product['entry'],
+           'exit'+currency:p,'quantity':quantity,
+           'gross'+currency:round((p-product['entry'])*quantity,2),
+           'source':receipt['source']}
+    review=trade_risk_review.evaluation(snapshot)
+    snapshot['evaluation']=review
+    conn.execute("""UPDATE bob_real_trades SET active=FALSE,snapshot=%s::jsonb,
+      settings=jsonb_set(settings,'{trade}','null'::jsonb),
+      state=state-'trade',updated_at=now() WHERE id=%s""",
+      (json.dumps(snapshot),tid))
+    event(conn,tid,'sale-screenshot-monitoring-closed',receipt,tx)
+    event(conn,tid,'trade-evaluated',review,'screenshot-sale-'+tx)
+    sync_devices(conn)
+    return {'ok':True,'tradeId':tid,'closed':True,'evaluation':review}
+
+
 def handle(conn,action,payload):
     if action=='curve':return product_trade_history.read(conn,payload.get('tradeId'))
+    if action=='risk':return {'ok':True,'review':trade_risk_review.preview(payload.get('plan'))}
+    if action=='confirm-sale':return confirmed_screenshot_sale(conn,payload)
     if action=='write' and payload.get('emailReceiptId'):
         from trade_workflow import import_purchase
         return import_purchase(conn,payload)
@@ -155,6 +256,9 @@ def handle(conn,action,payload):
           ON CONFLICT(id) DO UPDATE SET active=excluded.active,snapshot=excluded.snapshot,settings=excluded.settings,updated_at=now()''',
           (tid,active,json.dumps(snapshot),json.dumps(settings)))
         event(conn,tid,'trade-opened' if not previous else 'trade-closed-in-bob' if previous[0] and not active else 'trade-updated',snapshot)
+        if not active:
+            review=trade_risk_review.evaluation(snapshot)
+            event(conn,tid,'trade-evaluated',review,'trade-review-'+str(tid))
         if isinstance(payload.get('event'),dict):event(conn,tid,'browser-event',payload['event'])
         if not active:sync_devices(conn)
         return {'ok':True,'tradeId':tid}
@@ -162,6 +266,9 @@ def handle(conn,action,payload):
         tid=payload.get('tradeId');before=payload.get('before')
         trades=conn.execute('SELECT id,opened_at,updated_at,active,snapshot FROM bob_real_trades ORDER BY opened_at DESC LIMIT 100').fetchall()
         result={'trades':[dict(id=i,openedAt=o.isoformat(),updatedAt=u.isoformat(),active=a,snapshot=s) for i,o,u,a,s in trades]}
+        for row in result['trades']:
+            if not row['active']:
+                row['evaluation']=row['snapshot'].get('evaluation') or trade_risk_review.evaluation(row['snapshot'])
         settled=[item['snapshot'] for item in result['trades'] if not item['active'] and item['snapshot'].get('settlement')]
         for item in result['trades']:
             if item['snapshot'].get('recordOnly') and any(settled_purchase(item['snapshot'],closed) for closed in settled):
@@ -180,6 +287,10 @@ def handle(conn,action,payload):
               WHERE trade_id=%s AND (%s::bigint IS NULL OR seq<%s::bigint) ORDER BY seq DESC LIMIT 501''',(tid,before,before)).fetchall()
             result['more']=len(rows)>500;rows=rows[:500]
             result['events']=[dict(seq=s,at=a.isoformat(),kind=k,payload=p) for s,a,k,p in rows]
+            for item in result['trades']:
+                if item['id']==tid and not item['active']:
+                    points=conn.execute('SELECT price FROM bob_real_trade_price_curve WHERE trade_id=%s ORDER BY spot_at DESC LIMIT 400',(tid,)).fetchall()
+                    item['evaluation']=trade_risk_review.evaluation(item['snapshot'],[r[0] for r in points])
             result['nextBefore']=rows[-1][0] if rows else None
         return result
     raise ValueError('Unbekannte Journalaktion')
@@ -254,6 +365,8 @@ def reconcile_sales(conn):
           settings=jsonb_set(settings,'{trade}','null'::jsonb),
           state=state-'trade',updated_at=now() WHERE id=%s''',(json.dumps(snapshot),tid))
         event(conn,tid,'sale-email-monitoring-closed',snapshot['exitReceipt'],receipt['orderIdDigest'])
+        review=trade_risk_review.evaluation(snapshot)
+        event(conn,tid,'trade-evaluated',review,'email-sale-'+receipt['orderIdDigest'])
         rows=[row for row in rows if row[0]!=tid];count+=1
     if count:sync_devices(conn)
     return count
