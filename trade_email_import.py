@@ -247,7 +247,7 @@ def import_event(event, allowed_sender):
     # any broker action from the address/header alone.
     original_degiro = (inbox == "bob-degiro@agentmail.to"
                        and sender == "notifications@degiro.com"
-                       and re.match(r"^DEGIRO\\s*-\\s*Transaktionsbestätigung\\s*:", message.get("subject") or "", re.I))
+                       and re.match(r"^DEGIRO\s*-\s*Transaktionsbestätigung\s*:", message.get("subject") or "", re.I))
     if not (permitted_forward or original_degiro):
         return {"status":"sender-unconfirmed", "reason":"Weiterleitungs-/Originalabsender nicht zugeordnet"}
     body = message.get("text") or message.get("extracted_text") or ""
