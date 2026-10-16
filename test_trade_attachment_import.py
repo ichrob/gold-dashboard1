@@ -65,7 +65,7 @@ class AttachmentImportTests(unittest.TestCase):
             imp.enrich_event(event(),{}, "robsimon@gmx.de", "", FakeHTTP())
 
     def test_untrusted_sender_and_wrong_inbox_not_fetched(self):
-        for mutation in ("from_", "to", "inbox_id", "event_type"):
+        for mutation in ("from_", "inbox_id", "event_type"):
             e=event()
             e["message"][mutation]=["unknown@example.test"] if mutation in ("from_", "to") else (
                 "unknown@agentmail.to" if mutation=="inbox_id" else "message.received.spam")
@@ -76,6 +76,16 @@ class AttachmentImportTests(unittest.TestCase):
                                  "local-only-test-api-key",fake)
             self.assertNotEqual(out.get("sourceKind"),"AgentMail-DEGIRO-PDF")
             self.assertEqual(fake.calls,[])
+
+    def test_redirect_preserves_original_to_header(self):
+        e = event()
+        e['message']['to'] = ['original-recipient@example.test']
+        fake = FakeHTTP()
+        out = imp.enrich_event(e, {'status':'incomplete'}, 'robsimon@gmx.de',
+                               'local-only-test-api-key', fake)
+        self.assertEqual(out['status'], 'pending-review')
+        self.assertFalse(out['activeTrade'])
+        self.assertEqual(len(fake.calls), 3)
 
     def test_ssrf_url_and_malformed_pdf_fail_closed(self):
         for url in ("http://169.254.169.254/latest/meta-data",
