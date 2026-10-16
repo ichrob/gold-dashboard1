@@ -1607,6 +1607,7 @@ function productProblemLabels(p){
  if(knockoutStatus(p)||compactProductExclusion(p))return [];
  const result=finalProductStatus(p);
  if(result.complete)return [];
+ const paused=typeof expectedQuotePause==='function'&&expectedQuotePause(p);
  const analysis=typeof currentSgChfAnalysisProof==='function'?currentSgChfAnalysisProof(p):null;
  const labels=analysis&&!degiroVenueObserved(p)&&!degiroVenueInferred(p)?['DEGIRO-Handelsplatznachweis']:[];
  // Missing evidence is different from a missing numeric value. A datable
@@ -1617,6 +1618,7 @@ function productProblemLabels(p){
  const leveragePresent=!!fields&&n(fields.leverage?.value)>=1;
  for(const reason of result.reasons){
   const r=String(reason),found=[];
+  if(paused&&/^(?:BNP-Kursabruf: Markt geschlossen oder Produkt derzeit nicht handelbar|Kurszeit mit Datum: höchstens 14 Stunden alt; keine ergänzten Sekunden|Geld-\/Briefkurs veraltet|Kurs veraltet)$/.test(r))continue;
   // These are fallback screenshot requirements, not absent issuer analysis data.
   // Keep contradictory evidence and all contract/KO failures visible.
   if(analysis&&/^(?:Zusätzlicher Live-Nachweis offen|Detailbild mit derselben ISIN|Aktuelles Kursbild mit Geld\/Brief in EUR|Kurszeit mit Datum: höchstens 14 Stunden alt; keine ergänzten Sekunden|Aktuelles Detailbild mit Hebel und zugehöriger Zeit)$/.test(r))continue;
@@ -1642,6 +1644,8 @@ function renderProductProblemSummary(p){
 }
 function productHelpState(p){
  const labels=productProblemLabels(p),attempt=researchResults.get(p.index);
+ const paused=typeof expectedQuotePause==='function'&&expectedQuotePause(p);
+ if(paused&&!labels.length)return {labels,checking:false,manual:false,status:'Reguläre Handelspause',action:'Keine neuen Kursbilder nötig. Bob prüft die Kurse beim nächsten regulären Handelsfenster erneut; gespeicherte Werte behalten ihren Datenstand.'};
  const q=attempt?.isin===p.isin?attempt:p.quote?.isin===p.isin?p.quote:null;
  const checking=pendingQuotes.has(p.index)||q?.secondaryValidity?.state==='checking'||q?.comdirectFieldsBackup?.state==='checking';
  const venueMissing=labels.includes('DEGIRO-Handelsplatznachweis');
@@ -1919,6 +1923,7 @@ function currentSgChfAnalysisProof(p,now=Date.now()){
   at:chart.pointAt,currency:'CHF',analysisOnly:true,degiroExecutable:false};
 }
 function renderProductDirectionStatus(p,now=Date.now()){
+ if(expectedQuotePause(p,now))return '<span data-direction-data-status data-regular-trading-pause>Reguläre Handelspause · letzter Kursstand gespeichert</span>';
  const analysis=currentSgChfAnalysisProof(p,now);
  if(analysis){
   if(degiroVenueObserved(p))return '<span data-direction-data-status data-sg-chf-analysis-only role="status" style="display:inline-flex;gap:6px;flex-wrap:wrap"><strong style="color:#15803d">(✓) Kurs/Hebel · Analyse</strong><span style="color:#15803d">✓ DEGIRO-Handelsplatz belegt</span></span>';
@@ -1977,28 +1982,68 @@ function normalizeReviewedDegiroIdentity(raw){
 function degiroVenueObserved(p){
  const q=p?.snapshot?.degiroDisplayedQuote;
  return !!q&&q.isin===p.isin&&q.brokerDisplayConfirmed===true&&q.isExecutableQuote===false
-  &&q.currency==='CHF'&&/Soci[eé]t[eé]\s+G[eé]n[eé]rale\s+OTC/i.test(q.venue||'')
+  &&((q.currency==='CHF'&&/^Soci[eé]t[eé]\s+G[eé]n[eé]rale\s+OTC$/i.test(q.venue||''))
+    ||(q.currency==='EUR'&&/^BNP\s+Paribas\s+OTC$/i.test(q.venue||'')))
   &&!!selectionTimeWindow(q.sourceTime);
 }
 // Reviewed public policy supports a venue inference, never per-product broker proof.
 // Re-evaluate on every render; stale list/issuer/policy evidence cannot persist it.
-function degiroVenueInferred(p,archive=listArchive,now=Date.now()){
- const reviewedAt='2026-10-16T17:00:00Z',reviewed=Date.parse(reviewedAt);
- const q=p?.quote,m=q?.metadata,broker=p?.snapshot?.degiroDisplayedQuote;
- if(degiroVenueObserved(p)||!degiroListObservation(p?.isin,archive,now).currentDay
-    ||now<reviewed||now-reviewed>30*86400000
-    ||q?.isin!==p.isin||q.productVerified!==true||q.sourceFailure||q.sourceDisabled
-    ||!/^Soci[eé]t[eé] G[eé]n[eé]rale\b|^SG\b/i.test(q.source||'')
-    ||m?.status!==1||m.tradingHalted===true||m.issuerExchangeCode!=='CBSW'
-    ||m.currency!=='CHF'||m.underlyingType!=='SPOT'||m.underlying!=='XAU/USD'
+function verifiedOtcIssuer(p){
+ const q=p?.quote,m=q?.metadata;
+ if(!validIsin(p?.isin)||q?.isin!==p.isin||q.productVerified!==true||q.sourceDisabled
+    ||m?.status!==1||m.tradingHalted===true||m.underlyingType!=='SPOT'||m.underlying!=='XAU/USD'
     ||!['LONG','SHORT'].includes(p.productDirection)||m.direction!==p.productDirection
     ||compactProductExclusion(p)||knockoutStatus(p))return null;
+ if(/^BNP Paribas ·/.test(q.source||'')&&m.currency==='EUR'
+    &&q.sourceUrl==='https://derivate.bnpparibas.com/product-details/'+p.isin+'/'
+    &&!m.issuerExchangeCode)return {issuer:'BNP',venue:'BNP Paribas OTC',currency:'EUR',venuePattern:/^BNP\s+Paribas\s+OTC$/i};
+ if((/^Soci[eé]t[eé] G[eé]n[eé]rale\b|^SG\b/i).test(q.source||'')
+    &&m.issuerExchangeCode==='CBSW'&&m.currency==='CHF')
+  return {issuer:'SG',venue:'Société Générale OTC',currency:'CHF',venuePattern:/^Soci[eé]t[eé]\s+G[eé]n[eé]rale\s+OTC$/i};
+ return null;
+}
+function degiroTradingSession(p,now=Date.now(),archive=listArchive){
+ const issuer=verifiedOtcIssuer(p),q=p?.quote,checked=Date.parse(q?.checkedAt);
+ const reviewed=Date.parse('2026-10-16T17:00:00Z');
+ if(!issuer||now<reviewed||now-reviewed>30*86400000||!Number.isFinite(checked)
+    ||checked>now||now-checked>7*86400000||!degiroListObservation(p.isin,archive,now).observed)return null;
+ const broker=p.snapshot?.degiroDisplayedQuote;
+ if(broker&&(broker.isin!==p.isin||broker.currency!==issuer.currency||!issuer.venuePattern.test(broker.venue||'')))return null;
+ const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Zurich',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now)).map(x=>[x.type,x.value]));
+ const minutes=Number(parts.hour)*60+Number(parts.minute),weekend=['Sat','Sun'].includes(parts.weekday);
+ return {issuer:issuer.issuer,scheduledPause:weekend||minutes<480||minutes>=1320,
+  reason:weekend?'Wochenende':'außerhalb 08:00–22:00 Uhr',
+  label:'Reguläre Handelszeit: Mo–Fr 08:00–22:00 Uhr (Zürich)',
+  sourceUrl:'https://www.degiro.ch/fr/connaissances/heures-ouverture-bourse',
+  // A schedule is not a live status or a verified holiday calendar.
+  holidayVerified:false,marketOpenConfirmed:false};
+}
+function expectedQuotePause(p,now=Date.now()){
+ const session=degiroTradingSession(p,now),q=p?.quote;
+ if(!session?.scheduledPause||q.sourceFailure||q.quoteFailureCode)return false;
+ const fields=productFieldStates(p,now);
+ return ['bid','ask'].every(k=>n(fields[k]?.value)>0&&Number.isFinite(fields[k]?.ageSeconds)&&fields[k].ageSeconds>=0);
+}
+function renderDegiroTradingSession(p){
+ const session=degiroTradingSession(p);
+ if(!session)return '';
+ return '<div class="small" data-degiro-trading-session><b>'+
+  (session.scheduledPause?'Reguläre Handelspause · '+esc(session.reason):'Innerhalb der regulären Handelszeit')+
+  '</b><div>'+esc(session.label)+'. Feiertage und Sonderunterbrechungen sind nicht bestätigt.</div>'+
+  (session.scheduledPause?'<div>Neue Kurse sind während dieser Pause nicht regulär zu erwarten. Gespeicherte Werte behalten ihren ursprünglichen Datenstand.</div>':'')+
+  '<a href="'+session.sourceUrl+'" target="_blank" rel="noopener noreferrer">DEGIRO-Handelszeiten · geprüft am 16.10.2026</a></div>';
+}
+function degiroVenueInferred(p,archive=listArchive,now=Date.now()){
+ const reviewedAt='2026-10-16T17:00:00Z',reviewed=Date.parse(reviewedAt);
+ const q=p?.quote,broker=p?.snapshot?.degiroDisplayedQuote,issuer=verifiedOtcIssuer(p);
+ if(!issuer||degiroVenueObserved(p)||!degiroListObservation(p?.isin,archive,now).currentDay
+    ||now<reviewed||now-reviewed>30*86400000||q.sourceFailure)return null;
  const checked=Date.parse(q.checkedAt);
  if(!Number.isFinite(checked)||checked>now||now-checked>86400000)return null;
  // Never overrule conflicting broker details, even when old or incomplete.
- if(broker&&(broker.isin!==p.isin||broker.currency!=='CHF'
-    ||!/^Soci[eé]t[eé]\s+G[eé]n[eé]rale\s+OTC$/i.test(broker.venue||'')))return null;
- return {isin:p.isin,venue:'Société Générale OTC',currency:'CHF',
+ if(broker&&(broker.isin!==p.isin||broker.currency!==issuer.currency
+    ||!issuer.venuePattern.test(broker.venue||'')))return null;
+ return {isin:p.isin,venue:issuer.venue,issuer:issuer.issuer,currency:issuer.currency,
   kind:'source-inference',brokerDisplayConfirmed:false,isExecutableQuote:false,
   executionGuaranteed:false,reviewedAt,listAt:archive.storedAt,issuerCheckedAt:q.checkedAt,
   sourceUrl:'https://www.degiro.ch/fr/produits-and-places-boursieres',
@@ -2007,11 +2052,11 @@ function degiroVenueInferred(p,archive=listArchive,now=Date.now()){
 function renderDegiroVenueInference(p){
  const proof=degiroVenueInferred(p);
  if(!proof)return '';
- return '<div class="small" data-degiro-venue-inferred><b>Société Générale OTC – aus Quellen abgeleitet</b>'+
-  '<div>Zuordnung: heutiger DEGIRO-Listeneintrag dieser ISIN + bestätigte SG-Produktdaten in CHF + öffentliche DEGIRO-Handelsplatzangaben. Dafür ist kein weiteres Bild nötig.</div>'+
+ return '<div class="small" data-degiro-venue-inferred><b>'+esc(proof.venue)+' – aus Quellen abgeleitet</b>'+
+  '<div>Zuordnung: heutiger DEGIRO-Listeneintrag dieser ISIN + bestätigte '+esc(proof.issuer)+'-Produktdaten in '+esc(proof.currency)+' + öffentliche DEGIRO-Handelsplatzangaben. Dafür ist kein weiteres Bild nötig.</div>'+
   '<div>Kein direkter DEGIRO-Einzelnachweis und kein ausführbarer Kurs.</div>'+
   '<details><summary>Quellen der Zuordnung</summary><div>Listenbild: '+esc(proof.listAt)+
-  ' · SG-Stammdaten abgerufen: '+esc(proof.issuerCheckedAt)+
+  ' · '+esc(proof.issuer)+'-Stammdaten abgerufen: '+esc(proof.issuerCheckedAt)+
   '</div><a href="'+proof.sourceUrl+'" target="_blank" rel="noopener noreferrer">DEGIRO: Produkte und Handelsplätze</a> · '+
   '<a href="'+proof.policyUrl+'" target="_blank" rel="noopener noreferrer">DEGIRO: Ausführungsrichtlinie</a>'+
   '<div>Öffentliche Quellen geprüft am 16.10.2026; für diese Ableitung höchstens 30 Tage verwendet.</div></details></div>';
@@ -2163,7 +2208,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  const venueMissing=productProblemLabels(p).includes('DEGIRO-Handelsplatznachweis');
  const next=venueMissing?productHelpState(p).action:automaticQuoteIssue?'Automatischer Kurs- und Hebelabruf wird erneut geprüft. Vorhandene Werte bleiben mit ihrem ursprünglichen Datenstand nutzbar; derzeit keine neuen Bilder erforderlich.':complete&&neutral?'Marktsignal neutral – auf eine bestätigte Richtung warten. Dafür sind keine neuen Bilder nötig.':complete?'Produktdaten vollständig – Auswahlgrund unter „Warum derzeit nicht ausgewählt?“ prüfen.':temporal&&data.complete?'Werte vorhanden – den offenen Zeitbezug unter „Werte und Aktualitätsprüfung“ prüfen.':automaticRecoveryPending?'Bob prüft die zugelassenen Emittentenquellen automatisch erneut. Fehlende oder unklare Nachweise bleiben gesperrt und werden unter „Problem“ dokumentiert. Nur wenn diese Quellen keine ausreichenden Daten liefern, können zusätzliche Originalbelege notwendig sein.':'Offene Angaben unter „Werte und Aktualitätsprüfung“ ansehen und nur diese ergänzen.';
  return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" '+(selected?'data-selection-approved':'data-selection-blocked')+'="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere"><b>'+esc(p.isin)+'</b>'+renderIsinCopy(p.isin)+renderProductProblemSummary(p)+productCompletionBadge(p)+renderDegiroListEvidence(p)+renderProductHelp(p)+renderScreenshotSources(p)+'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'</div>'+
- renderDegiroDisplayedQuote(p)+renderDegiroVenueInference(p)+(swissSgVenue&&!degiroVenueObserved(p)&&!degiroVenueInferred(p)?'<div class="small" data-swiss-dots-warning><b>SG Swiss DOTS · CHF:</b> Offen ist die Zuordnung dieses CHF-Produkts zu einem DEGIRO-Handelsplatz. Die vorhandenen SG-Kurse werden für die Analyse verwendet.</div>':'')+'<div class="small" data-product-status><div><b>Daten:</b> '+valuePresenceMark(missingNumbers.length>0)+' '+esc(dataText)+'</div><div><b>Zeitbezug vorhandener Kurs-/Hebelwerte:</b> '+valuePresenceMark(!timeEvidence.confirmed)+' '+esc(timeEvidence.label)+'</div><div><b>Aktuelle Auswahl:</b> '+(selected?'freigegeben · ausgewählt':'nicht ausgewählt')+(neutral?' · Marktsignal neutral':'')+'</div></div>'+
+ renderDegiroDisplayedQuote(p)+renderDegiroVenueInference(p)+renderDegiroTradingSession(p)+(swissSgVenue&&!degiroVenueObserved(p)&&!degiroVenueInferred(p)?'<div class="small" data-swiss-dots-warning><b>SG Swiss DOTS · CHF:</b> Offen ist die Zuordnung dieses CHF-Produkts zu einem DEGIRO-Handelsplatz. Die vorhandenen SG-Kurse werden für die Analyse verwendet.</div>':'')+'<div class="small" data-product-status><div><b>Daten:</b> '+valuePresenceMark(missingNumbers.length>0)+' '+esc(dataText)+'</div><div><b>Zeitbezug vorhandener Kurs-/Hebelwerte:</b> '+valuePresenceMark(!timeEvidence.confirmed)+' '+esc(timeEvidence.label)+'</div><div><b>Aktuelle Auswahl:</b> '+(selected?'freigegeben · ausgewählt':'nicht ausgewählt')+(neutral?' · Marktsignal neutral':'')+'</div></div>'+
  '<p data-product-next><b>Nächster Schritt:</b> '+esc(selected?'Tatsächlichen DEGIRO-Kurs vor einem Einstieg prüfen.':next)+'</p><details><summary>Automatische Suche · letzter Stand</summary>'+renderAutomaticProductCheck(p)+'</details>'+renderPrimaryProductValues(p)+
  (allReasons.length?'<div class="small">'+allReasons.slice(0,2).map(shortReason).map(esc).join('<br>')+'</div>':'')+
  (selected?'': '<details style="margin-top:8px"><summary>Warum derzeit nicht ausgewählt?</summary><div class="small">'+(allReasons.length?allReasons.map(esc).join('<br>'):neutral?'Keine bestätigte Long-/Short-Marktrichtung. Die vollständigen Produktdaten müssen dafür nicht erneut hochgeladen werden.':'Die aktuelle Markt- und Risikoprüfung hat das Produkt nicht ausgewählt; vollständige Daten allein erteilen keine Freigabe.')+'</div></details>')+
