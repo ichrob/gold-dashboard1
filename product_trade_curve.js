@@ -56,7 +56,7 @@
   else if(price>=target.price)stage='target';
   else if(finite(distance)&&distance<=2)stage='ko-near';
   else stage='observing';
-  const action={
+  const actionBase={
    ko:'KO-Schwelle beim Goldpreis erreicht/überschritten: Produktstatus sofort bei DEGIRO prüfen. Keine reguläre Verkaufskursschätzung.',
    stop:'Stop-Zone erreicht: Bob würde zum Prüfen des Ausstiegs bei DEGIRO warnen. Kein automatischer Verkauf.',
    target:'Ziel-Zone erreicht: Bob würde Gewinnschutz, Zielverlängerung und Stop-Nachziehen prüfen.',
@@ -65,6 +65,9 @@
    observing:'Bob beobachtet das Produkt. Ein neuer Stop wird nur nach Prüfung vorgeschlagen; bestehenden Stop nicht lockern.',
    waiting:'Kein frischer Quellen- oder Modellkurs. Bob wartet auf aktuelle Nachweise; keine neue Stop-/Zielbestätigung.'
   }[stage];
+  const action=finite(distance)&&distance<=2&&stage!=='ko'&&stage!=='ko-near'
+    ?actionBase+' Zusätzlich KO-Abstand höchstens 2 %: Knock-out-Risiko prüfen.'
+    :actionBase;
   return {available:positive(price),tradeKey,isin:p.isin,currency,price,kind,source,sourceAt,
    spotAt,fxAt,fxRate:fxFresh?number(fx.rate):null,
    ko:positive(ko)?ko:null,koDistancePct:distance,knockedOut,
