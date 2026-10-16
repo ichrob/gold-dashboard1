@@ -70,8 +70,10 @@
   const calc=root.BobTradeProduct;
   if(!calc)return unavailable('Produktrechner nicht geladen.');
   const stop=calc.price(product,stopGold),target=calc.price(product,targetGold);
-  if(!stop?.available||!target?.available||!(stop.price<target.price)
-    ||!(stop.price<product.entry&&target.price>product.entry))
+  // A tightened stop may be above the purchase price and deliberately lock
+  // in profit. Requiring stop < entry would wrongly disable monitoring then.
+  // The independent essentials are positive product prices and stop < target.
+  if(!stop?.available||!target?.available||!(stop.price<target.price))
     return unavailable('Stopp/Ziel im Produktkurs nicht verlässlich berechenbar (Produktbedingungen oder KO prüfen).');
   const result={available:true,stage:'waiting-market',reason:'Aktuelle Gold-/FX-Referenz fehlt.',
     stopEur:stop.price,targetEur:target.price,currency:product.currency,

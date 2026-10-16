@@ -3111,20 +3111,33 @@ function intradayTechnicalContext(bundle=liveBundleCache,state=null,now=Date.now
 window.BobTechnicalContext=()=>intradayTechnicalContext();
 function intradayRiskData(bundle=liveBundleCache,now=Date.now(),allowStale=false){
  const step=900000,raw=bundle?.history?.bars_by_tf?.['15m']||[];
- const rows=raw.filter(b=>b.isOpen===false&&b.openTime+step<=now).slice(-200);
- const valid=rows.length>=40&&rows.every((b,i)=>b.instrument==='XAU/USD'&&Number.isFinite(b.openTime)&&b.openTime%step===0&&['open','high','low','close'].every(k=>Number.isFinite(b[k])&&b[k]>0)&&b.low<=Math.min(b.open,b.close)&&b.high>=Math.max(b.open,b.close)&&(!i||b.openTime>rows[i-1].openTime));
- if(!valid||!allowStale&&now-rows.at(-1).openTime>2*step||rows.slice(-3).some((b,i,a)=>i&&b.openTime-a[i-1].openTime!==step))return {available:false,reason:'Vollständige aktuelle 15m-Kerzen für Stop und Ziel fehlen'};
+ const rows=raw.filter(b=>b?.isOpen===false&&Number.isFinite(b.openTime)&&b.openTime+step<=now).slice(-200);
+ const valid=rows.length>=40&&rows.every((b,i)=>b.instrument==='XAU/USD'&&b.estimated!==true&&Number.isFinite(b.openTime)&&b.openTime%step===0&&['open','high','low','close'].every(k=>Number.isFinite(b[k])&&b[k]>0)&&b.low<=Math.min(b.open,b.close)&&b.high>=Math.max(b.open,b.close)&&b.low<=b.high&&(!i||b.openTime>rows[i-1].openTime));
+ // The actual stop calculation examines structure over forty candles, not
+ // merely the final three. Do not treat a missing 15m period as continuous.
+ const window=rows.slice(-40);
+ const contiguous=window.length===40&&window.every((b,i)=>!i||b.openTime-window[i-1].openTime===step);
+ if(!valid||!contiguous||!allowStale&&now-rows.at(-1).openTime>2*step)return {available:false,reason:'40 durchgehend bestätigte aktuelle 15m-Spotkerzen für Stopp und Ziel fehlen'};
  const volatility=atr(rows);return {available:volatility>0,bars:rows,atr:volatility,timeframe:'15m',reason:volatility>0?'':'15m-ATR ist null'};
 }
 function continuedTradePlan(trade,bundle=liveBundleCache,now=Date.now()){
  if(!trade?.active||!['LONG','SHORT'].includes(trade.dir))return null;
- const fixed=intradayRiskData(bundle,now,true),price=Number(bundle?.spots?.xaus),dataAt=Date.parse(bundle?.spots?.spot_price_as_of);
- if(!fixed.available||!(price>0)||!Number.isFinite(dataAt)||dataAt>now)return null;
+ const spot=bundle?.spots||{},fixed=intradayRiskData(bundle,now),
+       price=spot.xaus,dataAt=Date.parse(spot.spot_price_as_of);
+ // A delayed/non-spot input must not move a live stop or create a fresh target.
+ if(!fixed.available||spot.is_genuine_xauusd_spot!==true||spot.spot_error||
+    !Number.isFinite(price)||price<=0||!Number.isFinite(dataAt)||dataAt>now||now-dataAt>60000)return null;
  const raw=stopModel(trade.dir,price,fixed.atr,1.5,fixed);
  if(!(raw.stop>0))return null;
- const target=targetModel(trade.dir,price,raw.stop,2,fixed);
  const stop=Number.isFinite(trade.stop)?(trade.dir==='LONG'?Math.max(trade.stop,raw.stop):Math.min(trade.stop,raw.stop)):raw.stop;
- return {tradeId:trade.tradeId,stop,target:target.target||trade.target,dataAt,analysisBarAt:fixed.bars.at(-1).openTime,computedAt:now,reference:price,estimated:true};
+ // A trade's confirmed target belongs to its stored plan. Rebuilding a new
+ // 2R target from every fluctuating spot tick could move a LONG target lower,
+ // or a SHORT target higher, without a confirmed checkpoint decision.
+ const savedTarget=Number.isFinite(trade.target)&&trade.target>0?trade.target:null;
+ const provisional=savedTarget===null?targetModel(trade.dir,price,raw.stop,2,fixed).target:null;
+ const target=savedTarget??provisional;
+ if(!Number.isFinite(target)||target<=0)return null;
+ return {tradeId:trade.tradeId,stop,target,dataAt,analysisBarAt:fixed.bars.at(-1).openTime,computedAt:now,reference:price,estimated:true,targetSource:savedTarget!==null?'confirmed-trade-plan':'provisional-only'};
 }
 function intradayEntryContext(bundle=liveBundleCache,state=signalState,now=Date.now()){
  const quality=Object.entries({'5m':300000,'15m':900000,'1h':3600000}).map(([tf,step])=>{
