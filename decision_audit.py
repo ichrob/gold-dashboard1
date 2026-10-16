@@ -13,6 +13,7 @@ import rule_learning
 import audit_history
 import stop_target_audit
 import paper_simulation
+import optimization_review
 from datetime import datetime, timezone
 
 VERSION = 'decision-audit-v1'
@@ -113,10 +114,12 @@ def normalize(payload, now=None):
     result['learningPolicy']=result.get('learningPolicy') if isinstance(result.get('learningPolicy'),str) and len(result['learningPolicy'])<150 else None
     if result.get('baseDirection') not in ('LONG','SHORT','NEUTRAL'):result['baseDirection']=None
     result['reviewVariants'] = signal_review.capture(result)
+    result['optimization'] = optimization_review.capture(result)
     # Each decision revision is frozen once. Refreshes with unchanged evidence are idempotent.
     identity={k:result[k] for k in ('learningPolicy','version','ruleVersion','origin','direction','shadowDirection','intraday','barAt','reason','products','selection','gateReasons','plan')}
     if identity.get('plan'):identity['plan']={k:v for k,v in identity['plan'].items() if k!='at'}
     identity['reviewVersion']=signal_review.VERSION
+    identity['optimizationVersion']=optimization_review.VERSION
     identity['earlyImpulseEvidence']=(lambda q:{'version':q['version'],'direction':q['direction'],'barAt':q['barAt']} if q else None)(result.get('earlyImpulse'))
     identity['minuteEntryVersion']=(result.get('minuteEntry') or {}).get('version')
     identity['entryQualityVersion']=(result.get('entryQuality') or {}).get('version')
@@ -436,6 +439,7 @@ def _build_report(conn):
     result['ruleLearning']=learning
     result['otherPolicyRecords']=len(rows)-len(scoped)
     result['signalDiagnostics']=signal_review.diagnostics(current,outcome)
+    result['optimizationReview']=optimization_review.report(current,outcome)
     try:
         with conn.transaction():
             prospective_rows = _load_prospective_rows(conn)

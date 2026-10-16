@@ -119,6 +119,14 @@ PANEL = r"""
      ];
      const detail=document.createElement('p');detail.className='small';detail.style='white-space:pre-line;overflow-wrap:anywhere';
      detail.textContent=lines.join('\n');card.append(detail);
+     const cr=acc.costReview;
+     if(cr){
+      const costs=document.createElement('details'),title=document.createElement('summary'),body=document.createElement('p');
+      title.textContent='Ergebnis nach Beispielkosten · gewählter Tag';body.className='small';body.style='white-space:pre-line;overflow-wrap:anywhere';
+      const costLines=[];
+      for(const m of cr.scenarios||[])costLines.push(m.name+': '+m.evaluated+' bepreiste Fälle · '+m.excluded+' ausgeschlossen · Ergebnis nach Beispielkosten '+(Number.isFinite(m.modelNetEur)?money.format(m.modelNetEur):'offen')+' · mittlerer Gewinn '+(Number.isFinite(m.averageWinEur)?money.format(m.averageWinEur):'offen')+' / Verlust '+(Number.isFinite(m.averageLossEur)?money.format(m.averageLossEur):'offen')+' · Annahmen: '+m.feeEurPerOrder+' EUR je Kauf/Teilverkauf, '+m.slippageBpsPerSide+' Basispunkte schlechtere Ausführung je Seite, '+m.extraHoldingBpsPerDay+' Basispunkte zusätzliche Haltekosten pro Tag.');
+      costLines.push(cr.note);body.textContent=costLines.join('\n\n');costs.append(title,body);card.append(costs);
+     }
      const blocks=document.createElement('details'),blockTitle=document.createElement('summary');
      blockTitle.textContent='Einstiegssperren · Tagesprotokoll';blocks.append(blockTitle);
      const blockText=document.createElement('p');blockText.className='small';blockText.style='white-space:pre-line';

@@ -374,7 +374,8 @@ console.log('Spot/Future display switch preserves analysis candles');
  const start=html.indexOf(" async function refresh(){\n  text('auditReport'");
  assert(start>=0);
  const end=html.indexOf('\n refresh();',start);
- const source=html.slice(start,end);
+ const renderer=html.slice(html.indexOf(' function renderOptimization(o){'),html.indexOf(' async function api(action,payload)'));
+ const source=renderer+html.slice(start,end);
  const metric={evaluated:1,favorable:1,unfavorable:0,flat:0,missing:0,neutral:0};
  const report={learning:{training:1,holdout:0},productReview:metric,researchReview:{},
   metrics:{15:metric,60:metric,240:metric},issues:[],total:3,retentionDays:30,latest:[],scope:'fixture',

@@ -478,6 +478,7 @@ def report(conn, day=None):
     return dict(ok=True,version=VERSION,note=NOTE,control=status,marketClosed=closed,sessionMode=phase,day=day,stats=stats[0] if stats else {},
                 products=[dict(isin=p.get('isin'),direction=p.get('productDirection'),name=p.get('name')) for p in feed[0]['products'] if p.get('isin')] if feed else [],
                 productSyncedAt=feed[1].isoformat() if feed else None,cases=[r[0] for r in cases],
+                costReview=__import__('paper_costs').report([r[0] for r in cases]),
                 daily=[dict(day=d,**s) for d,s in totals],detailsLimit=100,detailRetentionDays=30,
                 demonstrations=technical_scenarios(), demonstration=technical_demo(control.get('lastGold'),next((p for p in feed[0]['products'] if p.get('productDirection')=='LONG'),None) if feed else None))
 
@@ -710,9 +711,13 @@ def quote_cache(products, active, now):
     from comdirect_quotes import apply as refresh_backup
     from swissquote_quotes import apply as refresh_third_source
     from leverage_backup import apply as refresh_leverage
+    from comdirect_fields import apply as refresh_fields
     observations={}
     for isin in isins:
         raw=_quotes.get(isin,by_isin.get(isin))
+        # Independently harvest the shared nonblocking source cache even while
+        # all issuer slots are occupied. Identity checks remain in each parser.
+        raw=refresh_fields(raw if isinstance(raw,dict) else {'isin':isin},isin)
         refreshed=refresh_third_source(refresh_backup(raw,isin),isin) if isinstance(raw,dict) else raw
         observations[isin]=refresh_leverage(refreshed) if isinstance(refreshed,dict) else refreshed
     return observations

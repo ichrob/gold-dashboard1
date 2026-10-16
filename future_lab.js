@@ -76,11 +76,11 @@ function stressCases(){
  });
 }
 function snapshot(raw){
- if(!raw||raw.mode!=='four-independent-paper-accounts'||raw.realOrders!==false||
-    !Array.isArray(raw.accounts)||raw.accounts.length!==4)throw Error('Papierkonto-Daten nicht bestätigt');
+ if(!raw||!['four-independent-paper-accounts','five-independent-paper-accounts'].includes(raw.mode)||raw.realOrders!==false||
+    !Array.isArray(raw.accounts)||raw.accounts.length!==(raw.mode==='five-independent-paper-accounts'?5:4))throw Error('Papierkonto-Daten nicht bestätigt');
  const names=new Set(),items=[];
  for(const a of raw.accounts){
-  if(!['conservative','balanced','offensive','trend800'].includes(a.profile)||names.has(a.profile))
+  if(!(raw.mode==='five-independent-paper-accounts'?['conservative','balanced','offensive','trend800','early100']:['conservative','balanced','offensive','trend800']).includes(a.profile)||names.has(a.profile))
    throw Error('Doppelte oder unbekannte Kontenkennung');names.add(a.profile);
   const ctl=a.control||{},p=a.performance||{},day=a.stats||{};
   const daily=Array.isArray(a.daily)?a.daily:[];
@@ -92,7 +92,7 @@ function snapshot(raw){
    closedTotal:safe(p.closedTrades),observationDays:observedDays,
    drawdown:safe(p.observedMaxDrawdownPct),missing:safe(p.quoteMissingChecks),
    closedToday:safe(day.closed),openUnits:safe(ctl.openUnits),
-   checkedAt:typeof ctl.checkedAt==='string'?ctl.checkedAt:null,
+   checkedAt:(typeof ctl.checkedAt==='string'||safe(ctl.checkedAt)!==null)?ctl.checkedAt:null,
    quoteStatus:typeof p.quoteStatus==='string'?p.quoteStatus:'unbekannt',
    state:typeof ctl.status==='string'?ctl.status:'nicht bestätigt'
   });
@@ -104,13 +104,13 @@ function mount(parent){
  const el=(tag,txt)=>{const e=document.createElement(tag);if(txt!=null)e.textContent=txt;return e;};
  const shell=el('section');shell.id='bobFutureLab';shell.className='card';shell.style.cssText='margin-top:12px;padding:14px;border:1px solid #b6c5d5';
  const head=el('h3','Zukunft · Entwicklungs- und Testzentrale');
- const preface=el('p','Entwicklungsfahrplan mit Prüfkriterien. Die vorhandenen vier Paper-Konten können hier ausgelesen werden. Alle Sicherheits-Probeläufe verwenden ausdrücklich erfundene Beispiele; es gibt hier keine Broker- oder Echtgeldfunktion.');
+ const preface=el('p','Entwicklungsfahrplan mit Prüfkriterien. Die vorhandenen fünf Paper-Konten können hier ausgelesen werden. Alle Sicherheits-Probeläufe verwenden ausdrücklich erfundene Beispiele; es gibt hier keine Broker- oder Echtgeldfunktion.');
  preface.className='small';
  const banner=el('p','Modus: Planung und Paper-Test. Echtgeld gesperrt; keine neue Broker-Anbindung.');
  banner.style.cssText='padding:10px;border-radius:10px;background:#eef4ff;color:#194476;font-weight:700';
  shell.append(head,preface,banner);
  const paper=el('section');paper.style.cssText='border-top:1px solid #dbe3ee;margin-top:14px;padding-top:12px';
- const paperTitle=el('h4','Langzeittest: vorhandene vier Paper-Konten');
+ const paperTitle=el('h4','Langzeittest: vorhandene fünf Paper-Konten');
  const paperText=el('p','Die Zahlen stammen ausschliesslich aus Bobs bestehendem Paper-Test, nicht aus einem neuen Strategie-Backtest. Ergebnisse sind bisher brutto; vollständige Gebühren, Finanzierung und Slippage sind nicht belegt.');
  paperText.className='small';
  const paperBtn=el('button','Aktuelle Paper-Konten prüfen');paperBtn.type='button';paperBtn.className='bob-primary';
@@ -172,7 +172,7 @@ function mount(parent){
   }catch(e){obsStatus.textContent='Forschungsdaten nicht verfügbar: '+String(e.message||e)+'. Keine Ergebnisse erfunden.';}
   finally{obsBusy=false;obsButton.disabled=false;}
  });
- const displayName={conservative:'Konservativ · 100 €',balanced:'Ausgewogen · 100 €',offensive:'Offensiv · 100 €',trend800:'Trendfolge · 800 €'};
+ const displayName={conservative:'Konservativ · 100 €',balanced:'Ausgewogen · 100 €',offensive:'Offensiv · 100 €',trend800:'Bob-Stopp & Wiedereinstieg · 800 €',early100:'Frühimpuls · 100 €'};
  let busy=false;
  paperBtn.addEventListener('click',async()=>{
   if(busy)return;busy=true;paperBtn.disabled=true;paperStatus.textContent='Vorhandene Paper-Daten werden gelesen …';
@@ -206,7 +206,7 @@ function mount(parent){
     for(const str of metrics){const p=el('p',str);p.style.cssText='font-size:12px;margin:6px 0;color:#344155;overflow-wrap:anywhere';box.append(p);}
     paperCards.append(box);
    }
-   paperStatus.textContent='Vier vorhandene Paper-Konten abgerufen · Stand: '+new Date().toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · nur beobachtete Ergebnisse; kein Nettogewinn-Nachweis.';
+   paperStatus.textContent='Vorhandene Paper-Konten abgerufen · Stand: '+new Date().toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · nur beobachtete Ergebnisse; kein Nettogewinn-Nachweis.';
   }catch(e){paperStatus.textContent='Paper-Daten konnten nicht bestätigt werden ('+String(e.message||'unbekannt')+'). Keine geschätzten Resultate angezeigt.';}
   finally{busy=false;paperBtn.disabled=false;}
  });

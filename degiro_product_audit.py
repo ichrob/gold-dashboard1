@@ -407,6 +407,7 @@ def examine(product, quote, now_ms):
         "source": str(quote.get("source") or "Emittenten- und Ersatzquellen")[:80],
         "sourceObservations": observations,
         "thirdSourceEvidence": quote.get("swissquoteBackup"),
+        "fieldRecovery": quote.get("comdirectFieldsBackup"),
         "marketCrossCheck": cross_check,
         "researchLinks": _research_links(isin),
         "issuerVenue": "Swiss DOTS (CHF)" if swiss_dots else None,

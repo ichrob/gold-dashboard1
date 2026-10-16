@@ -9,6 +9,12 @@ const data={
   {profile:'trend800',control:{initialCapital:800,equity:801},stats:{closed:0},performance:{pricedTrades:0}}
  ]};
 const rows=snapshot(data);
+const five={...data,mode:'five-independent-paper-accounts',accounts:[...data.accounts,
+ {profile:'early100',control:{initialCapital:100,checkedAt:1792100000000},performance:{}}]};
+assert.equal(snapshot(five).length,5,'Current server response has five accounts');
+assert.equal(snapshot(five)[4].checkedAt,1792100000000,'Numeric server clocks must remain visible');
+assert.throws(()=>snapshot({...five,accounts:data.accounts}),/Papierkonto/);
+assert.throws(()=>snapshot({...data,accounts:five.accounts}),/Papierkonto/);
 assert.equal(rows.length,4);
 assert.equal(rows[0].priced,2);
 assert.equal(rows[0].drawdown,2.5);

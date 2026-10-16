@@ -1099,6 +1099,10 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 </section>
 <section class="card" id="auditStatistics">
 <h2>Statistik: Treffer und Fehlprognosen</h2>
+<h3>Bob verbessern · laufender Vergleich</h3>
+<p id="optimizationSummary" role="status">Neue Vergleichsdaten werden geladen …</p>
+<details><summary>Verpasste Bewegungen, Marktphasen und Varianten</summary><div id="optimizationDetails" class="small" style="white-space:pre-line;overflow-wrap:anywhere"></div></details>
+<p class="small">Produkt-Kostenszenarien stehen bei den fünf Konten unter Vollautomatisch. Den Stoppvergleich findest du unten in der Tagesprüfung.</p>
 <div id="auditStatisticsStatus" class="small" role="status">Statistik wird geladen …</div>
 <div style="overflow-x:auto"><table style="width:100%;text-align:left;border-collapse:collapse"><caption class="small">Nur auswertbare Richtungen / Produktkurse; Anteil innerhalb der jeweiligen Zeile</caption><thead><tr><th>Prüfung</th><th>Treffer</th><th>Fehlprognose</th><th>Unverändert</th><th>Ausgewertet</th><th>Auswertungsstand</th></tr></thead><tbody id="auditStatisticsRows"></tbody></table></div>
 <details><summary>Fehleranalyse · Long und Short</summary><div id="signalDiagnostics" class="small" style="white-space:pre-line">Wird geladen …</div></details>
@@ -1157,6 +1161,28 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 (function(){
  let last='',busy=false,next=0;
  const text=(id,value)=>{const e=document.getElementById(id);if(e)e.textContent=value;};
+ function renderOptimization(o){
+  if(!o||o.version!=='optimization-forward-v1'){
+   text('optimizationSummary','Neuer Vergleich noch nicht verfügbar.');return;
+  }
+  const n=v=>Number.isFinite(v)?v.toFixed(3):'offen';
+  const when=v=>v?new Date(v).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch keine';
+  const phaseNames={collection:'Erste Sammlung',validation:'Spätere Prüfung'};
+  const regimeNames={CONTINUATION:'Trendfortsetzung',PULLBACK:'Rücksetzer',RANGE:'Seitwärts',WEAKENING:'Trend schwächer',UNKNOWN:'Unbekannt'};
+  text('optimizationSummary',o.paired+' gemeinsame Vergleichsfälle · '+o.missing+' nicht auswertbar · '+o.pending+' noch offen. '+o.missedCount+' starke Bewegungen mit abweichendem Signal oder protokollierter Sperre.');
+  const lines=['Berichtsfenster: '+when(o.rangeStart)+' bis '+when(o.rangeEnd),
+   'Spätere Prüfung ab '+o.validationDay+'. Neue Varianten ändern keine aktive Handelsregel.',
+   'Vier festgelegte Varianten: aktuell, vorsichtig, Frühimpuls ergänzend, Frühimpuls nur bei intaktem Trend. Die Trendvariante wartet bei Seitwärtsphase oder schwächerem Trend.'];
+  for(const [phase,variants] of Object.entries(o.phases||{})){
+   lines.push('\n'+phaseNames[phase]);
+   for(const [key,m] of Object.entries(variants))lines.push(o.labels[key]+': '+m.cases+' Fälle · '+m.signals+' Signale / '+m.wait+' Abwarten · Mittel nach Beispielkosten '+n(m.meanModelPct)+' % je Fall · mittlerer Gewinn '+n(m.averageWinPct)+' % / Verlust '+n(m.averageLossPct)+' % je Richtungssignal.');
+  }
+  lines.push('\nMarktphasen (dieselben Fälle)');
+  for(const g of o.regimes||[])lines.push(phaseNames[g.phase]+' · '+(regimeNames[g.regime]||g.regime)+': '+g.cases+' Fälle · aktuell '+n(g.baselineSumPct/g.cases)+' % / Trendvariante '+n(g.regimeSumPct/g.cases)+' % je Fall nach Beispielkosten.');
+  lines.push('\nStarke Bewegungen: '+o.strongMovePct+' % in '+o.horizonMinutes+' Minuten (rückblickende Prüfschwelle)');
+  for(const e of o.missed||[])lines.push(when(e.at)+' · '+e.direction+' · '+n(e.changePct)+' %\n'+e.reason+'\n'+(e.signalAlreadyPresent?'Richtung bereits erkannt; Produkt-/Einstiegssperre getrennt prüfen.':e.laterSignalMinutes!==null?'Passendes späteres Signal nach '+n(e.laterSignalMinutes)+' Minuten protokolliert.':'Kein passendes späteres Signal im Prüfzeitraum protokolliert; Aufzeichnung kann Lücken haben.'));
+  lines.push(o.note);text('optimizationDetails',lines.join('\n'));
+ }
  async function api(action,payload){const r=await fetch('/api/audit/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!r.ok)throw Error('Speicher nicht erreichbar ('+r.status+')');return r.json();}
  let paperBusy=false,paperSyncBusy=false,paperSyncAt=0;
  const paperTime=v=>v?new Date(v).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'nicht bestätigt';
@@ -1276,6 +1302,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  async function refresh(){
   text('auditReport','Auswertung wird geladen …');
   try{const r=await api('read',{}),l=r.learning,p=r.productReview,research=r.researchReview;
+   renderOptimization(r.optimizationReview);
    text('improvementStatus',l.candidateBetter?'Neuer Verbesserungsvorschlag: drei Schlusskerzen gegen die aktive Bestätigung prüfen.':l.ready?'Vergleich abgeschlossen: bislang keine Verbesserung belegt.':'Bob sammelt Vergleichsdaten – noch keine ausreichend geprüfte Anpassung.');
    const delta=v=>Number.isFinite(v)?v.toFixed(4)+' Prozentpunkte je Vergleichsfall':'noch nicht auswertbar';
    text('improvementEvidence','Was wird geprüft?\nAktive adaptive Bestätigung gegen drei abgeschlossene 5-Minuten-Kerzen.\n\nDatenbasis\n'+l.training+'/100 Entwicklungsfälle und '+l.holdout+'/100 zeitlich spätere Prüffälle (Mindestzahlen).\n\nGemessener Unterschied gegenüber der aktuellen Regel\nEntwicklungsfälle: '+delta(l.trainingDeltaPct)+'\nSpätere Prüffälle: '+delta(l.holdoutDeltaPct)+'\n\nWas spricht dagegen?\nEine längere Bestätigung reagiert später. Der Vergleich bewertet Goldbewegungen ohne Handelskosten; er beweist keine höhere Produktrendite.\n\nUmsetzung\n'+(l.candidateBetter?'Vorschlag erkannt, noch nicht übernommen. Weitere Prüfung erforderlich.':'Aktuelle Regel bleibt unverändert.')+'\nAutomatische Anpassung: noch nicht verfügbar.');
@@ -1332,7 +1359,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const eq=r.entryQualityReview;if(eq){const num=v=>Number.isFinite(v)?v.toFixed(3)+' %':'noch nicht auswertbar';lines.push('','Einstiegsqualität · Vergleichstest: '+eq.evaluated+' gepaarte Fälle nach 60 Minuten; '+eq.kept+' beibehalten, '+eq.filtered+' gefiltert.','Treffer: bisher '+eq.baselineWins+'/'+eq.evaluated+'; Test '+eq.candidateWins+'/'+eq.kept+' freigegebene Testfälle.','Mittlere Richtungsbewegung pro Vergleichsfall: bisher '+num(eq.baselineMeanPct)+'; Test '+num(eq.candidateMeanPct)+'.','Verpasste günstige Bewegungen: '+eq.missedFavorable+' · vermiedene ungünstige: '+eq.avoidedUnfavorable+'.','Mittlere beobachtete Gegenbewegung: bisher '+num(eq.meanObservedAdversePct)+'; Test '+num(eq.candidateMeanObservedAdversePct)+' ('+eq.excursions+' Fälle).',eq.note);}
    const c=r.fourDayComparison;if(c){const n=v=>Number.isFinite(v)?v.toFixed(3):'—',date=v=>new Date(v).toLocaleString('de-CH',{timeZone:'Europe/Zurich'});const cs=['VIERTAGE-TEST · '+c.status,date(c.start)+' bis '+date(c.end)+' (Zürich)','Schnell: eine klare / zwei schwächere Schlusskerzen. Vorsichtig: drei Schlusskerzen.','Auswertbar: '+c.evaluated+' / '+c.expected+' · Datenabdeckung '+n(c.coveragePct)+' % · fehlend '+c.missing+' · offen '+c.pending];for(const [key,label] of [['fast','Schnell'],['cautious','Vorsichtig']]){const m=c.variants[key];cs.push(label+': '+m.signals+' Richtungssignale · '+m.wait+' Abwarten · '+m.wins+' Treffer / '+m.losses+' Fehlrichtungen / '+m.flat+' unverändert · Trefferquote '+n(m.hitRate)+' %','Mittlere Gold-Richtungsbewegung je Vergleichsfall '+n(m.meanPct)+' % · schlechtester Fall '+n(m.worstPct)+' % · beobachtete Gegenbewegung '+n(m.meanAdversePct)+' % ('+m.adverseCases+' Fälle)');}cs.push('Vorsichtig ausgelassen: '+c.avoidedUnfavorable+' ungünstige und '+c.missedFavorable+' günstige Bewegungen.',c.conclusion,c.note);text('fourDayComparison',cs.join('\n'));}
    text('auditReport',lines.join('\n'));text('auditRecords',JSON.stringify(r.latest,null,2));
-  }catch(e){text('earlyImpulseResult','Frühwarn-Testdaten momentan nicht abrufbar: '+e.message);text('fourDayComparison','Vergleich aktuell nicht abrufbar. Bitte später erneut laden.');text('auditStatisticsStatus','Statistik nicht aktuell abrufbar; eventuell angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.');text('auditReport','Auswertung nicht verfügbar: '+e.message);text('improvementStatus','Lernstand derzeit nicht abrufbar. Ein zuvor angezeigter Vorschlag ist nicht erneut geprüft.');}
+  }catch(e){text('optimizationSummary','Vergleich aktuell nicht abrufbar; angezeigte Details können veraltet sein.');text('earlyImpulseResult','Frühwarn-Testdaten momentan nicht abrufbar: '+e.message);text('fourDayComparison','Vergleich aktuell nicht abrufbar. Bitte später erneut laden.');text('auditStatisticsStatus','Statistik nicht aktuell abrufbar; eventuell angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.');text('auditReport','Auswertung nicht verfügbar: '+e.message);text('improvementStatus','Lernstand derzeit nicht abrufbar. Ein zuvor angezeigter Vorschlag ist nicht erneut geprüft.');}
  }
  refresh();
  setInterval(()=>{if(!document.hidden)refresh();},300000);
@@ -1356,6 +1383,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    text('auditDaySummary',lines.join('\n'));
    const st=r.stopTargetReview;
    if(st){
+    const ec=st.exitComparison;
+    if(ec){const v=ec.variants;lines.push('Stoppvergleich: '+ec.paired+' gemeinsame Planverläufe · '+ec.excluded+' offen/unklar.',...Object.entries(v).map(([k,m])=>(k==='fixed'?'Fester Stop':'Nachgezogener Stop')+': '+m.stops+' Stopptreffer · mittleres Ergebnis '+(m.meanR==null?'offen':m.meanR.toFixed(2)+' R')+' · mittlere Gewinnrückgabe '+(m.meanGivebackR==null?'offen':m.meanGivebackR.toFixed(2)+' R')),ec.note);text('auditDaySummary',lines.join('\n'));}
     const labels={'pending':'noch offen','observed-target':'Ziel zuerst beobachtet','observed-stop':'Stop zuerst beobachtet','no-observed-hit':'kein Treffer in vier Stunden beobachtet','inconclusive':'nicht eindeutig / Datenlücke','invalid-plan':'Plan nicht auswertbar'};
     text('auditStopTargetSummary',st.total+' unterschiedliche gespeicherte Planversionen; keine Anzahl echter Trades.\n'+
      (Object.entries(st.counts).map(([k,n])=>(labels[k]||k)+': '+n).join(' · ')||'Noch keine neuen auswertbaren Pläne für diesen Tag gespeichert.')+'\n'+
