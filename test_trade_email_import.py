@@ -92,6 +92,25 @@ class EmailImportTests(unittest.TestCase):
         self.assertEqual(m.import_event(event("Account notice"),
                                         "forwarder@example.test")["status"],"incomplete")
 
+    def test_original_degiro_sender_is_staged_not_verified(self):
+        from test_trade_document_import import TEXT
+        e=event(body=TEXT,sender="DEGIRO <notifications@degiro.com>")
+        e['message']['subject']='DEGIRO - Transaktionsbestätigung: Kauf'
+        e['message']['to']=['original-customer@example.com']
+        staged=m.import_event(e,'forwarder@example.test')
+        self.assertEqual(staged['status'],'pending-review')
+        self.assertEqual(staged['senderKind'],'original-degiro-unverified')
+        self.assertEqual(staged['totalChf'],6.04)
+        self.assertFalse(staged['activeTrade'])
+        e['message']['inbox_id']='other@agentmail.to'
+        self.assertEqual(m.import_event(e,'forwarder@example.test')['status'],'ignored')
+        e['message']['inbox_id']='bob-degiro@agentmail.to'
+        e['message']['subject']='DEGIRO Kontoauszug'
+        self.assertEqual(m.import_event(e,'forwarder@example.test')['status'],'sender-unconfirmed')
+        e['message']['subject']='DEGIRO - Transaktionsbestätigung: Kauf'
+        e['message']['from']='Other <no-reply@example.test>'
+        self.assertEqual(m.import_event(e,'forwarder@example.test')['status'],'sender-unconfirmed')
+
     def test_real_agentmail_sender_array_and_inbox_scope(self):
         actual=event()
         actual['message'].pop('from')
