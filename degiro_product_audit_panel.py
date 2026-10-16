@@ -1,7 +1,7 @@
 """Private visualisation of server-side DEGIRO list evidence checks."""
 PANEL = r'''<section id="bobProductAudit" class="card">
-<h3>Diag Produkte Probleme</h3>
-<button id="bobAuditShareChatGPT" type="button">ChatGPT Teil</button>
+<button id="bobAuditShareChatGPT" type="button" style="width:100%;white-space:normal" aria-describedby="bobAuditShareHint">DEGIRO Goldhebelprodukte Probleme</button>
+<p id="bobAuditShareHint" class="small">Prüfbericht mit Reparaturauftrag teilen: ChatGPT auswählen und dort absenden.</p>
 <p id="bobAuditShareStatus" hidden role="status" class="small"></p>
 <textarea id="bobAuditShareFallback" hidden readonly aria-label="Privaten Bericht zum manuellen Kopieren" style="width:100%;min-height:140px"></textarea>
 <div hidden>
@@ -22,7 +22,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
  // Privacy boundary: user initiated only. No account, order, quote amounts,
  // raw stored screenshots, credentials or automatic outbound transmission.
  function auditTextForChatGPT(r){
-  const items=Array.isArray(r?.items)?r.items.slice(0,12):[];
+  const items=Array.isArray(r?.items)?r.items:[];
   const time=value=>typeof value==='string'&&Number.isFinite(Date.parse(value))?safe(value):'nicht nachgewiesen';
   const lines=[
    'Bob – privater Gold-Hebelprodukt-Prüfbericht (vom Nutzer bewusst geteilt)',
@@ -82,7 +82,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   if(!navigator.share){await copyMobileAudit();return;}
   try{
    await navigator.share({title:'Bob · Gold-Hebelprodukte Prüfbericht',text:value});
-   handoffStatus('In ChatGPT nur noch absenden. Der Prüf- und Reparaturauftrag ist enthalten.');
+   handoffStatus('Bericht an die gewählte App übergeben. Wenn du ChatGPT gewählt hast: dort noch absenden, damit ChatGPT die Probleme prüfen kann.');
   }catch(error){
    if(error?.name==='AbortError')return;
    await copyMobileAudit();
@@ -99,8 +99,11 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   return 'nicht aktuell nachgewiesen';
  }
  function mount(){
+  const products=byId('dgSavedProductsSummary')?.closest('details');
+  const audit=byId('bobProductAudit');
+  if(products&&audit)products.after(audit);
+  else if(byId('bob-view-products')&&audit)byId('bob-view-products').append(audit);
   const problems=byId('bob-view-problems');
-  if(problems)problems.append(byId('bobProductAudit'));
   if(problems)problems.append(byId('bobProductAuditProblem'));
   else {const main=document.querySelector('main');if(main)main.append(byId('bobProductAuditProblem'));}
  }
