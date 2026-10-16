@@ -20,6 +20,20 @@ class ProductQuoteTests(unittest.TestCase):
         self.backup.start()
         self.addCleanup(self.backup.stop)
 
+    def test_pipeline_does_not_call_retired_onvista(self):
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            retired = stack.enter_context(patch('onvista_backup.apply_backup'))
+            stack.enter_context(patch.object(q, '_get_quote_primary', return_value={'isin':ISIN}))
+            for module, name in [('comdirect_quotes','get_observation'), ('swissquote_quotes','get_observation')]:
+                stack.enter_context(patch(module+'.'+name))
+            for target in ['comdirect_fields.apply','finanzen_terms.apply','comdirect_quotes.apply',
+                           'swissquote_quotes.apply','leverage_backup.apply','secondary_validity.apply',
+                           'hybrid_product_price.apply']:
+                stack.enter_context(patch(target, side_effect=lambda value,*args:value))
+            q._get_quote_bounded(ISIN)
+            retired.assert_not_called()
+
     def fetch_bnp(self, data):
         with patch.object(q, 'urlopen') as network:
             response = network.return_value.__enter__.return_value
