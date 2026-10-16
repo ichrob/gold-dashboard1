@@ -17,13 +17,16 @@ SPEC = 'https://i.ytimg.com/sb/' + VIDEO + '/storyboard3_L$L/$N.jpg?sqp=x|160#90
 
 
 class DB:
-    def __init__(self, row=None, count=(0, 0)):
+    def __init__(self, row=None, count=(0, 0), summary_row=None):
         self.row = row; self.count = count; self.queries = []; self.value = None
+        self.summary_row = summary_row
     def __enter__(self): return self
     def __exit__(self, *args): pass
     def execute(self, query, args=()):
         self.queries.append((query, args))
         self.value = self.row if query.startswith('SELECT fingerprint') else self.count if query.startswith('SELECT count') else None
+        if query.startswith('SELECT fingerprint') and 'summary_error' in query:
+            self.value = self.summary_row or (self.row[:3] + ('pending',0,True) if self.row else None)
         return self
     def fetchone(self): return self.value
     def commit(self): pass
@@ -196,7 +199,8 @@ class ResearchTests(unittest.TestCase):
         db = DB(row=('other', None, None, False, True), count=(10, 0))
         with patch.dict(os.environ, {'GEMINI_API_KEY': 'secret', 'BOB_GEMINI_FREE_PROJECT': 'confirmed-no-billing'}, clear=True), patch.object(r, 'generate') as call:
             out = r.handle(lambda: db, {'videoId': VIDEO, 'channelId': r.CHANNEL, 'segments': SEGMENTS})
-        call.assert_not_called(); self.assertIn('Abruflimit', out['summaryStatus'])
+        call.assert_not_called(); self.assertIn('Tageskontingent', out['summaryStatus'])
+        self.assertNotIn('bleibt verfügbar', out['summaryStatus'])
 
     def test_persisted_result_reused_without_key(self):
         fp = r.hashlib.sha256(json.dumps([r.MODEL, r.SUMMARY_FORMAT_VERSION, SEGMENTS], sort_keys=True).encode()).hexdigest()
@@ -222,12 +226,39 @@ class ResearchTests(unittest.TestCase):
             self.assertEqual(out['summary']['sections'],saved['sections'])
             self.assertEqual(out['summary']['visualNotes'],[])
             update = next(args for q,args in db.queries if 'SET summary_attempt=now()' in q)
-            preserved = json.loads(update[1])
+            preserved = json.loads(update[2])
             self.assertEqual(preserved['_sourceFingerprint'],'old')
             db.row = (update[0],preserved,True,False,True,r.FRAME_FORMAT_VERSION,'retry_paused')
             again = r.handle(lambda:db,payload)
             self.assertEqual(call.call_count,1)
             self.assertEqual(again['summary']['sections'],saved['sections'])
+
+    def test_transient_retry_is_bounded_and_does_not_retry_permanent_errors(self):
+        fp = r.summary_fingerprint(SEGMENTS)
+        self.assertTrue(r.summary_paused((fp,None,True,'http_503',1,True),fp))
+        self.assertFalse(r.summary_paused((fp,None,True,'http_503',1,False),fp))
+        self.assertFalse(r.summary_paused((fp,None,True,'http_503',2,False),fp))
+        self.assertTrue(r.summary_paused((fp,None,True,'http_503',3,False),fp))
+        self.assertTrue(r.summary_paused((fp,None,True,'unsupported_numbers',1,False),fp))
+        self.assertTrue(r.summary_paused((fp,None,True,'pending',0,False),fp))
+        self.assertFalse(r.summary_paused((fp,None,True,None,0,True),fp))
+
+    def test_transient_failure_schedules_retry_but_still_respects_daily_quota(self):
+        fp = r.summary_fingerprint(SEGMENTS)
+        db = DB(row=(fp,None,None,False,True,r.FRAME_FORMAT_VERSION,'retry_paused'),
+                summary_row=(fp,None,True,'http_503',1,False))
+        payload = {'videoId':VIDEO,'channelId':r.CHANNEL,'segments':SEGMENTS}
+        env = {'GEMINI_API_KEY':'secret','BOB_GEMINI_FREE_PROJECT':'confirmed-no-billing'}
+        error = r.urllib.error.HTTPError('https://example.invalid',503,'Unavailable',{},None)
+        with patch.dict(os.environ,env,clear=True), patch.object(r,'generate',side_effect=error) as call:
+            out = r.handle(lambda:db,payload)
+            self.assertEqual(out['summaryRetryAfterSeconds'],300)
+            self.assertTrue(any('summary_failures=summary_failures+1' in q for q,_ in db.queries))
+            db.count = (10,0)
+            out = r.handle(lambda:db,payload)
+            self.assertEqual(call.call_count,1)
+            self.assertNotIn('summaryRetryAfterSeconds',out)
+            self.assertIn('Tageskontingent',out['summaryStatus'])
 
     @unittest.skipIf(Image is None, "Pillow required")
     def test_blocked_high_resolution_uses_public_lower_resolution_sprite(self):
