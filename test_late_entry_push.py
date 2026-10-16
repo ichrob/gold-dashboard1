@@ -23,6 +23,23 @@ class LateEntryAlertTests(unittest.TestCase):
         self.assertNotIn('signal-change',self.kinds(ev))
         state,ev=b.advance(state,self.settings,{**timely,'dataAt':1800000030000},True,False,now=95000)
         self.assertIn('signal-change',self.kinds(ev))
+    def test_closed_minute_followthrough_skips_only_redundant_push_delay(self):
+        timely={**self.market,'entryTimingGate':{'available':True,'allowed':True},
+                'entryTiming':'two-minute-follow-through-v1'}
+        state,ev=b.advance({},self.settings,timely,True,False,now=1000)
+        self.assertIn('signal-change',self.kinds(ev))
+        self.assertNotIn('signalPending',state)
+        # A mere early impulse or claimed timing without the shared verified
+        # market gate may NOT bypass the 30-second confirmation.
+        unverified={**self.market,'entryTiming':'two-minute-follow-through-v1',
+                'entryTimingGate':{'available':False,'allowed':False}}
+        state,ev=b.advance({},self.settings,unverified,True,False,now=1000)
+        self.assertNotIn('signal-change',self.kinds(ev))
+        normal={**self.market,'entryTimingGate':{'available':True,'allowed':True},
+                'entryTiming':'five-minute-confirmation'}
+        state,ev=b.advance({},self.settings,normal,True,False,now=1000)
+        self.assertNotIn('signal-change',self.kinds(ev))
+
     def test_existing_trade_alerts_unchanged_by_late_gate(self):
         settings=b.config({'trade':{'active':True,'tradeId':'real-42','instrument':'XAU/USD',
             'dir':'LONG','entry':100,'stop':90,'initialRisk':10,'target':150}})
