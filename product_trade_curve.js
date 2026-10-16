@@ -175,6 +175,10 @@
   const result=assess(input,now),existing=read();
   const h=addObservation(existing,result,now);
   if(h.added||!existing||existing.tradeKey!==h.tradeKey)save(h);
+  const repaint=h.added||lastHistory?.tradeKey!==h.tradeKey
+    ||lastResult?.stage!==result.stage||lastResult?.stop!==result.stop
+    ||lastResult?.target!==result.target||lastResult?.kind!==result.kind
+    ||lastResult?.price!==result.price||lastResult?.koDistancePct!==result.koDistancePct;
   lastResult=result;lastHistory=h;
   if(picked&&!h.rows.some(v=>v.at===picked.at)){picked=null;}
   const show=(sel,value)=>{const node=panel.querySelector(sel);if(node)node.textContent=value;};
@@ -190,7 +194,8 @@
     finite(result.koDistancePct)?'KO-Abstand ca. '+result.koDistancePct.toFixed(2)+' % (Gold)':'KO-Abstand derzeit nicht prüfbar'].join(' · ');
   show('[data-curve-levels]',levels);
   show('[data-curve-action]',result.action||'Keine Handelsempfehlung; Daten prüfen.');
-  draw(result,h);showPicked();
+  if(repaint)draw(result,h);
+  showPicked();
  }
  root.BobProductCurve={assess,addObservation,mount,update};
  if(typeof module!=='undefined'&&module.exports)module.exports={assess,addObservation};
