@@ -74,6 +74,13 @@ class PushMonitorTests(unittest.TestCase):
         conn=http.client.HTTPConnection('127.0.0.1',self.port)
         conn.request('POST',path,json.dumps(payload),{'Content-Type':'application/json','X-Bob-Push-Token':token})
         response=conn.getresponse();result=response.status,json.loads(response.read());conn.close();return result
+    def head(self,path):
+        conn=http.client.HTTPConnection('127.0.0.1',self.port)
+        conn.request('HEAD',path)
+        response=conn.getresponse()
+        result=response.status,response.read(),response.getheader('Content-Length')
+        conn.close()
+        return result
     def connection(self):
         db=MagicMock();conn=db.return_value.__enter__.return_value
         return db,conn
@@ -82,6 +89,21 @@ class PushMonitorTests(unittest.TestCase):
         step=300000;end=int(now//step)*step
         payload=dict(tradeId='trade-fixture',direction='LONG',timeframe='5m',instrument='XAU/USD',levels={k:4050 for k in LEVELS},startedAt=end-step,previousClose=4040)
         return validate_monitor(payload,now),dict(barsByTf={'5m':[dict(openTime=end-step,close=4060,isOpen=False,instrument='XAU/USD')]})
+    def test_head_readiness_checks_vapid_and_database_without_a_body(self):
+        database,conn=self.connection()
+        with patch.object(push_server,'db',database),patch.object(push_server,'vapid',return_value='fixture') as key:
+            status,body,length=self.head('/')
+        self.assertEqual((status,body,length),(200,b'', '0'))
+        key.assert_called_once_with()
+        conn.execute.assert_called_once_with('SELECT 1')
+
+    def test_head_readiness_fails_closed_and_unknown_paths_stay_missing(self):
+        with patch.object(push_server,'vapid',side_effect=RuntimeError('fixture')),patch.object(push_server,'db') as database:
+            status,body,length=self.head('/health')
+        self.assertEqual((status,body,length),(503,b'', '0'))
+        database.assert_not_called()
+        self.assertEqual(self.head('/missing'),(404,b'', '0'))
+
     def test_provider_timeout_is_bounded_and_preserves_retry(self):
         from requests.exceptions import Timeout
         with patch.object(push_server, '_webpush', side_effect=Timeout('fixture')) as send:
