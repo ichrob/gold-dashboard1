@@ -240,8 +240,16 @@ def import_event(event, allowed_sender):
         return {"status":"ignored", "reason":"Andere Empfängeradresse"}
     allowed = parseaddr(allowed_sender or "")[1].lower()
     # A sender address is not DKIM proof. Do not activate trades from it.
-    if not sender or not allowed or not hmac.compare_digest(sender, allowed):
-        return {"status":"sender-unconfirmed", "reason":"Weiterleitungs-Absender nicht verifiziert"}
+    permitted_forward = bool(sender and allowed and hmac.compare_digest(sender, allowed))
+    # Original DEGIRO confirmations retain notifications@degiro.com as From when
+    # the user's mailbox redirects them unchanged into the signed AgentMail inbox.
+    # Permit PARSING/STAGING only, never establish sender authentication or submit
+    # any broker action from the address/header alone.
+    original_degiro = (inbox == "bob-degiro@agentmail.to"
+                       and sender == "notifications@degiro.com"
+                       and re.match(r"^DEGIRO\s*-\s*Transaktionsbestätigung\s*:", message.get("subject") or "", re.I))
+    if not (permitted_forward or original_degiro):
+        return {"status":"sender-unconfirmed", "reason":"Weiterleitungs-/Originalabsender nicht zugeordnet"}
     body = message.get("text") or message.get("extracted_text") or ""
     if not isinstance(body, str):
         body = ""
@@ -254,6 +262,10 @@ def import_event(event, allowed_sender):
     if html_source and result.get("status") == "pending-review":
         result["sourceKind"] = "DEGIRO-execution-email-HTML"
         result["reason"] = "DEGIRO-HTML-Bestätigung erkannt; Prüfung der Ausführung und Zeitzone erforderlich"
+    if result.get("status") == "pending-review":
+        result["senderKind"] = "original-degiro-unverified" if original_degiro else "configured-forwarder"
+        if original_degiro:
+            result["reason"] = "Originalabsender im privaten Postfach erkannt; echte Absenderauthentifizierung nicht unabhängig bestätigt"
     return result
 
 

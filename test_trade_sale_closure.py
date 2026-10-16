@@ -50,6 +50,25 @@ class SaleClosureTests(unittest.TestCase):
                 self.assertEqual(j.reconcile_sales(self.connection(rows,prior)),0)
                 sync.assert_not_called();event.assert_not_called()
 
+    def test_exact_buy_sell_mail_pair_gives_native_chf_result(self):
+        snap={'product':{'isin':'DE000FG7K275','quantity':2,'entry':13.25,'currency':'EUR'}}
+        buy={'status':'pending-review','side':'BUY','isin':'DE000FG7K275',
+             'quantity':2,'priceEur':13.25,'totalChf':25.10,'costsChf':0.52,
+             'orderIdDigest':'b'*64,'executedLocal':'16.10.2026 09:40:40'}
+        sell={'status':'pending-review','side':'SELL','isin':'DE000FG7K275',
+              'quantity':2,'priceEur':11.47,'totalChf':20.76,'costsChf':0.51,
+              'orderIdDigest':'a'*64,'executedLocal':'16.10.2026 14:58:05'}
+        result=j.matched_email_chf_settlement(snap,sell,[buy,sell])
+        self.assertEqual(result['netCHF'],-4.34)
+        self.assertEqual(result['purchaseFeesCHF'],0.52)
+        self.assertEqual(result['saleFeesCHF'],0.51)
+        self.assertEqual(j.matched_email_chf_settlement(snap,sell,[buy,buy,sell])['netCHF'],-4.34)
+        self.assertIsNone(j.matched_email_chf_settlement(snap,sell,[buy,{**buy,'totalChf':26},sell]))
+        self.assertIsNone(j.matched_email_chf_settlement(snap,sell,[buy,{**buy,'orderIdDigest':'c'*64},sell]))
+        self.assertIsNone(j.matched_email_chf_settlement(snap,{**sell,'totalChf':None},[buy,sell]))
+        self.assertIsNone(j.matched_email_chf_settlement(snap,sell,[{**buy,'quantity':3},sell]))
+        self.assertIsNone(j.matched_email_chf_settlement(snap,sell,[{**buy,'priceEur':14.00},sell]))
+
     def test_no_open_trade_is_idempotent(self):
         conn=Mock();conn.execute.return_value.fetchall.return_value=[]
         self.assertEqual(j.reconcile_sales(conn),0)

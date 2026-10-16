@@ -342,6 +342,80 @@ def sale_matches(snapshot, receipt):
     except (KeyError,TypeError,ValueError):return False
 
 
+def matched_email_chf_settlement(snapshot, sale, imported):
+    """Only an unambiguous earlier matching BUY + SELL pair yields actual CHF P&L.
+
+    Source is AgentMail evidence, not an independent broker account connection.
+    """
+    from trade_workflow import receipt_clock
+    product=snapshot.get('product') or {}
+    if product.get('currency','EUR')!='EUR':
+        return None
+    if sale.get('status')!='pending-review' or sale.get('side')!='SELL':
+        return None
+    qty=product.get('quantity')
+    if type(qty) not in (int,float) or qty<=0:
+        return None
+    if (type(sale.get('totalChf')) not in (int,float)
+            or type(sale.get('costsChf')) not in (int,float)
+            or sale['totalChf']<=0 or sale['costsChf']<0):
+        return None
+    try:
+        sold=receipt_clock(sale)
+    except (KeyError,TypeError,ValueError):
+        return None
+    candidates=[]
+    for record in imported:
+        if not isinstance(record,dict) or record.get('status')!='pending-review' or record.get('side')!='BUY':
+            continue
+        if record.get('isin')!=product.get('isin') or record.get('quantity')!=qty:
+            continue
+        if record.get('orderIdDigest')==sale.get('orderIdDigest'):
+            continue
+        if (type(record.get('priceEur')) not in (float,int) or
+                type(product.get('entry')) not in (float,int) or
+                abs(record['priceEur']-product['entry'])>0.011):
+            continue
+        if (type(record.get('totalChf')) not in (float,int)
+                or type(record.get('costsChf')) not in (float,int)
+                or record['totalChf']<=0 or record['costsChf']<0):
+            continue
+        try:
+            purchased=receipt_clock(record)
+        except (KeyError,TypeError,ValueError):
+            continue
+        if not purchased<sold or (sold-purchased).total_seconds()>7*86400:
+            continue
+        candidates.append((record,purchased))
+    # Forwarded and original AgentMail copies can describe the SAME DEGIRO
+    # execution. Deduplicate by the verified-in-text order ID digest only when
+    # every relevant number/time agrees; conflicting copies must fail closed.
+    unique={}
+    for record, purchased in candidates:
+        key=record.get('orderIdDigest')
+        if not isinstance(key,str) or not re.fullmatch(r'[0-9a-f]{64}',key):
+            return None
+        fingerprint=(record.get('isin'),record.get('quantity'),record.get('priceEur'),
+                     record.get('totalChf'),record.get('costsChf'),purchased)
+        if key in unique and unique[key][2]!=fingerprint:
+            return None
+        unique[key]=(record,purchased,fingerprint)
+    if len(unique)!=1:
+        return None
+    buy, purchased, _=next(iter(unique.values()))
+    return {'purchaseTotalCHF':buy['totalChf'],
+            'saleTotalCHF':sale['totalChf'],
+            'purchaseFeesCHF':buy['costsChf'],
+            'saleFeesCHF':sale['costsChf'],
+            'netCHF':round(sale['totalChf']-buy['totalChf'],2),
+            'purchaseExecutedLocal':purchased.strftime('%d.%m.%Y %H:%M:%S'),
+            'saleExecutedLocal':sold.strftime('%d.%m.%Y %H:%M:%S'),
+            'purchaseOrderIdDigest':buy.get('orderIdDigest'),
+            'saleOrderIdDigest':sale.get('orderIdDigest'),
+            'source':'Zwei abgeglichene Original-Mailbelege, keine direkte DEGIRO-API',
+            'exitReason':'other'}
+
+
 def reconcile_sales(conn):
     """Authenticated mailbox evidence ends monitoring; never submits an order."""
     rows=conn.execute('SELECT id,snapshot FROM bob_real_trades WHERE active=TRUE FOR UPDATE').fetchall()
@@ -359,8 +433,12 @@ def reconcile_sales(conn):
         if prior:continue
         tid,snapshot=matches[0]
         snapshot={**snapshot,'active':False,'closedAt':datetime.now(timezone.utc).isoformat(),
-          'exitReceipt':{**receipt,'messageId':mid,'source':'Automatisch zugeordnete weitergeleitete DEGIRO-Verkaufsbestätigung'},
+          'exitReceipt':{**receipt,'messageId':mid,'source':'Automatisch zugeordnete DEGIRO-Verkaufsbestätigung aus AgentMail'},
           'closureSource':'sale-email','monitoringStatus':'closed'}
+        pair=matched_email_chf_settlement(snapshot,receipt,[p.get('result') or {} for _,p in receipts])
+        if pair is not None:
+            snapshot['settlement']=pair
+            snapshot['evaluation']=trade_risk_review.evaluation(snapshot)
         conn.execute('''UPDATE bob_real_trades SET active=FALSE,snapshot=%s::jsonb,
           settings=jsonb_set(settings,'{trade}','null'::jsonb),
           state=state-'trade',updated_at=now() WHERE id=%s''',(json.dumps(snapshot),tid))
