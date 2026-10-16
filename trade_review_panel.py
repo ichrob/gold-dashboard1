@@ -145,21 +145,21 @@ PANEL = r"""
         const raw=String(result?.data?.text||'');
         if(raw.length<30)throw Error('Screenshot nicht ausreichend lesbar');
         const selection=active.find(t=>t.id===$('bobTradeSaleSelect').value);
-        const evidence=raw.match(/\\bDE[A-Z0-9]{10}\\b/i);
+        const evidence=raw.match(/\bDE[A-Z0-9]{10}\b/i);
         if(evidence&&selection&&evidence[0].toUpperCase()!==selection.snapshot?.product?.isin)
           throw Error('Erkannte ISIN stimmt nicht mit dem gewählten Trade überein');
         const pick=(pattern)=>{const match=raw.match(pattern);return match?match[1]:null;};
-        const decimal=value=>Number(value.replace(/\\s/g,'').replace(/\\./g,'').replace(',','.'));
+        const decimal=value=>Number(value.replace(/\s/g,'').replace(/\./g,'').replace(',','.'));
         const fields={
-          transactionId:pick(/Transaktions[-\\s]*ID[^0-9\\n]*([0-9]{5,14})/i),
-          price:pick(/^\\s*Kurs\\s*(?:€|EUR)?\\s*([0-9][0-9.,]*)/im),
-          saleValueCHF:pick(/^\\s*Wert\\s*CHF\\s*([0-9][0-9.,]*)/im),
-          feesCHF:pick(/^\\s*Gesamtgebühr\\s*CHF\\s*-?\\s*([0-9][0-9.,]*)/im),
-          saleNetCHF:pick(/^\\s*Gesamt\\s*CHF\\s*([0-9][0-9.,]*)/im),
-          eurPerCHF:pick(/^\\s*Wechselkurs\\s*([0-9][0-9.,]*)/im)
+          transactionId:pick(/Transaktions[-\s]*ID[^0-9\n]*([0-9]{5,14})/i),
+          price:pick(/^\s*Kurs\s*(?:€|EUR)?\s*([0-9][0-9.,]*)/im),
+          saleValueCHF:pick(/^\s*Wert\s*CHF\s*([0-9][0-9.,]*)/im),
+          feesCHF:pick(/^\s*Gesamtgebühr\s*CHF\s*-?\s*([0-9][0-9.,]*)/im),
+          saleNetCHF:pick(/^\s*Gesamt\s*CHF\s*([0-9][0-9.,]*)/im),
+          eurPerCHF:pick(/^\s*Wechselkurs\s*([0-9][0-9.,]*)/im)
         };
-        const time=raw.match(/(?:Datum)\\s*(\\d{1,2}[./]\\d{1,2}[./]\\d{4})\\s+(\\d{2}:\\d{2}:\\d{2})/i);
-        if(time)fields.executedLocal=time[1].replace(/\\//g,'.')+' '+time[2];
+        const time=raw.match(/(?:Datum)\s*(\d{1,2}[./]\d{1,2}[./]\d{4})\s+(\d{2}:\d{2}:\d{2})/i);
+        if(time)fields.executedLocal=time[1].replace(/\//g,'.')+' '+time[2];
         let count=0;
         for(const [name,value] of Object.entries(fields)){
           if(value===null||value===undefined)continue;
