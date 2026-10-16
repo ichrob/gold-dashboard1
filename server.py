@@ -6,6 +6,7 @@ import degiro_catalog
 import degiro_product_audit_panel
 import broker_bridge
 import trade_email_panel
+import trade_review_panel
 import intraday_comparison
 import os
 import base64
@@ -191,6 +192,7 @@ HTML = HTML.replace(b"</body>", auto_collection.PANEL.encode('utf-8')+b"</body>"
 HTML = HTML.replace(b"</body>", candle_shadow.PANEL.encode('utf-8')+b"</body>")
 HTML = HTML.replace(b"</body>", vollautomatisch_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", trade_email_panel.PANEL.encode("utf-8")+b"</body>")
+HTML = HTML.replace(b"</body>", trade_review_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", bob_self_healing.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", bob_problems.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", bob_area_checks.PANEL.encode("utf-8")+b"</body>")
