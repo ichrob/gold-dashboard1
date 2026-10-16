@@ -1440,6 +1440,17 @@ function selectionWorkflow(products,context={},bundle,references=[]){
  result.notApproved=products.map((p,i)=>({...p,index:i+1})).filter(p=>!p.isin&&p.name).map(p=>({isin:'ISIN fehlt',name:p.name,index:p.index,reasons:['Eindeutige ISIN fehlt: Produktzuordnung zuerst bestätigen']}));
  result.total=items.length+result.notApproved.length;
  const market=selectionMarketGate(context);
+ // Shared, source-clocked entry timing protection. It affects only new
+ // product suggestions; already active real trades retain monitoring.
+ const confirmedAt=context.confirmationAt||window.BobDecisionAuditState?.confirmationAt||
+    (Number.isFinite(window.BobDecisionAuditState?.confirmedAt)?
+     window.BobDecisionAuditState.confirmedAt+300000:null);
+ const timing=window.BobLateEntryGuard?.check(bundle,direction,now,confirmedAt);
+ if(timing&&!timing.allowed){
+  market.ok=false;
+  market.reasons.push('Einstiegsfenster verpasst / ABWARTEN: '+timing.reason);
+ }
+ result.entryTimingGate=timing||null;
  result.gateReasons=!items.length?['Keine Produkte mit bestätigter ISIN vorhanden']:market.reasons;
  if(!items.length){result.stage='ABWARTEN';return result;}
  result.stage='DETAILBILDER';const groups=new Map();

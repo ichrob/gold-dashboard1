@@ -333,14 +333,36 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     state['healthy'] = healthy
     direction = market.get('direction', 'NEUTRAL') if healthy else 'NEUTRAL'
     mtf = market.get('mtf', 'NEUTRAL') if healthy else 'NEUTRAL'
-    if general and healthy and (market.get('session') or {}).get('entryAllowed', True):
+    # Timeliness applies only to newly suggested entries, not risk alerts
+    # or ongoing monitoring of a real position.
+    timing = market.get('entryTimingGate')
+    timely = not isinstance(timing, dict) or timing.get('allowed') is True
+    if general and healthy and (market.get('session') or {}).get('entryAllowed', True) and not timely:
+        state.setdefault('notifiedDirection', 'NEUTRAL')
+        state.pop('signalPending', None)
+        audit('late-entry', 'suppressed', 'ABWARTEN: '+str(timing.get('reason') or 'Einstiegszeit nicht geprüft')[:120])
+    if general and healthy and timely and (market.get('session') or {}).get('entryAllowed', True):
         notified = state.setdefault('notifiedDirection', state.get('direction'))
         pending = state.get('signalPending')
         if direction not in ('LONG', 'SHORT') or direction == notified:
             state.pop('signalPending', None)
         elif not pending or pending['direction'] != direction:
-            state['signalPending'] = {'direction': direction, 'since': now, 'dataAt': market.get('dataAt')}
-            audit('signal-change', 'suppressed', 'Richtung wartet auf erneute aktuelle Bestätigung')
+            # The actual shared analysis already verified two distinct closed
+            # 1m follow-through candles beyond the prepared 5m setup. Do not
+            # impose another 30s delay, but only with a current source-clocked
+            # non-extended Gold timing check. No product/broker approval.
+            fast=(market.get('entryTiming')=='two-minute-follow-through-v1'
+                  and isinstance(timing,dict) and timing.get('allowed') is True
+                  and positive(market.get('dataAt')))
+            if fast:
+                add('signal-change', 'EINSTIEG · '+direction,
+                    'Früh bestätigtes '+direction+' (zwei geschlossene 1m-Kerzen) · MTF '+mtf+
+                    '. Einstiegsfenster aktuell; keine Produktfreigabe.', 'general')
+                state['notifiedDirection']=direction
+                state.pop('signalPending',None)
+            else:
+                state['signalPending'] = {'direction': direction, 'since': now, 'dataAt': market.get('dataAt')}
+                audit('signal-change', 'suppressed', 'Richtung wartet auf erneute aktuelle Bestätigung')
         elif now-pending['since'] >= 30000 and positive(market.get('dataAt')) and market['dataAt'] != pending['dataAt']:
             add('signal-change', 'EINSTIEG · '+direction, 'Neuer Einstieg: '+direction+' bestätigt · MTF '+mtf+'. Keine Produktfreigabe.', 'general')
             state['notifiedDirection'] = direction

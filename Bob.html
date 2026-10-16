@@ -1140,6 +1140,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 
 </main>
 <script src="/push_manager.js"></script>
+<script src="/late_entry_guard.js?v=20261016-no-chase-v1"></script>
 <script src="/degiro_assistant.js?v=20261016-chf-v1"></script>
 <script src="/bob_stop_assistant.js?v=20261016-chf-v1"></script>
 <script src="/product_trade_curve.js?v=20261016-trade-v3"></script>
@@ -3271,7 +3272,10 @@ function renderMarketNarrative(){
   for(const [name,r] of [['Heute',entry.currentDay],['Vorheriger beobachteter Tag',entry.previousDay]])lines.push(name+': '+(r?r.day+' · Hoch '+f(r.high)+' / Tief '+f(r.low)+' USD · '+r.bars+' beobachtete 5m-Kerzen':'keine Daten')+'. Bereiche nur aus vorhandener Historie, nicht als vollständige Tagesdaten bestätigt.');
   lines.push('15m-DX-Trendstärkewert (kein geglätteter ADX): '+f(entry.trendStrength)+' · Veränderung über drei Kerzen: '+f(entry.trendStrengthChange)+'.');
  }
- lines.push('Qualitätshinweis, keine starre Sperre: '+(entry.direction||'NEUTRAL')+' · '+entry.reason+'. Schwellen 1,5 ATR / 2R / 15 Minuten sind unbewiesene Testwerte. Stop und Ziel verwenden feste 15m-Daten.');
+ const confirmationAt=signalState?.confirmationAt||(Number.isFinite(signalState?.confirmedAt)?signalState.confirmedAt+300000:null);
+ const timing=window.BobLateEntryGuard?.check(liveBundleCache,signalState?.dir,Date.now(),confirmationAt);
+ lines.push('EINSTIEGSZEITPUNKT · '+(timing?.allowed?'FRÜHES FENSTER':'ABWARTEN – ZU SPÄT / KEINE GESICHERTE ZEIT')+' · '+(timing?.reason||'Zeitprüfung fehlt')+'.');
+ lines.push('Qualitätshinweis (separater Test): '+(entry.direction||'NEUTRAL')+' · '+entry.reason+'. Schwellen 1,5 ATR / 2R / 15 Minuten sind heuristische Testwerte. Stop und Ziel verwenden feste 15m-Daten.');
  lines.push(read('analysisAge')||'Datenstand siehe Quellenzeiten und Zeitebenenprüfung.');
  const scenario=nextCandleScenario();
  lines.push('NÄCHSTE 5m-KERZE · EXPERIMENTELLES SZENARIO');
