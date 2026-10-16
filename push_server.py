@@ -625,7 +625,12 @@ class Handler(BaseHTTPRequestHandler):
                         if len(json.dumps(safe))>4096:
                             raise ValueError("Zu viele Importdaten")
                         inserted=conn.execute("""INSERT INTO bob_trade_email_import(message_id,payload)
-                            VALUES(%s,%s::jsonb) ON CONFLICT DO NOTHING RETURNING message_id""",
+                            VALUES(%s,%s::jsonb) ON CONFLICT(message_id)
+                            DO UPDATE SET payload=EXCLUDED.payload
+                            WHERE bob_trade_email_import.payload->'result'->>'status'
+                                IN ('sender-unconfirmed','incomplete')
+                              AND EXCLUDED.payload->'result'->>'status'='pending-review'
+                            RETURNING message_id""",
                             (message_id,json.dumps({"messageId":message_id,"version":trade_email_import.VERSION,
                                 "result":safe,"receivedAt":int(time.time()*1000)}))).fetchone()
                         result={"ok":True,"new":bool(inserted)}
