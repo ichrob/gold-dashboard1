@@ -74,8 +74,8 @@ def submit(records,push_base,push_token):
     if not (push_base and push_token):
         return 0
     base=push_base.rstrip("/")
-    if not base.startswith("https://"):
-        raise ValueError("HTTPS für internen Belegimport erforderlich")
+    if not base.startswith(("https://","http://")):
+        base="http://"+base  # Bob's existing Render-private service configuration.
     done=0
     for payload in records:
         data=json.dumps(payload,separators=(",",":")).encode()
