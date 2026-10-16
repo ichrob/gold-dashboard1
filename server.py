@@ -1902,6 +1902,39 @@ def fibonacci_monitor_loop():
             print("BOB_FIB monitor_error="+type(exc).__name__, flush=True)
         time.sleep(max(1, poll_seconds - (time.monotonic() - cycle_started)))
 
+_AGENTMAIL_RECOVERY_THREAD = None
+_AGENTMAIL_RECOVERY_LOCK = threading.Lock()
+
+def _agentmail_recovery_loop():
+    """Read-only fallback for missed webhook events and original-DEGIRO receipts."""
+    import agentmail_receipt_recovery
+    while True:
+        try:
+            records = agentmail_receipt_recovery.recover(
+                os.environ.get("BOB_AGENTMAIL_API_KEY", ""),
+                os.environ.get("BOB_EMAIL_ALLOWED_FROM", ""))
+            count = agentmail_receipt_recovery.submit(
+                records, PUSH_SERVICE_URL, PUSH_SERVICE_TOKEN)
+            print("BOB_EMAIL_RECOVERY status=ok checked="+str(len(records))+
+                  " transmitted="+str(count),flush=True)
+        except Exception as exc:
+            print("BOB_EMAIL_RECOVERY status=error kind="+type(exc).__name__,flush=True)
+        time.sleep(300)
+
+def start_agentmail_recovery():
+    global _AGENTMAIL_RECOVERY_THREAD
+    if not all((os.environ.get("BOB_AGENTMAIL_API_KEY"),
+                os.environ.get("BOB_EMAIL_ALLOWED_FROM"),
+                PUSH_SERVICE_URL, PUSH_SERVICE_TOKEN)):
+        print("BOB_EMAIL_RECOVERY status=not-configured",flush=True)
+        return
+    with _AGENTMAIL_RECOVERY_LOCK:
+        if _AGENTMAIL_RECOVERY_THREAD is None or not _AGENTMAIL_RECOVERY_THREAD.is_alive():
+            _AGENTMAIL_RECOVERY_THREAD=threading.Thread(
+                target=_agentmail_recovery_loop,name="bob-agentmail-recovery",daemon=True)
+            _AGENTMAIL_RECOVERY_THREAD.start()
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "10000"))
     print(f"BOB_START port={port} host=0.0.0.0 version=runtime-http-trace-v2 process={PROCESS_ID}", flush=True)
@@ -1911,6 +1944,7 @@ if __name__ == "__main__":
     strategy_lab_background.start(fetch_technical_history, mark_bar_state)
     gold_research.start()
     start_healing_watch()
+    start_agentmail_recovery()
     import weekend_archive
     weekend_archive.start(build_live_bundle,market_cards.snapshot)
     BobHTTPServer(("0.0.0.0", port), Handler).serve_forever()
