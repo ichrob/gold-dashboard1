@@ -42,7 +42,7 @@ for(const key of ['paper','backtest','broker','execution','robustness','cost','l
 const js=fs.readFileSync('future_lab.js','utf8'),html=fs.readFileSync('Bob.html','utf8'),py=fs.readFileSync('server.py','utf8');
 assert(html.includes('src="/future_lab.js?v=20261011-v1"'));
 assert(html.includes('window.BobFutureLab?.mount(futurePanel)'));
-assert(html.includes("['future','◇','Zukunft']"));
+assert(html.includes("['future','◇','Zukunft','Pläne und Broker']"));
 assert(py.includes('if path == "/future_lab.js"'));
 assert(js.includes("body:JSON.stringify({mode:'simulation-profiles',day})"),'Must reuse existing paper mode.');
 assert(js.includes('Tage mit protokollierter Prüfung'),'Show longitudinal evidence carefully');
