@@ -338,6 +338,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     timing = market.get('entryTimingGate')
     timely = not isinstance(timing, dict) or timing.get('allowed') is True
     if general and healthy and (market.get('session') or {}).get('entryAllowed', True) and not timely:
+        state.setdefault('notifiedDirection', 'NEUTRAL')
         state.pop('signalPending', None)
         audit('late-entry', 'suppressed', 'ABWARTEN: '+str(timing.get('reason') or 'Einstiegszeit nicht geprüft')[:120])
     if general and healthy and timely and (market.get('session') or {}).get('entryAllowed', True):
