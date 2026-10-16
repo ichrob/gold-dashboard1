@@ -39,6 +39,8 @@ def eligible_purchase(receipt, receipts, now=None):
                 continue
             if other.get('side') == 'SELL' and receipt_clock(other) >= at:
                 return False
+            if other.get('side') == 'BUY' and receipt.get('orderIdDigest') and all(other.get(k)==receipt.get(k) for k in ('orderIdDigest','isin','side','quantity','priceEur')) and receipt_clock(other)==at:
+                continue
             if other.get('side') == 'BUY' and receipt_clock(other).date() == at.date():
                 return False
         return True
@@ -69,7 +71,7 @@ def import_purchase(conn, payload):
         if snapshot.get('active') or (p.get('isin') == receipt['isin'] and p.get('entry') == receipt['priceEur'] and p.get('quantity') == receipt['quantity']):
             raise ValueError('Vorhandener Trade oder gleicher Kauf bereits gespeichert; keine doppelte Übernahme')
     purchase = {'transactionId': digest, 'at': receipt.get('executedAt'), 'executedLocal': receipt.get('executedLocal'),
-                'feesCHF': receipt.get('costsChf'), 'totalCHF': None,
+                'feesCHF': receipt.get('costsChf'), 'totalCHF': receipt.get('totalChf'),
                 'source': 'Weitergeleitete DEGIRO-Ausführungsbestätigung; keine unabhängige Brokerabfrage', 'messageId': mid}
     snapshot = {'tradeId': tid, 'active': False, 'recordOnly': True, 'dir': direction,
                 'product': {'isin': receipt['isin'], 'entry': receipt['priceEur'], 'quantity': receipt['quantity']},
