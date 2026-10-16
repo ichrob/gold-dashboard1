@@ -51,6 +51,7 @@ def init(conn):
     # Historical reservations belong to Supadata; they must not block the new provider.
     conn.execute("ALTER TABLE bob_research_requests ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'supadata'")
     conn.execute("ALTER TABLE bob_research_transcripts ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'supadata'")
+    conn.execute("ALTER TABLE bob_research_transcripts ADD COLUMN IF NOT EXISTS transport TEXT NOT NULL DEFAULT 'urllib'")
 
 
 def parse(data):
@@ -75,22 +76,27 @@ def fetch(identity):
     # Documented anonymous endpoint. Never send old Supadata credentials, request
     # AI generation, follow redirects, or switch to a paid/account-credit endpoint.
     url='https://api.freetranscriptapi.com/v1/transcript?'+urlencode({'video_url':identity,'lang':'en','format':'json'})
-    request=urllib.request.Request(url,headers={'Accept':'application/json'})
+    # Use the provider's documented Python requests client. Import only in the
+    # push service; the scanner's internal request() path remains stdlib-only.
+    import requests
     try:
-        with urllib.request.build_opener(NoRedirect()).open(request,timeout=15) as response:
-            if response.status!=200:raise TranscriptError('provider_pending')
-            raw=response.read(MAX_BYTES+1)
-        if len(raw)>MAX_BYTES:raise ValueError('Transkriptantwort zu groß')
-        return parse(json.loads(raw))
+        with requests.get(url,headers={'Accept':'application/json'},timeout=(10,15),
+                          allow_redirects=False,stream=True) as response:
+            status=response.status_code
+            if status!=200:
+                code = 'provider_auth' if status == 401 else 'provider_forbidden' if status == 403 else 'provider_limit' if status in (402,429) else 'provider_unavailable' if status >= 500 else 'provider_pending' if status == 202 else 'provider_video'
+                raise TranscriptError(code)
+            chunks=[];size=0
+            for chunk in response.iter_content(chunk_size=16384):
+                size+=len(chunk)
+                if size>MAX_BYTES:raise ValueError('Transkriptantwort zu groß')
+                chunks.append(chunk)
+        return parse(json.loads(b''.join(chunks)))
     except TranscriptError:
         raise
-    except urllib.error.HTTPError as exc:
-        code = 'provider_auth' if exc.code == 401 else 'provider_forbidden' if exc.code == 403 else 'provider_limit' if exc.code in (402,429) else 'provider_unavailable' if exc.code >= 500 else 'provider_video'
-        raise TranscriptError(code) from None
     except (ValueError, TypeError, KeyError):
         raise TranscriptError('provider_invalid') from None
     except Exception:
-        # Never forward provider bodies, URLs, keys or raw exceptions.
         raise TranscriptError('provider_unavailable') from None
 
 
@@ -105,7 +111,7 @@ def handle(connect,payload,fetcher=fetch):
         if not youtube_feed_archive.is_retained(conn, identity):
             raise TranscriptError('not_retained')
         conn.execute('SELECT pg_advisory_xact_lock(68431029)')
-        row=conn.execute('SELECT result,(provider=\'freetranscriptapi\' AND attempted_at>now()-interval \'1 hour\') FROM bob_research_transcripts WHERE video_id=%s',(identity,)).fetchone()
+        row=conn.execute('SELECT result,(provider=\'freetranscriptapi\' AND transport=\'requests\' AND attempted_at>now()-interval \'1 hour\') FROM bob_research_transcripts WHERE video_id=%s',(identity,)).fetchone()
         if row and row[0]:return row[0]
         if row and row[1]:raise TranscriptError('cooldown')
         # An auth rejection applies to all videos, not only one. Avoid using
@@ -123,8 +129,8 @@ def handle(connect,payload,fetcher=fetch):
         count=conn.execute("SELECT count(*) FROM bob_research_requests WHERE provider='freetranscriptapi' AND attempted_at>now()-interval '1 hour'").fetchone()[0]
         if count>=18:raise TranscriptError('local_limit')
         conn.execute('INSERT INTO bob_research_requests(claim,video_id,provider) VALUES(%s,%s,\'freetranscriptapi\')',(claim,identity))
-        conn.execute('''INSERT INTO bob_research_transcripts(video_id,attempted_at,claim,provider) VALUES(%s,now(),%s,'freetranscriptapi')
-            ON CONFLICT(video_id) DO UPDATE SET attempted_at=now(),claim=excluded.claim,provider=excluded.provider''',(identity,claim))
+        conn.execute('''INSERT INTO bob_research_transcripts(video_id,attempted_at,claim,provider,transport) VALUES(%s,now(),%s,'freetranscriptapi','requests')
+            ON CONFLICT(video_id) DO UPDATE SET attempted_at=now(),claim=excluded.claim,provider=excluded.provider,transport=excluded.transport''',(identity,claim))
     try:
         result=fetcher(identity)
     except TranscriptError as exc:
@@ -150,7 +156,7 @@ def request(identity):
     if not base.startswith(('http://','https://')):base='http://'+base
     req=urllib.request.Request(base+'/research-transcript/read',data=json.dumps({'videoId':identity,'channelId':CHANNEL}).encode(),headers={'Content-Type':'application/json','X-Bob-Push-Token':token},method='POST')
     try:
-        with urllib.request.build_opener(NoRedirect()).open(req,timeout=20) as response:raw=response.read(MAX_BYTES+1)
+        with urllib.request.build_opener(NoRedirect()).open(req,timeout=30) as response:raw=response.read(MAX_BYTES+1)
         if len(raw)>MAX_BYTES:raise ValueError('Antwort zu groß')
         result=json.loads(raw)
         if not isinstance(result,dict) or not result.get('segments'):raise ValueError('Text fehlt')

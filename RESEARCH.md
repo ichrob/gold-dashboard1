@@ -99,3 +99,9 @@ Die bestehende Regel höchstens drei Videos insgesamt bleibt unangetastet. Wird 
 ### Fallback bei nicht abrufbaren Videobildern
 
 Wenn YouTube keine öffentlich lesbaren Standbilder des verifizierten Videos liefert, erscheint direkt bei der jeweiligen belegten KI-Aussage ein einklappbarer Abschnitt „Videobild zu dieser Aussage ansehen“. Der Nutzer kann den offiziellen YouTube-Player erst durch Tippen am belegten Zeitstempel öffnen oder direkt zu YouTube wechseln. Es wird kein komplettes Video heruntergeladen, kein Standbild fingiert und kein zusätzlicher KI-Aufruf ausgeführt; die Einschränkung („Chart nicht automatisch geprüft“) bleibt sichtbar.
+
+## HTTP-Korrektur 16. Oktober 2026
+
+Der dokumentierte Python-Client `requests` konnte für das zuvor blockierte Referenzvideo 119 englische Untertitelsegmente liefern; der bisherige urllib-Aufruf erhielt HTTP 403. Bob verwendet deshalb das dokumentierte Python-Verfahren ohne eigene Browserkennung, Cookies, Proxies, Weiterleitungen oder Zugangsdaten. Antwortgröße und Zeitlimits bleiben begrenzt. `requests` wird nur im Pushdienst importiert; der Scanner benötigt weiterhin keine zusätzliche Bibliothek.
+
+Eine Transportkennung erlaubt nach der Korrektur einen erneuten Versuch trotz alter urllib-Fehlerpause. Alle bisherigen FreeTranscriptAPI-Versuche zählen weiterhin gegen die unveränderten Stunden- und Video-Limits. Neue Fehlversuche pausieren wie zuvor. Produktionsnachweis bleibt getrennt von diesem erfolgreichen Entwicklungstest.

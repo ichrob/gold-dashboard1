@@ -14,22 +14,30 @@ class ProviderTests(unittest.TestCase):
         for payload in [dict(PAYLOAD,channelId='other'),dict(PAYLOAD,videoId='https://evil.test')]:
             with self.assertRaises(ValueError):p.handle(connect,payload)
         connect.assert_not_called()
-    def test_native_only_and_secret_never_in_url(self):
-        response=Mock();response.status=200;response.read.return_value=json.dumps(RAW).encode()
+    def test_documented_client_anonymous_bounded_no_redirects(self):
+        response=Mock();response.status_code=200;response.iter_content.return_value=[json.dumps(RAW).encode()]
         response.__enter__=Mock(return_value=response);response.__exit__=Mock(return_value=False)
-        opener=Mock();opener.open.return_value=response
-        with patch.object(p.urllib.request,'build_opener',return_value=opener):result=p.fetch(PAYLOAD['videoId'])
-        request=opener.open.call_args.args[0];query=parse_qs(urlparse(request.full_url).query)
-        self.assertEqual(urlparse(request.full_url).netloc,'api.freetranscriptapi.com')
-        self.assertEqual(query['video_url'],[PAYLOAD['videoId']])
-        self.assertEqual(set(request.headers),{'Accept'})
-        self.assertNotIn('mode',query)
-        self.assertIn('FreeTranscriptAPI',result['provider'])
+        with patch('requests.get',return_value=response) as get:
+            result=p.fetch(PAYLOAD['videoId'])
+        url=get.call_args.args[0];options=get.call_args.kwargs
+        self.assertEqual(urlparse(url).netloc,'api.freetranscriptapi.com')
+        self.assertEqual(parse_qs(urlparse(url).query)['video_url'],[PAYLOAD['videoId']])
+        self.assertEqual(options['headers'],{'Accept':'application/json'})
+        self.assertFalse(options['allow_redirects']);self.assertTrue(options['stream'])
         self.assertEqual(result['segments'][0]['at'],1.5)
-        opener.open.side_effect=OSError('fixture-secret')
-        with patch.object(p.urllib.request,'build_opener',return_value=opener):
-            with self.assertRaises(ValueError) as caught:p.fetch(PAYLOAD['videoId'])
+        with patch('requests.get',side_effect=OSError('fixture-secret')):
+            with self.assertRaises(p.TranscriptError) as caught:p.fetch(PAYLOAD['videoId'])
+        self.assertEqual(caught.exception.code,'provider_unavailable')
         self.assertNotIn('fixture-secret',str(caught.exception))
+
+    def test_oversize_response_is_rejected_while_streaming(self):
+        response=Mock();response.status_code=200
+        response.iter_content.return_value=[b'x'*(p.MAX_BYTES+1)]
+        response.__enter__=Mock(return_value=response);response.__exit__=Mock(return_value=False)
+        with patch('requests.get',return_value=response):
+            with self.assertRaises(p.TranscriptError) as caught:p.fetch(PAYLOAD['videoId'])
+        self.assertEqual(caught.exception.code,'provider_invalid')
+
     def test_bad_response_and_unsupported_language(self):
         for data in [{},{'language':'de','transcript':[]},dict(RAW,language='fr'),{'language':'de','transcript':[{'text':'x','start':float('nan')}]}, {'language':'de','transcript':[{'text':'x','start':0,'lang':None}]}]:
             with self.assertRaises(ValueError):p.parse(data)
@@ -128,6 +136,17 @@ class DatabaseTests(unittest.TestCase):
         self.assertIn('FreeTranscriptAPI',result['provider'])
         fetch.assert_called_once_with(PAYLOAD['videoId'])
 
+    def test_transport_fix_retries_old_failure_but_keeps_attempt_budget(self):
+        with self.connect() as conn:
+            conn.execute("INSERT INTO bob_research_requests(claim,video_id,provider,error_code) VALUES('old-http',%s,'freetranscriptapi','provider_forbidden')",(PAYLOAD['videoId'],))
+            conn.execute("INSERT INTO bob_research_transcripts(video_id,attempted_at,claim,provider) VALUES(%s,now(),'old-http','freetranscriptapi')",(PAYLOAD['videoId'],))
+        fetch=Mock(return_value=p.parse(RAW))
+        p.handle(self.connect,PAYLOAD,fetch)
+        fetch.assert_called_once()
+        with self.connect() as conn:
+            self.assertEqual(conn.execute("SELECT count(*) FROM bob_research_requests WHERE provider='freetranscriptapi'").fetchone()[0],2)
+            self.assertEqual(conn.execute("SELECT transport FROM bob_research_transcripts").fetchone()[0],'requests')
+
     def test_concurrent_calls_only_reserve_once(self):
         import threading
         from concurrent.futures import ThreadPoolExecutor
@@ -145,15 +164,13 @@ if __name__=='__main__':unittest.main()
 
 class ErrorReportingTests(unittest.TestCase):
     def test_provider_status_is_safe_and_specific(self):
-        import io
-        import urllib.error
-        for status, code in [(401,'provider_auth'),(403,'provider_forbidden'),(429,'provider_limit'),(503,'provider_unavailable'),(404,'provider_video')]:
-            error=urllib.error.HTTPError('https://example.invalid',status,'secret-value',{},io.BytesIO(b'secret-value'))
-            opener=Mock();opener.open.side_effect=error
-            with patch.object(p.urllib.request,'build_opener',return_value=opener):
+        for status, code in [(401,'provider_auth'),(403,'provider_forbidden'),(402,'provider_limit'),(429,'provider_limit'),(503,'provider_unavailable'),(404,'provider_video'),(302,'provider_video')]:
+            response=Mock();response.status_code=status
+            response.__enter__=Mock(return_value=response);response.__exit__=Mock(return_value=False)
+            with patch('requests.get',return_value=response):
                 with self.assertRaises(p.TranscriptError) as caught:p.fetch(PAYLOAD['videoId'])
             self.assertEqual(caught.exception.code,code)
-            self.assertNotIn('secret-value',str(caught.exception))
+            response.iter_content.assert_not_called()
 
     def test_internal_error_only_accepts_known_code(self):
         import io
