@@ -385,6 +385,7 @@ def run_background(bundle):
         try:
             with conn.transaction():
                 real_trade_journal.reconcile_sales(conn)
+                real_trade_journal.recover_closed_settlements(conn)
                 real_trade_journal.sync_devices(conn)
         except Exception as exc:
             print('BOB_REAL_TRADE device_sync_failed='+type(exc).__name__,flush=True)
