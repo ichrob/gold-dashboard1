@@ -31,7 +31,58 @@ def positive(v):
     return type(v) in (int, float) and math.isfinite(v) and v > 0
 
 
+def bnp_model(result, now):
+    """Exact BNP terms plus independently matched explicit currency treatment."""
+    m = result.get('metadata') or {}
+    isin = result.get('isin')
+    if (not isinstance(isin, str) or result.get('sourceUrl') !=
+            'https://derivate.bnpparibas.com/product-details/'+isin+'/'
+            or not str(result.get('source', '')).startswith('BNP Paribas ·')
+            or result.get('productVerified') is not True
+            or result.get('importActive') is not True
+            or result.get('sourceDisabled') or result.get('sourceFailure')
+            or result.get('quoteFailureCode') not in (None, 'STALE_OR_INVALID_SOURCE_TIME', 'MISSING_QUOTE_TIME')
+            or m.get('status') != 1 or m.get('tradingHalted')
+            or m.get('simpleTurbo') is not True
+            or m.get('currency') != 'EUR' or m.get('underlying') != 'XAU/USD'
+            or m.get('underlyingType') != 'SPOT'
+            or m.get('direction') not in ('LONG', 'SHORT')
+            or not all(positive(m.get(k)) for k in ('ratio', 'strike', 'ko'))):
+        return None
+    fields = result.get('comdirectFieldsBackup') or {}
+    obs = fields.get('observations') or {}
+    if (fields.get('isin') != isin or fields.get('inactive')
+            or fields.get('state') not in ('active', 'conflict') or set(fields.get('conflicts') or []) - {'type'}
+            or fields.get('source') != 'https://www.comdirect.de/inf/zertifikate/'+isin
+            or obs.get('quanto', {}).get('value') is not False
+            or obs.get('issuer', {}).get('value') != 'BNP Paribas'
+            or any(obs.get(k, {}).get('value') != m[k]
+                   for k in ('ratio', 'direction', 'currency', 'underlying'))):
+        return None
+    try:
+        if not 0 <= (now-utc(fields['checkedAt'])).total_seconds() <= 86400:
+            return None
+        today = now.astimezone(ZoneInfo('Europe/Zurich')).strftime('%d.%m.%Y')
+        for k in ('strike', 'ko'):
+            term = result['conditions'][k]
+            if (term.get('conditionVerified') is not True or term.get('value') != m[k]
+                    or term.get('dateText') != today or term.get('conflict')):
+                return None
+    except (KeyError, ValueError, TypeError):
+        return None
+    local = now.astimezone(ZoneInfo('Europe/Zurich'))
+    if local.weekday() >= 5 or not 8 <= local.hour < 22:
+        return None
+    close = datetime.combine(local.date(), clock_time(22), tzinfo=local.tzinfo)
+    return dict(isin=isin, underlying='XAU/USD', direction=m['direction'],
+                ratio=m['ratio'], strike=m['strike'], ko=m['ko'],
+                classification='BNP_UNLIMITED', provider='BNP', verifiedSimpleTurbo=True,
+                tradingEndAt=close.astimezone(timezone.utc).isoformat())
+
+
 def model_for(result, now):
+    if str(result.get('source', '')).startswith('BNP Paribas ·'):
+        return bnp_model(result, now)
     m = result.get('metadata') or {}
     if (not isinstance(result.get('isin'), str)
             or result.get('sourceUrl') !=
@@ -76,6 +127,9 @@ def observations(result):
     native=result.get('analysisQuote') or {}
     backup=result.get('secondaryQuote') or {}
     pool=[]
+    bnp = str(result.get('source', '')).startswith('BNP Paribas ·')
+    if bnp and result.get('found') and result.get('currency') == 'EUR' and all(positive(result.get(k)) for k in ('bid','ask')) and result['ask'] >= result['bid']:
+        pool.append(dict(result, priceKind='issuer-observation'))
     if (chart.get('currency') == 'EUR' and
             all(positive(chart.get(k)) for k in ('bid','ask')) and
             chart['ask'] >= chart['bid'] and isinstance(chart.get('pointAt'), str)):
@@ -90,8 +144,8 @@ def observations(result):
                 and row.get('degiroExecutable') is False
                 and row.get('delayed') is not True
                 and row.get('estimated') is not True
-                and row.get('source') == 'comdirect · SG LiveTrading'
-                and row.get('venue') == 'LT Societe Generale'
+                and row.get('source') == ('comdirect · BNP LiveTrading' if bnp else 'comdirect · SG LiveTrading')
+                and row.get('venue') == ('LT BNP Paribas' if bnp else 'LT Societe Generale')
                 and row.get('sourceUrl') ==
                     'https://www.comdirect.de/inf/zertifikate/'+result['isin']
                 and all(positive(row.get(k)) for k in ('bid','ask'))
@@ -140,7 +194,7 @@ def apply(result, now=None, fetch_spot=None, fetch_fx=None):
         result.pop('calculatedProduct',None)
         result.pop('hybridModelState',None)
     model=model_for(result,now)
-    if not model or result.get('eligible') is True:
+    if not model or (result.get('eligible') is True and model.get('provider') != 'BNP'):
         return result
     # Legacy fully qualified issuer estimate always has precedence.
     if (result.get('calculatedProduct') or {}).get('available'):
@@ -196,7 +250,7 @@ def apply(result, now=None, fetch_spot=None, fetch_fx=None):
                     _ANCHORS.pop(next(iter(_ANCHORS)))
             anchor=_ANCHORS.get(key)
             anchor=dict(anchor) if anchor else None
-        if not anchor:
+        if not anchor or result.get('eligible') is True:
             return result
         # Prospective-only forecast validation. The prediction must already have
         # been frozen in an earlier request before today's new quote arrives.
@@ -220,7 +274,7 @@ def apply(result, now=None, fetch_spot=None, fetch_fx=None):
         if not projected['available']:
             return result
         projected.update(anchorKind='research-hybrid',
-                         source='Bob · SG/comdirect + Gold/FX',
+                         source='Bob · '+('BNP' if model.get('provider') == 'BNP' else 'SG')+'/comdirect + Gold/FX',
                          referenceSource=anchor['researchSource'],
                          referenceClockGapSeconds=anchor['referenceSkewSeconds'],
                          referenceTimeReliability='original source times, <=30 s apart',
@@ -233,7 +287,7 @@ def apply(result, now=None, fetch_spot=None, fetch_fx=None):
                              persistence='in-memory; nach Neustart erneut messen',
                              affectsApproval=False),
                          note='Nur indikative Recherche-Kalibrierung mit beobachtetem '
-                              'SG-/comdirect-Preis und aktuellem Gold/FX. '
+                              'Emittenten-/comdirect-Preis und aktuellem Gold/FX. '
                               'Quellzeiten beim Kalibrieren bis 30 s auseinander; '
                               'bei starken Goldbewegungen verbleibt Modellrisiko. '
                               'Messfehler nur aus unabhängigen späteren Originalkursen; '

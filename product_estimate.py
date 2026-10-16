@@ -28,7 +28,7 @@ def quality_key(model,side):
 
 def validate_model(model):
     if (model['verifiedSimpleTurbo'] is not True or model['underlying'] != 'XAU/USD'
-            or model['classification'] not in (43,45,47)
+            or model['classification'] not in (43,45,47,'BNP_UNLIMITED')
             or model['direction'] not in ('LONG','SHORT')):
         raise ValueError('Kein bestätigtes einfaches Gold-Turbo-Modell')
     for key in ('ratio','strike','ko'):
@@ -109,7 +109,7 @@ def calculate(model, anchor, spot, fx, now=None):
             raise ValueError('Gold- und Wechselkurs zeitlich zu weit auseinander')
         local = now.astimezone(ZoneInfo('Europe/Berlin'))
         if local.weekday() >= 5 or not 8 <= local.hour < 22 or now > stamp(model['tradingEndAt']):
-            raise ValueError('SG-Handelszeit beendet')
+            raise ValueError('Modell-Handelszeit beendet')
         gold, rate = number(spot['spot_usd_oz']), number(fx['rates']['EUR'])
         old_gold, old_rate = number(anchor['underlyingPriceUsd']), number(anchor['usdEur'])
         direction = 1 if model['direction'] == 'LONG' else -1

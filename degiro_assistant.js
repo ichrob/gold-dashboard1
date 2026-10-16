@@ -2245,7 +2245,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
 function calculatedProductDisplay(p,now=Date.now()){
  const q=p?.quote,c=q?.calculatedProduct,m=q?.productModel,meta=q?.metadata||{};
  if(!p||!validIsin(p.isin)||q?.isin!==p.isin||q.productVerified!==true||
-    q.sourceDisabled||q.sourceFailure||q.quoteFailureCode||meta.status!==1||
+    q.sourceDisabled||q.sourceFailure||(q.quoteFailureCode&&!(m?.provider==='BNP'&&String(q.source||'').startsWith('BNP Paribas ·')&&q.sourceUrl==='https://derivate.bnpparibas.com/product-details/'+p.isin+'/'&&['STALE_OR_INVALID_SOURCE_TIME','MISSING_QUOTE_TIME'].includes(q.quoteFailureCode)))||meta.status!==1||
     meta.tradingHalted===true||meta.currency!=='EUR'||meta.underlyingType!=='SPOT'||
     meta.underlying!=='XAU/USD'||!['LONG','SHORT'].includes(meta.direction)||
     !m||m.isin!==p.isin||m.verifiedSimpleTurbo!==true||
@@ -2267,7 +2267,7 @@ function calculatedProductDisplay(p,now=Date.now()){
         currentGold<Math.min(ko,strike))))return null;
  return {isin:p.isin,bid:c.bidEur,ask:c.askEur,currency:'EUR',
          at:c.priceAt,referenceAt:c.referenceAt,
-         source:c.anchorKind==='research-hybrid'?'Bob · SG/comdirect + Gold/FX':'Bob · Gold-Spot/FX-Modell',
+         source:c.anchorKind==='research-hybrid'?(m.provider==='BNP'?'Bob · BNP/comdirect + Gold/FX':'Bob · SG/comdirect + Gold/FX'):'Bob · Gold-Spot/FX-Modell',
          referenceSource:c.anchorKind==='research-hybrid'?c.referenceSource:null,
          referenceClockGapSeconds:c.referenceSkewSeconds,
          priceKind:'calculated',referenceOnly:true,degiroExecutable:false,
@@ -2278,7 +2278,10 @@ function calculatedProductDisplay(p,now=Date.now()){
 }
 function renderPrimaryProductValues(p,now=Date.now()){
  const q=p.quote?.isin===p.isin&&p.quote.productVerified?p.quote:null;
- const live=q?.found?q:q?.analysisQuote||q?.referenceQuote;
+ let live=q?.found?q:q?.analysisQuote||q?.referenceQuote;
+ const backup=q?.analysisQuote;
+ const recentPair=x=>x&&x.isin===p.isin&&x.currency==='EUR'&&n(x.bid)>0&&n(x.ask)>=n(x.bid)&&[x.bidAt,x.askAt].every(t=>Number.isFinite(Date.parse(t))&&now-Date.parse(t)>=0&&now-Date.parse(t)<=90000);
+ if(!recentPair(live)&&backup?.priceKind==='market-observation'&&backup.isExecutableQuote===false&&backup.degiroExecutable===false&&recentPair(backup))live=backup;
  const fields=productFieldStates(p,now);
  const native=q?.nativeChartEvidence;
  const nativeChf=!!q?.productVerified&&native?.currency==='CHF'&&n(native.bid)>0
