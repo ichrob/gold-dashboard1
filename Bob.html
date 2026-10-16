@@ -1257,6 +1257,15 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     '\nEinstieg: EMA-Abstand '+n(e.entry?.deviationAtr)+' ATR · Platz '+n(e.entry?.roomR)+' R · Signalalter '+n(e.entry?.signalAgeMinutes)+' Min. '+(e.entryReasons||[]).join(' · '));
    lines.push(review.note);
   }
+  const experiment=o.entryExperiment;
+  if(experiment?.version==='entry-experiment-v1'){
+   lines.push('\nTest Punkte 2 und 4: Einstiegsschwellen und schnell / vorsichtig',experiment.sampled+' Startpunkte · '+experiment.missing+' fehlende Zeiträume · '+experiment.pending+' ausstehend');
+   for(const g of experiment.groups||[]){
+    lines.push('\n'+phaseNames[g.phase]+' · '+(regimeNames[g.regime]||g.regime)+' · '+g.horizon+' Min. · '+g.cases+' gemeinsame Fälle');
+    for(const [k,m] of Object.entries(g.variants))lines.push(experiment.labels[k]+': '+m.signals+' Signale / '+m.wait+' Abwarten · '+m.wins+' positiv / '+m.losses+' negativ · Mittel '+n(m.sumPct/g.cases)+' % · Differenz zur aktuellen Regel '+n(m.meanDifferencePct)+' Prozentpunkte · '+m.avoidedLosses+' negative Fälle vermieden / '+m.missedWins+' positive Fälle ausgelassen.');
+   }
+   lines.push(experiment.note);
+  }
   lines.push(o.note);text('optimizationDetails',lines.join('\n'));
  }
  async function api(action,payload){const r=await fetch('/api/audit/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!r.ok)throw Error('Speicher nicht erreichbar ('+r.status+')');return r.json();}
