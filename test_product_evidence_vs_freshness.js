@@ -60,4 +60,16 @@ assert(!labels.includes("Produktnachweis"),JSON.stringify(labels));
 helper.productFieldStates=()=>({bid:{value:null},ask:{value:null},leverage:{value:null}});
 const noValues=Array.from(helper.productProblemLabels(product));
 assert(noValues.includes("Hebel")&&noValues.includes("Kursnachweis"));
+const helpPart=source.slice(source.indexOf("function productHelpState("),source.indexOf("function renderProductHelp("));
+const helper2={
+ productProblemLabels:()=>["Kursart / DEGIRO-Handelsnachweis","Hebelzeit / Quellenprüfung"],
+ productFieldStates:()=>({bid:{value:16.14},ask:{value:16.15},leverage:{value:23.05}}),
+ researchResults:new Map(),pendingQuotes:new Set(),
+ n:v=>typeof v==="number"&&Number.isFinite(v)?v:null
+};
+vm.createContext(helper2);vm.runInContext(helpPart,helper2);
+const help=helper2.productHelpState({...product,quote:{...product.quote,sourceFailure:true}});
+assert.equal(help.manual,false,"Do not demand new screenshots merely because a current issuer retry failed");
+assert(help.status.includes("Kurs und Hebel vorhanden"));
+assert(help.action.includes("automatisch"));
 console.log("Evidence status: correct 90s BNP clock, native CHF research 300s, values versus proofs distinguishable.");
