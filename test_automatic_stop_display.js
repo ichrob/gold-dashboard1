@@ -1,0 +1,12 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
+const html=fs.readFileSync('Bob.html','utf8');
+const block=html.slice(html.indexOf('function activeCalculatedTradePlan(){'),html.indexOf('function renderActiveTradePlan(){'));
+let candidate={stop:105,target:130,dataAt:1234};
+const trade={active:true,stop:100,target:120,product:{currency:'CHF'}};
+const c={tradeMgmt:trade,liveBundleCache:{spots:{}},continuedTradePlan:()=>candidate,currentSpotUsable:()=>false,analysisAgeWarnings:()=>[],window:{BobTradeProduct:{withFx:p=>p,price:(p,x)=>({available:x>0,price:x})}}};
+vm.createContext(c);vm.runInContext(block,c);
+let p=c.activeCalculatedTradePlan();assert.equal(p.stopGold,105);assert.equal(p.targetGold,130);assert.equal(p.stale,true);assert.equal(p.dataAt,1234);assert.equal(trade.stop,100);
+candidate=null;p=c.activeCalculatedTradePlan();assert.equal(p.stopGold,100);assert.equal(p.targetGold,120);assert.equal(p.calculated,false);
+candidate={stop:-1,target:130};p=c.activeCalculatedTradePlan();assert.equal(p.stopGold,100);assert.equal(p.targetGold,120);
+c.currentSpotUsable=()=>true;assert.equal(c.activeCalculatedTradePlan().stale,false);
+console.log('Automatic display: calculated levels, stale label, missing-data and invalid-model fallback; confirmed stop untouched.');
