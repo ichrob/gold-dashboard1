@@ -115,11 +115,13 @@
    '<div class="small" data-curve-isin role="status">Produkttrade wird geprüft …</div>'+
    '<div data-curve-price style="font-size:29px;font-weight:800;letter-spacing:-.5px;margin:6px 0">—</div>'+
    '<div class="small" data-curve-source></div>'+
-   '<div style="display:flex;flex-wrap:wrap;gap:7px;margin:12px 0 8px">'+
-   '<button type="button" data-curve-zoom="price" aria-pressed="true">Kursfokus</button>'+
-   '<button type="button" data-curve-zoom="all" aria-pressed="false">Stopp &amp; Ziel</button>'+
-   '<button type="button" data-curve-fib aria-pressed="true">Fibonacci ✓</button></div>'+
+   '<div style="display:flex;gap:5px;align-items:center;margin:10px 0 8px">'+
+   '<button type="button" data-curve-zoom="price" aria-pressed="true" style="width:auto;flex:1 1 0;min-width:0;padding:8px 3px;font-size:12px;border:1px solid #94a3b8;border-radius:18px;background:#e2e8f0;color:#0f172a">Kursfokus</button>'+
+   '<button type="button" data-curve-zoom="all" aria-pressed="false" style="width:auto;flex:1 1 0;min-width:0;padding:8px 3px;font-size:12px;border:1px solid #94a3b8;border-radius:18px;background:#f8fafc;color:#0f172a">Stopp &amp; Ziel</button>'+
+   '<button type="button" data-curve-fib aria-pressed="true" style="width:auto;flex:1 1 0;min-width:0;padding:8px 3px;font-size:12px;border:1px solid #94a3b8;border-radius:18px;background:#f1f5f9;color:#0f172a">Fibonacci ✓</button></div>'+
    '<canvas data-curve-chart width="900" height="430" style="width:100%;height:auto;border-radius:12px;background:#f8fafc;touch-action:manipulation" aria-label="Beobachteter Kursverlauf des Gold-Hebelprodukts in seiner Produktwährung. Stop und Ziel als berechnete Linien."></canvas>'+
+   '<div class="small" data-curve-quality role="status"></div>'+ 
+   '<div class="small" data-curve-background></div>'+ 
    '<div class="small" data-curve-fib-note></div>'+
    '<div class="small" data-curve-picked aria-live="polite"></div>'+
    '<div class="small" data-curve-levels></div>'+
@@ -128,7 +130,7 @@
   element.append(panel);canvas=panel.querySelector('canvas');
   panel.querySelectorAll('[data-curve-zoom]').forEach(button=>button.addEventListener('click',()=>{
    zoom=button.getAttribute('data-curve-zoom');
-   panel.querySelectorAll('[data-curve-zoom]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));
+   panel.querySelectorAll('[data-curve-zoom]').forEach(b=>{const chosen=b===button;b.setAttribute('aria-pressed',String(chosen));b.style.background=chosen?'#e2e8f0':'#f8fafc';});
    draw(lastResult,lastHistory);
   }));
   panel.querySelector('[data-curve-fib]').addEventListener('click',event=>{
