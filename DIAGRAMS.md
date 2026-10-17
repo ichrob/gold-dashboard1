@@ -136,3 +136,7 @@ actions and remaining reason. UI and share payload show stale status explicitly;
 up to 300 queued/escalated records are returned, with counts and truncation notice.
 Original source fetch workers continue their existing cadence; this recovery task
 reuses the original archive and never fabricates a provider backfill capability.
+
+
+## Zeitgleicher MCO-Fibonacci-Vergleich
+Unter Diagramme: Auswahl der bis zu drei gelisteten MCO-Videos; Kursmarken, signed USD-Differenz und prozentuale Abweichung. Explizite Analysezeit inklusive Datum/Zeitzone, eindeutige Zeitebene und Spot-Basis werden aus benachbarten bestätigten Untertiteln übernommen. Uploadzeit und Videosekunden sind kein Ersatz. Ohne Nachweise bleibt die Abweichung offen. Historische Bob-Werte werden mit dem heutigen bestehenden Pivot-Algorithmus aus ausschließlich damals geschlossenen echten OHLC-Kerzen nachberechnet und so beschriftet; der angezeigte Goldkurs ist der letzte damalige Kerzenschluss. Keine Signal-/Lernwirkung. Chartpunkte aus sparsamen Beobachtungen und Kerzenlücken sind ausgeschlossen.

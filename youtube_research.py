@@ -235,7 +235,8 @@ def extract_fibonacci_levels(segments):
             ratio_at = next((stamp for start, end, stamp in spans
                              if start <= ratio.start() < end), int(at))
             found.append({'key':key,'ratio':ratio.group(1).replace('.',',')+' %',
-                          'price':price,'at':ratio_at,'quote':quote[:300]})
+                          'price':price,'at':ratio_at,'quote':quote[:300],
+                          'comparisonContext':__import__('mco_comparison').context(segments,ratio_at)})
             if len(found)>=12:
                 return found
     return found

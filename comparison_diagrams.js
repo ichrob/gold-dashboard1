@@ -228,6 +228,7 @@ function mount(panel){host=panel;const controls=node('div');controls.style.cssTe
  host.append(node('p','Bruttorenditen aus beobachteten Geld-/Briefkursen, keine echten Ausführungen. Beim Bob-Ausstieg: jeweils 100 EUR inklusive Restgeld; CHF-Produkte werden dafür in EUR umgerechnet. Der spätere Gewinner war beim Einstieg nicht bekannt.'));
  counts=node('p');chart=node('div');detail=node('p');detail.style.whiteSpace='pre-line';detail.setAttribute('aria-live','polite');host.append(counts,chart,detail,node('h3','Optimierungsvergleich · Grundrangfolge und Kandidat'));
  proofBox=node('div');extraBox=node('div');host.append(proofBox,extraBox);draw();
+ const mcoBox=node('section');host.append(mcoBox);root.BobMcoComparison?.mount(mcoBox);
 }
 function section(title,note){const box=node('section');box.style.cssText='margin:24px 0;padding-top:12px;border-top:1px solid #cbd5e1';box.append(node('h3',title),node('p',note));extraBox.append(box);return box;}
 function choose(box,label,values,current,onchange){const l=node('label',label+' '),select=node('select');for(const [value,text]of values){const option=node('option',text);option.value=value;select.append(option);}select.value=current;select.addEventListener('change',()=>onchange(select.value));l.append(select);box.append(l);}
