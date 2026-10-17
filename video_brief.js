@@ -45,7 +45,9 @@ function draw(host,item){
  for(const [i,s] of parts.entries()){
   const card=el('section');card.style.cssText='margin:18px 0;padding:12px;border:1px solid #cbd5e1;border-radius:12px;background:#fff';card.append(el('h5',(i+1)+'. '+s.label));
   const selected=choose(item,s);if(selected){figure(card,selected,item,s.evidence);used.add(selected.index);}
-  else {card.append(el('p','Noch kein passendes Chartbild für diese Passage gespeichert.'));const a=link(item,s.evidence[0].at);if(a)card.append(a);}
+  else {card.append(el('p','Noch kein passendes Chartbild für diese Passage gespeichert.'));const a=link(item,s.evidence[0].at);if(a){card.append(a);const identity=new URL(a.href).searchParams.get('v');if(/^[A-Za-z0-9_-]{11}$/.test(identity||'')){
+   const play=el('button','Originalstelle in Bob ansehen');play.type='button';play.onclick=()=>{const iframe=el('iframe');iframe.title='MCO-Originalstelle '+stamp(s.evidence[0].at);iframe.src='https://www.youtube-nocookie.com/embed/'+identity+'?start='+Math.floor(s.evidence[0].at)+'&autoplay=0&rel=0';iframe.style.cssText='display:block;width:100%;aspect-ratio:16/9;min-height:200px;border:0';iframe.referrerPolicy='strict-origin-when-cross-origin';iframe.allowFullscreen=true;play.replaceWith(iframe);};card.append(play);
+  }}}
   card.append(el('strong',s.kind==='summary'?'Zusammenfassung der MCO-Aussage':'MCO-Originalaussage aus den Untertiteln'),el(s.kind==='quote'?'blockquote':'p',s.text));
   if(s.kind==='summary'){const details=el('details');details.append(el('summary','Gesprochene Begründung nachlesen'));for(const e of s.evidence){details.append(el('blockquote',e.text));const a=link(item,e.at);if(a)details.append(a);}card.append(details);}
   card.append(el('small','Eine im Chart eingezeichnete Möglichkeit ist keine bestätigte Vorhersage. Der Marktzeitpunkt wird nicht aus der Videoposition abgeleitet.'));host.append(card);
