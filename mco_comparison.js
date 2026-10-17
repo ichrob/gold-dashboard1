@@ -31,7 +31,9 @@ function estimateTime(c,item,histories,now=Date.now()){
  return {...result,kind:'estimated',at:Math.floor((ranges[0].from+ranges[0].to)/2),reason:'Preisabgleich im verfügbaren Archiv; Zeitpunkt nicht bestätigt'};
 }
 function compare(item,histories,calculate,now=Date.now()){
- const marks=(item?.mcoFibonacci||[]).filter(m=>keys.includes(m.key)&&Number.isFinite(m.price)&&m.price>0).slice(0,12);
+ const fib=(item?.mcoFibonacci||[]).filter(m=>keys.includes(m.key)&&Number.isFinite(m.price)&&m.price>0).slice(0,12).map(m=>({...m,unit:'USD'}));
+ const other=(item?.mcoValues?.values||[]).filter(m=>m&&typeof m.metric==='string'&&Number.isFinite(m.price)&&['USD','EUR','CHF','Einheit offen','Punkte'].includes(m.unit)).slice(0,200);
+ const marks=[...fib,...other];
  return marks.map(m=>{
   const c={...(m.comparisonContext||{})};let reason='',timing=null;
   if(item.channelId!==channel||item.trustedTranscript!==true)reason='Bestätigtes MCO-Transkript fehlt';
@@ -43,11 +45,12 @@ function compare(item,histories,calculate,now=Date.now()){
    else {timing=estimateTime(c,item,histories,now);if(timing.kind==='estimated')c.analysisAt=timing.at;else reason=timing.reason;}
   }
   let snapshot=null;
-  if(!reason){for(const history of histories){const s=calculate(history?.[c.timeframe]||[],c.analysisAt,c.timeframe);snapshot=s;if(s?.available)break;}
+  if(!reason){for(const history of histories){const s=calculate(history?.[c.timeframe]||[],c.analysisAt,c.timeframe,m);snapshot=s;if(s?.available)break;}
    if(!snapshot?.available)reason=snapshot?.reason||'Historische Bob-Daten fehlen';}
-  const bob=!reason?snapshot?.levels?.[m.key]:null;
-  if(!reason&&(!Number.isFinite(bob)||bob<=0))reason='Historische Bob-Kursmarke fehlt';
-  return {...m,context:c,timing,bob:reason?null:bob,snapshot:reason?null:snapshot,reason,delta:reason?null:bob-m.price,percent:reason?null:100*(bob-m.price)/m.price};
+  const bob=!reason?(m.metric?snapshot?.value:snapshot?.levels?.[m.key]):null;
+  const relative=!m.metric||['goldPrice','ema','sma','boll','support','resistance','target','stop','entry','dayHigh','dayLow','vwap'].includes(m.metric);
+  if(!reason&&(!Number.isFinite(bob)||relative&&bob<=0))reason='Historische Bob-Kursmarke fehlt';
+  return {...m,context:c,timing,bob:reason?null:bob,snapshot:reason?null:snapshot,reason,delta:reason?null:bob-m.price,percent:reason||!relative||m.price===0?null:100*(bob-m.price)/Math.abs(m.price)};
  });
 }
 if(typeof module!=='undefined'&&module.exports)module.exports={compare,estimateTime};
@@ -55,9 +58,14 @@ if(!root?.document)return;
 const d=root.document,ns='http://www.w3.org/2000/svg',num=n=>Number(n).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2}),signed=n=>(n>0?'+':'')+num(n),stamp=t=>new Date(t).toLocaleString('de-CH',{timeZone:'Europe/Zurich'});
 const el=(tag,text)=>{const n=d.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
 function svgEl(tag,attrs,text){const n=d.createElementNS(ns,tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,String(v));if(text!==undefined)n.textContent=text;return n;}
+function metricChart(card,r){
+ const lo=Math.min(r.price,r.bob),hi=Math.max(r.price,r.bob),pad=Math.max((hi-lo)*.2,Math.abs(hi)*.001,.01),x=v=>35+(v-lo+pad)/(hi-lo+2*pad)*430;
+ const svg=svgEl('svg',{viewBox:'0 0 500 65',role:'img','aria-label':r.label+': MCO '+num(r.price)+', Bob '+num(r.bob)+' '+r.unit,style:'width:100%;height:auto;display:block'});
+ svg.append(svgEl('line',{x1:x(r.price),x2:x(r.bob),y1:20,y2:20,stroke:'#64748b','stroke-width':2,'stroke-dasharray':r.timing?.kind==='estimated'?'4 3':'none'}),svgEl('circle',{cx:x(r.price),cy:20,r:6,fill:'#2563eb'}),svgEl('circle',{cx:x(r.bob),cy:20,r:6,fill:'#c2410c'}),svgEl('text',{x:8,y:55,'font-size':12},'MCO '+num(r.price)+' · Bob '+num(r.bob)+' '+r.unit));card.append(svg);
+}
 function mount(host){
  host.style.cssText='margin:24px 0;padding-top:12px;border-top:1px solid #cbd5e1';
- host.append(el('h3','Fibonacci-Vergleich · MCO Markets ↔ Bob'));
+ host.append(el('h3','Wertevergleich · MCO Markets ↔ Bob'));
  host.append(el('p','Originalzeitpunkt bevorzugt; sonst deutlich markierte Zeitschätzung. Gleiche Zeitebene. Blau: MCO-Kursmarke · Orange: Bob-Kursmarke · Grau: letzter damals geschlossener Goldkurs. 0 % Abweichung bedeutet identische Kursmarken.'));
  const status=el('p'),select=el('select'),label=el('label','Video '),refresh=el('button','MCO-Vergleich aktualisieren'),body=el('div');label.append(select);refresh.type='button';status.setAttribute('role','status');host.append(label,refresh,status,body);
  let items=[],histories=[],busy=false,loadedAt=0;
@@ -65,30 +73,32 @@ function mount(host){
   body.replaceChildren();const item=items[Number(select.value)||0];if(!item){body.append(el('p','Keine MCO-Videos verfügbar.'));return;}
   const link=el('a',item.title||'MCO-Video');try{const u=new URL(item.url);if(u.protocol==='https:'&&['www.youtube.com','youtube.com'].includes(u.hostname)&&u.pathname==='/watch'){link.href=u.href;link.target='_blank';link.rel='noopener noreferrer';}}catch(_){}body.append(link);
   body.append(el('p',item.publishedAt?'Video veröffentlicht: '+stamp(item.publishedAt*1000)+'. Die Uploadzeit ersetzt nicht die Analysezeit.':'Veröffentlichungszeit nicht bestätigt; Reihenfolge laut vorhandener Kanalliste.'));
-  const rows=compare(item,histories,(bars,at,tf)=>root.BobMcoHistoricalFib?.(bars,at,tf)||{available:false,reason:'Bob-Berechnung nicht verfügbar'});
-  if(!rows.length)body.append(el('p','Keine eindeutig zugeordneten Fibonacci-Kursmarken im Transkript gefunden.'));
-  const valid=rows.filter(r=>!r.reason);
+  const rows=compare(item,histories,(bars,at,tf,m)=>(m.metric?root.BobMcoHistoricalMetric?.(bars,at,tf,m):root.BobMcoHistoricalFib?.(bars,at,tf))||{available:false,reason:'Bob-Berechnung nicht verfügbar'});
+  if(!rows.length)body.append(el('p','Keine eindeutig zugeordneten Zahlenwerte im Transkript gefunden.'));
+  const valid=rows.filter(r=>!r.reason&&!r.metric); // Fibonacci chart retains a single price scale.
   if(valid.length){
    const values=valid.flatMap(r=>[r.price,r.bob,r.snapshot.goldPrice]),low=Math.min(...values)-5,high=Math.max(...values)+5,x=p=>95+(p-low)/(high-low)*430;
    const svg=svgEl('svg',{viewBox:`0 0 640 ${valid.length*65+40}`,role:'img','aria-label':'MCO und Bob: Goldkursmarken in USD zum gleichen Analysezeitpunkt',style:'width:100%;height:auto;display:block'});
    valid.forEach((r,i)=>{const y=35+i*65;svg.append(svgEl('text',{x:5,y:y+5,'font-size':12},r.ratio||r.key),svgEl('line',{x1:x(r.price),x2:x(r.bob),y1:y,y2:y,stroke:'#64748b','stroke-width':2,'stroke-dasharray':r.timing?.kind==='estimated'?'4 3':'none'}),svgEl('circle',{cx:x(r.price),cy:y,r:6,fill:'#2563eb'}),svgEl('circle',{cx:x(r.bob),cy:y,r:6,fill:'#c2410c'}),svgEl('line',{x1:x(r.snapshot.goldPrice),x2:x(r.snapshot.goldPrice),y1:y-12,y2:y+12,stroke:'#64748b','stroke-width':2}),svgEl('text',{x:632,y:y+5,'text-anchor':'end','font-size':13},(r.timing?.kind==='estimated'?'≈ ':'')+signed(r.percent)+' %'),svgEl('text',{x:95,y:y+25,'font-size':11},'MCO '+num(r.price)+' · Bob '+num(r.bob)+' USD'));});body.append(svg);
   }
-  for(const r of rows){const card=el('div');card.style.cssText='padding:12px;margin:12px 0;background:#f8fafc;border-radius:10px';card.append(el('b',(r.ratio||r.key)+' · MCO '+num(r.price)+' USD'));
+  for(const r of rows){const card=el('div');card.style.cssText='padding:12px;margin:12px 0;background:#f8fafc;border-radius:10px';card.append(el('b',(r.label||r.ratio||r.key)+' · MCO '+num(r.price)+' '+r.unit));
    if(r.timing?.kind==='confirmed')card.append(el('b','✓ Originalzeitpunkt im Transkript belegt: '+stamp(r.timing.at)+' (Zürich)'));
    else if(r.timing){const t=r.timing;card.append(el('b',t.kind==='estimated'?'≈ Zeitpunkt geschätzt: '+stamp(t.at)+' (Zürich)':'Zeitschätzung: '+(t.kind==='ambiguous'?'mehrdeutig':'nicht möglich')));
     if(t.ranges?.length)card.append(el('p','Mögliche Zeitbereiche (Zürich): '+t.ranges.slice(0,8).map(x=>stamp(x.from)+' bis '+stamp(x.to)).join(' · ')+(t.ranges.length>8?' · weitere Treffer: '+(t.ranges.length-8):'')));
     if(t.basis)card.append(el('small',t.basis+'. Suchfenster '+stamp(t.searchFrom)+' bis '+stamp(t.searchTo)+'. Archivabdeckung '+num(t.coverage*100)+' %. Preisabgleich mit '+num(t.price)+' USD; keine Zeitbestätigung.'));
    }
    if(r.reason)card.append(el('p','Nicht vergleichbar: '+r.reason+'.'));
-   else {card.append(el('p',(r.timing?.kind==='estimated'?'Schätzvergleich · Bob ':'Bob ')+num(r.bob)+' USD · Unterschied '+signed(r.delta)+' USD / '+signed(r.percent)+' %'),el('p','Analysezeit: '+stamp(r.context.analysisAt)+' (Zürich) · '+r.context.timeframe),el('p','Goldkurs: '+num(r.snapshot.goldPrice)+' USD · Kerzenschluss '+stamp(r.snapshot.asOf)+' (Zürich)'),el('small','Bob historisch nachberechnet mit dem heutigen Bob-Algorithmus und ausschließlich damals geschlossenen Kerzen. Quelle: '+r.snapshot.source+'. Kein gespeichertes damaliges Signal.'));}
+   else {card.append(el('p',(r.timing?.kind==='estimated'?'Schätzvergleich · Bob ':'Bob ')+num(r.bob)+' '+r.unit+' · Unterschied '+signed(r.delta)+' '+r.unit+(Number.isFinite(r.percent)?' / '+signed(r.percent)+' %':' · kein Prozentvergleich')),el('p','Analysezeit: '+stamp(r.context.analysisAt)+' (Zürich) · '+r.context.timeframe),el('p','Goldkurs: '+num(r.snapshot.goldPrice)+' USD · Kerzenschluss '+stamp(r.snapshot.asOf)+' (Zürich)'),el('small','Bob historisch nachberechnet mit dem heutigen Bob-Algorithmus und ausschließlich damals geschlossenen Kerzen. Quelle: '+r.snapshot.source+'. Kein gespeichertes damaliges Signal.'));}
+   if(!r.reason&&r.metric){card.append(el('p',r.snapshot.method||''));metricChart(card,r);}
    const evidence=el('details');evidence.append(el('summary','Beleg aus dem Video'),el('p',String(r.quote||'Kein Textbeleg')),el('p','Videostelle: '+Math.floor((r.at||0)/60)+':'+String(Math.floor((r.at||0)%60)).padStart(2,'0')));if(r.context.currentGoldQuote?.evidence)evidence.append(el('p','Aktueller Goldkurs laut Video: '+r.context.currentGoldQuote.evidence));if(r.context.timeEvidence)evidence.append(el('p',r.context.timeEvidence));card.append(evidence);body.append(card);
   }
+  const statements=item.mcoValues?.numericStatements||[];const extra=el('details');extra.append(el('summary','Weitere Zahlen und Originalaussagen · '+statements.length+' von '+(item.mcoValues?.totalNumericStatements||0)));for(const e of statements)extra.append(el('p',Math.floor(e.at/60)+':'+String(Math.floor(e.at%60)).padStart(2,'0')+' · '+e.text));body.append(extra,el('p',item.mcoValues?.scope||'Nur aus Untertiteln erkannte Werte. Rein eingeblendete Zahlen werden nicht automatisch gelesen.'));if(item.mcoValues?.totalValues>200)body.append(el('p','Anzeige auf 200 erkannte Zusatzwerte begrenzt. Weitere Aussagen stehen im Originalvideo.'));
   body.append(el('small','Differenz = Bob − MCO. Prozent = Differenz ÷ MCO × 100. Gleiche Fibonacci-Prozente können auf unterschiedlichen Swing-Punkten beruhen. Zeitschätzungen beziehen sich nur auf das verfügbare Archiv und sind keine gesicherten historischen Zuordnungen. Nähe belegt weder Richtigkeit noch profitable Signale. Fehlende Daten werden nicht als 0 % dargestellt.'));
  }
  async function read(url,signal){const r=await root.fetch(url,{cache:'no-store',signal});if(!r.ok)throw Error('Abruf fehlgeschlagen');return r.json();}
  async function load(){if(busy)return;busy=true;refresh.disabled=true;status.textContent='MCO-Vergleich wird geladen …';const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),20000);
   try{const report=await read('/api/gold-research',ctl.signal);if(!Array.isArray(report.items))throw Error();items=report.items.filter(x=>x.channelId===channel).slice(0,3);const previous=select.value;select.replaceChildren();items.forEach((item,i)=>{const o=el('option',(i===0?'Neuester gelisteter Eintrag · ':'')+String(item.title||'MCO-Video'));o.value=String(i);select.append(o);});select.value=Number(previous)<items.length?previous:'0';histories=[];
-   if(items.some(i=>(i.mcoFibonacci||[]).some(m=>Number.isFinite(m.comparisonContext?.analysisAt)||Number.isFinite(m.comparisonContext?.currentGoldQuote?.price)))){const results=await Promise.allSettled([read('/api/live',ctl.signal),read('/api/weekend-archive',ctl.signal)]);for(const r of results)if(r.status==='fulfilled')histories.push(r.value?.history?.bars_by_tf||r.value?.history||{});}
+   if(items.some(i=>[...(i.mcoFibonacci||[]),...(i.mcoValues?.values||[])].some(m=>Number.isFinite(m.comparisonContext?.analysisAt)||Number.isFinite(m.comparisonContext?.currentGoldQuote?.price)))){const results=await Promise.allSettled([read('/api/live',ctl.signal),read('/api/weekend-archive',ctl.signal)]);for(const r of results)if(r.status==='fulfilled')histories.push(r.value?.history?.bars_by_tf||r.value?.history||{});}
    loadedAt=Date.now();status.textContent=(report.fresh?'':'MCO-Auswertung nicht aktuell · ')+'Geladen: '+stamp(loadedAt)+' (Zürich)';draw();
   }catch(_){status.textContent='MCO-Vergleich derzeit nicht erreichbar.'+(loadedAt?' Angezeigte Daten sind vom '+stamp(loadedAt)+'.':'');}
   finally{clearTimeout(timer);busy=false;refresh.disabled=false;}
