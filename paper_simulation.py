@@ -4,6 +4,7 @@ import hashlib
 import json
 import rule_learning
 import ranking_learning
+import ranking_lifecycle
 import math
 import subprocess
 import evaluator_runtime
@@ -754,6 +755,7 @@ def _worker(db):
                         now=time.time()*1000
                         settings=dict(timeframe='15m',trailAtr=1.5,learningPolicy=rule_learning.policy(conn))
                         active_isins=[c['product']['isin'] for c in active_cases.values() if c.get('product',{}).get('isin')]
+                        active_isins+=ranking_lifecycle.active_isins(conn)
                         quotes=quote_cache(evidence['products'],active_isins,now)
                         # Source refresh may fetch newer timestamps. Audit against
                         # completion time, never the clock from before those reads.
@@ -787,7 +789,8 @@ def _worker(db):
                             with conn.transaction():
                                 import product_precision
                                 product_precision.capture(conn,market,selection,precision_quotes,bundle.get('spots'),time.time()*1000)
-                                ranking_learning.capture(conn,market,selection,precision_quotes,bundle.get('spots'),time.time()*1000)
+                                ranking_learning.capture(conn,market,selection,precision_quotes,bundle.get('spots'),time.time()*1000,simulation_quotes=quotes)
+                                ranking_lifecycle.tick(conn,market,quotes,int(time.time()*1000))
                         except Exception as exc:print('BOB_PRECISION_CAPTURE error='+type(exc).__name__,flush=True)
                         # Independent extra research account receives its own direction
                         # and derived stop/target; same exact product validator and quotes.

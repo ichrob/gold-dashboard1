@@ -12,6 +12,8 @@ from zoneinfo import ZoneInfo
 import adaptive_learning as timing
 import product_precision as precision
 import rule_learning as statistics
+import ranking_lifecycle
+import ranking_regimes
 
 ID='product-ranking-v1'
 DAY=86400000
@@ -43,6 +45,7 @@ def initial(now,cycle=1):
 
 
 def init(conn):
+    ranking_lifecycle.init(conn)
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_ranking_state (
         currency TEXT PRIMARY KEY,state JSONB NOT NULL)''')
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_ranking_samples (
@@ -65,7 +68,7 @@ def policy(conn,now=None):
     return dict(id=ID,issuedAt=now,expiresAt=now+120000,variants=variants,maxScoreGap=5)
 
 
-def capture(conn,market,selection,quotes,spots,now):
+def capture(conn,market,selection,quotes,spots,now,simulation_quotes=None):
     now=int(now);slot=statistics.slot_at(now)
     if not timing.eligible(slot) or not 0<=now-slot<300000:return
     choices=selection.get('researchCandidates',selection.get('choices',[]))
@@ -86,7 +89,7 @@ def capture(conn,market,selection,quotes,spots,now):
         times=[c['quote'][field] for c in candidates for field in ('at','askAt')]
         if times and max(times)-min(times)>30000:missing.append('source-time-skew')
         chosen=choose(candidates,active['variants'].get(currency,'baseline'))
-        row=dict(version=ID,at=now,slot=slot,currency=currency,direction=market.get('direction'),
+        row=dict(version=ID,at=now,slot=slot,currency=currency,direction=market.get('direction'),regime=ranking_regimes.classify(market),
             marketReady=market.get('ready') is True and market.get('priceFresh') is True,
             rule=market.get('ruleVersion'),signalPolicy=market.get('learningPolicy'),
             rankingVariant=active['variants'].get(currency,'baseline'),
@@ -94,6 +97,7 @@ def capture(conn,market,selection,quotes,spots,now):
             universe='Zum Zeitpunkt freigegebene Produkte der gespeicherten Liste; kein gesamter Markt')
         conn.execute('INSERT INTO bob_ranking_samples VALUES(%s,%s,%s::jsonb,NULL) ON CONFLICT DO NOTHING',
                      (currency,slot,json.dumps(row)))
+        if simulation_quotes is not None:ranking_lifecycle.capture(conn,row,market,choices,simulation_quotes,now)
 
 
 def evaluate(row,observations):
@@ -180,6 +184,39 @@ def advantage(m):
         and g['worst']['candidate']>=g['worst']['baseline']-1e-9 for g in m['scenarios'].values())
 
 
+EARLY_PROTOCOL=dict(version='early-rank-rollback-v1',completedTradingDays=3,minSamples=12,
+    minChanged=12,minSamplesPerDay=3,minCoverage=.95,minDailyDeclinePct=.1,
+    minMeanDeclinePct=.2,requireWorseRisk=True)
+
+
+def early_review(s,rows,now):
+    # One fixed daily checkpoint, never repeated intraday significance peeking.
+    local=datetime.fromtimestamp(now/1000,ZoneInfo('Europe/Zurich'))
+    end=int(local.replace(hour=0,minute=0,second=0,microsecond=0).timestamp()*1000)
+    if end<=s.get('earlyCheckedThrough',s['monitorStart']):return
+    s['earlyCheckedThrough']=end
+    slots=timing.slots(s['monitorStart'],end)
+    days=sorted({datetime.fromtimestamp(t/1000,ZoneInfo('Europe/Zurich')).date().isoformat() for t in slots})
+    if len(days)<3:return
+    days=days[-3:]
+    start=min(t for t in slots if datetime.fromtimestamp(t/1000,ZoneInfo('Europe/Zurich')).date().isoformat()==days[0])
+    m=metrics(rows,start,end,s['active'])
+    per_day=[]
+    for day in days:
+        subset=[(r,o) for r,o in rows if datetime.fromtimestamp(r['slot']/1000,ZoneInfo('Europe/Zurich')).date().isoformat()==day]
+        per_day.append(metrics(subset,start,end,s['active'])['samples'])
+    qualified=(m['samples']>=12 and m['changed']>=12 and m['days']==3 and min(per_day)>=3
+        and m['coverage']>=.95 and m['incomplete']==0)
+    decline=qualified and all(g['improvementPct']<=-.2 and all(v<=-.1 for v in g['daily'])
+        and (g['drawdown']['candidate']>g['drawdown']['baseline']+1e-9 or
+             g['worst']['candidate']<g['worst']['baseline']-1e-9) for g in m['scenarios'].values())
+    s['earlyReview']=dict(protocol=EARLY_PROTOCOL,start=start,end=end,evidence=m,
+        triggered=bool(decline),status='rollback' if decline else 'no-confirmed-decline' if qualified else 'insufficient-evidence')
+    if decline:
+        revert(s,now,'Frühe Rücknahme: drei abgeschlossene Vergleichstage mit Renditeverschlechterung und höherem beobachtetem Risiko')
+        s['history'][-1]['earlyEvidence']=s['earlyReview']
+
+
 def event(s,at,kind,**details):s['history'].append(dict(at=at,event=kind,**details))
 
 
@@ -215,6 +252,7 @@ def transition(state,rows,now):
             event(s,now,'adopted',variant=s['active'],evidence=m,lowerBounds99=bounds)
         else:
             s.update(phase='cooldown',active='baseline',restartAt=timing.next_slot(now+7*DAY));event(s,now,'validation-rejected',evidence=m)
+    if s['phase']=='monitoring':early_review(s,rows,now)
     if s['phase']=='monitoring' and now>=s['monitorEnd']+HOUR+60000:
         m=metrics(rows,s['monitorStart'],s['monitorEnd'],s['active']);s['monitoring']=m
         if m['samples']<20 or m['days']<5 or m['coverage']<.95 or m['incomplete'] or not advantage(m):
@@ -277,7 +315,9 @@ def report(conn,now=None):
         s['progress']={v:metrics(campaign,start,end,v) for v in variants}
         s['lastMeasurementAt']=max((p['at'] for p,_ in campaign),default=None)
     rows=conn.execute('SELECT payload,outcome FROM bob_ranking_samples ORDER BY slot DESC,currency LIMIT 100').fetchall()
-    return dict(protocol=PROTOCOL,policy=policy(conn,now),states=states,limit=100,
-        comparisons=[dict(at=r['at'],currency=r['currency'],direction=r['direction'],chosen=r['chosen'],
+    lifecycle=ranking_lifecycle.report(conn)
+    return dict(protocol=PROTOCOL,earlyProtocol=EARLY_PROTOCOL,policy=policy(conn,now),states=states,limit=100,
+        lifecycle=lifecycle,regimes=ranking_regimes.summarize(rows,lifecycle['comparisons']),
+        comparisons=[dict(at=r['at'],slot=r['slot'],regime=r.get('regime'),currency=r['currency'],direction=r['direction'],chosen=r['chosen'],
             candidates=r['candidates'],outcome=o,missing=r['missing']) for r,o in rows],
         note='Beobachteter 60-Minuten-Vergleich aller damals zulässigen Produkte der gespeicherten Liste. Einstieg Brief, Ausstieg Geld; gleiche Währung und Quellenzeiten bis 30 Sekunden auseinander. Nur regulär freigegebene Produkte liefern Lernbelege; reine Simulationsfreigaben werden separat verglichen. 0,1/0,3 % zusätzliche Kosten sind Szenarien. Keine Ausführung oder belegte Nettorendite; ein späterer Gewinner war vorher nicht bekannt.')
