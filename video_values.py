@@ -23,7 +23,7 @@ def extract(lines):
     currencies=set(re.findall(r'\b(?:USD|EUR|CHF)\b',joined.upper()))
     currency=next(iter(currencies)) if len(currencies)==1 else None
     instrument='XAU/USD' if re.search(r'\bXAU\s*/\s*USD\b',joined,re.I) and not re.search(r'\b(?:CFD|futures?|GC\w*|silver|silber|bitcoin|EUR/USD)\b',joined,re.I) else None
-    timeframes=set(re.findall(r'(?<!\w)(?:1m|5m|15m|30m|1h|4h)(?!\w)',joined,re.I))
+    timeframes=set(re.findall(r'(?<!\w)(?:1m|5m|15m|30m|1h|4h)(?!\w)',joined))
     timeframe=next(iter(timeframes)).lower() if len(timeframes)==1 else None
     values=[];unknown=[]
     for index,line in enumerate(lines):

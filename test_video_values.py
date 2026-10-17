@@ -12,6 +12,7 @@ class VideoValueTests(unittest.TestCase):
         self.assertTrue(all(not v['verified'] and v['marketTimeStatus']=='unknown' for v in data['values']))
     def test_unlabeled_ambiguous_and_mixed_values_stay_open(self):
         self.assertFalse(self.read('4200.50')['values'])
+        self.assertIsNone(self.read('XAU/USD 1M','Gold: 4200')['timeframe'])
         self.assertFalse(self.read('Gold: 4.200')['values'])
         self.assertEqual(self.read('Gold: 4,200.50')['values'][0]['value'],4200.5)
         data=self.read('XAU/USD 15m EUR 1h','EMA 20: 4200')
