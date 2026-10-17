@@ -50,8 +50,8 @@ async function extract(file,moments,status,cancel){
   }
   // Prefer exact evidence positions; add two distinct neighboring frames to the first.
   const selected=[];const add=f=>{if(f&&!selected.some(x=>Math.abs(x.at-f.at)<.01))selected.push(f);};
-  for(const target of targets)add([...near].sort((a,b)=>Math.abs(a.at-target)-Math.abs(b.at-target))[0]);
-  for(const frame of near.filter(f=>Math.abs(f.at-targets[0])<=2.01))if(selected.length<5)add(frame);
+  for(const target of targets.slice(0,2))add([...near].sort((a,b)=>Math.abs(a.at-target)-Math.abs(b.at-target))[0]);
+  for(const frame of near.filter(f=>Math.abs(f.at-targets[0])<=2.01))if(selected.length<4)add(frame);
   for(const frame of scenes)if(selected.length<5)add(frame);
   return selected.slice(0,5).sort((a,b)=>a.at-b.at).map(({at,dataUrl})=>({at,dataUrl}));
  }finally{video.removeAttribute('src');video.load();URL.revokeObjectURL(url);}
