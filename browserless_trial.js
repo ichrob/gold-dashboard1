@@ -19,6 +19,8 @@ export default async ({ page, context }) => {
       return /confirm you.re not a bot|bestätigen.*kein bot|sign in to confirm|video unavailable|video nicht verfügbar/i.test(text);
     });
     if(blocked)return reply('access-blocked');
+    stage='identity-unconfirmed';
+    await page.waitForFunction(()=>{const p=document.querySelector('#movie_player');return Boolean(p?.getVideoData?.().video_id||p?.getPlayerResponse?.()?.videoDetails?.videoId);});
     const actual=await page.evaluate(()=>{
       const p=document.querySelector('#movie_player');
       return p?.getVideoData?.().video_id || p?.getPlayerResponse?.()?.videoDetails?.videoId || '';
