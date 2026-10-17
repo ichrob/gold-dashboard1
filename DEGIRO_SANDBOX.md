@@ -8,9 +8,9 @@ overselling, invalid prices and stop loosening. Repeated identical events return
 the original receipt without another position change. Every receipt is marked
 `brokerSubmitted: false` and uses a `SIM-` identifier.
 
-This is an internal adapter contract, NOT DEGIRO's request format. No
-`degiro-connector` dependency, login, credentials, outbound broker connection,
-real orders or continuous background process are implemented. A green test
+This is an internal adapter contract, NOT DEGIRO's request format. The simulation itself has no broker dependency or network access. A separate,
+optional read-only connector probe is now available; see DEGIRO_READONLY.md.
+No real orders or continuous background process are implemented. A green test
 result is only an internal test result. The engine's existing assumptions and
 risk limits are unchanged. Results are ephemeral and synthetic, not evidence
 of live profitability or connectivity. Existing product and trade tabs stay put.

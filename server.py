@@ -1,3 +1,4 @@
+import degiro_readonly
 import degiro_sandbox
 import degiro_sandbox_panel
 import vollautomatisch_panel
@@ -978,7 +979,7 @@ class Handler(BaseHTTPRequestHandler):
         # Sensitive data APIs must be authenticated before any data generation.
         # Keep static PWA resources and /health public, but never expose live,
         # MTF, or DEGIRO enrichment data without the existing Bob credentials.
-        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path == "/api/degiro/sandbox" or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates" or path == "/api/degiro/audit" or path == "/api/self-healing" or path == "/api/problems" or path == "/api/repair-statistics"
+        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path == "/api/degiro/connection-status" or path == "/api/degiro/sandbox" or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates" or path == "/api/degiro/audit" or path == "/api/self-healing" or path == "/api/problems" or path == "/api/repair-statistics"
         if protected_api_path:
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
@@ -990,6 +991,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(b"Authentication required.")
                 return
+
+        if path == "/api/degiro/connection-status":
+            body = json.dumps(degiro_readonly.status()).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
 
         if path == "/api/repair-statistics":
             # Independent of GitHub issue availability, including rate limits.
@@ -1720,6 +1730,32 @@ class Handler(BaseHTTPRequestHandler):
         ).decode("ascii")
         worker_token = self.headers.get("X-Bob-Worker-Token", "")
         worker_ok = bool(SIGNAL_WORKER_TOKEN) and hmac.compare_digest(worker_token, SIGNAL_WORKER_TOKEN)
+
+        if path == "/api/degiro/connection-test":
+            if not self.authenticated():
+                bob_auth.send(self, 401)
+                return
+            if not bob_auth.same_origin(self.headers):
+                bob_auth.send(self, 403)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 128:
+                    raise ValueError("Ungültige Anfragegröße")
+                payload = json.loads(self.rfile.read(length))
+                if not isinstance(payload, dict) or set(payload) - {"otp"}:
+                    raise ValueError("Ungültige Anfrage")
+                result = degiro_readonly.probe(payload.get("otp", ""))
+                code = 200
+            except (ValueError, TypeError):
+                result, code = {"ok": False, "code": "INVALID_INPUT"}, 400
+            body = json.dumps(result).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
 
         if path == "/api/research/youtube":
             if not self.authenticated():
