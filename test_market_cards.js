@@ -32,10 +32,6 @@ setImmediate(async()=>{
  await context.window.BobGoldCards.refresh();
  assert.equal(el('gold-estimate-price').textContent,'≈ 4.170,00');
  assert.equal(el('gold-estimate-state').textContent,'Letzte Schätzung · nicht aktuell');
- clock=globalThis.Date.parse('2026-10-17T12:00:00Z');
- await context.window.BobGoldCards.refresh();
- assert.equal(el('gold-estimate-state').textContent,'Markt geschlossen · letzte Schätzung');
- clock=globalThis.Date.parse('2026-10-14T12:00:00Z');
  payload.estimate={price:4190,at:new Date().toISOString(),kind:'calculated'};
  await context.window.BobGoldCards.refresh();
  assert.equal(el('gold-estimate-price').textContent,'≈ 4.190,00');
@@ -57,5 +53,9 @@ setImmediate(async()=>{
  assert.equal(el('gold-spot-change').textContent,'↓ −1,00 %');assert.equal(el('gold-spot-change').className,'gold-change down');
  context.window.BobGoldCards.spot({spots:{xaus:4140,spot_price_as_of:new Date(Date.now()+4000).toISOString(),dailyChange:{changePct:0}}});
  assert.equal(el('gold-spot-change').textContent,'→ 0,00 %');assert.equal(el('gold-spot-change').className,'gold-change');
+ clock=globalThis.Date.parse('2026-10-17T12:00:00Z');
+ payload.estimate={price:4170,at:'2026-10-16T20:50:00Z',kind:'calculated',historical:true};
+ await context.window.BobGoldCards.refresh();
+ assert.equal(el('gold-estimate-state').textContent,'Markt geschlossen · letzte Schätzung');
  console.log('Gold cards: formatting, directions, stale data, missing change and older response protection OK');
 });
