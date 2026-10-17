@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 CHANNEL = 'UCsl6Z6p7GOkczo8Cv-GH6Dg'
 MODEL = 'gemini-3.5-flash-lite'
 SUMMARY_FORMAT_VERSION = 'evidence-visual-v4-section-images'
-FRAME_FORMAT_VERSION = 'storyboard-requests-v6'
+FRAME_FORMAT_VERSION = 'storyboard-requests-v7'
 MAX_FRAMES = 5
 MAX_BYTES = 1000000
 
@@ -36,7 +36,7 @@ def read_public_video(request, timeout=10):
     """Ordinary public requests client; no login, cookies, proxy rotation or redirects."""
     import requests
     try:
-        response = requests.get(request.full_url, timeout=(10, timeout), allow_redirects=False, stream=True)
+        response = requests.get(request.full_url, headers=dict(request.header_items()), timeout=(10, timeout), allow_redirects=False, stream=True)
     except requests.RequestException:
         raise OSError('Public media unavailable') from None
     with response:
@@ -272,7 +272,7 @@ def storyboard_plan(spec, identity, moments, quality=0):
 
 
 def neighbor_moments(moments):
-    anchors=[m for m in moments if isinstance(m,dict) and type(m.get('at')) is int and 0<=m['at']<=86400][:3]
+    anchors=[m for m in moments if isinstance(m,dict) and type(m.get('at')) is int and 0<=m['at']<=86400][:MAX_FRAMES]
     if not anchors:return []
     result=list(anchors)
     for offset in (-5,5):
@@ -476,7 +476,7 @@ def handle(connect, payload):
         conn.execute('SELECT pg_advisory_xact_lock(68431030)')
         row = conn.execute("""SELECT fingerprint,summary,frames,
             summary_attempt>now()-interval '24 hours',
-            frame_attempt>now()-interval '24 hours',
+            frame_attempt>now()-interval '30 minutes',
             frame_version,frame_status
             FROM bob_research_enhancements WHERE video_id=%s""", (identity,)).fetchone()
         conn.execute('INSERT INTO bob_research_enhancements(video_id,fingerprint) VALUES(%s,%s) ON CONFLICT(video_id) DO NOTHING',
@@ -491,7 +491,7 @@ def handle(connect, payload):
             frame_state = 'stored'
         elif not row or len(row) < 6 or row[5] != FRAME_FORMAT_VERSION or not row[4]:
             # A saved title image is a placeholder, not an extracted storyboard.
-            # Retry after 24h or immediately when the extractor is upgraded.
+            # Retry after 30 minutes or immediately when the extractor is upgraded.
             conn.execute('UPDATE bob_research_enhancements SET frame_attempt=now(),frame_version=%s,frame_status=%s WHERE video_id=%s',
                          (FRAME_FORMAT_VERSION, 'attempting', identity))
             do_frames = True
@@ -561,7 +561,10 @@ def handle(connect, payload):
                          (json.dumps(result['frames']), frame_state, identity))
             conn.commit()
         print('BOB_RESEARCH_FRAME video=' + identity + ' result=' + frame_state +
-              ' images=' + str(len(result['frames'])), flush=True)
+              ' images=' + str(len(result['frames'])) + ' timed_images=' + str(sum(not f.get('isCover',False) for f in result['frames'])), flush=True)
+    result['frameFetchStatus'] = frame_state
+    if not any(isinstance(f,dict) and not f.get('isCover') for f in result['frames']):
+        result['frameRetryAfterSeconds'] = 1800
     fp = summary_fingerprint(segments, result['frames'])
     do_summary = False
     with connect() as conn:
