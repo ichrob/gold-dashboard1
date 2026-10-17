@@ -36,3 +36,34 @@ fixed-plan continuation after Bob exits, quote failure, target exits and bounded
 read-only portfolio reporting. Existing PostgreSQL lifecycle integration also
 covers persisted captures, restart and immutable entry. These tests establish
 software behavior, not market accuracy or profitable future trading.
+
+## Summary, evidence and change history
+
+The compact overview groups measured improvements, declines and missing evidence.
+Selection data never becomes a validated benefit merely because its mean is positive;
+a stale audit response suppresses the current overview. Longer lists are expandable.
+
+Each evidence panel counts observations, preselected spaced windows and observation
+days. Spacing is applied BEFORE reading the result, so a missing result does not
+shift selection to a conveniently profitable nearby observation. Signal summaries
+prefer the background record for each candle and use separate 15/60/240-minute
+windows. Neutral signals are not failures. Actual statistical independence is not
+claimed. Account/drawdown observations are not treated as independent trades.
+
+For descriptive means, at least 20 usable spaced observations on 10 observation
+days are needed for an optional 95% percentile range. A deterministic 800-replicate
+circular moving-block bootstrap resamples pairs of adjacent observation days and
+recomputes the observation-weighted mean. This describes the spaced subset, which
+can differ from the chart's all-observation mean. It does not establish causality,
+resolve all dependence or multiple testing, change trading gates, or promise
+coverage in every market regime. Otherwise uncertainty is explicitly unquantified.
+Existing 99% adoption evidence remains separately labeled as historical evidence.
+
+Ranking and per-identity price change events appear as dated vertical markers in
+the relevant price/return window, plus an expandable timeline. Each event exposes
+its saved reason and available evidence. Later observations are strictly after the
+event and before the next saved event, from the available bounded report window;
+no historical return is invented. Signal-rule history also displays stored checks,
+including the next monitoring evidence when available. Limited history, absent
+follow-ups and the difference between temporal association and causation remain
+explicit. No behavior or adoption thresholds are changed by these display features.

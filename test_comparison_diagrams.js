@@ -41,3 +41,21 @@ assert(all().some(e=>e.textContent.includes('Rendite seit Kontostart')));
 window.BobDiagrams.portfoliosUnavailable();assert(all().some(e=>e.textContent.includes('Kontodaten veraltet')));
 window.BobDiagrams.update({...study,lifecycle:{comparisons:[stop]}},{precisionLearning:{states:[{currency:'CHF',isin:'x',source:'issuer',chartHistory:[{at,raw:10,original:11,corrected:10.2}]}]},metrics:{'15':{evaluated:4,favorable:3,directionalSumPct:-2}}});
 assert(all().some(e=>e.textContent.includes('Originalkurs')));assert(all().some(e=>e.textContent.includes('Trefferquote')));
+// Evidence does not count adjacent ticks or fill missing outcomes as successes.
+const many=Array.from({length:40},(_,i)=>({at:at+i*60000,value:i?10:null}));
+const ev=api.evidenceStats(many,'value',15*60000);assert.equal(ev.selected,3);assert.equal(ev.separated,2);assert.equal(ev.days,1);assert.equal(ev.interval,null);
+const days=Array.from({length:12},(_,i)=>({day:'2026-10-'+String(i+1).padStart(2,'0'),count:2,total:i%4>=2?2:-2}));
+const ci=api.uncertainty(days);assert(ci.low<0&&ci.high>0);assert.deepEqual(ci,api.uncertainty(days));
+assert.equal(api.uncertainty(days.slice(0,9)),null);
+const events=[{at,event:'adopted'},{at:at+60000,event:'rollback',reason:'New evidence worse'}];
+assert.equal(api.laterEvidence(events,0,[{at:at-1,value:99},{at,value:99},{at:at+1,value:2},{at:at+60000,value:99}],'value').mean,2);
+assert(api.overview(study,null,'EUR','horizon').better[0].includes('Noch keine aktuell aktive Übernahme'));
+const activeStudy={...study,states:{EUR:{...study.states.EUR,history:events}}};
+window.BobDiagrams.update(activeStudy,{precisionLearning:{states:[]}});
+// Switch back to the matching currency for the event markers.
+const sel=all().filter(e=>e.tag==='select')[0];sel.value='EUR';sel.events.change();
+assert(all().some(e=>e.textContent==='Auf einen Blick'));
+assert(all().some(e=>e.textContent.includes('Aussagekraft')));
+assert(all().some(e=>e.textContent.includes('New evidence worse')));
+assert(all().some(e=>e.attrs['aria-label']?.includes('Übernommen')));
+window.BobDiagrams.unavailable();assert(all().some(e=>e.textContent.includes('Eine aktuelle Verbesserung ist damit nicht bestätigt')));

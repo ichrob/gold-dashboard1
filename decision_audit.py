@@ -454,6 +454,8 @@ def _build_report(conn):
     result=summarize([(row[0],row[1:]) for row in scoped])
     current=[(r,t) for r,t in [(row[0],row[1:]) for row in scoped] if r.get('ruleVersion')==RULE_VERSION]
     chart_times=[r['recordedAt'] for r,_ in current if type(r.get('recordedAt')) in (int,float)]
+    import diagram_evidence
+    result['signalChartEvidence']=diagram_evidence.signal_evidence(current,outcome)
     result['signalChartScope']=dict(firstAt=min(chart_times) if chart_times else None,lastAt=max(chart_times) if chart_times else None)
     result['ruleLearning']=learning
     result['metricQuality']=metric_quality.report(conn)
