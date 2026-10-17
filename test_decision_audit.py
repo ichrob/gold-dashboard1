@@ -131,7 +131,8 @@ class ReportCoalescingTests(unittest.TestCase):
   conn=MagicMock();rows=[]
   conn.execute.side_effect=[Mock(fetchall=lambda:rows),Mock(fetchall=lambda:[]),Mock(fetchone=lambda:(0,))]
   with patch.object(a,'harvest') as harvest,patch.object(a.rule_learning,'report',return_value={}),patch.object(a.intraday_comparison,'report',return_value={}):
-   result=a._build_report(conn)
+   with patch.object(a.precision_learning,'report',return_value={}),patch.object(a.metric_quality,'report',return_value={}),patch.object(a.product_precision,'report',return_value={}):
+       result=a._build_report(conn)
   harvest.assert_not_called()
   query,params=conn.execute.call_args_list[0].args
   self.assertIn('LIMIT %s',query);self.assertEqual(params,(a.REPORT_LIMIT,))
@@ -327,7 +328,8 @@ class ReportTimeoutRecoveryTests(unittest.TestCase):
         conn=MagicMock()
         conn.execute.side_effect=[Mock(fetchall=lambda:[]),Mock(fetchone=lambda:(10000,))]
         with patch.object(a,'_load_report_rows',side_effect=[psycopg.errors.QueryCanceled('timeout'),[]]) as load, patch.object(a.rule_learning,'report',return_value={}), patch.object(a.intraday_comparison,'report',return_value={}):
-            result=a._build_report(conn)
+            with patch.object(a.precision_learning,'report',return_value={}),patch.object(a.metric_quality,'report',return_value={}),patch.object(a.product_precision,'report',return_value={}):
+                result=a._build_report(conn)
         self.assertEqual(load.call_args_list[1].args,(conn,a.REPORT_BUSY_LIMIT))
         self.assertTrue(result['reportWindowReduced'])
         self.assertIn('verkleinertes Auswertungsfenster',result['scope'])
@@ -355,7 +357,8 @@ class ReportTimeoutRecoveryTests(unittest.TestCase):
                     db.execute('SELECT pg_sleep(0.05)')
                 return []
             with patch.object(a,'_load_report_rows',side_effect=load), patch.object(a.rule_learning,'report',return_value={}), patch.object(a.intraday_comparison,'report',return_value={}):
-                result=a._build_report(conn)
+                with patch.object(a.precision_learning,'report',return_value={}),patch.object(a.metric_quality,'report',return_value={}),patch.object(a.product_precision,'report',return_value={}):
+                    result=a._build_report(conn)
             self.assertEqual(calls,[None,a.REPORT_BUSY_LIMIT])
             self.assertTrue(result['reportWindowReduced'])
             self.assertEqual(conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0],1)

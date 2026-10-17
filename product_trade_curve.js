@@ -225,6 +225,7 @@
     if(background.tradeId!==id)return;
     if(data?.tradeId!==id||!Array.isArray(data.rows))throw Error('Ungültige Hintergrundantwort');
     background.comparisons=Array.isArray(data.comparisons)?data.comparisons:[];
+    background.automaticCorrection=data.automaticCorrection||null;
     background.rows=data.rows.filter(v=>v&&positive(v.price)&&finite(v.at)&&finite(v.sourceAt));
     background.status='Serveraufzeichnung · '+background.rows.length+' datierte Modellpunkte';
     if(lastHistory?.tradeKey?.endsWith('|'+id)){
@@ -370,14 +371,21 @@
    if(!merged.has(key))merged.set(key,row);
   }
   learned.rows=[...merged.values()].sort((a,b)=>a.at-b.at).slice(-120);
-  const quality=calibrate(learned,now);
+  const policy=(background.tradeId===input?.trade?.tradeId?background.automaticCorrection:null)||
+   (input?.trade?.tradeId||root.BobPrecisionPaused?{usable:false,count:0,reason:'Warte auf aktuelle Serverprüfung'}:null);
+  const matched=policy&&JSON.stringify(policy.modelKey)===result.modelKey;
+  const approved=!root.BobPrecisionPaused&&matched&&policy.usable&&recent(policy.lastAt,now,120000)&&finite(policy.factor)&&Math.abs(policy.factor)<=.03;
+  const quality=policy?{usable:!!approved,count:policy.count||0,validationCount:policy.evidence?.count||0,
+   offset:approved?result.price*policy.factor:0,rawMae:policy.evidence?.rawMaePct,
+   correctedMae:policy.evidence?.correctedMaePct,metricUnit:'%',
+   reason:policy.reason||'Serverprüfung wartet auf spätere Vergleichswerte'}:calibrate(learned,now);
   if(result.available&&result.stage!=='ko'&&result.kind==='model'&&quality.usable&&learned.modelKey===result.modelKey){
    // Display-only correction: never changes saved stop, gold decisions or orders.
    const adjusted=result.price+quality.offset;
    if(positive(adjusted)){
     result={...result,rawModelPrice:result.price,price:adjusted,
-     stop:positive(result.stop)?result.stop+quality.offset:result.stop,
-     target:positive(result.target)?result.target+quality.offset:result.target,
+     stop:!policy&&positive(result.stop)?result.stop+quality.offset:result.stop,
+     target:!policy&&positive(result.target)?result.target+quality.offset:result.target,
      source:result.source+' · indikativ kalibriert',calibrated:true};
    }
   }
@@ -403,8 +411,8 @@
    'Kein zeitgleicher Anbieterpreis zum aktuellen Modell verfügbar.';
   show('[data-curve-quality]',qualityText+' Letzte Messung: '+clock(learned.rows.at(-1)?.at)+' · Kalibrierung: '+(quality.usable?
    quality.count+' geprüfte Paare; Korrektur '+(quality.offset>=0?'+':'')+
-   quality.offset.toFixed(3)+' '+result.currency+' · Fehler an '+quality.validationCount+' späteren Prüfwerten: '+quality.rawMae.toFixed(4)+' → '+quality.correctedMae.toFixed(4)+' '+result.currency+' · nur Modellanzeige.':
-   quality.count+' Paare; '+quality.reason+'.'+(finite(quality.rawMae)?' Fehler vorher/nachher: '+quality.rawMae.toFixed(4)+' → '+quality.correctedMae.toFixed(4)+' '+result.currency:'')));
+   quality.offset.toFixed(3)+' '+result.currency+' · Fehler an '+quality.validationCount+' späteren Prüfwerten: '+quality.rawMae.toFixed(4)+' → '+quality.correctedMae.toFixed(4)+' '+(quality.metricUnit||result.currency)+' · nur Modellanzeige.':
+   quality.count+' Paare; '+quality.reason+'.'+(finite(quality.rawMae)?' Fehler vorher/nachher: '+quality.rawMae.toFixed(4)+' → '+quality.correctedMae.toFixed(4)+' '+(quality.metricUnit||result.currency):'')));
   show('[data-curve-isin]',result.isin?result.isin+' · '+result.currency+' pro Stück':'Kein aktiver Produkttrade');
   show('[data-curve-price]',result.available?(result.kind==='model'?'≈ ':'')+fmt(result.price,result.currency):'—');
   show('[data-curve-source]',result.available?

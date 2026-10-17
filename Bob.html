@@ -1159,6 +1159,11 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <section class="card" id="auditStatistics">
 <h2>Statistik: Treffer und Fehlprognosen</h2>
 <h3>Bob verbessern · laufender Vergleich</h3>
+<details open><summary>Qualität aller Kennzahlen · Nachrechnung und spätere Prüfung</summary>
+<div id="metricQuality" class="small" style="white-space:pre-line;overflow-wrap:anywhere" role="status">Prüfstände werden geladen …</div>
+<div id="precisionLearning" class="small" style="white-space:pre-line"></div><button id="precisionControl" type="button" hidden>Kurskorrekturen pausieren</button>
+<div id="productPrecision" class="small" style="white-space:pre-line;overflow-wrap:anywhere"></div>
+</details>
 <p id="optimizationSummary" role="status">Neue Vergleichsdaten werden geladen …</p>
 <details><summary>Verpasste Bewegungen, Marktphasen und Varianten</summary><div id="optimizationDetails" class="small" style="white-space:pre-line;overflow-wrap:anywhere"></div></details>
 <p class="small">Produkt-Kostenszenarien stehen bei den fünf Konten unter Vollautomatisch. Den Stoppvergleich findest du unten in der Tagesprüfung.</p>
@@ -1409,6 +1414,34 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    text('auditStatisticsOpen','Offene und nicht auswertbare Fälle sind je Test ausgewiesen. ABWARTEN zählt nicht als Fehlprognose. Produktdiagnosen zählen Beobachtungen; Treffer zählen eindeutige auswertbare Produktverläufe.');
    const dg=r.signalDiagnostics;
    if(dg){text('signalDiagnostics',dg.note+'\n\n'+dg.groups.map(g=>g.horizon+' Min. · '+g.label+': '+g.win+' richtig / '+g.loss+' falsch / '+g.flat+' unverändert / '+g.missing+' nicht auswertbar').join('\n')+'\n\nFehlprognosen (bis 30 Beispiele):\n'+dg.examples.map(e=>new Date(e.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · '+e.direction+' · '+e.horizon+' Min. · '+e.changePct.toFixed(3)+' % in Signalrichtung · '+e.tags.join(', ')+' · '+(e.reason||'Grund nicht gespeichert')).join('\n'));}
+   const metricReport=r.metricQuality;
+   if(metricReport){
+    const status={matched:'rechnerisch übereinstimmend',mismatch:'Abweichung gemessen',unavailable:'Vergleich fehlt',stale:'letzte Prüfung nicht aktuell'};
+    const fmt=v=>Number.isFinite(v)?v.toLocaleString('de-CH',{maximumFractionDigits:8}):'—';
+    text('metricQuality',metricReport.note+'\n\n'+(metricReport.rows.length?metricReport.rows.map(x=>x.label+': '+(status[x.status]||x.status)+
+     ' · '+x.count+' Vergleiche / '+x.missing+' nicht auswertbar · '+x.mismatches+' Abweichungen'+
+     ' · mittlerer / größter Fehler '+fmt(x.mae)+' / '+fmt(x.maxError)+' · zuletzt '+new Date(x.lastAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})).join('\n'):'Noch keine unabhängigen Messungen gespeichert.')+
+     '\n\nOriginalkurse und Produktbedingungen: Quellenzeit und Quellenabgleich in der Produktprüfung. Ein Originalwert ist keine Ausführungsgarantie.\nModellkurs und laufendes Bruttoergebnis: Geldkursvergleich derselben ISIN und Währung; Kurskorrektur nur nach späterer Prüfung.\nKO-Abstand und Risikobeträge: feste Rechenregeln; KO-Grenze, Verlustlimits und bestehende Stops werden nicht optimiert.\nSignalrichtung und Markt-Score: spätere 15/60/240-Minuten-Auswertung unten; Score ist keine Erfolgswahrscheinlichkeit.\nEchte Nettorendite: nur aus Kauf, Verkauf, Stückzahl und belegten Kosten im Trade-Journal. Fehlende Kosten bleiben unbekannt.'+(metricReport.truncated?'\nAnzeige auf die jüngsten 10.000 Prüfungen begrenzt.':''));
+   }
+   const priceLearning=r.precisionLearning;
+   if(priceLearning){
+    window.BobPrecisionPaused=!priceLearning.enabled;
+    const phases={training:'Auswahl',validation:'spätere Prüfung',monitoring:'übernommen und überwacht',cooldown:'Korrektur deaktiviert',paused:'pausiert'};
+    const events={frozen:'Kandidat festgelegt',adopted:'übernommen',rejected:'verworfen',rollback:'zurückgenommen',reset:'wegen Datenlücke zurückgesetzt',paused:'pausiert',resumed:'neu gestartet'};
+    text('precisionLearning',priceLearning.note+'\n'+priceLearning.states.map(s=>s.isin+' · '+(phases[s.phase]||s.phase)+' · aktuell '+(s.usable?'Korrektur aktiv':'Rohmodell')+' · '+s.count+' Prüfwerte').join('\n')+
+     '\nLetzte Änderungen:\n'+priceLearning.events.map(e=>new Date(e.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · '+(events[e.event]||e.event)+(e.reason?' · '+e.reason:'')).join('\n'));
+    const button=document.getElementById('precisionControl');button.hidden=false;button.textContent=priceLearning.enabled?'Kurskorrekturen pausieren':'Kurskorrekturen mit neuen Prüfwerten starten';
+    button.onclick=async()=>{button.disabled=true;try{const response=await fetch('/api/precision-learning/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:!priceLearning.enabled})});if(!response.ok)throw Error('Änderung nicht bestätigt');await refresh();}catch(e){text('precisionLearning',e.message);}finally{button.disabled=false;}};
+   }
+   const pp=r.productPrecision;
+   if(pp){
+    const fmt=v=>Number.isFinite(v)?v.toFixed(4):'—';
+    const lines=[pp.note,pp.cases+' eingefrorene Produktfälle · '+pp.returns+' spätere Kursvergleiche · '+pp.pending+' offen · '+pp.missing+' ohne passenden Folgepreis',
+     'Produktrangfolge: '+pp.ranking.cohorts+' vollständige Vergleichsgruppen · Vorteil des zuerst eingestuften Produkts gegenüber den Alternativen: '+fmt(pp.ranking.meanAdvantagePct)+' Prozentpunkte. Noch keine automatische Rangänderung aus dieser Statistik.'];
+    for(const k of ['stop','target'])for(const [ccy,m] of Object.entries(pp.levels[k]||{}))lines.push((k==='stop'?'Produkt-Stop':'Produkt-Ziel')+': '+m.count+' beobachtete Gold-Treffer · mittlerer Preisfehler '+fmt(m.mae)+' '+ccy+' · gerichtete Abweichung '+fmt(m.bias)+' '+ccy);
+    if(!Object.keys(pp.levels.stop).length&&!Object.keys(pp.levels.target).length)lines.push('Produkt-Stop/Ziel: wartet auf spätere, ausreichend lückenlos beobachtete Treffer.');
+    text('productPrecision',lines.join('\n\n'));
+   }
    const rl=r.ruleLearning;
    if(rl){
     const phases={collection:'Datensammlung und Auswahl',validation:'Kandidat festgeschrieben · spätere Prüfung läuft',adopted:'Filter übernommen',monitoring:'Filter übernommen · automatische Nachkontrolle',cooldown:'Grundregel aktiv · nächster Test mit neuen Daten',paused:'Automatische Anpassung vom Nutzer pausiert','rolled-back':'Grundregel wiederhergestellt',rejected:'Keine Übernahme',unavailable:'Nicht verfügbar'};
@@ -1468,7 +1501,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const eq=r.entryQualityReview;if(eq){const num=v=>Number.isFinite(v)?v.toFixed(3)+' %':'noch nicht auswertbar';lines.push('','Einstiegsqualität · Vergleichstest: '+eq.evaluated+' gepaarte Fälle nach 60 Minuten; '+eq.kept+' beibehalten, '+eq.filtered+' gefiltert.','Treffer: bisher '+eq.baselineWins+'/'+eq.evaluated+'; Test '+eq.candidateWins+'/'+eq.kept+' freigegebene Testfälle.','Mittlere Richtungsbewegung pro Vergleichsfall: bisher '+num(eq.baselineMeanPct)+'; Test '+num(eq.candidateMeanPct)+'.','Verpasste günstige Bewegungen: '+eq.missedFavorable+' · vermiedene ungünstige: '+eq.avoidedUnfavorable+'.','Mittlere beobachtete Gegenbewegung: bisher '+num(eq.meanObservedAdversePct)+'; Test '+num(eq.candidateMeanObservedAdversePct)+' ('+eq.excursions+' Fälle).',eq.note);}
    const c=r.fourDayComparison;if(c){const n=v=>Number.isFinite(v)?v.toFixed(3):'—',date=v=>new Date(v).toLocaleString('de-CH',{timeZone:'Europe/Zurich'});const cs=['VIERTAGE-TEST · '+c.status,date(c.start)+' bis '+date(c.end)+' (Zürich)','Schnell: eine klare / zwei schwächere Schlusskerzen. Vorsichtig: drei Schlusskerzen.','Auswertbar: '+c.evaluated+' / '+c.expected+' · Datenabdeckung '+n(c.coveragePct)+' % · fehlend '+c.missing+' · offen '+c.pending];for(const [key,label] of [['fast','Schnell'],['cautious','Vorsichtig']]){const m=c.variants[key];cs.push(label+': '+m.signals+' Richtungssignale · '+m.wait+' Abwarten · '+m.wins+' Treffer / '+m.losses+' Fehlrichtungen / '+m.flat+' unverändert · Trefferquote '+n(m.hitRate)+' %','Mittlere Gold-Richtungsbewegung je Vergleichsfall '+n(m.meanPct)+' % · schlechtester Fall '+n(m.worstPct)+' % · beobachtete Gegenbewegung '+n(m.meanAdversePct)+' % ('+m.adverseCases+' Fälle)');}cs.push('Vorsichtig ausgelassen: '+c.avoidedUnfavorable+' ungünstige und '+c.missedFavorable+' günstige Bewegungen.',c.conclusion,c.note);text('fourDayComparison',cs.join('\n'));}
    text('auditReport',lines.join('\n'));text('auditRecords',JSON.stringify(r.latest,null,2));
-  }catch(e){text('optimizationSummary','Vergleich aktuell nicht abrufbar; angezeigte Details können veraltet sein.');text('earlyImpulseResult','Frühwarn-Testdaten momentan nicht abrufbar: '+e.message);text('fourDayComparison','Vergleich aktuell nicht abrufbar. Bitte später erneut laden.');text('auditStatisticsStatus','Statistik nicht aktuell abrufbar; eventuell angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.');text('auditReport','Auswertung nicht verfügbar: '+e.message);text('improvementStatus','Lernstand derzeit nicht abrufbar. Ein zuvor angezeigter Vorschlag ist nicht erneut geprüft.');}
+  }catch(e){text('metricQuality','Prüfstände derzeit nicht aktuell abrufbar.');text('productPrecision','Ergebnisprüfung derzeit nicht aktuell abrufbar.');text('optimizationSummary','Vergleich aktuell nicht abrufbar; angezeigte Details können veraltet sein.');text('earlyImpulseResult','Frühwarn-Testdaten momentan nicht abrufbar: '+e.message);text('fourDayComparison','Vergleich aktuell nicht abrufbar. Bitte später erneut laden.');text('auditStatisticsStatus','Statistik nicht aktuell abrufbar; eventuell angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.');text('auditReport','Auswertung nicht verfügbar: '+e.message);text('improvementStatus','Lernstand derzeit nicht abrufbar. Ein zuvor angezeigter Vorschlag ist nicht erneut geprüft.');}
  }
  refresh();
  setInterval(()=>{if(!document.hidden)refresh();},300000);

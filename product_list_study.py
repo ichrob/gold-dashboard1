@@ -8,6 +8,8 @@ import product_trade_history as history
 
 
 def init(conn):
+    import precision_learning
+    precision_learning.init(conn)
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_list_price_anchors (
         isin TEXT PRIMARY KEY, payload JSONB NOT NULL)''')
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_list_price_pairs (
@@ -104,6 +106,10 @@ def summaries(conn,isins):
             AND identity=(SELECT identity FROM bob_list_price_pairs WHERE isin=%s ORDER BY quote_at DESC LIMIT 1)
             ORDER BY quote_at DESC LIMIT 1000''',(isin,isin)).fetchall()
         out[isin]=dict(metrics([r[0] for r in rows]),count=total)
+        import precision_learning
+        saved=conn.execute('SELECT payload FROM bob_list_price_anchors WHERE isin=%s',(isin,)).fetchone()
+        if saved:
+            out[isin]['automaticCorrection']=precision_learning.for_product(conn,saved[0]['product'],datetime.now(timezone.utc).timestamp()*1000)
     return out
 
 
@@ -126,6 +132,10 @@ def tick(db,bundle,quote_fetch,now):
                 fresh=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1 FOR SHARE').fetchone()
                 if not fresh or isin not in listed(fresh[0]) or fresh[0].get('listUploadedAt')!=feed.get('listUploadedAt'):continue
                 if pair:
+                    import precision_learning
+                    precision_learning.observe(conn,previous['product'],pair)
+                    import metric_quality
+                    metric_quality.pnl_check(conn,'list:'+isin,previous['product'],pair,now.timestamp()*1000)
                     conn.execute('''INSERT INTO bob_list_price_pairs(identity,isin,quote_at,evidence)
                         VALUES(%s,%s,%s,%s::jsonb) ON CONFLICT DO NOTHING''',
                         (pair['identity'],isin,history.clock(current['observation']['bidAt']),json.dumps(pair)))

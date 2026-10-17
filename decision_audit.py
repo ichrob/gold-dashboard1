@@ -16,6 +16,9 @@ import paper_simulation
 import optimization_review
 import entry_experiment
 import market_optimization
+import metric_quality
+import product_precision
+import precision_learning
 from datetime import datetime, timezone
 
 VERSION = 'decision-audit-v1'
@@ -133,6 +136,9 @@ def normalize(payload, now=None):
     return key,result
 
 def init(conn):
+    metric_quality.init(conn)
+    product_precision.init(conn)
+    precision_learning.init(conn)
     rule_learning.init(conn)
     intraday_comparison.init(conn)
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_decision_audit (
@@ -446,6 +452,9 @@ def _build_report(conn):
     result=summarize([(row[0],row[1:]) for row in scoped])
     current=[(r,t) for r,t in [(row[0],row[1:]) for row in scoped] if r.get('ruleVersion')==RULE_VERSION]
     result['ruleLearning']=learning
+    result['metricQuality']=metric_quality.report(conn)
+    result['productPrecision']=product_precision.report(conn)
+    result['precisionLearning']=precision_learning.report(conn,int(time.time()*1000))
     result['otherPolicyRecords']=len(rows)-len(scoped)
     result['signalDiagnostics']=signal_review.diagnostics(current,outcome)
     result['optimizationReview']=optimization_review.report(current,outcome)

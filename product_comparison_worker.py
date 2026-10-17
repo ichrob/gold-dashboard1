@@ -44,7 +44,7 @@ def comparison(product, spots, quote, now=None):
     if not source:return None
     return dict(at=int(at.timestamp()*1000),quoted=quote['bid'],estimated=point['price'],
                 currency=product['currency'],source=source,kind='issuer',side='bid',
-                spotAt=point['spotAt'],fxAt=point['fxAt'])
+                spotAt=point['spotAt'],fxAt=point['fxAt'],gold=point['gold'],koDistancePct=point['koDistancePct'])
 
 
 def read(conn, trade_id):
@@ -64,7 +64,15 @@ def tick(db, bundle, quote_fetch=None, now=None):
     import product_list_study
     fetched={}
     def fetch(isin):
-        if isin not in fetched:fetched[isin]=(quote_fetch or get_quote)(isin)
+        if isin not in fetched:
+            fetched[isin]=(quote_fetch or get_quote)(isin)
+            try:
+                import product_precision, metric_quality
+                with db() as conn:
+                    product_precision.observe(conn,fetched[isin],bundle.get('spots'),now.timestamp()*1000)
+                    metric_quality.product_check(conn,fetched[isin],now.timestamp()*1000)
+                    conn.commit()
+            except Exception as exc:print('BOB_METRIC_PRODUCT error='+type(exc).__name__,flush=True)
         return fetched[isin]
     product_list_study.tick(db,bundle,fetch,now)
     for tid,settings in trades:
@@ -82,6 +90,9 @@ def tick(db, bundle, quote_fetch=None, now=None):
             conn.execute('''INSERT INTO bob_trade_comparisons(trade_id,model_key,quote_at,source,evidence)
                 VALUES(%s,%s::jsonb,%s,%s,%s::jsonb) ON CONFLICT DO NOTHING''',
                 (tid,json.dumps(model_key(product)),history.clock(quote['bidAt']),row['source'],json.dumps(row)))
+            import precision_learning, metric_quality
+            precision_learning.observe(conn,dict(product,_precisionScope=tid+':'+json.dumps(model_key(product))),row)
+            metric_quality.pnl_check(conn,tid,product,row,now.timestamp()*1000)
             conn.commit()
 
 

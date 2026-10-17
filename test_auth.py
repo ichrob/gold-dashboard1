@@ -52,6 +52,9 @@ class AuthenticationTests(unittest.TestCase):
         token = self.form()
         return self.request('POST', '/login', urlencode({'username':'test-user','password':password,'csrf':token}), {'Origin':origin,'Content-Type':'application/x-www-form-urlencoded','Cookie':f'{bob_auth.CSRF_COOKIE}={token}'})
 
+    def test_price_learning_control_requires_authentication(self):
+        self.assertEqual(self.request('POST','/api/precision-learning/control','{}',{'Content-Type':'application/json'})[0],401)
+
     def test_anonymous_access(self):
         for method in ['GET','HEAD']:
             status, h, _, _ = self.request(method, '/')
