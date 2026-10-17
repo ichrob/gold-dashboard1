@@ -16,12 +16,12 @@ assert(html.includes('v.items.filter(x=>x&&isVideoUrl(x.url)).slice(0,3)'), 'Old
 assert(html.includes('readVideos=new Set([...readVideos].filter(id=>latestVideoIds.includes(id)))'), 'Evicted read flags must be deleted');
 
 assert(html.includes('Math.round((r.intervalSeconds||900)/60)'), 'YouTube refresh cadence must follow the server interval');
-assert(html.includes("research:'YouTube'"));
+assert(html.includes("research:'Recherche'"));
 assert(html.includes('r.mcoOutlook'), 'MCO heading must read the verified video direction, not consensus');
 assert(!html.includes("c.textContent='MCO Markets · '+r.consensus"), 'Do not display independent-source consensus as MCO view');
 assert(html.includes('MCO Markets · Noch nicht analysiert'), 'No video text must be labeled not analyzed');
-assert(html.includes("['research','▶','YouTube','Gold-Recherche']"));
-assert(html.includes("count?'YouTube: '+count+' ungelesene Videos':'YouTube'"));
+assert(html.includes("['research','▶','Recherche','MCO-Goldvideos und Analysen']"));
+assert(html.includes("count?'Recherche: '+count+' ungelesene Videos':'Recherche'"));
 for(const id of ['goldResearchStatus','goldResearchCounts','goldResearchConsensus','goldResearchItems','goldResearchSources','youtubeScreenshotButton','youtubeScreenshotInput','youtubeResearchUrl','youtubeResearchAnalyze','youtubeResearchTranscript','youtubeResearchImport','youtubeResearchStatus']){
  assert.equal((html.match(new RegExp('id="'+id+'"','g'))||[]).length,1,id+' id must be unique');
 }
