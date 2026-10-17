@@ -47,7 +47,8 @@ PANEL = r"""
   if(!root)return;
   const auto=document.getElementById('bob-view-auto');
   const brokerPanel=document.getElementById('bob-broker-route-status');
-  if(auto&&brokerPanel)auto.append(brokerPanel);
+  const future=document.getElementById('bob-view-future');
+  if(future&&brokerPanel)future.append(brokerPanel);
   if(auto)auto.append(root);
   const brokerStatus=document.getElementById('bob-broker-route-confirmation');
   const brokerRefresh=document.getElementById('bob-broker-route-refresh');
