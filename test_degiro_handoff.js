@@ -13,7 +13,7 @@ assert.throws(()=>a.isin('US0378331006'));
 assert.throws(()=>a.reserve(null,{...input,qty:'1.5'}));
 assert.equal(a.day(new Date('2026-10-17T22:30:00Z')),'2026-10-18');
 assert.match(a.summary(s.orders[0],'EUR'),/nicht übermittelt/);
-const fs=require('node:fs');assert.match(fs.readFileSync('Bob.html','utf8'),/degiro2:'DEGIRO 2'/);
+const fs=require('node:fs');assert.match(fs.readFileSync('Bob.html','utf8'),/degiro2:'DEGIRO-Handy-Assistent'/);
 console.log('DEGIRO 2: budget, rollover, validation and manual handoff checks passed');
 
 assert.equal(a.maxQuantity(s,input,'2026-10-17'),0);
