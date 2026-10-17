@@ -1236,9 +1236,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        if path == "/comparison_diagrams.js":
+        if path in ("/comparison_diagrams.js", "/mco_comparison.js"):
             try:
-                body = (BASE_DIR / "comparison_diagrams.js").read_bytes()
+                body = (BASE_DIR / path.lstrip("/")).read_bytes()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/javascript; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")

@@ -1149,7 +1149,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <script src="/bob_stop_assistant.js?v=20261016-chf-v1"></script>
 <script src="/product_trade_curve.js?v=20261016-trade-v3"></script>
 <script src="/real_trade_journal.js"></script>
-<script src="/comparison_diagrams.js?v=1"></script>
+<script src="/mco_comparison.js?v=1"></script>
+<script src="/comparison_diagrams.js?v=2"></script>
 <section class="card" id="realTradeJournal">
 <h2>Echter Trade</h2>
 <p class="small">Ab Erfassung in Bob: Trade-Plan, Produktwerte, Marktbeobachtungen, Empfehlungen und Push-Versand. Die Aufzeichnung läuft nach Serverbestätigung auch bei geschlossener App. Probeläufe bleiben getrennt.</p>
@@ -2233,6 +2234,20 @@ function chartFibonacci(bars,atr){
   const asOf=Number(bars.at(-1).openTime)+step;
   return {available:true,levels:fib.levels,bars:bars.map(b=>({close:Number(b.close)})),asOf,fresh:Date.now()-asOf<=5400000,source:bars.at(-1).source||'Quelle nicht ausgewiesen'};
  };
+
+// Historical display reconstruction: never includes candles closing after the video analysis.
+window.BobMcoHistoricalFib=function(raw,at,timeframe){
+ const step={'1m':60000,'5m':300000,'15m':900000,'30m':1800000,'1h':3600000,'4h':14400000}[timeframe];
+ if(!step||!Number.isFinite(at)||at>Date.now())return {available:false,reason:'Analysezeit oder Zeitebene ungültig'};
+ const bars=(Array.isArray(raw)?raw:[]).filter(b=>b&&b.instrument==='XAU/USD'&&b.isOpen===false&&!b.observedOnly&&Number.isFinite(b.openTime)&&b.openTime+step<=at&&['open','high','low','close'].every(k=>Number.isFinite(b[k])&&b[k]>0)&&b.low<=Math.min(b.open,b.close)&&b.high>=Math.max(b.open,b.close)).sort((a,b)=>a.openTime-b.openTime).slice(-120);
+ if(bars.length<12)return {available:false,reason:'Historische OHLC-Kerzen fehlen'};
+ if(bars.some((b,i)=>i&&b.openTime-bars[i-1].openTime!==step))return {available:false,reason:'Historische Kerzenreihe hat Lücken oder Duplikate'};
+ const closedAt=bars.at(-1).openTime+step;
+ if(at-closedAt>=step)return {available:false,reason:'Keine zeitnah geschlossene Kerze zum Analysezeitpunkt'};
+ const sample=bars.slice(-14),ranges=sample.map((b,i)=>Math.max(b.high-b.low,i?Math.abs(b.high-sample[i-1].close):0,i?Math.abs(b.low-sample[i-1].close):0));
+ const fib=chartFibonacci(bars,ranges.reduce((a,b)=>a+b,0)/ranges.length);
+ return fib?.valid?{available:true,levels:fib.levels,asOf:closedAt,goldPrice:bars.at(-1).close,timeframe,source:bars.at(-1).source||'OHLC-Archiv',direction:fib.direction}: {available:false,reason:'Keine bestätigten historischen Swing-Punkte'};
+};
 
 function chartTradingAxis(bars,step){
  const indices=new Map(bars.map((b,i)=>[Number(b.openTime),i]));
