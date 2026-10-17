@@ -89,3 +89,11 @@ jobs:
           for test in test_*.js test_*.cjs; do
             node "$test"
           done
+
+      - name: Real video file extraction in browser
+        run: |
+          npm install --prefix /tmp/bob-video-browser --no-package-lock playwright@1.51.1
+          /tmp/bob-video-browser/node_modules/.bin/playwright install --with-deps chromium
+          sudo apt-get install -y ffmpeg
+          ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc=size=640x360:rate=5 -t 4 -c:v libvpx-vp9 -pix_fmt yuv420p /tmp/bob-video-fixture.webm -y
+          NODE_PATH=/tmp/bob-video-browser/node_modules node browser_video_evidence.cjs

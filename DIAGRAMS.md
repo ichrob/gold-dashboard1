@@ -152,3 +152,21 @@ Für alle Werte gilt dieselbe Originalzeit-/Schätzzeit-Priorität. Historische 
 ## Kostenlose Videobild-OCR
 `video_ocr.py` liest im Push-Hintergrundprozess die höchstens fünf vorhandenen öffentlichen Storyboard-Vorschauen der drei gespeicherten Videos. RapidOCR 1.4.4 bringt lokale Modelle mit; der Erkennungsprozess hat keine Netzverbindung und erhält keine API-Schlüssel. Kein kostenpflichtiger Fallback und keine Änderung des Hosting-Tarifs. Bestehende Serverressourcen werden genutzt. Ein Prozess, ein CPU-Thread, 35 Sekunden Zeitlimit; Bildfingerprint-Cache, Fehlerpause 24 Stunden und Löschung mit dem Video.
 OCR-Text und begrenzte Bildkoordinaten werden gespeichert und unter Recherche sowie Wertevergleich mit Originalausschnitt angezeigt. Titelbilder gelten nicht als zeitliche Chartbelege. Unlesbare oder kleine Bilder bleiben ausdrücklich offen. Keine OCR-Zahl wird als bestätigte Kursquelle, Marktzeit, Handelsfreigabe oder Lernwahrheit verwendet. Ein erfolgreicher OCR-Lauf garantiert keine korrekte Ziffern- oder Bedeutungszuordnung. Die öffentliche YouTube-Vorschauverfügbarkeit und Auflösung begrenzen die Funktion.
+
+## Free video evidence extension
+The OCR panel in Recherche and the MCO comparison accepts a locally selected video.
+The browser samples at most 57 positions (48 evenly spaced plus up to three caption
+positions and their neighbors); only five JPEG stills are uploaded after review.
+The full video stays on the device. This is bounded scene sampling, not exhaustive
+frame-by-frame or semantic video understanding. The file must begin at the same
+origin as the linked video; assignment is explicitly user supplied, not verified.
+Saved stills are restricted to retained MCO videos, stripped of metadata, size
+limited and removed with the existing three-video retention. They are excluded
+from external AI image requests. The authenticated route preserves same-origin
+checks and rate limits writes to one per video per two minutes.
+Offline OCR compares labeled readings at similar image coordinates within ten
+seconds, rejecting duplicate image bytes as corroboration. Disagreements may be
+real changes or OCR mistakes and remain unresolved. Shared caption terms and
+literal numbers within 15 seconds produce only a plausible match, never a trusted
+market timestamp or trading input. Refresh fetches the current cached OCR result
+without a new transcript or paid API request. No hosting plan or dependencies added.

@@ -215,7 +215,7 @@ def cors(handler):
 
 def json_body(handler):
     length = int(handler.headers.get("Content-Length", "0") or 0)
-    if length <= 0 or length > (1048576 if urlparse(handler.path).path in ("/selection", "/background", "/research-enhancement/read", "/decision-audit/write", "/weekend-archive/write", "/strategy-lab/write") else 65536):
+    if length <= 0 or length > (1048576 if urlparse(handler.path).path in ("/selection", "/background", "/research-enhancement/read", "/research-video/evidence", "/decision-audit/write", "/weekend-archive/write", "/strategy-lab/write") else 65536):
         raise ValueError("Ungültige Payload-Größe")
     return json.loads(handler.rfile.read(length).decode("utf-8"))
 
@@ -738,14 +738,17 @@ class Handler(BaseHTTPRequestHandler):
                     conn.commit()
                 send_json(self,200,result)
                 return
-            if path=='/research-enhancement/read':
+            if path in ('/research-enhancement/read','/research-video/evidence'):
                 supplied=self.headers.get('X-Bob-Push-Token','')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
                     send_json(self,401,{'error':'Unauthorized'})
                     return
                 payload=json_body(self)
                 if not isinstance(payload,dict):raise ValueError('Ungültige Recherche-Anfrage')
-                send_json(self,200,research_enhancements.handle(db,payload))
+                if path=='/research-video/evidence':
+                    import video_evidence
+                    send_json(self,200,video_evidence.handle(db,payload))
+                else:send_json(self,200,research_enhancements.handle(db,payload))
                 return
             if path=='/research-transcript/read':
                 supplied=self.headers.get('X-Bob-Push-Token','')

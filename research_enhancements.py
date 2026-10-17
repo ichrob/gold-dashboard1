@@ -87,6 +87,7 @@ def validated_frames(frames):
     """Only small, time-stamped JPEGs from the already verified video are sent to AI."""
     valid = []
     for item in (frames or [])[:MAX_FRAMES]:
+        if isinstance(item,dict) and item.get('userProvided'):continue
         if not isinstance(item, dict):
             continue
         url = item.get('dataUrl')
@@ -268,6 +269,16 @@ def storyboard_plan(spec, identity, moments, quality=0):
             'row': index // cols % rows, 'cols': cols, 'rows': rows,
             'at': index * interval / 1000, 'requestedAt': at, 'label': str(moment.get('label', 'Videostelle'))[:90]})
     return out
+
+
+def neighbor_moments(moments):
+    anchors=[m for m in moments if isinstance(m,dict) and type(m.get('at')) is int and 0<=m['at']<=86400][:3]
+    if not anchors:return []
+    result=list(anchors)
+    for offset in (-5,5):
+        at=anchors[0]['at']+offset
+        if 0<=at<=86400 and all(m['at']!=at for m in result):result.append({'at':at,'label':'Nachbarbild zur Mehrbildprüfung'})
+    return result[:MAX_FRAMES]
 
 
 def frames_saved(identity, spec, moments, reader=None):
@@ -508,7 +519,7 @@ def handle(connect, payload):
         try_embed = not specs
         for origin, spec in specs:
             try:
-                frames = frames_saved(identity, spec, moments)
+                frames = frames_saved(identity, spec, neighbor_moments(moments))
                 if frames:
                     result['frames'] = frames
                     source = 'storyboard_' + origin
@@ -522,7 +533,7 @@ def handle(connect, payload):
             try:
                 spec = public_embed_storyboard(identity)
                 if spec:
-                    frames = frames_saved(identity, spec, moments)
+                    frames = frames_saved(identity, spec, neighbor_moments(moments))
                     if frames:
                         result['frames'] = frames
                         source = 'storyboard_embed'
@@ -622,6 +633,8 @@ def handle(connect, payload):
             print('BOB_RESEARCH_AI_ERROR video=' + identity + ' code=' + code, flush=True)
     if result['frames'] and all(f.get('isCover') is True for f in result['frames']):
         result['frameStatus'] = 'YouTube-Titelbild gespeichert. Zeitlich passende Videobilder nicht abrufbar; originale Videostellen im Player öffnen.'
+    elif result['frames'] and any(f.get('userProvided') for f in result['frames']):
+        result['frameStatus']='Bilder aus einer vom Nutzer zugeordneten Videodatei; Videoidentität und Chartwerte nicht automatisch bestätigt.'
     elif result['frames']:
         result['frameStatus'] = 'Zeitlich angenäherte YouTube-Videobilder gespeichert; Chartzahlen nicht überprüft.'
     else:

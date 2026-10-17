@@ -1236,7 +1236,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        if path in ("/comparison_diagrams.js", "/mco_comparison.js", "/video_ocr.js"):
+        if path in ("/comparison_diagrams.js", "/mco_comparison.js", "/video_ocr.js", "/video_evidence.js"):
             try:
                 body = (BASE_DIR / path.lstrip("/")).read_bytes()
                 self.send_response(200)
@@ -1762,7 +1762,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        if path in ("/api/ranking-learning/control", "/api/precision-learning/control", "/api/degiro/venue", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/real-trades/risk", "/api/real-trades/confirm-sale", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences") and not worker_ok and (not self.authenticated()):
+        if path in ("/api/research/video-evidence", "/api/ranking-learning/control", "/api/precision-learning/control", "/api/degiro/venue", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/real-trades/risk", "/api/real-trades/confirm-sale", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences") and not worker_ok and (not self.authenticated()):
             self.send_response(401)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -1770,7 +1770,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         path = urlparse(self.path).path
-        if path not in ("/api/ranking-learning/control", "/api/precision-learning/control", "/api/degiro/venue", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/real-trades/risk", "/api/real-trades/confirm-sale", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences"):
+        if path not in ("/api/research/video-evidence", "/api/ranking-learning/control", "/api/precision-learning/control", "/api/degiro/venue", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/real-trades/risk", "/api/real-trades/confirm-sale", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences"):
             self.send_response(404)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -1786,7 +1786,7 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             length = int(self.headers.get("Content-Length", "0") or 0)
-            if length <= 0 or length > (524288 if path in ("/api/push/selection", "/api/audit/write") else 65536):
+            if length <= 0 or length > (800000 if path == "/api/research/video-evidence" else 524288 if path in ("/api/push/selection", "/api/audit/write") else 65536):
                 raise ValueError("Ungültige Payload-Größe")
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
             body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
@@ -1794,6 +1794,7 @@ class Handler(BaseHTTPRequestHandler):
             if not base.startswith("http://") and not base.startswith("https://"):
                 base = "http://" + base
             relay_path = {
+                "/api/research/video-evidence": "/research-video/evidence",
                 "/api/degiro/venue": "/broker-venue/write",
                 "/api/ranking-learning/control": "/ranking-learning/control",
                 "/api/precision-learning/control": "/precision-learning/control",
