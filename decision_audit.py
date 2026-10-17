@@ -9,7 +9,7 @@ import threading
 import copy
 import intraday_comparison
 import signal_review
-import rule_learning
+import adaptive_learning as rule_learning
 import audit_history
 import stop_target_audit
 import paper_simulation

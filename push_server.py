@@ -20,7 +20,7 @@ import bob_validation_store
 import real_trade_journal
 import trade_email_import
 import decision_audit
-import rule_learning
+import adaptive_learning as rule_learning
 import strategy_lab_store
 import stop_target_audit
 import paper_simulation

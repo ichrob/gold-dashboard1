@@ -17,5 +17,14 @@ for(const d of ['LONG','SHORT']){
  assert.equal(filter(d,{...policy,base:'unknown'}).dir,'NEUTRAL');
  env.adxCalc=()=>NaN;assert.equal(filter(d,{...policy,variant:'adx25'}).dir,'NEUTRAL');env.adxCalc=()=>26;
 }
+assert.equal(filter('LONG',{...policy,campaign:'entry-filter-v2-guarded',variant:'adx30'}).dir,'NEUTRAL');
+assert.equal(filter('SHORT',{...policy,campaign:'entry-filter-v2-guarded'}).dir,'SHORT');
+assert.equal(filter('LONG',{...policy,campaign:'entry-filter-v2-guarded',variant:'adx10'}).dir,'NEUTRAL');
 assert.equal(filter('NEUTRAL',{...policy,variant:'adx25'}).dir,'NEUTRAL');
 console.log('Shared filter: LONG/SHORT thresholds, unavailable/expired policies, missing ADX and neutral verified.');
+
+const protectedState={dir:'LONG',reason:'original',stop:99,target:110,maxLoss:5,koProtected:true};
+const before=JSON.stringify(protectedState);
+const changed=env.applyLearningFilter(protectedState,bundle,{...policy,campaign:'entry-filter-v2-guarded',variant:'adx30'},now);
+for(const key of ['stop','target','maxLoss','koProtected'])assert.deepEqual(changed[key],protectedState[key]);
+assert.equal(JSON.stringify(protectedState),before);
