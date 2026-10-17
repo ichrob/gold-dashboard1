@@ -1655,7 +1655,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const quick=card('quickSignal'),manual=card('dgType'),push=card('generalPushBtn');
   const header=document.querySelector('h1')?.parentElement;
   const panels={};
-  for(const [key,label] of Object.entries({overview:'Übersicht',products:'Produkte',trade:'Mein Trade',auto:'Vollautomatisch',future:'Zukunft',research:'YouTube',learning:'Lernen',diagrams:'Diagramme',degiro:'DEGIRO',problems:'Problem',more:'Mehr'})){
+  for(const [key,label] of Object.entries({overview:'Übersicht',products:'Produkte',trade:'Mein Trade',auto:'Vollautomatisch',future:'Zukunft',research:'YouTube',learning:'Lernen',diagrams:'Diagramme',simulation:'Simulation',degiro:'DEGIRO',problems:'Problem',more:'Mehr'})){
    const el=document.createElement('section');el.id='bob-view-'+key;el.setAttribute('aria-label',label);el.hidden=key!=='overview';
    if(key!=='overview'){const h=document.createElement('h2');h.textContent=label;h.tabIndex=-1;el.append(h);}
    panels[key]=el;main.append(el);
@@ -1844,6 +1844,11 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   // The October 8 single-account forward study is retained solely as history;
   // the active three-account comparison is mounted by vollautomatisch_panel.py.
   move(byId('paperSimulationPanel'),'learning');
+  const simulationIntro=document.createElement('section');simulationIntro.className='card';
+  simulationIntro.innerHTML='<h3>Bob trainiert mit Spielgeld</h3><p>Das ausgewogene 100-€-Konto ist Bobs Lernkonto. Sein bisheriger Kapitalstand und die Historie bleiben erhalten. Die anderen Konten dienen als Vergleich.</p><p>Automatische Hintergrundprüfung während der DEGIRO-Handelszeiten, auch bei geschlossener App. Abwarten gehört dazu: Kein Einstieg ohne bestätigte Daten und gültigen Stopp-/Zielplan. Nachts und am Wochenende pausiert die Simulation.</p><p>Nach jedem abgeschlossenen Versuch speichert Bob eine Selbstprüfung. Kontrollierte Anpassungen betreffen zusätzliche ADX-Einstiegsfilter; Übernahme erst nach zeitlich getrennter Prüfung, automatische Rücknahme bei Verschlechterung. Kein selbstständiges Umschreiben des Programms, keine Gewinnzusage und keine echten Orders.</p>';
+  panels.simulation.append(simulationIntro);
+  const learningRules=byId('ruleLearning')?.closest('details');
+  if(learningRules)panels.simulation.append(learningRules);
   move(byId('goldResearchPanel'),'research');
   move(byId('fourDayPanel'),'learning');
   move(byId('intradayComparisonDetails'),'learning');
@@ -1953,9 +1958,9 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const nav=document.createElement('nav');nav.id='bobNavigation';nav.className='bob-nav';nav.setAttribute('aria-label','Hauptnavigation');
   window.BobDiagrams?.mount(panels.diagrams);
   const moreMenu=document.createElement('div');moreMenu.className='bob-more-menu';
-  moreMenu.innerHTML=[['degiro','▤','DEGIRO',''],['auto','⚙','Auto','Simulationen ansehen'],['future','◇','Zukunft','Pläne und Broker'],['research','▶','YouTube','Gold-Recherche'],['learning','↗','Lernen','Tests und Ergebnisse'],['diagrams','▥','Diagramme','Grafische Auswertungen']].map(([key,icon,label,note])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'">'+icon+' '+label+'<small>'+note+'</small></button>').join('');panels.more.append(moreMenu);
+  moreMenu.innerHTML=[['simulation','▷','Simulation','Spielgeld und Selbstprüfung'],['degiro','▤','DEGIRO',''],['auto','⚙','Auto','Simulationen ansehen'],['future','◇','Zukunft','Pläne und Broker'],['research','▶','YouTube','Gold-Recherche'],['learning','↗','Lernen','Tests und Ergebnisse'],['diagrams','▥','Diagramme','Grafische Auswertungen']].map(([key,icon,label,note])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'">'+icon+' '+label+'<small>'+note+'</small></button>').join('');panels.more.append(moreMenu);
   nav.innerHTML=[['overview','◫','Übersicht'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['problems','⚠','Problem'],['more','☰','Mehr']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+(key==='problems'?'<strong class="bob-problem-count" data-problem-count hidden aria-hidden="true"></strong>':'')+'</button>').join('');document.body.append(nav);
-  function show(key,focus=true){if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&['auto','future','research','learning','diagrams','degiro'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
+  function show(key,focus=true){if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&['auto','future','research','learning','diagrams','degiro','simulation'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
   document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b){show(b.dataset.view);history.replaceState(null,'','#'+b.dataset.view);}});
   window.addEventListener('hashchange',()=>show(location.hash.slice(1)));
   for(const b of status.querySelectorAll('button'))b.addEventListener('click',()=>{system.open=true;system.scrollIntoView({behavior:'smooth',block:'start'});});
@@ -4335,6 +4340,7 @@ setInterval(()=>{
 
 
 </body></html>
+
 
 
 
