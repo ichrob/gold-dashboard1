@@ -755,7 +755,9 @@ def _worker(db):
                         now=time.time()*1000
                         settings=dict(timeframe='15m',trailAtr=1.5,learningPolicy=rule_learning.policy(conn))
                         active_isins=[c['product']['isin'] for c in active_cases.values() if c.get('product',{}).get('isin')]
-                        active_isins+=ranking_lifecycle.active_isins(conn)
+                        try:
+                            with conn.transaction():active_isins+=ranking_lifecycle.active_isins(conn)
+                        except Exception as exc:print('BOB_RANKING_EXITS lookup_error='+type(exc).__name__,flush=True)
                         quotes=quote_cache(evidence['products'],active_isins,now)
                         # Source refresh may fetch newer timestamps. Audit against
                         # completion time, never the clock from before those reads.
