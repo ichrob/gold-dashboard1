@@ -61,6 +61,8 @@ def init(conn):
     conn.execute('ALTER TABLE bob_research_enhancements ADD COLUMN IF NOT EXISTS summary_failures INTEGER NOT NULL DEFAULT 0')
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_research_ai_requests (
         id BIGSERIAL PRIMARY KEY, attempted_at TIMESTAMPTZ NOT NULL DEFAULT now())''')
+    import video_ocr
+    video_ocr.init(conn)
 
 
 def segments_checked(rows):
@@ -630,6 +632,14 @@ def handle(connect, payload):
           str(bool(result.get('summary'))).lower() + ' free_access_configured=' +
           str(bool(key)).lower() + ' frames=' + str(len(result['frames'])) +
           ' status=' + result['summaryStatus'], flush=True)
+    try:
+        import video_ocr
+        if not any(not f.get('isCover') for f in result['frames']):
+            result['ocr']={'status':'no-timed-images','images':[]}
+        else:
+            with connect() as conn:result['ocr']=video_ocr.report(conn,identity)
+    except Exception:
+        result['ocr']={'status':'unavailable','images':[],'note':'Lokale OCR derzeit nicht abrufbar.'}
     return result
 
 def request(identity, segments, player, moments):

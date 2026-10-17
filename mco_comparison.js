@@ -73,6 +73,7 @@ function mount(host){
   body.replaceChildren();const item=items[Number(select.value)||0];if(!item){body.append(el('p','Keine MCO-Videos verfügbar.'));return;}
   const link=el('a',item.title||'MCO-Video');try{const u=new URL(item.url);if(u.protocol==='https:'&&['www.youtube.com','youtube.com'].includes(u.hostname)&&u.pathname==='/watch'){link.href=u.href;link.target='_blank';link.rel='noopener noreferrer';}}catch(_){}body.append(link);
   body.append(el('p',item.publishedAt?'Video veröffentlicht: '+stamp(item.publishedAt*1000)+'. Die Uploadzeit ersetzt nicht die Analysezeit.':'Veröffentlichungszeit nicht bestätigt; Reihenfolge laut vorhandener Kanalliste.'));
+  root.BobVideoOCR?.render(body,item);
   const rows=compare(item,histories,(bars,at,tf,m)=>(m.metric?root.BobMcoHistoricalMetric?.(bars,at,tf,m):root.BobMcoHistoricalFib?.(bars,at,tf))||{available:false,reason:'Bob-Berechnung nicht verfügbar'});
   if(!rows.length)body.append(el('p','Keine eindeutig zugeordneten Zahlenwerte im Transkript gefunden.'));
   const valid=rows.filter(r=>!r.reason&&!r.metric); // Fibonacci chart retains a single price scale.
