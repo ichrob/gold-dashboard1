@@ -1517,6 +1517,28 @@ function selectionMarketGate(context={}){
  if(!(n(context.atr)>0))reasons.push('ATR fehlt: KO-Puffer gegenüber Volatilität nicht prüfbar');
  return {ok:!reasons.length,reasons};
 }
+// Post-gate ordering only: membership, scores, evidence and protection rules stay intact.
+function applyLearnedRanking(candidates,products=[],policy=window.BobRankingPolicy,now=Date.now()){
+ const sorted=candidates.slice().sort((a,b)=>b.score-a.score||a.isin.localeCompare(b.isin));
+ const valid=policy?.id==='product-ranking-v1'&&policy.maxScoreGap===5&&Number.isFinite(policy.issuedAt)&&Number.isFinite(policy.expiresAt)&&policy.issuedAt<=now&&policy.expiresAt>now&&policy.expiresAt-policy.issuedAt<=120000;
+ if(!valid)return sorted;
+ const groups=new Map();
+ sorted.forEach((c,index)=>{
+  const p=products.find(p=>p.isin===c.isin),currency=p?.quote?.metadata?.currency||p?.currency||p?.quote?.currency;
+  if(c.scope!=='XAU/USD'||c.indicative||c.estimated||c.paperOnly||!['EUR','CHF'].includes(currency)||!['LONG','SHORT'].includes(c.direction))return;
+  const key=currency+':'+c.direction;
+  if(!groups.has(key))groups.set(key,{currency,indices:[]});groups.get(key).indices.push(index);
+ });
+ for(const {currency,indices} of groups.values()){
+  const pick={second:1,third:2}[policy.variants?.[currency]];
+  if(!pick||indices.length<=pick)continue;
+  const first=sorted[indices[0]],chosen=sorted[indices[pick]];
+  if(!Number.isFinite(first.score)||!Number.isFinite(chosen.score)||first.score-chosen.score>5)continue;
+  const ordered=indices.map(i=>sorted[i]);ordered.unshift(ordered.splice(pick,1)[0]);
+  indices.forEach((i,k)=>{sorted[i]={...ordered[k],rankingVariant:policy.variants[currency],rankingCurrency:currency};});
+ }
+ return sorted;
+}
 function selectionWorkflow(products,context={},bundle,references=[]){
  const now=context.now??Date.now(),direction=String(context.direction||'NEUTRAL').toUpperCase();
  const result={direction,stage:'LISTE',groups:[],requests:[],waiting:[],total:0,tradeable:false,approved:false,approvedCount:0,gateReasons:[],checkedAt:now,notApproved:[]};
@@ -1564,11 +1586,13 @@ function selectionWorkflow(products,context={},bundle,references=[]){
   }else if(!state.complete)result.requests.push({isin:p.isin,name:p.name,index:p.index,reasons:state.reasons,scope:isFutureProduct(p)?'FUTURE':'XAU/USD'});
   else result.waiting.push({isin:p.isin,reason:isFutureProduct(p)?cond.reason:'Aktuelle Gold-Spot-Analyse fehlt'});
  }
- for(const [scope,candidates] of groups){candidates.sort((a,b)=>b.score-a.score||a.isin.localeCompare(b.isin));result.groups.push({scope,total:candidates.length,candidates:candidates.slice(0,3)});}
+ result.eligibleCandidates=Array.from(groups.values()).flat().slice().sort((a,b)=>b.score-a.score||a.isin.localeCompare(b.isin));
+ const rankOrder=applyLearnedRanking(result.eligibleCandidates,products,window.BobRankingPolicy,now);
+ for(const [scope,candidates] of groups){result.groups.push({scope,total:candidates.length,candidates:rankOrder.filter(c=>candidates.some(x=>x.isin===c.isin)).slice(0,3)});}
  // This is an upload priority, not a product recommendation from incomplete prices.
  result.requests.sort((a,b)=>Number(a.scope==='FUTURE')-Number(b.scope==='FUTURE')||a.index-b.index);
  // At most three displayed selections overall; each keeps its own basis label.
- const selected=result.groups.flatMap(g=>g.candidates).sort((a,b)=>b.score-a.score||a.isin.localeCompare(b.isin)).slice(0,3);
+ const selected=rankOrder.slice(0,3);
  result.groups=result.groups.map(g=>({...g,candidates:g.candidates.filter(c=>selected.includes(c))})).filter(g=>g.candidates.length);
  result.approvedCount=selected.length;result.approved=selected.length>0;
  const selectedIds=new Set(selected.map(p=>p.isin));
@@ -2386,7 +2410,7 @@ function renderProductDecision(c,approved=true,blocked=[]){
  const unique=values=>[...new Set(values.filter(Boolean).map(x=>String(x).split('. Öffne')[0]))];
  const concerns=unique([...(c.warnings||[]),...(c.reasons||[]).filter(x=>/widerspr|fehlt|unbekannt|unbestätigt|veraltet|Abweichung|Schätzung|ABWARTEN/i.test(x)),...blocked.map(x=>String(x).split('. Öffne')[0])]);
  const reasons=unique(c.reasons||[]);
- const why=approved?['Produktrichtung '+c.direction+' passt zur bestätigten Auswahlrichtung.','Produktnachweise und die für diesen Berechnungsweg geltenden Prüfungen bestanden.','Rangfolge nach Risikowert: '+c.score+'/100; bei Gleichstand entscheidet die ISIN, nicht eine höhere erwartete Rendite.',...reasons]:reasons;
+ const why=approved?['Produktrichtung '+c.direction+' passt zur bestätigten Auswahlrichtung.','Produktnachweise und die für diesen Berechnungsweg geltenden Prüfungen bestanden.',(c.rankingVariant?'Geprüfte Lernrangfolge innerhalb von höchstens 5 Risikopunkten Abstand; Risikowert: '+c.score+'/100.':'Rangfolge nach Risikowert: '+c.score+'/100; bei Gleichstand entscheidet die ISIN, nicht eine höhere erwartete Rendite.'),...reasons]:reasons;
  const revoke=['Marktrichtung passt nicht mehr oder die Marktprüfung fällt aus.','Erforderliche Produkt-/Kursnachweise fehlen, laufen ab oder widersprechen sich.','Produkt ist inaktiv, abgelaufen oder die KO-Schwelle ist erreicht.','Risikoprüfung scheitert: etwa KO-Abstand unter 1 %, Puffer unter 1,5 ATR oder Risikowert unter 60/100.','Das Produkt fällt aus den höchstens drei ausgewählten Kandidaten.'];
  if(c.basisError>0||c.priceError>0)revoke.push('Die Schätzung ist nicht mehr ausreichend belegt oder die Prüfung innerhalb der beobachteten Fehlerspanne scheitert.');
  const lines=xs=>xs.map(esc).join('<br>');
@@ -2397,7 +2421,7 @@ function renderSelectionWorkflow(r,products=[]){
  const excluded=(r.notApproved||[]).filter(p=>knockoutStatus({...products[p.index-1],...p}));
  return '<b>'+ (r.approved?'Zur Produktauswahl freigegeben · '+r.approvedCount+' geeignete'+(r.approvedCount===1?'s Produkt':' Produkte'):'Abwarten – derzeit kein geeignetes Produkt')+'</b>'+steps+
  '<div class="small">'+esc((r.gateReasons||[]).join(' · '))+'</div>'+
- '<div class="small">'+r.total+' unterschiedliche Produkte. Vorauswahl nach Analyse-Richtung '+esc(r.direction)+'; fehlende Preise erhalten keine Rangpunkte.</div>'+
+ '<div class="small">'+(r.groups.some(g=>g.candidates.some(c=>c.rankingVariant))?'Geprüfte Lernrangfolge aktiv; KO-Pufferwerte und Pflichtprüfungen bleiben unverändert. ':'')+r.total+' unterschiedliche Produkte. Vorauswahl nach Analyse-Richtung '+esc(r.direction)+'; fehlende Preise erhalten keine Rangpunkte.</div>'+
  r.groups.map(g=>'<div style="margin-top:12px"><b>'+esc(g.scope)+' · '+g.total+' bewertbare Produkte</b>'+g.candidates.map((c,i)=>'<div data-product-isin="'+esc(c.isin)+'" style="padding:10px;margin-top:8px;border:1px solid #dbe4f0;border-radius:12px"><b>Platz '+(i+1)+' · '+esc(c.isin)+'</b>'+renderIsinCopy(c.isin,true)+productCompletionBadge(products.find(p=>p.isin===c.isin)||c)+'<div class="small" data-product-status><div><b>Daten:</b> vollständig</div><div><b>Zeitbezug:</b> für diesen Analyseweg bestätigt</div><div><b>Aktuelle Auswahl:</b> geeignet für '+esc(c.direction)+renderProductDirectionStatus(products.find(p=>p.isin===c.isin)||c)+'</div></div><p><b>Nächster Schritt:</b> Tatsächlichen DEGIRO-Kurs vor einem Einstieg prüfen.</p><button data-product-trade="'+esc(c.isin)+'">Vorhandenen Trade mit diesem Produkt erfassen</button><details data-product-values style="margin-top:10px"><summary><strong>Produktwerte anzeigen</strong></summary><div class="small">'+esc(c.name)+'<br>'+esc(c.priceKind)+' · Brief '+Number(c.price).toFixed(2)+' EUR · KO-Pufferwert '+c.score+'/100<br>Warum: '+esc((c.reasons||[]).slice(0,3).join(' · ')).replace(/\bHebel\b/g,'<strong>Hebel</strong>')+'<br>Quelle '+esc(c.source||'Produktnachweis')+' · Datenzeit '+esc(c.at)+(c.quoteAt?' · Produktkurszeit '+esc(c.quoteAt):'')+(c.quality?'<br>'+esc(qualityText(c.quality,'USD')):'')+'</div>'+renderProductDecision(c)+renderProductSources(c)+'</details></div>').join('')+'</div>').join('')+
  excluded.map(p=>knockoutCard({...products[p.index-1],...p})).join('')+
  '<details class="small" style="margin-top:10px"><summary>Hinweise zur Produktauswahl</summary>Spot und Future werden getrennt bewertet. Weniger als drei belegte Produkte ergeben eine kürzere Liste. Freigabe gilt ausschließlich für diese geprüfte Produktauswahl, nicht als Handelsauftrag oder garantierter bester Trade. Kandidaten mit offenen Nachweisen bleiben gesperrt; tatsächlichen DEGIRO-Preis vor dem Einstieg prüfen.</details>';
@@ -4107,7 +4131,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={productHelpState,renderProductHelp,calculatedLeverageEvidence,recoverArchivedList,productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,preserveReadingPosition,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,calculatedProductDisplay,renderPrimaryProductValues,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={applyLearnedRanking,productHelpState,renderProductHelp,calculatedLeverageEvidence,recoverArchivedList,productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,preserveReadingPosition,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,calculatedProductDisplay,renderPrimaryProductValues,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 

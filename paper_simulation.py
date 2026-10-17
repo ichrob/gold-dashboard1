@@ -3,6 +3,7 @@ import copy
 import hashlib
 import json
 import rule_learning
+import ranking_learning
 import math
 import subprocess
 import evaluator_runtime
@@ -774,10 +775,11 @@ def _worker(db):
                         # Original four paper policies consume unchanged confirmed direction.
                         market=background_push.analyze(bundle,settings,priority=2)
                         selection=dict(choices=[],reasons=[])
+                        ranking_policy=ranking_learning.policy(conn)
                         precision_due=now%(2*3600000)<=300000
                         if market.get('ready') and market.get('direction') in ('LONG','SHORT') and (precision_due or any(
                              p not in active_cases for p in ('conservative','balanced','offensive','trend800'))):
-                            request={**evidence,'quotes':quotes,'market':market,'bundle':bundle}
+                            request={**evidence,'quotes':quotes,'market':market,'bundle':bundle,'rankingPolicy':ranking_policy}
                             p=evaluator_runtime.run(['node',str(Path(__file__).with_name('paper_selection.js'))],input=json.dumps(request),
                                              text=True,capture_output=True,timeout=6,check=True,priority=2)
                             selection=json.loads(p.stdout)
@@ -785,6 +787,7 @@ def _worker(db):
                             with conn.transaction():
                                 import product_precision
                                 product_precision.capture(conn,market,selection,precision_quotes,bundle.get('spots'),time.time()*1000)
+                                ranking_learning.capture(conn,market,selection,precision_quotes,bundle.get('spots'),time.time()*1000)
                         except Exception as exc:print('BOB_PRECISION_CAPTURE error='+type(exc).__name__,flush=True)
                         # Independent extra research account receives its own direction
                         # and derived stop/target; same exact product validator and quotes.

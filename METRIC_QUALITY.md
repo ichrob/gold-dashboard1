@@ -17,7 +17,7 @@ und spätere Ergebnisqualität. Keine dieser Ebenen allein beweist profitable Si
 | KO-Abstand | Unabhängige Nachrechnung, Toleranz entsprechend der Anzeige-Rundung | Keine Änderung der KO-Grenze oder Sicherheitsregeln |
 | Produkt-Stop und -Ziel | Unveränderlicher Goldplan, vorab modellierte Produktniveaus; später beobachteter nativer Geldkurs beim Gold-Treffer | Keine automatische Lockerung bestehender Stops oder Verlustlimits |
 | Signalrichtung und Markt-Score | Bestehende unveränderliche Entscheidungsprotokolle, 15/60/240-Minuten-Ergebnisse, getrennte Varianten und Kostenannahmen | Bestehende kontrollierte ADX-Filterkampagne; Score ist keine Wahrscheinlichkeit |
-| Produktrangfolge | Gleichzeitig eingefrorene Alternativen, späterer Geldkurs gegenüber Einstiegs-Briefkurs, nur vollständige gleichwährende Gruppen | Keine Freigabe aus unvollständiger Statistik; keine neue Rangoptimierung in dieser Version |
+| Produktrangfolge | Gleichzeitig eingefrorene Alternativen, späterer Geldkurs gegenüber Einstiegs-Briefkurs, nur vollständige gleichwährende Gruppen | Keine Freigabe aus unvollständiger Statistik; begrenzte prospektive Rangoptimierung gemäß RANKING_LEARNING.md |
 | Laufendes Ergebnis | Modell-Geldkurs und Original-Geldkurs jeweils gegen eingetragenen Kaufkurs × Stückzahl | Nur Preis-Modellanzeige kann korrigiert werden; kein behaupteter Nettogewinn |
 | Realisierte Nettorendite | Bestehendes Journal: Kauf/Verkauf, Stückzahl und belegte Kosten; Simulation getrennt | Keine erfundenen Ausführungen oder fehlenden Gebühren |
 

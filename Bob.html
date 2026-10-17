@@ -1159,6 +1159,11 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <section class="card" id="auditStatistics">
 <h2>Statistik: Treffer und Fehlprognosen</h2>
 <h3>Bob verbessern · laufender Vergleich</h3>
+<details open><summary>Produktrangfolge lernen · welches Produkt wäre besser gewesen?</summary>
+<div id="rankingLearning" class="small" style="white-space:pre-line" role="status">Vergleiche werden geladen …</div>
+<button id="rankingControl" type="button" hidden>Rangoptimierung pausieren</button>
+<div style="overflow-x:auto"><table><caption>Spätere Rendite bei gleichem Kapitaleinsatz und gleichem 60-Minuten-Zeitraum · kein ausgeführter Trade</caption><thead><tr><th>Start / Währung</th><th>Damals bevorzugt</th><th>Beste Alternative</th><th>Vorsprung</th><th>Prüfstand</th></tr></thead><tbody id="rankingComparisons"></tbody></table></div>
+</details>
 <details open><summary>Qualität aller Kennzahlen · Nachrechnung und spätere Prüfung</summary>
 <div id="metricQuality" class="small" style="white-space:pre-line;overflow-wrap:anywhere" role="status">Prüfstände werden geladen …</div>
 <div id="precisionLearning" class="small" style="white-space:pre-line"></div><button id="precisionControl" type="button" hidden>Kurskorrekturen pausieren</button>
@@ -1423,6 +1428,39 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
      ' · mittlerer / größter Fehler '+fmt(x.mae)+' / '+fmt(x.maxError)+' · zuletzt '+new Date(x.lastAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})).join('\n'):'Noch keine unabhängigen Messungen gespeichert.')+
      '\n\nOriginalkurse und Produktbedingungen: Quellenzeit und Quellenabgleich in der Produktprüfung. Ein Originalwert ist keine Ausführungsgarantie.\nModellkurs und laufendes Bruttoergebnis: Geldkursvergleich derselben ISIN und Währung; Kurskorrektur nur nach späterer Prüfung.\nKO-Abstand und Risikobeträge: feste Rechenregeln; KO-Grenze, Verlustlimits und bestehende Stops werden nicht optimiert.\nSignalrichtung und Markt-Score: spätere 15/60/240-Minuten-Auswertung unten; Score ist keine Erfolgswahrscheinlichkeit.\nEchte Nettorendite: nur aus Kauf, Verkauf, Stückzahl und belegten Kosten im Trade-Journal. Fehlende Kosten bleiben unbekannt.'+(metricReport.truncated?'\nAnzeige auf die jüngsten 10.000 Prüfungen begrenzt.':''));
    }
+   const rankStudy=r.rankingLearning;
+   if(rankStudy){
+    window.BobRankingPolicy=rankStudy.policy;
+    const names={baseline:'bisherige KO-Puffer-Rangfolge',second:'zweiter Ausgangsrang bei höchstens 5 Punkten Abstand',third:'dritter Ausgangsrang bei höchstens 5 Punkten Abstand'};
+    const phases={selection:'Auswahl läuft',validation:'Kandidat eingefroren · spätere Prüfung läuft',monitoring:'übernommen · laufende Kontrolle',cooldown:'Grundrangfolge · neuer Test wartet',paused:'vom Nutzer pausiert'};
+    const when=v=>Number.isFinite(v)?new Date(v).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'offen';
+    const pct=v=>Number.isFinite(v)?v.toFixed(3)+' %':'offen';
+    const lines=[rankStudy.note,'Zwei feste Varianten; maximal 5 Punkte Abstand im unveränderten KO-Pufferwert. 21 Tage Auswahl, danach 42 Tage ungenutzte Prüfdaten. Bei Verschlechterung automatische Rücknahme.'];
+    for(const [ccy,s] of Object.entries(rankStudy.states)){
+     lines.push(ccy+' · '+(phases[s.phase]||s.phase)+' · aktuell '+(names[rankStudy.policy.variants[ccy]]||names.baseline)+' · Zyklus '+s.cycle);
+     lines.push('Auswahlende '+when(s.selectionEnd)+' · unabhängiges Prüfende '+when(s.validationEnd));
+     if(s.candidate)lines.push('Festgelegter Kandidat: '+names[s.candidate]);
+     lines.push('Letzte abgeschlossene Messgruppe '+when(s.lastMeasurementAt));
+     for(const [variant,proof] of Object.entries(s.progress||{}))lines.push(names[variant]+': '+proof.samples+' vollständige Lerngruppen an '+proof.days+' Tagen · Abdeckung '+(proof.coverage*100).toFixed(1)+' % · '+proof.incomplete+' unvollständige Produktgruppen · mittlere Rendite unter Kostenstress: Grundrangfolge '+pct(proof.scenarios.stress.mean.baseline)+' / Variante '+pct(proof.scenarios.stress.mean.candidate)+' · Vorteil '+(Number.isFinite(proof.scenarios.stress.improvementPct)?proof.scenarios.stress.improvementPct.toFixed(3)+' Prozentpunkte':'offen'));
+     const recent=s.history?.slice(-3)||[];
+     const events={'candidate-frozen':'Kandidat festgelegt',adopted:'übernommen',rollback:'automatisch zurückgenommen','selection-rejected':'Auswahl nicht bestanden','validation-rejected':'spätere Prüfung nicht bestanden','monitor-passed':'Nachkontrolle bestanden','manual-pause':'manuell pausiert','manual-restart':'mit neuen Daten gestartet','new-cycle':'neuer Testzyklus'};
+     lines.push(...recent.map(e=>when(e.at)+' · '+(events[e.event]||e.event)+(e.reason?' · '+e.reason:'')));
+    }
+    text('rankingLearning',lines.join('\n\n'));
+    const body=document.getElementById('rankingComparisons');body.replaceChildren();
+    for(const c of rankStudy.comparisons){
+     const o=c.outcome,tr=document.createElement('tr');
+     const values=[when(c.at)+' · '+c.currency,c.chosen||'keines',o?.complete?o.alternativeIsin:'nicht belegbar',o?.complete?o.alternativeAdvantagePct.toFixed(3)+' Prozentpunkte':'—',!o?'wartet auf spätere Kurse':o.complete?'vollständig beobachtet':o.status==='no-comparable-products'?'weniger als zwei passende Produkte':'unvollständig · keine Gewinnerbehauptung'];
+     if(o?.complete){values[1]+=' · '+pct(o.chosenPct);values[2]+=' · '+pct(o.returns[o.alternativeIsin].grossPct);}
+     values.forEach(value=>{const td=document.createElement('td');td.textContent=value;tr.appendChild(td);});body.appendChild(tr);
+     const detailRow=document.createElement('tr'),td=document.createElement('td');td.colSpan=5;const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Alle damaligen Kandidaten, Quellen und Kostenszenarien';details.appendChild(summary);
+     const content=document.createElement('div');content.style.whiteSpace='pre-line';
+     content.textContent=c.candidates.map(p=>{const v=o?.returns?.[p.isin];return p.isin+(p.paperOnly?' · nur Simulationsfreigabe':' · reguläre Freigabe')+' · damaliger KO-Pufferwert '+p.score+' · '+(v?'Brutto '+pct(v.grossPct)+' · nach angenommenen 0,1 % / 0,3 % Zusatzkosten '+pct(v.standardPct)+' / '+pct(v.stressPct)+' · Brief '+v.entryAsk+' ('+when(v.entryAt)+') → Geld '+v.exitBid+' ('+when(v.exitAt)+') · '+v.source:'passender späterer Kurs fehlt');}).join('\n')+((o?.missing||c.missing).length?'\nNicht vergleichbar: '+(o?.missing||c.missing).join(', '):'');details.appendChild(content);td.appendChild(details);detailRow.appendChild(td);body.appendChild(detailRow);
+    }
+    if(!rankStudy.comparisons.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=5;td.textContent='Noch keine neuen Vergleichsgruppen gespeichert.';tr.appendChild(td);body.appendChild(tr);}
+    const running=Object.values(rankStudy.states).some(s=>s.phase!=='paused'),button=document.getElementById('rankingControl');button.hidden=false;button.textContent=running?'Rangoptimierung pausieren':'Rangoptimierung mit neuen Daten starten';
+    button.onclick=async()=>{button.disabled=true;try{const response=await fetch('/api/ranking-learning/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:!running})});if(!response.ok)throw Error('Änderung nicht bestätigt');window.BobRankingPolicy=await response.json();await refresh();}catch(e){text('rankingLearning',e.message);}finally{button.disabled=false;}};
+   }
    const priceLearning=r.precisionLearning;
    if(priceLearning){
     window.BobPrecisionPaused=!priceLearning.enabled;
@@ -1437,7 +1475,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    if(pp){
     const fmt=v=>Number.isFinite(v)?v.toFixed(4):'—';
     const lines=[pp.note,pp.cases+' eingefrorene Produktfälle · '+pp.returns+' spätere Kursvergleiche · '+pp.pending+' offen · '+pp.missing+' ohne passenden Folgepreis',
-     'Produktrangfolge: '+pp.ranking.cohorts+' vollständige Vergleichsgruppen · Vorteil des zuerst eingestuften Produkts gegenüber den Alternativen: '+fmt(pp.ranking.meanAdvantagePct)+' Prozentpunkte. Noch keine automatische Rangänderung aus dieser Statistik.'];
+     'Produktrangfolge: '+pp.ranking.cohorts+' vollständige Vergleichsgruppen · Vorteil des zuerst eingestuften Produkts gegenüber den Alternativen: '+fmt(pp.ranking.meanAdvantagePct)+' Prozentpunkte. Die kontrollierte Rangoptimierung und der vollständige Alternativvergleich stehen oben.'];
     for(const k of ['stop','target'])for(const [ccy,m] of Object.entries(pp.levels[k]||{}))lines.push((k==='stop'?'Produkt-Stop':'Produkt-Ziel')+': '+m.count+' beobachtete Gold-Treffer · mittlerer Preisfehler '+fmt(m.mae)+' '+ccy+' · gerichtete Abweichung '+fmt(m.bias)+' '+ccy);
     if(!Object.keys(pp.levels.stop).length&&!Object.keys(pp.levels.target).length)lines.push('Produkt-Stop/Ziel: wartet auf spätere, ausreichend lückenlos beobachtete Treffer.');
     text('productPrecision',lines.join('\n\n'));
@@ -1501,7 +1539,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const eq=r.entryQualityReview;if(eq){const num=v=>Number.isFinite(v)?v.toFixed(3)+' %':'noch nicht auswertbar';lines.push('','Einstiegsqualität · Vergleichstest: '+eq.evaluated+' gepaarte Fälle nach 60 Minuten; '+eq.kept+' beibehalten, '+eq.filtered+' gefiltert.','Treffer: bisher '+eq.baselineWins+'/'+eq.evaluated+'; Test '+eq.candidateWins+'/'+eq.kept+' freigegebene Testfälle.','Mittlere Richtungsbewegung pro Vergleichsfall: bisher '+num(eq.baselineMeanPct)+'; Test '+num(eq.candidateMeanPct)+'.','Verpasste günstige Bewegungen: '+eq.missedFavorable+' · vermiedene ungünstige: '+eq.avoidedUnfavorable+'.','Mittlere beobachtete Gegenbewegung: bisher '+num(eq.meanObservedAdversePct)+'; Test '+num(eq.candidateMeanObservedAdversePct)+' ('+eq.excursions+' Fälle).',eq.note);}
    const c=r.fourDayComparison;if(c){const n=v=>Number.isFinite(v)?v.toFixed(3):'—',date=v=>new Date(v).toLocaleString('de-CH',{timeZone:'Europe/Zurich'});const cs=['VIERTAGE-TEST · '+c.status,date(c.start)+' bis '+date(c.end)+' (Zürich)','Schnell: eine klare / zwei schwächere Schlusskerzen. Vorsichtig: drei Schlusskerzen.','Auswertbar: '+c.evaluated+' / '+c.expected+' · Datenabdeckung '+n(c.coveragePct)+' % · fehlend '+c.missing+' · offen '+c.pending];for(const [key,label] of [['fast','Schnell'],['cautious','Vorsichtig']]){const m=c.variants[key];cs.push(label+': '+m.signals+' Richtungssignale · '+m.wait+' Abwarten · '+m.wins+' Treffer / '+m.losses+' Fehlrichtungen / '+m.flat+' unverändert · Trefferquote '+n(m.hitRate)+' %','Mittlere Gold-Richtungsbewegung je Vergleichsfall '+n(m.meanPct)+' % · schlechtester Fall '+n(m.worstPct)+' % · beobachtete Gegenbewegung '+n(m.meanAdversePct)+' % ('+m.adverseCases+' Fälle)');}cs.push('Vorsichtig ausgelassen: '+c.avoidedUnfavorable+' ungünstige und '+c.missedFavorable+' günstige Bewegungen.',c.conclusion,c.note);text('fourDayComparison',cs.join('\n'));}
    text('auditReport',lines.join('\n'));text('auditRecords',JSON.stringify(r.latest,null,2));
-  }catch(e){text('metricQuality','Prüfstände derzeit nicht aktuell abrufbar.');text('productPrecision','Ergebnisprüfung derzeit nicht aktuell abrufbar.');text('optimizationSummary','Vergleich aktuell nicht abrufbar; angezeigte Details können veraltet sein.');text('earlyImpulseResult','Frühwarn-Testdaten momentan nicht abrufbar: '+e.message);text('fourDayComparison','Vergleich aktuell nicht abrufbar. Bitte später erneut laden.');text('auditStatisticsStatus','Statistik nicht aktuell abrufbar; eventuell angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.');text('auditReport','Auswertung nicht verfügbar: '+e.message);text('improvementStatus','Lernstand derzeit nicht abrufbar. Ein zuvor angezeigter Vorschlag ist nicht erneut geprüft.');}
+  }catch(e){text('rankingLearning','Rangprüfung aktuell nicht abrufbar; frühere Tabellenwerte können veraltet sein.');text('metricQuality','Prüfstände derzeit nicht aktuell abrufbar.');text('productPrecision','Ergebnisprüfung derzeit nicht aktuell abrufbar.');text('optimizationSummary','Vergleich aktuell nicht abrufbar; angezeigte Details können veraltet sein.');text('earlyImpulseResult','Frühwarn-Testdaten momentan nicht abrufbar: '+e.message);text('fourDayComparison','Vergleich aktuell nicht abrufbar. Bitte später erneut laden.');text('auditStatisticsStatus','Statistik nicht aktuell abrufbar; eventuell angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.');text('auditReport','Auswertung nicht verfügbar: '+e.message);text('improvementStatus','Lernstand derzeit nicht abrufbar. Ein zuvor angezeigter Vorschlag ist nicht erneut geprüft.');}
  }
  refresh();
  setInterval(()=>{if(!document.hidden)refresh();},300000);
@@ -3213,7 +3251,7 @@ function applyLearningFilter(state,bundle,policy=window.BobLearningPolicy,now=Da
 }
 async function refreshLearningPolicy(){
  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),8000);
- try{const r=await fetch('/api/rule-learning/read',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',cache:'no-store',signal:ctl.signal});if(!r.ok)throw Error('Regelstatus nicht erreichbar');window.BobLearningPolicy=await r.json();}
+ try{const r=await fetch('/api/rule-learning/read',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',cache:'no-store',signal:ctl.signal});if(!r.ok)throw Error('Regelstatus nicht erreichbar');window.BobLearningPolicy=await r.json();window.BobRankingPolicy=window.BobLearningPolicy.rankingPolicy||null;}
  catch(_){/* An expired policy suppresses entries; ongoing trade checks continue. */}
  finally{clearTimeout(timer);}
 }
