@@ -76,7 +76,7 @@ class ManualWatchTests(unittest.TestCase):
 
     def test_quote_freshness_and_source_gates(self):
         now=int(dt.datetime.now(dt.timezone.utc).timestamp()*1000)
-        self.assertIsNotNone(watch.quote_observation(current_quote(),ISIN,now)[0])
+        self.assertIsNotNone(watch.quote_observation(current_quote(dt.datetime.fromtimestamp(now/1000,dt.timezone.utc)),ISIN,now)[0])
         stale=current_quote(dt.datetime.now(dt.timezone.utc)-dt.timedelta(minutes=3))
         self.assertIsNone(watch.quote_observation(stale,ISIN,now)[0])
         self.assertIsNone(watch.quote_observation({**current_quote(),'productVerified':False},ISIN,now)[0])
@@ -85,7 +85,7 @@ class ManualWatchTests(unittest.TestCase):
 
     def test_request_clock_is_not_bid_or_ask_source_clock(self):
         now=int(dt.datetime.now(dt.timezone.utc).timestamp()*1000)
-        baseline=current_quote()
+        baseline=current_quote(dt.datetime.fromtimestamp(now/1000,dt.timezone.utc))
         self.assertIsNotNone(watch.quote_observation(baseline,ISIN,now)[0])
         for patch in (
             dict(bidAt=None,quoteAt=baseline['askAt']),
@@ -110,8 +110,8 @@ class ManualWatchTests(unittest.TestCase):
     def test_background_observations_do_not_create_trades(self):
         db=FakeConn()
         watch.sync(db,{'position':position()})
-        now=int(dt.datetime.now(dt.timezone.utc).timestamp()*1000)
         observed_quote=current_quote()
+        now=int(dt.datetime.now(dt.timezone.utc).timestamp()*1000)
         watch.observe(db,observed_quote,now)
         self.assertEqual(len(db.observations),1)
         self.assertEqual(db.state['eventsCount'],1)
