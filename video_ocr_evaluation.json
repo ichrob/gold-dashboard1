@@ -1,0 +1,71 @@
+{
+  "evaluatedAt": "2026-10-17T13:39:38.555580+00:00",
+  "sourceFingerprint": "ba481dafc5f3b526397290c64a30d1258be39c91a669b2883911eb5a6982376b",
+  "status": "evaluated",
+  "engine": "rapidocr-local-v3",
+  "candidate": "contrast",
+  "scope": "Synthetische beschriftete Chartbilder; keine gemessene Genauigkeit auf echten MCO-Videos.",
+  "developmentImages": 8,
+  "holdoutImages": 8,
+  "disjointSets": true,
+  "fixtureVersion": "charts-v2",
+  "datasets": {
+    "development": [
+      "a3eba7d9fa35c2df923318ef22e2c5d7eae4ea738b5951c4e7c3b94e128d4459",
+      "651bd348b8e892c94ade4ecb4b85b91c9b3bf96804dc83d8cc180bc27af79602",
+      "578a33439935a2f6b6730f60824f865e8dae5aa9bdbab01b8bca05bd00fc79da",
+      "f0e857f73b34cb27e1dd1aaedbb90aa542a4dc18a37a23157cea62d547d8f1d9",
+      "514c9bc1d8e8b2202f0086fb9c234b48142f1814522477e2dcd5d54dad801996",
+      "377b1365e22884849885708b1c362b5da0d595a908b9e249ea4f824b7f0349b5",
+      "f629c838c2e3332176361074e8e3ef04a581a69f9a9945c61539cec64003caf7",
+      "d57289e1d998f329e34e847260a21a73b9b2919b4b7ce0de3ab8897181331d41"
+    ],
+    "holdout": [
+      "d97e4d691e25c364d58c1df7fd3cd195ac21eabc50fe80e5e2adfd4c9baad228",
+      "87825c77dcb15e5a17d7feabe787bfc677b004b7d30737ad43b32c305fc19bc0",
+      "ed48296007a341461730b35d3d4fe181da5b0cbd25fd35a423ef3284ea4fd786",
+      "44a6386c902b691482f03dd14a7883fec3819f4a964a980bcf68ef338303adee",
+      "cb67fcb264f2e014ced879ead084e25df6af77a11bde8f34f06f9a52ec63147c",
+      "0655f4b9d613928cb42fe5f6d842b7250e85e11f385860093d0f16f8e189f5bc",
+      "4a994b0d86d14b27d1535179909dd35b68bcdcd2d7bce0343255ff4a30bd0729",
+      "96571d5550f23c9706025acac217e2ef5dd0af3648a4a4231e42a4d7605c1760"
+    ]
+  },
+  "development": {
+    "baseline": {
+      "correct": 7,
+      "wrong": 0,
+      "missed": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "error": 0
+    },
+    "contrast": {
+      "correct": 7,
+      "wrong": 0,
+      "missed": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "error": 0
+    }
+  },
+  "holdout": {
+    "baseline": {
+      "correct": 7,
+      "wrong": 0,
+      "missed": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "error": 0
+    },
+    "contrast": {
+      "correct": 7,
+      "wrong": 0,
+      "missed": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "error": 0
+    }
+  },
+  "activeProfile": "baseline"
+}

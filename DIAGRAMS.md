@@ -170,3 +170,24 @@ real changes or OCR mistakes and remain unresolved. Shared caption terms and
 literal numbers within 15 seconds produce only a plausible match, never a trusted
 market timestamp or trading input. Refresh fetches the current cached OCR result
 without a new transcript or paid API request. No hosting plan or dependencies added.
+
+## Image quality, typed evidence and evaluation
+Browser sampling prefers sharp, contrasted stills near caption positions and removes
+near-identical images. This is a pixel quality heuristic, not guaranteed face/chart
+recognition. Offline OCR prioritizes images with readable labeled values. Typed
+image values carry their original line, unit, explicit timeframe and instrument;
+ambiguous formats, unlabeled numbers and conflicting metadata remain open. They
+never become verified market timestamps or trading inputs.
+The comparison view rechecks available historical data every 30 seconds while
+visible, resumes on reopening, backs off after failures, preserves selected video
+identity and file selection, and removes its timer when unmounted. Calculations
+still use original matched OHLC and the existing historical Bob algorithms. This
+is not a new server-side comparison worker while the app is closed.
+The offline benchmark uses eight development and eight disjoint held-out synthetic
+chart images, including a negative image. It measures correctly typed values,
+wrong values/attributions, omissions, precision and recall. It is not measured
+accuracy on real MCO screenshots. Runtime activation requires a report matching
+the exact OCR/parser/evaluation code fingerprint. A contrast candidate must reduce
+errors on BOTH sets without extra false readings or lost correct values; otherwise
+the existing profile stays active. CI repeats the real image benchmark and checks
+its recorded result, along with the real video extraction and timed-refresh test.

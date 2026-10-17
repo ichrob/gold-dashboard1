@@ -648,7 +648,7 @@ def handle(connect, payload):
     try:
         import video_ocr
         if not any(not f.get('isCover') for f in result['frames']):
-            result['ocr']={'status':'no-timed-images','images':[]}
+            result['ocr']={'status':'no-timed-images','images':[],'evaluation':video_ocr.evaluation_report()}
         else:
             with connect() as conn:result['ocr']=video_ocr.report(conn,identity)
     except Exception:
