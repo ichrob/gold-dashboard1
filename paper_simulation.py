@@ -774,8 +774,9 @@ def _worker(db):
                         # Original four paper policies consume unchanged confirmed direction.
                         market=background_push.analyze(bundle,settings,priority=2)
                         selection=dict(choices=[],reasons=[])
-                        if market.get('ready') and market.get('direction') in ('LONG','SHORT') and any(
-                             p not in active_cases for p in ('conservative','balanced','offensive','trend800')):
+                        precision_due=now%(2*3600000)<=300000
+                        if market.get('ready') and market.get('direction') in ('LONG','SHORT') and (precision_due or any(
+                             p not in active_cases for p in ('conservative','balanced','offensive','trend800'))):
                             request={**evidence,'quotes':quotes,'market':market,'bundle':bundle}
                             p=evaluator_runtime.run(['node',str(Path(__file__).with_name('paper_selection.js'))],input=json.dumps(request),
                                              text=True,capture_output=True,timeout=6,check=True,priority=2)
