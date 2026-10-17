@@ -1410,7 +1410,31 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const dg=r.signalDiagnostics;
    if(dg){text('signalDiagnostics',dg.note+'\n\n'+dg.groups.map(g=>g.horizon+' Min. · '+g.label+': '+g.win+' richtig / '+g.loss+' falsch / '+g.flat+' unverändert / '+g.missing+' nicht auswertbar').join('\n')+'\n\nFehlprognosen (bis 30 Beispiele):\n'+dg.examples.map(e=>new Date(e.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · '+e.direction+' · '+e.horizon+' Min. · '+e.changePct.toFixed(3)+' % in Signalrichtung · '+e.tags.join(', ')+' · '+(e.reason||'Grund nicht gespeichert')).join('\n'));}
    const rl=r.ruleLearning;
-   if(rl){const phase={collection:'Datensammlung und Auswahl',validation:'Kandidat festgeschrieben · spätere Prüfung läuft',adopted:'Prüfung bestanden · Filter übernommen','rolled-back':'Grundregel wiederhergestellt',rejected:'Keine Übernahme · Kriterien nicht erfüllt',unavailable:'Nicht verfügbar'};const when=v=>new Date(v).toLocaleString('de-CH',{timeZone:'Europe/Zurich'});const lines=[phase[rl.phase]||rl.phase,'Aktive Einstiegsregel: '+(rl.policy.variant==='baseline'?'bisherige Grundregel':rl.policy.variant),'Gespeicherte Prüfzeitpunkte: '+rl.captured,'Auswahlende: '+when(rl.protocol.selectionEnds)+' · Prüfende: '+when(rl.protocol.validationEnds)+' (Zürich)',rl.candidate?'Festgelegter Kandidat: '+rl.candidate:'Noch kein bestätigter Kandidat.',rl.note];if(rl.validation){const m=rl.validation;lines.push('Unabhängige Prüfung: '+m.samples+' Richtungssignale an '+m.days+' Tagen · Abdeckung '+(m.coverage*100).toFixed(1)+' % · Verbesserung '+(m.improvementPct==null?'—':m.improvementPct.toFixed(4)+' Prozentpunkte')+' · untere 99%-Schätzgrenze '+(rl.lowerBound99Pct==null?'nicht auswertbar':rl.lowerBound99Pct.toFixed(4)));}for(const e of rl.history||[])lines.push(when(e.at)+' · '+e.event+' · '+(e.variant||e.candidate||'Grundregel'));text('ruleLearning',lines.join('\n\n'));const revert=$('rollbackLearningRule');revert.hidden=rl.phase!=='adopted';revert.onclick=async()=>{revert.disabled=true;try{const response=await fetch('/api/rule-learning/rollback',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});if(!response.ok)throw Error('Rücknahme fehlgeschlagen');window.BobLearningPolicy=await response.json();await refresh();}catch(e){text('ruleLearning',e.message);}finally{revert.disabled=false;}};}
+   if(rl){
+    const phases={collection:'Datensammlung und Auswahl',validation:'Kandidat festgeschrieben · spätere Prüfung läuft',adopted:'Filter übernommen',monitoring:'Filter übernommen · automatische Nachkontrolle',cooldown:'Grundregel aktiv · nächster Test mit neuen Daten',paused:'Automatische Anpassung vom Nutzer pausiert','rolled-back':'Grundregel wiederhergestellt',rejected:'Keine Übernahme',unavailable:'Nicht verfügbar'};
+    const when=v=>Number.isFinite(v)?new Date(v).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch offen';
+    const names={baseline:'bisherige Grundregel',adx25:'zusätzlicher 5m-ADX-Filter ab 25',adx30:'zusätzlicher 5m-ADX-Filter ab 30',unavailable:'nicht bestätigt'};
+    const lines=[phases[rl.phase]||rl.phase,'Aktive Einstiegsregel: '+(names[rl.policy.variant]||rl.policy.variant),
+      'Gespeicherte Prüfzeitpunkte: '+rl.captured+' · Testzyklus '+(rl.cycle||1),
+      'Auswahlende: '+when(rl.protocol.selectionEnds)+' · Prüfende: '+when(rl.protocol.validationEnds)+' (Zürich)',
+      rl.candidate?'Festgelegter Kandidat: '+(names[rl.candidate]||rl.candidate):'Noch kein bestätigter Kandidat.',rl.note];
+    if(rl.monitorEnd)lines.push('Nächste automatische Nachkontrolle: '+when(rl.monitorEnd+3660000));
+    if(rl.phase==='cooldown')lines.push('Neuer Test frühestens: '+when(rl.nextCycleAt));
+    for(const [label,m] of [['Spätere Prüfung',rl.validation],['Nachkontrolle',rl.monitoring]]){
+     if(!m)continue;
+     lines.push(label+': '+m.samples+' Richtungssignale an '+m.days+' Tagen · Abdeckung '+(m.coverage*100).toFixed(1)+' %');
+     for(const [kind,g] of Object.entries(m.scenarios||{}))lines.push((kind==='stress'?'Kostenstress':'Standardkosten')+
+      ': angenommene Kosten '+g.costPct+' % · mittlerer Vorteil '+(Number.isFinite(g.improvementPct)?g.improvementPct.toFixed(4):'—')+
+      ' Prozentpunkte · größter Rückgang Grundregel/Variante '+g.drawdown.baseline.toFixed(4)+' / '+g.drawdown.candidate.toFixed(4)+' Prozentpunkte');
+    }
+    if(Number.isFinite(rl.lowerBound99Pct))lines.push('Untere 99%-Schätzgrenze des Vorteils: '+rl.lowerBound99Pct.toFixed(4)+' Prozentpunkte');
+    const events={'candidate-frozen':'Kandidat festgelegt',adopted:'Übernommen','automatic-rollback':'Automatisch zurückgenommen','manual-rollback':'Manuell pausiert','selection-rejected':'Auswahl verworfen','validation-rejected':'Prüfung nicht bestanden','monitor-passed':'Nachkontrolle bestanden','new-cycle':'Neuer Test gestartet'};
+    for(const e of rl.history||[])lines.push(when(e.at)+' · '+(events[e.event]||e.event)+' · '+(names[e.variant||e.candidate]||'Grundregel')+(e.reason?' · '+e.reason:''));
+    text('ruleLearning',lines.join('\n\n'));
+    const revert=$('rollbackLearningRule');revert.hidden=!['adopted','monitoring','collection','validation','cooldown'].includes(rl.phase);
+    revert.textContent='Automatische Anpassung pausieren · Grundregel verwenden';
+    revert.onclick=async()=>{revert.disabled=true;try{const response=await fetch('/api/rule-learning/rollback',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});if(!response.ok)throw Error('Rücknahme fehlgeschlagen');window.BobLearningPolicy=await response.json();await refresh();}catch(e){text('ruleLearning',e.message);}finally{revert.disabled=false;}};
+   }
    const pr=r.prospectiveReview;
    if(pr?.available===false||pr&&!pr.phases){text('prospectiveReview',pr.reason||'Historische Strategieauswertung vorübergehend nicht verfügbar; erneute Prüfung folgt.');}
    else if(pr){const lines=[pr.note,'Validierung ab '+pr.validationDay+' (Zürich). Richtig/falsch wird nur für behaltene Signale gezählt.'];for(const [phase,variants] of Object.entries(pr.phases)){lines.push('\n'+(phase==='validation'?'Spätere Validierung':'Erste Datensammlung'));for(const [key,m] of Object.entries(variants)){lines.push(pr.labels[key]+': '+m.cases+' auswertbar · '+m.kept+' behalten / '+m.filtered+' ausgelassen · '+m.wins+' richtig / '+m.losses+' falsch / '+m.flat+' unverändert · '+m.missing+' nicht auswertbar · vermiedene Fehlrichtungen '+m.avoidedLoss+' / verpasste richtige '+m.missedWin+' · mittlere Richtungsbewegung je Vergleich '+(m.cases?(m.sumPct/m.cases).toFixed(3)+' %':'—'));}}text('prospectiveReview',lines.join('\n'));}
@@ -3144,7 +3168,7 @@ function acceleratedMinuteConfirmation(bundle,state,now=Date.now()){
 // Shared by the browser and the headless worker. Only suppresses new entries.
 function applyLearningFilter(state,bundle,policy=window.BobLearningPolicy,now=Date.now()){
  const baseDirection=state.dir;
- const valid=policy&&policy.campaign==='entry-filter-v1-20261009'&&policy.base==='intraday-trend-follow-v7'&&Number.isFinite(policy.issuedAt)&&Number.isFinite(policy.expiresAt)&&policy.issuedAt<=now+5000&&policy.expiresAt>now&&policy.expiresAt-policy.issuedAt<=120000&&['baseline','adx25','adx30'].includes(policy.variant);
+ const valid=policy&&['entry-filter-v1-20261009','entry-filter-v2-guarded'].includes(policy.campaign)&&policy.base==='intraday-trend-follow-v7'&&Number.isFinite(policy.issuedAt)&&Number.isFinite(policy.expiresAt)&&policy.issuedAt<=now+5000&&policy.expiresAt>now&&policy.expiresAt-policy.issuedAt<=120000&&['baseline','adx25','adx30'].includes(policy.variant);
  const version=valid?policy.version:'unavailable';
  const result={...state,baseDirection,learningPolicy:version};
  if(!['LONG','SHORT'].includes(baseDirection))return result;
