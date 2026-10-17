@@ -23,6 +23,28 @@ class BrowserlessTrialTests(unittest.TestCase):
         with patch.object(trial.requests,'post',side_effect=RuntimeError('secret-token')):
             self.assertEqual(trial.capture('secret-token','ZZcYAKr9FGY',[{'at':18}]),('capture-failed',[]))
 
+    def response(self, body):
+        import json
+        response=MagicMock();response.status_code=200
+        response.iter_content.return_value=[json.dumps(body).encode()]
+        return response
+
+    def test_wrapped_response_preserves_diagnostic(self):
+        body={'data':{'videoId':'ZZcYAKr9FGY','status':'playback-unavailable','frames':[]},'type':'application/json'}
+        with patch.object(trial.requests,'post') as post:
+            post.return_value.__enter__.return_value=self.response(body)
+            self.assertEqual(trial.capture('private','ZZcYAKr9FGY',[]),('playback-unavailable',[]))
+
+    def test_wrapped_identity_still_checked(self):
+        with patch.object(trial.requests,'post') as post:
+            post.return_value.__enter__.return_value=self.response({'data':{'videoId':'wrong','frames':[]}})
+            self.assertEqual(trial.capture('private','ZZcYAKr9FGY',[]),('identity-unconfirmed',[]))
+
+    def test_unwrapped_and_unknown_diagnostic(self):
+        with patch.object(trial.requests,'post') as post:
+            post.return_value.__enter__.return_value=self.response({'videoId':'ZZcYAKr9FGY','status':'secret-token','frames':[]})
+            self.assertEqual(trial.capture('private','ZZcYAKr9FGY',[]),('no-video-frames',[]))
+
     def test_http_error_no_retry(self):
         with patch.object(trial.requests,'post') as post:
             post.return_value.__enter__.return_value.status_code=401
