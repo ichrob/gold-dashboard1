@@ -77,7 +77,7 @@ function mount(host){
   const link=el('a',item.title||'MCO-Video');try{const u=new URL(item.url);if(u.protocol==='https:'&&['www.youtube.com','youtube.com'].includes(u.hostname)&&u.pathname==='/watch'){link.href=u.href;link.target='_blank';link.rel='noopener noreferrer';}}catch(_){}body.append(link);
   body.append(el('p',item.publishedAt?'Video veröffentlicht: '+stamp(item.publishedAt*1000)+'. Die Uploadzeit ersetzt nicht die Analysezeit.':'Veröffentlichungszeit nicht bestätigt; Reihenfolge laut vorhandener Kanalliste.'));
   const identity=item.videoId||item.url;
-  if(identity!==mediaId||(updateMedia&&!media.querySelector('input[type=file]')?.files?.length)){media.replaceChildren();root.BobVideoOCR?.render(media,item);mediaId=identity;}
+  if(identity!==mediaId||(updateMedia&&!media.querySelector('input[type=file]')?.files?.length)){media.replaceChildren();root.BobVideoBrief?.render(media,item);root.BobVideoOCR?.render(media,item);mediaId=identity;}
   const rows=compare(item,histories,(bars,at,tf,m)=>(m.metric?root.BobMcoHistoricalMetric?.(bars,at,tf,m):root.BobMcoHistoricalFib?.(bars,at,tf))||{available:false,reason:'Bob-Berechnung nicht verfügbar'});
   progress.textContent='Vergleiche: '+rows.filter(r=>!r.reason).length+' abgeschlossen · '+rows.filter(r=>r.reason).length+' offen. Automatische Nachprüfung alle 30 Sekunden, solange diese Ansicht sichtbar ist. Beim erneuten Öffnen werden verfügbare historische Daten erneut geprüft.';
   if(!rows.length)body.append(el('p','Keine eindeutig zugeordneten Zahlenwerte im Transkript gefunden.'));

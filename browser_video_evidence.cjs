@@ -22,4 +22,16 @@ const fs=require('fs'),assert=require('assert');
  await page.clock.runFor(31000);
  await page.getByText(/Vergleiche: 1 abgeschlossen/).waitFor();
  console.log('Missing historical comparison automatically resolved after new data');
+
+ await page.clock.resume();
+ const jpeg=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=640;c.height=360;const x=c.getContext('2d');x.fillStyle='#112233';x.fillRect(0,0,640,360);return c.toDataURL('image/jpeg');});
+ await page.addScriptTag({content:fs.readFileSync('video_brief.js','utf8')});
+ await page.evaluate(dataUrl=>{document.querySelector('main').replaceChildren();BobVideoBrief.render(document.querySelector('main'),{url:'https://www.youtube.com/watch?v=abcdefghijk',overview:{evidence:[{id:'e',at:30,text:'If support holds, the scenario remains possible.'}],sections:[{label:'Bedingung',evidenceIds:['e']}]},enhancements:{frames:[{at:30,dataUrl}],ocr:{images:[{index:0,at:30,lines:[{text:'Gold Futures COMEX'}]}]}}});},jpeg);
+ await page.getByRole('button',{name:'Chartbild vergrößern'}).click();
+ assert(await page.getByRole('dialog').isVisible());await page.getByRole('button',{name:'2× vergrößern'}).click();
+ assert.equal(await page.locator('dialog img').evaluate(i=>i.style.width),'200%');
+ await page.getByRole('button',{name:'Schließen',exact:true}).click();await page.locator('dialog').waitFor({state:'detached'});assert.equal(await page.locator('dialog').count(),0);
+ assert(await page.getByText(/Gold-Future im Bild erkannt/).isVisible());
+ assert(await page.getByText('If support holds, the scenario remains possible.').isVisible());
+ console.log('Full chart, enlargement, caption explanation and Futures separation passed');
  await browser.close();})();
