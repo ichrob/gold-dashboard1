@@ -121,7 +121,7 @@ def policy(state,now):
     usable=state.get('version')==VERSION and state.get('phase')=='monitoring' and 0<=now-state.get('lastAt',0)<=120000
     return dict(usable=usable,factor=state.get('factor',0.) if usable else 0.,phase=state.get('phase','training'),
         lastAt=state.get('lastAt'),count=(state.get('evidence') or {}).get('count',len(state.get('rows',[]))),
-        evidence=state.get('evidence'),events=state.get('events',[]),source=state.get('source'),
+        lowerBound99Pct=state.get('lowerBound99Pct'),evidence=state.get('evidence'),events=state.get('events',[]),source=state.get('source'),
         latestRaw=state.get('lastRaw') if 0<=now-state.get('lastAt',0)<=120000 else None,
         latestCorrected=state['lastRaw']*(1+state['factor']) if usable and state.get('lastRaw') else None,
         reason='Spätere Prüfwerte und laufende Kontrolle' if usable else 'Noch kein aktueller, unabhängig bestätigter Korrekturvorteil')

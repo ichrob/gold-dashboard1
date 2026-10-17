@@ -37,10 +37,11 @@ function regimeRows(study,currency,mode){
  const groups=new Map(),exits=new Map((study?.lifecycle?.comparisons||[]).map(c=>[c.currency+':'+c.slot,c]));
  for(const c of study?.comparisons||[]){if(c.currency!==currency)continue;
   const key=[c.regime?.trend||'unknown',c.regime?.volatility||'unknown',c.direction||'unknown'].join(' · ');
-  if(!groups.has(key))groups.set(key,{label:key,n:0,total:0,sum:0});const g=groups.get(key);g.total++;
+  if(!groups.has(key))groups.set(key,{label:key,n:0,total:0,sum:0,observations:[]});const g=groups.get(key);g.total++;
   const o=mode==='exit'?exits.get(c.currency+':'+c.slot):c.outcome;
+  g.observations.push({at:c.at,value:o?.complete&&finite(o.chosenPct)?o.chosenPct:null});
   if(o?.complete&&finite(o.chosenPct)){g.n++;g.sum+=o.chosenPct;}
- }return [...groups.values()].map(g=>({...g,value:g.n?g.sum/g.n:null}));
+ }return [...groups.values()].map(g=>({...g,value:g.n?g.sum/g.n:null,evidence:evidenceStats(g.observations,'value',mode==='exit'?14400000:3600000)}));
 }
 function stopRows(study,currency){return (study?.lifecycle?.comparisons||[]).filter(c=>c.currency===currency).map(c=>{
  const s=c.stopComparison,isin=c.chosenIsin,b=s?.bobReturns?.[isin],f=s?.fixedReturns?.[isin];
@@ -49,15 +50,60 @@ function stopRows(study,currency){return (study?.lifecycle?.comparisons||[]).fil
  giveback:ok&&finite(b.peakPct)?Math.max(0,b.peakPct)-Math.max(0,b.grossPct):null};
  }).sort((a,b)=>a.at-b.at);}
 
-const api={series,bounds,segments,proofs,capitalRows,signalRows,regimeRows,stopRows};
+// Descriptive uncertainty resamples adjacent observation-day blocks, not ticks.
+const dayKey=at=>new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Zurich',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(at));
+function uncertainty(blocks){
+ const bs=(blocks||[]).filter(b=>finite(b.total)&&b.count>0).slice().sort((a,b)=>a.day.localeCompare(b.day));
+ if(bs.length<10||bs.reduce((n,b)=>n+b.count,0)<20)return null;
+ let seed=9137;const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};const means=[];
+ for(let run=0;run<800;run++){let sum=0,count=0;for(let i=0;i<bs.length;i+=2){const start=Math.floor(random()*bs.length);for(let j=0;j<Math.min(2,bs.length-i);j++){const b=bs[(start+j)%bs.length];sum+=b.total;count+=b.count;}}means.push(sum/count);}means.sort((a,b)=>a-b);return {low:means[19],high:means[779]};
+}
+function evidenceStats(rows,key,spacing){
+ const sorted=[...new Map(rows.filter(r=>finite(r.at)).map(r=>[r.at,r])).values()].sort((a,b)=>a.at-b.at);
+ const blocks=new Map();let last=null,separated=0,selected=0;
+ for(const r of sorted){if(last!==null&&r.at-last<spacing)continue;last=r.at;selected++;
+  if(!finite(r[key]))continue;separated++;const day=dayKey(r.at);if(!blocks.has(day))blocks.set(day,{day,count:0,total:0});const b=blocks.get(day);b.count++;b.total+=r[key];
+ }const bs=[...blocks.values()];return {total:sorted.length,samples:sorted.filter(r=>finite(r[key])).length,selected,separated,days:bs.length,blocks:bs,interval:uncertainty(bs)};
+}
+function overview(study,audit,currency,mode){
+ const better=[],worse=[],open=[];
+ for(const p of proofs(study,currency)){
+  const name=p.variant==='second'?'Rang 2':'Rang 3';
+  if(!(p.samples>0)||!finite(p.delta)){open.push(name+': noch keine auswertbaren Vergleichsfälle.');continue;}
+  const message=name+': '+Math.abs(p.delta).toFixed(3)+' Prozentpunkte '+(p.delta>0?'besser':p.delta<0?'schlechter':'Unterschied')+' im aktuellen Prüffenster ('+p.samples+' Fälle). '+(p.phase==='selection'?'Auswahldaten, kein unabhängiger Nachweis.':p.active?'Aktiv; spätere Kontrolle läuft.':'Noch keine aktuell aktive Übernahme.');
+  (p.delta>0?better:p.delta<0?worse:open).push(message);
+ }
+ const rows=series(study,currency,mode),missing=rows.filter(r=>!r.valid).length;
+ if(!rows.length)open.push('Titelvergleich: noch keine gespeicherten Gruppen.');
+ else if(missing)open.push('Titelvergleich: '+missing+' von '+rows.length+' Gruppen offen oder unvollständig.');
+ for(const s of audit?.precisionLearning?.states||[]){if(s.currency!==currency)continue;
+  const paired=(s.chartHistory||[]).filter(r=>finite(r.raw)&&finite(r.original)&&r.original>0&&finite(r.corrected));
+  if(!paired.length){open.push(s.isin+': spätere Korrekturvergleiche fehlen.');continue;}
+  const difference=100*paired.reduce((sum,r)=>sum+(Math.abs(r.raw-r.original)-Math.abs(r.corrected-r.original))/r.original,0)/paired.length;
+  (difference>0?better:difference<0?worse:open).push(s.isin+': Kursfehler im sichtbaren Fenster '+Math.abs(difference).toFixed(3)+' Prozentpunkte '+(difference>0?'kleiner':difference<0?'größer':'verändert')+' ('+paired.length+' Paare). '+(s.usable?'Korrektur aktiv.':'Korrektur derzeit nicht aktiv.'));
+ }
+ const stops=stopRows(study,currency),pairedStops=stops.filter(r=>finite(r.bob)&&finite(r.fixed));
+ if(pairedStops.length){const delta=pairedStops.reduce((n,r)=>n+r.bob-r.fixed,0)/pairedStops.length;(delta>0?better:delta<0?worse:open).push('Stoppvergleich: Bob im Mittel '+Math.abs(delta).toFixed(3)+' Prozentpunkte '+(delta>0?'besser':delta<0?'schlechter':'Unterschied')+' als der ursprüngliche Plan ('+pairedStops.length+' Paare). Beschreibender Vergleich.');}
+ if(pairedStops.length<stops.length||!stops.length)open.push('Stoppvergleich: '+pairedStops.length+' von '+stops.length+' Gruppen vollständig gepaart.');
+ if(!(audit?.precisionLearning?.states||[]).some(s=>s.currency===currency))open.push('Kursgenauigkeit: noch keine Messreihe dieser Währung.');
+ for(const r of signalRows(audit?.metrics))if(!r.n)open.push('Signalprüfung '+r.label+': auswertbare Fälle fehlen.');
+ if(!proofs(study,currency).length)open.push('Optimierung: Prüfstand fehlt.');
+ return {better,worse,open};
+}
+const eventNames={adopted:'Übernommen',rollback:'Zurückgenommen','automatic-rollback':'Automatisch zurückgenommen',reset:'Nach Datenlücke zurückgesetzt',frozen:'Korrektur festgelegt','candidate-frozen':'Kandidat festgelegt',rejected:'Verworfen','validation-rejected':'Prüfung nicht bestanden','selection-rejected':'Auswahl nicht bestanden','validation-failed':'Prüfung nicht bestanden','monitor-passed':'Nachkontrolle bestanden','manual-pause':'Manuell pausiert','manual-rollback':'Manuell zurückgenommen',paused:'Pausiert',resumed:'Neu gestartet','manual-restart':'Neu gestartet','new-cycle':'Neuer Prüfzyklus'};
+function changeEvents(events){return (events||[]).filter(e=>finite(e.at)&&eventNames[e.event]).slice().sort((a,b)=>a.at-b.at);}
+function laterEvidence(events,index,rows,key){const e=events[index],end=events[index+1]?.at??Infinity;const start=e.at;
+ const selected=rows.filter(r=>r.at>start&&r.at<end&&finite(r[key]));return {n:selected.length,mean:selected.length?selected.reduce((sum,r)=>sum+r[key],0)/selected.length:null};}
+
+const api={uncertainty,evidenceStats,overview,changeEvents,laterEvidence,series,bounds,segments,proofs,capitalRows,signalRows,regimeRows,stopRows};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 if(!root?.document)return;
-const doc=root.document;let audit=null,portfolio=null,portfolioAt=0,portfolioFailed=false,extraBox,accountId='',priceId='';let study=null,received=0,failed=false,host=null,currency='EUR',mode='horizon',status,chart,proofBox,detail,counts;
+const doc=root.document;let audit=null,portfolio=null,portfolioAt=0,portfolioFailed=false,summaryBox,extraBox,accountId='',priceId='';let study=null,received=0,failed=false,host=null,currency='EUR',mode='horizon',status,chart,proofBox,detail,counts;
 const pct=v=>finite(v)?v.toFixed(2)+' %':'offen';
 const stamp=v=>new Date(v).toLocaleString('de-CH',{timeZone:'Europe/Zurich',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
 function node(tag,text){const e=doc.createElement(tag);if(text!==undefined)e.textContent=text;return e;}
 function svgNode(tag,attrs,text){const e=doc.createElementNS(NS,tag);for(const [k,v]of Object.entries(attrs||{}))e.setAttribute(k,String(v));if(text!==undefined)e.textContent=text;return e;}
-function freshness(){if(!status)return;status.textContent=!received?(failed?'Vergleichsdaten derzeit nicht verfügbar. Bitte erneut aktualisieren.':'Vergleichsdaten werden geladen …'):(failed||Date.now()-received>420000?'Datenstand veraltet · ':'Daten zuletzt geladen · ')+stamp(received)+' · Quellenzeiten stehen beim jeweiligen Vergleich.';status.style.color=failed||received&&Date.now()-received>420000?'#92400e':'#475569';}
+function freshness(){if(!status)return;status.textContent=!received?(failed?'Vergleichsdaten derzeit nicht verfügbar. Bitte erneut aktualisieren.':'Vergleichsdaten werden geladen …'):(failed||Date.now()-received>420000?'Datenstand veraltet · ':'Daten zuletzt geladen · ')+stamp(received)+' · Quellenzeiten stehen beim jeweiligen Vergleich.';drawOverview();status.style.color=failed||received&&Date.now()-received>420000?'#92400e':'#475569';}
 function showDetail(r){detail.textContent=stamp(r.at)+' · '+(mode==='exit'?'Start des virtuellen Trades':'Start des 60-Minuten-Vergleichs')+' · '+r.status+(r.valid?'\nDamals bevorzugt: '+r.chosenIsin+' · '+pct(r.chosen)+'\nBeste Alternative im Rückblick: '+r.alternativeIsin+' · '+pct(r.alternative)+'\nVorsprung: '+(r.alternative-r.chosen).toFixed(2)+' Prozentpunkte':r.missing.length?'\nFehlende Nachweise: '+r.missing.join(', '):'');}
 function draw(){
  if(!host)return;freshness();chart.replaceChildren();proofBox.replaceChildren();detail.textContent='Tippe auf einen Punkt oder öffne die Wertetabelle.';
@@ -77,8 +123,9 @@ function draw(){
   }
   svg.append(svgNode('text',{x:L,y:H-18,'font-size':12,fill:'#475569'},stamp(first)));
   if(last!==first)svg.append(svgNode('text',{x:W-R,y:H-18,'text-anchor':'end','font-size':12,fill:'#475569'},stamp(last)));
-  chart.append(svg);
+  markers(svg,changeEvents(study?.states?.[currency]?.history),first,last,x,T,H-B);chart.append(svg);
  }
+ evidenceNote(chart,evidenceStats(rows.map(r=>({...r,advantage:r.valid?r.chosen-r.alternative:null})),'advantage',mode==='exit'?14400000:3600000),'Auswahl minus beste Alternative (Prozentpunkte)');
  const tableDetails=node('details'),summary=node('summary','Alle Vergleichswerte anzeigen');tableDetails.append(summary);const wrap=node('div');wrap.style.overflowX='auto';const table=node('table');table.style.width='100%';const header=node('tr');for(const t of ['Start (Zürich)','Damals bevorzugt','Beste Alternative','Status'])header.append(node('th',t));const thead=node('thead');thead.append(header);table.append(thead);const body=node('tbody');
  for(const r of rows){const tr=node('tr');for(const t of [stamp(r.at),r.valid?r.chosenIsin+' · '+pct(r.chosen):'offen',r.valid?r.alternativeIsin+' · '+pct(r.alternative):'offen',r.status])tr.append(node('td',t));body.append(tr);}table.append(body);wrap.append(table);tableDetails.append(wrap);chart.append(tableDetails);
  const phases={selection:'Auswahl läuft',validation:'unabhängige Prüfung läuft',monitoring:'laufende Nachkontrolle',cooldown:'Grundrangfolge aktiv',paused:'pausiert'};
@@ -96,13 +143,15 @@ function draw(){
   }else card.append(node('p','Noch keine vollständigen Lerngruppen. Es wird keine Verbesserung dargestellt.'));
   proofBox.append(card);
  }
+ timeline(proofBox,study?.states?.[currency]?.history,rows,'chosen','Spätere Rendite der damaligen Auswahl (%)');
+ const bound=study?.states?.[currency]?.lowerBounds99?.stress;proofBox.append(node('p',finite(bound)?'Gespeicherte untere 99%-Schätzgrenze bei Übernahmeprüfung: '+bound.toFixed(3)+' Prozentpunkte. Gilt für diese damalige Prüfung, nicht automatisch für das aktuelle Fenster.':'Noch keine gespeicherte 99%-Schätzgrenze der Übernahmeprüfung.'));
  drawExtras();
 }
 function mount(panel){host=panel;const controls=node('div');controls.style.cssText='display:flex;gap:12px;flex-wrap:wrap;margin:12px 0';
  const cc=node('select');for(const v of ['EUR','CHF']){const opt=node('option',v+'-Produkte');opt.value=v;cc.append(opt);}cc.value=currency;cc.addEventListener('change',()=>{currency=cc.value;draw();});const cl=node('label','Produktwährung ');cl.append(cc);controls.append(cl);
  const md=node('select');for(const [v,t]of [['horizon','Nach 60 Minuten'],['exit','Mit Bobs Stopp- und Zielregeln']]){const opt=node('option',t);opt.value=v;md.append(opt);}md.value=mode;md.addEventListener('change',()=>{mode=md.value;draw();});const ml=node('label','Vergleich ');ml.append(md);controls.append(ml);
  const refresh=node('button','Aktualisieren');refresh.type='button';refresh.addEventListener('click',()=>doc.dispatchEvent(new Event('bob-diagrams-refresh')));controls.append(refresh);host.append(controls);
- status=node('p');status.setAttribute('role','status');host.append(status,node('h3','Titelvergleich · damalige Auswahl und Alternativen'));
+ summaryBox=node('section');summaryBox.setAttribute('aria-live','polite');host.append(summaryBox);status=node('p');status.setAttribute('role','status');host.append(status,node('h3','Titelvergleich · damalige Auswahl und Alternativen'));
  host.append(node('p','Blau: damals bevorzugtes Produkt. Orange: beste andere Alternative im Rückblick. Jeder Punkt ist ein eigener Vergleich; die Linien sind kein Kontostand und kein Kursverlauf. Fehlende Werte unterbrechen die Linien.'));
  host.append(node('p','Bruttorenditen aus beobachteten Geld-/Briefkursen, keine echten Ausführungen. Beim Bob-Ausstieg: jeweils 100 EUR inklusive Restgeld; CHF-Produkte werden dafür in EUR umgerechnet. Der spätere Gewinner war beim Einstieg nicht bekannt.'));
  counts=node('p');chart=node('div');detail=node('p');detail.style.whiteSpace='pre-line';detail.setAttribute('aria-live','polite');host.append(counts,chart,detail,node('h3','Optimierungsvergleich · Grundrangfolge und Kandidat'));
@@ -111,7 +160,7 @@ function mount(panel){host=panel;const controls=node('div');controls.style.cssTe
 function section(title,note){const box=node('section');box.style.cssText='margin:24px 0;padding-top:12px;border-top:1px solid #cbd5e1';box.append(node('h3',title),node('p',note));extraBox.append(box);return box;}
 function choose(box,label,values,current,onchange){const l=node('label',label+' '),select=node('select');for(const [value,text]of values){const option=node('option',text);option.value=value;select.append(option);}select.value=current;select.addEventListener('change',()=>onchange(select.value));l.append(select);box.append(l);}
 function table(box,headers,rows){const d=node('details'),wrap=node('div'),t=node('table'),head=node('tr');d.append(node('summary','Messwerte und Stichproben anzeigen'));wrap.style.overflowX='auto';t.style.width='100%';for(const h of headers)head.append(node('th',h));t.append(head);for(const r of rows){const tr=node('tr');for(const v of r)tr.append(node('td',String(v)));t.append(tr);}wrap.append(t);d.append(wrap);box.append(d);}
-function lineChart(box,rows,keys,unit,gap=7500000){
+function lineChart(box,rows,keys,unit,gap=7500000,events=[]){
  const usable=rows.filter(r=>finite(r.at)),values=usable.flatMap(r=>keys.map(([k])=>r[k])).filter(finite);
  if(!values.length){box.append(node('p','Noch keine auswertbaren Messwerte. Fehlende Nachweise werden nicht als null gewertet.'));return;}
  const low=Math.min(0,...values),high=Math.max(0,...values),pad=Math.max((high-low)*.08,.01),W=680,H=260,L=70,R=22,T=15,B=45;
@@ -121,7 +170,7 @@ function lineChart(box,rows,keys,unit,gap=7500000){
  for(const [key,label,color] of keys){let part=[],previous=null;const flush=()=>{if(part.length)svg.append(svgNode('polyline',{points:part.join(' '),fill:'none',stroke:color,'stroke-width':2}));part=[];};
   for(const r of usable){if(previous!==null&&r.at-previous>gap)flush();previous=r.at;if(!finite(r[key])){flush();continue;}part.push(x(r.at)+','+y(r[key]));const dot=svgNode('circle',{cx:x(r.at),cy:y(r[key]),r:3,fill:color});dot.append(svgNode('title',{},stamp(r.at)+' · '+label+' '+r[key].toFixed(3)+' '+unit));svg.append(dot);}flush();
  }
- svg.append(svgNode('text',{x:L,y:H-15,'font-size':12},stamp(first)),svgNode('text',{x:W-R,y:H-15,'text-anchor':'end','font-size':12},stamp(last)));const legend=node('p');for(const [,label,color] of keys){const item=node('span','● '+label+'  ');item.style.color=color;legend.append(item);}box.append(legend);box.append(svg,node('p',keys.map(k=>k[1]).join(' / ')+' · '+unit+' · '+usable.length+' gespeicherte Zeitpunkte; Lücken unterbrechen die Linien.'));
+ markers(svg,changeEvents(events),first,last,x,T,H-B);svg.append(svgNode('text',{x:L,y:H-15,'font-size':12},stamp(first)),svgNode('text',{x:W-R,y:H-15,'text-anchor':'end','font-size':12},stamp(last)));const legend=node('p');for(const [,label,color] of keys){const item=node('span','● '+label+'  ');item.style.color=color;legend.append(item);}box.append(legend);box.append(svg,node('p',keys.map(k=>k[1]).join(' / ')+' · '+unit+' · '+usable.length+' gespeicherte Zeitpunkte; Lücken unterbrechen die Linien.'));
  table(box,['Zeit (Zürich)',...keys.map(k=>k[1]+' ('+unit+')')],usable.map(r=>[stamp(r.at),...keys.map(([k])=>finite(r[k])?r[k].toFixed(3):'nicht belegt')]));
 }
 function bars(box,rows,unit){const valid=rows.filter(r=>finite(r.value));if(!valid.length){box.append(node('p','Noch keine auswertbaren Fälle.'));return;}
@@ -129,6 +178,48 @@ function bars(box,rows,unit){const valid=rows.filter(r=>finite(r.value));if(!val
  const svg=svgNode('svg',{viewBox:`0 0 ${W} ${H}`,role:'img','aria-label':'Vergleich in '+unit,style:'width:100%;height:auto;display:block'});
  svg.append(svgNode('line',{x1:x(0),x2:x(0),y1:5,y2:H,stroke:'#64748b'}));valid.forEach((r,i)=>{const y=10+i*48;svg.append(svgNode('text',{x:0,y:y+18,'font-size':12},r.label),svgNode('rect',{x:Math.min(x(0),x(r.value)),y,width:Math.max(1,Math.abs(x(r.value)-x(0))),height:25,fill:r.value<0?'#b45309':'#1d4ed8'}),svgNode('text',{x:W-3,y:y+18,'text-anchor':'end','font-size':13},r.value.toFixed(2)+' '+unit));});box.append(svg);
 }
+function drawOverview(){
+ if(!summaryBox)return;summaryBox.replaceChildren(node('h3','Auf einen Blick'));
+ summaryBox.style.cssText='padding:14px;margin:12px 0;background:#f1f5f9;border-radius:12px';
+ if(failed||received&&Date.now()-received>420000){summaryBox.append(node('p','Prüfstand veraltet oder nicht erreichbar. Eine aktuelle Verbesserung ist damit nicht bestätigt.'));return;}
+ const result=overview(study,audit,currency,mode);
+ for(const [key,label,empty]of [['better','Gemessen besser','Noch keine Verbesserung gemessen.'],['worse','Gemessen schlechter','Noch keine Verschlechterung gemessen; das ist kein Entwarnungsnachweis.'],['open','Noch offen','Keine offenen Vergleichsgruppen in dieser Auswahl.']]){
+  summaryBox.append(node('strong',label));const list=node('ul');for(const message of result[key].length?result[key].slice(0,3):[empty])list.append(node('li',message));summaryBox.append(list);if(result[key].length>3){const more=node('details');more.append(node('summary','Weitere '+(result[key].length-3)+' Hinweise'));const rest=node('ul');for(const message of result[key].slice(3))rest.append(node('li',message));more.append(rest);summaryBox.append(more);}
+ }
+ summaryBox.append(node('p','Die Aussagen betreffen die sichtbaren Prüffenster. Gemessene Unterschiede beweisen weder ihre Ursache noch zukünftige Gewinne.'));
+}
+function evidenceNote(box,e,label,observationsOnly=false){
+ const d=node('details');d.append(node('summary','Aussagekraft · '+(e.separated||0)+' zeitlich getrennte Werte · '+(e.days||0)+' Beobachtungstage'));
+ d.append(node('p',label+'. '+(e.samples??e.separated??0)+' auswertbare Werte; '+(e.selected??0)+' Zeitfenster ausgewählt, davon '+((e.selected??0)-(e.separated??0))+' ohne auswertbares Ergebnis. Die Auswahl der Zeitfenster erfolgt vor Prüfung des Ergebnisses.'));
+ d.append(node('p','Statistisch unabhängige Fälle: nicht belegbar. Zeitlicher Abstand reduziert Überschneidungen, schließt gemeinsame Markteinflüsse aber nicht aus.'));
+ d.append(node('p',observationsOnly?'Unsicherheit: aus Kapitalständen lässt sich keine verlässliche Erfolgsprognose ableiten.':e.interval?'Deskriptiver 95%-Schätzbereich des Mittelwerts: '+e.interval.low.toFixed(3)+' bis '+e.interval.high.toFixed(3)+'. Benachbarte Beobachtungstage werden gemeinsam neu gezogen; verbleibende Abhängigkeit und Mehrfachvergleiche können die Unsicherheit erhöhen. Kein Freigabekriterium.':'Unsicherheit noch nicht belastbar quantifizierbar: mindestens 20 zeitlich getrennte Werte an 10 Tagen erforderlich. Auch dann bleibt der Schätzbereich beschreibend.'));
+ box.append(d);
+}
+function eventReason(e){if(e.reason)return e.reason;return {adopted:'Die festgelegte spätere Prüfung wurde bestanden.',rollback:'Korrektur zurückgenommen; Einzelgrund nicht gespeichert.','automatic-rollback':'Automatische Nachkontrolle führte zur Rücknahme.',reset:'Messlücke; neue Datensammlung erforderlich.',frozen:'Kandidat vor der späteren Prüfung festgeschrieben.','candidate-frozen':'Kandidat vor der späteren Prüfung festgeschrieben.','monitor-passed':'Nachkontrolle bestanden.',rejected:'Prüfkriterien nicht erfüllt.','validation-rejected':'Spätere Prüfkriterien nicht erfüllt.','selection-rejected':'Auswahlkriterien nicht erfüllt.'}[e.event]||'Kein weiterer Einzelgrund gespeichert.';}
+function markers(svg,events,first,last,x,top,bottom){
+ events.filter(e=>e.at>=first&&e.at<=last).forEach(e=>{
+  const rollback=['rollback','automatic-rollback','reset'].includes(e.event),color=rollback?'#b91c1c':'#7c3aed';
+  const label=stamp(e.at)+' · '+eventNames[e.event]+' · '+eventReason(e);
+  const mark=svgNode('line',{x1:x(e.at),x2:x(e.at),y1:top,y2:bottom,stroke:color,'stroke-dasharray':'3 4','aria-label':label});mark.append(svgNode('title',{},label));svg.append(mark);
+ });
+}
+function timeline(box,rawEvents,rows,key,resultLabel){
+ const events=changeEvents(rawEvents),details=node('details');details.append(node('summary','Änderungen und spätere Ergebnisse · '+events.length+' gespeicherte Ereignisse'));
+ if(!events.length){details.append(node('p','Noch keine gespeicherten Änderungen für diese Auswahl.'));box.append(details);return;}
+ const first=events[0].at,last=events.at(-1).at,W=680,x=t=>30+(last===first?.5:(t-first)/(last-first))*620;
+ const svg=svgNode('svg',{viewBox:'0 0 680 90',role:'img','aria-label':'Zeitachse der gespeicherten Änderungen',style:'width:100%;height:auto;display:block'});
+ svg.append(svgNode('line',{x1:30,x2:650,y1:35,y2:35,stroke:'#64748b'}));markers(svg,events,first,last,x,10,55);
+ svg.append(svgNode('text',{x:30,y:80,'font-size':12},stamp(first)),svgNode('text',{x:650,y:80,'text-anchor':'end','font-size':12},stamp(last)));details.append(svg);
+ details.append(node('p','Gestrichelte Markierungen: Violett = Prüfung/Änderung, Rot = Rücknahme oder Messlücke. Details sind unten antippbar. Ereignishistorien und Messfenster sind begrenzt; keine vollständige Lebenszeithistorie. Spätere Ergebnisse zeigen einen zeitlichen Zusammenhang, keine bewiesene Ursache.'));
+ events.forEach((e,i)=>{const item=node('details');item.append(node('summary',stamp(e.at)+' · '+eventNames[e.event]),node('p',eventReason(e)));
+  const after=laterEvidence(events,i,rows,key);item.append(node('p',after.n?resultLabel+': '+after.mean.toFixed(3)+' · '+after.n+' vollständige Fälle nach dem Ereignis bis zur nächsten gespeicherten Änderung.':'Noch keine zugeordneten späteren Messwerte im verfügbaren Fenster. '+resultLabel));
+  const next=events[i+1];if(next&&['monitor-passed','rollback','automatic-rollback'].includes(next.event)&&next.evidence){const proof=next.evidence;item.append(node('p','Nächste gespeicherte Nachkontrolle am '+stamp(next.at)+': '+(proof.samples?proof.samples+' Fälle · Vorteil unter Kostenstress '+(finite(proof.scenarios?.stress?.improvementPct)?proof.scenarios.stress.improvementPct.toFixed(3)+' Prozentpunkte':'offen'):proof.count+' Kurswerte · Fehler vorher '+pct(proof.rawMaePct)+' / nachher '+pct(proof.correctedMaePct))));}
+  const proof=e.evidence;if(proof?.count)item.append(node('p','Beim Ereignis gespeicherte Kursprüfung: '+proof.count+' Werte · Fehler vorher '+pct(proof.rawMaePct)+' / nachher '+pct(proof.correctedMaePct)+'. Prüfmetrik relativ zum Rohmodell; nicht direkt mit dem Kursdiagramm-MAE gleichzusetzen.'));
+  if(proof?.samples)item.append(node('p','Beim Ereignis gespeicherte Prüfung: '+proof.samples+' Fälle an '+proof.days+' Tagen · Vorteil unter Kostenstress '+(finite(proof.scenarios?.stress?.improvementPct)?proof.scenarios.stress.improvementPct.toFixed(3)+' Prozentpunkte':'offen')));
+  details.append(item);
+ });box.append(details);
+}
+
 function drawExtras(){
  if(!extraBox)return;extraBox.replaceChildren();
  const accounts=portfolio?.realOrders===false?portfolio.accounts||[]:[];
@@ -139,27 +230,36 @@ function drawExtras(){
  choose(capital,'Testkonto',accounts.map(a=>[a.profile,a.title]),accountId,value=>{accountId=value;drawExtras();});
  lineChart(capital,cap,[['profit','Gewinn / Verlust','#1d4ed8']],'EUR',4*86400000);
  lineChart(capital,cap,[['percent','Rendite seit Kontostart','#1d4ed8']],'%',4*86400000);
+ evidenceNote(capital,evidenceStats(cap,'profit',86400000),'Kapitalstände sind Beobachtungen, keine unabhängigen Trades',true);
  const dd=section('Drawdown · Rückgang vom Höchststand','Blau: Rückgang gegenüber dem höchsten gespeicherten Tagesstand. Orange: bis dahin größter vom Hintergrundlauf beobachteter Rückgang. Tagespunkte können zwischenzeitliche Verluste auslassen; Datenlücken können weitere Tiefs verbergen.');
  lineChart(dd,cap,[['drawdown','Rückgang der Tagesstände','#1d4ed8'],['observedMax','Maximal beobachteter Rückgang','#b45309']],'%',4*86400000);
+ evidenceNote(dd,evidenceStats(cap,'drawdown',86400000),'Tagesstände; zwischenzeitliche Tiefs können fehlen',true);
  const price=section('Kursgenauigkeit · Original und Modell','Zeitlich passende Geldkurse derselben ISIN, Währung, Quelle und Modellidentität. Korrekturen werden nur auf späteren, noch nicht zur Anpassung verwendeten Messwerten gezeigt. Eine geprüfte Variante ist nicht automatisch aktiv.');
  const states=(audit?.precisionLearning?.states||[]).filter(s=>s.currency===currency);
  if(!states.some((s,i)=>String(i)===priceId))priceId=states.length?'0':'';
  choose(price,'Messreihe',states.map((s,i)=>[String(i),s.isin+' · '+s.source+' · Reihe '+(i+1)]),priceId,value=>{priceId=value;drawExtras();});
  const state=states[Number(priceId)],history=state?.chartHistory||[],errors=history.map(r=>({...r,rawError:r.original>0?(r.raw/r.original-1)*100:null,correctedError:r.original>0&&finite(r.corrected)?(r.corrected/r.original-1)*100:null}));
- lineChart(price,history,[['original','Originalkurs','#64748b'],['raw','Rohmodell','#1d4ed8'],['corrected','Vorab festgelegte Korrektur','#b45309']],currency,120000);
- lineChart(price,errors,[['rawError','Abweichung Rohmodell','#1d4ed8'],['correctedError','Abweichung Korrektur','#b45309']],'%',120000);
+ lineChart(price,history,[['original','Originalkurs','#64748b'],['raw','Rohmodell','#1d4ed8'],['corrected','Vorab festgelegte Korrektur','#b45309']],currency,120000,state?.events);
+ lineChart(price,errors,[['rawError','Abweichung Rohmodell','#1d4ed8'],['correctedError','Abweichung Korrektur','#b45309']],'%',120000,state?.events);
+ evidenceNote(price,evidenceStats(errors.map(r=>({...r,improvement:finite(r.correctedError)&&finite(r.rawError)?Math.abs(r.rawError)-Math.abs(r.correctedError):null})),'improvement',300000),'Verringerung des Kursfehlers (Prozentpunkte)');
+ timeline(price,state?.events,errors,'correctedError','Spätere gerichtete Kursabweichung (%)');
+ if(finite(state?.lowerBound99Pct))price.append(node('p','Untere 99%-Schätzgrenze der gespeicherten späteren Kursprüfung: '+state.lowerBound99Pct.toFixed(3)+' Prozentpunkte in der Prüfmetrik relativ zum Rohmodell. Diese historische Prüfung ist keine aktuelle Freigabe.'));
  const paired=errors.filter(r=>finite(r.rawError)&&finite(r.correctedError)),mae=k=>paired.length?paired.reduce((v,r)=>v+Math.abs(r[k]),0)/paired.length:null;
  price.append(node('p',history.length+' von maximal 240 jüngsten Messwerten dieser Identität · '+paired.length+' spätere Korrekturvergleiche · mittlere absolute Abweichung auf denselben Fällen: vorher '+pct(mae('rawError'))+' / nachher '+pct(mae('correctedError'))+' · letzte Messung '+(history.length?stamp(history.at(-1).at):'offen')+' · aktuell '+(state?.usable?'Korrektur aktiv':'Rohmodell aktiv')));
  const stops=section('Stoppvergleich · ursprünglicher Plan und Bob','Neue parallele Simulationen mit je 100 EUR: unveränderter ursprünglicher Stopp und Ziel gegen Bobs Teilgewinn- und Stoppverwaltung. Beide mit denselben KO-, Kurslücken- und Zeitgrenzen. Brutto, keine echten Ausführungen.');
  const sr=stopRows(study,currency);lineChart(stops,sr,[['fixed','Ursprünglicher Plan','#64748b'],['bob','Bob-Ausstieg','#1d4ed8']],'%',7500000);
  lineChart(stops,sr,[['giveback','Vom beobachteten Buchgewinn wieder abgegeben','#b45309']],'Prozentpunkte',7500000);
+ evidenceNote(stops,evidenceStats(sr.map(r=>({...r,delta:finite(r.bob)&&finite(r.fixed)?r.bob-r.fixed:null})),'delta',14400000),'Bob minus ursprünglicher Plan (Prozentpunkte)');
  stops.append(node('p',sr.filter(r=>finite(r.bob)).length+' vollständig gepaarte von '+sr.length+' Gruppen. Frühere Gruppen ohne parallelen Originalplan bleiben offen. Buchgewinnspitzen sind beobachtete Stichproben, keine garantierten Ausstiegskurse.'));
  const regimes=section('Marktphasen · LONG und SHORT','Beim Einstieg festgehaltene Phase, getrennt nach Richtung und Produktwährung. Durchschnittliche Rendite der damaligen Auswahl; nur vollständige Gruppen. Keine nachträgliche Umklassifizierung.');
  const names={'strong-trend':'Trend',sideways:'Seitwärts',transition:'Übergang',unknown:'unbekannt',high:'hoch',normal:'normal',low:'niedrig'};
  const rr=regimeRows(study,currency,mode).map(g=>({...g,label:g.label.split(' · ').map(k=>names[k]||k).join(' · ')}));bars(regimes,rr,'%');table(regimes,['Phase / Richtung','vollständig / erfasst','mittlere Rendite'],rr.map(r=>[r.label,r.n+' / '+r.total,pct(r.value)]));
+ for(const r of rr)evidenceNote(regimes,r.evidence,r.label+' · Rendite der zeitlich getrennten Fälle (%)');
  const signals=section('Signalqualität · 15, 60 und 240 Minuten','Spätere Goldbewegung in Signalrichtung. Trefferquote und mittlere Bewegung gemeinsam betrachten. ABWARTEN ist keine Fehlprognose. Keine Produktrendite und keine Berücksichtigung von Handelskosten; überlappende Signale sind keine unabhängigen Versuche.');
  const sig=signalRows(audit?.metrics);signals.append(node('p',(audit?.scope||'Zeitraum noch nicht verfügbar.')+(finite(audit?.signalChartScope?.firstAt)?' · Beobachtungen '+stamp(audit.signalChartScope.firstAt)+' bis '+stamp(audit.signalChartScope.lastAt):'')));
  bars(signals,sig.map(r=>({...r,value:r.hit})),'% Treffer');bars(signals,sig.map(r=>({...r,value:r.mean})),'% Bewegung');
+ for(const h of ['15','60','240']){const e=audit?.signalChartEvidence?.[h];if(e)evidenceNote(signals,{...e,interval:uncertainty(e.blocks)},h+' Minuten: mittlere Goldbewegung der zeitlich getrennten Teilstichprobe (%)');}
+ timeline(signals,audit?.ruleLearning?.history,[],'value','Spätere Ergebnisse nicht einzeln zugeordnet; Prüfstände stehen im Lernbereich.');
  table(signals,['Horizont','Fälle','offen / fehlend','ABWARTEN','Trefferquote','mittlere Bewegung'],sig.map(r=>[r.label,r.n,r.missing,r.neutral,pct(r.hit),pct(r.mean)]));
 }
 
