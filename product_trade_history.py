@@ -108,7 +108,9 @@ def read(conn, trade_id, limit=400):
         FROM bob_real_trade_price_curve
         WHERE trade_id=%s AND spot_at>=now()-interval '7 days'
         ORDER BY spot_at DESC LIMIT %s''', (trade_id, min(400,max(1,limit)))).fetchall()
+    import product_comparison_worker
     return {'tradeId':trade_id,
+            'comparisons':product_comparison_worker.read(conn,trade_id),
             'rows':[dict(at=int(recorded.timestamp()*1000),
                          sourceAt=int(spot.timestamp()*1000),
                          price=price,kind='model',currency=currency,

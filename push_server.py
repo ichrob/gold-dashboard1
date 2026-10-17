@@ -884,6 +884,8 @@ class Handler(BaseHTTPRequestHandler):
                 bundle=payload.get('bundle') or {}
                 import trade_auto_monitor
                 trade_auto_monitor.enqueue(db,bundle)
+                import product_comparison_worker
+                product_comparison_worker.enqueue(db,bundle)
                 paper_simulation.enqueue(bundle,db)
                 manual_paper_watch.enqueue(db)
                 sent = run_background(bundle)

@@ -17,6 +17,8 @@ def init(conn):
       dedup TEXT UNIQUE NOT NULL, payload JSONB NOT NULL)''')
     conn.execute('CREATE INDEX IF NOT EXISTS bob_real_trade_events_trade ON bob_real_trade_events(trade_id,seq)')
     product_trade_history.init(conn)
+    import product_comparison_worker
+    product_comparison_worker.init(conn)
 
 def event(conn,trade_id,kind,payload,key=None):
     if not trade_id:return

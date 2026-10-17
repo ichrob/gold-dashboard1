@@ -26,7 +26,7 @@ class ComdirectQuoteTests(unittest.TestCase):
         from degiro_product_audit import _backup_pair
         isin = 'DE000PJ9NB98'
         html = HTML.replace(ISIN, isin).replace(ISIN[5:11], isin[5:11]).replace('Société Générale', 'BNP Paribas').replace('LT Societe Generale', 'LT BNP Paribas')
-        pair = q.parse_page(html, isin)
+        pair = q.parse_page(html, isin, self.now)
         self.assertEqual(pair['source'], 'comdirect · BNP LiveTrading')
         self.assertEqual(pair['upstream'], 'BNP')
         primary = dict(isin=isin, productVerified=True, found=True, eligible=False,
@@ -52,7 +52,7 @@ class ComdirectQuoteTests(unittest.TestCase):
                        dict(currency='CHF'), dict(metadata=dict(status=2))):
             self.assertIsNone(_backup_pair(dict(out, **change), isin, self.now.timestamp()*1000))
         with self.assertRaises(ValueError):
-            q.parse_page(html.replace('LT BNP Paribas', 'LT Societe Generale'), isin)
+            q.parse_page(html.replace('LT BNP Paribas', 'LT Societe Generale'), isin, self.now)
 
     def test_currency_treatment_requires_explicit_matched_field(self):
         from comdirect_fields import parse_page

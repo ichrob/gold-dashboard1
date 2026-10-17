@@ -40,12 +40,12 @@ class SourceRefreshTests(unittest.TestCase):
         self.assertAlmostEqual(raw['calculatedProduct']['askEur'],13.32)
 
     def test_fields_are_harvested_before_issuer_slot_becomes_available(self):
-        from test_comdirect_fields import HTML, ISIN as isin
+        from test_comdirect_fields import HTML, ISIN as isin, NOW as fixture_now
         raw={'isin':isin,'sourceDisabled':False}
         import comdirect_fields
         # Use parser-owned observations; no identity or source clock invented.
         html=HTML
-        fields=comdirect_fields.parse_page(html,isin)
+        fields=comdirect_fields.parse_page(html,isin,fixture_now)
         with patch.object(sim,'_pool',Mock()), patch.object(sim,'_pending',{str(i):Future() for i in range(4)}), \
              patch.object(sim,'_quotes',{isin:raw}), patch.object(sim,'_requested',{}), \
              patch('comdirect_quotes.get_observation',return_value={'state':'observed','fields':fields}), \
