@@ -933,6 +933,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  }
 
  function renderEnhancements(box,item,url){
+  if(window.BobVideoBrief){window.BobVideoBrief.render(box,item);window.BobVideoOCR?.render(box,item);return;}
   window.BobVideoOCR?.render(box,item);
   const extra=item.enhancements;
   const frames=(extra.frames||[]).filter(f=>typeof f.dataUrl==='string'&&/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(f.dataUrl)&&f.dataUrl.length<140000&&Number.isFinite(f.at)&&f.at>=0&&f.at<=86400).slice(0,5);
@@ -1151,7 +1152,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <script src="/product_trade_curve.js?v=20261016-trade-v3"></script>
 <script src="/real_trade_journal.js"></script>
 <script src="/video_evidence.js?v=2"></script>
-<script src="/video_ocr.js?v=3"></script>
+<script src="/video_brief.js?v=1"></script>
+<script src="/video_ocr.js?v=4"></script>
 <script src="/mco_comparison.js?v=3"></script>
 <script src="/comparison_diagrams.js?v=2"></script>
 <section class="card" id="realTradeJournal">

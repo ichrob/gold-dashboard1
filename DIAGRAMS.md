@@ -191,3 +191,15 @@ the exact OCR/parser/evaluation code fingerprint. A contrast candidate must redu
 errors on BOTH sets without extra false readings or lost correct values; otherwise
 the existing profile stays active. CI repeats the real image benchmark and checks
 its recorded result, along with the real video extraction and timed-refresh test.
+
+## Illustrated MCO explanation
+The research view and comparison view now put full, uncropped stills beside the
+matching caption-based explanation. AI summaries retain their source passages;
+without AI, exact source sentences are shown and clearly labeled. Covers and
+frames more than 15 seconds away cannot illustrate a statement. Missing images
+remain explicit. Matching words/numbers only establish plausibility, not proof.
+Images open in a keyboard-accessible dialog with full-image fit and 2x scrolling.
+Detected Futures/COMEX labels warn against direct Spot comparison; OCR readings
+and contract identity remain unverified. No chart values are fabricated, no new
+video access is claimed, and the upload/refresh controls update the illustrated
+view when actual frames become available. No paid API or hosting changes.

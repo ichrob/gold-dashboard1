@@ -1,0 +1,10 @@
+const assert=require('node:assert/strict'),{sections,choose,market}=require('./video_brief.js');
+const frame={at:30,dataUrl:'data:image/jpeg;base64,'+'a'.repeat(200)};
+const item={overview:{evidence:[{id:'e1',at:30,text:'If support holds, the scenario remains possible.'}],sections:[{label:'Bedingung',evidenceIds:['e1']},{label:'Wiederholung',evidenceIds:['e1']}]},enhancements:{frames:[{...frame,isCover:true},frame,{...frame,at:90}],ocr:{images:[]}}};
+assert.equal(sections(item).length,1);assert.equal(sections(item)[0].kind,'quote');assert.equal(choose(item,sections(item)[0]).index,1);
+assert.equal(choose(item,{evidence:[{at:150}]}),null);
+assert.equal(market({lines:[{text:'Gold Futures 1h COMEX GC1!'}]}),'future');
+assert.equal(market({lines:[{text:'XAU/USD 15m'}]}),'xau');
+assert.equal(market({lines:[]}),'unknown');
+assert.equal(sections({enhancements:{summary:{kind:'ai',sections:[{text:'Unbelegte Behauptung',evidence:[]}]}}}).length,0);
+console.log('Illustrated summary: caption evidence, cover/time exclusion and Futures label passed');

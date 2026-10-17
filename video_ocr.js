@@ -6,7 +6,7 @@ const d=root.document,el=(t,s)=>{const n=d.createElement(t);if(s!==undefined)n.t
 function render(host,item,withControls=true){
  if(withControls&&root.BobVideoEvidence){
   const display=el('div');host.append(display);render(display,item,false);
-  root.BobVideoEvidence.controls(host,item,result=>{item.enhancements={...item.enhancements,...result};display.replaceChildren();render(display,item,false);});return;
+  root.BobVideoEvidence.controls(host,item,result=>{item.enhancements={...item.enhancements,...result};display.replaceChildren();render(display,item,false);root.BobVideoBrief?.update(item);});return;
  }
  const result=item.enhancements?.ocr,frames=item.enhancements?.frames||[],box=el('details');box.append(el('summary','Automatisch gelesene Videobilder · kostenlose OCR'));
  const labels={pending:'Hintergrundprüfung steht aus',error:'Lesung fehlgeschlagen; automatische Wiederholung frühestens nach 24 Stunden',unavailable:'Ergebnis derzeit nicht abrufbar','no-timed-images':'Keine zeitlich zugeordneten Videobilder verfügbar',complete:'Vorhandene Videobilder geprüft'};
