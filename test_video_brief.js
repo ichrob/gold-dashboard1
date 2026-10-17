@@ -8,3 +8,8 @@ assert.equal(market({lines:[{text:'XAU/USD 15m'}]}),'xau');
 assert.equal(market({lines:[]}),'unknown');
 assert.equal(sections({enhancements:{summary:{kind:'ai',sections:[{text:'Unbelegte Behauptung',evidence:[]}]}}}).length,0);
 console.log('Illustrated summary: caption evidence, cover/time exclusion and Futures label passed');
+
+const manual={...frame,at:120,sourceKind:'screenshot',sectionAt:30};
+item.enhancements.frames.push(manual);
+assert.equal(choose(item,sections(item)[0]).frame,manual);
+assert.equal(choose(item,{evidence:[{at:120}]}),null);
