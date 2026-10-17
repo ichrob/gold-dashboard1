@@ -18,3 +18,17 @@ class ContextTests(unittest.TestCase):
         c=m.context([dict(at=42,text='Heute Gold 61,8 Prozent bei 4200 Dollar.')],42)
         self.assertIsNone(c['analysisAt']);self.assertIsNone(c['instrument']);self.assertIsNone(c['timeframe'])
         self.assertIsNone(m.context([dict(at=0,text='Stand: 2026-10-17 10:00 UTC.')],200)['analysisAt'])
+
+class CurrentQuoteTests(unittest.TestCase):
+    def test_current_gold_not_fibonacci_target(self):
+        c=m.context([dict(at=4,text='XAU/USD 15 Minuten. Gold notiert aktuell bei 4.200,50 Dollar. Fibonacci 61,8 Prozent bei 4100 Dollar.')],4)
+        self.assertEqual(c['currentGoldQuote']['price'],4200.5)
+        self.assertEqual(c['currentGoldQuote']['tolerance'],.005)
+    def test_only_actual_quote_and_one_price(self):
+        for text in ['Fibonacci 61,8 Prozent bei 4200 Dollar.', 'Wenn Gold steht bei 4200 Dollar, kaufen wir.', 'Gold is currently trading at 4200 USD. Gold is trading at 4300 USD.']:
+            self.assertNotIn('currentGoldQuote',m.context([dict(at=0,text=text)],0))
+    def test_english_quote_and_date_without_time(self):
+        c=m.context([dict(at=0,text='2026-10-16. Gold is currently trading at 4,200.25 USD.')],0)
+        self.assertEqual(c['currentGoldQuote']['price'],4200.25)
+        self.assertEqual(c['analysisDay'],'2026-10-16')
+        self.assertIsNone(c['analysisAt'])

@@ -20,3 +20,25 @@ assert(!fn(bars.map(b=>({...b,observedOnly:true})),at,'15m').available);
 assert(!fn(bars.map(b=>({...b,instrument:'GC=F'})),at,'15m').available);
 assert(!fn(bars.slice(0,10),at,'15m').available);
 console.log('MCO comparison: signed delta, matching evidence, historical filtering and gaps verified');
+{
+const {estimateTime}=require('./mco_comparison.js');
+const quote={price:4200,tolerance:.5},end=at,oneMinute=60000;
+const observed=[0,1,2,3,4].map(i=>({openTime:end-(5-i)*oneMinute,instrument:'XAU/USD',isOpen:false,open:4100,high:4105,low:4095,close:4101}));
+observed[2]={...observed[2],open:4199,high:4201,low:4198,close:4200};
+const uncertain={instrument:'XAU/USD',currency:'USD',timeframe:'15m',currentGoldQuote:quote};
+const pub={...item,publishedAt:end/1000};
+let est=estimateTime(uncertain,pub,[{'1m':observed}],end+1);
+assert.equal(est.kind,'estimated');assert.equal(est.at,end-2.5*oneMinute);assert.equal(est.ranges.length,1);assert(est.coverage<.01);
+assert.equal(estimateTime({...uncertain,timeConflict:true},pub,[{'1m':observed}],end+1).kind,'unavailable');
+assert.equal(estimateTime(uncertain,item,[{'1m':observed}],end+1).kind,'unavailable');
+assert.equal(estimateTime({...uncertain,currentGoldQuote:null},pub,[{'1m':observed}],end+1).kind,'unavailable');
+const repeated=observed.map(b=>({...b}));repeated[4]={...repeated[4],open:4199,high:4201,low:4198,close:4200};
+assert.equal(estimateTime(uncertain,pub,[{'1m':repeated}],end+1).kind,'ambiguous');
+assert.equal(estimateTime(uncertain,pub,[{'1m':observed.map(b=>({...b,observedOnly:true}))}],end+1).kind,'unavailable');
+const future=observed.map(b=>({...b,openTime:b.openTime+10*oneMinute}));assert.equal(estimateTime(uncertain,pub,[{'1m':future}],end+1).kind,'unavailable');
+// A confirmed time always wins, even when the price points to another time.
+const confirmed=compare({...pub,mcoFibonacci:[{...mark,comparisonContext:{...ctx,currentGoldQuote:quote}}]},[{'1m':observed}],calc,end+1)[0];assert.equal(confirmed.timing.kind,'confirmed');assert.equal(confirmed.context.analysisAt,at);
+const estimated=compare({...pub,mcoFibonacci:[{...mark,comparisonContext:uncertain}]},[{'1m':observed}],(bars,t)=>({available:true,levels:{r618:4020},goldPrice:4200}),end+1)[0];assert.equal(estimated.timing.kind,'estimated');assert.equal(estimated.percent,.5);
+console.log('Estimated time: original-time priority, repeated-price ambiguity, provenance and future exclusion verified');
+
+}

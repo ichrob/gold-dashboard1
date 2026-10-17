@@ -22,4 +22,27 @@ def context(segments, at):
     result={'analysisAt':None,'timeframe':next(iter(frames)) if len(frames)==1 else None,
             'instrument':'XAU/USD' if spot and not conflict else None,'currency':'USD' if spot and not conflict else None}
     if len({s[0] for s in stamps})==1:result.update(analysisAt=stamps[0][0],timeEvidence=stamps[0][1])
+    result['timeConflict']=len({s[0] for s in stamps})>1
+    dates=set()
+    for raw in re.findall(r'\b(?:\d{4}-\d{2}-\d{2}|\d{2}\.\d{2}\.\d{4})\b',text):
+        try:dates.add(datetime.strptime(raw,'%Y-%m-%d' if '-' in raw else '%d.%m.%Y').strftime('%Y-%m-%d'))
+        except ValueError:pass
+    if len(dates)==1:result['analysisDay']=next(iter(dates))
+    quotes=[]
+    price=r'([1-9]\d{3,4}(?:[.,]\d{1,2})?|[1-9]\d?[.,]\d{3}(?:[.,]\d{1,2})?)'
+    pattern=r'\b(?:Gold|XAU\s*/?\s*USD)(?:preis)?\s+(?:(?:notiert|steht|handelt)(?:\s+(?:aktuell|jetzt|gerade))?\s+bei|(?:is\s+)?(?:currently\s+)?trading\s+at)\s*\$?\s*'+price+r'(?![\d.,])'
+    for segment in segments:
+        if not isinstance(segment.get('at'),(int,float)) or abs(segment['at']-at)>90:continue
+        for sentence in re.split(r'(?<=[!?])\s+|(?<=\.)\s+(?=[A-Z])',segment.get('text','')):
+            if re.search(r'\b(?:wenn|falls|if|could|würde|wäre|ziel|target|gestern|yesterday)\b',sentence,re.I):continue
+            for match in re.finditer(pattern,sentence,re.I):
+                raw=match[1]
+                if re.fullmatch(r'\d{1,2}[.,]\d{3}(?:[.,]\d{1,2})?',raw):
+                    index=next(i for i,c in enumerate(raw) if c in '.,');raw=raw[:index]+raw[index+1:]
+                raw=raw.replace(',','.')
+                value=float(raw)
+                if 500<=value<=25000:
+                    decimals=len(raw.split('.')[1]) if '.' in raw else 0
+                    quotes.append(dict(price=value,tolerance=0.5*10**(-decimals),at=segment['at'],evidence=match[0][:200]))
+    if len({q['price'] for q in quotes})==1:result['currentGoldQuote']=quotes[0]
     return result
