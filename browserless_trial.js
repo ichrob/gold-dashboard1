@@ -7,7 +7,23 @@ export default async ({ page, context }) => {
       window.ytInitialPlayerResponse?.videoDetails?.videoId ||
       document.querySelector('meta[itemprop="videoId"]')?.content || '';
   };
-  const reply=(status)=>({data:{videoId,status,frames:status==='captured'?frames:[]},type:'application/json'});
+  const reply=async(status)=>{
+    let diagnostic={};
+    try {
+      const host=new URL(page.url()).hostname;
+      if(['www.youtube.com','consent.youtube.com','www.youtube-nocookie.com'].includes(host)) {
+        diagnostic=await page.evaluate(()=>{
+          const p=document.querySelector('#movie_player'),v=document.querySelector('video');
+          return {title:document.title.slice(0,160),text:(document.body?.innerText||'').slice(0,1400),
+            player:!!p,method:typeof p?.getVideoData,videos:document.querySelectorAll('video').length,
+            ready:v?.readyState??-1,paused:v?.paused??true,
+            initial:typeof window.ytInitialPlayerResponse,frames:document.querySelectorAll('iframe').length};
+        });
+        diagnostic.host=host;
+      }
+    } catch {}
+    return {data:{videoId,status,diagnostic,frames:status==='captured'?frames:[]},type:'application/json'};
+  };
   if (!/^[A-Za-z0-9_-]{11}$/.test(videoId) || !Array.isArray(moments) || moments.length > 3) return reply('identity-unconfirmed');
   await page.setViewport({width:800,height:600});
   page.setDefaultTimeout(10000);
