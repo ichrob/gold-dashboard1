@@ -945,7 +945,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    img.loading='lazy';img.style.cssText='display:block;width:100%;max-width:480px;height:auto;border-radius:8px';
    const at=Math.floor(frame.at),target=new URL(url),link=node('a','Originalvideo ca. '+Math.floor(at/60)+':'+String(at%60).padStart(2,'0'));
    target.searchParams.set('t',String(at));link.href=target.href;link.target='_blank';link.rel='noopener noreferrer';
-   const description=frame.isCover?'Original-YouTube-Titelbild · nicht aus einer bestimmten Videostelle · kein Beleg für eingeblendete Chartwerte.':'Näherungsweise Videostelle · '+(notes.has(index)?'KI-Bildeindruck: '+notes.get(index).label+' (nicht verifiziert). ':'')+'Niedrig aufgelöste Vorschau, keine bestätigten Chartzahlen.';
+   const description=frame.userProvided?'Bild aus einer vom Nutzer zugeordneten Videodatei · Videoidentität und Chartwerte nicht automatisch bestätigt.':frame.isCover?'Original-YouTube-Titelbild · nicht aus einer bestimmten Videostelle · kein Beleg für eingeblendete Chartwerte.':'Näherungsweise Videostelle · '+(notes.has(index)?'KI-Bildeindruck: '+notes.get(index).label+' (nicht verifiziert). ':'')+'Niedrig aufgelöste Vorschau, keine bestätigten Chartzahlen.';
    figure.style.cssText='margin:12px 0;padding:10px;border:1px solid #e5e9ef;border-radius:12px';
    if(frame.isCover){link.textContent='Originalvideo auf YouTube öffnen';target.searchParams.delete('t');link.href=target.href;}
    figure.append(img,node('figcaption',description),link);
@@ -1150,7 +1150,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <script src="/bob_stop_assistant.js?v=20261016-chf-v1"></script>
 <script src="/product_trade_curve.js?v=20261016-trade-v3"></script>
 <script src="/real_trade_journal.js"></script>
-<script src="/video_ocr.js?v=1"></script>
+<script src="/video_evidence.js?v=1"></script>
+<script src="/video_ocr.js?v=2"></script>
 <script src="/mco_comparison.js?v=2"></script>
 <script src="/comparison_diagrams.js?v=2"></script>
 <section class="card" id="realTradeJournal">

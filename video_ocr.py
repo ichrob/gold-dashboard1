@@ -9,7 +9,7 @@ import re
 import subprocess
 import sys
 import time
-VERSION='rapidocr-local-v1'
+VERSION='rapidocr-local-v2'
 
 
 def init(conn):
@@ -34,6 +34,33 @@ def lines_checked(rows,width,height,scale):
                               bounds=[round(left,1),round(top,1),round(right-left,1),round(bottom-top,1)],verified=False))
         except (ValueError,TypeError,IndexError):continue
     return lines
+
+
+def compare_images(images,frames):
+    """Agreement is a reading aid, never a verification or independent market quote."""
+    for image in images:
+        for line in image.get('lines',[]):
+            if not line.get('numeric'):continue
+            text=line['text'].lower()
+            label=re.sub(r'\d+(?:[.,]\d+)*',' # ',text)
+            label=re.sub(r'\s+',' ',label).strip()
+            if not re.search(r'[a-zäöü]{2}',label):continue
+            values=re.findall(r'\d+(?:[.,]\d+)*',text)
+            agreeing=set();conflicts=set()
+            for other in images:
+                if other['index']==image['index'] or not 0<abs(other['at']-image['at'])<=10:continue
+                if frames[other['index']].get('dataUrl')==frames[image['index']].get('dataUrl'):continue
+                for candidate in other.get('lines',[]):
+                    key=re.sub(r'\s+',' ',re.sub(r'\d+(?:[.,]\d+)*',' # ',candidate['text'].lower())).strip()
+                    if key!=label:continue
+                    a=line['bounds'];b=candidate['bounds']
+                    if abs(a[0]/image['width']-b[0]/other['width'])>.05 or abs(a[1]/image['height']-b[1]/other['height'])>.05:continue
+                    if re.findall(r'\d+(?:[.,]\d+)*',candidate['text'])==values:agreeing.add(other['index'])
+                    else:conflicts.add(other['index'])
+            line['agreementCount']=len(agreeing)+1
+            line['readingStatus']='conflict' if conflicts else 'repeated' if agreeing else 'single'
+            line['verified']=False
+    return images
 
 
 def recognize(frames):
@@ -62,6 +89,7 @@ def recognize(frames):
             lines=lines_checked(rows,width,height,scale)
             images.append(dict(index=index,at=at,status='read' if lines else 'unreadable',lines=lines,width=width,height=height))
         except (OSError,ValueError):images.append(dict(index=index,at=at,status='unreadable',lines=[]))
+    compare_images(images,frames)
     return dict(status='complete' if images else 'no-timed-images',engine=VERSION,images=images,
                 note='Lokale OCR ohne API-Gebühr. Bildlesungen sind ungeprüft; Erkennungswerte sind keine Genauigkeitsgarantie. Storyboard-Videostellen sind angenähert, keine Marktzeitpunkte.')
 
