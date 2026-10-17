@@ -85,5 +85,17 @@ class RepairPersistenceTests(unittest.TestCase):
                 conn.execute("UPDATE bob_test_repairs SET status='escalated' WHERE kind='signal'")
                 repair.tick(conn,now+3*repair.INTERVAL)
                 self.assertEqual(repair.report(conn)['counts']['recovered'],1)
+                # Bounded pages must eventually discover the entire older archive.
+                conn.execute('DELETE FROM bob_test_repairs')
+                conn.execute('DELETE FROM bob_decision_outcomes')
+                conn.execute('DELETE FROM bob_decision_audit')
+                old=now-300*60000
+                for i in range(300):
+                    conn.execute('INSERT INTO bob_decision_audit VALUES(%s,to_timestamp(%s/1000.0),%s::jsonb)',
+                                 ('page-%04d'%i,old,json.dumps(dict(recordedAt=old,marketEvaluable=True))))
+                for _ in range(3):repair.discover(conn,now)
+                self.assertEqual(conn.execute("SELECT count(*) FROM bob_test_repairs WHERE kind='signal'").fetchone()[0],900)
+                self.assertIsNone(conn.execute('SELECT signal_cursor FROM bob_test_repair_control WHERE id=1').fetchone()[0])
+                repair.init(conn)  # Migration remains idempotent after adding cursor.
             finally:
                 conn.rollback();conn.execute(sql.SQL('DROP SCHEMA IF EXISTS {} CASCADE').format(sql.Identifier(schema)))

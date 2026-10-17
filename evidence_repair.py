@@ -8,7 +8,8 @@ MAX_ATTEMPTS=3
 
 def init(conn):
     conn.execute('CREATE TABLE IF NOT EXISTS bob_test_repair_control (id INTEGER PRIMARY KEY,last_at BIGINT)')
-    conn.execute('INSERT INTO bob_test_repair_control VALUES(1,NULL) ON CONFLICT DO NOTHING')
+    conn.execute('INSERT INTO bob_test_repair_control(id,last_at) VALUES(1,NULL) ON CONFLICT DO NOTHING')
+    conn.execute('ALTER TABLE bob_test_repair_control ADD COLUMN IF NOT EXISTS signal_cursor TEXT')
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_test_repairs (
       id TEXT PRIMARY KEY,kind TEXT NOT NULL,ref JSONB NOT NULL,
       status TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,
@@ -41,17 +42,23 @@ def discover(conn,now):
         enqueue(conn,'exit:'+currency+':'+str(slot),'exit',dict(currency=currency,slot=slot),
             dict(type='Ausstiegs-/Stoppvergleich',at=slot,currency=currency,
                  reasons=list(dict.fromkeys(result.get('missing',[])+(result.get('stopComparison') or {}).get('missing',[])))),now)
-    rows=conn.execute('''SELECT a.id,a.payload,h.minutes FROM bob_decision_audit a
-      CROSS JOIN (VALUES(15),(60),(240)) h(minutes)
-      LEFT JOIN bob_decision_outcomes o ON o.decision_id=a.id AND o.horizon=h.minutes
-      WHERE a.recorded_at < to_timestamp(%s/1000.0)-(h.minutes+1)*interval '1 minute'
-      AND (o.truth IS NULL OR a.payload->>'marketEvaluable'='false')
-      AND NOT EXISTS(SELECT 1 FROM bob_test_repairs r WHERE r.id='signal:'||a.id||':'||h.minutes)
-      ORDER BY a.recorded_at DESC LIMIT 48''',(now,)).fetchall()
-    for key,row,horizon in rows:
-        enqueue(conn,'signal:'+key+':'+str(horizon),'signal',dict(decision=key,horizon=horizon),
-            dict(type='Signalprüfung · '+str(horizon)+' Minuten',at=row.get('recordedAt'),currency='',
-                 reasons=['invalidStart' if not row.get('marketEvaluable') else 'missingFollowup']),now)
+    # Primary-key pagination bounds work before inspecting outcomes. A persistent
+    # cursor covers the older archive; recent mature decisions get a fast lane.
+    cursor=conn.execute('SELECT signal_cursor FROM bob_test_repair_control WHERE id=1').fetchone()[0]
+    page=conn.execute('SELECT id,payload,extract(epoch from recorded_at)*1000 FROM bob_decision_audit WHERE id>%s ORDER BY id LIMIT 128',
+                      (cursor or '',)).fetchall()
+    conn.execute('UPDATE bob_test_repair_control SET signal_cursor=%s WHERE id=1',
+                 (page[-1][0] if len(page)==128 else None,))
+    recent=conn.execute("SELECT id,payload,extract(epoch from recorded_at)*1000 FROM bob_decision_audit WHERE recorded_at<to_timestamp(%s/1000.0)-interval '16 minutes' ORDER BY recorded_at DESC LIMIT 32",(now,)).fetchall()
+    records={r[0]:r for r in [*page,*recent]}
+    for key,row,recorded_at in records.values():
+        stored=dict(conn.execute('SELECT horizon,truth FROM bob_decision_outcomes WHERE decision_id=%s',(key,)).fetchall())
+        for horizon in (15,60,240):
+            if float(recorded_at)+(horizon+1)*60000>=now:continue
+            if stored.get(horizon) is not None and row.get('marketEvaluable'):continue
+            enqueue(conn,'signal:'+key+':'+str(horizon),'signal',dict(decision=key,horizon=horizon),
+                dict(type='Signalprüfung · '+str(horizon)+' Minuten',at=row.get('recordedAt'),currency='',
+                     reasons=['invalidStart' if not row.get('marketEvaluable') else 'missingFollowup']),now)
 
 
 def retry_signal(conn,ref):
@@ -129,12 +136,15 @@ ACTIONS={'signal':'Archiv-Folgekurs nachladen, Ergebnis nachberechnen und verifi
 def reconcile(conn,now):
     """A later normal backfill can resolve an escalated signal; absence cannot."""
     import decision_audit as audit
-    rows=conn.execute('''SELECT r.id,r.payload,a.payload,o.truth,(r.ref->>'horizon')::integer
-      FROM bob_test_repairs r
-      JOIN bob_decision_audit a ON a.id=r.ref->>'decision'
-      JOIN bob_decision_outcomes o ON o.decision_id=a.id AND o.horizon=(r.ref->>'horizon')::integer
-      WHERE r.kind='signal' AND r.status='escalated' AND a.payload->>'marketEvaluable'='true'
-      ORDER BY r.next_at LIMIT 48''').fetchall()
+    rows=[]
+    pending=conn.execute("SELECT id,payload,ref FROM bob_test_repairs WHERE kind='signal' AND status='escalated' ORDER BY next_at LIMIT 48").fetchall()
+    for key,payload,ref in pending:
+        # Point lookups avoid a planner choosing a full outcome-archive scan.
+        record=conn.execute('SELECT payload FROM bob_decision_audit WHERE id=%s',(ref['decision'],)).fetchone()
+        truth=conn.execute('SELECT truth FROM bob_decision_outcomes WHERE decision_id=%s AND horizon=%s',(ref['decision'],ref['horizon'])).fetchone()
+        conn.execute('UPDATE bob_test_repairs SET next_at=%s WHERE id=%s',(now,key))
+        if record and record[0].get('marketEvaluable') and truth:
+            rows.append((key,payload,record[0],truth[0],ref['horizon']))
     for key,payload,record,truth,horizon in rows:
         if audit.outcome(record,truth,horizon):
             reason='Späterer regulärer Archivabruf hat den Original-Folgekurs geliefert; Ergebnis unabhängig erneut geprüft.'
