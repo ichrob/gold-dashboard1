@@ -24,6 +24,20 @@ def refresh_interval(now=None):
     now = time.time() if now is None else now
     return WEEKEND_INTERVAL if background_push.gold_weekend_close(now * 1000) is not None else INTERVAL
 
+
+def retry_interval(report, now=None):
+    """Honor bounded enhancement retries without turning research into a busy loop."""
+    normal = refresh_interval(now)
+    enhancements = [item.get('enhancements', {}) for item in (report or {}).get('items', [])]
+    if any(extra.get('summaryRetryAfterSeconds') for extra in enhancements):
+        return min(normal, 65)
+    frame_retries = [
+        extra.get('frameRetryAfterSeconds') for extra in enhancements
+        if type(extra.get('frameRetryAfterSeconds')) in (int, float)
+        and 0 < extra['frameRetryAfterSeconds'] <= 86400
+    ]
+    return min(normal, max(60, min(frame_retries))) if frame_retries else normal
+
 MCO_CHANNEL = 'UCsl6Z6p7GOkczo8Cv-GH6Dg'
 SOURCES = [dict(id='mco-video', publisher='MCO Markets', kind='YouTube',
     url='https://www.youtube.com/feeds/videos.xml?channel_id='+MCO_CHANNEL,
@@ -440,8 +454,7 @@ def _run():
             with _lock:_report=report
         except Exception as exc:
             print('BOB_YOUTUBE_COLLECT error='+type(exc).__name__,flush=True)
-        pending = any(item.get('enhancements',{}).get('summaryRetryAfterSeconds') for item in (locals().get('report') or {}).get('items',[]))
-        threading.Event().wait(min(refresh_interval(),65) if pending else refresh_interval())
+        threading.Event().wait(retry_interval(locals().get('report')))
 
 def start():
     global _thread
