@@ -8,7 +8,7 @@ from pathlib import Path
 import requests
 
 # One additional attempt authorized after the user replaced the rejected token.
-TRIAL = 'mco-single-video-v4'
+TRIAL = 'mco-single-video-v5'
 ENDPOINT = 'https://production-sfo.browserless.io/function'
 
 
@@ -33,7 +33,7 @@ def capture(token, identity, moments):
         if not isinstance(result,dict):return 'invalid-response', []
         status=result.get('status')
         safe_statuses={'navigation-failed','consent-required','access-blocked','player-unavailable',
-                       'playback-unavailable','identity-unconfirmed','seek-failed','screenshot-failed'}
+                       'playback-unavailable','identity-unconfirmed','identity-mismatch','metadata-unavailable','seek-failed','screenshot-failed'}
         if status in safe_statuses:return status, []
         if result.get('videoId') != identity:return 'identity-unconfirmed', []
         from video_evidence import checked_frames
