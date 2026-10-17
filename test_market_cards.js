@@ -1,4 +1,10 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
+// Keep quote-age and market-session assertions independent of the CI wall clock.
+let clock=globalThis.Date.parse('2026-10-14T12:00:00Z');
+class Date extends globalThis.Date {
+ constructor(...args){super(...(args.length?args:[clock]));}
+ static now(){return clock;}
+}
 const html=fs.readFileSync('Bob.html','utf8');
 const script=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].find(m=>m[1].includes('const quotes={spot:null,future:null,estimate:null}'))[1];
 const els=new Map(),el=id=>{if(!els.has(id))els.set(id,{textContent:'',className:'',style:{}});return els.get(id)};
@@ -26,6 +32,10 @@ setImmediate(async()=>{
  await context.window.BobGoldCards.refresh();
  assert.equal(el('gold-estimate-price').textContent,'≈ 4.170,00');
  assert.equal(el('gold-estimate-state').textContent,'Letzte Schätzung · nicht aktuell');
+ clock=globalThis.Date.parse('2026-10-17T12:00:00Z');
+ await context.window.BobGoldCards.refresh();
+ assert.equal(el('gold-estimate-state').textContent,'Markt geschlossen · letzte Schätzung');
+ clock=globalThis.Date.parse('2026-10-14T12:00:00Z');
  payload.estimate={price:4190,at:new Date().toISOString(),kind:'calculated'};
  await context.window.BobGoldCards.refresh();
  assert.equal(el('gold-estimate-price').textContent,'≈ 4.190,00');
