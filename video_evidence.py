@@ -21,10 +21,20 @@ def checked_frames(value):
             im.load();clean=io.BytesIO();im.convert('RGB').save(clean,'JPEG',quality=82)
         data='data:image/jpeg;base64,'+base64.b64encode(clean.getvalue()).decode()
         if len(data)>140000:raise ValueError('Bild zu groß')
+        screenshot=frame.get('sourceKind')=='screenshot'
+        section=frame.get('sectionAt')
+        if screenshot and (isinstance(section,bool) or not isinstance(section,(int,float)) or not math.isfinite(section) or not 0<=section<=86400):raise ValueError('Ungültige Abschnittszuordnung')
         out.append(dict(at=round(at,3),dataUrl=data,isCover=False,userProvided=True,
                         source='Vom Nutzer zugeordnete Videodatei',label='Videodatei · Zuordnung durch Nutzer'))
+        if screenshot:out[-1].update(sourceKind='screenshot',sectionAt=section,source='Screenshot vom Nutzer zugeordnet',label='Screenshot · Zuordnung durch Nutzer')
     if len({f['at'] for f in out})!=len(out):raise ValueError('Doppelte Videopositionen')
     return sorted(out,key=lambda f:f['at'])
+
+
+def merge_screenshot(existing,frame):
+    keep=[f for f in (existing or []) if not f.get('isCover') and f.get('at')!=frame['at'] and not (f.get('sourceKind')=='screenshot' and f.get('sectionAt')==frame['sectionAt'])]
+    if len(keep)>=5:raise ValueError('Bereits fünf Bilder gespeichert. Bitte einen bestehenden Abschnitt ersetzen.')
+    return sorted(keep+[frame],key=lambda f:f['at'])
 
 
 def handle(connect,payload):
@@ -33,20 +43,24 @@ def handle(connect,payload):
     identity=payload.get('videoId','')
     if not isinstance(identity,str) or not re.fullmatch(r'[A-Za-z0-9_-]{11}',identity):raise ValueError('Ungültiges Video')
     action=payload.get('action','read')
-    if action not in ('read','write'):raise ValueError('Ungültige Aktion')
-    frames=checked_frames(payload.get('frames')) if action=='write' else None
+    if action not in ('read','write','append-screenshot'):raise ValueError('Ungültige Aktion')
+    frames=checked_frames(payload.get('frames')) if action in ('write','append-screenshot') else None
     with connect() as conn:
         conn.execute('SELECT pg_advisory_xact_lock(68431030)')
         if not youtube_feed_archive.is_retained(conn,identity):raise ValueError('Video gehört nicht zu den drei gespeicherten MCO-Videos')
-        if action=='write':
+        if action in ('write','append-screenshot'):
             if payload.get('assignedByUser') is not True:raise ValueError('Bitte Videodatei zuordnen')
+            if action=='append-screenshot':
+                if len(frames)!=1 or frames[0].get('sourceKind')!='screenshot':raise ValueError('Ein Screenshot erforderlich')
+                old=conn.execute('SELECT frames FROM bob_research_enhancements WHERE video_id=%s',(identity,)).fetchone()
+                frames=merge_screenshot(old[0] if old else [],frames[0])
             row=conn.execute('SELECT frame_attempt>now()-interval \'2 minutes\' FROM bob_research_enhancements WHERE video_id=%s',(identity,)).fetchone()
-            if row and row[0]:raise ValueError('Bitte zwei Minuten seit dem letzten Bildabruf warten')
+            if action=='write' and row and row[0]:raise ValueError('Bitte zwei Minuten seit dem letzten Bildabruf warten')
             # Reset image-linked summaries, keeping their rate-limit accounting.
             conn.execute('''INSERT INTO bob_research_enhancements(video_id,fingerprint,frames,frame_attempt,frame_status)
                 VALUES(%s,'user-video',%s::jsonb,now(),'user-video') ON CONFLICT(video_id) DO UPDATE
-                SET frames=excluded.frames,summary=NULL,frame_attempt=now(),frame_status='user-video',updated_at=now()''',
-                (identity,json.dumps(frames)))
+                SET frames=excluded.frames,summary=CASE WHEN %s THEN bob_research_enhancements.summary - 'visualNotes' ELSE NULL END,frame_attempt=now(),frame_status='user-video',updated_at=now()''',
+                (identity,json.dumps(frames),action=='append-screenshot'))
             conn.commit()
         row=conn.execute('SELECT frames,summary FROM bob_research_enhancements WHERE video_id=%s',(identity,)).fetchone()
         return dict(frames=row[0] if row and row[0] else [],summary=row[1] if row else None,ocr=video_ocr.report(conn,identity))

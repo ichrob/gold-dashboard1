@@ -18,6 +18,17 @@ class EvidenceTests(unittest.TestCase):
             with self.assertRaises(ValueError):e.checked_frames(frames)
         import research_enhancements as r
         self.assertEqual(r.validated_frames([clean]),[])
+    def test_screenshot_merge_preserves_other_sections(self):
+        frame=self.frame();frame.update(sourceKind='screenshot',sectionAt=20)
+        clean=e.checked_frames([frame])[0]
+        self.assertEqual(clean['sourceKind'],'screenshot')
+        self.assertEqual(clean['sectionAt'],20)
+        old=[dict(clean,at=40,sectionAt=40),dict(clean,at=10)]
+        result=e.merge_screenshot(old,clean)
+        self.assertEqual([f['at'] for f in result],[30,40])
+        with self.assertRaises(ValueError):e.checked_frames([dict(frame,sectionAt=float('nan'))])
+        with self.assertRaises(ValueError):e.merge_screenshot([dict(clean,at=i,sectionAt=i) for i in range(5)],clean)
+
     def test_agreement_conflicts_dedup_and_time(self):
         def image(index,at,text):return dict(index=index,at=at,width=400,height=200,lines=[dict(text=text,numeric=True,bounds=[10,10,100,20],verified=False)])
         frames=[dict(dataUrl=str(i)) for i in range(3)]
@@ -55,6 +66,12 @@ class EvidenceDatabaseTests(unittest.TestCase):
                     with self.assertRaises(ValueError):e.handle(connect,payload)
                     conn.rollback()
                     result=e.handle(connect,dict(videoId='abcdefghijk'));self.assertEqual(len(result['frames']),1)
+                    conn.execute("UPDATE bob_research_enhancements SET summary=%s::jsonb", ('{"kind":"ai","sections":[],"visualNotes":[{}]}',));conn.commit()
+                    screenshot=dict(EvidenceTests().frame(),at=50,sourceKind='screenshot',sectionAt=45)
+                    result=e.handle(connect,dict(videoId='abcdefghijk',action='append-screenshot',assignedByUser=True,frames=[screenshot]))
+                    self.assertEqual(len(result['frames']),2)
+                    self.assertEqual(result['summary']['kind'],'ai')
+                    self.assertNotIn('visualNotes',result['summary'])
                     conn.execute("DELETE FROM bob_research_enhancements");conn.commit()
                     self.assertEqual(conn.execute('SELECT count(*) FROM bob_video_ocr').fetchone()[0],0)
             finally:
