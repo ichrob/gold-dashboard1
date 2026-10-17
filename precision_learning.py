@@ -101,6 +101,15 @@ def observe(conn,product,row):
     state=conn.execute('SELECT state FROM bob_precision_learning WHERE id=%s FOR UPDATE',(identity_key,)).fetchone()[0]
     if row['at']<=state['lastAt'] or row['at']-state['lastAt']<MINUTE:return
     n=len(state['events']);s=transition(state,row)
+    # Freeze the displayed candidate before observing this new price. Never fit
+    # a correction to the same sample that is used to draw its apparent benefit.
+    factor=(state.get('candidate') if state.get('phase')=='validation' else
+            state.get('factor') if policy(state,row['at'])['usable'] else None)
+    if row['at']-state.get('lastAt',0)>120000:factor=None
+    point=dict(at=row['at'],raw=row['estimated'],original=row['quoted'],
+        corrected=row['estimated']*(1+factor) if factor is not None else None,
+        phase=state.get('phase'),source=row['source'],side='bid')
+    s['chartHistory']=(state.get('chartHistory',[])+[point])[-720:]
     for event in s['events'][n:]:
         conn.execute('INSERT INTO bob_precision_events(id,at,payload) VALUES(%s,%s,%s::jsonb)',(identity_key,event['at'],json.dumps(event)))
     s['events']=s['events'][-30:];s['isin']=product['isin'];s['currency']=product['currency']
@@ -143,5 +152,5 @@ def report(conn,now):
     paused=conn.execute('SELECT paused FROM bob_precision_control WHERE id=1').fetchone()[0]
     states=conn.execute('SELECT state FROM bob_precision_learning ORDER BY (state->>\'lastAt\')::bigint DESC LIMIT 24').fetchall()
     events=conn.execute('SELECT payload FROM bob_precision_events ORDER BY seq DESC LIMIT 20').fetchall()
-    return dict(enabled=not paused,states=[dict(policy(s,now),isin=s.get('isin'),currency=s.get('currency')) for s, in states],
+    return dict(enabled=not paused,states=[dict(policy(s,now),isin=s.get('isin'),currency=s.get('currency'),chartHistory=s.get('chartHistory',[])[-240:]) for s, in states],
         events=[r[0] for r in events],note='Maximal ±3 % reine Modellkorrektur; 30 Auswahlwerte, 60 spätere Prüfwerte und mindestens 12 Zeitblöcke; danach jeweils 20 neue Kontrollwerte. Datenlücke oder Verschlechterung deaktiviert die Korrektur.')

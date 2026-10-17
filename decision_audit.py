@@ -453,6 +453,8 @@ def _build_report(conn):
     scoped=[row for row in rows if matches(row[0])]
     result=summarize([(row[0],row[1:]) for row in scoped])
     current=[(r,t) for r,t in [(row[0],row[1:]) for row in scoped] if r.get('ruleVersion')==RULE_VERSION]
+    chart_times=[r['recordedAt'] for r,_ in current if type(r.get('recordedAt')) in (int,float)]
+    result['signalChartScope']=dict(firstAt=min(chart_times) if chart_times else None,lastAt=max(chart_times) if chart_times else None)
     result['ruleLearning']=learning
     result['metricQuality']=metric_quality.report(conn)
     result['productPrecision']=product_precision.report(conn)
@@ -566,6 +568,9 @@ def handle(conn,action,payload):
         raise ValueError('Nicht unterstützte Beobachtungsaktion')
     if action=='write' and payload.get('mode')=='simulation-sync':return paper_simulation.sync(conn,payload)
     if action=='read' and payload.get('mode')=='simulation':return paper_simulation.report(conn,payload.get('day'))
+    if action=='read' and mode=='diagram-portfolios':
+        import paper_portfolios
+        return paper_portfolios.diagram_report(conn)
     if action=='read' and payload.get('mode')=='simulation-profiles':
         import paper_portfolios
         return paper_portfolios.report(conn,payload.get('day'))
