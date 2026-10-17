@@ -35,7 +35,7 @@ class PaperMondayTests(unittest.TestCase):
         self.assertIn("paper_simulation.report(conn,payload.get('day'))",audit)
         self.assertIn('paper_simulation.sync(conn,payload)',audit)
         ui=Path('Bob.html').read_text(encoding='utf-8')
-        self.assertIn("move(byId('paperSimulationPanel'),'learning')",ui)
+        self.assertIn("move(byId('paperSimulationPanel'),'simulation')",ui)
         self.assertIn('id="bob-portfolio-comparison"',
                       Path('vollautomatisch_panel.py').read_text(encoding='utf-8'))
 
