@@ -1,0 +1,2 @@
+# Optional read-only SDK probe. No chart extras or paid service.
+degiro-connector==3.0.36

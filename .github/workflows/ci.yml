@@ -48,7 +48,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Python dependencies
-        run: python -m pip install --disable-pip-version-check -r requirements-push.txt
+        run: python -m pip install --disable-pip-version-check -r requirements-push.txt -r requirements-degiro.txt
       - name: Python syntax
         run: python -m py_compile server.py backtest.py push_server.py signal_worker.py estimate_quality.py future_analysis.py future_estimate.py product_estimate.py sg_quotes.py product_quotes.py
       - name: VAPID key generation

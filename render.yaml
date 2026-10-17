@@ -5,7 +5,7 @@ services:
     plan: free
     region: frankfurt
     branch: main
-    buildCommand: echo Bob
+    buildCommand: pip install -r requirements-degiro.txt
     startCommand: python server.py
     autoDeployTrigger: commit
     healthCheckPath: /health
