@@ -9,7 +9,7 @@ import re
 import subprocess
 import sys
 import time
-VERSION='rapidocr-local-v2'
+VERSION='rapidocr-local-v3'
 
 
 def init(conn):
@@ -63,7 +63,8 @@ def compare_images(images,frames):
     return images
 
 
-def recognize(frames):
+def recognize(frames,profile="baseline"):
+    if profile not in ("baseline","contrast"):raise ValueError("Unknown OCR profile")
     if not any(isinstance(f,dict) and not f.get('isCover') for f in frames[:5]):
         return dict(status='no-timed-images',engine=VERSION,images=[],note='Keine zeitlich zugeordneten Videobilder; Titelbilder werden nicht als Chartbeleg gelesen.')
     from PIL import Image
@@ -85,21 +86,46 @@ def recognize(frames):
                 if width<200 or height<100:
                     images.append(dict(index=index,at=at,status='too-small',lines=[],width=width,height=height));continue
                 scale=min(2,960/max(width,height));im=source.convert('RGB').resize((round(width*scale),round(height*scale)))
+            grey=cv2.cvtColor(np.asarray(im),cv2.COLOR_RGB2GRAY)
+            sharpness=float(cv2.Laplacian(grey,cv2.CV_64F).var());contrast=float(grey.std())
+            if profile=='contrast':
+                from PIL import ImageOps
+                im=ImageOps.autocontrast(im.convert('L')).convert('RGB')
             rows,_=engine(np.asarray(im)[:,:,::-1],use_cls=False)
             lines=lines_checked(rows,width,height,scale)
-            images.append(dict(index=index,at=at,status='read' if lines else 'unreadable',lines=lines,width=width,height=height))
+            images.append(dict(index=index,at=at,status='read' if lines else 'unreadable',lines=lines,width=width,height=height,quality=dict(sharpness=round(sharpness,2),contrast=round(contrast,2))))
         except (OSError,ValueError):images.append(dict(index=index,at=at,status='unreadable',lines=[]))
     compare_images(images,frames)
+    import video_values
+    for image in images:
+        image['typed']=video_values.extract(image.get('lines',[]))
+        image['illustrationRecommended']=bool(image['typed']['values'] and image.get('quality',{}).get('sharpness',0)>=12 and image.get('quality',{}).get('contrast',0)>=8)
     return dict(status='complete' if images else 'no-timed-images',engine=VERSION,images=images,
                 note='Lokale OCR ohne API-Gebühr. Bildlesungen sind ungeprüft; Erkennungswerte sind keine Genauigkeitsgarantie. Storyboard-Videostellen sind angenähert, keine Marktzeitpunkte.')
 
 
-def run(frames):
+def evaluation_report():
+    try:
+        data=json.loads(Path(__file__).with_name('video_ocr_evaluation.json').read_text())
+        from video_ocr_evaluation import source_fingerprint
+        if data.get('engine')!=VERSION or data.get('sourceFingerprint')!=source_fingerprint():return {'status':'not-evaluated','scope':'Keine aktuelle Prüfung dieser OCR-Version'}
+        return data
+    except (OSError,ValueError):return {'status':'not-evaluated','scope':'Noch keine kontrollierte Prüfung verfügbar'}
+
+
+def active_profile():
+    report=evaluation_report()
+    from video_ocr_evaluation import promotion_allowed
+    return 'contrast' if promotion_allowed(report) else 'baseline'
+
+
+def run(frames,profile=None):
+    if profile is None:profile=active_profile()
     # No API credentials, external OCR endpoints or model downloads in the child.
     env={k:v for k,v in os.environ.items() if k in ('PATH','LANG','LD_LIBRARY_PATH')}
     env.update(OMP_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1',MKL_NUM_THREADS='1')
     try:
-        result=subprocess.run([sys.executable,str(Path(__file__).resolve()),'--child'],input=json.dumps(frames),
+        result=subprocess.run([sys.executable,str(Path(__file__).resolve()),'--child',profile],input=json.dumps(frames),
                               text=True,capture_output=True,timeout=35,env=env,check=True)
         if len(result.stdout)>300000:raise ValueError('Output limit')
         data=json.loads(result.stdout)
@@ -135,7 +161,9 @@ def tick(connect,runner=run):
 def report(conn,identity):
     row=conn.execute('''SELECT o.result FROM bob_video_ocr o JOIN bob_research_enhancements e ON e.video_id=o.video_id
         WHERE o.video_id=%s AND o.fingerprint=md5(e.frames::text) AND o.version=%s''',(identity,VERSION)).fetchone()
-    return row[0] if row and row[0] else dict(status='pending',images=[],note='Kostenlose lokale Bilderkennung wartet auf den nächsten Hintergrundlauf.')
+    result=dict(row[0]) if row and row[0] else dict(status='pending',images=[],note='Kostenlose lokale Bilderkennung wartet auf den nächsten Hintergrundlauf.')
+    result['evaluation']=evaluation_report()
+    return result
 
 
 def loop(connect):
@@ -152,4 +180,4 @@ if __name__=='__main__':
     # Native models are packaged with the pinned OCR dependency.
     import resource
     resource.setrlimit(resource.RLIMIT_CPU,(30,30))
-    print(json.dumps(recognize(json.loads(sys.stdin.read(800000)))))
+    print(json.dumps(recognize(json.loads(sys.stdin.read(800000)),sys.argv[2] if len(sys.argv)>2 else 'baseline')))

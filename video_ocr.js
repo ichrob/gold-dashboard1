@@ -11,10 +11,21 @@ function render(host,item,withControls=true){
  const result=item.enhancements?.ocr,frames=item.enhancements?.frames||[],box=el('details');box.append(el('summary','Automatisch gelesene Videobilder · kostenlose OCR'));
  const labels={pending:'Hintergrundprüfung steht aus',error:'Lesung fehlgeschlagen; automatische Wiederholung frühestens nach 24 Stunden',unavailable:'Ergebnis derzeit nicht abrufbar','no-timed-images':'Keine zeitlich zugeordneten Videobilder verfügbar',complete:'Vorhandene Videobilder geprüft'};
  box.append(el('p',labels[result?.status]||'Noch kein gespeichertes OCR-Ergebnis'),el('small','Bildzahlen sind ungeprüfte Lesungen. Eine Videosekunde ist kein Marktzeitpunkt. Zahlen werden nicht automatisch als bestätigte Kurswerte oder Handelssignale übernommen.'));
- for(const image of result?.images||[]){
+ const evaluation=result?.evaluation;
+ if(evaluation){const panel=el('details');panel.append(el('summary','Prüfung der Bilderkennung'));
+  panel.append(el('p',evaluation.scope||'Noch keine Messung verfügbar'));
+  if(evaluation.evaluatedAt)panel.append(el('p','Prüfstand: '+new Date(evaluation.evaluatedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)'));
+  if(evaluation.status==='evaluated'){
+   panel.append(el('p','Getrennte Prüfbilder: '+evaluation.holdoutImages+' · Entwicklungsbilder: '+evaluation.developmentImages+' · Aktiv: '+(evaluation.activeProfile==='contrast'?'Kontrastanpassung':'bisherige Erkennung')));
+   for(const [name,row] of Object.entries(evaluation.holdout||{})){panel.append(el('p',(name==='baseline'?'Bisherige Erkennung':'Kontrast-Kandidat')+': '+row.correct+' richtig · '+row.wrong+' falsch zugeordnet/gelesen · '+row.missed+' übersehen · Präzision '+(Number.isFinite(row.precision)?(row.precision*100).toFixed(1)+' %':'nicht messbar')+' · Erfassungsquote '+(Number.isFinite(row.recall)?(row.recall*100).toFixed(1)+' %':'nicht messbar')));}
+   panel.append(el('small','Ein Kandidat wird nur bei weniger Fehlern auf getrennten Entwicklungs- und Prüfbildern und ohne zusätzliche Falschlesungen aktiviert. Diese Testwerte sind keine Genauigkeitsmessung echter MCO-Videos.'));
+  }box.append(panel);
+ }
+ for(const image of [...(result?.images||[])].sort((a,b)=>Number(b.illustrationRecommended)-Number(a.illustrationRecommended))){
   const frame=frames[image.index];if(!frame||frame.isCover||typeof frame.dataUrl!=='string'||!/^data:image\/jpeg;base64,[A-Za-z0-9+/=]{100,140000}$/.test(frame.dataUrl))continue;
   const pane=el('details');pane.append(el('summary','Bild ca. '+Math.floor(image.at/60)+':'+String(Math.floor(image.at%60)).padStart(2,'0')+' · '+(image.lines||[]).filter(l=>l.numeric).length+' Textstellen mit Zahlen'));
   const img=el('img');img.src=frame.dataUrl;img.alt='Original-Videovorschau zur OCR-Lesung';img.loading='lazy';img.style.cssText='width:100%;max-width:480px;height:auto';pane.append(img);
+  pane.append(el('p',image.illustrationRecommended?'Bild mit beschrifteten Werten bevorzugt · Bedeutung und Zahlen bleiben ungeprüft.':'Keine ausreichende Kombination aus Bildqualität und beschrifteten Werten; nicht als bevorzugte Illustration ausgewählt.'));
   pane.append(el('small',frame.userProvided?'Quelle: vom Nutzer zugeordnete Videodatei · Videoidentität nicht automatisch bestätigt.':'Quelle: öffentliche YouTube-Videovorschau · Videoposition angenähert.'));
   let source;try{source=new URL(item.url);}catch(_){}
   if(source&&source.protocol==='https:'&&['www.youtube.com','youtube.com'].includes(source.hostname)){
@@ -26,6 +37,11 @@ function render(host,item,withControls=true){
 
   if(image.status==='too-small')pane.append(el('p','Videovorschau zu klein für einen sinnvollen Leseversuch.'));
   if(!(image.lines||[]).length&&image.status!=='too-small')pane.append(el('p','Keine ausreichend lesbare Textstelle erkannt.'));
+  if(image.typed){const typed=el('section');typed.append(el('h4','Zugeordnete Bildwerte'));
+   for(const v of image.typed.values||[])typed.append(el('p',v.label+(v.period!=null?' ('+v.period+')':'')+(v.ratio!=null?' '+v.ratio+' %':'')+': '+v.value+' '+v.unit+' · '+(v.instrument||'Basiswert offen')+' · '+(v.timeframe||'Zeitebene offen')+' · Marktzeitpunkt unbekannt · Bildlesung ungeprüft'));
+   if(!(image.typed.values||[]).length)typed.append(el('p','Keine Zahl mit eindeutiger Beschriftung erkannt.'));
+   for(const v of image.typed.unclassified||[])typed.append(el('small','Nicht zugeordnet: '+v.text+' · '+v.reason));pane.append(typed);
+  }
   for(const line of image.lines||[]){
    const row=el('div');row.style.cssText='padding:8px;margin:8px 0;border:1px solid #cbd5e1;border-radius:8px';row.append(el('b',line.text),el('small',' · Bildlesung ungeprüft'));
    if(line.readingStatus)row.append(el('p',line.readingStatus==='conflict'?'⚠ Unterschiedliche Werte in Nachbarbildern: Lesefehler oder tatsächliche Wertänderung; ungeklärt.':line.readingStatus==='repeated'?'Übereinstimmend in '+line.agreementCount+' benachbarten Bildern gelesen; kein unabhängiger Genauigkeitsnachweis.':'Nur einmal gelesen.'));
