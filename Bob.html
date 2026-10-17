@@ -86,7 +86,10 @@ body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 .bob-nav button{max-width:180px;flex:1;min-width:0;background:transparent;color:#536176;font-size:clamp(10px,2.75vw,12px);padding:9px 1px;border-radius:12px;letter-spacing:-.1px}
 .bob-nav button[aria-current=page]{background:#e8f1ff;color:#125bc0}.bob-nav span{display:block;font-size:19px;margin-bottom:2px}
 .bob-nav{gap:4px}.bob-nav button{font-size:clamp(11px,3vw,13px);position:relative;min-height:56px}
-.bob-more-menu{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.bob-more-menu button{text-align:left;padding:16px;background:#e8f1ff;color:#18283c}.bob-more-menu small{display:block;margin-top:6px;font-weight:400}
+.bob-more-menu{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.bob-more-group{margin:24px 0}.bob-back{background:transparent;color:#125bc0;padding:8px 0;margin-bottom:8px}.bob-page-note{color:#536176;margin:0 0 18px}.bob-mobile .bob-more-menu button{background:white;border:1px solid #dce3ed;border-radius:14px;line-height:1.4}.bob-more-menu small{color:#536176}
+@media(max-width:420px){.bob-more-menu{grid-template-columns:1fr}.bob-mobile main{padding-left:12px;padding-right:12px}}
+.bob-more-menu button{text-align:left;padding:16px;background:#e8f1ff;color:#18283c}.bob-more-menu small{display:block;margin-top:6px;font-weight:400}
 .bob-mobile #bobNextStep{font-weight:650;color:#18283c}.bob-mobile #bobNextAction{width:100%;margin-bottom:12px}
 .bob-nav .bob-problem-count{position:absolute;top:1px;right:2px;display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;padding:1px 4px;border-radius:999px;background:#bc2440;color:white;font-size:11px;font-weight:750;line-height:1;box-sizing:border-box}
 .bob-nav .bob-problem-count[hidden]{display:none!important}
@@ -1958,7 +1961,36 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const nav=document.createElement('nav');nav.id='bobNavigation';nav.className='bob-nav';nav.setAttribute('aria-label','Hauptnavigation');
   window.BobDiagrams?.mount(panels.diagrams);
   const moreMenu=document.createElement('div');moreMenu.className='bob-more-menu';
-  moreMenu.innerHTML=[['simulation','▷','Simulation','Spielgeld und Selbstprüfung'],['degiro','▤','DEGIRO',''],['degiro2','▤','DEGIRO 2','Handy-Assistent · manuell'],['auto','⚙','Auto','Simulationen ansehen'],['future','◇','Zukunft','Pläne und Broker'],['research','▶','YouTube','Gold-Recherche'],['learning','↗','Lernen','Tests und Ergebnisse'],['diagrams','▥','Diagramme','Grafische Auswertungen']].map(([key,icon,label,note])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'">'+icon+' '+label+'<small>'+note+'</small></button>').join('');panels.more.append(moreMenu);
+  moreMenu.innerHTML=[['simulation','▷','Simulation','Spielgeld und Selbstprüfung'],['degiro','▤','DEGIRO',''],['degiro2','▤','DEGIRO 2','Handy-Assistent · manuell'],['auto','⚙','Auto','Simulationen ansehen'],['future','◇','Zukunft','Pläne und Broker'],['research','▶','YouTube','Gold-Recherche'],['learning','↗','Lernen','Tests und Ergebnisse'],['diagrams','▥','Diagramme','Grafische Auswertungen']].map(([key,icon,label,note])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'">'+icon+' '+label+'<small>'+note+'</small></button>').join('');
+  // Group existing destinations, retaining their buttons and navigation targets.
+  for(const [title,keys] of [
+   ['Trainieren und auswerten',['simulation','auto','learning','diagrams']],
+   ['Recherche',['research']],
+   ['Broker und Entwicklung',['degiro','degiro2','future']]
+  ]){
+   const group=document.createElement('section');group.className='bob-more-group';
+   const heading=document.createElement('h3');heading.textContent=title;
+   const menu=document.createElement('div');menu.className='bob-more-menu';
+   for(const key of keys){const button=moreMenu.querySelector('[data-view="'+key+'"]');if(button)menu.append(button);}
+   group.append(heading,menu);panels.more.append(group);
+  }
+  const autoButton=panels.more.querySelector('[data-view="auto"]');
+  if(autoButton)autoButton.innerHTML='⚙ Vergleichssimulationen<small>Drei Spielgeld-Konten vergleichen</small>';
+  const descriptions={products:'Gold-Hebelprodukte prüfen und auswählen.',trade:'Deine Position, Stopp und Ziel an einem Ort.',more:'Weitere Bereiche nach Aufgabe geordnet.',learning:'Ergebnisse und Verbesserungen. Einzelne Tests bei Bedarf öffnen.',research:'Gold-Videos und ihre Auswertung.',diagrams:'Vergleiche und Fortschritte als Diagramm.'};
+  for(const [key,note] of Object.entries(descriptions)){
+   const intro=document.createElement('p');intro.className='bob-page-note';intro.textContent=note;
+   panels[key].querySelector(':scope > h2')?.after(intro);
+  }
+  for(const key of ['simulation','learning','diagrams','research','degiro','degiro2','auto','future']){
+   const back=document.createElement('button');back.type='button';back.className='bob-back';back.dataset.view='more';back.textContent='← Zurück zu Mehr';panels[key].prepend(back);
+  }
+  // Historical reports start collapsed; active trade warnings stay visible.
+  for(const details of panels.learning.querySelectorAll('details[open]'))details.open=false;
+  fold(byId('fourDayPanel'),'Schnell oder vorsichtig · Vier-Tage-Vergleich');
+  const simulationExplanation=document.createElement('details');simulationExplanation.className='bob-disclosure';
+  const simulationHeading=document.createElement('summary');simulationHeading.textContent='So trainiert und lernt Bob';simulationExplanation.append(simulationHeading);
+  for(const paragraph of [...simulationIntro.querySelectorAll('p')].slice(1))simulationExplanation.append(paragraph);
+  simulationIntro.append(simulationExplanation);
   nav.innerHTML=[['overview','◫','Übersicht'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['problems','⚠','Problem'],['more','☰','Mehr']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+(key==='problems'?'<strong class="bob-problem-count" data-problem-count hidden aria-hidden="true"></strong>':'')+'</button>').join('');document.body.append(nav);
   function show(key,focus=true){if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&['auto','future','research','learning','diagrams','degiro','degiro2','simulation'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
   document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b){show(b.dataset.view);history.replaceState(null,'','#'+b.dataset.view);}});
