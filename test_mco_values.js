@@ -1,0 +1,24 @@
+const assert=require('assert'),fs=require('fs'),vm=require('vm'),{compare}=require('./mco_comparison.js');
+const at=1792236600000,tf='15m',step=900000,html=fs.readFileSync('Bob.html','utf8');
+const sandbox={window:{},Date:{now:()=>at+1}};vm.createContext(sandbox);
+for(const name of ['ema','emaSeries','rsi','atr']){const start=html.indexOf('function '+name+'('),end=html.indexOf('\n',start);vm.runInContext(html.slice(start,end),sandbox);}
+let start=html.indexOf('function dmiCalc('),end=html.indexOf('function adxCalc',start);vm.runInContext(html.slice(start,end),sandbox);
+start=html.indexOf('function boll(');end=html.indexOf('function stochastic(',start);vm.runInContext(html.slice(start,end),sandbox);
+start=html.indexOf('window.BobMcoHistoricalMetric=function');end=html.indexOf('\nfunction chartTradingAxis',start);vm.runInContext(html.slice(start,end),sandbox);
+const calc=sandbox.window.BobMcoHistoricalMetric;
+const bars=Array.from({length:180},(_,i)=>({openTime:at-(180-i)*step,instrument:'XAU/USD',isOpen:false,open:4000,high:4001,low:3999,close:4000}));
+assert.equal(calc(bars,at,tf,{metric:'ema',period:20}).value,4000);
+assert.equal(calc(bars,at,tf,{metric:'sma',period:50}).value,4000);
+assert.equal(calc(bars,at,tf,{metric:'rsi',period:14}).value,50);
+assert.equal(calc(bars,at,tf,{metric:'macd',fast:12,slow:26,signal:9}).value,0);
+assert.equal(calc(bars,at,tf,{metric:'adx',period:14}).value,0);
+assert.equal(calc(bars,at,tf,{metric:'boll',period:20,multiplier:2,band:'up'}).value,4000);
+assert(!calc(bars,at,tf,{metric:'rsi'}).available);
+assert(!calc(bars,at,tf,{metric:'stop'}).available);
+assert(!calc(bars,at,tf,{metric:'target'}).available);
+assert(!calc(bars,at,tf,{metric:'ema',period:20,conditional:true}).available);
+assert(!calc(bars.filter((_,i)=>i!==40),at,tf,{metric:'ema',period:20}).available);
+assert(!calc(bars.map(b=>({...b,observedOnly:true})),at,tf,{metric:'rsi',period:14}).available);
+const ctx={analysisAt:at,instrument:'XAU/USD',currency:'USD',timeframe:tf},item={channelId:'UCsl6Z6p7GOkczo8Cv-GH6Dg',trustedTranscript:true,mcoValues:{values:[{metric:'macd',label:'MACD',price:0,unit:'USD',fast:12,slow:26,signal:9,comparisonContext:ctx},{metric:'rsi',label:'RSI',price:55,unit:'Punkte',period:14,comparisonContext:ctx}]}};
+const result=compare(item,[{'15m':bars}],calc,at+1);assert.equal(result[0].delta,0);assert.equal(result[0].percent,null);assert.equal(result[1].delta,-5);assert.equal(result[1].percent,null);assert(result.every(r=>r.timing.kind==='confirmed'));
+console.log('MCO general values: historical math, zero indicators, units, missing parameters and plans verified');

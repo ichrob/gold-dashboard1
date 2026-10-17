@@ -263,6 +263,7 @@ def assess(segments, language, automatic=False):
         from research_overview import overview
         result['overview']=overview(segments,language)
         result['mcoFibonacci']=extract_fibonacci_levels(segments)
+        result['mcoValues']=__import__('mco_values').extract(segments)
     if not supported:result['transcriptAnalyzed']=False
     return result
 
