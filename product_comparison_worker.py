@@ -61,11 +61,17 @@ def tick(db, bundle, quote_fetch=None, now=None):
     if local.weekday() >= 5 or not 8 <= local.hour < 22:return
     with db() as conn:
         trades = conn.execute('SELECT id,settings FROM bob_real_trades WHERE active=TRUE').fetchall()
+    import product_list_study
+    fetched={}
+    def fetch(isin):
+        if isin not in fetched:fetched[isin]=(quote_fetch or get_quote)(isin)
+        return fetched[isin]
+    product_list_study.tick(db,bundle,fetch,now)
     for tid,settings in trades:
         product = (settings.get('trade') or {}).get('product')
         if not history.calculate(product,bundle.get('spots'),now):continue
         # Provider I/O stays outside transactions and the notification worker.
-        try: quote = (quote_fetch or get_quote)(product['isin'])
+        try: quote = fetch(product['isin'])
         except Exception:continue
         row = comparison(product,bundle.get('spots'),quote,now)
         if not row:continue

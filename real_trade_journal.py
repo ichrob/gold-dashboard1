@@ -19,6 +19,8 @@ def init(conn):
     product_trade_history.init(conn)
     import product_comparison_worker
     product_comparison_worker.init(conn)
+    import product_list_study
+    product_list_study.init(conn)
 
 def event(conn,trade_id,kind,payload,key=None):
     if not trade_id:return

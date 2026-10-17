@@ -508,6 +508,9 @@ def read(conn, now_ms=None):
     report = dict(row[0])
     if not _recent(report.get("lastCheckedAt"), now_ms, REPORT_MAX_MS):
         report.update(status="stale", needsHelp=None, incomplete=None)
+    else:
+        import product_list_study
+        report["priceStudy"] = product_list_study.summaries(conn, product_list_study.listed(feed[0]))
     return report
 
 

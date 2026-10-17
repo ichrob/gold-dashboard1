@@ -176,6 +176,15 @@ PANEL = r'''<section id="bobProductAudit" class="card">
         (item.dataQuoteSource?'\nKursnachweis: '+item.dataQuoteSource+(item.dataQuoteKind==='market-observation'?' · beobachtetes Geld/Brief, keine DEGIRO-Ausführungszusage':''):'')+
         (item.lastRecoveredAt?'\nAutomatisch wiederhergestellte Nachweise: '+(item.recoveredFields||[]).join(', ')+' · '+fmt(item.lastRecoveredAt):'')+
         '\nKeine automatische DEGIRO-Handelsfreigabe.';
+   const study=r.priceStudy?.[item.isin];
+   if(study){
+    const evaluation=document.createElement('p');
+    evaluation.textContent='Kursvergleich ohne aktiven Trade · '+study.count+' Vergleiche (30 Tage) · letzte Messung: '+(study.lastAt?fmt(study.lastAt):'noch keine')+
+      (Number.isFinite(study.rawMae)?' · mittlere Abweichung an '+study.validationCount+' späteren Prüfwerten: '+study.rawMae.toFixed(4)+' → '+study.correctedMae.toFixed(4)+' '+study.currency+
+       ' · '+(study.status==='improved'?'Korrektur im Vergleich besser':'Korrektur verworfen'):' · sammelt passende Originalkurse')+
+      ' · getrennte Modellabschnitte; reine Auswertung, keine Handelsfreigabe.';
+    list.append(document.createElement('br'),evaluation);
+   }
    node.append(summary,list);
    if(item.issuerVenue&&!item.brokerVenueEvidence){
     const form=document.createElement('form');
