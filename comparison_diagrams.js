@@ -95,15 +95,36 @@ function changeEvents(events){return (events||[]).filter(e=>finite(e.at)&&eventN
 function laterEvidence(events,index,rows,key){const e=events[index],end=events[index+1]?.at??Infinity;const start=e.at;
  const selected=rows.filter(r=>r.at>start&&r.at<end&&finite(r[key]));return {n:selected.length,mean:selected.length?selected.reduce((sum,r)=>sum+r[key],0)/selected.length:null};}
 
-const api={uncertainty,evidenceStats,overview,changeEvents,laterEvidence,series,bounds,segments,proofs,capitalRows,signalRows,regimeRows,stopRows};
+// Completion is separate from success: missing evidence is never a green result.
+function testProgress(study,audit){
+ const groups=[],number=v=>Number.isSafeInteger(v)&&v>=0?v:0;
+ const group=(label,items)=>{const unique=[...new Map(items.map(r=>[r.id,r])).values()];if(unique.length)groups.push({label,done:unique.filter(r=>r.state==='done').length,unusable:unique.filter(r=>r.state==='unusable').length,open:unique.filter(r=>r.state==='open').length});};
+ group('Titelvergleich · 60 Minuten',(study?.comparisons||[]).map(c=>({id:c.currency+':'+(c.slot??c.at),state:c.outcome?.complete===true?'done':['incomplete','no-comparable-products'].includes(c.outcome?.status)?'unusable':'open'})));
+ const exits=study?.lifecycle?.comparisons||[];
+ group('Vergleich mit Bobs Ausstieg',exits.map(c=>({id:c.currency+':'+c.slot,state:c.complete===true?'done':c.status==='incomplete'?'unusable':'open'})));
+ group('Ursprünglicher Plan gegen Bob',exits.filter(c=>c.stopComparison).map(c=>({id:c.currency+':'+c.slot,state:c.stopComparison.complete===true?'done':(c.pending?.length||c.stopComparison.pending?.length||c.status==='pending')?'open':c.status==='incomplete'||c.status==='complete'?'unusable':'open'})));
+ for(const h of ['15','60','240']){const m=audit?.metrics?.[h];if(!m)continue;
+  const missing=number(m.missing),reasons=m.missingReasons||{};
+  // Only explicit terminal reasons can close a missing observation. Unknown
+  // or legacy reasons remain open instead of manufacturing completion.
+  const unusable=Math.min(missing,number(reasons.invalidStart)+number(reasons.signalUnavailable));
+  const done=number(m.evaluated)+number(m.neutral);
+  if(done+missing)groups.push({label:'Signalprüfung · '+h+' Minuten',done,unusable,open:missing-unusable});
+ }
+ const result=groups.reduce((s,g)=>({done:s.done+g.done,unusable:s.unusable+g.unusable,open:s.open+g.open}),{done:0,unusable:0,open:0});
+ result.closed=result.done+result.unusable;result.total=result.closed+result.open;
+ result.percent=result.total?100*result.closed/result.total:null;result.groups=groups;return result;
+}
+
+const api={testProgress,uncertainty,evidenceStats,overview,changeEvents,laterEvidence,series,bounds,segments,proofs,capitalRows,signalRows,regimeRows,stopRows};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 if(!root?.document)return;
-const doc=root.document;let audit=null,portfolio=null,portfolioAt=0,portfolioFailed=false,summaryBox,extraBox,accountId='',priceId='';let study=null,received=0,failed=false,host=null,currency='EUR',mode='horizon',status,chart,proofBox,detail,counts;
+const doc=root.document;let audit=null,portfolio=null,portfolioAt=0,portfolioFailed=false,progressBox,summaryBox,extraBox,accountId='',priceId='';let study=null,received=0,failed=false,host=null,currency='EUR',mode='horizon',status,chart,proofBox,detail,counts;
 const pct=v=>finite(v)?v.toFixed(2)+' %':'offen';
 const stamp=v=>new Date(v).toLocaleString('de-CH',{timeZone:'Europe/Zurich',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
 function node(tag,text){const e=doc.createElement(tag);if(text!==undefined)e.textContent=text;return e;}
 function svgNode(tag,attrs,text){const e=doc.createElementNS(NS,tag);for(const [k,v]of Object.entries(attrs||{}))e.setAttribute(k,String(v));if(text!==undefined)e.textContent=text;return e;}
-function freshness(){if(!status)return;status.textContent=!received?(failed?'Vergleichsdaten derzeit nicht verfügbar. Bitte erneut aktualisieren.':'Vergleichsdaten werden geladen …'):(failed||Date.now()-received>420000?'Datenstand veraltet · ':'Daten zuletzt geladen · ')+stamp(received)+' · Quellenzeiten stehen beim jeweiligen Vergleich.';drawOverview();status.style.color=failed||received&&Date.now()-received>420000?'#92400e':'#475569';}
+function freshness(){if(!status)return;status.textContent=!received?(failed?'Vergleichsdaten derzeit nicht verfügbar. Bitte erneut aktualisieren.':'Vergleichsdaten werden geladen …'):(failed||Date.now()-received>420000?'Datenstand veraltet · ':'Daten zuletzt geladen · ')+stamp(received)+' · Quellenzeiten stehen beim jeweiligen Vergleich.';drawProgress();drawOverview();status.style.color=failed||received&&Date.now()-received>420000?'#92400e':'#475569';}
 function showDetail(r){detail.textContent=stamp(r.at)+' · '+(mode==='exit'?'Start des virtuellen Trades':'Start des 60-Minuten-Vergleichs')+' · '+r.status+(r.valid?'\nDamals bevorzugt: '+r.chosenIsin+' · '+pct(r.chosen)+'\nBeste Alternative im Rückblick: '+r.alternativeIsin+' · '+pct(r.alternative)+'\nVorsprung: '+(r.alternative-r.chosen).toFixed(2)+' Prozentpunkte':r.missing.length?'\nFehlende Nachweise: '+r.missing.join(', '):'');}
 function draw(){
  if(!host)return;freshness();chart.replaceChildren();proofBox.replaceChildren();detail.textContent='Tippe auf einen Punkt oder öffne die Wertetabelle.';
@@ -151,7 +172,7 @@ function mount(panel){host=panel;const controls=node('div');controls.style.cssTe
  const cc=node('select');for(const v of ['EUR','CHF']){const opt=node('option',v+'-Produkte');opt.value=v;cc.append(opt);}cc.value=currency;cc.addEventListener('change',()=>{currency=cc.value;draw();});const cl=node('label','Produktwährung ');cl.append(cc);controls.append(cl);
  const md=node('select');for(const [v,t]of [['horizon','Nach 60 Minuten'],['exit','Mit Bobs Stopp- und Zielregeln']]){const opt=node('option',t);opt.value=v;md.append(opt);}md.value=mode;md.addEventListener('change',()=>{mode=md.value;draw();});const ml=node('label','Vergleich ');ml.append(md);controls.append(ml);
  const refresh=node('button','Aktualisieren');refresh.type='button';refresh.addEventListener('click',()=>doc.dispatchEvent(new Event('bob-diagrams-refresh')));controls.append(refresh);host.append(controls);
- summaryBox=node('section');summaryBox.setAttribute('aria-live','polite');host.append(summaryBox);status=node('p');status.setAttribute('role','status');host.append(status,node('h3','Titelvergleich · damalige Auswahl und Alternativen'));
+ progressBox=node('section');host.append(progressBox);summaryBox=node('section');summaryBox.setAttribute('aria-live','polite');host.append(summaryBox);status=node('p');status.setAttribute('role','status');host.append(status,node('h3','Titelvergleich · damalige Auswahl und Alternativen'));
  host.append(node('p','Blau: damals bevorzugtes Produkt. Orange: beste andere Alternative im Rückblick. Jeder Punkt ist ein eigener Vergleich; die Linien sind kein Kontostand und kein Kursverlauf. Fehlende Werte unterbrechen die Linien.'));
  host.append(node('p','Bruttorenditen aus beobachteten Geld-/Briefkursen, keine echten Ausführungen. Beim Bob-Ausstieg: jeweils 100 EUR inklusive Restgeld; CHF-Produkte werden dafür in EUR umgerechnet. Der spätere Gewinner war beim Einstieg nicht bekannt.'));
  counts=node('p');chart=node('div');detail=node('p');detail.style.whiteSpace='pre-line';detail.setAttribute('aria-live','polite');host.append(counts,chart,detail,node('h3','Optimierungsvergleich · Grundrangfolge und Kandidat'));
@@ -178,6 +199,25 @@ function bars(box,rows,unit){const valid=rows.filter(r=>finite(r.value));if(!val
  const svg=svgNode('svg',{viewBox:`0 0 ${W} ${H}`,role:'img','aria-label':'Vergleich in '+unit,style:'width:100%;height:auto;display:block'});
  svg.append(svgNode('line',{x1:x(0),x2:x(0),y1:5,y2:H,stroke:'#64748b'}));valid.forEach((r,i)=>{const y=10+i*48;svg.append(svgNode('text',{x:0,y:y+18,'font-size':12},r.label),svgNode('rect',{x:Math.min(x(0),x(r.value)),y,width:Math.max(1,Math.abs(x(r.value)-x(0))),height:25,fill:r.value<0?'#b45309':'#1d4ed8'}),svgNode('text',{x:W-3,y:y+18,'text-anchor':'end','font-size':13},r.value.toFixed(2)+' '+unit));});box.append(svg);
 }
+function drawProgress(){
+ if(!progressBox)return;progressBox.replaceChildren(node('h3','Testfortschritt · 0 bis 100 %'));
+ progressBox.style.cssText='padding:16px;margin:12px 0;border:1px solid #cbd5e1;border-radius:12px;background:#fff';
+ const p=testProgress(study,audit),stale=failed||received&&Date.now()-received>420000;
+ if(!received){progressBox.append(node('p',failed?'Prüfstand nicht verfügbar.':'Prüfstand wird geladen …'));return;}
+ progressBox.append(node('strong',p.total?(p.percent===100?'100':Math.floor(p.percent))+' % abgeschlossen · '+p.closed+' von '+p.total+' Prüfungen':'Noch keine gespeicherten Prüfungen'));
+ const rail=node('div');rail.style.cssText='position:relative;height:20px;background:#e2e8f0;border-radius:10px;margin:16px 0 6px;display:flex';rail.setAttribute('role','progressbar');rail.setAttribute('aria-label','Abgeschlossene Vergleichsprüfungen'+(stale?' – veralteter Stand':''));rail.setAttribute('aria-valuemin','0');rail.setAttribute('aria-valuemax','100');
+ if(p.total){rail.setAttribute('aria-valuenow',String(p.percent));rail.setAttribute('aria-valuetext',p.closed+' von '+p.total+' abgeschlossen, davon '+p.unusable+' ohne auswertbares Ergebnis; '+p.open+' offen'+(stale?' · veralteter Stand':''));}
+ for(const [n,color]of [[p.done,stale?'#64748b':'#15803d'],[p.unusable,stale?'#94a3b8':'#d97706']]){const fill=node('div');fill.style.cssText='height:100%;width:'+(p.total?100*n/p.total:0)+'%;background:'+color+';transition:width .4s ease';rail.append(fill);}
+ if(p.total){const mark=node('span');mark.style.cssText='position:absolute;top:-4px;bottom:-4px;width:3px;background:#0f172a;left:'+Math.min(99.6,p.percent)+'%';mark.setAttribute('aria-hidden','true');rail.append(mark);}
+ const ticks=node('div');ticks.style.cssText='display:flex;justify-content:space-between;font-size:12px;color:#475569';for(const n of [0,25,50,75,100])ticks.append(node('span',String(n)));progressBox.append(rail,ticks);
+ progressBox.append(node('p',p.done+' mit auswertbarem Ergebnis · '+p.unusable+' beendet ohne auswertbares Ergebnis · '+p.open+' noch offen'));
+ progressBox.append(node('p',stale?'Stand veraltet – keine aktuelle Fortschrittsbestätigung.':'Grün: Ergebnis vorhanden, auch bei Verlust oder verworfener Optimierung. Orange: beendet ohne ausreichenden Nachweis. Grau: noch offen.'));
+ const details=node('details');details.append(node('summary','Welche Prüfungen werden gezählt?'));
+ for(const g of p.groups)details.append(node('p',g.label+': '+g.done+' mit Ergebnis · '+g.unusable+' ohne Ergebnis beendet · '+g.open+' offen'));
+ details.append(node('p','Gespeicherte Signal-, Titel-, Ausstiegs- und Stoppvergleiche im aktuellen Bericht. ABWARTEN zählt als abgeschlossene Signalprüfung, nicht als Gewinn. Andere Lernphasen und Programmtests sind hier nicht enthalten. Titel und Ausstieg prüfen denselben Fall unterschiedlich und zählen deshalb getrennt.'));
+ details.append(node('p','Die Leiste wächst, wenn offene Prüfungen enden. Neue Prüfungen oder ein Wechsel des gespeicherten Datenfensters können den Prozentanteil wieder senken. 100 % bedeutet abgeschlossen, nicht erfolgreich oder profitabel. Automatische Aktualisierung mit dem Prüfbericht; „Aktualisieren“ lädt sofort neu.'));progressBox.append(details);
+}
+
 function drawOverview(){
  if(!summaryBox)return;summaryBox.replaceChildren(node('h3','Auf einen Blick'));
  summaryBox.style.cssText='padding:14px;margin:12px 0;background:#f1f5f9;border-radius:12px';

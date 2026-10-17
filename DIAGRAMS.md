@@ -67,3 +67,23 @@ no historical return is invented. Signal-rule history also displays stored check
 including the next monitoring evidence when available. Limited history, absent
 follow-ups and the difference between temporal association and causation remain
 explicit. No behavior or adoption thresholds are changed by these display features.
+
+## Completion bar
+
+A 0–100 progress bar above the summary counts saved comparison checks in the
+current bounded reports, across product currencies. Green means an evaluable
+result, not a winning trade. Orange means an explicitly finished, unevaluable
+comparison or immutable invalid/unavailable signal start. Missing signal follow-up
+prices and unknown legacy status remain open; they may still be harvested later.
+Gray means open. ABWARTEN is a completed neutral signal check, not a gain. The bar
+separately counts title, Bob-exit, prospective original-plan and 15/60/240-minute
+signal checks; these are not statistically independent trials. Legacy captures
+without a fixed-plan branch create no invented pending shadow test. Other learning
+phases and software tests are explicitly outside this scope.
+
+Completion is (evaluable + explicitly unevaluable terminal checks) / all counted
+checks. Zero checks have no percentage and never show 100%. A breakdown shows each
+category. Existing checks finishing increase completion; newly captured checks or
+rolling retention can lower the percentage. Stale data retains gray historical
+segments with a stale label. The accessible progressbar exposes exact counts and
+updates with the existing audit refresh, including manual refresh.
