@@ -1,3 +1,5 @@
+import degiro_sandbox
+import degiro_sandbox_panel
 import vollautomatisch_panel
 import vollautomatisch_engine
 import strategy_lab
@@ -190,6 +192,7 @@ ICON_PATH = BASE_DIR / "icon.svg"
 HTML = HTML_PATH.read_bytes() if HTML_PATH.exists() else b""
 HTML = HTML.replace(b"</body>", auto_collection.PANEL.encode('utf-8')+b"</body>")
 HTML = HTML.replace(b"</body>", candle_shadow.PANEL.encode('utf-8')+b"</body>")
+HTML = HTML.replace(b"</body>", degiro_sandbox_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", vollautomatisch_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", trade_email_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", trade_review_panel.PANEL.encode("utf-8")+b"</body>")
@@ -975,7 +978,7 @@ class Handler(BaseHTTPRequestHandler):
         # Sensitive data APIs must be authenticated before any data generation.
         # Keep static PWA resources and /health public, but never expose live,
         # MTF, or DEGIRO enrichment data without the existing Bob credentials.
-        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates" or path == "/api/degiro/audit" or path == "/api/self-healing" or path == "/api/problems" or path == "/api/repair-statistics"
+        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path == "/api/degiro/sandbox" or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates" or path == "/api/degiro/audit" or path == "/api/self-healing" or path == "/api/problems" or path == "/api/repair-statistics"
         if protected_api_path:
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
@@ -1059,7 +1062,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        if path == "/api/vollautomatisch/demo":
+        if path in ("/api/vollautomatisch/demo", "/api/degiro/sandbox"):
             # Authenticated and read-only. Runs fixed synthetic quotes; never
             # dispatches live signals or connects to a brokerage account.
             scenario = parse_qs(urlparse(self.path).query).get("scenario", ["target"])[0]
@@ -1068,7 +1071,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 return
-            body = json.dumps(vollautomatisch_engine.demonstration(scenario),
+            result = degiro_sandbox.run(scenario) if path == "/api/degiro/sandbox" else vollautomatisch_engine.demonstration(scenario)
+            body = json.dumps(result,
                               ensure_ascii=False, allow_nan=False).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
