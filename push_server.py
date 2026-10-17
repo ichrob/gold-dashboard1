@@ -1140,6 +1140,8 @@ if __name__ == "__main__":
     print("BOB_PUSH startup=ready", flush=True)
     threading.Thread(target=product_expiry_loop, name="bob-product-expiry", daemon=True).start()
     threading.Thread(target=audit_outcome_loop, name="bob-audit-outcomes", daemon=True).start()
+    import browserless_profile
+    threading.Thread(target=browserless_profile.probe,name="bob-browserless-profile-check",daemon=True).start()
     import browserless_trial
     threading.Thread(target=browserless_trial.run_once,args=(db,),name="bob-browserless-trial",daemon=True).start()
     import video_ocr

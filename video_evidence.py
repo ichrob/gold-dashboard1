@@ -43,6 +43,11 @@ def handle(connect,payload):
     identity=payload.get('videoId','')
     if not isinstance(identity,str) or not re.fullmatch(r'[A-Za-z0-9_-]{11}',identity):raise ValueError('Ungültiges Video')
     action=payload.get('action','read')
+    if action in ('browserless-status','browserless-test'):
+        import browserless_profile
+        with connect() as conn:
+            if not youtube_feed_archive.is_retained(conn,identity):raise ValueError('Video nicht mehr gespeichert')
+        return browserless_profile.start(connect,identity) if action=='browserless-test' else browserless_profile.status(connect,identity)
     if action not in ('read','write','append-screenshot'):raise ValueError('Ungültige Aktion')
     frames=checked_frames(payload.get('frames')) if action in ('write','append-screenshot') else None
     with connect() as conn:
