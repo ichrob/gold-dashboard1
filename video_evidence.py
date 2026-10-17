@@ -48,5 +48,5 @@ def handle(connect,payload):
                 SET frames=excluded.frames,summary=NULL,frame_attempt=now(),frame_status='user-video',updated_at=now()''',
                 (identity,json.dumps(frames)))
             conn.commit()
-        row=conn.execute('SELECT frames FROM bob_research_enhancements WHERE video_id=%s',(identity,)).fetchone()
-        return dict(frames=row[0] if row and row[0] else [],ocr=video_ocr.report(conn,identity))
+        row=conn.execute('SELECT frames,summary FROM bob_research_enhancements WHERE video_id=%s',(identity,)).fetchone()
+        return dict(frames=row[0] if row and row[0] else [],summary=row[1] if row else None,ocr=video_ocr.report(conn,identity))
