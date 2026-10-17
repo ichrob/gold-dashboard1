@@ -69,7 +69,9 @@ PANEL = r"""
   if(brokerRefresh)brokerRefresh.addEventListener('click',refreshBrokerStatus);
 
   const comparison=document.getElementById('bob-portfolio-comparison');
-  if(auto&&comparison)auto.insertBefore(comparison,root);
+  const simulation=document.getElementById('bob-view-simulation');
+  if(simulation&&comparison)simulation.append(comparison);
+  else if(auto&&comparison)auto.insertBefore(comparison,root);
   const profilesStatus=document.getElementById('bobProfilesStatus');
   const profilesCards=document.getElementById('bobProfilesCards');
   const money=new Intl.NumberFormat('de-CH',{style:'currency',currency:'EUR'});
@@ -89,7 +91,7 @@ PANEL = r"""
     if(data.mode!=='five-independent-paper-accounts'||data.realOrders!==false||
        !Array.isArray(data.accounts)||data.accounts.length!==5)throw Error('Fünf-Konten-Auswertung ungültig');
     profilesCards.replaceChildren();
-    const names={conservative:'Konservativ',balanced:'Ausgewogen',offensive:'Offensiv',trend800:'800 € · Bob-Stopp & Wiedereinstieg',early100:'Frühimpuls 100 € (LONG/SHORT)'};
+    const names={conservative:'Konservativ',balanced:'Bob Lernkonto · 100 € (ausgewogen)',offensive:'Offensiv',trend800:'800 € · Bob-Stopp & Wiedereinstieg',early100:'Frühimpuls 100 € (LONG/SHORT)'};
     for(const acc of data.accounts){
      const c=acc.control||{},p=acc.riskPolicy||{},st=acc.stats||{},perf=acc.performance||{};
      const card=document.createElement('div');card.style='padding:12px;border:1px solid #cbd5e1;border-radius:12px;min-width:0';
@@ -119,6 +121,16 @@ PANEL = r"""
      ];
      const detail=document.createElement('p');detail.className='small';detail.style='white-space:pre-line;overflow-wrap:anywhere';
      detail.textContent=lines.join('\n');card.append(detail);
+     const review=document.createElement('details'),reviewTitle=document.createElement('summary'),reviewBody=document.createElement('p');
+     reviewTitle.textContent='Selbstprüfung · erkannte Probleme';reviewBody.className='small';reviewBody.style='white-space:pre-line';
+     const reflection=c.reflection;
+     reviewBody.textContent=reflection?[
+      'Seit '+time(reflection.since)+' · '+reflection.reviewed+' ausgewertete Abschlüsse · '+reflection.unpriced+' ohne belegtes Ergebnis',
+      'Nach Beispielkosten: '+reflection.modelLosses+' Verluste aus '+reflection.evaluated+' bepreisten Fällen · Summe '+(reflection.evaluated?money.format(reflection.modelNetEur):'noch offen'),
+      ...[...(reflection.recent||[])].reverse().map(r=>time(r.at)+' · '+(r.direction||'—')+' · '+r.observations.join(' ')+' '+r.action),
+      'Kosten sind Annahmen. Einzelverluste lösen keine ungeprüfte Strategieänderung aus; siehe Regeln lernen.'
+     ].join('\n\n'):'Die Selbstprüfung beginnt mit dem nächsten abgeschlossenen Versuch. Frühere Trades werden nicht nachträglich als neue Lernergebnisse gezählt.';
+     review.append(reviewTitle,reviewBody);card.append(review);
      const cr=acc.costReview;
      if(cr){
       const costs=document.createElement('details'),title=document.createElement('summary'),body=document.createElement('p');
@@ -153,14 +165,17 @@ PANEL = r"""
       empty.textContent='Noch keine virtuellen Trades; Gründe siehe Status.';host.append(empty);}
      events.append(host);card.append(events);profilesCards.append(card);
     }
-    profilesStatus.textContent='Fünf getrennte Konten · Bericht für '+day+
+    const learner=data.accounts.find(a=>a.profile==='balanced')?.control||{};
+    const closed=data.accounts.every(a=>a.sessionMode!=='trading');
+    const fresh=Number.isFinite(learner.checkedAt)&&Date.now()-learner.checkedAt>=0&&Date.now()-learner.checkedAt<120000;
+    profilesStatus.textContent=(closed?'Handelszeit geschlossen · pausiert. ':fresh?'Hintergrundprüfung aktuell. ':'Hintergrundprüfung nicht aktuell bestätigt. ')+'Fünf getrennte Konten · Bericht für '+day+
       ' · 1.200 € fiktives Startkapital (4 × 100 €, 1 × 800 €) · keine echten Orders';
    }catch(error){profilesStatus.textContent='Kontostand nicht abrufbar: '+String(error.message||error)+'. Kein Testerfolg bestätigt.';}
    finally{profileBusy=false;}
   }
   document.getElementById('bobProfilesRefresh').addEventListener('click',refreshProfiles);
   refreshProfiles();
-  setInterval(()=>{if(document.visibilityState==='visible'&&!window.BobWeekendPause?.())refreshProfiles();},60000);
+  setInterval(()=>{if(document.visibilityState==='visible'&&!window.BobWeekendPause?.())refreshProfiles();},30000);
   const run=document.getElementById('bobAutoDemoRun');
   const scenario=document.getElementById('bobAutoDemoScenario');
   const status=document.getElementById('bobAutoDemoStatus');
@@ -213,3 +228,4 @@ PANEL = r"""
 })();
 </script>
 """
+

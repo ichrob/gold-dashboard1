@@ -2,7 +2,8 @@
 import copy
 import hashlib
 import json
-import rule_learning
+import adaptive_learning as rule_learning
+import paper_reflection
 import ranking_learning
 import ranking_lifecycle
 import math
@@ -582,6 +583,8 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             elif c['status']!='open' and c['productReturnKnown'] and not c.get('productCounted'):
                 day_update(conn,c['day'],product=c,now=now);c['productCounted']=True
             finished=c['status']!='open' and not c.get('pendingUnits')
+            if finished:
+                paper_reflection.record(control,c,now)
             if finished and c.get('exitReason')=='stop':
                 control.update(lastStopAt=c.get('closedAt'),lastStopBar=market.get('analysisBarAt'))
             conn.execute('UPDATE bob_paper_cases SET payload=%s::jsonb,closed_at=to_timestamp(%s) WHERE id=%s',
@@ -846,4 +849,5 @@ def enqueue(bundle, db):
         _bundle_ready.set()
         if _thread is None or not _thread.is_alive():
             _thread=threading.Thread(target=_worker,args=(db,),daemon=True,name='bob-paper-simulation');_thread.start()
+
 
