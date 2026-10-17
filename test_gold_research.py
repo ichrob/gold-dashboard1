@@ -26,6 +26,16 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(g.summarize(data,closed)['intervalSeconds'],7200)
         self.assertEqual(g.summarize(data,weekday)['intervalSeconds'],900)
 
+    def test_missing_video_frames_retry_on_the_declared_schedule(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        closed=datetime(2026,10,10,9,0,tzinfo=ZoneInfo('Europe/Zurich')).timestamp()
+        item=lambda extra: {'enhancements':extra}
+        self.assertEqual(g.retry_interval({'items':[]},closed),7200)
+        self.assertEqual(g.retry_interval({'items':[item({'frameRetryAfterSeconds':1800})]},closed),1800)
+        self.assertEqual(g.retry_interval({'items':[item({'summaryRetryAfterSeconds':60}),item({'frameRetryAfterSeconds':1800})]},closed),65)
+        self.assertEqual(g.retry_interval({'items':[item({'frameRetryAfterSeconds':'1800'})]},closed),7200)
+
     def test_only_mco_gold_and_distinct_video_ids(self):
         self.assertEqual(len(g.SOURCES),1);self.assertEqual(g.SOURCES[0]['publisher'],'MCO Markets')
         r=g.collect(self.now,lambda _:self.feed())
