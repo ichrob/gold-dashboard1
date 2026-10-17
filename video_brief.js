@@ -90,7 +90,18 @@ function draw(host,item){
  if(others.length){const extra=el('details');extra.append(el('summary','Weitere Chartbilder · Aussage noch nicht zugeordnet'));for(const entry of others)figure(extra,entry,item);host.append(extra);}
  if(!(item.enhancements?.frames||[]).some(valid))host.append(el('p','Bisher fehlt ein zeitlich zugeordnetes Videobild. Bei jedem Abschnitt kannst du ein Chartbild hinzufügen; alternativ unten eine Videodatei. Titelbilder ersetzen keine Chartbelege.'));
 }
-function render(host,item){const section=el('section');host.append(section);views.set(item,section);draw(section,item);}
+function render(host,item){
+ const section=el('section');host.append(section);views.set(item,section);draw(section,item);
+ let videoId=item.videoId;try{videoId=videoId||new URL(item.url).searchParams.get('v');}catch(_){return;}
+ if(!/^[A-Za-z0-9_-]{11}$/.test(videoId||''))return;
+ // Read persisted images when reopening, even if the research report is cached.
+ fetch('/api/research/video-evidence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({videoId,action:'read'})})
+ .then(async response=>{if(!response.ok)return;const result=await response.json();
+  if(!section.isConnected||!Array.isArray(result.frames)||!result.frames.some(f=>f.sourceKind==='screenshot'))return;
+  if([...section.querySelectorAll('input[type=file]')].some(input=>input.files?.length))return;
+  item.enhancements={...item.enhancements,...result};draw(section,item);
+ }).catch(()=>{});
+}
 function update(item){const host=views.get(item);if(host?.isConnected)draw(host,item);}
 root.BobVideoBrief={render,update};
 })(typeof window==='undefined'?null:window);
