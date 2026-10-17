@@ -12,10 +12,14 @@ TRIAL = 'mco-single-video-v6'
 ENDPOINT = 'https://production-sfo.browserless.io/function'
 
 
-def capture(token, identity, moments):
+def capture(token, identity, moments, profile=None):
     # Never log request exceptions: their URLs can contain the API token.
     try:
-        with requests.post(ENDPOINT, params={'token': token, 'timeout': 90000},
+        params={'token':token,'timeout':90000}
+        if profile is not None:
+            if profile!='bob-mco-youtube':return 'invalid-profile',[]
+            params['profile']=profile
+        with requests.post(ENDPOINT, params=params,
                            json={'code': Path(__file__).with_name('browserless_trial.js').read_text(),
                                  'context': {'videoId': identity, 'moments': moments}},
                            timeout=(10, 100), allow_redirects=False, stream=True) as response:
@@ -31,12 +35,6 @@ def capture(token, identity, moments):
         if isinstance(result,dict) and isinstance(result.get('data'),dict):
             result=result['data']
         if not isinstance(result,dict):return 'invalid-response', []
-        diagnostic=result.get('diagnostic')
-        if isinstance(diagnostic,dict):
-            # Only public, logged-out YouTube page evidence; never provider errors/URLs.
-            allowed=('title','text','player','method','videos','ready','paused','initial','frames','host')
-            safe={k:str(diagnostic[k])[:1400].replace(token,'[redacted]') for k in allowed if k in diagnostic}
-            print('BOB_BROWSERLESS_PAGE '+json.dumps(safe,ensure_ascii=True),flush=True)
         status=result.get('status')
         safe_statuses={'navigation-failed','consent-required','access-blocked','player-unavailable',
                        'playback-unavailable','identity-unconfirmed','identity-mismatch','metadata-unavailable','seek-failed','screenshot-failed'}

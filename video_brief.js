@@ -71,8 +71,28 @@ function screenshotControl(card,item,section){
   }catch(e){status.textContent=e.message;}finally{save.disabled=false;file.disabled=false;}
  };
 }
+function profileControl(host,item){
+ let videoId=item.videoId;try{videoId=videoId||new URL(item.url).searchParams.get('v');}catch(_){return;}
+ if(!/^[A-Za-z0-9_-]{11}$/.test(videoId||''))return;
+ const box=el('details'),title=el('summary','Automatische Chartbilder · YouTube-Anmeldung'),a=el('a','YouTube-Anmeldung einrichten'),test=el('button','Anmeldung prüfen und Bildtest starten'),status=el('p');
+ a.href='https://www.browserless.io/account/profiles';a.target='_blank';a.rel='noopener noreferrer';a.referrerPolicy='no-referrer';test.type='button';status.setAttribute('role','status');
+ box.append(title,el('p','Die Anmeldung erfolgt direkt im Browserless-Fernbrowser. Browserless speichert den Anmeldestatus; Bob verwendet nur das Profil. Kein Google-Passwort in Bob eingeben.'),a,
+ el('p','1. Bei Browserless „New Profile“ wählen. 2. „Sign in via remote browser“ wählen, Profilname bob-mco-youtube und Startadresse https://www.youtube.com eingeben. 3. Im Fernbrowser selbst anmelden und „Save profile“ drücken. 4. Hier den Bildtest starten.'),
+ el('p','Kostenloser Tarif: Die Browsersitzung ist auf zwei Minuten begrenzt. Bei einer Upgrade-Aufforderung abbrechen; Bob bucht nichts kostenpflichtig. YouTube kann die Anmeldung oder Wiedergabe trotzdem ablehnen. Das Profil muss für denselben API-Schlüssel wie Bob verfügbar sein.'),
+ test,status,el('p','Höchstens drei Bildtests in 24 Stunden, je Profilstand und Video nur ein Versuch. Keine automatische Endlosschleife. Das Profil kannst du bei Browserless jederzeit löschen.'));
+ host.append(box);
+ const call=async action=>{const r=await fetch('/api/research/video-evidence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({videoId,action})});const x=await r.json();if(!r.ok||x.error)throw new Error(x.error||'Prüfung nicht erreichbar');return x;};
+ const show=x=>{status.textContent=x.message+(x.images?' Bilder: '+x.images:'');};
+ test.onclick=async()=>{test.disabled=true;status.textContent='Profil wird geprüft …';
+  try{let x=await call('browserless-test');show(x);
+   for(let n=0;n<30&&x.status==='running'&&box.isConnected;n++){await new Promise(r=>setTimeout(r,4000));if(!box.isConnected)break;x=await call('browserless-status');show(x);}
+   if(x.status==='saved'){const r=await fetch('/api/research/video-evidence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({videoId,action:'read'})});if(r.ok){item.enhancements={...item.enhancements,...await r.json()};update(item);}}
+  }catch(e){status.textContent=e.message;}finally{test.disabled=false;}
+ };
+}
 function draw(host,item){
  host.replaceChildren();host.append(el('h4','MCO: Chartbilder und Erklärung'),el('p','MCO-Aussagen mit der zugehörigen Videopassage. Bobs eigene Berechnungen stehen getrennt im Wertevergleich.'));
+ profileControl(host,item);
  const parts=sections(item),used=new Set();
  for(const [i,s] of parts.entries()){
   const card=el('section');card.style.cssText='margin:18px 0;padding:12px;border:1px solid #cbd5e1;border-radius:12px;background:#fff';card.append(el('h5',(i+1)+'. '+s.label));
@@ -97,7 +117,7 @@ function render(host,item){
  // Read persisted images when reopening, even if the research report is cached.
  fetch('/api/research/video-evidence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({videoId,action:'read'})})
  .then(async response=>{if(!response.ok)return;const result=await response.json();
-  if(!section.isConnected||!Array.isArray(result.frames)||!result.frames.some(f=>f.sourceKind==='screenshot'))return;
+  if(!section.isConnected||!Array.isArray(result.frames)||!result.frames.some(valid))return;
   if([...section.querySelectorAll('input[type=file]')].some(input=>input.files?.length))return;
   item.enhancements={...item.enhancements,...result};draw(section,item);
  }).catch(()=>{});
