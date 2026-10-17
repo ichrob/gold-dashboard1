@@ -365,18 +365,26 @@ def run_audit_harvest_once(database):
         conn.commit()
 
 
+def run_test_repair_once(database):
+    import evidence_repair
+    print('BOB_TEST_REPAIR phase=start',flush=True)
+    with database() as conn:
+        result=evidence_repair.tick(conn)
+        conn.commit()
+    print('BOB_TEST_REPAIR checked='+str(result['processed']),flush=True)
+
+
 def audit_outcome_loop():
     while True:
         try:
             run_audit_harvest_once(db)
-            import evidence_repair
-            with db() as conn:
-                repair_result=evidence_repair.tick(conn)
-                conn.commit()
-            print('BOB_TEST_REPAIR checked='+str(repair_result['processed']),flush=True)
         except Exception as exc:
-            # A failed read-only outcome calculation must not stop live monitoring.
+            # Bulk backfill timeouts must not block targeted repair attempts.
             print('BOB_AUDIT_HARVEST error='+type(exc).__name__, flush=True)
+        try:
+            run_test_repair_once(db)
+        except Exception as exc:
+            print('BOB_TEST_REPAIR error='+type(exc).__name__,flush=True)
         time.sleep(120)
 
 

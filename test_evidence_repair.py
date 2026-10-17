@@ -25,6 +25,14 @@ class RepairTests(unittest.TestCase):
             repair.tick(conn,1000)
         self.assertEqual(conn.status,'recovered')
 
+    def test_bulk_timeout_does_not_prevent_targeted_worker(self):
+        import push_server
+        with patch.object(push_server,'run_audit_harvest_once',side_effect=RuntimeError('bulk timeout')), \
+             patch.object(push_server,'run_test_repair_once') as targeted, \
+             patch.object(push_server.time,'sleep',side_effect=InterruptedError):
+            with self.assertRaises(InterruptedError):push_server.audit_outcome_loop()
+        targeted.assert_called_once_with(push_server.db)
+
     def test_archive_failure_is_not_recovery(self):
         from unittest.mock import MagicMock
         conn=MagicMock();conn.execute.return_value.fetchall.return_value=[('x','signal',{},0,{'history':[]})]
