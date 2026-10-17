@@ -369,6 +369,11 @@ def audit_outcome_loop():
     while True:
         try:
             run_audit_harvest_once(db)
+            import evidence_repair
+            with db() as conn:
+                repair_result=evidence_repair.tick(conn)
+                conn.commit()
+            print('BOB_TEST_REPAIR checked='+str(repair_result['processed']),flush=True)
         except Exception as exc:
             # A failed read-only outcome calculation must not stop live monitoring.
             print('BOB_AUDIT_HARVEST error='+type(exc).__name__, flush=True)

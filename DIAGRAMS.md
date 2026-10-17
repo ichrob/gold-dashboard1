@@ -87,3 +87,52 @@ category. Existing checks finishing increase completion; newly captured checks o
 rolling retention can lower the percentage. Stale data retains gray historical
 segments with a stale label. The accessible progressbar exposes exact counts and
 updates with the existing audit refresh, including manual refresh.
+
+## Missing-value collection and user-initiated repair handoff
+
+Below the progress bar, collect deficient title, Bob-exit and original-plan cases
+plus signal missing-reason totals from the stored current report. Deduplicate by
+comparison identity. Include explicit missing evidence even while another leg is
+still running, but exclude ordinary pending future horizons and successful cases.
+Retain old visible evidence with an explicit stale label when refresh fails; never
+interpret an unavailable report as a successful repair. Source report retention/window limits remain visible; the subsequent automatic-repair
+queue below preserves unresolved incidents independently.
+
+The button “ChatGPT soll die Probleme selbstständig lösen” prepares a concrete
+repair request and opens the native share sheet on explicit click. It does not
+invoke ChatGPT in the background or claim recipient delivery. Cancel stops without
+copying. Unsupported/failed sharing falls back to clipboard and a generic ChatGPT
+link; blocked clipboard leaves a readable selectable report. No private data is
+placed in URL parameters. Only allowlisted diagnosis fields, ISINs, original source
+timestamps and sanitized reasons are included; no account, position size, secrets,
+or wholesale payloads. The user still chooses ChatGPT and sends the prepared text.
+The progress refresh avoids rebuilding this section merely for the 30-second age
+check, preserving expanded details and manual-copy text while the report is current.
+
+
+## Automatic attempt before ChatGPT escalation
+
+`evidence_repair` runs in the existing 120-second background audit loop, with its
+own committed transaction after normal harvesting. Discovery and processing are
+bounded, queued in PostgreSQL, and independent of opening the app. Signal checks
+retry a missing historical outcome using only the original stream and target
+window, recompute excursions, insert only absent outcomes, and verify the stored
+result. A present-day quote cannot fill a historical hole. Product checks re-read
+the frozen plan and exact original quote archive. Terminal exit checks inspect
+saved states/events; they never resume a historical gap from a current price.
+
+Already-consumed ranking experiments remain immutable. Late evidence requiring a
+separate historical review is escalated, not silently used to alter prior learning.
+Invalid original entries and irreconstructible exit paths are escalated after one
+verified inspection; other unavailable evidence retries at most three times with
+120 seconds between attempts. Exceptions do not become success. Each attempt has
+a dated action/result; the heartbeat advances only on a committed successful cycle.
+Unresolved records remain stored when the source rolls out; recovered history has
+90-day retention. Reads and sharing do not trigger repairs or send messages.
+
+Only server-confirmed `escalated` cases with at least one saved attempt are offered
+by the ChatGPT button. Pending cases stay with Bob. The report contains the attempted
+actions and remaining reason. UI and share payload show stale status explicitly;
+up to 300 queued/escalated records are returned, with counts and truncation notice.
+Original source fetch workers continue their existing cadence; this recovery task
+reuses the original archive and never fabricates a provider backfill capability.

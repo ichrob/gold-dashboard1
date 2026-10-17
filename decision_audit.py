@@ -137,6 +137,8 @@ def normalize(payload, now=None):
     return key,result
 
 def init(conn):
+    import evidence_repair
+    evidence_repair.init(conn)
     metric_quality.init(conn)
     product_precision.init(conn)
     precision_learning.init(conn)
@@ -570,6 +572,9 @@ def handle(conn,action,payload):
         raise ValueError('Nicht unterstützte Beobachtungsaktion')
     if action=='write' and payload.get('mode')=='simulation-sync':return paper_simulation.sync(conn,payload)
     if action=='read' and payload.get('mode')=='simulation':return paper_simulation.report(conn,payload.get('day'))
+    if action=='read' and mode=='test-repairs':
+        import evidence_repair
+        return evidence_repair.report(conn)
     if action=='read' and mode=='diagram-portfolios':
         import paper_portfolios
         return paper_portfolios.diagram_report(conn)
