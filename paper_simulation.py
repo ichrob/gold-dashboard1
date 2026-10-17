@@ -769,16 +769,23 @@ def _worker(db):
                             conn.execute('ROLLBACK TO SAVEPOINT bob_degiro_audit')
                             conn.execute('RELEASE SAVEPOINT bob_degiro_audit')
                             print('BOB_PRODUCT_AUDIT error='+type(audit_exc).__name__,flush=True)
+                        precision_quotes=dict(quotes)
                         quotes={isin:paper_quote(q,now,isin) for isin,q in quotes.items()}
                         # Original four paper policies consume unchanged confirmed direction.
                         market=background_push.analyze(bundle,settings,priority=2)
                         selection=dict(choices=[],reasons=[])
-                        if market.get('ready') and market.get('direction') in ('LONG','SHORT') and any(
-                             p not in active_cases for p in ('conservative','balanced','offensive','trend800')):
+                        precision_due=now%(2*3600000)<=300000
+                        if market.get('ready') and market.get('direction') in ('LONG','SHORT') and (precision_due or any(
+                             p not in active_cases for p in ('conservative','balanced','offensive','trend800'))):
                             request={**evidence,'quotes':quotes,'market':market,'bundle':bundle}
                             p=evaluator_runtime.run(['node',str(Path(__file__).with_name('paper_selection.js'))],input=json.dumps(request),
                                              text=True,capture_output=True,timeout=6,check=True,priority=2)
                             selection=json.loads(p.stdout)
+                        try:
+                            with conn.transaction():
+                                import product_precision
+                                product_precision.capture(conn,market,selection,precision_quotes,bundle.get('spots'),time.time()*1000)
+                        except Exception as exc:print('BOB_PRECISION_CAPTURE error='+type(exc).__name__,flush=True)
                         # Independent extra research account receives its own direction
                         # and derived stop/target; same exact product validator and quotes.
                         early_market=paper_portfolios.early_paper_market(market,now)

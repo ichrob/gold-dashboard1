@@ -39,7 +39,7 @@ class ComparisonChecks(unittest.TestCase):
             def fetchone(self):return ({'trade':{'product':PRODUCT}},)
             def commit(self):pass
         calls=[]
-        with patch('product_list_study.tick'):
+        with patch('product_precision.observe'),patch('metric_quality.product_check'),patch('precision_learning.observe'),patch('metric_quality.pnl_check'),patch('product_list_study.tick'):
             worker.tick(Conn,{'spots':SPOTS},lambda _:QUOTE,NOW)
         inserts=[args for sql,args in calls if 'INSERT INTO' in sql]
         self.assertEqual(len(inserts),1)

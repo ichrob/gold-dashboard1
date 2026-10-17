@@ -337,8 +337,13 @@ def deliver_background_tests():
         conn.commit()
 
 
-def record_market_observation(conn, market):
+def record_market_observation(conn, market, bundle=None):
     """Persist the frozen read-only observation; no order, Push or product release."""
+    if bundle is not None:
+        import metric_quality
+        try:
+            with conn.transaction():metric_quality.capture(conn,bundle,market)
+        except Exception as exc:print('BOB_METRIC_CAPTURE error='+type(exc).__name__,flush=True)
     if not market.get('analysisBarAt'):
         return False
     decision_audit.write(conn,{'ruleVersion':market.get('ruleVersion'),'origin':'background','direction':market.get('direction','NEUTRAL'),'baseDirection':market.get('baseDirection'),'learningPolicy':market.get('learningPolicy'),
@@ -353,6 +358,8 @@ def run_audit_harvest_once(database):
     """Backfill real forward prices without blocking trade/Push request transactions."""
     with database() as conn:
         decision_audit.harvest(conn)
+        import product_precision
+        product_precision.harvest(conn)
         conn.commit()
 
 
@@ -396,7 +403,7 @@ def run_background(bundle):
             try:
                 shadow = background_push.analyze(bundle, {'timeframe':'15m', 'learningPolicy':learning_policy}, priority=2)
                 with conn.transaction():
-                    record_market_observation(conn, shadow)
+                    record_market_observation(conn, shadow, bundle)
             except Exception as exc:
                 print('BOB_EARLY_SHADOW error='+type(exc).__name__,flush=True)
         for sid, sub, general, trade, active, settings, previous, evidence, selection in rows:
@@ -407,7 +414,7 @@ def run_background(bundle):
                 market = background_push.failed_analysis_market(bundle)
             # Subscriber-specific monitoring continues independently of audit failures.
             try:
-                with conn.transaction(): record_market_observation(conn, market)
+                with conn.transaction(): record_market_observation(conn, market, bundle)
             except Exception as exc:
                 print('BOB_AUDIT write_failed='+type(exc).__name__,flush=True)
             state, events = background_push.advance(previous, settings, market, general, trade and active)
@@ -589,6 +596,17 @@ class Handler(BaseHTTPRequestHandler):
                     conn.commit()
                 send_json(self, 200, result)
                 return
+            if path == '/precision-learning/control':
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'});return
+                payload=json_body(self)
+                import precision_learning
+                with db() as conn:
+                    result=precision_learning.control(conn,payload.get('enabled'),int(time.time()*1000))
+                    conn.commit()
+                with decision_audit._report_lock: decision_audit._report_cache=None
+                send_json(self,200,result);return
             if path in ('/rule-learning/read','/rule-learning/rollback'):
                 supplied=self.headers.get('X-Bob-Push-Token','')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):

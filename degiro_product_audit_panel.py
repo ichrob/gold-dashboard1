@@ -183,6 +183,9 @@ PANEL = r'''<section id="bobProductAudit" class="card">
       (Number.isFinite(study.rawMae)?' · mittlere Abweichung an '+study.validationCount+' späteren Prüfwerten: '+study.rawMae.toFixed(4)+' → '+study.correctedMae.toFixed(4)+' '+study.currency+
        ' · '+(study.status==='improved'?'Korrektur im Vergleich besser':'Korrektur verworfen'):' · sammelt passende Originalkurse')+
       ' · getrennte Modellabschnitte; reine Auswertung, keine Handelsfreigabe.';
+    const correction=study.automaticCorrection;
+    if(correction)evaluation.textContent+=' Automatische Modellkorrektur: '+(correction.usable?'aktiv ('+(correction.factor*100).toFixed(3)+' %)':correction.reason)+
+      ' · Phase '+correction.phase+(Number.isFinite(correction.latestCorrected)?' · letzte Modellschätzung '+correction.latestRaw.toFixed(4)+' → '+correction.latestCorrected.toFixed(4)+' '+study.currency:'')+(correction.evidence?' · unabhängiger Fehler vorher/nachher '+correction.evidence.rawMaePct.toFixed(4)+' / '+correction.evidence.correctedMaePct.toFixed(4)+' %':'');
     list.append(document.createElement('br'),evaluation);
    }
    node.append(summary,list);
