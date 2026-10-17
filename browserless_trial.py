@@ -8,7 +8,7 @@ from pathlib import Path
 import requests
 
 # One additional attempt authorized after the user replaced the rejected token.
-TRIAL = 'mco-single-video-v3'
+TRIAL = 'mco-single-video-v4'
 ENDPOINT = 'https://production-sfo.browserless.io/function'
 
 
@@ -27,6 +27,14 @@ def capture(token, identity, moments):
                 if size > 500000:return 'response-too-large', []
                 chunks.append(chunk)
             result=json.loads(b''.join(chunks))
+        # Function API may return its {data, type} envelope or the JSON body.
+        if isinstance(result,dict) and isinstance(result.get('data'),dict):
+            result=result['data']
+        if not isinstance(result,dict):return 'invalid-response', []
+        status=result.get('status')
+        safe_statuses={'navigation-failed','consent-required','access-blocked','player-unavailable',
+                       'playback-unavailable','identity-unconfirmed','seek-failed','screenshot-failed'}
+        if status in safe_statuses:return status, []
         if result.get('videoId') != identity:return 'identity-unconfirmed', []
         from video_evidence import checked_frames
         from PIL import Image, ImageStat
