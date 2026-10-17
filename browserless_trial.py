@@ -7,7 +7,8 @@ from pathlib import Path
 
 import requests
 
-TRIAL = 'mco-single-video-v1'
+# One additional attempt authorized after the user replaced the rejected token.
+TRIAL = 'mco-single-video-v2'
 ENDPOINT = 'https://production-sfo.browserless.io/function'
 
 
