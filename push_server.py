@@ -20,6 +20,7 @@ import bob_validation_store
 import real_trade_journal
 import trade_email_import
 import decision_audit
+import ranking_learning
 import adaptive_learning as rule_learning
 import strategy_lab_store
 import stop_target_audit
@@ -360,6 +361,7 @@ def run_audit_harvest_once(database):
         decision_audit.harvest(conn)
         import product_precision
         product_precision.harvest(conn)
+        ranking_learning.harvest(conn)
         conn.commit()
 
 
@@ -387,6 +389,9 @@ def run_background(bundle):
             with conn.transaction():rule_learning.tick(conn,bundle,background_push.analyze)
         except Exception as exc:
             print('BOB_RULE_LEARNING error='+type(exc).__name__,flush=True)
+        try:
+            with conn.transaction():ranking_learning.tick(conn)
+        except Exception as exc:print('BOB_RANKING error='+type(exc).__name__,flush=True)
         learning_policy=rule_learning.policy(conn)
         bundle={**bundle,'learningPolicy':learning_policy}
         try:
@@ -465,7 +470,7 @@ def run_background(bundle):
             if general and evidence and background_push.degiro_entry_allowed():
                 try:
                     checked=product_push.evaluate({**evidence,'capturedAt':int(time.time()*1000),'bundle':bundle,'context':market.get('context',{'direction':'NEUTRAL'})},
-                        quotes=paper_simulation.observed_quotes(evidence.get('products', [])))
+                        quotes=paper_simulation.observed_quotes(evidence.get('products', [])),ranking_policy=ranking_learning.policy(conn))
                     sent += deliver_product_selection(conn,(sid,sub,selection),checked)
                 except Exception as exc:
                     print('BOB_BACKGROUND selection_failed='+type(exc).__name__,flush=True)
@@ -596,6 +601,15 @@ class Handler(BaseHTTPRequestHandler):
                     conn.commit()
                 send_json(self, 200, result)
                 return
+            if path == '/ranking-learning/control':
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'});return
+                payload=json_body(self)
+                with db() as conn:
+                    result=ranking_learning.control(conn,payload.get('enabled'),int(time.time()*1000));conn.commit()
+                with decision_audit._report_lock: decision_audit._report_cache=None
+                send_json(self,200,result);return
             if path == '/precision-learning/control':
                 supplied=self.headers.get('X-Bob-Push-Token','')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
@@ -614,6 +628,7 @@ class Handler(BaseHTTPRequestHandler):
                 json_body(self)
                 with db() as conn:
                     result=rule_learning.rollback(conn) if path.endswith('/rollback') else rule_learning.policy(conn)
+                    result['rankingPolicy']=ranking_learning.policy(conn)
                     conn.commit()
                 if path.endswith('/rollback'):
                     with decision_audit._report_lock: decision_audit._report_cache=None
@@ -988,7 +1003,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not row or row[0] is not True:
                     send_json(self, 200, {"ok": True, "sent": 0, "disabled": True})
                     return
-                checked = product_push.evaluate(payload)
+                with db() as conn:ranking_policy=ranking_learning.policy(conn)
+                checked = product_push.evaluate(payload,ranking_policy=ranking_policy)
                 row, sent = store_product_selection(endpoint, payload, checked)
                 send_json(self, 200, {"ok": True, "sent": sent, "disabled": not bool(row), "approvedCount": len(checked['products']) if row else 0})
                 return

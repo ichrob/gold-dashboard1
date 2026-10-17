@@ -14,10 +14,13 @@ class ProductPushTransitions(unittest.TestCase):
         import json
         from unittest.mock import patch
         from types import SimpleNamespace
-        payload={'products': [], 'quotes': {'untrusted': {'approved': True}}}
+        payload={'products': [], 'rankingPolicy': {'untrusted': True}, 'quotes': {'untrusted': {'approved': True}}}
         with patch('product_push.evaluator_runtime.run', return_value=SimpleNamespace(stdout='{}')) as run:
             evaluate(payload)
             self.assertEqual(json.loads(run.call_args.kwargs['input'])['quotes'], {})
+            self.assertIsNone(json.loads(run.call_args.kwargs['input'])['rankingPolicy'])
+            evaluate(payload, ranking_policy={'id':'trusted'})
+            self.assertEqual(json.loads(run.call_args.kwargs['input'])['rankingPolicy'], {'id':'trusted'})
             evaluate(payload, quotes={'verified-source': {'isin': 'example'}})
             self.assertIn('verified-source', json.loads(run.call_args.kwargs['input'])['quotes'])
         self.assertIn('untrusted', payload['quotes'])

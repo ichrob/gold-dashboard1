@@ -48,7 +48,7 @@ function selectionQuote(q,now){
 }
 function evaluate(input,now=Date.now()){
  const selectedInput={...input,quotes:Object.fromEntries(Object.entries(input.quotes||{}).map(([isin,q])=>[isin,selectionQuote(q,now)]))};
- const env={window:{},localStorage:{getItem:k=>k==='bobFixedScreenshotKoV1'?JSON.stringify(input.fixedBarriers||{}):null},input:selectedInput,now};
+ const env={window:{BobRankingPolicy:input.rankingPolicy||null},localStorage:{getItem:k=>k==='bobFixedScreenshotKoV1'?JSON.stringify(input.fixedBarriers||{}):null},input:selectedInput,now};
  vm.createContext(env);vm.runInContext(fs.readFileSync(__dirname+'/degiro_assistant.js','utf8'),env,{timeout:2000});
  return vm.runInContext(`(()=>{
   const api=window.BobDegiro,context={...input.market.context,direction:input.market.direction,spotFresh:input.market.priceFresh,spot:input.market.price,now};
@@ -71,13 +71,15 @@ function evaluate(input,now=Date.now()){
     price:p.price,at:p.quote.quoteAt,source:p.quote.source,priceKind:p.quote.paperQuoteLabel||'Simulationskurs · beobachteter Geld/Brief',
     reasons:e.reasons,warnings:e.warnings});
   }
-  const approved=[...flow.groups.flatMap(g=>g.candidates).filter(c=>!papers.some(p=>p.isin===c.isin)),...papers].sort((a,b)=>b.score-a.score||a.isin.localeCompare(b.isin));
+  const approved=[...(flow.eligibleCandidates||flow.groups.flatMap(g=>g.candidates)).filter(c=>!papers.some(p=>p.isin===c.isin)),...papers].sort((a,b)=>b.score-a.score||a.isin.localeCompare(b.isin));
   const choices=approved.filter(c=>valid(products.find(p=>p.isin===c.isin)||{})).map(c=>({...c,approval:input.quotes[c.isin]?.paperSelectionOnly?'Simulationsfreigabe · beobachteter oder umgerechneter Kurs, keine DEGIRO-Ausführung':'Bob-Pflichtprüfung bestanden',paperOnly:input.quotes[c.isin]?.paperSelectionOnly===true,koGuardRequired:true}));
   // The user's existing indicative mode remains a separate Gold-only model.
   if(!choices.length&&!flow.gateReasons.length)for(const x of api.indicativeRecommendations(products.filter(valid),context))
    choices.push({isin:x.p.isin,name:x.p.name,direction:context.direction,scope:api.isFutureProduct(x.p)?'FUTURE':'XAU/USD',score:x.evaluation.score,reasons:x.evaluation.reasons,approval:'Unverbindliche Berechnung mit vorhandenen Werten',indicative:true,warning:x.warning});
-  const selected=new Set(choices.map(c=>c.isin));
-  return {choices:choices.slice(0,3),reasons:flow.gateReasons.concat(flow.requests.filter(p=>!selected.has(p.isin)).flatMap(p=>p.reasons),flow.waiting.filter(p=>!selected.has(p.isin)).map(p=>p.reason)).slice(0,8)};
+  const researchCandidates=choices.filter(c=>!c.indicative&&!c.estimated).slice(0,12);
+  const ranked=api.applyLearnedRanking(choices,products,input.rankingPolicy,now);
+  const selected=new Set(ranked.slice(0,3).map(c=>c.isin));
+  return {choices:ranked.slice(0,3),researchCandidates,reasons:flow.gateReasons.concat(flow.requests.filter(p=>!selected.has(p.isin)).flatMap(p=>p.reasons),flow.waiting.filter(p=>!selected.has(p.isin)).map(p=>p.reason)).slice(0,8)};
  })()`,env,{timeout:3000});
 }
 module.exports={evaluate,selectionQuote};

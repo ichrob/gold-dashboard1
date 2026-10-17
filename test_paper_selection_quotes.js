@@ -24,3 +24,11 @@ for(const change of [{bidAt:new Date(now-90001).toISOString()},{isin:'wrong'},{c
 assert.equal(evaluate({...input,quotes:{[isin]:{...q,isin:'wrong'}}},now).choices.filter(c=>!c.indicative).length,0);
 assert.equal(evaluate({...input,market:{...input.market,direction:'NEUTRAL'}},now).choices.length,0);
 console.log('Paper selection: observed bid/ask reaches approved candidate; identity, dates, terms, market and broker isolation pass');
+
+// Counterfactual research retains eligible alternatives beyond the displayed Top 3.
+function testIsin(i){const prefix='DE000TEST0'+i;for(let check=0;check<10;check++){const value=prefix+check,digits=Array.from(value,c=>/[A-Z]/.test(c)?String(c.charCodeAt(0)-55):c).join('');let sum=0;for(let n=digits.length-1,d=false;n>=0;n--,d=!d){let x=Number(digits[n])*(d?2:1);sum+=x>9?x-9:x;}if(sum%10===0)return value;}}
+const all=Array.from({length:5},(_,i)=>({...input.products[0],isin:testIsin(i)}));
+const quotes=Object.fromEntries(all.map(p=>[p.isin,JSON.parse(JSON.stringify(q).replaceAll(isin,p.isin))]));
+const expanded=evaluate({...input,products:all,quotes},now);
+assert.equal(expanded.choices.length,3,JSON.stringify(expanded));assert.equal(expanded.researchCandidates.length,5);
+assert(expanded.researchCandidates.every(c=>c.paperOnly));
