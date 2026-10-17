@@ -250,3 +250,17 @@ def report(conn, day=None):
                 simulatedCapitalEur=1200, realOrders=False, startAt=START,
                 note='4 × 100 EUR plus 1 × 800 EUR virtuell. Der ursprüngliche manuelle 800-EUR-Test bleibt separat. KO-Schutz verlangt eine bestätigte heutige Spot-Barriere und aktuelle Euro-Kurse; er garantiert keinen rechtzeitigen Ausstieg. Ohne belegten Abrechnungswert bleiben Produktverlust und freies Kapital offen. Bruttomodell ohne vollständige Gebühren, Finanzierung oder Slippage.',
                 accounts=accounts)
+
+
+def diagram_report(conn):
+    """Bounded chart-only reads; never load case histories or run simulations."""
+    accounts=[]
+    fields=('capital','initialCapital','valuationKnown','observedMaxDrawdownPct','capitalAt')
+    for profile,policy in POLICIES.items():
+        ledger=Ledger(conn,profile)
+        control=ledger.execute('SELECT payload FROM bob_paper_control WHERE id=1').fetchone()
+        days=ledger.execute('SELECT day,payload FROM bob_paper_days ORDER BY day DESC LIMIT 366').fetchall()
+        accounts.append(dict(profile=profile,title=policy['title'],
+            control=dict(initialCapital=control[0].get('initialCapital')) if control else {},
+            daily=[dict(day=day,**{k:data.get(k) for k in fields}) for day,data in days]))
+    return dict(realOrders=False,accounts=accounts,daysLimit=366)

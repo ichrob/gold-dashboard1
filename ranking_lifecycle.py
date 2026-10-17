@@ -23,7 +23,7 @@ def init(conn):
 def active_isins(conn):
     return sorted({c['product']['isin'] for (state,) in conn.execute(
         'SELECT state FROM bob_ranking_lifecycles WHERE complete=FALSE').fetchall()
-        for c in state['cases'].values() if c['status']=='open'})
+        for c in [*state['cases'].values(),*state.get('fixedCases',{}).values()] if c['status']=='open'})
 
 
 def capture(conn,row,market,choices,quotes,now):
@@ -41,7 +41,9 @@ def capture(conn,row,market,choices,quotes,now):
         if not c['productReturnKnown'] or c['endsAt']<=now:missing.append(isin);continue
         c['comparisonLastQuoteAt']=min(sim.stamp(q.get(k) or q.get('quoteAt')) for k in ('bidAt','askAt'))
         cases[isin]=c
-    state=dict(version=VERSION,cases=cases,missing=missing)
+    fixed=copy.deepcopy(cases)
+    for c in fixed.values():c['comparisonFixedPlan']=True
+    state=dict(version=VERSION,cases=cases,fixedCases=fixed,missing=missing)
     result=summarize(row,state)
     conn.execute('''INSERT INTO bob_ranking_lifecycles VALUES(%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s)
         ON CONFLICT DO NOTHING''',(row['currency'],row['slot'],json.dumps(row),json.dumps(state),json.dumps(result),not cases,now))
@@ -67,12 +69,17 @@ def advance_state(state,market,quotes,now):
         if reason:
             c.update(status='inconclusive',closedAt=now,productReturnKnown=False,productGrossPct=None)
             c['events'].append(dict(kind='comparison-unavailable',recordedAt=now,reason=reason));continue
+        observed=(c['cashReleased']+c['remainingUnits']*q['bid']-c['allocated'])/CAPITAL*100
+        c['observedPeakPct']=max(c.get('observedPeakPct',observed),observed)
         c=sim.advance_case(c,market,quote,now)
         # A source/KO/gap failure is final for the comparison, even if a price
         # arrives later. Never replace an uncertain exit by a favorable quote.
         if c.get('pendingUnits') or c.get('koWatchStatus')=='unverified':
             c.update(status='inconclusive',closedAt=now,productReturnKnown=False,productGrossPct=None)
         out['cases'][isin]=c
+    if 'fixedCases' in out:
+        fixed=advance_state(dict(cases=out['fixedCases'],missing=out['missing']),market,quotes,now)
+        out['fixedCases']=fixed['cases']
     return out
 
 
@@ -86,7 +93,7 @@ def summarize(row,state):
         if c['status']=='open':pending.append(isin)
         elif c['status']=='closed' and c['productReturnKnown'] and not c.get('pendingUnits'):
             returns[isin]=dict(grossPct=(c['cashReleased']-c['allocated'])/CAPITAL*100,
-                profitEur=c['cashReleased']-c['allocated'],exitReason=c.get('exitReason'),exitAt=c['closedAt'])
+                peakPct=c.get('observedPeakPct'),profitEur=c['cashReleased']-c['allocated'],exitReason=c.get('exitReason'),exitAt=c['closedAt'])
         else:missing.append(isin)
     valid=bool(len(row['candidates'])>=2 and not missing and not pending and len(returns)==len(row['candidates']))
     result=dict(version=VERSION,complete=valid,pending=pending,missing=missing,returns=returns,
@@ -97,6 +104,11 @@ def summarize(row,state):
         result.update(bestIsins=sorted(i for i,v in returns.items() if abs(v['grossPct']-best)<1e-9),
             chosenIsin=chosen,chosenPct=returns[chosen]['grossPct'],bestPct=best,alternativeIsin=alternative,
             alternativeAdvantagePct=returns[alternative]['grossPct']-returns[chosen]['grossPct'])
+    if 'fixedCases' in state:
+        fixed=summarize(row,dict(cases=state['fixedCases'],missing=state['missing']))
+        result['stopComparison']=dict(complete=valid and fixed['complete'],
+            fixedReturns=fixed['returns'],bobReturns=returns,
+            pending=fixed['pending'],missing=fixed['missing'])
     return result
 
 
@@ -106,7 +118,7 @@ def tick(conn,market,quotes,now):
     for currency,slot,row,state in rows:
         state=advance_state(state,market,quotes,now);result=summarize(row,state)
         conn.execute('''UPDATE bob_ranking_lifecycles SET state=%s::jsonb,result=%s::jsonb,complete=%s,checked_at=%s
-            WHERE currency=%s AND slot=%s''',(json.dumps(state),json.dumps(result),not result['pending'],now,currency,slot))
+            WHERE currency=%s AND slot=%s''',(json.dumps(state),json.dumps(result),not result['pending'] and not result.get('stopComparison',{}).get('pending'),now,currency,slot))
     conn.execute('DELETE FROM bob_ranking_lifecycles WHERE complete=TRUE AND slot<%s',(now-180*86400000,))
 
 

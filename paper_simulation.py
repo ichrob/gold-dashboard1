@@ -364,6 +364,11 @@ def advance_case(original, market, quote, now):
         realize('stop',c['remaining']);return c
     if now>=c['endsAt']:
         realize('time-exit',c['remaining']);return c
+    if c.get('comparisonFixedPlan') is True:
+        # Read-only shadow case: original stop/target, same KO/time/gap checks.
+        if (p>=t['target'] if long else p<=t['target']):
+            realize('target-exit',c['remaining'])
+        return c
     if c.get('trendFollow') is True:
         # Separate trend lifecycle: no automatic sale at first profit target;
         # original stop, source-freshness and gap protection above stay intact.

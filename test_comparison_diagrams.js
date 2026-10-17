@@ -18,9 +18,26 @@ const panel=new El('section');window.BobDiagrams.mount(panel);
 const all=()=>{const out=[];function walk(e){out.push(e);e.children.forEach(walk);}walk(panel);return out;};
 assert(all().some(e=>e.textContent.includes('Noch keine vollständigen')));
 window.BobDiagrams.unavailable();assert(all().some(e=>e.textContent.includes('derzeit nicht verfügbar')));
-window.BobDiagrams.update(study);assert.equal(all().filter(e=>e.tag==='svg').length,2);
+window.BobDiagrams.update(study);assert.equal(all().filter(e=>e.tag==='svg').length,3);
 assert(all().some(e=>e.textContent.includes('nicht übernommen')));
 const circle=all().find(e=>e.tag==='circle');circle.events.click();assert(all().some(e=>e.textContent.includes('Damals bevorzugt: a')));
 window.BobDiagrams.unavailable();assert(all().some(e=>e.textContent.includes('Datenstand veraltet')));
 const selectors=all().filter(e=>e.tag==='select');selectors[0].value='CHF';selectors[0].events.change();selectors[1].value='exit';selectors[1].events.change();assert.equal(all().filter(e=>e.tag==='svg').length,1);
 console.log('Comparison diagrams: currency/horizon isolation, no missing-value winners, gaps, frozen evidence, actual SVG rendering and stale/empty states pass');
+
+// Independent transforms: missing prices never become zero P/L or hits.
+const cr=api.capitalRows({control:{initialCapital:100},daily:[
+ {day:'2026-10-14',valuationKnown:true,capital:110,initialCapital:100,observedMaxDrawdownPct:2},
+ {day:'2026-10-15',valuationKnown:false,capital:null,initialCapital:100},
+ {day:'2026-10-16',valuationKnown:true,capital:99,initialCapital:100}]});
+assert.equal(cr[0].profit,10);assert.equal(cr[1].profit,null);assert(Math.abs(cr[2].drawdown+10)<1e-8);
+assert.equal(api.signalRows({'15':{evaluated:4,favorable:3,directionalSumPct:-2}})[0].mean,-.5);
+assert.equal(api.signalRows({})[0].hit,null);
+const stop={currency:'EUR',slot:at,chosenIsin:'a',stopComparison:{complete:true,bobReturns:{a:{grossPct:-1,peakPct:3}},fixedReturns:{a:{grossPct:2}}}};
+assert.equal(api.stopRows({lifecycle:{comparisons:[stop]}},'EUR')[0].giveback,3);
+assert.equal(api.stopRows({lifecycle:{comparisons:[{...stop,stopComparison:{...stop.stopComparison,complete:false}}]}},'EUR')[0].bob,null);
+window.BobDiagrams.portfolios({realOrders:false,accounts:[{profile:'balanced',title:'Test',control:{initialCapital:100},daily:[{day:'2026-10-14',valuationKnown:true,capital:110,initialCapital:100}]}]});
+assert(all().some(e=>e.textContent.includes('Rendite seit Kontostart')));
+window.BobDiagrams.portfoliosUnavailable();assert(all().some(e=>e.textContent.includes('Kontodaten veraltet')));
+window.BobDiagrams.update({...study,lifecycle:{comparisons:[stop]}},{precisionLearning:{states:[{currency:'CHF',isin:'x',source:'issuer',chartHistory:[{at,raw:10,original:11,corrected:10.2}]}]},metrics:{'15':{evaluated:4,favorable:3,directionalSumPct:-2}}});
+assert(all().some(e=>e.textContent.includes('Originalkurs')));assert(all().some(e=>e.textContent.includes('Trefferquote')));
