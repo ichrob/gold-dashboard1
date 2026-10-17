@@ -193,6 +193,7 @@ ICON_PATH = BASE_DIR / "icon.svg"
 HTML = HTML_PATH.read_bytes() if HTML_PATH.exists() else b""
 HTML = HTML.replace(b"</body>", auto_collection.PANEL.encode('utf-8')+b"</body>")
 HTML = HTML.replace(b"</body>", candle_shadow.PANEL.encode('utf-8')+b"</body>")
+HTML = HTML.replace(b"</body>", b'<script src="/degiro_handoff.js"></script></body>')
 HTML = HTML.replace(b"</body>", degiro_sandbox_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", vollautomatisch_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", trade_email_panel.PANEL.encode("utf-8")+b"</body>")
@@ -207,6 +208,7 @@ ICON = ICON_PATH.read_bytes() if ICON_PATH.exists() else None
 # Legacy push module fallback. Product import uses its tracked source file below
 # so the tested and served implementation cannot diverge after a deployment.
 PUSH_MANAGER_JS = (BASE_DIR / "push_manager.js").read_text(encoding="utf-8")
+DEGIRO_HANDOFF_JS = (BASE_DIR / "degiro_handoff.js").read_text(encoding="utf-8")
 DEGIRO_ASSISTANT_JS = (BASE_DIR / "degiro_assistant.js").read_text(encoding="utf-8")
 UPSTREAM_TIMEOUT = 4
 FRESH_MAX_AGE = 180
@@ -1334,9 +1336,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        if path == "/degiro_assistant.js":
+        if path in ("/degiro_assistant.js", "/degiro_handoff.js"):
             try:
-                body = DEGIRO_ASSISTANT_JS.encode("utf-8")
+                body = (DEGIRO_HANDOFF_JS if path == "/degiro_handoff.js" else DEGIRO_ASSISTANT_JS).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/javascript; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
