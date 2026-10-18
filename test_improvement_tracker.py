@@ -118,6 +118,12 @@ class TrackerDatabaseTests(unittest.TestCase):
                 m.capture(conn,market(later+7200000),later+7200000)
                 self.assertEqual(conn.execute("SELECT count(*) FROM bob_improvement_trials WHERE phase='validation'").fetchone()[0],1)
                 count=conn.execute('SELECT count(*) FROM bob_improvement_trials').fetchone()[0]
+                m.archive_review(conn,later+7230000)
+                m.archive_review(conn,later+7230000)
+                self.assertEqual(conn.execute('SELECT count(*) FROM bob_improvement_reviews').fetchone()[0],1)
+                recorded=m.report(conn,later+7230000)['history'][0]
+                self.assertFalse(recorded['actualRuleChange'])
+                self.assertIn('decision',recorded)
                 conn.commit()
                 # Reinitialization preserves evidence and does not rewrite the protocol.
                 m.init(conn)
