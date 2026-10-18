@@ -2034,10 +2034,22 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   // Status, essential values and chart first; upload/actions and one disclosure follow.
   for(const node of [tradeStatus,tradeSummary,curveRoot,byId('stopUpdate'),tradeActions,tradeDetails])if(node)panels.trade.append(node);
   tradeDetails.open=false;
-  // One home per tool; keep only a quick trade-notification switch in Mein Trade.
-  if(push)panels.settings.append(push);
+  // Keep both notification cards together; setup and diagnostics live in Settings.
+  if(push){
+   const pushGrid=push.querySelector('.bob-trade-push-toggles');
+   const pushHeading=push.querySelector('h3');
+   const setup=document.createElement('section');setup.className='card';setup.id='bobPushSetup';
+   const title=document.createElement('h3');title.textContent='Push-Einrichtung und Verbindung';setup.append(title);
+   for(const child of [...push.children])if(child!==pushHeading&&child!==pushGrid)setup.append(child);
+   panels.settings.append(setup);
+   if(tradeToggle&&pushGrid){
+    const label=tradeToggle.querySelector('label');if(label)label.textContent='Aktiver Trade';
+    pushGrid.append(tradeToggle);
+   }
+   panels.trade.querySelector('h2').after(push);
+  }
   const settingsLink=document.createElement('div');settingsLink.className='bob-more-menu';
-  settingsLink.innerHTML=menuButton('settings','⚙','Push und Verbindung','Allgemeine Einstellungen öffnen')+menuButton('degiro2','↗','DEGIRO-Handy-Assistent','Auch direkt unter Mehr erreichbar');
+  settingsLink.innerHTML=menuButton('settings','⚙','Push und Verbindung','Push-Einrichtung öffnen')+menuButton('degiro2','↗','DEGIRO-Handy-Assistent','Auch direkt unter Mehr erreichbar');
   tradeDetails.append(settingsLink);
   const simLinks=document.createElement('div');simLinks.className='bob-more-menu';
   simLinks.innerHTML=menuButton('learning','↗','Ergebnisse auswerten','Abgeschlossene Trades und geprüfte Verbesserungen')+menuButton('diagrams','▥','Simulationsdiagramme','Kapitalentwicklung, Rückgänge und Stoppvergleich');
@@ -2062,7 +2074,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    </ol><h3>Wo finde ich was?</h3>
    <p><b>Mehr → Simulation:</b> laufende Spielgeldtests und Teststatus. <b>Lernen &amp; Ergebnisse:</b> abgeschlossene Trades, Auswertungen und Nachweise für Verbesserungen. Offene oder fehlende Daten zählen nicht als Erfolg.</p>
    <p><b>Mehr → Diagramme:</b> Markt, Mein Trade, Simulation und Lernen. <b>Recherche:</b> Videos, Zusammenfassungen und MCO vs. Bob. <b>DEGIRO-Handy-Assistent:</b> der frühere Bereich „DEGIRO 2“. Der separate DEGIRO-Bereich bleibt dein reservierter Platzhalter.</p>
-   <p><b>Mehr → Einstellungen:</b> Markt-Pushs, Einrichtung, Verbindung und Abmelden. Der schnelle Trade-Schalter bleibt in Mein Trade. <b>Probleme:</b> technische Meldungen und bewusstes Teilen an ChatGPT; Produktnachweise stehen bei Produkte.</p>
+   <p><b>Mehr → Einstellungen:</b> Push-Einrichtung, Verbindung und Abmelden. Marktbeobachtung und Aktiver Trade stehen gemeinsam oben in Mein Trade. <b>Probleme:</b> technische Meldungen und bewusstes Teilen an ChatGPT; Produktnachweise stehen bei Produkte.</p>
    <details class="bob-disclosure"><summary>Wenn etwas fehlt</summary><p>Bei fehlenden oder veralteten Kursen den Datenstatus unter Einstellungen öffnen. Bei falschen Trade-Angaben „Daten korrigieren“ nutzen. Unter Mein Trade → Details bleiben zusätzliche Eingaben und Nachweise erhalten.</p><p>Benachrichtigungen benötigen die Browser- beziehungsweise Handyberechtigung. Ein eingeschalteter Schalter allein bestätigt noch keine erfolgreiche Hintergrundüberwachung.</p></details>`;
   panels.help.append(help);
   const helpLink=document.createElement('div');helpLink.className='bob-more-menu';helpLink.innerHTML=menuButton('help','?','Bedienungsanleitung','Bob Schritt für Schritt');panels.settings.append(helpLink);
@@ -2072,7 +2084,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   function show(key,focus=true){if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&['auto','future','research','learning','diagrams','degiro','degiro2','simulation','settings','help'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
   document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b){show(b.dataset.view);history.replaceState(null,'','#'+b.dataset.view);}});
   window.addEventListener('hashchange',()=>show(location.hash.slice(1)));
-  for(const b of status.querySelectorAll('button'))b.addEventListener('click',()=>{show('settings');history.replaceState(null,'','#settings');if(b.dataset.status==='push')push?.scrollIntoView({behavior:'smooth',block:'start'});else{system.open=true;system.scrollIntoView({behavior:'smooth',block:'start'});}});
+  for(const b of status.querySelectorAll('button'))b.addEventListener('click',()=>{show('settings');history.replaceState(null,'','#settings');if(b.dataset.status==='push')byId('bobPushSetup')?.scrollIntoView({behavior:'smooth',block:'start'});else{system.open=true;system.scrollIntoView({behavior:'smooth',block:'start'});}});
   byId('bobNextAction')?.addEventListener('click',()=>{
    const destination=byId('bobNextAction').dataset.destination;
    if(destination==='data'){show('settings');history.replaceState(null,'','#settings');system.open=true;system.scrollIntoView({behavior:'smooth',block:'start'});system.querySelector('summary')?.focus();}
