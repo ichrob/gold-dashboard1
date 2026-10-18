@@ -117,11 +117,11 @@
   emailState='Kauf aus E-Mail gespeichert. Produktprüfung folgt automatisch.';
  }
  function purchasePanel(){
-  const parent=el('bobExitEstimate'),existing=el('bobPurchaseRecord'),viewNow=el('bob-view-trade');if(existing){if(viewNow&&existing.parentElement!==viewNow){const h=viewNow.querySelector('h2');if(h)h.after(existing);else viewNow.prepend(existing);}return;}if(!parent)return;
+  const parent=el('bobExitEstimate'),existing=el('bobPurchaseRecord'),viewNow=el('bob-view-trade');if(existing){if(viewNow&&viewNow.lastElementChild!==existing)viewNow.append(existing);return;}if(!parent)return;
   const box=document.createElement('details');box.id='bobPurchaseRecord';box.className='card';
   box.innerHTML='<summary>Gespeicherte Käufe und Überwachungsdetails</summary><div id="tradeWorkflow"></div><h3>Bestätigten Kauf geräteübergreifend speichern</h3><p>Kaufkurs, Stückzahl und Richtung werden aus dem Formular oben übernommen. Die Speicherung benötigt keine Gold-/FX-Referenz. Stopp-, Ziel- und KO-Überwachung bleiben bis zur vollständigen Einrichtung offen.</p><form id="purchaseForm"><label>DEGIRO-Transaktions-ID<input id="purchaseTx" required maxlength="80"></label><label>Kaufzeit mit Zeitzone<input id="purchaseAt" required placeholder="2026-10-14T10:54:59+02:00"></label><label>Gesamtgebühren CHF<input id="purchaseFees" type="number" min="0" step="0.01" required></label><label>Gesamtbelastung CHF<input id="purchaseTotal" type="number" min="0" step="0.01" required></label><button type="submit">Bestätigten Kauf auf Server speichern</button></form><p id="purchaseStatus" role="status"></p><button id="purchaseReload">Gespeicherte Käufe laden</button><div id="purchaseList"></div>';
   const view=el('bob-view-trade');
-  if(view){const heading=view.querySelector('h2');if(heading)heading.after(box);else view.prepend(box);}else parent.after(box);
+  if(view)view.append(box);else parent.after(box);
   box.querySelector('h3').textContent='Dein gespeicherter Kauf';
   box.querySelector('p').textContent='Kauf gespeichert → Daten automatisch prüfen → Überwachung automatisch starten.';
   const manual=document.createElement('details'),label=document.createElement('summary');label.textContent='Weiteren Kauf manuell erfassen';manual.append(label,el('purchaseForm'));box.append(manual);
