@@ -182,7 +182,7 @@
    el('purchaseStatus').textContent=queue.length?'Überwachung lokal vorbereitet; Serverspeicherung wird erneut versucht.':'Überwachung automatisch gestartet und gespeichert · Stopp und Ziel in '+(p.currency||'EUR')+' pro Stück (geschätzt).';
   }catch(err){workflowError='Datenabruf noch offen: '+err.message;el('purchaseStatus').textContent=workflowError;}finally{preparing=false;}
  }
- window.BobRealTrades={monitorStatus:()=>({fresh:Date.now()-latestReadAt<90000,at:latestReadAt,active:latestTrades.find(t=>t.active&&t.id===window.BobTradeSync?.current()?.tradeId)}),capture,load,reconcileClosed,workflowState,renderWorkflow};
+ window.BobRealTrades={monitorStatus:()=>({fresh:Date.now()-latestReadAt<90000,at:latestReadAt,pending:latestTrades.filter(t=>t.snapshot.recordOnly&&!t.snapshot.consumed).length,active:latestTrades.find(t=>t.active&&t.id===window.BobTradeSync?.current()?.tradeId)}),capture,load,reconcileClosed,workflowState,renderWorkflow};
  document.addEventListener('DOMContentLoaded',()=>{el('realTradeLoad')?.addEventListener('click',load);flush();purchasePanel();});
  document.addEventListener('click',e=>{if(e.target.closest?.('[data-view="learning"]'))load();purchasePanel();});
  if(typeof navigator!=='undefined'&&navigator.serviceWorker)navigator.serviceWorker.addEventListener('message',event=>{if(event.data?.type==='BOB_PUSH_CLICK'&&event.data.data?.kind==='trade'){location.hash='trade';loadPurchases();}});
