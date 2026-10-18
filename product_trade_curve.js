@@ -127,7 +127,7 @@
   return {low:low.price,high:high.price,rising,samples:p.length,source:p.at(-1).source||p.at(-1).kind||'Preisbeobachtung',
    levels:[0,.236,.382,.5,.618,.786,1].map(r=>({ratio:r,price:rising?high.price-r*d:low.price+r*d}))};
  }
- let panel=null,canvas=null,picked=null,lastResult=null,lastHistory=null,zoom='price',showFib=true;
+ let evidence=null,panel=null,canvas=null,picked=null,lastResult=null,lastHistory=null,zoom='price',showFib=true;
  const QUALITY_STORE='bobProviderModelCalibrationV1';
  function median(values){const a=[...values].sort((x,y)=>x-y);return a.length?(a.length%2?a[(a.length-1)/2]:(a[a.length/2-1]+a[a.length/2])/2):null;}
  function calibrate(history,now=Date.now()){
@@ -236,7 +236,7 @@
     .finally(()=>{if(background.tradeId===id)background.busy=false;});
  }
  function showStatus(){
-  if(panel)panel.querySelector('[data-curve-background]').textContent=background.status+
+  if(panel)(evidence||panel).querySelector('[data-curve-background]').textContent=background.status+
    ' · Modellpunkte sind keine DEGIRO-Ausführung. Fehlende Kurse bleiben Lücken.';
  }
 
@@ -261,7 +261,7 @@
    '<div class="small" data-curve-fib-note></div>'+
    '<div class="small" data-curve-picked aria-live="polite"></div>'+
    '<p class="small">Lokale Anbieter-/Modellpunkte und serverseitig datierte Modellpunkte ab Beginn der Überwachung. Keine erfundene Vergangenheit, keine ausführbaren DEGIRO-Kurse. Nur der bestätigte aktive Echtgeld-Trade wird im Hintergrund aufgezeichnet; bei Quellen- oder Serverausfall entstehen Lücken. KO-Schwelle in Gold-USD, nicht auf der Produktpreisachse. Bob schlägt vor, du handelst selbst bei DEGIRO.</p></details>';
-  element.append(panel);canvas=panel.querySelector('canvas');
+  element.append(panel);canvas=panel.querySelector('canvas');evidence=panel.querySelector('[data-curve-evidence]');
   panel.querySelectorAll('[data-curve-zoom]').forEach(button=>button.addEventListener('click',()=>{
    zoom=button.getAttribute('data-curve-zoom');
    panel.querySelectorAll('[data-curve-zoom]').forEach(b=>{const chosen=b===button;b.setAttribute('aria-pressed',String(chosen));b.style.background=chosen?'#e2e8f0':'#f8fafc';});
@@ -279,12 +279,12 @@
    const first=h.rows[0].at,last=h.rows.at(-1).at,span=Math.max(last-first,30000);
    const target=first+Math.max(0,Math.min(1,(x-82)/(canvas.width-114)))*span;
    picked=h.rows.reduce((best,v)=>!best||Math.abs(v.at-target)<Math.abs(best.at-target)?v:best,null);
-   panel.querySelector('[data-curve-evidence]').open=true;
+   if(evidence){evidence.open=true;for(let node=evidence.parentElement;node;node=node.parentElement)if(node.tagName==='DETAILS')node.open=true;}
    showPicked();
   });
  }
  function showPicked(){
-  if(!panel)return;panel.querySelector('[data-curve-picked]').textContent=picked?
+  if(!panel)return;(evidence||panel).querySelector('[data-curve-picked]').textContent=picked?
    'Ausgewählter Punkt · '+clock(picked.at)+' aufgezeichnet · '+fmt(picked.price,picked.currency)
     +' · '+(picked.kind==='model'?'≈ berechnet':picked.kind==='issuer'?'Emittent':'Analysequelle')
     +' · ursprüngliche Kurszeit '+clock(picked.sourceAt):
@@ -402,7 +402,7 @@
     ||lastResult?.price!==result.price||lastResult?.koDistancePct!==result.koDistancePct;
   lastResult=result;lastHistory=h;
   if(picked&&!h.rows.some(v=>v.at===picked.at)){picked=null;}
-  const show=(sel,value)=>{const node=panel.querySelector(sel);if(node)node.textContent=value;};
+  const show=(sel,value)=>{const node=panel.querySelector(sel)||evidence?.querySelector(sel);if(node)node.textContent=value;};
   const match=result.comparison;
   const qualityText=match?
    'Zeitgleicher Preisabgleich · Anbieter '+fmt(match.quoted,result.currency)+
@@ -438,6 +438,6 @@
   showStatus();
   showPicked();
  }
- root.BobProductCurve={assess,addObservation,mergedHistory,learnComparison,calibrate,reviewStop,fibonacci,mount,update};
+ root.BobProductCurve={assess,addObservation,mergedHistory,learnComparison,calibrate,reviewStop,fibonacci,mount,moveDetails(parent){if(parent&&evidence)parent.append(evidence);},update};
  if(typeof module!=='undefined'&&module.exports)module.exports={assess,addObservation,mergedHistory,learnComparison,calibrate,reviewStop,fibonacci};
 })(typeof window!=='undefined'?window:globalThis);
