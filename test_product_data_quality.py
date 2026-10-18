@@ -20,6 +20,7 @@ class QualityTests(unittest.TestCase):
     def test_current_stale_and_separate_currency_comparisons(self):
         at='2026-10-18T10:00:00Z'
         report=dict(status='ok',lastCheckedAt=at,items=[dict(isin='A',state='issuer-evidence-complete',missing=[],quoteSourceAt=at),dict(isin='B',state='incomplete',missing=['quote'],missingSince={'quote':at},marketCrossCheck={'status':'outlier'})],priceStudy={'A':dict(rawMae=.1,validationCount=5,currency='EUR'),'B':dict(rawMae=.2,validationCount=7,currency='CHF')})
+        report['items'][0]['quoteSourceAt']=stamp(at)
         r=summarize(report,stamp(at)+60000)
         self.assertEqual((r['freshPct'],r['completePct']),(50,50))
         self.assertEqual(r['conflicts'],['B']);self.assertEqual(r['gaps'][0]['minutes'],1)
