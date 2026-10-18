@@ -57,6 +57,8 @@ def expected_slots(now):
 def init(conn):
     conn.execute('CREATE TABLE IF NOT EXISTS bob_improvement_protocol (id TEXT PRIMARY KEY, payload JSONB NOT NULL)')
     conn.execute('INSERT INTO bob_improvement_protocol VALUES(%s,%s::jsonb) ON CONFLICT DO NOTHING',(VERSION,json.dumps(PROTOCOL)))
+    import entry_path_study
+    conn.execute('INSERT INTO bob_improvement_protocol VALUES(%s,%s::jsonb) ON CONFLICT DO NOTHING',(entry_path_study.VERSION,json.dumps(entry_path_study.PROTOCOL)))
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_improvement_reviews (id TEXT PRIMARY KEY, campaign TEXT NOT NULL, at BIGINT NOT NULL, payload JSONB NOT NULL)''')
     conn.execute('CREATE TABLE IF NOT EXISTS bob_improvement_state (campaign TEXT PRIMARY KEY, validation_at BIGINT)')
     conn.execute('INSERT INTO bob_improvement_state VALUES(%s,NULL) ON CONFLICT DO NOTHING',(VERSION,))
@@ -247,6 +249,8 @@ def report(conn,now=None,include_history=True):
     if include_history:
         import decision_journal
         result['decisionJournal']=decision_journal.read(conn,VERSION,now)
+        import entry_path_study
+        result['entryPath']=entry_path_study.read(conn,VERSION,now)
         history=conn.execute('SELECT at,payload FROM bob_improvement_reviews WHERE campaign=%s ORDER BY at DESC,id LIMIT 50',(VERSION,)).fetchall()
         result['history']=[dict(at=at,**payload) for at,payload in history]
     return result
