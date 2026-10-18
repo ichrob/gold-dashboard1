@@ -41,8 +41,8 @@
   details.append(el('p','Prüfstand: '+(data.checkedAt?new Date(data.checkedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'unbekannt')+(current?' · '+data.total+' aktive Produkte':' · derzeit nicht als aktuell bestätigt')));
   for(const row of data.comparisons||[])details.append(el('p',row.isin+': mittlere absolute Modellabweichung '+number(row.meanAbsoluteError,4)+' '+(row.currency||'Währung unbekannt')+' · '+row.validationCount+' spätere Prüffälle · letzter Vergleich '+(row.lastAt?new Date(row.lastAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'unbekannt')));
   for(const isin of data.conflicts||[])details.append(el('p',isin+': auffällige Abweichung zwischen Kursquellen.'));
-  for(const gap of data.gaps||[])details.append(el('p',gap.isin+' · '+gap.field+': seit '+gap.minutes+' Minuten offen.'));
-  for(const row of data.snapshots||[])details.append(el('p',row.isin+' · '+(row.currency||'Währung offen')+' · '+(row.source||'Quelle offen')+' · Originalzeit '+(row.sourceAt||'offen')+' · Datenstand '+(row.id||'noch nicht erfasst')));
+  for(const gap of data.gaps||[])details.append(el('p',gap.isin+' · '+(gap.label||gap.field)+': seit '+gap.minutes+' Minuten offen.'));
+  for(const row of data.snapshots||[])details.append(el('p',row.isin+' · '+(row.currency||'Währung offen')+' · '+(row.source||'Quelle offen')+' · Originalzeit '+(row.sourceAt?new Date(row.sourceAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'offen')+' · Datenstand '+(row.id||'noch nicht erfasst')));
   details.append(el('p',data.note||'Aktueller Qualitätsnachweis noch nicht verfügbar.'));box.append(details);
  }
  async function load(){
