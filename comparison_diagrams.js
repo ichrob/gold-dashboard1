@@ -170,7 +170,7 @@ function escalatedTests(report){return (report?.available===true?report.items||[
 const api={escalatedTests,missingTests,missingTestText,shareMissingText,testProgress,uncertainty,evidenceStats,overview,changeEvents,laterEvidence,series,bounds,segments,proofs,capitalRows,signalRows,regimeRows,stopRows};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 if(!root?.document)return;
-const doc=root.document;let audit=null,portfolio=null,portfolioAt=0,portfolioFailed=false,repairReport=null,repairReceived=0,repairFailed=false,progressSignature='',progressBox,summaryBox,extraBox,accountId='',priceId='';let study=null,received=0,failed=false,host=null,currency='EUR',mode='horizon',status,chart,proofBox,detail,counts;
+const doc=root.document;let audit=null,portfolio=null,portfolioAt=0,portfolioFailed=false,repairReport=null,repairReceived=0,repairFailed=false,progressSignature='',progressBox,summaryBox,extraBox,accountId='',priceId='';let diagramGroups={},extraGroups={};let study=null,received=0,failed=false,host=null,currency='EUR',mode='horizon',status,chart,proofBox,detail,counts;
 const pct=v=>finite(v)?v.toFixed(2)+' %':'offen';
 const stamp=v=>new Date(v).toLocaleString('de-CH',{timeZone:'Europe/Zurich',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
 function node(tag,text){const e=doc.createElement(tag);if(text!==undefined)e.textContent=text;return e;}
@@ -219,18 +219,27 @@ function draw(){
  const bound=study?.states?.[currency]?.lowerBounds99?.stress;proofBox.append(node('p',finite(bound)?'Gespeicherte untere 99%-Schätzgrenze bei Übernahmeprüfung: '+bound.toFixed(3)+' Prozentpunkte. Gilt für diese damalige Prüfung, nicht automatisch für das aktuelle Fenster.':'Noch keine gespeicherte 99%-Schätzgrenze der Übernahmeprüfung.'));
  drawExtras();
 }
-function mount(panel){host=panel;const controls=node('div');controls.style.cssText='display:flex;gap:12px;flex-wrap:wrap;margin:12px 0';
+function mount(panel){
+ diagramGroups={};extraGroups={};
+ for(const [key,label]of [['market','Markt'],['trade','Mein Trade'],['simulation','Simulation'],['learning','Lernen']]){
+  const group=node('details');group.open=key==='learning';group.append(node('summary',label));group.style.cssText='margin:16px 0;padding:12px;border:1px solid #cbd5e1;border-radius:12px';diagramGroups[key]=group;
+ }
+ const link=(group,key,label,note)=>{const b=node('button',label);b.type='button';b.setAttribute('data-view',key);group.append(node('p',note),b);};
+ link(diagramGroups.market,'overview','Aktuellen Goldchart öffnen','Der aktuelle Marktchart bleibt in der Übersicht. Hier stehen die historischen Markt- und Signalauswertungen.');
+ link(diagramGroups.trade,'trade','Meine Produktkurve öffnen','Kurs, Stopp und Ziel deines erfassten Trades findest du in Mein Trade. Die Kurve wird nicht doppelt geführt.');
+ link(diagramGroups.market,'research','MCO vs. Bob öffnen','Videos, Zusammenfassungen und der zeitgleiche Vergleich stehen gemeinsam unter Recherche.');
+ host=diagramGroups.learning;const controls=node('div');controls.style.cssText='display:flex;gap:12px;flex-wrap:wrap;margin:12px 0';
  const cc=node('select');for(const v of ['EUR','CHF']){const opt=node('option',v+'-Produkte');opt.value=v;cc.append(opt);}cc.value=currency;cc.addEventListener('change',()=>{currency=cc.value;draw();});const cl=node('label','Produktwährung ');cl.append(cc);controls.append(cl);
  const md=node('select');for(const [v,t]of [['horizon','Nach 60 Minuten'],['exit','Mit Bobs Stopp- und Zielregeln']]){const opt=node('option',t);opt.value=v;md.append(opt);}md.value=mode;md.addEventListener('change',()=>{mode=md.value;draw();});const ml=node('label','Vergleich ');ml.append(md);controls.append(ml);
- const refresh=node('button','Aktualisieren');refresh.type='button';refresh.addEventListener('click',()=>doc.dispatchEvent(new Event('bob-diagrams-refresh')));controls.append(refresh);host.append(controls);
- progressSignature='';progressBox=node('section');host.append(progressBox);summaryBox=node('section');summaryBox.setAttribute('aria-live','polite');host.append(summaryBox);status=node('p');status.setAttribute('role','status');host.append(status,node('h3','Titelvergleich · damalige Auswahl und Alternativen'));
+ const refresh=node('button','Aktualisieren');refresh.type='button';refresh.addEventListener('click',()=>doc.dispatchEvent(new Event('bob-diagrams-refresh')));controls.append(refresh);panel.append(controls,...Object.values(diagramGroups));
+ progressSignature='';progressBox=node('section');diagramGroups.simulation.append(progressBox);summaryBox=node('section');summaryBox.setAttribute('aria-live','polite');host.append(summaryBox);status=node('p');status.setAttribute('role','status');host.append(status,node('h3','Titelvergleich · damalige Auswahl und Alternativen'));
  host.append(node('p','Blau: damals bevorzugtes Produkt. Orange: beste andere Alternative im Rückblick. Jeder Punkt ist ein eigener Vergleich; die Linien sind kein Kontostand und kein Kursverlauf. Fehlende Werte unterbrechen die Linien.'));
  host.append(node('p','Bruttorenditen aus beobachteten Geld-/Briefkursen, keine echten Ausführungen. Beim Bob-Ausstieg: jeweils 100 EUR inklusive Restgeld; CHF-Produkte werden dafür in EUR umgerechnet. Der spätere Gewinner war beim Einstieg nicht bekannt.'));
  counts=node('p');chart=node('div');detail=node('p');detail.style.whiteSpace='pre-line';detail.setAttribute('aria-live','polite');host.append(counts,chart,detail,node('h3','Optimierungsvergleich · Grundrangfolge und Kandidat'));
- proofBox=node('div');extraBox=node('div');host.append(proofBox,extraBox);draw();
- const mcoBox=node('section');host.append(mcoBox);root.BobMcoComparison?.mount(mcoBox);
+ proofBox=node('div');extraBox=node('div');host.append(proofBox);for(const key of ['market','simulation','learning']){extraGroups[key]=node('div');diagramGroups[key].append(extraGroups[key]);}draw();
+ const mcoBox=node('section');(doc.getElementById?.('bob-view-research')||diagramGroups.market).append(mcoBox);root.BobMcoComparison?.mount(mcoBox);
 }
-function section(title,note){const box=node('section');box.style.cssText='margin:24px 0;padding-top:12px;border-top:1px solid #cbd5e1';box.append(node('h3',title),node('p',note));extraBox.append(box);return box;}
+function section(title,note,category='learning'){const box=node('section');box.style.cssText='margin:24px 0;padding-top:12px;border-top:1px solid #cbd5e1';box.append(node('h3',title),node('p',note));(extraGroups[category]||extraBox).append(box);return box;}
 function choose(box,label,values,current,onchange){const l=node('label',label+' '),select=node('select');for(const [value,text]of values){const option=node('option',text);option.value=value;select.append(option);}select.value=current;select.addEventListener('change',()=>onchange(select.value));l.append(select);box.append(l);}
 function table(box,headers,rows){const d=node('details'),wrap=node('div'),t=node('table'),head=node('tr');d.append(node('summary','Messwerte und Stichproben anzeigen'));wrap.style.overflowX='auto';t.style.width='100%';for(const h of headers)head.append(node('th',h));t.append(head);for(const r of rows){const tr=node('tr');for(const v of r)tr.append(node('td',String(v)));t.append(tr);}wrap.append(t);d.append(wrap);box.append(d);}
 function lineChart(box,rows,keys,unit,gap=7500000,events=[]){
@@ -340,17 +349,17 @@ function timeline(box,rawEvents,rows,key,resultLabel){
 }
 
 function drawExtras(){
- if(!extraBox)return;extraBox.replaceChildren();
+ if(!extraBox)return;for(const box of Object.values(extraGroups))box.replaceChildren();
  const accounts=portfolio?.realOrders===false?portfolio.accounts||[]:[];
  if(!accounts.some(a=>a.profile===accountId))accountId=accounts[0]?.profile||'';
  const account=accounts.find(a=>a.profile===accountId),cap=capitalRows(account);
- const capital=section('Kapitalentwicklung · Simulation','Bis zu 366 tägliche gespeicherte Kapitalstände einschließlich bewertbarer offener Positionen. Bruttomodell ohne vollständige Gebühren, Finanzierung und Slippage. Keine echten Trades.');
+ const capital=section('Kapitalentwicklung · Simulation','Bis zu 366 tägliche gespeicherte Kapitalstände einschließlich bewertbarer offener Positionen. Bruttomodell ohne vollständige Gebühren, Finanzierung und Slippage. Keine echten Trades.','simulation');
  capital.append(node('p',portfolioAt?(portfolioFailed||Date.now()-portfolioAt>420000?'Kontodaten veraltet · ':'Kontodaten geladen · ')+stamp(portfolioAt):portfolioFailed?'Kontodaten nicht verfügbar.':'Kontodaten werden geladen …'));
  choose(capital,'Testkonto',accounts.map(a=>[a.profile,a.title]),accountId,value=>{accountId=value;drawExtras();});
  lineChart(capital,cap,[['profit','Gewinn / Verlust','#1d4ed8']],'EUR',4*86400000);
  lineChart(capital,cap,[['percent','Rendite seit Kontostart','#1d4ed8']],'%',4*86400000);
  evidenceNote(capital,evidenceStats(cap,'profit',86400000),'Kapitalstände sind Beobachtungen, keine unabhängigen Trades',true);
- const dd=section('Drawdown · Rückgang vom Höchststand','Blau: Rückgang gegenüber dem höchsten gespeicherten Tagesstand. Orange: bis dahin größter vom Hintergrundlauf beobachteter Rückgang. Tagespunkte können zwischenzeitliche Verluste auslassen; Datenlücken können weitere Tiefs verbergen.');
+ const dd=section('Drawdown · Rückgang vom Höchststand','Blau: Rückgang gegenüber dem höchsten gespeicherten Tagesstand. Orange: bis dahin größter vom Hintergrundlauf beobachteter Rückgang. Tagespunkte können zwischenzeitliche Verluste auslassen; Datenlücken können weitere Tiefs verbergen.','simulation');
  lineChart(dd,cap,[['drawdown','Rückgang der Tagesstände','#1d4ed8'],['observedMax','Maximal beobachteter Rückgang','#b45309']],'%',4*86400000);
  evidenceNote(dd,evidenceStats(cap,'drawdown',86400000),'Tagesstände; zwischenzeitliche Tiefs können fehlen',true);
  const price=section('Kursgenauigkeit · Original und Modell','Zeitlich passende Geldkurse derselben ISIN, Währung, Quelle und Modellidentität. Korrekturen werden nur auf späteren, noch nicht zur Anpassung verwendeten Messwerten gezeigt. Eine geprüfte Variante ist nicht automatisch aktiv.');
@@ -365,16 +374,16 @@ function drawExtras(){
  if(finite(state?.lowerBound99Pct))price.append(node('p','Untere 99%-Schätzgrenze der gespeicherten späteren Kursprüfung: '+state.lowerBound99Pct.toFixed(3)+' Prozentpunkte in der Prüfmetrik relativ zum Rohmodell. Diese historische Prüfung ist keine aktuelle Freigabe.'));
  const paired=errors.filter(r=>finite(r.rawError)&&finite(r.correctedError)),mae=k=>paired.length?paired.reduce((v,r)=>v+Math.abs(r[k]),0)/paired.length:null;
  price.append(node('p',history.length+' von maximal 240 jüngsten Messwerten dieser Identität · '+paired.length+' spätere Korrekturvergleiche · mittlere absolute Abweichung auf denselben Fällen: vorher '+pct(mae('rawError'))+' / nachher '+pct(mae('correctedError'))+' · letzte Messung '+(history.length?stamp(history.at(-1).at):'offen')+' · aktuell '+(state?.usable?'Korrektur aktiv':'Rohmodell aktiv')));
- const stops=section('Stoppvergleich · ursprünglicher Plan und Bob','Neue parallele Simulationen mit je 100 EUR: unveränderter ursprünglicher Stopp und Ziel gegen Bobs Teilgewinn- und Stoppverwaltung. Beide mit denselben KO-, Kurslücken- und Zeitgrenzen. Brutto, keine echten Ausführungen.');
+ const stops=section('Stoppvergleich · ursprünglicher Plan und Bob','Neue parallele Simulationen mit je 100 EUR: unveränderter ursprünglicher Stopp und Ziel gegen Bobs Teilgewinn- und Stoppverwaltung. Beide mit denselben KO-, Kurslücken- und Zeitgrenzen. Brutto, keine echten Ausführungen.','simulation');
  const sr=stopRows(study,currency);lineChart(stops,sr,[['fixed','Ursprünglicher Plan','#64748b'],['bob','Bob-Ausstieg','#1d4ed8']],'%',7500000);
  lineChart(stops,sr,[['giveback','Vom beobachteten Buchgewinn wieder abgegeben','#b45309']],'Prozentpunkte',7500000);
  evidenceNote(stops,evidenceStats(sr.map(r=>({...r,delta:finite(r.bob)&&finite(r.fixed)?r.bob-r.fixed:null})),'delta',14400000),'Bob minus ursprünglicher Plan (Prozentpunkte)');
  stops.append(node('p',sr.filter(r=>finite(r.bob)).length+' vollständig gepaarte von '+sr.length+' Gruppen. Frühere Gruppen ohne parallelen Originalplan bleiben offen. Buchgewinnspitzen sind beobachtete Stichproben, keine garantierten Ausstiegskurse.'));
- const regimes=section('Marktphasen · LONG und SHORT','Beim Einstieg festgehaltene Phase, getrennt nach Richtung und Produktwährung. Durchschnittliche Rendite der damaligen Auswahl; nur vollständige Gruppen. Keine nachträgliche Umklassifizierung.');
+ const regimes=section('Marktphasen · LONG und SHORT','Beim Einstieg festgehaltene Phase, getrennt nach Richtung und Produktwährung. Durchschnittliche Rendite der damaligen Auswahl; nur vollständige Gruppen. Keine nachträgliche Umklassifizierung.','market');
  const names={'strong-trend':'Trend',sideways:'Seitwärts',transition:'Übergang',unknown:'unbekannt',high:'hoch',normal:'normal',low:'niedrig'};
  const rr=regimeRows(study,currency,mode).map(g=>({...g,label:g.label.split(' · ').map(k=>names[k]||k).join(' · ')}));bars(regimes,rr,'%');table(regimes,['Phase / Richtung','vollständig / erfasst','mittlere Rendite'],rr.map(r=>[r.label,r.n+' / '+r.total,pct(r.value)]));
  for(const r of rr)evidenceNote(regimes,r.evidence,r.label+' · Rendite der zeitlich getrennten Fälle (%)');
- const signals=section('Signalqualität · 15, 60 und 240 Minuten','Spätere Goldbewegung in Signalrichtung. Trefferquote und mittlere Bewegung gemeinsam betrachten. ABWARTEN ist keine Fehlprognose. Keine Produktrendite und keine Berücksichtigung von Handelskosten; überlappende Signale sind keine unabhängigen Versuche.');
+ const signals=section('Signalqualität · 15, 60 und 240 Minuten','Spätere Goldbewegung in Signalrichtung. Trefferquote und mittlere Bewegung gemeinsam betrachten. ABWARTEN ist keine Fehlprognose. Keine Produktrendite und keine Berücksichtigung von Handelskosten; überlappende Signale sind keine unabhängigen Versuche.','market');
  const sig=signalRows(audit?.metrics);signals.append(node('p',(audit?.scope||'Zeitraum noch nicht verfügbar.')+(finite(audit?.signalChartScope?.firstAt)?' · Beobachtungen '+stamp(audit.signalChartScope.firstAt)+' bis '+stamp(audit.signalChartScope.lastAt):'')));
  bars(signals,sig.map(r=>({...r,value:r.hit})),'% Treffer');bars(signals,sig.map(r=>({...r,value:r.mean})),'% Bewegung');
  for(const h of ['15','60','240']){const e=audit?.signalChartEvidence?.[h];if(e)evidenceNote(signals,{...e,interval:uncertainty(e.blocks)},h+' Minuten: mittlere Goldbewegung der zeitlich getrennten Teilstichprobe (%)');}
