@@ -19,6 +19,7 @@
   const refresh=el('button','Stand aktualisieren');refresh.type='button';refresh.onclick=load;
   const download=el('button','Nachweise als Datei speichern');download.type='button';download.onclick=()=>{if(!last)return;const blob=new Blob([JSON.stringify(last,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=el('a');a.href=url;a.download='Bob-Besser-werden-'+new Date(last.generatedAt).toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
   const tools=el('details');tools.append(el('summary','Details · Erfassung und Bericht'),explanation,status,refresh,download);intro.append(tools);root.append(intro);
+  const operating=el('section');operating.className='card';operating.dataset.operating='';root.append(operating);renderOperating();
   const quality=el('section');quality.className='card';quality.dataset.quality='';quality.style.overflowWrap='anywhere';root.append(quality);renderQuality();
   for(let i=0;i<4;i++){
    const card=el('section');card.className='card';card.dataset.goal=i;const h=el('h3',titles[i]),label=el('p','Noch keine bestätigten Daten');label.dataset.percent='';
@@ -34,6 +35,15 @@
   const operations=el('section');operations.className='card';operations.dataset.operations='';operations.style.overflowWrap='anywhere';root.append(operations);renderOperations();
   for(const [key,title] of [['confidence','Wie belastbar ist das Ergebnis?'],['regimes','Ergebnisse nach Marktphase'],['history','Änderungen und Prüfentscheidungen']]){const d=el('details');d.className='card';d.append(el('summary',title));const body=el('div');body.dataset[key]='';d.append(body);root.append(d);}
   parent.append(root);load();
+ }
+ function renderOperating(data={}){
+  const box=root?.querySelector('[data-operating]');if(!box)return;
+  box.replaceChildren(el('h3','Bob · Kurzstatus'));box.style.overflowWrap='anywhere';
+  if(data.available!==true||!Array.isArray(data.cards)){box.append(el('p','Aktueller Stand nicht bestätigt.'));return;}
+  const labels={ok:'✓ Bestätigt',paused:'Ⅱ Pause',waiting:'○ Noch offen',open:'! Nachweise fehlen',candidate:'○ Vergleichsvorteil',warming:'○ Start läuft',degraded:'! Prüfung nötig',unavailable:'? Nicht bestätigt'};
+  for(const card of data.cards){const line=el('p');line.append(el('strong',card.label+': '+(labels[card.state]||labels.unavailable)),el('br'),document.createTextNode(card.detail));box.append(line);}
+  box.append(el('p',Number.isFinite(data.openErrorTypes)?data.openErrorTypes+' offene Fehlerarten · '+data.affectedCases+' betroffene Testfälle':'Zahl offener Fehlerarten nicht bestätigt.'));
+  box.append(el('small','Stand: '+new Date(data.checkedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · '+data.note));
  }
  function renderQuality(data={}){
   const box=root?.querySelector('[data-quality]');if(!box)return;box.replaceChildren(el('h3','Produktdaten · Qualität'));
@@ -167,7 +177,7 @@
    const response=await fetch('/api/improvement/read',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(15000)});
    if(!response.ok)throw Error('HTTP '+response.status);const r=await response.json();
    if(!r.ok||!Array.isArray(r.progress)||r.progress.length!==4||r.progress.some(x=>!Number.isFinite(x)||x<0||x>100))throw Error('Unvollständiger Bericht');
-   last=r;renderQuality(r.dataQuality);renderJournal(r.decisionJournal);renderEntryPath(r.entryPath);renderExitQuality(r.exitQuality);renderOperations(r);status.textContent=(r.started?'Erfassung freigeschaltet. ':'Start ist für morgen vorbereitet. ')+ 'Berichtsstand: '+new Date(r.generatedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' Schweizer Zeit.';
+   last=r;renderOperating(r.operatingStatus);renderQuality(r.dataQuality);renderJournal(r.decisionJournal);renderEntryPath(r.entryPath);renderExitQuality(r.exitQuality);renderOperations(r);status.textContent=(r.started?'Erfassung freigeschaltet. ':'Start ist für morgen vorbereitet. ')+ 'Berichtsstand: '+new Date(r.generatedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' Schweizer Zeit.';
    if(r.started)status.textContent+=' Letzte gespeicherte Beobachtung: '+(r.reliability.lastAt?new Date(r.reliability.lastAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch keine – außerhalb der Erfassungszeit normal.');
    const a=r.reliability,b=r.real,c=r.comparison,q=r.assessment;
    root.querySelector('[data-headline]').textContent='Aktueller Stand · Signalprüfung: '+q.label;root.querySelector('[data-next]').textContent='Nächster Prüfschritt: '+q.nextStep;
@@ -199,10 +209,10 @@
    if(!r.history?.length)history.append(el('p','Prüfkonzept eingerichtet. Noch keine abgeschlossene Hintergrundbewertung.'));
    for(const item of r.history||[])history.append(el('p',new Date(item.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · '+item.baseline+' → '+item.candidate+' · '+item.cases+' Prüffälle / '+item.days+' Tage · '+item.label+' · Entscheidung: '+item.decision+'. Tatsächliche Regeländerung: nein.'));
    window.BobTrainingHelp?.observe('improve',true);
-  }catch(e){renderQuality();const ops=root.querySelector('[data-operations]');if(ops)ops.replaceChildren(el('h3','Tagesbericht'),el('p','Aktueller Bericht nicht abrufbar; kein aktueller Stand bestätigt.'));const exits=root.querySelector('[data-exit-quality]');if(exits)exits.replaceChildren(el('h3','Ausstiegsqualität'),el('p','Aktueller Bericht nicht abrufbar.'));const path=root.querySelector('[data-entry-path]');if(path)path.replaceChildren(el('h3','Einstiegszeitpunkt · Verlaufstest'),el('p','Aktueller Bericht nicht abrufbar.'));const journal=root.querySelector('[data-journal]');if(journal)journal.replaceChildren(el('h3','Entscheidungsjournal'),el('p','Aktueller Bericht nicht abrufbar. Bob versucht es erneut.'));window.BobTrainingHelp?.observe('improve',false,load);root.querySelector('[data-headline]').textContent='Aktueller Stand nicht bestätigt';root.querySelector('[data-next]').textContent='Bob versucht den Abruf automatisch erneut.';status.textContent='Aktueller Stand nicht abrufbar. '+(last?'Angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.':'Fortschritt unbekannt; keine erfundenen Prozentwerte.');}
+  }catch(e){renderOperating();renderQuality();const ops=root.querySelector('[data-operations]');if(ops)ops.replaceChildren(el('h3','Tagesbericht'),el('p','Aktueller Bericht nicht abrufbar; kein aktueller Stand bestätigt.'));const exits=root.querySelector('[data-exit-quality]');if(exits)exits.replaceChildren(el('h3','Ausstiegsqualität'),el('p','Aktueller Bericht nicht abrufbar.'));const path=root.querySelector('[data-entry-path]');if(path)path.replaceChildren(el('h3','Einstiegszeitpunkt · Verlaufstest'),el('p','Aktueller Bericht nicht abrufbar.'));const journal=root.querySelector('[data-journal]');if(journal)journal.replaceChildren(el('h3','Entscheidungsjournal'),el('p','Aktueller Bericht nicht abrufbar. Bob versucht es erneut.'));window.BobTrainingHelp?.observe('improve',false,load);root.querySelector('[data-headline]').textContent='Aktueller Stand nicht bestätigt';root.querySelector('[data-next]').textContent='Bob versucht den Abruf automatisch erneut.';status.textContent='Aktueller Stand nicht abrufbar. '+(last?'Angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.':'Fortschritt unbekannt; keine erfundenen Prozentwerte.');}
   finally{busy=false;}
  }
- window.BobImprovement={mount,load,renderQuality,renderJournal,renderEntryPath,renderExitQuality,renderOperations};
+ window.BobImprovement={mount,load,renderOperating,renderQuality,renderJournal,renderEntryPath,renderExitQuality,renderOperations};
  document.addEventListener('click',e=>{if(e.target.closest?.('[data-view="improve"]'))load();});
  setInterval(()=>{if(root&&!root.closest('[hidden]')&&!document.hidden)load();},30000);
 })();

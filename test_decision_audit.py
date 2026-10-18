@@ -257,11 +257,11 @@ class UnattendedBackgroundAuditWriterTests(unittest.TestCase):
         from push_server import record_market_observation
         conn=Mock()
         market=dict(ruleVersion=a.RULE_VERSION,analysisBarAt=1800000000000-300000,
-                    direction='NEUTRAL',ready=True,price=4200,dataAt=1800000000000,
+                    direction='NEUTRAL',ready=True,priceFresh=True,price=4200,dataAt=1800000000000,
                     earlyImpulse=dict(version='early-impulse-v1',available=True,
                                       direction='SHORT',comparisonOnly=True,
                                       affectsApproval=False,barAt=1800000000000-300000))
-        with patch('push_server.decision_audit.write') as write,patch('push_server.decision_audit.harvest') as harvest:
+        with patch('push_server.time.time',return_value=1800000000),patch('push_server.decision_audit.write') as write,patch('push_server.decision_audit.harvest') as harvest:
             self.assertTrue(record_market_observation(conn,market))
             payload=write.call_args.args[1]
             self.assertEqual(payload['direction'],'NEUTRAL')
