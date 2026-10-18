@@ -7,6 +7,7 @@ from datetime import datetime,timezone
 
 
 def stamp(value):
+    if type(value) in (int,float):return value if math.isfinite(value) and value>1_600_000_000_000 else None
     try:
         parsed=datetime.fromisoformat(value.replace('Z','+00:00'))
         return parsed.timestamp()*1000 if parsed.tzinfo else None
@@ -35,7 +36,8 @@ def summarize(audit,now=None):
         for code,since in (item.get('missingSince') or {}).items():
             at=stamp(since)
             if code in item.get('missing',[]) and at is not None and 0<=now-at:
-                gaps.append(dict(isin=item.get('isin'),field=code,since=since,minutes=int((now-at)/60000)))
+                labels=dict(zip(item.get('missing',[]),item.get('messages',[])))
+                gaps.append(dict(isin=item.get('isin'),field=code,label=labels.get(code,code),since=since,minutes=int((now-at)/60000)))
         cross=item.get('marketCrossCheck') or {}
         if cross.get('status') in ('outlier','conflict','mismatch','divergent'):conflicts.append(item.get('isin'))
     comparisons=[]
