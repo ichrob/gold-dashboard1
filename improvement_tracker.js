@@ -117,6 +117,23 @@
    box.append(el('p','Offen: '+today.missingSlots+' fehlende und '+today.invalidSlots+' ungültige Messfenster · '+today.missingOutcomes+' fehlende Folgeergebnisse.'));
   }else box.append(el('p','Noch kein Tagesbericht aus der geplanten Erfassung verfügbar.'));
   if(report.assessment)box.append(el('p','Nächster Schritt: '+report.assessment.nextStep));
+  const resilience=report.resilience;
+  const extra=el('details');extra.append(el('summary','Details · Ausfallproben, Lernprioritäten und Hinweise'));
+  if(!resilience||resilience.unavailable)extra.append(el('p','Zusätzliche Nachweise derzeit nicht bestätigt.'));
+  else{
+   extra.append(el('h4','Ausfallproben'));
+   for(const row of resilience.drills.items)extra.append(el('p',row.label+': '+({passed:'bestanden',failed:'fehlgeschlagen',timeout:'Zeitgrenze erreicht'}[row.status]||'offen')));
+   if(resilience.drills.at)extra.append(el('p','Letzte Probe: '+new Date(resilience.drills.at).toLocaleString('de-CH')+' · Build '+resilience.drills.build));
+   if(resilience.drills.items.length&&(!resilience.drills.currentBuild||!resilience.drills.recent))extra.append(el('p','Aktueller Build/Tagesstand noch nicht durch diese Proben bestätigt.'));
+   extra.append(el('p',resilience.drills.scope));
+   extra.append(el('h4','Nächste Lernversuche'));
+   if(!resilience.priorities.items.length)extra.append(el('p','Noch keine belegte Aufgabe abgeleitet; weitere Daten sammeln.'));
+   for(const row of resilience.priorities.items){const d=el('details');d.append(el('summary',row.label+' · '+row.cases+' Fälle'));d.append(el('p',row.experiment));d.append(el('p','Prüfziel: '+row.measure));d.append(el('p',row.status));extra.append(d);}
+   extra.append(el('p',resilience.priorities.note));
+   const h=resilience.hints;extra.append(el('h4','Hinweise auswerten'));
+   extra.append(el('p',h.attempts+' Versandversuche · '+h.failed+' fehlgeschlagen · '+h.prompt+' technisch rechtzeitig · '+h.delayed+' verzögert · '+h.unknown+' ohne Zeitnachweis · '+h.repeats+' mögliche Wiederholungen.'));
+   extra.append(el('p',h.note));if(h.truncated)extra.append(el('p','Die Auswertung ist wegen der Ereignisgrenze unvollständig.'));
+  }box.append(extra);
   const history=el('details');history.append(el('summary','Details · Tagesstände'));
   for(const day of [...days].reverse())history.append(el('p',day.day+': '+day.valid+'/'+day.expected+' gültige geplante Messfenster · '+day.completed+' ausgewertete Signaltests · '+day.missingOutcomes+' Folgenachweise offen. '+day.note));
   box.append(history);

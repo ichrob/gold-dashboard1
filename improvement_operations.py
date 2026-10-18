@@ -13,6 +13,8 @@ def nonnegative(v):return finite(v) and v>=0
 
 
 def init(conn):
+    import improvement_resilience
+    improvement_resilience.init(conn)
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_improvement_daily
         (campaign TEXT NOT NULL,day TEXT NOT NULL,at BIGINT NOT NULL,payload JSONB NOT NULL,
          PRIMARY KEY(campaign,day))''')
@@ -158,6 +160,12 @@ def attach(conn,report,trial_rows,snapshots,now,start):
     except Exception:
         report['repairQuality']=dict(status='unavailable',note='Reparaturbilanz derzeit nicht abrufbar; keine Erfolgsquote bestätigt.')
 
+    try:
+        import improvement_resilience
+        with conn.transaction():report['resilience']=improvement_resilience.read(conn,report,now)
+    except Exception:
+        report['resilience']={'unavailable':True}
+
 
 def archive(conn,report,now):
     campaign=report['protocol']['version']
@@ -169,6 +177,9 @@ def archive(conn,report,now):
     conn.execute('''INSERT INTO bob_improvement_release_dossiers VALUES(%s,%s,%s,%s::jsonb)
         ON CONFLICT(campaign,day) DO UPDATE SET at=excluded.at,payload=excluded.payload''',
         (campaign,day,now,json.dumps(report['releaseDossier'])))
+    if report.get('resilience') and not report['resilience'].get('unavailable'):
+        conn.execute('INSERT INTO bob_research_priorities VALUES(%s,%s,%s::jsonb) ON CONFLICT(day) DO UPDATE SET at=excluded.at,payload=excluded.payload',
+            (day,now,json.dumps(report['resilience']['priorities'])))
     latest=next((r for r in report['dailyReview'] if r['day']==day),None)
     return dict(version=campaign,at=now,persisted=True,day=day,
         **{k:latest[k] if latest else None for k in ('observed','valid','expected','lastSlot','lastValidSourceAt','coveragePct')})

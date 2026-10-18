@@ -408,6 +408,11 @@ def run_improvement_review_once(database):
 def audit_outcome_loop():
     while True:
         try:
+            import improvement_resilience
+            improvement_resilience.run_drills(db)
+        except Exception as exc:
+            print("BOB_RESILIENCE error="+type(exc).__name__,flush=True)
+        try:
             run_audit_harvest_once(db)
         except Exception as exc:
             # Bulk backfill timeouts must not block targeted repair attempts.
@@ -513,6 +518,12 @@ def run_background(bundle):
                     delivered=False
                     if getattr(getattr(exc,'response',None),'status_code',None) in (404,410):
                         conn.execute('DELETE FROM subscriptions WHERE id=%s',(sid,))
+            if events:
+                try:
+                    import improvement_resilience
+                    with conn.transaction():improvement_resilience.capture(conn,sid,events,delivered,int(time.time()*1000))
+                except Exception as exc:
+                    print('BOB_HINT_AUDIT error='+type(exc).__name__,flush=True)
             if events and (settings.get('trade') or {}).get('tradeId'):
                 try:
                     with conn.transaction():

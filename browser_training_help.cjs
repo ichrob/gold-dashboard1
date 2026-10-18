@@ -88,6 +88,12 @@ const fs=require('fs'),assert=require('node:assert/strict');
  await operations.getByText('Details · Freigabe und Rückkehr zur bisherigen Regel',{exact:true}).click();
  assert.match(await operations.innerText(),/Persönliche Freigabe: ausstehend/);
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=390));
+ await page.evaluate(()=>BobImprovement.renderOperations({resilience:{drills:{items:[{label:'Kursausfall',status:'passed'}],scope:'Isolierte Probe'},priorities:{items:[{label:'Datenlücken',cases:3,experiment:'Quelle prüfen',measure:'95 %',status:'Vorgeschlagen'}],note:'Keine Regeländerung'},hints:{attempts:2,failed:0,prompt:1,delayed:0,unknown:1,repeats:0,note:'Kein Empfangsnachweis am Handy'}}}));
+ assert.equal(await operations.locator('details[open]').count(),0);
+ await operations.getByText('Details · Ausfallproben, Lernprioritäten und Hinweise',{exact:true}).click();
+ assert.match(await operations.innerText(),/Kursausfall: bestanden/);
+ assert.match(await operations.innerText(),/Kein Empfangsnachweis am Handy/);
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=390));
  console.log('Mobile training help: blue button, automatic retries, escalation, explicit share and verified recovery OK');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
