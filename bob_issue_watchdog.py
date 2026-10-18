@@ -17,6 +17,8 @@ APP = "https://bob-private-scanner.onrender.com"
 PUSH = "https://bob-push-service.onrender.com"
 ISSUE_TITLE = "[Bob KI-Hilfe] Ungelöste Gesundheitsstörung"
 CODES = {
+    "trade-setup-stalled": "Automatische Trade-Einrichtung benötigt technische Prüfung",
+    "screenshot-import-failed": "Screenshot-Erkennung benötigt technische Prüfung",
     "scanner-unreachable": "Bob-Webdienst nicht erreichbar",
     "scanner-degraded": "Markt-/Hintergrunddaten werden als beeinträchtigt gemeldet",
     "market-worker-stopped": "Marktdatensammlung läuft nicht",
@@ -67,6 +69,9 @@ def classify(app, background, push, *, market_open=True):
     else:
         if app.get("status") != "ok" and market_open:
             errors.append("scanner-degraded")
+        assistance = app.get("assistanceCodes")
+        if isinstance(assistance, list):
+            errors.extend(code for code in assistance if isinstance(code, str) and code in ("trade-setup-stalled", "screenshot-import-failed"))
         collection = app.get("automaticCollection")
         if market_open and isinstance(collection, dict) and (
             collection.get("enabled") is not True or collection.get("running") is not True
@@ -184,7 +189,7 @@ def sync_issue(codes, *, token, repo, at=None, requester=github_request):
     detected = sorted(set(code for code in codes if code in CODES))
     # This public watchdog sees only anonymous error codes. It cannot verify
     # the underlying broker or issuer records, so never auto-close product issues.
-    product_titles = {issue_title(code) for code in PRODUCT_CODES}
+    product_titles = {issue_title(code) for code in PRODUCT_CODES | {"trade-setup-stalled", "screenshot-import-failed"}}
     actions = []
 
     # First create any missing problem; each fault maps to precisely one open
