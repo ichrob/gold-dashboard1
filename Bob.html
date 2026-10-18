@@ -1155,7 +1155,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 </main>
 <script src="/push_manager.js"></script>
 <script src="/late_entry_guard.js?v=20261016-no-chase-v1"></script>
-<script src="/degiro_assistant.js?v=20261016-chf-v1"></script>
+<script src="/degiro_assistant.js?v=20261018-assistance"></script>
 <script src="/bob_stop_assistant.js?v=20261016-chf-v1"></script>
 <script src="/product_trade_curve.js?v=20261018-trade-details"></script>
 <script src="/real_trade_journal.js"></script>
@@ -1936,6 +1936,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   tradeSummary.after(curveRoot);
   window.BobProductCurve?.mount(curveRoot);
   const steps=document.createElement('ol');steps.id='bobTradeSteps';steps.className='bob-trade-steps';steps.innerHTML=['Produkt gewählt','Kaufdaten ergänzt','Überwachung bestätigt'].map(label=>'<li>○ '+label+'</li>').join('');guide.querySelector('h3').after(steps);
+  const tradeProgress=document.createElement('section');tradeProgress.id='bobTradeProgress';tradeProgress.className='card';
+  tradeProgress.innerHTML='<h3>Dein nächster Schritt</h3><p role="status" aria-live="polite"></p>';panels.trade.append(tradeProgress);
   function updateTradeGuide(){
    const current=window.BobTradeSync?.current?.(),p=current?.product;
    const field=k=>byId('bobExitEstimate')?.querySelector('[data-exit="'+k+'"]')?.value;
@@ -1943,7 +1945,13 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const bought=chosen&&Number(field('entry'))>0&&Number.isInteger(Number(field('quantity')))&&Number(field('quantity'))>0;
    const active=current?.active&&!current.test;
    const same=active&&p?.isin===field('isin')&&(p.currency||'EUR')===(field('currency')||'EUR')&&p.entry===Number(field('entry'))&&p.quantity===Number(field('quantity'));
-   const confirmed=!!(same&&window.BobPush?.state?.().backgroundEnabled);
+   const monitor=window.BobRealTrades?.monitorStatus?.();
+   const confirmed=!!(same&&monitor?.fresh&&monitor.active);
+   const automation=window.BobTradeUpload?.status?.();
+   const next=active?(confirmed?'Serverüberwachung eingerichtet. Serverabgleich '+new Date(monitor.at).toLocaleTimeString('de-CH')+'. '+(monitor.active.pushDevices>0?'Trade-Push mit Gerät verbunden.':'Für Nachrichten am Handy Aktiver Trade einschalten und Gerät unter Einstellungen verbinden.'):'Trade lokal aktiv. Serverbestätigung noch offen; Bob gleicht automatisch ab.'):(automation?.message||'Kaufbeleg hochladen und erkannte Angaben einmal bestätigen. Bob prüft danach die verfügbaren Produktdaten.');
+   const progressText=tradeProgress.querySelector('p');if(progressText.textContent!==next)progressText.textContent=next;
+   curveRoot.hidden=!active;
+   const stopHint=byId('stopUpdate');if(stopHint)stopHint.hidden=!active;
    [chosen,bought,confirmed].forEach((done,i)=>{const li=steps.children[i];li.textContent=(done?'✓ ':'○ ')+['1 · Produkt gewählt','2 · Kaufdaten ergänzt','3 · Überwachung bestätigt'][i];li.classList.toggle('complete',done);});
    tradeSummary.hidden=!active;
    if(!active){
@@ -2026,13 +2034,13 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    tradeActions.append(tradeToggle);
   }
   const tradeStatus=card('tradeStateBtn');
-  const keep=new Set([panels.trade.querySelector('h2'),tradeStatus,tradeSummary,curveRoot,byId('stopUpdate')]);
+  const keep=new Set([panels.trade.querySelector('h2'),tradeProgress,tradeStatus,tradeSummary,curveRoot,byId('stopUpdate')]);
   for(const child of [...panels.trade.children])if(!keep.has(child))tradeDetails.append(child);
   const pushStateDetail=byId('tradePushState')?.parentElement;
   if(pushStateDetail)tradeDetails.append(pushStateDetail);
   window.BobProductCurve?.moveDetails?.(tradeDetails);
   // Status, essential values and chart first; upload/actions and one disclosure follow.
-  for(const node of [tradeStatus,tradeSummary,curveRoot,byId('stopUpdate'),tradeActions,tradeDetails])if(node)panels.trade.append(node);
+  for(const node of [tradeProgress,tradeStatus,tradeSummary,curveRoot,byId('stopUpdate'),tradeActions,tradeDetails])if(node)panels.trade.append(node);
   tradeDetails.open=false;
   // Keep both notification cards together; setup and diagnostics live in Settings.
   if(push){
