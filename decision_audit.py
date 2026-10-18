@@ -27,7 +27,8 @@ RULE_VERSION = 'intraday-trend-follow-v7'
 REPORT_LIMIT = 2500
 REPORT_BUSY_LIMIT = 500
 REPORT_CACHE_SECONDS = 300
-HARVEST_BATCH_LIMIT = 96
+HARVEST_HORIZONS = (1, 5, 15, 30, 60, 240)
+HARVEST_HORIZON_BATCH = 64
 
 def milliseconds(value):
     try:
@@ -158,6 +159,10 @@ def init(conn):
         payload JSONB NOT NULL)''')
     conn.execute('CREATE INDEX IF NOT EXISTS bob_audit_recorded ON bob_decision_audit(recorded_at)')
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_decision_outcomes (decision_id TEXT REFERENCES bob_decision_audit(id) ON DELETE CASCADE, horizon INTEGER NOT NULL, truth JSONB NOT NULL, PRIMARY KEY(decision_id,horizon))''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS bob_decision_harvest_cursor (
+        horizon INTEGER PRIMARY KEY, recorded_at TIMESTAMPTZ, decision_id TEXT)''')
+    conn.execute('''INSERT INTO bob_decision_harvest_cursor(horizon)
+        SELECT unnest(%s::integer[]) ON CONFLICT(horizon) DO NOTHING''',(list(HARVEST_HORIZONS),))
     stop_target_audit.init(conn)
     paper_simulation.init(conn)
     import zukunft_capture
@@ -385,40 +390,61 @@ def early_impulse_review(rows):
 
 _harvest_at=0
 
-def harvest(conn):
-    global _harvest_at
-    if time.time()-_harvest_at<60:return
-    conn.execute("""WITH candidates AS MATERIALIZED (
-      SELECT a.id,a.payload,capture.at,h.minutes
+def _harvest_horizon(conn, horizon):
+    """Advance one durable, bounded evidence cursor without synthesizing gaps."""
+    cursor=conn.execute('''SELECT recorded_at,decision_id
+        FROM bob_decision_harvest_cursor WHERE horizon=%s FOR UPDATE''',(horizon,)).fetchone()
+    recorded_at,decision_id=cursor or (None,None)
+    cursor_filter=''
+    params=[horizon,horizon,horizon]
+    if recorded_at is not None:
+        cursor_filter='AND (a.recorded_at,a.id)>(%s,%s)'
+        params.extend((recorded_at,decision_id))
+    params.append(HARVEST_HORIZON_BATCH)
+    batch=conn.execute("""SELECT a.id,a.recorded_at
       FROM bob_decision_audit a
-      CROSS JOIN LATERAL (SELECT to_timestamp((a.payload->>'recordedAt')::double precision/1000.0) AS at) capture
-      CROSS JOIN (VALUES (1),(5),(15),(30),(60),(240)) h(minutes)
       WHERE a.recorded_at>=now()-interval '7 days'
       AND a.payload->>'marketEvaluable'='true'
       AND jsonb_typeof(a.payload->'recordedAt')='number'
-      AND capture.at+h.minutes*interval '1 minute'<=now()
-      AND (h.minutes IN (15,60,240) OR a.payload->'marketOptimization'->>'version'='market-review-v1')
-      AND NOT EXISTS (SELECT 1 FROM bob_decision_outcomes o WHERE o.decision_id=a.id AND o.horizon=h.minutes)
-      AND EXISTS (SELECT 1 FROM bob_spot_observations available
-        WHERE available.stream='gold-api-xau-usd-v1'
-        AND available.quote_at>=capture.at+h.minutes*interval '1 minute'
-        AND available.quote_at<=capture.at+(h.minutes+1)*interval '1 minute')
-      ORDER BY a.recorded_at,h.minutes
-      LIMIT %s
-    )
-    INSERT INTO bob_decision_outcomes(decision_id,horizon,truth)
-      SELECT a.id,a.minutes,json_build_object('at',s.quote_at,'price',s.price,'minPrice',ext.lo,'maxPrice',ext.hi)::jsonb
-      FROM candidates a
+      AND to_timestamp((a.payload->>'recordedAt')::double precision/1000.0)
+          + %s*interval '1 minute'<=now()
+      AND (%s IN (15,60,240) OR a.payload->'marketOptimization'->>'version'='market-review-v1')
+      AND NOT EXISTS (SELECT 1 FROM bob_decision_outcomes o
+          WHERE o.decision_id=a.id AND o.horizon=%s)
+      """+cursor_filter+"""
+      ORDER BY a.recorded_at,a.id LIMIT %s""",tuple(params)).fetchall()
+    if not batch:
+        conn.execute('''UPDATE bob_decision_harvest_cursor
+            SET recorded_at=NULL,decision_id=NULL WHERE horizon=%s''',(horizon,))
+        return 0
+    ids=[row[0] for row in batch]
+    conn.execute("""INSERT INTO bob_decision_outcomes(decision_id,horizon,truth)
+      SELECT a.id,%s,json_build_object(
+        'at',s.quote_at,'price',s.price,'minPrice',ext.lo,'maxPrice',ext.hi)::jsonb
+      FROM bob_decision_audit a
+      CROSS JOIN LATERAL (SELECT to_timestamp((a.payload->>'recordedAt')::double precision/1000.0) AS at) capture
       CROSS JOIN LATERAL (SELECT quote_at,price FROM bob_spot_observations
         WHERE stream='gold-api-xau-usd-v1'
-        AND quote_at>=a.at+a.minutes*interval '1 minute'
-        AND quote_at<=a.at+(a.minutes+1)*interval '1 minute'
+        AND quote_at>=capture.at+%s*interval '1 minute'
+        AND quote_at<=capture.at+(%s+1)*interval '1 minute'
         ORDER BY quote_at LIMIT 1) s
       LEFT JOIN LATERAL (SELECT min(price) lo,max(price) hi FROM bob_spot_observations
-        WHERE stream='gold-api-xau-usd-v1' AND quote_at>=a.at AND quote_at<=s.quote_at
-        AND a.minutes IN (15,60,240)
+        WHERE stream='gold-api-xau-usd-v1' AND quote_at>=capture.at AND quote_at<=s.quote_at
+        AND %s IN (15,60,240)
         AND a.payload->'entryQuality'->>'version'='entry-quality-v1') ext ON TRUE
-      ON CONFLICT DO NOTHING""",(HARVEST_BATCH_LIMIT,))
+      WHERE a.id=ANY(%s::text[])
+      ON CONFLICT DO NOTHING""",(horizon,horizon,horizon,horizon,ids))
+    conn.execute('''UPDATE bob_decision_harvest_cursor
+        SET recorded_at=%s,decision_id=%s WHERE horizon=%s''',
+        (batch[-1][1],batch[-1][0],horizon))
+    return len(batch)
+
+
+def harvest(conn):
+    global _harvest_at
+    if time.time()-_harvest_at<60:return
+    for horizon in HARVEST_HORIZONS:
+        _harvest_horizon(conn,horizon)
     _harvest_at=time.time()
 
 _report_lock = threading.Lock()
