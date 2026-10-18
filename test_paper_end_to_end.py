@@ -75,7 +75,7 @@ class PipelineTests(unittest.TestCase):
 
 @unittest.skipUnless(os.getenv('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class PipelineDatabaseTests(unittest.TestCase):
-    def test_persisted_full_pipeline_stop_and_target(self):
+    def test_persisted_full_pipeline_stop_and_target_then_protection(self):
         import psycopg
         result,q=fixture();m=result['market'];selection=result['selection']
         with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
@@ -90,12 +90,14 @@ class PipelineDatabaseTests(unittest.TestCase):
                     self.assertGreater(case['ledgerCostsDebited'],0)
                     for i in (1,2):
                         t=NOW+i*30000
-                        price=m['plan']['stop']+.1 if route=='stop' else case['engine']['trade']['target']-1
+                        price=(case['engine']['trade']['stop']+.1 if route=='stop' or i==2
+                               else case['engine']['trade']['target']-1)
                         nq={**q,'bid':9.5 if route=='stop' else 11.+i,'ask':9.6 if route=='stop' else 11.1+i,'quoteAt':t,'bidAt':t,'askAt':t}
                         sim.run_once(ledger,result['bundle'],{**m,'price':price,'dataAt':t},selection,{ISIN:nq},t,policy)
                         case=ledger.execute('SELECT payload FROM bob_paper_cases').fetchone()[0]
                         if case['status']!='open':break
                     self.assertNotEqual(case['status'],'open');self.assertEqual(case['pendingUnits'],0)
+                    if route=='target':self.assertIn('partial-profit',[e['kind'] for e in case['events']])
                     control=ledger.execute('SELECT payload FROM bob_paper_control').fetchone()[0]
                     self.assertEqual(control['reflection']['evaluated'],1)
                     self.assertAlmostEqual(control['cash'],100+case['reflection']['costModel']['modelNetEur'])
