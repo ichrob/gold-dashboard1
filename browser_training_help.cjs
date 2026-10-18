@@ -40,6 +40,18 @@ const fs=require('fs'),assert=require('node:assert/strict');
  await page.clock.runFor(30001);
  await page.getByText(/1 offene Fehlerarten · 15 betroffene Testfälle/).waitFor();
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=390));
+ await page.evaluate(()=>{window.fetch=()=>new Promise(()=>{});});
+ await page.addScriptTag({content:fs.readFileSync('improvement_tracker.js','utf8')});
+ await page.evaluate(()=>{BobImprovement.mount(document.querySelector('#bob-view-improve'));BobImprovement.renderQuality({status:'ok',total:2,freshPct:50,completePct:100,comparisons:[{isin:'DE000EXAMPLE',currency:'CHF',meanAbsoluteError:.25,validationCount:7,lastAt:Date.now()}]});});
+ const quality=page.locator('[data-quality]');
+ assert.match(await quality.innerText(),/Daten aktuell: 50 %/);
+ assert.equal(await quality.locator('details').evaluate(e=>e.open),false);
+ await quality.locator('summary').click();
+ assert.match(await quality.innerText(),/0[,.]25 CHF/);
+ await page.evaluate(()=>BobImprovement.renderQuality({status:'stale',freshPct:100,completePct:100}));
+ assert.match(await quality.innerText(),/Daten aktuell: nicht bestätigt/);
+ assert(!(await quality.innerText()).includes('100 %'));
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=390));
  console.log('Mobile training help: blue button, automatic retries, escalation, explicit share and verified recovery OK');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
