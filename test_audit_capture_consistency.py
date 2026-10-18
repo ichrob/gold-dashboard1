@@ -1,4 +1,5 @@
 import unittest,os,json,time
+from datetime import datetime,timezone
 from unittest.mock import patch
 import decision_audit as a
 
@@ -17,15 +18,35 @@ class CaptureTests(unittest.TestCase):
   self.assertEqual(result['metrics']['15']['evaluated'],1)
   self.assertFalse(bad['marketEvaluable'])
 
- def test_harvest_bounds_expensive_quote_ranges_to_available_pairs(self):
+ def test_harvest_bounds_expensive_quote_ranges_behind_a_durable_cursor(self):
   from unittest.mock import Mock
-  conn=Mock();a._harvest_at=0
-  with patch('decision_audit.time.time',return_value=100):a.harvest(conn)
-  query,params=conn.execute.call_args.args
-  self.assertIn('WITH candidates AS MATERIALIZED',query)
-  self.assertIn('EXISTS (SELECT 1 FROM bob_spot_observations available',query)
-  self.assertIn('LIMIT %s',query)
-  self.assertEqual(params,(a.HARVEST_BATCH_LIMIT,))
+  stamp=datetime.now(timezone.utc)
+  conn=Mock()
+  conn.execute.side_effect=[
+      Mock(fetchone=lambda:(None,None)),
+      Mock(fetchall=lambda:[('one',stamp),('two',stamp)]),
+      Mock(),Mock()]
+  self.assertEqual(a._harvest_horizon(conn,15),2)
+  selection,selection_params=conn.execute.call_args_list[1].args
+  insert,insert_params=conn.execute.call_args_list[2].args
+  update,update_params=conn.execute.call_args_list[3].args
+  self.assertIn('ORDER BY a.recorded_at,a.id LIMIT %s',selection)
+  self.assertEqual(selection_params,(15,15,15,a.HARVEST_HORIZON_BATCH))
+  self.assertIn('WHERE a.id=ANY(%s::text[])',insert)
+  self.assertEqual(insert_params[-1],['one','two'])
+  self.assertIn('SET recorded_at=%s,decision_id=%s',update)
+  self.assertEqual(update_params,(stamp,'two',15))
+
+ def test_empty_cursor_window_resets_without_scanning_quote_ranges(self):
+  from unittest.mock import Mock
+  stamp=datetime.now(timezone.utc)
+  conn=Mock()
+  conn.execute.side_effect=[Mock(fetchone=lambda:(stamp,'last')),Mock(fetchall=lambda:[]),Mock()]
+  self.assertEqual(a._harvest_horizon(conn,60),0)
+  selection,params=conn.execute.call_args_list[1].args
+  self.assertIn('(a.recorded_at,a.id)>(%s,%s)',selection)
+  self.assertEqual(params,(60,60,60,stamp,'last',a.HARVEST_HORIZON_BATCH))
+  self.assertEqual(conn.execute.call_count,3)
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class HarvestTests(unittest.TestCase):
@@ -39,6 +60,8 @@ class HarvestTests(unittest.TestCase):
    try:
     conn.execute('CREATE TABLE bob_decision_audit(id TEXT PRIMARY KEY,recorded_at TIMESTAMPTZ,payload JSONB)')
     conn.execute('CREATE TABLE bob_decision_outcomes(decision_id TEXT,horizon INTEGER,truth JSONB,PRIMARY KEY(decision_id,horizon))')
+    conn.execute('CREATE TABLE bob_decision_harvest_cursor(horizon INTEGER PRIMARY KEY,recorded_at TIMESTAMPTZ,decision_id TEXT)')
+    conn.execute('INSERT INTO bob_decision_harvest_cursor(horizon) SELECT unnest(%s::integer[])',(list(a.HARVEST_HORIZONS),))
     conn.execute('CREATE TABLE bob_spot_observations(stream TEXT,quote_at TIMESTAMPTZ,price DOUBLE PRECISION)')
     start=int(time.time()*1000)-3600000
     record=dict(recordedAt=start,marketEvaluable=True,price=100,direction='LONG')
