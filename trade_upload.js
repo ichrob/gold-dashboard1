@@ -157,5 +157,5 @@ function init(){
  });
 }
 window.BobTradeUpload={parse,draft,reviewed,merge,init,setupCandidate,queueSetup,runSetup,status:()=>({...automaticStatus}),requestHelp};
-if(typeof document!=='undefined'){setInterval(runSetup,30000);window.addEventListener('online',runSetup);}if(typeof document!=='undefined'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();}
+if(typeof document!=='undefined'&&typeof setInterval==='function'){setInterval(runSetup,30000);window.addEventListener?.('online',runSetup);}if(typeof document!=='undefined'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();}
 })();
