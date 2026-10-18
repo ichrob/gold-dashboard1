@@ -66,6 +66,7 @@
  async function load(){await flush();try{const r=await request('read',{}),root=el('realTradeList');root.replaceChildren();if(r.automaticMonitor){const p=document.createElement('p');p.textContent='Automatischer Überwachungsstart: '+r.automaticMonitor.message+(r.automaticMonitor.checkedAt?' · Stand '+time(r.automaticMonitor.checkedAt):'');root.append(p);}for(const t of r.trades){const d=document.createElement('details'),s=document.createElement('summary'),body=document.createElement('div');s.textContent=time(t.openedAt)+' · '+(t.snapshot.product?.isin||'Goldreferenz ohne Produktdaten')+' · '+t.snapshot.dir+' · '+(t.snapshot.consumed?'Kaufbeleg · abgeschlossener Trade':t.snapshot.recordOnly?'Kauf erfasst · Überwachung offen':t.active?'aktiv':'in Bob beendet');d.append(s,details('Erfasster Trade und Produktwerte',t.snapshot));if(t.monitorTiming){const p=document.createElement('p');p.textContent='Überwachungsbeginn: '+time(t.monitorTiming.startedAt)+' · '+Math.round(t.monitorTiming.delaySeconds/60)+' Minuten nach Kauf'+(t.monitorTiming.timezoneAssumed?' (Belegzeit als Schweizer Ortszeit angenommen)':'');d.append(p);}if(t.active){const note=document.createElement('p');note.textContent=t.pushDevices>0?'Server-Push: '+t.pushDevices+' registrierte Geräte mit diesem Trade verbunden. Empfang am Handy erst durch Test bestätigt.':'Serverüberwachung aktiv. Kein Gerät für diesen Trade verbunden: Auf dem Handy Trade-Push einschalten und Gerät registrieren.';d.append(note);}if(!t.active&&!t.snapshot.recordOnly)d.append(executionForm(t));d.append(body);d.addEventListener('toggle',()=>{if(d.open&&!body.childNodes.length)history(t.id,body);});root.append(d);}if(!r.trades.length)root.textContent='Noch kein echter Trade protokolliert. Nach deinem Kauf den Trade unter „Mein Trade“ erfassen und aktivieren.';}catch(e){status('Echte Trades nicht abrufbar: '+e.message);}}
 
 
+ let latestReadAt=0;
  let latestTrades=[],emailState='E-Mail-Eingang wird automatisch geprüft.',workflowError='',loadingPurchases=false;
  function workflowState(trades,current,plan){
   const active=trades.find(t=>t.active&&t.id===current?.tradeId)||trades.find(t=>t.active);
@@ -137,7 +138,7 @@
  }
  async function loadPurchases(){
   const root=el('purchaseList');if(!root||loadingPurchases)return;loadingPurchases=true;
-  try{let r=await request('read',{});latestTrades=r.trades;try{await importMailPurchase();r=await request('read',{});latestTrades=r.trades;workflowError='';}catch(err){workflowError=err.message;}renderWorkflow();reconcileClosed(r.trades);await flush();if(queue.length||busy)return;root.replaceChildren();
+  try{let r=await request('read',{});latestTrades=r.trades;latestReadAt=Date.now();try{await importMailPurchase();r=await request('read',{});latestTrades=r.trades;latestReadAt=Date.now();workflowError='';}catch(err){workflowError=err.message;}renderWorkflow();reconcileClosed(r.trades);await flush();if(queue.length||busy)return;root.replaceChildren();
    const active=r.trades.filter(t=>t.active&&!t.snapshot.recordOnly);
    if(active.length===1&&window.BobTradeSync?.restore(active[0].snapshot)){el('purchaseStatus').textContent='Überwachung vom Server übernommen · Stopp und Ziel werden automatisch aktualisiert.';return;}
    for(const t of r.trades.filter(t=>t.snapshot.recordOnly&&!t.snapshot.consumed)){
@@ -181,7 +182,7 @@
    el('purchaseStatus').textContent=queue.length?'Überwachung lokal vorbereitet; Serverspeicherung wird erneut versucht.':'Überwachung automatisch gestartet und gespeichert · Stopp und Ziel in '+(p.currency||'EUR')+' pro Stück (geschätzt).';
   }catch(err){workflowError='Datenabruf noch offen: '+err.message;el('purchaseStatus').textContent=workflowError;}finally{preparing=false;}
  }
- window.BobRealTrades={capture,load,reconcileClosed,workflowState,renderWorkflow};
+ window.BobRealTrades={monitorStatus:()=>({fresh:Date.now()-latestReadAt<90000,at:latestReadAt,pending:latestTrades.filter(t=>t.snapshot.recordOnly&&!t.snapshot.consumed).length,active:latestTrades.find(t=>t.active&&t.id===window.BobTradeSync?.current()?.tradeId)}),capture,load,reconcileClosed,workflowState,renderWorkflow};
  document.addEventListener('DOMContentLoaded',()=>{el('realTradeLoad')?.addEventListener('click',load);flush();purchasePanel();});
  document.addEventListener('click',e=>{if(e.target.closest?.('[data-view="learning"]'))load();purchasePanel();});
  if(typeof navigator!=='undefined'&&navigator.serviceWorker)navigator.serviceWorker.addEventListener('message',event=>{if(event.data?.type==='BOB_PUSH_CLICK'&&event.data.data?.kind==='trade'){location.hash='trade';loadPurchases();}});

@@ -104,6 +104,7 @@ PANEL = r"""
     async function refresh() {
       const data=await request('read',{});
       active=(data.trades||[]).filter(x=>x.active);
+      window.BobRealTrades?.reconcileClosed?.(data.trades||[]);
       const select=$('bobTradeSaleSelect');
       const prev=select.value;
       select.replaceChildren();
@@ -172,6 +173,14 @@ PANEL = r"""
         status.textContent='OCR hat '+count+' Angaben vorausgefüllt. Bitte alle Werte mit dem DEGIRO-Beleg vergleichen. Keine automatische Freigabe.';
       }catch(error){status.textContent='OCR-Hinweis: '+error.message;}
     };
+    window.BobTradeSale={prepareFile:async file=>{
+      await refresh();
+      const transfer=new DataTransfer();transfer.items.add(file);$('bobTradeSaleImage').files=transfer.files;
+      $('bobTradeSaleCheck').checked=false;
+      for(const input of $('bobTradeSaleFields').querySelectorAll('input'))input.value='';
+      for(let node=root;node;node=node.parentElement)if(node.tagName==='DETAILS')node.open=true;
+      await $('bobTradeSaleOcr').onclick();root.scrollIntoView({behavior:'smooth',block:'start'});
+    }};
     $('bobTradeSaleSave').onclick=async()=>{
       const status=$('bobTradeSaleStatus');status.textContent='Prüfe Beleg …';
       try {

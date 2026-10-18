@@ -26,6 +26,7 @@ import bob_self_healing
 import bob_problems
 import bob_area_checks
 import bob_repair_store
+import bob_assistance
 import auto_collection
 import background_push
 import ocr_assets
@@ -116,7 +117,7 @@ def service_health():
                         'uptimeSeconds': max(0, int(time.monotonic()-PROCESS_STARTED_MONOTONIC))},
             'ready': not reasons, 'reasons': reasons,
             'fibonacciMonitor': dict(FIB_MONITOR_HEALTH), 'automaticCollection': collection,
-            'strategyResearch': strategy_lab_background.status()}
+            'strategyResearch': strategy_lab_background.status(), 'assistanceCodes': bob_assistance.pending_codes()}
     bob_self_healing.observe(result)
     return result
 
@@ -1732,6 +1733,29 @@ class Handler(BaseHTTPRequestHandler):
         ).decode("ascii")
         worker_token = self.headers.get("X-Bob-Worker-Token", "")
         worker_ok = bool(SIGNAL_WORKER_TOKEN) and hmac.compare_digest(worker_token, SIGNAL_WORKER_TOKEN)
+
+        if path == "/api/assistance":
+            if not self.authenticated():
+                bob_auth.send(self, 401)
+                return
+            if not bob_auth.same_origin(self.headers):
+                bob_auth.send(self, 403)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 128:
+                    raise ValueError("Invalid size")
+                result = bob_assistance.report(json.loads(self.rfile.read(length)))
+                code = 200
+            except (ValueError, TypeError):
+                result, code = {"ok": False, "error": "Invalid assistance code"}, 400
+            body = json.dumps(result).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
 
         if path == "/api/degiro/connection-test":
             if not self.authenticated():

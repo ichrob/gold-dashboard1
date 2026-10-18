@@ -25,12 +25,13 @@ _LAST_TRY = 0.0
 # Markers never imply that a product quote, lever, KO or trade is approved.
 KI_STATUS_LABELS = {
     "new": "Wartet auf KI-Prüfung",
+    "needs-user": "Deine Hilfe ist nach KI-Prüfung nötig",
     "in-progress": "KI prüft die Ursache",
     "testing": "Reparatur in technischer Prüfung",
     "waiting-for-evidence": "Originalnachweis fehlt weiterhin",
     "waiting-for-review": "Änderung wartet auf Freigabeprüfung",
 }
-_KI_MARKER = re.compile(r"(?m)^<!-- BOB_KI_STATUS:(in-progress|testing|waiting-for-evidence|waiting-for-review) -->$")
+_KI_MARKER = re.compile(r"(?m)^<!-- BOB_KI_STATUS:(in-progress|testing|waiting-for-evidence|waiting-for-review|needs-user) -->$")
 
 
 def ki_status(issue):
@@ -152,6 +153,7 @@ def snapshot(*, fetcher=fetch_open_issues, clock=time.monotonic):
 
 PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
 <h3>Offene KI-Hilfeanfragen</h3>
+<p class="small">Zuerst prüft Bob selbst. Technische Hilferufe bearbeitet der geplante ChatGPT-Reparaturwächter stündlich, nicht sofort. Nur ausdrücklich mit „Deine Hilfe ist nötig“ markierte Fälle benötigen eine Nutzeraktion. Kritische Trade-Warnungen bleiben unabhängig davon sichtbar.</p>
 <p id="bobProblemsSummary" role="status" class="small">Lade gespeicherte Probleme …</p>
 <p id="bobProblemsLastUpdate" class="small">Letzte Aktualisierung: wird geladen …</p>
 <div id="bobRepairStatistics" style="border:1px solid #dce3ed;border-radius:12px;padding:12px;margin:12px 0">
@@ -262,6 +264,7 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
  const publicCodes=__BOB_PUBLIC_CODES__;
  const kiStatusLabels={
    'new':'Wartet auf KI-Prüfung',
+   'needs-user':'Deine Hilfe ist nach KI-Prüfung nötig',
    'in-progress':'KI prüft die Ursache',
    'testing':'Reparatur in technischer Prüfung',
    'waiting-for-evidence':'Originalnachweis fehlt weiterhin',
@@ -301,7 +304,7 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
    let kiStatus='new';
    if(['ichrob','github-actions[bot]'].includes(issue.user?.login)&&
       typeof issue.body==='string'&&issue.body.length<=8000){
-     const matches=[...issue.body.matchAll(/^<!-- BOB_KI_STATUS:(in-progress|testing|waiting-for-evidence|waiting-for-review) -->$/gm)];
+     const matches=[...issue.body.matchAll(/^<!-- BOB_KI_STATUS:(in-progress|testing|waiting-for-evidence|waiting-for-review|needs-user) -->$/gm)];
      if(matches.length)kiStatus=matches[matches.length-1][1];
    }
    problems.push({number:issue.number,code,message,kiStatus,kiStatusLabel:kiStatusLabels[kiStatus],
@@ -359,6 +362,9 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
     const note=document.createElement('p');note.className='small';note.setAttribute('role','status');
     button.addEventListener('click',()=>copy(report(issue),note));
     article.append(title,meta,link,document.createElement('br'),button,note);
+    if(issue.kiStatus==='needs-user'){
+     const action=document.createElement('p');action.textContent='Deine Hilfe ist nötig. Öffne den technischen Eintrag für die konkrete Rückfrage.';action.style.fontWeight='700';article.append(action);
+    }
     items.append(article);
    }
   }catch(_){
