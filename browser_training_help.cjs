@@ -8,7 +8,7 @@ const fs=require('fs'),assert=require('node:assert/strict');
  await page.clock.install();
  await page.evaluate(()=>{
   window.testReport={available:true,workerCheckedAt:Date.now(),items:[{id:'signal:test:60',type:'Signalprüfung',status:'trying',attempts:1,reason:'Originalkurs fehlt',history:[{at:Date.now(),action:'Archiv prüfen',result:'Originalkurs fehlt'}]}]};
-  window.fetch=async()=>({ok:true,json:async()=>window.testReport});
+  window.fetch=async url=>({ok:true,json:async()=>url==='/api/assistance'?{ok:true,status:'queued'}:window.testReport});
   Object.defineProperty(navigator,'share',{configurable:true,value:async data=>{window.shared=data;}});
  });
  await page.addScriptTag({content:fs.readFileSync('training_help.js','utf8')});
@@ -21,6 +21,10 @@ const fs=require('fs'),assert=require('node:assert/strict');
  await page.clock.runFor(30001);
  assert.equal((await page.locator('[data-view=learning] [data-training-mark]').innerText()).trim(),'X');
  assert(!(await button.isDisabled()));await button.click();
+ assert.equal(await page.evaluate(()=>window.shared),undefined);
+ await page.getByText(/Gespeicherte Testfälle werden automatisch/).waitFor();
+ await page.locator('summary').click();
+ await page.getByRole('button',{name:'Bericht zusätzlich manuell teilen'}).click();
  assert.match(await page.evaluate(()=>window.shared.text),/Archiv prüfen/);
  assert.match(await page.evaluate(()=>window.shared.text),/Originalkurs fehlt/);
  // Sharing is not recovery. Only the authoritative successful check removes X.
