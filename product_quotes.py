@@ -633,7 +633,9 @@ def _get_quote_primary(isin):
 
 def get_quote(isin):
     from quote_runtime import run
-    return run(str(isin or "").strip().upper(), _get_quote_bounded)
+    result=run(str(isin or "").strip().upper(), _get_quote_bounded)
+    from product_data_quality import snapshot
+    return snapshot(result)
 
 
 

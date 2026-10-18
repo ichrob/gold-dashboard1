@@ -9,6 +9,7 @@ _POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix='bob-product-source
 _LOCK = threading.Lock()
 _PENDING = {}
 _READY = OrderedDict()
+_FAILURES = OrderedDict()
 # Verified source evidence is kept separately from the short live-result cache.
 # A 30-second caller must not lose a successful result completed after its timeout.
 _RETAINED = OrderedDict()
@@ -67,7 +68,15 @@ def run(isin, fetch):
                 # while Bob waited for the next 30s refresh.
                 completed_at = getattr(value, '_bob_completed_at', now)
                 _remember_verified(key, result, completed_at)
-                ttl = ERROR_TTL if result.get('sourceFailure') else RESULT_TTL
+                if result.get('sourceFailure'):
+                    failures=min(5,_FAILURES.get(key,0)+1)
+                    _FAILURES[key]=failures;_FAILURES.move_to_end(key)
+                    ttl=min(300,ERROR_TTL*2**(failures-1))
+                    result=dict(result,retryAfterSeconds=ttl)
+                else:
+                    _FAILURES.pop(key,None)
+                    ttl=RESULT_TTL
+                while len(_FAILURES)>256:_FAILURES.popitem(last=False)
                 # Age starts when source work finishes, not when another
                 # request happens to collect it (possibly hours later).
                 expires = completed_at + ttl
@@ -84,7 +93,9 @@ def run(isin, fetch):
         if cached:
             output = copy.deepcopy(cached[1])
             if output.get('sourceFailure') is True and output.get('productVerified') is not True:
-                return _unavailable_with_evidence(isin, output.get('quoteFailureCode') or 'PRODUCT_SOURCE_FAILED', now)
+                result=_unavailable_with_evidence(isin, output.get('quoteFailureCode') or 'PRODUCT_SOURCE_FAILED', now)
+                result['retryAfterSeconds']=max(1,int(cached[0]-now))
+                return result
             return output
         future = _PENDING.get(isin)
         if future is None:

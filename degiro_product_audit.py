@@ -406,6 +406,8 @@ def examine(product, quote, now_ms):
         "leverageSourceAt": issuer_leverage_at if "leverage-time" not in codes else None,
         "source": str(quote.get("source") or "Emittenten- und Ersatzquellen")[:80],
         "sourceObservations": observations,
+        "snapshotId": quote.get("snapshotId"),
+        "nativeCurrency": native_currency,
         "thirdSourceEvidence": quote.get("swissquoteBackup"),
         "fieldRecovery": quote.get("comdirectFieldsBackup"),
         "marketCrossCheck": cross_check,
@@ -449,6 +451,9 @@ def build(feed, quotes, now_ms=None, previous=None):
         counts = {code: min(99999, int(previous_counts.get(code, 0)) + 1)
                   for code in item["missing"] if item["state"] != "terminated"}
         item["missingChecks"] = counts
+        prior_since=before.get('missingSince') or {}
+        stamp=datetime.fromtimestamp(now_ms/1000,timezone.utc).isoformat()
+        item['missingSince']={code:prior_since.get(code) or stamp for code in counts}
         same = bool(set(before.get("missing", [])) & set(item["missing"]))
         item["consecutiveChecks"] = max(counts.values(), default=0)
         item["firstSeenAt"] = before.get("firstSeenAt") if same else datetime.fromtimestamp(now_ms/1000,timezone.utc).isoformat()

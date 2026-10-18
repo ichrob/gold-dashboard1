@@ -735,6 +735,11 @@ class Handler(BaseHTTPRequestHandler):
                     send_json(self,401,{'error':'Unauthorized'});return
                 with db() as conn:
                     result=improvement_tracker.report(conn)
+                    try:
+                        import product_data_quality
+                        with conn.transaction():result['dataQuality']=product_data_quality.read(conn)
+                    except Exception:
+                        result['dataQuality']={'status':'unavailable','note':'Produktqualität derzeit nicht abrufbar; kein bestätigter aktueller Stand.'}
                 send_json(self,200,result);return
             if path in ('/real-trades/read','/real-trades/write','/real-trades/curve','/real-trades/risk','/real-trades/confirm-sale'):
                 supplied=self.headers.get('X-Bob-Push-Token','')

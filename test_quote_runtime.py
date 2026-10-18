@@ -6,7 +6,7 @@ import quote_runtime as q
 
 class QuoteRuntimeTests(unittest.TestCase):
     def setUp(self):
-        for name in ('_READY', '_RETAINED'):
+        for name in ('_READY', '_RETAINED', '_FAILURES'):
             patcher=patch.object(q,name,q.OrderedDict())
             patcher.start();self.addCleanup(patcher.stop)
 
@@ -106,3 +106,14 @@ class QuoteRuntimeTests(unittest.TestCase):
         self.assertEqual(got['metadata']['status'],2)
         self.assertEqual(q._RETAINED[isin][1]['metadata']['ko'],4100)
         self.assertEqual(q._RETAINED[isin][1]['quoteAt'],'original-new-time')
+
+    def test_failure_backoff_is_bounded_and_success_resets_it(self):
+        for i,ttl in enumerate((30,60,120,240,300,300)):
+            f=Future();f.set_result(q.unavailable('retry','PRODUCT_SOURCE_FAILED'));f._bob_completed_at=1000+i*1000
+            with patch.dict(q._PENDING,{'retry':f},clear=True),patch.object(q.time,'monotonic',return_value=f._bob_completed_at):
+                result=q.run('retry',lambda _:self.fail('cached failure must not fetch'))
+                self.assertEqual(result['retryAfterSeconds'],ttl)
+        f=Future();f.set_result({'isin':'retry','quoteAt':'original'});f._bob_completed_at=10000
+        with patch.dict(q._PENDING,{'retry':f},clear=True),patch.object(q.time,'monotonic',return_value=10000):
+            self.assertEqual(q.run('retry',lambda _:self.fail('cached success'))['quoteAt'],'original')
+            self.assertNotIn('retry',q._FAILURES)
