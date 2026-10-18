@@ -177,8 +177,8 @@ def summarize(observed,valid,days,last,rows,real,now,validation_at=None):
     val_fraction=min(ratio(val['count'],100),ratio(val['days'],20),ratio(trial_coverage,.95),ratio(outcome_coverage,.95))
     progress=[round(100*min(ratio(days,20),ratio(coverage,.95))),
               round(100*min(ratio(real['count'],20),ratio(real['days'],10))),
-              round(100*min(dev_fraction,val_fraction)),
-              round(50*min(dev_fraction,val_fraction)+50*min(ratio(real['pairedCount'],20),ratio(real['pairedDays'],10)))]
+              round(50*dev_fraction+50*val_fraction),
+              round(25*dev_fraction+25*val_fraction+50*min(ratio(real['pairedCount'],20),ratio(real['pairedDays'],10)))]
     if now<START:progress=[0]*4
     return dict(ok=True,protocol=PROTOCOL,generatedAt=now,started=now>=START,
         progress=progress,validationAt=validation_at,reliability=dict(observed=observed,valid=valid,expected=expected,
