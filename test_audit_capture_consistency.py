@@ -17,6 +17,16 @@ class CaptureTests(unittest.TestCase):
   self.assertEqual(result['metrics']['15']['evaluated'],1)
   self.assertFalse(bad['marketEvaluable'])
 
+ def test_harvest_bounds_expensive_quote_ranges_to_available_pairs(self):
+  from unittest.mock import Mock
+  conn=Mock();a._harvest_at=0
+  with patch('decision_audit.time.time',return_value=100):a.harvest(conn)
+  query,params=conn.execute.call_args.args
+  self.assertIn('WITH candidates AS MATERIALIZED',query)
+  self.assertIn('EXISTS (SELECT 1 FROM bob_spot_observations available',query)
+  self.assertIn('LIMIT %s',query)
+  self.assertEqual(params,(a.HARVEST_BATCH_LIMIT,))
+
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class HarvestTests(unittest.TestCase):
  def test_exact_frozen_time_with_delayed_insert(self):
