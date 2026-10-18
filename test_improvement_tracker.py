@@ -104,13 +104,13 @@ class TrackerDatabaseTests(unittest.TestCase):
                 self.assertEqual(journal['status'],'evaluated')
                 self.assertAlmostEqual(journal['netSpotPct'],-1.04)
                 # Neutral trials use original followups without changing the strategy outcomes.
-                neutral=dict(market(t+7200000),ready=False,direction='NEUTRAL')
-                m.capture(conn,neutral,t+7200000)
-                m.capture(conn,market(t+10800000,price=4040),t+10800000)
-                neutral_review=m.report(conn,t+10830000)['decisionJournal']['items'][0]
+                neutral=dict(market(t+43200000),ready=False,direction='NEUTRAL')
+                m.capture(conn,neutral,t+43200000)
+                m.capture(conn,market(t+46800000,price=4040),t+46800000)
+                neutral_review=m.report(conn,t+46830000)['decisionJournal']['items'][0]
                 self.assertEqual(neutral_review['decision'],'ABWARTEN')
                 self.assertEqual(neutral_review['status'],'observed')
-                self.assertIsNone(conn.execute('SELECT outcome FROM bob_improvement_trials WHERE slot=%s',(t+7200000,)).fetchone()[0])
+                self.assertIsNone(conn.execute('SELECT outcome FROM bob_improvement_trials WHERE slot=%s',(t+43200000,)).fetchone()[0])
                 self.assertEqual(report['progress'][3],0)
                 # Sufficient completed development evidence freezes a future boundary.
                 day=datetime(2026,10,19,8,tzinfo=m.ZONE); completed_days=0
