@@ -84,7 +84,7 @@ def tick(db, bundle, quote_fetch=None, now=None):
         row = comparison(product,bundle.get('spots'),quote,now)
         if not row:continue
         with db() as conn:
-            current = conn.execute('SELECT settings FROM bob_real_trades WHERE id=%s AND active=TRUE FOR UPDATE',(tid,)).fetchone()
+            current = conn.execute('SELECT settings,state FROM bob_real_trades WHERE id=%s AND active=TRUE FOR UPDATE',(tid,)).fetchone()
             if not current or model_key((current[0].get('trade') or {}).get('product') or {}) != model_key(product):continue
             conn.execute("DELETE FROM bob_trade_comparisons WHERE quote_at<now()-interval '7 days'")
             conn.execute('''INSERT INTO bob_trade_comparisons(trade_id,model_key,quote_at,source,evidence)
@@ -94,6 +94,20 @@ def tick(db, bundle, quote_fetch=None, now=None):
             precision_learning.observe(conn,dict(product,_precisionScope=tid+':'+json.dumps(model_key(product))),row)
             metric_quality.pnl_check(conn,tid,product,row,now.timestamp()*1000)
             conn.commit()
+        # Research failure cannot roll back the established quote/precision capture.
+        try:
+            import exit_quality
+            trade=dict(current[0].get('trade') or {})
+            plan=(current[1] or {}).get('trade') or {}
+            if plan.get('tradeId')==trade.get('tradeId'):
+                for key in ('stop','target'):
+                    if history.pos(plan.get(key)):trade[key]=plan[key]
+            with db() as study_conn:
+                exit_quality.observe(study_conn,tid,trade,dict(row,askAt=quote.get('askAt')),
+                    history.calculate(product,bundle.get('spots'),now) or {},
+                    quote.get('ask'),max(int(now.timestamp()*1000),int(time.time()*1000)))
+                study_conn.commit()
+        except Exception as exc:print('BOB_EXIT_QUALITY error='+type(exc).__name__,flush=True)
 
 
 def enqueue(db,bundle):
