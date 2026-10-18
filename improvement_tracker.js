@@ -39,14 +39,14 @@
    last=r;status.textContent=(r.started?'Erfassung freigeschaltet. ':'Start ist für morgen vorbereitet. ')+ 'Berichtsstand: '+new Date(r.generatedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' Schweizer Zeit.';
    if(r.started)status.textContent+=' Letzte gespeicherte Beobachtung: '+(r.reliability.lastAt?new Date(r.reliability.lastAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch keine – außerhalb der Erfassungszeit normal.');
    const a=r.reliability,b=r.real,c=r.comparison,q=r.assessment;
-   root.querySelector('[data-headline]').textContent='Aktueller Stand: '+q.label;root.querySelector('[data-next]').textContent='Nächster Prüfschritt: '+q.nextStep;
+   root.querySelector('[data-headline]').textContent='Aktueller Stand · Signalprüfung: '+q.label;root.querySelector('[data-next]').textContent='Nächster Prüfschritt: '+q.nextStep;
    const summaries=[
     a.days+'/20 Handelstage · Datenabdeckung '+number(a.coveragePct)+' % / Ziel 95 % · '+a.missingSlots+' fehlende Zeitfenster.',
     b.count+'/20 vollständige Abschlüsse · '+b.days+'/10 Tage · '+b.missing+' Abrechnungen/Zeitzuordnungen offen.',
     'Entwicklung: '+c.development.count+'/60 Fälle an '+c.development.days+'/10 Tagen. Spätere Prüfung: '+c.validation.count+'/100 Fälle an '+c.validation.days+'/20 Tagen. '+c.excludedOtherVersions+' Fälle anderer Regelstände getrennt.',
     b.pairedCount+'/20 zeitlich zugeordnete Nettovergleiche an '+b.pairedDays+'/10 späteren Tagen. '+r.adoption.status+'.'
    ];
-   for(let i=0;i<4;i++){const card=root.querySelector('[data-goal="'+i+'"]');card.querySelector('[data-percent]').textContent=r.progress[i]+' % des Nachweisziels erreicht';card.querySelector('progress').value=r.progress[i];card.querySelector('progress').hidden=false;card.querySelector('[data-summary]').textContent=summaries[i];card.querySelector('[data-verdict]').textContent=i<2?(r.progress[i]===100?'Nachweisziel erreicht':'Daten werden gesammelt'):q.label;}
+   for(let i=0;i<4;i++){const card=root.querySelector('[data-goal="'+i+'"]');card.querySelector('[data-percent]').textContent=r.progress[i]+' % des Nachweisziels erreicht';card.querySelector('progress').value=r.progress[i];card.querySelector('progress').hidden=false;card.querySelector('[data-summary]').textContent=summaries[i];card.querySelector('[data-verdict]').textContent=i<2?(r.progress[i]===100?'Nachweisziel erreicht':'Daten werden gesammelt'):i===3?q.realLabel:q.label;}
    const values=root.querySelector('[data-results]');values.replaceChildren();
    const lines=[
     'Echte abgeschlossene Trades: Netto '+number(b.netCHF)+' CHF; größter Rückgang der abgeschlossenen Ergebnissumme '+number(b.drawdownCHF)+' CHF.',
