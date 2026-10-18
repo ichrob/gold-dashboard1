@@ -53,11 +53,14 @@ def discover(conn,now):
                  (page[-1][0] if len(page)==128 else None,))
     recent=conn.execute("SELECT id,payload,extract(epoch from recorded_at)*1000 FROM bob_decision_audit WHERE recorded_at<to_timestamp(%s/1000.0)-interval '16 minutes' ORDER BY recorded_at DESC LIMIT 32",(now,)).fetchall()
     records={r[0]:r for r in [*page,*recent]}
+    import decision_audit as audit
     for key,row,recorded_at in records.values():
         stored=dict(conn.execute('SELECT horizon,truth FROM bob_decision_outcomes WHERE decision_id=%s',(key,)).fetchall())
         for horizon in (15,60,240):
-            if float(recorded_at)+(horizon+1)*60000>=now:continue
-            if stored.get(horizon) is not None and row.get('marketEvaluable'):continue
+            start=audit.milliseconds(row.get('recordedAt'))
+            if start is None:continue
+            if start+(horizon+1)*60000>=now:continue
+            if audit.outcome(row,stored.get(horizon),horizon) is not None:continue
             enqueue(conn,'signal:'+key+':'+str(horizon),'signal',dict(decision=key,horizon=horizon),
                 dict(type='Signalprüfung · '+str(horizon)+' Minuten',at=row.get('recordedAt'),currency='',
                      reasons=['invalidStart' if not row.get('marketEvaluable') else 'missingFollowup']),now)
