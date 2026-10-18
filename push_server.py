@@ -20,6 +20,7 @@ import bob_validation_store
 import real_trade_journal
 import trade_email_import
 import decision_audit
+import improvement_tracker
 import ranking_learning
 import adaptive_learning as rule_learning
 import strategy_lab_store
@@ -119,6 +120,7 @@ def _init_db_once():
         research_enhancements.init(conn)
         bob_validation_store.init(conn)
         decision_audit.init(conn)
+        improvement_tracker.init(conn)
         real_trade_journal.init(conn)
         trade_email_import.init(conn)
         degiro_product_audit.init(conn)
@@ -414,6 +416,16 @@ def run_background(bundle):
                 real_trade_journal.sync_devices(conn)
         except Exception as exc:
             print('BOB_REAL_TRADE device_sync_failed='+type(exc).__name__,flush=True)
+        # One canonical observation per bundle, independent of devices or open browser.
+        if improvement_tracker.eligible(int(time.time()*1000)):
+            try:
+                canonical = background_push.analyze(bundle, {'timeframe':'15m','learningPolicy':learning_policy}, priority=2)
+            except Exception:
+                canonical = {}
+            try:
+                with conn.transaction(): improvement_tracker.capture(conn, canonical)
+            except Exception as exc:
+                print('BOB_IMPROVEMENT capture_error='+type(exc).__name__,flush=True)
         rows = conn.execute("SELECT id, subscription, general_enabled, trade_enabled, active_trade, background_config, background_state, selection_evidence, product_selection FROM subscriptions WHERE (general_enabled=TRUE OR (trade_enabled=TRUE AND active_trade=TRUE)) AND background_config IS NOT NULL FOR UPDATE").fetchall()
         # Research must continue even when the app is closed and nobody has Push enabled.
         # Only an ordinary authenticated /background bundle is used; no extra HTTP polling.
@@ -558,6 +570,8 @@ class Handler(BaseHTTPRequestHandler):
                         paper_heartbeat = {"state":"unavailable", "accountsTotal":5,
                                            "accountsChecked":0,"realOrders":False,
                                            "scope":"paper-account-heartbeat-not-quote-quality"}
+                    improvement_protocol=conn.execute('SELECT payload FROM bob_improvement_protocol WHERE id=%s',(improvement_tracker.VERSION,)).fetchone()
+                    improvement_schedule={'configured':bool(improvement_protocol and improvement_protocol[0]==improvement_tracker.PROTOCOL),'startAt':improvement_tracker.START,'mode':'research-only'}
                     # The public endpoint reveals ONLY allowlisted diagnostic
                     # categories. No private instrument names, quantities,
                     # prices, timestamps or screenshot-list metadata.
@@ -567,7 +581,7 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception as audit_exc:
                         print("BOB_PRODUCT_AUDIT health_error="+type(audit_exc).__name__, flush=True)
                         product_codes = None  # Unknown is NOT a confirmed repair.
-                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "paperObservation":paper_heartbeat, "productAuditCodes":product_codes})
+                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "paperObservation":paper_heartbeat, "productAuditCodes":product_codes,"improvementSchedule":improvement_schedule})
                 return
             if path == "/product-audit":
                 # Private product universe; never publish it in /health or
@@ -699,6 +713,13 @@ class Handler(BaseHTTPRequestHandler):
                     conn.commit()
                 send_json(self, 200, result)
                 return
+            if path == '/improvement/read':
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'});return
+                with db() as conn:
+                    result=improvement_tracker.report(conn)
+                send_json(self,200,result);return
             if path in ('/real-trades/read','/real-trades/write','/real-trades/curve','/real-trades/risk','/real-trades/confirm-sale'):
                 supplied=self.headers.get('X-Bob-Push-Token','')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
