@@ -66,7 +66,10 @@ def assess(rows,comparison,real,progress,started,reliability):
         regimes.append(dict(key=key,label=label,cases=len(selected),days=days,difference=mean,result=label_result))
     retained_false=sum(r[3]['keep'] and r[3]['directionalPct']<=0 for r in done)
     baseline_false=sum(r[3]['directionalPct']<=0 for r in done)
-    return dict(version=VERSION,code=code,label=LABELS[code],nextStep=next_step,
+    net_delta=(real['pairedCandidateCHF']-real['pairedBaselineCHF'] if real['pairedCount'] and all(type(real.get(k)) in (int,float) for k in ('pairedCandidateCHF','pairedBaselineCHF')) else None)
+    net_ready=real['pairedCount']>=20 and real['pairedDays']>=10 and net_delta is not None
+    real_label='Nettovergleich noch unvollständig' if not net_ready else ('Rechnerischer Vorteil bei den erfassten Trades' if net_delta>0 else 'Testfilter hätte das erfasste Nettoergebnis verschlechtert' if net_delta<0 else 'Kein Netto-Unterschied bei den erfassten Trades')
+    return dict(realLabel=real_label,version=VERSION,code=code,label=LABELS[code],nextStep=next_step,
         decision={'collecting':'weiter prüfen','unclear':'weiter prüfen','worse':'Testvariante verwerfen','benefit':'gesonderte Prüfung vorgeschlagen'}[code],
         independentCases=len(done),days=len({r[0] for r in done}),retainedPct=retained*100,
         independenceNote='Ein 60-Minuten-Fall je festem Zweistundenfenster. 30-Sekunden-Messungen sind keine zusätzlichen Testfälle. Fälle können weiterhin zusammenhängen; Unsicherheit wird nach Tagesblöcken betrachtet.',
