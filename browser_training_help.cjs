@@ -60,6 +60,15 @@ const fs=require('fs'),assert=require('node:assert/strict');
  assert.match(await journal.innerText(),/Kein belegter verpasster Gewinn/);
  assert.equal(await journal.locator('script').count(),0);
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=390));
+ await page.evaluate(()=>BobImprovement.renderEntryPath({items:[{at:Date.now(),direction:'LONG',label:'Folgenachweis fehlt',candidateKeep:null,horizons:[{minutes:5,status:'missing'},{minutes:60,status:'pending'}],coveragePct:25}]}));
+ const path=page.locator('[data-entry-path]');
+ assert.equal(await path.locator('details').first().evaluate(e=>e.open),false);
+ await path.locator('summary').first().click();
+ await path.locator('details details summary').click();
+ assert.match(await path.innerText(),/5 Minuten: Originalnachweis fehlt/);
+ assert.match(await path.innerText(),/60 Minuten: Ergebnis noch offen/);
+ assert.match(await path.innerText(),/Datenabdeckung: 25 %/);
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=390));
  console.log('Mobile training help: blue button, automatic retries, escalation, explicit share and verified recovery OK');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
