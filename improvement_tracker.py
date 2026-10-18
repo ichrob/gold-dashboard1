@@ -55,6 +55,8 @@ def expected_slots(now):
 
 
 def init(conn):
+    import improvement_operations
+    improvement_operations.init(conn)
     import exit_quality
     exit_quality.init(conn)
     conn.execute('CREATE TABLE IF NOT EXISTS bob_improvement_protocol (id TEXT PRIMARY KEY, payload JSONB NOT NULL)')
@@ -248,6 +250,8 @@ def report(conn,now=None,include_history=True):
           (VERSION,bought-90000,bought,bought)).fetchone()
         if before:evidence[snapshot.get('tradeId')]=before[0]
     result=summarize(*stats,rows,real_results([s[0] for s in snapshots],evidence,validation_at),now,validation_at)
+    import improvement_operations
+    improvement_operations.attach(conn,result,rows,[s[0] for s in snapshots],now,START)
     if include_history:
         import decision_journal
         result['decisionJournal']=decision_journal.read(conn,VERSION,now)
@@ -276,3 +280,5 @@ def archive_review(conn,now=None):
     key=hashlib.sha256(json.dumps([VERSION,clock(now).date().isoformat(),identity],sort_keys=True).encode()).hexdigest()
     conn.execute('INSERT INTO bob_improvement_reviews VALUES(%s,%s,%s,%s::jsonb) ON CONFLICT DO NOTHING',
                  (key,VERSION,now,json.dumps(review,allow_nan=False)))
+    import improvement_operations
+    return improvement_operations.archive(conn,result,now)
