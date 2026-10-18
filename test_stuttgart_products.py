@@ -42,6 +42,8 @@ class StuttgartTests(unittest.TestCase):
             result=q.get_quote(ISIN)
             self.assertEqual(result.pop('secondaryValidity')['state'],'open')
             self.assertEqual(result.pop('comdirectFieldsBackup')['state'],'checking')
+            self.assertRegex(result.pop('snapshotId'),r'^[0-9a-f]{24}$')
+            self.assertEqual(result.pop('dataOrigin'),'source-observation')
             self.assertEqual(result,terms)
     def test_knockout_overrides_issuer_eligibility(self):
         terms=s.parse_page('Das Wertpapier wurde ausgeknockt. '+PAGE,ISIN,NOW)
