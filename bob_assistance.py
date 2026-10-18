@@ -3,7 +3,7 @@ import threading
 import time
 import bob_repair_store
 
-CODES = frozenset(('trade-setup-stalled', 'screenshot-import-failed'))
+CODES = frozenset(('trade-setup-stalled', 'screenshot-import-failed', 'training-audit-unavailable', 'training-portfolios-unavailable', 'training-repairs-unavailable', 'training-improve-unavailable'))
 _lock = threading.Lock()
 _pending = {}
 
