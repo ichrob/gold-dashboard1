@@ -116,7 +116,10 @@ def normalize(payload, now=None):
         result['earlyImpulse']['reason']=str(early.get('reason') or '')[:350]
     entry=result.get('entryQuality')
     if not isinstance(entry,dict) or entry.get('version')!='entry-quality-v1' or entry.get('direction') not in ('LONG','SHORT','NEUTRAL'):result['entryQuality']=None
-    result['marketEvaluable'] = positive(result.get('price')) and at is not None and 0 <= now-at <= 180000
+    result['startEvidenceStatus'] = ('missing-price' if not positive(result.get('price')) else
+        'missing-time' if at is None else 'future-time' if at>now else
+        'stale-time' if now-at>180000 else 'valid')
+    result['marketEvaluable'] = result['startEvidenceStatus']=='valid'
     result['learningPolicy']=result.get('learningPolicy') if isinstance(result.get('learningPolicy'),str) and len(result['learningPolicy'])<150 else None
     if result.get('baseDirection') not in ('LONG','SHORT','NEUTRAL'):result['baseDirection']=None
     result['reviewVariants'] = signal_review.capture(result)
@@ -126,6 +129,10 @@ def normalize(payload, now=None):
     # Each decision revision is frozen once. Refreshes with unchanged evidence are idempotent.
     identity={k:result[k] for k in ('learningPolicy','version','ruleVersion','origin','direction','shadowDirection','intraday','barAt','reason','products','selection','gateReasons','plan')}
     if identity.get('plan'):identity['plan']={k:v for k,v in identity['plan'].items() if k!='at'}
+    # A failed first capture must not occupy the key of a later valid capture.
+    # Both immutable observations remain available, with their own capture time.
+    identity['captureEvidenceVersion']='start-evidence-v2'
+    identity['marketEvaluable']=result['marketEvaluable']
     identity['reviewVersion']=signal_review.VERSION
     identity['optimizationVersion']=optimization_review.VERSION
     identity['marketOptimizationVersion']=market_optimization.VERSION
@@ -192,7 +199,7 @@ def summarize(rows, now=None):
     for m in [*metrics.values(),*intraday_metrics.values()]:
         m['missingReasons']={k:0 for k in ('signalUnavailable','invalidStart','pending','missingFollowup')}
     seen=set();pairs=[];issues={};latest=[r for r,_ in rows[:30]]
-    for record,truths in sorted(rows,key=lambda row:row[0].get('origin')!='background'):
+    for record,truths in sorted(rows,key=lambda row:(not row[0].get('marketEvaluable',False),row[0].get('origin')!='background')):
         for reason in record.get('gateReasons') or []:
             text=str(reason)[:250];issues[text]=issues.get(text,0)+1
         # A changed product list or multiple devices must not multiply market observations.
@@ -382,17 +389,21 @@ def harvest(conn):
     if time.time()-_harvest_at<60:return
     conn.execute("""INSERT INTO bob_decision_outcomes(decision_id,horizon,truth)
       SELECT a.id,h.minutes,json_build_object('at',s.quote_at,'price',s.price,'minPrice',ext.lo,'maxPrice',ext.hi)::jsonb
-      FROM bob_decision_audit a CROSS JOIN (VALUES (1),(5),(15),(30),(60),(240)) h(minutes)
+      FROM bob_decision_audit a
+      CROSS JOIN LATERAL (SELECT to_timestamp((a.payload->>'recordedAt')::double precision/1000.0) AS at) capture
+      CROSS JOIN (VALUES (1),(5),(15),(30),(60),(240)) h(minutes)
       CROSS JOIN LATERAL (SELECT quote_at,price FROM bob_spot_observations
         WHERE stream='gold-api-xau-usd-v1'
-        AND quote_at>=a.recorded_at+h.minutes*interval '1 minute'
-        AND quote_at<=a.recorded_at+(h.minutes+1)*interval '1 minute'
+        AND quote_at>=capture.at+h.minutes*interval '1 minute'
+        AND quote_at<=capture.at+(h.minutes+1)*interval '1 minute'
         ORDER BY quote_at LIMIT 1) s
       LEFT JOIN LATERAL (SELECT min(price) lo,max(price) hi FROM bob_spot_observations
-        WHERE stream='gold-api-xau-usd-v1' AND quote_at>=a.recorded_at AND quote_at<=s.quote_at
+        WHERE stream='gold-api-xau-usd-v1' AND quote_at>=capture.at AND quote_at<=s.quote_at
         AND h.minutes IN (15,60,240)
         AND a.payload->'entryQuality'->>'version'='entry-quality-v1') ext ON TRUE
       WHERE a.recorded_at>=now()-interval '7 days'
+      AND a.payload->>'marketEvaluable'='true'
+      AND jsonb_typeof(a.payload->'recordedAt')='number'
       AND (h.minutes IN (15,60,240) OR a.payload->'marketOptimization'->>'version'='market-review-v1')
       AND NOT EXISTS (SELECT 1 FROM bob_decision_outcomes o WHERE o.decision_id=a.id AND o.horizon=h.minutes)
       ON CONFLICT DO NOTHING""")
