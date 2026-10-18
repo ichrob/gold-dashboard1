@@ -29,6 +29,7 @@
   const result=el('details');result.className='card';result.append(el('summary','Details · Was hat sich verbessert?'));
   const values=el('div');values.dataset.results='';result.append(values);root.append(result);
   const journal=el('section');journal.className='card';journal.dataset.journal='';journal.style.overflowWrap='anywhere';root.append(journal);renderJournal();
+  const path=el('section');path.className='card';path.dataset.entryPath='';path.style.overflowWrap='anywhere';root.append(path);renderEntryPath();
   for(const [key,title] of [['confidence','Wie belastbar ist das Ergebnis?'],['regimes','Ergebnisse nach Marktphase'],['history','Änderungen und Prüfentscheidungen']]){const d=el('details');d.className='card';d.append(el('summary',title));const body=el('div');body.dataset[key]='';d.append(body);root.append(d);}
   parent.append(root);load();
  }
@@ -65,13 +66,32 @@
   }
   box.append(details);
  }
+ function renderEntryPath(data={}){
+  const box=root?.querySelector('[data-entry-path]');if(!box)return;
+  box.replaceChildren(el('h3','Einstiegszeitpunkt · Verlaufstest'));
+  const rows=data.items||[];box.append(el('p',rows.length?rows.length+' geplante Prüffälle · 5 / 15 / 30 / 60 Minuten':'Noch keine Prüffälle. Start der Erfassung: 19. Oktober 2026, 08:00 Schweizer Zeit.'));
+  const details=el('details');details.append(el('summary','Details · Verlauf und Testvergleich'),el('p',data.note||'Die Variante wird nur im Hintergrund ausgewertet.'));
+  for(const g of data.groups||[]){
+   details.append(el('h4',(g.phase==='validation'?'Spätere unabhängige Prüfung':'Entwicklung')+' · '+g.cohort));
+   details.append(el('p',g.paired+' auswertbare Filtervergleiche: '+g.avoidedLosses+' negative Verläufe vermieden, '+g.missedGains+' positive Verläufe ausgelassen. Frühvergleich: '+g.earlyPairs+' Fälle, davon '+g.earlierLosses+' frühere Signale nach Standardkosten negativ.'));
+   for(const s of g.scenarios)details.append(el('p','Bei '+s.costPct+' % angenommenen Kosten: Filterunterschied '+number(s.difference,3)+' Prozentpunkte/Fall; Frühvergleich '+number(s.earlierDifference,3)+' Prozentpunkte/Fall.'));
+  }
+  for(const row of rows){
+   const item=el('details');item.append(el('summary',new Date(row.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · '+row.direction+' · '+row.label));
+   item.append(el('p','Vorherige 15-Minuten-Bewegung in Signalrichtung: '+number(row.priorMovePct,3)+' %. Testfilter: '+(row.candidateKeep===true?'behalten':row.candidateKeep===false?'auslassen':'Nachweis offen')+'.'));
+   for(const h of row.horizons||[])item.append(el('p',h.minutes+' Minuten: '+(h.status==='observed'?number(h.directionalPct??h.movePct,3)+' % '+(h.directionalPct===null?'Spotbewegung':'in Signalrichtung'):h.status==='missing'?'Originalnachweis fehlt':'Ergebnis noch offen')));
+   item.append(el('p','Beobachteter Rücklauf: '+number(row.observedAdversePct,3)+' %. Beobachteter günstiger Verlauf: '+number(row.observedFavorablePct,3)+' %. Datenabdeckung: '+number(row.coveragePct,1)+' %.'));
+   item.append(el('p','Fünf Minuten früher freigegebenes Signal: '+(row.earlierDirection||'kein belegtes Signal')+'.'));details.append(item);
+  }
+  box.append(details);
+ }
  async function load(){
   if(!root||busy)return;busy=true;const status=root.querySelector('[data-status]');
   try{
    const response=await fetch('/api/improvement/read',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(15000)});
    if(!response.ok)throw Error('HTTP '+response.status);const r=await response.json();
    if(!r.ok||!Array.isArray(r.progress)||r.progress.length!==4||r.progress.some(x=>!Number.isFinite(x)||x<0||x>100))throw Error('Unvollständiger Bericht');
-   last=r;renderQuality(r.dataQuality);renderJournal(r.decisionJournal);status.textContent=(r.started?'Erfassung freigeschaltet. ':'Start ist für morgen vorbereitet. ')+ 'Berichtsstand: '+new Date(r.generatedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' Schweizer Zeit.';
+   last=r;renderQuality(r.dataQuality);renderJournal(r.decisionJournal);renderEntryPath(r.entryPath);status.textContent=(r.started?'Erfassung freigeschaltet. ':'Start ist für morgen vorbereitet. ')+ 'Berichtsstand: '+new Date(r.generatedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' Schweizer Zeit.';
    if(r.started)status.textContent+=' Letzte gespeicherte Beobachtung: '+(r.reliability.lastAt?new Date(r.reliability.lastAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch keine – außerhalb der Erfassungszeit normal.');
    const a=r.reliability,b=r.real,c=r.comparison,q=r.assessment;
    root.querySelector('[data-headline]').textContent='Aktueller Stand · Signalprüfung: '+q.label;root.querySelector('[data-next]').textContent='Nächster Prüfschritt: '+q.nextStep;
@@ -103,10 +123,10 @@
    if(!r.history?.length)history.append(el('p','Prüfkonzept eingerichtet. Noch keine abgeschlossene Hintergrundbewertung.'));
    for(const item of r.history||[])history.append(el('p',new Date(item.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · '+item.baseline+' → '+item.candidate+' · '+item.cases+' Prüffälle / '+item.days+' Tage · '+item.label+' · Entscheidung: '+item.decision+'. Tatsächliche Regeländerung: nein.'));
    window.BobTrainingHelp?.observe('improve',true);
-  }catch(e){renderQuality();const journal=root.querySelector('[data-journal]');if(journal)journal.replaceChildren(el('h3','Entscheidungsjournal'),el('p','Aktueller Bericht nicht abrufbar. Bob versucht es erneut.'));window.BobTrainingHelp?.observe('improve',false,load);root.querySelector('[data-headline]').textContent='Aktueller Stand nicht bestätigt';root.querySelector('[data-next]').textContent='Bob versucht den Abruf automatisch erneut.';status.textContent='Aktueller Stand nicht abrufbar. '+(last?'Angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.':'Fortschritt unbekannt; keine erfundenen Prozentwerte.');}
+  }catch(e){renderQuality();const path=root.querySelector('[data-entry-path]');if(path)path.replaceChildren(el('h3','Einstiegszeitpunkt · Verlaufstest'),el('p','Aktueller Bericht nicht abrufbar.'));const journal=root.querySelector('[data-journal]');if(journal)journal.replaceChildren(el('h3','Entscheidungsjournal'),el('p','Aktueller Bericht nicht abrufbar. Bob versucht es erneut.'));window.BobTrainingHelp?.observe('improve',false,load);root.querySelector('[data-headline]').textContent='Aktueller Stand nicht bestätigt';root.querySelector('[data-next]').textContent='Bob versucht den Abruf automatisch erneut.';status.textContent='Aktueller Stand nicht abrufbar. '+(last?'Angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.':'Fortschritt unbekannt; keine erfundenen Prozentwerte.');}
   finally{busy=false;}
  }
- window.BobImprovement={mount,load,renderQuality,renderJournal};
+ window.BobImprovement={mount,load,renderQuality,renderJournal,renderEntryPath};
  document.addEventListener('click',e=>{if(e.target.closest?.('[data-view="improve"]'))load();});
  setInterval(()=>{if(root&&!root.closest('[hidden]')&&!document.hidden)load();},30000);
 })();
