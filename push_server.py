@@ -359,12 +359,23 @@ def record_market_observation(conn, market, bundle=None):
 
 def run_audit_harvest_once(database):
     """Backfill real forward prices without blocking trade/Push request transactions."""
-    with database() as conn:
-        decision_audit.harvest(conn)
-        import product_precision
-        product_precision.harvest(conn)
-        ranking_learning.harvest(conn)
-        conn.commit()
+    import product_precision
+    failures=[]
+    stages=(('decision',decision_audit.harvest),
+            ('product-precision',product_precision.harvest),
+            ('ranking',ranking_learning.harvest))
+    for name,harvest in stages:
+        try:
+            # A timeout in one archive must roll back only that stage. Later
+            # bounded harvesters still make forward progress on their evidence.
+            with database() as conn:
+                harvest(conn)
+                conn.commit()
+        except Exception as exc:
+            failures.append(name)
+            print('BOB_AUDIT_HARVEST stage='+name+' error='+type(exc).__name__,flush=True)
+    return {'completed':[name for name,_ in stages if name not in failures],
+            'failed':failures}
 
 
 def run_test_repair_once(database):
