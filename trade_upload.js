@@ -55,6 +55,67 @@ function merge(old,x,source){
  }
  for(const k of ['direction','ko','strike','ratio'])if(x[k]!==null&&x[k]!==undefined)out[k]=x[k];return out;
 }
+// A confirmed screenshot may prepare observation, never a broker order.
+const AUTO_KEY='bobConfirmedScreenshotSetupV1';
+let automatic=null,automaticBusy=false,automaticStatus={state:'idle',message:'Screenshot hochladen. Bob ergänzt danach die verfügbaren Daten.'};
+try{automatic=JSON.parse(localStorage.getItem(AUTO_KEY)||'null');}catch(_){}
+function autoSave(){try{localStorage.setItem(AUTO_KEY,JSON.stringify(automatic));}catch(_){}}
+function autoStatus(state,message){automaticStatus={state,message,at:new Date().toISOString()};if(typeof document!=='undefined')document.dispatchEvent(new Event('bob-trade-automation'));}
+function screenshotDay(at){const m=String(at||'').match(/^(\d{2})[/.](\d{2})[/.](\d{4})/);return m?m[3]+'-'+m[2]+'-'+m[1]:null;}
+function setupCandidate(t,today){
+ if(!t?.entry||!window.BobDegiro.validIsin(t.isin)||!['EUR','CHF'].includes(t.currency)||!(t.entry.price>0)||!Number.isInteger(t.entry.quantity)||t.entry.quantity<=0)return {ok:false,reason:'Kaufpreis, Stückzahl, ISIN und Produktwährung am Original ergänzen.'};
+ if(screenshotDay(t.entry.at)!==today)return {ok:false,reason:'Historischer Kauf: Bitte bestätigen, dass diese Position noch offen ist, und manuell erfassen.'};
+ return {ok:true,key:JSON.stringify([t.isin,t.currency,t.entry.price,t.entry.quantity,t.entry.at]),isin:t.isin,currency:t.currency,entry:t.entry.price,quantity:t.entry.quantity,direction:t.direction||'',at:t.entry.at};
+}
+async function requestHelp(code){
+ try{const r=await fetch('/api/assistance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code}),signal:AbortSignal.timeout(10000)});const x=await r.json();return r.ok&&x.ok===true;}catch(_){return false;}
+}
+function todayZurich(){return new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Zurich'}).format(new Date());}
+function queueSetup(t){
+ const candidate=setupCandidate(t,todayZurich());
+ if(!candidate.ok){autoStatus('needs-user',candidate.reason);return;}
+ if(automatic?.key===candidate.key&&['done','consumed'].includes(automatic.state)){autoStatus('done','Dieser Kauf wurde bereits verarbeitet. Er wird nicht erneut aktiviert.');return;}
+ if(window.BobTradeSync?.current()?.active){autoStatus('active','Eine Position wird bereits überwacht. Der Screenshot ersetzt keinen laufenden Trade.');return;}
+ automatic={...candidate,state:'pending',attempts:0,nextAt:0,createdAt:Date.now()};autoSave();runSetup();
+}
+async function runSetup(){
+ if(automaticBusy||!automatic||automatic.state!=='pending'||Date.now()<automatic.nextAt)return;
+ const task=automatic;
+ if(Date.now()-task.createdAt>3600000||screenshotDay(task.at)!==todayZurich()){task.state='expired';autoSave();autoStatus('needs-user','Kauf blieb ohne bestätigte Überwachung. Bitte prüfen, ob die Position noch offen ist.');return;}
+ if(window.BobTradeSync?.current()?.active){task.state='consumed';autoSave();return;}
+ const field=k=>document.querySelector('[data-exit="'+k+'"]');
+ const same=()=>['isin','currency','entry','quantity'].every(k=>field(k)&&(k==='entry'||k==='quantity'?Number(field(k).value)===task[k]:field(k).value.trim()===task[k]));
+ if(!same()){task.state='conflict';autoSave();autoStatus('needs-user','Die Kaufangaben wurden geändert. Bitte die richtige Position bestätigen.');return;}
+ automaticBusy=true;task.attempts++;autoStatus('checking','Kauf bestätigt. Bob prüft Produktdaten, Quellen und Stopp-/Zielplan automatisch …');
+ try{
+  // Reconcile server positions before attempting local observation setup.
+  const response=await fetch('/api/real-trades/read',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(15000)});
+  if(!response.ok)throw Error('Serverabgleich noch offen');
+  const server=await response.json();if(!Array.isArray(server.trades))throw Error('Serverabgleich unvollständig');
+  if(server.trades.some(t=>t.active||t.snapshot?.recordOnly&&!t.snapshot?.consumed)){
+   task.state='consumed';autoSave();autoStatus('checking','Ein gespeicherter Kauf ist vorhanden. Bob gleicht ihn ab; keine zweite Position wird angelegt.');return;
+  }
+  const values=await window.BobExitEstimate.automaticTradeReference();
+  if(!values||!same()||automatic!==task)throw Error('Produktdaten oder Quellenprüfung noch offen');
+  if(task.direction&&values.direction!==task.direction){task.state='conflict';autoSave();autoStatus('needs-user','Produktrichtung widerspricht dem bestätigten Kauf. Bitte Original prüfen.');return;}
+  if(typeof window.loadData==='function')await window.loadData(true);
+  if(!same()||automatic!==task||window.BobTradeSync?.current()?.active)throw Error('Position oder Eingaben haben sich geändert');
+  // Consume BEFORE activation, so an interrupted page cannot reopen a closed trade.
+  task.state='consumed';autoSave();
+  await window.activateProductTrade(values);
+  if(!window.BobTradeSync?.current()?.active)throw Error('Start nicht bestätigt');
+  task.state='done';autoSave();autoStatus('done','Überwachung lokal eingerichtet. Serverbestätigung wird gesondert angezeigt.');
+ }catch(_){
+  if(automatic!==task)return;
+  if(window.BobTradeSync?.current()?.active){task.state='done';autoSave();autoStatus('checking','Trade lokal aktiv. Bob prüft die Server-Synchronisierung.');}
+  else{
+   task.state='pending';task.nextAt=Date.now()+Math.min(300000,30000*2**Math.min(task.attempts-1,4));autoSave();
+   let queued=false;if(task.attempts>=3)queued=await requestHelp('trade-setup-stalled');
+   autoStatus('waiting',queued?'Datenprüfung noch offen. Technische KI-Prüfung vorgemerkt; Bob versucht es weiter.':'Datenprüfung noch offen. Bob versucht es automatisch erneut; Überwachung noch nicht bestätigt.');
+  }
+ }finally{automaticBusy=false;}
+}
+
 function init(){
  const exit=document.getElementById('bobExitEstimate');if(!exit||document.getElementById('bobTradeUpload'))return;
  const p=document.createElement('div');p.id='bobTradeUpload';p.className='card';p.innerHTML='<h3>Mein Trade · Screenshots</h3><p class="small">Kaufbestätigung einmal, Kursbilder bei Aktualisierung. Produktkopf/Details gemeinsam ergänzen. Jedes Bild braucht die ISIN. Originalzeiten bleiben erhalten. Speicherung auf diesem Gerät.</p><label for="trade-images">Trade erfassen / Kurs aktualisieren</label><input id="trade-images" type="file" accept="image/*" multiple><div id="trade-ocr-status" class="small"></div><label for="trade-select">Gespeichertes Produkt</label><select id="trade-select"></select><div id="trade-review"></div><div id="trade-result" class="small"></div>';exit.before(p);
@@ -77,14 +138,24 @@ function init(){
   if(lookup&&t.quote)window.BobExitEstimate.researchReference();
  };
  const refresh=isin=>{select.innerHTML=Object.keys(all).map(id=>'<option>'+esc(id)+'</option>').join('');if(isin)select.value=isin;fill(!!isin);};select.addEventListener('change',fill);refresh();
- p.querySelector('input').addEventListener('change',async e=>{const files=[...e.target.files];drafts=[];review.innerHTML='';if(files.length>4){result.textContent='Bitte höchstens vier Bilder gleichzeitig auswählen.';return;}
-  for(const file of files){try{const o=await window.BobDegiro.recognizeOcr(file,'trade-ocr-status');drafts.push({source:file.name,raw:o.data.text});}catch(err){result.textContent='Bild '+file.name+': '+err.message;}}
+ p.querySelector('input').addEventListener('change',async e=>{const files=[...e.target.files];autoStatus('checking','Bilder werden erkannt …');drafts=[];let saleSeen=false;review.innerHTML='';if(files.length>4){result.textContent='Bitte höchstens vier Bilder gleichzeitig auswählen.';return;}
+  for(const file of files){try{const o=await window.BobDegiro.recognizeOcr(file,'trade-ocr-status');
+   if(/\bVerkauf\b/i.test(o.data.text)&&!/\bKauf\b/i.test(o.data.text)){
+    saleSeen=true;
+    if(!window.BobTradeSale?.prepareFile)throw Error('Verkauf erkannt. Verkaufsprüfung unter Details öffnen.');
+    await window.BobTradeSale.prepareFile(file);autoStatus('needs-user','Verkauf erkannt. Vorausgefüllten Beleg prüfen und den vollständigen Verkauf bestätigen.');continue;
+   }
+   drafts.push({source:file.name,raw:o.data.text});}catch(err){result.textContent='Bild '+file.name+': '+err.message;autoStatus('needs-user','Bild konnte nicht sicher zugeordnet werden. Bitte lesbares Original prüfen.');requestHelp('screenshot-import-failed');}}
   const fields=[['isin','ISIN'],['currency','Produktwährung EUR oder CHF'],['time','Originaldatum und Uhrzeit'],['entry','Kaufpreis in Produktwährung/Stück'],['quantity','Stückzahl'],['feesChf','Kaufgebühren CHF'],['bid','Geldkurs in Produktwährung'],['ask','Briefkurs in Produktwährung'],['ko','Angezeigte Barriere USD'],['strike','Basispreis USD'],['ratio','Bezugsverhältnis']];
-  review.innerHTML=drafts.map((d,i)=>{const v=draft(d.raw);return '<fieldset data-trade-card="'+i+'"><legend>'+esc(d.source)+'</legend><label>Bildtyp<select data-review="kind"><option value="entry" '+(v.kind==='entry'?'selected':'')+'>Kaufbestätigung</option><option value="quote" '+(v.kind==='quote'?'selected':'')+'>Kursdaten</option><option value="details" '+(v.kind==='details'?'selected':'')+'>Produktdetails</option></select></label><label>Richtung<select data-review="direction"><option value="">Offen</option><option '+(v.direction==='LONG'?'selected':'')+'>LONG</option><option '+(v.direction==='SHORT'?'selected':'')+'>SHORT</option></select></label><div class="grid">'+fields.map(([k,l])=>'<label data-review-field="'+k+'">'+l+'<input data-review="'+k+'" value="'+esc(v[k])+'"></label>').join('')+'</div><div class="small">Leere oder unsichere Werte am Original ergänzen. Sekunden nicht erfinden. Barriere und Basispreis dürfen bei Produktdetails offen bleiben.</div><details><summary>Original-OCR-Text anzeigen</summary><pre style="white-space:pre-wrap">'+esc(d.raw)+'</pre></details></fieldset>';}).join('')+(drafts.length?'<label><input type="checkbox" id="trade-confirm"> ISIN, Preise, Stückzahl und Originalzeiten am Bild geprüft</label><button id="trade-save">Geprüfte Bilder übernehmen</button>':'');
+  if(drafts.length)autoStatus('needs-user','Bilder erkannt. Kaufdaten am Original prüfen und bestätigen; danach übernimmt Bob die Einrichtung.');
+  review.innerHTML=drafts.map((d,i)=>{const v=draft(d.raw);return '<fieldset data-trade-card="'+i+'"><legend>'+esc(d.source)+'</legend><label>Bildtyp<select data-review="kind"><option value="entry" '+(v.kind==='entry'?'selected':'')+'>Kaufbestätigung</option><option value="quote" '+(v.kind==='quote'?'selected':'')+'>Kursdaten</option><option value="details" '+(v.kind==='details'?'selected':'')+'>Produktdetails</option></select></label><label>Richtung<select data-review="direction"><option value="">Offen</option><option '+(v.direction==='LONG'?'selected':'')+'>LONG</option><option '+(v.direction==='SHORT'?'selected':'')+'>SHORT</option></select></label><div class="grid">'+fields.map(([k,l])=>'<label data-review-field="'+k+'">'+l+'<input data-review="'+k+'" value="'+esc(v[k])+'"></label>').join('')+'</div><div class="small">Leere oder unsichere Werte am Original ergänzen. Sekunden nicht erfinden. Barriere und Basispreis dürfen bei Produktdetails offen bleiben.</div><details><summary>Original-OCR-Text anzeigen</summary><pre style="white-space:pre-wrap">'+esc(d.raw)+'</pre></details></fieldset>';}).join('')+(drafts.length?'<label><input type="checkbox" id="trade-confirm"> ISIN, Preise, Stückzahl und Originalzeiten geprüft; ein gezeigter Kauf ist tatsächlich noch offen</label><button id="trade-save">Geprüfte Bilder übernehmen</button>':'');
   for(const card of review.querySelectorAll('[data-trade-card]')){const type=card.querySelector('[data-review="kind"]');const show=()=>{for(const el of card.querySelectorAll('[data-review-field]')){const k=el.dataset.reviewField;el.hidden=['entry','quantity','feesChf'].includes(k)?type.value!=='entry':['bid','ask'].includes(k)?type.value!=='quote':false;}};type.addEventListener('change',show);show();}
   review.querySelector('#trade-save')?.addEventListener('click',()=>{if(!review.querySelector('#trade-confirm').checked){result.textContent='Bitte erkannte Werte am Original prüfen und bestätigen.';return;}
-   let next=JSON.parse(JSON.stringify(all)),last='';try{for(const [i,d]of drafts.entries()){const card=review.querySelector('[data-trade-card="'+i+'"]'),values=Object.fromEntries([...card.querySelectorAll('[data-review]')].map(e=>[e.dataset.review,e.value.trim()])),x=reviewed(values);if(!x.ok)throw Error(d.source+': '+x.reason);next[x.isin]=merge(next[x.isin],x,'DEGIRO-Screenshot: '+d.source);last=x.isin;}localStorage.setItem(KEY,JSON.stringify(next));all=next;refresh(last);review.innerHTML='';p.querySelector('#trade-ocr-status').textContent='Gespeichert. Einstieg bleibt bei Kursaktualisierungen erhalten.';}catch(err){result.textContent=err.message;}});
+   let next=JSON.parse(JSON.stringify(all)),last='',reviewedItems=[];try{for(const [i,d]of drafts.entries()){const card=review.querySelector('[data-trade-card="'+i+'"]'),values=Object.fromEntries([...card.querySelectorAll('[data-review]')].map(e=>[e.dataset.review,e.value.trim()])),x=reviewed(values);if(!x.ok)throw Error(d.source+': '+x.reason);reviewedItems.push(x);next[x.isin]=merge(next[x.isin],x,'DEGIRO-Screenshot: '+d.source);last=x.isin;}localStorage.setItem(KEY,JSON.stringify(next));all=next;refresh(last);review.innerHTML='';p.querySelector('#trade-ocr-status').textContent='Gespeichert. Einstieg bleibt bei Kursaktualisierungen erhalten.';
+   if(!saleSeen&&reviewedItems.some(x=>x.kind==='entry')&&new Set(reviewedItems.map(x=>x.isin)).size===1)queueSetup(all[last]);
+   else autoStatus('checking','Nachweise gespeichert. Vorhandene Überwachung wird weiter abgeglichen.');}catch(err){result.textContent=err.message;}});
  });
 }
-window.BobTradeUpload={parse,draft,reviewed,merge,init};if(typeof document!=='undefined'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();}
+window.BobTradeUpload={parse,draft,reviewed,merge,init,setupCandidate,queueSetup,runSetup,status:()=>({...automaticStatus}),requestHelp};
+if(typeof document!=='undefined'){setInterval(runSetup,30000);window.addEventListener('online',runSetup);}if(typeof document!=='undefined'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();}
 })();
