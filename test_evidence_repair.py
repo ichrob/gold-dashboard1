@@ -27,7 +27,8 @@ class RepairTests(unittest.TestCase):
 
     def test_bulk_timeout_does_not_prevent_targeted_worker(self):
         import push_server
-        with patch.object(push_server,'run_audit_harvest_once',side_effect=RuntimeError('bulk timeout')), \
+        with patch('improvement_resilience.run_drills'), \
+             patch.object(push_server,'run_audit_harvest_once',side_effect=RuntimeError('bulk timeout')), \
              patch.object(push_server,'run_test_repair_once') as targeted, \
              patch.object(push_server.time,'sleep',side_effect=InterruptedError):
             with self.assertRaises(InterruptedError):push_server.audit_outcome_loop()
