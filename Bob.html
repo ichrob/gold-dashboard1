@@ -1948,7 +1948,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const monitor=window.BobRealTrades?.monitorStatus?.();
    const confirmed=!!(same&&monitor?.fresh&&monitor.active);
    const automation=window.BobTradeUpload?.status?.();
-   const next=active?(confirmed?'Serverüberwachung eingerichtet. Serverabgleich '+new Date(monitor.at).toLocaleTimeString('de-CH')+'. '+(monitor.active.pushDevices>0?'Trade-Push mit Gerät verbunden.':'Für Nachrichten am Handy Aktiver Trade einschalten und Gerät unter Einstellungen verbinden.'):'Trade lokal aktiv. Serverbestätigung noch offen; Bob gleicht automatisch ab.'):(automation?.message||'Kaufbeleg hochladen und erkannte Angaben einmal bestätigen. Bob prüft danach die verfügbaren Produktdaten.');
+   const next=active?(confirmed?'Serverüberwachung eingerichtet. Serverabgleich '+new Date(monitor.at).toLocaleTimeString('de-CH')+'. '+(monitor.active.pushDevices>0?'Trade-Push mit Gerät verbunden.':'Für Nachrichten am Handy Aktiver Trade einschalten und Gerät unter Einstellungen verbinden.'):'Trade lokal aktiv. Serverbestätigung noch offen; Bob gleicht automatisch ab.'):(monitor?.fresh&&monitor.pending&&(!automation||automation.state==='idle')?(monitor.pending===1?'Kauf gespeichert. Bob ergänzt Produktdaten und prüft den Überwachungsstart automatisch.':'Mehrere Käufe gespeichert. Bitte unter Details den richtigen Kauf auswählen.') : automation?.message||'Kaufbeleg hochladen und erkannte Angaben einmal bestätigen. Bob prüft danach die verfügbaren Produktdaten.');
    const progressText=tradeProgress.querySelector('p');if(progressText.textContent!==next)progressText.textContent=next;
    curveRoot.hidden=!active;
    const stopHint=byId('stopUpdate');if(stopHint)stopHint.hidden=!active;
