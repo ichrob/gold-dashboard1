@@ -1295,8 +1295,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        if path == "/improvement_tracker.js":
-            body=(BASE_DIR / "improvement_tracker.js").read_bytes()
+        if path in ("/improvement_tracker.js", "/training_help.js"):
+            body=(BASE_DIR / path.lstrip("/")).read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", "application/javascript; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
