@@ -107,6 +107,12 @@ class RepairPersistenceTests(unittest.TestCase):
                 conn.execute("UPDATE bob_test_repairs SET status='escalated' WHERE kind='signal'")
                 repair.tick(conn,now+3*repair.INTERVAL)
                 self.assertEqual(repair.report(conn)['counts']['recovered'],1)
+                # A late original observation also repairs an escalated case
+                # without waiting for the seven-day bulk cursor to circle back.
+                conn.execute("UPDATE bob_test_repairs SET status='escalated' WHERE kind='signal'")
+                conn.execute("DELETE FROM bob_decision_outcomes WHERE decision_id='signal'")
+                repair.tick(conn,now+4*repair.INTERVAL)
+                self.assertEqual(repair.report(conn)['counts']['recovered'],1)
                 # A present but wrongly timed outcome must not hide an unresolved test.
                 conn.execute("DELETE FROM bob_test_repairs WHERE kind='signal'")
                 conn.execute("UPDATE bob_decision_outcomes SET truth=%s::jsonb WHERE decision_id='signal'",(json.dumps(dict(at=target-1,price=4010)),))

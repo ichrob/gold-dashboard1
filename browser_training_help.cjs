@@ -94,6 +94,19 @@ const fs=require('fs'),assert=require('node:assert/strict');
  assert.match(await operations.innerText(),/Kursausfall: bestanden/);
  assert.match(await operations.innerText(),/Kein Empfangsnachweis am Handy/);
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=390));
+ await page.evaluate(()=>BobImprovement.renderOperating({available:true,checkedAt:Date.now(),openErrorTypes:2,affectedCases:5209,note:'Historische Lücken bleiben erhalten.',cards:[
+  {label:'Daten vollständig und aktuell',state:'paused',detail:'Planmässige Wochenendpause'},
+  {label:'Tests auswertbar',state:'open',detail:'Originalnachweise fehlen'},
+  {label:'Simulation aktiv',state:'paused',detail:'Fünf Konten pausiert'},
+  {label:'Verbesserung nachgewiesen',state:'waiting',detail:'Noch kein belastbarer Nachweis'}]}));
+ const operating=page.locator('[data-operating]');
+ assert.match(await operating.innerText(),/2 offene Fehlerarten · 5209 betroffene Testfälle/);
+ assert.match(await operating.innerText(),/Verbesserung nachgewiesen: ○ Noch offen/);
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=390));
+ await operating.screenshot({path:'/tmp/bob-operating-status.png'});
+ await page.evaluate(()=>BobImprovement.renderOperating());
+ assert.match(await operating.innerText(),/Aktueller Stand nicht bestätigt/);
+ assert(!(await operating.innerText()).includes('5209'));
  console.log('Mobile training help: blue button, automatic retries, escalation, explicit share and verified recovery OK');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

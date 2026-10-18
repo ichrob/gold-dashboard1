@@ -142,11 +142,25 @@ def reconcile(conn,now):
     """A later normal backfill can resolve an escalated signal; absence cannot."""
     import decision_audit as audit
     rows=[]
+    archive_checks=0
     pending=conn.execute("SELECT id,payload,ref FROM bob_test_repairs WHERE kind='signal' AND status='escalated' ORDER BY next_at LIMIT 48").fetchall()
     for key,payload,ref in pending:
         # Point lookups avoid a planner choosing a full outcome-archive scan.
         record=conn.execute('SELECT payload FROM bob_decision_audit WHERE id=%s',(ref['decision'],)).fetchone()
         truth=conn.execute('SELECT truth FROM bob_decision_outcomes WHERE decision_id=%s AND horizon=%s',(ref['decision'],ref['horizon'])).fetchone()
+        # A late source observation can arrive after all three initial retries.
+        # Previously only a separate bulk harvest could resolve these cases.
+        # Limit archive lookups and retain invalid/missing evidence unchanged.
+        if record and record[0].get('marketEvaluable') and not truth and archive_checks<8:
+            archive_checks+=1
+            try:
+                with conn.transaction():
+                    recovered,_,_=retry_signal(conn,ref)
+                    if recovered:
+                        truth=conn.execute('SELECT truth FROM bob_decision_outcomes WHERE decision_id=%s AND horizon=%s',
+                                           (ref['decision'],ref['horizon'])).fetchone()
+            except Exception:
+                pass  # Not recovered; the next bounded archive pass can retry.
         conn.execute('UPDATE bob_test_repairs SET next_at=%s WHERE id=%s',(now,key))
         if record and record[0].get('marketEvaluable') and truth:
             rows.append((key,payload,record[0],truth[0],ref['horizon']))

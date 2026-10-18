@@ -390,6 +390,41 @@ def early_impulse_review(rows):
 
 _harvest_at=0
 
+def _store_horizon_outcomes(conn, horizon, ids):
+    """Only source-timed archive observations; never replace frozen outcomes."""
+    conn.execute("""INSERT INTO bob_decision_outcomes(decision_id,horizon,truth)
+      SELECT a.id,%s,json_build_object(
+        'at',s.quote_at,'price',s.price,'minPrice',ext.lo,'maxPrice',ext.hi)::jsonb
+      FROM bob_decision_audit a
+      CROSS JOIN LATERAL (SELECT to_timestamp((a.payload->>'recordedAt')::double precision/1000.0) AS at) capture
+      CROSS JOIN LATERAL (SELECT quote_at,price FROM bob_spot_observations
+        WHERE stream='gold-api-xau-usd-v1'
+        AND quote_at>=capture.at+%s*interval '1 minute'
+        AND quote_at<=capture.at+(%s+1)*interval '1 minute'
+        ORDER BY quote_at LIMIT 1) s
+      LEFT JOIN LATERAL (SELECT min(price) lo,max(price) hi FROM bob_spot_observations
+        WHERE stream='gold-api-xau-usd-v1' AND quote_at>=capture.at AND quote_at<=s.quote_at
+        AND %s IN (15,60,240)
+        AND a.payload->'entryQuality'->>'version'='entry-quality-v1') ext ON TRUE
+      WHERE a.id=ANY(%s::text[])
+      ON CONFLICT DO NOTHING""",(horizon,horizon,horizon,horizon,ids))
+
+
+def _harvest_recent(conn, horizon):
+    """A separate bounded lane prevents old missing quotes delaying new outcomes."""
+    rows=conn.execute("""SELECT a.id FROM bob_decision_audit a
+      WHERE a.recorded_at>=now()-(%s+15)*interval '1 minute'
+      AND a.payload->>'marketEvaluable'='true'
+      AND jsonb_typeof(a.payload->'recordedAt')='number'
+      AND to_timestamp((a.payload->>'recordedAt')::double precision/1000.0)
+          + %s*interval '1 minute'<=now()
+      AND (%s IN (15,60,240) OR a.payload->'marketOptimization'->>'version'='market-review-v1')
+      AND NOT EXISTS(SELECT 1 FROM bob_decision_outcomes o WHERE o.decision_id=a.id AND o.horizon=%s)
+      ORDER BY a.recorded_at DESC,a.id LIMIT 128""",(horizon,horizon,horizon,horizon)).fetchall()
+    if rows:_store_horizon_outcomes(conn,horizon,[r[0] for r in rows])
+    return len(rows)
+
+
 def _harvest_horizon(conn, horizon):
     """Advance one durable, bounded evidence cursor without synthesizing gaps."""
     cursor=conn.execute('''SELECT recorded_at,decision_id
@@ -418,22 +453,7 @@ def _harvest_horizon(conn, horizon):
             SET recorded_at=NULL,decision_id=NULL WHERE horizon=%s''',(horizon,))
         return 0
     ids=[row[0] for row in batch]
-    conn.execute("""INSERT INTO bob_decision_outcomes(decision_id,horizon,truth)
-      SELECT a.id,%s,json_build_object(
-        'at',s.quote_at,'price',s.price,'minPrice',ext.lo,'maxPrice',ext.hi)::jsonb
-      FROM bob_decision_audit a
-      CROSS JOIN LATERAL (SELECT to_timestamp((a.payload->>'recordedAt')::double precision/1000.0) AS at) capture
-      CROSS JOIN LATERAL (SELECT quote_at,price FROM bob_spot_observations
-        WHERE stream='gold-api-xau-usd-v1'
-        AND quote_at>=capture.at+%s*interval '1 minute'
-        AND quote_at<=capture.at+(%s+1)*interval '1 minute'
-        ORDER BY quote_at LIMIT 1) s
-      LEFT JOIN LATERAL (SELECT min(price) lo,max(price) hi FROM bob_spot_observations
-        WHERE stream='gold-api-xau-usd-v1' AND quote_at>=capture.at AND quote_at<=s.quote_at
-        AND %s IN (15,60,240)
-        AND a.payload->'entryQuality'->>'version'='entry-quality-v1') ext ON TRUE
-      WHERE a.id=ANY(%s::text[])
-      ON CONFLICT DO NOTHING""",(horizon,horizon,horizon,horizon,ids))
+    _store_horizon_outcomes(conn,horizon,ids)
     conn.execute('''UPDATE bob_decision_harvest_cursor
         SET recorded_at=%s,decision_id=%s WHERE horizon=%s''',
         (batch[-1][1],batch[-1][0],horizon))
@@ -443,6 +463,8 @@ def _harvest_horizon(conn, horizon):
 def harvest(conn):
     global _harvest_at
     if time.time()-_harvest_at<60:return
+    for horizon in HARVEST_HORIZONS:
+        _harvest_recent(conn,horizon)
     for horizon in HARVEST_HORIZONS:
         _harvest_horizon(conn,horizon)
     _harvest_at=time.time()

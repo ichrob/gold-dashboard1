@@ -349,6 +349,14 @@ def record_market_observation(conn, market, bundle=None):
         except Exception as exc:print('BOB_METRIC_CAPTURE error='+type(exc).__name__,flush=True)
     if not market.get('analysisBarAt'):
         return False
+    # Invalid captures remain visible in metric coverage, but must not start
+    # forward signal tests that can never acquire a valid original entry.
+    source_at = decision_audit.milliseconds(market.get('dataAt'))
+    now = time.time()*1000
+    if (market.get('priceFresh') is not True or not decision_audit.positive(market.get('price'))
+            or source_at is None or not 0 <= now-source_at <= 60000):
+        print('BOB_SIGNAL_CAPTURE skipped=invalid-start', flush=True)
+        return False
     decision_audit.write(conn,{'ruleVersion':market.get('ruleVersion'),'origin':'background','direction':market.get('direction','NEUTRAL'),'baseDirection':market.get('baseDirection'),'learningPolicy':market.get('learningPolicy'),
         'trendContext':market.get('trendContext'),'earlyImpulse':market.get('earlyImpulse'),'plan':market.get('plan'),'minuteEntry':market.get('minuteEntry'),'entryQuality':market.get('entryQuality'),'shadowDirection':market.get('shadowDirection'),'intraday':market.get('intraday'),'barAt':market['analysisBarAt'],
         'price':market.get('price'),'priceAt':market.get('dataAt'),'reason':market.get('decisionReason'),
@@ -769,6 +777,11 @@ class Handler(BaseHTTPRequestHandler):
                         with conn.transaction():result['dataQuality']=product_data_quality.read(conn)
                     except Exception:
                         result['dataQuality']={'status':'unavailable','note':'Produktqualität derzeit nicht abrufbar; kein bestätigter aktueller Stand.'}
+                    try:
+                        import improvement_status
+                        with conn.transaction():result['operatingStatus']=improvement_status.read(conn,result)
+                    except Exception:
+                        result['operatingStatus']={'available':False}
                 send_json(self,200,result);return
             if path in ('/real-trades/read','/real-trades/write','/real-trades/curve','/real-trades/risk','/real-trades/confirm-sale'):
                 supplied=self.headers.get('X-Bob-Push-Token','')
