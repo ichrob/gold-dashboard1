@@ -60,10 +60,12 @@ def assess(rows,comparison,real,progress,started,reliability):
     for key,label in [('rising','Steigender Markt'),('falling','Fallender Markt'),('sideways','Seitwärtsmarkt'),('unknown','Marktphase nicht zugeordnet')]:
         selected=[r for r in done if regime(r[2])==key]
         diffs=[r[3]['scenarios'][0]['candidate']-r[3]['scenarios'][0]['baseline'] for r in selected]
+        stress=[r[3]['scenarios'][1]['candidate']-r[3]['scenarios'][1]['baseline'] for r in selected]
+        stress_mean=sum(stress)/len(stress) if stress else None
         days=len({r[0] for r in selected});mean=sum(diffs)/len(diffs) if diffs else None
         sufficient=len(selected)>=30 and days>=5 and key!='unknown'
         label_result='Noch zu wenige Fälle/Tage' if not sufficient else ('Beobachteter Vorteil' if mean>0 else 'Beobachteter Nachteil' if mean<0 else 'Kein Unterschied')
-        regimes.append(dict(key=key,label=label,cases=len(selected),days=days,difference=mean,result=label_result))
+        regimes.append(dict(key=key,label=label,cases=len(selected),days=days,difference=mean,stressDifference=stress_mean,retained=sum(r[3]['keep'] for r in selected),avoidedLosses=sum(not r[3]['keep'] and r[3]['scenarios'][0]['baseline']<0 for r in selected),missedGains=sum(not r[3]['keep'] and r[3]['scenarios'][0]['baseline']>0 for r in selected),result=label_result))
     retained_false=sum(r[3]['keep'] and r[3]['directionalPct']<=0 for r in done)
     baseline_false=sum(r[3]['directionalPct']<=0 for r in done)
     net_delta=(real['pairedCandidateCHF']-real['pairedBaselineCHF'] if real['pairedCount'] and all(type(real.get(k)) in (int,float) for k in ('pairedCandidateCHF','pairedBaselineCHF')) else None)
