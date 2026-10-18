@@ -36,11 +36,14 @@ class ComparisonChecks(unittest.TestCase):
             def execute(self,sql,args=None):
                 self.sql=sql;calls.append((sql,args));return self
             def fetchall(self):return [('test',{'trade':{'product':PRODUCT}})]
-            def fetchone(self):return ({'trade':{'product':PRODUCT}},)
+            def fetchone(self):return ({'trade':{'product':PRODUCT}},{})
             def commit(self):pass
         calls=[]
-        with patch('product_precision.observe'),patch('metric_quality.product_check'),patch('precision_learning.observe'),patch('metric_quality.pnl_check'),patch('product_list_study.tick'):
+        with patch('exit_quality.observe') as exit_observe,patch('product_precision.observe'),patch('metric_quality.product_check'),patch('precision_learning.observe'),patch('metric_quality.pnl_check'),patch('product_list_study.tick'):
             worker.tick(Conn,{'spots':SPOTS},lambda _:QUOTE,NOW)
+        exit_observe.assert_called_once()
+        self.assertEqual(exit_observe.call_args.args[1],'test')
+        self.assertEqual(exit_observe.call_args.args[5],QUOTE['ask'])
         inserts=[args for sql,args in calls if 'INSERT INTO' in sql]
         self.assertEqual(len(inserts),1)
         self.assertEqual(inserts[0][2],worker.history.clock(QUOTE['bidAt']))
