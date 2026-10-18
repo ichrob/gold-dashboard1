@@ -19,6 +19,7 @@
   const refresh=el('button','Stand aktualisieren');refresh.type='button';refresh.onclick=load;
   const download=el('button','Nachweise als Datei speichern');download.type='button';download.onclick=()=>{if(!last)return;const blob=new Blob([JSON.stringify(last,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=el('a');a.href=url;a.download='Bob-Besser-werden-'+new Date(last.generatedAt).toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
   const tools=el('details');tools.append(el('summary','Details · Erfassung und Bericht'),explanation,status,refresh,download);intro.append(tools);root.append(intro);
+  const quality=el('section');quality.className='card';quality.dataset.quality='';quality.style.overflowWrap='anywhere';root.append(quality);renderQuality();
   for(let i=0;i<4;i++){
    const card=el('section');card.className='card';card.dataset.goal=i;const h=el('h3',titles[i]),label=el('p','Noch keine bestätigten Daten');label.dataset.percent='';
    const bar=el('progress');bar.max=100;bar.style.cssText='width:100%;height:22px;accent-color:#2563eb';bar.setAttribute('aria-label',titles[i]);bar.hidden=true;
@@ -30,13 +31,27 @@
   for(const [key,title] of [['confidence','Wie belastbar ist das Ergebnis?'],['regimes','Ergebnisse nach Marktphase'],['history','Änderungen und Prüfentscheidungen']]){const d=el('details');d.className='card';d.append(el('summary',title));const body=el('div');body.dataset[key]='';d.append(body);root.append(d);}
   parent.append(root);load();
  }
+ function renderQuality(data={}){
+  const box=root?.querySelector('[data-quality]');if(!box)return;box.replaceChildren(el('h3','Produktdaten · Qualität'));
+  const current=data.status==='ok';
+  const metric=(label,value)=>box.append(el('p',label+': '+(current&&Number.isFinite(value)?number(value,1)+' %':'nicht bestätigt')));
+  metric('Daten aktuell',data.freshPct);metric('Angaben vollständig',data.completePct);
+  box.append(el('p','Kursabweichung: '+(data.comparisons?.length?data.comparisons.length+' Produkte mit Vergleichsdaten':'noch keine belastbaren Vergleichsdaten')));
+  const details=el('details');details.append(el('summary','Details · Quellen, Lücken und Kursabweichung'));
+  details.append(el('p','Prüfstand: '+(data.checkedAt?new Date(data.checkedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'unbekannt')+(current?' · '+data.total+' aktive Produkte':' · derzeit nicht als aktuell bestätigt')));
+  for(const row of data.comparisons||[])details.append(el('p',row.isin+': mittlere absolute Modellabweichung '+number(row.meanAbsoluteError,4)+' '+(row.currency||'Währung unbekannt')+' · '+row.validationCount+' spätere Prüffälle · letzter Vergleich '+(row.lastAt?new Date(row.lastAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'unbekannt')));
+  for(const isin of data.conflicts||[])details.append(el('p',isin+': auffällige Abweichung zwischen Kursquellen.'));
+  for(const gap of data.gaps||[])details.append(el('p',gap.isin+' · '+gap.field+': seit '+gap.minutes+' Minuten offen.'));
+  for(const row of data.snapshots||[])details.append(el('p',row.isin+' · '+(row.currency||'Währung offen')+' · '+(row.source||'Quelle offen')+' · Originalzeit '+(row.sourceAt||'offen')+' · Datenstand '+(row.id||'noch nicht erfasst')));
+  details.append(el('p',data.note||'Aktueller Qualitätsnachweis noch nicht verfügbar.'));box.append(details);
+ }
  async function load(){
   if(!root||busy)return;busy=true;const status=root.querySelector('[data-status]');
   try{
    const response=await fetch('/api/improvement/read',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(15000)});
    if(!response.ok)throw Error('HTTP '+response.status);const r=await response.json();
    if(!r.ok||!Array.isArray(r.progress)||r.progress.length!==4||r.progress.some(x=>!Number.isFinite(x)||x<0||x>100))throw Error('Unvollständiger Bericht');
-   last=r;status.textContent=(r.started?'Erfassung freigeschaltet. ':'Start ist für morgen vorbereitet. ')+ 'Berichtsstand: '+new Date(r.generatedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' Schweizer Zeit.';
+   last=r;renderQuality(r.dataQuality);status.textContent=(r.started?'Erfassung freigeschaltet. ':'Start ist für morgen vorbereitet. ')+ 'Berichtsstand: '+new Date(r.generatedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' Schweizer Zeit.';
    if(r.started)status.textContent+=' Letzte gespeicherte Beobachtung: '+(r.reliability.lastAt?new Date(r.reliability.lastAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch keine – außerhalb der Erfassungszeit normal.');
    const a=r.reliability,b=r.real,c=r.comparison,q=r.assessment;
    root.querySelector('[data-headline]').textContent='Aktueller Stand · Signalprüfung: '+q.label;root.querySelector('[data-next]').textContent='Nächster Prüfschritt: '+q.nextStep;
@@ -68,10 +83,10 @@
    if(!r.history?.length)history.append(el('p','Prüfkonzept eingerichtet. Noch keine abgeschlossene Hintergrundbewertung.'));
    for(const item of r.history||[])history.append(el('p',new Date(item.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · '+item.baseline+' → '+item.candidate+' · '+item.cases+' Prüffälle / '+item.days+' Tage · '+item.label+' · Entscheidung: '+item.decision+'. Tatsächliche Regeländerung: nein.'));
    window.BobTrainingHelp?.observe('improve',true);
-  }catch(e){window.BobTrainingHelp?.observe('improve',false,load);root.querySelector('[data-headline]').textContent='Aktueller Stand nicht bestätigt';root.querySelector('[data-next]').textContent='Bob versucht den Abruf automatisch erneut.';status.textContent='Aktueller Stand nicht abrufbar. '+(last?'Angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.':'Fortschritt unbekannt; keine erfundenen Prozentwerte.');}
+  }catch(e){renderQuality();window.BobTrainingHelp?.observe('improve',false,load);root.querySelector('[data-headline]').textContent='Aktueller Stand nicht bestätigt';root.querySelector('[data-next]').textContent='Bob versucht den Abruf automatisch erneut.';status.textContent='Aktueller Stand nicht abrufbar. '+(last?'Angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.':'Fortschritt unbekannt; keine erfundenen Prozentwerte.');}
   finally{busy=false;}
  }
- window.BobImprovement={mount,load};
+ window.BobImprovement={mount,load,renderQuality};
  document.addEventListener('click',e=>{if(e.target.closest?.('[data-view="improve"]'))load();});
  setInterval(()=>{if(root&&!root.closest('[hidden]')&&!document.hidden)load();},30000);
 })();
