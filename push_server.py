@@ -373,6 +373,13 @@ def run_test_repair_once(database):
     with database() as conn:
         result=evidence_repair.tick(conn)
         conn.commit()
+    try:
+        import training_handoff
+        with database() as conn:
+            handoff=training_handoff.summary(conn)
+        training_handoff.publish(handoff)
+    except Exception as exc:
+        print('BOB_TRAINING_HELP error='+type(exc).__name__,flush=True)
     print('BOB_TEST_REPAIR checked='+str(result['processed']),flush=True)
 
 
