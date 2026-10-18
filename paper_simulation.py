@@ -673,15 +673,17 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                         c['trendLowWater']=market['price'] if market['direction']=='SHORT' else None
                         c['trendReversalBars']=0
                         c['trendExtensions']=0
+                entry_control=copy.deepcopy(control)
+                entry_control['cash']-=c.get('allocated') or 0
+                paper_ledger_costs.apply(entry_control,c)
                 inserted=conn.execute('''INSERT INTO bob_paper_cases(id,day,started_at,payload)
                     VALUES(%s,%s,to_timestamp(%s),%s::jsonb) ON CONFLICT DO NOTHING RETURNING id''',
                     (c['id'],day,now/1000,json.dumps(c))).fetchone()
                 entered=bool(inserted)
                 control.update(lastEntryKey=entry_key,activeCase=c['id'] if inserted else None)
                 if inserted:
-                    control['cash']-=c.get('allocated') or 0
-                    paper_ledger_costs.apply(control,c)
-                    conn.execute('UPDATE bob_paper_cases SET payload=%s::jsonb WHERE id=%s',(json.dumps(c),c['id']))
+                    for field in ('cash','realizedProfit','costsDebitedEur'):
+                        if field in entry_control:control[field]=entry_control[field]
                     capital_snapshot(control,c,quotes.get(choice['isin']),now)
                 reason='Neuer Simulationsfall gespeichert' if inserted else 'Signal bereits dokumentiert'
             control.update(status='running',reason=reason)
