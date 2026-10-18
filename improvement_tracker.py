@@ -1,5 +1,7 @@
 """Prospective MBO evidence dashboard. Read-only research, never modifies trading policy."""
 import json
+import hashlib
+import improvement_assessment
 import math
 import os
 import time
@@ -55,6 +57,7 @@ def expected_slots(now):
 def init(conn):
     conn.execute('CREATE TABLE IF NOT EXISTS bob_improvement_protocol (id TEXT PRIMARY KEY, payload JSONB NOT NULL)')
     conn.execute('INSERT INTO bob_improvement_protocol VALUES(%s,%s::jsonb) ON CONFLICT DO NOTHING',(VERSION,json.dumps(PROTOCOL)))
+    conn.execute('''CREATE TABLE IF NOT EXISTS bob_improvement_reviews (id TEXT PRIMARY KEY, campaign TEXT NOT NULL, at BIGINT NOT NULL, payload JSONB NOT NULL)''')
     conn.execute('CREATE TABLE IF NOT EXISTS bob_improvement_state (campaign TEXT PRIMARY KEY, validation_at BIGINT)')
     conn.execute('INSERT INTO bob_improvement_state VALUES(%s,NULL) ON CONFLICT DO NOTHING',(VERSION,))
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_improvement_observations (
@@ -192,7 +195,7 @@ def summarize(observed,valid,days,last,rows,real,now,validation_at=None):
               math.floor(50*dev_fraction+50*val_fraction),
               math.floor(25*dev_fraction+25*val_fraction+50*min(ratio(real['pairedCount'],20),ratio(real['pairedDays'],10)))]
     if now<START:progress=[0]*4
-    return dict(ok=True,protocol=PROTOCOL,generatedAt=now,started=now>=START,
+    result=dict(ok=True,protocol=PROTOCOL,generatedAt=now,started=now>=START,
         progress=progress,validationAt=validation_at,reliability=dict(observed=observed,valid=valid,expected=expected,
         coveragePct=round(coverage*100,2) if expected else None,days=days,lastAt=last,
         missingSlots=max(0,expected-observed)),real=real,
@@ -202,6 +205,9 @@ def summarize(observed,valid,days,last,rows,real,now,validation_at=None):
         adoption=dict(status=('Vergleich vollständig; Vorteil prüfen, keine automatische Übernahme' if progress[3]==100 else 'Unabhängiger Vergleich und zugeordnete Nettoabrechnungen werden gesammelt'),
         automaticRuleChange=False,productNetValidated=False,
         note='50 %: vollständiger unabhängiger Spotvergleich. 50 %: mindestens 20 zeitlich zugeordnete Nettoabrechnungen an 10 späteren Tagen. Verglichen werden tatsächlich gehandelte Positionen gegen Auslassen durch den Filter. Auswahlverzerrung bleibt möglich; 100 % bedeutet Prüfziel erreicht, keine bewiesene allgemeine Überlegenheit oder Handelsfreigabe.'))
+
+    result['assessment']=improvement_assessment.assess(rows,result['comparison'],real,progress,now>=START,result['reliability'])
+    return result
 
 
 def expected_trial_slots(now,validation_at):
@@ -216,7 +222,7 @@ def expected_trial_slots(now,validation_at):
     return n
 
 
-def report(conn,now=None):
+def report(conn,now=None,include_history=True):
     now=int(time.time()*1000) if now is None else now
     protocol=conn.execute('SELECT payload FROM bob_improvement_protocol WHERE id=%s',(VERSION,)).fetchone()
     if not protocol or protocol[0]!=PROTOCOL:raise ValueError('Improvement protocol mismatch')
@@ -237,4 +243,26 @@ def report(conn,now=None):
           AND slot BETWEEN %s AND %s AND (payload->>'at')::bigint<=%s ORDER BY slot DESC LIMIT 1''',
           (VERSION,bought-90000,bought,bought)).fetchone()
         if before:evidence[snapshot.get('tradeId')]=before[0]
-    return summarize(*stats,rows,real_results([s[0] for s in snapshots],evidence,validation_at),now,validation_at)
+    result=summarize(*stats,rows,real_results([s[0] for s in snapshots],evidence,validation_at),now,validation_at)
+    if include_history:
+        history=conn.execute('SELECT at,payload FROM bob_improvement_reviews WHERE campaign=%s ORDER BY at DESC,id LIMIT 50',(VERSION,)).fetchall()
+        result['history']=[dict(at=at,**payload) for at,payload in history]
+    return result
+
+
+def archive_review(conn,now=None):
+    now=int(time.time()*1000) if now is None else now
+    if now<START:return
+    result=report(conn,now,include_history=False);a=result['assessment'];c=result['comparison']
+    review=dict(version=a['version'],baseline='Aktuelle freigegebene Regel',candidate=PROTOCOL['candidate'],
+        cohort=c['cohort'],label=a['label'],decision=a['decision'],code=a['code'],
+        cases=a['independentCases'],days=a['days'],developmentCases=c['development']['count'],
+        realPairs=result['real']['pairedCount'],netDifferenceCHF=a['netDifferenceCHF'],
+        standardDifference=c['validation']['scenarios'][0]['difference'],
+        stressDifference=c['validation']['scenarios'][1]['difference'],
+        coveragePct=c['coveragePct'],outcomeCoveragePct=c['outcomeCoveragePct'],
+        actualRuleChange=False)
+    identity={k:v for k,v in review.items() if k not in ('coveragePct','outcomeCoveragePct')}
+    key=hashlib.sha256(json.dumps([VERSION,clock(now).date().isoformat(),identity],sort_keys=True).encode()).hexdigest()
+    conn.execute('INSERT INTO bob_improvement_reviews VALUES(%s,%s,%s,%s::jsonb) ON CONFLICT DO NOTHING',
+                 (key,VERSION,now,json.dumps(review,allow_nan=False)))

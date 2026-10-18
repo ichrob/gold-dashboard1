@@ -13,19 +13,22 @@
  function mount(parent){
   if(!parent||document.getElementById('bobImprovementGoals'))return;
   root=el('section');root.id='bobImprovementGoals';
-  const intro=el('section');intro.className='card';intro.append(el('h3','Besser werden · Ziele und Nachweise'),el('p','Start: Montag, 19. Oktober 2026. Automatische Markterfassung ab 08:00 Schweizer Zeit, auch bei geschlossener App. Die Leisten zeigen erreichte Nachweisziele, keine Gewinnwahrscheinlichkeit.'));
+  const intro=el('section');intro.className='card';intro.append(el('h3','Besser werden · Ziele und Nachweise'));const explanation=el('p','Start: Montag, 19. Oktober 2026. Automatische Markterfassung ab 08:00 Schweizer Zeit, auch bei geschlossener App. Die Leisten zeigen erreichte Nachweisziele, keine Gewinnwahrscheinlichkeit.');
+  const headline=el('p','Aktueller Stand wird geprüft …');headline.dataset.headline='';const next=el('p');next.dataset.next='';intro.append(headline,next);
   const status=el('p','Stand wird geladen …');status.dataset.status='';status.setAttribute('role','status');intro.append(status);
   const refresh=el('button','Stand aktualisieren');refresh.type='button';refresh.onclick=load;
   const download=el('button','Nachweise als Datei speichern');download.type='button';download.onclick=()=>{if(!last)return;const blob=new Blob([JSON.stringify(last,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=el('a');a.href=url;a.download='Bob-Besser-werden-'+new Date(last.generatedAt).toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
-  intro.append(refresh,download);root.append(intro);
+  const tools=el('details');tools.append(el('summary','Details · Erfassung und Bericht'),explanation,status,refresh,download);intro.append(tools);root.append(intro);
   for(let i=0;i<4;i++){
    const card=el('section');card.className='card';card.dataset.goal=i;const h=el('h3',titles[i]),label=el('p','Noch keine bestätigten Daten');label.dataset.percent='';
    const bar=el('progress');bar.max=100;bar.style.cssText='width:100%;height:22px;accent-color:#2563eb';bar.setAttribute('aria-label',titles[i]);bar.hidden=true;
    const summary=el('p');summary.dataset.summary='';const detail=el('details');detail.append(el('summary','Details · Ziel und Berechnung'),el('p',methods[i]));
-   card.append(h,label,bar,summary,detail);root.append(card);
+   const verdict=el('p');verdict.dataset.verdict='';detail.append(summary);card.append(h,label,bar,verdict,detail);root.append(card);
   }
-  const result=el('section');result.className='card';result.append(el('h3','Gemessene Ergebnisse'));
-  const values=el('div');values.dataset.results='';result.append(values);root.append(result);parent.append(root);load();
+  const result=el('details');result.className='card';result.append(el('summary','Details · Was hat sich verbessert?'));
+  const values=el('div');values.dataset.results='';result.append(values);root.append(result);
+  for(const [key,title] of [['confidence','Wie belastbar ist das Ergebnis?'],['regimes','Ergebnisse nach Marktphase'],['history','Änderungen und Prüfentscheidungen']]){const d=el('details');d.className='card';d.append(el('summary',title));const body=el('div');body.dataset[key]='';d.append(body);root.append(d);}
+  parent.append(root);load();
  }
  async function load(){
   if(!root||busy)return;busy=true;const status=root.querySelector('[data-status]');
@@ -35,14 +38,15 @@
    if(!r.ok||!Array.isArray(r.progress)||r.progress.length!==4||r.progress.some(x=>!Number.isFinite(x)||x<0||x>100))throw Error('Unvollständiger Bericht');
    last=r;status.textContent=(r.started?'Erfassung freigeschaltet. ':'Start ist für morgen vorbereitet. ')+ 'Berichtsstand: '+new Date(r.generatedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' Schweizer Zeit.';
    if(r.started)status.textContent+=' Letzte gespeicherte Beobachtung: '+(r.reliability.lastAt?new Date(r.reliability.lastAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch keine – außerhalb der Erfassungszeit normal.');
-   const a=r.reliability,b=r.real,c=r.comparison;
+   const a=r.reliability,b=r.real,c=r.comparison,q=r.assessment;
+   root.querySelector('[data-headline]').textContent='Aktueller Stand · Signalprüfung: '+q.label;root.querySelector('[data-next]').textContent='Nächster Prüfschritt: '+q.nextStep;
    const summaries=[
     a.days+'/20 Handelstage · Datenabdeckung '+number(a.coveragePct)+' % / Ziel 95 % · '+a.missingSlots+' fehlende Zeitfenster.',
     b.count+'/20 vollständige Abschlüsse · '+b.days+'/10 Tage · '+b.missing+' Abrechnungen/Zeitzuordnungen offen.',
     'Entwicklung: '+c.development.count+'/60 Fälle an '+c.development.days+'/10 Tagen. Spätere Prüfung: '+c.validation.count+'/100 Fälle an '+c.validation.days+'/20 Tagen. '+c.excludedOtherVersions+' Fälle anderer Regelstände getrennt.',
     b.pairedCount+'/20 zeitlich zugeordnete Nettovergleiche an '+b.pairedDays+'/10 späteren Tagen. '+r.adoption.status+'.'
    ];
-   for(let i=0;i<4;i++){const card=root.querySelector('[data-goal="'+i+'"]');card.querySelector('[data-percent]').textContent=r.progress[i]+' % des Nachweisziels erreicht';card.querySelector('progress').value=r.progress[i];card.querySelector('progress').hidden=false;card.querySelector('[data-summary]').textContent=summaries[i];}
+   for(let i=0;i<4;i++){const card=root.querySelector('[data-goal="'+i+'"]');card.querySelector('[data-percent]').textContent=r.progress[i]+' % des Nachweisziels erreicht';card.querySelector('progress').value=r.progress[i];card.querySelector('progress').hidden=false;card.querySelector('[data-summary]').textContent=summaries[i];card.querySelector('[data-verdict]').textContent=i<2?(r.progress[i]===100?'Nachweisziel erreicht':'Daten werden gesammelt'):i===3?q.realLabel:q.label;}
    const values=root.querySelector('[data-results]');values.replaceChildren();
    const lines=[
     'Echte abgeschlossene Trades: Netto '+number(b.netCHF)+' CHF; größter Rückgang der abgeschlossenen Ergebnissumme '+number(b.drawdownCHF)+' CHF.',
@@ -52,8 +56,18 @@
     'Zugeordnete echte Trades: tatsächlich '+number(b.pairedBaselineCHF)+' CHF; rechnerisch mit Auslassen durch Testfilter '+number(b.pairedCandidateCHF)+' CHF. Kein Nachweis für ungehandelte Chancen.'
    ];
    for(const s of c.validation.scenarios)lines.push('Spotvergleich bei '+s.costPct+' % angenommenen Kosten: bisherige Regel '+number(s.baselineMean)+' %, Testregel '+number(s.candidateMean)+' %, Unterschied '+number(s.difference)+' Prozentpunkte je Fall. Keine DEGIRO-Produktrendite.');
+   lines.push('Fehlprognosen: bisher '+q.falseSignals.baseline+' in '+q.independentCases+' Fällen; Testregel '+q.falseSignals.candidate+' in '+c.validation.retained+' beibehaltenen Fällen. Quoten: '+number(q.falseSignals.baselinePct)+' % / '+number(q.falseSignals.candidatePct)+' %. Unterschiedliche Nenner beachten.');lines.push('Rechnerischer Netto-Unterschied bei zugeordneten echten Trades: '+number(q.netDifferenceCHF)+' CHF.');lines.push(q.priceAccuracy);
    lines.push(r.adoption.note);for(const line of lines)values.append(el('p',line));
-  }catch(e){status.textContent='Aktueller Stand nicht abrufbar. '+(last?'Angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.':'Fortschritt unbekannt; keine erfundenen Prozentwerte.');}
+   const confidence=root.querySelector('[data-confidence]');confidence.replaceChildren();
+   for(const text of [q.independentCases+' zeitlich getrennte Prüffälle an '+q.days+' Tagen.',q.independenceNote,'Datenabdeckung: '+number(a.coveragePct)+' %. '+a.missingSlots+' fehlende und '+(a.observed-a.valid)+' ungültige Zeitfenster.'])confidence.append(el('p',text));
+   q.intervals.forEach((band,i)=>confidence.append(el('p',band?'Orientierender 95%-Bereich des Vorteils bei '+r.protocol.costPct[i]+' % Kosten: '+number(band.low,4)+' bis '+number(band.high,4)+' Prozentpunkte. '+band.blocks+' Zweitagesblöcke.':'Unsicherheitsbereich bei '+r.protocol.costPct[i]+' % Kosten: noch nicht genügend Prüftage.')));
+   confidence.append(el('p','Ein beobachteter Vorteil gilt nur für diesen Test. Viele getestete Ideen und ähnliche Markttage können das Ergebnis verzerren.'));
+   const regimes=root.querySelector('[data-regimes]');regimes.replaceChildren();regimes.append(el('p','Zuordnung anhand der vor dem Ergebnis gespeicherten 5m-Daten: ADX unter 20 = seitwärts; sonst EMA-Trend steigend/fallend. Unbekannte Phasen bleiben separat. Mindestens 30 Fälle und 5 Tage je Phase für eine beschreibende Bewertung.'));
+   for(const phase of q.regimes)regimes.append(el('p',phase.label+': '+phase.cases+' Fälle / '+phase.days+' Tage · '+phase.result+' · mittlerer Unterschied '+number(phase.difference,4)+' Prozentpunkte nach angenommenen Standardkosten.'));
+   const history=root.querySelector('[data-history]');history.replaceChildren();history.append(el('p','Geprüfte Variante: '+r.protocol.candidate+'. Die aktive Regel wird durch diesen Bereich nicht verändert. Prüfstände werden im Hintergrund gespeichert; neueste zuerst (bis zu 50).'));
+   if(!r.history?.length)history.append(el('p','Prüfkonzept eingerichtet. Noch keine abgeschlossene Hintergrundbewertung.'));
+   for(const item of r.history||[])history.append(el('p',new Date(item.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · '+item.baseline+' → '+item.candidate+' · '+item.cases+' Prüffälle / '+item.days+' Tage · '+item.label+' · Entscheidung: '+item.decision+'. Tatsächliche Regeländerung: nein.'));
+  }catch(e){root.querySelector('[data-headline]').textContent='Aktueller Stand nicht bestätigt';root.querySelector('[data-next]').textContent='Bob versucht den Abruf automatisch erneut.';status.textContent='Aktueller Stand nicht abrufbar. '+(last?'Angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.':'Fortschritt unbekannt; keine erfundenen Prozentwerte.');}
   finally{busy=false;}
  }
  window.BobImprovement={mount,load};
