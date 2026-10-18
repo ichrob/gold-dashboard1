@@ -81,6 +81,11 @@ class RepairPersistenceTests(unittest.TestCase):
                 self.assertEqual(truth['at'],target);self.assertEqual(truth['price'],4010)
                 self.assertEqual(conn.execute('SELECT outcome FROM bob_ranking_samples').fetchone()[0],outcome)
                 self.assertEqual(report['workerCheckedAt'],now+2*repair.INTERVAL)
+                import training_handoff
+                handoff=training_handoff.summary(conn)
+                self.assertNotIn('DETEST',json.dumps(handoff))
+                self.assertIn(dict(kind='title',reason='missing-original-evidence',cases=1),handoff['reasons'])
+                self.assertEqual(handoff['workerCheckedAt'],report['workerCheckedAt'])
                 # A separately recovered/backfilled signal must leave the help queue.
                 conn.execute("UPDATE bob_test_repairs SET status='escalated' WHERE kind='signal'")
                 repair.tick(conn,now+3*repair.INTERVAL)
