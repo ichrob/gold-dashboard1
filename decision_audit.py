@@ -462,12 +462,17 @@ def _harvest_horizon(conn, horizon):
 
 def harvest(conn):
     global _harvest_at
-    if time.time()-_harvest_at<60:return
-    for horizon in HARVEST_HORIZONS:
-        _harvest_recent(conn,horizon)
+    now=time.time()
+    if now-_harvest_at<60:return
+    # The durable archive cursors already cover every horizon. Give only one
+    # horizon per minute the additional recent-priority lane so a cold worker
+    # does not double the bounded SQL workload and exhaust its statement time.
+    # The wall-clock slot rotates deterministically across restarts.
+    recent_horizon=HARVEST_HORIZONS[int(now//60)%len(HARVEST_HORIZONS)]
+    _harvest_recent(conn,recent_horizon)
     for horizon in HARVEST_HORIZONS:
         _harvest_horizon(conn,horizon)
-    _harvest_at=time.time()
+    _harvest_at=now
 
 _report_lock = threading.Lock()
 _report_cache = None
