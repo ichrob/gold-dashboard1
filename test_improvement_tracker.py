@@ -99,6 +99,11 @@ class TrackerDatabaseTests(unittest.TestCase):
                 self.assertIsNone(conn.execute('SELECT validation_at FROM bob_improvement_state').fetchone()[0])
                 report=m.report(conn,t+3630000)
                 self.assertEqual(report['comparison']['development']['count'],1)
+                path=report['entryPath']['items'][0]
+                self.assertEqual(path['horizons'][0]['status'],'missing')
+                self.assertEqual(path['horizons'][-1]['status'],'observed')
+                self.assertAlmostEqual(path['horizons'][-1]['directionalPct'],-1)
+                self.assertIsNone(path['candidateKeep'])
                 journal=report['decisionJournal']['items'][0]
                 self.assertEqual(journal['decision'],'LONG')
                 self.assertEqual(journal['status'],'evaluated')
