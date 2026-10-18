@@ -1152,7 +1152,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <script src="/late_entry_guard.js?v=20261016-no-chase-v1"></script>
 <script src="/degiro_assistant.js?v=20261016-chf-v1"></script>
 <script src="/bob_stop_assistant.js?v=20261016-chf-v1"></script>
-<script src="/product_trade_curve.js?v=20261016-trade-v3"></script>
+<script src="/product_trade_curve.js?v=20261018-trade-details"></script>
 <script src="/real_trade_journal.js"></script>
 <script src="/video_evidence.js?v=2"></script>
 <script src="/video_brief.js?v=2"></script>
@@ -1947,7 +1947,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    }
    const snapshot=window.BobTradeSync?.overview?.();if(!snapshot)return;
    const put=(key,value)=>{tradeSummary.querySelector('[data-trade-'+key+']').textContent=value;};
-   put('identity',p?.isin||'Produkt noch nicht zugeordnet');
+   put('identity',p?.isin ? p.isin+' · '+(p.direction||'')+' · Einstieg '+(Number.isFinite(p.entry)?p.entry.toFixed(4)+' '+(p.currency||'EUR'):'—')+' · '+(p.quantity??'—')+' Stück' : 'Produkt noch nicht zugeordnet');
    put('stop',snapshot.stop);put('target',snapshot.target);
    put('pnl',snapshot.pnl);const profit=tradeSummary.querySelector('[data-trade-pnl]');profit.className=snapshot.pnlValue==null?'':snapshot.pnlValue>=0?'profit':'loss';
    put('action',snapshot.action);put('price-note',snapshot.note);
@@ -2001,6 +2001,33 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   for(const key of ['simulation','learning','diagrams','research','future','degiro','settings']){
    const back=document.createElement('button');back.type='button';back.className='bob-back';back.dataset.view='more';back.textContent='← Mehr';panels[key].prepend(back);
   }
+
+  // Compact trade view: keep the original controls and their handlers intact.
+  const tradeDetails=document.createElement('details');
+  tradeDetails.id='bobTradeDetails';tradeDetails.className='card bob-disclosure';
+  const tradeDetailsTitle=document.createElement('summary');tradeDetailsTitle.textContent='Details';
+  tradeDetails.append(tradeDetailsTitle);
+  const tradeActions=document.createElement('section');tradeActions.id='bobTradeActions';tradeActions.className='card';
+  tradeActions.append(enter);
+  const correct=document.createElement('button');correct.type='button';correct.textContent='Daten korrigieren';
+  correct.addEventListener('click',()=>{tradeDetails.open=true;byId('bobTradeOpen')?.click();});
+  tradeActions.append(correct);
+  const closeButton=document.querySelector('button[onclick="closeTrade()"]');
+  if(closeButton){closeButton.textContent='Trade beendet · in Bob bestätigen';tradeActions.append(closeButton);}
+  const tradeToggle=byId('tradePushBtn')?.closest('.metric');
+  if(tradeToggle){
+   const label=tradeToggle.querySelector('label');if(label)label.textContent='Trade-Benachrichtigungen';
+   tradeActions.append(tradeToggle);
+  }
+  const tradeStatus=card('tradeStateBtn');
+  const keep=new Set([panels.trade.querySelector('h2'),tradeStatus,tradeSummary,curveRoot]);
+  for(const child of [...panels.trade.children])if(!keep.has(child))tradeDetails.append(child);
+  const pushStateDetail=byId('tradePushState')?.parentElement;
+  if(pushStateDetail)tradeDetails.append(pushStateDetail);
+  window.BobProductCurve?.moveDetails?.(tradeDetails);
+  // Status, essential values and chart first; upload/actions and one disclosure follow.
+  for(const node of [tradeStatus,tradeSummary,curveRoot,tradeActions,tradeDetails])if(node)panels.trade.append(node);
+  tradeDetails.open=false;
 
   nav.innerHTML=[['overview','◫','Übersicht'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['problems','⚠','Probleme'],['more','☰','Mehr']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+(key==='problems'?'<strong class="bob-problem-count" data-problem-count hidden aria-hidden="true"></strong>':'')+'</button>').join('');document.body.append(nav);
   function show(key,focus=true){if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='trade'&&key==='degiro2')||(btn.dataset.view==='more'&&['auto','future','research','learning','diagrams','degiro','simulation','settings'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
