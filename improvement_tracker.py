@@ -175,10 +175,10 @@ def summarize(observed,valid,days,last,rows,real,now,validation_at=None):
     outcome_coverage=min(1,val['count']/paired_ready) if paired_ready else 0
     dev_fraction=min(ratio(dev['count'],60),ratio(dev['days'],10))
     val_fraction=min(ratio(val['count'],100),ratio(val['days'],20),ratio(trial_coverage,.95),ratio(outcome_coverage,.95))
-    progress=[round(100*min(ratio(days,20),ratio(coverage,.95))),
-              round(100*min(ratio(real['count'],20),ratio(real['days'],10))),
-              round(50*dev_fraction+50*val_fraction),
-              round(25*dev_fraction+25*val_fraction+50*min(ratio(real['pairedCount'],20),ratio(real['pairedDays'],10)))]
+    progress=[math.floor(100*min(ratio(days,20),ratio(coverage,.95))),
+              math.floor(100*min(ratio(real['count'],20),ratio(real['days'],10))),
+              math.floor(50*dev_fraction+50*val_fraction),
+              math.floor(25*dev_fraction+25*val_fraction+50*min(ratio(real['pairedCount'],20),ratio(real['pairedDays'],10)))]
     if now<START:progress=[0]*4
     return dict(ok=True,protocol=PROTOCOL,generatedAt=now,started=now>=START,
         progress=progress,validationAt=validation_at,reliability=dict(observed=observed,valid=valid,expected=expected,
