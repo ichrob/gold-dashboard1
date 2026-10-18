@@ -111,7 +111,7 @@ class TrackerDatabaseTests(unittest.TestCase):
                                 (m.VERSION,stamp,day.date().isoformat(),'development',json.dumps(payload),json.dumps(outcome)))
                         completed_days+=1
                     day+=timedelta(days=1)
-                later=t+15*86400000
+                later=int(datetime(2026,11,3,8,tzinfo=m.ZONE).timestamp()*1000)
                 m.capture(conn,market(later),later)
                 boundary=conn.execute('SELECT validation_at FROM bob_improvement_state').fetchone()[0]
                 self.assertEqual(boundary,later+1)
