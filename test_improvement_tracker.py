@@ -54,6 +54,14 @@ class TrackerTests(unittest.TestCase):
         self.assertEqual(q['progress'][1:], [0,0,0])
         self.assertFalse(q['adoption']['automaticRuleChange'])
 
+    def test_progress_does_not_round_incomplete_goals_to_100(self):
+        real=m.real_results([])
+        real.update(count=20,days=10,pairedCount=19,pairedDays=10)
+        q=m.summarize(100,100,20,at(),[],real,at(20,8))
+        self.assertLess(q['progress'][0],100)
+        self.assertEqual(q['progress'][1],100)
+        self.assertLess(q['progress'][3],50)
+
     def test_real_costs_and_no_future_entry_evidence(self):
         start=at(20,10);end=start+3600000
         snap=dict(tradeId='x',dir='LONG',active=False,product={'currency':'EUR'},
