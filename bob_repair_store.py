@@ -21,6 +21,8 @@ EVENT_CODES = frozenset((
     "market-worker-stopped", "background-worker-stopped",
     "research-worker-stopped", "unknown-service-failure",
     "trade-setup-stalled", "screenshot-import-failed",
+    "training-audit-unavailable", "training-portfolios-unavailable",
+    "training-repairs-unavailable", "training-improve-unavailable",
 ))
 _TODO = deque(maxlen=512)
 _QUEUE_LOCK = threading.Lock()
