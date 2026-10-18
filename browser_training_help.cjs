@@ -52,6 +52,14 @@ const fs=require('fs'),assert=require('node:assert/strict');
  assert.match(await quality.innerText(),/Daten aktuell: nicht bestätigt/);
  assert(!(await quality.innerText()).includes('100 %'));
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=390));
+ await page.evaluate(()=>BobImprovement.renderJournal({items:[{at:Date.now(),decision:'ABWARTEN',reason:'<script>unsafe</script>',result:'Marktbewegung beobachtet',lesson:'Kein belegter verpasster Gewinn',marketMovePct:1,evidence:{context:{adx:20}},phase:'development'}]}));
+ const journal=page.locator('[data-journal]');
+ assert.equal(await journal.locator('details').first().evaluate(e=>e.open),false);
+ await journal.locator('summary').first().click();
+ assert.match(await journal.innerText(),/ABWARTEN/);
+ assert.match(await journal.innerText(),/Kein belegter verpasster Gewinn/);
+ assert.equal(await journal.locator('script').count(),0);
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=390));
  console.log('Mobile training help: blue button, automatic retries, escalation, explicit share and verified recovery OK');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

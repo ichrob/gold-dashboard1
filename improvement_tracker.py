@@ -245,6 +245,8 @@ def report(conn,now=None,include_history=True):
         if before:evidence[snapshot.get('tradeId')]=before[0]
     result=summarize(*stats,rows,real_results([s[0] for s in snapshots],evidence,validation_at),now,validation_at)
     if include_history:
+        import decision_journal
+        result['decisionJournal']=decision_journal.read(conn,VERSION,now)
         history=conn.execute('SELECT at,payload FROM bob_improvement_reviews WHERE campaign=%s ORDER BY at DESC,id LIMIT 50',(VERSION,)).fetchall()
         result['history']=[dict(at=at,**payload) for at,payload in history]
     return result
