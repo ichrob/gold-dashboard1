@@ -133,7 +133,7 @@ assert.equal(combined.rows[0].price,20);
 
 const html=fs.readFileSync('Bob.html','utf8'),server=fs.readFileSync('server.py','utf8');
 assert(html.includes('<script src="/product_trade_curve.js?'));
-assert(html.includes('20261016-trade-v3'), 'Versioned script URL refreshes mobile cache');
+assert(html.includes('20261018-trade-details'), 'Versioned script URL refreshes mobile cache');
 assert(html.includes("window.BobProductCurve?.mount(curveRoot)"));
 assert(html.includes("window.BobProductCurve?.update(window.BobTradeSync?.chartData?.())"));
 assert(html.includes('chartData(){'));
@@ -141,7 +141,7 @@ assert(server.includes('if path == "/product_trade_curve.js":'));
 assert(server.includes('/api/real-trades/curve'));
 assert(fs.readFileSync('push_server.py','utf8').includes('/real-trades/curve'));
 assert(fs.readFileSync('real_trade_journal.py','utf8').includes('product_trade_history.append'));
-assert(html.includes('20261016-trade-v3'));
+assert(html.includes('20261018-trade-details'));
 
 const scripts=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
 for(const item of scripts){
