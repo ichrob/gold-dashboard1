@@ -28,6 +28,7 @@
   }
   const result=el('details');result.className='card';result.append(el('summary','Details · Was hat sich verbessert?'));
   const values=el('div');values.dataset.results='';result.append(values);root.append(result);
+  const journal=el('section');journal.className='card';journal.dataset.journal='';journal.style.overflowWrap='anywhere';root.append(journal);renderJournal();
   for(const [key,title] of [['confidence','Wie belastbar ist das Ergebnis?'],['regimes','Ergebnisse nach Marktphase'],['history','Änderungen und Prüfentscheidungen']]){const d=el('details');d.className='card';d.append(el('summary',title));const body=el('div');body.dataset[key]='';d.append(body);root.append(d);}
   parent.append(root);load();
  }
@@ -45,13 +46,32 @@
   for(const row of data.snapshots||[])details.append(el('p',row.isin+' · '+(row.currency||'Währung offen')+' · '+(row.source||'Quelle offen')+' · Originalzeit '+(row.sourceAt?new Date(row.sourceAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'offen')+' · Datenstand '+(row.id||'noch nicht erfasst')));
   details.append(el('p',data.note||'Aktueller Qualitätsnachweis noch nicht verfügbar.'));box.append(details);
  }
+ function renderJournal(data={}){
+  const box=root?.querySelector('[data-journal]');if(!box)return;
+  box.replaceChildren(el('h3','Entscheidung · Ergebnis · Lernpunkt'));
+  const rows=data.items||[];
+  box.append(el('p',rows.length?rows.length+' gespeicherte Prüffälle · neueste zuerst':'Noch keine Prüffälle vorhanden. Die geplante Erfassung beginnt am 19. Oktober 2026 um 08:00 Schweizer Zeit.'));
+  box.append(el('p',data.note||'Ergebnisse werden erst mit gültigen späteren Kursnachweisen bewertet.'));
+  const details=el('details');details.append(el('summary','Details · Entscheidungsjournal'));
+  for(const row of rows){
+   const item=el('article');item.append(el('h4',new Date(row.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · '+row.decision));
+   item.append(el('p','Damals: '+row.reason),el('p','Ergebnis: '+row.result));
+   if(Number.isFinite(row.netSpotPct))item.append(el('p','Richtungsbezogen nach angenommenen Standardkosten: '+number(row.netSpotPct,3)+' % (Spot).'));
+   if(Number.isFinite(row.marketMovePct))item.append(el('p','Spotbewegung: '+number(row.marketMovePct,3)+' %.'));
+   item.append(el('p','Lernpunkt: '+row.lesson));
+   const proof=el('details');proof.append(el('summary','Damals gespeicherte Daten'),el('p',(row.phase==='validation'?'Unabhängige Prüfung':'Entwicklung')+' · Regelstand '+row.cohort+' · ADX '+number(row.adx)));
+   proof.append(el('p','Originalkurszeit: '+(row.sourceAt?new Date(row.sourceAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'fehlt')));
+   const pre=el('pre',JSON.stringify(row.evidence,null,2));pre.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere';proof.append(pre);item.append(proof);details.append(item);
+  }
+  box.append(details);
+ }
  async function load(){
   if(!root||busy)return;busy=true;const status=root.querySelector('[data-status]');
   try{
    const response=await fetch('/api/improvement/read',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(15000)});
    if(!response.ok)throw Error('HTTP '+response.status);const r=await response.json();
    if(!r.ok||!Array.isArray(r.progress)||r.progress.length!==4||r.progress.some(x=>!Number.isFinite(x)||x<0||x>100))throw Error('Unvollständiger Bericht');
-   last=r;renderQuality(r.dataQuality);status.textContent=(r.started?'Erfassung freigeschaltet. ':'Start ist für morgen vorbereitet. ')+ 'Berichtsstand: '+new Date(r.generatedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' Schweizer Zeit.';
+   last=r;renderQuality(r.dataQuality);renderJournal(r.decisionJournal);status.textContent=(r.started?'Erfassung freigeschaltet. ':'Start ist für morgen vorbereitet. ')+ 'Berichtsstand: '+new Date(r.generatedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' Schweizer Zeit.';
    if(r.started)status.textContent+=' Letzte gespeicherte Beobachtung: '+(r.reliability.lastAt?new Date(r.reliability.lastAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch keine – außerhalb der Erfassungszeit normal.');
    const a=r.reliability,b=r.real,c=r.comparison,q=r.assessment;
    root.querySelector('[data-headline]').textContent='Aktueller Stand · Signalprüfung: '+q.label;root.querySelector('[data-next]').textContent='Nächster Prüfschritt: '+q.nextStep;
@@ -83,10 +103,10 @@
    if(!r.history?.length)history.append(el('p','Prüfkonzept eingerichtet. Noch keine abgeschlossene Hintergrundbewertung.'));
    for(const item of r.history||[])history.append(el('p',new Date(item.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' · '+item.baseline+' → '+item.candidate+' · '+item.cases+' Prüffälle / '+item.days+' Tage · '+item.label+' · Entscheidung: '+item.decision+'. Tatsächliche Regeländerung: nein.'));
    window.BobTrainingHelp?.observe('improve',true);
-  }catch(e){renderQuality();window.BobTrainingHelp?.observe('improve',false,load);root.querySelector('[data-headline]').textContent='Aktueller Stand nicht bestätigt';root.querySelector('[data-next]').textContent='Bob versucht den Abruf automatisch erneut.';status.textContent='Aktueller Stand nicht abrufbar. '+(last?'Angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.':'Fortschritt unbekannt; keine erfundenen Prozentwerte.');}
+  }catch(e){renderQuality();const journal=root.querySelector('[data-journal]');if(journal)journal.replaceChildren(el('h3','Entscheidungsjournal'),el('p','Aktueller Bericht nicht abrufbar. Bob versucht es erneut.'));window.BobTrainingHelp?.observe('improve',false,load);root.querySelector('[data-headline]').textContent='Aktueller Stand nicht bestätigt';root.querySelector('[data-next]').textContent='Bob versucht den Abruf automatisch erneut.';status.textContent='Aktueller Stand nicht abrufbar. '+(last?'Angezeigte Zahlen stammen vom letzten erfolgreichen Abruf.':'Fortschritt unbekannt; keine erfundenen Prozentwerte.');}
   finally{busy=false;}
  }
- window.BobImprovement={mount,load,renderQuality};
+ window.BobImprovement={mount,load,renderQuality,renderJournal};
  document.addEventListener('click',e=>{if(e.target.closest?.('[data-view="improve"]'))load();});
  setInterval(()=>{if(root&&!root.closest('[hidden]')&&!document.hidden)load();},30000);
 })();
