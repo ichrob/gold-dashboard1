@@ -55,6 +55,8 @@ def expected_slots(now):
 
 
 def init(conn):
+    import exit_quality
+    exit_quality.init(conn)
     conn.execute('CREATE TABLE IF NOT EXISTS bob_improvement_protocol (id TEXT PRIMARY KEY, payload JSONB NOT NULL)')
     conn.execute('INSERT INTO bob_improvement_protocol VALUES(%s,%s::jsonb) ON CONFLICT DO NOTHING',(VERSION,json.dumps(PROTOCOL)))
     import entry_path_study
@@ -251,6 +253,8 @@ def report(conn,now=None,include_history=True):
         result['decisionJournal']=decision_journal.read(conn,VERSION,now)
         import entry_path_study
         result['entryPath']=entry_path_study.read(conn,VERSION,now)
+        import exit_quality
+        result['exitQuality']=exit_quality.read(conn,now)
         history=conn.execute('SELECT at,payload FROM bob_improvement_reviews WHERE campaign=%s ORDER BY at DESC,id LIMIT 50',(VERSION,)).fetchall()
         result['history']=[dict(at=at,**payload) for at,payload in history]
     return result

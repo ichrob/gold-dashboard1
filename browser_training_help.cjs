@@ -69,6 +69,15 @@ const fs=require('fs'),assert=require('node:assert/strict');
  assert.match(await path.innerText(),/60 Minuten: Ergebnis noch offen/);
  assert.match(await path.innerText(),/Datenabdeckung: 25 %/);
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=390));
+ await page.evaluate(()=>BobImprovement.renderExitQuality({items:[{at:Date.now(),isin:'TEST',currency:'CHF',status:'missing',observations:2,coveragePct:10,maxGapSeconds:120,entry:10,stop:9,target:12,referenceExits:{fixed:{bid:8.8,reason:'stop'}},scenarios:[]}]}));
+ const exits=page.locator('[data-exit-quality]');
+ assert.equal(await exits.locator('details').first().evaluate(e=>e.open),false);
+ await exits.locator('summary').first().click();
+ await exits.locator('details details summary').click();
+ assert.match(await exits.innerText(),/Nachweise unvollständig/);
+ assert.match(await exits.innerText(),/Keine bestätigte Ausführung/);
+ assert.match(await exits.innerText(),/Kostenvergleich noch offen/);
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=390));
  console.log('Mobile training help: blue button, automatic retries, escalation, explicit share and verified recovery OK');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
