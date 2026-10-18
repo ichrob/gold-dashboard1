@@ -19,7 +19,7 @@ class SignalStatusTests(unittest.TestCase):
         calls=[]
         with patch.object(audit,'_harvest_at',0),patch.object(audit.time,'time',return_value=100),patch.object(audit,'_harvest_recent',side_effect=lambda c,h:calls.append(('new',h))),patch.object(audit,'_harvest_horizon',side_effect=lambda c,h:calls.append(('old',h))):
             audit.harvest(Mock())
-        self.assertEqual([x[0] for x in calls],['new']*6+['old']*6)
+        self.assertEqual(calls,[('new',5),*(('old',h) for h in audit.HARVEST_HORIZONS)])
         conn=Mock();conn.execute.return_value.fetchall.return_value=[('new-id',)]
         audit._harvest_recent(conn,15)
         query,params=conn.execute.call_args_list[0].args
