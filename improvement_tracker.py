@@ -1,6 +1,7 @@
 """Prospective MBO evidence dashboard. Read-only research, never modifies trading policy."""
 import json
 import math
+import os
 import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -64,6 +65,17 @@ def init(conn):
       payload JSONB NOT NULL, outcome JSONB, PRIMARY KEY(campaign,slot))''')
 
 
+def safe_evidence(value,depth=0):
+    """Preserve the allowlisted analysis, replacing non-finite values with unknown."""
+    if depth>6:return None
+    if value is None or isinstance(value,bool):return value
+    if isinstance(value,str):return value[:800]
+    if finite(value):return value
+    if isinstance(value,dict):return {str(k):safe_evidence(v,depth+1) for k,v in list(value.items())[:80]}
+    if isinstance(value,(list,tuple)):return [safe_evidence(v,depth+1) for v in value[:30]]
+    return None
+
+
 def observation(market,now):
     at=market.get('dataAt');price=market.get('price')
     fresh=finite(at) and -2000<=now-at<=90000 and market.get('priceFresh') is True
@@ -71,7 +83,7 @@ def observation(market,now):
     adx=(market.get('context') or {}).get('adx')
     direction=market.get('direction','NEUTRAL')
     allowed=valid and market.get('ready') is True and direction in ('LONG','SHORT') and (market.get('entryTimingGate') or {}).get('allowed') is True and (market.get('session') or {}).get('entryAllowed') is True
-    return dict(at=now,price=price if finite(price) else None,priceAt=at if finite(at) else None,
+    return dict(build=os.environ.get('RENDER_GIT_COMMIT','local'),evidence=safe_evidence({k:market.get(k) for k in ('context','entryTimingGate','entryQuality','minuteEntry','analysisSnapshot','plan','trendContext','session')}),at=now,price=price if finite(price) else None,priceAt=at if finite(at) else None,
         valid=valid,ready=bool(allowed),direction=direction if direction in ('LONG','SHORT') else 'NEUTRAL',
         adx=adx if finite(adx) else None,keep=bool(allowed and finite(adx) and adx>=25),
         reason=str(market.get('decisionReason') or 'Kein freigegebenes Signal')[:400],
