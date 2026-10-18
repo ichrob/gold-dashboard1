@@ -4,6 +4,7 @@ import hashlib
 import json
 import adaptive_learning as rule_learning
 import paper_reflection
+import paper_ledger_costs
 import ranking_learning
 import ranking_lifecycle
 import math
@@ -250,18 +251,18 @@ def sync(conn, payload):
             WHERE selection_evidence IS NOT NULL OR product_selection IS NOT NULL''')
     return dict(ok=True,products=len(safe['products']),listUploadedAt=uploaded)
 
-def new_case(market, choice, quote, now, cash=100.):
+def new_case(market, choice, quote, now, cash=100., cost_model=None):
     p=copy.deepcopy(market['plan']);direction=p['direction'];risk=abs(p['entry']-p['stop'])
     local=datetime.fromtimestamp(now/1000,ZoneInfo('Europe/Zurich'))
     end=min(now+4*3600000,local.replace(hour=21,minute=45,second=0,microsecond=0).timestamp()*1000)
     key=hashlib.sha256(json.dumps([VERSION,market.get('ruleVersion'),market.get('learningPolicy'),market.get('analysisBarAt'),direction,choice['isin']],sort_keys=True).encode()).hexdigest()
     # No currency model is guessed from a leverage number or future contract.
     q=None if choice.get('indicative') or choice.get('estimated') else fresh_quote(quote,now,choice['isin'])
-    quantity=math.floor((cash+1e-9)/q['ask']) if q else None
+    quantity=(paper_ledger_costs.units(cash,q['ask'],cost_model) if cost_model else math.floor((cash+1e-9)/q['ask'])) if q else None
     if quantity==0:raise ValueError('Kapital reicht nicht für ein Produktstück')
     t=dict(tradeId=key,dir=direction,entry=p['entry'],stop=p['stop'],target=p['target'],initialRisk=risk,instrument='XAU/USD',active=True,product=None)
     return dict(id=key,version=VERSION,status='open',day=local.date().isoformat(),startedAt=now,endsAt=end,
-                plan=p,product=copy.deepcopy(choice),koGuardRequired=choice.get('koGuardRequired') is True,
+                plan=p,ledgerCostModel=copy.deepcopy(cost_model),product=copy.deepcopy(choice),koGuardRequired=choice.get('koGuardRequired') is True,
                 entryQuote=q,entryAsk=q['ask'] if q else None,
                 analysis=copy.deepcopy(market),lastAt=market['dataAt'],remaining=1.,goldR=0.,productGrossPct=0. if q else None,
                 productReturnKnown=bool(q),netReturnKnown=False,modelOnly=True,partialTaken=False,
@@ -269,7 +270,7 @@ def new_case(market, choice, quote, now, cash=100.):
                 allocated=quantity*q['ask'] if quantity else None,availableAtEntry=cash,
                 entrySpreadEur=round(quantity*(q['ask']-q['bid']),8) if quantity else None,
                 entrySpreadPct=round((q['ask']/q['bid']-1)*100,4) if quantity else None,
-                capitalMode='EUR-Ganzstück-Bruttomodell' if quantity else 'Goldplan ohne Europosition',
+                capitalMode=('EUR-Ganzstück-Modell nach Beispielkosten' if cost_model else 'EUR-Ganzstück-Bruttomodell') if quantity else 'Goldplan ohne Europosition',
                 engine=dict(trade=t),events=[dict(kind='entry',at=market['dataAt'],recordedAt=now,gold=market['price'],quote=q,
                     reason=market.get('decisionReason'),ruleVersion=market.get('ruleVersion'),learningPolicy=market.get('learningPolicy'))])
 
@@ -428,6 +429,7 @@ def capital_snapshot(control,case,quote,now):
                           if equity is not None and control.get('dayOpeningEquity') is not None
                           else None)
     control['totalProfit']=equity-control['initialCapital'] if equity is not None else None
+    control['costPeriodProfit']=(equity-control['costsOpeningEquity'] if equity is not None and control.get('costsOpeningEquity') is not None else None)
 
 def day_update(conn, day, closed=None, wait=None, now=None,capital=None,product=None,entry=None):
     row=conn.execute('SELECT payload FROM bob_paper_days WHERE day=%s',(day,)).fetchone()
@@ -441,6 +443,7 @@ def day_update(conn, day, closed=None, wait=None, now=None,capital=None,product=
                   observedMaxDrawdownPct=capital.get('maxDrawdownPct'),
                   quoteMissingChecksSinceStart=capital.get('quoteMissingChecks',0),
                   quoteConfirmedChecksSinceStart=capital.get('quoteConfirmedChecks',0))
+        d.update(costsDebitedEur=capital.get('costsDebitedEur'),costPeriodProfit=capital.get('costPeriodProfit'),costsStartedAt=capital.get('costsStartedAt'))
         d.update(realizedProfit=capital.get('realizedProfit',0),dayRealizedProfit=capital.get('realizedProfit',0)-capital.get('dayOpeningRealized',0))
     if wait:
         d.update(waitChecks=d['waitChecks']+1,lastWait=wait)
@@ -577,6 +580,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                 control['koExcluded']=excluded
             control['cash']+=c.get('cashReleased',0)-released
             control['realizedProfit']+=c.get('cashReleased',0)-released-(c.get('bookedUnits',0)-booked)*(c.get('entryAsk') or 0)
+            paper_ledger_costs.apply(control,c)
             capital_snapshot(control,c,q,now)
             if c['status']!='open' and not c.get('counted'):
                 day_update(conn,c['day'],closed=c,now=now);c['counted']=True;c['productCounted']=c['productReturnKnown']
@@ -593,6 +597,8 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             day_update(conn,day,now=now,capital=control)
         else:
             capital_snapshot(control,None,None,now)
+            cost_model=paper_ledger_costs.MODEL if profile_policy and now>=paper_ledger_costs.START else None
+            if cost_model:paper_ledger_costs.activate(control,now)
             entered=False
             plan=market.get('plan')
             excluded=control.get('koExcluded') or {}
@@ -630,9 +636,9 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                 reason='KO-Schutz: '+paper_ko_guard.entry_reason(choice,quotes.get(choice['isin']),market,now)[0]
             elif profile_policy and __import__('paper_portfolios').entry_block_reason(profile_policy,market):
                 reason=__import__('paper_portfolios').entry_block_reason(profile_policy,market)
-            elif q['ask']>min(control['cash'], (control.get('equity') or control['cash'])*
+            elif (q['ask']*(1+cost_model['slippageBpsPerSide']/10000)+3*cost_model['feeEurPerOrder'] if cost_model else q['ask'])>min(control['cash'], (control.get('equity') or control['cash'])*
                    (profile_policy['exposure_fraction'] if profile_policy else 1.)):
-                reason='Risikobudget reicht nicht für ein ganzes Produktstück'
+                reason='Risikobudget reicht nicht für ein ganzes Produktstück einschließlich Kostenreserve' if cost_model else 'Risikobudget reicht nicht für ein ganzes Produktstück'
             elif (control.get('dayProfit') is not None and control.get('dayOpeningEquity') is not None
                   and control['dayOpeningEquity']>0 and control['dayProfit']<=-
                   (profile_policy['daily_loss_fraction'] if profile_policy else .03)*control['dayOpeningEquity']):
@@ -643,7 +649,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             else:
                 budget=min(control['cash'], (control.get('equity') or control['cash'])*
                            (profile_policy['exposure_fraction'] if profile_policy else 1.))
-                c=new_case(market,choice,quotes.get(choice['isin']),now,cash=budget)
+                c=new_case(market,choice,quotes.get(choice['isin']),now,cash=budget,cost_model=cost_model)
                 if c.get('koGuardRequired'):
                     _,c['koWatch']=paper_ko_guard.entry_reason(choice,quotes.get(choice['isin']),market,now)
                     c['koWatchStatus']='confirmed'
@@ -674,6 +680,8 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                 control.update(lastEntryKey=entry_key,activeCase=c['id'] if inserted else None)
                 if inserted:
                     control['cash']-=c.get('allocated') or 0
+                    paper_ledger_costs.apply(control,c)
+                    conn.execute('UPDATE bob_paper_cases SET payload=%s::jsonb WHERE id=%s',(json.dumps(c),c['id']))
                     capital_snapshot(control,c,quotes.get(choice['isin']),now)
                 reason='Neuer Simulationsfall gespeichert' if inserted else 'Signal bereits dokumentiert'
             control.update(status='running',reason=reason)
