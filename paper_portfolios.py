@@ -248,7 +248,7 @@ def report(conn, day=None):
                              performance=performance_snapshot(data),**data))
     return dict(ok=True, mode='five-independent-paper-accounts',
                 simulatedCapitalEur=1200, realOrders=False, startAt=START,
-                note='4 × 100 EUR plus 1 × 800 EUR virtuell. Der ursprüngliche manuelle 800-EUR-Test bleibt separat. KO-Schutz verlangt eine bestätigte heutige Spot-Barriere und aktuelle Euro-Kurse; er garantiert keinen rechtzeitigen Ausstieg. Ohne belegten Abrechnungswert bleiben Produktverlust und freies Kapital offen. Bruttomodell ohne vollständige Gebühren, Finanzierung oder Slippage.',
+                note='4 × 100 EUR plus 1 × 800 EUR virtuell. Der ursprüngliche manuelle 800-EUR-Test bleibt separat. KO-Schutz verlangt eine bestätigte heutige Spot-Barriere und aktuelle Euro-Kurse; er garantiert keinen rechtzeitigen Ausstieg. Ohne belegten Abrechnungswert bleiben Produktverlust und freies Kapital offen. Neue Einstiege ab 19.10.2026 mit Beispielkosten direkt im Spielgeld; frühere Fälle unverändert. Tatsächliche Brokergebühren unbekannt.',
                 accounts=accounts)
 
 
