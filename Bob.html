@@ -1159,6 +1159,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <script src="/bob_stop_assistant.js?v=20261016-chf-v1"></script>
 <script src="/product_trade_curve.js?v=20261018-trade-details"></script>
 <script src="/real_trade_journal.js"></script>
+<script src="/improvement_tracker.js?v=20261019-v1"></script>
 <script src="/video_evidence.js?v=2"></script>
 <script src="/video_brief.js?v=2"></script>
 <script src="/video_ocr.js?v=4"></script>
@@ -1976,7 +1977,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   window.BobDiagrams?.mount(panels.diagrams);
   const moreMenu=document.createElement('div');moreMenu.className='bob-more-menu';
   function menuButton(key,icon,label,note){return '<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'">'+icon+' '+label+'<small>'+note+'</small></button>';}
-  moreMenu.innerHTML=[['improve','↗','Besser werden','Dein neuer Bereich'],['simulation','▷','Simulation','Spielgeld, automatische Tests und Vergleiche'],['learning','↗','Lernen & Ergebnisse','Trade-Auswertung und Fortschritt'],['diagrams','▥','Diagramme','Vergleiche und Fortschritte'],['research','▶','Recherche','MCO-Goldvideos und Analysen'],['future','◇','Zukunft','Pläne und Broker'],['degiro','▤','DEGIRO','Dein reservierter Bereich'],['degiro2','↗','DEGIRO-Handy-Assistent','Vorbereitung und manuelle Übergabe'],['settings','⚙','Einstellungen','Push, Verbindung und Abmelden'],['help','?','Hilfe','Wofür Bob ist und wie du ihn bedienst']].map(args=>menuButton(...args)).join('');
+  moreMenu.innerHTML=[['improve','↗','Besser werden','Ziele, Fortschritt und belegte Ergebnisse'],['simulation','▷','Simulation','Spielgeld, automatische Tests und Vergleiche'],['learning','↗','Lernen & Ergebnisse','Trade-Auswertung und Fortschritt'],['diagrams','▥','Diagramme','Vergleiche und Fortschritte'],['research','▶','Recherche','MCO-Goldvideos und Analysen'],['future','◇','Zukunft','Pläne und Broker'],['degiro','▤','DEGIRO','Dein reservierter Bereich'],['degiro2','↗','DEGIRO-Handy-Assistent','Vorbereitung und manuelle Übergabe'],['settings','⚙','Einstellungen','Push, Verbindung und Abmelden'],['help','?','Hilfe','Wofür Bob ist und wie du ihn bedienst']].map(args=>menuButton(...args)).join('');
   // Group existing destinations, retaining their buttons and navigation targets.
   for(const [title,keys] of [
    ['Trainieren und auswerten',['simulation','learning','diagrams','improve']],
@@ -1990,6 +1991,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    for(const key of keys){const button=moreMenu.querySelector('[data-view="'+key+'"]');if(button)menu.append(button);}
    group.append(heading,menu);panels.more.append(group);
   }
+  window.BobImprovement?.mount(panels.improve);
   const descriptions={products:'Gold-Hebelprodukte prüfen und auswählen.',trade:'Deine Position, Stopp und Ziel an einem Ort.',more:'Weitere Bereiche nach Aufgabe geordnet.',learning:'Abgeschlossene Trades, bisherige Auswertungen und geprüfte Verbesserungen. Offene Fälle sind noch kein Ergebnis.',research:'Gold-Videos, Zusammenfassungen und der Vergleich MCO vs. Bob.',diagrams:'Vergleiche und Fortschritte als Diagramm.'};
   for(const [key,note] of Object.entries(descriptions)){
    const intro=document.createElement('p');intro.className='bob-page-note';intro.textContent=note;
