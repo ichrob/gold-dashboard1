@@ -10,7 +10,7 @@ def record(control, case, now):
     if (case.get('status') == 'open' or case.get('pendingUnits')
             or case.get('demonstration') or case.get('reflection', {}).get('version') == VERSION):
         return
-    cost = paper_costs.evaluate(case, paper_costs.SCENARIOS[0])
+    cost = paper_costs.evaluate(case, case.get('ledgerCostModel') or paper_costs.SCENARIOS[0])
     stress = paper_costs.evaluate(case, paper_costs.SCENARIOS[1])
     observations = []
     if cost is None:
