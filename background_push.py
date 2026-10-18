@@ -256,7 +256,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         if product:
             reason=reason+' · '+product['isin']+' · Modellreferenz '+product['referenceAt']+'; verfügbarer Wechselkurs und gespeicherte Produktbedingungen. Kein bestätigter DEGIRO-Kurs.'
         events.append({'title': title, 'body': reason, 'tag': 'bob-background-'+channel,
-                       'data': {'kind': channel, 'eventKind': kind, 'url': '/#trade' if channel=='trade' else '/', 'dataAt': market.get('dataAt'),
+                       'data': {'kind': channel, 'eventKind': kind, 'url': '/#trade' if channel=='trade' else '/', 'dataAt': market.get('dataAt'), 'generatedAt': now,
                                 'expiresAt': now+180000, 'tradeId': (settings.get('trade') or {}).get('tradeId')}})
     # Market closure is a third status, not a source outage or a fresh quote.
     # Keep the last genuine timestamp and do not hide failures already seen while open.
