@@ -31,7 +31,7 @@ def entry(phase,base,outcome,followup,now):
             row.update(result='Bisherige Regel und Testfilter behalten das Signal.',lesson=('Signal nach angenommenen Kosten negativ: als Prüffall sammeln.' if net<0 else 'Signal nach angenommenen Kosten positiv: als Prüffall sammeln.' if net>0 else 'Nach angenommenen Kosten ausgeglichen.'))
     elif not ready and followup and valid_followup(base,followup):
         move=(followup['price']/base['price']-1)*100
-        row.update(status='observed',marketMovePct=move,outcomeAt=followup['priceAt'],result='Marktbewegung nach ABWARTEN beobachtet.',lesson='Beschreibender Verlauf, kein Beleg für einen handelbaren verpassten Gewinn. Freigabe und Richtung fehlten damals.')
+        row.update(status='observed',marketMovePct=move,outcomeAt=followup['priceAt'],result='Marktbewegung nach ABWARTEN beobachtet.',lesson='Beschreibender Verlauf, kein Beleg für einen handelbaren verpassten Gewinn. Damals lag kein freigegebenes Richtungssignal vor.')
     elif due is not None and now>due+180000:
         row.update(status='missing',result='Gültiger Folgenachweis fehlt.',lesson='Nicht als Erfolg oder Misserfolg zählen; Originalnachweis fehlt.')
     return row
