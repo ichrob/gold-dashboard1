@@ -387,6 +387,13 @@ def audit_outcome_loop():
             run_test_repair_once(db)
         except Exception as exc:
             print('BOB_TEST_REPAIR error='+type(exc).__name__,flush=True)
+        try:
+            if int(time.time()*1000)>=improvement_tracker.START:
+                with db() as conn:
+                    improvement_tracker.archive_review(conn)
+                    conn.commit()
+        except Exception as exc:
+            print('BOB_IMPROVEMENT review_error='+type(exc).__name__,flush=True)
         time.sleep(120)
 
 
