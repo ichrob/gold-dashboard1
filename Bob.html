@@ -1663,7 +1663,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const quick=card('quickSignal'),manual=card('dgType'),push=card('generalPushBtn');
   const header=document.querySelector('h1')?.parentElement;
   const panels={};
-  for(const [key,label] of Object.entries({overview:'Übersicht',products:'Produkte',trade:'Mein Trade',auto:'Automatische Simulation',future:'Zukunft',research:'Recherche',learning:'Lernen & Ergebnisse',diagrams:'Diagramme',simulation:'Simulation',degiro:'DEGIRO',degiro2:'DEGIRO-Handy-Assistent',settings:'Einstellungen',help:'Hilfe',problems:'Probleme',more:'Mehr'})){
+  for(const [key,label] of Object.entries({overview:'Übersicht',products:'Produkte',trade:'Mein Trade',auto:'Automatische Simulation',future:'Zukunft',research:'Recherche',learning:'Lernen & Ergebnisse',diagrams:'Diagramme',simulation:'Simulation',improve:'Besser werden',degiro:'DEGIRO',degiro2:'DEGIRO-Handy-Assistent',settings:'Einstellungen',help:'Hilfe',problems:'Probleme',more:'Mehr'})){
    const el=document.createElement('section');el.id='bob-view-'+key;el.setAttribute('aria-label',label);el.hidden=key!=='overview';
    if(key!=='overview'){const h=document.createElement('h2');h.textContent=label;h.tabIndex=-1;el.append(h);}
    panels[key]=el;main.append(el);
@@ -1976,10 +1976,10 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   window.BobDiagrams?.mount(panels.diagrams);
   const moreMenu=document.createElement('div');moreMenu.className='bob-more-menu';
   function menuButton(key,icon,label,note){return '<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'">'+icon+' '+label+'<small>'+note+'</small></button>';}
-  moreMenu.innerHTML=[['simulation','▷','Simulation','Spielgeld, automatische Tests und Vergleiche'],['learning','↗','Lernen & Ergebnisse','Trade-Auswertung und Fortschritt'],['diagrams','▥','Diagramme','Vergleiche und Fortschritte'],['research','▶','Recherche','MCO-Goldvideos und Analysen'],['future','◇','Zukunft','Pläne und Broker'],['degiro','▤','DEGIRO','Dein reservierter Bereich'],['degiro2','↗','DEGIRO-Handy-Assistent','Vorbereitung und manuelle Übergabe'],['settings','⚙','Einstellungen','Push, Verbindung und Abmelden'],['help','?','Hilfe','Wofür Bob ist und wie du ihn bedienst']].map(args=>menuButton(...args)).join('');
+  moreMenu.innerHTML=[['improve','↗','Besser werden','Dein neuer Bereich'],['simulation','▷','Simulation','Spielgeld, automatische Tests und Vergleiche'],['learning','↗','Lernen & Ergebnisse','Trade-Auswertung und Fortschritt'],['diagrams','▥','Diagramme','Vergleiche und Fortschritte'],['research','▶','Recherche','MCO-Goldvideos und Analysen'],['future','◇','Zukunft','Pläne und Broker'],['degiro','▤','DEGIRO','Dein reservierter Bereich'],['degiro2','↗','DEGIRO-Handy-Assistent','Vorbereitung und manuelle Übergabe'],['settings','⚙','Einstellungen','Push, Verbindung und Abmelden'],['help','?','Hilfe','Wofür Bob ist und wie du ihn bedienst']].map(args=>menuButton(...args)).join('');
   // Group existing destinations, retaining their buttons and navigation targets.
   for(const [title,keys] of [
-   ['Trainieren und auswerten',['simulation','learning','diagrams']],
+   ['Trainieren und auswerten',['simulation','learning','diagrams','improve']],
    ['Recherche',['research']],
    ['Broker und Entwicklung',['degiro','degiro2','future']],
    ['Bedienung',['settings','help']]
@@ -2012,7 +2012,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const back=document.createElement('button');back.type='button';back.className='bob-back';back.dataset.view=parent;
    back.textContent='← '+panels[parent].getAttribute('aria-label');panels[key].prepend(back);
   }
-  for(const key of ['simulation','learning','diagrams','research','future','degiro','degiro2','settings','help']){
+  for(const key of ['improve','simulation','learning','diagrams','research','future','degiro','degiro2','settings','help']){
    const back=document.createElement('button');back.type='button';back.className='bob-back';back.dataset.view='more';back.textContent='← Mehr';panels[key].prepend(back);
   }
 
@@ -2089,7 +2089,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 
 
   nav.innerHTML=[['overview','◫','Übersicht'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['problems','⚠','Probleme'],['more','☰','Mehr']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+(key==='problems'?'<strong class="bob-problem-count" data-problem-count hidden aria-hidden="true"></strong>':'')+'</button>').join('');document.body.append(nav);
-  function show(key,focus=true){if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&['auto','future','research','learning','diagrams','degiro','degiro2','simulation','settings','help'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
+  function show(key,focus=true){if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&['improve','auto','future','research','learning','diagrams','degiro','degiro2','simulation','settings','help'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
   document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b){show(b.dataset.view);history.replaceState(null,'','#'+b.dataset.view);}});
   window.addEventListener('hashchange',()=>show(location.hash.slice(1)));
   for(const b of status.querySelectorAll('button'))b.addEventListener('click',()=>{show('settings');history.replaceState(null,'','#settings');if(b.dataset.status==='push')byId('bobPushSetup')?.scrollIntoView({behavior:'smooth',block:'start'});else{system.open=true;system.scrollIntoView({behavior:'smooth',block:'start'});}});
