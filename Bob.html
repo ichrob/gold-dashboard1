@@ -1963,10 +1963,10 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   window.BobDiagrams?.mount(panels.diagrams);
   const moreMenu=document.createElement('div');moreMenu.className='bob-more-menu';
   function menuButton(key,icon,label,note){return '<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'">'+icon+' '+label+'<small>'+note+'</small></button>';}
-  moreMenu.innerHTML=[['simulation','▷','Simulation','Spielgeld, automatische Tests und Vergleiche'],['learning','↗','Lernen & Ergebnisse','Trade-Auswertung, Fortschritt und Diagramme'],['research','▶','Recherche','MCO-Goldvideos und Analysen'],['future','◇','Zukunft','Pläne und Broker'],['degiro','▤','DEGIRO',''],['settings','⚙','Einstellungen','Nutzungshinweise und Abmelden']].map(args=>menuButton(...args)).join('');
+  moreMenu.innerHTML=[['simulation','▷','Simulation','Spielgeld, automatische Tests und Vergleiche'],['learning','↗','Lernen & Ergebnisse','Trade-Auswertung und Fortschritt'],['diagrams','▥','Diagramme','Vergleiche und Fortschritte'],['research','▶','Recherche','MCO-Goldvideos und Analysen'],['future','◇','Zukunft','Pläne und Broker'],['degiro','▤','DEGIRO',''],['settings','⚙','Einstellungen','Nutzungshinweise und Abmelden']].map(args=>menuButton(...args)).join('');
   // Group existing destinations, retaining their buttons and navigation targets.
   for(const [title,keys] of [
-   ['Trainieren und auswerten',['simulation','learning']],
+   ['Trainieren und auswerten',['simulation','learning','diagrams']],
    ['Recherche',['research']],
    ['Broker und Entwicklung',['degiro','future','settings']]
   ]){
@@ -1990,7 +1990,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   simulationIntro.append(simulationExplanation);
 
   // Related subviews retain their IDs and listeners, but have one clear parent.
-  const subviews={auto:['simulation','Automatische Simulation'],diagrams:['learning','Diagramme'],degiro2:['trade','DEGIRO-Handy-Assistent']};
+  const subviews={auto:['simulation','Automatische Simulation'],degiro2:['trade','DEGIRO-Handy-Assistent']};
   for(const [key,[parent,label]] of Object.entries(subviews)){
    const links=document.createElement('div');links.className='bob-more-menu';
    links.innerHTML=menuButton(key,'↗',label,'Öffnen');
@@ -1998,7 +1998,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const back=document.createElement('button');back.type='button';back.className='bob-back';back.dataset.view=parent;
    back.textContent='← '+panels[parent].getAttribute('aria-label');panels[key].prepend(back);
   }
-  for(const key of ['simulation','learning','research','future','degiro','settings']){
+  for(const key of ['simulation','learning','diagrams','research','future','degiro','settings']){
    const back=document.createElement('button');back.type='button';back.className='bob-back';back.dataset.view='more';back.textContent='← Mehr';panels[key].prepend(back);
   }
 
