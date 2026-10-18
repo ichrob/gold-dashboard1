@@ -385,6 +385,15 @@ def run_test_repair_once(database):
     print('BOB_TEST_REPAIR checked='+str(result['processed']),flush=True)
 
 
+def run_improvement_review_once(database):
+    with database() as conn:
+        status=improvement_tracker.archive_review(conn)
+        conn.commit()
+    if status:
+        print('BOB_IMPROVEMENT_STATUS '+json.dumps(status,allow_nan=False),flush=True)
+    return status
+
+
 def audit_outcome_loop():
     while True:
         try:
@@ -398,9 +407,7 @@ def audit_outcome_loop():
             print('BOB_TEST_REPAIR error='+type(exc).__name__,flush=True)
         try:
             if int(time.time()*1000)>=improvement_tracker.START:
-                with db() as conn:
-                    improvement_tracker.archive_review(conn)
-                    conn.commit()
+                run_improvement_review_once(db)
         except Exception as exc:
             print('BOB_IMPROVEMENT review_error='+type(exc).__name__,flush=True)
         time.sleep(120)

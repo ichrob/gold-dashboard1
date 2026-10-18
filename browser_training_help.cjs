@@ -78,6 +78,16 @@ const fs=require('fs'),assert=require('node:assert/strict');
  assert.match(await exits.innerText(),/Keine bestätigte Ausführung/);
  assert.match(await exits.innerText(),/Kostenvergleich noch offen/);
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=390));
+ await page.evaluate(()=>BobImprovement.renderOperations({dailyReview:[{day:'2026-10-19',closed:false,coveragePct:50,completed:2,positive:1,negative:1,missingSlots:3,invalidSlots:2,missingOutcomes:1,valid:5,expected:10,note:'Zwischenstand'}],repairQuality:{status:'unavailable'},costEvidence:{complete:0,total:1,missing:1,items:[],note:'Gebühren fehlen'},releaseDossier:{status:'Nachweise fehlen',checks:[{met:false,label:'Kosten vollständig'}],rollbackStatus:'Verfahren vorbereitet',rollbackSteps:['Version vor Freigabe sichern'],note:'Keine automatische Regeländerung'}}));
+ const operations=page.locator('[data-operations]');
+ assert.match(await operations.innerText(),/gültige Daten 50/);
+ assert.match(await operations.innerText(),/Keine echten Trade-Ergebnisse/);
+ assert.equal(await operations.locator('details[open]').count(),0);
+ await operations.getByText('Details · Wie gut behebt Bob Fehler?',{exact:true}).click();
+ assert.match(await operations.innerText(),/Reparaturbilanz derzeit nicht bestätigt/);
+ await operations.getByText('Details · Freigabe und Rückkehr zur bisherigen Regel',{exact:true}).click();
+ assert.match(await operations.innerText(),/Persönliche Freigabe: ausstehend/);
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=390));
  console.log('Mobile training help: blue button, automatic retries, escalation, explicit share and verified recovery OK');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

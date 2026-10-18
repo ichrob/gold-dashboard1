@@ -138,8 +138,13 @@ class TrackerDatabaseTests(unittest.TestCase):
                 m.capture(conn,market(later+7200000),later+7200000)
                 self.assertEqual(conn.execute("SELECT count(*) FROM bob_improvement_trials WHERE phase='validation'").fetchone()[0],1)
                 count=conn.execute('SELECT count(*) FROM bob_improvement_trials').fetchone()[0]
+                status=m.archive_review(conn,later+7230000)
+                self.assertTrue(status['persisted'])
                 m.archive_review(conn,later+7230000)
-                m.archive_review(conn,later+7230000)
+                self.assertGreater(conn.execute('SELECT count(*) FROM bob_improvement_daily').fetchone()[0],0)
+                dossier=conn.execute('SELECT payload FROM bob_improvement_release_dossiers').fetchone()[0]
+                self.assertFalse(dossier['approved'])
+                self.assertFalse(dossier['automaticRuleChange'])
                 self.assertEqual(conn.execute('SELECT count(*) FROM bob_improvement_reviews').fetchone()[0],1)
                 recorded=m.report(conn,later+7230000)['history'][0]
                 self.assertFalse(recorded['actualRuleChange'])
