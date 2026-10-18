@@ -59,4 +59,4 @@ def report(cases):
              'Gebühren und schlechtere Ausführung sind Beispielannahmen, keine DEGIRO-Tarife oder gemessene Slippage. '
              'Zusätzlicher Haltekosten-Stress auf das volle Einstiegskapital; eingebettete Emittentenfinanzierung '
              'wird nicht als nochmals gemessene Gebühr abgezogen. Tatsächliche Kosten unbekannt. '
-             'Nachträgliche Sensitivität ohne Änderung von Kapital, Stückzahl, Ranking oder Handelssperren.')
+             'Zusätzlicher Szenariovergleich ohne weitere Abbuchung. Neue automatische Kontofälle ab 19.10.2026 buchen ihre eingefrorenen Beispielkosten bereits im Spielgeld; dieser Vergleich zieht sie nicht nochmals ab.')

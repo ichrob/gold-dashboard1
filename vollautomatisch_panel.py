@@ -37,8 +37,8 @@ PANEL = r"""
  <button type="button" id="bobProfilesRefresh" class="bob-primary">Fünf Simulationen prüfen</button>
  <p id="bobProfilesStatus" class="small" role="status">Prüfstand wird geladen …</p>
  <div id="bobProfilesCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:12px"></div>
- <p class="small">Bruttoergebnisse: Spread ist im Brief-/Geldkurs enthalten. Gebühren, Finanzierung und Slippage sind nicht vollständig belegt. Erfolgsquote zählt nur mit frischem Produktkurs bewertete Trades; Drawdown nur beobachtete Kurse, keine unbekannten Kurslücken.</p>
-  <details><summary>Grenzen des Tests</summary><p class="small">Konservativ: bestätigter Trend, Richtungswert 80/20, bis 35 % Kapitaleinsatz, 1 % Tages-Einstiegssperre. Ausgewogen: 70/30, bis 65 %, 3 %. Offensiv: 65/35, bis 95 %, 5 %. 800 € · Bob-Stopp & Wiedereinstieg: Trend bestätigt, 70/30, bis 65 %, 3 %. Dieselbe Bob-Stopp-/Zielverwaltung wie die Haupt-Testkonten: Stoppvorschläge übernehmen, niemals lockern, am beobachteten Stopp beenden. Danach neues bestätigtes Setup und vollständige Produktfreigabe vor dem Wiedereinstieg. Teilgewinn und Zielverlängerung bleiben Teil von Bobs gemeinsamer Verwaltung. Höchstens vier Stunden pro neuem Trade beziehungsweise bis 21:45 Uhr Zürich. Keine Nachtposition. Prozentuale Rendite statt absoluter Eurogewinne vergleichen. Frühimpuls 100 €: eigenständiger früher 5m/15m-LONG/SHORT-Einstiegsversuch, ohne Änderung der Hauptrichtung und nur mit gültigem Euro-Produktkurs, verifiziertem KO und Gold-Stop/Ziel-Plan. Fehlende Nachweise blockieren auch den virtuellen Einstieg. Die Tagesgrenzen stoppen nur weitere Einstiege. Alle Varianten verwenden dieselben Produktnachweise. Bruttomodell ohne vollständig belegte Gebühren, Finanzierung und Slippage; Stopps sind wegen Kurslücken keine garantierten Verlustgrenzen.</p></details>
+ <p class="small">Neue Einstiege ab 19.10.: 1 € je Kauf/Verkauf und 0,05 % Slippage je Seite werden direkt vom Spielgeld abgezogen. Beispielkosten, keine bestätigten Brokergebühren. Frühere Fälle bleiben unverändert. Spread ist bereits im Brief-/Geldkurs enthalten. Erfolgsquote zählt nur mit frischem Produktkurs bewertete Trades; Drawdown nur beobachtete Kurse, keine unbekannten Kurslücken.</p>
+  <details><summary>Grenzen des Tests</summary><p class="small">Konservativ: bestätigter Trend, Richtungswert 80/20, bis 35 % Kapitaleinsatz, 1 % Tages-Einstiegssperre. Ausgewogen: 70/30, bis 65 %, 3 %. Offensiv: 65/35, bis 95 %, 5 %. 800 € · Bob-Stopp & Wiedereinstieg: Trend bestätigt, 70/30, bis 65 %, 3 %. Dieselbe Bob-Stopp-/Zielverwaltung wie die Haupt-Testkonten: Stoppvorschläge übernehmen, niemals lockern, am beobachteten Stopp beenden. Danach neues bestätigtes Setup und vollständige Produktfreigabe vor dem Wiedereinstieg. Teilgewinn und Zielverlängerung bleiben Teil von Bobs gemeinsamer Verwaltung. Höchstens vier Stunden pro neuem Trade beziehungsweise bis 21:45 Uhr Zürich. Keine Nachtposition. Prozentuale Rendite statt absoluter Eurogewinne vergleichen. Frühimpuls 100 €: eigenständiger früher 5m/15m-LONG/SHORT-Einstiegsversuch, ohne Änderung der Hauptrichtung und nur mit gültigem Euro-Produktkurs, verifiziertem KO und Gold-Stop/Ziel-Plan. Fehlende Nachweise blockieren auch den virtuellen Einstieg. Die Tagesgrenzen stoppen nur weitere Einstiege. Alle Varianten verwenden dieselben Produktnachweise. Neue Einstiege mit Beispielkosten im Kontostand; tatsächliche Brokerkosten bleiben unbekannt. Zwei Verkaufsgebühren werden bei der Kaufmenge reserviert. Stopps sind wegen Kurslücken keine garantierten Verlustgrenzen.</p></details>
 </section>
 <script>
 (function(){
@@ -100,15 +100,18 @@ PANEL = r"""
      const lines=[
       'Fiktiver Anfang: '+money.format(c.initialCapital??100),
       'Kapital: '+(Number.isFinite(c.equity)?money.format(c.equity):'Bewertung offen'),
+      'Gebuchte Beispielkosten: '+(Number.isFinite(c.costsDebitedEur)?money.format(c.costsDebitedEur):'Kostenperiode noch nicht gestartet'),
+      'Kostenperiode ab: '+time(c.costsStartedAt),
+      'Ergebnis seit Kostenumstellung: '+(Number.isFinite(c.costPeriodProfit)?money.format(c.costPeriodProfit):'noch offen'),
       'Bargeld: '+(Number.isFinite(c.cash)?money.format(c.cash):'unbekannt'),
-      'Rendite seit Start (brutto): '+(Number.isFinite(c.equity)&&Number.isFinite(c.initialCapital)&&c.initialCapital>0?((c.equity/c.initialCapital-1)*100).toFixed(2)+' %':'Bewertung offen'),
+      'Rendite seit Kontostart (Altbestand vor Kostenumstellung enthalten): '+(Number.isFinite(c.equity)&&Number.isFinite(c.initialCapital)&&c.initialCapital>0?((c.equity/c.initialCapital-1)*100).toFixed(2)+' %':'Bewertung offen'),
       'Grösster beobachteter Kapitalrückgang: '+(Number.isFinite(perf.observedMaxDrawdownPct)?perf.observedMaxDrawdownPct.toFixed(2)+' %':'noch kein belegter Wert'),
-      'Positive vollständig bepreiste Trades: '+(perf.pricedTrades>0?(perf.positivePricedTrades+'/'+perf.pricedTrades+' · '+perf.productPositiveRatePct.toFixed(1)+' %'):'noch keine'),
+      'Positive vollständig bepreiste Trades vor Zusatzkosten: '+(perf.pricedTrades>0?(perf.positivePricedTrades+'/'+perf.pricedTrades+' · '+perf.productPositiveRatePct.toFixed(1)+' %'):'noch keine'),
       'Nicht auswertbare Fälle: '+(perf.inconclusiveTrades??0),
       'Preisprüfungen ohne gültigen Kurs: '+(perf.quoteMissingChecks??0)+' (seit Start)',
       'Preisprüfungen mit gültigem Kurs: '+(perf.quoteConfirmedChecks??0)+' (seit Start)',
       'Produktbewertung: '+(perf.quoteStatus==='missing-or-stale'?'Geldkurs fehlt oder ist veraltet':perf.quoteStatus==='confirmed'?'bestätigter Geldkurs':perf.quoteStatus==='no-open-units'?'keine offenen Stücke':'noch keine Beobachtung'),
-      'Heute realisiert (brutto): '+(Number.isFinite(st.dayRealizedProfit)?money.format(st.dayRealizedProfit):'noch unbekannt'),
+      'Heute realisiert (abzüglich gebuchter Beispielkosten): '+(Number.isFinite(st.dayRealizedProfit)?money.format(st.dayRealizedProfit):'noch unbekannt'),
       'Offene Stücke: '+(c.openUnits??0),
       'Tagesverlustgrenze: '+Math.round((p.daily_loss_fraction||0)*100)+' %',
       'Max. Kapitaleinsatz: '+Math.round((p.exposure_fraction||0)*100)+' %',
