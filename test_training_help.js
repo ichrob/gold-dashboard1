@@ -11,7 +11,7 @@ items=h.classify(report([{...row,status:'escalated',attempts:3}]),now);
 assert.equal(h.marker(items,'learning'),'X');
 assert.match(h.reportText(items,now,false),/Archiv prüfen/);
 assert.match(h.reportText(items,now,false),/Originalkurs fehlt/);
-assert.doesNotMatch(h.reportText(h.classify(report([row]),now),now,false),/Fall: signal:abc/);
+assert.doesNotMatch(h.reportText(h.classify(report([row]),now),now,false),/Problemkennung: signal:abc/);
 assert.equal(h.marker(h.classify(report([{...row,status:'recovered'}]),now),'learning'),'');
 assert.equal(h.marker(h.classify(report([{...row,status:'escalated',attempts:0,history:[]}]),now),'learning'),'(X)');
 assert.equal(h.marker(h.classify(report([],now-500000),now,1),'simulation'),'(X)');
@@ -20,6 +20,8 @@ assert.equal(h.marker(h.classify(report([]),now,3),'simulation'),'');
 items=h.classify(report([{...row,id:'exit:CHF:123',status:'escalated'}]),now);
 assert.equal(h.marker(items,'simulation'),'X');assert.equal(h.marker(items,'improve'),'');
 assert.match(h.reportText(items,now,true),/Weitere|weitere/);
+const grouped={...report(Array.from({length:15},()=>({...row,status:'escalated'}))),problemGroups:[{id:'test:signal:missingFollowup',kind:'signal',status:'escalated',cases:15,escalated:15,maxAttempts:3,reason:'missingFollowup',type:'Original-Folgekurs fehlt'}]};
+const one=h.classify(grouped,now);assert.equal(one.length,1);assert.equal(one[0].cases,15);assert.match(h.reportText(one,now,false),/Betroffene Testfälle: 15/);
 (async()=>{
  let copied=false;
  assert.equal(await h.share({share:async()=>{const e=Error();e.name='AbortError';throw e;},clipboard:{writeText:async()=>{copied=true;}}},'x'),'cancelled');assert.equal(copied,false);
