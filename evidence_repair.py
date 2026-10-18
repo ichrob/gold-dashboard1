@@ -7,6 +7,8 @@ MAX_ATTEMPTS=3
 
 
 def init(conn):
+    import training_handoff
+    training_handoff.init(conn)
     conn.execute('CREATE TABLE IF NOT EXISTS bob_test_repair_control (id INTEGER PRIMARY KEY,last_at BIGINT)')
     conn.execute('INSERT INTO bob_test_repair_control(id,last_at) VALUES(1,NULL) ON CONFLICT DO NOTHING')
     conn.execute('ALTER TABLE bob_test_repair_control ADD COLUMN IF NOT EXISTS signal_cursor TEXT')
@@ -184,7 +186,9 @@ def report(conn):
     rows=conn.execute('''SELECT id,status,attempts,payload FROM bob_test_repairs
       WHERE status<>'recovered' ORDER BY (status='escalated') DESC,next_at DESC LIMIT 300''').fetchall()
     checked=conn.execute('SELECT last_at FROM bob_test_repair_control WHERE id=1').fetchone()
-    return dict(available=True,workerCheckedAt=checked[0] if checked else None,generatedAt=int(time.time()*1000),maxAttempts=MAX_ATTEMPTS,intervalMs=INTERVAL,
+    import training_handoff
+    groups=training_handoff.problem_groups(conn)
+    return dict(problemGroups=groups,problemCount=len(groups),affectedCases=sum(g['cases'] for g in groups),available=True,workerCheckedAt=checked[0] if checked else None,generatedAt=int(time.time()*1000),maxAttempts=MAX_ATTEMPTS,intervalMs=INTERVAL,
         counts=counts,limit=300,truncated=sum(v for k,v in counts.items() if k!='recovered')>len(rows),
         items=[dict(p,id=key,status=status,attempts=attempts) for key,status,attempts,p in rows],
         note='Automatische Nachprüfung im Hintergrund etwa alle zwei Minuten, maximal drei Versuche. Nicht rekonstruierbare Originaldaten werden nach bestätigter Prüfung direkt weitergegeben. Keine erfundenen historischen Kurse; abgeschlossene Lernexperimente werden nicht überschrieben.')

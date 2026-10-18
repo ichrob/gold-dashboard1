@@ -36,6 +36,9 @@ const fs=require('fs'),assert=require('node:assert/strict');
  await page.clock.runFor(60001);assert.equal(await page.evaluate(()=>window.retries),2);
  assert.equal((await page.locator('[data-view=improve] [data-training-mark]').innerText()).trim(),'X');
  await page.evaluate(()=>BobTrainingHelp.observe('improve',true));assert(await page.locator('[data-view=improve] [data-training-mark]').isHidden());
+ await page.evaluate(()=>{testReport.problemGroups=[{id:'test:signal:missingFollowup',kind:'signal',status:'escalated',cases:15,escalated:15,maxAttempts:3,type:'Original-Folgekurs fehlt',reason:'missingFollowup'}];testReport.affectedCases=15;});
+ await page.clock.runFor(30001);
+ await page.getByText(/1 offene Fehlerarten · 15 betroffene Testfälle/).waitFor();
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=390));
  console.log('Mobile training help: blue button, automatic retries, escalation, explicit share and verified recovery OK');
  }finally{await browser.close();}

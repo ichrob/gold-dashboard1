@@ -377,6 +377,8 @@ def run_test_repair_once(database):
         import training_handoff
         with database() as conn:
             handoff=training_handoff.summary(conn)
+            training_handoff.sync_groups(conn,handoff)
+            conn.commit()
         training_handoff.publish(handoff)
     except Exception as exc:
         print('BOB_TRAINING_HELP error='+type(exc).__name__,flush=True)

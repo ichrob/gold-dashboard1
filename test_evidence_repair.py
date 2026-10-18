@@ -86,6 +86,22 @@ class RepairPersistenceTests(unittest.TestCase):
                 self.assertNotIn('DETEST',json.dumps(handoff))
                 self.assertIn(dict(kind='title',reason='missing-original-evidence',cases=1),handoff['reasons'])
                 self.assertEqual(handoff['workerCheckedAt'],report['workerCheckedAt'])
+                training_handoff.sync_groups(conn,handoff);conn.commit()
+                self.assertEqual(len(handoff['events']),1)
+                first_key=handoff['problemGroups'][0]['dispatchKey']
+                # Restart/migration and repeated scans do not create another request.
+                repair.init(conn)
+                repeated=training_handoff.summary(conn);training_handoff.sync_groups(conn,repeated)
+                self.assertEqual(repeated['events'],[])
+                self.assertEqual(repeated['problemGroups'][0]['dispatchKey'],first_key)
+                # Only a verified disappearance followed by recurrence opens an episode.
+                conn.execute("UPDATE bob_test_repairs SET status='recovered' WHERE kind='title'")
+                resolved=training_handoff.summary(conn);training_handoff.sync_groups(conn,resolved)
+                self.assertEqual(resolved['events'][0]['event'],'resolved')
+                conn.execute("UPDATE bob_test_repairs SET status='escalated' WHERE kind='title'")
+                again=training_handoff.summary(conn);training_handoff.sync_groups(conn,again)
+                self.assertEqual(again['events'][0]['episode'],2)
+                self.assertNotEqual(again['problemGroups'][0]['dispatchKey'],first_key)
                 # A separately recovered/backfilled signal must leave the help queue.
                 conn.execute("UPDATE bob_test_repairs SET status='escalated' WHERE kind='signal'")
                 repair.tick(conn,now+3*repair.INTERVAL)

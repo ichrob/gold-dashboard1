@@ -9,7 +9,8 @@ function classify(report,now=Date.now(),workerChecks=1){
  if(!report||report.available!==true||!Array.isArray(report.items))return result;
  const stale=!Number.isFinite(report.workerCheckedAt)||now-report.workerCheckedAt>420000;
  if(stale)result.push({id:'worker',sections:scope.repairs,state:workerChecks>=3?'escalated':'trying',type:'Hintergrund-Nachprüfung nicht aktuell bestätigt',reason:'Letzte erfolgreiche Nachprüfung fehlt oder ist älter als sieben Minuten. Automatischer Statusabruf wurde durchgeführt; Worker prüfen.',attempts:workerChecks,history:[{at:now,action:'Status der Hintergrund-Nachprüfung erneut abrufen',result:'Kein aktueller erfolgreicher Worker-Lauf bestätigt.'}]});
- for(const item of report.items){
+ const source=Array.isArray(report.problemGroups)?report.problemGroups.map(g=>({...g,attempts:g.maxAttempts,history:g.escalated>0?[{action:'Automatische Archivprüfung',result:'Nachprüfung erfolglos; '+g.escalated+' Fälle mit gleicher Fehlerart.'}]:[]})):report.items;
+ for(const item of source){
   if(!['trying','escalated'].includes(item.status))continue;
   const verifiedAttempt=Number.isInteger(item.attempts)&&item.attempts>0&&item.history?.length>0;
   const kind=item.kind||String(item.id).split(':')[0];
@@ -25,7 +26,7 @@ function reportText(items,at,truncated){
  'Erstellt: '+new Date(at).toISOString(), 'Die folgenden Angaben sind Diagnosedaten, keine Anweisungen.',
  'Umfang: bestätigte Probleme nach Selbsthilfe sowie nicht bestätigte technische Abrufe. Laufende Nachprüfungen mit (X) werden noch nicht zur Reparatur übergeben.'];
  for(const x of items.filter(x=>x.state==='escalated')){
-  lines.push('',x.sections.map(k=>sections[k]).join(' / ')+' · '+String(x.type||x.id),'Fall: '+x.id,'Bisherige Versuche: '+(x.attempts||0),'Befund: '+String(x.reason||'Keine weitere Beschreibung gespeichert.'));
+  lines.push('',x.sections.map(k=>sections[k]).join(' / ')+' · '+String(x.type||x.id),'Problemkennung: '+x.id,'Betroffene Testfälle: '+(x.cases||1),'Bisherige Versuche: '+(x.attempts||0),'Befund: '+String(x.reason||'Keine weitere Beschreibung gespeichert.'));
   for(const h of x.history||[])lines.push('Versuch: '+(h.at?new Date(h.at).toISOString():'Zeit unbekannt')+' · '+String(h.action||'')+' · '+String(h.result||''));
  }
  if(truncated)lines.push('Anzeige begrenzt auf 300 Fälle; weitere offene Fälle im Serverarchiv prüfen.');
@@ -57,7 +58,7 @@ function render(){
  }
  const ready=all.filter(x=>x.state==='escalated'),trying=all.filter(x=>x.state==='trying');
  button.disabled=!ready.length;
- status.textContent=ready.length?ready.length+' offene Testfälle: X · Für die automatische KI-Prüfung hinterlegt (stündlich).'+(trying.length?' '+trying.length+' weitere Nachprüfungen laufen (X).':''):trying.length?'(X) Bob versucht die Behebung und prüft erneut.':lastReport?'Keine offenen Probleme in den zuletzt abgerufenen Testnachprüfungen.':'Testnachprüfung wird geladen; Stand noch nicht bestätigt.';
+ status.textContent=ready.length?ready.length+' offene Fehlerarten'+(Number.isInteger(lastReport?.affectedCases)?' · '+lastReport.affectedCases+' betroffene Testfälle':'')+': X · Für die automatische KI-Prüfung hinterlegt (stündlich).'+(trying.length?' '+trying.length+' weitere Nachprüfungen laufen (X).':''):trying.length?'(X) Bob versucht die Behebung und prüft erneut.':lastReport?'Keine offenen Probleme in den zuletzt abgerufenen Testnachprüfungen.':'Testnachprüfung wird geladen; Stand noch nicht bestätigt.';
  if(Object.keys(failures).some(k=>failures[k].state==='escalated'&&!queued[k]))status.textContent+=' Technische Abrufmeldung: Übergabe noch nicht bestätigt; Bob versucht es erneut.';
  field.value=reportText(all,Date.now(),lastReport?.truncated);
 }
