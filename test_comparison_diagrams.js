@@ -12,9 +12,15 @@ assert.equal(api.segments([rows[0],{...rows[0],at:at+14400000}],'chosen',x=>x,x=
 assert.equal(api.proofs(study,'EUR')[0].active,false);assert.equal(api.proofs(study,'EUR')[0].phase,'validation');assert.equal(JSON.stringify(study),before);
 // Exercise actual SVG/DOM rendering, empty state, later data, stale state and controls.
 class El{constructor(tag){this.tag=tag;this.children=[];this.style={};this.events={};this.attrs={};this.textContent='';}append(...els){this.children.push(...els);}replaceChildren(...els){this.children=els;}setAttribute(k,v){this.attrs[k]=v;}addEventListener(k,f){this.events[k]=f;}}
-const doc={createElement:t=>new El(t),createElementNS:(_,t)=>new El(t),dispatchEvent:()=>{}};
-const window={document:doc};vm.runInNewContext(fs.readFileSync('comparison_diagrams.js','utf8'),{window,setInterval:()=>{},Event:class{},Date,console});
+const researchPanel=new El('section');let mcoMounts=0;
+const doc={getElementById:id=>id==='bob-view-research'?researchPanel:null,createElement:t=>new El(t),createElementNS:(_,t)=>new El(t),dispatchEvent:()=>{}};
+const window={document:doc,BobMcoComparison:{mount:host=>{mcoMounts++;host.append(new El('mco-comparison'));}}};vm.runInNewContext(fs.readFileSync('comparison_diagrams.js','utf8'),{window,setInterval:()=>{},Event:class{},Date,console});
 const panel=new El('section');window.BobDiagrams.mount(panel);
+const groups=panel.children.filter(e=>e.tag==='details');
+assert.deepEqual(groups.map(e=>e.children[0].textContent),['Markt','Mein Trade','Simulation','Lernen']);
+assert.equal(mcoMounts,1);assert.equal(researchPanel.children.length,1,'MCO comparison has one home in research');
+assert(groups[1].children.some(e=>e.attrs['data-view']==='trade'),'Current trade curve is linked, not duplicated');
+assert(groups[0].children.some(e=>e.attrs['data-view']==='overview'),'Live market chart stays in overview');
 const all=()=>{const out=[];function walk(e){out.push(e);e.children.forEach(walk);}walk(panel);return out;};
 assert(all().some(e=>e.textContent.includes('Noch keine vollständigen')));
 window.BobDiagrams.unavailable();assert(all().some(e=>e.textContent.includes('derzeit nicht verfügbar')));
