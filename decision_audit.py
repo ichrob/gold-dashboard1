@@ -27,6 +27,7 @@ RULE_VERSION = 'intraday-trend-follow-v7'
 REPORT_LIMIT = 2500
 REPORT_BUSY_LIMIT = 500
 REPORT_CACHE_SECONDS = 300
+HARVEST_BATCH_LIMIT = 96
 
 def milliseconds(value):
     try:
@@ -387,26 +388,37 @@ _harvest_at=0
 def harvest(conn):
     global _harvest_at
     if time.time()-_harvest_at<60:return
-    conn.execute("""INSERT INTO bob_decision_outcomes(decision_id,horizon,truth)
-      SELECT a.id,h.minutes,json_build_object('at',s.quote_at,'price',s.price,'minPrice',ext.lo,'maxPrice',ext.hi)::jsonb
+    conn.execute("""WITH candidates AS MATERIALIZED (
+      SELECT a.id,a.payload,capture.at,h.minutes
       FROM bob_decision_audit a
       CROSS JOIN LATERAL (SELECT to_timestamp((a.payload->>'recordedAt')::double precision/1000.0) AS at) capture
       CROSS JOIN (VALUES (1),(5),(15),(30),(60),(240)) h(minutes)
-      CROSS JOIN LATERAL (SELECT quote_at,price FROM bob_spot_observations
-        WHERE stream='gold-api-xau-usd-v1'
-        AND quote_at>=capture.at+h.minutes*interval '1 minute'
-        AND quote_at<=capture.at+(h.minutes+1)*interval '1 minute'
-        ORDER BY quote_at LIMIT 1) s
-      LEFT JOIN LATERAL (SELECT min(price) lo,max(price) hi FROM bob_spot_observations
-        WHERE stream='gold-api-xau-usd-v1' AND quote_at>=capture.at AND quote_at<=s.quote_at
-        AND h.minutes IN (15,60,240)
-        AND a.payload->'entryQuality'->>'version'='entry-quality-v1') ext ON TRUE
       WHERE a.recorded_at>=now()-interval '7 days'
       AND a.payload->>'marketEvaluable'='true'
       AND jsonb_typeof(a.payload->'recordedAt')='number'
+      AND capture.at+h.minutes*interval '1 minute'<=now()
       AND (h.minutes IN (15,60,240) OR a.payload->'marketOptimization'->>'version'='market-review-v1')
       AND NOT EXISTS (SELECT 1 FROM bob_decision_outcomes o WHERE o.decision_id=a.id AND o.horizon=h.minutes)
-      ON CONFLICT DO NOTHING""")
+      AND EXISTS (SELECT 1 FROM bob_spot_observations available
+        WHERE available.stream='gold-api-xau-usd-v1'
+        AND available.quote_at>=capture.at+h.minutes*interval '1 minute'
+        AND available.quote_at<=capture.at+(h.minutes+1)*interval '1 minute')
+      ORDER BY a.recorded_at,h.minutes
+      LIMIT %s
+    )
+    INSERT INTO bob_decision_outcomes(decision_id,horizon,truth)
+      SELECT a.id,a.minutes,json_build_object('at',s.quote_at,'price',s.price,'minPrice',ext.lo,'maxPrice',ext.hi)::jsonb
+      FROM candidates a
+      CROSS JOIN LATERAL (SELECT quote_at,price FROM bob_spot_observations
+        WHERE stream='gold-api-xau-usd-v1'
+        AND quote_at>=a.at+a.minutes*interval '1 minute'
+        AND quote_at<=a.at+(a.minutes+1)*interval '1 minute'
+        ORDER BY quote_at LIMIT 1) s
+      LEFT JOIN LATERAL (SELECT min(price) lo,max(price) hi FROM bob_spot_observations
+        WHERE stream='gold-api-xau-usd-v1' AND quote_at>=a.at AND quote_at<=s.quote_at
+        AND a.minutes IN (15,60,240)
+        AND a.payload->'entryQuality'->>'version'='entry-quality-v1') ext ON TRUE
+      ON CONFLICT DO NOTHING""",(HARVEST_BATCH_LIMIT,))
     _harvest_at=time.time()
 
 _report_lock = threading.Lock()

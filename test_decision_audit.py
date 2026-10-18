@@ -276,10 +276,32 @@ class UnattendedBackgroundAuditWriterTests(unittest.TestCase):
         from push_server import run_audit_harvest_once
         database=MagicMock()
         conn=database.return_value.__enter__.return_value
-        with patch('push_server.decision_audit.harvest') as harvest:
-            run_audit_harvest_once(database)
+        with patch('push_server.decision_audit.harvest') as harvest, \
+             patch('product_precision.harvest') as precision, \
+             patch('push_server.ranking_learning.harvest') as ranking:
+            result=run_audit_harvest_once(database)
         harvest.assert_called_once_with(conn)
-        conn.commit.assert_called_once()
+        precision.assert_called_once_with(conn)
+        ranking.assert_called_once_with(conn)
+        self.assertEqual(result['failed'],[])
+        self.assertEqual(conn.commit.call_count,3)
+
+    def test_one_harvest_timeout_does_not_cancel_the_other_archives(self):
+        from unittest.mock import MagicMock, patch
+        import psycopg
+        from push_server import run_audit_harvest_once
+        database=MagicMock()
+        conn=database.return_value.__enter__.return_value
+        with patch('push_server.decision_audit.harvest',side_effect=psycopg.errors.QueryCanceled('timeout')), \
+             patch('product_precision.harvest') as precision, \
+             patch('push_server.ranking_learning.harvest') as ranking, \
+             patch('builtins.print') as emit:
+            result=run_audit_harvest_once(database)
+        precision.assert_called_once_with(conn)
+        ranking.assert_called_once_with(conn)
+        self.assertEqual(result['failed'],['decision'])
+        self.assertEqual(conn.commit.call_count,2)
+        emit.assert_called_once_with('BOB_AUDIT_HARVEST stage=decision error=QueryCanceled',flush=True)
 
 
 class ReportBatchRowsTests(unittest.TestCase):
