@@ -41,7 +41,11 @@ const api={classify,marker,reportText,share};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 if(!root?.document)return;
 const doc=root.document;let host,button,status,preview,field,link,lastReport=null,busy=false,workerChecks=0;
-const failures={},timers={};
+const failures={},timers={},queued={},queueBusy={};
+async function queueLocal(key){
+ if(queued[key]||queueBusy[key])return;queueBusy[key]=true;
+ try{const r=await root.fetch('/api/assistance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:'training-'+key+'-unavailable'}),signal:AbortSignal.timeout(15000)});const data=await r.json();if(!r.ok||data.ok!==true||data.status!=='queued')throw Error('not confirmed');queued[key]=true;}catch(_){queued[key]=false;}finally{queueBusy[key]=false;render();}
+}
 const node=(tag,text)=>{const n=doc.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
 function items(){return [...classify(lastReport,Date.now(),workerChecks),...Object.values(failures)];}
 function render(){
@@ -53,15 +57,17 @@ function render(){
  }
  const ready=all.filter(x=>x.state==='escalated'),trying=all.filter(x=>x.state==='trying');
  button.disabled=!ready.length;
- status.textContent=ready.length?ready.length+' offene Probleme: X · Bitte an ChatGPT senden.'+(trying.length?' '+trying.length+' weitere Nachprüfungen laufen (X).':''):trying.length?'(X) Bob versucht die Behebung und prüft erneut.':lastReport?'Keine offenen Probleme in den zuletzt abgerufenen Testnachprüfungen.':'Testnachprüfung wird geladen; Stand noch nicht bestätigt.';
+ status.textContent=ready.length?ready.length+' offene Testfälle: X · Für die automatische KI-Prüfung hinterlegt (stündlich).'+(trying.length?' '+trying.length+' weitere Nachprüfungen laufen (X).':''):trying.length?'(X) Bob versucht die Behebung und prüft erneut.':lastReport?'Keine offenen Probleme in den zuletzt abgerufenen Testnachprüfungen.':'Testnachprüfung wird geladen; Stand noch nicht bestätigt.';
+ if(Object.keys(failures).some(k=>failures[k].state==='escalated'&&!queued[k]))status.textContent+=' Technische Abrufmeldung: Übergabe noch nicht bestätigt; Bob versucht es erneut.';
  field.value=reportText(all,Date.now(),lastReport?.truncated);
 }
 function observe(key,ok,retry){
  if(!scope[key])return;
- if(ok){delete failures[key];clearTimeout(timers[key]);delete timers[key];render();return;}
+ if(ok){delete queued[key];delete failures[key];clearTimeout(timers[key]);delete timers[key];render();return;}
  const old=failures[key],attempts=(old?.attempts||0)+1;
  const history=[...(old?.history||[]),{at:Date.now(),action:names[key],result:'Abruf oder Darstellung fehlgeschlagen; aktueller Stand nicht bestätigt.'}].slice(-3);
  failures[key]={id:'technical:'+key,sections:scope[key],state:attempts>=3?'escalated':'trying',type:names[key],reason:'Nach '+attempts+' Versuchen nicht erfolgreich. Vorherige Werte sind kein aktueller Erfolgsnachweis.',attempts,history};
+ if(attempts>=3)queueLocal(key);
  if(attempts<3&&retry&&!timers[key])timers[key]=setTimeout(()=>{delete timers[key];retry();},30000);
  render();
 }
@@ -75,9 +81,11 @@ function mount(group){
  button=node('button','An ChatGPT senden');button.type='button';button.style.cssText='background:#1565c0;color:#fff;border:0;border-radius:12px;min-height:48px;width:100%;font-weight:700;padding:12px';button.disabled=true;
  const feedback=node('p');feedback.setAttribute('role','status');preview=node('details');preview.append(node('summary','Details · Problembericht'));field=node('textarea');field.readOnly=true;field.rows=10;field.style.cssText='width:100%;box-sizing:border-box';field.setAttribute('aria-label','Problembericht an ChatGPT');preview.append(field);
  link=node('a','ChatGPT öffnen');link.href='https://chatgpt.com/';link.target='_blank';link.rel='noopener noreferrer';link.hidden=true;
- button.onclick=async()=>{const current=items();if(!current.some(x=>x.state==='escalated'))return;const text=reportText(current,Date.now(),lastReport?.truncated);field.value=text;button.disabled=true;try{const result=await share(root.navigator,text);feedback.textContent=result==='shared'?'Teilen-Menü geöffnet. Wähle ChatGPT und sende den Bericht dort ab; Empfang hier nicht bestätigt.':result==='cancelled'?'Teilen abgebrochen. Es wurde kein Problem als behoben markiert.':result==='copied'?'Bericht kopiert. ChatGPT öffnen, einfügen und absenden.':'Bericht unten kopieren und in ChatGPT absenden.';if(['copied','manual'].includes(result)){link.hidden=false;preview.open=true;}}finally{button.disabled=!items().some(x=>x.state==='escalated');}};
- box.append(status,button,feedback,link,preview,node('p','(X) Bob prüft selbst · X Hilfe nötig. Der Bericht wird erst durch dein Teilen und Absenden übergeben.'));group.append(box);render();poll();
- setInterval(()=>{if(!doc.hidden)poll();},30000);
+ const manual=node('button','Bericht zusätzlich manuell teilen');manual.type='button';preview.append(manual);
+ manual.onclick=async()=>{const current=items();if(!current.some(x=>x.state==='escalated'))return;const text=reportText(current,Date.now(),lastReport?.truncated);field.value=text;button.disabled=true;try{const result=await share(root.navigator,text);feedback.textContent=result==='shared'?'Teilen-Menü geöffnet. Wähle ChatGPT und sende den Bericht dort ab; Empfang hier nicht bestätigt.':result==='cancelled'?'Teilen abgebrochen. Es wurde kein Problem als behoben markiert.':result==='copied'?'Bericht kopiert. ChatGPT öffnen, einfügen und absenden.':'Bericht unten kopieren und in ChatGPT absenden.';if(['copied','manual'].includes(result)){link.hidden=false;preview.open=true;}}finally{button.disabled=!items().some(x=>x.state==='escalated');}};
+ button.onclick=async()=>{await Promise.all(Object.keys(failures).filter(k=>failures[k].state==='escalated').map(queueLocal));feedback.textContent='Gespeicherte Testfälle werden automatisch vom stündlichen ChatGPT-Reparaturwächter geprüft. Kein Kopieren nötig. Hinterlegt bedeutet noch nicht bearbeitet oder behoben.';};
+ box.append(status,button,feedback,link,preview,node('p','(X) Bob prüft selbst · X automatische KI-Prüfung nötig. ChatGPT ruft technische Fehlergruppen stündlich ab, auch bei geschlossener App. Kein sofortiger Chatversand; Bearbeitung und Behebung sind erst nach Prüfung bestätigt.'));group.append(box);render();poll();
+ setInterval(()=>{if(!doc.hidden){poll();for(const key of Object.keys(failures))if(failures[key].state==='escalated')queueLocal(key);}},30000);
  doc.addEventListener('visibilitychange',()=>{if(!doc.hidden)poll();});
 }
 root.BobTrainingHelp={mount,observe};
