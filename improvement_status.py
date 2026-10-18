@@ -7,10 +7,10 @@ import paper_health
 
 def summarize(report, paper, rows, now):
     quality=report.get('dataQuality') or {}
-    reliable=report.get('reliability') or {}
+    latest=report.get('latestCapture') or {}
     phase=background_push.degiro_session(now)
-    last=reliable.get('lastAt')
-    fresh=type(last) in (int,float) and 0<=now-last<=90000
+    last=latest.get('priceAt')
+    fresh=latest.get('valid') is True and type(last) in (int,float) and 0<=now-last<=90000
     product_ok=(quality.get('status')=='ok' and quality.get('total',0)>0
                 and quality.get('freshPct')==100 and quality.get('completePct')==100)
     data_state=('paused' if phase!='trading' else 'ok' if fresh and product_ok else 'waiting')
@@ -55,5 +55,8 @@ def read(conn, report, now=None):
         for key,horizon,truth in conn.execute('''SELECT decision_id,horizon,truth FROM bob_decision_outcomes
             WHERE decision_id=ANY(%s::text[]) AND horizon IN (15,60,240)''',([r[0] for r in decisions],)).fetchall():
             outcomes.setdefault(key,{})[horizon]=truth
-    return summarize(report,paper_health.snapshot(conn,now),
+    latest=conn.execute('SELECT payload FROM bob_improvement_observations WHERE campaign=%s ORDER BY slot DESC LIMIT 1',
+                        (report['protocol']['version'],)).fetchone()
+    current={**report,'latestCapture':latest[0] if latest else {}}
+    return summarize(current,paper_health.snapshot(conn,now),
                      [(r,outcomes.get(key,{})) for key,r in decisions],now)

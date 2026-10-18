@@ -47,7 +47,9 @@ class SignalStatusTests(unittest.TestCase):
         self.assertEqual(r['cards'][0]['state'],'paused');self.assertEqual(r['cards'][1]['state'],'waiting')
         self.assertIsNone(r['openErrorTypes'])
         now=at(19,11)
-        report=dict(reliability=dict(lastAt=now),dataQuality=dict(status='ok',total=2,freshPct=100,completePct=50))
+        report=dict(latestCapture=dict(priceAt=now,valid=True),dataQuality=dict(status='ok',total=2,freshPct=100,completePct=50))
         self.assertEqual(status.summarize(report,{},[],now)['cards'][0]['state'],'waiting')
         report['dataQuality']['completePct']=100
         self.assertEqual(status.summarize(report,{},[],now)['cards'][0]['state'],'ok')
+        report['latestCapture']['valid']=False
+        self.assertEqual(status.summarize(report,{},[],now)['cards'][0]['state'],'waiting')
