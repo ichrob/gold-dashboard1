@@ -2,8 +2,8 @@
 (function(root){
 'use strict';
 const sections={simulation:'Simulation',learning:'Lernen & Ergebnisse',diagrams:'Diagramme',improve:'Besser werden'};
-const scope={audit:['simulation','learning','diagrams'],repairs:['simulation','learning','diagrams'],improve:['improve']};
-const names={audit:'Testergebnisse abrufen und darstellen',repairs:'Automatische Testnachprüfung abrufen',improve:'Besser werden abrufen und darstellen'};
+const scope={portfolios:['simulation','diagrams'],audit:['simulation','learning','diagrams'],repairs:['simulation','learning','diagrams'],improve:['improve']};
+const names={portfolios:'Simulationsdiagramme abrufen',audit:'Testergebnisse abrufen und darstellen',repairs:'Automatische Testnachprüfung abrufen',improve:'Besser werden abrufen und darstellen'};
 function classify(report,now=Date.now(),workerChecks=1){
  const result=[];
  if(!report||report.available!==true||!Array.isArray(report.items))return result;
