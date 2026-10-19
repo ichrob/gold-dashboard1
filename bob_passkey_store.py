@@ -35,9 +35,14 @@ def transition(state, action, payload, now=None):
     binding = payload.get('binding', '')
     if not isinstance(binding,str) or not re.fullmatch('[a-f0-9]{64}',binding):
         raise ValueError('Invalid session binding')
+    state.setdefault('proofKeys', {})
+    state.setdefault('recent', {})
     active = bool(state['credentials'])
     if action == 'status':
-        return {'enabled':active, 'verified':proof_valid(state,binding,now), 'validUntil':state['proofs'].get(binding)}
+        return {'enabled':active, 'verified':proof_valid(state,binding,now), 'validUntil':state['proofs'].get(binding),
+                'recoverySaved':state.get('recoverySaved',False),
+                'credentials':[{'id':cid,'name':key.get('name','Passkey'),'current':state['proofKeys'].get(binding)==cid} for cid,key in state['credentials'].items()] if proof_valid(state,binding,now) else [],
+                'recoveryRemaining':len(state.get('recovery',[])) if proof_valid(state,binding,now) else None}
     failures = [stamp for stamp in state.get('failures',[]) if stamp > now-300]
     state['failures'] = failures
     if len(failures) >= 5:
@@ -46,6 +51,42 @@ def transition(state, action, payload, now=None):
                           verify_registration_response, verify_authentication_response, options_to_json)
     from webauthn.helpers.structs import (AuthenticatorSelectionCriteria, UserVerificationRequirement,
                                          ResidentKeyRequirement, PublicKeyCredentialDescriptor)
+    if action in ('revoke-credential','rotate-recovery','confirm-recovery','machine-authorize'):
+        if not proof_valid(state,binding,now) and (active or action!='machine-authorize'):
+            return {'ok':False,'error':'PASSKEY_REQUIRED'}
+        if active and state['recent'].get(binding,0)<=now:
+            return {'ok':False,'error':'FRESH_PASSKEY_REQUIRED'}
+        if action=='machine-authorize':return {'ok':True}
+        if action=='revoke-credential':
+            cid=payload.get('credentialId','')
+            if cid not in state['credentials']:return {'ok':False,'error':'UNKNOWN_CREDENTIAL'}
+            if len(state['credentials'])<=1:return {'ok':False,'error':'LAST_CREDENTIAL'}
+            del state['credentials'][cid]
+            # Revoke every other daily grant and all pending ceremonies. A stolen
+            # phone cannot continue on yesterday's proof after its key is removed.
+            keep=state['proofKeys'].get(binding)!=cid
+            state['proofs']={binding:state['proofs'][binding]} if keep else {}
+            state['proofKeys']={binding:state['proofKeys'].get(binding)} if keep else {}
+            state['recent']={binding:state['recent'][binding]} if keep else {}
+            state['challenges']={}
+            return {'ok':True}
+        if action=='rotate-recovery':
+            codes=[secrets.token_hex(16) for _ in range(8)]
+            state['pendingRecovery']={'hashes':[hashlib.sha256(c.encode()).hexdigest() for c in codes],'binding':binding,'expires':now+600}
+            return {'ok':True,'recoveryCodes':codes}
+        pending=state.get('pendingRecovery',{})
+        digest=hashlib.sha256(str(payload.get('code','')).strip().encode()).hexdigest()
+        hashes=(pending.get('hashes',[]) if pending.get('binding')==binding and pending.get('expires',0)>now else [])
+        if hashes and digest in hashes:
+            state['recovery']=hashes
+            state.pop('pendingRecovery',None)
+        elif not state.get('recoverySaved') and digest in state.get('recovery',[]):
+            pass
+        else:
+            failures.append(now)
+            return {'ok':False,'error':'INVALID_RECOVERY_CODE'}
+        state['recoverySaved']=True
+        return {'ok':True}
     if action in ('register-options','authenticate-options'):
         if action == 'register-options' and active and not proof_valid(state,binding,now):
             return {'ok':False,'error':'PASSKEY_REQUIRED'}
@@ -76,6 +117,8 @@ def transition(state, action, payload, now=None):
             return {'ok':False,'error':'INVALID_RECOVERY_CODE'}
         codes.remove(digest)
         state['proofs'][binding]=now+TTL
+        state['recent'][binding]=now+300
+        state['proofKeys'][binding]='recovery'
         return {'ok':True,'validUntil':now+TTL,'recovered':True}
     if action not in ('register-verify','authenticate-verify'):
         raise ValueError('Unknown action')
@@ -94,11 +137,12 @@ def transition(state, action, payload, now=None):
             cid=encode(verified.credential_id)
             if cid in state['credentials']:
                 raise ValueError('Duplicate credential')
-            state['credentials'][cid]={'key':encode(verified.credential_public_key),'count':verified.sign_count}
+            state['credentials'][cid]={'key':encode(verified.credential_public_key),'count':verified.sign_count,'name':str(payload.get('name','Passkey'))[:60]}
             if not active:
                 codes=[secrets.token_hex(16) for _ in range(8)]
                 state['recovery']=[hashlib.sha256(c.encode()).hexdigest() for c in codes]
                 state['proofs']={}
+                state['recoverySaved']=False
         else:
             cid=payload['credential']['id']
             saved=state['credentials'][cid]
@@ -106,6 +150,8 @@ def transition(state, action, payload, now=None):
                                                    credential_current_sign_count=saved['count'])
             saved['count']=verified.new_sign_count
         state['proofs'][binding]=now+TTL
+        state['recent'][binding]=now+300
+        state['proofKeys'][binding]=cid
         return {'ok':True,'validUntil':now+TTL, 'recoveryCodes':codes}
     except Exception:
         failures.append(now)
