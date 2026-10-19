@@ -99,3 +99,14 @@ assert(!Array.from(helper.productProblemLabels(product)).includes("DEGIRO-Handel
 assert(Array.from(helper.productProblemLabels(product)).includes("KO-Nachweis"));
 helper.currentSgChfAnalysisProof=()=>null;
 assert(Array.from(helper.productProblemLabels(product)).includes("Produktnachweis"),"Unconfirmed or expired analysis must retain screenshot requirements");
+
+// Stale FX is an automatic data dependency, not a request to re-upload images.
+const fxContext={Date};vm.createContext(fxContext);
+vm.runInContext(source.slice(source.indexOf('function productFxIssue('),source.indexOf('// Only evidence failures')),fxContext);
+helper2.productFxIssue=fxContext.productFxIssue;
+const fxProduct={...product,quote:{...product.quote,isin:product.isin,productVerified:true,leverageCalculation:{inputs:{fxDataAt:'2020-01-01T00:00:00Z',fxEffectiveAt:'2020-01-01T00:00:00Z'}}}};
+const fxHelp=helper2.productHelpState(fxProduct);
+assert.equal(fxHelp.status,'Wechselkursprüfung offen');assert.equal(fxHelp.manual,false);
+assert(fxHelp.action.includes('Neue Produktbilder beheben'));
+assert(!fxContext.productFxIssue({...fxProduct,quote:{...fxProduct.quote,isin:'other'}}));
+assert(fxContext.productFxIssue({...fxProduct,quote:{isin:product.isin,productVerified:true,nativeChartEvidence:{currency:'CHF'}}}));

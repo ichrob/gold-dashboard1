@@ -47,9 +47,10 @@ def parse_tick(data, symbol, now):
     return (1/mid if symbol == 'EURUSD' else mid), at.isoformat()
 
 
-def backup(fetch, now):
+def backup(fetch, now=None):
     def one(symbol):
-        return parse_tick(fetch(BACKUP+'api/'+symbol, BACKUP, timeout=4), symbol, now)
+        data = fetch(BACKUP+'api/'+symbol, BACKUP, timeout=8)
+        return parse_tick(data, symbol, now or datetime.now(timezone.utc))
     with ThreadPoolExecutor(max_workers=2) as pool:
         eur, chf = list(pool.map(one, ('EURUSD', 'USDCHF')))
     if abs((stamp(eur[1])-stamp(chf[1])).total_seconds()) > 90:
@@ -63,30 +64,37 @@ def backup(fetch, now):
 
 
 def fetch_rates(fetch, previous=None, now=None):
-    now = now or datetime.now(timezone.utc)
+    # Validate against receipt time: a tick arriving during HTTP must not be
+    # rejected as future merely because the request began earlier.
+    clock = lambda: now or datetime.now(timezone.utc)
     candidates, errors = [], []
     try:
         primary = fetch(PRIMARY+'v1/latest/USD?symbols=EUR,CHF', PRIMARY, timeout=4)
         primary = dict(primary, provider='exchangerate.dev · USD/EUR und USD/CHF')
-        a = age(primary, now)
+        a = age(primary, clock())
         candidates.append((a, primary))
-        if a <= 90 and primary.get('source') == 'live' and primary.get('market_session') == 'open':
+        if a <= 90 and primary.get('source') == 'live' and primary.get('market_session') == 'open' and all(primary.get('sources', {}).get(c) == 'live' for c in ('EUR', 'CHF')):
             return primary
         errors.append('Hauptquelle: Quellenalter '+str(round(a))+' s')
     except (OSError, ValueError, KeyError, TypeError, OverflowError) as exc:
         errors.append('Hauptquelle: '+type(exc).__name__)
     try:
         alternative = backup(fetch, now)
-        candidates.append((age(alternative, now), alternative))
+        candidates.append((age(alternative, clock()), alternative))
     except (OSError, ValueError, KeyError, TypeError, OverflowError) as exc:
         errors.append('Backup: '+str(exc))
     if previous:
         try:
-            candidates.append((age(previous, now), copy.deepcopy(previous)))
+            candidates.append((age(previous, clock()), copy.deepcopy(previous)))
         except (ValueError, KeyError, TypeError, OverflowError):
             pass
     if not candidates:
         raise ValueError('FX-Abruf nicht verfügbar · '+' · '.join(errors))
-    selected = copy.deepcopy(min(candidates, key=lambda x:x[0])[1])
+    def quality(candidate):
+        seconds, data = candidate
+        live = (data.get('market_session') == 'open'
+                and all(data.get('sources', {}).get(c) == 'live' for c in ('EUR', 'CHF')))
+        return (not (live and seconds <= 90), seconds)
+    selected = copy.deepcopy(min(candidates, key=quality)[1])
     selected['fetchDiagnostics'] = errors
     return selected
