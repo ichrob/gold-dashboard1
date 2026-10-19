@@ -407,6 +407,7 @@ def examine(product, quote, now_ms):
         "source": str(quote.get("source") or "Emittenten- und Ersatzquellen")[:80],
         "sourceObservations": observations,
         "snapshotId": quote.get("snapshotId"),
+        "sourceRecovery": quote.get("sourceRecovery", []),
         "nativeCurrency": native_currency,
         "thirdSourceEvidence": quote.get("swissquoteBackup"),
         "fieldRecovery": quote.get("comdirectFieldsBackup"),
