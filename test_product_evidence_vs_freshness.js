@@ -110,3 +110,14 @@ assert.equal(fxHelp.status,'Wechselkursprüfung offen');assert.equal(fxHelp.manu
 assert(fxHelp.action.includes('Neue Produktbilder beheben'));
 assert(!fxContext.productFxIssue({...fxProduct,quote:{...fxProduct.quote,isin:'other'}}));
 assert(fxContext.productFxIssue({...fxProduct,quote:{isin:product.isin,productVerified:true,nativeChartEvidence:{currency:'CHF'}}}));
+
+// Explain old clocks without confusing them with absent execution evidence.
+const statusSource=source.slice(source.indexOf('function renderProductDirectionStatus('),source.indexOf('function valuePresenceMark('));
+const statusContext={Date,esc:s=>s,productDirectionCheck:()=>({state:{blocked:false,stale:true,missing:false}}),productFieldStates:()=>({bid:{key:'Geld',state:'veraltet',ageSeconds:480},ask:{key:'Brief',state:'veraltet',ageSeconds:480},leverage:{key:'Hebel',state:'veraltet',ageSeconds:468}})};
+vm.createContext(statusContext);vm.runInContext(statusSource,statusContext);
+assert(statusContext.renderProductDirectionStatus({}).includes('Veraltete Werte: Geld (8 Min.), Brief (8 Min.), Hebel (7 Min.)'));
+statusContext.productFieldStates=()=>({bid:{key:'Geld',state:'aktuell',ageSeconds:20}});
+assert(statusContext.renderProductDirectionStatus({}).includes('Nachweisprüfung offen'));
+assert(!statusContext.renderProductDirectionStatus({}).includes('Veraltete Werte'));
+statusContext.productFieldStates=()=>({leverage:{key:'Hebel',state:'Aktualität unbestätigt',ageSeconds:null}});
+assert(statusContext.renderProductDirectionStatus({}).includes('Zeitnachweis offen: Hebel'));
