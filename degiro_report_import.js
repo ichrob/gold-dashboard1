@@ -30,7 +30,7 @@ function getIndex(headers,aliases){const wanted=new Set(aliases.map(normalize));
 function readReport(text){
  const rows=parseRows(text);let start=-1,indexes;
  for(let i=0;i<Math.min(rows.length,12);i++){
-  const h=rows[i];const isin=getIndex(h,['ISIN','ISIN-Code','ISIN Code']);
+  const h=rows[i];const isin=getIndex(h,['ISIN','ISIN-Code','ISIN Code','Symbol/ISIN','Symbol / ISIN','Symbol / ISIN-Code']);
   const qty=getIndex(h,['Anzahl','Stückzahl','Stuckzahl','Quantity','Stücke','Stucke','Anzahl Stück','Number','Aantal']);
   if(isin>=0&&qty>=0){start=i;indexes={isin,qty};break;}
  }
@@ -39,24 +39,42 @@ function readReport(text){
   ...indexes,
   name:getIndex(h,['Produkt','Product','Produktname','Product Name','Name','Beschreibung','Description']),
   currency:getIndex(h,['Währung','Wahrung','Currency','Valuta']),
-  price:getIndex(h,['Kurs','Preis','Price','Schlusskurs','Closing price']),
+  price:getIndex(h,['Kurs','Preis','Price','Schlusskurs','Schlußkurs','Closing price']),
   value:getIndex(h,['Wert','Market value','Marktwert','Value','Gesamtwert','Total value']),
   side:getIndex(h,['Kauf/Verkauf','Buy/Sell','Buy / Sell','Transaktion','Type','Art']),
   date:getIndex(h,['Datum','Date','Handelsdatum','Trade date'])
  };
  const kind=(ix.side>=0||ix.date>=0)?'transactions':'portfolio';
- const records=[],invalid=[];
+ // DEGIRO Swiss exports split "Wert" across currency + unlabeled amount,
+ // followed by a separate "Wert in CHF" conversion column.
+ const splitCurrencyValue=kind==='portfolio' && ix.currency<0 && ix.value>=0 &&
+   ix.value+1<h.length && !String(h[ix.value+1]||'').trim() &&
+   h.some(label=>/^wert in [A-Z]{3}$/i.test(String(label||'').trim()));
+ if(splitCurrencyValue){ix.currency=ix.value;ix.value+=1;}
+ const accountValueHeader=h.findIndex(label=>/^wert in [A-Z]{3}$/i.test(String(label||'').trim()));
+ const accountCurrency=accountValueHeader>=0?String(h[accountValueHeader]).trim().slice(-3).toUpperCase():null;
+ const records=[],invalid=[],cashBalances=[];
  for(let i=start+1;i<rows.length;i++){
   const row=rows[i],isin=(row[ix.isin]||'').trim().toUpperCase();
-  if(!isin)continue;
+  if(!isin){
+   // Cash rows lack an ISIN; keep them separate from security holdings.
+   if(splitCurrencyValue && /^CASH\b/i.test(String(row[ix.name]||''))){
+    const currency=cell(row,ix.currency),amount=parseNumber(row[ix.value]),
+          accountValue=accountValueHeader>=0?parseNumber(row[accountValueHeader]):null;
+    if(/^[A-Z]{3}$/.test(currency)&&amount!==null){
+     cashBalances.push({currency,amount,accountValue,accountCurrency});
+    }
+   }
+   continue;
+  }
   if(!validISIN(isin)){invalid.push(i+1);continue;}
   const rawQty=(row[ix.qty]||'').trim();
   const qty=parseNumber(rawQty);
   if(qty===null){invalid.push(i+1);continue;}
-  records.push({isin,quantity:qty,product:cell(row,ix.name),currency:cell(row,ix.currency),price:cell(row,ix.price),value:cell(row,ix.value),side:cell(row,ix.side),date:cell(row,ix.date)});
+  records.push({isin,quantity:qty,product:cell(row,ix.name),currency:cell(row,ix.currency),price:cell(row,ix.price),value:cell(row,ix.value),accountValue:accountValueHeader>=0?cell(row,accountValueHeader):'',side:cell(row,ix.side),date:cell(row,ix.date)});
  }
  if(!records.length)throw Error('Keine gültigen ISIN- und Mengenzeilen im Export gefunden.');
- return {kind,records,invalidRows:invalid,source:'DEGIRO export (user-provided)',realtime:false,brokerVerified:false,ordersEnabled:false};
+ return {kind,records,cashBalances,accountCurrency,invalidRows:invalid,source:'DEGIRO export (user-provided)',realtime:false,brokerVerified:false,ordersEnabled:false};
 }
 function validISIN(isin){
  if(!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(isin))return false;
@@ -92,17 +110,23 @@ function mount(){
   try{
    if(file.size>2_000_000)throw Error('Datei größer als 2 MB.');
    const data=readReport(await file.text());
-   status.textContent=(data.kind==='portfolio'?'Portfolio':'Transaktionen')+': '+data.records.length+' Zeilen gelesen; '+data.invalidRows.length+' Zeilen mit ungültigen ISIN-/Mengenangaben ausgelassen. Kein Live-Depotsync.';
+   status.textContent=(data.kind==='portfolio'?'Portfolio':'Transaktionen')+': '+data.records.length+' Wertpapierpositionen, '+data.cashBalances.length+' Bargeldzeilen; '+data.invalidRows.length+' Zeilen mit ungültigen ISIN-/Mengenangaben ausgelassen. Kein Live-Depotsync.';
+   if(data.cashBalances.length){
+    const cash=root.document.createElement('p');
+    cash.textContent='Bargeld im Export: '+data.cashBalances.map(item=>item.amount.toFixed(2)+' '+item.currency).join(' · ')+'.';
+    out.append(cash);
+   }
+   const wrapper=root.document.createElement('div');wrapper.style.overflowX='auto';
    const table=root.document.createElement('table');table.style.width='100%';
    const header=root.document.createElement('tr');
-   for(const name of ['ISIN','Produkt','Menge','Währung']){const th=root.document.createElement('th');th.textContent=name;header.append(th);}
+   for(const name of ['ISIN','Produkt','Menge','Währung','Schlusskurs','Wert']){const th=root.document.createElement('th');th.textContent=name;header.append(th);}
    table.append(header);
    for(const rec of data.records.slice(0,1000)){
     const tr=root.document.createElement('tr');
-    for(const value of [rec.isin,rec.product,rec.quantity,rec.currency]){const td=root.document.createElement('td');td.textContent=String(value);tr.append(td);}
+    for(const value of [rec.isin,rec.product,rec.quantity,rec.currency,rec.price,rec.value]){const td=root.document.createElement('td');td.textContent=String(value);tr.append(td);}
     table.append(tr);
    }
-   out.append(table);
+   wrapper.append(table);out.append(wrapper);
    if(data.records.length>1000){const p=root.document.createElement('p');p.textContent='Nur die ersten 1.000 Zeilen dargestellt.';out.append(p);}
   }catch(err){status.textContent='Import nicht möglich: '+err.message;}
   finally{input.value='';}
