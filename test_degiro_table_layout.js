@@ -1,0 +1,22 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const passes=JSON.parse(fs.readFileSync('test_fixtures/degiro_chf_columns.json','utf8'));
+let mode='3';const calls=[];
+const worker={setParameters:async p=>{mode=p.tessedit_pageseg_mode||mode;},recognize:async()=>{calls.push(mode);return {data:structuredClone(passes[{'3':0,'6':1,'11':2}[mode]])};}};
+const context={window:{},document:{getElementById:()=>null,readyState:'loading',addEventListener(){}},console,setTimeout,clearTimeout};
+vm.createContext(context);vm.runInContext(fs.readFileSync('degiro_assistant.js','utf8').replace('window.BobDegiro={','window.BobDegiro={setWorker:w=>{ocrWorkerPromise=Promise.resolve(w)},'),context);
+const b=context.window.BobDegiro;b.setWorker(worker);
+(async()=>{
+ const isin='DE000FG14AV8';
+ assert(!b.detailScreenshotData(passes[0].text,isin).ok);
+ const result=await b.recognizeOcr({},null,true,isin);
+ const x=b.detailScreenshotData(result.data.text,isin,null,result.data.unconfirmedFields||[]);
+ assert(x.ok,x.reason);assert.equal(x.bid,6.87);assert.equal(x.ask,6.88);
+ assert.equal(x.currency,'CHF');assert.equal(x.degiroVenueEvidence.venue,'Societe Generale OTC');
+ assert.equal(x.sourceTime,'19/10/2026 17:06');assert.equal(x.degiroDisplayedQuote.isExecutableQuote,false);
+ assert(calls.includes('6'));assert(calls.includes('11'));
+ const context=b.screenshotSeriesContext([{ok:true,name:'table',raw:result.data.text,data:x},{ok:false,ocr:{data:{text:'Societe Generale OTC\nSG Gold Knock-Out Warrant Open End Call BAR 4065.51 BP 4065.51 Bv 10 LV 48.72'}}}],isin);
+ assert(context?.anchorIsinVerified);
+ const chart=b.detailScreenshotData(passes[3].text,isin,context);assert(chart.ok,chart.reason);assert.equal(Number(chart.leverage),48.72);assert.equal(chart.bid,null);assert.equal(chart.ask,null);
+ assert(!b.detailScreenshotData(result.data.text,'DE000FG8NHQ3').ok);
+ console.log('Original broker screenshot: column-order failure reproduced; row layout, independent numeric reads, venue, clock and series anchor recovered');
+})().catch(e=>{console.error(e);process.exitCode=1;});
