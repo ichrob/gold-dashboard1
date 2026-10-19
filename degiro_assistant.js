@@ -2406,7 +2406,7 @@ function renderPrimaryProductValues(p,now=Date.now()){
   &&fields.leverage.state==='fehlt'&&!(n(undatedLever?.value)>0)
   ?'<br>SG-Referenzhebel: Von der automatisch abgefragten SG-Quelle nicht geliefert. Ein gemeinsamer Zeitbezug belegt nur vorhandene Werte; er ersetzt keinen fehlenden Hebel.':'';
  const headline=estimated?'Produktkurs · ≈ errechnet':marketObservation?(current?'Aktuelle comdirect-Kursbeobachtung':'comdirect-Kursbeobachtung · nicht aktuell'):chart?(current?'Aktuelle SG-Chartbeobachtung · nur Analyse':'SG-Chartbeobachtung · nicht aktuell'):current?'Aktueller Anbieterwert':'Gespeicherter Anbieterwert · Originalzeit abgelaufen';
- const labels=estimated?' · theoretische Geld-/Brief-Schätzung, kein bestätigter DEGIRO-Ausführungskurs':marketObservation?' · SG LiveTrading, kein bestätigter DEGIRO-Ausführungskurs':chart?' · Chartkurs, kein bestätigter Ausführungskurs':'';
+ const labels=estimated?' · theoretische Geld-/Brief-Schätzung, kein bestätigter DEGIRO-Ausführungskurs':marketObservation?' · '+esc(pair.source||'comdirect-Kursbeobachtung')+', kein bestätigter DEGIRO-Ausführungskurs':chart?' · Chartkurs, kein bestätigter Ausführungskurs':'';
  const note=!estimated&&pair&&!current?' · Datenalter überschreitet Analysefenster':'';
  const calculationInfo=estimated?'<br>≈ Datenstand '+esc(stamp)+' · Produktreferenz '+esc(modelPrice.referenceAt)+
   ' · Quelle '+esc(modelPrice.source)+
@@ -2940,7 +2940,7 @@ function productTermsStatus(p,now=Date.now(),allowObserved=false){
  for(const key of ['strike','ko']){
   const direct=q?.productVerified?q.conditions?.[key]:null,old=shot?.terms?.[key]||(key==='ko'?shot?.evidence?.KO:null);
   if(currentProductTerm(p,key,direct,now)){
-   if((currentProductTerm(p,key,old,now)||key==='ko'&&currentDatedTerm(old,now))&&!termValueMatches(old.value,direct.value,old))reasons.push((key==='strike'?'Basispreis':'KO-Barriere')+': aktuelle Nachweise widersprechen sich');
+   if((currentProductTerm(p,key,old,now)||key==='ko'&&currentDatedTerm(old,now))&&!termValueMatches(old.value,direct.value,old))reasons.push((key==='strike'?'Basispreis':'KO-Barriere')+': aktuelle Nachweise widersprechen sich (Bild '+old.value+' USD; Emittent '+direct.value+' USD'+(direct.dateText?' · Stand '+direct.dateText:'')+'). Aufnahmezeit bestätigt nicht das Gültigkeitsdatum des Bildwerts');
    else terms[key]=direct;
   }
  }
