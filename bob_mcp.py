@@ -1,13 +1,25 @@
 """Minimal read-only MCP transport for Bob's private product-audit report.
 
-Uses the existing Bob login Basic-auth session and its private audit proxy.
+Uses a dedicated read-only service credential, or the legacy Bob login before
+Passkey enrollment. The service credential is accepted only on POST /mcp.
 It does not expose the PostgreSQL port, accept browser cookies, or provide write tools.
 """
 import json
+import os
+import hmac
 
 PROTOCOL = "2025-03-26"
 _MAX_RESULT_BYTES = 200_000
 _TOOL_NAMES = ("bob_product_audit", "bob_product_gaps")
+
+
+def service_authenticated(headers):
+    """Independent machine identity: never accepted by the browser login layer."""
+    expected=os.environ.get('BOB_MCP_SERVICE_TOKEN','')
+    authorization=headers.get('Authorization','')
+    if len(expected)<32 or not authorization.startswith('Bearer ') or len(authorization)>4096:
+        return False
+    return hmac.compare_digest(authorization[7:].encode(),expected.encode())
 
 
 def tool_definitions():
