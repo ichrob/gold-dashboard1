@@ -2318,7 +2318,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
 function calculatedProductDisplay(p,now=Date.now()){
  const q=p?.quote,c=q?.calculatedProduct,m=q?.productModel,meta=q?.metadata||{};
  if(!p||!validIsin(p.isin)||q?.isin!==p.isin||q.productVerified!==true||
-    q.sourceDisabled||q.sourceFailure||(q.quoteFailureCode&&!(m?.provider==='BNP'&&String(q.source||'').startsWith('BNP Paribas ·')&&q.sourceUrl==='https://derivate.bnpparibas.com/product-details/'+p.isin+'/'&&['STALE_OR_INVALID_SOURCE_TIME','MISSING_QUOTE_TIME'].includes(q.quoteFailureCode)))||meta.status!==1||
+    q.sourceDisabled||q.sourceFailure||(q.quoteFailureCode&&!(m?.provider==='BNP'&&String(q.issuerModelSource?.source||q.source||'').startsWith('BNP Paribas ·')&&(q.issuerModelSource?.sourceUrl||q.sourceUrl)==='https://derivate.bnpparibas.com/product-details/'+p.isin+'/'&&['STALE_OR_INVALID_SOURCE_TIME','MISSING_QUOTE_TIME'].includes(q.quoteFailureCode)))||meta.status!==1||
     meta.tradingHalted===true||meta.currency!=='EUR'||meta.underlyingType!=='SPOT'||
     meta.underlying!=='XAU/USD'||!['LONG','SHORT'].includes(meta.direction)||
     !m||m.isin!==p.isin||m.verifiedSimpleTurbo!==true||
@@ -2338,7 +2338,7 @@ function calculatedProductDisplay(p,now=Date.now()){
  if(!(currentGold>0&&ko>0&&strike>0&&
       (m.direction==='LONG'?currentGold>Math.max(ko,strike):
         currentGold<Math.min(ko,strike))))return null;
- return {isin:p.isin,bid:c.bidEur,ask:c.askEur,currency:'EUR',
+ return {isin:p.isin,bid:c.bidEur,ask:c.askEur,currency:'EUR',leverage:c.indicativeLeverage,
          at:c.priceAt,referenceAt:c.referenceAt,
          source:c.anchorKind==='research-hybrid'?(m.provider==='BNP'?'Bob · BNP/comdirect + Gold/FX':'Bob · SG/comdirect + Gold/FX'):'Bob · Gold-Spot/FX-Modell',
          referenceSource:c.anchorKind==='research-hybrid'?c.referenceSource:null,
@@ -2356,9 +2356,24 @@ function productDisplayQuote(q,isin,now){
  const recentPair=x=>x&&x.isin===isin&&x.currency==='EUR'&&!x.delayed&&n(x.bid)>0&&n(x.ask)>=n(x.bid)&&[x.bidAt,x.askAt].every(t=>typeof t==='string'&&/(Z|[+-]\d{2}:\d{2})$/.test(t)&&Number.isFinite(Date.parse(t))&&now-Date.parse(t)>=0&&now-Date.parse(t)<=90000);
  return q?.metadata?.status===1&&!recentPair(live)&&backup?.priceKind==='market-observation'&&backup.isExecutableQuote===false&&backup.degiroExecutable===false&&recentPair(backup)?backup:live;
 }
+// Display-only continuity never changes product release or broker evidence.
+function continuityDisplay(p,now){
+ const q=p?.quote,c=q?.priceContinuity,m=c?.model,meta=q?.metadata||{};
+ if(q?.isin!==p.isin||q?.productVerified!==true||meta.status!==1||meta.tradingHalted||q.sourceDisabled||!c||c.eligible!==false||c.degiroExecutable!==false)return null;
+ if(c.state==='original'&&c.currency===meta.currency&&n(c.bid)>0&&n(c.ask)>=n(c.bid)&&freshTimes([c.at],now,90))return c;
+ if(c.state!=='calculated'||c.kind!=='intrinsic'||c.currency!=='EUR'||meta.currency!=='EUR'||q.sourceFailure||
+    !m||m.isin!==p.isin||m.verifiedSimpleTurbo!==true||m.underlying!=='XAU/USD'||meta.underlyingType!=='SPOT'||
+    ['ratio','strike','ko','direction'].some(k=>m[k]!==meta[k])||!['LONG','SHORT'].includes(m.direction)||
+    !(n(c.price)>0&&n(c.leverage)>0&&n(c.goldUsd)>0&&n(c.usdEur)>0)||
+    !(m.direction==='LONG'?c.goldUsd>Math.max(m.ko,m.strike):c.goldUsd<Math.min(m.ko,m.strike))||
+    !freshTimes([c.at,c.goldAt,c.fxDataAt,c.fxEffectiveAt],now,60)||
+    !Number.isFinite(Date.parse(m.tradingEndAt))||now>Date.parse(m.tradingEndAt))return null;
+ return c;
+}
 function renderPrimaryProductValues(p,now=Date.now()){
  const q=p.quote?.isin===p.isin&&p.quote.productVerified?p.quote:null;
- const live=productDisplayQuote(q,p.isin,now);
+ const continuity=continuityDisplay(p,now);
+ const live=continuity?.state==='original'?{...continuity,isin:p.isin,bidAt:continuity.at,askAt:continuity.at,priceKind:'market-observation',isExecutableQuote:false}:productDisplayQuote(q,p.isin,now);
  const fields=productFieldStates(p,now);
  const native=q?.nativeChartEvidence;
  const nativeChf=!!q?.productVerified&&native?.currency==='CHF'&&n(native.bid)>0
@@ -2405,7 +2420,7 @@ function renderPrimaryProductValues(p,now=Date.now()){
  const missingSgReferenceNote=q?.importActive===true&&q?.productVerified===true
   &&fields.leverage.state==='fehlt'&&!(n(undatedLever?.value)>0)
   ?'<br>SG-Referenzhebel: Von der automatisch abgefragten SG-Quelle nicht geliefert. Ein gemeinsamer Zeitbezug belegt nur vorhandene Werte; er ersetzt keinen fehlenden Hebel.':'';
- const headline=estimated?'Produktkurs · ≈ errechnet':marketObservation?(current?'Aktuelle comdirect-Kursbeobachtung':'comdirect-Kursbeobachtung · nicht aktuell'):chart?(current?'Aktuelle SG-Chartbeobachtung · nur Analyse':'SG-Chartbeobachtung · nicht aktuell'):current?'Aktueller Anbieterwert':'Gespeicherter Anbieterwert · Originalzeit abgelaufen';
+ const headline=estimated?'Berechneter Kurs aktuell · Produktkurs · ≈ errechnet':continuity?.state==='original'?'Aktuelle Kursbeobachtung · '+(continuity.source||'Anbieter'):marketObservation?(current?'Aktuelle comdirect-Kursbeobachtung':'comdirect-Kursbeobachtung · nicht aktuell'):chart?(current?'Aktuelle SG-Chartbeobachtung · nur Analyse':'SG-Chartbeobachtung · nicht aktuell'):current?'Aktueller Anbieterwert':'Gespeicherter Anbieterwert · Originalzeit abgelaufen';
  const labels=estimated?' · theoretische Geld-/Brief-Schätzung, kein bestätigter DEGIRO-Ausführungskurs':marketObservation?' · '+esc(pair.source||'comdirect-Kursbeobachtung')+', kein bestätigter DEGIRO-Ausführungskurs':chart?' · Chartkurs, kein bestätigter Ausführungskurs':'';
  const note=!estimated&&pair&&!current?' · Datenalter überschreitet Analysefenster':'';
  const calculationInfo=estimated?'<br>≈ Datenstand '+esc(stamp)+' · Produktreferenz '+esc(modelPrice.referenceAt)+
@@ -2422,13 +2437,17 @@ function renderPrimaryProductValues(p,now=Date.now()){
  const unpairedReference=n(p.price)>0&&fields.ask.state==='fehlt'&&!pair
   ?'<br><b>Gespeicherter Produkt-/Listenpreis: '+fmt(p.price)+' EUR</b> · kein bestätigter Briefkurs, Geld/Brief weiter abrufen.'
   :'';
- return '<div class="small" data-primary-product-values data-price-kind="'+(estimated?'calculated':'observation')+'"><b>'+esc(headline)+'</b><br>'+
+ if(continuity?.kind==='intrinsic')return '<div class="small" data-primary-product-values data-price-kind="calculated"><b>Berechneter Kurs aktuell</b><br>≈ Theoretischer Produktwert '+fmt(continuity.price)+' EUR<br>≈ Berechneter Hebel '+fmt(continuity.leverage)+'×<br>'+esc(continuity.note)+'<br>Quelle: '+esc(continuity.source)+' · '+esc(new Date(continuity.at).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}))+' (Zürich)<br>Nur Analyse; keine Handelsfreigabe.</div>';
+ const continuityLabel=originalRecent?'Originalkurs aktuell':estimated?'':'Keine aktuelle Berechnungsgrundlage';
+ const comparison=continuity?.comparison;
+ const comparisonNote=comparison?'<br>Rückkehr zum Originalkurs · Abweichung zum vorher berechneten Modell: '+esc(Number(comparison.differenceEur).toFixed(4))+' EUR gegenüber dem Original-Mittelkurs (Quellzeiten höchstens 15 s auseinander).':'';
+ return '<div class="small" data-primary-product-values data-price-kind="'+(estimated?'calculated':'observation')+'">'+(continuityLabel?'<b>'+esc(continuityLabel)+'</b><br>':'')+'<b>'+esc(headline)+'</b>'+comparisonNote+'<br>'+
   (estimated?'≈ ':valuePresenceMark(fields.bid.state==='fehlt'))+' Geld '+fmt(displayed?displayed.bid:fields.bid.value)+
   ' / '+(estimated?'≈ ':valuePresenceMark(fields.ask.state==='fehlt'))+' Brief '+fmt(displayed?displayed.ask:fields.ask.value)+' '+esc(estimated?'EUR':currency)+
   labels+note+'<br>'+(displayed?'Quelle: '+esc(displayed.source||q.source||'Produktanbieter')+' · '+esc(stamp):'Datenstand: '+esc(fields.ask.state))+
   calculationInfo+previousSource+
-  '<br>'+valuePresenceMark(fields.leverage.state==='fehlt')+(fields.leverage.state==='fehlt'&&undatedLever?.dated===false&&n(undatedLever.value)>0?' Aktueller Hebel nicht zeitlich bestätigt':' Hebel '+fmt(fields.leverage.value))+
-  ' · '+esc(fields.leverage.state)+(q?.leverageEstimated?' · rechnerische Näherung, kein bestätigter Emittentenhebel':'')+
+  '<br>'+valuePresenceMark(fields.leverage.state==='fehlt')+(fields.leverage.state==='fehlt'&&undatedLever?.dated===false&&n(undatedLever.value)>0?' Aktueller Hebel nicht zeitlich bestätigt':' Hebel '+fmt(estimated&&n(modelPrice.leverage)>0?modelPrice.leverage:fields.leverage.value))+
+  ' · '+esc(estimated?'berechnet · aktuelle Modellgrundlage':fields.leverage.state)+(q?.leverageEstimated?' · rechnerische Näherung, kein bestätigter Emittentenhebel':'')+
   (fields.leverage.state==='fehlt'&&q?.leverageCalculation?.reason?'<br>Berechnung derzeit nicht möglich: '+esc(q.leverageCalculation.reason):'')+
   refNote+missingSgReferenceNote+unpairedReference+'</div>';
 }

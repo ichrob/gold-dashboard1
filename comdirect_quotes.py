@@ -136,7 +136,7 @@ def apply(result, isin, now=None):
     from product_quotes import valid_isin
     meta = result.get('metadata') or {}
     if (not valid_isin(isin) or result.get('isin') != isin or not result.get('productVerified')
-            or result.get('sourceDisabled') or result.get('eligible')
+            or result.get('sourceDisabled')
             or meta.get('status') != 1
             or not (meta.get('issuerExchangeCode') == 'CBDE' or str(result.get('source', '')).startswith('BNP Paribas ·'))
             or (result.get('currency') or meta.get('currency')) != 'EUR'):
