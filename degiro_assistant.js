@@ -3509,7 +3509,7 @@ async function readProductPdf(file,expected){
  }finally{await task.destroy();}
 }
 // Local originals support reprocessing after OCR updates. Never refresh source clocks.
-const PRODUCT_OCR_VERSION='2026-10-19-series-isin-recovery-v14';
+const PRODUCT_OCR_VERSION='2026-10-19-series-anchor-proof-v15';
 const ORIGINAL_TTL=7*86400000,ORIGINAL_LIMIT=100*1024*1024;
 const activeProductImports=new Set();
 function originalRetention(records,now=Date.now()){
@@ -3540,12 +3540,17 @@ async function deleteProductOriginals(isin){
 }
 function screenshotSeriesContext(outcomes,isin){
  if(!validIsin(isin)||outcomes.length<2)return null;
- const anchor=outcomes.find(o=>o.ok&&o.data?.isin===isin&&['ISIN','WKN','Valor'].includes(o.data.identityBasis));
- if(!anchor)return null;
- const anchorRaw=String(anchor.raw||anchor.ocr?.data?.text||'');
- const rawIds=[...new Set(anchorRaw.toUpperCase().match(/\b[A-Z]{2}[A-Z0-9]{9}[0-9]\b/g)||[])].filter(validIsin);
- const context={isin,basis:'image-series',anchor:anchor.name,
-  anchorIsinVerified:rawIds.length===1&&rawIds[0]===isin,source:identitySeriesSource(anchorRaw)};
+ // Reuse independently reviewed identity normalization, not the selected card.
+ // Check every observed token: a second conflicting identifier blocks an anchor.
+ const anchors=outcomes.filter(o=>o.ok&&o.data?.isin===isin&&['ISIN','WKN','Valor'].includes(o.data.identityBasis)).map(anchor=>{
+  const raw=String(anchor.raw||anchor.ocr?.data?.text||'');
+  const tokens=[...new Set(raw.toUpperCase().match(/\b[A-Z]{2}[A-Z0-9]{10}\b/g)||[])];
+  const ids=tokens.map(token=>normalizeOcrIsin(token,raw));
+  const verified=ids.length>0&&ids.every(id=>id.isin===isin&&validIsin(id.isin));
+  return {isin,basis:'image-series',anchor:anchor.name,anchorIsinVerified:verified,source:identitySeriesSource(raw)};
+ });
+ const context=anchors.find(a=>a.anchorIsinVerified&&a.source)||anchors[0];
+ if(!context)return null;
  // A different valid identifier or an unbounded mismatch blocks inheritance.
  if(outcomes.some(o=>o.ocr&& !screenshotIdentity(o.ocr.data.text,isin).ok &&
    !screenshotIdentity(o.ocr.data.text,isin).reason.startsWith('ISIN oder WKN im Zusatzbild fehlt')&&
