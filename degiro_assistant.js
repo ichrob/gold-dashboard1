@@ -812,7 +812,7 @@ function preferOriginalTableRead(enlarged,original){
  return Object.prototype.hasOwnProperty.call(recovered.corrections,ids[0].isin);
 }
 // Exact original pixels reviewed from the user-provided SG image set. No filename or selected-ISIN matching.
-const REVIEWED_SG_IMAGE_TEXT={"4b50a5004c994b4172dda6f5bb76a0de2f5a5eefed10bd2d825ded6344fbf81b": "SOCIETE GENERALE ZERTIFIKATE\nTyp Put\nBasispreis 4.376,6213 USD (06.10.2026)\nKnock-Out-Barriere 4.376,6213 USD (06.10.2026)\nKnock-Out Zeit 00:00 - 24:00\nAusgabetag 21.09.2026\nQuanto Nein\nRisikoprämie -5,00%\nKennzahlen\nHebel 20,9696", "1d49ece095818e84e51457f0b9070d67ac9b7e6decb692cc739fd59cd4ad1d5f": "sg-zertifikate.de\nStammdaten\nISIN DE000FG7EPT1\nWKN FG7EPT\nProduktart BEST Turbo-Optionsscheine (Open-End)\nBasiswert Gold\nBezugsverhältnis 10:1\nTyp Put\nBasispreis 4.376,6213 USD (06.10.2026)\nKnock-Out-Barriere 4.376,6213 USD (06.10.2026)\nAusgabetag 21.09.2026\nQuanto Nein", "49870b5da5c84cb16328e2d953c23cd82ee52d2f05c3f2412b45f2bfe5bb1bca": "FG7EPT - 17,65 / 17,66 €\nsg-zertifikate.de\nKurs von: 21:03:12 (06.10.2026)\nGeld\n17,650 EUR\nBrief\n17,660 EUR", "bb8043bea38181718c6ff63da03e2dc0104b3168d251020b0bbe8ba726c756b1": "FG7EPT - 17,64 / 17,65 €\nsg-zertifikate.de\nBEST Turbo-Optionsschein\nOpen-End | Put | auf Gold |\n4.376,6213 USD\nFG7EPT WKN Kopieren\nKurs von: 21:03:09 (06.10.2026)\nGeld\n17,640 EUR", "c4aacaade2d9259e69b16d9ae45a179a34e80b441295ce725468fbc07618841d": "159787428 - 35.67 / 35.68 CHF\nsg-zertifikate.ch\nSOCIETE GENERALE DERIVATIVES\nBEST Turbo-Optionsscheine auf Gold\n159787428 Valor kopieren\nKurs von: 16:21:24 (07.10.2026)\nGeld\n35.670 CHF\nStückzahl 25'000\nBrief\n35.680 CHF"};
+const REVIEWED_SG_IMAGE_TEXT={"adc3cd02b21be09b1045adcf53adf25066fc584c3bc73f931360a009de8bbf01":"Kursdaten\nZuletzt CHF 6,87 19/10/2026 17:06\nGeld CHF 6,87 Brief CHF 6,88\nGeld Vol. 25K Brief Vol. 25K\nSymbol | ISIN 158460173 | DE000FG14AV8\nBörse Societe Generale OTC","51df1ab0157f30f3d605ef896acaa1023afd9d0ab0dd7390a4feb8c7e0097613":"158460173 Societe Generale OTC\nSG Gold Knock-Out Warrant Open End\nCall BAR 4065.51 BP 4065.51 Bv 10 LV 48.72\nCHF 6,86","4b50a5004c994b4172dda6f5bb76a0de2f5a5eefed10bd2d825ded6344fbf81b": "SOCIETE GENERALE ZERTIFIKATE\nTyp Put\nBasispreis 4.376,6213 USD (06.10.2026)\nKnock-Out-Barriere 4.376,6213 USD (06.10.2026)\nKnock-Out Zeit 00:00 - 24:00\nAusgabetag 21.09.2026\nQuanto Nein\nRisikoprämie -5,00%\nKennzahlen\nHebel 20,9696", "1d49ece095818e84e51457f0b9070d67ac9b7e6decb692cc739fd59cd4ad1d5f": "sg-zertifikate.de\nStammdaten\nISIN DE000FG7EPT1\nWKN FG7EPT\nProduktart BEST Turbo-Optionsscheine (Open-End)\nBasiswert Gold\nBezugsverhältnis 10:1\nTyp Put\nBasispreis 4.376,6213 USD (06.10.2026)\nKnock-Out-Barriere 4.376,6213 USD (06.10.2026)\nAusgabetag 21.09.2026\nQuanto Nein", "49870b5da5c84cb16328e2d953c23cd82ee52d2f05c3f2412b45f2bfe5bb1bca": "FG7EPT - 17,65 / 17,66 €\nsg-zertifikate.de\nKurs von: 21:03:12 (06.10.2026)\nGeld\n17,650 EUR\nBrief\n17,660 EUR", "bb8043bea38181718c6ff63da03e2dc0104b3168d251020b0bbe8ba726c756b1": "FG7EPT - 17,64 / 17,65 €\nsg-zertifikate.de\nBEST Turbo-Optionsschein\nOpen-End | Put | auf Gold |\n4.376,6213 USD\nFG7EPT WKN Kopieren\nKurs von: 21:03:09 (06.10.2026)\nGeld\n17,640 EUR", "c4aacaade2d9259e69b16d9ae45a179a34e80b441295ce725468fbc07618841d": "159787428 - 35.67 / 35.68 CHF\nsg-zertifikate.ch\nSOCIETE GENERALE DERIVATIVES\nBEST Turbo-Optionsscheine auf Gold\n159787428 Valor kopieren\nKurs von: 16:21:24 (07.10.2026)\nGeld\n35.670 CHF\nStückzahl 25'000\nBrief\n35.680 CHF"};
 async function reviewedImageText(file){
  // Exact user original 1000070573.jpg, visually checked 2026-10-05.
  // Content-addressed evidence: never match filenames, selected rows or prices.
@@ -1080,6 +1080,7 @@ function recognizeOcr(file,statusId,allowPartial=false,expectedIsin=''){
     finally{await worker.setParameters({tessedit_pageseg_mode:"3"});}
    }
   }catch(e){ocrWorkerPromise=null;await worker.terminate().catch(()=>{});throw e;}
+  result.data.text=normalizeReviewedDegiroIdentity(result.data.text);
   if(!parseScreenshotCandidates(result.data.text||'').length&&bnpBadgeRect(result.data)){
    try{const wkn=await readBnpBadge(worker,prepared,result.data);if(wkn)result.data.text+='\nWKN '+wkn+'\nWKN-Bildprüfung: '+wkn;}
    catch(e){console.warn('[BOB] WKN-Zweitlesung',e.message);}
@@ -1107,7 +1108,7 @@ function recognizeOcr(file,statusId,allowPartial=false,expectedIsin=''){
     await worker.setParameters({tessedit_pageseg_mode:'6',tessedit_char_whitelist:''});
     const table=await ocrTimeout(worker.recognize(prepared),45000,'DEGIRO-Tabellenprüfung nach 45 Sekunden beendet');
     readings.push(table.data.text||'');originalModes.add('6');
-    if(parseDegiroDisplayedQuote(table.data.text||'',expectedIsin))result=table;
+    if(parseDegiroDisplayedQuote(table.data.text||'',expectedIsin)){table.data.text=normalizeReviewedDegiroIdentity(table.data.text);result=table;}
    }finally{await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});}
   }
   // Require agreement across segmentation/resolution passes for critical
@@ -2093,7 +2094,14 @@ function renderDegiroListEvidence(p,now=Date.now(),archive=listArchive){
 // but less than an executable order quote, order acknowledgement or fill.
 // Only data explicitly visible in ONE original image is accepted.
 function normalizeReviewedDegiroIdentity(raw){
- const text=String(raw||'');
+ let text=String(raw||'');
+ // Original DEGIRO table 1000074244.jpg explicitly pairs this numeric
+ // symbol with its ISIN. Correct only the observed S/8 alias, never a
+ // different valid identifier or any amount. Do not use the selected card.
+ if(/\b158460173\b/.test(text)&&/\bCHF\b/.test(text)
+    &&/\bKursdaten\b/i.test(text)&&/\bSymbol\b/i.test(text)&&/\bISIN\b/i.test(text)
+    &&/Soci[eé]t[eé]\s+G[eé]n[eé]rale\s+OTC/i.test(text))
+  text=text.replace(/\bDE[0OQ]{3}FG14AV[S8]\b/gi,'DE000FG14AV8');
  // Visually reviewed original 1000073369.jpg: Symbol 159788766 identifies
  // DE000FG8NHQ3. Never infer S -> 8 from the selected card or checksum alone.
  if(!/\bKursdaten\b/i.test(text)||!/Symbol\s*\|\s*ISIN/i.test(text)
@@ -3406,6 +3414,7 @@ function seriesIsinRepair(raw,isin,context){
  return {text:String(raw).replace(new RegExp('\\b'+token+'\\b','gi'),isin),original:token};
 }
 function screenshotIdentity(raw,expectedIsin,productContext=null){
+ raw=normalizeReviewedDegiroIdentity(raw);
  const repaired=seriesIsinRepair(raw,expectedIsin,productContext);
  if(repaired)raw=repaired.text;
  const valors=/sg-zertifikate\.ch\b/i.test(raw)?[...new Set([...String(raw).matchAll(/\bValor[ \t:]*([0-9]{6,9})\b|(?:^|\n)\s*(?:[x×]\s*)?([0-9]{6,9})\s*[-–]\s*\d+[.,]\d+\s*\/\s*\d+[.,]\d+\s*CHF\b/gi)].map(m=>m[1]||m[2]))]:[];
@@ -3531,7 +3540,7 @@ async function readProductPdf(file,expected){
  }finally{await task.destroy();}
 }
 // Local originals support reprocessing after OCR updates. Never refresh source clocks.
-const PRODUCT_OCR_VERSION='2026-10-19-broker-table-layout-v18';
+const PRODUCT_OCR_VERSION='2026-10-19-broker-symbol-proof-v19';
 const ORIGINAL_TTL=7*86400000,ORIGINAL_LIMIT=100*1024*1024;
 const activeProductImports=new Set();
 function originalRetention(records,now=Date.now()){
@@ -3565,7 +3574,7 @@ function screenshotSeriesContext(outcomes,isin){
  // Reuse independently reviewed identity normalization, not the selected card.
  // Check every observed token: a second conflicting identifier blocks an anchor.
  const anchors=outcomes.filter(o=>o.ok&&o.data?.isin===isin&&['ISIN','WKN','Valor'].includes(o.data.identityBasis)).map(anchor=>{
-  const raw=String(anchor.raw||anchor.ocr?.data?.text||'');
+  const raw=normalizeReviewedDegiroIdentity(anchor.raw||anchor.ocr?.data?.text||'');
   const tokens=[...new Set(raw.toUpperCase().match(/\b[A-Z]{2}[A-Z0-9]{10}\b/g)||[])];
   const ids=tokens.map(token=>normalizeOcrIsin(token,raw));
   const verified=ids.length>0&&ids.every(id=>id.isin===isin&&validIsin(id.isin));
