@@ -3189,6 +3189,11 @@ function detailScreenshotData(text,expectedIsin,productContext=null,excludedFiel
  if(!validIsin(expectedIsin))return{ok:false,reason:"Bitte zuerst die ISIN dieses Produkts am Screenshot prüfen und korrigieren."};
  const identity=screenshotIdentity(raw,expectedIsin,productContext);
  if(!identity.ok)return identity;
+ // Preserve verified identity before uncertain numeric lines are removed:
+ // those lines may be part of the reviewed broker-layout signature.
+ const verifiedAliases=parseScreenshotCandidates(raw).filter(c=>c.isin===expectedIsin&&c.originalIsin&&c.identityCorrection);
+ for(const candidate of verifiedAliases)raw=raw.replace(new RegExp('\\b'+candidate.originalIsin+'\\b','g'),expectedIsin);
+
  if(explicitKnockout(raw))return {ok:true,isin:expectedIsin,identityBasis:identity.basis,identityContext:identity.context||null,terms:{},times:{},lifecycle:{isin:expectedIsin,status:'KNOCKED_OUT',verified:true,text:'KNOCKED OUT',identityBasis:identity.basis}};
 
  for(const key of excludedFields){
@@ -3228,7 +3233,7 @@ function detailScreenshotData(text,expectedIsin,productContext=null,excludedFiel
  const bid=draft.partialQuote?draft.partialQuote.bid:draft.paired?n(draft.fields.bid):amount("Geld|Bid"),ask=draft.partialQuote?draft.partialQuote.ask:draft.paired?n(draft.fields.ask):amount("Brief|Ask");
  const importWarnings=[],importNotes=[];
  if(draft.partialQuote){x.price="";x.spread="";importWarnings.push(bid===null?"Geldkurs fehlt: Kursbereich mit Geld und Brief ergänzen.":"Briefkurs fehlt: Kursbereich mit Geld und Brief ergänzen.");}
- if(draft.fields.ko1)x.ko=draft.fields.ko1;
+ if(draft.fields?.ko1)x.ko=draft.fields.ko1;
  if((bid!==null&&bid<=0)||(ask!==null&&ask<=0)||(bid!==null&&ask!==null&&ask<bid))return{ok:false,reason:"Geld-/Briefkurse widersprüchlich gelesen. Bitte ein schärferes Bild hochladen."};
  const quoteText=raw.replace(/(?:^|\n)\s*(?:Produktdatenstand|Bedingungenstand|Fälligkeit|Faelligkeit|Laufzeit|KO-Zeit|Hebelzeit)\s*[:=]?[^\n]*/gi,'');
  const stamp=screenshotTimes(raw).quote?.text||(quoteText.match(/\b\d{2}[/.]\d{2}[/.]\d{4}\s+\d{2}:\d{2}(?::\d{2})?\b/)||[])[0]||"";
@@ -3410,7 +3415,7 @@ async function readProductPdf(file,expected){
  }finally{await task.destroy();}
 }
 // Local originals support reprocessing after OCR updates. Never refresh source clocks.
-const PRODUCT_OCR_VERSION='2026-10-19-degiro-reviewed-identity-v10';
+const PRODUCT_OCR_VERSION='2026-10-19-verified-import-v11';
 const ORIGINAL_TTL=7*86400000,ORIGINAL_LIMIT=100*1024*1024;
 const activeProductImports=new Set();
 function originalRetention(records,now=Date.now()){

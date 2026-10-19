@@ -11,3 +11,10 @@ assert.equal(api.detailScreenshotData(quote.replace('BNP OTC','OTHER'),id).ok,fa
 assert.equal(api.detailScreenshotData(quote+'\nISIN DE000FG14AV8',id).ok,false);
 assert.equal(api.detailScreenshotData(quote.replace('DEOOOPJONB9S','DE000PJ1NB9S'),id).ok,false);
 console.log('Reviewed DEGIRO identity aliases accepted; wrong product, missing broker and conflicting ISIN rejected');
+// Quote-line exclusion must not invalidate an already verified alias.
+for(const excluded of [['bid'],['ask'],['bid','ask']]){
+ const result=api.detailScreenshotData(quote,id,null,excluded);
+ assert.equal(result.ok,true,JSON.stringify(result));assert.equal(result.isin,id);
+ for(const key of excluded)assert(result[key]===null||result[key]===undefined);
+}
+console.log('Verified identity survives excluded quote fields without ko1 exception');
