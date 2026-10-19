@@ -94,6 +94,8 @@ def ensure_fibonacci_monitor():
 def service_health():
     """Liveness stays independent of providers; report readiness honestly."""
     collection = auto_collection.health()
+    import auxiliary_workers
+    auxiliary = auxiliary_workers.health() if collection.get("enabled") else {}
     background = background_health()
     feed = collection.get('cfdFeed') or {}
     reasons = []
@@ -117,8 +119,10 @@ def service_health():
                         'uptimeSeconds': max(0, int(time.monotonic()-PROCESS_STARTED_MONOTONIC))},
             'ready': not reasons, 'reasons': reasons,
             'fibonacciMonitor': dict(FIB_MONITOR_HEALTH), 'automaticCollection': collection,
+            'auxiliaryWorkers': auxiliary,
             'strategyResearch': strategy_lab_background.status(), 'assistanceCodes': bob_assistance.pending_codes()}
     bob_self_healing.observe(result)
+    result["repairPendingCodes"] = bob_self_healing.pending_codes()
     return result
 
 
@@ -128,6 +132,8 @@ _HEALING_WATCH_LOCK = threading.Lock()
 
 def maintain_known_workers():
     """Safe repairs only: existing idempotent starts, never trade or config changes."""
+    import auxiliary_workers
+    auxiliary_workers.maintain(auto_collection.enabled())
     collection_state = auto_collection.health()
     bob_self_healing.restart_worker(
         "market-worker-stopped",
