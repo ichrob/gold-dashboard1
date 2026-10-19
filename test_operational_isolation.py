@@ -56,6 +56,13 @@ class PublicProblemSnapshot(unittest.TestCase):
         data=request.call_args.kwargs['data'];payload=base64.b64decode(data['content']).decode()
         self.assertNotIn('secret quote',payload);self.assertNotIn('private-token',payload)
         self.assertEqual(data['branch'],'bob-status');self.assertEqual(data['sha'],'old')
+    def test_new_snapshot_recovers_before_public_api_quota_resets(self):
+        from urllib.error import HTTPError
+        with patch.object(bob_problems,'_CACHED',None),patch.object(bob_problems,'_RETRY_AFTER',0),patch.object(mirror,'read',side_effect=[ValueError('not yet published'),{'status':'ok','count':0,'problems':[]}]),patch.object(bob_problems,'fetch_open_issues',side_effect=HTTPError(bob_problems.ISSUES_URL,429,'limited',{'Retry-After':'1800'},None)) as api,patch('builtins.print'):
+            self.assertEqual(bob_problems.snapshot(clock=lambda:100)['status'],'unavailable')
+            self.assertEqual(bob_problems.snapshot(clock=lambda:221)['status'],'ok')
+            api.assert_called_once()
+
     def test_default_reader_uses_snapshot_without_public_api_quota(self):
         with patch.object(bob_problems,'_CACHED',None),patch.object(mirror,'read',return_value={'status':'ok','count':0,'problems':[]}),patch.object(bob_problems,'fetch_open_issues') as api:
             self.assertEqual(bob_problems.snapshot()['status'],'ok');api.assert_not_called()
