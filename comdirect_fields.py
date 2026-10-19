@@ -156,6 +156,11 @@ def apply(result, isin):
             out['conditions'][key] = copy.deepcopy(item)
             report['filledFields'].append(key)
         elif existing != item['value']:
-            report['conflicts'].append(key)
+            equivalent_turbo = (key == 'type' and meta.get('simpleTurbo') is True
+                and item['value'] == 'Knock-out Turbo'
+                and existing == 'Unlimited '+('Long' if meta.get('direction') == 'LONG' else 'Short')
+                and observations.get('direction', {}).get('value') == meta.get('direction'))
+            if not equivalent_turbo:
+                report['conflicts'].append(key)
     report['state'] = 'conflict' if report['conflicts'] else 'active'
     return out
