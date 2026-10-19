@@ -733,7 +733,12 @@ def _get_quote_bounded(isin):
     if (selected.get('priceKind') in ('issuer-chart', 'market-observation')
             and selected is not result and result.get('productVerified')
             and result.get('metadata', {}).get('status') == 1):
-        if result.get('found'):
+        secondary = result.get('secondaryQuote') or {}
+        try:
+            secondary_newer = stamp(secondary.get('askAt')) >= stamp(result.get('askAt'))
+        except (TypeError, ValueError, AttributeError):
+            secondary_newer = bool(secondary)
+        if result.get('found') and not secondary_newer:
             result['secondaryQuote'] = {key: result.get(key) for key in
                 ('isin', 'bid', 'ask', 'price', 'quoteAt', 'bidAt', 'askAt', 'currency',
                  'source', 'sourceUrl', 'priceKind', 'venue', 'upstream',
