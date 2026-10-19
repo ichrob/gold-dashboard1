@@ -562,7 +562,9 @@ def sync_devices(conn):
             AND (background_config->'trade'->>'tradeId' IS NULL
               OR background_config->'trade'->>'tradeId'=ANY(%s))""",
           (list(closed),list(closed),list(closed),list(closed)))
-    rows=conn.execute('SELECT id,active_trade,background_config,trade_enabled FROM subscriptions FOR UPDATE').fetchall()
+    rows=conn.execute("""SELECT id,active_trade,background_config,trade_enabled FROM subscriptions
+        WHERE trade_enabled=TRUE OR background_config->'trade'->>'tradeId'=ANY(%s)
+        FOR UPDATE SKIP LOCKED""", (list(closed),)).fetchall()
     for sid,active,settings,enabled in rows:
         if not enabled and ((settings or {}).get('trade') or {}).get('tradeId') not in closed:continue
         selected=device_plan(settings,active,journals,closed)

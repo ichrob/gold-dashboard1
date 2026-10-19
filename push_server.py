@@ -476,6 +476,8 @@ def run_background(bundle):
                 real_trade_journal.sync_devices(conn)
         except Exception as exc:
             print('BOB_REAL_TRADE device_sync_failed='+type(exc).__name__,flush=True)
+        # Release completed maintenance and device-sync locks before evaluation or I/O.
+        conn.commit()
         # One canonical observation per bundle, independent of devices or open browser.
         if improvement_tracker.eligible(int(time.time()*1000)):
             try:
@@ -486,7 +488,8 @@ def run_background(bundle):
                 with conn.transaction(): improvement_tracker.capture(conn, canonical)
             except Exception as exc:
                 print('BOB_IMPROVEMENT capture_error='+type(exc).__name__,flush=True)
-        rows = conn.execute("SELECT id, subscription, general_enabled, trade_enabled, active_trade, background_config, background_state, selection_evidence, product_selection FROM subscriptions WHERE (general_enabled=TRUE OR (trade_enabled=TRUE AND active_trade=TRUE)) AND background_config IS NOT NULL FOR UPDATE").fetchall()
+        conn.commit()  # Research writes must not hold locks through alert delivery.
+        rows = conn.execute("SELECT id, subscription, general_enabled, trade_enabled, active_trade, background_config, background_state, selection_evidence, product_selection FROM subscriptions WHERE (general_enabled=TRUE OR (trade_enabled=TRUE AND active_trade=TRUE)) AND background_config IS NOT NULL FOR UPDATE SKIP LOCKED").fetchall()
         # Research must continue even when the app is closed and nobody has Push enabled.
         # Only an ordinary authenticated /background bundle is used; no extra HTTP polling.
         if not rows and background_push.degiro_session() == 'trading':
