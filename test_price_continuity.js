@@ -1,5 +1,5 @@
 const assert=require('assert'),fs=require('fs'),vm=require('vm');
-const window={};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),{window});
+const window={};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8').replace('window.BobDegiro={','window.BobDegiro={renderProductDirectionStatus,'),{window});
 const render=window.BobDegiro.renderPrimaryProductValues;
 const now=Date.now(),at=s=>new Date(now-s*1000).toISOString();
 const isin='DE000FC1CHB7';
@@ -19,3 +19,17 @@ const o=structuredClone(p);o.quote.priceContinuity={state:'original',currency:'E
 html=render(o,now);assert(html.includes('Originalkurs aktuell'));assert(!html.includes('Theoretischer Produktwert'));
 assert(render(o,now+120000).includes('Keine aktuelle Berechnungsgrundlage'));
 console.log('Continuity display: model, original recovery and stale/identity/currency/KO rejection passed');
+
+const card=window.BobDegiro.renderProductDirectionStatus;
+assert(card(p,now).includes('Berechneter Kurs aktuell'));
+assert(!card(p,now).includes('Veraltete Werte'));
+assert(card(o,now).includes('Originalkurs aktuell'));
+assert(card(o,now).includes('DEGIRO-Ausführung separat'));
+assert(!card(o,now+120000).includes('Originalkurs aktuell'));
+const source=fs.readFileSync('degiro_assistant.js','utf8');
+const help={researchResults:new Map(),pendingQuotes:new Set(),productProblemLabels:()=>['Kurszeit'],productFieldStates:()=>({}),n:()=>null,analysisContinuityStatus:()=>({label:'Berechneter Kurs aktuell',calculated:true})};
+vm.createContext(help);vm.runInContext(source.slice(source.indexOf('function productHelpState('),source.indexOf('function renderProductHelp(')),help);
+assert(help.productHelpState(p).status.includes('Berechneter Kurs aktuell'));
+help.productProblemLabels=()=>['KO-Nachweis'];
+assert(help.productHelpState(p).manual,'KO gap is not hidden by a current price');
+console.log('Card header and direction status use the same current analysis basis');
