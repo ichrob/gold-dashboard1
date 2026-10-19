@@ -102,9 +102,53 @@ def calculate(result, basis, fx, now=None, quote_override=None):
                 note='Rechnerische Näherung mit Delta ±1; kein bestätigter Emittentenhebel oder ausführbarer Kurs.')
 
 
+def reconcile_model(result, now):
+    """Use explicit same-product comdirect contract proof for an unknown model."""
+    out = copy.deepcopy(result)
+    m = out.get('metadata') or {}
+    if m.pop('comdirectModelFallback', False):
+        m.update(simpleNonQuantoTurbo=False, quantoState='unknown')
+        m.pop('currencyModelEvidence', None)
+    if (not out.get('productVerified') or m.get('status') != 1
+            or m.get('simpleTurbo') is not True or m.get('quantoState') != 'unknown'
+            or m.get('underlyingType') != 'SPOT'):
+        return out
+    report = out.get('comdirectFieldsBackup') or {}
+    obs = report.get('observations') or {}
+    isin = out.get('isin')
+    source = 'https://www.comdirect.de/inf/zertifikate/'+str(isin)
+    if (not isinstance(isin, str) or not q.valid_isin(isin) or report.get('isin') != isin
+            or report.get('state') != 'active' or report.get('conflicts')
+            or report.get('inactive') or report.get('source') != source):
+        return out
+    required = dict(quanto=False, direction=m.get('direction'), currency=m.get('currency'),
+                    underlying='XAU/USD', ratio=m.get('ratio'), type='Knock-out Turbo')
+    if m.get('underlying') != 'XAU/USD' or not m.get('ratio'):
+        return out
+    for key, value in required.items():
+        item = obs.get(key) or {}
+        if (item.get('value') != value or (key == 'quanto' and item.get('value') is not False)
+                or item.get('conditionVerified') is not True or item.get('source') != source
+                or any(item.get(k) for k in ('conflict', 'revoked', 'ocrCorrection'))):
+            return out
+        try:
+            if not 0 <= (now-q.stamp(item['reviewedAt'])).total_seconds() <= 8*3600:
+                return out
+        except (KeyError, TypeError, ValueError):
+            return out
+    condition = (out.get('conditions') or {}).get('quanto') or {}
+    if condition.get('value') is not False or any(condition.get(k) for k in ('conflict','revoked')):
+        return out
+    m.update(simpleNonQuantoTurbo=True, quantoState='non-quanto', comdirectModelFallback=True,
+             currencyModelEvidence=dict(source=source, reviewedAt=obs['quanto']['reviewedAt'],
+                                        value=False, isin=isin))
+    return out
+
+
 def current_evidence(result, now=None):
     """Validate calculated gearing as a dated value, never a broker quote."""
     now = now or datetime.now(timezone.utc)
+    result = reconcile_model(result, now)
     try:
         c = result['leverageCalculation']; i = c['inputs']; m = result['metadata']
         if (not result.get('productVerified') or m.get('status') != 1
@@ -133,6 +177,7 @@ def current_evidence(result, now=None):
 def apply(result, now=None):
     supplied_now = now
     now = now or datetime.now(timezone.utc)
+    result = reconcile_model(result, now)
     m = result.get('metadata', {})
     if not result.get('productVerified') or m.get('status') != 1:
         return result
@@ -192,7 +237,7 @@ def apply(result, now=None):
                    leverageSource='Bob · CFD-basierter geschätzter Hebel' if basis.get('estimated') else 'Bob · berechneter Hebel',eligible=False,fresh=False,
                    leverageNote=evidence['label']+' · '+evidence['state']+'. '+evidence['note'])
         if m.get('currencyModelEvidence'):
-            out['leverageNote'] += ' Währungsumrechnung: nicht währungsgesichert laut Onvista-Produktbedingungen; USD/EUR berücksichtigt.'
+            out['leverageNote'] += ' Währungsumrechnung: nicht währungsgesichert laut nachgewiesenen Produktbedingungen; datierter Wechselkurs berücksichtigt.'
         if evidence['inputs'].get('quoteCurrency') == 'CHF':
             out['leverageNote'] += ' Berechnung in CHF (USD/CHF); keine EUR-Handelsquotierung.'
         out['reason'] = 'Produktwerte übernommen; '+out['leverageNote']
