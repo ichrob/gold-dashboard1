@@ -170,6 +170,11 @@ class HttpTests(unittest.TestCase):
         status,h,_ = self.request('POST','/mcp','{}',{'Content-Type':'application/json'})
         self.assertEqual(status,401)
         self.assertIn('resource_metadata=',h['WWW-Authenticate'])
+        self.assertTrue(h['WWW-Authenticate'].startswith('Bearer '))
+        for path,expected in [('/',303),('/api/degiro/audit',401)]:
+            status,h,_ = self.request('GET',path)
+            self.assertEqual(status,expected)
+            self.assertNotIn('WWW-Authenticate',h)
 
     def test_actual_consent_and_read_only_mcp_flow(self):
         self.begin()
