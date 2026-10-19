@@ -168,7 +168,9 @@ def _report(conn):
     repairs=conn.execute('''SELECT e.code,e.kind,e.event_at,
         count(*) FILTER (WHERE h.payload->'goodCodes' ? e.code),
         count(*) FILTER (WHERE h.payload->'badCodes' ? e.code),
-        max(h.observed_at),min(h.observed_at)
+        max(h.observed_at),min(h.observed_at),
+        (SELECT count(*) FROM bob_self_heal_events again WHERE again.code=e.code
+            AND again.kind='detected' AND again.event_at>e.event_at)
         FROM (SELECT code,kind,event_at FROM bob_self_heal_events
               WHERE kind IN ('repair-verified','recovered') AND event_at>now()-interval '7 days'
               ORDER BY event_at DESC LIMIT 20) e
@@ -176,11 +178,11 @@ def _report(conn):
           AND (h.payload->'goodCodes' ? e.code OR h.payload->'badCodes' ? e.code)
         GROUP BY e.code,e.kind,e.event_at ORDER BY e.event_at DESC''').fetchall()
     followups=[]
-    for code,kind,at,good,bad,last,first in repairs:
-        state=('recurred' if bad else 'observed-stable' if good>=2 and last-first>=300 and time.time()-last<=120
+    for code,kind,at,good,bad,last,first,recorded_recurrences in repairs:
+        state=('recurred' if bad or recorded_recurrences else 'observed-stable' if good>=2 and last-first>=300 and time.time()-last<=120
                else 'pending-or-stale')
         followups.append(dict(code=code,recoveryKind=kind,recoveredAt=at.isoformat(),goodChecks=good,
-                              badChecks=bad,lastCheckAt=last,state=state))
+                              badChecks=bad,recordedRecurrences=recorded_recurrences,lastCheckAt=last,state=state))
     return {'status':'observed' if rows else 'warming','retentionDays':7,'maxEvents':60000,
             'events':events,'reportLimitPerStage':20,'repairFollowups':followups,'delivery':status(),
             'scope':'sampled-server-observations-not-proof-of-causality-or-handset-delivery',
