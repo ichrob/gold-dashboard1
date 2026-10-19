@@ -64,8 +64,8 @@ def read_private_product_audit_for_mcp():
                       headers={"X-Bob-Push-Token": PUSH_SERVICE_TOKEN,
                                "Accept": "application/json"})
     with urlopen(request, timeout=8) as response:
-        body = response.read(65537)
-    if len(body) > 65536:
+        body = response.read(2 * 1024 * 1024 + 1)
+    if len(body) > 2 * 1024 * 1024:
         raise ValueError("Private audit too large")
     result = json.loads(body)
     if not isinstance(result, dict):
@@ -1134,18 +1134,8 @@ class Handler(BaseHTTPRequestHandler):
             # Private proxy; the push service owns the active screenshot list.
             # Never call the issuer or DEGIRO from an interactive status GET.
             try:
-                if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
-                    raise RuntimeError("Product audit service not configured")
-                base = PUSH_SERVICE_URL.rstrip("/")
-                if not base.startswith(("https://", "http://")):
-                    base = "https://" + base
-                request = Request(base + "/product-audit", method="GET",
-                    headers={"X-Bob-Push-Token": PUSH_SERVICE_TOKEN,
-                             "Accept": "application/json"})
-                with urlopen(request, timeout=8) as response:
-                    body = response.read(65537)
-                if len(body) > 65536:
-                    raise ValueError("Audit report too large")
+                result = read_private_product_audit_for_mcp()
+                body = json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
                 status = 200
             except (OSError, ValueError, RuntimeError, HTTPError, URLError, TimeoutError):
                 status = 503
