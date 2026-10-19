@@ -27,6 +27,8 @@ LOCK = threading.Lock()
 SESSIONS = {}
 PENDING = {}
 FAILURES = []
+PASSWORD_FAILURE_LIMIT = 5
+PASSWORD_FAILURE_WINDOW = 5 * 60
 
 
 class AuthenticationUnavailable(Exception):
@@ -104,8 +106,8 @@ def check_password(supplied_user, candidate, user, password, current):
     """
     with LOCK:
         now = time.time()
-        FAILURES[:] = [stamp for stamp in FAILURES if stamp > now - 60]
-        if len(FAILURES) >= 30:
+        FAILURES[:] = [stamp for stamp in FAILURES if stamp > now - PASSWORD_FAILURE_WINDOW]
+        if len(FAILURES) >= PASSWORD_FAILURE_LIMIT:
             return None
         ok = (bool(user and password) and len(candidate) <= 1024
               and hmac.compare_digest(supplied_user.encode(), user.encode())
@@ -202,13 +204,13 @@ def login(handler, user, password):
         now = time.time()
         with LOCK:
             valid = bool(csrf) and hmac.compare_digest(csrf.encode(), cookie(handler.headers, CSRF_COOKIE).encode()) and PENDING.pop(csrf, 0) > now
-            FAILURES[:] = [x for x in FAILURES if x > now - 60]
-            limited = len(FAILURES) >= 30
+            FAILURES[:] = [x for x in FAILURES if x > now - PASSWORD_FAILURE_WINDOW]
+            limited = len(FAILURES) >= PASSWORD_FAILURE_LIMIT
         if not valid:
             login_page(handler, 'Anmeldung abgelaufen. Bitte erneut anmelden.', status=403)
             return
         if limited:
-            send(handler, 429, b'Bitte eine Minute warten.')
+            send(handler, 429, b'Zu viele Fehlversuche. Bitte bis zu fuenf Minuten warten.')
             return
         try:
             current = bob_recovery.state(user)
@@ -218,7 +220,7 @@ def login(handler, user, password):
         candidate = fields.get('password', [''])[0]
         ok = check_password(fields.get('username', [''])[0], candidate, user, password, current)
         if ok is None:
-            send(handler, 429, b'Bitte eine Minute warten.')
+            send(handler, 429, b'Zu viele Fehlversuche. Bitte bis zu fuenf Minuten warten.')
             return
         if not ok:
             login_page(handler, 'Anmeldung fehlgeschlagen. Bitte Zugangsdaten prüfen.')

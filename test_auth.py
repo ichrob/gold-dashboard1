@@ -148,7 +148,7 @@ class AuthenticationTests(unittest.TestCase):
             reader.assert_not_called()
 
     def test_rate_limit(self):
-        bob_auth.FAILURES.extend([time.time()]*30)
+        bob_auth.FAILURES.extend([time.time()]*5)
         self.assertEqual(self.sign_in()[0],429)
         self.assertFalse(bob_auth.SESSIONS)
 
