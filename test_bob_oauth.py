@@ -185,6 +185,8 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(status,200)
         # HTML form POSTs get Origin: null under no-referrer, breaking consent.
         self.assertEqual(h['Referrer-Policy'],'same-origin')
+        # Chrome also applies form-action to the post-consent redirect.
+        self.assertIn("form-action 'self' "+store.REDIRECT+";",h['Content-Security-Policy'])
         self.assertIn(b'Lesezugriff erlauben',body)
         fields = {'request':self.nonce,'decision':'approve'}
         self.assertEqual(self.form('/oauth/consent',fields,cookies,origin='https://evil.example')[0],403)

@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, build_opener, HTTPSHandler
 import bob_auth
 import bob_passkey
-from bob_oauth_store import ORIGIN, RESOURCE, SCOPE
+from bob_oauth_store import ORIGIN, RESOURCE, SCOPE, REDIRECT
 
 COOKIE = '__Host-bob_oauth'
 UNTIL = '2026-11-16T23:59:59+01:00'
@@ -71,7 +71,7 @@ def respond(handler, status, value=None, *, location=None, cookies=(), page=Fals
     handler.send_header('Content-Type','text/html; charset=utf-8' if page else 'application/json')
     for name,val in [('Cache-Control','no-store'),('Pragma','no-cache'),('X-Content-Type-Options','nosniff'),
                      ('Referrer-Policy','same-origin'),('X-Frame-Options','DENY'),
-                     ('Content-Security-Policy',"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")]:
+                     ('Content-Security-Policy',"default-src 'none'; style-src 'unsafe-inline'; form-action 'self' "+REDIRECT+"; frame-ancestors 'none'; base-uri 'none'")]:
         handler.send_header(name,val)
     if location:
         handler.send_header('Location',location)
