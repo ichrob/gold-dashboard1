@@ -100,3 +100,21 @@ Quellenkombination wird weiter verwendet. Neue belegte Fehler dieser Quellen
 und konkrete fehlende Produktfelder bleiben eigenständige technische Fälle;
 die Entscheidung ersetzt keine Originalzeit, Datenfreigabe oder Brokerquote.
 Die drei ChatGPT-Wächteraufträge wurden entsprechend aktualisiert.
+
+### Isolated product-source repair (19 October 2026)
+
+Unexpected exceptions in optional comdirect/Swissquote fetches and comdirect,
+finanzen and Swissquote enrichment no longer abort all remaining product sources.
+Each failing stage retains the unmodified input; independent sources continue.
+Retries occur on subsequent normal product refreshes after 30, 60, 120, 240,
+then at most 300 seconds. State is bounded to 256 stage/product entries per
+process and resets on deployment. Existing source caches and request limits remain.
+No additional worker, external AI service or subscription is needed.
+
+Private product details and the manually shared report expose fixed stage/status
+codes. `call-restored` means a call returned a structured response, not that the
+source delivered fresh or complete evidence. Existing product validation remains
+mandatory; failed mandatory validators are not bypassed, and an optional source
+exception cannot grant eligibility. No source timestamp, KO/stop rule, executable
+broker proof, or trading permission is invented or relaxed. This mechanism does
+not rewrite code automatically; new parser bugs still require a tested release.
