@@ -13,3 +13,14 @@ const manual={...frame,at:120,sourceKind:'screenshot',sectionAt:30};
 item.enhancements.frames.push(manual);
 assert.equal(choose(item,sections(item)[0]).frame,manual);
 assert.equal(choose(item,{evidence:[{at:120}]}),null);
+
+const linked={enhancements:{frames:[{...frame,isCover:true},frame,{...frame,at:40}],summary:{kind:'ai',sections:[{text:'Broken evidence',evidence:[]},{text:'Correction',evidence:[{at:30,text:'Correction in the chart'}]}],visualNotes:[{frameId:1,frameAt:40,kind:'chart',sectionIds:[1],description:'Die eingezeichnete Korrektur illustriert das Szenario.'}]}}};
+const section=sections(linked)[0];
+assert.equal(section.sectionIndex,1);
+assert.equal(choose(linked,section).frame.at,40);
+assert(choose(linked,section).note.description.includes('Korrektur'));
+linked.enhancements.summary.visualNotes[0].frameAt=41;
+assert.equal(choose(linked,section).frame.at,30);
+linked.enhancements.summary.visualNotes[0].frameAt=40;
+linked.enhancements.frames[2].at=60;
+assert.equal(choose(linked,section).frame.at,30);

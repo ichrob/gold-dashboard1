@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 
 CHANNEL = 'UCsl6Z6p7GOkczo8Cv-GH6Dg'
 MODEL = 'gemini-3.5-flash-lite'
-SUMMARY_FORMAT_VERSION = 'evidence-visual-v4-section-images'
+SUMMARY_FORMAT_VERSION = 'evidence-visual-v5-frame-binding'
 FRAME_FORMAT_VERSION = 'storyboard-requests-v7'
 MAX_FRAMES = 5
 MAX_BYTES = 1000000
@@ -141,7 +141,8 @@ def summary_checked(data, segments, *, keep_valid_sections=False, frames=None):
         frame_id, kind = note.get('frameId'), note.get('kind')
         if type(frame_id) is int and 0 <= frame_id < len(valid) and frame_id not in seen and kind in kinds:
             seen.add(frame_id)
-            checked = {'frameId': frame_id, 'kind': kind, 'label': kinds[kind]}
+            checked = {'frameId': frame_id, 'frameAt': valid[frame_id]['at'],
+                       'kind': kind, 'label': kinds[kind]}
             refs = note.get('sectionIds', [])
             matched = [section_map[i] for i in refs if type(i) is int and i in section_map
                        and any(abs(e['at']-valid[frame_id]['at'])<=15 for e in sections[section_map[i]]['evidence'])] if isinstance(refs,list) else []

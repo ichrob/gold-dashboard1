@@ -4,15 +4,23 @@
 const valid=f=>f&&!f.isCover&&Number.isFinite(f.at)&&f.at>=0&&f.at<=86400&&/^data:image\/jpeg;base64,[A-Za-z0-9+/=]{100,140000}$/.test(f.dataUrl||'');
 function sections(item){
  const ai=item.enhancements?.summary;
- if(ai?.kind==='ai')return (ai.sections||[]).filter(s=>s.text&&s.evidence?.some(e=>Number.isFinite(e.at)&&e.text)).slice(0,7).map(s=>({...s,kind:'summary'}));
+ if(ai?.kind==='ai')return (ai.sections||[]).filter(s=>s.text&&s.evidence?.some(e=>Number.isFinite(e.at)&&e.text)).slice(0,7).map(s=>({...s,sectionIndex:ai.sections.indexOf(s),kind:'summary'}));
  const byId=new Map((item.overview?.evidence||[]).map(e=>[e.id,e]));const seen=new Set(),out=[];
  for(const s of item.overview?.sections||[]){const evidence=(s.evidenceIds||[]).map(id=>byId.get(id)).filter(e=>e?.text&&Number.isFinite(e.at));const key=evidence.map(e=>e.id||e.text).join('|');if(!evidence.length||seen.has(key))continue;seen.add(key);out.push({label:s.label,text:evidence.map(e=>e.text).join(' '),evidence,kind:'quote'});}
  return out.slice(0,7);
 }
 function choose(item,section){
- const times=section.evidence.map(e=>e.at),images=item.enhancements?.ocr?.images||[];
- return (item.enhancements?.frames||[]).map((frame,index)=>({frame,index,ocr:images.find(i=>i.index===index),distance:valid(frame)?Math.min(...times.map(t=>Math.abs(t-frame.at))):Infinity}))
- .filter(x=>valid(x.frame)&&(x.frame.sourceKind==='screenshot'?x.frame.sectionAt===times[0]:x.distance<=15)).sort((a,b)=>Number(b.frame.sourceKind==='screenshot')-Number(a.frame.sourceKind==='screenshot')||Number(!!b.ocr?.illustrationRecommended)-Number(!!a.ocr?.illustrationRecommended)||a.distance-b.distance)[0]||null;
+ const times=section.evidence.map(e=>e.at).filter(Number.isFinite),images=item.enhancements?.ocr?.images||[];
+ const frames=item.enhancements?.frames||[],aiFrames=frames.slice(0,5).filter(f=>valid(f)&&!f.userProvided);
+ const notes=item.enhancements?.summary?.visualNotes||[];
+ return frames.map((frame,index)=>{
+  const ocr=images.find(i=>i.index===index),distance=valid(frame)&&times.length?Math.min(...times.map(t=>Math.abs(t-frame.at))):Infinity;
+  const note=notes.find(n=>Number.isInteger(n.frameId)&&aiFrames[n.frameId]===frame&&n.frameAt===frame.at&&
+   ['chart','slide'].includes(n.kind)&&Number.isInteger(section.sectionIndex)&&n.sectionIds?.includes(section.sectionIndex)&&
+   typeof n.description==='string'&&n.description.length>0&&n.description.length<=240&&!/\d/.test(n.description));
+  return {frame,index,ocr,distance,note};
+ }).filter(x=>valid(x.frame)&&(x.frame.sourceKind==='screenshot'?x.frame.sectionAt===times[0]:x.distance<=15))
+ .sort((a,b)=>Number(b.frame.sourceKind==='screenshot')-Number(a.frame.sourceKind==='screenshot')||Number(!!b.note)-Number(!!a.note)||Number(!!b.ocr?.illustrationRecommended)-Number(!!a.ocr?.illustrationRecommended)||a.distance-b.distance)[0]||null;
 }
 function market(image){const text=(image?.lines||[]).map(l=>l.text).join(' ');return /\b(?:futures?|COMEX)\b|GC1!/i.test(text)?'future':/XAU\s*\/\s*USD/i.test(text)?'xau':'unknown';}
 if(typeof module!=='undefined')module.exports={sections,choose,market};
@@ -28,16 +36,19 @@ function enlarge(frame,trigger){
  area.append(img);dialog.append(title,close,zoom,el('p','Vergrößerung zeigt vorhandene Bilddetails; fehlende Auflösung wird nicht ergänzt.'),area);d.body.append(dialog);dialog.showModal();close.focus();
 }
 function figure(card,selected,item,evidence=[]){
- const {frame,ocr}=selected,fig=el('figure'),button=el('button'),img=el('img');button.type='button';button.setAttribute('aria-label','Chartbild vergrößern');button.style.cssText='display:block;width:100%;padding:0;border:0;background:#10151e';img.src=frame.dataUrl;img.alt='Videobild zur MCO-Aussage bei '+stamp(frame.at);img.loading='lazy';img.style.cssText='display:block;width:100%;height:auto;max-width:none;object-fit:contain';button.append(img);button.onclick=()=>enlarge(frame,button);
+ const {frame,ocr,note}=selected,fig=el('figure'),button=el('button'),img=el('img');button.type='button';button.setAttribute('aria-label','Chartbild vergrößern');button.style.cssText='display:block;width:100%;padding:0;border:0;background:#10151e';img.src=frame.dataUrl;img.alt='Videobild zur MCO-Aussage bei '+stamp(frame.at);img.loading='lazy';img.style.cssText='display:block;width:100%;height:auto;max-width:none;object-fit:contain';button.append(img);button.onclick=()=>enlarge(frame,button);
  fig.style.cssText='margin:12px 0';fig.append(button,el('figcaption','Antippen zum Vergrößern · Videoposition '+stamp(frame.at)+(frame.userProvided?' · Bild und Videoposition vom Nutzer zugeordnet':' · angenäherte YouTube-Vorschau')));card.append(fig);
  const matched=root.BobVideoEvidence?.match(ocr||{at:frame.at,lines:[]},evidence);
  card.append(el('small',frame.sourceKind==='screenshot'?'Screenshot diesem Abschnitt manuell zugeordnet; Inhalt und Videoposition nicht automatisch bestätigt.':matched?.matched?'Bild und Untertitel teilen Begriff und Zahl; Zuordnung plausibel, nicht bestätigt.':'Bild aus derselben Videopassage; inhaltliche Zuordnung nicht bestätigt.'));
+ if(note){card.append(el('p','Zum Bild · KI-Einordnung: '+note.description));}
+ const closest=[...evidence].filter(e=>Number.isFinite(e.at)).sort((a,b)=>Math.abs(a.at-frame.at)-Math.abs(b.at-frame.at))[0];
+ if(closest)card.append(el('p','Zugehörige Aussage bei '+stamp(closest.at)+' · Bildabstand '+Math.round(Math.abs(frame.at-closest.at))+' Sekunden.'));
  const kind=market(ocr);
  if(kind==='future')card.append(el('p','Gold-Future im Bild erkannt (ungeprüfte Bildlesung). Ein direkter Vergleich dieser Kursmarken mit Gold Spot wäre nicht passend; Future-Kontrakt und Zeitrahmen müssen übereinstimmen.'));
  else if(kind==='xau')card.append(el('p','XAU/USD im Bild erkannt (ungeprüfte Bildlesung). Spot/CFD, Währung und Zeitebene müssen für einen Vergleich zusätzlich geklärt sein.'));
  const values=ocr?.typed?.values||[];
  if(values.length){const details=el('details');details.append(el('summary','Kursbereiche und Indikatoren aus diesem Bild · ungeprüft'));for(const v of values)details.append(el('p',v.label+(v.period!=null?' '+v.period:'')+(v.ratio!=null?' '+v.ratio+' %':'')+': '+v.value+' '+v.unit+' · '+(v.timeframe||'Zeitebene offen')));card.append(details);}
- const original=link(item,frame.at);if(original)card.append(original);
+ const original=link(item,closest?.at??frame.at);if(original){const line=el('p');line.append(original);card.append(line);}
 }
 function screenshotControl(card,item,section){
  let videoId=item.videoId;try{videoId=videoId||new URL(item.url).searchParams.get('v');}catch(_){return;}
