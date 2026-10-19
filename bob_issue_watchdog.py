@@ -265,6 +265,12 @@ def main():
         return 1 if any(code in CODES for code in detected) else 0
     result = sync_issue(detected, token=token, repo=repo, at=at)
     print("BOB_WATCHDOG issue=" + result, flush=True)
+    try:
+        import bob_problem_mirror
+        count=bob_problem_mirror.publish(token=token,repo=repo)
+        print('BOB_WATCHDOG problem_snapshot=published count='+str(count),flush=True)
+    except Exception as exc:
+        print('BOB_WATCHDOG problem_snapshot=unavailable error='+type(exc).__name__,flush=True)
     return 1 if any(code in CODES for code in detected) else 0
 
 
