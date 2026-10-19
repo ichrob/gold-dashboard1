@@ -152,7 +152,8 @@ def snapshot(*, fetcher=None, clock=time.monotonic):
                 age=(datetime.now(timezone.utc)-datetime.fromisoformat(_CACHED['checkedAt'])).total_seconds()
                 mirror_fresh=age<=1200
             except (ValueError,TypeError,KeyError):mirror_fresh=False
-        if _CACHED is not None and mirror_fresh and (now < _RETRY_AFTER or now - _LAST_TRY < ttl):
+        quota_wait=now < _RETRY_AFTER and (fetcher is not None or (_CACHED or {}).get('status')=='ok')
+        if _CACHED is not None and mirror_fresh and (quota_wait or now - _LAST_TRY < ttl):
             return dict(_CACHED)
         try:
             if fetcher is not None:result = from_issues(fetcher())
@@ -161,6 +162,7 @@ def snapshot(*, fetcher=None, clock=time.monotonic):
                     import bob_problem_mirror
                     result = bob_problem_mirror.read()
                 except Exception:
+                    if now < _RETRY_AFTER:raise OSError('Statusquelle wartet auf Freigabe des Abruflimits')
                     result = from_issues(fetch_open_issues())
             _RETRY_AFTER = 0.0
         except Exception as exc:
