@@ -318,3 +318,13 @@ PANEL = r'''<section id="bobSelfHealing" class="card" style="margin:16px 0;paddi
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refresh();});
 })();
 </script>'''
+
+
+def diagnostics_snapshot():
+    """Observe existing state without running observe(), repairs or persistence."""
+    with _LOCK:
+        return {'status':'observed','activeCodes':sorted(_UNRESOLVED),
+                'pendingCodes':sorted(_PENDING),
+                'events':[{'at':e.get('at'),'kind':e.get('kind'),'code':e.get('code')}
+                          for e in list(_EVENTS)[:20]],
+                'scope':'process-local-repair-events-durable-history-in-push-report'}

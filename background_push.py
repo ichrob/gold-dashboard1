@@ -202,6 +202,12 @@ def analyze(bundle, settings, *, priority=None):
             print('BOB_ANALYSIS_ERROR exit='+str(p.returncode), flush=True)
         raise RuntimeError('Hintergrundanalyse fehlgeschlagen')
     result = json.loads(p.stdout)
+    # Diagnostics must never alter or block an existing analysis result.
+    try:
+        import bob_diagnostics
+        bob_diagnostics.observe_analysis(result, settings.get('timeframe', '15m'))
+    except Exception:
+        pass
     print('BOB_BACKGROUND_ANALYSIS ready='+str(result.get('ready'))+' priceFresh='+str(result.get('priceFresh'))+' duration_ms='+str(round((time.monotonic()-started)*1000)), flush=True)
     return result
 

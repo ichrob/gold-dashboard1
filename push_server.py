@@ -656,7 +656,7 @@ class Handler(BaseHTTPRequestHandler):
                 with db() as conn:
                     # Enforce the read boundary at the database as well.
                     conn.execute("SET TRANSACTION READ ONLY")
-                    result = bob_diagnostics.push_snapshot(conn, evaluator_runtime, paper_health, paper_portfolios)
+                    result = bob_diagnostics.push_snapshot(conn, evaluator_runtime, paper_health, paper_portfolios, extended=True)
                 send_json(self, 200, result)
                 return
             if path == "/product-audit":
