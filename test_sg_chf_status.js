@@ -18,7 +18,10 @@ function sample(){
 }
 const card=bob.compactProductCard(sample());
 assert(card.includes('data-sg-chf-analysis-only'),card);
-assert(card.includes('Kurs/Hebel · nur Analyse'),card);
+assert(card.includes('✓ Kurs/Hebel aktuell · Analyse'),card);
+assert(card.includes('✓ Gemeinsamer Zeitbezug bestätigt'),card);
+assert(card.includes('Ausführungskurs bei DEGIRO: nicht bestätigt'),card);
+assert(!card.includes('(✓) Kurs/Hebel'),card);
 assert(card.includes('DEGIRO-Handelsplatznachweis offen'),card);
 assert(card.includes('18.46')&&card.includes('18.48'),card);
 assert(card.includes('data-selection-blocked'),card);
@@ -58,6 +61,9 @@ observed.snapshot={isin,degiroDisplayedQuote:{isin,brokerDisplayConfirmed:true,i
  currency:'CHF',venue:'Societe Generale OTC',sourceTime:'16/10/2026 18:51',bid:16.95,ask:16.97}};
 const observedCard=bob.compactProductCard(observed);
 assert(observedCard.includes('DEGIRO-Handelsplatz belegt'));
+assert(observedCard.includes('✓ Kurs/Hebel aktuell · Analyse'));
+assert(observedCard.includes('Ausführungskurs bei DEGIRO: nicht bestätigt'));
+assert(!observedCard.includes('(✓) Kurs/Hebel'));
 assert(!observedCard.includes('DEGIRO-Handelsplatznachweis offen'));
 assert(!observedCard.includes('data-swiss-dots-warning'));
 assert.equal(bob.currentQuote(observed,now),false);
