@@ -189,7 +189,7 @@ class PostgresSessionTests(unittest.TestCase):
         thread=threading.Thread(target=backend.serve_forever,daemon=True);thread.start()
         token='v1_'+secrets.token_urlsafe(32)
         try:
-            with patch.object(push_server,'db',side_effect=lambda:psycopg.connect(dsn)),patch.object(push_server,'PUSH_SERVICE_TOKEN','ci-service-fixture'),patch.object(auth,'STORE_URL','http://127.0.0.1:'+str(backend.server_address[1])),patch.object(auth,'STORE_TOKEN','ci-service-fixture'):
+            with patch.object(push_server,'db',side_effect=lambda **kwargs:psycopg.connect(dsn)),patch.object(push_server,'PUSH_SERVICE_TOKEN','ci-service-fixture'),patch.object(auth,'STORE_URL','http://127.0.0.1:'+str(backend.server_address[1])),patch.object(auth,'STORE_TOKEN','ci-service-fixture'):
                 self.assertTrue(auth.session_request('create',token,'ci-user','ci-password',time.time()+600)['ok'])
                 auth.SESSIONS.clear()
                 self.assertTrue(auth.authenticated({'Cookie':auth.COOKIE+'='+token},'ci-user','ci-password'))

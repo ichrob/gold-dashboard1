@@ -53,22 +53,29 @@ TRANSIENT_DB_ERRORS = (psycopg.errors.LockNotAvailable,
 _db_pool = None
 _db_pool_lock = threading.Lock()
 
-def db():
-    global _db_pool
+_auth_db_pool = None
+
+def db(auth=False):
+    global _db_pool, _auth_db_pool
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL fehlt")
     # Reuse a bounded set of connections across HTTP and background workers.
     # The context commits/rolls back and returns the connection to the pool.
     with _db_pool_lock:
-        if _db_pool is None:
-            _db_pool = ConnectionPool(
-                DATABASE_URL, min_size=1, max_size=8, timeout=5,
+        pool = _auth_db_pool if auth else _db_pool
+        if pool is None:
+            # Reserve two of the existing eight connections for authentication.
+            # Slow archive/quote transactions cannot consume this reserve.
+            pool = ConnectionPool(
+                DATABASE_URL, min_size=0 if auth else 1, max_size=2 if auth else 6, timeout=5,
                 max_waiting=16, max_idle=60, open=True,
                 check=ConnectionPool.check_connection,
                 kwargs=dict(connect_timeout=5,
                     options="-c lock_timeout=3000 -c statement_timeout=10000"))
-            atexit.register(_db_pool.close)
-    return _db_pool.connection()
+            if auth:_auth_db_pool = pool
+            else:_db_pool = pool
+            atexit.register(pool.close)
+    return pool.connection()
 
 def webpush(**kwargs):
     # Never hold subscription locks indefinitely on an unreachable push provider.
@@ -901,7 +908,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json_body(self)
                 if not isinstance(payload, dict):
                     raise ValueError('Ungültige Wiederherstellungsdaten')
-                with db() as conn:
+                with db(auth=True) as conn:
                     result = bob_recovery.handle(conn, path.rsplit('/', 1)[-1], payload)
                     conn.commit()
                 send_json(self, 200, result)
@@ -914,7 +921,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json_body(self)
                 if not isinstance(payload, dict):
                     raise ValueError('Ungültige Sitzungsdaten')
-                with db() as conn:
+                with db(auth=True) as conn:
                     result = bob_session_store.handle(conn, path.rsplit('/', 1)[-1], payload)
                     conn.commit()
                 send_json(self, 200, result)

@@ -139,17 +139,31 @@ def from_issues(rows, *, now=None):
     }
 
 
-def snapshot(*, fetcher=fetch_open_issues, clock=time.monotonic):
+def snapshot(*, fetcher=None, clock=time.monotonic):
     """Bound repeated GitHub queries; fail visibly, never manufacture a 0."""
     global _CACHED, _LAST_TRY, _RETRY_AFTER
     now = clock()
     with _LOCK:
         ttl = (FAILURE_RETRY_SECONDS if _CACHED is not None
                and _CACHED.get('status') != 'ok' else CACHE_SECONDS)
-        if _CACHED is not None and (now < _RETRY_AFTER or now - _LAST_TRY < ttl):
+        mirror_fresh=True
+        if _CACHED and _CACHED.get('source')=='sanitized-github-watchdog-snapshot' and _CACHED.get('status')=='ok':
+            try:
+                age=(datetime.now(timezone.utc)-datetime.fromisoformat(_CACHED['checkedAt'])).total_seconds()
+                mirror_fresh=age<=1200
+            except (ValueError,TypeError,KeyError):mirror_fresh=False
+        quota_wait=now < _RETRY_AFTER and (fetcher is not None or (_CACHED or {}).get('status')=='ok')
+        if _CACHED is not None and mirror_fresh and (quota_wait or now - _LAST_TRY < ttl):
             return dict(_CACHED)
         try:
-            result = from_issues(fetcher())
+            if fetcher is not None:result = from_issues(fetcher())
+            else:
+                try:
+                    import bob_problem_mirror
+                    result = bob_problem_mirror.read()
+                except Exception:
+                    if now < _RETRY_AFTER:raise OSError('Statusquelle wartet auf Freigabe des Abruflimits')
+                    result = from_issues(fetch_open_issues())
             _RETRY_AFTER = 0.0
         except Exception as exc:
             # No raw exception or API body may leave this endpoint.

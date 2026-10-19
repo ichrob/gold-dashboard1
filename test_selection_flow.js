@@ -307,10 +307,16 @@ for(const terms of ['4004.1466','4005.1234']){
  assert.equal(recovered.isin,'DE000PJ9NB98');
  assert.equal(Number(recovered.ko),Number(terms));
  assert(recovered.identityCorrection);
- for(const bad of [today.replace('Long','Short'),today.replace('GOLD','DAX'),today.replace('BNP','SG'),today.replace(terms,'4000.0000'),today.replace('R 10','R 100')]){
+ // The legacy I/1 alias still needs matching numeric terms. The separately
+ // reviewed O/0 broker-layout alias establishes identity independently.
+ const legacy=today.replace('DEOOOPJONB98','DEOOOPJINB98');
+ for(const bad of [legacy.replace('Long','Short'),legacy.replace('GOLD','DAX'),legacy.replace('BNP','SG'),legacy.replace(terms,'4000.0000'),legacy.replace('R 10','R 100')]){
   assert.notEqual(b.parseScreenshotCandidates(bad)[0].isin,'DE000PJ9NB98');
  }
 }
+const reviewedAlias=b.parseScreenshotCandidates(nbLine.replace('DEOOOPJINB98','DEOOOPJONB98').replace('R 10','R 100'))[0];
+assert.equal(reviewedAlias.isin,nb.isin);
+assert(!b.finalProductStatus(reviewedAlias,now).complete,'Reviewed identity alone cannot approve product terms or quotes');
 assert(!b.finalProductStatus({isin:nb.isin,name:nb.name,productDirection:nb.direction,isinConfirmed:true},now).complete);
 console.log('Original-image BNP NB98 identity recovery and negative contexts passed');
 

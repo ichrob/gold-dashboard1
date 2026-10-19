@@ -44,6 +44,10 @@ class StuttgartTests(unittest.TestCase):
             self.assertEqual(result.pop('comdirectFieldsBackup')['state'],'checking')
             self.assertRegex(result.pop('snapshotId'),r'^[0-9a-f]{24}$')
             self.assertEqual(result.pop('dataOrigin'),'source-observation')
+            self.assertEqual(result.pop('issuerModelSource'),dict(isin=ISIN,source=terms['source'],sourceUrl=terms['sourceUrl']))
+            continuity=result.pop('priceContinuity')
+            self.assertEqual(continuity['state'],'unavailable')
+            self.assertFalse(continuity['eligible']);self.assertFalse(continuity['degiroExecutable'])
             self.assertEqual(result,terms)
     def test_knockout_overrides_issuer_eligibility(self):
         terms=s.parse_page('Das Wertpapier wurde ausgeknockt. '+PAGE,ISIN,NOW)

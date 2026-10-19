@@ -4,10 +4,17 @@ on:
   schedule:
     # Short checks; market-specific false alerts are skipped outside Swiss market time.
     - cron: '4,14,24,34,44,54 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - bob_problem_mirror.py
+      - bob_problems.py
+      - bob_issue_watchdog.py
+      - .github/workflows/bob-self-healing.yml
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   issues: write
 
 concurrency:
