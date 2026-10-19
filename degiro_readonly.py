@@ -26,7 +26,9 @@ def status():
             'brokerConnectionTested': False, 'liveOrdersEnabled': False}
 
 
-def probe(otp=''):
+def probe(otp='', isins=None):
+    from degiro_product_probe import validate_isins
+    isins = validate_isins(isins or [])
     global _LAST_ATTEMPT
     if not isinstance(otp, str) or (otp and not re.fullmatch(r'[0-9]{6}', otp)):
         raise ValueError('Bitte einen sechsstelligen Einmalcode eingeben oder das Feld leer lassen.')
@@ -43,7 +45,7 @@ def probe(otp=''):
         env = {key: os.environ[key] for key in ('PATH', 'LANG', 'SYSTEMROOT', 'PYTHONPATH',
                'BOB_DEGIRO_USERNAME', 'BOB_DEGIRO_PASSWORD') if key in os.environ}
         result = subprocess.run([sys.executable, str(Path(__file__).with_name('degiro_readonly_worker.py'))],
-                                input=json.dumps({'otp': otp}), capture_output=True,
+                                input=json.dumps({'otp': otp, 'isins': isins}), capture_output=True,
                                 text=True, timeout=45, env=env)
         # Never return SDK output or stderr verbatim: these may contain secrets.
         data = json.loads(result.stdout)
@@ -54,6 +56,7 @@ def probe(otp=''):
                 'liveOrdersEnabled': False, 'mode': 'READ_ONLY',
                 'checkedAt': data.get('checkedAt') if isinstance(data.get('checkedAt'), str) else None,
                 'portfolioRead': data['code'] == 'READ_OK',
+                'productEvidence': data.get('productEvidence') if data['code'] == 'READ_OK' and isins else None,
                 'logoutConfirmed': data.get('logoutConfirmed') is True}
     except subprocess.TimeoutExpired:
         return {'ok': False, 'code': 'TIMEOUT', 'liveOrdersEnabled': False}
