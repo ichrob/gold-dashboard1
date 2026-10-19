@@ -75,10 +75,17 @@ implemented. The existing plugin package was inspected and left unchanged;
 Basic service credentials preserve its existing connection protocol and tools.
 GitHub and Render integrations are not modified by this feature.
 
-A 360px touch-browser end-to-end test with a virtual authenticator was prepared,
-but Chromium could not launch in this environment: socket creation was denied
-(`Operation not permitted`). The mobile UI, native Android authenticator and
-ChatGPT connection credential-entry flow are therefore NOT end-to-end verified.
-Do not report these as tested or activate daily enforcement until the user's
-requested mobile check is completed. No production secret or plugin change has
-been applied. The existing connection remains unchanged.
+A 360px touch-browser test now passes in GitHub Actions (run 39295376946,
+2026-10-19, commit 42da50e9afee7444f145a08dcfd729fd590ff4ac).
+`browser_passkey.cjs` uses real Chromium WebAuthn with a virtual internal
+authenticator and the actual Python signature-verification/state code over an
+isolated test bridge. It verifies layout width, enrollment, fixed 24-hour expiry,
+authentication, one-use recovery, replacement enrollment, revoking the lost key
+and other session grants, and two-phase recovery-code rotation. No real account,
+production requests, database, credentials, or plugin connection are involved.
+
+The local browser still cannot launch because socket creation is denied.
+The physical Android authenticator, production RPC/database integration and
+ChatGPT credential-entry flow remain unverified. Keep enforcement off until
+machine-key provisioning and a real product read succeed; user enrollment and
+recovery-code safekeeping require the user's phone. Existing access is unchanged.
