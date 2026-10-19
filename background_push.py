@@ -179,6 +179,29 @@ def config(value):
 
 
 def analyze(bundle, settings, *, priority=None):
+    import diagnostic_history as history
+    import uuid
+    trace_id=history.trace(bundle)
+    decision_id=uuid.uuid4().hex
+    spots=bundle.get('spots') or {}
+    bars=(bundle.get('history') or {}).get('bars_by_tf') or {}
+    history.emit('input',trace_id,{**spots,'fetchedAt':bundle.get('fetched_at'),
+        'counts':{tf:len(values) for tf,values in bars.items() if isinstance(values,list)}},decision_id)
+    try:
+        result=_analyze(bundle,settings,priority=priority)
+    except Exception as exc:
+        history.emit('analysis-failed',trace_id,{'timeframe':settings.get('timeframe','15m'),
+            'errorType':type(exc).__name__},decision_id)
+        raise
+    history.emit('analysis',trace_id,{'timeframe':settings.get('timeframe','15m'),
+        'purpose':'trade-monitor' if (settings.get('trade') or {}).get('active') else 'market-analysis',
+        'result':result},decision_id)
+    result['traceId']=trace_id
+    result['decisionId']=decision_id
+    return result
+
+
+def _analyze(bundle, settings, *, priority=None):
     started = time.monotonic()
     payload = json.dumps({**settings, 'bundle': bundle})
     # One fresh process after SIGABRT, within the original ten-second budget.

@@ -73,6 +73,7 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
                 account['recentCases'] = {'status':'observed','items':[project(row[0], CASE) for row in cases]}
             except Exception:
                 account['recentCases'] = {'status':'unavailable'}
+        result['history'] = collect({'journal':lambda:__import__('diagnostic_history').report(conn)})
         result['details'] = stored_details(conn)
         result['analysis'] = analysis_snapshot()
     return result
@@ -143,6 +144,9 @@ def stored_details(conn):
         return {'status':'observed','items':[project(row[0],schema) for row in values],
                 'bounded':True, 'emptyMeans':'no-stored-observations'}
     return collect({
+        'decisionArchive':lambda:rows("SELECT payload FROM bob_decision_audit ORDER BY recorded_at DESC LIMIT 20",
+            shape('recordedAt','barAt','priceAt','price','direction','baseDirection','shadowDirection','reason','score','ruleVersion','build','origin','marketEvaluable',
+                indicators=INDICATORS,gateReasons=[None],plan=shape('kind','direction','entry','stop','target','unit','at'))),
         'tradeMonitoring':lambda:rows("SELECT jsonb_build_object('updatedAt',updated_at,'active',active,'direction',snapshot->'dir','product',snapshot->'product','state',state) FROM bob_real_trades ORDER BY updated_at DESC LIMIT 10",
             shape('updatedAt','active','direction',product=shape('isin','currency','entry'),state=STATE)),
         'tradeEvents':lambda:rows("SELECT jsonb_build_object('at',recorded_at,'kind',kind,'evidence',payload) FROM bob_real_trade_events ORDER BY seq DESC LIMIT 20",

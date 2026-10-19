@@ -42,3 +42,29 @@ The report performs no evaluations, repairs, notifications, orders or rule chang
 Each simulated account also includes its last five cases with recorded outcome flags,
 model cost assumptions, charged fees/slippage and model net result when known. Unknown
 net returns remain null; historical gross-only cases are not retrospectively re-priced.
+
+## Durable diagnostic history and correlation
+
+`simulationAndPush.history.areas.journal` reads a private PostgreSQL journal. Existing
+server evaluations (including NEUTRAL and failed attempts), source input metadata,
+background transport and Push outcomes share a source trace ID; each evaluator call
+also has its own decision ID. Diagnostics never initiate an evaluator or send a Push.
+The existing decision archive is also exposed through explicit projections so earlier
+browser/background decisions remain distinguishable by origin and original timestamps.
+
+The server health watcher records its existing observations every 30 seconds after its
+90-second startup warmup. Journal records survive restarts once committed. A bounded
+256-entry asynchronous delivery queue retries outages without blocking evaluation;
+queue overflow/failure counters are visible and unflushed entries can be lost at shutdown.
+Retention is seven days with a 60,000-event target; pruning runs every five minutes on
+writes in bounded batches, so temporary excess is possible. A report returns the latest
+20 entries of each stage, never the full unbounded archive. No backfill is invented.
+
+Repair follow-ups compare the last 20 recorded recoveries against subsequent explicit
+health evidence for the same fixed fault code. Repeated good observations over at least
+five minutes with a check within two minutes yield `observed-stable`; a later bad check
+is `recurred`. Missing/stale checks remain `pending-or-stale`. `recoveryKind` distinguishes
+a verified worker restart from spontaneous recovery; this is temporal evidence, not
+proof that a code change caused recovery. Builds and source/check timestamps are retained.
+The journal write endpoint requires the existing internal service credential; ChatGPT
+continues to have read-only diagnostic access, with no new account permissions.
