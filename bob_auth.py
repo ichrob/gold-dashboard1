@@ -117,7 +117,7 @@ def check_password(supplied_user, candidate, user, password, current):
         return bool(ok)
 
 
-def authenticated(headers, user, password):
+def primary_authenticated(headers, user, password):
     if not user or not password:
         return False
     try:
@@ -147,6 +147,14 @@ def authenticated(headers, user, password):
             return expiry > time.time() and version == current['version']
     except (OSError, ValueError, TypeError, KeyError):
         return False
+
+
+def authenticated(headers, user, password):
+    if not primary_authenticated(headers, user, password):
+        return False
+    import bob_passkey
+    bob_passkey.require(headers, user, password)
+    return True
 
 
 def same_origin(headers):
