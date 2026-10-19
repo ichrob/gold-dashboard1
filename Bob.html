@@ -533,6 +533,7 @@ try{
 <div class="chart-controls"><div class="chart-segment" role="group" aria-label="Darstellung"><button type="button" data-chart-type="line" onclick="setChartOption('type','line')">Linie</button><button type="button" data-chart-type="candles" onclick="setChartOption('type','candles')">Kerzen</button></div><div class="chart-segment" role="group" aria-label="Zeitraum pro Kerze"><button type="button" data-chart-tf="1m" onclick="setChartOption('tf','1m')">1m</button><button type="button" data-chart-tf="5m" onclick="setChartOption('tf','5m')">5m</button><button type="button" data-chart-tf="15m" onclick="setChartOption('tf','15m')">15m</button><button type="button" data-chart-tf="1h" onclick="setChartOption('tf','1h')">1h</button><button type="button" data-chart-tf="4h" onclick="setChartOption('tf','4h')">4h</button></div><select id="chartType" hidden aria-label="Ansicht"><option value="candles" selected>Kerzen</option><option value="line">Linie</option></select><select id="chartTf" hidden aria-label="Zeitraum pro Kerze"><option value="1m">1 Minute</option><option value="5m">5 Minuten</option><option value="15m" selected>15 Minuten</option><option value="1h">1 Stunde</option><option value="4h">4 Stunden</option></select></div>
 <p id="minuteEntryStatus" class="small" aria-live="polite">1m-Einstiegshilfe · Vergleichstest: Daten werden geladen.</p>
 <p id="chartScenarioStatus" class="small" aria-live="polite"></p>
+<p id="chartEntryStatus" class="small" aria-live="polite"></p>
 <div class="small chart-status" id="chartViewStatus" aria-live="polite"></div>
 <div class="chart-frame"><canvas id="chart" width="800" height="300" aria-label="Preisverlauf: waagerecht Schweizer Zeit, senkrecht Preis in USD"></canvas></div>
 <div id="chartSelection" class="small" role="status" aria-live="polite" style="min-height:2.5em;margin:8px 0">Kerze oder Kurvenpunkt antippen, um Datum, Uhrzeit und Schlusskurs anzuzeigen.</div>
@@ -2378,6 +2379,15 @@ function chartScenarioStatus(assessment,tf,fib,sampled=false){
   (historical?' · keine aktuelle Einstiegsbestätigung.':' · technische Richtung, keine Einstiegsfreigabe.')+
   ' Einstiegsstatus und Sperrgrund stehen in der Marktanalyse.';
 }
+function chartEntryStatus(state,expired=false){
+ if(expired)return 'Einstieg: ABWARTEN · Anmeldung erforderlich.';
+ const dir=['LONG','SHORT'].includes(state?.dir)?state.dir:'ABWARTEN';
+ return 'Einstieg: '+dir+' · '+(state?.reason||'Bestätigung ausstehend')+
+  (dir==='ABWARTEN'?'':' · Produktfreigabe separat prüfen.');
+}
+function renderChartEntry(){
+ const el=$('chartEntryStatus');if(el)el.textContent=chartEntryStatus(signalState,Boolean(window.BobSession?.expired()));
+}
 function chartDataStatus(assessment,count){
  if(count<2)return 'Keine Chartdaten verfügbar';
  if(!assessment.available)return 'Chartprüfung: '+(assessment.reason||'Historie fehlt');
@@ -2488,6 +2498,7 @@ function draw(a){
  chartHitMap=null;
  $("chartSelection").textContent="Kerze oder Kurvenpunkt antippen, um Datum, Uhrzeit und Schlusskurs anzuzeigen.";
  renderMinuteEntry();
+ renderChartEntry();
  const tf=$('chartTf').value, candles=$('chartType').value==='candles';
  document.querySelectorAll('[data-chart-type]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.chartType===$('chartType').value)));
  document.querySelectorAll('[data-chart-tf]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.chartTf===tf)));
@@ -3497,14 +3508,14 @@ async function refreshLearningPolicy(){
 function confirmedSignalDirection(){
  if(window.BobSession?.expired()||analysisAgeWarnings().length||!A.ready||!C.length||!Number.isFinite(A.at)){
   const reasons=[];if(window.BobSession?.expired())reasons.push('Anmeldung erforderlich');if(!C.length)reasons.push('Gold-Kerzendaten fehlen');else if(!A.ready)reasons.push('Analysehistorie unvollständig: '+C.length+' Kerzen');if(!Number.isFinite(A.at))reasons.push('Volatilitätswert ATR fehlt oder ist ungültig');reasons.push(...analysisAgeWarnings());
-  A.score=null;signalState={dir:'NEUTRAL',pending:'NEUTRAL',count:0,score:null,reason:reasons.join(' · ')};window.BobDecisionAuditState={...signalState,barAt:C.at(-1)?.openTime};renderDecisionExplanation();renderIntraday();return 'NEUTRAL';
+  A.score=null;signalState={dir:'NEUTRAL',pending:'NEUTRAL',count:0,score:null,reason:reasons.join(' · ')};window.BobDecisionAuditState={...signalState,barAt:C.at(-1)?.openTime};renderDecisionExplanation();renderIntraday();renderChartEntry();return 'NEUTRAL';
  }
  signalState=trendFollowingSignal(liveBundleCache);
  const session=intradaySession();if(!session.entryAllowed)signalState={...signalState,dir:'NEUTRAL',shadowDirection:'NEUTRAL',reason:session.reason};
  signalState=applyLearningFilter(signalState,liveBundleCache);
  A.score=Number.isFinite(signalState.score)?signalState.score:null;
  window.BobDecisionAuditState={...signalState,barAt:signalState.lastAt??C.at(-1)?.openTime,score:A.score,indicators:{mtf:getMtfState(),atr:A.at,rsi:A.R,ema20:A.e20,ema50:A.e50,ema200:A.e200,macd:A.macd,signal:A.sig}};
- renderDecisionExplanation();renderIntraday();
+ renderDecisionExplanation();renderIntraday();renderChartEntry();
  return signalState.dir;
 }
 // Product selection consumes the same full-precision 5m evidence as the signal,
@@ -4377,6 +4388,8 @@ async function loadData(force=false){
   loadMTF(true,generation,bundle);
   // One compact pipeline snapshot lets us diagnose all major UI values, not only MTF.
   reportBobDiag("pipeline:complete",{
+   entryDirection:signalState.dir,
+   entryReason:signalState.reason||"Bestätigung ausstehend",
    direct:!!bundle?.spots?.xaus_is_spot,
    bars5m:(bundle.history?.bars_by_tf?.["5m"]||[]).length,
    bars15m:(bundle.history?.bars_by_tf?.["15m"]||[]).length,

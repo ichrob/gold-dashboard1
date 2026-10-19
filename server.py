@@ -944,6 +944,13 @@ def sanitize_client_diagnostic(payload):
         if key in details:
             value = details[key]
             safe[key] = str(value)[:300] if isinstance(value, str) else value
+    # Only market-entry diagnostics, never the full state/products/account data.
+    direction = details.get("entryDirection")
+    if isinstance(direction, str) and direction in ("LONG", "SHORT", "NEUTRAL"):
+        safe["entryDirection"] = direction
+    reason = details.get("entryReason")
+    if isinstance(reason, str):
+        safe["entryReason"] = reason[:800]
     # Tabs opened before the client-side session guard can keep reporting this
     # until their service worker reloads. It is authentication expiry, not a
     # market-data or MTF server failure, so keep old clients honest as well.

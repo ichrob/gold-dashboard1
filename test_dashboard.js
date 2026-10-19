@@ -440,3 +440,21 @@ assert(directionalChart.invalid.includes('lückenhafte'));
 assert(!directionalChart.invalid.includes('Historische Daten'));
 assert(directionalChart.old.includes('16:40'));
 console.log('Directional chart: SHORT/LONG counter-swings, missing pivots, stale/invalid disclosure and unchanged entry state OK');
+
+const entryDisclosure=vm.runInContext(`(()=>{
+ const before=JSON.stringify(signalState);
+ const reason='Haupttrend SHORT intakt · Aktuelle Lernregel nicht bestätigt';
+ return {waiting:chartEntryStatus({dir:'NEUTRAL',reason}),
+  short:chartEntryStatus({dir:'SHORT',reason:'Richtung bestätigt'}),
+  expired:chartEntryStatus({dir:'SHORT',reason},true),
+  missing:chartEntryStatus(null),unchanged:before===JSON.stringify(signalState)};
+})()`,env);
+assert(entryDisclosure.waiting.includes('Einstieg: ABWARTEN'));
+assert(entryDisclosure.waiting.includes('Lernregel nicht bestätigt'));
+assert(entryDisclosure.short.includes('Einstieg: SHORT'));
+assert(entryDisclosure.short.includes('Produktfreigabe separat'));
+assert(!entryDisclosure.expired.includes('SHORT'));
+assert(entryDisclosure.expired.includes('Anmeldung erforderlich'));
+assert(entryDisclosure.missing.includes('Bestätigung ausstehend'));
+assert(entryDisclosure.unchanged);
+console.log('Chart entry disclosure: exact wait reason, approved side and expired session separated without changing state');
