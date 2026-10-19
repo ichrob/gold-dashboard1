@@ -87,7 +87,7 @@ def tick(now=None):
         saved = bob_validation_store.request('write' if events else 'read',
             dict(key=comparison_store.KEY, events=events), key=comparison_store.KEY)
         report.update(summary=saved['summary'], predictionCount=saved['predictionCount'],
-                      truthCount=saved['truthCount'], archiveStatus='loaded')
+                      truthCount=saved['truthCount'], archiveStatus='loaded', successfulAt=time.time())
     except (OSError, ValueError, TypeError, KeyError):
         report['reason'] += ' · Vergleichsarchiv nicht erreichbar; neue Messungen nicht gesichert'
     with _lock:
@@ -124,3 +124,10 @@ def start():
 
 def status():
     with _lock:return copy.deepcopy(_report)
+
+
+def health():
+    with _lock:
+        return dict(running=bool(_thread and _thread.is_alive()),
+                    successfulAt=_report.get('successfulAt'),
+                    state=_report.get('state','starting'), archiveStatus=_report.get('archiveStatus'))
