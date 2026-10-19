@@ -726,6 +726,9 @@ def _get_quote_bounded(isin):
     from swissquote_quotes import apply as apply_swissquote
     result = enrich('swissquote-quote', isin, apply_swissquote, result, recovery)
     from leverage_backup import apply, select_analysis_quote
+    # Keep verified issuer provenance when the displayed observation changes venue.
+    result['issuerModelSource'] = dict(isin=isin, source=result.get('source'),
+                                      sourceUrl=result.get('sourceUrl'))
     selected = select_analysis_quote(result)
     if (selected.get('priceKind') in ('issuer-chart', 'market-observation')
             and selected is not result and result.get('productVerified')
@@ -746,6 +749,8 @@ def _get_quote_bounded(isin):
     validated = apply_secondary_validity(apply(result), isin)
     from hybrid_product_price import apply as apply_hybrid_research
     output = apply_hybrid_research(validated)
+    from price_continuity import apply as apply_price_continuity
+    output = apply_price_continuity(output)
     if recovery:
         output['sourceRecovery'] = recovery
         if any(event['state'] in ('failed', 'waiting') for event in recovery):

@@ -82,6 +82,9 @@ def bnp_model(result, now):
 
 
 def model_for(result, now):
+    origin = result.get('issuerModelSource') or {}
+    if origin.get('isin') == result.get('isin'):
+        result = dict(result, source=origin.get('source'), sourceUrl=origin.get('sourceUrl'))
     if str(result.get('source', '')).startswith('BNP Paribas ·'):
         return bnp_model(result, now)
     m = result.get('metadata') or {}
@@ -128,8 +131,8 @@ def observations(result):
     native=result.get('analysisQuote') or {}
     backup=result.get('secondaryQuote') or {}
     pool=[]
-    bnp = str(result.get('source', '')).startswith('BNP Paribas ·')
-    if bnp and result.get('found') and result.get('currency') == 'EUR' and all(positive(result.get(k)) for k in ('bid','ask')) and result['ask'] >= result['bid']:
+    bnp = str((result.get('issuerModelSource') or {}).get('source', result.get('source', ''))).startswith('BNP Paribas ·')
+    if bnp and str(result.get('source', '')).startswith('BNP Paribas ·') and result.get('found') and result.get('currency') == 'EUR' and all(positive(result.get(k)) for k in ('bid','ask')) and result['ask'] >= result['bid']:
         pool.append(dict(result, priceKind='issuer-observation'))
     if (chart.get('currency') == 'EUR' and
             all(positive(chart.get(k)) for k in ('bid','ask')) and

@@ -19,19 +19,19 @@ def select_analysis_quote(result, now=None):
     """One dated price pair for both the product display and gearing inputs."""
     now = now or datetime.now(timezone.utc)
     quote = result if result.get('found') else result.get('analysisQuote') or {}
-    if result.get('eligible'):
-        try:
-            if all(0 <= (now-q.stamp(quote[k])).total_seconds() <= 90 for k in ('bidAt','askAt')):
-                return quote
-        except (KeyError, TypeError, ValueError):
-            pass
     backup = result.get('analysisQuote') or {}
     try:
         if (backup.get('priceKind') == 'market-observation'
+                and backup.get('isin') == result.get('isin')
+                and not backup.get('estimated') and not backup.get('delayed')
+                and backup.get('currency') == (quote.get('currency') or (result.get('metadata') or {}).get('currency'))
+                and 0 <= (now-q.stamp(backup['bidAt'])).total_seconds() <= 90
                 and backup.get('currency') == 'EUR'
                 and 0 < q.number(backup['bid']) <= q.number(backup['ask'])
                 and 0 <= (now-q.stamp(backup['askAt'])).total_seconds() <= 90
-                and (not quote.get('askAt') or q.stamp(backup['askAt']) > q.stamp(quote['askAt']))):
+                and (not quote.get('askAt') or not quote.get('bidAt') or
+                     min(q.stamp(backup['askAt']),q.stamp(backup['bidAt'])) >
+                     min(q.stamp(quote['askAt']),q.stamp(quote['bidAt'])))):
             quote = backup
     except (KeyError, TypeError, ValueError):
         pass
