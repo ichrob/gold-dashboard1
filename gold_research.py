@@ -425,6 +425,16 @@ def snapshot():
             except (ValueError, KeyError):pass
     return summarize(report)
 
+def resume_retained(items):
+    """Retry only retained public videos; normal caches, quotas and proofs apply."""
+    import youtube_research
+    for item in items[:3]:
+        if not allowed_item(item):continue
+        publication={key:item[key] for key in ('publishedAt','publishedDate','publicationSource') if key in item}
+        youtube_research.enrich(item)
+        item.update(publication)
+
+
 def _run():
     global _report
     # Restore only public metadata from the persistent push-service database.
@@ -449,6 +459,7 @@ def _run():
                     previous=copy.deepcopy(_report)
                 if previous and previous.get('items'):
                     report['items']=previous['items']
+                    resume_retained(report['items'])
                     report['archived']=True
                     report['method']='Aktueller Kanalabruf ohne Videoliste. Zuletzt bestätigte öffentliche YouTube-Links bleiben sichtbar, ohne aktuelle Signalfreigabe.'
             with _lock:_report=report
