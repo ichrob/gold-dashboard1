@@ -2336,17 +2336,21 @@ function calculatedProductDisplay(p,now=Date.now()){
          validationMeanErrorEur:Number.isFinite(c.validation?.meanAbsoluteError)?c.validation.meanAbsoluteError:null,
          validationPersistence:c.validation?.persistence||null};
 }
+// Use the same dated observation in the value display and field diagnostics.
+function productDisplayQuote(q,isin,now){
+ const live=q?.found?q:q?.analysisQuote||q?.referenceQuote;
+ const backup=q?.analysisQuote;
+ const recentPair=x=>x&&x.isin===isin&&x.currency==='EUR'&&!x.delayed&&n(x.bid)>0&&n(x.ask)>=n(x.bid)&&[x.bidAt,x.askAt].every(t=>typeof t==='string'&&/(Z|[+-]\d{2}:\d{2})$/.test(t)&&Number.isFinite(Date.parse(t))&&now-Date.parse(t)>=0&&now-Date.parse(t)<=90000);
+ return q?.metadata?.status===1&&!recentPair(live)&&backup?.priceKind==='market-observation'&&backup.isExecutableQuote===false&&backup.degiroExecutable===false&&recentPair(backup)?backup:live;
+}
 function renderPrimaryProductValues(p,now=Date.now()){
  const q=p.quote?.isin===p.isin&&p.quote.productVerified?p.quote:null;
- let live=q?.found?q:q?.analysisQuote||q?.referenceQuote;
- const backup=q?.analysisQuote;
- const recentPair=x=>x&&x.isin===p.isin&&x.currency==='EUR'&&n(x.bid)>0&&n(x.ask)>=n(x.bid)&&[x.bidAt,x.askAt].every(t=>Number.isFinite(Date.parse(t))&&now-Date.parse(t)>=0&&now-Date.parse(t)<=90000);
- if(!recentPair(live)&&backup?.priceKind==='market-observation'&&backup.isExecutableQuote===false&&backup.degiroExecutable===false&&recentPair(backup))live=backup;
+ const live=productDisplayQuote(q,p.isin,now);
  const fields=productFieldStates(p,now);
  const native=q?.nativeChartEvidence;
  const nativeChf=!!q?.productVerified&&native?.currency==='CHF'&&n(native.bid)>0
   &&n(native.ask)>=n(native.bid)&&typeof native.pointAt==='string';
- const euroPair=!!live&&!q?.sourceFailure&&live!==q?.referenceQuote&&live.currency==='EUR'
+ const euroPair=!!live&&!(live===q&&q?.sourceFailure)&&live!==q?.referenceQuote&&live.currency==='EUR'
   &&!live.delayed&&n(live.bid)>0&&n(live.ask)>=n(live.bid);
  const pair=euroPair?live:nativeChf?{...native,bidAt:native.pointAt,
   askAt:native.pointAt,source:'SG · datierter CHF-Chartkurs',priceKind:'issuer-chart',
@@ -3005,7 +3009,7 @@ function sharedSgIssuerLeverage(p,now=Date.now()){
 function productFieldStates(p,now=Date.now()){
  const q=p.quote?.isin===p.isin&&p.quote.productVerified?p.quote:null;
  const shot=p.snapshot?.isin===p.isin?p.snapshot:null;
- const live=q?.found?q:q?.analysisQuote||q?.referenceQuote;
+ const live=productDisplayQuote(q,p.isin,now);
  const from=(key,value,at,source,limit=90000,kind='')=>{
   const t=typeof at==='string'&&/(Z|[+-]\d{2}:\d{2})$/.test(at)?Date.parse(at):selectionTimeWindow(at)?.start;
   const age=Number.isFinite(t)?now-t:null;
@@ -3034,7 +3038,7 @@ function productFieldStates(p,now=Date.now()){
     observed?observed[key+'At']:imageValue!==null?(e?.at||shot?.sourceTime):null,
     observed?observed.source:imageValue!==null?e?.source:null,
     observed?(observed===nativeObserved?300000:analysisLimit):SCREENSHOT_MAX_AGE_MS,observed?observed.priceKind:'screenshot');
-  if(direct&&(live===q?.referenceQuote||q?.sourceFailure)&&items[key].state!=='veraltet')items[key].state='Aktualität unbestätigt · letzter erfolgreicher Abruf';
+  if(direct&&(live===q?.referenceQuote||live===q&&q?.sourceFailure)&&items[key].state!=='veraltet')items[key].state='Aktualität unbestätigt · letzter erfolgreicher Abruf';
   if(!direct&&e?.fromSeries){items[key].fromSeries=true;items[key].timeText=e.timeText;}
   else if(!direct&&e?.fromSharedContext){items[key].fromSharedContext=true;items[key].timeText=e.contextTimeText;}
  }
