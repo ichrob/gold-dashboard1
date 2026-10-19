@@ -209,7 +209,7 @@ class PasskeyHTTPTests(unittest.TestCase):
             self.assertEqual(response[0],200)
             self.assertEqual({t['name'] for t in json.loads(response[2])['result']['tools']},{'bob_product_audit','bob_product_gaps','bob_diagnostics'})
             diagnostic_body=json.dumps({'jsonrpc':'2.0','id':2,'method':'tools/call','params':{'name':'bob_diagnostics'}})
-            with patch.object(server,'read_diagnostics_for_mcp') as reader:
+            with patch.object(self.server,'read_diagnostics_for_mcp') as reader:
                 result=json.loads(self.request('POST','/mcp',headers,diagnostic_body)[2])['result']
                 self.assertTrue(result['isError'])
                 self.assertIn('insufficient_scope',result['_meta']['mcp/www_authenticate'][0])
