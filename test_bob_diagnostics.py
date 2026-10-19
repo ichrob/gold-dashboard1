@@ -47,16 +47,34 @@ class DiagnosticsHttpTests(HttpTests):
             with patch.object(server,'read_diagnostics_for_mcp',return_value={'readOnly':True}) as reader:
                 result = json.loads(self.request('POST','/mcp',json.dumps(payload),headers)[2])
                 self.assertEqual(reader.call_count, int(allowed))
-                self.assertEqual('error' in result, not allowed)
+                self.assertEqual(result['result']['isError'], not allowed)
+                if not allowed:
+                    self.assertIn('insufficient_scope', result['result']['_meta']['mcp/www_authenticate'][0])
             if allowed:
                 payload['params']['name'] = 'bob_product_audit'
                 with patch.object(server,'read_private_product_audit_for_mcp') as reader:
                     result = json.loads(self.request('POST','/mcp',json.dumps(payload),headers)[2])
-                    self.assertIn('error',result)
+                    self.assertTrue(result['result']['isError'])
                     reader.assert_not_called()
 
 
 class ReportTests(unittest.TestCase):
+    def test_discovery_and_scope_challenge_never_read_data(self):
+        forbidden = Mock(side_effect=AssertionError('unexpected read'))
+        request = {'jsonrpc':'2.0','id':1,'method':'tools/list'}
+        definitions = bob_mcp.handle(request, forbidden)[1]['result']['tools']
+        diagnostic = next(t for t in definitions if t['name'] == 'bob_diagnostics')
+        self.assertEqual(diagnostic['securitySchemes'], [{'type':'oauth2','scopes':[store.DIAGNOSTICS_SCOPE]}])
+        self.assertEqual(diagnostic['_meta']['securitySchemes'], diagnostic['securitySchemes'])
+        request.update(method='tools/call', params={'name':'bob_diagnostics'})
+        result = bob_mcp.handle(request, forbidden)[1]['result']
+        self.assertTrue(result['isError'])
+        challenge = result['_meta']['mcp/www_authenticate'][0]
+        self.assertIn(store.SCOPE, challenge)
+        self.assertIn(store.DIAGNOSTICS_SCOPE, challenge)
+        self.assertIn(store.ORIGIN+'/.well-known/oauth-protected-resource', challenge)
+        forbidden.assert_not_called()
+
     def test_partial_report_and_no_exception_secrets(self):
         def bad(): raise RuntimeError('secret-token')
         report = diagnostics.collect({'market':bad,'background':lambda:{'status':'ok'}})

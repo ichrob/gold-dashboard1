@@ -8,6 +8,7 @@ import base64
 import json
 import os
 import hmac
+from bob_oauth_store import ORIGIN, SCOPE, DIAGNOSTICS_SCOPE
 
 PROTOCOL = "2025-03-26"
 _MAX_RESULT_BYTES = 200_000
@@ -56,8 +57,27 @@ def tool_definitions(diagnostics=False, products=True):
             "inputSchema": {"type":"object", "properties":{}, "additionalProperties":False},
             "annotations": {"readOnlyHint":True, "destructiveHint":False, "idempotentHint":True, "openWorldHint":False},
         })
+    for tool in result:
+        scope = DIAGNOSTICS_SCOPE if tool['name'] == 'bob_diagnostics' else SCOPE
+        schemes = [{"type": "oauth2", "scopes": [scope]}]
+        tool['securitySchemes'] = schemes
+        tool['_meta'] = {"securitySchemes": schemes}
     return result
 
+
+def authorization_required(rid, required_scope, products, diagnostics):
+    # Request the union of existing rights and the missing right. Only explicit
+    # OAuth consent can issue a new grant; existing tokens are never upgraded.
+    scopes = {required_scope}
+    if products:
+        scopes.add(SCOPE)
+    if diagnostics:
+        scopes.add(DIAGNOSTICS_SCOPE)
+    challenge = (f'Bearer resource_metadata="{ORIGIN}/.well-known/oauth-protected-resource", '
+                 f'error="insufficient_scope", scope="{" ".join(sorted(scopes))}"')
+    return 200, {"jsonrpc": "2.0", "id": rid, "result": {
+        "content": [{"type": "text", "text": "Authorize the additional read-only access to continue."}],
+        "isError": True, "_meta": {"mcp/www_authenticate": [challenge]}}}
 
 
 def gaps(report):
@@ -101,12 +121,15 @@ def handle(request, report_reader, diagnostics_reader=None, products=True):
     if method == "ping":
         return 200, {"jsonrpc":"2.0","id":rid,"result":{}}
     if method == "tools/list":
-        return 200, {"jsonrpc":"2.0","id":rid,"result":{"tools":tool_definitions(diagnostics_reader is not None, products)}}
+        return 200, {"jsonrpc":"2.0","id":rid,"result":{"tools":tool_definitions(diagnostics=True)}}
     if method != "tools/call":
         return 200, error(rid, -32601, "Method not found")
     params = request.get("params")
-    if not isinstance(params, dict) or params.get("name") not in [t["name"] for t in tool_definitions(diagnostics_reader is not None, products)] or params.get("arguments", {}) != {}:
+    if not isinstance(params, dict) or params.get("name") not in [t["name"] for t in tool_definitions(diagnostics=True)] or params.get("arguments", {}) != {}:
         return 200, error(rid, -32602, "Invalid tool arguments")
+    required_scope = DIAGNOSTICS_SCOPE if params["name"] == "bob_diagnostics" else SCOPE
+    if (required_scope == DIAGNOSTICS_SCOPE and diagnostics_reader is None) or (required_scope == SCOPE and not products):
+        return authorization_required(rid, required_scope, products, diagnostics_reader is not None)
     if params["name"] == "bob_diagnostics":
         data = diagnostics_reader()
     else:

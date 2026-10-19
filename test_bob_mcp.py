@@ -17,7 +17,7 @@ class BobMcpTests(unittest.TestCase):
             if method == "tools/list":
                 tools = response["result"]["tools"]
                 self.assertEqual({x["name"] for x in tools},
-                                 {"bob_product_audit","bob_product_gaps"})
+                                 {"bob_product_audit","bob_product_gaps","bob_diagnostics"})
                 self.assertTrue(all(x["annotations"]["readOnlyHint"] for x in tools))
                 self.assertTrue(all(not x["annotations"]["destructiveHint"] for x in tools))
         status, response = bob_mcp.handle(
