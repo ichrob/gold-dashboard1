@@ -121,3 +121,34 @@ assert(statusContext.renderProductDirectionStatus({}).includes('Nachweisprüfung
 assert(!statusContext.renderProductDirectionStatus({}).includes('Veraltete Werte'));
 statusContext.productFieldStates=()=>({leverage:{key:'Hebel',state:'Aktualität unbestätigt',ageSeconds:null}});
 assert(statusContext.renderProductDirectionStatus({}).includes('Zeitnachweis offen: Hebel'));
+
+// A fresh alternative observation must drive BOTH the price and its age badge.
+const fallback=JSON.parse(JSON.stringify(product));
+fallback.quote.eligible=false;
+fallback.quote.analysisQuote={isin:product.isin,currency:'EUR',bid:17,ask:17.01,
+ bidAt:new Date(delayed-30000).toISOString(),askAt:new Date(delayed-30000).toISOString(),
+ source:'comdirect · BNP LiveTrading',priceKind:'market-observation',
+ isExecutableQuote:false,degiroExecutable:false};
+const before=JSON.stringify(fallback);
+let fields=api.productFieldStates(fallback,delayed);
+assert.equal(fields.bid.state,'aktuell');
+assert.equal(fields.bid.value,17);
+assert.equal(fields.ask.source,'comdirect · BNP LiveTrading');
+assert.equal(fields.leverage.state,'veraltet');
+assert(api.renderPrimaryProductValues(fallback,delayed).includes('17.01'));
+assert.equal(JSON.stringify(fallback),before); // No evidence or approval mutation.
+fallback.quote.sourceFailure=true;
+assert.equal(api.productFieldStates(fallback,delayed).bid.state,'aktuell');
+assert(api.renderPrimaryProductValues(fallback,delayed).includes('17.01'));
+delete fallback.quote.sourceFailure;
+for(const change of [{bidAt:new Date(delayed-91000).toISOString()},
+ {askAt:new Date(delayed+1000).toISOString()},{isin:'OTHER'},
+ {currency:'CHF'},{delayed:true},{isExecutableQuote:true},
+ {bidAt:'2026-10-16T09:29:30'},{bid:20},
+ {priceKind:'calculated'}]){
+ const invalid=JSON.parse(JSON.stringify(fallback));
+ Object.assign(invalid.quote.analysisQuote,change);
+ assert.equal(api.productFieldStates(invalid,delayed).bid.state,'veraltet',JSON.stringify(change));
+}
+assert.equal(api.productFieldStates(fallback,near).bid.value,product.quote.bid);
+console.log('Alternative observation: display/status agree; clocks and approval gates preserved');
