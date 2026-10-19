@@ -3249,6 +3249,8 @@ function detailScreenshotData(text,expectedIsin,productContext=null,excludedFiel
   raw=raw.replace(/(?:^|\n)\s*Basiswert\s*\n(?=\s*Basiswert\s+GOLD\b)/i,'\n');
  }
  if(!validIsin(expectedIsin))return{ok:false,reason:"Bitte zuerst die ISIN dieses Produkts am Screenshot prüfen und korrigieren."};
+ const repairedIdentity=seriesIsinRepair(raw,expectedIsin,productContext);
+ if(repairedIdentity)raw=repairedIdentity.text;
  const identity=screenshotIdentity(raw,expectedIsin,productContext);
  if(!identity.ok)return identity;
  // Preserve verified identity before uncertain numeric lines are removed:
@@ -3294,6 +3296,7 @@ function detailScreenshotData(text,expectedIsin,productContext=null,excludedFiel
  if(draft.hasQuote&&!draft.paired&&!draft.partialQuote)return{ok:false,reason:'Produkt erkannt'+(identity.basis==='WKN'?' über WKN '+identity.wkn:'')+', aber Geld-/Briefpaar nicht vollständig oder eindeutig. Bitte beide Kurse im selben Bild zeigen.'};
  const bid=draft.partialQuote?draft.partialQuote.bid:draft.paired?n(draft.fields.bid):amount("Geld|Bid"),ask=draft.partialQuote?draft.partialQuote.ask:draft.paired?n(draft.fields.ask):amount("Brief|Ask");
  const importWarnings=[],importNotes=[];
+ if(repairedIdentity)importNotes.push('ISIN-Zeichenverwechslung '+repairedIdentity.original+' anhand des eindeutig gelesenen Serienbilds '+productContext.anchor+' korrigiert; Prüfziffer bestätigt.');
  if(draft.partialQuote){x.price="";x.spread="";importWarnings.push(bid===null?"Geldkurs fehlt: Kursbereich mit Geld und Brief ergänzen.":"Briefkurs fehlt: Kursbereich mit Geld und Brief ergänzen.");}
  if(draft.fields?.ko1)x.ko=draft.fields.ko1;
  if((bid!==null&&bid<=0)||(ask!==null&&ask<=0)||(bid!==null&&ask!==null&&ask<bid))return{ok:false,reason:"Geld-/Briefkurse widersprüchlich gelesen. Bitte ein schärferes Bild hochladen."};
@@ -3353,7 +3356,36 @@ function imageIdentityDiagnostic(raw){
  const wkns=[...new Set(Array.from(text.matchAll(/\bWKN\s*[:=]?\s*([A-Z0-9]{6})\b/g),m=>m[1]))].slice(0,3);
  return 'Gelesen: '+(ids.length?'ISIN '+ids.join(', '):'keine ISIN')+(wkns.length?' · WKN '+wkns.join(', '):'');
 }
+// Repair identifiers only against an independently readable same-batch image.
+// Never use the selected upload card or checksum alone as correction evidence.
+function identitySeriesSource(raw){
+ const text=String(raw||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+ if(/\bBNP\s+OTC\b/i.test(text))return 'degiro-bnp';
+ if(/Societe\s+Generale\s+OTC/i.test(text))return 'degiro-sg';
+ return null;
+}
+function seriesIsinRepair(raw,isin,context){
+ if(!validIsin(isin)||!isin.startsWith('DE000')||context?.basis!=='image-series'||
+    context.isin!==isin||context.anchorIsinVerified!==true||!context.source||identitySeriesSource(raw)!==context.source)return null;
+ const tokens=[...new Set(String(raw).toUpperCase().match(/\bDE[0OQ]{3}[A-Z0-9]{7}\b/g)||[])];
+ if(tokens.length!==1)return null;
+ const token=tokens[0],normalized='DE000'+token.slice(5);
+ if(normalized===isin||validIsin(token)||validIsin(normalized))return null;
+ let changes=0;
+ for(let i=5;i<12;i++)if(token[i]!==isin[i]){
+  if(!ocrGlyphPair(token[i],isin[i])&&!/^[89]{2}$/.test(token[i]+isin[i]))return null;
+  changes++;
+ }
+ if(changes<1||changes>2)return null;
+ // An explicit contradictory WKN remains a conflict, even if a damaged ISIN
+ // happens to resemble the anchor. No correction of numeric price tokens.
+ const wkns=[...String(raw).toUpperCase().matchAll(/\bWKN\s*[:=]?\s*([A-Z0-9]{6})\b/g)].map(m=>m[1]);
+ if(wkns.some(w=>w!==isin.slice(5,11)))return null;
+ return {text:String(raw).replace(new RegExp('\\b'+token+'\\b','gi'),isin),original:token};
+}
 function screenshotIdentity(raw,expectedIsin,productContext=null){
+ const repaired=seriesIsinRepair(raw,expectedIsin,productContext);
+ if(repaired)raw=repaired.text;
  const valors=/sg-zertifikate\.ch\b/i.test(raw)?[...new Set([...String(raw).matchAll(/\bValor[ \t:]*([0-9]{6,9})\b|(?:^|\n)\s*(?:[x×]\s*)?([0-9]{6,9})\s*[-–]\s*\d+[.,]\d+\s*\/\s*\d+[.,]\d+\s*CHF\b/gi)].map(m=>m[1]||m[2]))]:[];
  if(valors.length&&(valors.length!==1||SWISS_SG_VALORS[expectedIsin]!==valors[0]))return {ok:false,reason:'Valor-Nummer im Bild gehört nicht zum ausgewählten Produkt.'};
  const ids=Array.from(new Set(parseScreenshotCandidates(raw).map(x=>x.isin)));
@@ -3477,7 +3509,7 @@ async function readProductPdf(file,expected){
  }finally{await task.destroy();}
 }
 // Local originals support reprocessing after OCR updates. Never refresh source clocks.
-const PRODUCT_OCR_VERSION='2026-10-19-chf-table-reference-v13';
+const PRODUCT_OCR_VERSION='2026-10-19-series-isin-recovery-v14';
 const ORIGINAL_TTL=7*86400000,ORIGINAL_LIMIT=100*1024*1024;
 const activeProductImports=new Set();
 function originalRetention(records,now=Date.now()){
@@ -3510,10 +3542,15 @@ function screenshotSeriesContext(outcomes,isin){
  if(!validIsin(isin)||outcomes.length<2)return null;
  const anchor=outcomes.find(o=>o.ok&&o.data?.isin===isin&&['ISIN','WKN','Valor'].includes(o.data.identityBasis));
  if(!anchor)return null;
- // A different/ambiguous observed identity prevents inheritance in this batch.
+ const anchorRaw=String(anchor.raw||anchor.ocr?.data?.text||'');
+ const rawIds=[...new Set(anchorRaw.toUpperCase().match(/\b[A-Z]{2}[A-Z0-9]{9}[0-9]\b/g)||[])].filter(validIsin);
+ const context={isin,basis:'image-series',anchor:anchor.name,
+  anchorIsinVerified:rawIds.length===1&&rawIds[0]===isin,source:identitySeriesSource(anchorRaw)};
+ // A different valid identifier or an unbounded mismatch blocks inheritance.
  if(outcomes.some(o=>o.ocr&& !screenshotIdentity(o.ocr.data.text,isin).ok &&
-   !screenshotIdentity(o.ocr.data.text,isin).reason.startsWith('ISIN oder WKN im Zusatzbild fehlt')))return null;
- return {isin,basis:'image-series',anchor:anchor.name};
+   !screenshotIdentity(o.ocr.data.text,isin).reason.startsWith('ISIN oder WKN im Zusatzbild fehlt')&&
+   !seriesIsinRepair(o.ocr.data.text,isin,context)))return null;
+ return context;
 }
 async function processProductImages(i,files,context,records=null){
  if(activeProductImports.has(i))return;
