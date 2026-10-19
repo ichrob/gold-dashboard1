@@ -98,3 +98,4 @@ jobs:
           ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc=size=640x360:rate=5 -t 4 -c:v libvpx-vp9 -pix_fmt yuv420p /tmp/bob-video-fixture.webm -y
           NODE_PATH=/tmp/bob-video-browser/node_modules node browser_video_evidence.cjs
           NODE_PATH=/tmp/bob-video-browser/node_modules node browser_training_help.cjs
+          NODE_PATH=/tmp/bob-video-browser/node_modules node browser_degiro_export_mobile.cjs
