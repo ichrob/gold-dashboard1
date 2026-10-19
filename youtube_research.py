@@ -79,11 +79,21 @@ def read_url(url):
     return data
 
 
+class MembersOnlyVideo(ValueError):
+    """An explicit membership restriction must not trigger provider retries."""
+
+
 def player_metadata(raw, identity):
     text=raw.decode('utf-8','replace')
     match=re.search(r'(?:var\s+)?ytInitialPlayerResponse\s*=\s*',text)
     if not match:raise ValueError('Keine öffentlich lesbaren Videodaten')
     p=json.JSONDecoder().raw_decode(text[match.end():])[0]
+    access=p.get('playabilityStatus',{})
+    reason=access.get('reason','')
+    if (access.get('status') in ('UNPLAYABLE','LOGIN_REQUIRED')
+            and isinstance(reason,str)
+            and re.search(r"members.only|channel.s members|kanalmitglieder|nur f.r mitglieder",reason,re.I)):
+        raise MembersOnlyVideo('Nur für Kanalmitglieder verfügbar. Ohne berechtigten Zugang kann Bob dieses Video nicht auswerten; weitere Untertitelanbieter-Abrufe werden ausgelassen.')
     if p.get('playabilityStatus',{}).get('status')!='OK':raise ValueError('Video erfordert Anmeldung oder ist nicht verfügbar')
     if p.get('videoDetails',{}).get('videoId')!=identity:raise ValueError('Videozuordnung nicht bestätigt')
     return p
@@ -291,6 +301,8 @@ def analyze(url, fetch=read_url, *, verified_item=None):
     try:
         try:
             p=player_metadata(fetch('https://www.youtube.com/watch?v='+identity),identity)
+        except MembersOnlyVideo:
+            raise
         except (ValueError, OSError):
             if fetch is not read_url:raise
             # A failed player request is not evidence that the public video is private.
@@ -377,6 +389,8 @@ def enrich(item):
         item['trustedTranscript']=bool(expected and result.get('transcriptAnalyzed'))
     except Exception as exc:
         item['transcriptAnalyzed']=False
+        item['trustedTranscript']=False
+        if isinstance(exc,MembersOnlyVideo):item['transcriptAccess']='members-only'
         item['articleStatus']=str(exc) if isinstance(exc,ValueError) else 'Automatischer Untertitelabruf derzeit nicht verfügbar. Video bleibt ungeprüft.'
     return item
 
