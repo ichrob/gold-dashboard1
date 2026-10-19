@@ -700,9 +700,11 @@ def _get_quote_bounded(isin):
     from public_product_terms import TERMINAL
     if valid_isin(isin) and isin not in TERMINAL:
         from comdirect_quotes import get_observation
-        attempt('comdirect-fetch', isin, lambda: get_observation(isin), {}, recovery)
         from swissquote_quotes import get_observation as get_swissquote
-        attempt('swissquote-fetch', isin, lambda: get_swissquote(isin), {}, recovery)
+        from product_repair_learning import source_order
+        fetchers = {'comdirect': get_observation, 'swissquote': get_swissquote}
+        for source in source_order(isin):
+            attempt(source+'-fetch', isin, lambda: fetchers[source](isin), {}, recovery)
     from finanzen_terms import apply as apply_terms_backup
     from comdirect_fields import apply as apply_comdirect_fields
     result = _get_quote_primary(isin)
