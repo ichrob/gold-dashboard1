@@ -409,3 +409,34 @@ assert(waitCases[2].includes('Rücksetzer'));
 assert(waitCases[3].includes('Signal noch nicht bestätigt'));
 assert(waitCases.every(x=>x.includes('Konkreter Grund:')&&x.includes('Nächster Prüfschritt:')));
 console.log('Wait explanation: concrete evidence, categories and next checks passed');
+
+// A newer counter-swing must not replace the assessed chart direction.
+const directionalChart=vm.runInContext(`(()=>{
+ const bars=Array.from({length:110},(_,i)=>{const p=4200+Math.sin(i/5)*20;return {instrument:'XAU/USD',openTime:Date.UTC(2026,9,19)+i*300000,open:p,close:p,high:p+1,low:p-1,isOpen:false};});
+ const before=JSON.stringify(signalState);
+ const latest=chartFibonacci(bars,3),short=chartFibonacci(bars,3,'SHORT');
+ const mirrored=bars.map(b=>({...b,open:8400-b.open,close:8400-b.close,high:8400-b.low,low:8400-b.high}));
+ const long=chartFibonacci(mirrored,3,'LONG');
+ const q={available:true,fresh:true,dir:'SHORT'};
+ const missing=chartFibonacci(bars.map(b=>({...b,open:4200,close:4200,high:4200,low:4200})),0,'SHORT');
+ return {latest,short,long,unchanged:before===JSON.stringify(signalState),
+  fresh:chartScenarioStatus(q,'5m',short),stale:chartScenarioStatus({...q,fresh:false},'5m',short),
+  missing:chartScenarioStatus(q,'5m',missing),sampled:chartScenarioStatus(q,'5m',short,true),
+  invalid:chartDataStatus({available:false,fresh:false,reason:'Ungültige oder lückenhafte Kerzen'},110),
+  old:chartDataStatus({...q,fresh:false,ageWarning:'veraltet – Stand: 16:40'},110)};
+})()`,env);
+assert.equal(directionalChart.latest.direction,'LONG');
+assert.equal(directionalChart.short.direction,'SHORT');
+assert(directionalChart.short.levels.e1272<directionalChart.short.low);
+assert.equal(directionalChart.long.direction,'LONG');
+assert(directionalChart.long.levels.e1272>directionalChart.long.high);
+assert(directionalChart.unchanged);
+assert(directionalChart.fresh.includes('Chart-Szenario: SHORT'));
+assert(directionalChart.fresh.includes('keine Einstiegsfreigabe'));
+assert(directionalChart.stale.startsWith('Historisches Chart-Szenario: SHORT'));
+assert(directionalChart.missing.includes('Swingpunkte fehlen'));
+assert(directionalChart.sampled.includes('nicht bestätigt'));
+assert(directionalChart.invalid.includes('lückenhafte'));
+assert(!directionalChart.invalid.includes('Historische Daten'));
+assert(directionalChart.old.includes('16:40'));
+console.log('Directional chart: SHORT/LONG counter-swings, missing pivots, stale/invalid disclosure and unchanged entry state OK');
