@@ -32,8 +32,8 @@ def service_authenticated(headers):
 
 
 
-def tool_definitions():
-    return [
+def tool_definitions(diagnostics=False, products=True):
+    result = [
         {
             "name": "bob_product_audit",
             "description": "Read the current private DEGIRO screenshot product audit; contains exact ISINs, missing proof codes, issuer sources and original timestamps. Read-only, never an order or trading permission.",
@@ -47,6 +47,17 @@ def tool_definitions():
             "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
         },
     ]
+    if not products:
+        result = []
+    if diagnostics:
+        result.append({
+            "name": "bob_diagnostics",
+            "description": "Read operational diagnostics: cached market inputs and timestamps, background workers, paper simulation heartbeat, push monitor counts, research and problem index. Missing or stale observations are not healthy. No orders, mutations, raw logs or credentials.",
+            "inputSchema": {"type":"object", "properties":{}, "additionalProperties":False},
+            "annotations": {"readOnlyHint":True, "destructiveHint":False, "idempotentHint":True, "openWorldHint":False},
+        })
+    return result
+
 
 
 def gaps(report):
@@ -70,7 +81,7 @@ def error(request_id, code, message):
             "error": {"code": code, "message": message}}
 
 
-def handle(request, report_reader):
+def handle(request, report_reader, diagnostics_reader=None, products=True):
     """Return (HTTP status, JSON-RPC result). Only tool calls read the database."""
     if not isinstance(request, dict) or request.get("jsonrpc") != "2.0":
         return 400, error(None, -32600, "Invalid Request")
@@ -90,14 +101,17 @@ def handle(request, report_reader):
     if method == "ping":
         return 200, {"jsonrpc":"2.0","id":rid,"result":{}}
     if method == "tools/list":
-        return 200, {"jsonrpc":"2.0","id":rid,"result":{"tools":tool_definitions()}}
+        return 200, {"jsonrpc":"2.0","id":rid,"result":{"tools":tool_definitions(diagnostics_reader is not None, products)}}
     if method != "tools/call":
         return 200, error(rid, -32601, "Method not found")
     params = request.get("params")
-    if not isinstance(params, dict) or params.get("name") not in _TOOL_NAMES or params.get("arguments", {}) != {}:
+    if not isinstance(params, dict) or params.get("name") not in [t["name"] for t in tool_definitions(diagnostics_reader is not None, products)] or params.get("arguments", {}) != {}:
         return 200, error(rid, -32602, "Invalid tool arguments")
-    report = report_reader()
-    data = report if params["name"] == "bob_product_audit" else gaps(report)
+    if params["name"] == "bob_diagnostics":
+        data = diagnostics_reader()
+    else:
+        report = report_reader()
+        data = report if params["name"] == "bob_product_audit" else gaps(report)
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     if len(payload.encode("utf-8")) > _MAX_RESULT_BYTES:
         return 200, {"jsonrpc":"2.0","id":rid,"result":{"content":[
