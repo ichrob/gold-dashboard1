@@ -67,3 +67,26 @@ assert(!offline.includes('Automatische Handelsfreigabe: laut Bericht ja'));
 isolated.document={querySelectorAll(selector){assert.strictEqual(selector,'#dgMissingProducts [data-product-isin]');return local.map(card=>({dataset:{productIsin:card.isin},querySelector(){return {textContent:card.labels}},querySelectorAll(){return card.messages.map(textContent=>({textContent}))}}));}};
 assert.strictEqual(isolated.collect().length,2);
 console.log('Problem-only handoff: both displayed broker-evidence problems, server merge, deduplication and offline fallback passed');
+
+async function checkHandoff(){
+ const nodes=Object.fromEntries(['bobAuditShareStatus','bobAuditShareFallback','bobAuditShareActions','bobAuditNativeShare'].map(id=>[id,{hidden:true,focus(){this.focused=true},select(){this.selected=true}}]));
+ let payload='Report A',copied='',shares=0;
+ const navigator={clipboard:{async writeText(value){copied=value}},async share({text}){shares++;assert.strictEqual(text,'Report A')}};
+ const ctx={byId:id=>nodes[id],navigator,mobileAuditPayload:()=>payload,preparedAuditText:''};
+ vm.createContext(ctx);
+ vm.runInContext(panel.slice(panel.indexOf(' function handoffStatus('),panel.indexOf(' const fmt='))+';globalThis.prepare=shareMobileAudit;globalThis.copy=copyMobileAudit;globalThis.share=sharePreparedAudit;',ctx);
+ await ctx.prepare();
+ assert.strictEqual(copied,'Report A');assert.strictEqual(shares,0,'Primary button must not rely on Android share delivery');
+ assert.strictEqual(nodes.bobAuditShareFallback.value,'Report A');assert.strictEqual(nodes.bobAuditShareFallback.hidden,false);
+ assert.strictEqual(nodes.bobAuditShareActions.hidden,false);
+ payload='Report B';await ctx.copy();assert.strictEqual(copied,'Report A','Copy retains the displayed snapshot during refresh');
+ await ctx.share();assert.strictEqual(shares,1);assert(nodes.bobAuditShareStatus.textContent.includes('nicht bestätigt'));
+ navigator.share=async()=>{throw Object.assign(Error(),{name:'AbortError'})};
+ await ctx.share();assert(nodes.bobAuditShareStatus.textContent.includes('abgebrochen'));
+ navigator.clipboard.writeText=async()=>{throw Error('denied')};
+ await ctx.copy();assert(nodes.bobAuditShareFallback.selected);assert(nodes.bobAuditShareStatus.textContent.includes('markieren'));
+ delete navigator.clipboard;delete navigator.share;
+ await ctx.prepare();assert.strictEqual(nodes.bobAuditShareFallback.value,'Report B');assert.strictEqual(nodes.bobAuditNativeShare.hidden,true);
+ console.log('Handoff behavior: visible text, clipboard success/denied/missing, stable snapshot, native share and cancellation passed');
+}
+checkHandoff().catch(error=>{console.error(error);process.exitCode=1});

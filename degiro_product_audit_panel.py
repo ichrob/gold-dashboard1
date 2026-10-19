@@ -1,8 +1,12 @@
 """Private visualisation of server-side DEGIRO list evidence checks."""
 PANEL = r'''<section id="bobProductAudit" class="card">
 <button id="bobAuditShareChatGPT" type="button" style="width:100%;white-space:normal" aria-describedby="bobAuditShareHint">DEGIRO Goldhebelprodukte Probleme</button>
-<p id="bobAuditShareHint" class="small">Produkte mit Problemen samt Fehlermeldungen teilen – ohne Screenshots. ChatGPT auswählen und dort absenden.</p>
+<p id="bobAuditShareHint" class="small">Problembericht kopieren, dann in ChatGPT einfügen und absenden – ohne Screenshots.</p>
 <p id="bobAuditShareStatus" hidden role="status" class="small"></p>
+<div id="bobAuditShareActions" hidden>
+<button id="bobAuditCopyText" type="button">Bericht kopieren</button>
+<button id="bobAuditNativeShare" type="button">Über andere App teilen</button>
+</div>
 <textarea id="bobAuditShareFallback" hidden readonly aria-label="Privaten Bericht zum manuellen Kopieren" style="width:100%;min-height:140px"></textarea>
 <div hidden>
 <p id="bobProductAuditStatus"></p>
@@ -18,6 +22,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
 (function(){
  const byId=id=>document.getElementById(id);
  let latestReport=null;
+ let preparedAuditText='';
  const safe=value=>String(value??'unbekannt').replace(/[\r\n\t\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').slice(0,180);
  // Privacy boundary: user initiated only. No account, order, quote amounts,
  // raw stored screenshots, credentials or automatic outbound transmission.
@@ -89,7 +94,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
  }
  function handoffStatus(message){const node=byId('bobAuditShareStatus');if(node){node.textContent=message;node.hidden=false;}}
  async function copyMobileAudit(){
-  const value=mobileAuditPayload();
+  const value=preparedAuditText;
   if(!value){handoffStatus('Noch keine Problemprodukte zum Teilen verfügbar. Bitte die Produktliste und den Prüfbericht laden lassen.');return;}
   try{
    if(!navigator.clipboard?.writeText)throw Error('Clipboard not available');
@@ -105,13 +110,23 @@ PANEL = r'''<section id="bobProductAudit" class="card">
  async function shareMobileAudit(){
   const value=mobileAuditPayload();
   if(!value){handoffStatus('Noch keine Problemprodukte zum Teilen verfügbar. Bitte die Produktliste und den Prüfbericht laden lassen.');return;}
-  if(!navigator.share){await copyMobileAudit();return;}
+  // Keep the exact report visible and copyable even when Android drops shared text.
+  preparedAuditText=value;
+  const target=byId('bobAuditShareFallback');
+  if(target){target.value=value;target.hidden=false;}
+  const actions=byId('bobAuditShareActions');if(actions)actions.hidden=false;
+  const share=byId('bobAuditNativeShare');if(share)share.hidden=typeof navigator.share!=='function';
+  await copyMobileAudit();
+ }
+ async function sharePreparedAudit(){
+  const value=preparedAuditText;
+  if(!value)return;
+  if(typeof navigator.share!=='function'){await copyMobileAudit();return;}
   try{
    await navigator.share({title:'Bob · Gold-Hebelprodukte Prüfbericht',text:value});
-   handoffStatus('Bericht an die gewählte App übergeben. Wenn du ChatGPT gewählt hast: dort noch absenden, damit ChatGPT die Probleme prüfen kann.');
+   handoffStatus('Teilen-Dialog geschlossen. Ob ChatGPT den Text übernommen hat, ist nicht bestätigt. Falls das Eingabefeld leer bleibt: Bericht kopieren, in ChatGPT einfügen und absenden.');
   }catch(error){
-   if(error?.name==='AbortError')return;
-   await copyMobileAudit();
+   handoffStatus(error?.name==='AbortError'?'Teilen abgebrochen. Der Bericht bleibt unten zum Kopieren bereit.':'Textübergabe fehlgeschlagen. Bitte Bericht kopieren und in ChatGPT einfügen.');
   }
  }
  const fmt=iso=>{const d=new Date(iso);return Number.isNaN(d.getTime())?'unbekannt':d.toLocaleString('de-CH',{timeZone:'Europe/Zurich',dateStyle:'short',timeStyle:'medium'});};
@@ -286,6 +301,8 @@ PANEL = r'''<section id="bobProductAudit" class="card">
  }
  function init(){mount();
   byId('bobAuditShareChatGPT')?.addEventListener('click',shareMobileAudit);
+  byId('bobAuditCopyText')?.addEventListener('click',copyMobileAudit);
+  byId('bobAuditNativeShare')?.addEventListener('click',sharePreparedAudit);
   refresh();setInterval(()=>{if(document.visibilityState!=='hidden')refresh();},30000);
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refresh();});}
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
