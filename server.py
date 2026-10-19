@@ -22,6 +22,7 @@ import threading
 import uuid
 import bob_auth
 import bob_mcp
+import bob_diagnostics
 import bob_oauth
 import bob_recovery
 import bob_self_healing
@@ -55,14 +56,16 @@ PUSH_SERVICE_TOKEN = os.environ.get("PUSH_SERVICE_TOKEN", "")
 SIGNAL_WORKER_TOKEN = os.environ.get("SIGNAL_WORKER_TOKEN", "")
 
 
-def read_private_product_audit_for_mcp():
+def read_private_report_for_mcp(path):
     """Fetch the existing internal report without adding a public database port."""
+    if path not in ("/product-audit", "/diagnostics"):
+        raise ValueError("Unknown report")
     if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
         raise RuntimeError("Private audit unavailable")
     base = PUSH_SERVICE_URL.rstrip("/")
     if not base.startswith(("https://", "http://")):
         base = "https://" + base
-    request = Request(base + "/product-audit", method="GET",
+    request = Request(base + path, method="GET",
                       headers={"X-Bob-Push-Token": PUSH_SERVICE_TOKEN,
                                "Accept": "application/json"})
     with urlopen(request, timeout=8) as response:
@@ -73,6 +76,37 @@ def read_private_product_audit_for_mcp():
     if not isinstance(result, dict):
         raise ValueError("Private audit unavailable")
     return result
+
+
+def read_private_product_audit_for_mcp():
+    return read_private_report_for_mcp('/product-audit')
+
+
+def read_diagnostics_for_mcp():
+    # Cached observations only: do not call service_health (it observes/repairs),
+    # live_bundle (fetches prices), demos, simulations or notification senders.
+    def collection():
+        value = auto_collection.health()
+        return {**bob_diagnostics.fields(value, ('enabled','running','state','lastCycleAt')),
+                'feed':bob_diagnostics.fields(value.get('cfdFeed'), ('state','lastCheckedAt','sourceAgeSeconds'))}
+    def research():
+        value = gold_research.snapshot()
+        return bob_diagnostics.fields(value, ('checkedAt','fresh','successfulFeeds','intervalSeconds','videosFound','videosAnalyzed'))
+    def problems():
+        value = bob_problems.snapshot()
+        return {**bob_diagnostics.fields(value, ('status','count','checkedAt')),
+                'items':[bob_diagnostics.fields(item, ('code','number','state','updatedAt'))
+                         for item in value.get('problems', [])[:100]]}
+    return bob_diagnostics.collect({
+        'market':lambda:bob_diagnostics.market_snapshot(_live_cache, _live_cache_at),
+        'collection':collection,
+        'background':background_health,
+        'strategyResearch':lambda:bob_diagnostics.fields(strategy_lab_background.status(),
+            ('enabled','running','phase','lastSuccessAt','lastAttemptAt')),
+        'simulationAndPush':lambda:read_private_report_for_mcp('/diagnostics'),
+        'research':research,
+        'problems':problems,
+    })
 
 FIB_MONITOR_HEALTH = {"configured": bool(PUSH_SERVICE_URL and PUSH_SERVICE_TOKEN), "status": "starting", "lastCheckedAt": None, "lastSuccessAt": None}
 
@@ -1674,9 +1708,11 @@ class Handler(BaseHTTPRequestHandler):
             # A separate machine credential is scoped ONLY to this read-only
             # tool dispatcher. It never grants browser or general API access.
             # Legacy user-password access remains subject to the daily factor.
-            if not bob_mcp.service_authenticated(self.headers) and not bob_oauth.bearer_authenticated(self.headers, USER) and (
-                    not self.headers.get("Authorization", "").startswith("Basic ")
-                    or not self.authenticated()):
+            products_allowed = (bob_mcp.service_authenticated(self.headers)
+                or bob_oauth.bearer_authenticated(self.headers, USER)
+                or (self.headers.get("Authorization", "").startswith("Basic ") and self.authenticated()))
+            diagnostics_allowed = bob_oauth.bearer_authenticated(self.headers, USER, bob_oauth.DIAGNOSTICS_SCOPE)
+            if not products_allowed and not diagnostics_allowed:
                 self.send_response(401)
                 self.send_header("WWW-Authenticate", bob_oauth.challenge_header())
                 self.send_header("Cache-Control", "no-store")
@@ -1690,7 +1726,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not length.isdecimal() or not 0 < int(length) <= 16384:
                     raise ValueError("MCP request size invalid")
                 payload = json.loads(self.rfile.read(int(length)).decode("utf-8"))
-                status, output = bob_mcp.handle(payload, read_private_product_audit_for_mcp)
+                status, output = bob_mcp.handle(payload, read_private_product_audit_for_mcp,
+                    read_diagnostics_for_mcp if diagnostics_allowed else None, products=products_allowed)
             except (ValueError, UnicodeError):
                 status, output = 400, bob_mcp.error(None, -32700, "Invalid JSON request")
             except (HTTPError, URLError, OSError, TimeoutError, RuntimeError):

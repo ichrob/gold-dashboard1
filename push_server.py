@@ -647,6 +647,18 @@ class Handler(BaseHTTPRequestHandler):
                         product_codes = None  # Unknown is NOT a confirmed repair.
                 send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "paperObservation":paper_heartbeat, "productAuditCodes":product_codes,"improvementSchedule":improvement_schedule})
                 return
+            if path == "/diagnostics":
+                supplied = self.headers.get("X-Bob-Push-Token", "")
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
+                    send_json(self, 401, {"error":"Unauthorized"})
+                    return
+                import bob_diagnostics, paper_portfolios
+                with db() as conn:
+                    # Enforce the read boundary at the database as well.
+                    conn.execute("SET TRANSACTION READ ONLY")
+                    result = bob_diagnostics.push_snapshot(conn, evaluator_runtime, paper_health, paper_portfolios)
+                send_json(self, 200, result)
+                return
             if path == "/product-audit":
                 # Private product universe; never publish it in /health or
                 # public GitHub issues. Browser access goes through Bob auth.

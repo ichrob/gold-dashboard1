@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, build_opener, HTTPSHandler
 import bob_auth
 import bob_passkey
-from bob_oauth_store import ORIGIN, RESOURCE, SCOPE, REDIRECT
+from bob_oauth_store import ORIGIN, RESOURCE, SCOPE, DIAGNOSTICS_SCOPE, REDIRECT
 
 COOKIE = '__Host-bob_oauth'
 UNTIL = '2026-11-16T23:59:59+01:00'
@@ -43,12 +43,13 @@ def rpc(action, user, **fields):
     return value
 
 
-def bearer_authenticated(headers, user):
+def bearer_authenticated(headers, user, required_scope=SCOPE):
     authorization = headers.get('Authorization','')
     if not re.fullmatch(r'Bearer boa_[A-Za-z0-9_-]{43}',authorization):
         return False
     try:
-        return rpc('check',user,token=authorization[7:]).get('valid') is True
+        result = rpc('check',user,token=authorization[7:])
+        return result.get('valid') is True and required_scope in str(result.get('scope', '')).split()
     except (OSError,ValueError):
         raise bob_auth.AuthenticationUnavailable() from None
 
@@ -137,12 +138,12 @@ def route(handler,user,password):
         if handler.command=='GET':
             if path in ('/.well-known/oauth-protected-resource','/.well-known/oauth-protected-resource/mcp'):
                 respond(handler,200,{'resource':RESOURCE,'authorization_servers':[ORIGIN],
-                                    'scopes_supported':[SCOPE],'bearer_methods_supported':['header']})
+                                    'scopes_supported':[SCOPE, DIAGNOSTICS_SCOPE],'bearer_methods_supported':['header']})
             elif path=='/.well-known/oauth-authorization-server':
                 respond(handler,200,{'issuer':ORIGIN,'authorization_endpoint':ORIGIN+'/oauth/authorize',
                     'token_endpoint':ORIGIN+'/oauth/token','registration_endpoint':ORIGIN+'/oauth/register',
                     'revocation_endpoint':ORIGIN+'/oauth/revoke','response_types_supported':['code'],
-                    'grant_types_supported':['authorization_code','refresh_token'],'scopes_supported':[SCOPE],
+                    'grant_types_supported':['authorization_code','refresh_token'],'scopes_supported':[SCOPE, DIAGNOSTICS_SCOPE],
                     'token_endpoint_auth_methods_supported':['none'],'code_challenge_methods_supported':['S256'],
                     'authorization_response_iss_parameter_supported':True})
             elif path=='/oauth/authorize':
@@ -152,12 +153,14 @@ def route(handler,user,password):
                 else:respond(handler,303,location='/oauth/resume',cookies=[cookie(result['request'])])
             elif path=='/oauth/resume':
                 nonce = bob_auth.cookie(handler.headers,COOKIE)
-                if not rpc('pending',user,request=nonce).get('ok'):
+                pending = rpc('pending',user,request=nonce)
+                if not pending.get('ok'):
                     respond(handler,400,page('Verbindung erneut starten','<p>Die Anfrage ist abgelaufen. Starte die Verbindung erneut in ChatGPT.</p>'),page=True)
                 elif browser_ready(handler,user,password):
                     until = datetime.fromisoformat(UNTIL).strftime('%d.%m.%Y')
                     respond(handler,200,page('ChatGPT mit Bob verbinden',
-                        '<p>ChatGPT darf deine privaten Produktprüfberichte mit ISINs, Quellen, Zeitstempeln und fehlenden Nachweisen lesen.</p>'
+                        ('<p>ChatGPT darf deine privaten Produktprüfberichte mit ISINs, Quellen, Zeitstempeln und fehlenden Nachweisen lesen.</p>' if SCOPE in pending.get('scope', SCOPE).split() else '') +
+                        ('<p>Zusätzlich freigegeben: Diagnoseberichte zu Marktanalyse, Hintergrundjobs, Simulationen, Push-Überwachung, Recherche und offenen Problemen. Keine Zugangsdaten oder vollständigen Protokolle.</p>' if DIAGNOSTICS_SCOPE in pending.get('scope', SCOPE).split() else '') +
                         '<p>Keine Änderungen an Bob, keine Orders und kein Zugriff auf dein DEGIRO-Konto.</p>'
                         '<p>Gültig höchstens 28 Tage, längstens bis '+until+'. In Bob jederzeit widerrufbar.</p>'
                         '<form method="post" action="/oauth/consent"><input type="hidden" name="request" value="'+html.escape(nonce)+'">'
