@@ -24,6 +24,20 @@ class YoutubeTests(unittest.TestCase):
                 with self.assertRaises(ValueError):y.analyze(URL,fetch=fetch)
                 request.assert_not_called()
 
+    def test_members_only_never_falls_back_to_transcript_provider(self):
+        import research_transcript_provider as provider
+        item={'url':URL,'channelId':g.MCO_CHANNEL,'title':'Gold outlook','trustedTranscript':True}
+        for reason in ("This video is available to this channel's members on level: MCO Ambassador", "Members-only content", "Dieses Video ist nur für Kanalmitglieder verfügbar"):
+            payload={'playabilityStatus':{'status':'UNPLAYABLE','reason':reason}}
+            raw=('var ytInitialPlayerResponse = '+json.dumps(payload)+';').encode()
+            with patch.dict(y._cache,{},clear=True),patch.object(y,'read_url',return_value=raw) as fetch,patch.object(provider,'request') as request,patch.object(y,'listed_metadata') as listing:
+                with self.assertRaises(y.MembersOnlyVideo):y.analyze(URL,fetch=fetch,verified_item=item)
+                request.assert_not_called();listing.assert_not_called()
+            with patch.object(y,'analyze',side_effect=y.MembersOnlyVideo('Nur für Kanalmitglieder')):
+                result=y.enrich(dict(item))
+                self.assertEqual(result['transcriptAccess'],'members-only')
+                self.assertFalse(result['transcriptAnalyzed']);self.assertFalse(result['trustedTranscript'])
+
     def data(self,status='OK',caption=CAP):
         p={'playabilityStatus':{'status':status},'videoDetails':{'videoId':ID,'channelId':'UCsl6Z6p7GOkczo8Cv-GH6Dg','author':'MCO Markets','title':'Gold will fall today'},'captions':{'playerCaptionsTracklistRenderer':{'captionTracks':[{'baseUrl':caption,'languageCode':'en','kind':'asr'}]}}}
         return ('var ytInitialPlayerResponse = '+json.dumps(p)+';').encode()
@@ -62,7 +76,7 @@ class YoutubeTests(unittest.TestCase):
         self.assertEqual(item['publishedAt'],10);self.assertTrue(item['trustedTranscript'])
         with patch.object(y,'analyze',return_value={**result,'channelId':'wrong'}):
             bad=y.enrich({'url':URL,'sourceId':'mco-video'})
-            self.assertFalse(bad['transcriptAnalyzed']);self.assertNotIn('trustedTranscript',bad)
+            self.assertFalse(bad['transcriptAnalyzed']);self.assertFalse(bad['trustedTranscript'])
     def test_pasted_transcript_replaces_unavailable_discovered_video(self):
         report={'checkedAt':100,'sources':[],'items':[{'channelId':g.MCO_CHANNEL,'title':'Gold outlook','url':URL,'kind':'YouTube','publishedAt':None,'publishedRelative':'vor 7 Stunden','publishedRelativeObservedAt':100,'coverage':'Videometadaten','outlook':'UNKLAR','horizon':'unbekannt'}]}
         with patch.dict(y._manual,{},clear=True),patch.object(g,'_report',report),patch.object(y,'read_url',return_value=self.data()):
