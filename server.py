@@ -94,7 +94,7 @@ def read_diagnostics_for_mcp():
     def problems():
         value = bob_problems.snapshot()
         return {**bob_diagnostics.fields(value, ('status','count','checkedAt')),
-                'items':[bob_diagnostics.fields(item, ('code','number','state','updatedAt','title','reason','message'))
+                'items':[bob_diagnostics.fields(item, ('code','number','state','updatedAt','title','reason','message','kiStatus','kiStatusLabel'))
                          for item in value.get('problems', [])[:100]]}
     return bob_diagnostics.collect({
         'market':lambda:bob_diagnostics.market_snapshot(_live_cache, _live_cache_at),
@@ -463,6 +463,8 @@ def aggregate_bars(bars, minutes):
         out.append(dict(openTime=ts,open=items[0]['open'],high=max(b['high'] for b in items),
                         low=min(b['low'] for b in items),close=items[-1]['close'],
                         instrument=items[0].get('instrument','unknown'),
+                        source=items[0].get('source') if len({b.get('source') for b in items}) == 1 else 'aggregate · mixed sources',
+                        estimated=any(b.get('estimated',False) for b in items),
                         isOpen=now_ms<ts+step or any(b.get('isOpen',False) for b in items)))
     return out
 
@@ -476,7 +478,12 @@ def retain_technical_history(interval, rows):
     minutes = technical_candles.MINUTES[interval]
     with _technical_history_lock:
         old = _technical_history.get(interval, [])
-        if rows and technical_history_latest(rows, minutes) >= technical_history_latest(old, minutes):
+        spot_rows = bool(rows) and all(b.get('instrument') == 'XAU/USD' and not b.get('estimated') for b in rows)
+        spot_old = bool(old) and all(b.get('instrument') == 'XAU/USD' and not b.get('estimated') for b in old)
+        # An unrelated future must never evict genuine spot context. A recovered
+        # spot series wins over an earlier cached fallback even if its clock is older.
+        if rows and ((spot_rows and not spot_old) or
+                     (spot_rows == spot_old and technical_history_latest(rows, minutes) >= technical_history_latest(old, minutes))):
             _technical_history[interval] = [dict(row) for row in rows]
         return [dict(row) for row in _technical_history.get(interval, [])]
 
@@ -607,6 +614,10 @@ def fetch_technical_history(interval, range_value):
                     return out
     except Exception:
         pass
+
+    retained = retain_technical_history(interval, [])
+    if retained and all(b.get('instrument') == 'XAU/USD' and not b.get('estimated') for b in retained):
+        return retained  # Stale stays stale; do not replace spot with a futures reference.
 
     try:
         # Keep direct Yahoo as a secondary fallback.

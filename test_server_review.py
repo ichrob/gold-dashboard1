@@ -122,13 +122,13 @@ class HistoryRefreshTests(unittest.TestCase):
     def yahoo(self,age):
         return {'chart':{'result':[{'timestamp':[self.now-age],'indicators':{'quote':[{'open':[100],'high':[102],'low':[99],'close':[101]}]}}]}}
 
-    def test_stale_nonempty_primary_tries_newer_fallback(self):
+    def test_stale_spot_is_not_displaced_by_newer_future(self):
         with patch.object(server,'fetch_json',side_effect=[{'points':[self.point(1200)]},self.yahoo(300)]) as fetch:
             rows=server.fetch_technical_history('5m','5d')
-        self.assertEqual(fetch.call_count,2)
+        self.assertEqual(fetch.call_count,1)
         self.assertIn('&fresh=',fetch.call_args_list[0].args[0])
-        self.assertEqual(rows[-1]['openTime'],(self.now-300)*1000)
-        self.assertEqual(rows[-1]['instrument'],'GC=F')
+        self.assertEqual(rows[-1]['openTime'],(self.now-1200)*1000)
+        self.assertEqual(rows[-1]['instrument'],'XAU/USD')
 
     def test_fresh_primary_skips_fallback(self):
         with patch.object(server,'fetch_json',return_value={'points':[self.point(300)]}) as fetch:

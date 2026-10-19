@@ -26,7 +26,7 @@ def market_snapshot(live, cached_at, now=None):
     age = now - cached_at if cached_at else None
     bars = (live.get('history') or {}).get('bars_by_tf') or {}
     from market_review import frame_health
-    return {'status': 'unavailable' if not live else 'stale' if age is None or not 0 <= age <= 120 else live.get('status', 'unknown'),
+    return {'status': 'unavailable' if not live else 'stale' if age is None or not 0 <= age <= 120 else live.get('status', 'observed'),
             'cacheAgeSeconds': age, 'cachedAt': cached_at or None,
             'source': fields(live.get('spots'), ('spot_price_as_of', 'primary', 'xaus_is_spot', 'is_genuine_xauusd_spot')),
             'candles': {tf: {'integrity':frame_health(bars.get(tf, []), tf, now*1000), 'count':len(bars.get(tf, [])),
@@ -191,7 +191,7 @@ def summary(areas):
             return
         if not isinstance(value,dict):return
         state=value.get('status',value.get('state'))
-        if state in ('unavailable','stale','degraded','failed','retry','partial'):
+        if state in ('unavailable','stale','degraded','failed','retry','partial','wrong-basis','invalid-ohlc','recent-gap','missing','insufficient','recurred'):
             findings.append({'area':path,'state':state})
         for key,item in value.items():
             if isinstance(item,(dict,list)):walk(item,path+'.'+key)
