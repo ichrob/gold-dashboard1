@@ -39,3 +39,20 @@ Failures return a generic authentication diagnostic without remote response text
 Run `python -m unittest test_degiro_readonly` with requirements-degiro.txt installed.
 The actual SDK is exercised against mocked HTTP responses, including leading-zero
 OTP preservation and failed authentication; no test logs into a real account.
+
+## Experimental product evidence probe
+
+The authenticated existing probe endpoint additionally accepts `isins`, a list of
+at most three ISINs. The default empty list retains the portfolio-only probe.
+Product lookup and detail lookup preserve explicitly named bid/ask/status fields.
+If a matching product has a VWD identifier and the account supplies a user token,
+the probe also requests its chart object from the fixed DEGIRO chart-feed URL.
+Missing fields remain missing; last prices never become bid/ask quotes. Raw status
+fields are not interpreted as account trade permission. All results retain
+`approval: UNVERIFIED`. No ranking, approval, jobs or trading rules are modified.
+The existing 45-second isolated worker deadline still applies to the entire probe;
+three products may exceed it. This is a bounded manual diagnostic, not a 30-second
+background collector. In-app confirmation remains unsupported by this worker.
+
+Validation: `python -m unittest test_degiro_readonly test_degiro_product_probe`.
+These tests use synthetic responses; no live gold-product response is confirmed.

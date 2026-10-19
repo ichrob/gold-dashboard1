@@ -10,16 +10,21 @@ from urllib.parse import urlsplit
 
 def permitted(method, url):
     parsed = urlsplit(url)
+    if method == 'GET' and url.split('?', 1)[0] == 'https://charting.vwdservices.com/hchart/v1/deGiro/data.js':
+        return True
     if parsed.scheme != 'https' or parsed.netloc != 'trader.degiro.nl':
         return False
     path = parsed.path
     return ((method == 'POST' and path in ('/login/secure/login', '/login/secure/login/totp'))
-            or (method == 'GET' and path == '/pa/secure/client')
+            or (method == 'GET' and path in ('/pa/secure/client', '/product_search/secure/v5/products/lookup'))
+            or (method == 'POST' and path == '/product_search/secure/v5/products/info')
             or (method == 'GET' and re.fullmatch(r'/trading/secure/v5/update/[0-9]+;jsessionid=[^/]+', path) is not None)
             or (method == 'PUT' and path.startswith('/trading/secure/logout;jsessionid=')))
 
 
-def run(otp):
+def run(otp, isins=None):
+    from degiro_product_probe import validate_isins, collect
+    isins = validate_isins(isins or [])
     # All SDK logs are suppressed in this dedicated process, including errors.
     logging.disable(logging.CRITICAL)
     from requests import Session
@@ -63,6 +68,8 @@ def run(otp):
             credentials.int_account = account
             portfolio = api.get_update(request_list=[UpdateRequest(option=UpdateOption.PORTFOLIO, last_updated=0)], raw=True)
             result['code'] = 'READ_OK' if isinstance(portfolio, dict) and isinstance(portfolio.get('portfolio'), dict) and isinstance(portfolio['portfolio'].get('value'), list) else 'INVALID_RESPONSE'
+            if isins and result['code'] == 'READ_OK':
+                result['productEvidence'] = collect(api, session, isins, details.get('data', {}).get('id'))
     except Exception as exc:
         # Only classify authentication failures; never serialize exception text.
         result['code'] = 'AUTH_REQUIRED' if type(exc).__name__ == 'DeGiroConnectionError' else 'SDK_ERROR'
@@ -79,11 +86,11 @@ def run(otp):
 
 if __name__ == '__main__':
     try:
-        payload = json.loads(sys.stdin.read(128))
+        payload = json.loads(sys.stdin.read(2048))
         otp = payload.get('otp', '')
         if not isinstance(otp, str) or (otp and not re.fullmatch(r'[0-9]{6}', otp)):
             raise ValueError('invalid OTP')
-        result = run(otp)
+        result = run(otp, payload.get('isins', []))
     except Exception:
         result = {'code': 'SDK_ERROR', 'logoutConfirmed': False}
     print(json.dumps(result))
