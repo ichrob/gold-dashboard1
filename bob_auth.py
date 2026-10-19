@@ -96,6 +96,25 @@ def cookie(headers, name):
         return ''
 
 
+def check_password(supplied_user, candidate, user, password, current):
+    """Shared process-local budget for browser and Basic passwords.
+
+    None means throttled. Serialize verification so concurrent requests cannot
+    overshoot the failure budget. Never retain passwords or Authorization headers.
+    """
+    with LOCK:
+        now = time.time()
+        FAILURES[:] = [stamp for stamp in FAILURES if stamp > now - 60]
+        if len(FAILURES) >= 30:
+            return None
+        ok = (bool(user and password) and len(candidate) <= 1024
+              and hmac.compare_digest(supplied_user.encode(), user.encode())
+              and bob_recovery.matches(candidate, password, current))
+        if not ok:
+            FAILURES.append(now)
+        return bool(ok)
+
+
 def authenticated(headers, user, password):
     if not user or not password:
         return False
@@ -107,12 +126,14 @@ def authenticated(headers, user, password):
         key = bob_recovery.binding_key(password, current)
         authorization = headers.get('Authorization', '')
         if authorization.startswith('Basic '):
+            supplied_user, candidate = '', ''
             try:
-                supplied_user, candidate = base64.b64decode(authorization[6:], validate=True).decode().split(':', 1)
-                if len(candidate) <= 1024 and hmac.compare_digest(supplied_user.encode(), user.encode()) and bob_recovery.matches(candidate, password, current):
-                    return True
+                if len(authorization) <= 2048:
+                    supplied_user, candidate = base64.b64decode(authorization[6:], validate=True).decode().split(':', 1)
             except (ValueError, UnicodeError):
                 pass
+            if check_password(supplied_user, candidate, user, password, current):
+                return True
         token = cookie(headers, COOKIE)
         if persistent_token(token):
             try:
@@ -195,10 +216,11 @@ def login(handler, user, password):
             login_page(handler, 'Passwortspeicher momentan nicht erreichbar. Bitte später erneut versuchen.', status=503)
             return
         candidate = fields.get('password', [''])[0]
-        ok = bool(user and password) and len(candidate) <= 1024 and hmac.compare_digest(fields.get('username', [''])[0].encode(), user.encode()) and bob_recovery.matches(candidate, password, current)
+        ok = check_password(fields.get('username', [''])[0], candidate, user, password, current)
+        if ok is None:
+            send(handler, 429, b'Bitte eine Minute warten.')
+            return
         if not ok:
-            with LOCK:
-                FAILURES.append(now)
             login_page(handler, 'Anmeldung fehlgeschlagen. Bitte Zugangsdaten prüfen.')
             return
         remember = fields.get('remember') == ['1']
