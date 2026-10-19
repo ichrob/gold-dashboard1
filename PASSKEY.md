@@ -32,8 +32,12 @@ acknowledgement/rotation is also not yet implemented.
 ## Deployment prerequisites (do not activate yet)
 
 - Existing ChatGPT MCP and other Basic-only clients will be denied once enrolled.
-  They need a separately scoped service identity; do not exempt the shared user
-  password from the second factor.
+  The draft now supports an independent Bearer `BOB_MCP_SERVICE_TOKEN` (random,
+  at least 32 characters), accepted ONLY on POST /mcp for the two existing
+  allowlisted read tools. Provision it securely on the scanner and in the
+  private plugin before enrollment. It never grants browser access, general
+  API access, writes, or trades. Do not reuse the user password or push token.
+  No service token has been generated, configured, or placed in this repository.
 - Deploy the push backend with `webauthn==3.0.1` and the new database table before
   enabling scanner enforcement. Existing service-token authentication protects
   the internal `/auth-passkey/` RPC routes.
@@ -48,9 +52,9 @@ acknowledgement/rotation is also not yet implemented.
 
 ## Validation
 
-`python -m unittest test_passkey test_basic_auth_throttle test_auth test_persistent_auth test_auth_runtime_cost test_recovery test_recovery_locking -q`
+`python -m unittest test_passkey test_basic_auth_throttle test_auth test_persistent_auth test_auth_runtime_cost test_recovery test_recovery_locking test_bob_mcp -q`
 
-59 tests ran: 56 passed, 3 pre-existing skips. Tests include real ES256 registration
+64 tests ran: 61 passed, 3 pre-existing skips. Tests include real ES256 registration
 and authentication fixtures, wrong origin/challenge, missing user verification,
 bad signature, replay, exact expiry, one-use recovery, failed-store denial,
 Basic/cookie bypass prevention, and HTTP redirects/API denial. `node --check
