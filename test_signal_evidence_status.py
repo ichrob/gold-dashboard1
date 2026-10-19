@@ -1,6 +1,6 @@
 import copy
 import unittest
-from unittest.mock import Mock,patch
+from unittest.mock import Mock,MagicMock,patch
 import decision_audit as audit
 import improvement_status as status
 from test_improvement_tracker import at
@@ -17,9 +17,9 @@ class SignalStatusTests(unittest.TestCase):
 
     def test_recent_lane_runs_before_archive_without_rewriting_results(self):
         calls=[]
-        with patch.object(audit,'_harvest_at',0),patch.object(audit.time,'time',return_value=100),patch.object(audit,'_harvest_recent',side_effect=lambda c,h:calls.append(('new',h))),patch.object(audit,'_harvest_horizon',side_effect=lambda c,h:calls.append(('old',h))):
-            audit.harvest(Mock())
-        self.assertEqual(calls,[('new',5),*(('old',h) for h in audit.HARVEST_HORIZONS)])
+        with patch.object(audit,'_harvest_at',0),patch.object(audit,'_next_harvest_horizon',return_value=1),patch.object(audit.time,'time',return_value=100),patch.object(audit,'_harvest_recent',side_effect=lambda c,h:calls.append(('new',h))),patch.object(audit,'_harvest_horizon',side_effect=lambda c,h:calls.append(('old',h))):
+            audit.harvest(MagicMock())
+        self.assertEqual(calls,[('new',1),('old',1)])
         conn=Mock();conn.execute.return_value.fetchall.return_value=[('new-id',)]
         audit._harvest_recent(conn,15)
         query,params=conn.execute.call_args_list[0].args
