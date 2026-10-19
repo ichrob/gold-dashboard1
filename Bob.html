@@ -3974,8 +3974,25 @@ function initPersonalRisk(){
   syncPushPreferences();
  });
 }
+function overviewTrendContext(history,preferred="15m",now=Date.now()){
+ const steps={'5m':300000,'15m':900000,'1h':3600000};
+ for(const tf of [...new Set([preferred,'5m','15m','1h'])]){
+  const step=steps[tf];if(!step)continue;
+  const bars=history?.[tf]||[];
+  if(bars.some(b=>b.instrument!=='XAU/USD'||b.observedOnly))continue;
+  const state=timeframeScore(bars,tf,now);
+  if(!state.available||!state.fresh||!state.fullHistory)continue;
+  const values=bars.filter(b=>!b.isOpen&&b.openTime+step<=now).slice(-240).map(b=>b.close);
+  if(values.length<200)continue;
+  const e20=ema(values,20),e50=ema(values,50),e200=ema(values,200);
+  const trend=e20>e50&&e50>e200?'Bullish':e20<e50&&e50<e200?'Bearish':'Gemischt';
+  return trend+' · '+tf+' · EMA200'+(tf!==preferred?' (Ersatzkontext; '+preferred+' nicht verfügbar)':'');
+ }
+ return 'EMA200-Kontext nicht verfügbar · Historie wird nachgeladen';
+}
 function updateQuick(){
  renderAnalysisBlocks();
+ $("quickTrend").textContent=overviewTrendContext(chartHistory,$("tf")?.value||"15m");
  if(window.BobSession?.expired()){$("quickSignal").textContent="🟡 ABWARTEN · Anmeldung erforderlich";$("quickSignal").className="signal neutral";$("quickReason").textContent="Serverprüfung gesperrt: bitte erneut bei Bob anmelden.";$("quickRisk").textContent="—";updateTradeSignal();return;}
  if(!C.length||!A.at){confirmedSignalDirection();$("quickSignal").textContent="🟡 ABWARTEN";$("quickSignal").className="signal neutral";$("quickReason").textContent=signalState.reason;return;}
  if(!A.ready){confirmedSignalDirection();$("quickReason").textContent=signalState.reason;$("quickSignal").textContent="🟡 ABWARTEN · Historie fehlt";$("quickSignal").className="signal neutral";$("quickRisk").textContent="—";return;}
@@ -3987,7 +4004,7 @@ function updateQuick(){
  if(signalState.preparedDirection)q+=" · "+signalState.preparedDirection+" vorbereitet (noch unbestätigt)";
  $("quickSignal").textContent=q;$("quickSignal").className="signal "+cls;
  $("quickPrice").textContent=p.toFixed(2);
- $("quickTrend").textContent=!Number.isFinite(A.e200)?"EMA200-Kontext fehlt":A.e20>A.e50&&A.e50>A.e200?"Bullish":A.e20<A.e50&&A.e50<A.e200?"Bearish":"Gemischt";
+
  const personal=personalRisk();
  $("quickRisk").textContent=personal?personal.budget.toFixed(2)+" €":"— · persönliche Risikogrenze nicht eingerichtet";
  $("quickReason").textContent=q.includes("LONG")?"Mehrere technische Faktoren sprechen in dieselbe Richtung. Nur bei akzeptablem Risiko prüfen."
