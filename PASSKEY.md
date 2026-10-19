@@ -24,27 +24,33 @@ An unavailable store denies access rather than silently skipping the factor.
 
 Eight one-use recovery codes are displayed at initial enrollment. Store them
 away from the phone. A password reset does not disable Passkeys. Password plus
-one recovery code grants access to enroll another Passkey. Old credentials are
-not automatically revoked; a reviewed removal/revocation UI is still required
-before production activation, especially after a device is lost. Recovery-code
-acknowledgement/rotation is also not yet implemented.
+one recovery code grants access to enroll another Passkey. The mobile page now supports removing an old credential after adding a new one.
+Removing a key invalidates all other daily grants and all pending ceremonies;
+the last key cannot be removed. Management requires a recent second-factor proof
+and sensitive operations recheck the password. New recovery codes replace old
+ones only after the user acknowledges a code from the new set. Codes must be
+stored outside the lost phone (for example in a recoverable password manager).
 
 ## Deployment prerequisites (do not activate yet)
 
 - Existing ChatGPT MCP and other Basic-only clients will be denied once enrolled.
-  The draft now supports an independent Bearer `BOB_MCP_SERVICE_TOKEN` (random,
-  at least 32 characters), accepted ONLY on POST /mcp for the two existing
-  allowlisted read tools. Provision it securely on the scanner and in the
-  private plugin before enrollment. It never grants browser access, general
+  The draft now supports an independent `BOB_MCP_SERVICE_TOKEN` (random,
+  at least 32 characters), accepted as Bearer or Basic with username
+  `bob-readonly` ONLY on POST /mcp for the two existing
+  allowlisted read tools. Provision it securely on the scanner before enrollment. The existing private
+  plugin can retain its Basic configuration, identity, skills, and tools; the
+  user replaces only the connection credentials through the protected host
+  dialog on their phone. The setup page includes password-protected display and
+  copy buttons. No secret is embedded in plugin files or sent in chat. It never grants browser access, general
   API access, writes, or trades. Do not reuse the user password or push token.
   No service token has been generated, configured, or placed in this repository.
 - Deploy the push backend with `webauthn==3.0.1` and the new database table before
   enabling scanner enforcement. Existing service-token authentication protects
   the internal `/auth-passkey/` RPC routes.
-- The scanner's `PUSH_SERVICE_URL` must be HTTPS; this implementation deliberately
-  refuses plaintext for these RPC calls. Confirm the actual production setting
-  without exposing secrets before activation.
-- Finish credential revocation/recovery management and verify the complete flow
+- The passkey RPC uses the existing public HTTPS push-service URL by default.
+  An optional `BOB_PASSKEY_STORE_URL` override must also be HTTPS. Existing
+  `PUSH_SERVICE_URL` configuration is not changed.
+- Verify the completed credential revocation/recovery management flow
   on a staging deployment with a real phone. Local cryptographic fixtures are
   not proof that a particular mobile browser or platform authenticator works.
 - Keep the feature gate off until these prerequisites are resolved. No production
@@ -54,8 +60,25 @@ acknowledgement/rotation is also not yet implemented.
 
 `python -m unittest test_passkey test_basic_auth_throttle test_auth test_persistent_auth test_auth_runtime_cost test_recovery test_recovery_locking test_bob_mcp -q`
 
-64 tests ran: 61 passed, 3 pre-existing skips. Tests include real ES256 registration
+68 tests ran: 65 passed, 3 pre-existing skips. Tests include real ES256 registration
 and authentication fixtures, wrong origin/challenge, missing user verification,
 bad signature, replay, exact expiry, one-use recovery, failed-store denial,
 Basic/cookie bypass prevention, and HTTP redirects/API denial. `node --check
 passkey.js` also passes. No live enrollment, email, broker login, or trade occurred.
+
+## Mobile verification boundary
+
+The page uses a single-column responsive layout, 48px minimum controls, clipboard
+buttons, and native WebAuthn on the same device, without a QR code. Enrollment,
+code acknowledgement/rotation, lost-key removal, and machine-key display are
+implemented. The existing plugin package was inspected and left unchanged;
+Basic service credentials preserve its existing connection protocol and tools.
+GitHub and Render integrations are not modified by this feature.
+
+A 360px touch-browser end-to-end test with a virtual authenticator was prepared,
+but Chromium could not launch in this environment: socket creation was denied
+(`Operation not permitted`). The mobile UI, native Android authenticator and
+ChatGPT connection credential-entry flow are therefore NOT end-to-end verified.
+Do not report these as tested or activate daily enforcement until the user's
+requested mobile check is completed. No production secret or plugin change has
+been applied. The existing connection remains unchanged.
