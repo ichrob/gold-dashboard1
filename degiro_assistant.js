@@ -2174,7 +2174,8 @@ function parseDegiroDisplayedQuote(raw,expectedIsin,venueOnly=false){
  if(!validIsin(expectedIsin)||!/\bKursdaten\b/i.test(raw)
     ||!/\b(?:Börse|Boerse|Borse)\b/i.test(raw)
     ||!/Symbol\s*\|\s*ISIN/i.test(raw))return null;
- const ids=[...new Set((raw.toUpperCase().match(/\b[A-Z]{2}[A-Z0-9]{9}[0-9]\b/g)||[]).filter(validIsin))];
+ const tokens=[...new Set(raw.toUpperCase().match(/\b[A-Z]{2}[A-Z0-9]{10}\b/g)||[])];
+ const ids=[...new Set(tokens.map(token=>normalizeOcrIsin(token,raw).isin))];
  if(ids.length!==1||ids[0]!==expectedIsin)return null;
  const start=raw.search(/\bKursdaten\b/i);
  const end=raw.search(/Symbol\s*\|\s*ISIN/i);
@@ -3516,7 +3517,7 @@ async function readProductPdf(file,expected){
  }finally{await task.destroy();}
 }
 // Local originals support reprocessing after OCR updates. Never refresh source clocks.
-const PRODUCT_OCR_VERSION='2026-10-19-partial-broker-evidence-v16';
+const PRODUCT_OCR_VERSION='2026-10-19-partial-broker-evidence-v17';
 const ORIGINAL_TTL=7*86400000,ORIGINAL_LIMIT=100*1024*1024;
 const activeProductImports=new Set();
 function originalRetention(records,now=Date.now()){
