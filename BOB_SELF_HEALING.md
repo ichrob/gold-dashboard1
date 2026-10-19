@@ -143,3 +143,29 @@ all approved sources, issuer preference and evidence validators remain in place.
 The paper cache refresh also isolates optional source exceptions, as the main
 product path already does. No new paid service, separate worker or unconstrained
 code-writing agent is enabled. New code fixes still use tested PRs.
+
+### Auxiliary worker recovery and restart budget
+
+The scanner watchdog now supervises three existing idempotent starts separately:
+CFD collection, spot previous-close display and the shadow source comparison.
+A stopped child can be restarted even while its parent collection thread remains
+alive. A live but stalled thread is never forcibly replaced or duplicated.
+Monitoring is disabled when automatic collection is disabled.
+
+Successful recovery requires two distinct completed work timestamps after the
+restart, repeated health confirmation at least 20 seconds apart and acceptable
+operational state. A comparison additionally needs a loaded archive. This proves
+operational recovery, not price accuracy, trading eligibility or profitability.
+No new source endpoints, frequencies or trading rules are introduced.
+
+Every allowlisted restart has a three-minute cooldown and a maximum of three
+attempts in a rolling 30-minute window per process. Further starts pause until
+the window permits a retry; only verified recovery clears the budget early.
+The pause is recorded once, with no exception details. Pending repairs remain
+visible to the independent GitHub/ChatGPT watchdog even when the thread is alive.
+The event history is persisted through the existing private event store; restart
+budgets themselves are process-local and reset on deployment.
+
+The product comparison task now releases its admission lock if thread creation
+fails, so the next normal bundle can retry rather than remaining permanently
+blocked. This path never creates trades or changes stops.

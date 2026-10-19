@@ -17,6 +17,9 @@ APP = "https://bob-private-scanner.onrender.com"
 PUSH = "https://bob-push-service.onrender.com"
 ISSUE_TITLE = "[Bob KI-Hilfe] Ungelöste Gesundheitsstörung"
 CODES = {
+    "cfd-worker-stopped": "CFD-Abrufdienst läuft nicht",
+    "spot-change-worker-stopped": "Spot-Tagesänderungsdienst läuft nicht",
+    "comparison-worker-stopped": "Quellenvergleich läuft nicht",
     "trade-setup-stalled": "Automatische Trade-Einrichtung benötigt technische Prüfung",
     "screenshot-import-failed": "Screenshot-Erkennung benötigt technische Prüfung",
     "scanner-unreachable": "Bob-Webdienst nicht erreichbar",
@@ -72,6 +75,15 @@ def classify(app, background, push, *, market_open=True):
         assistance = app.get("assistanceCodes")
         if isinstance(assistance, list):
             errors.extend(code for code in assistance if isinstance(code, str) and code in ("trade-setup-stalled", "screenshot-import-failed"))
+        pending = app.get('repairPendingCodes') or []
+        if isinstance(pending,list):
+            errors.extend(code for code in pending if isinstance(code,str) and code in CODES)
+        auxiliary = app.get('auxiliaryWorkers') or {}
+        if isinstance(auxiliary,dict):
+            for code in ('cfd-worker-stopped','spot-change-worker-stopped','comparison-worker-stopped'):
+                state=auxiliary.get(code) or {}
+                if isinstance(state,dict) and state.get('running') is False:
+                    errors.append(code)
         collection = app.get("automaticCollection")
         if market_open and isinstance(collection, dict) and (
             collection.get("enabled") is not True or collection.get("running") is not True

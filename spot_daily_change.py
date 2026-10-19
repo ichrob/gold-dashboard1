@@ -13,6 +13,7 @@ URL = 'https://de.investing.com/currencies/xau-usd'
 _lock = threading.Lock()
 _thread = None
 _reference = None
+_successful_at = None
 
 
 class SourceStale(ValueError):
@@ -48,6 +49,7 @@ def parse(body, now=None):
 
 
 def refresh():
+    global _successful_at
     global _reference
     request = Request(URL+'?_bob_ts='+str(int(time.time()//60)), headers={'User-Agent':'Mozilla/5.0 (Bob spot change)', 'Cache-Control':'no-cache'})
     with urlopen(request, timeout=6) as response:
@@ -61,6 +63,7 @@ def refresh():
         if _reference and reference['observedAt'] < _reference['observedAt']:
             raise ValueError('Spot-Vergleichszeit rückläufig')
         _reference = reference
+        _successful_at = time.time()
     print('BOB_SPOT_CHANGE reference_checked source_at='+datetime.fromtimestamp(reference['observedAt'],timezone.utc).isoformat()+' previous_close='+str(reference['previousClose']), flush=True)
 
 
@@ -111,3 +114,9 @@ def start():
         if _thread is None or not _thread.is_alive():
             _thread=threading.Thread(target=_run,name='bob-spot-change',daemon=True)
             _thread.start()
+
+
+def health():
+    with _lock:
+        return dict(running=bool(_thread and _thread.is_alive()), successfulAt=_successful_at,
+                    state='observed' if _successful_at else 'starting')

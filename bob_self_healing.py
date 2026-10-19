@@ -20,10 +20,17 @@ _UNRESOLVED = set()
 _SUSPECT = {}
 _HEALTHY = {}
 _PENDING = {}
+_RESTART_HISTORY = {}
+_PAUSE_LOGGED = set()
+_RESTART_WINDOW = 1800
+_MAX_RESTARTS = 3
 _COOLDOWN = 180
 _CONFIRM_SECONDS = 20
 
 MESSAGES = {
+    "cfd-worker-stopped": "CFD-Abrufdienst gestoppt oder Wiederanlauf unbestätigt",
+    "spot-change-worker-stopped": "Spot-Tagesänderungsdienst gestoppt oder Wiederanlauf unbestätigt",
+    "comparison-worker-stopped": "Quellenvergleich gestoppt oder Wiederanlauf unbestätigt",
     "market-feed-not-current": "Gold-Kursversorgung oder Marktdatensammlung nicht aktuell",
     "background-not-current": "Trade-/Fibonacci-Hintergrundüberwachung nicht aktuell",
     "market-worker-stopped": "Worker für automatische Marktdatensammlung gestoppt",
@@ -32,6 +39,9 @@ MESSAGES = {
     "unknown-service-failure": "Gesundheitsprüfung meldet eine nicht klassifizierte Störung",
 }
 WORKERS = {
+    "cfd-worker-stopped": "CFD-Abruf",
+    "spot-change-worker-stopped": "Spot-Tagesänderung",
+    "comparison-worker-stopped": "Quellenvergleich",
     "market-worker-stopped": "Marktdatensammlung",
     "background-worker-stopped": "Trade-/Fibonacci-Überwachung",
     "research-worker-stopped": "Strategieforschung",
@@ -65,6 +75,15 @@ def restart_worker(code, stopped, starter, *, now=None):
     with _LOCK:
         if timestamp - _LAST_ATTEMPTS.get(code, float("-inf")) < _COOLDOWN:
             return False
+        attempts = [at for at in _RESTART_HISTORY.get(code, []) if 0 <= timestamp-at < _RESTART_WINDOW]
+        _RESTART_HISTORY[code] = attempts
+        if len(attempts) >= _MAX_RESTARTS:
+            if code not in _PAUSE_LOGGED:
+                _append("repair-failed", code, "Drei Wiederanläufe ohne bestätigte Erholung; Neustarts vorübergehend pausiert, KI-Prüfung erforderlich")
+                _PAUSE_LOGGED.add(code)
+            return False
+        _PAUSE_LOGGED.discard(code)
+        attempts.append(timestamp)
         _LAST_ATTEMPTS[code] = timestamp
         if code not in _UNRESOLVED:
             _UNRESOLVED.add(code)
@@ -75,7 +94,7 @@ def restart_worker(code, stopped, starter, *, now=None):
         _append("repair-failed", code, "Neustart fehlgeschlagen (" + type(exc).__name__ + ")")
         return False
     with _LOCK:
-        _PENDING[code] = dict(at=timestamp, healthySince=None, goodChecks=0)
+        _PENDING[code] = dict(at=timestamp, startedWall=time.time(), healthySince=None, goodChecks=0)
         _HEALTHY.pop(code, None)
     _append("repair-attempt", code, "Kontrollierter Wiederanlauf angestoßen; Erfolg noch nicht bestätigt")
     return True
@@ -83,6 +102,14 @@ def restart_worker(code, stopped, starter, *, now=None):
 
 def worker_healthy(code, health):
     """Positive, independent post-restart checks; simply being alive is not enough."""
+    if code in ("cfd-worker-stopped", "spot-change-worker-stopped", "comparison-worker-stopped"):
+        state=(health.get('auxiliaryWorkers') or {}).get(code) or {}
+        at=state.get('successfulAt')
+        pending=_PENDING.get(code) or {}
+        return bool(state.get('running') and isinstance(at,(int,float))
+                    and at > pending.get('startedWall',float('inf')) and 0 <= time.time()-at <= 650
+                    and state.get('state') not in ('unavailable','error','stale','starting')
+                    and (code!='comparison-worker-stopped' or state.get('archiveStatus')=='loaded'))
     collection = health.get("automaticCollection") or {}
     bg = health.get("fibonacciMonitor") or {}
     research = health.get("strategyResearch") or {}
@@ -104,6 +131,9 @@ def classify(health):
     reasons = reasons if isinstance(reasons, list) else []
     codes = [r for r in reasons if isinstance(r, str) and r in MESSAGES]
     if isinstance(health, dict):
+        for code,state in (health.get('auxiliaryWorkers') or {}).items():
+            if code in WORKERS and isinstance(state,dict) and state.get('running') is False:
+                codes.append(code)
         collection = health.get("automaticCollection") or {}
         background = health.get("fibonacciMonitor") or {}
         research = health.get("strategyResearch") or {}
@@ -148,18 +178,24 @@ def observe(health, *, now=None):
             if worker_healthy(code, health):
                 if pending["healthySince"] is None:
                     pending["healthySince"] = timestamp
-                pending["goodChecks"] += 1
+                progress=(health.get('auxiliaryWorkers') or {}).get(code)
+                if progress is None or progress.get('successfulAt') != pending.get('lastSuccess'):
+                    pending["goodChecks"] += 1
+                    if progress is not None:pending['lastSuccess']=progress.get('successfulAt')
                 if pending["goodChecks"] >= 2 and timestamp - pending["healthySince"] >= _CONFIRM_SECONDS:
                     # This is an explicitly confirmed outcome after Bob's own
                     # restart; it is not a profitable trade or a strategy fix.
                     _append("repair-verified", code, "Eigenständiger Wiederanlauf durch wiederholte Gesundheitsprüfung bestätigt")
                     _PENDING.pop(code, None)
+                    _RESTART_HISTORY.pop(code, None)
+                    _PAUSE_LOGGED.discard(code)
                     _UNRESOLVED.discard(code)
                     _HEALTHY.pop(code, None)
                     _append("recovered", code, "Nach Wiederanlauf gesund gemeldet")
             else:
                 pending["healthySince"] = None
                 pending["goodChecks"] = 0
+                pending.pop("lastSuccess", None)
         for code in list(_UNRESOLVED):
             if code in broken or code in _PENDING:
                 _HEALTHY.pop(code, None)
@@ -175,8 +211,14 @@ def observe(health, *, now=None):
     return codes
 
 
+def pending_codes():
+    """Fixed codes only; a running thread must not close an unverified repair."""
+    with _LOCK:
+        return sorted(code for code in _PENDING if code in WORKERS)
+
+
 def snapshot(health):
-    codes = observe(health)
+    codes = sorted(set(observe(health)) | set(pending_codes()))
     build = str(health.get("build") or "unbekannt")
     if not re.fullmatch(r"[0-9a-fA-F]{7,64}", build):
         build = "unbekannt"
@@ -215,7 +257,7 @@ def snapshot(health):
 PANEL = r'''<section id="bobSelfHealing" class="card" style="margin:16px 0;padding:16px">
 <details><summary style="font-weight:700;cursor:pointer">🛠️ Fehlerüberwachung &amp; Selbstreparatur</summary>
 <p id="bobHealingState" role="status">Prüfung wird geladen …</p>
-<p class="small">Bob startet ausgefallene, bekannte Hintergrund-Worker kontrolliert neu. Ein unabhängiger GitHub-Wächter dokumentiert ungelöste Störungen. KI-Codeänderungen erfolgen nicht ungeprüft.</p>
+<p class="small">Bob startet ausgefallene Hintergrunddienste einschließlich CFD-Abruf, Spot-Tagesänderung und Quellenvergleich kontrolliert neu. Nach drei unbestätigten Wiederanläufen innerhalb von 30 Minuten pausiert er weitere Neustarts. Ein unabhängiger GitHub-Wächter dokumentiert ungelöste Störungen. KI-Codeänderungen erfolgen nicht ungeprüft.</p>
 <div id="bobHealingHistory" class="small"></div>
 <details style="margin-top:12px"><summary>KI-Hilfebericht anzeigen</summary>
 <pre id="bobHealingReport" style="white-space:pre-wrap;word-break:break-word;max-height:330px;overflow:auto;background:#f4f6f9;border-radius:9px;padding:10px"></pre>
