@@ -158,9 +158,11 @@ def init(conn):
         id TEXT PRIMARY KEY, recorded_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
         payload JSONB NOT NULL)''')
     conn.execute('CREATE INDEX IF NOT EXISTS bob_audit_recorded ON bob_decision_audit(recorded_at)')
+    conn.execute("CREATE INDEX IF NOT EXISTS bob_audit_evaluable_cursor ON bob_decision_audit(recorded_at,id) WHERE payload->>'marketEvaluable'='true' AND jsonb_typeof(payload->'recordedAt')='number'")
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_decision_outcomes (decision_id TEXT REFERENCES bob_decision_audit(id) ON DELETE CASCADE, horizon INTEGER NOT NULL, truth JSONB NOT NULL, PRIMARY KEY(decision_id,horizon))''')
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_decision_harvest_cursor (
         horizon INTEGER PRIMARY KEY, recorded_at TIMESTAMPTZ, decision_id TEXT)''')
+    conn.execute('ALTER TABLE bob_decision_harvest_cursor ADD COLUMN IF NOT EXISTS attempted_at TIMESTAMPTZ')
     conn.execute('''INSERT INTO bob_decision_harvest_cursor(horizon)
         SELECT unnest(%s::integer[]) ON CONFLICT(horizon) DO NOTHING''',(list(HARVEST_HORIZONS),))
     stop_target_audit.init(conn)
@@ -425,7 +427,7 @@ def _harvest_recent(conn, horizon):
     return len(rows)
 
 
-def _harvest_horizon(conn, horizon):
+def _harvest_horizon(conn, horizon, batch_size=None):
     """Advance one durable, bounded evidence cursor without synthesizing gaps."""
     cursor=conn.execute('''SELECT recorded_at,decision_id
         FROM bob_decision_harvest_cursor WHERE horizon=%s FOR UPDATE''',(horizon,)).fetchone()
@@ -435,7 +437,7 @@ def _harvest_horizon(conn, horizon):
     if recorded_at is not None:
         cursor_filter='AND (a.recorded_at,a.id)>(%s,%s)'
         params.extend((recorded_at,decision_id))
-    params.append(HARVEST_HORIZON_BATCH)
+    params.append(HARVEST_HORIZON_BATCH if batch_size is None else batch_size)
     batch=conn.execute("""SELECT a.id,a.recorded_at
       FROM bob_decision_audit a
       WHERE a.recorded_at>=now()-interval '7 days'
@@ -460,18 +462,37 @@ def _harvest_horizon(conn, horizon):
     return len(batch)
 
 
+def _next_harvest_horizon(conn):
+    row=conn.execute('SELECT horizon FROM bob_decision_harvest_cursor ORDER BY attempted_at NULLS FIRST,horizon LIMIT 1 FOR UPDATE SKIP LOCKED').fetchone()
+    if not row:return None
+    conn.execute('UPDATE bob_decision_harvest_cursor SET attempted_at=clock_timestamp() WHERE horizon=%s',(row[0],))
+    return row[0]
+
+
 def harvest(conn):
     global _harvest_at
     now=time.time()
     if now-_harvest_at<60:return
-    # The durable archive cursors already cover every horizon. Give only one
-    # horizon per minute the additional recent-priority lane so a cold worker
-    # does not double the bounded SQL workload and exhaust its statement time.
-    # The wall-clock slot rotates deterministically across restarts.
-    recent_horizon=HARVEST_HORIZONS[int(now//60)%len(HARVEST_HORIZONS)]
-    _harvest_recent(conn,recent_horizon)
-    for horizon in HARVEST_HORIZONS:
-        _harvest_horizon(conn,horizon)
+    # One horizon per invocation: commit forward progress before another archive
+    # or a slow missing-evidence scan can occupy the connection. Rotation is
+    # persisted across restarts, so deployments cannot starve later horizons.
+    horizon=_next_harvest_horizon(conn)
+    if horizon is None:return
+    import psycopg
+    for stage in ('recent','archive'):
+        try:
+            with conn.transaction():
+                if stage=='recent':_harvest_recent(conn,horizon)
+                else:_harvest_horizon(conn,horizon)
+        except psycopg.errors.QueryCanceled:
+            # Preserve cursor and frozen evidence on timeout. Retry the archive
+            # with fewer cases, in a clean savepoint; later workers still run.
+            if stage=='archive':
+                try:
+                    with conn.transaction():_harvest_horizon(conn,horizon,batch_size=8)
+                except psycopg.errors.QueryCanceled:
+                    print('BOB_AUDIT_HARVEST deferred=archive horizon='+str(horizon),flush=True)
+            else:print('BOB_AUDIT_HARVEST deferred=recent horizon='+str(horizon),flush=True)
     _harvest_at=now
 
 _report_lock = threading.Lock()
