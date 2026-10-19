@@ -113,13 +113,18 @@ def service_health():
         reasons.append('market-feed-not-current')
     if FIB_MONITOR_HEALTH['configured'] and background['status'] != 'ok':
         reasons.append('background-not-current')
+    import repair_supervision, product_source_recovery
+    supervision = repair_supervision.health(_HEALING_WATCH_THREAD is not None and _HEALING_WATCH_THREAD.is_alive())
+    if supervision['state'] in ('stopped', 'stalled'):
+        reasons.append('repair-watch-stalled')
     result = {'status': 'degraded' if reasons else 'ok', 'service': 'bob',
             'build': os.environ.get('RENDER_GIT_COMMIT'),
             'runtime': {'processId': PROCESS_ID, 'startedAt': datetime.fromtimestamp(PROCESS_STARTED_AT, timezone.utc).isoformat(),
                         'uptimeSeconds': max(0, int(time.monotonic()-PROCESS_STARTED_MONOTONIC))},
             'ready': not reasons, 'reasons': reasons,
             'fibonacciMonitor': dict(FIB_MONITOR_HEALTH), 'automaticCollection': collection,
-            'auxiliaryWorkers': auxiliary,
+            'auxiliaryWorkers': auxiliary, 'repairSupervision': supervision,
+            'sourceRecovery': product_source_recovery.health(),
             'strategyResearch': strategy_lab_background.status(), 'assistanceCodes': bob_assistance.pending_codes()}
     bob_self_healing.observe(result)
     result["repairPendingCodes"] = bob_self_healing.pending_codes()
@@ -158,6 +163,8 @@ def _healing_watch_loop():
         try:
             maintain_known_workers()
             service_health()
+            import repair_supervision
+            repair_supervision.completed()
         except Exception as exc:
             print("BOB_HEALING_WATCH error=" + type(exc).__name__, flush=True)
         time.sleep(30)

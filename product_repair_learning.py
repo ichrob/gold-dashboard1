@@ -30,12 +30,17 @@ def family(source):
 def update(item, previous, now):
  old=previous.get('repairLearning') or {}
  memory=copy.deepcopy(old.get('sourceSuccesses') or {})
- memory={s:min(100,int(memory.get(s,0))) for s in ('comdirect','swissquote')}
+ memory={s:max(0,min(100,int(memory.get(s,0)))) for s in ('comdirect','swissquote')}
+ # Penalize a newly failed source once per incident, not on every cached audit.
+ failed={family(e.get('stage')) for e in item.get('sourceRecovery',[]) if isinstance(e,dict) and e.get('state') in ('failed','waiting')}
+ failed.discard(None)
+ before_failed=set(old.get('failedSources') or [])
+ for source in failed-before_failed:memory[source]=max(0,memory[source]-1)
  pending=copy.deepcopy(old.get('incidents') or {})
  history=copy.deepcopy(old.get('history') or [])[-12:]
  missing=set(item.get('missing') or [])
  if item.get('state')=='terminated' or missing & EXCLUDED:
-  return dict(status='excluded',incidents={},sourceSuccesses=memory,history=history,
+  return dict(status='excluded',failedSources=sorted(failed),incidents={},sourceSuccesses=memory,history=history,
               note='Ausschluss oder Handelsplatznachweis; keine automatische Umgehung.')
  for group,(codes,action) in GROUPS.items():
   gaps=sorted(missing & codes)
@@ -72,7 +77,7 @@ def update(item, previous, now):
    if source and group=='quotes':memory[source]=min(100,memory[source]+1)
    history.append(dict(group=group,at=now,source=source,state='verified',action=incident['action']))
    pending.pop(group)
- return dict(status='repairing' if any(i['state']=='repairing' for i in pending.values()) else 'verifying' if pending else 'ready',
+ return dict(failedSources=sorted(failed),status='repairing' if any(i['state']=='repairing' for i in pending.values()) else 'verifying' if pending else 'ready',
              incidents=pending,sourceSuccesses=memory,history=history[-12:],
              note='Erfolgreiche Nachweisquelle gemerkt; kein Beleg, dass der Reparaturversuch allein die Ursache behoben hat.')
 
@@ -90,3 +95,14 @@ def install(report, now=None):
 def source_order(isin):
  with _LOCK:scores=(_PLANS.get(isin) or {}).get('sourceSuccesses') or {}
  return sorted(('comdirect','swissquote'),key=lambda source:-scores.get(source,0))
+
+
+def request_order(isins, active, requested, now):
+ """Prioritize overdue/active products, then identified repairs, without starvation.
+ No extra requests: the existing four slots and 30-second minimum still apply.
+ """
+ with _LOCK:
+  repair={isin for isin,plan in _PLANS.items() if plan.get('incidents') and plan.get('status')!='excluded'}
+ return sorted(isins,key=lambda i:(0 if now-requested.get(i,0)>=90000 else 1,
+                                  requested.get(i,0) if now-requested.get(i,0)>=90000 else 0,
+                                  i not in active, i not in repair, requested.get(i,0)))

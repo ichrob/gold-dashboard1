@@ -17,6 +17,7 @@ APP = "https://bob-private-scanner.onrender.com"
 PUSH = "https://bob-push-service.onrender.com"
 ISSUE_TITLE = "[Bob KI-Hilfe] Ungelöste Gesundheitsstörung"
 CODES = {
+    "repair-watch-stalled": "Reparaturüberwachung liefert keine neuen Prüfergebnisse",
     "cfd-worker-stopped": "CFD-Abrufdienst läuft nicht",
     "spot-change-worker-stopped": "Spot-Tagesänderungsdienst läuft nicht",
     "comparison-worker-stopped": "Quellenvergleich läuft nicht",
@@ -72,6 +73,9 @@ def classify(app, background, push, *, market_open=True):
     else:
         if app.get("status") != "ok" and market_open:
             errors.append("scanner-degraded")
+        supervision = app.get('repairSupervision') or {}
+        if isinstance(supervision, dict) and supervision.get('state') in ('stopped','stalled'):
+            errors.append('repair-watch-stalled')
         assistance = app.get("assistanceCodes")
         if isinstance(assistance, list):
             errors.extend(code for code in assistance if isinstance(code, str) and code in ("trade-setup-stalled", "screenshot-import-failed"))

@@ -169,3 +169,43 @@ budgets themselves are process-local and reset on deployment.
 The product comparison task now releases its admission lock if thread creation
 fails, so the next normal bundle can retry rather than remaining permanently
 blocked. This path never creates trades or changes stops.
+
+
+## Erweiterung: sechs Wiederherstellungsaufgaben
+
+- Gezieltes Nachladen: Der bestehende Vierer-Pool priorisiert im aktuellen privaten
+  Prüfbericht erkannte Reparaturen nach aktiven Positionen. Ab 90 Sekunden werden
+  ältere Anfragen zuerst bedient, damit keine Produkte verhungern. Mindestabstand
+  30 Sekunden und Quellen-Caches bleiben bestehen; keine zusätzlichen Abrufdienste.
+- Fortsetzen: Produktlisten/Prüfpläne und Vergleichsaufträge werden weiterhin aus
+  den vorhandenen Datenbankbeständen neu ausgewertet; Vergleichs-INSERTs sind
+  idempotent. Gespeicherte zulässige MCO-Videos werden auch bei ausgefallenem
+  Listenabruf erneut durch den bestehenden Untertitel-/Zusammenfassungspfad geprüft.
+  Unterbrochene summary-pending-Reservierungen dürfen nach fünf Minuten erneut
+  laufen. Versuche werden VOR dem Netzaufruf dauerhaft gezählt (maximal drei in
+  der bestehenden Wiederholungsperiode, unveränderte Tages-/Minutenkontingente).
+- Gemeinsame Ursachen: Drei verschiedene Produkte mit Ausnahme im gleichen
+  Quellenadapter binnen zwei Minuten pausieren diesen Adapter zwei Minuten.
+  Andere Quellen bleiben verfügbar. Das ist ein gemeinsames Fehlersymptom,
+  keine bewiesene Grundursache. Status enthält keine privaten Produktkennungen.
+- Rücknahme: Optionale Anreicherungen erfolgen auf Kopien. Exceptions, ungültige
+  Resultate sowie veränderte/verlorene ISIN verwerfen die komplette Änderung;
+  vorherige Beobachtungen behalten ihren Originalzeitpunkt. Kein alter Kurs wird
+  dadurch aktuell. Code-Regressions-Reverts übernimmt der bestehende stündliche
+  KI-Reparaturwächter nur gezielt über PR/Tests/CI/Liveprüfung, kein pauschales
+  Deployment- oder Datenbank-Rollback.
+- Lernen: Bestätigte Quellen-Erholungen verbessern die gespeicherte Priorität.
+  Eine neue Quellenstörung senkt ihren Wert einmal je Episode; wiederholte
+  identische Wartemeldungen bestrafen sie nicht erneut. Es werden keine
+  Handelsregeln gelernt oder verändert.
+- Selbstkontrolle: repairSupervision meldet den Abstand zum letzten vollständig
+  beendeten Reparaturprüflauf. Nach Startphase sind über 150 Sekunden ohne
+  Abschluss ein eigener Fehler, auch wenn der Thread noch lebt. Der unabhängige
+  GitHub-Wächter erkennt ihn auch außerhalb der Handelszeiten. Health-Aufrufe
+  ersetzen keine Fortschrittsmeldung. Der stündliche KI-Wächter prüft zusätzlich
+  den letzten erfolgreichen GitHub-Wächterlauf (Grenze 45 Minuten).
+
+Laufzeit-Quellenpausen und Heartbeats sind pro Prozess; Produkt-Lernhistorie,
+Zusammenfassungsversuche, Listen und Vergleiche nutzen bestehende Persistenz.
+Tests simulieren die Ausfälle; ein grüner Live-Health ist kein Nachweis, dass alle
+privaten Produktlücken oder jede zukünftige Störung gelöst sind.

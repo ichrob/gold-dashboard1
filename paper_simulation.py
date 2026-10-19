@@ -717,8 +717,8 @@ def quote_cache(products, active, now):
     # Oldest request first: slow sources must not repeatedly monopolize the
     # four slots just because their products occur first in the uploaded list.
     # Active positions retain priority among equally due requests.
-    due=sorted((isin for isin in isins if isin not in _pending),
-               key=lambda isin: (_requested.get(isin,0), isin not in active_isins))
+    from product_repair_learning import request_order
+    due=request_order([isin for isin in isins if isin not in _pending], active_isins, _requested, now)
     for isin in due:
         if len(_pending)>=4:break
         if now-_requested.get(isin,0)>=30000:

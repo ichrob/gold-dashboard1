@@ -453,7 +453,7 @@ def summary_paused(row, fingerprint):
     # new reservations are marked pending before the network call.
     if error is None and not row[1]:
         return False
-    if error in TRANSIENT_SUMMARY_ERRORS and failures < 3 and not recent:
+    if error in TRANSIENT_SUMMARY_ERRORS | {'pending'} and failures < 3 and not recent:
         return False
     return True
 
@@ -595,7 +595,7 @@ def handle(connect, payload):
             if count[0] < 10 and count[1] == 0 and not paused:
                 conn.execute('INSERT INTO bob_research_ai_requests DEFAULT VALUES')
                 conn.execute('''UPDATE bob_research_enhancements SET summary_attempt=now(),
-                    summary_failures=CASE WHEN fingerprint=%s THEN summary_failures ELSE 0 END,
+                    summary_failures=CASE WHEN fingerprint=%s THEN summary_failures+1 ELSE 1 END,
                     fingerprint=%s,summary=%s::jsonb,summary_error='pending' WHERE video_id=%s''',
                              (fp, fp, json.dumps(saved), identity))
                 do_summary = True
@@ -603,7 +603,7 @@ def handle(connect, payload):
                 if count[0] >= 10:
                     reason = 'Kostenloses Tageskontingent erreicht; automatische Wiederholung nach Freigabe des Kontingents.'
                 elif paused:
-                    if row[3] in TRANSIENT_SUMMARY_ERRORS and row[4] < 3:
+                    if row[3] in TRANSIENT_SUMMARY_ERRORS | {'pending'} and row[4] < 3:
                         reason = 'KI-Dienst vorübergehend nicht verfügbar; automatische Wiederholung nach fünf Minuten.'
                         result['summaryRetryAfterSeconds'] = 300
                     else:
@@ -626,7 +626,7 @@ def handle(connect, payload):
         except Exception as exc:
             code = failure_code(exc)
             with connect() as conn:
-                conn.execute('UPDATE bob_research_enhancements SET summary_error=%s,summary_failures=summary_failures+1 WHERE video_id=%s AND fingerprint=%s',
+                conn.execute('UPDATE bob_research_enhancements SET summary_error=%s WHERE video_id=%s AND fingerprint=%s',
                              (code, identity, fp)); conn.commit()
             result['summaryError'] = code
             result['summaryStatus'] = 'KI-Abruf oder Belegprüfung fehlgeschlagen (' + code + '). Kein kostenpflichtiger Ersatzabruf.'

@@ -17,6 +17,7 @@ from urllib.request import Request, build_opener
 EVENT_KINDS = frozenset(("detected", "repair-attempt", "repair-failed",
                          "repair-verified", "recovered"))
 EVENT_CODES = frozenset((
+    "repair-watch-stalled",
     "cfd-worker-stopped", "spot-change-worker-stopped", "comparison-worker-stopped",
     "market-feed-not-current", "background-not-current",
     "market-worker-stopped", "background-worker-stopped",
