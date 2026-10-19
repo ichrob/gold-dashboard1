@@ -203,8 +203,18 @@ def route(handler,user,password):
                     if 'redirect_uri' not in result:
                         respond(handler,400,{'error':'invalid_request'})
                     else:
+                        if result.get('redirect_uri') != REDIRECT:
+                            raise ValueError('Unexpected OAuth callback')
                         destination = result.pop('redirect_uri')+'?'+urlencode(result)
-                        respond(handler,303,location=destination,cookies=[cookie('',0)])
+                        # A form redirect remains subject to form-action across the
+                        # client's redirect chain (including Android app links).
+                        # A user-activated link completes the same PKCE flow without
+                        # broadening CSP or resubmitting the consumed consent form.
+                        respond(handler,200,page('Zurück zu ChatGPT',
+                            '<p>Deine Entscheidung wurde gespeichert. Schließe die Verbindung jetzt in ChatGPT ab.</p>'
+                            '<p><a rel="noreferrer" referrerpolicy="no-referrer" style="display:block;padding:14px;border-radius:10px;background:#2358b6;color:white;text-align:center;text-decoration:none" href="'+html.escape(destination,quote=True)+'">Zurück zu ChatGPT</a></p>'
+                            '<p>Tippe jetzt auf den Button. Der Rückkehrlink gilt zwei Minuten. Diese Seite nicht neu laden und das Freigabeformular nicht erneut absenden.</p>'),
+                            cookies=[cookie('',0)],page=True)
             else:respond(handler,404,{'error':'not_found'})
         else:respond(handler,405,{'error':'method_not_allowed'})
     except (ValueError,TypeError,UnicodeError):

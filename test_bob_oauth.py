@@ -193,9 +193,19 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.form('/oauth/consent',fields,cookies,origin='null')[0],403)
         self.assertEqual(self.form('/oauth/consent',fields,cookies,origin='')[0],403)
         self.assertEqual(self.form('/oauth/consent',{**fields,'request':'wrong'},cookies)[0],403)
-        status,h,_ = self.form('/oauth/consent',fields,cookies)
-        self.assertEqual(status,303)
-        result = parse_qs(urlparse(h['Location']).query)
+        status,h,body = self.form('/oauth/consent',fields,cookies)
+        self.assertEqual(status,200)
+        self.assertNotIn('Location',h)
+        self.assertEqual(h['Cache-Control'],'no-store')
+        self.assertIn('Max-Age=0',h['Set-Cookie'])
+        self.assertIn(b'referrerpolicy="no-referrer"',body)
+        self.assertNotIn(b'<form',body)
+        import re,html
+        destination=html.unescape(re.search(r'href="([^"]+)"',body.decode()).group(1))
+        self.assertEqual(destination.split('?')[0],store.REDIRECT)
+        result = parse_qs(urlparse(destination).query)
+        # A replay must not create a second authorization grant.
+        self.assertEqual(self.form('/oauth/consent',fields,cookies)[0],400)
         self.assertEqual(result['iss'],[store.ORIGIN])
         status,_,body = self.form('/oauth/token',dict(grant_type='authorization_code',client_id=self.cid,
             redirect_uri=store.REDIRECT,code=result['code'][0],code_verifier=self.verifier,resource=store.RESOURCE))
