@@ -70,7 +70,7 @@ def respond(handler, status, value=None, *, location=None, cookies=(), page=Fals
     handler.send_response(status)
     handler.send_header('Content-Type','text/html; charset=utf-8' if page else 'application/json')
     for name,val in [('Cache-Control','no-store'),('Pragma','no-cache'),('X-Content-Type-Options','nosniff'),
-                     ('Referrer-Policy','no-referrer'),('X-Frame-Options','DENY'),
+                     ('Referrer-Policy','same-origin'),('X-Frame-Options','DENY'),
                      ('Content-Security-Policy',"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")]:
         handler.send_header(name,val)
     if location:

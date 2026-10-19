@@ -181,11 +181,15 @@ class HttpTests(unittest.TestCase):
         status,h,_ = self.request('GET','/oauth/resume',headers={'Cookie':self.cookie})
         self.assertEqual((status,h['Location']),(303,'/login'))
         cookies = self.cookie+'; '+self.session
-        status,_,body = self.request('GET','/oauth/resume',headers={'Cookie':cookies})
+        status,h,body = self.request('GET','/oauth/resume',headers={'Cookie':cookies})
         self.assertEqual(status,200)
+        # HTML form POSTs get Origin: null under no-referrer, breaking consent.
+        self.assertEqual(h['Referrer-Policy'],'same-origin')
         self.assertIn(b'Lesezugriff erlauben',body)
         fields = {'request':self.nonce,'decision':'approve'}
         self.assertEqual(self.form('/oauth/consent',fields,cookies,origin='https://evil.example')[0],403)
+        self.assertEqual(self.form('/oauth/consent',fields,cookies,origin='null')[0],403)
+        self.assertEqual(self.form('/oauth/consent',fields,cookies,origin='')[0],403)
         self.assertEqual(self.form('/oauth/consent',{**fields,'request':'wrong'},cookies)[0],403)
         status,h,_ = self.form('/oauth/consent',fields,cookies)
         self.assertEqual(status,303)
