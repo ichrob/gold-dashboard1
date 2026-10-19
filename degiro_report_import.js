@@ -4,7 +4,7 @@
 function parseRows(text){
  if(typeof text!=='string'||text.length>2_000_000)throw Error('Datei ist leer oder über 2 MB groß.');
  text=text.replace(/^\uFEFF/,'');
- const first=(text.split(/\r?\n/,1)[0]||'');
+ const first=(text.split(/\r?\n/).slice(0,12).find(line=>/ISIN/i.test(line))||text.split(/\r?\n/,1)[0]||'');
  const delimiter=[';',',','\t'].map(d=>({d,n:(first.match(new RegExp(d==='\t'?'\\t':d===';'?';':',','g'))||[]).length})).sort((a,b)=>b.n-a.n)[0];
  if(!delimiter||!delimiter.n)throw Error('Kein CSV-Trennzeichen gefunden.');
  const rows=[],row=[];let cell='',quoted=false;
