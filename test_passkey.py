@@ -1,0 +1,160 @@
+"""Verify actual WebAuthn signatures and Bob's second-factor boundaries offline."""
+import base64
+import hashlib
+import json
+import os
+import unittest
+from unittest.mock import patch
+import cbor2
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives import hashes
+import bob_passkey_store as store
+import bob_passkey
+import bob_auth
+
+class PasskeyTests(unittest.TestCase):
+    def setUp(self):
+        self.state={}
+        self.payload={'account':'a'*64,'binding':'b'*64}
+        self.key=ec.generate_private_key(ec.SECP256R1())
+        self.cid=b'credential-test-id'
+        n=self.key.public_key().public_numbers()
+        self.cose=cbor2.dumps({1:2,3:-7,-1:1,-2:n.x.to_bytes(32,'big'),-3:n.y.to_bytes(32,'big')})
+
+    def call(self,action,now=100,**fields):
+        return store.transition(self.state,action,{**self.payload,**fields},now)
+
+    def credential(self,options,register=False,origin=store.ORIGIN,uv=True,challenge=None,key=None):
+        client=json.dumps({'type':'webauthn.create' if register else 'webauthn.get','challenge':challenge or options['challenge'],'origin':origin}).encode()
+        flags=1+(4 if uv else 0)+(64 if register else 0)
+        auth=hashlib.sha256(store.RP_ID.encode()).digest()+bytes([flags])+(0 if register else 1).to_bytes(4,'big')
+        if register:
+            auth+=bytes(16)+len(self.cid).to_bytes(2,'big')+self.cid+self.cose
+            response={'attestationObject':store.encode(cbor2.dumps({'fmt':'none','attStmt':{},'authData':auth}))}
+        else:
+            response={'authenticatorData':store.encode(auth),'signature':store.encode((key or self.key).sign(auth+hashlib.sha256(client).digest(),ec.ECDSA(hashes.SHA256())))}
+        response['clientDataJSON']=store.encode(client)
+        return {'id':store.encode(self.cid),'rawId':store.encode(self.cid),'type':'public-key','response':response}
+
+    def enroll(self):
+        opts=self.call('register-options')['options']
+        result=self.call('register-verify',credential=self.credential(opts,True))
+        self.assertTrue(result['ok'],result)
+        return result
+
+    def test_real_registration_and_daily_expiry_not_sliding(self):
+        result=self.enroll()
+        self.assertEqual(len(result['recoveryCodes']),8)
+        self.assertNotIn(result['recoveryCodes'][0],json.dumps(self.state))
+        self.assertTrue(self.call('status',now=100+store.TTL-1)['verified'])
+        self.assertFalse(self.call('status',now=100+store.TTL)['verified'])
+        options=self.call('authenticate-options',now=100+store.TTL)['options']
+        verified=self.call('authenticate-verify',now=100+store.TTL,credential=self.credential(options))
+        self.assertTrue(verified['ok'])
+        self.assertEqual(verified['validUntil'],100+2*store.TTL)
+
+    def test_registration_rejects_wrong_origin_challenge_and_no_uv(self):
+        for kwargs in ({'origin':'https://evil.invalid'},{'challenge':store.encode(b'wrong')},{'uv':False}):
+            with self.subTest(kwargs=kwargs):
+                self.state={}
+                options=self.call('register-options')['options']
+                self.assertFalse(self.call('register-verify',credential=self.credential(options,True,**kwargs))['ok'])
+                self.assertFalse(self.call('status')['enabled'])
+
+    def test_authentication_rejects_bad_signature_and_replay(self):
+        self.enroll()
+        options=self.call('authenticate-options')['options']
+        bad=self.credential(options,key=ec.generate_private_key(ec.SECP256R1()))
+        self.assertFalse(self.call('authenticate-verify',credential=bad)['ok'])
+        self.assertFalse(self.call('authenticate-verify',credential=self.credential(options))['ok'])
+        options=self.call('authenticate-options')['options']
+        good=self.credential(options)
+        self.assertTrue(self.call('authenticate-verify',credential=good)['ok'])
+        self.assertFalse(self.call('authenticate-verify',credential=good)['ok'])
+
+    def test_new_session_cannot_enroll_without_second_factor(self):
+        self.enroll()
+        self.payload['binding']='c'*64
+        self.assertFalse(self.call('status')['verified'])
+        self.assertEqual(self.call('register-options')['error'],'PASSKEY_REQUIRED')
+
+    def test_recovery_one_use_bound_to_session_and_retains_factor(self):
+        code=self.enroll()['recoveryCodes'][0]
+        self.payload['binding']='c'*64
+        self.assertTrue(self.call('recover',code=code)['ok'])
+        self.assertTrue(self.call('status')['verified'])
+        self.assertTrue(self.call('status')['enabled'])
+        self.payload['binding']='d'*64
+        self.assertFalse(self.call('recover',code=code)['ok'])
+        self.assertFalse(self.call('status')['verified'])
+
+    def test_expired_challenge_and_failure_throttle(self):
+        options=self.call('register-options')['options']
+        self.assertFalse(self.call('register-verify',now=400,credential=self.credential(options,True))['ok'])
+        for _ in range(4):self.call('recover',now=400,code='wrong')
+        self.assertEqual(self.call('register-options',now=401)['error'],'TOO_MANY_ATTEMPTS')
+        self.assertTrue(self.call('register-options',now=701)['ok'])
+
+    def test_gate_off_does_not_call_store(self):
+        with patch.dict(os.environ,{'BOB_PASSKEY_AVAILABLE':'0'}),patch.object(bob_passkey,'rpc') as rpc:
+            bob_passkey.require({},'user','pw')
+            rpc.assert_not_called()
+
+    def test_basic_cannot_substitute_for_valid_cookie(self):
+        headers={'Authorization':'Basic abc','Cookie':bob_auth.COOKIE+'=forged'}
+        def validate(h,*args):
+            self.assertNotIn('Authorization',h)
+            return False
+        with patch.dict(os.environ,{'BOB_PASSKEY_AVAILABLE':'1'}),patch.object(bob_passkey,'rpc',return_value={'enabled':True,'verified':True}),patch.object(bob_auth,'primary_authenticated',side_effect=validate):
+            with self.assertRaises(bob_passkey.PasskeyRequired):bob_passkey.require(headers,'user','pw')
+
+    def test_storage_failure_denies_access(self):
+        with patch.dict(os.environ,{'BOB_PASSKEY_AVAILABLE':'1'}),patch.object(bob_passkey,'rpc',side_effect=OSError):
+            with self.assertRaises(bob_auth.AuthenticationUnavailable):bob_passkey.require({},'user','pw')
+
+
+class PasskeyHTTPTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import server,threading
+        cls.server=server
+        cls.previous=(server.USER,server.PASSWORD)
+        server.USER,server.PASSWORD='passkey-test','test-password'
+        cls.httpd=server.ThreadingHTTPServer(('127.0.0.1',0),server.Handler)
+        cls.thread=threading.Thread(target=cls.httpd.serve_forever,daemon=True)
+        cls.thread.start()
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown();cls.httpd.server_close();cls.thread.join()
+        cls.server.USER,cls.server.PASSWORD=cls.previous
+    def setUp(self):
+        import time
+        bob_auth.FAILURES.clear()
+        bob_auth.SESSIONS['test-session']=(time.time()+600,0)
+        self.env=patch.dict(os.environ,{'BOB_PASSKEY_AVAILABLE':'1'})
+        self.env.start();self.addCleanup(self.env.stop)
+        self.recovery=patch.object(bob_auth.bob_recovery,'state',return_value={'version':0})
+        self.recovery.start();self.addCleanup(self.recovery.stop)
+    def request(self,method,path,headers=None,body=None):
+        import http.client
+        conn=http.client.HTTPConnection('127.0.0.1',self.httpd.server_port)
+        base={'Host':'bob.example','Cookie':bob_auth.COOKIE+'=test-session'}
+        base.update(headers or {})
+        conn.request(method,path,body,base)
+        r=conn.getresponse();out=(r.status,dict(r.getheaders()),r.read());conn.close();return out
+    def test_unverified_session_redirects_page_but_api_denied(self):
+        with patch.object(bob_passkey,'rpc',return_value={'enabled':True,'verified':False}):
+            status,h,_=self.request('GET','/')
+            self.assertEqual(status,303);self.assertEqual(h['Location'],'/passkey')
+            self.assertEqual(self.request('GET','/api/live')[0],403)
+            self.assertEqual(self.request('GET','/passkey')[0],200)
+    def test_verified_session_loads_app(self):
+        with patch.object(bob_passkey,'rpc',return_value={'enabled':True,'verified':True}):
+            self.assertEqual(self.request('GET','/')[0],200)
+    def test_cross_origin_and_basic_only_setup_rejected(self):
+        with patch.object(bob_passkey,'rpc') as rpc:
+            self.assertEqual(self.request('POST','/api/passkey/register-options',{'Origin':'https://evil.invalid','Content-Type':'application/json'},'{}')[0],403)
+            self.assertEqual(self.request('GET','/passkey',{'Cookie':'','Authorization':'Basic '+base64.b64encode(b'passkey-test:test-password').decode()})[0],303)
+            rpc.assert_not_called()
+
+if __name__=='__main__':unittest.main()
