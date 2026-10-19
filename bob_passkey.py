@@ -20,7 +20,7 @@ def binding(headers, user):
     return hashlib.sha256((user+'\0'+token).encode()).hexdigest()
 
 def rpc(action, headers, user, **fields):
-    base=bob_auth.STORE_URL.rstrip('/')
+    base=os.environ.get('BOB_PASSKEY_STORE_URL','https://bob-push-service.onrender.com').rstrip('/')
     if not base.startswith('https://'):
         raise OSError('Passkey storage requires HTTPS')
     data={'account':hashlib.sha256(user.encode()).hexdigest(),'binding':binding(headers,user),**fields}
@@ -78,15 +78,22 @@ def route(handler,user,password):
         payload=json.loads(handler.rfile.read(length))
         if not isinstance(payload,dict):raise ValueError()
         action=path.rsplit('/',1)[-1]
-        if action not in ('status','register-options','register-verify','authenticate-options','authenticate-verify','recover'):raise ValueError()
-        if action=='register-options':
+        if action not in ('status','register-options','register-verify','authenticate-options','authenticate-verify','recover','revoke-credential','rotate-recovery','confirm-recovery','machine-token'):raise ValueError()
+        if action in ('register-options','revoke-credential','rotate-recovery','machine-token'):
             candidate=payload.get('password','')
             if not isinstance(candidate,str):raise ValueError()
             current=bob_recovery.state(user)
             if bob_auth.check_password(user,candidate,user,password,current) is not True:
                 respond(handler,403,{'error':'PASSWORD_REQUIRED'});return True
-        fields={k:payload[k] for k in ('credential','code') if k in payload}
-        result=rpc(action,handler.headers,user,**fields)
+        fields={k:payload[k] for k in ('credential','code','credentialId','name') if k in payload}
+        if action=='machine-token':
+            result=rpc('machine-authorize',handler.headers,user)
+            if result.get('ok'):
+                token=os.environ.get('BOB_MCP_SERVICE_TOKEN','')
+                if len(token)<32:raise OSError('Not configured')
+                result={'ok':True,'token':token}
+        else:
+            result=rpc(action,handler.headers,user,**fields)
         respond(handler,200 if result.get('ok',True) else 403,result)
     except (ValueError,TypeError,KeyError):respond(handler,400,{'error':'INVALID_REQUEST'})
     except Exception:respond(handler,503,{'error':'PASSKEY_UNAVAILABLE'})
