@@ -4,6 +4,24 @@ from http.server import BaseHTTPRequestHandler
 import server
 
 class ReviewTests(unittest.TestCase):
+    def test_entry_diagnostics_keep_reason_without_account_state(self):
+        _, details = server.sanitize_client_diagnostic({
+            'event':'pipeline:complete', 'details':{
+                'overall':'SHORT', 'entryDirection':'NEUTRAL',
+                'entryReason':'Haupttrend SHORT intakt · Aktuelle Lernregel nicht bestätigt',
+                'products':[{'isin':'private'}], 'account':'private',
+            }})
+        self.assertEqual(details['overall'], 'SHORT')
+        self.assertEqual(details['entryDirection'], 'NEUTRAL')
+        self.assertIn('Lernregel', details['entryReason'])
+        self.assertNotIn('products', details)
+        self.assertNotIn('account', details)
+        _, bad = server.sanitize_client_diagnostic({'details':{'entryDirection':{}, 'entryReason':{}}})
+        self.assertNotIn('entryDirection', bad)
+        self.assertNotIn('entryReason', bad)
+        _, bounded = server.sanitize_client_diagnostic({'details':{'entryReason':'x'*1000}})
+        self.assertEqual(len(bounded['entryReason']), 800)
+
     def test_legacy_mtf_401_diagnostic_is_auth_expiry_not_server_error(self):
         event, details = server.sanitize_client_diagnostic({
             'event':'mtf:server-error',
