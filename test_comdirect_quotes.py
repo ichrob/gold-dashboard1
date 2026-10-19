@@ -54,6 +54,53 @@ class ComdirectQuoteTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             q.parse_page(html.replace('LT BNP Paribas', 'LT Societe Generale'), isin, self.now)
 
+    def test_other_source_does_not_block_current_backup(self):
+        primary = copy.deepcopy(self.primary)
+        primary['secondaryQuote'] = dict(self.quote, source='older issuer',
+            quoteAt=(self.now-timedelta(minutes=10)).isoformat())
+        out = self.apply(primary=primary)
+        self.assertEqual(out['secondaryQuote'], self.quote)
+
+    def test_bnp_display_switch_preserves_backup_and_origin(self):
+        from contextlib import ExitStack
+        import product_quotes
+        from degiro_product_audit import examine
+        isin = 'DE000PJ9NB98'
+        pair = dict(self.quote, isin=isin, source='comdirect · BNP LiveTrading',
+                    venue='LT BNP Paribas', upstream='BNP')
+        old = (self.now-timedelta(minutes=10)).isoformat()
+        primary = dict(isin=isin, productVerified=True, found=True, eligible=False,
+            currency='EUR', source='BNP Paribas · Emittent OTC',
+            sourceUrl='https://derivate.bnpparibas.com/product-details/'+isin+'/',
+            metadata=dict(status=1), bid=5, ask=5.01, bidAt=old, askAt=old,
+            quoteAt=old, marketOpen=None)
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(product_quotes, '_get_quote_primary', return_value=primary))
+            stack.enter_context(patch.object(q, 'get_observation', return_value=dict(state='observed', quote=pair)))
+            stack.enter_context(patch('swissquote_quotes.get_observation', return_value={}))
+            stack.enter_context(patch('leverage_backup.select_analysis_quote', return_value=pair))
+            clock = stack.enter_context(patch.object(q, 'datetime'))
+            clock.now.return_value=self.now
+            clock.fromisoformat=datetime.fromisoformat
+            clock.min=datetime.min
+            for target in ['comdirect_fields.apply','finanzen_terms.apply','swissquote_quotes.apply',
+                           'leverage_backup.apply','secondary_validity.apply','hybrid_product_price.apply']:
+                stack.enter_context(patch(target,side_effect=lambda value,*args:value))
+            out=product_quotes._get_quote_bounded(isin)
+            # Next background refresh must still recognize the canonical issuer.
+            out=q.apply(out,isin,self.now)
+        self.assertEqual(out['secondaryQuote'],pair)
+        item=examine(dict(isin=isin,direction='LONG'),out,self.now.timestamp()*1000)
+        for code in ('quote','quote-time','market-status'):
+            self.assertNotIn(code,item['missing'])
+        self.assertEqual(item['dataQuoteSource'],pair['source'])
+        self.assertFalse(item['tradeApproved'])
+        self.assertFalse(out['eligible'])
+        bad=copy.deepcopy(out);bad['issuerModelSource']['isin']='wrong'
+        self.assertFalse(q.matches_primary(bad,pair))
+        closed=copy.deepcopy(out);closed['marketOpen']=False
+        self.assertIn('market-closed',examine(dict(isin=isin),closed,self.now.timestamp()*1000)['missing'])
+
     def test_currency_treatment_requires_explicit_matched_field(self):
         from comdirect_fields import parse_page
         for raw, expected in [('Nein', False), ('Ja', True)]:

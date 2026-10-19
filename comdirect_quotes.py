@@ -23,6 +23,15 @@ ISSUERS = {
 }
 
 
+def bnp_origin(result):
+    """Retain exact issuer identity when a research display changes source."""
+    origin = result.get("issuerModelSource") or result
+    return (origin.get("isin") == result.get("isin")
+            and str(origin.get("source", "")).startswith("BNP Paribas ·")
+            and origin.get("sourceUrl") ==
+            "https://derivate.bnpparibas.com/product-details/"+str(result.get("isin"))+"/")
+
+
 def matches_primary(result, row):
     meta = result.get('metadata') or {}
     if row.get('currency') != 'EUR' or (result.get('currency') or meta.get('currency')) != 'EUR':
@@ -30,8 +39,7 @@ def matches_primary(result, row):
     if row.get('source') == 'comdirect · SG LiveTrading' and row.get('venue') == 'LT Societe Generale':
         return meta.get('issuerExchangeCode') == 'CBDE'
     if row.get('source') == 'comdirect · BNP LiveTrading' and row.get('venue') == 'LT BNP Paribas':
-        return (str(result.get('source', '')).startswith('BNP Paribas ·')
-                and result.get('sourceUrl') == 'https://derivate.bnpparibas.com/product-details/'+str(result.get('isin'))+'/')
+        return bnp_origin(result)
     return False
 
 
@@ -138,7 +146,7 @@ def apply(result, isin, now=None):
     if (not valid_isin(isin) or result.get('isin') != isin or not result.get('productVerified')
             or result.get('sourceDisabled')
             or meta.get('status') != 1
-            or not (meta.get('issuerExchangeCode') == 'CBDE' or str(result.get('source', '')).startswith('BNP Paribas ·'))
+            or not (meta.get('issuerExchangeCode') == 'CBDE' or bnp_origin(result))
             or (result.get('currency') or meta.get('currency')) != 'EUR'):
         return result
     now = now or datetime.now(timezone.utc)
@@ -158,8 +166,7 @@ def apply(result, isin, now=None):
         if secondary_at.tzinfo is None:raise ValueError('undated source clock')
     except ValueError:
         secondary_at = datetime.min.replace(tzinfo=timezone.utc)
-    if (not secondary or secondary.get('source') == quote['source']
-            and datetime.fromisoformat(quote['quoteAt']) >= secondary_at):
+    if not secondary or datetime.fromisoformat(quote['quoteAt']) >= secondary_at:
         out['secondaryQuote'] = copy.deepcopy(quote)
     if 0 <= age <= 90:
         current = out.get('analysisQuote') or {}
