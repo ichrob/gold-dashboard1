@@ -1273,9 +1273,12 @@ async function enrichProduct(i,termsOnly=false){
  const inactive=prior?.isin===isin&&prior?.productVerified&&prior?.metadata?.status===2?prior:null;
  try{
   const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),60000);
-  let res;try{res=await fetch("/api/degiro/enrich?isin="+encodeURIComponent(isin)+(termsOnly?"&scope=terms":""),{cache:"no-store",signal:ctl.signal});}finally{clearTimeout(timer);}
-  if(!res.ok)throw Error("Produktrecherche nicht verfügbar");
-  let x=retainProductResearch(prior,await res.json(),isin);
+  let payload;try{
+   const res=await fetch("/api/degiro/enrich?isin="+encodeURIComponent(isin)+(termsOnly?"&scope=terms":""),{cache:"no-store",signal:ctl.signal});
+   if(!res.ok)throw Error("Produktrecherche nicht verfügbar");
+   payload=await res.json(); // The timeout also bounds a stalled response body.
+  }finally{clearTimeout(timer);}
+  let x=retainProductResearch(prior,payload,isin);
   if(inactive&&!x.productVerified)x={...inactive,reason:"Produkt weiterhin ausgeschlossen: zuvor als ausgeknockt/beendet bestätigt; erneuter Abruf fehlgeschlagen"};
   if((rowVersions.get(i)||0)!==version||(field("isin")?.value.trim()||"").toUpperCase()!==isin)return;
   researchResults.set(i,{...x,attemptedAt:new Date().toISOString()});
@@ -1722,6 +1725,10 @@ function productHelpState(p){
  // A temporary issuer outage with retained, correctly identified values
  // needs automatic retries rather than an immediate request for more images.
  const manual=labels.length>0&&!checking&&!!q&&(q.productVerified!==true||needsTerms||(failed&&!valuesPresent));
+ const continuity=typeof analysisContinuityStatus==='function'?analysisContinuityStatus(p):null;
+ if(continuity&&!manual&&!venueMissing)return {labels,checking,manual:false,
+  status:continuity.label+' · Analyse',
+  action:continuity.calculated?'Bob überbrückt die Kurslücke automatisch mit einem gekennzeichneten Modellwert. Frische Originalkurse erhalten wieder Vorrang. Weitere Produktnachweise und DEGIRO-Ausführung werden separat geprüft.':'Bob verwendet einen aktuellen Originalkurs. Hebelnachweis, weitere Produktnachweise und DEGIRO-Ausführung werden separat geprüft.'};
  return {labels,checking,manual,
   status:!labels.length?'Produktdaten vollständig':venueMissing?'DEGIRO-Handelsplatznachweis offen':checking?'Bob sucht gerade automatisch':manual?'Zusätzlicher Nachweis hilfreich':valuesPresent?'Kurs und Hebel vorhanden · Nachweisprüfung offen':'Automatische Prüfung noch offen',
   action:!labels.length?'Keine neuen Bilder nötig.':venueMissing?'Konkret offen: Welcher DEGIRO-Handelsplatz gehört zu dieser ISIN und Handelswährung? Dafür vorhandene Produktdetails prüfen; nur wenn die Zuordnung fehlt, ein Detailbild mit ISIN, Börse, Währung und Datum ergänzen.':checking?'Du musst jetzt nichts tun.':manual?'Öffne DEGIRO und ergänze nur die genannten Angaben als Screenshot.':valuesPresent?'Beim nächsten automatischen Abruf prüft Bob Kursart und Originalzeiten erneut. Die gespeicherten Zahlen bleiben für die Analyse sichtbar; ein ausführbarer DEGIRO-Kurs ist damit nicht bestätigt.':'Du musst die Werte nicht erneut eingeben. Den letzten Abruf findest du unter Details.'};
@@ -2006,7 +2013,15 @@ function renderGoldProductsHeading(products,now=Date.now()){
   '" aria-label="'+(qualified?'Alle berücksichtigten Produkte zeigen einen grünen Haken, teilweise mit Einschränkung':'Alle berücksichtigten Produkte zeigen einen vollständigen grünen Haken')+
   '" style="font-size:1.6em;font-weight:900;color:#15803d">'+(qualified?'(✓)':'✓')+'</strong>';
 }
+function analysisContinuityStatus(p,now=Date.now()){
+ const c=continuityDisplay(p,now);
+ if(c)return {label:c.state==='original'?'Originalkurs aktuell':'Berechneter Kurs aktuell',calculated:c.state==='calculated'};
+ if(calculatedProductDisplay(p,now))return {label:'Berechneter Kurs aktuell',calculated:true};
+ return null;
+}
 function renderProductDirectionStatus(p,now=Date.now()){
+ const continuity=typeof analysisContinuityStatus==='function'?analysisContinuityStatus(p,now):null;
+ if(continuity)return '<span data-direction-data-status data-analysis-continuity role="status" style="display:inline-flex;gap:6px;flex-wrap:wrap"><strong>'+esc(continuity.label)+' · Analyse</strong><span>Hebelnachweis und DEGIRO-Ausführung separat prüfen.</span></span>';
  const check=productDirectionCheck(p,now);
  if(check.paused)return '<span data-direction-data-status data-regular-trading-pause>Reguläre Handelspause · letzter Kursstand gespeichert</span>';
  const analysis=check.analysis;
@@ -3982,7 +3997,8 @@ async function inject(){
   updateScreenshotReturn();
  });
  setTimeout(()=>updateScreenshotReturn(true),0);
- window.addEventListener('pageshow',()=>updateScreenshotReturn(true));
+ window.addEventListener('pageshow',()=>{updateScreenshotReturn(true);refreshImportedProducts(true);});
+ window.addEventListener('online',()=>refreshImportedProducts(true));
  quoteRefresh=createQuoteRefresh({
   rows:()=>Array.from({length:12},(_,idx)=>{const id=idx+1,isin=(document.querySelector('[data-dg="isin"][data-i="'+id+'"]')?.value.trim()||'').toUpperCase();return {id,isin,key:isin+':'+(rowVersions.get(id)||0)};}),
   request:enrichProduct,visible:()=>!document.hidden,interval:30000,limit:4
