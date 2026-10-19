@@ -86,23 +86,29 @@ def read_diagnostics_for_mcp():
     # Cached observations only: do not call service_health (it observes/repairs),
     # live_bundle (fetches prices), demos, simulations or notification senders.
     def collection():
-        value = auto_collection.health()
-        return {**bob_diagnostics.fields(value, ('enabled','running','state','lastCycleAt')),
+        value = auto_collection.status()
+        return {**bob_diagnostics.fields(value, ('enabled','running','state','lastCycleAt','updateIntervalSeconds','sessionMode')),
                 'feed':bob_diagnostics.fields(value.get('cfdFeed'), ('state','lastCheckedAt','sourceAgeSeconds'))}
     def research():
-        value = gold_research.snapshot()
-        return bob_diagnostics.fields(value, ('checkedAt','fresh','successfulFeeds','intervalSeconds','videosFound','videosAnalyzed'))
+        return bob_diagnostics.research_snapshot(gold_research.snapshot())
     def problems():
         value = bob_problems.snapshot()
         return {**bob_diagnostics.fields(value, ('status','count','checkedAt')),
-                'items':[bob_diagnostics.fields(item, ('code','number','state','updatedAt'))
+                'items':[bob_diagnostics.fields(item, ('code','number','state','updatedAt','title','reason','message'))
                          for item in value.get('problems', [])[:100]]}
     return bob_diagnostics.collect({
         'market':lambda:bob_diagnostics.market_snapshot(_live_cache, _live_cache_at),
+        'analysis':bob_diagnostics.analysis_snapshot,
+        'products':lambda:bob_diagnostics.product_snapshot(read_private_product_audit_for_mcp()),
+        'runtime':lambda:{'build':os.environ.get('RENDER_GIT_COMMIT','unknown'),
+            'uptimeSeconds':round(time.monotonic()-PROCESS_STARTED_MONOTONIC),
+            'sessionMode':background_push.degiro_session(),
+            'fibonacci':bob_diagnostics.fields(FIB_MONITOR_HEALTH,('configured','status','lastCheckedAt','lastSuccessAt'))},
+        'selfHealing':bob_self_healing.diagnostics_snapshot,
         'collection':collection,
         'background':background_health,
         'strategyResearch':lambda:bob_diagnostics.fields(strategy_lab_background.status(),
-            ('enabled','running','phase','lastSuccessAt','lastAttemptAt')),
+            ('enabled','running','phase','lastSuccessAt','lastAttemptAt','lastRunDay','error')),
         'simulationAndPush':lambda:read_private_report_for_mcp('/diagnostics'),
         'research':research,
         'problems':problems,

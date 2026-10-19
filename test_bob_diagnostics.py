@@ -111,3 +111,52 @@ class ReportTests(unittest.TestCase):
         self.assertNotIn('secret',json.dumps(result))
         self.assertNotIn('private',json.dumps(result))
         self.assertEqual(result['push']['deliveryStatus'],'not-verified')
+
+class ExpandedReportTests(unittest.TestCase):
+    def test_projection_redacts_and_bounds_untrusted_payload(self):
+        value = {'items':[{'title':'token=secret https://example.com/private', 'body':'private raw transcript'}]*40}
+        result = diagnostics.research_snapshot(value)
+        self.assertEqual(len(result['items']),20)
+        self.assertNotIn('secret',json.dumps(result))
+        self.assertNotIn('example.com',json.dumps(result))
+        self.assertNotIn('private raw transcript',json.dumps(result))
+        self.assertIsNone(diagnostics.project(float('nan'),None))
+
+    def test_actual_indicators_are_captured_without_recalculation(self):
+        with patch.object(diagnostics,'_analyses',{}):
+            result={'direction':'LONG','decisionReason':'closed bars','analysisSnapshot':{'R':51,'e200':2000,'at':4},'token':'private'}
+            diagnostics.observe_analysis(result,'15m')
+            result['analysisSnapshot']['R']=99
+            captured=diagnostics.analysis_snapshot()
+            self.assertEqual(captured['timeframes']['15m']['result']['analysisSnapshot']['R'],51)
+            self.assertNotIn('private',json.dumps(captured))
+            captured['timeframes'].clear()
+            self.assertTrue(diagnostics.analysis_snapshot()['timeframes'])
+
+    def test_missing_table_does_not_hide_other_evidence(self):
+        from unittest.mock import MagicMock
+        conn=MagicMock()
+        def execute(sql):
+            self.assertTrue(sql.startswith('SELECT '))
+            if 'bob_real_trades ' in sql:raise RuntimeError('secret connection URL')
+            cursor=Mock();cursor.fetchall.return_value=[({'kind':'observed','token':'secret'},)]
+            return cursor
+        conn.execute.side_effect=execute
+        result=diagnostics.stored_details(conn)
+        self.assertEqual(result['areas']['tradeMonitoring']['status'],'unavailable')
+        self.assertEqual(result['areas']['repairs']['status'],'observed')
+        self.assertNotIn('secret',json.dumps(result))
+        self.assertEqual(conn.transaction.call_count,6)
+
+    def test_recovery_state_is_preserved_and_summarized(self):
+        products=diagnostics.product_snapshot({'items':[{'sourceRecovery':[{'stage':'comdirect-fetch','state':'failed','retryAfterSeconds':30}]}]})
+        self.assertEqual(products['items'][0]['sourceRecovery'][0]['retryAfterSeconds'],30)
+        self.assertEqual(diagnostics.summary({'products':products})['assessment'],'needs-attention')
+
+    def test_simulation_retains_cost_assumptions_and_unknown_result(self):
+        case=diagnostics.project({'modelOnly':True,'netReturnKnown':False,'ledgerModelNetEur':None,'ledgerCostsDebited':2,'ledgerCostModel':{'feeEurPerOrder':1,'token':'secret'},'entryQuote':{'raw':'private'}},diagnostics.CASE)
+        self.assertIsNone(case['ledgerModelNetEur'])
+        self.assertFalse(case['netReturnKnown'])
+        self.assertEqual(case['ledgerCostModel']['feeEurPerOrder'],1)
+        self.assertNotIn('secret',json.dumps(case))
+        self.assertNotIn('private',json.dumps(case))
