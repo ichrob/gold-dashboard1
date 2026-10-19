@@ -1,0 +1,12 @@
+const assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
+const c={window:{},navigator:{userAgent:'Android'}};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),c);const a=c.window.BobDegiro;
+const raw='Geld € 14,74\nBrief € 14,75\nGeld Vol. 8K\nBrief Vol. 8K';
+assert.equal(a.ocrNumericFields(raw).bid,14.74);assert.equal(a.ocrNumericFields(raw).ask,14.75);
+assert.equal(a.unconfirmedOcrFields(raw,[raw,raw]).length,0);
+assert(a.unconfirmedOcrFields(raw,[raw,raw,raw.replace('14,74','14,77'),raw.replace('14,74','14,77')]).includes('bid'));
+const w=(text,x0,x1,y0)=>({text,bbox:{x0,x1,y0,y1:y0+20}});
+const words=[w('Geld',40,90,100),w('14,74',250,325,100),w('Brief',380,430,100),w('14,75',580,655,100),w('Geld',40,90,160),w('Vol.',100,140,160),w('8',280,300,160),w('Brief',380,430,160),w('Vol.',440,480,160),w('8',620,640,160)];
+const bid=a.scalarCellRect({words},'bid'),ask=a.scalarCellRect({words},'ask');
+assert(bid&&bid.x<250&&bid.x+bid.width<380);assert(ask&&ask.x>430);
+assert.equal(a.scalarCellRect({words:[...words,w('14,76',180,245,100)]},'bid'),null);
+console.log('Quote/volume separation and two-column crop passed; contradictory prices remain blocked');

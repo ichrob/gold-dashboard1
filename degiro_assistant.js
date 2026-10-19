@@ -739,7 +739,7 @@ function ocrNumericFields(text){
  // A failed neighbouring field must not discard independently readable evidence.
  for(const key of ['ko','strike','ratio']){const terms=parseProductTerms(raw,[key]);if(!terms.error&&terms[key])out[key]=terms[key].value;}
  for(const [key,label] of [['bid','Geld|Bid|Verkaufen'],['ask','Brief|Ask|Kaufen'],['leverage','Hebel|Leverage']]){
-  const matches=Array.from(raw.matchAll(new RegExp('(?:^|\\n)\\s*(?:'+label+')\\s*[:=]?\\s*(?:€|EUR)?\\s*([0-9A-Za-z.,]+)','gi')));
+  const matches=Array.from(raw.matchAll(new RegExp('(?:^|\\n)\\s*(?:'+label+')(?!\\s*(?:Vol(?:umen)?\\b|Vol\\.))\\s*[:=]?\\s*(?:€|EUR)?\\s*([0-9A-Za-z.,]+)','gi')));
   const values=matches.map(m=>strictOcrNumber(m[1]));
   if(values.length&&values.every(v=>v!==null&&v===values[0]))out[key]=values[0];
  }
@@ -994,10 +994,14 @@ async function readTermDate(worker,image,data,key){
 // Isolate a single labelled scalar (ratio, leverage, bid or ask) before rereading.
 function scalarCellRect(data,key){
  const labels={ratio:/^Bezugsverh(?:ä|a|ae)ltnis$/i,leverage:/^(Hebel|Leverage)$/i,bid:/^(Geld|Bid)$/i,ask:/^(Brief|Ask)$/i};
- const words=data.words||[],rows=words.filter(w=>labels[key]?.test(w.text));if(rows.length!==1)return null;
+ const words=data.words||[],rows=words.filter(w=>labels[key]?.test(w.text)&&
+  !words.some(v=>/^Vol(?:umen)?\.?$/i.test(v.text)&&v.bbox.x0>=w.bbox.x1&&v.bbox.x0-w.bbox.x1<4*(w.bbox.y1-w.bbox.y0)&&Math.abs(v.bbox.y0-w.bbox.y0)<(w.bbox.y1-w.bbox.y0)));
+ if(rows.length!==1)return null;
  const b=rows[0].bbox,h=b.y1-b.y0;if(h<6)return null;
  const numeric=words.filter(w=>/^\d+(?:[.,]\d+)*(?::1)?$/.test(w.text));
- let values=numeric.filter(w=>w.bbox.x0>b.x1&&Math.abs((w.bbox.y0+w.bbox.y1-b.y0-b.y1)/2)<h);
+ // In a two-column broker table the opposite label bounds this cell.
+ const nextLabel=words.filter(w=>/^(Geld|Bid|Brief|Ask)$/i.test(w.text)&&w.bbox.x0>b.x1&&Math.abs((w.bbox.y0+w.bbox.y1-b.y0-b.y1)/2)<h).reduce((x,w)=>Math.min(x,w.bbox.x0),Infinity);
+ let values=numeric.filter(w=>w.bbox.x0>b.x1&&w.bbox.x1<nextLabel&&Math.abs((w.bbox.y0+w.bbox.y1-b.y0-b.y1)/2)<h);
  if(!values.length&&['bid','ask'].includes(key))values=numeric.filter(w=>w.bbox.y0>b.y1&&w.bbox.y0-b.y1<10*h&&Math.abs((w.bbox.x0+w.bbox.x1-b.x0-b.x1)/2)<5*h);
  if(values.length!==1)return null;
  const v=values[0].bbox,pad=Math.max(3,h*.3);
@@ -3415,7 +3419,7 @@ async function readProductPdf(file,expected){
  }finally{await task.destroy();}
 }
 // Local originals support reprocessing after OCR updates. Never refresh source clocks.
-const PRODUCT_OCR_VERSION='2026-10-19-verified-import-v11';
+const PRODUCT_OCR_VERSION='2026-10-19-quote-volume-isolation-v12';
 const ORIGINAL_TTL=7*86400000,ORIGINAL_LIMIT=100*1024*1024;
 const activeProductImports=new Set();
 function originalRetention(records,now=Date.now()){
