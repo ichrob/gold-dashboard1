@@ -199,7 +199,10 @@ def _collect():
                 with _lock:_spot_source_error=error
         # Respect the provider's documented 30-second cache interval.
         # This daemon never delays an /api/live request.
-        interval = background_push.degiro_poll_seconds()
+        # Signal outcomes have a one-minute evidence window even overnight.
+        # Keep this spot-only archive on its own cadence; product monitoring,
+        # simulations and the heavier reference collector retain night mode.
+        interval = 30
         threading.Event().wait(max(1,interval-(time.monotonic()-started)))
 
 

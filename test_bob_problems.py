@@ -20,6 +20,32 @@ class BobProblemsTests(unittest.TestCase):
     def setUp(self):
         problems._CACHED = None
         problems._LAST_TRY = 0.0
+        problems._RETRY_AFTER = 0.0
+        problems._ETAG = None
+        problems._ISSUE_ROWS = None
+
+    def test_rate_limit_wait_keeps_real_cached_count(self):
+        from urllib.error import HTTPError
+        from unittest.mock import Mock
+        problems.snapshot(fetcher=lambda:[issue("scanner-unreachable", 1)], clock=lambda:100)
+        fetch=Mock(side_effect=HTTPError(problems.ISSUES_URL,429,'limited',{'Retry-After':'1800'},None))
+        self.assertEqual(problems.snapshot(fetcher=fetch,clock=lambda:701)['status'],'stale')
+        self.assertEqual(problems.snapshot(fetcher=fetch,clock=lambda:1500)['count'],1)
+        self.assertEqual(fetch.call_count,1)
+        problems.snapshot(fetcher=fetch,clock=lambda:2503)
+        self.assertEqual(fetch.call_count,2)
+
+    def test_etag_revalidates_without_reloading_issue_bodies(self):
+        from urllib.error import HTTPError
+        from unittest.mock import Mock
+        response=Mock();response.read.return_value=json.dumps([issue('scanner-unreachable',1)]).encode()
+        response.headers={'ETag':'"revision"'}
+        response.__enter__=Mock(return_value=response);response.__exit__=Mock(return_value=False)
+        opener=Mock(return_value=response)
+        rows=problems.fetch_open_issues(opener=opener)
+        opener.side_effect=HTTPError(problems.ISSUES_URL,304,'unchanged',{},None)
+        self.assertEqual(problems.fetch_open_issues(opener=opener),rows)
+        self.assertEqual(opener.call_args.args[0].get_header('If-none-match'),'"revision"')
 
     def test_one_two_three_open_incidents(self):
         rows = [issue("scanner-unreachable", 101),

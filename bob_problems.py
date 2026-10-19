@@ -9,6 +9,7 @@ import re
 import threading
 import time
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 from bob_issue_watchdog import CODES, ISSUE_TITLE, issue_title
 
@@ -19,6 +20,9 @@ FAILURE_RETRY_SECONDS = 120  # Retry outages sooner than successful snapshots.
 _LOCK = threading.Lock()
 _CACHED = None
 _LAST_TRY = 0.0
+_RETRY_AFTER = 0.0
+_ETAG = None
+_ISSUE_ROWS = None
 
 # A tiny machine-readable, public-safe status marker in issue bodies is the
 # return channel from the hourly ChatGPT repair task back to Bob's phone UI.
@@ -49,17 +53,27 @@ def ki_status(issue):
 
 
 def fetch_open_issues(*, opener=urlopen):
+    global _ETAG, _ISSUE_ROWS
     req = Request(ISSUES_URL, headers={
         "User-Agent": "Bob-problem-index/1",
         "Accept": "application/vnd.github+json",
     })
-    with opener(req, timeout=10) as response:
-        raw = response.read(400001)
+    if _ETAG and _ISSUE_ROWS is not None:
+        req.add_header('If-None-Match', _ETAG)
+    try:
+        with opener(req, timeout=10) as response:
+            raw = response.read(400001)
+            etag = response.headers.get('ETag')
+    except HTTPError as exc:
+        if exc.code == 304 and _ISSUE_ROWS is not None:
+            return _ISSUE_ROWS
+        raise
     if len(raw) > 400000:
         raise ValueError("Issue index too large")
     data = json.loads(raw)
     if not isinstance(data, list):
         raise ValueError("Invalid GitHub issue index")
+    _ETAG, _ISSUE_ROWS = etag, data
     return data
 
 
@@ -127,15 +141,16 @@ def from_issues(rows, *, now=None):
 
 def snapshot(*, fetcher=fetch_open_issues, clock=time.monotonic):
     """Bound repeated GitHub queries; fail visibly, never manufacture a 0."""
-    global _CACHED, _LAST_TRY
+    global _CACHED, _LAST_TRY, _RETRY_AFTER
     now = clock()
     with _LOCK:
         ttl = (FAILURE_RETRY_SECONDS if _CACHED is not None
                and _CACHED.get('status') != 'ok' else CACHE_SECONDS)
-        if _CACHED is not None and now - _LAST_TRY < ttl:
+        if _CACHED is not None and (now < _RETRY_AFTER or now - _LAST_TRY < ttl):
             return dict(_CACHED)
         try:
             result = from_issues(fetcher())
+            _RETRY_AFTER = 0.0
         except Exception as exc:
             # No raw exception or API body may leave this endpoint.
             if _CACHED is not None and _CACHED.get("count") is not None:
@@ -145,7 +160,22 @@ def snapshot(*, fetcher=fetch_open_issues, clock=time.monotonic):
                     "status": "unavailable", "count": None, "problems": [],
                     "checkedAt": None, "source": "sanitized-github-issues",
                 }
-            print("BOB_PROBLEMS read_error=" + type(exc).__name__, flush=True)
+            detail = ''
+            if isinstance(exc, HTTPError):
+                detail = ' http_status=' + str(exc.code)
+                if exc.code in (403, 429):
+                    # Shared Render egress can exhaust GitHub's anonymous quota.
+                    # Honor the server's wait instead of retrying every 2 minutes.
+                    headers = exc.headers or {}
+                    delay = 600
+                    for value, relative in ((headers.get('Retry-After'), True),
+                                            (headers.get('X-RateLimit-Reset'), False)):
+                        try:
+                            seconds = float(value) - (0 if relative else time.time())
+                            if 0 < seconds < 86400: delay = max(delay, seconds + 1)
+                        except (TypeError, ValueError): pass
+                    _RETRY_AFTER = now + delay
+            print("BOB_PROBLEMS read_error=" + type(exc).__name__ + detail, flush=True)
         _CACHED = result
         _LAST_TRY = now
         return dict(result)
