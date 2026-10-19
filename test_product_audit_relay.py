@@ -9,13 +9,14 @@ from urllib.request import Request
 class RelayTests(unittest.TestCase):
     def reader(self, payload):
         tree=ast.parse(pathlib.Path('server.py').read_text())
-        function=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='read_private_product_audit_for_mcp')
+        functions=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in
+                   ('read_private_product_audit_for_mcp','read_private_report_for_mcp')]
         seen=[]
         def opening(request, timeout):
             seen.append((request,timeout))
             return io.BytesIO(payload)
         scope=dict(PUSH_SERVICE_URL='https://private.example',PUSH_SERVICE_TOKEN='test-only',Request=Request,urlopen=opening,json=json)
-        exec(compile(ast.Module(body=[function],type_ignores=[]),'server.py','exec'),scope)
+        exec(compile(ast.Module(body=functions,type_ignores=[]),'server.py','exec'),scope)
         return scope['read_private_product_audit_for_mcp'],seen
     def test_large_report_preserves_evidence_and_status(self):
         report={'status':'stale','items':[{'sourceObservations':'x'*100000,'tradeApproved':False}]}
