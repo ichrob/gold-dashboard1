@@ -1723,8 +1723,8 @@ function productHelpState(p){
  // needs automatic retries rather than an immediate request for more images.
  const manual=labels.length>0&&!checking&&!!q&&(q.productVerified!==true||needsTerms||(failed&&!valuesPresent));
  return {labels,checking,manual,
-  status:!labels.length?'Produktdaten vollständig':venueMissing?'DEGIRO-Handelsplatznachweis offen':checking?'Bob sucht gerade automatisch':manual?'Zusätzlicher Nachweis hilfreich':valuesPresent?'Kurs und Hebel vorhanden · Nachweisprüfung läuft':'Automatische Prüfung noch offen',
-  action:!labels.length?'Keine neuen Bilder nötig.':venueMissing?'Konkret offen: Welcher DEGIRO-Handelsplatz gehört zu dieser ISIN und Handelswährung? Dafür vorhandene Produktdetails prüfen; nur wenn die Zuordnung fehlt, ein Detailbild mit ISIN, Börse, Währung und Datum ergänzen.':checking?'Du musst jetzt nichts tun.':manual?'Öffne DEGIRO und ergänze nur die genannten Angaben als Screenshot.':valuesPresent?'Bob prüft Kursart und Originalzeiten weiterhin automatisch. Die gespeicherten Zahlen bleiben für die Analyse sichtbar; die DEGIRO-Handelbarkeit ist nicht bestätigt.':'Du musst die Werte nicht erneut eingeben. Den letzten Abruf findest du unter Details.'};
+  status:!labels.length?'Produktdaten vollständig':venueMissing?'DEGIRO-Handelsplatznachweis offen':checking?'Bob sucht gerade automatisch':manual?'Zusätzlicher Nachweis hilfreich':valuesPresent?'Kurs und Hebel vorhanden · Nachweisprüfung offen':'Automatische Prüfung noch offen',
+  action:!labels.length?'Keine neuen Bilder nötig.':venueMissing?'Konkret offen: Welcher DEGIRO-Handelsplatz gehört zu dieser ISIN und Handelswährung? Dafür vorhandene Produktdetails prüfen; nur wenn die Zuordnung fehlt, ein Detailbild mit ISIN, Börse, Währung und Datum ergänzen.':checking?'Du musst jetzt nichts tun.':manual?'Öffne DEGIRO und ergänze nur die genannten Angaben als Screenshot.':valuesPresent?'Beim nächsten automatischen Abruf prüft Bob Kursart und Originalzeiten erneut. Die gespeicherten Zahlen bleiben für die Analyse sichtbar; ein ausführbarer DEGIRO-Kurs ist damit nicht bestätigt.':'Du musst die Werte nicht erneut eingeben. Den letzten Abruf findest du unter Details.'};
 }
 function renderProductHelp(p){
  const h=productHelpState(p);
@@ -2026,7 +2026,7 @@ function renderProductDirectionStatus(p,now=Date.now()){
  const detail=expired.length?'Veraltete Werte: '+expired.map(f=>f.key+(Number.isFinite(f.ageSeconds)?' ('+Math.floor(f.ageSeconds/60)+' Min.)':'')).join(', '):
   uncertain.length?'Zeitnachweis offen: '+uncertain.map(f=>f.key).join(', '):'Nachweisprüfung offen · Aktualität separat prüfen';
  const label=blocked?(missing?'Werte fehlen oder sind widersprüchlich':'Datenprüfung offen'):stale?detail:'Daten vollständig';
- return '<span data-direction-data-status role="status" aria-label="'+esc(label)+'" style="display:inline-flex;align-items:center;gap:6px;margin-left:8px"><strong style="font-size:1.6em;font-weight:900;color:'+(blocked?'#b91c1c':'#15803d')+'">'+(blocked?'✗':stale?'(✓)':'✓')+'</strong>'+(stale?'<span style="font-weight:700">'+esc(detail)+'</span>':'')+'</span>';
+ return '<span data-direction-data-status role="status" aria-label="'+esc(label)+'" style="display:inline-flex;align-items:center;gap:6px;margin-left:8px;max-width:100%;min-width:0"><strong style="white-space:nowrap;flex:0 0 auto;overflow-wrap:normal;font-size:1.6em;font-weight:900;color:'+(blocked?'#b91c1c':'#15803d')+'">'+(blocked?'✗':stale?'(✓)':'✓')+'</strong>'+(stale?'<span style="font-weight:700;min-width:0">'+esc(detail)+'</span>':'')+'</span>';
 
 }
 function valuePresenceMark(missing){
