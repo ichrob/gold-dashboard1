@@ -13,3 +13,14 @@ for(const bad of [damaged.replace('DEOOOPJONB08','DE000FG8NHQ3'),damaged.replace
 const inferred={...anchor,raw:'BNP OTC\nISIN DEOOOPJONB08'};
 assert(!b.screenshotSeriesContext([inferred,{ok:false,ocr:{data:{text:damaged}}}],isin));
 console.log('Series identity repair: independent checksum-valid anchor, bounded glyphs, same venue, conflicts blocked and prices unchanged');
+
+// A successful second image may contain a visually reviewed OCR alias itself.
+const reviewed={...anchor,raw:'BNP OTC\nBNP GOLD Unlimited Long SL\nISIN DEOOOPJONB9S'};
+const reviewedContext=b.screenshotSeriesContext([reviewed,{ok:false,ocr:{data:{text:damaged}}}],isin);
+assert(reviewedContext?.anchorIsinVerified);
+assert(b.detailScreenshotData(damaged,isin,reviewedContext).ok);
+assert(b.screenshotSeriesContext([inferred,reviewed,{ok:false,ocr:{data:{text:damaged}}}],isin)?.anchorIsinVerified);
+for(const raw of [reviewed.raw.replace('BNP GOLD Unlimited Long SL','Unknown product'),reviewed.raw+'\nDE000FG8NHQ3']) {
+ assert(!b.screenshotSeriesContext([{...reviewed,raw},{ok:false,ocr:{data:{text:damaged}}}],isin));
+}
+console.log('Reviewed independent anchors retained; weak first anchor skipped; contradictory tokens rejected');
