@@ -157,4 +157,22 @@ class PasskeyHTTPTests(unittest.TestCase):
             self.assertEqual(self.request('GET','/passkey',{'Cookie':'','Authorization':'Basic '+base64.b64encode(b'passkey-test:test-password').decode()})[0],303)
             rpc.assert_not_called()
 
+    def test_mcp_machine_token_is_scoped_and_survives_daily_factor(self):
+        token='test-only-machine-token-not-a-secret-123456789'
+        headers={'Cookie':'','Authorization':'Bearer '+token,'Content-Type':'application/json'}
+        body=json.dumps({'jsonrpc':'2.0','id':1,'method':'tools/list'})
+        with patch.dict(os.environ,{'BOB_MCP_SERVICE_TOKEN':token}),patch.object(bob_passkey,'rpc',return_value={'enabled':True,'verified':False}):
+            response=self.request('POST','/mcp',headers,body)
+            self.assertEqual(response[0],200)
+            self.assertEqual({t['name'] for t in json.loads(response[2])['result']['tools']},{'bob_product_audit','bob_product_gaps'})
+            self.assertEqual(self.request('GET','/api/live',headers)[0],401)
+            self.assertEqual(self.request('GET','/passkey',headers)[0],303)
+            self.assertEqual(self.request('POST','/api/real-trades/write',headers,'{}')[0],401)
+            bad={**headers,'Authorization':'Bearer wrong'}
+            self.assertEqual(self.request('POST','/mcp',bad,body)[0],401)
+            basic={**headers,'Authorization':'Basic '+base64.b64encode(b'passkey-test:test-password').decode()}
+            self.assertEqual(self.request('POST','/mcp',basic,body)[0],403)
+        with patch.dict(os.environ,{'BOB_MCP_SERVICE_TOKEN':''}):
+            self.assertEqual(self.request('POST','/mcp',headers,body)[0],401)
+
 if __name__=='__main__':unittest.main()
