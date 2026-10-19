@@ -1701,7 +1701,7 @@ function productHelpState(p){
  const checking=pendingQuotes.has(p.index)||q?.secondaryValidity?.state==='checking'||q?.comdirectFieldsBackup?.state==='checking';
  const venueMissing=labels.includes('DEGIRO-Handelsplatznachweis');
  const fxIssue=typeof productFxIssue==='function'?productFxIssue(p):null;
- if(fxIssue&&labels.length&&!checking)return {labels,checking:false,manual:false,status:'Wechselkursprüfung offen',action:fxIssue.reason+(fxIssue.at?' Quellenstand: '+fxIssue.at+'.':'')+' Bob versucht den Abruf automatisch erneut. Neue Produktbilder beheben diese Wechselkurslücke nicht. Weitere Produkt- und Handelsplatznachweise bleiben separat erforderlich.'};
+ if(fxIssue&&labels.length&&!checking)return {labels,checking:false,manual:false,status:'Wechselkursprüfung offen',action:fxIssue.reason+(fxIssue.at?' Quellenstand: '+fxIssue.at+'.':'')+' Bob versucht den Abruf automatisch erneut. Neue Produktbilder beheben diese Wechselkurslücke nicht. Weitere Produkt- und Handelsplatznachweise bleiben separat erforderlich.'+(venueMissing?' Konkret offen: Welcher DEGIRO-Handelsplatz gehört zu dieser ISIN und Handelswährung? Nur für diesen Nachweis ein DEGIRO-Detailbild mit ISIN, Börse, Währung und Datum ergänzen.':'')};
  const failed=!!q?.sourceFailure;
  const fields=typeof productFieldStates==='function'?productFieldStates(p):null;
  const valuesPresent=q?.productVerified===true&&fields&&['bid','ask'].every(key=>n(fields[key]?.value)>0)&&n(fields.leverage?.value)>=1;
