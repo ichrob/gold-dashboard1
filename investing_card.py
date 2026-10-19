@@ -129,7 +129,7 @@ def collect_once():
                  background_push.weekend_quote_at_close(time.time() * 1000, source_ms)
                  else 'current' if q.get('realtimeCfd') else 'stale')
         with _state_lock:
-            _health.update(state=state, lastCheckedAt=time.time(), sourceAt=q['at'],
+            _health.update(state=state, lastCheckedAt=time.time(), successfulAt=time.time(), sourceAt=q['at'],
                            providerMarketOpen=q.get('providerMarketOpen'))
         print('BOB_CFD checked state='+state+' source_at='+q['at'], flush=True)
     except Exception as exc:
