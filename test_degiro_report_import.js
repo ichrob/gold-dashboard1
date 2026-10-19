@@ -11,6 +11,7 @@ assert.equal(parseNumber('=EXEC(1)'),null);
 const report='\uFEFFISIN;Produkt;Anzahl;Währung\r\nDE000PJ9NB98;"Gold; Turbo";2,0;EUR\r\nDE000PJ9NB99;Fake;3;EUR\r\n';
 const parsed=readReport(report);
 assert.equal(parsed.kind,'portfolio');
+assert.equal(readReport('DEGIRO report exported on a date\n'+report).records.length,1);
 assert.equal(parsed.records.length,1);
 assert.equal(parsed.invalidRows[0],3);
 assert.equal(parsed.records[0].product,'Gold; Turbo');
