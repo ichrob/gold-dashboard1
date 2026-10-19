@@ -118,4 +118,10 @@ def enqueue(db,bundle):
         try:tick(db,bundle)
         except Exception as exc:print('BOB_PRODUCT_COMPARISON error='+type(exc).__name__,flush=True)
         finally:_lock.release()
-    threading.Thread(target=run,name='bob-product-comparison',daemon=True).start()
+    try:
+        threading.Thread(target=run,name='bob-product-comparison',daemon=True).start()
+    except Exception as exc:
+        # No thread exists to execute finally: release admission for the next bundle.
+        _last=0
+        _lock.release()
+        print('BOB_PRODUCT_COMPARISON start_error='+type(exc).__name__,flush=True)
