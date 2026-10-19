@@ -1,5 +1,5 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
-const window={};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),{window});
+const window={};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8').replace('window.BobDegiro={','window.BobDegiro={degiroVenueObserved,'),{window});
 const b=window.BobDegiro;
 for(const text of ['Geld CHF 12,34\nBrief CHF 12,35','Geld CHF12,34 Brief CHF12,35','Geld\nCHF 12,34\nBrief\nCHF 12,35']){
  assert.equal(b.ocrNumericFields(text).bid,12.34,text);
@@ -17,3 +17,19 @@ const broker='DEGIRO\nKursdaten\nZuletzt CHF 12,34 19/10/2026 16:10\nGeld CHF 12
 const imported=b.detailScreenshotData(broker,'DE000FG8NHQ3');
 assert(imported.ok,imported.reason);assert.equal(imported.bid,12.34);assert.equal(imported.ask,12.35);assert.equal(imported.currency,'CHF');
 assert.equal(b.unconfirmedOcrFields(broker,[broker,broker]).length,0);
+// Numeric disagreement must not discard independently legible venue/identity.
+const partial=b.detailScreenshotData(broker,'DE000FG8NHQ3',null,['bid']);
+assert(partial.ok,partial.reason);
+assert(partial.degiroVenueEvidence?.brokerDisplayConfirmed);
+assert.equal(partial.degiroVenueEvidence.currency,'CHF');
+assert.equal(partial.degiroVenueEvidence.venue,'Societe Generale OTC');
+assert.equal(partial.bid,null);assert.equal(partial.ask,null);
+assert(!partial.degiroDisplayedQuote);
+assert.equal(partial.degiroVenueEvidence.isExecutableQuote,false);
+const series=b.screenshotSeriesContext([{ok:true,name:'table.jpg',raw:broker,data:partial},{ok:false,ocr:{data:{text:'Societe Generale OTC\nSG Gold Knock-Out Warrant Open End Call BAR 4065.51 BP 4065.51 Bv 10 LV 46.78'}}}],'DE000FG8NHQ3');
+assert(series?.anchorIsinVerified);
+const card=b.compactProductCard({isin:'DE000FG8NHQ3',snapshot:partial});
+assert(b.degiroVenueObserved({isin:'DE000FG8NHQ3',snapshot:partial}));
+assert(!card.includes('data-selection-approved'));
+assert(!b.parseDegiroDisplayedQuote(broker.replace('DE000FG8NHQ3','DE000FG14AV8'),'DE000FG8NHQ3',true));
+console.log('Partial broker import keeps independent venue and series anchor, without price or execution approval');

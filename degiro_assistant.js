@@ -2088,7 +2088,7 @@ function normalizeReviewedDegiroIdentity(raw){
  return text.replace(/\bDE[0OQ]{3}FG[8S]NHQ3\b/gi,'DE000FG8NHQ3');
 }
 function degiroVenueObserved(p){
- const q=p?.snapshot?.degiroDisplayedQuote;
+ const q=p?.snapshot?.degiroVenueEvidence||p?.snapshot?.degiroDisplayedQuote;
  return !!q&&q.isin===p.isin&&q.brokerDisplayConfirmed===true&&q.isExecutableQuote===false
   &&((q.currency==='CHF'&&/^Soci[eé]t[eé]\s+G[eé]n[eé]rale\s+OTC$/i.test(q.venue||''))
     ||(q.currency==='EUR'&&/^BNP\s+Paribas\s+OTC$/i.test(q.venue||'')))
@@ -2169,7 +2169,7 @@ function renderDegiroVenueInference(p){
   '<a href="'+proof.policyUrl+'" target="_blank" rel="noopener noreferrer">DEGIRO: Ausführungsrichtlinie</a>'+
   '<div>Öffentliche Quellen geprüft am 16.10.2026; für diese Ableitung höchstens 30 Tage verwendet.</div></details></div>';
 }
-function parseDegiroDisplayedQuote(raw,expectedIsin){
+function parseDegiroDisplayedQuote(raw,expectedIsin,venueOnly=false){
  raw=normalizeReviewedDegiroIdentity(raw);
  if(!validIsin(expectedIsin)||!/\bKursdaten\b/i.test(raw)
     ||!/\b(?:Börse|Boerse|Borse)\b/i.test(raw)
@@ -2189,7 +2189,7 @@ function parseDegiroDisplayedQuote(raw,expectedIsin){
   return matches.length===1?Number(matches[0][1].replace(',','.')):null;
  };
  const bid=read('Geld'),ask=read('Brief');
- if(!(bid>0&&ask>=bid))return null;
+ if(!venueOnly&&!(bid>0&&ask>=bid))return null;
  const dates=[...new Set([...table.matchAll(/\b(\d{2}[/.]\d{2}[/.]\d{4})\s+(\d{2}:\d{2})(?::(\d{2}))?\b/g)]
    .map(m=>m[1]+' '+m[2]+(m[3]?':'+m[3]:'')))];
  if(dates.length!==1||!selectionTimeWindow(dates[0]))return null;
@@ -2198,7 +2198,7 @@ function parseDegiroDisplayedQuote(raw,expectedIsin){
  const venue=venues[0][1].trim();
  if(!venue||venue.length>100||/^(?:-|—|unbekannt)$/i.test(venue))return null;
  return {isin:expectedIsin,source:'DEGIRO-Produktdetail',venue,currency,
-   bid,ask,sourceTime:dates[0],timeBasis:'Kursdaten-Anzeige; keine eigene Geld-/Briefzeit',
+   ...(venueOnly?{}:{bid,ask}),sourceTime:dates[0],timeBasis:'Kursdaten-Anzeige; keine eigene Geld-/Briefzeit',
    brokerDisplayConfirmed:true,orderWindowVerified:false,orderSubmitted:false,
    executionGuaranteed:false,isExecutableQuote:false};
 }
@@ -3260,6 +3260,7 @@ function detailScreenshotData(text,expectedIsin,productContext=null,excludedFiel
 
  if(explicitKnockout(raw))return {ok:true,isin:expectedIsin,identityBasis:identity.basis,identityContext:identity.context||null,terms:{},times:{},lifecycle:{isin:expectedIsin,status:'KNOCKED_OUT',verified:true,text:'KNOCKED OUT',identityBasis:identity.basis}};
 
+ const degiroVenueEvidence=parseDegiroDisplayedQuote(raw,expectedIsin,true);
  for(const key of excludedFields){
   const label=({strike:'Basispreis|Finanzierungslevel',ko:'Knock-Out-Barriere|Knock-out-Schwelle',ratio:'Bezugsverhältnis|Bezugsverhaltnis',leverage:'Hebel|Leverage',bid:'Geld|Bid',ask:'Brief|Ask'})[key];
   if(label)raw=raw.replace(new RegExp('(^|\\n)[ \\t]*(?:'+label+')[ \\t]*[:=]?[ \\t]*[^\\n]*','gi'),'$1');
@@ -3293,16 +3294,22 @@ function detailScreenshotData(text,expectedIsin,productContext=null,excludedFiel
       bid:String(degiroDisplayedQuote.bid),ask:String(degiroDisplayedQuote.ask),
       quoteAt:degiroDisplayedQuote.sourceTime}};
  }
+ const uncertainBrokerPair=draft.hasQuote&&!draft.paired&&!draft.partialQuote&&!!degiroVenueEvidence;
+ if(uncertainBrokerPair){
+  draft={...draft,paired:false,partialQuote:{bid:null,ask:null}};
+  x.price='';x.spread='';
+ }
  if(draft.hasQuote&&!draft.paired&&!draft.partialQuote)return{ok:false,reason:'Produkt erkannt'+(identity.basis==='WKN'?' über WKN '+identity.wkn:'')+', aber Geld-/Briefpaar nicht vollständig oder eindeutig. Bitte beide Kurse im selben Bild zeigen.'};
  const bid=draft.partialQuote?draft.partialQuote.bid:draft.paired?n(draft.fields.bid):amount("Geld|Bid"),ask=draft.partialQuote?draft.partialQuote.ask:draft.paired?n(draft.fields.ask):amount("Brief|Ask");
  const importWarnings=[],importNotes=[];
+ if(uncertainBrokerPair)importWarnings.push('Geld-/Briefpaar nicht eindeutig; Produktidentität und DEGIRO-Handelsplatz separat übernommen.');
  if(repairedIdentity)importNotes.push('ISIN-Zeichenverwechslung '+repairedIdentity.original+' anhand des eindeutig gelesenen Serienbilds '+productContext.anchor+' korrigiert; Prüfziffer bestätigt.');
  if(draft.partialQuote){x.price="";x.spread="";importWarnings.push(bid===null?"Geldkurs fehlt: Kursbereich mit Geld und Brief ergänzen.":"Briefkurs fehlt: Kursbereich mit Geld und Brief ergänzen.");}
  if(draft.fields?.ko1)x.ko=draft.fields.ko1;
  if((bid!==null&&bid<=0)||(ask!==null&&ask<=0)||(bid!==null&&ask!==null&&ask<bid))return{ok:false,reason:"Geld-/Briefkurse widersprüchlich gelesen. Bitte ein schärferes Bild hochladen."};
  const quoteText=raw.replace(/(?:^|\n)\s*(?:Produktdatenstand|Bedingungenstand|Fälligkeit|Faelligkeit|Laufzeit|KO-Zeit|Hebelzeit)\s*[:=]?[^\n]*/gi,'');
  const stamp=screenshotTimes(raw).quote?.text||(quoteText.match(/\b\d{2}[/.]\d{2}[/.]\d{4}\s+\d{2}:\d{2}(?::\d{2})?\b/)||[])[0]||"";
- const currency=degiroDisplayedQuote?.currency||(native?'CHF':/\bEUR\b|€/.test(raw)?"EUR":"");
+ const currency=degiroDisplayedQuote?.currency||degiroVenueEvidence?.currency||(native?'CHF':/\bEUR\b|€/.test(raw)?"EUR":"");
  if(bid!==null&&ask!==null&&currency==="EUR"){x.price=String(ask);x.spread=String(Math.round((ask-bid)*1000000)/1000000);}
  if(currency==='CHF'){x.price='';x.spread='';if(bid!==null||ask!==null)importNotes.push('CHF-Originalkurse gespeichert; EUR-Analyse verwendet separat datierte automatische Umrechnung.');}
  if(!x.leverage){const lv=raw.match(/\bLV\s+(\d+(?:[.,]\d+)?)/i);if(lv)x.leverage=lv[1].replace(",",".");}
@@ -3335,7 +3342,7 @@ function detailScreenshotData(text,expectedIsin,productContext=null,excludedFiel
  }
  if(!terms.currency&&['EUR','CHF'].includes(currency)&&bid!==null&&ask!==null)terms.currency={value:currency,at:null,fromQuote:true};
  if(terms.ko)x.ko=String(terms.ko.value);
- return{ok:true,...x,importWarnings,importNotes,identityBasis:identity.basis,identityValor:identity.valor||null,identityContext:identity.context||null,bid,ask,currency,...(degiroDisplayedQuote?{degiroDisplayedQuote}:{}),sourceTime:stamp,times:screenshotTimes(raw),terms,delayed:/verzögert|delayed/i.test(raw),combinedDraft:draft};
+ return{ok:true,...x,importWarnings,importNotes,identityBasis:identity.basis,identityValor:identity.valor||null,identityContext:identity.context||null,bid,ask,currency,...(degiroVenueEvidence?{degiroVenueEvidence}:{}),...(degiroDisplayedQuote?{degiroDisplayedQuote}:{}),sourceTime:stamp,times:screenshotTimes(raw),terms,delayed:/verzögert|delayed/i.test(raw),combinedDraft:draft};
 }
 // Registered issuer identity, verified against its ISIN/Valor table. Never infer
 // an arbitrary numeric title from the currently selected product.
@@ -3509,7 +3516,7 @@ async function readProductPdf(file,expected){
  }finally{await task.destroy();}
 }
 // Local originals support reprocessing after OCR updates. Never refresh source clocks.
-const PRODUCT_OCR_VERSION='2026-10-19-series-anchor-proof-v15';
+const PRODUCT_OCR_VERSION='2026-10-19-partial-broker-evidence-v16';
 const ORIGINAL_TTL=7*86400000,ORIGINAL_LIMIT=100*1024*1024;
 const activeProductImports=new Set();
 function originalRetention(records,now=Date.now()){
