@@ -1,0 +1,14 @@
+'use strict';
+const el=id=>document.getElementById(id);
+const un64=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+const b64=b=>btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+async function api(action,data={}){const r=await fetch('/api/passkey/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const v=await r.json();if(!r.ok)throw Error(v.error||'Anfrage fehlgeschlagen');return v;}
+function options(o){o.challenge=un64(o.challenge);if(o.user)o.user.id=un64(o.user.id);for(const key of ['allowCredentials','excludeCredentials'])if(o[key])o[key]=o[key].map(c=>({...c,id:un64(c.id)}));return o;}
+function serialize(c){const r=c.response;const response={clientDataJSON:b64(r.clientDataJSON)};for(const key of ['attestationObject','authenticatorData','signature','userHandle'])if(r[key])response[key]=b64(r[key]);if(r.getTransports)response.transports=r.getTransports();return {id:c.id,rawId:b64(c.rawId),type:c.type,response,clientExtensionResults:c.getClientExtensionResults()};}
+async function refresh(){const s=await api('status');el('verify').hidden=!s.enabled;el('setup').hidden=s.enabled&&!s.verified;el('status').textContent=s.verified?'Bestätigt bis '+new Date(s.validUntil*1000).toLocaleString():s.enabled?'Bitte bestätige deinen Passkey.':'Noch kein Passkey eingerichtet.';}
+async function run(f){for(const b of document.querySelectorAll('button'))b.disabled=true;try{await f();await refresh();}catch(e){el('status').textContent=e.name==='NotAllowedError'?'Abgebrochen oder Zeit abgelaufen. Du kannst es erneut versuchen.':e.message;}finally{el('password').value='';el('code').value='';for(const b of document.querySelectorAll('button'))b.disabled=false;}}
+el('register').onclick=()=>run(async()=>{const v=await api('register-options',{password:el('password').value});el('password').value='';const c=await navigator.credentials.create({publicKey:options(v.options)});const result=await api('register-verify',{credential:serialize(c)});if(result.recoveryCodes?.length){el('codes').textContent=result.recoveryCodes.join('\n');el('backup').hidden=false;}});
+el('verify').onclick=()=>run(async()=>{const v=await api('authenticate-options');const c=await navigator.credentials.get({publicKey:options(v.options)});await api('authenticate-verify',{credential:serialize(c)});});
+el('recover').onclick=()=>run(()=>api('recover',{code:el('code').value}));
+el('copy').onclick=()=>navigator.clipboard.writeText(el('codes').textContent).then(()=>{el('copy').textContent='Kopiert';}).catch(()=>{el('status').textContent='Bitte Codes manuell markieren und kopieren.';});
+if(!window.PublicKeyCredential)el('status').textContent='Dieser Browser unterstützt Passkeys nicht.';else refresh().catch(()=>{el('status').textContent='Status momentan nicht verfügbar.';});
