@@ -532,6 +532,7 @@ try{
 <div class="card chart-card" data-design="readable-chart-v1"><div class="chart-segment" role="group" aria-label="Gold-Kursreihe"><button type="button" data-chart-market="spot" onclick="setChartMarket('spot')">Gold-Spot</button><button type="button" data-chart-market="future" onclick="setChartMarket('future')">Gold-CFD</button></div><h3 id="chartInstrument">Gold · Basiswert wird geladen</h3><p class="small">Preisverlauf in USD je Feinunze</p><p id="chartProvenance" class="small" aria-live="polite">Quelle und Kerzenzeit werden geladen.</p>
 <div class="chart-controls"><div class="chart-segment" role="group" aria-label="Darstellung"><button type="button" data-chart-type="line" onclick="setChartOption('type','line')">Linie</button><button type="button" data-chart-type="candles" onclick="setChartOption('type','candles')">Kerzen</button></div><div class="chart-segment" role="group" aria-label="Zeitraum pro Kerze"><button type="button" data-chart-tf="1m" onclick="setChartOption('tf','1m')">1m</button><button type="button" data-chart-tf="5m" onclick="setChartOption('tf','5m')">5m</button><button type="button" data-chart-tf="15m" onclick="setChartOption('tf','15m')">15m</button><button type="button" data-chart-tf="1h" onclick="setChartOption('tf','1h')">1h</button><button type="button" data-chart-tf="4h" onclick="setChartOption('tf','4h')">4h</button></div><select id="chartType" hidden aria-label="Ansicht"><option value="candles" selected>Kerzen</option><option value="line">Linie</option></select><select id="chartTf" hidden aria-label="Zeitraum pro Kerze"><option value="1m">1 Minute</option><option value="5m">5 Minuten</option><option value="15m" selected>15 Minuten</option><option value="1h">1 Stunde</option><option value="4h">4 Stunden</option></select></div>
 <p id="minuteEntryStatus" class="small" aria-live="polite">1m-Einstiegshilfe · Vergleichstest: Daten werden geladen.</p>
+<p id="chartScenarioStatus" class="small" aria-live="polite"></p>
 <div class="small chart-status" id="chartViewStatus" aria-live="polite"></div>
 <div class="chart-frame"><canvas id="chart" width="800" height="300" aria-label="Preisverlauf: waagerecht Schweizer Zeit, senkrecht Preis in USD"></canvas></div>
 <div id="chartSelection" class="small" role="status" aria-live="polite" style="min-height:2.5em;margin:8px 0">Kerze oder Kurvenpunkt antippen, um Datum, Uhrzeit und Schlusskurs anzuzeigen.</div>
@@ -2356,11 +2357,31 @@ function fibonacciExplanation(fib){
  return "Fibonacci-Szenario abwärts: Bei einer Erholung liegen mögliche Widerstandszonen bei "+p(l.r382)+" (38,2 %), "+p(l.r500)+" (50 %) und "+p(l.r618)+" (61,8 %). Steigt der Kurs weiter, folgt "+p(l.r786)+" (78,6 %); über dem Ausgangshoch "+p(fib.high)+" ist diese Abwärtsbewegung gebrochen. Setzt sich der Rückgang unter "+p(fib.low)+" fort, liegen mögliche Erweiterungsziele bei "+p(l.e1272)+" und "+p(l.e1618)+". Die Zonen bestätigen allein keine Trendwende.";
 }
 // Chart swings remain visible even when the trading assessment is neutral.
-function chartFibonacci(bars,atr){
+function chartFibonacci(bars,atr,preferredDirection=null){
  if(!bars.length)return null;
  const entry=Number(bars.at(-1).close);
- return ['LONG','SHORT'].map(dir=>fibonacciModel(dir,entry,atr,bars))
+ // Display only: an assessed direction takes precedence over a newer counter-swing.
+ const directions=['LONG','SHORT'].includes(preferredDirection)?[preferredDirection]:['LONG','SHORT'];
+ return directions.map(dir=>fibonacciModel(dir,entry,atr,bars))
   .filter(m=>m.valid).sort((a,b)=>Math.max(b.swingHighIndex,b.swingLowIndex)-Math.max(a.swingHighIndex,a.swingLowIndex))[0]||null;
+}
+
+
+// Chart diagnostics are independent of entry approval and never update signalState.
+function chartScenarioStatus(assessment,tf,fib,sampled=false){
+ if(sampled)return 'Chart-Szenario nicht bestätigt · nur beobachtete Messpunkte, keine vollständigen OHLC-Kerzen.';
+ if(!assessment.available)return 'Chart-Szenario nicht auswertbar · '+(assessment.reason||'Historie fehlt')+'.';
+ const direction=assessment.dir;
+ const historical=assessment.fresh!==true;
+ return (historical?'Historisches Chart-Szenario: ':'Chart-Szenario: ')+direction+' · '+tf+
+  (['LONG','SHORT'].includes(direction)&&!fib?' · passende bestätigte Fibonacci-Swingpunkte fehlen':'')+
+  (historical?' · keine aktuelle Einstiegsbestätigung.':' · technische Richtung, keine Einstiegsfreigabe.')+
+  ' Einstiegsstatus und Sperrgrund stehen in der Marktanalyse.';
+}
+function chartDataStatus(assessment,count){
+ if(count<2)return 'Keine Chartdaten verfügbar';
+ if(!assessment.available)return 'Chartprüfung: '+(assessment.reason||'Historie fehlt');
+ return assessment.fresh===false?'Historische Daten · '+(assessment.ageWarning||'nicht aktuell'):'Verlauf geschlossener Kerzen';
 }
 
  // Independent Bob fib values: closed 15-minute spot OHLC and the existing pivot algorithm.
@@ -2481,9 +2502,11 @@ function draw(a){
  const chartAtr=ranges.length?ranges.reduce((a,b)=>a+b,0)/ranges.length:0;
  const sampledSpot=!isFuture&&v.some(b=>b.observedOnly);
  // Real archived Spot samples lack confirmed OHLC wick and swing evidence.
- const model=sampledSpot?null:chartFibonacci(v,chartAtr);
+ const model=sampledSpot?null:chartFibonacci(v,chartAtr,assessment.available?assessment.dir:null);
  const fib=!isFuture&&model?.valid?model:null;
- $('chartViewStatus').textContent=v.length<2?'Keine Chartdaten verfügbar':assessment.fresh===false?'Historische Daten · nicht aktuell':'Verlauf geschlossener Kerzen';
+ $('chartViewStatus').textContent=chartDataStatus(assessment,v.length);
+ $('chartScenarioStatus').textContent=isFuture?'CFD-Beobachtungsverlauf · kein bestätigtes Spot-Szenario':chartScenarioStatus(assessment,tf,fib,sampledSpot);
+ $('chartScenarioStatus').className='small '+(assessment.available&&assessment.fresh&&assessment.dir==='SHORT'?'bad':assessment.available&&assessment.fresh&&assessment.dir==='LONG'?'ok':'neutral');
  if(isFuture)$('chartViewStatus').textContent=v.length<2?(window.BobWeekendPause?.()?'Kein gespeicherter CFD-Verlauf verfügbar':'CFD-Kursverlauf wird gesammelt – für eine erste Kurve 1m wählen'):'CFD-Verlauf aus beobachteten Kursen · Lücken möglich';
  $('chartViewStatus').dataset.stale=String(assessment.fresh===false);
  const frameLabel={"1m":"1 Minute","5m":"5 Minuten","15m":"15 Minuten","1h":"1 Stunde","4h":"4 Stunden"}[tf]||tf;
@@ -2524,7 +2547,7 @@ function draw(a){
  if(v.length<2){$("chartFib").textContent="Fibonacci: keine bestätigten Level verfügbar.";ctx.fillStyle="#666";ctx.font="16px sans-serif";ctx.fillText("Keine Chartdaten verfügbar",16,140);return;}
  v.sort((a,b)=>Number(a.openTime)-Number(b.openTime));
  const fibRows=fib?[["38,2 %",fib.levels.r382],["50 %",fib.levels.r500],["61,8 %",fib.levels.r618],["78,6 %",fib.levels.r786],["Ext. 127,2 %",fib.levels.e1272],["Ext. 161,8 %",fib.levels.e1618]].filter(r=>Number.isFinite(r[1])):[];
- $("chartFib").textContent=sampledSpot?"Fibonacci/Kursziele nicht berechnet · nur gespeicherte Messpunkte":fibRows.length?"Fibonacci · "+fibRows.map(r=>r[0]+": "+priceLabel(r[1])+" USD").join(" · "):"Fibonacci: keine bestätigten Level verfügbar.";
+ $("chartFib").textContent=sampledSpot?"Fibonacci/Kursziele nicht berechnet · nur gespeicherte Messpunkte":fibRows.length?"Fibonacci · "+fib.direction+" · "+fibRows.map(r=>r[0]+": "+priceLabel(r[1])+" USD").join(" · "):"Fibonacci: keine bestätigten Level verfügbar.";
  const visibleFib=fibRows.filter(r=>r[0].startsWith('Ext.')?showTargets:showFib);
  const ps=[...v.flatMap(b=>candles?[Number(b.low),Number(b.high)]:[Number(b.close)]),...visibleFib.map(r=>r[1]),...(dayExtremes?[dayExtremes.high,dayExtremes.low]:[])],lo=Math.min(...ps),hi=Math.max(...ps),margin=Math.max((hi-lo)*.08,.5),mn=lo-margin,mx=hi+margin;
  const left=8,right=w-78,top=24,bottom=h-44,start=Number(v[0].openTime),end=Number(v.at(-1).openTime);
@@ -2543,7 +2566,7 @@ function draw(a){
  if(sortedFib.length&&labelBottom>bottom-7){const shift=labelBottom-(bottom-7);for(const row of sortedFib)row.labelY-=shift;}
  ctx.font="bold 12px sans-serif";ctx.textAlign="left";
  for(const row of sortedFib){
-  const text=row.target?(row.label.includes("127")?"Ziel 1 · 127,2 %":"Ziel 2 · 161,8 %"):row.label;
+  const text=row.target?(row.label.includes("127")?fib.direction+" Ziel 1 · 127,2 %":fib.direction+" Ziel 2 · 161,8 %"):row.label;
   const labelWidth=Math.min(ctx.measureText(text).width+8,right-left-8);
   ctx.fillStyle=row.target?"#1e40af":"#b45309";ctx.fillText(text,left+8,row.labelY,labelWidth-8);
  }
