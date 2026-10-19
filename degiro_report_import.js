@@ -49,7 +49,7 @@ function readReport(text){
  for(let i=start+1;i<rows.length;i++){
   const row=rows[i],isin=(row[ix.isin]||'').trim().toUpperCase();
   if(!isin)continue;
-  if(!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(isin)){invalid.push(i+1);continue;}
+  if(!validISIN(isin)){invalid.push(i+1);continue;}
   const rawQty=(row[ix.qty]||'').trim();
   const qty=parseNumber(rawQty);
   if(qty===null){invalid.push(i+1);continue;}
@@ -57,6 +57,12 @@ function readReport(text){
  }
  if(!records.length)throw Error('Keine gültigen ISIN- und Mengenzeilen im Export gefunden.');
  return {kind,records,invalidRows:invalid,source:'DEGIRO export (user-provided)',realtime:false,brokerVerified:false,ordersEnabled:false};
+}
+function validISIN(isin){
+ if(!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(isin))return false;
+ const digits=isin.replace(/[A-Z]/g,ch=>String(ch.charCodeAt(0)-55));
+ let sum=0;[...digits].reverse().forEach((ch,i)=>{const n=Number(ch)*(i%2?2:1);sum+=Math.floor(n/10)+n%10;});
+ return sum%10===0;
 }
 function cell(row,idx){return idx<0?'':String(row[idx]||'').trim().slice(0,120);}
 function parseNumber(raw){
@@ -68,7 +74,7 @@ function parseNumber(raw){
  else if((s.match(/\./g)||[]).length>1)s=s.replace(/\./g,'');
  const v=Number(s);return Number.isFinite(v)&&Math.abs(v)<1e10?v:null;
 }
-const api={parseRows,readReport,parseNumber};
+const api={parseRows,readReport,parseNumber,validISIN};
 if(typeof module==='object'&&module.exports)module.exports=api;
 if(!root.document)return;
 function mount(){
