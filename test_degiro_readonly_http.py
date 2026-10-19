@@ -42,4 +42,4 @@ class ReadOnlyHTTPTest(PaperHTTPTest):
             with urlopen(self.request('/api/degiro/connection-test',body=b'{"otp":"001234"}'),timeout=5) as response:
                 self.assertEqual(response.headers.get('Cache-Control'),'no-store')
                 self.assertEqual(json.load(response)['code'],'SETUP_REQUIRED')
-            probe.assert_called_once_with('001234')
+            probe.assert_called_once_with('001234', [])
