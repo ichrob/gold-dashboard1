@@ -75,7 +75,7 @@ class ResearchTests(unittest.TestCase):
             return json.dumps({'candidates':[{'finishReason':'STOP','content':{'parts':[{'text':json.dumps(response)}]}}]}).encode()
         out = r.generate(SEGMENTS, 'secret', reader, frames=[frame])
         self.assertEqual(out['sections'][0]['evidence'][0]['at'],450)
-        self.assertEqual(out['visualNotes'], [{'frameId': 0, 'kind': 'chart', 'label': 'Mögliche Chartansicht'}])
+        self.assertEqual(out['visualNotes'], [{'frameId': 0, 'frameAt': 450, 'kind': 'chart', 'label': 'Mögliche Chartansicht'}])
         self.assertIn('nicht daraus abgelesen', out['scope'])
 
     def test_no_untrusted_frame_or_unverified_numbers(self):
