@@ -125,6 +125,7 @@ def service_health():
             'fibonacciMonitor': dict(FIB_MONITOR_HEALTH), 'automaticCollection': collection,
             'auxiliaryWorkers': auxiliary, 'repairSupervision': supervision,
             'sourceRecovery': product_source_recovery.health(),
+            'marketRecovery': __import__('market_recovery').health(),
             'strategyResearch': strategy_lab_background.status(), 'assistanceCodes': bob_assistance.pending_codes()}
     bob_self_healing.observe(result)
     result["repairPendingCodes"] = bob_self_healing.pending_codes()
@@ -162,6 +163,8 @@ def _healing_watch_loop():
     while True:
         try:
             maintain_known_workers()
+            import market_recovery
+            market_recovery.tick()
             service_health()
             import repair_supervision
             repair_supervision.completed()

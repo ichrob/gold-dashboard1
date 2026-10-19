@@ -10,7 +10,7 @@ import server
 
 class SharedSpotTests(unittest.TestCase):
     def setUp(self):
-        for name, value in [('_quote',None),('_attempted',float('-inf')),('_error',None)]:
+        for name, value in [('_retry_at',0),('_route',0),('_quote',None),('_attempted',float('-inf')),('_error',None)]:
             p=patch.object(s,name,value);p.start();self.addCleanup(p.stop)
         self.now=datetime.now(timezone.utc)
         self.payload=dict(symbol='XAU',name='Gold',currency='USD',exchangeRate=1,price=4141.8,updatedAt=self.now.isoformat())
@@ -47,5 +47,26 @@ class SharedSpotTests(unittest.TestCase):
                 with self.assertRaises(ValueError):s.current()
         with patch.object(s,'_quote',{**s._quote,'at':(self.now-timedelta(seconds=90)).isoformat()}),patch.object(s,'_error',None):
             with self.assertRaises(ValueError):s.current()
+
+    def test_failed_clock_rotates_route_then_recovers_without_redating(self):
+        stale={**self.payload, 'updatedAt':(self.now-timedelta(seconds=90)).isoformat()}
+        with patch.object(product_quotes,'issuer_json',side_effect=[stale,self.payload]) as request:
+            with self.assertRaises(ValueError):s.current()
+            self.assertIsNone(s._quote)
+            with self.assertRaises(ValueError):s.current()
+            self.assertEqual(request.call_count,1)
+            with patch.object(s,'_attempted',float('-inf')): restored=s.current()
+            self.assertEqual(request.call_args.args[0],s.URL+'/USD')
+            self.assertEqual(restored['at'],self.payload['updatedAt'])
+            self.assertIsNone(restored['refreshWarning'])
+
+    def test_rate_limit_does_not_rotate_or_bypass_wait(self):
+        from urllib.error import HTTPError
+        with patch.object(product_quotes,'issuer_json',side_effect=HTTPError(s.URL,429,'limit',{'Retry-After':'600'},None)) as request:
+            with self.assertRaises(ValueError):s.current()
+            with patch.object(s,'_attempted',float('-inf')):
+                with self.assertRaises(ValueError):s.current()
+            self.assertEqual(request.call_count,1)
+            self.assertEqual(s._route,0)
 
 if __name__=='__main__':unittest.main()
