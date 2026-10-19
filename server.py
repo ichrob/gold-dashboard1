@@ -1793,7 +1793,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(self.rfile.read(length))
                 if not isinstance(payload, dict) or set(payload) - {"otp"}:
                     raise ValueError("Ungültige Anfrage")
-                result = degiro_readonly.probe(payload.get("otp", ""))
+                result = degiro_readonly.probe(payload.get("otp", ""), payload.get("isins", []))
                 code = 200
             except (ValueError, TypeError):
                 result, code = {"ok": False, "code": "INVALID_INPUT"}, 400
