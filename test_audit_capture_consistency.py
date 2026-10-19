@@ -60,14 +60,15 @@ class HarvestTests(unittest.TestCase):
    try:
     conn.execute('CREATE TABLE bob_decision_audit(id TEXT PRIMARY KEY,recorded_at TIMESTAMPTZ,payload JSONB)')
     conn.execute('CREATE TABLE bob_decision_outcomes(decision_id TEXT,horizon INTEGER,truth JSONB,PRIMARY KEY(decision_id,horizon))')
-    conn.execute('CREATE TABLE bob_decision_harvest_cursor(horizon INTEGER PRIMARY KEY,recorded_at TIMESTAMPTZ,decision_id TEXT)')
+    conn.execute('CREATE TABLE bob_decision_harvest_cursor(horizon INTEGER PRIMARY KEY,recorded_at TIMESTAMPTZ,decision_id TEXT,attempted_at TIMESTAMPTZ)')
     conn.execute('INSERT INTO bob_decision_harvest_cursor(horizon) SELECT unnest(%s::integer[])',(list(a.HARVEST_HORIZONS),))
     conn.execute('CREATE TABLE bob_spot_observations(stream TEXT,quote_at TIMESTAMPTZ,price DOUBLE PRECISION)')
     start=int(time.time()*1000)-3600000
     record=dict(recordedAt=start,marketEvaluable=True,price=100,direction='LONG')
     conn.execute("INSERT INTO bob_decision_audit VALUES('sample',to_timestamp(%s/1000.0),%s::jsonb)",(start+20000,json.dumps(record)))
     conn.execute("INSERT INTO bob_spot_observations VALUES('gold-api-xau-usd-v1',to_timestamp(%s/1000.0),101)",(start+900000,))
-    a._harvest_at=0;a.harvest(conn)
+    for _ in range(3):
+     a._harvest_at=0;a.harvest(conn)
     truth=conn.execute("SELECT truth FROM bob_decision_outcomes WHERE decision_id='sample' AND horizon=15").fetchone()[0]
     self.assertAlmostEqual(a.outcome(record,truth,15)['directionalPct'],1)
     self.assertEqual(conn.execute("SELECT payload FROM bob_decision_audit WHERE id='sample'").fetchone()[0],record)
