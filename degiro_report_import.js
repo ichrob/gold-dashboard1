@@ -92,44 +92,160 @@ function parseNumber(raw){
  else if((s.match(/\./g)||[]).length>1)s=s.replace(/\./g,'');
  const v=Number(s);return Number.isFinite(v)&&Math.abs(v)<1e10?v:null;
 }
-const api={parseRows,readReport,parseNumber,validISIN};
+
+function node(doc,tag,className,content){
+ const element=doc.createElement(tag);
+ if(className)element.className=className;
+ if(content!==undefined)element.textContent=String(content);
+ return element;
+}
+function displayAmount(value,currency){
+ return value?String(value)+(currency?' '+currency:''):'Nicht angegeben';
+}
+function renderResults(doc,out,data,onCopy){
+ out.replaceChildren();
+ if(data.cashBalances.length){
+  const cash=node(doc,'section','dg-export-cash');
+  cash.append(node(doc,'strong','','Bargeld im Export'));
+  for(const entry of data.cashBalances){
+   cash.append(node(doc,'div','',displayAmount(entry.amount.toFixed(2),entry.currency)));
+  }
+  out.append(cash);
+ }
+ const intro=node(doc,'p','dg-export-note',
+  'Dies ist ein gespeicherter DEGIRO-Export, keine Live-Kontoverbindung. Die angezeigten Kurse sind keine ausführbaren Handelskurse.');
+ out.append(intro);
+ const list=node(doc,'div','dg-export-list');
+ for(const rec of data.records.slice(0,250)){
+  const card=node(doc,'article','dg-export-card');
+  const name=node(doc,'h4','dg-export-product',rec.product||'Wertpapier ohne Bezeichnung');
+  card.append(name);
+  const identity=node(doc,'div','dg-export-identity');
+  identity.append(node(doc,'span','dg-export-isin',rec.isin));
+  const copy=node(doc,'button','dg-export-copy','ISIN kopieren');
+  copy.type='button';
+  copy.setAttribute('aria-label','ISIN '+rec.isin+' kopieren');
+  copy.addEventListener('click',()=>onCopy(rec.isin));
+  identity.append(copy);
+  card.append(identity);
+  const fields=node(doc,'div','dg-export-fields');
+  const values=[['Menge',String(rec.quantity)],['Währung',rec.currency||'Nicht angegeben'],
+   ['Schlusskurs',displayAmount(rec.price,rec.currency)],
+   ['Wert',displayAmount(rec.value,rec.currency)]];
+  if(rec.accountValue && data.accountCurrency){
+   values.push(['Wert in '+data.accountCurrency,displayAmount(rec.accountValue,data.accountCurrency)]);
+  }
+  for(const pair of values){
+   const field=node(doc,'div','dg-export-field');
+   field.append(node(doc,'span','dg-export-field-label',pair[0]));
+   field.append(node(doc,'strong','dg-export-field-value',pair[1]));
+   fields.append(field);
+  }
+  card.append(fields);
+  if(/\bfaktor\b|\bfactor\b|constant leverage/i.test(rec.product)){
+   card.append(node(doc,'p','dg-export-factor','Faktorprodukt · kein Gold-Knock-out für Bobs Top-3-Auswahl'));
+  }
+  list.append(card);
+ }
+ out.append(list);
+ if(data.records.length>250){
+  out.append(node(doc,'p','dg-export-note','Es werden die ersten 250 von '+data.records.length+' Wertpapierpositionen angezeigt.'));
+ }
+}
+const api={parseRows,readReport,parseNumber,validISIN,renderResults};
 if(typeof module==='object'&&module.exports)module.exports=api;
 if(!root.document)return;
 function mount(){
- const host=root.document.getElementById('bob-view-degiro');if(!host)return;
- const section=root.document.createElement('section');section.className='card';section.style.padding='16px';
- section.innerHTML='<h3>DEGIRO · Kontodaten lesen (Export)</h3><p>Offiziellen DEGIRO-Portfolio- oder Transaktionsbericht als CSV öffnen. Bob liest ihn nur auf diesem Gerät, ohne Server-Upload, Anmeldung oder Orderzugriff.</p><label for="dgExportFile">CSV-Datei aus DEGIRO auswählen</label><input id="dgExportFile" type="file" accept=".csv,text/csv,text/plain" style="display:block;width:100%;margin:12px 0"><p id="dgExportStatus" role="status">Noch keine Datei eingelesen.</p><div id="dgExportResults"></div><button id="dgExportClear" type="button">Eingelesene Daten entfernen</button><p class="small">DEGIRO: Portfolio → Export oder Inbox → Transaktionen → Export → CSV. Berichte sind historische Momentaufnahmen, keine Livekurse. Kein automatisches Kontosynchronisieren und keine Handelsfreigabe. Die Datei verlässt dieses Gerät nicht.</p>';
+ const doc=root.document,host=doc.getElementById('bob-view-degiro');
+ if(!host||doc.getElementById('bobDegiroReport'))return;
+ const section=node(doc,'section','card');
+ section.id='bobDegiroReport';
+ section.style.padding='16px';
+ section.style.minWidth='0';
+ section.style.maxWidth='100%';
+ section.style.boxSizing='border-box';
+ const style=node(doc,'style','');
+ style.textContent=[
+ '#bobDegiroReport{overflow-wrap:anywhere}',
+ '#bobDegiroReport .dg-export-pick{display:block;width:100%;min-height:44px;padding:10px 14px;margin:10px 0;border-radius:10px;cursor:pointer}',
+ '#bobDegiroReport .dg-export-list{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;margin:12px 0}',
+ '#bobDegiroReport .dg-export-card{box-sizing:border-box;min-width:0;width:100%;padding:14px;border:1px solid #cdd5da;border-radius:12px;overflow-wrap:anywhere}',
+ '#bobDegiroReport .dg-export-product{font-size:16px;line-height:1.4;margin:0 0 10px;font-weight:650;overflow-wrap:anywhere}',
+ '#bobDegiroReport .dg-export-identity{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px}',
+ '#bobDegiroReport .dg-export-isin{font-size:14px;letter-spacing:.01em;overflow-wrap:anywhere;user-select:text}',
+ '#bobDegiroReport .dg-export-copy{padding:7px 10px;min-height:36px;border-radius:8px;font-size:13px;cursor:pointer}',
+ '#bobDegiroReport .dg-export-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}',
+ '#bobDegiroReport .dg-export-field{display:flex;flex-direction:column;gap:2px;min-width:0}',
+ '#bobDegiroReport .dg-export-field-label{font-size:12px;opacity:.74}',
+ '#bobDegiroReport .dg-export-field-value{font-size:15px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}',
+ '#bobDegiroReport .dg-export-cash{padding:12px;border:1px solid #cdd5da;border-radius:10px;margin:10px 0}',
+ '#bobDegiroReport .dg-export-factor,#bobDegiroReport .dg-export-note{font-size:13px;line-height:1.5;opacity:.85}',
+ '#bobDegiroReport .dg-export-factor{margin:12px 0 0}',
+ '@media(min-width:880px){#bobDegiroReport .dg-export-list{grid-template-columns:repeat(2,minmax(0,1fr))}}'
+ ].join('\n');
+ section.append(style);
+ section.append(node(doc,'h3','','DEGIRO · Kontodaten lesen (Export)'));
+ section.append(node(doc,'p','','CSV aus DEGIRO auswählen. Die Daten werden ausschließlich auf diesem Gerät gelesen und nicht an Bobs Server übertragen.'));
+ const select=node(doc,'button','dg-export-pick','CSV-Datei auswählen');
+ select.id='dgExportPick';
+ select.type='button';
+ const input=node(doc,'input','');
+ input.id='dgExportFile';
+ input.type='file';
+ input.accept='.csv,text/csv,text/plain';
+ input.style.display='none';
+ input.setAttribute('aria-label','DEGIRO-CSV-Datei');
+ select.addEventListener('click',()=>input.click());
+ section.append(select,input);
+ const status=node(doc,'p','','Noch kein Export eingelesen.');
+ status.id='dgExportStatus';
+ status.setAttribute('role','status');
+ status.setAttribute('aria-live','polite');
+ section.append(status);
+ const out=node(doc,'div','');out.id='dgExportResults';section.append(out);
+ const clear=node(doc,'button','','Eingelesene Daten entfernen');
+ clear.id='dgExportClear';
+ clear.type='button';
+ clear.disabled=true;
+ section.append(clear);
+ section.append(node(doc,'p','small','DEGIRO: Portfolio → Export → CSV. Historische Momentaufnahme, keine automatische Kontosynchronisierung und keine Handelsfreigabe. Der Dateiname verschwindet nach dem Einlesen aus der Auswahl.'));
  host.append(section);
- const input=section.querySelector('#dgExportFile'),status=section.querySelector('#dgExportStatus'),out=section.querySelector('#dgExportResults');
- function clear(){input.value='';out.replaceChildren();status.textContent='Keine Daten gespeichert. Neue Datei auswählen.';}
- section.querySelector('#dgExportClear').addEventListener('click',clear);
- input.addEventListener('change',async()=>{
+ function reset(){
+  input.value='';
   out.replaceChildren();
+  clear.disabled=true;
+  status.textContent='Keine Daten eingelesen. Du kannst eine neue CSV-Datei auswählen.';
+ }
+ clear.addEventListener('click',reset);
+ async function copyISIN(isin){
+  try{
+   if(!root.navigator||!root.navigator.clipboard||!root.navigator.clipboard.writeText)throw Error('Clipboard unavailable');
+   await root.navigator.clipboard.writeText(isin);
+   status.textContent='ISIN kopiert: '+isin+'. Die bereits eingelesene Portfolioansicht bleibt erhalten.';
+  }catch(_){
+   status.textContent='ISIN konnte nicht automatisch kopiert werden. Du kannst die ISIN auf der Karte markieren.';
+  }
+ }
+ input.addEventListener('change',async()=>{
   const file=input.files&&input.files[0];
   if(!file)return;
+  out.replaceChildren();
+  clear.disabled=true;
+  status.textContent='CSV-Bericht wird auf diesem Gerät geprüft …';
   try{
    if(file.size>2_000_000)throw Error('Datei größer als 2 MB.');
    const data=readReport(await file.text());
-   status.textContent=(data.kind==='portfolio'?'Portfolio':'Transaktionen')+': '+data.records.length+' Wertpapierpositionen, '+data.cashBalances.length+' Bargeldzeilen; '+data.invalidRows.length+' Zeilen mit ungültigen ISIN-/Mengenangaben ausgelassen. Kein Live-Depotsync.';
-   if(data.cashBalances.length){
-    const cash=root.document.createElement('p');
-    cash.textContent='Bargeld im Export: '+data.cashBalances.map(item=>item.amount.toFixed(2)+' '+item.currency).join(' · ')+'.';
-    out.append(cash);
-   }
-   const wrapper=root.document.createElement('div');wrapper.style.overflowX='auto';
-   const table=root.document.createElement('table');table.style.width='100%';
-   const header=root.document.createElement('tr');
-   for(const name of ['ISIN','Produkt','Menge','Währung','Schlusskurs','Wert']){const th=root.document.createElement('th');th.textContent=name;header.append(th);}
-   table.append(header);
-   for(const rec of data.records.slice(0,1000)){
-    const tr=root.document.createElement('tr');
-    for(const value of [rec.isin,rec.product,rec.quantity,rec.currency,rec.price,rec.value]){const td=root.document.createElement('td');td.textContent=String(value);tr.append(td);}
-    table.append(tr);
-   }
-   wrapper.append(table);out.append(wrapper);
-   if(data.records.length>1000){const p=root.document.createElement('p');p.textContent='Nur die ersten 1.000 Zeilen dargestellt.';out.append(p);}
-  }catch(err){status.textContent='Import nicht möglich: '+err.message;}
-  finally{input.value='';}
+   renderResults(doc,out,data,copyISIN);
+   status.textContent='✓ Datei eingelesen: '+data.records.length+' Wertpapierpositionen, '+
+    data.cashBalances.length+' Bargeldpositionen; '+data.invalidRows.length+
+    ' fehlerhafte Zeilen ausgelassen. Kein Live-Depotsync.';
+   clear.disabled=false;
+  }catch(err){
+   status.textContent='Import nicht möglich: '+err.message;
+  }finally{
+   // Allow the same file to be selected again; the visible button makes this clear.
+   input.value='';
+  }
  });
 }
 if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',mount);else mount();
