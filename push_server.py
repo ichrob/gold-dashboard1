@@ -1,3 +1,4 @@
+import bob_passkey_store
 import base64
 import atexit
 import json
@@ -118,6 +119,7 @@ def _init_db_once():
     with db() as conn:
         bob_session_store.init(conn)
         bob_recovery.init(conn)
+        bob_passkey_store.init(conn)
         bob_repair_store.init(conn)
         bob_market_store.init(conn)
         strategy_lab_store.init(conn)
@@ -900,6 +902,16 @@ class Handler(BaseHTTPRequestHandler):
                     conn.commit()
                 send_json(self,200,result)
                 return
+            if path.startswith('/auth-passkey/'):
+                supplied = self.headers.get('X-Bob-Push-Token', '')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
+                    send_json(self, 401, {'error':'Unauthorized'}); return
+                payload = json_body(self)
+                if not isinstance(payload, dict): raise ValueError('Invalid passkey payload')
+                with db(auth=True) as conn:
+                    result = bob_passkey_store.handle(conn, path.rsplit('/',1)[-1], payload)
+                    conn.commit()
+                send_json(self, 200, result); return
             if path in ('/auth-recovery/state', '/auth-recovery/issue', '/auth-recovery/reset', '/auth-recovery/cancel'):
                 supplied = self.headers.get('X-Bob-Push-Token', '')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
