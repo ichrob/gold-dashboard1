@@ -133,16 +133,17 @@ class Tests(unittest.TestCase):
   self.assertFalse(b.compare(self.r,e,N)['comparable'])
  def test_comparison_log_level_matches_warning_flag(self):
   e=b.calculate(self.r,self.g,self.fx,N)
+  logger=b.logging.getLogger(b.__name__)
   b._COMPARISONS.clear()
   self.r.update(leverage=10,leverageAt=T)
-  with self.assertLogs(b.__name__,level='INFO') as captured:
+  with patch.object(logger,'info') as info,patch.object(logger,'warning') as warning:
    self.assertFalse(b.compare(self.r,e,N)['warning'])
-  self.assertEqual([record.levelname for record in captured.records],['INFO'])
+  info.assert_called_once();warning.assert_not_called()
   b._COMPARISONS.clear()
   self.r['leverage']=8
-  with self.assertLogs(b.__name__,level='WARNING') as captured:
+  with patch.object(logger,'info') as info,patch.object(logger,'warning') as warning:
    self.assertTrue(b.compare(self.r,e,N)['warning'])
-  self.assertEqual([record.levelname for record in captured.records],['WARNING'])
+  info.assert_not_called();warning.assert_called_once()
  def test_future_uses_displayed_cfd_and_keeps_proxy_label(self):
   self.r['metadata'].update(underlyingType='FUTURE',contract='GCZ26')
   cfd=dict(kind='cfd',price=4000,at=T,declaredContract='GCZ26',realtimeCfd=True)
