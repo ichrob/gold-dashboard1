@@ -207,7 +207,13 @@ class PasskeyHTTPTests(unittest.TestCase):
         with patch.dict(os.environ,{'BOB_MCP_SERVICE_TOKEN':token}),patch.object(bob_passkey,'rpc',return_value={'enabled':True,'verified':False}):
             response=self.request('POST','/mcp',headers,body)
             self.assertEqual(response[0],200)
-            self.assertEqual({t['name'] for t in json.loads(response[2])['result']['tools']},{'bob_product_audit','bob_product_gaps'})
+            self.assertEqual({t['name'] for t in json.loads(response[2])['result']['tools']},{'bob_product_audit','bob_product_gaps','bob_diagnostics'})
+            diagnostic_body=json.dumps({'jsonrpc':'2.0','id':2,'method':'tools/call','params':{'name':'bob_diagnostics'}})
+            with patch.object(server,'read_diagnostics_for_mcp') as reader:
+                result=json.loads(self.request('POST','/mcp',headers,diagnostic_body)[2])['result']
+                self.assertTrue(result['isError'])
+                self.assertIn('insufficient_scope',result['_meta']['mcp/www_authenticate'][0])
+                reader.assert_not_called()
             self.assertEqual(self.request('GET','/api/live',headers)[0],401)
             self.assertEqual(self.request('GET','/passkey',headers)[0],303)
             self.assertEqual(self.request('POST','/api/real-trades/write',headers,'{}')[0],401)
