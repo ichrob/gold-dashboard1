@@ -1096,6 +1096,20 @@ function recognizeOcr(file,statusId,allowPartial=false,expectedIsin=''){
    }catch(e){secondaryFailed=true;ocrWorkerPromise=null;await worker.terminate().catch(()=>{});console.warn("[BOB] ISIN-Zweitlesung",e&&e.message?e.message:e);}
    finally{try{if(!secondaryFailed)await worker.setParameters({tessedit_pageseg_mode:"3",tessedit_char_whitelist:""});}catch(e){ocrWorkerPromise=null;await worker.terminate().catch(()=>{});}}
   }
+  // Broker tables can be read column-first: the date/ask then appear after
+  // the identity footer. Recover the layout from the same original pixels
+  // before numeric agreement checks, even when the first pass found no price.
+  const brokerText=String(result.data.text||'');
+  if(allowPartial&&validIsin(expectedIsin)&&/\bKursdaten\b/i.test(brokerText)
+     &&/\bSymbol\b/i.test(brokerText)&&/\bISIN\b/i.test(brokerText)&&identitySeriesSource(brokerText)
+     &&!parseDegiroDisplayedQuote(brokerText,expectedIsin)){
+   try{
+    await worker.setParameters({tessedit_pageseg_mode:'6',tessedit_char_whitelist:''});
+    const table=await ocrTimeout(worker.recognize(prepared),45000,'DEGIRO-Tabellenprüfung nach 45 Sekunden beendet');
+    readings.push(table.data.text||'');originalModes.add('6');
+    if(parseDegiroDisplayedQuote(table.data.text||'',expectedIsin))result=table;
+   }finally{await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});}
+  }
   // Require agreement across segmentation/resolution passes for critical
   // numbers on single-product detail images. Never vote across uploaded files.
   if(!explicitKnockout(result.data.text)&&parseScreenshotCandidates(result.data.text||'').length<=1&&Object.keys(ocrNumericFields(result.data.text)).length){
@@ -3517,7 +3531,7 @@ async function readProductPdf(file,expected){
  }finally{await task.destroy();}
 }
 // Local originals support reprocessing after OCR updates. Never refresh source clocks.
-const PRODUCT_OCR_VERSION='2026-10-19-partial-broker-evidence-v17';
+const PRODUCT_OCR_VERSION='2026-10-19-broker-table-layout-v18';
 const ORIGINAL_TTL=7*86400000,ORIGINAL_LIMIT=100*1024*1024;
 const activeProductImports=new Set();
 function originalRetention(records,now=Date.now()){
