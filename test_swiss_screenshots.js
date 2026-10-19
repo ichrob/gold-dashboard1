@@ -226,3 +226,31 @@ assert.equal(b.currentConvertedChfEvidence(calculatedChf,now)?.leverageKind,'cal
 assert(b.finalProductStatus(calculatedChf,now).complete);
 calculatedChf.quote.leverageCalculation.fresh=false;
 assert(!b.currentConvertedChfEvidence(calculatedChf,now));
+
+// A dated original issuer condition can replace an undated image observation.
+// Synthetic update exercises provenance, not numerical tolerance.
+const daily=JSON.parse(JSON.stringify(p));daily.ko=4527.107;
+daily.quote.metadata.ko=daily.ko;daily.quote.metadata.strike=daily.ko;
+for(const key of ['ko','strike'])daily.quote.conditions[key]={value:daily.ko,source:'https://derivate.bnpparibas.com/product-details/'+isin+'/',dateText:'07.10.2026',conditionVerified:true,reviewedAt:at};
+const beforeDaily=JSON.stringify(daily);
+const dailyStatus=b.productTermsStatus(daily,now);
+assert(dailyStatus.complete,JSON.stringify(dailyStatus));
+assert.equal(dailyStatus.values.strike,daily.ko);
+assert.equal(dailyStatus.warnings.filter(x=>x.includes('undatierter Bildwert')).length,2);
+assert.equal(JSON.stringify(daily),beforeDaily,'historical evidence must remain unchanged');
+assert(!b.finalProductStatus(daily,now).complete,'daily terms do not establish an executable quote');
+for(const mutate of [
+ x=>x.snapshot.terms.ko.dateText='07.10.2026',
+ x=>x.snapshot.terms.ko.at=at,
+ x=>x.snapshot.terms.ko.conditionVerified=true,
+ x=>x.quote.conditions.ko.conditionVerified=false,
+ x=>x.quote.conditions.ko.secondary=true,
+ x=>x.quote.conditions.ko.source='https://example.com/product',
+ x=>x.quote.conditions.ko.dateText='06.10.2026',
+ x=>x.quote.conditions.ko.reviewedAt='2026-10-07T05:00:00Z',
+ x=>x.quote.conditions.ko.reviewedAt='2026-10-07T15:00:00Z',
+ x=>x.quote.metadata.ko+=1,
+ x=>x.quote.isin='DE000PJ9NCK0',
+ x=>x.ko=4524.4731
+]){const bad=JSON.parse(JSON.stringify(daily));mutate(bad);assert(!b.productTermsStatus(bad,now).complete,'invalid/conflicting evidence remains blocked');}
+console.log('Dated original issuer terms supersede undated observations, retaining history and independent gates');

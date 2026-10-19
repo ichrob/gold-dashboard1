@@ -2931,6 +2931,21 @@ function termValueMatches(value,actual,e){
  const digits=e?.displayDecimals;
  return n(e?.value)===n(value)&&!!e?.source&&Number.isInteger(digits)&&digits>=2&&digits<=8&&n(actual)>0&&Number(n(actual).toFixed(digits))===n(value);
 }
+// Explicit daily issuer terms supersede an undated image observation only.
+// Preserve image evidence; neither capture time nor numerical proximity is proof.
+function datedIssuerSupersedesObservation(p,key,direct,old,now){
+ const q=p.quote;
+ if(q?.isin!==p.isin||!q.productVerified||!direct?.conditionVerified||direct.secondary
+  ||direct.source!=='https://derivate.bnpparibas.com/product-details/'+p.isin+'/'
+  ||!direct.dateText||!currentDatedTerm(direct,now)||!currentProductTerm(p,key,direct,now)
+  ||n(q.metadata?.[key])!==n(direct.value)||!(n(direct.value)>0))return false;
+ const age=now-Date.parse(direct.reviewedAt);
+ if(!Number.isFinite(age)||age<0||age>=KO_MAX_AGE_MS)return false;
+ if(!old||old.at||old.dateText||old.sourceTimeRaw||old.conditionVerified
+  ||old.conflict||old.revoked||old.ocrCorrection)return false;
+ const ref=termSeriesReference(p,key,old,now);
+ return !!ref&&['screenshot','image-view'].includes(ref.origin);
+}
 function productTermsStatus(p,now=Date.now(),allowObserved=false){
  const reasons=[],warnings=[],values={},q=p.quote?.isin===p.isin?p.quote:null;
  const meta=q?.productVerified?q.metadata:null;
@@ -2940,7 +2955,10 @@ function productTermsStatus(p,now=Date.now(),allowObserved=false){
  for(const key of ['strike','ko']){
   const direct=q?.productVerified?q.conditions?.[key]:null,old=shot?.terms?.[key]||(key==='ko'?shot?.evidence?.KO:null);
   if(currentProductTerm(p,key,direct,now)){
-   if((currentProductTerm(p,key,old,now)||key==='ko'&&currentDatedTerm(old,now))&&!termValueMatches(old.value,direct.value,old))reasons.push((key==='strike'?'Basispreis':'KO-Barriere')+': aktuelle Nachweise widersprechen sich (Bild '+old.value+' USD; Emittent '+direct.value+' USD'+(direct.dateText?' · Stand '+direct.dateText:'')+'). Aufnahmezeit bestätigt nicht das Gültigkeitsdatum des Bildwerts');
+   if(datedIssuerSupersedesObservation(p,key,direct,old,now)&&!termValueMatches(old.value,direct.value,old)){
+    terms[key]=direct;
+    warnings.push((key==='strike'?'Basispreis':'KO-Barriere')+': datierter Emittentenwert '+direct.value+' USD (Stand '+direct.dateText+') übernommen; undatierter Bildwert '+old.value+' USD bleibt als frühere Beobachtung gespeichert');
+   }else if((currentProductTerm(p,key,old,now)||key==='ko'&&currentDatedTerm(old,now))&&!termValueMatches(old.value,direct.value,old))reasons.push((key==='strike'?'Basispreis':'KO-Barriere')+': aktuelle Nachweise widersprechen sich (Bild '+old.value+' USD; Emittent '+direct.value+' USD'+(direct.dateText?' · Stand '+direct.dateText:'')+'). Aufnahmezeit bestätigt nicht das Gültigkeitsdatum des Bildwerts');
    else terms[key]=direct;
   }
  }
