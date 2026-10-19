@@ -28,6 +28,7 @@ _COOLDOWN = 180
 _CONFIRM_SECONDS = 20
 
 MESSAGES = {
+    "repair-watch-stalled": "Reparaturüberwachung liefert keine neuen Prüfergebnisse",
     "cfd-worker-stopped": "CFD-Abrufdienst gestoppt oder Wiederanlauf unbestätigt",
     "spot-change-worker-stopped": "Spot-Tagesänderungsdienst gestoppt oder Wiederanlauf unbestätigt",
     "comparison-worker-stopped": "Quellenvergleich gestoppt oder Wiederanlauf unbestätigt",
