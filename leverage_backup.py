@@ -271,7 +271,11 @@ def compare(result, evidence, now):
                 _COMPARISONS[key] = True
                 if len(_COMPARISONS)>2048:
                     _COMPARISONS.popitem(last=False)
-                logging.getLogger(__name__).warning('BOB_LEVERAGE_COMPARISON %s',key)
+                logger = logging.getLogger(__name__)
+                if row['warning']:
+                    logger.warning('BOB_LEVERAGE_COMPARISON %s', key)
+                else:
+                    logger.info('BOB_LEVERAGE_COMPARISON %s', key)
         return row
     except (KeyError,ValueError,TypeError,AttributeError):
         return skipped
