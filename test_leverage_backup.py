@@ -131,6 +131,18 @@ class Tests(unittest.TestCase):
   self.assertFalse(b.compare(self.r,e,N)['comparable'])
   self.r.update(leverageAt=T,leverageEstimated=True)
   self.assertFalse(b.compare(self.r,e,N)['comparable'])
+ def test_comparison_log_level_matches_warning_flag(self):
+  e=b.calculate(self.r,self.g,self.fx,N)
+  b._COMPARISONS.clear()
+  self.r.update(leverage=10,leverageAt=T)
+  with self.assertLogs(b.__name__,level='INFO') as captured:
+   self.assertFalse(b.compare(self.r,e,N)['warning'])
+  self.assertEqual([record.levelname for record in captured.records],['INFO'])
+  b._COMPARISONS.clear()
+  self.r['leverage']=8
+  with self.assertLogs(b.__name__,level='WARNING') as captured:
+   self.assertTrue(b.compare(self.r,e,N)['warning'])
+  self.assertEqual([record.levelname for record in captured.records],['WARNING'])
  def test_future_uses_displayed_cfd_and_keeps_proxy_label(self):
   self.r['metadata'].update(underlyingType='FUTURE',contract='GCZ26')
   cfd=dict(kind='cfd',price=4000,at=T,declaredContract='GCZ26',realtimeCfd=True)
