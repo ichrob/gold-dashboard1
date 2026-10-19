@@ -33,3 +33,6 @@ assert(b.degiroVenueObserved({isin:'DE000FG8NHQ3',snapshot:partial}));
 assert(!card.includes('data-selection-approved'));
 assert(!b.parseDegiroDisplayedQuote(broker.replace('DE000FG8NHQ3','DE000FG14AV8'),'DE000FG8NHQ3',true));
 console.log('Partial broker import keeps independent venue and series anchor, without price or execution approval');
+
+assert(b.parseDegiroDisplayedQuote(broker.replace('DE000FG8NHQ3','DEOOOFG8NHQ3'),'DE000FG8NHQ3',true));
+assert(!b.parseDegiroDisplayedQuote(broker+'\nDEOOOAJONB08','DE000FG8NHQ3',true));

@@ -2174,7 +2174,8 @@ function parseDegiroDisplayedQuote(raw,expectedIsin,venueOnly=false){
  if(!validIsin(expectedIsin)||!/\bKursdaten\b/i.test(raw)
     ||!/\b(?:Börse|Boerse|Borse)\b/i.test(raw)
     ||!/Symbol\s*\|\s*ISIN/i.test(raw))return null;
- const ids=[...new Set((raw.toUpperCase().match(/\b[A-Z]{2}[A-Z0-9]{9}[0-9]\b/g)||[]).filter(validIsin))];
+ const tokens=[...new Set(raw.toUpperCase().match(/\b[A-Z]{2}[A-Z0-9]{10}\b/g)||[])];
+ const ids=[...new Set(tokens.map(token=>normalizeOcrIsin(token,raw).isin))];
  if(ids.length!==1||ids[0]!==expectedIsin)return null;
  const start=raw.search(/\bKursdaten\b/i);
  const end=raw.search(/Symbol\s*\|\s*ISIN/i);
