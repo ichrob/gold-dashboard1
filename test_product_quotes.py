@@ -34,6 +34,37 @@ class ProductQuoteTests(unittest.TestCase):
             q._get_quote_bounded(ISIN)
             retired.assert_not_called()
 
+    def test_newer_backup_is_also_the_display_pair(self):
+        from contextlib import ExitStack
+        old='2026-10-19T13:21:00+00:00'
+        newer='2026-10-19T13:26:00+00:00'
+        backup=dict(isin=ISIN,bid=13.69,ask=13.7,price=13.7,bidAt=newer,askAt=newer,
+                    quoteAt=newer,currency='EUR',source='comdirect · BNP LiveTrading',
+                    sourceUrl='https://www.comdirect.de/inf/zertifikate/'+ISIN,
+                    priceKind='market-observation',isExecutableQuote=False)
+        primary=dict(isin=ISIN,found=True,eligible=False,productVerified=True,
+                     metadata={'status':1},source='BNP',bid=13.66,ask=13.67,price=13.67,
+                     bidAt=old,askAt=old,quoteAt=old,analysisQuote=backup,
+                     issuerSourceUrl='https://derivate.bnpparibas.com/')
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(q,'_get_quote_primary',return_value=primary))
+            stack.enter_context(patch('leverage_backup.select_analysis_quote',return_value=backup))
+            for target in ['comdirect_quotes.get_observation','swissquote_quotes.get_observation']:
+                stack.enter_context(patch(target,return_value={}))
+            for target in ['comdirect_fields.apply','finanzen_terms.apply','comdirect_quotes.apply',
+                           'swissquote_quotes.apply','leverage_backup.apply','secondary_validity.apply',
+                           'hybrid_product_price.apply']:
+                stack.enter_context(patch(target,side_effect=lambda value,*args:value))
+            result=q._get_quote_bounded(ISIN)
+        self.assertEqual(result['price'],13.7)
+        self.assertEqual(result['askAt'],newer)
+        self.assertEqual(result['sourceUrl'],backup['sourceUrl'])
+        self.assertEqual(result['secondaryQuote']['askAt'],old)
+        self.assertEqual(result['analysisQuote']['price'],result['price'])
+        self.assertFalse(result['found'])
+        self.assertFalse(result['eligible'])
+        self.assertFalse(result['isExecutableQuote'])
+
     def fetch_bnp(self, data):
         with patch.object(q, 'urlopen') as network:
             response = network.return_value.__enter__.return_value
