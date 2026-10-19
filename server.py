@@ -1,3 +1,4 @@
+import bob_passkey
 import degiro_readonly
 import degiro_sandbox
 import degiro_sandbox_panel
@@ -966,6 +967,12 @@ class Handler(BaseHTTPRequestHandler):
     def handle(self):
         try:
             super().handle()
+        except bob_passkey.PasskeyRequired:
+            self.close_connection = True
+            if self.command in ('GET', 'HEAD') and not urlparse(self.path).path.startswith('/api/'):
+                bob_auth.send(self, 303, location='/passkey')
+            else:
+                bob_passkey.respond(self, 403, {'error':'PASSKEY_REQUIRED','url':'/passkey'})
         except bob_auth.AuthenticationUnavailable:
             # A transient store outage is not evidence that a session expired.
             # Deny this request without emitting the 401 that logs the PWA out.
@@ -983,6 +990,8 @@ class Handler(BaseHTTPRequestHandler):
         return bob_auth.authenticated(self.headers, USER, PASSWORD)
 
     def do_GET(self):
+        if bob_passkey.route(self, USER, PASSWORD):
+            return
         if bob_recovery.route(self, USER):
             return
         path = urlparse(self.path).path
@@ -1651,14 +1660,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
+        if bob_passkey.route(self, USER, PASSWORD):
+            return
         if bob_recovery.route(self, USER):
             return
         path = urlparse(self.path).path
         if path == "/mcp":
-            # Basic credentials are checked by Bob's established login layer.
-            # Cookie-based auth is deliberately NOT accepted for this route;
-            # the plugin can only request the allowlisted read-only tools.
-            if (not self.headers.get("Authorization", "").startswith("Basic ")
+            # A separate machine credential is scoped ONLY to this read-only
+            # tool dispatcher. It never grants browser or general API access.
+            # Legacy user-password access remains subject to the daily factor.
+            if not bob_mcp.service_authenticated(self.headers) and (
+                    not self.headers.get("Authorization", "").startswith("Basic ")
                     or not self.authenticated()):
                 self.send_response(401)
                 self.send_header("Cache-Control", "no-store")

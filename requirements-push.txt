@@ -8,3 +8,6 @@ requests==2.34.2
 rapidocr-onnxruntime==1.4.4
 onnxruntime==1.31.0
 opencv-python==5.0.0.93
+
+# WebAuthn signature/origin/challenge verification for optional daily second factor.
+webauthn==3.0.1

@@ -1,0 +1,23 @@
+name: Passkey mobile verification
+on:
+  pull_request:
+    branches: [main]
+    paths: ['*passkey*', '.github/workflows/passkey-mobile.yml']
+permissions:
+  contents: read
+jobs:
+  mobile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install webauthn==3.0.1
+      - run: npm install --prefix /tmp/bob-passkey-browser --no-package-lock playwright@1.51.1
+      - run: /tmp/bob-passkey-browser/node_modules/.bin/playwright install --with-deps chromium
+      - run: NODE_PATH=/tmp/bob-passkey-browser/node_modules node browser_passkey.cjs
