@@ -2007,8 +2007,14 @@ function renderProductDirectionStatus(p,now=Date.now()){
  }
 
  const {blocked,stale,missing}=check.state;
- const label=blocked?(missing?'Werte fehlen oder sind widersprüchlich':'Datenprüfung offen'):stale?'Werte vorhanden (fehlende Aktualität)':'Daten vollständig';
- return '<span data-direction-data-status role="status" aria-label="'+esc(label)+'" style="display:inline-flex;align-items:center;gap:6px;margin-left:8px"><strong style="font-size:1.6em;font-weight:900;color:'+(blocked?'#b91c1c':'#15803d')+'">'+(blocked?'✗':stale?'(✓)':'✓')+'</strong>'+(stale?'<span style="font-weight:700">(fehlende Aktualität)</span>':'')+'</span>';
+ const fields=Object.values(productFieldStates(p,now));
+ const expired=fields.filter(f=>/veraltet/.test(f.state));
+ const uncertain=fields.filter(f=>/unbestätigt|abweichend/.test(f.state));
+ const detail=expired.length?'Veraltete Werte: '+expired.map(f=>f.key+(Number.isFinite(f.ageSeconds)?' ('+Math.floor(f.ageSeconds/60)+' Min.)':'')).join(', '):
+  uncertain.length?'Zeitnachweis offen: '+uncertain.map(f=>f.key).join(', '):'Nachweisprüfung offen · Aktualität separat prüfen';
+ const label=blocked?(missing?'Werte fehlen oder sind widersprüchlich':'Datenprüfung offen'):stale?detail:'Daten vollständig';
+ return '<span data-direction-data-status role="status" aria-label="'+esc(label)+'" style="display:inline-flex;align-items:center;gap:6px;margin-left:8px"><strong style="font-size:1.6em;font-weight:900;color:'+(blocked?'#b91c1c':'#15803d')+'">'+(blocked?'✗':stale?'(✓)':'✓')+'</strong>'+(stale?'<span style="font-weight:700">'+esc(detail)+'</span>':'')+'</span>';
+
 }
 function valuePresenceMark(missing){
  return missing?'<span style="color:#b91c1c;font-weight:700" aria-label="Wert fehlt">✗</span>':'<span style="color:#15803d;font-weight:700" aria-label="Wert vorhanden">✓</span>';
