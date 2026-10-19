@@ -23,6 +23,8 @@ class RepairStoreTests(unittest.TestCase):
         archive._STATS_CACHE = None
         archive._STATS_AT = 0.0
         healing._LAST_ATTEMPTS.clear()
+        healing._RESTART_HISTORY.clear()
+        healing._PAUSE_LOGGED.clear()
         healing._EVENTS.clear()
         healing._UNRESOLVED.clear()
         healing._SUSPECT.clear()
