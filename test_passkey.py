@@ -95,6 +95,49 @@ class PasskeyTests(unittest.TestCase):
         self.assertEqual(self.call('register-options',now=401)['error'],'TOO_MANY_ATTEMPTS')
         self.assertTrue(self.call('register-options',now=701)['ok'])
 
+    def test_remove_lost_key_clears_other_proofs_and_cannot_remove_last(self):
+        self.enroll()
+        old=store.encode(self.cid)
+        self.state['credentials']['other']={'key':'unused','count':0}
+        self.state['proofs']['c'*64]=100+store.TTL
+        self.state['proofKeys']['c'*64]='other'
+        self.assertTrue(self.call('revoke-credential',credentialId='other')['ok'])
+        self.assertNotIn('c'*64,self.state['proofs'])
+        self.assertTrue(self.call('status')['verified'])
+        self.assertEqual(self.call('revoke-credential',credentialId=old)['error'],'LAST_CREDENTIAL')
+
+    def test_recovery_rotation_only_replaces_old_codes_after_confirmation(self):
+        codes=self.enroll()['recoveryCodes']
+        self.assertTrue(self.call('confirm-recovery',code=codes[0])['ok'])
+        old=list(self.state['recovery'])
+        new=self.call('rotate-recovery')['recoveryCodes']
+        self.assertEqual(self.state['recovery'],old)
+        self.assertFalse(self.call('confirm-recovery',code='bad')['ok'])
+        self.assertEqual(self.state['recovery'],old)
+        self.assertTrue(self.call('confirm-recovery',code=new[0])['ok'])
+        self.assertNotEqual(self.state['recovery'],old)
+        self.assertFalse(self.call('recover',code=codes[0])['ok'])
+        self.assertTrue(self.call('recover',code=new[0])['ok'])
+
+    def test_sensitive_management_needs_recent_second_factor(self):
+        self.enroll()
+        for action in ('rotate-recovery','machine-authorize','revoke-credential'):
+            self.assertEqual(self.call(action,now=401)['error'],'FRESH_PASSKEY_REQUIRED')
+        self.payload['binding']='d'*64
+        self.assertEqual(self.call('machine-authorize')['error'],'PASSKEY_REQUIRED')
+
+    def test_machine_setup_before_enrollment_and_recovery_then_new_key(self):
+        self.assertTrue(self.call('machine-authorize')['ok'])
+        code=self.enroll()['recoveryCodes'][0]
+        old=store.encode(self.cid)
+        self.payload['binding']='c'*64
+        self.assertTrue(self.call('recover',code=code)['ok'])
+        self.cid=b'replacement-key'
+        self.enroll()
+        self.assertTrue(self.call('revoke-credential',credentialId=old)['ok'])
+        self.assertNotIn(old,self.state['credentials'])
+        self.assertNotIn('b'*64,self.state['proofs'])
+
     def test_gate_off_does_not_call_store(self):
         with patch.dict(os.environ,{'BOB_PASSKEY_AVAILABLE':'0'}),patch.object(bob_passkey,'rpc') as rpc:
             bob_passkey.require({},'user','pw')
@@ -168,6 +211,9 @@ class PasskeyHTTPTests(unittest.TestCase):
             self.assertEqual(self.request('GET','/api/live',headers)[0],401)
             self.assertEqual(self.request('GET','/passkey',headers)[0],303)
             self.assertEqual(self.request('POST','/api/real-trades/write',headers,'{}')[0],401)
+            machine_basic={**headers,'Authorization':'Basic '+base64.b64encode(('bob-readonly:'+token).encode()).decode()}
+            self.assertEqual(self.request('POST','/mcp',machine_basic,body)[0],200)
+            self.assertEqual(self.request('GET','/api/live',machine_basic)[0],401)
             bad={**headers,'Authorization':'Bearer wrong'}
             self.assertEqual(self.request('POST','/mcp',bad,body)[0],401)
             basic={**headers,'Authorization':'Basic '+base64.b64encode(b'passkey-test:test-password').decode()}
