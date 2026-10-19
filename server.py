@@ -22,6 +22,7 @@ import threading
 import uuid
 import bob_auth
 import bob_mcp
+import bob_oauth
 import bob_recovery
 import bob_self_healing
 import bob_problems
@@ -990,6 +991,8 @@ class Handler(BaseHTTPRequestHandler):
         return bob_auth.authenticated(self.headers, USER, PASSWORD)
 
     def do_GET(self):
+        if bob_oauth.route(self, USER, PASSWORD):
+            return
         if bob_passkey.route(self, USER, PASSWORD):
             return
         if bob_recovery.route(self, USER):
@@ -1660,6 +1663,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
+        if bob_oauth.route(self, USER, PASSWORD):
+            return
         if bob_passkey.route(self, USER, PASSWORD):
             return
         if bob_recovery.route(self, USER):
@@ -1669,10 +1674,11 @@ class Handler(BaseHTTPRequestHandler):
             # A separate machine credential is scoped ONLY to this read-only
             # tool dispatcher. It never grants browser or general API access.
             # Legacy user-password access remains subject to the daily factor.
-            if not bob_mcp.service_authenticated(self.headers) and (
+            if not bob_mcp.service_authenticated(self.headers) and not bob_oauth.bearer_authenticated(self.headers, USER) and (
                     not self.headers.get("Authorization", "").startswith("Basic ")
                     or not self.authenticated()):
                 self.send_response(401)
+                self.send_header("WWW-Authenticate", bob_oauth.challenge_header())
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("Content-Length", "0")
                 self.end_headers()

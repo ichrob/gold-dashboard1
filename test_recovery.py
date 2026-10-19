@@ -13,6 +13,7 @@ class DB:
         self.c = sqlite3.connect(':memory:')
         r.init(self)
         self.execute('CREATE TABLE bob_browser_sessions(token_hash TEXT)')
+        self.execute('CREATE TABLE bob_oauth(account TEXT PRIMARY KEY, state TEXT)')
     def execute(self, sql, args=()):
         return self.c.execute(sql.replace('%s','?').replace(' FOR UPDATE',''), args)
 
@@ -46,11 +47,13 @@ class RecoveryTests(unittest.TestCase):
     def test_single_use_and_session_revocation(self):
         self.assertTrue(self.call('issue')['issued'])
         self.db.execute("INSERT INTO bob_browser_sessions VALUES('old')")
+        self.db.execute('INSERT INTO bob_oauth VALUES(%s,%s)', (self.account,'old-grants'))
         h=r.hash_password('new-secure-password')
         self.assertTrue(self.call('reset',passwordHash=h)['ok'])
         self.assertFalse(self.call('reset',passwordHash=h)['ok'])
         self.assertEqual(self.call('state')['version'],1)
         self.assertEqual(self.db.execute('SELECT count(*) FROM bob_browser_sessions').fetchone()[0],0)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM bob_oauth').fetchone()[0],0)
     def test_expiry_and_wrong_token(self):
         self.call('issue');h=r.hash_password('new-secure-password')
         self.assertFalse(self.call('reset',tokenHash='c'*64,passwordHash=h)['ok'])

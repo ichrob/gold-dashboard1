@@ -78,6 +78,7 @@ def handle(conn, action, payload, now=None):
         conn.execute('''UPDATE bob_recovery SET password_hash=%s,version=version+1,
             token_hash=NULL,expires_at=0 WHERE account=%s''', (encoded, account))
         conn.execute('DELETE FROM bob_browser_sessions')
+        conn.execute('DELETE FROM bob_oauth WHERE account=%s', (account,))
         return {'ok': True}
     raise ValueError('Unbekannte Wiederherstellungsaktion')
 

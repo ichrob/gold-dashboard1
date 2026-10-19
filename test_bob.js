@@ -83,7 +83,8 @@ assert(sensitiveGate < serverSource.indexOf('if path == "/api/live":'));
 assert(sensitiveGate < serverSource.indexOf('if path == "/api/mtf":'));
 assert(sensitiveGate < serverSource.indexOf('if path == "/api/degiro/enrich":'));
 assert(serverSource.includes('self.send_response(401)'));
-assert(!serverSource.includes('WWW-Authenticate')); // HTML login replaces native browser challenge
+// HTML routes must not emit native password challenges; actual HTTP assertions
+// live in test_bob_oauth.py. MCP alone now needs an OAuth Bearer challenge.
 assert(serverSource.includes('"xaus_is_spot": is_spot'));
 assert(serverSource.includes('"is_genuine_xauusd_spot": is_spot'));
 assert(serverSource.includes('Never promote technical/futures history to the XAU/USD spot field.'));

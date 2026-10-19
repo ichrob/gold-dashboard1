@@ -261,7 +261,8 @@ def login(handler, user, password):
                 SESSIONS.pop(next(iter(SESSIONS)))
             if not remember:
                 SESSIONS[token] = (now + age, current['version'])
-        send(handler, 303, location='/', cookies=[set_cookie(COOKIE, token, age), set_cookie(CSRF_COOKIE, '', 0)])
+        import bob_oauth
+        send(handler, 303, location=bob_oauth.resume_location(handler.headers), cookies=[set_cookie(COOKIE, token, age), set_cookie(CSRF_COOKIE, '', 0)])
     except (ValueError, UnicodeError):
         send(handler, 400, b'Ungueltige Anmeldung.')
 
