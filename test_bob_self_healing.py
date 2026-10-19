@@ -15,6 +15,8 @@ def healthy():
 class SelfHealingTests(unittest.TestCase):
     def setUp(self):
         sh._LAST_ATTEMPTS.clear()
+        sh._RESTART_HISTORY.clear()
+        sh._PAUSE_LOGGED.clear()
         sh._EVENTS.clear()
         sh._ACTIVE = ()
         sh._UNRESOLVED.clear()
