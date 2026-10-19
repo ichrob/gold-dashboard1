@@ -1998,13 +1998,14 @@ function renderProductDirectionStatus(p,now=Date.now()){
  if(check.paused)return '<span data-direction-data-status data-regular-trading-pause>Reguläre Handelspause · letzter Kursstand gespeichert</span>';
  const analysis=check.analysis;
  if(analysis){
-  if(degiroVenueObserved(p))return '<span data-direction-data-status data-sg-chf-analysis-only role="status" style="display:inline-flex;gap:6px;flex-wrap:wrap"><strong style="color:#15803d">(✓) Kurs/Hebel · Analyse</strong><span style="color:#15803d">✓ DEGIRO-Handelsplatz belegt</span></span>';
-  if(degiroVenueInferred(p,listArchive,now))return '<span data-direction-data-status data-sg-chf-analysis-only><strong style="color:#15803d">(✓) Kurs/Hebel · Analyse</strong> · Handelsplatz aus Quellen abgeleitet</span>';
-  // A red X meant "product values missing" despite current SG bid/ask/gearing.
-  // Show their verified research status separately from the still-open broker
-  // execution check; never change complete, eligible, rank or tradeApproved.
-  return '<span data-direction-data-status data-sg-chf-analysis-only role="status" aria-label="SG-Geld, Brief und Hebel aktuell für die Analyse; DEGIRO-Handelsplatznachweis offen" style="display:inline-flex;align-items:center;gap:6px;margin-left:8px;flex-wrap:wrap"><strong style="font-size:1.6em;font-weight:900;color:#15803d">(✓)</strong><span style="font-weight:700">Kurs/Hebel · nur Analyse</span><span style="color:#92400e">⚠ DEGIRO-Handelsplatznachweis offen</span></span>';
+  // Fresh analysis evidence and broker execution are separate display facts.
+  // Keep productDirectionCheck and all trading/collection gates unchanged.
+  const venue=degiroVenueObserved(p)?'<span style="color:#15803d">✓ DEGIRO-Handelsplatz belegt</span>':
+   degiroVenueInferred(p,listArchive,now)?'<span>Handelsplatz aus Quellen abgeleitet</span>':
+   '<span style="color:#92400e">⚠ DEGIRO-Handelsplatznachweis offen</span>';
+  return '<span data-direction-data-status data-sg-chf-analysis-only role="status" aria-label="Kurs und Hebel aktuell für die Analyse; gemeinsamer Zeitbezug bestätigt; Ausführungskurs bei DEGIRO nicht bestätigt" style="display:inline-flex;gap:6px;flex-wrap:wrap"><strong style="color:#15803d">✓ Kurs/Hebel aktuell · Analyse</strong><span style="color:#15803d">✓ Gemeinsamer Zeitbezug bestätigt</span>'+venue+'<span data-execution-proof-open style="color:#92400e">Ausführungskurs bei DEGIRO: nicht bestätigt</span></span>';
  }
+
  const {blocked,stale,missing}=check.state;
  const label=blocked?(missing?'Werte fehlen oder sind widersprüchlich':'Datenprüfung offen'):stale?'Werte vorhanden (fehlende Aktualität)':'Daten vollständig';
  return '<span data-direction-data-status role="status" aria-label="'+esc(label)+'" style="display:inline-flex;align-items:center;gap:6px;margin-left:8px"><strong style="font-size:1.6em;font-weight:900;color:'+(blocked?'#b91c1c':'#15803d')+'">'+(blocked?'✗':stale?'(✓)':'✓')+'</strong>'+(stale?'<span style="font-weight:700">(fehlende Aktualität)</span>':'')+'</span>';
