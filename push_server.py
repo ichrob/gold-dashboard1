@@ -12,6 +12,7 @@ import fibonacci_monitor
 import background_push
 import bob_session_store
 import bob_recovery
+import diagnostic_history
 import bob_repair_store
 import research_transcript_provider
 import research_enhancements
@@ -123,6 +124,7 @@ def _init_db_once():
         bob_passkey_store.init(conn)
         bob_oauth_store.init(conn)
         bob_repair_store.init(conn)
+        diagnostic_history.init(conn)
         bob_market_store.init(conn)
         strategy_lab_store.init(conn)
         weekend_archive.init(conn)
@@ -537,6 +539,12 @@ def run_background(bundle):
                     delivered=False
                     if getattr(getattr(exc,'response',None),'status_code',None) in (404,410):
                         conn.execute('DELETE FROM subscriptions WHERE id=%s',(sid,))
+            diagnostic_history.emit('push', market.get('traceId') or diagnostic_history.trace(bundle),
+                {'outcome':('provider-accepted' if delivered else 'delivery-failed') if events else 'no-alert',
+                 'eventsCount':len(events),
+                 'events':[e for e in state.get('pushHistory',[]) if e.get('at',0)>=(previous or {}).get('diagnosticAt',0)][-20:]},
+                market.get('decisionId'))
+            state['diagnosticAt']=int(time.time()*1000)
             if events:
                 try:
                     import improvement_resilience
@@ -693,6 +701,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         try:
+            if path == '/diagnostic-history':
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'});return
+                payload=json_body(self)
+                with db() as conn:
+                    conn.execute("SET LOCAL statement_timeout='1500ms'")
+                    diagnostic_history.write(conn,payload)
+                send_json(self,200,{'ok':True});return
             if path in ("/self-heal-events/read", "/self-heal-events/write"):
                 supplied = self.headers.get("X-Bob-Push-Token", "")
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
@@ -1264,6 +1281,7 @@ if __name__ == "__main__":
     product_push.evaluate({'products': [], 'capturedAt': int(time.time()*1000)})
     print("BOB_PUSH startup=database", flush=True)
     init_db()
+    diagnostic_history.configure(db)
     print("BOB_PUSH startup=ready", flush=True)
     threading.Thread(target=product_expiry_loop, name="bob-product-expiry", daemon=True).start()
     threading.Thread(target=audit_outcome_loop, name="bob-audit-outcomes", daemon=True).start()

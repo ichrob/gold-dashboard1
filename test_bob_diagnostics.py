@@ -146,7 +146,7 @@ class ExpandedReportTests(unittest.TestCase):
         self.assertEqual(result['areas']['tradeMonitoring']['status'],'unavailable')
         self.assertEqual(result['areas']['repairs']['status'],'observed')
         self.assertNotIn('secret',json.dumps(result))
-        self.assertEqual(conn.transaction.call_count,6)
+        self.assertEqual(conn.transaction.call_count,7)
 
     def test_recovery_state_is_preserved_and_summarized(self):
         products=diagnostics.product_snapshot({'items':[{'sourceRecovery':[{'stage':'comdirect-fetch','state':'failed','retryAfterSeconds':30}]}]})

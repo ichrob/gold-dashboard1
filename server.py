@@ -207,7 +207,9 @@ def _healing_watch_loop():
             maintain_known_workers()
             import market_recovery
             market_recovery.tick()
-            service_health()
+            observed_health = service_health()
+            import diagnostic_history
+            diagnostic_history.health(observed_health)
             import repair_supervision
             repair_supervision.completed()
         except Exception as exc:
@@ -2059,14 +2061,19 @@ def fibonacci_monitor_loop():
                 except Exception:
                     bundle = {}
                     bars = {}  # Let the push monitor announce a data outage once.
+                import diagnostic_history
+                source_trace = diagnostic_history.trace(bundle)
+                diagnostic_history.emit('input', source_trace, {**(bundle.get('spots') or {}), 'fetchedAt':bundle.get('fetched_at')})
                 background_bundle = {**bundle, "history":{**bundle.get("history",{}),"bars_by_tf":{tf:bars.get(tf,[])[-240:] for tf in ("1m","5m","15m","1h","4h")}}}
                 request = Request(base+"/background",data=json.dumps({"bundle":background_bundle}).encode(),method="POST",headers={"Content-Type":"application/json","X-Bob-Push-Token":PUSH_SERVICE_TOKEN})
                 try:
                     with urlopen(request,timeout=45) as response:
                         background_result=json.loads(response.read(4096))
+                    diagnostic_history.emit('transport', source_trace, {'outcome':'background-accepted'})
                     print("BOB_BACKGROUND checked sent="+str(background_result.get('sent',0)),flush=True)
                 except Exception as exc:
                     background_ok = False
+                    diagnostic_history.emit('transport', source_trace, {'outcome':'background-failed','errorType':type(exc).__name__})
                     print("BOB_BACKGROUND error="+type(exc).__name__,flush=True)
                 if active:
                     payload = {"barsByTf":{tf:bars.get(tf, [])[-12:] for tf in ("5m","15m","1h")}}
