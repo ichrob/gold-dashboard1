@@ -1,5 +1,5 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
-const passes=JSON.parse(fs.readFileSync('test_fixtures/degiro_chf_columns.json','utf8'));
+let passes=JSON.parse(fs.readFileSync('test_fixtures/degiro_chf_columns.json','utf8'));
 let mode='3';const calls=[];
 const worker={setParameters:async p=>{mode=p.tessedit_pageseg_mode||mode;},recognize:async()=>{calls.push(mode);return {data:structuredClone(passes[{'3':0,'6':1,'11':2}[mode]])};}};
 const context={window:{},document:{getElementById:()=>null,readyState:'loading',addEventListener(){}},console,setTimeout,clearTimeout};
@@ -18,5 +18,13 @@ const b=context.window.BobDegiro;b.setWorker(worker);
  assert(context?.anchorIsinVerified);
  const chart=b.detailScreenshotData(passes[3].text,isin,context);assert(chart.ok,chart.reason);assert.equal(Number(chart.leverage),48.72);assert.equal(chart.bid,null);assert.equal(chart.ask,null);
  assert(!b.detailScreenshotData(result.data.text,'DE000FG8NHQ3').ok);
+ // Android reported final-digit S in the same numeric-symbol table.
+ passes=passes.map(p=>({...p,text:p.text.replaceAll('FG14AV8','FG14AVS')}));
+ const reread=await b.recognizeOcr({},null,true,isin);
+ const fixed=b.detailScreenshotData(reread.data.text,isin,null,reread.data.unconfirmedFields||[]);
+ assert(fixed.ok,fixed.reason);assert.equal(fixed.bid,6.87);assert.equal(fixed.ask,6.88);
+ const anchored=b.screenshotSeriesContext([{ok:true,name:'table',raw:reread.data.text,data:fixed},{ok:false,ocr:{data:{text:passes[3].text}}}],isin);
+ assert(anchored?.anchorIsinVerified);assert(b.detailScreenshotData(passes[3].text,isin,anchored).ok);
+ for(const raw of [passes[1].text.replace('158460173','158460174'),passes[1].text.replace('Societe Generale OTC','Other venue'),passes[1].text.replace('DEOOOFG14AVS','DE000FG8NHQ3')])assert(!b.detailScreenshotData(raw,isin).ok);
  console.log('Original broker screenshot: column-order failure reproduced; row layout, independent numeric reads, venue, clock and series anchor recovered');
 })().catch(e=>{console.error(e);process.exitCode=1;});
