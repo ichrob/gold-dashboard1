@@ -693,17 +693,21 @@ def _restore_exact_sg_metadata(result, isin):
 
 def _get_quote_bounded(isin):
     isin = str(isin or '').strip().upper()
+    from product_source_recovery import attempt, enrich
+    recovery = []
     # Start the authorised backup while the issuer is being read. The bounded
     # shared cache deduplicates this request; its original clocks are retained.
     from public_product_terms import TERMINAL
     if valid_isin(isin) and isin not in TERMINAL:
         from comdirect_quotes import get_observation
-        get_observation(isin)
+        attempt('comdirect-fetch', isin, lambda: get_observation(isin), {}, recovery)
         from swissquote_quotes import get_observation as get_swissquote
-        get_swissquote(isin)
+        attempt('swissquote-fetch', isin, lambda: get_swissquote(isin), {}, recovery)
     from finanzen_terms import apply as apply_terms_backup
     from comdirect_fields import apply as apply_comdirect_fields
-    result = apply_terms_backup(apply_comdirect_fields(_get_quote_primary(isin), isin), isin)
+    result = _get_quote_primary(isin)
+    result = enrich('comdirect-terms', isin, apply_comdirect_fields, result, recovery)
+    result = enrich('finanzen-terms', isin, apply_terms_backup, result, recovery)
     result = _restore_exact_sg_metadata(result, isin)
     if result.get('metadata', {}).get('currency') == 'CHF':
         from sg_chf import convert_analysis
@@ -716,9 +720,9 @@ def _get_quote_bounded(isin):
             source='SG · datierter Chartkurs'+(' · CHF in EUR umgerechnet' if result.get('currencyConversion') else ''), priceKind='issuer-chart',
             isExecutableQuote=False)
     from comdirect_quotes import apply as apply_comdirect_quotes
-    result = apply_comdirect_quotes(result, isin)
+    result = enrich('comdirect-quote', isin, apply_comdirect_quotes, result, recovery)
     from swissquote_quotes import apply as apply_swissquote
-    result = apply_swissquote(result, isin)
+    result = enrich('swissquote-quote', isin, apply_swissquote, result, recovery)
     from leverage_backup import apply, select_analysis_quote
     selected = select_analysis_quote(result)
     if (selected.get('priceKind') == 'issuer-chart' and result.get('productVerified')
@@ -738,4 +742,9 @@ def _get_quote_bounded(isin):
     from secondary_validity import apply as apply_secondary_validity
     validated = apply_secondary_validity(apply(result), isin)
     from hybrid_product_price import apply as apply_hybrid_research
-    return apply_hybrid_research(validated)
+    output = apply_hybrid_research(validated)
+    if recovery:
+        output['sourceRecovery'] = recovery
+        if any(event['state'] in ('failed', 'waiting') for event in recovery):
+            output['eligible'] = False  # Incomplete source checks cannot grant approval.
+    return output
