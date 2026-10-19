@@ -118,7 +118,7 @@ class PushMonitorTests(unittest.TestCase):
             pool.assert_called_once()
             self.assertEqual(pool.call_args.kwargs['kwargs']['connect_timeout'], 5)
             self.assertIn('lock_timeout=3000', pool.call_args.kwargs['kwargs']['options'])
-            self.assertEqual(pool.call_args.kwargs['max_size'], 8)
+            self.assertEqual(pool.call_args.kwargs['max_size'], 6)
             self.assertEqual(pool.call_args.kwargs['timeout'], 5)
 
     def test_selection_off_does_not_evaluate_or_send(self):
