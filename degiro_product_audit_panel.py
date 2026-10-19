@@ -51,6 +51,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
     'Fehlende Nachweise: '+(missing.length?missing.join(', '):'keine aufgelistet'),
     'Fehlerbeschreibung: '+(messages.length?messages.join(' | '):'keine'),
     'Hinweise aus der aktuellen Produktkarte: '+(Array.isArray(item.cardMessages)&&item.cardMessages.length?item.cardMessages.map(safe).join(' | '):'keine zusätzlichen Kartenhinweise'),
+    'Automatische Quellenreparatur: '+(Array.isArray(item.sourceRecovery)&&item.sourceRecovery.length?item.sourceRecovery.map(event=>safe(event.stage)+' · '+safe(event.state)).join(' | '):'keine technische Quellenstörung gemeldet'),
     'Quelle: '+safe(item.source),
     'Geld/Brief-Quelle: '+safe(item.dataQuoteSource),
     'Geld/Brief-Zeit: '+time(item.quoteSourceAt),
@@ -191,6 +192,14 @@ PANEL = r'''<section id="bobProductAudit" class="card">
         (item.dataQuoteSource?'\nKursnachweis: '+item.dataQuoteSource+(item.dataQuoteKind==='market-observation'?' · beobachtetes Geld/Brief, keine DEGIRO-Ausführungszusage':''):'')+
         (item.lastRecoveredAt?'\nAutomatisch wiederhergestellte Nachweise: '+(item.recoveredFields||[]).join(', ')+' · '+fmt(item.lastRecoveredAt):'')+
         '\nKeine automatische DEGIRO-Handelsfreigabe.';
+   const recovery=Array.isArray(item.sourceRecovery)?item.sourceRecovery:[];
+   if(recovery.length){
+    const notice=document.createElement('p');notice.className='small';
+    notice.textContent='Automatische Quellenreparatur: '+recovery.map(event=>
+     event.stage+' · '+(event.state==='call-restored'?'Abruf funktioniert wieder; Produktnachweise werden separat geprüft':
+      'Zusatzquelle gestört; andere Quellen laufen weiter · erneuter Versuch frühestens in '+event.retryAfterSeconds+' s')).join(' | ');
+    node.append(notice);
+   }
    const study=r.priceStudy?.[item.isin];
    if(study){
     const evaluation=document.createElement('p');
