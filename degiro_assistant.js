@@ -735,11 +735,12 @@ function strictOcrNumber(token){
  return Number.isFinite(n)?n:null;
 }
 function ocrNumericFields(text){
- const raw=normalizeSwissSgText(normalizeBnpQuoteColumns(String(text||''))),out={};
+ const raw=normalizeSwissSgText(normalizeBnpQuoteColumns(String(text||'')))
+  .replace(/((?:^|\n)\s*(?:Geld|Bid)\s*(?:CHF|EUR|€)?\s*\d+[.,]\d+(?:[ \t]*(?:CHF|EUR))?)[ \t]+(?=(?:Brief|Ask)\s)/gi,'$1\n'),out={};
  // A failed neighbouring field must not discard independently readable evidence.
  for(const key of ['ko','strike','ratio']){const terms=parseProductTerms(raw,[key]);if(!terms.error&&terms[key])out[key]=terms[key].value;}
  for(const [key,label] of [['bid','Geld|Bid|Verkaufen'],['ask','Brief|Ask|Kaufen'],['leverage','Hebel|Leverage']]){
-  const matches=Array.from(raw.matchAll(new RegExp('(?:^|\\n)\\s*(?:'+label+')(?!\\s*(?:Vol(?:umen)?\\b|Vol\\.))\\s*[:=]?\\s*(?:€|EUR)?\\s*([0-9A-Za-z.,]+)','gi')));
+  const matches=Array.from(raw.matchAll(new RegExp('(?:^|\\n)\\s*(?:'+label+')(?!\\s*(?:Vol(?:umen)?\\b|Vol\\.))\\s*[:=]?\\s*(?:€|EUR|CHF)?\\s*([0-9A-Za-z.,]+)','gi')));
   const values=matches.map(m=>strictOcrNumber(m[1]));
   if(values.length&&values.every(v=>v!==null&&v===values[0]))out[key]=values[0];
  }
@@ -998,7 +999,7 @@ function scalarCellRect(data,key){
   !words.some(v=>/^Vol(?:umen)?\.?$/i.test(v.text)&&v.bbox.x0>=w.bbox.x1&&v.bbox.x0-w.bbox.x1<4*(w.bbox.y1-w.bbox.y0)&&Math.abs(v.bbox.y0-w.bbox.y0)<(w.bbox.y1-w.bbox.y0)));
  if(rows.length!==1)return null;
  const b=rows[0].bbox,h=b.y1-b.y0;if(h<6)return null;
- const numeric=words.filter(w=>/^\d+(?:[.,]\d+)*(?::1)?$/.test(w.text));
+ const numeric=words.filter(w=>/^\d+(?:[.,]\d+)*(?::1)?$/.test(['bid','ask'].includes(key)?w.text.replace(/^(?:CHF|EUR|€)\s*/i,''):w.text));
  // In a two-column broker table the opposite label bounds this cell.
  const nextLabel=words.filter(w=>/^(Geld|Bid|Brief|Ask)$/i.test(w.text)&&w.bbox.x0>b.x1&&Math.abs((w.bbox.y0+w.bbox.y1-b.y0-b.y1)/2)<h).reduce((x,w)=>Math.min(x,w.bbox.x0),Infinity);
  let values=numeric.filter(w=>w.bbox.x0>b.x1&&w.bbox.x1<nextLabel&&Math.abs((w.bbox.y0+w.bbox.y1-b.y0-b.y1)/2)<h);
@@ -1017,7 +1018,7 @@ async function readScalarCell(worker,image,data,key){
    const crop=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!crop)return [];
    await worker.setParameters({tessedit_pageseg_mode:mode,tessedit_char_whitelist:''});
    const result=await ocrTimeout(worker.recognize(crop),15000,'Feldprüfung beendet');
-   const value=String(result.data?.text||'').trim();
+   const value=String(result.data?.text||'').trim().replace(['bid','ask'].includes(key)?/^(?:CHF|EUR|€)\s*/i:/^$/,'');
    if(!/^\d+(?:[.,]\d+)*(?:\s*:\s*1)?$/.test(value))continue;
    const text=({ratio:'Bezugsverhältnis',leverage:'Hebel',bid:'Geld',ask:'Brief'})[key]+' '+value;
    if(ocrNumericFields(text)[key]!==undefined)reads.push(text);
@@ -3109,9 +3110,14 @@ function productFieldStates(p,now=Date.now()){
  }
  const le=shot?.evidence?.Hebel,shared=sharedSgIssuerLeverage(p,now);
  const hasShot=!le?.conflict&&!le?.revoked&&n(le?.value)>=1;
- const leverage=n(q?.leverage)>=1?q.leverage:hasShot?le.value:shared?.value??(n(p.leverage)>=1?p.leverage:null);
- const directLev=q&&n(q.leverage)===n(leverage);
- const sharedLev=!directLev&&shared&&n(leverage)===shared.value&&!hasShot;
+ const directAt=Date.parse(q?.leverageAt);
+ const directFresh=n(q?.leverage)>=1&&Number.isFinite(directAt)&&now>=directAt&&now-directAt<=90000;
+ // A stale/undated retained leverage must not mask the current matching SG
+ // reference used by the analysis badge above this diagnostic block.
+ const preferShared=shared?.fresh&&!directFresh;
+ const leverage=preferShared?shared.value:n(q?.leverage)>=1?q.leverage:hasShot?le.value:shared?.value??(n(p.leverage)>=1?p.leverage:null);
+ const directLev=!preferShared&&q&&n(q.leverage)===n(leverage);
+ const sharedLev=preferShared||(!directLev&&shared&&n(leverage)===shared.value&&!hasShot);
  items.leverage=from('Hebel',leverage,directLev?q.leverageAt:sharedLev?shared.at:hasShot&&n(le.value)===n(leverage)?le.at:null,
   directLev?(q.leverageSource||q.source):sharedLev?shared.source:le?.source,
   directLev?90000:sharedLev?300000:SCREENSHOT_MAX_AGE_MS,directLev?'':sharedLev?'issuer-reference':'screenshot');
@@ -3471,7 +3477,7 @@ async function readProductPdf(file,expected){
  }finally{await task.destroy();}
 }
 // Local originals support reprocessing after OCR updates. Never refresh source clocks.
-const PRODUCT_OCR_VERSION='2026-10-19-quote-volume-isolation-v12';
+const PRODUCT_OCR_VERSION='2026-10-19-chf-table-reference-v13';
 const ORIGINAL_TTL=7*86400000,ORIGINAL_LIMIT=100*1024*1024;
 const activeProductImports=new Set();
 function originalRetention(records,now=Date.now()){
