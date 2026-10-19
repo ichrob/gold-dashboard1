@@ -118,3 +118,28 @@ mandatory; failed mandatory validators are not bypassed, and an optional source
 exception cannot grant eligibility. No source timestamp, KO/stop rule, executable
 broker proof, or trading permission is invented or relaxed. This mechanism does
 not rewrite code automatically; new parser bugs still require a tested release.
+
+### Evidence-checked product repair memory
+
+The existing private audit JSON now persists a bounded repair plan and source
+success counts per listed ISIN. Missing proof codes select quote, leverage,
+contract-term or identity checks. Exclusions are never treated as repairable
+permissions. No private identifiers are added to public diagnostics.
+
+A cleared diagnostic alone is not a verified repair. Quote/leverage/identity
+recovery requires two fresh observations with advancing source timestamps,
+separated by at least 20 seconds. Static contract terms require valid reviewed
+source evidence and repeated checks at least 20 seconds apart. Recurrence,
+missing evidence or a changed source resets confirmation. Cached quotes cannot
+increase success counters. Remembered source assistance is observational, not
+proof that a particular retry caused the recovery.
+
+The source counts and last twelve verified events survive deployments in the
+existing audit store. Reuploading a list retains history for matching ISINs but
+resets unresolved incident tracking. The paper worker restores current saved
+priorities before normal product refreshes; reports older than three minutes
+cannot activate priorities. Successful alternative sources are prefetched first;
+all approved sources, issuer preference and evidence validators remain in place.
+The paper cache refresh also isolates optional source exceptions, as the main
+product path already does. No new paid service, separate worker or unconstrained
+code-writing agent is enabled. New code fixes still use tested PRs.

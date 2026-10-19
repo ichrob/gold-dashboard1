@@ -466,6 +466,13 @@ def build(feed, quotes, now_ms=None, previous=None):
         else:
             item['lastRecoveredAt'] = before.get('lastRecoveredAt')
             item['recoveredFields'] = before.get('recoveredFields', [])
+        import product_repair_learning
+        learning_before = before
+        if not learning_before:
+            prior = next((p for p in previous.get('items', []) if p.get('isin') == isin), {})
+            remembered = prior.get('repairLearning') or {}
+            learning_before = {'repairLearning': {k: remembered[k] for k in ('sourceSuccesses', 'history') if k in remembered}}
+        item["repairLearning"] = product_repair_learning.update(item, learning_before, now_ms)
         items.append(item)
     checked = datetime.fromtimestamp(now_ms/1000,timezone.utc).isoformat()
     incomplete = sum(item["state"] == "incomplete" for item in items)
@@ -495,6 +502,8 @@ def store(conn, feed, quotes, now_ms):
         VALUES(1,%s::jsonb,NOW()) ON CONFLICT(id)
         DO UPDATE SET payload=EXCLUDED.payload, checked_at=EXCLUDED.checked_at""",
         (json.dumps(report, ensure_ascii=False),))
+    import product_repair_learning
+    product_repair_learning.install(report)
     return report
 
 

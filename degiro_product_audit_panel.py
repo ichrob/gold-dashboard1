@@ -52,6 +52,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
     'Fehlerbeschreibung: '+(messages.length?messages.join(' | '):'keine'),
     'Hinweise aus der aktuellen Produktkarte: '+(Array.isArray(item.cardMessages)&&item.cardMessages.length?item.cardMessages.map(safe).join(' | '):'keine zusätzlichen Kartenhinweise'),
     'Automatische Quellenreparatur: '+(Array.isArray(item.sourceRecovery)&&item.sourceRecovery.length?item.sourceRecovery.map(event=>safe(event.stage)+' · '+safe(event.state)).join(' | '):'keine technische Quellenstörung gemeldet'),
+    'Reparaturplan: '+(item.repairLearning?Object.values(item.repairLearning.incidents||{}).map(x=>safe(x.action)+' · '+safe(x.state)).join(' | ')||'keine offene Reparaturprüfung':'noch nicht erfasst'),
     'Quelle: '+safe(item.source),
     'Geld/Brief-Quelle: '+safe(item.dataQuoteSource),
     'Geld/Brief-Zeit: '+time(item.quoteSourceAt),
@@ -192,6 +193,15 @@ PANEL = r'''<section id="bobProductAudit" class="card">
         (item.dataQuoteSource?'\nKursnachweis: '+item.dataQuoteSource+(item.dataQuoteKind==='market-observation'?' · beobachtetes Geld/Brief, keine DEGIRO-Ausführungszusage':''):'')+
         (item.lastRecoveredAt?'\nAutomatisch wiederhergestellte Nachweise: '+(item.recoveredFields||[]).join(', ')+' · '+fmt(item.lastRecoveredAt):'')+
         '\nKeine automatische DEGIRO-Handelsfreigabe.';
+   const learning=item.repairLearning;
+   if(learning){
+    const notice=document.createElement('p');notice.className='small';
+    const states={repairing:'Reparatur läuft',verifying:'Erfolg wird nachgeprüft',ready:'Keine offene Reparaturprüfung',excluded:'Keine automatische Umgehung'};
+    notice.textContent='Selbstreparatur: '+(states[learning.status]||'Prüfung offen')+'. '+
+     Object.values(learning.incidents||{}).map(x=>x.action+' ('+(x.state==='awaiting-evidence'?'Bestätigung fehlt':x.state==='verifying'?'Nachprüfung läuft':'erneute Prüfung')+')').join(' · ')+
+     ' Bestätigte Quellenhilfen: '+Object.entries(learning.sourceSuccesses||{}).map(([source,count])=>source+': '+count).join(' · ');
+    node.append(notice);
+   }
    const recovery=Array.isArray(item.sourceRecovery)?item.sourceRecovery:[];
    if(recovery.length){
     const notice=document.createElement('p');notice.className='small';
