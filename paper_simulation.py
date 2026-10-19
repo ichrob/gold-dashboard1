@@ -738,9 +738,16 @@ def quote_cache(products, active, now):
         raw=_quotes.get(isin,by_isin.get(isin))
         # Independently harvest the shared nonblocking source cache even while
         # all issuer slots are occupied. Identity checks remain in each parser.
-        raw=refresh_fields(raw if isinstance(raw,dict) else {'isin':isin},isin)
-        refreshed=refresh_third_source(refresh_backup(raw,isin),isin) if isinstance(raw,dict) else raw
+        from product_source_recovery import enrich
+        recovery=[]
+        raw=enrich('comdirect-terms',isin,refresh_fields,raw if isinstance(raw,dict) else {'isin':isin},recovery)
+        refreshed=enrich('comdirect-quote',isin,refresh_backup,raw,recovery)
+        refreshed=enrich('swissquote-quote',isin,refresh_third_source,refreshed,recovery)
         observations[isin]=refresh_calculated_price(refresh_leverage(refreshed)) if isinstance(refreshed,dict) else refreshed
+        if recovery:
+            observations[isin]['sourceRecovery']=recovery
+            if any(event['state'] in ('failed','waiting') for event in recovery):
+                observations[isin]['eligible']=False
     return observations
 
 def _worker(db):
@@ -776,6 +783,13 @@ def _worker(db):
                         try:
                             with conn.transaction():active_isins+=ranking_lifecycle.active_isins(conn)
                         except Exception as exc:print('BOB_RANKING_EXITS lookup_error='+type(exc).__name__,flush=True)
+                        import product_repair_learning
+                        try:
+                            with conn.transaction():
+                                saved=conn.execute('SELECT payload FROM bob_degiro_product_audit WHERE id=1').fetchone()
+                            product_repair_learning.install(saved[0] if saved else {},now)
+                        except Exception:
+                            product_repair_learning.install({})
                         quotes=quote_cache(evidence['products'],active_isins,now)
                         # Source refresh may fetch newer timestamps. Audit against
                         # completion time, never the clock from before those reads.
