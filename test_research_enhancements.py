@@ -240,7 +240,9 @@ class ResearchTests(unittest.TestCase):
         self.assertFalse(r.summary_paused((fp,None,True,'http_503',2,False),fp))
         self.assertTrue(r.summary_paused((fp,None,True,'http_503',3,False),fp))
         self.assertTrue(r.summary_paused((fp,None,True,'unsupported_numbers',1,False),fp))
-        self.assertTrue(r.summary_paused((fp,None,True,'pending',0,False),fp))
+        self.assertFalse(r.summary_paused((fp,None,True,'pending',1,False),fp))
+        self.assertTrue(r.summary_paused((fp,None,True,'pending',1,True),fp))
+        self.assertTrue(r.summary_paused((fp,None,True,'pending',3,False),fp))
         self.assertFalse(r.summary_paused((fp,None,True,None,0,True),fp))
 
     def test_transient_failure_schedules_retry_but_still_respects_daily_quota(self):
@@ -253,7 +255,7 @@ class ResearchTests(unittest.TestCase):
         with patch.dict(os.environ,env,clear=True), patch.object(r,'generate',side_effect=error) as call:
             out = r.handle(lambda:db,payload)
             self.assertEqual(out['summaryRetryAfterSeconds'],300)
-            self.assertTrue(any('summary_failures=summary_failures+1' in q for q,_ in db.queries))
+            self.assertTrue(any('summary_failures=CASE WHEN' in q for q,_ in db.queries))
             db.count = (10,0)
             out = r.handle(lambda:db,payload)
             self.assertEqual(call.call_count,1)
