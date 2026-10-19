@@ -2,6 +2,7 @@
 import copy
 import math
 import re
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from datetime import datetime, timezone
 from public_product_terms import plain, ORIGIN
 from term_series import observed_condition
@@ -40,6 +41,7 @@ def parse_page(html, isin, now=None):
         raise ValueError('UNSUPPORTED_PRODUCT')
     url = ORIGIN+'inf/zertifikate/'+isin
     values = dict(type='Knock-out Turbo', direction=direction)
+    decimals = {}
     currency = field('Währung', 'Währungs\u00adgesichert')
     if currency in ('EUR', 'CHF'):
         values['currency'] = currency
@@ -54,6 +56,7 @@ def parse_page(html, isin, now=None):
         try:
             if raw.endswith(' USD'):
                 values[key] = number(raw[:-4])
+                decimals[key] = len(raw[:-4].split(',')[1]) if ',' in raw[:-4] else 0
         except ValueError:
             pass
     for key, label, end in [('maturity', 'Laufzeitende', 'Letzter Handelstag'),
@@ -99,11 +102,25 @@ def parse_page(html, isin, now=None):
     for key in ('ko', 'strike'):
         if key in values:
             observations[key] = observed_condition(values[key], url, isin, now.isoformat())
+            observations[key]['displayDecimals'] = decimals[key]
     inactive = bool(re.search(r'Knock Out erreicht Ja\b', text))
     if values.get('maturity') not in (None, 'Open End'):
         inactive |= datetime.strptime(values['maturity'], '%d.%m.%Y').date() < now.date()
     return dict(isin=isin, observations=observations, missing=[f for f in FIELDS if f not in values],
                 inactive=inactive, checkedAt=now.isoformat(), source=url)
+
+
+def display_equivalent(key, primary, item):
+    """Compare printed precision only; never replace the exact issuer term."""
+    digits = item.get('displayDecimals')
+    if key not in ('ko', 'strike') or type(digits) is not int or not 4 <= digits <= 8:
+        return False
+    try:
+        a, b = Decimal(str(primary)), Decimal(str(item['value']))
+        return a.is_finite() and b.is_finite() and a > 0 and b > 0 and a.quantize(
+            Decimal(10) ** -digits, rounding=ROUND_HALF_UP) == b
+    except (ValueError, TypeError, KeyError, InvalidOperation):
+        return False
 
 
 def apply(result, isin):
@@ -147,7 +164,7 @@ def apply(result, isin):
             primary_value = meta.get('basisPrice') or result.get('basisPrice')
         if primary_value is None and key in ('ko', 'ratio'):
             primary_value = result.get(key)
-        if existing in (None, '') and primary_value not in (None, '') and primary_value != item['value']:
+        if existing in (None, '') and primary_value not in (None, '') and primary_value != item['value'] and not display_equivalent(key, primary_value, item):
             report['conflicts'].append(key)
             continue
         if existing is None or existing == '':
@@ -155,10 +172,11 @@ def apply(result, isin):
                 continue  # An undated portal metric is not the issuer leverage.
             out['conditions'][key] = copy.deepcopy(item)
             report['filledFields'].append(key)
-        elif existing != item['value']:
+        elif existing != item['value'] and not display_equivalent(key, existing, item):
             equivalent_turbo = (key == 'type' and meta.get('simpleTurbo') is True
                 and item['value'] == 'Knock-out Turbo'
-                and existing == 'Unlimited '+('Long' if meta.get('direction') == 'LONG' else 'Short')
+                and (existing == 'Unlimited '+('Long' if meta.get('direction') == 'LONG' else 'Short')
+                     or existing == 'BEST Turbo-Optionsscheine (Open-End)' and meta.get('classificationId') == 47)
                 and observations.get('direction', {}).get('value') == meta.get('direction'))
             if not equivalent_turbo:
                 report['conflicts'].append(key)

@@ -92,3 +92,23 @@ class ComdirectFieldsTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+
+class PrintedPrecisionTests(ComdirectFieldsTests):
+    def test_rounding_preserves_exact_issuer_terms(self):
+        fields=self.parse();p=self.primary()
+        p['metadata'].update(simpleTurbo=True,classificationId=47)
+        p['conditions']['type']={'value':'BEST Turbo-Optionsscheine (Open-End)'}
+        for key in ('ko','strike'):
+            fields['observations'][key].update(value=4221.2948,displayDecimals=4)
+            p['conditions'][key]={'value':4221.294764,'source':'issuer','at':'original'}
+        out=self.apply(p,fields)
+        self.assertEqual(out['comdirectFieldsBackup']['conflicts'],[])
+        self.assertEqual(out['conditions']['ko'],p['conditions']['ko'])
+        fields['observations']['ko']['value']=4221.295
+        self.assertIn('ko',self.apply(p,fields)['comdirectFieldsBackup']['conflicts'])
+        fields['observations']['ko'].pop('displayDecimals')
+        self.assertIn('ko',self.apply(p,fields)['comdirectFieldsBackup']['conflicts'])
+
+    def test_precision_is_observed_not_assumed(self):
+        self.assertEqual(self.parse()['observations']['ko']['displayDecimals'],4)
+        self.assertFalse(f.display_equivalent('ko',4221.294764,{'value':4221,'displayDecimals':0}))
