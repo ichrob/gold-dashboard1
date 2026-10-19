@@ -4,6 +4,7 @@ Uses a dedicated read-only service credential, or the legacy Bob login before
 Passkey enrollment. The service credential is accepted only on POST /mcp.
 It does not expose the PostgreSQL port, accept browser cookies, or provide write tools.
 """
+import base64
 import json
 import os
 import hmac
@@ -17,9 +18,18 @@ def service_authenticated(headers):
     """Independent machine identity: never accepted by the browser login layer."""
     expected=os.environ.get('BOB_MCP_SERVICE_TOKEN','')
     authorization=headers.get('Authorization','')
-    if len(expected)<32 or not authorization.startswith('Bearer ') or len(authorization)>4096:
+    if len(expected)<32 or len(authorization)>4096:
         return False
-    return hmac.compare_digest(authorization[7:].encode(),expected.encode())
+    if authorization.startswith('Bearer '):
+        candidate=authorization[7:]
+    elif authorization.startswith('Basic '):
+        try:
+            user,candidate=base64.b64decode(authorization[6:],validate=True).decode().split(':',1)
+        except (ValueError,UnicodeError):return False
+        if user!='bob-readonly':return False
+    else:return False
+    return hmac.compare_digest(candidate.encode(),expected.encode())
+
 
 
 def tool_definitions():
