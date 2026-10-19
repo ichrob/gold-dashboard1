@@ -69,3 +69,13 @@ assert(!observedCard.includes('data-swiss-dots-warning'));
 assert.equal(bob.currentQuote(observed,now),false);
 observed.snapshot.degiroDisplayedQuote.isin='DE000FG34XV8';
 assert(bob.compactProductCard(observed).includes('DEGIRO-Handelsplatznachweis offen'));
+
+// Old primary leverage must not contradict the fresh shared SG chart/reference.
+const retained=sample();
+retained.quote.leverage=19;
+retained.quote.leverageAt=new Date(now-600000).toISOString();
+assert.equal(bob.productFieldStates(retained,now).leverage.value,16.0508);
+assert(bob.productObservedTimeStatus(retained,now).confirmed);
+assert(!bob.compactProductCard(retained).includes('Für Hebel fehlt ein aktueller Zeitnachweis'));
+retained.quote.leverageAt=new Date(now-5000).toISOString();
+assert.equal(bob.productFieldStates(retained,now).leverage.value,19,'Fresh independent issuer value still wins');
