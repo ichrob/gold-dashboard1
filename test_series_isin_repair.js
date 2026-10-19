@@ -1,0 +1,15 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const window={};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8').replace('window.BobDegiro={','window.BobDegiro={seriesIsinRepair,'),{window});const b=window.BobDegiro;
+const isin='DE000PJ9NB98';
+const anchor={ok:true,name:'anchor.jpg',raw:'BNP OTC\nISIN '+isin,data:{isin,identityBasis:'ISIN'}};
+const damaged='Kursdaten\nBNP OTC\nGeld € 12,34 Brief € 12,35\n19/10/2026 16:10\nSymbol | ISIN\nDEOOOPJONB08\nBörse BNP OTC';
+const context=b.screenshotSeriesContext([anchor,{ok:false,ocr:{data:{text:damaged}}}],isin);
+assert(context?.anchorIsinVerified);
+const repaired=b.seriesIsinRepair(damaged,isin,context);assert(repaired);assert(repaired.text.includes(isin));assert(repaired.text.includes('12,34'));
+const imported=b.detailScreenshotData(damaged,isin,context);assert(imported.ok,imported.reason);assert.equal(imported.bid,12.34);assert(imported.importNotes.some(n=>n.includes('Zeichenverwechslung')));
+assert(!b.seriesIsinRepair(damaged,isin,null));
+assert(!b.seriesIsinRepair(damaged,isin,{...context,anchorIsinVerified:false}));
+for(const bad of [damaged.replace('DEOOOPJONB08','DE000FG8NHQ3'),damaged.replace('DEOOOPJONB08','DEOOOAJONB08'),damaged+'\nWKN OTHER1',damaged.replaceAll('BNP OTC','Societe Generale OTC')])assert(!b.seriesIsinRepair(bad,isin,context));
+const inferred={...anchor,raw:'BNP OTC\nISIN DEOOOPJONB08'};
+assert(!b.screenshotSeriesContext([inferred,{ok:false,ocr:{data:{text:damaged}}}],isin));
+console.log('Series identity repair: independent checksum-valid anchor, bounded glyphs, same venue, conflicts blocked and prices unchanged');
