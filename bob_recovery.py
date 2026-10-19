@@ -312,8 +312,8 @@ def route(handler, user):
             # Serialize expensive public reset requests with the existing auth limiter.
             with auth.LOCK:
                 now = time.time()
-                auth.FAILURES[:] = [x for x in auth.FAILURES if x > now-60]
-                if len(auth.FAILURES) >= 30:
+                auth.FAILURES[:] = [x for x in auth.FAILURES if x > now-auth.PASSWORD_FAILURE_WINDOW]
+                if len(auth.FAILURES) >= auth.PASSWORD_FAILURE_LIMIT:
                     auth.send(handler, 429, b'Bitte eine Minute warten.')
                     return True
                 auth.FAILURES.append(now)
