@@ -1,6 +1,6 @@
 import unittest
 from datetime import datetime, timezone, timedelta
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 import fx_data as f
 
 class FxFailoverTests(unittest.TestCase):
@@ -41,3 +41,26 @@ class FxFailoverTests(unittest.TestCase):
     def test_old_backup_cannot_replace_newer_saved(self):
         out=f.fetch_rates(Mock(side_effect=OSError('offline')),self.primary,self.now)
         self.assertEqual(out['rates'],self.primary['rates'])
+
+    def test_tick_updated_during_request_uses_receipt_time(self):
+        receipt=self.now+timedelta(seconds=5)
+        def fetch(url,*a,**kw):
+            if 'exchangerate' in url: raise OSError('offline')
+            tick=self.tick(url.rsplit('/',1)[1])
+            tick['lastQuoteAt']=(self.now+timedelta(seconds=2)).isoformat()
+            return tick
+        with patch('fx_data.datetime') as clock:
+            clock.now.return_value=receipt
+            clock.fromisoformat.side_effect=datetime.fromisoformat
+            out=f.fetch_rates(fetch)
+        self.assertTrue(out['backupActive'])
+        self.assertEqual(out['effective_at']['EUR'],(self.now+timedelta(seconds=2)).isoformat())
+        # Explicit evaluation time still rejects truly future observations.
+        with self.assertRaises(ValueError):f.fetch_rates(fetch,now=self.now)
+
+    def test_primary_with_cached_currency_tries_backup(self):
+        self.primary['sources']['CHF']='cached'
+        fetch=Mock(side_effect=lambda url,*a,**kw:self.primary if 'exchangerate' in url else self.tick(url.rsplit('/',1)[1]))
+        out=f.fetch_rates(fetch,now=self.now)
+        self.assertTrue(out['backupActive'])
+        self.assertEqual(fetch.call_count,3)

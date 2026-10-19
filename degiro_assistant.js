@@ -1639,6 +1639,19 @@ function screenshotProductLink(p){
  const issuer=productIssuerLabel(p),url=p.isin==='DE000FG34XV8'?'https://www.sg-zertifikate.ch/product-details/159787428':issuer==='SG'?'https://www.sg-zertifikate.de/product-details/'+p.isin.slice(5,11).toLowerCase():issuer==='BNP'?'https://derivate.bnpparibas.com/product-details/'+p.isin+'/':null;
  return url?'<a data-screenshot-product="'+esc(p.isin)+'" href="'+esc(url)+'" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 0;font-weight:700">'+esc(issuer)+'-Produkt öffnen ↗</a>':'';
 }
+// Explain unavailable FX independently of screenshot and broker evidence.
+function productFxIssue(p,now=Date.now()){
+ const q=p?.quote;
+ if(q?.isin!==p.isin||q.productVerified!==true)return null;
+ if(q.nativeChartEvidence?.currency==='CHF'&&!q.currencyConversion)
+  return {at:null,reason:'Für die CHF/EUR-Umrechnung fehlt ein aktueller, zeitlich passender Wechselkurs.'};
+ const i=q.leverageCalculation?.inputs;
+ if(!i)return null;
+ const times=[i.fxDataAt,i.fxEffectiveAt].map(v=>Date.parse(v));
+ if(times.some(t=>!Number.isFinite(t)||t>now||now-t>300000))
+  return {at:i.fxEffectiveAt||i.fxDataAt||null,reason:'Für den berechneten Hebel fehlt ein aktueller Wechselkurs.'};
+ return null;
+}
 // Only evidence failures belong beside the ISIN; market/ranking reasons stay below.
 function productProblemLabels(p){
  if(knockoutStatus(p)||compactProductExclusion(p))return [];
@@ -1647,6 +1660,7 @@ function productProblemLabels(p){
  const paused=typeof expectedQuotePause==='function'&&expectedQuotePause(p);
  const analysis=typeof currentSgChfAnalysisProof==='function'?currentSgChfAnalysisProof(p):null;
  const labels=analysis&&!degiroVenueObserved(p)&&!degiroVenueInferred(p)?['DEGIRO-Handelsplatznachweis']:[];
+ if(typeof productFxIssue==='function'&&productFxIssue(p))labels.push('Wechselkurs veraltet oder nicht verfügbar');
  // Missing evidence is different from a missing numeric value. A datable
  // analysis quote must not be shown as an absent Geld/Brief pair merely because
  // the independent DEGIRO trade-execution evidence remains unconfirmed.
@@ -1686,6 +1700,8 @@ function productHelpState(p){
  const q=attempt?.isin===p.isin?attempt:p.quote?.isin===p.isin?p.quote:null;
  const checking=pendingQuotes.has(p.index)||q?.secondaryValidity?.state==='checking'||q?.comdirectFieldsBackup?.state==='checking';
  const venueMissing=labels.includes('DEGIRO-Handelsplatznachweis');
+ const fxIssue=typeof productFxIssue==='function'?productFxIssue(p):null;
+ if(fxIssue&&labels.length&&!checking)return {labels,checking:false,manual:false,status:'Wechselkursprüfung offen',action:fxIssue.reason+(fxIssue.at?' Quellenstand: '+fxIssue.at+'.':'')+' Bob versucht den Abruf automatisch erneut. Neue Produktbilder beheben diese Wechselkurslücke nicht. Weitere Produkt- und Handelsplatznachweise bleiben separat erforderlich.'+(venueMissing?' Konkret offen: Welcher DEGIRO-Handelsplatz gehört zu dieser ISIN und Handelswährung? Nur für diesen Nachweis ein DEGIRO-Detailbild mit ISIN, Börse, Währung und Datum ergänzen.':'')};
  const failed=!!q?.sourceFailure;
  const fields=typeof productFieldStates==='function'?productFieldStates(p):null;
  const valuesPresent=q?.productVerified===true&&fields&&['bid','ask'].every(key=>n(fields[key]?.value)>0)&&n(fields.leverage?.value)>=1;
