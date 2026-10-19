@@ -8,6 +8,8 @@ import product_quotes
 class RecoveryTests(unittest.TestCase):
     def setUp(self):
         recovery._FAILURES.clear()
+        recovery._SOURCE_FAILURES.clear()
+        recovery._SOURCE_PAUSES.clear()
 
     def test_retry_backoff_and_restored_call(self):
         events=[]
