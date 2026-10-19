@@ -221,6 +221,15 @@ function normalizeOcrIsin(value,productText=''){
  // Other substitutions require a reviewed identity and matching product context.
  if(!/^DE[0OQ]{3,4}[A-Z0-9]{7}$/.test(original))return{isin:original,originalIsin:""};
  const candidate="DE000"+original.slice(-7).replace(/O/g,"0").replace(/I/g,"1");
+ // User originals 1000074190.jpg and 1000074192.jpg show DE000PJ9NB98
+ // in both DEGIRO layouts. Scope the observed OCR aliases to this broker
+ // and these product/quote layouts; never repair arbitrary valid identifiers.
+ const reviewedDegiroLayout=/\bBNP\s+OTC\b/i.test(productText)&&(
+  /\bBNP\s+GOLD\s+Unlimited\s+Long\s+SL\b/i.test(productText)||
+  /Symbol\s*[|I]?\s*ISIN/i.test(productText)&&/\bGeld\b/i.test(productText)&&/\bBrief\b/i.test(productText));
+ if(['DE000PJ0NB98','DE000PJ0NB9S'].includes(candidate)&&reviewedDegiroLayout
+    && !/\bSHORT\b|\bPUT\b|FAKTOR|FACTOR/i.test(productText))
+  return {isin:'DE000PJ9NB98',originalIsin:original,identityCorrection:'DEGIRO-Produktidentität an Originalbildern 1000074190.jpg und 1000074192.jpg geprüft'};
  // Visually verified user original 1000070573.jpg. Both labelled identifiers
  // and both exact USD terms must agree; this is not general S -> 9 guessing.
  const identityTerms=normalizeProductTermLayout(productText);
@@ -3401,7 +3410,7 @@ async function readProductPdf(file,expected){
  }finally{await task.destroy();}
 }
 // Local originals support reprocessing after OCR updates. Never refresh source clocks.
-const PRODUCT_OCR_VERSION='2026-10-19-series-identity-v9';
+const PRODUCT_OCR_VERSION='2026-10-19-degiro-reviewed-identity-v10';
 const ORIGINAL_TTL=7*86400000,ORIGINAL_LIMIT=100*1024*1024;
 const activeProductImports=new Set();
 function originalRetention(records,now=Date.now()){
