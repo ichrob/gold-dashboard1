@@ -1666,10 +1666,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         path = urlparse(self.path).path
         if path == "/mcp":
-            # Basic credentials are checked by Bob's established login layer.
-            # Cookie-based auth is deliberately NOT accepted for this route;
-            # the plugin can only request the allowlisted read-only tools.
-            if (not self.headers.get("Authorization", "").startswith("Basic ")
+            # A separate machine credential is scoped ONLY to this read-only
+            # tool dispatcher. It never grants browser or general API access.
+            # Legacy user-password access remains subject to the daily factor.
+            if not bob_mcp.service_authenticated(self.headers) and (
+                    not self.headers.get("Authorization", "").startswith("Basic ")
                     or not self.authenticated()):
                 self.send_response(401)
                 self.send_header("Cache-Control", "no-store")
