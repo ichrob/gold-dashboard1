@@ -59,12 +59,20 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
         table = portfolios.names(profile)['bob_paper_control']
         row = conn.execute(f'SELECT payload FROM {table} WHERE id=1').fetchone()
         accounts.append({'profile':profile, **fields(row[0] if row else {},
-            ('enabled','status','checkedAt','startAt','reason','currency','initialCapital','cash','equity','dayProfit','totalProfit','realizedProfit','costsDebitedEur'))})
+            ('enabled','status','checkedAt','startAt','reason','currency','initialCapital','cash','equity','dayProfit','totalProfit','realizedProfit','costsDebitedEur','costPeriodProfit','costsStartedAt','costsNote'))})
     row = conn.execute('SELECT count(*) FROM subscriptions WHERE general_enabled=TRUE OR (trade_enabled=TRUE AND active_trade=TRUE)').fetchone()
     result = {'status':'observed', 'paper':paper_health.snapshot(conn), 'accounts':accounts,
             'push': {'activeMonitors':row[0], 'deliveryStatus':'not-verified',
                      'evaluator':fields(evaluator.status(), ('completed','failed','queueTimeouts','shared','busy','waiting','inFlight','lastDurationMs','lastWaitMs'))}}
     if extended:
+        for account in accounts:
+            table = portfolios.names(account['profile'])['bob_paper_cases']
+            try:
+                with conn.transaction():
+                    cases = conn.execute(f'SELECT payload FROM {table} ORDER BY started_at DESC LIMIT 5').fetchall()
+                account['recentCases'] = {'status':'observed','items':[project(row[0], CASE) for row in cases]}
+            except Exception:
+                account['recentCases'] = {'status':'unavailable'}
         result['details'] = stored_details(conn)
         result['analysis'] = analysis_snapshot()
     return result
@@ -91,6 +99,10 @@ def project(value, schema):
 def shape(*keys, **nested):
     return {**dict.fromkeys(keys), **nested}
 
+
+CASE = shape('status','startedAt','closedAt','lastAt','direction','modelOnly','netReturnKnown','productReturnKnown','productGrossPct','goldR','capitalMode','ledgerCostsDebited','ledgerFeesEur','ledgerSlippageEur','ledgerModelNetEur',
+    ledgerCostModel=shape('version','feeEurPerOrder','slippageBpsPerSide','extraHoldingBpsPerDay'),
+    events=[shape('kind','at','recordedAt','reason')])
 
 INDICATORS = shape('timeframe','score','rsi','macd','sig','hist','atr','adx','ema20','ema50','ema200','R','at','e20','e50','e200','trend','trend2','bbPos','bbp','momentum')
 PLAN = shape('available','reason','dir','entry','stop','target','computedAt','dataAt','currency','method','stale')

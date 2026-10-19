@@ -152,3 +152,11 @@ class ExpandedReportTests(unittest.TestCase):
         products=diagnostics.product_snapshot({'items':[{'sourceRecovery':[{'stage':'comdirect-fetch','state':'failed','retryAfterSeconds':30}]}]})
         self.assertEqual(products['items'][0]['sourceRecovery'][0]['retryAfterSeconds'],30)
         self.assertEqual(diagnostics.summary({'products':products})['assessment'],'needs-attention')
+
+    def test_simulation_retains_cost_assumptions_and_unknown_result(self):
+        case=diagnostics.project({'modelOnly':True,'netReturnKnown':False,'ledgerModelNetEur':None,'ledgerCostsDebited':2,'ledgerCostModel':{'feeEurPerOrder':1,'token':'secret'},'entryQuote':{'raw':'private'}},diagnostics.CASE)
+        self.assertIsNone(case['ledgerModelNetEur'])
+        self.assertFalse(case['netReturnKnown'])
+        self.assertEqual(case['ledgerCostModel']['feeEurPerOrder'],1)
+        self.assertNotIn('secret',json.dumps(case))
+        self.assertNotIn('private',json.dumps(case))

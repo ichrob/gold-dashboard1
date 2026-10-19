@@ -38,3 +38,7 @@ broker-session pauses are distinct. Delivery history does not prove arrival on t
 Stored research summaries/frames do not prove that all videos were analyzed. Paper balances
 are simulations, and learning evidence does not establish validated executable product returns.
 The report performs no evaluations, repairs, notifications, orders or rule changes.
+
+Each simulated account also includes its last five cases with recorded outcome flags,
+model cost assumptions, charged fees/slippage and model net result when known. Unknown
+net returns remain null; historical gross-only cases are not retrospectively re-priced.
