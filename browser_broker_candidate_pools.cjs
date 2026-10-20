@@ -92,14 +92,14 @@ const html='<!doctype html><html lang="de"><head><meta charset="utf-8">'+
     version:2,listUploadedAt:at,products:[{isin,name:'Test screenshot',direction:'LONG'}]
    }));
   },{isin:a,at});
-  await page.locator('#bobIssuerResearch button').last().click();
+  await page.locator('#bobBrokerResearchRefresh').click();
   await page.waitForFunction(()=>document.querySelector('#bobDegiroCandidateStatus')?.textContent?.includes('1 Produkt(e)'));
   assert.equal(await page.locator('#bobDegiroConfirmedRows article').count(),1);
   assert((await page.locator('#bobDegiroConfirmedRows').innerText()).includes('kein ausführbarer DEGIRO-Kurs'));
   assert.equal(await page.locator('#bobBrokerResearchRows article').count(),2);
   assert.equal(await page.evaluate(()=>localStorage.getItem('bobDegiroProductsV2')!==null),true);
   audit={...audit,status:'stale'};
-  await page.locator('#bobIssuerResearch button').last().click();
+  await page.locator('#bobBrokerResearchRefresh').click();
   await page.waitForFunction(()=>document.querySelector('#bobDegiroCandidateStatus')?.textContent?.startsWith('Keine neuen Produkte'));
   assert.equal(await page.locator('#bobDegiroConfirmedRows article').count(),0,
    'A stale report may not retain DEGIRO listing confirmation');
