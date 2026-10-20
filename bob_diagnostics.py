@@ -48,6 +48,13 @@ def collect(readers):
     # The web process may not run the evaluator itself. Prefer real observations
     # from the push worker when its local capture is unavailable; never recompute.
     worker_analysis = (areas.get('simulationAndPush') or {}).get('analysis')
+    stored_research = (areas.get('simulationAndPush') or {}).get('researchReports')
+    if isinstance(stored_research, dict):
+        # A large simulation/transition area may itself be omitted. Research
+        # remains a separate bounded area under the same diagnostic permission.
+        areas['strategyReport'] = stored_research
+        areas['simulationAndPush'] = dict(areas['simulationAndPush'])
+        areas['simulationAndPush'].pop('researchReports', None)
     if (areas.get('analysis') or {}).get('status') == 'unavailable' and isinstance(worker_analysis, dict) and worker_analysis.get('status') == 'observed':
         areas['analysis'] = {**worker_analysis, 'observationSource':'push-worker'}
     return {'readOnly':True, 'realOrders':False,
