@@ -750,6 +750,74 @@ def quote_cache(products, active, now):
                 observations[isin]['eligible']=False
     return observations
 
+# Morning research-only preparation. Never creates/changes paper positions,
+# delivers a push, enables an order, or certifies an executable DEGIRO quote.
+_PREFLIGHT_LOCK = threading.Lock()
+_PREFLIGHT_THREAD = None
+
+
+def preflight_once(database, now_ms=None):
+    """Refresh stored screenshot product evidence during 07:30–08:00 Zurich.
+
+    This uses the SAME bounded issuer caches, validator and audit used after
+    08:00, but deliberately does not call any simulation or trade method.
+    """
+    current_clock = now_ms is None
+    now_ms = int(time.time()*1000) if current_clock else now_ms
+    if background_push.degiro_session(now_ms) != 'preparation':
+        return {'state': 'paused', 'auditUpdated': False, 'ordersEnabled': False}
+    with database() as conn:
+        acquired = conn.execute('SELECT pg_try_advisory_xact_lock(72610408)').fetchone()
+        if not acquired or acquired[0] is not True:
+            return {'state': 'busy', 'auditUpdated': False, 'ordersEnabled': False}
+        feed = conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
+        evidence = feed[0] if feed else {}
+        if (not isinstance(evidence, dict)
+                or evidence.get('listOrigin') != 'degiro-screenshot'
+                or not evidence.get('listUploadedAt')
+                or not any(p.get('isin') for p in evidence.get('products') or []
+                           if isinstance(p, dict))):
+            return {'state': 'waiting-for-screenshot', 'auditUpdated': False, 'ordersEnabled': False}
+        # Advance shared quote-cache requests over repeated, bounded iterations.
+        # Result may be missing/closed/stale before issuer opening: that is not
+        # converted to a valid quote or an executable broker price.
+        observations = quote_cache(evidence['products'], [], now_ms)
+        from degiro_product_audit import store as store_audit
+        with conn.transaction():
+            store_audit(conn, evidence, observations, int(time.time()*1000) if current_clock else now_ms)
+        conn.commit()
+        return {'state': 'research-only', 'auditUpdated': True, 'ordersEnabled': False}
+
+
+def _preflight_loop(database, wait=time.sleep):
+    """Idle outside preparation. Exact 07:30 and 08:00 boundaries are bounded."""
+    while True:
+        phase = background_push.degiro_session()
+        if phase == 'preparation':
+            try:
+                outcome = preflight_once(database)
+                print('BOB_PRODUCT_PREFLIGHT state='+outcome['state'], flush=True)
+            except Exception as exc:
+                # Never print source payload, ISIN, broker identity or credentials.
+                print('BOB_PRODUCT_PREFLIGHT error='+type(exc).__name__, flush=True)
+            wait(30)
+        else:
+            wait(max(1, min(300, background_push.degiro_seconds_to_transition())))
+
+
+def start_preflight(database):
+    """One read-only morning worker on the existing push service."""
+    global _PREFLIGHT_THREAD
+    with _PREFLIGHT_LOCK:
+        if _PREFLIGHT_THREAD and _PREFLIGHT_THREAD.is_alive():
+            return False
+        _PREFLIGHT_THREAD = threading.Thread(
+            target=_preflight_loop, args=(database,), daemon=True,
+            name='bob-product-preflight')
+        _PREFLIGHT_THREAD.start()
+    return True
+
+
 def _worker(db):
     while True:
         _bundle_ready.wait(timeout=30)

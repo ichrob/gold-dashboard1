@@ -70,7 +70,7 @@ function auditQuote(info,now,reportStatus){
 function safeAudit(report){
  if(!report||!Array.isArray(report.items))return {items:[],status:'unavailable',checkedAt:null};
  const status=['ok','partial','stale'].includes(report.status)?report.status:'unavailable';
- const checkedAt=safeTime(report.lastCheckedAt)||safeTime(report.observedAt);
+ const checkedAt=safeTime(report.lastCheckedAt)||safeTime(report.checkedAt)||safeTime(report.observedAt);
  return {items:report.items.slice(0,MAX_ITEMS),status,checkedAt};
 }
 function combine(depot,watchlist,audit,visibleQuotes=[],now=Date.now()){
@@ -148,6 +148,26 @@ function showMoney(value,currency){
 }
 function formatAt(value){
  return new Date(value).toLocaleString('de-CH',{timeZone:'Europe/Zurich'});
+}
+function zurichQuotePhase(now=Date.now()){
+ const parts=new Intl.DateTimeFormat('en-US',{
+  timeZone:'Europe/Zurich',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+ }).formatToParts(new Date(now));
+ const find=type=>parts.find(p=>p.type===type)?.value;
+ const weekday=find('weekday');
+ if(weekday==='Sat'||weekday==='Sun')return 'weekend';
+ const minute=Number(find('hour'))*60+Number(find('minute'));
+ if(minute>=450&&minute<480)return 'preparation';
+ if(minute>=480&&minute<1320)return 'trading';
+ return 'night';
+}
+function quotePhaseMessage(phase,reportStatus){
+ if(phase==='preparation')return '07:30–08:00 Zürich: read-only Vorprüfung der Emittentenquellen geplant. Noch keine Handelsfreigabe; Quellen können geschlossen sein.';
+ if(phase==='trading')return reportStatus==='stale'||reportStatus==='unavailable'
+  ?'08:00–22:00 Zürich: Hintergrundprüfung vorgesehen, aber aktueller Produktprüfbericht fehlt. Quellen-/Dienststatus unter Probleme kontrollieren.'
+  :'08:00–22:00 Zürich: automatische Produktprüfung läuft planmäßig, soweit der Emittent datierte Kurse bereitstellt.';
+ if(phase==='weekend')return 'Wochenende: keine reguläre Produktprüfung; nächster geplanter Vorlauf werktags ab 07:30 Zürich.';
+ return 'Außerhalb der Produktprüfzeit: nächster geplanter Vorlauf werktags ab 07:30, reguläre Prüfung ab 08:00 Zürich.';
 }
 function mount(){
  const doc=root.document,host=doc.getElementById('bob-view-products');
@@ -261,10 +281,14 @@ function mount(){
   status.textContent=s.unique+' verschiedene Produkte · '+s.depot+' im Depot-CSV · '+
    s.watch+' in Beobachtung/Prüfbericht'+
    ' · '+s.currentObserved+' zeitnahe Vergleichsbeobachtungen.';
-  sync.textContent='Automatischer Bob-Berichtsabruf alle 30 s bei offener App; letzter Abruf: '+
+  const lastRealCheck=safeAudit(audit).checkedAt;
+  sync.textContent='Bob-Bericht im Browser abgerufen: '+
    (lastUpdate?formatAt(new Date(lastUpdate).toISOString()):'noch nicht bestätigt')+
-   '. Berichtstatus: '+(s.auditStatus==='ok'?'ok':s.auditStatus==='stale'?'veraltet':s.auditStatus==='partial'?'teilweise':'nicht erreichbar')+
-   '. Keine DEGIRO-Konto-API und kein Live-Depotabgleich.';
+   '. Letzte tatsächliche serverseitige Produktprüfung: '+
+   (lastRealCheck?formatAt(lastRealCheck):'nicht nachgewiesen')+
+   '. Status: '+(s.auditStatus==='ok'?'aktuell geprüft':s.auditStatus==='stale'?'Prüfbericht veraltet':s.auditStatus==='partial'?'teilweise geprüft':'nicht erreichbar')+
+   '. '+quotePhaseMessage(zurichQuotePhase(),s.auditStatus)+
+   ' Keine DEGIRO-Konto-API und kein Live-Depotabgleich.';
   if(reset)shown=0;
   const visible=filtered();
   const count=Math.min(loadMore?shown+30:Math.max(shown,30),visible.length);
@@ -305,7 +329,7 @@ function mount(){
  });
  setTimeout(()=>paint(),2000);
 }
-const api={validIsin,readWatchlist,safeTime,numericPrice,quoteObservation,auditQuote,safeAudit,combine,summary,mount};
+const api={validIsin,readWatchlist,safeTime,numericPrice,quoteObservation,auditQuote,safeAudit,combine,summary,zurichQuotePhase,quotePhaseMessage,mount};
 if(typeof module==='object'&&module.exports)module.exports=api;
 root.BobDegiroAllProducts=api;
 if(!root.document)return;
