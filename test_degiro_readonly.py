@@ -8,6 +8,7 @@ from degiro_readonly_worker import permitted
 class ReadOnlyTests(unittest.TestCase):
     def setUp(self):
         reader._LAST_ATTEMPT = 0
+        reader._LAST_RESULT = None
 
     def test_transport_allowlist_rejects_orders_and_redirect_hosts(self):
         base = 'https://trader.degiro.nl'
@@ -101,3 +102,63 @@ class RealSdkContractTests(unittest.TestCase):
             result=degiro_readonly_worker.run('')
         self.assertEqual(result['code'],'AUTH_REQUIRED')
         self.assertFalse(result['logoutConfirmed'])
+
+    def test_broker_login_reasons_are_distinct_and_secret_free(self):
+        import requests
+        import degiro_readonly_worker as worker
+        for status, payload, reason in [
+            (400, {'status':6}, 'TOTP_REQUIRED'),
+            (400, {'status':12, 'inAppToken':'SECRET'}, 'APP_APPROVAL_REQUIRED'),
+            (400, {'status':3, 'captchaRequired':True}, 'CAPTCHA_REQUIRED'),
+            (429, {}, 'RATE_LIMITED'), (403, {}, 'ACCESS_DENIED'),
+            (503, {}, 'SERVICE_UNAVAILABLE'),
+            (400, {'status':3, 'error':'SECRET'}, 'LOGIN_REJECTED'),
+            (200, {'status':0}, 'LOGIN_REJECTED'),
+        ]:
+            calls=[]
+            def send(session, request, **kwargs):
+                calls.append(request.url)
+                response=requests.Response(); response.status_code=status
+                response._content=json.dumps(payload).encode(); response.request=request
+                return response
+            with self.subTest(reason=reason), patch.dict(reader.os.environ,{'BOB_DEGIRO_USERNAME':'fake','BOB_DEGIRO_PASSWORD':'SECRET'}), patch.object(requests.Session,'send',send):
+                result=worker.run('')
+                self.assertEqual(result['authReason'],reason)
+                self.assertNotEqual(result['code'],'READ_OK')
+                self.assertEqual(len(calls),1)
+                self.assertNotIn('SECRET',json.dumps(result))
+
+
+class SafeDiagnosticTests(unittest.TestCase):
+    def tearDown(self):
+        reader._LAST_ATTEMPT=0
+        reader._LAST_RESULT=None
+
+    def test_private_diagnostics_keep_probe_reason_without_account_data(self):
+        from bob_diagnostics import broker_sync_snapshot
+        import degiro_sync
+        with patch.object(reader,'_LAST_RESULT',{'code':'AUTH_REQUIRED','authReason':'APP_APPROVAL_REQUIRED','checkedAt':'2026-10-20T07:00:00+00:00'}):
+            value=degiro_sync.status()
+            value['snapshot']={'observedAt':'2026-10-20T07:00:00+00:00','holdings':['SECRET']}
+            report=broker_sync_snapshot(value)
+            self.assertEqual(report['lastConnectionTest']['authReason'],'APP_APPROVAL_REQUIRED')
+            self.assertNotIn('SECRET',json.dumps(report))
+
+    def test_last_probe_visible_without_secrets_and_cooldown_retains_it(self):
+        reader._LAST_ATTEMPT=0; reader._LAST_RESULT=None
+        payload={'code':'AUTH_REQUIRED','authReason':'APP_APPROVAL_REQUIRED','inAppToken':'SECRET'}
+        with patch.dict(reader.os.environ,{'BOB_DEGIRO_USERNAME':'fake','BOB_DEGIRO_PASSWORD':'SECRET'}), patch.object(reader.subprocess,'run') as launch:
+            launch.return_value.stdout=json.dumps(payload); launch.return_value.returncode=0
+            result=reader.probe()
+            self.assertEqual(result['authReason'],'APP_APPROVAL_REQUIRED')
+            self.assertEqual(reader.status()['lastTest']['authReason'],'APP_APPROVAL_REQUIRED')
+            self.assertEqual(reader.probe()['code'],'COOLDOWN')
+            self.assertEqual(reader.status()['lastTest']['code'],'AUTH_REQUIRED')
+            self.assertNotIn('SECRET',json.dumps(reader.status()))
+
+    def test_non_json_login_diagnostic_never_returns_body(self):
+        import requests
+        from degiro_readonly_worker import login_diagnostic
+        response=requests.Response();response.status_code=200;response._content=b'SECRET'
+        self.assertEqual(login_diagnostic(response),'INVALID_LOGIN_RESPONSE')
+
