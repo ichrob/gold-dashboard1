@@ -70,7 +70,7 @@ function combine(depot,watchlist,audit,visibleQuotes=[],now=Date.now()){
   for(const d of depot.records.slice(0,MAX_ITEMS)){
    const x=ensure(d.isin);if(!x)continue;
    x.inDepot=true;x.name=String(d.name||d.product||d.isin).slice(0,180);
-   x.quantity=Number.isFinite(Number(d.quantity))?Number(d.quantity):null;
+   x.quantity=(d.quantity!==null&&d.quantity!==undefined&&String(d.quantity).trim()!==''&&Number.isFinite(Number(d.quantity)))?Number(d.quantity):null;
    x.currency=String(d.currency||'').slice(0,3);
    x.csvPrice=String(d.price||'').slice(0,60);
    x.csvValue=String(d.value||'').slice(0,60);
@@ -216,7 +216,7 @@ function mount(){
     ' (Kursdaten hier nicht bestätigt; kein DEGIRO-Ausführungskurs).'));
   }else card.append(el(doc,'p','dg-unified-subtle','Keine aktuelle, datierte Vergleichsquote verfügbar.'));
   if(x.inAudit&&x.auditStatus!=='ok')card.append(el(doc,'p','dg-unified-subtle',
-   'Bob-Prüfbericht '+(x.auditStatus==='stale'?'veraltet':'nur teilweise geprüft')+'.'));
+   'Bob-Prüfbericht '+(x.auditStatus==='stale'?'veraltet':x.auditStatus==='partial'?'nur teilweise geprüft':'momentan nicht erreichbar')+'.'));
   card.append(el(doc,'p','dg-unified-subtle','Handelsfreigabe über DEGIRO: nicht bestätigt.'));
   return card;
  }
@@ -224,7 +224,7 @@ function mount(){
   items=combine(depotRows(),watchRows(),audit,quoteRows(),Date.now());
   const s=summary(items,audit);
   status.textContent=s.unique+' verschiedene Produkte · '+s.depot+' im Depot-CSV · '+
-   s.watch+' beobachtet/prüfberichtigt'+
+   s.watch+' in Beobachtung/Prüfbericht'+
    ' · '+s.currentObserved+' zeitnahe Vergleichsbeobachtungen.';
   sync.textContent='Automatischer Bob-Berichtsabruf alle 30 s bei offener App; letzter Abruf: '+
    (lastUpdate?formatAt(new Date(lastUpdate).toISOString()):'noch nicht bestätigt')+
@@ -260,7 +260,7 @@ function mount(){
  search.addEventListener('input',()=>paint());
  more.addEventListener('click',()=>paint(false));
  // Data is not transferred to DEGIRO. This uses Bob's existing private audit endpoint.
- root.BobDegiroAllProducts={refresh:()=>{paint();return requestAudit();}};
+ root.BobDegiroAllProducts.refresh=()=>{paint();return requestAudit();};
  paint();requestAudit();
  setInterval(()=>{if(!doc.hidden){paint();requestAudit();}},30000);
  doc.addEventListener('visibilitychange',()=>{if(!doc.hidden){paint();requestAudit();}});
