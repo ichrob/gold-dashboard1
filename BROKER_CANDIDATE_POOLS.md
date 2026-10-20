@@ -19,6 +19,19 @@ Eine neue Emittenten-ISIN ohne aktuellen **DEGIRO-Produktdetail-Nachweis** darf 
 - Zusätzlich können gültige neue ISINs unter `Mehr → Zukunft` lokal in einer **eigenständigen Rechercheliste** vorgemerkt und wieder entfernt werden. Diese Liste wird nur auf dem Gerät gespeichert, nie mit Broker-Listung gleichgesetzt und weder an GitHub noch an DEGIRO übertragen.
 - Bereits recherchierte Kandidaten werden im Browser bei offener App im Abstand von bis zu etwa zehn Minuten erneut abgefragt. Dies ist eine **Quellenstatusprüfung**, keine vollständige Entdeckung aller Neuemissionen. Eine künftige, freigegebene Emittenten-Neuemissionsschnittstelle kann neue Kandidaten nach denselben Regeln in diesen neutralen Pool liefern.
 
+## Ein DEGIRO-Detailbild direkt in der Rechercheliste
+
+Unter **Mehr → Zukunft → Emittenten-Recherche** kann ein Produkt mit „DEGIRO-Produktbild zuordnen“ oder ein bislang unbekanntes Produkt mit „Neues DEGIRO-Produktbild hochladen“ erfasst werden.
+
+- Bob liest das Bild lokal auf Android mit der vorhandenen Screenshot-Erkennung. Eine **einzige eindeutige ISIN**, eine erkennbare DEGIRO-Kursdatentabelle, Börse, EUR-/CHF-Währung und der originale Kurs-Zeitpunkt sind zwingend. Bei einer vorgewählten ISIN muss das Bild exakt passen.
+- Das Bild ist **nur am Tag seiner ursprünglichen Kurszeit bis 22:00 Uhr (Zürich)** als DEGIRO-Produktanzeige gültig. Wenn Quelle, ISIN, Börse, Währung oder Originalzeit unklar sind, bleibt der Kandidat ungeprüft. Eine bloße Emittentenquelle genügt nicht.
+- **Datenschutz:** Screenshot und vollständiger OCR-Text werden NICHT übertragen. Nur begrenzte, aus dem Nutzerbild gelesene Produktbelegfelder, Dateityp/-größe und SHA-256-Fingerabdruck gehen über Bob-Anmeldung an den privaten Server. Dieser Beleg bestätigt eine Nutzerbild-Beobachtung, keine unabhängige DEGIRO-Live-Kontoabfrage und keine manipulationssichere Bildprüfung.
+- Der neue Belegspeicher ist **von aktiven Gold-Hebelprodukten, Depot-CSV, Top 3, Risiko und Simulation** getrennt. Handelsfreigabe, Orderausführung und automatische Aufnahme in die aktive DEGIRO-Liste bleiben aus.
+- Nach der Aufnahme wird die ISIN in die separat bestätigten neuen Produktkandidaten übernommen. Ohne gültigen Tagesbeleg bleibt sie in der brokerneutralen Recherche. Bobs vorhandene Emittentenrecherche wird einmalig für dieselbe ISIN zusätzlich angestoßen.
+- Der private Server benötigt authentifizierte Same-Origin-Anfragen und prüft ISIN-Prüfziffer, eindeutigen Bildbezug, Handelsplatz, Originalzeit und Nachweiskonsistenz. Das Originalbild bleibt auf dem Handy, daher sind diese Metadaten **kein unabhängiger Echtheitsnachweis der Bilddatei**.
+
+Der vollständige DEGIRO-Katalog ist weiterhin nicht zugänglich; ein einzelner neuer Screenshot ersetzt keine offizielle Broker-API.
+
 ## Vorbereitung weiterer Broker
 
 Das bestehende `broker_bridge.py` bleibt für IBKR und IG als noch nicht verbundene API-Vertragsschicht bestehen. Jede ISIN erfordert später **pro Broker** einen eigenen Instrument-/Marktplatznachweis, Schweizer Handelbarkeit und Preis-/Kurszeit-Validierung. Die DEGIRO-Verfügbarkeit darf nicht auf IBKR/IG übertragen werden.
@@ -30,3 +43,5 @@ Das bestehende `broker_bridge.py` bleibt für IBKR und IG als noch nicht verbund
 - Reguläre Bob-CI mit Python-, JavaScript- und Browser-Tests unverändert.
 
 **Grenze:** Ohne aktuelle DEGIRO-Screenshotnachweise, von DEGIRO bereitgestellte offizielle Schnittstelle oder andere verifizierbare DEGIRO-Datenquelle ist keine vollautomatische neue DEGIRO-Listung möglich.
+
+- Die zusätzlichen Regressionen test_broker_candidate_evidence.py, test_degiro_candidate_one_image.js und browser_degiro_candidate_image.cjs prüfen die isolierte Ein-Bild-Zuordnung, zeitlichen Nachweise, Datenschutz und Smartphone-Ablauf.
