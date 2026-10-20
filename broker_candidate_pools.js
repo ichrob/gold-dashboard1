@@ -350,15 +350,17 @@ function mount(){
     root.fetch('/api/degiro/audit',{credentials:'same-origin',cache:'no-store',signal:abort.signal}),
     root.fetch('/api/degiro/candidate-proofs',{credentials:'same-origin',cache:'no-store',signal:abort.signal})
    ]);
-   if(!catalogResponse.ok||!auditResponse.ok||!proofResponse.ok)throw Error('Bobs private Recherche momentan nicht erreichbar');
+   if(!catalogResponse.ok||!auditResponse.ok)throw Error('Bobs private Recherche momentan nicht erreichbar');
    const nextCatalog=await catalogResponse.json();
    const nextAudit=await auditResponse.json();
-   const nextProofs=await proofResponse.json();
-   if(!Array.isArray(nextCatalog?.candidates)||!Array.isArray(nextAudit?.items)||
-      nextProofs?.status!=='ok'||!Array.isArray(nextProofs?.items))
+   const nextProofs=proofResponse.ok?await proofResponse.json():null;
+   if(!Array.isArray(nextCatalog?.candidates)||!Array.isArray(nextAudit?.items))
     throw Error('Ungültiger Recherchebericht');
-   catalog=nextCatalog;audit=nextAudit;proofs=nextProofs;lastPoll=Date.now();
-   feedback.textContent='Rechercheliste aktualisiert · keine automatische DEGIRO-Aufnahme.';
+   catalog=nextCatalog;audit=nextAudit;
+   proofs=nextProofs?.status==='ok'&&Array.isArray(nextProofs.items)?nextProofs:null;
+   lastPoll=Date.now();
+   feedback.textContent=proofs?'Rechercheliste aktualisiert · keine automatische Handelsfreigabe.':
+    'Emittenten-Recherche aktualisiert, aber privater Bildnachweisspeicher nicht erreichbar: keine neue DEGIRO-Bestätigung.';
   }catch(err){
    feedback.textContent='Quellenaktualisierung derzeit nicht bestätigt. Gespeicherte Recherche bleibt erhalten.';
    // Old audit data cannot serve as a fresh proof.
