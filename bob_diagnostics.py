@@ -215,8 +215,10 @@ def summary(areas):
 
 def broker_sync_snapshot(value):
     """Operational session metadata only; never holdings or account identifiers."""
-    result = fields(value, ('code', 'running', 'fresh', 'ageSeconds',
+    result = fields(value, ('code', 'running', 'fresh', 'ageSeconds', 'authReason',
                             'intervalSeconds', 'liveOrdersEnabled', 'liveQuotes'))
+    result['lastConnectionTest'] = fields(value.get('lastConnectionTest') if isinstance(value, dict) else None,
+                                         ('code', 'checkedAt', 'authReason'))
     snapshot = value.get('snapshot') if isinstance(value, dict) else None
     result['lastSuccessAt'] = fields(snapshot, ('observedAt',)).get('observedAt')
     result['status'] = ('fresh' if result.get('fresh') is True else
@@ -254,3 +256,4 @@ def bounded_report(report, max_bytes):
         areas[name] = {'status':'unavailable', 'reason':'omitted-response-size-limit'}
         result['omittedAreas'].append(name)
     return result
+
