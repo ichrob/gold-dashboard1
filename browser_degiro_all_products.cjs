@@ -71,6 +71,10 @@ const html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewpor
   console.log('Unified browser counts:',JSON.stringify(observedSummary));
   assert(observedSummary.includes('8 in Beobachtung/Prüfbericht'),'Unexpected observation count: '+observedSummary);
   assert((await page.locator('#dgUnifiedSync').innerText()).includes('Keine DEGIRO-Konto-API'));
+  assert((await page.locator('#dgUnifiedSync').innerText()).includes('Letzte tatsächliche serverseitige Produktprüfung'));
+  assert((await page.locator('#dgUnifiedSync').innerText()).includes('Bob-Bericht im Browser abgerufen'));
+  assert((await page.locator('#dgUnifiedSync').innerText()).includes('19.10.2026'));
+
   assert((await page.locator('#dgUnifiedCards').innerText()).includes('Handelsfreigabe über DEGIRO: nicht bestätigt'));
   assert((await page.locator('#dgUnifiedCards').innerText()).includes('Faktorprodukt'));
   await page.locator('#dgUnifiedFilter').selectOption('depot');
