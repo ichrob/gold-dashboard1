@@ -238,7 +238,10 @@ function mount(){
   '#bobIssuerResearch button,#bobIssuerResearch input{min-height:44px;max-width:100%;margin:5px 0}',
   '#bobIssuerResearch input{width:100%;padding:10px;box-sizing:border-box}',
   '#bobIssuerResearch .broker-research-isin{font-family:monospace;font-size:14px;user-select:text}',
-  '#bobIssuerResearch .broker-research-rows{min-width:0}'
+  '#bobIssuerResearch .broker-research-rows{min-width:0}',
+  '#bobIssuerResearch .broker-image-action{width:100%;padding:10px;border-radius:10px;font-weight:600}',
+  '#bobIssuerResearch .broker-image-hint{padding:10px;border:1px solid #cbd5e1;border-radius:10px}',
+  '#bobIssuerResearch .broker-image-input[hidden]{display:none}'
  ].join('\n');
  research.append(style);
  research.append(el(doc,'h3','','Emittenten-Recherche · zukünftige Broker'));
@@ -255,6 +258,19 @@ function mount(){
  research.append(form);
  const feedback=el(doc,'p','broker-research-small','');feedback.id='bobBrokerResearchFeedback';
  feedback.setAttribute('role','status');research.append(feedback);
+ const imageHint=el(doc,'p','broker-research-small broker-image-hint',
+  'Ein DEGIRO-Produktdetailbild genügt, wenn ISIN, Börse, Währung und datierte Kursdaten im selben Bild lesbar sind. Bob liest es auf diesem Gerät aus; nur geprüfte Belegfelder und ein Bild-Fingerabdruck gehen an Bobs privaten Server. Originalbild, Kontodaten und OCR-Volltext bleiben auf diesem Gerät.');
+ research.append(imageHint);
+ const globalUpload=el(doc,'button','broker-image-action','↑ Neues DEGIRO-Produktbild hochladen');
+ globalUpload.type='button';globalUpload.id='bobBrokerCandidateUpload';research.append(globalUpload);
+ const imageInput=el(doc,'input','broker-image-input');
+ imageInput.id='bobBrokerCandidateFile';imageInput.type='file';
+ imageInput.accept='image/png,image/jpeg,image/webp';imageInput.hidden=true;
+ imageInput.setAttribute('aria-label','DEGIRO-Produktdetailbild auswählen');
+ research.append(imageInput);
+ const imageStatus=el(doc,'p','broker-research-small','');
+ imageStatus.id='bobBrokerCandidateImageStatus';imageStatus.setAttribute('role','status');
+ imageStatus.setAttribute('aria-live','polite');research.append(imageStatus);
  const refresh=el(doc,'button','','Emittenten-Recherche aktualisieren');refresh.type='button';refresh.id='bobBrokerResearchRefresh';research.append(refresh);
  const result=el(doc,'div','broker-research-rows');result.id='bobBrokerResearchRows';
  research.append(result);
@@ -272,7 +288,9 @@ function mount(){
  confirmed.append(el(doc,'p','broker-research-small',
   'Nur ein aktueller ISIN-gebundener Nachweis aus einem geprüften DEGIRO-Produktdetail mit Handelsplatz und Datum zählt. Ein Emittentenkurs, historische Liste oder CSV-Kontoauszug allein reicht nicht. Ein bestätigter Listungsnachweis ist noch keine Orderfreigabe.'));
  products.prepend(confirmed);
- let catalog={candidates:[]},audit=null,busy=false,lastPoll=0;
+ let catalog={candidates:[]},audit=null,proofs=null,busy=false,lastPoll=0;
+ let imageBusy=false,imageExpected=null;
+ const issuerReadouts=new Map();
  function watchlist(){
   try{return root.BobDegiroAllProducts?.readWatchlist?.(root.localStorage)||[];}
   catch(_){return [];}
@@ -285,8 +303,15 @@ function mount(){
    card.append(el(doc,'strong','',item.name||item.isin));
    card.append(el(doc,'div','broker-research-isin',item.isin));
    card.append(el(doc,'p','broker-research-small',
-    isVerified?'DEGIRO-Listung aktuell mit Produktdetail-Screenshot nachgewiesen; kein ausführbarer DEGIRO-Kurs.':
+    isVerified?'DEGIRO-Produktanzeige aus aktuellem Bild nachgewiesen · kein ausführbarer Brokerkurs oder Handelssignal.':
     'DEGIRO: nicht aktuell nachgewiesen · IBKR: nicht geprüft · IG: nicht geprüft.'));
+   const issuer=issuerReadouts.get(item.isin);
+   if(issuer)card.append(el(doc,'p','broker-research-small',issuer));
+   const chooseImage=el(doc,'button','broker-image-action',
+     isVerified?'DEGIRO-Nachweis aktualisieren':'DEGIRO-Produktbild zuordnen');
+   chooseImage.type='button';chooseImage.dataset.candidateIsin=item.isin;
+   chooseImage.addEventListener('click',()=>chooseImageFor(item.isin));
+   card.append(chooseImage);
    card.append(el(doc,'p','broker-research-small',
     'Herkunft: '+(item.origin==='manual-candidate'?'manuell vorgemerkt':
       'historischer Emittentenkandidat')+
@@ -305,7 +330,7 @@ function mount(){
    'Es werden 60 von '+rows.length+' Rechercheinträgen angezeigt.'));
  }
  function render(){
-  const resultSet=researchUniverse(readLocal(root.localStorage),catalog,watchlist(),audit);
+  const resultSet=researchUniverse(readLocal(root.localStorage),catalog,watchlist(),audit,Date.now(),proofs);
   intro.textContent=resultSet.unverified.length+' Emittentenprodukte ohne bestätigte DEGIRO-Listung · '+
     resultSet.confirmed.length+' aktuell gelistete Kandidaten · '+
     'automatisch in aktive DEGIRO-Auswahl übernommen: 0.';
@@ -320,25 +345,111 @@ function mount(){
   busy=true;refresh.disabled=true;
   const abort=new AbortController(),timeout=setTimeout(()=>abort.abort(),10000);
   try{
-   const [catalogResponse,auditResponse]=await Promise.all([
+   const [catalogResponse,auditResponse,proofResponse]=await Promise.all([
     root.fetch('/api/degiro/candidates',{credentials:'same-origin',cache:'no-store',signal:abort.signal}),
-    root.fetch('/api/degiro/audit',{credentials:'same-origin',cache:'no-store',signal:abort.signal})
+    root.fetch('/api/degiro/audit',{credentials:'same-origin',cache:'no-store',signal:abort.signal}),
+    root.fetch('/api/degiro/candidate-proofs',{credentials:'same-origin',cache:'no-store',signal:abort.signal})
    ]);
-   if(!catalogResponse.ok||!auditResponse.ok)throw Error('Bobs private Recherche momentan nicht erreichbar');
+   if(!catalogResponse.ok||!auditResponse.ok||!proofResponse.ok)throw Error('Bobs private Recherche momentan nicht erreichbar');
    const nextCatalog=await catalogResponse.json();
    const nextAudit=await auditResponse.json();
-   if(!Array.isArray(nextCatalog?.candidates)||!Array.isArray(nextAudit?.items))
+   const nextProofs=await proofResponse.json();
+   if(!Array.isArray(nextCatalog?.candidates)||!Array.isArray(nextAudit?.items)||
+      nextProofs?.status!=='ok'||!Array.isArray(nextProofs?.items))
     throw Error('Ungültiger Recherchebericht');
-   catalog=nextCatalog;audit=nextAudit;lastPoll=Date.now();
+   catalog=nextCatalog;audit=nextAudit;proofs=nextProofs;lastPoll=Date.now();
    feedback.textContent='Rechercheliste aktualisiert · keine automatische DEGIRO-Aufnahme.';
   }catch(err){
    feedback.textContent='Quellenaktualisierung derzeit nicht bestätigt. Gespeicherte Recherche bleibt erhalten.';
    // Old audit data cannot serve as a fresh proof.
-   audit=null;
+   audit=null;proofs=null;
   }finally{
    clearTimeout(timeout);busy=false;refresh.disabled=false;render();
   }
  }
+ function chooseImageFor(isin=null){
+  if(imageBusy){imageStatus.textContent='Bildprüfung läuft bereits. Bitte kurz warten.';return;}
+  imageExpected=isin;
+  imageInput.value='';
+  imageInput.click();
+ }
+ async function refreshIssuerAfterUpload(isin){
+  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),12000);
+  try{
+   const response=await root.fetch('/api/degiro/enrich?isin='+encodeURIComponent(isin),{
+    credentials:'same-origin',cache:'no-store',signal:ctl.signal});
+   if(!response.ok)throw Error('Status '+response.status);
+   const data=await response.json();
+   if(data?.isin!==isin)throw Error('ISIN widerspricht der Emittentenantwort');
+   const meta=data.metadata||{};
+   const verified=data.productVerified===true;
+   const underlying=meta.underlyingType==='SPOT'&&
+    ['XAU/USD','Gold','Gold Spot'].includes(meta.underlying);
+   const factor=meta.type==='FACTOR';
+   issuerReadouts.set(isin,verified
+    ?'Emittentenrecherche: Identität bestätigt · '+(factor?'Faktorprodukt · keine Gold-Knock-out-Auswahl':
+      underlying?'Gold-Spot-Basiswert erkannt':'Basiswert noch nicht als Gold-Spot bestätigt')+
+      ' · Handelsfreigabe separat.'
+    :'Emittentenrecherche: Daten noch nicht eindeutig bestätigt; DEGIRO-Bildnachweis bleibt separat.');
+  }catch(_){
+   issuerReadouts.set(isin,'Emittentenrecherche derzeit nicht verfügbar. Der Bildnachweis wurde separat gespeichert.');
+  }finally{clearTimeout(timer);render();}
+ }
+ async function processImageFile(file,expected){
+  if(imageBusy)return;
+  imageBusy=true;globalUpload.disabled=true;
+  const original=imageInput.value;
+  try{
+   if(!file||!['image/png','image/jpeg','image/webp'].includes(file.type)||
+      file.size<1024||file.size>12000000)
+    throw Error('Bitte PNG, JPEG oder WebP (maximal 12 MB) auswählen.');
+   const scanner=root.BobDegiro;
+   if(typeof scanner?.recognizeOcr!=='function'||
+      typeof scanner?.parseDegiroDisplayedQuote!=='function')
+    throw Error('Bob-Bilderkennung ist noch nicht bereit. Bitte die Seite neu öffnen.');
+   imageStatus.textContent='DEGIRO-Bild wird lokal gelesen. ISIN und Handelsplatz werden geprüft …';
+   const ocr=await scanner.recognizeOcr(file,'bobBrokerCandidateImageStatus',true,expected||'');
+   const raw=ocr?.data?.text;
+   if(!raw||typeof raw!=='string')throw Error('Das Bild enthält keine zuverlässig lesbaren Produktdetails.');
+   const isin=imageISIN(raw,scanner);
+   if(expected&&isin!==expected)throw Error('Die Bild-ISIN stimmt nicht mit dem gewählten Produkt überein. Keine Aufnahme.');
+   const parsed=scanner.parseDegiroDisplayedQuote(raw,isin,false)||
+                scanner.parseDegiroDisplayedQuote(raw,isin,true);
+   if(!parsed)throw Error('Im selben DEGIRO-Bild müssen ISIN, Börse, Währung und datierte Kursdaten erkennbar sein.');
+   // The only image material retained is a local byte fingerprint.
+   // Neither screenshot bytes nor OCR body are POSTed to the server.
+   const bytes=await file.arrayBuffer();
+   const digest=[...new Uint8Array(await root.crypto.subtle.digest('SHA-256',bytes))]
+    .map(n=>n.toString(16).padStart(2,'0')).join('');
+   const payload=screenshotPayload(parsed,{size:file.size,type:file.type},digest);
+   imageStatus.textContent='Produkt '+isin+' erkannt. Nur Belegdaten werden sicher gespeichert …';
+   const response=await root.fetch('/api/degiro/candidate-proof',{
+    method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
+   });
+   let receipt={};try{receipt=await response.json();}catch(_){}
+   if(!response.ok||receipt?.ok!==true||receipt.evidence?.isin!==isin)
+    throw Error(text(receipt?.error,160)||'Privater Nachweisspeicher derzeit nicht erreichbar.');
+   try{queueManual(root.localStorage,isin);}catch(_){
+    // A verified server observation remains visible independently of this
+    // device's local candidate queue; never pretend local storage succeeded.
+   }
+   await poll();
+   imageStatus.textContent='✓ DEGIRO-Produktdetail für '+isin+
+    ' aus dem Bild erkannt und zeitlich geprüft. Listungsbeobachtung gespeichert bis heute 22:00 Uhr Zürich. Keine Handelsfreigabe.';
+   refreshIssuerAfterUpload(isin).catch(()=>{});
+  }catch(err){
+   imageStatus.textContent='⚠️ '+text(err?.message,250)+
+    ' Der Kandidat bleibt in der brokerübergreifenden Recherche; keine DEGIRO-Freigabe.';
+  }finally{
+   imageInput.value='';imageExpected=null;imageBusy=false;globalUpload.disabled=false;
+  }
+ }
+ globalUpload.addEventListener('click',()=>chooseImageFor());
+ imageInput.addEventListener('change',()=>{
+  const file=imageInput.files?.[0],expected=imageExpected;
+  if(file)processImageFile(file,expected);
+ });
  form.addEventListener('submit',event=>{
   event.preventDefault();
   try{
