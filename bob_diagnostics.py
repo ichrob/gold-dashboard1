@@ -45,6 +45,11 @@ def collect(readers):
         except Exception:
             # Exception messages can contain URLs, credentials or database values.
             areas[name] = {'status':'unavailable'}
+    # The web process may not run the evaluator itself. Prefer real observations
+    # from the push worker when its local capture is unavailable; never recompute.
+    worker_analysis = (areas.get('simulationAndPush') or {}).get('analysis')
+    if (areas.get('analysis') or {}).get('status') == 'unavailable' and isinstance(worker_analysis, dict) and worker_analysis.get('status') == 'observed':
+        areas['analysis'] = {**worker_analysis, 'observationSource':'push-worker'}
     return {'readOnly':True, 'realOrders':False,
             'observedAt':datetime.now(timezone.utc).isoformat(),
             'status':'partial' if any(a.get('status') == 'unavailable' for a in areas.values()) else 'observed',
@@ -225,6 +230,20 @@ def bounded_report(report, max_bytes):
     result = dict(report)
     areas = dict(result.get('areas') or {})
     result.update(areas=areas, status='partial', truncated=True, omittedAreas=[])
+    # Keep heartbeat, account balances, costs and evaluator observations even if
+    # the optional historical journal dwarfs the entire response budget.
+    simulation = areas.get('simulationAndPush')
+    if isinstance(simulation, dict):
+        compact = dict(simulation)
+        removed = []
+        for key in ('history', 'details'):
+            if key in compact:
+                compact.pop(key)
+                removed.append(key)
+        if removed:
+            compact.update(truncated=True, omittedSections=removed)
+            areas['simulationAndPush'] = compact
+    result['summary'] = summary(areas)
     for name in sorted(areas, key=lambda key: size(areas[key]), reverse=True):
         if size(result) <= max_bytes:
             break

@@ -113,6 +113,32 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(result['push']['deliveryStatus'],'not-verified')
 
 class ExpandedReportTests(unittest.TestCase):
+    def test_large_history_preserves_simulation_heartbeat_and_accounts(self):
+        simulation = {'status':'observed', 'paper':{'lastSuccessAt':123},
+                      'accounts':[{'profile':'100', 'cash':98, 'costsDebitedEur':2}],
+                      'push':{'evaluator':{'completed':9}},
+                      'history':{'large':'x'*20000}, 'details':{'large':'x'*20000}}
+        original = diagnostics.collect({'simulationAndPush':lambda:simulation})
+        result = diagnostics.bounded_report(original, 2000)
+        kept = result['areas']['simulationAndPush']
+        self.assertEqual(kept['paper']['lastSuccessAt'],123)
+        self.assertEqual(kept['accounts'][0]['costsDebitedEur'],2)
+        self.assertEqual(kept['push']['evaluator']['completed'],9)
+        self.assertEqual(kept['omittedSections'],['history','details'])
+        self.assertLess(len(json.dumps(result).encode()),2000)
+        self.assertIn('history',simulation)
+
+    def test_worker_analysis_fills_only_missing_local_observation(self):
+        worker = {'status':'observed','timeframes':{'15m':{'capturedAt':123}}}
+        result = diagnostics.collect({'analysis':lambda:{'status':'unavailable'},
+            'simulationAndPush':lambda:{'analysis':worker}})
+        self.assertEqual(result['areas']['analysis']['timeframes'],worker['timeframes'])
+        self.assertEqual(result['areas']['analysis']['observationSource'],'push-worker')
+        local = {'status':'observed','timeframes':{'5m':{'capturedAt':124}}}
+        result = diagnostics.collect({'analysis':lambda:local,
+            'simulationAndPush':lambda:{'analysis':worker}})
+        self.assertEqual(result['areas']['analysis'],local)
+
     def test_projection_redacts_and_bounds_untrusted_payload(self):
         value = {'items':[{'title':'token=secret https://example.com/private', 'body':'private raw transcript'}]*40}
         result = diagnostics.research_snapshot(value)
