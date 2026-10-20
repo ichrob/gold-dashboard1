@@ -128,8 +128,8 @@ const html='<!doctype html><html lang="de"><head><meta charset="utf-8">'+
     'Single candidate must not overwrite active DEGIRO screenshot products');
   assert((await page.evaluate(()=>localStorage.getItem('bobIssuerResearchCandidatesV1'))).includes(candidate));
   await page.reload();
-  await page.waitForFunction(()=>document.querySelector('#bobDegiroConfirmedRows article')
-   ?.textContent?.includes(''+candidate));
+  await page.waitForFunction(isin=>document.querySelector('#bobDegiroConfirmedRows article')
+   ?.textContent?.includes(isin),candidate);
   assert.equal(await page.locator('#bobDegiroConfirmedRows article').count(),1,
    'The separate proof survives browser refresh via authenticated private server');
   assert.deepEqual(outside,[],'No login, network call to DEGIRO or third-party brokers');
