@@ -54,6 +54,8 @@ assert.equal(combined.quoteObservation({isin:ids[1],quote:{...quoted.quote,isin:
  Date.parse('2026-10-20T02:00:00Z')),null,'Crossed prices rejected');
 assert.equal(combined.quoteObservation({isin:ids[1],quote:{...quoted.quote,isin:ids[1],bidAt:'bad',askAt:'bad'}},
  Date.parse('2026-10-20T02:00:00Z')),null,'No undated quotes');
+assert.equal(combined.quoteObservation({isin:ids[1],quote:{...quoted.quote,isin:ids[1],askAt:null,quoteAt:null}},
+ Date.parse('2026-10-20T02:00:00Z')),null,'Missing ask timestamp must not look fresh');
 const injected=combined.combine(saved,watchlist,{status:'ok',items:[
  {isin:'INVALID-ISIN',name:'spoofed'},
  {isin:ids[1],tradeApproved:true,degiroVerified:true,degiroExecutable:true}
