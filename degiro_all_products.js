@@ -164,6 +164,9 @@ function mount(){
  '#dgCombinedProducts .dg-unified-meta{font-size:13px;line-height:1.6}',
  '#dgCombinedProducts .dg-unified-subtle{font-size:12px;opacity:.82;line-height:1.5}',
  '#dgCombinedProducts .dg-unified-actions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}',
+ '#dgCombinedProducts .dg-depot-missing{border:1px solid #b9c8d8;border-radius:12px;padding:12px;margin:12px 0}',
+ '#dgCombinedProducts .dg-depot-missing p{font-size:14px;line-height:1.55;margin:6px 0}',
+ '#dgCombinedProducts .dg-depot-missing button{width:100%;font-weight:650;padding:10px;background:#1677ff;color:white;border:0;border-radius:10px}',
  '#dgCombinedProducts button,#dgCombinedProducts select,#dgCombinedProducts input{min-height:42px;max-width:100%}',
  '#dgCombinedProducts .dg-unified-filter{max-width:100%;width:100%;padding:8px;margin:5px 0 12px}',
  '@media(min-width:900px){#dgCombinedProducts .dg-unified-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}'
@@ -173,6 +176,16 @@ function mount(){
   'Gemeinsame ISIN-Übersicht aus deinem Depot-CSV, deinen gespeicherten DEGIRO-Listenbildern und Bobs privatem Prüfbericht. Kein vollständiger DEGIRO-Katalog und kein Kontozugriff.'));
  const status=el(doc,'p','dg-unified-meta','Gespeicherte Produkte werden zusammengeführt …');
  status.id='dgUnifiedSummary';status.setAttribute('role','status');panel.append(status);
+ const depotMissing=el(doc,'section','dg-depot-missing');
+ depotMissing.id='dgUnifiedDepotMissing';depotMissing.hidden=true;
+ depotMissing.append(el(doc,'strong','','Depot-CSV noch nicht gespeichert'));
+ depotMissing.append(el(doc,'p','',
+  'Die Beobachtungsliste ist vorhanden, aber in diesem Browser fehlt eine gespeicherte Portfolio-CSV. Ein früherer einmaliger CSV-Lesetest wurde nicht automatisch in die neue dauerhafte Depotliste übernommen.'));
+ depotMissing.append(el(doc,'p','',
+  'Für deine gehaltenen Produkte die bereits heruntergeladene Portfolio.csv unter Mehr → DEGIRO einmal erneut einlesen. Die Goldproduktliste bleibt erhalten.'));
+ const importBtn=el(doc,'button','','Depot-CSV jetzt einlesen');
+ importBtn.id='dgUnifiedImportCsv';importBtn.type='button';importBtn.dataset.view='degiro';
+ depotMissing.append(importBtn);panel.append(depotMissing);
  const sync=el(doc,'p','dg-unified-subtle',
   'Automatisch: Prüfbericht etwa alle 30 Sekunden abrufen, solange Bob geöffnet ist; Emittenten- und Vergleichskurse nutzen Bobs vorhandene Quellenaktualisierung. Nicht: Live-Abgleich mit DEGIRO-Konto oder ausführbare Brokerkurse.');
  sync.id='dgUnifiedSync';panel.append(sync);
@@ -244,6 +257,7 @@ function mount(){
  function paint(reset=false,loadMore=false){
   items=combine(depotRows(),watchRows(),audit,quoteRows(),Date.now());
   const s=summary(items,audit);
+  depotMissing.hidden=s.depot>0;
   status.textContent=s.unique+' verschiedene Produkte · '+s.depot+' im Depot-CSV · '+
    s.watch+' in Beobachtung/Prüfbericht'+
    ' · '+s.currentObserved+' zeitnahe Vergleichsbeobachtungen.';
