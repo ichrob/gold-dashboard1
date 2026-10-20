@@ -19,11 +19,10 @@ MAX_ITEMS = 120
 VALID_MIME = frozenset(("image/jpeg", "image/png", "image/webp"))
 KIND = "user-uploaded-detail-ocr"
 ORIGIN = "user-uploaded-degiro-detail-image"
-DURATION_MINUTES = 22 * 60
 
 
 def init(conn):
-    conn.execute("""CREATE TABLE IF NOT EXISTS bob_deigro_candidate_proofs (
+    conn.execute("""CREATE TABLE IF NOT EXISTS bob_degiro_candidate_proofs (
         isin TEXT PRIMARY KEY,
         payload JSONB NOT NULL,
         observed_at TIMESTAMPTZ NOT NULL,
@@ -159,7 +158,7 @@ def save(conn, payload, now=None):
         raise ValueError("DEGIRO-Produktnachweis nicht aktuell")
     # Avoid replacing a stronger or newer original with an older screenshot.
     old = conn.execute(
-        "SELECT payload FROM bob_deigro_candidate_proofs WHERE isin=%s FOR UPDATE",
+        "SELECT payload FROM bob_degiro_candidate_proofs WHERE isin=%s FOR UPDATE",
         (record["isin"],)
     ).fetchone()
     if old:
@@ -173,15 +172,15 @@ def save(conn, payload, now=None):
             if previous.get("venue") != record["venue"] or previous.get("currency") != record["currency"]:
                 raise ValueError("Widersprüchliche DEGIRO-Produktdetails zur selben Originalzeit")
     conn.execute(
-        """INSERT INTO bob_deigro_candidate_proofs(isin,payload,observed_at)
+        """INSERT INTO bob_degiro_candidate_proofs(isin,payload,observed_at)
         VALUES(%s,%s::jsonb,%s) ON CONFLICT(isin) DO UPDATE SET
         payload=EXCLUDED.payload, observed_at=EXCLUDED.observed_at, updated_at=NOW()""",
         (record["isin"], json.dumps(record, ensure_ascii=False), record["observedAt"])
     )
     # Keep only a bounded set of historical proof identities.
     conn.execute(
-        """DELETE FROM bob_deigro_candidate_proofs WHERE isin IN (
-          SELECT isin FROM bob_deigro_candidate_proofs
+        """DELETE FROM bob_degiro_candidate_proofs WHERE isin IN (
+          SELECT isin FROM bob_degiro_candidate_proofs
           ORDER BY observed_at DESC, isin ASC OFFSET %s
         )""", (MAX_ITEMS,)
     )
@@ -192,7 +191,7 @@ def save(conn, payload, now=None):
 def report(conn, now=None):
     now = now or datetime.now(timezone.utc)
     rows = conn.execute(
-        "SELECT payload FROM bob_deigro_candidate_proofs ORDER BY observed_at DESC LIMIT %s",
+        "SELECT payload FROM bob_degiro_candidate_proofs ORDER BY observed_at DESC LIMIT %s",
         (MAX_ITEMS,)
     ).fetchall()
     items=[]
