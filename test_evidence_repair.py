@@ -63,6 +63,7 @@ class RepairTests(unittest.TestCase):
             for i in range(3):repair.tick(conn,1000+i*repair.INTERVAL)
         self.assertEqual(conn.status,'escalated');self.assertEqual(conn.attempts,3)
         self.assertEqual(len(conn.payload['history']),3)
+        self.assertFalse(conn.payload['technicalFailure'])
         conn=Conn()
         with patch.object(repair,'reconcile'),patch.object(repair,'discover'),patch.object(repair,'retry_signal',return_value=(True,False,'Original bestätigt')):
             repair.tick(conn,1000)
@@ -84,9 +85,32 @@ class RepairTests(unittest.TestCase):
             repair.tick(conn,1000)
         updates=[c.args[1] for c in conn.execute.call_args_list if c.args[0].startswith('UPDATE bob_test_repairs')]
         self.assertEqual(updates[0][0],'trying');self.assertNotIn('sensitive',updates[0][3])
+        self.assertTrue(json.loads(updates[0][3])['technicalFailure'])
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class RepairPersistenceTests(unittest.TestCase):
+    def test_technical_archive_failure_keeps_technical_group(self):
+        import psycopg,uuid
+        from psycopg import sql
+        import training_handoff
+        schema='repair_'+uuid.uuid4().hex
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
+            conn.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
+            try:
+                repair.init(conn)
+                for key,extra in [('gap',{'technicalFailure':False}),
+                                  ('error',{'technicalFailure':True}),
+                                  ('legacy',{'reason':'Automatische Archivprüfung technisch fehlgeschlagen; keine Reparatur bestätigt.'})]:
+                    repair.enqueue(conn,key,'signal',{},dict(reasons=['missingFollowup']),1000)
+                    payload=dict(reasons=['missingFollowup'],history=[{'action':'Archiv prüfen'}],**extra)
+                    conn.execute("UPDATE bob_test_repairs SET status='escalated',attempts=3,payload=%s::jsonb WHERE id=%s",(json.dumps(payload),key))
+                groups={g['id']:g for g in training_handoff.problem_groups(conn)}
+                self.assertEqual(groups['test:signal:unknown']['cases'],2)
+                self.assertEqual(groups['test:signal:missingFollowup']['cases'],1)
+                self.assertTrue(all(g['status']=='escalated' for g in groups.values()))
+            finally:
+                conn.rollback()
     def test_recovery_exact_time_persistence_and_no_frozen_rewrite(self):
         import psycopg,uuid,time
         from psycopg import sql

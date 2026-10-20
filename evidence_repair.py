@@ -223,13 +223,15 @@ def tick(conn,now=None):
     rows=conn.execute('''SELECT id,kind,ref,attempts,payload FROM bob_test_repairs
         WHERE status='trying' AND next_at<=%s ORDER BY next_at,id LIMIT 48 FOR UPDATE SKIP LOCKED''',(now,)).fetchall()
     for key,kind,ref,attempts,payload in rows:
+        technical_failure=False
         try:
             with conn.transaction():ok,permanent,reason={'signal':retry_signal,'title':retry_title,'exit':retry_exit}[kind](conn,ref)
         except Exception:
+            technical_failure=True
             ok,permanent,reason=False,False,'Automatische Archivprüfung technisch fehlgeschlagen; keine Reparatur bestätigt.'
         attempts+=1
         status='recovered' if ok else 'escalated' if permanent or attempts>=MAX_ATTEMPTS else 'trying'
-        payload.update(lastAttemptAt=now,reason=reason)
+        payload.update(lastAttemptAt=now,reason=reason,technicalFailure=technical_failure)
         payload.setdefault('history',[]).append(dict(at=now,action=ACTIONS[kind],result=reason))
         conn.execute('''UPDATE bob_test_repairs SET status=%s,attempts=%s,next_at=%s,payload=%s::jsonb WHERE id=%s''',
                      (status,attempts,now+INTERVAL,json.dumps(payload),key))
