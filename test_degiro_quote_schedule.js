@@ -27,6 +27,9 @@ const oldAudit={status:'stale',lastCheckedAt:'2026-10-19T19:59:48+00:00',
   bid:6.09,ask:6.10,source:'SG Chart',currency:'EUR',
   bidAt:'2026-10-19T19:58:44+00:00',askAt:'2026-10-19T19:58:44+00:00',
   researchOnly:true,degiroExecutable:false}]}]};
+assert.equal(m.safeAudit(m.safeAudit(oldAudit)).checkedAt,
+ '2026-10-19T19:59:48.000Z',
+ 'Re-reading a normalized private audit cannot erase its original check timestamp');
 const out=m.combine(null,[],oldAudit,[],at('2026-10-20T03:15:00Z'));
 assert.equal(out.length,1);
 assert.equal(out[0].quote.fresh,false,'HTTP report read must not renew original price time');
