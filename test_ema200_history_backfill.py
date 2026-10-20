@@ -113,6 +113,29 @@ class EMA200HistoryWarmupTests(unittest.TestCase):
         self.assertEqual(r, full)
         provider.assert_not_called()
 
+    def test_native_half_hour_warmup_is_retained_for_deadline_fallback(self):
+        full=candle_series(600,step=1800000)
+        with patch.object(server.technical_candles,'fetch',return_value=[]),patch.object(server,'fetch_json',return_value={'points':xaus_points(full)}) as fetch:
+            result=server.fetch_technical_history('30m','1mo')
+        self.assertEqual(len(result),600)
+        self.assertEqual(server.retain_technical_history('30m',[]),result)
+        self.assertIn('interval=30m',fetch.call_args.args[0])
+
+    def test_four_hour_warmup_from_complete_hourly_candles(self):
+        full=candle_series(1200)
+        with patch.object(server.technical_candles,'fetch',return_value=candle_series(180,step=14400000)),patch.object(server,'fetch_json',return_value={'points':xaus_points(full)}) as fetch:
+            result=server.fetch_technical_history('4h','3mo')
+        self.assertGreaterEqual(len(result),299)
+        self.assertTrue(server._ema_history_sufficient(result,240))
+        self.assertIn('interval=1h',fetch.call_args.args[0])
+
+    def test_confirmed_prefix_survives_shorter_same_source_window(self):
+        full=candle_series(300)
+        server.retain_technical_history('1h',full)
+        self.assertEqual(len(server.retain_technical_history('1h',full[-50:])),300)
+        other=[dict(b,source='other') for b in full[-50:]]
+        self.assertEqual(len(server.retain_technical_history('1h',other)),50)
+
 
 if __name__ == '__main__':
     unittest.main()

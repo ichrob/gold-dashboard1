@@ -15,9 +15,10 @@ class CandleTests(unittest.TestCase):
         p=self.payload();p['interval']='1m';p['bars'][0]['openTime']='2026-10-06T08:59:00Z'
         rows=tc.normalize(p,'1m',self.now)
         self.assertEqual(len(rows),1)
-        with patch.object(tc,'fetch',return_value=[]),patch.dict(server._technical_history,{},clear=True),patch.object(server,'fetch_json') as fallback:
+        with patch.object(tc,'fetch',return_value=[]),patch.dict(server._technical_history,{},clear=True),patch.dict(server._ema_backfill_attempted,{},clear=True),patch.dict(server._ema_backfill_series,{},clear=True),patch.object(server,'fetch_json',return_value={'points':[]}) as fallback:
             self.assertEqual(server.fetch_technical_history('1m','1d'),[])
-            fallback.assert_not_called()
+            fallback.assert_called_once()
+            self.assertIn('symbol=xau',fallback.call_args.args[0])
 
     def test_strict_identity_and_candle_validation(self):
         p=self.payload()

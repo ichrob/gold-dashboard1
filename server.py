@@ -486,7 +486,14 @@ def retain_technical_history(interval, rows):
         # spot series wins over an earlier cached fallback even if its clock is older.
         if rows and ((spot_rows and not spot_old) or
                      (spot_rows == spot_old and technical_history_latest(rows, minutes) >= technical_history_latest(old, minutes))):
-            _technical_history[interval] = [dict(row) for row in rows]
+            # Keep only confirmed older candles from the same source. Never
+            # splice another provider or fill holes inside its current response.
+            sources={b.get('source') for b in rows}
+            older=[b for b in old if spot_rows and spot_old and len(sources)==1
+                   and b.get('source') in sources and b.get('source')
+                   and b['openTime']<rows[0]['openTime'] and not b.get('isOpen')
+                   and not b.get('providerIsOpen')]
+            _technical_history[interval] = [dict(row) for row in (older+rows)[-2000:]]
         return [dict(row) for row in _technical_history.get(interval, [])]
 
 
@@ -554,14 +561,20 @@ def _ema200_history_backfill(interval, range_value, observed):
             _ema_backfill_attempted[interval] = now
     if retry:
         try:
+            # Ask for enough real source history for every displayed timeframe.
+            fetch_interval = '1h' if interval == '4h' else interval
+            history_range = {'1m':'5d','5m':'1mo','15m':'1mo','30m':'1mo','1h':'3mo','4h':'3mo'}[interval]
             payload = fetch_json(
-                f"https://xaus.com/api/v1/chart?symbol=xau&range={range_value}&interval={interval}&fresh={int(now // 60) * 60000}",
+                f"https://xaus.com/api/v1/chart?symbol=xau&range={history_range}&interval={fetch_interval}&fresh={int(now // 60) * 60000}",
                 retries=0, user_agent="Bob/1.4", timeout=8)
             points = payload.get('points') if isinstance(payload, dict) else None
             if isinstance(points, list):
-                rows = normalize_chart_points(points, minutes)
+                rows = normalize_chart_points(points, 60 if interval == '4h' else minutes)
                 for row in rows:
                     row['source'] = 'XAUS · datierte XAU/USD-Historie'
+                if interval == '4h':
+                    mark_bar_state(rows,60)
+                    rows=aggregate_bars(rows,240)
                 mark_bar_state(rows, minutes)
                 if _ema_history_sufficient(rows, minutes):
                     with _ema_backfill_lock:
@@ -575,7 +588,7 @@ def _ema200_history_backfill(interval, range_value, observed):
     if (_ema_history_sufficient(historical, minutes)
             and technical_history_latest(historical, minutes) >=
                 technical_history_latest(observed, minutes)):
-        return historical
+        return retain_technical_history(interval, historical)
     return observed
 
 
@@ -584,16 +597,16 @@ def fetch_technical_history(interval, range_value):
     minutes = technical_candles.MINUTES[interval]
     independent = technical_candles.fetch(interval, fetch_json)
     if independent:
-        retain_technical_history(interval, independent)
+        independent = retain_technical_history(interval, independent)
         if technical_history_fresh(independent, minutes):
             # EMA200 is context only: a fresh 100-199 bar series remains
             # sufficient for EMA20/50-driven signals, while the older 200-bar
             # reference is fetched independently and never fabricated.
-            if interval in ('5m', '15m', '1h') and not _ema_history_sufficient(independent, minutes):
+            if not _ema_history_sufficient(independent, minutes):
                 return _ema200_history_backfill(interval, range_value, independent)
             return independent
-    if interval in ("1m", "15m", "4h"):
-        return retain_technical_history(interval, independent)
+    if interval in ("1m", "15m", "30m", "4h"):
+        return _ema200_history_backfill(interval, range_value, retain_technical_history(interval, independent))
     # XAUS exposes a documented XAU chart proxy. Use it first so Render
     # does not depend on direct Yahoo connectivity (which currently returns 404).
     xaus_interval = {"5m":"5m", "1h":"1h"}.get(interval, interval)
@@ -605,13 +618,15 @@ def fetch_technical_history(interval, range_value):
         )
         points = payload.get("points") if isinstance(payload, dict) else None
         if isinstance(points, list) and points:
-            out = normalize_chart_points(points, 5 if interval == '5m' else 60)
+            out = normalize_chart_points(points, minutes)
             rejected = len(points)-len(out)
             if rejected:
                 print(f'BOB_HISTORY interval={interval} excluded_non_candles={rejected}',flush=True)
             if out:
+                for row in out:row['source']='XAUS · datierte XAU/USD-Historie'
+                mark_bar_state(out,minutes)
+                out=retain_technical_history(interval,out)
                 primary = out
-                retain_technical_history(interval, out)
                 if technical_history_fresh(out, minutes):
                     return out
     except Exception:
@@ -730,13 +745,14 @@ def build_live_bundle():
         # source: ThreadPoolExecutor's context manager would otherwise wait for slow
         # Yahoo/FX requests at shutdown and keep /api/live hanging.
         from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-        pool = ThreadPoolExecutor(max_workers=7, thread_name_prefix="bob-live")
+        pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="bob-live")
         futures = {
             pool.submit(fetch_spot): "spot",
             pool.submit(fetch_technical_history, "5m", "5d"): "5m",
             pool.submit(fetch_technical_history, "1h", "3mo"): "1h",
             pool.submit(fetch_technical_history, "15m", "5d"): "15m",
             pool.submit(fetch_technical_history, "4h", "3mo"): "4h",
+            pool.submit(fetch_technical_history, "30m", "1mo"): "30m",
             pool.submit(fetch_fx): "fx",
             pool.submit(fetch_technical_history, "1m", "1d"): "1m",
         }
@@ -827,13 +843,14 @@ def build_live_bundle():
         bars_30m = aggregate_bars(bars_5m, 30) if bars_5m else []
         bars_4h = aggregate_bars(bars_1h, 240) if bars_1h else []
         # Native longer timeframes retain more history than a short 5m window.
-        for tf, minutes in (("15m", 15), ("4h", 240)):
+        for tf, minutes in (("15m", 15), ("30m", 30), ("4h", 240)):
             native = results.get(tf)
             if not isinstance(native, list):
                 native = retain_technical_history(tf, [])
             if native and technical_history_fresh(native, minutes):
                 mark_bar_state(native, minutes)
                 if tf == '15m': bars_15m = native
+                elif tf == '30m': bars_30m = native
                 else: bars_4h = native
         bars_1m = results.get("1m")
         if not isinstance(bars_1m, list):
