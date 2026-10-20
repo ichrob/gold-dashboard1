@@ -57,15 +57,20 @@ PUSH_SERVICE_TOKEN = os.environ.get("PUSH_SERVICE_TOKEN", "")
 SIGNAL_WORKER_TOKEN = os.environ.get("SIGNAL_WORKER_TOKEN", "")
 
 
-def read_private_report_for_mcp(path):
+def read_private_report_for_mcp(path, query=None):
     """Fetch the existing internal report without adding a public database port."""
-    if path not in ("/product-audit", "/diagnostics", "/candidate-proofs"):
+    if path not in ("/product-audit", "/diagnostics", "/candidate-proofs", "/signal-history"):
         raise ValueError("Unknown report")
     if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
         raise RuntimeError("Private audit unavailable")
     base = PUSH_SERVICE_URL.rstrip("/")
     if not base.startswith(("https://", "http://")):
         base = "https://" + base
+    if query is not None:
+        if path != '/signal-history': raise ValueError('Query not supported')
+        from signal_history import arguments
+        from urllib.parse import urlencode
+        path += '?' + urlencode(arguments(query))
     request = Request(base + path, method="GET",
                       headers={"X-Bob-Push-Token": PUSH_SERVICE_TOKEN,
                                "Accept": "application/json"})
@@ -1813,7 +1818,8 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("MCP request size invalid")
                 payload = json.loads(self.rfile.read(int(length)).decode("utf-8"))
                 status, output = bob_mcp.handle(payload, read_private_product_audit_for_mcp,
-                    read_diagnostics_for_mcp if diagnostics_allowed else None, products=products_allowed)
+                    read_diagnostics_for_mcp if diagnostics_allowed else None, products=products_allowed,
+                    signal_history_reader=(lambda args:read_private_report_for_mcp("/signal-history", args)) if diagnostics_allowed else None)
             except (ValueError, UnicodeError):
                 status, output = 400, bob_mcp.error(None, -32700, "Invalid JSON request")
             except (HTTPError, URLError, OSError, TimeoutError, RuntimeError):
