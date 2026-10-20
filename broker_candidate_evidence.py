@@ -93,7 +93,8 @@ def validate(payload, now=None):
         raise ValueError("Bild-Fingerabdruck fehlt")
     if not isinstance(payload["imageBytes"], int) or type(payload["imageBytes"]) is not int:
         raise ValueError("Ungültige Bildgröße")
-    if not 1024 <= payload["imageBytes"] <= 12_000_000 or payload["imageMime"] not in VALID_MIME:
+    if (not 1024 <= payload["imageBytes"] <= 12_000_000 or
+            not isinstance(payload["imageMime"], str) or payload["imageMime"] not in VALID_MIME):
         raise ValueError("Unterstützt: PNG, JPEG oder WebP bis 12 MB")
     bid, ask = payload["bid"], payload["ask"]
     if (bid is None) != (ask is None):
@@ -142,7 +143,8 @@ def current(record, now=None):
         and record.get("listingConfirmed") is True
         and record.get("executionConfirmed") is False
         and record.get("isExecutableQuote") is False
-        and valid_isin(record.get("isin"))
+        and isinstance(record.get("isin"), str)
+        and valid_isin(record["isin"])
         and at <= now < until
         and at.astimezone(ZONE).date() == now.astimezone(ZONE).date()
         and until.astimezone(ZONE).hour == 22
