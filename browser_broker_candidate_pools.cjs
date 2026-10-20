@@ -80,7 +80,7 @@ const html='<!doctype html><html lang="de"><head><meta charset="utf-8">'+
   assert.equal(await page.locator('#bobBrokerResearchRows article').count(),3);
   assert((await page.locator('#bobBrokerResearchRows').innerText()).includes('manuell vorgemerkt'));
   const check=await page.evaluate(()=>([
-   localStorage.getItem('bobBrokerIssuerResearchV1'),
+   localStorage.getItem('bobIssuerResearchCandidatesV1'),
    localStorage.getItem('bobDegiroProductsV2'),
    localStorage.getItem('bob.degiro.csv.depot.v1')
   ]));
