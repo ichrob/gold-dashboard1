@@ -41,8 +41,11 @@ function quoteObservation(item,now){
  const q=item?.quote;
  if(!q||q.isin!==item.isin)return null;
  const bid=numericPrice(q.bid),ask=numericPrice(q.ask);
- const at=safeTime(q.bidAt)||safeTime(q.askAt)||safeTime(q.quoteAt);
- if(bid===null||ask===null||bid>ask||!at)return null;
+ const bidAt=safeTime(q.bidAt)||safeTime(q.quoteAt);
+ const askAt=safeTime(q.askAt)||safeTime(q.quoteAt);
+ if(bid===null||ask===null||bid>ask||!bidAt||!askAt)return null;
+ // The older original component time governs freshness; never invent an ask clock.
+ const at=new Date(Math.min(Date.parse(bidAt),Date.parse(askAt))).toISOString();
  const age=(now-Date.parse(at))/1000;
  return {bid,ask,currency:typeof q.currency==='string'?q.currency.slice(0,3):'',
    at,source:typeof q.source==='string'?q.source.slice(0,120):'Emittentenvergleich',
