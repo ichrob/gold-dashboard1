@@ -38,7 +38,7 @@ async function readExport(url){
   try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>MAX)throw Error('Export größer als 2 MB');parts.push(decoder.decode(value,{stream:true}));}parts.push(decoder.decode());text=parts.join('');}
   finally{await reader.cancel().catch(()=>{});}
  }else{text=await response.text();if(text.length>MAX)throw Error('Export größer als 2 MB');}
- const report=readReport(text);
+ const report=readReport(text,{strict:true});
  if(report.kind!=='portfolio')throw Error('Bitte Portfolio-CSV exportieren, keine Transaktionsliste.');
  if(report.invalidRows.length)throw Error('Export enthält ungültige Zeilen; bisheriger Bob-Depotstand bleibt erhalten.');
  // Validate duplicates and quantities before staging. No raw CSV/URLs/session data stored.
