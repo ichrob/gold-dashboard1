@@ -143,7 +143,11 @@ def stored_details(conn):
             values = conn.execute(sql).fetchall()
         return {'status':'observed','items':[project(row[0],schema) for row in values],
                 'bounded':True, 'emptyMeans':'no-stored-observations'}
+    def gap_models():
+        import model_gap_review
+        with conn.transaction():return model_gap_review.report(conn)
     return collect({
+        'gapModels':gap_models,
         'decisionArchive':lambda:rows("SELECT payload FROM bob_decision_audit ORDER BY recorded_at DESC LIMIT 20",
             shape('recordedAt','barAt','priceAt','price','direction','baseDirection','shadowDirection','reason','score','ruleVersion','build','origin','marketEvaluable',
                 indicators=INDICATORS,gateReasons=[None],plan=shape('kind','direction','entry','stop','target','unit','at'))),
