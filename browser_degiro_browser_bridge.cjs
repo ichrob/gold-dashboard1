@@ -94,6 +94,33 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   await broker.locator('#export').click();
   assert(await broker.evaluate(()=>Boolean(window.__popup)),'Original window.open return value preserved');
   await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===9,{},{timeout:2000});
+  // A blank popup followed by a generated CSV has no URL at window.open.
+  // The selected CSV blob must be captured before the downloader revokes it.
+  await broker.evaluate(()=>{document.getElementById('export').onclick=()=>{
+   window.__blank=window.open('about:blank','_blank');
+   setTimeout(()=>{
+    const url=URL.createObjectURL(new Blob([window.__blankCSV],{type:window.__blankMime}));
+    window.__blank.location.href=url;URL.revokeObjectURL(url);
+   },50);
+  };},{});
+  await broker.evaluate(text=>window.__blankCSV=text,csv.replace(',2,0.12,',',11,0.12,'));
+  let blankQuantity=10;
+  for(const mime of ['text/csv;charset=utf-8','application/octet-stream','']){
+   blankQuantity++;await broker.evaluate(text=>window.__blankCSV=text,csv.replace(',2,0.12,',','+blankQuantity+',0.12,'));
+   await broker.evaluate(mime=>{window.__blankMime=mime;GM_setValue('bob-export-status-v1',{state:'ready',at:Date.now(),version:'1.2.0'});},mime);
+   await broker.locator('#export').click();
+   await bob.waitForFunction(qty=>BobDegiroPortfolio.load(localStorage).records[0].quantity===qty,blankQuantity,{timeout:2000});
+   await broker.waitForFunction(()=>GM_getValue('bob-export-status-v1',null)?.state==='staged');
+  }
+  // CSV blobs outside a trusted CSV choice, or with receipt stopped, are not read.
+  await bob.locator('#bobBridgeStop').click();
+  const blobRequests=requests.length;
+  await broker.evaluate(text=>URL.createObjectURL(new Blob([text],{type:'text/csv'})),csv);
+  await bob.waitForTimeout(80);assert.equal(requests.length,blobRequests);
+  assert.equal(await bob.evaluate(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity),13);
+  await bob.locator('#bobBridgeStart').click();
+  await broker.evaluate(text=>URL.createObjectURL(new Blob([text],{type:'text/csv'})),csv);
+  await bob.waitForTimeout(80);assert.equal(await bob.evaluate(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity),13,'Armed receipt alone does not capture generated blobs without a new CSV choice');
   // Do not follow arbitrary URLs, non-reporting APIs, credentials in URLs or PDF exports.
   const before=requests.length;
   await broker.evaluate(()=>{
@@ -165,7 +192,7 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   await bob.waitForFunction(()=>document.querySelector('#bobBridgeStart').disabled);
   assert.match(await bob.locator('#bobBridgeStatus').innerText(),/veraltet/);
   assert(await bob.locator('#bobBridgeUpdate').isVisible());
-  await bob.evaluate(()=>postMessage({type:'BOB_EXPORT_HELPER_READY',version:'1.1.0'},location.origin));
+  await bob.evaluate(()=>postMessage({type:'BOB_EXPORT_HELPER_READY',version:'1.2.0'},location.origin));
   await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStart').disabled);
   assert.deepEqual(errors,[]);
   console.log('Browser bridge: 2 tabs, detached dispatch, /csv URLs, window.open, version/heartbeat diagnostics, opt-in, rejection, persistence, mobile widths, deletion, no credential transfer: passed');
