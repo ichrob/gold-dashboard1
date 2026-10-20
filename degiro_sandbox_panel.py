@@ -52,11 +52,14 @@ function mount(){
  if(!target || !panel)return;
  target.append(panel);
  const connectionStatus=document.getElementById('dgConnectionStatus'),test=document.getElementById('dgConnectionTest'),otp=document.getElementById('dgConnectionOtp');
+ const authReasons={TOTP_REQUIRED:'DEGIRO verlangt einen Einmalcode aus einer bereits eingerichteten Authenticator-App.',APP_APPROVAL_REQUIRED:'DEGIRO verlangt eine Bestätigung in der DEGIRO-App. Diesen Anmeldeablauf unterstützt Bob derzeit nicht.',CAPTCHA_REQUIRED:'DEGIRO verlangt ein CAPTCHA. Bob kann es nicht bearbeiten; im offiziellen DEGIRO-Browserzugang prüfen.',RATE_LIMITED:'DEGIRO begrenzt die Anmeldeversuche. Bitte vorerst keine weiteren Versuche starten.',ACCESS_DENIED:'Der DEGIRO-Server verweigert den Zugriff dieses Servers. Ein falsches Passwort ist damit nicht nachgewiesen.',SERVICE_UNAVAILABLE:'Der DEGIRO-Anmeldedienst ist derzeit nicht verfügbar.',INVALID_LOGIN_RESPONSE:'Die DEGIRO-Anmeldeantwort hat ein unerwartetes Format. Technische Prüfung erforderlich.',LOGIN_REJECTED:'DEGIRO hat keine Sitzung erteilt. Die Antwort bestätigt weder ein falsches Passwort noch einen fehlenden Einmalcode.'};
+ function authDetail(data){return authReasons[data.authReason]||'';}
  fetch('/api/degiro/connection-status',{credentials:'same-origin',cache:'no-store'}).then(async response=>{
   if(!response.ok)throw new Error('Status nicht erreichbar');
   const data=await response.json();
   test.disabled=!data.ready;
   connectionStatus.textContent=data.ready?'Bibliothek und Zugangsdaten eingerichtet. Verbindung noch nicht getestet.':(!data.sdkReady?'Bibliothek fehlt oder Version passt nicht. ':'')+(!data.credentialsConfigured?'DEGIRO-Zugangsdaten noch nicht eingerichtet. ':'');
+  if(data.lastTest)connectionStatus.textContent='Letzter Lesetest: '+new Date(data.lastTest.checkedAt).toLocaleString()+' · '+(authDetail(data.lastTest)||(data.lastTest.code==='READ_OK'?'Anmeldung und Depotabruf erfolgreich.':'Keine Verbindung bestätigt ('+data.lastTest.code+').'));
  }).catch(()=>{connectionStatus.textContent='Einrichtungsstatus nicht erreichbar.';});
  test.addEventListener('click',async()=>{
   if(otp.value&&!/^[0-9]{6}$/.test(otp.value)){connectionStatus.textContent='Einmalcode muss sechs Ziffern haben.';return;}
@@ -68,6 +71,7 @@ function mount(){
    const data=await response.json();
    const messages={READ_OK:'✓ Anmeldung und Depotabruf erfolgreich. Keine Order gesendet.',AUTH_REQUIRED:'Anmeldung nicht bestätigt. Zugangsdaten, Einmalcode oder zusätzliche App-Bestätigung prüfen.',SETUP_REQUIRED:'Bibliothek oder Zugangsdaten fehlen.',BUSY:'Ein Lesetest läuft bereits.',COOLDOWN:'Bitte mindestens 60 Sekunden zwischen Anmeldeversuchen warten.',TIMEOUT:'Zeitlimit erreicht. Verbindung nicht bestätigt.',SDK_ERROR:'Lesetest fehlgeschlagen. Keine Verbindung bestätigt.',INVALID_RESPONSE:'Antwortformat nicht erkannt. Depotabruf nicht bestätigt.',INVALID_INPUT:'Eingabe ungültig.'};
    connectionStatus.textContent=(messages[data.code]||'Unbekanntes Testergebnis.')+(data.code==='READ_OK'&&!data.logoutConfirmed?' Abmeldung nicht bestätigt; Sitzung in DEGIRO prüfen.':'');
+   if(authDetail(data))connectionStatus.textContent=authDetail(data);
   }catch(error){connectionStatus.textContent='Lesetest nicht bestätigt: '+error.message;}finally{test.disabled=false;}
  });
 
@@ -76,6 +80,7 @@ function mount(){
  function drawSync(data){
   const names={NOT_STARTED:'Noch nicht gestartet.',STARTING:'Anmeldung läuft …',READ_OK:'Depot gelesen.',SETUP_REQUIRED:'Bibliothek oder Zugangsdaten fehlen.',AUTH_REQUIRED:'Erneut anmelden; gegebenenfalls Einmalcode eingeben.',SDK_ERROR:'Abgleich unterbrochen. Erneut anmelden.',INVALID_RESPONSE:'Datenantwort unvollständig. Letzter Stand bleibt erhalten.',DISCONNECTED:'Verbindung beendet. Erneut anmelden.',TIMEOUT:'Abgleich antwortet nicht. Sitzung beendet; erneut anmelden.',STOPPING:'Abgleich wird beendet …',STOPPED:'Abgleich beendet.',COOLDOWN:'Bitte 60 Sekunden zwischen Anmeldeversuchen warten.'};
   syncStatus.textContent=(names[data.code]||'Status unbekannt.')+(data.snapshot?' Letzter Abruf: '+new Date(data.snapshot.observedAt).toLocaleString()+' · '+(data.fresh?'aktuell abgeglichen':'nicht aktuell bestätigt'):'');
+  if(authDetail(data))syncStatus.textContent=authDetail(data);
   syncStart.disabled=data.running===true;syncStop.disabled=data.running!==true;
   holdings.replaceChildren();
   for(const row of data.snapshot?.holdings||[]){
@@ -121,3 +126,4 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 })();
 </script>
 '''
+
