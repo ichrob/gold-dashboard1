@@ -18,6 +18,17 @@ AUTH_REASONS = frozenset({'RATE_LIMITED', 'ACCESS_DENIED', 'SERVICE_UNAVAILABLE'
                          'TOTP_REQUIRED', 'APP_APPROVAL_REQUIRED', 'LOGIN_REJECTED'})
 
 
+def safe_login_response(value):
+    if not isinstance(value, dict):
+        return None
+    code = value.get('httpStatus')
+    kind = value.get('responseFormat')
+    if type(code) is not int or not 100 <= code <= 599 or kind not in {'empty', 'html', 'json', 'other'}:
+        return None
+    return {'httpStatus': code, 'responseFormat': kind,
+            'challengePage': value.get('challengePage') is True}
+
+
 def status():
     try:
         version = importlib.metadata.version('degiro-connector')
@@ -40,6 +51,7 @@ def probe(otp=''):
         _LAST_RESULT = {'code': result['code'],
                         'checkedAt': datetime.now(timezone.utc).isoformat(),
                         'authReason': result.get('authReason')}
+        _LAST_RESULT['loginResponse'] = safe_login_response(result.get('loginResponse'))
     return result
 
 
@@ -69,6 +81,7 @@ def _probe(otp=''):
             raise ValueError('invalid worker result')
         return {'ok': data['code'] == 'READ_OK', 'code': data['code'],
                 'authReason': data.get('authReason') if data.get('authReason') in AUTH_REASONS else None,
+                'loginResponse': safe_login_response(data.get('loginResponse')),
                 'liveOrdersEnabled': False, 'mode': 'READ_ONLY',
                 'checkedAt': data.get('checkedAt') if isinstance(data.get('checkedAt'), str) else None,
                 'portfolioRead': data['code'] == 'READ_OK',
