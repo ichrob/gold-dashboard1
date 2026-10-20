@@ -54,10 +54,12 @@ function mount(){
  const connectionStatus=document.getElementById('dgConnectionStatus'),test=document.getElementById('dgConnectionTest'),otp=document.getElementById('dgConnectionOtp');
  const authReasons={TOTP_REQUIRED:'DEGIRO verlangt einen Einmalcode aus einer bereits eingerichteten Authenticator-App.',APP_APPROVAL_REQUIRED:'DEGIRO verlangt eine Bestätigung in der DEGIRO-App. Diesen Anmeldeablauf unterstützt Bob derzeit nicht.',CAPTCHA_REQUIRED:'DEGIRO verlangt ein CAPTCHA. Bob kann es nicht bearbeiten; im offiziellen DEGIRO-Browserzugang prüfen.',RATE_LIMITED:'DEGIRO begrenzt die Anmeldeversuche. Bitte vorerst keine weiteren Versuche starten.',ACCESS_DENIED:'Der DEGIRO-Server verweigert den Zugriff dieses Servers. Ein falsches Passwort ist damit nicht nachgewiesen.',SERVICE_UNAVAILABLE:'Der DEGIRO-Anmeldedienst ist derzeit nicht verfügbar.',INVALID_LOGIN_RESPONSE:'Die DEGIRO-Anmeldeantwort hat ein unerwartetes Format. Technische Prüfung erforderlich.',LOGIN_REJECTED:'DEGIRO hat keine Sitzung erteilt. Die Antwort bestätigt weder ein falsches Passwort noch einen fehlenden Einmalcode.'};
  function authDetail(data){
-  const detail=authReasons[data.authReason]||'',r=data.loginResponse;
+  const detail=data.authReason==='LOGIN_REDIRECT'?'DEGIRO leitet die Serveranmeldung weiter. Bob hat die Weiterleitung angehalten; die Anmeldung ist nicht bestätigt.':authReasons[data.authReason]||'',r=data.loginResponse;
   if(!detail||!r)return detail;
   const kind={html:'HTML-Seite',empty:'leere Antwort',json:'JSON-Antwort',other:'anderes Antwortformat'};
-  return detail+' Technischer Befund: HTTP '+r.httpStatus+' · '+(kind[r.responseFormat]||'Format unbekannt')+(r.challengePage?' · Prüfseite erkannt. Bob umgeht diese Prüfung nicht.':'.');
+  const routes={'login-page':'Anmeldeseite','login-api':'Anmelde-API','totp-api':'Einmalcode-API','trader-page':'Handelsoberfläche',captcha:'CAPTCHA-Seite',challenge:'Prüfseite',maintenance:'Wartungsseite',blocked:'Sperrseite',denied:'Zugriff verweigert',error:'Fehlerseite',other:'anderer Pfad'};
+  const redirect=r.redirectHost?' Weiterleitungsziel: '+(r.redirectHost==='other'?'nicht freigegebener oder unbekannter Host':r.redirectHost)+' · '+(routes[r.redirectRoute]||'unbekannt')+'.':'';
+  return detail+' Technischer Befund: HTTP '+r.httpStatus+' · '+(kind[r.responseFormat]||'Format unbekannt')+(r.challengePage?' · Prüfseite erkannt. Bob umgeht diese Prüfung nicht.':'.')+redirect;
  }
  fetch('/api/degiro/connection-status',{credentials:'same-origin',cache:'no-store'}).then(async response=>{
   if(!response.ok)throw new Error('Status nicht erreichbar');

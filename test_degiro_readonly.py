@@ -130,6 +130,23 @@ class RealSdkContractTests(unittest.TestCase):
 
 
 class SafeDiagnosticTests(unittest.TestCase):
+    def test_redirect_destination_is_categorized_without_query_tokens(self):
+        import requests
+        from degiro_readonly_worker import login_response_metadata, login_diagnostic
+        for location, host, route in [
+            ('/login?token=SECRET','trader.degiro.nl','login-page'),
+            ('https://trader.degiro.com/login/secure/login?token=SECRET','trader.degiro.com','login-api'),
+            ('https://SECRET.evil.example/SECRET','other','other'),
+            ('https://trader.degiro.nl/denied/SECRET','trader.degiro.nl','denied'),
+        ]:
+            response=requests.Response();response.status_code=302;response._content=b'<html>SECRET</html>'
+            response.headers['Location']=location
+            self.assertEqual(login_diagnostic(response),'LOGIN_REDIRECT')
+            result=reader.safe_login_response(login_response_metadata(response))
+            self.assertEqual(result['redirectHost'],host)
+            self.assertEqual(result['redirectRoute'],route)
+            self.assertNotIn('SECRET',json.dumps(result))
+
     def test_http_metadata_is_bounded_and_does_not_expose_challenge_or_secrets(self):
         import requests
         from degiro_readonly_worker import login_response_metadata
