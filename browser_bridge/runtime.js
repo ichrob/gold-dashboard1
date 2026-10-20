@@ -2,7 +2,7 @@
 (function(){
 'use strict';
 const BROKER='https://trader.degiro.nl',BOB='https://bob-private-scanner.onrender.com';
-const ARM='bob-export-arm-v1',QUEUE='bob-export-pending-v1',STATUS='bob-export-status-v1',VERSION='1.1.0';
+const ARM='bob-export-arm-v1',QUEUE='bob-export-pending-v1',STATUS='bob-export-status-v1',VERSION='1.2.0';
 const TTL=10*60*1000,MAX=2_000_000;
 const isBob=location.origin===BOB,isBroker=location.origin===BROKER;
 if(!isBob&&!isBroker)return;
@@ -69,6 +69,24 @@ async function captureUrl(url){
 }
 function capture(anchor){return captureUrl(safeExportUrl(anchor));}
 if(isBroker){
+ // Some download libraries open about:blank first and assign a freshly
+ // generated CSV blob later. The initial window.open has no export URL.
+ // Observe only CSV blobs created just after the user's CSV choice, while
+ // receipt is armed. Never inspect arbitrary page blobs or wrap Location.
+ let csvChoiceUntil=0;
+ document.addEventListener('click',event=>{
+  const label=event.target?.textContent?.trim();
+  if(event.isTrusted&&label?.toUpperCase()==='CSV'&&armed())csvChoiceUntil=now()+30000;
+ },true);
+ const originalCreateObjectURL=page.URL.createObjectURL;
+ page.URL.createObjectURL=function(blob){
+  const url=originalCreateObjectURL.apply(this,arguments);
+  if(armed()&&now()<csvChoiceUntil&&blob instanceof page.Blob&&
+     /^(?:text\/(?:csv|plain)|application\/(?:csv|octet-stream|vnd\.ms-excel))(?:;|$)|^$/i.test(blob.type)&&blob.size<=MAX){
+   csvChoiceUntil=0;captureUrl(safeUrl(url));
+  }
+  return url;
+ };
  const anchorProto=page.HTMLAnchorElement.prototype;
  const originalClick=anchorProto.click,originalDispatch=anchorProto.dispatchEvent;
  const forwarding=new WeakSet();

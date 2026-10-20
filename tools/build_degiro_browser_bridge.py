@@ -4,7 +4,7 @@ BASE = Path(__file__).resolve().parents[1]
 META = '''// ==UserScript==
 // @name         Bob DEGIRO Export-Brücke
 // @namespace    https://bob-private-scanner.onrender.com/
-// @version      1.1.0
+// @version      1.2.0
 // @description  Übergibt ausgewählte DEGIRO-Portfolioexporte an Bob. Keine Anmeldung oder Orders.
 // @match        https://trader.degiro.nl/*
 // @match        https://bob-private-scanner.onrender.com/*

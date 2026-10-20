@@ -1,7 +1,7 @@
 /* Opt-in local export bridge. Data is user-provided, never a trading permission. */
 (function(root){
 'use strict';
-const TTL=600000,HELPER_VERSION='1.1.0';
+const TTL=600000,HELPER_VERSION='1.2.0';
 function validate(offer,store,now=Date.now()){
  if(!offer||typeof offer.id!=='string'||!/^[a-f0-9-]{36}$/i.test(offer.id)||
     !Number.isFinite(offer.createdAt)||offer.createdAt>now+5000||offer.createdAt<now-TTL)
