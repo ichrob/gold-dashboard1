@@ -27,6 +27,11 @@ _ISSUE_ROWS = None
 # A tiny machine-readable, public-safe status marker in issue bodies is the
 # return channel from the hourly ChatGPT repair task back to Bob's phone UI.
 # Markers never imply that a product quote, lever, KO or trade is approved.
+MANUAL_LABELS = {
+    'training-signal-start-evidence-history': 'Historische Signaltests: ursprüngliche Startdaten unvollständig',
+    'training-signal-followup-evidence-history': 'Historische Signaltests: ursprüngliche Folgekurse fehlen',
+}
+
 KI_STATUS_LABELS = {
     "new": "Wartet auf KI-Prüfung",
     "needs-user": "Deine Hilfe ist nach KI-Prüfung nötig",
@@ -103,6 +108,7 @@ def from_issues(rows, *, now=None):
             description = title[len("[Bob KI-Hilfe] "):].strip()
             if not description or len(description) > 150 or any(ord(c) < 32 for c in description):
                 continue
+            description = MANUAL_LABELS.get(description, description)
             code = "manual-" + str(number)
         else:
             continue
@@ -247,6 +253,8 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
  function report(item){
   return 'BOB – KI-HILFEANFRAGE #'+item.number+'\nProblem: '+item.message+
    '\nCode: '+item.code+'\nErkannt: '+readableDate(item.createdAt)+
+   '\nStatus: '+(item.kiStatusLabel||'Noch nicht geprüft')+
+   '\nLetzte Bearbeitung: '+readableDate(item.updatedAt)+
    '\nFehlerprotokoll: '+item.url+
    '\nBitte prüfe den Fehler in GitHub und Render, suche die Ursache, teste eine sichere Behebung und veröffentliche nur geprüfte Änderungen. Keine echten Trades.';
  }
@@ -306,6 +314,7 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
   }
  }
  const publicCodes=__BOB_PUBLIC_CODES__;
+ const manualDescriptions=__BOB_MANUAL_LABELS__;
  const kiStatusLabels={
    'new':'Wartet auf KI-Prüfung',
    'needs-user':'Deine Hilfe ist nach KI-Prüfung nötig',
@@ -339,7 +348,7 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
     if(Object.hasOwn(publicCodes,rest)){
      code=rest;message=publicCodes[rest];
     }else if(issue.user?.login==='ichrob'&&rest.length>0&&rest.length<=150&&!/[\x00-\x1f]/.test(rest)){
-     code='manual-'+issue.number;message=rest;
+     code='manual-'+issue.number;message=manualDescriptions[rest]||rest;
     }
    }
    if(!code||seen.has(code))continue;
@@ -429,3 +438,5 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
 
 # Keep server and browser fallback categories identical as new monitors are added.
 PANEL = PANEL.replace("__BOB_PUBLIC_CODES__", json.dumps(CODES, ensure_ascii=True))
+
+PANEL = PANEL.replace("__BOB_MANUAL_LABELS__", json.dumps(MANUAL_LABELS, ensure_ascii=True))
