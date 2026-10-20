@@ -43,3 +43,23 @@ class ReadOnlyHTTPTest(PaperHTTPTest):
                 self.assertEqual(response.headers.get('Cache-Control'),'no-store')
                 self.assertEqual(json.load(response)['code'],'SETUP_REQUIRED')
             probe.assert_called_once_with('001234')
+
+    def test_sync_requires_login_and_same_origin(self):
+        with self.assertRaises(HTTPError) as error:
+            urlopen(self.request('/api/degiro/sync',auth=False),timeout=5)
+        self.assertEqual(error.exception.code,401)
+        with patch.object(self.server_module.degiro_sync,'start') as start:
+            with self.assertRaises(HTTPError) as error:
+                urlopen(self.request('/api/degiro/sync/start',origin=False,body=b'{}'),timeout=5)
+            self.assertEqual(error.exception.code,403);start.assert_not_called()
+
+    def test_sync_control_is_read_only_and_not_cached(self):
+        with patch.object(self.server_module.degiro_sync,'start',return_value={'code':'STARTING','liveOrdersEnabled':False}) as start:
+            with urlopen(self.request('/api/degiro/sync/start',body=b'{"otp":"001234"}'),timeout=5) as response:
+                self.assertEqual(response.headers.get('Cache-Control'),'no-store')
+                self.assertEqual(json.load(response)['code'],'STARTING')
+            start.assert_called_once_with('001234')
+        with patch.object(self.server_module.degiro_sync,'stop',return_value={'code':'STOPPING'}) as stop:
+            with urlopen(self.request('/api/degiro/sync/stop',body=b'{}'),timeout=5) as response:
+                self.assertEqual(json.load(response)['code'],'STOPPING')
+            stop.assert_called_once()

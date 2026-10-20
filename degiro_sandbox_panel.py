@@ -15,6 +15,16 @@ PANEL = r'''
 </details>
 </section>
 <hr>
+<section aria-label="DEGIRO automatischer Leseabgleich">
+<h4>Depot automatisch abgleichen</h4>
+<p>Alle 30 Sekunden während der angemeldeten Sitzung, auch bei geschlossener App. Der Einmalcode oben wird auch für diesen Start verwendet.</p>
+<button id="dgSyncStart" type="button">Leseabgleich starten</button>
+<button id="dgSyncStop" type="button">Abgleich beenden</button>
+<p id="dgSyncStatus" role="status">Noch kein Abgleich gestartet.</p>
+<div id="dgSyncHoldings"></div>
+<p class="small">Depotbewertungen sind keine aktuellen Geld-/Briefkurse. SG, BNP, comdirect und Swissquote bleiben für Produktdaten zuständig. Nach Serverneustart, spätestens nach acht Stunden oder bei abgelaufener Sitzung erneut anmelden. Zugangssitzungen werden nicht dauerhaft gespeichert.</p>
+</section>
+<hr>
 <h4>Automatischer Simulationslauf</h4>
 <p><b>Simulation bereit · DEGIRO nicht verbunden</b></p>
 <p class="small">Dieser Test öffnet und schließt eine virtuelle Position automatisch und zieht den Stop nach. Die Kurse sind künstlich. Er bestätigt keine funktionierende DEGIRO-Anbindung.</p>
@@ -60,6 +70,34 @@ function mount(){
    connectionStatus.textContent=(messages[data.code]||'Unbekanntes Testergebnis.')+(data.code==='READ_OK'&&!data.logoutConfirmed?' Abmeldung nicht bestätigt; Sitzung in DEGIRO prüfen.':'');
   }catch(error){connectionStatus.textContent='Lesetest nicht bestätigt: '+error.message;}finally{test.disabled=false;}
  });
+
+ const syncStatus=document.getElementById('dgSyncStatus'),holdings=document.getElementById('dgSyncHoldings');
+ const syncStart=document.getElementById('dgSyncStart'),syncStop=document.getElementById('dgSyncStop');
+ function drawSync(data){
+  const names={NOT_STARTED:'Noch nicht gestartet.',STARTING:'Anmeldung läuft …',READ_OK:'Depot gelesen.',SETUP_REQUIRED:'Bibliothek oder Zugangsdaten fehlen.',AUTH_REQUIRED:'Erneut anmelden; gegebenenfalls Einmalcode eingeben.',SDK_ERROR:'Abgleich unterbrochen. Erneut anmelden.',INVALID_RESPONSE:'Datenantwort unvollständig. Letzter Stand bleibt erhalten.',DISCONNECTED:'Verbindung beendet. Erneut anmelden.',TIMEOUT:'Abgleich antwortet nicht. Sitzung beendet; erneut anmelden.',STOPPING:'Abgleich wird beendet …',STOPPED:'Abgleich beendet.',COOLDOWN:'Bitte 60 Sekunden zwischen Anmeldeversuchen warten.'};
+  syncStatus.textContent=(names[data.code]||'Status unbekannt.')+(data.snapshot?' Letzter Abruf: '+new Date(data.snapshot.observedAt).toLocaleString()+' · '+(data.fresh?'aktuell abgeglichen':'nicht aktuell bestätigt'):'');
+  syncStart.disabled=data.running===true;syncStop.disabled=data.running!==true;
+  holdings.replaceChildren();
+  for(const row of data.snapshot?.holdings||[]){
+   const card=document.createElement('p');
+   card.textContent=(row.name||row.isin||'Produkt '+row.productId)+' · '+(row.isin||'ISIN nicht geliefert')+' · '+row.quantity+' Stück · Depotbewertung je Stück: '+(row.valuationPrice??'nicht geliefert')+' '+row.currency+' (Kurszeit nicht geliefert)';
+   holdings.append(card);
+  }
+  if(data.snapshot&&!data.snapshot.holdings.length)holdings.textContent='Keine offenen Produktpositionen im gelesenen Depot.';
+ }
+ async function refreshSync(){
+  try{const r=await fetch('/api/degiro/sync',{credentials:'same-origin',cache:'no-store'});if(!r.ok)throw Error();drawSync(await r.json());}
+  catch(_){syncStatus.textContent='Abgleichstatus nicht erreichbar; Aktualität nicht bestätigt.';}
+ }
+ async function controlSync(action){
+  if(action==='start'&&otp.value&&!/^[0-9]{6}$/.test(otp.value)){syncStatus.textContent='Einmalcode muss sechs Ziffern haben.';return;}
+  const body=JSON.stringify(action==='start'?{otp:otp.value}:{});otp.value='';
+  syncStart.disabled=true;syncStop.disabled=true;
+  try{const r=await fetch('/api/degiro/sync/'+action,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body});if(!r.ok)throw Error();drawSync(await r.json());}
+  catch(_){syncStatus.textContent='Anfrage fehlgeschlagen. Status erneut prüfen.';syncStart.disabled=false;}
+ }
+ syncStart.addEventListener('click',()=>controlSync('start'));syncStop.addEventListener('click',()=>controlSync('stop'));
+ refreshSync();setInterval(()=>{if(!document.hidden)refreshSync();},5000);
 
  const run=document.getElementById('dgSandboxRun'),status=document.getElementById('dgSandboxStatus'),log=document.getElementById('dgSandboxLog');
  run.addEventListener('click',async()=>{

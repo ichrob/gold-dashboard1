@@ -15,11 +15,12 @@ def permitted(method, url):
     path = parsed.path
     return ((method == 'POST' and path in ('/login/secure/login', '/login/secure/login/totp'))
             or (method == 'GET' and path == '/pa/secure/client')
+            or (method == 'POST' and path == '/product_search/secure/v5/products/info')
             or (method == 'GET' and re.fullmatch(r'/trading/secure/v5/update/[0-9]+;jsessionid=[^/]+', path) is not None)
             or (method == 'PUT' and path.startswith('/trading/secure/logout;jsessionid=')))
 
 
-def run(otp):
+def run(otp, emit=None, stop=None):
     # All SDK logs are suppressed in this dedicated process, including errors.
     logging.disable(logging.CRITICAL)
     from requests import Session
@@ -63,6 +64,21 @@ def run(otp):
             credentials.int_account = account
             portfolio = api.get_update(request_list=[UpdateRequest(option=UpdateOption.PORTFOLIO, last_updated=0)], raw=True)
             result['code'] = 'READ_OK' if isinstance(portfolio, dict) and isinstance(portfolio.get('portfolio'), dict) and isinstance(portfolio['portfolio'].get('value'), list) else 'INVALID_RESPONSE'
+            if emit and result['code'] == 'READ_OK':
+                from degiro_sync_data import read_snapshot
+                import time
+                deadline = time.monotonic() + 8*3600
+                while not stop.is_set():
+                    snapshot = read_snapshot(api, portfolio)
+                    emit({'code': 'READ_OK', 'snapshot': snapshot})
+                    if stop.wait(30):
+                        break
+                    if time.monotonic() >= deadline:
+                        result['code'] = 'AUTH_REQUIRED'
+                        break
+                    portfolio = api.get_update(request_list=[UpdateRequest(option=UpdateOption.PORTFOLIO, last_updated=0)], raw=True)
+                if stop.is_set():
+                    result['code'] = 'STOPPED'
     except Exception as exc:
         # Only classify authentication failures; never serialize exception text.
         result['code'] = 'AUTH_REQUIRED' if type(exc).__name__ == 'DeGiroConnectionError' else 'SDK_ERROR'
@@ -83,7 +99,14 @@ if __name__ == '__main__':
         otp = payload.get('otp', '')
         if not isinstance(otp, str) or (otp and not re.fullmatch(r'[0-9]{6}', otp)):
             raise ValueError('invalid OTP')
-        result = run(otp)
+        if payload.get('continuous') is True:
+            import signal
+            import threading
+            stop = threading.Event()
+            signal.signal(signal.SIGTERM, lambda *_: stop.set())
+            result = run(otp, lambda row: print(json.dumps(row), flush=True), stop)
+        else:
+            result = run(otp)
     except Exception:
         result = {'code': 'SDK_ERROR', 'logoutConfirmed': False}
     print(json.dumps(result))

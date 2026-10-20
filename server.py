@@ -1,5 +1,6 @@
 import bob_passkey
 import degiro_readonly
+import degiro_sync
 import degiro_sandbox
 import degiro_sandbox_panel
 import vollautomatisch_panel
@@ -1092,7 +1093,7 @@ class Handler(BaseHTTPRequestHandler):
         # Sensitive data APIs must be authenticated before any data generation.
         # Keep static PWA resources and /health public, but never expose live,
         # MTF, or DEGIRO enrichment data without the existing Bob credentials.
-        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path == "/api/degiro/connection-status" or path == "/api/degiro/sandbox" or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates" or path == "/api/degiro/audit" or path == "/api/self-healing" or path == "/api/problems" or path == "/api/repair-statistics"
+        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path in ("/api/degiro/connection-status", "/api/degiro/sync") or path == "/api/degiro/sandbox" or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates" or path == "/api/degiro/audit" or path == "/api/self-healing" or path == "/api/problems" or path == "/api/repair-statistics"
         if protected_api_path:
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
@@ -1105,8 +1106,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(b"Authentication required.")
                 return
 
-        if path == "/api/degiro/connection-status":
-            body = json.dumps(degiro_readonly.status()).encode("utf-8")
+        if path in ("/api/degiro/connection-status", "/api/degiro/sync"):
+            body = json.dumps(degiro_sync.status() if path == "/api/degiro/sync" else degiro_readonly.status()).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -1875,7 +1876,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        if path == "/api/degiro/connection-test":
+        if path in ("/api/degiro/connection-test", "/api/degiro/sync/start", "/api/degiro/sync/stop"):
             if not self.authenticated():
                 bob_auth.send(self, 401)
                 return
@@ -1889,7 +1890,10 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(self.rfile.read(length))
                 if not isinstance(payload, dict) or set(payload) - {"otp"}:
                     raise ValueError("Ungültige Anfrage")
-                result = degiro_readonly.probe(payload.get("otp", ""))
+                result = (degiro_sync.start(payload.get("otp", "")) if path.endswith("/start") else
+                          degiro_sync.stop() if path.endswith("/stop") else
+                          {"ok": False, "code": "BUSY"} if degiro_sync.status()["running"] else
+                          degiro_readonly.probe(payload.get("otp", "")))
                 code = 200
             except (ValueError, TypeError):
                 result, code = {"ok": False, "code": "INVALID_INPUT"}, 400
