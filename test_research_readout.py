@@ -38,7 +38,7 @@ class ResearchReadoutTests(unittest.TestCase):
             _,response=bob_mcp.handle(request,Mock(),lambda:original)
         self.assertFalse(response['result']['isError'])
         result=json.loads(response['result']['content'][0]['text'])
-        self.assertEqual(result['areas']['simulationAndPush']['researchReports'],stored)
+        self.assertEqual(result['areas']['strategyReport'],stored)
         self.assertEqual(result['areas']['simulationAndPush']['omittedSections'],['history','details'])
         self.assertIn('history',original['areas']['simulationAndPush'])
 
@@ -47,6 +47,15 @@ class ResearchReadoutTests(unittest.TestCase):
         _,res=bob_mcp.handle(req,Mock())
         self.assertTrue(res['result']['isError'])
         self.assertIn('insufficient_scope',res['result']['_meta']['mcp/www_authenticate'][0])
+
+    def test_whole_simulation_omission_cannot_discard_research_report(self):
+        stored={'status':'observed','items':[{'day':'2026-10-20'}]}
+        source={'status':'observed','accounts':['x'*5000], 'researchReports':stored}
+        original=diagnostics.collect({'simulationAndPush':lambda:source})
+        reduced=diagnostics.bounded_report(original,2000)
+        self.assertIn('simulationAndPush',reduced['omittedAreas'])
+        self.assertEqual(reduced['areas']['strategyReport'],stored)
+        self.assertIn('researchReports',source)
 
     def test_existing_extended_reader_exposes_stored_report(self):
         portfolios=Mock(POLICIES=[]);conn=Mock()
