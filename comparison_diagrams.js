@@ -287,6 +287,22 @@ function drawMissingTests(box,stale){
  section.append(node('p',available?(repairReport.counts?.trying||0)+' in automatischer Nachprüfung · '+(repairReport.counts?.recovered||0)+' erfolgreich nachgeprüft · '+(repairReport.counts?.escalated||0)+' für ChatGPT gesammelt':'Automatische Nachprüfung wird geladen; noch keine fehlgeschlagenen Reparaturversuche bestätigt.'));
  section.append(node('p',finite(repairReport?.workerCheckedAt)?'Letzter automatischer Prüflauf: '+stamp(repairReport.workerCheckedAt)+(Date.now()-repairReport.workerCheckedAt>300000?' · Hintergrundlauf nicht aktuell bestätigt':''):'Noch kein abgeschlossener automatischer Prüflauf bestätigt.'));
  section.append(node('p','Im Hintergrund etwa alle zwei Minuten: Originalnachweise prüfen und fehlende Signalergebnisse aus passenden Archivkursen nachberechnen. Höchstens drei Versuche; nicht rekonstruierbare Originaldaten werden nach einer Prüfung gesammelt.'));
+ const models=repairReport?.modelReview;
+ if(models){
+  section.append(node('h4','Berechnete Ergänzung der Datenlücken'));
+  section.append(node('p',(models.counts?.modelled||0)+' getrennte Modellauswertungen · '+(models.counts?.unavailable||0)+' ohne ausreichende historische Stützpunkte. '+models.note));
+  const details=node('details');details.append(node('summary','Modellergebnisse und Berechnungsgrundlage'));
+  for(const m of models.items||[]){
+   const p=node('p');p.style.whiteSpace='pre-line';
+   const checks=Object.values(m.validation||{});
+   p.textContent=stamp(m.start.at)+' · '+m.horizon+' Minuten · '+m.direction+'\nGoldbewegung (Modell): '+Number(m.goldMovePct).toFixed(3)+' % · keine Produktrendite'+
+    '\nStart: '+m.start.price.toFixed(3)+' · Ende: '+m.end.price.toFixed(3)+' USD/oz'+
+    '\nQuelle: '+m.start.source+' · lineare Berechnung zwischen archivierten Messpunkten'+
+    '\nStützpunktabstand Start/Ende: '+m.start.gapMs/1000+' / '+m.end.gapMs/1000+' Sekunden. Unsicherheit zwischen Messpunkten nicht bestimmbar.'+
+    '\nBerechnet: '+stamp(m.calculatedAt)+(checks.length?' · Spätere Originalvergleiche: '+checks.map(c=>c.absoluteErrorPct.toFixed(3)+' % Abweichung').join(', '):' · Noch kein späterer Originalvergleich.');
+   details.append(p);
+  }section.append(details);
+ }
  if(repairReport?.truncated)section.append(node('p','Anzeige und Teilen auf 300 Fälle begrenzt. Weitere ungelöste Fälle bleiben gespeichert.'));
  if(!items.length){section.append(node('p',stale?'Stand der automatischen Nachprüfung nicht aktuell bestätigt.':'Noch keine ungelösten Fälle nach automatischem Versuch zum Teilen vorhanden. Neue fehlende Werte werden beim nächsten Hintergrundlauf geprüft.'));box.append(section);return;}
  section.append(node('p',stale?'Gesammelte Fälle aus dem letzten verfügbaren Bericht. Der aktuelle Zustand ist nicht bestätigt.':'Diese Fälle hat Bob automatisch geprüft, aber nicht sicher beheben können. Sie bleiben für die weitere Fehlerbehebung gespeichert.'));

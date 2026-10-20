@@ -62,6 +62,11 @@ def calculate(product, spots, now=None):
     if not pos(estimate):
         return None
     return dict(price=round(estimate, 6), currency=currency,
+                calculatedAt=now.isoformat(),referenceAt=product.get('referenceAt'),
+                method='anchored-gold-fx-turbo',
+                basis={k:product.get(k) for k in ('bid','goldReference','fxReference','ratio','strike','ko','direction')},
+                calculatedLeverage=round(gold*rate*product['ratio']/estimate,6),
+                uncertaintyBound=None,uncertainty='Requires matched original-quote comparisons',
                 spotAt=spot_time.isoformat(), fxAt=fx_time.isoformat(),
                 gold=gold, fxRate=rate, kind='model',
                 source='Bob · Gold/FX-Produktmodell (Hintergrund)',
@@ -123,7 +128,11 @@ def read(conn, trade_id, limit=400):
                          source=(details or {}).get('source','Bob · Gold/FX'),
                          gold=(details or {}).get('gold'),
                          fxAt=(details or {}).get('fxAt'),
-                         koDistancePct=(details or {}).get('koDistancePct'))
+                         koDistancePct=(details or {}).get('koDistancePct'),
+                         basis=(details or {}).get('basis'),referenceAt=(details or {}).get('referenceAt'),
+                         calculatedAt=(details or {}).get('calculatedAt'),method=(details or {}).get('method'),
+                         calculatedLeverage=(details or {}).get('calculatedLeverage'),
+                         uncertainty=(details or {}).get('uncertainty'),uncertaintyBound=None)
                     for spot,recorded,price,currency,details in reversed(rows)],
             'recording':'server-model-only',
             'note':'Gold/FX-Rechenwerte, keine DEGIRO-Geldkurse oder Ausführungen.'}

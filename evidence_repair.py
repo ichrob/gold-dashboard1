@@ -7,7 +7,8 @@ MAX_ATTEMPTS=3
 
 
 def init(conn):
-    import training_handoff
+    import training_handoff, model_gap_review
+    model_gap_review.init(conn)
     training_handoff.init(conn)
     conn.execute('CREATE TABLE IF NOT EXISTS bob_test_repair_control (id INTEGER PRIMARY KEY,last_at BIGINT)')
     conn.execute('INSERT INTO bob_test_repair_control(id,last_at) VALUES(1,NULL) ON CONFLICT DO NOTHING')
@@ -192,6 +193,12 @@ def tick(conn,now=None):
         payload.setdefault('history',[]).append(dict(at=now,action=ACTIONS[kind],result=reason))
         conn.execute('''UPDATE bob_test_repairs SET status=%s,attempts=%s,next_at=%s,payload=%s::jsonb WHERE id=%s''',
                      (status,attempts,now+INTERVAL,json.dumps(payload),key))
+    # A model failure cannot roll back original-evidence recovery.
+    import model_gap_review
+    try:
+        with conn.transaction():model_gap_review.tick(conn,now)
+    except Exception as exc:
+        print('BOB_GAP_MODEL error='+type(exc).__name__,flush=True)
     conn.execute('UPDATE bob_test_repair_control SET last_at=%s WHERE id=1',(now,))
     # Preserve unresolved history even when the source report rolls out.
     conn.execute("DELETE FROM bob_test_repairs WHERE status='recovered' AND next_at<%s",(now-90*86400000,))
@@ -205,7 +212,9 @@ def report(conn):
     checked=conn.execute('SELECT last_at FROM bob_test_repair_control WHERE id=1').fetchone()
     import training_handoff
     groups=training_handoff.problem_groups(conn)
-    return dict(problemGroups=groups,problemCount=len(groups),affectedCases=sum(g['cases'] for g in groups),available=True,workerCheckedAt=checked[0] if checked else None,generatedAt=int(time.time()*1000),maxAttempts=MAX_ATTEMPTS,intervalMs=INTERVAL,
+    import model_gap_review
+    model_review=model_gap_review.report(conn)
+    return dict(modelReview=model_review,problemGroups=groups,problemCount=len(groups),affectedCases=sum(g['cases'] for g in groups),available=True,workerCheckedAt=checked[0] if checked else None,generatedAt=int(time.time()*1000),maxAttempts=MAX_ATTEMPTS,intervalMs=INTERVAL,
         counts=counts,limit=300,truncated=sum(v for k,v in counts.items() if k!='recovered')>len(rows),
         items=[dict(p,id=key,status=status,attempts=attempts) for key,status,attempts,p in rows],
         note='Automatische Nachprüfung im Hintergrund etwa alle zwei Minuten, maximal drei Versuche. Nicht rekonstruierbare Originaldaten werden nach bestätigter Prüfung direkt weitergegeben. Keine erfundenen historischen Kurse; abgeschlossene Lernexperimente werden nicht überschrieben.')
