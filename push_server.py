@@ -25,6 +25,8 @@ import trade_email_import
 import decision_audit
 import decision_evidence
 import improvement_tracker
+import report_admission
+import hashlib
 import ranking_learning
 import adaptive_learning as rule_learning
 import strategy_lab_store
@@ -80,6 +82,34 @@ def db(auth=False):
             else:_db_pool = pool
             atexit.register(pool.close)
     return pool.connection()
+
+def read_improvement_report():
+    def load():
+        with db() as conn:
+            result=improvement_tracker.report(conn)
+            try:
+                import product_data_quality
+                with conn.transaction():result['dataQuality']=product_data_quality.read(conn)
+            except Exception:
+                result['dataQuality']={'status':'unavailable','note':'Produktqualität derzeit nicht abrufbar; kein bestätigter aktueller Stand.'}
+            try:
+                import improvement_status
+                with conn.transaction():result['operatingStatus']=improvement_status.read(conn,result)
+            except Exception:
+                result['operatingStatus']={'available':False}
+        return result
+    return report_admission.read("improvement",load)
+
+
+def read_audit_report(payload):
+    key="audit:"+hashlib.sha256(json.dumps(payload,sort_keys=True).encode()).hexdigest()
+    def load():
+        with db() as conn:
+            result=decision_audit.handle(conn,"read",payload)
+            conn.commit()
+        return result
+    return report_admission.read(key,load)
+
 
 def webpush(**kwargs):
     # Never hold subscription locks indefinitely on an unreachable push provider.
@@ -860,18 +890,7 @@ class Handler(BaseHTTPRequestHandler):
                 supplied=self.headers.get('X-Bob-Push-Token','')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
                     send_json(self,401,{'error':'Unauthorized'});return
-                with db() as conn:
-                    result=improvement_tracker.report(conn)
-                    try:
-                        import product_data_quality
-                        with conn.transaction():result['dataQuality']=product_data_quality.read(conn)
-                    except Exception:
-                        result['dataQuality']={'status':'unavailable','note':'Produktqualität derzeit nicht abrufbar; kein bestätigter aktueller Stand.'}
-                    try:
-                        import improvement_status
-                        with conn.transaction():result['operatingStatus']=improvement_status.read(conn,result)
-                    except Exception:
-                        result['operatingStatus']={'available':False}
+                result=read_improvement_report()
                 send_json(self,200,result);return
             if path in ('/real-trades/read','/real-trades/write','/real-trades/curve','/real-trades/risk','/real-trades/confirm-sale'):
                 supplied=self.headers.get('X-Bob-Push-Token','')
@@ -895,9 +914,12 @@ class Handler(BaseHTTPRequestHandler):
                     'simulation-sync', 'manual-paper-watch-sync', 'manual-paper-watch-levels'
                 ):
                     payload['origin']='browser'
-                with db() as conn:
-                    result=decision_audit.handle(conn,path.rsplit('/',1)[-1],payload)
-                    conn.commit()
+                if path.endswith('/read'):
+                    result=read_audit_report(payload)
+                else:
+                    with db() as conn:
+                        result=decision_audit.handle(conn,'write',payload)
+                        conn.commit()
                 send_json(self,200,result)
                 return
             if path in ('/market-validations/read','/market-validations/write'):

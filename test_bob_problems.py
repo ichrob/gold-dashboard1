@@ -17,6 +17,16 @@ def issue(code, number):
 
 
 class BobProblemsTests(unittest.TestCase):
+    def test_historical_cases_have_readable_names_and_copy_includes_review_status(self):
+        row=issue('paper-unhealthy',555)
+        row.update(title='[Bob KI-Hilfe] training-signal-start-evidence-history',user={'login':'ichrob'})
+        data=problems.from_issues([row])
+        self.assertEqual(data['problems'][0]['code'],'manual-555')
+        self.assertIn('ursprüngliche Startdaten',data['problems'][0]['message'])
+        self.assertIn('manualDescriptions[rest]||rest',problems.PANEL)
+        self.assertIn('Letzte Bearbeitung:',problems.PANEL)
+        self.assertNotIn('__BOB_MANUAL_LABELS__',problems.PANEL)
+
     def setUp(self):
         problems._CACHED = None
         problems._LAST_TRY = 0.0
