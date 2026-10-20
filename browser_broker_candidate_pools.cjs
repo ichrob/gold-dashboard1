@@ -62,6 +62,11 @@ const html='<!doctype html><html lang="de"><head><meta charset="utf-8">'+
     contentType:'application/json',body:JSON.stringify(issuerCatalog)});
    if(pathname==='/api/degiro/audit')return route.fulfill({
     contentType:'application/json',body:JSON.stringify(audit)});
+   if(pathname==='/api/degiro/candidate-proofs')return route.fulfill({
+    contentType:'application/json',body:JSON.stringify({
+     status:'ok',source:'user-uploaded-degiro-detail-image',items:[],
+     checkedAt:'2026-10-20T08:30:00Z'
+    })});
    if(['/degiro_all_products.js','/broker_candidate_pools.js'].includes(pathname)){
     return route.fulfill({contentType:'application/javascript',
      body:fs.readFileSync(path.join(__dirname,pathname.slice(1)),'utf8')});
@@ -95,7 +100,7 @@ const html='<!doctype html><html lang="de"><head><meta charset="utf-8">'+
   await page.locator('#bobBrokerResearchRefresh').click();
   await page.waitForFunction(()=>document.querySelector('#bobDegiroCandidateStatus')?.textContent?.includes('1 Produkt(e)'));
   assert.equal(await page.locator('#bobDegiroConfirmedRows article').count(),1);
-  assert((await page.locator('#bobDegiroConfirmedRows').innerText()).includes('kein ausführbarer DEGIRO-Kurs'));
+  assert((await page.locator('#bobDegiroConfirmedRows').innerText()).includes('kein ausführbarer Brokerkurs'));
   assert.equal(await page.locator('#bobBrokerResearchRows article').count(),2);
   assert.equal(await page.evaluate(()=>localStorage.getItem('bobDegiroProductsV2')!==null),true);
   audit={...audit,status:'stale'};
