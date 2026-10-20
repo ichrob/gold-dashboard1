@@ -2,12 +2,13 @@
    Does not claim to test the installed Android add-on or a real broker login. */
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs');
-const engines=require('playwright');
+const engines=require('playwright'),path=require('node:path');
+const fixtureSource=name=>fs.readFileSync(path.join(process.env.BOB_BRIDGE_TEST_SOURCE||__dirname,name),'utf8');
 const engine=process.env.BOB_BRIDGE_BROWSER||'chromium';
 const BOB='https://bob-private-scanner.onrender.com',BROKER='https://trader.degiro.nl';
 const header='Produkt,Symbol/ISIN,Anzahl,Schlußkurs,Wert,,Wert in CHF';
 const csv=header+'\nSynthetic Faktor,<ISIN>,2,0.12,EUR,0.24,0.23'.replace('<ISIN>','US0378331005');
-const html='<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}body{margin:0;padding:8px}</style><section id="bob-view-products"></section><section id="bob-view-degiro"></section>'+['degiro_portfolio_store.js','degiro_report_import.js','degiro_browser_bridge.js'].map(n=>'<script src="/'+n+'"></script>').join('');
+const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}body{margin:0;padding:8px}</style><section id="bob-view-products"></section><section id="bob-view-degiro"></section>'+['degiro_portfolio_store.js','degiro_report_import.js','degiro_browser_bridge.js'].map(n=>'<script src="/'+n+'"></script>').join('');
 (async()=>{
  const browser=await engines[engine].launch({headless:true,...(engine==='chromium'?{args:['--no-sandbox']}: {})});
  try{
@@ -20,17 +21,21 @@ const html='<!doctype html><meta name="viewport" content="width=device-width,ini
   await ctx.exposeBinding('gmRead',()=>gm);
   await ctx.addInitScript(async script=>{
    const values=await window.gmRead(),listeners={};
+   window.unsafeWindow=window;
    window.GM_getValue=(k,d)=>k in values?values[k]:d;
    window.GM_setValue=(k,v)=>{const old=values[k];values[k]=v;for(const fn of listeners[k]||[])fn(k,old,v,false);window.gmWrite(k,v,false);};
    window.GM_deleteValue=k=>{delete values[k];window.gmWrite(k,null,true);};
    window.GM_addValueChangeListener=(k,fn)=>(listeners[k]??=[]).push(fn);
    window.gmRemote=(k,v,remove)=>{const old=values[k];if(remove)delete values[k];else values[k]=v;for(const fn of listeners[k]||[])fn(k,old,v,true);};
-   (0,eval)(script);
-  },fs.readFileSync('bob_degiro_export.user.js','utf8'));
+   // Real managers can provide a window wrapper distinct from event.source.
+   const wrapped={postMessage:window.postMessage.bind(window),addEventListener:window.addEventListener.bind(window)};
+   new Function('window','unsafeWindow',script)(wrapped,window);
+  },fixtureSource('bob_degiro_export.user.js'));
   await ctx.route('https://**/*',route=>{
    const req=route.request(),u=new URL(req.url());requests.push({origin:u.origin,path:u.pathname,method:req.method()});
    if(u.origin===BOB){if(u.pathname==='/')return route.fulfill({contentType:'text/html',body:html});
-    if(['/degiro_portfolio_store.js','/degiro_report_import.js','/degiro_browser_bridge.js'].includes(u.pathname))return route.fulfill({contentType:'text/javascript',body:fs.readFileSync(u.pathname.slice(1),'utf8')});}
+    if(['/degiro_portfolio_store.js','/degiro_report_import.js','/degiro_browser_bridge.js'].includes(u.pathname))return route.fulfill({contentType:'application/javascript; charset=utf-8',body:fixtureSource(u.pathname.slice(1))});}
+   if(u.origin===BROKER&&u.pathname==='/reporting/secure/v3/positionReport/csv')return route.fulfill({contentType:'text/csv',headers:{'Content-Disposition':'attachment; filename=portfolio.csv'},body:u.searchParams.has('invalid')?'not a CSV':csv.replace(',2,0.12,',','+(u.searchParams.get('qty')||7)+',0.12,')});
    if(u.origin===BROKER&&u.pathname==='/')return route.fulfill({contentType:'text/html',body:'<!doctype html><h1>Synthetic broker export</h1><input type="password" value="do-not-transfer"><button id="export">CSV</button>'});
    return route.abort();
   });
@@ -38,28 +43,68 @@ const html='<!doctype html><meta name="viewport" content="width=device-width,ini
   for(const p of[bob,broker])p.on('pageerror',e=>errors.push(e.message));
   await bob.goto(BOB);await broker.goto(BROKER);
   await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStart').disabled);
-  async function exportCSV(text){
-   await broker.evaluate(text=>{
+  async function exportCSV(text,method='click'){
+   await broker.evaluate(({text,method})=>{
     document.getElementById('export').onclick=()=>{
-     const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/csv'}));a.download='portfolio.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+     const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/csv'}));a.download='portfolio.csv';if(method==='dispatch')a.dispatchEvent(new MouseEvent('click'));else a.click();setTimeout(()=>URL.revokeObjectURL(a.href),3000);
     };
-   },text);
+   },{text,method});
    await broker.locator('#export').click();
   }
   // A normal export is untouched without explicit activation in Bob.
   await exportCSV(csv);assert.equal(await bob.locator('.dg-holding').count(),0);
   await bob.locator('#bobBridgeStart').click();
   await broker.waitForFunction(()=>GM_getValue('bob-export-arm-v1',0)>Date.now());
+  await bob.waitForFunction(()=>document.querySelector('#bobBridgeBrokerStatus').textContent.includes('erreichbar'));
   await exportCSV(csv);
   await bob.waitForSelector('.dg-holding');
   assert.equal(await bob.locator('.dg-holding').count(),1);
   assert.equal(await bob.locator('.dg-export-card').count(),1,'Report panel refreshed');
   assert.match(await bob.locator('#bobBridgeStatus').innerText(),/1 Depotprodukte/);
   assert.match(await bob.locator('.dg-holding').innerText(),/Faktorprodukt/);
-  const saved=await bob.evaluate(()=>localStorage.getItem(BobDegiroPortfolio.KEY));
+  let saved=await bob.evaluate(()=>localStorage.getItem(BobDegiroPortfolio.KEY));
   const snapshot=JSON.parse(saved);assert.equal(snapshot.sourceKind,'browser-export');
   for(const key of['ordersEnabled','brokerVerified','rankingEligible','liveAccountConnected','realtime'])assert.equal(snapshot[key],false);
   assert(!JSON.stringify(gm).includes('do-not-transfer'));assert(!JSON.stringify(gm).includes(csv));
+  // Regression: detached dispatchEvent bypasses both document and .click hooks.
+  await exportCSV(csv.replace(',2,0.12,',',8,0.12,'),'dispatch');
+  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===8,{},{timeout:2000});
+  // Real download behavior is preserved, including direct /csv reporting URLs.
+  const directDownload=broker.waitForEvent('download');
+  await broker.evaluate(()=>{
+   const a=document.createElement('a');a.href='/reporting/secure/v3/positionReport/csv?qty=7';a.click();
+  });
+  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===7,{},{timeout:2000});
+  assert.equal((await directDownload).suggestedFilename(),'portfolio.csv','Original same-tab download still occurs');
+  // Native user clicks are forwarded once after the copy, not double-dispatched.
+  await broker.evaluate(()=>{
+   window.__handlerCalls=0;const a=document.createElement('a');a.id='http-export';a.textContent='Download';a.href='/reporting/secure/v3/positionReport/csv?qty=10';a.onclick=()=>window.__handlerCalls++;document.body.append(a);
+  });
+  await broker.locator('#http-export').click();
+  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===10,{},{timeout:2000});
+  assert.equal(await broker.evaluate(()=>window.__handlerCalls),1);
+  // An invalid read must still forward the normal download and preserve holdings.
+  const failedDownload=broker.waitForEvent('download');
+  await broker.evaluate(()=>{const a=document.createElement('a');a.href='/reporting/secure/v3/positionReport/csv?invalid=1';a.click();});
+  await failedDownload;
+  await bob.waitForFunction(()=>document.querySelector('#bobBridgeBrokerStatus').textContent.includes('nicht vollständig gelesen'));
+  assert.equal(await bob.evaluate(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity),10);
+  // window.open is forwarded while a read-only copy reaches Bob.
+  await broker.evaluate(()=>{document.getElementById('export').onclick=()=>{window.__popup=window.open('/reporting/secure/v3/positionReport/csv?qty=9','_blank');};});
+  await broker.locator('#export').click();
+  assert(await broker.evaluate(()=>Boolean(window.__popup)),'Original window.open return value preserved');
+  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===9,{},{timeout:2000});
+  // Do not follow arbitrary URLs, non-reporting APIs, credentials in URLs or PDF exports.
+  const before=requests.length;
+  await broker.evaluate(()=>{
+   for(const url of['https://evil.test/reporting/file.csv','https://name:secret@trader.degiro.nl/reporting/file.csv','/trading/order.csv','/reporting/report.pdf']){
+    const a=document.createElement('a');a.href=url;a.addEventListener('click',e=>e.preventDefault());a.dispatchEvent(new MouseEvent('click',{cancelable:true}));
+   }
+  });
+  await bob.waitForTimeout(100);assert.equal(requests.length,before,'Rejected anchors do not trigger bridge requests');
+  await exportCSV(csv);
+  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===2);
+  saved=await bob.evaluate(()=>localStorage.getItem(BobDegiroPortfolio.KEY));
   // Invalid and partial exports must preserve the previous snapshot.
   for(const invalid of[
    'Datum,ISIN,Quantity,Type\n20-10-2026,US0378331005,1,Buy',
@@ -100,7 +145,22 @@ const html='<!doctype html><meta name="viewport" content="width=device-width,ini
   await bob.reload();assert.equal(await bob.locator('.dg-holding').count(),1,'Saved snapshot survives reload');
   await bob.locator('#dgExportClear').click();assert.equal(await bob.locator('.dg-holding').count(),0);
   assert(requests.every(r=>[BOB,BROKER].includes(r.origin)&&r.method==='GET'),'No broker API, orders or third-party traffic');
+  // Seeing a helper is not an activation acknowledgment. Drop ARM messages to
+  // reproduce a broken script message listener and ensure Bob never claims active.
+  await bob.evaluate(()=>{window.__realPost=window.postMessage;window.postMessage=function(d,...args){if(d?.type!=='BOB_EXPORT_ARM')return window.__realPost.call(this,d,...args);};});
+  await bob.locator('#bobBridgeStart').click();
+  assert.match(await bob.locator('#bobBridgeStatus').innerText(),/wird aktiviert/);
+  await bob.waitForFunction(()=>document.querySelector('#bobBridgeStatus').textContent.includes('nicht bestätigt'));
+  assert(await bob.locator('#bobBridgeStop').isDisabled());
+  await bob.evaluate(()=>window.postMessage=window.__realPost);
+  // A stale helper cannot silently keep the activation UI available.
+  await bob.evaluate(()=>postMessage({type:'BOB_EXPORT_HELPER_READY',version:'1.0.0'},location.origin));
+  await bob.waitForFunction(()=>document.querySelector('#bobBridgeStart').disabled);
+  assert.match(await bob.locator('#bobBridgeStatus').innerText(),/veraltet/);
+  assert(await bob.locator('#bobBridgeUpdate').isVisible());
+  await bob.evaluate(()=>postMessage({type:'BOB_EXPORT_HELPER_READY',version:'1.1.0'},location.origin));
+  await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStart').disabled);
   assert.deepEqual(errors,[]);
-  console.log('Browser bridge: 2 tabs, opt-in, CSV handoff, invalid/partial/duplicate/stale rejection, replacement, persistence, mobile widths, deletion, no credential transfer: passed');
+  console.log('Browser bridge: 2 tabs, detached dispatch, /csv URLs, window.open, version/heartbeat diagnostics, opt-in, rejection, persistence, mobile widths, deletion, no credential transfer: passed');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
