@@ -219,6 +219,9 @@ def sync(conn, payload):
     if old_time is not None and (new_time is None or new_time<old_time):
         return dict(ok=True,products=len(previous.get('products') or []),
                     preserved=True, reason='Älterer Screenshot-Stand; neuere Produktliste bleibt aktiv')
+    if old_time is not None and new_time==old_time and previous.get('listCorrection'):
+        return dict(ok=True, products=len(previous.get('products') or []), preserved=True,
+                    reason='Geprüfte Listenkorrektur bleibt aktiv; neue Listenbilder können sie ersetzen')
     if old_time is not None and new_time==old_time:
         expected={p.get('isin') for p in previous.get('products') or [] if isinstance(p,dict) and p.get('isin')}
         current={p.get('isin') for p in products if isinstance(p,dict) and p.get('isin')}
