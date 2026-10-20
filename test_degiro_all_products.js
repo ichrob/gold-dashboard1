@@ -32,6 +32,21 @@ assert(items.every(x=>x.tradeApproved===false && x.executableQuote===false &&
 assert(items.find(x=>x.isin===ids[0]).productKind==='factor');
 assert(items.find(x=>x.isin===ids[11]).inDepot===false);
 assert.equal(combined.safeAudit(status).status,'stale');
+const recentIssuer={isin:ids[5],sourceObservations:[{
+ bid:12.1,ask:12.2,currency:'EUR',source:'SG Vergleich',
+ bidAt:'2026-10-20T01:59:35Z',askAt:'2026-10-20T01:59:35Z',
+ researchOnly:true,degiroExecutable:false
+}]};
+const staleIssuer=combined.auditQuote(recentIssuer,Date.parse('2026-10-20T02:00:00Z'),'stale');
+assert(staleIssuer&&!staleIssuer.fresh,'Stale overall report cannot claim fresh price');
+assert.equal(staleIssuer.degiroExecutable,false);
+const currentIssuer=combined.auditQuote(recentIssuer,Date.parse('2026-10-20T02:00:00Z'),'ok');
+assert(currentIssuer.fresh,'Dated issuer pair may be shown as timely comparison');
+assert.equal(currentIssuer.researchOnly,true);
+assert.equal(combined.auditQuote({isin:ids[5],sourceObservations:[{
+ ...recentIssuer.sourceObservations[0],askAt:null
+}]},Date.parse('2026-10-20T02:00:00Z'),'ok'),null,'Issuer price pair requires both clocks');
+
 assert.equal(combined.summary(items,status).accountSynced,false);
 const storage={
  getItem:key=>key==='bobDegiroProductsV2'?JSON.stringify({version:2,
