@@ -64,6 +64,66 @@ function verifiedBrokerProof(isin,record,report,watchlist,now=Date.now()){
  if(localMinute(until).slice(0,16)!==evidence.observedMinute.slice(0,10)+'T22:00')return false;
  return true;
 }
+function standaloneImageProof(isin,proofs,now=Date.now()){
+ if(!isValidISIN(isin)||!proofs||proofs.status!=='ok'||!Array.isArray(proofs.items))return null;
+ const receipt=validClock(proofs.checkedAt);
+ if(receipt===null||now<receipt-5000||now-receipt>180000)return null;
+ const p=proofs.items.find(x=>x?.isin===isin);
+ if(!p||p.kind!=='user-uploaded-detail-ocr'||
+    p.origin!=='user-uploaded-degiro-detail-image'||
+    p.broker!=='DEGIRO'||p.isin!==isin||
+    p.listingConfirmed!==true||p.executionConfirmed!==false||
+    p.isExecutableQuote!==false||p.tradeApproved!==false||
+    p.rankingsEligible!==false||p.brokerDisplayObserved!==true||
+    p.timezone!=='Europe/Zurich'||p.timePrecision!=='minute'||
+    !['EUR','CHF'].includes(p.currency)||
+    !text(p.venue,100)||!text(p.imageSha256,64).match(/^[a-f0-9]{64}$/)||
+    !Number.isInteger(p.imageBytes)||p.imageBytes<1024||p.imageBytes>12000000||
+    !['image/png','image/jpeg','image/webp'].includes(p.imageMime))return null;
+ const t=validClock(p.observedAt),until=validClock(p.validUntil);
+ if(t===null||until===null||now<t||now>=until)return null;
+ const local=localMinute(now);
+ if(typeof p.observedMinute!=='string'||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(p.observedMinute)||
+    p.observedMinute.slice(0,10)!==local.slice(0,10)||
+    p.observedMinute>local||
+    localMinute(until).slice(0,16)!==local.slice(0,10)+'T22:00')return null;
+ return p;
+}
+function screenshotPayload(source,file,sha256){
+ if(!source||!isValidISIN(source.isin)||
+    source.source!=='DEGIRO-Produktdetail'||
+    source.brokerDisplayConfirmed!==true||
+    source.isExecutableQuote!==false||
+    source.orderSubmitted!==false||
+    source.orderWindowVerified!==false||
+    source.executionGuaranteed!==false||
+    !text(source.venue,100)||!['EUR','CHF'].includes(source.currency)||
+    typeof source.sourceTime!=='string'||
+    !/^\d{2}[./]\d{2}[./]\d{4} \d{2}:\d{2}(?::\d{2})?$/.test(source.sourceTime)||
+    !file||!Number.isInteger(file.size)||file.size<1024||file.size>12000000||
+    !['image/png','image/jpeg','image/webp'].includes(file.type)||
+    typeof sha256!=='string'||!/^[a-f0-9]{64}$/.test(sha256)){
+  throw Error('DEGIRO-Bildnachweis unvollständig: ISIN, Börse, Währung und Originalzeit prüfen');
+ }
+ const bid=source.bid??null,ask=source.ask??null;
+ if((bid===null)!==(ask===null)||
+    (bid!==null&&(!(bid>0)||!(ask>=bid))))throw Error('Geld-/Briefwerte widersprechen sich');
+ return {isin:source.isin,venue:source.venue,currency:source.currency,
+  sourceTime:source.sourceTime,source:source.source,
+  brokerDisplayConfirmed:true,isExecutableQuote:false,orderWindowVerified:false,
+  orderSubmitted:false,executionGuaranteed:false,imageSha256:sha256,
+  imageBytes:file.size,imageMime:file.type,bid,ask};
+}
+function imageISIN(textValue,context){
+ const tokens=(String(textValue||'').toUpperCase().match(/\b[A-Z]{2}[A-Z0-9]{10}\b/g)||[]);
+ const ids=[...new Set(tokens.map(token=>{
+  const normalized=context?.normalizeOcrIsin?.(token,textValue);
+  return normalized?.isin||token;
+ }).filter(isValidISIN))];
+ if(ids.length!==1)throw Error('DEGIRO-Bild: keine eindeutige ISIN gefunden; bitte Produktdetail erneut aufnehmen');
+ return ids[0];
+}
 function normalizeCatalog(data){
  const items=Array.isArray(data?.candidates)?data.candidates.slice(0,MAX_CATALOG):[];
  const map=new Map();
@@ -122,21 +182,35 @@ function queueManual(storage,isin,at=new Date().toISOString()){
 function removeLocal(storage,isin){
  return saveLocal(storage,readLocal(storage).filter(p=>p.isin!==isin));
 }
-function researchUniverse(local,catalog,known=[],audit=null,now=Date.now()){
+function researchUniverse(local,catalog,known=[],audit=null,now=Date.now(),proofs=null){
  const list=new Map();
  for(const p of normalizeCatalog(catalog))list.set(p.isin,p);
  for(const p of normalizeManual(local))list.set(p.isin,{
   ...list.get(p.isin),...p,
   issuerVerified:list.get(p.isin)?.issuerVerified===true
  });
+ // Independently confirmed single-image proofs are kept on the private
+ // server and can restore their candidate identity on another signed-in device.
+ if(proofs?.status==='ok'&&Array.isArray(proofs.items)){
+  for(const p of proofs.items.slice(0,120)){
+   if(!isValidISIN(p?.isin)||list.has(p.isin))continue;
+   list.set(p.isin,{isin:p.isin,name:p.isin,
+    origin:'user-uploaded-screenshot',issuerVerified:false,
+    listingConfirmed:false,brokerStatus:'unverified'});
+  }
+ }
  const confirmed=[],unverified=[];
  const active=Array.isArray(known)?known:[];
  for(const entry of list.values()){
   // A backend attestation from a current DEGIRO screenshot is the sole path
   // to the DEGIRO-confirmed group. Source claims like degiroListed:true,
   // manual toggles, issuer quotes and previous reports are never proof.
-  const listed=verifiedBrokerProof(entry.isin,entry,audit,active,now);
-  const row={...entry,degiroListed:listed,degiroTradeApproved:false,
+  const currentManualImage=standaloneImageProof(entry.isin,proofs,now);
+  const listed=!!currentManualImage||verifiedBrokerProof(entry.isin,entry,audit,active,now);
+  const row={...entry,degiroListed:listed,
+    listingProofSource:currentManualImage?'user-image':listed?'list-audit':null,
+    listingProofAt:currentManualImage?.observedAt||null,
+    degiroTradeApproved:false,
     brokerApiConnected:false,ibkrStatus:'not-checked',igStatus:'not-checked',
     executableQuoteVerified:false,addToDegiroRankings:false};
   if(listed)confirmed.push(row);
@@ -280,7 +354,7 @@ function mount(){
  render();poll();
  setInterval(()=>{if(!doc.hidden&&Date.now()-lastPoll>=600000)poll();else if(!doc.hidden)render();},60000);
 }
-const api={KEY,isValidISIN,validClock,localMinute,verifiedBrokerProof,
+const api={KEY,isValidISIN,validClock,localMinute,verifiedBrokerProof,standaloneImageProof,screenshotPayload,imageISIN,
  normalizeCatalog,normalizeManual,readLocal,saveLocal,queueManual,removeLocal,researchUniverse,mount};
 if(typeof module==='object'&&module.exports)module.exports=api;
 root.BobBrokerResearch=api;
