@@ -6,6 +6,30 @@ from unittest.mock import patch
 import evidence_repair as repair
 
 class RepairTests(unittest.TestCase):
+    def test_batched_reconcile_preserves_unknown_and_wrong_time_evidence(self):
+        from unittest.mock import MagicMock
+        start=1800000000000
+        record=dict(recordedAt=start,marketEvaluable=True,price=4000.,direction='LONG')
+        target=start+15*60000
+        pending=[
+            ('valid',{},dict(decision='a',horizon=15),record,dict(at=target,price=4010.)),
+            ('wrong-time',{'history':[]},dict(decision='b',horizon=15),record,dict(at=target-1,price=4010.)),
+            ('invalid',{'history':[]},dict(decision='c',horizon=15),dict(record,marketEvaluable=False),dict(at=target,price=4010.)),
+            ('deleted',{'history':[]},dict(decision='d',horizon=15),None,None),
+        ]
+        pending += [('missing-'+str(i),{'history':[]},dict(decision=str(i),horizon=15),record,None) for i in range(44)]
+        conn=MagicMock();conn.execute.return_value.fetchall.return_value=pending
+        with patch.object(repair,'retry_signal',return_value=(False,False,'Original fehlt')) as retry:
+            repair.reconcile(conn,target+60000)
+        self.assertEqual(retry.call_count,8,'Archive work remains bounded')
+        updates=[c.args for c in conn.execute.call_args_list if "status='recovered'" in c.args[0]]
+        self.assertEqual(len(updates),1)
+        self.assertEqual(updates[0][1][-1],'valid')
+        self.assertEqual(json.loads(updates[0][1][1])['lastAttemptAt'],target+60000)
+        rotations=[c.args[1] for c in conn.execute.call_args_list if 'id=ANY' in c.args[0]]
+        self.assertEqual(set(rotations[0][1]),{r[0] for r in pending})
+        self.assertEqual(len(conn.execute.call_args_list),3,'One bounded read, one rotation, one verified recovery')
+
     def test_retries_are_bounded_and_only_verified_success_closes(self):
         class Conn:
             def __init__(self):self.attempts=0;self.status='trying';self.payload={'history':[]};self.next=0

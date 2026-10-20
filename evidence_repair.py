@@ -144,36 +144,44 @@ def reconcile(conn,now):
     import decision_audit as audit
     rows=[]
     archive_checks=0
-    pending=conn.execute("SELECT id,payload,ref FROM bob_test_repairs WHERE kind='signal' AND status='escalated' ORDER BY next_at LIMIT 48").fetchall()
-    for key,payload,ref in pending:
-        # Point lookups avoid a planner choosing a full outcome-archive scan.
-        record=conn.execute('SELECT payload FROM bob_decision_audit WHERE id=%s',(ref['decision'],)).fetchone()
-        truth=conn.execute('SELECT truth FROM bob_decision_outcomes WHERE decision_id=%s AND horizon=%s',(ref['decision'],ref['horizon'])).fetchone()
+    # Bound the queue BEFORE joining the archives. One request replaces 96
+    # sequential database round trips without scanning the whole outcome table.
+    pending=conn.execute("""WITH pending AS MATERIALIZED (
+        SELECT id,payload,ref FROM bob_test_repairs
+        WHERE kind='signal' AND status='escalated' ORDER BY next_at,id LIMIT 48)
+      SELECT p.id,p.payload,p.ref,a.payload,o.truth FROM pending p
+      LEFT JOIN LATERAL (SELECT payload FROM bob_decision_audit
+        WHERE id=p.ref->>'decision' LIMIT 1) a ON TRUE
+      LEFT JOIN LATERAL (SELECT truth FROM bob_decision_outcomes
+        WHERE decision_id=p.ref->>'decision'
+          AND horizon=(p.ref->>'horizon')::integer LIMIT 1) o ON TRUE""").fetchall()
+    for key,payload,ref,record,truth in pending:
         # A late source observation can arrive after all three initial retries.
         # Previously only a separate bulk harvest could resolve these cases.
         # Limit archive lookups and retain invalid/missing evidence unchanged.
-        if record and record[0].get('marketEvaluable') and not truth and archive_checks<8:
+        if record and record.get('marketEvaluable') and not truth and archive_checks<8:
             archive_checks+=1
             try:
                 with conn.transaction():
                     recovered,_,_=retry_signal(conn,ref)
                     if recovered:
-                        truth=conn.execute('SELECT truth FROM bob_decision_outcomes WHERE decision_id=%s AND horizon=%s',
+                        stored=conn.execute('SELECT truth FROM bob_decision_outcomes WHERE decision_id=%s AND horizon=%s',
                                            (ref['decision'],ref['horizon'])).fetchone()
+                        truth=stored[0] if stored else None
             except Exception:
                 pass  # Not recovered; the next bounded archive pass can retry.
-        conn.execute('UPDATE bob_test_repairs SET next_at=%s WHERE id=%s',(now,key))
-        if record and record[0].get('marketEvaluable') and truth:
-            rows.append((key,payload,record[0],truth[0],ref['horizon']))
+        if record and record.get('marketEvaluable') and truth:
+            rows.append((key,payload,record,truth,ref['horizon']))
+    if pending:
+        conn.execute('UPDATE bob_test_repairs SET next_at=%s WHERE id=ANY(%s::text[])',
+                     (now,[r[0] for r in pending]))
     for key,payload,record,truth,horizon in rows:
         if audit.outcome(record,truth,horizon):
             reason='Späterer regulärer Archivabruf hat den Original-Folgekurs geliefert; Ergebnis unabhängig erneut geprüft.'
             payload.update(reason=reason,lastAttemptAt=now)
-            payload['history'].append(dict(at=now,action='Spätere erfolgreiche Nachlieferung verifizieren',result=reason))
+            payload.setdefault('history',[]).append(dict(at=now,action='Spätere erfolgreiche Nachlieferung verifizieren',result=reason))
             conn.execute("UPDATE bob_test_repairs SET status='recovered',next_at=%s,payload=%s::jsonb WHERE id=%s",
                          (now,json.dumps(payload),key))
-        else:
-            conn.execute('UPDATE bob_test_repairs SET next_at=%s WHERE id=%s',(now,key))
 
 
 def tick(conn,now=None):
