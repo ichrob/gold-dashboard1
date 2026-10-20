@@ -47,6 +47,9 @@ const html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewpor
    throw Error('Unexpected route '+pathname);
   });
   await page.goto(origin+'/');
+  assert.equal(await page.locator('#dgCombinedProducts').getAttribute('open'),null,
+    'Secondary depot overview starts collapsed so the Gold list stays first');
+  await page.locator('#dgCombinedProducts > summary').click();
   assert(await page.locator('#dgUnifiedDepotMissing').isVisible(),'No local depot must show import guidance');
   assert(await page.locator('#dgStoredCsvImport').isVisible(),'Separate depot section has CSV import button');
   assert.equal(await page.locator('#dgUnifiedImportCsv').getAttribute('data-view'),'degiro',
@@ -97,6 +100,7 @@ const html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewpor
    assert(values.card<=values.panel+1,'Card overflows at '+width);
   }
   await page.reload();
+  await page.locator('#dgCombinedProducts > summary').click();
   await page.waitForFunction(()=>document.querySelector('#dgUnifiedSummary')?.textContent?.includes('12 verschiedene Produkte'));
   assert.equal(await page.locator('#dgUnifiedCards .dg-unified-card').count(),12);
   await page.locator('#dgExportClear').click();
