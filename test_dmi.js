@@ -22,3 +22,20 @@ bundle.history.bars_by_tf['5m'].push({...rows(300000).at(-1),openTime:now,close:
 bundle.history.bars_by_tf['15m'].splice(90,1);assert.equal(ctx.dmiContext(bundle,now).available,false);
 assert.equal(ctx.dmiContext(bundle,now+7200000).available,false);
 console.log('DMI tests passed: direction symmetry, ADX, flat/short history, closed bars, gaps, freshness, script syntax');
+
+// Known weekday maintenance hour is accepted only for the observed hourly feeds.
+const prior={openTime:Date.parse('2026-10-19T20:00:00Z'),source:'biquote · XAU/USD Broker/MT5'};
+const after={...prior,openTime:Date.parse('2026-10-19T22:00:00Z')};
+assert(ctx.dmiAdjacent(prior,after,3600000));
+assert(!ctx.dmiAdjacent({...prior,source:'unknown'},{...after,source:'unknown'},3600000));
+assert(!ctx.dmiAdjacent({...prior,openTime:prior.openTime-3600000},{...after,openTime:after.openTime-3600000},3600000));
+assert(!ctx.dmiAdjacent(prior,after,300000));
+assert(!ctx.dmiAdjacent(prior,{...after,openTime:after.openTime+3600000},3600000));
+// New York winter time: pause moves to 22:00 UTC, not a fixed UTC hour.
+assert(ctx.dmiAdjacent({...prior,openTime:Date.parse('2026-11-02T21:00:00Z')},{...after,openTime:Date.parse('2026-11-02T23:00:00Z')},3600000));
+const sessionNow=Date.parse('2026-10-20T07:30:00Z');
+const hourly=Array.from({length:80},(_,i)=>({...prior,openTime:Date.parse('2026-10-20T06:00:00Z')-(79-i)*3600000,open:2000+i,high:2002+i,low:1999+i,close:2001+i,instrument:'XAU/USD',isOpen:false})).filter(b=>new Date(b.openTime).getUTCHours()!==21);
+const state=ctx.dmiContext({history:{bars_by_tf:{'1h':hourly}}},sessionNow);
+assert(state.frames['1h'].available);assert(state.frames['1h'].sessionBreaks>0);
+hourly.splice(hourly.length-5,1);
+assert(!ctx.dmiContext({history:{bars_by_tf:{'1h':hourly}}},sessionNow).frames['1h'].available);
