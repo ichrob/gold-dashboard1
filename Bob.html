@@ -1413,10 +1413,10 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    if(sm?.stop>0&&target?.target>0)plan={kind:'candidate',direction:state.dir,entry:bundle.spots.xaus,stop:sm.stop,target:target.target,unit:'USD/oz',at:Date.now(),note:'Zeitgleich berechneter Gold-Referenzplan; keine Order und keine Produktfreigabe'};
   }
   if(tradeMgmt?.active&&!tradeMgmt.test)plan={kind:'active-monitor',direction:tradeMgmt.dir,entry:tradeMgmt.entry,stop:tradeMgmt.stop,target:tradeMgmt.target,unit:'USD/oz',at:Date.now(),note:'Gespeicherte Überwachung; kein Ausführungsnachweis',isin:tradeMgmt.product?.isin||null};
-  const payload={plan,baseDirection:state.baseDirection,learningPolicy:state.learningPolicy,ruleVersion:'intraday-trend-follow-v7',trendContext:state.trendContext,earlyImpulse:earlyImpulseContext(bundle),direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,entryQuality:intradayEntryContext(bundle,state),minuteEntry:minuteEntryContext(bundle,state),barAt:state.barAt,
+  const payload={plan,baseDirection:state.baseDirection,learningPolicy:state.learningPolicy,ruleVersion:'intraday-trend-follow-v7',trendContext:state.trendContext,earlyImpulse:earlyImpulseContext(bundle),earlyWarning:earlyWarningContext(bundle),direction:state.dir,shadowDirection:state.shadowDirection,intraday:window.BobIntradayState,entryQuality:intradayEntryContext(bundle,state),minuteEntry:minuteEntryContext(bundle,state),barAt:state.barAt,
    price:bundle?.spots?.xaus,priceAt:bundle?.spots?.spot_price_as_of,score:state.score,
    reason:state.reason,indicators:state.indicators,products:items,selection:[...selected],gateReasons:flow.gateReasons};
-  const signature=JSON.stringify([state.dir,state.shadowDirection,earlyImpulseContext(bundle).direction,state.barAt,state.reason,items,flow.gateReasons,plan&&[plan.kind,plan.direction,plan.entry,plan.stop,plan.target]]);
+  const signature=JSON.stringify([state.dir,state.shadowDirection,earlyImpulseContext(bundle).direction,earlyWarningContext(bundle).state,earlyWarningContext(bundle).signalBarAt,state.barAt,state.reason,items,flow.gateReasons,plan&&[plan.kind,plan.direction,plan.entry,plan.stop,plan.target]]);
   if(signature===last)return;busy=true;next=Date.now()+30000;
   try{await api('write',payload);last=signature;text('auditSave','Dauerhaft protokolliert: '+new Date().toLocaleTimeString('de-CH')+' · Daten, Quellenzeiten, Gründe und Regelversion gespeichert.');}
   catch(e){text('auditSave','Protokoll NICHT gespeichert: '+e.message+'. Bob versucht es erneut; die Analyse läuft weiter.');}
@@ -1692,7 +1692,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const blockNote=blocks?.previousElementSibling;
    const explanation=fold(blocks,'Marktanalyse verstehen');
    if(explanation&&blockNote?.matches('p.small'))explanation.append(blockNote);
-   fold(byId('earlyImpulseStatus'),'Frühe Signale · Vergleichstest');
+   const earlyWarning=byId('earlyImpulseStatus');
+   if(earlyWarning){earlyWarning.setAttribute('role','status');byId('bobNextStep').after(earlyWarning);}
    fold(byId('marketInputQuality'),'Qualität der Eingangsdaten');
   }
   const status=document.createElement('div');status.className='bob-status';status.innerHTML='<button type="button" data-status="data">Marktdaten: prüfen</button><button type="button" data-status="connection">Verbindung: prüfen</button><button type="button" data-status="push">Push: prüfen</button>';
@@ -2699,16 +2700,63 @@ function earlyImpulseContext(bundle,now=Date.now()){
    '5m-Bewegung '+Math.abs(move5/a.atr14).toFixed(2)+' ATR; letzte 5m- und 15m-Kerzen zeigen '+direction+
    (extensionRisk?' · bereits stark ausgedehnt, Rückschlagrisiko':' · Bestätigung des Haupttrends noch separat erforderlich')};
 }
+function earlyWarningContext(bundle,now=Date.now()){
+ const base={version:'early-warning-v2',monitoring:true,available:false,state:'unavailable',direction:'NEUTRAL',
+  checkedAt:now,signalBarAt:null,expiresAt:null,invalidationPrice:null,extensionRisk:false,
+  comparisonOnly:true,affectsApproval:false,reason:'Frühwarnung wird geprüft'};
+ const weekday=new Intl.DateTimeFormat('en-US',{timeZone:'Europe/Zurich',weekday:'short'}).format(new Date(now));
+ if(weekday==='Sat'||weekday==='Sun')return {...base,monitoring:false,state:'paused',reason:'Wochenendpause – Prüfung startet zum nächsten Marktzeitfenster wieder'};
+ const current=earlyImpulseContext(bundle,now);
+ if(!current.available)return {...base,reason:current.reason};
+ const frames=bundle.history.bars_by_tf,step=300000;
+ const closed=(frames['5m']||[]).filter(b=>!b.isOpen&&b.openTime+step<=now);
+ const last=closed.at(-1),latestEnd=last.openTime+step;
+ let expired=false;
+ // Deterministic replay of already closed candles survives refresh/restarts.
+ // These are signal candle times, never invented original observation times.
+ for(let i=0;i<=4;i++){
+  const end=latestEnd-i*step;
+  const history=Object.fromEntries([['5m',step],['15m',900000]].map(([tf,width])=>
+   [tf,(frames[tf]||[]).filter(b=>!b.isOpen&&b.openTime+width<=end)]));
+  const q=i===0?current:earlyImpulseContext({history:{bars_by_tf:history}},end);
+  if(!q.available||!['LONG','SHORT'].includes(q.direction))continue;
+  const trigger=closed.find(b=>b.openTime===q.barAt);
+  if(!trigger)continue;
+  const signalBarAt=q.barAt+step,expiresAt=signalBarAt+15*60000;
+  if(now>=expiresAt){expired=true;break;}
+  const invalidationPrice=q.direction==='SHORT'?trigger.high:trigger.low;
+  const after=closed.filter(b=>b.openTime>q.barAt);
+  const broken=after.some(b=>q.direction==='SHORT'?b.close>invalidationPrice:b.close<invalidationPrice);
+  if(broken)return {...base,available:true,state:'withdrawn',signalBarAt,expiresAt,invalidationPrice,
+   reason:q.direction+'-Vorwarnung zurückgenommen: geschlossener 5m-Kurs hat die Gegengrenze überschritten'};
+  return {...base,available:true,direction:q.direction,state:i===0?'active':'watch',
+   signalBarAt,expiresAt,invalidationPrice,extensionRisk:q.extensionRisk||current.extensionRisk,
+   reason:i===0?q.reason:'Letzter '+q.direction+'-Impuls bleibt zur Beobachtung; aktuell kein neuer Impuls. Gegengrenze und Ablaufzeit begrenzen die Beobachtung.'};
+ }
+ return {...base,available:true,state:expired?'expired':'waiting',reason:expired?
+  'Vorwarnung abgelaufen – seit 15 Minuten kein neuer bestätigter Frühimpuls':current.reason};
+}
 function renderEarlyImpulseStatus(){
  const el=$('earlyImpulseStatus');if(!el)return;
- const q=earlyImpulseContext(liveBundleCache),dir=q.available?q.direction:'NEUTRAL';
- el.className='small';
- el.style.borderLeft='5px solid '+(dir==='LONG'?'#15803d':dir==='SHORT'?'#b91c1c':'#94a3b8');
- const active=signalState?.dir||'NEUTRAL',stage=!['LONG','SHORT'].includes(dir)?'':active===dir?' · aktive Richtung bereits bestätigt':' · VOR aktiver '+dir+'-Freigabe';
- el.textContent=(!q.available?'FRÜHERKENNUNG NICHT VERFÜGBAR':dir==='NEUTRAL'?'FRÜHIMPULS · KEIN KLARES SIGNAL':'FRÜHWARNUNG · '+dir+' (TEST)'+stage)+
-  '\n'+q.reason+'\nZeitpunkt: '+(q.barAt?new Date(q.barAt+300000).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'}):'unbekannt')+' · Signalstand: '+active+
-  '\nNur Beobachtung: keine Produktfreigabe, keine Order, kein Stop-Eingriff und kein Push. LONG und SHORT werden gleich geprüft.';
+ const q=earlyWarningContext(liveBundleCache),active=signalState?.dir||'NEUTRAL';
+ const clock=t=>new Date(t).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'});
+ const hasDirection=['LONG','SHORT'].includes(q.direction);
+ const labels={unavailable:'DATEN FEHLEN – kein aktuelles Frühwarnsignal',paused:'WOCHENENDPAUSE',
+  waiting:'ÜBERWACHUNG AKTIV · kein klarer Frühimpuls',withdrawn:'VORWARNUNG ZURÜCKGENOMMEN',expired:'VORWARNUNG ABGELAUFEN'};
+ const heading=hasDirection?(active===q.direction?q.direction+' · Hauptsignal ebenfalls bestätigt':
+  q.state==='watch'?q.direction+' weiter beobachten · Impuls nachlassend':q.direction+' zeichnet sich ab · VORWARNUNG'):labels[q.state];
+ el.className='small';el.style.borderLeft='5px solid '+(hasDirection?'#d97706':'#64748b');
+ el.textContent='FRÜHWARNSYSTEM · '+heading+'\n'+q.reason+
+  (q.signalBarAt?'\nSignal-Kerzenschluss: '+clock(q.signalBarAt)+' · spätestens gültig bis '+clock(q.expiresAt):'')+
+  (q.invalidationPrice?'\nGegengrenze: '+q.invalidationPrice.toFixed(2)+' USD (5m-Schlusskurs; kein Produkt-Stopp)':'')+
+  (q.extensionRisk?'\n⚠ Bewegung bereits weit gelaufen – erhöhtes Rückschlagrisiko':'')+
+  '\nGeprüft: '+clock(q.checkedAt)+' (Zürich) · Hauptsignal: '+active+
+  '\nBeobachtung / Test: keine Handelsfreigabe. Hintergrundprüfung läuft auch bei geschlossener App; keine Frühwarn-Pushs.';
 }
+
+// Recheck expiry even when a fetch or the main analysis fails; no extra network request.
+setInterval(()=>{if(!document.hidden)renderEarlyImpulseStatus();},10000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)renderEarlyImpulseStatus();});
 
 function minuteEntryContext(bundle,state,now=Date.now()){
  const result={version:'minute-entry-v1',available:false,direction:'NEUTRAL',barAt:null,reason:'1m-Daten fehlen oder sind nicht aktuell'};

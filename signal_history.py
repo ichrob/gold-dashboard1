@@ -1,10 +1,10 @@
 """Bounded SELECT-only access to original signal evidence, without account data."""
 from datetime import datetime, timedelta, timezone
-from bob_diagnostics import project, shape
+from bob_diagnostics import project, shape, EARLY_WARNING
 
 SCHEMA = shape('direction','baseDirection','shadowDirection','ruleVersion','build','origin',
     'barAt','priceAt','price','reason','marketEvaluable','startEvidenceStatus',
-    gateReasons=[None],
+    gateReasons=[None],earlyWarning=EARLY_WARNING,
     earlyImpulse=shape('available','direction','barAt','reason','extensionRisk','comparisonOnly','affectsApproval'),
     minuteEntry=shape('available','direction','barAt','reason'),
     trendContext=shape('available','direction','intact','reason'))
