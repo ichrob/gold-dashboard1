@@ -42,7 +42,8 @@ function prepare(data,importedAt){
  });
  const timestamp=new Date(importedAt);
  if(!Number.isFinite(timestamp.getTime()))throw Error('Ungültige Importzeit.');
- return {version:VERSION,kind:'portfolio',source:'Manueller DEGIRO-CSV-Export',
+ return {version:VERSION,kind:'portfolio',source:data.sourceKind==='browser-export'?'DEGIRO-CSV über Browser-Brücke':'Manueller DEGIRO-CSV-Export',
+  sourceKind:data.sourceKind==='browser-export'?'browser-export':'manual-csv',
   importedAt:timestamp.toISOString(),accountCurrency:cleanText(data.accountCurrency,3).toUpperCase(),
   records:products,cashBalances,invalidRows:[],
   realtime:false,brokerVerified:false,ordersEnabled:false,
