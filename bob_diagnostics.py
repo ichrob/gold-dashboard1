@@ -80,6 +80,9 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
                 account['recentCases'] = {'status':'unavailable'}
         result['history'] = collect({'journal':lambda:__import__('diagnostic_history').report(conn)})
         result['details'] = stored_details(conn)
+        # Keep the research report independently addressable when oversized
+        # operational history/details are omitted by the response budget.
+        result['researchReports'] = result['details']['areas'].get('learning', {'status':'unavailable'})
         result['analysis'] = analysis_snapshot()
         try:
             with conn.transaction():
@@ -163,6 +166,9 @@ def stored_details(conn):
     def gap_models():
         import model_gap_review
         with conn.transaction():return model_gap_review.report(conn)
+    def research_report(conn):
+        from research_readout import read
+        with conn.transaction():return read(conn)
     return collect({
         'gapModels':gap_models,
         'decisionArchive':lambda:rows("SELECT payload FROM bob_decision_audit ORDER BY recorded_at DESC LIMIT 20",
@@ -176,11 +182,7 @@ def stored_details(conn):
             shape('at','kind',evidence=shape('at','outcome','error','delivery','dataAt','price','direction','decisionReason','suggestedStop','suggestedTarget',analysisSnapshot=INDICATORS))),
         'pushObservations':lambda:rows("SELECT jsonb_build_object('updatedAt',updated_at,'generalEnabled',general_enabled,'tradeEnabled',trade_enabled,'activeTrade',active_trade,'state',background_state) FROM subscriptions ORDER BY updated_at DESC LIMIT 10",
             shape('updatedAt','generalEnabled','tradeEnabled','activeTrade',state=STATE)),
-        'learning':lambda:rows("SELECT jsonb_build_object('day',run_day,'calculatedAt',calculated_at,'lastBarAt',last_bar_at,'status',status,'report',report) FROM bob_strategy_lab_daily ORDER BY run_day DESC LIMIT 3",
-            shape('day','calculatedAt','lastBarAt','status',report=shape('version','mode','closedBars','approved','affectsLiveSignals','orderExecutionEnabled',
-                evidence=shape('folds','trades','reason'),learningCycle=shape('status','reason','liveRuleChanged','productNetValidated',
-                    prospective=shape('sessions','trades','baselineTrades','candidateIndex','baselineIndex','lastEvaluatedBarAt'),
-                    completedStrategies=[None],rejectedStrategies=[None])))),
+        'learning':lambda:research_report(conn),
         'researchMedia':lambda:rows("SELECT jsonb_build_object('video',video_id,'updatedAt',updated_at,'frameAttempt',frame_attempt,'summaryAttempt',summary_attempt,'frameStatus',frame_status,'summaryError',summary_error,'summaryFailures',summary_failures,'frames',frames,'summary',summary) FROM bob_research_enhancements ORDER BY updated_at DESC LIMIT 10",
             shape('video','updatedAt','frameAttempt','summaryAttempt','frameStatus','summaryError','summaryFailures',
                 frames=[shape('at','requestedAt','isCover','userProvided','width','height')],
