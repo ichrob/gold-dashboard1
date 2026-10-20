@@ -762,7 +762,8 @@ def preflight_once(database, now_ms=None):
     This uses the SAME bounded issuer caches, validator and audit used after
     08:00, but deliberately does not call any simulation or trade method.
     """
-    now_ms = int(time.time()*1000) if now_ms is None else now_ms
+    current_clock = now_ms is None
+    now_ms = int(time.time()*1000) if current_clock else now_ms
     if background_push.degiro_session(now_ms) != 'preparation':
         return {'state': 'paused', 'auditUpdated': False, 'ordersEnabled': False}
     with database() as conn:
@@ -783,7 +784,7 @@ def preflight_once(database, now_ms=None):
         observations = quote_cache(evidence['products'], [], now_ms)
         from degiro_product_audit import store as store_audit
         with conn.transaction():
-            store_audit(conn, evidence, observations, int(time.time()*1000))
+            store_audit(conn, evidence, observations, int(time.time()*1000) if current_clock else now_ms)
         conn.commit()
         return {'state': 'research-only', 'auditUpdated': True, 'ordersEnabled': False}
 
