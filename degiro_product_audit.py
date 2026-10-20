@@ -310,7 +310,9 @@ def examine(product, quote, now_ms):
     )
     from broker_venue_evidence import confirmed as venue_confirmed
     broker_venue = product.get('brokerVenueEvidence')
-    has_broker_venue = verified and venue_confirmed(broker_venue, isin, metadata.get('currency'), now_ms)
+    # A listing screenshot remains evidence even when the issuer lookup fails.
+    has_broker_venue = valid_isin(isin) and venue_confirmed(
+        broker_venue, isin, product.get('currency') or metadata.get('currency'), now_ms)
     if swiss_dots and not has_broker_venue:
         missing.append("venue")
     if not verified:

@@ -54,9 +54,10 @@ def prepare(feed, payload, now=None):
     out['fixedBarriers']={k:v for k,v in (out.get('fixedBarriers') or {}).items() if k in seen}
     # Retain a private rollback record; never publish this payload in logs.
     out['listCorrection']=dict(at=now.isoformat(), previousVersion=version(feed),
-        previousProducts=feed['products'], observedMinute=payload.get('observedMinute'))
+        previousProducts=feed['products'], observedMinute=payload.get('observedMinute'),
+        imageReference=payload.get('imageReference'))
     for row in rows:
-        if row.get('venue')=='Societe Generale OTC':
+        if row.get('venue') in broker_venue_evidence.REVIEWED_VENUES:
             venues.append(broker_venue_evidence.validate(dict(isin=row['isin'], reviewed=True,
                 venue=row['venue'],currency=row['currency'], observedMinute=payload.get('observedMinute'),
                 imageReference=payload.get('imageReference')),out,now))
