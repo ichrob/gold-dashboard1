@@ -98,7 +98,8 @@ function screenshotPayload(source,file,sha256){
     source.orderSubmitted!==false||
     source.orderWindowVerified!==false||
     source.executionGuaranteed!==false||
-    !text(source.venue,100)||!['EUR','CHF'].includes(source.currency)||
+    !text(source.venue,100)||/^(?:unbekannt|unknown|[-—])$/i.test(source.venue.trim())||
+    !['EUR','CHF'].includes(source.currency)||
     typeof source.sourceTime!=='string'||
     !/^\d{2}[./]\d{2}[./]\d{4} \d{2}:\d{2}(?::\d{2})?$/.test(source.sourceTime)||
     !file||!Number.isInteger(file.size)||file.size<1024||file.size>12000000||
