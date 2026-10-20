@@ -11,6 +11,13 @@ assert.equal(ctx.dmiCalc([]).available,false);
 const flat=rows(300000).map(b=>({...b,open:2000,high:2000,low:2000,close:2000}));assert.equal(ctx.dmiCalc(flat).adx,0);
 const bundle={history:{bars_by_tf:Object.fromEntries(Object.entries({'5m':300000,'15m':900000,'1h':3600000}).map(([k,v])=>[k,rows(v)]))}};
 const baseline=JSON.stringify(ctx.dmiContext(bundle,now));assert(ctx.dmiContext(bundle,now).available);
+const recovered=JSON.parse(JSON.stringify(bundle));
+// An old session break must not invalidate 79 subsequent confirmed candles.
+recovered.history.bars_by_tf['1h'].splice(20,1);
+assert(ctx.dmiContext(recovered,now).available);
+const recentGap=JSON.parse(JSON.stringify(bundle));
+recentGap.history.bars_by_tf['1h'].splice(80,1);
+assert.equal(ctx.dmiContext(recentGap,now).available,false);
 bundle.history.bars_by_tf['5m'].push({...rows(300000).at(-1),openTime:now,close:99999,isOpen:true});assert.equal(JSON.stringify(ctx.dmiContext(bundle,now)),baseline);
 bundle.history.bars_by_tf['15m'].splice(90,1);assert.equal(ctx.dmiContext(bundle,now).available,false);
 assert.equal(ctx.dmiContext(bundle,now+7200000).available,false);

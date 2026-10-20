@@ -3063,7 +3063,12 @@ function adxCalc(c,p=14){return dmiCalc(c,p).adx??0;}
 function dmiContext(bundle,now=Date.now()){
  const frames={},steps={'5m':300000,'15m':900000,'1h':3600000};
  for(const [tf,step] of Object.entries(steps)){
-  const rows=(bundle?.history?.bars_by_tf?.[tf]||[]).filter(b=>!b.isOpen&&Number.isFinite(b.openTime)&&b.openTime+step<=now).sort((a,b)=>a.openTime-b.openTime).slice(-220);
+  let rows=(bundle?.history?.bars_by_tf?.[tf]||[]).filter(b=>!b.isOpen&&Number.isFinite(b.openTime)&&b.openTime+step<=now).sort((a,b)=>a.openTime-b.openTime).slice(-220);
+  // Restart indicator warmup after a session break or missing candle. Never
+  // bridge the gap or synthesize prices; require 31 contiguous closes again.
+  let start=rows.length-1;
+  while(start>0&&rows[start].openTime-rows[start-1].openTime===step)start--;
+  rows=rows.slice(Math.max(0,start));
   const valid=rows.length>=31&&now-rows.at(-1).openTime<=2*step&&rows.every((b,i)=>b.instrument==='XAU/USD'&&!b.estimated&&b.openTime%step===0&&['open','high','low','close'].every(k=>Number.isFinite(b[k])&&b[k]>0)&&b.low<=Math.min(b.open,b.close)&&b.high>=Math.max(b.open,b.close)&&(!i||b.openTime-rows[i-1].openTime===step));
   if(!valid){frames[tf]={available:false,reason:'Geschlossene, aktuelle und lückenlose Goldkerzen fehlen'};continue;}
   const current=dmiCalc(rows),previous=dmiCalc(rows.slice(0,-1)),earlier=dmiCalc(rows.slice(0,-3));
