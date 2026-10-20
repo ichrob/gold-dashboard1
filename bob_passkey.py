@@ -2,6 +2,8 @@
 import hashlib
 import json
 import os
+import threading
+from concurrent.futures import Future
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import Request, build_opener, HTTPSHandler
@@ -19,7 +21,36 @@ def binding(headers, user):
     token=bob_auth.cookie(headers,bob_auth.COOKIE)
     return hashlib.sha256((user+'\0'+token).encode()).hexdigest()
 
+_status_lock = threading.Lock()
+_status_pending = {}
+
 def rpc(action, headers, user, **fields):
+    # Share only overlapping identical reads. Completed authorization decisions
+    # are never cached; the next request must check the store again.
+    if action != 'status':
+        return _rpc(action, headers, user, **fields)
+    key = (os.environ.get('BOB_PASSKEY_STORE_URL', ''), binding(headers, user),
+           hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).digest())
+    with _status_lock:
+        pending = _status_pending.get(key)
+        owner = pending is None
+        if owner:
+            pending = Future()
+            _status_pending[key] = pending
+    if not owner:
+        return dict(pending.result(timeout=15))
+    try:
+        result = _rpc(action, headers, user, **fields)
+        pending.set_result(result)
+        return dict(result)
+    except BaseException as exc:
+        pending.set_exception(exc)
+        raise
+    finally:
+        with _status_lock:
+            _status_pending.pop(key, None)
+
+def _rpc(action, headers, user, **fields):
     base=os.environ.get('BOB_PASSKEY_STORE_URL','https://bob-push-service.onrender.com').rstrip('/')
     if not base.startswith('https://'):
         raise OSError('Passkey storage requires HTTPS')
