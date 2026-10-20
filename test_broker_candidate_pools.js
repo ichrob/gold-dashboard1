@@ -25,10 +25,12 @@ const evidence={
  listUploadedAt:uploadedAt,observedMinute:'2026-10-20T10:15',
  validUntil:'2026-10-20T22:00:00+02:00'
 };
-const audit={status:'ok',listUploadedAt:uploadedAt,items:[{isin:id,brokerVenueEvidence:evidence}]};
+const audit={status:'ok',listUploadedAt:uploadedAt,lastCheckedAt:'2026-10-20T08:29:15Z',items:[{isin:id,brokerVenueEvidence:evidence}]};
 assert(m.isValidISIN(id));
 assert(!m.isValidISIN(id.slice(0,11)+'X'));
 assert.equal(m.verifiedBrokerProof(id,record,audit,watchlist,now),true);
+assert.equal(m.verifiedBrokerProof(id,record,{...audit,lastCheckedAt:'2026-10-20T08:20:00Z'},watchlist,now),false,'Old audit receipt cannot confirm current listing');
+assert.equal(m.verifiedBrokerProof(id,record,{...audit,lastCheckedAt:null},watchlist,now),false,'Undated audit is not current proof');
 for(const [key,bad] of [
  ['old report status',{...audit,status:'stale'}],
  ['incomplete report',{...audit,status:'partial'}],
