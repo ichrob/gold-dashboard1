@@ -19,6 +19,13 @@ class CorrectionTests(unittest.TestCase):
         self.assertFalse(out['products'][0]['isinConfirmed'])
         self.assertFalse(venues[0]['executionConfirmed'])
         self.assertEqual(out['listCorrection']['previousProducts'],before['products'])
+    def test_empty_reference_slots_are_ignored(self):
+        self.feed['references']=[None, None]
+        self.feed['fixedBarriers']=None
+        self.payload['version']=c.version(self.feed)
+        out,_=c.prepare(self.feed,self.payload,self.now)
+        self.assertEqual(out['references'],[])
+        self.assertEqual(out['fixedBarriers'],{})
     def test_concurrent_change_rejected(self):
         self.feed['products'].append({'isin':'US5949181045'})
         with self.assertRaises(ValueError):c.prepare(self.feed,self.payload,self.now)
