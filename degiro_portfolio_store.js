@@ -28,7 +28,7 @@ function prepare(data,importedAt){
   seen.add(isin);
   const quantity=Number(row.quantity);
   if(!Number.isFinite(quantity)||Math.abs(quantity)>1e10)throw Error('Ungültige Stückzahl im Depotimport.');
-  const name=cleanText(row.product);
+  const name=cleanText(row.product||row.name);
   return {isin,name,quantity,currency:cleanText(row.currency,3).toUpperCase(),
    price:cleanText(row.price,48),value:cleanText(row.value,48),
    accountValue:cleanText(row.accountValue,48),type:classifyName(name),
@@ -36,9 +36,9 @@ function prepare(data,importedAt){
  });
  const cashBalances=data.cashBalances.map(row=>{
   const currency=cleanText(row.currency,3).toUpperCase();
-  const amount=Number(row.amount);
-  if(!/^[A-Z]{3}$/.test(currency)||!Number.isFinite(amount))throw Error('Ungültige Bargeldzeile.');
-  return {currency,amount,accountValue:row.accountValue===null?null:Number(row.accountValue)};
+  const amount=Number(row.amount),accountValue=row.accountValue===null?null:Number(row.accountValue);
+  if(!/^[A-Z]{3}$/.test(currency)||!Number.isFinite(amount)||(accountValue!==null&&!Number.isFinite(accountValue)))throw Error('Ungültige Bargeldzeile.');
+  return {currency,amount,accountValue};
  });
  const timestamp=new Date(importedAt);
  if(!Number.isFinite(timestamp.getTime()))throw Error('Ungültige Importzeit.');
