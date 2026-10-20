@@ -81,6 +81,15 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
         result['history'] = collect({'journal':lambda:__import__('diagnostic_history').report(conn)})
         result['details'] = stored_details(conn)
         result['analysis'] = analysis_snapshot()
+        try:
+            with conn.transaction():
+                history = __import__('signal_history').report(conn)
+                if len(history['records']) > 20:
+                    history['records'] = history['records'][:20]
+                    history['nextOffset'] = 20
+                result['signalHistory'] = history
+        except Exception:
+            result['signalHistory'] = {'status':'unavailable','readOnly':True}
     return result
 
 

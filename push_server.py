@@ -662,6 +662,23 @@ class Handler(BaseHTTPRequestHandler):
                         product_codes = None  # Unknown is NOT a confirmed repair.
                 send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "paperObservation":paper_heartbeat, "productAuditCodes":product_codes,"improvementSchedule":improvement_schedule})
                 return
+            if path == "/signal-history":
+                supplied = self.headers.get("X-Bob-Push-Token", "")
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
+                    send_json(self, 401, {"error":"Unauthorized"})
+                    return
+                from urllib.parse import parse_qs
+                import signal_history
+                query = parse_qs(urlparse(self.path).query, keep_blank_values=True)
+                if any(len(v)!=1 for v in query.values()): raise ValueError('Duplicate argument')
+                args = {k:v[0] for k,v in query.items()}
+                if 'offset' in args: args['offset']=int(args['offset'])
+                args=signal_history.arguments(args)
+                with db() as conn:
+                    conn.execute("SET TRANSACTION READ ONLY")
+                    result=signal_history.report(conn,args)
+                send_json(self,200,result)
+                return
             if path == "/diagnostics":
                 supplied = self.headers.get("X-Bob-Push-Token", "")
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):

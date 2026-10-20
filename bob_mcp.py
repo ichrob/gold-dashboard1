@@ -57,8 +57,18 @@ def tool_definitions(diagnostics=False, products=True):
             "inputSchema": {"type":"object", "properties":{}, "additionalProperties":False},
             "annotations": {"readOnlyHint":True, "destructiveHint":False, "idempotentHint":True, "openWorldHint":False},
         })
+    if diagnostics:
+        result.append({
+            "name":"bob_signal_history",
+            "description":"Read original recorded signal decisions and early warnings for an explicit timezone-aware window (max 24h; default last 4h). Includes reasons, original timestamps and direction transitions; no orders, product approvals or proof of push delivery. Paginate using returned bounds and nextOffset; narrow window if scanTruncated.",
+            "inputSchema":{"type":"object","properties":{
+                "start":{"type":"string","description":"Inclusive ISO timestamp with timezone"},
+                "end":{"type":"string","description":"Exclusive ISO timestamp with timezone"},
+                "offset":{"type":"integer","minimum":0,"maximum":4999}},"additionalProperties":False},
+            "annotations":{"readOnlyHint":True,"destructiveHint":False,"idempotentHint":True,"openWorldHint":False},
+        })
     for tool in result:
-        scope = DIAGNOSTICS_SCOPE if tool['name'] == 'bob_diagnostics' else SCOPE
+        scope = DIAGNOSTICS_SCOPE if tool['name'] in ('bob_diagnostics','bob_signal_history') else SCOPE
         schemes = [{"type": "oauth2", "scopes": [scope]}]
         tool['securitySchemes'] = schemes
         tool['_meta'] = {"securitySchemes": schemes}
@@ -101,7 +111,7 @@ def error(request_id, code, message):
             "error": {"code": code, "message": message}}
 
 
-def handle(request, report_reader, diagnostics_reader=None, products=True):
+def handle(request, report_reader, diagnostics_reader=None, products=True, signal_history_reader=None):
     """Return (HTTP status, JSON-RPC result). Only tool calls read the database."""
     if not isinstance(request, dict) or request.get("jsonrpc") != "2.0":
         return 400, error(None, -32600, "Invalid Request")
@@ -125,12 +135,23 @@ def handle(request, report_reader, diagnostics_reader=None, products=True):
     if method != "tools/call":
         return 200, error(rid, -32601, "Method not found")
     params = request.get("params")
-    if not isinstance(params, dict) or params.get("name") not in [t["name"] for t in tool_definitions(diagnostics=True)] or params.get("arguments", {}) != {}:
+    if not isinstance(params, dict) or params.get("name") not in [t["name"] for t in tool_definitions(diagnostics=True)]:
         return 200, error(rid, -32602, "Invalid tool arguments")
-    required_scope = DIAGNOSTICS_SCOPE if params["name"] == "bob_diagnostics" else SCOPE
+    args=params.get("arguments", {})
+    if params["name"] == "bob_signal_history":
+        try:
+            from signal_history import arguments
+            args=arguments(args)
+        except (ValueError, TypeError, OverflowError):
+            return 200, error(rid, -32602, "Invalid signal history window or offset")
+    elif args != {}:
+        return 200, error(rid, -32602, "Invalid tool arguments")
+    required_scope = DIAGNOSTICS_SCOPE if params["name"] in ("bob_diagnostics","bob_signal_history") else SCOPE
     if (required_scope == DIAGNOSTICS_SCOPE and diagnostics_reader is None) or (required_scope == SCOPE and not products):
         return authorization_required(rid, required_scope, products, diagnostics_reader is not None)
-    if params["name"] == "bob_diagnostics":
+    if params["name"] == "bob_signal_history":
+        data = signal_history_reader(args) if signal_history_reader else {"status":"unavailable","readOnly":True}
+    elif params["name"] == "bob_diagnostics":
         from bob_diagnostics import bounded_report
         data = bounded_report(diagnostics_reader(), _MAX_RESULT_BYTES)
     else:
