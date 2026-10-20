@@ -23,7 +23,7 @@ const audit={
   tradeApproved:false,degiroVerified:false}))
 };
 const origin='https://bob.local.test';
-const html='<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">'+
+const html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+
  '<style>*{box-sizing:border-box}body{margin:0;padding:8px}main{max-width:100%}</style></head><body><main>'+
  '<section id="bob-view-products"></section><section id="bob-view-degiro"></section></main>'+
  '<script src="/degiro_portfolio_store.js"></script>'+
