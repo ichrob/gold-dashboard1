@@ -34,6 +34,25 @@ def login_diagnostic(response):
     return 'LOGIN_REJECTED'
 
 
+def login_response_metadata(response):
+    """Coarse response shape; no remote text, URL, cookies or identifiers."""
+    body = response.content[:65536].lower()
+    if not body.strip():
+        kind = 'empty'
+    elif b'<html' in body or b'<!doctype html' in body:
+        kind = 'html'
+    else:
+        try:
+            response.json()
+            kind = 'json'
+        except (ValueError, TypeError):
+            kind = 'other'
+    challenge = any(marker in body for marker in
+                    (b'cf-chl-', b'challenge-platform', b'g-recaptcha', b'hcaptcha'))
+    return {'httpStatus': response.status_code, 'responseFormat': kind,
+            'challengePage': challenge}
+
+
 def permitted(method, url):
     parsed = urlsplit(url)
     if parsed.scheme != 'https' or parsed.netloc != 'trader.degiro.nl':
@@ -57,16 +76,18 @@ def run(otp, emit=None, stop=None):
     from degiro_connector.core.models.model_connection import ModelConnection
 
     login_reason = None
+    login_metadata = None
 
     class ReadSession(Session):
         def send(self, request, **kwargs):
-            nonlocal login_reason
+            nonlocal login_reason, login_metadata
             if not permitted(request.method, request.url):
                 raise ValueError('Request outside read-only allowlist')
             kwargs.update(timeout=(5, 8), allow_redirects=False)
             response = super().send(request, **kwargs)
             if request.method == 'POST' and urlsplit(request.url).path in ('/login/secure/login', '/login/secure/login/totp'):
                 login_reason = login_diagnostic(response)
+                login_metadata = login_response_metadata(response)
             if response.status_code == 405:
                 raise RuntimeError('Maintenance response; no additional requests')
             return response
@@ -115,6 +136,7 @@ def run(otp, emit=None, stop=None):
         result['code'] = 'AUTH_REQUIRED' if type(exc).__name__ == 'DeGiroConnectionError' else 'SDK_ERROR'
         if login_reason:
             result['authReason'] = login_reason
+            result['loginResponse'] = login_metadata
     finally:
         if connection.connected.is_set():
             try:

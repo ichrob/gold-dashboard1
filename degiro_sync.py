@@ -51,6 +51,7 @@ def _watch(process):
                     break
                 _STATE['code'] = data['code']
                 _STATE['authReason'] = data.get('authReason') if data.get('authReason') in degiro_readonly.AUTH_REASONS else None
+                _STATE['loginResponse'] = degiro_readonly.safe_login_response(data.get('loginResponse'))
                 _LAST_MESSAGE = time.monotonic()
                 snapshot = data.get('snapshot')
                 if data['code'] == 'READ_OK' and isinstance(snapshot, dict):
@@ -108,7 +109,7 @@ def start(otp=''):
             return {**status(), 'code': 'COOLDOWN'}
         _LAST_START = time.monotonic()
         env = {k:os.environ[k] for k in ('PATH','LANG','SYSTEMROOT','PYTHONPATH','BOB_DEGIRO_USERNAME','BOB_DEGIRO_PASSWORD') if k in os.environ}
-        _STATE.update(code='STARTING', logoutConfirmed=False, authReason=None)
+        _STATE.update(code='STARTING', logoutConfirmed=False, authReason=None, loginResponse=None)
         _LAST_MESSAGE = time.monotonic()
         _PROCESS = subprocess.Popen([sys.executable,str(Path(__file__).with_name('degiro_readonly_worker.py'))],
             stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,env=env)
