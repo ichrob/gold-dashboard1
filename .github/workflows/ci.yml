@@ -99,3 +99,4 @@ jobs:
           NODE_PATH=/tmp/bob-video-browser/node_modules node browser_video_evidence.cjs
           NODE_PATH=/tmp/bob-video-browser/node_modules node browser_training_help.cjs
           NODE_PATH=/tmp/bob-video-browser/node_modules node browser_degiro_export_mobile.cjs
+          NODE_PATH=/tmp/bob-video-browser/node_modules node browser_degiro_all_products.cjs
