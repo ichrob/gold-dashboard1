@@ -48,6 +48,7 @@ const html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewpor
   });
   await page.goto(origin+'/');
   assert(await page.locator('#dgUnifiedDepotMissing').isVisible(),'No local depot must show import guidance');
+  assert(await page.locator('#dgStoredCsvImport').isVisible(),'Separate depot section has CSV import button');
   assert.equal(await page.locator('#dgUnifiedImportCsv').getAttribute('data-view'),'degiro',
     'Guidance button navigates using Bob mobile navigation');
   await page.locator('#dgExportFile').setInputFiles({
@@ -64,6 +65,8 @@ const html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewpor
   assert((await page.locator('#dgUnifiedSummary').innerText()).includes('5 im Depot-CSV'));
   assert.equal(await page.locator('#dgUnifiedDepotMissing').isVisible(),false,
     'Import guidance hides when CSV is stored');
+  assert.equal(await page.locator('#dgStoredCsvImport').isVisible(),false,
+    'Stored CSV hides reimport reminder');
   const observedSummary=await page.locator('#dgUnifiedSummary').innerText();
   console.log('Unified browser counts:',JSON.stringify(observedSummary));
   assert(observedSummary.includes('8 in Beobachtung/Prüfbericht'),'Unexpected observation count: '+observedSummary);
@@ -97,6 +100,7 @@ const html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewpor
   assert.equal(await page.locator('#dgUnifiedCards .dg-unified-card').count(),8,'Clear only depot, not watched list');
   assert(await page.locator('#dgUnifiedDepotMissing').isVisible(),
     'Import guidance returns when user removes saved depot');
+  assert(await page.locator('#dgStoredCsvImport').isVisible(),'Removed CSV reopens import prompt');
   assert.deepEqual(external,[],'No external DEGIRO account access or 3rd-party network');
   console.log('DEGIRO combined products UI passed: 12 unique, 5 depot, 8 watched, refresh, mobile and privacy');
  }finally{await browser.close();}
