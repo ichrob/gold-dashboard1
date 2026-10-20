@@ -59,6 +59,15 @@ class DiagnosticsHttpTests(HttpTests):
 
 
 class ReportTests(unittest.TestCase):
+    def test_dmi_frame_evidence_survives_projection_without_raw_fields(self):
+        result = diagnostics.project({'dmi': {'available': False, 'mode': 'shadow',
+            'frames': {'5m': {'available': True, 'plusDI': 27, 'minusDI': 13, 'adx': 25},
+                       '15m': {'available': False, 'reason': 'gap', 'secret': 'omit'}}}},
+            diagnostics.ANALYSIS)
+        self.assertEqual(result['dmi']['frames']['5m']['plusDI'], 27)
+        self.assertEqual(result['dmi']['frames']['15m']['reason'], 'gap')
+        self.assertNotIn('secret', result['dmi']['frames']['15m'])
+
     def test_discovery_and_scope_challenge_never_read_data(self):
         forbidden = Mock(side_effect=AssertionError('unexpected read'))
         request = {'jsonrpc':'2.0','id':1,'method':'tools/list'}
