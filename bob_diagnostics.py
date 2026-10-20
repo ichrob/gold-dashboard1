@@ -115,7 +115,9 @@ PLAN = shape('available','reason','dir','entry','stop','target','computedAt','da
 ANALYSIS = shape('ready','priceFresh','dataAt','analysisBarAt','price','direction','baseDirection','mtf','score','atr','macd','signal','decisionReason','ruleVersion','suggestedStop','suggestedTarget',
     analysisSnapshot=INDICATORS, trendContext=shape('available','direction','intact','reason'),
     entryTimingGate=shape('allowed','reason','status'),session=shape('phase','entryAllowed','reason'),
-    dmi=shape('available','adx','plusDI','minusDI','direction','reason'),continuedPlan=PLAN)
+    dmi=shape('available','mode','direction','reason',
+        frames={tf:shape('available','adx','plusDI','minusDI','direction','reason','barAt')
+                for tf in ('5m','15m','1h')}),continuedPlan=PLAN)
 STATE = shape('healthy','dataStatus','direction','mtf','journalCheckedAt',lastAnalysis=ANALYSIS,
     continuedCalculation=shape('available','stale','marketClosed','computedAt','dataAt','price','score','analysisBarAt','stopDistance','targetDistance','productEstimate',plan=PLAN),
     trade=shape('dir','entry','stop','target','initialRisk'),
