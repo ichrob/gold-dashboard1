@@ -28,7 +28,7 @@ def compact(row):
         ruleVersion=p.get('ruleVersion'), build=p.get('build'), reason=p.get('reason'),
         marketEvaluable=p.get('marketEvaluable', False), gateReasons=p.get('gateReasons') or [],
         selection=p.get('selection') or [], products=products, plan=p.get('plan'),
-        outcomes=truths or {}, indicators=p.get('indicators'))
+        outcomes=truths or {}, indicators=p.get('indicators'),decisionContext=p.get('decisionContext'))
 
 def summarize(rows):
     versions = {}; first = {}; counts = Counter(); reasons = Counter()

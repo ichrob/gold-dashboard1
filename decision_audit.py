@@ -11,6 +11,7 @@ import intraday_comparison
 import signal_review
 import adaptive_learning as rule_learning
 import audit_history
+import decision_evidence
 import stop_target_audit
 import paper_simulation
 import optimization_review
@@ -77,6 +78,7 @@ def normalize(payload, now=None):
         raise ValueError('Entscheidungs-Kerzenzeit fehlt oder liegt in der Zukunft')
     # Only explicitly whitelisted evidence; never account credentials or raw images.
     result = {k: payload.get(k) for k in ('learningPolicy','baseDirection','direction','shadowDirection','trendContext','intraday','entryQuality','minuteEntry','earlyImpulse','barAt','price','priceAt','reason','score','indicators','products','selection','gateReasons','plan')}
+    result['decisionContext']=decision_evidence.freeze(payload.get('decisionContext'))
     plan = result.get('plan')
     if (isinstance(plan,dict) and plan.get('kind') in ('candidate','active-monitor')
         and plan.get('direction') in ('LONG','SHORT') and plan.get('unit')=='USD/oz'
@@ -142,6 +144,7 @@ def normalize(payload, now=None):
     identity['earlyImpulseEvidence']=(lambda q:{'version':q['version'],'direction':q['direction'],'barAt':q['barAt']} if q else None)(result.get('earlyImpulse'))
     identity['minuteEntryVersion']=(result.get('minuteEntry') or {}).get('version')
     identity['entryQualityVersion']=(result.get('entryQuality') or {}).get('version')
+    if result['decisionContext'] is not None:identity['decisionContext']=result['decisionContext']
     key=hashlib.sha256(json.dumps(identity,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     return key,result
 

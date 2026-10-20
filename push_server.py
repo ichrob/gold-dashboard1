@@ -23,6 +23,7 @@ import bob_validation_store
 import real_trade_journal
 import trade_email_import
 import decision_audit
+import decision_evidence
 import improvement_tracker
 import ranking_learning
 import adaptive_learning as rule_learning
@@ -375,7 +376,8 @@ def record_market_observation(conn, market, bundle=None):
     decision_audit.write(conn,{'ruleVersion':market.get('ruleVersion'),'origin':'background','direction':market.get('direction','NEUTRAL'),'baseDirection':market.get('baseDirection'),'learningPolicy':market.get('learningPolicy'),
         'trendContext':market.get('trendContext'),'earlyImpulse':market.get('earlyImpulse'),'plan':market.get('plan'),'minuteEntry':market.get('minuteEntry'),'entryQuality':market.get('entryQuality'),'shadowDirection':market.get('shadowDirection'),'intraday':market.get('intraday'),'barAt':market['analysisBarAt'],
         'price':market.get('price'),'priceAt':market.get('dataAt'),'reason':market.get('decisionReason'),
-        'score':market.get('score'),'indicators':market.get('context'), 'products':[],
+        'score':market.get('score'),'indicators':market.get('context'),
+        'decisionContext':decision_evidence.capture(market), 'products':[],
         'selection':[], 'gateReasons':[] if market.get('ready') else ['Marktdaten nicht freigegeben']})
     return True
 

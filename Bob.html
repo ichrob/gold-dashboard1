@@ -1643,6 +1643,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
      'Freigegebene Auswahl: '+(x.selection.join(', ')||'keine dokumentiert'),
      ...x.products.map(p=>p.isin+' · '+(p.selected?'ausgewählt':'nicht ausgewählt')+' · Geld/Brief '+(p.bid??'—')+'/'+(p.ask??'—')+' · '+dayTime(p.quoteAt)+' · '+(p.reasons||[]).join(' · ')),
      x.plan?'Damals gespeicherter Plan: '+x.plan.kind+' · '+x.plan.direction+' · Einstieg '+x.plan.entry+' · Stop '+x.plan.stop+' · Ziel '+x.plan.target+' '+x.plan.unit+' · '+x.plan.note:'Einstieg/Stop/Ziel damals nicht protokolliert: keine rückwirkende Bestätigung möglich.',
+     ...(x.decisionContext?[(()=>{const c=x.decisionContext,i=c.indicators||{},show=v=>v==null?'nicht gespeichert':String(v);return 'Technische Originalaufnahme · '+show(i.timeframe)+' · Kerzenzeit '+dayTime(i.barAt)+'\nEMA20/50/200: '+[i.ema20,i.ema50,i.ema200].map(show).join(' / ')+' · RSI '+show(i.rsi)+' · ADX '+show(i.adx)+' · ATR '+show(i.atr)+'\nMACD/Signal: '+show(i.macd)+' / '+show(i.signal)+'\nEinstiegsprüfung: '+show(c.entryTiming?.reason)+' · Daten bereit: '+show(c.ready)+' · Spot aktuell: '+show(c.priceFresh);})()]:['Technische Originalaufnahme damals nicht vollständig gespeichert; keine rückwirkende Ergänzung.']),
      ...outcomes].join('\n');d.append(title,body);document.getElementById('auditDayRows').append(d);
    }
    text('auditDayRaw',JSON.stringify(r,null,2));dayOffset=r.nextOffset;
