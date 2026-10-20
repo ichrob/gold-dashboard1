@@ -62,6 +62,11 @@ const html='<!doctype html><html lang="de"><head><meta charset="utf-8">'+
     contentType:'application/json',body:JSON.stringify(issuerCatalog)});
    if(pathname==='/api/degiro/audit')return route.fulfill({
     contentType:'application/json',body:JSON.stringify(audit)});
+   if(pathname==='/api/degiro/candidate-proofs')return route.fulfill({
+    contentType:'application/json',body:JSON.stringify({
+     status:'ok',source:'user-uploaded-degiro-detail-image',items:[],
+     checkedAt:'2026-10-20T08:30:00Z'
+    })});
    if(['/degiro_all_products.js','/broker_candidate_pools.js'].includes(pathname)){
     return route.fulfill({contentType:'application/javascript',
      body:fs.readFileSync(path.join(__dirname,pathname.slice(1)),'utf8')});
