@@ -59,6 +59,12 @@ class DiagnosticsHttpTests(HttpTests):
 
 
 class ReportTests(unittest.TestCase):
+    def test_summary_does_not_hide_product_or_shadow_dmi_gaps(self):
+        summary = diagnostics.summary({'products': {'status':'ok', 'items':[{'state':'incomplete'}]},
+            'analysis': {'dmi': {'available': False}}})
+        self.assertEqual(summary['assessment'], 'needs-attention')
+        self.assertEqual(len(summary['attention']), 2)
+
     def test_dmi_frame_evidence_survives_projection_without_raw_fields(self):
         result = diagnostics.project({'dmi': {'available': False, 'mode': 'shadow',
             'frames': {'5m': {'available': True, 'plusDI': 27, 'minusDI': 13, 'adx': 25},
