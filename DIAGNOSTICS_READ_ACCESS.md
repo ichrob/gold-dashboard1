@@ -46,6 +46,14 @@ When the response exceeds its size limit, the large journal is omitted first. Tr
 learning and repair details are retained if the remaining report fits; each omitted
 section is named explicitly. A missing section is never evidence of feature health.
 
+Original Gold-API input events also preserve their source-time/price pair in the
+spot archive. Capture freshness is checked against the original event time, never
+receipt time. Test evidence recovery can consult existing input events in the
+original one-minute outcome window; different sources, stale-at-capture values,
+conflicts and invalid starts remain excluded. This is not model interpolation.
+Cases skipped by the bounded archive budget retain their queue position so later
+passes eventually examine them.
+
 ## Durable diagnostic history and correlation
 
 `simulationAndPush.history.areas.journal` reads a private PostgreSQL journal. Existing

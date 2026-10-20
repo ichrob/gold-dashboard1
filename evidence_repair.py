@@ -67,6 +67,31 @@ def discover(conn,now):
                      reasons=['invalidStart' if not row.get('marketEvaluable') else 'missingFollowup']),now)
 
 
+def journal_truth(conn,target):
+    """Recover only original source-time/price pairs from saved input events."""
+    import diagnostic_history as history
+    import decision_audit as audit
+    try:
+        with conn.transaction():
+            rows=conn.execute('''SELECT payload,observed_at FROM bob_diagnostic_history
+                WHERE stage='input' AND observed_at BETWEEN %s AND %s
+                ORDER BY observed_at,id LIMIT 128''',(target/1000,(target+120000)/1000)).fetchall()
+    except Exception:
+        return None  # Optional journal unavailable; absence is not recovery.
+    points={}
+    for payload,observed_at in rows:
+        point=history.original_spot(payload,observed_at)
+        if not point:continue
+        at=audit.milliseconds(point[0]);price=point[1]
+        if at is None or not target<=at<=target+60000:continue
+        if at in points and points[at]!=price:return None
+        points[at]=price
+    if not points:return None
+    at=min(points)
+    return dict(at=at,price=points[at],source='gold-api-xau-usd-v1',
+                evidenceOrigin='diagnostic-input-journal')
+
+
 def retry_signal(conn,ref):
     import decision_audit as audit
     row=conn.execute('SELECT payload FROM bob_decision_audit WHERE id=%s',(ref['decision'],)).fetchone()
@@ -81,8 +106,8 @@ def retry_signal(conn,ref):
     quote=conn.execute('''SELECT extract(epoch from quote_at)*1000,price FROM bob_spot_observations
       WHERE stream='gold-api-xau-usd-v1' AND quote_at>=to_timestamp(%s/1000.0)
       AND quote_at<=to_timestamp(%s/1000.0) ORDER BY quote_at LIMIT 1''',(target,target+60000)).fetchone()
-    if not quote:return False,False,'Im ursprünglichen Zeitfenster fehlt weiterhin ein bestätigter Original-Folgekurs.'
-    truth=dict(at=float(quote[0]),price=quote[1])
+    truth=dict(at=float(quote[0]),price=quote[1]) if quote else journal_truth(conn,target)
+    if truth is None:return False,False,'Im ursprünglichen Zeitfenster fehlt weiterhin ein bestätigter Original-Folgekurs.'
     if not audit.outcome(record,truth,horizon):return False,True,'Archivwert passt nicht zum ursprünglichen Kurs- und Zeitnachweis.'
     extent=conn.execute('''SELECT min(price),max(price) FROM bob_spot_observations
       WHERE stream='gold-api-xau-usd-v1' AND quote_at>=to_timestamp(%s/1000.0)
@@ -93,7 +118,7 @@ def retry_signal(conn,ref):
     actual=conn.execute('SELECT truth FROM bob_decision_outcomes WHERE decision_id=%s AND horizon=%s',
                         (ref['decision'],horizon)).fetchone()
     valid=bool(actual and audit.outcome(record,actual[0],horizon))
-    return valid,not valid,('Original-Folgekurs aus dem Archiv nachgeladen, Ergebnis nachberechnet und geprüft.' if valid
+    return valid,not valid,('Original-Folgekurs aus '+('dem Diagnosejournal' if truth.get('evidenceOrigin') else 'dem Kursarchiv')+' nachgeladen, Ergebnis nachberechnet und geprüft.' if valid
         else 'Gespeicherter Widerspruch verhindert eine sichere automatische Korrektur.')
 
 
@@ -144,6 +169,7 @@ def reconcile(conn,now):
     import decision_audit as audit
     rows=[]
     archive_checks=0
+    rotated=[]
     # Bound the queue BEFORE joining the archives. One request replaces 96
     # sequential database round trips without scanning the whole outcome table.
     pending=conn.execute("""WITH pending AS MATERIALIZED (
@@ -159,7 +185,12 @@ def reconcile(conn,now):
         # A late source observation can arrive after all three initial retries.
         # Previously only a separate bulk harvest could resolve these cases.
         # Limit archive lookups and retain invalid/missing evidence unchanged.
-        if record and record.get('marketEvaluable') and not truth and archive_checks<8:
+        if record and record.get('marketEvaluable') and not truth:
+            if archive_checks>=8:
+                # Do not rotate an unexamined case to the back of the queue.
+                # Otherwise the same first eight of each 48-case page can be
+                # retried forever while the other forty never reach the archive.
+                continue
             archive_checks+=1
             try:
                 with conn.transaction():
@@ -170,11 +201,12 @@ def reconcile(conn,now):
                         truth=stored[0] if stored else None
             except Exception:
                 pass  # Not recovered; the next bounded archive pass can retry.
+        rotated.append(key)
         if record and record.get('marketEvaluable') and truth:
             rows.append((key,payload,record,truth,ref['horizon']))
-    if pending:
+    if rotated:
         conn.execute('UPDATE bob_test_repairs SET next_at=%s WHERE id=ANY(%s::text[])',
-                     (now,[r[0] for r in pending]))
+                     (now,rotated))
     for key,payload,record,truth,horizon in rows:
         if audit.outcome(record,truth,horizon):
             reason='Späterer regulärer Archivabruf hat den Original-Folgekurs geliefert; Ergebnis unabhängig erneut geprüft.'

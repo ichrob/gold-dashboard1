@@ -9,6 +9,22 @@ URL='https://www.youtube.com/watch?v='+ID
 CAP= 'https://www.youtube.com/api/timedtext?v='+ID+'&lang=en'
 
 class YoutubeTests(unittest.TestCase):
+    def test_public_date_is_independent_of_membership_but_content_remains_blocked(self):
+        payload={'playabilityStatus':{'status':'UNPLAYABLE','reason':'Members-only content'},
+                 'videoDetails':{'videoId':ID,'channelId':g.MCO_CHANNEL,'title':'Gold outlook'},
+                 'microformat':{'playerMicroformatRenderer':{'publishDate':'2026-10-19T08:30:00+02:00'}}}
+        def raw():return ('var ytInitialPlayerResponse = '+json.dumps(payload)+';').encode()
+        with patch.dict(g._publication_cache,{},clear=True):
+            item=g.enrich_publication({'url':URL,'publishedAt':None},fetch=lambda _:raw())
+        self.assertEqual(item['publishedAt'],g.timestamp('2026-10-19T08:30:00+02:00'))
+        self.assertNotIn('trustedTranscript',item)
+        with self.assertRaises(y.MembersOnlyVideo):y.player_metadata(raw(),ID)
+        payload['videoDetails']['channelId']='other'
+        with self.assertRaises(ValueError):y.publication_metadata(raw(),ID)
+        payload['videoDetails']['channelId']=g.MCO_CHANNEL
+        payload['videoDetails']['videoId']='zyxwvutsrqp'
+        with self.assertRaises(ValueError):y.publication_metadata(raw(),ID)
+
     def test_player_failure_uses_provider_only_after_public_channel_verification(self):
         import research_transcript_provider as provider
         item={'url':URL,'channelId':g.MCO_CHANNEL,'title':'Gold outlook'}

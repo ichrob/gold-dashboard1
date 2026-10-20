@@ -363,11 +363,16 @@ def bnp_product_data(data, isin, now=None):
             if target == 'ratio':
                 values[target] = value
     typ = r.get('derivativeTypeName')
-    if typ in ('Unlimited Long', 'Unlimited Short'):
+    mini_long = (typ == 'MINI Long' and r.get('derivativeTypeId') == 23
+                 and type(r.get('delta')) in (int, float) and r['delta'] == 1
+                 and metadata.get('ratio', 0) > 0)
+    if typ in ('Unlimited Long', 'Unlimited Short') or mini_long:
         if typ.upper().split()[-1] != sides[0]:
             raise ValueError('Widersprüchliche Produktrichtung')
         values['type'] = typ
         metadata.update(simpleTurbo=True, quantoState='unknown', simpleNonQuantoTurbo=False)
+        if mini_long:
+            metadata.update(issuerProductType=typ, issuerDerivativeTypeId=23)
     if r.get('keyFigures', {}).get('maturityDateTimestamp') == -1:
         values['maturity'] = 'Open End'
     conditions = {key:dict(value=value, at=None, source=url, conditionVerified=True,

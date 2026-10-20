@@ -176,6 +176,9 @@ def apply(result, isin):
             equivalent_turbo = (key == 'type' and meta.get('simpleTurbo') is True
                 and item['value'] == 'Knock-out Turbo'
                 and (existing == 'Unlimited '+('Long' if meta.get('direction') == 'LONG' else 'Short')
+                     or existing == 'MINI Long' and meta.get('direction') == 'LONG'
+                        and meta.get('issuerProductType') == 'MINI Long'
+                        and meta.get('issuerDerivativeTypeId') == 23
                      or existing == 'BEST Turbo-Optionsscheine (Open-End)' and meta.get('classificationId') == 47)
                 and observations.get('direction', {}).get('value') == meta.get('direction'))
             if not equivalent_turbo:
