@@ -553,14 +553,19 @@ def _ema_history_sufficient(rows, minutes, now=None):
 def _ema200_history_backfill(interval, range_value, observed):
     """Research-only history warmup; no spot substitution or new order gate.
 
-    One provider attempt per timeframe per five minutes. Failed attempts leave
+    One provider attempt per timeframe per five minutes for warmup, or per
+    30 seconds when the observed series is stale. Failed attempts leave
     the independent current series in place. A cached longer series is used
     only when it is still source-fresh and not behind the independent source.
     """
     minutes = technical_candles.MINUTES[interval]
     now = time.time()
     with _ema_backfill_lock:
-        retry = now - _ema_backfill_attempted.get(interval, -1e12) >= _EMA_BACKFILL_INTERVAL_SECONDS
+        # Warmup can wait five minutes; recovery of a stale live series cannot.
+        # Keep source clocks and freshness gates unchanged.
+        retry_seconds = (_EMA_BACKFILL_INTERVAL_SECONDS
+                         if technical_history_fresh(observed, minutes, now) else 30)
+        retry = now - _ema_backfill_attempted.get(interval, -1e12) >= retry_seconds
         if retry:
             _ema_backfill_attempted[interval] = now
     if retry:
