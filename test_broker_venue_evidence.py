@@ -39,6 +39,15 @@ class BrokerVenueTests(unittest.TestCase):
         self.assertNotIn('brokerVenueEvidence',self.feed['products'][0])
         attached['listUploadedAt']='replacement'
         self.assertNotIn('brokerVenueEvidence',b.attach(conn,attached)['products'][0])
+    def test_listing_survives_issuer_lookup_failure_without_approval(self):
+        e=b.validate(self.payload,self.feed,self.now)
+        p=dict(isin=self.isin,direction='SHORT',currency='CHF',brokerVenueEvidence=e)
+        report=audit.examine(p,{},self.now.timestamp()*1000)
+        self.assertEqual(report['brokerVenueEvidence'],e)
+        self.assertIn('identity',report['missing'])
+        self.assertFalse(report['tradeApproved'])
+        self.assertFalse(report['degiroVerified'])
+
     def test_save_requires_active_list_and_stores_only_venue_evidence(self):
         conn=Mock();conn.execute.return_value.fetchone.return_value=(self.feed,)
         result=b.save(conn,dict(self.payload,bid=2,ask=3,eligible=True),self.now)

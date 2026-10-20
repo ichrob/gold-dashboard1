@@ -314,8 +314,9 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    if(!response.ok)throw Error('unavailable');
    const report=await response.json();
    latestReport=report;
+   window.BobProductAuditReport=report;
    if(!byId('bobProductAuditItems')?.contains(document.activeElement))render(report);
-  }catch(_){latestReport=null;render({status:'unavailable',items:[]});}
+  }catch(_){latestReport=null;window.BobProductAuditReport=null;render({status:'unavailable',items:[]});}
   finally{clearTimeout(timer);busy=false;}
  }
  function init(){mount();

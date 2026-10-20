@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 ZONE = ZoneInfo('Europe/Zurich')
 VENUE = 'Societe Generale OTC'
+REVIEWED_VENUES = (VENUE, 'BNP OTC', 'BNP Paribas OTC')
 
 
 def init(conn):
@@ -24,7 +25,7 @@ def validate(payload, feed, now=None):
     if (feed.get('listOrigin') != 'degiro-screenshot' or not feed.get('listUploadedAt')
             or isin not in [p.get('isin') for p in products]):
         raise ValueError('Produkt fehlt in der aktiven DEGIRO-Liste')
-    if payload.get('venue') != VENUE or payload.get('currency') not in ('EUR', 'CHF'):
+    if payload.get('venue') not in REVIEWED_VENUES or payload.get('currency') not in ('EUR', 'CHF'):
         raise ValueError('Handelsplatz oder Währung nicht unterstützt')
     raw = payload.get('observedMinute', '')
     if not isinstance(raw, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}', raw):
@@ -38,7 +39,7 @@ def validate(payload, feed, now=None):
     reference = payload.get('imageReference', '')
     if not isinstance(reference, str) or not 1 <= len(reference.strip()) <= 200:
         raise ValueError('Bildreferenz fehlt')
-    return dict(isin=isin, broker='DEGIRO', venue=VENUE, currency=payload['currency'],
+    return dict(isin=isin, broker='DEGIRO', venue=payload['venue'], currency=payload['currency'],
         kind='owner-reviewed-screenshot', observedMinute=raw, timezone='Europe/Zurich',
         timePrecision='minute', validUntil=end.isoformat(), reviewedAt=now.isoformat(),
         imageReference=reference.strip(), listUploadedAt=feed['listUploadedAt'],
@@ -54,7 +55,7 @@ def confirmed(evidence, isin, currency, now_ms):
         end = at.replace(hour=22, minute=0)
         return (evidence.get('isin') == isin and evidence.get('currency') == currency
             and evidence.get('broker') == 'DEGIRO'
-            and ((evidence.get('kind') == 'owner-reviewed-screenshot' and evidence.get('venue') == VENUE)
+            and ((evidence.get('kind') == 'owner-reviewed-screenshot' and evidence.get('venue') in REVIEWED_VENUES)
                  or (evidence.get('kind') == 'automatic-detail-screenshot' and valid_venue(evidence.get('venue'))))
             and evidence.get('listingConfirmed') is True and evidence.get('executionConfirmed') is False
             and evidence.get('timezone') == 'Europe/Zurich' and evidence.get('timePrecision') == 'minute'
@@ -121,6 +122,29 @@ def automatic(product, feed, now=None):
     return record
 
 
+def corrected_list(product, feed, now):
+    """Recover the explicit, reviewed listing row, independently of live quotes.
+
+    listCorrection is written only by the authenticated correction handler; the
+    normal product-sync allowlist does not accept it. No issuer inference.
+    """
+    correction = feed.get('listCorrection') or {}
+    if (not correction.get('previousVersion') or not correction.get('at')
+            or product.get('listingVenue') not in REVIEWED_VENUES):
+        return None
+    try:
+        record = validate(dict(isin=product.get('isin'), reviewed=True,
+            currency=product.get('currency'), venue=product['listingVenue'],
+            observedMinute=correction.get('observedMinute'),
+            imageReference=correction.get('imageReference') or
+                'Geprüfte DEGIRO-Listenkorrektur · '+correction['at']), feed, now)
+        # Keep the actual review clock, never replace it with today's retrieval.
+        record['reviewedAt'] = correction['at']
+        return record
+    except (ValueError, TypeError, KeyError):
+        return None
+
+
 def attach(conn, feed, now=None):
     out = copy.deepcopy(feed)
     now = now or datetime.now(timezone.utc)
@@ -129,6 +153,9 @@ def attach(conn, feed, now=None):
     for product in out.get('products') or []:
         product.pop('brokerVenueEvidence', None)
         record = automatic(product, feed, now)
+        listed = corrected_list(product, feed, now)
+        if listed and (not record or listed['observedMinute'] >= record['observedMinute']):
+            record = listed
         manual = evidence.get(product.get('isin'))
         # A fresh automatic observation can replace an expired manual proof.
         if manual and (not record or manual.get('observedMinute', '') >= record['observedMinute']):

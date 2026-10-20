@@ -1,6 +1,6 @@
 const assert=require('assert'),fs=require('fs'),vm=require('vm');
 const html=fs.readFileSync('Bob.html','utf8'),now=Date.parse('2026-10-08T09:00:00Z');
-const env={Date,Math,Number,dataAge:(t,limit,n)=>({fresh:n>=t&&n-t<=limit})};vm.createContext(env);
+const env={Date,Math,Number,setInterval:()=>0,document:{addEventListener(){}},dataAge:(t,limit,n)=>({fresh:n>=t&&n-t<=limit})};vm.createContext(env);
 vm.runInContext(html.slice(html.indexOf('function ema('),html.indexOf('function calc('))+html.slice(html.indexOf('function rsiS('),html.indexOf('function buildMtfHierarchy('))+html.slice(html.indexOf('function sustainedTrendContext('),html.indexOf('function confirmedSignalDirection(')),env);
 function bundle(sign){const frames={};for(const [tf,step] of Object.entries({'5m':300000,'15m':900000,'1h':3600000})){frames[tf]=Array.from({length:220},(_,i)=>{const p=4200+sign*i;return {openTime:now-(220-i)*step,open:p,close:p,high:p+2,low:p-2,isOpen:false,instrument:'XAU/USD'};});}return {history:{bars_by_tf:frames}};}
 for(const sign of [1,-1]){

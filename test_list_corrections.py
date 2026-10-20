@@ -19,6 +19,28 @@ class CorrectionTests(unittest.TestCase):
         self.assertFalse(out['products'][0]['isinConfirmed'])
         self.assertFalse(venues[0]['executionConfirmed'])
         self.assertEqual(out['listCorrection']['previousProducts'],before['products'])
+    def test_bnp_reviewed_row_is_recorded_and_legacy_correction_recovers(self):
+        import broker_venue_evidence as b
+        self.payload['products'][0].update(venue='BNP OTC',currency='EUR')
+        out,venues=c.prepare(self.feed,self.payload,self.now)
+        self.assertEqual(len(venues),1)
+        self.assertEqual(venues[0]['venue'],'BNP OTC')
+        self.assertEqual(out['listCorrection']['imageReference'],'test original')
+        conn=Mock();conn.execute.return_value.fetchall.return_value=[]
+        # Existing reviewed corrections predate the imageReference field. The
+        # correction record remains a traceable original review reference.
+        out['listCorrection'].pop('imageReference')
+        got=b.attach(conn,out,self.now)['products'][0]
+        proof=got['brokerVenueEvidence']
+        self.assertTrue(b.confirmed(proof,got['isin'],'EUR',self.now.timestamp()*1000))
+        self.assertEqual(proof['observedMinute'],self.payload['observedMinute'])
+        self.assertEqual(proof['reviewedAt'],out['listCorrection']['at'])
+        self.assertFalse(proof['executionConfirmed'])
+        self.assertNotIn('bid',proof)
+        self.assertNotIn('brokerVenueEvidence',b.attach(conn,out,self.now.replace(day=21))['products'][0])
+        out.pop('listCorrection')
+        self.assertNotIn('brokerVenueEvidence',b.attach(conn,out,self.now)['products'][0])
+
     def test_empty_reference_slots_are_ignored(self):
         self.feed['references']=[None, None]
         self.feed['fixedBarriers']=None

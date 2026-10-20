@@ -50,7 +50,7 @@ function verifiedBrokerProof(isin,record,report,watchlist,now=Date.now()){
  if(!Array.isArray(watchlist)||!watchlist.some(p=>
      p?.isin===isin && p.listUploadedAt===evidence.listUploadedAt))return false;
  if(evidence.kind==='owner-reviewed-screenshot' &&
-    evidence.venue!=='Societe Generale OTC')return false;
+    !['Societe Generale OTC','BNP OTC','BNP Paribas OTC'].includes(evidence.venue))return false;
  if(evidence.kind==='automatic-detail-screenshot' &&
     evidence.venue.trim().toLowerCase().match(/^(?:unknown|unbekannt|[-—])$/))return false;
  if(typeof evidence.observedMinute!=='string'||

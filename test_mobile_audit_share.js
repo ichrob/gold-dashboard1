@@ -37,7 +37,7 @@ const unavailable=isolated.build({status:'unavailable',items:[]});
 assert(unavailable.includes('Prüfstatus: unavailable'));
 for(const needle of ['id="bobAuditShareChatGPT"','DEGIRO Goldhebelprodukte Probleme',
                      'navigator.share({title:','navigator.clipboard.writeText(value)',
-                     "latestReport=null;render({status:'unavailable'","credentials:'same-origin'",
+                     "latestReport=null;window.BobProductAuditReport=null;render({status:'unavailable'","credentials:'same-origin'",
                      "byId('bobAuditShareChatGPT')?.addEventListener('click',shareMobileAudit)"])
  assert(panel.includes(needle),needle);
 assert(!panel.includes('window.open('),'Avoid opening an external URL with ISINs in query strings');
