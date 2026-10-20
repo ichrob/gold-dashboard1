@@ -207,7 +207,7 @@ class PasskeyHTTPTests(unittest.TestCase):
         with patch.dict(os.environ,{'BOB_MCP_SERVICE_TOKEN':token}),patch.object(bob_passkey,'rpc',return_value={'enabled':True,'verified':False}):
             response=self.request('POST','/mcp',headers,body)
             self.assertEqual(response[0],200)
-            self.assertEqual({t['name'] for t in json.loads(response[2])['result']['tools']},{'bob_product_audit','bob_product_gaps','bob_diagnostics'})
+            self.assertEqual({t['name'] for t in json.loads(response[2])['result']['tools']},{'bob_product_audit','bob_product_gaps','bob_diagnostics','bob_signal_history'})
             diagnostic_body=json.dumps({'jsonrpc':'2.0','id':2,'method':'tools/call','params':{'name':'bob_diagnostics'}})
             with patch.object(self.server,'read_diagnostics_for_mcp') as reader:
                 result=json.loads(self.request('POST','/mcp',headers,diagnostic_body)[2])['result']
