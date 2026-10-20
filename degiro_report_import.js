@@ -208,6 +208,10 @@ function mount(){
  clear.type='button';
  clear.disabled=true;
  section.append(clear);
+ const goToAll=node(doc,'button','','Alle DEGIRO-Produkte in Bob ansehen');
+ goToAll.type='button';
+ goToAll.dataset.view='products';
+ section.append(goToAll);
  section.append(node(doc,'p','small','DEGIRO: Portfolio → Export → CSV. Neuer vollständiger Portfolioexport ersetzt die vorherige gespeicherte Depotliste auf diesem Gerät. Handelsfreigabe, Gold-Knock-out-Rangliste und automatische Kontosynchronisation bleiben unverändert. Der CSV-Dateiname wird nach dem Einlesen zurückgesetzt.'));
  host.append(section);
  function reset(){
