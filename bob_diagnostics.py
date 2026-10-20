@@ -219,6 +219,10 @@ def broker_sync_snapshot(value):
                             'intervalSeconds', 'liveOrdersEnabled', 'liveQuotes'))
     result['lastConnectionTest'] = fields(value.get('lastConnectionTest') if isinstance(value, dict) else None,
                                          ('code', 'checkedAt', 'authReason'))
+    from degiro_readonly import safe_login_response
+    result['loginResponse'] = safe_login_response(value.get('loginResponse') if isinstance(value, dict) else None)
+    last_test = value.get('lastConnectionTest') if isinstance(value, dict) else None
+    result['lastConnectionTest']['loginResponse'] = safe_login_response(last_test.get('loginResponse') if isinstance(last_test, dict) else None)
     snapshot = value.get('snapshot') if isinstance(value, dict) else None
     result['lastSuccessAt'] = fields(snapshot, ('observedAt',)).get('observedAt')
     result['status'] = ('fresh' if result.get('fresh') is True else
