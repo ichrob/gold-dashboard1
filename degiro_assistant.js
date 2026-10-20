@@ -1742,9 +1742,15 @@ function productHelpState(p){
  // needs automatic retries rather than an immediate request for more images.
  const manual=labels.length>0&&!checking&&!!q&&(q.productVerified!==true||needsTerms||(failed&&!valuesPresent));
  const continuity=typeof analysisContinuityStatus==='function'?analysisContinuityStatus(p):null;
- if(continuity&&!manual&&!venueMissing)return {labels,checking,manual:false,
+ if(continuity&&labels.length)return {labels,checking,manual,
+  status:'Produktprüfung offen · '+continuity.label+' für die Analyse',
+  action:'Offene Nachweise: '+labels.join(', ')+'. '+
+   (checking?'Bob prüft die zugelassenen Quellen gerade erneut. ':manual?'Vorhandene Originalbelege unter „Gespeicherte Bildwerte, Quellen und Zeitbezug“ prüfen und nur die offenen Angaben ergänzen. ':'Bob prüft die zugelassenen Quellen automatisch erneut. ')+
+   (continuity.calculated?'Der angezeigte Modellwert ersetzt keinen Originalkurs. ':'Ein aktueller Originalkurs bestätigt nur den Kurs, nicht die übrigen Produktnachweise. ')+
+   'Keine bestätigte DEGIRO-Ausführung.'};
+ if(continuity)return {labels,checking,manual:false,
   status:continuity.label+' · Analyse',
-  action:continuity.calculated?'Bob überbrückt die Kurslücke automatisch mit einem gekennzeichneten Modellwert. Frische Originalkurse erhalten wieder Vorrang. Weitere Produktnachweise und DEGIRO-Ausführung werden separat geprüft.':'Bob verwendet einen aktuellen Originalkurs. Hebelnachweis, weitere Produktnachweise und DEGIRO-Ausführung werden separat geprüft.'};
+  action:continuity.calculated?'Bob überbrückt die Kurslücke automatisch mit einem gekennzeichneten Modellwert. Frische Originalkurse erhalten wieder Vorrang. DEGIRO-Ausführung separat prüfen.':'Produktnachweise in dieser Ansicht vorhanden. Der Originalkurs ist ein Anbieterwert; DEGIRO-Ausführung separat prüfen.'};
  return {labels,checking,manual,
   status:!labels.length?'Produktdaten vollständig':venueMissing?'DEGIRO-Handelsplatznachweis offen':checking?'Bob sucht gerade automatisch':manual?'Zusätzlicher Nachweis hilfreich':valuesPresent?'Kurs und Hebel vorhanden · Nachweisprüfung offen':'Automatische Prüfung noch offen',
   action:!labels.length?'Keine neuen Bilder nötig.':venueMissing?'Konkret offen: Welcher DEGIRO-Handelsplatz gehört zu dieser ISIN und Handelswährung? Dafür vorhandene Produktdetails prüfen; nur wenn die Zuordnung fehlt, ein Detailbild mit ISIN, Börse, Währung und Datum ergänzen.':checking?'Du musst jetzt nichts tun.':manual?'Öffne DEGIRO und ergänze nur die genannten Angaben als Screenshot.':valuesPresent?'Beim nächsten automatischen Abruf prüft Bob Kursart und Originalzeiten erneut. Die gespeicherten Zahlen bleiben für die Analyse sichtbar; ein ausführbarer DEGIRO-Kurs ist damit nicht bestätigt.':'Du musst die Werte nicht erneut eingeben. Den letzten Abruf findest du unter Details.'};
@@ -2037,7 +2043,10 @@ function analysisContinuityStatus(p,now=Date.now()){
 }
 function renderProductDirectionStatus(p,now=Date.now()){
  const continuity=typeof analysisContinuityStatus==='function'?analysisContinuityStatus(p,now):null;
- if(continuity)return '<span data-direction-data-status data-analysis-continuity role="status" style="display:inline-flex;gap:6px;flex-wrap:wrap"><strong>'+esc(continuity.label)+' · Analyse</strong><span>Hebelnachweis und DEGIRO-Ausführung separat prüfen.</span></span>';
+ if(continuity){
+  const labels=productProblemLabels(p);
+  return '<span data-direction-data-status data-analysis-continuity role="status" style="display:inline-flex;gap:6px;flex-wrap:wrap"><strong>'+esc(continuity.label)+' · Analyse</strong><span'+(labels.length?' data-product-evidence-open style="color:#92400e"':'')+'>'+esc(labels.length?'Produktprüfung offen: '+labels.join(', ')+'. Keine bestätigte DEGIRO-Ausführung.':'DEGIRO-Ausführung separat prüfen.')+'</span></span>';
+ }
  const check=productDirectionCheck(p,now);
  if(check.paused)return '<span data-direction-data-status data-regular-trading-pause>Reguläre Handelspause · letzter Kursstand gespeichert</span>';
  const analysis=check.analysis;
