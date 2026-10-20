@@ -150,9 +150,11 @@ def reconcile(conn,now):
         SELECT id,payload,ref FROM bob_test_repairs
         WHERE kind='signal' AND status='escalated' ORDER BY next_at,id LIMIT 48)
       SELECT p.id,p.payload,p.ref,a.payload,o.truth FROM pending p
-      LEFT JOIN bob_decision_audit a ON a.id=p.ref->>'decision'
-      LEFT JOIN bob_decision_outcomes o ON o.decision_id=p.ref->>'decision'
-        AND o.horizon=(p.ref->>'horizon')::integer""").fetchall()
+      LEFT JOIN LATERAL (SELECT payload FROM bob_decision_audit
+        WHERE id=p.ref->>'decision' LIMIT 1) a ON TRUE
+      LEFT JOIN LATERAL (SELECT truth FROM bob_decision_outcomes
+        WHERE decision_id=p.ref->>'decision'
+          AND horizon=(p.ref->>'horizon')::integer LIMIT 1) o ON TRUE""").fetchall()
     for key,payload,ref,record,truth in pending:
         # A late source observation can arrive after all three initial retries.
         # Previously only a separate bulk harvest could resolve these cases.
