@@ -110,7 +110,7 @@ const html='<!doctype html><html lang="de"><head><meta charset="utf-8">'+
    const metrics=await page.evaluate(()=>({
     scroll:document.documentElement.scrollWidth,
     width:document.documentElement.clientWidth,
-    card:document.querySelector('#bobIssuerResearchRows article').getBoundingClientRect().width,
+    card:document.querySelector('#bobBrokerResearchRows article').getBoundingClientRect().width,
     panel:document.querySelector('#bobIssuerResearch').getBoundingClientRect().width
    }));
    assert(metrics.scroll<=metrics.width+1,'Browser horizontal overflow '+width+JSON.stringify(metrics));
