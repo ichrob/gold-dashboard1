@@ -162,7 +162,7 @@ function mount(){
   '#bobIssuerResearch .broker-research-row,#bobNewDegiroConfirmed .broker-research-row{border:1px solid #d2dae5;border-radius:12px;padding:12px;margin:10px 0;overflow-wrap:anywhere}',
   '#bobIssuerResearch .broker-research-small,#bobNewDegiroConfirmed .broker-research-small{font-size:13px;line-height:1.5;opacity:.85}',
   '#bobIssuerResearch button,#bobIssuerResearch input{min-height:44px;max-width:100%;margin:5px 0}',
-  '#bobIssuerResearch input{width:100%;padding:10px}',
+  '#bobIssuerResearch input{width:100%;padding:10px;box-sizing:border-box}',
   '#bobIssuerResearch .broker-research-isin{font-family:monospace;font-size:14px;user-select:text}',
   '#bobIssuerResearch .broker-research-rows{min-width:0}'
  ].join('\n');
