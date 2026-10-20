@@ -214,6 +214,10 @@ function mount(){
  const goToAll=node(doc,'button','','Alle DEGIRO-Produkte in Bob ansehen');
  goToAll.type='button';
  goToAll.dataset.view='products';
+ goToAll.addEventListener('click',()=>{
+  const panel=doc.getElementById('dgCombinedProducts');
+  if(panel){panel.open=true;root.setTimeout(()=>panel.scrollIntoView({block:'start',behavior:'smooth'}),0);}
+ });
  section.append(goToAll);
  section.append(node(doc,'p','small','DEGIRO: Portfolio → Export → CSV. Neuer vollständiger Portfolioexport ersetzt die vorherige gespeicherte Depotliste auf diesem Gerät. Handelsfreigabe, Gold-Knock-out-Rangliste und automatische Kontosynchronisation bleiben unverändert. Der CSV-Dateiname wird nach dem Einlesen zurückgesetzt.'));
  host.append(section);
