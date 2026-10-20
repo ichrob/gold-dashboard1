@@ -48,6 +48,11 @@ def collect(readers):
     # The web process may not run the evaluator itself. Prefer real observations
     # from the push worker when its local capture is unavailable; never recompute.
     worker_analysis = (areas.get('simulationAndPush') or {}).get('analysis')
+    gap_evidence = (areas.get('simulationAndPush') or {}).get('gapEvidence')
+    if isinstance(gap_evidence, dict):
+        areas['gapEvidence'] = gap_evidence
+        areas['simulationAndPush'] = dict(areas['simulationAndPush'])
+        areas['simulationAndPush'].pop('gapEvidence', None)
     stored_research = (areas.get('simulationAndPush') or {}).get('researchReports')
     if isinstance(stored_research, dict):
         # A large simulation/transition area may itself be omitted. Research

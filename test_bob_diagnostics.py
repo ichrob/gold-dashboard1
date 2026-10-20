@@ -128,6 +128,14 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(result['push']['deliveryStatus'],'not-verified')
 
 class ExpandedReportTests(unittest.TestCase):
+    def test_gap_counts_survive_omission_of_oversized_simulation(self):
+        evidence={'counts':{'original':10,'estimated':3,'unavailable':2,'pending':1},'total':16}
+        simulation={'status':'observed','gapEvidence':evidence,'signalHistory':{'large':'x'*20000}}
+        result=diagnostics.bounded_report(diagnostics.collect({'simulationAndPush':lambda:simulation}),2000)
+        self.assertEqual(result['areas']['gapEvidence'],evidence)
+        self.assertEqual(result['areas']['simulationAndPush']['status'],'unavailable')
+        self.assertIn('gapEvidence',simulation)
+
     def test_oversized_journal_does_not_also_discard_fitting_trade_and_learning_details(self):
         details={'status':'observed','areas':{
             'tradeMonitoring':{'status':'observed','items':[{'updatedAt':123,'active':False}]},
