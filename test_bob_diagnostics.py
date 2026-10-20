@@ -128,6 +128,23 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(result['push']['deliveryStatus'],'not-verified')
 
 class ExpandedReportTests(unittest.TestCase):
+    def test_oversized_journal_does_not_also_discard_fitting_trade_and_learning_details(self):
+        details={'status':'observed','areas':{
+            'tradeMonitoring':{'status':'observed','items':[{'updatedAt':123,'active':False}]},
+            'learning':{'status':'unavailable'},
+            'repairs':{'status':'observed','items':[{'kind':'repair-verified'}]}}}
+        simulation={'status':'observed','paper':{'state':'ok'},
+                    'history':{'journal':'x'*20000},'details':details}
+        original=diagnostics.collect({'simulationAndPush':lambda:simulation})
+        result=diagnostics.bounded_report(original,3000)
+        kept=result['areas']['simulationAndPush']
+        self.assertEqual(kept['details'],details)
+        self.assertEqual(kept['omittedSections'],['history'])
+        self.assertIn({'area':'simulationAndPush.details.areas.learning','state':'unavailable'},result['summary']['attention'])
+        self.assertLess(len(json.dumps(result).encode()),3000)
+        self.assertIn('history',simulation)
+        self.assertNotIn('omittedSections',simulation)
+
     def test_large_history_preserves_simulation_heartbeat_and_accounts(self):
         simulation = {'status':'observed', 'paper':{'lastSuccessAt':123},
                       'accounts':[{'profile':'100', 'cash':98, 'costsDebitedEur':2}],

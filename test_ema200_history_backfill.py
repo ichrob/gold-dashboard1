@@ -153,6 +153,33 @@ class EMA200HistoryWarmupTests(unittest.TestCase):
         other=[dict(b,source='other') for b in full[-50:]]
         self.assertEqual(len(server.retain_technical_history('1h',other)),50)
 
+    def test_fresh_short_fallback_recovers_stale_feed_without_claiming_ema200(self):
+        stale=candle_series(220,step=60000)
+        for row in stale:row['openTime']-=600000
+        fresh=candle_series(150,step=60000,value=4280)
+        with patch.object(server.technical_candles,'fetch',return_value=stale), \
+             patch.object(server,'fetch_json',return_value={'points':xaus_points(fresh)}) as fetch:
+            result=server.fetch_technical_history('1m','1d')
+            cached=server.fetch_technical_history('1m','1d')
+        self.assertEqual(len(result),150)
+        self.assertEqual(result,cached)
+        self.assertTrue(server.technical_history_fresh(result,1))
+        self.assertFalse(server._ema_history_sufficient(result,1))
+        self.assertTrue(server._mtf_score(result,'1m')['available'])
+        self.assertEqual(result[-1]['openTime'],fresh[-1]['openTime'])
+        self.assertEqual({b['source'] for b in result},{'XAUS · datierte XAU/USD-Historie'})
+        self.assertEqual(fetch.call_count,1)
+
+    def test_short_fallback_still_rejects_invalid_candles(self):
+        stale=candle_series(220,step=60000)
+        for row in stale:row['openTime']-=600000
+        bad=candle_series(150,step=60000)
+        bad[-1]['high']=1
+        with patch.object(server,'normalize_chart_points',return_value=bad), \
+             patch.object(server,'fetch_json',return_value={'points':[{}]}):
+            result=server._ema200_history_backfill('1m','1d',stale)
+        self.assertEqual(result,stale)
+
 
 if __name__ == '__main__':
     unittest.main()

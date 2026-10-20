@@ -42,6 +42,9 @@ The report performs no evaluations, repairs, notifications, orders or rule chang
 Each simulated account also includes its last five cases with recorded outcome flags,
 model cost assumptions, charged fees/slippage and model net result when known. Unknown
 net returns remain null; historical gross-only cases are not retrospectively re-priced.
+When the response exceeds its size limit, the large journal is omitted first. Trade,
+learning and repair details are retained if the remaining report fits; each omitted
+section is named explicitly. A missing section is never evidence of feature health.
 
 ## Durable diagnostic history and correlation
 
