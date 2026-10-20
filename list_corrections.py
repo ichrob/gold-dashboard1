@@ -50,8 +50,8 @@ def prepare(feed, payload, now=None):
         product['isinConfirmed']=False
         products.append(product)
     out['products']=products
-    out['references']=[r for r in out.get('references',[]) if r.get('isin') in seen]
-    out['fixedBarriers']={k:v for k,v in out.get('fixedBarriers',{}).items() if k in seen}
+    out['references']=[r for r in (out.get('references') or []) if isinstance(r,dict) and r.get('isin') in seen]
+    out['fixedBarriers']={k:v for k,v in (out.get('fixedBarriers') or {}).items() if k in seen}
     # Retain a private rollback record; never publish this payload in logs.
     out['listCorrection']=dict(at=now.isoformat(), previousVersion=version(feed),
         previousProducts=feed['products'], observedMinute=payload.get('observedMinute'))
