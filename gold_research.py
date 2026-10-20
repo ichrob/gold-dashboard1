@@ -264,10 +264,7 @@ def enrich_publication(item, fetch=None):
         item.update(cached)
         return item
     try:
-        player = y.player_metadata((fetch or y.read_url)(item['url']), identity)
-        y.require_mco(player.get('videoDetails', {}))
-        micro = player.get('microformat', {}).get('playerMicroformatRenderer', {})
-        value = micro.get('publishDate')
+        value = y.publication_metadata((fetch or y.read_url)(item['url']), identity)
         exact = timestamp(value)
         if exact is not None and exact <= time.time():
             publication = dict(publishedAt=exact, publishedDate=value,

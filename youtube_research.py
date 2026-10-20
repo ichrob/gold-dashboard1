@@ -83,11 +83,26 @@ class MembersOnlyVideo(ValueError):
     """An explicit membership restriction must not trigger provider retries."""
 
 
-def player_metadata(raw, identity):
+def _player_document(raw):
     text=raw.decode('utf-8','replace')
     match=re.search(r'(?:var\s+)?ytInitialPlayerResponse\s*=\s*',text)
     if not match:raise ValueError('Keine öffentlich lesbaren Videodaten')
-    p=json.JSONDecoder().raw_decode(text[match.end():])[0]
+    value=json.JSONDecoder().raw_decode(text[match.end():])[0]
+    if not isinstance(value,dict):raise ValueError('Ungültige Videometadaten')
+    return value
+
+
+def publication_metadata(raw,identity):
+    """Public date only; never grants caption or playback access."""
+    p=_player_document(raw)
+    details=p.get('videoDetails') or {}
+    if details.get('videoId')!=identity:raise ValueError('Videozuordnung nicht bestätigt')
+    require_mco(details)
+    return (p.get('microformat',{}).get('playerMicroformatRenderer') or {}).get('publishDate')
+
+
+def player_metadata(raw, identity):
+    p=_player_document(raw)
     access=p.get('playabilityStatus',{})
     reason=access.get('reason','')
     if (access.get('status') in ('UNPLAYABLE','LOGIN_REQUIRED')

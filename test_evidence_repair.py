@@ -6,6 +6,24 @@ from unittest.mock import patch
 import evidence_repair as repair
 
 class RepairTests(unittest.TestCase):
+    def test_archive_budget_eventually_reaches_every_unresolved_case(self):
+        class Queue:
+            def __init__(self):self.times={str(i).zfill(3):0 for i in range(100)};self.batch=[]
+            def transaction(self):return nullcontext()
+            def execute(self,sql,args=()):
+                if sql.startswith('WITH pending'):
+                    keys=sorted(self.times,key=lambda k:(self.times[k],k))[:48]
+                    self.batch=[(k,{'history':[]},dict(decision=k,horizon=15),{'marketEvaluable':True},None) for k in keys]
+                elif 'id=ANY' in sql:
+                    for k in args[1]:self.times[k]=args[0]
+                else:raise AssertionError(sql)
+                return self
+            def fetchall(self):return self.batch
+        conn=Queue()
+        with patch.object(repair,'retry_signal',return_value=(False,False,'Original fehlt')) as retry:
+            for now in range(1,14):repair.reconcile(conn,now)
+        self.assertEqual({c.args[1]['decision'] for c in retry.call_args_list},set(conn.times))
+
     def test_batched_reconcile_preserves_unknown_and_wrong_time_evidence(self):
         from unittest.mock import MagicMock
         start=1800000000000
@@ -27,7 +45,8 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(updates[0][1][-1],'valid')
         self.assertEqual(json.loads(updates[0][1][1])['lastAttemptAt'],target+60000)
         rotations=[c.args[1] for c in conn.execute.call_args_list if 'id=ANY' in c.args[0]]
-        self.assertEqual(set(rotations[0][1]),{r[0] for r in pending})
+        self.assertEqual(set(rotations[0][1]),{r[0] for r in pending[:12]},
+                         'Unexamined cases retain their old queue time for the next pass')
         self.assertEqual(len(conn.execute.call_args_list),3,'One bounded read, one rotation, one verified recovery')
 
     def test_retries_are_bounded_and_only_verified_success_closes(self):

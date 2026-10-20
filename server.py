@@ -699,7 +699,20 @@ def live_cache_reusable(now=None):
         return True
     try:
         stamp = datetime.fromisoformat(spots['spot_price_as_of'].replace('Z', '+00:00'))
-        return stamp.tzinfo is not None and 0 <= now - stamp.timestamp() < 30
+        if stamp.tzinfo is None or not 0 <= now - stamp.timestamp() < 30:
+            return False
+        frames=(_live_cache.get('history') or {}).get('bars_by_tf') or {}
+        if isinstance(frames.get('1m'),list):
+            # Recovery may already have delivered a newer confirmed minute
+            # while this bundle was waiting on other inputs. Do not add the
+            # bundle TTL on top of that successfully refreshed candle cache.
+            retained=retain_technical_history('1m',[])
+            if (technical_history_fresh(retained,1,now)
+                    and all(b.get('instrument')=='XAU/USD' and not b.get('estimated') for b in retained)
+                    and technical_history_latest(retained,1,now)>
+                        technical_history_latest(frames['1m'],1,now)):
+                return False
+        return True
     except (ValueError, TypeError, AttributeError):
         return False
 

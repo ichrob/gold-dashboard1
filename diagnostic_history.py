@@ -33,6 +33,7 @@ def init(conn):
         recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(), build TEXT, payload JSONB NOT NULL)''')
     conn.execute('CREATE INDEX IF NOT EXISTS bob_diagnostic_history_time ON bob_diagnostic_history(recorded_at DESC)')
     conn.execute('CREATE INDEX IF NOT EXISTS bob_diagnostic_history_stage ON bob_diagnostic_history(stage,recorded_at DESC)')
+    conn.execute('CREATE INDEX IF NOT EXISTS bob_diagnostic_history_source_window ON bob_diagnostic_history(stage,observed_at)')
     conn.execute('CREATE INDEX IF NOT EXISTS bob_diagnostic_history_trace ON bob_diagnostic_history(trace_id,recorded_at)')
 
 
@@ -62,12 +63,34 @@ def validate(event):
             'payload':diag.project(event.get('payload'),SCHEMAS[event['stage']])}
 
 
+def original_spot(payload, observed_at):
+    """An original Gold-API input, fresh AT capture; never a reconstructed tick."""
+    if not isinstance(payload,dict) or payload.get('primary')!='Gold-API.com · XAU/USD Spot':
+        return None
+    from bob_market_store import point
+    try:
+        return point(dict(symbol='XAU',currency='USD',price=payload.get('xaus'),
+                          at=payload.get('spot_price_as_of')),now=observed_at)
+    except (ValueError,TypeError,OverflowError):
+        return None
+
+
 def write(conn,event):
     global _LAST_PRUNE
     e=validate(event)
     conn.execute('''INSERT INTO bob_diagnostic_history(id,trace_id,decision_id,stage,observed_at,build,payload)
         VALUES(%s,%s,%s,%s,%s,%s,%s::jsonb) ON CONFLICT(id) DO NOTHING''',
         (e['id'],e['traceId'],e['decisionId'],e['stage'],e['at'],e['build'],json.dumps(e['payload'],allow_nan=False)))
+    source=original_spot(e['payload'],e['at']) if e['stage']=='input' else None
+    if source:
+        # The journal is an independent delivery path for the SAME original
+        # source observation. A conflicting stored price is never overwritten.
+        try:
+            with conn.transaction():
+                conn.execute('''INSERT INTO bob_spot_observations(stream,quote_at,price)
+                    VALUES('gold-api-xau-usd-v1',%s,%s) ON CONFLICT DO NOTHING''',source)
+        except Exception:
+            print('BOB_DIAGNOSTIC_SPOT archive=unavailable',flush=True)
     if time.monotonic()-_LAST_PRUNE>=300:
         prune(conn)
         _LAST_PRUNE=time.monotonic()

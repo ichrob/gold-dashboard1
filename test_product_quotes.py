@@ -12,6 +12,35 @@ def snapshot():
     return dict(responseDate='2026-09-30T16:06:02Z',tradingHours=dict(isTradeable=True,tradingStart='2026-09-30T06:00:00Z',tradingEnd='2026-09-30T20:00:00Z'),result=dict(isin=ISIN,productName='GOLD Unlimited Long',issuerCompanyName='BNP Paribas',currency=dict(isoCode='EUR'),first=dict(underlyingISIN='USFX00000XAU',currency=dict(isoCode='USD'),knockOutAbsolute=3978.9026),keyFigures=dict(leverage=22.67,lastUpdate='2026-09-30T16:06:02Z'),config=dict(hasMultipleUnderlying=False,isPublicTradable=True,isMarketClosed=False,isKnockedOut=False,isMaturedOrKnockOut=False,isCanceled=False,isLifeCycleEnded=False,isBidOnly=False,isPercentageQuotation=False),bid=16.19,ask=16.2,bidSize=8000,askSize=8000,leverage=22.67,bidDate='2026-09-30T18:06:00.282',askDate='2026-09-30T18:06:00.282'))
 
 class ProductQuoteTests(unittest.TestCase):
+    def test_verified_mini_long_model_needs_independent_non_quanto_proof(self):
+        import comdirect_fields,leverage_backup
+        data=snapshot();r=data['result']
+        r.update(productName='GOLD Mini Long',derivativeTypeName='MINI Long',derivativeTypeId=23,delta=1.)
+        r['first']['ratio']=.1
+        result=q.bnp_product_data(data,ISIN,NOW)
+        self.assertTrue(result['metadata']['simpleTurbo'])
+        self.assertFalse(result['metadata']['simpleNonQuantoTurbo'])
+        self.assertEqual(result['conditions']['type']['value'],'MINI Long')
+        source='https://www.comdirect.de/inf/zertifikate/'+ISIN
+        values=dict(type='Knock-out Turbo',direction='LONG',currency='EUR',underlying='XAU/USD',ratio=.1,quanto=False)
+        observations={k:dict(value=v,source=source,conditionVerified=True,reviewedAt=NOW.isoformat()) for k,v in values.items()}
+        fields=dict(isin=ISIN,observations=observations,source=source,inactive=False,missing=[])
+        with patch('comdirect_quotes.get_observation',return_value=dict(state='observed',fields=fields)):
+            result=comdirect_fields.apply(result,ISIN)
+        self.assertEqual(result['comdirectFieldsBackup']['conflicts'],[])
+        checked=leverage_backup.reconcile_model(result,NOW)
+        self.assertTrue(checked['metadata']['simpleNonQuantoTurbo'])
+        checked['analysisQuote']=dict(isin=ISIN,bid=19.99,ask=20,bidAt=NOW.isoformat(),askAt=NOW.isoformat(),currency='EUR',priceKind='market-observation')
+        gold=dict(price=4000,at=NOW.isoformat(),underlying='XAU/USD',source='test original')
+        fx=dict(result='success',base='USD',rates={'EUR':.9},data_updated_at=NOW.isoformat(),effective_at={'EUR':NOW.isoformat()},source='live',sources={'EUR':'live'},market_session='open')
+        with patch('spot_data.current',return_value=gold),patch('sg_quotes.market_input',return_value=fx):
+            computed=leverage_backup.apply(checked,NOW)
+        self.assertEqual(leverage_backup.current_evidence(computed,NOW)['value'],18)
+        self.assertFalse(computed['eligible'])
+        for key,value in [('derivativeTypeId',999),('delta',.5),('delta',True),('derivativeTypeName','MINI Short')]:
+            bad=__import__('copy').deepcopy(data);bad['result'][key]=value
+            self.assertNotIn('simpleTurbo',q.bnp_product_data(bad,ISIN,NOW)['metadata'])
+
     def setUp(self):
         with runtime._LOCK:
             runtime._READY.clear()
