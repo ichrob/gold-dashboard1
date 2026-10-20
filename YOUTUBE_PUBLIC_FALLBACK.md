@@ -1,0 +1,9 @@
+# Kostenloser MCO-Video-Ausweichweg
+
+YouTube bestätigte am 20.10.2026 die drei neuesten Gold-Uploads ausdrücklich als Mitgliedervideos. Diese Beschränkung wird nicht umgangen. Der bisherige Drei-Video-Ausschnitt belegte dadurch alle Analyseplätze mit unzugänglichen Inhalten und entfernte ältere noch frei lesbare Zusammenfassungen/Bilder aus dem Archiv.
+
+Bob prüft nun höchstens neun Gold-Videos aus der bestätigten MCO-Kanalliste in Dreiergruppen über öffentliche Watch-Metadaten. Explizite Mitgliedervideos werden nicht an Untertitelanbieter weitergereicht. Bis zu drei andere Videos erhalten die Analyseplätze; generische Netzwerkfehler gelten weiterhin als unbekannter Zugriff, nicht als Mitgliedschaft. Probeläufe, Untertitel, KI und Bilder behalten die bisherigen kostenlosen Limits. Bereits abgerufene Watch-Antworten werden für die Inhaltsprüfung wiederverwendet. Nur drei ausgewählte Videos behalten umfangreiche Inhalte im Archiv; Mitgliedervideos erscheinen lediglich als fehlende Upload-Metadaten im aktuellen Bericht.
+
+Die obere MCO-Einschätzung bleibt an die neuesten Uploads gebunden. Alte frei lesbare Ersatzvideos ersetzen keine unbekannte neuere Meinung. Kennzeichnung, Veröffentlichungsdatum und fehlende Mitgliedervideos sind sichtbar. Ältere Inhalte sind keine aktuelle Handelsfreigabe. Bei einem fehlgeschlagenen Kanalabruf werden die Auswahl und der unbestätigte Stand ausdrücklich beibehalten. Alte Originalzeiten werden nicht neu datiert.
+
+Tests: `test_research_public_fallback.py` deckt begrenzte Auswahl, ausschließlich explizite Mitgliedersperren, ausbleibende Provider-Versuche für gesperrte Videos, Cache-/Watch-Wiederverwendung, Metadatenarchiv und getrennte MCO-Richtung ab. Bestehende Untertitel-, KI-Beleg-, Bild-, Quoten- und Archivtests bleiben bestehen. Vor Erfolgsmeldung ist ein echter veröffentlichter Inhaltsabruf zu kontrollieren; öffentliche Metadaten allein zählen nicht als erfolgreiche Zusammenfassung.

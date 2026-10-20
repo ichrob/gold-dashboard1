@@ -181,9 +181,11 @@ def stored_details(conn):
 
 
 def research_snapshot(value):
-    return project(value,shape('checkedAt','fresh','successfulFeeds','intervalSeconds','videosFound','videosAnalyzed','mcoOutlook','mcoReason',
+    return project(value,shape('checkedAt','fresh','successfulFeeds','intervalSeconds','videosFound','videosAnalyzed','mcoOutlook','mcoReason','accessFallback',
+        restrictedUploads=[shape('title','publishedAt','transcriptAccess')],
         sources=[shape('id','status','checkedAt','scanned','relevant','error')],
-        items=[shape('title','publishedAt','outlook','current','coverage','transcriptAnalyzed','trustedTranscript','transcriptAccess','transcriptProvider','transcriptLanguage','transcriptWords','analysisStatus','error',
+        items=[shape('title','publishedAt','outlook','current','coverage','transcriptAnalyzed','trustedTranscript','transcriptAccess','transcriptProvider','transcriptLanguage','transcriptWords','analysisStatus','error','publicFallback','accessNote',
+            enhancements=shape('summaryStatus','frameStatus',frames=[shape('at','isCover','width','height')],summary=shape('kind','partial')), 
             visualAnalysis=shape('status','method','framesAnalyzed','reason'),frames=[shape('at','status','source')])]))
 
 

@@ -284,6 +284,56 @@ def enrich_publication(item, fetch=None):
     return item
 
 
+def upload_evidence(items):
+    # Newest-upload voting/disclosure needs metadata, not a second copy of
+    # transcripts, AI sections or base64 images from the analysis slots.
+    keys=('title','url','kind','channelId','publishedAt','transcriptAccess',
+          'trustedTranscript','transcriptAnalyzed','outlook')
+    return [{k:item.get(k) for k in keys} for item in items]
+
+
+def choose_research_videos(items, probe=None):
+    """Read at most nine public watch pages; never retry a membership restriction.
+
+    Keep three analysis slots. Newer restricted upload metadata is reported
+    separately and remains the basis of the newest-video direction indicator.
+    Generic network failures remain unknown, not proof of restricted access.
+    """
+    import youtube_research as y
+    probe=probe or y.read_url
+    selected=[];restricted=[];raw_pages={}
+    candidates=items[:9]
+    def inspect(item):
+        try:
+            raw=probe(item['url'])
+            try:
+                player=y.player_metadata(raw,y.video_id(item['url']))
+                y.require_mco(player['videoDetails'])
+            except y.MembersOnlyVideo:
+                return item,raw,True
+            except (ValueError,KeyError,TypeError):
+                pass
+            return item,raw,False
+        except (OSError,ValueError):return item,None,False
+    for start in range(0,len(candidates),3):
+        with ThreadPoolExecutor(max_workers=3,thread_name_prefix='bob-video-access') as pool:
+            inspected=list(pool.map(inspect,candidates[start:start+3]))
+        for item,raw,blocked in inspected:
+            if raw is not None:raw_pages[item['url']]=raw
+            if blocked:
+                item.update(transcriptAccess='members-only',transcriptAnalyzed=False,trustedTranscript=False,
+                    articleStatus='YouTube bestätigt: nur für Kanalmitglieder. Kostenloser Inhaltsabruf nicht möglich.')
+                restricted.append(item)
+            elif len(selected)<3:selected.append(item)
+        if len(selected)==3:break
+    fallback=bool(restricted and any(x not in items[:3] for x in selected))
+    if fallback:
+        for item in selected:
+            item['publicFallback']=True
+            item['accessNote']='Frei zugängliches Ersatzvideo. Neuere Mitgliedervideos fehlen; Veröffentlichungsdatum beachten.'
+    return selected or items[:3],restricted,raw_pages,fallback
+
+
 def collect(now=None, fetch=download):
     now=time.time() if now is None else now
     def one(source):
@@ -303,12 +353,12 @@ def collect(now=None, fetch=download):
         for item in items:
             if allowed_item(item):unique[item['url']]=item
     items=sorted(unique.values(),key=publication_sort_time,reverse=True)
+    latest_uploads=items[:3];restricted=[];pages={};access_fallback=False
     if fetch is download:
-        # Archive the confirmed three-video list BEFORE costly transcript/AI
-        # calls, so neither provider can recreate data for an evicted video.
-        # A failed YouTube scan does not delete the last confirmed list.
-        with ThreadPoolExecutor(max_workers=3,thread_name_prefix='bob-video-publication') as pool:
-            list(pool.map(enrich_publication,items[:3]))
+        # Probe public access before reserving the three heavy analysis slots.
+        items,restricted,pages,access_fallback=choose_research_videos(items)
+        for item in {x['url']:x for x in latest_uploads+items}.values():
+            if item['url'] in pages:enrich_publication(item,fetch=lambda url:pages[url])
         items.sort(key=publication_sort_time,reverse=True)
         if items:
             try:
@@ -323,10 +373,11 @@ def collect(now=None, fetch=download):
             list(pool.map(enrich_article,eligible))
         for item in items[:3]:
             publication={key:item[key] for key in ('publishedAt','publishedDate','publicationSource') if item.get(key) is not None}
-            youtube_research.enrich(item)
+            youtube_research.enrich(item,player_raw=pages.get(item['url']))
             item.update(publication)
     return dict(version='mco-gold-research-v3',checkedAt=now,intervalSeconds=INTERVAL,sources=sources,items=items[:3],
-        method='Nur Gold-Videos des bestätigten Kanals MCO Markets. Neue Videos werden bei geöffnetem Markt etwa alle 15 Minuten und am Wochenende alle zwei Stunden gesucht; bis zu drei Videos je Lauf werden auf abrufbare Untertitel geprüft. Kurzer Kontext aus dem tatsächlich gelesenen Transkript mit Quellenstellen. Richtungsbewertung mit Textregeln; zusätzliche KI-Zusammenfassung und gespeicherte Videovorschaubilder abhängig vom ausgewiesenen Abrufstatus. Nur grobe KI-Bildtypeinordnung von niedrig aufgelösten Vorschaubildern, keine Kursablesung; fehlender Text bleibt ungeprüft.')
+        latestUploads=upload_evidence(latest_uploads),restrictedUploads=upload_evidence(restricted),accessFallback=access_fallback,
+        method='Bis zu drei frei zugängliche Gold-Videos des bestätigten Kanals MCO Markets. Neuere Mitgliedervideos bleiben als fehlender Inhalt ausgewiesen. Neue Videos werden bei geöffnetem Markt etwa alle 15 Minuten und am Wochenende alle zwei Stunden gesucht; bis zu drei Videos je Lauf werden auf abrufbare Untertitel geprüft. Kurzer Kontext aus dem tatsächlich gelesenen Transkript mit Quellenstellen. Richtungsbewertung mit Textregeln; zusätzliche KI-Zusammenfassung und gespeicherte Videovorschaubilder abhängig vom ausgewiesenen Abrufstatus. Nur grobe KI-Bildtypeinordnung von niedrig aufgelösten Vorschaubildern, keine Kursablesung; fehlender Text bleibt ungeprüft.')
 
 
 def mco_video_direction(items, now):
@@ -390,7 +441,9 @@ def summarize(report, now=None):
         if x['current'] and (x['kind']=='Internet' or x.get('trustedTranscript')) and x['horizon']=='Intraday' and x['outlook'] in ('LONG','SHORT'):votes.setdefault(x['publisher'],set()).add(x['outlook'])
     longs=sum(v=={'LONG'} for v in votes.values());shorts=sum(v=={'SHORT'} for v in votes.values())
     consensus='LONG' if longs>=2 and not shorts and all(len(v)==1 for v in votes.values()) else 'SHORT' if shorts>=2 and not longs and all(len(v)==1 for v in votes.values()) else 'ABWARTEN'
-    mco=mco_video_direction(items, now)
+    mco=mco_video_direction(result.get('latestUploads',[] if result.get('accessFallback') else items), now)
+    if result.get('accessFallback'):
+        mco['mcoReason']+=' Frei zugängliche Ersatzvideos werden separat gezeigt und ersetzen keine Aussage der neueren Mitgliedervideos.'
     result.update(**mco)
     result.update(fresh=fresh,intervalSeconds=interval,counts=counts,consensus=consensus,independentLong=longs,independentShort=shorts,
         scanned=sum(s['scanned'] for s in result.get('sources',[])),successfulFeeds=sum(s['status']=='ok' for s in result.get('sources',[])),
@@ -443,6 +496,7 @@ def _run():
             youtube_research.retain_only(remembered['items'])
             with _lock:
                 _report=dict(checkedAt=None,sources=[],items=remembered['items'],archived=True,
+                    accessFallback=any(x.get('publicFallback') for x in remembered['items']),
                     method='Gespeicherte MCO-YouTube-Videolinks. Quelle und Veröffentlichungszeit nicht neu geprüft.')
     except Exception as exc:
         print('BOB_YOUTUBE_ARCHIVE restore_error='+type(exc).__name__,flush=True)
@@ -456,6 +510,9 @@ def _run():
                     previous=copy.deepcopy(_report)
                 if previous and previous.get('items'):
                     report['items']=previous['items']
+                    report['accessFallback']=previous.get('accessFallback',False)
+                    report['latestUploads']=previous.get('latestUploads',[])
+                    report['restrictedUploads']=previous.get('restrictedUploads',[])
                     resume_retained(report['items'])
                     report['archived']=True
                     report['method']='Aktueller Kanalabruf ohne Videoliste. Zuletzt bestätigte öffentliche YouTube-Links bleiben sichtbar, ohne aktuelle Signalfreigabe.'
