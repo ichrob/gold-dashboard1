@@ -130,6 +130,17 @@ class RealSdkContractTests(unittest.TestCase):
 
 
 class SafeDiagnosticTests(unittest.TestCase):
+    def test_http_metadata_is_bounded_and_does_not_expose_challenge_or_secrets(self):
+        import requests
+        from degiro_readonly_worker import login_response_metadata
+        response=requests.Response();response.status_code=200
+        response._content=b'<html><script src="/challenge-platform/SECRET"></script></html>'
+        data=login_response_metadata(response)
+        self.assertEqual(data,{'httpStatus':200,'responseFormat':'html','challengePage':True})
+        self.assertNotIn('SECRET',json.dumps(data))
+        self.assertIsNone(reader.safe_login_response({'httpStatus':True,'responseFormat':'html'}))
+        self.assertEqual(reader.safe_login_response({**data,'token':'SECRET'}),data)
+
     def tearDown(self):
         reader._LAST_ATTEMPT=0
         reader._LAST_RESULT=None
@@ -146,12 +157,17 @@ class SafeDiagnosticTests(unittest.TestCase):
 
     def test_last_probe_visible_without_secrets_and_cooldown_retains_it(self):
         reader._LAST_ATTEMPT=0; reader._LAST_RESULT=None
-        payload={'code':'AUTH_REQUIRED','authReason':'APP_APPROVAL_REQUIRED','inAppToken':'SECRET'}
+        metadata={'httpStatus':200,'responseFormat':'html','challengePage':True}
+        payload={'code':'AUTH_REQUIRED','authReason':'APP_APPROVAL_REQUIRED','inAppToken':'SECRET','loginResponse':{**metadata,'body':'SECRET'}}
         with patch.dict(reader.os.environ,{'BOB_DEGIRO_USERNAME':'fake','BOB_DEGIRO_PASSWORD':'SECRET'}), patch.object(reader.subprocess,'run') as launch:
             launch.return_value.stdout=json.dumps(payload); launch.return_value.returncode=0
             result=reader.probe()
             self.assertEqual(result['authReason'],'APP_APPROVAL_REQUIRED')
+            self.assertEqual(result['loginResponse'],metadata)
             self.assertEqual(reader.status()['lastTest']['authReason'],'APP_APPROVAL_REQUIRED')
+            from bob_diagnostics import broker_sync_snapshot
+            import degiro_sync
+            self.assertEqual(broker_sync_snapshot(degiro_sync.status())['lastConnectionTest']['loginResponse'],metadata)
             self.assertEqual(reader.probe()['code'],'COOLDOWN')
             self.assertEqual(reader.status()['lastTest']['code'],'AUTH_REQUIRED')
             self.assertNotIn('SECRET',json.dumps(reader.status()))
