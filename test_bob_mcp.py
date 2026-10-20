@@ -4,6 +4,33 @@ import bob_mcp
 
 
 class BobMcpTests(unittest.TestCase):
+    def test_large_diagnostics_keep_broker_status_and_mark_omissions(self):
+        import json
+        report = {'status':'observed', 'readOnly':True, 'areas':{
+            'history':{'items':['x'*300000]},
+            'degiroSync':{'status':'stale','lastSuccessAt':'2026-10-20T06:00:00Z'}}}
+        _, response = bob_mcp.handle({'jsonrpc':'2.0','id':1,'method':'tools/call',
+            'params':{'name':'bob_diagnostics'}}, lambda: self.fail('product access'), lambda: report)
+        self.assertFalse(response['result']['isError'])
+        payload=response['result']['content'][0]['text']
+        self.assertLessEqual(len(payload.encode()), bob_mcp._MAX_RESULT_BYTES)
+        result=json.loads(payload)
+        self.assertEqual(result['status'],'partial')
+        self.assertEqual(result['omittedAreas'],['history'])
+        self.assertEqual(result['areas']['degiroSync'],report['areas']['degiroSync'])
+        self.assertNotIn('truncated',report)
+
+    def test_broker_metadata_excludes_holdings_and_does_not_fake_freshness(self):
+        from bob_diagnostics import broker_sync_snapshot
+        result=broker_sync_snapshot({'code':'AUTH_REQUIRED','running':False,'fresh':False,
+            'snapshot':{'observedAt':'2026-10-20T06:00:00Z','holdings':[{'secret':'private'}]},
+            'password':'secret'})
+        self.assertEqual(result['status'],'stale')
+        self.assertEqual(result['lastSuccessAt'],'2026-10-20T06:00:00Z')
+        self.assertNotIn('snapshot',result)
+        self.assertNotIn('password',result)
+        self.assertEqual(broker_sync_snapshot({})['status'],'unavailable')
+
     def test_only_read_tools_and_no_implicit_execution(self):
         calls = []
         def reader():

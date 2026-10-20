@@ -100,6 +100,7 @@ def read_diagnostics_for_mcp():
     return bob_diagnostics.collect({
         'market':lambda:bob_diagnostics.market_snapshot(_live_cache, _live_cache_at),
         'analysis':bob_diagnostics.analysis_snapshot,
+        'degiroSync':lambda:bob_diagnostics.broker_sync_snapshot(degiro_sync.status()),
         'products':lambda:bob_diagnostics.product_snapshot(read_private_product_audit_for_mcp()),
         'runtime':lambda:{'build':os.environ.get('RENDER_GIT_COMMIT','unknown'),
             'uptimeSeconds':round(time.monotonic()-PROCESS_STARTED_MONOTONIC),
