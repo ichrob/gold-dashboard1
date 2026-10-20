@@ -69,6 +69,11 @@ function render(){
  button.disabled=!ready.length;
  status.textContent=ready.length?ready.length+' offene Fehlerarten'+(Number.isInteger(lastReport?.affectedCases)?' · '+lastReport.affectedCases+' betroffene Testfälle':'')+': X · Für die automatische KI-Prüfung hinterlegt (stündlich).'+(trying.length?' '+trying.length+' weitere Nachprüfungen laufen (X).':''):trying.length?'(X) Bob versucht die Behebung und prüft erneut.':lastReport?'Keine offenen Probleme in den zuletzt abgerufenen Testnachprüfungen.':'Testnachprüfung wird geladen; Stand noch nicht bestätigt.';
  if(Object.keys(failures).some(k=>failures[k].state==='escalated'&&!queued[k]))status.textContent+=' Technische Abrufmeldung: Übergabe noch nicht bestätigt; Bob versucht es erneut.';
+ const evidence=lastReport?.modelReview?.evidenceSummary;
+ let evidenceBox=host.querySelector('[data-gap-evidence]');
+ if(!evidenceBox){evidenceBox=node('p');evidenceBox.dataset.gapEvidence='';evidenceBox.setAttribute('role','status');host.append(evidenceBox);}
+ evidenceBox.textContent=evidence?Object.keys(evidence.labels).map(k=>evidence.labels[k]+': '+evidence.counts[k]).join(' · ')+'. Nur archivierte Signalprüfungen mit Datenlücken. Details unter Diagramme.'+(failures.repairs||Date.now()-lastReport.generatedAt>420000?' Letzter Stand; Aktualität nicht bestätigt.':''):'';
+ evidenceBox.hidden=!evidence;
  field.value=reportText(all,Date.now(),lastReport?.truncated);
 }
 function observe(key,ok,retry){
