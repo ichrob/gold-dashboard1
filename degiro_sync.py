@@ -30,6 +30,7 @@ def status():
     out.update(fresh=out['running'] and out['code'] == 'READ_OK' and age is not None and 0 <= age <= 90,
                ageSeconds=round(age, 1) if age is not None else None,
                intervalSeconds=30, liveOrdersEnabled=False, liveQuotes=False)
+    out['lastConnectionTest'] = degiro_readonly.status().get('lastTest')
     return out
 
 
@@ -49,6 +50,7 @@ def _watch(process):
                 if _PROCESS is not process:
                     break
                 _STATE['code'] = data['code']
+                _STATE['authReason'] = data.get('authReason') if data.get('authReason') in degiro_readonly.AUTH_REASONS else None
                 _LAST_MESSAGE = time.monotonic()
                 snapshot = data.get('snapshot')
                 if data['code'] == 'READ_OK' and isinstance(snapshot, dict):
@@ -106,7 +108,7 @@ def start(otp=''):
             return {**status(), 'code': 'COOLDOWN'}
         _LAST_START = time.monotonic()
         env = {k:os.environ[k] for k in ('PATH','LANG','SYSTEMROOT','PYTHONPATH','BOB_DEGIRO_USERNAME','BOB_DEGIRO_PASSWORD') if k in os.environ}
-        _STATE.update(code='STARTING', logoutConfirmed=False)
+        _STATE.update(code='STARTING', logoutConfirmed=False, authReason=None)
         _LAST_MESSAGE = time.monotonic()
         _PROCESS = subprocess.Popen([sys.executable,str(Path(__file__).with_name('degiro_readonly_worker.py'))],
             stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,env=env)
@@ -129,3 +131,4 @@ def stop():
 
 
 atexit.register(stop)
+

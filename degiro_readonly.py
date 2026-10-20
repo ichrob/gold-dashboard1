@@ -12,6 +12,10 @@ import time
 SDK_VERSION = '3.0.36'
 _LOCK = threading.Lock()
 _LAST_ATTEMPT = 0.0
+_LAST_RESULT = None
+AUTH_REASONS = frozenset({'RATE_LIMITED', 'ACCESS_DENIED', 'SERVICE_UNAVAILABLE',
+                         'INVALID_LOGIN_RESPONSE', 'CAPTCHA_REQUIRED',
+                         'TOTP_REQUIRED', 'APP_APPROVAL_REQUIRED', 'LOGIN_REJECTED'})
 
 
 def status():
@@ -23,10 +27,23 @@ def status():
     return {'mode': 'READ_ONLY', 'sdkVersion': version, 'expectedVersion': SDK_VERSION,
             'sdkReady': version == SDK_VERSION, 'credentialsConfigured': configured,
             'ready': version == SDK_VERSION and configured,
-            'brokerConnectionTested': False, 'liveOrdersEnabled': False}
+            'brokerConnectionTested': _LAST_RESULT is not None,
+            'lastTest': dict(_LAST_RESULT) if _LAST_RESULT else None,
+            'liveOrdersEnabled': False}
 
 
 def probe(otp=''):
+    global _LAST_RESULT
+    result = _probe(otp)
+    if result.get('code') not in {'BUSY', 'COOLDOWN', 'SETUP_REQUIRED'}:
+        from datetime import datetime, timezone
+        _LAST_RESULT = {'code': result['code'],
+                        'checkedAt': datetime.now(timezone.utc).isoformat(),
+                        'authReason': result.get('authReason')}
+    return result
+
+
+def _probe(otp=''):
     global _LAST_ATTEMPT
     if not isinstance(otp, str) or (otp and not re.fullmatch(r'[0-9]{6}', otp)):
         raise ValueError('Bitte einen sechsstelligen Einmalcode eingeben oder das Feld leer lassen.')
@@ -51,6 +68,7 @@ def probe(otp=''):
         if result.returncode or not isinstance(data, dict) or data.get('code') not in codes:
             raise ValueError('invalid worker result')
         return {'ok': data['code'] == 'READ_OK', 'code': data['code'],
+                'authReason': data.get('authReason') if data.get('authReason') in AUTH_REASONS else None,
                 'liveOrdersEnabled': False, 'mode': 'READ_ONLY',
                 'checkedAt': data.get('checkedAt') if isinstance(data.get('checkedAt'), str) else None,
                 'portfolioRead': data['code'] == 'READ_OK',
@@ -61,3 +79,4 @@ def probe(otp=''):
         return {'ok': False, 'code': 'SDK_ERROR', 'liveOrdersEnabled': False}
     finally:
         _LOCK.release()
+
