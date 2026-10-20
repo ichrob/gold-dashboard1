@@ -1,0 +1,81 @@
+/* Opt-in local export bridge. Data is user-provided, never a trading permission. */
+(function(root){
+'use strict';
+const TTL=600000;
+function validate(offer,store,now=Date.now()){
+ if(!offer||typeof offer.id!=='string'||!/^[a-f0-9-]{36}$/i.test(offer.id)||
+    !Number.isFinite(offer.createdAt)||offer.createdAt>now+5000||offer.createdAt<now-TTL)
+  throw Error('Export abgelaufen oder ungültig. Bitte neu exportieren.');
+ const data=offer.report;
+ if(!data||data.kind!=='portfolio'||!Array.isArray(data.invalidRows)||data.invalidRows.length)
+  throw Error('Nur vollständige, gültige Portfolioexporte werden übernommen.');
+ if(!Array.isArray(data.records)||data.records.some(r=>!r||typeof r.quantity!=='number'||
+    !Number.isFinite(r.quantity)||
+    typeof r.currency!=='string'||!/^([A-Z]{3})?$/.test(r.currency)))
+  throw Error('Ungültige Stückzahl oder Währung im Portfolioexport.');
+ if(data.accountCurrency!==null&&data.accountCurrency!==undefined&&
+    !/^([A-Z]{3})?$/.test(data.accountCurrency))throw Error('Ungültige Kontowährung.');
+ // prepare allowlists the saved fields and resets every permission to false.
+ return store.prepare({...data,sourceKind:'browser-export'},new Date(offer.createdAt).toISOString());
+}
+function mount(){
+ const doc=root.document,host=doc.getElementById('bob-view-degiro');
+ if(!host||doc.getElementById('bobBrowserBridge'))return;
+ const el=(tag,text)=>{const n=doc.createElement(tag);if(text)n.textContent=text;return n;};
+ const panel=el('section');panel.id='bobBrowserBridge';panel.className='card';
+ panel.style.cssText='padding:16px;min-width:0;max-width:100%;box-sizing:border-box;overflow-wrap:anywhere';
+ panel.append(el('h3','DEGIRO → Bob mit Firefox'));
+ panel.append(el('p','Kostenlose Export-Brücke: In Bob die Übernahme aktivieren, dann in DEGIRO Portfolio → Export → CSV wählen. Beide Seiten müssen im selben Firefox geöffnet sein.'));
+ const setup=el('details');setup.append(el('summary','Einmalig auf Android einrichten'));
+ const steps=el('ol');
+ const links=[
+  ['Firefox für Android installieren','https://www.mozilla.org/de/firefox/browsers/mobile/android/'],
+  ['Violentmonkey in Firefox installieren','https://addons.mozilla.org/de/android/addon/violentmonkey/'],
+  ['Bob-Exportscript in Firefox installieren','/bob_degiro_export.user.js']
+ ];
+ for(const [text,url]of links){const li=el('li'),a=el('a',text);a.href=url;a.target='_blank';a.rel='noopener noreferrer';li.append(a);steps.append(li);}
+ steps.append(el('li','Bob und trader.degiro.nl in Firefox öffnen. Bei DEGIRO selbst anmelden. Danach beide Seiten neu laden.'));
+ setup.append(steps,el('p','Violentmonkey verlangt weitreichende Seitenberechtigungen. Das Bob-Script ist auf diese Bob-Adresse und trader.degiro.nl begrenzt. Prüfe diese beiden Adressen im Installationsdialog.'));
+ panel.append(setup);
+ const status=el('p','Export-Helfer noch nicht erkannt. Einrichtung öffnen oder beide Seiten neu laden.');
+ status.id='bobBridgeStatus';status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+ const start=el('button','Übernahme für 10 Minuten aktivieren');start.id='bobBridgeStart';start.type='button';start.disabled=true;
+ const stop=el('button','Übernahme beenden');stop.id='bobBridgeStop';stop.type='button';stop.disabled=true;
+ for(const b of[start,stop])b.style.cssText='display:block;min-height:44px;width:100%;margin:8px 0;white-space:normal';
+ panel.append(status,start,stop,el('p','Die Momentaufnahme wird nur in diesem Firefox gespeichert. Die Bob-App in Chrome und Bobs Server erhalten diese Daten nicht. Für einen neuen Stand erneut CSV exportieren. Keine unbeaufsichtigte Synchronisation und keine Livekurse. Falls die Brücke den Download nicht erkennt, kannst du die CSV unten wie bisher auswählen.'));
+ host.prepend(panel);
+ let until=0,helper=false,timer=null;const seen=new Set();
+ const post=(type,extra={})=>root.postMessage({type,...extra},root.location.origin);
+ function end(text){until=0;clearTimeout(timer);start.disabled=!helper;stop.disabled=true;post('BOB_EXPORT_DISARM');status.textContent=text;}
+ start.addEventListener('click',()=>{
+  until=Date.now()+TTL;start.disabled=true;stop.disabled=false;
+  status.textContent='Übernahme aktiv für 10 Minuten. Jetzt in DEGIRO im selben Firefox Portfolio → Export → CSV wählen und zu Bob zurückkehren.';
+  post('BOB_EXPORT_ARM',{until});timer=setTimeout(()=>end('Übernahme abgelaufen. Bei Bedarf erneut aktivieren.'),TTL);
+ });
+ stop.addEventListener('click',()=>end('Übernahme beendet. Bereits gespeicherte Depotdaten bleiben erhalten.'));
+ root.addEventListener('message',event=>{
+  if(event.source!==root||event.origin!==root.location.origin||!event.data)return;
+  const d=event.data;
+  if(d.type==='BOB_EXPORT_HELPER_READY'){helper=true;if(!until){start.disabled=false;status.textContent='Export-Helfer erkannt. Übernahme bei Bedarf aktivieren.';}return;}
+  if(d.type!=='BOB_EXPORT_OFFER')return;
+  const reply=(ok,count=0)=>post('BOB_EXPORT_RESULT',{id:d.id,ok,count});
+  if(!until||Date.now()>=until)return;
+  if(seen.has(d.id)){reply(true);return;}
+  try{
+   const snapshot=validate(d,root.BobDegiroPortfolio);
+   root.BobDegiroPortfolio.save(root.localStorage,snapshot,snapshot.importedAt);
+   seen.add(d.id);if(seen.size>64)seen.delete(seen.values().next().value);
+   root.BobDegiroPortfolio.refresh?.();root.BobDegiroAllProducts?.rebuild?.();root.BobDegiroReport?.refresh?.();
+   status.textContent='✓ '+snapshot.records.length+' Depotprodukte aus dem Export gespeichert. Unter Produkte sichtbar. Export-Momentaufnahme, keine Live-Kontoverbindung.';
+   reply(true,snapshot.records.length);
+  }catch(_){status.textContent='Export abgelehnt oder lokales Speichern fehlgeschlagen. Bisherigen Depotstand prüfen; erneut vollständige Portfolio-CSV exportieren.';reply(false);}
+ });
+ // document-start helpers can announce before Bob's UI is mounted.
+ post('BOB_EXPORT_PROBE');
+ root.addEventListener('pagehide',()=>clearTimeout(timer));
+}
+const api={validate,mount};
+if(typeof module==='object'&&module.exports)module.exports=api;
+if(!root.document)return;
+if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',mount);else mount();
+})(typeof globalThis!=='undefined'?globalThis:this);

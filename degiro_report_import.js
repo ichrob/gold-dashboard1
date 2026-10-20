@@ -27,7 +27,7 @@ function parseRows(text){
 }
 function normalize(s){return String(s||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');}
 function getIndex(headers,aliases){const wanted=new Set(aliases.map(normalize));return headers.findIndex(x=>wanted.has(normalize(x)));}
-function readReport(text){
+function readReport(text,options={}){
  const rows=parseRows(text);let start=-1,indexes;
  for(let i=0;i<Math.min(rows.length,12);i++){
   const h=rows[i];const isin=getIndex(h,['ISIN','ISIN-Code','ISIN Code','Symbol/ISIN','Symbol / ISIN','Symbol / ISIN-Code']);
@@ -56,6 +56,7 @@ function readReport(text){
  const records=[],invalid=[],cashBalances=[];
  for(let i=start+1;i<rows.length;i++){
   const row=rows[i],isin=(row[ix.isin]||'').trim().toUpperCase();
+  if(options.strict&&row.length!==h.length){invalid.push(i+1);continue;}
   if(!isin){
    // Cash rows lack an ISIN; keep them separate from security holdings.
    if(splitCurrencyValue && /^CASH\b/i.test(String(row[ix.name]||''))){
@@ -63,8 +64,9 @@ function readReport(text){
           accountValue=accountValueHeader>=0?parseNumber(row[accountValueHeader]):null;
     if(/^[A-Z]{3}$/.test(currency)&&amount!==null){
      cashBalances.push({currency,amount,accountValue,accountCurrency});
-    }
-   }
+     if(options.strict&&accountValueHeader>=0&&String(row[accountValueHeader]||'').trim()&&accountValue===null)invalid.push(i+1);
+    }else if(options.strict)invalid.push(i+1);
+   }else if(options.strict&&row.some(Boolean))invalid.push(i+1);
    continue;
   }
   if(!validISIN(isin)){invalid.push(i+1);continue;}
@@ -154,6 +156,7 @@ function renderResults(doc,out,data,onCopy){
 }
 const api={parseRows,readReport,parseNumber,validISIN,renderResults};
 if(typeof module==='object'&&module.exports)module.exports=api;
+root.BobDegiroReport=api;
 if(!root.document)return;
 function mount(){
  const doc=root.document,host=doc.getElementById('bob-view-degiro');
@@ -226,17 +229,19 @@ function mount(){
   }catch(err){status.textContent='Löschen fehlgeschlagen: '+err.message;}
  }
  clear.addEventListener('click',reset);
- // Restore holdings after reload. Restored CSV prices remain historical.
- try{
-  const saved=root.BobDegiroPortfolio.load(root.localStorage);
-  if(saved){
-   renderResults(doc,out,saved,copyISIN);
-   clear.disabled=false;
-   status.textContent='✓ Gespeicherter DEGIRO-Depotstand: '+saved.records.length+
-    ' Produkte · eingelesen '+new Date(saved.importedAt).toLocaleString('de-CH')+
-    ' · keine Live-Kontoverbindung.';
-  }
- }catch(_){status.textContent='Lokaler Depotstand nicht erreichbar. CSV-Datei erneut auswählen.';}
+ // Shared refresh also updates the report view after a browser-bridge import.
+ function refresh(){
+  try{
+   const saved=root.BobDegiroPortfolio.load(root.localStorage);
+   if(saved){
+    renderResults(doc,out,saved,copyISIN);clear.disabled=false;
+    status.textContent='✓ Gespeicherter DEGIRO-Depotstand: '+saved.records.length+
+     ' Produkte · eingelesen '+new Date(saved.importedAt).toLocaleString('de-CH')+
+     ' · keine Live-Kontoverbindung.';
+   }
+  }catch(_){status.textContent='Lokaler Depotstand nicht erreichbar. CSV-Datei erneut auswählen.';}
+ }
+ api.refresh=refresh;refresh();
 
  async function copyISIN(isin){
   try{
