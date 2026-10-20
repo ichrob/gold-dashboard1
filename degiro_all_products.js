@@ -51,6 +51,22 @@ function quoteObservation(item,now){
    at,source:typeof q.source==='string'?q.source.slice(0,120):'Emittentenvergleich',
    fresh:age>=0&&age<=90,ageSeconds:age,researchOnly:true,degiroExecutable:false};
 }
+function auditQuote(info,now,reportStatus){
+ if(!Array.isArray(info?.sourceObservations))return null;
+ const quotes=info.sourceObservations.slice(0,30).flatMap(source=>{
+  if(!source||source.degiroExecutable===true||source.researchOnly===false)return [];
+  const quote={
+   isin:info.isin,bid:source.bid,ask:source.ask,
+   bidAt:source.bidAt,askAt:source.askAt,quoteAt:null,
+   currency:source.currency,source:source.source||source.label
+  };
+  const observed=quoteObservation({isin:info.isin,quote},now);
+  if(!observed)return [];
+  return [{...observed,fresh:observed.fresh&&reportStatus==='ok',
+   auditBased:true,degiroExecutable:false,researchOnly:true}];
+ });
+ return quotes.sort((a,b)=>Date.parse(b.at)-Date.parse(a.at))[0]||null;
+}
 function safeAudit(report){
  if(!report||!Array.isArray(report.items))return {items:[],status:'unavailable',checkedAt:null};
  const status=['ok','partial','stale'].includes(report.status)?report.status:'unavailable';
@@ -97,12 +113,14 @@ function combine(depot,watchlist,audit,visibleQuotes=[],now=Date.now()){
   x.quoteSourceAt=safeTime(info.quoteSourceAt);
   if(!x.direction&&['LONG','SHORT'].includes(info.direction))x.direction=info.direction;
   if(!x.inDepot&&!x.inWatchlist&&typeof info.name==='string')x.name=info.name.slice(0,180);
+  const observation=auditQuote(info,now,a.status);
+  if(observation&&(!x.quote||Date.parse(observation.at)>Date.parse(x.quote.at)))x.quote=observation;
  }
  if(Array.isArray(visibleQuotes)){
   for(const data of visibleQuotes){
    const x=indexed.get(data?.isin);if(!x)continue;
    const observation=quoteObservation(data,now);
-   if(observation)x.quote=observation;
+   if(observation&&(!x.quote||Date.parse(observation.at)>=Date.parse(x.quote.at)))x.quote=observation;
   }
  }
  for(const x of indexed.values()){
@@ -273,7 +291,7 @@ function mount(){
  });
  setTimeout(()=>paint(),2000);
 }
-const api={validIsin,readWatchlist,safeTime,numericPrice,quoteObservation,safeAudit,combine,summary,mount};
+const api={validIsin,readWatchlist,safeTime,numericPrice,quoteObservation,auditQuote,safeAudit,combine,summary,mount};
 if(typeof module==='object'&&module.exports)module.exports=api;
 root.BobDegiroAllProducts=api;
 if(!root.document)return;
