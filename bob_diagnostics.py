@@ -202,8 +202,10 @@ def summary(areas):
             return
         if not isinstance(value,dict):return
         state=value.get('status',value.get('state'))
-        if state in ('unavailable','stale','degraded','failed','retry','partial','wrong-basis','invalid-ohlc','recent-gap','missing','insufficient','recurred'):
+        if state in ('unavailable','stale','degraded','failed','retry','partial','wrong-basis','invalid-ohlc','recent-gap','missing','insufficient','incomplete','conflict','inconclusive','recurred'):
             findings.append({'area':path,'state':state})
+        if path.endswith('.dmi') and value.get('available') is False:
+            findings.append({'area':path,'state':'incomplete'})
         for key,item in value.items():
             if isinstance(item,(dict,list)):walk(item,path+'.'+key)
     for name,area in areas.items():walk(area,name)

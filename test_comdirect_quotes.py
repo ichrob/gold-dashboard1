@@ -243,3 +243,37 @@ class ComdirectQuoteTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class PendingRefreshTests(unittest.TestCase):
+    def test_final_read_waits_for_pending_refresh_without_duplicate_request(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event
+        from unittest.mock import Mock
+        ready = Event()
+        old = dict(state='observed', quote={'quoteAt':'original-old-time'})
+        fresh = dict(state='observed', quote={'quoteAt':'original-new-time'})
+        with patch.dict(q._CACHE, {ISIN:(0, old)}, clear=True), \
+             patch.object(q, '_PENDING', {ISIN}), patch.object(q, '_POOL', Mock()) as pool:
+            def finish():
+                ready.wait(2)
+                with q._UPDATED:
+                    q._CACHE[ISIN] = (q.time.monotonic(), fresh)
+                    q._PENDING.discard(ISIN)
+                    q._UPDATED.notify_all()
+            with ThreadPoolExecutor(max_workers=1) as worker:
+                future = worker.submit(finish)
+                ready.set()
+                result = q.get_observation(ISIN, wait_seconds=2)
+                future.result()
+            self.assertEqual(result, fresh)
+            pool.submit.assert_not_called()
+
+    def test_timeout_retains_original_evidence_without_renewing_it(self):
+        from unittest.mock import Mock
+        old = dict(state='observed', quote={'quoteAt':'original-old-time'})
+        with patch.dict(q._CACHE, {ISIN:(0, old)}, clear=True), \
+             patch.object(q, '_PENDING', {ISIN}), patch.object(q, '_POOL', Mock()) as pool:
+            result = q.get_observation(ISIN, wait_seconds=0.001)
+            self.assertEqual(result, old)
+            pool.submit.assert_not_called()
