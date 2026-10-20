@@ -6,6 +6,21 @@ from unittest.mock import patch
 import evidence_repair as repair
 
 class RepairTests(unittest.TestCase):
+    def test_late_archive_retry_reclassifies_technical_failure_without_recovery(self):
+        from unittest.mock import MagicMock
+        conn=MagicMock()
+        payload={'technicalFailure':True,'history':[{'result':'failure'}]}
+        repair.archive_attempt_state(conn,'case',payload,False,'Original fehlt weiterhin',1000)
+        stored=json.loads(conn.execute.call_args.args[1][0])
+        self.assertFalse(stored['technicalFailure'])
+        self.assertEqual(stored['reason'],'Original fehlt weiterhin')
+        self.assertNotIn('recovered',conn.execute.call_args.args[0])
+        self.assertNotIn('status',stored)
+        self.assertEqual(stored['history'],payload['history'])
+        conn.reset_mock()
+        repair.archive_attempt_state(conn,'case',payload,False,'Original fehlt weiterhin',2000)
+        conn.execute.assert_not_called()
+
     def test_archive_budget_eventually_reaches_every_unresolved_case(self):
         class Queue:
             def __init__(self):self.times={str(i).zfill(3):0 for i in range(100)};self.batch=[]

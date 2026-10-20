@@ -164,6 +164,15 @@ ACTIONS={'signal':'Archiv-Folgekurs nachladen, Ergebnis nachberechnen und verifi
          'exit':'Gespeicherte Ausstiegswege, Kurslücken und Nachweise erneut prüfen'}
 
 
+def archive_attempt_state(conn,key,payload,failed,reason,now):
+    """Keep technical status current without declaring missing history recovered."""
+    previous=payload.get('technicalFailure') is True or payload.get('reason')=='Automatische Archivprüfung technisch fehlgeschlagen; keine Reparatur bestätigt.'
+    if previous==failed:return
+    payload.update(technicalFailure=failed,reason=reason,lastAttemptAt=now)
+    conn.execute('UPDATE bob_test_repairs SET payload=%s::jsonb WHERE id=%s',
+                 (json.dumps(payload),key))
+
+
 def reconcile(conn,now):
     """A later normal backfill can resolve an escalated signal; absence cannot."""
     import decision_audit as audit
@@ -194,13 +203,15 @@ def reconcile(conn,now):
             archive_checks+=1
             try:
                 with conn.transaction():
-                    recovered,_,_=retry_signal(conn,ref)
+                    recovered,_,reason=retry_signal(conn,ref)
+                    archive_attempt_state(conn,key,payload,False,reason,now)
                     if recovered:
                         stored=conn.execute('SELECT truth FROM bob_decision_outcomes WHERE decision_id=%s AND horizon=%s',
                                            (ref['decision'],ref['horizon'])).fetchone()
                         truth=stored[0] if stored else None
             except Exception:
-                pass  # Not recovered; the next bounded archive pass can retry.
+                archive_attempt_state(conn,key,payload,True,
+                    'Automatische Archivprüfung technisch fehlgeschlagen; keine Reparatur bestätigt.',now)
         rotated.append(key)
         if record and record.get('marketEvaluable') and truth:
             rows.append((key,payload,record,truth,ref['horizon']))
