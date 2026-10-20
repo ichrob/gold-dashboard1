@@ -154,6 +154,7 @@ function renderResults(doc,out,data,onCopy){
 }
 const api={parseRows,readReport,parseNumber,validISIN,renderResults};
 if(typeof module==='object'&&module.exports)module.exports=api;
+root.BobDegiroReport=api;
 if(!root.document)return;
 function mount(){
  const doc=root.document,host=doc.getElementById('bob-view-degiro');
@@ -226,17 +227,19 @@ function mount(){
   }catch(err){status.textContent='Löschen fehlgeschlagen: '+err.message;}
  }
  clear.addEventListener('click',reset);
- // Restore holdings after reload. Restored CSV prices remain historical.
- try{
-  const saved=root.BobDegiroPortfolio.load(root.localStorage);
-  if(saved){
-   renderResults(doc,out,saved,copyISIN);
-   clear.disabled=false;
-   status.textContent='✓ Gespeicherter DEGIRO-Depotstand: '+saved.records.length+
-    ' Produkte · eingelesen '+new Date(saved.importedAt).toLocaleString('de-CH')+
-    ' · keine Live-Kontoverbindung.';
-  }
- }catch(_){status.textContent='Lokaler Depotstand nicht erreichbar. CSV-Datei erneut auswählen.';}
+ // Shared refresh also updates the report view after a browser-bridge import.
+ function refresh(){
+  try{
+   const saved=root.BobDegiroPortfolio.load(root.localStorage);
+   if(saved){
+    renderResults(doc,out,saved,copyISIN);clear.disabled=false;
+    status.textContent='✓ Gespeicherter DEGIRO-Depotstand: '+saved.records.length+
+     ' Produkte · eingelesen '+new Date(saved.importedAt).toLocaleString('de-CH')+
+     ' · keine Live-Kontoverbindung.';
+   }
+  }catch(_){status.textContent='Lokaler Depotstand nicht erreichbar. CSV-Datei erneut auswählen.';}
+ }
+ api.refresh=refresh;refresh();
 
  async function copyISIN(isin){
   try{
