@@ -59,7 +59,9 @@ const html='<!doctype html><html><head><meta name="viewport" content="width=devi
   await page.waitForFunction(()=>document.querySelector('#dgUnifiedSummary')?.textContent?.includes('12 verschiedene Produkte'));
   assert.equal(await page.locator('#dgUnifiedCards .dg-unified-card').count(),12);
   assert((await page.locator('#dgUnifiedSummary').innerText()).includes('5 im Depot-CSV'));
-  assert((await page.locator('#dgUnifiedSummary').innerText()).includes('8 in Beobachtung/Prüfbericht'));
+  const observedSummary=await page.locator('#dgUnifiedSummary').innerText();
+  console.log('Unified browser counts:',JSON.stringify(observedSummary));
+  assert(observedSummary.includes('8 in Beobachtung/Prüfbericht'),'Unexpected observation count: '+observedSummary);
   assert((await page.locator('#dgUnifiedSync').innerText()).includes('Keine DEGIRO-Konto-API'));
   assert((await page.locator('#dgUnifiedCards').innerText()).includes('Handelsfreigabe über DEGIRO: nicht bestätigt'));
   assert((await page.locator('#dgUnifiedCards').innerText()).includes('Faktorprodukt'));
