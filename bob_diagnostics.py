@@ -245,14 +245,15 @@ def bounded_report(report, max_bytes):
     simulation = areas.get('simulationAndPush')
     if isinstance(simulation, dict):
         compact = dict(simulation)
+        areas['simulationAndPush'] = compact
         removed = []
         for key in ('history', 'details'):
+            if size(result) <= max_bytes:
+                break
             if key in compact:
                 compact.pop(key)
                 removed.append(key)
-        if removed:
-            compact.update(truncated=True, omittedSections=removed)
-            areas['simulationAndPush'] = compact
+                compact.update(truncated=True, omittedSections=removed)
     result['summary'] = summary(areas)
     for name in sorted(areas, key=lambda key: size(areas[key]), reverse=True):
         if size(result) <= max_bytes:

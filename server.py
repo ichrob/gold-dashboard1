@@ -525,7 +525,7 @@ _ema_backfill_attempted = {}
 _ema_backfill_series = {}
 
 
-def _ema_history_sufficient(rows, minutes, now=None):
+def _ema_history_sufficient(rows, minutes, now=None, minimum=EMA200_WARMUP_BARS):
     """Validate a single, source-provided XAU/USD series without splicing feeds."""
     now = time.time() if now is None else now
     step = minutes * 60000
@@ -533,7 +533,7 @@ def _ema_history_sufficient(rows, minutes, now=None):
         return False
     closed = [b for b in rows if not b.get('isOpen') and
               type(b.get('openTime')) in (int, float) and b['openTime'] + step <= now * 1000]
-    if len(closed) < EMA200_WARMUP_BARS or not technical_history_fresh(closed, minutes, now):
+    if len(closed) < minimum or not technical_history_fresh(closed, minutes, now):
         return False
     if any(b.get('instrument') != 'XAU/USD' or b.get('estimated') or
            type(b.get('openTime')) not in (int, float) or b['openTime'] % step != 0 or
@@ -560,6 +560,8 @@ def _ema200_history_backfill(interval, range_value, observed):
     """
     minutes = technical_candles.MINUTES[interval]
     now = time.time()
+    fallback_minimum = (EMA200_WARMUP_BARS
+                        if technical_history_fresh(observed, minutes, now) else 100)
     with _ema_backfill_lock:
         # Warmup can wait five minutes; recovery of a stale live series cannot.
         # Keep source clocks and freshness gates unchanged.
@@ -585,7 +587,10 @@ def _ema200_history_backfill(interval, range_value, observed):
                     mark_bar_state(rows,60)
                     rows=aggregate_bars(rows,240)
                 mark_bar_state(rows, minutes)
-                if _ema_history_sufficient(rows, minutes):
+                # Preserve a usable current source even while EMA200 is still
+                # warming up. Existing indicator gates decide readiness; an
+                # older 200-bar feed must not displace a fresh 100-bar feed.
+                if _ema_history_sufficient(rows, minutes, minimum=fallback_minimum):
                     with _ema_backfill_lock:
                         _ema_backfill_series[interval] = [dict(row) for row in rows[-1000:]]
                     print(f"BOB_EMA200_BACKFILL interval={interval} completed={sum(not b['isOpen'] for b in rows)}", flush=True)
@@ -594,7 +599,7 @@ def _ema200_history_backfill(interval, range_value, observed):
     with _ema_backfill_lock:
         historical = [dict(row) for row in _ema_backfill_series.get(interval, [])]
     mark_bar_state(historical, minutes)
-    if (_ema_history_sufficient(historical, minutes)
+    if (_ema_history_sufficient(historical, minutes, minimum=fallback_minimum)
             and technical_history_latest(historical, minutes) >=
                 technical_history_latest(observed, minutes)):
         return retain_technical_history(interval, historical)
