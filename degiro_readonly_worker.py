@@ -5,11 +5,13 @@ import logging
 import os
 import re
 import sys
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urljoin
 
 
 def login_diagnostic(response):
     """Fixed reason codes only: never return response text, tokens or headers."""
+    if response.status_code in (301, 302, 303, 307, 308):
+        return 'LOGIN_REDIRECT'
     if response.status_code == 429:
         return 'RATE_LIMITED'
     if response.status_code in (403, 451):
@@ -49,8 +51,32 @@ def login_response_metadata(response):
             kind = 'other'
     challenge = any(marker in body for marker in
                     (b'cf-chl-', b'challenge-platform', b'g-recaptcha', b'hcaptcha'))
-    return {'httpStatus': response.status_code, 'responseFormat': kind,
-            'challengePage': challenge}
+    result = {'httpStatus': response.status_code, 'responseFormat': kind,
+              'challengePage': challenge}
+    if response.status_code in (301, 302, 303, 307, 308):
+        try:
+            location = response.headers.get('Location', '')
+            if not location.strip():
+                raise ValueError('Missing redirect destination')
+            target = urlsplit(urljoin('https://trader.degiro.nl/login/secure/login', location))
+            # Fixed categories only; a Location URL may contain session secrets.
+            host = target.hostname
+            result['redirectHost'] = host if host in {'trader.degiro.nl', 'trader.degiro.com', 'login.degiro.com', 'www.degiro.nl', 'www.degiro.com'} else 'other'
+            path = target.path.lower()
+            routes = {'/login':'login-page', '/login/':'login-page',
+                      '/login/secure/login':'login-api', '/login/secure/login/totp':'totp-api',
+                      '/trader/':'trader-page', '/trader':'trader-page'}
+            result['redirectRoute'] = routes.get(path, 'other')
+            for marker in ('captcha', 'challenge', 'maintenance', 'blocked', 'denied', 'error'):
+                if marker in path:
+                    result['redirectRoute'] = marker
+                    break
+            result['redirectHttps'] = target.scheme == 'https'
+            result['redirectHasQuery'] = bool(target.query or target.fragment)
+        except ValueError:
+            result['redirectHost'] = 'other'
+            result['redirectRoute'] = 'other'
+    return result
 
 
 def permitted(method, url):
