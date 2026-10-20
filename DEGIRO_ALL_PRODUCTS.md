@@ -16,6 +16,7 @@ Mehrfach vorkommende ISINs erscheinen **einmal**, mit mehreren Quellenhinweisen.
 
 - Die gemeinsame Oberfläche fragt alle ungefähr **30 Sekunden bei offener App** den vorhandenen geschützten Bob-Prüfbericht ab. Ein manueller Knopf startet dieselbe Statusprüfung.
 - Die bestehende Gold-Hebelproduktrecherche nutzt ihre **bereits vorhandenen Emittenten- und Vergleichsquellen**, soweit diese technisch erreichbar und erlaubt sind. Deren Quellenzeiten bleiben unverändert. Die neue Übersicht liest nur Bobs bereits erfasste Daten; sie startet keine zusätzlichen Emittenten- oder Brokerabrufe.
+- Aus dem Bob-Prüfbericht dürfen auch vorhandene, **datierte Geld-/Brief-Beobachtungen** als Vergleich angezeigt werden. Ein veralteter oder nur teilweise bestätigter Bericht erhält niemals eine aktuelle Kurskennzeichnung; originale Geld- und Briefzeiten sind beide erforderlich. Es bleiben Recherchebeobachtungen, keine ausführbaren DEGIRO-Quotes.
 - Ein angezeigter Geld-/Briefwert erhält nur bei gültiger Originalzeit und höchstens 90 Sekunden Alter den Zustand `zeitnahe Vergleichsbeobachtung`; danach ist er veraltet. Es gibt **keinen** automatisch bestätigten DEGIRO-Ausführungskurs.
 - Der CSV-Bestand wird **nicht automatisch aktualisiert**. Änderungen am tatsächlichen Depot (Kauf/Verkauf) erfordern weiterhin einen erneuten CSV-Export und Import.
 - Bei geschlossenem Handy-Browser gibt es keinen durch diese UI initiierten 30-Sekunden-Abruf. Die vorhandenen serverseitigen Hintergrundjobs sind davon getrennt.
