@@ -131,7 +131,8 @@ def handle(request, report_reader, diagnostics_reader=None, products=True):
     if (required_scope == DIAGNOSTICS_SCOPE and diagnostics_reader is None) or (required_scope == SCOPE and not products):
         return authorization_required(rid, required_scope, products, diagnostics_reader is not None)
     if params["name"] == "bob_diagnostics":
-        data = diagnostics_reader()
+        from bob_diagnostics import bounded_report
+        data = bounded_report(diagnostics_reader(), _MAX_RESULT_BYTES)
     else:
         report = report_reader()
         data = report if params["name"] == "bob_product_audit" else gaps(report)

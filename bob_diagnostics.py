@@ -202,3 +202,32 @@ def summary(areas):
     for name,area in areas.items():walk(area,name)
     return {'attention':findings[:40], 'assessment':'needs-attention' if findings else 'observed-only',
             'note':'No finding does not prove feature health. Source timestamps remain authoritative; report time is collection time.'}
+
+
+def broker_sync_snapshot(value):
+    """Operational session metadata only; never holdings or account identifiers."""
+    result = fields(value, ('code', 'running', 'fresh', 'ageSeconds',
+                            'intervalSeconds', 'liveOrdersEnabled', 'liveQuotes'))
+    snapshot = value.get('snapshot') if isinstance(value, dict) else None
+    result['lastSuccessAt'] = fields(snapshot, ('observedAt',)).get('observedAt')
+    result['status'] = ('fresh' if result.get('fresh') is True else
+                        'stale' if result['lastSuccessAt'] else 'unavailable')
+    return result
+
+
+def bounded_report(report, max_bytes):
+    """Omit oversized diagnostic areas explicitly, retaining small status areas."""
+    import json
+    def size(value):
+        return len(json.dumps(value, ensure_ascii=False, separators=(',', ':'), allow_nan=False).encode('utf-8'))
+    if not isinstance(report, dict) or size(report) <= max_bytes:
+        return report
+    result = dict(report)
+    areas = dict(result.get('areas') or {})
+    result.update(areas=areas, status='partial', truncated=True, omittedAreas=[])
+    for name in sorted(areas, key=lambda key: size(areas[key]), reverse=True):
+        if size(result) <= max_bytes:
+            break
+        areas[name] = {'status':'unavailable', 'reason':'omitted-response-size-limit'}
+        result['omittedAreas'].append(name)
+    return result
