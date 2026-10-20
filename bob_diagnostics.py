@@ -157,6 +157,8 @@ def stored_details(conn):
         'gapModels':gap_models,
         'decisionArchive':lambda:rows("SELECT payload FROM bob_decision_audit ORDER BY recorded_at DESC LIMIT 20",
             shape('recordedAt','barAt','priceAt','price','direction','baseDirection','shadowDirection','reason','score','ruleVersion','build','origin','marketEvaluable',
+                decisionContext=shape('version','ready','priceFresh',indicators=shape('timeframe','barAt','score','rsi','macd','signal','hist','atr','adx','ema20','ema50','ema200','bbPos'),
+                    entryTiming=shape('allowed','reason','status'),session=shape('entryAllowed','reason','phase'),dmi=shape('available','mode','direction','reason')),
                 indicators=INDICATORS,gateReasons=[None],plan=shape('kind','direction','entry','stop','target','unit','at'))),
         'tradeMonitoring':lambda:rows("SELECT jsonb_build_object('updatedAt',updated_at,'active',active,'direction',snapshot->'dir','product',snapshot->'product','state',state) FROM bob_real_trades ORDER BY updated_at DESC LIMIT 10",
             shape('updatedAt','active','direction',product=shape('isin','currency','entry'),state=STATE)),
