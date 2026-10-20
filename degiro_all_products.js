@@ -172,7 +172,7 @@ function quotePhaseMessage(phase,reportStatus){
 function mount(){
  const doc=root.document,host=doc.getElementById('bob-view-products');
  if(!host||doc.getElementById('dgCombinedProducts'))return;
- const panel=el(doc,'section','card');panel.id='dgCombinedProducts';panel.style.padding='14px';
+ const panel=el(doc,'details','card');panel.id='dgCombinedProducts';panel.style.padding='14px';
  panel.style.minWidth='0';panel.style.maxWidth='100%';panel.style.boxSizing='border-box';
  const style=el(doc,'style');style.textContent=[
  '#dgCombinedProducts{overflow-wrap:anywhere}',
@@ -191,7 +191,9 @@ function mount(){
  '#dgCombinedProducts .dg-unified-filter{max-width:100%;width:100%;padding:8px;margin:5px 0 12px}',
  '@media(min-width:900px){#dgCombinedProducts .dg-unified-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}'
  ].join('\n');panel.append(style);
- panel.append(el(doc,'h3','','Alle DEGIRO-Produkte · Depot & Beobachtung'));
+ const heading=el(doc,'summary','','Alle DEGIRO-Produkte · Depot & Beobachtung');
+ heading.style.cssText='cursor:pointer;font-weight:700;min-height:44px;display:list-item;align-content:center';
+ panel.append(heading);
  panel.append(el(doc,'p','dg-unified-subtle',
   'Gemeinsame ISIN-Übersicht aus deinem Depot-CSV, deinen gespeicherten DEGIRO-Listenbildern und Bobs privatem Prüfbericht. Kein vollständiger DEGIRO-Katalog und kein Kontozugriff.'));
  const status=el(doc,'p','dg-unified-meta','Gespeicherte Produkte werden zusammengeführt …');
@@ -227,7 +229,7 @@ function mount(){
  panel.append(more);
  panel.append(el(doc,'p','dg-unified-subtle',
   'Quellen- oder Prüfungstimestamp ersetzt niemals einen Broker-Ausführungsnachweis. CSV-Schlusskurse bleiben historische Werte. Faktorprodukte sind keine Kandidaten für Bobs Gold-Knock-out-Top-3.'));
- host.prepend(panel);
+ host.append(panel);
  let audit={status:'unavailable',items:[]},items=[],shown=0,busy=false,lastUpdate=0;
  function watchRows(){
   let saved=[];try{saved=readWatchlist(root.localStorage);}catch(_){}
