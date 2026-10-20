@@ -4054,6 +4054,12 @@ async function inject(){
  '<div id="dgConditionalOut" style="margin-top:12px" hidden></div>'+
  '<div id="dgTop3Inputs" hidden></div>' +
  '<button style="margin-top:10px;width:100%" id="dgRankBtn" hidden>🔎 Analyse erneut ausführen</button><div id="dgApprovalOut"></div>';
+ // Keep the daily list and gold products ahead of rankings and supporting tools.
+ const listPanel=b.querySelector('#dgListUploadButton').parentElement;
+ const savedProducts=b.querySelector('#dgSavedProductsSummary').parentElement;
+ const issuerPanel=b.querySelector('#dgIssuerCatalogPanel');
+ b.append(issuerPanel);
+ b.querySelector(':scope > div').after(listPanel,savedProducts);
  a.parentNode.insertBefore(b,a.nextSibling);
  mountListCorrection(b);
  const q=b.querySelector("#dgTop3Inputs");
