@@ -129,6 +129,23 @@ class EMA200HistoryWarmupTests(unittest.TestCase):
         self.assertTrue(server._ema_history_sufficient(result,240))
         self.assertIn('interval=1h',fetch.call_args.args[0])
 
+    def test_stale_minute_fallback_retries_after_30s_not_five_minutes(self):
+        now = time.time()
+        stale = candle_series(220, step=60000)
+        for row in stale:
+            row['openTime'] -= 600000
+        with patch.object(server.time, 'time', return_value=now), \
+             patch.object(server, 'fetch_json', return_value={'points': []}) as fetch:
+            self.assertEqual(server._ema200_history_backfill('1m', '5d', stale), stale)
+            with patch.object(server.time, 'time', return_value=now+29):
+                server._ema200_history_backfill('1m', '5d', stale)
+            self.assertEqual(fetch.call_count, 1)
+            with patch.object(server.time, 'time', return_value=now+30):
+                result = server._ema200_history_backfill('1m', '5d', stale)
+            self.assertEqual(fetch.call_count, 2)
+            self.assertEqual(result, stale)
+            self.assertFalse(server.technical_history_fresh(result, 1, now+30))
+
     def test_confirmed_prefix_survives_shorter_same_source_window(self):
         full=candle_series(300)
         server.retain_technical_history('1h',full)
