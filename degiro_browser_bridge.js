@@ -49,17 +49,21 @@ function mount(){
  for(const b of[start,stop])b.style.cssText='display:block;min-height:44px;width:100%;margin:8px 0;white-space:normal';
  panel.append(status,start,stop,el('p','Die Momentaufnahme wird nur in diesem Firefox gespeichert. Die Bob-App in Chrome und Bobs Server erhalten diese Daten nicht. Für einen neuen Stand erneut CSV exportieren. Keine unbeaufsichtigte Synchronisation und keine Livekurse. Falls die Brücke den Download nicht erkennt, kannst du die CSV unten wie bisher auswählen.'));
  host.prepend(panel);
+ const CONSENT='bob-export-tab-consent-v1';
  let until=0,helper=false,timer=null,probeTimer=null,ackTimer=null,confirmed=false;const seen=new Set();
+ let resumeUntil=0;
+ try{const saved=Number(root.sessionStorage.getItem(CONSENT));if(Number.isFinite(saved)&&saved>Date.now()&&saved<=Date.now()+TTL)resumeUntil=saved;else root.sessionStorage.removeItem(CONSENT);}catch(_){}
  const post=(type,extra={})=>root.postMessage({type,...extra},root.location.origin);
- function end(text){until=0;confirmed=false;clearTimeout(timer);clearTimeout(probeTimer);clearTimeout(ackTimer);start.disabled=!helper;stop.disabled=true;post('BOB_EXPORT_DISARM');status.textContent=text;}
- start.addEventListener('click',()=>{
-  until=Date.now()+TTL;confirmed=false;start.disabled=true;stop.disabled=true;
+ function end(text){try{root.sessionStorage.removeItem(CONSENT);}catch(_){}resumeUntil=0;until=0;confirmed=false;clearTimeout(timer);clearTimeout(probeTimer);clearTimeout(ackTimer);start.disabled=!helper;stop.disabled=true;post('BOB_EXPORT_DISARM');status.textContent=text;}
+ function activate(deadline){
+  until=deadline;try{root.sessionStorage.setItem(CONSENT,String(until));}catch(_){}confirmed=false;start.disabled=true;stop.disabled=true;
   status.textContent='Übernahme wird aktiviert. Bestätigung des Export-Helfers wird geprüft …';
   ackTimer=setTimeout(()=>end('Übernahme nicht bestätigt. Export-Helfer aktualisieren und Bob neu laden.'),3000);
   brokerStatus.textContent='Verbindung zum DEGIRO-Helfer wird geprüft …';
   probeTimer=setTimeout(()=>{if(brokerStatus.textContent==='Verbindung zum DEGIRO-Helfer wird geprüft …')brokerStatus.textContent='DEGIRO-Helfer nicht erreicht. DEGIRO im selben Firefox neu laden und danach Portfolio → Export → CSV wählen.';},8000);
-  post('BOB_EXPORT_ARM',{until});timer=setTimeout(()=>end('Übernahme abgelaufen. Bei Bedarf erneut aktivieren.'),TTL);
- });
+  post('BOB_EXPORT_ARM',{until});timer=setTimeout(()=>end('Übernahme abgelaufen. Bei Bedarf erneut aktivieren.'),Math.max(0,until-Date.now()));
+ }
+ start.addEventListener('click',()=>activate(Date.now()+TTL));
  stop.addEventListener('click',()=>end('Übernahme beendet. Bereits gespeicherte Depotdaten bleiben erhalten.'));
  root.addEventListener('message',event=>{
   if(event.source!==root||event.origin!==root.location.origin||!event.data)return;
@@ -67,6 +71,7 @@ function mount(){
   if(d.type==='BOB_EXPORT_HELPER_READY'){
    if(d.version!==HELPER_VERSION){helper=false;start.disabled=true;update.hidden=false;update.style.display='block';status.textContent='Export-Helfer veraltet. Über den Aktualisierungslink oben aktualisieren, dann Bob und DEGIRO neu laden.';return;}
    const first=!helper;helper=true;update.hidden=true;update.style.display='none';
+   if(!until&&resumeUntil>Date.now()){const deadline=resumeUntil;resumeUntil=0;activate(deadline);return;}
    if(!until){start.disabled=false;if(first)status.textContent='Export-Helfer '+HELPER_VERSION+' erkannt. Übernahme bei Bedarf aktivieren.';}return;
   }
   if(d.type==='BOB_EXPORT_ARMED'){
