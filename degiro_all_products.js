@@ -70,7 +70,7 @@ function auditQuote(info,now,reportStatus){
 function safeAudit(report){
  if(!report||!Array.isArray(report.items))return {items:[],status:'unavailable',checkedAt:null};
  const status=['ok','partial','stale'].includes(report.status)?report.status:'unavailable';
- const checkedAt=safeTime(report.lastCheckedAt)||safeTime(report.observedAt);
+ const checkedAt=safeTime(report.lastCheckedAt)||safeTime(report.checkedAt)||safeTime(report.observedAt);
  return {items:report.items.slice(0,MAX_ITEMS),status,checkedAt};
 }
 function combine(depot,watchlist,audit,visibleQuotes=[],now=Date.now()){
