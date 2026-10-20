@@ -3060,20 +3060,31 @@ function dmiCalc(c,p=14){
 }
 function adxCalc(c,p=14){return dmiCalc(c,p).adx??0;}
 // Shadow-only DMI: no directional score, stop changes or push events.
+// Research-only hourly session continuity for the two observed XAU feeds.
+// Both omit the 17:00 New York maintenance hour. Never fill the missing bar,
+// infer holiday closures, or accept missing hours during the trading session.
+function dmiAdjacent(a,b,step){
+ if(b.openTime-a.openTime===step)return true;
+ if(step!==3600000||b.openTime-a.openTime!==2*step||a.source!==b.source||
+    !['biquote · XAU/USD Broker/MT5','XAUS · datierte XAU/USD-Historie'].includes(a.source))return false;
+ const parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date(a.openTime+step));
+ const hour=parts.find(x=>x.type==='hour')?.value,day=parts.find(x=>x.type==='weekday')?.value;
+ return hour==='17'&&['Mon','Tue','Wed','Thu'].includes(day);
+}
 function dmiContext(bundle,now=Date.now()){
  const frames={},steps={'5m':300000,'15m':900000,'1h':3600000};
  for(const [tf,step] of Object.entries(steps)){
   let rows=(bundle?.history?.bars_by_tf?.[tf]||[]).filter(b=>!b.isOpen&&Number.isFinite(b.openTime)&&b.openTime+step<=now).sort((a,b)=>a.openTime-b.openTime).slice(-220);
-  // Restart indicator warmup after a session break or missing candle. Never
-  // bridge the gap or synthesize prices; require 31 contiguous closes again.
+  // Restart after unexplained gaps; the observed hourly maintenance pause
+  // is excluded from the research sample without synthesizing a candle.
   let start=rows.length-1;
-  while(start>0&&rows[start].openTime-rows[start-1].openTime===step)start--;
+  while(start>0&&dmiAdjacent(rows[start-1],rows[start],step))start--;
   rows=rows.slice(Math.max(0,start));
-  const valid=rows.length>=31&&now-rows.at(-1).openTime<=2*step&&rows.every((b,i)=>b.instrument==='XAU/USD'&&!b.estimated&&b.openTime%step===0&&['open','high','low','close'].every(k=>Number.isFinite(b[k])&&b[k]>0)&&b.low<=Math.min(b.open,b.close)&&b.high>=Math.max(b.open,b.close)&&(!i||b.openTime-rows[i-1].openTime===step));
+  const valid=rows.length>=31&&now-rows.at(-1).openTime<=2*step&&rows.every((b,i)=>b.instrument==='XAU/USD'&&!b.estimated&&b.openTime%step===0&&['open','high','low','close'].every(k=>Number.isFinite(b[k])&&b[k]>0)&&b.low<=Math.min(b.open,b.close)&&b.high>=Math.max(b.open,b.close)&&(!i||dmiAdjacent(rows[i-1],b,step)));
   if(!valid){frames[tf]={available:false,reason:'Geschlossene, aktuelle und lückenlose Goldkerzen fehlen'};continue;}
   const current=dmiCalc(rows),previous=dmiCalc(rows.slice(0,-1)),earlier=dmiCalc(rows.slice(0,-3));
   const gap=current.plusDI-current.minusDI,oldGap=previous.plusDI-previous.minusDI;
-  frames[tf]={...current,barAt:rows.at(-1).openTime,direction:gap>0?'LONG':gap<0?'SHORT':'NEUTRAL',gap,gapChange:gap-oldGap,dominanceChange:Math.abs(gap)-Math.abs(oldGap),adxChange:current.adx-earlier.adx,cross:gap*oldGap<0};
+  frames[tf]={...current,sessionBreaks:rows.filter((b,i)=>i&&b.openTime-rows[i-1].openTime!==step).length,barAt:rows.at(-1).openTime,direction:gap>0?'LONG':gap<0?'SHORT':'NEUTRAL',gap,gapChange:gap-oldGap,dominanceChange:Math.abs(gap)-Math.abs(oldGap),adxChange:current.adx-earlier.adx,cross:gap*oldGap<0};
  }
  const setup=frames['15m'],hour=frames['1h'];
  const available=Object.values(frames).every(x=>x.available);
