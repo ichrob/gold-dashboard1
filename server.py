@@ -255,7 +255,7 @@ ICON_PATH = BASE_DIR / "icon.svg"
 HTML = HTML_PATH.read_bytes() if HTML_PATH.exists() else b""
 HTML = HTML.replace(b"</body>", auto_collection.PANEL.encode('utf-8')+b"</body>")
 HTML = HTML.replace(b"</body>", candle_shadow.PANEL.encode('utf-8')+b"</body>")
-HTML = HTML.replace(b"</body>", b'<script src="/degiro_handoff.js"></script><script src="/degiro_portfolio_store.js"></script><script src="/degiro_report_import.js"></script></body>')
+HTML = HTML.replace(b"</body>", b'<script src="/degiro_handoff.js"></script><script src="/degiro_portfolio_store.js"></script><script src="/degiro_report_import.js"></script><script src="/degiro_all_products.js"></script></body>')
 HTML = HTML.replace(b"</body>", degiro_sandbox_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", vollautomatisch_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", trade_email_panel.PANEL.encode("utf-8")+b"</body>")
@@ -273,6 +273,7 @@ PUSH_MANAGER_JS = (BASE_DIR / "push_manager.js").read_text(encoding="utf-8")
 DEGIRO_HANDOFF_JS = (BASE_DIR / "degiro_handoff.js").read_text(encoding="utf-8")
 DEGIRO_PORTFOLIO_STORE_JS = (BASE_DIR / "degiro_portfolio_store.js").read_text(encoding="utf-8")
 DEGIRO_REPORT_IMPORT_JS = (BASE_DIR / "degiro_report_import.js").read_text(encoding="utf-8")
+DEGIRO_ALL_PRODUCTS_JS = (BASE_DIR / "degiro_all_products.js").read_text(encoding="utf-8")
 DEGIRO_ASSISTANT_JS = (BASE_DIR / "degiro_assistant.js").read_text(encoding="utf-8")
 UPSTREAM_TIMEOUT = 4
 FRESH_MAX_AGE = 180
@@ -1444,9 +1445,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        if path in ("/degiro_assistant.js", "/degiro_handoff.js", "/degiro_portfolio_store.js", "/degiro_report_import.js"):
+        if path in ("/degiro_assistant.js", "/degiro_handoff.js", "/degiro_portfolio_store.js", "/degiro_report_import.js", "/degiro_all_products.js"):
             try:
-                body = (DEGIRO_HANDOFF_JS if path == "/degiro_handoff.js" else DEGIRO_PORTFOLIO_STORE_JS if path == "/degiro_portfolio_store.js" else DEGIRO_REPORT_IMPORT_JS if path == "/degiro_report_import.js" else DEGIRO_ASSISTANT_JS).encode("utf-8")
+                body = (DEGIRO_HANDOFF_JS if path == "/degiro_handoff.js" else DEGIRO_PORTFOLIO_STORE_JS if path == "/degiro_portfolio_store.js" else DEGIRO_REPORT_IMPORT_JS if path == "/degiro_report_import.js" else DEGIRO_ALL_PRODUCTS_JS if path == "/degiro_all_products.js" else DEGIRO_ASSISTANT_JS).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/javascript; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")

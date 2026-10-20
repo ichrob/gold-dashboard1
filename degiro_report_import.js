@@ -208,12 +208,17 @@ function mount(){
  clear.type='button';
  clear.disabled=true;
  section.append(clear);
+ const goToAll=node(doc,'button','','Alle DEGIRO-Produkte in Bob ansehen');
+ goToAll.type='button';
+ goToAll.dataset.view='products';
+ section.append(goToAll);
  section.append(node(doc,'p','small','DEGIRO: Portfolio → Export → CSV. Neuer vollständiger Portfolioexport ersetzt die vorherige gespeicherte Depotliste auf diesem Gerät. Handelsfreigabe, Gold-Knock-out-Rangliste und automatische Kontosynchronisation bleiben unverändert. Der CSV-Dateiname wird nach dem Einlesen zurückgesetzt.'));
  host.append(section);
  function reset(){
   try{
    root.BobDegiroPortfolio.clear(root.localStorage);
    root.BobDegiroPortfolio.refresh();
+   root.BobDegiroAllProducts?.rebuild?.();
    input.value='';
    out.replaceChildren();
    clear.disabled=true;
@@ -256,6 +261,7 @@ function mount(){
     try{
      root.BobDegiroPortfolio.save(root.localStorage,data);
      root.BobDegiroPortfolio.refresh();
+   root.BobDegiroAllProducts?.rebuild?.();
      stored=true;
     }catch(err){warning=err.message||'Lokale Speicherung nicht verfügbar';}
    }
