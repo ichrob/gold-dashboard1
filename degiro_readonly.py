@@ -15,7 +15,7 @@ _LAST_ATTEMPT = 0.0
 _LAST_RESULT = None
 AUTH_REASONS = frozenset({'RATE_LIMITED', 'ACCESS_DENIED', 'SERVICE_UNAVAILABLE',
                          'INVALID_LOGIN_RESPONSE', 'CAPTCHA_REQUIRED',
-                         'TOTP_REQUIRED', 'APP_APPROVAL_REQUIRED', 'LOGIN_REJECTED'})
+                         'TOTP_REQUIRED', 'APP_APPROVAL_REQUIRED', 'LOGIN_REJECTED', 'LOGIN_REDIRECT'})
 
 
 def safe_login_response(value):
@@ -25,8 +25,16 @@ def safe_login_response(value):
     kind = value.get('responseFormat')
     if type(code) is not int or not 100 <= code <= 599 or kind not in {'empty', 'html', 'json', 'other'}:
         return None
-    return {'httpStatus': code, 'responseFormat': kind,
-            'challengePage': value.get('challengePage') is True}
+    result = {'httpStatus': code, 'responseFormat': kind,
+              'challengePage': value.get('challengePage') is True}
+    if code in (301, 302, 303, 307, 308):
+        host = value.get('redirectHost')
+        route = value.get('redirectRoute')
+        result.update(redirectHost=host if host in {'trader.degiro.nl', 'trader.degiro.com', 'login.degiro.com', 'www.degiro.nl', 'www.degiro.com'} else 'other',
+                      redirectRoute=route if route in {'login-page', 'login-api', 'totp-api', 'trader-page', 'captcha', 'challenge', 'maintenance', 'blocked', 'denied', 'error'} else 'other',
+                      redirectHttps=value.get('redirectHttps') is True,
+                      redirectHasQuery=value.get('redirectHasQuery') is True)
+    return result
 
 
 def status():
