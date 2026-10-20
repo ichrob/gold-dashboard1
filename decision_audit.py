@@ -78,6 +78,14 @@ def normalize(payload, now=None):
         raise ValueError('Entscheidungs-Kerzenzeit fehlt oder liegt in der Zukunft')
     # Only explicitly whitelisted evidence; never account credentials or raw images.
     result = {k: payload.get(k) for k in ('learningPolicy','baseDirection','direction','shadowDirection','trendContext','intraday','entryQuality','minuteEntry','earlyImpulse','barAt','price','priceAt','reason','score','indicators','products','selection','gateReasons','plan')}
+    warning=payload.get('earlyWarning')
+    if (isinstance(warning,dict) and warning.get('version')=='early-warning-v2'
+        and warning.get('comparisonOnly') is True and warning.get('affectsApproval') is False
+        and warning.get('state') in ('active','watch','waiting','unavailable','withdrawn','expired','paused')
+        and warning.get('direction') in ('LONG','SHORT','NEUTRAL')):
+        from bob_diagnostics import project, EARLY_WARNING
+        result['earlyWarning']=project(warning,EARLY_WARNING)
+    else:result['earlyWarning']=None
     result['decisionContext']=decision_evidence.freeze(payload.get('decisionContext'))
     plan = result.get('plan')
     if (isinstance(plan,dict) and plan.get('kind') in ('candidate','active-monitor')
@@ -141,6 +149,7 @@ def normalize(payload, now=None):
     identity['optimizationVersion']=optimization_review.VERSION
     identity['marketOptimizationVersion']=market_optimization.VERSION
     identity['entryExperimentVersion']=entry_experiment.VERSION
+    identity['earlyWarningEvidence']=(lambda q:{k:q.get(k) for k in ('version','state','direction','signalBarAt')} if q else None)(result.get('earlyWarning'))
     identity['earlyImpulseEvidence']=(lambda q:{'version':q['version'],'direction':q['direction'],'barAt':q['barAt']} if q else None)(result.get('earlyImpulse'))
     identity['minuteEntryVersion']=(result.get('minuteEntry') or {}).get('version')
     identity['entryQualityVersion']=(result.get('entryQuality') or {}).get('version')

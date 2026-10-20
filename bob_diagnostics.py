@@ -121,8 +121,9 @@ CASE = shape('status','startedAt','closedAt','lastAt','direction','modelOnly','n
 
 INDICATORS = shape('timeframe','score','rsi','macd','sig','hist','atr','adx','ema20','ema50','ema200','R','at','e20','e50','e200','trend','trend2','bbPos','bbp','momentum')
 PLAN = shape('available','reason','dir','entry','stop','target','computedAt','dataAt','currency','method','stale')
+EARLY_WARNING = shape('version','monitoring','available','state','direction','checkedAt','signalBarAt','expiresAt','invalidationPrice','extensionRisk','comparisonOnly','affectsApproval','reason')
 ANALYSIS = shape('ready','priceFresh','dataAt','analysisBarAt','price','direction','baseDirection','mtf','score','atr','macd','signal','decisionReason','ruleVersion','suggestedStop','suggestedTarget',
-    analysisSnapshot=INDICATORS, trendContext=shape('available','direction','intact','reason'),
+    earlyWarning=EARLY_WARNING, analysisSnapshot=INDICATORS, trendContext=shape('available','direction','intact','reason'),
     entryTimingGate=shape('allowed','reason','status'),session=shape('phase','entryAllowed','reason'),
     dmi=shape('available','mode','direction','reason',
         frames={tf:shape('available','adx','plusDI','minusDI','direction','reason','barAt')

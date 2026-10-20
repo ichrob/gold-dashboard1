@@ -374,7 +374,7 @@ def record_market_observation(conn, market, bundle=None):
         print('BOB_SIGNAL_CAPTURE skipped=invalid-start', flush=True)
         return False
     decision_audit.write(conn,{'ruleVersion':market.get('ruleVersion'),'origin':'background','direction':market.get('direction','NEUTRAL'),'baseDirection':market.get('baseDirection'),'learningPolicy':market.get('learningPolicy'),
-        'trendContext':market.get('trendContext'),'earlyImpulse':market.get('earlyImpulse'),'plan':market.get('plan'),'minuteEntry':market.get('minuteEntry'),'entryQuality':market.get('entryQuality'),'shadowDirection':market.get('shadowDirection'),'intraday':market.get('intraday'),'barAt':market['analysisBarAt'],
+        'trendContext':market.get('trendContext'),'earlyImpulse':market.get('earlyImpulse'),'earlyWarning':market.get('earlyWarning'),'plan':market.get('plan'),'minuteEntry':market.get('minuteEntry'),'entryQuality':market.get('entryQuality'),'shadowDirection':market.get('shadowDirection'),'intraday':market.get('intraday'),'barAt':market['analysisBarAt'],
         'price':market.get('price'),'priceAt':market.get('dataAt'),'reason':market.get('decisionReason'),
         'score':market.get('score'),'indicators':market.get('context'),
         'decisionContext':decision_evidence.capture(market), 'products':[],
@@ -483,26 +483,20 @@ def run_background(bundle):
         # Release completed maintenance and device-sync locks before evaluation or I/O.
         conn.commit()
         # One canonical observation per bundle, independent of devices or open browser.
-        if improvement_tracker.eligible(int(time.time()*1000)):
+        capture_improvement = improvement_tracker.eligible(int(time.time()*1000))
+        if capture_improvement or background_push.degiro_session() == 'trading':
             try:
                 canonical = background_push.analyze(bundle, {'timeframe':'15m','learningPolicy':learning_policy}, priority=2)
             except Exception:
                 canonical = {}
             try:
-                with conn.transaction(): improvement_tracker.capture(conn, canonical)
+                with conn.transaction():
+                    record_market_observation(conn, canonical, bundle)
+                    if capture_improvement: improvement_tracker.capture(conn, canonical)
             except Exception as exc:
                 print('BOB_IMPROVEMENT capture_error='+type(exc).__name__,flush=True)
         conn.commit()  # Research writes must not hold locks through alert delivery.
         rows = conn.execute("SELECT id, subscription, general_enabled, trade_enabled, active_trade, background_config, background_state, selection_evidence, product_selection FROM subscriptions WHERE (general_enabled=TRUE OR (trade_enabled=TRUE AND active_trade=TRUE)) AND background_config IS NOT NULL FOR UPDATE SKIP LOCKED").fetchall()
-        # Research must continue even when the app is closed and nobody has Push enabled.
-        # Only an ordinary authenticated /background bundle is used; no extra HTTP polling.
-        if not rows and background_push.degiro_session() == 'trading':
-            try:
-                shadow = background_push.analyze(bundle, {'timeframe':'15m', 'learningPolicy':learning_policy}, priority=2)
-                with conn.transaction():
-                    record_market_observation(conn, shadow, bundle)
-            except Exception as exc:
-                print('BOB_EARLY_SHADOW error='+type(exc).__name__,flush=True)
         for sid, sub, general, trade, active, settings, previous, evidence, selection in rows:
             try:
                 market = background_push.analyze(bundle, {**settings,'learningPolicy':learning_policy})
