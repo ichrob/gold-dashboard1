@@ -14,7 +14,7 @@ def version(feed):
 
 
 def preview(feed):
-    return dict(ok=True, version=version(feed), listUploadedAt=feed.get('listUploadedAt'),
+    return dict(ok=True, version=version(feed), corrected=bool(feed.get('listCorrection')), listUploadedAt=feed.get('listUploadedAt'),
         products=[{k:p.get(k) for k in ('isin','name','productDirection','direction','currency','listingVenue')}
                   for p in feed.get('products',[])])
 
