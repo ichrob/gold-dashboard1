@@ -43,7 +43,7 @@ function parseRows(text){
 }
 function normalize(s){return String(s||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');}
 function getIndex(headers,aliases){const wanted=new Set(aliases.map(normalize));return headers.findIndex(x=>wanted.has(normalize(x)));}
-function readReport(text){
+function readReport(text,options={}){
  const rows=parseRows(text);let start=-1,indexes;
  for(let i=0;i<Math.min(rows.length,12);i++){
   const h=rows[i];const isin=getIndex(h,['ISIN','ISIN-Code','ISIN Code','Symbol/ISIN','Symbol / ISIN','Symbol / ISIN-Code']);
@@ -72,6 +72,7 @@ function readReport(text){
  const records=[],invalid=[],cashBalances=[];
  for(let i=start+1;i<rows.length;i++){
   const row=rows[i],isin=(row[ix.isin]||'').trim().toUpperCase();
+  if(options.strict&&row.length!==h.length){invalid.push(i+1);continue;}
   if(!isin){
    // Cash rows lack an ISIN; keep them separate from security holdings.
    if(splitCurrencyValue && /^CASH\b/i.test(String(row[ix.name]||''))){
@@ -79,8 +80,9 @@ function readReport(text){
           accountValue=accountValueHeader>=0?parseNumber(row[accountValueHeader]):null;
     if(/^[A-Z]{3}$/.test(currency)&&amount!==null){
      cashBalances.push({currency,amount,accountValue,accountCurrency});
-    }
-   }
+     if(options.strict&&accountValueHeader>=0&&String(row[accountValueHeader]||'').trim()&&accountValue===null)invalid.push(i+1);
+    }else if(options.strict)invalid.push(i+1);
+   }else if(options.strict&&row.some(Boolean))invalid.push(i+1);
    continue;
   }
   if(!validISIN(isin)){invalid.push(i+1);continue;}
@@ -150,7 +152,7 @@ async function readExport(url){
   try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>MAX)throw Error('Export größer als 2 MB');parts.push(decoder.decode(value,{stream:true}));}parts.push(decoder.decode());text=parts.join('');}
   finally{await reader.cancel().catch(()=>{});}
  }else{text=await response.text();if(text.length>MAX)throw Error('Export größer als 2 MB');}
- const report=readReport(text);
+ const report=readReport(text,{strict:true});
  if(report.kind!=='portfolio')throw Error('Bitte Portfolio-CSV exportieren, keine Transaktionsliste.');
  if(report.invalidRows.length)throw Error('Export enthält ungültige Zeilen; bisheriger Bob-Depotstand bleibt erhalten.');
  // Validate duplicates and quantities before staging. No raw CSV/URLs/session data stored.
