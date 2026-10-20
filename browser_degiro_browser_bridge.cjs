@@ -27,7 +27,9 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
    window.GM_deleteValue=k=>{delete values[k];window.gmWrite(k,null,true);};
    window.GM_addValueChangeListener=(k,fn)=>(listeners[k]??=[]).push(fn);
    window.gmRemote=(k,v,remove)=>{const old=values[k];if(remove)delete values[k];else values[k]=v;for(const fn of listeners[k]||[])fn(k,old,v,true);};
-   (0,eval)(script);
+   // Real managers can provide a window wrapper distinct from event.source.
+   const wrapped={postMessage:window.postMessage.bind(window),addEventListener:window.addEventListener.bind(window)};
+   new Function('window','unsafeWindow',script)(wrapped,window);
   },fixtureSource('bob_degiro_export.user.js'));
   await ctx.route('https://**/*',route=>{
    const req=route.request(),u=new URL(req.url());requests.push({origin:u.origin,path:u.pathname,method:req.method()});
@@ -143,6 +145,14 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   await bob.reload();assert.equal(await bob.locator('.dg-holding').count(),1,'Saved snapshot survives reload');
   await bob.locator('#dgExportClear').click();assert.equal(await bob.locator('.dg-holding').count(),0);
   assert(requests.every(r=>[BOB,BROKER].includes(r.origin)&&r.method==='GET'),'No broker API, orders or third-party traffic');
+  // Seeing a helper is not an activation acknowledgment. Drop ARM messages to
+  // reproduce a broken script message listener and ensure Bob never claims active.
+  await bob.evaluate(()=>{window.__realPost=window.postMessage;window.postMessage=function(d,...args){if(d?.type!=='BOB_EXPORT_ARM')return window.__realPost.call(this,d,...args);};});
+  await bob.locator('#bobBridgeStart').click();
+  assert.match(await bob.locator('#bobBridgeStatus').innerText(),/wird aktiviert/);
+  await bob.waitForFunction(()=>document.querySelector('#bobBridgeStatus').textContent.includes('nicht bestätigt'));
+  assert(await bob.locator('#bobBridgeStop').isDisabled());
+  await bob.evaluate(()=>window.postMessage=window.__realPost);
   // A stale helper cannot silently keep the activation UI available.
   await bob.evaluate(()=>postMessage({type:'BOB_EXPORT_HELPER_READY',version:'1.0.0'},location.origin));
   await bob.waitForFunction(()=>document.querySelector('#bobBridgeStart').disabled);

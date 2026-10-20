@@ -23,7 +23,7 @@ function note(text){
   document.documentElement.append(el);}
  el.textContent=text;
 }
-function post(type,extra={}){window.postMessage({type,...extra},BOB);}
+function post(type,extra={}){page.postMessage({type,...extra},BOB);}
 function safeUrl(value,filename=''){
  try{
   const u=new URL(String(value),location.href);
@@ -127,12 +127,12 @@ function offer(){
  setTimeout(()=>{if(pendingId===value.id)pendingId=null;},15000);
 }
 window.addEventListener('message',event=>{
- if(event.source!==window||event.origin!==BOB||!event.data)return;
+ if((event.source!==page&&event.source!==window)||event.origin!==BOB||!event.data)return;
  const d=event.data;
  if(d.type==='BOB_EXPORT_PROBE')post('BOB_EXPORT_HELPER_READY',{version:VERSION});
  if(d.type==='BOB_EXPORT_ARM'){
   if(!Number.isFinite(d.until)||d.until<=now()||d.until>now()+TTL+5000)return;
-  GM_setValue(ARM,d.until);pendingId=null;post('BOB_EXPORT_ARMED');offer();diagnose();
+  GM_setValue(ARM,d.until);pendingId=null;post('BOB_EXPORT_ARMED',{version:VERSION});offer();diagnose();
  }
  if(d.type==='BOB_EXPORT_DISARM'){GM_deleteValue(ARM);GM_deleteValue(QUEUE);pendingId=null;}
  if(d.type==='BOB_EXPORT_RESULT'&&d.id===pendingId){

@@ -49,12 +49,13 @@ function mount(){
  for(const b of[start,stop])b.style.cssText='display:block;min-height:44px;width:100%;margin:8px 0;white-space:normal';
  panel.append(status,start,stop,el('p','Die Momentaufnahme wird nur in diesem Firefox gespeichert. Die Bob-App in Chrome und Bobs Server erhalten diese Daten nicht. Für einen neuen Stand erneut CSV exportieren. Keine unbeaufsichtigte Synchronisation und keine Livekurse. Falls die Brücke den Download nicht erkennt, kannst du die CSV unten wie bisher auswählen.'));
  host.prepend(panel);
- let until=0,helper=false,timer=null,probeTimer=null;const seen=new Set();
+ let until=0,helper=false,timer=null,probeTimer=null,ackTimer=null,confirmed=false;const seen=new Set();
  const post=(type,extra={})=>root.postMessage({type,...extra},root.location.origin);
- function end(text){until=0;clearTimeout(timer);clearTimeout(probeTimer);start.disabled=!helper;stop.disabled=true;post('BOB_EXPORT_DISARM');status.textContent=text;}
+ function end(text){until=0;confirmed=false;clearTimeout(timer);clearTimeout(probeTimer);clearTimeout(ackTimer);start.disabled=!helper;stop.disabled=true;post('BOB_EXPORT_DISARM');status.textContent=text;}
  start.addEventListener('click',()=>{
-  until=Date.now()+TTL;start.disabled=true;stop.disabled=false;
-  status.textContent='Übernahme aktiv für 10 Minuten. Jetzt in DEGIRO im selben Firefox Portfolio → Export → CSV wählen und zu Bob zurückkehren.';
+  until=Date.now()+TTL;confirmed=false;start.disabled=true;stop.disabled=true;
+  status.textContent='Übernahme wird aktiviert. Bestätigung des Export-Helfers wird geprüft …';
+  ackTimer=setTimeout(()=>end('Übernahme nicht bestätigt. Export-Helfer aktualisieren und Bob neu laden.'),3000);
   brokerStatus.textContent='Verbindung zum DEGIRO-Helfer wird geprüft …';
   probeTimer=setTimeout(()=>{if(brokerStatus.textContent==='Verbindung zum DEGIRO-Helfer wird geprüft …')brokerStatus.textContent='DEGIRO-Helfer nicht erreicht. DEGIRO im selben Firefox neu laden und danach Portfolio → Export → CSV wählen.';},8000);
   post('BOB_EXPORT_ARM',{until});timer=setTimeout(()=>end('Übernahme abgelaufen. Bei Bedarf erneut aktivieren.'),TTL);
@@ -68,6 +69,11 @@ function mount(){
    const first=!helper;helper=true;update.hidden=true;update.style.display='none';
    if(!until){start.disabled=false;if(first)status.textContent='Export-Helfer '+HELPER_VERSION+' erkannt. Übernahme bei Bedarf aktivieren.';}return;
   }
+  if(d.type==='BOB_EXPORT_ARMED'){
+   if(!until||Date.now()>=until||d.version!==HELPER_VERSION)return;
+   confirmed=true;clearTimeout(ackTimer);stop.disabled=false;
+   status.textContent='Übernahme aktiv für 10 Minuten. Jetzt in DEGIRO im selben Firefox Portfolio → Export → CSV wählen und zu Bob zurückkehren.';return;
+  }
   if(d.type==='BOB_EXPORT_BROKER_STATUS'){
    if(d.version!==HELPER_VERSION||!Number.isFinite(d.at)||d.at>Date.now()+5000||d.at<Date.now()-30000)return;
    const labels={ready:'DEGIRO-Helfer erreichbar. Jetzt im DEGIRO-Tab Portfolio → Export → CSV wählen.',reading:'DEGIRO-Export erkannt. Datei wird geprüft …',staged:'DEGIRO-Export erkannt und für Bob bereitgestellt.',error:'DEGIRO-Export erkannt, konnte aber nicht vollständig gelesen werden. Die Meldung im DEGIRO-Tab erklärt den Fehler. Der bisherige Depotstand wird dadurch nicht ersetzt.'};
@@ -75,7 +81,7 @@ function mount(){
   }
   if(d.type!=='BOB_EXPORT_OFFER')return;
   const reply=(ok,count=0)=>post('BOB_EXPORT_RESULT',{id:d.id,ok,count});
-  if(!until||Date.now()>=until)return;
+  if(!until||Date.now()>=until||!confirmed)return;
   if(seen.has(d.id)){reply(true);return;}
   try{
    const snapshot=validate(d,root.BobDegiroPortfolio);
@@ -88,7 +94,7 @@ function mount(){
  });
  // document-start helpers can announce before Bob's UI is mounted.
  post('BOB_EXPORT_PROBE');
- root.addEventListener('pagehide',()=>{clearTimeout(timer);clearTimeout(probeTimer);});
+ root.addEventListener('pagehide',()=>{clearTimeout(timer);clearTimeout(probeTimer);clearTimeout(ackTimer);});
 }
 const api={validate,mount};
 if(typeof module==='object'&&module.exports)module.exports=api;
