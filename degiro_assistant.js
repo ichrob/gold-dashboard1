@@ -3991,6 +3991,21 @@ async function refreshIssuerCandidates(){
  finally{issuerCatalogLoading=false;}
 }
 
+function mountListCorrection(host){
+ const panel=document.createElement('details');
+ panel.innerHTML='<summary>Gespeicherte Serverliste korrigieren</summary><p>Originalbilder bleiben auf dem Upload-Gerät. Der ursprüngliche Listenzeitpunkt bleibt erhalten. Angaben mit den Originalbildern vergleichen.</p><button type="button" data-list-load>Aktuelle Serverliste laden</button><p data-list-generation></p><label>Produkte: eine Zeile je ISIN; LONG/SHORT; EUR/CHF; Handelsplatz<textarea data-list-rows rows="12" style="width:100%;box-sizing:border-box" aria-label="Listenkorrektur Produkte"></textarea></label><label>Screenshot-Zeit (Zürich)<input data-list-time type="datetime-local" aria-label="Screenshot-Zeit"></label><label>Originalbild-Referenz<input data-list-reference aria-label="Originalbild-Referenz" maxlength="200"></label><label><input type="checkbox" data-list-reviewed> Angaben anhand der Originalbilder geprüft</label><button type="button" data-list-save disabled>Korrektur auf dem Server speichern</button><p role="status" data-list-status></p>';
+ host.append(panel);let current=null;
+ const field=k=>panel.querySelector('[data-list-'+k+']');
+ const call=async payload=>{const r=await fetch('/api/degiro/list-correction',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const data=await r.json();if(!r.ok||!data.ok)throw Error(data.error||'Speichern fehlgeschlagen');return data;};
+ field('load').onclick=async()=>{try{current=await call({action:'read'});field('generation').textContent='Original-Listenstand: '+current.listUploadedAt;field('rows').value=current.products.map(p=>[p.isin,p.productDirection||p.direction,p.currency||'',p.listingVenue||''].join(';')).join('\n');field('save').disabled=false;field('status').textContent=current.products.length+' Serverprodukte geladen.';}catch(e){field('status').textContent=e.message;}};
+ field('save').onclick=async()=>{field('save').disabled=true;try{
+ if(!current||!field('reviewed').checked)throw Error('Originalbilder zuerst prüfen und bestätigen.');
+ const products=field('rows').value.trim().split(/\n/).map(line=>{const [isin,direction,currency,venue,...extra]=line.split(';').map(x=>x.trim());if(extra.length)throw Error('Vier Felder je Zeile erforderlich');return {isin,direction,currency,venue};});
+ const result=await call({action:'save',version:current.version,reviewed:true,products,observedMinute:field('time').value,imageReference:field('reference').value});
+ current=result;field('status').textContent='Gespeichert: '+result.products.length+' Produkte · ursprünglicher Listenstand '+result.listUploadedAt+' bleibt erhalten. Hintergrundprüfung folgt. Keine Handelsfreigabe.';
+ }catch(e){field('status').textContent=e.message;}finally{field('save').disabled=false;}};
+}
+
 async function inject(){
  if(document.getElementById("dgTop3"))return;
  const a=document.getElementById("dgProductOut"); if(!a)return;
@@ -4013,6 +4028,7 @@ async function inject(){
  '<div id="dgTop3Inputs" hidden></div>' +
  '<button style="margin-top:10px;width:100%" id="dgRankBtn" hidden>🔎 Analyse erneut ausführen</button><div id="dgApprovalOut"></div>';
  a.parentNode.insertBefore(b,a.nextSibling);
+ mountListCorrection(b);
  const q=b.querySelector("#dgTop3Inputs");
  for(let i=1;i<=12;i++){
   const r=document.createElement("div");

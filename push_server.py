@@ -811,6 +811,16 @@ class Handler(BaseHTTPRequestHandler):
                         real_trade_journal.reconcile_sales(conn)
                     conn.commit()
                 send_json(self,200,result);return
+            if path == '/list-correction':
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'});return
+                import list_corrections
+                payload=json_body(self)
+                with db() as conn:
+                    result=list_corrections.handle(conn,payload)
+                    conn.commit()
+                send_json(self,200,result);return
             if path == '/broker-venue/write':
                 supplied = self.headers.get('X-Bob-Push-Token', '')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
