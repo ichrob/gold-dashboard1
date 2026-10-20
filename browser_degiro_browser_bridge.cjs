@@ -124,15 +124,20 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===5);
   assert.equal(await bob.locator('.dg-holding').count(),1);
   for(const width of[320,360,390]){await bob.setViewportSize({width,height:760});assert(await bob.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth+1));}
-  // Simulate a pending export while Bob's tab was unloaded. Reload requires
-  // explicit opt-in but must not consume or lose the queued snapshot.
+  // Android can unload Bob while the broker tab is in front. Restore only
+  // this tab's existing consent, without extending its original deadline.
+  const consentDeadline=await bob.evaluate(()=>Number(sessionStorage.getItem('bob-export-tab-consent-v1')));
   await bob.reload();
+  await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStop').disabled);
+  assert.equal(await bob.evaluate(()=>Number(sessionStorage.getItem('bob-export-tab-consent-v1'))),consentDeadline);
   await broker.evaluate(report=>GM_setValue('bob-export-pending-v1',{id:crypto.randomUUID(),createdAt:Date.now(),expiresAt:Date.now()+600000,report}),{kind:'portfolio',records:[{isin:'US0378331005',quantity:6,product:'Synthetic',currency:'USD'}],cashBalances:[],invalidRows:[]});
   await bob.reload();
-  await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStart').disabled);
-  assert.equal(await bob.evaluate(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity),5);
-  await bob.locator('#bobBridgeStart').click();
   await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===6);
+  assert.equal(await bob.evaluate(()=>Number(sessionStorage.getItem('bob-export-tab-consent-v1'))),consentDeadline);
+  const freshBob=await ctx.newPage();await freshBob.goto(BOB);
+  await freshBob.waitForFunction(()=>!document.querySelector('#bobBridgeStart').disabled);
+  assert(await freshBob.locator('#bobBridgeStop').isDisabled(),'New tab has no automatic consent');
+  await freshBob.close();
   // Only opted-in, exact window-origin offers can write; stale and invalid offers fail closed.
   const goodReport={kind:'portfolio',records:[{isin:'US0378331005',quantity:99,product:'bad',currency:'USD'}],cashBalances:[],invalidRows:[]};
   for(const [origin,at] of[['https://evil.test',Date.now()],[BOB,Date.now()-700000]]){
@@ -142,7 +147,9 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   await bob.locator('#bobBridgeStop').click();
   await bob.evaluate(report=>window.postMessage({type:'BOB_EXPORT_OFFER',id:crypto.randomUUID(),createdAt:Date.now(),report},location.origin),goodReport);
   await bob.waitForTimeout(80);assert.equal(await bob.evaluate(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity),6);
-  await bob.reload();assert.equal(await bob.locator('.dg-holding').count(),1,'Saved snapshot survives reload');
+  await bob.reload();await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStart').disabled);assert(await bob.locator('#bobBridgeStop').isDisabled(),'Stop persists after reload');assert.equal(await bob.locator('.dg-holding').count(),1,'Saved snapshot survives reload');
+  await bob.evaluate(()=>sessionStorage.setItem('bob-export-tab-consent-v1',String(Date.now()-1)));
+  await bob.reload();await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStart').disabled);assert(await bob.locator('#bobBridgeStop').isDisabled(),'Expired consent cannot resume');
   await bob.locator('#dgExportClear').click();assert.equal(await bob.locator('.dg-holding').count(),0);
   assert(requests.every(r=>[BOB,BROKER].includes(r.origin)&&r.method==='GET'),'No broker API, orders or third-party traffic');
   // Seeing a helper is not an activation acknowledgment. Drop ARM messages to
