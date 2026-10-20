@@ -223,7 +223,7 @@ function mount(){
   card.append(el(doc,'p','dg-unified-subtle','Handelsfreigabe über DEGIRO: nicht bestätigt.'));
   return card;
  }
- function paint(reset=true){
+ function paint(reset=false,loadMore=false){
   items=combine(depotRows(),watchRows(),audit,quoteRows(),Date.now());
   const s=summary(items,audit);
   status.textContent=s.unique+' verschiedene Produkte · '+s.depot+' im Depot-CSV · '+
@@ -235,7 +235,7 @@ function mount(){
    '. Keine DEGIRO-Konto-API und kein Live-Depotabgleich.';
   if(reset)shown=0;
   const visible=filtered();
-  const count=Math.min((reset?30:shown+30),visible.length);
+  const count=Math.min(loadMore?shown+30:Math.max(shown,30),visible.length);
   list.replaceChildren();
   for(const x of visible.slice(0,count))list.append(drawCard(x));
   shown=count;
@@ -259,9 +259,9 @@ function mount(){
    .finally(()=>{clearTimeout(timeout);busy=false;refresh.disabled=false;paint();});
  }
  refresh.addEventListener('click',()=>{paint();requestAudit();});
- filter.addEventListener('change',()=>paint());
- search.addEventListener('input',()=>paint());
- more.addEventListener('click',()=>paint(false));
+ filter.addEventListener('change',()=>paint(true));
+ search.addEventListener('input',()=>paint(true));
+ more.addEventListener('click',()=>paint(false,true));
  // Data is not transferred to DEGIRO. This uses Bob's existing private audit endpoint.
  root.BobDegiroAllProducts.rebuild=()=>paint();
  root.BobDegiroAllProducts.refresh=()=>{paint();return requestAudit();};
