@@ -118,7 +118,7 @@ function renderResults(doc,out,data,onCopy){
  const list=node(doc,'div','dg-export-list');
  for(const rec of data.records.slice(0,250)){
   const card=node(doc,'article','dg-export-card');
-  const name=node(doc,'h4','dg-export-product',rec.product||'Wertpapier ohne Bezeichnung');
+  const name=node(doc,'h4','dg-export-product',rec.product||rec.name||'Wertpapier ohne Bezeichnung');
   card.append(name);
   const identity=node(doc,'div','dg-export-identity');
   identity.append(node(doc,'span','dg-export-isin',rec.isin));
@@ -142,7 +142,7 @@ function renderResults(doc,out,data,onCopy){
    fields.append(field);
   }
   card.append(fields);
-  if(/\bfaktor\b|\bfactor\b|constant leverage/i.test(rec.product)){
+  if(/\bfaktor\b|\bfactor\b|constant leverage/i.test(rec.product||rec.name||'')){
    card.append(node(doc,'p','dg-export-factor','Faktorprodukt · kein Gold-Knock-out für Bobs Top-3-Auswahl'));
   }
   list.append(card);
@@ -185,7 +185,7 @@ function mount(){
  ].join('\n');
  section.append(style);
  section.append(node(doc,'h3','','DEGIRO · Kontodaten lesen (Export)'));
- section.append(node(doc,'p','','CSV aus DEGIRO auswählen. Die Daten werden ausschließlich auf diesem Gerät gelesen und nicht an Bobs Server übertragen.'));
+ section.append(node(doc,'p','','CSV aus DEGIRO auswählen. Dein Depotbestand wird danach in Bob auf diesem Gerät gespeichert und unter „Produkte“ angezeigt, bis du ihn löschst oder durch einen neueren Portfolioexport ersetzt. Kein Upload zu Bobs Server.'));
  const select=node(doc,'button','dg-export-pick','CSV-Datei auswählen');
  select.id='dgExportPick';
  select.type='button';
@@ -208,15 +208,31 @@ function mount(){
  clear.type='button';
  clear.disabled=true;
  section.append(clear);
- section.append(node(doc,'p','small','DEGIRO: Portfolio → Export → CSV. Historische Momentaufnahme, keine automatische Kontosynchronisierung und keine Handelsfreigabe. Der Dateiname verschwindet nach dem Einlesen aus der Auswahl.'));
+ section.append(node(doc,'p','small','DEGIRO: Portfolio → Export → CSV. Neuer vollständiger Portfolioexport ersetzt die vorherige gespeicherte Depotliste auf diesem Gerät. Handelsfreigabe, Gold-Knock-out-Rangliste und automatische Kontosynchronisation bleiben unverändert. Der CSV-Dateiname wird nach dem Einlesen zurückgesetzt.'));
  host.append(section);
  function reset(){
-  input.value='';
-  out.replaceChildren();
-  clear.disabled=true;
-  status.textContent='Keine Daten eingelesen. Du kannst eine neue CSV-Datei auswählen.';
+  try{
+   root.BobDegiroPortfolio.clear(root.localStorage);
+   root.BobDegiroPortfolio.refresh();
+   input.value='';
+   out.replaceChildren();
+   clear.disabled=true;
+   status.textContent='Gespeicherte DEGIRO-Depotprodukte gelöscht. Neue CSV-Datei auswählen.';
+  }catch(err){status.textContent='Löschen fehlgeschlagen: '+err.message;}
  }
  clear.addEventListener('click',reset);
+ // Restore holdings after reload. Restored CSV prices remain historical.
+ try{
+  const saved=root.BobDegiroPortfolio.load(root.localStorage);
+  if(saved){
+   renderResults(doc,out,saved,copyISIN);
+   clear.disabled=false;
+   status.textContent='✓ Gespeicherter DEGIRO-Depotstand: '+saved.records.length+
+    ' Produkte · eingelesen '+new Date(saved.importedAt).toLocaleString('de-CH')+
+    ' · keine Live-Kontoverbindung.';
+  }
+ }catch(_){status.textContent='Lokaler Depotstand nicht erreichbar. CSV-Datei erneut auswählen.';}
+
  async function copyISIN(isin){
   try{
    if(!root.navigator||!root.navigator.clipboard||!root.navigator.clipboard.writeText)throw Error('Clipboard unavailable');
@@ -235,11 +251,23 @@ function mount(){
   try{
    if(file.size>2_000_000)throw Error('Datei größer als 2 MB.');
    const data=readReport(await file.text());
+   let stored=false,warning='';
+   if(data.kind==='portfolio'){
+    try{
+     root.BobDegiroPortfolio.save(root.localStorage,data);
+     root.BobDegiroPortfolio.refresh();
+     stored=true;
+    }catch(err){warning=err.message||'Lokale Speicherung nicht verfügbar';}
+   }
    renderResults(doc,out,data,copyISIN);
-   status.textContent='✓ Datei eingelesen: '+data.records.length+' Wertpapierpositionen, '+
-    data.cashBalances.length+' Bargeldpositionen; '+data.invalidRows.length+
-    ' fehlerhafte Zeilen ausgelassen. Kein Live-Depotsync.';
-   clear.disabled=false;
+   status.textContent=stored?
+    '✓ '+data.records.length+' DEGIRO-Depotprodukte und '+data.cashBalances.length+
+    ' Bargeldpositionen dauerhaft in Bob auf diesem Gerät übernommen. Unter „Produkte“ sichtbar. '+
+    data.invalidRows.length+' Zeilen ausgelassen · kein Live-Depotsync.':
+    data.kind==='transactions'?
+     'Transaktionen gelesen, aber Depotbestand nicht ersetzt. Bitte den Portfolio-CSV-Export verwenden.':
+     'CSV gelesen, aber NICHT gespeichert ('+warning+'). Alte Depotliste bleibt bestehen.';
+   clear.disabled=!stored&&!root.BobDegiroPortfolio.load(root.localStorage);
   }catch(err){
    status.textContent='Import nicht möglich: '+err.message;
   }finally{
