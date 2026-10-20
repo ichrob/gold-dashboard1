@@ -17,15 +17,16 @@ const html='<!doctype html><meta name="viewport" content="width=device-width,ini
    if(remove)delete gm[key];else gm[key]=value;
    await Promise.all(ctx.pages().filter(p=>p!==page).map(p=>p.evaluate(({key,value,remove})=>window.gmRemote(key,value,remove),{key,value,remove}).catch(()=>{})));
   });
-  await ctx.addInitScript(()=>{
-   const values={},listeners={};
+  await ctx.exposeBinding('gmRead',()=>gm);
+  await ctx.addInitScript(async script=>{
+   const values=await window.gmRead(),listeners={};
    window.GM_getValue=(k,d)=>k in values?values[k]:d;
-   window.GM_setValue=(k,v)=>{values[k]=v;window.gmWrite(k,v,false);};
+   window.GM_setValue=(k,v)=>{const old=values[k];values[k]=v;for(const fn of listeners[k]||[])fn(k,old,v,false);window.gmWrite(k,v,false);};
    window.GM_deleteValue=k=>{delete values[k];window.gmWrite(k,null,true);};
    window.GM_addValueChangeListener=(k,fn)=>(listeners[k]??=[]).push(fn);
    window.gmRemote=(k,v,remove)=>{const old=values[k];if(remove)delete values[k];else values[k]=v;for(const fn of listeners[k]||[])fn(k,old,v,true);};
-  });
-  await ctx.addInitScript({content:fs.readFileSync('bob_degiro_export.user.js','utf8')});
+   (0,eval)(script);
+  },fs.readFileSync('bob_degiro_export.user.js','utf8'));
   await ctx.route('https://**/*',route=>{
    const req=route.request(),u=new URL(req.url());requests.push({origin:u.origin,path:u.pathname,method:req.method()});
    if(u.origin===BOB){if(u.pathname==='/')return route.fulfill({contentType:'text/html',body:html});
@@ -64,6 +65,8 @@ const html='<!doctype html><meta name="viewport" content="width=device-width,ini
    'Datum,ISIN,Quantity,Type\n20-10-2026,US0378331005,1,Buy',
    csv+'\nBroken,INVALID,3,0.1,EUR,0.3,0.3',
    csv+'\nDuplicate,US0378331005,3,0.1,EUR,0.3,0.3',
+   csv+'\nMissing ISIN,,3,0.1,EUR,0.3,0.3',
+   csv+'\nCASH & CASH FUND & F,,,,CHF,INVALID,INVALID',
    csv.replace(',EUR,',',BADCCY,')
   ]){
    await exportCSV(invalid);
@@ -76,15 +79,24 @@ const html='<!doctype html><meta name="viewport" content="width=device-width,ini
   await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===5);
   assert.equal(await bob.locator('.dg-holding').count(),1);
   for(const width of[320,360,390]){await bob.setViewportSize({width,height:760});assert(await bob.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth+1));}
+  // Simulate a pending export while Bob's tab was unloaded. Reload requires
+  // explicit opt-in but must not consume or lose the queued snapshot.
+  await bob.reload();
+  await broker.evaluate(report=>GM_setValue('bob-export-pending-v1',{id:crypto.randomUUID(),createdAt:Date.now(),expiresAt:Date.now()+600000,report}),{kind:'portfolio',records:[{isin:'US0378331005',quantity:6,product:'Synthetic',currency:'USD'}],cashBalances:[],invalidRows:[]});
+  await bob.reload();
+  await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStart').disabled);
+  assert.equal(await bob.evaluate(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity),5);
+  await bob.locator('#bobBridgeStart').click();
+  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===6);
   // Only opted-in, exact window-origin offers can write; stale and invalid offers fail closed.
   const goodReport={kind:'portfolio',records:[{isin:'US0378331005',quantity:99,product:'bad',currency:'USD'}],cashBalances:[],invalidRows:[]};
   for(const [origin,at] of[['https://evil.test',Date.now()],[BOB,Date.now()-700000]]){
    await bob.evaluate(({origin,at,report})=>window.dispatchEvent(new MessageEvent('message',{source:window,origin,data:{type:'BOB_EXPORT_OFFER',id:crypto.randomUUID(),createdAt:at,report}})),{origin,at,report:goodReport});
   }
-  assert.equal(await bob.evaluate(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity),5);
+  assert.equal(await bob.evaluate(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity),6);
   await bob.locator('#bobBridgeStop').click();
   await bob.evaluate(report=>window.postMessage({type:'BOB_EXPORT_OFFER',id:crypto.randomUUID(),createdAt:Date.now(),report},location.origin),goodReport);
-  await bob.waitForTimeout(80);assert.equal(await bob.evaluate(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity),5);
+  await bob.waitForTimeout(80);assert.equal(await bob.evaluate(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity),6);
   await bob.reload();assert.equal(await bob.locator('.dg-holding').count(),1,'Saved snapshot survives reload');
   await bob.locator('#dgExportClear').click();assert.equal(await bob.locator('.dg-holding').count(),0);
   assert(requests.every(r=>[BOB,BROKER].includes(r.origin)&&r.method==='GET'),'No broker API, orders or third-party traffic');
