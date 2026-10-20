@@ -284,6 +284,14 @@ def enrich_publication(item, fetch=None):
     return item
 
 
+def upload_evidence(items):
+    # Newest-upload voting/disclosure needs metadata, not a second copy of
+    # transcripts, AI sections or base64 images from the analysis slots.
+    keys=('title','url','kind','channelId','publishedAt','transcriptAccess',
+          'trustedTranscript','transcriptAnalyzed','outlook')
+    return [{k:item.get(k) for k in keys} for item in items]
+
+
 def choose_research_videos(items, probe=None):
     """Read at most nine public watch pages; never retry a membership restriction.
 
@@ -368,7 +376,7 @@ def collect(now=None, fetch=download):
             youtube_research.enrich(item,player_raw=pages.get(item['url']))
             item.update(publication)
     return dict(version='mco-gold-research-v3',checkedAt=now,intervalSeconds=INTERVAL,sources=sources,items=items[:3],
-        latestUploads=latest_uploads,restrictedUploads=restricted,accessFallback=access_fallback,
+        latestUploads=upload_evidence(latest_uploads),restrictedUploads=upload_evidence(restricted),accessFallback=access_fallback,
         method='Bis zu drei frei zugängliche Gold-Videos des bestätigten Kanals MCO Markets. Neuere Mitgliedervideos bleiben als fehlender Inhalt ausgewiesen. Neue Videos werden bei geöffnetem Markt etwa alle 15 Minuten und am Wochenende alle zwei Stunden gesucht; bis zu drei Videos je Lauf werden auf abrufbare Untertitel geprüft. Kurzer Kontext aus dem tatsächlich gelesenen Transkript mit Quellenstellen. Richtungsbewertung mit Textregeln; zusätzliche KI-Zusammenfassung und gespeicherte Videovorschaubilder abhängig vom ausgewiesenen Abrufstatus. Nur grobe KI-Bildtypeinordnung von niedrig aufgelösten Vorschaubildern, keine Kursablesung; fehlender Text bleibt ungeprüft.')
 
 

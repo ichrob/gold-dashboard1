@@ -58,3 +58,9 @@ class PublicFallbackTests(unittest.TestCase):
             result=y.analyze(item['url'],fetch=y.read_url,verified_item=item,player_raw=raw)
         self.assertTrue(result['transcriptAnalyzed']);self.assertEqual(reader.call_count,1)
         self.assertIn('/api/timedtext',reader.call_args.args[0]);provider.assert_not_called()
+
+    def test_upload_disclosure_does_not_duplicate_heavy_content(self):
+        item=dict(self.item(1),enhancements={'frames':[{'dataUrl':'heavy-base64'}]},overview={'text':'transcript'},trustedTranscript=True,transcriptAnalyzed=True,outlook='LONG')
+        rows=g.upload_evidence([item])
+        self.assertNotIn('heavy-base64',json.dumps(rows));self.assertNotIn('overview',rows[0])
+        self.assertTrue(rows[0]['trustedTranscript']);self.assertEqual(rows[0]['outlook'],'LONG')
