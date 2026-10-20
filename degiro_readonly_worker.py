@@ -8,6 +8,32 @@ import sys
 from urllib.parse import urlsplit
 
 
+def login_diagnostic(response):
+    """Fixed reason codes only: never return response text, tokens or headers."""
+    if response.status_code == 429:
+        return 'RATE_LIMITED'
+    if response.status_code in (403, 451):
+        return 'ACCESS_DENIED'
+    if response.status_code in (405, 502, 503):
+        return 'SERVICE_UNAVAILABLE'
+    try:
+        data = response.json()
+    except (ValueError, TypeError):
+        return 'INVALID_LOGIN_RESPONSE'
+    if not isinstance(data, dict):
+        return 'INVALID_LOGIN_RESPONSE'
+    if data.get('captchaRequired') is True:
+        return 'CAPTCHA_REQUIRED'
+    if type(data.get('status')) is int:
+        if data['status'] == 6:
+            return 'TOTP_REQUIRED'
+        if data['status'] == 12:
+            return 'APP_APPROVAL_REQUIRED'
+    if response.status_code == 200 and isinstance(data.get('sessionId'), str) and data['sessionId']:
+        return None
+    return 'LOGIN_REJECTED'
+
+
 def permitted(method, url):
     parsed = urlsplit(url)
     if parsed.scheme != 'https' or parsed.netloc != 'trader.degiro.nl':
@@ -30,12 +56,17 @@ def run(otp, emit=None, stop=None):
     from degiro_connector.core.models.model_session import ModelSession
     from degiro_connector.core.models.model_connection import ModelConnection
 
+    login_reason = None
+
     class ReadSession(Session):
         def send(self, request, **kwargs):
+            nonlocal login_reason
             if not permitted(request.method, request.url):
                 raise ValueError('Request outside read-only allowlist')
             kwargs.update(timeout=(5, 8), allow_redirects=False)
             response = super().send(request, **kwargs)
+            if request.method == 'POST' and urlsplit(request.url).path in ('/login/secure/login', '/login/secure/login/totp'):
+                login_reason = login_diagnostic(response)
             if response.status_code == 405:
                 raise RuntimeError('Maintenance response; no additional requests')
             return response
@@ -82,6 +113,8 @@ def run(otp, emit=None, stop=None):
     except Exception as exc:
         # Only classify authentication failures; never serialize exception text.
         result['code'] = 'AUTH_REQUIRED' if type(exc).__name__ == 'DeGiroConnectionError' else 'SDK_ERROR'
+        if login_reason:
+            result['authReason'] = login_reason
     finally:
         if connection.connected.is_set():
             try:
@@ -110,3 +143,4 @@ if __name__ == '__main__':
     except Exception:
         result = {'code': 'SDK_ERROR', 'logoutConfirmed': False}
     print(json.dumps(result))
+
