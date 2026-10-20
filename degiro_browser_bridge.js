@@ -42,7 +42,7 @@ function mount(){
  const start=el('button','Übernahme für 10 Minuten aktivieren');start.id='bobBridgeStart';start.type='button';start.disabled=true;
  const stop=el('button','Übernahme beenden');stop.id='bobBridgeStop';stop.type='button';stop.disabled=true;
  for(const b of[start,stop])b.style.cssText='display:block;min-height:44px;width:100%;margin:8px 0;white-space:normal';
- panel.append(status,start,stop,el('p','Die Momentaufnahme wird nur in diesem Firefox gespeichert. Die Bob-App in Chrome und Bobs Server erhalten diese Daten nicht. Für einen neuen Stand erneut CSV exportieren. Keine unbeaufsichtigte Synchronisation und keine Livekurse.'));
+ panel.append(status,start,stop,el('p','Die Momentaufnahme wird nur in diesem Firefox gespeichert. Die Bob-App in Chrome und Bobs Server erhalten diese Daten nicht. Für einen neuen Stand erneut CSV exportieren. Keine unbeaufsichtigte Synchronisation und keine Livekurse. Falls die Brücke den Download nicht erkennt, kannst du die CSV unten wie bisher auswählen.'));
  host.prepend(panel);
  let until=0,helper=false,timer=null;const seen=new Set();
  const post=(type,extra={})=>root.postMessage({type,...extra},root.location.origin);
