@@ -59,7 +59,7 @@ SIGNAL_WORKER_TOKEN = os.environ.get("SIGNAL_WORKER_TOKEN", "")
 
 def read_private_report_for_mcp(path):
     """Fetch the existing internal report without adding a public database port."""
-    if path not in ("/product-audit", "/diagnostics"):
+    if path not in ("/product-audit", "/diagnostics", "/candidate-proofs"):
         raise ValueError("Unknown report")
     if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
         raise RuntimeError("Private audit unavailable")
@@ -1093,7 +1093,7 @@ class Handler(BaseHTTPRequestHandler):
         # Sensitive data APIs must be authenticated before any data generation.
         # Keep static PWA resources and /health public, but never expose live,
         # MTF, or DEGIRO enrichment data without the existing Bob credentials.
-        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path in ("/api/degiro/connection-status", "/api/degiro/sync") or path == "/api/degiro/sandbox" or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates" or path == "/api/degiro/audit" or path == "/api/self-healing" or path == "/api/problems" or path == "/api/repair-statistics"
+        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path in ("/api/degiro/connection-status", "/api/degiro/sync") or path == "/api/degiro/sandbox" or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates" or path == "/api/degiro/audit" or path == "/api/degiro/candidate-proofs" or path == "/api/self-healing" or path == "/api/problems" or path == "/api/repair-statistics"
         if protected_api_path:
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
@@ -1221,6 +1221,24 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if path == "/api/degiro/candidate-proofs":
+            # Private, read-only user-uploaded DEGIRO detail observations,
+            # bounded and stored separately from holdings and trade decisions.
+            try:
+                report = read_private_report_for_mcp("/candidate-proofs")
+                body = json.dumps(report, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                status = 200
+            except (OSError, ValueError, RuntimeError, HTTPError, URLError, TimeoutError):
+                status = 503
+                body = b'{"status":"unavailable","items":[]}'
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(body)
             return
@@ -1950,15 +1968,24 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        if path in ("/api/improvement/read", "/api/research/video-evidence", "/api/ranking-learning/control", "/api/precision-learning/control", "/api/degiro/venue", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/real-trades/risk", "/api/real-trades/confirm-sale", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences") and not worker_ok and (not self.authenticated()):
+        if path in ("/api/improvement/read", "/api/research/video-evidence", "/api/ranking-learning/control", "/api/precision-learning/control", "/api/degiro/venue", "/api/degiro/candidate-proof", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/real-trades/risk", "/api/real-trades/confirm-sale", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences") and not worker_ok and (not self.authenticated()):
             self.send_response(401)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(b"Authentication required.")
             return
 
+        if path == "/api/degiro/candidate-proof":
+            # Only an authenticated user in this site's own UI can submit a
+            # candidate image observation. A worker token is insufficient.
+            if not self.authenticated():
+                bob_auth.send(self, 401)
+                return
+            if not bob_auth.same_origin(self.headers):
+                bob_auth.send(self, 403)
+                return
         path = urlparse(self.path).path
-        if path not in ("/api/improvement/read", "/api/research/video-evidence", "/api/ranking-learning/control", "/api/precision-learning/control", "/api/degiro/venue", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/real-trades/risk", "/api/real-trades/confirm-sale", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences"):
+        if path not in ("/api/improvement/read", "/api/research/video-evidence", "/api/ranking-learning/control", "/api/precision-learning/control", "/api/degiro/venue", "/api/degiro/candidate-proof", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/real-trades/risk", "/api/real-trades/confirm-sale", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences"):
             self.send_response(404)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -1984,6 +2011,7 @@ class Handler(BaseHTTPRequestHandler):
             relay_path = {
                 "/api/research/video-evidence": "/research-video/evidence",
                 "/api/degiro/venue": "/broker-venue/write",
+                "/api/degiro/candidate-proof": "/candidate-proof/write",
                 "/api/ranking-learning/control": "/ranking-learning/control",
                 "/api/precision-learning/control": "/precision-learning/control",
                 "/api/rule-learning/read": "/rule-learning/read",
