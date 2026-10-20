@@ -112,11 +112,17 @@ function mount(){
  wrapper.append(details);
  const reminder=el(doc,'p','dg-note','Nur CSV-Momentaufnahme. Nicht automatisch aktualisiert. Gold-Knock-out-Top-3 und Handelsfreigaben bleiben unabhängig.');
  wrapper.append(reminder);
+ const importButton=el(doc,'button','','Depot-CSV jetzt einlesen');
+ importButton.id='dgStoredCsvImport';
+ importButton.type='button';
+ importButton.dataset.view='degiro';
+ wrapper.append(importButton);
  productsView.prepend(wrapper);
  let current=null,shown=0;
  function render(){
   list.replaceChildren();shown=0;
   try{current=load(root.localStorage);}catch(_){current=null;}
+  importButton.hidden=!!current;
   if(!current){
    summary.textContent='Noch keine DEGIRO-Depotprodukte übernommen. Unter Mehr → DEGIRO eine Portfolio-CSV einlesen.';
    details.hidden=true;return;
