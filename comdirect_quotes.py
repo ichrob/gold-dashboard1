@@ -13,6 +13,7 @@ from public_product_terms import ORIGIN, open_public_page, plain, parse_page as 
 
 _POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix='comdirect-quotes')
 _LOCK = threading.Lock()
+_UPDATED = threading.Condition(_LOCK)
 _CACHE = {}
 _PENDING = set()
 
@@ -126,17 +127,24 @@ def _refresh(isin):
                 _CACHE.pop(next(iter(_CACHE)))
             _CACHE[isin] = (time.monotonic(), result)
             _PENDING.discard(isin)
+            _UPDATED.notify_all()
 
 
-def get_observation(isin):
-    with _LOCK:
+def get_observation(isin, wait_seconds=0):
+    # Initial calls prefetch asynchronously. At final enrichment, briefly await
+    # an already-running refresh instead of returning an expired prior result.
+    # No additional request, source re-dating or relaxed freshness threshold.
+    with _UPDATED:
         cached = _CACHE.get(isin)
-        if cached and time.monotonic()-cached[0] < 30:
+        if cached and time.monotonic()-cached[0] < 30 and isin not in _PENDING:
             return copy.deepcopy(cached[1])
         if isin not in _PENDING and len(_PENDING) < 16:
             _PENDING.add(isin)
             _POOL.submit(_refresh, isin)
-        # Retain the original timestamp while refreshing; apply rechecks age.
+        if wait_seconds > 0 and isin in _PENDING:
+            _UPDATED.wait_for(lambda: isin not in _PENDING,
+                              timeout=min(2, wait_seconds))
+            cached = _CACHE.get(isin)
         return copy.deepcopy(cached[1]) if cached else dict(state='checking')
 
 
@@ -151,7 +159,7 @@ def apply(result, isin, now=None):
         return result
     now = now or datetime.now(timezone.utc)
     out = copy.deepcopy(result)
-    evidence = get_observation(isin)
+    evidence = get_observation(isin, wait_seconds=2)
     out['comdirectQuoteBackup'] = dict(state=evidence['state'], refreshSeconds=30, reasonCode=evidence.get('reasonCode'))
     quote = evidence.get('quote')
     if not quote or not matches_primary(result, quote):
