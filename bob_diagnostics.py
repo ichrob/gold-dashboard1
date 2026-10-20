@@ -90,6 +90,7 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
         # Keep the research report independently addressable when oversized
         # operational history/details are omitted by the response budget.
         result['researchReports'] = result['details']['areas'].get('learning', {'status':'unavailable'})
+        result['gapEvidence'] = result['details']['areas'].get('gapModels', {}).get('evidenceSummary', {'status':'unavailable'})
         result['analysis'] = analysis_snapshot()
         try:
             with conn.transaction():

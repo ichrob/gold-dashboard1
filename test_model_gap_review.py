@@ -23,6 +23,31 @@ class ModelTests(unittest.TestCase):
         self.assertFalse(result['originalEvidenceComplete'])
         self.assertIsNone(result['productReturnPct'])
         self.assertFalse(record['marketEvaluable'])
+        self.assertEqual(result['stopOutcome'],'unknown')
+        self.assertEqual(result['targetOutcome'],'unknown')
+        self.assertEqual(result['koOutcome'],'unknown')
+        self.assertFalse(result['pathComplete'])
+
+class EvidenceSummaryTests(unittest.TestCase):
+    def test_disjoint_states_and_later_original_precedence(self):
+        from unittest.mock import Mock
+        conn=Mock()
+        conn.execute.return_value.fetchall.return_value=[
+            ('recovered','modelled',3),('recovered',None,2),
+            ('escalated','modelled',4),('escalated','unavailable',5),
+            ('trying',None,6)]
+        summary=model.evidence_summary(conn)
+        self.assertEqual(summary['counts'],dict(original=5,estimated=4,unavailable=5,pending=6))
+        self.assertEqual(summary['total'],20)
+        self.assertIn("r.kind='signal'",conn.execute.call_args.args[0])
+        self.assertTrue(conn.execute.call_args.args[0].startswith('SELECT'))
+    def test_long_or_one_sided_gap_stays_unavailable(self):
+        at=1700000000000
+        start=model.interpolate(at,[(at,2000)])
+        end=model.interpolate(at+900000,[(at+600000,2010)])
+        result=model.estimate({'direction':'LONG'},15,start,end,at+1000000)
+        self.assertEqual(result['status'],'unavailable')
+        self.assertNotIn('goldMovePct',result)
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'PostgreSQL CI')
 class StorageTests(unittest.TestCase):

@@ -42,7 +42,8 @@ def estimate(record,horizon,start,end,now):
         direction=direction,start=start,end=end,goldMovePct=move,
         directionalMovePct=move if direction=='LONG' else -move if direction=='SHORT' else None,
         retrospectivelyCalculated=True,originalEvidenceComplete=False,usedForLearning=False,
-        productReturnPct=None,actualExecution=False,note=NOTE)
+        productReturnPct=None,actualExecution=False,stopOutcome='unknown',
+        targetOutcome='unknown',koOutcome='unknown',pathComplete=False,note=NOTE)
 
 
 def init(conn):
@@ -99,8 +100,31 @@ def tick(conn,now):
     conn.execute('DELETE FROM bob_gap_models m WHERE NOT EXISTS(SELECT 1 FROM bob_test_repairs r WHERE r.id=m.id)')
 
 
+def evidence_state(original_status, model_status):
+    # A later verified original supersedes the retrospective model in the tally.
+    if original_status == 'recovered':return 'original'
+    if model_status == 'modelled':return 'estimated'
+    if model_status == 'unavailable':return 'unavailable'
+    return 'pending'
+
+
+def evidence_summary(conn):
+    rows=conn.execute("""SELECT r.status,m.payload->>'status',count(*)
+        FROM bob_test_repairs r LEFT JOIN bob_gap_models m ON m.id=r.id
+        WHERE r.kind='signal' GROUP BY 1,2""").fetchall()
+    counts=dict(original=0,estimated=0,unavailable=0,pending=0)
+    for original,model,count in rows:
+        counts[evidence_state(original,model)]+=int(count)
+    return dict(counts=counts,total=sum(counts.values()),
+        scope='signal-repair-archive-only',
+        note='Nur Signalprüfungen mit erfasster Datenlücke, je Zeithorizont ein Fall. '
+             'Keine Gesamtbilanz aller Simulationen. Schätzungen zählen nicht als Originalreparatur.',
+        labels=dict(original='Mit Originaldaten bestätigt',estimated='Mit Schätzdaten ausgewertet',
+                    unavailable='Nicht auswertbar',pending='Nachprüfung ausstehend'))
+
+
 def report(conn):
     counts=dict(conn.execute("SELECT payload->>'status',count(*) FROM bob_gap_models GROUP BY 1").fetchall())
     rows=conn.execute("SELECT payload FROM bob_gap_models WHERE payload->>'status'='modelled' ORDER BY checked_at DESC LIMIT 20").fetchall()
-    return dict(version=VERSION,counts=counts,items=[r[0] for r in rows],limit=20,note=NOTE,
+    return dict(version=VERSION,counts=counts,evidenceSummary=evidence_summary(conn),items=[r[0] for r in rows],limit=20,note=NOTE,
                 maxGapSeconds=MAX_GAP//1000,originalEvidenceUnchanged=True)

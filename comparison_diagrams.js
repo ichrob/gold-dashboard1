@@ -290,6 +290,13 @@ function drawMissingTests(box,stale){
  const models=repairReport?.modelReview;
  if(models){
   section.append(node('h4','Berechnete Ergänzung der Datenlücken'));
+  const evidence=models.evidenceSummary;
+  if(evidence){
+   section.append(node('p',stale?'Datenlücken · letzter Stand, derzeit nicht aktuell bestätigt':'Datenlücken · getrennte Auswertung'));
+   for(const key of ['original','estimated','unavailable','pending'])section.append(node('p',evidence.labels[key]+': '+evidence.counts[key]));
+   section.append(node('p',evidence.note));
+  }
+  section.append(node('p','Schätzungen ergänzen nur den nachträglichen Start-/Endkursvergleich. Stopp, Ziel und KO bleiben bei lückenhaftem Verlauf ungeklärt. Sie verändern keine bestätigte Lernstatistik.'));
   section.append(node('p',(models.counts?.modelled||0)+' getrennte Modellauswertungen · '+(models.counts?.unavailable||0)+' ohne ausreichende historische Stützpunkte. '+models.note));
   const details=node('details');details.append(node('summary','Modellergebnisse und Berechnungsgrundlage'));
   for(const m of models.items||[]){
