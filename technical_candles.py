@@ -47,7 +47,7 @@ def fetch(interval, fetch_json):
         now = time.time()
         saved = _cache.get(interval)
         near_15m_close = interval == '15m' and 0 <= now % 900 < 90
-        cache_seconds = 30 if interval == '1m' or near_15m_close else 60
+        cache_seconds = 30 if interval in ('1m', '5m') or near_15m_close else 60
         if saved and now-saved[0] < cache_seconds:
             return [dict(b) for b in saved[1]]
         rows = saved[1] if saved else []

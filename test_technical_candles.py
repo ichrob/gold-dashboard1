@@ -60,6 +60,15 @@ class CandleTests(unittest.TestCase):
             self.assertEqual(fetch.call_count,2)
             self.assertEqual(first,second)
 
+    def test_five_minute_refreshes_after_thirty_seconds(self):
+        with patch.dict(tc._cache,{},clear=True),patch.object(tc.time,'time',return_value=self.now),patch.object(server,'fetch_json',return_value=self.payload()) as fetch:
+            first=tc.fetch('5m',fetch)
+            with patch.object(tc.time,'time',return_value=self.now+29):tc.fetch('5m',fetch)
+            self.assertEqual(fetch.call_count,1)
+            with patch.object(tc.time,'time',return_value=self.now+30):second=tc.fetch('5m',fetch)
+            self.assertEqual(fetch.call_count,2)
+            self.assertEqual(first,second)
+
     def test_15m_boundary_poll_at_most_every_30s_without_fake_close(self):
         p = self.payload()
         p['interval'] = '15m'
