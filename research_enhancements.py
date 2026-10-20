@@ -472,7 +472,7 @@ def handle(connect, payload):
     with connect() as conn:
         import youtube_feed_archive
         if not youtube_feed_archive.is_retained(conn, identity):
-            return {'summaryStatus': 'Video außerhalb der drei neuesten MCO-Gold-Videos; keine Speicherung.',
+            return {'summaryStatus': 'Video außerhalb der drei ausgewählten frei zugänglichen MCO-Gold-Videos; keine Speicherung.',
                     'frames': [], 'frameStatus': 'Kein Videobild für bereits entfernte Videos gespeichert.'}
         conn.execute('SELECT pg_advisory_xact_lock(68431030)')
         row = conn.execute("""SELECT fingerprint,summary,frames,

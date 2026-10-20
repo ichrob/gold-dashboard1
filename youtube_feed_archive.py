@@ -56,6 +56,8 @@ def sanitize(items):
                 publishedRelative=relative[:90] if isinstance(relative,str) else '',
                 publishedRelativeObservedAt=entry.get('publishedRelativeObservedAt') if isinstance(entry.get('publishedRelativeObservedAt'),(float,int)) else None,
                 listingInfo=str(entry.get('listingInfo') or '')[:160],
+                publicFallback=entry.get('publicFallback') is True,
+                accessNote=str(entry.get('accessNote') or '')[:200],
                 checkedAt=entry.get('checkedAt') if isinstance(entry.get('checkedAt'),(float,int)) else None,
                 current=False,excerpt='',coverage='Gespeicherte öffentliche Videometadaten; Inhalt nicht erneut geprüft',
                 trend='UNKLAR',outlook='UNKLAR',horizon='unbekannt',

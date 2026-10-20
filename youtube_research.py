@@ -305,7 +305,7 @@ def listed_metadata(identity):
                              'title': item['title'], 'author': 'MCO Markets'}}
 
 
-def analyze(url, fetch=read_url, *, verified_item=None):
+def analyze(url, fetch=read_url, *, verified_item=None, player_raw=None):
     identity=video_id(url);now=time.time()
     with _lock:
         saved=_cache.get(identity)
@@ -315,7 +315,7 @@ def analyze(url, fetch=read_url, *, verified_item=None):
     if not _busy.acquire(blocking=False):raise ValueError('YouTube-Prüfung läuft bereits; bitte später erneut versuchen')
     try:
         try:
-            p=player_metadata(fetch('https://www.youtube.com/watch?v='+identity),identity)
+            p=player_metadata(player_raw if player_raw is not None else fetch('https://www.youtube.com/watch?v='+identity),identity)
         except MembersOnlyVideo:
             raise
         except (ValueError, OSError):
@@ -393,9 +393,9 @@ def analyze(url, fetch=read_url, *, verified_item=None):
     finally:_busy.release()
 
 
-def enrich(item):
+def enrich(item, *, player_raw=None):
     try:
-        result=analyze(item['url'],verified_item=item)
+        result=analyze(item['url'],verified_item=item,player_raw=player_raw)
         expected='UCsl6Z6p7GOkczo8Cv-GH6Dg'
         if expected and result.get('channelId')!=expected:raise ValueError('Kanalzuordnung nicht bestätigt')
         # Preserve publication timestamp from Atom, never substitute retrieval date.
@@ -414,7 +414,7 @@ def manual(payload):
     identity=video_id(payload.get('url'));url='https://www.youtube.com/watch?v='+identity
     with _lock:
         if _retained_video_ids and identity not in _retained_video_ids:
-            raise ValueError('Bob speichert ausschließlich die drei neuesten MCO-Gold-Videos. Dieses Video gehört nicht dazu.')
+            raise ValueError('Bob speichert ausschließlich die drei ausgewählten frei zugänglichen MCO-Gold-Videos. Dieses Video gehört nicht dazu.')
     transcript=payload.get('transcript','')
     if not isinstance(transcript,str) or len(transcript)>200000:raise ValueError('Transkript zu groß oder ungültig')
     if transcript.strip():
