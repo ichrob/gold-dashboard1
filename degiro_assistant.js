@@ -3991,6 +3991,33 @@ async function refreshIssuerCandidates(){
  finally{issuerCatalogLoading=false;}
 }
 
+async function restoreServerCorrection(){
+ const original=listArchive,revision=listRevision;
+ if(!original?.storedAt)return;
+ try{
+  const response=await fetch('/api/degiro/list-correction',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'read'})});
+  if(!response.ok)return;
+  const data=await response.json();
+  if(!data.ok||!data.corrected||data.listUploadedAt!==original.storedAt||listArchive!==original||revision!==listRevision)return;
+  if(original.correctionVersion===data.version)return;
+  const existing=loadIdentities();
+  const items=data.products.map(p=>{
+   const direction=p.productDirection||p.direction;
+   const prior=existing.find(x=>x.isin===p.isin&&x.direction===direction);
+   return cleanStoredProduct({...prior,isin:p.isin,name:p.name||p.isin,direction,isinConfirmed:false});
+  });
+  if(!items.length||items.some(x=>!x))return;
+  const record={...original,items,correctionVersion:data.version};
+  const payload=JSON.stringify({version:2,products:items,listUploadedAt:original.storedAt});
+  let committed=false;
+  await archiveTransaction('readwrite',store=>{const request=store.get('list');request.onsuccess=()=>{
+   if(listArchive!==original||revision!==listRevision||request.result?.storedAt!==original.storedAt)return;
+   store.put(record,'list');store.put(payload,'products');committed=true;
+  };return request;});
+  if(committed){listRevision++;listArchive=record;localStorage.setItem(PRODUCT_STORE_KEY,payload);showListArchive();}
+ }catch(_){/* Keep local originals when server correction is unavailable. */}
+}
+
 function mountListCorrection(host){
  const panel=document.createElement('details');
  panel.innerHTML='<summary>Gespeicherte Serverliste korrigieren</summary><p>Originalbilder bleiben auf dem Upload-Gerät. Der ursprüngliche Listenzeitpunkt bleibt erhalten. Angaben mit den Originalbildern vergleichen.</p><button type="button" data-list-load>Aktuelle Serverliste laden</button><p data-list-generation></p><label>Produkte: eine Zeile je ISIN; LONG/SHORT; EUR/CHF; Handelsplatz<textarea data-list-rows rows="12" style="width:100%;box-sizing:border-box" aria-label="Listenkorrektur Produkte"></textarea></label><label>Screenshot-Zeit (Zürich)<input data-list-time type="datetime-local" aria-label="Screenshot-Zeit"></label><label>Originalbild-Referenz<input data-list-reference aria-label="Originalbild-Referenz" maxlength="200"></label><label><input type="checkbox" data-list-reviewed> Angaben anhand der Originalbilder geprüft</label><button type="button" data-list-save disabled>Korrektur auf dem Server speichern</button><p role="status" data-list-status></p>';
@@ -4074,6 +4101,7 @@ async function inject(){
   r.querySelectorAll('[data-dg]').forEach(el=>el.addEventListener('input',()=>{listRevision++;if(el.dataset.dg!=="confirmed"){combinedReferences.delete(i);productQuotes.delete(i);futureResearchQuotes.delete(i);if(["isin","dir"].includes(el.dataset.dg)){detailScreenshots.delete(i);}else if(["price","lev","ko","spread"].includes(el.dataset.dg)){}rowVersions.set(i,(rowVersions.get(i)||0)+1);if(el.dataset.dg==="isin"){combinedDrafts.delete(i);resetCombinedForm(i);}}rankUI();}));
  }
  await restoreListArchive();
+ await restoreServerCorrection();
  const restoredProducts=loadIdentities();
  restoreProductRows(applyResearchedTerms(localStorage.getItem(PRODUCT_STORE_KEY)?restoredProducts:recoverReviewedLists(restoredProducts)));
  b.querySelector('[data-return-upload]').addEventListener('click',()=>{
