@@ -179,7 +179,7 @@ function mount(){
  research.append(form);
  const feedback=el(doc,'p','broker-research-small','');feedback.id='bobBrokerResearchFeedback';
  feedback.setAttribute('role','status');research.append(feedback);
- const refresh=el(doc,'button','','Emittenten-Recherche aktualisieren');refresh.type='button';research.append(refresh);
+ const refresh=el(doc,'button','','Emittenten-Recherche aktualisieren');refresh.type='button';refresh.id='bobBrokerResearchRefresh';research.append(refresh);
  const result=el(doc,'div','broker-research-rows');result.id='bobBrokerResearchRows';
  research.append(result);
  research.append(el(doc,'p','broker-research-small',
