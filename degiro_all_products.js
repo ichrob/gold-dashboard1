@@ -260,6 +260,7 @@ function mount(){
  search.addEventListener('input',()=>paint());
  more.addEventListener('click',()=>paint(false));
  // Data is not transferred to DEGIRO. This uses Bob's existing private audit endpoint.
+ root.BobDegiroAllProducts.rebuild=()=>paint();
  root.BobDegiroAllProducts.refresh=()=>{paint();return requestAudit();};
  paint();requestAudit();
  setInterval(()=>{if(!doc.hidden){paint();requestAudit();}},30000);
