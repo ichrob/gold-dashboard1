@@ -6,6 +6,21 @@ from unittest.mock import patch
 import evidence_repair as repair
 
 class RepairTests(unittest.TestCase):
+    def test_late_archive_retry_reclassifies_technical_failure_without_recovery(self):
+        from unittest.mock import MagicMock
+        conn=MagicMock()
+        payload={'technicalFailure':True,'history':[{'result':'failure'}]}
+        repair.archive_attempt_state(conn,'case',payload,False,'Original fehlt weiterhin',1000)
+        stored=json.loads(conn.execute.call_args.args[1][0])
+        self.assertFalse(stored['technicalFailure'])
+        self.assertEqual(stored['reason'],'Original fehlt weiterhin')
+        self.assertNotIn('recovered',conn.execute.call_args.args[0])
+        self.assertNotIn('status',stored)
+        self.assertEqual(stored['history'],payload['history'])
+        conn.reset_mock()
+        repair.archive_attempt_state(conn,'case',payload,False,'Original fehlt weiterhin',2000)
+        conn.execute.assert_not_called()
+
     def test_archive_budget_eventually_reaches_every_unresolved_case(self):
         class Queue:
             def __init__(self):self.times={str(i).zfill(3):0 for i in range(100)};self.batch=[]
@@ -63,6 +78,7 @@ class RepairTests(unittest.TestCase):
             for i in range(3):repair.tick(conn,1000+i*repair.INTERVAL)
         self.assertEqual(conn.status,'escalated');self.assertEqual(conn.attempts,3)
         self.assertEqual(len(conn.payload['history']),3)
+        self.assertFalse(conn.payload['technicalFailure'])
         conn=Conn()
         with patch.object(repair,'reconcile'),patch.object(repair,'discover'),patch.object(repair,'retry_signal',return_value=(True,False,'Original bestätigt')):
             repair.tick(conn,1000)
@@ -84,9 +100,32 @@ class RepairTests(unittest.TestCase):
             repair.tick(conn,1000)
         updates=[c.args[1] for c in conn.execute.call_args_list if c.args[0].startswith('UPDATE bob_test_repairs')]
         self.assertEqual(updates[0][0],'trying');self.assertNotIn('sensitive',updates[0][3])
+        self.assertTrue(json.loads(updates[0][3])['technicalFailure'])
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class RepairPersistenceTests(unittest.TestCase):
+    def test_technical_archive_failure_keeps_technical_group(self):
+        import psycopg,uuid
+        from psycopg import sql
+        import training_handoff
+        schema='repair_'+uuid.uuid4().hex
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
+            conn.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
+            try:
+                repair.init(conn)
+                for key,extra in [('gap',{'technicalFailure':False}),
+                                  ('error',{'technicalFailure':True}),
+                                  ('legacy',{'reason':'Automatische Archivprüfung technisch fehlgeschlagen; keine Reparatur bestätigt.'})]:
+                    repair.enqueue(conn,key,'signal',{},dict(reasons=['missingFollowup']),1000)
+                    payload=dict(reasons=['missingFollowup'],history=[{'action':'Archiv prüfen'}],**extra)
+                    conn.execute("UPDATE bob_test_repairs SET status='escalated',attempts=3,payload=%s::jsonb WHERE id=%s",(json.dumps(payload),key))
+                groups={g['id']:g for g in training_handoff.problem_groups(conn)}
+                self.assertEqual(groups['test:signal:unknown']['cases'],2)
+                self.assertEqual(groups['test:signal:missingFollowup']['cases'],1)
+                self.assertTrue(all(g['status']=='escalated' for g in groups.values()))
+            finally:
+                conn.rollback()
     def test_recovery_exact_time_persistence_and_no_frozen_rewrite(self):
         import psycopg,uuid,time
         from psycopg import sql

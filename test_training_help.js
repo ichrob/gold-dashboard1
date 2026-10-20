@@ -46,3 +46,24 @@ assert.equal(h.explanation(one,'improve'),'');
  window.BobTrainingHelp.observe('improve',true);
  assert.equal(scheduled.size,0);
 }
+
+// Historical evidence gaps are warnings; true technical faults retain priority.
+assert.equal(h.marker(one,'learning'),'!');
+assert.equal(h.marker(one,'diagrams'),'!');
+assert.match(h.explanation(one,'learning'),/Aktuelle Ergebnisse und Diagramme bleiben zugänglich/);
+const tech={id:'technical:audit',sections:['learning','diagrams'],state:'escalated'};
+assert.equal(h.marker([...one,tech],'learning'),'X');
+assert.equal(h.marker([...one,{...tech,state:'trying'}],'learning'),'(X)');
+assert.equal(h.marker([...one,{...tech,id:'test:signal:unknown'}],'learning'),'X');
+const withEvidence={modelReview:{evidenceSummary:{counts:{original:8,estimated:4,unavailable:3,pending:2}}}};
+const before=JSON.stringify(one);
+const text=h.explanation(one,'learning',withEvidence);
+assert.match(text,/8 mit Originaldaten bestätigt/);
+assert.match(text,/4 mit Schätzdaten ausgewertet/);
+assert.match(text,/3 nicht auswertbar/);
+assert.match(text,/2 Nachprüfungen ausstehend/);
+assert.match(text,/Schätzdaten bleiben getrennt/);
+assert.equal(JSON.stringify(one),before,'Display must not close unresolved archive cases');
+assert.equal(h.evidenceText({}), '');
+withEvidence.modelReview.evidenceSummary.counts.original=-1;
+assert.equal(h.evidenceText(withEvidence),'');

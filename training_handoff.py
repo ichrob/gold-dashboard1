@@ -62,7 +62,9 @@ def init(conn):
 def problem_groups(conn):
     # One normalized diagnosis per case. Never group by private IDs or publish them.
     rows=conn.execute('''SELECT kind,
-      CASE WHEN payload->'reasons' ? 'invalidStart' THEN 'invalidStart'
+      CASE WHEN payload->>'technicalFailure'='true'
+             OR payload->>'reason'='Automatische Archivprüfung technisch fehlgeschlagen; keine Reparatur bestätigt.' THEN 'unknown'
+           WHEN payload->'reasons' ? 'invalidStart' THEN 'invalidStart'
            WHEN payload->'reasons' ? 'missingFollowup' THEN 'missingFollowup'
            WHEN payload->'reasons' ? 'source-time-skew' THEN 'source-time-skew'
            WHEN payload->'reasons' ? 'exit-time-skew' THEN 'exit-time-skew'

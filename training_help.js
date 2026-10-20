@@ -19,16 +19,25 @@ function classify(report,now=Date.now(),workerChecks=1){
  }
  return result;
 }
-function explanation(items,key){
+function historicalGap(item){
+ return /^test:(signal|title|exit):(invalidStart|missingFollowup|source-time-skew|exit-time-skew|missing-original-evidence)$/.test(item.id);
+}
+function evidenceText(report){
+ const e=report?.modelReview?.evidenceSummary,c=e?.counts;
+ if(!c||!['original','estimated','unavailable','pending'].every(k=>Number.isInteger(c[k])&&c[k]>=0))return '';
+ return 'Signalprüfungen mit Datenlücken: '+c.original+' mit Originaldaten bestätigt · '+c.estimated+' mit Schätzdaten ausgewertet · '+c.unavailable+' nicht auswertbar'+(c.pending?' · '+c.pending+' Nachprüfungen ausstehend':'')+'. Schätzdaten bleiben getrennt von Originalnachweisen.';
+}
+function explanation(items,key,report){
  const rows=items.filter(x=>x.sections.includes(key));
- const historical=rows.filter(x=>/^test:(signal|title|exit):/.test(x.id));
+ const historical=rows.filter(historicalGap);
  const technical=rows.filter(x=>!historical.includes(x));
  const parts=[];
  if(technical.length)parts.push('Aktueller Abruf oder Nachprüfung gestört · Bob prüft erneut');
- if(historical.length)parts.push('Originalnachweise fehlen in '+historical.reduce((n,x)=>n+(x.cases||1),0)+' archivierten Testfällen');
+ if(historical.length)parts.push('Archivhinweis: In '+historical.reduce((n,x)=>n+(x.cases||1),0)+' archivierten Testfällen fehlen vollständige Originalnachweise. Aktuelle Ergebnisse und Diagramme bleiben zugänglich');
+ if(historical.length&&['learning','diagrams'].includes(key)&&evidenceText(report))parts.push(evidenceText(report));
  return parts.join('. ');
 }
-function marker(items,key){const rows=items.filter(x=>x.sections.includes(key));return rows.some(x=>x.state==='escalated')?'X':rows.length?'(X)':'';}
+function marker(items,key){const rows=items.filter(x=>x.sections.includes(key)),technical=rows.filter(x=>!historicalGap(x));return technical.some(x=>x.state==='escalated')?'X':technical.length?'(X)':rows.length?'!':'';}
 function reportText(items,at,truncated){
  const lines=['Bob · Trainieren und auswerten · privater Problembericht',
  'Auftrag an ChatGPT: Prüfe und behebe die folgenden technischen Testprobleme im autorisierten Bob-Projekt ichrob/gold-dashboard1. Prüfe die bisherigen Selbsthilfeversuche, Code und Datenquellen; teste Änderungen und kontrolliere die veröffentlichte Version. Keine historischen Kurse erfinden, keine Echtgeldorders, keine Änderungen an Risiko-/KO-/Stoppregeln und keine Nachrichten an Dritte.',
@@ -47,7 +56,7 @@ async function share(nav,text){
  try{if(nav.clipboard?.writeText){await nav.clipboard.writeText(text);return 'copied';}}catch(_){}
  return 'manual';
 }
-const api={classify,marker,explanation,reportText,share};
+const api={classify,marker,explanation,evidenceText,historicalGap,reportText,share};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 if(!root?.document)return;
 const doc=root.document;let host,button,status,preview,field,link,lastReport=null,busy=false,workerChecks=0;
@@ -63,17 +72,17 @@ function render(){
  for(const key of Object.keys(sections)){
   const mark=marker(all,key);
   const targets=[...doc.querySelectorAll('[data-view="'+key+'"]'),doc.querySelector('#bob-view-'+key+' > h2')].filter(Boolean);
-  for(const target of targets){let badge=target.querySelector('[data-training-mark]');if(!badge){badge=node('span');badge.dataset.trainingMark='';badge.style.cssText='margin-left:8px;color:#b91c1c;font-weight:800';target.append(badge);}badge.textContent=mark?' '+mark:'';badge.hidden=!mark;badge.setAttribute('aria-label',mark==='X'?'Problem: Hilfe durch ChatGPT erforderlich':mark?'Bob versucht die automatische Behebung':'');let detail=target.querySelector('[data-training-detail]');if(!detail){detail=node('small');detail.dataset.trainingDetail='';detail.style.cssText='display:block;font-size:14px;font-weight:400;line-height:1.4;margin-top:6px';target.append(detail);}detail.textContent=explanation(all,key);detail.hidden=!mark;}
+  for(const target of targets){let badge=target.querySelector('[data-training-mark]');if(!badge){badge=node('span');badge.dataset.trainingMark='';badge.style.cssText='margin-left:8px;color:#b91c1c;font-weight:800';target.append(badge);}badge.style.color=mark==='!'?'#92400e':'#b91c1c';badge.textContent=mark?' '+mark:'';badge.hidden=!mark;badge.setAttribute('aria-label',mark==='X'?'Problem: Hilfe durch ChatGPT erforderlich':mark==='!'?'Archivhinweis: historische Datenlücken':mark?'Bob versucht die automatische Behebung':'');let detail=target.querySelector('[data-training-detail]');if(!detail){detail=node('small');detail.dataset.trainingDetail='';detail.style.cssText='display:block;font-size:14px;font-weight:400;line-height:1.4;margin-top:6px';target.append(detail);}detail.textContent=explanation(all,key,lastReport);detail.hidden=!mark;}
  }
- const ready=all.filter(x=>x.state==='escalated'),trying=all.filter(x=>x.state==='trying');
+ const ready=all.filter(x=>x.state==='escalated'),trying=all.filter(x=>x.state==='trying'&&!historicalGap(x));
+ const historical=all.filter(historicalGap),technical=ready.filter(x=>!historicalGap(x));
  button.disabled=!ready.length;
- status.textContent=ready.length?ready.length+' offene Fehlerarten'+(Number.isInteger(lastReport?.affectedCases)?' · '+lastReport.affectedCases+' betroffene Testfälle':'')+': X · Für die automatische KI-Prüfung hinterlegt (stündlich).'+(trying.length?' '+trying.length+' weitere Nachprüfungen laufen (X).':''):trying.length?'(X) Bob versucht die Behebung und prüft erneut.':lastReport?'Keine offenen Probleme in den zuletzt abgerufenen Testnachprüfungen.':'Testnachprüfung wird geladen; Stand noch nicht bestätigt.';
+ status.textContent=technical.length?technical.length+' technische Fehlerarten: X · Für die automatische KI-Prüfung hinterlegt (stündlich).'+(trying.length?' '+trying.length+' weitere Nachprüfungen laufen (X).':''):trying.length?'(X) Bob versucht die Behebung und prüft erneut.':historical.length?'Archivhinweis: '+historical.length+' Arten historischer Nachweislücken · '+historical.reduce((n,x)=>n+(x.cases||1),0)+' betroffene Testfälle. Originaldaten werden weiter im Archiv gesucht; laufende Ergebnisse bleiben nutzbar.':lastReport?'Keine offenen Probleme in den zuletzt abgerufenen Testnachprüfungen.':'Testnachprüfung wird geladen; Stand noch nicht bestätigt.';
  if(Object.keys(failures).some(k=>failures[k].state==='escalated'&&!queued[k]))status.textContent+=' Technische Abrufmeldung: Übergabe noch nicht bestätigt; Bob versucht es erneut.';
- const evidence=lastReport?.modelReview?.evidenceSummary;
  let evidenceBox=host.querySelector('[data-gap-evidence]');
  if(!evidenceBox){evidenceBox=node('p');evidenceBox.dataset.gapEvidence='';evidenceBox.setAttribute('role','status');host.append(evidenceBox);}
- evidenceBox.textContent=evidence?Object.keys(evidence.labels).map(k=>evidence.labels[k]+': '+evidence.counts[k]).join(' · ')+'. Nur archivierte Signalprüfungen mit Datenlücken. Details unter Diagramme.'+(failures.repairs||Date.now()-lastReport.generatedAt>420000?' Letzter Stand; Aktualität nicht bestätigt.':''):'';
- evidenceBox.hidden=!evidence;
+ evidenceBox.textContent=evidenceText(lastReport)?evidenceText(lastReport)+' Details unter Diagramme.'+(failures.repairs||Date.now()-lastReport.generatedAt>420000?' Letzter Stand; Aktualität nicht bestätigt.':''):'';
+ evidenceBox.hidden=!evidenceText(lastReport);
  field.value=reportText(all,Date.now(),lastReport?.truncated);
 }
 function observe(key,ok,retry){
@@ -99,7 +108,7 @@ function mount(group){
  const manual=node('button','Bericht zusätzlich manuell teilen');manual.type='button';preview.append(manual);
  manual.onclick=async()=>{const current=items();if(!current.some(x=>x.state==='escalated'))return;const text=reportText(current,Date.now(),lastReport?.truncated);field.value=text;button.disabled=true;try{const result=await share(root.navigator,text);feedback.textContent=result==='shared'?'Teilen-Menü geöffnet. Wähle ChatGPT und sende den Bericht dort ab; Empfang hier nicht bestätigt.':result==='cancelled'?'Teilen abgebrochen. Es wurde kein Problem als behoben markiert.':result==='copied'?'Bericht kopiert. ChatGPT öffnen, einfügen und absenden.':'Bericht unten kopieren und in ChatGPT absenden.';if(['copied','manual'].includes(result)){link.hidden=false;preview.open=true;}}finally{button.disabled=!items().some(x=>x.state==='escalated');}};
  button.onclick=async()=>{await Promise.all(Object.keys(failures).filter(k=>failures[k].state==='escalated').map(queueLocal));feedback.textContent='Gespeicherte Testfälle werden automatisch vom stündlichen ChatGPT-Reparaturwächter geprüft. Kein Kopieren nötig. Hinterlegt bedeutet noch nicht bearbeitet oder behoben.';};
- box.append(status,button,feedback,link,preview,node('p','(X) Bob prüft selbst · X automatische KI-Prüfung nötig. ChatGPT ruft technische Fehlergruppen stündlich ab, auch bei geschlossener App. Kein sofortiger Chatversand; Bearbeitung und Behebung sind erst nach Prüfung bestätigt.'));group.append(box);render();poll();
+ box.append(status,button,feedback,link,preview,node('p','(X) Bob prüft selbst · X technischer Fehler · ! historische Nachweislücke. ChatGPT ruft technische Fehlergruppen stündlich ab, auch bei geschlossener App. Kein sofortiger Chatversand; Bearbeitung und Behebung sind erst nach Prüfung bestätigt.'));group.append(box);render();poll();
  setInterval(()=>{if(!doc.hidden){poll();for(const key of Object.keys(failures))if(failures[key].state==='escalated')queueLocal(key);}},30000);
  doc.addEventListener('visibilitychange',()=>{if(!doc.hidden)poll();});
 }
