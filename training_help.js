@@ -19,6 +19,15 @@ function classify(report,now=Date.now(),workerChecks=1){
  }
  return result;
 }
+function explanation(items,key){
+ const rows=items.filter(x=>x.sections.includes(key));
+ const historical=rows.filter(x=>/^test:(signal|title|exit):/.test(x.id));
+ const technical=rows.filter(x=>!historical.includes(x));
+ const parts=[];
+ if(technical.length)parts.push('Aktueller Abruf oder Nachprüfung gestört · Bob prüft erneut');
+ if(historical.length)parts.push('Originalnachweise fehlen in '+historical.reduce((n,x)=>n+(x.cases||1),0)+' archivierten Testfällen');
+ return parts.join('. ');
+}
 function marker(items,key){const rows=items.filter(x=>x.sections.includes(key));return rows.some(x=>x.state==='escalated')?'X':rows.length?'(X)':'';}
 function reportText(items,at,truncated){
  const lines=['Bob · Trainieren und auswerten · privater Problembericht',
@@ -38,7 +47,7 @@ async function share(nav,text){
  try{if(nav.clipboard?.writeText){await nav.clipboard.writeText(text);return 'copied';}}catch(_){}
  return 'manual';
 }
-const api={classify,marker,reportText,share};
+const api={classify,marker,explanation,reportText,share};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 if(!root?.document)return;
 const doc=root.document;let host,button,status,preview,field,link,lastReport=null,busy=false,workerChecks=0;
@@ -54,7 +63,7 @@ function render(){
  for(const key of Object.keys(sections)){
   const mark=marker(all,key);
   const targets=[...doc.querySelectorAll('[data-view="'+key+'"]'),doc.querySelector('#bob-view-'+key+' > h2')].filter(Boolean);
-  for(const target of targets){let badge=target.querySelector('[data-training-mark]');if(!badge){badge=node('span');badge.dataset.trainingMark='';badge.style.cssText='margin-left:8px;color:#b91c1c;font-weight:800';target.append(badge);}badge.textContent=mark?' '+mark:'';badge.hidden=!mark;badge.setAttribute('aria-label',mark==='X'?'Problem: Hilfe durch ChatGPT erforderlich':mark?'Bob versucht die automatische Behebung':'');}
+  for(const target of targets){let badge=target.querySelector('[data-training-mark]');if(!badge){badge=node('span');badge.dataset.trainingMark='';badge.style.cssText='margin-left:8px;color:#b91c1c;font-weight:800';target.append(badge);}badge.textContent=mark?' '+mark:'';badge.hidden=!mark;badge.setAttribute('aria-label',mark==='X'?'Problem: Hilfe durch ChatGPT erforderlich':mark?'Bob versucht die automatische Behebung':'');let detail=target.querySelector('[data-training-detail]');if(!detail){detail=node('small');detail.dataset.trainingDetail='';detail.style.cssText='display:block;font-size:14px;font-weight:400;line-height:1.4;margin-top:6px';target.append(detail);}detail.textContent=explanation(all,key);detail.hidden=!mark;}
  }
  const ready=all.filter(x=>x.state==='escalated'),trying=all.filter(x=>x.state==='trying');
  button.disabled=!ready.length;
@@ -69,7 +78,7 @@ function observe(key,ok,retry){
  const history=[...(old?.history||[]),{at:Date.now(),action:names[key],result:'Abruf oder Darstellung fehlgeschlagen; aktueller Stand nicht bestätigt.'}].slice(-3);
  failures[key]={id:'technical:'+key,sections:scope[key],state:attempts>=3?'escalated':'trying',type:names[key],reason:'Nach '+attempts+' Versuchen nicht erfolgreich. Vorherige Werte sind kein aktueller Erfolgsnachweis.',attempts,history};
  if(attempts>=3)queueLocal(key);
- if(attempts<3&&retry&&!timers[key])timers[key]=setTimeout(()=>{delete timers[key];retry();},30000);
+ if(retry&&!timers[key])timers[key]=setTimeout(()=>{delete timers[key];if(!doc.hidden)retry();},attempts<3?30000:60000);
  render();
 }
 async function poll(){

@@ -30,3 +30,19 @@ const one=h.classify(grouped,now);assert.equal(one.length,1);assert.equal(one[0]
  assert.equal(await h.share({},'x'),'manual');
  console.log('Training help state transitions and explicit sharing: OK');
 })().catch(e=>{console.error(e);process.exitCode=1;});
+assert.match(h.explanation(one,'learning'),/15 archivierten Testfällen/);
+assert.doesNotMatch(h.explanation(one,'learning'),/Aktueller Abruf/);
+assert.match(h.explanation([{id:'technical:improve',sections:['improve']}],'improve'),/Aktueller Abruf/);
+assert.equal(h.explanation(one,'improve'),'');
+// A temporary outage must not leave a hidden section permanently marked X.
+{
+ const vm=require('node:vm'),fs=require('node:fs'),scheduled=new Map();let seq=0,retries=0;
+ const window={document:{hidden:false},fetch:async()=>({ok:true,json:async()=>({ok:true,status:'queued'})})};
+ vm.runInNewContext(fs.readFileSync('training_help.js','utf8'),{window,Date,AbortSignal,setInterval(){},setTimeout(fn,delay){scheduled.set(++seq,{fn,delay});return seq;},clearTimeout(id){scheduled.delete(id);}});
+ const retry=()=>{retries++;window.BobTrainingHelp.observe('improve',false,retry);};
+ window.BobTrainingHelp.observe('improve',false,retry);
+ for(let i=0;i<4;i++){const [id,timer]=scheduled.entries().next().value;scheduled.delete(id);timer.fn();}
+ assert.equal(retries,4);assert.equal([...scheduled.values()][0].delay,60000);
+ window.BobTrainingHelp.observe('improve',true);
+ assert.equal(scheduled.size,0);
+}
