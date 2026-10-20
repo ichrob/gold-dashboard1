@@ -33,6 +33,8 @@ function localMinute(now){
 function verifiedBrokerProof(isin,record,report,watchlist,now=Date.now()){
  if(!isValidISIN(isin)||!record||typeof record!=='object'||!report||
     report.status!=='ok'||!Array.isArray(report.items))return false;
+ const reportTime=validClock(report.lastCheckedAt);
+ if(reportTime===null||!Number.isFinite(now)||now-reportTime<0||now-reportTime>180000)return false;
  const item=report.items.find(p=>p?.isin===isin);
  const evidence=item?.brokerVenueEvidence;
  if(!evidence||evidence.isin!==isin||evidence.broker!=='DEGIRO'||
