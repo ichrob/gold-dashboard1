@@ -137,6 +137,8 @@ def _init_db_once():
         real_trade_journal.init(conn)
         trade_email_import.init(conn)
         degiro_product_audit.init(conn)
+        import broker_candidate_evidence
+        broker_candidate_evidence.init(conn)
         # Operational receipt-only audit. Never log message contents, sender,
         # ISIN, order ID, security tokens or any identifying values.
         states = conn.execute("""
@@ -681,6 +683,17 @@ class Handler(BaseHTTPRequestHandler):
                     result = degiro_product_audit.read(conn)
                 send_json(self, 200, result)
                 return
+            if path == "/candidate-proofs":
+                supplied = self.headers.get("X-Bob-Push-Token", "")
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
+                    send_json(self, 401, {"error": "Unauthorized"})
+                    return
+                import broker_candidate_evidence
+                with db() as conn:
+                    conn.execute("SET TRANSACTION READ ONLY")
+                    result = broker_candidate_evidence.report(conn)
+                send_json(self, 200, result)
+                return
             if path == "/monitor-status":
                 supplied = self.headers.get("X-Bob-Push-Token", "")
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
@@ -806,6 +819,17 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json_body(self)
                 with db() as conn:
                     result = broker_venue_evidence.save(conn, payload)
+                    conn.commit()
+                send_json(self, 200, result)
+                return
+            if path == '/candidate-proof/write':
+                supplied = self.headers.get('X-Bob-Push-Token', '')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
+                    send_json(self, 401, {'error': 'Unauthorized'}); return
+                import broker_candidate_evidence
+                payload = json_body(self)
+                with db() as conn:
+                    result = broker_candidate_evidence.save(conn, payload)
                     conn.commit()
                 send_json(self, 200, result)
                 return
