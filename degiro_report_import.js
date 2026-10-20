@@ -214,6 +214,7 @@ function mount(){
   try{
    root.BobDegiroPortfolio.clear(root.localStorage);
    root.BobDegiroPortfolio.refresh();
+   root.BobDegiroAllProducts?.rebuild?.();
    input.value='';
    out.replaceChildren();
    clear.disabled=true;
@@ -256,6 +257,7 @@ function mount(){
     try{
      root.BobDegiroPortfolio.save(root.localStorage,data);
      root.BobDegiroPortfolio.refresh();
+   root.BobDegiroAllProducts?.rebuild?.();
      stored=true;
     }catch(err){warning=err.message||'Lokale Speicherung nicht verfügbar';}
    }
