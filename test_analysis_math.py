@@ -43,7 +43,7 @@ class AnalysisMathTests(unittest.TestCase):
 const fs=require('fs'),vm=require('vm'),input=JSON.parse(fs.readFileSync(0,'utf8')),html=fs.readFileSync('Bob.html','utf8');
 const core=html.slice(html.indexOf('function ema('),html.indexOf('function calc('));
 const score=html.slice(html.indexOf('function rsiS('),html.indexOf('function buildMtfHierarchy('));
-const env={setInterval:()=>0,document:{addEventListener(){}},dataAge:(t,limit,now)=>({fresh:now>=t&&now-t<=limit})};vm.createContext(env);vm.runInContext(core+score,env);
+const env={setInterval:()=>{},document:{addEventListener:()=>{}},dataAge:(t,limit,now)=>({fresh:now>=t&&now-t<=limit})};vm.createContext(env);vm.runInContext(core+score,env);
 process.stdout.write(JSON.stringify(input.fixtures.map(b=>env.timeframeScore(b,'5m',input.now))));
 """
         browser=json.loads(subprocess.check_output(['node','-e',script],input=json.dumps(dict(fixtures=fixtures,now=NOW)),text=True))
@@ -68,7 +68,7 @@ process.stdout.write(JSON.stringify(input.fixtures.map(b=>env.timeframeScore(b,'
 const fs=require('fs'),vm=require('vm'),input=JSON.parse(fs.readFileSync(0,'utf8')),html=fs.readFileSync('Bob.html','utf8');
 const core=html.slice(html.indexOf('function ema('),html.indexOf('function calc('));
 const score=html.slice(html.indexOf('function rsiS('),html.indexOf('function buildMtfHierarchy('));
-const env={setInterval:()=>0,document:{addEventListener(){}},dataAge:(t,limit,now)=>({fresh:now>=t&&now-t<=limit})};vm.createContext(env);vm.runInContext(core+score,env);
+const env={setInterval:()=>{},document:{addEventListener:()=>{}},dataAge:(t,limit,now)=>({fresh:now>=t&&now-t<=limit})};vm.createContext(env);vm.runInContext(core+score,env);
 process.stdout.write(JSON.stringify(input.fixtures.map(b=>env.timeframeScore(b,'5m',input.now))));
 """
         js=json.loads(subprocess.check_output(['node','-e',script],

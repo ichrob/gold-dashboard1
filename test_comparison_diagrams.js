@@ -84,3 +84,10 @@ assert(all().some(e=>e.textContent.includes('100 % abgeschlossen')));
 window.BobDiagrams.unavailable();assert(all().some(e=>e.textContent.includes('Stand veraltet – keine aktuelle Fortschrittsbestätigung')));
 window.BobDiagrams.update(null);bar=all().find(e=>e.attrs.role==='progressbar');assert.equal(bar.attrs['aria-valuenow'],undefined);
 assert(all().some(e=>e.textContent==='Noch keine gespeicherten Prüfungen'));
+
+window.BobDiagrams.update(completedStudy);
+window.BobDiagrams.repairs({available:true,workerCheckedAt:Date.now(),items:[],counts:{},modelReview:{counts:{modelled:4},items:[],note:'Getrennt',evidenceSummary:{counts:{original:5,estimated:4,unavailable:3,pending:2},labels:{original:'Mit Originaldaten bestätigt',estimated:'Mit Schätzdaten ausgewertet',unavailable:'Nicht auswertbar',pending:'Nachprüfung ausstehend'},note:'Nur Signalprüfungen mit Datenlücken'}}});
+for(const label of ['Mit Originaldaten bestätigt: 5','Mit Schätzdaten ausgewertet: 4','Nicht auswertbar: 3','Nachprüfung ausstehend: 2'])assert(all().some(e=>e.textContent===label));
+assert(all().some(e=>e.textContent.includes('Stopp, Ziel und KO bleiben')));
+window.BobDiagrams.repairsUnavailable();
+assert(all().some(e=>e.textContent.includes('Datenlücken · letzter Stand')));
