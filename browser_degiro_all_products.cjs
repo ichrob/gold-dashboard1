@@ -47,6 +47,9 @@ const html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewpor
    throw Error('Unexpected route '+pathname);
   });
   await page.goto(origin+'/');
+  assert(await page.locator('#dgUnifiedDepotMissing').isVisible(),'No local depot must show import guidance');
+  assert.equal(await page.locator('#dgUnifiedImportCsv').getAttribute('data-view'),'degiro',
+    'Guidance button navigates using Bob mobile navigation');
   await page.locator('#dgExportFile').setInputFiles({
    name:'portfolio.csv',mimeType:'text/csv',buffer:Buffer.from(csv)
   });
@@ -59,6 +62,8 @@ const html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewpor
   await page.waitForFunction(()=>document.querySelector('#dgUnifiedSummary')?.textContent?.includes('12 verschiedene Produkte'));
   assert.equal(await page.locator('#dgUnifiedCards .dg-unified-card').count(),12);
   assert((await page.locator('#dgUnifiedSummary').innerText()).includes('5 im Depot-CSV'));
+  assert.equal(await page.locator('#dgUnifiedDepotMissing').isVisible(),false,
+    'Import guidance hides when CSV is stored');
   const observedSummary=await page.locator('#dgUnifiedSummary').innerText();
   console.log('Unified browser counts:',JSON.stringify(observedSummary));
   assert(observedSummary.includes('8 in Beobachtung/Prüfbericht'),'Unexpected observation count: '+observedSummary);
@@ -90,6 +95,8 @@ const html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewpor
   await page.locator('#dgExportClear').click();
   await page.waitForFunction(()=>document.querySelector('#dgUnifiedSummary')?.textContent?.includes('8 verschiedene Produkte'));
   assert.equal(await page.locator('#dgUnifiedCards .dg-unified-card').count(),8,'Clear only depot, not watched list');
+  assert(await page.locator('#dgUnifiedDepotMissing').isVisible(),
+    'Import guidance returns when user removes saved depot');
   assert.deepEqual(external,[],'No external DEGIRO account access or 3rd-party network');
   console.log('DEGIRO combined products UI passed: 12 unique, 5 depot, 8 watched, refresh, mobile and privacy');
  }finally{await browser.close();}
