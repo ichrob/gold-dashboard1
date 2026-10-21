@@ -232,7 +232,7 @@ def sync(conn, payload):
             return dict(ok=True,products=len(previous.get('products') or []),
                         preserved=True, reason='Dieselbe Upload-Version enthält widersprüchliche ISINs')
     keys=('isin','name','productDirection','direction','isinConfirmed','price','leverage','ko','spread','spot',
-          'quote','snapshot','type','currency','basisPrice','ratio','underlying','contract','maturity')
+          'quote','snapshot','listVenueEvidence','type','currency','basisPrice','ratio','underlying','contract','maturity')
     def clean(value):
         if isinstance(value,dict):return {str(k):clean(v) for k,v in value.items()
                 if not any(s in str(k).lower() for s in ('image','password','token','account','rawtext','ocrtext','dataurl'))}

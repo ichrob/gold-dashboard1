@@ -60,7 +60,7 @@ def confirmed(evidence, isin, currency, now_ms):
         return (evidence.get('isin') == isin and evidence.get('currency') == currency
             and evidence.get('broker') == 'DEGIRO'
             and ((evidence.get('kind') == 'owner-reviewed-screenshot' and evidence.get('venue') in REVIEWED_VENUES)
-                 or (evidence.get('kind') == 'automatic-detail-screenshot' and valid_venue(evidence.get('venue'))))
+                 or (evidence.get('kind') in ('automatic-detail-screenshot', 'automatic-list-screenshot') and valid_venue(evidence.get('venue'))))
             and evidence.get('listingConfirmed') is True and evidence.get('executionConfirmed') is False
             and evidence.get('timezone') == 'Europe/Zurich' and evidence.get('timePrecision') == 'minute'
             and bool(evidence.get('imageReference')) and bool(evidence.get('listUploadedAt'))
@@ -166,7 +166,7 @@ def attach(conn, feed, now=None):
         product.pop('brokerVenueEvidence', None)
         product.pop('brokerVenueHistory', None)
         record = automatic(product, feed, now)
-        listed = corrected_list(product, feed, now)
+        listed = automatic_list(product, feed, now) or corrected_list(product, feed, now)
         if listed and (not record or listed['observedMinute'] >= record['observedMinute']):
             record = listed
         manual = evidence.get(product.get('isin'))
@@ -219,6 +219,12 @@ def archive_feed(conn, feed, now=None):
     """Capture outgoing screenshots at their original clock, including expired ones."""
     now = now or datetime.now(timezone.utc)
     for product in feed.get('products') or []:
+        try:
+            uploaded=datetime.fromisoformat(str(feed.get('listUploadedAt','')).replace('Z','+00:00'))
+            if uploaded.tzinfo is not None and uploaded<=now:
+                listed=automatic_list(product,feed,uploaded)
+                if listed:archive(conn,listed,now)
+        except (ValueError,TypeError):pass
         snap = product.get('snapshot') or {}
         q = snap.get('degiroVenueEvidence') or snap.get('degiroDisplayedQuote') or {}
         raw = q.get('sourceTime', '')
@@ -228,3 +234,35 @@ def archive_feed(conn, feed, now=None):
             record = automatic(product, feed, at)
             if record:archive(conn, record, now)
         except (ValueError, TypeError):continue
+
+
+def automatic_list(product, feed, now=None):
+    """Use the twice-read list footer. Upload time dates list observation, never prices."""
+    from product_quotes import valid_isin
+    now = now or datetime.now(timezone.utc)
+    e = product.get('listVenueEvidence')
+    if (not isinstance(e, dict) or e.get('version') != 1
+        or not valid_isin(product.get('isin', '')) or e.get('isin') != product.get('isin')
+        or feed.get('listOrigin') != 'degiro-screenshot'
+        or not feed.get('listUploadedAt') or e.get('listUploadedAt') != feed.get('listUploadedAt')
+        or e.get('source') != 'DEGIRO-Listenbild' or e.get('complete') is not True
+        or e.get('crossChecked') is not True or e.get('isExecutableQuote') is not False
+        or e.get('currency') not in ('EUR','CHF')
+        or product.get('currency') != e.get('currency')
+        or not isinstance(e.get('reference'), str) or not 1 <= len(e['reference']) <= 200):return None
+    venue = e.get('venue', '')
+    if not isinstance(venue, str):return None
+    if re.fullmatch(r'Soci[eé]t[eé]\s+G[eé]n[eé]rale\s+OTC', venue, re.I):venue=VENUE
+    elif re.fullmatch(r'BNP\s+(?:Paribas\s+)?OTC', venue, re.I):venue='BNP OTC'
+    else:return None
+    try:
+        uploaded = datetime.fromisoformat(feed['listUploadedAt'].replace('Z','+00:00'))
+        if uploaded.tzinfo is None or uploaded > now:return None
+        record=validate(dict(isin=product['isin'],reviewed=True,venue=venue,currency=e['currency'],
+            observedMinute=uploaded.astimezone(ZONE).strftime('%Y-%m-%dT%H:%M'),
+            imageReference=e['reference']),feed,now)
+    except (ValueError,TypeError):return None
+    record.update(kind='automatic-list-screenshot', timeBasis='list-upload-observation',
+                  sourceTime=None, note='Listenstand anhand Uploadzeit; keine Kurs- oder Screenshot-Aufnahmezeit.')
+    record.pop('reviewedAt',None)
+    return record
