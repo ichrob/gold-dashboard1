@@ -1041,7 +1041,7 @@ function recognizePlainOcr(file,statusId){
  });
  ocrQueue=job.catch(()=>{});return job;
 }
-function recognizeOcr(file,statusId,allowPartial=false,expectedIsin=''){
+function recognizeOcr(file,statusId,allowPartial=false,expectedIsin='',listMode=false){
  const job=ocrQueue.then(async()=>{
   const reviewed=await reviewedImageText(file);
   if(reviewed)return {data:{text:reviewed,reviewedOriginal:true}};
@@ -1051,6 +1051,7 @@ function recognizeOcr(file,statusId,allowPartial=false,expectedIsin=''){
   let result,identityData;const readings=[],originalModes=new Set(['3']);
   try{
    result=await ocrTimeout(worker.recognize(prepared),45000,"OCR-Zeitüberschreitung nach 45 Sekunden");
+   if(listMode)return await recognizeDegiroList(worker,prepared,result,statusId);
    identityData=result.data;
    readings.push(recoverTermRows(result.data,result.data));
    if((hasIdentityTable(result.data)||/Stammdaten|\bISIN\b|\bWKN\b/i.test(result.data.text||''))&&/Knock-Out-Barriere|Basispreis/i.test(result.data.text||'')){
@@ -2091,13 +2092,20 @@ function degiroListObservation(isin,archive=listArchive,now=Date.now()){
  return {observed:true,currentDay:day===clock.day&&!clock.closed,
   uploadedAt:archive.storedAt,executable:false,quoteConfirmed:false};
 }
+function observedDegiroListRow(isin,archive=listArchive,now=Date.now()){
+ const observation=degiroListObservation(isin,archive,now);
+ const row=archive?.items?.find(x=>x.isin===isin)?.listRow;
+ if(!observation.observed||!row||row.version!==1||row.isin!==isin||!row.complete||!row.crossChecked||!row.imageReference||row.source!=='DEGIRO-Listenbild'||row.isExecutableQuote!==false)return null;
+ return {...row,currentDay:observation.currentDay,uploadedAt:observation.uploadedAt};
+}
 function renderDegiroListEvidence(p,now=Date.now(),archive=listArchive){
  const proof=degiroListObservation(p?.isin,archive,now);
  if(!proof.observed)return '';
+ const row=observedDegiroListRow(p?.isin,archive,now);
  const uploaded=new Date(proof.uploadedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich',hour12:false});
  return '<div class="small" data-degiro-list-evidence><b'+(proof.currentDay?' style="color:#15803d"':'')+'>'+
   (proof.currentDay?'✓ In deiner DEGIRO-Liste vorhanden':'In älterer DEGIRO-Liste vorhanden · heutige Liste fehlt')+
-  '</b> · hochgeladen '+esc(uploaded)+' (Zürich).</div>';
+  '</b> · hochgeladen '+esc(uploaded)+' (Zürich).'+(row?'<br><b>DEGIRO-Listennachweis: '+esc(row.venue)+' · '+esc(row.currency)+'</b><br>BAR/SL (Barriere): '+esc(row.ko)+' · BP/STR (Basispreis): '+esc(row.strike)+' · Bv/R: '+esc(row.ratioDivisor)+' (Bezugsverhältnis '+esc(row.ratio)+')'+(row.maturity?' · Laufzeit: '+esc(row.maturity):'')+'<br>Produktzeile zweifach gelesen · '+esc(row.imageReference)+'. Listenansicht, kein ausführbarer Brokerkurs.':'')+'</div>';
 }
 // A real DEGIRO product-detail *display* is more evidence than list membership,
 // but less than an executable order quote, order acknowledgement or fill.
@@ -2151,6 +2159,8 @@ function renderServerVenueEvidence(p){
 }
 function degiroVenueObserved(p){
  if(serverVenueEvidence(p))return true;
+ const listed=observedDegiroListRow(p?.isin);
+ if(listed?.currentDay&&(!p.currency||p.currency===listed.currency)&&(!p.snapshot?.currency||p.snapshot.currency===listed.currency))return true;
  const q=p?.snapshot?.degiroVenueEvidence||p?.snapshot?.degiroDisplayedQuote;
  return !!q&&q.isin===p.isin&&q.brokerDisplayConfirmed===true&&q.isExecutableQuote===false
   &&((['CHF','EUR'].includes(q.currency)&&/^Soci[eé]t[eé]\s+G[eé]n[eé]rale\s+OTC$/i.test(q.venue||''))
@@ -3938,18 +3948,168 @@ function parseScreenshotCandidates(text){
  });
  return hits;
 }
+// Fixed DEGIRO mobile list grammar. Values are read afresh, never learned as
+// tomorrow's constants. A block ends at the NEXT heading even if it is clipped.
+function degiroListBlocks(text){
+ const raw=String(text||'').replace(/\r/g,'');
+ const heads=[...raw.matchAll(/^[ \t]*(?:SG|BNP)\s+GOLD\b[^\n]*/gmi)];
+ return heads.map((m,i)=>raw.slice(m.index,heads[i+1]?.index??raw.length).trim());
+}
+function parseDegiroListRow(raw){
+ const ids=[...String(raw).matchAll(/\bDE[0OQ]{3,4}[A-Z0-9]{7}\b/gi)];
+ if(ids.length!==1)return null;
+ const identity=normalizeOcrIsin(ids[0][0],raw);
+ const title=raw.slice(0,ids[0].index).replace(/[|]\s*$/,'').replace(/\s+/g,' ').trim();
+ const footer=raw.slice(ids[0].index+ids[0][0].length);
+ const venues=[...footer.matchAll(/(Soci[eé]t[eé]\s+G[eé]n[eé]rale\s+OTC|BNP\s+(?:Paribas\s+)?OTC)\s+(EUR|CHF)\b/gi)];
+ const get=label=>{
+  const m=[...title.matchAll(new RegExp('(?<![A-Z])(?:'+label+')\\s*([0-9]+(?:[.,][0-9]+)?)(?=\\s|$|[A-Z])','gi'))];
+  return m.length===1?Number(m[0][1].replace(',','.')):null;
+ };
+ const directions=[...new Set((title.match(/\b(?:Long|Short|Call|Put)\b/gi)||[]).map(x=>/long|call/i.test(x)?'LONG':'SHORT'))];
+ const ratioDivisor=get('Bv|R'),ko=get('BAR|SL'),strike=get('BP|STR'),leverage=get('LV');
+ const maturity=(title.match(/\b\d{2}\/\d{2}\/\d{4}\b/)||[])[0]||(/Open[ -]?End/i.test(title)?'Open End':null);
+ const venue=venues.length===1?venues[0][1].replace(/\s+/g,' '):null,currency=venues.length===1?venues[0][2].toUpperCase():null;
+ const issuer=/^SG\b/i.test(title)?'SG':'BNP';
+ const consistentVenue=issuer==='SG'?/^Soci[eé]t[eé]/i.test(venue||''):/^BNP/i.test(venue||'');
+ return {isin:identity.isin,originalIsin:identity.originalIsin,identityCorrection:identity.identityCorrection||'',
+  name:title,direction:directions.length===1?directions[0]:'',ko:ko??'',leverage:leverage??'',price:'',spread:'',
+  listRow:{version:1,isin:identity.isin,issuer,venue,currency,ko,strike,ratioDivisor,
+   ratio:ratioDivisor>0?1/ratioDivisor:null,leverage,maturity,
+   complete:validIsin(identity.isin)&&directions.length===1&&ko>0&&strike>0&&ratioDivisor>0&&consistentVenue&&!/\b(?:FACTOR|FAKTOR)\b/i.test(title),
+   crossChecked:false,source:'DEGIRO-Listenbild',isExecutableQuote:false,sourceTime:null}};
+}
+function listRowSignature(x){
+ return JSON.stringify([x.isin,x.direction,...['issuer','venue','currency','ko','strike','ratioDivisor','leverage','maturity'].map(k=>x.listRow[k])]);
+}
+function agreedDegiroListRow(readings){
+ const votes=new Map();
+ for(const text of readings){
+  const blocks=degiroListBlocks(text);if(blocks.length!==1)continue;
+  const row=parseDegiroListRow(blocks[0]);if(!row?.listRow.complete)continue;
+  const key=listRowSignature(row),v=votes.get(key)||{row,count:0};v.count++;votes.set(key,v);
+ }
+ const winners=[...votes.values()].filter(v=>v.count>=2);
+ if(winners.length!==1)return null;
+ const row=winners[0].row;row.listRow.crossChecked=true;return row;
+}
+function degiroListRects(data,width,height){
+ const words=(data?.words||[]).filter(w=>w.bbox&&Number.isFinite(w.bbox.y0));
+ const heads=words.filter(w=>/^(SG|BNP)$/i.test(w.text)&&words.some(g=>/^GOLD$/i.test(g.text)&&g.bbox.x0>w.bbox.x0&&g.bbox.x0-w.bbox.x1<60&&Math.abs(g.bbox.y0-w.bbox.y0)<(w.bbox.y1-w.bbox.y0)));
+ heads.sort((a,b)=>a.bbox.y0-b.bbox.y0);
+ if(heads.length>13)throw Error('Zu viele Produktzeilen auf einem Bild. Bitte Liste aufteilen.');
+ return heads.map((w,i)=>{
+  const pad=Math.max(6,(w.bbox.y1-w.bbox.y0)*.4),y=Math.max(0,Math.floor(w.bbox.y0-pad));
+  const next=heads[i+1]?heads[i+1].bbox.y0-pad:height;
+  const venues=words.filter(v=>/^OTC$/i.test(v.text)&&v.bbox.y0>w.bbox.y1&&v.bbox.y1<next);
+  const end=Math.min(height,next,venues.length===1?venues[0].bbox.y1+pad*2:height);
+  return {x:0,y,width,height:Math.max(1,Math.floor(end-y))};
+ });
+}
+async function recognizeDegiroList(worker,prepared,first,statusId){
+ const bitmap=await createImageBitmap(prepared);
+ try{
+  let rects=degiroListRects(first.data,bitmap.width,bitmap.height);
+  if(!rects.length){
+   await worker.setParameters({tessedit_pageseg_mode:'6',tessedit_char_whitelist:''});
+   const retry=await ocrTimeout(worker.recognize(prepared),45000,'Listenlayout konnte nicht gelesen werden');
+   rects=degiroListRects(retry.data,bitmap.width,bitmap.height);
+  }
+  if(!rects.length)throw Error('DEGIRO-Listenaufbau nicht erkannt. Bitte Produktzeilen vollständig zeigen.');
+  const items=[],partialRows=[];
+  for(const [i,r] of rects.entries()){
+   const status=document.getElementById(statusId||'');if(status)status.textContent='🔎 DEGIRO-Produktzeile '+(i+1)+' von '+rects.length+' · Kennung und Werte zweimal prüfen …';
+   const canvas=document.createElement('canvas');canvas.width=r.width*2;canvas.height=r.height*2;
+   const ctx=canvas.getContext('2d',{alpha:false});ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+   ctx.drawImage(bitmap,r.x,r.y,r.width,r.height,0,0,canvas.width,canvas.height);
+   const crop=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+   if(!crop)throw Error('Produktzeile konnte nicht vergrößert werden.');
+   const reads=[];
+   for(const mode of ['6','11']){
+    await worker.setParameters({tessedit_pageseg_mode:mode,tessedit_char_whitelist:''});
+    const result=await ocrTimeout(worker.recognize(crop),20000,'Produktzeilenprüfung abgebrochen');
+    reads.push(result.data.text||'');
+   }
+   // A clipped last product continues on the next screenshot. Never use the
+   // orphaned venue at the top of that other file for this partial product.
+   const partial=reads.every(t=>!parseDegiroListRow(t)&&!/\bOTC\b/i.test(t));
+   if(partial&&i===rects.length-1){partialRows.push((degiroListBlocks(reads[0])[0]||'').split('\n')[0].trim());continue;}
+   let agreed=agreedDegiroListRow(reads);
+   if(!agreed){
+    await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});
+    const retry=await ocrTimeout(worker.recognize(crop),20000,'Produktzeilen-Zweitlesung abgebrochen');
+    reads.push(retry.data.text||'');agreed=agreedDegiroListRow(reads);
+   }
+   if(!agreed){
+    // Thin J/U and 0/O strokes can merge under smoothing. Read the same
+    // original crop with nearest-neighbour pixels, never substitute a code.
+    ctx.imageSmoothingEnabled=false;
+    ctx.drawImage(bitmap,r.x,r.y,r.width,r.height,0,0,canvas.width,canvas.height);
+    const sharp=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+    if(sharp){
+     await worker.setParameters({tessedit_pageseg_mode:'6',tessedit_char_whitelist:''});
+     const retry=await ocrTimeout(worker.recognize(sharp),20000,'Produktkennung konnte nicht bestätigt werden');
+     reads.push(retry.data.text||'');agreed=agreedDegiroListRow(reads);
+    }
+   }
+   if(!agreed){
+    // A fractional enlargement preserves a different sampling of thin strokes.
+    canvas.width=Math.round(r.width*2.5);canvas.height=Math.round(r.height*2.5);
+    const fractionalContext=canvas.getContext('2d',{alpha:false});fractionalContext.imageSmoothingEnabled=false;
+    fractionalContext.drawImage(bitmap,r.x,r.y,r.width,r.height,0,0,canvas.width,canvas.height);
+    const fractional=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+    if(fractional){
+     await worker.setParameters({tessedit_pageseg_mode:'6',tessedit_char_whitelist:''});
+     const retry=await ocrTimeout(worker.recognize(fractional),20000,'Alternative Produktzeile konnte nicht bestätigt werden');
+     reads.push(retry.data.text||'');agreed=agreedDegiroListRow(reads);
+    }
+   }
+   if(!agreed){
+    // Enlargement can split one glyph into two (for example 0 -> 0O).
+    // Re-read original resolution instead of deleting characters by guesswork.
+    canvas.width=r.width;canvas.height=r.height;
+    canvas.getContext('2d',{alpha:false}).drawImage(bitmap,r.x,r.y,r.width,r.height,0,0,r.width,r.height);
+    const original=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+    if(original)for(const mode of ['6','11']){
+     await worker.setParameters({tessedit_pageseg_mode:mode,tessedit_char_whitelist:''});
+     const retry=await ocrTimeout(worker.recognize(original),20000,'Original-Produktzeile konnte nicht bestätigt werden');
+     reads.push(retry.data.text||'');agreed=agreedDegiroListRow(reads);if(agreed)break;
+    }
+   }
+   if(!agreed)throw Error('Produktzeile '+(i+1)+': Kennung oder Werte noch widersprüchlich. Bitte diese Zeile schärfer zeigen.');
+   items.push(agreed);
+  }
+  if(!items.length)throw Error('Keine vollständige DEGIRO-Produktzeile erkannt.');
+  return {data:{text:items.map(x=>x.name+' | '+x.isin+'\n'+x.listRow.venue+' '+x.listRow.currency).join('\n'),listItems:items,partialRows,listLayoutVersion:1}};
+ }finally{bitmap.close();await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});}
+}
 async function readListBatch(files,recognize,progress=()=>{}){
  if(!files.length)throw new Error('Keine Bilder ausgewählt.');
- const texts=[],recoveries={};
+ const items=[],partialRows=[];
  for(const [index,file] of files.entries()){
   progress(index+1,files.length,file.name);
-  const result=await recognize(file,'dgCentralStatus');
+  const result=await recognize(file,'dgCentralStatus',false,'',true);
   const text=result?.data?.text||'';
-  if(!parseScreenshotCandidates(text).length)throw new Error('Keine Produkt-ISIN in '+file.name+' erkannt. Bitte das Listenbild prüfen.');
-  texts.push(text);Object.assign(recoveries,result.data.isinRecoveries||{});
+  partialRows.push(...(result?.data?.partialRows||[]));
+  // Parse each image separately: scrolling overlap and a cut last row must
+  // never combine fields across image boundaries.
+  const rows=result?.data?.listItems||parseScreenshotCandidates(text);
+  if(!rows.length)throw new Error('Keine Produkt-ISIN in '+file.name+' erkannt. Bitte das Listenbild prüfen.');
+  for(const row of rows){
+   const x={...row};
+   if(x.listRow)x.listRow={...x.listRow,imageReference:file.name||'DEGIRO-Listenbild '+(index+1)};
+   if(result.data.isinRecoveries?.[x.isin]){x.originalIsin=result.data.isinRecoveries[x.isin];x.ocrRecovery=true;}
+   const previous=items.find(y=>y.isin===x.isin);
+   if(previous){
+    if(previous.direction!==x.direction||previous.listRow&&x.listRow&&listRowSignature(previous)!==listRowSignature(x))throw Error('Widersprüchliche Produktzeilen in den Listenbildern. Bisherige Liste bleibt erhalten.');
+    continue;
+   }
+   items.push(x);
+  }
  }
- const items=parseScreenshotCandidates(texts.join('\n\n'));
- for(const x of items)if(recoveries[x.isin]){x.originalIsin=recoveries[x.isin];x.ocrRecovery=true;}
+ const normalized=s=>String(s).toUpperCase().replace(/\s+/g,' ').trim();
+ if(partialRows.some(prefix=>!prefix||!items.some(x=>normalized(x.name).startsWith(normalized(prefix)))))throw Error('Abgeschnittene Produktzeile: bitte auch das anschließende Listenbild auswählen.');
+ if(items.length>12)throw Error('Mehr als 12 Produkte erkannt; Liste wird nicht unbemerkt gekürzt.');
  return items;
 }
 // Separate research panel. These are issuer-checked historical candidates,
@@ -4420,7 +4580,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={serverVenueEvidence,degiroVenueObserved,screenshotSeriesContext,applyLearnedRanking,productHelpState,renderProductHelp,calculatedLeverageEvidence,recoverArchivedList,productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,preserveReadingPosition,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,calculatedProductDisplay,renderPrimaryProductValues,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={observedDegiroListRow,degiroListBlocks,parseDegiroListRow,agreedDegiroListRow,degiroListRects,recognizeDegiroList,serverVenueEvidence,degiroVenueObserved,screenshotSeriesContext,applyLearnedRanking,productHelpState,renderProductHelp,calculatedLeverageEvidence,recoverArchivedList,productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,preserveReadingPosition,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,calculatedProductDisplay,renderPrimaryProductValues,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 

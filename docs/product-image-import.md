@@ -28,3 +28,37 @@ Bei künftigen Änderungen der Erkennung `PRODUCT_OCR_VERSION` erhöhen. Wiederp
 3. App schließen/öffnen und gespeicherte Originale erneut prüfen, ohne Galerieauswahl.
 4. Eigene Zeitstempel und unveränderte ältere Kursnachweise kontrollieren.
 5. Originale löschen und prüfen, dass Produktdaten erhalten bleiben.
+
+
+## DEGIRO-Listenlayout (21. Oktober 2026)
+
+Der Listenimport verwendet nun ein festes Leseschema für SG-/BNP-Goldprodukte.
+Jede Produktzeile wird anhand ihrer Überschrift im Originalbild ausgeschnitten,
+vergrößert und unabhängig gelesen. Zwei vollständige Lesungen müssen bei ISIN,
+Richtung, Barriere, Basispreis, Verhältnis, Handelsplatz und Währung übereinstimmen.
+Bei Unsicherheit folgen eine andere Segmentierung und eine Version ohne
+Bildglättung. Prüfziffern dienen der Kontrolle, nicht dem Erraten einer Kennung.
+
+- SG/BNP: Emittent; Gold: Basiswert; Long/Call und Short/Put: Richtung.
+- BAR/SL: Barriere; BP/STR: Basispreis. Bei Mini-Produkten bleiben unterschiedliche Werte getrennt.
+- Bv/R: angezeigter Verhältnisnenner, etwa 10 für 0,1. Kein Hebel und kein Kurs.
+- LV: nur ausdrücklich angezeigter Hebel. Laufzeitdatum und Open End bleiben getrennt.
+- ISIN: vollständige Produktkennung mit Prüfziffer. Keine feste Liste alter Produkte oder Zahlen.
+- OTC-Zeile: Handelsplatz und EUR/CHF des unmittelbar darüberstehenden Produkts.
+- K/V: Bedienknöpfe, keine Kurse, keine Orderbestätigung. Kontostand, Navigation
+  und Telefonuhr werden nicht als Produktwerte oder Kurszeiten übernommen.
+
+Dateien werden einzeln gelesen. Scrollüberlappungen werden anhand identischer
+Produktdaten zusammengeführt; widersprüchliche Doppelzeilen blockieren die
+Ersetzung. Eine abgeschnittene letzte Zeile ohne Kennung/Handelsplatz wird nicht
+an die nächste Datei angehängt. Ab 13 Produkten wird nicht still gekürzt.
+Bei Lesefehlern bleibt die alte gespeicherte Liste erhalten.
+
+Der strukturierte Listennachweis bleibt mit Originalbildreferenz im Listenarchiv
+und wird auf der Produktkarte angezeigt. Er bestätigt den gelesenen Eintrag,
+keinen ausführbaren Brokerkurs. Uploadzeit bleibt Uploadzeit; Kurse und
+Handelsfreigabe werden weiter separat geprüft.
+
+Prüfung: `node test_degiro_list_reader.js`, bestehende Import-/Tabellentests und
+lokale OCR-Wiederholung der beiden Nutzeroriginale. Private Originalbilder und
+deren vollständige OCR-Texte werden nicht ins öffentliche Repository übernommen.
