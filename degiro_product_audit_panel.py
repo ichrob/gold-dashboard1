@@ -194,6 +194,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
         '\nGeldkurszeit: '+(item.quoteSourceAt?fmt(item.quoteSourceAt):'nicht nachgewiesen')+
         ' · Hebelzeit: '+leverageTimeLabel(item)+
         (item.brokerVenueEvidence?'\n✓ DEGIRO-Handelsplatz am Screenshot bestätigt: '+item.brokerVenueEvidence.venue+' · '+item.brokerVenueEvidence.observedMinute.replace('T',' ')+' · gültig bis '+fmt(item.brokerVenueEvidence.validUntil):'')+
+        (item.brokerVenueStatus?.state==='historical'?'\nFrüherer DEGIRO-Handelsplatz: '+item.brokerVenueStatus.historicalEvidence.venue+' · '+item.brokerVenueStatus.historicalEvidence.observedMinute.replace('T',' ')+'. Aktueller Nachweis weiterhin offen.':'')+
         (item.venueAction?'\nHandelsplatzprüfung: '+item.issuerVenue+' · '+item.venueAction:'')+
         (item.identityEvidence==='source-matched'?'\n✓ ISIN und Richtung automatisch mit der Produktquelle abgeglichen.':'')+
         (item.dataQuoteSource?'\nKursnachweis: '+item.dataQuoteSource+(item.dataQuoteKind==='market-observation'?' · beobachtetes Geld/Brief, keine DEGIRO-Ausführungszusage':''):'')+
@@ -321,6 +322,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    const report=await response.json();
    latestReport=report;
    window.BobProductAuditReport=report;
+   window.BobDegiro?.refreshVenueAssessment?.();
    if(!byId('bobProductAuditItems')?.contains(document.activeElement))render(report);
   }catch(_){latestReport=null;window.BobProductAuditReport=null;render({status:'unavailable',items:[]});}
   finally{clearTimeout(timer);busy=false;}

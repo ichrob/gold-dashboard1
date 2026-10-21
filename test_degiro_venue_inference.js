@@ -2,7 +2,7 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const now=Date.parse('2026-10-16T17:20:00Z'),isin='DE000FG14AV8';
 class Clock extends Date {constructor(...args){super(...(args.length?args:[now]));} static now(){return now;}}
 const window={};
-const source=fs.readFileSync('degiro_assistant.js','utf8').replace('window.BobDegiro={','window.BobDegiro={degiroVenueInferred,setTestList:a=>{listArchive=a;},');
+const source=fs.readFileSync('degiro_assistant.js','utf8').replace('window.BobDegiro={','window.BobDegiro={productProblemLabels,renderProductIdentity,degiroVenueInferred,setTestList:a=>{listArchive=a;},');
 vm.runInNewContext(source,{window,Date:Clock});
 const bob=window.BobDegiro;
 const archive={storedAt:'2026-10-16T06:04:57Z',files:[{name:'list.jpg'}],items:[{isin}]};
@@ -48,3 +48,19 @@ const direct=sample();direct.snapshot={degiroDisplayedQuote:{isin,currency:'CHF'
 assert.equal(bob.degiroVenueInferred(direct,archive,now),null);
 assert(bob.compactProductCard(direct).includes('DEGIRO-Handelsplatz belegt'));
 console.log('DEGIRO source inference: provenance, conflicts, expiry, UI and execution gates passed');
+
+// New server assessment overrides local inference consistently; stale reports cannot grant evidence.
+const tested=sample();tested.currency='CHF';
+window.BobProductAuditReport={status:'ok',lastCheckedAt:at,listUploadedAt:archive.storedAt,
+ items:[{isin,brokerVenueStatus:{version:1,required:true,state:'historical',current:false,
+ executionConfirmed:false,historicalEvidence:{isin,currency:'CHF',venue:'Societe Generale OTC',observedMinute:'2026-10-15T12:00'}}}]};
+assert.equal(bob.sharedVenueStatus(tested,now).state,'historical');
+assert.equal(bob.degiroVenueObserved(tested),false);
+assert.equal(bob.degiroVenueInferred(tested,archive,now),null);
+assert(bob.finalProductStatus(tested,now).reasons.includes('DEGIRO-Handelsplatznachweis offen'));
+assert(bob.productProblemLabels(tested).includes('DEGIRO-Handelsplatznachweis'));
+assert(bob.renderProductIdentity(tested,now).includes('✗'));
+assert(bob.renderVenueHistory(tested).includes('2026-10-15 12:00'));
+window.BobProductAuditReport.status='stale';
+assert.equal(bob.sharedVenueStatus(tested,now),null);
+console.log('Shared venue status: badges, labels, selection, history and freshness passed');
