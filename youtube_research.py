@@ -395,6 +395,8 @@ def analyze(url, fetch=read_url, *, verified_item=None, player_raw=None):
 
 def enrich(item, *, player_raw=None):
     try:
+        if item.get('transcriptAccess')=='members-only':
+            raise MembersOnlyVideo('YouTube bestätigt: nur für Kanalmitglieder. Kostenloser Inhaltsabruf nicht möglich.')
         result=analyze(item['url'],verified_item=item,player_raw=player_raw)
         expected='UCsl6Z6p7GOkczo8Cv-GH6Dg'
         if expected and result.get('channelId')!=expected:raise ValueError('Kanalzuordnung nicht bestätigt')
