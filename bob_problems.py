@@ -446,3 +446,7 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
 PANEL = PANEL.replace("__BOB_PUBLIC_CODES__", json.dumps(CODES, ensure_ascii=True))
 
 PANEL = PANEL.replace("__BOB_MANUAL_LABELS__", json.dumps(MANUAL_LABELS, ensure_ascii=True))
+
+# Keep reliability metrics inside the existing Problems navigation section.
+from source_reliability_panel import PANEL as RELIABILITY_PANEL
+PANEL = PANEL.replace('<div id="bobProblemsList">', RELIABILITY_PANEL+'<div id="bobProblemsList">')

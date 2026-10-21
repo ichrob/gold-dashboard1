@@ -1,3 +1,7 @@
+import sys
+if __name__ == '__main__':
+    sys.modules.setdefault('server', sys.modules[__name__])
+import candle_reliability
 import bob_passkey
 import degiro_readonly
 import degiro_sync
@@ -118,6 +122,7 @@ def read_diagnostics_for_mcp():
         'selfHealing':bob_self_healing.diagnostics_snapshot,
         'collection':collection,
         'background':background_health,
+        'sourceReliability':candle_reliability.snapshot,
         'strategyResearch':lambda:bob_diagnostics.fields(strategy_lab_background.status(),
             ('enabled','running','phase','lastSuccessAt','lastAttemptAt','lastRunDay','error')),
         'simulationAndPush':lambda:read_private_report_for_mcp('/diagnostics'),
@@ -192,6 +197,7 @@ _HEALING_WATCH_LOCK = threading.Lock()
 def maintain_known_workers():
     """Safe repairs only: existing idempotent starts, never trade or config changes."""
     import auxiliary_workers
+    candle_reliability.start()
     snaptrade_bridge.start()
     auxiliary_workers.maintain(auto_collection.enabled())
     collection_state = auto_collection.health()
@@ -563,7 +569,7 @@ def _ema_history_sufficient(rows, minutes, now=None, minimum=EMA200_WARMUP_BARS)
                for a, b in zip(closed[-3:], closed[-2:]))
 
 
-def _ema200_history_backfill(interval, range_value, observed):
+def _ema200_history_backfill(interval, range_value, observed, standby=False):
     """Research-only history warmup; no spot substitution or new order gate.
 
     One provider attempt per timeframe per five minutes for warmup, or per
@@ -578,8 +584,8 @@ def _ema200_history_backfill(interval, range_value, observed):
     with _ema_backfill_lock:
         # Warmup can wait five minutes; recovery of a stale live series cannot.
         # Keep source clocks and freshness gates unchanged.
-        retry_seconds = (_EMA_BACKFILL_INTERVAL_SECONDS
-                         if technical_history_fresh(observed, minutes, now) else 30)
+        retry_seconds = ((30 if interval in ('1m','5m') else 60) if standby else
+                         _EMA_BACKFILL_INTERVAL_SECONDS if technical_history_fresh(observed, minutes, now) else 30)
         retry = now - _ema_backfill_attempted.get(interval, -1e12) >= retry_seconds
         if retry:
             _ema_backfill_attempted[interval] = now
@@ -600,6 +606,7 @@ def _ema200_history_backfill(interval, range_value, observed):
                     mark_bar_state(rows,60)
                     rows=aggregate_bars(rows,240)
                 mark_bar_state(rows, minutes)
+                candle_reliability.observe('xaus',interval,rows)
                 # Preserve a usable current source even while EMA200 is still
                 # warming up. Existing indicator gates decide readiness; an
                 # older 200-bar feed must not displace a fresh 100-bar feed.
@@ -607,7 +614,10 @@ def _ema200_history_backfill(interval, range_value, observed):
                     with _ema_backfill_lock:
                         _ema_backfill_series[interval] = [dict(row) for row in rows[-1000:]]
                     print(f"BOB_EMA200_BACKFILL interval={interval} completed={sum(not b['isOpen'] for b in rows)}", flush=True)
+            else:
+                candle_reliability.observe('xaus',interval,error='incomplete')
         except (OSError, ValueError, TypeError, KeyError, RuntimeError):
+            candle_reliability.observe('xaus',interval,error='unavailable')
             print(f"BOB_EMA200_BACKFILL interval={interval} unavailable", flush=True)
     with _ema_backfill_lock:
         historical = [dict(row) for row in _ema_backfill_series.get(interval, [])]
@@ -662,6 +672,7 @@ def fetch_technical_history(interval, range_value):
             if out:
                 for row in out:row['source']='XAUS · datierte XAU/USD-Historie'
                 mark_bar_state(out,minutes)
+                candle_reliability.observe('xaus',interval,out)
                 out=retain_technical_history(interval,out)
                 primary = out
                 if technical_history_fresh(out, minutes):
@@ -1140,7 +1151,7 @@ class Handler(BaseHTTPRequestHandler):
         # Sensitive data APIs must be authenticated before any data generation.
         # Keep static PWA resources and /health public, but never expose live,
         # MTF, or DEGIRO enrichment data without the existing Bob credentials.
-        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path in ("/api/degiro/connection-status", "/api/degiro/sync") or path == "/api/degiro/sandbox" or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates" or path == "/api/degiro/audit" or path == "/api/degiro/candidate-proofs" or path == "/api/self-healing" or path == "/api/problems" or path == "/api/repair-statistics"
+        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path in ("/api/degiro/connection-status", "/api/degiro/sync") or path == "/api/degiro/sandbox" or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates" or path == "/api/degiro/audit" or path == "/api/degiro/candidate-proofs" or path == "/api/self-healing" or path == "/api/problems" or path == "/api/repair-statistics" or path == "/api/source-reliability"
         if protected_api_path or path == '/api/snaptrade/status':
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
@@ -1167,6 +1178,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if path == '/api/source-reliability':
+            body=json.dumps(candle_reliability.snapshot(),allow_nan=False).encode()
+            self.send_response(200)
+            self.send_header('Content-Type','application/json; charset=utf-8')
+            self.send_header('Cache-Control','no-store')
             self.end_headers()
             self.wfile.write(body)
             return
@@ -2279,6 +2299,7 @@ def start_agentmail_recovery():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "10000"))
     print(f"BOB_START port={port} host=0.0.0.0 version=runtime-http-trace-v2 process={PROCESS_ID}", flush=True)
+    candle_reliability.start()
     ensure_fibonacci_monitor()
     auto_collection.start()
     degiro_catalog.start()

@@ -1,3 +1,4 @@
+import candle_reliability
 import bob_passkey_store
 import snaptrade_settings
 import bob_oauth_store
@@ -158,6 +159,7 @@ def _init_db_once():
         bob_repair_store.init(conn)
         diagnostic_history.init(conn)
         bob_market_store.init(conn)
+        candle_reliability.init(conn)
         strategy_lab_store.init(conn)
         weekend_archive.init(conn)
         youtube_feed_archive.init(conn)
@@ -264,7 +266,7 @@ def cors(handler):
 
 def json_body(handler):
     length = int(handler.headers.get("Content-Length", "0") or 0)
-    if length <= 0 or length > (1048576 if urlparse(handler.path).path in ("/selection", "/background", "/research-enhancement/read", "/research-video/evidence", "/decision-audit/write", "/weekend-archive/write", "/strategy-lab/write") else 65536):
+    if length <= 0 or length > (1048576 if urlparse(handler.path).path in ("/market-candles/write", "/selection", "/background", "/research-enhancement/read", "/research-video/evidence", "/decision-audit/write", "/weekend-archive/write", "/strategy-lab/write") else 65536):
         raise ValueError("Ungültige Payload-Größe")
     return json.loads(handler.rfile.read(length).decode("utf-8"))
 
@@ -991,6 +993,18 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Ungültige Forschungsarchivdaten")
                 with db() as conn:
                     result=strategy_lab_store.handle(conn,path.rsplit("/",1)[-1],payload)
+                    conn.commit()
+                send_json(self,200,result)
+                return
+            if path in ('/market-candles/read','/market-candles/write'):
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'});return
+                payload=json_body(self)
+                if not isinstance(payload,dict):raise ValueError('Invalid candle payload')
+                with db() as conn:
+                    conn.execute("SET LOCAL statement_timeout='1500ms'")
+                    result=candle_reliability.handle(conn,path.rsplit('/',1)[-1],payload)
                     conn.commit()
                 send_json(self,200,result)
                 return
