@@ -92,8 +92,17 @@ def write(conn,event):
         except Exception:
             print('BOB_DIAGNOSTIC_SPOT archive=unavailable',flush=True)
     if time.monotonic()-_LAST_PRUNE>=300:
-        prune(conn)
-        _LAST_PRUNE=time.monotonic()
+        # Retention maintenance is best-effort. Keep it in a savepoint so a
+        # bounded prune timeout cannot roll back the current diagnostic event
+        # or turn the health delivery endpoint into a transient 503.
+        try:
+            with conn.transaction():
+                prune(conn)
+        except Exception as exc:
+            print('BOB_DIAGNOSTIC_PRUNE status=deferred error='+
+                  type(exc).__name__,flush=True)
+        finally:
+            _LAST_PRUNE=time.monotonic()
 
 
 def prune(conn):
