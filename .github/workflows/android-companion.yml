@@ -41,17 +41,29 @@ jobs:
           gradle-version: "8.10.2"
       - name: Assemble app and UI test APKs
         run: gradle -p android_companion :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
-      - name: Android manifest safety gate
+      - name: Inspect final merged APK permissions
+        shell: bash
         run: |
+          set -euo pipefail
+          APK="android_companion/app/build/outputs/apk/debug/app-debug.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" > /tmp/bob-android-actual-permissions.txt
+          cat /tmp/bob-android-actual-permissions.txt
+          for forbidden in android.permission.INTERNET android.permission.ACCESS_NETWORK_STATE \
+                           android.permission.SYSTEM_ALERT_WINDOW android.permission.QUERY_ALL_PACKAGES \
+                           android.permission.READ_SMS android.permission.READ_CONTACTS; do
+            if grep -Fq "$forbidden" /tmp/bob-android-actual-permissions.txt; then
+              echo "Forbidden permission in real APK: $forbidden" >&2
+              exit 1
+            fi
+          done
           python - <<'PY'
           from pathlib import Path
-          manifest=Path("android_companion/app/src/main/AndroidManifest.xml").read_text()
-          for banned in ("android.permission.INTERNET", "BIND_ACCESSIBILITY_SERVICE",
-                         "android.permission.SYSTEM_ALERT_WINDOW", "android.permission.QUERY_ALL_PACKAGES"):
-              assert banned not in manifest, banned
+          manifest = Path("android_companion/app/src/main/AndroidManifest.xml").read_text()
+          assert 'tools:node="remove"' in manifest
           assert 'android.intent.action.SEND' in manifest
           assert 'android:mimeType="image/*"' in manifest
-          print("No network / accessibility permission.")
+          assert 'BIND_ACCESSIBILITY_SERVICE' not in manifest
+          print("Final APK checked: no network access, no broker automation.")
           PY
       - name: Upload debug APK (lab only)
         uses: actions/upload-artifact@v4
