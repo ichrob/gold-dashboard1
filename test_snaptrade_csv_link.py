@@ -56,7 +56,7 @@ class CsvLinkTests(unittest.TestCase):
         self.assertFalse(snap['realOrders']);self.assertFalse(snap['liveQuotes'])
 
     def test_no_multiplier_guess_from_converted_value_or_unknown_asset(self):
-        for kind,price,value in [('other','7','13'),('future','7','14'),('option','7','14'),('bond','7','14')]:
+        for kind,price,value in [('other','7','13'),('other','.0001','.01'),('future','7','14'),('option','7','14'),('bond','7','14')]:
             with self.subTest(kind=kind,value=value):
                 snap=snapshot();snap['accounts'][0]['positions'][0]['kind']=kind
                 data=payload(snap);data['records'][0].update(price=price,value=value)

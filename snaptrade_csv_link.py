@@ -85,7 +85,7 @@ def apply(snapshot, csv_by_account):
             if p['kind'] != 'other' or not certificate: continue
             if any(record[k] is None for k in ('quantity','price','value')): continue
             qty, price, value = (Decimal(record[k]) for k in ('quantity','price','value'))
-            if qty == 0 or price <= 0 or abs(qty*price-value) > max(Decimal('.02'),abs(value)*Decimal('.0001')):
+            if qty == 0 or price <= 0 or abs(qty*price-value) > min(Decimal('.02'),abs(value)*Decimal('.005')):
                 continue
             if p['units'] is None or p['valuationPrice'] is None: continue
             units, current = Decimal(p['units']), Decimal(p['valuationPrice'])

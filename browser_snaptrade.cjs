@@ -63,7 +63,7 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
   await page.addScriptTag({content:fs.readFileSync('degiro_portfolio_store.js','utf8')});
   await page.addScriptTag({content:fs.readFileSync('degiro_report_import.js','utf8')});
   await page.evaluate(()=>{
-   const parsed=BobDegiroReport.readReport('Produkt;ISIN;Anzahl;Währung;Kurs;Wert;Einstandskurs\nExample Faktor 3;DE000FG309G0;2;CHF;7;14;6');
+   const parsed=BobDegiroReport.readReport('Produkt;ISIN;Anzahl;Währung;Kurs;Wert;Einstandskurs\nExample Faktor 3;DE000FG309G0;2;CHF;7;14;6\nOther Faktor;DE000FG14AV8;2;CHF;8;16;6');
    BobDegiroPortfolio.save(localStorage,parsed);
    const p=state.snapshot.accounts[0].positions[0];Object.assign(p,{name:'Example Faktor 3',positionKey:'test-position',symbol:'OPAQUE',kind:'other',stableInstrumentId:true,providerIsin:null,isin:null});
    window.csvCallsBefore=calls.filter(x=>x.url.endsWith('/csv-import')).length;
@@ -76,6 +76,10 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
   await page.locator('#snapCsvSave').click();
   assert((await page.locator('#snapCsvFeedback').innerText()).includes('bestätigen'));
   assert(await page.evaluate(()=>calls.filter(x=>x.url.endsWith('/csv-import')).length===csvCallsBefore));
+  await page.locator('#snapCsvConfirm0').check();
+  await page.locator('#snapCsvProduct0').selectOption('DE000FG14AV8');
+  assert.equal(await page.locator('#snapCsvConfirm0').isChecked(),false,'Changing the selected ISIN revokes confirmation');
+  await page.locator('#snapCsvProduct0').selectOption('DE000FG309G0');
   await page.locator('#snapCsvConfirm0').check();await page.locator('#snapCsvSave').click();
   await page.locator('#snapCsvFeedback').filter({hasText:'CSV-Zuordnung gespeichert'}).waitFor();
   const csvPayload=await page.evaluate(()=>JSON.parse(calls.find(x=>x.url.endsWith('/csv-import')).body));

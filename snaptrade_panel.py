@@ -152,6 +152,7 @@ function mount(){
     const confirmLabel=document.createElement('label');confirmLabel.append(confirmation,document.createTextNode(' Ich bestätige: Diese CSV-ISIN gehört zu dieser SnapTrade-Position.'));block.append(confirmLabel);
     if(exact.length===1){select.value=exact[0].isin;confirmation.checked=true;confirmLabel.hidden=true;}
     else{const hints=csv.records.filter(r=>r.currency===position.currency&&r.name.trim().toLowerCase()===(position.name||'').trim().toLowerCase());if(hints.length===1)select.value=hints[0].isin;}
+    select.addEventListener('change',()=>{const same=exact.length===1&&select.value===exact[0].isin;confirmation.checked=same;confirmLabel.hidden=same;});
     if(!position.providerIsin&&!position.stableInstrumentId){select.disabled=true;confirmation.disabled=true;const p=document.createElement('p');p.textContent='Stabile Anbieterkennung fehlt; dauerhafte Zuordnung nicht möglich.';block.append(p);}
     choices.push({position,select,confirmation});rows.append(block);
    }
