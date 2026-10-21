@@ -6,6 +6,7 @@ import math
 from datetime import datetime, timezone
 
 STEPS={'1m':60000,'5m':300000,'15m':900000,'30m':1800000,'1h':3600000,'4h':14400000}
+COLLECTION_GRACE_MS=45000
 
 
 def numeric(value):
@@ -42,13 +43,17 @@ def frame_health(raw, tf, now_ms):
         for i,b in enumerate(rows))
     recent_contiguous=count>=3 and all(
         b['openTime']-a['openTime']==step for a,b in zip(rows[-3:-1],rows[-2:]))
-    age=now_ms-last['openTime']
-    fresh=step<=age<=step*2
+    close_at=last['openTime']+step
+    age=now_ms-close_at
+    # The collector runs every 30 seconds.  Measure freshness from the actual
+    # candle close and allow one bounded collection cycle plus scheduling jitter;
+    # otherwise a valid 1m candle briefly flips to stale at each minute boundary.
+    fresh=0<=age<=step+COLLECTION_GRACE_MS
     state=('wrong-basis' if not identity else 'invalid-ohlc' if not valid
            else 'recent-gap' if not recent_contiguous else 'stale' if not fresh
            else 'insufficient' if count<100 else 'ok')
     return dict(state=state,closed=count,ema200='available' if state=='ok' and count>=200 else 'context-unavailable',
-                lastClosedAt=int(last['openTime']),ageSeconds=round(age/1000,1),
+                lastClosedAt=int(close_at),ageSeconds=round(age/1000,1),
                 source=last.get('source') or 'Quellenangabe fehlt')
 
 
