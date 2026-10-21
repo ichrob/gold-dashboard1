@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -66,6 +67,35 @@ class HistoryTests(unittest.TestCase):
         self.assertTrue(conn.statements)
         self.assertIn('INSERT INTO bob_diagnostic_history', conn.statements[0][0])
         self.assertTrue(any("SET LOCAL statement_timeout='5s'" in sql for sql,_ in conn.statements))
+
+    def test_parallel_prune_is_skipped_without_discarding_current_event(self):
+        from contextlib import nullcontext
+
+        class Conn:
+            def __init__(self):
+                self.statements = []
+
+            def execute(self, sql, params=()):
+                self.statements.append((sql, params))
+
+            def transaction(self):
+                return nullcontext()
+
+        conn = Conn()
+        prune_lock = threading.Lock()
+        prune_lock.acquire()
+        try:
+            with patch.object(h, '_PRUNE_LOCK', prune_lock), \
+                 patch.object(h, 'prune') as prune, \
+                 patch.object(h.time, 'monotonic', return_value=1801), \
+                 patch.object(h, '_LAST_PRUNE', 0):
+                h.write(conn, self.event())
+        finally:
+            prune_lock.release()
+
+        prune.assert_not_called()
+        self.assertTrue(conn.statements)
+        self.assertIn('INSERT INTO bob_diagnostic_history', conn.statements[0][0])
 
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
