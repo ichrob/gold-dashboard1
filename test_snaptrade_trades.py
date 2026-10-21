@@ -16,6 +16,14 @@ def report(rows, complete=True):
 
 
 class TradesTests(unittest.TestCase):
+    def test_signed_sell_units_are_asset_outflows_not_short_assumptions(self):
+        rows=[row('b','BUY','2','10',fee='1'),row('s','SELL','-2','12',fee='1',day='2026-10-02')]
+        out=report(rows)
+        self.assertEqual(out['realized'][0]['quantity'],'2')
+        self.assertEqual(out['realized'][0]['netPnl'],'2')
+        self.assertEqual(out['events'][1]['quantity'],'-2')
+        self.assertEqual(report([rows[1]])['realized'],[])
+
     def test_fifo_partial_sales_allocate_purchase_fees_once(self):
         rows=[row('b','BUY','10','10',fee='2'),row('s1','SELL','4','12',day='2026-10-02'),row('s2','SELL','6','11',day='2026-10-03')]
         out=report(list(reversed(rows)))

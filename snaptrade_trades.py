@@ -44,6 +44,10 @@ Never guess option, futures or bond multipliers. FX price and fee must share
 their documented transaction currency. Null fees remain unknown, not zero.
 """
     units, price, amount, fee = (decimal(row.get(k)) for k in ('quantity', 'price', 'amount', 'fee'))
+    # Activities represent an asset outflow with negative SELL units. Keep the
+    # original signed quantity in the source journal; FIFO uses its magnitude.
+    if row.get('type') == 'SELL' and units is not None:
+        units = abs(units)
     kind = row.get('securityKind', '').lower()
     if row.get('optionType') or kind in CONTRACT_KINDS:
         return None
