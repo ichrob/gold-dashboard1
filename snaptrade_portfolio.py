@@ -50,19 +50,31 @@ def journal_rows(data, category, number, text):
         if not isinstance(symbol, dict): symbol = {}
         currency = row.get('currency') if category == 'activities' else symbol.get('currency')
         if isinstance(currency, dict): currency = currency.get('code')
+        if not currency and category == 'activities':
+            fallback = row.get('currency_universal_symbol') or symbol.get('currency') or {}
+            currency = fallback.get('code') if isinstance(fallback, dict) else fallback
+        security_currency = symbol.get('currency') or {}
+        security_currency = security_currency.get('code') if isinstance(security_currency, dict) else security_currency
+        security_type = symbol.get('type') or {}
+        security_type = security_type.get('code') if isinstance(security_type, dict) else security_type
         key = row.get('brokerage_order_id' if category == 'orders' else 'id')
         if not isinstance(key, str) or not key:
             raise ValueError('Missing journal identifier')
         item = dict(key=identity(key), name=text(symbol.get('description') or symbol.get('symbol') or row.get('description')),
                     symbol=text(symbol.get('symbol')), currency=text(currency, 3),
-                    type=text(row.get('action' if category == 'orders' else 'type'), 40),
+                    type=text(row.get('action' if category == 'orders' else 'type'), 40).upper(),
                     status=text(row.get('status'), 40),
                     date=text(row.get('time_executed') or row.get('time_placed') if category == 'orders' else row.get('trade_date'), 40),
                     quantity=number(row.get('filled_quantity' if category == 'orders' else 'units')),
                     price=number(row.get('execution_price' if category == 'orders' else 'price')),
                     amount=number(row.get('amount')), fee=number(row.get('fee')),
                     stop=number(row.get('stop_price')), limit=number(row.get('limit_price')),
-                    orderType=text(row.get('order_type'), 40))
+                    orderType=text(row.get('order_type'), 40),
+                    securityKey=identity(symbol['id']) if isinstance(symbol.get('id'), str) and symbol['id'] else None,
+                    isin=isin(symbol.get('raw_symbol')) or isin(symbol.get('symbol')),
+                    securityCurrency=text(security_currency,3), securityKind=text(security_type,32),
+                    optionType=text(row.get('option_type'),40), fxRate=number(row.get('fx_rate')),
+                    externalReference=identity(row['external_reference_id']) if row.get('external_reference_id') else None)
         result.append(item)
     return result
 

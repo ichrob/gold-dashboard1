@@ -62,6 +62,21 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
   assert.equal(await page.locator('#snapHoldings img').count(),0);
   await page.evaluate(()=>{state.snapshot.accounts[0].positions[0].valuationPrice='7.9';poll();});
   assert(await page.locator('#snapHistorytest-account').evaluate(el=>el.open),'Polling must preserve open history');
+  // Automatic transaction results and quote observations remain separately labelled.
+  await page.evaluate(()=>{
+   const a=state.snapshot.accounts[0],p=a.positions[0];
+   a.tradeJournal={sourceAt:'2026-10-21T12:00:00Z',sourceAvailable:true,historyComplete:true,
+    events:[{name:'<img src=x>',type:'BUY',date:'2026-10-20',quantity:'2',price:'8',currency:'CHF',fee:null}],
+    realized:[{name:'Synthetic',date:'2026-10-21',quantity:'1',openQuantityAfter:'1',cost:'8',proceeds:'9',grossPnl:'1',fees:null,netPnl:null,currency:'CHF'}],
+    unresolved:[{name:'Synthetic',reason:'Gebühr nicht geliefert.'}],totals:[{currency:'CHF',grossPnl:'1',netPnl:null}],separateCharges:[],cashMovements:[]};
+   p.issuerObservation={code:'CURRENT',kind:'issuer-chart',source:'Synthetic issuer chart',currency:'CHF',bid:'9',ask:'10',bidAt:'2026-10-21T12:00:00Z',askAt:'2026-10-21T12:00:00Z',bidFresh:true,askFresh:true,observedAt:'2026-10-21T12:00:01Z'};
+   p.observedPositionValue='22.5';p.observedUnrealizedPnl='-2.5';poll();
+  });
+  await page.locator('#snapExecutionstest-account > summary').click();
+  assert((await page.locator('#snapExecutionstest-account').innerText()).includes('nicht vollständig berechenbar'));
+  assert((await page.locator('#snapHoldings').innerText()).includes('Chartbeobachtung, kein ausführbarer Kurs'));
+  assert((await page.locator('#snapHoldings').innerText()).includes('22.5 CHF'));
+  assert.equal(await page.locator('#snapHoldings img').count(),0);
   // Existing on-device CSV stays local until explicit review and confirmation.
   const fs=require('node:fs');
   await page.addScriptTag({content:fs.readFileSync('degiro_portfolio_store.js','utf8')});

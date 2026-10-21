@@ -96,6 +96,30 @@ function mount(){
     if(value.rows?.length>100)line(d,'','Anzeige auf die ersten 100 gelieferten Einträge begrenzt.');
    }
   }
+  function tradeJournal(parent,account){
+   const report=account.tradeJournal;if(!report)return;
+   const d=details(parent,'snapExecutions'+account.accountKey,'Automatisch dokumentierte Trades');
+   line(d,'Transaktionsquelle: ',stamp(report.sourceAt)+' · '+(report.sourceAvailable?'gelesen':'Abruf nicht verfügbar; letzter gespeicherter Stand'));
+   line(d,'','Tägliche Anbieterhistorie, üblicherweise einen Tag verzögert. FIFO ist eine Rechenmethode, kein Steuerbericht. Bestandsänderungen allein erzeugen keine Trades.');
+   line(d,'','Dokumentierte Käufe/Verkäufe: '+report.events.length+' · berechnete Verkäufe/Teilverkäufe: '+report.realized.length+' · offene Rechenprüfungen: '+report.unresolved.length);
+   if(!report.historyComplete)line(d,'','Historie unvollständig; Ergebnisrechnung bleibt offen.');
+   for(const total of report.totals){line(d,'FIFO-Ergebnis der berechenbaren Verkäufe: ',amount(total.grossPnl,total.currency)+' vor Gebühren');line(d,'Nach zugeordneten Gebühren: ',total.netPnl===null?'nicht vollständig berechenbar':amount(total.netPnl,total.currency)+' · vor separaten Gebühren und Steuern');}
+   for(const row of report.realized.slice(0,100)){
+    const card=document.createElement('section');card.style.cssText='border-top:1px solid #ddd;padding:8px 0';
+    line(card,'',row.name+' · Verkauf '+row.quantity+' · '+row.date+' · danach noch '+row.openQuantityAfter+' Stück aus dokumentierten Käufen');
+    line(card,'FIFO-Einstand: ',amount(row.cost,row.currency));line(card,'Verkaufserlös vor Gebühren: ',amount(row.proceeds,row.currency));
+    const pnl=line(card,'Ergebnis vor Gebühren: ',amount(row.grossPnl,row.currency));pnl.style.fontWeight='700';pnl.style.color=Number(row.grossPnl)<0?'#b42318':'#217a3d';
+    line(card,'Zugeordnete Gebühren: ',amount(row.fees,row.currency));line(card,'Nach zugeordneten Gebühren: ',amount(row.netPnl,row.currency));d.append(card);
+   }
+   const executions=details(d,'snapExecutionRows'+account.accountKey,'Käufe und Verkäufe · Originalbuchungen');
+   for(const row of report.events.slice(0,100)){line(executions,'',row.type+' · '+row.name+' · '+row.date+' · Menge '+(row.quantity??'nicht geliefert')+' · Kurs '+amount(row.price,row.currency)+' · Gebühr '+amount(row.fee,row.currency));}
+   const issues=details(d,'snapExecutionIssues'+account.accountKey,'Offene Rechenprüfungen');
+   for(const row of report.unresolved)line(issues,row.name+': ',row.reason);
+   line(d,'Separate Gebühren/Steuern: ',report.separateCharges.length+' Buchungen; nicht automatisch zusätzlich zu Transaktionsgebühren abgezogen.');
+   for(const row of report.separateCharges.slice(0,50))line(d,'',row.type+' · '+row.date+' · '+amount(row.amount,row.currency));
+   line(d,'Ein-/Auszahlungen: ',report.cashMovements.length+' Buchungen; kein Tradinggewinn.');
+   line(d,'','Diese Dokumentation ändert keine aktiven Trades, Simulationen, Strategieregeln oder Handelsfreigaben.');
+  }
   for(const [i,account] of (data.snapshot?.accounts||[]).entries()){
    const box=document.createElement('section'),title=document.createElement('h4'),meta=document.createElement('p');
    title.textContent='DEGIRO-Depot '+(i+1)+' · '+account.positions.length+' gelieferte Positionen';box.append(title);
@@ -118,11 +142,21 @@ function mount(){
     const quote=item.issuerQuote;
     if(quote){line(card,'Produktquelle Geld/Brief: ',amount(quote.bid,quote.currency)+' / '+amount(quote.ask,quote.currency));line(card,'Originalzeiten: ',stamp(quote.bidAt)+' / '+stamp(quote.askAt)+' · '+quote.source);}
     else line(card,'Produktkursüberwachung: ',item.isin?'Noch kein passender aktueller Originalkurs bestätigt.':'Eindeutige ISIN fehlt.');
+    const observation=item.issuerObservation;
+    if(observation){
+     const states={CURRENT:'aktuelles Kurspaar beobachtet',ONE_SIDED:'nur eine Kursseite aktuell',STALE_OR_UNDATED:'keine aktuellen datierten Kurse',ENDED:'Emittent meldet Produktende',SOURCE_UNAVAILABLE:'Quelle momentan nicht lesbar',UNSUPPORTED:'noch kein passender Depot-Kursleser'};
+     line(card,'30-Sekunden-Depotbeobachtung: ',states[observation.code]||'noch nicht bestätigt');
+     if(observation.source)line(card,'Quelle: ',observation.source+(observation.kind==='issuer-chart'?' · Chartbeobachtung, kein ausführbarer Kurs':' · kein DEGIRO-Ausführungskurs'));
+     if(observation.bid!==null&&observation.bid!==undefined)line(card,'Beobachtet Geld: ',amount(observation.bid,observation.currency)+' · '+stamp(observation.bidAt)+(observation.bidFresh?'':' · nicht aktuell bestätigt'));
+     if(observation.ask!==null&&observation.ask!==undefined)line(card,'Beobachtet Brief: ',amount(observation.ask,observation.currency)+' · '+stamp(observation.askAt)+(observation.askFresh?'':' · nicht aktuell bestätigt'));
+     line(card,'Zuletzt geprüft: ',stamp(observation.observedAt));
+     if(item.observedPositionValue!==null&&item.observedPositionValue!==undefined){line(card,'Wert aus beobachtetem Geldkurs · berechnet: ',amount(item.observedPositionValue,item.currency)+' · Menge aus letztem Depotabruf');line(card,'Gewinn/Verlust dazu · berechnet: ',amount(item.observedUnrealizedPnl,item.currency)+' · vor separaten Gebühren');}
+    }
     box.append(card);
    }
    if(account.csvAutoReport){const report=account.csvAutoReport;line(box,'Automatischer CSV-Abgleich: ',report.matched+' von '+report.total+' Positionen zugeordnet');for(const item of report.unresolved||[]){const p=account.positions.find(p=>p.positionKey===item.positionKey);line(box,(p?.name||'Position')+': ',item.reason);}}
    if(account.csvImportedAt){const unlink=document.createElement('button');unlink.type='button';unlink.textContent='CSV-Zuordnung für dieses Depot entfernen';unlink.addEventListener('click',async()=>{if(busy)return;busy=true;unlink.disabled=true;controls();try{await call('csv-clear',{accountKey:account.accountKey});csvMessage('CSV-Zuordnung auf dem Server gelöscht. Die lokale CSV bleibt erhalten.');}catch(error){csvMessage(error.message);}finally{busy=false;unlink.disabled=false;controls();}});box.append(unlink);}
-   history(box,account);journal(box,account);
+   history(box,account);journal(box,account);tradeJournal(box,account);
    list.append(box);
   }
   const changes=data.snapshot?.changes||[];if(changes.length){const d=details(list,'snapChanges','Beobachtete Bestandsänderungen');line(d,'','Eine Mengenänderung allein belegt keinen Kauf oder Verkauf.');for(const c of changes.slice(-20).reverse())line(d,'',stamp(c.at)+' · '+c.name+' · '+(c.before??'nicht vorhanden')+' → '+(c.after??'nicht vorhanden'));}
