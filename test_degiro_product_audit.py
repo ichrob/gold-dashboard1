@@ -65,6 +65,28 @@ class ProductAuditTests(unittest.TestCase):
         self.assertNotIn('product-quote-evidence-missing', audit.public_help_codes(healed))
         self.assertFalse(healed['items'][0]['tradeApproved'])
 
+    def test_recent_matching_issuer_leverage_survives_one_fallback_cycle(self):
+        report = audit.build(feed(), {ISIN:provider()}, NOW)
+        original_at = report["items"][0]["leverageSourceAt"]
+        self.assertEqual(report["items"][0]["issuerLeverageObservation"]["at"], original_at)
+
+        fallback = provider(NOW+60_000)
+        fallback.pop("leverageAt")
+        fallback["source"] = "comdirect · BNP LiveTrading"
+        retained = audit.build(feed(), {ISIN:fallback}, NOW+60_000, report)
+        item = retained["items"][0]
+        self.assertNotIn("leverage-time", item["missing"])
+        self.assertEqual(item["leverageSourceAt"], original_at)
+        self.assertFalse(item["tradeApproved"])
+
+        changed = dict(fallback, leverage=19.0)
+        self.assertIn("leverage-time", audit.build(
+            feed(), {ISIN:changed}, NOW+60_000, report)["items"][0]["missing"])
+        expired = provider(NOW+91_000)
+        expired.pop("leverageAt")
+        self.assertIn("leverage-time", audit.build(
+            feed(), {ISIN:expired}, NOW+91_000, report)["items"][0]["missing"])
+
     def test_legacy_escalation_survives_changed_missing_fields(self):
         q = provider(); q['found'] = False
         report = audit.build(feed(), {ISIN:q}, NOW)
