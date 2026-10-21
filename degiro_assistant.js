@@ -2750,12 +2750,20 @@ async function restoreListArchive(){
      localStorage.setItem(PRODUCT_STORE_KEY,backup);
    }
   }
+  // Recover an accidentally empty row cache from the same original image archive.
+  if(!loadIdentities().length&&Array.isArray(listArchive?.items)){
+   const rows=listArchive.items.map(cleanStoredProduct).filter(Boolean);
+   if(rows.length){
+    const payload=JSON.stringify({version:2,products:rows,listUploadedAt:listArchive.storedAt});
+    localStorage.setItem(PRODUCT_STORE_KEY,payload);productStorageBlocked=false;
+   }
+  }
   // Never turn a restart/current date into the original screenshot date.
   showListArchive();
  }catch(_){productStorageMessage='Bildspeicher nicht erreichbar. Vorhandene Produktdaten werden weiterhin geladen.';}
 }
 const IDENTITY_KEY='bobDegiroIdentitiesV1', PRODUCT_STORE_KEY='bobDegiroProductsV2';
-let productStorageMessage='',productStorageBlocked=false;
+let productStorageMessage='',productStorageBlocked=false,productRowsReady=false;
 function cleanStoredProduct(x){
  if(x&&!validIsin(x.isin)){
   const corrected=normalizeOcrIsin(x.isin,x.name||'');
@@ -2771,7 +2779,9 @@ function cleanStoredProduct(x){
 }
 function writeStoredProducts(items){
  if(productStorageBlocked)return false;
- try{const rows=items.map(cleanStoredProduct).filter(Boolean).slice(0,12),payload=JSON.stringify({version:2,products:rows,listUploadedAt:listArchive?.storedAt||null});
+ try{const rows=items.map(cleanStoredProduct).filter(Boolean).slice(0,12);
+  if(!rows.length&&loadIdentities().length)return false;
+  const payload=JSON.stringify({version:2,products:rows,listUploadedAt:listArchive?.storedAt||null});
   // Only an actual screenshot upload sets its original observation date.
   if(localStorage.getItem(PRODUCT_STORE_KEY)!==payload)localStorage.setItem(PRODUCT_STORE_KEY,payload);
   if(localStorage.getItem(PRODUCT_STORE_KEY)!==payload)throw Error('Speicherung nicht bestätigt');
@@ -4240,13 +4250,16 @@ async function refreshIssuerCandidates(){
 
 async function restoreServerCorrection(){
  const original=listArchive,revision=listRevision;
- if(!original?.storedAt)return;
+ const local=loadIdentities();
  try{
   const response=await fetch('/api/degiro/list-correction',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'read'})});
   if(!response.ok)return;
   const data=await response.json();
-  if(!data.ok||!data.corrected||data.listUploadedAt!==original.storedAt||listArchive!==original||revision!==listRevision)return;
-  if(original.correctionVersion===data.version)return;
+  if(!data.ok||!Array.isArray(data.products)||!data.products.length||data.products.length>12
+     ||!Number.isFinite(Date.parse(data.listUploadedAt))||Date.parse(data.listUploadedAt)>Date.now()
+     ||(original?.storedAt&&data.listUploadedAt!==original.storedAt)
+     ||listArchive!==original||revision!==listRevision)return;
+  if(local.length&&(!data.corrected||original?.correctionVersion===data.version))return;
   const existing=loadIdentities();
   const items=data.products.map(p=>{
    const direction=p.productDirection||p.direction;
@@ -4254,14 +4267,14 @@ async function restoreServerCorrection(){
    return cleanStoredProduct({...prior,isin:p.isin,name:p.name||p.isin,direction,isinConfirmed:false});
   });
   if(!items.length||items.some(x=>!x))return;
-  const record={...original,items,correctionVersion:data.version};
-  const payload=JSON.stringify({version:2,products:items,listUploadedAt:original.storedAt});
+  const record={...original,files:original?.files||[],storedAt:data.listUploadedAt,items,correctionVersion:data.corrected?data.version:null};
+  const payload=JSON.stringify({version:2,products:items,listUploadedAt:data.listUploadedAt});
   let committed=false;
   await archiveTransaction('readwrite',store=>{const request=store.get('list');request.onsuccess=()=>{
-   if(listArchive!==original||revision!==listRevision||request.result?.storedAt!==original.storedAt)return;
+   if(listArchive!==original||revision!==listRevision||request.result?.storedAt!==original?.storedAt)return;
    store.put(record,'list');store.put(payload,'products');committed=true;
   };return request;});
-  if(committed){listRevision++;listArchive=record;localStorage.setItem(PRODUCT_STORE_KEY,payload);showListArchive();}
+  if(committed){listRevision++;listArchive=record;localStorage.setItem(PRODUCT_STORE_KEY,payload);productStorageBlocked=false;showListArchive();}
  }catch(_){/* Keep local originals when server correction is unavailable. */}
 }
 
@@ -4356,7 +4369,8 @@ async function inject(){
  await restoreListArchive();
  await restoreServerCorrection();
  const restoredProducts=loadIdentities();
- restoreProductRows(applyResearchedTerms(localStorage.getItem(PRODUCT_STORE_KEY)?restoredProducts:recoverReviewedLists(restoredProducts)));
+ restoreProductRows(applyResearchedTerms(restoredProducts));
+ productRowsReady=true;
  b.querySelector('[data-return-upload]').addEventListener('click',()=>{
   const rows=Array.from(document.querySelectorAll('[data-dg="isin"]')).map(el=>({isin:el.value,index:el.dataset.i}));
   const row=screenshotReturnRow(returnProductIsin,rows);
@@ -4515,7 +4529,7 @@ function buildPaperListEvidence(){
    }),fixedBarriers:window.BobCombined.fixedBarriers(),
    listUploadedAt:listArchive?.storedAt||null,origin:listArchive?.storedAt?'degiro-screenshot':'legacy'};
 }
-function rankUI(){return preserveReadingPosition(renderRankUI);}
+function rankUI(){if(!productRowsReady)return;return preserveReadingPosition(renderRankUI);}
 function renderRankUI(){
  expireVisibleList();
  saveIdentities();
