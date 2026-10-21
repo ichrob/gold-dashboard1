@@ -154,7 +154,10 @@ class SettingsPersistenceTest(unittest.TestCase):
                 loaded = settings.handle(conn, 'read', {})['sealed']
                 self.assertEqual(json.loads(b.cipher().decrypt(loaded.encode())), CONFIG)
                 self.assertNotIn(CONFIG['consumerKey'], loaded)
+                settings.handle(conn, 'state-save', {'sealed': sealed})
+                self.assertEqual(settings.handle(conn, 'state-read', {})['sealed'], sealed)
                 settings.handle(conn, 'delete', {})
+                self.assertIsNone(settings.handle(conn, 'state-read', {})['sealed'])
                 self.assertIsNone(settings.handle(conn, 'read', {})['sealed'])
 
 

@@ -1,6 +1,7 @@
 """Read-only portfolio arithmetic and bounded journal; never trading evidence."""
 from decimal import Decimal
 import hashlib
+import json
 import re
 
 
@@ -92,4 +93,6 @@ def record(history, snapshot):
     if not previous or point['accounts'] != previous['accounts'] or point['complete'] != previous['complete']:
         history.append(point)
     del history[:-1008]
+    while len(history) > 1 and len(json.dumps(history, separators=(',', ':')).encode()) > 2_000_000:
+        del history[:max(1, len(history)//4)]
     return changes

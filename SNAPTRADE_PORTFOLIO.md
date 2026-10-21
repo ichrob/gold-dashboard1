@@ -18,7 +18,7 @@ with an unavailable status. A submitted or canceled stop order does not become a
 active trade stop. Journal entries and holdings never create MyTrade, Top 3,
 product approvals, paper entries, or real orders.
 
-The last 1008 distinct holdings snapshots and 300 quantity observations are kept
+Up to 1008 distinct holdings snapshots (at most 2 MB) and 300 quantity observations are kept
 in a bounded, compressed, Fernet-encrypted document in the existing private
 `bob_settings` store. The document is scoped to a hash of the personal client ID.
 The UI draws account values separately by account and currency; it makes no
