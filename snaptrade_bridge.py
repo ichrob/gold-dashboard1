@@ -49,6 +49,7 @@ _LEDGER_OWNER = None
 _QUOTE_THREAD = None
 _QUOTE_CURSOR = 0
 ID = r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
+ACTIVITY_OFFSETS = tuple(range(0, 6500, 500))
 
 
 class ReadError(Exception):
@@ -173,7 +174,7 @@ def api_get(path, config, params=None):
     if not permitted(path):
         raise ReadError('PATH_REJECTED')
     params = params or {}
-    if params and (not path.endswith('/activities') or set(params) != {'offset', 'limit'} or params['limit'] != 500 or params['offset'] not in (0, 500, 1000, 1500)):
+    if params and (not path.endswith('/activities') or set(params) != {'offset', 'limit'} or params['limit'] != 500 or params['offset'] not in ACTIVITY_OFFSETS):
         raise ReadError('PATH_REJECTED')
     query = urlencode({'clientId': config['clientId'], 'timestamp': int(time.time()), **params})
     # Current official SDK signs the exact resource path used by the request.
@@ -330,7 +331,7 @@ def save_ledger():
         raise ReadError('HISTORY_STORE_UNAVAILABLE')
 
 
-def read_journal(aid, config, previous=None, get=api_get):
+def read_journal(aid, config, previous=None, get=api_get, max_bytes=3_000_000):
     result = copy.deepcopy(previous or {})
     for category in ('orders', 'activities'):
         old = result.get(category) or {}
@@ -343,12 +344,16 @@ def read_journal(aid, config, previous=None, get=api_get):
                 complete = False  # Endpoint is a recent window, not full order history.
             else:
                 data, complete = [], False
-                for offset in (0, 500, 1000, 1500):
+                for offset in ACTIVITY_OFFSETS:
                     page = get('/accounts/' + aid + '/activities', config, {'offset': offset, 'limit': 500})
                     if not isinstance(page, dict): raise ReadError('INVALID_RESPONSE')
                     batch = rows(page.get('data'), wrapped=False)
                     if len(batch) > 500: raise ReadError('INVALID_RESPONSE')
                     data.extend(batch)
+                    preview=portfolio.journal_rows(data,category,number,text)
+                    if len(json.dumps(preview).encode())+len(json.dumps(result.get('orders',{})).encode())>max_bytes:
+                        if batch:del data[-len(batch):]
+                        break
                     total = (page.get('pagination') or {}).get('total')
                     if len(batch) < 500 or isinstance(total, int) and offset + len(batch) >= total:
                         complete = True; break
@@ -379,11 +384,16 @@ def update_portfolio(snapshot, config, generation):
     for a in snapshot['accounts']:
         aid = a.pop('providerAccountId')
         key = a['accountKey']
-        journal = read_journal(aid, config, ledger['journal'].get(key))
+        journal = read_journal(aid, config, ledger['journal'].get(key), api_get, 3_000_000//len(snapshot['accounts']))
         ledger['journal'][key] = journal
         a['journal'] = journal
         a['tradeJournal'] = trades.build(journal)
         a['tradeInsights'] = insights.read_account(a)
+    # Keep the encrypted total bounded without dropping transaction evidence.
+    # Snapshot history already has bounded retention; shorten it first when
+    # the expanded journal needs more of the existing four-megabyte budget.
+    while len(ledger['history'])>1 and len(json.dumps(ledger,separators=(',',':')).encode())>3_900_000:
+        del ledger['history'][:max(1,len(ledger['history'])//4)]
     snapshot['changes'] = ledger['changes']
     snapshot['history'] = [{'at': p['at'], 'complete':p['complete'], 'accounts':[
         {'accountKey':a['accountKey'], 'netValue':a['netValue']} for a in p['accounts']]} for p in ledger['history']]

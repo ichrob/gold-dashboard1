@@ -122,6 +122,21 @@ class PortfolioTests(unittest.TestCase):
             b.disconnect();self.assertEqual(db,{})
             self.assertEqual(b._LEDGER,{})
 
+    def test_daily_history_passes_old_two_thousand_limit_and_keeps_size_bound(self):
+        calls=[]
+        def get(path,config,params=None):
+            if path.endswith('/orders'):return []
+            offset=params['offset'];calls.append(offset)
+            return {'data':[{'id':str(i),'type':'CONTRIBUTION','trade_date':'2026-10-01','amount':1,'currency':{'code':'EUR'}} for i in range(offset,min(offset+500,2101))],
+                    'pagination':{'total':2101}}
+        result=b.read_journal(A,CONFIG,get=get)
+        self.assertTrue(result['activities']['complete'])
+        self.assertEqual(len(result['activities']['rows']),2101)
+        self.assertEqual(calls,[0,500,1000,1500,2000])
+        limited=b.read_journal(A,CONFIG,get=get,max_bytes=300000)
+        self.assertFalse(limited['activities']['complete'])
+        self.assertLess(len(json.dumps(limited).encode()),310000)
+
     def test_disconnect_during_journal_does_not_resurrect_history(self):
         snap=b.read_snapshot(CONFIG,lambda path,_:fixtures()[path])
         def interrupted(*args):
