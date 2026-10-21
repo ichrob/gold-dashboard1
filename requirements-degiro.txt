@@ -1,2 +1,6 @@
 # Optional read-only SDK probe. No chart extras or paid service.
 degiro-connector==3.0.36
+
+# The web service encrypts SnapTrade Personal keys before private storage.
+# Declare directly: the web image does not install requirements-push.txt.
+cryptography>=46.0.3

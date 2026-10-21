@@ -53,7 +53,10 @@ def utcnow():
 def cipher():
     # The isolated paper smoke workflow intentionally has no crypto packages.
     # Encryption is needed only when the owner configures a real connection.
-    from cryptography.fernet import Fernet
+    try:
+        from cryptography.fernet import Fernet
+    except ImportError:
+        raise ReadError('CRYPTO_UNAVAILABLE') from None
     secret = os.environ.get('PUSH_SERVICE_TOKEN', '')
     if not secret:
         raise ReadError('STORE_UNAVAILABLE')
@@ -321,8 +324,13 @@ def status():
 
 def diagnostics():
     value = status()
+    try:
+        cipher()
+        encryption_ready = True
+    except ReadError:
+        encryption_ready = False
     return {key: value[key] for key in ('code', 'configured', 'running', 'fresh', 'intervalSeconds', 'readOnly', 'realOrders', 'liveQuotes', 'coverageVerified')} | {
-        'checkedAt': value.get('checkedAt'),
+        'checkedAt': value.get('checkedAt'), 'encryptionReady': encryption_ready,
         'accountsReceived': len((value.get('snapshot') or {}).get('accounts', [])),
         'positionsReceived': sum(len(a['positions']) for a in (value.get('snapshot') or {}).get('accounts', []))}
 

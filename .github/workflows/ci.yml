@@ -49,6 +49,11 @@ jobs:
           python-version: "3.12"
       - name: Python dependencies
         run: python -m pip install --disable-pip-version-check -r requirements-push.txt -r requirements-degiro.txt
+      - name: Isolated web deployment encryption dependency
+        run: |
+          python -m venv /tmp/bob-web-deps
+          /tmp/bob-web-deps/bin/python -m pip install --disable-pip-version-check -r requirements-degiro.txt
+          PUSH_SERVICE_TOKEN=ci-deployment-test-only /tmp/bob-web-deps/bin/python -c "import snaptrade_bridge as s; c=s.cipher(); assert c.decrypt(c.encrypt(b'deployment-test')) == b'deployment-test'; assert s.diagnostics()['encryptionReady']"
       - name: Python syntax
         run: python -m py_compile server.py backtest.py push_server.py signal_worker.py estimate_quality.py future_analysis.py future_estimate.py product_estimate.py sg_quotes.py product_quotes.py
       - name: VAPID key generation

@@ -1984,8 +1984,13 @@ class Handler(BaseHTTPRequestHandler):
                 code = 200
             except snaptrade_bridge.ReadError as exc:
                 result, code = {'code': exc.code, 'message': 'Einrichtung nicht gespeichert. Geschützten Speicher prüfen.'}, 503
-            except (ValueError, TypeError):
-                result, code = {'code': 'INVALID_INPUT', 'message': 'Nur kostenlosen Personal-Schlüssel und Bestätigung eintragen.'}, 400
+            except Exception as exc:
+                # Keep infrastructure failures a structured response, never raw
+                # request bodies, keys or exception messages in the response/log.
+                if isinstance(exc, (ValueError, TypeError)):
+                    result, code = {'code': 'INVALID_INPUT', 'message': 'Nur kostenlosen Personal-Schlüssel und Bestätigung eintragen.'}, 400
+                else:
+                    result, code = {'code': 'SETUP_FAILED', 'message': 'Einrichtung nicht gespeichert. Technischen Fehler in Bob prüfen.'}, 503
             body = json.dumps(result, allow_nan=False).encode('utf-8')
             self.send_response(code)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
