@@ -220,6 +220,7 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
  </details>
  <p class="small">Gezählt werden dokumentierte Fehlerereignisse seit Aktivierung dieser Statistik, nicht sämtliche Fehler aus Bobs Vergangenheit. Ein Neustartversuch ist noch keine bestätigte Lösung. Die Zahlen liegen im privaten Speicher und bleiben nach einem Render-Neustart erhalten.</p>
 </div>
+<p id="bobProblemsBreakdown" class="small" role="status"></p>
 <div id="bobProblemsList"></div>
 <p class="small">Der Zähler zeigt, wie viele Probleme noch KI-Hilfe benötigen. Weitere Probleme erhöhen die Zahl. Nach bestätigter Behebung sinkt sie wieder. Das Öffnen der Sparte löscht keine Einträge.</p>
 <button id="bobProblemsRefresh" type="button">Probleme aktualisieren</button>
@@ -235,7 +236,12 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
  function badge(count){
   window.BobProblemsArchiveCount=count;
   // Private per-product KI-help counts stay off public GitHub issues.
-  const extra=Number.isInteger(window.BobProductAuditHelpCount)?window.BobProductAuditHelpCount:0;
+  const productCount=window.BobProductAuditHelpCount;
+  const extra=Number.isInteger(productCount)?productCount:0;
+  const breakdown=document.getElementById('bobProblemsBreakdown');
+  if(breakdown)breakdown.textContent=(Number.isInteger(count)?count:'Unbekannte Anzahl')+
+   ' technische KI-Hilfeanfragen · '+(Number.isInteger(productCount)?productCount:'Unbekannte Anzahl')+
+   ' Produktprobleme. Der rote Zähler zählt beide Bereiche; Produktdetails stehen weiter unten.';
   const combined=Number.isInteger(count)?count+extra:(extra>0?extra:null);
   const b=counter();
   if(!b)return;
@@ -399,7 +405,7 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
     'Letzte Aktualisierung der offenen KI-Hilfeanfragen: '+readableDate(data.checkedAt)+
     ' (Schweizer Zeit)'+(data.status==='stale'?' · GitHub momentan nicht erreichbar':'');
    if(data.count===0){
-    const p=document.createElement('p');p.textContent='✅ Keine offenen KI-Hilfeanfragen.';items.append(p);
+    const p=document.createElement('p');p.textContent='Keine offenen technischen KI-Hilfeanfragen. Produktprobleme werden separat aufgeführt.';items.append(p);
    }
    for(const issue of data.problems){
     const article=document.createElement('article');

@@ -14,7 +14,8 @@ PANEL = r'''<section id="bobProductAudit" class="card">
 <div id="bobProductAuditItems"></div>
 </div>
 </section>
-<section id="bobProductAuditProblem" hidden>
+<section id="bobProductAuditProblem" class="card">
+<h3>Produktprobleme · KI-Hilfe</h3>
 <p id="bobProductAuditProblemCount"></p>
 <div id="bobProductAuditProblemItems"></div>
 </section>
@@ -179,7 +180,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   status.className='small '+(good&&incomplete===0?'ok':'bad');
   updated.textContent='Letzte Hintergrundprüfung (Zürich): '+(r.lastCheckedAt?fmt(r.lastCheckedAt):'noch nicht bestätigt')+' · Listenstand: '+(r.listUploadedAt?fmt(r.listUploadedAt):'nicht bestätigt');
   const help=good?items.filter(i=>i.needsKiHelp):[];
-  window.BobProductAuditHelpCount=help.length;
+  window.BobProductAuditHelpCount=good?help.length:null;
   window.BobProblems?.badge?.(window.BobProblemsArchiveCount??null);
   problem.textContent=!good?'Produktüberwachung nicht aktuell · Prüfstatus unbestätigt':(help.length+' Produkte benötigen noch KI-Hilfe · '+incomplete+' insgesamt unvollständig · '+(r.terminated||0)+' beendet (kein Datenfehler)');
   for(const item of items){
