@@ -1,1 +1,1 @@
-{"version": 1, "checkedAt": "2026-10-21T06:02:20+00:00", "problems": []}
+{"version": 1, "checkedAt": "2026-10-21T06:23:20+00:00", "problems": [{"number": 676, "code": "product-leverage-clock-missing", "message": "Emittentenhebel oder dessen eigener bzw. eindeutig gemeinsamer Zeitbezug fehlt", "createdAt": "2026-10-21T06:02:19Z", "updatedAt": "2026-10-21T06:02:19Z", "url": "https://github.com/ichrob/gold-dashboard1/issues/676", "kiStatus": "new", "kiStatusLabel": "Wartet auf KI-Prüfung"}]}
