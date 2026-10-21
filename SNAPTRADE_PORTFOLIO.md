@@ -11,7 +11,7 @@ unknown. No cross-currency totals, fee assumptions or realized-profit claims.
 The provider's native account `net_value` is shown separately. Cash equivalents
 are explicitly identified; values are never added to cash again.
 
-The existing 600-second worker reads recent orders through a GET-only allowlist.
+The controlled SnapTrade worker reads recent orders through a GET-only allowlist. It uses a 600-second minimum interval while the authenticated DEGIRO view is active and six hours in the background.
 Activities are read once per day, up to four 500-row pages, and are explicitly
 marked incomplete if more remain. Provider failures preserve the previous journal
 with an unavailable status. A submitted or canceled stop order does not become an

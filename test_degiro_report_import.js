@@ -23,6 +23,16 @@ const transactions=readReport('Datum,ISIN,Quantity,Type\n19-10-2026,DE000PJ9NB98
 assert.equal(transactions.kind,'transactions');
 assert.equal(transactions.records[0].side,'Buy');
 assert.equal(transactions.records[0].date,'19-10-2026');
+const feeExport=readReport([
+ 'Datum;Uhrzeit;ISIN;Anzahl;Kauf/Verkauf;Transaktionskosten;Gebührenwährung;Währung',
+ '20-10-2026;10:31:02;DE000PJ9NB98;3;Kauf;-1,25;EUR;EUR'
+].join('\n'));
+assert.equal(feeExport.kind,'transactions');
+assert.equal(feeExport.records[0].fee,'-1,25');
+assert.equal(feeExport.records[0].feeCurrency,'EUR');
+assert.equal(feeExport.records[0].time,'10:31:02');
+assert.equal(feeExport.records[0].date,'20-10-2026');
+
 const swissLayout=[
  'Produkt,Symbol/ISIN,Anzahl,Schlußkurs,Wert,,Wert in CHF',
  'CASH & CASH FUND & F, , , ,CHF,100.25,100.25',

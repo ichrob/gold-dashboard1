@@ -1165,6 +1165,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
         if path == '/api/snaptrade/status':
+            snaptrade_bridge.mark_interactive()
             body = json.dumps(snaptrade_bridge.status(), allow_nan=False).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'application/json; charset=utf-8')

@@ -60,7 +60,10 @@ function readReport(text,options={}){
   costBasis:getIndex(h,['Einstandskurs','Einstandspreis','Durchschnittskurs','Average cost','Average purchase price','Cost basis','GAK']),
   value:getIndex(h,['Wert','Market value','Marktwert','Value','Gesamtwert','Total value']),
   side:getIndex(h,['Kauf/Verkauf','Buy/Sell','Buy / Sell','Transaktion','Type','Art']),
-  date:getIndex(h,['Datum','Date','Handelsdatum','Trade date'])
+  date:getIndex(h,['Datum','Date','Handelsdatum','Trade date']),
+  time:getIndex(h,['Uhrzeit','Time','Handelszeit','Trade time']),
+  fee:getIndex(h,['Transaktionskosten','Transaction fees','Gebühren','Gebuehren','Fee','Fees','Provision','Commission']),
+  feeCurrency:getIndex(h,['Gebührenwährung','Gebuehrenwaehrung','Fee currency','Commission currency'])
  };
  const kind=(ix.side>=0||ix.date>=0)?'transactions':'portfolio';
  // DEGIRO Swiss exports split "Wert" across currency + unlabeled amount,
@@ -91,7 +94,14 @@ function readReport(text,options={}){
   const rawQty=(row[ix.qty]||'').trim();
   const qty=parseNumber(rawQty);
   if(qty===null){invalid.push(i+1);continue;}
-  records.push({isin,quantity:qty,product:cell(row,ix.name),currency:cell(row,ix.currency),price:cell(row,ix.price),costBasis:cell(row,ix.costBasis),value:cell(row,ix.value),accountValue:accountValueHeader>=0?cell(row,accountValueHeader):'',side:cell(row,ix.side),date:cell(row,ix.date)});
+  const record={isin,quantity:qty,product:cell(row,ix.name),currency:cell(row,ix.currency),price:cell(row,ix.price),costBasis:cell(row,ix.costBasis),value:cell(row,ix.value),accountValue:accountValueHeader>=0?cell(row,accountValueHeader):'',side:cell(row,ix.side),date:cell(row,ix.date)};
+  if(kind==='transactions'){
+   record.time=cell(row,ix.time);
+   record.fee=cell(row,ix.fee);
+   record.feeCurrency=cell(row,ix.feeCurrency);
+   // These export fields are historical; no time-zone or native fee currency is inferred.
+  }
+  records.push(record);
  }
  if(!records.length)throw Error('Keine gültigen ISIN- und Mengenzeilen im Export gefunden.');
  return {kind,records,cashBalances,accountCurrency,invalidRows:invalid,source:'DEGIRO export (user-provided)',realtime:false,brokerVerified:false,ordersEnabled:false};
