@@ -141,7 +141,7 @@ function mount(){
     if(item.cashEquivalent)line(card,'','Bereits im Bargeld enthalten; nicht doppelt zum Depotwert addieren.');
     const quote=item.issuerQuote;
     if(quote){line(card,'Produktquelle Geld/Brief: ',amount(quote.bid,quote.currency)+' / '+amount(quote.ask,quote.currency));line(card,'Originalzeiten: ',stamp(quote.bidAt)+' / '+stamp(quote.askAt)+' · '+quote.source);}
-    else line(card,'Produktkursüberwachung: ',item.isin?'Noch kein passender aktueller Originalkurs bestätigt.':'Eindeutige ISIN fehlt.');
+    else if(!item.issuerObservation)line(card,'Produktkursüberwachung: ',item.isin?'Noch kein passender aktueller Originalkurs bestätigt.':'Eindeutige ISIN fehlt.');
     const observation=item.issuerObservation;
     if(observation){
      const states={CURRENT:'aktuelles Kurspaar beobachtet',ONE_SIDED:'nur eine Kursseite aktuell',STALE_OR_UNDATED:'keine aktuellen datierten Kurse',ENDED:'Emittent meldet Produktende',SOURCE_UNAVAILABLE:'Quelle momentan nicht lesbar',UNSUPPORTED:'noch kein passender Depot-Kursleser'};
