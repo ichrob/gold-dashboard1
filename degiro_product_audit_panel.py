@@ -36,7 +36,8 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    'Letzte Hintergrundprüfung: '+time(r?.lastCheckedAt),
    'DEGIRO-Listenstand: '+time(r?.listUploadedAt),
    'Produkte im Prüfbericht: '+(Number.isInteger(r?.total)?r.total:'unbekannt'),
-   'Geteilte Problemprodukte: '+items.length,
+   'Geteilte Prüfpositionen: '+items.length,
+   'Davon abweichende Kartenanzeige: '+items.filter(item=>item.cardDiscrepancy===true).length,
    'Unvollständige Produkte: '+(Number.isInteger(r?.incomplete)?r.incomplete:'unbekannt'),
    'Wichtig: Bei Status stale, unavailable oder checking-new-list keine Fehler als behoben werten.'
   ];
@@ -49,6 +50,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
     '',
     (index+1)+'. '+isin+' · '+safe(item.direction)+' · '+safe(item.state),
     'Fehlende Nachweise: '+(missing.length?missing.join(', '):'keine aufgelistet'),
+    'Einordnung: '+(item.cardDiscrepancy===true?'Abweichende Kartenanzeige: Server meldet vollständige Analysewerte, Produktkarte meldet offene Punkte. Ursache noch prüfen; keine Handelsfreigabe.':'Offene Prüfung laut Bericht'),
     'Fehlerbeschreibung: '+(messages.length?messages.join(' | '):'keine'),
     'Hinweise aus der aktuellen Produktkarte: '+(Array.isArray(item.cardMessages)&&item.cardMessages.length?item.cardMessages.map(safe).join(' | '):'keine zusätzlichen Kartenhinweise'),
     'Automatische Quellenreparatur: '+(Array.isArray(item.sourceRecovery)&&item.sourceRecovery.length?item.sourceRecovery.map(event=>safe(event.stage)+' · '+safe(event.state)).join(' | '):'keine technische Quellenstörung gemeldet'),
@@ -59,6 +61,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
     'Emittentenhebel-Originalzeit: '+time(item.leverageSourceAt),
     'Hebel-Näherung/Zeitart: '+safe(lev.kind)+' · '+time(lev.at),
     'Handelsplatz: '+safe(item.issuerVenue),
+    'Konkreter nächster Schritt: '+(item.venueAction?safe(item.venueAction):item.cardDiscrepancy===true?'Datenstand und Prüflogik der Produktkarte mit dem Serverbericht abgleichen.':'Offene Nachweise anhand ihrer Originalquellen prüfen.'),
     'Nachprüfungsstand: '+(item.needsKiHelp===true?'KI-Hilfe offen':'keine bestätigte KI-Eskalation'),
     'Automatische Handelsfreigabe: '+(item.tradeApproved===true?'laut Bericht ja (unabhängig prüfen)':'nein')
    );
@@ -83,7 +86,9 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    .map(item=>[item.isin,{...item}]));
   for(const card of local){
    const original=selected.get(card.isin)||source.find(item=>item.isin===card.isin)||{isin:card.isin,state:'local-product-problem'};
-   selected.set(card.isin,{...original,cardMessages:[card.labels,...card.messages]});
+   const cardDiscrepancy=report?.status==='ok'&&['analysis-evidence-complete','issuer-evidence-complete'].includes(original.state)
+    &&Array.isArray(original.missing)&&!original.missing.length&&original.needsKiHelp!==true;
+   selected.set(card.isin,{...original,cardDiscrepancy,cardMessages:[card.labels,...card.messages]});
   }
   return {...(report||{status:'unavailable'}),items:[...selected.values()]};
  }

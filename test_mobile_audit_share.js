@@ -90,3 +90,11 @@ async function checkHandoff(){
  console.log('Handoff behavior: visible text, clipboard success/denied/missing, stable snapshot, native share and cancellation passed');
 }
 checkHandoff().catch(error=>{console.error(error);process.exitCode=1});
+
+const discrepancy=isolated.merge({status:'ok',items:[{isin:'TEST',state:'analysis-evidence-complete',missing:[],needsKiHelp:false}]},[{isin:'TEST',labels:'Kurszeit',messages:['Prüfung offen']}]);
+assert.strictEqual(discrepancy.items[0].cardDiscrepancy,true);
+assert(isolated.build(discrepancy).includes('Davon abweichende Kartenanzeige: 1'));
+assert(isolated.build(discrepancy).includes('Ursache noch prüfen; keine Handelsfreigabe.'));
+const staleDiscrepancy=isolated.merge({status:'stale',items:discrepancy.items},[{isin:'TEST',labels:'Kurszeit',messages:[]}]);
+assert.strictEqual(staleDiscrepancy.items[0].cardDiscrepancy,false);
+assert(isolated.build({...sample,items:[{...sample.items[0],venueAction:'Originalen Handelsplatz prüfen'}]}).includes('Konkreter nächster Schritt: Originalen Handelsplatz prüfen'));
