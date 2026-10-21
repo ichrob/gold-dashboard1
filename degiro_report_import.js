@@ -43,7 +43,10 @@ function readReport(text,options={}){
   costBasis:getIndex(h,['Einstandskurs','Einstandspreis','Durchschnittskurs','Average cost','Average purchase price','Cost basis','GAK']),
   value:getIndex(h,['Wert','Market value','Marktwert','Value','Gesamtwert','Total value']),
   side:getIndex(h,['Kauf/Verkauf','Buy/Sell','Buy / Sell','Transaktion','Type','Art']),
-  date:getIndex(h,['Datum','Date','Handelsdatum','Trade date'])
+  date:getIndex(h,['Datum','Date','Handelsdatum','Trade date']),
+  time:getIndex(h,['Uhrzeit','Time','Handelszeit','Trade time']),
+  fee:getIndex(h,['Transaktionskosten','Transaction fees','Gebühren','Gebuehren','Fee','Fees','Provision','Commission']),
+  feeCurrency:getIndex(h,['Gebührenwährung','Gebuehrenwaehrung','Fee currency','Commission currency'])
  };
  const kind=(ix.side>=0||ix.date>=0)?'transactions':'portfolio';
  // DEGIRO Swiss exports split "Wert" across currency + unlabeled amount,
@@ -74,7 +77,14 @@ function readReport(text,options={}){
   const rawQty=(row[ix.qty]||'').trim();
   const qty=parseNumber(rawQty);
   if(qty===null){invalid.push(i+1);continue;}
-  records.push({isin,quantity:qty,product:cell(row,ix.name),currency:cell(row,ix.currency),price:cell(row,ix.price),costBasis:cell(row,ix.costBasis),value:cell(row,ix.value),accountValue:accountValueHeader>=0?cell(row,accountValueHeader):'',side:cell(row,ix.side),date:cell(row,ix.date)});
+  const record={isin,quantity:qty,product:cell(row,ix.name),currency:cell(row,ix.currency),price:cell(row,ix.price),costBasis:cell(row,ix.costBasis),value:cell(row,ix.value),accountValue:accountValueHeader>=0?cell(row,accountValueHeader):'',side:cell(row,ix.side),date:cell(row,ix.date)};
+  if(kind==='transactions'){
+   record.time=cell(row,ix.time);
+   record.fee=cell(row,ix.fee);
+   record.feeCurrency=cell(row,ix.feeCurrency);
+   // These export fields are historical; no time-zone or native fee currency is inferred.
+  }
+  records.push(record);
  }
  if(!records.length)throw Error('Keine gültigen ISIN- und Mengenzeilen im Export gefunden.');
  return {kind,records,cashBalances,accountCurrency,invalidRows:invalid,source:'DEGIRO export (user-provided)',realtime:false,brokerVerified:false,ordersEnabled:false};
@@ -133,8 +143,13 @@ function renderResults(doc,out,data,onCopy){
   card.append(identity);
   const fields=node(doc,'div','dg-export-fields');
   const values=[['Menge',String(rec.quantity)],['Währung',rec.currency||'Nicht angegeben'],
-   ['Schlusskurs',displayAmount(rec.price,rec.currency)],
+   [data.kind==='transactions'?'Ausführungskurs':'Schlusskurs',displayAmount(rec.price,rec.currency)],
    ['Wert',displayAmount(rec.value,rec.currency)]];
+  if(data.kind==='transactions'){
+   values.push(['Handelsdatum',rec.date||'Nicht angegeben']);
+   if(rec.time)values.push(['Handelszeit (Zeitzone unbekannt)',rec.time]);
+   if(rec.fee)values.push(['Gemeldete Gebühr',displayAmount(rec.fee,rec.feeCurrency)]);
+  }
   if(rec.accountValue && data.accountCurrency){
    values.push(['Wert in '+data.accountCurrency,displayAmount(rec.accountValue,data.accountCurrency)]);
   }
@@ -201,6 +216,20 @@ function mount(){
  input.setAttribute('aria-label','DEGIRO-CSV-Datei');
  select.addEventListener('click',()=>input.click());
  section.append(select,input);
+ // Android: shared CSV text can also be pasted without a file manager or
+ // clipboard permissions. Parsing stays entirely inside this browser.
+ const pasteSection=node(doc,'details','');
+ const pasteSummary=node(doc,'summary','','CSV-Text vom Handy einfügen');
+ const pasteText=node(doc,'textarea','');
+ pasteText.id='dgExportPaste';
+ pasteText.rows=5;
+ pasteText.maxLength=2000000;
+ pasteText.placeholder='Hier kopierten CSV-Text aus DEGIRO einfügen';
+ pasteText.style.cssText='display:block;box-sizing:border-box;width:100%;padding:10px;margin:8px 0;min-height:100px';
+ const pasteButton=node(doc,'button','','Eingefügten CSV-Text prüfen');
+ pasteButton.id='dgExportPasteCheck';pasteButton.type='button';
+ pasteSection.append(pasteSummary,pasteText,pasteButton);
+ section.append(pasteSection);
  const status=node(doc,'p','','Noch kein Export eingelesen.');
  status.id='dgExportStatus';
  status.setAttribute('role','status');
@@ -257,39 +286,44 @@ function mount(){
    status.textContent='ISIN konnte nicht automatisch kopiert werden. Du kannst die ISIN auf der Karte markieren.';
   }
  }
- input.addEventListener('change',async()=>{
-  const file=input.files&&input.files[0];
-  if(!file)return;
+ function ingest(text){
   out.replaceChildren();
   clear.disabled=true;
   status.textContent='CSV-Bericht wird auf diesem Gerät geprüft …';
+  const data=readReport(text);
+  let stored=false,warning='';
+  if(data.kind==='portfolio'){
+   try{
+    root.BobDegiroPortfolio.save(root.localStorage,data);
+    root.BobDegiroPortfolio.refresh();
+    root.BobDegiroAllProducts?.rebuild?.();
+    stored=true;
+   }catch(err){warning=err.message||'Lokale Speicherung nicht verfügbar';}
+  }
+  renderResults(doc,out,data,copyISIN);
+  status.textContent=stored?
+   '✓ '+data.records.length+' DEGIRO-Depotprodukte und '+data.cashBalances.length+
+   ' Bargeldpositionen dauerhaft in Bob auf diesem Gerät übernommen. Unter „Produkte“ sichtbar. '+
+   data.invalidRows.length+' Zeilen ausgelassen · kein Live-Depotsync.':
+   data.kind==='transactions'?
+    'Transaktionen gelesen, aber Depotbestand nicht ersetzt. Bitte den Portfolio-CSV-Export verwenden.':
+    'CSV gelesen, aber NICHT gespeichert ('+warning+'). Alte Depotliste bleibt bestehen.';
+  clear.disabled=!stored&&!root.BobDegiroPortfolio.load(root.localStorage);
+ }
+ input.addEventListener('change',async()=>{
+  const file=input.files&&input.files[0];
+  if(!file)return;
   try{
    if(file.size>2_000_000)throw Error('Datei größer als 2 MB.');
-   const data=readReport(await file.text());
-   let stored=false,warning='';
-   if(data.kind==='portfolio'){
-    try{
-     root.BobDegiroPortfolio.save(root.localStorage,data);
-     root.BobDegiroPortfolio.refresh();
-   root.BobDegiroAllProducts?.rebuild?.();
-     stored=true;
-    }catch(err){warning=err.message||'Lokale Speicherung nicht verfügbar';}
-   }
-   renderResults(doc,out,data,copyISIN);
-   status.textContent=stored?
-    '✓ '+data.records.length+' DEGIRO-Depotprodukte und '+data.cashBalances.length+
-    ' Bargeldpositionen dauerhaft in Bob auf diesem Gerät übernommen. Unter „Produkte“ sichtbar. '+
-    data.invalidRows.length+' Zeilen ausgelassen · kein Live-Depotsync.':
-    data.kind==='transactions'?
-     'Transaktionen gelesen, aber Depotbestand nicht ersetzt. Bitte den Portfolio-CSV-Export verwenden.':
-     'CSV gelesen, aber NICHT gespeichert ('+warning+'). Alte Depotliste bleibt bestehen.';
-   clear.disabled=!stored&&!root.BobDegiroPortfolio.load(root.localStorage);
-  }catch(err){
-   status.textContent='Import nicht möglich: '+err.message;
-  }finally{
-   // Allow the same file to be selected again; the visible button makes this clear.
-   input.value='';
-  }
+   await ingest(await file.text());
+  }catch(err){status.textContent='Import nicht möglich: '+err.message;}
+  finally{input.value='';}
+ });
+ pasteButton.addEventListener('click',()=>{
+  const raw=pasteText.value;
+  pasteText.value='';
+  try{if(raw.length>2_000_000)throw Error('CSV-Text größer als 2 MB.');ingest(raw);}
+  catch(err){status.textContent='Import nicht möglich: '+err.message;}
  });
 }
 if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',mount);else mount();

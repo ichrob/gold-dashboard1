@@ -16,8 +16,10 @@ revoke a provider connection; the user manages that in the SnapTrade dashboard.
 
 The web process starts one independent, idempotent background reader using the
 existing worker maintenance loop. Without a saved key it makes no SnapTrade
-requests. After configuration it reads at most every 600 seconds, including
-while Bob's browser is closed. Errors retain the previous snapshot as unconfirmed;
+requests. After configuration, authenticated use of the DEGIRO panel permits a read at most
+every 600 seconds. Without active panel use, the worker uses a six-hour cadence
+(maximum four background snapshots per 24 hours); the existing independent
+30-second issuer quote process remains separate. Errors retain the previous snapshot as unconfirmed;
 there are no immediate login retries. SnapTrade 429/402/401/403 errors are fixed
 labels without remote messages. A failed settings-store load is retried at most
 once per minute. Stored setup survives web restarts; financial snapshots are
