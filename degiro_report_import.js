@@ -40,6 +40,7 @@ function readReport(text,options={}){
   name:getIndex(h,['Produkt','Product','Produktname','Product Name','Name','Beschreibung','Description']),
   currency:getIndex(h,['Währung','Wahrung','Currency','Valuta']),
   price:getIndex(h,['Kurs','Preis','Price','Schlusskurs','Schlußkurs','Closing price']),
+  costBasis:getIndex(h,['Einstandskurs','Einstandspreis','Durchschnittskurs','Average cost','Average purchase price','Cost basis','GAK']),
   value:getIndex(h,['Wert','Market value','Marktwert','Value','Gesamtwert','Total value']),
   side:getIndex(h,['Kauf/Verkauf','Buy/Sell','Buy / Sell','Transaktion','Type','Art']),
   date:getIndex(h,['Datum','Date','Handelsdatum','Trade date'])
@@ -73,7 +74,7 @@ function readReport(text,options={}){
   const rawQty=(row[ix.qty]||'').trim();
   const qty=parseNumber(rawQty);
   if(qty===null){invalid.push(i+1);continue;}
-  records.push({isin,quantity:qty,product:cell(row,ix.name),currency:cell(row,ix.currency),price:cell(row,ix.price),value:cell(row,ix.value),accountValue:accountValueHeader>=0?cell(row,accountValueHeader):'',side:cell(row,ix.side),date:cell(row,ix.date)});
+  records.push({isin,quantity:qty,product:cell(row,ix.name),currency:cell(row,ix.currency),price:cell(row,ix.price),costBasis:cell(row,ix.costBasis),value:cell(row,ix.value),accountValue:accountValueHeader>=0?cell(row,accountValueHeader):'',side:cell(row,ix.side),date:cell(row,ix.date)});
  }
  if(!records.length)throw Error('Keine gültigen ISIN- und Mengenzeilen im Export gefunden.');
  return {kind,records,cashBalances,accountCurrency,invalidRows:invalid,source:'DEGIRO export (user-provided)',realtime:false,brokerVerified:false,ordersEnabled:false};
@@ -188,7 +189,7 @@ function mount(){
  ].join('\n');
  section.append(style);
  section.append(node(doc,'h3','','DEGIRO · Kontodaten lesen (Export)'));
- section.append(node(doc,'p','','CSV aus DEGIRO auswählen. Dein Depotbestand wird danach in Bob auf diesem Gerät gespeichert und unter „Produkte“ angezeigt, bis du ihn löschst oder durch einen neueren Portfolioexport ersetzt. Kein Upload zu Bobs Server.'));
+ section.append(node(doc,'p','','CSV aus DEGIRO auswählen. Dein Depotbestand wird danach in Bob auf diesem Gerät gespeichert und unter „Produkte“ angezeigt, bis du ihn löschst oder durch einen neueren Portfolioexport ersetzt. Kein automatischer Upload zu Bobs Server. Eine freiwillige Verknüpfung mit SnapTrade erfolgt separat über „Portfolio-CSV mit diesem Depot verknüpfen“.'));
  const select=node(doc,'button','dg-export-pick','CSV-Datei auswählen');
  select.id='dgExportPick';
  select.type='button';

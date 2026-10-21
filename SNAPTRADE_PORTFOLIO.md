@@ -39,3 +39,32 @@ activity pagination/cadence, encrypted persistence, owner separation, disconnect
 race, source identity/freshness and HTTP authentication tests; the existing
 mobile browser regression also covers history, missing journal data, XSS-safe
 rendering and stable expanded sections.
+
+## Explicit CSV reconciliation
+
+The existing device-local portfolio export is not uploaded automatically. In the
+DEGIRO tab, compare the stored CSV, select its account and review position/ISIN
+pairs. Exact existing ISIN matches are accepted; a matching name only suggests an
+option and never confirms it. Where SnapTrade has no ISIN, explicit confirmation
+and a stable provider instrument UUID are required. Account, currency, duplicate
+assignments and contradictory provider ISINs are checked on the server.
+
+Saving sends only the selected normalized CSV rows and mappings to the existing
+encrypted private store. Future reads reapply a mapping only to the same account,
+provider instrument key, symbol and currency. Clearing the mapping removes its
+historical evidence, inferred financial values and obsolete quote link, while
+retaining the device-local CSV and current broker data. Disconnect removes all
+server-side Personal data as before.
+
+CSV price, quantity, value and optional acquisition price are historical export
+fields. Import time is not used as original quote/export time. A CSV acquisition
+price never overwrites a current broker acquisition price. Export account-currency
+conversion values are not used as native-currency product values.
+
+For an unclassified but explicitly named factor/turbo/knock-out certificate only,
+a native-currency export value matching quantity times export price (within
+rounding tolerance) permits an explicitly labeled CSV-calculated unit valuation
+using the latest broker quantity, valuation price and acquisition price. This is
+an inferred unit quotation, not an independently verified contract multiplier or
+executable quote. Options, futures, bonds and unrecognized assets get no inferred
+multiplier. All trading approvals and simulation/stop rules remain separate.

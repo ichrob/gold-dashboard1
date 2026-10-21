@@ -22,7 +22,12 @@ PANEL = r'''
 </details>
 <p id="snapFeedback" role="status" aria-live="polite"></p>
 <p><button id="snapCheck" type="button" disabled>Verbindung prüfen</button> <button id="snapRemove" type="button" disabled>Schlüssel aus Bob löschen</button></p>
-<p id="snapClock" class="small"></p><div id="snapHoldings"></div>
+<p id="snapClock" class="small"></p>
+<details id="snapCsvLink"><summary>Portfolio-CSV mit diesem Depot verknüpfen</summary>
+<p>Die CSV bleibt zunächst auf diesem Gerät. Erst mit „Zuordnung speichern“ werden die angezeigten Exportfelder und bestätigten Zuordnungen verschlüsselt auf Bobs Server gespeichert. Der Exportstand bleibt historisch; Importzeit ist keine Kurszeit. Die Zuordnung schaltet keine Produkte zum Handel frei.</p>
+<button id="snapCsvPrepare" type="button">Gespeicherte Portfolio-CSV vergleichen</button>
+<div id="snapCsvReview"></div><p id="snapCsvFeedback" role="status" aria-live="polite"></p>
+</details><div id="snapHoldings"></div>
 <p class="small">Die Daten zeigen nur den vom Anbieter gelieferten Depotstand. Bewertungskurse können verzögert sein; die Bestandsabrufzeit ist keine Originalkurszeit. Produktfreigabe, Hebel- und KO-Nachweise werden weiterhin separat geprüft. Das Journal bleibt getrennt von Top 3 und aktiven Trades. Keine Orders. CSV-Import und bisherige Produktquellen bleiben verfügbar.</p>
 </section>
 <script>
@@ -33,10 +38,10 @@ function mount(){
  const status=document.getElementById('snapStatus'),clock=document.getElementById('snapClock'),list=document.getElementById('snapHoldings');
  const client=document.getElementById('snapClient'),key=document.getElementById('snapKey'),free=document.getElementById('snapFree');
  const save=document.getElementById('snapSave'),check=document.getElementById('snapCheck'),remove=document.getElementById('snapRemove');
- let busy=false,lastData=null,lastHoldings=null;
+ let busy=false,lastData=null,lastHoldings=null,csvReviewData=null;
  function feedback(message){const inline=document.getElementById('snapFormStatus'),outside=document.getElementById('snapFeedback');inline.textContent=message;outside.textContent=message;(document.getElementById('snapSetup').open?inline:outside).scrollIntoView({block:'nearest'});}
  function controls(){check.disabled=busy||!lastData?.configured||lastData.nextCheckSeconds>0;remove.disabled=busy||!lastData?.configured;}
- const messages={SETUP_REQUIRED:'Noch nicht verbunden. Einmalige Einrichtung oben durchführen.',READY:'Schlüssel gespeichert. Lesetest wird gestartet.',CHECKING:'Depot-Lesetest läuft …',READ_OK:'✓ Depotdaten empfangen. Goldprodukt-Abdeckung noch nicht bestätigt.',CONNECT_DEGIRO:'Personal-Zugang erreichbar. DEGIRO im SnapTrade-Dashboard verbinden.',READ_CONNECTION_REQUIRED:'DEGIRO-Verbindung bei SnapTrade muss auf Lesen stehen.',AUTH_REQUIRED:'Anmeldung nicht bestätigt oder Verbindung abgelaufen. Im SnapTrade-Dashboard prüfen.',ACCESS_DENIED:'Anbieter verweigert den Zugriff. Personal-Zugang und Berechtigungen prüfen.',PLAN_REQUIRED:'Anbieter verlangt einen anderen Tarif. Kein kostenpflichtiger Abruf wird ausgelöst.',RATE_LIMITED:'Anbieter begrenzt die Abrufe. Nächster Versuch frühestens nach zehn Minuten.',PROVIDER_UNAVAILABLE:'Anbieter momentan nicht erreichbar. Letzter Stand ist nicht als aktuell bestätigt.',INVALID_RESPONSE:'Datenformat nicht vollständig erkannt. Kein vollständiger Abgleich bestätigt.',STORE_UNAVAILABLE:'Geschützter Schlüsselspeicher momentan nicht erreichbar.',SETTINGS_UNREADABLE:'Gespeicherter Schlüssel kann nicht gelesen werden. Personal-Schlüssel erneut speichern.',NO_ACCOUNTS:'Noch kein lesbares DEGIRO-Depot gefunden.',TOO_MANY_ACCOUNTS:'Mehr als drei DEGIRO-Depots/Verbindungen. Abgleich zur Prüfung angehalten.'};
+ const messages={INVALID_CSV_LINK:'CSV-Zuordnung nicht gespeichert: Depot, Währung, stabile Anbieterkennung und Bestätigungen prüfen.',CSV_CONNECTION_REQUIRED:'Für die CSV-Zuordnung zuerst einen erfolgreichen Depotabruf abwarten.',CSV_RETRY_REQUIRED:'Depotabruf läuft oder wurde erneuert. CSV-Vergleich erneut öffnen.',HISTORY_STORE_UNAVAILABLE:'Verschlüsselte CSV-Speicherung nicht bestätigt.',SETUP_REQUIRED:'Noch nicht verbunden. Einmalige Einrichtung oben durchführen.',READY:'Schlüssel gespeichert. Lesetest wird gestartet.',CHECKING:'Depot-Lesetest läuft …',READ_OK:'✓ Depotdaten empfangen. Goldprodukt-Abdeckung noch nicht bestätigt.',CONNECT_DEGIRO:'Personal-Zugang erreichbar. DEGIRO im SnapTrade-Dashboard verbinden.',READ_CONNECTION_REQUIRED:'DEGIRO-Verbindung bei SnapTrade muss auf Lesen stehen.',AUTH_REQUIRED:'Anmeldung nicht bestätigt oder Verbindung abgelaufen. Im SnapTrade-Dashboard prüfen.',ACCESS_DENIED:'Anbieter verweigert den Zugriff. Personal-Zugang und Berechtigungen prüfen.',PLAN_REQUIRED:'Anbieter verlangt einen anderen Tarif. Kein kostenpflichtiger Abruf wird ausgelöst.',RATE_LIMITED:'Anbieter begrenzt die Abrufe. Nächster Versuch frühestens nach zehn Minuten.',PROVIDER_UNAVAILABLE:'Anbieter momentan nicht erreichbar. Letzter Stand ist nicht als aktuell bestätigt.',INVALID_RESPONSE:'Datenformat nicht vollständig erkannt. Kein vollständiger Abgleich bestätigt.',STORE_UNAVAILABLE:'Geschützter Schlüsselspeicher momentan nicht erreichbar.',SETTINGS_UNREADABLE:'Gespeicherter Schlüssel kann nicht gelesen werden. Personal-Schlüssel erneut speichern.',NO_ACCOUNTS:'Noch kein lesbares DEGIRO-Depot gefunden.',TOO_MANY_ACCOUNTS:'Mehr als drei DEGIRO-Depots/Verbindungen. Abgleich zur Prüfung angehalten.'};
  function stamp(value){const d=new Date(value);return value&&Number.isFinite(d.getTime())?d.toLocaleString('de-CH'):'nicht geliefert';}
  function render(data){
   lastData=data;
@@ -98,25 +103,81 @@ function mount(){
    for(const cash of account.cash){const p=document.createElement('p');p.textContent='Bargeld: '+(cash.amount??'unbekannt')+' '+cash.currency;box.append(p);}
    for(const item of account.positions){
     const card=document.createElement('section');card.style.cssText='border-top:1px solid #ddd;padding:8px 0';
-    line(card,'',(item.name||item.symbol||'Unbenannte Position')+' · Menge '+(item.units??'unbekannt')+' · '+(item.isin?'ISIN aus Anbietersymbol: '+item.isin:'ISIN nicht nachgewiesen'));
+    line(card,'',(item.name||item.symbol||'Unbenannte Position')+' · Menge '+(item.units??'unbekannt')+' · '+(item.isin?(item.isinSource==='user-confirmed'?'ISIN aus bestätigter CSV-Zuordnung: ':'ISIN: ')+item.isin:'ISIN nicht nachgewiesen'));
     line(card,'Bewertungskurs vom Anbieter: ',amount(item.valuationPrice,item.currency));
     line(card,'Einstand je Stück: ',amount(item.costBasis,item.currency));
-    line(card,'Positionswert: ',amount(item.marketValue,item.currency));
-    const pnl=line(card,'Offener Gewinn/Verlust: ',item.unrealizedPnl===null||item.unrealizedPnl===undefined?'nicht berechenbar':amount(item.unrealizedPnl,item.currency)+(item.unrealizedPercent!==null?' ('+Number(item.unrealizedPercent).toFixed(2)+' %)':'')+' · vor separaten Gebühren');
+    line(card,item.valuationBasis==='csv-calculated-unit-quotation'?'Positionswert · CSV-Rechenwert: ':'Positionswert: ',amount(item.marketValue,item.currency));
+    const pnl=line(card,item.valuationBasis==='csv-calculated-unit-quotation'?'Gewinn/Verlust · CSV-Rechenwert: ':'Offener Gewinn/Verlust: ',item.unrealizedPnl===null||item.unrealizedPnl===undefined?'nicht berechenbar':amount(item.unrealizedPnl,item.currency)+(item.unrealizedPercent!==null?' ('+Number(item.unrealizedPercent).toFixed(2)+' %)':'')+' · vor separaten Gebühren');
     pnl.style.fontWeight='700';if(item.unrealizedPnl!==null&&item.unrealizedPnl!==undefined)pnl.style.color=Number(item.unrealizedPnl)<0?'#b42318':'#217a3d';
     if(item.valuationNote)line(card,'',item.valuationNote);
+    if(item.csvEvidence){const c=item.csvEvidence;line(card,'CSV-Exportwert: ',amount(c.value,c.currency)+' · damalige Menge '+c.quantity+' · damaliger Kurs '+amount(c.price,c.currency));line(card,'CSV eingelesen: ',stamp(c.importedAt)+' · Export-/Kurszeit nicht bestätigt');if(c.costBasis!==null&&c.costBasis!==undefined)line(card,'Historischer CSV-Einstand: ',amount(c.costBasis,c.currency));}
+    if(item.csvLinkConflict)line(card,'','CSV-Zuordnung widerspricht den Anbieterdaten und wird nicht verwendet.');
     if(item.cashEquivalent)line(card,'','Bereits im Bargeld enthalten; nicht doppelt zum Depotwert addieren.');
     const quote=item.issuerQuote;
     if(quote){line(card,'Produktquelle Geld/Brief: ',amount(quote.bid,quote.currency)+' / '+amount(quote.ask,quote.currency));line(card,'Originalzeiten: ',stamp(quote.bidAt)+' / '+stamp(quote.askAt)+' · '+quote.source);}
     else line(card,'Produktkursüberwachung: ',item.isin?'Noch kein passender aktueller Originalkurs bestätigt.':'Eindeutige ISIN fehlt.');
     box.append(card);
    }
+   if(account.csvImportedAt){const unlink=document.createElement('button');unlink.type='button';unlink.textContent='CSV-Zuordnung für dieses Depot entfernen';unlink.addEventListener('click',async()=>{if(busy)return;busy=true;unlink.disabled=true;controls();try{await call('csv-clear',{accountKey:account.accountKey});csvMessage('CSV-Zuordnung auf dem Server gelöscht. Die lokale CSV bleibt erhalten.');}catch(error){csvMessage(error.message);}finally{busy=false;unlink.disabled=false;controls();}});box.append(unlink);}
    history(box,account);journal(box,account);
    list.append(box);
   }
   const changes=data.snapshot?.changes||[];if(changes.length){const d=details(list,'snapChanges','Beobachtete Bestandsänderungen');line(d,'','Eine Mengenänderung allein belegt keinen Kauf oder Verkauf.');for(const c of changes.slice(-20).reverse())line(d,'',stamp(c.at)+' · '+c.name+' · '+(c.before??'nicht vorhanden')+' → '+(c.after??'nicht vorhanden'));}
   for(const note of data.snapshot?.limitations||[]){const p=document.createElement('p');p.textContent=note;list.append(p);}
  }
+ function csvMessage(message){document.getElementById('snapCsvFeedback').textContent=message;}
+ function csvPrepare(){
+  const review=document.getElementById('snapCsvReview');review.replaceChildren();csvReviewData=null;
+  let csv;try{csv=window.BobDegiroPortfolio?.load(window.localStorage);}catch(_){}
+  if(!csv){csvMessage('Keine Portfolio-CSV auf diesem Gerät gefunden. Unter DEGIRO zuerst den Portfolioexport einlesen.');return;}
+  const accounts=lastData?.snapshot?.accounts||[];
+  if(lastData?.code!=='READ_OK'||!accounts.length){csvMessage('Zuerst einen erfolgreichen SnapTrade-Depotabruf abwarten.');return;}
+  if(csv.records.length>1000){csvMessage('Für die Verknüpfung sind höchstens 1.000 CSV-Positionen zulässig. Die lokale CSV bleibt erhalten.');return;}
+  const accountSelect=document.createElement('select');accountSelect.id='snapCsvAccount';accountSelect.style.maxWidth='100%';
+  for(const [i,a]of accounts.entries()){const option=document.createElement('option');option.value=a.accountKey;option.textContent='DEGIRO-Depot '+(i+1);accountSelect.append(option);}
+  const label=document.createElement('label');label.textContent='CSV gehört zu: ';label.append(accountSelect);review.append(label);
+  const rows=document.createElement('div');review.append(rows);
+  const saveCsv=document.createElement('button');saveCsv.type='button';saveCsv.id='snapCsvSave';saveCsv.textContent='Zuordnung speichern';review.append(saveCsv);
+  function build(){
+   rows.replaceChildren();const account=accounts.find(a=>a.accountKey===accountSelect.value),choices=[];
+   for(const [i,position]of account.positions.entries()){
+    const block=document.createElement('section');block.style.cssText='border-top:1px solid #ddd;padding:10px 0;overflow-wrap:anywhere';
+    const title=document.createElement('p');title.textContent='SnapTrade: '+(position.name||position.symbol)+' · '+position.units+' Stück · '+position.currency;block.append(title);
+    const exact=position.isin?csv.records.filter(r=>r.isin===position.isin&&r.currency===position.currency):[];
+    const select=document.createElement('select');select.id='snapCsvProduct'+i;select.style.cssText='max-width:100%;width:100%';select.setAttribute('aria-label','CSV-Produkt für '+(position.name||position.symbol));
+    const empty=document.createElement('option');empty.value='';empty.textContent='Nicht zuordnen';select.append(empty);
+    for(const record of csv.records.filter(r=>r.currency===position.currency&&(!position.providerIsin||position.providerIsin===r.isin))){const option=document.createElement('option');option.value=record.isin;option.textContent=record.isin+' · '+record.name+' · CSV-Menge '+record.quantity;select.append(option);}
+    block.append(select);
+    const confirmation=document.createElement('input');confirmation.type='checkbox';confirmation.id='snapCsvConfirm'+i;
+    const confirmLabel=document.createElement('label');confirmLabel.append(confirmation,document.createTextNode(' Ich bestätige: Diese CSV-ISIN gehört zu dieser SnapTrade-Position.'));block.append(confirmLabel);
+    if(exact.length===1){select.value=exact[0].isin;confirmation.checked=true;confirmLabel.hidden=true;}
+    else{const hints=csv.records.filter(r=>r.currency===position.currency&&r.name.trim().toLowerCase()===(position.name||'').trim().toLowerCase());if(hints.length===1)select.value=hints[0].isin;}
+    if(!position.providerIsin&&!position.stableInstrumentId){select.disabled=true;confirmation.disabled=true;const p=document.createElement('p');p.textContent='Stabile Anbieterkennung fehlt; dauerhafte Zuordnung nicht möglich.';block.append(p);}
+    choices.push({position,select,confirmation});rows.append(block);
+   }
+   csvReviewData={csv,account,choices};
+  }
+  accountSelect.addEventListener('change',build);build();
+  const clearCsv=document.createElement('button');clearCsv.type='button';clearCsv.id='snapCsvUnlink';clearCsv.textContent='CSV-Zuordnung für dieses Depot entfernen';review.append(clearCsv);
+  clearCsv.addEventListener('click',async()=>{if(busy)return;busy=true;clearCsv.disabled=true;controls();try{await call('csv-clear',{accountKey:accountSelect.value});csvMessage('CSV-Zuordnung auf dem Server gelöscht. Die lokale CSV bleibt erhalten.');review.replaceChildren();csvReviewData=null;}catch(error){csvMessage(error.message);}finally{busy=false;clearCsv.disabled=false;controls();}});
+  csvMessage('Bitte Depot und Produktpaare prüfen. Namen oder gleiche Mengen allein erzeugen keine automatische Zuordnung.');
+  saveCsv.addEventListener('click',async()=>{
+   if(busy||!csvReviewData)return;
+   const {csv,account,choices}=csvReviewData;
+   const links=choices.filter(c=>c.select.value&&c.confirmation.checked&&!c.select.disabled).map(c=>({positionKey:c.position.positionKey,isin:c.select.value,confirmed:true}));
+   if(!links.length){csvMessage('Mindestens eine eindeutige Zuordnung auswählen und bestätigen.');return;}
+   const parse=window.BobDegiroReport?.parseNumber;
+   if(!parse){csvMessage('CSV-Zahlenleser nicht geladen. Bob neu öffnen.');return;}
+   const num=v=>v===null||v===undefined||String(v).trim()===''?null:parse(v);
+   const used=new Set(links.map(l=>l.isin));
+   const records=csv.records.filter(r=>used.has(r.isin)).map(r=>({isin:r.isin,name:r.name,quantity:String(r.quantity),currency:r.currency,price:num(r.price),value:num(r.value),costBasis:num(r.costBasis)}));
+   const payload={accountKey:account.accountKey,importedAt:csv.importedAt,records,links};
+   busy=true;saveCsv.disabled=true;controls();csvMessage('Bestätigte Zuordnung wird verschlüsselt gespeichert …');
+   try{await call('csv-import',payload);csvMessage('✓ CSV-Zuordnung gespeichert. Exportwerte bleiben historisch. Passende Produktkurse werden separat geprüft.');review.replaceChildren();csvReviewData=null;}
+   catch(error){csvMessage(error.message);}finally{busy=false;saveCsv.disabled=false;controls();}
+  });
+ }
+ document.getElementById('snapCsvPrepare').addEventListener('click',csvPrepare);
  async function call(action,payload){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
   try{
