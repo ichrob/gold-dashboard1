@@ -36,8 +36,9 @@ ID = r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{1
 
 
 class ReadError(Exception):
-    def __init__(self, code):
+    def __init__(self, code, retry_after=0):
         self.code = code
+        self.retry_after = retry_after
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -160,7 +161,13 @@ def api_get(path, config):
             raise ReadError('RESPONSE_TOO_LARGE')
         return json.loads(body)
     except HTTPError as exc:
-        raise ReadError({401: 'AUTH_REQUIRED', 403: 'ACCESS_DENIED', 429: 'RATE_LIMITED', 402: 'PLAN_REQUIRED'}.get(exc.code, 'PROVIDER_UNAVAILABLE')) from None
+        retry_after = 0
+        if exc.code == 429:
+            for key in ('Retry-After', 'X-RateLimit-Reset', 'X-RateLimit-Account-Reset'):
+                raw = (exc.headers or {}).get(key, '')
+                if re.fullmatch(r'[0-9]{1,6}', str(raw)):
+                    retry_after = max(retry_after, min(86400, int(raw)))
+        raise ReadError({401: 'AUTH_REQUIRED', 403: 'ACCESS_DENIED', 429: 'RATE_LIMITED', 402: 'PLAN_REQUIRED'}.get(exc.code, 'PROVIDER_UNAVAILABLE'), retry_after) from None
     except ReadError:
         raise
     except Exception:
@@ -224,6 +231,8 @@ def read_snapshot(config, get=api_get):
     accounts, limitations, disabled = [], [], False
     seen = set()
     for connection in relevant:
+        if connection['brokerage'].get('enabled') is False or connection['brokerage'].get('maintenance_mode') is True:
+            raise ReadError('PROVIDER_UNAVAILABLE')
         if connection.get('disabled') is not False:
             disabled = True
             continue
@@ -282,6 +291,7 @@ def refresh():
         except ReadError as exc:
             with _LOCK:
                 if generation == _GENERATION:
+                    _NEXT = max(_NEXT, time.monotonic() + exc.retry_after)
                     _STATE.update(code=exc.code, checkedAt=utcnow())
     except ReadError as exc:
         with _LOCK:

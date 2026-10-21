@@ -117,11 +117,16 @@ class BridgeTests(unittest.TestCase):
         self.assertIsNone(b.status()['snapshot']); self.assertFalse(b.status()['configured'])
 
     def test_errors_are_sanitized_and_not_retried_in_a_loop(self):
-        opener = Mock(); opener.open.side_effect = HTTPError('https://private?secret=DO_NOT_ECHO', 429, 'DO_NOT_ECHO', {}, None)
+        opener = Mock(); opener.open.side_effect = HTTPError('https://private?secret=DO_NOT_ECHO', 429, 'DO_NOT_ECHO', {'Retry-After': '3600'}, None)
         with patch.object(b, 'build_opener', return_value=opener):
             with self.assertRaises(b.ReadError) as e: b.api_get('/authorizations', CONFIG)
         self.assertEqual(e.exception.code, 'RATE_LIMITED'); self.assertNotIn('DO_NOT_ECHO', str(e.exception))
+        self.assertEqual(e.exception.retry_after, 3600)
         opener.open.assert_called_once()
+        b._CONFIG = CONFIG
+        with patch.object(b, 'read_snapshot', side_effect=b.ReadError('RATE_LIMITED', 3600)):
+            b.refresh()
+        self.assertGreaterEqual(b.status()['nextCheckSeconds'], 3599)
 
     def test_invalid_numbers_and_future_timestamps_remain_unknown(self):
         for value in (True, 'NaN', 'Infinity', None): self.assertIsNone(b.number(value))
