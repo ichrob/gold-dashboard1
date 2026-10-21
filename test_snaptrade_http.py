@@ -37,7 +37,7 @@ class SnapTradeHTTPTest(ReadOnlyHTTPTest):
     def test_csv_link_requires_login_origin_and_rejects_unsafe_input(self):
         bridge=self.server_module.snaptrade_bridge
         with patch.object(bridge,'handle',return_value={'configured':True}) as handle:
-            for action in ('csv-import','csv-clear'):
+            for action in ('csv-import','csv-clear','csv-auto'):
                 for auth,origin,code in ((False,True,401),(True,False,403)):
                     with self.assertRaises(HTTPError) as e:
                         urlopen(self.request('/api/snaptrade/'+action,auth,origin,b'{}'),timeout=5)

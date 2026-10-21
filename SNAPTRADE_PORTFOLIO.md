@@ -68,3 +68,29 @@ using the latest broker quantity, valuation price and acquisition price. This is
 an inferred unit quotation, not an independently verified contract multiplier or
 executable quote. Options, futures, bonds and unrecognized assets get no inferred
 multiplier. All trading approvals and simulation/stop rules remain separate.
+
+## Automatic identifier reconciliation
+
+The primary CSV button now performs an automatic server-side identity check.
+The local file is shared only by this explicit action; it does not require
+per-position checkboxes. Multiple accounts require an account choice first.
+Manual reconciliation remains an optional fallback.
+
+Automatic identity evidence is restricted to an exact provider ISIN, an explicit
+`WKN:` national identifier for a checksum-valid DE000 ISIN, an earlier binding to
+the unchanged stable provider instrument, or an exact instrument FIGI match from
+OpenFIGI's ISIN/currency mapping response. Arbitrary six-character tickers,
+product names, quantities and share-class/composite FIGIs do not prove identity.
+Conflicting or duplicate candidates remain unresolved with a reason.
+
+The free, unauthenticated OpenFIGI mapping endpoint receives only ISIN and
+currency, never account IDs, names, holdings, amounts or credentials. Requests
+are bounded to ten identifiers and 500 KB, have an eight-second timeout, reject
+redirects, cache positive matches for a day and failures for fifteen minutes,
+and are limited to one public batch per minute. There are no subscriptions or
+paid refreshes. No lookup is attempted unless the broker provides a FIGI to
+compare. Reference: https://www.openfigi.com/api/documentation
+
+Unresolved CSV evidence is stored encrypted and reconsidered on the existing
+600-second holdings worker. This is not a promise that a missing identity will
+become available. Existing trade approvals and quote freshness rules are intact.

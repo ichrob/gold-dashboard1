@@ -24,8 +24,9 @@ PANEL = r'''
 <p><button id="snapCheck" type="button" disabled>Verbindung prüfen</button> <button id="snapRemove" type="button" disabled>Schlüssel aus Bob löschen</button></p>
 <p id="snapClock" class="small"></p>
 <details id="snapCsvLink"><summary>Portfolio-CSV mit diesem Depot verknüpfen</summary>
-<p>Die CSV bleibt zunächst auf diesem Gerät. Erst mit „Zuordnung speichern“ werden die angezeigten Exportfelder und bestätigten Zuordnungen verschlüsselt auf Bobs Server gespeichert. Der Exportstand bleibt historisch; Importzeit ist keine Kurszeit. Die Zuordnung schaltet keine Produkte zum Handel frei.</p>
-<button id="snapCsvPrepare" type="button">Gespeicherte Portfolio-CSV vergleichen</button>
+<p>Die CSV bleibt zunächst auf diesem Gerät. Mit dem automatischen Abgleich werden die CSV-Felder verschlüsselt auf Bobs Server gespeichert. Bob prüft die Kennungen selbst. Für den kostenlosen FIGI-Abgleich werden nur ISIN und Währung an OpenFIGI gesendet, keine Depotwerte oder Zugangsdaten. Der Exportstand bleibt historisch; Importzeit ist keine Kurszeit. Die Zuordnung schaltet keine Produkte zum Handel frei.</p>
+<button id="snapCsvPrepare" type="button">CSV automatisch prüfen und zuordnen</button>
+<details><summary>Nur bei Bedarf selbst zuordnen</summary><button id="snapCsvManual" type="button">Manuelle Zuordnung öffnen</button></details>
 <div id="snapCsvReview"></div><p id="snapCsvFeedback" role="status" aria-live="polite"></p>
 </details><div id="snapHoldings"></div>
 <p class="small">Die Daten zeigen nur den vom Anbieter gelieferten Depotstand. Bewertungskurse können verzögert sein; die Bestandsabrufzeit ist keine Originalkurszeit. Produktfreigabe, Hebel- und KO-Nachweise werden weiterhin separat geprüft. Das Journal bleibt getrennt von Top 3 und aktiven Trades. Keine Orders. CSV-Import und bisherige Produktquellen bleiben verfügbar.</p>
@@ -103,7 +104,7 @@ function mount(){
    for(const cash of account.cash){const p=document.createElement('p');p.textContent='Bargeld: '+(cash.amount??'unbekannt')+' '+cash.currency;box.append(p);}
    for(const item of account.positions){
     const card=document.createElement('section');card.style.cssText='border-top:1px solid #ddd;padding:8px 0';
-    line(card,'',(item.name||item.symbol||'Unbenannte Position')+' · Menge '+(item.units??'unbekannt')+' · '+(item.isin?(item.isinSource==='user-confirmed'?'ISIN aus bestätigter CSV-Zuordnung: ':'ISIN: ')+item.isin:'ISIN nicht nachgewiesen'));
+    line(card,'',(item.name||item.symbol||'Unbenannte Position')+' · Menge '+(item.units??'unbekannt')+' · '+(item.isin?(item.isinSource==='user-confirmed'?'ISIN aus bestätigter CSV-Zuordnung: ':['figi-verified','provider-wkn'].includes(item.isinSource)?'ISIN automatisch zugeordnet: ':'ISIN: ')+item.isin:'ISIN nicht nachgewiesen'));
     line(card,'Bewertungskurs vom Anbieter: ',amount(item.valuationPrice,item.currency));
     line(card,'Einstand je Stück: ',amount(item.costBasis,item.currency));
     line(card,item.valuationBasis==='csv-calculated-unit-quotation'?'Positionswert · CSV-Rechenwert: ':'Positionswert: ',amount(item.marketValue,item.currency));
@@ -118,6 +119,7 @@ function mount(){
     else line(card,'Produktkursüberwachung: ',item.isin?'Noch kein passender aktueller Originalkurs bestätigt.':'Eindeutige ISIN fehlt.');
     box.append(card);
    }
+   if(account.csvAutoReport){const report=account.csvAutoReport;line(box,'Automatischer CSV-Abgleich: ',report.matched+' von '+report.total+' Positionen zugeordnet');for(const item of report.unresolved||[]){const p=account.positions.find(p=>p.positionKey===item.positionKey);line(box,(p?.name||'Position')+': ',item.reason);}}
    if(account.csvImportedAt){const unlink=document.createElement('button');unlink.type='button';unlink.textContent='CSV-Zuordnung für dieses Depot entfernen';unlink.addEventListener('click',async()=>{if(busy)return;busy=true;unlink.disabled=true;controls();try{await call('csv-clear',{accountKey:account.accountKey});csvMessage('CSV-Zuordnung auf dem Server gelöscht. Die lokale CSV bleibt erhalten.');}catch(error){csvMessage(error.message);}finally{busy=false;unlink.disabled=false;controls();}});box.append(unlink);}
    history(box,account);journal(box,account);
    list.append(box);
@@ -126,7 +128,7 @@ function mount(){
   for(const note of data.snapshot?.limitations||[]){const p=document.createElement('p');p.textContent=note;list.append(p);}
  }
  function csvMessage(message){document.getElementById('snapCsvFeedback').textContent=message;}
- function csvPrepare(){
+ function csvManualPrepare(){
   const review=document.getElementById('snapCsvReview');review.replaceChildren();csvReviewData=null;
   let csv;try{csv=window.BobDegiroPortfolio?.load(window.localStorage);}catch(_){}
   if(!csv){csvMessage('Keine Portfolio-CSV auf diesem Gerät gefunden. Unter DEGIRO zuerst den Portfolioexport einlesen.');return;}
@@ -178,9 +180,40 @@ function mount(){
    catch(error){csvMessage(error.message);}finally{busy=false;saveCsv.disabled=false;controls();}
   });
  }
- document.getElementById('snapCsvPrepare').addEventListener('click',csvPrepare);
+ async function csvAuto(){
+  if(busy)return;
+  let csv;try{csv=window.BobDegiroPortfolio?.load(window.localStorage);}catch(_){}
+  if(!csv){csvMessage('Keine Portfolio-CSV auf diesem Gerät gefunden. Zuerst den Portfolioexport einlesen.');return;}
+  const accounts=lastData?.snapshot?.accounts||[];
+  if(lastData?.code!=='READ_OK'||!accounts.length){csvMessage('Erfolgreichen Depotabruf abwarten.');return;}
+  const review=document.getElementById('snapCsvReview');review.replaceChildren();csvReviewData=null;
+  if(accounts.length===1){await runCsvAuto(csv,accounts[0].accountKey);return;}
+  const label=document.createElement('label');label.textContent='Welches Depot gehört zu dieser CSV? ';
+  const select=document.createElement('select');select.id='snapCsvAutoAccount';select.style.maxWidth='100%';
+  const empty=document.createElement('option');empty.value='';empty.textContent='Depot auswählen';select.append(empty);
+  for(const [i,a]of accounts.entries()){const o=document.createElement('option');o.value=a.accountKey;o.textContent='DEGIRO-Depot '+(i+1);select.append(o);}
+  label.append(select);review.append(label);
+  const go=document.createElement('button');go.type='button';go.textContent='Dieses Depot automatisch abgleichen';go.addEventListener('click',()=>{if(select.value)runCsvAuto(csv,select.value);});review.append(go);
+ }
+ async function runCsvAuto(csv,accountKey){
+  if(busy)return;
+  const parse=window.BobDegiroReport?.parseNumber;
+  if(!parse||csv.records.length>1000){csvMessage('CSV-Zahlenleser nicht verfügbar oder mehr als 1.000 Positionen.');return;}
+  const num=v=>v===null||v===undefined||String(v).trim()===''?null:parse(v);
+  const records=csv.records.map(r=>({isin:r.isin,name:r.name,quantity:String(r.quantity),currency:r.currency,price:num(r.price),value:num(r.value),costBasis:num(r.costBasis)}));
+  const button=document.getElementById('snapCsvPrepare');busy=true;button.disabled=true;controls();csvMessage('Bob prüft die Wertpapierkennungen und speichert eindeutige Zuordnungen …');
+  try{
+   const data=await call('csv-auto',{accountKey,importedAt:csv.importedAt,records,links:[]});
+   const report=data.snapshot?.accounts.find(a=>a.accountKey===accountKey)?.csvAutoReport;
+   if(report)csvMessage('Automatisch zugeordnet: '+report.matched+' von '+report.total+'. '+(report.matched===report.total?'Keine ISIN-Einzelbestätigung nötig.':'Offene Positionen werden mit Begründung angezeigt und bei weiteren Depotabrufen erneut geprüft.'));
+   else csvMessage('Automatischer Prüfstatus nicht bestätigt.');
+   document.getElementById('snapCsvReview').replaceChildren();
+  }catch(error){csvMessage(error.message);}finally{busy=false;button.disabled=false;controls();}
+ }
+ document.getElementById('snapCsvPrepare').addEventListener('click',csvAuto);
+ document.getElementById('snapCsvManual').addEventListener('click',csvManualPrepare);
  async function call(action,payload){
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),action==='csv-auto'?45000:20000);
   try{
    const response=await fetch('/api/snaptrade/'+action,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},signal:controller.signal,body:JSON.stringify(payload||{})});
    if(response.status===401)throw Error('Bob-Anmeldung abgelaufen. Erneut in Bob anmelden; anschließend den Speicherstatus prüfen.');

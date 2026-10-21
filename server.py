@@ -1971,14 +1971,14 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        if path in ('/api/snaptrade/configure', '/api/snaptrade/check', '/api/snaptrade/disconnect', '/api/snaptrade/csv-import', '/api/snaptrade/csv-clear'):
+        if path in ('/api/snaptrade/configure', '/api/snaptrade/check', '/api/snaptrade/disconnect', '/api/snaptrade/csv-import', '/api/snaptrade/csv-clear', '/api/snaptrade/csv-auto'):
             if not self.authenticated():
                 bob_auth.send(self, 401); return
             if not bob_auth.same_origin(self.headers):
                 bob_auth.send(self, 403); return
             try:
                 length = int(self.headers.get('Content-Length', '0'))
-                if not 0 < length <= (1_000_000 if path == '/api/snaptrade/csv-import' else 2048):
+                if not 0 < length <= (1_000_000 if path in ('/api/snaptrade/csv-import','/api/snaptrade/csv-auto') else 2048):
                     raise ValueError('Ungültige Anfragegröße.')
                 result = snaptrade_bridge.handle(path.rsplit('/', 1)[-1], json.loads(self.rfile.read(length)))
                 code = 200
@@ -1988,7 +1988,7 @@ class Handler(BaseHTTPRequestHandler):
                 # Keep infrastructure failures a structured response, never raw
                 # request bodies, keys or exception messages in the response/log.
                 if isinstance(exc, (ValueError, TypeError)):
-                    result, code = ({'code': 'INVALID_CSV_LINK', 'message': 'CSV-Zuordnung nicht gespeichert.'} if path in ('/api/snaptrade/csv-import','/api/snaptrade/csv-clear') else {'code': 'INVALID_INPUT', 'message': 'Nur kostenlosen Personal-Schlüssel und Bestätigung eintragen.'}), 400
+                    result, code = ({'code': 'INVALID_CSV_LINK', 'message': 'CSV-Zuordnung nicht gespeichert.'} if path in ('/api/snaptrade/csv-import','/api/snaptrade/csv-clear','/api/snaptrade/csv-auto') else {'code': 'INVALID_INPUT', 'message': 'Nur kostenlosen Personal-Schlüssel und Bestätigung eintragen.'}), 400
                 else:
                     result, code = {'code': 'SETUP_FAILED', 'message': 'Einrichtung nicht gespeichert. Technischen Fehler in Bob prüfen.'}, 503
             body = json.dumps(result, allow_nan=False).encode('utf-8')

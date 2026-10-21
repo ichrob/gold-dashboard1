@@ -8,7 +8,7 @@ import re
 import snaptrade_portfolio as portfolio
 
 
-def prepare(payload, snapshot, number, text, source_time):
+def prepare(payload, snapshot, number, text, source_time, allow_empty=False):
     if not isinstance(payload, dict) or set(payload) != {'accountKey','importedAt','records','links'}:
         raise ValueError('Invalid CSV link')
     account = next((a for a in snapshot['accounts'] if a['accountKey'] == payload['accountKey']), None)
@@ -48,7 +48,7 @@ def prepare(payload, snapshot, number, text, source_time):
         assigned_isins.add(isin)
         links[key] = dict(isin=isin,method='provider-isin' if original else 'user-confirmed',
                           symbol=position['symbol'],currency=position['currency'])
-    if not links:
+    if not links and not allow_empty:
         raise ValueError('No confirmed CSV links')
     return dict(importedAt=at,records=records,links=links)
 
@@ -57,6 +57,8 @@ def apply(snapshot, csv_by_account):
     for account in snapshot['accounts']:
         entry = csv_by_account.get(account['accountKey'])
         account.pop('csvImportedAt',None)
+        account.pop('csvAutoReport',None)
+        if entry and entry.get('report'): account['csvAutoReport']=copy.deepcopy(entry['report'])
         if entry: account['csvImportedAt'] = entry['importedAt']
         for p in account['positions']:
             original = p.setdefault('providerIsin',p.get('isin'))
@@ -70,7 +72,7 @@ def apply(snapshot, csv_by_account):
             link = entry['links'].get(p['positionKey'])
             if not link: continue
             isin = link['isin']
-            if ((original and original != isin) or p['symbol'] != link['symbol'] or p['currency'] != link['currency']):
+            if ((original and original != isin) or p['symbol'] != link['symbol'] or p['currency'] != link['currency'] or (link.get('figi') and p.get('figi') and link['figi']!=p['figi'])):
                 p['csvLinkConflict'] = True
                 continue
             record = entry['records'].get(isin)
