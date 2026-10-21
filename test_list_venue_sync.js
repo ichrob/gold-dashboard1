@@ -1,0 +1,15 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const window={};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),{window});
+const b=window.BobDegiro,isin='DE000FG14AV8';
+const text='SG Gold Knock-Out Warrant Open End Call BAR 4066.45 BP 4066.45 Bv 10 | '+isin+'\nSociete Generale OTC CHF K V';
+const row=b.agreedDegiroListRow([text,text]);assert(row?.listRow.crossChecked);
+row.listRow.imageReference='fixture.jpg';
+const archive={storedAt:'2026-10-21T06:39:49.626Z',files:[{name:'fixture.jpg'}],items:[row]};
+const proof=b.listVenueForSync(isin,archive);
+assert.equal(proof.venue,'Societe Generale OTC');assert.equal(proof.currency,'CHF');
+assert.equal(proof.reference,'fixture.jpg');assert.equal(proof.listUploadedAt,archive.storedAt);
+assert.equal(proof.isExecutableQuote,false);assert(!('bid' in proof));
+row.listRow.crossChecked=false;assert.equal(b.listVenueForSync(isin,archive),null);
+assert.equal(b.listVenueForSync('DE000FG8NHQ3',archive),null);
+assert(fs.readFileSync('degiro_assistant.js','utf8').includes('listVenueEvidence:listVenueForSync(isin)'));
+console.log('List row OCR to sync evidence: identity, footer, currency, original generation and crosscheck passed');
