@@ -2780,7 +2780,6 @@ function cleanStoredProduct(x){
 function writeStoredProducts(items){
  if(productStorageBlocked)return false;
  try{const rows=items.map(cleanStoredProduct).filter(Boolean).slice(0,12);
-  if(!rows.length&&loadIdentities().length)return false;
   const payload=JSON.stringify({version:2,products:rows,listUploadedAt:listArchive?.storedAt||null});
   // Only an actual screenshot upload sets its original observation date.
   if(localStorage.getItem(PRODUCT_STORE_KEY)!==payload)localStorage.setItem(PRODUCT_STORE_KEY,payload);
@@ -2795,7 +2794,7 @@ function saveIdentities(){
   const read=k=>document.querySelector('[data-dg="'+k+'"][data-i="'+i+'"]')?.value||'';
   if(validIsin(read('isin')))items.push({isin:read('isin').toUpperCase(),name:read('name'),direction:read('dir'),price:read('price'),leverage:read('lev'),ko:read('ko'),spread:read('spread'),isinConfirmed:false,snapshot:detailScreenshots.get(i),reference:combinedReferences.get(i)});
  }
- writeStoredProducts(items);
+ if(items.length||!loadIdentities().length)writeStoredProducts(items);
  const label=document.getElementById?.('dgStorageStatus');if(label)label.textContent=productStorageMessage;
 }
 function loadIdentities(){

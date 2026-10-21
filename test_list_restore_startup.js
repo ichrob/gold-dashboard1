@@ -3,7 +3,7 @@ const records=new Map(),storage=new Map();let fail=false;let now=Date.parse("202
 class Clock extends Date{constructor(...a){super(...(a.length?a:[now]));}static now(){return now;}}
 const indexedDB={open(){const r={};queueMicrotask(()=>{r.result={close(){},transaction(){const tx={};const staged=new Map(records);tx.objectStore=()=>({get(k){const r={result:records.get(k)};queueMicrotask(()=>r.onsuccess?.());return r},delete(k){staged.delete(k);return {}},put(v,k){staged.set(k,structuredClone(v));return {result:k}}});setImmediate(()=>{if(fail){tx.error=Error('quota');tx.onabort();}else{records.clear();for(const [k,v]of staged)records.set(k,v);tx.oncomplete();}});return tx;}};r.onsuccess();});return r;}};
 let responseData,fetchRead;
-function restart(){const ctx={Date:Clock,fetch:async()=>{if(fetchRead)return fetchRead();return {ok:true,json:async()=>responseData}},window:{},indexedDB,localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},navigator:{},document:undefined};vm.createContext(ctx);vm.runInContext(fs.readFileSync('degiro_assistant.js','utf8').replace('window.BobDegiro={','window.BobDegiro={restoreServerCorrection,rankUI,'),ctx);ctx.document={getElementById:()=>null};return ctx.window.BobDegiro;}
+function restart(){const ctx={Date:Clock,fetch:async()=>{if(fetchRead)return fetchRead();return {ok:true,json:async()=>responseData}},window:{},indexedDB,localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},navigator:{},document:undefined};vm.createContext(ctx);vm.runInContext(fs.readFileSync('degiro_assistant.js','utf8').replace('window.BobDegiro={','window.BobDegiro={restoreServerCorrection,rankUI,'),ctx);ctx.document={getElementById:()=>null,querySelector:()=>null};return ctx.window.BobDegiro;}
 
 (async()=>{
  const isin='DE000FC1CHB7',stamp=new Date(now).toISOString();
@@ -15,7 +15,7 @@ function restart(){const ctx={Date:Clock,fetch:async()=>{if(fetchRead)return fet
  records.set('products',storage.get('bobDegiroProductsV2'));
  b=restart();await b.restoreListArchive();
  assert.equal(b.loadIdentities()[0].isin,isin,'Original archive recovers an empty cache');
- assert.equal(b.writeStoredProducts([]),false);
+ b.saveIdentities();
  assert.equal(b.loadIdentities().length,1);
  records.clear();storage.clear();b=restart();
  responseData={ok:true,corrected:false,listUploadedAt:stamp,products:[{isin,name:'SG Gold Call',direction:'LONG'}]};
