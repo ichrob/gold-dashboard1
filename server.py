@@ -454,7 +454,7 @@ def mark_bar_state(bars, minutes):
 
 def aggregate_bars(bars, minutes):
     """Only aggregate complete, ordered, same-instrument source candles."""
-    base = {15: 5, 30: 5, 240: 60}.get(minutes)
+    base = {5: 1, 15: 5, 30: 5, 240: 60}.get(minutes)
     if base is None:
         raise ValueError('Nicht unterstützte Kerzenaggregation')
     step, source_step = minutes*60000, base*60000
@@ -483,7 +483,8 @@ def aggregate_bars(bars, minutes):
                         instrument=items[0].get('instrument','unknown'),
                         source=items[0].get('source') if len({b.get('source') for b in items}) == 1 else 'aggregate · mixed sources',
                         estimated=any(b.get('estimated',False) for b in items),
-                        isOpen=now_ms<ts+step or any(b.get('isOpen',False) for b in items)))
+                        providerIsOpen=any(b.get('providerIsOpen',False) for b in items),
+                        isOpen=now_ms<ts+step or any(b.get('isOpen',False) or b.get('providerIsOpen',False) for b in items)))
     return out
 
 
@@ -631,6 +632,16 @@ def fetch_technical_history(interval, range_value):
             if not _ema_history_sufficient(independent, minutes):
                 return _ema200_history_backfill(interval, range_value, independent)
             return independent
+    if interval == '5m':
+        # Recover a stalled native 5m feed from complete, confirmed minute
+        # candles already collected. Never blend providers or invent OHLC.
+        minute_rows = retain_technical_history('1m', [])
+        sources = {b.get('source') for b in minute_rows}
+        if len(sources) == 1 and None not in sources and '' not in sources:
+            aggregated = aggregate_bars(minute_rows, 5)
+            if _ema_history_sufficient(aggregated, 5, minimum=100):
+                print('BOB_CANDLES recovery=confirmed-1m interval=5m', flush=True)
+                return retain_technical_history('5m', aggregated)
     if interval in ("1m", "15m", "30m", "4h"):
         return _ema200_history_backfill(interval, range_value, retain_technical_history(interval, independent))
     # XAUS exposes a documented XAU chart proxy. Use it first so Render

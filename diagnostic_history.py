@@ -106,9 +106,15 @@ def write(conn,event):
 
 
 def prune(conn):
-    conn.execute("DELETE FROM bob_diagnostic_history WHERE recorded_at < now()-interval '7 days'")
+    conn.execute("""DELETE FROM bob_diagnostic_history WHERE id IN
+        (SELECT id FROM bob_diagnostic_history
+         WHERE recorded_at < now()-interval '7 days'
+         ORDER BY recorded_at LIMIT 500 FOR UPDATE SKIP LOCKED)""")
     conn.execute('''DELETE FROM bob_diagnostic_history WHERE id IN
-        (SELECT id FROM bob_diagnostic_history ORDER BY recorded_at DESC OFFSET 60000 LIMIT 2000)''')
+        (SELECT h.id FROM bob_diagnostic_history h
+         JOIN (SELECT id FROM bob_diagnostic_history
+               ORDER BY recorded_at DESC OFFSET 60000 LIMIT 500) victims USING (id)
+         FOR UPDATE OF h SKIP LOCKED)''')
 
 
 def emit(stage,trace_id,payload,decision_id=None):
