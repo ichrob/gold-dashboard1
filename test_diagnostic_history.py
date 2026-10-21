@@ -69,6 +69,27 @@ class HistoryTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class DatabaseTests(unittest.TestCase):
+    def test_retention_deletes_bounded_batches_and_preserves_recent_rows(self):
+        import psycopg
+        schema = 'diag_prune_' + str(time.time_ns())
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute('CREATE SCHEMA '+schema)
+            conn.execute('SET search_path TO '+schema)
+            h.init(conn)
+            conn.execute("""INSERT INTO bob_diagnostic_history
+                (id,trace_id,stage,observed_at,recorded_at,payload)
+                SELECT i::text,'test','health',0,now()-interval '8 days','{}'::jsonb
+                FROM generate_series(1,1200) i""")
+            conn.execute("""INSERT INTO bob_diagnostic_history
+                (id,trace_id,stage,observed_at,payload)
+                VALUES ('recent','test','health',0,'{}'::jsonb)""")
+            h.prune(conn)
+            self.assertEqual(conn.execute('SELECT count(*) FROM bob_diagnostic_history').fetchone()[0],701)
+            h.prune(conn)
+            h.prune(conn)
+            self.assertEqual(conn.execute('SELECT id FROM bob_diagnostic_history').fetchall(),[('recent',)])
+            conn.execute('DROP SCHEMA '+schema+' CASCADE')
+
     def test_durable_restart_readonly_followup_and_recurrence(self):
         import psycopg
         import bob_repair_store
