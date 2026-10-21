@@ -1,4 +1,4 @@
-/* Illustrated MCO source summary. No generated chart, market-time inference or trade input. */
+/* MCO source summary with original frames and explicitly schematic explanations. */
 (function(root){
 'use strict';
 const valid=f=>f&&!f.isCover&&Number.isFinite(f.at)&&f.at>=0&&f.at<=86400&&/^data:image\/jpeg;base64,[A-Za-z0-9+/=]{100,140000}$/.test(f.dataUrl||'');
@@ -23,7 +23,63 @@ function choose(item,section){
  .sort((a,b)=>Number(b.frame.sourceKind==='screenshot')-Number(a.frame.sourceKind==='screenshot')||Number(!!b.note)-Number(!!a.note)||Number(!!b.ocr?.illustrationRecommended)-Number(!!a.ocr?.illustrationRecommended)||a.distance-b.distance)[0]||null;
 }
 function market(image){const text=(image?.lines||[]).map(l=>l.text).join(' ');return /\b(?:futures?|COMEX)\b|GC1!/i.test(text)?'future':/XAU\s*\/\s*USD/i.test(text)?'xau':'unknown';}
-if(typeof module!=='undefined')module.exports={sections,choose,market};
+// These pictures explain cited words only. They never enter a price/strategy model.
+function illustrationPlan(item,section){
+ if(item?.transcriptAnalyzed!==true||item.trustedTranscript!==true)return null;
+ const evidence=(section?.evidence||[]).filter(e=>typeof e?.text==='string'&&Number.isFinite(e.at)&&e.at>=0&&e.at<=86400);
+ if(!evidence.length||typeof section.text!=='string'||!section.text.trim())return null;
+ function concepts(text){
+  const found=new Set();
+  for(const sentence of text.split(/(?<=[.!?])\s+|[;\n]/u)){
+   // Withhold directional drawings when the source negates a proposition.
+   if(/\b(?:not|no|never|cannot|can't|doesn't|won't|nicht|kein\w*|ohne|weder)\b/i.test(sentence))continue;
+   const patterns={
+    up:/\b(?:bullish|upside|rally|rise|rising|aufwärts|anstieg|steigen)\b|(?:move|turn|push|go|trade|break)\b.{0,20}\b(?:higher|above)\b|ausbruch.{0,25}(?:nach oben|über)/i,
+    down:/\b(?:bearish|downside|fall|falling|decline|abwärts|fallen|rückgang)\b|(?:move|turn|push|go|trade|break)\b.{0,20}\b(?:lower|below)\b|ausbruch.{0,25}(?:nach unten|unter)/i,
+    range:/\b(?:sideways|range|consolidation|seitwärts|konsolidierung|handelsspanne)\b/i,
+    pullback:/\b(?:pullback|retracement|correction|rücksetzer|rücklauf|korrektur)\b/i,
+    breakout:/\b(?:breakout|ausbruch|durchbruch)\b|break\b.{0,16}\b(?:above|below|out)\b/i,
+    support:/\b(?:support|unterstützung)\b/i,
+    resistance:/\b(?:resistance|widerstand)\b/i
+   };
+   for(const [key,pattern] of Object.entries(patterns))if(pattern.test(sentence))found.add(key);
+  }
+  return found;
+ }
+ const source=evidence.map(e=>e.text).join(' '),original=concepts(source),summary=concepts(section.text);
+ const has=key=>original.has(key)&&summary.has(key);
+ let kind='statement',direction=null,title='Aussage im Überblick';
+ if(has('up')&&has('down')){kind='scenarios';title='Zwei mögliche Richtungen';}
+ else if(has('range')){kind='range';title='Seitwärtsbewegung';}
+ else if(has('pullback')){kind='pullback';title='Rücksetzer / Korrektur';}
+ else if(has('breakout')&&(has('up')||has('down'))){kind='breakout';direction=has('up')?'up':'down';title='Möglicher Ausbruch '+(direction==='up'?'nach oben':'nach unten');}
+ else if(has('up')||has('down')){kind='direction';direction=has('up')?'up':'down';title='Mögliches '+(direction==='up'?'Aufwärts-':'Abwärts-')+'szenario';}
+ else if(has('support')||has('resistance')){kind='levels';title='Besprochene Kurszone';}
+ const instruments=[];
+ if(/\b(?:XAU\s*\/\s*USD|gold[ -]?spot|spot gold)\b/i.test(source))instruments.push('Gold Spot / XAU/USD');
+ if(/\b(?:futures?|COMEX|GC1!)\b/i.test(source))instruments.push('Future (Kontrakt laut Text prüfen)');
+ if(/\b(?:GDX|gold miners|goldminen)\b/i.test(source))instruments.push('Goldminen / GDX');
+ const instrument=instruments.length>1?'Mehrere Instrumente im Abschnitt':instruments[0]||'Instrument nicht eindeutig benannt';
+ const levels=[];
+ // Keep the exact written amount and unit: no locale conversion or invented axis.
+ // Mixed-instrument passages never share one set of price labels.
+ if(instruments.length<=1)for(const e of evidence){
+  if(/\b(?:not|no|never|cannot|can't|doesn't|won't|nicht|kein\w*|ohne|weder)\b/i.test(e.text))continue;
+  const pattern=/\b(support|unterstützung|resistance|widerstand|target|kursziel|ziel)\b[^\d.!?]{0,24}((?:\$\s*\d[\d.,’']*|\d[\d.,’']*\s*(?:USD|EUR|CHF)))(?!\w)/gi;
+  for(const m of e.text.matchAll(pattern)){
+   const label=/support|unterstützung/i.test(m[1])?'Unterstützung':/resistance|widerstand/i.test(m[1])?'Widerstand':'Genanntes Ziel';
+   if(!levels.some(x=>x.label===label&&x.amount===m[2]))levels.push({label,amount:m[2],at:e.at});
+   if(levels.length>=3)break;
+  }
+  if(levels.length>=3)break;
+ }
+ return {kind,direction,title,instrument,levels,at:evidence[0].at,
+  support:has('support'),resistance:has('resistance'),
+  conditional:/\b(?:if|unless|provided|wenn|falls|solange|sofern)\b/i.test(source+' '+section.text),
+  sourceText:section.text.replace(/\s+/g,' ').trim().slice(0,117)+(section.text.replace(/\s+/g,' ').trim().length>117?'…':'')};
+}
+
+if(typeof module!=='undefined')module.exports={sections,choose,market,illustrationPlan};
 if(!root?.document)return;
 const d=root.document,views=new WeakMap(),el=(t,s)=>{const n=d.createElement(t);if(s!==undefined)n.textContent=s;return n;},stamp=t=>Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0');
 function link(item,at){try{const url=new URL(item.url);if(url.protocol!=='https:'||!['youtube.com','www.youtube.com'].includes(url.hostname)||url.pathname!=='/watch')return null;url.searchParams.set('t',String(Math.floor(at)));const a=el('a','Originalstelle '+stamp(at)+' auf YouTube');a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';return a;}catch(_){return null;}}
@@ -49,6 +105,59 @@ function figure(card,selected,item,evidence=[]){
  const values=ocr?.typed?.values||[];
  if(values.length){const details=el('details');details.append(el('summary','Kursbereiche und Indikatoren aus diesem Bild · ungeprüft'));for(const v of values)details.append(el('p',v.label+(v.period!=null?' '+v.period:'')+(v.ratio!=null?' '+v.ratio+' %':'')+': '+v.value+' '+v.unit+' · '+(v.timeframe||'Zeitebene offen')));card.append(details);}
  const original=link(item,closest?.at??frame.at);if(original){const line=el('p');line.append(original);card.append(line);}
+}
+function illustration(card,item,section){
+ const plan=illustrationPlan(item,section);if(!plan)return;
+ const fig=el('figure');fig.dataset.mcoIllustration=plan.kind;
+ fig.style.cssText='margin:14px 0;padding:12px;border:1px solid #bfd3e8;border-radius:12px;background:#eff6ff;overflow-wrap:anywhere';
+ fig.append(el('strong','Bobs Schaubild · '+plan.title));
+ const svg=d.createElementNS('http://www.w3.org/2000/svg','svg');
+ svg.setAttribute('viewBox','0 0 480 230');svg.setAttribute('role','img');
+ svg.setAttribute('aria-label',plan.title+' · schematische Illustration zur MCO-Aussage, keine Kursdaten');
+ svg.style.cssText='display:block;width:100%;max-width:620px;height:auto;margin:8px auto';
+ function shape(tag,attrs,text){const n=d.createElementNS('http://www.w3.org/2000/svg',tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,String(v));if(text!==undefined)n.textContent=text;svg.append(n);return n;}
+ const blue='#2563eb',green='#15803d',red='#b91c1c',ink='#17324d';
+ shape('rect',{x:0,y:0,width:480,height:230,rx:14,fill:'#fff'});
+ shape('text',{x:24,y:29,fill:ink,'font-size':14,'font-family':'sans-serif'},'SCHEMA · KEINE KURSDATEN');
+ const path=(points,color,dashed=false)=>shape('path',{d:points,fill:'none',stroke:color,'stroke-width':4,'stroke-linecap':'round','stroke-linejoin':'round',...(dashed?{'stroke-dasharray':'9 7'}:{})});
+ const line=(y,label,color)=>{shape('line',{x1:35,x2:445,y1:y,y2:y,stroke:color,'stroke-width':2,'stroke-dasharray':'5 5'});shape('text',{x:38,y:y-9,fill:color,'font-size':14,'font-family':'sans-serif'},label);};
+ if(plan.kind==='range'){
+  line(78,plan.resistance?'Widerstand':'Obere Begrenzung',red);line(180,plan.support?'Unterstützung':'Untere Begrenzung',green);
+  path('M45 140 L90 100 L140 160 L190 105 L245 155 L300 105 L350 160 L405 120',blue);
+ }else if(plan.kind==='scenarios'){
+  path('M40 145 L100 125 L150 145 L215 120',blue);
+  path('M215 120 L300 85 L400 58',green,true);path('M215 120 L300 160 L400 190',red,true);
+  shape('text',{x:305,y:65,fill:green,'font-size':14,'font-family':'sans-serif'},'Aufwärts');
+  shape('text',{x:305,y:212,fill:red,'font-size':14,'font-family':'sans-serif'},'Abwärts');
+ }else if(plan.kind==='direction'||plan.kind==='breakout'){
+  const up=plan.direction==='up';
+  if(plan.kind==='breakout')line(125,up?'Besprochene obere Grenze':'Besprochene untere Grenze',ink);
+  path(up?'M40 180 L95 150 L145 165 L200 140':'M40 70 L95 100 L145 85 L200 110',blue);
+  path(up?'M200 140 L280 110 L345 75 L420 55':'M200 110 L280 140 L345 175 L420 195',up?green:red,true);
+  shape('text',{x:235,y:up?205:65,fill:ink,'font-size':14,'font-family':'sans-serif'},'Möglicher Verlauf laut Aussage');
+ }else if(plan.kind==='pullback'){
+  for(const [x,label] of [[24,'Bewegung'],[174,'Korrektur'],[324,'Verlauf offen']]){
+   shape('rect',{x,y:88,width:132,height:70,rx:10,fill:'#eaf2fb',stroke:'#bfd3e8'});
+   shape('text',{x:x+66,y:129,fill:ink,'font-size':14,'font-family':'sans-serif','text-anchor':'middle'},label);
+  }
+  path('M158 123 L170 123 M163 117 L170 123 L163 129',blue);
+  path('M308 123 L320 123 M313 117 L320 123 L313 129',blue);
+  shape('text',{x:35,y:195,fill:ink,'font-size':14,'font-family':'sans-serif'},'Richtung und Ausmaß nur wie im Text beschrieben');
+ }else if(plan.kind==='levels'){
+  if(plan.resistance)line(85,'Widerstand',red);
+  if(plan.support)line(175,'Unterstützung',green);
+  shape('text',{x:65,y:133,fill:ink,'font-size':17,'font-family':'sans-serif'},'Im Text besprochene Kurszone');
+ }else{
+  shape('rect',{x:28,y:55,width:424,height:145,rx:16,fill:'#eaf2fb',stroke:'#bfd3e8'});
+  shape('text',{x:45,y:82,fill:blue,'font-size':18,'font-family':'sans-serif'},'MCO-Aussage');
+  const words=plan.sourceText.split(' ');let rows=[''];
+  for(const word of words){if((rows.at(-1)+' '+word).trim().length>43&&rows.length<3)rows.push('');rows[rows.length-1]=(rows.at(-1)+' '+word).trim();}
+  rows.slice(0,3).forEach((t,i)=>shape('text',{x:45,y:115+i*24,fill:ink,'font-size':15,'font-family':'sans-serif'},t.length>46?t.slice(0,43)+'…':t));
+ }
+ fig.append(svg,el('figcaption','Illustration zur MCO-Aussage – kein Originalbild aus dem Video. '+plan.instrument+'. Geometrie und Abstände sind schematisch; keine Vorhersage oder Handelsfreigabe.'));
+ if(plan.conditional)fig.append(el('p','Wenn-dann-Szenario: Die Bedingungen stehen in der Aussage und den Originalbelegen.'));
+ for(const level of plan.levels){const row=el('p',level.label+' laut Transkript: '+level.amount+' · ');const a=link(item,level.at);if(a)row.append(a);fig.append(row);}
+ card.append(fig);
 }
 function screenshotControl(card,item,section){
  let videoId=item.videoId;try{videoId=videoId||new URL(item.url).searchParams.get('v');}catch(_){return;}
@@ -108,11 +217,12 @@ function draw(host,item){
  for(const [i,s] of parts.entries()){
   const card=el('section');card.style.cssText='margin:18px 0;padding:12px;border:1px solid #cbd5e1;border-radius:12px;background:#fff';card.append(el('h5',(i+1)+'. '+s.label));
   const selected=choose(item,s);if(selected){figure(card,selected,item,s.evidence);used.add(selected.index);}
-  else {card.append(el('p','Noch kein passendes Chartbild für diese Passage gespeichert.'));const a=link(item,s.evidence[0].at);if(a){card.append(a);const identity=new URL(a.href).searchParams.get('v');if(/^[A-Za-z0-9_-]{11}$/.test(identity||'')){
+  else {card.append(el('p','Noch kein passendes Originalbild für diese Passage gespeichert.'));const a=link(item,s.evidence[0].at);if(a){card.append(a);const identity=new URL(a.href).searchParams.get('v');if(/^[A-Za-z0-9_-]{11}$/.test(identity||'')){
    const play=el('button','Originalstelle in Bob ansehen');play.type='button';play.onclick=()=>{const iframe=el('iframe');iframe.title='MCO-Originalstelle '+stamp(s.evidence[0].at);iframe.src='https://www.youtube-nocookie.com/embed/'+identity+'?start='+Math.floor(s.evidence[0].at)+'&autoplay=0&rel=0';iframe.style.cssText='display:block;width:100%;aspect-ratio:16/9;min-height:200px;border:0';iframe.referrerPolicy='strict-origin-when-cross-origin';iframe.allowFullscreen=true;play.replaceWith(iframe);};card.append(play);
   }}}
   screenshotControl(card,item,s);
   card.append(el('strong',s.kind==='summary'?'Zusammenfassung der MCO-Aussage':'MCO-Originalaussage aus den Untertiteln'),el(s.kind==='quote'?'blockquote':'p',s.text));
+  illustration(card,item,s);
   if(s.kind==='summary'){const details=el('details');details.append(el('summary','Gesprochene Begründung nachlesen'));for(const e of s.evidence){details.append(el('blockquote',e.text));const a=link(item,e.at);if(a)details.append(a);}card.append(details);}
   card.append(el('small','Eine im Chart eingezeichnete Möglichkeit ist keine bestätigte Vorhersage. Der Marktzeitpunkt wird nicht aus der Videoposition abgeleitet.'));host.append(card);
  }
