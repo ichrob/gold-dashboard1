@@ -19,7 +19,6 @@ import time
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, build_opener, HTTPRedirectHandler
-from cryptography.fernet import Fernet
 
 ORIGIN = 'https://api.snaptrade.com'
 INTERVAL = 600
@@ -51,6 +50,9 @@ def utcnow():
 
 
 def cipher():
+    # The isolated paper smoke workflow intentionally has no crypto packages.
+    # Encryption is needed only when the owner configures a real connection.
+    from cryptography.fernet import Fernet
     secret = os.environ.get('PUSH_SERVICE_TOKEN', '')
     if not secret:
         raise ReadError('STORE_UNAVAILABLE')
