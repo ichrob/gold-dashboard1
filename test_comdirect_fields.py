@@ -23,6 +23,21 @@ class ComdirectFieldsTests(unittest.TestCase):
         with patch.object(q,'get_observation',return_value=dict(state='observed',fields=fields or self.parse())):
             return f.apply(primary or self.primary(),ISIN)
 
+    def test_sg_mini_type_alias_preserves_original_and_requires_class(self):
+        p=self.primary()
+        p['metadata'].update(simpleTurbo=True,classificationId=45)
+        original=dict(value='Unlimited Turbo-Optionsscheine (Mini)',source='issuer',at='original')
+        p['conditions']['type']=original
+        out=self.apply(p)
+        self.assertNotIn('type',out['comdirectFieldsBackup']['conflicts'])
+        self.assertEqual(out['conditions']['type'],original)
+        self.assertFalse(out['eligible'])
+        for changes in [dict(classificationId=47),dict(simpleTurbo=False)]:
+            bad=copy.deepcopy(p);bad['metadata'].update(changes)
+            self.assertIn('type',self.apply(bad)['comdirectFieldsBackup']['conflicts'])
+        bad=copy.deepcopy(p);bad['conditions']['type']['value']='Faktor-Zertifikat'
+        self.assertIn('type',self.apply(bad)['comdirectFieldsBackup']['conflicts'])
+
     def test_partial_page_keeps_other_values(self):
         fields=self.parse(HTML.replace('4.105,0000 USD Basispreis','-- Basispreis'))
         self.assertIn('ko',fields['missing'])
