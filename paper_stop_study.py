@@ -35,7 +35,7 @@ def create(case):
     frozen=case.get('stopStudySetup') or {};plan=case.get('plan') or {}
     if case.get('demonstration') or frozen.get('version')!=VERSION or case.get('profile')!='balanced' or not positive(case.get('quantity')):return None
     return dict(version=VERSION,id=case['id'],day=case['day'],isin=case['product']['isin'],
-        startedAt=case['startedAt'],endsAt=case['endsAt'],entry=plan['entry'],direction=plan['direction'],target=plan['target'],
+        startedAt=case['startedAt'],endsAt=case['endsAt'],unit=plan.get('unit'),entry=plan['entry'],direction=plan['direction'],target=plan['target'],
         product=copy.deepcopy(case['product']),koGuardRequired=case.get('koGuardRequired') is True,quantity=case['quantity'],entryAsk=case['entryAsk'],costModel=copy.deepcopy(case.get('ledgerCostModel') or paper_costs.SCENARIOS[0]),
         setup=copy.deepcopy(frozen),lastGoldAt=case['analysis']['dataAt'],lastQuoteAt=case['entryQuote']['bidAt'],
         gap=False,complete=False,variants={k:dict(label=label,stop=frozen['stops'].get(k),status='open' if frozen['stops'].get(k) else 'unavailable',modelNetEur=None)
@@ -51,7 +51,8 @@ def advance(original,market,quote,now):
     terminal_state=terminal(quote,s['isin'])
     guard=None
     if s.get('koGuardRequired') and healthy and q:
-        guard,blocker=assess(s['product'],quote,market,now)
+        guard_market={**market,'plan':{'unit':s.get('unit')}}
+        guard,blocker=assess(s['product'],quote,guard_market,now)
         if blocker:healthy=False
     if not healthy or not q:
         if now-max(s.get('lastGoldAt',s['startedAt']),s['startedAt'])>90000:s['gap']=True

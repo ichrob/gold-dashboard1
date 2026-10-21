@@ -97,6 +97,15 @@ class PriorityTests(unittest.TestCase):
         self.assertTrue(all(v['status']=='inconclusive' for v in s['variants'].values()))
         self.assertTrue(all(v['modelNetEur'] is None for v in s['variants'].values()))
 
+    def test_neutral_main_signal_does_not_erase_original_spot_unit_for_ko_checks(self):
+        c=case();c['koGuardRequired']=True;s=study.create(c);t=NOW+30000
+        m={**f.market(),'plan':None,'direction':'NEUTRAL','dataAt':t,'price':130}
+        with patch('paper_ko_guard.assess',return_value=(dict(danger=False,crossed=False),None)) as assess:
+            result=study.advance(s,m,f.quote(t,bid=14,ask=14.1),t)
+        self.assertEqual(assess.call_args.args[2]['plan']['unit'],'USD/oz')
+        self.assertIsNone(m['plan'],'Current main-analysis plan is not changed')
+        self.assertTrue(all(v['status']=='observed-target' for v in result['variants'].values()))
+
     def test_paired_report_excludes_missing_variant_or_gap_and_does_not_promote(self):
         c=case();s=study.create(c);t=NOW+30000
         s=study.advance(s,{**f.market(),'dataAt':t,'price':130},f.quote(t,bid=14,ask=14.1),t)
