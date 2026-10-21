@@ -20,6 +20,9 @@ import zlib
 import snaptrade_portfolio as portfolio
 import snaptrade_csv_link as csv_link
 import snaptrade_identity as identity
+import snaptrade_trades as trades
+import snaptrade_quotes as holding_quotes
+from concurrent.futures import ThreadPoolExecutor
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, build_opener, HTTPRedirectHandler
@@ -325,7 +328,7 @@ def read_journal(aid, config, previous=None, get=api_get):
     for category in ('orders', 'activities'):
         old = result.get(category) or {}
         # Transactions are daily data; even failures back off for a day.
-        due = category == 'orders' or time.time() - old.get('attemptedEpoch', 0) >= 86400
+        due = category == 'orders' or time.time() - old.get('attemptedEpoch', 0) >= 86400 or old.get('schemaVersion') != trades.SCHEMA
         if not due: continue
         try:
             if category == 'orders':
@@ -350,9 +353,9 @@ def read_journal(aid, config, previous=None, get=api_get):
                 unique[row['key']] = row
             normalized = sorted(unique.values(), key=lambda row: row['date'], reverse=True)
             result[category] = dict(rows=normalized, checkedAt=utcnow(), attemptedEpoch=time.time(),
-                                    code='READ_OK', complete=complete)
+                                    code='READ_OK', complete=complete, schemaVersion=trades.SCHEMA)
         except (ReadError, ValueError, TypeError):
-            result[category] = dict(old, code='UNAVAILABLE', attemptedEpoch=time.time())
+            result[category] = dict(old, code='UNAVAILABLE', attemptedEpoch=time.time(), schemaVersion=trades.SCHEMA)
     return result
 
 
@@ -372,6 +375,7 @@ def update_portfolio(snapshot, config, generation):
         journal = read_journal(aid, config, ledger['journal'].get(key))
         ledger['journal'][key] = journal
         a['journal'] = journal
+        a['tradeJournal'] = trades.build(journal)
     snapshot['changes'] = ledger['changes']
     snapshot['history'] = [{'at': p['at'], 'complete':p['complete'], 'accounts':[
         {'accountKey':a['accountKey'], 'netValue':a['netValue']} for a in p['accounts']]} for p in ledger['history']]
@@ -480,10 +484,48 @@ def quote_tick(fetch=None):
                     p['issuerQuote'] = quotes.get(p.get('isin'))
 
 
+def observation_tick(observe=None):
+    """Bounded parallel issuer observations; no account calls or approvals."""
+    observe = observe or holding_quotes.get_observation
+    with _LOCK:
+        generation = _GENERATION
+        snapshot = copy.deepcopy(_STATE.get('snapshot'))
+    if not snapshot:
+        return
+    candidates = {}
+    for a in snapshot['accounts']:
+        for p in a['positions']:
+            if p.get('isin'):
+                candidates.setdefault((p['isin'],p['currency']),p)
+    # Up to three accounts; only a bounded rotating group of known holdings.
+    keys = sorted(candidates)
+    start = int(time.monotonic()//30)*10 % len(keys) if keys else 0
+    keys = (keys[start:]+keys[:start])[:10]
+    def read(key):
+        try:
+            value = observe(candidates[key])
+            if value.get('isin') != key[0] or value.get('currency') != key[1]:
+                raise ValueError()
+            return key, holding_quotes.freshness(value)
+        except Exception:
+            return key, dict(isin=key[0],currency=key[1],code='SOURCE_UNAVAILABLE',current=False,
+                             identityVerified=False,observedAt=utcnow())
+    with ThreadPoolExecutor(max_workers=3,thread_name_prefix='bob-holding-quote') as pool:
+        observations = dict(pool.map(read,keys))
+    with _LOCK:
+        if generation != _GENERATION or not _STATE.get('snapshot'):
+            return
+        for a in _STATE['snapshot']['accounts']:
+            for p in a['positions']:
+                q = observations.get((p.get('isin'),p.get('currency')))
+                if q is not None:
+                    p['issuerObservation'] = q
+
+
 def _quote_loop():
     while True:
         began = time.monotonic()
-        try: quote_tick()
+        try: observation_tick()
         except Exception: pass
         time.sleep(max(1, 30 - (time.monotonic() - began)))
 
@@ -510,6 +552,12 @@ def refresh():
                 snapshot['historyPersistence'] = 'UNAVAILABLE'
             with _LOCK:
                 if generation == _GENERATION:
+                    previous = {(a['accountKey'],p['positionKey']):p for a in (_STATE.get('snapshot') or {}).get('accounts',[]) for p in a['positions']}
+                    for a in snapshot['accounts']:
+                        for p in a['positions']:
+                            old=previous.get((a['accountKey'],p['positionKey']))
+                            if old and old.get('isin')==p.get('isin') and old['currency']==p['currency'] and old.get('issuerObservation'):
+                                p['issuerObservation']=copy.deepcopy(old['issuerObservation'])
                     for a in snapshot['accounts']: a.pop('providerAccountId', None)
                     _STATE.update(code='READ_OK', snapshot=snapshot, checkedAt=utcnow())
         except ReadError as exc:
@@ -539,6 +587,16 @@ def status():
         snapshot = result.get('snapshot')
         for a in (snapshot or {}).get('accounts', []):
             for p in a['positions']:
+                observation = p.get('issuerObservation')
+                if observation:
+                    p['issuerObservation'] = observation = holding_quotes.freshness(observation)
+                    p['observedPositionValue'] = p['observedUnrealizedPnl'] = None
+                    if observation.get('current') and p.get('marketValue') is not None and p.get('units') is not None:
+                        units, bid = Decimal(p['units']),Decimal(observation['bid'])
+                        if units>=0:
+                            p['observedPositionValue']=str(units*bid)
+                            if p.get('costBasis') is not None:
+                                p['observedUnrealizedPnl']=str(units*(bid-Decimal(p['costBasis'])))
                 q = p.get('issuerQuote')
                 if q and any(not source_time(q.get(k)) or time.time()-datetime.fromisoformat(q[k]).timestamp()>90 for k in ('bidAt','askAt')):
                     p['issuerQuote'] = None
@@ -559,7 +617,12 @@ def diagnostics():
         'checkedAt': value.get('checkedAt'), 'encryptionReady': encryption_ready,
         'accountsReceived': len((value.get('snapshot') or {}).get('accounts', [])),
         'positionsReceived': sum(len(a['positions']) for a in (value.get('snapshot') or {}).get('accounts', [])),
-        'portfolioVersion': 4,
+        'portfolioVersion': 5,
+        'issuerObservationsCurrent': sum(bool(p.get('issuerObservation',{}).get('current')) for a in (value.get('snapshot') or {}).get('accounts',[]) for p in a['positions']),
+        'issuerObservationStates': [p.get('issuerObservation',{}).get('code','NOT_READ') for a in (value.get('snapshot') or {}).get('accounts',[]) for p in a['positions']],
+        'documentedExecutions': sum(len(a.get('tradeJournal',{}).get('events',[])) for a in (value.get('snapshot') or {}).get('accounts',[])),
+        'calculatedSales': sum(len(a.get('tradeJournal',{}).get('realized',[])) for a in (value.get('snapshot') or {}).get('accounts',[])),
+        'unresolvedTradeCalculations': sum(len(a.get('tradeJournal',{}).get('unresolved',[])) for a in (value.get('snapshot') or {}).get('accounts',[])),
         'acquisitionPricesReceived': sum(p.get('costBasis') is not None for a in (value.get('snapshot') or {}).get('accounts', []) for p in a['positions']),
         'positionValuesCalculated': sum(p.get('marketValue') is not None for a in (value.get('snapshot') or {}).get('accounts', []) for p in a['positions']),
         'issuerQuoteCandidates': sum(bool(p.get('isin')) for a in (value.get('snapshot') or {}).get('accounts', []) for p in a['positions']),
