@@ -44,6 +44,29 @@ class HistoryTests(unittest.TestCase):
             for _ in range(4):h.emit('input','a'*32,{})
             self.assertEqual(len(h._QUEUE),2)
 
+    def test_prune_timeout_does_not_discard_current_event(self):
+        from contextlib import nullcontext
+
+        class Conn:
+            def __init__(self):
+                self.statements = []
+
+            def execute(self, sql, params=()):
+                self.statements.append((sql, params))
+
+            def transaction(self):
+                return nullcontext()
+
+        conn = Conn()
+        with patch.object(h, 'prune', side_effect=TimeoutError('maintenance timeout')), \
+             patch.object(h.time, 'monotonic', return_value=301), \
+             patch.object(h, '_LAST_PRUNE', 0):
+            h.write(conn, self.event())
+
+        self.assertTrue(conn.statements)
+        self.assertIn('INSERT INTO bob_diagnostic_history', conn.statements[0][0])
+
+
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class DatabaseTests(unittest.TestCase):
     def test_durable_restart_readonly_followup_and_recurrence(self):
