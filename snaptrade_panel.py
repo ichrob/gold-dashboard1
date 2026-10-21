@@ -99,6 +99,7 @@ function mount(){
   for(const [i,account] of (data.snapshot?.accounts||[]).entries()){
    const box=document.createElement('section'),title=document.createElement('h4'),meta=document.createElement('p');
    title.textContent='DEGIRO-Depot '+(i+1)+' · '+account.positions.length+' gelieferte Positionen';box.append(title);
+   line(box,'CSV-Zuordnung: ',account.positions.filter(p=>p.csvEvidence).length+' von '+account.positions.length+' Positionen verknüpft');
    meta.textContent='Bestandsquelle: '+stamp(account.positionsSourceAt)+' · Bargeldquelle: '+stamp(account.cashSourceAt)+' · '+(account.freshnessMode==='realtime'?'Anbieter meldet aktuellen Abruf':'verzögert oder unbekannt');box.append(meta);
    line(box,'Gesamter Depotwert: ',amount(account.netValue?.amount,account.netValue?.currency));
    for(const cash of account.cash){const p=document.createElement('p');p.textContent='Bargeld: '+(cash.amount??'unbekannt')+' '+cash.currency;box.append(p);}
@@ -153,7 +154,16 @@ function mount(){
     const confirmation=document.createElement('input');confirmation.type='checkbox';confirmation.id='snapCsvConfirm'+i;
     const confirmLabel=document.createElement('label');confirmLabel.append(confirmation,document.createTextNode(' Ich bestätige: Diese CSV-ISIN gehört zu dieser SnapTrade-Position.'));block.append(confirmLabel);
     if(exact.length===1){select.value=exact[0].isin;confirmation.checked=true;confirmLabel.hidden=true;}
-    else{const hints=csv.records.filter(r=>r.currency===position.currency&&r.name.trim().toLowerCase()===(position.name||'').trim().toLowerCase());if(hints.length===1)select.value=hints[0].isin;}
+    else{
+     const normalize=v=>(v||'').normalize('NFKC').toLowerCase().replace(/\s+/g,' ').trim();
+     const name=normalize(position.name);
+     const hints=csv.records.filter(r=>{
+      if(r.currency!==position.currency)return false;
+      const candidate=normalize(r.name),prefix=candidate.replace(/(?:\.{3}|…)$/,'').trim();
+      return candidate===name||(prefix.length>=18&&prefix!==candidate&&name.startsWith(prefix));
+     });
+     if(hints.length===1){select.value=hints[0].isin;const hint=document.createElement('p');hint.textContent='Vorschlag anhand der Bezeichnung. ISIN und Produkt prüfen und mit dem Haken bestätigen.';block.append(hint);}
+    }
     select.addEventListener('change',()=>{const same=exact.length===1&&select.value===exact[0].isin;confirmation.checked=same;confirmLabel.hidden=same;});
     if(!position.providerIsin&&!position.stableInstrumentId){select.disabled=true;confirmation.disabled=true;const p=document.createElement('p');p.textContent='Stabile Anbieterkennung fehlt; dauerhafte Zuordnung nicht möglich.';block.append(p);}
     choices.push({position,select,confirmation});rows.append(block);
@@ -167,8 +177,11 @@ function mount(){
   saveCsv.addEventListener('click',async()=>{
    if(busy||!csvReviewData)return;
    const {csv,account,choices}=csvReviewData;
+   const incomplete=choices.filter(c=>!c.select.disabled&&((c.confirmation.checked&&!c.select.value)||(c.select.value&&!c.confirmation.checked)));
+   if(incomplete.length){csvMessage('Noch nicht gespeichert: Bei '+incomplete.length+' Position(en) fehlt die ISIN-Auswahl oder der Bestätigungshaken. Bitte die markierte Auswahl vervollständigen.');const c=incomplete[0];(c.select.value?c.confirmation:c.select).focus();return;}
    const links=choices.filter(c=>c.select.value&&c.confirmation.checked&&!c.select.disabled).map(c=>({positionKey:c.position.positionKey,isin:c.select.value,confirmed:true}));
    if(!links.length){csvMessage('Mindestens eine eindeutige Zuordnung auswählen und bestätigen.');return;}
+   if(new Set(links.map(l=>l.isin)).size!==links.length){csvMessage('Noch nicht gespeichert: Eine ISIN wurde mehrfach ausgewählt. Jede Depotposition benötigt ihr eigenes passendes Produkt.');return;}
    const parse=window.BobDegiroReport?.parseNumber;
    if(!parse){csvMessage('CSV-Zahlenleser nicht geladen. Bob neu öffnen.');return;}
    const num=v=>v===null||v===undefined||String(v).trim()===''?null:parse(v);
@@ -176,7 +189,13 @@ function mount(){
    const records=csv.records.filter(r=>used.has(r.isin)).map(r=>({isin:r.isin,name:r.name,quantity:String(r.quantity),currency:r.currency,price:num(r.price),value:num(r.value),costBasis:num(r.costBasis)}));
    const payload={accountKey:account.accountKey,importedAt:csv.importedAt,records,links};
    busy=true;saveCsv.disabled=true;controls();csvMessage('Bestätigte Zuordnung wird verschlüsselt gespeichert …');
-   try{await call('csv-import',payload);csvMessage('✓ CSV-Zuordnung gespeichert. Exportwerte bleiben historisch. Passende Produktkurse werden separat geprüft.');review.replaceChildren();csvReviewData=null;}
+   try{
+    const data=await call('csv-import',payload),stored=data.snapshot?.accounts.find(a=>a.accountKey===account.accountKey);
+    const verified=links.every(l=>stored?.positions.some(p=>p.positionKey===l.positionKey&&p.isin===l.isin&&p.csvEvidence?.isin===l.isin));
+    if(!verified){csvMessage('Speicherantwort erhalten, aber die gewählten Zuordnungen sind noch nicht vollständig bestätigt. Auswahl bleibt zur Prüfung geöffnet.');return;}
+    const count=stored.positions.filter(p=>p.csvEvidence).length;
+    csvMessage('✓ CSV-Zuordnung gespeichert: '+count+' von '+stored.positions.length+' Positionen verknüpft. Exportwerte bleiben historisch. Passende Produktkurse werden separat geprüft.');review.replaceChildren();csvReviewData=null;
+   }
    catch(error){csvMessage(error.message);}finally{busy=false;saveCsv.disabled=false;controls();}
   });
  }
