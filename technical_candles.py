@@ -54,6 +54,13 @@ def fetch(interval, fetch_json):
         try:
             payload = fetch_json(f'https://biquote.io/api/XAUUSD/ohlc?interval={interval}&limit=1000', retries=0, timeout=12)
             fresh = normalize(payload, interval)
+            # A lagging upstream replica must not replace a newer confirmed
+            # snapshot. Equal-clock corrections remain accepted.
+            newest_closed = lambda values: max((b['openTime'] for b in values
+                if not b['isOpen'] and not b.get('providerIsOpen')), default=0)
+            if fresh and newest_closed(fresh) < newest_closed(rows):
+                print(f'BOB_CANDLES source=biquote interval={interval} ignored=regressing-snapshot', flush=True)
+                fresh = []
             if fresh:
                 # Retain older, provider-confirmed candles as the upstream
                 # rolling window advances. Never close a candle locally or

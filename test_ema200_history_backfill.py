@@ -30,6 +30,40 @@ class EMA200HistoryWarmupTests(unittest.TestCase):
         server._ema_backfill_series.clear()
         server._technical_history.clear()
 
+    def test_stalled_five_minute_feed_recovers_from_confirmed_minutes(self):
+        minutes = candle_series(1000, step=60000)
+        stale = candle_series(220, step=300000)
+        for row in stale:
+            row['openTime'] -= 1200000
+        server._technical_history['1m'] = minutes
+        with patch.object(server.technical_candles, 'fetch', return_value=stale), \
+             patch.object(server, 'fetch_json', side_effect=AssertionError('No network needed')):
+            result = server.fetch_technical_history('5m', '5d')
+        self.assertTrue(server._ema_history_sufficient(result, 5, minimum=100))
+        self.assertEqual({b['source'] for b in result}, {'test provider'})
+        last = [b for b in result if not b['isOpen']][-1]
+        original = [b for b in minutes if last['openTime'] <= b['openTime'] < last['openTime']+300000]
+        self.assertEqual(len(original), 5)
+        self.assertEqual(last['high'], max(b['high'] for b in original))
+        self.assertEqual(last['close'], original[-1]['close'])
+
+    def test_minute_recovery_rejects_mixed_sources_and_unconfirmed_closes(self):
+        for mixed in (True, False):
+            server._technical_history.clear()
+            minutes = candle_series(1000, step=60000)
+            if mixed:
+                minutes[-1]['source'] = 'different provider'
+            else:
+                for row in minutes:
+                    row['isOpen'] = True
+                    row['providerIsOpen'] = True
+            server._technical_history['1m'] = minutes
+            with patch.object(server.technical_candles, 'fetch', return_value=[]), \
+                 patch.object(server, 'fetch_json', return_value={'points': []}) as fetch:
+                with self.assertRaises(RuntimeError):
+                    server.fetch_technical_history('5m', '5d')
+            self.assertTrue(fetch.called, 'Invalid minute data must not bypass fallback')
+
     def test_fresh_170_hours_fetches_full_240_hours_without_splicing(self):
         short = candle_series(170)
         full = candle_series(240, value=4320)

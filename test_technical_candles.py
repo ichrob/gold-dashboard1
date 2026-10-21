@@ -20,6 +20,16 @@ class CandleTests(unittest.TestCase):
             fallback.assert_called_once()
             self.assertIn('symbol=xau',fallback.call_args.args[0])
 
+    def test_lagging_replica_cannot_erase_newer_confirmed_snapshot(self):
+        current = tc.normalize(self.payload(), '5m', self.now)
+        lagging = self.payload()
+        lagging['bars'][0]['openTime'] = '2026-10-06T08:50:00Z'
+        with patch.dict(tc._cache, {'5m': (self.now-100, current)}, clear=True), \
+             patch.object(tc.time, 'time', return_value=self.now):
+            result = tc.fetch('5m', lambda *a, **k: lagging)
+        self.assertEqual(result, current)
+        self.assertEqual(result[-1]['openTime'], current[-1]['openTime'])
+
     def test_strict_identity_and_candle_validation(self):
         p=self.payload()
         self.assertEqual(len(tc.normalize(p,'5m',self.now)),1)
