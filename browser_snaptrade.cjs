@@ -17,6 +17,10 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
     if(url.endsWith('/configure')&&failSave)return{ok:false,status:503,json:async()=>({code:'CRYPTO_UNAVAILABLE'})};
     if(url.endsWith('/configure'))state={code:'READY',configured:true,nextCheckSeconds:0};
     if(url.endsWith('/disconnect'))state={code:'SETUP_REQUIRED',configured:false,nextCheckSeconds:0};
+    if(url.endsWith('/csv-import')){
+     const payload=JSON.parse(options.body),account=state.snapshot.accounts.find(a=>a.accountKey===payload.accountKey);
+     for(const position of account.positions){const link=payload.links.find(l=>l.positionKey===position.positionKey);position.isin=link?.isin||null;position.csvEvidence=link?payload.records.find(r=>r.isin===link.isin):null;}
+    }
     return{ok:true,json:async()=>state};
    };
   });
@@ -63,9 +67,9 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
   await page.addScriptTag({content:fs.readFileSync('degiro_portfolio_store.js','utf8')});
   await page.addScriptTag({content:fs.readFileSync('degiro_report_import.js','utf8')});
   await page.evaluate(()=>{
-   const parsed=BobDegiroReport.readReport('Produkt;ISIN;Anzahl;Währung;Kurs;Wert;Einstandskurs\nExample Faktor 3;DE000FG309G0;2;CHF;7;14;6\nOther Faktor;DE000FG14AV8;2;CHF;8;16;6');
+   const parsed=BobDegiroReport.readReport('Produkt;ISIN;Anzahl;Währung;Kurs;Wert;Einstandskurs\nExample Faktor 3 Lo...;DE000FG309G0;2;CHF;7;14;6\nOther Faktor;DE000FG14AV8;2;CHF;8;16;6');
    BobDegiroPortfolio.save(localStorage,parsed);
-   const p=state.snapshot.accounts[0].positions[0];Object.assign(p,{name:'Example Faktor 3',positionKey:'test-position',symbol:'OPAQUE',kind:'other',stableInstrumentId:true,providerIsin:null,isin:null});
+   const p=state.snapshot.accounts[0].positions[0];Object.assign(p,{name:'Example Faktor 3 Long R 1',positionKey:'test-position',symbol:'OPAQUE',kind:'other',stableInstrumentId:true,providerIsin:null,isin:null});
    window.csvCallsBefore=calls.filter(x=>x.url.endsWith('/csv-import')).length;
   });
   await page.evaluate(()=>poll());
@@ -75,7 +79,7 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
   assert.equal(await page.locator('#snapCsvProduct0').inputValue(),'DE000FG309G0','Name match may suggest, never confirm');
   assert.equal(await page.locator('#snapCsvConfirm0').isChecked(),false);
   await page.locator('#snapCsvSave').click();
-  assert((await page.locator('#snapCsvFeedback').innerText()).includes('bestätigen'));
+  assert((await page.locator('#snapCsvFeedback').innerText()).includes('Bestätigungshaken'));
   assert(await page.evaluate(()=>calls.filter(x=>x.url.endsWith('/csv-import')).length===csvCallsBefore));
   await page.locator('#snapCsvConfirm0').check();
   await page.locator('#snapCsvProduct0').selectOption('DE000FG14AV8');
@@ -87,6 +91,26 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
   assert.equal(csvPayload.accountKey,'test-account');assert.equal(csvPayload.records[0].isin,'DE000FG309G0');
   assert.equal(csvPayload.records[0].costBasis,6);assert.equal(csvPayload.links[0].confirmed,true);
   assert(!('consumerKey' in csvPayload));
+  assert((await page.locator('#snapCsvFeedback').innerText()).includes('1 von 1'));
+  // A checked box with no selected ISIN must not be silently omitted.
+  await page.evaluate(()=>{state.snapshot.accounts[0].positions.push({name:'Unmatched test certificate',positionKey:'second-position',symbol:'SECOND',kind:'other',units:'2',currency:'CHF',stableInstrumentId:true,providerIsin:null,isin:null});poll();});
+  await page.locator('#snapCsvManual').click();
+  assert.equal(await page.locator('#snapCsvProduct1').inputValue(),'');
+  await page.locator('#snapCsvConfirm1').check();
+  const beforePartial=await page.evaluate(()=>calls.filter(x=>x.url.endsWith('/csv-import')).length);
+  await page.locator('#snapCsvSave').click();
+  assert((await page.locator('#snapCsvFeedback').innerText()).includes('ISIN-Auswahl oder der Bestätigungshaken'));
+  assert.equal(await page.evaluate(()=>calls.filter(x=>x.url.endsWith('/csv-import')).length),beforePartial);
+  assert(await page.locator('#snapCsvConfirm1').isChecked(),'Incomplete save preserves entered choices');
+  await page.locator('#snapCsvProduct1').selectOption('DE000FG309G0');
+  await page.locator('#snapCsvConfirm1').check();await page.locator('#snapCsvSave').click();
+  assert((await page.locator('#snapCsvFeedback').innerText()).includes('mehrfach'));
+  await page.locator('#snapCsvProduct1').selectOption('DE000FG14AV8');
+  await page.locator('#snapCsvSave').click();
+  assert((await page.locator('#snapCsvFeedback').innerText()).includes('Bestätigungshaken'));
+  await page.locator('#snapCsvConfirm1').check();await page.locator('#snapCsvSave').click();
+  await page.locator('#snapCsvFeedback').filter({hasText:'2 von 2'}).waitFor();
+  assert((await page.locator('#snapHoldings').innerText()).includes('CSV-Zuordnung: 2 von 2 Positionen verknüpft'));
   await page.evaluate(()=>{
    const previous=window.fetch;
    window.fetch=async(url,options={})=>{
