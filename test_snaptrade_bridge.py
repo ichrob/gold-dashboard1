@@ -52,6 +52,15 @@ class BridgeTests(unittest.TestCase):
             b.load_config(); self.assertEqual(b._CONFIG, CONFIG)
             b.disconnect(); self.assertFalse(db); self.assertFalse(b.status()['configured'])
 
+    def test_missing_encryption_fails_closed_before_storage(self):
+        with patch.dict('sys.modules', {'cryptography.fernet': None}), patch.object(b, 'storage') as store:
+            with self.assertRaises(b.ReadError) as error:
+                b.configure(CONFIG)
+            self.assertEqual(error.exception.code, 'CRYPTO_UNAVAILABLE')
+            store.assert_not_called()
+            self.assertFalse(b.status()['configured'])
+            self.assertFalse(b.diagnostics()['encryptionReady'])
+
     def test_no_unconfirmed_or_broker_credentials(self):
         for payload in ({**CONFIG, 'personalFreeConfirmed': False}, {**CONFIG, 'otp': '123456'}, {**CONFIG, 'password': 'secret'}):
             with self.assertRaises(ValueError): b.validate_config(payload)

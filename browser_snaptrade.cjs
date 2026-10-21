@@ -10,18 +10,29 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
   await page.route('https://bob.test/**',route=>route.fulfill({contentType:'text/html',body:'<meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}body{margin:0;padding:8px}button{max-width:100%;white-space:normal}</style><section id="bob-view-degiro"></section>'+panel.replace(/<script>[\s\S]*?<\/script>/g,'')}));
   await page.goto('https://bob.test/');
   await page.evaluate(()=>{
-   window.state={code:'SETUP_REQUIRED',configured:false,nextCheckSeconds:0};window.calls=[];
+   window.state={code:'SETUP_REQUIRED',configured:false,nextCheckSeconds:0};window.calls=[];window.failSave=true;
+   window.setInterval=fn=>{window.poll=fn;return 1;};
    window.fetch=async(url,options={})=>{
     calls.push({url,body:options.body});
+    if(url.endsWith('/configure')&&failSave)return{ok:false,status:503,json:async()=>({code:'CRYPTO_UNAVAILABLE'})};
     if(url.endsWith('/configure'))state={code:'READY',configured:true,nextCheckSeconds:0};
     if(url.endsWith('/disconnect'))state={code:'SETUP_REQUIRED',configured:false,nextCheckSeconds:0};
     return{ok:true,json:async()=>state};
    };
   });
   await page.addScriptTag({content:panel.match(/<script>([\s\S]*?)<\/script>/)[1]});
-  await page.getByText('Noch nicht verbunden.',{exact:false}).waitFor();
+  await page.locator('#snapStatus').filter({hasText:'Noch nicht verbunden.'}).waitFor();
   await page.locator('#snapClient').fill('test-client');await page.locator('#snapKey').fill('test-consumer-key');await page.locator('#snapFree').check();
-  await page.locator('#snapSave').click();await page.getByText('Schlüssel gespeichert. Lesetest wird gestartet.',{exact:true}).waitFor();
+  await page.locator('#snapSave').click();await page.locator('#snapFormStatus').filter({hasText:'Nicht gespeichert: Verschlüsselung'}).waitFor();
+  await page.evaluate(()=>poll());
+  assert((await page.locator('#snapFormStatus').innerText()).includes('Nicht gespeichert:'),'Polling must not erase save errors');
+  assert(await page.locator('#snapCheck').isDisabled());assert(await page.locator('#snapRemove').isDisabled());
+  await page.evaluate(()=>{failSave=false;});
+  await page.locator('#snapClient').fill('test-client');await page.locator('#snapKey').fill('test-consumer-key');
+  await page.locator('#snapSave').click();await page.locator('#snapStatus').filter({hasText:'Schlüssel gespeichert.'}).waitFor();
+  assert((await page.locator('#snapFeedback').innerText()).includes('Eingabefelder wurden geleert'));
+  assert(await page.locator('#snapRemove').isEnabled(),'Saved key must be manageable immediately');
+  assert(await page.locator('#snapCheck').isEnabled(),'No stale busy state after saving');
   assert.equal(await page.locator('#snapKey').inputValue(),'');assert.equal(await page.locator('#snapClient').inputValue(),'');
   assert(await page.evaluate(()=>calls.some(x=>x.url==='/api/snaptrade/configure'&&JSON.parse(x.body).personalFreeConfirmed===true)));
   assert(await page.evaluate(()=>Object.keys(localStorage).length===0));
@@ -34,7 +45,7 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
    await page.setViewportSize({width,height:844});
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth+1),'Mobile overflow');
   }
-  await page.locator('#snapRemove').click();await page.getByText('Noch nicht verbunden.',{exact:false}).waitFor();
+  await page.locator('#snapRemove').click();await page.locator('#snapStatus').filter({hasText:'Noch nicht verbunden.'}).waitFor();
   assert.equal(await page.locator('#snapHoldings').innerText(),'');assert.deepEqual(errors,[]);
   console.log('SnapTrade mobile: setup, secret clearing, no browser persistence, unknown proof, safe rendering and deletion passed');
  }finally{await browser.close();}

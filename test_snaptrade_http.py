@@ -40,6 +40,17 @@ class SnapTradeHTTPTest(ReadOnlyHTTPTest):
                 urlopen(self.request('/api/snaptrade/order', body=b'{}'), timeout=5)
             handle.assert_not_called()
 
+    def test_infrastructure_failures_return_json_without_keys(self):
+        bridge = self.server_module.snaptrade_bridge
+        for failure in (bridge.ReadError('CRYPTO_UNAVAILABLE'), RuntimeError('DO_NOT_ECHO')):
+            with self.subTest(failure=type(failure).__name__), patch.object(bridge, 'handle', side_effect=failure):
+                with self.assertRaises(HTTPError) as e:
+                    urlopen(self.request('/api/snaptrade/configure', body=b'{}'), timeout=5)
+                self.assertEqual(e.exception.code, 503)
+                body = e.exception.read()
+                self.assertNotIn(b'DO_NOT_ECHO', body)
+                self.assertIn(json.loads(body)['code'], ('CRYPTO_UNAVAILABLE', 'SETUP_FAILED'))
+
 
 class SnapTradePrivateStoreHTTPTest(unittest.TestCase):
     def test_service_token_required_before_settings_access(self):
