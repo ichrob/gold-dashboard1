@@ -29,6 +29,47 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):e.checked_frames([dict(frame,sectionAt=float('nan'))])
         with self.assertRaises(ValueError):e.merge_screenshot([dict(clean,at=i,sectionAt=i) for i in range(5)],clean)
 
+    def test_reads_bypass_writer_lock_but_writes_remain_serialized(self):
+        from contextlib import contextmanager
+
+        class Result:
+            def __init__(self, row=None):
+                self.row = row
+
+            def fetchone(self):
+                return self.row
+
+        class Conn:
+            def __init__(self):
+                self.queries = []
+
+            def execute(self, query, params=None):
+                self.queries.append(str(query))
+                if 'SELECT frames,summary' in str(query):
+                    return Result(([], None))
+                return Result()
+
+            def commit(self):
+                pass
+
+        conn = Conn()
+
+        @contextmanager
+        def connect():
+            yield conn
+
+        patches = (patch('youtube_feed_archive.is_retained', return_value=True),
+                   patch('video_ocr.report', return_value={'status': 'none'}))
+        with patches[0], patches[1]:
+            result = e.handle(connect, dict(videoId='abcdefghijk'))
+            self.assertEqual(result['frames'], [])
+            self.assertFalse(any('pg_advisory_xact_lock' in query for query in conn.queries))
+
+            conn.queries.clear()
+            e.handle(connect, dict(videoId='abcdefghijk', action='write',
+                                   assignedByUser=True, frames=[self.frame()]))
+            self.assertTrue(any('pg_advisory_xact_lock' in query for query in conn.queries))
+
     def test_agreement_conflicts_dedup_and_time(self):
         def image(index,at,text):return dict(index=index,at=at,width=400,height=200,lines=[dict(text=text,numeric=True,bounds=[10,10,100,20],verified=False)])
         frames=[dict(dataUrl=str(i)) for i in range(3)]
