@@ -51,7 +51,11 @@ def handle(connect,payload):
     if action not in ('read','write','append-screenshot'):raise ValueError('Ungültige Aktion')
     frames=checked_frames(payload.get('frames')) if action in ('write','append-screenshot') else None
     with connect() as conn:
-        conn.execute('SELECT pg_advisory_xact_lock(68431030)')
+        # Reads use PostgreSQL's consistent snapshot and must not wait behind
+        # the global writer lock. Holding a pooled connection while waiting
+        # amplified concurrent dashboard loads into pool exhaustion.
+        if action != 'read':
+            conn.execute('SELECT pg_advisory_xact_lock(68431030)')
         if not youtube_feed_archive.is_retained(conn,identity):raise ValueError('Video gehört nicht zu den drei gespeicherten MCO-Videos')
         if action in ('write','append-screenshot'):
             if payload.get('assignedByUser') is not True:raise ValueError('Bitte Videodatei zuordnen')
