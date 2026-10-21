@@ -20,7 +20,9 @@ def operations():
     return {'spot': spot_data.current, 'fx': lambda: sg_quotes.market_input('fx'),
             'cfd': investing_card.fetch, 'future': future_analysis.fetch_reference,
             **{'history-'+interval: lambda i=interval, r=span: server.fetch_technical_history(i, r)
-               for interval, span in [('1m','1d'),('5m','5d'),('15m','5d'),('30m','1mo'),('1h','3mo'),('4h','3mo')]}}
+               for interval, span in [('1m','1d'),('5m','5d'),('15m','5d'),('30m','1mo'),('1h','3mo'),('4h','3mo')]},
+            **{'standby-'+tf: lambda i=tf: server._ema200_history_backfill(i,'',[],standby=True)
+               for tf in ('1m','5m','15m','30m','1h','4h')}}
 
 
 def tick(now=None, probes=None):

@@ -1,4 +1,5 @@
 """Independent, keyless XAU/USD broker candles; never substitutes the spot quote."""
+import candle_reliability
 import math
 import threading
 import time
@@ -54,6 +55,7 @@ def fetch(interval, fetch_json):
         try:
             payload = fetch_json(f'https://biquote.io/api/XAUUSD/ohlc?interval={interval}&limit=1000', retries=0, timeout=12)
             fresh = normalize(payload, interval)
+            candle_reliability.observe('biquote',interval,fresh)
             # A lagging upstream replica must not replace a newer confirmed
             # snapshot. Equal-clock corrections remain accepted.
             newest_closed = lambda values: max((b['openTime'] for b in values
@@ -73,6 +75,7 @@ def fetch(interval, fetch_json):
                 last = closed[-1]['openTime'] if closed else 0
                 print(f'BOB_CANDLES source=biquote interval={interval} count={len(rows)} last_closed={last} age_seconds={int(time.time()-last/1000)}', flush=True)
         except Exception as exc:
+            candle_reliability.observe('biquote',interval,error='unavailable')
             print(f'BOB_CANDLES source=biquote interval={interval} unavailable={type(exc).__name__}', flush=True)
         _cache[interval] = (now, rows)
         return [dict(b) for b in rows]
