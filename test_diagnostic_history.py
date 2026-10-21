@@ -65,6 +65,8 @@ class HistoryTests(unittest.TestCase):
 
         self.assertTrue(conn.statements)
         self.assertIn('INSERT INTO bob_diagnostic_history', conn.statements[0][0])
+        self.assertTrue(any("SET LOCAL statement_timeout='5s'" in sql for sql,_ in conn.statements))
+        self.assertEqual(h._LAST_PRUNE,301)
 
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
