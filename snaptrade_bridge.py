@@ -17,6 +17,7 @@ import re
 import threading
 import time
 import zlib
+from collections import Counter
 import snaptrade_portfolio as portfolio
 import snaptrade_csv_link as csv_link
 import snaptrade_identity as identity
@@ -623,6 +624,7 @@ def diagnostics():
         'documentedExecutions': sum(len(a.get('tradeJournal',{}).get('events',[])) for a in (value.get('snapshot') or {}).get('accounts',[])),
         'calculatedSales': sum(len(a.get('tradeJournal',{}).get('realized',[])) for a in (value.get('snapshot') or {}).get('accounts',[])),
         'unresolvedTradeCalculations': sum(len(a.get('tradeJournal',{}).get('unresolved',[])) for a in (value.get('snapshot') or {}).get('accounts',[])),
+        'tradeCalculationReasons': dict(Counter(r['reason'] for a in (value.get('snapshot') or {}).get('accounts',[]) for r in a.get('tradeJournal',{}).get('unresolved',[]))),
         'acquisitionPricesReceived': sum(p.get('costBasis') is not None for a in (value.get('snapshot') or {}).get('accounts', []) for p in a['positions']),
         'positionValuesCalculated': sum(p.get('marketValue') is not None for a in (value.get('snapshot') or {}).get('accounts', []) for p in a['positions']),
         'issuerQuoteCandidates': sum(bool(p.get('isin')) for a in (value.get('snapshot') or {}).get('accounts', []) for p in a['positions']),
