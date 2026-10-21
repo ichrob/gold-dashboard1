@@ -61,6 +61,19 @@ class MarketInputReviewTests(unittest.TestCase):
             x['openTime']-=10*m.STEPS['5m']
         self.assertEqual(m.review(b,NOW.timestamp())['frames']['5m']['state'],'stale')
 
+    def test_recent_closed_candle_uses_close_time_and_collection_grace(self):
+        step=m.STEPS['1m']
+        latest_open=NOW_MS-2*step
+        rows=bars('1m')
+        shift=latest_open-rows[-1]['openTime']
+        for row in rows:
+            row['openTime']+=shift
+        q=m.frame_health(rows,'1m',NOW_MS+5000)
+        self.assertEqual(q['state'],'ok')
+        self.assertEqual(q['lastClosedAt'],int(latest_open+step))
+        self.assertEqual(q['ageSeconds'],65.0)
+        self.assertEqual(m.frame_health(rows,'1m',NOW_MS+step+46000)['state'],'stale')
+
     def test_spot_close_comparison_requires_original_timing(self):
         b=bundle()
         b['spots']['xaus']=4250
