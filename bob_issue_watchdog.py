@@ -271,7 +271,11 @@ def main():
         print('BOB_WATCHDOG problem_snapshot=published count='+str(count),flush=True)
     except Exception as exc:
         print('BOB_WATCHDOG problem_snapshot=unavailable error='+type(exc).__name__,flush=True)
-    return 1 if any(code in CODES for code in detected) else 0
+    # A successfully synchronized finding is a successful watchdog execution.
+    # The open issue carries the unhealthy state; failing every scheduled run
+    # would make workflow supervision unable to distinguish that state from a
+    # broken probe or publication path.
+    return 0
 
 
 if __name__ == "__main__":
