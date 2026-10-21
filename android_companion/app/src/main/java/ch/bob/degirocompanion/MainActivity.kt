@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
@@ -94,6 +95,20 @@ class MainActivity : Activity() {
         }
         demoResult = label("Demo bereit. Ein UIAutomator-Test kann Eingaben und Klicks simulieren.")
         setContentView(ScrollView(this).apply { addView(stack) })
+        processUserShare(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        processUserShare(intent)
+    }
+
+    private fun processUserShare(incoming: Intent?) {
+        if (incoming?.action != Intent.ACTION_SEND || !incoming.type.orEmpty().startsWith("image/")) return
+        @Suppress("DEPRECATION")
+        val uri = incoming.getParcelableExtra<Uri>(Intent.EXTRA_STREAM) ?: return
+        readImage(uri)
     }
 
     @Deprecated("Android's activity-result API retained here to avoid framework dependencies in the lab.")
@@ -101,6 +116,12 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != selectImageRequest || resultCode != RESULT_OK) return
         val uri = data?.data ?: return
+        readImage(uri)
+    }
+
+    private fun readImage(uri: Uri) {
+        evidenceDraft = ""
+        status.text = "Bild wird lokal gelesen. Es wird nichts automatisch versendet."
         try {
             val input = InputImage.fromFilePath(this, uri)
             val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
