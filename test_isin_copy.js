@@ -32,7 +32,8 @@ assert(factor.includes('data-copy-product-isin="'+isin+'"'),factor.slice(0,1500)
 const knockoutContext={
  knockoutStatus:p=>p.knockout,
  esc:widgetContext.esc,renderIsinCopy:widgetContext.renderIsinCopy,
- renderProductDirectionStatus:()=>''
+ renderProductDirectionStatus:()=>'',
+ renderProductIdentity:p=>'<b>'+widgetContext.esc(p.isin)+'</b> <strong data-isin-check="none"></strong>'+widgetContext.renderIsinCopy(p.isin)
 };
 vm.createContext(knockoutContext);
 vm.runInContext(source.slice(source.indexOf('function knockoutCard('),
