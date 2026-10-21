@@ -1,6 +1,9 @@
 package ch.bob.degirocompanion
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Button
@@ -52,6 +55,15 @@ class MainActivity : Activity() {
             startActivityForResult(intent, selectImageRequest)
         }
         status = label("Noch kein Bild ausgewählt. OCR-Werte sind niemals automatisch ein Handelsnachweis.")
+        button("OCR-Entwurf kopieren (zum Einfügen in Bob)") {
+            if (evidenceDraft.isBlank()) {
+                status.text = "Zuerst genau ein Produkt auf einem Bild auswählen."
+            } else {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Bob OCR ungeprüft", evidenceDraft))
+                status.text = "Nur der unbestätigte Text wurde kopiert. In Bob unter Mehr → DEGIRO einfügen. Die Zwischenablage kann auch von anderen Apps gelesen werden."
+            }
+        }
         button("OCR-Entwurf über Android teilen") {
             if (evidenceDraft.isBlank()) {
                 status.text = "Zuerst ein Bild auswählen und auswerten."
@@ -91,15 +103,19 @@ class MainActivity : Activity() {
         val uri = data?.data ?: return
         try {
             val input = InputImage.fromFilePath(this, uri)
-            TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS).process(input)
+            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+            recognizer.process(input)
                 .addOnSuccessListener { result ->
                     evidenceDraft = draftFromOcr(result.text)
-                    status.text = evidenceDraft
+                    status.text = if (evidenceDraft.isBlank()) {
+                        "Bild nicht eindeutig: genau eine prüfziffergültige ISIN erforderlich. Keine Daten übernommen."
+                    } else evidenceDraft
                 }
                 .addOnFailureListener {
                     evidenceDraft = ""
                     status.text = "Lokale Texterkennung fehlgeschlagen. Keine Nachweise übernommen."
                 }
+                .addOnCompleteListener { recognizer.close() }
         } catch (_: Exception) {
             evidenceDraft = ""
             status.text = "Bild nicht lesbar. Keine Nachweise übernommen."
@@ -111,6 +127,9 @@ class MainActivity : Activity() {
         val isinPattern = Regex("(?<![A-Z0-9])[A-Z]{2}[A-Z0-9]{9}[0-9](?![A-Z0-9])")
         val isins = isinPattern.findAll(rawUpper)
             .map { it.value }.filter(::validIsin).distinct().take(12).toList()
+        // Numeric OCR fields from a multi-product screenshot must not be assigned
+        // to an arbitrary instrument. Never export an ambiguous interpretation.
+        if (isins.size != 1) return ""
 
         fun observed(label: String, regex: Regex): String {
             val value = regex.find(raw)?.groupValues?.getOrNull(1)?.trim()
