@@ -71,14 +71,11 @@ def observe(source, tf, rows=None, error=None):
 
 
 def classify(rows, tf, now):
-    if not rows:return 'unavailable'
-    step=FRAMES[tf]*60000
-    closed=[b for b in rows if not b.get('isOpen') and not b.get('providerIsOpen')
-            and b.get('openTime',now*1000)+step<=now*1000]
-    if not closed or now*1000-closed[-1]['openTime']>2*step:return 'stale'
-    if len(closed)<100 or any(b['openTime']-a['openTime']!=step for a,b in zip(closed[-3:],closed[-2:])):
-        return 'incomplete'
-    return 'current'
+    # Reuse the actual analysis integrity rules, including instrument/OHLC checks.
+    from market_review import frame_health
+    confirmed=[b for b in rows if not b.get('providerIsOpen')]
+    state=frame_health(confirmed,tf,now*1000)['state']
+    return {'ok':'current','missing':'unavailable','stale':'stale'}.get(state,'incomplete')
 
 
 def transition(old,state,now,source_at=None):
@@ -212,8 +209,10 @@ def cycle(server, now=None, paused=False):
             if paused:state='paused'
             if not rows and not check and now-_STARTED<90:state='unknown'
             _STATS[key]=transition(_STATS.get(key),state,now,rows[-1]['openTime'] if rows else None)
+    live=getattr(server,'_live_cache',None) or {}
+    active_frames=(live.get('history') or {}).get('bars_by_tf') or {}
     for tf in FRAMES:
-        rows=server.retain_technical_history(tf,[])
+        rows=active_frames.get(tf,[])
         state='paused' if paused else classify(rows,tf,now)
         if not rows and now-_STARTED<90:state='unknown'
         with _LOCK:

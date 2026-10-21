@@ -68,6 +68,8 @@ class ReliabilityTests(unittest.TestCase):
         self.assertEqual(c.classify([],'1m',time.time()),'unavailable')
         self.assertEqual(c.classify(self.rows(20),'1m',time.time()),'incomplete')
         self.assertEqual(c.classify(self.rows(),'1m',time.time()),'current')
+        wrong=self.rows();wrong[-1]['instrument']='GC=F'
+        self.assertEqual(c.classify(wrong,'1m',time.time()),'incomplete')
         self.assertEqual(c.classify(self.rows(),'1m',time.time()+600),'stale')
     def test_archive_failure_cannot_break_source_observation(self):
         with patch.object(c,'request',side_effect=OSError('offline')) as req:
