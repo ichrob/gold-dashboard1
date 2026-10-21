@@ -528,7 +528,7 @@ function rememberKnockout(e){
 }
 function knockoutCard(p){
  const e=knockoutStatus(p);if(!e)return '';
- return '<div data-product-isin="'+esc(p.isin)+'" data-product-knocked-out style="padding:14px;margin-top:10px;border:1px solid #dc2626;border-radius:12px;background:#fff7f7"><b>'+esc(p.isin)+'</b>'+renderIsinCopy(p.isin)+' · '+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'<div style="color:#b91c1c;font-weight:700;margin-top:8px">Ausgeknockt – Produkt ausgeschlossen</div><p class="small">Der Emittent meldet „KNOCKED OUT“. Keine weiteren Daten oder Screenshots erforderlich. Dieses Produkt wird nicht mehr für die Produktauswahl oder eine Produktfreigabe berücksichtigt.</p><div class="small">Nachweis: '+esc(e.source)+(e.observedDate?' · gesehen am '+esc(e.observedDate):'')+'. Der genaue Knock-out-Zeitpunkt ist damit nicht belegt.</div></div>';
+ return '<div data-product-isin="'+esc(p.isin)+'" data-product-knocked-out style="padding:14px;margin-top:10px;border:1px solid #dc2626;border-radius:12px;background:#fff7f7">'+renderProductIdentity(p)+' · '+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'<div style="color:#b91c1c;font-weight:700;margin-top:8px">Ausgeknockt – Produkt ausgeschlossen</div><p class="small">Der Emittent meldet „KNOCKED OUT“. Keine weiteren Daten oder Screenshots erforderlich. Dieses Produkt wird nicht mehr für die Produktauswahl oder eine Produktfreigabe berücksichtigt.</p><div class="small">Nachweis: '+esc(e.source)+(e.observedDate?' · gesehen am '+esc(e.observedDate):'')+'. Der genaue Knock-out-Zeitpunkt ist damit nicht belegt.</div></div>';
 }
 function evaluateProduct(p){if(knockoutStatus(p))return{ok:false,fit:false,score:0,reasons:["Ausgeknockt – Produkt ausgeschlossen. Keine weiteren Daten erforderlich."],warnings:[]};if(p.quote?.isin===p.isin&&p.quote?.productVerified&&p.quote?.metadata?.status!==undefined&&p.quote.metadata.status!==1)return{ok:false,fit:false,score:0,reasons:["Produkt laut Quelle ausgeknockt oder beendet – ausgeschlossen."],warnings:[]};if(/FAKTOR|FACTOR/i.test([p.name,p.quote?.name,p.snapshot?.terms?.type?.value].join(" ")))return{ok:false,fit:false,score:0,reasons:["Faktorprodukt ausgeschlossen – keine Produktfreigabe."],warnings:[]};if(isFutureProduct(p))return{ok:false,fit:false,score:0,reasons:["Gold-Future benötigt eigene Basiswertdaten und Trendprüfung; keine XAU/USD-Spot-Freigabe."],warnings:[]};return evaluateProductCore(p);}
 // Bob ranking policy v2: continuous KO-buffer comparison, never a profit probability.
@@ -2027,6 +2027,24 @@ function productDirectionCheck(p,now=Date.now()){
  const state=productDirectionDataState(p,now);
  return {kind:state.blocked?'none':state.stale?'qualified':'confirmed',state};
 }
+function renderProductIdentity(p,now=Date.now()){
+ const excluded=knockoutStatus(p)?'Ausgeknockt – Produkt ausgeschlossen':compactProductExclusion(p);
+ const check=excluded?{kind:'none'}:productDirectionCheck(p,now);
+ const symbol=check.kind==='confirmed'?'✓':check.kind==='qualified'?'(✓)':'✗';
+ let reason='Analysewerte vollständig · DEGIRO-Ausführung separat prüfen.';
+ if(excluded)reason=excluded;
+ else if(check.paused)reason='Reguläre Handelspause · kein aktueller Vollständigkeitshaken.';
+ else if(check.analysis)reason='Einschränkung: SG-Chartkurs und Hebel für die Analyse; kein bestätigter DEGIRO-Ausführungskurs.';
+ else if(check.kind!=='confirmed'){
+  const fields=Object.values(productFieldStates(p,now));
+  const details=fields.filter(f=>/fehlt|veraltet|unbestätigt|abweichend/.test(f.state)).map(f=>f.key+': '+f.state);
+  const terms=productDataStatus(p,now).reasons||[];
+  reason=(check.kind==='qualified'?'Einschränkung: ':'Offen: ')+[...new Set([...details,...terms])].join(' · ');
+  if(!details.length&&!terms.length)reason+='Produktnachweise noch nicht vollständig bestätigt.';
+ }
+ return '<div data-product-identity><b>'+esc(p.isin)+'</b> <strong data-isin-check="'+check.kind+'" aria-label="'+esc(reason)+'" style="font-size:1.6em;white-space:nowrap;color:'+(check.kind==='none'?'#b91c1c':'#15803d')+'">'+symbol+'</strong>'+renderIsinCopy(p.isin)+
+  '<div data-isin-check-reason role="status" style="margin:6px 0;font-size:14px;line-height:1.5;color:'+(check.kind==='confirmed'?'#166534':'#92400e')+'">'+esc(reason)+'</div></div>';
+}
 function renderGoldProductsHeading(products,now=Date.now()){
  const remaining=products.filter(p=>!knockoutStatus(p)&&!compactProductExclusion(p));
  const checks=remaining.map(p=>productDirectionCheck(p,now));
@@ -2339,7 +2357,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  const direct=p.quote?.isin===p.isin&&p.quote?.productVerified?p.quote:null;
  const undatedReference=direct?.issuerLeverageReference?.dated===false&&n(direct.issuerLeverageReference.value)>0;
  const excluded=compactProductExclusion(p);
- if(excluded)return '<div data-product-isin="'+esc(p.isin)+'" style="padding:14px;margin-top:10px;border:1px solid #dc2626;border-radius:12px"><b>'+esc(p.isin)+'</b>'+renderIsinCopy(p.isin)+'<p>'+esc(excluded)+'</p><p>Keine weiteren Daten oder Screenshots erforderlich.</p>'+(direct?.lifecycleEvidence?'<p>'+esc(direct.reason)+'</p>':'')+renderProductSources(p)+'</div>';
+ if(excluded)return '<div data-product-isin="'+esc(p.isin)+'" style="padding:14px;margin-top:10px;border:1px solid #dc2626;border-radius:12px">'+renderProductIdentity(p)+'<p>'+esc(excluded)+'</p><p>Keine weiteren Daten oder Screenshots erforderlich.</p>'+(direct?.lifecycleEvidence?'<p>'+esc(direct.reason)+'</p>':'')+renderProductSources(p)+'</div>';
  const selected=status==='Freigegeben · ausgewählt';
  const complete=finalProductStatus(p).complete;
  const x=p.snapshot,terms={...(x?.terms||{}),...(direct?.conditions||{})},values=[];
@@ -2389,7 +2407,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
    (direct?.metadata?.currency==='CHF'||direct?.nativeChartEvidence?.currency==='CHF');
  const venueMissing=productProblemLabels(p).includes('DEGIRO-Handelsplatznachweis');
  const next=venueMissing?productHelpState(p).action:automaticQuoteIssue?'Automatischer Kurs- und Hebelabruf wird erneut geprüft. Vorhandene Werte bleiben mit ihrem ursprünglichen Datenstand nutzbar; derzeit keine neuen Bilder erforderlich.':complete&&neutral?'Marktsignal neutral – auf eine bestätigte Richtung warten. Dafür sind keine neuen Bilder nötig.':complete?'Produktdaten vollständig – Auswahlgrund unter „Warum derzeit nicht ausgewählt?“ prüfen.':temporal&&data.complete?'Werte vorhanden – den offenen Zeitbezug unter „Werte und Aktualitätsprüfung“ prüfen.':automaticRecoveryPending?'Bob prüft die zugelassenen Emittentenquellen automatisch erneut. Fehlende oder unklare Nachweise bleiben gesperrt und werden unter „Problem“ dokumentiert. Nur wenn diese Quellen keine ausreichenden Daten liefern, können zusätzliche Originalbelege notwendig sein.':'Offene Angaben unter „Werte und Aktualitätsprüfung“ ansehen und nur diese ergänzen.';
- return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" '+(selected?'data-selection-approved':'data-selection-blocked')+'="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere"><b>'+esc(p.isin)+'</b>'+renderIsinCopy(p.isin)+renderProductProblemSummary(p)+productCompletionBadge(p)+renderDegiroListEvidence(p)+renderProductHelp(p)+renderScreenshotSources(p)+'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'</div>'+
+ return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" '+(selected?'data-selection-approved':'data-selection-blocked')+'="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere">'+renderProductIdentity(p)+renderProductProblemSummary(p)+productCompletionBadge(p)+renderDegiroListEvidence(p)+renderProductHelp(p)+renderScreenshotSources(p)+'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'</div>'+
  renderServerVenueEvidence(p)+renderDegiroDisplayedQuote(p)+renderDegiroVenueInference(p)+renderDegiroTradingSession(p)+(swissSgVenue&&!degiroVenueObserved(p)&&!degiroVenueInferred(p)?'<div class="small" data-swiss-dots-warning><b>SG Swiss DOTS · CHF:</b> Offen ist die Zuordnung dieses CHF-Produkts zu einem DEGIRO-Handelsplatz. Die vorhandenen SG-Kurse werden für die Analyse verwendet.</div>':'')+'<div class="small" data-product-status><div><b>Daten:</b> '+valuePresenceMark(missingNumbers.length>0)+' '+esc(dataText)+'</div><div><b>Zeitbezug vorhandener Kurs-/Hebelwerte:</b> '+valuePresenceMark(!timeEvidence.confirmed)+' '+esc(timeEvidence.label)+'</div><div><b>Aktuelle Auswahl:</b> '+(selected?'freigegeben · ausgewählt':'nicht ausgewählt')+(neutral?' · Marktsignal neutral':'')+'</div></div>'+
  '<p data-product-next><b>Nächster Schritt:</b> '+esc(selected?'Tatsächlichen DEGIRO-Kurs vor einem Einstieg prüfen.':next)+'</p><details><summary>Automatische Suche · letzter Stand</summary>'+renderAutomaticProductCheck(p)+'</details>'+renderPrimaryProductValues(p)+
  (allReasons.length?'<div class="small">'+allReasons.slice(0,2).map(shortReason).map(esc).join('<br>')+'</div>':'')+

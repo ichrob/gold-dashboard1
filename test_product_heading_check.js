@@ -18,3 +18,15 @@ assert(heading([good,good,good]).includes('confirmed'));
 assert(source.includes('updateProductHtml(savedSummary,renderGoldProductsHeading(savedProducts))'));
 assert(source.includes('const check=productDirectionCheck(p,now);'),'Card and heading must share their check state');
 console.log('Product heading follows all visible checks, qualified checks, missing checks and pauses');
+Object.assign(c,{esc:s=>String(s).replaceAll('<','&lt;'),renderIsinCopy:()=>'<button>Kopieren</button>',productFieldStates:p=>p.fields||{},productDataStatus:p=>({reasons:p.reasons||[]})});
+for(const [p,symbol] of [[good,'✓'],[qualified,'(✓)'],[missing,'✗'],[analysis,'(✓)'],[paused,'✗'],[{ko:true},'✗']]){
+ const html=c.renderProductIdentity({...p,isin:'TEST'});
+ assert(html.includes('<b>TEST</b> <strong data-isin-check='));
+ assert(html.includes('>'+symbol+'</strong>'));
+ assert(html.includes('data-isin-check-reason'));
+}
+assert(c.renderProductIdentity(analysis).includes('kein bestätigter DEGIRO-Ausführungskurs'));
+assert(c.renderProductIdentity({...qualified,fields:{ko:{key:'KO',state:'veraltet'}}}).includes('KO: veraltet'));
+assert(c.renderProductIdentity({...missing,reasons:['Basispreis fehlt']}).includes('Basispreis fehlt'));
+assert(c.renderProductIdentity({ko:true}).includes('Ausgeknockt'));
+console.log('ISIN badges share heading states and explain qualified, missing, paused and excluded data');
