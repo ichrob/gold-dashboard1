@@ -15,6 +15,8 @@ _LOCK = threading.Lock()
 _RUNNING = False
 _DATABASE = None
 _LAST_PRUNE = 0.0
+_PRUNE_INTERVAL_SECONDS = 1800
+_PRUNE_TIMEOUT = '5s'
 _STATS = {'stored':0,'dropped':0,'failures':0,'lastStoredAt':None}
 SCHEMAS = {
     'transport':diag.shape('outcome','errorType'),
@@ -91,13 +93,15 @@ def write(conn,event):
                     VALUES('gold-api-xau-usd-v1',%s,%s) ON CONFLICT DO NOTHING''',source)
         except Exception:
             print('BOB_DIAGNOSTIC_SPOT archive=unavailable',flush=True)
-    if time.monotonic()-_LAST_PRUNE>=300:
-        # Retention maintenance is best-effort. Keep it in a savepoint so a
-        # bounded prune timeout cannot roll back the current diagnostic event
-        # or turn the health delivery endpoint into a transient 503.
+    if time.monotonic()-_LAST_PRUNE>=_PRUNE_INTERVAL_SECONDS:
+        # Retention maintenance is best-effort. Delivery keeps its short timeout,
+        # while the bounded maintenance batch gets a separate finite budget.
+        # A savepoint still prevents a timeout from rolling back this event.
         try:
             with conn.transaction():
-                prune(conn)
+                conn.execute("SET LOCAL statement_timeout='"+_PRUNE_TIMEOUT+"'")
+                removed=prune(conn)
+            print('BOB_DIAGNOSTIC_PRUNE status=completed removed='+str(removed),flush=True)
         except Exception as exc:
             print('BOB_DIAGNOSTIC_PRUNE status=deferred error='+
                   type(exc).__name__,flush=True)
@@ -106,15 +110,17 @@ def write(conn,event):
 
 
 def prune(conn):
-    conn.execute("""DELETE FROM bob_diagnostic_history WHERE id IN
+    old=conn.execute("""DELETE FROM bob_diagnostic_history WHERE id IN
         (SELECT id FROM bob_diagnostic_history
          WHERE recorded_at < now()-interval '7 days'
          ORDER BY recorded_at LIMIT 500 FOR UPDATE SKIP LOCKED)""")
-    conn.execute('''DELETE FROM bob_diagnostic_history WHERE id IN
+    capped=conn.execute('''DELETE FROM bob_diagnostic_history WHERE id IN
         (SELECT h.id FROM bob_diagnostic_history h
          JOIN (SELECT id FROM bob_diagnostic_history
                ORDER BY recorded_at DESC OFFSET 60000 LIMIT 500) victims USING (id)
          FOR UPDATE OF h SKIP LOCKED)''')
+    counts=(getattr(old,'rowcount',0),getattr(capped,'rowcount',0))
+    return sum(value for value in counts if isinstance(value,int) and value>0)
 
 
 def emit(stage,trace_id,payload,decision_id=None):

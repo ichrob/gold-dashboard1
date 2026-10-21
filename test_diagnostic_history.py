@@ -59,12 +59,13 @@ class HistoryTests(unittest.TestCase):
 
         conn = Conn()
         with patch.object(h, 'prune', side_effect=TimeoutError('maintenance timeout')), \
-             patch.object(h.time, 'monotonic', return_value=301), \
+             patch.object(h.time, 'monotonic', return_value=1801), \
              patch.object(h, '_LAST_PRUNE', 0):
             h.write(conn, self.event())
 
         self.assertTrue(conn.statements)
         self.assertIn('INSERT INTO bob_diagnostic_history', conn.statements[0][0])
+        self.assertTrue(any("SET LOCAL statement_timeout='5s'" in sql for sql,_ in conn.statements))
 
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
