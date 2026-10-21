@@ -1,0 +1,62 @@
+name: Bob Android Companion Lab
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "android_companion/**"
+      - ".github/workflows/android-companion.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-lab-build:
+    name: Build offline-only Android test APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Use runner's installed Android SDK
+        shell: bash
+        run: |
+          test -d "$ANDROID_HOME"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -n 1)"
+          test -n "$SDKMANAGER"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+          echo "ANDROID_SDK_MANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
+      - name: Android platform
+        run: |
+          "$ANDROID_SDK_MANAGER" "platforms;android-35" "build-tools;35.0.0"
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+      - name: Assemble app and UI test APKs
+        run: gradle -p android_companion :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
+      - name: Android manifest safety gate
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          manifest=Path("android_companion/app/src/main/AndroidManifest.xml").read_text()
+          for banned in ("android.permission.INTERNET", "BIND_ACCESSIBILITY_SERVICE",
+                         "android.permission.SYSTEM_ALERT_WINDOW", "android.permission.QUERY_ALL_PACKAGES"):
+              assert banned not in manifest, banned
+          assert 'android.intent.action.SEND' in manifest
+          assert 'android:mimeType="image/*"' in manifest
+          print("No network / accessibility permission.")
+          PY
+      - name: Upload debug APK (lab only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: bob-android-lab-debug
+          path: android_companion/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
