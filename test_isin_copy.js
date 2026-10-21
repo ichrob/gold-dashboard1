@@ -23,7 +23,9 @@ assert.equal(widgetContext.renderIsinCopy('BAD'),'');
 const app={window:{}};
 vm.runInNewContext(source,app);
 const card=app.window.BobDegiro.compactProductCard({isin,index:1});
-assert(card.includes('<b>'+isin+'</b>'+html),card.slice(0,1500));
+assert(card.includes('<b>'+isin+'</b>'),card.slice(0,1500));
+assert(card.includes('data-isin-check="none"'),card.slice(0,1500));
+assert(card.includes(html),card.slice(0,1500));
 const factor=app.window.BobDegiro.compactProductCard({isin,index:1,name:'FAKTOR Gold'});
 assert(factor.includes('data-copy-product-isin="'+isin+'"'),factor.slice(0,1500));
 
@@ -37,7 +39,9 @@ vm.runInContext(source.slice(source.indexOf('function knockoutCard('),
  source.indexOf('function evaluateProduct(')),knockoutContext);
 const knocked=knockoutContext.knockoutCard({isin,productDirection:'LONG',
  knockout:{source:'Emittent',observedDate:'2026-10-15'}});
-assert(knocked.includes('<b>'+isin+'</b>'+html),knocked);
+assert(knocked.includes('<b>'+isin+'</b>'),knocked);
+assert(knocked.includes('data-isin-check="none"'),knocked);
+assert(knocked.includes(html),knocked);
 assert(knocked.includes('Ausgeknockt'),knocked);
 assert(source.includes('data-copy-product-isin="" aria-label="ISIN kopieren"'),
  'The saved product input also needs a one-tap copy icon.');
