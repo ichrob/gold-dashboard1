@@ -135,6 +135,39 @@ PANEL = r"""
       'Kosten sind Annahmen. Einzelverluste lösen keine ungeprüfte Strategieänderung aus; siehe Regeln lernen.'
      ].join('\n\n'):'Die Selbstprüfung beginnt mit dem nächsten abgeschlossenen Versuch. Frühere Trades werden nicht nachträglich als neue Lernergebnisse gezählt.';
      review.append(reviewTitle,reviewBody);card.append(review);
+     const checklist=st.lastEntryChecklist;
+     const checkPanel=document.createElement('details'),checkTitle=document.createElement('summary'),checkBody=document.createElement('p');
+     checkTitle.textContent='Einstiegscheckliste · Einstieg oder Abwarten';checkBody.className='small';checkBody.style='white-space:pre-line;overflow-wrap:anywhere';
+     const states={pass:'✓ bestätigt',fail:'✗ nicht erfüllt',unknown:'offen'};
+     checkBody.textContent=checklist?[
+      time(checklist.capturedAt)+' · '+(checklist.decision==='entry'?'Virtueller Einstieg':'Abwarten')+' · '+checklist.reason,
+      ...(checklist.checks||[]).map(x=>x.label+': '+(states[x.state]||'offen')+(x.required?' · Pflichtprüfung':' · Zusatzinformation')),
+      'Gold-Quellenzeit: '+time(checklist.sourceAt),
+      'Anfänglicher Gold-Stoppabstand: '+(Number.isFinite(checklist.riskUsd)?checklist.riskUsd.toFixed(2)+' USD/oz · '+checklist.riskPct.toFixed(2)+' %':'offen'),
+      'Gespeicherter Entscheidungsstand. Ein Analysenachweis ist keine DEGIRO-Ausführungszusage.'
+     ].join('\n'):'Noch keine Checkliste für den gewählten Tag gespeichert. Erfassung ab dem nächsten virtuellen Einstiegsversuch; keine rückwirkenden Annahmen.';
+     checkPanel.append(checkTitle,checkBody);card.append(checkPanel);
+     const dr=acc.decisionReview;
+     if(dr){
+      const panel=document.createElement('details'),title=document.createElement('summary'),body=document.createElement('p');
+      title.textContent='Tagesauswertung · Entscheidungen und Nachweise';body.className='small';body.style='white-space:pre-line;overflow-wrap:anywhere';
+      body.textContent=[dr.day+' · '+dr.entries+' gespeicherte Einstiege · davon '+dr.checkedEntries+' mit neuer Checkliste',
+       dr.ruleConsistent+' mit allen Pflichtprüfungen bestätigt · '+dr.requiredViolations+' mit erfasster Pflichtverletzung · '+dr.entriesWithUnknownChecks+' mit offenen Zusatz- oder Pflichtangaben',
+       dr.legacyEntries+' ältere Einstiege ohne neue Checkliste · '+dr.waitChecks+' Prüfungen mit Abwarten (keine Trade-Anzahl)',
+       dr.pricedClosed+' vollständig bepreiste Abschlüsse · '+dr.unpricedClosed+' ohne vollständiges Produkt-Ergebnis',
+       'Ergebnis nach eingefrorenen Beispielkosten: '+(Number.isFinite(dr.modelNetEur)?money.format(dr.modelNetEur):'offen'),
+       ...(dr.reviewCandidates||[]).map(v=>'Prüfkandidat '+time(v.at)+': '+v.failures.join(', ')),
+       dr.note].join('\n\n');panel.append(title,body);card.append(panel);
+     }
+     const study=acc.stopStudy;
+     if(study){
+      const panel=document.createElement('details'),title=document.createElement('summary'),body=document.createElement('p');
+      title.textContent='Stoppvergleich · fest / ATR / Struktur';body.className='small';body.style='white-space:pre-line;overflow-wrap:anywhere';
+      body.textContent=[study.total+' Vergleichseinstiege · '+study.paired+' vollständig gepaarte Ergebnisse · '+study.open+' laufend · '+study.unavailable+' nicht vollständig vergleichbar',
+       ...(study.variants||[]).map(v=>v.label+': '+v.paired+' gemeinsame Fälle · nach Beispielkosten '+(Number.isFinite(v.modelNetEur)?money.format(v.modelNetEur):'offen')+' · '+v.stopHits+' beobachtete Stopptreffer'),
+       'Nur paralleler Simulationstest. Unter 20 vollständigen Vergleichen: Datensammlung; auch danach keine automatische Regelübernahme.',study.note].join('\n\n');
+      panel.append(title,body);card.append(panel);
+     }
      const cr=acc.costReview;
      if(cr){
       const costs=document.createElement('details'),title=document.createElement('summary'),body=document.createElement('p');
