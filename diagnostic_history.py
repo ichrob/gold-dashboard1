@@ -12,6 +12,7 @@ import bob_diagnostics as diag
 STAGES = ('input','analysis','analysis-failed','push','health','transport')
 _QUEUE = deque(maxlen=256)
 _LOCK = threading.Lock()
+_PRUNE_LOCK = threading.Lock()
 _RUNNING = False
 _DATABASE = None
 _LAST_PRUNE = 0.0
@@ -93,20 +94,24 @@ def write(conn,event):
                     VALUES('gold-api-xau-usd-v1',%s,%s) ON CONFLICT DO NOTHING''',source)
         except Exception:
             print('BOB_DIAGNOSTIC_SPOT archive=unavailable',flush=True)
-    if time.monotonic()-_LAST_PRUNE>=_PRUNE_INTERVAL_SECONDS:
+    if (time.monotonic()-_LAST_PRUNE>=_PRUNE_INTERVAL_SECONDS
+            and _PRUNE_LOCK.acquire(blocking=False)):
         # Retention maintenance is best-effort. Delivery keeps its short timeout,
         # while the bounded maintenance batch gets a separate finite budget.
         # A savepoint still prevents a timeout from rolling back this event.
         try:
-            with conn.transaction():
-                conn.execute("SET LOCAL statement_timeout='"+_PRUNE_TIMEOUT+"'")
-                removed=prune(conn)
-            print('BOB_DIAGNOSTIC_PRUNE status=completed removed='+str(removed),flush=True)
-        except Exception as exc:
-            print('BOB_DIAGNOSTIC_PRUNE status=deferred error='+
-                  type(exc).__name__,flush=True)
+            try:
+                with conn.transaction():
+                    conn.execute("SET LOCAL statement_timeout='"+_PRUNE_TIMEOUT+"'")
+                    removed=prune(conn)
+                print('BOB_DIAGNOSTIC_PRUNE status=completed removed='+str(removed),flush=True)
+            except Exception as exc:
+                print('BOB_DIAGNOSTIC_PRUNE status=deferred error='+
+                      type(exc).__name__,flush=True)
+            finally:
+                _LAST_PRUNE=time.monotonic()
         finally:
-            _LAST_PRUNE=time.monotonic()
+            _PRUNE_LOCK.release()
 
 
 def prune(conn):
