@@ -2,7 +2,7 @@
 PANEL = r'''
 <section id="bobSnapTrade" class="card" style="padding:16px;overflow-wrap:anywhere">
 <h3>DEGIRO über SnapTrade Personal</h3>
-<p>Kostenloser Personal-Zugang für dein eigenes Depot. Bob liest Bestände und Bargeld höchstens alle zehn Minuten, auch wenn diese Ansicht geschlossen ist. Depotwerte alle zehn Minuten. Eindeutig zugeordnete Produktkurse prüft Bob zusätzlich etwa alle 30 Sekunden über seine bestehenden Emittentenquellen; dies sind keine DEGIRO-Ausführungskurse.</p>
+<p>Kostenloser Personal-Zugang für dein eigenes Depot. Bob liest Bestände und Bargeld bei aktiver Bob-Ansicht frühestens alle zehn Minuten. Im Hintergrund gilt ein sparsamer Sechs-Stunden-Takt. Eindeutig zugeordnete Produktkurse prüft Bob zusätzlich etwa alle 30 Sekunden über seine bestehenden Emittentenquellen; dies sind keine DEGIRO-Ausführungskurse.</p>
 <p id="snapStatus" role="status">Einrichtung wird geprüft …</p>
 <ol>
 <li><a href="https://snaptrade.com/personal" target="_blank" rel="noopener noreferrer">SnapTrade Personal kostenlos öffnen</a>, Konto erstellen und E-Mail bestätigen.</li>
@@ -20,6 +20,7 @@ PANEL = r'''
 </form>
 <p class="small">Der Schlüssel wird verschlüsselt auf Bobs bestehendem Server gespeichert. Er wird nicht im Browser gespeichert oder zurück angezeigt. Keine Zahlungskarte und keinen kostenpflichtigen Tarif einrichten. Das Löschen unten entfernt den Schlüssel sowie den gespeicherten Depotverlauf und das Journal aus Bob; die Verbindung bei SnapTrade verwaltest du dort.</p>
 </details>
+<p class="small">Optional: <a href="https://docs.snaptrade.com/docs/mcp-server" target="_blank" rel="noopener noreferrer">SnapTrade mit ChatGPT verbinden</a>. Separate schreibgeschützte Verbindung, die du selbst autorisieren musst.</p>
 <p id="snapFeedback" role="status" aria-live="polite"></p>
 <p><button id="snapCheck" type="button" disabled>Verbindung prüfen</button> <button id="snapRemove" type="button" disabled>Schlüssel aus Bob löschen</button></p>
 <p id="snapClock" class="small"></p>
@@ -120,6 +121,30 @@ function mount(){
    line(d,'Ein-/Auszahlungen: ',report.cashMovements.length+' Buchungen; kein Tradinggewinn.');
    line(d,'','Diese Dokumentation ändert keine aktiven Trades, Simulationen, Strategieregeln oder Handelsfreigaben.');
   }
+  function tradeInsights(parent,account){
+   const view=account.tradeInsights;
+   const d=details(parent,'snapOrderFills'+account.accountKey,'Erkannte Ausführungen · Prüfliste für Bob');
+   line(d,'','Nur gemeldete ausgeführte Stückzahlen zählen. Keine automatische Übernahme in Mein Trade, keine echte Order und keine automatische Lernregeländerung.');
+   if(!view){line(d,'','Noch keine Auswertung vorhanden.');return;}
+   line(d,'Orders: ',view.ordersAvailable?'Abruf erfolgreich · '+stamp(view.ordersCheckedAt):'Anbieter-Abruf nicht bestätigt oder vorübergehend nicht verfügbar');
+   line(d,'Erkannte Ausführungen: ',String(view.executionsCount));
+   line(d,'Für einen späteren historischen Signalvergleich ausreichend zugeordnet: ',String(view.readyForHistoricalComparison));
+   for(const item of (view.executions||[]).slice(0,40)){
+    const card=document.createElement('div');card.style.cssText='border-top:1px solid #ddd;padding:8px 0';
+    line(card,'',(item.name||item.symbol||'Unbekanntes Instrument')+' · '+(item.side||'Aktion unbekannt')+' · '+item.filledQuantity+' Stück');
+    line(card,'ISIN: ',item.isin||'Nicht eindeutig nachgewiesen');
+    line(card,'Ausgeführt laut Orders: ',stamp(item.executedAt)+' · '+amount(item.executionPrice,item.currency));
+    line(card,'Anbieterstatus: ',item.providerStatus||'nicht geliefert');
+    line(card,'Auswertung: ',item.reviewReady?'Identität, Zeitpunkt und Kurs vorhanden; Abgleich mit damaligem Bob-Signal noch nicht abgeschlossen.':'Originalzeit, Kurs oder belastbare ISIN-Zuordnung fehlen.');
+    d.append(card);
+   }
+   if(view.executionsCount>40)line(d,'','Nur die ersten 40 Ausführungen angezeigt.');
+   const fees=details(d,'snapFees'+account.accountKey,'Gebühren aus gemeldeten Kontotransaktionen');
+   line(fees,'','Unveränderte Anbieter-Vorzeichen; keine automatische Zuordnung zu Käufen/Verkäufen. Keine Net-P/L-Aussage.');
+   line(fees,'Transaktionsstand: ',stamp(view.activitiesCheckedAt)+' · '+(view.activitiesComplete?'vollständig im abgefragten Fenster':'unvollständig oder nicht bestätigt'));
+   for(const v of view.feesByCurrency||[])line(fees,v.currency+': ',v.reportedFeeSum+' ('+v.entries+' Datensätze)');
+   if(!view.feesByCurrency?.length)line(fees,'','Keine belastbaren Gebühreneinträge verfügbar.');
+  }
   for(const [i,account] of (data.snapshot?.accounts||[]).entries()){
    const box=document.createElement('section'),title=document.createElement('h4'),meta=document.createElement('p');
    title.textContent='DEGIRO-Depot '+(i+1)+' · '+account.positions.length+' gelieferte Positionen';box.append(title);
@@ -156,7 +181,7 @@ function mount(){
    }
    if(account.csvAutoReport){const report=account.csvAutoReport;line(box,'Automatischer CSV-Abgleich: ',report.matched+' von '+report.total+' Positionen zugeordnet');for(const item of report.unresolved||[]){const p=account.positions.find(p=>p.positionKey===item.positionKey);line(box,(p?.name||'Position')+': ',item.reason);}}
    if(account.csvImportedAt){const unlink=document.createElement('button');unlink.type='button';unlink.textContent='CSV-Zuordnung für dieses Depot entfernen';unlink.addEventListener('click',async()=>{if(busy)return;busy=true;unlink.disabled=true;controls();try{await call('csv-clear',{accountKey:account.accountKey});csvMessage('CSV-Zuordnung auf dem Server gelöscht. Die lokale CSV bleibt erhalten.');}catch(error){csvMessage(error.message);}finally{busy=false;unlink.disabled=false;controls();}});box.append(unlink);}
-   history(box,account);journal(box,account);tradeJournal(box,account);
+   history(box,account);journal(box,account);tradeJournal(box,account);tradeInsights(box,account);
    list.append(box);
   }
   const changes=data.snapshot?.changes||[];if(changes.length){const d=details(list,'snapChanges','Beobachtete Bestandsänderungen');line(d,'','Eine Mengenänderung allein belegt keinen Kauf oder Verkauf.');for(const c of changes.slice(-20).reverse())line(d,'',stamp(c.at)+' · '+c.name+' · '+(c.before??'nicht vorhanden')+' → '+(c.after??'nicht vorhanden'));}

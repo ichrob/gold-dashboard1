@@ -18,6 +18,7 @@ import threading
 import time
 import zlib
 import snaptrade_portfolio as portfolio
+import snaptrade_trade_insights as insights
 import snaptrade_csv_link as csv_link
 import snaptrade_identity as identity
 import snaptrade_trades as trades
@@ -29,6 +30,7 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 ORIGIN = 'https://api.snaptrade.com'
 INTERVAL = 600
+BACKGROUND_INTERVAL = 21600
 MAX_BODY = 2_000_000
 _LOCK = threading.RLock()
 _FETCH_LOCK = threading.Lock()
@@ -38,6 +40,8 @@ _LOADED = False
 _THREAD = None
 _WAKE = threading.Event()
 _NEXT = 0.0
+_LAST_ATTEMPT = 0.0
+_INTERACTIVE_UNTIL = 0.0
 _STATE = {'code': 'SETUP_REQUIRED', 'snapshot': None}
 _LEDGER = {}
 _LEDGER_OWNER = None
@@ -125,7 +129,7 @@ def load_config():
 
 
 def configure(payload):
-    global _CONFIG, _LOADED, _GENERATION, _NEXT
+    global _CONFIG, _LOADED, _GENERATION, _NEXT, _LAST_ATTEMPT
     config = validate_config(payload)
     sealed = cipher().encrypt(json.dumps(config).encode()).decode()
     with _LOCK:
@@ -134,6 +138,7 @@ def configure(payload):
         _CONFIG, _LOADED = config, True
         _GENERATION += 1
         _NEXT = 0
+        _LAST_ATTEMPT = 0
         _STATE.clear()
         _STATE.update(code='READY', snapshot=None)
     start()
@@ -142,13 +147,14 @@ def configure(payload):
 
 
 def disconnect():
-    global _CONFIG, _LOADED, _GENERATION, _NEXT, _LEDGER_OWNER
+    global _CONFIG, _LOADED, _GENERATION, _NEXT, _LAST_ATTEMPT, _LEDGER_OWNER
     with _LOCK:
         if storage('delete').get('deleted') is not True:
             raise ReadError('STORE_UNAVAILABLE')
         _CONFIG, _LOADED = None, True
         _GENERATION += 1
         _NEXT = 0
+        _LAST_ATTEMPT = 0
         _STATE.clear()
         _STATE.update(code='SETUP_REQUIRED', snapshot=None)
         _LEDGER.clear()
@@ -376,6 +382,7 @@ def update_portfolio(snapshot, config, generation):
         ledger['journal'][key] = journal
         a['journal'] = journal
         a['tradeJournal'] = trades.build(journal)
+        a['tradeInsights'] = insights.read_account(a)
     snapshot['changes'] = ledger['changes']
     snapshot['history'] = [{'at': p['at'], 'complete':p['complete'], 'accounts':[
         {'accountKey':a['accountKey'], 'netValue':a['netValue']} for a in p['accounts']]} for p in ledger['history']]
@@ -415,6 +422,8 @@ def import_csv(payload, clear=False, automatic=False):
             entry=identity.reconcile(entry,account,ledger['csv'].get(payload['accountKey']))
         ledger['csv'][payload['accountKey']] = entry
     csv_link.apply(snapshot, ledger['csv'])
+    for account in snapshot['accounts']:
+        account['tradeInsights'] = insights.read_account(account)
     with _LOCK:
         if generation != _GENERATION:
             raise ReadError('CSV_CONNECTION_REQUIRED')
@@ -530,8 +539,19 @@ def _quote_loop():
         time.sleep(max(1, 30 - (time.monotonic() - began)))
 
 
+def mark_interactive():
+    """Read-only provider refresh; no faster than every 10 minutes in active UI."""
+    global _NEXT, _INTERACTIVE_UNTIL
+    with _LOCK:
+        now = time.monotonic()
+        _INTERACTIVE_UNTIL = now + 120
+        if _CONFIG:
+            _NEXT = min(_NEXT, max(now, _LAST_ATTEMPT + INTERVAL))
+    _WAKE.set()
+
+
 def refresh():
-    global _NEXT
+    global _NEXT, _LAST_ATTEMPT
     if not _FETCH_LOCK.acquire(blocking=False):
         return status()
     try:
@@ -542,7 +562,9 @@ def refresh():
             if time.monotonic() < _NEXT:
                 return status()
             config, generation = dict(_CONFIG), _GENERATION
-            _NEXT = time.monotonic() + INTERVAL
+            now = time.monotonic()
+            _LAST_ATTEMPT = now
+            _NEXT = now + (INTERVAL if now < _INTERACTIVE_UNTIL else BACKGROUND_INTERVAL)
             _STATE['code'] = 'CHECKING'
         try:
             snapshot = read_snapshot(config)
@@ -580,7 +602,9 @@ def status():
     with _LOCK:
         result = copy.deepcopy(_STATE)
         result.update(configured=bool(_CONFIG), running=bool(_THREAD and _THREAD.is_alive()),
-                      intervalSeconds=INTERVAL, nextCheckSeconds=max(0, math.ceil(_NEXT - time.monotonic())),
+                      intervalSeconds=INTERVAL if time.monotonic() < _INTERACTIVE_UNTIL else BACKGROUND_INTERVAL,
+                      nextCheckSeconds=max(0, math.ceil(_NEXT - time.monotonic())),
+                      interactive=time.monotonic() < _INTERACTIVE_UNTIL,
                       readOnly=True, realOrders=False, liveQuotes=False,
                       provider='SnapTrade Personal', coverageVerified=False)
         # A successful HTTP request alone does not prove current provider data.
@@ -632,6 +656,8 @@ def diagnostics():
         'explicitWknReceived': sum((p.get('rawSymbol') or '').upper().startswith('WKN:') for a in (value.get('snapshot') or {}).get('accounts', []) for p in a['positions']),
         'csvLinkedPositions': sum(bool(p.get('csvEvidence')) for a in (value.get('snapshot') or {}).get('accounts', []) for p in a['positions']),
         'historyPoints': len((value.get('snapshot') or {}).get('history', [])),
+        'detectedExecutions': sum(a.get('tradeInsights', {}).get('executionsCount', 0) for a in (value.get('snapshot') or {}).get('accounts', [])),
+        'executionCandidatesForReview': sum(a.get('tradeInsights', {}).get('readyForHistoricalComparison', 0) for a in (value.get('snapshot') or {}).get('accounts', [])),
         'journalStatus': [{k: a.get('journal', {}).get(k, {}).get('code', 'NOT_READ') for k in ('orders', 'activities')} for a in (value.get('snapshot') or {}).get('accounts', [])],
         'issuerMonitorRunning': bool(_QUOTE_THREAD and _QUOTE_THREAD.is_alive())}
 
@@ -668,6 +694,7 @@ def handle(action, payload):
         return disconnect()
     if action == 'check':
         start()
+        mark_interactive()
         _WAKE.set()
         return status()
     raise ValueError('Unbekannte Aktion.')
