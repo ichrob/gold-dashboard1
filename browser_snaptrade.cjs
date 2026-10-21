@@ -70,7 +70,8 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
   });
   await page.evaluate(()=>poll());
   await page.locator('#snapCsvLink > summary').click();
-  await page.locator('#snapCsvPrepare').click();
+  await page.locator('#snapCsvManual').evaluate(el=>{el.parentElement.open=true;});
+  await page.locator('#snapCsvManual').click();
   assert.equal(await page.locator('#snapCsvProduct0').inputValue(),'DE000FG309G0','Name match may suggest, never confirm');
   assert.equal(await page.locator('#snapCsvConfirm0').isChecked(),false);
   await page.locator('#snapCsvSave').click();
@@ -86,6 +87,25 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
   assert.equal(csvPayload.accountKey,'test-account');assert.equal(csvPayload.records[0].isin,'DE000FG309G0');
   assert.equal(csvPayload.records[0].costBasis,6);assert.equal(csvPayload.links[0].confirmed,true);
   assert(!('consumerKey' in csvPayload));
+  await page.evaluate(()=>{
+   const previous=window.fetch;
+   window.fetch=async(url,options={})=>{
+    if(url.endsWith('/csv-auto')){
+     calls.push({url,body:options.body});
+     state.snapshot.accounts[0].csvAutoReport={matched:0,total:1,unresolved:[{positionKey:'test-position',reason:'Kennung fehlt.'}]};
+     return {ok:true,json:async()=>state};
+    }
+    return previous(url,options);
+   };
+  });
+  await page.locator('#snapCsvPrepare').click();
+  await page.locator('#snapCsvFeedback').filter({hasText:'Automatisch zugeordnet: 0 von 1'}).waitFor();
+  assert.equal(await page.locator('#snapCsvConfirm0').count(),0,'Automatic workflow requires no per-ISIN checkbox');
+  const autoPayload=await page.evaluate(()=>JSON.parse(calls.find(x=>x.url.endsWith('/csv-auto')).body));
+  assert.deepEqual(autoPayload.links,[],'Server must establish identity itself');
+  assert.equal(autoPayload.records.length,2);
+  assert((await page.locator('#snapHoldings').innerText()).includes('Kennung fehlt.'));
+
   for(const width of [320,390]){
    await page.setViewportSize({width,height:844});
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth+1),'Mobile overflow');
