@@ -18,6 +18,7 @@ import threading
 import time
 import zlib
 import snaptrade_portfolio as portfolio
+import snaptrade_csv_link as csv_link
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, build_opener, HTTPRedirectHandler
@@ -233,6 +234,8 @@ def normalize_positions(data):
                        'currency': text(row.get('currency'), 3), 'valuationPrice': number(row.get('price')),
                        'isin': None, 'identityVerified': False, 'tradeApproved': False,
                        'missing': ['isin', 'gold-product-evidence', 'original-bid-ask-time']}
+        item['stableInstrumentId'] = bool(isinstance(instrument.get('id'), str) and re.fullmatch(ID, instrument['id']))
+        item['providerIsin'] = portfolio.isin(instrument.get('raw_symbol')) or portfolio.isin(instrument.get('symbol'))
         result.append(portfolio.enrich_position(row, item, number, text))
     return {'positions': result, 'sourceAt': source_time((data.get('data_freshness') or {}).get('as_of'))}
 
@@ -354,6 +357,7 @@ def read_journal(aid, config, previous=None, get=api_get):
 def update_portfolio(snapshot, config, generation):
     global _LEDGER_OWNER
     ledger = load_ledger(config)
+    csv_link.apply(snapshot, ledger.get('csv', {}))
     snapshot['changes'] = portfolio.record(ledger['history'], snapshot)
     ledger['changes'] = (ledger['changes'] + snapshot['changes'])[-300:]
     for a in snapshot['accounts']:
@@ -374,6 +378,42 @@ def update_portfolio(snapshot, config, generation):
             snapshot['historyPersistence'] = 'SAVED'
         except ReadError:
             snapshot['historyPersistence'] = 'UNAVAILABLE'
+
+
+def import_csv(payload, clear=False):
+    # This explicit app action shares normalized export rows with the encrypted
+    # store. Existing local CSVs are never uploaded by polling or app startup.
+    with _LOCK:
+        if not _CONFIG or _STATE.get('code') != 'READ_OK' or not _STATE.get('snapshot'):
+            raise ReadError('CSV_CONNECTION_REQUIRED')
+        generation, config = _GENERATION, dict(_CONFIG)
+        snapshot = copy.deepcopy(_STATE['snapshot'])
+    if clear:
+        if not isinstance(payload,dict) or set(payload) != {'accountKey'} or not any(a['accountKey']==payload['accountKey'] for a in snapshot['accounts']):
+            raise ValueError('Invalid CSV account')
+        entry = None
+    else:
+        entry = csv_link.prepare(payload, snapshot, number, text, source_time)
+    ledger = load_ledger(config)
+    ledger.setdefault('csv', {})
+    if clear: ledger['csv'].pop(payload['accountKey'],None)
+    else: ledger['csv'][payload['accountKey']] = entry
+    csv_link.apply(snapshot, ledger['csv'])
+    with _LOCK:
+        if generation != _GENERATION:
+            raise ReadError('CSV_CONNECTION_REQUIRED')
+        # A refresh may have replaced holdings while the store was being read.
+        if _STATE['snapshot']['observedAt'] != snapshot['observedAt']:
+            raise ReadError('CSV_RETRY_REQUIRED')
+        previous = copy.deepcopy(_LEDGER)
+        _LEDGER.clear(); _LEDGER.update(ledger)
+        try:
+            save_ledger()
+        except ReadError:
+            _LEDGER.clear(); _LEDGER.update(previous)
+            raise
+        _STATE['snapshot'] = snapshot
+    return status()
 
 
 def quote_tick(fetch=None):
@@ -507,12 +547,13 @@ def diagnostics():
         'checkedAt': value.get('checkedAt'), 'encryptionReady': encryption_ready,
         'accountsReceived': len((value.get('snapshot') or {}).get('accounts', [])),
         'positionsReceived': sum(len(a['positions']) for a in (value.get('snapshot') or {}).get('accounts', [])),
-        'portfolioVersion': 2,
+        'portfolioVersion': 3,
         'acquisitionPricesReceived': sum(p.get('costBasis') is not None for a in (value.get('snapshot') or {}).get('accounts', []) for p in a['positions']),
         'positionValuesCalculated': sum(p.get('marketValue') is not None for a in (value.get('snapshot') or {}).get('accounts', []) for p in a['positions']),
         'issuerQuoteCandidates': sum(bool(p.get('isin')) for a in (value.get('snapshot') or {}).get('accounts', []) for p in a['positions']),
         'issuerQuotesMatched': sum(bool(p.get('issuerQuote')) for a in (value.get('snapshot') or {}).get('accounts', []) for p in a['positions']),
         'historyPersistence': (value.get('snapshot') or {}).get('historyPersistence'),
+        'csvLinkedPositions': sum(bool(p.get('csvEvidence')) for a in (value.get('snapshot') or {}).get('accounts', []) for p in a['positions']),
         'historyPoints': len((value.get('snapshot') or {}).get('history', [])),
         'journalStatus': [{k: a.get('journal', {}).get(k, {}).get('code', 'NOT_READ') for k in ('orders', 'activities')} for a in (value.get('snapshot') or {}).get('accounts', [])],
         'issuerMonitorRunning': bool(_QUOTE_THREAD and _QUOTE_THREAD.is_alive())}
@@ -537,6 +578,11 @@ def start():
 
 
 def handle(action, payload):
+    if action in ('csv-import','csv-clear'):
+        if not _FETCH_LOCK.acquire(blocking=False):
+            raise ReadError('CSV_RETRY_REQUIRED')
+        try: return import_csv(payload, clear=action=='csv-clear')
+        finally: _FETCH_LOCK.release()
     if action == 'configure':
         return configure(payload)
     if not isinstance(payload, dict) or payload:

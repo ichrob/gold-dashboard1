@@ -7,7 +7,7 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
  try{
   const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[];
   page.on('pageerror',e=>errors.push(e.message));
-  await page.route('https://bob.test/**',route=>route.fulfill({contentType:'text/html',body:'<meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}body{margin:0;padding:8px}button{max-width:100%;white-space:normal}</style><section id="bob-view-degiro"></section>'+panel.replace(/<script>[\s\S]*?<\/script>/g,'')}));
+  await page.route('https://bob.test/**',route=>route.fulfill({contentType:'text/html; charset=utf-8',body:'<meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}body{margin:0;padding:8px}button{max-width:100%;white-space:normal}</style><section id="bob-view-degiro"></section>'+panel.replace(/<script>[\s\S]*?<\/script>/g,'')}));
   await page.goto('https://bob.test/');
   await page.evaluate(()=>{
    window.state={code:'SETUP_REQUIRED',configured:false,nextCheckSeconds:0};window.calls=[];window.failSave=true;
@@ -58,6 +58,34 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
   assert.equal(await page.locator('#snapHoldings img').count(),0);
   await page.evaluate(()=>{state.snapshot.accounts[0].positions[0].valuationPrice='7.9';poll();});
   assert(await page.locator('#snapHistorytest-account').evaluate(el=>el.open),'Polling must preserve open history');
+  // Existing on-device CSV stays local until explicit review and confirmation.
+  const fs=require('node:fs');
+  await page.addScriptTag({content:fs.readFileSync('degiro_portfolio_store.js','utf8')});
+  await page.addScriptTag({content:fs.readFileSync('degiro_report_import.js','utf8')});
+  await page.evaluate(()=>{
+   const parsed=BobDegiroReport.readReport('Produkt;ISIN;Anzahl;Währung;Kurs;Wert;Einstandskurs\nExample Faktor 3;DE000FG309G0;2;CHF;7;14;6\nOther Faktor;DE000FG14AV8;2;CHF;8;16;6');
+   BobDegiroPortfolio.save(localStorage,parsed);
+   const p=state.snapshot.accounts[0].positions[0];Object.assign(p,{name:'Example Faktor 3',positionKey:'test-position',symbol:'OPAQUE',kind:'other',stableInstrumentId:true,providerIsin:null,isin:null});
+   window.csvCallsBefore=calls.filter(x=>x.url.endsWith('/csv-import')).length;
+  });
+  await page.evaluate(()=>poll());
+  await page.locator('#snapCsvLink > summary').click();
+  await page.locator('#snapCsvPrepare').click();
+  assert.equal(await page.locator('#snapCsvProduct0').inputValue(),'DE000FG309G0','Name match may suggest, never confirm');
+  assert.equal(await page.locator('#snapCsvConfirm0').isChecked(),false);
+  await page.locator('#snapCsvSave').click();
+  assert((await page.locator('#snapCsvFeedback').innerText()).includes('bestätigen'));
+  assert(await page.evaluate(()=>calls.filter(x=>x.url.endsWith('/csv-import')).length===csvCallsBefore));
+  await page.locator('#snapCsvConfirm0').check();
+  await page.locator('#snapCsvProduct0').selectOption('DE000FG14AV8');
+  assert.equal(await page.locator('#snapCsvConfirm0').isChecked(),false,'Changing the selected ISIN revokes confirmation');
+  await page.locator('#snapCsvProduct0').selectOption('DE000FG309G0');
+  await page.locator('#snapCsvConfirm0').check();await page.locator('#snapCsvSave').click();
+  await page.locator('#snapCsvFeedback').filter({hasText:'CSV-Zuordnung gespeichert'}).waitFor();
+  const csvPayload=await page.evaluate(()=>JSON.parse(calls.find(x=>x.url.endsWith('/csv-import')).body));
+  assert.equal(csvPayload.accountKey,'test-account');assert.equal(csvPayload.records[0].isin,'DE000FG309G0');
+  assert.equal(csvPayload.records[0].costBasis,6);assert.equal(csvPayload.links[0].confirmed,true);
+  assert(!('consumerKey' in csvPayload));
   for(const width of [320,390]){
    await page.setViewportSize({width,height:844});
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth+1),'Mobile overflow');

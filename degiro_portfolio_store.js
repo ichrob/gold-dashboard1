@@ -30,7 +30,7 @@ function prepare(data,importedAt){
   if(!Number.isFinite(quantity)||Math.abs(quantity)>1e10)throw Error('Ungültige Stückzahl im Depotimport.');
   const name=cleanText(row.product||row.name);
   return {isin,name,quantity,currency:cleanText(row.currency,3).toUpperCase(),
-   price:cleanText(row.price,48),value:cleanText(row.value,48),
+   price:cleanText(row.price,48),costBasis:cleanText(row.costBasis,48),value:cleanText(row.value,48),
    accountValue:cleanText(row.accountValue,48),type:classifyName(name),
    tradeApproved:false};
  });
