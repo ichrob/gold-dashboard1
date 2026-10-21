@@ -3,6 +3,8 @@ import degiro_readonly
 import degiro_sync
 import degiro_sandbox
 import degiro_sandbox_panel
+import snaptrade_bridge
+import snaptrade_panel
 import vollautomatisch_panel
 import vollautomatisch_engine
 import strategy_lab
@@ -110,6 +112,7 @@ def read_diagnostics_for_mcp():
         'runtime':lambda:{'build':os.environ.get('RENDER_GIT_COMMIT','unknown'),
             'uptimeSeconds':round(time.monotonic()-PROCESS_STARTED_MONOTONIC),
             'sessionMode':background_push.degiro_session(),
+            'snaptradePersonal':snaptrade_bridge.diagnostics(),
             'diagnosticDelivery':__import__('diagnostic_history').status(),
             'fibonacci':bob_diagnostics.fields(FIB_MONITOR_HEALTH,('configured','status','lastCheckedAt','lastSuccessAt'))},
         'selfHealing':bob_self_healing.diagnostics_snapshot,
@@ -189,6 +192,7 @@ _HEALING_WATCH_LOCK = threading.Lock()
 def maintain_known_workers():
     """Safe repairs only: existing idempotent starts, never trade or config changes."""
     import auxiliary_workers
+    snaptrade_bridge.start()
     auxiliary_workers.maintain(auto_collection.enabled())
     collection_state = auto_collection.health()
     bob_self_healing.restart_worker(
@@ -264,6 +268,7 @@ HTML = HTML.replace(b"</body>", auto_collection.PANEL.encode('utf-8')+b"</body>"
 HTML = HTML.replace(b"</body>", candle_shadow.PANEL.encode('utf-8')+b"</body>")
 HTML = HTML.replace(b"</body>", b'<script src="/degiro_handoff.js"></script><script src="/degiro_portfolio_store.js"></script><script src="/degiro_report_import.js"></script><script src="/degiro_all_products.js"></script><script src="/broker_candidate_pools.js"></script><script src="/degiro_browser_bridge.js"></script></body>')
 HTML = HTML.replace(b"</body>", degiro_sandbox_panel.PANEL.encode("utf-8")+b"</body>")
+HTML = HTML.replace(b"</body>", snaptrade_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", vollautomatisch_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", trade_email_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", trade_review_panel.PANEL.encode("utf-8")+b"</body>")
@@ -1125,7 +1130,7 @@ class Handler(BaseHTTPRequestHandler):
         # Keep static PWA resources and /health public, but never expose live,
         # MTF, or DEGIRO enrichment data without the existing Bob credentials.
         protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path in ("/api/degiro/connection-status", "/api/degiro/sync") or path == "/api/degiro/sandbox" or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates" or path == "/api/degiro/audit" or path == "/api/degiro/candidate-proofs" or path == "/api/self-healing" or path == "/api/problems" or path == "/api/repair-statistics"
-        if protected_api_path:
+        if protected_api_path or path == '/api/snaptrade/status':
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
                 f"{USER}:{PASSWORD}".encode("utf-8")
@@ -1136,6 +1141,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(b"Authentication required.")
                 return
+
+        if path == '/api/snaptrade/status':
+            body = json.dumps(snaptrade_bridge.status(), allow_nan=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(body)
+            return
 
         if path in ("/api/degiro/connection-status", "/api/degiro/sync"):
             body = json.dumps(degiro_sync.status() if path == "/api/degiro/sync" else degiro_readonly.status()).encode("utf-8")
@@ -1922,6 +1936,29 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(code)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if path in ('/api/snaptrade/configure', '/api/snaptrade/check', '/api/snaptrade/disconnect'):
+            if not self.authenticated():
+                bob_auth.send(self, 401); return
+            if not bob_auth.same_origin(self.headers):
+                bob_auth.send(self, 403); return
+            try:
+                length = int(self.headers.get('Content-Length', '0'))
+                if not 0 < length <= 2048:
+                    raise ValueError('Ungültige Anfragegröße.')
+                result = snaptrade_bridge.handle(path.rsplit('/', 1)[-1], json.loads(self.rfile.read(length)))
+                code = 200
+            except snaptrade_bridge.ReadError as exc:
+                result, code = {'code': exc.code, 'message': 'Einrichtung nicht gespeichert. Geschützten Speicher prüfen.'}, 503
+            except (ValueError, TypeError):
+                result, code = {'code': 'INVALID_INPUT', 'message': 'Nur kostenlosen Personal-Schlüssel und Bestätigung eintragen.'}, 400
+            body = json.dumps(result, allow_nan=False).encode('utf-8')
+            self.send_response(code)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Cache-Control', 'no-store')
             self.end_headers()
             self.wfile.write(body)
             return

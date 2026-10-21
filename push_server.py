@@ -1,4 +1,5 @@
 import bob_passkey_store
+import snaptrade_settings
 import bob_oauth_store
 import base64
 import atexit
@@ -1005,6 +1006,15 @@ class Handler(BaseHTTPRequestHandler):
                     conn.commit()
                 send_json(self,200,result)
                 return
+            if path in ('/snaptrade-settings/read', '/snaptrade-settings/save', '/snaptrade-settings/delete'):
+                supplied = self.headers.get('X-Bob-Push-Token', '')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
+                    send_json(self, 401, {'error': 'Unauthorized'}); return
+                payload = json_body(self)
+                with db() as conn:
+                    result = snaptrade_settings.handle(conn, path.rsplit('/', 1)[-1], payload)
+                    conn.commit()
+                send_json(self, 200, result); return
             if path.startswith('/auth-oauth/'):
                 supplied = self.headers.get('X-Bob-Push-Token', '')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
