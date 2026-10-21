@@ -220,6 +220,15 @@ def channel_listing(data, now):
         if v and v.get('contentType')!='LOCKUP_CONTENT_TYPE_VIDEO':continue
         scanned+=1
         meta=v.get('metadata',{}).get('lockupMetadataViewModel',{})
+        # Access badges belong to this video, unlike titles or surrounding
+        # channel text. Watch pages may omit their player document entirely.
+        metadata_rows=meta.get('metadata',{}).get('contentMetadataViewModel',{}).get('metadataRows',[])
+        badges=[b.get('badgeViewModel',{}) for r in metadata_rows for b in r.get('badges',[])]
+        badges.extend(b.get('metadataBadgeRenderer',{}) for b in old.get('badges',[]))
+        members=any(b.get('badgeStyle')=='BADGE_MEMBERS_ONLY' or
+                    b.get('style')=='BADGE_STYLE_TYPE_MEMBERS_ONLY' or
+                    re.fullmatch(r'Members only|Nur für Mitglieder',str(b.get('label','')),re.I)
+                    for b in badges)
         title=meta.get('title',{}).get('content') or ''.join(x.get('text','') for x in old.get('title',{}).get('runs',[]))
         if not re.search(r'\bgold\b|goldpreis|xau\s*/?\s*usd',title,re.I):continue
         parts=[p.get('text',{}).get('content','') for r in meta.get('metadata',{}).get('contentMetadataViewModel',{}).get('metadataRows',[]) for p in r.get('metadataParts',[])]
@@ -230,6 +239,8 @@ def channel_listing(data, now):
         items.append(dict(publishedRelative=relative_publication_label(relative),publishedRelativeObservedAt=now,id='youtube-'+identity,url='https://www.youtube.com/watch?v='+identity,title=title[:240],excerpt='',
             publisher='MCO Markets',kind='YouTube',channelId=MCO_CHANNEL,sourceId='mco-video',publishedAt=None,checkedAt=now,current=False,
             listingInfo=' · '.join(parts)[:160],coverage='Videometadaten; Veröffentlichungszeit nicht exakt bestätigt',**classify(title,'','YouTube')))
+        if members:
+            items[-1].update(transcriptAccess='members-only',accessSource='YouTube-Kanal: Mitgliedschaftskennzeichnung')
     return items,scanned
 
 
@@ -304,6 +315,9 @@ def choose_research_videos(items, probe=None):
     selected=[];restricted=[];raw_pages={}
     candidates=items[:9]
     def inspect(item):
+        if (item.get('transcriptAccess')=='members-only' and
+                item.get('accessSource')=='YouTube-Kanal: Mitgliedschaftskennzeichnung'):
+            return item,None,True
         try:
             raw=probe(item['url'])
             try:

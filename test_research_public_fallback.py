@@ -43,6 +43,34 @@ class PublicFallbackTests(unittest.TestCase):
         selected,restricted,pages,fallback=g.choose_research_videos(items,fail)
         self.assertEqual(selected,items[:3]);self.assertEqual(restricted,[]);self.assertEqual(pages,{})
         self.assertFalse(fallback);self.assertNotIn('transcriptAccess',selected[0])
+    def channel(self,rows):
+        root={'metadata':{'channelMetadataRenderer':{'externalId':g.MCO_CHANNEL}},
+              'contents':{'twoColumnBrowseResultsRenderer':{'tabs':[{'tabRenderer':{
+                  'selected':True,'content':{'richGridRenderer':{'contents':rows}}}}]}}}
+        return g.channel_listing(('var ytInitialData = '+json.dumps(root)+';').encode(),self.now)[0]
+    def test_channel_membership_badges_survive_unreadable_watch_pages(self):
+        rows=[]
+        for n in range(1,7):
+            meta={'title':{'content':'Gold outlook '+str(n)},'metadata':{'contentMetadataViewModel':{'metadataRows':[]}}}
+            if n<=3:meta['metadata']['contentMetadataViewModel']['metadataRows'].append({'badges':[{'badgeViewModel':{'badgeStyle':'BADGE_MEMBERS_ONLY','badgeText':'Members only'}}]})
+            rows.append({'richItemRenderer':{'content':{'lockupViewModel':{'contentId':'Video'+str(n).zfill(6),
+                'contentType':'LOCKUP_CONTENT_TYPE_VIDEO','metadata':{'lockupMetadataViewModel':meta}}}}})
+        items=self.channel(rows);calls=[]
+        def probe(url):calls.append(url);return b'no player document'
+        selected,restricted,pages,fallback=g.choose_research_videos(items,probe)
+        self.assertEqual(selected,items[3:6]);self.assertEqual(restricted,items[:3]);self.assertTrue(fallback)
+        self.assertEqual(calls,[x['url'] for x in selected])
+        with patch.object(y,'analyze') as analyze:
+            for item in restricted:y.enrich(item)
+            analyze.assert_not_called()
+        self.assertTrue(all(not x['trustedTranscript'] for x in restricted))
+    def test_old_badges_are_video_scoped_and_title_is_not_access_evidence(self):
+        def row(n,badges):return {'richItemRenderer':{'content':{'videoRenderer':{'videoId':'Video'+str(n).zfill(6),
+            'title':{'runs':[{'text':'Gold Members only outlook'}]},'badges':badges}}}}
+        items=self.channel([row(1,[{'metadataBadgeRenderer':{'style':'BADGE_STYLE_TYPE_MEMBERS_ONLY'}}]),
+                            row(2,[{'metadataBadgeRenderer':{'style':'BADGE_STYLE_TYPE_NEW','label':'New'}}]),row(3,[])])
+        self.assertEqual(items[0]['transcriptAccess'],'members-only')
+        self.assertNotIn('transcriptAccess',items[1]);self.assertNotIn('transcriptAccess',items[2])
     def test_older_free_analysis_cannot_replace_newest_upload_direction(self):
         newest=[self.item(n) for n in range(1,4)]
         older=[dict(self.item(n),trustedTranscript=True,transcriptAnalyzed=True,outlook='LONG',publicFallback=True) for n in range(4,7)]
