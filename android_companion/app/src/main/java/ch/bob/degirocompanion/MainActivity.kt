@@ -38,6 +38,7 @@ class MainActivity : Activity() {
         }
         fun button(title: String, onClick: () -> Unit) = Button(this).also {
             it.text = title
+            it.isAllCaps = false
             it.setOnClickListener { onClick() }
             stack.addView(it)
         }
