@@ -3,7 +3,7 @@ const assert=require('node:assert/strict'),cp=require('node:child_process');
 const {chromium}=require('playwright');
 const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;print(PANEL)'],{encoding:'utf8'});
 (async()=>{
- const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+ const browser=await chromium.launch({headless:true,...(process.env.BOB_CHROMIUM_PATH?{executablePath:process.env.BOB_CHROMIUM_PATH}:{}),args:['--no-sandbox']});
  try{
   const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[];
   page.on('pageerror',e=>errors.push(e.message));
@@ -41,6 +41,23 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
   await page.locator('#snapCheck').click();await page.getByText('ISIN nicht nachgewiesen',{exact:false}).waitFor();
   assert.equal(await page.locator('#snapHoldings img').count(),0);
   assert((await page.locator('#snapClock').innerText()).includes('nicht als aktuell bestätigt'));
+  // Provider prices, missing acquisition values, journal failures and history stay distinct.
+  await page.evaluate(()=>{
+   const account=state.snapshot.accounts[0];account.accountKey='test-account';account.netValue={amount:'105',currency:'CHF'};
+   Object.assign(account.positions[0],{kind:'stock',valuationPrice:'8',costBasis:'10',marketValue:'20',unrealizedPnl:'-5',unrealizedPercent:'-20',currency:'CHF'});
+   account.journal={orders:{code:'UNAVAILABLE',checkedAt:null,rows:[]},activities:{code:'READ_OK',checkedAt:'2026-10-20T12:00:00Z',complete:true,rows:[{name:'<img src=x>',date:'2026-10-20',type:'CONTRIBUTION',currency:'CHF',amount:'100',fee:null}]}};
+   state.snapshot.historyPersistence='SAVED';state.snapshot.history=[{at:'2026-10-20T12:00:00Z',complete:true,accounts:[{accountKey:account.accountKey,netValue:{amount:'100',currency:'CHF'}}]},{at:'2026-10-21T12:00:00Z',complete:true,accounts:[{accountKey:account.accountKey,netValue:account.netValue}]}];
+  });
+  await page.evaluate(()=>poll());
+  assert((await page.locator('#snapHoldings').innerText()).includes('Offener Gewinn/Verlust: -5 CHF (-20.00 %)'));
+  await page.locator('#snapHistorytest-account > summary').click();
+  assert.equal(await page.locator('#snapHoldings svg').count(),1);
+  assert((await page.locator('#snapHistorytest-account').innerText()).includes('Depotwert ist kein Gewinn'));
+  await page.locator('#snapJournaltest-account > summary').click();
+  assert((await page.locator('#snapJournaltest-account').innerText()).includes('Abruf nicht verfügbar'));
+  assert.equal(await page.locator('#snapHoldings img').count(),0);
+  await page.evaluate(()=>{state.snapshot.accounts[0].positions[0].valuationPrice='7.9';poll();});
+  assert(await page.locator('#snapHistorytest-account').evaluate(el=>el.open),'Polling must preserve open history');
   for(const width of [320,390]){
    await page.setViewportSize({width,height:844});
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth+1),'Mobile overflow');

@@ -2,7 +2,7 @@
 PANEL = r'''
 <section id="bobSnapTrade" class="card" style="padding:16px;overflow-wrap:anywhere">
 <h3>DEGIRO über SnapTrade Personal</h3>
-<p>Kostenloser Personal-Zugang für dein eigenes Depot. Bob liest Bestände und Bargeld höchstens alle zehn Minuten, auch wenn diese Ansicht geschlossen ist. Kein 30-Sekunden-Kursfeed.</p>
+<p>Kostenloser Personal-Zugang für dein eigenes Depot. Bob liest Bestände und Bargeld höchstens alle zehn Minuten, auch wenn diese Ansicht geschlossen ist. Depotwerte alle zehn Minuten. Eindeutig zugeordnete Produktkurse prüft Bob zusätzlich etwa alle 30 Sekunden über seine bestehenden Emittentenquellen; dies sind keine DEGIRO-Ausführungskurse.</p>
 <p id="snapStatus" role="status">Einrichtung wird geprüft …</p>
 <ol>
 <li><a href="https://snaptrade.com/personal" target="_blank" rel="noopener noreferrer">SnapTrade Personal kostenlos öffnen</a>, Konto erstellen und E-Mail bestätigen.</li>
@@ -18,12 +18,12 @@ PANEL = r'''
 <p><button id="snapSave" type="submit">Schlüssel speichern und Lesetest starten</button></p>
 <p id="snapFormStatus" role="status" aria-live="polite" style="font-weight:600;overflow-wrap:anywhere"></p>
 </form>
-<p class="small">Der Schlüssel wird verschlüsselt auf Bobs bestehendem Server gespeichert. Er wird nicht im Browser gespeichert oder zurück angezeigt. Keine Zahlungskarte und keinen kostenpflichtigen Tarif einrichten. Das Löschen unten entfernt den Schlüssel aus Bob; die Verbindung bei SnapTrade verwaltest du dort.</p>
+<p class="small">Der Schlüssel wird verschlüsselt auf Bobs bestehendem Server gespeichert. Er wird nicht im Browser gespeichert oder zurück angezeigt. Keine Zahlungskarte und keinen kostenpflichtigen Tarif einrichten. Das Löschen unten entfernt den Schlüssel sowie den gespeicherten Depotverlauf und das Journal aus Bob; die Verbindung bei SnapTrade verwaltest du dort.</p>
 </details>
 <p id="snapFeedback" role="status" aria-live="polite"></p>
 <p><button id="snapCheck" type="button" disabled>Verbindung prüfen</button> <button id="snapRemove" type="button" disabled>Schlüssel aus Bob löschen</button></p>
 <p id="snapClock" class="small"></p><div id="snapHoldings"></div>
-<p class="small">Die Daten zeigen nur den vom Anbieter gelieferten Depotstand. Vollständige ISINs, Schweizer Gold-Knock-outs, aktuelle Geld-/Briefkurse, Hebel und KO-Nachweise sind noch nicht bestätigt. Keine Übernahme in die Top 3 oder in Mein Trade. Keine Orders. CSV-Import und bisherige Produktquellen bleiben verfügbar.</p>
+<p class="small">Die Daten zeigen nur den vom Anbieter gelieferten Depotstand. Bewertungskurse können verzögert sein; die Bestandsabrufzeit ist keine Originalkurszeit. Produktfreigabe, Hebel- und KO-Nachweise werden weiterhin separat geprüft. Das Journal bleibt getrennt von Top 3 und aktiven Trades. Keine Orders. CSV-Import und bisherige Produktquellen bleiben verfügbar.</p>
 </section>
 <script>
 (function(){
@@ -33,7 +33,7 @@ function mount(){
  const status=document.getElementById('snapStatus'),clock=document.getElementById('snapClock'),list=document.getElementById('snapHoldings');
  const client=document.getElementById('snapClient'),key=document.getElementById('snapKey'),free=document.getElementById('snapFree');
  const save=document.getElementById('snapSave'),check=document.getElementById('snapCheck'),remove=document.getElementById('snapRemove');
- let busy=false,lastData=null;
+ let busy=false,lastData=null,lastHoldings=null;
  function feedback(message){const inline=document.getElementById('snapFormStatus'),outside=document.getElementById('snapFeedback');inline.textContent=message;outside.textContent=message;(document.getElementById('snapSetup').open?inline:outside).scrollIntoView({block:'nearest'});}
  function controls(){check.disabled=busy||!lastData?.configured||lastData.nextCheckSeconds>0;remove.disabled=busy||!lastData?.configured;}
  const messages={SETUP_REQUIRED:'Noch nicht verbunden. Einmalige Einrichtung oben durchführen.',READY:'Schlüssel gespeichert. Lesetest wird gestartet.',CHECKING:'Depot-Lesetest läuft …',READ_OK:'✓ Depotdaten empfangen. Goldprodukt-Abdeckung noch nicht bestätigt.',CONNECT_DEGIRO:'Personal-Zugang erreichbar. DEGIRO im SnapTrade-Dashboard verbinden.',READ_CONNECTION_REQUIRED:'DEGIRO-Verbindung bei SnapTrade muss auf Lesen stehen.',AUTH_REQUIRED:'Anmeldung nicht bestätigt oder Verbindung abgelaufen. Im SnapTrade-Dashboard prüfen.',ACCESS_DENIED:'Anbieter verweigert den Zugriff. Personal-Zugang und Berechtigungen prüfen.',PLAN_REQUIRED:'Anbieter verlangt einen anderen Tarif. Kein kostenpflichtiger Abruf wird ausgelöst.',RATE_LIMITED:'Anbieter begrenzt die Abrufe. Nächster Versuch frühestens nach zehn Minuten.',PROVIDER_UNAVAILABLE:'Anbieter momentan nicht erreichbar. Letzter Stand ist nicht als aktuell bestätigt.',INVALID_RESPONSE:'Datenformat nicht vollständig erkannt. Kein vollständiger Abgleich bestätigt.',STORE_UNAVAILABLE:'Geschützter Schlüsselspeicher momentan nicht erreichbar.',SETTINGS_UNREADABLE:'Gespeicherter Schlüssel kann nicht gelesen werden. Personal-Schlüssel erneut speichern.',NO_ACCOUNTS:'Noch kein lesbares DEGIRO-Depot gefunden.',TOO_MANY_ACCOUNTS:'Mehr als drei DEGIRO-Depots/Verbindungen. Abgleich zur Prüfung angehalten.'};
@@ -44,15 +44,77 @@ function mount(){
   controls();
   document.getElementById('snapSetup').open=!data.configured;
   clock.textContent=(data.checkedAt?'Letzte Prüfung: '+stamp(data.checkedAt)+'. ':'')+(data.configured?'Nächster möglicher Abruf in '+data.nextCheckSeconds+' Sekunden. ':'')+(data.snapshot?(data.fresh?'Quellenstand innerhalb des Depotintervalls.':'Quellenstand nicht als aktuell bestätigt. '):'');
+  const fingerprint=JSON.stringify([data.snapshot,data.fresh]);
+  if(fingerprint===lastHoldings)return;lastHoldings=fingerprint;
+  const opened=new Set(Array.from(list.querySelectorAll('details[open]')).map(e=>e.id));
   list.replaceChildren();
+  function line(parent,label,value){const p=document.createElement('p');p.textContent=label+value;parent.append(p);return p;}
+  function amount(value,currency){return value===null||value===undefined?'nicht geliefert':Number(value).toLocaleString('de-CH',{maximumFractionDigits:4})+' '+(currency||'');}
+  function details(parent,id,title){const d=document.createElement('details'),s=document.createElement('summary');d.id=id;d.open=opened.has(id);s.textContent=title;d.append(s);parent.append(d);return d;}
+  function history(parent,account){
+   const d=details(parent,'snapHistory'+account.accountKey,'Depotverlauf · gespeicherte Abrufe');
+   line(d,'','Depotwert ist kein Gewinn: Einzahlungen, Auszahlungen und Überträge verändern ihn ebenfalls. Keine Renditeberechnung.');
+   const points=(data.snapshot?.history||[]).filter(p=>p.complete).map(p=>({at:p.at,value:p.accounts.find(a=>a.accountKey===account.accountKey)?.netValue}));
+   const currencies=[...new Set(points.map(p=>p.value?.currency).filter(Boolean))];
+   for(const currency of currencies){
+    const series=points.filter(p=>p.value?.currency===currency&&p.value.amount!==null&&Number.isFinite(Number(p.value.amount)));
+    if(series.length<2)continue;
+    const values=series.map(p=>Number(p.value.amount)),lo=Math.min(...values),hi=Math.max(...values),first=Date.parse(series[0].at),last=Date.parse(series.at(-1).at);
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 300 110');svg.setAttribute('role','img');svg.setAttribute('aria-label','Depotwertverlauf in '+currency);svg.style.width='100%';svg.style.maxWidth='600px';
+    const path=document.createElementNS(svg.namespaceURI,'polyline');path.setAttribute('fill','none');path.setAttribute('stroke','#2368a5');path.setAttribute('stroke-width','2');path.setAttribute('points',series.map((p,i)=>(10+280*(Date.parse(p.at)-first)/(last-first||1))+','+(95-80*(values[i]-lo)/(hi-lo||1))).join(' '));svg.append(path);d.append(svg);
+    line(d,currency+': ',amount(series[0].value.amount,currency)+' → '+amount(series.at(-1).value.amount,currency));
+    line(d,'Zeitraum: ',stamp(series[0].at)+' – '+stamp(series.at(-1).at));
+   }
+   if(points.length<2)line(d,'','Der Verlauf beginnt mit den nächsten erfolgreichen Abrufen.');
+   line(d,'Speicherung: ',data.snapshot.historyPersistence==='SAVED'?'verschlüsselt gespeichert':'nicht bestätigt; Verlauf möglicherweise nur vorübergehend verfügbar');
+  }
+  function journal(parent,account){
+   const d=details(parent,'snapJournal'+account.accountKey,'Handelsjournal · Orders und Transaktionen');
+   line(d,'','Orders: jüngstes Anbieterfenster. Transaktionen: täglicher Abruf, üblicherweise einen Tag verzögert. Keine automatische Trade-Freigabe.');
+   for(const [category,title] of [['orders','Orders'],['activities','Transaktionen']]){
+    const value=account.journal?.[category];
+    line(d,title+': ',!value?'noch nicht gelesen':(value.code==='READ_OK'?'gelesen':'Abruf nicht verfügbar; vorheriger Stand')+' · letzter erfolgreicher Abruf '+stamp(value.checkedAt));
+    if(!value)continue;
+    if(category==='activities'&&!value.complete)line(d,'','Historie unvollständig; keine vollständige Ergebnisrechnung.');
+    if(!value.rows?.length)line(d,'','Keine Einträge geliefert.');
+    for(const row of (value.rows||[]).slice(0,100)){
+     const card=document.createElement('div');card.style.cssText='border-top:1px solid #ddd;padding:8px 0';
+     line(card,'',(row.type||'Vorgang')+' · '+(row.name||row.symbol||'ohne Produktzuordnung')+' · '+(row.date||'Datum nicht geliefert'));
+     if(category==='orders')line(card,'Anbieterstatus: ',(row.status||'unbekannt')+' · ausgeführte Menge '+(row.quantity??'nicht geliefert'));
+     else line(card,'Menge: ',row.quantity??'nicht geliefert');
+     line(card,'Ausführungskurs: ',amount(row.price,row.currency));
+     if(category==='activities'){line(card,'Geldbewegung: ',amount(row.amount,row.currency));line(card,'Gebühr: ',amount(row.fee,row.currency));}
+     if(row.stop!==null&&row.stop!==undefined)line(card,'Gemeldeter Order-Stopp: ',amount(row.stop,row.currency)+' · gilt nur für diese Order und ihren Anbieterstatus');
+     d.append(card);
+    }
+    if(value.rows?.length>100)line(d,'','Anzeige auf die ersten 100 gelieferten Einträge begrenzt.');
+   }
+  }
   for(const [i,account] of (data.snapshot?.accounts||[]).entries()){
    const box=document.createElement('section'),title=document.createElement('h4'),meta=document.createElement('p');
    title.textContent='DEGIRO-Depot '+(i+1)+' · '+account.positions.length+' gelieferte Positionen';box.append(title);
    meta.textContent='Bestandsquelle: '+stamp(account.positionsSourceAt)+' · Bargeldquelle: '+stamp(account.cashSourceAt)+' · '+(account.freshnessMode==='realtime'?'Anbieter meldet aktuellen Abruf':'verzögert oder unbekannt');box.append(meta);
+   line(box,'Gesamter Depotwert: ',amount(account.netValue?.amount,account.netValue?.currency));
    for(const cash of account.cash){const p=document.createElement('p');p.textContent='Bargeld: '+(cash.amount??'unbekannt')+' '+cash.currency;box.append(p);}
-   for(const item of account.positions){const p=document.createElement('p');p.textContent=(item.name||item.symbol||'Unbenannte Position')+' · Menge '+(item.units??'unbekannt')+' · ISIN nicht nachgewiesen';box.append(p);}
+   for(const item of account.positions){
+    const card=document.createElement('section');card.style.cssText='border-top:1px solid #ddd;padding:8px 0';
+    line(card,'',(item.name||item.symbol||'Unbenannte Position')+' · Menge '+(item.units??'unbekannt')+' · '+(item.isin?'ISIN aus Anbietersymbol: '+item.isin:'ISIN nicht nachgewiesen'));
+    line(card,'Bewertungskurs vom Anbieter: ',amount(item.valuationPrice,item.currency));
+    line(card,'Einstand je Stück: ',amount(item.costBasis,item.currency));
+    line(card,'Positionswert: ',amount(item.marketValue,item.currency));
+    const pnl=line(card,'Offener Gewinn/Verlust: ',item.unrealizedPnl===null||item.unrealizedPnl===undefined?'nicht berechenbar':amount(item.unrealizedPnl,item.currency)+(item.unrealizedPercent!==null?' ('+Number(item.unrealizedPercent).toFixed(2)+' %)':'')+' · vor separaten Gebühren');
+    pnl.style.fontWeight='700';if(item.unrealizedPnl!==null&&item.unrealizedPnl!==undefined)pnl.style.color=Number(item.unrealizedPnl)<0?'#b42318':'#217a3d';
+    if(item.valuationNote)line(card,'',item.valuationNote);
+    if(item.cashEquivalent)line(card,'','Bereits im Bargeld enthalten; nicht doppelt zum Depotwert addieren.');
+    const quote=item.issuerQuote;
+    if(quote){line(card,'Produktquelle Geld/Brief: ',amount(quote.bid,quote.currency)+' / '+amount(quote.ask,quote.currency));line(card,'Originalzeiten: ',stamp(quote.bidAt)+' / '+stamp(quote.askAt)+' · '+quote.source);}
+    else line(card,'Produktkursüberwachung: ',item.isin?'Noch kein passender aktueller Originalkurs bestätigt.':'Eindeutige ISIN fehlt.');
+    box.append(card);
+   }
+   history(box,account);journal(box,account);
    list.append(box);
   }
+  const changes=data.snapshot?.changes||[];if(changes.length){const d=details(list,'snapChanges','Beobachtete Bestandsänderungen');line(d,'','Eine Mengenänderung allein belegt keinen Kauf oder Verkauf.');for(const c of changes.slice(-20).reverse())line(d,'',stamp(c.at)+' · '+c.name+' · '+(c.before??'nicht vorhanden')+' → '+(c.after??'nicht vorhanden'));}
   for(const note of data.snapshot?.limitations||[]){const p=document.createElement('p');p.textContent=note;list.append(p);}
  }
  async function call(action,payload){
