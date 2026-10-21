@@ -406,6 +406,11 @@ def examine(product, quote, now_ms):
         "leverageObservation": (shared_leverage if shared_leverage and shared_leverage["current"]
                                 else calculated_leverage or shared_leverage),
         "leverageSourceAt": issuer_leverage_at if "leverage-time" not in codes else None,
+        "issuerLeverageObservation": (dict(value=quote.get("leverage"), at=issuer_leverage_at,
+                                           source=quote.get("source"))
+                                      if _positive(quote.get("leverage"))
+                                      and _recent(issuer_leverage_at, now_ms, QUOTE_MAX_MS)
+                                      and quote.get("leverageEstimated") is not True else None),
         "source": str(quote.get("source") or "Emittenten- und Ersatzquellen")[:80],
         "sourceObservations": observations,
         "snapshotId": quote.get("snapshotId"),
@@ -429,6 +434,26 @@ def examine(product, quote, now_ms):
     }
 
 
+def _retain_recent_issuer_leverage(item, quote, before, now_ms):
+    """Keep a still-current original issuer proof across a transient fallback cycle."""
+    if ("leverage-time" not in item.get("missing", []) or not isinstance(quote, dict)
+            or quote.get("isin") != item.get("isin") or quote.get("productVerified") is not True
+            or quote.get("leverageEstimated") is True):
+        return
+    prior = before.get("issuerLeverageObservation") if isinstance(before, dict) else None
+    if (not isinstance(prior, dict) or not _positive(prior.get("value"))
+            or not _recent(prior.get("at"), now_ms, QUOTE_MAX_MS)
+            or not _positive(quote.get("leverage"))
+            or not math.isclose(float(prior["value"]), float(quote["leverage"]), rel_tol=1e-9, abs_tol=1e-9)):
+        return
+    item["missing"] = [code for code in item["missing"] if code != "leverage-time"]
+    item["messages"] = [CODES[code] for code in item["missing"]]
+    item["leverageSourceAt"] = prior["at"]
+    item["issuerLeverageObservation"] = dict(prior)
+    if not item["missing"]:
+        item["state"] = "issuer-evidence-complete"
+
+
 def build(feed, quotes, now_ms=None, previous=None):
     now_ms = now_ms if now_ms is not None else datetime.now(timezone.utc).timestamp()*1000
     previous = previous if isinstance(previous, dict) else {}
@@ -443,8 +468,10 @@ def build(feed, quotes, now_ms=None, previous=None):
         if not isinstance(product, dict):
             continue
         isin = str(product.get("isin") or "").upper()
-        item = examine(product, quotes.get(isin), now_ms)
+        quote = quotes.get(isin)
+        item = examine(product, quote, now_ms)
         before = old.get(isin, {})
+        _retain_recent_issuer_leverage(item, quote, before, now_ms)
         # Track each missing proof independently. A changing leverage clock
         # must not reset a persistent quote/identity fault and falsely close it.
         previous_counts = before.get("missingChecks")
