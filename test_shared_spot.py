@@ -1,4 +1,5 @@
 import unittest
+import time
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
@@ -10,7 +11,7 @@ import server
 
 class SharedSpotTests(unittest.TestCase):
     def setUp(self):
-        for name, value in [('_retry_at',0),('_route',0),('_quote',None),('_attempted',float('-inf')),('_error',None)]:
+        for name, value in [('_retry_at',0),('_route',0),('_quote',None),('_attempted',float('-inf')),('_error',None),('_near_expiry_retried_at',None)]:
             p=patch.object(s,name,value);p.start();self.addCleanup(p.stop)
         self.now=datetime.now(timezone.utc)
         self.payload=dict(symbol='XAU',name='Gold',currency='USD',exchangeRate=1,price=4141.8,updatedAt=self.now.isoformat())
@@ -39,6 +40,28 @@ class SharedSpotTests(unittest.TestCase):
                 self.assertTrue(retained['refreshWarning'])
             self.assertEqual(request.call_count,1)
             self.assertEqual(s._quote['at'],self.payload['updatedAt'])
+
+    def test_near_expiry_observation_gets_one_bounded_early_retry(self):
+        payload={**self.payload,'updatedAt':(self.now-timedelta(seconds=55)).isoformat()}
+        with patch.object(product_quotes,'issuer_json',return_value=payload) as request:
+            self.assertEqual(s.current()['at'],payload['updatedAt'])
+            self.assertEqual(request.call_count,1)
+            with patch.object(s,'_attempted',time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1):
+                self.assertEqual(s.current()['at'],payload['updatedAt'])
+            self.assertEqual(request.call_count,2)
+            # Repeating the same original source time cannot create a fast loop.
+            with patch.object(s,'_attempted',time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1):
+                self.assertEqual(s.current()['at'],payload['updatedAt'])
+            self.assertEqual(request.call_count,2)
+
+    def test_early_retry_can_replace_quote_just_after_it_expires(self):
+        expired_at=(self.now-timedelta(seconds=61)).isoformat()
+        s._quote={'price':4100.,'at':expired_at,'source':'Gold-API.com · XAU/USD Spot'}
+        s._attempted=time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1
+        with patch.object(product_quotes,'issuer_json',return_value=self.payload) as request:
+            self.assertEqual(s.current()['at'],self.payload['updatedAt'])
+        self.assertEqual(request.call_count,1)
+        self.assertIsNone(s._near_expiry_retried_at)
 
     def test_reject_older_conflicting_stale_future_wrong_asset(self):
         with patch.object(product_quotes,'issuer_json',return_value=self.payload):s.current()

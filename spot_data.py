@@ -6,21 +6,38 @@ from datetime import datetime, timezone
 
 URL = 'https://api.gold-api.com/price/XAU'
 POLL_SECONDS = 30
+NEAR_EXPIRY_SECONDS = 50
+NEAR_EXPIRY_RETRY_SECONDS = 5
 _lock = threading.Lock()
 _quote = None
 _attempted = float('-inf')
 _error = None
 _route = 0
 _retry_at = 0
+_near_expiry_retried_at = None
 ROUTES = (URL, URL + "/USD")
 
 
+def _poll_interval():
+    """Retry one near-expiry provider observation early, without changing its clock."""
+    if not _quote or _quote.get('at') == _near_expiry_retried_at:
+        return POLL_SECONDS
+    try:
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(_quote['at'])).total_seconds()
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return POLL_SECONDS
+    return NEAR_EXPIRY_RETRY_SECONDS if age >= NEAR_EXPIRY_SECONDS else POLL_SECONDS
+
+
 def current():
-    global _quote, _attempted, _error, _route, _retry_at
+    global _quote, _attempted, _error, _route, _retry_at, _near_expiry_retried_at
     # Serialize provider access, including concurrent browser, monitor and model requests.
     with _lock:
-        if time.monotonic() - _attempted >= POLL_SECONDS and time.monotonic() >= _retry_at:
-            _attempted = time.monotonic()
+        now_monotonic = time.monotonic()
+        poll_interval = _poll_interval()
+        if now_monotonic - _attempted >= poll_interval and now_monotonic >= _retry_at:
+            _attempted = now_monotonic
+            previous_at = (_quote or {}).get('at')
             try:
                 from product_quotes import issuer_json
                 from future_estimate import parse_gold_api
@@ -36,9 +53,15 @@ def current():
                         raise ValueError('Spot-Kurszeit rückläufig oder widersprüchlicher Kurs')
                 if _error:
                     logging.info("BOB_MARKET_RECOVERY source=spot state=recovered")
+                # A provider observation first received close to expiry gets one
+                # bounded early retry. If the provider repeats the same original
+                # time, resume the normal cadence instead of polling repeatedly.
+                _near_expiry_retried_at = q['at'] if q['at'] == previous_at and age >= NEAR_EXPIRY_SECONDS else None
                 _quote, _error = q, None
             except (OSError, ValueError, KeyError, TypeError, IndexError, AttributeError) as exc:
                 _error = type(exc).__name__
+                if previous_at and poll_interval == NEAR_EXPIRY_RETRY_SECONDS:
+                    _near_expiry_retried_at = previous_at
                 # Equivalent documented USD route; one attempt per 30 seconds,
                 # not a new provider or an invented source timestamp.
                 code = getattr(exc, 'code', None)
