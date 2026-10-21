@@ -247,6 +247,10 @@ def sync(conn, payload):
         return dict(ok=True,products=0,preserved=True)
     text=json.dumps(safe,allow_nan=False)
     if len(text)>180000:raise ValueError('Produktnachweise zu groß')
+    # Save original listing proofs before a newer generation replaces snapshots.
+    if previous.get('listOrigin') == 'degiro-screenshot' and new_time != old_time:
+        import broker_venue_evidence
+        broker_venue_evidence.archive_feed(conn, previous)
     conn.execute('''INSERT INTO bob_paper_products(id,payload) VALUES(1,%s::jsonb)
         ON CONFLICT(id) DO UPDATE SET payload=EXCLUDED.payload,synced_at=now()''',(text,))
     if new_time is not None and (old_time is None or new_time > old_time):

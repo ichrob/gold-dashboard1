@@ -105,4 +105,73 @@ class BrokerVenueTests(unittest.TestCase):
         self.assertTrue(b.confirmed(e,p['isin'],'EUR',self.now.timestamp()*1000))
         self.assertFalse(b.confirmed(e,p['isin'],'CHF',self.now.timestamp()*1000))
 
+class VenueContinuityTests(BrokerVenueTests):
+    def test_identity_only_proof_does_not_require_or_supply_prices(self):
+        p,feed=self.detail_product()
+        q=p['snapshot'].pop('degiroDisplayedQuote');q.pop('bid');q.pop('ask')
+        p['snapshot']['degiroVenueEvidence']=q
+        record=b.automatic(p,feed,self.now)
+        self.assertTrue(b.confirmed(record,p['isin'],'CHF',self.now.timestamp()*1000))
+        self.assertNotIn('bid',record)
+        for field,value in [('isin',self.isin),('currency','USD'),('sourceTime',None),('isExecutableQuote',True)]:
+            copy_p=copy.deepcopy(p);copy_p['snapshot']['degiroVenueEvidence'][field]=value
+            self.assertIsNone(b.automatic(copy_p,feed,self.now))
+
+    def test_old_generation_is_history_only_and_clock_is_unchanged(self):
+        e=b.validate(self.payload,self.feed,self.now)
+        conn=Mock();conn.execute.return_value.fetchall.return_value=[(self.isin,e)]
+        newer=dict(self.feed,listUploadedAt='new',products=[dict(isin=self.isin,currency='CHF')])
+        next_day=self.now+timedelta(days=1)
+        product=b.attach(conn,newer,next_day)['products'][0]
+        state=b.assessment(product,'CHF',next_day.timestamp()*1000)
+        self.assertEqual(state['state'],'historical')
+        self.assertFalse(state['current']);self.assertFalse(state['executionConfirmed'])
+        self.assertEqual(state['historicalEvidence']['observedMinute'],e['observedMinute'])
+        self.assertNotIn('brokerVenueEvidence',product)
+        self.assertEqual(b.assessment(product,'EUR',next_day.timestamp()*1000)['state'],'missing')
+        self.assertEqual(b.assessment(dict(product,isin='DE000FG8NHQ3'),'CHF',next_day.timestamp()*1000)['state'],'missing')
+
+    def test_replacement_archives_expired_snapshot_without_redating(self):
+        p,feed=self.detail_product();conn=Mock()
+        b.archive_feed(conn,feed,self.now+timedelta(days=1))
+        args=conn.execute.call_args[0][1]
+        self.assertEqual(args[3],'2026-10-14T20:13')
+        self.assertIn('2026-10-14T22:00',args[4])
+
+    def test_new_detail_revalidates_history(self):
+        p,feed=self.detail_product();conn=Mock()
+        conn.execute.return_value.fetchall.return_value=[]
+        product=b.attach(conn,feed,self.now)['products'][0]
+        state=b.assessment(product,'CHF',self.now.timestamp()*1000)
+        self.assertEqual(state['state'],'current')
+        later=self.now.replace(hour=22)
+        self.assertEqual(b.assessment(product,'CHF',later.timestamp()*1000)['state'],'historical')
+
 if __name__=='__main__':unittest.main()
+
+import os
+import time
+@unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'), 'PostgreSQL integration')
+class VenueDatabaseTests(unittest.TestCase):
+    def test_history_survives_connection_and_list_replacement(self):
+        import psycopg
+        schema='venues_'+str(time.time_ns())
+        now=datetime.fromisoformat('2026-10-14T20:15:00+02:00')
+        isin='DE000FG14AV8'
+        feed=dict(listOrigin='degiro-screenshot',listUploadedAt='old',products=[dict(isin=isin,currency='CHF')])
+        record=b.validate(dict(isin=isin,venue=b.VENUE,currency='CHF',observedMinute='2026-10-14T20:13',imageReference='fixture',reviewed=True),feed,now)
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute('CREATE SCHEMA '+schema);conn.execute('SET search_path TO '+schema)
+            b.init(conn);b.archive(conn,record,now)
+            older=dict(record,observedMinute='2026-10-14T20:10')
+            b.archive(conn,older,now)
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute('SET search_path TO '+schema)
+            new=dict(feed,listUploadedAt='new')
+            next_day=now+timedelta(days=1)
+            p=b.attach(conn,new,next_day)['products'][0]
+            state=b.assessment(p,'CHF',next_day.timestamp()*1000)
+            self.assertEqual(state['state'],'historical');self.assertFalse(state['current'])
+            self.assertEqual(state['historicalEvidence']['observedMinute'],record['observedMinute'])
+            self.assertFalse(state['executionConfirmed'])
+            conn.execute('DROP SCHEMA '+schema+' CASCADE')

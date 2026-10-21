@@ -12,6 +12,10 @@ REVIEWED_VENUES = (VENUE, 'BNP OTC', 'BNP Paribas OTC')
 
 
 def init(conn):
+    conn.execute('''CREATE TABLE IF NOT EXISTS bob_broker_venue_history (
+        isin TEXT NOT NULL, currency TEXT NOT NULL, venue TEXT NOT NULL,
+        observed_minute TEXT NOT NULL, payload JSONB NOT NULL,
+        PRIMARY KEY(isin,currency,venue))''')
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_broker_venue_evidence (
         isin TEXT PRIMARY KEY, payload JSONB NOT NULL)''')
 
@@ -72,6 +76,7 @@ def save(conn, payload, now=None):
     conn.execute('''INSERT INTO bob_broker_venue_evidence(isin,payload) VALUES(%s,%s::jsonb)
         ON CONFLICT(isin) DO UPDATE SET payload=EXCLUDED.payload''',
         (record['isin'], json.dumps(record)))
+    archive(conn, record, now or datetime.now(timezone.utc))
     return dict(ok=True, evidence=record, message='Handelsplatznachweis gespeichert · keine Order ausgelöst')
 
 
@@ -90,7 +95,8 @@ def automatic(product, feed, now=None):
     from product_quotes import valid_isin
     now = now or datetime.now(timezone.utc)
     snapshot = product.get('snapshot') or {}
-    q = snapshot.get('degiroDisplayedQuote') if isinstance(snapshot, dict) else None
+    venue_only = isinstance(snapshot, dict) and isinstance(snapshot.get('degiroVenueEvidence'), dict)
+    q = (snapshot.get('degiroVenueEvidence') if venue_only else snapshot.get('degiroDisplayedQuote')) if isinstance(snapshot, dict) else None
     isin = product.get('isin')
     if (not isinstance(q, dict) or not isinstance(isin, str) or not valid_isin(isin)
             or snapshot.get('isin') != isin or q.get('isin') != isin
@@ -102,7 +108,7 @@ def automatic(product, feed, now=None):
                    'executionGuaranteed', 'isExecutableQuote'))):
         return None
     bid, ask = q.get('bid'), q.get('ask')
-    if not all(type(v) in (int, float) and math.isfinite(v) and v > 0 for v in (bid, ask)) or ask < bid:
+    if not venue_only and (not all(type(v) in (int, float) and math.isfinite(v) and v > 0 for v in (bid, ask)) or ask < bid):
         return None
     raw = q.get('sourceTime')
     if not isinstance(raw, str) or not re.fullmatch(r'\d{2}[/.]\d{2}[/.]\d{4} \d{2}:\d{2}(?::\d{2})?', raw):
@@ -150,8 +156,15 @@ def attach(conn, feed, now=None):
     now = now or datetime.now(timezone.utc)
     rows = conn.execute('SELECT isin,payload FROM bob_broker_venue_evidence').fetchall()
     evidence = {isin: row for isin, row in rows if row.get('listUploadedAt') == feed.get('listUploadedAt')}
+    history_rows = conn.execute('SELECT isin,payload FROM bob_broker_venue_history').fetchall()
+    history = {}
+    for isin, row in history_rows:
+        if isinstance(row, dict):history.setdefault(isin, []).append(row)
+    for isin, row in rows:
+        if archive(conn, row, now):history.setdefault(isin, []).append(row)
     for product in out.get('products') or []:
         product.pop('brokerVenueEvidence', None)
+        product.pop('brokerVenueHistory', None)
         record = automatic(product, feed, now)
         listed = corrected_list(product, feed, now)
         if listed and (not record or listed['observedMinute'] >= record['observedMinute']):
@@ -162,4 +175,56 @@ def attach(conn, feed, now=None):
             record = manual
         if record:
             product['brokerVenueEvidence'] = record
+            if archive(conn, record, now):history.setdefault(product['isin'], []).append(record)
+        currency = product.get('currency') or (product.get('snapshot') or {}).get('currency')
+        candidates = [r for r in history.get(product.get('isin'), [])
+                      if r.get('currency') == currency and historical(r, now)]
+        if candidates:
+            product['brokerVenueHistory'] = max(candidates, key=lambda r:r['observedMinute'])
     return out
+
+
+def historical(record, now):
+    """Validate at the original observation, never refresh its time or validity."""
+    if not isinstance(record, dict):return False
+    try:
+        at = datetime.strptime(record['observedMinute'], '%Y-%m-%dT%H:%M').replace(tzinfo=ZONE)
+        return at <= now and confirmed(record, record.get('isin'), record.get('currency'), at.timestamp()*1000)
+    except (ValueError, TypeError, KeyError):return False
+
+
+def archive(conn, record, now):
+    if not historical(record, now):return False
+    conn.execute("""INSERT INTO bob_broker_venue_history(isin,currency,venue,observed_minute,payload)
+        VALUES(%s,%s,%s,%s,%s::jsonb) ON CONFLICT(isin,currency,venue) DO UPDATE
+        SET observed_minute=excluded.observed_minute,payload=excluded.payload
+        WHERE excluded.observed_minute>bob_broker_venue_history.observed_minute""",
+        (record['isin'],record['currency'],record['venue'],record['observedMinute'],json.dumps(record)))
+    return True
+
+
+def assessment(product, currency, now_ms):
+    """One listing decision shared by report, cards and selection; no execution permission."""
+    record = product.get('brokerVenueEvidence')
+    current = confirmed(record, product.get('isin'), currency, now_ms)
+    old = product.get('brokerVenueHistory') or record
+    now = datetime.fromtimestamp(now_ms/1000, timezone.utc)
+    old = old if historical(old, now) and old.get('isin') == product.get('isin') and old.get('currency') == currency else None
+    return dict(version=1, state='current' if current else 'historical' if old else 'missing',
+                current=current, evidence=record if current else None, historicalEvidence=old,
+                checkedAt=now.isoformat(), executionConfirmed=False)
+
+
+def archive_feed(conn, feed, now=None):
+    """Capture outgoing screenshots at their original clock, including expired ones."""
+    now = now or datetime.now(timezone.utc)
+    for product in feed.get('products') or []:
+        snap = product.get('snapshot') or {}
+        q = snap.get('degiroVenueEvidence') or snap.get('degiroDisplayedQuote') or {}
+        raw = q.get('sourceTime', '')
+        try:
+            at = datetime.strptime(raw.replace('/', '.'), '%d.%m.%Y %H:%M:%S' if len(raw)==19 else '%d.%m.%Y %H:%M').replace(tzinfo=ZONE)
+            if at > now:continue
+            record = automatic(product, feed, at)
+            if record:archive(conn, record, now)
+        except (ValueError, TypeError):continue

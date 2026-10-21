@@ -1,6 +1,6 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const source=fs.readFileSync('degiro_assistant.js','utf8');
-const c={Date,expectedQuotePause:p=>p.paused,currentSgChfAnalysisProof:p=>p.analysis,productDirectionDataState:p=>p.state,knockoutStatus:p=>p.ko,compactProductExclusion:p=>p.excluded};
+const c={Date,sharedVenueStatus:p=>p.venueStatus||null,expectedQuotePause:p=>p.paused,currentSgChfAnalysisProof:p=>p.analysis,productDirectionDataState:p=>p.state,knockoutStatus:p=>p.ko,compactProductExclusion:p=>p.excluded};
 vm.createContext(c);vm.runInContext(source.slice(source.indexOf('function productDirectionCheck('),source.indexOf('function renderProductDirectionStatus(')),c);
 const good={state:{blocked:false,stale:false}},qualified={state:{blocked:false,stale:true}},missing={state:{blocked:true,stale:false}},analysis={analysis:{analysisOnly:true}},paused={paused:true};
 const heading=items=>c.renderGoldProductsHeading(items);
@@ -30,3 +30,6 @@ assert(c.renderProductIdentity({...qualified,fields:{ko:{key:'KO',state:'veralte
 assert(c.renderProductIdentity({...missing,reasons:['Basispreis fehlt']}).includes('Basispreis fehlt'));
 assert(c.renderProductIdentity({ko:true}).includes('Ausgeknockt'));
 console.log('ISIN badges share heading states and explain qualified, missing, paused and excluded data');
+
+assert.equal(heading([good,{...good,venueStatus:{required:true,current:false}}]),'Gold-Hebelprodukte');
+assert(heading([good,{...good,venueStatus:{required:true,current:true}}]).includes('confirmed'));

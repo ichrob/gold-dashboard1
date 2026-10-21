@@ -308,11 +308,11 @@ def examine(product, quote, now_ms):
         and metadata.get("issuerExchangeCode") == "CBSW"
         and metadata.get("currency") == "CHF"
     )
-    from broker_venue_evidence import confirmed as venue_confirmed
+    from broker_venue_evidence import assessment as venue_assessment
     broker_venue = product.get('brokerVenueEvidence')
     # A listing screenshot remains evidence even when the issuer lookup fails.
-    has_broker_venue = valid_isin(isin) and venue_confirmed(
-        broker_venue, isin, product.get('currency') or metadata.get('currency'), now_ms)
+    venue_status = venue_assessment(product, product.get('currency') or metadata.get('currency'), now_ms)
+    has_broker_venue = valid_isin(isin) and venue_status['current']
     if swiss_dots and not has_broker_venue:
         missing.append("venue")
     if not verified:
@@ -423,6 +423,7 @@ def examine(product, quote, now_ms):
         "issuerVenue": "Swiss DOTS (CHF)" if swiss_dots else None,
         "venueEvidence": "https://www.finanzen.ch/derivate/"+isin.lower() if swiss_dots else None,
         "brokerVenueEvidence": broker_venue if has_broker_venue else None,
+        "brokerVenueStatus": dict(venue_status, required=swiss_dots),
         "venueAction": ("Keine Swiss-DOTS-Quotierung als DEGIRO-Kurs verwenden. "
                         "DEGIRO-Kursdatenbild mit ISIN, Börse, Währung und Datum hochladen; "
                         "Bob übernimmt eindeutige Angaben automatisch."
