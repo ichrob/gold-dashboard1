@@ -79,7 +79,7 @@ class BridgeTests(unittest.TestCase):
             expected = base64.b64encode(hmac.new(CONFIG['consumerKey'].encode(), b'{"content":null,"path":"/authorizations","query":"clientId=test-client&timestamp=1700000000"}', hashlib.sha256).digest()).decode()
             self.assertEqual(request.get_header('Signature'), expected)
             self.assertNotIn('userSecret', request.full_url)
-            for path in ('/orders', '/authorizations/' + C + '/refresh', '//evil.test/x', '/accounts/' + A + '/orders', '/authorizations?evil=x'):
+            for path in ('/orders', '/authorizations/' + C + '/refresh', '//evil.test/x', '/accounts/' + A + '/orders/place', '/authorizations?evil=x'):
                 with self.assertRaises(b.ReadError): b.api_get(path, CONFIG)
             self.assertEqual(opener.open.call_count, 1)
         self.assertIsNone(b.NoRedirect().redirect_request(None, None, None, None, None, None))
@@ -154,7 +154,10 @@ class SettingsPersistenceTest(unittest.TestCase):
                 loaded = settings.handle(conn, 'read', {})['sealed']
                 self.assertEqual(json.loads(b.cipher().decrypt(loaded.encode())), CONFIG)
                 self.assertNotIn(CONFIG['consumerKey'], loaded)
+                settings.handle(conn, 'state-save', {'sealed': sealed})
+                self.assertEqual(settings.handle(conn, 'state-read', {})['sealed'], sealed)
                 settings.handle(conn, 'delete', {})
+                self.assertIsNone(settings.handle(conn, 'state-read', {})['sealed'])
                 self.assertIsNone(settings.handle(conn, 'read', {})['sealed'])
 
 
