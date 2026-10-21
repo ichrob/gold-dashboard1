@@ -220,6 +220,9 @@ def report(conn, day=None):
         # Six synthetic demos are already available under the separate demo tab.
         data.pop('demonstrations', None)
         data.pop('demonstration', None)
+        if profile=='balanced':
+            import paper_stop_study
+            data['stopStudy']=paper_stop_study.report(conn,data['day'])
         if policy.get('early_impulse'):
             data['note']=('Viertes 100-EUR-Testkonto: früher LONG/SHORT-Impuls 5m/15m als eigenständiger virtueller '
                           'Einstiegsversuch, ohne Freigabe des Haupttrends. Dieselben echten Produktnachweise, '

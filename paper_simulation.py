@@ -4,6 +4,8 @@ import hashlib
 import json
 import adaptive_learning as rule_learning
 import paper_reflection
+import paper_entry_review
+import paper_stop_study
 import paper_ledger_costs
 import ranking_learning
 import ranking_lifecycle
@@ -186,6 +188,7 @@ def init(conn):
         day TEXT PRIMARY KEY, payload JSONB NOT NULL)''')
     import paper_portfolios
     paper_portfolios.init(conn)
+    paper_stop_study.init(conn)
 
 def sync(conn, payload):
     products=payload.get('products')
@@ -254,7 +257,7 @@ def sync(conn, payload):
             WHERE selection_evidence IS NOT NULL OR product_selection IS NOT NULL''')
     return dict(ok=True,products=len(safe['products']),listUploadedAt=uploaded)
 
-def new_case(market, choice, quote, now, cash=100., cost_model=None):
+def new_case(market, choice, quote, now, cash=100., cost_model=None,bundle=None):
     p=copy.deepcopy(market['plan']);direction=p['direction'];risk=abs(p['entry']-p['stop'])
     local=datetime.fromtimestamp(now/1000,ZoneInfo('Europe/Zurich'))
     end=min(now+4*3600000,local.replace(hour=21,minute=45,second=0,microsecond=0).timestamp()*1000)
@@ -264,7 +267,7 @@ def new_case(market, choice, quote, now, cash=100., cost_model=None):
     quantity=(paper_ledger_costs.units(cash,q['ask'],cost_model) if cost_model else math.floor((cash+1e-9)/q['ask'])) if q else None
     if quantity==0:raise ValueError('Kapital reicht nicht für ein Produktstück')
     t=dict(tradeId=key,dir=direction,entry=p['entry'],stop=p['stop'],target=p['target'],initialRisk=risk,instrument='XAU/USD',active=True,product=None)
-    return dict(id=key,version=VERSION,status='open',day=local.date().isoformat(),startedAt=now,endsAt=end,
+    return dict(stopStudySetup=paper_stop_study.setup(market,bundle,now),id=key,version=VERSION,status='open',day=local.date().isoformat(),startedAt=now,endsAt=end,
                 plan=p,ledgerCostModel=copy.deepcopy(cost_model),product=copy.deepcopy(choice),koGuardRequired=choice.get('koGuardRequired') is True,
                 entryQuote=q,entryAsk=q['ask'] if q else None,
                 analysis=copy.deepcopy(market),lastAt=market['dataAt'],remaining=1.,goldR=0.,productGrossPct=0. if q else None,
@@ -434,11 +437,17 @@ def capital_snapshot(control,case,quote,now):
     control['totalProfit']=equity-control['initialCapital'] if equity is not None else None
     control['costPeriodProfit']=(equity-control['costsOpeningEquity'] if equity is not None and control.get('costsOpeningEquity') is not None else None)
 
-def day_update(conn, day, closed=None, wait=None, now=None,capital=None,product=None,entry=None):
+def day_update(conn, day, closed=None, wait=None, now=None,capital=None,product=None,entry=None,checklist=None):
     row=conn.execute('SELECT payload FROM bob_paper_days WHERE day=%s',(day,)).fetchone()
     d=row[0] if row else dict(cases=0,closed=0,inconclusive=0,goldPositive=0,goldNegative=0,goldFlat=0,
                              productKnown=0,productPositive=0,productNegative=0,waitChecks=0)
     d.update(lastCheckedAt=now)
+    if checklist:
+        d['lastEntryChecklist']=copy.deepcopy(checklist)
+        counters=d.setdefault('entryCheckCounts',{})
+        for item in checklist['checks']:
+            key=item['label']+' · '+item['state']
+            counters[key]=counters.get(key,0)+1
     if capital:
         d.update(openingCapital=capital.get('dayOpeningEquity'),capital=capital.get('equity'),cash=capital['cash'],
                  dayProfit=capital.get('dayProfit'),totalProfit=capital.get('totalProfit'),openUnits=capital.get('openUnits',0),
@@ -493,6 +502,7 @@ def report(conn, day=None):
                 products=[dict(isin=p.get('isin'),direction=p.get('productDirection'),name=p.get('name')) for p in feed[0]['products'] if p.get('isin')] if feed else [],
                 productSyncedAt=feed[1].isoformat() if feed else None,cases=[r[0] for r in cases],
                 costReview=__import__('paper_costs').report([r[0] for r in cases]),
+                decisionReview=paper_entry_review.daily([r[0] for r in cases],stats[0] if stats else {},day),
                 daily=[dict(day=d,**s) for d,s in totals],detailsLimit=100,detailRetentionDays=30,
                 demonstrations=technical_scenarios(), demonstration=technical_demo(control.get('lastGold'),next((p for p in feed[0]['products'] if p.get('productDirection')=='LONG'),None) if feed else None))
 
@@ -649,10 +659,14 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             elif finite(control.get('lastStopBar')) and (not finite(market.get('analysisBarAt')) or market['analysisBarAt']<=control['lastStopBar']):
                 reason='Nach Stop-Loss: neue bestätigte Signal-Kerze für Wiedereinstieg abwarten'
             elif control.get('lastEntryKey')==entry_key:reason='Diese Signal-Kerze wurde bereits simuliert'
+            elif paper_entry_review.capture(market,choice,quotes.get(choice['isin']),now,False,'Pflichtprüfung',control,profile_policy)['requiredFailures']:
+                reason='Einstiegscheckliste: Pflichtprüfung nicht erfüllt; Richtung, Produkt und Originalnachweise prüfen'
             else:
                 budget=min(control['cash'], (control.get('equity') or control['cash'])*
                            (profile_policy['exposure_fraction'] if profile_policy else 1.))
-                c=new_case(market,choice,quotes.get(choice['isin']),now,cash=budget,cost_model=cost_model)
+                entry_checklist=paper_entry_review.capture(market,choice,quotes.get(choice['isin']),now,True,'Alle bisherigen Einstiegssperren bestanden',control,profile_policy)
+                c=new_case(market,choice,quotes.get(choice['isin']),now,cash=budget,cost_model=cost_model,bundle=bundle)
+                c['entryChecklist']=entry_checklist
                 if c.get('koGuardRequired'):
                     _,c['koWatch']=paper_ko_guard.entry_reason(choice,quotes.get(choice['isin']),market,now)
                     c['koWatchStatus']='confirmed'
@@ -689,8 +703,11 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                         if field in entry_control:control[field]=entry_control[field]
                     capital_snapshot(control,c,quotes.get(choice['isin']),now)
                 reason='Neuer Simulationsfall gespeichert' if inserted else 'Signal bereits dokumentiert'
+            if not entered:
+                entry_checklist=paper_entry_review.capture(market,choice,quotes.get(choice['isin']) if choice else None,now,False,reason,control,profile_policy)
+            control['lastEntryChecklist']=entry_checklist
             control.update(status='running',reason=reason)
-            day_update(conn,day,wait=reason,now=now,capital=control,
+            day_update(conn,day,wait=None if entered else reason,now=now,capital=control,checklist=entry_checklist,
                        entry=dict(direction=market.get('direction','NEUTRAL'),
                          isin=choice.get('isin') if choice else None,
                          goldAt=market.get('dataAt'),ruleVersion=market.get('ruleVersion')) if not entered else None)
@@ -853,6 +870,7 @@ def _worker(db):
                         active_isins=[c['product']['isin'] for c in active_cases.values() if c.get('product',{}).get('isin')]
                         try:
                             with conn.transaction():active_isins+=ranking_lifecycle.active_isins(conn)
+                            with conn.transaction():active_isins+=paper_stop_study.active_isins(conn)
                         except Exception as exc:print('BOB_RANKING_EXITS lookup_error='+type(exc).__name__,flush=True)
                         import product_repair_learning
                         try:
@@ -915,6 +933,9 @@ def _worker(db):
                         outcomes=paper_portfolios.run_all(conn,bundle,market,selection,quotes,
                                                           time.time()*1000,settings,active_cases,
                                                           early_market=early_market,early_selection=early_selection)
+                        try:
+                            with conn.transaction():paper_stop_study.tick(conn,market,quotes,time.time()*1000)
+                        except Exception as exc:print('BOB_STOP_STUDY error='+type(exc).__name__,flush=True)
                         # Observational research MUST NOT interrupt existing paper ledgers.
                         # A PostgreSQL savepoint contains all collector failures.
                         conn.execute('SAVEPOINT bob_zukunft_capture')
