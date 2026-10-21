@@ -288,7 +288,7 @@ function mount(){
  const confirmedRows=el(doc,'div');confirmedRows.id='bobDegiroConfirmedRows';confirmed.append(confirmedRows);
  confirmed.append(el(doc,'p','broker-research-small',
   'Nur ein aktueller ISIN-gebundener Nachweis aus einem geprüften DEGIRO-Produktdetail mit Handelsplatz und Datum zählt. Ein Emittentenkurs, historische Liste oder CSV-Kontoauszug allein reicht nicht. Ein bestätigter Listungsnachweis ist noch keine Orderfreigabe.'));
- products.prepend(confirmed);
+ products.append(confirmed);
  let catalog={candidates:[]},audit=null,proofs=null,busy=false,lastPoll=0;
  let imageBusy=false,imageExpected=null;
  const issuerReadouts=new Map();

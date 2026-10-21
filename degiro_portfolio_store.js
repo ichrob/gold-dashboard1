@@ -118,7 +118,7 @@ function mount(){
  importButton.type='button';
  importButton.dataset.view='degiro';
  wrapper.append(importButton);
- productsView.prepend(wrapper);
+ productsView.append(wrapper);
  let current=null,shown=0;
  function render(){
   list.replaceChildren();shown=0;
