@@ -1159,7 +1159,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 </main>
 <script src="/push_manager.js"></script>
 <script src="/late_entry_guard.js?v=20261016-no-chase-v1"></script>
-<script src="/degiro_assistant.js?v=20261018-assistance"></script>
+<script src="/degiro_assistant.js?v=20261022-voice-leverage-isin"></script>
 <script src="/bob_stop_assistant.js?v=20261016-chf-v1"></script>
 <script src="/product_trade_curve.js?v=20261018-trade-details"></script>
 <script src="/real_trade_journal.js"></script>
@@ -2130,11 +2130,20 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const section=out?.querySelector('[data-indicative-recommendations]');
    const direction=section?.querySelector(':scope > b > span')?.textContent?.trim()||'UNBEKANNT';
    const risk=section?.querySelector('[data-risk-leverage]');
-   const note=(risk?.textContent||'').replace(/\s+/g,' ').trim().slice(0,700);
+   // Only the direct STRONG contains the ranking fact; reading the entire
+   // accordion textContent glued nested disclosure labels onto the number.
+   const headline=(risk?.querySelector?.(':scope > strong')?.textContent||
+    (risk?.textContent||'').split('Erklärung zum Hebelrisiko')[0])
+    .replace(/\s+/g,' ').trim().replace(/^Risiko:\s*/,'').slice(0,200);
+   // These ISINs are attached by the SAME ranking renderer and restricted to
+   // products tied for highest leverage, not a fresh issuer/broker lookup.
+   const isins=(risk?.getAttribute?.('data-risk-isins')||'').trim();
    return direction!=='LONG'&&direction!=='SHORT'?
     'Bobs aktuelle Produktauswahl hat keine bestätigte LONG- oder SHORT-Richtung. Kein bester Hebel belegt.':
-    note?'Bobs vorhandene '+direction+'-Rangfolge: '+note+
-     ' Hohe Hebel können Gewinne UND Verluste verstärken. Dies ist keine Handelsfreigabe.':
+    headline?'Bobs vorhandene '+direction+'-Rangfolge: '+headline+
+     (isins?' · ISIN: '+isins:'')+
+     '. Dieser Hebel ist der höchste unter den angezeigten rechnerischen Empfehlungen, nicht unter allen Produkten. '+
+     'Hohe Hebel verstärken Gewinne UND Verluste. Keine aktuelle Brokerkurs-Bestätigung oder Handelsfreigabe.':
     'Aktuell gibt es keinen belegten höchsten Hebel in der bestehenden rechnerischen Rangfolge. Bitte Produktdaten und Zeitstempel prüfen.';
   }
   function mountReadOnlyVoiceButton(note){
