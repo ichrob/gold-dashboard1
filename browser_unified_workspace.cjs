@@ -35,7 +35,7 @@ const origin='https://bob-workspace.test';
    window.BobSession={expired:()=>false};
    window.BobTradeSync={current:()=>({active:false})};
    window.BobDegiro={
-    tradeTestProducts:()=>[{isin:'DE000FG14AV8',name:'Gold LONG',direction:'LONG',quote:{isin:'DE000FG14AV8',found:true,productVerified:true,currency:'EUR',metadata:{currency:'EUR',direction:'LONG',status:1},bid:10,ask:10.1,bidAt:new Date().toISOString(),askAt:new Date().toISOString(),source:'Emittent-Beobachtung',leverage:14,leverageAt:new Date().toISOString()}}],
+    tradeTestProducts:()=>[],
     refreshTradeTestQuotes:async()=>{calls.quotes++}
    };
    window.loadData=async(force)=>{
@@ -52,6 +52,20 @@ const origin='https://bob-workspace.test';
   await page.addScriptTag({content:fs.readFileSync('product_evidence_contract.js','utf8')});
   await page.addScriptTag({content:fs.readFileSync('bob_unified_workspace.js','utf8')});
   assert(await page.locator('#bobUnifiedWorkspace').isVisible());
+  // Product report should appear immediately without explicit preparation,
+  // even when there are no manual DEGIRO rows or archived screenshot rows.
+  await page.waitForFunction(()=>document.getElementById('bobUnifiedChecks')
+     ?.textContent?.includes('1 identifizierte Produkte'));
+  assert.equal(await page.locator('#bobUnifiedProduct option').count(),2);
+  assert.deepEqual(await page.evaluate(()=>window.calls),{load:0,quotes:0,handOff:0},
+    'Initial audit is read-only, no market reload/issuer query or handoff');
+  await page.evaluate(()=>{
+    window.BobDegiro.tradeTestProducts=()=>[{isin:'DE000FG14AV8',name:'Gold LONG',direction:'LONG',
+     quote:{isin:'DE000FG14AV8',found:true,productVerified:true,currency:'EUR',
+      metadata:{currency:'EUR',direction:'LONG',status:1},bid:10,ask:10.1,
+      bidAt:new Date().toISOString(),askAt:new Date().toISOString(),
+      source:'Emittent-Beobachtung',leverage:14,leverageAt:new Date().toISOString()}}];
+  });
   await page.evaluate(()=>{
     localStorage.setItem('bobDegiroProductsV2',JSON.stringify({
       version:2,listUploadedAt:new Date(Date.now()-90000).toISOString(),
