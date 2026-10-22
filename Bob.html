@@ -2099,7 +2099,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 
 
   nav.innerHTML=[['overview','◫','Übersicht'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['problems','⚠','Probleme'],['more','☰','Mehr']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+(key==='problems'?'<strong class="bob-problem-count" data-problem-count hidden aria-hidden="true"></strong>':'')+'</button>').join('');document.body.append(nav);
-  function show(key,focus=true){if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&['improve','auto','future','research','learning','diagrams','degiro','degiro2','simulation','settings','help'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
+  function show(key,focus=true){if(key==='products-long')key='products';if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&['improve','auto','future','research','learning','diagrams','degiro','degiro2','simulation','settings','help'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
   document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b){show(b.dataset.view);history.replaceState(null,'','#'+b.dataset.view);}});
   // The Android voice command explicitly requests the Gold-Hebelprodukte list.
   // An ordinary manual tap on the Produkte tab still opens the overview normally.
@@ -2112,13 +2112,67 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    details.open=true; // idempotent native accordion: never toggle it shut
    return summary;
   }
+  // Read only the ALREADY RENDERED rankings. Never calculate a fresh product
+  // score or invent quotes from a spoken question.
+  function longComparisonFromCurrentUi(out){
+   const section=out?.querySelector('[data-indicative-recommendations]');
+   const direction=section?.querySelector(':scope > b > span')?.textContent?.trim()||'UNBEKANNT';
+   const rows=section?[...section.children].filter(el=>
+    el.tagName==='DIV'&&/^\d+\.\s*[A-Z]{2}[A-Z0-9]{9}\d\b/.test((el.textContent||'').trim())
+   ).slice(0,3).map(el=>(el.textContent||'').replace(/\s+/g,' ').trim().slice(0,450)):[];
+   const status=!section?'Die aktuelle Produktauswahl wird noch geladen oder ist nicht verfügbar.':
+     direction!=='LONG'?'Bob zeigt derzeit keine LONG-Rangfolge. Aktuelle rechnerische Richtung: '+direction+'.':
+     rows.length?'Die angezeigten LONG-Kandidaten stammen aus Bobs bestehender rechnerischer Rangfolge. Vergleiche KO-Puffer, KO-Abstand und die Datenhinweise.':
+     'Zurzeit erfüllt kein LONG-Produkt die vorhandenen Auswahlkriterien, oder die Produktdaten fehlen.';
+   return {direction,rows,status};
+  }
+  function renderRequestedLongComparison(){
+   if(new URLSearchParams(location.search).get('view')!=='products-long')return;
+   const out=byId('dgTop3Out');
+   let note=byId('bobVoiceLongReview');
+   if(!note){
+    note=document.createElement('section');
+    note.id='bobVoiceLongReview';note.className='card';
+    note.style.cssText='margin:12px 0;padding:14px;scroll-margin-top:16px';
+    const heading=document.createElement('h3');
+    heading.textContent='Sprachfrage: Welche LONG-Produkte unterscheiden sich?';
+    const status=document.createElement('p');status.setAttribute('role','status');
+    status.setAttribute('data-voice-review-status','');
+    const list=document.createElement('ol');list.setAttribute('data-voice-review-items','');
+    const caution=document.createElement('p');caution.className='small';
+    caution.textContent='Nur bereits angezeigte Modellwerte – keine aktuellen DEGIRO-Ausführungskurse, keine Kaufempfehlung oder Handelsfreigabe. Prüfe Zeitstempel, Originalkurse, KO-Abstand und Produktstatus.';
+    note.append(heading,status,list,caution);
+    const destination=byId('dgTop3');
+    (destination&&panels.products.contains(destination)?destination:panels.products).prepend(note);
+   }
+   const data=longComparisonFromCurrentUi(out);
+   const status=note.querySelector('[data-voice-review-status]');
+   if(status.textContent!==data.status)status.textContent=data.status;
+   const list=note.querySelector('[data-voice-review-items]');
+   const signature=data.rows.join('|');
+   if(list.dataset.signature!==signature){
+    list.replaceChildren();
+    for(const row of data.direction==='LONG'?data.rows:[]){
+     const el=document.createElement('li');el.textContent=row;list.append(el);
+    }
+    list.dataset.signature=signature;
+   }
+   if(out&&!note.dataset.watching){
+    note.dataset.watching='1';
+    new MutationObserver(()=>renderRequestedLongComparison())
+     .observe(out,{childList:true,characterData:true,subtree:true});
+   }
+   return note;
+  }
   function openRequestedGoldProducts(){
-   if(goldDeepLinkRevealed||new URLSearchParams(location.search).get('view')!=='products'||
-      location.hash!=='#products'||panels.products.hidden)return false;
+   const requested=new URLSearchParams(location.search).get('view');
+   if(goldDeepLinkRevealed||!['products','products-long'].includes(requested)||
+      location.hash!=='#'+requested||panels.products.hidden)return false;
    const summary=revealGoldLeveragedProducts(panels.products);
    if(!summary)return false;
    goldDeepLinkRevealed=true;
-   requestAnimationFrame(()=>summary.scrollIntoView({behavior:'auto',block:'start'}));
+   const target=requested==='products-long'?renderRequestedLongComparison():summary;
+   requestAnimationFrame(()=>(target||summary).scrollIntoView({behavior:'auto',block:'start'}));
    return true;
   }
   window.addEventListener('hashchange',()=>{
