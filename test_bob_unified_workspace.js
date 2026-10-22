@@ -32,6 +32,24 @@ assert.deepEqual(changed.added,['DE000FG309G0']);
 assert.deepEqual(changed.removed,['DE000FG14AV8']);
 assert.deepEqual(changed.unchanged,['US0378331005']);
 assert.equal(a.visibleChange([],['DE000FG14AV9']).current.length,0);
+// All state labels are based on genuinely fresh original checks; no broker approval.
+const operationsNow=Date.parse('2026-10-22T09:50:00Z');
+const report={status:'ok',lastCheckedAt:'2026-10-22T09:49:35Z',items:[{isin:'DE000FG14AV8'}],incomplete:0};
+const none={status:'ok',count:0,problems:[]};
+const ops=a.operationalSnapshot(report,none,'Fünf Testkonten',operationsNow);
+assert.equal(ops.productStatus.state,'checked');
+assert.equal(ops.problemStatus.state,'checked');
+assert.equal(ops.simulation.state,'unknown');
+assert.equal(ops.tradeable,false);assert.equal(ops.automaticOrders,false);
+assert.match(ops.productStatus.text,/Keine Handelsfreigabe/);
+assert.equal(a.operationalSnapshot({...report,incomplete:1},none,'',operationsNow).productStatus.state,'warning');
+assert.equal(a.operationalSnapshot({...report,status:'stale'},none,'',operationsNow).productStatus.state,'unknown');
+assert.equal(a.operationalSnapshot({...report,lastCheckedAt:'2026-10-22T09:40:00Z'},none,'',operationsNow).productStatus.state,'unknown');
+assert.equal(a.operationalSnapshot({...report,items:[]},none,'',operationsNow).productStatus.state,'unknown');
+assert.equal(a.operationalSnapshot(report,{status:'ok',count:1,problems:[{}]},'',operationsNow).problemStatus.state,'warning');
+assert.equal(a.operationalSnapshot(report,{status:'stale',count:0,problems:[]},'',operationsNow).problemStatus.state,'unknown');
+assert.equal(a.operationalSnapshot(report,{status:'ok',count:0,problems:[{}]},'',operationsNow).problemStatus.state,'unknown');
+assert.equal(a.operationalSnapshot(null,null,'',operationsNow).productStatus.state,'unknown');
 const draft={day:'2026-10-22',currency:'EUR',budget:10000,orders:[
  {isin:'DE000FG14AV8',side:'Kauf',qty:5,price:1200,fees:100,cost:6100,stop:900,target:1800},
  {isin:'DE000FG14AV8',side:'Verkauf',qty:2,price:1100,fees:100,cost:2300,stop:null,target:null}
