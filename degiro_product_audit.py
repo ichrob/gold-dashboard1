@@ -25,6 +25,7 @@ CODES = {
     "future": "Anderer Basiswert/Future-Kontrakt: nicht als Spotprodukt freigegeben",
     "venue": "Swiss DOTS ist ein eigener, exklusiver OTC-Handelsplatz. Ein Kurs dort ist kein DEGIRO-Ausführungsnachweis; nur eine gesondert belegte DEGIRO-Handelsroute zählt.",
     "terminated": "Produkt vom Emittenten als beendet gemeldet",
+    "source-status-conflict": "Quellenkonflikt: comdirect meldet Knock-out/inaktiv, SG bestätigt den Endstatus nicht. Daten nicht freigeben; Emittentenstatus erneut prüfen.",
     "quote": "Belegtes Geld-/Briefpaar aus Produkt- oder Ersatzquelle fehlt; Chartwerte bleiben separat",
     "quote-time": "Originalzeit des Geld-/Briefpaares fehlt oder ist veraltet",
     "leverage": "Emittentenhebel fehlt",
@@ -323,8 +324,18 @@ def examine(product, quote, now_ms):
         missing.append("factor")
     status = metadata.get("status")
     terminated = verified and ((type(status) is int and bool(status & (2 | 8 | 16 | 32))) or quote.get("terminated") is True)
+    # A portal's confirmed full product identity is useful status evidence,
+    # but only the issuer can confirm the issuer's terminal status. Do not
+    # confuse 'Knock Out erreicht: Ja' with an ordinary transient quote outage.
+    fallback_fields = quote.get("comdirectFieldsBackup") or {}
+    secondary_inactive = (verified and not terminated and status == 1
+                          and fallback_fields.get("state") == "inactive"
+                          and fallback_fields.get("isin") == isin
+                          and fallback_fields.get("inactive") is True)
     if terminated:
         missing.append("terminated")
+    elif secondary_inactive:
+        missing.append("source-status-conflict")
     if metadata.get("underlyingType") == "FUTURE":
         missing.append("future")
     if (metadata.get("underlyingType") != "SPOT" or
@@ -387,6 +398,13 @@ def examine(product, quote, now_ms):
         missing.append("market-closed")
     elif quote.get("marketOpen") is not True and not backup_pair:
         missing.append("market-status")
+    # Once SG itself confirms termination, absent live prices, quote clocks,
+    # gearing and market status are expected, not five separate repair faults.
+    # The product remains permanently blocked, never promoted to analysis.
+    if terminated:
+        missing = [code for code in missing if code not in (
+            "quote", "quote-time", "leverage", "leverage-time",
+            "market-status", "market-closed")]
     # No independent DEGIRO feed exists: even a perfect issuer audit can NEVER
     # validate actual DEGIRO executable quotes/tradability.
     codes = list(dict.fromkeys(missing))
@@ -415,6 +433,21 @@ def examine(product, quote, now_ms):
         "sourceObservations": observations,
         "snapshotId": quote.get("snapshotId"),
         "sourceRecovery": quote.get("sourceRecovery", []),
+        # Diagnostic-only, bounded provenance. Secondary inactive is a
+        # conflict requiring issuer confirmation, NOT a new termination proof.
+        "sourceStatusEvidence": {
+            "issuerVerified": verified,
+            "issuerStatus": status if type(status) is int else None,
+            "issuerRawStatus": metadata.get("sgStatus") if type(metadata.get("sgStatus")) is int else None,
+            "issuerTerminal": terminated,
+            "secondaryInactive": secondary_inactive,
+            "secondarySource": fallback_fields.get("source") if secondary_inactive else None,
+            "secondaryCheckedAt": fallback_fields.get("checkedAt") if secondary_inactive else None,
+            "sgFailureCode": str(quote.get("quoteFailureCode") or "")[:60] or None,
+            "sgLastFailureStage": str(quote.get("lastSourceFailureStage") or "")[:32] or None,
+            "swissquoteState": (quote.get("swissquoteBackup") or {}).get("state"),
+            "swissquoteReasonCode": str((quote.get("swissquoteBackup") or {}).get("reasonCode") or "")[:60] or None,
+        },
         "nativeCurrency": native_currency,
         "thirdSourceEvidence": quote.get("swissquoteBackup"),
         "fieldRecovery": quote.get("comdirectFieldsBackup"),
