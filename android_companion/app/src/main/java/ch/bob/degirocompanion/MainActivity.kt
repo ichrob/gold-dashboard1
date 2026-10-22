@@ -277,6 +277,26 @@ class MainActivity : Activity() {
             }
             val spoken = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
                 ?.firstOrNull().orEmpty()
+            val inquiry = spoken.lowercase(Locale.GERMAN).trim()
+                .replace(Regex("[.!?]+$"), "").replace(Regex("\\s+"), " ")
+            if (inquiry in setOf("was kannst du", "bob was kannst du",
+                    "was kann ich sagen", "hilfe", "sprachhilfe")) {
+                commandStatus.text = "Du kannst sagen: Zeige Goldprodukte, analysiere den Goldmarkt, " +
+                    "öffne Mein Trade, zeige Simulationen, Lernen oder Recherche, " +
+                    "wähle Produktbilder aus. Auch mehrere Schritte mit 'und danach'. " +
+                    "Nach einer ausgeführten Aktion kannst du 'Nochmal' sagen. " +
+                    "Jede Aktion benötigt Prüfen und Ausführen."
+                return
+            }
+            if (inquiry in setOf("was kommt als nächstes", "was ist als nächstes dran",
+                    "welcher schritt kommt als nächstes", "was ist der nächste schritt")) {
+                val currentNext = voiceSteps.getOrNull(voiceStepIndex)
+                commandStatus.text = if (currentNext == null)
+                    "Momentan ist keine weitere Schrittfolge geplant." else
+                    "Noch offen: Schritt ${voiceStepIndex + 1} von ${voiceSteps.size}: " +
+                    "${currentNext.description}. Bitte neu PRÜFEN, dann einzeln AUSFÜHREN."
+                return
+            }
             clearVoicePlan()
             if (PhoneTaskPlanParser.isStop(spoken)) {
                 conversation.clear()
@@ -311,7 +331,6 @@ class MainActivity : Activity() {
     private fun openSpeechRecognizer() {
         // A previous approval must never survive launching an external activity.
         taskApproval.clear()
-        clearVoicePlan()
         commandStatus.text = "Spracherkennung gestartet. Keine Aktion wird automatisch ausgeführt."
         val request = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
