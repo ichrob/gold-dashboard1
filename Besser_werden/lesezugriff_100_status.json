@@ -1,0 +1,814 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-10-22",
+  "total": 100,
+  "counts": {
+    "partial": 91,
+    "planned": 3,
+    "blocked-client": 1,
+    "requires-device": 5
+  },
+  "acceptance": "No verified=True without tests, timestamp, CI, deploy and runtime evidence",
+  "tasks": [
+    {
+      "id": 1,
+      "area": "Diagnosezentrale",
+      "goal": "ChatGPT-Werkzeugbeschreibung aktualisieren",
+      "state": "blocked-client",
+      "codeEvidence": "bob_diagnostics.py",
+      "verified": false
+    },
+    {
+      "id": 2,
+      "area": "Diagnosezentrale",
+      "goal": "Neue Bob-Module erkennen",
+      "state": "partial",
+      "codeEvidence": "bob_diagnostics.py",
+      "verified": false
+    },
+    {
+      "id": 3,
+      "area": "Diagnosezentrale",
+      "goal": "Modul-/Abhängigkeitsverzeichnis",
+      "state": "planned",
+      "codeEvidence": "bob_diagnostics.py",
+      "verified": false
+    },
+    {
+      "id": 4,
+      "area": "Diagnosezentrale",
+      "goal": "Gesundheit jedes Moduls",
+      "state": "partial",
+      "codeEvidence": "bob_diagnostics.py",
+      "verified": false
+    },
+    {
+      "id": 5,
+      "area": "Diagnosezentrale",
+      "goal": "Original-/Abruf-/Prüfzeit getrennt",
+      "state": "partial",
+      "codeEvidence": "bob_diagnostics.py",
+      "verified": false
+    },
+    {
+      "id": 6,
+      "area": "Diagnosezentrale",
+      "goal": "Gezielte Einzelabfragen",
+      "state": "partial",
+      "codeEvidence": "bob_diagnostics.py",
+      "verified": false
+    },
+    {
+      "id": 7,
+      "area": "Diagnosezentrale",
+      "goal": "Historische Diagnosefenster",
+      "state": "partial",
+      "codeEvidence": "bob_diagnostics.py",
+      "verified": false
+    },
+    {
+      "id": 8,
+      "area": "Diagnosezentrale",
+      "goal": "Vergleich früherer Zustände",
+      "state": "planned",
+      "codeEvidence": "bob_diagnostics.py",
+      "verified": false
+    },
+    {
+      "id": 9,
+      "area": "Diagnosezentrale",
+      "goal": "Fehlerursachen korrelieren",
+      "state": "partial",
+      "codeEvidence": "bob_diagnostics.py",
+      "verified": false
+    },
+    {
+      "id": 10,
+      "area": "Diagnosezentrale",
+      "goal": "Gesamtstatus mit Nachweisen",
+      "state": "partial",
+      "codeEvidence": "bob_diagnostics.py",
+      "verified": false
+    },
+    {
+      "id": 11,
+      "area": "Render und Hintergrundjobs",
+      "goal": "Workerzyklen und Fälligkeit",
+      "state": "partial",
+      "codeEvidence": "bob_self_healing.py",
+      "verified": false
+    },
+    {
+      "id": 12,
+      "area": "Render und Hintergrundjobs",
+      "goal": "Verpasste 30-Sekunden-Takte",
+      "state": "partial",
+      "codeEvidence": "bob_self_healing.py",
+      "verified": false
+    },
+    {
+      "id": 13,
+      "area": "Render und Hintergrundjobs",
+      "goal": "CPU-/RAM-Auslastung",
+      "state": "partial",
+      "codeEvidence": "bob_self_healing.py",
+      "verified": false
+    },
+    {
+      "id": 14,
+      "area": "Render und Hintergrundjobs",
+      "goal": "Serverneustarts und Crashursachen",
+      "state": "partial",
+      "codeEvidence": "bob_self_healing.py",
+      "verified": false
+    },
+    {
+      "id": 15,
+      "area": "Render und Hintergrundjobs",
+      "goal": "HTTP-Fehler je Endpunkt",
+      "state": "partial",
+      "codeEvidence": "bob_self_healing.py",
+      "verified": false
+    },
+    {
+      "id": 16,
+      "area": "Render und Hintergrundjobs",
+      "goal": "Datenbanksperren/Timeouts",
+      "state": "partial",
+      "codeEvidence": "bob_self_healing.py",
+      "verified": false
+    },
+    {
+      "id": 17,
+      "area": "Render und Hintergrundjobs",
+      "goal": "Warteschlangen und Verluste",
+      "state": "partial",
+      "codeEvidence": "bob_self_healing.py",
+      "verified": false
+    },
+    {
+      "id": 18,
+      "area": "Render und Hintergrundjobs",
+      "goal": "Gleiche Build-Version auf Diensten",
+      "state": "partial",
+      "codeEvidence": "bob_self_healing.py",
+      "verified": false
+    },
+    {
+      "id": 19,
+      "area": "Render und Hintergrundjobs",
+      "goal": "Deployment-Regressionsvergleich",
+      "state": "planned",
+      "codeEvidence": "bob_self_healing.py",
+      "verified": false
+    },
+    {
+      "id": 20,
+      "area": "Render und Hintergrundjobs",
+      "goal": "Wirkung von Neustarts",
+      "state": "partial",
+      "codeEvidence": "bob_self_healing.py",
+      "verified": false
+    },
+    {
+      "id": 21,
+      "area": "Goldmarkt und Kursdaten",
+      "goal": "Spot-Originalkurse",
+      "state": "partial",
+      "codeEvidence": "candle_reliability.py",
+      "verified": false
+    },
+    {
+      "id": 22,
+      "area": "Goldmarkt und Kursdaten",
+      "goal": "CFD-Herkunft und Abweichung",
+      "state": "partial",
+      "codeEvidence": "candle_reliability.py",
+      "verified": false
+    },
+    {
+      "id": 23,
+      "area": "Goldmarkt und Kursdaten",
+      "goal": "Future-Kontrakt und Verzögerung",
+      "state": "partial",
+      "codeEvidence": "candle_reliability.py",
+      "verified": false
+    },
+    {
+      "id": 24,
+      "area": "Goldmarkt und Kursdaten",
+      "goal": "FX-Werte mit Zeitbezug",
+      "state": "partial",
+      "codeEvidence": "candle_reliability.py",
+      "verified": false
+    },
+    {
+      "id": 25,
+      "area": "Goldmarkt und Kursdaten",
+      "goal": "Qualität jeder Kursquelle",
+      "state": "partial",
+      "codeEvidence": "candle_reliability.py",
+      "verified": false
+    },
+    {
+      "id": 26,
+      "area": "Goldmarkt und Kursdaten",
+      "goal": "Quellenwechsel dokumentieren",
+      "state": "partial",
+      "codeEvidence": "candle_reliability.py",
+      "verified": false
+    },
+    {
+      "id": 27,
+      "area": "Goldmarkt und Kursdaten",
+      "goal": "Lücken/Fehler in Kerzen",
+      "state": "partial",
+      "codeEvidence": "candle_reliability.py",
+      "verified": false
+    },
+    {
+      "id": 28,
+      "area": "Goldmarkt und Kursdaten",
+      "goal": "Historisches EMA200-Backfill",
+      "state": "partial",
+      "codeEvidence": "candle_reliability.py",
+      "verified": false
+    },
+    {
+      "id": 29,
+      "area": "Goldmarkt und Kursdaten",
+      "goal": "Quellen je Zeitfenster",
+      "state": "partial",
+      "codeEvidence": "candle_reliability.py",
+      "verified": false
+    },
+    {
+      "id": 30,
+      "area": "Goldmarkt und Kursdaten",
+      "goal": "Gemeinsame Eingangsdatensätze",
+      "state": "partial",
+      "codeEvidence": "candle_reliability.py",
+      "verified": false
+    },
+    {
+      "id": 31,
+      "area": "Goldprodukte und DEGIRO",
+      "goal": "DEGIRO-Listenstände archivieren",
+      "state": "partial",
+      "codeEvidence": "degiro_product_audit.py",
+      "verified": false
+    },
+    {
+      "id": 32,
+      "area": "Goldprodukte und DEGIRO",
+      "goal": "Neue/entfallene ISINs vergleichen",
+      "state": "partial",
+      "codeEvidence": "degiro_product_audit.py",
+      "verified": false
+    },
+    {
+      "id": 33,
+      "area": "Goldprodukte und DEGIRO",
+      "goal": "Screenshot-Serien richtig zuordnen",
+      "state": "partial",
+      "codeEvidence": "degiro_product_audit.py",
+      "verified": false
+    },
+    {
+      "id": 34,
+      "area": "Goldprodukte und DEGIRO",
+      "goal": "OCR-Felder getrennt prüfen",
+      "state": "partial",
+      "codeEvidence": "degiro_product_audit.py",
+      "verified": false
+    },
+    {
+      "id": 35,
+      "area": "Goldprodukte und DEGIRO",
+      "goal": "Herkunft jedes Produktwertes",
+      "state": "partial",
+      "codeEvidence": "degiro_product_audit.py",
+      "verified": false
+    },
+    {
+      "id": 36,
+      "area": "Goldprodukte und DEGIRO",
+      "goal": "SG/BNP/comdirect-Quellen prüfen",
+      "state": "partial",
+      "codeEvidence": "degiro_product_audit.py",
+      "verified": false
+    },
+    {
+      "id": 37,
+      "area": "Goldprodukte und DEGIRO",
+      "goal": "Geld-/Briefkursnachweise",
+      "state": "partial",
+      "codeEvidence": "degiro_product_audit.py",
+      "verified": false
+    },
+    {
+      "id": 38,
+      "area": "Goldprodukte und DEGIRO",
+      "goal": "Original- und berechneten Hebel trennen",
+      "state": "partial",
+      "codeEvidence": "degiro_product_audit.py",
+      "verified": false
+    },
+    {
+      "id": 39,
+      "area": "Goldprodukte und DEGIRO",
+      "goal": "KO/Basis/Ratio/Laufzeit prüfen",
+      "state": "partial",
+      "codeEvidence": "degiro_product_audit.py",
+      "verified": false
+    },
+    {
+      "id": 40,
+      "area": "Goldprodukte und DEGIRO",
+      "goal": "Produktidentität und Handelsplatz belegen",
+      "state": "partial",
+      "codeEvidence": "degiro_product_audit.py",
+      "verified": false
+    },
+    {
+      "id": 41,
+      "area": "Ranking und Signale",
+      "goal": "Haken/Kreuz pro ISIN erklären",
+      "state": "partial",
+      "codeEvidence": "decision_audit.py",
+      "verified": false
+    },
+    {
+      "id": 42,
+      "area": "Ranking und Signale",
+      "goal": "Top-3-Rangfolge reproduzieren",
+      "state": "partial",
+      "codeEvidence": "decision_audit.py",
+      "verified": false
+    },
+    {
+      "id": 43,
+      "area": "Ranking und Signale",
+      "goal": "Ausschlussgründe ausgeben",
+      "state": "partial",
+      "codeEvidence": "decision_audit.py",
+      "verified": false
+    },
+    {
+      "id": 44,
+      "area": "Ranking und Signale",
+      "goal": "LONG/SHORT/ABWARTEN erklären",
+      "state": "partial",
+      "codeEvidence": "decision_audit.py",
+      "verified": false
+    },
+    {
+      "id": 45,
+      "area": "Ranking und Signale",
+      "goal": "Indikatoren mit Daten belegen",
+      "state": "partial",
+      "codeEvidence": "decision_audit.py",
+      "verified": false
+    },
+    {
+      "id": 46,
+      "area": "Ranking und Signale",
+      "goal": "MTF-Widersprüche erkennen",
+      "state": "partial",
+      "codeEvidence": "decision_audit.py",
+      "verified": false
+    },
+    {
+      "id": 47,
+      "area": "Ranking und Signale",
+      "goal": "Verpasste/unterdrückte Signale",
+      "state": "partial",
+      "codeEvidence": "decision_audit.py",
+      "verified": false
+    },
+    {
+      "id": 48,
+      "area": "Ranking und Signale",
+      "goal": "Einstiegsschutzgründe",
+      "state": "partial",
+      "codeEvidence": "decision_audit.py",
+      "verified": false
+    },
+    {
+      "id": 49,
+      "area": "Ranking und Signale",
+      "goal": "Frühwarnung und Trendkontext",
+      "state": "partial",
+      "codeEvidence": "decision_audit.py",
+      "verified": false
+    },
+    {
+      "id": 50,
+      "area": "Ranking und Signale",
+      "goal": "Entscheidung und späteres Ergebnis verbinden",
+      "state": "partial",
+      "codeEvidence": "decision_audit.py",
+      "verified": false
+    },
+    {
+      "id": 51,
+      "area": "SnapTrade und Broker",
+      "goal": "SnapTrade vs. DEGIRO getrennt",
+      "state": "partial",
+      "codeEvidence": "snaptrade_bridge.py",
+      "verified": false
+    },
+    {
+      "id": 52,
+      "area": "SnapTrade und Broker",
+      "goal": "Maskierte Depotbestände",
+      "state": "partial",
+      "codeEvidence": "snaptrade_bridge.py",
+      "verified": false
+    },
+    {
+      "id": 53,
+      "area": "SnapTrade und Broker",
+      "goal": "Bestandsänderungen",
+      "state": "partial",
+      "codeEvidence": "snaptrade_bridge.py",
+      "verified": false
+    },
+    {
+      "id": 54,
+      "area": "SnapTrade und Broker",
+      "goal": "Käufe/Verkäufe/Gebühren/FX",
+      "state": "partial",
+      "codeEvidence": "snaptrade_bridge.py",
+      "verified": false
+    },
+    {
+      "id": 55,
+      "area": "SnapTrade und Broker",
+      "goal": "CSV-ISIN-Zuordnung",
+      "state": "partial",
+      "codeEvidence": "snaptrade_bridge.py",
+      "verified": false
+    },
+    {
+      "id": 56,
+      "area": "SnapTrade und Broker",
+      "goal": "Doppelte Transaktionen",
+      "state": "partial",
+      "codeEvidence": "snaptrade_bridge.py",
+      "verified": false
+    },
+    {
+      "id": 57,
+      "area": "SnapTrade und Broker",
+      "goal": "FIFO-Lücken",
+      "state": "partial",
+      "codeEvidence": "snaptrade_bridge.py",
+      "verified": false
+    },
+    {
+      "id": 58,
+      "area": "SnapTrade und Broker",
+      "goal": "Broker- vs. Emittentenkurse",
+      "state": "partial",
+      "codeEvidence": "snaptrade_bridge.py",
+      "verified": false
+    },
+    {
+      "id": 59,
+      "area": "SnapTrade und Broker",
+      "goal": "Handelbarkeit je Broker",
+      "state": "partial",
+      "codeEvidence": "snaptrade_bridge.py",
+      "verified": false
+    },
+    {
+      "id": 60,
+      "area": "SnapTrade und Broker",
+      "goal": "Login-/Synchronisierungsfehler",
+      "state": "partial",
+      "codeEvidence": "snaptrade_bridge.py",
+      "verified": false
+    },
+    {
+      "id": 61,
+      "area": "Mein Trade und Gewinnschutz",
+      "goal": "Manuelle Trades zuordnen",
+      "state": "partial",
+      "codeEvidence": "trade_stop_review.py",
+      "verified": false
+    },
+    {
+      "id": 62,
+      "area": "Mein Trade und Gewinnschutz",
+      "goal": "Einstiegswerte prüfen",
+      "state": "partial",
+      "codeEvidence": "trade_stop_review.py",
+      "verified": false
+    },
+    {
+      "id": 63,
+      "area": "Mein Trade und Gewinnschutz",
+      "goal": "Produktkurven vergleichen",
+      "state": "partial",
+      "codeEvidence": "trade_stop_review.py",
+      "verified": false
+    },
+    {
+      "id": 64,
+      "area": "Mein Trade und Gewinnschutz",
+      "goal": "Stop/Ziel-Ursprung",
+      "state": "partial",
+      "codeEvidence": "trade_stop_review.py",
+      "verified": false
+    },
+    {
+      "id": 65,
+      "area": "Mein Trade und Gewinnschutz",
+      "goal": "Stopp-Nachziehen rechtzeitig",
+      "state": "partial",
+      "codeEvidence": "trade_stop_review.py",
+      "verified": false
+    },
+    {
+      "id": 66,
+      "area": "Mein Trade und Gewinnschutz",
+      "goal": "KO-Warnungen verifizieren",
+      "state": "partial",
+      "codeEvidence": "trade_stop_review.py",
+      "verified": false
+    },
+    {
+      "id": 67,
+      "area": "Mein Trade und Gewinnschutz",
+      "goal": "Gewinnschutz/Zielketten",
+      "state": "partial",
+      "codeEvidence": "trade_stop_review.py",
+      "verified": false
+    },
+    {
+      "id": 68,
+      "area": "Mein Trade und Gewinnschutz",
+      "goal": "FX-Abrechnung pro Trade",
+      "state": "partial",
+      "codeEvidence": "trade_stop_review.py",
+      "verified": false
+    },
+    {
+      "id": 69,
+      "area": "Mein Trade und Gewinnschutz",
+      "goal": "Push-Versuch vs. Zustellung",
+      "state": "partial",
+      "codeEvidence": "trade_stop_review.py",
+      "verified": false
+    },
+    {
+      "id": 70,
+      "area": "Mein Trade und Gewinnschutz",
+      "goal": "Echte Trade-Ergebnisse evaluieren",
+      "state": "partial",
+      "codeEvidence": "trade_stop_review.py",
+      "verified": false
+    },
+    {
+      "id": 71,
+      "area": "Simulation und Lernen",
+      "goal": "Fünf Simulationskonten",
+      "state": "partial",
+      "codeEvidence": "paper_simulation.py",
+      "verified": false
+    },
+    {
+      "id": 72,
+      "area": "Simulation und Lernen",
+      "goal": "Handelszeit-Durchlauf",
+      "state": "partial",
+      "codeEvidence": "paper_simulation.py",
+      "verified": false
+    },
+    {
+      "id": 73,
+      "area": "Simulation und Lernen",
+      "goal": "Virtuelle Ein-/Ausstiege",
+      "state": "partial",
+      "codeEvidence": "paper_simulation.py",
+      "verified": false
+    },
+    {
+      "id": 74,
+      "area": "Simulation und Lernen",
+      "goal": "Kosten in Kontoständen",
+      "state": "partial",
+      "codeEvidence": "paper_simulation.py",
+      "verified": false
+    },
+    {
+      "id": 75,
+      "area": "Simulation und Lernen",
+      "goal": "Sim-/Originalkurse abgleichen",
+      "state": "partial",
+      "codeEvidence": "paper_simulation.py",
+      "verified": false
+    },
+    {
+      "id": 76,
+      "area": "Simulation und Lernen",
+      "goal": "Unklare Simulationsausgänge",
+      "state": "partial",
+      "codeEvidence": "paper_simulation.py",
+      "verified": false
+    },
+    {
+      "id": 77,
+      "area": "Simulation und Lernen",
+      "goal": "Simulation-Pausen begründen",
+      "state": "partial",
+      "codeEvidence": "paper_simulation.py",
+      "verified": false
+    },
+    {
+      "id": 78,
+      "area": "Simulation und Lernen",
+      "goal": "Strategien identisch vergleichen",
+      "state": "partial",
+      "codeEvidence": "paper_simulation.py",
+      "verified": false
+    },
+    {
+      "id": 79,
+      "area": "Simulation und Lernen",
+      "goal": "Lernversuche dokumentieren",
+      "state": "partial",
+      "codeEvidence": "paper_simulation.py",
+      "verified": false
+    },
+    {
+      "id": 80,
+      "area": "Simulation und Lernen",
+      "goal": "Unabhängige Vorwärtsprüfung",
+      "state": "partial",
+      "codeEvidence": "paper_simulation.py",
+      "verified": false
+    },
+    {
+      "id": 81,
+      "area": "Forschung und Selbstkritik",
+      "goal": "Neue MCO/NCO-Videos",
+      "state": "partial",
+      "codeEvidence": "research_learning.py",
+      "verified": false
+    },
+    {
+      "id": 82,
+      "area": "Forschung und Selbstkritik",
+      "goal": "Video-Veröffentlichungsdaten",
+      "state": "partial",
+      "codeEvidence": "research_learning.py",
+      "verified": false
+    },
+    {
+      "id": 83,
+      "area": "Forschung und Selbstkritik",
+      "goal": "Untertitel-Fehler",
+      "state": "partial",
+      "codeEvidence": "research_learning.py",
+      "verified": false
+    },
+    {
+      "id": 84,
+      "area": "Forschung und Selbstkritik",
+      "goal": "Frames und Zeitstempel",
+      "state": "partial",
+      "codeEvidence": "research_learning.py",
+      "verified": false
+    },
+    {
+      "id": 85,
+      "area": "Forschung und Selbstkritik",
+      "goal": "Browserless-Kontingent",
+      "state": "partial",
+      "codeEvidence": "research_learning.py",
+      "verified": false
+    },
+    {
+      "id": 86,
+      "area": "Forschung und Selbstkritik",
+      "goal": "MCO-vs.-Bob-Kursvergleich",
+      "state": "partial",
+      "codeEvidence": "research_learning.py",
+      "verified": false
+    },
+    {
+      "id": 87,
+      "area": "Forschung und Selbstkritik",
+      "goal": "Selbstkritik aus gespeichertem Lauf",
+      "state": "partial",
+      "codeEvidence": "research_learning.py",
+      "verified": false
+    },
+    {
+      "id": 88,
+      "area": "Forschung und Selbstkritik",
+      "goal": "Lernfortschritt",
+      "state": "partial",
+      "codeEvidence": "research_learning.py",
+      "verified": false
+    },
+    {
+      "id": 89,
+      "area": "Forschung und Selbstkritik",
+      "goal": "Überanpassung erkennen",
+      "state": "partial",
+      "codeEvidence": "research_learning.py",
+      "verified": false
+    },
+    {
+      "id": 90,
+      "area": "Forschung und Selbstkritik",
+      "goal": "Experimentelle vs. Live-Regeln",
+      "state": "partial",
+      "codeEvidence": "research_learning.py",
+      "verified": false
+    },
+    {
+      "id": 91,
+      "area": "Samsung und Reparaturnachweis",
+      "goal": "Installierte Android-Version",
+      "state": "requires-device",
+      "codeEvidence": "android_companion/README.md",
+      "verified": false
+    },
+    {
+      "id": 92,
+      "area": "Samsung und Reparaturnachweis",
+      "goal": "Spracherkennungsdiagnose",
+      "state": "requires-device",
+      "codeEvidence": "android_companion/README.md",
+      "verified": false
+    },
+    {
+      "id": 93,
+      "area": "Samsung und Reparaturnachweis",
+      "goal": "Handy-Freigaben/STOPP",
+      "state": "requires-device",
+      "codeEvidence": "android_companion/README.md",
+      "verified": false
+    },
+    {
+      "id": 94,
+      "area": "Samsung und Reparaturnachweis",
+      "goal": "OCR-Teilen auf Gerät",
+      "state": "requires-device",
+      "codeEvidence": "android_companion/README.md",
+      "verified": false
+    },
+    {
+      "id": 95,
+      "area": "Samsung und Reparaturnachweis",
+      "goal": "Mobile Navigation/Scrollen",
+      "state": "requires-device",
+      "codeEvidence": "android_companion/README.md",
+      "verified": false
+    },
+    {
+      "id": 96,
+      "area": "Samsung und Reparaturnachweis",
+      "goal": "Fehler mit GitHub-Issue verbinden",
+      "state": "partial",
+      "codeEvidence": "android_companion/README.md",
+      "verified": false
+    },
+    {
+      "id": 97,
+      "area": "Samsung und Reparaturnachweis",
+      "goal": "Wiederkehrende Probleme",
+      "state": "partial",
+      "codeEvidence": "android_companion/README.md",
+      "verified": false
+    },
+    {
+      "id": 98,
+      "area": "Samsung und Reparaturnachweis",
+      "goal": "Vorher/Nachher-Reparaturprüfung",
+      "state": "partial",
+      "codeEvidence": "android_companion/README.md",
+      "verified": false
+    },
+    {
+      "id": 99,
+      "area": "Samsung und Reparaturnachweis",
+      "goal": "Security-Prüfung und Rollback",
+      "state": "partial",
+      "codeEvidence": "android_companion/README.md",
+      "verified": false
+    },
+    {
+      "id": 100,
+      "area": "Samsung und Reparaturnachweis",
+      "goal": "Reparatur-Ende-zu-Ende",
+      "state": "partial",
+      "codeEvidence": "android_companion/README.md",
+      "verified": false
+    }
+  ]
+}
