@@ -109,6 +109,15 @@ assert.equal(union.items[0].conflictingDirection,true);
 assert.equal(union.items[0].quote.bid,10,'Only visible source may supply a quote');
 assert.equal(union.items[0].fromAudit,true,'Fresh audit identity may add only an observation source');
 assert.equal(a.mergeProductIdentities([],null,{...latest,items:[{isin:'DE000FG14AV9'}]},operationsNow).items.length,0);
+// The initial overview must not declare an empty portfolio when it has not
+// yet read any saved list or the authenticated private product audit.
+const withoutSources=a.mergeProductIdentities([],null,null,operationsNow);
+assert.equal(a.knownProductCount(withoutSources),null);
+assert.equal(a.analyzeInputs({...base,productCount:a.knownProductCount(withoutSources)},now).products.label,'Produktliste nicht geladen');
+assert.equal(a.knownProductCount(a.mergeProductIdentities([],null,report,operationsNow)),1);
+assert.equal(a.knownProductCount(a.mergeProductIdentities([],null,{...report,items:[]},operationsNow)),0);
+assert.equal(a.knownProductCount(a.mergeProductIdentities([],null,
+ {...report,status:'stale'},operationsNow)),null);
 const privateWarning=a.operationalSnapshot(report,none,'',operationsNow,2);
 assert.equal(privateWarning.problemStatus.state,'warning');
 assert.match(privateWarning.problemStatus.text,/Private Produkt-Hilfefälle laut Produktansicht: 2/);
