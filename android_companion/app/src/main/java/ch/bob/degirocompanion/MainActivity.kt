@@ -271,11 +271,10 @@ class MainActivity : Activity() {
                 voiceSteps = plan.steps
                 voiceStepIndex = 0
                 setCommandTextInternally(PhoneTaskProtocol.displayLabel(plan.steps.first()))
-                previewTask(commandInput.text.toString())
                 commandStatus.text = "Erkannter Sprachplan: ${plan.summary()}. " +
                     "Schritt 1 von ${plan.steps.size}: ${plan.steps.first().description}. " +
-                    "Prüfung OK. Innerhalb von 60 Sekunden einmalig AUSFÜHREN; " +
-                    "alle weiteren Schritte brauchen erneut Prüfen und Ausführen. STOPP bricht ab."
+                    "Noch NICHT freigegeben. Bitte PRÜFEN und danach einzeln AUSFÜHREN. " +
+                    "Alle weiteren Schritte ebenfalls neu prüfen. STOPP bricht ab."
             }
             return
         }
@@ -323,7 +322,11 @@ class MainActivity : Activity() {
             }
         } else {
             taskApproval.approve(task, SystemClock.elapsedRealtime())
-            "Prüfung OK: ${task.description}. Innerhalb von 60 Sekunden einmalig ausführen oder STOPP drücken."
+            val context = if (voiceSteps.getOrNull(voiceStepIndex) == task) {
+                " Gesamtplan: ${PhoneTaskPlan(voiceSteps).summary()}. " +
+                    "Schritt ${voiceStepIndex + 1} von ${voiceSteps.size}. "
+            } else ""
+            "Prüfung OK: ${task.description}.$context Innerhalb von 60 Sekunden einmalig ausführen oder STOPP drücken."
         }
     }
 
