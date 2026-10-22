@@ -28,7 +28,7 @@ class CIWatchdogTests(unittest.TestCase):
         self.assertIn('uses: actions/cache@v4', CI)
         self.assertIn('bob-playwright-linux-1.51.1', CI)
         self.assertIn('playwright install chromium firefox', CI)
-        self.assertNotRegex(CI, r'(?m)^\\s*timeout.*playwright install --with-deps')
+        self.assertNotRegex(CI, r'(?m)^\s*timeout.*playwright install --with-deps')
         self.assertNotIn('playwright install-deps', CI)
         self.assertIn('if command -v ffmpeg', CI)
 
