@@ -119,14 +119,14 @@ jobs:
   # A fail-closed status for Render's native checksPass auto-deploy mode.
   release-gate:
     name: Bob release gate
-    if: \${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs: [validate]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - name: Require complete Bob CI
         env:
-          VALIDATE_RESULT: \${{ needs.validate.result }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
         run: |
           if [ "$VALIDATE_RESULT" != "success" ]; then
             echo "Blocking Render release: Bob CI is $VALIDATE_RESULT"
