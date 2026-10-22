@@ -113,6 +113,25 @@ def read_audit_report(payload):
     return report_admission.read(key,load)
 
 
+def read_db_report(key, reader):
+    """Admit a read-only report before it borrows a pooled connection."""
+    def load():
+        with db() as conn:
+            return reader(conn)
+    return report_admission.read(key, load)
+
+
+def read_video_evidence(payload):
+    # The dashboard starts one reader per retained video. Bound those readers
+    # with the other reports before video_evidence borrows from the DB pool.
+    identity = payload.get('videoId') if isinstance(payload, dict) else None
+    key = 'video-evidence:' + hashlib.sha256(
+        json.dumps({'videoId': identity}, sort_keys=True).encode()
+    ).hexdigest()
+    import video_evidence
+    return report_admission.read(key, lambda: video_evidence.handle(db, payload))
+
+
 def webpush(**kwargs):
     # Never hold subscription locks indefinitely on an unreachable push provider.
     kwargs['timeout'] = 8
@@ -725,8 +744,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
                     send_json(self, 401, {"error": "Unauthorized"})
                     return
-                with db() as conn:
-                    result = degiro_product_audit.read(conn)
+                result = read_db_report("product-audit", degiro_product_audit.read)
                 send_json(self, 200, result)
                 return
             if path == "/candidate-proofs":
@@ -735,9 +753,10 @@ class Handler(BaseHTTPRequestHandler):
                     send_json(self, 401, {"error": "Unauthorized"})
                     return
                 import broker_candidate_evidence
-                with db() as conn:
+                def candidate_report(conn):
                     conn.execute("SET TRANSACTION READ ONLY")
-                    result = broker_candidate_evidence.report(conn)
+                    return broker_candidate_evidence.report(conn)
+                result = read_db_report("candidate-proofs", candidate_report)
                 send_json(self, 200, result)
                 return
             if path == "/monitor-status":
@@ -822,10 +841,10 @@ class Handler(BaseHTTPRequestHandler):
                 payload=json_body(self)
                 if not isinstance(payload,dict):
                     raise ValueError("Ungültige E-Mail-Daten")
-                with db() as conn:
-                    if path.endswith("/read"):
-                        result=trade_email_import.report(conn)
-                    else:
+                if path.endswith("/read"):
+                    result=read_db_report("email-import", trade_email_import.report)
+                else:
+                    with db() as conn:
                         message_id=payload.get("messageId")
                         record=payload.get("record")
                         if not isinstance(message_id,str) or not 1<=len(message_id)<=200 or not isinstance(record,dict):
@@ -855,7 +874,7 @@ class Handler(BaseHTTPRequestHandler):
                                 "result":safe,"receivedAt":int(time.time()*1000)}),enrich,json.dumps(old_record))).fetchone()
                         result={"ok":True,"new":bool(inserted)}
                         real_trade_journal.reconcile_sales(conn)
-                    conn.commit()
+                        conn.commit()
                 send_json(self,200,result);return
             if path == '/list-correction':
                 supplied=self.headers.get('X-Bob-Push-Token','')
@@ -863,9 +882,12 @@ class Handler(BaseHTTPRequestHandler):
                     send_json(self,401,{'error':'Unauthorized'});return
                 import list_corrections
                 payload=json_body(self)
-                with db() as conn:
-                    result=list_corrections.handle(conn,payload)
-                    conn.commit()
+                if payload.get('action')=='read':
+                    result=read_db_report("list-correction",lambda conn:list_corrections.handle(conn,payload))
+                else:
+                    with db() as conn:
+                        result=list_corrections.handle(conn,payload)
+                        conn.commit()
                 send_json(self,200,result);return
             if path == '/broker-venue/write':
                 supplied = self.headers.get('X-Bob-Push-Token', '')
@@ -945,8 +967,11 @@ class Handler(BaseHTTPRequestHandler):
                 payload=json_body(self)
                 if not isinstance(payload,dict):raise ValueError('Ungültige Recherche-Anfrage')
                 if path=='/research-video/evidence':
-                    import video_evidence
-                    send_json(self,200,video_evidence.handle(db,payload))
+                    if payload.get('action','read')=='read':
+                        send_json(self,200,read_video_evidence(payload))
+                    else:
+                        import video_evidence
+                        send_json(self,200,video_evidence.handle(db,payload))
                 else:send_json(self,200,research_enhancements.handle(db,payload))
                 return
             if path=='/research-transcript/read':
