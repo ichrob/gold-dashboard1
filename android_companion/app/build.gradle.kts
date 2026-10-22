@@ -9,8 +9,8 @@ android {
         applicationId = "ch.bob.degirocompanion"
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
-        versionName = "0.12-tap-to-speak-safe"
+        versionCode = 15
+        versionName = "0.12.1-samsung-address"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
