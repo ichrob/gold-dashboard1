@@ -1,3 +1,29 @@
+## Ausbau 22.10.2026 – Sprachdialog, Bob-Navigation und begrenzter Kontext (0.8, vor Samsung-Gerätetest)
+
+Die bestehende Android-App unterstützt zusätzlich zu lokalen harmless Aktionen **read-only** Navigation
+zu **Goldmarkt-Übersicht, Goldprodukten, Mein Trade, Simulation, Lernen und Recherche**. Die
+Ziele stammen aus einer fest codierten Allowlist und öffnen ausschließlich die vorhandene
+Bob-Webseite im Browser; Bob selbst verlangt seine normale Anmeldung. Eine Marktanalyse wird
+**nur angezeigt/angesteuert**, nicht vom Android-Begleiter autonom gestartet oder als
+aktuelle Preisprüfung behauptet. Die App bedient weder DEGIRO noch andere Broker-Apps.
+
+Sprachfolgen wie „Zeige meine Goldprodukte und danach die Simulationen“ werden bis zu drei
+erlaubten Schritten verarbeitet. Jeder Schritt muss erneut auf dem Gerät geprüft und einmalig
+freigegeben werden. „Und jetzt die Recherche“ kann als eigenständiger Anschlussbefehl
+verstanden werden. „Nochmal“ wiederholt nur den letzten **tatsächlich angestoßenen**,
+zulässigen Schritt, nur innerhalb von 120 Sekunden und stets nach neuer Prüfung.
+Weder Kontext noch Anmeldedaten, Audio oder Screenshots werden für Sprache persistiert.
+
+Ein zusätzlicher **„🔊 Bobs Rückmeldung vorlesen“**-Button gibt nur lokale
+Auftrags-/Fehlermeldungen über die auf dem Gerät vorhandene Text-zu-Sprache-Engine aus.
+Sprachdienst und Sprachausgabe können je nach Samsung-/Android-Anbieter Onlinedienste nutzen.
+Keine stets aktive Mikrofonüberwachung, keine ungeprüfte KI, kein Remote-Pairing,
+keine Änderung von Handelsregeln und keine Echtgeldorders.
+
+Bis die Android- und Bob-CI sowie der echte Samsung-Test erfolgreich sind, bleibt 0.8 eine
+**Testfassung auf einem Entwicklungszweig**. Der Nutzer muss die APK manuell installieren;
+eventuelle Signaturkonflikte zuerst untersuchen, nicht blind deinstallieren.
+
 ## Erweiterung 22.10.2026: zusammenhängende deutsche Sprachaufträge (Entwicklungsstand)
 
 Die bestehende Offline-Android-App kann jetzt **bis zu drei eindeutig erlaubte, unterschiedliche Schritte**
