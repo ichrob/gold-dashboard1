@@ -35,7 +35,7 @@ const origin='https://bob-workspace.test';
    window.BobSession={expired:()=>false};
    window.BobTradeSync={current:()=>({active:false})};
    window.BobDegiro={
-    tradeTestProducts:()=>[{isin:'DE000FG14AV8',name:'Gold LONG',direction:'LONG',quote:{askAt:new Date().toISOString(),source:'Emittent-Beobachtung'}}],
+    tradeTestProducts:()=>[{isin:'DE000FG14AV8',name:'Gold LONG',direction:'LONG',quote:{isin:'DE000FG14AV8',found:true,productVerified:true,currency:'EUR',metadata:{currency:'EUR',direction:'LONG',status:1},bid:10,ask:10.1,bidAt:new Date().toISOString(),askAt:new Date().toISOString(),source:'Emittent-Beobachtung',leverage:14,leverageAt:new Date().toISOString()}}],
     refreshTradeTestQuotes:async()=>{calls.quotes++}
    };
    window.loadData=async(force)=>{
@@ -78,6 +78,9 @@ const origin='https://bob-workspace.test';
   await page.locator('#bobUnifiedProduct').selectOption('DE000FG14AV8');
   assert((await page.locator('#bobUnifiedProductNote').innerText()).includes('kein bestätigter DEGIRO-Kurs')||
     (await page.locator('#bobUnifiedProductNote').innerText()).includes('Kein bestätigter DEGIRO-Kurs'));
+  assert((await page.locator('#bobUnifiedEvidenceRows').textContent()).includes('Geld 10 / Brief 10.1'));
+  assert((await page.locator('#bobUnifiedEvidenceRows').textContent()).includes('Keine'));
+  assert((await page.locator('#bobUnifiedEvidenceRows').textContent()).includes('DEGIRO-Handelsplatz'));
   await page.locator('#bobUnifiedToDraft').click();
   assert.equal(await page.locator('#dg2-product').inputValue(),'DE000FG14AV8');
   assert.equal(await page.evaluate(()=>window.lastView),'degiro2');
