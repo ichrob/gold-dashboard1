@@ -21,7 +21,7 @@ assert(correction.includes('setTimeout(()=>controller.abort(),8000)'));
 assert(correction.includes('restoreProductRows(applyResearchedTerms(loadIdentities()))'));
 assert(correction.includes('return committed'));
 const archive=extract('function archiveTransaction(mode,action){','function showListArchive(){');
-assert(archive.includes("mode==='readonly'?setTimeout"));
+assert(archive.includes("mode==='readonly'&&typeof setTimeout==='function'?setTimeout"));
 assert(archive.includes(':null;'), 'Writes must not time out ambiguously');
 const restore=extract('async function restoreListArchive(){','const IDENTITY_KEY=');
 assert(restore.includes('productStorageBlocked=true'), 'Unavailable archive must block destructive cache overwrites');
