@@ -414,6 +414,59 @@ class ProductAuditTests(unittest.TestCase):
         q["metadata"]["status"]=9  # SG active bit together with terminal bit
         self.assertIn("terminated",audit.examine(feed()["products"][0],q,NOW)["missing"])
 
+    def test_terminal_issuer_proof_survives_source_outage_in_same_list(self):
+        original=provider()
+        original["metadata"].update(status=2,sgStatus=8)
+        original.update(found=False,marketOpen=False,leverage=None,leverageAt=None,
+                        quoteFailureCode=None)
+        first=audit.build(feed(),{ISIN:original},NOW)
+        self.assertEqual(first["terminated"],1)
+        proof=first["items"][0]["sourceStatusEvidence"]
+        self.assertTrue(proof["issuerVerified"])
+        self.assertEqual(proof["issuerRawStatus"],8)
+        missing=dict(isin=ISIN,productVerified=False,found=False,
+                     quoteFailureCode="SG_SOURCE_UNAVAILABLE")
+        second=audit.build(feed(),{ISIN:missing},NOW+30000,first)
+        item=second["items"][0]
+        self.assertEqual(second["terminated"],1)
+        self.assertEqual(second["incomplete"],0)
+        self.assertEqual(second["needsHelp"],0)
+        self.assertEqual(item["missing"],["terminated"])
+        self.assertEqual(item["state"],"terminated")
+        self.assertTrue(item["sourceStatusEvidence"]["carriedForward"])
+        self.assertFalse(item["sourceStatusEvidence"]["currentIssuerAvailable"])
+        self.assertEqual(item["sourceStatusEvidence"]["issuerRawStatus"],8)
+        self.assertIsNone(item["quoteSourceAt"])
+        self.assertIsNone(item["leverageSourceAt"])
+        self.assertFalse(item["tradeApproved"])
+        self.assertIn("neuer Abruf derzeit nicht verfügbar",item["messages"][0])
+        third=audit.build(feed(),{ISIN:missing},NOW+60000,second)
+        self.assertEqual(third["items"][0]["missing"],["terminated"])
+        # A new day/list generation cannot inherit the old proof.
+        revised=dict(feed(),listUploadedAt="2026-10-14T07:00:00+00:00")
+        new=audit.build(revised,{ISIN:missing},NOW+60000,third)
+        self.assertEqual(new["terminated"],0)
+        self.assertEqual(new["incomplete"],1)
+        # Confirmed active issuer status is never overridden by the old proof.
+        restored=provider(NOW+60000)
+        active=audit.build(feed(),{ISIN:restored},NOW+60000,third)
+        self.assertEqual(active["terminated"],0)
+        self.assertFalse(active["items"][0]["tradeApproved"])
+
+    def test_terminal_carry_requires_original_raw_issuer_terminal_status(self):
+        original=provider()
+        original["metadata"]["status"]=2
+        first=audit.build(feed(),{ISIN:original},NOW)
+        second=audit.build(feed(),{ISIN:{"isin":ISIN,"productVerified":False}},
+                           NOW+30000,first)
+        self.assertEqual(second["terminated"],0)
+        self.assertNotIn("carriedForward",second["items"][0]["sourceStatusEvidence"])
+        first["items"][0]["sourceStatusEvidence"]["issuerRawStatus"]=8
+        first["items"][0]["sourceStatusEvidence"]["issuerVerified"]=False
+        second=audit.build(feed(),{ISIN:{"isin":ISIN,"productVerified":False}},
+                           NOW+30000,first)
+        self.assertEqual(second["terminated"],0)
+
     def test_verified_ended_product_is_not_a_repair_incident(self):
         q = provider()
         q['metadata']['status'] = 9
