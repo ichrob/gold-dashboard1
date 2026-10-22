@@ -40,4 +40,35 @@ assert(!ctx.serverIssuerTerminated({isin},at));
 assert(source.includes("return terminalProductCard(p,'Produkt beendet')"));
 assert(panel.includes("if(ended){\n    summary.textContent=(item.isin||'ISIN unbekannt')+' · Produkt beendet';"));
 assert(panel.includes('node.append(summary);out.append(node);continue;'));
+
+// Same-list, current server analysis can correct stale handset presentation;
+// it must never become broker execution or override a stale/source-conflicted row.
+const h0=source.indexOf('function serverAnalysisEvidence(');
+const h1=source.indexOf('// Only evidence failures belong beside the ISIN',h0);
+assert(h0>0&&h1>h0);
+const qAt=new Date(at-10000).toISOString();
+const proof={isin,direction:'LONG',state:'analysis-evidence-complete',missing:[],tradeApproved:false,
+ nativeCurrency:'EUR',quoteSourceAt:qAt,source:'comdirect',
+ sourceStatusEvidence:{issuerStatus:1},
+ leverageObservation:{current:true,kind:'calculated-gearing',value:27.1,at:qAt},
+ sourceObservations:[{isinBound:true,current:true,degiroExecutable:false,
+  bid:12.8,ask:12.81,currency:'EUR',source:'comdirect · SG LiveTrading',bidAt:qAt,askAt:qAt}]};
+const displayContext={Date:Clock,window:{BobProductAuditReport:{
+ status:'ok',listUploadedAt:stamp,lastCheckedAt:new Date(at-2000).toISOString(),items:[proof]}},
+ listArchive:{storedAt:stamp},n:x=>Number.isFinite(Number(x))?Number(x):null,
+ esc:x=>String(x).replaceAll('<','&lt;')};
+vm.runInNewContext(source.slice(h0,h1),displayContext);
+assert(displayContext.serverAnalysisEvidence({isin,productDirection:'LONG'},at));
+const html=displayContext.renderServerAnalysisEvidence({isin,productDirection:'LONG'});
+assert(html.includes('12,8')||html.includes('12.8'));
+assert(html.includes('keine DEGIRO-Ausführungszusage'));
+assert(!html.includes('data-selection-approved'));
+assert(!displayContext.serverAnalysisEvidence({isin,productDirection:'SHORT'},at));
+assert(!displayContext.serverAnalysisEvidence({isin,productDirection:'LONG'},at+100000));
+displayContext.window.BobProductAuditReport.items=[{...proof,missing:['quote']}];
+assert(!displayContext.serverAnalysisEvidence({isin,productDirection:'LONG'},at));
+displayContext.window.BobProductAuditReport.items=[{...proof,sourceStatusEvidence:{issuerStatus:2}}];
+assert(!displayContext.serverAnalysisEvidence({isin,productDirection:'LONG'},at));
+assert(source.includes("if(server)return {kind:'qualified',serverEvidence:server,state};"));
+
 console.log('Compact gold KO/end cards, historic and conflicting server evidence, original ISIN copy and no legacy X passed');
