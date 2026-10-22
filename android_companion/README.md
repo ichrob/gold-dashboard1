@@ -1,3 +1,11 @@
+## Ergänzung 22.10.2026: Gesprochene, ausdrücklich bestätigte Handy-Aufträge
+
+Die bereits vorhandene Android-Labor-App (kein Zweitprojekt) erhält einen Button **„🎤 Auftrag sprechen“**. Dieser öffnet nach ausdrücklichem Tippen Androids System-Spracherkennung per `RecognizerIntent.ACTION_RECOGNIZE_SPEECH`. **Keine dauerhafte Mikrofonüberwachung**, keine App-eigene Aufnahme und keine neue Mikrofon-, Internet- oder Accessibility-Berechtigung. Die bevorzugte Offline-Erkennung ist nur eine Bitte an den auf dem Samsung installierten Sprachdienst: **Der Android-/Drittanbieter-Sprachanbieter kann Audio dennoch online verarbeiten**. Das wird in der App angezeigt; ohne installierten Dienst bleibt die bisherige Text-/Button-Bedienung möglich.
+
+Nur eindeutige, vollständig erkannte deutsche Sätze werden interpretiert, zum Beispiel **„Bob öffnen“**, **„Produktbilder auswählen“** und **„Öffne die Einstellungen“**. Sätze mit Handel, Login, DEGIRO-Bedienung, Zusatzaufträgen oder unklarer Absicht werden abgelehnt. Nach erfolgreicher Erkennung zeigt Bob den konkret erlaubten Auftrag im Klartext als Vorschau. Erst **„Geprüften Handy-Auftrag einmalig ausführen“** startet eine einzige Aktion. Die Freigabe verfällt danach; bei Abbruch/Fehler keine Aktion. Spracheingabe innerhalb der ChatGPT-Unterhaltung wird **nicht** heimlich an die Android-App weitergeleitet. Einen Auftrag mit „Goldprodukte anzeigen“ kann diese Version noch nicht bis in die Web-App hinein navigieren.
+
+Die neue Funktion ist erst nach Installation der **neu gebauten APK** auf dem Samsung verfügbar; GitHub CI kann Kotlin-Parser und Build prüfen, aber nicht die Verfügbarkeit des Spracherkennungsdienstes oder die Bedienung auf dem echten Gerät. Gerätetest: auf **„🎤 Auftrag sprechen“** tippen, „Bob öffnen“ sagen, Vorschau lesen, einzeln bestätigen und Browserstart prüfen; danach ein nicht unterstütztes Handelskommando sprechen und die Ablehnung kontrollieren.
+
 # Bob Android-Begleitlabor (nicht produktiv)
 
 ## Korrektur: BOB_OEFFNEN war nur ein Platzhalter (Samsung-Test 22.10.2026)
