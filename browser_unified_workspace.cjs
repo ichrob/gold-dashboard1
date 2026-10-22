@@ -1,0 +1,78 @@
+'use strict';
+/* Mobile synthetic regression: no live account, provider or brokerage calls. */
+const assert=require('node:assert/strict'),fs=require('node:fs');
+const {chromium}=require('playwright');
+const api=require('./bob_unified_workspace.js');
+const origin='https://bob-workspace.test';
+(async()=>{
+ const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+ try{
+  const page=await browser.newPage({viewport:{width:360,height:780}});
+  const errors=[],requests=[];
+  page.on('pageerror',e=>errors.push(e.message));
+  page.on('request',r=>{if(r.url()!==origin+'/')requests.push(r.url());});
+  await page.route(origin+'/**',route=>route.fulfill({
+   contentType:'text/html; charset=utf-8',
+   body:'<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>*{box-sizing:border-box}body{margin:0;padding:6px}section.card{padding:8px}button{max-width:100%;white-space:normal}</style></head><body>'+
+     '<section id="bob-view-overview"><h2>Übersicht</h2></section>'+
+     '<section id="bob-view-degiro2"></section>'+
+     '<select id="dg2-product"><option value="">Manuell</option><option value="DE000FG14AV8">Goldtest</option></select>'+
+     '<div id="quickSignal">ABWARTEN</div><div id="quickReason">noch nicht aktuell</div>'+
+     '</body></html>'
+  }));
+  await page.goto(origin+'/');
+  await page.evaluate(()=>{
+   window.calls={load:0,quotes:0,handOff:0};
+   window.BobSession={expired:()=>false};
+   window.BobTradeSync={current:()=>({active:false})};
+   window.BobDegiro={
+    tradeTestProducts:()=>[{isin:'DE000FG14AV8',name:'Gold LONG',direction:'LONG',quote:{askAt:new Date().toISOString(),source:'Emittent-Beobachtung'}}],
+    refreshTradeTestQuotes:async()=>{calls.quotes++}
+   };
+   window.loadData=async(force)=>{
+    if(force!==true)throw Error('Must use standard explicit refresh');
+    calls.load++;
+    window.liveBundleCache={spots:{spot_price_as_of:new Date().toISOString(),is_genuine_xauusd_spot:true}};
+    window.A={ready:true};
+    document.getElementById('quickSignal').textContent='LONG';
+    document.getElementById('quickReason').textContent='Signal bestätigt';
+   };
+   document.getElementById('dg2-product').addEventListener('change',()=>{calls.handOff++});
+   document.addEventListener('click',e=>{const button=e.target.closest?.('[data-view]');if(button)window.lastView=button.dataset.view;});
+  });
+  await page.addScriptTag({content:fs.readFileSync('bob_unified_workspace.js','utf8')});
+  assert(await page.locator('#bobUnifiedWorkspace').isVisible());
+  await page.locator('#bobPrepareReadOnly').click();
+  await page.locator('#bobPrepareStatus').filter({hasText:'Marktdaten geprüft.'}).waitFor();
+  const values=await page.evaluate(()=>window.calls);
+  assert.deepEqual(values,{load:1,quotes:1,handOff:0});
+  await page.locator('#bobUnifiedProduct').selectOption('DE000FG14AV8');
+  assert((await page.locator('#bobUnifiedProductNote').innerText()).includes('kein bestätigter DEGIRO-Kurs')||
+    (await page.locator('#bobUnifiedProductNote').innerText()).includes('Kein bestätigter DEGIRO-Kurs'));
+  await page.locator('#bobUnifiedToDraft').click();
+  assert.equal(await page.locator('#dg2-product').inputValue(),'DE000FG14AV8');
+  assert.equal(await page.evaluate(()=>window.lastView),'degiro2');
+  assert.equal(await page.evaluate(()=>window.calls.handOff),1);
+  const widest=await page.locator('#bobUnifiedWorkspace').evaluate(el=>el.scrollWidth);
+  assert(widest<=360,'Workspace must fit 360px mobile viewport; got '+widest);
+
+  const today=api.zurichDay(),backup=api.serializeDraftBackup({
+   day:today,currency:'EUR',budget:10000,
+   orders:[{isin:'DE000FG14AV8',side:'Kauf',qty:2,price:1100,fees:100,cost:2300,stop:900,target:1400}]
+  });
+  await page.evaluate(()=>{window.restoreCount=0;window.addEventListener('bob-order-drafts-restored',()=>restoreCount++)});
+  await page.locator('#bobRestoreOrdersFile').setInputFiles({
+   name:'bob-tagesentwuerfe.json',mimeType:'application/json',buffer:Buffer.from(backup)
+  });
+  assert((await page.locator('#bobBackupStatus').innerText()).includes('wiederhergestellt'));
+  assert.equal(await page.evaluate(()=>restoreCount),1);
+  assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('bob.degiro2.plan.v1')).orders.length),1);
+  await page.locator('#bobRestoreOrdersFile').setInputFiles({
+   name:'again.json',mimeType:'application/json',buffer:Buffer.from(backup)
+  });
+  assert((await page.locator('#bobBackupStatus').innerText()).includes('nicht erfolgt'));
+  assert.deepEqual(requests,[],'No external/broker network requests from workspace');
+  assert.deepEqual(errors,[],'No client-side JavaScript errors');
+  console.log('Bob unified mobile: 360px layout, one-click existing fetch, product handoff and safe backup recovery passed');
+ }finally{await browser.close();}
+})().catch(e=>{console.error(e);process.exit(1)});
