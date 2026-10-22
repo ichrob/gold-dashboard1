@@ -9,8 +9,8 @@ android {
         applicationId = "ch.bob.degirocompanion"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.10-diagnose"
+        versionCode = 11
+        versionName = "0.10.1-login-navigation"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
