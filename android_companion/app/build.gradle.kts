@@ -9,8 +9,8 @@ android {
         applicationId = "ch.bob.degirocompanion"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.9-easy-voice"
+        versionCode = 10
+        versionName = "0.10-diagnose"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
