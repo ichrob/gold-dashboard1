@@ -25,6 +25,28 @@ assert.deepEqual(parsed,{
  verified:false,tradeApproved:false,sourceTime:null
 });
 assert.equal(readDraft([HEADER,'ISIN: DE000FG14AV8','Kein automatischer Handelsnachweis'].join('\n')).fields.bid,undefined);
+const screenshotPair = [
+ HEADER,
+ 'ISIN: DE000PJ9NB98',
+ 'Handelsplatz (OCR ungeprüft): BNP OTC',
+ 'Zuletzt (OCR ungeprüft): 11,31',
+ 'Bildzeit/Originalquelle wurden nicht verifiziert. Kein automatischer Handelsnachweis, keine Freigabe, keine Order.'
+].join('\n');
+const combined=readDraft(screenshotPair);
+assert.equal(combined.isin,'DE000PJ9NB98');
+assert.equal(combined.fields.venue,'BNP OTC');
+assert.equal(combined.fields.last,'11,31');
+assert.equal(combined.fields.bid,undefined);
+assert.equal(combined.tradeApproved,false);
+assert.equal(combined.sourceTime,null);
+assert.throws(()=>readDraft(screenshotPair+'\nZuletzt (OCR ungeprüft): 9,72'));
+const manifest=fs.readFileSync('./android_companion/app/src/main/AndroidManifest.xml','utf8');
+const kotlin=fs.readFileSync('./android_companion/app/src/main/java/ch/bob/degirocompanion/MainActivity.kt','utf8');
+assert.match(manifest,/android.intent.action.SEND_MULTIPLE/);
+assert.match(kotlin,/Intent.ACTION_SEND_MULTIPLE/);
+assert.match(kotlin,/identities\.any \{ it\.size != 1 \}/);
+assert.match(kotlin,/uris\.size > 4/);
+assert.match(kotlin,/Bilder enthalten keine eindeutig gleiche ISIN/);
 
 for(const input of [
  safe().replace('DE000FG14AV8','DE000FG14AV9'),
