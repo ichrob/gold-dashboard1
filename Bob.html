@@ -2099,7 +2099,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 
 
   nav.innerHTML=[['overview','◫','Übersicht'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['problems','⚠','Probleme'],['more','☰','Mehr']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+(key==='problems'?'<strong class="bob-problem-count" data-problem-count hidden aria-hidden="true"></strong>':'')+'</button>').join('');document.body.append(nav);
-  function show(key,focus=true){if(key==='products-long')key='products';if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&['improve','auto','future','research','learning','diagrams','degiro','degiro2','simulation','settings','help'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
+  function show(key,focus=true){if(['products-long','products-leverage'].includes(key))key='products';if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&['improve','auto','future','research','learning','diagrams','degiro','degiro2','simulation','settings','help'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
   document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b){show(b.dataset.view);history.replaceState(null,'','#'+b.dataset.view);}});
   // The Android voice command explicitly requests the Gold-Hebelprodukte list.
   // An ordinary manual tap on the Produkte tab still opens the overview normally.
@@ -2126,6 +2126,59 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
      'Zurzeit erfüllt kein LONG-Produkt die vorhandenen Auswahlkriterien, oder die Produktdaten fehlen.';
    return {direction,rows,status};
   }
+  function leverageComparisonFromCurrentUi(out){
+   const section=out?.querySelector('[data-indicative-recommendations]');
+   const direction=section?.querySelector(':scope > b > span')?.textContent?.trim()||'UNBEKANNT';
+   const risk=section?.querySelector('[data-risk-leverage]');
+   const note=(risk?.textContent||'').replace(/\s+/g,' ').trim().slice(0,700);
+   return direction!=='LONG'&&direction!=='SHORT'?
+    'Bobs aktuelle Produktauswahl hat keine bestätigte LONG- oder SHORT-Richtung. Kein bester Hebel belegt.':
+    note?'Bobs vorhandene '+direction+'-Rangfolge: '+note+
+     ' Hohe Hebel können Gewinne UND Verluste verstärken. Dies ist keine Handelsfreigabe.':
+    'Aktuell gibt es keinen belegten höchsten Hebel in der bestehenden rechnerischen Rangfolge. Bitte Produktdaten und Zeitstempel prüfen.';
+  }
+  function mountReadOnlyVoiceButton(note){
+   if(note.querySelector('[data-voice-read-aloud]'))return;
+   const button=document.createElement('button');button.type='button';
+   button.setAttribute('data-voice-read-aloud','');
+   button.textContent='🔊 Ergebnis vorlesen';
+   button.addEventListener('click',()=>{
+    const engine=window.speechSynthesis;
+    const Utterance=window.SpeechSynthesisUtterance;
+    const fields=[...note.querySelectorAll('[data-voice-review-status], [data-voice-review-items] li')];
+    const words=fields.map(el=>el.textContent||'').join('. ').slice(0,2400);
+    if(!engine||!Utterance){button.textContent='Sprachausgabe im Browser nicht verfügbar';return;}
+    if(!words.trim())return;
+    engine.cancel();
+    const speech=new Utterance(words);speech.lang='de-DE';speech.rate=0.95;
+    engine.speak(speech);
+   });
+   note.append(button);
+  }
+  function renderRequestedLeverageComparison(){
+   if(new URLSearchParams(location.search).get('view')!=='products-leverage')return;
+   let note=byId('bobVoiceLeverageReview');
+   if(!note){
+    note=document.createElement('section');note.id='bobVoiceLeverageReview';
+    note.className='card';note.style.cssText='margin:12px 0;padding:14px;scroll-margin-top:16px';
+    const heading=document.createElement('h3');heading.textContent='Sprachfrage: Welches Produkt hat den höchsten Hebel?';
+    const status=document.createElement('p');status.setAttribute('data-voice-review-status','');status.setAttribute('role','status');
+    note.append(heading,status);
+    mountReadOnlyVoiceButton(note);
+    const dest=byId('dgTop3');
+    (dest&&panels.products.contains(dest)?dest:panels.products).prepend(note);
+   }
+   const out=byId('dgTop3Out');
+   const status=note.querySelector('[data-voice-review-status]');
+   const message=leverageComparisonFromCurrentUi(out);
+   if(status.textContent!==message)status.textContent=message;
+   if(out&&!note.dataset.watching){
+    note.dataset.watching='1';
+    new MutationObserver(()=>renderRequestedLeverageComparison())
+     .observe(out,{childList:true,characterData:true,subtree:true});
+   }
+   return note;
+  }
   function renderRequestedLongComparison(){
    if(new URLSearchParams(location.search).get('view')!=='products-long')return;
    const out=byId('dgTop3Out');
@@ -2142,6 +2195,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     const caution=document.createElement('p');caution.className='small';
     caution.textContent='Nur bereits angezeigte Modellwerte – keine aktuellen DEGIRO-Ausführungskurse, keine Kaufempfehlung oder Handelsfreigabe. Prüfe Zeitstempel, Originalkurse, KO-Abstand und Produktstatus.';
     note.append(heading,status,list,caution);
+    mountReadOnlyVoiceButton(note);
     const destination=byId('dgTop3');
     (destination&&panels.products.contains(destination)?destination:panels.products).prepend(note);
    }
@@ -2166,12 +2220,13 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   }
   function openRequestedGoldProducts(){
    const requested=new URLSearchParams(location.search).get('view');
-   if(goldDeepLinkRevealed||!['products','products-long'].includes(requested)||
+   if(goldDeepLinkRevealed||!['products','products-long','products-leverage'].includes(requested)||
       location.hash!=='#'+requested||panels.products.hidden)return false;
    const summary=revealGoldLeveragedProducts(panels.products);
    if(!summary)return false;
    goldDeepLinkRevealed=true;
-   const target=requested==='products-long'?renderRequestedLongComparison():summary;
+   const target=requested==='products-long'?renderRequestedLongComparison():
+    requested==='products-leverage'?renderRequestedLeverageComparison():summary;
    requestAnimationFrame(()=>(target||summary).scrollIntoView({behavior:'auto',block:'start'}));
    return true;
   }
