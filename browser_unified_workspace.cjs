@@ -79,8 +79,12 @@ const origin='https://bob-workspace.test';
   assert((await page.locator('#bobUnifiedProductNote').innerText()).includes('kein bestätigter DEGIRO-Kurs')||
     (await page.locator('#bobUnifiedProductNote').innerText()).includes('Kein bestätigter DEGIRO-Kurs'));
   assert((await page.locator('#bobUnifiedEvidenceRows').textContent()).includes('Geld 10 / Brief 10.1'));
-  assert((await page.locator('#bobUnifiedEvidenceRows').textContent()).includes('Keine'));
+  assert((await page.locator('#bobUnifiedEvidenceRows').textContent()).includes('KO-Originalnachweis fehlt'));
+  assert((await page.locator('#bobUnifiedEvidenceRows').textContent()).includes('keine DEGIRO-Orderquotierung'));
   assert((await page.locator('#bobUnifiedEvidenceRows').textContent()).includes('DEGIRO-Handelsplatz'));
+  await page.locator('#bobUnifiedProduct').selectOption('');
+  assert((await page.locator('#bobUnifiedEvidenceRows').textContent()).includes('Geld/Brief und Originalzeiten fehlen'));
+  await page.locator('#bobUnifiedProduct').selectOption('DE000FG14AV8');
   await page.locator('#bobUnifiedToDraft').click();
   assert.equal(await page.locator('#dg2-product').inputValue(),'DE000FG14AV8');
   assert.equal(await page.evaluate(()=>window.lastView),'degiro2');
