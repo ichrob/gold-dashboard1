@@ -1,4 +1,43 @@
+## Zweite sichere Ausbaustufe: schnelle Auswahl und Not-Stopp (22.10.2026)
+
+Auftragseingabe in derselben Android-App jetzt auch über Klartext-Schaltflächen: **Bob öffnen**, **Produktbilder auswählen**, **Android-Einstellungen öffnen**. Jede Schaltfläche wählt **nur** die gewünschte Aktion aus; erst eine eigene **Prüfung** und anschließend die **einmalige Ausführung** starten etwas. Text-/Sprachänderungen verwerfen die Freigabe. Die Freigabe ist maximal **60 Sekunden** gültig, einmalig verwendbar und verfällt bei App-Wechsel, fehlgeschlagener Ausführung oder dem klar sichtbaren **STOPP – Auftrag verwerfen**. Unit-Tests decken Wiederholung, anderes Ziel, Ablauf, Zeitrücksprung und Widerruf ab.
+
+Wichtig: Der Stoppknopf widerruft einen **noch nicht ausgeführten** Auftrag. Er kann eine bereits geöffnete fremde App oder eine bereits ausgelöste Android-Systemaktion nicht rückgängig machen. Es gibt weiterhin **keinen Bedienungshilfendienst**, keine Hintergrund-Auftragsschleife, keine DEGIRO-Bedienung und keine automatische Anmeldung.
+
+## Ergänzung 22.10.2026: Gesprochene, ausdrücklich bestätigte Handy-Aufträge
+
+Die bereits vorhandene Android-Labor-App (kein Zweitprojekt) erhält einen Button **„🎤 Auftrag sprechen“**. Dieser öffnet nach ausdrücklichem Tippen Androids System-Spracherkennung per `RecognizerIntent.ACTION_RECOGNIZE_SPEECH`. **Keine dauerhafte Mikrofonüberwachung**, keine App-eigene Aufnahme und keine neue Mikrofon-, Internet- oder Accessibility-Berechtigung. Die bevorzugte Offline-Erkennung ist nur eine Bitte an den auf dem Samsung installierten Sprachdienst: **Der Android-/Drittanbieter-Sprachanbieter kann Audio dennoch online verarbeiten**. Das wird in der App angezeigt; ohne installierten Dienst bleibt die bisherige Text-/Button-Bedienung möglich.
+
+Nur eindeutige, vollständig erkannte deutsche Sätze werden interpretiert, zum Beispiel **„Bob öffnen“**, **„Produktbilder auswählen“** und **„Öffne die Einstellungen“**. Sätze mit Handel, Login, DEGIRO-Bedienung, Zusatzaufträgen oder unklarer Absicht werden abgelehnt. Nach erfolgreicher Erkennung zeigt Bob den konkret erlaubten Auftrag im Klartext als Vorschau. Erst **„Geprüften Handy-Auftrag einmalig ausführen“** startet eine einzige Aktion. Die Freigabe verfällt danach; bei Abbruch/Fehler keine Aktion. Spracheingabe innerhalb der ChatGPT-Unterhaltung wird **nicht** heimlich an die Android-App weitergeleitet. Einen Auftrag mit „Goldprodukte anzeigen“ kann diese Version noch nicht bis in die Web-App hinein navigieren.
+
+Die neue Funktion ist erst nach Installation der **neu gebauten APK** auf dem Samsung verfügbar; GitHub CI kann Kotlin-Parser und Build prüfen, aber nicht die Verfügbarkeit des Spracherkennungsdienstes oder die Bedienung auf dem echten Gerät. Gerätetest: auf **„🎤 Auftrag sprechen“** tippen, „Bob öffnen“ sagen, Vorschau lesen, einzeln bestätigen und Browserstart prüfen; danach ein nicht unterstütztes Handelskommando sprechen und die Ablehnung kontrollieren.
+
 # Bob Android-Begleitlabor (nicht produktiv)
+
+## Korrektur: BOB_OEFFNEN war nur ein Platzhalter (Samsung-Test 22.10.2026)
+
+Ein realer Gerätetest zeigte beim Tippen auf „Handy-Auftrag prüfen“ den Fehler „Nicht erlaubter Auftrag“, obwohl der Beispielbefehl grau zu sehen war: `EditText.hint` zeigt nur einen Platzhalter, `text` blieb leer.
+
+**Neue Bedienung:** Beim Öffnen steht **„Bob öffnen“** als tatsächlich vorausgefüllter, normal lesbarer Feldinhalt (nicht grau als Platzhalter). Es ist kein Kopieren oder Eingeben erforderlich: erst **Handy-Auftrag prüfen**, dann **Geprüften Handy-Auftrag einmalig ausführen**. Danach steht „Bob öffnen“ erneut zur Auswahl bereit, die Bestätigung ist jedoch verbraucht und muss für jede weitere Aktion wieder mit „Prüfen“ eingeholt werden. Für andere erlaubte Aufträge bleibt die Texteingabe bzw. Android-Teilen erhalten; die Zulassung von externen Kommandos bleibt auf die strenge Befehlsliste beschränkt.
+
+Zusätzlicher Android-UI-Test kontrolliert den vorausgewählten Klartext „Bob öffnen“, Prüfvorschau und dass die Vorschau **keinen** Browserstart auslöst. Die CI kompiliert diesen UI-Test, führt ihn aber nicht automatisch auf einem Samsung aus. Eine Aktualisierung der APK ist für die Korrektur erforderlich; die bereits installierte 0.5 lässt sich bis dahin nutzen, indem der Befehl **wirklich eingegeben oder eingefügt** wird.
+
+## Ergänzung 22.10.2026: ChatGPT/Bob-Handy-Aufträge – ohne Doppelentwicklung
+
+Diese Teilstufe **erweitert die vorhandene** App `android_companion`; sie startet **keine zweite App** und überschreibt **nicht** die separat laufende Vereinfachung von Bob in PR #728.
+
+**Bereits funktionsfähig im Quellcode:** Ein Nutzer kann in ChatGPT/Bob einen der folgenden exakt geschriebenen Einzeiler kopieren und in der Android-Begleit-App einfügen, oder den Einzeiler ausdrücklich über Android **Teilen → Bob: Android-Labor** senden:
+
+- `BOB-AUFTRAG: BOB_OEFFNEN` – öffnet die bestehende Bob-Web-App im Browser.
+- `BOB-AUFTRAG: PRODUKTBILDER_WAEHLEN` – öffnet den bereits vorhandenen Android-Bildwähler der lokalen OCR.
+- `BOB-AUFTRAG: ANDROID_EINSTELLUNGEN_OEFFNEN` – öffnet nur die Einstellungen, ändert dort aber nichts.
+
+Die App zeigt zunächst **eine Vorschau mit Klartext**. Erst nach einer separaten Berührung auf „Geprüften Handy-Auftrag einmalig ausführen“ wird genau **eine** der drei Aktionen ausgelöst. Änderungen an der Eingabe, beliebige Sätze, längere Skripte, zusätzliche Befehle, Käufe, Verkäufe und Login-Automationen werden abgewiesen. Nach Ausführung wird die Freigabe verbraucht; keine wiederholte oder verdeckte Abarbeitung. Falls Android die Ziel-App nicht öffnen kann, erscheint eine Fehlermeldung.
+
+Das ist eine **lokale, nutzerbestätigte Auftragsübergabe**, **noch keine ChatGPT-Fernsteuerung**: Es existiert weder ein dauerhaft gekoppelter ChatGPT-Befehlskanal zum Smartphone noch ein Android-Accessibility-Service zur Bedienung von Drittanbieter-Apps. Das Labor erhält weiterhin keine Netzwerk-, Overlay-, Bildschirmaufnahme- oder Accessibility-Berechtigungen. Besonders DEGIRO wird **nicht automatisiert bedient**, und keine Echtgeldorder wird vorbereitet/ausgeführt. Bobs bestehende Broker-/OCR-/Handelsfreigaben bleiben unverändert.
+
+**Prüfung:** `gradle -p android_companion :app:testDebugUnitTest :app:assembleDebug` sowie GitHub Actions `android-companion.yml`. Zusätzlich auf dem Samsung die **neue APK** installieren, einmal eine gültige und einmal eine unerlaubte Textfreigabe probieren und prüfen, ob das Gerät wirklich die vorgesehenen Apps öffnet. Ein erfolgreicher APK-Build ist kein Gerätetest.
+
 
 ## Nachbesserung 22.10.2026: „BNP OTC“ bei erfolgreicher Kurslesung
 
