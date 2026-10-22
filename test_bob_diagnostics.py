@@ -236,6 +236,16 @@ class ExpandedReportTests(unittest.TestCase):
         self.assertNotIn('simulationAndPush',result['omittedAreas'])
         self.assertLess(len(json.dumps(result).encode()),2400)
 
+    def test_missing_process_local_analysis_is_not_conflated_with_live_outage(self):
+        with patch.object(diagnostics, '_analyses', {}):
+            local = diagnostics.analysis_snapshot()
+        self.assertEqual(local['status'], 'unavailable')
+        self.assertEqual(local['availabilityReason'], 'no-evaluation-observed-in-this-process')
+        report = diagnostics.summary({'analysis': local})
+        self.assertEqual(report['assessment'], 'needs-attention')
+        self.assertEqual(report['attention'][0]['meaning'],
+                         'no-local-evaluator-capture-not-a-confirmed-global-outage')
+
     def test_worker_analysis_fills_only_missing_local_observation(self):
         worker = {'status':'observed','timeframes':{'15m':{'capturedAt':123}}}
         result = diagnostics.collect({'analysis':lambda:{'status':'unavailable'},
