@@ -161,7 +161,7 @@ function calculateProposal(p,input,market={},state=null,now=Date.now()){
   tradeable:false,automaticOrder:false};
 }
 
-const api={day,cents,isin,reserve,summary,maxQuantity,snapPositions,calculateProposal};if(typeof module==='object'&&module.exports)module.exports=api;
+const api={day,cents,isin,reserve,summary,maxQuantity,snapPositions,calculateProposal};root.BobDegiroHandoff=api;if(typeof module==='object'&&module.exports)module.exports=api;
 if(!root.document)return;
 function mount(){
  const host=document.getElementById('bob-view-degiro2');if(!host)return;
