@@ -32,21 +32,25 @@ assert(overview.includes('Faktor Goldprodukt nicht verwendet'));
 assert(overview.includes('Produkt beendet'));
 assert(!b.evaluateProduct(factor).ok);
 const stamp='2026-10-22T06:58:34.572Z',now=Date.parse('2026-10-22T19:40:00Z');
-vm.runInContext('listArchive={storedAt:'+JSON.stringify(stamp)+'}',context);
+// This pure helper is intentionally tested with an explicit list generation:
+ // the full app keeps its mutable listArchive in an isolated closure.
+const evidence={Date,window:{},listArchive:{storedAt:stamp}};
+vm.runInNewContext(src.slice(src.indexOf('function goldProductSyncState('),
+ src.indexOf('function goldProductCompactView(')),evidence);
 const row={isin,direction:'LONG',state:'analysis-evidence-complete',missing:[],tradeApproved:false};
-context.window.BobProductAuditReport={status:'ok',lastCheckedAt:new Date(now-1000).toISOString(),
+evidence.window.BobProductAuditReport={status:'ok',lastCheckedAt:new Date(now-1000).toISOString(),
  listUploadedAt:stamp,items:[row]};
-assert.equal(b.goldProductSyncState(p,now).state,'matched');
-assert(b.goldProductRepairStatus(p,now).includes('Keine offenen'));
+assert.equal(evidence.goldProductSyncState(p,now).state,'matched');
+assert(evidence.goldProductRepairStatus(p,now).includes('Keine offenen'));
 context.window.BobProductAuditReport.listUploadedAt='different-generation';
-assert.equal(b.goldProductSyncState(p,now).state,'different-list');
+assert.equal(evidence.goldProductSyncState(p,now).state,'different-list');
 context.window.BobProductAuditReport.listUploadedAt=stamp;
-assert.equal(b.goldProductSyncState(p,now+181000).state,'unconfirmed');
+assert.equal(evidence.goldProductSyncState(p,now+181000).state,'unconfirmed');
 context.window.BobProductAuditReport.items=[{...row,state:'incomplete',missing:['quote'],
  sourceRecovery:[{state:'waiting',retryAfterSeconds:60}]}];
-assert.equal(b.goldProductSyncState(p,now).state,'missing');
-assert(b.goldProductRepairStatus(p,now).includes('60 s'));
-assert(!b.goldProductRepairStatus(p,now).includes('repariert'));
+assert.equal(evidence.goldProductSyncState(p,now).state,'missing');
+assert(evidence.goldProductRepairStatus(p,now).includes('60 s'));
+assert(!evidence.goldProductRepairStatus(p,now).includes('repariert'));
 (async()=>{
  let clock=0,calls=[],rows=[{id:1,isin,key:'product',suppressed:true},
  {id:2,isin:'DE000FG4JXV7',key:'active'}];
