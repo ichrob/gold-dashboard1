@@ -19,3 +19,31 @@ console.log('DEGIRO 2: budget, rollover, validation and manual handoff checks pa
 assert.equal(a.maxQuantity(s,input,'2026-10-17'),0);
 assert.equal(a.maxQuantity(null,input,'2026-10-17'),4);
 assert.equal(a.maxQuantity(s,input,'2026-10-18'),4);
+
+const risk=a.reserve(null,{...input,stop:'19',target:'25'},'2026-10-22').orders[0];
+assert.equal(risk.stop,1900);assert.equal(risk.target,2500);
+assert.match(a.summary(risk,'EUR'),/Rechnerischer Verlust bis Stopp/);
+assert.throws(()=>a.reserve(null,{...input,stop:'22'},'2026-10-22'),/Stopp/);
+assert.throws(()=>a.reserve(null,{...input,target:'20'},'2026-10-22'),/Ziel/);
+assert.throws(()=>a.reserve(null,{...input,side:'Verkauf',stop:'19'},'2026-10-22'),/Verkaufsentwurf/);
+const sale=a.reserve(null,{...input,side:'Verkauf'},'2026-10-22').orders[0];
+assert.match(a.summary(sale,'EUR'),/Geschätzter Nettoerlös nach Gebühren: 40,00 EUR/);
+assert.throws(()=>a.reserve(null,{...input,side:'Verkauf',price:'0,01',fees:'1'},'2026-10-22'),/Verkaufsgebühren/);
+
+const now=Date.parse('2026-10-22T07:00:00Z');
+const position={isin:'DE000FG14AV8',providerIsin:'DE000FG14AV8',currency:'CHF',units:'9',name:'Gold LONG',cashEquivalent:false};
+const account={positions:[position],freshnessMode:'realtime',positionsSourceAt:'2026-10-22T06:55:00Z'};
+const broker={code:'READ_OK',readOnly:true,fresh:true,snapshot:{accounts:[account]}};
+let candidates=a.snapPositions(broker,now);
+assert.equal(candidates.length,1);assert.equal(candidates[0].quantity,9);
+assert.equal(candidates[0].current,true);assert.equal(candidates[0].currency,'CHF');
+assert.equal(a.snapPositions({...broker,readOnly:false},now).length,0);
+assert.equal(a.snapPositions({...broker,code:'PROVIDER_UNAVAILABLE'},now).length,0);
+assert.equal(a.snapPositions({...broker,fresh:false},now)[0].current,false);
+assert.equal(a.snapPositions({...broker,snapshot:{accounts:[{...account,positionsSourceAt:'2026-10-21T06:55:00Z'}]}},now)[0].current,false);
+assert.equal(a.snapPositions({...broker,snapshot:{accounts:[{...account,freshnessMode:'delayed-or-unknown'}]}},now)[0].current,false);
+assert.equal(a.snapPositions({...broker,snapshot:{accounts:[{...account,positions:[{...position,providerIsin:null}]}]}},now)[0].current,false);
+assert.equal(a.snapPositions({...broker,snapshot:{accounts:[{...account,positions:[{...position,csvLinkConflict:true}]}]}},now).length,0);
+assert.equal(a.snapPositions({...broker,snapshot:{accounts:[{...account,positions:[{...position,units:'9.5'}]}]}},now).length,0);
+assert.equal(a.snapPositions({...broker,snapshot:{accounts:[{...account,positions:[{...position,isin:'DE000FG14AV9'}]}]}},now).length,0);
+console.log('Read-only SnapTrade sale drafts, aged holdings, safe quantity, buy plan levels and fees passed');
