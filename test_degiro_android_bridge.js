@@ -1,7 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
-const {validIsin,readDraft}=require('./degiro_android_bridge');
+const {validIsin,readDraft,takeTransferFragment}=require('./degiro_android_bridge');
 
 const HEADER='BOB OCR-ENTWURF – NICHT VERIFIZIERT';
 const safe=(extra='')=>[
@@ -47,4 +47,23 @@ assert.match(server,/\/degiro_android_bridge\.js/);
 const script=fs.readFileSync('./degiro_android_bridge.js','utf8');
 assert.ok(!/\b(fetch\(|XMLHttpRequest|localStorage\.setItem|api\/degiro\/candidate-proof)\b/.test(script));
 assert.ok(!/tradeApproved\s*:\s*true/.test(script));
+// Android → Bob navigation: only a local URL fragment, never a server-side write.
+function testTransfer(value){
+ const state={hash:'#bob-ocr='+encodeURIComponent(value),pathname:'/',search:''};
+ const calls=[];
+ const history={replaceState(_state,_title,url){calls.push(url);state.hash='';}};
+ return {draft:takeTransferFragment(state,history),history:calls,remaining:state.hash};
+}
+const transferred=testTransfer(safe());
+assert.equal(transferred.draft,safe());
+assert.deepEqual(transferred.history,['/']);
+assert.equal(transferred.remaining,'');
+assert.equal(takeTransferFragment({hash:'#degiro',pathname:'/',search:''},{replaceState(){throw Error('must not navigate')}}),null);
+for(const invalid of [safe().replace('DE000FG14AV8','DE000FG14AV9'), 'not an OCR draft']){
+ assert.throws(()=>testTransfer(invalid),'Invalid transfer rejected');
+}
+const alreadyEncoded={hash:'#bob-ocr=%E0%A4%A',pathname:'/',search:''};
+const invalidHistory={replaceState(_state,_title,url){alreadyEncoded.hash='';}};
+assert.throws(()=>takeTransferFragment(alreadyEncoded,invalidHistory));
+assert.equal(alreadyEncoded.hash,''); // Clear before decoding even on error.
 console.log('Android-OCR-Entwurf: Parser und Sicherheitsgrenzen geprüft.');
