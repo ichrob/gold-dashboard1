@@ -501,6 +501,44 @@ def _retain_recent_issuer_leverage(item, quote, before, now_ms):
         item["state"] = "issuer-evidence-complete"
 
 
+def _retain_verified_terminal(item, before, quote):
+    """Carry only an exact, previously issuer-verified terminal status.
+
+    The issuer may temporarily return no metadata after a restart. A prior
+    explicit terminal SG status is not an expiring live quote, and must not
+    turn into fifteen unrelated missing-price incidents. Provenance is retained;
+    a new list generation or new verified issuer status does not inherit it.
+    """
+    if (not isinstance(before, dict) or before.get('state') != 'terminated'
+            or before.get('isin') != item.get('isin')
+            or item.get('state') == 'terminated'
+            or not valid_isin(item.get('isin'))
+            or isinstance(quote, dict) and quote.get('productVerified') is True):
+        return
+    previous = before.get('sourceStatusEvidence') or {}
+    raw = previous.get('issuerRawStatus')
+    if (previous.get('issuerVerified') is not True
+            or previous.get('issuerTerminal') is not True
+            or previous.get('issuerStatus') != 2
+            or type(raw) is not int or not (raw & (2 | 8 | 16 | 32))
+            or before.get('tradeApproved') is True):
+        return
+    if isinstance(quote, dict) and quote.get('isin') not in (None, item['isin']):
+        return
+    from copy import deepcopy
+    item.update(state='terminated', missing=['terminated'],
+                messages=[CODES['terminated'] +
+                          ' · zuletzt mit Emittentenstatus bestätigt; neuer Abruf derzeit nicht verfügbar'],
+                source=str(before.get('source') or 'Emittent')[:80],
+                sourceStatusEvidence=dict(deepcopy(previous),
+                    carriedForward=True, currentIssuerAvailable=False),
+                quoteSourceAt=None, leverageSourceAt=None,
+                dataQuoteSource=None, dataQuoteKind=None,
+                leverageObservation=None, issuerLeverageObservation=None,
+                sourceObservations=[], degiroVerified=False, tradeApproved=False,
+                autoRecovery='Früheren verifizierten Endstatus beibehalten; erneute Emittentenprüfung ohne Handelsfreigabe')
+
+
 def build(feed, quotes, now_ms=None, previous=None):
     now_ms = now_ms if now_ms is not None else datetime.now(timezone.utc).timestamp()*1000
     previous = previous if isinstance(previous, dict) else {}
@@ -518,6 +556,7 @@ def build(feed, quotes, now_ms=None, previous=None):
         quote = quotes.get(isin)
         item = examine(product, quote, now_ms)
         before = old.get(isin, {})
+        _retain_verified_terminal(item, before, quote)
         _retain_recent_issuer_leverage(item, quote, before, now_ms)
         # Track each missing proof independently. A changing leverage clock
         # must not reset a persistent quote/identity fault and falsely close it.
