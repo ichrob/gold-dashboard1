@@ -7,9 +7,13 @@ const start=html.indexOf('  function leverageComparisonFromCurrentUi(out){');
 const end=html.indexOf('  function mountReadOnlyVoiceButton(note){',start);
 assert(start>0&&end>start,'Voice leverage explanation must be present');
 const calculate=vm.runInNewContext(html.slice(start,end)+'\nleverageComparisonFromCurrentUi',Object.create(null));
-const fixture=(direction,riskText,isinText='')=>({
+const fixture=(direction,riskText,isinText='',reasonState='ranked')=>({
  querySelector:key=>key==='[data-indicative-recommendations]'?{
   querySelector:key=>key===':scope > b > span'?{textContent:direction}:
+   key==='[data-selection-reason]'?{
+    textContent:reasonState==='neutral'?'Marktdaten aktuell, aber keine bestätigte LONG- oder SHORT-Richtung.':'Bob hat Kandidaten geprüft.',
+    getAttribute:k=>k==='data-selection-reason'?reasonState:null
+   }:
    key==='[data-risk-leverage]'?(riskText?{
     textContent:riskText,
     querySelector:k=>k===':scope > strong'?{textContent:riskText.split('Erklärung zum Hebelrisiko')[0]}:null,
@@ -18,10 +22,20 @@ const fixture=(direction,riskText,isinText='')=>({
  }:null
 });
 const missing=calculate(null);
-assert.match(missing,/kein bester Hebel belegt/i);
-const neutral=calculate(fixture('ABWARTEN','Risiko: höchster Hebel: 50×'));
-assert.match(neutral,/kein bester Hebel belegt/i);
+assert.match(missing,/lädt die Produktauswertung noch/i);
+const neutral=calculate(fixture('ABWARTEN','Risiko: höchster Hebel: 50×','', 'neutral'));
+assert.match(neutral,/keine bestätigte LONG- oder SHORT-Richtung/i);
 assert.doesNotMatch(neutral,/50×/);
+const notReady=calculate({
+ querySelector:key=>key==='[data-indicative-recommendations]'?{
+  querySelector:key=>key===':scope > b > span'?{textContent:'ABWARTEN'}:null
+ }:null
+});
+assert.match(notReady,/Produktprüfung läuft noch/i);
+assert.doesNotMatch(notReady,/kein bester Hebel belegt/i);
+const stale=calculate(fixture('ABWARTEN','Risiko: höchster Hebel: 50×','', 'market-data')
+).replace('Bob hat Kandidaten geprüft.','Marktdaten sind veraltet.');
+assert.doesNotMatch(stale,/50×/);
 const valid=calculate(fixture('LONG','Risiko: Platz 2 · höchster Hebel: 12.5×'));
 assert.match(valid,/12\.5×/);
 assert.match(valid,/Gewinne UND Verluste/);
