@@ -2,9 +2,17 @@
 
 Zwei strikt getrennte Untersuchungen für Bob:
 
+## Korrektur: Teilen von zwei oder mehr Screenshots
+- Samsung Galerie kann beim Teilen mehrerer ausgewählter Bilder den Android-Intent `ACTION_SEND_MULTIPLE` verwenden. Die frühere App meldete nur `ACTION_SEND` an und erschien deshalb möglicherweise **nicht** in der App-Auswahl.
+- Neu: `ACTION_SEND` und `ACTION_SEND_MULTIPLE` mit `image/*`; über **Teilen → Mehr** kann „Bob: Android-Labor“ beim Teilen von 1–4 Bildern ausgewählt werden. Aus der App selbst lassen sich ebenfalls mehrere Bilder über **Produktbilder auswählen** wählen.
+- Alle Bilder werden **lokal** und nacheinander gelesen. Jedes Bild muss dieselbe eindeutig erkannte, prüfziffergültige ISIN enthalten. Bis zu vier Bilder; mehrere verschiedene ISINs, fehlende Identität oder widersprüchliche Produktwerte führen zur Ablehnung.
+- OCR liest zusätzlich die beschrifteten Felder `Börse` (als ungeprüfte Handelsplatzbeobachtung) und `Zuletzt` (separater, nicht ausführbarer Preis). Fehlende Geld-/Briefkurse werden **nicht** durch `Zuletzt` ersetzt. Kein automatischer Handelsnachweis.
+- Diese Intent-Korrektur behebt eine plausible Ursache des fehlenden Share-Ziels; ob die App im Samsung-Galerie-Menü erscheint, muss **am konkreten Handy** geprüft werden.
+- Für die neue APK muss der Nutzer eine aktualisierte Version installieren; die alte APK bekommt die neue Mehrfachteilen-Funktion nicht allein durch Bobs Web-Update.
+
 ## Vereinfachter Ablauf (22.10.2026)
-1. In DEGIRO **ein einzelnes Produkt** öffnen und einen Screenshot ohne Depot-/Kontodaten aufnehmen.
-2. Das Bildschirmfoto über Samsungs Teilen-Menü ausdrücklich mit **Bob Android-Labor** teilen.
+1. In DEGIRO **ein einzelnes Produkt** öffnen und bis zu vier Screenshots dieses Produkts ohne Depot-/Kontodaten aufnehmen.
+2. Ein oder mehrere Bilder in Samsungs Galerie auswählen und über **Teilen → Mehr → Bob Android-Labor** ausdrücklich teilen.
 3. Das Android-Labor verarbeitet das freigegebene Bild mit lokalem OCR und öffnet **Bob** über eine HTTPS-URL mit einem **Fragment** (kein HTTP-Request mit OCR-Daten). Die Web-App entfernt das Fragment unmittelbar aus dem Verlauf und zeigt den **ungeprüften** Datensatz unter **Mehr → DEGIRO** an. Keine manuelle Dateiauswahl, Zwischenablage oder Texteingabe mehr nötig. Falls Bob eine Anmeldung fordert, zuerst anmelden und anschließend die Übertragung wiederholen.
 4. Alternativ im Android-Labor **Bild manuell auswählen** und **In Bob anzeigen – ohne Kopieren** drücken. Der alte Kopierknopf bleibt als Rückfalllösung erhalten.
 
