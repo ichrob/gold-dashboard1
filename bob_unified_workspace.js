@@ -222,7 +222,8 @@ function mount(){
    }
    const restored=validateDraftBackup(await file.text());
    root.localStorage.setItem(ORDER_KEY,JSON.stringify(restored));
-   backupStatus.textContent='Heutige Entwürfe wiederhergestellt. Im DEGIRO-Handy-Assistenten nach neuem Öffnen prüfen; keine Order gesendet.';
+   root.dispatchEvent(new Event('bob-order-drafts-restored'));
+   backupStatus.textContent='Heutige Entwürfe wiederhergestellt und zur bestehenden Orderansicht übertragen. Alle Werte erneut prüfen; keine Order gesendet.';
   }catch(e){backupStatus.textContent='Wiederherstellung nicht erfolgt: '+e.message;}
   finally{picker.value='';}
  });
