@@ -51,10 +51,26 @@ const origin='https://bob-workspace.test';
   });
   await page.addScriptTag({content:fs.readFileSync('bob_unified_workspace.js','utf8')});
   assert(await page.locator('#bobUnifiedWorkspace').isVisible());
+  await page.evaluate(()=>{
+    localStorage.setItem('bobDegiroProductsV2',JSON.stringify({
+      version:2,listUploadedAt:new Date(Date.now()-90000).toISOString(),
+      products:[{isin:'DE000FG14AV8'},{isin:'US0378331005'}]
+    }));
+  });
   await page.locator('#bobPrepareReadOnly').click();
   await page.locator('#bobPrepareStatus').filter({hasText:'Marktdaten geprüft.'}).waitFor();
   const values=await page.evaluate(()=>window.calls);
   assert.deepEqual(values,{load:1,quotes:1,handOff:0});
+  assert((await page.locator('#bobUnifiedUploadedDiff').innerText()).includes('Ausgangsstand'));
+  await page.evaluate(()=>{
+    localStorage.setItem('bobDegiroProductsV2',JSON.stringify({
+      version:2,listUploadedAt:new Date(Date.now()-1000).toISOString(),
+      products:[{isin:'US0378331005'}]
+    }));
+  });
+  await page.locator('#bobPrepareReadOnly').click();
+  await page.waitForFunction(()=>document.getElementById('bobUnifiedUploadedDiff').textContent.includes('1 in der neuen Liste fehlende ISIN'));
+  assert((await page.locator('#bobUnifiedUploadedDiff').innerText()).includes('Kein aktueller DEGIRO-Handelsnachweis'));
   await page.locator('#bobUnifiedCheckOperations').click();
   await page.locator('#bobUnifiedOperations').filter({hasText:'1 Produkte mit fehlenden Nachweisen'}).waitFor();
   assert((await page.locator('#bobUnifiedOperations').innerText()).includes('1 offene technische KI-Hilfeanfragen'));
