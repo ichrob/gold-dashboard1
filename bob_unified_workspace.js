@@ -30,6 +30,16 @@ function analyzeInputs(snapshot,now=Date.now()){
    date:zurichDay(new Date(now)),tradeable:false,canTradeAutomatically:false
  };
 }
+function validIsin(value){
+ if(typeof value!=='string'||!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(value))return false;
+ const expanded=value.replace(/[A-Z]/g,c=>String(c.charCodeAt(0)-55));
+ let total=0;
+ [...expanded].reverse().forEach((ch,i)=>{
+  const v=Number(ch)*(i%2===1?2:1);
+  total+=v>9?v-9:v;
+ });
+ return total%10===0;
+}
 function validateDraftBackup(raw,today=zurichDay()){
  if(typeof raw!=='string'||raw.length>100000)throw Error('Sicherungsdatei fehlt oder ist zu groß.');
  let data;try{data=JSON.parse(raw);}catch(_){throw Error('Ungültiges JSON.');}
@@ -42,9 +52,7 @@ function validateDraftBackup(raw,today=zurichDay()){
  if(d.orders.length>50)throw Error('Zu viele Entwürfe.');
  let used=0;
  for(const o of d.orders){
-  const validIsin=root.BobDegiroHandoff?.isin;
-  if(typeof o.isin!=='string'||!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(o.isin)||
-     validIsin&&!(function(){try{return validIsin(o.isin)===o.isin;}catch(_){return false;}})())
+  if(!validIsin(o.isin))
    throw Error('ISIN ungültig.');
   if(!['Kauf','Verkauf'].includes(o.side)||!Number.isSafeInteger(o.qty)||o.qty<=0||
     ![o.price,o.fees,o.cost].every(x=>Number.isSafeInteger(x)&&x>=0)||
@@ -71,7 +79,7 @@ function serializeDraftBackup(drafts,now=new Date()){
  const clean=validateDraftBackup(JSON.stringify(content),drafts.day);
  return JSON.stringify({...content,drafts:clean},null,2);
 }
-const api={zurichDay,originalAge,analyzeInputs,validateDraftBackup,serializeDraftBackup};
+const api={zurichDay,originalAge,validIsin,analyzeInputs,validateDraftBackup,serializeDraftBackup};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 root.BobUnifiedWorkspace=api;
 if(!root.document)return;
