@@ -39,7 +39,9 @@ internal object PhoneTaskProtocol {
     }
 
     fun parseDisplayed(input: String): PhoneTask? =
-        PhoneTask.entries.firstOrNull { input == displayLabel(it) } ?: parse(input)
+        PhoneTask.entries.firstOrNull { input == displayLabel(it) }
+            ?: parse(input)
+            ?: PhoneTaskPlanParser.parse(input)?.steps?.singleOrNull()
 
     /** Single-command callers retain the old safe semantics. Compound plans
      * must use PhoneTaskPlanParser and review EACH step on the device. */
