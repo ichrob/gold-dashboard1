@@ -2,6 +2,7 @@
 (function(root){
 'use strict';
 const ORDER_KEY='bob.degiro2.plan.v1';
+const VISIBLE_IDS_KEY='bob.unified.visible-products.v1';
 function zurichDay(date=new Date()){
  return new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Zurich',year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
 }
@@ -39,6 +40,14 @@ function validIsin(value){
   total+=v>9?v-9:v;
  });
  return total%10===0;
+}
+function visibleChange(previous,current){
+ const normalize=x=>[...new Set((Array.isArray(x)?x:[]).filter(validIsin))].sort();
+ const latest=normalize(current);
+ if(!Array.isArray(previous))return {known:false,added:[],removed:[],unchanged:[],current:latest};
+ const before=normalize(previous),was=new Set(before),is=new Set(latest);
+ return {known:true,added:latest.filter(x=>!was.has(x)),removed:before.filter(x=>!is.has(x)),
+  unchanged:latest.filter(x=>was.has(x)),current:latest};
 }
 function validateDraftBackup(raw,today=zurichDay()){
  if(typeof raw!=='string'||raw.length>100000)throw Error('Sicherungsdatei fehlt oder ist zu groß.');
@@ -79,7 +88,7 @@ function serializeDraftBackup(drafts,now=new Date()){
  const clean=validateDraftBackup(JSON.stringify(content),drafts.day);
  return JSON.stringify({...content,drafts:clean},null,2);
 }
-const api={zurichDay,originalAge,validIsin,analyzeInputs,validateDraftBackup,serializeDraftBackup};
+const api={zurichDay,originalAge,validIsin,visibleChange,analyzeInputs,validateDraftBackup,serializeDraftBackup};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 root.BobUnifiedWorkspace=api;
 if(!root.document)return;
@@ -96,6 +105,7 @@ function mount(){
  '<div id="bobUnifiedChecks" class="small"></div>'+
  '<label>Produkt aus Bobs bestehender Liste <select id="bobUnifiedProduct" style="width:100%;min-height:42px"><option value="">Bitte Produkt wählen</option></select></label>'+
  '<p class="small" id="bobUnifiedProductNote">Nur Produktidentität, keine automatische Freigabe.</p>'+
+ '<p class="small" id="bobUnifiedVisibleDiff">Änderungsvergleich nach der nächsten bewussten Produktprüfung verfügbar.</p>'+
  '<button type="button" id="bobUnifiedToDraft">Produkt für Orderentwurf übernehmen</button>'+
  '<div class="row" style="display:flex;flex-wrap:wrap;gap:8px">'+
  '<button type="button" data-view="products">Gold-Hebelprodukte</button>'+
@@ -196,6 +206,22 @@ function mount(){
    status.textContent=assessment.analysis.ok?
     'Marktdaten geprüft. Produkte und Orderentwurf als Nächstes öffnen; keine automatische Freigabe.':
     'Prüfung unvollständig: '+assessment.spot.label+'; '+assessment.analysis.label+'. Keine Ordervorbereitung mit unbekanntem Kurs.';
+   const current=root.BobDegiro?.tradeTestProducts?.()||[];
+   const ids=(Array.isArray(current)?current:[]).map(x=>x.isin);
+   if(ids.length){
+    let old=null,previousAt=null;
+    try{const saved=JSON.parse(root.localStorage.getItem(VISIBLE_IDS_KEY)||'null');
+     if(saved?.version===1&&Array.isArray(saved.ids)){old=saved.ids;previousAt=saved.at;}
+    }catch(_){}
+    const diff=visibleChange(old,ids);
+    const row=doc.getElementById('bobUnifiedVisibleDiff');
+    row.textContent=!diff.known?
+     diff.current.length+' sichtbare Produktidentitäten als Ausgangsstand gespeichert (keine vollständige DEGIRO-Liste).':
+     'Seit sichtbarem Stand '+(previousAt||'ohne Zeit')+': '+diff.added.length+' hinzugekommen · '+
+      diff.removed.length+' nicht mehr sichtbar · '+diff.unchanged.length+
+      ' unverändert. Nur sichtbare Bob-Identitäten, keine Bestätigung einer DEGIRO-Listung oder Delistung.';
+    root.localStorage.setItem(VISIBLE_IDS_KEY,JSON.stringify({version:1,at:new Date().toISOString(),ids:diff.current}));
+   }
   }catch(e){present(analyzeInputs(snapshot()));status.textContent='Prüfung noch unvollständig: '+String(e?.message||'Datenquelle nicht erreichbar').slice(0,160);}
   finally{working=false;button.disabled=false;}
  });
