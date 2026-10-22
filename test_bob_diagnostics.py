@@ -197,6 +197,27 @@ class ExpandedReportTests(unittest.TestCase):
         self.assertLess(len(json.dumps(result).encode()),2000)
         self.assertIn('history',simulation)
 
+
+    def test_large_signal_history_keeps_simulation_accounts_and_costs(self):
+        original=diagnostics.collect({'simulationAndPush': lambda: {
+            'status':'observed',
+            'accounts':[{'profile':'100', 'cash':98, 'costsDebitedEur':2,
+                         'recentCases':{'status':'observed','items':[
+                             {'raw':'a'*4000} for _ in range(5)]}}],
+            'paper':{'lastSuccessAt':123},
+            'signalHistory':{'records':['b'*5000 for _ in range(5)]},
+            'push':{'evaluator':{'completed':42}}}})
+        result=diagnostics.bounded_report(original,2400)
+        simulation=result['areas']['simulationAndPush']
+        self.assertEqual(simulation['accounts'][0]['cash'],98)
+        self.assertEqual(simulation['accounts'][0]['costsDebitedEur'],2)
+        self.assertEqual(simulation['push']['evaluator']['completed'],42)
+        self.assertIn('signalHistory',simulation['omittedSections'])
+        self.assertIn('accounts.recentCases',simulation['omittedSections'])
+        self.assertEqual(simulation['accounts'][0]['recentCases']['status'],'unavailable')
+        self.assertNotIn('simulationAndPush',result['omittedAreas'])
+        self.assertLess(len(json.dumps(result).encode()),2400)
+
     def test_worker_analysis_fills_only_missing_local_observation(self):
         worker = {'status':'observed','timeframes':{'15m':{'capturedAt':123}}}
         result = diagnostics.collect({'analysis':lambda:{'status':'unavailable'},
