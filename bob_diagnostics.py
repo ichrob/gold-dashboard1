@@ -256,6 +256,13 @@ def broker_sync_snapshot(value):
     result['lastSuccessAt'] = fields(snapshot, ('observedAt',)).get('observedAt')
     result['status'] = ('fresh' if result.get('fresh') is True else
                         'stale' if result['lastSuccessAt'] else 'unavailable')
+    # The optional DEGIRO SDK session is manually triggered and NOT the
+    # connected SnapTrade read-only portfolio. Absence of SDK credentials
+    # before any start attempt must not be reported as a broken live feed.
+    if result.get('code') in ('NOT_STARTED', 'SETUP_REQUIRED') and not result['lastSuccessAt']:
+        from degiro_readonly import status as sdk_status
+        result['status'] = 'not-started' if sdk_status().get('ready') else 'not-configured'
+        result['connectionKind'] = 'optional-direct-degiro-sdk-readonly'
     return result
 
 
