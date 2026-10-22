@@ -2457,6 +2457,36 @@ function goldProductGroup(p,now=Date.now()){
  const local=productDataStatus(p,now);
  return local.complete?'active':'review';
 }
+// Read-only list-generation reconciliation; mismatched/old reports never
+// rewrite original screenshots or grant execution permission.
+function goldProductSyncState(p,now=Date.now()){
+ const report=window.BobProductAuditReport;
+ const receipt=Date.parse(report?.lastCheckedAt),generation=listArchive?.storedAt;
+ if(!generation||report?.status!=='ok'||!Array.isArray(report.items)
+    ||!Number.isFinite(receipt)||receipt>now||now-receipt>180000)
+  return {state:'unconfirmed',message:'Serverabgleich nicht aktuell bestätigt'};
+ if(report.listUploadedAt!==generation)
+  return {state:'different-list',message:'Andere Listenfassung am Server · Originalwerte bleiben erhalten'};
+ const item=report.items.find(x=>x.isin===p.isin);
+ if(!item||item.direction!==p.productDirection)
+  return {state:'not-covered',message:'Produkt nur lokal vorhanden · Belege separat prüfen'};
+ if(item.state==='terminated')return {state:'terminated',message:'Beendet laut Emittenten-Nachweis'};
+ if((item.missing||[]).length)return {state:'missing',message:'Nachweise am Server weiterhin offen'};
+ if(!['analysis-evidence-complete','issuer-evidence-complete'].includes(item.state))
+  return {state:'unconfirmed',message:'Nachweisklasse nicht bestätigt'};
+ return {state:'matched',message:'Listenfassung und ISIN mit Server abgeglichen'};
+}
+function goldProductRepairStatus(p,now=Date.now()){
+ const sync=goldProductSyncState(p,now);
+ const item=sync.state==='missing'?window.BobProductAuditReport?.items?.find(x=>x.isin===p.isin):null;
+ const retry=(item?.sourceRecovery||[]).find(e=>e?.state==='waiting'||e?.state==='failed');
+ if(retry)return 'Automatische Quellenprüfung: Wiederholung'+(Number.isFinite(retry.retryAfterSeconds)?' frühestens in '+retry.retryAfterSeconds+' s':'')+' · keine neuen Zeitstempel erfunden';
+ if(sync.state==='missing')return 'Bob prüft zugelassene Quellen erneut; fehlende Nachweise bleiben gesperrt';
+ if(sync.state==='matched')return 'Keine offenen Analyse-Nachweislücken im letzten Serverbericht';
+ if(sync.state==='terminated')return 'Keine laufende Produktkursüberwachung erforderlich';
+ return 'Originalbelege gespeichert; Serverabgleich separat offen';
+}
+
 function goldProductCompactView(p,now=Date.now()){
  const verified=typeof serverAnalysisEvidence==='function'?serverAnalysisEvidence(p,now):null;
  const fields=productFieldStates(p,now),status=productDataStatus(p,now);
@@ -2475,6 +2505,7 @@ function goldProductCompactView(p,now=Date.now()){
  const check=analysis?'✓ Analyse-Nachweise vorhanden':'⚠ Analyse-Nachweise prüfen';
  const timestamp=verified?.quote.bidAt||null;
  const detail=verified?'Serverbericht · passende Listenfassung':priced?'Originalwert · lokaler Datenstand':'Kurs noch nicht aktuell belegt';
+ const sync=goldProductSyncState(p,now);
  return '<div data-product-compact-summary style="display:grid;gap:9px">'+
   '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px"><b>'+esc(p.isin||'ISIN fehlt')+'</b>'+renderIsinCopy(p.isin)+'</div>'+
   '<div class="small"><b>'+esc(p.productDirection||'Richtung offen')+'</b> · '+esc(check)+'</div>'+
@@ -2482,6 +2513,8 @@ function goldProductCompactView(p,now=Date.now()){
    [['Geld',number(bid)+' '+(bid!==null?currency:'')],['Brief',number(ask)+' '+(ask!==null?currency:'')],['Hebel',number(lever)+(lever!==null?'×':'')],['KO-Abstand',Number.isFinite(distance)&&distance>=0?distance.toFixed(2)+' %':'—']].map(([label,value])=>
     '<div style="min-width:0;padding:6px;border-radius:7px;background:#f2f5f9"><div class="small">'+esc(label)+'</div><strong>'+esc(value.trim())+'</strong></div>').join('')+
   '</div><div class="small" data-analysis-status>'+esc(detail)+(timestamp?' · Kurszeit '+esc(timestamp):'')+'</div>'+
+  '<div class="small" data-gold-sync="'+esc(sync.state)+'">'+esc(sync.message)+'</div>'+
+  '<div class="small" data-gold-repair>'+esc(goldProductRepairStatus(p,now))+'</div>'+
   '<div class="small" data-execution-separate style="color:#92400e">DEGIRO-Ausführung nicht bestätigt · keine Handelsfreigabe</div></div>';
 }
 function goldProductOverview(products,now=Date.now()){
