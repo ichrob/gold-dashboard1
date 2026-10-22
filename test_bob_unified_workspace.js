@@ -93,8 +93,14 @@ assert.equal(auditOnly.auditFresh,true);
 assert.equal(a.analyzeInputs({...base,productCount:auditOnly.items.length},now).products.ok,true);
 const staleAudit=a.mergeProductIdentities([],null,
  {...latest,lastCheckedAt:'2026-10-22T09:35:00Z'},operationsNow);
-assert.equal(staleAudit.items.length,0,'Old audit is not presented as current');
-assert.equal(a.mergeProductIdentities([],null,{...latest,status:'stale'},operationsNow).items.length,0);
+assert.equal(staleAudit.items.length,2,'Dated old ISINs stay as historical identities');
+assert.equal(staleAudit.auditFresh,false);
+assert.equal(staleAudit.auditHistoric,true);
+assert.equal(staleAudit.items[0].fromAuditStale,true);
+assert.equal(staleAudit.items[0].quote,null);
+assert.equal(a.mergeProductIdentities([],null,{...latest,status:'stale'},operationsNow).items[0].fromAuditStale,true);
+assert.equal(a.mergeProductIdentities([],null,{...latest,lastCheckedAt:'2026-09-01T09:49:55Z'},operationsNow).items.length,0);
+assert.equal(a.mergeProductIdentities([],null,{...latest,status:'unavailable'},operationsNow).items.length,0);
 const storedOnly=a.mergeProductIdentities([],JSON.stringify(archived),null,listNow);
 assert.equal(storedOnly.items.length,2);
 assert.equal(storedOnly.items[0].fromArchive,true);
@@ -117,7 +123,7 @@ assert.equal(a.analyzeInputs({...base,productCount:a.knownProductCount(withoutSo
 assert.equal(a.knownProductCount(a.mergeProductIdentities([],null,report,operationsNow)),1);
 assert.equal(a.knownProductCount(a.mergeProductIdentities([],null,{...report,items:[]},operationsNow)),0);
 assert.equal(a.knownProductCount(a.mergeProductIdentities([],null,
- {...report,status:'stale'},operationsNow)),null);
+ {...report,status:'stale'},operationsNow)),1,'Dated historical identity is still counted, never approved');
 const privateWarning=a.operationalSnapshot(report,none,'',operationsNow,2);
 assert.equal(privateWarning.problemStatus.state,'warning');
 assert.match(privateWarning.problemStatus.text,/Private Produkt-Hilfefälle laut Produktansicht: 2/);
