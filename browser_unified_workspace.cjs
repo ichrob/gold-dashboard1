@@ -93,13 +93,13 @@ const origin='https://bob-workspace.test';
   await page.locator('#bobRestoreOrdersFile').setInputFiles({
    name:'bob-tagesentwuerfe.json',mimeType:'application/json',buffer:Buffer.from(backup)
   });
-  await page.locator('#bobBackupStatus').filter({hasText:'wiederhergestellt'}).waitFor({timeout:5000});
+  await page.waitForFunction(()=>document.getElementById('bobBackupStatus')?.textContent?.includes('wiederhergestellt'));
   assert.equal(await page.evaluate(()=>restoreCount),1);
   assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('bob.degiro2.plan.v1')).orders.length),1);
   await page.locator('#bobRestoreOrdersFile').setInputFiles({
    name:'again.json',mimeType:'application/json',buffer:Buffer.from(backup)
   });
-  await page.locator('#bobBackupStatus').filter({hasText:'nicht erfolgt'}).waitFor({timeout:5000});
+  await page.waitForFunction(()=>document.getElementById('bobBackupStatus')?.textContent?.includes('nicht erfolgt'));
   assert.deepEqual(requests.sort(),[origin+'/api/degiro/audit',origin+'/api/problems'].sort(),
    'Only two established read-only status API requests; no broker/external calls');
   assert.deepEqual(errors,[],'No client-side JavaScript errors');
