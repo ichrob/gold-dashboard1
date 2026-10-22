@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -29,6 +30,9 @@ class MainActivity : Activity() {
     private lateinit var demoResult: TextView
     private var evidenceDraft = ""
     private var imageReadSequence = 0
+    private lateinit var commandInput: EditText
+    private lateinit var commandStatus: TextView
+    private var pendingTask: PhoneTask? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,14 +54,7 @@ class MainActivity : Activity() {
         }
 
         label("BOB ANDROID-LABOR: Produktbild teilen, automatisch erkennen und in Bob prüfen. Keine Handelsorders.")
-        button("Produktbilder auswählen (falls Teilen nicht klappt)") {
-            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "image/*"
-                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-            }
-            startActivityForResult(intent, selectImageRequest)
-        }
+        button("Produktbilder auswählen (falls Teilen nicht klappt)") { openImagePicker() }
         status = label("Noch kein Bild ausgewählt. OCR-Werte sind niemals automatisch ein Handelsnachweis.")
         button("In Bob anzeigen – ohne Kopieren") {
             if (evidenceDraft.isBlank()) {
@@ -110,6 +107,40 @@ class MainActivity : Activity() {
             }
         }
         demoResult = label("Demo bereit. Ein UIAutomator-Test kann Eingaben und Klicks simulieren.", additional)
+
+        label("HANDYSTEUERUNG – lokale Aufträge (Test). Aus ChatGPT/Bob nur explizit geteilte Textaufträge; keine Fernsteuerung oder Broker-Klicks.")
+        commandInput = EditText(this).apply {
+            hint = PhoneTaskProtocol.OPEN_BOB
+            contentDescription = "Bob Handy-Auftrag"
+            setSingleLine(true)
+            stack.addView(this)
+        }
+        commandStatus = label("Noch kein Handy-Auftrag geprüft. Erst prüfen, dann jede Aktion einzeln bestätigen.")
+        button("Handy-Auftrag prüfen") {
+            previewTask(commandInput.text.toString())
+        }
+        button("Geprüften Handy-Auftrag einmalig ausführen") {
+            val current = PhoneTaskProtocol.parse(commandInput.text.toString())
+            if (current == null || current != pendingTask) {
+                pendingTask = null
+                commandStatus.text = "Auftrag fehlt, wurde verändert oder ist unzulässig. Erneut prüfen."
+            } else {
+                // Consume BEFORE invoking an Android Intent: never replay an action
+                // after a lifecycle event, a double tap, or an incoming new share.
+                pendingTask = null
+                commandInput.setText("")
+                commandStatus.text = "Einmaliger Auftrag ausgeführt/angestoßen: ${current.description}. Keine weiteren Aktionen ohne neue Freigabe."
+                when (current) {
+                    PhoneTask.OPEN_BOB -> openBobHome()
+                    PhoneTask.PICK_IMAGES -> openImagePicker()
+                    PhoneTask.OPEN_SETTINGS -> try {
+                        startActivity(Intent(Settings.ACTION_SETTINGS))
+                    } catch (_: Exception) {
+                        commandStatus.text = "Die Android-Einstellungen konnten nicht geöffnet werden."
+                    }
+                }
+            }
+        }
         setContentView(ScrollView(this).apply { addView(stack) })
         processUserShare(intent)
     }
@@ -121,8 +152,16 @@ class MainActivity : Activity() {
     }
 
     private fun processUserShare(incoming: Intent?) {
-        if (incoming == null ||
-            incoming.action !in listOf(Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE) ||
+        if (incoming == null) return
+        if (incoming.action == Intent.ACTION_SEND && incoming.type == "text/plain") {
+            // Untrusted text coming from Android Sharesheet: only preview it.
+            // No shared text is ever executed or relayed automatically.
+            val received = incoming.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+            commandInput.setText(received.take(100))
+            previewTask(received)
+            return
+        }
+        if (incoming.action !in listOf(Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE) ||
             !incoming.type.orEmpty().startsWith("image/")) return
         @Suppress("DEPRECATION")
         val direct: List<Uri> = if (incoming.action == Intent.ACTION_SEND_MULTIPLE) {
@@ -143,6 +182,36 @@ class MainActivity : Activity() {
         val viaClip = (0 until (clip?.itemCount ?: 0)).mapNotNull { clip?.getItemAt(it)?.uri }
         val all = (listOfNotNull(data?.data) + viaClip).distinct()
         readImages(all)
+    }
+
+    private fun previewTask(text: String) {
+        pendingTask = PhoneTaskProtocol.parse(text)
+        commandStatus.text = if (pendingTask == null) {
+            "Nicht erlaubter Auftrag. Zulässig sind nur: ${PhoneTaskProtocol.OPEN_BOB}, ${PhoneTaskProtocol.PICK_IMAGES}, ${PhoneTaskProtocol.OPEN_SETTINGS}. Keine Brokerbedienung."
+        } else {
+            "Prüfung OK: ${pendingTask!!.description}. Erst ein weiterer Tastendruck führt genau diese Aktion aus."
+        }
+    }
+
+    private fun openImagePicker() {
+        val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "image/*"
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        }
+        startActivityForResult(picker, selectImageRequest)
+    }
+
+    private fun openBobHome() {
+        try {
+            val browser = Intent(Intent.ACTION_VIEW,
+                Uri.parse("https://bob-private-scanner.onrender.com/")).apply {
+                addCategory(Intent.CATEGORY_BROWSABLE)
+            }
+            startActivity(browser)
+        } catch (_: Exception) {
+            commandStatus.text = "Bob konnte im Browser nicht geöffnet werden."
+        }
     }
 
     private fun openInBob(draft: String) {
