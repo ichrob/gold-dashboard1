@@ -2,7 +2,6 @@
 (function(root){
 'use strict';
 const ORDER_KEY='bob.degiro2.plan.v1';
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','"':'&quot;',"'":'&#39;'}[c]));
 function zurichDay(date=new Date()){
  return new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Zurich',year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
 }
@@ -94,7 +93,7 @@ function mount(){
  '<button type="button" data-view="simulation">Simulation</button>'+
  '<button type="button" data-view="problems">Probleme</button></div>'+
  '<details class="bob-disclosure" id="bobDataProvenance"><summary>Nachweise und Speicherung</summary>'+
- '<p class="small">Die Kontrollübersicht liest bestehende Ansichten und denselben aktuellen Markt-Datensatz. Ein Haken gilt nur für die bezeichnete Prüfung. DEGIRO-Listenbilder, SnapTrade, Emittentenkurse und Simulationen sind keine austauschbaren Handelsnachweise.</p>'+
+ '<p class="small">Die Kontrollübersicht liest bestehende Ansichten und denselben aktuellen Markt-Datensatz. Ein Haken gilt nur für die bezeichnete Prüfung. Bei ausgewählten Produkten wird der vorhandene Emittentenabruf einmal angestoßen. DEGIRO-Listenbilder, SnapTrade, Emittentenkurse und Simulationen sind keine austauschbaren Handelsnachweise.</p>'+
  '<button type="button" id="bobBackupOrders">Heutige Orderentwürfe sichern</button>'+
  '<button type="button" id="bobRestoreOrders">Gesicherte Entwürfe wiederherstellen</button>'+
  '<input id="bobRestoreOrdersFile" type="file" accept="application/json,.json" hidden>'+
@@ -139,6 +138,10 @@ function mount(){
    status.textContent='Gemeinsame Marktdaten werden über Bobs bestehenden Abruf aktualisiert …';
    if(root.BobSession?.expired?.())throw Error('Anmeldung abgelaufen. Bitte erneut anmelden.');
    if(typeof root.loadData==='function')await root.loadData(true);
+   const earlier=root.BobDegiro?.tradeTestProducts?.();
+   // The existing bounded issuer refresh is explicit and only triggered here by a user click.
+   if(Array.isArray(earlier)&&earlier.length&&typeof root.BobDegiro?.refreshTradeTestQuotes==='function')
+    await root.BobDegiro.refreshTradeTestQuotes();
    const assessment=analyzeInputs(snapshot());present(assessment);
    status.textContent=assessment.analysis.ok?
     'Marktdaten geprüft. Produkte und Orderentwurf als Nächstes öffnen; keine automatische Freigabe.':
@@ -162,7 +165,11 @@ function mount(){
   try{
    const file=picker.files?.[0];
    if(!file||file.size>100000)throw Error('Bitte eine JSON-Datei bis 100 KB auswählen.');
-   if(root.localStorage.getItem(ORDER_KEY))throw Error('Es gibt bereits gespeicherte Entwürfe. Sie werden nicht überschrieben.');
+   const existing=root.localStorage.getItem(ORDER_KEY);
+   if(existing){
+    let previous=null;try{previous=JSON.parse(existing);}catch(_){}
+    if(!previous||previous.day===zurichDay())throw Error('Es gibt bereits gespeicherte Entwürfe für heute. Sie werden nicht überschrieben.');
+   }
    const restored=validateDraftBackup(await file.text());
    root.localStorage.setItem(ORDER_KEY,JSON.stringify(restored));
    backupStatus.textContent='Heutige Entwürfe wiederhergestellt. Im DEGIRO-Handy-Assistenten nach neuem Öffnen prüfen; keine Order gesendet.';
