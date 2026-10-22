@@ -183,6 +183,7 @@ def analysis_snapshot():
         import copy
         values = copy.deepcopy(_analyses)
     return {'status':'observed' if values else 'unavailable', 'timeframes':values,
+            'availabilityReason':None if values else 'no-evaluation-observed-in-this-process',
             'scope':'actual-evaluator-results-since-process-start-not-recomputed'}
 
 
