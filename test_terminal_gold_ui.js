@@ -52,7 +52,7 @@ const proof={isin,direction:'LONG',state:'analysis-evidence-complete',missing:[]
  sourceStatusEvidence:{issuerStatus:1},
  leverageObservation:{current:true,kind:'calculated-gearing',value:27.1,at:qAt},
  sourceObservations:[{isinBound:true,current:true,degiroExecutable:false,
-  bid:12.8,ask:12.81,currency:'EUR',source:'comdirect · SG LiveTrading',bidAt:qAt,askAt:qAt}]};
+  bid:12.8,ask:12.81,currency:'EUR',label:'Vorhandene Vergleichsquelle',venue:'LT Societe Generale',source:'comdirect · SG LiveTrading',bidAt:qAt,askAt:qAt}]};
 const displayContext={Date:Clock,window:{BobProductAuditReport:{
  status:'ok',listUploadedAt:stamp,lastCheckedAt:new Date(at-2000).toISOString(),items:[proof]}},
  listArchive:{storedAt:stamp},n:x=>Number.isFinite(Number(x))?Number(x):null,
@@ -63,6 +63,9 @@ const html=displayContext.renderServerAnalysisEvidence({isin,productDirection:'L
 assert(html.includes('12,8')||html.includes('12.8'));
 assert(html.includes('keine DEGIRO-Ausführungszusage'));
 assert(!html.includes('data-selection-approved'));
+displayContext.window.BobProductAuditReport.items=[{...proof,sourceObservations:[{...proof.sourceObservations[0],label:'SG-Chart',venue:''}]}];
+assert(!displayContext.serverAnalysisEvidence({isin,productDirection:'LONG'},at),'A chart dot is not a bid/ask');
+displayContext.window.BobProductAuditReport.items=[proof];
 assert(!displayContext.serverAnalysisEvidence({isin,productDirection:'SHORT'},at));
 assert(!displayContext.serverAnalysisEvidence({isin,productDirection:'LONG'},at+100000));
 displayContext.window.BobProductAuditReport.items=[{...proof,missing:['quote']}];
