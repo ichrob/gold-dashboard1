@@ -40,14 +40,14 @@ assert.equal(combined.fields.bid,undefined);
 assert.equal(combined.tradeApproved,false);
 assert.equal(combined.sourceTime,null);
 const grouped=screenshotPair.replace('Bildzeit/Originalquelle',
- 'Bildserie (OCR ungeprüft): 2 Bilder, 1 mit gültiger ISIN\\nBildzeit/Originalquelle');
+ 'Bildserie (OCR ungeprüft): 2 Bilder, 1 mit gültiger ISIN\nBildzeit/Originalquelle');
 const groupedDraft=readDraft(grouped);
 assert.deepEqual(groupedDraft.series,{imageCount:2,anchorCount:1,provisional:true});
 assert.equal(groupedDraft.tradeApproved,false);
 assert.equal(groupedDraft.sourceTime,null);
 assert.throws(()=>readDraft(grouped.replace('2 Bilder, 1','2 Bilder, 3')));
 assert.throws(()=>readDraft(grouped.replace('Bildzeit/Originalquelle',
- 'Bildserie (OCR ungeprüft): 2 Bilder, 1 mit gültiger ISIN\\nBildzeit/Originalquelle')));
+ 'Bildserie (OCR ungeprüft): 2 Bilder, 1 mit gültiger ISIN\nBildzeit/Originalquelle')));
 assert.throws(()=>readDraft(screenshotPair+'\nZuletzt (OCR ungeprüft): 9,72'));
 const manifest=fs.readFileSync('./android_companion/app/src/main/AndroidManifest.xml','utf8');
 const kotlin=fs.readFileSync('./android_companion/app/src/main/java/ch/bob/degirocompanion/MainActivity.kt','utf8');
