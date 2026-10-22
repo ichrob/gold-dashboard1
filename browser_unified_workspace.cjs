@@ -11,7 +11,15 @@ const origin='https://bob-workspace.test';
   const errors=[],requests=[];
   page.on('pageerror',e=>errors.push(e.message));
   page.on('request',r=>{if(r.url()!==origin+'/'&&!r.url().endsWith('/favicon.ico'))requests.push(r.url());});
-  await page.route(origin+'/**',route=>route.fulfill({
+  await page.route(origin+'/**',route=>{
+   const path=new URL(route.request().url()).pathname;
+   if(path==='/api/degiro/audit')return route.fulfill({contentType:'application/json',body:JSON.stringify({
+    status:'ok',lastCheckedAt:new Date().toISOString(),items:[{isin:'DE000FG14AV8'}],incomplete:1
+   })});
+   if(path==='/api/problems')return route.fulfill({contentType:'application/json',body:JSON.stringify({
+    status:'ok',count:1,problems:[{number:726,code:'product-terms-evidence-missing'}]
+   })});
+   return route.fulfill({
    contentType:'text/html; charset=utf-8',
    body:'<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>*{box-sizing:border-box}body{margin:0;padding:6px}section.card{padding:8px}button{max-width:100%;white-space:normal}</style></head><body>'+
      '<section id="bob-view-overview"><h2>Übersicht</h2></section>'+
@@ -19,7 +27,8 @@ const origin='https://bob-workspace.test';
      '<select id="dg2-product"><option value="">Manuell</option><option value="DE000FG14AV8">Goldtest</option></select>'+
      '<div id="quickSignal">ABWARTEN</div><div id="quickReason">noch nicht aktuell</div>'+
      '</body></html>'
-  }));
+  });
+  });
   await page.goto(origin+'/');
   await page.evaluate(()=>{
    window.calls={load:0,quotes:0,handOff:0};
@@ -46,6 +55,10 @@ const origin='https://bob-workspace.test';
   await page.locator('#bobPrepareStatus').filter({hasText:'Marktdaten geprüft.'}).waitFor();
   const values=await page.evaluate(()=>window.calls);
   assert.deepEqual(values,{load:1,quotes:1,handOff:0});
+  await page.locator('#bobUnifiedCheckOperations').click();
+  await page.locator('#bobUnifiedOperations').filter({hasText:'1 Produkte mit fehlenden Nachweisen'}).waitFor();
+  assert((await page.locator('#bobUnifiedOperations').innerText()).includes('1 offene technische KI-Hilfeanfragen'));
+  assert((await page.locator('#bobUnifiedOperations').innerText()).includes('Keine Echtgeldorder'));
   await page.locator('#bobUnifiedProduct').selectOption('DE000FG14AV8');
   assert((await page.locator('#bobUnifiedProductNote').innerText()).includes('kein bestätigter DEGIRO-Kurs')||
     (await page.locator('#bobUnifiedProductNote').innerText()).includes('Kein bestätigter DEGIRO-Kurs'));
@@ -71,7 +84,8 @@ const origin='https://bob-workspace.test';
    name:'again.json',mimeType:'application/json',buffer:Buffer.from(backup)
   });
   assert((await page.locator('#bobBackupStatus').innerText()).includes('nicht erfolgt'));
-  assert.deepEqual(requests,[],'No external/broker network requests from workspace');
+  assert.deepEqual(requests.sort(),[origin+'/api/degiro/audit',origin+'/api/problems'].sort(),
+   'Only two established read-only status API requests; no broker/external calls');
   assert.deepEqual(errors,[],'No client-side JavaScript errors');
   console.log('Bob unified mobile: 360px layout, one-click existing fetch, product handoff and safe backup recovery passed');
  }finally{await browser.close();}
