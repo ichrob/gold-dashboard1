@@ -184,13 +184,8 @@ def issue_title(code):
     return "[Bob KI-Hilfe] " + code
 
 
-def open_issue_index(*, token, repo, requester=github_request):
-    """Return canonical open help issues plus any later duplicates.
-
-    GitHub's issues endpoint also contains pull requests and is paginated.  A
-    bounded full scan prevents an older help issue from falling off the first
-    page.  The oldest issue number is the stable canonical incident.
-    """
+def open_issue_rows(*, token, repo, requester=github_request):
+    """Read open repository issues through list and independent search APIs."""
     issues = []
     for page in range(1, 11):
         path = "/issues?state=open&per_page=100"
@@ -224,6 +219,25 @@ def open_issue_index(*, token, repo, requester=github_request):
     if not isinstance(search_rows, list):
         raise ValueError("Issue-Suche ungültig")
     issues.extend(search_rows)
+
+    # The same issue normally appears in both sources. Prefer the search copy
+    # because it is the independently recovered observation and deduplicate by
+    # immutable issue number before downstream sanitization.
+    unique = {}
+    for row in issues:
+        if isinstance(row, dict) and isinstance(row.get("number"), int):
+            unique[row["number"]] = row
+    return list(unique.values())
+
+
+def open_issue_index(*, token, repo, requester=github_request):
+    """Return canonical open help issues plus any later duplicates.
+
+    GitHub's issues endpoint also contains pull requests and is paginated.  A
+    bounded full scan prevents an older help issue from falling off the first
+    page.  The oldest issue number is the stable canonical incident.
+    """
+    issues = open_issue_rows(token=token, repo=repo, requester=requester)
 
     allowed_titles = {ISSUE_TITLE} | {issue_title(code) for code in CODES}
     grouped = {}
