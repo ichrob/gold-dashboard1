@@ -9,6 +9,7 @@ import copy
 import math
 
 import strategy_lab
+import research_self_review
 
 VERSION = "bob-rolling-shadow-v2"
 MIN_FOLDS = 3
@@ -173,6 +174,16 @@ def enrich(report, bars, previous=None, *, day):
                 p["lastEvaluatedBarAt"] = observation["lastBarAt"]
                 p["lastObservation"] = dict(day=day, newBars=observation["newBars"],
                     candidate=a, baseline=b)
+                # Compare truly subsequent, non-overlapping reference windows.
+                # Same-day morning/evening snapshots can add new windows but
+                # duplicates/retries at the same closed bar never double-count.
+                if a["trades"] > 0 and b["trades"] > 0:
+                    recent = p.setdefault("recentComparisons", [])
+                    if (not recent or recent[-1].get("lastBarAt") != observation["lastBarAt"]):
+                        recent.append(dict(lastBarAt=observation["lastBarAt"], day=day,
+                            candidateNetReturnPct=a["netReturnPct"],
+                            baselineNetReturnPct=b["netReturnPct"]))
+                        p["recentComparisons"] = recent[-10:]
                 proposal["lastIndependentDay"] = day
             if (state["prospective"]["sessions"] >= MIN_FORWARD_SESSIONS and
                     state["prospective"]["trades"] >= MIN_FORWARD_TRADES and
@@ -226,6 +237,8 @@ def enrich(report, bars, previous=None, *, day):
     state["lastResearchBarAt"] = current_end
     state["newIndependentEvidence"] = bool(
         state.get("prospective", {}).get("lastObservation", {}).get("day") == day)
+    # Read-only critique. This is NOT an alternate live market signal.
+    state["selfReview"] = research_self_review.review(state)
     result["learningCycle"] = state
     return result
 
@@ -251,6 +264,7 @@ def maintenance(previous, day):
                          if archive_verified else
                          "Kein ausreichend belegtes vorheriges Archiv; Forschung bleibt gesperrt.") +
                         " Keine neuen Kurse, Trades oder Freigaben behauptet.")
+    cycle["selfReview"] = research_self_review.review(cycle)
     return dict(version=strategy_lab.VERSION, mode="RESEARCH_ONLY",
         status="maintenance", approved=False, orderExecutionEnabled=False,
         affectsLiveSignals=False, brokerConnected=False,
