@@ -638,7 +638,8 @@ for(const direction of ['LONG','SHORT','NEUTRAL']){
  const flow=b.selectionWorkflow([dead],{...context,direction},{});
  assert.equal(flow.requests.length,0);assert.equal(flow.approvedCount,0);
  const markup=b.renderSelectionWorkflow(flow,[dead]);
- assert(markup.includes('Ausgeknockt – Produkt ausgeschlossen'));
+ assert(markup.includes('Produkt ausgeknockt'));
+ assert(!markup.includes('✗'));
  assert(!markup.includes('Fehlende Werte'));assert(!markup.includes('Bilder / PDF hinzufügen'));
  assert(!markup.includes('aktuelle Screenshots erneut hochladen'));
 }
@@ -669,7 +670,10 @@ genericList.snapshot.terms.type={value:'BNP Unlimited',reviewed:true,source:'his
 assert(b.productTermsStatus(genericList,bnpDateNow).complete);
 assert(b.missingValueLocation('Produkttyp nicht als Turbo / Knock-out bestätigt').includes('Typ / Produktart'));
 const endedCard=b.compactProductCard({...genericList,quote:{...genericList.quote,metadata:{status:2}}});
-assert(endedCard.includes('Keine weiteren Daten oder Screenshots erforderlich'));
+assert(endedCard.includes('Produkt beendet'));
+assert(!endedCard.includes('✗'));
+assert(!endedCard.includes('Geld:'));
+assert(!endedCard.includes('Hebel:'));
 assert(!endedCard.includes('Bilder / PDF hinzufügen'));
 const factorCard=b.compactProductCard({isin:'DE000FE4UF01',name:'Gold Future Faktor'});
 assert(factorCard.includes('Faktorprodukt ausgeschlossen'));assert(!factorCard.includes('Bilder / PDF hinzufügen'));
