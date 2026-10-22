@@ -12,6 +12,13 @@ internal class PhoneConversation(private val contextTtlMs: Long = 120_000L) {
     private var lastTime: Long = 0L
 
     fun recordLaunched(task: PhoneTask, nowMs: Long) {
+        // Only a launched, allowlisted Bob *page* may become conversational
+        // memory. A device setting or image picker must never be replayed by
+        // saying 'nochmal', even if manually opened once.
+        if (VoiceAutoNavigation.allowed(PhoneTaskPlan(listOf(task))) != task) {
+            clear()
+            return
+        }
         lastTask = task
         lastTime = nowMs
     }

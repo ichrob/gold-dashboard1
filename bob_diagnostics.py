@@ -183,6 +183,7 @@ def analysis_snapshot():
         import copy
         values = copy.deepcopy(_analyses)
     return {'status':'observed' if values else 'unavailable', 'timeframes':values,
+            'availabilityReason':None if values else 'no-evaluation-observed-in-this-process',
             'scope':'actual-evaluator-results-since-process-start-not-recomputed'}
 
 
@@ -448,6 +449,12 @@ def summary(areas):
             if session in ('preparation', 'night', 'weekend'):
                 item['sessionMode'] = session
                 item['meaning'] = 'source-clock-stale-or-incomplete-outside-user-trading-window-not-proof-of-worker-outage'
+        if path == 'analysis' and item['state'] == 'unavailable':
+            # Web process may have no evaluator. Preserve warning without
+            # claiming the separate process stopped running.
+            observation = areas.get('analysis')
+            if isinstance(observation, dict) and observation.get('availabilityReason') == 'no-evaluation-observed-in-this-process':
+                item['meaning'] = 'no-local-evaluator-capture-not-a-confirmed-global-outage'
         if path.startswith('simulationAndPush.accounts.') and item['state']=='inconclusive':
             item['meaning']='paper-result-unconfirmed-not-a-realised-loss'
     return {'attention':findings[:40], 'assessment':'needs-attention' if findings else 'observed-only',
