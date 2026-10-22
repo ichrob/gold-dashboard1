@@ -39,6 +39,7 @@ class MainActivity : Activity() {
     private var imageReadSequence = 0
     private lateinit var commandInput: EditText
     private lateinit var commandStatus: TextView
+    private lateinit var executeButton: Button
     private val taskApproval = PhoneTaskApproval()
     private val conversation = PhoneConversation()
     private var speaker: TextToSpeech? = null
@@ -194,7 +195,7 @@ class MainActivity : Activity() {
         button("Handy-Auftrag prüfen") {
             previewTask(commandInput.text.toString())
         }
-        button("Geprüften Handy-Auftrag einmalig ausführen") {
+        executeButton = button("Geprüften Handy-Auftrag einmalig ausführen") {
             val current = parseDisplayedTask(commandInput.text.toString())
             if (current == null || !taskApproval.consume(current, SystemClock.elapsedRealtime())) {
                 commandOutcome = DeviceDiagnosticShare.Outcome.REJECTED
@@ -210,6 +211,7 @@ class MainActivity : Activity() {
                         true
                     } catch (_: Exception) { false }
                     PhoneTask.OPEN_PRODUCTS -> openBobPage("products")
+                    PhoneTask.OPEN_LONG_REVIEW -> openBobPage("products-long")
                     PhoneTask.OPEN_TRADE -> openBobPage("trade")
                     PhoneTask.OPEN_SIMULATION -> openBobPage("simulation")
                     PhoneTask.OPEN_LEARNING -> openBobPage("learning")
@@ -251,6 +253,11 @@ class MainActivity : Activity() {
             commandOutcome = DeviceDiagnosticShare.Outcome.STOPPED
             commandStatus.text = "Gestoppt. Keine weiteren Schritte geplant. Eine schon geöffnete App wird nicht rückgängig gemacht."
         }
+        // Keep the ONE required action tap directly under the recognized
+        // transcript/status, instead of far below all other navigation buttons.
+        // Multi-step plans still need a fresh explicit check for each next step.
+        stack.removeView(executeButton)
+        stack.addView(executeButton, stack.indexOfChild(commandStatus) + 1)
         label("Freigaben gelten einmalig und höchstens 60 Sekunden. Bei Textänderung, App-Wechsel oder STOPP werden sie ungültig.")
         setContentView(ScrollView(this).apply { addView(stack) })
         processUserShare(intent)
@@ -344,10 +351,23 @@ class MainActivity : Activity() {
                 voiceSteps = plan.steps
                 voiceStepIndex = 0
                 setCommandTextInternally(PhoneTaskProtocol.displayLabel(plan.steps.first()))
-                commandStatus.text = "Erkannter Sprachplan: ${plan.summary()}. " +
-                    "Schritt 1 von ${plan.steps.size}: ${plan.steps.first().description}. " +
-                    "Noch NICHT freigegeben. Bitte PRÜFEN und danach einzeln AUSFÜHREN. " +
-                    "Alle weiteren Schritte ebenfalls neu prüfen. STOPP bricht ab."
+                if (plan.steps.size == 1) {
+                    // Speech dialog returned one EXACT allowlisted, read-only task.
+                    // Showing the preview does not execute it. The ONE visible
+                    // execution tap consumes this short-lived device-local gate.
+                    taskApproval.approve(plan.steps.first(), SystemClock.elapsedRealtime())
+                    executeButton.text = "Erkannten Sprachauftrag einmalig ausführen"
+                    commandStatus.text = "Sprachauftrag erkannt: ${plan.summary()}. " +
+                        "Einmal unten auf AUSFÜHREN tippen. Läuft höchstens 60 Sekunden, " +
+                        "bei STOPP, Änderung oder App-Wechsel ungültig. " +
+                        "Bob führt keine Handelsorder aus."
+                } else {
+                    executeButton.text = "Geprüften Handy-Auftrag einmalig ausführen"
+                    commandStatus.text = "Erkannter Sprachplan: ${plan.summary()}. " +
+                        "Schritt 1 von ${plan.steps.size}: ${plan.steps.first().description}. " +
+                        "Bitte PRÜFEN und danach einzeln AUSFÜHREN. " +
+                        "Alle weiteren Schritte ebenfalls neu prüfen. STOPP bricht ab."
+                }
             }
             return
         }
@@ -362,6 +382,7 @@ class MainActivity : Activity() {
     private fun openSpeechRecognizer() {
         // A previous approval must never survive launching an external activity.
         taskApproval.clear()
+        executeButton.text = "Geprüften Handy-Auftrag einmalig ausführen"
         commandStatus.text = "Spracherkennung gestartet. Keine Aktion wird automatisch ausgeführt."
         val request = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)

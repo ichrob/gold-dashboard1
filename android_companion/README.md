@@ -1,3 +1,13 @@
+## Bob Android 0.11 – ein Tipp nach einfachem Sprachauftrag + Fragen zu LONG-Produkten
+
+**Handybedienung:** Nach `🎤 Auftrag sprechen` erkennt Bob weiterhin nur streng erlaubte Navigations-/Bildauswahl-Aufträge. Wenn genau ein bekannter, ungefährlicher Auftrag erkannt wurde, wird dieser **nach der Spracherkennung auf dem Gerät für maximal 60 Sekunden einmalig vorbereitet**. Ein deutlich beschrifteter Button **„Erkannten Sprachauftrag einmalig ausführen“** steht unmittelbar unter der Auftragsvorschau. Dieser **eine** Tipp startet die Aktion; die Spracherkennung selbst startet nichts. Bei Texteingabe-Änderung, STOPP, Ablauf, App-Wechsel oder Ausführung erlischt die Freigabe. Mehrere gesprochene Aufgaben benötigen für die jeweiligen weiteren Schritte weiterhin eine neue Prüfung und Einzelausführung. Keine Echtgeldorders, keine DEGIRO-Automatisierung.
+
+**Produktfragen:** Gesprochene Formulierungen wie `Zeige mir die drei besten LONG-Produkte und erkläre die Unterschiede` führen ausschließlich zur **read-only** Bob-Produktauswertung unter `/?view=products-long#products-long`. Der Login bewahrt nur diesen festen UI-Schlüssel. Die Bob-Weboberfläche öffnet die existierende Produktsektion und erzeugt eine Erklärung *ausschließlich aus der bereits aktuell angezeigten Rechner-Rangfolge im DOM*. Sie zeigt niemals drei LONG-Kandidaten an, wenn nur SHORT/ABWARTEN vorliegt oder Originalwerte fehlen. Angaben zu KO-Abstand, Pufferscore und Datenhinweisen werden lediglich aus den vorhandenen Ergebnissen übernommen. Es gibt keine zusätzliche Bewertung, keine aktuellen Brokerkurs-Behauptungen, keine Handelsfreigaben und keine automatische Änderung des Rankings.
+
+**Negativtests:** Mischsätze mit Kauf-/Verkaufs-/Stop-Änderung werden vollständig abgewiesen. Keine freie KI-Konto-/Orderbedienung, keine Internet-/Accessibility-Freigabe für den Android-Begleiter. Browser- und Unit-Tests ersetzen den echten Samsung-Funktionstest nicht.
+
+**Benötigte Prüfung:** CI Android-APK mit vorhandenen Berechtigungs-Audit, vollständig grüne Bob CI, exakte Login-Whitelist, danach Gerätetest auf Samsung mit einfachem Goldprodukte-Sprachauftrag und LONG-Frage. Eine neue Android-APK ist für die Sprachänderung erforderlich.
+
 ## Android 0.10.3 – Google-Sprachdialog auf Samsung nicht verfügbar (22.10.2026)
 
 Beim echten Samsung-Test erscheint über Bobs `🎤 Auftrag sprechen` der Google-Dialog **„Die Sprachsuche ist nicht verfügbar“**, während die Google-App selbst `Bereit...` anzeigt. Dies beweist weder einen Defekt des Mikrofons noch, dass die externe Android-`ACTION_RECOGNIZE_SPEECH`-Schnittstelle verfügbar ist.

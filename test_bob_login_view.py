@@ -26,13 +26,14 @@ class FakeHandler:
 
 class LoginViewTests(unittest.TestCase):
     def test_only_exact_ui_views_are_accepted(self):
-        for view in ("overview", "products", "trade", "simulation",
+        for view in ("overview", "products", "products-long", "trade", "simulation",
                      "learning", "research"):
             self.assertEqual(bob_auth.safe_return_view(view), view)
             self.assertEqual(bob_auth.login_destination({}, view),
                              "/?view=" + view + "#" + view)
         for value in ("", "https://example.com", "//other.example",
                       "products&redirect=evil", "products#wrong",
+                      "products-long/orders", "products-long?buy=true",
                       "../login", "products/order", "products?buy=true",
                       "settings", "degiro", "PRODUCTS", "<script>alert(1)</script>", None):
             self.assertEqual(bob_auth.safe_return_view(value), "")
