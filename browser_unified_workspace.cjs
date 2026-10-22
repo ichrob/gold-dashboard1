@@ -60,6 +60,10 @@ const origin='https://bob-workspace.test';
   await page.locator('#bobGoldProductBanner').filter({hasText:'1 unterschiedliche ISINs'}).waitFor();
   assert((await page.locator('#bobGoldProductBanner').innerText()).includes('Keine Handelsfreigabe'));
   assert(await page.locator('#bobOpenGoldProducts').isVisible());
+  await page.locator('#bobGoldProductList summary').click();
+  assert(await page.locator('#bobGoldProductRows').isVisible());
+  assert((await page.locator('#bobGoldProductRows').innerText()).includes('DE000FG14AV8'));
+  assert((await page.locator('#bobGoldProductRows').innerText()).includes('keine Handelsfreigabe'));
   assert.deepEqual(await page.evaluate(()=>window.calls),{load:0,quotes:0,handOff:0},
     'Initial audit is read-only, no market reload/issuer query or handoff');
   await page.evaluate(()=>{
