@@ -267,7 +267,10 @@ function mount(){
   if(productAudit&&Date.now()-productAuditFetchedAt<12000)return Promise.resolve(productAudit);
   if(typeof root.fetch!=='function')return Promise.resolve(null);
   const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),10000);
-  productAuditFlight=root.fetch('/api/degiro/audit',{credentials:'same-origin',cache:'no-store',signal:ctl.signal})
+  const request=root.BobProductAuditReadPool?.read?
+   root.BobProductAuditReadPool.read().then(payload=>({ok:true,json:async()=>payload})):
+   root.fetch('/api/degiro/audit',{credentials:'same-origin',cache:'no-store',signal:ctl.signal});
+  productAuditFlight=request
    .then(async response=>{
     if(!response.ok)throw Error('audit-status');
     const data=await response.json();
