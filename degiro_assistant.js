@@ -1712,6 +1712,7 @@ function serverAnalysisEvidence(p,now=Date.now()){
     ||at>now||lev>now||now-at>90000||now-lev>90000)return null;
  const quote=(item.sourceObservations||[]).find(row=>{
   if(row.isinBound!==true||row.current!==true||row.degiroExecutable!==false
+     ||row.label==='SG-Chart'||!String(row.venue||'').trim()
      ||!(n(row.bid)>0&&n(row.ask)>=n(row.bid))
      ||row.currency!==item.nativeCurrency)return false;
   const bidAt=Date.parse(row.bidAt),askAt=Date.parse(row.askAt);
