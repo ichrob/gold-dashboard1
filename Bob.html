@@ -2292,6 +2292,139 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 })();
 </script>
 <script>
+/* BOB_ISIN_COPY_START: presentation-only copy affordance for displayed ISINs. */
+(function(){
+  'use strict';
+  // Use the same strict check-digit convention as Bob's product validator.
+  // Never decorate stray 12-character strings, OCR errors or credentials.
+  function isCopyableIsin(value){
+    const isin=String(value||'').trim().toUpperCase();
+    if(!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(isin))return false;
+    if(/^DE(?=[0O]{3})(?=[0O]{0,2}O)/.test(isin))return false;
+    const digits=isin.split('').map(c=>/[A-Z]/.test(c)?String(c.charCodeAt(0)-55):c).join('');
+    let sum=0;
+    for(let i=digits.length-1,dbl=false;i>=0;i--,dbl=!dbl){
+      let x=Number(digits[i]);if(dbl)x*=2;sum+=x>9?x-9:x;
+    }
+    return sum%10===0;
+  }
+  function hasExistingCopy(node,isin){
+    const el=node.parentElement;if(!el)return false;
+    const same=selector=>selector && selector.getAttribute('data-copy-product-isin')===isin;
+    // Bob's existing product cards and top-3 already provide a tested icon.
+    const identity=el.closest('[data-product-identity]');
+    if(identity&&[...identity.querySelectorAll('[data-copy-product-isin]')].some(b=>same(b)))return true;
+    let next=el.nextElementSibling;
+    for(let k=0;k<2&&next;k++,next=next.nextElementSibling){
+      if(same(next)||[...next.querySelectorAll('[data-copy-product-isin]')].some(b=>same(b)))return true;
+    }
+    return false;
+  }
+  const isinRegex=/\b[A-Z]{2}[A-Z0-9]{9}[0-9]\b/g;
+  function decorateText(node){
+    const el=node?.parentElement;
+    if(!el||!isinRegex.test(node.nodeValue||''))return;
+    isinRegex.lastIndex=0;
+    if(el.closest('script,style,textarea,button,select,option,svg,[contenteditable],[data-bob-isin-chip],[data-isin-copy],[aria-hidden="true"]'))return;
+    const source=node.nodeValue,parts=[],matches=[...source.matchAll(isinRegex)];
+    let offset=0,changed=false;
+    for(const match of matches){
+      const value=match[0];
+      if(match.index>offset)parts.push(document.createTextNode(source.slice(offset,match.index)));
+      if(!isCopyableIsin(value)||hasExistingCopy(node,value)){
+        parts.push(document.createTextNode(value));
+      }else{
+        changed=true;
+        const chip=document.createElement('span');
+        chip.setAttribute('data-bob-isin-chip','');
+        chip.className='bob-isin-copy-chip';
+        const identity=document.createElement('span');
+        identity.textContent=value;
+        const button=document.createElement('button');
+        button.type='button';button.className='bob-auto-isin-copy';
+        button.dataset.bobCopyIsin=value;
+        button.setAttribute('aria-label','ISIN '+value+' kopieren');
+        button.title='ISIN kopieren';
+        const feedback=document.createElement('span');
+        feedback.className='bob-isin-copy-feedback';
+        feedback.setAttribute('role','status');
+        feedback.setAttribute('aria-live','polite');
+        chip.append(identity,button,feedback);parts.push(chip);
+      }
+      offset=match.index+value.length;
+    }
+    if(!changed)return;
+    if(offset<source.length)parts.push(document.createTextNode(source.slice(offset)));
+    const frag=document.createDocumentFragment();
+    for(const item of parts)frag.append(item);
+    node.replaceWith(frag);
+  }
+  function decorateSubtree(root){
+    if(root.nodeType===3){decorateText(root);return;}
+    if(root.nodeType!==1)return;
+    if(root.matches('script,style,button,textarea,svg,[data-bob-isin-chip],[data-isin-copy]'))return;
+    const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
+    const nodes=[];
+    while(walker.nextNode())nodes.push(walker.currentNode);
+    for(const node of nodes)decorateText(node);
+  }
+  function fallbackCopy(text){
+    const box=document.createElement('textarea');
+    box.value=text;box.readOnly=true;
+    box.style.cssText='position:fixed;left:-9999px;top:0;opacity:0';
+    document.body.append(box);box.select();
+    let ok=false;try{ok=document.execCommand('copy');}catch(_){}
+    box.remove();return ok;
+  }
+  async function copyIsin(button){
+    const isin=button.dataset.bobCopyIsin;
+    if(!isCopyableIsin(isin))return;
+    let ok=false;
+    if(navigator.clipboard?.writeText){
+      try{await navigator.clipboard.writeText(isin);ok=true;}catch(_){}
+    }
+    if(!ok)ok=fallbackCopy(isin);
+    const feedback=button.parentElement.querySelector('.bob-isin-copy-feedback');
+    if(feedback)feedback.textContent=ok?' ✓ Kopiert':' Kopieren nicht möglich';
+    button.title=ok?'ISIN kopiert':'ISIN kopieren';
+    button.setAttribute('aria-label',ok?'ISIN '+isin+' kopiert':'ISIN '+isin+' kopieren');
+  }
+  function start(){
+    if(document.getElementById('bobUniversalIsinCopyStyle'))return;
+    const css=document.createElement('style');
+    css.id='bobUniversalIsinCopyStyle';
+    css.textContent='.bob-isin-copy-chip{display:inline-flex;align-items:center;gap:3px;white-space:nowrap;vertical-align:middle}.bob-auto-isin-copy{display:inline-flex;align-items:center;justify-content:center;min-width:40px;min-height:40px;margin:0 3px;padding:0;background:transparent;border:1px solid #a4b4c9;border-radius:8px;cursor:pointer;line-height:1}.bob-auto-isin-copy:before{content:"📋";font-size:19px}.bob-auto-isin-copy:focus-visible{outline:2px solid #1677ff;outline-offset:2px}.bob-isin-copy-feedback{font-size:12px;color:#166534}';
+    document.head.append(css);
+    // Capture prevents a tap on a compact <summary> from collapsing the card.
+    document.addEventListener('click',event=>{
+      const button=event.target.closest?.('[data-bob-copy-isin]');
+      if(!button)return;
+      event.preventDefault();event.stopPropagation();
+      copyIsin(button);
+    },true);
+    const root=document.querySelector('main');
+    if(!root)return;
+    decorateSubtree(root);
+    const pending=new Set();let scheduled=false;
+    const queue=()=>{if(scheduled)return;scheduled=true;queueMicrotask(()=>{
+      scheduled=false;const updates=[...pending];pending.clear();
+      for(const element of updates)if(element.isConnected)decorateSubtree(element);
+    });};
+    new MutationObserver(records=>{
+      for(const record of records){
+        if(record.type==='characterData'){pending.add(record.target);continue;}
+        for(const node of record.addedNodes)if(node.nodeType===1||node.nodeType===3)pending.add(node);
+      }
+      if(pending.size)queue();
+    }).observe(root,{subtree:true,childList:true,characterData:true});
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});
+  else start();
+})();
+</script>
+/* BOB_ISIN_COPY_END */
+
+<script>
 
 const $=id=>document.getElementById(id);
 let pushState=BobPush.state();
@@ -4734,138 +4867,6 @@ setInterval(()=>{
 </script><form method="post" action="/logout" style="text-align:center;margin:24px"><button type="submit">Abmelden</button></form>
 
 
-<script>
-/* BOB_ISIN_COPY_START: presentation-only copy affordance for displayed ISINs. */
-(function(){
-  'use strict';
-  // Use the same strict check-digit convention as Bob's product validator.
-  // Never decorate stray 12-character strings, OCR errors or credentials.
-  function isCopyableIsin(value){
-    const isin=String(value||'').trim().toUpperCase();
-    if(!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(isin))return false;
-    if(/^DE(?=[0O]{3})(?=[0O]{0,2}O)/.test(isin))return false;
-    const digits=isin.split('').map(c=>/[A-Z]/.test(c)?String(c.charCodeAt(0)-55):c).join('');
-    let sum=0;
-    for(let i=digits.length-1,dbl=false;i>=0;i--,dbl=!dbl){
-      let x=Number(digits[i]);if(dbl)x*=2;sum+=x>9?x-9:x;
-    }
-    return sum%10===0;
-  }
-  function hasExistingCopy(node,isin){
-    const el=node.parentElement;if(!el)return false;
-    const same=selector=>selector && selector.getAttribute('data-copy-product-isin')===isin;
-    // Bob's existing product cards and top-3 already provide a tested icon.
-    const identity=el.closest('[data-product-identity]');
-    if(identity&&[...identity.querySelectorAll('[data-copy-product-isin]')].some(b=>same(b)))return true;
-    let next=el.nextElementSibling;
-    for(let k=0;k<2&&next;k++,next=next.nextElementSibling){
-      if(same(next)||[...next.querySelectorAll('[data-copy-product-isin]')].some(b=>same(b)))return true;
-    }
-    return false;
-  }
-  const isinRegex=/\b[A-Z]{2}[A-Z0-9]{9}[0-9]\b/g;
-  function decorateText(node){
-    const el=node?.parentElement;
-    if(!el||!isinRegex.test(node.nodeValue||''))return;
-    isinRegex.lastIndex=0;
-    if(el.closest('script,style,textarea,button,select,option,svg,[contenteditable],[data-bob-isin-chip],[data-isin-copy],[aria-hidden="true"]'))return;
-    const source=node.nodeValue,parts=[],matches=[...source.matchAll(isinRegex)];
-    let offset=0,changed=false;
-    for(const match of matches){
-      const value=match[0];
-      if(match.index>offset)parts.push(document.createTextNode(source.slice(offset,match.index)));
-      if(!isCopyableIsin(value)||hasExistingCopy(node,value)){
-        parts.push(document.createTextNode(value));
-      }else{
-        changed=true;
-        const chip=document.createElement('span');
-        chip.setAttribute('data-bob-isin-chip','');
-        chip.className='bob-isin-copy-chip';
-        const identity=document.createElement('span');
-        identity.textContent=value;
-        const button=document.createElement('button');
-        button.type='button';button.className='bob-auto-isin-copy';
-        button.dataset.bobCopyIsin=value;
-        button.setAttribute('aria-label','ISIN '+value+' kopieren');
-        button.title='ISIN kopieren';
-        const feedback=document.createElement('span');
-        feedback.className='bob-isin-copy-feedback';
-        feedback.setAttribute('role','status');
-        feedback.setAttribute('aria-live','polite');
-        chip.append(identity,button,feedback);parts.push(chip);
-      }
-      offset=match.index+value.length;
-    }
-    if(!changed)return;
-    if(offset<source.length)parts.push(document.createTextNode(source.slice(offset)));
-    const frag=document.createDocumentFragment();
-    for(const item of parts)frag.append(item);
-    node.replaceWith(frag);
-  }
-  function decorateSubtree(root){
-    if(root.nodeType===3){decorateText(root);return;}
-    if(root.nodeType!==1)return;
-    if(root.matches('script,style,button,textarea,svg,[data-bob-isin-chip],[data-isin-copy]'))return;
-    const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
-    const nodes=[];
-    while(walker.nextNode())nodes.push(walker.currentNode);
-    for(const node of nodes)decorateText(node);
-  }
-  function fallbackCopy(text){
-    const box=document.createElement('textarea');
-    box.value=text;box.readOnly=true;
-    box.style.cssText='position:fixed;left:-9999px;top:0;opacity:0';
-    document.body.append(box);box.select();
-    let ok=false;try{ok=document.execCommand('copy');}catch(_){}
-    box.remove();return ok;
-  }
-  async function copyIsin(button){
-    const isin=button.dataset.bobCopyIsin;
-    if(!isCopyableIsin(isin))return;
-    let ok=false;
-    if(navigator.clipboard?.writeText){
-      try{await navigator.clipboard.writeText(isin);ok=true;}catch(_){}
-    }
-    if(!ok)ok=fallbackCopy(isin);
-    const feedback=button.parentElement.querySelector('.bob-isin-copy-feedback');
-    if(feedback)feedback.textContent=ok?' ✓ Kopiert':' Kopieren nicht möglich';
-    button.title=ok?'ISIN kopiert':'ISIN kopieren';
-    button.setAttribute('aria-label',ok?'ISIN '+isin+' kopiert':'ISIN '+isin+' kopieren');
-  }
-  function start(){
-    if(document.getElementById('bobUniversalIsinCopyStyle'))return;
-    const css=document.createElement('style');
-    css.id='bobUniversalIsinCopyStyle';
-    css.textContent='.bob-isin-copy-chip{display:inline-flex;align-items:center;gap:3px;white-space:nowrap;vertical-align:middle}.bob-auto-isin-copy{display:inline-flex;align-items:center;justify-content:center;min-width:40px;min-height:40px;margin:0 3px;padding:0;background:transparent;border:1px solid #a4b4c9;border-radius:8px;cursor:pointer;line-height:1}.bob-auto-isin-copy:before{content:"📋";font-size:19px}.bob-auto-isin-copy:focus-visible{outline:2px solid #1677ff;outline-offset:2px}.bob-isin-copy-feedback{font-size:12px;color:#166534}';
-    document.head.append(css);
-    // Capture prevents a tap on a compact <summary> from collapsing the card.
-    document.addEventListener('click',event=>{
-      const button=event.target.closest?.('[data-bob-copy-isin]');
-      if(!button)return;
-      event.preventDefault();event.stopPropagation();
-      copyIsin(button);
-    },true);
-    const root=document.querySelector('main');
-    if(!root)return;
-    decorateSubtree(root);
-    const pending=new Set();let scheduled=false;
-    const queue=()=>{if(scheduled)return;scheduled=true;queueMicrotask(()=>{
-      scheduled=false;const updates=[...pending];pending.clear();
-      for(const element of updates)if(element.isConnected)decorateSubtree(element);
-    });};
-    new MutationObserver(records=>{
-      for(const record of records){
-        if(record.type==='characterData'){pending.add(record.target);continue;}
-        for(const node of record.addedNodes)if(node.nodeType===1||node.nodeType===3)pending.add(node);
-      }
-      if(pending.size)queue();
-    }).observe(root,{subtree:true,childList:true,characterData:true});
-  }
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});
-  else start();
-})();
-</script>
-/* BOB_ISIN_COPY_END */
 </body></html>
 
 
