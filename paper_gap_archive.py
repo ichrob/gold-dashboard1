@@ -6,13 +6,14 @@ confirm an order or convert an inconclusive paper trade into a filled trade.
 """
 import math
 import time
+from decimal import Decimal
 
 STREAM = 'gold-api-xau-usd-v1'
 WINDOW_MS = 90000
 RETENTION_MS = 7 * 86400000
 MAX_EVENTS = 12
 
-_SQL = """SELECT extract(epoch FROM quote_at)*1000
+_SQL = """SELECT (extract(epoch FROM quote_at)*1000)::double precision
 FROM bob_spot_observations
 WHERE stream=%s AND quote_at BETWEEN to_timestamp(%s)
     AND to_timestamp(%s)
@@ -66,7 +67,8 @@ def report(conn, accounts, now_ms=None):
                 with conn.transaction():
                     row=conn.execute(_SQL,(STREAM,(at-WINDOW_MS)/1000,
                         (at+WINDOW_MS)/1000,at)).fetchone()
-                if row and type(row[0]) in (int,float) and math.isfinite(row[0]):
+                if (row and type(row[0]) in (int,float,Decimal) and
+                        math.isfinite(float(row[0]))):
                     source_ms=float(row[0])
                     item.update(state='nearby-original-observed',
                         nearestSourceAt=source_ms,
