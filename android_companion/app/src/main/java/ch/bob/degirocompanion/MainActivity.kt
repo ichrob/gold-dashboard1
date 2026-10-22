@@ -165,7 +165,7 @@ class MainActivity : Activity() {
         commandStatus = label("Noch kein Handy-Auftrag geprüft. Erst prüfen, dann jede Aktion einzeln bestätigen.")
         // User must deliberately select a recipient in Android's share sheet.
         button("🔎 Diagnose an ChatGPT teilen") { shareDeviceDiagnostics() }
-        button("🎤 Auftrag sprechen") { openSpeechRecognizer() }
+        button("🎤 Bob zuhören lassen – einmal tippen") { openSpeechRecognizer() }
         button("🎙️ Über Tastatur-Mikrofon sprechen (Alternative)") {
             taskApproval.clear()
             clearVoicePlan()
@@ -191,7 +191,7 @@ class MainActivity : Activity() {
             commandInput.setText("Android-Einstellungen öffnen")
         }
         button("Goldmarkt – Auftrag vorbereiten") { commandInput.setText("Goldmarkt anzeigen") }
-        label("Sprich zum Beispiel: „Zeige meine Goldprodukte und danach die Simulationen“. Du kannst später „Und jetzt die Recherche“ oder „Nochmal“ sagen. Jeder Schritt braucht Prüfen und Ausführen. Der Gesprächskontext bleibt nur kurz im Speicher. Kein dauerhaftes Zuhören; Androids Sprachanbieter und die optionale Sprachausgabe können Online-Dienste nutzen.")
+        label("Drücke das Mikrofon und sage z. B.: „Zeige meine Goldprodukte“, „Welches hat den höchsten Hebel?“ oder nach einer Produkterklärung „Warum?“. Einzelne bekannte Bob-Anzeigen öffnen direkt. Unklare Anfragen und mehrteilige Aufträge werden NICHT automatisch ausgeführt. Bei STOPP, Textaufträgen, Bildauswahl und Einstellungen gelten gesonderte Prüfungen. Keine Daueraufnahme; der Android-Sprachanbieter kann online arbeiten.")
         button("Handy-Auftrag prüfen") {
             previewTask(commandInput.text.toString())
         }
@@ -212,6 +212,7 @@ class MainActivity : Activity() {
                     } catch (_: Exception) { false }
                     PhoneTask.OPEN_PRODUCTS -> openBobPage("products")
                     PhoneTask.OPEN_LONG_REVIEW -> openBobPage("products-long")
+                    PhoneTask.OPEN_LEVERAGE_REVIEW -> openBobPage("products-leverage")
                     PhoneTask.OPEN_TRADE -> openBobPage("trade")
                     PhoneTask.OPEN_SIMULATION -> openBobPage("simulation")
                     PhoneTask.OPEN_LEARNING -> openBobPage("learning")
@@ -321,7 +322,8 @@ class MainActivity : Activity() {
                     "öffne Mein Trade, zeige Simulationen, Lernen oder Recherche, " +
                     "wähle Produktbilder aus. Auch mehrere Schritte mit 'und danach'. " +
                     "Nach einer ausgeführten Aktion kannst du 'Nochmal' sagen. " +
-                    "Jede Aktion benötigt Prüfen und Ausführen."
+                    "Einzelne reine Anzeigeaufträge starten nach Mikrofontipp direkt. " +
+                    "Für mehrere Schritte, Bildauswahl und Einstellungen bleibt die Bestätigung nötig."
                 return
             }
             if (inquiry in setOf("was kommt als nächstes", "was ist als nächstes dran",
@@ -351,22 +353,31 @@ class MainActivity : Activity() {
                 voiceSteps = plan.steps
                 voiceStepIndex = 0
                 setCommandTextInternally(PhoneTaskProtocol.displayLabel(plan.steps.first()))
-                if (plan.steps.size == 1) {
-                    // Speech dialog returned one EXACT allowlisted, read-only task.
-                    // Showing the preview does not execute it. The ONE visible
-                    // execution tap consumes this short-lived device-local gate.
-                    taskApproval.approve(plan.steps.first(), SystemClock.elapsedRealtime())
-                    executeButton.text = "Erkannten Sprachauftrag einmalig ausführen"
-                    commandStatus.text = "Sprachauftrag erkannt: ${plan.summary()}. " +
-                        "Einmal unten auf AUSFÜHREN tippen. Läuft höchstens 60 Sekunden, " +
-                        "bei STOPP, Änderung oder App-Wechsel ungültig. " +
-                        "Bob führt keine Handelsorder aus."
+                val safeNavigation = VoiceAutoNavigation.allowed(plan)
+                if (safeNavigation != null) {
+                    // The user's ONE microphone tap activates only this one
+                    // locally validated Bob page. Never launch other apps,
+                    // screenshots, settings, passwords, or broker actions.
+                    val section = BobNavigation.pageFor(safeNavigation)
+                    val launched = section != null && openBobPage(section)
+                    commandOutcome = if (launched) DeviceDiagnosticShare.Outcome.STARTED_NOT_VERIFIED
+                        else DeviceDiagnosticShare.Outcome.FAILED
+                    if (launched) {
+                        conversation.recordLaunched(safeNavigation, SystemClock.elapsedRealtime())
+                        commandStatus.text = "Sprachauftrag erkannt und Bob-Seite geöffnet: " +
+                            safeNavigation.description + ". " +
+                            "Ob die angezeigten Produktdaten aktuell sind, prüfst du in Bob."
+                        clearVoicePlan()
+                        setCommandTextInternally("Bob öffnen")
+                    } else {
+                        commandStatus.text = "Sprachauftrag verstanden, aber Bob konnte nicht " +
+                            "geöffnet werden. Keine weitere Aktion ausgeführt."
+                    }
                 } else {
                     executeButton.text = "Geprüften Handy-Auftrag einmalig ausführen"
-                    commandStatus.text = "Erkannter Sprachplan: ${plan.summary()}. " +
-                        "Schritt 1 von ${plan.steps.size}: ${plan.steps.first().description}. " +
-                        "Bitte PRÜFEN und danach einzeln AUSFÜHREN. " +
-                        "Alle weiteren Schritte ebenfalls neu prüfen. STOPP bricht ab."
+                    commandStatus.text = "Sprachplan erkannt: ${plan.summary()}. " +
+                        "Keine automatische Ausführung (mehrere Schritte oder geschützte Aktion). " +
+                        "Bitte PRÜFEN und jeden Schritt ausdrücklich AUSFÜHREN. STOPP bricht ab."
                 }
             }
             return
@@ -383,7 +394,7 @@ class MainActivity : Activity() {
         // A previous approval must never survive launching an external activity.
         taskApproval.clear()
         executeButton.text = "Geprüften Handy-Auftrag einmalig ausführen"
-        commandStatus.text = "Spracherkennung gestartet. Keine Aktion wird automatisch ausgeführt."
+        commandStatus.text = "Bob hört nur für diesen einen Sprachauftrag zu. Eine erlaubte Bob-Seite kann anschließend direkt geöffnet werden; keine Handelsorders."
         val request = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.GERMANY.toLanguageTag())
@@ -391,7 +402,7 @@ class MainActivity : Activity() {
             // Never force the offline speech path: some Samsung Google providers
             // fail with "Die Sprachsuche ist nicht verfügbar" when requested.
             // Android's chosen voice provider may still use online processing.
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Zum Beispiel: Öffne Bob und danach wähle Produktbilder aus")
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Zum Beispiel: Zeige Goldprodukte oder erkläre den höchsten Hebel")
         }
         try {
             startActivityForResult(request, recognizeSpeechRequest)
