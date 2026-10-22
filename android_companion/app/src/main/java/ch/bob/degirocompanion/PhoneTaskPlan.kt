@@ -71,7 +71,18 @@ internal object PhoneTaskPlanParser {
             "zeige goldprodukte", "zeige meine goldprodukte", "zeige mir meine goldprodukte",
             "zeig mir die goldprodukte", "zeige die gold-hebelprodukte",
             "öffne die goldprodukte", "öffne goldprodukte", "zeige mir die goldhebelprodukte",
-            "meine goldprodukte", "die goldprodukte" -> PhoneTask.OPEN_PRODUCTS
+            "meine goldprodukte", "die goldprodukte",
+            // Samsung recognition often separates "Gold" and "Hebelprodukte"
+            // or hyphenates the compound noun. These are still exact, harmless
+            // NAVIGATION requests; no fuzzy matching of trading instructions.
+            "gold hebelprodukte", "gold-hebelprodukte", "goldhebelprodukte",
+            "gold hebel produkte", "die gold hebelprodukte", "meine gold hebelprodukte",
+            "zeige gold hebelprodukte", "zeige mir gold hebelprodukte",
+            "zeige mir die gold hebelprodukte", "zeig mir die gold hebelprodukte",
+            "öffne gold hebelprodukte", "öffne die gold hebelprodukte",
+            "gold hebelprodukte anzeigen", "gold hebel produkte anzeigen",
+            "zeige mir die gold-hebelprodukte", "zeige mir die gold-hebelprodukte an",
+            "gold hebelprodukte öffnen" -> PhoneTask.OPEN_PRODUCTS
 
             "mein trade anzeigen", "zeige meinen trade", "zeig meinen trade",
             "zeige mir meinen trade", "öffne mein trade", "mein trade", "meinen trade",
