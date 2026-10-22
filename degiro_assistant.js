@@ -4707,7 +4707,7 @@ function productSelectionExplanation(products,context,ranked,marketWarnings=[]){
  if(!['LONG','SHORT'].includes(direction))
   return {state:'neutral',text:'Marktdaten sind aktuell, aber Bob hat keine bestätigte LONG- oder SHORT-Richtung. Deshalb gilt ABWARTEN; das ist keine Aussage über die Eignung einzelner Produkte.'};
  if(choices.length)
-  return {state:'ranked',text:'Bob zeigt '+choices.length+' rechnerisch passende '+direction+'-Kandidat'+(choices.length===1?'en':'en')+' aus den vorhandenen Nachweisen. Kurszeiten und Handelsverfügbarkeit zusätzlich prüfen.'};
+  return {state:'ranked',text:'Bob zeigt '+choices.length+(choices.length===1?' rechnerisch passenden ':' rechnerisch passende ')+direction+'-Kandidaten aus den vorhandenen Nachweisen. Kurszeiten und Handelsverfügbarkeit zusätzlich prüfen.'};
  if(!found.length)
   return {state:'no-products',text:'Die Marktlage ist '+direction+', aber Bob hat aktuell keine erfassten Gold-Hebelprodukte zur Auswahl. Produktliste prüfen oder laden.'};
  const now=context?.now??Date.now();
