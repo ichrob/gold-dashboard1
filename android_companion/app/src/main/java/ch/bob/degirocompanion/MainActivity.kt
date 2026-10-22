@@ -1,6 +1,10 @@
 package ch.bob.degirocompanion
 
 import android.app.Activity
+import android.app.TimePickerDialog
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -20,7 +24,7 @@ import java.util.Locale
 
 /**
  * Device-local evidence and UI test harness, not a DEGIRO automation client.
- * No network permission, background worker, trade/order controls or credentials.
+ * No network permission, trade/order controls or credentials.\n * Only explicit local commands and an individually approved daily self-check.
  */
 class MainActivity : Activity() {
     private val selectImageRequest = 42
@@ -49,8 +53,49 @@ class MainActivity : Activity() {
             parent.addView(it)
         }
 
-        label("BOB ANDROID-LABOR: Produktbild teilen, automatisch erkennen und in Bob prüfen. Keine Handelsorders.")
-        button("Produktbilder auswählen (falls Teilen nicht klappt)") {
+        label("BOB SAMSUNG-STEUERUNG (LABOR): Freigegebene Aufgaben lokal ausführen. Keine Fernsteuerung, keine automatischen Handelsorders.")
+        button("Auftrag: Bob öffnen") {
+            if (BobRoutinePolicy.permits(
+                    BobRoutinePolicy.Action.OPEN_BOB, BobRoutinePolicy.Origin.USER_TAP
+                )) {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://bob-private-scanner.onrender.com/")))
+                    status.text = "Bob im Browser geöffnet. Keine andere App wurde automatisch bedient."
+                } catch (_: Exception) {
+                    status.text = "Bob konnte nicht geöffnet werden."
+                }
+            }
+        }
+        label("Freigebbare Routine: Einmal täglich nur den lokalen Prüfstatus ermitteln und erinnern. Uhrzeit nach deiner Wahl. Kein Zugriff auf DEGIRO, keine Hintergrund-Screenshots.")
+        val dailyStatus = label(DailyBobRoutine.summary(this))
+        button("Täglichen lokalen Check freigeben · Uhrzeit wählen") {
+            if (Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 7402)
+                status.text = "Benachrichtigungen freigeben und danach erneut auf 'Täglichen lokalen Check freigeben' tippen."
+            } else {
+                TimePickerDialog(this, { _, hour, minute ->
+                    DailyBobRoutine.enable(this, hour, minute)
+                    dailyStatus.text = DailyBobRoutine.summary(this)
+                    status.text = "Routine von dir freigegeben. Läuft lokal und kann jederzeit gestoppt werden."
+                }, 8, 0, true).show()
+            }
+        }
+        button("STOPP · Alle geplanten Bob-Routinen ausschalten") {
+            DailyBobRoutine.stop(this)
+            dailyStatus.text = DailyBobRoutine.summary(this)
+            status.text = "Geplante Bob-Routinen abgeschaltet. Keine laufenden Handels- oder Fernsteuerungsaufträge."
+        }
+        button("Status der lokalen Routinen prüfen") {
+            dailyStatus.text = DailyBobRoutine.summary(this)
+            status.text = "Lokaler Status aktualisiert. Es wurden keine Brokerdaten abgerufen."
+        }
+        button("Auftrag: Produktbilder auswählen und lokal prüfen") {
+            if (!BobRoutinePolicy.permits(
+                    BobRoutinePolicy.Action.PICK_IMAGES, BobRoutinePolicy.Origin.USER_TAP
+                )) return@button
             val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
                 type = "image/*"
@@ -230,6 +275,7 @@ class MainActivity : Activity() {
                     else "Die gleiche ISIN wurde auf allen Bildern erkannt."
                     "Bildserie: ${series.imageCount} Bilder · ISIN ${series.isin} · ${matched} mit eindeutig erkannter ISIN. $note\n\n$evidenceDraft"
                 }
+                if (evidenceDraft.isNotBlank()) DailyBobRoutine.recordOcr(this)
                 recognizer.close()
                 if (openAfterRead && evidenceDraft.isNotBlank()) openInBob(evidenceDraft)
                 return
