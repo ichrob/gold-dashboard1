@@ -46,4 +46,19 @@ class PhoneTaskProtocolTest {
     @Test fun whitespaceAroundSingleCommandIsFine() {
         assertEquals(PhoneTask.OPEN_BOB, PhoneTaskProtocol.parse("\n " + PhoneTaskProtocol.OPEN_BOB + " \n"))
     }
+
+    @Test fun naturalTextCanPrepareOneReadOnlyActionButNeverAChain() {
+        assertEquals(PhoneTask.OPEN_PRODUCTS,
+            PhoneTaskProtocol.parseDisplayed("Zeige mir meine Goldprodukte"))
+        assertEquals(PhoneTask.OPEN_MARKET,
+            PhoneTaskProtocol.parseDisplayed("Analysiere den Goldmarkt"))
+        assertEquals(PhoneTask.OPEN_SIMULATION,
+            PhoneTaskProtocol.parseDisplayed("Bitte zeige die Simulationen"))
+        assertNull(PhoneTaskProtocol.parseDisplayed(
+            "Zeige meine Goldprodukte und danach die Simulationen"))
+        assertNull(PhoneTaskProtocol.parseDisplayed(
+            "Zeige meine Goldprodukte und danach kaufe Gold"))
+        assertNull(PhoneTaskProtocol.parseDisplayed("Verkaufe alle Positionen"))
+    }
+
 }
