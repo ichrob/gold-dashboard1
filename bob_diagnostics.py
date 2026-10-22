@@ -437,10 +437,49 @@ def triage_snapshot(areas):
     sources = (areas.get('sourceReliability') or {}).get('sources') or {}
     bad = [name for name,value in sources.items()
            if isinstance(value,dict) and value.get('state') in ('stale','failed','degraded')]
-    if bad:
+    # Source-reliability tracks every observed feed, including backups.
+    # Match it to the actual source of the cached analysis bars before calling
+    # a failed backup a failure of the currently selected market feed.
+    active = {}
+    for frame, candle in ((areas.get('market') or {}).get('candles') or {}).items():
+        if not isinstance(candle,dict):
+            continue
+        evidence = candle.get('integrity') if isinstance(candle.get('integrity'),dict) else {}
+        source = evidence.get('source') or (candle.get('last') or {}).get('source')
+        if not isinstance(source,str):
+            continue
+        label = source.lower()
+        provider = 'biquote' if 'biquote' in label else 'xaus' if 'xaus' in label else None
+        if provider:
+            active[str(frame)] = provider
+    selected_bad, alternate_bad, unknown_bad = [], [], []
+    for name in bad:
+        if not isinstance(name,str) or '/' not in name:
+            unknown_bad.append(name)
+            continue
+        provider, tf = name.split('/',1)
+        selected = active.get(tf)
+        if selected == provider:
+            selected_bad.append(name)
+        elif selected and provider in ('biquote','xaus'):
+            alternate_bad.append(name)
+        else:
+            unknown_bad.append(name)
+    if selected_bad:
+        add('SOURCE_SELECTED_DEGRADED','high',None,
+            str(len(selected_bad))+' aktuell gewählte Kerzenquellen mit Warnzustand: '+
+            ', '.join(selected_bad[:5])+'.',
+            'Originalzeit und Integrität des verwendeten Zeitfensters prüfen; keine frischen Kurse annehmen.')
+    if alternate_bad:
+        add('SOURCE_ALTERNATIVE_STALE','info',None,
+            str(len(alternate_bad))+' alternative Kerzenquellen mit Warnzustand: '+
+            ', '.join(alternate_bad[:5])+'.',
+            'Verwendete Quelle getrennt prüfen; Ersatzquelle ist nicht automatisch ein aktiver Signalausfall.')
+    if unknown_bad:
         add('SOURCE_HEALTH_HISTORY','review',None,
-            str(len(bad))+' Datenquellen melden einen auffälligen Zustand: '+', '.join(bad[:5])+'.',
-            'Mit der tatsächlich ausgewählten aktuellen Kerzenquelle und Originalzeiten abgleichen.')
+            str(len(unknown_bad))+' Quellen ohne eindeutigen Abgleich zum aktiven Datenpfad: '+
+            ', '.join(unknown_bad[:5])+'.',
+            'Quellenzuordnung und originale Zeitstempel prüfen; Status nicht als gesund interpretieren.')
     sim = areas.get('simulationAndPush') or {}
     if sim.get('status') == 'unavailable':
         add('SIMULATION_OBSERVATION_MISSING','review',None,
