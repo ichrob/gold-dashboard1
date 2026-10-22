@@ -27,7 +27,7 @@ bleiben unverändert.
 | 14 | Varianten automatisiert prüfen | Getrennte Paper- und Strategie-Vorwärtstests vorhanden | Vergleichsmetriken/Kosten und belastbare Out-of-sample-Freigabe; keine automatische Regeländerung |
 | 15 | MCO-Videos | Kanalfilter, Untertitel und begrenzte Bild-Analyse vorhanden | Belegbare Transkripte und Filmframes ohne Authentifizierungsumgehung |
 | 16 | Problemzentrale | Bestehender unabhängiger Watchdog, Issues und idempotente Neustarts | Diagnose-/Reparaturstatus zentral vereinheitlichen; kein automatischer Chat-Zugriff |
-| 17 | Hintergrundjobs koordinieren | Separate, bereits funktionierende Worker mit Intervallen | Last/Quoten analysieren, Abrufe deduplizieren, Worker nicht ungetestet zusammenlegen |
+| 17 | Hintergrundjobs koordinieren | Separate Worker bleiben unverändert. Die CI unterbricht auf dem PR-Zweig nun veraltete PR-Läufe, ohne Hauptzweig-Prüfungen abzubrechen | Last/Quoten der eigentlichen Markt-/Forschungsjobs analysieren, Abrufe deduplizieren, Worker nicht ungetestet zusammenlegen |
 | 18 | Sichere Veröffentlichungen | CI, Smoke, Health Workflows vorhanden; Render deployt bei `main`-Commit | Echtes CI-vor-Deploy-Gate benötigt koordinierte Render-/GitHub-Konfiguration. Nicht blind abschalten |
 | 19 | Monolith zerlegen | Neue Funktionen erstmals als eigenständiges Modul mit eigenen Tests | `Bob.html`/`degiro_assistant.js` schrittweise nach Golden-Master-Tests refaktorieren |
 | 20 | Sicherung | Neue **freiwillige lokale** Export-/Importfunktion für ausschließlich heutige Orderentwürfe; strenge JSON-/ISIN-/Betragsvalidierung, kein Überschreiben aktueller Entwürfe | Browserprüfung und gesondertes Datenschutz-/Speicherkonzept für Originalbilder/weitere Daten |
