@@ -3,6 +3,8 @@
 'use strict';
 const ORDER_KEY='bob.degiro2.plan.v1';
 const VISIBLE_IDS_KEY='bob.unified.visible-products.v1';
+const UPLOADED_LIST_KEY='bob.unified.uploaded-list.v1';
+const PRODUCT_STORE_KEY='bobDegiroProductsV2';
 function zurichDay(date=new Date()){
  return new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Zurich',year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
 }
@@ -50,6 +52,28 @@ function visibleChange(previous,current){
   unchanged:latest.filter(x=>was.has(x)),current:latest};
 }
 
+function uploadedList(raw,now=Date.now()){
+ let d;try{d=typeof raw==='string'?JSON.parse(raw):raw;}catch(_){return null;}
+ if(d?.version!==2||!Array.isArray(d.products)||!d.products.length||d.products.length>500)return null;
+ if(typeof d.listUploadedAt!=='string'||!/(Z|[+-]\d{2}:\d{2})$/i.test(d.listUploadedAt))return null;
+ const at=Date.parse(d.listUploadedAt);
+ if(!Number.isFinite(at)||at>now||at<0)return null;
+ if(d.products.some(p=>!validIsin(p?.isin)))return null;
+ const ids=d.products.map(x=>x.isin);
+ if(new Set(ids).size!==ids.length)return null;
+ return {at:d.listUploadedAt,ids:ids.sort()};
+}
+function compareUploadedList(previous,current){
+ if(!current)return {state:'unknown',reason:'Kein vollständig lesbarer gespeicherter DEGIRO-Listenstand.'};
+ if(!previous)return {state:'baseline',current,reason:'Gespeicherte Screenshot-Liste als Ausgangsstand erkannt.'};
+ const past=Date.parse(previous.at),latest=Date.parse(current.at);
+ if(!Number.isFinite(past)||latest<past)return {state:'older',reason:'Gespeicherte Liste ist älter als der zuletzt geprüfte Stand; kein Überschreiben.'};
+ if(latest===past)return previous.ids?.join('|')===current.ids.join('|')?
+  {state:'same',reason:'Dieselbe gespeicherte Listenfassung; kein neuer Upload.'}:
+  {state:'conflict',reason:'Gleiche Uploadzeit mit abweichenden ISINs. Nicht automatisch übernehmen.'};
+ const diff=visibleChange(previous.ids,current.ids);
+ return {state:'changed',current,added:diff.added,removed:diff.removed,unchanged:diff.unchanged};
+}
 function operationalSnapshot(audit,problems,simulationText='',now=Date.now()){
  const ago=originalAge(audit?.lastCheckedAt,now);
  const actualAudit=audit?.status==='ok'&&Array.isArray(audit.items)&&
@@ -112,7 +136,7 @@ function serializeDraftBackup(drafts,now=new Date()){
  const clean=validateDraftBackup(JSON.stringify(content),drafts.day);
  return JSON.stringify({...content,drafts:clean},null,2);
 }
-const api={zurichDay,originalAge,validIsin,visibleChange,analyzeInputs,operationalSnapshot,validateDraftBackup,serializeDraftBackup};
+const api={zurichDay,originalAge,validIsin,visibleChange,uploadedList,compareUploadedList,analyzeInputs,operationalSnapshot,validateDraftBackup,serializeDraftBackup};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 root.BobUnifiedWorkspace=api;
 if(!root.document)return;
@@ -131,7 +155,8 @@ function mount(){
  '<div id="bobUnifiedOperations" class="small" role="status" aria-live="polite">Noch keine gemeinsame Statusprüfung.</div>'+
  '<label>Produkt aus Bobs bestehender Liste <select id="bobUnifiedProduct" style="width:100%;min-height:42px"><option value="">Bitte Produkt wählen</option></select></label>'+
  '<p class="small" id="bobUnifiedProductNote">Nur Produktidentität, keine automatische Freigabe.</p>'+
- '<p class="small" id="bobUnifiedVisibleDiff">Änderungsvergleich nach der nächsten bewussten Produktprüfung verfügbar.</p>'+
+ '<p class="small" id="bobUnifiedVisibleDiff">Änderungsvergleich nach der nächsten bewussten Produktprüfung verfügbar.</p>'+ 
+ '<p class="small" id="bobUnifiedUploadedDiff">Gespeicherte Screenshotliste wird bei der nächsten bewussten Prüfung verglichen.</p>'+
  '<button type="button" id="bobUnifiedToDraft">Produkt für Orderentwurf übernehmen</button>'+
  '<div class="row" style="display:flex;flex-wrap:wrap;gap:8px">'+
  '<button type="button" data-view="products">Gold-Hebelprodukte</button>'+
@@ -259,6 +284,24 @@ function mount(){
    status.textContent=assessment.analysis.ok?
     'Marktdaten geprüft. Produkte und Orderentwurf als Nächstes öffnen; keine automatische Freigabe.':
     'Prüfung unvollständig: '+assessment.spot.label+'; '+assessment.analysis.label+'. Keine Ordervorbereitung mit unbekanntem Kurs.';
+   const target=doc.getElementById('bobUnifiedUploadedDiff');
+   const currentUpload=uploadedList(root.localStorage.getItem(PRODUCT_STORE_KEY));
+   let previousUpload=null;
+   try{previousUpload=JSON.parse(root.localStorage.getItem(UPLOADED_LIST_KEY)||'null');}catch(_){}
+   const previousValid=previousUpload?.version===1&&uploadedList({
+    version:2,listUploadedAt:previousUpload.at,
+    products:(Array.isArray(previousUpload.ids)?previousUpload.ids:[]).map(isin=>({isin}))
+   });
+   const comparison=compareUploadedList(previousValid?{at:previousUpload.at,ids:previousValid.ids}:null,currentUpload);
+   if(comparison.state==='changed'){
+    target.textContent='Neue Screenshot-Listenfassung '+currentUpload.at+': '+
+      comparison.added.length+' neue ISIN · '+comparison.removed.length+' in der neuen Liste fehlende ISIN · '+
+      comparison.unchanged.length+' unverändert. Kein aktueller DEGIRO-Handelsnachweis.';
+   }else target.textContent=comparison.reason+' Die Liste ist kein aktueller Handelsplatz-/Kursnachweis.';
+   if(['baseline','changed'].includes(comparison.state)){
+    try{root.localStorage.setItem(UPLOADED_LIST_KEY,JSON.stringify({version:1,at:currentUpload.at,ids:currentUpload.ids}));}
+    catch(_){target.textContent+=' Merkliste konnte nicht gespeichert werden.';}
+   }
    const current=root.BobDegiro?.tradeTestProducts?.()||[];
    const ids=(Array.isArray(current)?current:[]).map(x=>x.isin);
    if(ids.length){
