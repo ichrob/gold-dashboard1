@@ -104,6 +104,11 @@ const terminated=a.mergeProductIdentities([],null,{
 },operationsNow);
 assert.equal(terminated.items[0].auditState,'terminated');
 assert.equal(terminated.items[0].quote,null);
+assert.equal(a.compactProductLabel(terminated.items[0]),
+ 'DE000FG14AV8 · Produkt beendet');
+assert(!a.compactProductLabel(terminated.items[0]).includes('LONG'),
+ 'Ended product cannot advertise old direction or quotes');
+assert(a.compactProductLabel(auditOnly.items[0]).includes('keine Handelsfreigabe'));
 const incompleteEvidence=a.mergeProductIdentities([],null,{
  status:'ok',lastCheckedAt:'2026-10-22T09:49:35Z',
  items:[{isin:'DE000FG14AV8',direction:'LONG',state:'incomplete'}]
