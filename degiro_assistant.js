@@ -529,7 +529,7 @@ function rememberKnockout(e){
 // A verified knock-out needs only a compact, collapsed display; never
 // request new quotes or show the ordinary red evidence-error badge.
 function terminalProductCard(p,label,kind='ended'){
- const flag=kind==='knocked-out'?' data-product-knocked-out':' data-product-ended';
+ const flag=kind==='knocked-out'?' data-product-knocked-out':kind==='factor'?' data-product-factor-unused':' data-product-ended';
  return '<details data-product-isin="'+esc(p.isin)+'"'+flag+
    ' style="margin-top:8px;padding:8px 12px;border:1px solid #cbd5e1;border-radius:10px;background:#fff">'+
    '<summary style="cursor:pointer;font-weight:700;min-height:32px;align-content:center">'+esc(p.isin)+' · '+esc(label)+'</summary>'+
@@ -2456,6 +2456,11 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  if(excluded){
   if(direct?.metadata?.status===2||(typeof serverIssuerTerminated==='function'&&serverIssuerTerminated(p)))
    return terminalProductCard(p,'Produkt beendet');
+  // Faktorprodukte are intentionally excluded from gold-leverage selection.
+  // Render only a closed, neutral card (ISIN + reason), never a red X or
+  // source-quote warnings, while preserving the underlying ranking exclusion.
+  if(excluded==='Faktorprodukt ausgeschlossen')
+   return terminalProductCard(p,'Faktor Goldprodukt nicht verwendet','factor');
   return '<div data-product-isin="'+esc(p.isin)+'" style="padding:14px;margin-top:10px;border:1px solid #dc2626;border-radius:12px">'+renderProductIdentity(p)+'<p>'+esc(excluded)+'</p><p>Keine weiteren Daten oder Screenshots erforderlich.</p>'+renderProductSources(p)+'</div>';
  }
  const selected=status==='Freigegeben · ausgewählt';
