@@ -25,6 +25,22 @@ class ResearchReadoutTests(unittest.TestCase):
         self.assertTrue(sql.startswith('SELECT'));self.assertIn('LIMIT 1',sql)
         self.assertEqual(conn.execute.call_count,1)
 
+
+    def test_read_only_self_review_survives_stored_projection(self):
+        report={'learningCycle':{'selfReview':{'mode':'RESEARCH_ONLY',
+            'status':'collecting','sessions':7,'automaticOrder':False,
+            'comparedScenarios':{'standard':{'relativeDifferencePct':-1.2}},
+            'password':'must-not-leak'}}}
+        conn=Mock();conn.execute.return_value.fetchall.return_value=[({
+            'day':'2026-10-22','calculatedAt':'2026-10-22T11:00:00Z',
+            'report':report},)]
+        result=readout.read(conn)['items'][0]['report']['learningCycle']['selfReview']
+        self.assertEqual(result['status'],'collecting')
+        self.assertEqual(result['sessions'],7)
+        self.assertEqual(result['comparedScenarios']['standard']['relativeDifferencePct'],-1.2)
+        self.assertFalse(result['automaticOrder'])
+        self.assertNotIn('must-not-leak',json.dumps(result))
+
     def test_empty_archive_is_explicit(self):
         c=Mock();c.execute.return_value.fetchall.return_value=[]
         self.assertEqual(readout.read(c)['status'],'empty')
