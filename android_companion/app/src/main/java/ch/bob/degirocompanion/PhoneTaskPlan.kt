@@ -16,8 +16,9 @@ internal data class PhoneTaskPlan(val steps: List<PhoneTask>) {
 
 internal object PhoneTaskPlanParser {
     private val separators = Regex(
-        "(?:\\s*,\\s*und\\s+dann\\s+|\\s+und\\s+danach\\s+|\\s+und\\s+dann\\s+|" +
-        "\\s+und\\s+|\\s+danach\\s+|\\s+anschließend\\s+|,\\s*dann\\s+)"
+        "(?:\\.\\s*(?:und\\s+)?(?:dann|danach|anschließend)\\s+|" +
+        "\\s*,\\s*und\\s+dann\\s+|\\s+und\\s+danach\\s+|\\s+und\\s+dann\\s+|" +
+        "\\s+und\\s+|\\s+danach\\s+|\\s+anschließend\\s+|,\\s*dann\\s+|,\\s+)"
     )
 
     fun isStop(input: String): Boolean {
@@ -48,8 +49,9 @@ internal object PhoneTaskPlanParser {
     }
 
     private fun parseClause(raw: String): PhoneTask? {
-        val text = raw.replace(Regex("^(?:bitte |kannst du bitte |würdest du bitte |zuerst |als erstes |und jetzt |und danach |und dann |jetzt |zeige mir bitte |zeig mir bitte )"), "")
-            .replace(Regex("^dann "), "")
+        val text = raw.replace(Regex("^(?:(?:bitte|kannst du bitte|würdest du bitte|zuerst|" +
+            "als erstes|und jetzt|und danach|und dann|jetzt|zeige mir bitte|" +
+            "zeig mir bitte|dann)\\s+)+"), "")
             .replace(Regex(" bitte$"), "")
             .trim()
         return when (text) {
