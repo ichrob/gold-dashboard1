@@ -242,6 +242,10 @@ def sync_issue(codes, *, token, repo, at=None, requester=github_request):
 
     def close_duplicates(rows):
         for _title, number, canonical in rows:
+            # Close first. If the later comment fails, the next run will not
+            # append another status marker to an already documented duplicate.
+            requester("PATCH", "/issues/" + str(number), token=token,
+                      repo=repo, data={"state": "closed", "state_reason": "duplicate"})
             requester("POST", "/issues/" + str(number) + "/comments",
                       token=token, repo=repo, data={
                           "body": (
@@ -250,8 +254,6 @@ def sync_issue(codes, *, token, repo, at=None, requester=github_request):
                               + " UTC.\n\n<!-- BOB_KI_STATUS:duplicate -->"
                           )
                       })
-            requester("PATCH", "/issues/" + str(number), token=token,
-                      repo=repo, data={"state": "closed", "state_reason": "duplicate"})
             actions.append("closed-duplicate-" + str(number))
 
     close_duplicates(duplicates)
