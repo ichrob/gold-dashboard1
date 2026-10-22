@@ -1,5 +1,22 @@
 # Bob Android-Begleitlabor (nicht produktiv)
 
+## Ergänzung 22.10.2026: ChatGPT/Bob-Handy-Aufträge – ohne Doppelentwicklung
+
+Diese Teilstufe **erweitert die vorhandene** App `android_companion`; sie startet **keine zweite App** und überschreibt **nicht** die separat laufende Vereinfachung von Bob in PR #728.
+
+**Bereits funktionsfähig im Quellcode:** Ein Nutzer kann in ChatGPT/Bob einen der folgenden exakt geschriebenen Einzeiler kopieren und in der Android-Begleit-App einfügen, oder den Einzeiler ausdrücklich über Android **Teilen → Bob: Android-Labor** senden:
+
+- `BOB-AUFTRAG: BOB_OEFFNEN` – öffnet die bestehende Bob-Web-App im Browser.
+- `BOB-AUFTRAG: PRODUKTBILDER_WAEHLEN` – öffnet den bereits vorhandenen Android-Bildwähler der lokalen OCR.
+- `BOB-AUFTRAG: ANDROID_EINSTELLUNGEN_OEFFNEN` – öffnet nur die Einstellungen, ändert dort aber nichts.
+
+Die App zeigt zunächst **eine Vorschau mit Klartext**. Erst nach einer separaten Berührung auf „Geprüften Handy-Auftrag einmalig ausführen“ wird genau **eine** der drei Aktionen ausgelöst. Änderungen an der Eingabe, beliebige Sätze, längere Skripte, zusätzliche Befehle, Käufe, Verkäufe und Login-Automationen werden abgewiesen. Nach Ausführung wird die Freigabe verbraucht; keine wiederholte oder verdeckte Abarbeitung. Falls Android die Ziel-App nicht öffnen kann, erscheint eine Fehlermeldung.
+
+Das ist eine **lokale, nutzerbestätigte Auftragsübergabe**, **noch keine ChatGPT-Fernsteuerung**: Es existiert weder ein dauerhaft gekoppelter ChatGPT-Befehlskanal zum Smartphone noch ein Android-Accessibility-Service zur Bedienung von Drittanbieter-Apps. Das Labor erhält weiterhin keine Netzwerk-, Overlay-, Bildschirmaufnahme- oder Accessibility-Berechtigungen. Besonders DEGIRO wird **nicht automatisiert bedient**, und keine Echtgeldorder wird vorbereitet/ausgeführt. Bobs bestehende Broker-/OCR-/Handelsfreigaben bleiben unverändert.
+
+**Prüfung:** `gradle -p android_companion :app:testDebugUnitTest :app:assembleDebug` sowie GitHub Actions `android-companion.yml`. Zusätzlich auf dem Samsung die **neue APK** installieren, einmal eine gültige und einmal eine unerlaubte Textfreigabe probieren und prüfen, ob das Gerät wirklich die vorgesehenen Apps öffnet. Ein erfolgreicher APK-Build ist kein Gerätetest.
+
+
 ## Nachbesserung 22.10.2026: „BNP OTC“ bei erfolgreicher Kurslesung
 
 Die reale Samsung-Prüfung von zwei DEGIRO-Bildern zeigte korrekte ISIN, Geld 7,04 EUR, Brief 7,05 EUR, Zuletzt 7,04 EUR und sichtbare Anzeigezeit 22/10/2026 10:35. **Nur der Handelsplatz fehlte**, obwohl er auf dem Detailbild steht.
