@@ -6,7 +6,7 @@ const html=fs.readFileSync('Bob.html','utf8');
 const start=html.indexOf('  function longComparisonFromCurrentUi(out){');
 const end=html.indexOf('  function renderRequestedLongComparison(){',start);
 assert(start>0&&end>start);
-assert(html.includes("if(key==='products-long')key='products'"));
+assert(html.includes("['products-long','products-leverage'].includes(key)"), 'Both read-only product subviews must navigate into the existing products panel');
 assert(html.includes("renderRequestedLongComparison()"));
 const factory=vm.runInNewContext(html.slice(start,end)+'\nlongComparisonFromCurrentUi',Object.create(null));
 const fake=(direction,descriptions)=>({
