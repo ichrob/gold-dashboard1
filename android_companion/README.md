@@ -1,3 +1,9 @@
+## 0.10 – Geräte-Diagnose ausdrücklich an ChatGPT teilen (Testfassung)
+
+In der bestehenden Android-Labor-App erscheint der Knopf **„🔎 Diagnose an ChatGPT teilen“**. Der Bericht enthält ausschließlich die App-Version, grobe Ergebniskennungen für den zuletzt gestarteten Handy-Auftrag, Spracherkennung und OCR-Bildserie, eine begrenzte Bildanzahl und noch offene Bestätigungsschritte. **Keine** Sprachnachricht, Abschrift, OCR-Inhalte, ISIN, Kurse, Bilder, Login-, Kontodaten oder Orderinformationen. Alles bleibt bis zu einem bewussten Tippen lokal; Android zeigt danach einen Empfänger-Auswahldialog. Erst durch Auswahl der ChatGPT-App und manuelles Senden wird der Text weitergegeben. Das ist **kein permanenter Fernzugriff, keine automatische Fehlerübertragung und keine Bestätigung, dass der Browser erfolgreich geladen hat.**
+
+Diese Android-Änderung ist erst nach Installation einer **neuen APK** auf dem Samsung verfügbar. Die bisherige App wird nicht durch die Web-Server-Veröffentlichung aktualisiert. Version, statische Berechtigungsgrenzen und sichere Statuskennungen werden über die Android CI geprüft; die Funktion muss auf einem realen Samsung zusätzlich von Hand getestet werden.
+
 ## 0.9 (Test): deutlich weniger Tippen, natürliche Einzelaufträge
 
 Die vier beschrifteten Schnellzugriffe **Bob direkt öffnen**, **Goldprodukte direkt öffnen**, **Mein Trade direkt öffnen** und **Simulationen direkt öffnen** öffnen ausschließlich eine feste Bob-Seite nach einem einzigen bewussten Tastendruck. Eine erfolgreiche Anzeige der Zielseite wird dadurch **nicht** bestätigt; bei Bedarf die bestehende Bob-Anmeldung im Browser durchführen. Es gibt keine verdeckten Folgeaktionen und keinen Zugriff auf andere Apps.

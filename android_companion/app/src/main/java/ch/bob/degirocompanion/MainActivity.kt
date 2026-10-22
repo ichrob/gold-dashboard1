@@ -48,6 +48,11 @@ class MainActivity : Activity() {
     private var voiceSteps = emptyList<PhoneTask>()
     private var voiceStepIndex = 0
     private var internalCommandChange = false
+    // Ephemeral, coarse status only: never store transcripts or screenshots.
+    private var commandOutcome = DeviceDiagnosticShare.Outcome.NOT_TESTED
+    private var speechOutcome = DeviceDiagnosticShare.Outcome.NOT_TESTED
+    private var imageOutcome = DeviceDiagnosticShare.Outcome.NOT_TESTED
+    private var lastDiagnosticImageCount = 0
 
     private fun clearVoicePlan() {
         voiceSteps = emptyList()
@@ -156,6 +161,8 @@ class MainActivity : Activity() {
             stack.addView(this)
         }
         commandStatus = label("Noch kein Handy-Auftrag geprüft. Erst prüfen, dann jede Aktion einzeln bestätigen.")
+        // User must deliberately select a recipient in Android's share sheet.
+        button("🔎 Diagnose an ChatGPT teilen") { shareDeviceDiagnostics() }
         button("🎤 Auftrag sprechen") { openSpeechRecognizer() }
         button("🔊 Bobs Rückmeldung vorlesen") { speakCurrentStatus() }
         // A deliberate tap on these view-only shortcuts is the approval.
@@ -178,6 +185,7 @@ class MainActivity : Activity() {
         button("Geprüften Handy-Auftrag einmalig ausführen") {
             val current = parseDisplayedTask(commandInput.text.toString())
             if (current == null || !taskApproval.consume(current, SystemClock.elapsedRealtime())) {
+                commandOutcome = DeviceDiagnosticShare.Outcome.REJECTED
                 commandStatus.text = "Auftrag fehlt, wurde geändert, ist abgelaufen oder ist unzulässig. Erneut prüfen."
             } else {
                 // No next step is ever launched automatically. On return from
@@ -196,6 +204,8 @@ class MainActivity : Activity() {
                     PhoneTask.OPEN_RESEARCH -> openBobPage("research")
                     PhoneTask.OPEN_MARKET -> openBobPage("overview")
                 }
+                commandOutcome = if (launched) DeviceDiagnosticShare.Outcome.STARTED_NOT_VERIFIED
+                    else DeviceDiagnosticShare.Outcome.FAILED
                 if (!launched) {
                     commandStatus.text = "Der Auftrag konnte nicht gestartet werden. Keine weitere Aktion ausgelöst. Erneut prüfen."
                 } else if (voiceSteps.getOrNull(voiceStepIndex) == current) {
@@ -226,6 +236,7 @@ class MainActivity : Activity() {
             conversation.clear()
             speaker?.stop()
             setCommandTextInternally("Bob öffnen")
+            commandOutcome = DeviceDiagnosticShare.Outcome.STOPPED
             commandStatus.text = "Gestoppt. Keine weiteren Schritte geplant. Eine schon geöffnete App wird nicht rückgängig gemacht."
         }
         label("Freigaben gelten einmalig und höchstens 60 Sekunden. Bei Textänderung, App-Wechsel oder STOPP werden sie ungültig.")
@@ -274,11 +285,13 @@ class MainActivity : Activity() {
         if (requestCode == recognizeSpeechRequest) {
             taskApproval.clear()
             if (resultCode != RESULT_OK) {
+                speechOutcome = DeviceDiagnosticShare.Outcome.REJECTED
                 commandStatus.text = "Sprachauftrag abgebrochen. Nichts ausgeführt."
                 return
             }
             val spoken = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
                 ?.firstOrNull().orEmpty()
+            speechOutcome = DeviceDiagnosticShare.Outcome.RECOGNIZED
             val inquiry = spoken.lowercase(Locale.GERMAN).trim()
                 .replace(Regex("[.!?]+$"), "").replace(Regex("\\s+"), " ")
             if (inquiry in setOf("was kannst du", "bob was kannst du",
@@ -301,6 +314,7 @@ class MainActivity : Activity() {
             }
             clearVoicePlan()
             if (PhoneTaskPlanParser.isStop(spoken)) {
+                speechOutcome = DeviceDiagnosticShare.Outcome.STOPPED
                 conversation.clear()
                 speaker?.stop()
                 setCommandTextInternally("Bob öffnen")
@@ -309,6 +323,7 @@ class MainActivity : Activity() {
             }
             val plan = conversation.interpret(spoken, SystemClock.elapsedRealtime())
             if (plan == null) {
+                speechOutcome = DeviceDiagnosticShare.Outcome.REJECTED
                 setCommandTextInternally(spoken.take(100))
                 commandStatus.text = "Sprachauftrag unklar oder nicht erlaubt. Nichts ausgeführt. Erlaubt sind nur bekannte Bob-Seiten, lokale Bildauswahl und Einstellungen. Zum Beispiel: Zeige Goldprodukte und danach Simulationen."
             } else {
@@ -345,6 +360,7 @@ class MainActivity : Activity() {
         try {
             startActivityForResult(request, recognizeSpeechRequest)
         } catch (_: Exception) {
+            speechOutcome = DeviceDiagnosticShare.Outcome.UNAVAILABLE
             commandStatus.text = "Auf diesem Samsung ist keine passende Spracherkennung verfügbar. Du kannst weiterhin die beiden Buttons verwenden."
         }
     }
@@ -388,9 +404,11 @@ class MainActivity : Activity() {
         taskApproval.clear()
         clearVoicePlan()
         if (openBobPage(section)) {
+            commandOutcome = DeviceDiagnosticShare.Outcome.STARTED_NOT_VERIFIED
             conversation.recordLaunched(task, SystemClock.elapsedRealtime())
             commandStatus.text = "${task.description} wurde gestartet. Ob die Seite vollständig geladen ist, siehst du im Browser. Keine Folgeaktion."
         } else {
+            commandOutcome = DeviceDiagnosticShare.Outcome.FAILED
             commandStatus.text = "Bob konnte diese Seite nicht öffnen. Keine Folgeaktion."
         }
     }
@@ -410,6 +428,28 @@ class MainActivity : Activity() {
         } catch (_: Exception) {
             commandStatus.text = "Bob konnte im Browser nicht geöffnet werden."
             false
+        }
+    }
+
+    private fun shareDeviceDiagnostics() {
+        // The app has no network permission. This only opens the chooser.
+        val version = runCatching {
+            packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()
+        }.getOrDefault("unknown")
+        val message = DeviceDiagnosticShare.report(
+            version, commandOutcome, speechOutcome, imageOutcome,
+            lastDiagnosticImageCount,
+            if (voiceSteps.isEmpty()) 0 else
+                (voiceSteps.size - voiceStepIndex).coerceIn(0, 5)
+        )
+        val share = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, message)
+        }
+        try {
+            startActivity(Intent.createChooser(share, "Diagnoseziel bewusst auswählen"))
+        } catch (_: Exception) {
+            commandStatus.text = "Diagnose konnte nicht geteilt werden. Keine Übertragung."
         }
     }
 
@@ -471,11 +511,14 @@ class MainActivity : Activity() {
 
     private fun readImages(uris: List<Uri>, openAfterRead: Boolean = false) {
         val serial = ++imageReadSequence
+        imageOutcome = DeviceDiagnosticShare.Outcome.NOT_TESTED
+        lastDiagnosticImageCount = uris.size.takeIf { it in 1..4 } ?: 0
         evidenceDraft = ""
         if (uris.isEmpty() || uris.size > 4) {
             status.text = "Bitte ein bis vier Produktbilder auswählen."
             return
         }
+        imageOutcome = DeviceDiagnosticShare.Outcome.STARTED_NOT_VERIFIED
         status.text = "${uris.size} Bild(er) werden lokal gelesen. Nichts wird hochgeladen."
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         val texts = mutableListOf<String>()
@@ -483,6 +526,7 @@ class MainActivity : Activity() {
 
         fun fail(reason: String) {
             if (serial == imageReadSequence) {
+                imageOutcome = DeviceDiagnosticShare.Outcome.FAILED
                 evidenceDraft = ""
                 status.text = reason
             }
@@ -523,6 +567,8 @@ class MainActivity : Activity() {
                         anchorCount = series.anchorCount
                     )
                 }.getOrDefault("")
+                imageOutcome = if (evidenceDraft.isBlank()) DeviceDiagnosticShare.Outcome.REJECTED
+                    else DeviceDiagnosticShare.Outcome.RECOGNIZED
                 status.text = if (evidenceDraft.isBlank()) {
                     "OCR-Daten uneindeutig oder widersprüchlich. Bitte Bilder einzeln prüfen."
                 } else {
