@@ -167,12 +167,6 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun imageIsins(raw: String): Set<String> {
-        val upper = raw.uppercase(Locale.ROOT)
-        return Regex("(?<![A-Z0-9])[A-Z]{2}[A-Z0-9]{9}[0-9](?![A-Z0-9])")
-            .findAll(upper).map { it.value }.filter(::validIsin).toSet()
-    }
-
     private fun readImages(uris: List<Uri>, openAfterRead: Boolean = false) {
         val serial = ++imageReadSequence
         evidenceDraft = ""
@@ -197,17 +191,30 @@ class MainActivity : Activity() {
                 return
             }
             if (index == uris.size) {
-                val identities = texts.map(::imageIsins)
-                if (identities.any { it.size != 1 } ||
-                    identities.map { it.single() }.distinct().size != 1) {
-                    fail("Bilder enthalten keine eindeutig gleiche ISIN. Jedes Bild muss dasselbe einzelne Produkt zeigen.")
+                // One unambiguous valid ISIN anchors a deliberately selected
+                // series. Neighboring screenshots without OCR-identifiable ISIN
+                // remain only provisionally associated. A different readable
+                // instrument blocks the entire series.
+                val series = SeriesEvidence.analyze(texts)
+                if (series == null) {
+                    fail("Die Bildserie hat keine eindeutige gemeinsame ISIN oder zeigt widersprüchliche Produkte. Bitte ein Bild mit sichtbarer ISIN ergänzen.")
                     return
                 }
-                evidenceDraft = runCatching { draftFromOcr(texts.joinToString("\n")) }.getOrDefault("")
+                evidenceDraft = runCatching {
+                    draftFromOcr(
+                        texts.joinToString("\n"),
+                        imageCount = series.imageCount,
+                        anchorCount = series.anchorCount
+                    )
+                }.getOrDefault("")
                 status.text = if (evidenceDraft.isBlank()) {
                     "OCR-Daten uneindeutig oder widersprüchlich. Bitte Bilder einzeln prüfen."
                 } else {
-                    evidenceDraft
+                    val matched = series.anchorCount
+                    val note = if (series.provisional)
+                        "Die übrigen Bilder wurden als bewusst ausgewählte Serie vorläufig zugeordnet."
+                    else "Die gleiche ISIN wurde auf allen Bildern erkannt."
+                    "Bildserie: ${series.imageCount} Bilder · ISIN ${series.isin} · ${matched} mit eindeutig erkannter ISIN. $note\n\n$evidenceDraft"
                 }
                 recognizer.close()
                 if (openAfterRead && evidenceDraft.isNotBlank()) openInBob(evidenceDraft)
@@ -231,14 +238,10 @@ class MainActivity : Activity() {
         scan(0)
     }
 
-    private fun draftFromOcr(raw: String): String {
-        val rawUpper = raw.uppercase(Locale.ROOT)
-        val isinPattern = Regex("(?<![A-Z0-9])[A-Z]{2}[A-Z0-9]{9}[0-9](?![A-Z0-9])")
-        val isins = isinPattern.findAll(rawUpper)
-            .map { it.value }.filter(::validIsin).distinct().take(12).toList()
-        // Numeric OCR fields from a multi-product screenshot must not be assigned
-        // to an arbitrary instrument. Never export an ambiguous interpretation.
-        if (isins.size != 1) return ""
+    private fun draftFromOcr(raw: String, imageCount: Int, anchorCount: Int): String {
+        val isins = SeriesEvidence.validCandidates(raw)
+        if (isins.size != 1 || imageCount !in 1..4 ||
+            anchorCount !in 1..imageCount) return ""
 
         fun observed(label: String, regex: Regex): String {
             val values = regex.findAll(raw).mapNotNull { it.groupValues.getOrNull(1)?.trim() }
@@ -256,6 +259,7 @@ class MainActivity : Activity() {
         val last = observed("Zuletzt", Regex("^\\s*(?:Zuletzt|Last)\\s*[:：]?\\s*(?:€\\s*)?($numeric)\\s*(?:EUR|CHF)?\\s*$", opts))
         val identity = if (isins.isEmpty()) "Keine prüfziffergültige ISIN gefunden" else "ISIN: " + isins.joinToString(", ")
         return "BOB OCR-ENTWURF – NICHT VERIFIZIERT\n$identity$bid$ask$lev$ko$venue$last\n" +
+            "Bildserie (OCR ungeprüft): $imageCount Bilder, $anchorCount mit gültiger ISIN\n" +
             "Bildzeit/Originalquelle wurden nicht verifiziert. " +
             "Kein automatischer Handelsnachweis, keine Freigabe, keine Order."
     }
