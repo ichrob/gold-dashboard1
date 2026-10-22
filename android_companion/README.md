@@ -1,3 +1,29 @@
+## Erweiterung 22.10.2026: zusammenhängende deutsche Sprachaufträge (Entwicklungsstand)
+
+Die bestehende Offline-Android-App kann jetzt **bis zu drei eindeutig erlaubte, unterschiedliche Schritte**
+in **einem gesprochenen Satz** erkennen, z. B. „Bob, öffne zuerst Bob und danach
+wähle meine Produktbilder aus“. Sie zeigt die gesamte erkannte Schrittfolge an.
+**Vor jedem einzelnen Schritt** sind ausdrücklich „Handy-Auftrag prüfen“ und
+„Geprüften Handy-Auftrag einmalig ausführen“ nötig. Der nächste Schritt wird
+nur vorausgewählt und niemals selbst gestartet. Jede Freigabe ist einmalig
+und maximal 60 Sekunden gültig; App-Wechsel widerruft eine offene Freigabe.
+„STOPP“ verwirft alle noch offenen Schritte (kein Rückgängigmachen bereits
+geöffneter Apps).
+
+Die vollständige Äußerung wird abgelehnt, falls **irgendein** Teil unbekannt,
+handelsbezogen, ein Login-/Passwortauftrag oder mehr als drei Schritte ist.
+Keine künstliche Schätzung eines unbekannten Befehls; keine generelle
+KI-Fernsteuerung, keine Dauer-Mikrofonüberwachung, keine selbstständige
+DEGIRO-Bedienung. Gesprochene Stopp-Befehle wirken **nur nach Antippen des
+Mikrofon-Buttons**, nicht als permanentes Hotword. Die Android-Spracherkennung
+kann trotz Offline-Präferenz die Daten beim Geräte-Anbieter verarbeiten.
+
+Automatische Gradle-Tests prüfen harmlose Verknüpfungen, verbotene Mischsätze,
+Duplikate, die Einzelaktionssperre und STOPP. Ein erfolgreicher CI-Lauf
+ersetzt **nicht** den Test des Sprachdienstes auf dem Samsung. Für 0.7
+ist eine neu signierte APK erforderlich; ein Signaturwechsel kann bei
+bestehender Testinstallation die Aktualisierung verhindern.
+
 ## Zweite sichere Ausbaustufe: schnelle Auswahl und Not-Stopp (22.10.2026)
 
 Auftragseingabe in derselben Android-App jetzt auch über Klartext-Schaltflächen: **Bob öffnen**, **Produktbilder auswählen**, **Android-Einstellungen öffnen**. Jede Schaltfläche wählt **nur** die gewünschte Aktion aus; erst eine eigene **Prüfung** und anschließend die **einmalige Ausführung** starten etwas. Text-/Sprachänderungen verwerfen die Freigabe. Die Freigabe ist maximal **60 Sekunden** gültig, einmalig verwendbar und verfällt bei App-Wechsel, fehlgeschlagener Ausführung oder dem klar sichtbaren **STOPP – Auftrag verwerfen**. Unit-Tests decken Wiederholung, anderes Ziel, Ablauf, Zeitrücksprung und Widerruf ab.
