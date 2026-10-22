@@ -1,3 +1,9 @@
+## Zweite sichere Ausbaustufe: schnelle Auswahl und Not-Stopp (22.10.2026)
+
+Auftragseingabe in derselben Android-App jetzt auch über Klartext-Schaltflächen: **Bob öffnen**, **Produktbilder auswählen**, **Android-Einstellungen öffnen**. Jede Schaltfläche wählt **nur** die gewünschte Aktion aus; erst eine eigene **Prüfung** und anschließend die **einmalige Ausführung** starten etwas. Text-/Sprachänderungen verwerfen die Freigabe. Die Freigabe ist maximal **60 Sekunden** gültig, einmalig verwendbar und verfällt bei App-Wechsel, fehlgeschlagener Ausführung oder dem klar sichtbaren **STOPP – Auftrag verwerfen**. Unit-Tests decken Wiederholung, anderes Ziel, Ablauf, Zeitrücksprung und Widerruf ab.
+
+Wichtig: Der Stoppknopf widerruft einen **noch nicht ausgeführten** Auftrag. Er kann eine bereits geöffnete fremde App oder eine bereits ausgelöste Android-Systemaktion nicht rückgängig machen. Es gibt weiterhin **keinen Bedienungshilfendienst**, keine Hintergrund-Auftragsschleife, keine DEGIRO-Bedienung und keine automatische Anmeldung.
+
 ## Ergänzung 22.10.2026: Gesprochene, ausdrücklich bestätigte Handy-Aufträge
 
 Die bereits vorhandene Android-Labor-App (kein Zweitprojekt) erhält einen Button **„🎤 Auftrag sprechen“**. Dieser öffnet nach ausdrücklichem Tippen Androids System-Spracherkennung per `RecognizerIntent.ACTION_RECOGNIZE_SPEECH`. **Keine dauerhafte Mikrofonüberwachung**, keine App-eigene Aufnahme und keine neue Mikrofon-, Internet- oder Accessibility-Berechtigung. Die bevorzugte Offline-Erkennung ist nur eine Bitte an den auf dem Samsung installierten Sprachdienst: **Der Android-/Drittanbieter-Sprachanbieter kann Audio dennoch online verarbeiten**. Das wird in der App angezeigt; ohne installierten Dienst bleibt die bisherige Text-/Button-Bedienung möglich.
