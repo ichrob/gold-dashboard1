@@ -419,14 +419,24 @@ def examine(product, quote, now_ms):
         "state": "terminated" if terminated else ("analysis-evidence-complete" if calculated_leverage and not issuer_leverage_at else "issuer-evidence-complete") if not codes else "incomplete",
         "missing": codes,
         "messages": [CODES[code] for code in codes],
-        "quoteSourceAt": data_pair.get("bidAt") if "quote-time" not in codes else None,
+        # Removing dependent missing codes must never make an old quote look current.
+        "quoteSourceAt": (data_pair.get("bidAt") if not (terminated or secondary_inactive)
+                          and (quote_ok or backup_pair)
+                          and _recent(data_pair.get("bidAt"), now_ms, QUOTE_MAX_MS)
+                          and _recent(data_pair.get("askAt"), now_ms, QUOTE_MAX_MS)
+                          else None),
         "identityEvidence": "source-matched" if identity_matches else "list-confirmed" if product.get('isinConfirmed') else "missing",
-        "dataQuoteSource": data_pair.get('source') if quote_ok or backup_pair else None,
-        "dataQuoteKind": "market-observation" if backup_pair else "issuer" if quote_ok else None,
+        "dataQuoteSource": (data_pair.get('source') if (quote_ok or backup_pair)
+                            and not (terminated or secondary_inactive) else None),
+        "dataQuoteKind": (None if terminated or secondary_inactive else
+                          "market-observation" if backup_pair else "issuer" if quote_ok else None),
         "executionNote": "Datenabgleich abgeschlossen; keine Bestätigung eines ausführbaren DEGIRO-Kurses",
         "leverageObservation": (shared_leverage if shared_leverage and shared_leverage["current"]
                                 else calculated_leverage or shared_leverage),
-        "leverageSourceAt": issuer_leverage_at if "leverage-time" not in codes else None,
+        "leverageSourceAt": (issuer_leverage_at if not (terminated or secondary_inactive)
+                              and "leverage-time" not in codes
+                              and _recent(issuer_leverage_at, now_ms, QUOTE_MAX_MS)
+                              else None),
         "issuerLeverageObservation": (dict(value=quote.get("leverage"), at=issuer_leverage_at,
                                            source=quote.get("source"))
                                       if _positive(quote.get("leverage"))
