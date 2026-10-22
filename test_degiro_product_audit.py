@@ -435,6 +435,57 @@ class ProductAuditTests(unittest.TestCase):
                 bad['isin'] = 'DE000FC1CHB7'
             self.assertNotEqual(audit.examine(feed()['products'][0], bad, NOW)['state'], 'terminated')
 
+    def test_comdirect_inactive_is_explicit_conflict_not_issuer_termination(self):
+        q = provider()
+        q.update(found=False, marketOpen=None, bid=None, ask=None,
+                 leverage=None, leverageAt=None)
+        q["comdirectFieldsBackup"] = dict(
+            isin=ISIN, state="inactive", inactive=True,
+            source="https://www.comdirect.de/inf/zertifikate/"+ISIN,
+            checkedAt=iso(NOW))
+        item = audit.examine(feed()["products"][0], q, NOW)
+        self.assertEqual(item["state"], "incomplete")
+        self.assertIn("source-status-conflict", item["missing"])
+        self.assertIn("quote", item["missing"])
+        self.assertFalse(item["sourceStatusEvidence"]["issuerTerminal"])
+        self.assertTrue(item["sourceStatusEvidence"]["secondaryInactive"])
+        self.assertIn("Quellenkonflikt", item["messages"][0])
+        self.assertFalse(item["tradeApproved"])
+        # A stale or wrong-product secondary flag must not be promoted.
+        for invalid in (dict(isin="DE000FG14AV8"), dict(inactive=False),
+                        dict(state="unavailable")):
+            bad = dict(q)
+            bad["comdirectFieldsBackup"] = dict(q["comdirectFieldsBackup"], **invalid)
+            self.assertNotIn("source-status-conflict",
+                             audit.examine(feed()["products"][0], bad, NOW)["missing"])
+
+    def test_issuer_confirmed_terminal_has_one_block_without_fake_quote_gaps(self):
+        q = provider()
+        q["metadata"]["status"] = 2
+        q.update(found=False, marketOpen=False, bid=None, ask=None,
+                 leverage=None, leverageAt=None)
+        q["comdirectFieldsBackup"] = dict(isin=ISIN, state="inactive", inactive=True)
+        row = audit.examine(feed()["products"][0], q, NOW)
+        self.assertEqual(row["state"], "terminated")
+        self.assertEqual(row["missing"], ["terminated"])
+        self.assertTrue(row["sourceStatusEvidence"]["issuerTerminal"])
+        self.assertFalse(row["sourceStatusEvidence"]["secondaryInactive"])
+        self.assertFalse(row["tradeApproved"])
+
+    def test_chf_quote_outage_keeps_source_reason_without_approval(self):
+        q = provider()
+        q.update(found=False, currency="CHF", marketOpen=None,
+                 bid=None, ask=None, leverage=None, leverageAt=None)
+        q["metadata"]["currency"] = "CHF"
+        q["metadata"]["issuerExchangeCode"] = "CBSW"
+        q["swissquoteBackup"] = dict(state="unavailable", reasonCode="HTTP_503")
+        row = audit.examine(
+            dict(feed()["products"][0], currency="CHF"), q, NOW)
+        self.assertEqual(row["sourceStatusEvidence"]["swissquoteState"], "unavailable")
+        self.assertEqual(row["sourceStatusEvidence"]["swissquoteReasonCode"], "HTTP_503")
+        self.assertIn("quote", row["missing"])
+        self.assertFalse(row["tradeApproved"])
+
     def test_unfinished_or_stale_audit_cannot_certify_recovery(self):
         for state in ('checking-new-list', 'waiting-for-screenshot', 'stale', 'unavailable'):
             self.assertIsNone(audit.public_help_codes({'status': state, 'items': []}))
