@@ -526,9 +526,17 @@ function rememberKnockout(e){
  if(!e||!knockoutStatus({isin:e.isin,snapshot:{lifecycle:e}}))return;
  try{const all=JSON.parse(localStorage.getItem(KNOCKOUT_STORE)||'{}');all[e.isin]=e;localStorage.setItem(KNOCKOUT_STORE,JSON.stringify(all));}catch(_){}
 }
+// A verified knock-out needs only a compact, collapsed display; never
+// request new quotes or show the ordinary red evidence-error badge.
+function terminalProductCard(p,label,kind='ended'){
+ const flag=kind==='knocked-out'?' data-product-knocked-out':' data-product-ended';
+ return '<details data-product-isin="'+esc(p.isin)+'"'+flag+
+   ' style="margin-top:8px;padding:8px 12px;border:1px solid #cbd5e1;border-radius:10px;background:#fff">'+
+   '<summary style="cursor:pointer;font-weight:700;min-height:32px;align-content:center">'+esc(p.isin)+' · '+esc(label)+'</summary>'+
+   '<div class="small">'+renderIsinCopy(p.isin)+'</div></details>';
+}
 function knockoutCard(p){
- const e=knockoutStatus(p);if(!e)return '';
- return '<div data-product-isin="'+esc(p.isin)+'" data-product-knocked-out style="padding:14px;margin-top:10px;border:1px solid #dc2626;border-radius:12px;background:#fff7f7">'+renderProductIdentity(p)+' · '+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'<div style="color:#b91c1c;font-weight:700;margin-top:8px">Ausgeknockt – Produkt ausgeschlossen</div><p class="small">Der Emittent meldet „KNOCKED OUT“. Keine weiteren Daten oder Screenshots erforderlich. Dieses Produkt wird nicht mehr für die Produktauswahl oder eine Produktfreigabe berücksichtigt.</p><div class="small">Nachweis: '+esc(e.source)+(e.observedDate?' · gesehen am '+esc(e.observedDate):'')+'. Der genaue Knock-out-Zeitpunkt ist damit nicht belegt.</div></div>';
+ return knockoutStatus(p)?terminalProductCard(p,'Produkt ausgeknockt','knocked-out'):'';
 }
 function evaluateProduct(p){if(knockoutStatus(p))return{ok:false,fit:false,score:0,reasons:["Ausgeknockt – Produkt ausgeschlossen. Keine weiteren Daten erforderlich."],warnings:[]};if(p.quote?.isin===p.isin&&p.quote?.productVerified&&p.quote?.metadata?.status!==undefined&&p.quote.metadata.status!==1)return{ok:false,fit:false,score:0,reasons:["Produkt laut Quelle ausgeknockt oder beendet – ausgeschlossen."],warnings:[]};if(/FAKTOR|FACTOR/i.test([p.name,p.quote?.name,p.snapshot?.terms?.type?.value].join(" ")))return{ok:false,fit:false,score:0,reasons:["Faktorprodukt ausgeschlossen – keine Produktfreigabe."],warnings:[]};if(isFutureProduct(p))return{ok:false,fit:false,score:0,reasons:["Gold-Future benötigt eigene Basiswertdaten und Trendprüfung; keine XAU/USD-Spot-Freigabe."],warnings:[]};return evaluateProductCore(p);}
 // Bob ranking policy v2: continuous KO-buffer comparison, never a profit probability.
@@ -2094,9 +2102,21 @@ function renderProductDirectionStatus(p,now=Date.now()){
 function valuePresenceMark(missing){
  return missing?'<span style="color:#b91c1c;font-weight:700" aria-label="Wert fehlt">✗</span>':'<span style="color:#15803d;font-weight:700" aria-label="Wert vorhanden">✓</span>';
 }
+// Keep a current, same-list issuer terminal finding visible even if the
+// handset retains an older quote snapshot. A terminal code does NOT by
+// itself establish that a knock-out occurred.
+function serverIssuerTerminated(p,now=Date.now()){
+ const report=window.BobProductAuditReport,at=Date.parse(report?.lastCheckedAt);
+ if(report?.status!=='ok'||!listArchive?.storedAt
+    ||report.listUploadedAt!==listArchive.storedAt
+    ||!Number.isFinite(at)||now<at||now-at>180000)return false;
+ const item=report.items?.find(row=>row?.isin===p.isin);
+ return item?.state==='terminated'&&item.sourceStatusEvidence?.issuerTerminal===true
+    &&item.sourceStatusEvidence?.issuerStatus===2;
+}
 function compactProductExclusion(p){
  const direct=p.quote?.isin===p.isin&&p.quote?.productVerified?p.quote:null;
- return direct?.metadata?.status===2?'Produkt beendet oder ausgeknockt – ausgeschlossen':/FAKTOR|FACTOR/i.test([p.name,direct?.metadata?.name,p.snapshot?.terms?.type?.value].join(' '))?'Faktorprodukt ausgeschlossen':null;
+ return direct?.metadata?.status===2||serverIssuerTerminated(p)?'Produkt beendet – ausgeschlossen':/FAKTOR|FACTOR/i.test([p.name,direct?.metadata?.name,p.snapshot?.terms?.type?.value].join(' '))?'Faktorprodukt ausgeschlossen':null;
 }
 function additionalProductsComplete(products,now=Date.now()){
  const remaining=products.filter(p=>!knockoutStatus(p)&&!compactProductExclusion(p));
@@ -2383,7 +2403,11 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  const direct=p.quote?.isin===p.isin&&p.quote?.productVerified?p.quote:null;
  const undatedReference=direct?.issuerLeverageReference?.dated===false&&n(direct.issuerLeverageReference.value)>0;
  const excluded=compactProductExclusion(p);
- if(excluded)return '<div data-product-isin="'+esc(p.isin)+'" style="padding:14px;margin-top:10px;border:1px solid #dc2626;border-radius:12px">'+renderProductIdentity(p)+'<p>'+esc(excluded)+'</p><p>Keine weiteren Daten oder Screenshots erforderlich.</p>'+(direct?.lifecycleEvidence?'<p>'+esc(direct.reason)+'</p>':'')+renderProductSources(p)+'</div>';
+ if(excluded){
+  if(direct?.metadata?.status===2||serverIssuerTerminated(p))
+   return terminalProductCard(p,'Produkt beendet');
+  return '<div data-product-isin="'+esc(p.isin)+'" style="padding:14px;margin-top:10px;border:1px solid #dc2626;border-radius:12px">'+renderProductIdentity(p)+'<p>'+esc(excluded)+'</p><p>Keine weiteren Daten oder Screenshots erforderlich.</p>'+renderProductSources(p)+'</div>';
+ }
  const selected=status==='Freigegeben · ausgewählt';
  const complete=finalProductStatus(p).complete;
  const x=p.snapshot,terms={...(x?.terms||{}),...(direct?.conditions||{})},values=[];
