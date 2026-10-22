@@ -7,5 +7,6 @@ services:
     branch: main
     buildCommand: pip install -r requirements-degiro.txt
     startCommand: python server.py
-    autoDeployTrigger: commit
+    # Native Render CI gate. The linked GitHub checks must finish successfully.
+    autoDeployTrigger: checksPass
     healthCheckPath: /health
