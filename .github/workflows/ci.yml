@@ -117,3 +117,21 @@ jobs:
           NODE_PATH=/tmp/bob-video-browser/node_modules node browser_degiro_all_products.cjs
           NODE_PATH=/tmp/bob-video-browser/node_modules node browser_broker_candidate_pools.cjs
           NODE_PATH=/tmp/bob-video-browser/node_modules node browser_degiro_candidate_image.cjs
+
+  # A fail-closed status for Render's native checksPass auto-deploy mode.
+  release-gate:
+    name: Bob release gate
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: [validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require complete Bob CI
+        env:
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+        run: |
+          if [ "$VALIDATE_RESULT" != "success" ]; then
+            echo "Blocking Render release: Bob CI is $VALIDATE_RESULT"
+            exit 1
+          fi
+          echo "Bob CI succeeded for commit $GITHUB_SHA; Render may consider this commit."

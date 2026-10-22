@@ -187,11 +187,10 @@ def start():
     global _thread
     if not enabled():
         return
-    investing_card.start()
-    import spot_daily_change
-    spot_daily_change.start()
-    import future_comparison
-    future_comparison.start()
+    # Existing independent worker loops, started through a single idempotent
+    # supervision point. Do not restart healthy threads or invent their data.
+    import auxiliary_workers
+    auxiliary_workers.start_initial(True)
     with _lock:
         if _thread is None or not _thread.is_alive():
             _thread = threading.Thread(target=_run, name='bob-auto-collection', daemon=True)

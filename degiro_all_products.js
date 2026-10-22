@@ -125,6 +125,9 @@ function combine(depot,watchlist,audit,visibleQuotes=[],now=Date.now()){
  }
  for(const x of indexed.values()){
   if(/\bfaktor\b|\bfactor\b|constant leverage|konstant.?hebel/i.test(x.name))x.productKind='factor';
+  const contract=root.BobProductEvidence||(typeof module==='object'&&module.exports&&typeof require==='function'
+   ?require('./product_evidence_contract.js'):null);
+  if(contract?.fromCombined)x.evidence=contract.fromCombined(x,now);
  }
  return Array.from(indexed.values()).sort((a,b)=>
   Number(b.inWatchlist)-Number(a.inWatchlist)||
@@ -273,6 +276,11 @@ function mount(){
   }else card.append(el(doc,'p','dg-unified-subtle','Keine aktuelle, datierte Vergleichsquote verfügbar.'));
   if(x.inAudit&&x.auditStatus!=='ok')card.append(el(doc,'p','dg-unified-subtle',
    'Bob-Prüfbericht '+(x.auditStatus==='stale'?'veraltet':x.auditStatus==='partial'?'nur teilweise geprüft':'momentan nicht erreichbar')+'.'));
+  if(x.evidence){
+   card.append(el(doc,'p','dg-unified-subtle',
+    'Getrennte Identitätsquellen: '+x.evidence.identity.text+
+    '. Ausführbarer Brokerkurs: '+x.evidence.broker.text+'.'));
+  }
   card.append(el(doc,'p','dg-unified-subtle','Handelsfreigabe über DEGIRO: nicht bestätigt.'));
   return card;
  }
