@@ -4691,6 +4691,31 @@ function renderProductCalculation({p,warning,evaluation:e}){
  const uncertain=!!warning||marketWarnings.length>0;
  return '<details data-product-details="calculation-'+esc(p.isin)+'" style="margin-top:10px"><summary>Berechnung und Bewertung</summary><p class="small">Rechnerische Bewertung mit vorhandenen Werten, auch bei veralteten oder fehlenden Zeitstempeln. Keine aktuell bestätigte Produktfreigabe.</p>'+(marketWarnings.length?'<p><i>'+esc(marketWarnings.join(' · '))+'</i></p>':'')+'<div style="margin:8px 0;'+(uncertain?'font-style:italic':'')+'"><b>'+esc(p.isin||p.name)+'</b> · Kurs '+esc(p.price??'fehlt')+' · <strong>Hebel</strong> '+esc(p.leverage??'fehlt')+' · KO '+esc(p.ko??'fehlt')+(warning?' · '+esc(warning):'')+'<br>'+esc(e.ok?'KO-Pufferwert: '+e.score+'/100 · Marktsignal-Stärke: '+e.setupScore+'/100 · '+e.reasons.join(' · '):e.reasons.join(' · '))+'</div></details>';
 }
+// Explain a missing ranking from the SAME data/selection gates that Bob uses.
+// Never infer market opening hours or create a recommendation from old prices.
+function productSelectionExplanation(products,context,ranked,marketWarnings=[]){
+ const notes=Array.isArray(marketWarnings)?marketWarnings.filter(x=>typeof x==='string'&&x.trim()):[];
+ const direction=context?.direction;
+ const found=Array.isArray(products)?products.filter(p=>p&&(p.isin||p.name)):[];
+ const choices=Array.isArray(ranked)?ranked:[];
+ // Freshness takes priority. Otherwise a stale or absent feed could be
+ // falsely presented as a confident neutral market or rejected product.
+ if(context?.spotFresh!==true||notes.length){
+  const detail=notes.length?' Hinweis: '+notes.slice(0,2).join(' · ').slice(0,240)+'.':'';
+  return {state:'market-data',text:'Marktdaten fehlen, sind veraltet oder ihre Aktualität ist nicht ausreichend belegt. Deshalb ist derzeit keine belastbare aktuelle Produktauswahl möglich.'+detail};
+ }
+ if(!['LONG','SHORT'].includes(direction))
+  return {state:'neutral',text:'Marktdaten sind aktuell, aber Bob hat keine bestätigte LONG- oder SHORT-Richtung. Deshalb gilt ABWARTEN; das ist keine Aussage über die Eignung einzelner Produkte.'};
+ if(choices.length)
+  return {state:'ranked',text:'Bob zeigt '+choices.length+' rechnerisch passende '+direction+'-Kandidat'+(choices.length===1?'en':'en')+' aus den vorhandenen Nachweisen. Kurszeiten und Handelsverfügbarkeit zusätzlich prüfen.'};
+ if(!found.length)
+  return {state:'no-products',text:'Die Marktlage ist '+direction+', aber Bob hat aktuell keine erfassten Gold-Hebelprodukte zur Auswahl. Produktliste prüfen oder laden.'};
+ const now=context?.now??Date.now();
+ const verified=found.filter(p=>validIsin(p.isin)&&p.isinConfirmed===true&&productTermsStatus(p,now,true).complete);
+ if(!verified.length)
+  return {state:'product-data',text:'Die Marktlage ist '+direction+', aber für die gespeicherten Produkte fehlen ausreichend bestätigte Pflichtdaten oder Produktnachweise. Deshalb kann Bob noch nicht feststellen, ob ein Produkt geeignet ist.'};
+ return {state:'no-match',text:'Die Marktdaten sind aktuell und die Richtung ist '+direction+'. Von den ausreichend belegten Produkten erfüllt derzeit keines sämtliche Auswahlkriterien. Andere Produkte können zusätzlich unvollständige Nachweise haben.'};
+}
 function renderContinuingAnalysis(products,context){
  if(typeof document!=='undefined')for(const [i,p] of products.entries())for(const [field,key] of [['price','Brief'],['lev','Hebel'],['ko','KO']]){
   const input=document.querySelector('[data-dg="'+field+'"][data-i="'+(i+1)+'"]');if(!input)continue;
@@ -4705,8 +4730,10 @@ function renderContinuingAnalysis(products,context){
  const leveragePlaces=ranked.flatMap(({evaluation:e},i)=>e.leverage===highestLeverage?[i+1]:[]);
  const leverageIsins=ranked.flatMap(({p,evaluation:e})=>e.leverage===highestLeverage?[p.isin]:[]);
  const leverageHint=leveragePlaces.length?'<div data-risk-leverage data-risk-isins="'+esc(leverageIsins.join(' / '))+'" data-risk-positions="'+leveragePlaces.join(' / ')+'" style="margin:8px 0"><strong>Risiko: '+(leveragePlaces.length>1?'Plätze ':'Platz ')+leveragePlaces.join(' / ')+' · höchster Hebel: '+highestLeverage.toFixed(2)+'×</strong><details><summary>Erklärung zum Hebelrisiko</summary><div class="small">Unter den angezeigten Empfehlungen; verstärkt Gewinne und Verluste. Hebel laut vorhandenen Werten.</div></details></div>':'';
+ const explanation=productSelectionExplanation(products,context,ranked,marketWarnings);
+ const explanationHtml='<p data-selection-reason="'+explanation.state+'" role="status" class="small" style="margin:10px 0">'+esc(explanation.text)+'</p>';
  const recommendations=ranked.map(({p,warning,evaluation:e},i)=>'<div style="margin:10px 0"><b>'+ (i+1)+'. '+esc(p.isin)+'</b>'+renderIsinCopy(p.isin,true)+'<b> · '+esc(e.direction)+'</b><br><strong>'+esc(warning&&warning.includes('veraltet')?'Mit veralteten Werten gerechnet':warning?'Mit Werten unbekannter Aktualität gerechnet':marketWarnings.length?'Marktdaten-Aktualität eingeschränkt':'Rechnerische Empfehlung mit vorhandenen Werten')+'</strong><br>KO-Pufferwert '+e.score+'/100 · KO-Abstand '+e.koDistancePct.toFixed(2)+'%<details data-product-details="recommendation-'+esc(p.isin)+'"><summary>Begründung und Datenhinweise</summary>'+esc(warning||'Produktkurs innerhalb des Zeitfensters; weitere Feldzeiten siehe Details')+'<br>'+esc(e.reasons.join(' · ')).replace(/\bHebel\b/g,'<strong>Hebel</strong>')+'</details></div>').join('');
- return '<section data-indicative-recommendations><b>Rechnerische Empfehlung · <span style="color:'+({LONG:'#15803d',SHORT:'#b91c1c'}[context.direction]||'#ca8a04')+'">'+esc(['LONG','SHORT'].includes(context.direction)?context.direction:'ABWARTEN')+'</span></b>'+leverageHint+ (recommendations||'<p>ABWARTEN: '+(['LONG','SHORT'].includes(context.direction)?'Aktuell erfüllt kein Produkt alle Auswahlkriterien.':'Keine bestätigte Long-/Short-Marktrichtung.')+'</p>')+'</section>';
+ return '<section data-indicative-recommendations><b>Rechnerische Empfehlung · <span style="color:'+({LONG:'#15803d',SHORT:'#b91c1c'}[context.direction]||'#ca8a04')+'">'+esc(['LONG','SHORT'].includes(context.direction)?context.direction:'ABWARTEN')+'</span></b>'+explanationHtml+leverageHint+recommendations+'</section>';
 }
 function listVenueForSync(isin,archive=listArchive){
  const row=archive?.items?.find(x=>x.isin===isin)?.listRow;
