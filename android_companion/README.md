@@ -1,3 +1,11 @@
+## 0.9 (Test): deutlich weniger Tippen, natürliche Einzelaufträge
+
+Die vier beschrifteten Schnellzugriffe **Bob direkt öffnen**, **Goldprodukte direkt öffnen**, **Mein Trade direkt öffnen** und **Simulationen direkt öffnen** öffnen ausschließlich eine feste Bob-Seite nach einem einzigen bewussten Tastendruck. Eine erfolgreiche Anzeige der Zielseite wird dadurch **nicht** bestätigt; bei Bedarf die bestehende Bob-Anmeldung im Browser durchführen. Es gibt keine verdeckten Folgeaktionen und keinen Zugriff auf andere Apps.
+
+Im Textfeld kann man jetzt neben der bestehenden strengen `BOB-AUFTRAG: ...`-Syntax auch einfache, frei **formulierte, aber auf die Positivliste beschränkte Einzelphrasen** (z. B. `Zeige mir meine Goldprodukte`) eingeben. Ein mehrteiliger freier Text kann **nicht** über den Einzelaktionsknopf freigegeben werden; Sprachpläne werden als begrenzte Schrittfolge vorbereitet und benötigen vor jedem Schritt eine eigene Prüfung. Unbekannte und finanzielle Befehle bleiben gesperrt. Zusätzliche Unit-Tests decken diesen Schutz ab.
+
+**Noch ausstehend:** CI für den letzten Commit; danach Samsung-Echttest samt Signaturprüfung. Diese Version führt keine echte Marktanalyse aus; sie zeigt nur Bobs schon vorhandene Übersicht. Keine automatische Broker-/DEGIRO-Bedienung.
+
 ## Ausbau 22.10.2026 – Sprachdialog, Bob-Navigation und begrenzter Kontext (0.8, vor Samsung-Gerätetest)
 
 Die bestehende Android-App unterstützt zusätzlich zu lokalen harmless Aktionen **read-only** Navigation
