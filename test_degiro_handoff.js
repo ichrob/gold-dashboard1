@@ -87,7 +87,7 @@ assert.equal(a.calculateProposal(identity,{...purchase,side:'Verkauf'},null,null
 assert.equal(a.calculateProposal(identity,purchase,{...gold,available:false},null,quoteTime).ok,false);
 assert.equal(a.calculateProposal(identity,purchase,{...gold,available:false},null,quoteTime).price,'10,01');
 for(const q of [
- {...quote,estimated:true},{...quote,paperSelectionOnly:true},{...quote,priceKind:'calculated'},
+ {...quote,estimated:true},{...quote,paperSelectionOnly:true},{...quote,priceKind:'calculated'},{...quote,priceKind:'issuer-chart'},
  {...quote,found:false},{...quote,productVerified:false},{...quote,marketOpen:false},
  {...quote,metadata:{...quote.metadata,status:2}},
  {...quote,metadata:{...quote.metadata,underlyingType:'FUTURE'}},
@@ -97,6 +97,7 @@ for(const q of [
  assert.equal(a.calculateProposal({...identity,quote:q},purchase,gold,null,quoteTime).ok,false);
 }
 assert.equal(a.calculateProposal(identity,purchase,gold,null,quoteTime+91000).ok,false);
+assert.equal(a.calculateProposal(identity,purchase,{...gold,at:'2026-10-22T06:00:00Z'},null,quoteTime).ok,false);
 assert.equal(a.calculateProposal({...identity,reference:{...identity.reference,referenceAt:'2026-10-22T06:30:00Z'}},purchase,gold,null,quoteTime).ok,false);
 assert.equal(a.calculateProposal({...identity,quote:{...quote,productModel:{...quote.productModel,verifiedSimpleTurbo:false}}},purchase,gold,null,quoteTime).ok,false);
 assert.equal(a.calculateProposal(identity,{...purchase,minRR:'5'},gold,null,quoteTime).ok,false);
