@@ -90,6 +90,13 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
                 account['recentCases'] = {'status':'observed','items':[project(row[0], CASE) for row in cases]}
             except Exception:
                 account['recentCases'] = {'status':'unavailable'}
+        # Indexed, SELECT-only probe of nearby *original Gold-API* timestamps.
+        # A proximity match is not sufficient evidence to settle any paper trade.
+        try:
+            result['spotGapArchive'] = __import__('paper_gap_archive').report(conn,accounts)
+        except Exception:
+            result['spotGapArchive'] = {'status':'unavailable','readOnly':True,
+                'reason':'archive-inspection-unavailable'}
         result['history'] = collect({'journal':lambda:__import__('diagnostic_history').report(conn)})
         result['details'] = stored_details(conn)
         # Keep the research report independently addressable when oversized
@@ -284,6 +291,14 @@ def simulation_evidence_snapshot(simulation):
               for v in sorted(gap_times.values(),key=lambda item:item['recordedAt'])]
     return {'status':'observed' if evidence else 'unavailable',
             'readOnly':True,'realOrders':False,'accountSamples':evidence,
+            'spotGapArchive':project(simulation.get('spotGapArchive'),
+                shape('status','readOnly','realOrders','source','windowSeconds',
+                    'sampledDistinctClocks','totalDistinctClocks','truncated',
+                    'note','reason',
+                    counts=shape('nearbyOriginal','notObservedNearEvent',
+                                 'outsideRetention','queryUnavailable'),
+                    items=[shape('eventAt','state','nearestSourceAt',
+                                 'deltaSeconds','timeRelation')])),
             'gapCorrelation':{
                 'sampledInconclusiveCases':sampled_inconclusive,
                 'gapEventReasonCounts':reason_counts,
