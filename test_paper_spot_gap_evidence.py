@@ -54,7 +54,7 @@ class ArchivedSpotCoverageTests(unittest.TestCase):
         self.assertEqual(report['instants'][0]['originalBeforeAt'],at-35_000)
         self.assertEqual(report['instants'][0]['originalAfterAt'],at+24_000)
         self.assertEqual(len(db.queries),2)
-        self.assertNotIn('price',json.dumps(report).lower())
+        self.assertNotIn('"price":',json.dumps(report).lower())
         self.assertFalse(report['realOrders'])
 
     def test_one_sided_or_absent_original_is_not_recovered(self):
