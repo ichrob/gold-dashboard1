@@ -93,8 +93,18 @@ assert.equal(auditOnly.auditFresh,true);
 assert.equal(a.analyzeInputs({...base,productCount:auditOnly.items.length},now).products.ok,true);
 const staleAudit=a.mergeProductIdentities([],null,
  {...latest,lastCheckedAt:'2026-10-22T09:35:00Z'},operationsNow);
-assert.equal(staleAudit.items.length,0,'Old audit is not presented as current');
-assert.equal(a.mergeProductIdentities([],null,{...latest,status:'stale'},operationsNow).items.length,0);
+assert.equal(staleAudit.items.length,2,'Dated old ISINs remain visible as historical identities');
+assert.equal(staleAudit.auditFresh,false);
+assert.equal(staleAudit.auditHistoric,true);
+assert.equal(staleAudit.items[0].fromAuditStale,true);
+assert.equal(staleAudit.items[0].quote,null);
+const staleExplicit=a.mergeProductIdentities([],null,{...latest,status:'stale'},operationsNow);
+assert.equal(staleExplicit.items.length,2);
+assert.equal(staleExplicit.items[0].fromAuditStale,true);
+assert.equal(a.mergeProductIdentities([],null,{...latest,lastCheckedAt:'2026-09-01T09:49:55Z'},operationsNow).items.length,0,
+ 'Very old audit identities must not be carried forward indefinitely');
+assert.equal(a.mergeProductIdentities([],null,{...latest,status:'unavailable'},operationsNow).items.length,0,
+ 'Unavailable status cannot certify audit identities');
 const storedOnly=a.mergeProductIdentities([],JSON.stringify(archived),null,listNow);
 assert.equal(storedOnly.items.length,2);
 assert.equal(storedOnly.items[0].fromArchive,true);
