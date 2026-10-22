@@ -14,7 +14,7 @@ import org.junit.runner.RunWith
 
 /**
  * This instrumentation test uses only our OWN test Activity. It verifies
- * the default prompt is real text, not a hint, and preview never executes.
+ * the preselected "Bob öffnen" label is real text, not a hint, and preview never executes.
  */
 @RunWith(AndroidJUnit4::class)
 class PhoneTaskUiTest {
@@ -29,7 +29,7 @@ class PhoneTaskUiTest {
 
         val field = device.wait(Until.findObject(By.desc("Bob Handy-Auftrag")), 5_000)
         assertNotNull(field)
-        assertEquals(PhoneTaskProtocol.OPEN_BOB, field.text)
+        assertEquals("Bob öffnen", field.text)
 
         val previewButton = device.findObject(By.text("Handy-Auftrag prüfen"))
         assertNotNull(previewButton)
