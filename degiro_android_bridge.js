@@ -28,6 +28,14 @@ function readDraft(value){
  for(const line of lines){
   if(line===HEADER||line===id[0])continue;
   if(line.startsWith('Bildzeit/Originalquelle')||line.startsWith('Kein automatischer Handelsnachweis'))continue;
+  const group=line.match(/^Bildserie \(OCR ungeprüft\): ([1-4]) Bilder, ([1-4]) mit gültiger ISIN$/);
+  if(group){
+   if(out.series)throw Error('Doppelte Bildserien-Angabe.');
+   const imageCount=Number(group[1]),anchorCount=Number(group[2]);
+   if(anchorCount>imageCount)throw Error('Ungültige Bildserien-Zuordnung.');
+   out.series={imageCount,anchorCount,provisional:anchorCount<imageCount};
+   continue;
+  }
   const m=line.match(/^(Geld|Brief|Hebel|KO-Schwelle|Handelsplatz|Zuletzt) \(OCR ungeprüft\): (.{1,55})$/);
   if(!m)throw Error('Unbekanntes oder unzulässiges OCR-Feld; keine Übernahme.');
   const key=FIELDS[m[1]];
@@ -89,6 +97,14 @@ function mount(){
     list.append(item);
    }
    preview.append(title,list);
+   if(draft.series){
+    const seriesNote=root.document.createElement('p');
+    seriesNote.textContent=draft.series.imageCount+' Bilder gemeinsam ausgewählt · ISIN auf '+draft.series.anchorCount+
+     ' Bild(ern) eindeutig per OCR erkannt. '+
+     (draft.series.provisional?'Die übrigen Bilder sind als Serie vorläufig zugeordnet.':'Alle Bilder zeigen dieselbe erkannte ISIN.')+
+     ' Keine unabhängige Bestätigung der zusammengehörigen Produkte.';
+    preview.append(seriesNote);
+   }
    status.textContent='Lokal geprüft: nur ISIN-Prüfziffer; keine verifizierte Kurszeit, Handelsplatzfreigabe oder Originalbildprüfung.';
    const existing=root.BobDegiro?.tradeTestProducts?.();
    if(Array.isArray(existing)){
