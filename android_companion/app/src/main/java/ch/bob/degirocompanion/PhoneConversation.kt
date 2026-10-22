@@ -20,6 +20,15 @@ internal class PhoneConversation(private val contextTtlMs: Long = 120_000L) {
         if (spoken.length > 240) return null
         val value = spoken.lowercase(Locale.GERMAN)
             .trim().replace(Regex("[.!]+$"), "").replace(Regex("\\s+"), " ")
+        if (value in setOf("warum", "wieso", "warum das", "erkläre das",
+                "kannst du das erklären", "was bedeutet das", "warum diese auswahl")) {
+            val previous = lastTask
+            // A "why?" question is only meaningful after a product explanation.
+            // It never upgrades an ordinary page visit into a trade recommendation.
+            return if (previous in setOf(PhoneTask.OPEN_LONG_REVIEW, PhoneTask.OPEN_LEVERAGE_REVIEW)
+                && nowMs >= lastTime && nowMs - lastTime < contextTtlMs)
+                PhoneTaskPlan(listOf(previous!!)) else null
+        }
         if (value in setOf("noch mal", "nochmal", "noch einmal", "wiederhole das",
                 "wiederhole den letzten schritt", "mach das nochmal", "das nochmal",
                 "bitte nochmal")) {
