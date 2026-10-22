@@ -53,4 +53,52 @@ class AdmissionTests(unittest.TestCase):
             push_server.read_audit_report({'mode':'simulation','day':'2026-10-19'})
             self.assertNotEqual(first,read.call_args.args[0]);db.assert_not_called()
             push_server.read_improvement_report();db.assert_not_called()
+
+    def test_dashboard_reads_are_admitted_before_borrowing_connections(self):
+        import push_server
+        readers=[
+            ('/product-audit', 'GET', None, 'product-audit'),
+            ('/candidate-proofs', 'GET', None, 'candidate-proofs'),
+            ('/email-import/read', 'POST', {}, 'email-import'),
+            ('/list-correction', 'POST', {'action':'read'}, 'list-correction'),
+        ]
+        for path,method,payload,key in readers:
+            with self.subTest(path=path):
+                handler=object.__new__(push_server.Handler)
+                handler.path=path
+                handler.headers={'X-Bob-Push-Token':'test'}
+                with patch.object(push_server,'PUSH_SERVICE_TOKEN','test'), \
+                     patch.object(push_server,'json_body',return_value=payload), \
+                     patch.object(push_server,'read_db_report',return_value={'ok':True}) as admitted, \
+                     patch.object(push_server,'db') as db, \
+                     patch.object(push_server,'send_json') as send:
+                    getattr(handler,'do_'+method)()
+                admitted.assert_called_once()
+                self.assertEqual(admitted.call_args.args[0],key)
+                db.assert_not_called()
+                self.assertEqual(send.call_args.args[1],200)
+
+    def test_video_read_is_admitted_but_write_bypasses_read_gate(self):
+        import push_server
+        import video_evidence
+        handler=object.__new__(push_server.Handler)
+        handler.path='/research-video/evidence'
+        handler.headers={'X-Bob-Push-Token':'test'}
+        with patch.object(push_server,'PUSH_SERVICE_TOKEN','test'), \
+             patch.object(push_server,'json_body',return_value={'videoId':'abcdefghijk','action':'read'}), \
+             patch.object(gate,'read',return_value={'frames':[]}) as admitted, \
+             patch.object(push_server,'db') as db, \
+             patch.object(push_server,'send_json'):
+            handler.do_POST()
+        admitted.assert_called_once()
+        self.assertTrue(admitted.call_args.args[0].startswith('video-evidence:'))
+        db.assert_not_called()
+
+        with patch.object(push_server,'PUSH_SERVICE_TOKEN','test'), \
+             patch.object(push_server,'json_body',return_value={'videoId':'abcdefghijk','action':'write'}), \
+             patch.object(push_server,'read_video_evidence',side_effect=AssertionError('write entered read gate')), \
+             patch.object(video_evidence,'handle',return_value={'ok':True}) as write, \
+             patch.object(push_server,'send_json'):
+            handler.do_POST()
+        write.assert_called_once()
 if __name__=='__main__':unittest.main()

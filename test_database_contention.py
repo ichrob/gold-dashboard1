@@ -29,6 +29,19 @@ class PoolFailureTests(unittest.TestCase):
         self.assertIn('vorübergehend nicht verfügbar', result['scope'])
         self.assertEqual(result['total'], 10)
 
+    def test_list_correction_read_does_not_take_writer_lock(self):
+        from unittest.mock import MagicMock
+        import list_corrections
+        conn=MagicMock()
+        conn.execute.return_value.fetchone.return_value=({'products':[]},)
+        list_corrections.handle(conn,{'action':'read'})
+        self.assertNotIn('FOR UPDATE',conn.execute.call_args.args[0])
+        conn.reset_mock()
+        conn.execute.return_value.fetchone.return_value=({'products':[]},)
+        with self.assertRaises(ValueError):
+            list_corrections.handle(conn,{'action':'save'})
+        self.assertIn('FOR UPDATE',conn.execute.call_args.args[0])
+
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'), 'CI PostgreSQL integration')
 class DatabaseContentionTests(unittest.TestCase):

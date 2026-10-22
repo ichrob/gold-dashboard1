@@ -65,10 +65,12 @@ def prepare(feed, payload, now=None):
 
 
 def handle(conn,payload):
-    row=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1 FOR UPDATE').fetchone()
+    action=payload.get('action')
+    lock=' FOR UPDATE' if action=='save' else ''
+    row=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1'+lock).fetchone()
     feed=row[0] if row else {}
-    if payload.get('action')=='read':return preview(feed)
-    if payload.get('action')!='save':raise ValueError('Unbekannte Aktion')
+    if action=='read':return preview(feed)
+    if action!='save':raise ValueError('Unbekannte Aktion')
     out,venues=prepare(feed,payload)
     conn.execute('UPDATE bob_paper_products SET payload=%s::jsonb,synced_at=now() WHERE id=1',(json.dumps(out),))
     for record in venues:
