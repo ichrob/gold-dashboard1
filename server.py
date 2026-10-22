@@ -750,6 +750,49 @@ def live_cache_reusable(now=None):
         return False
 
 
+def recheck_spot_before_bundle(spot_result, now=None):
+    """One final shared-source check after secondary I/O, never a new quote clock.
+
+    A legitimately recent Gold-API observation can expire while technical
+    histories/FX finish. Reuse the source's own serialized 30-second cache and
+    bounded near-expiry retry, but NEVER extend a provider observation's life.
+    """
+    if not isinstance(spot_result, tuple) or len(spot_result) != 6:
+        return spot_result
+    price, _age, error, source, is_spot, original_at = spot_result
+    if price is None or not is_spot or not isinstance(original_at, str):
+        return spot_result
+    clock = time.time() if now is None else now
+    try:
+        old_at = datetime.fromisoformat(original_at.replace('Z', '+00:00'))
+        if old_at.tzinfo is None:
+            return spot_result
+        age = clock - old_at.timestamp()
+        if not 0 <= age:
+            return spot_result
+    except (ValueError, OverflowError, TypeError, AttributeError):
+        return spot_result
+    if age >= 50:
+        try:
+            from spot_data import current
+            refreshed = current()
+            candidate_at = datetime.fromisoformat(refreshed['at'].replace('Z', '+00:00'))
+            newest_age = time.time() - candidate_at.timestamp() if now is None else clock-candidate_at.timestamp()
+            if (candidate_at.tzinfo is not None and candidate_at >= old_at
+                    and 0 <= newest_age <= 60 and refreshed.get('source') == source):
+                price = refreshed['price']
+                original_at = refreshed['at']
+                error = None
+                age = newest_age
+        except (OSError, ValueError, KeyError, TypeError, OverflowError, AttributeError):
+            # Preserve the original observation and its REAL age. Consumers'
+            # unchanged <=60s time gate remains authoritative.
+            pass
+    age = (time.time() if now is None else clock) - datetime.fromisoformat(
+        original_at.replace('Z', '+00:00')).timestamp()
+    return price, age, error, source, is_spot, original_at
+
+
 def build_live_bundle():
     """Build Bob's live bundle without letting slow secondary sources block the spot heartbeat.
 
@@ -895,6 +938,14 @@ def build_live_bundle():
                 technical_errors.append(f"5m-Historie nicht frisch ({age:.0f} s)")
         technical_errors.extend(fx_errors)
 
+        if goldprice_price is not None:
+            # Finish the spot observation AFTER the bounded secondary wait.
+            # This recovers a newer source tick when the first one was near
+            # expiry, without inventing new quotes or weakening the 60s gate.
+            (goldprice_price, goldprice_age, spot_error, spot_source,
+             is_spot, spot_price_as_of) = recheck_spot_before_bundle(
+                 (goldprice_price, goldprice_age, spot_error, spot_source,
+                  is_spot, spot_price_as_of))
         if goldprice_price is None:
             # Never promote technical/futures history to the XAU/USD spot field.
             # A GC=F close is a futures reference, not a spot price, and must not
@@ -927,7 +978,12 @@ def build_live_bundle():
             for b in points_source
         ]
 
-        status = "fresh" if goldprice_age is not None and goldprice_age <= FRESH_MAX_AGE else "partial"
+        # Bundle diagnostics use the original provider clock at publication,
+        # never the older age measured before slow secondary I/O.
+        goldprice_age = (time.time() - datetime.fromisoformat(
+            spot_price_as_of.replace('Z', '+00:00')).timestamp()
+            if spot_price_as_of else None)
+        status = "fresh" if goldprice_age is not None and 0 <= goldprice_age <= 60 else "partial"
         bundle = {
             "fetched_at": int(time.time()),
             "spots": {
