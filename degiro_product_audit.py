@@ -25,7 +25,7 @@ CODES = {
     "future": "Anderer Basiswert/Future-Kontrakt: nicht als Spotprodukt freigegeben",
     "venue": "Swiss DOTS ist ein eigener, exklusiver OTC-Handelsplatz. Ein Kurs dort ist kein DEGIRO-Ausführungsnachweis; nur eine gesondert belegte DEGIRO-Handelsroute zählt.",
     "terminated": "Produkt vom Emittenten als beendet gemeldet",
-    "source-status-conflict": "Quellenkonflikt: comdirect meldet Knock-out/inaktiv, SG bestätigt den Endstatus nicht. Daten nicht freigeben; Emittentenstatus erneut prüfen.",
+    "source-status-conflict": "Quellenkonflikt: comdirect meldet Knock-out/inaktiv, SG bestätigt den Endstatus nicht. Laufende Kurs-/Hebelnachweise bleiben bis zur Klärung ungültig; keine Handelsfreigabe.",
     "quote": "Belegtes Geld-/Briefpaar aus Produkt- oder Ersatzquelle fehlt; Chartwerte bleiben separat",
     "quote-time": "Originalzeit des Geld-/Briefpaares fehlt oder ist veraltet",
     "leverage": "Emittentenhebel fehlt",
@@ -401,7 +401,10 @@ def examine(product, quote, now_ms):
     # Once SG itself confirms termination, absent live prices, quote clocks,
     # gearing and market status are expected, not five separate repair faults.
     # The product remains permanently blocked, never promoted to analysis.
-    if terminated:
+    if terminated or secondary_inactive:
+        # No point escalating five dependent missing quote/clock/gearing fields
+        # until the contradictory product status has been resolved. These
+        # fields remain unavailable, not silently repaired or marked current.
         missing = [code for code in missing if code not in (
             "quote", "quote-time", "leverage", "leverage-time",
             "market-status", "market-closed")]
