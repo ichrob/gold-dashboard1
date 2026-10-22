@@ -48,6 +48,36 @@ class RepairTests(unittest.TestCase):
             aux.maintain(True);spot.assert_called_once();future.assert_called_once()
         self.assertNotIn('private',str(sh._EVENTS))
 
+    def test_initial_start_only_missing_workers(self):
+        with patch('investing_card.health', return_value={'running': True}), \
+             patch('spot_daily_change.health', return_value={'running': False}), \
+             patch('future_comparison.health', return_value={'running': True}), \
+             patch('investing_card.start') as cfd, \
+             patch('spot_daily_change.start') as spot, \
+             patch('future_comparison.start') as comparison:
+            state=aux.start_initial(True)
+            self.assertEqual(state[aux.CODES[0]],'already-running')
+            self.assertEqual(state[aux.CODES[1]],'start-attempted')
+            cfd.assert_not_called()
+            spot.assert_called_once_with()
+            comparison.assert_not_called()
+
+    def test_initial_failure_is_isolated_and_disabled_is_inert(self):
+        with patch('investing_card.health', side_effect=OSError('secret')), \
+             patch('spot_daily_change.health', return_value={'running': False}), \
+             patch('future_comparison.health', return_value={'running': False}), \
+             patch('investing_card.start') as cfd, \
+             patch('spot_daily_change.start') as spot, \
+             patch('future_comparison.start') as future:
+            self.assertEqual(aux.start_initial(False)[aux.CODES[0]], 'disabled')
+            status=aux.start_initial(True)
+            self.assertEqual(status[aux.CODES[0]],'start-failed')
+            self.assertEqual(status[aux.CODES[1]],'start-attempted')
+            self.assertEqual(status[aux.CODES[2]],'start-attempted')
+            cfd.assert_not_called()
+            spot.assert_called_once_with()
+            future.assert_called_once_with()
+
     def test_pending_repair_not_closed_when_thread_only_alive(self):
         code='cfd-worker-stopped'
         result=watchdog.classify({'status':'ok','repairPendingCodes':[code,'secret'],
