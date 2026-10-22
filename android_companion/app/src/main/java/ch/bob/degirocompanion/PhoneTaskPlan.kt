@@ -30,6 +30,10 @@ internal object PhoneTaskPlanParser {
     fun parse(input: String): PhoneTaskPlan? {
         val clean = normalize(input) ?: return null
         if (isStop(clean)) return null
+        // A few exact, read-only product QUESTIONS contain the German word
+        // "und" but are one intent, not a series of unrestricted commands.
+        if (parseClause(clean) == PhoneTask.OPEN_LONG_REVIEW)
+            return PhoneTaskPlan(listOf(PhoneTask.OPEN_LONG_REVIEW))
         val parts = separators.split(clean)
         if (parts.isEmpty() || parts.size > 3 || parts.any { it.isBlank() }) return null
         val steps = parts.map { parseClause(it) ?: return null }
