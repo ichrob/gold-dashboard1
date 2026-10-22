@@ -59,6 +59,24 @@ class DiagnosticsHttpTests(HttpTests):
 
 
 class ReportTests(unittest.TestCase):
+    def test_optional_degiro_sdk_not_started_is_not_an_outage(self):
+        blank={'code':'NOT_STARTED','running':False,'fresh':False,
+               'liveOrdersEnabled':False,'liveQuotes':False,'snapshot':None}
+        with patch('degiro_readonly.status',return_value={'ready':False}):
+            result=diagnostics.broker_sync_snapshot(blank)
+        self.assertEqual(result['status'],'not-configured')
+        self.assertEqual(result['connectionKind'],'optional-direct-degiro-sdk-readonly')
+        self.assertFalse(result['liveOrdersEnabled'])
+        self.assertNotIn('degiroSync',str(diagnostics.summary({'degiroSync':result})['attention']))
+        with patch('degiro_readonly.status',return_value={'ready':True}):
+            result=diagnostics.broker_sync_snapshot(blank)
+        self.assertEqual(result['status'],'not-started')
+        failed=dict(blank,code='SDK_ERROR')
+        with patch('degiro_readonly.status',return_value={'ready':False}):
+            result=diagnostics.broker_sync_snapshot(failed)
+        self.assertEqual(result['status'],'unavailable')
+        self.assertEqual(diagnostics.summary({'degiroSync':result})['assessment'],'needs-attention')
+
     def test_summary_does_not_hide_product_or_shadow_dmi_gaps(self):
         summary = diagnostics.summary({'products': {'status':'ok', 'items':[{'state':'incomplete'}]},
             'analysis': {'dmi': {'available': False}}})
