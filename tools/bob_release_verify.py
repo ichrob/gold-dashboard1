@@ -12,7 +12,7 @@ HEALTH_URLS = {
     "scanner": "https://bob-private-scanner.onrender.com/health",
     "push": "https://bob-push-service.onrender.com/health",
 }
-SHA = re.compile(r"[a-f0-9]{40}\\Z")
+SHA = re.compile(r"^[a-f0-9]{40}$")
 
 
 def verify(expected, scanner, push):
