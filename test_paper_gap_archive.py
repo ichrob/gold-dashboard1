@@ -1,6 +1,7 @@
 """Read-only archive correlation: observed clock proximity, never a simulated fill."""
 import json
 import unittest
+from decimal import Decimal
 from unittest.mock import Mock
 import paper_gap_archive as archive
 import bob_diagnostics
@@ -38,6 +39,16 @@ class PaperArchiveEvidenceTests(unittest.TestCase):
         self.assertNotIn('UPDATE ',sql)
         self.assertNotIn('DELETE ',sql)
         self.assertNotIn('not used',json.dumps(data))
+
+    def test_postgres_decimal_epoch_is_recognized(self):
+        at=1000000
+        conn=Mock()
+        conn.transaction.return_value=_Tx()
+        conn.execute.return_value.fetchone.return_value=(Decimal('998000.000'),)
+        result=archive.report(conn,[_account(at)],now_ms=at+100000)
+        self.assertEqual(result['counts']['nearbyOriginal'],1)
+        self.assertEqual(result['items'][0]['timeRelation'],'before-or-at-event')
+        self.assertEqual(result['items'][0]['deltaSeconds'],2)
 
     def test_no_nearby_original_is_only_absent_from_this_archive(self):
         at=1000000
