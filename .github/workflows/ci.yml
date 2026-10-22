@@ -100,12 +100,27 @@ jobs:
             node "$test"
           done
 
+      - name: Browser binary cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: bob-playwright-linux-1.51.1
       - name: Browser toolchain setup (bounded)
         run: |
-          # Do not leave a runner indefinitely waiting for npm/apt downloads.
+          # The Ubuntu runner includes the system libraries/FFmpeg dependencies.
+          # Playwright --with-deps would invoke apt to download unrelated fonts
+          # and upgrade core system packages; slow mirrors caused exit code 124.
+          # Install the same Chromium and Firefox browsers without upgrading apt.
+          # Missing libraries or broken browser launch still FAIL the browser tests.
           timeout --signal=TERM --kill-after=10s 240s npm install --prefix /tmp/bob-video-browser --no-package-lock playwright@1.51.1
-          timeout --signal=TERM --kill-after=10s 300s /tmp/bob-video-browser/node_modules/.bin/playwright install --with-deps chromium firefox
-          timeout --signal=TERM --kill-after=10s 180s sudo apt-get install -y ffmpeg
+          timeout --signal=TERM --kill-after=10s 300s /tmp/bob-video-browser/node_modules/.bin/playwright install chromium firefox
+          # FFmpeg is usually preinstalled on GitHub Ubuntu images.
+          # Only invoke apt if the fixture tool is genuinely missing.
+          if command -v ffmpeg >/dev/null 2>&1; then
+            echo 'CI browser toolchain: FFmpeg already present'
+          else
+            timeout --signal=TERM --kill-after=10s 180s sudo apt-get install -y ffmpeg
+          fi
           timeout --signal=TERM --kill-after=10s 40s ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc=size=640x360:rate=5 -t 4 -c:v libvpx-vp9 -pix_fmt yuv420p /tmp/bob-video-fixture.webm -y
       - name: Real video file extraction in browser (bounded)
         run: |
