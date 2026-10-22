@@ -12,6 +12,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.view.View
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -34,21 +35,21 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(28, 32, 28, 32)
         }
-        fun label(text: String): TextView = TextView(this).also {
+        fun label(text: String, parent: LinearLayout = stack): TextView = TextView(this).also {
             it.text = text
             it.textSize = 17f
             it.setPadding(0, 10, 0, 12)
-            stack.addView(it)
+            parent.addView(it)
         }
-        fun button(title: String, onClick: () -> Unit) = Button(this).also {
+        fun button(title: String, parent: LinearLayout = stack, onClick: () -> Unit) = Button(this).also {
             it.text = title
             it.isAllCaps = false
             it.setOnClickListener { onClick() }
-            stack.addView(it)
+            parent.addView(it)
         }
 
-        label("BOB ANDROID-LABOR – Keine DEGIRO-Verbindung, keine Orders.")
-        button("Bild manuell auswählen und lokal lesen") {
+        label("BOB ANDROID-LABOR: Produktbild teilen, automatisch erkennen und in Bob prüfen. Keine Handelsorders.")
+        button("Produktbild auswählen (falls Teilen nicht klappt)") {
             val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
                 type = "image/*"
@@ -56,7 +57,20 @@ class MainActivity : Activity() {
             startActivityForResult(intent, selectImageRequest)
         }
         status = label("Noch kein Bild ausgewählt. OCR-Werte sind niemals automatisch ein Handelsnachweis.")
-        button("OCR-Entwurf kopieren (zum Einfügen in Bob)") {
+        button("In Bob anzeigen – ohne Kopieren") {
+            if (evidenceDraft.isBlank()) {
+                status.text = "Zuerst ein einzelnes Produktbild auswählen oder teilen."
+            } else openInBob(evidenceDraft)
+        }
+        val additional = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        button("Weitere Funktionen und Demo") {
+            additional.visibility = if (additional.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        }
+        stack.addView(additional)
+        button("OCR-Entwurf kopieren (zum Einfügen in Bob)", additional) {
             if (evidenceDraft.isBlank()) {
                 status.text = "Zuerst genau ein Produkt auf einem Bild auswählen."
             } else {
@@ -65,7 +79,7 @@ class MainActivity : Activity() {
                 status.text = "Nur der unbestätigte Text wurde kopiert. In Bob unter Mehr → DEGIRO einfügen. Die Zwischenablage kann auch von anderen Apps gelesen werden."
             }
         }
-        button("OCR-Entwurf über Android teilen") {
+        button("OCR-Entwurf über Android teilen", additional) {
             if (evidenceDraft.isBlank()) {
                 status.text = "Zuerst ein Bild auswählen und auswerten."
             } else {
@@ -77,15 +91,15 @@ class MainActivity : Activity() {
             }
         }
 
-        label("Unabhängiger Bedienungstest: nur künstliche Produktdaten")
+        label("Unabhängiger Bedienungstest: nur künstliche Produktdaten", additional)
         mockSearch = EditText(this).apply {
             hint = "ISIN in Demo suchen"
             contentDescription = "Mock ISIN Eingabe"
             setSingleLine(true)
             setText("DE000FG14AV8")
-            stack.addView(this)
+            additional.addView(this)
         }
-        button("DEMO: Produkt suchen") {
+        button("DEMO: Produkt suchen", additional) {
             val query = mockSearch.text.toString().trim().uppercase(Locale.ROOT)
             demoResult.text = if (query == "DE000FG14AV8") {
                 "DEMO-TREFFER: DE000FG14AV8 | Handelsplatz TEST | KEIN ECHTER HANDEL"
@@ -93,7 +107,7 @@ class MainActivity : Activity() {
                 "Kein Treffer in den künstlichen Testdaten. KEIN ECHTER HANDEL"
             }
         }
-        demoResult = label("Demo bereit. Ein UIAutomator-Test kann Eingaben und Klicks simulieren.")
+        demoResult = label("Demo bereit. Ein UIAutomator-Test kann Eingaben und Klicks simulieren.", additional)
         setContentView(ScrollView(this).apply { addView(stack) })
         processUserShare(intent)
     }
@@ -108,7 +122,7 @@ class MainActivity : Activity() {
         if (incoming?.action != Intent.ACTION_SEND || !incoming.type.orEmpty().startsWith("image/")) return
         @Suppress("DEPRECATION")
         val uri = incoming.getParcelableExtra<Uri>(Intent.EXTRA_STREAM) ?: return
-        readImage(uri)
+        readImage(uri, openAfterRead = true)
     }
 
     @Deprecated("Android's activity-result API retained here to avoid framework dependencies in the lab.")
@@ -119,7 +133,29 @@ class MainActivity : Activity() {
         readImage(uri)
     }
 
-    private fun readImage(uri: Uri) {
+    private fun openInBob(draft: String) {
+        // Single checksum-valid ISIN plus narrowly captured non-secret fields only.
+        // The URL *fragment* is not sent as part of HTTPS requests to the Bob server.
+        // Bob removes the fragment immediately after opening its authenticated UI.
+        if (draft.isBlank() || draft.length > 1600) {
+            status.text = "Entwurf nicht übertragbar; bitte das Bild lokal prüfen."
+            return
+        }
+        try {
+            val target = Uri.parse(
+                "https://bob-private-scanner.onrender.com/#bob-ocr=" + Uri.encode(draft)
+            )
+            val browser = Intent(Intent.ACTION_VIEW, target).apply {
+                addCategory(Intent.CATEGORY_BROWSABLE)
+            }
+            startActivity(browser)
+            status.text = "Bob geöffnet. Werte bleiben unbestätigt und werden nicht als Kursnachweis gespeichert."
+        } catch (_: Exception) {
+            status.text = "Bob konnte nicht geöffnet werden. Du kannst den Entwurf weiterhin kopieren."
+        }
+    }
+
+    private fun readImage(uri: Uri, openAfterRead: Boolean = false) {
         evidenceDraft = ""
         status.text = "Bild wird lokal gelesen. Es wird nichts automatisch versendet."
         try {
@@ -131,6 +167,7 @@ class MainActivity : Activity() {
                     status.text = if (evidenceDraft.isBlank()) {
                         "Bild nicht eindeutig: genau eine prüfziffergültige ISIN erforderlich. Keine Daten übernommen."
                     } else evidenceDraft
+                    if (openAfterRead && evidenceDraft.isNotBlank()) openInBob(evidenceDraft)
                 }
                 .addOnFailureListener {
                     evidenceDraft = ""
