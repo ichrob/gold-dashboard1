@@ -114,14 +114,15 @@ jobs:
           # Missing libraries or broken browser launch still FAIL the browser tests.
           timeout --signal=TERM --kill-after=10s 240s npm install --prefix /tmp/bob-video-browser --no-package-lock playwright@1.51.1
           timeout --signal=TERM --kill-after=10s 300s /tmp/bob-video-browser/node_modules/.bin/playwright install chromium firefox
-          # FFmpeg is usually preinstalled on GitHub Ubuntu images.
-          # Only invoke apt if the fixture tool is genuinely missing.
-          if command -v ffmpeg >/dev/null 2>&1; then
-            echo 'CI browser toolchain: FFmpeg already present'
-          else
-            timeout --signal=TERM --kill-after=10s 180s sudo apt-get install -y ffmpeg
-          fi
-          timeout --signal=TERM --kill-after=10s 40s ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc=size=640x360:rate=5 -t 4 -c:v libvpx-vp9 -pix_fmt yuv420p /tmp/bob-video-fixture.webm -y
+          # GitHub's Ubuntu mirror repeatedly stalls while apt-get resolves
+          # 99 FFmpeg dependencies. Use imageio-ffmpeg's bundled static binary
+          # instead. Still generate the SAME real 640x360, 4-second VP9 WebM.
+          # A missing codec or invalid binary fails CI before any browser check.
+          timeout --signal=TERM --kill-after=10s 180s python -m pip install --disable-pip-version-check imageio-ffmpeg==0.6.0
+          FFMPEG_BIN="$(python -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')"
+          test -x "$FFMPEG_BIN"
+          timeout --signal=TERM --kill-after=10s 40s "$FFMPEG_BIN" -hide_banner -loglevel error -f lavfi -i testsrc=size=640x360:rate=5 -t 4 -c:v libvpx-vp9 -pix_fmt yuv420p /tmp/bob-video-fixture.webm -y
+          test -s /tmp/bob-video-fixture.webm
       - name: Real video file extraction in browser (bounded)
         run: |
           echo "CI browser: browser_video_evidence.cjs"
