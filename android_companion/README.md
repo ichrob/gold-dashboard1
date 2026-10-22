@@ -1,3 +1,17 @@
+## Bob Produkt- und Sprachantworten – Ursache für ABWARTEN sichtbar (22.10.2026)
+
+Die Bob-Webseite unterscheidet in **ihrer bestehenden, rechnerischen Produktauswahl** ausdrücklich:
+- **Marktdaten fehlen/veraltet/nicht belegt:** keine verlässliche *aktuelle* Auswahl; Datenwarnung hat Vorrang vor jeder scheinbar neutralen Richtung oder alten Rangliste
+- **Aktuelle Marktdaten, ABWARTEN:** keine bestätigte LONG-/SHORT-Richtung
+- **Aktuelle Richtung, keine erfasste Liste:** erst Produktliste prüfen
+- **Aktuelle Richtung, aber keine hinreichenden Produktnachweise/Pflichtdaten:** Eignung kann nicht zuverlässig beurteilt werden
+- **Aktuelle Richtung und hinreichend belegte Produkte, aber keines geeignet:** kein Kandidat erfüllt sämtliche vorhandenen Auswahlkriterien
+- **Bestehende rechnerische Kandidaten:** vorhandene Zahl und Richtung mit Kurszeit-/Handelsnachweiswarnung
+
+Die Ursache wird mit `data-selection-reason` im **bestehenden DOM der berechneten Rangfolge** markiert. Die Sprachansichten für LONG-Vergleich und Hebel lesen genau diese bereits vorhandene Statusmeldung und geben bei nicht aktuellen Daten keine vermeintlich bestätigte Produktauswahl aus. Es werden keine Marktöffnungszeiten aus Uhrzeit/Wochentag geraten, keine Handelsregeln gelockert und keine Order-Aktion ausgelöst. Der Broker-/Produktzustand bleibt unangetastet.
+
+Abnahme: vollständige Node/Python-Bob-Suite inklusive `test_bob_selection_reasons.js` prüfen; auf Samsung nach Veröffentlichung der Render-Webversion die Sprachfrage bei fehlenden/veralteten Marktdaten und später bei vollständiger Datenlage vergleichen. Keine neue Android-APK erforderlich.
+
 ## Bob Android 0.12.1 – Samsung versteht „Bob zeige meine Goldprodukte“ (ohne Komma)
 
 Im Samsung-Echttest wurde die Äußerung **„Bob zeige meine goldprodukte“** korrekt in Text umgewandelt, aber als `Sprachauftrag unklar oder nicht erlaubt` zurückgewiesen. Ursache: Der lokale Parser akzeptierte `Bob, zeige ...` mit Komma, aber nicht `Bob zeige ...` ohne Komma. Bei Google/Samsung-Diktat wird Interpunktion häufig nicht mitgeliefert.

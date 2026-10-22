@@ -1159,7 +1159,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 </main>
 <script src="/push_manager.js"></script>
 <script src="/late_entry_guard.js?v=20261016-no-chase-v1"></script>
-<script src="/degiro_assistant.js?v=20261022-voice-leverage-isin"></script>
+<script src="/degiro_assistant.js?v=20261022-selection-reasons"></script>
 <script src="/bob_stop_assistant.js?v=20261016-chf-v1"></script>
 <script src="/product_trade_curve.js?v=20261018-trade-details"></script>
 <script src="/real_trade_journal.js"></script>
@@ -2117,18 +2117,25 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   function longComparisonFromCurrentUi(out){
    const section=out?.querySelector('[data-indicative-recommendations]');
    const direction=section?.querySelector(':scope > b > span')?.textContent?.trim()||'UNBEKANNT';
+   const selectionReason=section?.querySelector('[data-selection-reason]');
+   const reasonState=selectionReason?.getAttribute?.('data-selection-reason')||'';
+   const reasonText=(selectionReason?.textContent||'').trim();
    const rows=section?[...section.children].filter(el=>
     el.tagName==='DIV'&&/^\d+\.\s*[A-Z]{2}[A-Z0-9]{9}\d\b/.test((el.textContent||'').trim())
    ).slice(0,3).map(el=>(el.textContent||'').replace(/\s+/g,' ').trim().slice(0,450)):[];
    const status=!section?'Die aktuelle Produktauswahl wird noch geladen oder ist nicht verfügbar.':
+     reasonState&&reasonState!=='ranked'&&reasonText?reasonText:
      direction!=='LONG'?'Bob zeigt derzeit keine LONG-Rangfolge. Aktuelle rechnerische Richtung: '+direction+'.':
      rows.length?'Die angezeigten LONG-Kandidaten stammen aus Bobs bestehender rechnerischer Rangfolge. Vergleiche KO-Puffer, KO-Abstand und die Datenhinweise.':
-     'Zurzeit erfüllt kein LONG-Produkt die vorhandenen Auswahlkriterien, oder die Produktdaten fehlen.';
+     'Die berechnete LONG-Rangfolge ist noch nicht vollständig sichtbar. Bitte Datenstand kontrollieren.';
    return {direction,rows,status};
   }
   function leverageComparisonFromCurrentUi(out){
    const section=out?.querySelector('[data-indicative-recommendations]');
    const direction=section?.querySelector(':scope > b > span')?.textContent?.trim()||'UNBEKANNT';
+   const selectionReason=section?.querySelector('[data-selection-reason]');
+   const reasonState=selectionReason?.getAttribute?.('data-selection-reason')||'';
+   const reasonText=(selectionReason?.textContent||'').trim();
    const risk=section?.querySelector('[data-risk-leverage]');
    // Only the direct STRONG contains the ranking fact; reading the entire
    // accordion textContent glued nested disclosure labels onto the number.
@@ -2138,7 +2145,9 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    // These ISINs are attached by the SAME ranking renderer and restricted to
    // products tied for highest leverage, not a fresh issuer/broker lookup.
    const isins=(risk?.getAttribute?.('data-risk-isins')||'').trim();
-   return direction!=='LONG'&&direction!=='SHORT'?
+   return reasonState&&reasonState!=='ranked'&&reasonText?
+    reasonText+' Ein aktuell belegter höchster Hebel lässt sich deshalb nicht nennen.':
+    direction!=='LONG'&&direction!=='SHORT'?
     'Bobs aktuelle Produktauswahl hat keine bestätigte LONG- oder SHORT-Richtung. Kein bester Hebel belegt.':
     headline?'Bobs vorhandene '+direction+'-Rangfolge: '+headline+
      (isins?' · ISIN: '+isins:'')+
