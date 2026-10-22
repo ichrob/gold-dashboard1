@@ -31,6 +31,42 @@ class SharedSpotTests(unittest.TestCase):
             self.assertEqual(s.current()['price'],4141.8)
             self.assertTrue(bundle['spots']['is_genuine_xauusd_spot'])
 
+    def test_bundle_rechecks_near_expiry_with_original_provider_timestamp(self):
+        old=(self.now-timedelta(seconds=56)).isoformat()
+        newer=(self.now-timedelta(seconds=2)).isoformat()
+        source='Gold-API.com · XAU/USD Spot'
+        original=(4100.,56.,None,source,True,old)
+        refreshed={'price':4141.8,'at':newer,'source':source}
+        with patch.object(s,'current',return_value=refreshed) as current:
+            row=server.recheck_spot_before_bundle(original,now=self.now.timestamp())
+        self.assertEqual(current.call_count,1)
+        self.assertEqual(row[0],4141.8)
+        self.assertEqual(row[5],newer)
+        self.assertAlmostEqual(row[1],2,delta=.1)
+        self.assertTrue(row[4])
+
+    def test_late_bundle_recheck_never_promotes_stale_or_conflicting_quote(self):
+        old=(self.now-timedelta(seconds=61)).isoformat()
+        source='Gold-API.com · XAU/USD Spot'
+        original=(4100.,1.,None,source,True,old)
+        with patch.object(s,'current',side_effect=ValueError("stale")) as current:
+            row=server.recheck_spot_before_bundle(original,now=self.now.timestamp())
+        current.assert_called_once()
+        self.assertEqual(row[5],old)
+        self.assertGreater(row[1],60)
+        self.assertEqual(row[0],4100.)
+        with patch.object(s,'current',return_value={'price':9999.,
+            'at':self.now.isoformat(),'source':'Unverified'}) as current:
+            row=server.recheck_spot_before_bundle(original,now=self.now.timestamp())
+        self.assertEqual(row[0],4100.)
+        self.assertEqual(row[5],old)
+        with patch.object(s,'current') as current:
+            fresh=server.recheck_spot_before_bundle(
+                (4141.8,10.,None,source,True,(self.now-timedelta(seconds=10)).isoformat()),
+                now=self.now.timestamp())
+        current.assert_not_called()
+        self.assertAlmostEqual(fresh[1],10,delta=.1)
+
     def test_failed_refresh_keeps_only_still_fresh_observation(self):
         with patch.object(product_quotes,'issuer_json',return_value=self.payload):s.current()
         with patch.object(s,'_attempted',float('-inf')),patch.object(product_quotes,'issuer_json',side_effect=OSError('offline')) as request:
