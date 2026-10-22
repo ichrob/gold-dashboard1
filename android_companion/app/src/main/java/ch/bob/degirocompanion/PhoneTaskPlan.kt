@@ -44,12 +44,15 @@ internal object PhoneTaskPlanParser {
     private fun normalize(raw: String): String? {
         if (raw.isBlank() || raw.length > 240 ||
             raw.any { it == '\n' || it == '\r' || it == ';' || it == ':' ||
-                it == '|' || it == '\u0000' || it == '?' }) return null
-        return raw.lowercase(Locale.GERMAN).trim()
-            .replace(Regex("[.!]+$"), "")
+                it == '|' || it == '\u0000' }) return null
+        val clean = raw.lowercase(Locale.GERMAN).trim()
+            .replace(Regex("[.!?]+$"), "")
             .replace(Regex("\\s+"), " ")
             .replace(Regex("^(?:hallo bob|hey bob|bob),\\s*"), "")
             .trim()
+        // Natural speech questions may end in '?' but an internal question
+        // mark still rejects a mixed/ambiguous sentence in its entirety.
+        return clean.takeUnless { '?' in it }
     }
 
     private fun parseClause(raw: String): PhoneTask? {
