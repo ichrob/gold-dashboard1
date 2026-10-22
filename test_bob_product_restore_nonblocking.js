@@ -16,7 +16,7 @@ assert(restorePos>=0&&hydratePos>restorePos&&readyPos>hydratePos);
 assert(statusPos>readyPos&&renderPos>statusPos,'Local rows render before the optional server sync');
 assert(!inject.includes('await restoreServerCorrection();'), 'Remote correction must never block local products');
 const correction=extract('async function restoreServerCorrection(){','function mountListCorrection(');
-assert(correction.includes('signal:controller.signal'));
+assert(correction.includes('signal:controller?.signal'));
 assert(correction.includes('setTimeout(()=>controller.abort(),8000)'));
 assert(correction.includes('restoreProductRows(applyResearchedTerms(loadIdentities()))'));
 assert(correction.includes('return committed'));
