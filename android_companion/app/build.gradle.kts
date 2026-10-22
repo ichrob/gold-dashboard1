@@ -9,8 +9,8 @@ android {
         applicationId = "ch.bob.degirocompanion"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4-venue-layout"
+        versionCode = 5
+        versionName = "0.5-local-routines"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
