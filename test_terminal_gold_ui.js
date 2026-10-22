@@ -1,0 +1,42 @@
+/* Regression: KO and issuer-ended instruments are compact and never display
+   ordinary quote/leveraging gaps. Terminal is not automatically a KO. */
+const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync('degiro_assistant.js','utf8');
+const panel=fs.readFileSync('degiro_product_audit_panel.py','utf8');
+const first=source.indexOf('function terminalProductCard(');
+const last=source.indexOf('function evaluateProduct(',first);
+assert(first>0&&last>first);
+const ui={knockoutStatus:p=>p.verifiedKo===true?{}:null,esc:x=>String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;'),
+ renderIsinCopy:isin=>'<button data-copy-product-isin="'+isin+'">copy</button>'};
+vm.runInNewContext(source.slice(first,last),ui);
+const isin='DE000FD0S0G4';
+assert.equal(ui.knockoutCard({isin,verifiedKo:false}),'');
+const knocked=ui.knockoutCard({isin,verifiedKo:true});
+assert(knocked.includes(isin+' · Produkt ausgeknockt'));
+assert(knocked.includes('data-product-knocked-out'));
+assert(!knocked.includes('✗')&&!knocked.includes('Offen:')&&!knocked.includes('Geld:')&&!knocked.includes('Brief:')&&!knocked.includes('Hebel:'));
+assert(knocked.includes('data-copy-product-isin'));
+assert(!knocked.includes('data-selection-approved'));
+const ended=ui.terminalProductCard({isin},'Produkt beendet');
+assert(ended.includes(isin+' · Produkt beendet'));
+assert(ended.includes('data-product-ended')&&!ended.includes('data-product-knocked-out'));
+assert(!ended.includes('✗'));
+const base=source.indexOf('function serverIssuerTerminated('),tail=source.indexOf('function additionalProductsComplete(',base);
+assert(base>0&&tail>base);
+const at=Date.parse('2026-10-22T17:12:00Z'),stamp='2026-10-22T06:58:34.572Z';
+const terminal={isin,state:'terminated',sourceStatusEvidence:{issuerTerminal:true,issuerStatus:2}};
+const ctx={Date,window:{BobProductAuditReport:{status:'ok',lastCheckedAt:new Date(at-2000).toISOString(),listUploadedAt:stamp,items:[terminal]}},listArchive:{storedAt:stamp}};
+vm.runInNewContext(source.slice(base,tail),ctx);
+assert(ctx.serverIssuerTerminated({isin},at));
+assert.equal(ctx.compactProductExclusion({isin},at),'Produkt beendet – ausgeschlossen');
+assert(!ctx.serverIssuerTerminated({isin:'DE000OTHER'},at));
+assert(!ctx.serverIssuerTerminated({isin},at+181000));
+ctx.window.BobProductAuditReport.listUploadedAt='other';
+assert(!ctx.serverIssuerTerminated({isin},at));
+ctx.window.BobProductAuditReport.listUploadedAt=stamp;
+ctx.window.BobProductAuditReport.items=[{...terminal,sourceStatusEvidence:{issuerTerminal:false,issuerStatus:1}}];
+assert(!ctx.serverIssuerTerminated({isin},at));
+assert(source.includes("return terminalProductCard(p,'Produkt beendet')"));
+assert(panel.includes("if(ended){\n    summary.textContent=(item.isin||'ISIN unbekannt')+' · Produkt beendet';"));
+assert(panel.includes('node.append(summary);out.append(node);continue;'));
+console.log('Compact gold KO/end cards, historic and conflicting server evidence, original ISIN copy and no legacy X passed');
