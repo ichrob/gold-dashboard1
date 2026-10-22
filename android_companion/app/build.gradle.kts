@@ -9,8 +9,8 @@ android {
         applicationId = "ch.bob.degirocompanion"
         minSdk = 26
         targetSdk = 35
-        versionCode = 12
-        versionName = "0.10.3-speech-fallback"
+        versionCode = 13
+        versionName = "0.11-voice-onetap"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
