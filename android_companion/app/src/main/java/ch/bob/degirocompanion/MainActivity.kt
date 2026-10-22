@@ -24,7 +24,8 @@ import java.util.Locale
 
 /**
  * Device-local evidence and UI test harness, not a DEGIRO automation client.
- * No network permission, trade/order controls or credentials.\n * Only explicit local commands and an individually approved daily self-check.
+ * No network permission, trade/order controls or credentials.
+ * Only explicit local commands and an individually approved daily self-check.
  */
 class MainActivity : Activity() {
     private val selectImageRequest = 42
@@ -157,12 +158,44 @@ class MainActivity : Activity() {
         demoResult = label("Demo bereit. Ein UIAutomator-Test kann Eingaben und Klicks simulieren.", additional)
         setContentView(ScrollView(this).apply { addView(stack) })
         processUserShare(intent)
+        processUserCommand(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         processUserShare(intent)
+        processUserCommand(intent)
+    }
+
+    private fun processUserCommand(incoming: Intent?) {
+        // An ACTION_VIEW must be triggered on the device (for example by tapping
+        // a link). No background ChatGPT control or unapproved action script.
+        if (incoming?.action != Intent.ACTION_VIEW) return
+        val action = BobRoutinePolicy.fromLink(incoming.dataString) ?: return
+        if (!BobRoutinePolicy.permits(action, BobRoutinePolicy.Origin.USER_TAP)) return
+        when (action) {
+            BobRoutinePolicy.Action.OPEN_BOB -> {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://bob-private-scanner.onrender.com/")))
+                    status.text = "Bob geöffnet. Der Link enthält keine Handelsanweisung."
+                } catch (_: Exception) {
+                    status.text = "Bob konnte nicht geöffnet werden."
+                }
+            }
+            BobRoutinePolicy.Action.PICK_IMAGES -> {
+                val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "image/*"
+                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                }
+                startActivityForResult(picker, selectImageRequest)
+            }
+            BobRoutinePolicy.Action.LOCAL_HEALTH_CHECK -> {
+                status.text = DailyBobRoutine.summary(this)
+            }
+        }
     }
 
     private fun processUserShare(incoming: Intent?) {
