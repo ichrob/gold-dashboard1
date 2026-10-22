@@ -42,11 +42,11 @@ evidence.window.BobProductAuditReport={status:'ok',lastCheckedAt:new Date(now-10
  listUploadedAt:stamp,items:[row]};
 assert.equal(evidence.goldProductSyncState(p,now).state,'matched');
 assert(evidence.goldProductRepairStatus(p,now).includes('Keine offenen'));
-context.window.BobProductAuditReport.listUploadedAt='different-generation';
+evidence.window.BobProductAuditReport.listUploadedAt='different-generation';
 assert.equal(evidence.goldProductSyncState(p,now).state,'different-list');
-context.window.BobProductAuditReport.listUploadedAt=stamp;
+evidence.window.BobProductAuditReport.listUploadedAt=stamp;
 assert.equal(evidence.goldProductSyncState(p,now+181000).state,'unconfirmed');
-context.window.BobProductAuditReport.items=[{...row,state:'incomplete',missing:['quote'],
+evidence.window.BobProductAuditReport.items=[{...row,state:'incomplete',missing:['quote'],
  sourceRecovery:[{state:'waiting',retryAfterSeconds:60}]}];
 assert.equal(evidence.goldProductSyncState(p,now).state,'missing');
 assert(evidence.goldProductRepairStatus(p,now).includes('60 s'));
