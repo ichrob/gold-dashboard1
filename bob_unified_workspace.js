@@ -94,6 +94,9 @@ function mount(){
  '<button type="button" id="bobPrepareReadOnly" class="bob-primary">Bob, bereite alles vor</button>'+
  '<p class="small" id="bobPrepareStatus" role="status" aria-live="polite">Noch nicht geprüft.</p>'+
  '<div id="bobUnifiedChecks" class="small"></div>'+
+ '<label>Produkt aus Bobs bestehender Liste <select id="bobUnifiedProduct" style="width:100%;min-height:42px"><option value="">Bitte Produkt wählen</option></select></label>'+
+ '<p class="small" id="bobUnifiedProductNote">Nur Produktidentität, keine automatische Freigabe.</p>'+
+ '<button type="button" id="bobUnifiedToDraft">Produkt für Orderentwurf übernehmen</button>'+
  '<div class="row" style="display:flex;flex-wrap:wrap;gap:8px">'+
  '<button type="button" data-view="products">Gold-Hebelprodukte</button>'+
  '<button type="button" data-view="trade">Mein Trade</button>'+
@@ -110,7 +113,45 @@ function mount(){
  const title=overview.querySelector(':scope > h2');
  if(title)title.after(section);else overview.prepend(section);
  const status=doc.getElementById('bobPrepareStatus'),checks=doc.getElementById('bobUnifiedChecks');
+ const chosen=doc.getElementById('bobUnifiedProduct'),productNote=doc.getElementById('bobUnifiedProductNote');
  let working=false;
+ function refreshProducts(){
+  const old=chosen.value,items=root.BobDegiro?.tradeTestProducts?.()||[];
+  chosen.replaceChildren();
+  const first=doc.createElement('option');first.value='';first.textContent='Bitte Produkt wählen';chosen.append(first);
+  for(const p of Array.isArray(items)?items:[]){
+   if(!validIsin(p?.isin))continue;
+   const item=doc.createElement('option');item.value=p.isin;
+   item.textContent=p.isin+' · '+(p.direction||'Richtung offen')+' · '+String(p.name||'').slice(0,40);
+   chosen.append(item);
+  }
+  if(old&&Array.from(chosen.options).some(x=>x.value===old))chosen.value=old;
+  if(chosen.value!==old)productNote.textContent='Nur Produktidentität. Keine automatische Handelsfreigabe.';
+ }
+ chosen.addEventListener('change',()=>{
+  const p=(root.BobDegiro?.tradeTestProducts?.()||[]).find(x=>x.isin===chosen.value);
+  if(!p){productNote.textContent='Kein Produkt gewählt.';return;}
+  const q=p.quote,at=q?.askAt||q?.bidAt||null,age=originalAge(at);
+  const label=age===null?'Originalzeit fehlt':age>90000?'Originalkurs älter als 90 Sekunden':'Beobachtungszeit innerhalb von 90 Sekunden';
+  productNote.textContent='ISIN '+p.isin+' · '+(p.direction||'Richtung offen')+
+   ' · '+label+' · '+(q?.source||'Quelle nicht belegt')+
+   '. Kein bestätigter DEGIRO-Kurs oder Handelsplatz.';
+ });
+ doc.getElementById('bobUnifiedToDraft').addEventListener('click',()=>{
+  const isin=chosen.value;
+  if(!validIsin(isin)){productNote.textContent='Zuerst ein Produkt aus der Bob-Liste wählen.';return;}
+  const available=(root.BobDegiro?.tradeTestProducts?.()||[]).some(x=>x.isin===isin);
+  const target=doc.getElementById('dg2-product');
+  if(!available||!target||!Array.from(target.options).some(x=>x.value===isin)){
+   productNote.textContent='Produkt im Handy-Assistenten nicht bestätigt. Öffne den Orderentwurf und aktualisiere die Produktliste.';
+   doc.querySelector('#bobUnifiedWorkspace [data-view="degiro2"]')?.click();return;
+  }
+  target.value=isin;
+  target.dispatchEvent(new Event('change',{bubbles:true}));
+  doc.querySelector('#bobUnifiedWorkspace [data-view="degiro2"]')?.click();
+  productNote.textContent='ISIN in Orderentwurf übergeben. Limit, Stückzahl und aktuelle DEGIRO-Handelbarkeit selbst prüfen.';
+ });
+
  function text(id){return doc.getElementById(id)?.textContent?.trim()||'';}
  function snapshot(){
   const bundle=root.liveBundleCache,products=root.BobDegiro?.tradeTestProducts?.();
@@ -126,6 +167,7 @@ function mount(){
   };
  }
  function present(value){
+  refreshProducts();
   checks.replaceChildren();
   const rows=[
    ['Gold-Spot',value.spot],['Marktanalyse',value.analysis],
