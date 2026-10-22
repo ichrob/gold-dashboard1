@@ -21,6 +21,17 @@ class CIWatchdogTests(unittest.TestCase):
         self.assertIn('timeout --signal=TERM --kill-after=10s 180s sudo apt-get', CI)
         self.assertIn('timeout --signal=TERM --kill-after=10s 40s ffmpeg', CI)
 
+    def test_browser_setup_does_not_upgrade_all_runner_packages(self):
+        # A slow Ubuntu mirror caused exit 124 while fetching unrelated fonts.
+        # The Chromium and Firefox smoke tests still run and fail if libraries
+        # are really missing; never skip a browser test to get green CI.
+        self.assertIn('uses: actions/cache@v4', CI)
+        self.assertIn('bob-playwright-linux-1.51.1', CI)
+        self.assertIn('playwright install chromium firefox', CI)
+        self.assertNotRegex(CI, r'(?m)^\\s*timeout.*playwright install --with-deps')
+        self.assertNotIn('playwright install-deps', CI)
+        self.assertIn('if command -v ffmpeg', CI)
+
     def test_all_browser_suites_still_run_without_swallowing_failures(self):
         suites = sorted(set(re.findall(r'node (browser_[a-z_]+\.cjs)', CI)))
         self.assertGreaterEqual(len(suites), 12)
