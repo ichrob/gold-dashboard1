@@ -87,4 +87,23 @@ class PhoneTaskPlanTest {
         assertNull(PhoneTaskPlanParser.parse("Zeige die Simulationen und öffne die DEGIRO App"))
         assertNull(PhoneTaskPlanParser.parse("Zeige meine Goldprodukte; ändere alle Stopps"))
     }
+    @Test fun productQuestionsAreReadOnlyAndRequireExactUtterance() {
+        for (phrase in listOf(
+            "Zeige mir die drei besten LONG-Produkte und erkläre die Unterschiede",
+            "Zeige mir die drei besten Long Produkte",
+            "Vergleiche die drei besten Long-Produkte",
+            "Erkläre mir die LONG-Produkte"
+        )) {
+            assertEquals("read-only question: $phrase", PhoneTask.OPEN_LONG_REVIEW,
+                PhoneTaskPlanParser.parse(phrase)?.steps?.singleOrNull())
+        }
+        assertEquals(PhoneTask.OPEN_PRODUCTS,
+            PhoneTaskPlanParser.parse("Gold Hebelprodukte")?.steps?.singleOrNull())
+        for (phrase in listOf(
+            "Zeige mir die drei besten LONG-Produkte und kaufe sie",
+            "LONG-Produkte vergleichen und danach handle automatisch",
+            "Verkaufe mein Gold-Hebelprodukt",
+            "Zeige mir die drei besten LONG-Produkte und ändere den Stopp"
+        )) assertNull("unsafe mix: $phrase", PhoneTaskPlanParser.parse(phrase))
+    }
 }
