@@ -25,7 +25,9 @@ jobs:
   validate:
     name: Validate Bob
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Browser tests provision Chromium, Firefox and FFmpeg; avoid cancelling a
+    # passing unit-test suite while platform dependencies are still installing.
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:18-alpine
