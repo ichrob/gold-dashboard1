@@ -449,7 +449,17 @@ function mount(){
   }catch(e){backupStatus.textContent='Wiederherstellung nicht erfolgt: '+e.message;}
   finally{picker.value='';}
  });
+ // Automatically surface authenticated, recent product identities on the
+ // overview without a separate button. This is one existing read-only audit
+ // request, shared with the explicit preparation/status controls.
+ // It never calls issuer sources or changes the market/entry decision.
  present(analyzeInputs(snapshot()));
+ if(root.BobSession?.expired?.()!==true && !doc.hidden){
+  fetchProductAudit().then(()=>{
+   // Keep a later user-triggered market-preflight status untouched.
+   present(analyzeInputs(snapshot()));
+  });
+ }
 }
 if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',mount);
 else mount();
