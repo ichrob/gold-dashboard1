@@ -14,7 +14,7 @@ def publish(*,token,repo,requester=None):
     import bob_problems
     if not token or repo!='ichrob/gold-dashboard1':raise ValueError('Status repository not authorized')
     requester=requester or watchdog.github_request
-    rows=requester('GET','/issues?state=open&per_page=100',token=token,repo=repo)
+    rows=watchdog.open_issue_rows(token=token,repo=repo,requester=requester)
     report=bob_problems.from_issues(rows)
     # Only the already allowlisted issue summary. No body, account, quote or log.
     payload=dict(version=1,checkedAt=report['checkedAt'],problems=report['problems'])
