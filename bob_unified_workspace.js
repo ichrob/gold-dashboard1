@@ -89,7 +89,7 @@ function operationalSnapshot(audit,problems,simulationText='',now=Date.now()){
  const problemStatus=!counts?
   {state:'unknown',text:'Technisches Problemarchiv nicht aktuell bestätigt.'}:
   problems.count?
-  {state:'warning',text:problems.count+' offene technische KI-Hilfeanfragen (öffentliche Diagnosecodes).'}:
+  {state:'warning',text:problems.count+(problems.count===1?' offene technische KI-Hilfeanfrage':' offene technische KI-Hilfeanfragen')+' (öffentliche Diagnosecodes).'}:
   {state:'checked',text:'Keine offenen technischen KI-Hilfeanfragen im öffentlichen Diagnosearchiv. Private Produktprobleme separat prüfen.'};
  const simulation=typeof simulationText==='string'&&simulationText.trim()?
   {state:'unknown',text:'Simulation laut bestehender Anzeige: '+simulationText.trim().slice(0,140)+'. Kein bestätigter Gewinn oder Brokerstatus.'}:
