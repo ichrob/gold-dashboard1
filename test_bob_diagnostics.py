@@ -77,6 +77,23 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(result['status'],'unavailable')
         self.assertEqual(diagnostics.summary({'degiroSync':result})['assessment'],'needs-attention')
 
+    def test_night_session_explains_stale_candle_without_hiding_it(self):
+        from datetime import datetime, timezone
+        nighttime = datetime(2026, 10, 22, 21, 14, tzinfo=timezone.utc).timestamp()
+        report = diagnostics.market_snapshot({'status': 'observed'}, nighttime-10, now=nighttime)
+        self.assertEqual(report['sessionMode'], 'night')
+        self.assertEqual(report['candles']['1m']['integrity']['state'], 'missing')
+        evidence = {'market': {'sessionMode': report['sessionMode'],
+                               'candles': {'1m': {'integrity': {
+                                   'state': 'stale',
+                                   'source': 'biquote · XAU/USD Broker/MT5'}}}}}
+        result = diagnostics.summary(evidence)
+        item = next(x for x in result['attention'] if x['area'] == 'market.candles.1m.integrity')
+        self.assertEqual(item['state'], 'stale')
+        self.assertEqual(item['sessionMode'], 'night')
+        self.assertIn('not-proof-of-worker-outage', item['meaning'])
+        self.assertEqual(result['assessment'], 'needs-attention')
+
     def test_source_history_does_not_create_live_alerts(self):
         sources={'xaus/1h':{'state':'current','events':[{'state':'stale'},{'state':'current'}]},
                  'biquote/1m':{'state':'current','events':[{'state':'stale'}]},

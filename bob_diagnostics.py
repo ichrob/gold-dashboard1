@@ -26,7 +26,12 @@ def market_snapshot(live, cached_at, now=None):
     age = now - cached_at if cached_at else None
     bars = (live.get('history') or {}).get('bars_by_tf') or {}
     from market_review import frame_health
+    from background_push import degiro_session
+    # The user's 08:00–22:00 routine is not an exchange closure signal.
+    # Report it as context only; do not turn stale candles into fresh candles.
+    session_mode = degiro_session(now * 1000)
     return {'status': 'unavailable' if not live else 'stale' if age is None or not 0 <= age <= 120 else live.get('status', 'observed'),
+            'sessionMode': session_mode,
             'cacheAgeSeconds': age, 'cachedAt': cached_at or None,
             'source': fields(live.get('spots'), ('spot_price_as_of', 'primary', 'xaus_is_spot', 'is_genuine_xauusd_spot')),
             'candles': {tf: {'integrity':frame_health(bars.get(tf, []), tf, now*1000), 'count':len(bars.get(tf, [])),
@@ -438,6 +443,11 @@ def summary(areas):
                 current=active.get(parts[1],'unknown')
                 item['sourceRole']='selected' if current==parts[0] else (
                     'alternate' if current!='unknown' else 'undetermined')
+        if path.startswith('market.candles.') and path.endswith('.integrity'):
+            session = market.get('sessionMode')
+            if session in ('preparation', 'night', 'weekend'):
+                item['sessionMode'] = session
+                item['meaning'] = 'source-clock-stale-or-incomplete-outside-user-trading-window-not-proof-of-worker-outage'
         if path.startswith('simulationAndPush.accounts.') and item['state']=='inconclusive':
             item['meaning']='paper-result-unconfirmed-not-a-realised-loss'
     return {'attention':findings[:40], 'assessment':'needs-attention' if findings else 'observed-only',
