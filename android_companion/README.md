@@ -1,5 +1,17 @@
 # Bob Android-Begleitlabor (nicht produktiv)
 
+## Samsung-Steuerung · neue lokale Befehle (22.10.2026)
+
+Neue sichtbar freigegebene Aktionen im Android-Labor (Version 0.5): **„Auftrag: Bob öffnen“**, **„Auftrag: Produktbilder auswählen und lokal prüfen“**, **„Status der lokalen Routinen prüfen“** und **„STOPP · Alle geplanten Bob-Routinen ausschalten“**. Das Labor kann **keine ChatGPT-Nachricht als direkten Fernbedienungsbefehl empfangen**. Eine authentifizierte, widerrufbare Geräteverbindung wäre ein separates Sicherheits- und Entwicklungsprojekt.
+
+Eine **anfangs ausgeschaltete** Tagesroutine kann nach ausdrücklicher Freigabe mit frei gewählter Uhrzeit lokal die Zeit der letzten erfolgreichen Bildverarbeitung prüfen und eine Benachrichtigung zeigen. Kein Hintergrund-Screenshot, keine DEGIRO-Steuerung, keine Order. Die Uhrzeit ist nicht minutengenau; Android kann die Ausführung verzögern. Nach einem Telefon-Neustart muss die Routine eventuell erneut aktiviert werden. Android 13+ verlangt die Benachrichtigungsberechtigung. STOPP widerruft die Freigabe und entfernt den Alarm.
+
+Die feste Befehlsliste lässt für geplante Ausführung ausschliesslich die lokale Prüfung zu. Keine generischen Klicks, keine Fernzugriffe, keine Credentials, kein Zugriff auf Broker-Konten. Nur die Uhrzeit der lokalen OCR-Verarbeitung wird dafür gespeichert, keine Screenshots, ISINs oder Kurse. Eine weitergehende Automatisierung braucht klar definierten Umfang, gesonderte Berechtigungen und Tests.
+
+**Einrichtung auf dem Samsung:** neue Debug-APK aus GitHub Actions installieren, App öffnen, „Täglichen lokalen Check freigeben“ antippen, Uhrzeit wählen und (bei Android 13+) Benachrichtigungen erlauben. Wenn Android erst die Berechtigung fragt, danach erneut die Freigabe-Schaltfläche drücken. Im Galerie-Teilen-Menü bleibt der bestehende Bildimport. **Der GitHub-Quellcode ist weder ein bestätigter APK-Build noch ein echter Gerätetest.**
+
+
+
 ## Nachbesserung 22.10.2026: „BNP OTC“ bei erfolgreicher Kurslesung
 
 Die reale Samsung-Prüfung von zwei DEGIRO-Bildern zeigte korrekte ISIN, Geld 7,04 EUR, Brief 7,05 EUR, Zuletzt 7,04 EUR und sichtbare Anzeigezeit 22/10/2026 10:35. **Nur der Handelsplatz fehlte**, obwohl er auf dem Detailbild steht.
@@ -47,7 +59,7 @@ Zwei strikt getrennte Untersuchungen für Bob:
 - DEGIRO selbst untersagt Drittanbieter-Automatisierung und hat keine öffentliche Entwickler-API. Für die Live-App wird deshalb **keine** Accessibility- oder UIAutomator-Steuerung ausgeliefert. Offizielle Aussage: https://www.degiro.ch/helpdesk/en/trading-platform/can-i-automate-trades-or-use-trading-bots-degiro
 - SnapTrade DEGIRO bleibt read-only: https://snaptrade.com/brokerage-integrations/degiro-api
 - Bob nutzt bereits eine authentifizierte, same-origin-geschützte Nachweisstrecke (`/api/degiro/candidate-proof`), die Bildprüfung und Berechtigungen nicht automatisch durch Android-OCR ersetzt. Das Labor ruft sie bewusst **nicht** auf.
-- Die Android-Anwendung hat **keine INTERNET-, Accessibility-, Bildschirmerfassungs- oder sonstigen besonders sensiblen Berechtigungen**, speichert keine Kontodaten, fragt keine Zugangsdaten ab und hat keine DEGIRO-Paket- oder URL-Verweise im ausführbaren Code. Eine Bildfreigabe erfolgt durch eine bewusste Android-Aktion. Wer den OCR-Entwurf in die Zwischenablage kopiert, muss wissen, dass andere Apps vorübergehend Zugriff auf den kopierten Text bekommen könnten.
+- Die Android-Anwendung hat **keine INTERNET-, Accessibility- oder Bildschirmerfassungsberechtigungen**; die Benachrichtigungsberechtigung ist optional und ausschliesslich für den lokal freigegebenen Tagescheck, speichert keine Kontodaten, fragt keine Zugangsdaten ab und hat keine DEGIRO-Paket- oder URL-Verweise im ausführbaren Code. Eine Bildfreigabe erfolgt durch eine bewusste Android-Aktion. Wer den OCR-Entwurf in die Zwischenablage kopiert, muss wissen, dass andere Apps vorübergehend Zugriff auf den kopierten Text bekommen könnten.
 - OCR kann 0/O/9 vertauschen, Labels vertauschen, mehrere Produkte mischen und Zeitstempel falsch lesen. Gültiger ISIN-Prüfcode ist nur ein Identitäts-Plausibilitätsfilter, kein Handelsplatz- oder Kursbeleg. Die Originalbild-, Originalzeit-, Emittenten-, KO- und Brokerprüfungen in Bob bleiben vollständig bestehen.
 
 ## Android Studio – lokale Prüfung
