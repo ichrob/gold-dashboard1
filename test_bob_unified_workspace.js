@@ -74,6 +74,11 @@ for(const bad of [
  {...archived,products:[]},
  {...archived,version:1}
 ])assert.equal(a.uploadedList(JSON.stringify(bad),listNow),null);
+const privateWarning=a.operationalSnapshot(report,none,'',operationsNow,2);
+assert.equal(privateWarning.problemStatus.state,'warning');
+assert.match(privateWarning.problemStatus.text,/Private Produkt-Hilfefälle laut Produktansicht: 2/);
+const privateUnknown=a.operationalSnapshot(report,{status:'stale',count:0,problems:[]},'',operationsNow,2);
+assert.equal(privateUnknown.problemStatus.state,'unknown');
 const draft={day:'2026-10-22',currency:'EUR',budget:10000,orders:[
  {isin:'DE000FG14AV8',side:'Kauf',qty:5,price:1200,fees:100,cost:6100,stop:900,target:1800},
  {isin:'DE000FG14AV8',side:'Verkauf',qty:2,price:1100,fees:100,cost:2300,stop:null,target:null}
