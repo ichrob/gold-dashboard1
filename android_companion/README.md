@@ -1,3 +1,13 @@
+## Bob Android 0.12.1 – Samsung versteht „Bob zeige meine Goldprodukte“ (ohne Komma)
+
+Im Samsung-Echttest wurde die Äußerung **„Bob zeige meine goldprodukte“** korrekt in Text umgewandelt, aber als `Sprachauftrag unklar oder nicht erlaubt` zurückgewiesen. Ursache: Der lokale Parser akzeptierte `Bob, zeige ...` mit Komma, aber nicht `Bob zeige ...` ohne Komma. Bei Google/Samsung-Diktat wird Interpunktion häufig nicht mitgeliefert.
+
+**Korrektur:** Die bekannte Anrede `Bob`, `Hallo Bob` oder `Hey Bob` kann am Satzanfang auch mit Leerzeichen statt Komma stehen. Danach muss der **gesamte** Rest weiterhin exakt einer erlaubten Tätigkeit entsprechen. `Bob öffnen` und `Bob starten` bleiben eigenständige Befehle. Nie Teilbefehle ausführen, niemals Käufer-/Verkäuferaktionen, Orderformulare oder Android-Drittsystemautomatisierung durchlassen.
+
+**Regression:** Testet den echten Samsung-Wortlaut, Groß-/Kleinschreibung, Interpunktion, `Gold Hebelprodukte`, LONG-Fragen, legacy `Bob öffnen`, gefährliche gemischte Sätze und den Ausschluss der automatischen Ausführung von Mehrschrittplänen.
+
+**Handy-Abnahme nach neuer Installation:** Bob Android-Labor öffnen → einmal Mikrofon tippen → `Bob, zeige meine Goldprodukte` sagen (oder nur `Bob zeige meine Goldprodukte`). Erwartet wird die automatische Öffnung des Produktmenüs ohne weitere Knöpfe; Bob hört nicht dauerhaft mit. Test auf echtem Gerät ist zusätzlich zum grünen Android-Build nötig.
+
 ## Bob Android 0.12 – Mikrofon aktivieren, sichere Bob-Seite öffnet von selbst
 
 **Auslöser:** Der Nutzer drückt **einmal** den Mikrofonknopf `🎤 Bob zuhören lassen – einmal tippen` innerhalb der Samsung-App. Androids ausgewählter Spracherkennungsdienst liefert eine einzelne Äußerung zurück. Es gibt **kein permanentes Zuhören**, keine App-Mikrofon-Aufnahmeberechtigung, keinen Always-on-Dienst. Der Android-Spracherkennungsanbieter kann online verarbeiten.
