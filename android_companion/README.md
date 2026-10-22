@@ -4,9 +4,9 @@
 
 Ein realer Gerätetest zeigte beim Tippen auf „Handy-Auftrag prüfen“ den Fehler „Nicht erlaubter Auftrag“, obwohl der Beispielbefehl grau zu sehen war: `EditText.hint` zeigt nur einen Platzhalter, `text` blieb leer.
 
-**Version 0.6:** Der harmlose Beispielauftrag `BOB-AUFTRAG: BOB_OEFFNEN` wird beim Öffnen jetzt über `setText(...)` als **echter Feldinhalt** eingetragen. Der Nutzer kann dadurch unmittelbar auf **Prüfen** und danach ausdrücklich auf **einmalig ausführen** tippen. Die Ausführung bleibt eine separate Freigabe, findet nicht beim App-Start statt und wird nach einmaliger Verwendung gesperrt. Für andere Befehle muss der Text bewusst geändert werden.
+**Neue Bedienung:** Beim Öffnen steht **„Bob öffnen“** als tatsächlich vorausgefüllter, normal lesbarer Feldinhalt (nicht grau als Platzhalter). Es ist kein Kopieren oder Eingeben erforderlich: erst **Handy-Auftrag prüfen**, dann **Geprüften Handy-Auftrag einmalig ausführen**. Danach steht „Bob öffnen“ erneut zur Auswahl bereit, die Bestätigung ist jedoch verbraucht und muss für jede weitere Aktion wieder mit „Prüfen“ eingeholt werden. Für andere erlaubte Aufträge bleibt die Texteingabe bzw. Android-Teilen erhalten; die Zulassung von externen Kommandos bleibt auf die strenge Befehlsliste beschränkt.
 
-Zusätzlicher Android-UI-Test kontrolliert echten Feldinhalt, Prüfvorschau und dass die Vorschau **keinen** Browserstart auslöst. Die CI kompiliert diesen UI-Test, führt ihn aber nicht automatisch auf einem Samsung aus. Eine Aktualisierung der APK ist für die Korrektur erforderlich; die bereits installierte 0.5 lässt sich bis dahin nutzen, indem der Befehl **wirklich eingegeben oder eingefügt** wird.
+Zusätzlicher Android-UI-Test kontrolliert den vorausgewählten Klartext „Bob öffnen“, Prüfvorschau und dass die Vorschau **keinen** Browserstart auslöst. Die CI kompiliert diesen UI-Test, führt ihn aber nicht automatisch auf einem Samsung aus. Eine Aktualisierung der APK ist für die Korrektur erforderlich; die bereits installierte 0.5 lässt sich bis dahin nutzen, indem der Befehl **wirklich eingegeben oder eingefügt** wird.
 
 ## Ergänzung 22.10.2026: ChatGPT/Bob-Handy-Aufträge – ohne Doppelentwicklung
 
