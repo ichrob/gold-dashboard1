@@ -206,20 +206,24 @@ def stored_details(conn):
 
 
 def simulation_evidence_snapshot(simulation):
-    """Summarize only already-sanitized recent virtual cases, never run trades.
+    """Bounded read-only evidence about recent virtual cases, never broker fills.
 
-    Each account is a small, bounded sample (at most the last five cases).
-    Historic cases and events beyond that window are NOT covered. In particular
-    a completed model sale or numeric model P/L is never a broker execution.
+    Correlate exact *recorded* gap event clocks across independently simulated
+    profiles; a repeated clock is not another source outage or original price.
+    Only fixed reason codes are projected; raw messages are not exported.
     """
-    if not isinstance(simulation, dict) or simulation.get('status') != 'observed':
-        return {'status':'unavailable', 'readOnly':True,
+    if not isinstance(simulation,dict) or simulation.get('status')!='observed':
+        return {'status':'unavailable','readOnly':True,
                 'reason':'simulation-source-unavailable'}
-    accounts = simulation.get('accounts')
+    accounts=simulation.get('accounts')
     if not isinstance(accounts,list) or not accounts:
-        return {'status':'unavailable', 'readOnly':True,
+        return {'status':'unavailable','readOnly':True,
                 'reason':'simulation-accounts-unavailable'}
     evidence=[]
+    gap_times={}
+    reason_counts={'missing-current-market':0,'bar-gap-over-90s':0,'unclassified':0}
+    missing_recorded_time=0
+    sampled_inconclusive=0
     for account in accounts[:10]:
         if not isinstance(account,dict):
             continue
@@ -236,13 +240,35 @@ def simulation_evidence_snapshot(simulation):
                 continue
             status=c.get('status')
             kinds[status if status in ('open','closed','inconclusive') else 'other']+=1
-            events=[e.get('kind') for e in (c.get('events') or [])[:20]
-                    if isinstance(e,dict)]
-            data_gaps+=int('data-gap' in events)
-            deferred+=int('deferred-sale' in events)
-            terminal+=int(any(x in ('product-terminated','knockout-confirmed',
-                                    'ko-barrier-crossed-observed') for x in events))
-        identity=fields(account, ('profile','status','checkedAt','enabled'))
+            events=[e for e in (c.get('events') or [])[-40:] if isinstance(e,dict)]
+            event_kinds=[e.get('kind') for e in events]
+            data_gaps+=int('data-gap' in event_kinds)
+            deferred+=int('deferred-sale' in event_kinds)
+            terminal+=int(any(kind in ('product-terminated','knockout-confirmed',
+                                        'ko-barrier-crossed-observed') for kind in event_kinds))
+            if status!='inconclusive':
+                continue
+            sampled_inconclusive+=1
+            for event in events:
+                if event.get('kind')!='data-gap':
+                    continue
+                reason=event.get('reason')
+                if reason=='Aktuelle Goldkursabdeckung fehlt; kein belegter Ausstieg':
+                    code='missing-current-market'
+                elif reason=='Goldkurslücke über 90 Sekunden; Reihenfolge unbekannt':
+                    code='bar-gap-over-90s'
+                else:
+                    code='unclassified'
+                reason_counts[code]+=1
+                recorded=event.get('recordedAt')
+                if type(recorded) not in (int,float) or not math.isfinite(recorded) or recorded<=0:
+                    missing_recorded_time+=1
+                    continue
+                item=gap_times.setdefault(recorded,{'recordedAt':recorded,
+                    'affectedVirtualCases':0,'reasonCodes':set()})
+                item['affectedVirtualCases']+=1
+                item['reasonCodes'].add(code)
+        identity=fields(account,('profile','status','checkedAt','enabled'))
         evidence.append({**identity,
             'sampleStatus':'observed' if observed else 'unavailable',
             'sampleSize':len(cases),'counts':kinds,
@@ -252,10 +278,25 @@ def simulation_evidence_snapshot(simulation):
             'netProductReturnsVerified':False,
             'note':'Only latest five sanitized virtual cases; event lists can be truncated. '
                    'No past-case totals, original quote proof, executed trade or return validation.'})
+    clusters=[{'recordedAt':v['recordedAt'],
+               'affectedVirtualCases':v['affectedVirtualCases'],
+               'reasonCodes':sorted(v['reasonCodes'])}
+              for v in sorted(gap_times.values(),key=lambda item:item['recordedAt'])]
     return {'status':'observed' if evidence else 'unavailable',
             'readOnly':True,'realOrders':False,'accountSamples':evidence,
+            'gapCorrelation':{
+                'sampledInconclusiveCases':sampled_inconclusive,
+                'gapEventReasonCounts':reason_counts,
+                'distinctRecordedGapInstants':len(clusters),
+                'repeatedGapInstants':sum(1 for v in clusters if v['affectedVirtualCases']>1),
+                'gapEventsWithoutRecordedAt':missing_recorded_time,
+                'recentRecordedGapInstants':clusters[-10:],
+                'scope':'exact-recordedAt-correlation-in-last-five-cases-per-account',
+                'note':'Distinct recorded event clocks, not independent outages. '
+                       'A reason classification does not prove root cause or missing trade price.'},
             'scope':'bounded-paper-case-evidence-not-fills-or-profit',
             'note':'A source data-gap cannot be repaired by interpolation or re-dating quotes.'}
+
 
 
 def new_feature_snapshot(areas, *, mobile_asset_loaded=False):
