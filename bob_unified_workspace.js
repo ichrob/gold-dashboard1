@@ -97,7 +97,7 @@ function mergeProductIdentities(visible,stored,audit,now=Date.now()){
   let item=map.get(p.isin);
   if(!item){
    item={isin:p.isin,name:p.isin,direction:null,quote:null,reference:null,
-    fromVisible:false,fromArchive:false,fromAudit:false,fromAuditStale:false,conflictingDirection:false};
+    fromVisible:false,fromArchive:false,fromAudit:false,fromAuditStale:false,auditState:null,conflictingDirection:false};
    map.set(p.isin,item);
   }
   item[kind]=true;
@@ -126,7 +126,11 @@ function mergeProductIdentities(visible,stored,audit,now=Date.now()){
  if(audited){
   for(const p of audit.items){
    add({isin:p?.isin,direction:p?.direction,name:p?.name},'fromAudit');
-   if(!auditFresh&&validIsin(p?.isin))map.get(p.isin).fromAuditStale=true;
+   if(validIsin(p?.isin)){
+    const item=map.get(p.isin);
+    item.auditState=['terminated','incomplete'].includes(p.state)?p.state:null;
+    if(!auditFresh)item.fromAuditStale=true;
+   }
   }
  }
  return {items:[...map.values()].sort((a,b)=>a.isin.localeCompare(b.isin)),
@@ -218,6 +222,7 @@ function mount(){
  section.innerHTML='<h3>Bob · Alles an einem Ort</h3>'+
  '<p class="small">Einmal prüfen, dann den passenden Bereich öffnen. Quellen- und Handelsnachweise bleiben getrennt; keine automatische Order oder Änderung der Risikoregeln.</p>'+
  '<p class="small" id="bobGoldProductBanner" role="status" aria-live="polite">Goldprodukte: Prüfbericht wird geladen …</p>'+
+ '<details id="bobGoldProductList" class="bob-disclosure"><summary>Gold-ISINs anzeigen</summary><div id="bobGoldProductRows" class="small">Noch kein Prüfbericht.</div></details>'+
  '<button type="button" data-view="products" id="bobOpenGoldProducts">Gold-Hebelprodukte ansehen</button>'+
  '<button type="button" id="bobPrepareReadOnly" class="bob-primary">Bob, bereite alles vor</button>'+
  '<p class="small" id="bobPrepareStatus" role="status" aria-live="polite">Noch nicht geprüft.</p>'+
@@ -367,6 +372,26 @@ function mount(){
     '. Keine Handelsfreigabe.':
     'Goldprodukte derzeit nicht ladbar'+(auditFetchError?' ('+auditFetchError+')':'')+
     '. Unter Produkte oder Probleme den Prüfbericht kontrollieren.';
+  }
+  const list=doc.getElementById('bobGoldProductRows');
+  if(list){
+   list.replaceChildren();
+   for(const item of candidates.items.slice(0,30)){
+    const p=doc.createElement('p');
+    const dir=item.conflictingDirection?'Richtung widersprüchlich':item.direction||'Richtung offen';
+    const state=item.auditState==='terminated'?' · als beendet gemeldet':
+     item.auditState==='incomplete'?' · Nachweise unvollständig':'';
+    const age=item.fromAuditStale?' · historischer Prüfbericht':'';
+    p.textContent=item.isin+' · '+dir+state+age+' · keine Handelsfreigabe';
+    list.append(p);
+   }
+   if(!candidates.items.length){
+    const p=doc.createElement('p');
+    p.textContent='Keine Produktidentitäten auf diesem Gerät bestätigt. Privatbericht unter Produkte prüfen.';
+    list.append(p);
+   }
+   const summary=doc.querySelector('#bobGoldProductList > summary');
+   if(summary)summary.textContent='Gold-ISINs anzeigen ('+candidates.items.length+')';
   }
   checks.replaceChildren();
   const rows=[
