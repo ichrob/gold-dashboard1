@@ -1733,7 +1733,7 @@ function renderServerAnalysisEvidence(p){
 }
 // Only evidence failures belong beside the ISIN; market/ranking reasons stay below.
 function productProblemLabels(p){
- if(knockoutStatus(p)||compactProductExclusion(p)||serverAnalysisEvidence(p))return [];
+ if(knockoutStatus(p)||compactProductExclusion(p)||(typeof serverAnalysisEvidence==='function'&&serverAnalysisEvidence(p)))return [];
  const result=finalProductStatus(p);
  if(result.complete)return [];
  const paused=typeof expectedQuotePause==='function'&&expectedQuotePause(p);
@@ -1774,7 +1774,7 @@ function renderProductProblemSummary(p){
  return labels.length?'<strong data-product-problems style="font-size:16px;line-height:1.5;color:#b45309;margin-left:6px">('+esc(labels.join(', '))+')</strong>':'';
 }
 function productHelpState(p){
- const server=serverAnalysisEvidence(p);
+ const server=typeof serverAnalysisEvidence==='function'?serverAnalysisEvidence(p):null;
  if(server)return {labels:[],checking:false,manual:false,status:'Aktuelle Server-Nachweise vorhanden',action:'Geld, Brief und Hebel sind durch datierte Anbieter-/Vergleichsdaten für die Analyse belegt. Die lokale Handyansicht kann noch ältere Bildwerte zeigen. Keine neuen Screenshots erforderlich; ein ausführbarer DEGIRO-Kurs bleibt separat unbestätigt.'};
  const labels=productProblemLabels(p),attempt=researchResults.get(p.index);
  const paused=typeof expectedQuotePause==='function'&&expectedQuotePause(p);
@@ -2161,7 +2161,7 @@ function serverIssuerTerminated(p,now=Date.now()){
 }
 function compactProductExclusion(p){
  const direct=p.quote?.isin===p.isin&&p.quote?.productVerified?p.quote:null;
- return direct?.metadata?.status===2||serverIssuerTerminated(p)?'Produkt beendet – ausgeschlossen':/FAKTOR|FACTOR/i.test([p.name,direct?.metadata?.name,p.snapshot?.terms?.type?.value].join(' '))?'Faktorprodukt ausgeschlossen':null;
+ return direct?.metadata?.status===2||(typeof serverIssuerTerminated==='function'&&serverIssuerTerminated(p))?'Produkt beendet – ausgeschlossen':/FAKTOR|FACTOR/i.test([p.name,direct?.metadata?.name,p.snapshot?.terms?.type?.value].join(' '))?'Faktorprodukt ausgeschlossen':null;
 }
 function additionalProductsComplete(products,now=Date.now()){
  const remaining=products.filter(p=>!knockoutStatus(p)&&!compactProductExclusion(p));
@@ -2449,7 +2449,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  const undatedReference=direct?.issuerLeverageReference?.dated===false&&n(direct.issuerLeverageReference.value)>0;
  const excluded=compactProductExclusion(p);
  if(excluded){
-  if(direct?.metadata?.status===2||serverIssuerTerminated(p))
+  if(direct?.metadata?.status===2||(typeof serverIssuerTerminated==='function'&&serverIssuerTerminated(p)))
    return terminalProductCard(p,'Produkt beendet');
   return '<div data-product-isin="'+esc(p.isin)+'" style="padding:14px;margin-top:10px;border:1px solid #dc2626;border-radius:12px">'+renderProductIdentity(p)+'<p>'+esc(excluded)+'</p><p>Keine weiteren Daten oder Screenshots erforderlich.</p>'+renderProductSources(p)+'</div>';
  }
@@ -2493,7 +2493,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  const timeEvidence=productObservedTimeStatus(p);
  const missingNumbers=Object.values(fieldStates).filter(f=>f.state==='fehlt').map(f=>f.key);
  const hasSgChart=!!direct?.analysisQuote&&direct.analysisQuote.priceKind==='issuer-chart'||!!direct?.nativeChartEvidence;
- const serverEvidence=serverAnalysisEvidence(p);
+ const serverEvidence=typeof serverAnalysisEvidence==='function'?serverAnalysisEvidence(p):null;
  const dataText=serverEvidence?'Server-Kurs und Hebel nachgewiesen · lokale Einzelwerte separat prüfen':hasSgChart&&!missingNumbers.length?'Analysewerte vorhanden · ausführbarer Kurs separat offen':data.complete?'Werte vorhanden':missingNumbers.length===1&&missingNumbers[0]==='Hebel'&&undatedReference?'SG-Hebelreferenz vorhanden · eigene Quellenzeit fehlt':missingNumbers.length?'Fehlende Kurswerte: '+missingNumbers.join(', '):'Geld, Brief und Hebel vorhanden';
  const shortReason=r=>String(r).split('. Öffne')[0].split(' · Fundort:')[0].slice(0,160);
  const automaticQuoteIssue=!complete&&groups.length>0&&groups.every(r=>/^(Live-Kursbestätigung|Kursart und Aktualität|Hebel berechnet|Hebel vorhanden|SG-Referenzhebel|BNP-Kursabruf)/.test(r));
@@ -2503,7 +2503,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
    (direct?.metadata?.currency==='CHF'||direct?.nativeChartEvidence?.currency==='CHF');
  const venueMissing=productProblemLabels(p).includes('DEGIRO-Handelsplatznachweis');
  const next=serverEvidence?'Serveranalyse vorhanden: keine neuen Bilder nötig. Keine bestätigte DEGIRO-Ausführung; lokale Produktfreigabe und Risikoprüfung bleiben separat.':venueMissing?productHelpState(p).action:automaticQuoteIssue?'Automatischer Kurs- und Hebelabruf wird erneut geprüft. Vorhandene Werte bleiben mit ihrem ursprünglichen Datenstand nutzbar; derzeit keine neuen Bilder erforderlich.':complete&&neutral?'Marktsignal neutral – auf eine bestätigte Richtung warten. Dafür sind keine neuen Bilder nötig.':complete?'Produktdaten vollständig – Auswahlgrund unter „Warum derzeit nicht ausgewählt?“ prüfen.':temporal&&data.complete?'Werte vorhanden – den offenen Zeitbezug unter „Werte und Aktualitätsprüfung“ prüfen.':automaticRecoveryPending?'Bob prüft die zugelassenen Emittentenquellen automatisch erneut. Fehlende oder unklare Nachweise bleiben gesperrt und werden unter „Problem“ dokumentiert. Nur wenn diese Quellen keine ausreichenden Daten liefern, können zusätzliche Originalbelege notwendig sein.':'Offene Angaben unter „Werte und Aktualitätsprüfung“ ansehen und nur diese ergänzen.';
- return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" '+(selected?'data-selection-approved':'data-selection-blocked')+'="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere">'+renderProductIdentity(p)+renderProductProblemSummary(p)+productCompletionBadge(p)+renderDegiroListEvidence(p)+renderServerAnalysisEvidence(p)+renderProductHelp(p)+renderScreenshotSources(p)+'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'</div>'+
+ return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" '+(selected?'data-selection-approved':'data-selection-blocked')+'="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere">'+renderProductIdentity(p)+renderProductProblemSummary(p)+productCompletionBadge(p)+renderDegiroListEvidence(p)+(typeof renderServerAnalysisEvidence==='function'?renderServerAnalysisEvidence(p):'')+renderProductHelp(p)+renderScreenshotSources(p)+'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'</div>'+
  renderServerVenueEvidence(p)+renderVenueHistory(p)+renderDegiroDisplayedQuote(p)+renderDegiroVenueInference(p)+renderDegiroTradingSession(p)+(swissSgVenue&&!degiroVenueObserved(p)&&!degiroVenueInferred(p)?'<div class="small" data-swiss-dots-warning><b>SG Swiss DOTS · CHF:</b> Offen ist die Zuordnung dieses CHF-Produkts zu einem DEGIRO-Handelsplatz. Die vorhandenen SG-Kurse werden für die Analyse verwendet.</div>':'')+'<div class="small" data-product-status><div><b>Daten:</b> '+valuePresenceMark(!serverEvidence&&missingNumbers.length>0)+' '+esc(dataText)+'</div><div><b>Zeitbezug vorhandener Kurs-/Hebelwerte:</b> '+valuePresenceMark(!serverEvidence&&!timeEvidence.confirmed)+' '+esc(serverEvidence?'Server-Nachweis aktuell · lokaler Bildzeitbezug separat geprüft':timeEvidence.label)+'</div><div><b>Aktuelle Auswahl:</b> '+(selected?'freigegeben · ausgewählt':'nicht ausgewählt')+(neutral?' · Marktsignal neutral':'')+'</div></div>'+
  '<p data-product-next><b>Nächster Schritt:</b> '+esc(selected?'Tatsächlichen DEGIRO-Kurs vor einem Einstieg prüfen.':next)+'</p><details><summary>Automatische Suche · letzter Stand</summary>'+renderAutomaticProductCheck(p)+'</details>'+renderPrimaryProductValues(p)+
  (allReasons.length?'<div class="small">'+allReasons.slice(0,2).map(shortReason).map(esc).join('<br>')+'</div>':'')+
