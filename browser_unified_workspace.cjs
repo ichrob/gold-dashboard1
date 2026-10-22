@@ -10,7 +10,7 @@ const origin='https://bob-workspace.test';
   const page=await browser.newPage({viewport:{width:360,height:780}});
   const errors=[],requests=[];
   page.on('pageerror',e=>errors.push(e.message));
-  page.on('request',r=>{if(r.url()!==origin+'/')requests.push(r.url());});
+  page.on('request',r=>{if(r.url()!==origin+'/'&&!r.url().endsWith('/favicon.ico'))requests.push(r.url());});
   await page.route(origin+'/**',route=>route.fulfill({
    contentType:'text/html; charset=utf-8',
    body:'<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>*{box-sizing:border-box}body{margin:0;padding:6px}section.card{padding:8px}button{max-width:100%;white-space:normal}</style></head><body>'+
