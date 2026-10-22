@@ -50,9 +50,21 @@ internal object PhoneTaskPlanParser {
             .replace(Regex("\\s+"), " ")
             .replace(Regex("^(?:hallo bob|hey bob|bob),\\s*"), "")
             .trim()
+        // Google/Samsung can omit spoken punctuation: "Bob zeige ..."
+        // is the SAME explicit, locally allowlisted navigation as "Bob, zeige ...".
+        // Preserve "Bob öffnen"/"Bob starten" (existing exact commands).
+        // The remaining complete sentence MUST still match our strict whitelist;
+        // no prefix-only, fuzzy, broker or partial execution is allowed.
+        val addressed = if (listOf("bob öffnen", "bob starten", "bob app öffnen")
+                .any { clean == it || clean.startsWith("$it und ") ||
+                    clean.startsWith("$it, ") || clean.startsWith("$it. ") }) {
+            clean
+        } else {
+            clean.replace(Regex("^(?:hallo bob|hey bob|bob)\\s+"), "")
+        }
         // Natural speech questions may end in '?' but an internal question
         // mark still rejects a mixed/ambiguous sentence in its entirety.
-        return clean.takeUnless { '?' in it }
+        return addressed.takeUnless { '?' in it }
     }
 
     private fun parseClause(raw: String): PhoneTask? {
