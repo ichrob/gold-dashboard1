@@ -56,6 +56,8 @@ internal object DailyBobRoutine {
             .cancel(alarmIntent(context))
     }
 
+    fun rearmAfterBoot(context: Context) { scheduleNext(context) }
+
     fun recordOcr(context: Context) {
         // Save only the local event time, never an image, ISIN, quote or account ID.
         prefs(context).edit().putLong(LAST_OCR, System.currentTimeMillis()).apply()
@@ -137,7 +139,9 @@ internal object DailyBobRoutine {
 
 class DailyBobRoutineReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
-        if (intent?.action != "ch.bob.degirocompanion.LOCAL_CHECK") return
-        DailyBobRoutine.handleAlarm(context)
+        when (intent?.action) {
+            Intent.ACTION_BOOT_COMPLETED -> DailyBobRoutine.rearmAfterBoot(context)
+            "ch.bob.degirocompanion.LOCAL_CHECK" -> DailyBobRoutine.handleAlarm(context)
+        }
     }
 }
