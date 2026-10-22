@@ -55,7 +55,9 @@ internal object PhoneTaskPlanParser {
         // Preserve "Bob öffnen"/"Bob starten" (existing exact commands).
         // The remaining complete sentence MUST still match our strict whitelist;
         // no prefix-only, fuzzy, broker or partial execution is allowed.
-        val addressed = if (clean in setOf("bob öffnen", "bob starten", "bob app öffnen")) {
+        val addressed = if (listOf("bob öffnen", "bob starten", "bob app öffnen")
+                .any { clean == it || clean.startsWith("$it und ") ||
+                    clean.startsWith("$it, ") || clean.startsWith("$it. ") }) {
             clean
         } else {
             clean.replace(Regex("^(?:hallo bob|hey bob|bob)\\s+"), "")
