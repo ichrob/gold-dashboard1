@@ -12,6 +12,7 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.provider.Settings
 import android.speech.RecognizerIntent
+import android.speech.tts.TextToSpeech
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -38,6 +39,25 @@ class MainActivity : Activity() {
     private lateinit var commandInput: EditText
     private lateinit var commandStatus: TextView
     private val taskApproval = PhoneTaskApproval()
+    private val conversation = PhoneConversation()
+    private var speaker: TextToSpeech? = null
+    private var speakerReady = false
+    private var pendingSpeech: String? = null
+    // An untrusted transcript is never executed. Plans exist only in memory;
+    // every step requires a NEW one-shot confirmation after an explicit preview.
+    private var voiceSteps = emptyList<PhoneTask>()
+    private var voiceStepIndex = 0
+    private var internalCommandChange = false
+
+    private fun clearVoicePlan() {
+        voiceSteps = emptyList()
+        voiceStepIndex = 0
+    }
+
+    private fun setCommandTextInternally(text: String) {
+        internalCommandChange = true
+        try { commandInput.setText(text) } finally { internalCommandChange = false }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -126,6 +146,7 @@ class MainActivity : Activity() {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                     taskApproval.clear()
+                    if (!internalCommandChange) clearVoicePlan()
                     if (::commandStatus.isInitialized) {
                         commandStatus.text = "Auftrag geändert. Vor der Ausführung erneut prüfen."
                     }
@@ -136,42 +157,76 @@ class MainActivity : Activity() {
         }
         commandStatus = label("Noch kein Handy-Auftrag geprüft. Erst prüfen, dann jede Aktion einzeln bestätigen.")
         button("🎤 Auftrag sprechen") { openSpeechRecognizer() }
-        button("Bob öffnen auswählen") { commandInput.setText("Bob öffnen") }
+        button("🔊 Bobs Rückmeldung vorlesen") { speakCurrentStatus() }
+        // A deliberate tap on these view-only shortcuts is the approval.
+        // No microphone, broker command, hidden automation or follow-up is involved.
+        button("Bob direkt öffnen") { quickOpen(PhoneTask.OPEN_BOB) }
+        button("Goldprodukte direkt öffnen") { quickOpen(PhoneTask.OPEN_PRODUCTS) }
+        button("Mein Trade direkt öffnen") { quickOpen(PhoneTask.OPEN_TRADE) }
+        button("Simulationen direkt öffnen") { quickOpen(PhoneTask.OPEN_SIMULATION) }
         button("Produktbilder auswählen – Auftrag vorbereiten") {
             commandInput.setText("Produktbilder auswählen")
         }
         button("Android-Einstellungen – Auftrag vorbereiten") {
             commandInput.setText("Android-Einstellungen öffnen")
         }
-        label("Die Spracherkennung läuft über Android. Je nach Sprachanbieter können Sprachdaten online verarbeitet werden; Bob speichert keine Audioaufnahme. Nur ausdrücklich erlaubte Aufträge sind möglich.")
+        button("Goldmarkt – Auftrag vorbereiten") { commandInput.setText("Goldmarkt anzeigen") }
+        label("Sprich zum Beispiel: „Zeige meine Goldprodukte und danach die Simulationen“. Du kannst später „Und jetzt die Recherche“ oder „Nochmal“ sagen. Jeder Schritt braucht Prüfen und Ausführen. Der Gesprächskontext bleibt nur kurz im Speicher. Kein dauerhaftes Zuhören; Androids Sprachanbieter und die optionale Sprachausgabe können Online-Dienste nutzen.")
         button("Handy-Auftrag prüfen") {
             previewTask(commandInput.text.toString())
         }
         button("Geprüften Handy-Auftrag einmalig ausführen") {
             val current = parseDisplayedTask(commandInput.text.toString())
             if (current == null || !taskApproval.consume(current, SystemClock.elapsedRealtime())) {
-                taskApproval.clear()
                 commandStatus.text = "Auftrag fehlt, wurde geändert, ist abgelaufen oder ist unzulässig. Erneut prüfen."
             } else {
-                // Consume BEFORE invoking an Android Intent: never replay an action
-                // after a lifecycle event, a double tap, or an incoming new share.
-                commandInput.setText("Bob öffnen")
-                commandStatus.text = "Einmaliger Auftrag ausgeführt/angestoßen: ${current.description}. Keine weiteren Aktionen ohne neue Freigabe."
-                when (current) {
+                // No next step is ever launched automatically. On return from
+                // the external app the user must review and confirm again.
+                val launched = when (current) {
                     PhoneTask.OPEN_BOB -> openBobHome()
                     PhoneTask.PICK_IMAGES -> openImagePicker()
                     PhoneTask.OPEN_SETTINGS -> try {
                         startActivity(Intent(Settings.ACTION_SETTINGS))
-                    } catch (_: Exception) {
-                        commandStatus.text = "Die Android-Einstellungen konnten nicht geöffnet werden."
+                        true
+                    } catch (_: Exception) { false }
+                    PhoneTask.OPEN_PRODUCTS -> openBobPage("products")
+                    PhoneTask.OPEN_TRADE -> openBobPage("trade")
+                    PhoneTask.OPEN_SIMULATION -> openBobPage("simulation")
+                    PhoneTask.OPEN_LEARNING -> openBobPage("learning")
+                    PhoneTask.OPEN_RESEARCH -> openBobPage("research")
+                    PhoneTask.OPEN_MARKET -> openBobPage("overview")
+                }
+                if (!launched) {
+                    commandStatus.text = "Der Auftrag konnte nicht gestartet werden. Keine weitere Aktion ausgelöst. Erneut prüfen."
+                } else if (voiceSteps.getOrNull(voiceStepIndex) == current) {
+                    conversation.recordLaunched(current, SystemClock.elapsedRealtime())
+                    voiceStepIndex++
+                    if (voiceStepIndex < voiceSteps.size) {
+                        val next = voiceSteps[voiceStepIndex]
+                        setCommandTextInternally(PhoneTaskProtocol.displayLabel(next))
+                        commandStatus.text = "Schritt $voiceStepIndex von ${voiceSteps.size} angestoßen. " +
+                            "Nächster Schritt ${voiceStepIndex + 1}: ${next.description}. " +
+                            "Bitte wieder PRÜFEN und danach einzeln AUSFÜHREN. STOPP verwirft den Rest."
+                    } else {
+                        clearVoicePlan()
+                        setCommandTextInternally("Bob öffnen")
+                        commandStatus.text = "Alle erkannten Schritte wurden einzeln angestoßen. Keine weitere Aktion geplant."
                     }
+                } else {
+                    conversation.recordLaunched(current, SystemClock.elapsedRealtime())
+                    clearVoicePlan()
+                    setCommandTextInternally("Bob öffnen")
+                    commandStatus.text = "Einmaliger Auftrag angestoßen: ${current.description}. Keine Folgeaktion."
                 }
             }
         }
         button("STOPP – Auftrag verwerfen") {
             taskApproval.clear()
-            commandInput.setText("Bob öffnen")
-            commandStatus.text = "Gestoppt. Keine Aktion ausgeführt. Ein erneuter Auftrag braucht eine neue Prüfung."
+            clearVoicePlan()
+            conversation.clear()
+            speaker?.stop()
+            setCommandTextInternally("Bob öffnen")
+            commandStatus.text = "Gestoppt. Keine weiteren Schritte geplant. Eine schon geöffnete App wird nicht rückgängig gemacht."
         }
         label("Freigaben gelten einmalig und höchstens 60 Sekunden. Bei Textänderung, App-Wechsel oder STOPP werden sie ungültig.")
         setContentView(ScrollView(this).apply { addView(stack) })
@@ -224,13 +279,46 @@ class MainActivity : Activity() {
             }
             val spoken = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
                 ?.firstOrNull().orEmpty()
-            val voiceTask = PhoneTaskProtocol.parseSpeech(spoken)
-            if (voiceTask == null) {
-                commandInput.setText(spoken.take(100))
-                commandStatus.text = "Sprachauftrag nicht erlaubt oder nicht erkannt. Sage zum Beispiel: Bob öffnen, Produktbilder auswählen oder Android-Einstellungen öffnen. Keine Aktion ausgeführt."
+            val inquiry = spoken.lowercase(Locale.GERMAN).trim()
+                .replace(Regex("[.!?]+$"), "").replace(Regex("\\s+"), " ")
+            if (inquiry in setOf("was kannst du", "bob was kannst du",
+                    "was kann ich sagen", "hilfe", "sprachhilfe")) {
+                commandStatus.text = "Du kannst sagen: Zeige Goldprodukte, analysiere den Goldmarkt, " +
+                    "öffne Mein Trade, zeige Simulationen, Lernen oder Recherche, " +
+                    "wähle Produktbilder aus. Auch mehrere Schritte mit 'und danach'. " +
+                    "Nach einer ausgeführten Aktion kannst du 'Nochmal' sagen. " +
+                    "Jede Aktion benötigt Prüfen und Ausführen."
+                return
+            }
+            if (inquiry in setOf("was kommt als nächstes", "was ist als nächstes dran",
+                    "welcher schritt kommt als nächstes", "was ist der nächste schritt")) {
+                val currentNext = voiceSteps.getOrNull(voiceStepIndex)
+                commandStatus.text = if (currentNext == null)
+                    "Momentan ist keine weitere Schrittfolge geplant." else
+                    "Noch offen: Schritt ${voiceStepIndex + 1} von ${voiceSteps.size}: " +
+                    "${currentNext.description}. Bitte neu PRÜFEN, dann einzeln AUSFÜHREN."
+                return
+            }
+            clearVoicePlan()
+            if (PhoneTaskPlanParser.isStop(spoken)) {
+                conversation.clear()
+                speaker?.stop()
+                setCommandTextInternally("Bob öffnen")
+                commandStatus.text = "STOPP erkannt. Alle noch offenen Aufträge verworfen."
+                return
+            }
+            val plan = conversation.interpret(spoken, SystemClock.elapsedRealtime())
+            if (plan == null) {
+                setCommandTextInternally(spoken.take(100))
+                commandStatus.text = "Sprachauftrag unklar oder nicht erlaubt. Nichts ausgeführt. Erlaubt sind nur bekannte Bob-Seiten, lokale Bildauswahl und Einstellungen. Zum Beispiel: Zeige Goldprodukte und danach Simulationen."
             } else {
-                commandInput.setText(PhoneTaskProtocol.displayLabel(voiceTask))
-                previewTask(commandInput.text.toString())
+                voiceSteps = plan.steps
+                voiceStepIndex = 0
+                setCommandTextInternally(PhoneTaskProtocol.displayLabel(plan.steps.first()))
+                commandStatus.text = "Erkannter Sprachplan: ${plan.summary()}. " +
+                    "Schritt 1 von ${plan.steps.size}: ${plan.steps.first().description}. " +
+                    "Noch NICHT freigegeben. Bitte PRÜFEN und danach einzeln AUSFÜHREN. " +
+                    "Alle weiteren Schritte ebenfalls neu prüfen. STOPP bricht ab."
             }
             return
         }
@@ -252,7 +340,7 @@ class MainActivity : Activity() {
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
             // Only a preference: the installed speech provider may still use the internet.
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Zum Beispiel: Bob öffnen")
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Zum Beispiel: Öffne Bob und danach wähle Produktbilder aus")
         }
         try {
             startActivityForResult(request, recognizeSpeechRequest)
@@ -277,29 +365,86 @@ class MainActivity : Activity() {
             }
         } else {
             taskApproval.approve(task, SystemClock.elapsedRealtime())
-            "Prüfung OK: ${task.description}. Innerhalb von 60 Sekunden einmalig ausführen oder STOPP drücken."
+            val context = if (voiceSteps.getOrNull(voiceStepIndex) == task) {
+                " Gesamtplan: ${PhoneTaskPlan(voiceSteps).summary()}. " +
+                    "Schritt ${voiceStepIndex + 1} von ${voiceSteps.size}. "
+            } else ""
+            "Prüfung OK: ${task.description}.$context Innerhalb von 60 Sekunden einmalig ausführen oder STOPP drücken."
         }
     }
 
-    private fun openImagePicker() {
+    private fun openImagePicker(): Boolean = try {
         val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "image/*"
             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
         startActivityForResult(picker, selectImageRequest)
+        true
+    } catch (_: Exception) { false }
+
+    private fun quickOpen(task: PhoneTask) {
+        val section = BobNavigation.pageFor(task) ?: return
+        taskApproval.clear()
+        clearVoicePlan()
+        if (openBobPage(section)) {
+            conversation.recordLaunched(task, SystemClock.elapsedRealtime())
+            commandStatus.text = "${task.description} wurde gestartet. Ob die Seite vollständig geladen ist, siehst du im Browser. Keine Folgeaktion."
+        } else {
+            commandStatus.text = "Bob konnte diese Seite nicht öffnen. Keine Folgeaktion."
+        }
     }
 
-    private fun openBobHome() {
-        try {
-            val browser = Intent(Intent.ACTION_VIEW,
-                Uri.parse("https://bob-private-scanner.onrender.com/")).apply {
+    private fun openBobHome(): Boolean = openBobPage("overview")
+
+    /** Only documented, read-only sections of Bob itself. No untrusted URL or
+     * third-party package can be selected by speech. Login stays manual. */
+    private fun openBobPage(section: String): Boolean {
+        val safeUrl = BobNavigation.urlForSection(section) ?: return false
+        return try {
+            val browser = Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)).apply {
                 addCategory(Intent.CATEGORY_BROWSABLE)
             }
             startActivity(browser)
+            true
         } catch (_: Exception) {
             commandStatus.text = "Bob konnte im Browser nicht geöffnet werden."
+            false
         }
+    }
+
+    private fun speakCurrentStatus() {
+        // Local status strings only; never read private screenshots, OCR, PINs,
+        // broker data, passwords, or text from other apps.
+        val words = commandStatus.text.toString().take(480)
+        if (words.isBlank()) return
+        if (speakerReady) {
+            speaker?.speak(words, TextToSpeech.QUEUE_FLUSH, null, "bob-status")
+        } else {
+            pendingSpeech = words
+            if (speaker == null) {
+                speaker = TextToSpeech(this) { outcome ->
+                    val languageResult = if (outcome == TextToSpeech.SUCCESS)
+                        speaker?.setLanguage(Locale.GERMAN) else null
+                    speakerReady = languageResult != null && languageResult >= 0
+                    if (speakerReady) {
+                        pendingSpeech?.let {
+                            speaker?.speak(it, TextToSpeech.QUEUE_FLUSH, null, "bob-status")
+                        }
+                    } else if (::commandStatus.isInitialized) {
+                        commandStatus.text = "Deutsche Sprachausgabe ist auf diesem Samsung nicht verfügbar."
+                    }
+                    pendingSpeech = null
+                }
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        speaker?.stop()
+        speaker?.shutdown()
+        speaker = null
+        super.onDestroy()
     }
 
     private fun openInBob(draft: String) {

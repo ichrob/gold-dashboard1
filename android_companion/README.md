@@ -1,3 +1,63 @@
+## 0.9 (Test): deutlich weniger Tippen, natürliche Einzelaufträge
+
+Die vier beschrifteten Schnellzugriffe **Bob direkt öffnen**, **Goldprodukte direkt öffnen**, **Mein Trade direkt öffnen** und **Simulationen direkt öffnen** öffnen ausschließlich eine feste Bob-Seite nach einem einzigen bewussten Tastendruck. Eine erfolgreiche Anzeige der Zielseite wird dadurch **nicht** bestätigt; bei Bedarf die bestehende Bob-Anmeldung im Browser durchführen. Es gibt keine verdeckten Folgeaktionen und keinen Zugriff auf andere Apps.
+
+Im Textfeld kann man jetzt neben der bestehenden strengen `BOB-AUFTRAG: ...`-Syntax auch einfache, frei **formulierte, aber auf die Positivliste beschränkte Einzelphrasen** (z. B. `Zeige mir meine Goldprodukte`) eingeben. Ein mehrteiliger freier Text kann **nicht** über den Einzelaktionsknopf freigegeben werden; Sprachpläne werden als begrenzte Schrittfolge vorbereitet und benötigen vor jedem Schritt eine eigene Prüfung. Unbekannte und finanzielle Befehle bleiben gesperrt. Zusätzliche Unit-Tests decken diesen Schutz ab.
+
+**Noch ausstehend:** CI für den letzten Commit; danach Samsung-Echttest samt Signaturprüfung. Diese Version führt keine echte Marktanalyse aus; sie zeigt nur Bobs schon vorhandene Übersicht. Keine automatische Broker-/DEGIRO-Bedienung.
+
+## Ausbau 22.10.2026 – Sprachdialog, Bob-Navigation und begrenzter Kontext (0.8, vor Samsung-Gerätetest)
+
+Die bestehende Android-App unterstützt zusätzlich zu lokalen harmless Aktionen **read-only** Navigation
+zu **Goldmarkt-Übersicht, Goldprodukten, Mein Trade, Simulation, Lernen und Recherche**. Die
+Ziele stammen aus einer fest codierten Allowlist und öffnen ausschließlich die vorhandene
+Bob-Webseite im Browser; Bob selbst verlangt seine normale Anmeldung. Eine Marktanalyse wird
+**nur angezeigt/angesteuert**, nicht vom Android-Begleiter autonom gestartet oder als
+aktuelle Preisprüfung behauptet. Die App bedient weder DEGIRO noch andere Broker-Apps.
+
+Sprachfolgen wie „Zeige meine Goldprodukte und danach die Simulationen“ werden bis zu drei
+erlaubten Schritten verarbeitet. Jeder Schritt muss erneut auf dem Gerät geprüft und einmalig
+freigegeben werden. „Und jetzt die Recherche“ kann als eigenständiger Anschlussbefehl
+verstanden werden. „Nochmal“ wiederholt nur den letzten **tatsächlich angestoßenen**,
+zulässigen Schritt, nur innerhalb von 120 Sekunden und stets nach neuer Prüfung.
+Weder Kontext noch Anmeldedaten, Audio oder Screenshots werden für Sprache persistiert.
+
+Ein zusätzlicher **„🔊 Bobs Rückmeldung vorlesen“**-Button gibt nur lokale
+Auftrags-/Fehlermeldungen über die auf dem Gerät vorhandene Text-zu-Sprache-Engine aus.
+Sprachdienst und Sprachausgabe können je nach Samsung-/Android-Anbieter Onlinedienste nutzen.
+Keine stets aktive Mikrofonüberwachung, keine ungeprüfte KI, kein Remote-Pairing,
+keine Änderung von Handelsregeln und keine Echtgeldorders.
+
+Bis die Android- und Bob-CI sowie der echte Samsung-Test erfolgreich sind, bleibt 0.8 eine
+**Testfassung auf einem Entwicklungszweig**. Der Nutzer muss die APK manuell installieren;
+eventuelle Signaturkonflikte zuerst untersuchen, nicht blind deinstallieren.
+
+## Erweiterung 22.10.2026: zusammenhängende deutsche Sprachaufträge (Entwicklungsstand)
+
+Die bestehende Offline-Android-App kann jetzt **bis zu drei eindeutig erlaubte, unterschiedliche Schritte**
+in **einem gesprochenen Satz** erkennen, z. B. „Bob, öffne zuerst Bob und danach
+wähle meine Produktbilder aus“. Sie zeigt die gesamte erkannte Schrittfolge an.
+**Vor jedem einzelnen Schritt** sind ausdrücklich „Handy-Auftrag prüfen“ und
+„Geprüften Handy-Auftrag einmalig ausführen“ nötig. Der nächste Schritt wird
+nur vorausgewählt und niemals selbst gestartet. Jede Freigabe ist einmalig
+und maximal 60 Sekunden gültig; App-Wechsel widerruft eine offene Freigabe.
+„STOPP“ verwirft alle noch offenen Schritte (kein Rückgängigmachen bereits
+geöffneter Apps).
+
+Die vollständige Äußerung wird abgelehnt, falls **irgendein** Teil unbekannt,
+handelsbezogen, ein Login-/Passwortauftrag oder mehr als drei Schritte ist.
+Keine künstliche Schätzung eines unbekannten Befehls; keine generelle
+KI-Fernsteuerung, keine Dauer-Mikrofonüberwachung, keine selbstständige
+DEGIRO-Bedienung. Gesprochene Stopp-Befehle wirken **nur nach Antippen des
+Mikrofon-Buttons**, nicht als permanentes Hotword. Die Android-Spracherkennung
+kann trotz Offline-Präferenz die Daten beim Geräte-Anbieter verarbeiten.
+
+Automatische Gradle-Tests prüfen harmlose Verknüpfungen, verbotene Mischsätze,
+Duplikate, die Einzelaktionssperre und STOPP. Ein erfolgreicher CI-Lauf
+ersetzt **nicht** den Test des Sprachdienstes auf dem Samsung. Für 0.7
+ist eine neu signierte APK erforderlich; ein Signaturwechsel kann bei
+bestehender Testinstallation die Aktualisierung verhindern.
+
 ## Zweite sichere Ausbaustufe: schnelle Auswahl und Not-Stopp (22.10.2026)
 
 Auftragseingabe in derselben Android-App jetzt auch über Klartext-Schaltflächen: **Bob öffnen**, **Produktbilder auswählen**, **Android-Einstellungen öffnen**. Jede Schaltfläche wählt **nur** die gewünschte Aktion aus; erst eine eigene **Prüfung** und anschließend die **einmalige Ausführung** starten etwas. Text-/Sprachänderungen verwerfen die Freigabe. Die Freigabe ist maximal **60 Sekunden** gültig, einmalig verwendbar und verfällt bei App-Wechsel, fehlgeschlagener Ausführung oder dem klar sichtbaren **STOPP – Auftrag verwerfen**. Unit-Tests decken Wiederholung, anderes Ziel, Ablauf, Zeitrücksprung und Widerruf ab.
