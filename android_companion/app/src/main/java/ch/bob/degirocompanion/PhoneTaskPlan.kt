@@ -92,6 +92,8 @@ internal object PhoneTaskPlanParser {
 
             "höchsten hebel erklären", "welches produkt hat den höchsten hebel",
             "welches hat den höchsten hebel", "welches hat den besten hebel",
+            "welches goldprodukt hat den höchsten hebel",
+            "welches von den produkten hat den größten hebel",
             "was ist mit dem hebelrisiko", "zeige das hebelrisiko",
             "erkläre den höchsten hebel" -> PhoneTask.OPEN_LEVERAGE_REVIEW
 
