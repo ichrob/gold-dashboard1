@@ -39,14 +39,23 @@ assert.equal(combined.fields.last,'11,31');
 assert.equal(combined.fields.bid,undefined);
 assert.equal(combined.tradeApproved,false);
 assert.equal(combined.sourceTime,null);
+const grouped=screenshotPair.replace('Bildzeit/Originalquelle',
+ 'Bildserie (OCR ungeprüft): 2 Bilder, 1 mit gültiger ISIN\nBildzeit/Originalquelle');
+const groupedDraft=readDraft(grouped);
+assert.deepEqual(groupedDraft.series,{imageCount:2,anchorCount:1,provisional:true});
+assert.equal(groupedDraft.tradeApproved,false);
+assert.equal(groupedDraft.sourceTime,null);
+assert.throws(()=>readDraft(grouped.replace('2 Bilder, 1','2 Bilder, 3')));
+assert.throws(()=>readDraft(grouped.replace('Bildzeit/Originalquelle',
+ 'Bildserie (OCR ungeprüft): 2 Bilder, 1 mit gültiger ISIN\nBildzeit/Originalquelle')));
 assert.throws(()=>readDraft(screenshotPair+'\nZuletzt (OCR ungeprüft): 9,72'));
 const manifest=fs.readFileSync('./android_companion/app/src/main/AndroidManifest.xml','utf8');
 const kotlin=fs.readFileSync('./android_companion/app/src/main/java/ch/bob/degirocompanion/MainActivity.kt','utf8');
 assert.match(manifest,/android.intent.action.SEND_MULTIPLE/);
 assert.match(kotlin,/Intent.ACTION_SEND_MULTIPLE/);
-assert.match(kotlin,/identities\.any \{ it\.size != 1 \}/);
+assert.match(kotlin,/SeriesEvidence\.analyze\(texts\)/);
 assert.match(kotlin,/uris\.size > 4/);
-assert.match(kotlin,/Bilder enthalten keine eindeutig gleiche ISIN/);
+assert.match(kotlin,/Bildserie hat keine eindeutige gemeinsame ISIN/);
 
 for(const input of [
  safe().replace('DE000FG14AV8','DE000FG14AV9'),
