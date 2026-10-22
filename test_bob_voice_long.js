@@ -29,7 +29,7 @@ const long=factory(fake('LONG',[
  '4. DE000FG14AV8 · LONG · KO-Abstand 5.00%'
 ]));
 assert.equal(long.rows.length,3);
-assert.match(long.status,/vorhandenen rechnerischen Rangfolge/);
+assert.match(long.status,/bestehender rechnerischer Rangfolge/);
 assert.match(long.rows[0],/KO-Abstand 5.15%/);
 assert(!long.rows.some(x=>x.includes('4. ')));
 assert(!long.rows.some(x=>x.includes('höchster Hebel')));
