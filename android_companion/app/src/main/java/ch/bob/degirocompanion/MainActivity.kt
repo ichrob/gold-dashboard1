@@ -56,6 +56,11 @@ class MainActivity : Activity() {
             startActivityForResult(intent, selectImageRequest)
         }
         status = label("Noch kein Bild ausgewählt. OCR-Werte sind niemals automatisch ein Handelsnachweis.")
+        button("In Bob anzeigen – ohne Kopieren") {
+            if (evidenceDraft.isBlank()) {
+                status.text = "Zuerst ein einzelnes Produktbild auswählen oder teilen."
+            } else openInBob(evidenceDraft)
+        }
         button("OCR-Entwurf kopieren (zum Einfügen in Bob)") {
             if (evidenceDraft.isBlank()) {
                 status.text = "Zuerst genau ein Produkt auf einem Bild auswählen."
@@ -108,7 +113,7 @@ class MainActivity : Activity() {
         if (incoming?.action != Intent.ACTION_SEND || !incoming.type.orEmpty().startsWith("image/")) return
         @Suppress("DEPRECATION")
         val uri = incoming.getParcelableExtra<Uri>(Intent.EXTRA_STREAM) ?: return
-        readImage(uri)
+        readImage(uri, openAfterRead = true)
     }
 
     @Deprecated("Android's activity-result API retained here to avoid framework dependencies in the lab.")
@@ -119,7 +124,29 @@ class MainActivity : Activity() {
         readImage(uri)
     }
 
-    private fun readImage(uri: Uri) {
+    private fun openInBob(draft: String) {
+        // Single checksum-valid ISIN plus narrowly captured non-secret fields only.
+        // The URL *fragment* is not sent as part of HTTPS requests to the Bob server.
+        // Bob removes the fragment immediately after opening its authenticated UI.
+        if (draft.isBlank() || draft.length > 1600) {
+            status.text = "Entwurf nicht übertragbar; bitte das Bild lokal prüfen."
+            return
+        }
+        try {
+            val target = Uri.parse(
+                "https://bob-private-scanner.onrender.com/#bob-ocr=" + Uri.encode(draft)
+            )
+            val browser = Intent(Intent.ACTION_VIEW, target).apply {
+                addCategory(Intent.CATEGORY_BROWSABLE)
+            }
+            startActivity(browser)
+            status.text = "Bob geöffnet. Werte bleiben unbestätigt und werden nicht als Kursnachweis gespeichert."
+        } catch (_: Exception) {
+            status.text = "Bob konnte nicht geöffnet werden. Du kannst den Entwurf weiterhin kopieren."
+        }
+    }
+
+    private fun readImage(uri: Uri, openAfterRead: Boolean = false) {
         evidenceDraft = ""
         status.text = "Bild wird lokal gelesen. Es wird nichts automatisch versendet."
         try {
@@ -131,6 +158,7 @@ class MainActivity : Activity() {
                     status.text = if (evidenceDraft.isBlank()) {
                         "Bild nicht eindeutig: genau eine prüfziffergültige ISIN erforderlich. Keine Daten übernommen."
                     } else evidenceDraft
+                    if (openAfterRead && evidenceDraft.isNotBlank()) openInBob(evidenceDraft)
                 }
                 .addOnFailureListener {
                     evidenceDraft = ""
