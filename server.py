@@ -1208,10 +1208,21 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         if path == "/login":
-            bob_auth.login_page(self, "Passwort geändert. Bitte mit deinem neuen Passwort anmelden." if parse_qs(urlparse(self.path).query).get("reset") == ["1"] else "")
+            query = parse_qs(urlparse(self.path).query)
+            bob_auth.login_page(
+                self,
+                "Passwort geändert. Bitte mit deinem neuen Passwort anmelden." if query.get("reset") == ["1"] else "",
+                view=query.get("view", [""])[0],
+            )
             return
         if path in ("/", "/index.html", "/bob-live", "/bob-v12") and not self.authenticated():
-            bob_auth.send(self, 303, location="/login")
+            # Browser fragments are invisible to servers. The Android companion
+            # therefore sends the intended tab as an allowlisted ?view= value.
+            requested_view = bob_auth.safe_return_view(
+                parse_qs(urlparse(self.path).query).get("view", [""])[0]
+            )
+            location = "/login?view=" + requested_view if requested_view else "/login"
+            bob_auth.send(self, 303, location=location)
             return
         # Sensitive data APIs must be authenticated before any data generation.
         # Keep static PWA resources and /health public, but never expose live,
@@ -1870,7 +1881,11 @@ class Handler(BaseHTTPRequestHandler):
             bob_auth.send(self, 200)
             return
         if path in ("/", "/index.html") and not self.authenticated():
-            bob_auth.send(self, 303, location="/login")
+            requested_view = bob_auth.safe_return_view(
+                parse_qs(urlparse(self.path).query).get("view", [""])[0]
+            )
+            location = "/login?view=" + requested_view if requested_view else "/login"
+            bob_auth.send(self, 303, location=location)
             return
         if path in ("/", "/index.html"):
             auth = self.headers.get("Authorization", "")
