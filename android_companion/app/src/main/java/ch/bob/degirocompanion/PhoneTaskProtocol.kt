@@ -12,7 +12,13 @@ import java.util.Locale
 internal enum class PhoneTask(val description: String) {
     OPEN_BOB("Bob im Browser öffnen"),
     PICK_IMAGES("Android-Bildauswahl für bestehende Bob-OCR öffnen"),
-    OPEN_SETTINGS("Android-Einstellungen nur öffnen")
+    OPEN_SETTINGS("Android-Einstellungen nur öffnen"),
+    OPEN_PRODUCTS("Bob Gold-Hebelprodukte anzeigen"),
+    OPEN_TRADE("Bob Mein Trade anzeigen"),
+    OPEN_SIMULATION("Bob Simulation anzeigen"),
+    OPEN_LEARNING("Bob Lernen und Ergebnisse anzeigen"),
+    OPEN_RESEARCH("Bob Gold-Recherche anzeigen"),
+    OPEN_MARKET("Bob Goldmarkt-Übersicht anzeigen")
 }
 
 internal object PhoneTaskProtocol {
@@ -24,6 +30,12 @@ internal object PhoneTaskProtocol {
         PhoneTask.OPEN_BOB -> "Bob öffnen"
         PhoneTask.PICK_IMAGES -> "Produktbilder auswählen"
         PhoneTask.OPEN_SETTINGS -> "Android-Einstellungen öffnen"
+        PhoneTask.OPEN_PRODUCTS -> "Goldprodukte anzeigen"
+        PhoneTask.OPEN_TRADE -> "Mein Trade anzeigen"
+        PhoneTask.OPEN_SIMULATION -> "Simulationen anzeigen"
+        PhoneTask.OPEN_LEARNING -> "Lernen anzeigen"
+        PhoneTask.OPEN_RESEARCH -> "Recherche anzeigen"
+        PhoneTask.OPEN_MARKET -> "Goldmarkt anzeigen"
     }
 
     fun parseDisplayed(input: String): PhoneTask? =
