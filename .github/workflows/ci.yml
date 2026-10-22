@@ -14,8 +14,10 @@ on:
     - cron: '17 5 * * *'
 
 concurrency:
-  group: bob-ci-${{ github.ref }}
-  # New PR commits supersede the previous PR check; main and scheduled checks are never cancelled.
+  # Keep PR revisions serial, but isolate each main commit. A stuck older
+  # main runner must not block the release gate of a newer, independently tested SHA.
+  group: bob-ci-${{ github.ref }}-${{ github.event_name == 'push' && github.sha || 'shared' }}
+  # Superseded PR checks may be cancelled; a main commit's own run is not.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -98,25 +100,41 @@ jobs:
             node "$test"
           done
 
-      - name: Real video file extraction in browser
+      - name: Browser toolchain setup (bounded)
         run: |
-          npm install --prefix /tmp/bob-video-browser --no-package-lock playwright@1.51.1
-          /tmp/bob-video-browser/node_modules/.bin/playwright install --with-deps chromium firefox
-          sudo apt-get install -y ffmpeg
-          ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc=size=640x360:rate=5 -t 4 -c:v libvpx-vp9 -pix_fmt yuv420p /tmp/bob-video-fixture.webm -y
-          NODE_PATH=/tmp/bob-video-browser/node_modules node browser_video_evidence.cjs
-          NODE_PATH=/tmp/bob-video-browser/node_modules node browser_mco_illustrations.cjs
-          NODE_PATH=/tmp/bob-video-browser/node_modules node browser_training_help.cjs
-          NODE_PATH=/tmp/bob-video-browser/node_modules node browser_paper_priority.cjs
-          NODE_PATH=/tmp/bob-video-browser/node_modules node browser_self_review.cjs
-          NODE_PATH=/tmp/bob-video-browser/node_modules node browser_snaptrade.cjs
-          NODE_PATH=/tmp/bob-video-browser/node_modules node browser_unified_workspace.cjs
-          NODE_PATH=/tmp/bob-video-browser/node_modules node browser_degiro_export_mobile.cjs
-          NODE_PATH=/tmp/bob-video-browser/node_modules node browser_degiro_browser_bridge.cjs
-          NODE_PATH=/tmp/bob-video-browser/node_modules BOB_BRIDGE_BROWSER=firefox MOZ_DISABLE_CONTENT_SANDBOX=1 node browser_degiro_browser_bridge.cjs
-          NODE_PATH=/tmp/bob-video-browser/node_modules node browser_degiro_all_products.cjs
-          NODE_PATH=/tmp/bob-video-browser/node_modules node browser_broker_candidate_pools.cjs
-          NODE_PATH=/tmp/bob-video-browser/node_modules node browser_degiro_candidate_image.cjs
+          # Do not leave a runner indefinitely waiting for npm/apt downloads.
+          timeout --signal=TERM --kill-after=10s 240s npm install --prefix /tmp/bob-video-browser --no-package-lock playwright@1.51.1
+          timeout --signal=TERM --kill-after=10s 300s /tmp/bob-video-browser/node_modules/.bin/playwright install --with-deps chromium firefox
+          timeout --signal=TERM --kill-after=10s 180s sudo apt-get install -y ffmpeg
+          timeout --signal=TERM --kill-after=10s 40s ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc=size=640x360:rate=5 -t 4 -c:v libvpx-vp9 -pix_fmt yuv420p /tmp/bob-video-fixture.webm -y
+      - name: Real video file extraction in browser (bounded)
+        run: |
+          echo "CI browser: browser_video_evidence.cjs"
+          NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_video_evidence.cjs
+          echo "CI browser: browser_mco_illustrations.cjs"
+          NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_mco_illustrations.cjs
+          echo "CI browser: browser_training_help.cjs"
+          NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_training_help.cjs
+          echo "CI browser: browser_paper_priority.cjs"
+          NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_paper_priority.cjs
+          echo "CI browser: browser_self_review.cjs"
+          NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_self_review.cjs
+          echo "CI browser: browser_snaptrade.cjs"
+          NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_snaptrade.cjs
+          echo "CI browser: browser_unified_workspace.cjs"
+          NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_unified_workspace.cjs
+          echo "CI browser: browser_degiro_export_mobile.cjs"
+          NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_degiro_export_mobile.cjs
+          echo "CI browser: browser_degiro_browser_bridge.cjs"
+          NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_degiro_browser_bridge.cjs
+          echo "CI browser: browser_degiro_browser_bridge.cjs (Firefox)"
+          NODE_PATH=/tmp/bob-video-browser/node_modules BOB_BRIDGE_BROWSER=firefox MOZ_DISABLE_CONTENT_SANDBOX=1 timeout --signal=TERM --kill-after=10s 120s node browser_degiro_browser_bridge.cjs
+          echo "CI browser: browser_degiro_all_products.cjs"
+          NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_degiro_all_products.cjs
+          echo "CI browser: browser_broker_candidate_pools.cjs"
+          NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_broker_candidate_pools.cjs
+          echo "CI browser: browser_degiro_candidate_image.cjs"
+          NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_degiro_candidate_image.cjs
 
   # A fail-closed status for Render's native checksPass auto-deploy mode.
   release-gate:
