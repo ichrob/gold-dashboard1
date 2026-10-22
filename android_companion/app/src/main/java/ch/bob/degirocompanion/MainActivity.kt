@@ -7,6 +7,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
+import android.text.Editable
+import android.text.TextWatcher
 import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.widget.Button
@@ -34,7 +37,7 @@ class MainActivity : Activity() {
     private var imageReadSequence = 0
     private lateinit var commandInput: EditText
     private lateinit var commandStatus: TextView
-    private var pendingTask: PhoneTask? = null
+    private val taskApproval = PhoneTaskApproval()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -119,23 +122,38 @@ class MainActivity : Activity() {
             // immediately for the harmless default action, but still requires
             // a second explicit confirmation before any Android intent starts.
             setText("Bob öffnen")
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    taskApproval.clear()
+                    if (::commandStatus.isInitialized) {
+                        commandStatus.text = "Auftrag geändert. Vor der Ausführung erneut prüfen."
+                    }
+                }
+                override fun afterTextChanged(s: Editable?) {}
+            })
             stack.addView(this)
         }
         commandStatus = label("Noch kein Handy-Auftrag geprüft. Erst prüfen, dann jede Aktion einzeln bestätigen.")
         button("🎤 Auftrag sprechen") { openSpeechRecognizer() }
+        button("Bob öffnen auswählen") { commandInput.setText("Bob öffnen") }
+        button("Produktbilder auswählen – Auftrag vorbereiten") {
+            commandInput.setText("Produktbilder auswählen")
+        }
+        button("Android-Einstellungen – Auftrag vorbereiten") {
+            commandInput.setText("Android-Einstellungen öffnen")
+        }
         label("Die Spracherkennung läuft über Android. Je nach Sprachanbieter können Sprachdaten online verarbeitet werden; Bob speichert keine Audioaufnahme. Nur ausdrücklich erlaubte Aufträge sind möglich.")
         button("Handy-Auftrag prüfen") {
             previewTask(commandInput.text.toString())
         }
         button("Geprüften Handy-Auftrag einmalig ausführen") {
             val current = parseDisplayedTask(commandInput.text.toString())
-            if (current == null || current != pendingTask) {
-                pendingTask = null
-                commandStatus.text = "Auftrag fehlt, wurde verändert oder ist unzulässig. Erneut prüfen."
+            if (!taskApproval.consume(current, SystemClock.elapsedRealtime())) {
+                commandStatus.text = "Auftrag fehlt, wurde geändert, ist abgelaufen oder ist unzulässig. Erneut prüfen."
             } else {
                 // Consume BEFORE invoking an Android Intent: never replay an action
                 // after a lifecycle event, a double tap, or an incoming new share.
-                pendingTask = null
                 commandInput.setText("Bob öffnen")
                 commandStatus.text = "Einmaliger Auftrag ausgeführt/angestoßen: ${current.description}. Keine weiteren Aktionen ohne neue Freigabe."
                 when (current) {
@@ -149,8 +167,20 @@ class MainActivity : Activity() {
                 }
             }
         }
+        button("STOPP – Auftrag verwerfen") {
+            taskApproval.clear()
+            commandInput.setText("Bob öffnen")
+            commandStatus.text = "Gestoppt. Keine Aktion ausgeführt. Ein erneuter Auftrag braucht eine neue Prüfung."
+        }
+        label("Freigaben gelten einmalig und höchstens 60 Sekunden. Bei Textänderung, App-Wechsel oder STOPP werden sie ungültig.")
         setContentView(ScrollView(this).apply { addView(stack) })
         processUserShare(intent)
+    }
+
+    override fun onPause() {
+        // No unfinished command survives a switch to another app or the background.
+        taskApproval.clear()
+        super.onPause()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -186,7 +216,7 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == recognizeSpeechRequest) {
-            pendingTask = null
+            taskApproval.clear()
             if (resultCode != RESULT_OK) {
                 commandStatus.text = "Sprachauftrag abgebrochen. Nichts ausgeführt."
                 return
@@ -213,7 +243,7 @@ class MainActivity : Activity() {
     /** Speech recognition is requested only after a user taps the mic button. */
     private fun openSpeechRecognizer() {
         // A previous approval must never survive launching an external activity.
-        pendingTask = null
+        taskApproval.clear()
         commandStatus.text = "Spracherkennung gestartet. Keine Aktion wird automatisch ausgeführt."
         val request = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -236,15 +266,17 @@ class MainActivity : Activity() {
         PhoneTaskProtocol.parseDisplayed(text)
 
     private fun previewTask(text: String) {
-        pendingTask = parseDisplayedTask(text)
-        commandStatus.text = if (pendingTask == null) {
+        val task = parseDisplayedTask(text)
+        taskApproval.clear()
+        commandStatus.text = if (task == null) {
             if (text.isBlank()) {
                 "Noch kein Auftrag eingegeben. Bitte einen Auftrag eintippen oder einfügen."
             } else {
                 "Nicht erlaubter Auftrag. Zulässig sind nur: ${PhoneTaskProtocol.OPEN_BOB}, ${PhoneTaskProtocol.PICK_IMAGES}, ${PhoneTaskProtocol.OPEN_SETTINGS}. Keine Brokerbedienung."
             }
         } else {
-            "Prüfung OK: ${pendingTask!!.description}. Erst ein weiterer Tastendruck führt genau diese Aktion aus."
+            taskApproval.approve(task, SystemClock.elapsedRealtime())
+            "Prüfung OK: ${task.description}. Innerhalb von 60 Sekunden einmalig ausführen oder STOPP drücken."
         }
     }
 
