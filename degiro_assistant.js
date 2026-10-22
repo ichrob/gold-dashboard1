@@ -4481,10 +4481,10 @@ async function refreshIssuerCandidates(){
 async function restoreServerCorrection(){
  const original=listArchive,revision=listRevision;
  const local=loadIdentities();
- const controller=new AbortController();
- const deadline=setTimeout(()=>controller.abort(),8000);
+ const controller=typeof AbortController==='function'?new AbortController():null;
+ const deadline=controller&&typeof setTimeout==='function'?setTimeout(()=>controller.abort(),8000):null;
  try{
-  const response=await fetch('/api/degiro/list-correction',{method:'POST',headers:{'Content-Type':'application/json'},signal:controller.signal,body:JSON.stringify({action:'read'})});
+  const response=await fetch('/api/degiro/list-correction',{method:'POST',headers:{'Content-Type':'application/json'},signal:controller?.signal,body:JSON.stringify({action:'read'})});
   if(!response.ok)return;
   const data=await response.json();
   if(!data.ok||!Array.isArray(data.products)||!data.products.length||data.products.length>12
@@ -4520,7 +4520,7 @@ async function restoreServerCorrection(){
   }
   return committed;
  }catch(_){/* Keep local originals when server correction is unavailable. */return false;}
- finally{clearTimeout(deadline);}
+ finally{if(deadline&&typeof clearTimeout==='function')clearTimeout(deadline);}
 }
 
 function mountListCorrection(host){
