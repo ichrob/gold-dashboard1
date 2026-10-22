@@ -323,6 +323,124 @@ def broker_sync_snapshot(value):
     return result
 
 
+# Stable, permission-preserving views of the *existing sanitized* report.
+# They do not add database queries, OAuth grants, device access, or evaluations.
+DIAGNOSTIC_FOCUS = ('overview', 'simulation', 'trades', 'signals',
+                    'sources', 'research', 'repairs', 'mobile', 'products')
+_FOCUS_AREAS = {
+    'simulation': ('simulationAndPush', 'background', 'collection', 'gapEvidence'),
+    'sources': ('market', 'sourceReliability', 'collection', 'background', 'analysis'),
+    'research': ('research', 'strategyResearch', 'strategyReport', 'newFeatures'),
+    'mobile': ('newFeatures', 'runtime', 'degiroSync', 'products'),
+    'products': ('products', 'degiroSync', 'gapEvidence'),
+    'repairs': ('selfHealing', 'problems', 'background', 'diagnosticTriage'),
+    'trades': ('background', 'diagnosticTriage'),
+    'signals': ('analysis', 'background', 'diagnosticTriage'),
+}
+
+
+def focused_report(report, focus='overview'):
+    """Select only fixed sanitized diagnostics; invalid focus is rejected."""
+    if focus not in DIAGNOSTIC_FOCUS:
+        raise ValueError('Unknown diagnostic focus')
+    if not isinstance(report, dict) or focus == 'overview':
+        return report
+    original = report.get('areas') or {}
+    areas = {name: original[name] for name in _FOCUS_AREAS[focus]
+             if name in original}
+    if focus in ('trades', 'signals', 'repairs'):
+        sim = original.get('simulationAndPush')
+        if isinstance(sim, dict):
+            selected = {
+                'trades': ('tradeMonitoring', 'tradeEvents', 'pushObservations'),
+                'signals': ('decisionArchive',),
+                'repairs': ('repairs',),
+            }[focus]
+            detail = sim.get('details') if isinstance(sim.get('details'), dict) else {}
+            inner = detail.get('areas') if isinstance(detail.get('areas'), dict) else {}
+            areas['simulationAndPush'] = {'status':sim.get('status', 'unavailable'),
+                'details': {'status':detail.get('status', 'unavailable'),
+                            'areas':{k:inner.get(k, {'status':'unavailable'})
+                                     for k in selected}}}
+            if focus == 'signals':
+                areas['simulationAndPush']['signalHistory'] = sim.get(
+                    'signalHistory', {'status':'unavailable'})
+            if focus == 'repairs':
+                journal = sim.get('history') if isinstance(sim.get('history'), dict) else {}
+                areas['simulationAndPush']['history'] = {
+                    'status':journal.get('status','unavailable'),
+                    'journal':journal.get('journal', {'status':'unavailable'})}
+        else:
+            areas['simulationAndPush'] = {'status':'unavailable'}
+    reduced = {key:report[key] for key in ('readOnly', 'realOrders',
+        'observedAt', 'schemaVersion', 'scope') if key in report}
+    reduced.update(focus=focus, status='observed', areas=areas,
+                   summary=summary(areas))
+    # Absence in a focused area is not proof of health.
+    if not areas or any(isinstance(v,dict) and v.get('status') == 'unavailable'
+                        for v in areas.values()):
+        reduced['status'] = 'partial'
+    return reduced
+
+
+def triage_snapshot(areas):
+    """Small operator checklist from previously sanitized observations only.
+
+    Source history is not current-feed proof; missing cases are not failed trades.
+    Original source and report times are retained instead of stamping a fake fix.
+    """
+    areas = areas if isinstance(areas,dict) else {}
+    findings=[]
+    def add(code, priority, evidence_at, explanation, next_check):
+        if len(findings) < 10:
+            findings.append({'code':code,'priority':priority,
+                             'evidenceAt':evidence_at,
+                             'finding':explanation,'nextCheck':next_check,
+                             'repairVerified':False,'tradeApproval':False})
+    background = areas.get('background') or {}
+    if background.get('status') not in ('ok','observed'):
+        add('BACKGROUND_NOT_CONFIRMED','high',
+            background.get('lastSuccessAt'), 'Hintergrundstatus nicht bestätigt.',
+            'Worker-Ereignisse und letzten erfolgreichen Durchlauf vergleichen.')
+    products = areas.get('products') or {}
+    missing = [p.get('isin') for p in (products.get('items') or [])
+               if isinstance(p,dict) and p.get('state') == 'incomplete'
+               and isinstance(p.get('isin'),str)]
+    if missing:
+        add('PRODUCT_EVIDENCE_GAPS','high',products.get('lastCheckedAt'),
+            str(len(missing))+' Produktnachweise unvollständig: '+', '.join(missing[:6])+'.',
+            'Fehlende Originalquellen pro ISIN prüfen; keine Freigabe aus Schätzungen ableiten.')
+    sources = (areas.get('sourceReliability') or {}).get('sources') or {}
+    bad = [name for name,value in sources.items()
+           if isinstance(value,dict) and value.get('state') in ('stale','failed','degraded')]
+    if bad:
+        add('SOURCE_HEALTH_HISTORY','review',None,
+            str(len(bad))+' Datenquellen melden einen auffälligen Zustand: '+', '.join(bad[:5])+'.',
+            'Mit der tatsächlich ausgewählten aktuellen Kerzenquelle und Originalzeiten abgleichen.')
+    sim = areas.get('simulationAndPush') or {}
+    if sim.get('status') == 'unavailable':
+        add('SIMULATION_OBSERVATION_MISSING','review',None,
+            'Simulationsdiagnose derzeit nicht lesbar.',
+            'Fokus simulation prüfen; fehlende Ausgabe bedeutet nicht, dass Tests laufen.')
+    else:
+        unknown = sum(1 for a in (sim.get('accounts') or [])
+                      for c in ((a.get('recentCases') or {}).get('items') or [])
+                      if isinstance(c,dict) and c.get('status') == 'inconclusive')
+        if unknown:
+            add('SIMULATION_OUTCOMES_UNKNOWN','review',None,
+                str(unknown)+' gespeicherte Simulationsfälle ohne bestätigtes Ergebnis.',
+                'Originalpreise, Modellkosten und referenzierte Beobachtungsfenster prüfen.')
+    feature = (areas.get('newFeatures') or {}).get('researchSelfReview') or {}
+    if feature.get('status') == 'unavailable':
+        add('RESEARCH_SELF_REVIEW_PENDING','info',feature.get('sourceReportAt'),
+            'Noch kein vollständiges gespeichertes Ergebnis der neuen Forschungs-Selbstprüfung.',
+            'Nächsten gespeicherten Forschungszyklus abwarten; keine Live-Regeln übernehmen.')
+    return {'status':'observed','readOnly':True,
+            'scope':'ranked-observations-not-automatic-repair',
+            'items':findings,
+            'note':'Prioritäten sind technische Sichtungsreihenfolge; keine Fehlerbehebung, Handelsfreigabe oder Renditeprognose.'}
+
+
 def bounded_report(report, max_bytes):
     """Omit oversized diagnostic areas explicitly, retaining small status areas."""
     import json

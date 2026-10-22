@@ -54,7 +54,11 @@ def tool_definitions(diagnostics=False, products=True):
         result.append({
             "name": "bob_diagnostics",
             "description": "Read operational diagnostics: cached market inputs and timestamps, background workers, paper simulation heartbeat, push monitor counts, research and problem index. Missing or stale observations are not healthy. No orders, mutations, raw logs or credentials.",
-            "inputSchema": {"type":"object", "properties":{}, "additionalProperties":False},
+            "inputSchema": {"type":"object", "properties":{
+                "focus":{"type":"string","enum":["overview","simulation","trades","signals",
+                                                "sources","research","repairs","mobile","products"],
+                         "description":"Optional fixed read-only diagnostic section. Omit for overview."}},
+                "additionalProperties":False},
             "annotations": {"readOnlyHint":True, "destructiveHint":False, "idempotentHint":True, "openWorldHint":False},
         })
     if diagnostics:
@@ -144,6 +148,12 @@ def handle(request, report_reader, diagnostics_reader=None, products=True, signa
             args=arguments(args)
         except (ValueError, TypeError, OverflowError):
             return 200, error(rid, -32602, "Invalid signal history window or offset")
+    elif params["name"] == "bob_diagnostics":
+        from bob_diagnostics import DIAGNOSTIC_FOCUS
+        if (not isinstance(args,dict) or set(args) - {"focus"} or
+                type(args.get("focus", "overview")) is not str or
+                args.get("focus","overview") not in DIAGNOSTIC_FOCUS):
+            return 200, error(rid, -32602, "Invalid diagnostic focus")
     elif args != {}:
         return 200, error(rid, -32602, "Invalid tool arguments")
     required_scope = DIAGNOSTICS_SCOPE if params["name"] in ("bob_diagnostics","bob_signal_history") else SCOPE
@@ -152,8 +162,9 @@ def handle(request, report_reader, diagnostics_reader=None, products=True, signa
     if params["name"] == "bob_signal_history":
         data = signal_history_reader(args) if signal_history_reader else {"status":"unavailable","readOnly":True}
     elif params["name"] == "bob_diagnostics":
-        from bob_diagnostics import bounded_report
-        data = bounded_report(diagnostics_reader(), _MAX_RESULT_BYTES)
+        from bob_diagnostics import bounded_report, focused_report
+        data = bounded_report(focused_report(
+            diagnostics_reader(), args.get("focus","overview")), _MAX_RESULT_BYTES)
     else:
         report = report_reader()
         data = report if params["name"] == "bob_product_audit" else gaps(report)
