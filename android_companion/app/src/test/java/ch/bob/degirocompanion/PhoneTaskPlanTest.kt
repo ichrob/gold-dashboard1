@@ -87,4 +87,26 @@ class PhoneTaskPlanTest {
         assertNull(PhoneTaskPlanParser.parse("Zeige die Simulationen und öffne die DEGIRO App"))
         assertNull(PhoneTaskPlanParser.parse("Zeige meine Goldprodukte; ändere alle Stopps"))
     }
+    @Test fun samsungGoldHebelprodukteVariantsPrepareOnlyKnownNavigation() {
+        for (spoken in listOf(
+            "Gold Hebelprodukte", "Gold-Hebelprodukte", "Goldhebelprodukte",
+            "Gold Hebel Produkte", "Meine Gold Hebelprodukte",
+            "Zeige mir die Gold Hebelprodukte",
+            "Öffne die Gold Hebelprodukte", "Gold Hebelprodukte anzeigen"
+        )) {
+            assertEquals("variant: $spoken", listOf(PhoneTask.OPEN_PRODUCTS),
+                PhoneTaskPlanParser.parse(spoken)?.steps)
+            assertEquals("same single action: $spoken", PhoneTask.OPEN_PRODUCTS,
+                PhoneTaskProtocol.parseDisplayed(spoken))
+        }
+        assertEquals(listOf(PhoneTask.OPEN_PRODUCTS, PhoneTask.OPEN_SIMULATION),
+            PhoneTaskPlanParser.parse("Gold Hebelprodukte und danach Simulationen")?.steps)
+        // Still reject whole sentences containing orders, logins or unsupported actions.
+        for (spoken in listOf(
+            "Gold Hebelprodukte und danach kaufen",
+            "Gold Hebelprodukte verkaufen",
+            "Gold Hebelprodukte und gib mein Passwort ein",
+            "Gold Hebelprodukte; öffne die Trading-App"
+        )) assertNull("unsafe command: $spoken", PhoneTaskPlanParser.parse(spoken))
+    }
 }
