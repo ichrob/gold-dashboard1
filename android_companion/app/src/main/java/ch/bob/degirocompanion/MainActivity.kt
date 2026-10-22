@@ -367,11 +367,9 @@ class MainActivity : Activity() {
     /** Only documented, read-only sections of Bob itself. No untrusted URL or
      * third-party package can be selected by speech. Login stays manual. */
     private fun openBobPage(section: String): Boolean {
-        if (section !in setOf("overview", "products", "trade", "simulation",
-                "learning", "research")) return false
+        val safeUrl = BobNavigation.urlForSection(section) ?: return false
         return try {
-            val browser = Intent(Intent.ACTION_VIEW,
-                Uri.parse("https://bob-private-scanner.onrender.com/#$section")).apply {
+            val browser = Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)).apply {
                 addCategory(Intent.CATEGORY_BROWSABLE)
             }
             startActivity(browser)
@@ -393,8 +391,9 @@ class MainActivity : Activity() {
             pendingSpeech = words
             if (speaker == null) {
                 speaker = TextToSpeech(this) { outcome ->
-                    speakerReady = outcome == TextToSpeech.SUCCESS &&
-                        speaker?.setLanguage(Locale.GERMAN) != TextToSpeech.LANG_MISSING_DATA
+                    val languageResult = if (outcome == TextToSpeech.SUCCESS)
+                        speaker?.setLanguage(Locale.GERMAN) else null
+                    speakerReady = languageResult != null && languageResult >= 0
                     if (speakerReady) {
                         pendingSpeech?.let {
                             speaker?.speak(it, TextToSpeech.QUEUE_FLUSH, null, "bob-status")
