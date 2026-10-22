@@ -52,6 +52,61 @@ class AutomaticResearchTests(unittest.TestCase):
         engine.assert_called_once()
         self.assertEqual([x[0] for x in calls],["read","write"])
 
+    def hourly_archive(self, n=700, now=None):
+        from test_strategy_lab import candles
+        from candle_reliability import SOURCES
+        now=now or datetime(2026,10,12,9,tzinfo=Z)
+        rows=candles(n)
+        end=int(now.timestamp()*1000)-3600000
+        first=end-(n-1)*3600000
+        for i,b in enumerate(rows):
+            b["openTime"]=first+i*3600000
+            b["source"]=SOURCES["xaus"]
+        return rows
+
+    def test_verified_hourly_archive_prevents_false_insufficient_research(self):
+        import candle_reliability as candle
+        now=datetime(2026,10,12,9,tzinfo=Z)
+        archive=self.hourly_archive(700,now)
+        short=[dict(b,source=candle.SOURCES["biquote"]) for b in archive[-168:]]
+        with patch.object(candle,"_ROWS",{"xaus/1h":archive}):
+            selected=bg.verified_hourly_research_archive(short,now=now)
+            self.assertEqual(len(selected),700)
+            self.assertEqual(selected[0]["source"],candle.SOURCES["xaus"])
+            self.assertEqual(strategy_lab.run(short)["status"],"insufficient")
+            self.assertEqual(strategy_lab.run(selected)["status"],"evaluated")
+            stored=[]
+            def storage(action,payload):
+                if action=="read":return {"mode":"RESEARCH_ONLY","automation":{}}
+                stored.append(payload)
+                return {"saved":True,"day":"2026-10-12"}
+            result=bg.evaluate_and_store(lambda *_:short,lambda rows,minutes:rows,
+                                         now=now,storage=storage)
+        self.assertEqual(result["status"],"evaluated")
+        self.assertEqual(stored[0]["report"]["closedBars"],700)
+        self.assertFalse(stored[0]["report"]["approved"])
+        self.assertFalse(stored[0]["report"]["orderExecutionEnabled"])
+
+    def test_hourly_archive_is_fail_closed_on_stale_conflicted_and_invalid_data(self):
+        import candle_reliability as candle
+        now=datetime(2026,10,12,9,tzinfo=Z)
+        good=self.hourly_archive(700,now)
+        short=[dict(b,source=candle.SOURCES["biquote"]) for b in good[-168:]]
+        for variant in ("future", "mixed", "open", "wrong-instrument", "too-old",
+                        "newer-primary", "short-archive"):
+            data=[dict(b) for b in good]
+            rows=[dict(b) for b in short]
+            if variant=="future":data[-1]["openTime"]+=3600000
+            elif variant=="mixed":data[12]["source"]=candle.SOURCES["biquote"]
+            elif variant=="open":data[-1]["isOpen"]=True
+            elif variant=="wrong-instrument":data[12]["instrument"]="GC=F"
+            elif variant=="too-old":
+                for b in data:b["openTime"]-=4*3600000
+            elif variant=="newer-primary":rows[-1]["openTime"]+=3*3600000
+            elif variant=="short-archive":data=data[-350:]
+            with self.subTest(variant=variant),patch.object(candle,"_ROWS",{"xaus/1h":data}):
+                self.assertIsNone(bg.verified_hourly_research_archive(rows,now=now))
+
     def test_storage_error_does_not_claim_success(self):
         def offline(*args):raise OSError("offline")
         with self.assertRaises(OSError):
