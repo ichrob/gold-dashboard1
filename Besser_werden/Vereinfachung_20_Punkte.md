@@ -17,7 +17,7 @@ bleiben unverändert.
 | 4 | Einheitliche Status-Haken | Vorhandene Produkttests und Gesamtprüfung bleiben erhalten | Alle Ansichten auf exakt dieselbe Prüflogik umstellen und Regressionstests ergänzen |
 | 5 | Menüs vereinfachen | Bestehende mobile Navigation gruppiert; neue Querverweise bündeln Kernwege | Auf echtem Android auf Lesbarkeit, Scrollen und Doppeleinträge prüfen |
 | 6 | Screenshot-Teilen | Android Companion enthält lokale Share- und OCR-Funktionen | APK-Version auf Gerät installieren, OCR-Serien und fehlende ISIN prüfen |
-| 7 | DEGIRO-Liste weiterverwenden | IndexedDB-Archiv mit atomarem Austausch vorhanden | Tagesübergreifenden Änderungsbericht (neu/entfallen/unverändert) ergänzen |
+| 7 | DEGIRO-Liste weiterverwenden | IndexedDB-Archiv mit atomarem Austausch vorhanden; neuer optionaler Vergleich sichtbarer ISIN-Identitäten seit letztem manuellen Prüfknopf, ohne die Listenfreigabe zu verändern | Vollständiger Tagesvergleich des echten Screenshot-Produktbestands (nicht bloß der sichtbaren Teilmenge) bleibt offen |
 | 8 | Gemeinsame Kurszeiten | `liveBundleCache` wird vom vorhandenen Analyseweg verwendet; neue Anzeige kontrolliert unveränderte Spot-Originalzeit | Offenen Zeitstempel-Randfall #677 prüfen, 60-s-Grenze nicht aufweichen |
 | 9 | Automatische Quellen-Nachforschung | Bestehende Emittenten-/Ersatzquellen, Reparaturpfade vorhanden | Einheitliche Prioritätskette und verbindliche Zustandsmetadaten je Feld |
 | 10 | SnapTrade + CSV | Schreibt nur lesbare/verifizierte Depotpositionen; vorhandene Identitätsprüfung | Exportstände und laufende Depotänderungen mit Konfliktregeln gemeinsam darstellen |
