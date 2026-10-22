@@ -38,6 +38,21 @@ class MainActivity : Activity() {
     private lateinit var commandInput: EditText
     private lateinit var commandStatus: TextView
     private val taskApproval = PhoneTaskApproval()
+    // An untrusted transcript is never executed. Plans exist only in memory;
+    // every step requires a NEW one-shot confirmation after an explicit preview.
+    private var voiceSteps = emptyList<PhoneTask>()
+    private var voiceStepIndex = 0
+    private var internalCommandChange = false
+
+    private fun clearVoicePlan() {
+        voiceSteps = emptyList()
+        voiceStepIndex = 0
+    }
+
+    private fun setCommandTextInternally(text: String) {
+        internalCommandChange = true
+        try { commandInput.setText(text) } finally { internalCommandChange = false }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -126,6 +141,7 @@ class MainActivity : Activity() {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                     taskApproval.clear()
+                    if (!internalCommandChange) clearVoicePlan()
                     if (::commandStatus.isInitialized) {
                         commandStatus.text = "Auftrag geändert. Vor der Ausführung erneut prüfen."
                     }
@@ -143,35 +159,52 @@ class MainActivity : Activity() {
         button("Android-Einstellungen – Auftrag vorbereiten") {
             commandInput.setText("Android-Einstellungen öffnen")
         }
-        label("Die Spracherkennung läuft über Android. Je nach Sprachanbieter können Sprachdaten online verarbeitet werden; Bob speichert keine Audioaufnahme. Nur ausdrücklich erlaubte Aufträge sind möglich.")
+        label("Sprachsätze wie „Öffne Bob und danach wähle Produktbilder aus“ werden in höchstens drei Schritte zerlegt. Jeder Schritt benötigt Prüfen und Ausführen. Kein dauerndes Zuhören. Androids Sprachanbieter kann Audio online verarbeiten.")
         button("Handy-Auftrag prüfen") {
             previewTask(commandInput.text.toString())
         }
         button("Geprüften Handy-Auftrag einmalig ausführen") {
             val current = parseDisplayedTask(commandInput.text.toString())
             if (current == null || !taskApproval.consume(current, SystemClock.elapsedRealtime())) {
-                taskApproval.clear()
                 commandStatus.text = "Auftrag fehlt, wurde geändert, ist abgelaufen oder ist unzulässig. Erneut prüfen."
             } else {
-                // Consume BEFORE invoking an Android Intent: never replay an action
-                // after a lifecycle event, a double tap, or an incoming new share.
-                commandInput.setText("Bob öffnen")
-                commandStatus.text = "Einmaliger Auftrag ausgeführt/angestoßen: ${current.description}. Keine weiteren Aktionen ohne neue Freigabe."
-                when (current) {
+                // No next step is ever launched automatically. On return from
+                // the external app the user must review and confirm again.
+                val launched = when (current) {
                     PhoneTask.OPEN_BOB -> openBobHome()
                     PhoneTask.PICK_IMAGES -> openImagePicker()
                     PhoneTask.OPEN_SETTINGS -> try {
                         startActivity(Intent(Settings.ACTION_SETTINGS))
-                    } catch (_: Exception) {
-                        commandStatus.text = "Die Android-Einstellungen konnten nicht geöffnet werden."
+                        true
+                    } catch (_: Exception) { false }
+                }
+                if (!launched) {
+                    commandStatus.text = "Der Auftrag konnte nicht gestartet werden. Keine weitere Aktion ausgelöst. Erneut prüfen."
+                } else if (voiceSteps.getOrNull(voiceStepIndex) == current) {
+                    voiceStepIndex++
+                    if (voiceStepIndex < voiceSteps.size) {
+                        val next = voiceSteps[voiceStepIndex]
+                        setCommandTextInternally(PhoneTaskProtocol.displayLabel(next))
+                        commandStatus.text = "Schritt $voiceStepIndex von ${voiceSteps.size} angestoßen. " +
+                            "Nächster Schritt ${voiceStepIndex + 1}: ${next.description}. " +
+                            "Bitte wieder PRÜFEN und danach einzeln AUSFÜHREN. STOPP verwirft den Rest."
+                    } else {
+                        clearVoicePlan()
+                        setCommandTextInternally("Bob öffnen")
+                        commandStatus.text = "Alle erkannten Schritte wurden einzeln angestoßen. Keine weitere Aktion geplant."
                     }
+                } else {
+                    clearVoicePlan()
+                    setCommandTextInternally("Bob öffnen")
+                    commandStatus.text = "Einmaliger Auftrag angestoßen: ${current.description}. Keine Folgeaktion."
                 }
             }
         }
         button("STOPP – Auftrag verwerfen") {
             taskApproval.clear()
-            commandInput.setText("Bob öffnen")
-            commandStatus.text = "Gestoppt. Keine Aktion ausgeführt. Ein erneuter Auftrag braucht eine neue Prüfung."
+            clearVoicePlan()
+            setCommandTextInternally("Bob öffnen")
+            commandStatus.text = "Gestoppt. Keine weiteren Schritte geplant. Eine schon geöffnete App wird nicht rückgängig gemacht."
         }
         label("Freigaben gelten einmalig und höchstens 60 Sekunden. Bei Textänderung, App-Wechsel oder STOPP werden sie ungültig.")
         setContentView(ScrollView(this).apply { addView(stack) })
@@ -224,13 +257,25 @@ class MainActivity : Activity() {
             }
             val spoken = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
                 ?.firstOrNull().orEmpty()
-            val voiceTask = PhoneTaskProtocol.parseSpeech(spoken)
-            if (voiceTask == null) {
-                commandInput.setText(spoken.take(100))
-                commandStatus.text = "Sprachauftrag nicht erlaubt oder nicht erkannt. Sage zum Beispiel: Bob öffnen, Produktbilder auswählen oder Android-Einstellungen öffnen. Keine Aktion ausgeführt."
+            clearVoicePlan()
+            if (PhoneTaskPlanParser.isStop(spoken)) {
+                setCommandTextInternally("Bob öffnen")
+                commandStatus.text = "STOPP erkannt. Alle noch offenen Aufträge verworfen."
+                return
+            }
+            val plan = PhoneTaskPlanParser.parse(spoken)
+            if (plan == null) {
+                setCommandTextInternally(spoken.take(100))
+                commandStatus.text = "Sprachauftrag unklar oder nicht erlaubt. Der gesamte Satz wurde abgelehnt; nichts ausgeführt. Zum Beispiel: Öffne Bob und danach wähle Produktbilder aus."
             } else {
-                commandInput.setText(PhoneTaskProtocol.displayLabel(voiceTask))
+                voiceSteps = plan.steps
+                voiceStepIndex = 0
+                setCommandTextInternally(PhoneTaskProtocol.displayLabel(plan.steps.first()))
                 previewTask(commandInput.text.toString())
+                commandStatus.text = "Erkannter Sprachplan: ${plan.summary()}. " +
+                    "Schritt 1 von ${plan.steps.size}: ${plan.steps.first().description}. " +
+                    "Prüfung OK. Innerhalb von 60 Sekunden einmalig AUSFÜHREN; " +
+                    "alle weiteren Schritte brauchen erneut Prüfen und Ausführen. STOPP bricht ab."
             }
             return
         }
@@ -245,6 +290,7 @@ class MainActivity : Activity() {
     private fun openSpeechRecognizer() {
         // A previous approval must never survive launching an external activity.
         taskApproval.clear()
+        clearVoicePlan()
         commandStatus.text = "Spracherkennung gestartet. Keine Aktion wird automatisch ausgeführt."
         val request = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -252,7 +298,7 @@ class MainActivity : Activity() {
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
             // Only a preference: the installed speech provider may still use the internet.
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Zum Beispiel: Bob öffnen")
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Zum Beispiel: Öffne Bob und danach wähle Produktbilder aus")
         }
         try {
             startActivityForResult(request, recognizeSpeechRequest)
@@ -281,24 +327,27 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun openImagePicker() {
+    private fun openImagePicker(): Boolean = try {
         val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "image/*"
             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
         startActivityForResult(picker, selectImageRequest)
-    }
+        true
+    } catch (_: Exception) { false }
 
-    private fun openBobHome() {
-        try {
+    private fun openBobHome(): Boolean {
+        return try {
             val browser = Intent(Intent.ACTION_VIEW,
                 Uri.parse("https://bob-private-scanner.onrender.com/")).apply {
                 addCategory(Intent.CATEGORY_BROWSABLE)
             }
             startActivity(browser)
+            true
         } catch (_: Exception) {
             commandStatus.text = "Bob konnte im Browser nicht geöffnet werden."
+            false
         }
     }
 
