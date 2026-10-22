@@ -314,7 +314,10 @@ function mount(){
   if(busy||doc.hidden)return Promise.resolve();
   busy=true;refresh.disabled=true;
   const ctl=new AbortController(),timeout=setTimeout(()=>ctl.abort(),9000);
-  return root.fetch('/api/degiro/audit',{cache:'no-store',credentials:'same-origin',signal:ctl.signal})
+  const request=root.BobProductAuditReadPool?.read?
+   root.BobProductAuditReadPool.read().then(data=>({ok:true,json:async()=>data})):
+   root.fetch('/api/degiro/audit',{cache:'no-store',credentials:'same-origin',signal:ctl.signal});
+  return request
    .then(async response=>{
     if(!response.ok)throw Error('Bob-Prüfbericht HTTP '+response.status);
     const payload=safeAudit(await response.json());
