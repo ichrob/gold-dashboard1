@@ -339,6 +339,30 @@ _FOCUS_AREAS = {
 }
 
 
+def read_access_coverage(manifest):
+    """Bounded, non-operational inventory of 100 *unverified* feature objectives.
+
+    This is documentation coverage, not evidence that a feature works.
+    Never exposes raw repository text, credentials or individual user data.
+    """
+    try:
+        rows = manifest['tasks']
+        ids = [row['id'] for row in rows]
+        allowed = {'partial', 'planned', 'blocked-client', 'requires-device'}
+        if (manifest.get('schemaVersion') != 1 or manifest.get('total') != 100
+                or len(rows) != 100 or sorted(ids) != list(range(1,101))
+                or any(row.get('state') not in allowed or
+                       row.get('verified') is not False for row in rows)):
+            raise ValueError('coverage manifest invalid')
+        counts = {k:sum(row['state']==k for row in rows) for k in sorted(allowed)}
+        return {'status':'inventory-only','total':100,'verified':0,
+                'unverified':100,'counts':counts,'recordedAt':manifest.get('asOf'),
+                'note':'Repository worklist only. No feature is complete or live-proven by inclusion.'}
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return {'status':'unavailable',
+                'reason':'read-access-manifest-missing-or-inconsistent'}
+
+
 def focused_report(report, focus='overview'):
     """Select only fixed sanitized diagnostics; invalid focus is rejected."""
     if focus not in DIAGNOSTIC_FOCUS:
