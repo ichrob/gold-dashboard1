@@ -51,11 +51,24 @@ class PublicProblemSnapshot(unittest.TestCase):
             with self.assertRaises(ValueError):mirror.read(opener=self.opener(dict(version=1,checkedAt=at.isoformat(),problems=[])),now=self.now)
     def test_publish_never_exports_issue_body_or_credentials(self):
         row=issue('scanner-unreachable',5);row['body']='secret quote, account and token';row['user']={'login':'ichrob'}
-        request=Mock(side_effect=[[row],{'sha':'old'},{'commit':{}}])
+        request=Mock(side_effect=[[row],[row],{'sha':'old'},{'commit':{}}])
         mirror.publish(token='private-token',repo='ichrob/gold-dashboard1',requester=request)
         data=request.call_args.kwargs['data'];payload=base64.b64decode(data['content']).decode()
         self.assertNotIn('secret quote',payload);self.assertNotIn('private-token',payload)
         self.assertEqual(data['branch'],'bob-status');self.assertEqual(data['sha'],'old')
+    def test_publish_recovers_open_issue_from_search_when_list_is_empty(self):
+        row=issue('scanner-unreachable',5);row['user']={'login':'github-actions[bot]'}
+        writes=[]
+        def request(method,path,**kwargs):
+            if method=='GET' and path.startswith('/issues?'):return []
+            if method=='GET' and path.startswith('/search/issues?'):return {'items':[row]}
+            if method=='GET' and path.startswith('/contents/'):return {'sha':'old'}
+            if method=='PUT':writes.append(kwargs['data']);return {'commit':{}}
+            raise AssertionError((method,path))
+        self.assertEqual(mirror.publish(token='private-token',repo='ichrob/gold-dashboard1',requester=request),1)
+        payload=json.loads(base64.b64decode(writes[0]['content']))
+        self.assertEqual(len(payload['problems']),1)
+        self.assertEqual(payload['problems'][0]['number'],5)
     def test_new_snapshot_recovers_before_public_api_quota_resets(self):
         from urllib.error import HTTPError
         with patch.object(bob_problems,'_CACHED',None),patch.object(bob_problems,'_RETRY_AFTER',0),patch.object(mirror,'read',side_effect=[ValueError('not yet published'),{'status':'ok','count':0,'problems':[]}]),patch.object(bob_problems,'fetch_open_issues',side_effect=HTTPError(bob_problems.ISSUES_URL,429,'limited',{'Retry-After':'1800'},None)) as api,patch('builtins.print'):
