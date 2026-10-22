@@ -15,7 +15,9 @@ _LOCK = threading.Lock()
 _PRUNE_LOCK = threading.Lock()
 _RUNNING = False
 _DATABASE = None
-_LAST_PRUNE = 0.0
+# A newly started Render instance must first allow startup/database work to settle.
+# Retention is maintenance, not a prerequisite for diagnostic delivery.
+_LAST_PRUNE = time.monotonic()
 _PRUNE_INTERVAL_SECONDS = 1800
 _PRUNE_TIMEOUT = '5s'
 _PRUNE_ADVISORY_LOCK = 'bob-diagnostic-history-prune-v1'
