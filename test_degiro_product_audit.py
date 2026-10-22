@@ -120,6 +120,32 @@ class ProductAuditTests(unittest.TestCase):
         self.assertNotIn('identity',item['missing'])
         self.assertFalse(item['tradeApproved'])
 
+    def test_current_exact_broker_listing_confirms_list_identity_only(self):
+        import broker_venue_evidence
+        product={"isin":ISIN,"productDirection":"SHORT","currency":"EUR"}
+        listed_feed={"listOrigin":"degiro-screenshot","listUploadedAt":GEN,
+                     "products":[product]}
+        evidence=broker_venue_evidence.validate(dict(
+            isin=ISIN,reviewed=True,venue="Societe Generale OTC",currency="EUR",
+            observedMinute="2026-10-13T09:00",imageReference="exact-list-row"),
+            listed_feed,datetime.fromtimestamp(NOW/1000,ZoneInfo("UTC")))
+        product["brokerVenueEvidence"]=evidence
+        item=audit.build(listed_feed,{ISIN:{"isin":ISIN,"productVerified":False}},NOW)["items"][0]
+        self.assertNotIn("list-identity",item["missing"])
+        self.assertIn("identity",item["missing"])
+        self.assertEqual(item["identityEvidence"],"list-confirmed")
+        self.assertFalse(item["tradeApproved"])
+
+        wrong_generation=dict(evidence,listUploadedAt="2026-10-12T07:00:00+00:00")
+        product["brokerVenueEvidence"]=wrong_generation
+        wrong=audit.build(listed_feed,{ISIN:{"isin":ISIN,"productVerified":False}},NOW)["items"][0]
+        self.assertIn("list-identity",wrong["missing"])
+
+        product["brokerVenueEvidence"]=evidence
+        expired=audit.build(listed_feed,{ISIN:{"isin":ISIN,"productVerified":False}},
+                            NOW+13*3600_000)["items"][0]
+        self.assertIn("list-identity",expired["missing"])
+
     def test_unknown_market_status_is_not_reported_as_closed(self):
         q=provider();q.pop('marketOpen')
         missing=audit.examine(feed()['products'][0],q,NOW)['missing']
