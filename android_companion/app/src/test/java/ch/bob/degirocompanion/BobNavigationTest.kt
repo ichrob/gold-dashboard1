@@ -12,11 +12,11 @@ class BobNavigationTest {
             PhoneTask.OPEN_TRADE, PhoneTask.OPEN_SIMULATION,
             PhoneTask.OPEN_LEARNING, PhoneTask.OPEN_RESEARCH)
         for (task in sections) {
-            assertTrue(BobNavigation.urlFor(task)!!.startsWith(BobNavigation.origin + "#"))
+            assertTrue(BobNavigation.urlFor(task)!!.startsWith(BobNavigation.origin + "?view="))
         }
-        assertEquals("https://bob-private-scanner.onrender.com/#products",
+        assertEquals("https://bob-private-scanner.onrender.com/?view=products#products",
             BobNavigation.urlFor(PhoneTask.OPEN_PRODUCTS))
-        assertEquals("https://bob-private-scanner.onrender.com/#overview",
+        assertEquals("https://bob-private-scanner.onrender.com/?view=overview#overview",
             BobNavigation.urlFor(PhoneTask.OPEN_MARKET))
     }
 
