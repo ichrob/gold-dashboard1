@@ -68,6 +68,24 @@ class HistoryTests(unittest.TestCase):
         self.assertIn('INSERT INTO bob_diagnostic_history', conn.statements[0][0])
         self.assertTrue(any("SET LOCAL statement_timeout='5s'" in sql for sql,_ in conn.statements))
 
+    def test_new_process_defers_retention_until_first_full_interval(self):
+        class Conn:
+            def __init__(self):
+                self.statements = []
+
+            def execute(self, sql, params=()):
+                self.statements.append((sql, params))
+
+        conn = Conn()
+        with patch.object(h, 'prune') as prune, \
+             patch.object(h.time, 'monotonic',
+                          return_value=h._LAST_PRUNE+h._PRUNE_INTERVAL_SECONDS-1):
+            h.write(conn, self.event())
+
+        prune.assert_not_called()
+        self.assertTrue(conn.statements)
+        self.assertIn('INSERT INTO bob_diagnostic_history', conn.statements[0][0])
+
     def test_parallel_prune_is_skipped_without_discarding_current_event(self):
         from contextlib import nullcontext
 
