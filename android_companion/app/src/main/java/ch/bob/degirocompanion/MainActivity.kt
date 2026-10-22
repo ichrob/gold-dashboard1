@@ -158,17 +158,19 @@ class MainActivity : Activity() {
         commandStatus = label("Noch kein Handy-Auftrag geprüft. Erst prüfen, dann jede Aktion einzeln bestätigen.")
         button("🎤 Auftrag sprechen") { openSpeechRecognizer() }
         button("🔊 Bobs Rückmeldung vorlesen") { speakCurrentStatus() }
-        button("Bob öffnen auswählen") { commandInput.setText("Bob öffnen") }
+        // A deliberate tap on these view-only shortcuts is the approval.
+        // No microphone, broker command, hidden automation or follow-up is involved.
+        button("Bob direkt öffnen") { quickOpen(PhoneTask.OPEN_BOB) }
+        button("Goldprodukte direkt öffnen") { quickOpen(PhoneTask.OPEN_PRODUCTS) }
+        button("Mein Trade direkt öffnen") { quickOpen(PhoneTask.OPEN_TRADE) }
+        button("Simulationen direkt öffnen") { quickOpen(PhoneTask.OPEN_SIMULATION) }
         button("Produktbilder auswählen – Auftrag vorbereiten") {
             commandInput.setText("Produktbilder auswählen")
         }
         button("Android-Einstellungen – Auftrag vorbereiten") {
             commandInput.setText("Android-Einstellungen öffnen")
         }
-        button("Goldprodukte – Auftrag vorbereiten") { commandInput.setText("Goldprodukte anzeigen") }
         button("Goldmarkt – Auftrag vorbereiten") { commandInput.setText("Goldmarkt anzeigen") }
-        button("Mein Trade – Auftrag vorbereiten") { commandInput.setText("Mein Trade anzeigen") }
-        button("Simulationen – Auftrag vorbereiten") { commandInput.setText("Simulationen anzeigen") }
         label("Sprich zum Beispiel: „Zeige meine Goldprodukte und danach die Simulationen“. Du kannst später „Und jetzt die Recherche“ oder „Nochmal“ sagen. Jeder Schritt braucht Prüfen und Ausführen. Der Gesprächskontext bleibt nur kurz im Speicher. Kein dauerhaftes Zuhören; Androids Sprachanbieter und die optionale Sprachausgabe können Online-Dienste nutzen.")
         button("Handy-Auftrag prüfen") {
             previewTask(commandInput.text.toString())
@@ -380,6 +382,18 @@ class MainActivity : Activity() {
         startActivityForResult(picker, selectImageRequest)
         true
     } catch (_: Exception) { false }
+
+    private fun quickOpen(task: PhoneTask) {
+        val section = BobNavigation.pageFor(task) ?: return
+        taskApproval.clear()
+        clearVoicePlan()
+        if (openBobPage(section)) {
+            conversation.recordLaunched(task, SystemClock.elapsedRealtime())
+            commandStatus.text = "${task.description} wurde gestartet. Ob die Seite vollständig geladen ist, siehst du im Browser. Keine Folgeaktion."
+        } else {
+            commandStatus.text = "Bob konnte diese Seite nicht öffnen. Keine Folgeaktion."
+        }
+    }
 
     private fun openBobHome(): Boolean = openBobPage("overview")
 
