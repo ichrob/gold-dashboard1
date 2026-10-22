@@ -2461,7 +2461,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
   // source-quote warnings, while preserving the underlying ranking exclusion.
   if(excluded==='Faktorprodukt ausgeschlossen')
    return terminalProductCard(p,'Faktor Goldprodukt nicht verwendet','factor');
-  return '<div data-product-isin="'+esc(p.isin)+'" style="padding:14px;margin-top:10px;border:1px solid #dc2626;border-radius:12px">'+renderProductIdentity(p)+'<p>'+esc(excluded)+'</p><p>Keine weiteren Daten oder Screenshots erforderlich.</p>'+renderProductSources(p)+'</div';
+  return '<div data-product-isin="'+esc(p.isin)+'" style="padding:14px;margin-top:10px;border:1px solid #dc2626;border-radius:12px">'+renderProductIdentity(p)+'<p>'+esc(excluded)+'</p><p>Keine weiteren Daten oder Screenshots erforderlich.</p>'+renderProductSources(p)+'</div>';
  }
  const selected=status==='Freigegeben · ausgewählt';
  const complete=finalProductStatus(p).complete;
