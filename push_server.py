@@ -323,6 +323,22 @@ def deliver_product_selection(conn, row, checked):
     return int(message is not None)
 
 
+def handle_auth_session(action, payload, attempts=3):
+    """Run a session-store action with bounded auth-pool checkout retries."""
+    for attempt in range(attempts):
+        try:
+            with db(auth=True) as conn:
+                result = bob_session_store.handle(conn, action, payload)
+                conn.commit()
+            return result
+        except TooManyRequests:
+            if attempt + 1 >= attempts:
+                raise
+            print(f'BOB_PUSH database_retry route=auth-session attempt={attempt + 1}',
+                  flush=True)
+            time.sleep(0.25 * (attempt + 1))
+
+
 def write_market_spots(payload, attempts=3):
     """Persist a market observation, retrying bounded transient lock races."""
     for attempt in range(attempts):
@@ -1115,9 +1131,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json_body(self)
                 if not isinstance(payload, dict):
                     raise ValueError('Ungültige Sitzungsdaten')
-                with db(auth=True) as conn:
-                    result = bob_session_store.handle(conn, path.rsplit('/', 1)[-1], payload)
-                    conn.commit()
+                result = handle_auth_session(path.rsplit('/', 1)[-1], payload)
                 send_json(self, 200, result)
                 return
             payload = json_body(self)
