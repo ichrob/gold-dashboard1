@@ -49,6 +49,7 @@ const origin='https://bob-workspace.test';
    document.getElementById('dg2-product').addEventListener('change',()=>{calls.handOff++});
    document.addEventListener('click',e=>{const button=e.target.closest?.('[data-view]');if(button)window.lastView=button.dataset.view;});
   });
+  await page.addScriptTag({content:fs.readFileSync('product_evidence_contract.js','utf8')});
   await page.addScriptTag({content:fs.readFileSync('bob_unified_workspace.js','utf8')});
   assert(await page.locator('#bobUnifiedWorkspace').isVisible());
   await page.evaluate(()=>{

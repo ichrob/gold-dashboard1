@@ -13,7 +13,7 @@ bleiben unverändert.
 | --- | --- | --- | --- |
 | 1 | Zentrale Startseite | Neue kompakte Arbeitsübersicht `bob_unified_workspace.js` auf Entwicklungsbranch; bestehende Bereiche bleiben unverändert | Android-Browserprüfung nach sicherem Release |
 | 2 | Ein-Klick-Vorbereitung | Ein user-initiiertes `loadData(true)`, gefolgt vom bestehenden Produktquellenabruf bei vorhandenen Identitäten | Ausfall-, Laufzeit- und Quotenprüfung am Render-Dienst |
-| 3 | Einheitliche Produktkarte | `degiro_all_products.js` vereinigt Daten; neue zentrale Karte zeigt Richtung, Währung, Emittenten-Geld/Brief plus Originalzeiten, beobachtete KO-/Hebelwerte mit Kennzeichnung | Vollständige Vertrags-/Handelsplatznachweise bleiben separat; weitere Datenquellen nur nach Identitätsprüfung zusammenführen |
+| 3 | Einheitliche Produktkarte | Gemeinsamer rein lesender `product_evidence_contract.js` für mobile Zentrale und kombinierte ISIN-Liste, getrennte CSV-/Screenshot-/Emittenten-Quellen mit Originalzeiten. Keine Handelsfreigabe | Vollständige Vertrags-/Handelsplatznachweise bleiben separat; weitere Datenquellen nur nach Identitätsprüfung zusammenführen |
 | 4 | Einheitliche Status-Haken | Gemeinsame Statusübersicht unterscheidet geprüft, Problem, unbekannt; Handelsfreigaben bleiben getrennt | Gleiche Feldzustandslogik in allen Produktkarten weiterhin offen |
 | 5 | Menüs vereinfachen | Bestehende mobile Navigation gruppiert; neue Querverweise bündeln Kernwege | Auf echtem Android auf Lesbarkeit, Scrollen und Doppeleinträge prüfen |
 | 6 | Screenshot-Teilen | Android Companion enthält lokale Share- und OCR-Funktionen | APK-Version auf Gerät installieren, OCR-Serien und fehlende ISIN prüfen |
@@ -27,8 +27,8 @@ bleiben unverändert.
 | 14 | Varianten automatisiert prüfen | Getrennte Paper- und Strategie-Vorwärtstests vorhanden | Vergleichsmetriken/Kosten und belastbare Out-of-sample-Freigabe; keine automatische Regeländerung |
 | 15 | MCO-Videos | Kanalfilter, Untertitel und begrenzte Bild-Analyse vorhanden | Belegbare Transkripte und Filmframes ohne Authentifizierungsumgehung |
 | 16 | Problemzentrale | Bestehender Watchdog und Issues plus gemeinsame manuell ausgelöste schreibgeschützte Anzeige der aktuellen Produkt- und Problemberichte | Private/öffentliche Problemstatus stärker zusammenführen; kein automatischer Chat-Zugriff |
-| 17 | Hintergrundjobs koordinieren | Separate Worker bleiben unverändert. Die CI unterbricht auf dem PR-Zweig nun veraltete PR-Läufe, ohne Hauptzweig-Prüfungen abzubrechen | Last/Quoten der eigentlichen Markt-/Forschungsjobs analysieren, Abrufe deduplizieren, Worker nicht ungetestet zusammenlegen |
-| 18 | Sichere Veröffentlichungen | CI, Smoke, Health Workflows vorhanden; Render deployt bei `main`-Commit | Echtes CI-vor-Deploy-Gate benötigt koordinierte Render-/GitHub-Konfiguration. Nicht blind abschalten |
+| 17 | Hintergrundjobs koordinieren | `auxiliary_workers.start_initial` startet nur noch fehlende vorhandene Hilfs-Worker und isoliert Einzelfehler. CI unterbricht veraltete PR-Läufe. Alle 30s-/6h-Takte unverändert | Nachweis der konkreten Last-/Quotenverbesserung und weitere Abruf-Deduplikation bleiben offen |
+| 18 | Sichere Veröffentlichungen | Auf diesem Entwicklungszweig: `render.yaml` mit `autoDeployTrigger: checksPass` und `Bob release gate` abhängig von vollständiger CI. Native Render-Funktion dokumentiert | **Nicht produktiv bestätigt**: Render-Service muss im richtigen Nutzer-Workspace auf `After CI Checks Pass` geprüft/gesetzt werden. Erst nach Hauptzweig-CI und Deployment testen |
 | 19 | Monolith zerlegen | Neue Funktionen erstmals als eigenständiges Modul mit eigenen Tests | `Bob.html`/`degiro_assistant.js` schrittweise nach Golden-Master-Tests refaktorieren |
 | 20 | Sicherung | Neue **freiwillige lokale** Export-/Importfunktion für ausschließlich heutige Orderentwürfe; strenge JSON-/ISIN-/Betragsvalidierung, kein Überschreiben aktueller Entwürfe | Browserprüfung und gesondertes Datenschutz-/Speicherkonzept für Originalbilder/weitere Daten |
 
@@ -60,3 +60,18 @@ bleiben unverändert.
    auf dem Nutzergerät validieren.
 4. Offene Punkte 3–20 in getrennten, testbaren Folgeänderungen umsetzen; diese
    Statusmatrix ausdrücklich nicht als vollständige Erledigung interpretieren.
+
+## Neue Integrationsstufe (22.10.2026)
+
+- Der gemeinsame Produktnachweis-Vertrag erzeugt niemals ein Handelssignal.
+  Fehlende/stale Originalzeit, Emittentenbeobachtung, CSV und DEGIRO-Account-
+  Verfügbarkeit werden nicht gleichgesetzt.
+- Der Hilfs-Worker-Start wurde dedupliziert, jedoch **kein neues Scheduling**
+  eingerichtet. Der unabhängige Restart-/Recovery-Wächter bleibt aktiv.
+- Der nativen Render-Auto-Deploy-Wert `checksPass` ist als Code vorbereitet.
+  Änderungen an `render.yaml` müssen mit dem tatsächlichen Render-Service
+  abgeglichen werden. Die Render-Verbindung hat in dieser Chat-Sitzung noch
+  keinen vom Nutzer ausgewählten Workspace; deshalb wurde die Produktions-
+  Service-Einstellung nicht direkt geändert.
+- Vor Live-Freigabe: Hauptzweig-CI erfolgreich, Render-Einstellung bestätigt,
+  API-/Health-Smoke und konkrete Mobile-Anzeige nach der Veröffentlichung.
