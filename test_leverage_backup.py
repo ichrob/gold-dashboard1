@@ -76,6 +76,27 @@ class Tests(unittest.TestCase):
     self.assertFalse(result['eligible'])
     self.assertEqual(result['issuerLeverageReference']['value'],12)
 
+ def test_unrelated_ko_conflicts_do_not_block_verified_non_quanto_model(self):
+  r=copy.deepcopy(self.r)
+  isin='DE000FG7N6Z2'
+  source='https://www.comdirect.de/inf/zertifikate/'+isin
+  r.update(isin=isin,direction='LONG',conditions={'quanto':{'value':False}})
+  r['metadata'].update(simpleNonQuantoTurbo=False,simpleTurbo=True,quantoState='unknown',
+      direction='LONG',currency='EUR',underlying='XAU/USD')
+  values=dict(quanto=False,direction='LONG',currency='EUR',
+              underlying='XAU/USD',ratio=.01,type='Knock-out Turbo')
+  observations={key:dict(value=value,conditionVerified=True,source=source,reviewedAt=T)
+                for key,value in values.items()}
+  r['comdirectFieldsBackup']=dict(isin=isin,state='conflict',inactive=False,
+      source=source,conflicts=['ko','strike'],observations=observations)
+  reconciled=b.reconcile_model(r,N)
+  self.assertTrue(reconciled['metadata']['simpleNonQuantoTurbo'])
+  self.assertEqual(reconciled['metadata']['quantoState'],'non-quanto')
+  self.assertFalse(reconciled['eligible'])
+  blocked=copy.deepcopy(r)
+  blocked['comdirectFieldsBackup']['conflicts'].append('currency')
+  self.assertFalse(b.reconcile_model(blocked,N)['metadata']['simpleNonQuantoTurbo'])
+
  def test_formula_and_clocks(self):
   x=b.calculate(self.r,self.g,self.fx,N)
   self.assertEqual(x['value'],10);self.assertTrue(x['fresh']);self.assertEqual(x['at'],'2026-10-07T09:59:50+00:00')
