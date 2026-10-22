@@ -1,5 +1,16 @@
 # Bob Android-Begleitlabor (nicht produktiv)
 
+## Korrektur 22.10.2026: Produktwerte in DEGIRO-Kursspalten erkennen
+
+Die von Samsung/ML Kit extrahierten OCR-Zeilen können `Geld`, `Brief`, `Zuletzt` und die jeweiligen Zahlen in **getrennten Textblöcken** ausgeben. Deshalb sah Bob trotz vollständig sichtbarer Kurse oft nur die ISIN.
+
+`QuoteLayout` nutzt jetzt OCR-Wort-/Zeilenrechtecke, sucht nur **räumlich passende** Werte rechts vom jeweiligen beschrifteten Feld und akzeptiert nur klare Betragsformate. `BNP OTC` wird als ungeprüfte Handelsplatzbeobachtung nur aus einer ISIN-Kopfzeile oder expliziten Handelsplatz-Beschriftung übernommen. `22/10/2026 10:35` in der Zeile „Zuletzt“ wird als **Anzeigezeit** bezeichnet und **niemals** als originalverifizierter Geld-/Briefkurs-Zeitstempel behandelt. Die Uhr im Android-Statusbereich ist keine Kursquelle. Preis im Produktkopf (z. B. `7,02 €`) wird nicht als Geld/Brief ausgegeben. Hebel und KO bleiben bei fehlender eindeutiger Beschriftung offen.
+
+Für einen bewusst geteilten Satz aus 1–4 Bildern prüft Bob zuerst die gemeinsame ISIN, dann die extrahierten Felder. Widersprüchliche Feldwerte zwischen Bildern führen zu einer erkennbaren Ablehnung statt zu einer stillen Überschreibung. Alle Beobachtungen bleiben ungeprüft, unveröffentlicht und ohne Einfluss auf Top-3- oder Handelsfreigaben.
+
+Synthetische Android-Testfälle decken `Geld 7,04 €`, `Brief 7,05 €`, `Zuletzt 7,04 €`, `BNP OTC` sowie abweichende Kopf- und Tageswerte ab. Das reale Samsung-OCR-Ergebnis muss nach Installation weiterhin kontrolliert werden.
+
+
 Zwei strikt getrennte Untersuchungen für Bob:
 
 ## Korrektur: Teilen von zwei oder mehr Screenshots

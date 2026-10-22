@@ -4,7 +4,7 @@
 const HEADER='BOB OCR-ENTWURF – NICHT VERIFIZIERT';
 const FIELDS=Object.freeze({
   'Geld':'bid', 'Brief':'ask', 'Hebel':'leverage',
-  'KO-Schwelle':'ko', 'Handelsplatz':'venue', 'Zuletzt':'last'
+  'KO-Schwelle':'ko', 'Handelsplatz':'venue', 'Zuletzt':'last', 'Anzeigezeit':'displayedTime'
 });
 function validIsin(value){
  const s=String(value||'').trim().toUpperCase();
@@ -36,13 +36,17 @@ function readDraft(value){
    out.series={imageCount,anchorCount,provisional:anchorCount<imageCount};
    continue;
   }
-  const m=line.match(/^(Geld|Brief|Hebel|KO-Schwelle|Handelsplatz|Zuletzt) \(OCR ungeprüft\): (.{1,55})$/);
+  const m=line.match(/^(Geld|Brief|Hebel|KO-Schwelle|Handelsplatz|Zuletzt|Anzeigezeit) \(OCR ungeprüft\): (.{1,55})$/);
   if(!m)throw Error('Unbekanntes oder unzulässiges OCR-Feld; keine Übernahme.');
   const key=FIELDS[m[1]];
   if(Object.prototype.hasOwnProperty.call(out.fields,key))throw Error('Doppelte OCR-Angabe für '+m[1]+'.');
   const val=m[2].trim();
   if(key==='venue'){
    if(!/^[\p{L}0-9 ._\/-]{2,48}$/u.test(val))throw Error('Ungültiges OCR-Handelsplatzformat.');
+   out.fields[key]=val;
+  }else if(key==='displayedTime'){
+   if(!/^\d{2}\/\d{2}\/20\d{2} \d{2}:\d{2}$/.test(val))throw Error('Ungültiges Screenshot-Zeitformat.');
+   // Visible screenshot label only; NEVER a validated bid/ask source timestamp.
    out.fields[key]=val;
   }else{
    if(!/^[0-9][0-9., ]{0,18}$/.test(val))throw Error('Ungültiges OCR-Zahlenformat.');
@@ -90,7 +94,7 @@ function mount(){
    const draft=readDraft(textarea.value);
    const title=root.document.createElement('h4');title.textContent='ISIN '+draft.isin+' · ungeprüfte OCR-Beobachtung';
    const list=root.document.createElement('ul');
-   const labels={bid:'Geld',ask:'Brief',leverage:'Hebel',ko:'KO-Schwelle',venue:'Handelsplatz',last:'Zuletzt (kein ausführbarer Kurs)'};
+   const labels={bid:'Geld',ask:'Brief',leverage:'Hebel',ko:'KO-Schwelle',venue:'Handelsplatz',last:'Zuletzt (kein ausführbarer Kurs)',displayedTime:'Anzeigezeit (keine bestätigte Kurszeit)'};
    for(const [name,label] of Object.entries(labels)){
     const item=root.document.createElement('li');
     item.textContent=label+': '+(draft.fields[name]||'nicht erkannt')+' (nicht bestätigt)';

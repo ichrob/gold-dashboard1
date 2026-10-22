@@ -177,6 +177,7 @@ class MainActivity : Activity() {
         status.text = "${uris.size} Bild(er) werden lokal gelesen. Nichts wird hochgeladen."
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         val texts = mutableListOf<String>()
+        val observations = mutableListOf<Map<String, String>>()
 
         fun fail(reason: String) {
             if (serial == imageReadSequence) {
@@ -200,9 +201,22 @@ class MainActivity : Activity() {
                     fail("Die Bildserie hat keine eindeutige gemeinsame ISIN oder zeigt widersprüchliche Produkte. Bitte ein Bild mit sichtbarer ISIN ergänzen.")
                     return
                 }
+                val fieldNames = listOf("Geld", "Brief", "Hebel", "KO-Schwelle", "Handelsplatz", "Zuletzt", "Anzeigezeit")
+                val fields = linkedMapOf<String, String>()
+                val conflicting = mutableListOf<String>()
+                for (name in fieldNames) {
+                    val values = observations.mapNotNull { it[name] }.distinct()
+                    if (values.size > 1) conflicting += name
+                    else if (values.size == 1) fields[name] = values.single()
+                }
+                if (conflicting.isNotEmpty()) {
+                    fail("Die Bilder haben unterschiedliche Werte für: " + conflicting.joinToString(", ") +
+                        ". Bitte nur zeitgleiche Bilder desselben Produkts wählen.")
+                    return
+                }
                 evidenceDraft = runCatching {
                     draftFromOcr(
-                        texts.joinToString("\n"),
+                        series.isin, fields,
                         imageCount = series.imageCount,
                         anchorCount = series.anchorCount
                     )
@@ -230,6 +244,20 @@ class MainActivity : Activity() {
                 .addOnSuccessListener {
                     if (serial == imageReadSequence) {
                         texts.add(it.text)
+                        val coordinates = it.textBlocks.flatMap { block ->
+                            block.lines.flatMap { line ->
+                                // ML Kit may group several visual columns into one line.
+                                // Element geometry keeps left/right quotes separate.
+                                (listOf(line.text to line.boundingBox) +
+                                    line.elements.map { element -> element.text to element.boundingBox })
+                                    .mapNotNull { (word, bounds) ->
+                                        if (bounds == null) null else QuoteLayout.Line(
+                                            word, bounds.left, bounds.top, bounds.right, bounds.bottom
+                                        )
+                                    }
+                            }
+                        }
+                        observations.add(QuoteLayout.extract(coordinates))
                         scan(index + 1)
                     }
                 }
@@ -238,27 +266,31 @@ class MainActivity : Activity() {
         scan(0)
     }
 
-    private fun draftFromOcr(raw: String, imageCount: Int, anchorCount: Int): String {
-        val isins = SeriesEvidence.validCandidates(raw)
-        if (isins.size != 1 || imageCount !in 1..4 ||
+    private fun draftFromOcr(
+        isin: String, fields: Map<String, String>, imageCount: Int, anchorCount: Int
+    ): String {
+        if (!SeriesEvidence.validIsin(isin) || imageCount !in 1..4 ||
             anchorCount !in 1..imageCount) return ""
 
-        fun observed(label: String, regex: Regex): String {
-            val values = regex.findAll(raw).mapNotNull { it.groupValues.getOrNull(1)?.trim() }
-                .filter { it.isNotEmpty() }.distinct().toList()
-            if (values.size > 1) throw IllegalArgumentException("Widersprüchliche OCR-Felder")
-            return if (values.isEmpty()) "" else "\n$label (OCR ungeprüft): ${values.single()}"
+        fun observed(label: String, kind: String): String {
+            val value = fields[label] ?: return ""
+            val valid = when (kind) {
+                "amount" -> Regex("[0-9]{1,5},[0-9]{2,4}").matches(value)
+                "venue" -> Regex("[A-ZÀ-Ÿ0-9 ._/-]{2,48}").matches(value)
+                "time" -> Regex("\\d{2}/\\d{2}/20\\d{2} \\d{2}:\\d{2}").matches(value)
+                else -> false
+            }
+            if (!valid) return ""
+            return "\n$label (OCR ungeprüft): $value"
         }
-        val numeric = "[0-9][0-9., ]{0,18}"
-        val opts = setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE)
-        val bid = observed("Geld", Regex("^\\s*(?:Geld|Bid)\\s*[:：]\\s*($numeric)\\s*(?:EUR|CHF)?\\s*$", opts))
-        val ask = observed("Brief", Regex("^\\s*(?:Brief|Ask)\\s*[:：]\\s*($numeric)\\s*(?:EUR|CHF)?\\s*$", opts))
-        val lev = observed("Hebel", Regex("^\\s*(?:Hebel|Leverage)\\s*[:：]\\s*($numeric)\\s*(?:x|X)?\\s*$", opts))
-        val ko = observed("KO-Schwelle", Regex("^\\s*(?:KO|KO-Schwelle|Knock-Out)\\s*[:：]\\s*($numeric)\\s*(?:USD|EUR|CHF)?\\s*$", opts))
-        val venue = observed("Handelsplatz", Regex("^\\s*(?:Handelsplatz|Börse|Venue)\\s*[:：]?\\s*([A-Za-z0-9 ._/-]{1,48})\\s*$", opts))
-        val last = observed("Zuletzt", Regex("^\\s*(?:Zuletzt|Last)\\s*[:：]?\\s*(?:€\\s*)?($numeric)\\s*(?:EUR|CHF)?\\s*$", opts))
-        val identity = if (isins.isEmpty()) "Keine prüfziffergültige ISIN gefunden" else "ISIN: " + isins.joinToString(", ")
-        return "BOB OCR-ENTWURF – NICHT VERIFIZIERT\n$identity$bid$ask$lev$ko$venue$last\n" +
+
+        val evidence = listOf(
+            observed("Geld", "amount"), observed("Brief", "amount"),
+            observed("Hebel", "amount"), observed("KO-Schwelle", "amount"),
+            observed("Handelsplatz", "venue"), observed("Zuletzt", "amount"),
+            observed("Anzeigezeit", "time")
+        ).joinToString("")
+        return "BOB OCR-ENTWURF – NICHT VERIFIZIERT\nISIN: $isin$evidence\n" +
             "Bildserie (OCR ungeprüft): $imageCount Bilder, $anchorCount mit gültiger ISIN\n" +
             "Bildzeit/Originalquelle wurden nicht verifiziert. " +
             "Kein automatischer Handelsnachweis, keine Freigabe, keine Order."

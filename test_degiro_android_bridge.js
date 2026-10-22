@@ -36,6 +36,17 @@ const combined=readDraft(screenshotPair);
 assert.equal(combined.isin,'DE000PJ9NB98');
 assert.equal(combined.fields.venue,'BNP OTC');
 assert.equal(combined.fields.last,'11,31');
+const dated=readDraft(screenshotPair.replace(
+ 'Zuletzt (OCR ungeprüft): 11,31',
+ 'Zuletzt (OCR ungeprüft): 11,31\nAnzeigezeit (OCR ungeprüft): 22/10/2026 10:35'
+));
+assert.equal(dated.fields.displayedTime,'22/10/2026 10:35');
+assert.equal(dated.sourceTime,null);
+assert.equal(dated.tradeApproved,false);
+assert.throws(()=>readDraft(screenshotPair.replace(
+ 'Zuletzt (OCR ungeprüft): 11,31',
+ 'Zuletzt (OCR ungeprüft): 11,31\nAnzeigezeit (OCR ungeprüft): 99-99-2099 now'
+)));
 assert.equal(combined.fields.bid,undefined);
 assert.equal(combined.tradeApproved,false);
 assert.equal(combined.sourceTime,null);
@@ -54,6 +65,7 @@ const kotlin=fs.readFileSync('./android_companion/app/src/main/java/ch/bob/degir
 assert.match(manifest,/android.intent.action.SEND_MULTIPLE/);
 assert.match(kotlin,/Intent.ACTION_SEND_MULTIPLE/);
 assert.match(kotlin,/SeriesEvidence\.analyze\(texts\)/);
+assert.match(kotlin,/QuoteLayout\.extract\(coordinates\)/);
 assert.match(kotlin,/uris\.size > 4/);
 assert.match(kotlin,/Bildserie hat keine eindeutige gemeinsame ISIN/);
 
