@@ -15,7 +15,8 @@ on:
 
 concurrency:
   group: bob-ci-${{ github.ref }}
-  cancel-in-progress: false
+  # New PR commits supersede the previous PR check; main and scheduled checks are never cancelled.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
