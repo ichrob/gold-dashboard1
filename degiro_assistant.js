@@ -2824,14 +2824,35 @@ function expireVisibleList(){
 
 function archiveTransaction(mode,action){
  return new Promise((resolve,reject)=>{
-  const request=indexedDB.open('bobProductArchive',1);
-  request.onupgradeneeded=()=>request.result.createObjectStore('records');
-  request.onerror=()=>reject(request.error);
+  // Some Android browsers leave an IndexedDB read pending indefinitely
+  // (e.g. blocked/open transaction on a background tab). Never let a
+  // READ block the product view. Do not time out WRITE transactions:
+  // an uncertain write must not be claimed to have committed.
+  let settled=false,db=null;
+  const finish=(error,value)=>{
+   if(settled)return;
+   settled=true;
+   if(timeout)clearTimeout(timeout);
+   try{db?.close();}catch(_){}
+   if(error)reject(error);else resolve(value);
+  };
+  const timeout=mode==='readonly'?setTimeout(()=>
+   finish(Error('Lokaler Bildspeicher antwortet nicht; Produkt-Cache wird geprüft.')),6000):null;
+  let request;
+  try{request=indexedDB.open('bobProductArchive',1);}
+  catch(error){finish(error);return;}
+  request.onupgradeneeded=()=>{if(!settled)request.result.createObjectStore('records');};
+  request.onerror=()=>finish(request.error||Error('Bildspeicher nicht verfügbar'));
   request.onsuccess=()=>{
-   const db=request.result,tx=db.transaction('records',mode);let result;
-   tx.oncomplete=()=>{db.close();resolve(result?.result);};
-   tx.onerror=tx.onabort=()=>{db.close();reject(tx.error||Error('Bildspeicher nicht verfügbar'));};
-   try{result=action(tx.objectStore('records'));}catch(e){db.close();reject(e);}
+   if(settled){try{request.result.close();}catch(_){}return;}
+   db=request.result;
+   let tx,result;
+   try{
+    tx=db.transaction('records',mode);
+    tx.oncomplete=()=>finish(null,result?.result);
+    tx.onerror=tx.onabort=()=>finish(tx.error||Error('Bildspeicher nicht verfügbar'));
+    result=action(tx.objectStore('records'));
+   }catch(error){finish(error);}
   };
  });
 }
@@ -4446,8 +4467,10 @@ async function refreshIssuerCandidates(){
 async function restoreServerCorrection(){
  const original=listArchive,revision=listRevision;
  const local=loadIdentities();
+ const controller=new AbortController();
+ const deadline=setTimeout(()=>controller.abort(),8000);
  try{
-  const response=await fetch('/api/degiro/list-correction',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'read'})});
+  const response=await fetch('/api/degiro/list-correction',{method:'POST',headers:{'Content-Type':'application/json'},signal:controller.signal,body:JSON.stringify({action:'read'})});
   if(!response.ok)return;
   const data=await response.json();
   if(!data.ok||!Array.isArray(data.products)||!data.products.length||data.products.length>12
@@ -4469,8 +4492,21 @@ async function restoreServerCorrection(){
    if(listArchive!==original||revision!==listRevision||request.result?.storedAt!==original?.storedAt)return;
    store.put(record,'list');store.put(payload,'products');committed=true;
   };return request;});
-  if(committed){listRevision++;listArchive=record;localStorage.setItem(PRODUCT_STORE_KEY,payload);productStorageBlocked=false;showListArchive();}
- }catch(_){/* Keep local originals when server correction is unavailable. */}
+  if(committed){
+   listRevision++;listArchive=record;localStorage.setItem(PRODUCT_STORE_KEY,payload);
+   productStorageBlocked=false;showListArchive();
+   // The optional server read is asynchronous: reflect only the exact
+   // verified list generation that was atomically committed above.
+   if(productRowsReady){
+    restoreProductRows(applyResearchedTerms(loadIdentities()));
+    rankUI();
+    const status=document.getElementById('dgCentralStatus');
+    if(status)status.textContent='✅ '+items.length+' gespeicherte Produkte aus vorhandenem, datiertem Server-Nachweis wiederhergestellt. Originalzeit '+data.listUploadedAt+'. Keine Handelsfreigabe.';
+   }
+  }
+  return committed;
+ }catch(_){/* Keep local originals when server correction is unavailable. */return false;}
+ finally{clearTimeout(deadline);}
 }
 
 function mountListCorrection(host){
@@ -4562,7 +4598,8 @@ async function inject(){
   r.querySelectorAll('[data-dg]').forEach(el=>el.addEventListener('input',()=>{listRevision++;if(el.dataset.dg!=="confirmed"){combinedReferences.delete(i);productQuotes.delete(i);futureResearchQuotes.delete(i);if(["isin","dir"].includes(el.dataset.dg)){detailScreenshots.delete(i);}else if(["price","lev","ko","spread"].includes(el.dataset.dg)){}rowVersions.set(i,(rowVersions.get(i)||0)+1);if(el.dataset.dg==="isin"){combinedDrafts.delete(i);resetCombinedForm(i);}}rankUI();}));
  }
  await restoreListArchive();
- await restoreServerCorrection();
+ // Offline-first. Never await a remote correction before rendering all
+ // persisted on-device product identities and screenshot evidence.
  const restoredProducts=loadIdentities();
  restoreProductRows(applyResearchedTerms(restoredProducts));
  productRowsReady=true;
@@ -4605,6 +4642,10 @@ async function inject(){
  setInterval(()=>{if(!document.hidden)refreshIssuerCandidates();},10*60*1000);
  document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshIssuerCandidates();});
  b.querySelector('#dgCentralStatus').textContent=listArchive?.files?.length?'Aktive Liste: '+listArchive.files.length+' Screenshot(s) · '+savedCount+' Produkte · aufgenommen '+new Date(listArchive.storedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+'. Bleibt aktiv bis zum nächsten erfolgreichen Upload; aktuelle Produktkurse werden separat geprüft.':savedCount?savedCount+' gespeicherte Produkte · die letzte Liste bleibt erhalten; Kursdaten können veralten.':'Noch keine gespeicherte Liste. Bitte einmal DEGIRO-Screenshots einlesen.';
+ // Render first, then check remote correction in the background. Never show
+ // a perpetual "Gespeicherte Liste wird geladen ..." during a network outage.
+ rankUI();
+ restoreServerCorrection().catch(()=>{});
  const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgListUploadButton'),uploadStatus=b.querySelector('#dgCentralStatus');
  uploadButton.addEventListener('click',()=>upload.click());
  upload.addEventListener('change',async()=>{
