@@ -404,8 +404,30 @@ def summary(areas):
                 continue
             if isinstance(item,(dict,list)):walk(item,path+'.'+key)
     for name,area in areas.items():walk(area,name)
+    # A stale *backup* is not the same as a broken selected candle source.
+    # Keep both observations, annotate their roles without falsely clearing any
+    # actual source fault. Inconclusive paper cases are not realised losses.
+    active = {}
+    market = areas.get('market') if isinstance(areas.get('market'),dict) else {}
+    for frame,candle in (market.get('candles') or {}).items():
+        if not isinstance(candle,dict):continue
+        integrity = candle.get('integrity') or {}
+        name = str((integrity if isinstance(integrity,dict) else {}).get('source')
+                   or (candle.get('last') or {}).get('source') or '').lower()
+        active[str(frame)] = ('biquote' if 'biquote' in name else
+                              'xaus' if 'xaus' in name else 'unknown')
+    for item in findings:
+        path=item['area']
+        if path.startswith('sourceReliability.sources.'):
+            parts=path[len('sourceReliability.sources.'):].split('/')
+            if len(parts)>=2 and parts[0] in ('xaus','biquote'):
+                current=active.get(parts[1],'unknown')
+                item['sourceRole']='selected' if current==parts[0] else (
+                    'alternate' if current!='unknown' else 'undetermined')
+        if path.startswith('simulationAndPush.accounts.') and item['state']=='inconclusive':
+            item['meaning']='paper-result-unconfirmed-not-a-realised-loss'
     return {'attention':findings[:40], 'assessment':'needs-attention' if findings else 'observed-only',
-            'note':'No finding does not prove feature health. Source timestamps remain authoritative; report time is collection time.'}
+            'note':'A stale alternate quote source does not by itself prove the selected candle feed failed. Inconclusive paper results are not realised losses. Original timestamps remain authoritative.'}
 
 
 def broker_sync_snapshot(value):

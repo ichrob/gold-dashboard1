@@ -1227,13 +1227,13 @@ function createQuoteRefresh({rows,request,visible=()=>true,now=()=>Date.now(),in
  function refresh(force=false){
   if(running)return running;
   if(!visible())return Promise.resolve();
-  const queued=rows().filter(row=>validIsin(row.isin)&&
+  const queued=rows().filter(row=>validIsin(row.isin)&&row.suppressed!==true&&
    (force||!attempts.has(row.id)||attempts.get(row.id).key!==row.key||now()-attempts.get(row.id).at>=interval));
   if(!queued.length)return Promise.resolve();
   async function worker(){
    while(queued.length&&visible()){
     const row=queued.shift(),current=rows().find(x=>x.id===row.id);
-    if(!current||current.key!==row.key||current.isin!==row.isin)continue;
+    if(!current||current.suppressed===true||current.key!==row.key||current.isin!==row.isin)continue;
     attempts.set(row.id,{key:row.key,at:now()});
     try{await request(row.id);}catch(_){} // Next scheduled attempt; no retry storm.
    }
@@ -2447,6 +2447,85 @@ function renderAutomaticProductCheck(p){
    '<b>Letzter automatischer Emittentenabruf (Prüfzeit, keine Kurszeit):</b> '+esc(at)+' · '+esc(label)+
    (reason?'<div>'+esc(reason)+'</div>':'')+backupHtml+'</div>';
 }
+// A single read-only presentation layer. This never feeds ranking or execution.
+function goldProductGroup(p,now=Date.now()){
+ if(knockoutStatus(p))return 'ended';
+ const exclusion=compactProductExclusion(p);
+ if(exclusion==='Faktorprodukt ausgeschlossen')return 'factor';
+ if(exclusion)return 'ended';
+ if(typeof serverAnalysisEvidence==='function'&&serverAnalysisEvidence(p,now))return 'active';
+ const local=productDataStatus(p,now);
+ return local.complete?'active':'review';
+}
+// Read-only list-generation reconciliation; mismatched/old reports never
+// rewrite original screenshots or grant execution permission.
+function goldProductSyncState(p,now=Date.now()){
+ const report=window.BobProductAuditReport;
+ const receipt=Date.parse(report?.lastCheckedAt),generation=listArchive?.storedAt;
+ if(!generation||report?.status!=='ok'||!Array.isArray(report.items)
+    ||!Number.isFinite(receipt)||receipt>now||now-receipt>180000)
+  return {state:'unconfirmed',message:'Serverabgleich nicht aktuell bestätigt'};
+ if(report.listUploadedAt!==generation)
+  return {state:'different-list',message:'Andere Listenfassung am Server · Originalwerte bleiben erhalten'};
+ const item=report.items.find(x=>x.isin===p.isin);
+ if(!item||item.direction!==p.productDirection)
+  return {state:'not-covered',message:'Produkt nur lokal vorhanden · Belege separat prüfen'};
+ if(item.state==='terminated')return {state:'terminated',message:'Beendet laut Emittenten-Nachweis'};
+ if((item.missing||[]).length)return {state:'missing',message:'Nachweise am Server weiterhin offen'};
+ if(!['analysis-evidence-complete','issuer-evidence-complete'].includes(item.state))
+  return {state:'unconfirmed',message:'Nachweisklasse nicht bestätigt'};
+ return {state:'matched',message:'Listenfassung und ISIN mit Server abgeglichen'};
+}
+function goldProductRepairStatus(p,now=Date.now()){
+ const sync=goldProductSyncState(p,now);
+ const item=sync.state==='missing'?window.BobProductAuditReport?.items?.find(x=>x.isin===p.isin):null;
+ const retry=(item?.sourceRecovery||[]).find(e=>e?.state==='waiting'||e?.state==='failed');
+ if(retry)return 'Automatische Quellenprüfung: Wiederholung'+(Number.isFinite(retry.retryAfterSeconds)?' frühestens in '+retry.retryAfterSeconds+' s':'')+' · keine neuen Zeitstempel erfunden';
+ if(sync.state==='missing')return 'Bob prüft zugelassene Quellen erneut; fehlende Nachweise bleiben gesperrt';
+ if(sync.state==='matched')return 'Keine offenen Analyse-Nachweislücken im letzten Serverbericht';
+ if(sync.state==='terminated')return 'Keine laufende Produktkursüberwachung erforderlich';
+ return 'Originalbelege gespeichert; Serverabgleich separat offen';
+}
+
+function goldProductCompactView(p,now=Date.now()){
+ const verified=typeof serverAnalysisEvidence==='function'?serverAnalysisEvidence(p,now):null;
+ const fields=productFieldStates(p,now),status=productDataStatus(p,now);
+ const acceptable=x=>x&&typeof x.value==='number'&&x.value>0&&
+   (x.state==='aktuell'||/Momentaufnahme|innerhalb Altersgrenze/.test(x.state||''));
+ const bid=verified?.quote.bid??(acceptable(fields.bid)?fields.bid.value:null);
+ const ask=verified?.quote.ask??(acceptable(fields.ask)?fields.ask.value:null);
+ const lever=verified?.leverage??(acceptable(fields.leverage)?fields.leverage.value:null);
+ const currency=verified?.quote.currency||p.quote?.nativeChartEvidence?.currency||p.quote?.currency||'EUR';
+ const number=x=>Number.isFinite(x)&&x>0?Number(x).toLocaleString('de-CH',{maximumFractionDigits:3}):'—';
+ const term=typeof koEvidenceStatus==='function'?koEvidenceStatus(p,now):null;
+ const distance=term?.current&&n(p.spot)>0&&n(p.ko)>0&&['LONG','SHORT'].includes(p.productDirection)
+   ?(p.productDirection==='LONG'?p.spot-p.ko:p.ko-p.spot)/p.spot*100:null;
+ const priced=bid!==null&&ask!==null;
+ const analysis=!!verified||status.complete;
+ const check=analysis?'✓ Analyse-Nachweise vorhanden':'⚠ Analyse-Nachweise prüfen';
+ const timestamp=verified?.quote.bidAt||null;
+ const detail=verified?'Serverbericht · passende Listenfassung':priced?'Originalwert · lokaler Datenstand':'Kurs noch nicht aktuell belegt';
+ const sync=goldProductSyncState(p,now);
+ return '<div data-product-compact-summary style="display:grid;gap:9px">'+
+  '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px"><b>'+esc(p.isin||'ISIN fehlt')+'</b>'+renderIsinCopy(p.isin)+'</div>'+
+  '<div class="small"><b>'+esc(p.productDirection||'Richtung offen')+'</b> · '+esc(check)+'</div>'+
+  '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px">'+
+   [['Geld',number(bid)+' '+(bid!==null?currency:'')],['Brief',number(ask)+' '+(ask!==null?currency:'')],['Hebel',number(lever)+(lever!==null?'×':'')],['KO-Abstand',Number.isFinite(distance)&&distance>=0?distance.toFixed(2)+' %':'—']].map(([label,value])=>
+    '<div style="min-width:0;padding:6px;border-radius:7px;background:#f2f5f9"><div class="small">'+esc(label)+'</div><strong>'+esc(value.trim())+'</strong></div>').join('')+
+  '</div><div class="small" data-analysis-status>'+esc(detail)+(timestamp?' · Kurszeit '+esc(timestamp):'')+'</div>'+
+  '<div class="small" data-gold-sync="'+esc(sync.state)+'">'+esc(sync.message)+'</div>'+
+  '<div class="small" data-gold-repair>'+esc(goldProductRepairStatus(p,now))+'</div>'+
+  '<div class="small" data-execution-separate style="color:#92400e">DEGIRO-Ausführung nicht bestätigt · keine Handelsfreigabe</div></div>';
+}
+function goldProductOverview(products,now=Date.now()){
+ const counters={active:0,review:0,ended:0,factor:0};
+ for(const p of products)counters[goldProductGroup(p,now)]++;
+ return '<div data-gold-summary class="small" style="padding:10px;border:1px solid #cbd5e1;border-radius:10px;margin:8px 0">'+
+  'Analyse-Nachweise vorhanden: '+counters.active+' · Nachweise prüfen: '+counters.review+
+  ' · Beendet: '+counters.ended+' · Faktor nicht verwendet: '+counters.factor+
+  '<div>Nur überprüfte Daten, keine bestätigte DEGIRO-Ausführung. Prüfstand getrennt von Handelsfreigabe.</div></div>';
+}
+
 function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationHtml=''){
  reasons=reasons.map(reason=>productEvidenceReason(p,reason));
  if(knockoutStatus(p))return knockoutCard(p);
@@ -2513,7 +2592,8 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
    (direct?.metadata?.currency==='CHF'||direct?.nativeChartEvidence?.currency==='CHF');
  const venueMissing=productProblemLabels(p).includes('DEGIRO-Handelsplatznachweis');
  const next=serverEvidence?'Serveranalyse vorhanden: keine neuen Bilder nötig. Keine bestätigte DEGIRO-Ausführung; lokale Produktfreigabe und Risikoprüfung bleiben separat.':venueMissing?productHelpState(p).action:automaticQuoteIssue?'Automatischer Kurs- und Hebelabruf wird erneut geprüft. Vorhandene Werte bleiben mit ihrem ursprünglichen Datenstand nutzbar; derzeit keine neuen Bilder erforderlich.':complete&&neutral?'Marktsignal neutral – auf eine bestätigte Richtung warten. Dafür sind keine neuen Bilder nötig.':complete?'Produktdaten vollständig – Auswahlgrund unter „Warum derzeit nicht ausgewählt?“ prüfen.':temporal&&data.complete?'Werte vorhanden – den offenen Zeitbezug unter „Werte und Aktualitätsprüfung“ prüfen.':automaticRecoveryPending?'Bob prüft die zugelassenen Emittentenquellen automatisch erneut. Fehlende oder unklare Nachweise bleiben gesperrt und werden unter „Problem“ dokumentiert. Nur wenn diese Quellen keine ausreichenden Daten liefern, können zusätzliche Originalbelege notwendig sein.':'Offene Angaben unter „Werte und Aktualitätsprüfung“ ansehen und nur diese ergänzen.';
- return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" '+(selected?'data-selection-approved':'data-selection-blocked')+'="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere">'+renderProductIdentity(p)+renderProductProblemSummary(p)+productCompletionBadge(p)+renderDegiroListEvidence(p)+(typeof renderServerAnalysisEvidence==='function'?renderServerAnalysisEvidence(p):'')+renderProductHelp(p)+renderScreenshotSources(p)+'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'</div>'+
+ return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" '+(selected?'data-selection-approved':'data-selection-blocked')+'="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere">'+
+ goldProductCompactView(p)+'<details data-product-technical style="margin-top:10px"><summary>Technische Nachweise und Aktionen anzeigen</summary>'+renderProductIdentity(p)+renderProductProblemSummary(p)+productCompletionBadge(p)+renderDegiroListEvidence(p)+(typeof renderServerAnalysisEvidence==='function'?renderServerAnalysisEvidence(p):'')+renderProductHelp(p)+renderScreenshotSources(p)+'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'</div>'+
  renderServerVenueEvidence(p)+renderVenueHistory(p)+renderDegiroDisplayedQuote(p)+renderDegiroVenueInference(p)+renderDegiroTradingSession(p)+(swissSgVenue&&!degiroVenueObserved(p)&&!degiroVenueInferred(p)?'<div class="small" data-swiss-dots-warning><b>SG Swiss DOTS · CHF:</b> Offen ist die Zuordnung dieses CHF-Produkts zu einem DEGIRO-Handelsplatz. Die vorhandenen SG-Kurse werden für die Analyse verwendet.</div>':'')+'<div class="small" data-product-status><div><b>Daten:</b> '+valuePresenceMark(!serverEvidence&&missingNumbers.length>0)+' '+esc(dataText)+'</div><div><b>Zeitbezug vorhandener Kurs-/Hebelwerte:</b> '+valuePresenceMark(!serverEvidence&&!timeEvidence.confirmed)+' '+esc(serverEvidence?'Server-Nachweis aktuell · lokaler Bildzeitbezug separat geprüft':timeEvidence.label)+'</div><div><b>Aktuelle Auswahl:</b> '+(selected?'freigegeben · ausgewählt':'nicht ausgewählt')+(neutral?' · Marktsignal neutral':'')+'</div></div>'+
  '<p data-product-next><b>Nächster Schritt:</b> '+esc(selected?'Tatsächlichen DEGIRO-Kurs vor einem Einstieg prüfen.':next)+'</p><details><summary>Automatische Suche · letzter Stand</summary>'+renderAutomaticProductCheck(p)+'</details>'+renderPrimaryProductValues(p)+
  (allReasons.length?'<div class="small">'+allReasons.slice(0,2).map(shortReason).map(esc).join('<br>')+'</div>':'')+
@@ -2524,7 +2604,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  (unconfirmed.length?'<div class="small" style="margin-top:8px"><em>'+unconfirmed.map(esc).join('<br>')+'</em></div>':'')+
  '</details><details style="margin-top:8px"><summary>'+evidenceTitle+(groups.length?' · '+groups.length+' Prüfpunkte':'')+'</summary><div class="small">'+(groups.length?groups.map(label=>'<div style="margin:10px 0"><strong>'+(automaticQuoteIssue?valuePresenceMark(false)+' Werte vorhanden · ':'')+esc(label)+'</strong><br>Fundort: '+esc(locations.get(label))+'</div>').join(''):'Produktdaten vollständig. Ergänzungen nur bei einem neuen Datenstand erforderlich.')+'</div>'+renderIssuerHelp(p,reasons)+renderTestScreenshotRequest(p)+'</details>'+
  calculationHtml+'<button data-selection-upload="'+p.index+'">Bilder / PDF zu diesem Produkt hinzufügen</button><button data-product-trade="'+esc(p.isin)+'">Vorhandenen Trade mit diesem Produkt erfassen</button>'+renderImageImportStatus(p.index)+
- '<details data-product-details="'+p.index+'" style="margin-top:10px"><summary>Quellen und Einzelheiten</summary><div class="small">'+esc(p.name||'')+'</div>'+renderProductSources(p)+renderMissingValues(reasons,p)+renderProductDecision(p,selected,[status,...reasons])+screenshotSummary(x)+'<button data-card-research="'+p.index+'">Daten erneut abrufen</button></details></div>';
+ '<details data-product-details="'+p.index+'" style="margin-top:10px"><summary>Quellen und Einzelheiten</summary><div class="small">'+esc(p.name||'')+'</div>'+renderProductSources(p)+renderMissingValues(reasons,p)+renderProductDecision(p,selected,[status,...reasons])+screenshotSummary(x)+'<button data-card-research="'+p.index+'">Daten erneut abrufen</button></details></details></div>';
 }
 // Display-only: a bounded, proven-identity turbo projection shares the NORMAL
 // product-price row, but never enters quote/freshness, ranking or trade approval.
@@ -2703,11 +2783,20 @@ function renderSelectionWorkflow(r,products=[]){
 function productUploadCards(products,direction,now=Date.now(),flow=null,context=null){
  const calculations=new Map(context?continuingAnalysis(products,context).map(row=>[row.p.isin,renderProductCalculation(row)]):[]);
  const selected=new Set((flow?.groups||[]).flatMap(g=>g.candidates).map(p=>p.isin));
- return (products||[]).map((p,z)=>({...p,index:z+1})).filter(p=>p.name||p.isin).sort((a,b)=>Number(b.productDirection===direction)-Number(a.productDirection===direction)).map(p=>{
-  const blocked=flow?.notApproved?.find(v=>v.index===p.index);
-  const status=selected.has(p.isin)?'Freigegeben · ausgewählt':blocked?'Nicht freigegeben · '+(blocked.reasons?.[0]||'Nachweise prüfen'):'Produktnachweise prüfen';
-  return compactProductCard(p,blocked?.missingReasons||finalProductStatus(p,now).reasons,status,calculations.get(p.isin)||'');
+ const all=(products||[]).map((p,z)=>({...p,index:z+1})).filter(p=>p.name||p.isin);
+ const buckets={active:[],review:[],ended:[],factor:[]};
+ for(const p of all)buckets[goldProductGroup(p,now)].push(p);
+ const labels={active:'Aktive Gold-Hebelprodukte',review:'Nachweisprüfung offen',ended:'Beendete Produkte',factor:'Faktor Goldprodukte nicht verwendet'};
+ const html=['active','review','ended','factor'].filter(group=>buckets[group].length).map(group=>{
+  const rows=buckets[group].sort((a,b)=>Number(b.productDirection===direction)-Number(a.productDirection===direction));
+  return '<section data-gold-group="'+group+'" style="margin:12px 0"><h4>'+labels[group]+' · '+rows.length+'</h4>'+
+    rows.map(p=>{
+     const blocked=flow?.notApproved?.find(v=>v.index===p.index);
+     const status=selected.has(p.isin)?'Freigegeben · ausgewählt':blocked?'Nicht freigegeben · '+(blocked.reasons?.[0]||'Nachweise prüfen'):'Produktnachweise prüfen';
+     return compactProductCard(p,blocked?.missingReasons||finalProductStatus(p,now).reasons,status,calculations.get(p.isin)||'');
+    }).join('')+'</section>';
  }).join('');
+ return goldProductOverview(all,now)+html;
 }
 
 
@@ -4496,7 +4585,18 @@ async function inject(){
  window.addEventListener('pageshow',()=>{updateScreenshotReturn(true);refreshImportedProducts(true);});
  window.addEventListener('online',()=>refreshImportedProducts(true));
  quoteRefresh=createQuoteRefresh({
-  rows:()=>Array.from({length:12},(_,idx)=>{const id=idx+1,isin=(document.querySelector('[data-dg="isin"][data-i="'+id+'"]')?.value.trim()||'').toUpperCase();return {id,isin,key:isin+':'+(rowVersions.get(id)||0)};}),
+  rows:()=>Array.from({length:12},(_,idx)=>{
+   const id=idx+1,isin=(document.querySelector('[data-dg="isin"][data-i="'+id+'"]')?.value.trim()||'').toUpperCase();
+   const name=document.querySelector('[data-dg="name"][data-i="'+id+'"]')?.value||'';
+   const quote=productQuotes.get(id),snapshot=detailScreenshots.get(id);
+   const factor=/FAKTOR|FACTOR/i.test([name,quote?.metadata?.name,snapshot?.terms?.type?.value].join(' '));
+   const terminal=quote?.isin===isin&&quote?.productVerified&&quote.metadata?.status===2||
+       knockoutStatus({isin,snapshot})||
+       serverIssuerTerminated({isin});
+   // Exclusions suppress recurring issuer quote requests, not manual review or
+   // the first fetch of unknown products. List replacement resets cached states.
+   return {id,isin,suppressed:factor||terminal,key:isin+':'+(rowVersions.get(id)||0)};
+  }),
   request:enrichProduct,visible:()=>!document.hidden,interval:30000,limit:4
  });
  refreshImportedProducts(!['night','weekend'].includes(window.BobDegiroPhase?.()));

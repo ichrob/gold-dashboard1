@@ -84,7 +84,7 @@ class ReportTests(unittest.TestCase):
         original={'status':'observed','sources':sources}
         report=diagnostics.summary({'sourceReliability':original})
         self.assertEqual(report['attention'],
-                         [{'area':'sourceReliability.sources.xaus/1m','state':'stale'}])
+                         [{'area':'sourceReliability.sources.xaus/1m','state':'stale','sourceRole':'undetermined'}])
         self.assertEqual(report['assessment'],'needs-attention')
         self.assertEqual(len(original['sources']['xaus/1h']['events']),2)
 
