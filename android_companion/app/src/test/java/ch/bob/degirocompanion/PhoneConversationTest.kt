@@ -26,6 +26,17 @@ class PhoneConversationTest {
         assertEquals(listOf(PhoneTask.OPEN_PRODUCTS, PhoneTask.OPEN_LEARNING),
             session.interpret("Zeige meine Goldprodukte und danach zeige meine Lernergebnisse", 2000)?.steps)
     }
+    @Test fun disallowRepeatingSensitiveLocalPickerOrSettings() {
+        val session = PhoneConversation()
+        session.recordLaunched(PhoneTask.OPEN_PRODUCTS, 100)
+        session.recordLaunched(PhoneTask.PICK_IMAGES, 200)
+        assertNull(session.interpret("nochmal", 250))
+        session.recordLaunched(PhoneTask.OPEN_SETTINGS, 300)
+        assertNull(session.interpret("nochmal", 350))
+        session.recordLaunched(PhoneTask.OPEN_PRODUCTS, 400)
+        assertEquals(listOf(PhoneTask.OPEN_PRODUCTS), session.interpret("nochmal", 450)?.steps)
+    }
+
     @Test fun whyRefersOnlyToRecentSuccessfulProductExplanation() {
         val session=PhoneConversation()
         assertNull(session.interpret("Warum?", 100))
