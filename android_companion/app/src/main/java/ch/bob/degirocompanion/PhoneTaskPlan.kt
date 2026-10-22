@@ -71,7 +71,20 @@ internal object PhoneTaskPlanParser {
             "zeige goldprodukte", "zeige meine goldprodukte", "zeige mir meine goldprodukte",
             "zeig mir die goldprodukte", "zeige die gold-hebelprodukte",
             "öffne die goldprodukte", "öffne goldprodukte", "zeige mir die goldhebelprodukte",
-            "meine goldprodukte", "die goldprodukte" -> PhoneTask.OPEN_PRODUCTS
+            "meine goldprodukte", "die goldprodukte", "gold hebelprodukte",
+            "gold hebel produkte", "gold-hebelprodukte", "goldhebelprodukte",
+            "gold hebelprodukte anzeigen", "zeige mir die gold hebelprodukte",
+            "öffne die gold hebelprodukte" -> PhoneTask.OPEN_PRODUCTS
+
+            "long-produkte vergleichen", "long produkte vergleichen",
+            "zeige mir die drei besten long-produkte",
+            "zeige mir die drei besten long produkte",
+            "zeige mir die drei besten long-produkte und erkläre die unterschiede",
+            "zeige mir die drei besten long produkte und erkläre die unterschiede",
+            "vergleiche die drei besten long-produkte",
+            "vergleiche die drei besten long produkte",
+            "erkläre mir die long-produkte", "erkläre mir die long produkte",
+            "zeige mir den long-vergleich" -> PhoneTask.OPEN_LONG_REVIEW
 
             "mein trade anzeigen", "zeige meinen trade", "zeig meinen trade",
             "zeige mir meinen trade", "öffne mein trade", "mein trade", "meinen trade",
