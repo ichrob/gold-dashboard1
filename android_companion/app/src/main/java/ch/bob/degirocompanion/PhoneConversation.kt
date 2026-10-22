@@ -21,7 +21,8 @@ internal class PhoneConversation(private val contextTtlMs: Long = 120_000L) {
         val value = spoken.lowercase(Locale.GERMAN)
             .trim().replace(Regex("[.!]+$"), "").replace(Regex("\\s+"), " ")
         if (value in setOf("warum", "wieso", "warum das", "erkläre das",
-                "kannst du das erklären", "was bedeutet das", "warum diese auswahl")) {
+                "kannst du das erklären", "was bedeutet das", "warum diese auswahl",
+                "und warum", "wieso das", "warum denn")) {
             val previous = lastTask
             // A "why?" question is only meaningful after a product explanation.
             // It never upgrades an ordinary page visit into a trade recommendation.
