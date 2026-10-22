@@ -74,6 +74,49 @@ function compareUploadedList(previous,current){
  const diff=visibleChange(previous.ids,current.ids);
  return {state:'changed',current,added:diff.added,removed:diff.removed,unchanged:diff.unchanged};
 }
+
+function productEvidence(p,now=Date.now()){
+ const unknown=t=>({state:'unknown',text:t});
+ const out={isin:null,tradeable:false,automaticOrder:false,
+  direction:unknown('LONG/SHORT fehlt'),currency:unknown('EUR/CHF fehlt'),
+  prices:unknown('Geld/Brief und Originalzeiten fehlen'),
+  barrier:unknown('KO-Originalnachweis fehlt'),leverage:unknown('Emittenten-Hebel mit Uhrzeit fehlt'),
+  venue:unknown('DEGIRO-Handelsplatznachweis separat erforderlich')};
+ if(!validIsin(p?.isin))return out;
+ out.isin=p.isin;
+ const q=p.quote?.isin===p.isin?p.quote:null,r=p.reference?.isin===p.isin?p.reference:null;
+ const dirs=[p.direction,q?.metadata?.direction,r?.direction].filter(x=>['LONG','SHORT'].includes(x));
+ out.direction=!dirs.length?out.direction:new Set(dirs).size>1?
+  {state:'conflict',text:'Richtungsangaben widersprechen sich'}:
+  {state:'observed',text:dirs[0]+' aus Produktidentität, keine Handelsfreigabe'};
+ const ccys=[q?.currency,q?.metadata?.currency,r?.currency].filter(x=>['EUR','CHF'].includes(x));
+ out.currency=!ccys.length?out.currency:new Set(ccys).size>1?
+  {state:'conflict',text:'Produktwährungen widersprechen sich'}:
+  {state:'observed',text:ccys[0]+' aus Produktbeobachtung'};
+ const bid=Number(q?.bid),ask=Number(q?.ask);
+ const bidAge=originalAge(q?.bidAt,now),askAge=originalAge(q?.askAt,now);
+ if(q?.productVerified===true&&q?.found===true){
+  if(q.paperSelectionOnly||q.paperQuoteAccepted||/estimated|calculated|paper|issuer-chart|simulation/i.test(String(q.priceKind||'')))
+   out.prices=unknown('Nur Chart-/Modell-/Simulationskurs, kein aktuelles Emittenten-Kurspaar');
+  else if(q?.metadata?.status===2||q?.metadata?.tradingHalted===true||q?.sourceDisabled===true)
+   out.prices={state:'conflict',text:'Produkt ausgesetzt oder beendet'};
+  else if(!(bid>0&&ask>=bid))out.prices={state:'conflict',text:'Geld-/Briefwerte fehlen oder widersprechen sich'};
+  else if(bidAge===null||askAge===null)out.prices=unknown('Mindestens eine Originalkurszeit fehlt');
+  else if(Math.max(bidAge,askAge)>90000||Math.abs(bidAge-askAge)>90000)
+   out.prices={state:'stale',text:'Originalkurszeiten nicht aktuell oder nicht zusammengehörig'};
+  else out.prices={state:'observed',text:'Geld '+bid+' / Brief '+ask+' · Originalzeit '+q.bidAt+' / '+q.askAt+
+    ' · '+String(q.source||'Emittent').slice(0,90)+' · keine DEGIRO-Orderquotierung'};
+ }
+ const ko=Number(r?.ko);
+ if(ko>0&&Number.isFinite(ko))out.barrier={state:'observed',
+  text:'Genannter KO-Wert '+ko+' · Original-KO-Zeit und 8h-Gültigkeit separat prüfen'};
+ const lev=Number(q?.leverage),levAge=originalAge(q?.leverageAt,now);
+ if(lev>0&&Number.isFinite(lev))out.leverage=levAge!==null&&levAge<=90000?
+  {state:'observed',text:'Hebel '+lev+' · Emittenten-Zeit '+q.leverageAt}:
+  {state:'stale',text:'Hebel '+lev+' · gültiger eigener Zeitnachweis nicht vorhanden'};
+ return out;
+}
+
 function operationalSnapshot(audit,problems,simulationText='',now=Date.now(),privateProductHelp=null){
  const ago=originalAge(audit?.lastCheckedAt,now);
  const actualAudit=audit?.status==='ok'&&Array.isArray(audit.items)&&
@@ -138,7 +181,7 @@ function serializeDraftBackup(drafts,now=new Date()){
  const clean=validateDraftBackup(JSON.stringify(content),drafts.day);
  return JSON.stringify({...content,drafts:clean},null,2);
 }
-const api={zurichDay,originalAge,validIsin,visibleChange,uploadedList,compareUploadedList,analyzeInputs,operationalSnapshot,validateDraftBackup,serializeDraftBackup};
+const api={zurichDay,originalAge,validIsin,visibleChange,uploadedList,compareUploadedList,productEvidence,analyzeInputs,operationalSnapshot,validateDraftBackup,serializeDraftBackup};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 root.BobUnifiedWorkspace=api;
 if(!root.document)return;
@@ -156,7 +199,8 @@ function mount(){
  '<button type="button" id="bobUnifiedCheckOperations">Produktnachweise und Probleme prüfen</button>'+ 
  '<div id="bobUnifiedOperations" class="small" role="status" aria-live="polite">Noch keine gemeinsame Statusprüfung.</div>'+
  '<label>Produkt aus Bobs bestehender Liste <select id="bobUnifiedProduct" style="width:100%;min-height:42px"><option value="">Bitte Produkt wählen</option></select></label>'+
- '<p class="small" id="bobUnifiedProductNote">Nur Produktidentität, keine automatische Freigabe.</p>'+
+ '<p class="small" id="bobUnifiedProductNote">Nur Produktidentität, keine automatische Freigabe.</p>'+ 
+ '<details id="bobUnifiedEvidence" class="bob-disclosure"><summary>Produktwerte und Originalnachweise</summary><div id="bobUnifiedEvidenceRows" class="small">Produkt auswählen.</div></details>'+
  '<p class="small" id="bobUnifiedVisibleDiff">Änderungsvergleich nach der nächsten bewussten Produktprüfung verfügbar.</p>'+ 
  '<p class="small" id="bobUnifiedUploadedDiff">Gespeicherte Screenshotliste wird bei der nächsten bewussten Prüfung verglichen.</p>'+
  '<button type="button" id="bobUnifiedToDraft">Produkt für Orderentwurf übernehmen</button>'+
@@ -190,12 +234,28 @@ function mount(){
   }
   if(old&&Array.from(chosen.options).some(x=>x.value===old))chosen.value=old;
   if(chosen.value!==old)productNote.textContent='Nur Produktidentität. Keine automatische Handelsfreigabe.';
+  renderEvidence();
+ }
+ function renderEvidence(){
+  const p=(root.BobDegiro?.tradeTestProducts?.()||[]).find(x=>x.isin===chosen.value);
+  const info=productEvidence(p);
+  const host=doc.getElementById('bobUnifiedEvidenceRows');host.replaceChildren();
+  for(const [name,key] of [['Richtung','direction'],['Währung','currency'],['Geld und Brief','prices'],
+     ['KO','barrier'],['Hebel','leverage'],['DEGIRO-Handelsplatz','venue']]){
+   const el=doc.createElement('p'),data=info[key];
+   el.textContent=(data.state==='conflict'?'✗ ':data.state==='observed'?'◦ ':'? ')+name+': '+data.text;
+   host.append(el);
+  }
+  const note=doc.createElement('p');
+  note.textContent='Nur Informationen, keine vollständige Freigabeprüfung. Originalquelle und DEGIRO-Handelbarkeit separat kontrollieren.';
+  host.append(note);
  }
  chosen.addEventListener('change',()=>{
   const p=(root.BobDegiro?.tradeTestProducts?.()||[]).find(x=>x.isin===chosen.value);
   if(!p){productNote.textContent='Kein Produkt gewählt.';return;}
   const q=p.quote,at=q?.askAt||q?.bidAt||null,age=originalAge(at);
   const label=age===null?'Originalzeit fehlt':age>90000?'Originalkurs älter als 90 Sekunden':'Beobachtungszeit innerhalb von 90 Sekunden';
+  renderEvidence();
   productNote.textContent='ISIN '+p.isin+' · '+(p.direction||'Richtung offen')+
    ' · '+label+' · '+(q?.source||'Quelle nicht belegt')+
    '. Kein bestätigter DEGIRO-Kurs oder Handelsplatz.';
