@@ -123,6 +123,9 @@ def read_diagnostics_for_mcp():
         'collection':collection,
         'background':background_health,
         'sourceReliability':candle_reliability.snapshot,
+        'readAccessCoverage':lambda:bob_diagnostics.read_access_coverage(
+            json.loads((BASE_DIR / 'Besser_werden/lesezugriff_100_status.json').read_text(
+                encoding='utf-8'))),
         'strategyResearch':lambda:bob_diagnostics.fields(strategy_lab_background.status(),
             ('enabled','running','phase','lastSuccessAt','lastAttemptAt','lastRunDay','error')),
         'simulationAndPush':lambda:read_private_report_for_mcp('/diagnostics'),

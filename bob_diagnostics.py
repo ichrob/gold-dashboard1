@@ -339,6 +339,30 @@ _FOCUS_AREAS = {
 }
 
 
+def read_access_coverage(manifest):
+    """Bounded, non-operational inventory of 100 *unverified* feature objectives.
+
+    This is documentation coverage, not evidence that a feature works.
+    Never exposes raw repository text, credentials or individual user data.
+    """
+    try:
+        rows = manifest['tasks']
+        ids = [row['id'] for row in rows]
+        allowed = {'partial', 'planned', 'blocked-client', 'requires-device'}
+        if (manifest.get('schemaVersion') != 1 or manifest.get('total') != 100
+                or len(rows) != 100 or sorted(ids) != list(range(1,101))
+                or any(row.get('state') not in allowed or
+                       row.get('verified') is not False for row in rows)):
+            raise ValueError('coverage manifest invalid')
+        counts = {k:sum(row['state']==k for row in rows) for k in sorted(allowed)}
+        return {'status':'inventory-only','total':100,'verified':0,
+                'unverified':100,'counts':counts,'recordedAt':manifest.get('asOf'),
+                'note':'Repository worklist only. No feature is complete or live-proven by inclusion.'}
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return {'status':'unavailable',
+                'reason':'read-access-manifest-missing-or-inconsistent'}
+
+
 def focused_report(report, focus='overview'):
     """Select only fixed sanitized diagnostics; invalid focus is rejected."""
     if focus not in DIAGNOSTIC_FOCUS:
@@ -413,23 +437,72 @@ def triage_snapshot(areas):
     sources = (areas.get('sourceReliability') or {}).get('sources') or {}
     bad = [name for name,value in sources.items()
            if isinstance(value,dict) and value.get('state') in ('stale','failed','degraded')]
-    if bad:
+    # Source-reliability tracks every observed feed, including backups.
+    # Match it to the actual source of the cached analysis bars before calling
+    # a failed backup a failure of the currently selected market feed.
+    active = {}
+    for frame, candle in ((areas.get('market') or {}).get('candles') or {}).items():
+        if not isinstance(candle,dict):
+            continue
+        evidence = candle.get('integrity') if isinstance(candle.get('integrity'),dict) else {}
+        source = evidence.get('source') or (candle.get('last') or {}).get('source')
+        if not isinstance(source,str):
+            continue
+        label = source.lower()
+        provider = 'biquote' if 'biquote' in label else 'xaus' if 'xaus' in label else None
+        if provider:
+            active[str(frame)] = provider
+    selected_bad, alternate_bad, unknown_bad = [], [], []
+    for name in bad:
+        if not isinstance(name,str) or '/' not in name:
+            unknown_bad.append(name)
+            continue
+        provider, tf = name.split('/',1)
+        selected = active.get(tf)
+        if selected == provider:
+            selected_bad.append(name)
+        elif selected and provider in ('biquote','xaus'):
+            alternate_bad.append(name)
+        else:
+            unknown_bad.append(name)
+    if selected_bad:
+        add('SOURCE_SELECTED_DEGRADED','high',None,
+            str(len(selected_bad))+' aktuell gewählte Kerzenquellen mit Warnzustand: '+
+            ', '.join(selected_bad[:5])+'.',
+            'Originalzeit und Integrität des verwendeten Zeitfensters prüfen; keine frischen Kurse annehmen.')
+    if alternate_bad:
+        add('SOURCE_ALTERNATIVE_STALE','info',None,
+            str(len(alternate_bad))+' alternative Kerzenquellen mit Warnzustand: '+
+            ', '.join(alternate_bad[:5])+'.',
+            'Verwendete Quelle getrennt prüfen; Ersatzquelle ist nicht automatisch ein aktiver Signalausfall.')
+    if unknown_bad:
         add('SOURCE_HEALTH_HISTORY','review',None,
-            str(len(bad))+' Datenquellen melden einen auffälligen Zustand: '+', '.join(bad[:5])+'.',
-            'Mit der tatsächlich ausgewählten aktuellen Kerzenquelle und Originalzeiten abgleichen.')
+            str(len(unknown_bad))+' Quellen ohne eindeutigen Abgleich zum aktiven Datenpfad: '+
+            ', '.join(unknown_bad[:5])+'.',
+            'Quellenzuordnung und originale Zeitstempel prüfen; Status nicht als gesund interpretieren.')
     sim = areas.get('simulationAndPush') or {}
     if sim.get('status') == 'unavailable':
         add('SIMULATION_OBSERVATION_MISSING','review',None,
             'Simulationsdiagnose derzeit nicht lesbar.',
             'Fokus simulation prüfen; fehlende Ausgabe bedeutet nicht, dass Tests laufen.')
     else:
-        unknown = sum(1 for a in (sim.get('accounts') or [])
-                      for c in ((a.get('recentCases') or {}).get('items') or [])
-                      if isinstance(c,dict) and c.get('status') == 'inconclusive')
-        if unknown:
-            add('SIMULATION_OUTCOMES_UNKNOWN','review',None,
-                str(unknown)+' gespeicherte Simulationsfälle ohne bestätigtes Ergebnis.',
-                'Originalpreise, Modellkosten und referenzierte Beobachtungsfenster prüfen.')
+        # Expose bounded *recorded* event causes rather than guessing why a
+        # model trade is inconclusive. These events are not trading results.
+        cases = [c for a in (sim.get('accounts') or []) if isinstance(a,dict)
+                 for c in ((a.get('recentCases') or {}).get('items') or [])
+                 if isinstance(c,dict) and c.get('status') == 'inconclusive']
+        if cases:
+            gaps = sum(any(isinstance(e,dict) and e.get('kind')=='data-gap'
+                           for e in (c.get('events') or [])) for c in cases)
+            deferred = sum(any(isinstance(e,dict) and e.get('kind')=='deferred-sale'
+                               for e in (c.get('events') or [])) for c in cases)
+            explanation = (str(len(cases))+
+                ' gespeicherte Simulationsfälle ohne bestätigtes Ergebnis. '+
+                str(gaps)+' mit protokollierter Datenlücke, '+
+                str(deferred)+' mit verschobenem Modellverkauf.')
+            add('SIMULATION_OUTCOMES_UNKNOWN','review',None, explanation,
+                'Zeitgleiche Originalkurse nachweisen; nur echte Datenlücken '
+                'reparieren, Modellverkauf nicht als echten Fill werten.')
     feature = (areas.get('newFeatures') or {}).get('researchSelfReview') or {}
     if feature.get('status') == 'unavailable':
         add('RESEARCH_SELF_REVIEW_PENDING','info',feature.get('sourceReportAt'),

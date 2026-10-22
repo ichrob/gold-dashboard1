@@ -321,6 +321,23 @@ class NewFeatureReadAccessTests(unittest.TestCase):
 
 
 class FocusedReadAccessTests(unittest.TestCase):
+
+    def test_simulation_triage_groups_recorded_gaps_without_invented_fills(self):
+        cases=[{'status':'inconclusive',
+                'events':[{'kind':'data-gap'},{'kind':'deferred-sale'}]},
+               {'status':'inconclusive','events':[{'kind':'deferred-sale'}]},
+               {'status':'closed','events':[{'kind':'data-gap'}]}]
+        evidence={'background':{'status':'ok'},
+                  'simulationAndPush':{'status':'observed',
+                      'accounts':[{'recentCases':{'items':cases}}]}}
+        result=diagnostics.triage_snapshot(evidence)
+        rows=[x for x in result['items'] if x['code']=='SIMULATION_OUTCOMES_UNKNOWN']
+        self.assertEqual(len(rows),1)
+        self.assertIn('2 gespeicherte',rows[0]['finding'])
+        self.assertIn('1 mit protokollierter Datenlücke',rows[0]['finding'])
+        self.assertIn('2 mit verschobenem Modellverkauf',rows[0]['finding'])
+        self.assertFalse(rows[0]['tradeApproval'])
+
     def test_only_allowlisted_focus_can_read_existing_diagnostics(self):
         diagnostics_reader=Mock(return_value=diagnostics.collect({
             'market':lambda:{'status':'observed','token':'other-area-secret'},
@@ -371,6 +388,38 @@ class FocusedReadAccessTests(unittest.TestCase):
         missing=diagnostics.focused_report(raw,'signals')
         self.assertEqual(missing['areas']['simulationAndPush']['signalHistory']['status'],
                          'unavailable')
+
+    def test_stale_backup_not_marked_active_market_outage(self):
+        evidence={
+            'background':{'status':'ok'},
+            'market':{'candles':{
+                '1m':{'integrity':{'source':'biquote · XAU/USD Broker/MT5','state':'ok'}},
+                '5m':{'integrity':{'source':'biquote · XAU/USD Broker/MT5','state':'ok'}}}},
+            'sourceReliability':{'sources':{
+                'xaus/1m':{'state':'stale'},
+                'xaus/5m':{'state':'stale'},
+                'biquote/1m':{'state':'current'},
+                'biquote/5m':{'state':'current'}}},
+            'simulationAndPush':{'status':'observed'}}
+        rows=diagnostics.triage_snapshot(evidence)['items']
+        codes=[a['code'] for a in rows]
+        self.assertIn('SOURCE_ALTERNATIVE_STALE',codes)
+        self.assertNotIn('SOURCE_SELECTED_DEGRADED',codes)
+        self.assertNotIn('SOURCE_HEALTH_HISTORY',codes)
+        self.assertIn('alternative Kerzenquellen',next(
+            a['finding'] for a in rows if a['code']=='SOURCE_ALTERNATIVE_STALE'))
+
+    def test_selected_source_stale_is_high_priority(self):
+        evidence={'background':{'status':'ok'},'market':{'candles':{
+            '1m':{'integrity':{'source':'biquote · XAU/USD Broker/MT5','state':'recent-gap'}}}},
+            'sourceReliability':{'sources':{'biquote/1m':{'state':'stale'},
+                                           'xaus/1m':{'state':'current'}}},
+            'simulationAndPush':{'status':'observed'}}
+        rows=diagnostics.triage_snapshot(evidence)['items']
+        active=next(a for a in rows if a['code']=='SOURCE_SELECTED_DEGRADED')
+        self.assertEqual(active['priority'],'high')
+        self.assertFalse(active['tradeApproval'])
+        self.assertFalse(active['repairVerified'])
 
     def test_priorities_avoid_false_live_market_and_trade_approval(self):
         source={'sources':{'archive/1m':{'state':'stale','events':[{'state':'stale'}]}}}
