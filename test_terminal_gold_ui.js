@@ -73,6 +73,7 @@ assert(!displayContext.serverAnalysisEvidence({isin,productDirection:'LONG'},at)
 displayContext.window.BobProductAuditReport.items=[{...proof,sourceStatusEvidence:{issuerStatus:2}}];
 assert(!displayContext.serverAnalysisEvidence({isin,productDirection:'LONG'},at));
 assert(source.includes("if(server)return {kind:'qualified',serverEvidence:server,state};"));
+displayContext.window.BobProductAuditReport.items=[proof];
 const conflicted={...displayContext,productTermsStatus:()=>({reasons:['KO-Barriere: aktuelle Nachweise widersprechen sich']})};
 vm.runInNewContext(source.slice(h0,h1),conflicted);
 assert(!conflicted.serverAnalysisEvidence({isin,productDirection:'LONG'},at),'Conflicting KO terms must not be silently hidden');
