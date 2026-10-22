@@ -244,11 +244,18 @@ class MainActivity : Activity() {
                 .addOnSuccessListener {
                     if (serial == imageReadSequence) {
                         texts.add(it.text)
-                        val coordinates = it.textBlocks.flatMap { block -> block.lines }.mapNotNull { line ->
-                            val bounds = line.boundingBox
-                            if (bounds == null) null else QuoteLayout.Line(
-                                line.text, bounds.left, bounds.top, bounds.right, bounds.bottom
-                            )
+                        val coordinates = it.textBlocks.flatMap { block ->
+                            block.lines.flatMap { line ->
+                                // ML Kit may group several visual columns into one line.
+                                // Element geometry keeps left/right quotes separate.
+                                (listOf(line.text to line.boundingBox) +
+                                    line.elements.map { element -> element.text to element.boundingBox })
+                                    .mapNotNull { (word, bounds) ->
+                                        if (bounds == null) null else QuoteLayout.Line(
+                                            word, bounds.left, bounds.top, bounds.right, bounds.bottom
+                                        )
+                                    }
+                            }
                         }
                         observations.add(QuoteLayout.extract(coordinates))
                         scan(index + 1)
