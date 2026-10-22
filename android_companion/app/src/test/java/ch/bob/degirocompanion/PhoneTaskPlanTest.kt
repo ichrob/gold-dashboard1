@@ -61,4 +61,19 @@ class PhoneTaskPlanTest {
         assertFalse(PhoneTaskPlanParser.isStop("Bob stoppen und kaufen"))
         assertNull(PhoneTaskPlanParser.parse("Bob stopp!"))
     }
+    @Test fun acceptsCommonSentencePunctuationWithoutPartialExecution() {
+        assertEquals(listOf(PhoneTask.OPEN_PRODUCTS, PhoneTask.OPEN_SIMULATION),
+            PhoneTaskPlanParser.parse("Zeige meine Goldprodukte. Danach die Simulationen.")?.steps)
+        assertEquals(listOf(PhoneTask.OPEN_BOB, PhoneTask.OPEN_PRODUCTS),
+            PhoneTaskPlanParser.parse("Bob, öffne Bob, zeige meine Goldprodukte")?.steps)
+        assertEquals(listOf(PhoneTask.OPEN_BOB),
+            PhoneTaskPlanParser.parse("Bitte zuerst öffne Bob!")?.steps)
+        assertNull(PhoneTaskPlanParser.parse(
+            "Zeige meine Goldprodukte. Danach kaufe ein Knock-out-Produkt."))
+        assertNull(PhoneTaskPlanParser.parse(
+            "Öffne Bob, logge dich bei DEGIRO ein"))
+        assertNull(PhoneTaskPlanParser.parse(
+            "Zeige die Simulationen; sende meine Zugangsdaten"))
+    }
+
 }
