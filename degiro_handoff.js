@@ -294,6 +294,7 @@ function mount(){
  }
  localStorage.setItem(KEY,JSON.stringify(next));lastProposal=null;state=next;render();status.textContent='Entwurf gespeichert – keine Order übermittelt.';}catch(err){status.textContent=err.message;}});
  const web='https://trader.degiro.nl/';const link=box.querySelector('#dg2-open');link.href=/Android/i.test(navigator.userAgent||'')?'intent://trader.degiro.nl/#Intent;scheme=https;package=nl.degiro.trader;S.browser_fallback_url='+encodeURIComponent(web)+';end':web;
+ root.addEventListener('bob-order-drafts-restored',()=>{try{state=read();render();status.textContent='Entwürfe aus deiner lokalen Sicherung übernommen. Vor Nutzung erneut prüfen.';}catch(e){status.textContent=e.message;}});
  document.addEventListener('visibilitychange',()=>{if(!document.hidden){try{state=read();render();}catch(e){status.textContent=e.message;}}});
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);else mount();
