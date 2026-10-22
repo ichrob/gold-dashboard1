@@ -50,6 +50,8 @@ class PaperHeartbeatTests(unittest.TestCase):
             with self.subTest(now=now):
                 r=paper_health.snapshot(connection([None]*5),now)
                 self.assertEqual(r["state"],"paused")
+                self.assertIn(r["sessionMode"], ("night","preparation","weekend"))
+                self.assertEqual(r["pauseReason"],"outside-user-trading-window-not-broker-market-closed")
 
     def test_future_timestamp_does_not_count_as_success(self):
         now=millis(12,12,0)
