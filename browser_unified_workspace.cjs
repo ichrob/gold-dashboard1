@@ -90,6 +90,20 @@ const origin='https://bob-workspace.test';
   assert.equal(await page.locator('#dg2-product').inputValue(),'DE000FG14AV8');
   assert.equal(await page.evaluate(()=>window.lastView),'degiro2');
   assert.equal(await page.evaluate(()=>window.calls.handOff),1);
+  // Screenshot regression: no manually visible DEGIRO rows, but the private
+  // audit + locally archived screenshot list still contain identities.
+  await page.evaluate(()=>{window.BobDegiro.tradeTestProducts=()=>[]});
+  await page.locator('#bobPrepareReadOnly').click();
+  await page.locator('#bobPrepareStatus').filter({hasText:'Marktdaten geprüft.'}).waitFor();
+  assert((await page.locator('#bobUnifiedChecks').innerText()).includes('2 identifizierte Produkte'));
+  assert.equal(await page.locator('#bobUnifiedProduct option').count(),3);
+  await page.locator('#bobUnifiedProduct').selectOption('DE000FG14AV8');
+  assert((await page.locator('#bobUnifiedEvidenceRows').textContent()).includes('Geld/Brief und Originalzeiten fehlen'));
+  assert((await page.locator('#bobUnifiedProductNote').innerText()).includes('Bob-Prüfbericht'));
+  await page.locator('#bobUnifiedToDraft').click();
+  assert.equal(await page.evaluate(()=>window.calls.handOff),1,
+    'Audit identity alone must never authorize manual draft transfer');
+  assert((await page.locator('#bobUnifiedProductNote').innerText()).includes('nicht bestätigt'));
   const widest=await page.locator('#bobUnifiedWorkspace').evaluate(el=>el.scrollWidth);
   assert(widest<=360,'Workspace must fit 360px mobile viewport; got '+widest);
 
