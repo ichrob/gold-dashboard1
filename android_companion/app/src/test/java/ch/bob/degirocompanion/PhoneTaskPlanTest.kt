@@ -76,4 +76,15 @@ class PhoneTaskPlanTest {
             "Zeige die Simulationen; sende meine Zugangsdaten"))
     }
 
+    @Test fun keyboardDictationValidatesWholeTextBeforeAnyAction() {
+        val dictated = "Zeige meine Goldprodukte und danach die Simulationen"
+        val plan = PhoneTaskPlanParser.parse(dictated)
+        assertEquals(listOf(PhoneTask.OPEN_PRODUCTS, PhoneTask.OPEN_SIMULATION), plan?.steps)
+        assertNull(PhoneTaskProtocol.parseDisplayed(dictated))
+        assertEquals(PhoneTask.OPEN_PRODUCTS,
+            PhoneTaskProtocol.parseDisplayed("Zeige meine Goldprodukte"))
+        assertNull(PhoneTaskPlanParser.parse("Zeige meine Goldprodukte und kaufe Gold"))
+        assertNull(PhoneTaskPlanParser.parse("Zeige die Simulationen und öffne die DEGIRO App"))
+        assertNull(PhoneTaskPlanParser.parse("Zeige meine Goldprodukte; ändere alle Stopps"))
+    }
 }
