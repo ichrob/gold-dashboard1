@@ -321,6 +321,23 @@ class NewFeatureReadAccessTests(unittest.TestCase):
 
 
 class FocusedReadAccessTests(unittest.TestCase):
+
+    def test_simulation_triage_groups_recorded_gaps_without_invented_fills(self):
+        cases=[{'status':'inconclusive',
+                'events':[{'kind':'data-gap'},{'kind':'deferred-sale'}]},
+               {'status':'inconclusive','events':[{'kind':'deferred-sale'}]},
+               {'status':'closed','events':[{'kind':'data-gap'}]}]
+        evidence={'background':{'status':'ok'},
+                  'simulationAndPush':{'status':'observed',
+                      'accounts':[{'recentCases':{'items':cases}}]}}
+        result=diagnostics.triage_snapshot(evidence)
+        rows=[x for x in result['items'] if x['code']=='SIMULATION_OUTCOMES_UNKNOWN']
+        self.assertEqual(len(rows),1)
+        self.assertIn('2 gespeicherte',rows[0]['finding'])
+        self.assertIn('1 mit protokollierter Datenlücke',rows[0]['finding'])
+        self.assertIn('2 mit verschobenem Modellverkauf',rows[0]['finding'])
+        self.assertFalse(rows[0]['tradeApproval'])
+
     def test_only_allowlisted_focus_can_read_existing_diagnostics(self):
         diagnostics_reader=Mock(return_value=diagnostics.collect({
             'market':lambda:{'status':'observed','token':'other-area-secret'},
