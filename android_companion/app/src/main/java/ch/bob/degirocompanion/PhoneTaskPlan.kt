@@ -48,7 +48,7 @@ internal object PhoneTaskPlanParser {
     }
 
     private fun parseClause(raw: String): PhoneTask? {
-        val text = raw.replace(Regex("^(?:bitte |kannst du bitte |würdest du bitte |zuerst |als erstes )"), "")
+        val text = raw.replace(Regex("^(?:bitte |kannst du bitte |würdest du bitte |zuerst |als erstes |und jetzt |und danach |und dann |jetzt |zeige mir bitte |zeig mir bitte )"), "")
             .replace(Regex("^dann "), "")
             .replace(Regex(" bitte$"), "")
             .trim()
@@ -64,6 +64,36 @@ internal object PhoneTaskPlanParser {
             "öffne die einstellungen", "öffne die android-einstellungen",
             "android einstellungen öffnen", "öffne die android einstellungen" ->
                 PhoneTask.OPEN_SETTINGS
+
+            "goldprodukte anzeigen", "gold-hebelprodukte anzeigen", "goldhebelprodukte anzeigen",
+            "zeige goldprodukte", "zeige meine goldprodukte", "zeige mir meine goldprodukte",
+            "zeig mir die goldprodukte", "zeige die gold-hebelprodukte",
+            "öffne die goldprodukte", "öffne goldprodukte", "zeige mir die goldhebelprodukte",
+            "meine goldprodukte", "die goldprodukte" -> PhoneTask.OPEN_PRODUCTS
+
+            "mein trade anzeigen", "zeige meinen trade", "zeig meinen trade",
+            "zeige mir meinen trade", "öffne mein trade", "mein trade", "meinen trade",
+            "zeige den aktiven trade", "aktiven trade anzeigen" -> PhoneTask.OPEN_TRADE
+
+            "simulationen anzeigen", "simulation anzeigen", "zeige die simulationen",
+            "zeig mir die simulationen", "zeige mir meine simulationen",
+            "öffne die simulationen", "die simulationen", "simulationen",
+            "zeige die tests", "zeige mir die tests" -> PhoneTask.OPEN_SIMULATION
+
+            "lernen anzeigen", "zeige meine lernergebnisse", "lernergebnisse anzeigen",
+            "zeige mir die lernergebnisse", "zeige die lernfunktion",
+            "öffne lernen", "die lernergebnisse", "zeige mir die auswertungen" ->
+                PhoneTask.OPEN_LEARNING
+
+            "recherche anzeigen", "zeige mir die recherche", "öffne die recherche",
+            "zeige die goldrecherche", "zeige die videos", "öffne recherche",
+            "die recherche" -> PhoneTask.OPEN_RESEARCH
+
+            "goldmarkt anzeigen", "goldmarkt analysieren", "analysiere den goldmarkt",
+            "zeige die goldmarktanalyse", "zeige mir die goldmarktanalyse",
+            "zeige die marktübersicht", "marktübersicht anzeigen",
+            "zeige mir den goldmarkt", "goldanalyse anzeigen",
+            "öffne die marktübersicht" -> PhoneTask.OPEN_MARKET
 
             else -> null
         }
