@@ -256,3 +256,43 @@ class ExpandedReportTests(unittest.TestCase):
         self.assertEqual(case['ledgerCostModel']['feeEurPerOrder'],1)
         self.assertNotIn('secret',json.dumps(case))
         self.assertNotIn('private',json.dumps(case))
+
+
+class NewFeatureReadAccessTests(unittest.TestCase):
+    def test_new_feature_read_is_passive_and_does_not_claim_phone_access(self):
+        areas = {'runtime': {'snaptradePersonal': {'code':'READ_OK', 'fresh':True,
+                                                   'token':'must-not-appear'}}}
+        result = diagnostics.new_feature_snapshot(areas, mobile_asset_loaded=True)
+        self.assertEqual(result['androidCompanion']['runtime'], 'not-observable')
+        self.assertEqual(result['unifiedMobileWorkspace']['browserSession'], 'not-observable')
+        self.assertEqual(result['unifiedMobileWorkspace']['serverAsset'], 'loaded')
+        self.assertEqual(result['researchSelfReview']['status'], 'unavailable')
+        self.assertIsNone(result['researchSelfReview']['sourceReportAt'])
+        self.assertEqual(result['snaptradeReadOnly']['connectionCode'], 'READ_OK')
+        self.assertFalse(result['snaptradeReadOnly']['tradingEnabled'])
+        self.assertNotIn('must-not-appear', json.dumps(result))
+
+    def test_only_saved_research_review_is_visible_with_original_report_time(self):
+        review = {'mode':'RESEARCH_ONLY', 'status':'collecting',
+                  'sessions':3, 'trades':4, 'automaticOrder':False,
+                  'liveRuleChanged':False, 'token':'never-leak'}
+        areas = {'strategyReport': {'status':'observed', 'items':[
+            {'calculatedAt':'2026-10-22T11:00:00+00:00',
+             'report': {'learningCycle': {'selfReview':review}}}]}}
+        result = diagnostics.new_feature_snapshot(areas)
+        item = result['researchSelfReview']
+        self.assertEqual(item['status'], 'observed')
+        self.assertEqual(item['sourceReportAt'], '2026-10-22T11:00:00+00:00')
+        self.assertEqual(item['result']['status'], 'collecting')
+        self.assertFalse(item['result']['automaticOrder'])
+        self.assertNotIn('never-leak', json.dumps(result))
+
+    def test_research_success_without_self_review_is_not_false_success(self):
+        areas = {'strategyReport': {'status':'observed','items':[
+            {'calculatedAt':'2026-10-22T07:47:45+00:00',
+             'report': {'learningCycle': {'status':'collecting'}}}]}}
+        item = diagnostics.new_feature_snapshot(areas)['researchSelfReview']
+        self.assertEqual(item['status'], 'unavailable')
+        self.assertEqual(item['sourceReportAt'], '2026-10-22T07:47:45+00:00')
+        self.assertIsNone(item['result'])
+
