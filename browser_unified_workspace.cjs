@@ -52,6 +52,11 @@ const origin='https://bob-workspace.test';
   await page.addScriptTag({content:fs.readFileSync('product_evidence_contract.js','utf8')});
   await page.addScriptTag({content:fs.readFileSync('bob_unified_workspace.js','utf8')});
   assert(await page.locator('#bobUnifiedWorkspace').isVisible());
+  // Read-only product identities should appear without clicking market refresh.
+  await page.locator('#bobGoldProductBanner').filter({hasText:'1 unterschiedliche ISINs'}).waitFor();
+  assert((await page.locator('#bobGoldProductBanner').innerText()).includes('Keine Handelsfreigabe'));
+  assert.equal(await page.locator('#bobUnifiedProduct option').count(),2);
+  assert(await page.locator('#bobOpenGoldProducts').isVisible());
   await page.evaluate(()=>{
     localStorage.setItem('bobDegiroProductsV2',JSON.stringify({
       version:2,listUploadedAt:new Date(Date.now()-90000).toISOString(),
