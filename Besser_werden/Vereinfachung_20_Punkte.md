@@ -13,7 +13,7 @@ bleiben unverändert.
 | --- | --- | --- | --- |
 | 1 | Zentrale Startseite | Neue kompakte Arbeitsübersicht `bob_unified_workspace.js` auf Entwicklungsbranch; bestehende Bereiche bleiben unverändert | Android-Browserprüfung nach sicherem Release |
 | 2 | Ein-Klick-Vorbereitung | Ein user-initiiertes `loadData(true)`, gefolgt vom bestehenden Produktquellenabruf bei vorhandenen Identitäten | Ausfall-, Laufzeit- und Quotenprüfung am Render-Dienst |
-| 3 | Einheitliche Produktkarte | `degiro_all_products.js` vereinigt bereits vorhandene Daten; neue Übersicht bietet Produktauswahl | Vollständige einheitliche Detaildarstellung der Evidenz ohne neue Handelsfreigabe |
+| 3 | Einheitliche Produktkarte | `degiro_all_products.js` vereinigt Daten; neue zentrale Karte zeigt Richtung, Währung, Emittenten-Geld/Brief plus Originalzeiten, beobachtete KO-/Hebelwerte mit Kennzeichnung | Vollständige Vertrags-/Handelsplatznachweise bleiben separat; weitere Datenquellen nur nach Identitätsprüfung zusammenführen |
 | 4 | Einheitliche Status-Haken | Gemeinsame Statusübersicht unterscheidet geprüft, Problem, unbekannt; Handelsfreigaben bleiben getrennt | Gleiche Feldzustandslogik in allen Produktkarten weiterhin offen |
 | 5 | Menüs vereinfachen | Bestehende mobile Navigation gruppiert; neue Querverweise bündeln Kernwege | Auf echtem Android auf Lesbarkeit, Scrollen und Doppeleinträge prüfen |
 | 6 | Screenshot-Teilen | Android Companion enthält lokale Share- und OCR-Funktionen | APK-Version auf Gerät installieren, OCR-Serien und fehlende ISIN prüfen |
