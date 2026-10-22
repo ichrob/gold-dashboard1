@@ -162,7 +162,8 @@ class ExpandedReportTests(unittest.TestCase):
         simulation={'status':'observed','gapEvidence':evidence,'signalHistory':{'large':'x'*20000}}
         result=diagnostics.bounded_report(diagnostics.collect({'simulationAndPush':lambda:simulation}),2000)
         self.assertEqual(result['areas']['gapEvidence'],evidence)
-        self.assertEqual(result['areas']['simulationAndPush']['status'],'unavailable')
+        self.assertEqual(result['areas']['simulationAndPush']['status'],'observed')
+        self.assertIn('signalHistory', result['areas']['simulationAndPush']['omittedSections'])
         self.assertIn('gapEvidence',simulation)
 
     def test_oversized_journal_does_not_also_discard_fitting_trade_and_learning_details(self):
