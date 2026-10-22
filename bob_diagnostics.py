@@ -205,6 +205,58 @@ def stored_details(conn):
     })
 
 
+def new_feature_snapshot(areas, *, mobile_asset_loaded=False):
+    """Passive read coverage for newly added Bob functions, not proof of client operation.
+
+    No browser interaction, device connection, evaluator execution or broker call.
+    Existing cached diagnostics are the only dynamic inputs. A missing saved
+    self-review is explicitly unknown, even when research ran successfully.
+    """
+    areas = areas if isinstance(areas, dict) else {}
+    reports = (areas.get('strategyReport') or {}).get('items') or []
+    latest = next((row for row in reports if isinstance(row, dict)), None)
+    latest_report = (latest or {}).get('report') or {}
+    cycle = latest_report.get('learningCycle') if isinstance(latest_report, dict) else None
+    raw_review = cycle.get('selfReview') if isinstance(cycle, dict) else None
+    verified_review = isinstance(raw_review, dict) and raw_review.get('mode') == 'RESEARCH_ONLY'
+    review = project(raw_review, shape(
+        'mode', 'status', 'confidence', 'reason', 'sessions', 'trades',
+        'baselineTrades', 'liveRuleChanged', 'automaticOrder',
+        'productNetValidated', 'actionable')) if verified_review else None
+
+    runtime = areas.get('runtime') if isinstance(areas.get('runtime'), dict) else {}
+    snaptrade = runtime.get('snaptradePersonal') if isinstance(runtime.get('snaptradePersonal'), dict) else {}
+    return {
+        'status': 'observed',
+        'scope': 'read-coverage-only-not-feature-health-or-trade-approval',
+        'androidCompanion': {
+            'runtime': 'not-observable',
+            'voiceCommands': 'not-observable',
+            'screenshotSeries': 'not-observable',
+            'note': 'Phone-local actions are not transmitted to this server diagnostic.'
+        },
+        'unifiedMobileWorkspace': {
+            'serverAsset': 'loaded' if mobile_asset_loaded else 'unavailable',
+            'browserSession': 'not-observable',
+            'lastClientAction': None,
+            'note': 'Server asset presence does not prove browser or handset behavior.'
+        },
+        'researchSelfReview': {
+            'status': 'observed' if verified_review else 'unavailable',
+            'sourceReportAt': fields(latest, ('calculatedAt',)).get('calculatedAt'),
+            'reason': None if verified_review else
+                      'No self-review in latest persisted research report; do not infer completion.',
+            'result': review,
+        },
+        'snaptradeReadOnly': {
+            'connectionCode': fields(snaptrade, ('code',)).get('code'),
+            'dataFresh': snaptrade.get('fresh') is True,
+            'tradingEnabled': False,
+            'note': 'Read-only connection status, not a DEGIRO order or live quote.'
+        }
+    }
+
+
 def research_snapshot(value):
     return project(value,shape('checkedAt','fresh','successfulFeeds','intervalSeconds','videosFound','videosAnalyzed','mcoOutlook','mcoReason','accessFallback',
         restrictedUploads=[shape('title','publishedAt','transcriptAccess')],
