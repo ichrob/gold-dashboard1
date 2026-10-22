@@ -108,15 +108,15 @@ class MainActivity : Activity() {
         }
         demoResult = label("Demo bereit. Ein UIAutomator-Test kann Eingaben und Klicks simulieren.", additional)
 
-        label("HANDYSTEUERUNG – lokale Aufträge (Test). Aus ChatGPT/Bob nur explizit geteilte Textaufträge; keine Fernsteuerung oder Broker-Klicks.")
+        label("HANDYSTEUERUNG – Bob öffnen ist vorausgewählt. Nur auf Prüfen und danach auf Ausführen tippen. Keine Fernsteuerung oder Broker-Klicks.")
         commandInput = EditText(this).apply {
-            hint = "Auftrag aus ChatGPT/Bob hier einfügen"
+            hint = "Bob öffnen oder erlaubten Auftrag eingeben"
             contentDescription = "Bob Handy-Auftrag"
             setSingleLine(true)
             // Actual field value, never a placeholder: tapping 'Prüfen' works
             // immediately for the harmless default action, but still requires
             // a second explicit confirmation before any Android intent starts.
-            setText(PhoneTaskProtocol.OPEN_BOB)
+            setText("Bob öffnen")
             stack.addView(this)
         }
         commandStatus = label("Noch kein Handy-Auftrag geprüft. Erst prüfen, dann jede Aktion einzeln bestätigen.")
@@ -124,7 +124,7 @@ class MainActivity : Activity() {
             previewTask(commandInput.text.toString())
         }
         button("Geprüften Handy-Auftrag einmalig ausführen") {
-            val current = PhoneTaskProtocol.parse(commandInput.text.toString())
+            val current = parseDisplayedTask(commandInput.text.toString())
             if (current == null || current != pendingTask) {
                 pendingTask = null
                 commandStatus.text = "Auftrag fehlt, wurde verändert oder ist unzulässig. Erneut prüfen."
@@ -132,7 +132,7 @@ class MainActivity : Activity() {
                 // Consume BEFORE invoking an Android Intent: never replay an action
                 // after a lifecycle event, a double tap, or an incoming new share.
                 pendingTask = null
-                commandInput.setText("")
+                commandInput.setText("Bob öffnen")
                 commandStatus.text = "Einmaliger Auftrag ausgeführt/angestoßen: ${current.description}. Keine weiteren Aktionen ohne neue Freigabe."
                 when (current) {
                     PhoneTask.OPEN_BOB -> openBobHome()
@@ -188,8 +188,13 @@ class MainActivity : Activity() {
         readImages(all)
     }
 
+    // Friendly, preselected local label. Shared text still requires explicit
+    // check and a separate confirmation before any intent is launched.
+    private fun parseDisplayedTask(text: String): PhoneTask? =
+        if (text == "Bob öffnen") PhoneTask.OPEN_BOB else PhoneTaskProtocol.parse(text)
+
     private fun previewTask(text: String) {
-        pendingTask = PhoneTaskProtocol.parse(text)
+        pendingTask = parseDisplayedTask(text)
         commandStatus.text = if (pendingTask == null) {
             if (text.isBlank()) {
                 "Noch kein Auftrag eingegeben. Bitte einen Auftrag eintippen oder einfügen."
