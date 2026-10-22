@@ -37,7 +37,7 @@ function snapPositions(data,now=Date.now()){
  data.snapshot.accounts.forEach((a,index)=>{
   const at=Date.parse(a?.positionsSourceAt||'');
   const current=data.fresh===true&&a?.freshnessMode==='realtime'&&Number.isFinite(at)&&now>=at&&now-at<=690000;
-  for(const p of a?.positions||[]){
+  for(const p of Array.isArray(a?.positions)?a.positions:[]){
    let id;try{id=isin(p.isin);}catch(_){continue;}
    if(p.csvLinkConflict||p.cashEquivalent||!['EUR','CHF'].includes(p.currency))continue;
    const quantity=Number(p.units);
@@ -55,7 +55,7 @@ function snapPositions(data,now=Date.now()){
 }
 function summary(o,c){
  const gross=o.qty*o.price;
- let out=`ORDERENTWURF – NICHT ÜBERMITTELT\n${o.side}: ${o.isin}\nStückzahl: ${o.qty}\nLimit je Stück: ${money(o.price)} ${c}\nGeschätzte Gebühren: ${money(o.fees)} ${c}`;
+ let out=`ORDERENTWURF – nicht übermittelt\n${o.side}: ${o.isin}\nStückzahl: ${o.qty}\nLimit je Stück: ${money(o.price)} ${c}\nGeschätzte Gebühren: ${money(o.fees)} ${c}`;
  out+=o.side==='Kauf'?`\nGeplanter Kaufbetrag inkl. Gebühren: ${money(o.cost)} ${c}`:
   `\nBruttoerlös: ${money(gross)} ${c}\nGeschätzter Nettoerlös nach Gebühren: ${money(gross-o.fees)} ${c}`;
  if(o.side==='Kauf'){
