@@ -2101,7 +2101,30 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   nav.innerHTML=[['overview','◫','Übersicht'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['problems','⚠','Probleme'],['more','☰','Mehr']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+(key==='problems'?'<strong class="bob-problem-count" data-problem-count hidden aria-hidden="true"></strong>':'')+'</button>').join('');document.body.append(nav);
   function show(key,focus=true){if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&['improve','auto','future','research','learning','diagrams','degiro','degiro2','simulation','settings','help'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
   document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b){show(b.dataset.view);history.replaceState(null,'','#'+b.dataset.view);}});
-  window.addEventListener('hashchange',()=>show(location.hash.slice(1)));
+  // The Android voice command explicitly requests the Gold-Hebelprodukte list.
+  // An ordinary manual tap on the Produkte tab still opens the overview normally.
+  // The companion sends ?view=products#products, surviving a password login.
+  let goldDeepLinkRevealed=false;
+  function revealGoldLeveragedProducts(container, root=document) {
+   const summary=root.getElementById('dgSavedProductsSummary');
+   const details=summary?.closest('details');
+   if(!details||!container.contains(details))return null;
+   details.open=true; // idempotent native accordion: never toggle it shut
+   return summary;
+  }
+  function openRequestedGoldProducts(){
+   if(goldDeepLinkRevealed||new URLSearchParams(location.search).get('view')!=='products'||
+      location.hash!=='#products'||panels.products.hidden)return false;
+   const summary=revealGoldLeveragedProducts(panels.products);
+   if(!summary)return false;
+   goldDeepLinkRevealed=true;
+   requestAnimationFrame(()=>summary.scrollIntoView({behavior:'auto',block:'start'}));
+   return true;
+  }
+  window.addEventListener('hashchange',()=>{
+   show(location.hash.slice(1));
+   openRequestedGoldProducts();
+  });
   for(const b of status.querySelectorAll('button'))b.addEventListener('click',()=>{show('settings');history.replaceState(null,'','#settings');if(b.dataset.status==='push')byId('bobPushSetup')?.scrollIntoView({behavior:'smooth',block:'start'});else{system.open=true;system.scrollIntoView({behavior:'smooth',block:'start'});}});
   byId('bobNextAction')?.addEventListener('click',()=>{
    const destination=byId('bobNextAction').dataset.destination;
@@ -2143,6 +2166,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   // Observe only original outputs, never our derived labels (avoids observer loops).
   const observer=new MutationObserver(update);for(const id of ['quickSignal','analysisQuality','analysisAge','decisionExplanation','blockTrendNote','blockMomentumNote','blockVolatilityNote','blockStructureNote','quickReason','sourceSummary','pushStatus','fibMonitorStatus','auditSave','improvementStatus','generalPushBtn','dgTop3Out','tradeStateBtn']){const el=byId(id);if(el)observer.observe(el,{childList:true,subtree:true,characterData:true});}
   document.body.classList.add('bob-mobile');update();show(location.hash.slice(1),false);
+  openRequestedGoldProducts();
   // In case the archive response arrived before the navigation existed.
   window.BobProblems?.refresh?.();
  }
