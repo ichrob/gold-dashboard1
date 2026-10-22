@@ -24,7 +24,7 @@
 | 14 | Varianten automatisch vergleichen und lernen | **Teilweise:** getrennte Paper- und Lern-/Vorwärtstests | Harte Out-of-sample-/Walk-forward-Metriken, realistische Kosten/KO und unabhängige Validierung vor jeder Strategieänderung |
 | 15 | MCO/NCO-Goldvideos verarbeiten | **Teilweise:** Kanal-/Untertitel-/Bildhilfen, recherchierte Quellen und Browsertests existieren | Gesicherte datierte Transkripte, originale Frames und MCO-vs.-Bob-Vergleich ohne erfundene Zeit-/Preisdaten |
 | 16 | Problemzentrale und Selbstreparatur | **Teilweise:** Problemzähler, unabhängiger Watchdog, begrenzte Worker-Neustarts, GitHub-Eskalation | Einheitlicher privater/öffentlicher Diagnosestatus, vollständige KI-Hilfefälle, sichere automatische Reparatur-Nachweise |
-| 17 | Hintergrundprogramme vereinfachen | **Teilweise / live:** nur fehlende CFD-/Spot-/Vergleichs-Worker starten, begrenzte Quote-Runtime; keine neuen Trading-Loops | Über alle Prozesse belegbare Abruf-Deduplikation, 30-s-Taktkontrolle, Quoten-/Datenbank-Last, Ausfall- und Restart-Tests |
+| 17 | Hintergrundprogramme vereinfachen | **Teilweise / live:** nur fehlende CFD-/Spot-/Vergleichs-Worker starten, begrenzte Quote-Runtime; **neuer PR:** drei UI-Ansichten teilen einen authentifizierten Produktbericht in-flight/3-s-Cache, keine neuen Trading-Loops | Neue Bericht-Deduplikation nach PR-CI und Render-Deploy prüfen; weitere serverseitige Abruf-Deduplikation, 30-s-Taktkontrolle, Quoten-/DB-Last, Ausfall-/Restart-Tests |
 | 18 | CI-geschützte Veröffentlichungen | **In Betrieb:** beide Render-Dienste per Connector als `checksPass` bestätigt; `Bob release gate` wartet auf `Validate Bob`; produktive Deployments wurden gemessen | Offene PR-CI-/Browser-Installations-Probleme schließen; GitHub-Branch-Schutz und alle Release-Checknamen explizit erzwingen, manuellen Override getrennt absichern |
 | 19 | Große Dateien schrittweise zerlegen | **Teilweise:** `product_evidence_contract.js`, `bob_unified_workspace.js` und weitere eigenständige Module getestet | Riesige `degiro_assistant.js`/`Bob.html` nur nach Golden-Master-Test in kleine Bausteine zerlegen; keine Big-Bang-Migration |
 | 20 | Sicherung und Wiederherstellung | **Teilweise / live:** freiwilliger lokaler Export/Import *heutiger Orderentwürfe*, ISIN-Prüfziffer, keine automatische Überschreibung | Originalbilder, vollständige Produktlisten, Forschung und Paper-Historie datenschutzgerecht sichern, Rückspieltests und Gerätewechsel gewährleisten |
@@ -45,3 +45,17 @@
 4. **Anschließend:** mobile Bildserien-Tests, SnapTrade-/Broker-Abgleich, vollständige Forschungsnachweise, reproduzierbare Sicherungen, schrittweise Modulmigration und Android-Abnahme (5–7, 10–12, 15, 19–20).
 
 **Gesamturteil: Bob ist messbar ausgebaut und teilweise automatisiert. Keinesfalls sind alle 20 Punkte vollständig abgenommen.** Jede Zeile bleibt offen, bis ihre letzten Akzeptanzkriterien nachweislich erfüllt sind.
+
+## Weitere Umsetzung: gemeinsamer Produktprüfbericht (22.10.2026)
+
+- Neuer Stand auf einem **gesonderten Entwicklungszweig**:
+  `bob_audit_read_pool.js` dedupliziert gleiche `GET /api/degiro/audit`-Anfragen
+  der Startübersicht, Produktliste und Prüfpanel innerhalb derselben Browserseite.
+- Ein laufender Abruf wird geteilt; erfolgreiche Antworten werden für höchstens
+  drei Sekunden lokal im Speicher gehalten. Quellzeit und Reportinhalt bleiben
+  erhalten, jeder Empfänger bekommt eine unabhängige Kopie. Kein Server-
+  Datenbank-Schema, keine Produktkurse, KO-/Risikoänderungen oder Echtgeldorder.
+- HTTP-/Authentifizierungsfehler oder ungültige Originalzeiten müssen weiterhin
+  scheitern. Ein fehlender Bericht wird nicht in einen grünen Haken umgewandelt.
+- Dieser Schritt ist **teilweise Umsetzung** der Punkte 8, 9 und 17. Nicht als
+  Fertigstellung aller 20 Punkte oder als produktives Release ausgeben.
