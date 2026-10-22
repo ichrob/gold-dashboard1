@@ -58,13 +58,98 @@ function summary(o,c){
  let out=`ORDERENTWURF – nicht übermittelt\n${o.side}: ${o.isin}\nStückzahl: ${o.qty}\nLimit je Stück: ${money(o.price)} ${c}\nGeschätzte Gebühren: ${money(o.fees)} ${c}`;
  out+=o.side==='Kauf'?`\nGeplanter Kaufbetrag inkl. Gebühren: ${money(o.cost)} ${c}`:
   `\nBruttoerlös: ${money(gross)} ${c}\nGeschätzter Nettoerlös nach Gebühren: ${money(gross-o.fees)} ${c}`;
+ if(o.proposal?.sourceAt)out+='\nQuellbeobachtung (keine DEGIRO-Ausführung): '+o.proposal.source+' · '+o.proposal.sourceAt+
+  (o.proposal.modelAt?' · Goldanalyse '+o.proposal.modelAt:'')+
+  '\nAchtung: Nach Speicherung sind Kurs und Modell nicht automatisch aktualisiert.';
  if(o.side==='Kauf'){
   if(o.stop!==null&&o.stop!==undefined)out+=`\nSeparater geplanter Produkt-Stopp: ${money(o.stop)} ${c} (nur Planung)\nRechnerischer Verlust bis Stopp ohne Gebühren/Slippage: ${money((o.price-o.stop)*o.qty)} ${c}`;
   if(o.target!==null&&o.target!==undefined)out+=`\nSeparates geplantes Produkt-Ziel: ${money(o.target)} ${c} (nur Planung)`;
  }
  return out+'\nOriginalkurs, Datenalter, Handelsplatz, KO, Produkttyp, Orderart, Verfügbarkeit, Gültigkeit und Gebühren direkt in DEGIRO prüfen. Stopp ist keine Verlustgarantie. Du musst alle Werte in DEGIRO selbst eingeben und die Order selbst bestätigen.';
 }
-const api={day,cents,isin,reserve,summary,maxQuantity,snapPositions};if(typeof module==='object'&&module.exports)module.exports=api;
+
+/* Read-only, evidence-gated proposal. No trade approval, broker requests or order submission. */
+function calculateProposal(p,input,market={},state=null,now=Date.now()){
+ const partial=(reason,extra={})=>({ok:false,reason,tradeable:false,automaticOrder:false,...extra});
+ let id;try{id=isin(input.isin);}catch(e){return partial(e.message);}
+ if(!p||p.isin!==id)return partial('Produktidentität passt nicht zur Auswahl.');
+ const side=input.side;if(!['Kauf','Verkauf'].includes(side))return partial('Kauf oder Verkauf wählen.');
+ const q=p.quote;
+ if(!q||q.isin!==id||q.found!==true||q.productVerified!==true||q.estimated===true||q.priceKind==='estimate')
+  return partial('Kein bestätigtes Produktkurspaar für diese ISIN. Bob erfindet kein Limit.');
+ const currency=q.currency||q.metadata?.currency;
+ if(!['EUR','CHF'].includes(currency)||currency!==input.currency||q.metadata?.currency&&q.metadata.currency!==currency||
+     p.reference?.currency&&p.reference.currency!==currency)
+  return partial('Produktwährung nicht eindeutig zugeordnet; keine automatische Preisübernahme.');
+ const direction=q.metadata?.direction||p.direction;
+ if(!['LONG','SHORT'].includes(direction)||p.direction&&direction!==p.direction)
+  return partial('Long-/Short-Richtung nicht eindeutig.');
+ const field=side==='Kauf'?'ask':'bid',atField=side==='Kauf'?'askAt':'bidAt';
+ const stamp=q[atField];const at=typeof stamp==='string'&&/(Z|[+-]\d{2}:\d{2})$/i.test(stamp)?Date.parse(stamp):NaN;
+ if(!Number.isFinite(at)||now-at<0||now-at>90000)return partial('Originalzeit des '+(side==='Kauf'?'Briefkurses':'Geldkurses')+' fehlt oder ist älter als 90 Sekunden.');
+ const raw=Number(q[field]);
+ if(!(raw>0&&Number.isFinite(raw)))return partial('Kein positiver originaler '+field+'-Kurs verfügbar.');
+ const price=Math[side==='Kauf'?'ceil':'floor'](raw*100+ (side==='Kauf'?-1e-8:1e-8));
+ if(!Number.isSafeInteger(price)||price<=0)return partial('Kurs nicht zuverlässig auf zwei Nachkommastellen darstellbar.');
+ const evidence={source:String(q.source||'Emittentenbeobachtung').slice(0,120),at:stamp,side:field,currency,price:money(price),
+  kind:'Emittentenkurs, NICHT DEGIRO-Ausführung'};
+ if(side==='Verkauf')return {ok:true,side,isin:id,currency,price:money(price),qty:null,stop:null,target:null,
+  note:'Beobachteter Geldkurs als unverbindliche Verkaufslimit-Vorlage. Stückzahl nur aus geprüftem Bestand.',
+  source:evidence,tradeable:false,automaticOrder:false};
+ let budget,fees,maxLoss,minRR;
+ try{
+  budget=cents(input.budget);fees=cents(input.fees||'0');
+  maxLoss=input.maxLoss?cents(input.maxLoss):Math.floor(budget/100);
+  minRR=Number(String(input.minRR||'2').replace(',','.'));
+ }catch(e){return partial('Budget oder Gebühren ungültig: '+e.message,{source:evidence,price:money(price)});}
+ if(!(budget>0&&maxLoss>0&&Number.isFinite(minRR)&&minRR>=1&&minRR<=20))
+  return partial('Tagesbudget, Verlustbudget oder Mindest-CRV fehlt bzw. ist ungültig.',{source:evidence,price:money(price)});
+ if(!market.available||!market.stopModel||!market.targetModel||!market.exitModel)
+  return partial('Technische Gold-Stopp-/Zielanalyse oder geprüftes Produktmodell fehlt. Nur Kursbeobachtung verfügbar.',{source:evidence,price:money(price)});
+ const ref=p.reference,model=q.productModel;
+ const refAt=typeof ref?.referenceAt==='string'&&/(Z|[+-]\d{2}:\d{2})$/i.test(ref.referenceAt)?Date.parse(ref.referenceAt):NaN;
+ if(model?.verifiedSimpleTurbo!==true||model.isin!==id||model.underlying!=='XAU/USD'||
+   !Number.isFinite(refAt)||Math.abs(refAt-at)>90000||
+   !(Number(ref?.bid)>0&&Number(ref?.ko)>0&&Number(ref?.ratio)>0&&Number(ref?.strike)>0&&
+     Number(ref?.goldReference)>0&&Number(ref?.fxReference)>0&&Number(ref?.fxScenario)>0))
+  return partial('Passende zeitgleiche Gold-/FX- und KO-Produktreferenz fehlt. Keine rechnerische Stopp-Freigabe.',{source:evidence,price:money(price)});
+ const stopGold=market.stopModel(direction,market.gold,market.atr,1.5)?.stop;
+ const targetGold=market.targetModel(direction,market.gold,stopGold,2)?.target;
+ if(!(stopGold>0&&targetGold>0))return partial('Markt-Stopp oder Ziel nicht berechenbar.',{source:evidence,price:money(price)});
+ const scenario=market.exitModel({
+  ...ref,isin:id,currency,direction,simpleSpotTurbo:true,referenceConfirmed:true,
+  entry:price/100,quantity:1,planGold:market.gold,stopGold,targetGold,fxScenario:ref.fxScenario,
+ });
+ if(!scenario||scenario.reasons?.length||scenario.available!==true)
+  return partial('Produkt-KO-/Ausstiegsmodell verwirft das technische Szenario.',{source:evidence,price:money(price)});
+ const stopRow=scenario.rows?.find(x=>x.label==='Am Stop');
+ const targetRow=scenario.rows?.find(x=>x.label==='Am Ziel');
+ if(!stopRow?.available||!targetRow?.available)
+  return partial('Stopp oder Ziel erreicht KO oder liefert keinen gültigen Modellkurs.',{source:evidence,price:money(price)});
+ // Round conservatively: buy price UP; stop and target DOWN; no false precision.
+ const stop=Math.floor(stopRow.price*100+1e-8);
+ const target=Math.floor(targetRow.price*100+1e-8);
+ if(!Number.isSafeInteger(stop)||!Number.isSafeInteger(target)||stop<=0||stop>=price||target<=price)
+  return partial('Technische Produktmarken passen nicht zu einem neuen Kauf.',{source:evidence,price:money(price)});
+ const rr=(target-price)/(price-stop);
+ if(rr+1e-9<minRR)return partial('Chance-Risiko-Verhältnis von '+rr.toFixed(2)+':1 unterschreitet den gewählten Mindestwert '+minRR+':1.',{source:evidence,price:money(price)});
+ const today=day(new Date(now));
+ const used=state&&state.day===today?(state.orders||[]).filter(x=>x.side==='Kauf').reduce((n,x)=>n+x.cost,0):0;
+ if(state&&state.day===today&&state.currency!==currency&&state.orders?.length)
+  return partial('Bestehende Tagesplanung nutzt andere Währung; zuerst bereinigen.',{source:evidence,price:money(price)});
+ const left=Math.max(0,budget-used-fees);
+ const perUnit=price-stop;
+ const qty=Math.max(0,Math.min(Math.floor(left/price),Math.floor((maxLoss-fees)/perUnit)));
+ if(qty<1)return partial('Unter Tagesbudget und Verlustbudget lässt sich kein ganzes Stück sicher planen.',{source:evidence,price:money(price)});
+ const loss=perUnit*qty+fees,gain=(target-price)*qty-fees;
+ return {ok:true,side,isin:id,currency,price:money(price),qty,stop:money(stop),target:money(target),
+  loss:money(loss),gain:money(gain),rr:rr.toFixed(2),
+  source:{...evidence,marketAt:market.at,marketSource:market.source,historyAt:market.historyAt},
+  note:'Indikatives Produktmodell aus Bobs technischem Gold-Stopp/Ziel und zeitlich abgeglichenen Produktreferenzen; keine garantierte Ausführung, KO-/Gap-/Slippage-Risiko. Verlustbudget ist keine Verlustgrenze.',
+  tradeable:false,automaticOrder:false};
+}
+
+const api={day,cents,isin,reserve,summary,maxQuantity,snapPositions,calculateProposal};if(typeof module==='object'&&module.exports)module.exports=api;
 if(!root.document)return;
 function mount(){
  const host=document.getElementById('bob-view-degiro2');if(!host)return;
@@ -82,9 +167,13 @@ function mount(){
  <label>Richtung <select name="side"><option>Kauf</option><option>Verkauf</option></select></label>
  <label>Stückzahl <input name="qty" inputmode="numeric" required></label>
  <label>Limit je Stück (max. 2 Nachkommastellen) <input name="price" inputmode="decimal" required></label>
- <label>Geschätzte Gebühren <input name="fees" inputmode="decimal" value="0" required></label>
+ <label>Geschätzte Gebühren (0 = ungeprüfter Platzhalter) <input name="fees" inputmode="decimal" value="0" required></label>
+ <label>Verlustbudget je Entwurf (optional, leer = 1 % Tagesbudget als Rechenannahme) <input name="maxLoss" inputmode="decimal"></label>
+ <label>Mindest-Chance/Risiko (Rechenvorgabe) <input name="minRR" inputmode="decimal" value="2"></label>
  <label>Optional: Produkt-Stopp (nur Kaufplanung, nicht an DEGIRO übertragen) <input name="stop" inputmode="decimal"></label>
  <label>Optional: Produkt-Ziel (nur Kaufplanung, nicht an DEGIRO übertragen) <input name="target" inputmode="decimal"></label>
+ <button type="button" id="dg2-propose">Vorschlag aus Bob berechnen</button>
+ <p id="dg2-proposal" role="status" aria-live="polite" class="small">Bob nutzt nur aktuelle bestätigte Emittenten-Kurse und – soweit vollständig – das bestehende Gold-/KO-Szenario. Ohne technische Belege bleiben Stopp, Ziel und Risiko-Stückzahl offen.</p>
  <button type="button" id="dg2-size">Maximale Kaufstückzahl berechnen</button><p>Rechnerische Budgetobergrenze, keine Empfehlung zur vollständigen Ausschöpfung.</p>
  <button type="submit">Entwurf speichern</button></form>
  <p role="status" aria-live="polite" id="dg2-status"></p><p id="dg2-budget"></p><div id="dg2-orders"></div>
@@ -95,7 +184,42 @@ function mount(){
  const form=box.querySelector('form'),status=box.querySelector('#dg2-status');let state=null;
  const products=box.querySelector('#dg2-product');
  const snap=box.querySelector('#dg2-snap-position'),snapStatus=box.querySelector('#dg2-snap-status');
- let sellPositions=[];
+ let sellPositions=[];let lastProposal=null;
+ const output=box.querySelector('#dg2-proposal');
+ box.querySelector('#dg2-propose').onclick=()=>{
+  const v=Object.fromEntries(new FormData(form));
+  const p=(root.BobDegiro?.tradeTestProducts?.()||[]).find(x=>x.isin===String(v.isin||'').trim().toUpperCase());
+  // No browser trading: calls only existing local analysis/model functions.
+  const plan=root.BobExitEstimate?.planInput?.(root.liveBundleCache,root.A,root.C,p?.direction);
+  const r=calculateProposal(p,v,{
+    ...(plan||{}),stopModel:root.stopModel,targetModel:root.targetModel,
+    exitModel:root.BobExitEstimate?.calculate
+  },read());
+  lastProposal=null;
+  if(!r.ok){
+   output.textContent='Vorschlag unvollständig: '+r.reason+
+    (r.price?' Beobachteter Preis ≈ '+r.price+' '+r.source.currency+
+     ' · '+r.source.at+' ('+r.source.kind+').':'')+
+    ' Bestehende Handels-/KO-Regeln bleiben unverändert.';
+   return;
+  }
+  form.elements.price.value=r.price;
+  if(r.side==='Kauf'){
+   form.elements.qty.value=String(r.qty);form.elements.stop.value=r.stop;form.elements.target.value=r.target;
+   output.textContent='Rechenvorschlag: '+r.qty+' Stück × '+r.price+' '+r.currency+
+    ' · Stopp ≈ '+r.stop+' · Ziel ≈ '+r.target+
+    ' · Verlust am Modellstopp inkl. eingegebener Einstiegsgebühren ≈ '+r.loss+
+    ' · Modell-CRV '+r.rr+':1. '+r.note+' Quelle '+r.source.source+' · '+r.source.at+'.';
+  }else{
+   form.elements.stop.value='';form.elements.target.value='';
+   output.textContent='Vorläufiger Verkaufs-Geldkurs ≈ '+r.price+' '+r.currency+
+    ' · '+r.source.at+'. Stückzahl und aktuelle Handelbarkeit in DEGIRO prüfen. Keine Verkaufsausführung.';
+  }
+  lastProposal={...r,signature:JSON.stringify([v.isin,v.side,r.qty||form.elements.qty.value,r.price,
+    r.stop||'',r.target||'',v.fees,v.currency])};
+ };
+ form.addEventListener('input',()=>{lastProposal=null;output.textContent='Eingaben geändert. Automatischen Vorschlag erneut prüfen.';});
+ form.addEventListener('change',()=>{lastProposal=null;output.textContent='Eingaben geändert. Automatischen Vorschlag erneut prüfen.';});
  box.querySelector('#dg2-snap-read').onclick=async()=>{
   const button=box.querySelector('#dg2-snap-read');button.disabled=true;snapStatus.textContent='Depotstatus abfragen …';
   sellPositions=[];snap.replaceChildren(new Option('Keine ausgewählt',''));
@@ -111,7 +235,7 @@ function mount(){
   }catch(e){snapStatus.textContent='SnapTrade nicht erreichbar. Keine Mengenübernahme; manuelle Planung möglich.';}
   finally{button.disabled=false;}
  };
- snap.onchange=()=>{
+ snap.onchange=()=>{lastProposal=null;
   if(snap.value==='')return;
   const p=sellPositions[Number(snap.value)];if(!p)return;
   form.elements.side.value='Verkauf';form.elements.isin.value=p.isin;form.elements.currency.value=p.currency;
@@ -121,9 +245,9 @@ function mount(){
    (p.current?' · Menge als Entwurf übernommen.':' · Menge bewusst nicht übernommen. Bitte in DEGIRO nachsehen.');
   status.textContent='Verkauf vorbereitet. Verkaufs-Limit (DEGIRO-Geldkurs), Stückzahl und Handelsplatz vor Ausführung prüfen.';
  };
- function refreshProducts(){products.replaceChildren(new Option('Manuell eingeben',''));const items=root.BobDegiro?.tradeTestProducts?.()||[];for(const p of items){try{products.append(new Option(p.isin+' · '+(p.name||''),isin(p.isin)));}catch(e){}}}
+ function refreshProducts(){lastProposal=null;products.replaceChildren(new Option('Manuell eingeben',''));const items=root.BobDegiro?.tradeTestProducts?.()||[];for(const p of items){try{products.append(new Option(p.isin+' · '+(p.name||''),isin(p.isin)));}catch(e){}}}
  box.querySelector('#dg2-refresh').onclick=()=>{refreshProducts();status.textContent='Produktidentitäten aus Bob geladen. Das aktuelle Limit bitte in DEGIRO prüfen.';};
- products.onchange=()=>{if(products.value){
+ products.onchange=()=>{lastProposal=null;if(products.value){
   form.elements.side.value='Kauf';form.elements.isin.value=products.value;
   const p=(root.BobDegiro?.tradeTestProducts?.()||[]).find(x=>x.isin===products.value);
   const c=p?.reference?.currency||p?.quote?.currency;
@@ -132,7 +256,7 @@ function mount(){
   snap.value='';
   status.textContent='ISIN aus Bob übernommen'+(p?.direction?' · '+p.direction:'')+'. Anbieter-/Modellkurse sind keine ausführbaren DEGIRO-Limits. Limit und Stückzahl dort prüfen.';
  }};
- box.querySelector('#dg2-size').onclick=()=>{try{if(form.elements.side.value!=='Kauf')throw Error('Verkaufsstückzahl anhand deines echten Bestands selbst eingeben.');const qty=maxQuantity(read(),Object.fromEntries(new FormData(form)));form.elements.qty.value=qty||'';status.textContent=qty?'Rechnerische maximale Stückzahl eingetragen. Du kannst sie reduzieren.':'Kein Budget für ein weiteres Stück verfügbar.';}catch(e){status.textContent=e.message;}};
+ box.querySelector('#dg2-size').onclick=()=>{lastProposal=null;try{if(form.elements.side.value!=='Kauf')throw Error('Verkaufsstückzahl anhand deines echten Bestands selbst eingeben.');const qty=maxQuantity(read(),Object.fromEntries(new FormData(form)));form.elements.qty.value=qty||'';status.textContent=qty?'Rechnerische maximale Stückzahl eingetragen. Du kannst sie reduzieren.':'Kein Budget für ein weiteres Stück verfügbar.';}catch(e){status.textContent=e.message;}};
  refreshProducts();
  function read(){const raw=localStorage.getItem(KEY);return raw?JSON.parse(raw):null;}
  function render(){const current=state&&state.day===day()?state:null;const orders=current?current.orders:[];if(!Array.isArray(orders))throw Error('Ungültige gespeicherte Planung.');
@@ -145,7 +269,18 @@ function mount(){
  button('Entwurf entfernen',()=>{try{const latest=read();if(JSON.stringify(latest)!==JSON.stringify(state))throw Error('Planung wurde in einem anderen Fenster geändert. Seite neu laden.');const next={...state,orders:state.orders.filter((_,j)=>j!==i)};localStorage.setItem(KEY,JSON.stringify(next));state=next;render();status.textContent='Entwurf entfernt. Dies storniert keine Order bei DEGIRO.';}catch(e){status.textContent=e.message;}});list.append(article);
  });}
  try{state=read();if(state&&state.day===day()){form.elements.budget.value=money(state.budget);form.elements.currency.value=state.currency;}render();}catch(e){status.textContent='Planung konnte nicht geladen werden: '+e.message;form.querySelector('button').disabled=true;}
- form.addEventListener('submit',e=>{e.preventDefault();try{const latest=read();const next=reserve(latest,Object.fromEntries(new FormData(form)));localStorage.setItem(KEY,JSON.stringify(next));state=next;render();status.textContent='Entwurf gespeichert – keine Order übermittelt.';}catch(err){status.textContent=err.message;}});
+ form.addEventListener('submit',e=>{e.preventDefault();try{const latest=read();const values=Object.fromEntries(new FormData(form));
+ const next=reserve(latest,values);
+ // Explicitly preserve observation provenance only for an unchanged, current proposal.
+ if(lastProposal){
+  const sig=JSON.stringify([values.isin,values.side,values.qty,values.price,values.stop||'',values.target||'',values.fees,values.currency]);
+  if(sig===lastProposal.signature&&Date.now()-Date.parse(lastProposal.source.at)<=90000){
+   const order=next.orders[next.orders.length-1];
+   order.proposal={source:lastProposal.source.source,sourceAt:lastProposal.source.at,kind:lastProposal.source.kind,
+    modelAt:lastProposal.source.marketAt||null,verifiedOrder:false};
+  }
+ }
+ localStorage.setItem(KEY,JSON.stringify(next));lastProposal=null;state=next;render();status.textContent='Entwurf gespeichert – keine Order übermittelt.';}catch(err){status.textContent=err.message;}});
  const web='https://trader.degiro.nl/';const link=box.querySelector('#dg2-open');link.href=/Android/i.test(navigator.userAgent||'')?'intent://trader.degiro.nl/#Intent;scheme=https;package=nl.degiro.trader;S.browser_fallback_url='+encodeURIComponent(web)+';end':web;
  document.addEventListener('visibilitychange',()=>{if(!document.hidden){try{state=read();render();}catch(e){status.textContent=e.message;}}});
 }
