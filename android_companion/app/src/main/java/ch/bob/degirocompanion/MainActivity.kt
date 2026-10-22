@@ -28,6 +28,7 @@ class MainActivity : Activity() {
     private lateinit var mockSearch: EditText
     private lateinit var demoResult: TextView
     private var evidenceDraft = ""
+    private var imageReadSequence = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,10 +50,11 @@ class MainActivity : Activity() {
         }
 
         label("BOB ANDROID-LABOR: Produktbild teilen, automatisch erkennen und in Bob prüfen. Keine Handelsorders.")
-        button("Produktbild auswählen (falls Teilen nicht klappt)") {
+        button("Produktbilder auswählen (falls Teilen nicht klappt)") {
             val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
                 type = "image/*"
+                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
             }
             startActivityForResult(intent, selectImageRequest)
         }
@@ -119,18 +121,28 @@ class MainActivity : Activity() {
     }
 
     private fun processUserShare(incoming: Intent?) {
-        if (incoming?.action != Intent.ACTION_SEND || !incoming.type.orEmpty().startsWith("image/")) return
+        if (incoming == null ||
+            incoming.action !in listOf(Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE) ||
+            !incoming.type.orEmpty().startsWith("image/")) return
         @Suppress("DEPRECATION")
-        val uri = incoming.getParcelableExtra<Uri>(Intent.EXTRA_STREAM) ?: return
-        readImage(uri, openAfterRead = true)
+        val direct: List<Uri> = if (incoming.action == Intent.ACTION_SEND_MULTIPLE) {
+            incoming.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)?.toList().orEmpty()
+        } else {
+            listOfNotNull(incoming.getParcelableExtra<Uri>(Intent.EXTRA_STREAM))
+        }
+        val clip = incoming.clipData
+        val viaClip = (0 until (clip?.itemCount ?: 0)).mapNotNull { clip?.getItemAt(it)?.uri }
+        readImages((direct + viaClip).distinct(), openAfterRead = true)
     }
 
     @Deprecated("Android's activity-result API retained here to avoid framework dependencies in the lab.")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != selectImageRequest || resultCode != RESULT_OK) return
-        val uri = data?.data ?: return
-        readImage(uri)
+        val clip = data?.clipData
+        val viaClip = (0 until (clip?.itemCount ?: 0)).mapNotNull { clip?.getItemAt(it)?.uri }
+        val all = (listOfNotNull(data?.data) + viaClip).distinct()
+        readImages(all)
     }
 
     private fun openInBob(draft: String) {
@@ -155,29 +167,68 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun readImage(uri: Uri, openAfterRead: Boolean = false) {
+    private fun imageIsins(raw: String): Set<String> {
+        val upper = raw.uppercase(Locale.ROOT)
+        return Regex("(?<![A-Z0-9])[A-Z]{2}[A-Z0-9]{9}[0-9](?![A-Z0-9])")
+            .findAll(upper).map { it.value }.filter(::validIsin).toSet()
+    }
+
+    private fun readImages(uris: List<Uri>, openAfterRead: Boolean = false) {
+        val serial = ++imageReadSequence
         evidenceDraft = ""
-        status.text = "Bild wird lokal gelesen. Es wird nichts automatisch versendet."
-        try {
-            val input = InputImage.fromFilePath(this, uri)
-            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-            recognizer.process(input)
-                .addOnSuccessListener { result ->
-                    evidenceDraft = draftFromOcr(result.text)
-                    status.text = if (evidenceDraft.isBlank()) {
-                        "Bild nicht eindeutig: genau eine prüfziffergültige ISIN erforderlich. Keine Daten übernommen."
-                    } else evidenceDraft
-                    if (openAfterRead && evidenceDraft.isNotBlank()) openInBob(evidenceDraft)
-                }
-                .addOnFailureListener {
-                    evidenceDraft = ""
-                    status.text = "Lokale Texterkennung fehlgeschlagen. Keine Nachweise übernommen."
-                }
-                .addOnCompleteListener { recognizer.close() }
-        } catch (_: Exception) {
-            evidenceDraft = ""
-            status.text = "Bild nicht lesbar. Keine Nachweise übernommen."
+        if (uris.isEmpty() || uris.size > 4) {
+            status.text = "Bitte ein bis vier Produktbilder auswählen."
+            return
         }
+        status.text = "${uris.size} Bild(er) werden lokal gelesen. Nichts wird hochgeladen."
+        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        val texts = mutableListOf<String>()
+
+        fun fail(reason: String) {
+            if (serial == imageReadSequence) {
+                evidenceDraft = ""
+                status.text = reason
+            }
+            recognizer.close()
+        }
+        fun scan(index: Int) {
+            if (serial != imageReadSequence) {
+                recognizer.close()
+                return
+            }
+            if (index == uris.size) {
+                val identities = texts.map(::imageIsins)
+                if (identities.any { it.size != 1 } ||
+                    identities.map { it.single() }.distinct().size != 1) {
+                    fail("Bilder enthalten keine eindeutig gleiche ISIN. Jedes Bild muss dasselbe einzelne Produkt zeigen.")
+                    return
+                }
+                evidenceDraft = runCatching { draftFromOcr(texts.joinToString("\n")) }.getOrDefault("")
+                status.text = if (evidenceDraft.isBlank()) {
+                    "OCR-Daten uneindeutig oder widersprüchlich. Bitte Bilder einzeln prüfen."
+                } else {
+                    evidenceDraft
+                }
+                recognizer.close()
+                if (openAfterRead && evidenceDraft.isNotBlank()) openInBob(evidenceDraft)
+                return
+            }
+            val input = try {
+                InputImage.fromFilePath(this, uris[index])
+            } catch (_: Exception) {
+                fail("Mindestens ein Bild konnte nicht gelesen werden.")
+                return
+            }
+            recognizer.process(input)
+                .addOnSuccessListener {
+                    if (serial == imageReadSequence) {
+                        texts.add(it.text)
+                        scan(index + 1)
+                    }
+                }
+                .addOnFailureListener { fail("Texterkennung fehlgeschlagen. Keine Daten übernommen.") }
+        }
+        scan(0)
     }
 
     private fun draftFromOcr(raw: String): String {
@@ -190,8 +241,10 @@ class MainActivity : Activity() {
         if (isins.size != 1) return ""
 
         fun observed(label: String, regex: Regex): String {
-            val value = regex.find(raw)?.groupValues?.getOrNull(1)?.trim()
-            return if (value.isNullOrEmpty()) "" else "\n$label (OCR ungeprüft): $value"
+            val values = regex.findAll(raw).mapNotNull { it.groupValues.getOrNull(1)?.trim() }
+                .filter { it.isNotEmpty() }.distinct().toList()
+            if (values.size > 1) throw IllegalArgumentException("Widersprüchliche OCR-Felder")
+            return if (values.isEmpty()) "" else "\n$label (OCR ungeprüft): ${values.single()}"
         }
         val numeric = "[0-9][0-9., ]{0,18}"
         val opts = setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE)
@@ -199,9 +252,10 @@ class MainActivity : Activity() {
         val ask = observed("Brief", Regex("^\\s*(?:Brief|Ask)\\s*[:：]\\s*($numeric)\\s*(?:EUR|CHF)?\\s*$", opts))
         val lev = observed("Hebel", Regex("^\\s*(?:Hebel|Leverage)\\s*[:：]\\s*($numeric)\\s*(?:x|X)?\\s*$", opts))
         val ko = observed("KO-Schwelle", Regex("^\\s*(?:KO|KO-Schwelle|Knock-Out)\\s*[:：]\\s*($numeric)\\s*(?:USD|EUR|CHF)?\\s*$", opts))
-        val venue = observed("Handelsplatz", Regex("^\\s*(?:Handelsplatz|Venue)\\s*[:：]\\s*([A-Za-z0-9 ._/-]{1,48})\\s*$", opts))
+        val venue = observed("Handelsplatz", Regex("^\\s*(?:Handelsplatz|Börse|Venue)\\s*[:：]?\\s*([A-Za-z0-9 ._/-]{1,48})\\s*$", opts))
+        val last = observed("Zuletzt", Regex("^\\s*(?:Zuletzt|Last)\\s*[:：]?\\s*(?:€\\s*)?($numeric)\\s*(?:EUR|CHF)?\\s*$", opts))
         val identity = if (isins.isEmpty()) "Keine prüfziffergültige ISIN gefunden" else "ISIN: " + isins.joinToString(", ")
-        return "BOB OCR-ENTWURF – NICHT VERIFIZIERT\n$identity$bid$ask$lev$ko$venue\n" +
+        return "BOB OCR-ENTWURF – NICHT VERIFIZIERT\n$identity$bid$ask$lev$ko$venue$last\n" +
             "Bildzeit/Originalquelle wurden nicht verifiziert. " +
             "Kein automatischer Handelsnachweis, keine Freigabe, keine Order."
     }
