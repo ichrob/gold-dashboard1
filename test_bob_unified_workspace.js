@@ -79,6 +79,30 @@ assert.equal(privateWarning.problemStatus.state,'warning');
 assert.match(privateWarning.problemStatus.text,/Private Produkt-Hilfefälle laut Produktansicht: 2/);
 const privateUnknown=a.operationalSnapshot(report,{status:'stale',count:0,problems:[]},'',operationsNow,2);
 assert.equal(privateUnknown.problemStatus.state,'unknown');
+// Product evidence is a source observation, never trading approval.
+const quoteTime='2026-10-22T04:19:45Z';
+const quote={isin:'DE000FG14AV8',productVerified:true,found:true,priceKind:'market-observation',
+  currency:'CHF',metadata:{currency:'CHF',direction:'LONG',status:1},
+  bid:9.8,ask:10.1,bidAt:quoteTime,askAt:quoteTime,
+  leverage:14,leverageAt:quoteTime,source:'Emittent <script>unsafe</script>'};
+const product={isin:quote.isin,direction:'LONG',quote,reference:{isin:quote.isin,currency:'CHF',ko:3950}};
+const evidence=a.productEvidence(product,now);
+assert.equal(evidence.tradeable,false);assert.equal(evidence.automaticOrder,false);
+assert.equal(evidence.prices.state,'observed');
+assert.match(evidence.prices.text,/keine DEGIRO-Orderquotierung/);
+assert.equal(evidence.leverage.state,'observed');
+assert.equal(evidence.barrier.state,'observed');
+assert.equal(evidence.venue.state,'unknown');
+assert.equal(a.productEvidence({...product,quote:{...quote,ask:9.7}},now).prices.state,'conflict');
+assert.equal(a.productEvidence({...product,quote:{...quote,bidAt:'2026-10-22T04:17:00Z'}},now).prices.state,'stale');
+assert.equal(a.productEvidence({...product,quote:{...quote,askAt:null}},now).prices.state,'unknown');
+assert.equal(a.productEvidence({...product,quote:{...quote,paperSelectionOnly:true}},now).prices.state,'unknown');
+assert.equal(a.productEvidence({...product,quote:{...quote,priceKind:'issuer-chart'}},now).prices.state,'unknown');
+assert.equal(a.productEvidence({...product,quote:{...quote,metadata:{...quote.metadata,status:2}}},now).prices.state,'conflict');
+assert.equal(a.productEvidence({...product,direction:'SHORT'},now).direction.state,'conflict');
+assert.equal(a.productEvidence({...product,reference:{...product.reference,currency:'EUR'}},now).currency.state,'conflict');
+assert.equal(a.productEvidence({...product,quote:{...quote,leverageAt:null}},now).leverage.state,'stale');
+assert.equal(a.productEvidence({isin:'DE000FG14AV9'},now).isin,null);
 const draft={day:'2026-10-22',currency:'EUR',budget:10000,orders:[
  {isin:'DE000FG14AV8',side:'Kauf',qty:5,price:1200,fees:100,cost:6100,stop:900,target:1800},
  {isin:'DE000FG14AV8',side:'Verkauf',qty:2,price:1100,fees:100,cost:2300,stop:null,target:null}
