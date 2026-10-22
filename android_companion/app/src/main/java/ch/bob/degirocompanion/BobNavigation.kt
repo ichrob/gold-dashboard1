@@ -19,8 +19,14 @@ internal object BobNavigation {
 
     fun pageFor(task: PhoneTask): String? = fragments[task]
 
-    fun urlFor(task: PhoneTask): String? = fragments[task]?.let { origin + "#" + it }
+    // Duplicate the UI-only section in query and fragment. The query survives
+    // the password-login redirect; the fragment selects Bob's local view once
+    // authenticated. Neither is an API instruction or a broker operation.
+    private fun safeUrl(section: String): String =
+        origin + "?view=" + section + "#" + section
+
+    fun urlFor(task: PhoneTask): String? = fragments[task]?.let(::safeUrl)
 
     fun urlForSection(section: String): String? =
-        if (section in fragments.values) origin + "#" + section else null
+        if (section in fragments.values) safeUrl(section) else null
 }
