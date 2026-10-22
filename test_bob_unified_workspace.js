@@ -98,6 +98,19 @@ assert.equal(staleAudit.auditFresh,false);
 assert.equal(staleAudit.auditHistoric,true);
 assert.equal(staleAudit.items[0].fromAuditStale,true);
 assert.equal(staleAudit.items[0].quote,null);
+const terminated=a.mergeProductIdentities([],null,{
+ status:'ok',lastCheckedAt:'2026-10-22T09:49:35Z',
+ items:[{isin:'DE000FG14AV8',direction:'LONG',state:'terminated'}]
+},operationsNow);
+assert.equal(terminated.items[0].auditState,'terminated');
+assert.equal(terminated.items[0].quote,null);
+const incompleteEvidence=a.mergeProductIdentities([],null,{
+ status:'ok',lastCheckedAt:'2026-10-22T09:49:35Z',
+ items:[{isin:'DE000FG14AV8',direction:'LONG',state:'incomplete'}]
+},operationsNow);
+assert.equal(incompleteEvidence.items[0].auditState,'incomplete');
+assert.equal(incompleteEvidence.items[0].quote,null);
+
 assert.equal(a.mergeProductIdentities([],null,{...latest,status:'stale'},operationsNow).items[0].fromAuditStale,true);
 assert.equal(a.mergeProductIdentities([],null,{...latest,lastCheckedAt:'2026-09-01T09:49:55Z'},operationsNow).items.length,0);
 assert.equal(a.mergeProductIdentities([],null,{...latest,status:'unavailable'},operationsNow).items.length,0);
