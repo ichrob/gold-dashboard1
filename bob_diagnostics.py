@@ -236,6 +236,11 @@ def summary(areas):
         if path.endswith('.dmi') and value.get('available') is False:
             findings.append({'area':path,'state':'incomplete'})
         for key,item in value.items():
+            # The outage event log is historical evidence. Its old "stale" /
+            # "incomplete" transitions must not be counted as LIVE alerts.
+            # Keep history in the report and current source state above.
+            if key == 'events' and path.startswith('sourceReliability.sources.'):
+                continue
             if isinstance(item,(dict,list)):walk(item,path+'.'+key)
     for name,area in areas.items():walk(area,name)
     return {'attention':findings[:40], 'assessment':'needs-attention' if findings else 'observed-only',
