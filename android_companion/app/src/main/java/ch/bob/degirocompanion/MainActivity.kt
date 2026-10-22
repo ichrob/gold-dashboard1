@@ -154,7 +154,9 @@ class MainActivity : Activity() {
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                     taskApproval.clear()
                     if (!internalCommandChange) clearVoicePlan()
-                    if (::commandStatus.isInitialized) {
+                    // Programmatic updates (voice preview, completed task)
+                    // must not overwrite the meaningful outcome message.
+                    if (!internalCommandChange && ::commandStatus.isInitialized) {
                         commandStatus.text = "Auftrag geändert. Vor der Ausführung erneut prüfen."
                     }
                 }
