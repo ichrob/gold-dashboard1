@@ -18,8 +18,9 @@ class CIWatchdogTests(unittest.TestCase):
         self.assertIn('name: Browser toolchain setup (bounded)', CI)
         self.assertIn('timeout --signal=TERM --kill-after=10s 240s npm install', CI)
         self.assertIn('timeout --signal=TERM --kill-after=10s 300s', CI)
-        self.assertIn('timeout --signal=TERM --kill-after=10s 180s sudo apt-get', CI)
-        self.assertIn('timeout --signal=TERM --kill-after=10s 40s ffmpeg', CI)
+        self.assertIn('timeout --signal=TERM --kill-after=10s 180s python -m pip install', CI)
+        self.assertIn('timeout --signal=TERM --kill-after=10s 40s "$FFMPEG_BIN"', CI)
+        self.assertIn('test -s /tmp/bob-video-fixture.webm', CI)
 
     def test_browser_setup_does_not_upgrade_all_runner_packages(self):
         # A slow Ubuntu mirror caused exit 124 while fetching unrelated fonts.
@@ -30,7 +31,10 @@ class CIWatchdogTests(unittest.TestCase):
         self.assertIn('playwright install chromium firefox', CI)
         self.assertNotRegex(CI, r'(?m)^\s*timeout.*playwright install --with-deps')
         self.assertNotIn('playwright install-deps', CI)
-        self.assertIn('if command -v ffmpeg', CI)
+        self.assertIn('imageio-ffmpeg==0.6.0', CI)
+        self.assertIn('imageio_ffmpeg.get_ffmpeg_exe()', CI)
+        self.assertIn('test -x "$FFMPEG_BIN"', CI)
+        self.assertNotIn('sudo apt-get install -y ffmpeg', CI)
 
     def test_all_browser_suites_still_run_without_swallowing_failures(self):
         suites = sorted(set(re.findall(r'node (browser_[a-z_]+\.cjs)', CI)))
