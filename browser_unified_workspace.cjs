@@ -73,7 +73,7 @@ const origin='https://bob-workspace.test';
   assert((await page.locator('#bobUnifiedUploadedDiff').innerText()).includes('Kein aktueller DEGIRO-Handelsnachweis'));
   await page.locator('#bobUnifiedCheckOperations').click();
   await page.locator('#bobUnifiedOperations').filter({hasText:'1 Produkt mit fehlenden Nachweisen'}).waitFor();
-  assert((await page.locator('#bobUnifiedOperations').innerText()).includes('1 offene technische KI-Hilfeanfrage'));
+  assert((await page.locator('#bobUnifiedOperations').innerText()).includes('1 offene öffentliche technische KI-Hilfeanfragen'));
   assert((await page.locator('#bobUnifiedOperations').innerText()).includes('Keine Echtgeldorder'));
   await page.locator('#bobUnifiedProduct').selectOption('DE000FG14AV8');
   assert((await page.locator('#bobUnifiedProductNote').innerText()).includes('kein bestätigter DEGIRO-Kurs')||
