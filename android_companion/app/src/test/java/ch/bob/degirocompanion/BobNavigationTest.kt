@@ -9,6 +9,7 @@ class BobNavigationTest {
     @Test fun websiteActionsAlwaysRemainOnBobsOwnOrigin() {
         val sections = listOf(
             PhoneTask.OPEN_BOB, PhoneTask.OPEN_MARKET, PhoneTask.OPEN_PRODUCTS,
+            PhoneTask.OPEN_LONG_REVIEW,
             PhoneTask.OPEN_TRADE, PhoneTask.OPEN_SIMULATION,
             PhoneTask.OPEN_LEARNING, PhoneTask.OPEN_RESEARCH)
         for (task in sections) {
@@ -16,6 +17,8 @@ class BobNavigationTest {
         }
         assertEquals("https://bob-private-scanner.onrender.com/?view=products#products",
             BobNavigation.urlFor(PhoneTask.OPEN_PRODUCTS))
+        assertEquals("https://bob-private-scanner.onrender.com/?view=products-long#products-long",
+            BobNavigation.urlFor(PhoneTask.OPEN_LONG_REVIEW))
         assertEquals("https://bob-private-scanner.onrender.com/?view=overview#overview",
             BobNavigation.urlFor(PhoneTask.OPEN_MARKET))
     }
