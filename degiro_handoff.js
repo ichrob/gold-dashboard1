@@ -75,7 +75,7 @@ function calculateProposal(p,input,market={},state=null,now=Date.now()){
  if(!p||p.isin!==id)return partial('Produktidentität passt nicht zur Auswahl.');
  const side=input.side;if(!['Kauf','Verkauf'].includes(side))return partial('Kauf oder Verkauf wählen.');
  const q=p.quote;
- if(!q||q.isin!==id||q.found!==true||q.productVerified!==true||q.estimated===true||q.priceKind==='estimate')
+ if(!q||q.isin!==id||q.found!==true||q.productVerified!==true||q.estimated===true||q.isEstimated===true||q.paperSelectionOnly===true||q.paperQuoteAccepted===true||/estimate|calculated|simulation|paper/i.test(String(q.priceKind||'')))
   return partial('Kein bestätigtes Produktkurspaar für diese ISIN. Bob erfindet kein Limit.');
  const currency=q.currency||q.metadata?.currency;
  if(!['EUR','CHF'].includes(currency)||currency!==input.currency||q.metadata?.currency&&q.metadata.currency!==currency||
@@ -141,11 +141,12 @@ function calculateProposal(p,input,market={},state=null,now=Date.now()){
  const perUnit=price-stop;
  const qty=Math.max(0,Math.min(Math.floor(left/price),Math.floor((maxLoss-fees)/perUnit)));
  if(qty<1)return partial('Unter Tagesbudget und Verlustbudget lässt sich kein ganzes Stück sicher planen.',{source:evidence,price:money(price)});
- const loss=perUnit*qty+fees,gain=(target-price)*qty-fees;
+ const loss=perUnit*qty+fees,gain=(target-price)*qty-fees,netRR=gain/loss;
+ if(!(gain>0&&netRR>=minRR))return partial('Nach den eingegebenen Einstiegsgebühren bleibt das Modell-CRV unter dem Mindestwert.',{source:evidence,price:money(price)});
  return {ok:true,side,isin:id,currency,price:money(price),qty,stop:money(stop),target:money(target),
-  loss:money(loss),gain:money(gain),rr:rr.toFixed(2),
+  loss:money(loss),gain:money(gain),rr:netRR.toFixed(2),
   source:{...evidence,marketAt:market.at,marketSource:market.source,historyAt:market.historyAt},
-  note:'Indikatives Produktmodell aus Bobs technischem Gold-Stopp/Ziel und zeitlich abgeglichenen Produktreferenzen; keine garantierte Ausführung, KO-/Gap-/Slippage-Risiko. Verlustbudget ist keine Verlustgrenze.',
+  note:'Indikatives Produktmodell aus Bobs technischem Gold-Stopp/Ziel und zeitlich abgeglichenen Produktreferenzen; nur eingegebene Einstiegsgebühren berücksichtigt, Verkaufsgebühren/Slippage/Finanzierung noch offen. KO-/Gap-Risiko: Verlustbudget ist keine Verlustgrenze.',
   tradeable:false,automaticOrder:false};
 }
 
@@ -215,7 +216,7 @@ function mount(){
    output.textContent='Vorläufiger Verkaufs-Geldkurs ≈ '+r.price+' '+r.currency+
     ' · '+r.source.at+'. Stückzahl und aktuelle Handelbarkeit in DEGIRO prüfen. Keine Verkaufsausführung.';
   }
-  lastProposal={...r,signature:JSON.stringify([v.isin,v.side,r.qty||form.elements.qty.value,r.price,
+  lastProposal={...r,signature:JSON.stringify([v.isin,v.side,String(r.qty||form.elements.qty.value),r.price,
     r.stop||'',r.target||'',v.fees,v.currency])};
  };
  form.addEventListener('input',()=>{lastProposal=null;output.textContent='Eingaben geändert. Automatischen Vorschlag erneut prüfen.';});
