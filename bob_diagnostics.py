@@ -205,6 +205,59 @@ def stored_details(conn):
     })
 
 
+def simulation_evidence_snapshot(simulation):
+    """Summarize only already-sanitized recent virtual cases, never run trades.
+
+    Each account is a small, bounded sample (at most the last five cases).
+    Historic cases and events beyond that window are NOT covered. In particular
+    a completed model sale or numeric model P/L is never a broker execution.
+    """
+    if not isinstance(simulation, dict) or simulation.get('status') != 'observed':
+        return {'status':'unavailable', 'readOnly':True,
+                'reason':'simulation-source-unavailable'}
+    accounts = simulation.get('accounts')
+    if not isinstance(accounts,list) or not accounts:
+        return {'status':'unavailable', 'readOnly':True,
+                'reason':'simulation-accounts-unavailable'}
+    evidence=[]
+    for account in accounts[:10]:
+        if not isinstance(account,dict):
+            continue
+        record=account.get('recentCases')
+        observed=(isinstance(record,dict) and
+                  record.get('status')=='observed' and
+                  isinstance(record.get('items'),list))
+        cases=record['items'][:5] if observed else []
+        kinds={'open':0,'closed':0,'inconclusive':0,'other':0}
+        data_gaps=deferred=terminal=0
+        for c in cases:
+            if not isinstance(c,dict):
+                kinds['other']+=1
+                continue
+            status=c.get('status')
+            kinds[status if status in ('open','closed','inconclusive') else 'other']+=1
+            events=[e.get('kind') for e in (c.get('events') or [])[:20]
+                    if isinstance(e,dict)]
+            data_gaps+=int('data-gap' in events)
+            deferred+=int('deferred-sale' in events)
+            terminal+=int(any(x in ('product-terminated','knockout-confirmed',
+                                    'ko-barrier-crossed-observed') for x in events))
+        identity=fields(account, ('profile','status','checkedAt','enabled'))
+        evidence.append({**identity,
+            'sampleStatus':'observed' if observed else 'unavailable',
+            'sampleSize':len(cases),'counts':kinds,
+            'casesWithRecordedDataGap':data_gaps,
+            'casesWithRecordedDeferredSale':deferred,
+            'casesWithRecordedTerminationEvidence':terminal,
+            'netProductReturnsVerified':False,
+            'note':'Only latest five sanitized virtual cases; event lists can be truncated. '
+                   'No past-case totals, original quote proof, executed trade or return validation.'})
+    return {'status':'observed' if evidence else 'unavailable',
+            'readOnly':True,'realOrders':False,'accountSamples':evidence,
+            'scope':'bounded-paper-case-evidence-not-fills-or-profit',
+            'note':'A source data-gap cannot be repaired by interpolation or re-dating quotes.'}
+
+
 def new_feature_snapshot(areas, *, mobile_asset_loaded=False):
     """Passive read coverage for newly added Bob functions, not proof of client operation.
 
@@ -328,7 +381,7 @@ def broker_sync_snapshot(value):
 DIAGNOSTIC_FOCUS = ('overview', 'simulation', 'trades', 'signals',
                     'sources', 'research', 'repairs', 'mobile', 'products')
 _FOCUS_AREAS = {
-    'simulation': ('simulationAndPush', 'background', 'collection', 'gapEvidence'),
+    'simulation': ('simulationEvidence', 'simulationAndPush', 'background', 'collection', 'gapEvidence'),
     'sources': ('market', 'sourceReliability', 'collection', 'background', 'analysis'),
     'research': ('research', 'strategyResearch', 'strategyReport', 'newFeatures'),
     'mobile': ('newFeatures', 'runtime', 'degiroSync', 'products'),
