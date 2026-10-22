@@ -89,6 +89,45 @@ function productEvidence(p,now=Date.now()){
   leverage:unknown('Gemeinsamer Produktnachweis nicht geladen'),
   venue:unknown('DEGIRO-Handelsplatznachweis separat erforderlich')};
 }
+// Union of identities only: no broker execution evidence or trading approvals.
+function mergeProductIdentities(visible,stored,audit,now=Date.now()){
+ const map=new Map();
+ function add(p,kind){
+  if(!validIsin(p?.isin))return;
+  let item=map.get(p.isin);
+  if(!item){
+   item={isin:p.isin,name:p.isin,direction:null,quote:null,reference:null,
+    fromVisible:false,fromArchive:false,fromAudit:false,conflictingDirection:false};
+   map.set(p.isin,item);
+  }
+  item[kind]=true;
+  if(kind==='fromVisible'){
+   item.name=String(p.name||p.isin).slice(0,80);
+   item.quote=p.quote?.isin===p.isin?p.quote:null;
+   item.reference=p.reference?.isin===p.isin?p.reference:null;
+  }else if(item.name===item.isin&&typeof p.name==='string')item.name=p.name.slice(0,80);
+  const direction=p.direction||p.productDirection;
+  if(['LONG','SHORT'].includes(direction)){
+   if(item.direction&&item.direction!==direction)item.conflictingDirection=true;
+   else if(!item.direction)item.direction=direction;
+  }
+ }
+ if(Array.isArray(visible))for(const p of visible.slice(0,150))add(p,'fromVisible');
+ const saved=uploadedList(stored,now);
+ let storedObject=null;
+ try{storedObject=typeof stored==='string'?JSON.parse(stored):stored;}catch(_){}
+ if(saved&&Array.isArray(storedObject?.products))
+  for(const p of storedObject.products)add(p,'fromArchive');
+ const age=originalAge(audit?.lastCheckedAt,now);
+ const audited=audit?.status==='ok'&&age!==null&&age<=300000&&
+  Array.isArray(audit.items)&&audit.items.length<=500;
+ if(audited)
+  for(const p of audit.items)add({isin:p?.isin,direction:p?.direction,name:p?.name},'fromAudit');
+ return {items:[...map.values()].sort((a,b)=>a.isin.localeCompare(b.isin)),
+  auditFresh:audited,auditCount:audited?audit.items.length:null,
+  archiveCount:saved?.ids.length||0,visibleCount:Array.isArray(visible)?visible.length:0};
+}
+
 function operationalSnapshot(audit,problems,simulationText='',now=Date.now(),privateProductHelp=null){
  const ago=originalAge(audit?.lastCheckedAt,now);
  const actualAudit=audit?.status==='ok'&&Array.isArray(audit.items)&&
@@ -153,7 +192,7 @@ function serializeDraftBackup(drafts,now=new Date()){
  const clean=validateDraftBackup(JSON.stringify(content),drafts.day);
  return JSON.stringify({...content,drafts:clean},null,2);
 }
-const api={zurichDay,originalAge,validIsin,visibleChange,uploadedList,compareUploadedList,productEvidence,analyzeInputs,operationalSnapshot,validateDraftBackup,serializeDraftBackup};
+const api={zurichDay,originalAge,validIsin,visibleChange,uploadedList,compareUploadedList,mergeProductIdentities,productEvidence,analyzeInputs,operationalSnapshot,validateDraftBackup,serializeDraftBackup};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 root.BobUnifiedWorkspace=api;
 if(!root.document)return;
@@ -193,23 +232,43 @@ function mount(){
  if(title)title.after(section);else overview.prepend(section);
  const status=doc.getElementById('bobPrepareStatus'),checks=doc.getElementById('bobUnifiedChecks');
  const chosen=doc.getElementById('bobUnifiedProduct'),productNote=doc.getElementById('bobUnifiedProductNote');
- let working=false;
+ let working=false,productAudit=null,productAuditFetchedAt=0,productAuditFlight=null;
+ function productCandidates(){
+  const visible=root.BobDegiro?.tradeTestProducts?.()||[];
+  let stored=null;try{stored=root.localStorage?.getItem(PRODUCT_STORE_KEY)||null;}catch(_){}
+  return mergeProductIdentities(visible,stored,productAudit,Date.now());
+ }
+ function fetchProductAudit(){
+  if(productAuditFlight)return productAuditFlight;
+  if(productAudit&&Date.now()-productAuditFetchedAt<12000)return Promise.resolve(productAudit);
+  if(typeof root.fetch!=='function')return Promise.resolve(null);
+  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),10000);
+  productAuditFlight=root.fetch('/api/degiro/audit',{credentials:'same-origin',cache:'no-store',signal:ctl.signal})
+   .then(async response=>{
+    if(!response.ok)throw Error('audit-status');
+    const data=await response.json();
+    if(data?.status!=='ok'||!Array.isArray(data.items)||data.items.length>500)throw Error('audit-unavailable');
+    productAudit=data;productAuditFetchedAt=Date.now();return data;
+   }).catch(()=>{productAudit=null;return null;})
+   .finally(()=>{clearTimeout(timer);productAuditFlight=null;});
+  return productAuditFlight;
+ }
  function refreshProducts(){
-  const old=chosen.value,items=root.BobDegiro?.tradeTestProducts?.()||[];
+  const old=chosen.value,{items}=productCandidates();
   chosen.replaceChildren();
   const first=doc.createElement('option');first.value='';first.textContent='Bitte Produkt wählen';chosen.append(first);
-  for(const p of Array.isArray(items)?items:[]){
-   if(!validIsin(p?.isin))continue;
+  for(const p of items){
    const item=doc.createElement('option');item.value=p.isin;
-   item.textContent=p.isin+' · '+(p.direction||'Richtung offen')+' · '+String(p.name||'').slice(0,40);
+   const origin=p.fromVisible?'Handy-Assistent':p.fromAudit?'Bob-Prüfbericht':'gespeicherte Liste';
+   item.textContent=p.isin+' · '+(p.conflictingDirection?'Richtung unklar':p.direction||'Richtung offen')+' · '+origin;
    chosen.append(item);
   }
-  if(old&&Array.from(chosen.options).some(x=>x.value===old))chosen.value=old;
+  if(old&&items.some(x=>x.isin===old))chosen.value=old;
   if(chosen.value!==old)productNote.textContent='Nur Produktidentität. Keine automatische Handelsfreigabe.';
   renderEvidence();
  }
  function renderEvidence(){
-  const p=(root.BobDegiro?.tradeTestProducts?.()||[]).find(x=>x.isin===chosen.value);
+  const p=productCandidates().items.find(x=>x.isin===chosen.value);
   const info=productEvidence(p);
   const host=doc.getElementById('bobUnifiedEvidenceRows');host.replaceChildren();
   for(const [name,key] of [['Richtung','direction'],['Währung','currency'],['Geld und Brief','prices'],
@@ -224,17 +283,21 @@ function mount(){
  }
  chosen.addEventListener('change',()=>{
   renderEvidence();
-  const p=(root.BobDegiro?.tradeTestProducts?.()||[]).find(x=>x.isin===chosen.value);
+  const p=productCandidates().items.find(x=>x.isin===chosen.value);
   if(!p){productNote.textContent='Kein Produkt gewählt.';return;}
   const q=p.quote,at=q?.askAt||q?.bidAt||null,age=originalAge(at);
   const label=age===null?'Originalzeit fehlt':age>90000?'Originalkurs älter als 90 Sekunden':'Beobachtungszeit innerhalb von 90 Sekunden';
-  productNote.textContent='ISIN '+p.isin+' · '+(p.direction||'Richtung offen')+
-   ' · '+label+' · '+(q?.source||'Quelle nicht belegt')+
+  const origin=p.fromVisible?'Handy-Assistent':p.fromAudit?'Bob-Prüfbericht':'gespeicherte Screenshotliste';
+  const note=p.conflictingDirection?' · widersprüchliche Richtung; Übernahme gesperrt':'';
+  productNote.textContent='ISIN '+p.isin+' · '+(p.conflictingDirection?'Richtung unklar':p.direction||'Richtung offen')+
+   ' · '+origin+' · '+label+' · '+(q?.source||'Emittentenkurs nicht belegt')+note+
    '. Kein bestätigter DEGIRO-Kurs oder Handelsplatz.';
  });
  doc.getElementById('bobUnifiedToDraft').addEventListener('click',()=>{
   const isin=chosen.value;
   if(!validIsin(isin)){productNote.textContent='Zuerst ein Produkt aus der Bob-Liste wählen.';return;}
+  const candidate=productCandidates().items.find(x=>x.isin===isin);
+  if(candidate?.conflictingDirection){productNote.textContent='Richtung widersprüchlich. Bitte im Produktbereich prüfen; keine Übernahme.';return;}
   const available=(root.BobDegiro?.tradeTestProducts?.()||[]).some(x=>x.isin===isin);
   const target=doc.getElementById('dg2-product');
   if(!available||!target||!Array.from(target.options).some(x=>x.value===isin)){
@@ -249,7 +312,7 @@ function mount(){
 
  function text(id){return doc.getElementById(id)?.textContent?.trim()||'';}
  function snapshot(){
-  const bundle=root.liveBundleCache,products=root.BobDegiro?.tradeTestProducts?.();
+  const bundle=root.liveBundleCache,products=productCandidates().items;
   return {
    expired:root.BobSession?.expired?.()===true,
    signal:text('quickSignal'),reason:text('quickReason'),
@@ -286,6 +349,7 @@ function mount(){
   try{
    const paths=['/api/degiro/audit','/api/problems'];
    const response=await Promise.all(paths.map(async path=>{
+    if(path==='/api/degiro/audit')return fetchProductAudit();
     const controller=new AbortController();
     const timer=setTimeout(()=>controller.abort(),12000);
     try{
@@ -293,9 +357,10 @@ function mount(){
      return r.ok?await r.json():null;
     }catch(_){return null;}finally{clearTimeout(timer);}
    }));
-   const snapshot=operationalSnapshot(response[0],response[1],text('bobProfilesStatus'),Date.now(),root.BobProductAuditHelpCount);
+   present(analyzeInputs(snapshot()));
+   const snapshotOps=operationalSnapshot(response[0],response[1],text('bobProfilesStatus'),Date.now(),root.BobProductAuditHelpCount);
    box.replaceChildren();
-   for(const [name,entry] of [['Produkte',snapshot.productStatus],['Probleme',snapshot.problemStatus],['Simulation',snapshot.simulation]]){
+   for(const [name,entry] of [['Produkte',snapshotOps.productStatus],['Probleme',snapshotOps.problemStatus],['Simulation',snapshotOps.simulation]]){
     const p=doc.createElement('p');p.textContent=(entry.state==='checked'?'✓ ':entry.state==='warning'?'⚠ ':'? ')+name+': '+entry.text;
     box.append(p);
    }
@@ -314,6 +379,7 @@ function mount(){
    // The existing bounded issuer refresh is explicit and only triggered here by a user click.
    if(Array.isArray(earlier)&&earlier.length&&typeof root.BobDegiro?.refreshTradeTestQuotes==='function')
     await root.BobDegiro.refreshTradeTestQuotes();
+   await fetchProductAudit(); // server ISIN identities only; never an execution approval
    const assessment=analyzeInputs(snapshot());present(assessment);
    status.textContent=assessment.analysis.ok?
     'Marktdaten geprüft. Produkte und Orderentwurf als Nächstes öffnen; keine automatische Freigabe.':
