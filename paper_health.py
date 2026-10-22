@@ -36,7 +36,9 @@ def snapshot(conn, now_ms=None):
         local = datetime.fromtimestamp(now_ms/1000, ZoneInfo("Europe/Zurich"))
         minutes = local.hour*60+local.minute
         state = "warming" if minutes < 8*60+10 else "degraded"
-    return {"state": state, "accountsTotal": len(paper_portfolios.POLICIES),
+    return {"state": state, "sessionMode": phase,
+            "pauseReason": "outside-user-trading-window-not-broker-market-closed" if state == "paused" else None,
+            "accountsTotal": len(paper_portfolios.POLICIES),
             "accountsChecked": checked,
             "maxCheckAgeSeconds": round(max(ages)) if ages else None,
             "realOrders": False,
