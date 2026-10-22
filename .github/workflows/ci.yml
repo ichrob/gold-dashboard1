@@ -15,7 +15,8 @@ on:
 
 concurrency:
   group: bob-ci-${{ github.ref }}
-  cancel-in-progress: false
+  # New PR commits supersede the previous PR check; main and scheduled checks are never cancelled.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -106,6 +107,7 @@ jobs:
           NODE_PATH=/tmp/bob-video-browser/node_modules node browser_training_help.cjs
           NODE_PATH=/tmp/bob-video-browser/node_modules node browser_paper_priority.cjs
           NODE_PATH=/tmp/bob-video-browser/node_modules node browser_snaptrade.cjs
+          NODE_PATH=/tmp/bob-video-browser/node_modules node browser_unified_workspace.cjs
           NODE_PATH=/tmp/bob-video-browser/node_modules node browser_degiro_export_mobile.cjs
           NODE_PATH=/tmp/bob-video-browser/node_modules node browser_degiro_browser_bridge.cjs
           NODE_PATH=/tmp/bob-video-browser/node_modules BOB_BRIDGE_BROWSER=firefox MOZ_DISABLE_CONTENT_SANDBOX=1 node browser_degiro_browser_bridge.cjs
