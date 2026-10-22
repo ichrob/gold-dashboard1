@@ -44,7 +44,7 @@ assert(knocked.includes(isin+' · Produkt ausgeknockt'),knocked);
 assert(!knocked.includes('data-isin-check="none"'),knocked);
 assert(!knocked.includes('✗'),knocked);
 assert(knocked.includes(html),knocked);
-assert(knocked.includes('Ausgeknockt'),knocked);
+assert(knocked.includes('Produkt ausgeknockt'),knocked);
 assert(source.includes('data-copy-product-isin="" aria-label="ISIN kopieren"'),
  'The saved product input also needs a one-tap copy icon.');
 
