@@ -19,6 +19,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.view.View
+import android.view.inputmethod.InputMethodManager
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -164,6 +165,17 @@ class MainActivity : Activity() {
         // User must deliberately select a recipient in Android's share sheet.
         button("🔎 Diagnose an ChatGPT teilen") { shareDeviceDiagnostics() }
         button("🎤 Auftrag sprechen") { openSpeechRecognizer() }
+        button("🎙️ Über Tastatur-Mikrofon sprechen (Alternative)") {
+            taskApproval.clear()
+            clearVoicePlan()
+            commandInput.requestFocus()
+            commandInput.selectAll()
+            val keyboard = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            keyboard.showSoftInput(commandInput, InputMethodManager.SHOW_IMPLICIT)
+            commandStatus.text = "Falls Google-Sprachsuche nicht verfügbar ist: " +
+                "Tippe auf das Mikrofon der Samsung- oder Google-Tastatur, sprich deinen Auftrag " +
+                "und wähle dann 'Handy-Auftrag prüfen'. Keine automatische Ausführung."
+        }
         button("🔊 Bobs Rückmeldung vorlesen") { speakCurrentStatus() }
         // A deliberate tap on these view-only shortcuts is the approval.
         // No microphone, broker command, hidden automation or follow-up is involved.
@@ -285,8 +297,10 @@ class MainActivity : Activity() {
         if (requestCode == recognizeSpeechRequest) {
             taskApproval.clear()
             if (resultCode != RESULT_OK) {
-                speechOutcome = DeviceDiagnosticShare.Outcome.REJECTED
-                commandStatus.text = "Sprachauftrag abgebrochen. Nichts ausgeführt."
+                speechOutcome = DeviceDiagnosticShare.Outcome.UNAVAILABLE
+                commandStatus.text = "Android hat keinen Sprachtext zurückgegeben. " +
+                    "Falls Google 'Sprachsuche nicht verfügbar' meldet, benutze " +
+                    "'Über Tastatur-Mikrofon sprechen (Alternative)'. Nichts ausgeführt."
                 return
             }
             val spoken = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
@@ -351,17 +365,19 @@ class MainActivity : Activity() {
         commandStatus.text = "Spracherkennung gestartet. Keine Aktion wird automatisch ausgeführt."
         val request = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.GERMAN.toLanguageTag())
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.GERMANY.toLanguageTag())
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            // Only a preference: the installed speech provider may still use the internet.
-            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            // Never force the offline speech path: some Samsung Google providers
+            // fail with "Die Sprachsuche ist nicht verfügbar" when requested.
+            // Android's chosen voice provider may still use online processing.
             putExtra(RecognizerIntent.EXTRA_PROMPT, "Zum Beispiel: Öffne Bob und danach wähle Produktbilder aus")
         }
         try {
             startActivityForResult(request, recognizeSpeechRequest)
         } catch (_: Exception) {
             speechOutcome = DeviceDiagnosticShare.Outcome.UNAVAILABLE
-            commandStatus.text = "Auf diesem Samsung ist keine passende Spracherkennung verfügbar. Du kannst weiterhin die beiden Buttons verwenden."
+            commandStatus.text = "Android-Sprachdialog nicht verfügbar. Benutze " +
+                "'Über Tastatur-Mikrofon sprechen (Alternative)' oder das Textfeld."
         }
     }
 
@@ -371,13 +387,24 @@ class MainActivity : Activity() {
         PhoneTaskProtocol.parseDisplayed(text)
 
     private fun previewTask(text: String) {
-        val task = parseDisplayedTask(text)
+        // Accept only a fully validated bounded plan from keyboard dictation.
+        // If any clause is unknown, no action is approved.
+        val single = parseDisplayedTask(text)
+        val dictatedPlan = if (single == null) PhoneTaskPlanParser.parse(text) else null
         taskApproval.clear()
+        if (dictatedPlan != null) {
+            clearVoicePlan()
+            voiceSteps = dictatedPlan.steps
+            voiceStepIndex = 0
+            setCommandTextInternally(PhoneTaskProtocol.displayLabel(dictatedPlan.steps.first()))
+        }
+        val task = single ?: dictatedPlan?.steps?.firstOrNull()
         commandStatus.text = if (task == null) {
             if (text.isBlank()) {
-                "Noch kein Auftrag eingegeben. Bitte einen Auftrag eintippen oder einfügen."
+                "Noch kein Auftrag eingegeben. Du kannst auch das Tastatur-Mikrofon verwenden."
             } else {
-                "Nicht erlaubter Auftrag. Zulässig sind nur: ${PhoneTaskProtocol.OPEN_BOB}, ${PhoneTaskProtocol.PICK_IMAGES}, ${PhoneTaskProtocol.OPEN_SETTINGS}. Keine Brokerbedienung."
+                "Dieser Auftrag ist unklar oder nicht erlaubt. Keine Aktion. " +
+                    "Erlaubt sind nur bekannte Bob-Bereiche, Bildauswahl und Einstellungen."
             }
         } else {
             taskApproval.approve(task, SystemClock.elapsedRealtime())
@@ -385,7 +412,8 @@ class MainActivity : Activity() {
                 " Gesamtplan: ${PhoneTaskPlan(voiceSteps).summary()}. " +
                     "Schritt ${voiceStepIndex + 1} von ${voiceSteps.size}. "
             } else ""
-            "Prüfung OK: ${task.description}.$context Innerhalb von 60 Sekunden einmalig ausführen oder STOPP drücken."
+            "Prüfung OK: ${task.description}.$context " +
+                "Innerhalb von 60 Sekunden einmalig ausführen oder STOPP drücken."
         }
     }
 
