@@ -90,6 +90,14 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
                 account['recentCases'] = {'status':'observed','items':[project(row[0], CASE) for row in cases]}
             except Exception:
                 account['recentCases'] = {'status':'unavailable'}
+        # Read the independently retained Gold-API spot archive only.
+        # An original observation near a gap is not a reconstructed trade.
+        try:
+            with conn.transaction():
+                result['spotGapArchive'] = __import__('paper_spot_gap_evidence').snapshot(conn, accounts)
+        except Exception:
+            result['spotGapArchive'] = {'status':'unavailable','readOnly':True,
+                'reason':'original-spot-archive-read-unavailable'}
         result['history'] = collect({'journal':lambda:__import__('diagnostic_history').report(conn)})
         result['details'] = stored_details(conn)
         # Keep the research report independently addressable when oversized
@@ -294,6 +302,10 @@ def simulation_evidence_snapshot(simulation):
                 'scope':'exact-recordedAt-correlation-in-last-five-cases-per-account',
                 'note':'Distinct recorded event clocks, not independent outages. '
                        'A reason classification does not prove root cause or missing trade price.'},
+            'originalSpotArchive':(simulation.get('spotGapArchive')
+                if isinstance(simulation.get('spotGapArchive'),dict)
+                else {'status':'unavailable','readOnly':True,
+                      'reason':'spot-archive-not-in-source-report'}),
             'scope':'bounded-paper-case-evidence-not-fills-or-profit',
             'note':'A source data-gap cannot be repaired by interpolation or re-dating quotes.'}
 
