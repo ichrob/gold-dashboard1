@@ -77,6 +77,17 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(result['status'],'unavailable')
         self.assertEqual(diagnostics.summary({'degiroSync':result})['assessment'],'needs-attention')
 
+    def test_source_history_does_not_create_live_alerts(self):
+        sources={'xaus/1h':{'state':'current','events':[{'state':'stale'},{'state':'current'}]},
+                 'biquote/1m':{'state':'current','events':[{'state':'stale'}]},
+                 'xaus/1m':{'state':'stale','events':[{'state':'current'},{'state':'stale'}]}}
+        original={'status':'observed','sources':sources}
+        report=diagnostics.summary({'sourceReliability':original})
+        self.assertEqual(report['attention'],
+                         [{'area':'sourceReliability.sources.xaus/1m','state':'stale'}])
+        self.assertEqual(report['assessment'],'needs-attention')
+        self.assertEqual(len(original['sources']['xaus/1h']['events']),2)
+
     def test_summary_does_not_hide_product_or_shadow_dmi_gaps(self):
         summary = diagnostics.summary({'products': {'status':'ok', 'items':[{'state':'incomplete'}]},
             'analysis': {'dmi': {'available': False}}})
