@@ -64,6 +64,41 @@ def request(action, payload):
     return parsed
 
 
+def verified_hourly_research_archive(short_rows, *, now=None):
+    """Use the single-source XAU/USD hourly archive for research, never live signals.
+
+    Research's direct 3mo query can return fewer bars than Bob's already
+    verified candle archive. Replace the short series ONLY with a whole,
+    newer or equally current, source-identical closed series; never splice
+    providers, resample hours, or manufacture candles/timestamps.
+    """
+    import candle_reliability as archive
+    from market_review import frame_health
+    observed = now or datetime.now(TZ)
+    if observed.tzinfo is None:
+        return None
+    try:
+        with archive._LOCK:
+            saved = copy.deepcopy(archive._ROWS.get('xaus/1h') or [])
+        required = (strategy_lab.TRAIN_END + strategy_lab.HORIZON +
+                    strategy_lab.VALIDATION + strategy_lab.HORIZON + strategy_lab.TEST)
+        if len(saved) < required or len(saved) <= len(short_rows):
+            return None
+        checked = archive.validated('xaus/1h', saved, now=observed.timestamp())
+        if frame_health(checked, '1h', observed.timestamp()*1000)['state'] != 'ok':
+            return None
+        recent = [b['openTime'] for b in short_rows
+                  if isinstance(b, dict) and type(b.get('openTime')) in (int, float)
+                  and b.get('isOpen') is False]
+        # A current source cannot be replaced by a materially older archive.
+        if recent and checked[-1]['openTime'] < max(recent) - 3600000:
+            return None
+        return checked
+    except (ValueError, TypeError, KeyError):
+        # A corrupt/stale archive is ignored; the original evidence path stays.
+        return None
+
+
 def evaluate_and_store(fetcher, marker, *, now=None, storage=request):
     """One atomic per-date research snapshot, subject to archived-day dedupe."""
     day=research_day(now)
@@ -87,10 +122,14 @@ def evaluate_and_store(fetcher, marker, *, now=None, storage=request):
     else:
         rows=fetcher("1h","3mo")
         closed=marker([dict(row) for row in rows],60)
-        report=strategy_lab.run(closed)
+        # Keep the freshest original source as-is unless a longer independent,
+        # fully verified ONE-provider archive is available for research only.
+        archived=verified_hourly_research_archive(closed,now=local)
+        research_rows=archived if archived is not None else closed
+        report=strategy_lab.run(research_rows)
         if report.get("status") not in ("evaluated","insufficient"):
             raise ValueError("Forschungsbericht nicht speicherfähig")
-        report=research_learning.enrich(report,closed,old,day=day)
+        report=research_learning.enrich(report,research_rows,old,day=day)
         report["learningCycle"]["checkpoint"]="evening" if local.hour>=20 else "morning"
     ack=storage("write",dict(day=day,report=report))
     if not isinstance(ack,dict) or ack.get("saved") is not True or ack.get("day")!=day:
