@@ -97,7 +97,7 @@ function mergeProductIdentities(visible,stored,audit,now=Date.now()){
   let item=map.get(p.isin);
   if(!item){
    item={isin:p.isin,name:p.isin,direction:null,quote:null,reference:null,
-    fromVisible:false,fromArchive:false,fromAudit:false,conflictingDirection:false};
+    fromVisible:false,fromArchive:false,fromAudit:false,fromAuditStale:false,conflictingDirection:false};
    map.set(p.isin,item);
   }
   item[kind]=true;
@@ -119,20 +119,25 @@ function mergeProductIdentities(visible,stored,audit,now=Date.now()){
  if(saved&&Array.isArray(storedObject?.products))
   for(const p of storedObject.products)add(p,'fromArchive');
  const age=originalAge(audit?.lastCheckedAt,now);
- const audited=audit?.status==='ok'&&age!==null&&age<=300000&&
+ const auditFresh=audit?.status==='ok'&&age!==null&&age<=300000;
+ // Retain dated identities even when historical: no quotes, venue or approval.
+ const audited=['ok','partial','stale'].includes(audit?.status)&&age!==null&&age<=14*86400000&&
   Array.isArray(audit.items)&&audit.items.length<=500;
- if(audited)
-  for(const p of audit.items)add({isin:p?.isin,direction:p?.direction,name:p?.name},'fromAudit');
+ if(audited){
+  for(const p of audit.items){
+   add({isin:p?.isin,direction:p?.direction,name:p?.name},'fromAudit');
+   if(!auditFresh&&validIsin(p?.isin))map.get(p.isin).fromAuditStale=true;
+  }
+ }
  return {items:[...map.values()].sort((a,b)=>a.isin.localeCompare(b.isin)),
-  auditFresh:audited,auditCount:audited?audit.items.length:null,
-  archiveCount:saved?.ids.length||0,visibleCount:Array.isArray(visible)?visible.length:0};
+  auditFresh,auditHistoric:audited&&!auditFresh,auditAt:audited?audit.lastCheckedAt:null,
+  auditCount:audited?audit.items.length:null,archiveCount:saved?.ids.length||0,
+  visibleCount:Array.isArray(visible)?visible.length:0};
 }
 
-// Zero requires a checked source; a missing or failed source is UNKNOWN, not
-// a definitive empty product list.
 function knownProductCount(candidateState){
  if(!candidateState||!Array.isArray(candidateState.items))return null;
- if(candidateState.auditFresh||candidateState.archiveCount>0||candidateState.visibleCount>0)
+ if(candidateState.auditFresh||candidateState.auditHistoric||candidateState.archiveCount>0||candidateState.visibleCount>0)
   return candidateState.items.length;
  return null;
 }
@@ -212,6 +217,8 @@ function mount(){
  section.id='bobUnifiedWorkspace';section.className='card';
  section.innerHTML='<h3>Bob · Alles an einem Ort</h3>'+
  '<p class="small">Einmal prüfen, dann den passenden Bereich öffnen. Quellen- und Handelsnachweise bleiben getrennt; keine automatische Order oder Änderung der Risikoregeln.</p>'+
+ '<p class="small" id="bobGoldProductBanner" role="status" aria-live="polite">Goldprodukte: Prüfbericht wird geladen …</p>'+
+ '<button type="button" data-view="products" id="bobOpenGoldProducts">Gold-Hebelprodukte ansehen</button>'+
  '<button type="button" id="bobPrepareReadOnly" class="bob-primary">Bob, bereite alles vor</button>'+
  '<p class="small" id="bobPrepareStatus" role="status" aria-live="polite">Noch nicht geprüft.</p>'+
  '<div id="bobUnifiedChecks" class="small"></div>'+
@@ -240,11 +247,15 @@ function mount(){
  if(title)title.after(section);else overview.prepend(section);
  const status=doc.getElementById('bobPrepareStatus'),checks=doc.getElementById('bobUnifiedChecks');
  const chosen=doc.getElementById('bobUnifiedProduct'),productNote=doc.getElementById('bobUnifiedProductNote');
- let working=false,productAudit=null,productAuditFetchedAt=0,productAuditFlight=null;
+ let working=false,productAudit=null,productAuditFetchedAt=0,productAuditFlight=null,auditFetchError=null;
  function productCandidates(){
-  const visible=root.BobDegiro?.tradeTestProducts?.()||[];
+  let visible=[];try{visible=root.BobDegiro?.tradeTestProducts?.()||[];}catch(_){}
   let stored=null;try{stored=root.localStorage?.getItem(PRODUCT_STORE_KEY)||null;}catch(_){}
-  return mergeProductIdentities(visible,stored,productAudit,Date.now());
+  const shared=root.BobProductAuditReport;
+  const knownAt=originalAge(productAudit?.lastCheckedAt),sharedAt=originalAge(shared?.lastCheckedAt);
+  const best=shared?.items&&['ok','partial','stale'].includes(shared.status)&&sharedAt!==null&&
+   (knownAt===null||sharedAt<=knownAt)?shared:productAudit;
+  return mergeProductIdentities(visible,stored,best,Date.now());
  }
  function fetchProductAudit(){
   if(productAuditFlight)return productAuditFlight;
@@ -255,9 +266,18 @@ function mount(){
    .then(async response=>{
     if(!response.ok)throw Error('audit-status');
     const data=await response.json();
-    if(data?.status!=='ok'||!Array.isArray(data.items)||data.items.length>500)throw Error('audit-unavailable');
-    productAudit=data;productAuditFetchedAt=Date.now();return data;
-   }).catch(()=>{productAudit=null;return null;})
+    if(!['ok','stale','partial'].includes(data?.status)||!Array.isArray(data.items)||data.items.length>500)
+     throw Error('audit-unavailable');
+    if(originalAge(data.lastCheckedAt)!==null){
+     const priorAge=originalAge(productAudit?.lastCheckedAt);
+     if(priorAge===null||originalAge(data.lastCheckedAt)<=priorAge)productAudit=data;
+    }
+    productAuditFetchedAt=Date.now();auditFetchError=null;return data;
+   }).catch(e=>{
+    // A network failure must not erase the last dated product identity list.
+    auditFetchError=String(e?.message||'unavailable').startsWith('audit-status')?'HTTP-Abruf fehlgeschlagen':'Prüfbericht momentan nicht erreichbar';
+    productAuditFetchedAt=Date.now();return productAudit;
+   })
    .finally(()=>{clearTimeout(timer);productAuditFlight=null;});
   return productAuditFlight;
  }
@@ -267,7 +287,7 @@ function mount(){
   const first=doc.createElement('option');first.value='';first.textContent='Bitte Produkt wählen';chosen.append(first);
   for(const p of items){
    const item=doc.createElement('option');item.value=p.isin;
-   const origin=p.fromVisible?'Handy-Assistent':p.fromAudit?'Bob-Prüfbericht':'gespeicherte Liste';
+   const origin=p.fromVisible?'Handy-Assistent':p.fromAudit?(p.fromAuditStale?'Prüfbericht (historisch)':'Bob-Prüfbericht'):'gespeicherte Liste';
    item.textContent=p.isin+' · '+(p.conflictingDirection?'Richtung unklar':p.direction||'Richtung offen')+' · '+origin;
    chosen.append(item);
   }
@@ -295,7 +315,7 @@ function mount(){
   if(!p){productNote.textContent='Kein Produkt gewählt.';return;}
   const q=p.quote,at=q?.askAt||q?.bidAt||null,age=originalAge(at);
   const label=age===null?'Originalzeit fehlt':age>90000?'Originalkurs älter als 90 Sekunden':'Beobachtungszeit innerhalb von 90 Sekunden';
-  const origin=p.fromVisible?'Handy-Assistent':p.fromAudit?'Bob-Prüfbericht':'gespeicherte Screenshotliste';
+  const origin=p.fromVisible?'Handy-Assistent':p.fromAudit?(p.fromAuditStale?'Prüfbericht (historisch)':'Bob-Prüfbericht'):'gespeicherte Screenshotliste';
   const note=p.conflictingDirection?' · widersprüchliche Richtung; Übernahme gesperrt':'';
   productNote.textContent='ISIN '+p.isin+' · '+(p.conflictingDirection?'Richtung unklar':p.direction||'Richtung offen')+
    ' · '+origin+' · '+label+' · '+(q?.source||'Emittentenkurs nicht belegt')+note+
@@ -334,6 +354,20 @@ function mount(){
  }
  function present(value){
   refreshProducts();
+  const candidates=productCandidates();
+  const notice=doc.getElementById('bobGoldProductBanner');
+  if(notice){
+   const total=candidates.items.length,parts=[];
+   if(candidates.auditCount!==null)
+    parts.push(candidates.auditCount+' im '+(candidates.auditFresh?'aktuellen':'historischen')+' Bob-Prüfbericht');
+   if(candidates.archiveCount)parts.push(candidates.archiveCount+' aus gespeicherter Screenshotliste');
+   if(candidates.visibleCount)parts.push(candidates.visibleCount+' im Handy-Assistenten');
+   notice.textContent=total?'Goldprodukte: '+total+' unterschiedliche ISINs · '+parts.join(' · ')+
+    (candidates.auditHistoric?' · Originalstand '+candidates.auditAt+'; Nachweise erneut prüfen':'')+
+    '. Keine Handelsfreigabe.':
+    'Goldprodukte derzeit nicht ladbar'+(auditFetchError?' ('+auditFetchError+')':'')+
+    '. Unter Produkte oder Probleme den Prüfbericht kontrollieren.';
+  }
   checks.replaceChildren();
   const rows=[
    ['Gold-Spot',value.spot],['Marktanalyse',value.analysis],
