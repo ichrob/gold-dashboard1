@@ -718,6 +718,43 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
         conn.execute("DELETE FROM bob_paper_cases WHERE closed_at < now()-interval '30 days'")
     conn.execute('UPDATE bob_paper_control SET payload=%s::jsonb WHERE id=1',(json.dumps(control),))
 
+def newer_queued_paper_bundle(current, candidate, now_ms):
+    """Take a complete fresher observed bundle, never an inferred or mixed tick.
+
+    Running quote-cache calls can overlap with new upstream observations. Only
+    replace a stale worker input with a newer timestamped collector bundle
+    that satisfies the unchanged 60-second input-age requirement.
+    """
+    def source_at(bundle):
+        if not isinstance(bundle,dict):
+            return None
+        spots=bundle.get('spots')
+        history=bundle.get('history')
+        if not isinstance(spots,dict) or not isinstance(history,dict):
+            return None
+        if not isinstance(history.get('bars_by_tf'),dict):
+            return None
+        if spots.get('is_genuine_xauusd_spot') is not True or spots.get('xaus_is_spot') is not True:
+            return None
+        source=spots.get('spot_price_as_of')
+        if not isinstance(source,str):
+            return None
+        try:
+            at=datetime.fromisoformat(source.replace('Z','+00:00'))
+            if at.tzinfo is None:
+                return None
+            ms=at.timestamp()*1000
+            return ms if math.isfinite(ms) and ms>0 else None
+        except (TypeError,ValueError,OverflowError):
+            return None
+    if type(now_ms) not in (int,float) or not math.isfinite(now_ms):
+        return current
+    new_time=source_at(candidate)
+    old_time=source_at(current)
+    return (candidate if new_time is not None and 0<=now_ms-new_time<=60000
+            and (old_time is None or new_time>old_time) else current)
+
+
 # Independent bounded worker: product network calls never delay /background or Push.
 _guard=threading.Lock();_latest=None;_thread=None
 _bundle_ready=threading.Event()
@@ -884,6 +921,14 @@ def _worker(db):
                         except Exception:
                             product_repair_learning.install({})
                         quotes=quote_cache(evidence['products'],active_isins,now)
+                        # Reuse a complete newer collector snapshot only if it
+                        # already arrived; never fetch or change a source clock.
+                        with _guard:
+                            queued_bundle=_latest
+                        fresh=newer_queued_paper_bundle(bundle,queued_bundle,time.time()*1000)
+                        if fresh is not bundle:
+                            bundle=fresh
+                            print('BOB_PAPER reused_newer_observed_bundle=1',flush=True)
                         # Source refresh may fetch newer timestamps. Audit against
                         # completion time, never the clock from before those reads.
                         now=time.time()*1000
