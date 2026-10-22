@@ -41,7 +41,7 @@ assert.match(html,/navigator\.clipboard\?\.writeText/, 'Use normal clipboard whe
 assert.match(html,/document\.execCommand\('copy'\)/, 'Fallback for Samsung in-app browser');
 assert.match(html,/event\.stopPropagation\(\)/, 'Do not toggle collapsed cards on copy');
 assert.match(html,/new MutationObserver/, 'Newly updated product/ranking/voice DOM is covered');
-assert.match(html,/aria-label','ISIN-copy affordance needs accessible label');
+assert.match(html,/setAttribute\('aria-label'/,'ISIN copy affordance needs accessible label');
 const degiro=fs.readFileSync('degiro_assistant.js','utf8');
 assert.match(degiro,/function renderIsinCopy/, 'Existing copy controls retained');
 assert.match(degiro,/data-copy-product-isin/, 'Existing product copy controls must still work');
