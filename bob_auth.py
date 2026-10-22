@@ -30,6 +30,25 @@ FAILURES = []
 PASSWORD_FAILURE_LIMIT = 5
 PASSWORD_FAILURE_WINDOW = 5 * 60
 
+# UI-only return destinations; NEVER arbitrary paths or redirects.
+SAFE_RETURN_VIEWS = frozenset(("overview", "products", "trade", "simulation", "learning", "research"))
+
+def safe_return_view(value):
+    return value if isinstance(value, str) and value in SAFE_RETURN_VIEWS else ""
+
+def login_destination(headers, requested_view=""):
+    """After successful login return only to a fixed local Bob view.
+
+    OAuth's existing /oauth/resume flow takes precedence over an ordinary
+    Android/desktop navigation link. No external user-supplied URLs.
+    """
+    import bob_oauth
+    destination = bob_oauth.resume_location(headers)
+    view = safe_return_view(requested_view)
+    if destination != "/" or not view:
+        return destination
+    return "/?view=" + view + "#" + view
+
 
 class AuthenticationUnavailable(Exception):
     """Current authorization could not be checked; never treat as invalid credentials."""
@@ -183,7 +202,8 @@ def set_cookie(name, value, age):
     return f'{name}={value}; Path=/; Max-Age={age}; Secure; HttpOnly; SameSite=Strict'
 
 
-def login_page(handler, error='', status=200):
+def login_page(handler, error='', status=200, view=''):
+    view = safe_return_view(view)
     token = secrets.token_urlsafe(32)
     now = time.time()
     with LOCK:
@@ -194,7 +214,7 @@ def login_page(handler, error='', status=200):
             PENDING.pop(next(iter(PENDING)))
         PENDING[token] = now + 600
     remember = '<label style="display:flex;align-items:center;gap:10px"><input style="width:auto;margin:0" type="checkbox" name="remember" value="1"> Angemeldet bleiben (7 Tage)</label><p>Nur auf deinem eigenen Gerät verwenden. Abmelden beendet die Sitzung auch nach einem Serverneustart.</p>' if persistent_configured() else ''
-    body = f'''<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Bob – Anmeldung</title><style>body{{font-family:system-ui;background:#f3f5f8;margin:0;padding:24px}}main{{max-width:360px;margin:8vh auto;background:white;border-radius:18px;padding:28px}}label,input,button{{display:block;box-sizing:border-box;width:100%;margin-top:12px}}input,button{{padding:13px;border:1px solid #ccd3dd;border-radius:9px;font:inherit}}button{{background:#2358b6;color:white}}p{{color:#49566a}}.error{{color:#a12222}}</style><main><h1>Bob anmelden</h1><p>Nutze deine bestehenden Bob-Zugangsdaten.</p><p class="error">{html.escape(error)}</p><form method="post" action="/login"><input type="hidden" name="csrf" value="{token}"><label for="username">Benutzername</label><input id="username" name="username" type="text" autocomplete="username" required maxlength="256"><label for="password">Passwort</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024">{remember}<button type="submit">Anmelden</button></form><p><a href="/forgot-password">Passwort vergessen?</a></p></main></html>'''.encode()
+    body = f'''<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Bob – Anmeldung</title><style>body{{font-family:system-ui;background:#f3f5f8;margin:0;padding:24px}}main{{max-width:360px;margin:8vh auto;background:white;border-radius:18px;padding:28px}}label,input,button{{display:block;box-sizing:border-box;width:100%;margin-top:12px}}input,button{{padding:13px;border:1px solid #ccd3dd;border-radius:9px;font:inherit}}button{{background:#2358b6;color:white}}p{{color:#49566a}}.error{{color:#a12222}}</style><main><h1>Bob anmelden</h1><p>Nutze deine bestehenden Bob-Zugangsdaten.</p><p class="error">{html.escape(error)}</p><form method="post" action="/login"><input type="hidden" name="csrf" value="{token}"><input type="hidden" name="return_view" value="{html.escape(view)}"><label for="username">Benutzername</label><input id="username" name="username" type="text" autocomplete="username" required maxlength="256"><label for="password">Passwort</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024">{remember}<button type="submit">Anmelden</button></form><p><a href="/forgot-password">Passwort vergessen?</a></p></main></html>'''.encode()
     send(handler, status, body, cookies=[set_cookie(CSRF_COOKIE, token, 600)])
 
 
@@ -208,6 +228,7 @@ def login(handler, user, password):
             send(handler, 415)
             return
         fields = parse_qs(handler.rfile.read(length).decode('utf-8'), max_num_fields=8)
+        requested_view = safe_return_view(fields.get('return_view', [''])[0])
         csrf = fields.get('csrf', [''])[0]
         now = time.time()
         with LOCK:
@@ -215,7 +236,7 @@ def login(handler, user, password):
             FAILURES[:] = [x for x in FAILURES if x > now - PASSWORD_FAILURE_WINDOW]
             limited = len(FAILURES) >= PASSWORD_FAILURE_LIMIT
         if not valid:
-            login_page(handler, 'Anmeldung abgelaufen. Bitte erneut anmelden.', status=403)
+            login_page(handler, 'Anmeldung abgelaufen. Bitte erneut anmelden.', status=403, view=requested_view)
             return
         if limited:
             send(handler, 429, b'Zu viele Fehlversuche. Bitte bis zu fuenf Minuten warten.')
@@ -223,7 +244,7 @@ def login(handler, user, password):
         try:
             current = bob_recovery.state(user)
         except (OSError, ValueError, TypeError):
-            login_page(handler, 'Passwortspeicher momentan nicht erreichbar. Bitte später erneut versuchen.', status=503)
+            login_page(handler, 'Passwortspeicher momentan nicht erreichbar. Bitte später erneut versuchen.', status=503, view=requested_view)
             return
         candidate = fields.get('password', [''])[0]
         ok = check_password(fields.get('username', [''])[0], candidate, user, password, current)
@@ -231,7 +252,7 @@ def login(handler, user, password):
             send(handler, 429, b'Zu viele Fehlversuche. Bitte bis zu fuenf Minuten warten.')
             return
         if not ok:
-            login_page(handler, 'Anmeldung fehlgeschlagen. Bitte Zugangsdaten prüfen.')
+            login_page(handler, 'Anmeldung fehlgeschlagen. Bitte Zugangsdaten prüfen.', view=requested_view)
             return
         remember = fields.get('remember') == ['1']
         age = REMEMBER_TTL if remember else TTL
@@ -250,7 +271,7 @@ def login(handler, user, password):
                 error = 'Die bisherige Sieben-Tage-Sitzung konnte nicht beendet werden. Der Sitzungsspeicher ist momentan nicht erreichbar. Bitte später erneut anmelden.'
             else:
                 error = 'Dauerhafte Anmeldung momentan nicht verfügbar. Bitte später erneut versuchen oder ohne „Angemeldet bleiben“ anmelden.'
-            login_page(handler, error)
+            login_page(handler, error, view=requested_view)
             return
         with LOCK:
             for key, (expiry, version) in list(SESSIONS.items()):
@@ -261,8 +282,7 @@ def login(handler, user, password):
                 SESSIONS.pop(next(iter(SESSIONS)))
             if not remember:
                 SESSIONS[token] = (now + age, current['version'])
-        import bob_oauth
-        send(handler, 303, location=bob_oauth.resume_location(handler.headers), cookies=[set_cookie(COOKIE, token, age), set_cookie(CSRF_COOKIE, '', 0)])
+        send(handler, 303, location=login_destination(handler.headers, requested_view), cookies=[set_cookie(COOKIE, token, age), set_cookie(CSRF_COOKIE, '', 0)])
     except (ValueError, UnicodeError):
         send(handler, 400, b'Ungueltige Anmeldung.')
 
