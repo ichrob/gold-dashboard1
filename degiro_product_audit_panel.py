@@ -189,6 +189,13 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    const healthy=['issuer-evidence-complete','analysis-evidence-complete'].includes(item.state);
    const ended=item.state==='terminated';
    summary.textContent=(ended?'⛔ ':healthy?'✓ ':'⚠ ') +(item.isin||'ISIN unbekannt')+' · '+(ended?'Beendet laut Emittent · gesperrt':healthy?'Produktnachweise vorhanden':'Fehlende Nachweise: '+(item.missing||[]).length);
+   // A source-confirmed terminal instrument has no live quote/leverage problem
+   // to repair. Show only the ISIN and issuer-ended state, no X or extra fields.
+   // "Beendet" is intentional: terminal status alone is not KO proof.
+   if(ended){
+    summary.textContent=(item.isin||'ISIN unbekannt')+' · Produkt beendet';
+    node.append(summary);out.append(node);continue;
+   }
    const list=document.createElement('p');list.style.whiteSpace='pre-line';
    list.textContent=(item.messages||[]).join('\n')+'\nPrüfungen in Folge: '+(item.consecutiveChecks||0)+' · Nächster Schritt: '+item.autoRecovery+
         '\nGeldkurszeit: '+(item.quoteSourceAt?fmt(item.quoteSourceAt):'nicht nachgewiesen')+
