@@ -25,6 +25,13 @@ assert.equal(a.analyzeInputs({...base,analysisReady:false},now).analysis.ok,fals
 assert.equal(a.analyzeInputs({...base,spotError:'provider-outage'},now).spot.ok,false);
 assert.equal(a.analyzeInputs({...base,reason:'Zeitstempel fehlt'},now).analysis.ok,false);
 assert.equal(a.analyzeInputs({...base,productCount:null},now).products.ok,false);
+const initial=a.visibleChange(null,['DE000FG14AV8','DE000FG14AV8']);
+assert.equal(initial.known,false);assert.equal(initial.current.length,1);
+const changed=a.visibleChange(['DE000FG14AV8','US0378331005'],['DE000FG309G0','US0378331005']);
+assert.deepEqual(changed.added,['DE000FG309G0']);
+assert.deepEqual(changed.removed,['DE000FG14AV8']);
+assert.deepEqual(changed.unchanged,['US0378331005']);
+assert.equal(a.visibleChange([],['DE000FG14AV9']).current.length,0);
 const draft={day:'2026-10-22',currency:'EUR',budget:10000,orders:[
  {isin:'DE000FG14AV8',side:'Kauf',qty:5,price:1200,fees:100,cost:6100,stop:900,target:1800},
  {isin:'DE000FG14AV8',side:'Verkauf',qty:2,price:1100,fees:100,cost:2300,stop:null,target:null}
