@@ -88,7 +88,7 @@ class WatchdogTests(unittest.TestCase):
                 calls.append(method)
                 return [{"title": watchdog.issue_title("product-quote-evidence-missing"), "number": 77}]
             watchdog.sync_issue(codes, token="test", repo="ichrob/gold-dashboard1", requester=requester)
-            self.assertEqual(calls, ["GET"])
+            self.assertEqual(calls, ["GET", "GET"])
 
     def test_distinct_issues_are_counted_and_recovered_individually(self):
         actions = []
@@ -122,15 +122,16 @@ class WatchdogTests(unittest.TestCase):
         self.assertEqual(sum(1 for method, path, _ in actions
                              if method == "POST" and path == "/issues"), 2)
 
-    def test_transient_missing_issue_is_rechecked_before_create(self):
+    def test_search_fallback_finds_issue_omitted_from_repository_list(self):
         title = watchdog.issue_title("product-quote-evidence-missing")
-        snapshots = [[], [{"title": title, "number": 725}]]
         calls = []
 
         def requester(method, path, **kwargs):
             calls.append((method, path, kwargs.get("data")))
-            if method == "GET":
-                return snapshots.pop(0)
+            if method == "GET" and path.startswith("/issues?"):
+                return []
+            if method == "GET" and path.startswith("/search/issues?"):
+                return {"items": [{"title": title, "number": 725}]}
             self.fail("A duplicate issue must not be created")
 
         result = watchdog.sync_issue(
@@ -139,6 +140,7 @@ class WatchdogTests(unittest.TestCase):
         )
         self.assertEqual(result, "already-open")
         self.assertEqual([method for method, _path, _data in calls], ["GET", "GET"])
+        self.assertTrue(calls[1][1].startswith("/search/issues?"))
 
     def test_later_duplicate_is_closed_and_oldest_issue_stays_canonical(self):
         title = watchdog.issue_title("product-leverage-clock-missing")
@@ -234,7 +236,10 @@ class WatchdogTests(unittest.TestCase):
         opts = {"token": "test", "repo": "ichrob/gold-dashboard1", "requester": requester}
         self.assertEqual(watchdog.sync_issue([watchdog.PRODUCT_AUDIT_UNKNOWN], **opts),
                          "audit-unavailable")
-        self.assertEqual(calls, [("GET", "/issues?state=open&per_page=100")])
+        self.assertEqual(calls, [
+            ("GET", "/issues?state=open&per_page=100"),
+            ("GET", "/search/issues?q=repo%3Aichrob%2Fgold-dashboard1+is%3Aissue+is%3Aopen+in%3Atitle+%22%5BBob+KI-Hilfe%5D%22&per_page=30"),
+        ])
 
     def test_never_publish_private_product_content_on_issues(self):
         body = watchdog.issue_body(["product-ko-validity-missing",
