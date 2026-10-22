@@ -90,6 +90,11 @@ internal object PhoneTaskPlanParser {
             "erkläre mir die long-produkte", "erkläre mir die long produkte",
             "zeige mir den long-vergleich" -> PhoneTask.OPEN_LONG_REVIEW
 
+            "höchsten hebel erklären", "welches produkt hat den höchsten hebel",
+            "welches hat den höchsten hebel", "welches hat den besten hebel",
+            "was ist mit dem hebelrisiko", "zeige das hebelrisiko",
+            "erkläre den höchsten hebel" -> PhoneTask.OPEN_LEVERAGE_REVIEW
+
             "mein trade anzeigen", "zeige meinen trade", "zeig meinen trade",
             "zeige mir meinen trade", "öffne mein trade", "mein trade", "meinen trade",
             "zeige den aktiven trade", "aktiven trade anzeigen" -> PhoneTask.OPEN_TRADE
