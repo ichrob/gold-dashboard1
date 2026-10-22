@@ -117,12 +117,16 @@ def reconcile_model(result, now):
     obs = report.get('observations') or {}
     isin = out.get('isin')
     source = 'https://www.comdirect.de/inf/zertifikate/'+str(isin)
-    if (not isinstance(isin, str) or not q.valid_isin(isin) or report.get('isin') != isin
-            or report.get('state') != 'active' or report.get('conflicts')
-            or report.get('inactive') or report.get('source') != source):
-        return out
     required = dict(quanto=False, direction=m.get('direction'), currency=m.get('currency'),
                     underlying='XAU/USD', ratio=m.get('ratio'), type='Knock-out Turbo')
+    # KO/strike conflicts do not affect the non-quanto gearing formula. Keep
+    # those independent barriers blocked, but accept same-product model fields
+    # when every formula-relevant observation below is explicitly verified.
+    model_conflicts = set(report.get('conflicts') or []) & set(required)
+    if (not isinstance(isin, str) or not q.valid_isin(isin) or report.get('isin') != isin
+            or report.get('state') not in ('active', 'conflict') or model_conflicts
+            or report.get('inactive') or report.get('source') != source):
+        return out
     if m.get('underlying') != 'XAU/USD' or not m.get('ratio'):
         return out
     for key, value in required.items():
