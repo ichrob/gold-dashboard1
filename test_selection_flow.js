@@ -670,7 +670,10 @@ genericList.snapshot.terms.type={value:'BNP Unlimited',reviewed:true,source:'his
 assert(b.productTermsStatus(genericList,bnpDateNow).complete);
 assert(b.missingValueLocation('Produkttyp nicht als Turbo / Knock-out bestätigt').includes('Typ / Produktart'));
 const endedCard=b.compactProductCard({...genericList,quote:{...genericList.quote,metadata:{status:2}}});
-assert(endedCard.includes('Keine weiteren Daten oder Screenshots erforderlich'));
+assert(endedCard.includes('Produkt beendet'));
+assert(!endedCard.includes('✗'));
+assert(!endedCard.includes('Geld:'));
+assert(!endedCard.includes('Hebel:'));
 assert(!endedCard.includes('Bilder / PDF hinzufügen'));
 const factorCard=b.compactProductCard({isin:'DE000FE4UF01',name:'Gold Future Faktor'});
 assert(factorCard.includes('Faktorprodukt ausgeschlossen'));assert(!factorCard.includes('Bilder / PDF hinzufügen'));
