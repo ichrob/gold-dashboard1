@@ -74,6 +74,41 @@ for(const bad of [
  {...archived,products:[]},
  {...archived,version:1}
 ])assert.equal(a.uploadedList(JSON.stringify(bad),listNow),null);
+// Regression: mobile page may have zero manual input rows while authenticated
+// server audit still contains ten verified ISIN identities. No order approval.
+const audited10=Array.from({length:10},(_,i)=>({isin:[
+ 'DE000FG14AV8','DE000FG309G0','US0378331005','DE000FG14AV9',
+ 'DE000FG309G0','DE000FG14AV8','DE000FG309G0','US0378331005',
+ 'DE000FG14AV8','DE000FG309G0'
+][i]}));
+const latest={status:'ok',lastCheckedAt:'2026-10-22T09:49:55Z',
+ items:[{isin:'DE000FG14AV8',direction:'LONG',name:'Audit LONG'},
+        {isin:'US0378331005',direction:'SHORT',name:'Audit SHORT'}]};
+const auditOnly=a.mergeProductIdentities([],null,latest,operationsNow);
+assert.equal(auditOnly.items.length,2);
+assert.equal(auditOnly.items[0].fromAudit,true);
+assert.equal(auditOnly.items[0].quote,null);
+assert.equal(auditOnly.items[0].fromVisible,false);
+assert.equal(auditOnly.auditFresh,true);
+assert.equal(a.analyzeInputs({...base,productCount:auditOnly.items.length},now).products.ok,true);
+const staleAudit=a.mergeProductIdentities([],null,
+ {...latest,lastCheckedAt:'2026-10-22T09:35:00Z'},operationsNow);
+assert.equal(staleAudit.items.length,0,'Old audit is not presented as current');
+assert.equal(a.mergeProductIdentities([],null,{...latest,status:'stale'},operationsNow).items.length,0);
+const storedOnly=a.mergeProductIdentities([],JSON.stringify(archived),null,listNow);
+assert.equal(storedOnly.items.length,2);
+assert.equal(storedOnly.items[0].fromArchive,true);
+assert.equal(storedOnly.items[0].quote,null);
+assert.equal(storedOnly.items[0].fromAudit,false);
+const union=a.mergeProductIdentities(
+ [{isin:'DE000FG14AV8',direction:'LONG',quote:{isin:'DE000FG14AV8',bid:10}}],
+ JSON.stringify({...archived,products:[{isin:'DE000FG14AV8',direction:'SHORT'},{isin:'US0378331005'}]}),
+ latest,listNow);
+assert.equal(union.items.length,2);
+assert.equal(union.items[0].conflictingDirection,true);
+assert.equal(union.items[0].quote.bid,10,'Only visible source may supply a quote');
+assert.equal(union.items[0].fromAudit,true,'Fresh audit identity may add only an observation source');
+assert.equal(a.mergeProductIdentities([],null,{...latest,items:[{isin:'DE000FG14AV9'}]},operationsNow).items.length,0);
 const privateWarning=a.operationalSnapshot(report,none,'',operationsNow,2);
 assert.equal(privateWarning.problemStatus.state,'warning');
 assert.match(privateWarning.problemStatus.text,/Private Produkt-Hilfefälle laut Produktansicht: 2/);
