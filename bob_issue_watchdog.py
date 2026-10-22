@@ -10,6 +10,7 @@ import os
 import sys
 import time
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
@@ -157,7 +158,10 @@ def issue_body(codes, at):
 
 
 def github_request(method, api_path, *, token, repo, data=None, opener=urlopen):
-    url = "https://api.github.com/repos/" + repo + api_path
+    if api_path.startswith("/search/"):
+        url = "https://api.github.com" + api_path
+    else:
+        url = "https://api.github.com/repos/" + repo + api_path
     encoded = json.dumps(data).encode("utf-8") if data is not None else None
     request = Request(url, data=encoded, method=method, headers={
         "Accept": "application/vnd.github+json",
@@ -200,6 +204,26 @@ def open_issue_index(*, token, repo, requester=github_request):
             break
     else:
         raise ValueError("Issue-Liste unvollständig")
+
+    # The workflow token has repeatedly received a complete HTTP response that
+    # nevertheless omitted existing open help issues from the repository list.
+    # GitHub's independent search index is the fail-closed cross-check before
+    # a new public incident can be created.
+    query = quote_plus(
+        'repo:' + repo + ' is:issue is:open in:title "[Bob KI-Hilfe]"'
+    )
+    search = requester(
+        "GET", "/search/issues?q=" + query + "&per_page=30",
+        token=token, repo=repo
+    )
+    if isinstance(search, dict):
+        search_rows = search.get("items")
+    else:
+        # Test requesters historically model all GET endpoints as issue lists.
+        search_rows = search
+    if not isinstance(search_rows, list):
+        raise ValueError("Issue-Suche ungültig")
+    issues.extend(search_rows)
 
     allowed_titles = {ISSUE_TITLE} | {issue_title(code) for code in CODES}
     grouped = {}
