@@ -44,7 +44,17 @@ function readDraft(value){
  }
  return out;
 }
-const api={validIsin,readDraft};
+function takeTransferFragment(location,history){
+ const hash=String(location?.hash||'');
+ if(!hash.startsWith('#bob-ocr='))return null;
+ // Remove sensitive fragment before parsing or rendering: never persist it in history.
+ history.replaceState(null,'',String(location.pathname||'/')+String(location.search||''));
+ if(hash.length>8000)throw Error('Android-Übergabe ist zu lang.');
+ const draft=decodeURIComponent(hash.slice('#bob-ocr='.length));
+ readDraft(draft); // Strict parser rejects missing/multiple/invalid ISINs and unknown fields.
+ return draft;
+}
+const api={validIsin,readDraft,takeTransferFragment};
 if(typeof module==='object'&&module.exports)module.exports=api;
 if(!root.document)return;
 function mount(){
@@ -89,6 +99,24 @@ function mount(){
    }
   }catch(e){status.textContent='Nicht übernommen: '+e.message;}
  };
+ // Automatic navigation is only a user-initiated image share from our Android app.
+ // The URL fragment is local browser navigation; no API request or trade approval.
+ try{
+  const incoming=takeTransferFragment(root.location,root.history);
+  if(incoming!==null){
+   textarea.value=incoming;
+   box.open=true;
+   analyze.click();
+   const navButton=root.document.querySelector('#bob-view-more [data-view="degiro"]')||
+                   root.document.querySelector('[data-view="degiro"]');
+   if(navButton)navButton.click();
+   else host.hidden=false;
+   box.scrollIntoView({block:'start'});
+  }
+ }catch(e){
+  box.open=true;
+  status.textContent='Android-Übergabe abgelehnt: '+e.message;
+ }
 }
 if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',mount);else mount();
 })(typeof window==='undefined'?globalThis:window);
