@@ -128,6 +128,14 @@ function mergeProductIdentities(visible,stored,audit,now=Date.now()){
   archiveCount:saved?.ids.length||0,visibleCount:Array.isArray(visible)?visible.length:0};
 }
 
+// Zero requires a checked source; a missing or failed source is UNKNOWN, not
+// a definitive empty product list.
+function knownProductCount(candidateState){
+ if(!candidateState||!Array.isArray(candidateState.items))return null;
+ if(candidateState.auditFresh||candidateState.archiveCount>0||candidateState.visibleCount>0)
+  return candidateState.items.length;
+ return null;
+}
 function operationalSnapshot(audit,problems,simulationText='',now=Date.now(),privateProductHelp=null){
  const ago=originalAge(audit?.lastCheckedAt,now);
  const actualAudit=audit?.status==='ok'&&Array.isArray(audit.items)&&
@@ -192,7 +200,7 @@ function serializeDraftBackup(drafts,now=new Date()){
  const clean=validateDraftBackup(JSON.stringify(content),drafts.day);
  return JSON.stringify({...content,drafts:clean},null,2);
 }
-const api={zurichDay,originalAge,validIsin,visibleChange,uploadedList,compareUploadedList,mergeProductIdentities,productEvidence,analyzeInputs,operationalSnapshot,validateDraftBackup,serializeDraftBackup};
+const api={zurichDay,originalAge,validIsin,visibleChange,uploadedList,compareUploadedList,mergeProductIdentities,knownProductCount,productEvidence,analyzeInputs,operationalSnapshot,validateDraftBackup,serializeDraftBackup};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 root.BobUnifiedWorkspace=api;
 if(!root.document)return;
@@ -312,7 +320,7 @@ function mount(){
 
  function text(id){return doc.getElementById(id)?.textContent?.trim()||'';}
  function snapshot(){
-  const bundle=root.liveBundleCache,products=productCandidates().items;
+  const bundle=root.liveBundleCache,candidates=productCandidates();
   return {
    expired:root.BobSession?.expired?.()===true,
    signal:text('quickSignal'),reason:text('quickReason'),
@@ -320,7 +328,7 @@ function mount(){
    spotGenuine:bundle?.spots?.is_genuine_xauusd_spot===true,
    spotError:bundle?.spots?.spot_error,
    analysisReady:root.A?.ready===true,
-   productCount:Array.isArray(products)?products.length:null,
+   productCount:knownProductCount(candidates),
    tradeActive:root.BobTradeSync?.current?.()?.active===true&&root.BobTradeSync?.current?.()?.test!==true
   };
  }
