@@ -108,7 +108,7 @@ def read_diagnostics_for_mcp():
         return {**bob_diagnostics.fields(value, ('status','count','checkedAt')),
                 'items':[bob_diagnostics.fields(item, ('code','number','state','updatedAt','title','reason','message','kiStatus','kiStatusLabel'))
                          for item in value.get('problems', [])[:100]]}
-    return bob_diagnostics.collect({
+    report = bob_diagnostics.collect({
         'market':lambda:bob_diagnostics.market_snapshot(_live_cache, _live_cache_at),
         'analysis':bob_diagnostics.analysis_snapshot,
         'degiroSync':lambda:bob_diagnostics.broker_sync_snapshot(degiro_sync.status()),
@@ -129,6 +129,10 @@ def read_diagnostics_for_mcp():
         'research':research,
         'problems':problems,
     })
+    report['areas']['newFeatures'] = bob_diagnostics.new_feature_snapshot(
+        report['areas'], mobile_asset_loaded=bool(BOB_UNIFIED_WORKSPACE_JS))
+    report['summary'] = bob_diagnostics.summary(report['areas'])
+    return report
 
 FIB_MONITOR_HEALTH = {"configured": bool(PUSH_SERVICE_URL and PUSH_SERVICE_TOKEN), "status": "starting", "lastCheckedAt": None, "lastSuccessAt": None}
 

@@ -11,6 +11,16 @@ COST = shape('costBpsPerSide',candidate=STATS,baseline=STATS)
 PROTOCOL = shape('version','engineVersion','horizonBars','baseline','minSessions',
                  'minTradesEach','costKind','productNetValidated',
                  costBpsPerSide=shape('standard','stress'))
+SELF_REVIEW = shape('mode','status','confidence','reason','sessions','trades',
+    'baselineTrades','liveRuleChanged','automaticOrder','productNetValidated',
+    'actionable',
+    comparedScenarios={name:shape(
+        'candidateTrades','baselineTrades','candidateNetIndex','baselineNetIndex',
+        'relativeDifferencePct','candidateMaxDrawdownPct','baselineMaxDrawdownPct',
+        'advantage') for name in ('standard','stress')},
+    recentWindows=shape('comparedIntervals','outperformingIntervals',
+                        'underperformingOrEqualIntervals','note'))
+
 PROGRESS = shape('sessions','trades','baselineTrades','candidateIndex','baselineIndex',
                  'lastEvaluatedBarAt', costScenarios=shape(standard=COST,stress=COST),
                  lastObservation=shape('day','newBars',candidate=SCORE,baseline=SCORE))
@@ -28,7 +38,8 @@ REPORT = shape('version','mode','status','brokerConnected','orderExecutionEnable
         'productNetValidated','automaticOrder',experiments=[None],completedStrategies=[None],
         rejectedStrategies=[None],prospective=PROGRESS,
         proposal=shape('strategy','state','proposedOn','frozenAtBar','mode','source','note',protocol=PROTOCOL),
-        completed=[shape('strategy','proposedOn','finishedOn','result',prospective=PROGRESS)]))
+        completed=[shape('strategy','proposedOn','finishedOn','result',prospective=PROGRESS)],
+        selfReview=SELF_REVIEW))
 
 
 def read(conn):

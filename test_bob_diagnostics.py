@@ -162,7 +162,8 @@ class ExpandedReportTests(unittest.TestCase):
         simulation={'status':'observed','gapEvidence':evidence,'signalHistory':{'large':'x'*20000}}
         result=diagnostics.bounded_report(diagnostics.collect({'simulationAndPush':lambda:simulation}),2000)
         self.assertEqual(result['areas']['gapEvidence'],evidence)
-        self.assertEqual(result['areas']['simulationAndPush']['status'],'unavailable')
+        self.assertEqual(result['areas']['simulationAndPush']['status'],'observed')
+        self.assertIn('signalHistory', result['areas']['simulationAndPush']['omittedSections'])
         self.assertIn('gapEvidence',simulation)
 
     def test_oversized_journal_does_not_also_discard_fitting_trade_and_learning_details(self):
@@ -196,6 +197,27 @@ class ExpandedReportTests(unittest.TestCase):
         self.assertEqual(kept['omittedSections'],['history','details'])
         self.assertLess(len(json.dumps(result).encode()),2000)
         self.assertIn('history',simulation)
+
+
+    def test_large_signal_history_keeps_simulation_accounts_and_costs(self):
+        original=diagnostics.collect({'simulationAndPush': lambda: {
+            'status':'observed',
+            'accounts':[{'profile':'100', 'cash':98, 'costsDebitedEur':2,
+                         'recentCases':{'status':'observed','items':[
+                             {'raw':'a'*4000} for _ in range(5)]}}],
+            'paper':{'lastSuccessAt':123},
+            'signalHistory':{'records':['b'*5000 for _ in range(5)]},
+            'push':{'evaluator':{'completed':42}}}})
+        result=diagnostics.bounded_report(original,2400)
+        simulation=result['areas']['simulationAndPush']
+        self.assertEqual(simulation['accounts'][0]['cash'],98)
+        self.assertEqual(simulation['accounts'][0]['costsDebitedEur'],2)
+        self.assertEqual(simulation['push']['evaluator']['completed'],42)
+        self.assertIn('signalHistory',simulation['omittedSections'])
+        self.assertIn('accounts.recentCases',simulation['omittedSections'])
+        self.assertEqual(simulation['accounts'][0]['recentCases']['status'],'unavailable')
+        self.assertNotIn('simulationAndPush',result['omittedAreas'])
+        self.assertLess(len(json.dumps(result).encode()),2400)
 
     def test_worker_analysis_fills_only_missing_local_observation(self):
         worker = {'status':'observed','timeframes':{'15m':{'capturedAt':123}}}
@@ -256,3 +278,43 @@ class ExpandedReportTests(unittest.TestCase):
         self.assertEqual(case['ledgerCostModel']['feeEurPerOrder'],1)
         self.assertNotIn('secret',json.dumps(case))
         self.assertNotIn('private',json.dumps(case))
+
+
+class NewFeatureReadAccessTests(unittest.TestCase):
+    def test_new_feature_read_is_passive_and_does_not_claim_phone_access(self):
+        areas = {'runtime': {'snaptradePersonal': {'code':'READ_OK', 'fresh':True,
+                                                   'token':'must-not-appear'}}}
+        result = diagnostics.new_feature_snapshot(areas, mobile_asset_loaded=True)
+        self.assertEqual(result['androidCompanion']['runtime'], 'not-observable')
+        self.assertEqual(result['unifiedMobileWorkspace']['browserSession'], 'not-observable')
+        self.assertEqual(result['unifiedMobileWorkspace']['serverAsset'], 'loaded')
+        self.assertEqual(result['researchSelfReview']['status'], 'unavailable')
+        self.assertIsNone(result['researchSelfReview']['sourceReportAt'])
+        self.assertEqual(result['snaptradeReadOnly']['connectionCode'], 'READ_OK')
+        self.assertFalse(result['snaptradeReadOnly']['tradingEnabled'])
+        self.assertNotIn('must-not-appear', json.dumps(result))
+
+    def test_only_saved_research_review_is_visible_with_original_report_time(self):
+        review = {'mode':'RESEARCH_ONLY', 'status':'collecting',
+                  'sessions':3, 'trades':4, 'automaticOrder':False,
+                  'liveRuleChanged':False, 'token':'never-leak'}
+        areas = {'strategyReport': {'status':'observed', 'items':[
+            {'calculatedAt':'2026-10-22T11:00:00+00:00',
+             'report': {'learningCycle': {'selfReview':review}}}]}}
+        result = diagnostics.new_feature_snapshot(areas)
+        item = result['researchSelfReview']
+        self.assertEqual(item['status'], 'observed')
+        self.assertEqual(item['sourceReportAt'], '2026-10-22T11:00:00+00:00')
+        self.assertEqual(item['result']['status'], 'collecting')
+        self.assertFalse(item['result']['automaticOrder'])
+        self.assertNotIn('never-leak', json.dumps(result))
+
+    def test_research_success_without_self_review_is_not_false_success(self):
+        areas = {'strategyReport': {'status':'observed','items':[
+            {'calculatedAt':'2026-10-22T07:47:45+00:00',
+             'report': {'learningCycle': {'status':'collecting'}}}]}}
+        item = diagnostics.new_feature_snapshot(areas)['researchSelfReview']
+        self.assertEqual(item['status'], 'unavailable')
+        self.assertEqual(item['sourceReportAt'], '2026-10-22T07:47:45+00:00')
+        self.assertIsNone(item['result'])
+
