@@ -61,21 +61,49 @@ internal object QuoteLayout {
             addIfUnique(field, found)
         }
 
+        // DEGIRO's product header is often split by ML Kit:
+        // "DE000PJ9NB98", "•", "BNP", "OTC" are separate word elements.
+        // Accept a venue only on the same visual row as a visible ISIN,
+        // or next to an explicit "Börse/Handelsplatz" label. Never infer
+        // venue merely from the issuer/product name elsewhere on screen.
         val venues = mutableListOf<String>()
-        for (line in sorted) {
-            val text = line.text.trim()
+        fun sameVisualRow(left: Line, right: Line): Boolean =
+            abs(left.centerY - right.centerY) <= max(24, left.height)
+
+        fun addVisibleVenue(value: String) {
+            venue.find(value)?.groupValues?.getOrNull(1)?.trim()?.let { venues += it }
+        }
+        for (anchor in sorted) {
+            val text = anchor.text.trim()
             val headingMatch = heading.matchEntire(text)
-            if (headingMatch != null) {
-                venue.find(headingMatch.groupValues[1])?.let { venues += it.groupValues[1].trim() }
-                if (headingMatch.groupValues[1].isBlank()) {
-                    sorted.filter { other ->
-                        other.left > line.right && abs(other.centerY-line.centerY) <= max(16, line.height)
-                    }.minByOrNull { it.left }?.let { other ->
-                        venue.matchEntire(other.text.trim())?.let { venues += it.groupValues[1] }
-                    }
+            val isHeader = isin.containsMatchIn(text)
+            if (!isHeader && headingMatch == null) continue
+
+            // Venue explicitly present in the same OCR line.
+            if (isHeader) addVisibleVenue(text)
+            if (headingMatch != null) addVisibleVenue(headingMatch.groupValues[1])
+
+            // Venue positioned to the right of the ISIN or venue label.
+            // OCR often separates the issuer and OTC into distinct elements.
+            val neighbors = sorted.filter { other ->
+                other !== anchor && sameVisualRow(anchor, other) &&
+                other.left >= anchor.right - 12 &&
+                other.left - anchor.right <= 460 &&
+                other.left >= anchor.left
+            }.sortedBy { it.left }
+
+            for (neighbor in neighbors) addVisibleVenue(neighbor.text.trim())
+
+            // Join only locally adjacent word elements, not separate rows.
+            // This recovers ["BNP", "OTC"] alongside the recognized ISIN.
+            for (index in 0 until neighbors.size - 1) {
+                val first = neighbors[index]
+                val second = neighbors[index + 1]
+                if (sameVisualRow(first, second) &&
+                    second.left >= first.right - 8 &&
+                    second.left - first.right <= 54) {
+                    addVisibleVenue(first.text.trim() + " " + second.text.trim())
                 }
-            } else if (isin.containsMatchIn(text)) {
-                venue.find(text)?.let { venues += it.groupValues[1].trim() }
             }
         }
         addIfUnique("Handelsplatz", venues.map { it.uppercase().replace(Regex("\\s+"), " ") })
