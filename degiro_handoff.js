@@ -75,7 +75,7 @@ function calculateProposal(p,input,market={},state=null,now=Date.now()){
  if(!p||p.isin!==id)return partial('Produktidentität passt nicht zur Auswahl.');
  const side=input.side;if(!['Kauf','Verkauf'].includes(side))return partial('Kauf oder Verkauf wählen.');
  const q=p.quote;
- if(!q||q.isin!==id||q.found!==true||q.productVerified!==true||q.estimated===true||q.isEstimated===true||q.paperSelectionOnly===true||q.paperQuoteAccepted===true||/estimate|calculated|simulation|paper/i.test(String(q.priceKind||'')))
+ if(!q||q.isin!==id||q.found!==true||q.productVerified!==true||q.estimated===true||q.isEstimated===true||q.paperSelectionOnly===true||q.paperQuoteAccepted===true||/estimate|calculated|simulation|paper|issuer-chart/i.test(String(q.priceKind||'')))
   return partial('Kein bestätigtes Produktkurspaar für diese ISIN. Bob erfindet kein Limit.');
  if(q.metadata?.status!==1||q.metadata?.tradingHalted===true||q.metadata?.underlyingType==='FUTURE'||
     q.marketOpen===false||q.sourceDisabled===true||q.eligible===false)
@@ -114,6 +114,9 @@ function calculateProposal(p,input,market={},state=null,now=Date.now()){
   return partial('Tagesbudget, Verlustbudget oder Mindest-CRV fehlt bzw. ist ungültig.',{source:evidence,price:money(price)});
  if(!market.available||!market.stopModel||!market.targetModel||!market.exitModel)
   return partial('Technische Gold-Stopp-/Zielanalyse oder geprüftes Produktmodell fehlt. Nur Kursbeobachtung verfügbar.',{source:evidence,price:money(price)});
+ const marketAt=typeof market.at==='string'&&/(Z|[+-]\d{2}:\d{2})$/i.test(market.at)?Date.parse(market.at):NaN;
+ if(!Number.isFinite(marketAt)||now-marketAt<0||now-marketAt>60000)
+  return partial('Goldanalyse ohne aktuellen Originalzeitstempel. Keine automatische Stopp-/Zielübernahme.',{source:evidence,price:money(price)});
  const ref=p.reference,model=q.productModel;
  const refAt=typeof ref?.referenceAt==='string'&&/(Z|[+-]\d{2}:\d{2})$/i.test(ref.referenceAt)?Date.parse(ref.referenceAt):NaN;
  if(model?.verifiedSimpleTurbo!==true||model.isin!==id||model.underlying!=='XAU/USD'||
