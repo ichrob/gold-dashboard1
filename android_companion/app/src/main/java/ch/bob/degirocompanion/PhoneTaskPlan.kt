@@ -44,12 +44,15 @@ internal object PhoneTaskPlanParser {
     private fun normalize(raw: String): String? {
         if (raw.isBlank() || raw.length > 240 ||
             raw.any { it == '\n' || it == '\r' || it == ';' || it == ':' ||
-                it == '|' || it == '\u0000' || it == '?' }) return null
-        return raw.lowercase(Locale.GERMAN).trim()
-            .replace(Regex("[.!]+$"), "")
+                it == '|' || it == '\u0000' }) return null
+        val clean = raw.lowercase(Locale.GERMAN).trim()
+            .replace(Regex("[.!?]+$"), "")
             .replace(Regex("\\s+"), " ")
             .replace(Regex("^(?:hallo bob|hey bob|bob),\\s*"), "")
             .trim()
+        // Natural speech questions may end in '?' but an internal question
+        // mark still rejects a mixed/ambiguous sentence in its entirety.
+        return clean.takeUnless { '?' in it }
     }
 
     private fun parseClause(raw: String): PhoneTask? {
@@ -89,6 +92,13 @@ internal object PhoneTaskPlanParser {
             "vergleiche die drei besten long produkte",
             "erkläre mir die long-produkte", "erkläre mir die long produkte",
             "zeige mir den long-vergleich" -> PhoneTask.OPEN_LONG_REVIEW
+
+            "höchsten hebel erklären", "welches produkt hat den höchsten hebel",
+            "welches hat den höchsten hebel", "welches hat den besten hebel",
+            "welches goldprodukt hat den höchsten hebel",
+            "welches von den produkten hat den größten hebel",
+            "was ist mit dem hebelrisiko", "zeige das hebelrisiko",
+            "erkläre den höchsten hebel" -> PhoneTask.OPEN_LEVERAGE_REVIEW
 
             "mein trade anzeigen", "zeige meinen trade", "zeig meinen trade",
             "zeige mir meinen trade", "öffne mein trade", "mein trade", "meinen trade",

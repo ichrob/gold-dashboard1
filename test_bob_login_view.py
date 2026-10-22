@@ -26,7 +26,7 @@ class FakeHandler:
 
 class LoginViewTests(unittest.TestCase):
     def test_only_exact_ui_views_are_accepted(self):
-        for view in ("overview", "products", "products-long", "trade", "simulation",
+        for view in ("overview", "products", "products-long", "products-leverage", "trade", "simulation",
                      "learning", "research"):
             self.assertEqual(bob_auth.safe_return_view(view), view)
             self.assertEqual(bob_auth.login_destination({}, view),

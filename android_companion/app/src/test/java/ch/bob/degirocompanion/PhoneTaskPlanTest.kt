@@ -106,4 +106,17 @@ class PhoneTaskPlanTest {
             "Zeige mir die drei besten LONG-Produkte und ändere den Stopp"
         )) assertNull("unsafe mix: $phrase", PhoneTaskPlanParser.parse(phrase))
     }
+    @Test fun recognizesOnlySpecificHighestLeverageReadOnlyQuestions() {
+        for (phrase in listOf("Welches hat den besten Hebel",
+            "Welches Produkt hat den höchsten Hebel",
+            "Erkläre den höchsten Hebel",
+            "Welches von den Produkten hat den größten Hebel")) {
+            assertEquals(listOf(PhoneTask.OPEN_LEVERAGE_REVIEW),
+                PhoneTaskPlanParser.parse(phrase)?.steps)
+        }
+        assertNull(PhoneTaskPlanParser.parse(
+            "Welches hat den besten Hebel und kaufe davon 100"))
+        assertNull(PhoneTaskPlanParser.parse(
+            "Zeige mir das Hebelrisiko und ändere den Stopp"))
+    }
 }

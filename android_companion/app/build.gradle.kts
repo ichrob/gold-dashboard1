@@ -9,8 +9,8 @@ android {
         applicationId = "ch.bob.degirocompanion"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "0.11-voice-onetap"
+        versionCode = 14
+        versionName = "0.12-tap-to-speak-safe"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
