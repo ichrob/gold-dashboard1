@@ -251,11 +251,11 @@ function mount(){
   host.append(note);
  }
  chosen.addEventListener('change',()=>{
+  renderEvidence();
   const p=(root.BobDegiro?.tradeTestProducts?.()||[]).find(x=>x.isin===chosen.value);
   if(!p){productNote.textContent='Kein Produkt gewählt.';return;}
   const q=p.quote,at=q?.askAt||q?.bidAt||null,age=originalAge(at);
   const label=age===null?'Originalzeit fehlt':age>90000?'Originalkurs älter als 90 Sekunden':'Beobachtungszeit innerhalb von 90 Sekunden';
-  renderEvidence();
   productNote.textContent='ISIN '+p.isin+' · '+(p.direction||'Richtung offen')+
    ' · '+label+' · '+(q?.source||'Quelle nicht belegt')+
    '. Kein bestätigter DEGIRO-Kurs oder Handelsplatz.';
