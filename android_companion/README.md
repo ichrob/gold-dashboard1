@@ -1,5 +1,14 @@
 # Bob Android-Begleitlabor (nicht produktiv)
 
+## Nachbesserung 22.10.2026: „BNP OTC“ bei erfolgreicher Kurslesung
+
+Die reale Samsung-Prüfung von zwei DEGIRO-Bildern zeigte korrekte ISIN, Geld 7,04 EUR, Brief 7,05 EUR, Zuletzt 7,04 EUR und sichtbare Anzeigezeit 22/10/2026 10:35. **Nur der Handelsplatz fehlte**, obwohl er auf dem Detailbild steht.
+
+ML Kit kann eine Kopfzeile als mehrere einzelne Elemente erkennen, etwa `DE000PJ9NB98`, `•`, `BNP`, `OTC`. Der neue `QuoteLayout`-Parser erkennt einen OTC-/DOT-Handelsplatz nur, wenn er rechts von einer sichtbaren ISIN auf derselben visuellen Zeile oder rechts von „Börse“/„Handelsplatz“ steht. `BNP` aus dem Produktnamen allein ist ausdrücklich kein Beleg. Werte bleiben unbestätigte OCR-Beobachtungen, niemals verifizierte Handelsplätze oder ausführbare Geld-/Briefkurse.
+
+Der neue Build und die Regressionstests müssen bestehen. Die tatsächliche Erkennung auf dem Samsung muss mit den **bereits vorhandenen** zwei Screenshots erneut geprüft werden; neue Screenshots sind nicht nötig.
+
+
 ## Korrektur 22.10.2026: Produktwerte in DEGIRO-Kursspalten erkennen
 
 Die von Samsung/ML Kit extrahierten OCR-Zeilen können `Geld`, `Brief`, `Zuletzt` und die jeweiligen Zahlen in **getrennten Textblöcken** ausgeben. Deshalb sah Bob trotz vollständig sichtbarer Kurse oft nur die ISIN.
