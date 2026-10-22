@@ -14,10 +14,10 @@ bleiben unverändert.
 | 1 | Zentrale Startseite | Neue kompakte Arbeitsübersicht `bob_unified_workspace.js` auf Entwicklungsbranch; bestehende Bereiche bleiben unverändert | Android-Browserprüfung nach sicherem Release |
 | 2 | Ein-Klick-Vorbereitung | Ein user-initiiertes `loadData(true)`, gefolgt vom bestehenden Produktquellenabruf bei vorhandenen Identitäten | Ausfall-, Laufzeit- und Quotenprüfung am Render-Dienst |
 | 3 | Einheitliche Produktkarte | `degiro_all_products.js` vereinigt bereits vorhandene Daten; neue Übersicht bietet Produktauswahl | Vollständige einheitliche Detaildarstellung der Evidenz ohne neue Handelsfreigabe |
-| 4 | Einheitliche Status-Haken | Vorhandene Produkttests und Gesamtprüfung bleiben erhalten | Alle Ansichten auf exakt dieselbe Prüflogik umstellen und Regressionstests ergänzen |
+| 4 | Einheitliche Status-Haken | Gemeinsame Statusübersicht unterscheidet geprüft, Problem, unbekannt; Handelsfreigaben bleiben getrennt | Gleiche Feldzustandslogik in allen Produktkarten weiterhin offen |
 | 5 | Menüs vereinfachen | Bestehende mobile Navigation gruppiert; neue Querverweise bündeln Kernwege | Auf echtem Android auf Lesbarkeit, Scrollen und Doppeleinträge prüfen |
 | 6 | Screenshot-Teilen | Android Companion enthält lokale Share- und OCR-Funktionen | APK-Version auf Gerät installieren, OCR-Serien und fehlende ISIN prüfen |
-| 7 | DEGIRO-Liste weiterverwenden | IndexedDB-Archiv mit atomarem Austausch vorhanden; neuer optionaler Vergleich sichtbarer ISIN-Identitäten seit letztem manuellen Prüfknopf, ohne die Listenfreigabe zu verändern | Vollständiger Tagesvergleich des echten Screenshot-Produktbestands (nicht bloß der sichtbaren Teilmenge) bleibt offen |
+| 7 | DEGIRO-Liste weiterverwenden | Vergleich der vollständigen lokal gespeicherten Screenshotlisten bei neuer Upload-Generation und separater Vergleich sichtbarer ISINs. Keine Änderung der Produktfreigabe | Nur lokal auf diesem Gerät. Mehrgeräte-Abgleich und serverseitige Historisierung bleiben offen |
 | 8 | Gemeinsame Kurszeiten | `liveBundleCache` wird vom vorhandenen Analyseweg verwendet; neue Anzeige kontrolliert unveränderte Spot-Originalzeit | Offenen Zeitstempel-Randfall #677 prüfen, 60-s-Grenze nicht aufweichen |
 | 9 | Automatische Quellen-Nachforschung | Bestehende Emittenten-/Ersatzquellen, Reparaturpfade vorhanden | Einheitliche Prioritätskette und verbindliche Zustandsmetadaten je Feld |
 | 10 | SnapTrade + CSV | Schreibt nur lesbare/verifizierte Depotpositionen; vorhandene Identitätsprüfung | Exportstände und laufende Depotänderungen mit Konfliktregeln gemeinsam darstellen |
@@ -26,7 +26,7 @@ bleiben unverändert.
 | 13 | Simulations-Cockpit | Simulation, Lernen und Diagramme existieren; neue Direktnavigation | Gemeinsame Statusübersicht statt getrennter Berichte |
 | 14 | Varianten automatisiert prüfen | Getrennte Paper- und Strategie-Vorwärtstests vorhanden | Vergleichsmetriken/Kosten und belastbare Out-of-sample-Freigabe; keine automatische Regeländerung |
 | 15 | MCO-Videos | Kanalfilter, Untertitel und begrenzte Bild-Analyse vorhanden | Belegbare Transkripte und Filmframes ohne Authentifizierungsumgehung |
-| 16 | Problemzentrale | Bestehender unabhängiger Watchdog, Issues und idempotente Neustarts | Diagnose-/Reparaturstatus zentral vereinheitlichen; kein automatischer Chat-Zugriff |
+| 16 | Problemzentrale | Bestehender Watchdog und Issues plus gemeinsame manuell ausgelöste schreibgeschützte Anzeige der aktuellen Produkt- und Problemberichte | Private/öffentliche Problemstatus stärker zusammenführen; kein automatischer Chat-Zugriff |
 | 17 | Hintergrundjobs koordinieren | Separate Worker bleiben unverändert. Die CI unterbricht auf dem PR-Zweig nun veraltete PR-Läufe, ohne Hauptzweig-Prüfungen abzubrechen | Last/Quoten der eigentlichen Markt-/Forschungsjobs analysieren, Abrufe deduplizieren, Worker nicht ungetestet zusammenlegen |
 | 18 | Sichere Veröffentlichungen | CI, Smoke, Health Workflows vorhanden; Render deployt bei `main`-Commit | Echtes CI-vor-Deploy-Gate benötigt koordinierte Render-/GitHub-Konfiguration. Nicht blind abschalten |
 | 19 | Monolith zerlegen | Neue Funktionen erstmals als eigenständiges Modul mit eigenen Tests | `Bob.html`/`degiro_assistant.js` schrittweise nach Golden-Master-Tests refaktorieren |
