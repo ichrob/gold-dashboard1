@@ -149,7 +149,8 @@ class MainActivity : Activity() {
         }
         button("Geprüften Handy-Auftrag einmalig ausführen") {
             val current = parseDisplayedTask(commandInput.text.toString())
-            if (!taskApproval.consume(current, SystemClock.elapsedRealtime())) {
+            if (current == null || !taskApproval.consume(current, SystemClock.elapsedRealtime())) {
+                taskApproval.clear()
                 commandStatus.text = "Auftrag fehlt, wurde geändert, ist abgelaufen oder ist unzulässig. Erneut prüfen."
             } else {
                 // Consume BEFORE invoking an Android Intent: never replay an action
