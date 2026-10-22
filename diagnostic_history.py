@@ -15,7 +15,10 @@ _LOCK = threading.Lock()
 _PRUNE_LOCK = threading.Lock()
 _RUNNING = False
 _DATABASE = None
-_LAST_PRUNE = 0.0
+# A rolling deploy starts a new instance while the old one and schema/startup
+# work may still use the database.  Retention is maintenance, not part of
+# diagnostic delivery, so never run it on the first event of a fresh process.
+_LAST_PRUNE = time.monotonic()
 _PRUNE_INTERVAL_SECONDS = 1800
 _PRUNE_TIMEOUT = '5s'
 _PRUNE_ADVISORY_LOCK = 'bob-diagnostic-history-prune-v1'
