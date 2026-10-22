@@ -36,5 +36,21 @@ const html=b.renderDegiroListEvidence({isin:a},now,archive);assert(html.includes
  const rawFiles=[row()+'\nSG Gold Turbo BEST Open-End Put BAR 4500',row(z)];
  const fallback=await b.readListBatch(rawFiles,async text=>({data:{text}}));assert.equal(fallback.length,2);assert.equal(fallback[1].direction,'LONG');
  await assert.rejects(()=>b.readListBatch([{name:'cut.png'}],async()=>({data:{listItems:[item],partialRows:['BNP GOLD Mini Short SL 9999']}})),/Abgeschnittene/);
+ // Actual mobile overlap: screenshot one ends after a legible ISIN but
+ // before the OTC/currency footer; screenshot two contains the complete row.
+ const clippedText=row().split('Societe Generale OTC')[0];
+ const continuation=b.clippedDegiroListReference([clippedText,clippedText]);
+ assert.equal(continuation.isin,a);
+ assert.equal(continuation.issuer,'SG');
+ assert.equal(continuation.direction,'LONG');
+ assert.equal(b.clippedDegiroListReference([row(),row()]),null,'complete rows must never become continuations');
+ assert.equal(b.clippedDegiroListReference([clippedText,clippedText.replace(a,z)]),null,'conflicting partial ISIN readings must not resolve');
+ const structured=async file=>({data:{listItems:[file.row].filter(Boolean),partialRows:file.continuation?[file.continuation]:[]}});
+ const other=b.agreedDegiroListRow([row(z),row(z)]);
+ const merged=await b.readListBatch([{name:'first.png',row:other,continuation},{name:'next.png',row:item}],structured);
+ assert.equal(merged.length,2);
+ assert.equal(merged.filter(x=>x.isin===a).length,1,'overlap must not duplicate a product');
+ await assert.rejects(()=>b.readListBatch([{name:'first.png',row:other,continuation},{name:'next.png',row:other}],structured),/Abgeschnittene/,'missing continuation must retain the previous list');
+ await assert.rejects(()=>b.readListBatch([{name:'first.png',row:other,continuation:{...continuation,direction:'SHORT'}},{name:'next.png',row:item}],structured),/Abgeschnittene/,'direction conflicts must not be accepted');
  console.log('DEGIRO list grammar, independent votes, changed daily values, boundaries, duplicates, evidence and expiry passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});
