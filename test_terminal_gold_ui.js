@@ -26,7 +26,7 @@ assert(unused.includes('data-product-factor-unused'));
 assert(unused.includes('DE000FE4UF01 · Faktor Goldprodukt nicht verwendet'));
 assert(!unused.includes('data-product-ended')&&!unused.includes('data-product-knocked-out'));
 assert(!unused.includes('✗')&&!unused.includes('Quellenprüfung')&&!unused.includes('Screenshots'));
-assert(!/<details[^>]*\\sopen(?:\\s|>|=)/.test(unused),'Faktorprodukt must start collapsed');
+assert(!/<details[^>]*\sopen(?:\s|>|=)/.test(unused),'Faktorprodukt must start collapsed');
 const base=source.indexOf('function serverIssuerTerminated('),tail=source.indexOf('function additionalProductsComplete(',base);
 assert(base>0&&tail>base);
 const at=Date.parse('2026-10-22T17:12:00Z'),stamp='2026-10-22T06:58:34.572Z';
