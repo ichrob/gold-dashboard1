@@ -77,6 +77,9 @@ function calculateProposal(p,input,market={},state=null,now=Date.now()){
  const q=p.quote;
  if(!q||q.isin!==id||q.found!==true||q.productVerified!==true||q.estimated===true||q.isEstimated===true||q.paperSelectionOnly===true||q.paperQuoteAccepted===true||/estimate|calculated|simulation|paper/i.test(String(q.priceKind||'')))
   return partial('Kein bestätigtes Produktkurspaar für diese ISIN. Bob erfindet kein Limit.');
+ if(q.metadata?.status!==1||q.metadata?.tradingHalted===true||q.metadata?.underlyingType==='FUTURE'||
+    q.marketOpen===false||q.sourceDisabled===true||q.eligible===false)
+  return partial('Emittent bestätigt keine aktive, passende Produktnotierung (gesperrt, geschlossen oder Future).');
  const currency=q.currency||q.metadata?.currency;
  if(!['EUR','CHF'].includes(currency)||currency!==input.currency||q.metadata?.currency&&q.metadata.currency!==currency||
      p.reference?.currency&&p.reference.currency!==currency)
@@ -89,6 +92,11 @@ function calculateProposal(p,input,market={},state=null,now=Date.now()){
  if(!Number.isFinite(at)||now-at<0||now-at>90000)return partial('Originalzeit des '+(side==='Kauf'?'Briefkurses':'Geldkurses')+' fehlt oder ist älter als 90 Sekunden.');
  const raw=Number(q[field]);
  if(!(raw>0&&Number.isFinite(raw)))return partial('Kein positiver originaler '+field+'-Kurs verfügbar.');
+ const opposite=field==='ask'?'bid':'ask',other=Number(q[opposite]),otherStamp=q[opposite+'At'];
+ const otherAt=typeof otherStamp==='string'&&/(Z|[+-]\d{2}:\d{2})$/i.test(otherStamp)?Date.parse(otherStamp):NaN;
+ if(!(other>0&&Number.isFinite(other)&&Number(q.ask)>=Number(q.bid)&&Number.isFinite(otherAt)&&
+       now-otherAt>=0&&now-otherAt<=90000&&Math.abs(otherAt-at)<=90000))
+  return partial('Originales zeitgleiches Geld-/Brief-Paar fehlt oder hat einen Widerspruch.');
  const price=Math[side==='Kauf'?'ceil':'floor'](raw*100+ (side==='Kauf'?-1e-8:1e-8));
  if(!Number.isSafeInteger(price)||price<=0)return partial('Kurs nicht zuverlässig auf zwei Nachkommastellen darstellbar.');
  const evidence={source:String(q.source||'Emittentenbeobachtung').slice(0,120),at:stamp,side:field,currency,price:money(price),
