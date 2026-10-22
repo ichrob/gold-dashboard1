@@ -12,6 +12,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.view.View
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -34,21 +35,21 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(28, 32, 28, 32)
         }
-        fun label(text: String): TextView = TextView(this).also {
+        fun label(text: String, parent: LinearLayout = stack): TextView = TextView(this).also {
             it.text = text
             it.textSize = 17f
             it.setPadding(0, 10, 0, 12)
-            stack.addView(it)
+            parent.addView(it)
         }
-        fun button(title: String, onClick: () -> Unit) = Button(this).also {
+        fun button(title: String, parent: LinearLayout = stack, onClick: () -> Unit) = Button(this).also {
             it.text = title
             it.isAllCaps = false
             it.setOnClickListener { onClick() }
-            stack.addView(it)
+            parent.addView(it)
         }
 
-        label("BOB ANDROID-LABOR – Keine DEGIRO-Verbindung, keine Orders.")
-        button("Bild manuell auswählen und lokal lesen") {
+        label("BOB ANDROID-LABOR: Produktbild teilen, automatisch erkennen und in Bob prüfen. Keine Handelsorders.")
+        button("Produktbild auswählen (falls Teilen nicht klappt)") {
             val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
                 type = "image/*"
@@ -61,7 +62,15 @@ class MainActivity : Activity() {
                 status.text = "Zuerst ein einzelnes Produktbild auswählen oder teilen."
             } else openInBob(evidenceDraft)
         }
-        button("OCR-Entwurf kopieren (zum Einfügen in Bob)") {
+        val additional = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        button("Weitere Funktionen und Demo") {
+            additional.visibility = if (additional.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        }
+        stack.addView(additional)
+        button("OCR-Entwurf kopieren (zum Einfügen in Bob)", additional) {
             if (evidenceDraft.isBlank()) {
                 status.text = "Zuerst genau ein Produkt auf einem Bild auswählen."
             } else {
@@ -70,7 +79,7 @@ class MainActivity : Activity() {
                 status.text = "Nur der unbestätigte Text wurde kopiert. In Bob unter Mehr → DEGIRO einfügen. Die Zwischenablage kann auch von anderen Apps gelesen werden."
             }
         }
-        button("OCR-Entwurf über Android teilen") {
+        button("OCR-Entwurf über Android teilen", additional) {
             if (evidenceDraft.isBlank()) {
                 status.text = "Zuerst ein Bild auswählen und auswerten."
             } else {
@@ -82,15 +91,15 @@ class MainActivity : Activity() {
             }
         }
 
-        label("Unabhängiger Bedienungstest: nur künstliche Produktdaten")
+        label("Unabhängiger Bedienungstest: nur künstliche Produktdaten", additional)
         mockSearch = EditText(this).apply {
             hint = "ISIN in Demo suchen"
             contentDescription = "Mock ISIN Eingabe"
             setSingleLine(true)
             setText("DE000FG14AV8")
-            stack.addView(this)
+            additional.addView(this)
         }
-        button("DEMO: Produkt suchen") {
+        button("DEMO: Produkt suchen", additional) {
             val query = mockSearch.text.toString().trim().uppercase(Locale.ROOT)
             demoResult.text = if (query == "DE000FG14AV8") {
                 "DEMO-TREFFER: DE000FG14AV8 | Handelsplatz TEST | KEIN ECHTER HANDEL"
@@ -98,7 +107,7 @@ class MainActivity : Activity() {
                 "Kein Treffer in den künstlichen Testdaten. KEIN ECHTER HANDEL"
             }
         }
-        demoResult = label("Demo bereit. Ein UIAutomator-Test kann Eingaben und Klicks simulieren.")
+        demoResult = label("Demo bereit. Ein UIAutomator-Test kann Eingaben und Klicks simulieren.", additional)
         setContentView(ScrollView(this).apply { addView(stack) })
         processUserShare(intent)
     }
