@@ -2136,6 +2136,10 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const selectionReason=section?.querySelector('[data-selection-reason]');
    const reasonState=selectionReason?.getAttribute?.('data-selection-reason')||'';
    const reasonText=(selectionReason?.textContent||'').trim();
+   // A voice deep link can mount before the DEGIRO list, data and ranking
+   // have loaded. Missing ranking evidence is NOT proof of a neutral market.
+   if(!section)return 'Bob lädt die Produktauswertung noch. Bitte warten, bis der gespeicherte Listenstand und die Marktdaten geprüft sind.';
+   if(!reasonState)return 'Bobs Produktprüfung läuft noch oder der Prüfstatus ist momentan nicht verfügbar. Eine bestätigte Marktrichtung oder Produktauswahl lässt sich daraus nicht ableiten.';
    const risk=section?.querySelector('[data-risk-leverage]');
    // Only the direct STRONG contains the ranking fact; reading the entire
    // accordion textContent glued nested disclosure labels onto the number.
@@ -2194,6 +2198,18 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     note.dataset.watching='1';
     new MutationObserver(()=>renderRequestedLeverageComparison())
      .observe(out,{childList:true,characterData:true,subtree:true});
+   }else if(!out&&!note.dataset.waitingForProducts){
+    // The companion may open this view before the async products pane exists.
+    // Observe additions until the actual ranking container is mounted, then
+    // switch to the narrow observer above; do not manufacture a neutral signal.
+    note.dataset.waitingForProducts='1';
+    const watch=new MutationObserver(()=>{
+     if(!byId('dgTop3Out'))return;
+     watch.disconnect();
+     delete note.dataset.waitingForProducts;
+     renderRequestedLeverageComparison();
+    });
+    watch.observe(panels.products,{childList:true,subtree:true});
    }
    return note;
   }
