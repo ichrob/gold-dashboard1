@@ -131,6 +131,7 @@ def read_diagnostics_for_mcp():
     })
     report['areas']['newFeatures'] = bob_diagnostics.new_feature_snapshot(
         report['areas'], mobile_asset_loaded=bool(BOB_UNIFIED_WORKSPACE_JS))
+    report['areas']['diagnosticTriage'] = bob_diagnostics.triage_snapshot(report['areas'])
     report['summary'] = bob_diagnostics.summary(report['areas'])
     return report
 
