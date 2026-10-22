@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
     <!-- Optional daily local notification, no remote access, broker control or screen capture. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <application android:label="Bob: Android-Labor (nur Test)"
                  android:allowBackup="false"
                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
@@ -30,6 +31,10 @@
                 <data android:mimeType="image/*" />
             </intent-filter>
         </activity>
-        <receiver android:name=".DailyBobRoutineReceiver" android:exported="false" />
+        <receiver android:name=".DailyBobRoutineReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>
