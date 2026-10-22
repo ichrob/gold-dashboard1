@@ -447,13 +447,23 @@ def triage_snapshot(areas):
             'Simulationsdiagnose derzeit nicht lesbar.',
             'Fokus simulation prüfen; fehlende Ausgabe bedeutet nicht, dass Tests laufen.')
     else:
-        unknown = sum(1 for a in (sim.get('accounts') or [])
-                      for c in ((a.get('recentCases') or {}).get('items') or [])
-                      if isinstance(c,dict) and c.get('status') == 'inconclusive')
-        if unknown:
-            add('SIMULATION_OUTCOMES_UNKNOWN','review',None,
-                str(unknown)+' gespeicherte Simulationsfälle ohne bestätigtes Ergebnis.',
-                'Originalpreise, Modellkosten und referenzierte Beobachtungsfenster prüfen.')
+        # Expose bounded *recorded* event causes rather than guessing why a
+        # model trade is inconclusive. These events are not trading results.
+        cases = [c for a in (sim.get('accounts') or []) if isinstance(a,dict)
+                 for c in ((a.get('recentCases') or {}).get('items') or [])
+                 if isinstance(c,dict) and c.get('status') == 'inconclusive']
+        if cases:
+            gaps = sum(any(isinstance(e,dict) and e.get('kind')=='data-gap'
+                           for e in (c.get('events') or [])) for c in cases)
+            deferred = sum(any(isinstance(e,dict) and e.get('kind')=='deferred-sale'
+                               for e in (c.get('events') or [])) for c in cases)
+            explanation = (str(len(cases))+
+                ' gespeicherte Simulationsfälle ohne bestätigtes Ergebnis. '+
+                str(gaps)+' mit protokollierter Datenlücke, '+
+                str(deferred)+' mit verschobenem Modellverkauf.')
+            add('SIMULATION_OUTCOMES_UNKNOWN','review',None, explanation,
+                'Zeitgleiche Originalkurse nachweisen; nur echte Datenlücken '
+                'reparieren, Modellverkauf nicht als echten Fill werten.')
     feature = (areas.get('newFeatures') or {}).get('researchSelfReview') or {}
     if feature.get('status') == 'unavailable':
         add('RESEARCH_SELF_REVIEW_PENDING','info',feature.get('sourceReportAt'),
