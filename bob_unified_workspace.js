@@ -49,6 +49,30 @@ function visibleChange(previous,current){
  return {known:true,added:latest.filter(x=>!was.has(x)),removed:before.filter(x=>!is.has(x)),
   unchanged:latest.filter(x=>was.has(x)),current:latest};
 }
+
+function operationalSnapshot(audit,problems,simulationText='',now=Date.now()){
+ const ago=originalAge(audit?.lastCheckedAt,now);
+ const actualAudit=audit?.status==='ok'&&Array.isArray(audit.items)&&
+  Number.isInteger(audit.incomplete)&&audit.incomplete>=0&&
+  ago!==null&&ago<=300000&&audit.items.length>0;
+ const productStatus=!actualAudit?
+  {state:'unknown',text:'Produktprüfung fehlt, ist nicht aktuell oder hat keine auswertbaren Produkte.'}:
+  audit.incomplete>0?
+  {state:'warning',text:audit.incomplete+' Produkte mit fehlenden Nachweisen. Details unter Gold-Hebelprodukte.'}:
+  {state:'checked',text:audit.items.length+' Produkte ohne gemeldete Nachweislücke im aktuellen Prüfbericht. Keine Handelsfreigabe.'};
+ const counts=problems?.status==='ok'&&Array.isArray(problems.problems)&&
+  Number.isInteger(problems.count)&&problems.count>=0&&problems.count===problems.problems.length;
+ const problemStatus=!counts?
+  {state:'unknown',text:'Technisches Problemarchiv nicht aktuell bestätigt.'}:
+  problems.count?
+  {state:'warning',text:problems.count+' offene technische KI-Hilfeanfragen (öffentliche Diagnosecodes).'}:
+  {state:'checked',text:'Keine offenen technischen KI-Hilfeanfragen im öffentlichen Diagnosearchiv. Private Produktprobleme separat prüfen.'};
+ const simulation=typeof simulationText==='string'&&simulationText.trim()?
+  {state:'unknown',text:'Simulation laut bestehender Anzeige: '+simulationText.trim().slice(0,140)+'. Kein bestätigter Gewinn oder Brokerstatus.'}:
+  {state:'unknown',text:'Simulation noch nicht in dieser Ansicht bestätigt. Details unter Simulation.'};
+ return {productStatus,problemStatus,simulation,tradeable:false,automaticOrders:false};
+}
+
 function validateDraftBackup(raw,today=zurichDay()){
  if(typeof raw!=='string'||raw.length>100000)throw Error('Sicherungsdatei fehlt oder ist zu groß.');
  let data;try{data=JSON.parse(raw);}catch(_){throw Error('Ungültiges JSON.');}
@@ -88,7 +112,7 @@ function serializeDraftBackup(drafts,now=new Date()){
  const clean=validateDraftBackup(JSON.stringify(content),drafts.day);
  return JSON.stringify({...content,drafts:clean},null,2);
 }
-const api={zurichDay,originalAge,validIsin,visibleChange,analyzeInputs,validateDraftBackup,serializeDraftBackup};
+const api={zurichDay,originalAge,validIsin,visibleChange,analyzeInputs,operationalSnapshot,validateDraftBackup,serializeDraftBackup};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 root.BobUnifiedWorkspace=api;
 if(!root.document)return;
@@ -103,6 +127,8 @@ function mount(){
  '<button type="button" id="bobPrepareReadOnly" class="bob-primary">Bob, bereite alles vor</button>'+
  '<p class="small" id="bobPrepareStatus" role="status" aria-live="polite">Noch nicht geprüft.</p>'+
  '<div id="bobUnifiedChecks" class="small"></div>'+
+ '<button type="button" id="bobUnifiedCheckOperations">Produktnachweise und Probleme prüfen</button>'+ 
+ '<div id="bobUnifiedOperations" class="small" role="status" aria-live="polite">Noch keine gemeinsame Statusprüfung.</div>'+
  '<label>Produkt aus Bobs bestehender Liste <select id="bobUnifiedProduct" style="width:100%;min-height:42px"><option value="">Bitte Produkt wählen</option></select></label>'+
  '<p class="small" id="bobUnifiedProductNote">Nur Produktidentität, keine automatische Freigabe.</p>'+
  '<p class="small" id="bobUnifiedVisibleDiff">Änderungsvergleich nach der nächsten bewussten Produktprüfung verfügbar.</p>'+
@@ -191,6 +217,33 @@ function mount(){
   p.textContent='Aktuelle Richtung laut Ansicht: '+value.signal+'. Diese Übersicht führt keine Broker- oder Handelsfreigabe durch.';
   checks.append(p);
  }
+ let checkingOperations=false;
+ doc.getElementById('bobUnifiedCheckOperations').addEventListener('click',async()=>{
+  if(checkingOperations)return;
+  checkingOperations=true;
+  const button=doc.getElementById('bobUnifiedCheckOperations');
+  const box=doc.getElementById('bobUnifiedOperations');
+  button.disabled=true;box.textContent='Lese vorhandene Produkt- und Problemberichte …';
+  try{
+   const paths=['/api/degiro/audit','/api/problems'];
+   const response=await Promise.all(paths.map(async path=>{
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),12000);
+    try{
+     const r=await fetch(path,{credentials:'same-origin',cache:'no-store',signal:controller.signal});
+     return r.ok?await r.json():null;
+    }catch(_){return null;}finally{clearTimeout(timer);}
+   }));
+   const snapshot=operationalSnapshot(response[0],response[1],text('bobProfilesStatus'));
+   box.replaceChildren();
+   for(const [name,entry] of [['Produkte',snapshot.productStatus],['Probleme',snapshot.problemStatus],['Simulation',snapshot.simulation]]){
+    const p=doc.createElement('p');p.textContent=(entry.state==='checked'?'✓ ':entry.state==='warning'?'⚠ ':'? ')+name+': '+entry.text;
+    box.append(p);
+   }
+   const footer=doc.createElement('p');footer.textContent='Unabhängige Handels-, KO- und Risikofreigaben bleiben erforderlich. Keine Echtgeldorder.';
+   box.append(footer);
+  }finally{checkingOperations=false;button.disabled=false;}
+ });
  doc.getElementById('bobPrepareReadOnly').addEventListener('click',async()=>{
   if(working)return;working=true;
   const button=doc.getElementById('bobPrepareReadOnly');button.disabled=true;
