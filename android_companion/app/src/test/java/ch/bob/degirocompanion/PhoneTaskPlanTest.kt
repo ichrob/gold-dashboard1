@@ -34,6 +34,20 @@ class PhoneTaskPlanTest {
         ).forEach { assertNull("Must fail closed: $it", PhoneTaskPlanParser.parse(it)) }
     }
 
+    @Test fun readOnlyBobPagesCanBeCombinedButBrokerAutomationCannot() {
+        assertEquals(listOf(PhoneTask.OPEN_PRODUCTS, PhoneTask.OPEN_SIMULATION),
+            PhoneTaskPlanParser.parse("Zeige meine Goldprodukte und danach die Simulationen")?.steps)
+        assertEquals(listOf(PhoneTask.OPEN_MARKET, PhoneTask.OPEN_RESEARCH),
+            PhoneTaskPlanParser.parse("Analysiere den Goldmarkt und danach zeige die Videos")?.steps)
+        for (phrase in listOf(
+            "Analysiere den Goldmarkt und kaufe den besten Hebel",
+            "Zeige meine Goldprodukte und eröffne eine Position",
+            "Zeige die Simulationen und logge dich bei DEGIRO ein",
+            "Zeige meine Goldprodukte und drücke Kaufen",
+            "Öffne das Orderformular", "Öffne die Trading-App"
+        )) assertNull("unsafe: $phrase", PhoneTaskPlanParser.parse(phrase))
+    }
+
     @Test fun aMultiStepPlanCannotBypassSingleStepProtocol() {
         val multiple = "Bob öffnen und danach Einstellungen öffnen"
         assertNull(PhoneTaskProtocol.parseSpeech(multiple))
