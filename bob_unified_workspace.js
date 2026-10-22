@@ -209,7 +209,16 @@ function serializeDraftBackup(drafts,now=new Date()){
  const clean=validateDraftBackup(JSON.stringify(content),drafts.day);
  return JSON.stringify({...content,drafts:clean},null,2);
 }
-const api={zurichDay,originalAge,validIsin,visibleChange,uploadedList,compareUploadedList,mergeProductIdentities,knownProductCount,productEvidence,analyzeInputs,operationalSnapshot,validateDraftBackup,serializeDraftBackup};
+// Ended is not necessarily knocked out: maturity and issuer termination are
+// separate reasons. Never display historical quotes as current on these cards.
+function compactProductLabel(item){
+ if(item.auditState==='terminated')return item.isin+' · Produkt beendet';
+ const direction=item.conflictingDirection?'Richtung widersprüchlich':item.direction||'Richtung offen';
+ const gap=item.auditState==='incomplete'?' · Nachweise unvollständig':'';
+ const history=item.fromAuditStale?' · historischer Prüfbericht':'';
+ return item.isin+' · '+direction+gap+history+' · keine Handelsfreigabe';
+}
+const api={zurichDay,originalAge,validIsin,visibleChange,uploadedList,compareUploadedList,mergeProductIdentities,knownProductCount,productEvidence,analyzeInputs,operationalSnapshot,validateDraftBackup,serializeDraftBackup,compactProductLabel};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 root.BobUnifiedWorkspace=api;
 if(!root.document)return;
@@ -305,8 +314,13 @@ function mount(){
  }
  function renderEvidence(){
   const p=productCandidates().items.find(x=>x.isin===chosen.value);
-  const info=productEvidence(p);
   const host=doc.getElementById('bobUnifiedEvidenceRows');host.replaceChildren();
+  if(p?.auditState==='terminated'){
+   const note=doc.createElement('p');
+   note.textContent=p.isin+' · Produkt vom Emittenten als beendet gemeldet. Keine laufenden Produktwerte oder Handelsfreigabe.';
+   host.append(note);return;
+  }
+  const info=productEvidence(p);
   for(const [name,key] of [['Richtung','direction'],['Währung','currency'],['Geld und Brief','prices'],
      ['KO','barrier'],['Hebel','leverage'],['DEGIRO-Handelsplatz','venue']]){
    const el=doc.createElement('p'),data=info[key];
@@ -321,6 +335,10 @@ function mount(){
   renderEvidence();
   const p=productCandidates().items.find(x=>x.isin===chosen.value);
   if(!p){productNote.textContent='Kein Produkt gewählt.';return;}
+  if(p.auditState==='terminated'){
+   productNote.textContent=p.isin+' · Produkt beendet. Keine laufenden Kurs- oder Hebelwerte.';
+   return;
+  }
   const q=p.quote,at=q?.askAt||q?.bidAt||null,age=originalAge(at);
   const label=age===null?'Originalzeit fehlt':age>90000?'Originalkurs älter als 90 Sekunden':'Beobachtungszeit innerhalb von 90 Sekunden';
   const origin=p.fromVisible?'Handy-Assistent':p.fromAudit?(p.fromAuditStale?'Prüfbericht (historisch)':'Bob-Prüfbericht'):'gespeicherte Screenshotliste';
@@ -333,6 +351,9 @@ function mount(){
   const isin=chosen.value;
   if(!validIsin(isin)){productNote.textContent='Zuerst ein Produkt aus der Bob-Liste wählen.';return;}
   const candidate=productCandidates().items.find(x=>x.isin===isin);
+  if(candidate?.auditState==='terminated'){
+   productNote.textContent='Produkt vom Emittenten als beendet gemeldet. Keine Übernahme in einen Orderentwurf.';return;
+  }
   if(candidate?.conflictingDirection){productNote.textContent='Richtung widersprüchlich. Bitte im Produktbereich prüfen; keine Übernahme.';return;}
   const available=(root.BobDegiro?.tradeTestProducts?.()||[]).some(x=>x.isin===isin);
   const target=doc.getElementById('dg2-product');
@@ -381,11 +402,7 @@ function mount(){
    list.replaceChildren();
    for(const item of candidates.items.slice(0,30)){
     const p=doc.createElement('p');
-    const dir=item.conflictingDirection?'Richtung widersprüchlich':item.direction||'Richtung offen';
-    const state=item.auditState==='terminated'?' · als beendet gemeldet':
-     item.auditState==='incomplete'?' · Nachweise unvollständig':'';
-    const age=item.fromAuditStale?' · historischer Prüfbericht':'';
-    p.textContent=item.isin+' · '+dir+state+age+' · keine Handelsfreigabe';
+    p.textContent=compactProductLabel(item);
     list.append(p);
    }
    if(!candidates.items.length){
