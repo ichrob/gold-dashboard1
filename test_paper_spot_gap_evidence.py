@@ -21,7 +21,7 @@ class SpotArchive:
         self.points=points
         self.queries=[]
     def execute(self, sql, args):
-        assert sql.startswith('SELECT extract(epoch from quote_at)*1000')
+        assert sql.startswith('SELECT (extract(epoch from quote_at)*1000)::double precision')
         assert 'bob_spot_observations' in sql
         assert args[0]==coverage.STREAM
         assert len(args)==3
