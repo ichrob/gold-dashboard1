@@ -122,9 +122,12 @@ def reconcile_model(result, now):
     # KO/strike conflicts do not affect the non-quanto gearing formula. Keep
     # those independent barriers blocked, but accept same-product model fields
     # when every formula-relevant observation below is explicitly verified.
-    model_conflicts = set(report.get('conflicts') or []) & set(required)
+    conflicts = set(report.get('conflicts') or [])
+    model_conflicts = conflicts & set(required)
+    acceptable_state = report.get('state') == 'active' or (
+        report.get('state') == 'conflict' and conflicts and not model_conflicts)
     if (not isinstance(isin, str) or not q.valid_isin(isin) or report.get('isin') != isin
-            or report.get('state') not in ('active', 'conflict') or model_conflicts
+            or not acceptable_state or model_conflicts
             or report.get('inactive') or report.get('source') != source):
         return out
     if m.get('underlying') != 'XAU/USD' or not m.get('ratio'):
