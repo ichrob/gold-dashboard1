@@ -23,7 +23,7 @@ def _nearest(conn, at, before):
     order = 'DESC' if before else 'ASC'
     # Both bounds use the code-owned stream and primary-key index. Never writes.
     row = conn.execute(
-        "SELECT extract(epoch from quote_at)*1000 FROM bob_spot_observations "
+        "SELECT (extract(epoch from quote_at)*1000)::double precision FROM bob_spot_observations "
         "WHERE stream=%s AND quote_at BETWEEN to_timestamp(%s/1000.0) "
         "AND to_timestamp(%s/1000.0) ORDER BY quote_at " + order + " LIMIT 1",
         (STREAM, low, high)).fetchone()
