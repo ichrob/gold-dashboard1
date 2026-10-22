@@ -50,6 +50,30 @@ assert.equal(a.operationalSnapshot(report,{status:'ok',count:1,problems:[{}]},''
 assert.equal(a.operationalSnapshot(report,{status:'stale',count:0,problems:[]},'',operationsNow).problemStatus.state,'unknown');
 assert.equal(a.operationalSnapshot(report,{status:'ok',count:0,problems:[{}]},'',operationsNow).problemStatus.state,'unknown');
 assert.equal(a.operationalSnapshot(null,null,'',operationsNow).productStatus.state,'unknown');
+// Screenshot-list snapshot is complete only with original list-version timestamp
+// and uniquely checked ISINs. Upload time is not a live quote timestamp.
+const listNow=Date.parse('2026-10-22T09:50:00Z');
+const archived={version:2,listUploadedAt:'2026-10-22T09:40:00Z',products:[
+ {isin:'DE000FG14AV8'},{isin:'US0378331005'}]};
+const list=a.uploadedList(JSON.stringify(archived),listNow);
+assert.equal(list.ids.length,2);
+assert.equal(a.compareUploadedList(null,list).state,'baseline');
+assert.equal(a.compareUploadedList(list,list).state,'same');
+assert.equal(a.compareUploadedList(list,{...list,ids:['DE000FG14AV8']}).state,'conflict');
+assert.equal(a.compareUploadedList(list,{...list,at:'2026-10-22T09:30:00Z'}).state,'older');
+const change=a.compareUploadedList(list,{...list,at:'2026-10-22T09:45:00Z',ids:['US0378331005']});
+assert.equal(change.state,'changed');
+assert.deepEqual(change.removed,['DE000FG14AV8']);
+assert.deepEqual(change.unchanged,['US0378331005']);
+assert.deepEqual(change.added,[]);
+for(const bad of [
+ {...archived,listUploadedAt:'2026-10-22T10:00:00Z'},
+ {...archived,listUploadedAt:'22/10/2026'},
+ {...archived,products:[{isin:'DE000FG14AV8'},{isin:'DE000FG14AV8'}]},
+ {...archived,products:[{isin:'DE000FG14AV9'}]},
+ {...archived,products:[]},
+ {...archived,version:1}
+])assert.equal(a.uploadedList(JSON.stringify(bad),listNow),null);
 const draft={day:'2026-10-22',currency:'EUR',budget:10000,orders:[
  {isin:'DE000FG14AV8',side:'Kauf',qty:5,price:1200,fees:100,cost:6100,stop:900,target:1800},
  {isin:'DE000FG14AV8',side:'Verkauf',qty:2,price:1100,fees:100,cost:2300,stop:null,target:null}
