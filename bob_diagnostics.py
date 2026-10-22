@@ -340,13 +340,31 @@ def bounded_report(report, max_bytes):
         compact = dict(simulation)
         areas['simulationAndPush'] = compact
         removed = []
-        for key in ('history', 'details'):
+        for key in ('history', 'signalHistory', 'details', 'analysis'):
             if size(result) <= max_bytes:
                 break
             if key in compact:
                 compact.pop(key)
                 removed.append(key)
                 compact.update(truncated=True, omittedSections=removed)
+        # Keep account heartbeats and cost summaries even if per-trade cases
+        # exceed the authorized response budget. Do not manufacture outcomes.
+        if size(result) > max_bytes and isinstance(compact.get('accounts'), list):
+            smaller = []
+            omitted_cases = False
+            for account in compact['accounts']:
+                if isinstance(account, dict) and 'recentCases' in account:
+                    entry = dict(account)
+                    entry['recentCases'] = {'status':'unavailable',
+                                            'reason':'omitted-response-size-limit'}
+                    smaller.append(entry)
+                    omitted_cases = True
+                else:
+                    smaller.append(account)
+            if omitted_cases:
+                compact['accounts'] = smaller
+                compact.update(truncated=True,
+                               omittedSections=removed + ['accounts.recentCases'])
     result['summary'] = summary(areas)
     for name in sorted(areas, key=lambda key: size(areas[key]), reverse=True):
         if size(result) <= max_bytes:
