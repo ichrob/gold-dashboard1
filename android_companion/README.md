@@ -2,6 +2,15 @@
 
 Zwei strikt getrennte Untersuchungen für Bob:
 
+## Vereinfachter Ablauf (22.10.2026)
+1. In DEGIRO **ein einzelnes Produkt** öffnen und einen Screenshot ohne Depot-/Kontodaten aufnehmen.
+2. Das Bildschirmfoto über Samsungs Teilen-Menü ausdrücklich mit **Bob Android-Labor** teilen.
+3. Das Android-Labor verarbeitet das freigegebene Bild mit lokalem OCR und öffnet **Bob** über eine HTTPS-URL mit einem **Fragment** (kein HTTP-Request mit OCR-Daten). Die Web-App entfernt das Fragment unmittelbar aus dem Verlauf und zeigt den **ungeprüften** Datensatz unter **Mehr → DEGIRO** an. Keine manuelle Dateiauswahl, Zwischenablage oder Texteingabe mehr nötig. Falls Bob eine Anmeldung fordert, zuerst anmelden und anschließend die Übertragung wiederholen.
+4. Alternativ im Android-Labor **Bild manuell auswählen** und **In Bob anzeigen – ohne Kopieren** drücken. Der alte Kopierknopf bleibt als Rückfalllösung erhalten.
+
+**Sicherheit:** Die automatisch erzeugte Übergabe enthält ausschließlich eine gültige ISIN und eng begrenzte OCR-Felder; Originalbild, Benutzerkennung, Kennwörter und sonstiger OCR-Text werden nie übertragen. Daten werden nicht als verifizierter Handelsplatz, Livekurs oder Handelsfreigabe gewertet. Fragmentdaten sind kurzzeitig für den lokal öffnenden Browser sichtbar; Bob entfernt sie nach dem Laden. Keine Echt-Order- oder Bot-Funktion. Der neue Ablauf muss auf dem konkreten Android-Gerät und mit der bestehenden Bob-Anmeldesitzung überprüft werden. Der GitHub-APK-Build ist noch kein tatsächlicher Gerätetest.
+
+
 1. **Lokale Bild-Erkennung**: Nutzer wählt ein bereits vorhandenes Bild bewusst über Androids Dokumentauswahl aus oder teilt ein Bild über das Android-Menü ausdrücklich mit dem Bob-Android-Labor. Google ML Kit erkennt lokal Text; ein eng begrenzter Parser zeigt prüfziffergültige ISINs und einzelne klar beschriftete Zahlen als **unbestätigte OCR-Entwürfe**. Die Übergabe erfolgt ausschließlich durch bewusstes Kopieren in die Zwischenablage und Einfügen in Bobs neuem Menü **Mehr → DEGIRO → Android-Bildschirmdaten** oder durch Auswahl eines Empfängers im Android-Teilen-Menü. Es gibt keinen automatischen Upload und keinen direkten Bob-API-Zugriff. Keine Vollständigkeits- oder Zeitgültigkeitsbehauptung.
 2. **Automatisierte Bedienung – nur eigenes Mock-UI**: Android UIAutomator gibt eine ISIN ein, tippt einen Suchknopf und kontrolliert den simulierten Ergebnistext in diesem Testprogramm. Nicht die DEGIRO-App, nicht die Anmeldung und keine Ordermaske.
 
