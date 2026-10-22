@@ -82,8 +82,8 @@ function operationalSnapshot(audit,problems,simulationText='',now=Date.now()){
  const productStatus=!actualAudit?
   {state:'unknown',text:'Produktprüfung fehlt, ist nicht aktuell oder hat keine auswertbaren Produkte.'}:
   audit.incomplete>0?
-  {state:'warning',text:audit.incomplete+' Produkte mit fehlenden Nachweisen. Details unter Gold-Hebelprodukte.'}:
-  {state:'checked',text:audit.items.length+' Produkte ohne gemeldete Nachweislücke im aktuellen Prüfbericht. Keine Handelsfreigabe.'};
+  {state:'warning',text:audit.incomplete+(audit.incomplete===1?' Produkt':' Produkte')+' mit fehlenden Nachweisen. Details unter Gold-Hebelprodukte.'}:
+  {state:'checked',text:audit.items.length+(audit.items.length===1?' Produkt':' Produkte')+' ohne gemeldete Nachweislücke im aktuellen Prüfbericht. Keine Handelsfreigabe.'};
  const counts=problems?.status==='ok'&&Array.isArray(problems.problems)&&
   Number.isInteger(problems.count)&&problems.count>=0&&problems.count===problems.problems.length;
  const problemStatus=!counts?
