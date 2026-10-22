@@ -122,6 +122,58 @@ class WatchdogTests(unittest.TestCase):
         self.assertEqual(sum(1 for method, path, _ in actions
                              if method == "POST" and path == "/issues"), 2)
 
+    def test_transient_missing_issue_is_rechecked_before_create(self):
+        title = watchdog.issue_title("product-quote-evidence-missing")
+        snapshots = [[], [{"title": title, "number": 725}]]
+        calls = []
+
+        def requester(method, path, **kwargs):
+            calls.append((method, path, kwargs.get("data")))
+            if method == "GET":
+                return snapshots.pop(0)
+            self.fail("A duplicate issue must not be created")
+
+        result = watchdog.sync_issue(
+            ["product-quote-evidence-missing"], token="test",
+            repo="ichrob/gold-dashboard1", requester=requester
+        )
+        self.assertEqual(result, "already-open")
+        self.assertEqual([method for method, _path, _data in calls], ["GET", "GET"])
+
+    def test_later_duplicate_is_closed_and_oldest_issue_stays_canonical(self):
+        title = watchdog.issue_title("product-leverage-clock-missing")
+        current = [
+            {"title": title, "number": 745},
+            {"title": title, "number": 720},
+        ]
+        calls = []
+
+        def requester(method, path, **kwargs):
+            data = kwargs.get("data")
+            calls.append((method, path, data))
+            if method == "GET":
+                return list(current)
+            if method == "PATCH":
+                number = int(path.split("/")[2])
+                current[:] = [row for row in current if row["number"] != number]
+            return {}
+
+        result = watchdog.sync_issue(
+            ["product-leverage-clock-missing"], token="test",
+            repo="ichrob/gold-dashboard1", at="2026-10-22T16:00:00+00:00",
+            requester=requester
+        )
+        self.assertEqual(result, "closed-duplicate-745")
+        self.assertEqual([row["number"] for row in current], [720])
+        self.assertIn(
+            ("PATCH", "/issues/745", {"state": "closed", "state_reason": "duplicate"}),
+            calls,
+        )
+        comment = next(data["body"] for method, path, data in calls
+                       if method == "POST" and path == "/issues/745/comments")
+        self.assertIn("#720", comment)
+        self.assertEqual(comment.count("BOB_KI_STATUS:"), 1)
+
     def test_legacy_combined_issue_is_archived(self):
         actions = []
         current = [{"title": watchdog.ISSUE_TITLE, "number": 20}]

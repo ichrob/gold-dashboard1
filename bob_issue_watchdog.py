@@ -180,6 +180,46 @@ def issue_title(code):
     return "[Bob KI-Hilfe] " + code
 
 
+def open_issue_index(*, token, repo, requester=github_request):
+    """Return canonical open help issues plus any later duplicates.
+
+    GitHub's issues endpoint also contains pull requests and is paginated.  A
+    bounded full scan prevents an older help issue from falling off the first
+    page.  The oldest issue number is the stable canonical incident.
+    """
+    issues = []
+    for page in range(1, 11):
+        path = "/issues?state=open&per_page=100"
+        if page > 1:
+            path += "&page=" + str(page)
+        rows = requester("GET", path, token=token, repo=repo)
+        if not isinstance(rows, list):
+            raise ValueError("Issue-Liste ungültig")
+        issues.extend(rows)
+        if len(rows) < 100:
+            break
+    else:
+        raise ValueError("Issue-Liste unvollständig")
+
+    allowed_titles = {ISSUE_TITLE} | {issue_title(code) for code in CODES}
+    grouped = {}
+    for row in issues:
+        if (not isinstance(row, dict) or "pull_request" in row
+                or not isinstance(row.get("number"), int)
+                or row.get("title") not in allowed_titles):
+            continue
+        grouped.setdefault(row["title"], []).append(row["number"])
+
+    indexed = {title: min(numbers) for title, numbers in grouped.items()}
+    duplicates = [
+        (title, number, indexed[title])
+        for title, numbers in grouped.items()
+        for number in sorted(set(numbers))
+        if number != indexed[title]
+    ]
+    return indexed, duplicates
+
+
 def sync_issue(codes, *, token, repo, at=None, requester=github_request):
     """Keep individual open GitHub problems in sync with confirmed health faults.
 
@@ -191,22 +231,49 @@ def sync_issue(codes, *, token, repo, at=None, requester=github_request):
     if not token or repo != "ichrob/gold-dashboard1":
         raise ValueError("GitHub-Umgebung nicht freigegeben")
     at = at or utc_now()
-    issues = requester("GET", "/issues?state=open&per_page=100", token=token, repo=repo)
-    if not isinstance(issues, list):
-        raise ValueError("Issue-Liste ungültig")
-    indexed = {
-        row["title"]: row["number"]
-        for row in issues
-        if isinstance(row, dict) and "pull_request" not in row
-        and isinstance(row.get("number"), int)
-        and (row.get("title") == ISSUE_TITLE or row.get("title") in
-             {issue_title(code) for code in CODES})
-    }
+    indexed, duplicates = open_issue_index(
+        token=token, repo=repo, requester=requester
+    )
     detected = sorted(set(code for code in codes if code in CODES))
     # This public watchdog sees only anonymous error codes. It cannot verify
     # the underlying broker or issuer records, so never auto-close product issues.
     product_titles = {issue_title(code) for code in PRODUCT_CODES | {"trade-setup-stalled", "screenshot-import-failed"}}
     actions = []
+
+    def close_duplicates(rows):
+        for _title, number, canonical in rows:
+            # Close first. If the later comment fails, the next run will not
+            # append another status marker to an already documented duplicate.
+            requester("PATCH", "/issues/" + str(number), token=token,
+                      repo=repo, data={"state": "closed", "state_reason": "duplicate"})
+            requester("POST", "/issues/" + str(number) + "/comments",
+                      token=token, repo=repo, data={
+                          "body": (
+                              "Doppelter Waechtervorgang; der bestehende Hauptvorgang #"
+                              + str(canonical) + " bleibt offen. Stand: " + at
+                              + " UTC.\n\n<!-- BOB_KI_STATUS:duplicate -->"
+                          )
+                      })
+            actions.append("closed-duplicate-" + str(number))
+
+    close_duplicates(duplicates)
+
+    # GitHub's list view can briefly omit an issue during concurrent updates.
+    # Re-read once before creating anything so a transient partial snapshot
+    # cannot produce another help request with the same stable title.
+    missing_titles = {
+        issue_title(code) for code in detected if issue_title(code) not in indexed
+    }
+    if missing_titles:
+        refreshed, refreshed_duplicates = open_issue_index(
+            token=token, repo=repo, requester=requester
+        )
+        for title, number in refreshed.items():
+            indexed[title] = min(indexed.get(title, number), number)
+        already_closed = {number for _title, number, _canonical in duplicates}
+        close_duplicates([
+            row for row in refreshed_duplicates if row[1] not in already_closed
+        ])
 
     # First create any missing problem; each fault maps to precisely one open
     # help request. No copies of private runtime logs are ever published.
