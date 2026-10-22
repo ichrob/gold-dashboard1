@@ -110,9 +110,13 @@ class MainActivity : Activity() {
 
         label("HANDYSTEUERUNG – lokale Aufträge (Test). Aus ChatGPT/Bob nur explizit geteilte Textaufträge; keine Fernsteuerung oder Broker-Klicks.")
         commandInput = EditText(this).apply {
-            hint = PhoneTaskProtocol.OPEN_BOB
+            hint = "Auftrag aus ChatGPT/Bob hier einfügen"
             contentDescription = "Bob Handy-Auftrag"
             setSingleLine(true)
+            // Actual field value, never a placeholder: tapping 'Prüfen' works
+            // immediately for the harmless default action, but still requires
+            // a second explicit confirmation before any Android intent starts.
+            setText(PhoneTaskProtocol.OPEN_BOB)
             stack.addView(this)
         }
         commandStatus = label("Noch kein Handy-Auftrag geprüft. Erst prüfen, dann jede Aktion einzeln bestätigen.")
@@ -187,7 +191,11 @@ class MainActivity : Activity() {
     private fun previewTask(text: String) {
         pendingTask = PhoneTaskProtocol.parse(text)
         commandStatus.text = if (pendingTask == null) {
-            "Nicht erlaubter Auftrag. Zulässig sind nur: ${PhoneTaskProtocol.OPEN_BOB}, ${PhoneTaskProtocol.PICK_IMAGES}, ${PhoneTaskProtocol.OPEN_SETTINGS}. Keine Brokerbedienung."
+            if (text.isBlank()) {
+                "Noch kein Auftrag eingegeben. Bitte einen Auftrag eintippen oder einfügen."
+            } else {
+                "Nicht erlaubter Auftrag. Zulässig sind nur: ${PhoneTaskProtocol.OPEN_BOB}, ${PhoneTaskProtocol.PICK_IMAGES}, ${PhoneTaskProtocol.OPEN_SETTINGS}. Keine Brokerbedienung."
+            }
         } else {
             "Prüfung OK: ${pendingTask!!.description}. Erst ein weiterer Tastendruck führt genau diese Aktion aus."
         }
