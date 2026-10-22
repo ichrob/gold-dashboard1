@@ -2950,7 +2950,12 @@ async function restoreListArchive(){
   }
   // Never turn a restart/current date into the original screenshot date.
   showListArchive();
- }catch(_){productStorageMessage='Bildspeicher nicht erreichbar. Vorhandene Produktdaten werden weiterhin geladen.';}
+ }catch(_){
+  // An inaccessible archive is not an empty list. Preserve every known
+  // localStorage generation and do not overwrite it with an empty snapshot.
+  productStorageBlocked=true;
+  productStorageMessage='Bildspeicher nicht erreichbar. Gespeicherte Produktdaten bleiben unangetastet; bitte Speicher/Berechtigung prüfen.';
+ }
 }
 const IDENTITY_KEY='bobDegiroIdentitiesV1', PRODUCT_STORE_KEY='bobDegiroProductsV2';
 let productStorageMessage='',productStorageBlocked=false,productRowsReady=false;
@@ -2970,7 +2975,16 @@ function cleanStoredProduct(x){
 function writeStoredProducts(items){
  if(productStorageBlocked)return false;
  try{const rows=items.map(cleanStoredProduct).filter(Boolean).slice(0,12);
-  const payload=JSON.stringify({version:2,products:rows,listUploadedAt:listArchive?.storedAt||null});
+  // Preserve the original DEGIRO screenshot timestamp if an IndexedDB read
+  // fails but localStorage still retains the last committed list generation.
+  // The page opening is NEVER a new evidence observation.
+  let previousGeneration=null;
+  try{
+   const prior=JSON.parse(localStorage.getItem(PRODUCT_STORE_KEY)||'null');
+   const stamp=prior?.listUploadedAt;
+   if(typeof stamp==='string'&&Number.isFinite(Date.parse(stamp)))previousGeneration=stamp;
+  }catch(_){}
+  const payload=JSON.stringify({version:2,products:rows,listUploadedAt:listArchive?.storedAt||previousGeneration});
   // Only an actual screenshot upload sets its original observation date.
   if(localStorage.getItem(PRODUCT_STORE_KEY)!==payload)localStorage.setItem(PRODUCT_STORE_KEY,payload);
   if(localStorage.getItem(PRODUCT_STORE_KEY)!==payload)throw Error('Speicherung nicht bestätigt');
@@ -4641,11 +4655,17 @@ async function inject(){
  refreshIssuerCandidates();
  setInterval(()=>{if(!document.hidden)refreshIssuerCandidates();},10*60*1000);
  document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshIssuerCandidates();});
- b.querySelector('#dgCentralStatus').textContent=listArchive?.files?.length?'Aktive Liste: '+listArchive.files.length+' Screenshot(s) · '+savedCount+' Produkte · aufgenommen '+new Date(listArchive.storedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+'. Bleibt aktiv bis zum nächsten erfolgreichen Upload; aktuelle Produktkurse werden separat geprüft.':savedCount?savedCount+' gespeicherte Produkte · die letzte Liste bleibt erhalten; Kursdaten können veralten.':'Noch keine gespeicherte Liste. Bitte einmal DEGIRO-Screenshots einlesen.';
+ b.querySelector('#dgCentralStatus').textContent=listArchive?.files?.length?'Aktive Liste: '+listArchive.files.length+' Screenshot(s) · '+savedCount+' Produkte · aufgenommen '+new Date(listArchive.storedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+'. Bleibt aktiv bis zum nächsten erfolgreichen Upload; aktuelle Produktkurse werden separat geprüft.':savedCount?savedCount+' gespeicherte Produkte · die letzte Liste bleibt erhalten; Kursdaten können veralten.':'In diesem Browser sind noch keine lokalen Produkte verfügbar. Vorhandene Serverlisten-Nachweise werden geprüft; bitte keine neue Liste hochladen, bevor der Abruf abgeschlossen ist.';
  // Render first, then check remote correction in the background. Never show
  // a perpetual "Gespeicherte Liste wird geladen ..." during a network outage.
  rankUI();
- restoreServerCorrection().catch(()=>{});
+ restoreServerCorrection().then(committed=>{
+  if(committed)return;
+  if(!listArchive?.items?.length&&!loadIdentities().length){
+   const status=document.getElementById('dgCentralStatus');
+   if(status)status.textContent='Keine gespeicherten Produktdaten in diesem Browser wiederherstellbar. Ein Serverlisten-Nachweis ist derzeit nicht verfügbar oder nicht lesbar. Bitte in dem Browser prüfen, in dem die Liste hochgeladen wurde; nichts löschen.';
+  }
+ }).catch(()=>{});
  const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgListUploadButton'),uploadStatus=b.querySelector('#dgCentralStatus');
  uploadButton.addEventListener('click',()=>upload.click());
  upload.addEventListener('change',async()=>{
