@@ -72,7 +72,7 @@ function mount(){
  box.innerHTML=`<h3>Handy-Assistent · manuelle Bestätigung</h3>
  <p>Bob bereitet ISIN, Menge, Limit, geschätzte Kosten und optionale Produkt-Stopp-/Zielmarken als Kopiervorlage vor. In DEGIRO sind die Angaben weiterhin manuell einzugeben und von dir zu bestätigen. Keine Order-API und keine Fernbedienung der App.</p>
  <p>Das Tagesbudget begrenzt nur hier geplante Käufe, nicht tatsächliche Trades oder Verluste. Verkäufe geben kein Planbudget frei. SnapTrade liefert ausschließlich lesbare Bestandsinformationen, niemals Handelsfreigaben oder aktuelle DEGIRO-Orderkurse.</p>
- <p><button type="button" id="dg2-snap-read">SnapTrade-Depotstand laden (nur Cache)</button></p>
+ <p><button type="button" id="dg2-snap-read">SnapTrade-Depotstatus lesen</button></p>
  <label>SnapTrade-Position für Verkauf <select id="dg2-snap-position"><option value="">Keine ausgewählt</option></select></label>
  <p class="small" id="dg2-snap-status" role="status" aria-live="polite">Nur bestätigte, aktuelle Depotmengen können automatisch übernommen werden. Auch diese vor einem Verkauf bei DEGIRO prüfen.</p>
  <form id="dg2-form"><label>Tagesbudget <input name="budget" inputmode="decimal" required></label>
@@ -97,7 +97,7 @@ function mount(){
  const snap=box.querySelector('#dg2-snap-position'),snapStatus=box.querySelector('#dg2-snap-status');
  let sellPositions=[];
  box.querySelector('#dg2-snap-read').onclick=async()=>{
-  const button=box.querySelector('#dg2-snap-read');button.disabled=true;snapStatus.textContent='Gespeicherten Depotstand lesen …';
+  const button=box.querySelector('#dg2-snap-read');button.disabled=true;snapStatus.textContent='Depotstatus abfragen …';
   sellPositions=[];snap.replaceChildren(new Option('Keine ausgewählt',''));
   try{
    const response=await fetch('/api/snaptrade/status',{credentials:'same-origin',cache:'no-store'});
