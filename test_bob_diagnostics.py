@@ -318,3 +318,78 @@ class NewFeatureReadAccessTests(unittest.TestCase):
         self.assertEqual(item['sourceReportAt'], '2026-10-22T07:47:45+00:00')
         self.assertIsNone(item['result'])
 
+
+
+class FocusedReadAccessTests(unittest.TestCase):
+    def test_only_allowlisted_focus_can_read_existing_diagnostics(self):
+        diagnostics_reader=Mock(return_value=diagnostics.collect({
+            'market':lambda:{'status':'observed','token':'other-area-secret'},
+            'simulationAndPush':lambda:{'status':'observed',
+                'accounts':[{'profile':'100','cash':98}],
+                'details':{'status':'observed','areas':{
+                    'tradeMonitoring':{'status':'observed','items':[{'active':False}]},
+                    'repairs':{'status':'observed','items':[{'code':'WORKER'}]}}}}}))
+        req={'jsonrpc':'2.0','id':1,'method':'tools/call',
+             'params':{'name':'bob_diagnostics','arguments':{'focus':'trades'}}}
+        _,resp=bob_mcp.handle(req,Mock(),diagnostics_reader)
+        self.assertFalse(resp['result']['isError'])
+        data=json.loads(resp['result']['content'][0]['text'])
+        self.assertEqual(data['focus'],'trades')
+        self.assertEqual(data['areas']['simulationAndPush']['details']['areas']
+                         ['tradeMonitoring']['items'][0]['active'],False)
+        self.assertNotIn('accounts',json.dumps(data))
+        self.assertNotIn('other-area-secret',json.dumps(data))
+        self.assertNotIn('repairs',json.dumps(data))
+        self.assertTrue(data['readOnly'])
+        self.assertFalse(data['realOrders'])
+        self.assertEqual(diagnostics_reader.call_count,1)
+
+    def test_invalid_focus_rejected_without_starting_reader(self):
+        reader=Mock(side_effect=AssertionError('reader must not run'))
+        for args in ({'focus':'../../secret'}, {'focus':5},
+                     {'focus':'mobile','path':'/trading'},
+                     {'focus':None}, {'focus':[]}, []):
+            request={'jsonrpc':'2.0','id':1,'method':'tools/call',
+                     'params':{'name':'bob_diagnostics','arguments':args}}
+            _,result=bob_mcp.handle(request,Mock(),reader)
+            self.assertEqual(result['error']['code'],-32602)
+        reader.assert_not_called()
+
+    def test_focused_repair_detail_isolated_and_missing_is_honest(self):
+        raw={'readOnly':True,'realOrders':False,'observedAt':'old-time','schemaVersion':2,
+             'areas':{'simulationAndPush':{'status':'observed','details':{
+                 'status':'observed','areas':{'repairs':{'status':'observed',
+                      'items':[{'code':'SAVED'}]},'tradeEvents':{'secret':'exclude'}}}},
+                      'selfHealing':{'status':'observed'},
+                      'market':{'price':'exclude-me'}}}
+        result=diagnostics.focused_report(raw,'repairs')
+        self.assertEqual(result['observedAt'],'old-time')
+        self.assertEqual(result['areas']['simulationAndPush']['details']['areas']
+                         ['repairs']['items'][0]['code'],'SAVED')
+        self.assertNotIn('tradeEvents',json.dumps(result))
+        self.assertNotIn('exclude-me',json.dumps(result))
+        missing=diagnostics.focused_report(raw,'signals')
+        self.assertEqual(missing['areas']['simulationAndPush']['signalHistory']['status'],
+                         'unavailable')
+
+    def test_priorities_avoid_false_live_market_and_trade_approval(self):
+        source={'sources':{'archive/1m':{'state':'stale','events':[{'state':'stale'}]}}}
+        areas={'background':{'status':'ok'},
+            'products':{'lastCheckedAt':'original-time',
+                        'items':[{'isin':'DE000FG8NHQ3','state':'incomplete'},
+                                 {'isin':'DE000FG7UE38','state':'terminated'}]},
+            'sourceReliability':source,
+            'simulationAndPush':{'status':'observed','accounts':[{
+                'recentCases':{'items':[{'status':'inconclusive'}]}}]},
+            'newFeatures':{'researchSelfReview':{'status':'unavailable','sourceReportAt':'old'}}}
+        t=diagnostics.triage_snapshot(areas)
+        issues={x['code']:x for x in t['items']}
+        self.assertIn('PRODUCT_EVIDENCE_GAPS',issues)
+        self.assertIn('SOURCE_HEALTH_HISTORY',issues)
+        self.assertIn('SIMULATION_OUTCOMES_UNKNOWN',issues)
+        self.assertIn('RESEARCH_SELF_REVIEW_PENDING',issues)
+        self.assertNotIn('BACKGROUND_NOT_CONFIRMED',issues)
+        self.assertEqual(issues['PRODUCT_EVIDENCE_GAPS']['evidenceAt'],'original-time')
+        self.assertNotIn('DE000FG7UE38',issues['PRODUCT_EVIDENCE_GAPS']['finding'])
+        self.assertTrue(all(x['tradeApproval'] is False and x['repairVerified'] is False
+                            for x in t['items']))
