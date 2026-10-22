@@ -17,6 +17,23 @@ class PoolFailureTests(unittest.TestCase):
             push_server.init_db()
         self.assertEqual(init.call_count, 2)
 
+    def test_auth_session_retries_temporary_pool_exhaustion(self):
+        from unittest.mock import MagicMock
+        connection = MagicMock()
+        connection.__enter__.return_value = MagicMock()
+        expected = {'ok': True}
+        with patch.object(push_server, 'db',
+                          side_effect=[push_server.TooManyRequests(), connection]) as db, \
+                patch.object(push_server.bob_session_store, 'handle',
+                             return_value=expected) as handle, \
+                patch.object(push_server.time, 'sleep') as sleep:
+            result = push_server.handle_auth_session('check', {'sessionId': 'fixture'})
+        self.assertEqual(result, expected)
+        self.assertEqual(db.call_count, 2)
+        handle.assert_called_once_with(connection.__enter__.return_value, 'check',
+                                       {'sessionId': 'fixture'})
+        sleep.assert_called_once_with(0.25)
+
     def test_market_spot_write_retries_transient_lock(self):
         from unittest.mock import MagicMock
         first, second = MagicMock(), MagicMock()
