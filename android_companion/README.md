@@ -1,3 +1,15 @@
+## Android 0.10.3 – Google-Sprachdialog auf Samsung nicht verfügbar (22.10.2026)
+
+Beim echten Samsung-Test erscheint über Bobs `🎤 Auftrag sprechen` der Google-Dialog **„Die Sprachsuche ist nicht verfügbar“**, während die Google-App selbst `Bereit...` anzeigt. Dies beweist weder einen Defekt des Mikrofons noch, dass die externe Android-`ACTION_RECOGNIZE_SPEECH`-Schnittstelle verfügbar ist.
+
+**Korrektur:** Die bisherige erzwungene Offline-Präferenz `EXTRA_PREFER_OFFLINE=true` entfällt. Die Sprache wird konkret als `de-DE` angefordert; der Samsung-/Google-Sprachdienst kann dafür das Netzwerk nutzen. Das ist bewusst im bestehenden Companion kenntlich gemacht.
+
+**Alternativer Weg:** Neuer sichtbarer Knopf **„Über Tastatur-Mikrofon sprechen (Alternative)“** fokussiert ausschließlich das vorhandene lokale Auftragsfeld. Nutzer tippt das Mikrofon auf seiner Samsung-/Google-Tastatur (falls vorhanden), diktiert z. B. `Zeige meine Goldprodukte und danach die Simulationen` und wählt danach **Handy-Auftrag prüfen**. Erst wenn *alle Satzteile* auf der bisherigen strikten Positivliste stehen, wird Schritt 1 mit klarer Gesamtplan-Vorschau freigegeben. Alle Schritte benötigen explizite Einzelausführung, STOPP verwirft Rest. Bei Fehlern, unklarer Sprache, Kauf-/Verkaufsbefehlen oder Fremd-Apps keinerlei Teilaktion.
+
+**Nicht behaupten:** Erfolgreicher Gradle-Build bedeutet nicht, dass Google-Spracherkennung auf Samsung funktioniert. Die alternative Tastatur-Diktierfunktion hängt vom tatsächlich aktivierten Tastatur-Sprachdienst ab. Kein zusätzlicher App-Mikrofon-, Netzwerk- oder Bedienungshilfe-Zugriff, keine Broker-Steuerung.
+
+**Samsung-Abnahme:** Upgrade ohne ungewollten Signaturwechsel; Bob-Sprachknopf testen; falls Google weiterhin „nicht verfügbar“ meldet, Zurück, „Über Tastatur-Mikrofon sprechen“, Tastatur-Mikrofon benutzen und Textvorschau + Einmalbestätigung kontrollieren. Auch verbotenen Mischsatz ausprobieren: er muss komplett gesperrt bleiben.
+
 ## Android 0.10.1 – Goldprodukte nach Anmeldung tatsächlich öffnen
 
 Bei einem Samsung-Echttest war die Schaltfläche `Goldprodukte direkt öffnen` sichtbar und die Bob-Anmeldung erfolgreich, aber nach der Anmeldung wurde nur `Übersicht` angezeigt. Der Browser-Link nutzte nur `/#products`, dessen Fragment bei der Passwort-Weiterleitung nicht zuverlässig erhalten blieb.

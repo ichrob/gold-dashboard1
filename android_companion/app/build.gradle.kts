@@ -9,8 +9,8 @@ android {
         applicationId = "ch.bob.degirocompanion"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.10.1-login-navigation"
+        versionCode = 12
+        versionName = "0.10.3-speech-fallback"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
