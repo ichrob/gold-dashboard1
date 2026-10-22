@@ -11,6 +11,12 @@ PANEL = r"""
  <p id="bob-broker-route-confirmation" class="small" role="status">Automatische Brokerorders deaktiviert · keine Zugangsdaten erforderlich.</p>
  <button type="button" id="bob-broker-route-refresh">Brokermodus prüfen</button>
 </section>
+<section id="bob-self-review-panel" class="card" style="margin:12px 0;padding:15px;border:1px solid #cbd5e1;border-radius:14px;background:#fff;color:#17263a">
+ <h3>Bob prüft seine Prognosen kritisch · Forschung</h3>
+ <p class="small">Nur abgeschlossene Referenzmarkt-Tests, keine echten DEGIRO-Produktkurse. Schlechte Ergebnisse und fehlende unabhängige Vergleiche werden sichtbar. Keine automatischen Regeländerungen.</p>
+ <button type="button" id="bob-self-review-refresh">Forschungsprüfung anzeigen</button>
+ <p class="small" id="bob-self-review-status" role="status" style="white-space:pre-line">Noch nicht abgerufen. Forschung ist keine Handelsfreigabe.</p>
+</section>
 <section id="bob-vollautomatisch-demo" class="card" style="margin:12px 0;padding:16px;border:1px solid #b6c3d2;border-radius:14px;background:#fff;color:#16263c">
  <h3>100 € · Simulations-Probelauf</h3>
  <p class="small" style="color:#475569">Getrennter Rechenkern mit synthetischen Produktkursen in Euro. Er testet Kauf, Positionsgrösse, Stop-Loss, Gewinnziel, Trailing-Stop und Kostenannahmen. Noch kein automatischer Handel mit Marktdaten.</p>
@@ -49,7 +55,56 @@ PANEL = r"""
   const brokerPanel=document.getElementById('bob-broker-route-status');
   const future=document.getElementById('bob-view-future');
   if(future&&brokerPanel)future.append(brokerPanel);
+  const selfReviewPanel=document.getElementById('bob-self-review-panel');
+  if(future&&selfReviewPanel)future.append(selfReviewPanel);
   if(auto)auto.append(root);
+  const reviewButton=document.getElementById('bob-self-review-refresh');
+  const reviewStatus=document.getElementById('bob-self-review-status');
+  if(reviewButton&&reviewStatus)reviewButton.addEventListener('click',async()=>{
+    reviewButton.disabled=true;
+    reviewStatus.textContent='Gespeicherten, schreibgeschützten Forschungsstand abrufen …';
+    try{
+      const response=await fetch('/api/zukunft/research',{credentials:'same-origin',cache:'no-store'});
+      if(!response.ok)throw Error('Forschungsarchiv nicht erreichbar');
+      const result=await response.json();
+      if(result.mode!=='RESEARCH_ONLY'||result.approved!==false||
+         result.orderExecutionEnabled!==false||
+         result.affectsLiveSignals===true)throw Error('Sicherheitsstatus nicht bestätigt');
+      const review=result.learningCycle?.selfReview;
+      if(!review||review.mode!=='RESEARCH_ONLY'||review.actionable!==false||
+         review.liveRuleChanged!==false||review.automaticOrder!==false||
+         review.productNetValidated!==false){
+        reviewStatus.textContent='Noch keine gültige selbstkritische Bewertung im gespeicherten Bericht. Keine Aussage zur Zuverlässigkeit möglich.';
+        return;
+      }
+      const state={
+        insufficient:'Nicht genügend Belege',collecting:'Prüfung läuft',
+        'reference-promising':'Nur im Referenztest vorteilhaft',
+        'reference-unreliable':'Kein belastbarer Vorteil',
+        'recently-unreliable':'Warnung: jüngste Vergleichszeiträume schwach'
+      }[review.status]||'Unbekannter Forschungsstatus';
+      const lines=[state,String(review.reason||'Keine begründete Aussage')];
+      if(Number.isSafeInteger(review.sessions))lines.push(
+        review.sessions+' unabhängige Sitzungen · '+(review.trades||0)+
+        ' Kandidaten-Trades · '+(review.baselineTrades||0)+' Vergleichs-Trades');
+      for(const key of ['standard','stress']){
+        const s=review.comparedScenarios?.[key];
+        if(s&&Number.isFinite(s.relativeDifferencePct)){
+          lines.push((key==='standard'?'Standardkosten':'Höhere Kosten')+
+            ': Kandidat gegenüber Referenz '+s.relativeDifferencePct.toFixed(2)+' % (Modellindex, nicht EUR-Produktgewinn)');
+        }
+      }
+      const recent=review.recentWindows;
+      if(recent&&Number.isSafeInteger(recent.underperformingOrEqualIntervals)){
+        lines.push('Letzte 10 gepaarte Referenzfenster ohne Vorteil: '+
+          recent.underperformingOrEqualIntervals+'/10.');
+      }
+      lines.push('Keine bestätigte Vorhersagewahrscheinlichkeit, keine neue Handelsregel und keine automatische Order.');
+      reviewStatus.textContent=lines.join('\n');
+    }catch(_){
+      reviewStatus.textContent='Forschungsprüfung nicht verfügbar oder unvollständig. Bob leitet daraus keine Handelsfreigabe ab.';
+    }finally{reviewButton.disabled=false;}
+  });
   const brokerStatus=document.getElementById('bob-broker-route-confirmation');
   const brokerRefresh=document.getElementById('bob-broker-route-refresh');
   async function refreshBrokerStatus(){
