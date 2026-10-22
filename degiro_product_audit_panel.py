@@ -324,9 +324,13 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   if(busy||window.BobSession?.expired?.()||byId('bobProductAuditItems')?.contains(document.activeElement))return;busy=true;
   const ctl=new AbortController(), timer=setTimeout(()=>ctl.abort(),10000);
   try{
-   const response=await fetch('/api/degiro/audit',{cache:'no-store',credentials:'same-origin',signal:ctl.signal});
-   if(!response.ok)throw Error('unavailable');
-   const report=await response.json();
+   const report=window.BobProductAuditReadPool?.read?
+    await window.BobProductAuditReadPool.read():
+    await (async()=>{
+     const response=await fetch('/api/degiro/audit',{cache:'no-store',credentials:'same-origin',signal:ctl.signal});
+     if(!response.ok)throw Error('unavailable');
+     return response.json();
+    })();
    latestReport=report;
    window.BobProductAuditReport=report;
    window.BobDegiro?.refreshVenueAssessment?.();
