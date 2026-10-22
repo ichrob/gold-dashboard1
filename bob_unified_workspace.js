@@ -74,7 +74,7 @@ function compareUploadedList(previous,current){
  const diff=visibleChange(previous.ids,current.ids);
  return {state:'changed',current,added:diff.added,removed:diff.removed,unchanged:diff.unchanged};
 }
-function operationalSnapshot(audit,problems,simulationText='',now=Date.now()){
+function operationalSnapshot(audit,problems,simulationText='',now=Date.now(),privateProductHelp=null){
  const ago=originalAge(audit?.lastCheckedAt,now);
  const actualAudit=audit?.status==='ok'&&Array.isArray(audit.items)&&
   Number.isInteger(audit.incomplete)&&audit.incomplete>=0&&
@@ -86,11 +86,13 @@ function operationalSnapshot(audit,problems,simulationText='',now=Date.now()){
   {state:'checked',text:audit.items.length+(audit.items.length===1?' Produkt':' Produkte')+' ohne gemeldete Nachweislücke im aktuellen Prüfbericht. Keine Handelsfreigabe.'};
  const counts=problems?.status==='ok'&&Array.isArray(problems.problems)&&
   Number.isInteger(problems.count)&&problems.count>=0&&problems.count===problems.problems.length;
+ const privateKnown=Number.isInteger(privateProductHelp)&&privateProductHelp>=0;
+ const privateNote=privateKnown?' · Private Produkt-Hilfefälle laut Produktansicht: '+privateProductHelp+'.':' · Private Produktprobleme separat prüfen.';
  const problemStatus=!counts?
-  {state:'unknown',text:'Technisches Problemarchiv nicht aktuell bestätigt.'}:
-  problems.count?
-  {state:'warning',text:problems.count+(problems.count===1?' offene technische KI-Hilfeanfrage':' offene technische KI-Hilfeanfragen')+' (öffentliche Diagnosecodes).'}:
-  {state:'checked',text:'Keine offenen technischen KI-Hilfeanfragen im öffentlichen Diagnosearchiv. Private Produktprobleme separat prüfen.'};
+  {state:'unknown',text:'Technisches Problemarchiv nicht aktuell bestätigt.'+privateNote}:
+  problems.count||privateKnown&&privateProductHelp>0?
+  {state:'warning',text:problems.count+' offene öffentliche technische KI-Hilfeanfragen'+privateNote}:
+  {state:'checked',text:'Keine offenen technischen KI-Hilfeanfragen im öffentlichen Diagnosearchiv.'+privateNote};
  const simulation=typeof simulationText==='string'&&simulationText.trim()?
   {state:'unknown',text:'Simulation laut bestehender Anzeige: '+simulationText.trim().slice(0,140)+'. Kein bestätigter Gewinn oder Brokerstatus.'}:
   {state:'unknown',text:'Simulation noch nicht in dieser Ansicht bestätigt. Details unter Simulation.'};
@@ -224,7 +226,7 @@ function mount(){
    spotError:bundle?.spots?.spot_error,
    analysisReady:root.A?.ready===true,
    productCount:Array.isArray(products)?products.length:null,
-   tradeActive:root.BobTradeSync?.current?.()?.active===true
+   tradeActive:root.BobTradeSync?.current?.()?.active===true&&root.BobTradeSync?.current?.()?.test!==true
   };
  }
  function present(value){
@@ -259,7 +261,7 @@ function mount(){
      return r.ok?await r.json():null;
     }catch(_){return null;}finally{clearTimeout(timer);}
    }));
-   const snapshot=operationalSnapshot(response[0],response[1],text('bobProfilesStatus'));
+   const snapshot=operationalSnapshot(response[0],response[1],text('bobProfilesStatus'),Date.now(),root.BobProductAuditHelpCount);
    box.replaceChildren();
    for(const [name,entry] of [['Produkte',snapshot.productStatus],['Probleme',snapshot.problemStatus],['Simulation',snapshot.simulation]]){
     const p=doc.createElement('p');p.textContent=(entry.state==='checked'?'✓ ':entry.state==='warning'?'⚠ ':'? ')+name+': '+entry.text;
