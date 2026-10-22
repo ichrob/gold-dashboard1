@@ -25,7 +25,8 @@ const base=source.indexOf('function serverIssuerTerminated('),tail=source.indexO
 assert(base>0&&tail>base);
 const at=Date.parse('2026-10-22T17:12:00Z'),stamp='2026-10-22T06:58:34.572Z';
 const terminal={isin,state:'terminated',sourceStatusEvidence:{issuerTerminal:true,issuerStatus:2}};
-const ctx={Date,window:{BobProductAuditReport:{status:'ok',lastCheckedAt:new Date(at-2000).toISOString(),listUploadedAt:stamp,items:[terminal]}},listArchive:{storedAt:stamp}};
+class Clock extends Date {constructor(...x){super(...(x.length?x:[at]));}static now(){return at;}}
+const ctx={Date:Clock,window:{BobProductAuditReport:{status:'ok',lastCheckedAt:new Date(at-2000).toISOString(),listUploadedAt:stamp,items:[terminal]}},listArchive:{storedAt:stamp}};
 vm.runInNewContext(source.slice(base,tail),ctx);
 assert(ctx.serverIssuerTerminated({isin},at));
 assert.equal(ctx.compactProductExclusion({isin},at),'Produkt beendet – ausgeschlossen');
