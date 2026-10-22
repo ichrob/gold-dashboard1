@@ -283,7 +283,7 @@ def _shared_leverage(quote, isin, now_ms):
             "kind": "shared-issuer-observation", "researchOnly": True}
 
 
-def examine(product, quote, now_ms):
+def examine(product, quote, now_ms, list_uploaded_at=None):
     """Return diagnostic evidence, not a new eligibility verdict."""
     isin = str(product.get("isin") or "").upper()
     direction = product.get("productDirection") or product.get("direction")
@@ -299,8 +299,6 @@ def examine(product, quote, now_ms):
         and (not snapshot.get('direction') or snapshot['direction'] == direction)
         and (not product.get('currency') or product['currency'] ==
              (metadata.get('currency') or quote.get('currency'))))
-    if not valid_isin(isin) or not (product.get('isinConfirmed') or identity_matches):
-        missing.append('list-identity')
     # Apply the same broker-display requirement to every verified Swiss DOTS
     # product, including newly discovered ISINs. Issuer availability alone
     # cannot establish availability at DEGIRO.
@@ -314,6 +312,18 @@ def examine(product, quote, now_ms):
     # A listing screenshot remains evidence even when the issuer lookup fails.
     venue_status = venue_assessment(product, product.get('currency') or metadata.get('currency'), now_ms)
     has_broker_venue = valid_isin(isin) and venue_status['current']
+    broker_identity_matches = (has_broker_venue
+        and isinstance(broker_venue, dict)
+        and broker_venue.get('isin') == isin
+        and bool(list_uploaded_at)
+        and broker_venue.get('listUploadedAt') == list_uploaded_at)
+    # The current DEGIRO listing evidence is an exact, list-generation-bound
+    # ISIN confirmation even when the issuer source is temporarily unavailable.
+    # It proves listing identity only: issuer fields and trade approval remain
+    # independently fail-closed below.
+    if not valid_isin(isin) or not (
+            product.get('isinConfirmed') or identity_matches or broker_identity_matches):
+        missing.append('list-identity')
     if swiss_dots and not has_broker_venue:
         missing.append("venue")
     if not verified:
@@ -425,7 +435,8 @@ def examine(product, quote, now_ms):
                           and _recent(data_pair.get("bidAt"), now_ms, QUOTE_MAX_MS)
                           and _recent(data_pair.get("askAt"), now_ms, QUOTE_MAX_MS)
                           else None),
-        "identityEvidence": "source-matched" if identity_matches else "list-confirmed" if product.get('isinConfirmed') else "missing",
+        "identityEvidence": ("source-matched" if identity_matches else "list-confirmed"
+                             if product.get('isinConfirmed') or broker_identity_matches else "missing"),
         "dataQuoteSource": (data_pair.get('source') if (quote_ok or backup_pair)
                             and not (terminated or secondary_inactive) else None),
         "dataQuoteKind": (None if terminated or secondary_inactive else
@@ -554,7 +565,7 @@ def build(feed, quotes, now_ms=None, previous=None):
             continue
         isin = str(product.get("isin") or "").upper()
         quote = quotes.get(isin)
-        item = examine(product, quote, now_ms)
+        item = examine(product, quote, now_ms, generation)
         before = old.get(isin, {})
         _retain_verified_terminal(item, before, quote)
         _retain_recent_issuer_leverage(item, quote, before, now_ms)
