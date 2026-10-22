@@ -272,7 +272,7 @@ ICON_PATH = BASE_DIR / "icon.svg"
 HTML = HTML_PATH.read_bytes() if HTML_PATH.exists() else b""
 HTML = HTML.replace(b"</body>", auto_collection.PANEL.encode('utf-8')+b"</body>")
 HTML = HTML.replace(b"</body>", candle_shadow.PANEL.encode('utf-8')+b"</body>")
-HTML = HTML.replace(b"</body>", b'<script src="/degiro_handoff.js"></script><script src="/degiro_portfolio_store.js"></script><script src="/degiro_report_import.js"></script><script src="/degiro_all_products.js"></script><script src="/broker_candidate_pools.js"></script><script src="/degiro_browser_bridge.js"></script><script src="/degiro_android_bridge.js"></script></body>')
+HTML = HTML.replace(b"</body>", b'<script src="/product_evidence_contract.js"></script><script src="/degiro_handoff.js"></script><script src="/degiro_portfolio_store.js"></script><script src="/degiro_report_import.js"></script><script src="/degiro_all_products.js"></script><script src="/broker_candidate_pools.js"></script><script src="/degiro_browser_bridge.js"></script><script src="/degiro_android_bridge.js"></script></body>')
 HTML = HTML.replace(b"</body>", degiro_sandbox_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", snaptrade_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", vollautomatisch_panel.PANEL.encode("utf-8")+b"</body>")
@@ -291,6 +291,7 @@ ICON = ICON_PATH.read_bytes() if ICON_PATH.exists() else None
 # so the tested and served implementation cannot diverge after a deployment.
 PUSH_MANAGER_JS = (BASE_DIR / "push_manager.js").read_text(encoding="utf-8")
 DEGIRO_HANDOFF_JS = (BASE_DIR / "degiro_handoff.js").read_text(encoding="utf-8")
+PRODUCT_EVIDENCE_CONTRACT_JS = (BASE_DIR / "product_evidence_contract.js").read_text(encoding="utf-8")
 BOB_UNIFIED_WORKSPACE_JS = (BASE_DIR / "bob_unified_workspace.js").read_text(encoding="utf-8")
 DEGIRO_PORTFOLIO_STORE_JS = (BASE_DIR / "degiro_portfolio_store.js").read_text(encoding="utf-8")
 DEGIRO_BROWSER_BRIDGE_JS = (BASE_DIR / "degiro_browser_bridge.js").read_text(encoding="utf-8")
@@ -1602,9 +1603,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        if path in ("/bob_unified_workspace.js", "/degiro_assistant.js", "/degiro_handoff.js", "/degiro_portfolio_store.js", "/degiro_report_import.js", "/degiro_all_products.js", "/broker_candidate_pools.js", "/degiro_browser_bridge.js", "/degiro_android_bridge.js", "/bob_degiro_export.user.js"):
+        if path in ("/product_evidence_contract.js", "/bob_unified_workspace.js", "/degiro_assistant.js", "/degiro_handoff.js", "/degiro_portfolio_store.js", "/degiro_report_import.js", "/degiro_all_products.js", "/broker_candidate_pools.js", "/degiro_browser_bridge.js", "/degiro_android_bridge.js", "/bob_degiro_export.user.js"):
             try:
-                body = (BOB_UNIFIED_WORKSPACE_JS if path == "/bob_unified_workspace.js" else DEGIRO_BROWSER_BRIDGE_JS if path == "/degiro_browser_bridge.js" else DEGIRO_BROWSER_USERSCRIPT if path == "/bob_degiro_export.user.js" else DEGIRO_HANDOFF_JS if path == "/degiro_handoff.js" else DEGIRO_PORTFOLIO_STORE_JS if path == "/degiro_portfolio_store.js" else DEGIRO_REPORT_IMPORT_JS if path == "/degiro_report_import.js" else DEGIRO_ALL_PRODUCTS_JS if path == "/degiro_all_products.js" else BROKER_CANDIDATE_POOLS_JS if path == "/broker_candidate_pools.js" else DEGIRO_ANDROID_BRIDGE_JS if path == "/degiro_android_bridge.js" else DEGIRO_ASSISTANT_JS).encode("utf-8")
+                body = (PRODUCT_EVIDENCE_CONTRACT_JS if path == "/product_evidence_contract.js" else BOB_UNIFIED_WORKSPACE_JS if path == "/bob_unified_workspace.js" else DEGIRO_BROWSER_BRIDGE_JS if path == "/degiro_browser_bridge.js" else DEGIRO_BROWSER_USERSCRIPT if path == "/bob_degiro_export.user.js" else DEGIRO_HANDOFF_JS if path == "/degiro_handoff.js" else DEGIRO_PORTFOLIO_STORE_JS if path == "/degiro_portfolio_store.js" else DEGIRO_REPORT_IMPORT_JS if path == "/degiro_report_import.js" else DEGIRO_ALL_PRODUCTS_JS if path == "/degiro_all_products.js" else BROKER_CANDIDATE_POOLS_JS if path == "/broker_candidate_pools.js" else DEGIRO_ANDROID_BRIDGE_JS if path == "/degiro_android_bridge.js" else DEGIRO_ASSISTANT_JS).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/javascript; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
