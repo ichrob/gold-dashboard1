@@ -1,77 +1,47 @@
-# Bob vereinfachen: Umsetzungsstand und Sicherheitsgrenzen (22.10.2026)
+# Bob vereinfachen und automatisieren – 20-Punkte-Iststand
 
-Diese Checkliste trennt **tatsächlich implementierte Funktionen** von noch offener
-Integration und von Arbeiten, für die ein externer Zugang / ein gesondert
-abgesichertes Release nötig ist. Eine neue Datei oder ein bestandener Unit-Test
-ist **kein** Nachweis, dass die Produktions-Web-App den Stand schon ausliefert.
-Die bestehende DEGIRO-Produktfreigabe, Knock-out-Regeln und Echtgeldorder-Sperre
-bleiben unverändert.
+**Stand:** 22. Oktober 2026 · **Ziel:** einfache Samsung-Bedienung, weitgehend automatische Analyse, Produkt- und Problempflege, dauerhaft getestete Paper-Simulation. **Keine Echtgeldorders.**
 
-## 20 Schritte
+**Was diese Liste bedeutet:** `Live` heißt nur, dass Code im produktiven GitHub-/Render-Stand nachweisbar ist – nicht, dass jede Funktion auf dem konkreten Samsung-Telefon bereits erfolgreich bedient wurde. `Teilweise` heißt tatsächlich programmierte Bausteine, aber noch offene Akzeptanzkriterien. `Offen` wird nicht als erledigt gezählt.
 
-| Nr. | Ziel | Aktueller Stand | Noch notwendiger Nachweis / Arbeit |
+## Nachprüfbarer Stand je Ziel
+
+| Nr. | Ziel | Nachgewiesener Teilstand | Was fehlt, damit der Punkt wirklich fertig ist |
 | --- | --- | --- | --- |
-| 1 | Zentrale Startseite | Neue kompakte Arbeitsübersicht `bob_unified_workspace.js` auf Entwicklungsbranch; bestehende Bereiche bleiben unverändert | Android-Browserprüfung nach sicherem Release |
-| 2 | Ein-Klick-Vorbereitung | Ein user-initiiertes `loadData(true)`, gefolgt vom bestehenden Produktquellenabruf bei vorhandenen Identitäten | Ausfall-, Laufzeit- und Quotenprüfung am Render-Dienst |
-| 3 | Einheitliche Produktkarte | Gemeinsamer rein lesender `product_evidence_contract.js` für mobile Zentrale und kombinierte ISIN-Liste, getrennte CSV-/Screenshot-/Emittenten-Quellen mit Originalzeiten. Keine Handelsfreigabe | Vollständige Vertrags-/Handelsplatznachweise bleiben separat; weitere Datenquellen nur nach Identitätsprüfung zusammenführen |
-| 4 | Einheitliche Status-Haken | Gemeinsame Statusübersicht unterscheidet geprüft, Problem, unbekannt; Handelsfreigaben bleiben getrennt | Gleiche Feldzustandslogik in allen Produktkarten weiterhin offen |
-| 5 | Menüs vereinfachen | Bestehende mobile Navigation gruppiert; neue Querverweise bündeln Kernwege | Auf echtem Android auf Lesbarkeit, Scrollen und Doppeleinträge prüfen |
-| 6 | Screenshot-Teilen | Android Companion enthält lokale Share- und OCR-Funktionen | APK-Version auf Gerät installieren, OCR-Serien und fehlende ISIN prüfen |
-| 7 | DEGIRO-Liste weiterverwenden | Vergleich der vollständigen lokal gespeicherten Screenshotlisten bei neuer Upload-Generation und separater Vergleich sichtbarer ISINs. Keine Änderung der Produktfreigabe | Nur lokal auf diesem Gerät. Mehrgeräte-Abgleich und serverseitige Historisierung bleiben offen |
-| 8 | Gemeinsame Kurszeiten | `liveBundleCache` wird vom vorhandenen Analyseweg verwendet; neue Anzeige kontrolliert unveränderte Spot-Originalzeit | Offenen Zeitstempel-Randfall #677 prüfen, 60-s-Grenze nicht aufweichen |
-| 9 | Automatische Quellen-Nachforschung | Bestehende Emittenten-/Ersatzquellen, Reparaturpfade vorhanden | Einheitliche Prioritätskette und verbindliche Zustandsmetadaten je Feld |
-| 10 | SnapTrade + CSV | Schreibt nur lesbare/verifizierte Depotpositionen; vorhandene Identitätsprüfung | Exportstände und laufende Depotänderungen mit Konfliktregeln gemeinsam darstellen |
-| 11 | Orderentwürfe | Neuer Direktweg vom ausgewählten Produkt zur bestehenden manuellen Eingabemaske | Auf Mobilgerät prüfen; DEGIRO-Order muss weiterhin manuell erfolgen |
-| 12 | Verkäufe auswerten | SnapTrade-Journal und echte Trade-Erfassung vorhanden | Eindeutige Fill-/Gebühren-/Währungszuordnung; keine erfundene Netto-P/L |
-| 13 | Simulations-Cockpit | Simulation, Lernen und Diagramme existieren; neue Direktnavigation | Gemeinsame Statusübersicht statt getrennter Berichte |
-| 14 | Varianten automatisiert prüfen | Getrennte Paper- und Strategie-Vorwärtstests vorhanden | Vergleichsmetriken/Kosten und belastbare Out-of-sample-Freigabe; keine automatische Regeländerung |
-| 15 | MCO-Videos | Kanalfilter, Untertitel und begrenzte Bild-Analyse vorhanden | Belegbare Transkripte und Filmframes ohne Authentifizierungsumgehung |
-| 16 | Problemzentrale | Bestehender Watchdog und Issues plus gemeinsame manuell ausgelöste schreibgeschützte Anzeige der aktuellen Produkt- und Problemberichte | Private/öffentliche Problemstatus stärker zusammenführen; kein automatischer Chat-Zugriff |
-| 17 | Hintergrundjobs koordinieren | `auxiliary_workers.start_initial` startet nur noch fehlende vorhandene Hilfs-Worker und isoliert Einzelfehler. CI unterbricht veraltete PR-Läufe. Alle 30s-/6h-Takte unverändert | Nachweis der konkreten Last-/Quotenverbesserung und weitere Abruf-Deduplikation bleiben offen |
-| 18 | Sichere Veröffentlichungen | Auf diesem Entwicklungszweig: `render.yaml` mit `autoDeployTrigger: checksPass` und `Bob release gate` abhängig von vollständiger CI. Native Render-Funktion dokumentiert | **Nicht produktiv bestätigt**: Render-Service muss im richtigen Nutzer-Workspace auf `After CI Checks Pass` geprüft/gesetzt werden. Erst nach Hauptzweig-CI und Deployment testen |
-| 19 | Monolith zerlegen | Neue Funktionen erstmals als eigenständiges Modul mit eigenen Tests | `Bob.html`/`degiro_assistant.js` schrittweise nach Golden-Master-Tests refaktorieren |
-| 20 | Sicherung | Neue **freiwillige lokale** Export-/Importfunktion für ausschließlich heutige Orderentwürfe; strenge JSON-/ISIN-/Betragsvalidierung, kein Überschreiben aktueller Entwürfe | Browserprüfung und gesondertes Datenschutz-/Speicherkonzept für Originalbilder/weitere Daten |
+| 1 | Zentrale Startseite | **Teilweise / live:** `bob_unified_workspace.js` bündelt Prüfung, Signal, Navigation und Produktwahl; Samsung-Screenshot bestätigt Ansicht | **Blocker:** alle Gold-ISINs und Zustände direkt auf Samsung sichtbar. PR #758: Startbanner, Einzel-ISIN-Liste, Audit-Fallback. Neues CI und neues Render-Deployment erforderlich |
+| 2 | Alles mit einem Klick vorbereiten | **Teilweise / live:** expliziter Knopf nutzt bestehendes `loadData(true)`, begrenzten Emittentenabruf und Original-Spotzeit | Geschlossene/mangelhafte Quellen, Quoten, Wiederholungsstrategie, tatsächliche 30-s-Gültigkeit am Handy nachweisen |
+| 3 | Einheitliche Produktkarte | **Teilweise / live:** `product_evidence_contract.js`, gemeinsame Quellenlabels, Geld/Brief, Richtung, KO/Hebel soweit original belegt | Vertrag, Laufzeit, Emittent, Börsen-/DEGIRO-Ausführungsnachweis und Produktfeldstatus über alle Anzeigen vereinheitlichen |
+| 4 | Einheitliche Haken/Kreuze | **Teilweise:** getrennte Statusanzeigen und zentrale Diagnoseschilder vorhanden | Pro ISIN in jeder Produktansicht dieselben Haken/Kreuz/Ursachencodes, Gesamthaken nur bei allen Freigaben; Android-Regression |
+| 5 | Menüs und Wege vereinfachen | **Teilweise / live:** direkter Weg zu Produkten, Mein Trade, Simulation, Problemen, Orderentwurf | Doppelansichten systematisch entfernen, Scrollen und Navigation auf echtem Samsung validieren |
+| 6 | Screenshot-Import automatisieren | **Teilweise:** Android Companion Share/OCR und Serien-Kontext existieren | Echte Samsung-Freigabe, Serien-ISIN-Zuordnung, Dubletten/0-O-9, fehlerhafte Quellnachweise in sämtlichen Varianten prüfen |
+| 7 | DEGIRO-Liste speichern und vergleichen | **Teilweise:** lokale Archivierung, persistierte ISINs und Generations-Differenz ohne Delisting-Behauptung | Belastbarer mehrgeräte-/serverseitiger vollständiger Generationenvergleich, ohne alte Screenshots als frische Handelbarkeit zu behandeln |
+| 8 | Einheitlicher Kurs/Originalzeitpunkt | **Teilweise:** gemeinsame Spotquelle für Analyse, konservative Originalzeiten, Quellenfrischegates | Source-Drift und Randfall #677 (60s) belastbar schließen; alle UI-/Push-/Worker-Werte derselben Messgeneration zuordnen |
+| 9 | Automatische Datenquellen und Ersatzwege | **Teilweise:** komdirect/Emittent/Swissquote sowie Quellreparatur und Backoff vorhanden | Per Feld verbindliche Quellenpriorität, Konflikte, Beleg-/Hebelzeit, kostenloses Quotenbudget, vollständige Failure-Tests |
+| 10 | SnapTrade und CSV zusammenfassen | **Teilweise:** reine Lese-/CSV-Strecken und ISIN-Abgleich vorhanden | Depotänderungen/Fills/FX und Exportstände mit Identitäts-/Konfliktregeln konsistent gegenüberstellen |
+| 11 | Sichere Orderentwürfe | **Teilweise / live:** ISIN-Handoff in manuelle Entwurfsmaske, keine automatische Brokerorder | Mobiler End-to-end-Test für DEGIRO-Ausführungskurs, Handelsplatz, Stückzahl, Ziel/Stopp und Benutzerbestätigung |
+| 12 | Echte Trades und Verkäufe auswerten | **Teilweise:** `Mein Trade`, Trade-/Journal-Verarbeitung existieren | Broker-Fill, Teilverkauf, Gebühren/Steuern/FX, Netto-P/L und Identitätskonflikte nachprüfbar zusammenführen |
+| 13 | Ein einziges Simulations-Cockpit | **Teilweise:** Paper-Simulator, fünf Profilkonten, Lernen/Diagramme vorhanden | Alle fünf Konten, originaldatierte Trades, Kosten, Pausen und P/L in einem gemeinsamen klaren Live-Cockpit |
+| 14 | Varianten automatisch vergleichen und lernen | **Teilweise:** getrennte Paper- und Lern-/Vorwärtstests | Harte Out-of-sample-/Walk-forward-Metriken, realistische Kosten/KO und unabhängige Validierung vor jeder Strategieänderung |
+| 15 | MCO/NCO-Goldvideos verarbeiten | **Teilweise:** Kanal-/Untertitel-/Bildhilfen, recherchierte Quellen und Browsertests existieren | Gesicherte datierte Transkripte, originale Frames und MCO-vs.-Bob-Vergleich ohne erfundene Zeit-/Preisdaten |
+| 16 | Problemzentrale und Selbstreparatur | **Teilweise:** Problemzähler, unabhängiger Watchdog, begrenzte Worker-Neustarts, GitHub-Eskalation | Einheitlicher privater/öffentlicher Diagnosestatus, vollständige KI-Hilfefälle, sichere automatische Reparatur-Nachweise |
+| 17 | Hintergrundprogramme vereinfachen | **Teilweise / live:** nur fehlende CFD-/Spot-/Vergleichs-Worker starten, begrenzte Quote-Runtime; keine neuen Trading-Loops | Über alle Prozesse belegbare Abruf-Deduplikation, 30-s-Taktkontrolle, Quoten-/Datenbank-Last, Ausfall- und Restart-Tests |
+| 18 | CI-geschützte Veröffentlichungen | **In Betrieb:** beide Render-Dienste per Connector als `checksPass` bestätigt; `Bob release gate` wartet auf `Validate Bob`; produktive Deployments wurden gemessen | Offene PR-CI-/Browser-Installations-Probleme schließen; GitHub-Branch-Schutz und alle Release-Checknamen explizit erzwingen, manuellen Override getrennt absichern |
+| 19 | Große Dateien schrittweise zerlegen | **Teilweise:** `product_evidence_contract.js`, `bob_unified_workspace.js` und weitere eigenständige Module getestet | Riesige `degiro_assistant.js`/`Bob.html` nur nach Golden-Master-Test in kleine Bausteine zerlegen; keine Big-Bang-Migration |
+| 20 | Sicherung und Wiederherstellung | **Teilweise / live:** freiwilliger lokaler Export/Import *heutiger Orderentwürfe*, ISIN-Prüfziffer, keine automatische Überschreibung | Originalbilder, vollständige Produktlisten, Forschung und Paper-Historie datenschutzgerecht sichern, Rückspieltests und Gerätewechsel gewährleisten |
 
-## Akzeptanzkriterien für die aktuelle Umsetzung
+## Tatsächlich kontrolliert
 
-- Der bestehende Markt-/Analyse-/Produkt-/Trade-Code bleibt unverändert; das neue
-  `bob_unified_workspace.js` ist **nur** UI-Orchestrierung mit einem bereits existierenden
-  Abrufpfad und einer freiwilligen lokalen Dateisicherung.
-- Spot-Originalzeit wird weder erzeugt noch überschrieben. Mehr als 60 Sekunden
-  alte Spot-Zeiten dürfen keine grüne Marktbestätigung ergeben.
-- Reine Produktidentitäten sind ausdrücklich **keine** aktuelle Handelbarkeit.
-  Selektierte ISINs dürfen nur in die manuelle Ordermaske übertragen werden.
-- Keine SnapTrade-Schreiboperationen, DEGIRO-Botsteuerung, Echtgeldorders,
-  Änderungen von Hebel-/KO-/Stopp-/Risikoregeln oder automatische Anwendung
-  experimenteller Strategien.
-- Auf dem Entwicklungsbranch zunächst `node test_bob_unified_workspace.js`,
-  `node test_degiro_handoff.js`, die komplette Bob CI und der Browser-Smoke.
-  Erst bei bestandenem CI, passendem Deployment und eigenständiger mobiler
-  Prüfung als live ausgeben.
+- **Render:** `bob-private-scanner` und `bob-push-service` stehen auf `autoDeployTrigger=checksPass`; zuletzt live geprüfter Commit separat über Render nachweisen.
+- **Bob-Diagnose (22.10.2026, 17:22 UTC):** Produktprüfung `ok`, 10 Produktidentitäten, 0 fehlende Prüfberichtwerte, 4 vom Emittenten als beendet gemeldet; keine `tradeApproved`-Zusage. Marktcache und Hintergrundstatus beobachtet, Forschungs-Selbstreview noch `unavailable`; Teilbereiche der kurzen XAUS-Zeithistorie veraltet und einige Simulationsfälle inkonklusiv. **Kein allgemeiner Erfolgsnachweis für alle 20 Funktionen.**
+- **Mobile Gold-ISIN-Anzeige:** PR #758 hat noch keine erfolgreiche vollständige CI/kein bestätigtes Produktionsrelease. Nicht als erledigt markieren.
+- **CI-Stabilisierung:** PR #755 mit Browse-Cache ohne `playwright install --with-deps` wurde nach grüner PR-CI in `main` zusammengeführt. CI auf weiterentwickelten Ständen und das Release-Gate bleiben zu kontrollieren.
+- **Nicht erlaubt:** automatische DEGIRO-Orders, Handel ohne aktuellen echten Brokerkurs, Aufweichen von Knock-out-, Stop-, Freigabe-, Datenfrische- oder Risikoregeln; keine E-Mails ohne Benutzerfreigabe.
 
-## Rollout und weitere Bearbeitung
+## Nächste testbare Lieferung
 
-1. Pull Request prüfen und CI abwarten. Andere offene Android-/Produkt-PRs nicht
-   gleichzeitig blind zusammenführen; neue Branchbasis erneut prüfen.
-2. Kein Produktions-Deployment allein aufgrund eines neuen Feature-Commits.
-   Bei `autoDeployTrigger: commit` erst Release-Gate konfigurieren, bevor das
-   automatische Deploy-Verhalten verändert wird.
-3. Nach dem Release Android-Klickweg, Screenshot-Upload und Backup-Wiederherstellung
-   auf dem Nutzergerät validieren.
-4. Offene Punkte 3–20 in getrennten, testbaren Folgeänderungen umsetzen; diese
-   Statusmatrix ausdrücklich nicht als vollständige Erledigung interpretieren.
+1. **Zuerst:** Produktübersicht PR #758 (inkl. Einzel-ISINs) gegen neuestes `main` mit allen 13 Browsertests prüfen; CI-Abhängigkeiten aus PR #755 verwenden. Danach `main`-Release-Gate, Render-Deploy-SHA und Sichtkontrolle auf echtem Samsung. Damit den aktuell gemeldeten Fehler beheben.
+2. **Danach:** gemeinsame Pflichtdaten-/Hakenlogik (Punkte 3–4, 9) hinter einer klaren reinen Lese-Schnittstelle, mit Identitäts- und Frischetests.
+3. **Parallel begrenzt:** Kennzahlen für Daten-/Worker-Abrufe und Ausfälle (8, 17), Simulations-P/L und Ursachen (13–14), private Fehlerzustände (16) instrumentieren, ohne die bestehenden Signale oder Strategien automatisch zu ändern.
+4. **Anschließend:** mobile Bildserien-Tests, SnapTrade-/Broker-Abgleich, vollständige Forschungsnachweise, reproduzierbare Sicherungen, schrittweise Modulmigration und Android-Abnahme (5–7, 10–12, 15, 19–20).
 
-## Neue Integrationsstufe (22.10.2026)
-
-- Der gemeinsame Produktnachweis-Vertrag erzeugt niemals ein Handelssignal.
-  Fehlende/stale Originalzeit, Emittentenbeobachtung, CSV und DEGIRO-Account-
-  Verfügbarkeit werden nicht gleichgesetzt.
-- Der Hilfs-Worker-Start wurde dedupliziert, jedoch **kein neues Scheduling**
-  eingerichtet. Der unabhängige Restart-/Recovery-Wächter bleibt aktiv.
-- Der nativen Render-Auto-Deploy-Wert `checksPass` ist als Code vorbereitet.
-  Änderungen an `render.yaml` müssen mit dem tatsächlichen Render-Service
-  abgeglichen werden. Die Render-Verbindung hat in dieser Chat-Sitzung noch
-  keinen vom Nutzer ausgewählten Workspace; deshalb wurde die Produktions-
-  Service-Einstellung nicht direkt geändert.
-- Vor Live-Freigabe: Hauptzweig-CI erfolgreich, Render-Einstellung bestätigt,
-  API-/Health-Smoke und konkrete Mobile-Anzeige nach der Veröffentlichung.
+**Gesamturteil: Bob ist messbar ausgebaut und teilweise automatisiert. Keinesfalls sind alle 20 Punkte vollständig abgenommen.** Jede Zeile bleibt offen, bis ihre letzten Akzeptanzkriterien nachweislich erfüllt sind.
