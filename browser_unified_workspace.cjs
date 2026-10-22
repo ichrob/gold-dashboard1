@@ -72,8 +72,8 @@ const origin='https://bob-workspace.test';
   await page.waitForFunction(()=>document.getElementById('bobUnifiedUploadedDiff').textContent.includes('1 in der neuen Liste fehlende ISIN'));
   assert((await page.locator('#bobUnifiedUploadedDiff').innerText()).includes('Kein aktueller DEGIRO-Handelsnachweis'));
   await page.locator('#bobUnifiedCheckOperations').click();
-  await page.locator('#bobUnifiedOperations').filter({hasText:'1 Produkte mit fehlenden Nachweisen'}).waitFor();
-  assert((await page.locator('#bobUnifiedOperations').innerText()).includes('1 offene technische KI-Hilfeanfragen'));
+  await page.locator('#bobUnifiedOperations').filter({hasText:'1 Produkt mit fehlenden Nachweisen'}).waitFor();
+  assert((await page.locator('#bobUnifiedOperations').innerText()).includes('1 offene technische KI-Hilfeanfrage'));
   assert((await page.locator('#bobUnifiedOperations').innerText()).includes('Keine Echtgeldorder'));
   await page.locator('#bobUnifiedProduct').selectOption('DE000FG14AV8');
   assert((await page.locator('#bobUnifiedProductNote').innerText()).includes('kein bestätigter DEGIRO-Kurs')||
