@@ -36,12 +36,13 @@ const knockoutContext={
  renderProductIdentity:p=>'<b>'+widgetContext.esc(p.isin)+'</b> <strong data-isin-check="none"></strong>'+widgetContext.renderIsinCopy(p.isin)
 };
 vm.createContext(knockoutContext);
-vm.runInContext(source.slice(source.indexOf('function knockoutCard('),
+vm.runInContext(source.slice(source.indexOf('function terminalProductCard('),
  source.indexOf('function evaluateProduct(')),knockoutContext);
 const knocked=knockoutContext.knockoutCard({isin,productDirection:'LONG',
  knockout:{source:'Emittent',observedDate:'2026-10-15'}});
-assert(knocked.includes('<b>'+isin+'</b>'),knocked);
-assert(knocked.includes('data-isin-check="none"'),knocked);
+assert(knocked.includes(isin+' · Produkt ausgeknockt'),knocked);
+assert(!knocked.includes('data-isin-check="none"'),knocked);
+assert(!knocked.includes('✗'),knocked);
 assert(knocked.includes(html),knocked);
 assert(knocked.includes('Ausgeknockt'),knocked);
 assert(source.includes('data-copy-product-isin="" aria-label="ISIN kopieren"'),
