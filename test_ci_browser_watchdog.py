@@ -23,13 +23,15 @@ class CIWatchdogTests(unittest.TestCase):
 
     def test_all_browser_suites_still_run_without_swallowing_failures(self):
         suites = sorted(set(re.findall(r'node (browser_[a-z_]+\.cjs)', CI)))
-        self.assertGreaterEqual(len(suites), 13)
+        self.assertGreaterEqual(len(suites), 12)
+        self.assertEqual(len(re.findall(r'node browser_[a-z_]+\\.cjs', CI)), 13, 'Thirteen browser invocations incl. Firefox')
         for suite in suites:
             self.assertIn('timeout --signal=TERM --kill-after=10s 120s node '+suite, CI)
         self.assertIn('browser_unified_workspace.cjs', suites)
         self.assertIn('browser_video_evidence.cjs', suites)
         self.assertIn('browser_degiro_all_products.cjs', suites)
         self.assertIn('browser_degiro_candidate_image.cjs', suites)
+        self.assertIn('BOB_BRIDGE_BROWSER=firefox', CI)
         # Do not ignore a timeout or continue publishing on browser failures.
         self.assertNotRegex(CI, r'(?m)^\s*NODE_PATH=.*\|\|\s*true\s*$')
         self.assertNotRegex(CI, r'(?m)^\s*NODE_PATH=.*\bcontinue-on-error')
