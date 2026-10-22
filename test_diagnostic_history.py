@@ -97,6 +97,29 @@ class HistoryTests(unittest.TestCase):
         self.assertTrue(conn.statements)
         self.assertIn('INSERT INTO bob_diagnostic_history', conn.statements[0][0])
 
+    def test_database_advisory_lock_prevents_cross_service_prune_collision(self):
+        class Result:
+            def __init__(self, row):
+                self.row = row
+
+            def fetchone(self):
+                return self.row
+
+        class Conn:
+            def __init__(self):
+                self.statements = []
+
+            def execute(self, sql, params=()):
+                self.statements.append((sql, params))
+                return Result((False,))
+
+        conn = Conn()
+        self.assertEqual(h.prune(conn), 0)
+        self.assertEqual(len(conn.statements), 1)
+        self.assertIn('pg_try_advisory_xact_lock', conn.statements[0][0])
+        self.assertFalse(any('DELETE FROM bob_diagnostic_history' in sql
+                             for sql, _ in conn.statements))
+
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class DatabaseTests(unittest.TestCase):

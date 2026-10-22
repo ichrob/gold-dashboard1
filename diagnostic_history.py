@@ -18,6 +18,7 @@ _DATABASE = None
 _LAST_PRUNE = 0.0
 _PRUNE_INTERVAL_SECONDS = 1800
 _PRUNE_TIMEOUT = '5s'
+_PRUNE_ADVISORY_LOCK = 'bob-diagnostic-history-prune-v1'
 _STATS = {'stored':0,'dropped':0,'failures':0,'lastStoredAt':None}
 SCHEMAS = {
     'transport':diag.shape('outcome','errorType'),
@@ -115,6 +116,15 @@ def write(conn,event):
 
 
 def prune(conn):
+    # Scanner and push-service share the same journal but run in separate
+    # processes, so the in-process mutex above cannot serialize deploy-time
+    # retention.  A transaction-scoped, non-blocking PostgreSQL lock makes
+    # exactly one service prune while the other keeps delivering diagnostics.
+    locked=conn.execute(
+        'SELECT pg_try_advisory_xact_lock(hashtext(%s))',
+        (_PRUNE_ADVISORY_LOCK,)).fetchone()
+    if not locked or locked[0] is not True:
+        return 0
     old=conn.execute("""DELETE FROM bob_diagnostic_history WHERE id IN
         (SELECT id FROM bob_diagnostic_history
          WHERE recorded_at < now()-interval '7 days'
