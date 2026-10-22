@@ -119,4 +119,49 @@ class PhoneTaskPlanTest {
         assertNull(PhoneTaskPlanParser.parse(
             "Zeige mir das Hebelrisiko und ändere den Stopp"))
     }
+    @Test fun samsungTranscribesBobAddressWithoutComma() {
+        // User's real Samsung result: "Bob zeige meine goldprodukte" was
+        // rejected, so Bob never opened despite working voice recognition.
+        for (spoken in listOf(
+            "Bob zeige meine goldprodukte",
+            "Bob, zeige meine Goldprodukte",
+            "Bob zeige meine Goldprodukte.",
+            "Bob zeige meine Goldprodukte!",
+            "Hallo Bob zeige meine Goldprodukte",
+            "Hey Bob zeige meine Goldprodukte",
+            "Bob Gold Hebelprodukte",
+            "Bob zeige mir die Gold Hebelprodukte"
+        )) {
+            val task=PhoneTaskPlanParser.parse(spoken)?.steps?.singleOrNull()
+            assertEquals("spoken: $spoken", PhoneTask.OPEN_PRODUCTS, task)
+            assertEquals("same safe navigation: $spoken", PhoneTask.OPEN_PRODUCTS,
+                task?.let { VoiceAutoNavigation.allowed(PhoneTaskPlan(listOf(it))) })
+        }
+        // Important regression: Bob öffnen is a complete legacy command,
+        // not an address followed by the unrecognized word "öffnen".
+        assertEquals(PhoneTask.OPEN_BOB, PhoneTaskPlanParser.parse("Bob öffnen")?.steps?.singleOrNull())
+        assertEquals(PhoneTask.OPEN_BOB, PhoneTaskPlanParser.parse("Bob starten")?.steps?.singleOrNull())
+        assertEquals(PhoneTask.OPEN_LONG_REVIEW,
+            PhoneTaskPlanParser.parse("Bob zeige mir die drei besten Long-Produkte und erkläre die Unterschiede")?.steps?.singleOrNull())
+    }
+
+    @Test fun addressedMixedOrTradingInstructionsRemainFullyRejected() {
+        for (spoken in listOf(
+            "Bob zeige Goldprodukte und kaufe Gold",
+            "Bob zeige meine Goldprodukte und danach platziere eine Order",
+            "Bob zeige meine Goldprodukte und logge dich in DEGIRO ein",
+            "Bob kaufe mir das beste Goldprodukt",
+            "Bob ändere meinen Stopp",
+            "Bob öffne ein Orderformular",
+            "Bob zeige meine Goldprodukte? kaufe Gold",
+            "Bob"
+        )) {
+            assertNull("must reject full unsafe utterance: $spoken",
+                PhoneTaskPlanParser.parse(spoken))
+        }
+        val compound=PhoneTaskPlanParser.parse("Bob zeige Goldprodukte und danach Simulationen")
+        assertEquals(listOf(PhoneTask.OPEN_PRODUCTS, PhoneTask.OPEN_SIMULATION), compound?.steps)
+        assertNull("compound commands must not auto-run",
+            compound?.let { VoiceAutoNavigation.allowed(it) })
+    }
 }
