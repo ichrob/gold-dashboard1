@@ -97,6 +97,11 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
         except Exception:
             result['spotGapArchive'] = {'status':'unavailable','readOnly':True,
                 'reason':'archive-inspection-unavailable'}
+        try:
+            result['analysisGapArchive'] = __import__('paper_gap_analysis_archive').report(conn,accounts)
+        except Exception:
+            result['analysisGapArchive'] = {'status':'unavailable','readOnly':True,
+                'reason':'analysis-history-inspection-unavailable'}
         result['history'] = collect({'journal':lambda:__import__('diagnostic_history').report(conn)})
         result['details'] = stored_details(conn)
         # Keep the research report independently addressable when oversized
@@ -299,6 +304,15 @@ def simulation_evidence_snapshot(simulation):
                                  'outsideRetention','queryUnavailable'),
                     items=[shape('eventAt','state','nearestSourceAt',
                                  'deltaSeconds','timeRelation')])),
+            'analysisGapArchive':project(simulation.get('analysisGapArchive'),
+                shape('status','readOnly','realOrders','windowSeconds',
+                    'sampledDistinctClocks','totalDistinctClocks','truncated',
+                    'scope','note','reason',
+                    counts=shape('nearby15mAnalysis','readyFresh15mAnalysis',
+                                 'no15mAnalysisInWindow','outsideRetention','queryUnavailable'),
+                    items=[shape('eventAt','state','analysisAt','timeRelation',
+                                 'deltaSeconds','ready','priceFresh',
+                                 'sourceAgeAtAnalysisSeconds')])),
             'gapCorrelation':{
                 'sampledInconclusiveCases':sampled_inconclusive,
                 'gapEventReasonCounts':reason_counts,
