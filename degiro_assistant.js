@@ -1701,6 +1701,10 @@ function serverAnalysisEvidence(p,now=Date.now()){
  if(report?.status!=='ok'||!Array.isArray(report.items)||!listArchive?.storedAt
     ||report.listUploadedAt!==listArchive.storedAt||!Number.isFinite(observed)
     ||now<observed||now-observed>180000)return null;
+ // Source conflicts and contract contradictions must remain visible even
+ // when the server has newer quote/leverage observations.
+ const localTerms=typeof productTermsStatus==='function'?productTermsStatus(p,now,true):null;
+ if((localTerms?.reasons||[]).some(reason=>/widerspr|quellenkonflikt|nicht eindeutig|falscher Basiswert|Faktorprodukt|Future-Kontrakt|Kontraktkonflikt/i.test(reason)))return null;
  const item=report.items.find(row=>row.isin===p.isin);
  if(!item||!['issuer-evidence-complete','analysis-evidence-complete'].includes(item.state)
     ||item.direction!==p.productDirection||item.missing?.length
