@@ -389,6 +389,38 @@ class FocusedReadAccessTests(unittest.TestCase):
         self.assertEqual(missing['areas']['simulationAndPush']['signalHistory']['status'],
                          'unavailable')
 
+    def test_stale_backup_not_marked_active_market_outage(self):
+        evidence={
+            'background':{'status':'ok'},
+            'market':{'candles':{
+                '1m':{'integrity':{'source':'biquote · XAU/USD Broker/MT5','state':'ok'}},
+                '5m':{'integrity':{'source':'biquote · XAU/USD Broker/MT5','state':'ok'}}}},
+            'sourceReliability':{'sources':{
+                'xaus/1m':{'state':'stale'},
+                'xaus/5m':{'state':'stale'},
+                'biquote/1m':{'state':'current'},
+                'biquote/5m':{'state':'current'}}},
+            'simulationAndPush':{'status':'observed'}}
+        rows=diagnostics.triage_snapshot(evidence)['items']
+        codes=[a['code'] for a in rows]
+        self.assertIn('SOURCE_ALTERNATIVE_STALE',codes)
+        self.assertNotIn('SOURCE_SELECTED_DEGRADED',codes)
+        self.assertNotIn('SOURCE_HEALTH_HISTORY',codes)
+        self.assertIn('alternative Kerzenquellen',next(
+            a['finding'] for a in rows if a['code']=='SOURCE_ALTERNATIVE_STALE'))
+
+    def test_selected_source_stale_is_high_priority(self):
+        evidence={'background':{'status':'ok'},'market':{'candles':{
+            '1m':{'integrity':{'source':'biquote · XAU/USD Broker/MT5','state':'recent-gap'}}}},
+            'sourceReliability':{'sources':{'biquote/1m':{'state':'stale'},
+                                           'xaus/1m':{'state':'current'}}},
+            'simulationAndPush':{'status':'observed'}}
+        rows=diagnostics.triage_snapshot(evidence)['items']
+        active=next(a for a in rows if a['code']=='SOURCE_SELECTED_DEGRADED')
+        self.assertEqual(active['priority'],'high')
+        self.assertFalse(active['tradeApproval'])
+        self.assertFalse(active['repairVerified'])
+
     def test_priorities_avoid_false_live_market_and_trade_approval(self):
         source={'sources':{'archive/1m':{'state':'stale','events':[{'state':'stale'}]}}}
         areas={'background':{'status':'ok'},
