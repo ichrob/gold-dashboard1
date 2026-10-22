@@ -8,6 +8,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.speech.RecognizerIntent
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -25,6 +26,7 @@ import java.util.Locale
  */
 class MainActivity : Activity() {
     private val selectImageRequest = 42
+    private val recognizeSpeechRequest = 43
     private lateinit var status: TextView
     private lateinit var mockSearch: EditText
     private lateinit var demoResult: TextView
@@ -120,6 +122,8 @@ class MainActivity : Activity() {
             stack.addView(this)
         }
         commandStatus = label("Noch kein Handy-Auftrag geprüft. Erst prüfen, dann jede Aktion einzeln bestätigen.")
+        button("🎤 Auftrag sprechen") { openSpeechRecognizer() }
+        label("Die Spracherkennung läuft über Android. Je nach Sprachanbieter können Sprachdaten online verarbeitet werden; Bob speichert keine Audioaufnahme. Nur ausdrücklich erlaubte Aufträge sind möglich.")
         button("Handy-Auftrag prüfen") {
             previewTask(commandInput.text.toString())
         }
@@ -181,6 +185,24 @@ class MainActivity : Activity() {
     @Deprecated("Android's activity-result API retained here to avoid framework dependencies in the lab.")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == recognizeSpeechRequest) {
+            pendingTask = null
+            if (resultCode != RESULT_OK) {
+                commandStatus.text = "Sprachauftrag abgebrochen. Nichts ausgeführt."
+                return
+            }
+            val spoken = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                ?.firstOrNull().orEmpty()
+            val voiceTask = PhoneTaskProtocol.parseSpeech(spoken)
+            if (voiceTask == null) {
+                commandInput.setText(spoken.take(100))
+                commandStatus.text = "Sprachauftrag nicht erlaubt oder nicht erkannt. Sage zum Beispiel: Bob öffnen, Produktbilder auswählen oder Android-Einstellungen öffnen. Keine Aktion ausgeführt."
+            } else {
+                commandInput.setText(PhoneTaskProtocol.displayLabel(voiceTask))
+                previewTask(commandInput.text.toString())
+            }
+            return
+        }
         if (requestCode != selectImageRequest || resultCode != RESULT_OK) return
         val clip = data?.clipData
         val viaClip = (0 until (clip?.itemCount ?: 0)).mapNotNull { clip?.getItemAt(it)?.uri }
@@ -188,10 +210,30 @@ class MainActivity : Activity() {
         readImages(all)
     }
 
-    // Friendly, preselected local label. Shared text still requires explicit
-    // check and a separate confirmation before any intent is launched.
+    /** Speech recognition is requested only after a user taps the mic button. */
+    private fun openSpeechRecognizer() {
+        // A previous approval must never survive launching an external activity.
+        pendingTask = null
+        commandStatus.text = "Spracherkennung gestartet. Keine Aktion wird automatisch ausgeführt."
+        val request = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.GERMAN.toLanguageTag())
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            // Only a preference: the installed speech provider may still use the internet.
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Zum Beispiel: Bob öffnen")
+        }
+        try {
+            startActivityForResult(request, recognizeSpeechRequest)
+        } catch (_: Exception) {
+            commandStatus.text = "Auf diesem Samsung ist keine passende Spracherkennung verfügbar. Du kannst weiterhin die beiden Buttons verwenden."
+        }
+    }
+
+    // Friendly labels are UI conveniences. Shared text remains strictly limited
+    // to the existing BOB-AUFTRAG protocol.
     private fun parseDisplayedTask(text: String): PhoneTask? =
-        if (text == "Bob öffnen") PhoneTask.OPEN_BOB else PhoneTaskProtocol.parse(text)
+        PhoneTaskProtocol.parseDisplayed(text)
 
     private fun previewTask(text: String) {
         pendingTask = parseDisplayedTask(text)
