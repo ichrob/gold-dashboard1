@@ -323,6 +323,22 @@ def deliver_product_selection(conn, row, checked):
     return int(message is not None)
 
 
+def write_market_spots(payload, attempts=3):
+    """Persist a market observation, retrying bounded transient lock races."""
+    for attempt in range(attempts):
+        try:
+            with db() as conn:
+                result = bob_market_store.handle(conn, 'write', payload)
+                conn.commit()
+            return result
+        except TRANSIENT_DB_ERRORS:
+            if attempt + 1 >= attempts:
+                raise
+            print(f'BOB_PUSH database_retry route=market-spots attempt={attempt + 1}',
+                  flush=True)
+            time.sleep(0.25 * (attempt + 1))
+
+
 def store_product_selection(endpoint, payload, checked, attempts=2):
     """Persist/deliver a selection, retrying only a transient row-lock race."""
     evidence = {k: payload[k] for k in ('products', 'references', 'fixedBarriers')
@@ -1040,9 +1056,13 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 payload=json_body(self)
                 if not isinstance(payload,dict):raise ValueError('Ungültige Spot-Speicherdaten')
-                with db() as conn:
-                    result=bob_market_store.handle(conn,path.rsplit('/',1)[-1],payload)
-                    conn.commit()
+                action=path.rsplit('/',1)[-1]
+                if action == 'write':
+                    result=write_market_spots(payload)
+                else:
+                    with db() as conn:
+                        result=bob_market_store.handle(conn,action,payload)
+                        conn.commit()
                 send_json(self,200,result)
                 return
             if path in ('/snaptrade-settings/read', '/snaptrade-settings/save', '/snaptrade-settings/delete', '/snaptrade-settings/state-read', '/snaptrade-settings/state-save'):

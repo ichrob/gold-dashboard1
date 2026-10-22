@@ -17,6 +17,24 @@ class PoolFailureTests(unittest.TestCase):
             push_server.init_db()
         self.assertEqual(init.call_count, 2)
 
+    def test_market_spot_write_retries_transient_lock(self):
+        from unittest.mock import MagicMock
+        first, second = MagicMock(), MagicMock()
+        first_conn, second_conn = MagicMock(), MagicMock()
+        first.__enter__.return_value = first_conn
+        second.__enter__.return_value = second_conn
+        expected = {'ok': True}
+        with patch.object(push_server, 'db', side_effect=[first, second]), \
+                patch.object(push_server.bob_market_store, 'handle',
+                             side_effect=[psycopg.errors.LockNotAvailable(), expected]) as handle, \
+                patch.object(push_server.time, 'sleep') as sleep:
+            result = push_server.write_market_spots({'spots': []})
+        self.assertEqual(result, expected)
+        self.assertEqual(handle.call_count, 2)
+        handle.assert_any_call(first_conn, 'write', {'spots': []})
+        handle.assert_any_call(second_conn, 'write', {'spots': []})
+        sleep.assert_called_once_with(0.25)
+
     def test_secondary_timeout_preserves_report_and_discloses_missing_result(self):
         from unittest.mock import MagicMock, Mock
         conn = MagicMock()
