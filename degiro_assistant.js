@@ -2832,11 +2832,11 @@ function archiveTransaction(mode,action){
   const finish=(error,value)=>{
    if(settled)return;
    settled=true;
-   if(timeout)clearTimeout(timeout);
+   if(timeout&&typeof clearTimeout==='function')clearTimeout(timeout);
    try{db?.close();}catch(_){}
    if(error)reject(error);else resolve(value);
   };
-  const timeout=mode==='readonly'?setTimeout(()=>
+  const timeout=mode==='readonly'&&typeof setTimeout==='function'?setTimeout(()=>
    finish(Error('Lokaler Bildspeicher antwortet nicht; Produkt-Cache wird geprüft.')),6000):null;
   let request;
   try{request=indexedDB.open('bobProductArchive',1);}
