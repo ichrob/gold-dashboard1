@@ -114,7 +114,7 @@ function mount(){
    if(Array.isArray(existing)){
     const match=existing.some(p=>p?.isin===draft.isin);
     const note=root.document.createElement('p');
-    note.textContent=match?'ISIN in einer vorhandenen Bob-Produktidentitätenliste gefunden. Das beweist keine aktuelle DEGIRO-Handelbarkeit.':'Keine passende Identität in der verfügbaren lokalen Bob-Produktliste gefunden.';
+    note.textContent=match?'ISIN in einer vorhandenen Bob-Produktidentitätenliste gefunden. Das beweist keine aktuelle DEGIRO-Handelbarkeit.':'Keine Zuordnung in der verfügbaren lokalen Bob-Vergleichsliste. Das sagt nichts darüber aus, ob DEGIRO dieses Produkt anbietet oder handeln lässt.';
     preview.append(note);
    }
   }catch(e){status.textContent='Nicht übernommen: '+e.message;}

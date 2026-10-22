@@ -68,6 +68,48 @@ class QuoteLayoutTest {
         assertNull(fields["Geld"])
     }
 
+    @Test fun readsVenueWhenIsinAndBnpOtcAppearAsSeparateOcrLines() {
+        val lines = listOf(
+            QuoteLayout.Line("DE000PJ9NB98", 24, 189, 195, 216),
+            QuoteLayout.Line("•", 200, 189, 212, 216),
+            QuoteLayout.Line("BNP OTC", 220, 190, 315, 216),
+            QuoteLayout.Line("R", 342, 190, 361, 216),
+            QuoteLayout.Line("BNP GOLD Unlimited Long", 85, 250, 540, 285)
+        )
+        assertEquals("BNP OTC", QuoteLayout.extract(lines)["Handelsplatz"])
+    }
+
+    @Test fun readsVenueWhenBnpAndOtcAreIndependentOcrWords() {
+        val lines = listOf(
+            QuoteLayout.Line("DE000PJ9NB98", 24, 190, 190, 217),
+            QuoteLayout.Line("BNP", 220, 192, 262, 215),
+            QuoteLayout.Line("OTC", 269, 192, 309, 215),
+            QuoteLayout.Line("R", 360, 192, 380, 215)
+        )
+        assertEquals("BNP OTC", QuoteLayout.extract(lines)["Handelsplatz"])
+    }
+
+    @Test fun detectsVenueNextToSeparateBoerseLabel() {
+        val lines = listOf(
+            QuoteLayout.Line("Börse", 40, 640, 116, 666),
+            QuoteLayout.Line("BNP", 425, 640, 475, 666),
+            QuoteLayout.Line("OTC", 481, 640, 531, 666)
+        )
+        assertEquals("BNP OTC", QuoteLayout.extract(lines)["Handelsplatz"])
+    }
+
+    @Test fun doesNotInferIssuerOtcFromOtherRowsOrNoIsin() {
+        val lines = listOf(
+            QuoteLayout.Line("DE000PJ9NB98", 24, 190, 193, 216),
+            QuoteLayout.Line("BNP OTC", 218, 292, 312, 318)
+        )
+        assertNull(QuoteLayout.extract(lines)["Handelsplatz"])
+        assertNull(QuoteLayout.extract(listOf(
+            QuoteLayout.Line("BNP OTC", 220, 190, 315, 216),
+            QuoteLayout.Line("BNP GOLD Unlimited Long", 30, 290, 500, 315)
+        ))["Handelsplatz"])
+    }
+
     @Test fun venueDoesNotComeFromProductNameAlone() {
         val fields = QuoteLayout.extract(listOf(
             QuoteLayout.Line("BNP GOLD Unlimited Long", 24, 100, 550, 130),
