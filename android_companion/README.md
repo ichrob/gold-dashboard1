@@ -4,7 +4,12 @@
 
 Neue sichtbar freigegebene Aktionen im Android-Labor (Version 0.5): **„Auftrag: Bob öffnen“**, **„Auftrag: Produktbilder auswählen und lokal prüfen“**, **„Status der lokalen Routinen prüfen“** und **„STOPP · Alle geplanten Bob-Routinen ausschalten“**. Das Labor kann **keine ChatGPT-Nachricht als direkten Fernbedienungsbefehl empfangen**. Eine authentifizierte, widerrufbare Geräteverbindung wäre ein separates Sicherheits- und Entwicklungsprojekt.
 
-Eine **anfangs ausgeschaltete** Tagesroutine kann nach ausdrücklicher Freigabe mit frei gewählter Uhrzeit lokal die Zeit der letzten erfolgreichen Bildverarbeitung prüfen und eine Benachrichtigung zeigen. Kein Hintergrund-Screenshot, keine DEGIRO-Steuerung, keine Order. Die Uhrzeit ist nicht minutengenau; Android kann die Ausführung verzögern. Nach einem Telefon-Neustart muss die Routine eventuell erneut aktiviert werden. Android 13+ verlangt die Benachrichtigungsberechtigung. STOPP widerruft die Freigabe und entfernt den Alarm.
+
+**Auftrag aus einer Nachricht starten (nur nach Antippen auf dem Samsung):** `bob-companion://command/open-bob`, `bob-companion://command/pick-images` oder `bob-companion://command/local-status`. Nur exakt diese drei Links werden akzeptiert; keine Parameter, Geheimnisse, beliebigen Klicks oder Orders. Ob der Browser die Links an die installierte App übergibt, muss am Gerät getestet werden. Sie sind keine ChatGPT-Fernzugriffskanäle.
+
+Mit Android `RECEIVE_BOOT_COMPLETED` wird **nur eine bereits freigegebene** Tagesroutine nach Neustart wieder geplant. STOPP deaktiviert auch den Neustart-Wiederanlauf.
+
+Eine **anfangs ausgeschaltete** Tagesroutine kann nach ausdrücklicher Freigabe mit frei gewählter Uhrzeit lokal die Zeit der letzten erfolgreichen Bildverarbeitung prüfen und eine Benachrichtigung zeigen. Kein Hintergrund-Screenshot, keine DEGIRO-Steuerung, keine Order. Die Uhrzeit ist nicht minutengenau; Android kann die Ausführung verzögern. Nach einem Telefon-Neustart wird ausschliesslich die bereits freigegebene Routine wieder angemeldet. Android 13+ verlangt die Benachrichtigungsberechtigung. STOPP widerruft die Freigabe und entfernt den Alarm.
 
 Die feste Befehlsliste lässt für geplante Ausführung ausschliesslich die lokale Prüfung zu. Keine generischen Klicks, keine Fernzugriffe, keine Credentials, kein Zugriff auf Broker-Konten. Nur die Uhrzeit der lokalen OCR-Verarbeitung wird dafür gespeichert, keine Screenshots, ISINs oder Kurse. Eine weitergehende Automatisierung braucht klar definierten Umfang, gesonderte Berechtigungen und Tests.
 
