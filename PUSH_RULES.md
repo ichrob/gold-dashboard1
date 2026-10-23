@@ -19,6 +19,26 @@ Bob einmal neu laden. Push-Schalter aktivieren und auf „Hintergrund-Push gespe
 
 Über „Hintergrund-Push testen (30 Sekunden)“ wird eine einmalige Testnachricht in der Datenbank gespeichert. Danach App schließen und Bildschirm sperren. Der Server löst sie nach etwa 30–45 Sekunden aus. Dieser Test benötigt keinen echten Trade.
 
+## Künstliche LONG-/SHORT-Frühwarn-Push-Tests
+Unter **Mehr → Einstellungen → Weitere Push-Einstellungen und Tests** gibt es
+**„LONG-Frühwarnung testen“** und **„SHORT-Frühwarnung testen“**. Nur durch
+den bewussten Knopfdruck wird für das aktuell registrierte Gerät mit aktivierter
+**Marktbeobachtung** eine einzelne, um etwa 30 Sekunden verzögerte
+**TEST · LONG-Frühwarnung** bzw. **TEST · SHORT-Frühwarnung** angemeldet.
+Die bestehenden Browser-, Authentifizierungs-, Server-Abo- und Service-Worker-
+Berechtigungen gelten auch für diese Tests. Am besten jeden Test einzeln
+auslösen, Empfang abwarten, dann erst den zweiten, da es pro Geräteanmeldung
+nur **einen** vorgemerkten Push-Test gibt.
+
+Der Test nutzt **nur festgelegte künstliche Vorwarntexte** mit
+`test=true`, `synthetic=true`, `comparisonOnly=true` und
+`affectsApproval=false`. Er erzeugt keine echten Preis-/Kerzenbeobachtungen,
+keinen Signalwechsel, keine Handelsfreigabe, keinen echten Trade, keinen
+Brokerauftrag und keinen Einstieg. Das reine Eintreffen des TEST-Pushs
+bestätigt nur den Zustellungsweg, **nicht** dass ein künftiger echter
+LONG-/SHORT-Frühwarnimpuls rechtzeitig automatisch als Push versendet wird.
+Dessen separate Marktregel und Ende-zu-Ende-Abnahme bleiben unabhängig.
+
 ## Noch manuell nachzuweisen
 Auf dem Android-Gerät je einen ausdrücklich bezeichneten Test bei offener App, geschlossener App und gesperrtem Bildschirm empfangen. Danach Trade schließen und verspätete Trade-Warnung prüfen. Ein erfolgreiches Web-Push-Provider-Acknowledgement beweist keinen sichtbaren Empfang auf dem Handy.
 

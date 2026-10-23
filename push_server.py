@@ -418,16 +418,38 @@ def trigger_test_message(stage, now):
         'tag':'bob-trigger-test-'+kind,'data':{**event['data'],'test':True,'url':'/','expiresAt':now+180000}}
 
 
+def early_warning_test_message(side, now):
+    """Fixed, synthetic early-warning *delivery* example, not market evaluation."""
+    if side not in ('LONG', 'SHORT'):
+        raise ValueError('Unknown early-warning test direction')
+    return {
+        'title': 'TEST · ' + side + '-Frühwarnung',
+        'body': 'Künstliche ' + side + '-Frühwarnung zum Prüfen der Handy-Zustellung. '
+                'Keine echte Goldbewegung, kein Einstiegssignal, keine '
+                'Produktempfehlung und keine Order.',
+        'tag': 'bob-early-warning-test-' + side.lower(),
+        'data': {
+            'kind': 'general', 'eventKind': 'early-warning-test',
+            'direction': side, 'test': True, 'synthetic': True,
+            'comparisonOnly': True, 'affectsApproval': False,
+            'url': '/', 'expiresAt': now + 180000,
+        },
+    }
+
+
 def deliver_background_tests():
     now=int(time.time()*1000)
     with db() as conn:
         rows=conn.execute("SELECT id, subscription, pending_test, general_enabled, trade_enabled FROM subscriptions WHERE pending_test IS NOT NULL AND (pending_test->>'dueAt')::bigint<=%s FOR UPDATE",(now,)).fetchall()
         for sid, sub, pending, general, trade in rows:
-            allowed=(general or trade) if pending.get('scenario')=='stop-target' else (general if pending['kind']=='general' else trade)
+            scenario=pending.get('scenario','delivery')
+            allowed=(general or trade) if scenario=='stop-target' else (general if scenario in ('early-long','early-short') else (general if pending.get('kind')=='general' else trade))
             if allowed and now < pending['dueAt']+300000:
                 message={'title':'TEST · Push bei geschlossener App','body':'Diese Testnachricht wurde zeitversetzt auf dem Server ausgelöst. Kein Handelssignal.','tag':'bob-background-test','data':{'kind':pending['kind'],'test':True,'url':'/','expiresAt':now+180000}}
-                if pending.get('scenario')=='stop-target':
+                if scenario=='stop-target':
                     message=trigger_test_message(pending.get('stage',0),now)
+                elif scenario in ('early-long','early-short'):
+                    message=early_warning_test_message('LONG' if scenario=='early-long' else 'SHORT',now)
                 try:
                     webpush(subscription_info=sub,data=json.dumps(message),vapid_private_key=vapid(),vapid_claims={'sub':VAPID_SUBJECT},ttl=180)
                 except WebPushException:
@@ -1213,12 +1235,18 @@ class Handler(BaseHTTPRequestHandler):
                     send_json(self,401,{'error':'Unauthorized'})
                     return
                 endpoint=payload.get('endpoint')
+                scenario=payload.get('scenario','delivery')
+                if scenario not in ('delivery','stop-target','early-long','early-short'):
+                    raise ValueError('Unbekannter Push-Test')
                 with db() as conn:
                     row=conn.execute('SELECT general_enabled, trade_enabled FROM subscriptions WHERE endpoint=%s FOR UPDATE',(endpoint,)).fetchone()
                     if not row or not any(row):
                         raise ValueError('Zuerst Gerät anmelden und mindestens einen Push-Schalter aktivieren')
+                    if scenario in ('early-long','early-short') and row[0] is not True:
+                        raise ValueError('Marktbeobachtung muss für Frühwarn-Tests aktiv sein')
                     pending={'kind':'general' if row[0] else 'trade','dueAt':int(time.time()*1000)+30000}
-                    if payload.get('scenario')=='stop-target':pending.update(scenario='stop-target',stage=0)
+                    if scenario=='stop-target':pending.update(scenario='stop-target',stage=0)
+                    elif scenario in ('early-long','early-short'):pending['scenario']=scenario
                     conn.execute('UPDATE subscriptions SET pending_test=%s::jsonb WHERE endpoint=%s',(json.dumps(pending),endpoint))
                     conn.commit()
                 send_json(self,200,{'ok':True,'dueAt':pending['dueAt']})
