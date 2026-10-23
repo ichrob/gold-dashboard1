@@ -615,6 +615,8 @@ def _build_report(conn):
         result['scope']+=' · Datenbank ausgelastet: vorübergehend verkleinertes Auswertungsfenster (höchstens '+str(REPORT_BUSY_LIMIT)+' Entscheidungen). Vollständige Tagesprotokolle bleiben abrufbar.'
     if not result['prospectiveReview']['available']:
         result['scope']+=' · '+result['prospectiveReview']['reason']+'.'
+    elif prospective_partial:
+        result['scope']+=' · Prospektive Zusatzforschung nur letzte 24 Stunden wegen SQL-Zeitüberschreitung; keine vollständige 30-Tage-Validierung.'
     result['earlyImpulseReview']=early_impulse_review([(row[0],row[1:]) for row in rows])
     result['minuteEntryReview']=entry_quality_review([(row[0],row[1:]) for row in rows],field='minuteEntry',version='minute-entry-v1')
     result['entryQualityReview']=entry_quality_review([(row[0],row[1:]) for row in rows])
