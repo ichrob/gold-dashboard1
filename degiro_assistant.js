@@ -3736,8 +3736,7 @@ function seriesIsinRepair(raw,isin,context){
  }
  let changes=0;
  for(let i=5;i<12;i++)if(token[i]!==isin[i]){
-  if(!ocrGlyphPair(token[i],isin[i])&&!/^[89]{2}$/.test(token[i]+isin[i])&&
-     !(/^[8S]{2}$/.test(token[i]+isin[i])))return null;
+  if(!ocrGlyphPair(token[i],isin[i])&&!(/^[8S]{2}$/.test(token[i]+isin[i])))return null;
   changes++;
  }
  if(changes<1||changes>2)return null;
