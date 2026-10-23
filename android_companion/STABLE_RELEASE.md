@@ -72,6 +72,13 @@ tatsächlichen APK-Zertifikatsfingerabdruck damit und verweigert ein Update bei
 Abweichung. Der Workflow prüft auch die Offline-Berechtigungen, das feste
 Android-Paket und den automatisch steigenden Versionscode.
 
+**Hinweis zur ersten Version 10001 (23.10.2026):** Die signierte Datei wurde
+unter dem technisch erzeugten Namen `app-release.apk` veröffentlicht. Die
+GitHub-Beschriftung hat den Dateinamen nicht umbenannt. Die Datei ist daher
+nicht allein wegen ihres Namens ungültig. Ab der nach diesem Fix gebauten
+Version heißt die veröffentlichte Datei `Bob-Handy.apk`; die Signatur und
+Paketkennung bleiben gleich.
+
 ## Update nach der Ersteinrichtung
 
 Spätere Codeänderung → vollständige CI → freigegebener Main-Stand →
