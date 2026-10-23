@@ -120,13 +120,22 @@ jobs:
         run: |
           set -euo pipefail
           tag="bob-android-v$BOB_ANDROID_VERSION_CODE"
+          apk="android_companion/app/build/outputs/apk/release/app-release.apk"
+          staged="$RUNNER_TEMP/Bob-Handy.apk"
+          cp -- "$apk" "$staged"
+          cmp -- "$apk" "$staged"
           gh release create "$tag" \
-            "android_companion/app/build/outputs/apk/release/app-release.apk#Bob-Handy.apk" \
+            "$staged" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Bob – Handy (Version $BOB_ANDROID_VERSION_CODE)" \
             --latest \
             --notes "Dauerhaft signierte Bob-Android-App; manuelle Installation. Sichere Anzeige- und Sprachfunktionen; keine Echtgeldorders. Die Signatur muss mit früheren stabilen Versionen übereinstimmen."
-          echo "Release available at the repository's /releases/latest page."
+          published="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          if [ "$published" != "Bob-Handy.apk" ]; then
+            echo "Release asset name differs from Bob-Handy.apk; do not mark the update verified." >&2
+            exit 1
+          fi
+          echo "Verified Bob-Handy.apk release is available at /releases/latest."
 
       - name: Erase temporary keystore after job
         if: always()
