@@ -45,6 +45,24 @@ assert.equal(b.agreedDegiroListRow([
 
 const mini=`BNP GOLD Mini Long SL 3700.25 STR 3650.75 R\n10 | ${a}\nBNP OTC EUR K V`;
 const m=b.parseDegiroListRow(mini);assert.equal(m.listRow.ko,3700.25);assert.equal(m.listRow.strike,3650.75);assert.equal(m.listRow.ratio,.1);
+
+// Text manually transcribed from the two October 23 DEGIRO screenshots. These
+// are parser tests only, NOT a claim that browser OCR read the original pixels.
+const secondImageRows=[
+ 'SG Gold Knock-Out Warrant Open End Put BAR 4521.97 BP 4521.97 Bv 10 | DE000FG34XV8\nSociete Generale OTC CHF K V',
+ 'BNP GOLD Mini Long SL 3684.6673 STR 3612.4189 R 10 | DE000PJ8APE4\nBNP OTC EUR K V',
+ 'SG Gold Turbo Classic Call BAR 3980 BP 3980 Bv 10 20/11/2026 | DE000FG4TJL6\nSociete Generale OTC EUR K V',
+ 'SG Gold Knock-Out Warrant Put BAR 4400 BP 4400 Bv 10 19/03/2027 | DE000FG8NHQ3\nSociete Generale OTC CHF K V',
+ 'SG Gold Turbo BEST Open-End Put BAR 4225.31 BP 4225.31 Bv 10 | DE000FG7Q280\nSociete Generale OTC EUR K V'
+];
+assert.equal(secondImageRows.length,5);
+for(const txt of secondImageRows){
+ const p=b.parseDegiroListRow(txt);
+ assert(p?.listRow.complete, 'second DEGIRO screenshot row must parse: '+txt);
+ assert(b.validIsin(p.isin));
+}
+const bottomOverlap='SG Gold Knock-Out Warrant Open End Put BAR 4521.97 BP 4521.97 Bv 10 | DE000FG34XV8';
+assert.equal(b.clippedDegiroListReference([bottomOverlap,bottomOverlap]).isin,'DE000FG34XV8');
 assert.equal(b.parseDegiroListRow(row().replace('Call','Put')).direction,'SHORT');
 assert(!b.parseDegiroListRow(row().replace('Call','Call Put')).listRow.complete);
 assert(!b.parseDegiroListRow(row().replace('Societe Generale OTC','BNP OTC')).listRow.complete);
