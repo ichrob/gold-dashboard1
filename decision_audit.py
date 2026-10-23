@@ -596,7 +596,7 @@ def _build_report(conn):
     if prospective_rows is None:
         result['prospectiveReview']={'available':False,'retryable':True,
             'partialHistory':True,'automaticRuleChange':False,
-            'reason':'Historische Strategieauswertung auch für das begrenzte Tagesfenster wegen Datenbank-Zeitüberschreitung nicht verfügbar'}
+            'reason':'Historische Strategieauswertung auch für das begrenzte Tagesfenster wegen Datenbank-Zeitüberschreitung vorübergehend nicht verfügbar'}
         print('BOB_AUDIT prospective_unavailable reason=query-timeout',flush=True)
     else:
         review=signal_review.prospective([(r,(None,t,None)) for r,t in prospective_rows],outcome)
