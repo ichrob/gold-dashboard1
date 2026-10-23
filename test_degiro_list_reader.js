@@ -3,6 +3,14 @@ const assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
 const c={window:{}};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),c);const b=c.window.BobDegiro;
 function id(n){const base='DE000ZZ'+String(n).padStart(4,'0');for(let d=0;d<10;d++)if(b.validIsin(base+d))return base+d;throw Error('id');}
 const a=id(1),z=id(2);
+const today=Date.parse('2026-10-23T11:00:00Z'),yesterday={storedAt:'2026-10-22T10:00:00Z',files:[{name:'old.png',blob:'old-blob'}]};
+const sameDay={storedAt:'2026-10-23T10:00:00Z',files:[{name:'first.png',blob:'first-blob'}]};
+assert.equal(b.listAppendSourceFiles('append',[],sameDay,today).length,1);
+assert.equal(b.listAppendSourceFiles('append',[],yesterday,today),null,'do not merge prior-day list');
+assert.equal(b.listAppendSourceFiles('replace',[],sameDay,today).length,0,'replacement starts fresh');
+assert.equal(b.listAppendSourceFiles('append',[{name:'pending.png'}],yesterday,today)[0].name,'pending.png','pending batch takes priority');
+assert.equal(b.listAppendSourceFiles('append',[],null,today),null,'append requires existing images');
+
 const row=(isin=a,amount='4012.25',currency='EUR')=>`SG Gold Turbo BEST Open-End Call BAR ${amount} BP\n${amount} Bv 10 | ${isin}\nSociete Generale OTC ${currency} (K) (V)`;
 const parsed=b.parseDegiroListRow(row());assert(parsed.listRow.complete);assert.equal(parsed.direction,'LONG');assert.equal(parsed.listRow.ko,4012.25);assert.equal(parsed.listRow.ratio,.1);assert.equal(parsed.leverage,'');assert.equal(parsed.price,'');assert.equal(parsed.listRow.sourceTime,null);
 const tomorrow=b.parseDegiroListRow(row(a,'4018,37','CHF'));assert.equal(tomorrow.listRow.ko,4018.37);assert.equal(tomorrow.listRow.currency,'CHF');
