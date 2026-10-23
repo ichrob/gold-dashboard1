@@ -363,6 +363,36 @@ class NewFeatureReadAccessTests(unittest.TestCase):
 
 
 
+class RecentPaperEvidenceStatusTests(unittest.TestCase):
+    def test_unconfirmed_paper_outcomes_are_not_loss_or_filled_orders(self):
+        accounts=[
+            {'recentCases':{'status':'observed','items':[
+                {'status':'closed','ledgerModelNetEur':5},
+                {'status':'inconclusive','ledgerModelNetEur':None},
+                {'status':'open'}]}},
+            {'recentCases':{'status':'observed','items':[
+                {'status':'inconclusive','ledgerModelNetEur':None}]}},
+            {'recentCases':{'status':'unavailable'}},
+        ]
+        result=diagnostics.recent_paper_outcomes(accounts)
+        self.assertEqual(result['state'],'partial')
+        self.assertEqual(result['observedCases'],4)
+        self.assertEqual(result['closed'],1)
+        self.assertEqual(result['open'],1)
+        self.assertEqual(result['inconclusive'],2)
+        self.assertEqual(result['accountsUnavailable'],1)
+        self.assertFalse(result['realOrders'])
+        self.assertFalse(result['missingResultsAreLosses'])
+        self.assertNotIn('5',json.dumps(result.get('ledgerNet',None)))
+
+    def test_all_observed_paper_cases_are_not_whole_account_profit(self):
+        result=diagnostics.recent_paper_outcomes([
+            {'recentCases':{'status':'observed','items':[]}} for _ in range(5)])
+        self.assertEqual(result['state'],'observed')
+        self.assertEqual(result['observedCases'],0)
+        self.assertIn('last-five',result['scope'])
+
+
 class ReadAccessManifestMappingTests(unittest.TestCase):
     def test_exact_100_items_are_file_mapped_not_falsely_live_verified(self):
         from pathlib import Path
