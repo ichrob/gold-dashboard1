@@ -1,0 +1,28 @@
+name: Bob post-deploy verification (independent)
+
+# Never use push or workflow_run here: a Render checksPass gate must not wait
+# for a job that waits for the Render deployment. Three periodic read-only checks.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '27 6,12,18 * * *'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: bob-independent-post-deploy
+  cancel-in-progress: false
+
+jobs:
+  verify-deployed-main:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Checkout verification code
+        uses: actions/checkout@v4
+      - name: Compare latest CI-approved main with both public health builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python -m tools.bob_post_deploy_check
