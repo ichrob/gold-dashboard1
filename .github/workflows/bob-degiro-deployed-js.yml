@@ -1,0 +1,37 @@
+name: Bob DEGIRO deployed version verification
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-degiro-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify actual published DEGIRO JavaScript bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(sha256sum degiro_assistant.js | cut -d ' ' -f1)"
+          echo "Source SHA256: ${expected}"
+          for attempt in $(seq 1 22); do
+            if curl --fail --silent --show-error --location --max-time 25               -H 'Cache-Control: no-cache'               'https://bob-private-scanner.onrender.com/degiro_assistant.js' -o /tmp/deployed-degiro.js; then
+              current="$(sha256sum /tmp/deployed-degiro.js | cut -d ' ' -f1)"
+              if [[ "$current" == "$expected" ]]; then
+                echo "Confirmed deployed DEGIRO JavaScript matches this main commit: ${GITHUB_SHA}"
+                exit 0
+              fi
+              echo "Attempt ${attempt}: deployed SHA ${current} differs; checking later."
+            else
+              echo "Attempt ${attempt}: published JS not reachable yet."
+            fi
+            sleep 20
+          done
+          echo "ERROR: Published DEGIRO JavaScript not verified at this commit."
+          exit 1

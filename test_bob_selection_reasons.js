@@ -39,7 +39,7 @@ r=classified([product],withDirection('LONG',false),[{p:product}]);
 assert.equal(r.state,'market-data');
 assert.match(dg,/data-selection-reason/);
 assert.match(html,/reasonState&&reasonState!=='ranked'&&reasonText/);
-assert.match(html,/v=20261022-selection-reasons/);
+assert.match(html,/\/degiro_assistant\.js\?v=20261023-persist-sha-retry-v1/);
 const vStart=html.indexOf('  function longComparisonFromCurrentUi(out){');
 const vEnd=html.indexOf('  function mountReadOnlyVoiceButton(',vStart);
 assert(vStart>0&&vEnd>vStart);
