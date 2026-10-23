@@ -2252,6 +2252,33 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    }
    return note;
   }
+  // Android/Chrome can restore a previous product-card scroll offset *after*
+  // the first frame. Re-anchor only an explicit voice/deep-link entry, and
+  // stop correcting as soon as the user touches, wheels or presses a key.
+  // This does not run for ordinary product-tab navigation.
+  function stabilizeGoldDeepLinkScroll(target){
+   const requested=new URLSearchParams(location.search).get('view');
+   if(!['products','products-long','products-leverage'].includes(requested)||
+      location.hash!=='#'+requested||!target)return false;
+   if('scrollRestoration' in history)history.scrollRestoration='manual';
+   let cancelled=false,followUps=[];
+   const gestures=['pointerdown','touchstart','wheel','keydown'];
+   function cleanup(){
+    for(const timeout of followUps)clearTimeout(timeout);
+    followUps=[];
+    for(const gesture of gestures)document.removeEventListener(gesture,cancel,true);
+   }
+   function cancel(){cancelled=true;cleanup();}
+   function align(){
+    if(cancelled||panels.products.hidden||!target.isConnected)return;
+    target.scrollIntoView({behavior:'instant',block:'start'});
+   }
+   for(const gesture of gestures)document.addEventListener(gesture,cancel,{capture:true,passive:true});
+   requestAnimationFrame(()=>{align();requestAnimationFrame(align);});
+   followUps.push(setTimeout(align,180));
+   followUps.push(setTimeout(()=>{align();cleanup();},850));
+   return true;
+  }
   function openRequestedGoldProducts(){
    const requested=new URLSearchParams(location.search).get('view');
    if(goldDeepLinkRevealed||!['products','products-long','products-leverage'].includes(requested)||
@@ -2261,12 +2288,39 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    goldDeepLinkRevealed=true;
    const target=requested==='products-long'?renderRequestedLongComparison():
     requested==='products-leverage'?renderRequestedLeverageComparison():summary;
-   requestAnimationFrame(()=>(target||summary).scrollIntoView({behavior:'auto',block:'start'}));
+   stabilizeGoldDeepLinkScroll(target||summary);
    return true;
   }
   window.addEventListener('hashchange',()=>{
    show(location.hash.slice(1));
    openRequestedGoldProducts();
+  });
+  // A cached/back-forward browser page can reappear at its previous final card.
+  // Only re-anchor the explicit Android entry, never a normal Produkttab tap.
+  window.addEventListener('pageshow',event=>{
+   if(!event.persisted||!goldDeepLinkRevealed||panels.products.hidden)return;
+   const request=new URLSearchParams(location.search).get('view');
+   if(['products','products-long','products-leverage'].includes(request)&&location.hash==='#'+request){
+    const summary=revealGoldLeveragedProducts(panels.products);
+    if(summary)stabilizeGoldDeepLinkScroll(summary);
+   }
+  });
+  // An already installed Samsung companion can repeat the IDENTICAL URL;
+  // Android may merely foreground Chrome without firing pageshow/hashchange.
+  // In that case reset the voice-entry list position on tab visibility return.
+  // Preserve the separate screenshot-return workflow and normal manual tabs.
+  let goldVoiceTabWasHidden=false;
+  document.addEventListener('visibilitychange',()=>{
+   if(document.hidden){goldVoiceTabWasHidden=true;return;}
+   if(!goldVoiceTabWasHidden)return;
+   goldVoiceTabWasHidden=false;
+   if(!goldDeepLinkRevealed||panels.products.hidden||
+      new URLSearchParams(location.search).get('view')!=='products'||
+      location.hash!=='#products')return;
+   const screenshotReturn=byId('dgScreenshotReturn');
+   if(screenshotReturn&&!screenshotReturn.hidden)return;
+   const summary=revealGoldLeveragedProducts(panels.products);
+   if(summary)stabilizeGoldDeepLinkScroll(summary);
   });
   for(const b of status.querySelectorAll('button'))b.addEventListener('click',()=>{show('settings');history.replaceState(null,'','#settings');if(b.dataset.status==='push')byId('bobPushSetup')?.scrollIntoView({behavior:'smooth',block:'start'});else{system.open=true;system.scrollIntoView({behavior:'smooth',block:'start'});}});
   byId('bobNextAction')?.addEventListener('click',()=>{

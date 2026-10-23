@@ -24,11 +24,16 @@ internal object BobNavigation {
     // Duplicate the UI-only section in query and fragment. The query survives
     // the password-login redirect; the fragment selects Bob's local view once
     // authenticated. Neither is an API instruction or a broker operation.
-    private fun safeUrl(section: String): String =
-        origin + "?view=" + section + "#" + section
+    private fun safeUrl(section: String, launchNonce: Long? = null): String {
+        // A repeated voice request must be a new browser navigation, not
+        // merely re-focus a tab at its previously scrolled last product.
+        // Nonce carries no account data and is never an authorization token.
+        val freshVisit = launchNonce?.takeIf { it >= 0L }?.let { "&bobvisit=" + it } ?: ""
+        return origin + "?view=" + section + freshVisit + "#" + section
+    }
 
-    fun urlFor(task: PhoneTask): String? = fragments[task]?.let(::safeUrl)
+    fun urlFor(task: PhoneTask): String? = fragments[task]?.let { safeUrl(it) }
 
-    fun urlForSection(section: String): String? =
-        if (section in fragments.values) safeUrl(section) else null
+    fun urlForSection(section: String, launchNonce: Long? = null): String? =
+        if (section in fragments.values) safeUrl(section, launchNonce) else null
 }

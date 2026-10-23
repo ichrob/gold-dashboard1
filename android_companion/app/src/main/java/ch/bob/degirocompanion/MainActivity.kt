@@ -480,7 +480,9 @@ class MainActivity : Activity() {
     /** Only documented, read-only sections of Bob itself. No untrusted URL or
      * third-party package can be selected by speech. Login stays manual. */
     private fun openBobPage(section: String): Boolean {
-        val safeUrl = BobNavigation.urlForSection(section) ?: return false
+        // Fresh nonce avoids reopening an existing browser tab at the last
+        // viewed Gold card when the user repeats the voice navigation.
+        val safeUrl = BobNavigation.urlForSection(section, SystemClock.elapsedRealtimeNanos()) ?: return false
         return try {
             val browser = Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)).apply {
                 addCategory(Intent.CATEGORY_BROWSABLE)
