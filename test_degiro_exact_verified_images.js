@@ -1,0 +1,40 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs'),vm=require('node:vm');
+const context={window:{}};
+vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),context);
+const b=context.window.BobDegiro;
+const day='2026-10-23';
+const firstHash='858f7f174d92950edde7bdfa1cb1c168b2c0c7efd2ebcd6840a90df6aca81ab4';
+const nextHash='619fca066d415a81f4f239b45eaa7378fee89e151e62619608a9dfcdcfefe5ce';
+const first=b.reviewedDegiroListReference(firstHash,172361,day);
+const next=b.reviewedDegiroListReference(nextHash,177263,day);
+assert.equal(first?.data?.listItems?.length,5);
+assert.equal(next?.data?.listItems?.length,5);
+assert.equal(first.data.partialRows.length,1);
+assert.equal(first.data.partialRows[0].isin,'DE000FG34XV8');
+assert.equal(next.data.listItems.find(p=>p.isin==='DE000PJ8APE4').listRow.strike,3612.4189);
+for(const part of [first,next])for(const item of part.data.listItems){
+ assert(b.validIsin(item.isin));
+ assert.equal(item.listRow.complete,true);
+ assert.equal(item.listRow.crossChecked,true);
+ assert.equal(item.listRow.source,'DEGIRO-Listenbild');
+ assert.equal(item.listRow.isExecutableQuote,false);
+ assert.equal(item.listRow.sourceTime,null);
+ assert.equal(item.listRow.reviewMethod,'exact-original-sha256-visual-review');
+}
+const all=[...first.data.listItems,...next.data.listItems];
+assert.equal(new Set(all.map(x=>x.isin)).size,10);
+assert.equal(b.reviewedDegiroListReference(firstHash,172362,day),null);
+assert.equal(b.reviewedDegiroListReference('0'.repeat(64),172361,day),null);
+assert.equal(b.reviewedDegiroListReference(nextHash,177263,'2026-10-24'),null);
+assert.equal(b.reviewedDegiroListReference(nextHash,177263,'2026-10-22'),null);
+(async()=>{
+ const files=[{name:'1000075080.jpg',row:first},{name:'1000075082.jpg',row:next}];
+ const products=await b.readListBatch(files,async file=>file.row);
+ assert.equal(products.length,10);
+ assert.equal(new Set(products.map(x=>x.isin)).size,10);
+ assert(products.find(x=>x.isin==='DE000PJ8APE4'));
+ assert(products.find(x=>x.isin==='DE000FG34XV8'));
+ console.log('Exact user-reviewed DEGIRO image identities: two images, ten unique products, stale/wrong hash blocked.');
+})().catch(e=>{console.error(e);process.exitCode=1;});
