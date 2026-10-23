@@ -98,7 +98,7 @@ assert.equal(grouped.weights.priceCollective,100);assert.equal(grouped.weights.m
  assert.deepEqual(paths,['/api/push/preferences']);
  assert(element('fibMonitorStatus').textContent.includes('HTTP 502'));
  assert(!element('fibMonitorStatus').textContent.includes('Anmeldung prüfen'));
- paths.length=0;env.fetch=async path=>{paths.push(path);return {ok:true,status:200,json:async()=>({backgroundEnabled:true})};};
+ paths.length=0;env.fetch=async path=>{paths.push(path);return {ok:true,status:200,json:async()=>path==='/api/push/test-background'?{ok:true,dueAt:Date.now()+30000}:{backgroundEnabled:true}};};
  await vm.runInContext('testBackgroundPush()',env);
  assert.deepEqual(paths,['/api/push/preferences','/api/push/test-background']);
  assert(element('fibMonitorStatus').textContent.startsWith('Test gespeichert.'));
