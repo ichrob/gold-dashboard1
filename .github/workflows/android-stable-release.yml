@@ -1,10 +1,16 @@
 name: Bob Android – dauerhafte signierte App
 
 # Release signing is NEVER available to pull requests or untrusted debug jobs.
-# Once the owner sets the four secrets and the certificate fingerprint, a
-# successful main build can be published as one consistent, installable APK.
+# After a successful main-branch push CI, check whether Android app source has
+# changed since the last signed release. If so, publish an update automatically.
+# The owner may also explicitly dispatch a release; both routes require the
+# exact passing main SHA and the same pinned private signing identity.
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows: ["Bob CI"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: write
@@ -16,12 +22,37 @@ concurrency:
 
 jobs:
   signed-release:
-    if: github.ref == 'refs/heads/main'
+    # workflow_run receives repository-write access, so only successful PUSH
+    # CI on main may use it. PR, manual-CI and scheduled CI events are excluded.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.conclusion == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - name: Checkout audited main revision
         uses: actions/checkout@v4
+        with:
+          # Need the preceding signed release tag and its full git history so
+          # changes since that release are never guessed from one commit.
+          fetch-depth: 0
+
+      - name: Require current main SHA (and exact automatic CI trigger)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
+            triggered="$(jq -r '.workflow_run.head_sha' "$GITHUB_EVENT_PATH")"
+            if [ "$triggered" != "$GITHUB_SHA" ]; then
+              echo "A newer main commit appeared after this CI run; abort stale release." >&2
+              exit 1
+            fi
+          fi
 
       - name: Require green Bob main CI for this exact commit
         env:
@@ -33,7 +64,46 @@ jobs:
           printf '%s\n' "$ci_runs" | grep -Fxq "$GITHUB_SHA"$'\t'"success"
           echo "Exact main commit passed Bob CI."
 
+      - name: Detect Android app changes since last signed release
+        id: update
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # A previous release may have been published after several intervening
+          # main commits; comparing only the latest commit misses pending fixes.
+          # Never treat a temporary GitHub API failure as "no previous
+          # release"; that could cause a duplicate or improperly versioned APK.
+          last_tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
+          if [ -z "$last_tag" ]; then
+            echo "Latest signed Android release is unknown; fail closed." >&2
+            exit 1
+          fi
+          if ! [[ "$last_tag" =~ ^bob-android-v[0-9]+$ ]]; then
+            echo "Unexpected latest Android release tag: refuse to guess." >&2
+            exit 1
+          fi
+          git show-ref --verify --quiet "refs/tags/$last_tag"
+          git merge-base --is-ancestor "$last_tag" HEAD
+          # Do not produce new APKs merely for research, market, server or
+          # documentation changes. Never auto-bump with no Android code change.
+          changed="$(git diff --name-only "$last_tag" HEAD -- \
+            android_companion/app/ \
+            android_companion/build.gradle.kts \
+            android_companion/settings.gradle.kts \
+            android_companion/gradle.properties)"
+          if [ -z "$changed" ]; then
+            echo "Android code unchanged since $last_tag; no new APK required."
+            echo "needs_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Verified pending Android source changes since $last_tag."
+            printf '%s\n' "$changed"
+            echo "needs_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Prepare temporary protected signing key
+        if: steps.update.outputs.needs_release == 'true'
         env:
           BOB_KEY_B64: ${{ secrets.BOB_ANDROID_KEYSTORE_BASE64 }}
           BOB_STORE_PASSWORD: ${{ secrets.BOB_ANDROID_STORE_PASSWORD }}
@@ -61,12 +131,14 @@ jobs:
           echo "BOB_CERT_PIN=$EXPECTED_CERT_SHA256" >> "$GITHUB_ENV"
 
       - name: JDK 17
+        if: steps.update.outputs.needs_release == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Android SDK
+        if: steps.update.outputs.needs_release == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -76,14 +148,17 @@ jobs:
           "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
 
       - name: Gradle
+        if: steps.update.outputs.needs_release == 'true'
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
 
       - name: Test and build permanent release APK
+        if: steps.update.outputs.needs_release == 'true'
         run: gradle -p android_companion :app:testDebugUnitTest :app:assembleRelease --no-daemon --stacktrace
 
       - name: Require correct package, offline-only permissions and pinned signature
+        if: steps.update.outputs.needs_release == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -114,6 +189,7 @@ jobs:
           echo "Signed release verified (certificate matches configured pin)."
 
       - name: Publish one stable APK under GitHub Releases
+        if: steps.update.outputs.needs_release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash

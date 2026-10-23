@@ -7,11 +7,12 @@ unverändert. Alle Echtgeldorders und Broker-Automation bleiben ausgeschlossen.
 
 ## Stand
 
-Der Android-Code und eine **getrennte signierte Release-Pipeline** sind vorbereitet.
-Eine installierbare permanente App ist aber **erst** verfügbar, wenn der Eigentümer
-einmalig seinen privaten Signaturschlüssel sicher anlegt und GitHub Actions die
-nötigen verschlüsselten Secrets erhält. CI-Debug-APKs sind weiterhin Teststände,
-**keine Updates**.
+Der Android-Code, die feste Paketkennung und die **getrennte signierte
+Release-Pipeline** sind eingeführt. Eine erste dauerhafte Version wurde als
+`bob-android-v10001` veröffentlicht; nachfolgende Versionen benutzen denselben
+Signaturschlüssel. Für jedes Repository ist dafür einmalig ein privater Schlüssel
+anzulegen, sicher zu sichern und als verschlüsselte GitHub Actions-Secrets
+einzurichten. CI-Debug-APKs bleiben ausdrücklich Teststände, **keine Updates**.
 
 Die dauerhafte Paketkennung lautet:
 `ch.bob.degirocompanion.stable`
@@ -79,13 +80,34 @@ nicht allein wegen ihres Namens ungültig. Ab der nach diesem Fix gebauten
 Version heißt die veröffentlichte Datei `Bob-Handy.apk`; die Signatur und
 Paketkennung bleiben gleich.
 
-## Update nach der Ersteinrichtung
+## Update nach der Ersteinrichtung – ohne Termux oder GitHub-Klicks
 
-Spätere Codeänderung → vollständige CI → freigegebener Main-Stand →
-**denselben** Release-Workflow starten. Die GitHub-Seite **Releases → Latest**
-liefert dann die neue `Bob-Handy.apk`. Auf Samsung auf die bestehende stabile
-App installieren. **Keine neuen Parallel-Apps** und kein erneutes Schlüsselerzeugen.
-Der Browserteil von Bob aktualisiert sich ohnehin separat auf Render.
+**Automatischer Ablauf:** Eine genehmigte Änderung an der Android-App wird
+nach dem Merge in `main` von der vollständigen **Bob CI** geprüft. Nur wenn der
+`push`-CI-Lauf für exakt den noch aktuellen `main`-Commit erfolgreich
+abgeschlossen ist, prüft der Release-Workflow, ob sich die **Android-App-Dateien
+seit dem zuletzt signierten Release** verändert haben. Nur dann erstellt er
+automatisch die nächste APK – mit der unveränderten Paketkennung, dem in GitHub
+gesicherten **selben** Schlüssel, einer höheren `versionCode` und dem streng
+geprüften Zertifikatsfingerabdruck. Änderungen nur an Markt, Forschung, Server,
+Dokumentation oder Tests erzeugen nicht unnötig eine neue Handy-App.
+
+Eine manuelle GitHub-Aktion unter **Run workflow** bleibt als kontrollierter
+Fallback möglich, etwa um einen fehlgeschlagenen Build wieder anzustoßen. Auch
+dabei gelten exakt dieselben CI-, Änderungs- und Sicherheitsprüfungen. Ein
+ungültiger, unvollständig konfigurierter oder älterer Build darf die signierte
+App nicht ersetzen.
+
+Die jeweils neueste `Bob-Handy.apk` steht unter
+https://github.com/ichrob/gold-dashboard1/releases/latest.
+
+**Einzige weiterhin manuelle Handlung:** Die APK auf Samsung herunterladen und
+die Installation über die bestehende `Bob – Handy`-App bestätigen. Die
+GitHub-Webseite kann ohne Android-App-Store, erlaubte Geräteverwaltung oder
+explizite Gerätebestätigung **kein** App-Update auf dem Handy installieren.
+Du brauchst für normale Updates **weder Termux, neue Passwörter noch einen neuen
+Signaturschlüssel**. Alte Test-Apps sind keine Updates und müssen nicht erneut
+installiert werden. Der Browserteil von Bob aktualisiert sich separat auf Render.
 
 Die Signatur-/Paket-ID-Prüfung ist absichtlich strikt: Ohne korrekte,
 dauerhafte Secrets werden **keine** als updatefähig bezeichneten APKs
