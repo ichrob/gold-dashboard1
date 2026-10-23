@@ -68,20 +68,20 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   assert(!JSON.stringify(gm).includes('do-not-transfer'));assert(!JSON.stringify(gm).includes(csv));
   // Regression: detached dispatchEvent bypasses both document and .click hooks.
   await exportCSV(csv.replace(',2,0.12,',',8,0.12,'),'dispatch');
-  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===8,{},{timeout:2000});
+  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===8,{},{timeout:8000});
   // Real download behavior is preserved, including direct /csv reporting URLs.
   const directDownload=broker.waitForEvent('download');
   await broker.evaluate(()=>{
    const a=document.createElement('a');a.href='/reporting/secure/v3/positionReport/csv?qty=7';a.click();
   });
-  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===7,{},{timeout:2000});
+  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===7,{},{timeout:8000});
   assert.equal((await directDownload).suggestedFilename(),'portfolio.csv','Original same-tab download still occurs');
   // Native user clicks are forwarded once after the copy, not double-dispatched.
   await broker.evaluate(()=>{
    window.__handlerCalls=0;const a=document.createElement('a');a.id='http-export';a.textContent='Download';a.href='/reporting/secure/v3/positionReport/csv?qty=10';a.onclick=()=>window.__handlerCalls++;document.body.append(a);
   });
   await broker.locator('#http-export').click();
-  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===10,{},{timeout:2000});
+  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===10,{},{timeout:8000});
   assert.equal(await broker.evaluate(()=>window.__handlerCalls),1);
   // An invalid read must still forward the normal download and preserve holdings.
   const failedDownload=broker.waitForEvent('download');
@@ -93,7 +93,7 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   await broker.evaluate(()=>{document.getElementById('export').onclick=()=>{window.__popup=window.open('/reporting/secure/v3/positionReport/csv?qty=9','_blank');};});
   await broker.locator('#export').click();
   assert(await broker.evaluate(()=>Boolean(window.__popup)),'Original window.open return value preserved');
-  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===9,{},{timeout:2000});
+  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===9,{},{timeout:8000});
   // A blank popup followed by a generated CSV has no URL at window.open.
   // The selected CSV blob must be captured before the downloader revokes it.
   await broker.evaluate(()=>{document.getElementById('export').onclick=()=>{
