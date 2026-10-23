@@ -6,7 +6,7 @@
     <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
     <!-- No accessibility, screen capture, device administration or broker access. -->
-    <application android:label="Bob: Android-Labor (nur Test)"
+    <application android:label="${bobAppLabel}"
                  android:allowBackup="false"
                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name=".MainActivity" android:exported="true">
