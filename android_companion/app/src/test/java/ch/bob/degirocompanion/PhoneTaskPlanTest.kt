@@ -124,6 +124,11 @@ class PhoneTaskPlanTest {
         // rejected, so Bob never opened despite working voice recognition.
         for (spoken in listOf(
             "Bob zeige meine goldprodukte",
+            "Bob zeige mir die goldprodukte",
+            "Bob, zeige mir die Goldprodukte.",
+            "Hallo Bob zeige mir die Goldprodukte",
+            "Hey Bob zeige mir die Gold-Produkte",
+            "Bob zeige mir die Gold Hebelprodukte",
             "Bob, zeige meine Goldprodukte",
             "Bob zeige meine Goldprodukte.",
             "Bob zeige meine Goldprodukte!",
@@ -147,6 +152,9 @@ class PhoneTaskPlanTest {
 
     @Test fun addressedMixedOrTradingInstructionsRemainFullyRejected() {
         for (spoken in listOf(
+            "Bob zeige mir die Goldprodukte und kaufe davon 100 Stück",
+            "Bob zeige mir die Goldprodukte und logge dich in DEGIRO ein",
+            "Bob zeige mir die Goldprodukte und öffne die Ordermaske",
             "Bob zeige Goldprodukte und kaufe Gold",
             "Bob zeige meine Goldprodukte und danach platziere eine Order",
             "Bob zeige meine Goldprodukte und logge dich in DEGIRO ein",
