@@ -1,3 +1,18 @@
+## Automatische Bob-Handy-Updates nach Android-Codeänderungen
+
+Nach **erfolgreicher Bob CI auf dem aktuellen GitHub-`main`** überprüft GitHub
+selbstständig, ob es seit der letzten signierten Bob-Handy-Version tatsächlich
+Änderungen an der Android-App gab. Nur dann wird die neue Version mit derselben
+permanent hinterlegten Signatur gebaut und unter
+[Releases → Latest](https://github.com/ichrob/gold-dashboard1/releases/latest)
+veröffentlicht. Kein Termux-Start, kein neuer Signaturschlüssel und normalerweise
+kein manueller GitHub-Workflow nötig. **Die Installation auf Samsung muss der
+Besitzer weiterhin bewusst bestätigen.** Die Sicherheitsgrenzen und der
+separate Debug-Testmodus bleiben unverändert.
+Siehe [STABLE_RELEASE.md](STABLE_RELEASE.md).
+
+---
+
 ## Neue dauerhafte Android-App (23.10.2026)
 
 Die bisherige `Android-Labor`-/`Paralleltest`-/`Sprachtest`-Reihe wird durch die feste, privat signierte App **Bob – Handy** ersetzt. **Neue Debug-APKs aus GitHub sind keine dauerhaften Updates.** Der stabile Release wird erst möglich, sobald der Besitzer seinen privaten Signaturschlüssel einmalig auf einem eigenen Gerät angelegt und als GitHub Actions-Secrets verschlüsselt hinterlegt hat. Diese Schlüssel oder Passwörter nie im Chat oder im Repository teilen.
