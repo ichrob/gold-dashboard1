@@ -390,6 +390,29 @@ class RecentPaperEvidenceStatusTests(unittest.TestCase):
         self.assertFalse(result['missingResultsAreLosses'])
         self.assertNotIn('5',json.dumps(result.get('ledgerNet',None)))
 
+    def test_inconclusive_causes_are_recorded_without_invented_fills(self):
+        cases=[
+            {'status':'inconclusive','events':[{'kind':'data-gap'}]},
+            {'status':'inconclusive','events':[{'kind':'product-terminated'}]},
+            {'status':'inconclusive','events':[{'kind':'deferred-sale'},{'kind':'data-gap'}]},
+            {'status':'inconclusive','events':[{'kind':'other','secret':'hidden'}]},
+            {'status':'closed','events':[{'kind':'data-gap'}]},
+        ]
+        result=diagnostics.recent_paper_outcomes(
+            [{'recentCases':{'status':'observed','items':cases}}])
+        self.assertEqual(result['observedCases'],5)
+        self.assertEqual(result['inconclusive'],4)
+        self.assertEqual(result['closed'],1)
+        self.assertEqual(result['inconclusiveRecordedCauses'],{
+            'recordedGoldDataGap':2,
+            'recordedKoOrProductEnd':1,
+            'deferredModelSale':1,
+            'unclassified':1})
+        self.assertEqual(result['causeScope'],
+                         'overlap-possible-recorded-events-only-not-ground-truth')
+        self.assertNotIn('secret',json.dumps(result))
+        self.assertFalse(result['missingResultsAreLosses'])
+
     def test_all_observed_paper_cases_are_not_whole_account_profit(self):
         result=diagnostics.recent_paper_outcomes([
             {'recentCases':{'status':'observed','items':[]}} for _ in range(5)])
