@@ -80,8 +80,11 @@ internal object SeriesEvidence {
             "9O", "9Q", "8S"
         )
         var differences = 0
+        val normalized = normalize(a)
         for (i in a.indices) {
-            if (a[i] == b[i]) continue
+            // Filler zeros and the final check digit have deterministic OCR
+            // normalizations. Do not count these as independent mismatches.
+            if (a[i] == b[i] || (i in 2..4 || i == 11) && normalized[i] == b[i]) continue
             val combination = "" + a[i] + b[i]
             if (pairs.none { pair -> pair.contains(a[i]) && pair.contains(b[i]) }) return false
             differences++
