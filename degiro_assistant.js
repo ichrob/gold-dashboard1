@@ -4257,7 +4257,8 @@ function agreedDegiroListRow(readings){
  // On mobile, no individual OCR pass may capture *all* columns. Accept only
  // per-field agreement from two readings of the SAME original image and ISIN.
  // Never infer current BAR/BP/SL/STR from an old list or an issuer quote.
- if(partial.length<2||new Set(partial.map(x=>x.isin)).size!==1)return null;
+ if(partial.length<2||new Set(partial.map(x=>x.isin)).size!==1
+  ||partial.some(x=>/\b(?:FACTOR|FAKTOR)\b/i.test(x.name)))return null;
  const fields=['issuer','venue','currency','ko','strike','ratioDivisor','direction'];
  const chosen={};
  for(const field of fields){
