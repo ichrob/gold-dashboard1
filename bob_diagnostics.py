@@ -104,6 +104,24 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
                 account['recentCases'] = {'status':'observed','items':[project(row[0], CASE) for row in cases]}
             except Exception:
                 account['recentCases'] = {'status':'unavailable'}
+        # Evidence-only recent-case tally. Never turn unknown/deferred results
+        # into closed profits, losses, filled orders or proven source recovery.
+        case_lists=[a.get('recentCases') or {} for a in accounts]
+        stored=[c for group in case_lists if group.get('status') == 'observed'
+                for c in group.get('items',[]) if isinstance(c,dict)]
+        result['recentPaperOutcomes']={
+            'state':('partial' if any(group.get('status') != 'observed'
+                                    for group in case_lists) else 'observed'),
+            'scope':'last-five-cases-per-paper-account-only-not-full-performance',
+            'observedCases':len(stored),
+            'closed':sum(c.get('status') == 'closed' for c in stored),
+            'open':sum(c.get('status') == 'open' for c in stored),
+            'inconclusive':sum(c.get('status') == 'inconclusive' for c in stored),
+            'accountsUnavailable':sum(group.get('status') != 'observed'
+                                       for group in case_lists),
+            'realOrders':False,'missingResultsAreLosses':False,
+            'note':'Unbestätigte Simulationen sind weder realisierte Verluste '
+                   'noch automatisch behobene Datenlücken.'}
         # Indexed, SELECT-only probe of nearby *original Gold-API* timestamps.
         # A proximity match is not sufficient evidence to settle any paper trade.
         try:
