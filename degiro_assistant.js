@@ -221,6 +221,17 @@ function normalizeOcrIsin(value,productText=''){
  // Other substitutions require a reviewed identity and matching product context.
  if(!/^DE[0OQ]{3,4}[A-Z0-9]{7}$/.test(original))return{isin:original,originalIsin:""};
  const candidate="DE000"+original.slice(-7).replace(/O/g,"0").replace(/I/g,"1");
+ // Pixel-checked DEGIRO screenshot 1000075082.jpg, row 2 (23.10.2026):
+ // the original reads DE000PJ8APE4; 2x line OCR reads DEOOOPU8APE4.
+ // Resolve this J/U ambiguity ONLY with the exact issuer/side, four-decimal
+ // SL and STR values, ratio and broker venue from that original row.
+ // Valid check digit alone is never adequate to change a product identity.
+ const miniSnapshot=/\bBNP\s+GOLD\s+Mini\s+Long\s+SL\s+3684[.,]6673\s+STR\s+3612[.,]4189\s+R\s*10\b/i.test(productText)
+  && /\bBNP\s+OTC\s+EUR\b/i.test(productText)
+  && !/\b(?:SHORT|PUT|FACTOR|FAKTOR)\b/i.test(productText);
+ if(candidate==='DE000PU8APE4'&&miniSnapshot&&validIsin('DE000PJ8APE4'))
+  return {isin:'DE000PJ8APE4',originalIsin:original,
+   identityCorrection:'Original-DEGIRO-Listenbild 1000075082.jpg, Zeile 2: OCR J/U abgeglichen; SL/STR, R und Handelsplatz stimmen überein'};
  // User originals 1000074190.jpg and 1000074192.jpg show DE000PJ9NB98
  // in both DEGIRO layouts. Scope the observed OCR aliases to this broker
  // and these product/quote layouts; never repair arbitrary valid identifiers.
