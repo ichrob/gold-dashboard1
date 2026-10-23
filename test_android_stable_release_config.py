@@ -43,6 +43,7 @@ class AndroidStableReleaseTests(unittest.TestCase):
     def test_debug_job_cannot_claim_to_be_stable_release(self):
         workflow = DEBUG.read_text(encoding="utf-8")
         self.assertIn("ch.bob.degirocompanion.stable.voicetest", workflow)
+        self.assertIn("bob-android-dev-test-not-an-update", workflow)
         self.assertNotIn("BOB_ANDROID_KEYSTORE_BASE64", workflow)
         self.assertNotIn("gh release create", workflow)
         manifest = MANIFEST.read_text(encoding="utf-8")
