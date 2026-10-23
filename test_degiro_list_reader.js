@@ -26,6 +26,7 @@ assert.equal(rescued.listRow.strike,4012.25);
 assert.equal(rescued.listRow.venue,'Societe Generale OTC');
 assert.equal(rescued.listRow.ratio,.1);
 assert.equal(b.agreedDegiroListRow([noVenue,noStrike]),null,'one observed strike is insufficient');
+assert.equal(b.agreedDegiroListRow([noVenue+' FAKTOR',noStrike+' FAKTOR',noRatio+' FAKTOR']),null,'factor products stay excluded');
 assert.equal(b.agreedDegiroListRow([noVenue,noStrike,row(z).replace('Bv 10','Bv O')]),null,'never mix different identifiers');
 assert.equal(b.agreedDegiroListRow([
   noVenue,noStrike,noRatio,
