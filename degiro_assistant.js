@@ -4242,15 +4242,22 @@ function listRowSignature(x){
  return JSON.stringify([x.isin,x.direction,...['issuer','venue','currency','ko','strike','ratioDivisor','leverage','maturity'].map(k=>x.listRow[k])]);
 }
 function agreedDegiroListRow(readings){
- const votes=new Map(),partial=[];
+ const votes=new Map(),partial=[],observedIsins=new Set();
  for(const text of readings){
   const blocks=degiroListBlocks(text);if(blocks.length!==1)continue;
+  // Preserve every valid identifier before field parsing can discard a
+  // fragmented reading. A batch with different identifiers is never one row.
+  for(const match of blocks[0].matchAll(/\bDE[0OQ]{3,4}[A-Z0-9]{7}\b/gi)){
+   const isin=normalizeOcrIsin(match[0],blocks[0]).isin;
+   if(validIsin(isin))observedIsins.add(isin);
+  }
   const row=parseDegiroListRow(blocks[0]);if(!row)continue;
   if(validIsin(row.isin))partial.push(row);
   if(!row.listRow.complete)continue;
   const key=listRowSignature(row),v=votes.get(key)||{row,count:0};v.count++;votes.set(key,v);
  }
  const winners=[...votes.values()].filter(v=>v.count>=2);
+ if(observedIsins.size!==1)return null;
  // Two different, independently confirmed complete readings remain a conflict.
  if(winners.length>1)return null;
  if(winners.length===1){const row=winners[0].row;row.listRow.crossChecked=true;return row;}
