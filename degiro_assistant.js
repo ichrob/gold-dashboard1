@@ -4336,6 +4336,27 @@ function agreedDegiroListRow(readings){
   listRow:{...partial[0].listRow,...chosen,isin,ratio,leverage:optional(leverageCounts),
    maturity:optional(maturityCounts),complete:true,crossChecked:true}};
 }
+// Salvage the title and OTC footer from distinct regions of ONE original
+// screenshot. Two OCR passes must independently observe both regions; this
+// never borrows issuer terms or a price/identifier from another image.
+function segmentedDegiroListReadings(headReads,footerReads){
+ if(!Array.isArray(headReads)||!Array.isArray(footerReads)||headReads.length!==2||footerReads.length!==2)return [];
+ const fullVenue=/(?:Soci[eé]t[eé]\s+G[eé]n[eé]rale|BNP(?:\s+Paribas)?)\s+OTC\s+(?:EUR|CHF)\b/i;
+ const candidate=[];
+ for(let i=0;i<2;i++){
+  const head=String(headReads[i]||''),foot=String(footerReads[i]||'');
+  const block=degiroListBlocks(head);
+  if(block.length!==1||!/\bDE[0OQ]{3,4}[A-Z0-9]{7}\b/i.test(head)
+   ||!fullVenue.test(foot)
+   ||/\bDE[0OQ]{3,4}[A-Z0-9]{7}\b|\b(?:SG|BNP)\s+GOLD\b/i.test(foot))return [];
+  const full=head.trim()+'\n'+foot.trim();
+  // A two-pass title/footer composite is a candidate, not an OCR truth;
+  // the existing strict per-field and ISIN agreement gate applies to both.
+  if(!parseDegiroListRow(full))return [];
+  candidate.push(full);
+ }
+ return candidate;
+}
 function degiroListRects(data,width,height){
  const words=(data?.words||[]).filter(w=>w.bbox&&Number.isFinite(w.bbox.y0));
  const heads=words.filter(w=>/^(SG|BNP)$/i.test(w.text)&&words.some(g=>/^GOLD$/i.test(g.text)&&g.bbox.x0>w.bbox.x0&&g.bbox.x0-w.bbox.x1<60&&Math.abs(g.bbox.y0-w.bbox.y0)<(w.bbox.y1-w.bbox.y0)));
@@ -4437,7 +4458,33 @@ async function recognizeDegiroList(worker,prepared,first,statusId){
      reads.push(retry.data.text||'');agreed=agreedDegiroListRow(reads);if(agreed)break;
     }
    }
-   if(!agreed)throw Error('Produktzeile '+(i+1)+': Kennung oder Werte noch widersprüchlich. Bitte diese Zeile schärfer zeigen.');
+   if(!agreed){
+    // Long two-line names and a distant OTC footer can confuse whole-row
+    // OCR (especially BNP Mini Long). Re-read the upper text and lower broker
+    // footer separately from this image, twice with distinct segmentations.
+    const headerHeight=Math.min(r.height,Math.max(1,Math.round(r.height*.68)));
+    const footerStart=Math.max(0,Math.min(r.height-1,Math.floor(r.height*.52)));
+    const makeRegion=async(fromY,sourceHeight)=>{
+     const c=document.createElement('canvas');
+     c.width=Math.round(r.width*3);c.height=Math.max(1,Math.round(sourceHeight*3));
+     const draw=c.getContext('2d',{alpha:false});draw.imageSmoothingEnabled=false;
+     draw.drawImage(bitmap,r.x,r.y+fromY,r.width,sourceHeight,0,0,c.width,c.height);
+     return new Promise(resolve=>c.toBlob(resolve,'image/png'));
+    };
+    const header=await makeRegion(0,headerHeight),footer=await makeRegion(footerStart,r.height-footerStart);
+    if(header&&footer){
+     const heads=[],feet=[];
+     for(const mode of ['6','11']){
+      await worker.setParameters({tessedit_pageseg_mode:mode,tessedit_char_whitelist:''});
+      const headRead=await ocrTimeout(worker.recognize(header),20000,'Produktüberschrift nicht lesbar');
+      const footRead=await ocrTimeout(worker.recognize(footer),20000,'Handelsplatz-Zeile nicht lesbar');
+      heads.push(headRead.data.text||'');feet.push(footRead.data.text||'');
+     }
+     reads.push(...segmentedDegiroListReadings(heads,feet));
+     agreed=agreedDegiroListRow(reads);
+    }
+   }
+   if(!agreed)throw Error('Produktzeile '+(i+1)+': Kennung oder Werte noch widersprüchlich. Zeilen-OCR und getrennte Überschrift/Handelsplatz-Lesung ohne sichere Übereinstimmung. Die alte Liste bleibt erhalten.');
    items.push(agreed);
   }
   if(!items.length)throw Error('Keine vollständige DEGIRO-Produktzeile erkannt.');
@@ -5067,7 +5114,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={listAppendSourceFiles,paperProductsForSync,listVenueForSync,refreshVenueAssessment:()=>rankUI(),sharedVenueStatus,renderVenueHistory,observedDegiroListRow,degiroListBlocks,parseDegiroListRow,agreedDegiroListRow,degiroListRects,clippedDegiroListReference,recognizeDegiroList,serverVenueEvidence,degiroVenueObserved,screenshotSeriesContext,applyLearnedRanking,productHelpState,renderProductHelp,calculatedLeverageEvidence,recoverArchivedList,productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,preserveReadingPosition,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,calculatedProductDisplay,renderPrimaryProductValues,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={segmentedDegiroListReadings,listAppendSourceFiles,paperProductsForSync,listVenueForSync,refreshVenueAssessment:()=>rankUI(),sharedVenueStatus,renderVenueHistory,observedDegiroListRow,degiroListBlocks,parseDegiroListRow,agreedDegiroListRow,degiroListRects,clippedDegiroListReference,recognizeDegiroList,serverVenueEvidence,degiroVenueObserved,screenshotSeriesContext,applyLearnedRanking,productHelpState,renderProductHelp,calculatedLeverageEvidence,recoverArchivedList,productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,preserveReadingPosition,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,calculatedProductDisplay,renderPrimaryProductValues,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
