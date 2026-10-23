@@ -70,10 +70,10 @@ jobs:
           assert 'BIND_ACCESSIBILITY_SERVICE' not in manifest
           print("Final APK checked: no network access, no broker automation.")
           PY
-      - name: Upload debug APK (lab only)
+      - name: Upload disposable lab APK (NOT an update for Bob – Handy)
         uses: actions/upload-artifact@v4
         with:
-          name: bob-android-lab-voice-test
+          name: bob-android-dev-test-not-an-update
           path: android_companion/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 7
