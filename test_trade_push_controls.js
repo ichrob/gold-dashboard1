@@ -38,7 +38,13 @@ for(const [side,label] of [['early-long','LONG'],['early-short','SHORT']]){
 }
 assert(html.includes("if(early&&!pushState.general)throw Error"),"Synthetic warning tests must require general push enabled");
 assert(html.includes("['delivery','stop-target','early-long','early-short'].includes(scenario)"),"Only fixed notification tests are permitted");
-assert(html.includes('Kein Marktsignal oder Trade.'),"Synthetic test needs a visible no-trading disclaimer");
+assert(html.includes('Sie erzeugen keine echte Markt-Frühwarnung, kein Handelssignal'),"Synthetic test needs a visible no-trading disclaimer");
+assert(html.includes('id="bobEarlyWarningTestStatus"')&&html.includes('aria-live="polite"'),"Early warning tests need local status directly beneath buttons");
+assert(html.includes("if(!await syncPushPreferences())throw Error"),"Failed server sync must not appear as a scheduled test");
+assert(html.includes("r.status===409"),"Overlapping tests must be clearly rejected");
+assert(html.includes("result?.ok!==true||!Number.isFinite(result.dueAt)"),"Success requires explicit server dueAt confirmation");
+assert(html.includes('Geplanter Auslöser ab '),"Saved test must display scheduled server time");
+assert(html.includes("let bobEarlyWarningTestBusy=false"),"Prevent simultaneous test button submissions");
 assert(html.includes("#bobTradePushControls .bob-trade-push-toggles"));
 
 const scripts=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
