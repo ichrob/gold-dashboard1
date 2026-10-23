@@ -331,6 +331,11 @@ class NewFeatureReadAccessTests(unittest.TestCase):
         self.assertEqual(result['androidCompanion']['runtime'], 'not-observable')
         self.assertEqual(result['unifiedMobileWorkspace']['browserSession'], 'not-observable')
         self.assertEqual(result['unifiedMobileWorkspace']['serverAsset'], 'loaded')
+        self.assertEqual(result['androidCompanion']['remotePairing'],'not-implemented')
+        self.assertTrue(result['androidCompanion']['deviceConsentRequired'])
+        self.assertFalse(result['snaptradeReadOnly']['liveBrokerQuotes'])
+        self.assertEqual(result['snaptradeReadOnly']['sourceRole'],
+                         'depot-history-and-issuer-observations-only')
         self.assertEqual(result['researchSelfReview']['status'], 'unavailable')
         self.assertIsNone(result['researchSelfReview']['sourceReportAt'])
         self.assertEqual(result['snaptradeReadOnly']['connectionCode'], 'READ_OK')
