@@ -125,6 +125,14 @@ class PhoneTaskPlanTest {
         for (spoken in listOf(
             "Bob zeige meine goldprodukte",
             "Bob zeige mir die goldprodukte",
+            // Exact transcript observed on the permanent Bob – Handy v10001:
+            "Bob zeige mir goldprodukte",
+            "Bob, zeige mir Goldprodukte!",
+            "Zeige mir Goldprodukte",
+            "Bob zeig mir Goldprodukte",
+            "Bob zeige mir Gold-Produkte",
+            "Bob zeige mir Goldhebelprodukte",
+            "Bob zeige mir Gold Hebelprodukte",
             "Bob, zeige mir die Goldprodukte.",
             "Hallo Bob zeige mir die Goldprodukte",
             "Hey Bob zeige mir die Gold-Produkte",
@@ -152,6 +160,11 @@ class PhoneTaskPlanTest {
 
     @Test fun addressedMixedOrTradingInstructionsRemainFullyRejected() {
         for (spoken in listOf(
+            "Bob zeige mir Goldprodukte und kaufe 100 Stück",
+            "Bob zeige mir Goldprodukte und melde dich bei DEGIRO an",
+            "Bob zeige mir Goldprodukte und öffne die Ordermaske",
+            "Bob zeige mir Goldprodukte? kaufe jetzt",
+            "Bob zeige mir Goldprodukte; verkaufe alles",
             "Bob zeige mir die Goldprodukte und kaufe davon 100 Stück",
             "Bob zeige mir die Goldprodukte und logge dich in DEGIRO ein",
             "Bob zeige mir die Goldprodukte und öffne die Ordermaske",
