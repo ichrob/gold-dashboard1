@@ -11,6 +11,29 @@ assert.equal(b.agreedDegiroListRow([row(),row(z)]),null,'different valid IDs can
 assert.equal(b.agreedDegiroListRow([row()]),null,'one pass is not enough');
 assert(b.agreedDegiroListRow([row(),row(),row(a,'4013.00')]).listRow.crossChecked);
 assert.equal(b.agreedDegiroListRow([row(),row(),row(a,'4013.00'),row(a,'4013.00')]),null);
+// Fragmented mobile OCR: no single reading has all columns, but every
+// required field has two matching observations from the same image.
+const noVenue=row().replace('Societe Generale OTC EUR','Societe Generale OTC');
+const noStrike=row().replace('BP','XX');
+const noRatio=row().replace('Bv 10','Bv O');
+assert(!b.parseDegiroListRow(noVenue).listRow.complete);
+assert(!b.parseDegiroListRow(noStrike).listRow.complete);
+assert(!b.parseDegiroListRow(noRatio).listRow.complete);
+const rescued=b.agreedDegiroListRow([noVenue,noStrike,noRatio]);
+assert(rescued?.listRow.complete,'two observations per field can safely complete one row');
+assert.equal(rescued.listRow.ko,4012.25);
+assert.equal(rescued.listRow.strike,4012.25);
+assert.equal(rescued.listRow.venue,'Societe Generale OTC');
+assert.equal(rescued.listRow.ratio,.1);
+assert.equal(b.agreedDegiroListRow([noVenue,noStrike]),null,'one observed strike is insufficient');
+assert.equal(b.agreedDegiroListRow([noVenue,noStrike,row(z).replace('Bv 10','Bv O')]),null,'never mix different identifiers');
+assert.equal(b.agreedDegiroListRow([
+  noVenue,noStrike,noRatio,
+  row(a,'4013.00').replace('Societe Generale OTC EUR','Societe Generale OTC'),
+  row(a,'4013.00').replace('BP','XX'),
+  row(a,'4013.00').replace('Bv 10','Bv O')
+]),null,'two independently confirmed different KO values must not be merged');
+
 const mini=`BNP GOLD Mini Long SL 3700.25 STR 3650.75 R\n10 | ${a}\nBNP OTC EUR K V`;
 const m=b.parseDegiroListRow(mini);assert.equal(m.listRow.ko,3700.25);assert.equal(m.listRow.strike,3650.75);assert.equal(m.listRow.ratio,.1);
 assert.equal(b.parseDegiroListRow(row().replace('Call','Put')).direction,'SHORT');
