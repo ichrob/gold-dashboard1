@@ -41,11 +41,15 @@ jobs:
           gradle-version: "8.10.2"
       - name: Assemble app and UI test APKs
         run: gradle -p android_companion :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest --no-daemon --stacktrace
-      - name: Inspect final merged APK permissions
+      - name: Verify parallel test identity and final merged APK permissions
         shell: bash
         run: |
           set -euo pipefail
           APK="android_companion/app/build/outputs/apk/debug/app-debug.apk"
+          # A distinct applicationId is essential on devices that already have a
+          # differently signed Bob lab APK. Never uninstall the existing app.
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" > /tmp/bob-android-badging.txt
+          grep -Fq "package: name='ch.bob.degirocompanion.parallel'" /tmp/bob-android-badging.txt
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" > /tmp/bob-android-actual-permissions.txt
           cat /tmp/bob-android-actual-permissions.txt
           for forbidden in android.permission.INTERNET android.permission.ACCESS_NETWORK_STATE \
@@ -68,7 +72,7 @@ jobs:
       - name: Upload debug APK (lab only)
         uses: actions/upload-artifact@v4
         with:
-          name: bob-android-lab-debug
+          name: bob-android-lab-parallel-debug
           path: android_companion/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 7

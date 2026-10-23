@@ -12,6 +12,17 @@ android {
         versionCode = 15
         versionName = "0.12.1-samsung-address"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        manifestPlaceholders["bobAppLabel"] = "Bob: Android-Labor (nur Test)"
+    }
+    // GitHub-hosted debug builds may be signed with a different transient key
+    // than the installed Android lab. Install this test APK SIDE BY SIDE instead
+    // of colliding with or replacing the user's existing signed package.
+    buildTypes {
+        getByName("debug") {
+            applicationIdSuffix = ".parallel"
+            versionNameSuffix = "-parallel"
+            manifestPlaceholders["bobAppLabel"] = "Bob: Android-Labor (Paralleltest)"
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
