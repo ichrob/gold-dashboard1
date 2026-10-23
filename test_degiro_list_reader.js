@@ -83,6 +83,36 @@ for(const conflicting of [
  observedMiniOcr.replace('BNP GOLD','SG GOLD')
 ])assert.notEqual(b.parseDegiroListRow(conflicting)?.isin,'DE000PJ8APE4','Never correct an identity with mismatched original context');
 assert.equal(b.agreedDegiroListRow([observedMiniOcr,observedMiniOcr.replace('DEOOOPU8APE4','DE000FG8NHQ3')]),null,'different valid product identifiers cannot be combined');
+// Screenshot 1000075082.jpg, row two: full-row OCR can damage the
+// title/SL/STR while separately cropped title and OTC footer stay readable.
+// Two independent OCR passes of BOTH regions must agree before admission.
+const isolatedMiniHead='BNP GOLD Mini Long SL 3684.6673 STR 3612.4189 R\n10 | DEOOOPU8APE4';
+const isolatedMiniFooter='BNP OTC EUR (K) (V)';
+const compositeMini=b.segmentedDegiroListReadings([isolatedMiniHead,isolatedMiniHead],
+ [isolatedMiniFooter,isolatedMiniFooter]);
+assert.equal(compositeMini.length,2);
+const joinedMini=b.agreedDegiroListRow(compositeMini);
+assert.equal(joinedMini?.isin,'DE000PJ8APE4');
+assert.equal(joinedMini?.direction,'LONG');
+assert.equal(joinedMini?.listRow?.venue,'BNP OTC');
+assert.equal(joinedMini?.listRow?.ko,3684.6673);
+assert.equal(joinedMini?.listRow?.strike,3612.4189);
+assert.equal(b.segmentedDegiroListReadings([isolatedMiniHead],[isolatedMiniFooter,isolatedMiniFooter]).length,0);
+assert.equal(b.segmentedDegiroListReadings([isolatedMiniHead,isolatedMiniHead],[isolatedMiniFooter]).length,0);
+assert.equal(b.segmentedDegiroListReadings([isolatedMiniHead,isolatedMiniHead],[isolatedMiniFooter,'BNP OTC CHF K V']).length,2);
+assert.equal(b.agreedDegiroListRow(b.segmentedDegiroListReadings(
+ [isolatedMiniHead,isolatedMiniHead],[isolatedMiniFooter,'BNP OTC CHF K V'])),null);
+assert.equal(b.agreedDegiroListRow(b.segmentedDegiroListReadings(
+ [isolatedMiniHead,isolatedMiniHead.replace('3684.6673','3684.6674')],
+ [isolatedMiniFooter,isolatedMiniFooter])),null);
+assert.equal(b.agreedDegiroListRow(b.segmentedDegiroListReadings(
+ [isolatedMiniHead,isolatedMiniHead.replace('DEOOOPU8APE4','DE000FG8NHQ3')],
+ [isolatedMiniFooter,isolatedMiniFooter])),null);
+assert.equal(b.segmentedDegiroListReadings(
+ [isolatedMiniHead,isolatedMiniHead],['some quote without venue',isolatedMiniFooter]).length,0);
+assert.equal(b.segmentedDegiroListReadings(
+ [isolatedMiniHead,isolatedMiniHead],[isolatedMiniFooter,isolatedMiniFooter+'\nISIN DE000FG8NHQ3']).length,0);
+
 const bottomOverlap='SG Gold Knock-Out Warrant Open End Put BAR 4521.97 BP 4521.97 Bv 10 | DE000FG34XV8';
 assert.equal(b.clippedDegiroListReference([bottomOverlap,bottomOverlap]).isin,'DE000FG34XV8');
 assert.equal(b.parseDegiroListRow(row().replace('Call','Put')).direction,'SHORT');
