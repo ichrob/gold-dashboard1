@@ -3,6 +3,7 @@
 No secrets, keystores, builds, browser or device access is needed for this test.
 """
 import unittest
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).parent
@@ -59,6 +60,12 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn("gh variable set", script)
         self.assertIn("gh auth status", script)
         self.assertNotIn("git add", script)
+        self.assertIn('gh variable get BOB_ANDROID_CERT_SHA256', script)
+        self.assertIn('Signing identity conflict', script)
+        # Shell syntax is checked without running key creation or GitHub writes.
+        subprocess.run(["bash", "-n",
+                        str(ROOT / "android_companion/tools/setup_stable_signing.sh")],
+                       check=True, capture_output=True)
 
 
 if __name__ == "__main__":
