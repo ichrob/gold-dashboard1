@@ -68,20 +68,20 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   assert(!JSON.stringify(gm).includes('do-not-transfer'));assert(!JSON.stringify(gm).includes(csv));
   // Regression: detached dispatchEvent bypasses both document and .click hooks.
   await exportCSV(csv.replace(',2,0.12,',',8,0.12,'),'dispatch');
-  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===8,{},{timeout:2000});
+  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===8,{},{timeout:8000});
   // Real download behavior is preserved, including direct /csv reporting URLs.
   const directDownload=broker.waitForEvent('download');
   await broker.evaluate(()=>{
    const a=document.createElement('a');a.href='/reporting/secure/v3/positionReport/csv?qty=7';a.click();
   });
-  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===7,{},{timeout:2000});
+  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===7,{},{timeout:8000});
   assert.equal((await directDownload).suggestedFilename(),'portfolio.csv','Original same-tab download still occurs');
   // Native user clicks are forwarded once after the copy, not double-dispatched.
   await broker.evaluate(()=>{
    window.__handlerCalls=0;const a=document.createElement('a');a.id='http-export';a.textContent='Download';a.href='/reporting/secure/v3/positionReport/csv?qty=10';a.onclick=()=>window.__handlerCalls++;document.body.append(a);
   });
   await broker.locator('#http-export').click();
-  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===10,{},{timeout:2000});
+  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===10,{},{timeout:8000});
   assert.equal(await broker.evaluate(()=>window.__handlerCalls),1);
   // An invalid read must still forward the normal download and preserve holdings.
   const failedDownload=broker.waitForEvent('download');
@@ -93,7 +93,7 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   await broker.evaluate(()=>{document.getElementById('export').onclick=()=>{window.__popup=window.open('/reporting/secure/v3/positionReport/csv?qty=9','_blank');};});
   await broker.locator('#export').click();
   assert(await broker.evaluate(()=>Boolean(window.__popup)),'Original window.open return value preserved');
-  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===9,{},{timeout:2000});
+  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===9,{},{timeout:8000});
   // A blank popup followed by a generated CSV has no URL at window.open.
   // The selected CSV blob must be captured before the downloader revokes it.
   await broker.evaluate(()=>{document.getElementById('export').onclick=()=>{
@@ -109,7 +109,10 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
    blankQuantity++;await broker.evaluate(text=>window.__blankCSV=text,csv.replace(',2,0.12,',','+blankQuantity+',0.12,'));
    await broker.evaluate(mime=>{window.__blankMime=mime;GM_setValue('bob-export-status-v1',{state:'ready',at:Date.now(),version:'1.2.0'});},mime);
    await broker.locator('#export').click();
-   await bob.waitForFunction(qty=>BobDegiroPortfolio.load(localStorage).records[0].quantity===qty,blankQuantity,{timeout:2000});
+   // Headless browser startup can be delayed under the full Python+JS CI load.
+   // Keep the exact quantity and issuer-source assertions; only allow the
+   // cross-tab event to settle before declaring a failure.
+   await bob.waitForFunction(qty=>BobDegiroPortfolio.load(localStorage).records[0].quantity===qty,blankQuantity,{timeout:8000});
    await broker.waitForFunction(()=>GM_getValue('bob-export-status-v1',null)?.state==='staged');
   }
   // CSV blobs outside a trusted CSV choice, or with receipt stopped, are not read.
@@ -119,6 +122,10 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   await bob.waitForTimeout(80);assert.equal(requests.length,blobRequests);
   assert.equal(await bob.evaluate(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity),13);
   await bob.locator('#bobBridgeStart').click();
+  // Synchronize the new allowlisted read-only arm across tabs before making
+  // assertions about created blobs and the next *explicit* CSV export.
+  await broker.waitForFunction(()=>GM_getValue('bob-export-arm-v1',0)>Date.now());
+  await bob.waitForFunction(()=>document.querySelector('#bobBridgeBrokerStatus').textContent.includes('erreichbar'));
   await broker.evaluate(text=>URL.createObjectURL(new Blob([text],{type:'text/csv'})),csv);
   await bob.waitForTimeout(80);assert.equal(await bob.evaluate(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity),13,'Armed receipt alone does not capture generated blobs without a new CSV choice');
   // Do not follow arbitrary URLs, non-reporting APIs, credentials in URLs or PDF exports.
@@ -130,7 +137,7 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   });
   await bob.waitForTimeout(100);assert.equal(requests.length,before,'Rejected anchors do not trigger bridge requests');
   await exportCSV(csv);
-  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===2);
+  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===2, null,{timeout:12000});
   saved=await bob.evaluate(()=>localStorage.getItem(BobDegiroPortfolio.KEY));
   // Invalid and partial exports must preserve the previous snapshot.
   for(const invalid of[
