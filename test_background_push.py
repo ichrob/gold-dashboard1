@@ -168,6 +168,89 @@ class BackgroundRules(unittest.TestCase):
         s,e=b.advance(s,self.settings,m,False,True,now=60000);self.assertEqual(self.kinds(e),['data-unavailable'])
         s,e=b.advance(s,self.settings,self.market,False,True,now=90000);self.assertEqual(e,[])
         self.assertIn('data-recovered',self.kinds(b.advance(s,self.settings,self.market,False,True,now=120000)[1]))
+    def test_genuine_early_warning_long_and_short_precede_main_signal(self):
+        for side in ('LONG','SHORT'):
+            now=1800000000000
+            m={**self.market,'direction':'NEUTRAL','mtf':'NEUTRAL','dataAt':now,
+               'session':{'entryAllowed':True}, 'earlyWarning':{
+                   'version':'early-warning-v2','monitoring':True,'available':True,
+                   'state':'active','direction':side,'signalBarAt':now-300000,
+                   'checkedAt':now,'expiresAt':now+600000,
+                   'comparisonOnly':True,'affectsApproval':False}}
+            state,events=b.advance({},self.settings,m,True,False,now=now,log=False)
+            alert=[e for e in events if e['data']['eventKind']=='early-warning']
+            self.assertEqual(len(alert),1)
+            self.assertEqual(alert[0]['data']['kind'],'general')
+            self.assertEqual(alert[0]['data']['direction'],side)
+            self.assertFalse(alert[0]['data']['affectsApproval'])
+            self.assertNotIn('signal-change',self.kinds(events))
+            _,repeat=b.advance(state,self.settings,m,True,False,now=now+30000,log=False)
+            self.assertNotIn('early-warning',self.kinds(repeat))
+            _,confirmed=b.advance(state,self.settings,{**m,'direction':side},True,False,now=now+30000,log=False)
+            self.assertNotIn('early-warning',self.kinds(confirmed))
+
+    def test_early_warning_requires_original_clocked_confirmations(self):
+        now=1800000000000
+        warning={'version':'early-warning-v2','monitoring':True,'available':True,
+                 'state':'active','direction':'LONG','signalBarAt':now-300000,
+                 'checkedAt':now,'expiresAt':now+600000,
+                 'comparisonOnly':True,'affectsApproval':False}
+        market={**self.market,'direction':'NEUTRAL','dataAt':now,
+                'session':{'entryAllowed':True}, 'earlyWarning':warning}
+        for change in ({'priceFresh':False},{'ready':False},
+                       {'session':{'entryAllowed':False}},
+                       {'direction':'LONG'},{'dataAt':now-600001},
+                       {'earlyWarning':{**warning,'state':'watch'}},
+                       {'earlyWarning':{**warning,'monitoring':False}},
+                       {'earlyWarning':{**warning,'signalBarAt':now-600000}},
+                       {'earlyWarning':{**warning,'checkedAt':now-120000}},
+                       {'earlyWarning':{**warning,'expiresAt':now}},
+                       {'earlyWarning':{**warning,'comparisonOnly':False}},
+                       {'earlyWarning':{**warning,'affectsApproval':True}},
+                       {'earlyWarning':{**warning,'direction':'NEUTRAL'}}):
+            with self.subTest(change=change):
+                _,events=b.advance({},self.settings,{**market,**change},True,False,now=now,log=False)
+                self.assertNotIn('early-warning',self.kinds(events))
+        _,events=b.advance({},self.settings,market,False,False,now=now,log=False)
+        self.assertEqual(events,[])
+
+    def test_early_warning_withdrawal_only_after_previous_sent_and_matching_bar(self):
+        now=1800000000000
+        active={'version':'early-warning-v2','monitoring':True,'available':True,
+                'state':'active','direction':'SHORT','signalBarAt':now-300000,
+                'checkedAt':now,'expiresAt':now+600000,
+                'comparisonOnly':True,'affectsApproval':False}
+        market={**self.market,'direction':'NEUTRAL','dataAt':now,
+                'session':{'entryAllowed':True},'earlyWarning':active}
+        state,events=b.advance({},self.settings,market,True,False,now=now,log=False)
+        self.assertIn('early-warning',self.kinds(events))
+        withdrawn={**active,'state':'withdrawn','direction':'NEUTRAL'}
+        state,events=b.advance(state,self.settings,{**market,'earlyWarning':withdrawn},
+                               True,False,now=now+30000,log=False)
+        self.assertIn('early-warning-withdrawn',self.kinds(events))
+        _,events=b.advance(state,self.settings,{**market,'earlyWarning':withdrawn},
+                           True,False,now=now+60000,log=False)
+        self.assertNotIn('early-warning-withdrawn',self.kinds(events))
+        _,events=b.advance({},self.settings,{**market,'earlyWarning':withdrawn},
+                           True,False,now=now+30000,log=False)
+        self.assertNotIn('early-warning-withdrawn',self.kinds(events))
+
+    def test_early_warning_dedup_same_side_and_allow_other_side(self):
+        now=1800000000000
+        def market(side,bar):
+            return {**self.market,'direction':'NEUTRAL','dataAt':now,
+              'session':{'entryAllowed':True},'earlyWarning':{
+                'version':'early-warning-v2','monitoring':True,'available':True,
+                'state':'active','direction':side,'signalBarAt':bar,
+                'checkedAt':now,'expiresAt':now+600000,
+                'comparisonOnly':True,'affectsApproval':False}}
+        state,e=b.advance({},self.settings,market('LONG',now-300000),True,False,now=now,log=False)
+        self.assertIn('early-warning',self.kinds(e))
+        s,e=b.advance(state,self.settings,market('LONG',now-30000),True,False,now=now+30000,log=False)
+        self.assertNotIn('early-warning',self.kinds(e))
+        _,e=b.advance(s,self.settings,market('SHORT',now-30000),True,False,now=now+30000,log=False)
+        self.assertIn('early-warning',self.kinds(e))
+
     def test_general_without_trade_and_switch_off(self):
         s,e=b.advance({},self.settings,self.market,True,False,now=0)
         self.assertEqual(e,[])
