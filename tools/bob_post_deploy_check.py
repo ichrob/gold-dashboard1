@@ -97,10 +97,10 @@ def run():
     summary = os.getenv("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as output:
-            output.write("### Bob Post-Deploy (unabhängige Kontrolle)\\n"
-                         + "Status: **" + result["state"] + "**\\n\\n"
-                         + "Grund: " + result["reason"] + "\\n\\n"
-                         + "Prüfzeit UTC: " + result["checkedAt"] + "\\n")
+            output.write("### Bob Post-Deploy (unabhängige Kontrolle)\n"
+                         + "Status: **" + result["state"] + "**\n\n"
+                         + "Grund: " + result["reason"] + "\n\n"
+                         + "Prüfzeit UTC: " + result["checkedAt"] + "\n")
     return {"verified": 0, "pending": 2, "failed": 1}[result["state"]]
 
 
