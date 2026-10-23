@@ -1,9 +1,11 @@
 name: Bob DEGIRO deployed version verification
 
+# Independent post-deploy read verification. Never gate Render's checksPass
+# deployment on a job that waits for those very deployed JS bytes.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '43 6,12,18 * * *'
 
 permissions:
   contents: read
