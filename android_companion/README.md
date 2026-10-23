@@ -1,3 +1,15 @@
+## Goldprodukte öffnen am Anfang statt beim letzten Produkt (23.10.2026)
+
+Samsung-Gerätetest: Der gesprochene Einmalauftrag „Bob zeige meine Goldprodukte“ öffnet Bob korrekt, aber Chrome zeigte eine alte Scrollposition am Ende der Produktliste. Die alte Installation muss nicht entfernt werden.
+
+**Web-Korrektur:** Nur beim expliziten `?view=products#products` (auch LONG-/Hebel-Frage) öffnet Bob weiterhin den bestehenden Goldprodukte-Bereich und richtet dessen Anfang nach dem Seitenaufbau erneut aus. Kleine, zeitlich begrenzte Korrekturen entschärfen Androids Scroll-Wiederherstellung. Jede eigene Berührung, Wischgeste, Mausrad- oder Tasteneingabe stoppt die Nachkorrektur sofort. Andere Seitenwechsel, Order-/Handelsregeln und Produktwerte bleiben unverändert. Nach erfolgreichem Server-Deploy kann die bereits installierte App diese Web-Korrektur testen.
+
+**Android-Korrektur für wiederholtes Öffnen:** Künftige Begleiter-APKs ergänzen bei jeder expliziten Bob-Navigation einen kurzlebigen, nur lokalen `bobvisit`-Wert in der fest vorgegebenen Bob-URL. Dadurch öffnet ein erneuter Sprachauftrag nicht einfach einen vorhandenen Browser-Tab an der letzten Produktposition. Der Wert ist kein Passwort, Token oder Brokerauftrag. Die feste Positivliste bleibt unverändert. Für **diesen zusätzlichen Teil** ist eine neue APK erforderlich; wegen der GitHub-Debug-Signatur kann ein Update der Paralleltest-APK scheitern, daher die vorhandene Bob-Haupt-App niemals deinstallieren.
+
+**Abnahme:** JavaScript-Regression zur ursprünglichen Bottom-Scrollposition und Abbruch bei Nutzerbewegung, Android-Unit-Test zum wechselnden `bobvisit`-Wert, gesamter Bob-/Android-CI. Auf echtem Samsung Sprachauftrag mehrmals starten, zur letzten Produktkarte scrollen und erneut sprechen: erwartet ist jedes Mal der Anfang des Bereichs „Gold-Hebelprodukte“. CI-Erfolg allein bestätigt keinen Gerätetest.
+
+---
+
 ## Samsung: Installation ohne Löschen der bisherigen Bob-App (23.10.2026)
 
 Falls `app-debug.apk` aus GitHub mit **„App nicht installiert“** abgewiesen wird, bitte **nicht** die bisherige Bob-App deinstallieren. Die vorherige Test-APK verwendet die Paketkennung `ch.bob.degirocompanion`. GitHub-Debug-APKs werden nicht garantiert mit demselben Schlüssel signiert wie bereits installierte Versionen. Android kann deshalb ein Überschreiben ablehnen; ein unbekannter Installationsfehler ist damit noch nicht abschließend diagnostiziert.
