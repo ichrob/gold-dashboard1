@@ -75,6 +75,24 @@ def collect(readers):
             'scope':'operational-observations-not-complete-feature-validation', 'areas':areas}
 
 
+def recent_paper_outcomes(accounts):
+    """Only bounded saved paper-case labels, without financial performance claims."""
+    groups=[a.get('recentCases') or {} for a in accounts if isinstance(a,dict)]
+    stored=[c for group in groups if group.get('status') == 'observed'
+            for c in group.get('items',[]) if isinstance(c,dict)]
+    return {
+        'state':'partial' if any(g.get('status') != 'observed' for g in groups) else 'observed',
+        'scope':'last-five-cases-per-paper-account-only-not-full-performance',
+        'observedCases':len(stored),
+        'closed':sum(c.get('status') == 'closed' for c in stored),
+        'open':sum(c.get('status') == 'open' for c in stored),
+        'inconclusive':sum(c.get('status') == 'inconclusive' for c in stored),
+        'accountsUnavailable':sum(g.get('status') != 'observed' for g in groups),
+        'realOrders':False,'missingResultsAreLosses':False,
+        'note':'Unbestätigte Simulationen sind weder realisierte Verluste '
+               'noch automatisch behobene Datenlücken.'}
+
+
 def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
     """Only SELECT statements; fixed tables and explicit private diagnostic projections."""
     accounts = []
@@ -106,22 +124,7 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
                 account['recentCases'] = {'status':'unavailable'}
         # Evidence-only recent-case tally. Never turn unknown/deferred results
         # into closed profits, losses, filled orders or proven source recovery.
-        case_lists=[a.get('recentCases') or {} for a in accounts]
-        stored=[c for group in case_lists if group.get('status') == 'observed'
-                for c in group.get('items',[]) if isinstance(c,dict)]
-        result['recentPaperOutcomes']={
-            'state':('partial' if any(group.get('status') != 'observed'
-                                    for group in case_lists) else 'observed'),
-            'scope':'last-five-cases-per-paper-account-only-not-full-performance',
-            'observedCases':len(stored),
-            'closed':sum(c.get('status') == 'closed' for c in stored),
-            'open':sum(c.get('status') == 'open' for c in stored),
-            'inconclusive':sum(c.get('status') == 'inconclusive' for c in stored),
-            'accountsUnavailable':sum(group.get('status') != 'observed'
-                                       for group in case_lists),
-            'realOrders':False,'missingResultsAreLosses':False,
-            'note':'Unbestätigte Simulationen sind weder realisierte Verluste '
-                   'noch automatisch behobene Datenlücken.'}
+        result['recentPaperOutcomes'] = recent_paper_outcomes(accounts)
         # Indexed, SELECT-only probe of nearby *original Gold-API* timestamps.
         # A proximity match is not sufficient evidence to settle any paper trade.
         try:
