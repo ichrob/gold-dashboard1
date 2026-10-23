@@ -1,5 +1,5 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
-const window={};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8').replace('window.BobDegiro={','window.BobDegiro={seriesIsinRepair,'),{window});const b=window.BobDegiro;
+const window={};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8').replace('window.BobDegiro={','window.BobDegiro={seriesIsinRepair,screenshotIdentity,'),{window});const b=window.BobDegiro;
 const isin='DE000PJ9NB98';
 const anchor={ok:true,name:'anchor.jpg',raw:'BNP OTC\nISIN '+isin,data:{isin,identityBasis:'ISIN'}};
 const damaged='Kursdaten\nBNP OTC\nGeld € 12,34 Brief € 12,35\n19/10/2026 16:10\nSymbol | ISIN\nDEOOOPJONB08\nBörse BNP OTC';
@@ -34,10 +34,13 @@ const quoteContext=b.screenshotSeriesContext([anchor,{ok:false,ocr:{data:{text:w
 assert(quoteContext?.anchorIsinVerified);
 const repairedWithoutVenue=b.seriesIsinRepair(withoutVenue,isin,quoteContext);
 assert(repairedWithoutVenue?.text.includes(isin));
-assert(b.detailScreenshotData(withoutVenue,isin,quoteContext).ok);
+assert(b.screenshotIdentity(withoutVenue,isin,quoteContext).ok);
+const croppedImport=b.detailScreenshotData(withoutVenue,isin,quoteContext);
+assert(!croppedImport.ok && /Geld-\/Briefpaar/.test(croppedImport.reason),
+ 'A crop without a verifiable pair must not receive an executable quote');
 const splitIsin='Kursdaten\nSymbol | ISIN\nDE 000 PJ9 NB9 8\nGeld 12,34\nBrief 12,35';
 assert(b.seriesIsinRepair(splitIsin,isin,quoteContext)?.text.includes(isin));
-assert.equal(b.detailScreenshotData(splitIsin,isin,quoteContext).isin,isin);
+assert(b.screenshotIdentity(splitIsin,isin,quoteContext).ok);
 for (const conflicting of [
  withoutVenue+'\nWKN FG14AV',
  withoutVenue+'\nBörse Societe Generale OTC',
