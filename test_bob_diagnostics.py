@@ -172,6 +172,22 @@ class ReportTests(unittest.TestCase):
         self.assertNotIn('secret',json.dumps(result))
         self.assertNotIn('private',json.dumps(result))
         self.assertEqual(result['push']['deliveryStatus'],'not-verified')
+        self.assertEqual(result['push']['monitorState'],'subscriptions-observed')
+        self.assertIn('nicht nachgewiesen',result['push']['deliveryNote'])
+
+    def test_zero_push_subscriptions_are_not_declared_failed_deliveries(self):
+        conn = Mock()
+        conn.execute.return_value.fetchone.side_effect = [({'enabled':True},),(0,)]
+        portfolios = Mock(POLICIES={'test':{}})
+        portfolios.names.return_value={'bob_paper_control':'bob_paper_test_control'}
+        evaluator = Mock(); evaluator.status.return_value={'completed':1,'failed':0}
+        health = Mock(); health.snapshot.return_value={'state':'ok'}
+        row = diagnostics.push_snapshot(conn,evaluator,health,portfolios)['push']
+        self.assertEqual(row['activeMonitors'],0)
+        self.assertEqual(row['monitorState'],'none-enabled')
+        self.assertEqual(row['deliveryStatus'],'not-verified')
+        self.assertNotIn('token',json.dumps(row))
+
 
 class ExpandedReportTests(unittest.TestCase):
     def test_gap_counts_survive_omission_of_oversized_simulation(self):
@@ -345,6 +361,31 @@ class NewFeatureReadAccessTests(unittest.TestCase):
         self.assertEqual(item['sourceReportAt'], '2026-10-22T07:47:45+00:00')
         self.assertIsNone(item['result'])
 
+
+
+class ReadAccessManifestMappingTests(unittest.TestCase):
+    def test_exact_100_items_are_file_mapped_not_falsely_live_verified(self):
+        from pathlib import Path
+        manifest=json.loads((Path(__file__).resolve().parent/
+            'Besser_werden/lesezugriff_100_status.json').read_text(encoding='utf-8'))
+        report=diagnostics.read_access_coverage(manifest)
+        self.assertEqual(report['status'],'inventory-only')
+        self.assertEqual(report['total'],100)
+        self.assertEqual(report['verified'],0)
+        self.assertEqual(report['unverified'],100)
+        self.assertEqual(report['codeFilesMapped'],10)
+        self.assertEqual(report['codeFilesPresent'],10)
+        self.assertEqual(report['codeFilesMissing'],0)
+        self.assertEqual(sum(report['counts'].values()),100)
+
+    def test_untrusted_inventory_paths_are_rejected_without_file_reads(self):
+        from pathlib import Path
+        manifest=json.loads((Path(__file__).resolve().parent/
+            'Besser_werden/lesezugriff_100_status.json').read_text(encoding='utf-8'))
+        for fake in ('../secret', '/etc/passwd', 'a//b', 'x/./y'):
+            variant={**manifest, 'tasks':[dict(t) for t in manifest['tasks']]}
+            variant['tasks'][0]['codeEvidence']=fake
+            self.assertEqual(diagnostics.read_access_coverage(variant)['status'],'unavailable')
 
 
 class FocusedReadAccessTests(unittest.TestCase):
