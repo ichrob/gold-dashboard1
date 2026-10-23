@@ -62,4 +62,30 @@ for(const [search,hash] of [['?view=overview','#overview'],
  assert.equal(v.calls.length,0);
  assert.equal(v.history.scrollRestoration,'auto');
 }
+// The installed Samsung companion can foreground a tab with an unchanged URL.
+// A tab-return must align the explicit voice link, but not a screenshot return.
+const resumeStart=html.indexOf('  let goldVoiceTabWasHidden=false;');
+const resumeEnd=html.indexOf("  for(const b of status.querySelectorAll('button'))",resumeStart);
+assert(resumeStart>0&&resumeEnd>resumeStart,'Voice tab resume listener must exist');
+function resumeCase(withScreenshot){
+ const events={};
+ const document={
+  hidden:true,
+  addEventListener:(event,callback)=>{events[event]=callback}
+ };
+ const ctx={document,location:{search:'?view=products',hash:'#products'},
+  URLSearchParams,goldDeepLinkRevealed:true,panels:{products:{hidden:false}},
+  byId:()=>withScreenshot?{hidden:false}:null,
+  revealGoldLeveragedProducts:()=>({isConnected:true}),
+  stabilizeGoldDeepLinkScroll:()=>{ctx.calls++;},
+  calls:0
+ };
+ vm.runInNewContext(html.slice(resumeStart,resumeEnd),ctx);
+ events.visibilitychange();
+ document.hidden=false;
+ events.visibilitychange();
+ return ctx.calls;
+}
+assert.equal(resumeCase(false),1,'Repeated voice link foregrounds at list start');
+assert.equal(resumeCase(true),0,'Returning from product screenshot must keep its place');
 console.log('Gold deep-link: align start after restore; no user-scroll override; normal views unchanged');
