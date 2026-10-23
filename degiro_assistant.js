@@ -3706,22 +3706,44 @@ function identitySeriesSource(raw){
 }
 function seriesIsinRepair(raw,isin,context){
  if(!validIsin(isin)||!isin.startsWith('DE000')||context?.basis!=='image-series'||
-    context.isin!==isin||context.anchorIsinVerified!==true||!context.source||identitySeriesSource(raw)!==context.source)return null;
- const tokens=[...new Set(String(raw).toUpperCase().match(/\bDE[0OQ]{3}[A-Z0-9]{7}\b/g)||[])];
+    context.isin!==isin||context.anchorIsinVerified!==true||!context.source)return null;
+ const observedSource=identitySeriesSource(raw);
+ // A second cropped DEGIRO quote may omit its OTC footer entirely. A
+ // recognizable broker quote layout can be provisionally joined to a verified
+ // same-selection anchor; an explicitly different venue is never allowed.
+ if(observedSource&&observedSource!==context.source)return null;
+ if(!observedSource&&!(/\bKursdaten\b/i.test(String(raw))&&/\bISIN\b/i.test(String(raw))&&
+    /\b(?:Geld|Brief|Bid|Ask)\b/i.test(String(raw))))return null;
+ const text=String(raw),upper=text.toUpperCase();
+ const direct=upper.match(/\bDE[0OQ]{3}[A-Z0-9]{7}\b/g)||[];
+ // OCR may insert spaces or line breaks inside the *labelled* ISIN. Do not
+ // assemble unrelated product names or numeric amounts into identifiers.
+ const spaced=[...upper.matchAll(/\b(?:ISIN|1SIN)\s*[:|]?\s*(DE(?:[\s-]*[A-Z0-9]){10})(?![A-Z0-9])/g)]
+   .map(m=>({original:m[1],token:m[1].replace(/[\s-]/g,'')}));
+ const tokens=[...new Set([...direct,...spaced.map(x=>x.token)])];
  if(tokens.length!==1)return null;
  const token=tokens[0],normalized='DE000'+token.slice(5);
- if(normalized===isin||validIsin(token)||validIsin(normalized))return null;
+ // An unspaced valid ISIN needs no series repair. Even if it disagrees with
+ // the anchor, do not overwrite it. A spaced copy of the anchor can be joined.
+ const split=spaced.find(x=>x.token===token&&x.original!==token);
+ // A checksum-valid, *unspaced* identifier is independent evidence and must
+ // never be rewritten. Its spaced spelling can be normalized only if equal to
+ // the already independently confirmed series anchor.
+ if((validIsin(token)&&(!split||token!==isin))||
+    (validIsin(normalized)&&normalized!==isin))return null;
+ if(normalized===isin){
+  return split?{text:text.replace(split.original,isin),original:split.original}:null;
+ }
  let changes=0;
  for(let i=5;i<12;i++)if(token[i]!==isin[i]){
-  if(!ocrGlyphPair(token[i],isin[i])&&!/^[89]{2}$/.test(token[i]+isin[i]))return null;
+  if(!ocrGlyphPair(token[i],isin[i])&&!(/^[8S]{2}$/.test(token[i]+isin[i])))return null;
   changes++;
  }
  if(changes<1||changes>2)return null;
- // An explicit contradictory WKN remains a conflict, even if a damaged ISIN
- // happens to resemble the anchor. No correction of numeric price tokens.
- const wkns=[...String(raw).toUpperCase().matchAll(/\bWKN\s*[:=]?\s*([A-Z0-9]{6})\b/g)].map(m=>m[1]);
+ // A conflicting WKN, or a second readable identifier, still blocks linking.
+ const wkns=[...upper.matchAll(/\bWKN\s*[:=]?\s*([A-Z0-9]{6})\b/g)].map(m=>m[1]);
  if(wkns.some(w=>w!==isin.slice(5,11)))return null;
- return {text:String(raw).replace(new RegExp('\\b'+token+'\\b','gi'),isin),original:token};
+ return {text:split?text.replace(split.original,isin):text.replace(new RegExp('\\b'+token+'\\b','gi'),isin),original:token};
 }
 function screenshotIdentity(raw,expectedIsin,productContext=null){
  raw=normalizeReviewedDegiroIdentity(raw);
@@ -3850,7 +3872,7 @@ async function readProductPdf(file,expected){
  }finally{await task.destroy();}
 }
 // Local originals support reprocessing after OCR updates. Never refresh source clocks.
-const PRODUCT_OCR_VERSION='2026-10-19-broker-symbol-proof-v19';
+const PRODUCT_OCR_VERSION='2026-10-23-second-image-series-v20';
 const ORIGINAL_TTL=7*86400000,ORIGINAL_LIMIT=100*1024*1024;
 const activeProductImports=new Set();
 function originalRetention(records,now=Date.now()){

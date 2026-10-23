@@ -17,10 +17,19 @@ internal object SeriesEvidence {
     )
 
     private val pattern = Regex("(?<![A-Z0-9])DE[A-Z0-9]{10}(?![A-Z0-9])")
+    // ML Kit sometimes inserts spaces or line breaks between ISIN groups.
+    // Limit split-token recovery to an explicit ISIN label; never assemble an
+    // arbitrary collection of letters and numbers into a product identity.
+    private val labelledIsin = Regex("""\b(?:ISIN|1SIN)\s*[:\-]?\s*(DE(?:[\s-]*[A-Z0-9]){10})(?![A-Z0-9])""")
+    private val wknPattern = Regex("""\bWKN\s*[:\-]?\s*([A-Z0-9]{6})\b""")
 
-    private fun rawCandidates(text: String): List<String> =
-        pattern.findAll(text.uppercase())
-            .map { it.value }.distinct().take(20).toList()
+    private fun rawCandidates(text: String): List<String> {
+        val upper = text.uppercase()
+        return (pattern.findAll(upper).map { it.value } +
+            labelledIsin.findAll(upper).map {
+                it.groupValues[1].replace(Regex("""[\s-]"""), "")
+            }).distinct().take(20).toList()
+    }
 
     private fun normalize(candidate: String): String {
         if (candidate.length != 12 || !candidate.startsWith("DE")) return candidate
@@ -65,11 +74,17 @@ internal object SeriesEvidence {
     private fun visuallySame(a: String, b: String): Boolean {
         if (a.length != 12 || b.length != 12) return false
         val pairs = setOf(
-            "0O", "0Q", "1I", "1L", "5S", "8B", "2Z", "6G"
+            "0O", "0Q", "1I", "1L", "5S", "8B", "2Z", "6G",
+            // Only relative to an independently checksum-valid anchor:
+            // thin fonts can render 9 as O/Q or 8 as S.
+            "9O", "9Q", "8S"
         )
         var differences = 0
+        val normalized = normalize(a)
         for (i in a.indices) {
-            if (a[i] == b[i]) continue
+            // Filler zeros and the final check digit have deterministic OCR
+            // normalizations. Do not count these as independent mismatches.
+            if (a[i] == b[i] || (i in 2..4 || i == 11) && normalized[i] == b[i]) continue
             val combination = "" + a[i] + b[i]
             if (pairs.none { pair -> pair.contains(a[i]) && pair.contains(b[i]) }) return false
             differences++
@@ -85,6 +100,26 @@ internal object SeriesEvidence {
         val all = accepted.flatMap { it }.toSet()
         if (all.size != 1) return null
         val anchor = all.single()
+
+        // An explicit WKN or issuer venue conflicting with the anchored
+        // instrument invalidates the entire user-selected batch.
+        val visibleWkns = texts.flatMap { text ->
+            wknPattern.findAll(text.uppercase()).map { it.groupValues[1] }.toList()
+        }
+        if (visibleWkns.any { it != anchor.substring(5, 11) }) return null
+        val venues = texts.mapNotNull { text ->
+            val upper = text.uppercase()
+            val bnp = "BNP OTC" in upper
+            val sg = Regex("""SOCI(?:E|É)T(?:E|É)\s+G(?:E|É)N(?:E|É)RALE\s+OTC|SG OTC""")
+                .containsMatchIn(upper)
+            when {
+                bnp && sg -> "CONFLICT"
+                bnp -> "BNP"
+                sg -> "SG"
+                else -> null
+            }
+        }.toSet()
+        if ("CONFLICT" in venues || venues.size > 1) return null
 
         // Even a checksum-invalid OCR token may indicate another product.
         // Do not silently merge a different identifier into the batch.
