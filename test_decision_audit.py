@@ -343,6 +343,62 @@ class ReportBatchRowsTests(unittest.TestCase):
             conn.rollback()
 
 
+class ProspectiveBoundedRecoveryTests(unittest.TestCase):
+    def test_query_fallback_only_adds_safe_fixed_time_constraint(self):
+        from unittest.mock import Mock
+        db=Mock()
+        db.execute.return_value.fetchall.return_value=[]
+        a._load_prospective_rows(db)
+        self.assertNotIn("24 hours",db.execute.call_args.args[0])
+        a._load_prospective_rows(db,recent=True)
+        self.assertIn("recorded_at >= now()-interval '24 hours'",
+                      db.execute.call_args.args[0])
+        self.assertEqual(db.execute.call_args.args[1],(a.RULE_VERSION,))
+
+    def test_one_timeout_produces_explicit_partial_not_30_day_result(self):
+        from unittest.mock import MagicMock, Mock, patch
+        import psycopg
+        conn=MagicMock()
+        conn.execute.return_value.fetchone.return_value=(0,)
+        with patch.object(a,'_load_report_rows',return_value=[]), \
+             patch.object(a,'_load_prospective_rows',
+                          side_effect=[psycopg.errors.QueryCanceled('timeout'),[]]) as loader, \
+             patch.object(a.rule_learning,'report',return_value={}), \
+             patch.object(a.intraday_comparison,'report',return_value={}), \
+             patch.object(a.ranking_learning,'report',return_value={}), \
+             patch.object(a.precision_learning,'report',return_value={}), \
+             patch.object(a.metric_quality,'report',return_value={}), \
+             patch.object(a.product_precision,'report',return_value={}):
+            result=a._build_report(conn)
+        self.assertEqual(loader.call_args_list[1].kwargs,{'recent':True})
+        self.assertTrue(result['prospectiveReview']['available'])
+        self.assertTrue(result['prospectiveReview']['partialHistory'])
+        self.assertEqual(result['prospectiveReview']['validationCoverage'],
+                         'last-24-hours-only')
+        self.assertFalse(result['prospectiveReview']['automaticRuleChange'])
+        self.assertIn('keine 30-Tage-Validierung',result['prospectiveReview']['note'])
+
+    def test_second_timeout_reports_unavailable_without_invented_result(self):
+        from unittest.mock import MagicMock, patch
+        import psycopg
+        conn=MagicMock()
+        conn.execute.return_value.fetchone.return_value=(0,)
+        with patch.object(a,'_load_report_rows',return_value=[]), \
+             patch.object(a,'_load_prospective_rows',
+                          side_effect=psycopg.errors.QueryCanceled('timeout')), \
+             patch.object(a.rule_learning,'report',return_value={}), \
+             patch.object(a.intraday_comparison,'report',return_value={}), \
+             patch.object(a.ranking_learning,'report',return_value={}), \
+             patch.object(a.precision_learning,'report',return_value={}), \
+             patch.object(a.metric_quality,'report',return_value={}), \
+             patch.object(a.product_precision,'report',return_value={}):
+            result=a._build_report(conn)
+        self.assertFalse(result['prospectiveReview']['available'])
+        self.assertTrue(result['prospectiveReview']['retryable'])
+        self.assertTrue(result['prospectiveReview']['partialHistory'])
+        self.assertFalse(result['prospectiveReview']['automaticRuleChange'])
+
+
 class ReportTimeoutRecoveryTests(unittest.TestCase):
     def test_canceled_report_retries_a_smaller_window_and_labels_it(self):
         from unittest.mock import MagicMock, Mock, patch
