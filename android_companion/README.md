@@ -1,3 +1,15 @@
+## Samsung: Installation ohne Löschen der bisherigen Bob-App (23.10.2026)
+
+Falls `app-debug.apk` aus GitHub mit **„App nicht installiert“** abgewiesen wird, bitte **nicht** die bisherige Bob-App deinstallieren. Die vorherige Test-APK verwendet die Paketkennung `ch.bob.degirocompanion`. GitHub-Debug-APKs werden nicht garantiert mit demselben Schlüssel signiert wie bereits installierte Versionen. Android kann deshalb ein Überschreiben ablehnen; ein unbekannter Installationsfehler ist damit noch nicht abschließend diagnostiziert.
+
+**Lösung als separater Versuch:** Der Debug-Build erhält nun ausdrücklich die Paketkennung `ch.bob.degirocompanion.parallel` und den sichtbaren Namen **Bob: Android-Labor (Paralleltest)**. Dadurch darf diese Test-App parallel zur bisherigen App bestehen, ohne deren gespeicherte Daten oder Signatur zu überschreiben. Andere Sicherheitsgrenzen bleiben: keine Netzwerk- oder Accessibility-Berechtigung, keine DEGIRO-Fremd-App-Steuerung, keine echten Orders.
+
+**Installation auf Samsung:** In GitHub beim *neuen* erfolgreichen Android-Lauf unter **Artifacts** die ZIP `bob-android-lab-parallel-debug` laden, in „Eigene Dateien“ entpacken und daraus `app-debug.apk` öffnen. Gegebenenfalls die Installation für die gewählte Dateiverwaltung freigeben. **Die bisherige Bob-App nicht deinstallieren.** Danach die neue App **Bob: Android-Labor (Paralleltest)** öffnen, Mikrofonknopf einmal drücken und `Bob zeige meine Goldprodukte` sprechen. Nur die sichere Bob-Website darf geöffnet werden. Falls auch diese APK nicht installiert wird, benötigen wir die konkretere Android-Installationsursache (Sperre, Speicherplatz, beschädigter Download, Geräteverwaltung usw.).
+
+**Langfristig:** GitHub erzeugt weiterhin möglicherweise unterschiedlich signierte Debug-APKs. Eine installierte Paralleltest-Version ist deshalb nicht garantiert durch künftige CI-Downloads aktualisierbar. Für saubere Updates eine beständige, privat gespeicherte Signatur und sichere CI-Secrets einrichten – niemals private Signaturschlüssel ins öffentliche Repository legen. Ein frischer Paralleltest enthält nicht automatisch lokale Daten der alten App. Ein erfolgreicher CI-Build beweist keine erfolgreiche Geräteinstallation.
+
+---
+
 ## Bob Produkt- und Sprachantworten – Ursache für ABWARTEN sichtbar (22.10.2026)
 
 Die Bob-Webseite unterscheidet in **ihrer bestehenden, rechnerischen Produktauswahl** ausdrücklich:
