@@ -1,0 +1,21 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('fs'),vm=require('vm');
+const ctx={window:{}};
+vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),ctx);
+const b=ctx.window.BobDegiro;
+const head='BNP GOLD Mini Long SL 3684.6673 STR 3612.4189 R\n10 | DEOOOPU8APE4';
+const foot='BNP OTC EUR K V';
+const overlap=head+'\nBNP OTC EUR K V';
+const joined=b.segmentedDegiroListReadings([overlap,overlap],[foot,foot]);
+assert.equal(joined.length,2);
+assert.equal((joined[0].match(/BNP OTC EUR/g)||[]).length,1);
+assert.equal(b.agreedDegiroListRow(joined)?.isin,'DE000PJ8APE4');
+assert.equal(b.agreedDegiroListRow(joined)?.listRow.ko,3684.6673);
+assert.equal(b.segmentedDegiroListReadings([overlap,overlap],['BNP OTC CHF','BNP OTC CHF']).length,0);
+assert.equal(b.segmentedDegiroListReadings([overlap+'\nDE000FG8NHQ3',overlap],[foot,foot]).length,0);
+const sgHead='SG Gold Knock-Out Warrant Open End Put BAR 4521.97 BP 4521.97 Bv 10 | DE000FG34XV8';
+const sgFoot='Societe Generale OTC CHF';
+assert.equal(b.agreedDegiroListRow(b.segmentedDegiroListReadings(
+ [sgHead+'\n'+sgFoot,sgHead+'\n'+sgFoot],[sgFoot,sgFoot]))?.isin,'DE000FG34XV8');
+console.log('DEGIRO: overlapping header/footer parsed once, with conflicting identities and currencies blocked');
