@@ -60,7 +60,7 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn("gh variable set", script)
         self.assertIn("gh auth status", script)
         self.assertNotIn("git add", script)
-        self.assertIn('gh variable get BOB_ANDROID_CERT_SHA256', script)
+        self.assertIn('gh variable list -R "$repo" --json name,value', script)
         self.assertIn('Signing identity conflict', script)
         # Shell syntax is checked without running key creation or GitHub writes.
         subprocess.run(["bash", "-n",
