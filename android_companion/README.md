@@ -1,3 +1,11 @@
+## Neue dauerhafte Android-App (23.10.2026)
+
+Die bisherige `Android-Labor`-/`Paralleltest`-/`Sprachtest`-Reihe wird durch die feste, privat signierte App **Bob – Handy** ersetzt. **Neue Debug-APKs aus GitHub sind keine dauerhaften Updates.** Der stabile Release wird erst möglich, sobald der Besitzer seinen privaten Signaturschlüssel einmalig auf einem eigenen Gerät angelegt und als GitHub Actions-Secrets verschlüsselt hinterlegt hat. Diese Schlüssel oder Passwörter nie im Chat oder im Repository teilen.
+
+Die Anleitung für den gesamten einmaligen Einrichtungsschritt, die künftige Update-APK unter **Releases → Latest**, die unveränderte Sprache sowie die Geräte- und Datenübernahmegrenzen steht unter [STABLE_RELEASE.md](STABLE_RELEASE.md).
+
+---
+
 ## Samsung-Sprachfehler „Bob zeige mir die Goldprodukte“ (23.10.2026)
 
 **Auf dem echten Samsung beobachtet:** Die lokale Spracheingabe schrieb „Bob zeige mir die goldprodukte“, danach „Sprachauftrag unklar oder nicht erlaubt. Nichts ausgeführt.“. Das ist kein Netz-/Render-/Loginproblem: `PhoneTaskPlanParser` erkannte zwar „Bob“ ohne Komma, kannte aber das vollständige Satzmuster „zeige mir die goldprodukte“ noch nicht.
