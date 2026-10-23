@@ -362,6 +362,72 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     state['healthy'] = healthy
     direction = market.get('direction', 'NEUTRAL') if healthy else 'NEUTRAL'
     mtf = market.get('mtf', 'NEUTRAL') if healthy else 'NEUTRAL'
+    # A market-based early warning is a separate, advisory-only event.
+    # Require an independently clocked CLOSED 5m signal bar, a fresh shared
+    # spot observation, no already-confirmed main direction, and no weekend.
+    # Persist the last notified candle in the existing per-device push state;
+    # delivery failure already prevents the state from being committed.
+    warning = market.get('earlyWarning')
+    active_warning = (
+        general and healthy and not market_closed
+        and (market.get('session') or {}).get('entryAllowed') is True
+        and isinstance(warning, dict)
+        and warning.get('version') == 'early-warning-v2'
+        and warning.get('monitoring') is True
+        and warning.get('available') is True
+        and warning.get('comparisonOnly') is True
+        and warning.get('affectsApproval') is False
+        and warning.get('state') == 'active'
+        and warning.get('direction') in ('LONG', 'SHORT')
+        and warning.get('direction') != direction
+        and positive(warning.get('signalBarAt'))
+        and positive(warning.get('checkedAt'))
+        and positive(warning.get('expiresAt'))
+        and positive(market.get('dataAt'))
+        and 0 <= now-warning['signalBarAt'] <= 300000
+        and 0 <= now-warning['checkedAt'] <= 90000
+        and warning['signalBarAt'] <= market['dataAt'] + 300000
+        and now < warning['expiresAt']
+    )
+    last_warning = state.get('earlyWarningSent')
+    if active_warning:
+        side = warning['direction']
+        bar_at = warning['signalBarAt']
+        # At most one notification per signal candle. Only a different side
+        # may bypass the 30-minute same-side noise limit.
+        recent_same = (isinstance(last_warning, dict)
+                       and last_warning.get('direction') == side
+                       and type(last_warning.get('sentAt')) in (int,float)
+                       and 0 <= now-last_warning['sentAt'] < 1800000)
+        previously_sent = isinstance(last_warning, dict) and (
+            last_warning.get('direction') == side
+            and last_warning.get('signalBarAt') == bar_at)
+        if not recent_same and not previously_sent:
+            add('early-warning', 'FRÜHWARNUNG · '+side,
+                'Gold: '+side+'-Frühimpuls auf geschlossener 5m-Kerze beobachtet. '
+                'Hauptsignal noch nicht in dieser Richtung bestätigt. '
+                'Nur Marktbeobachtung, keine Produktfreigabe oder Order.', 'general')
+            e = events[-1]
+            e['tag'] = 'bob-early-warning-'+side.lower()+'-'+str(int(bar_at))
+            e['data'].update(direction=side, signalBarAt=bar_at,
+                             warningState='active', comparisonOnly=True,
+                             affectsApproval=False,
+                             expiresAt=min(warning['expiresAt'],now+180000))
+            state['earlyWarningSent'] = {
+                'direction':side, 'signalBarAt':bar_at, 'sentAt':now}
+    elif (general and healthy and isinstance(last_warning,dict)
+          and isinstance(warning,dict) and warning.get('version')=='early-warning-v2'
+          and warning.get('state')=='withdrawn'
+          and warning.get('signalBarAt')==last_warning.get('signalBarAt')
+          and not last_warning.get('withdrawn')):
+        # Only withdraw an actually delivered warning; never invent a
+        # withdrawal when the source is unavailable or simply expires.
+        add('early-warning-withdrawn','FRÜHWARNUNG · zurückgenommen',
+            'Der zuvor gemeldete '+last_warning['direction']+
+            '-Frühimpuls wurde durch einen geschlossenen Gegenkurs '
+            'zurückgenommen. Keine Trade-Entwarnung.', 'general')
+        events[-1]['data'].update(comparisonOnly=True,affectsApproval=False)
+        last_warning['withdrawn']=True
     # Timeliness applies only to newly suggested entries, not risk alerts
     # or ongoing monitoring of a real position.
     timing = market.get('entryTimingGate')
