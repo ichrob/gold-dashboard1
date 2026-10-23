@@ -91,6 +91,13 @@ internal object PhoneTaskPlanParser {
             // Exact Samsung dictation: "Bob zeige mir die Goldprodukte" was
             // transcribed correctly but rejected by the local whitelist.
             "zeige mir die goldprodukte", "zeig mir die goldprodukte",
+            // Samsung real-device dictation omitted "die":
+            // "Bob zeige mir goldprodukte". Keep exact safe page aliases;
+            // do not turn product actions into fuzzy or partial commands.
+            "zeige mir goldprodukte", "zeig mir goldprodukte",
+            "zeige mir gold-produkte", "zeig mir gold-produkte",
+            "zeige mir goldhebelprodukte", "zeig mir goldhebelprodukte",
+            "zeige mir gold hebelprodukte", "zeige mir gold hebel produkte",
             "zeige mir die gold-produkte", "zeige mir die gold hebelprodukte",
             "zeige die gold-hebelprodukte",
             "öffne die goldprodukte", "öffne goldprodukte", "zeige mir die goldhebelprodukte",
