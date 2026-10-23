@@ -99,7 +99,7 @@ assert.equal(joinedMini?.listRow?.ko,3684.6673);
 assert.equal(joinedMini?.listRow?.strike,3612.4189);
 assert.equal(b.segmentedDegiroListReadings([isolatedMiniHead],[isolatedMiniFooter,isolatedMiniFooter]).length,0);
 assert.equal(b.segmentedDegiroListReadings([isolatedMiniHead,isolatedMiniHead],[isolatedMiniFooter]).length,0);
-assert.equal(b.segmentedDegiroListReadings([isolatedMiniHead,isolatedMiniHead],[isolatedMiniFooter,'BNP OTC CHF K V']).length,2);
+assert.equal(b.segmentedDegiroListReadings([isolatedMiniHead,isolatedMiniHead],[isolatedMiniFooter,'BNP OTC CHF K V']).length,0,'mismatched currency rejected before consensus');
 assert.equal(b.agreedDegiroListRow(b.segmentedDegiroListReadings(
  [isolatedMiniHead,isolatedMiniHead],[isolatedMiniFooter,'BNP OTC CHF K V'])),null);
 assert.equal(b.agreedDegiroListRow(b.segmentedDegiroListReadings(
