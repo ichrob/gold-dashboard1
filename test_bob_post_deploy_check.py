@@ -2,7 +2,9 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from tools.bob_post_deploy_check import classify
+from unittest.mock import patch
+
+from tools.bob_post_deploy_check import classify, read_ci_evidence
 
 SHA = "a" * 40
 OLD = "b" * 40
@@ -46,6 +48,24 @@ class DeployClassificationTests(unittest.TestCase):
         a, b = self.healthy()
         self.assertEqual(classify(SHA, run(status="in_progress", conclusion=None), a, b, NOW)["state"], "pending")
         self.assertEqual(classify(SHA, run(status="in_progress", conclusion=None, elapsed=3600), a, b, NOW)["state"], "failed")
+
+    def test_ci_evidence_request_is_bounded_below_response_cap(self):
+        calls = []
+        responses = [
+            {"object": {"sha": SHA}},
+            {"workflow_runs": run()},
+        ]
+
+        def fake_github_json(path):
+            calls.append(path)
+            return responses.pop(0)
+
+        with patch("tools.bob_post_deploy_check.github_json", side_effect=fake_github_json):
+            self.assertEqual(read_ci_evidence(), (SHA, run()))
+        self.assertEqual(calls, [
+            "/git/ref/heads/main",
+            "/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=5",
+        ])
 
     def test_no_push_trigger_or_broker_access_in_separate_workflow(self):
         yml=(Path(__file__).resolve().parent/".github/workflows/bob-post-deploy-verification.yml").read_text()

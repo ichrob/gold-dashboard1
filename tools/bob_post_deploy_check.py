@@ -15,6 +15,7 @@ from tools.bob_release_verify import HEALTH_URLS, SHA, read_health, verify
 REPO = "ichrob/gold-dashboard1"
 API = "https://api.github.com/repos/" + REPO
 GRACE_SECONDS = 30 * 60
+CI_RUNS_PER_PAGE = 5
 
 
 def utc_time(value):
@@ -73,13 +74,25 @@ def github_json(path):
         return json.loads(raw)
 
 
+def read_ci_evidence():
+    """Read only the few newest push runs needed for the current main SHA.
+
+    A full 30-run Actions payload exceeds the deliberately small response cap.
+    The endpoint is already restricted to main push runs, so five newest runs
+    cover the current head and a small amount of deploy/CI overlap.
+    """
+    main_sha = github_json("/git/ref/heads/main")["object"]["sha"]
+    ci_runs = github_json(
+        "/actions/workflows/ci.yml/runs?branch=main&event=push&per_page="
+        + str(CI_RUNS_PER_PAGE)
+    )["workflow_runs"]
+    return main_sha, ci_runs
+
+
 def run():
     checked = datetime.now(timezone.utc)
     try:
-        main_sha = github_json("/git/ref/heads/main")["object"]["sha"]
-        ci_runs = github_json(
-            "/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=30"
-        )["workflow_runs"]
+        main_sha, ci_runs = read_ci_evidence()
     except Exception as exc:
         result = {"state": "failed", "reason": "github-read-unavailable",
                   "errorType": type(exc).__name__}
