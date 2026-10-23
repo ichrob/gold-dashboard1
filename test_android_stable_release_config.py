@@ -35,6 +35,7 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn("github.event.workflow_run.event == 'push'", workflow)
         self.assertIn("github.event.workflow_run.head_branch == 'main'", workflow)
         self.assertIn("github.event.workflow_run.conclusion == 'success'", workflow)
+        self.assertIn("github.event.workflow_run.head_sha == github.sha", workflow)
         self.assertIn('jq -r \'.workflow_run.head_sha\'', workflow)
         self.assertIn('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', workflow)
         self.assertIn('git merge-base --is-ancestor "$last_tag" HEAD', workflow)
