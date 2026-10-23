@@ -4341,18 +4341,29 @@ function agreedDegiroListRow(readings){
 // never borrows issuer terms or a price/identifier from another image.
 function segmentedDegiroListReadings(headReads,footerReads){
  if(!Array.isArray(headReads)||!Array.isArray(footerReads)||headReads.length!==2||footerReads.length!==2)return [];
- const fullVenue=/(?:Soci[eé]t[eé]\s+G[eé]n[eé]rale|BNP(?:\s+Paribas)?)\s+OTC\s+(?:EUR|CHF)\b/i;
+ const fullVenue=/(?:Soci[eé]t[eé]\s+G[eé]n[eé]rale|BNP(?:\s+Paribas)?)\s+OTC\s+(EUR|CHF)\b/gi;
  const candidate=[];
  for(let i=0;i<2;i++){
   const head=String(headReads[i]||''),foot=String(footerReads[i]||'');
-  const block=degiroListBlocks(head);
-  if(block.length!==1||!/\bDE[0OQ]{3,4}[A-Z0-9]{7}\b/i.test(head)
-   ||!fullVenue.test(foot)
-   ||/\bDE[0OQ]{3,4}[A-Z0-9]{7}\b|\b(?:SG|BNP)\s+GOLD\b/i.test(foot))return [];
-  const full=head.trim()+'\n'+foot.trim();
-  // A two-pass title/footer composite is a candidate, not an OCR truth;
-  // the existing strict per-field and ISIN agreement gate applies to both.
-  if(!parseDegiroListRow(full))return [];
+  const blocks=degiroListBlocks(head);
+  const ids=[...head.matchAll(/\bDE[0OQ]{3,4}[A-Z0-9]{7}\b/gi)];
+  const footerVenues=[...foot.matchAll(fullVenue)];
+  if(blocks.length!==1||ids.length!==1||footerVenues.length!==1
+    ||/\bDE[0OQ]{3,4}[A-Z0-9]{7}\b|\b(?:SG|BNP)\s+GOLD\b/i.test(foot))return [];
+  const lastIdentityEnd=ids[0].index+ids[0][0].length;
+  // In a narrow DEGIRO row the 68% header crop overlaps the 52% footer crop.
+  // Do NOT concatenate the repeated footer: extract the text up to the ISIN,
+  // then use the separately read footer. Reject a disagreeing header venue.
+  const headerTail=head.slice(lastIdentityEnd);
+  const headerVenues=[...headerTail.matchAll(fullVenue)];
+  if(headerVenues.length>1)return [];
+  const readVenue=footerVenues[0][0].replace(/\s+/g,' ').trim().toUpperCase();
+  if(headerVenues.length&&headerVenues[0][0].replace(/\s+/g,' ').trim().toUpperCase()!==readVenue)return [];
+  if(/\b(?:FACTOR|FAKTOR)\b/i.test(head+' '+foot))return [];
+  const full=head.slice(0,lastIdentityEnd).trim()+'\n'+footerVenues[0][0];
+  // Preserve the same two-pass per-field consensus and original source image.
+  // Never use a second image or a guessed venue to fill a missing value.
+  if(!parseDegiroListRow(full)?.listRow.complete)return [];
   candidate.push(full);
  }
  return candidate;
