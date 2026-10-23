@@ -80,9 +80,25 @@ def recent_paper_outcomes(accounts):
     groups=[a.get('recentCases') or {} for a in accounts if isinstance(a,dict)]
     stored=[c for group in groups if group.get('status') == 'observed'
             for c in group.get('items',[]) if isinstance(c,dict)]
+    unresolved=[c for c in stored if c.get('status')=='inconclusive']
+    def event_present(case, kinds):
+        return any(isinstance(e,dict) and e.get('kind') in kinds
+                   for e in case.get('events',[])[:20]) if isinstance(case.get('events'),list) else False
+    # Causes may overlap, and absent event proof does not imply a normal fill.
+    reasons={
+        'recordedGoldDataGap':sum(event_present(c,{'data-gap'}) for c in unresolved),
+        'recordedKoOrProductEnd':sum(event_present(c,{'knockout-confirmed',
+            'product-terminated','ko-barrier-crossed-observed'}) for c in unresolved),
+        'deferredModelSale':sum(event_present(c,{'deferred-sale'}) for c in unresolved),
+        'unclassified':sum(not event_present(c,{'data-gap','knockout-confirmed',
+            'product-terminated','ko-barrier-crossed-observed','deferred-sale'})
+            for c in unresolved)
+    }
     return {
         'state':'partial' if any(g.get('status') != 'observed' for g in groups) else 'observed',
         'scope':'last-five-cases-per-paper-account-only-not-full-performance',
+        'inconclusiveRecordedCauses':reasons,
+        'causeScope':'overlap-possible-recorded-events-only-not-ground-truth',
         'observedCases':len(stored),
         'closed':sum(c.get('status') == 'closed' for c in stored),
         'open':sum(c.get('status') == 'open' for c in stored),
