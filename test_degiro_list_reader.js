@@ -61,6 +61,28 @@ for(const txt of secondImageRows){
  assert(p?.listRow.complete, 'second DEGIRO screenshot row must parse: '+txt);
  assert(b.validIsin(p.isin));
 }
+// Reproduce the OCR defect from the actual second row (one targeted
+// 2x crop, PSM 6): "DEOOOPU8APE4" is not a valid ISIN, while the pixels
+// show DE000PJ8APE4. Scope J/U repair to exactly that verified screenshot.
+const observedMiniOcr='BNP GOLD Mini Long SL 3684.6673 STR 3612.4189 R\\n10 | DEOOOPU8APE4\\nBNP OTC EUR CK )(v)'.replaceAll('\\n','\n');
+const correctedMini=b.parseDegiroListRow(observedMiniOcr);
+assert.equal(correctedMini?.isin,'DE000PJ8APE4');
+assert.equal(correctedMini?.originalIsin,'DEOOOPU8APE4');
+assert(correctedMini?.identityCorrection?.includes('J/U'));
+assert(correctedMini?.listRow.complete);
+assert.equal(correctedMini?.listRow.ko,3684.6673);
+assert.equal(correctedMini?.listRow.strike,3612.4189);
+assert.equal(correctedMini?.listRow.ratio,0.1);
+assert.equal(b.agreedDegiroListRow([observedMiniOcr,observedMiniOcr]).isin,'DE000PJ8APE4');
+for(const conflicting of [
+ observedMiniOcr.replace('3684.6673','3684.6674'),
+ observedMiniOcr.replace('3612.4189','3612.4190'),
+ observedMiniOcr.replace('BNP OTC EUR','BNP OTC CHF'),
+ observedMiniOcr.replace('Mini Long','Mini Short'),
+ observedMiniOcr.replace('R\\n10','R\\n20'),
+ observedMiniOcr.replace('BNP GOLD','SG GOLD')
+])assert.notEqual(b.parseDegiroListRow(conflicting)?.isin,'DE000PJ8APE4','Never correct an identity with mismatched original context');
+assert.equal(b.agreedDegiroListRow([observedMiniOcr,observedMiniOcr.replace('DEOOOPU8APE4','DE000FG8NHQ3')]),null,'different valid product identifiers cannot be combined');
 const bottomOverlap='SG Gold Knock-Out Warrant Open End Put BAR 4521.97 BP 4521.97 Bv 10 | DE000FG34XV8';
 assert.equal(b.clippedDegiroListReference([bottomOverlap,bottomOverlap]).isin,'DE000FG34XV8');
 assert.equal(b.parseDegiroListRow(row().replace('Call','Put')).direction,'SHORT');
