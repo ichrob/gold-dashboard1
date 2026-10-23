@@ -255,6 +255,43 @@ class BackgroundDelivery(PushMonitorTests):
             self.assertTrue(message['data']['test'])
             self.assertTrue(message['title'].startswith('TEST'))
 
+    def test_second_early_push_cannot_replace_existing_pending_test(self):
+        now=int(push_server.time.time()*1000)
+        db,conn=self.connection()
+        conn.execute.return_value.fetchone.return_value=(
+            True,False,{'kind':'general','scenario':'early-long','dueAt':now+30000})
+        with patch.object(push_server,'db',db),patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'),patch.object(push_server,'webpush') as send:
+            status, result=self.request('/test-background',{'endpoint':'fixture','scenario':'early-short'})
+            self.assertEqual(status,409)
+            self.assertTrue(result['retryable'])
+            self.assertFalse(any('SET pending_test=' in call.args[0] for call in conn.execute.call_args_list))
+            conn.commit.assert_not_called()
+            send.assert_not_called()
+
+    def test_expired_early_push_may_be_replaced_explicitly(self):
+        now=int(push_server.time.time()*1000)
+        db,conn=self.connection()
+        conn.execute.return_value.fetchone.return_value=(
+            True,False,{'kind':'general','scenario':'early-long','dueAt':now-180000})
+        with patch.object(push_server,'db',db),patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'):
+            status, result=self.request('/test-background',{'endpoint':'fixture','scenario':'early-short'})
+            self.assertEqual(status,200)
+            self.assertGreater(result['dueAt'],now)
+            saved=[call for call in conn.execute.call_args_list if 'SET pending_test=' in call.args[0]]
+            self.assertEqual(len(saved),1)
+            self.assertEqual(json.loads(saved[0].args[1][0])['scenario'],'early-short')
+
+    def test_failed_early_push_is_not_marked_delivered_or_consumed(self):
+        now=int(push_server.time.time()*1000)
+        pending={'kind':'general','scenario':'early-long','dueAt':now-1}
+        db,conn=self.connection()
+        conn.execute.return_value.fetchall.return_value=[(1,{},pending,True,False)]
+        with patch.object(push_server,'db',db),patch.object(push_server,'vapid',return_value='fixture'),patch.object(
+                push_server,'webpush',side_effect=push_server.WebPushException('fixture')):
+            push_server.deliver_background_tests()
+        self.assertFalse(any('UPDATE subscriptions SET pending_test=' in c.args[0]
+                             or 'pending_test=NULL' in c.args[0] for c in conn.execute.call_args_list))
+
     def test_early_warning_templates_are_synthetic_only(self):
         for side in ('LONG','SHORT'):
             with self.subTest(side=side):
