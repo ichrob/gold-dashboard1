@@ -2632,7 +2632,7 @@ async function testBackgroundPush(scenario='delivery'){
   const savedAt=new Date(result.dueAt).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'});
   if(status)status.textContent=early?('✅ TEST · '+(scenario==='early-long'?'LONG':'SHORT')+'-Frühwarnung gespeichert. Geplanter Auslöser ab '+savedAt+' Uhr (Server), Zustellung danach. Bob schließen und Handy sperren. Dies bestätigt nur den Auftrag, noch nicht den Empfang.'):
    scenario==='stop-target'?'Stop-/Ziel-Test gespeichert. Bob verlassen und Handy sperren. Zwei TEST-Meldungen: Ziel nach etwa 30–45 Sekunden, Stop weitere 30–45 Sekunden später. Künstliche Kurse; kein echter Trade.':'Test gespeichert. Bob jetzt schließen und Bildschirm sperren. Die TEST-Nachricht wird nach etwa 30–45 Sekunden vom Server ausgelöst.';
- }catch(e){if(status)status.textContent='⚠️ Kein Frühwarn-Test gespeichert: '+(e?.message||'Verbindung nicht bestätigt.');}
+ }catch(e){if(status)status.textContent=(early?'⚠️ Kein Frühwarn-Test gespeichert: ':'⚠️ Push-Test nicht gespeichert: ')+(e?.message||'Verbindung nicht bestätigt.');}
  finally{
   if(early){
    bobEarlyWarningTestBusy=false;
