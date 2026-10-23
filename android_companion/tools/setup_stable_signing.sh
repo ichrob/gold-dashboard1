@@ -58,7 +58,9 @@ if ! [[ "$fingerprint" =~ ^[0-9a-fA-F]{64}$ ]]; then
   echo "Could not verify the certificate fingerprint; key remains local." >&2
   exit 1
 fi
-existing_pin="$(gh variable get BOB_ANDROID_CERT_SHA256 -R "$repo" 2>/dev/null || true)"
+# A failed variable lookup must abort rather than silently overwrite a pin.
+existing_pin="$(gh variable list -R "$repo" --json name,value \
+  --jq '.[] | select(.name == "BOB_ANDROID_CERT_SHA256") | .value')"
 if [ -n "$existing_pin" ]; then
   normalized_pin="$(printf '%s' "$existing_pin" | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
   normalized_cert="$(printf '%s' "$fingerprint" | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
