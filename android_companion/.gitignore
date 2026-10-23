@@ -1,0 +1,8 @@
+# Private Android signing material is NEVER source code.
+**/*.jks
+**/*.keystore
+**/*.p12
+**/*.pk8
+**/*.pem
+**/bob-signing/
+**/release-keys/
