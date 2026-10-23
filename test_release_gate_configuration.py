@@ -25,6 +25,15 @@ class ReleaseGateConfigurationTests(unittest.TestCase):
         self.assertIn('if [ "$VALIDATE_RESULT" != "success" ]; then',workflow)
         self.assertNotIn('\\${{',workflow)
 
+    def test_deployed_degiros_js_check_cannot_block_render(self):
+        workflow=(BASE/'.github/workflows/bob-degiro-deployed-js.yml').read_text()
+        self.assertIn('workflow_dispatch:',workflow)
+        self.assertIn('schedule:',workflow)
+        self.assertNotIn('  push:',workflow)
+        self.assertNotIn('  workflow_run:',workflow)
+        self.assertIn('sha256sum degiro_assistant.js',workflow)
+        self.assertIn('sha256sum /tmp/deployed-degiro.js',workflow)
+
     def test_quote_sources_and_trading_stay_separate(self):
         shared=(BASE/'product_evidence_contract.js').read_text()
         scanner=(BASE/'degiro_all_products.js').read_text()
