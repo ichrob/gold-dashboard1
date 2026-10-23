@@ -452,7 +452,12 @@ def deliver_background_tests():
                     message=early_warning_test_message('LONG' if scenario=='early-long' else 'SHORT',now)
                 try:
                     webpush(subscription_info=sub,data=json.dumps(message),vapid_private_key=vapid(),vapid_claims={'sub':VAPID_SUBJECT},ttl=180)
-                except WebPushException:
+                    # A provider acceptance is never a proof of on-device display.
+                    print('BOB_PUSH_TEST outcome=provider-accepted scenario='+scenario,flush=True)
+                except WebPushException as exc:
+                    code=getattr(getattr(exc,'response',None),'status_code',None)
+                    print('BOB_PUSH_TEST outcome=provider-rejected scenario='+scenario+
+                          ' status='+str(code if type(code) is int else 'unknown'),flush=True)
                     continue
             if allowed and now < pending['dueAt']+300000 and pending.get('scenario')=='stop-target' and pending.get('stage',0)==0:
                 pending.update(stage=1,dueAt=now+30000)
@@ -1239,16 +1244,25 @@ class Handler(BaseHTTPRequestHandler):
                 if scenario not in ('delivery','stop-target','early-long','early-short'):
                     raise ValueError('Unbekannter Push-Test')
                 with db() as conn:
-                    row=conn.execute('SELECT general_enabled, trade_enabled FROM subscriptions WHERE endpoint=%s FOR UPDATE',(endpoint,)).fetchone()
+                    row=conn.execute('SELECT general_enabled, trade_enabled, pending_test FROM subscriptions WHERE endpoint=%s FOR UPDATE',(endpoint,)).fetchone()
                     if not row or not any(row):
                         raise ValueError('Zuerst Gerät anmelden und mindestens einen Push-Schalter aktivieren')
                     if scenario in ('early-long','early-short') and row[0] is not True:
                         raise ValueError('Marktbeobachtung muss für Frühwarn-Tests aktiv sein')
-                    pending={'kind':'general' if row[0] else 'trade','dueAt':int(time.time()*1000)+30000}
+                    now_ms=int(time.time()*1000)
+                    existing=row[2] if len(row)>2 else None
+                    if (isinstance(existing,dict) and type(existing.get('dueAt')) in (int,float)
+                            and now_ms < existing['dueAt']+90000):
+                        # One pending test per subscriber. Never silently replace
+                        # LONG with SHORT or cancel an earlier stop/target test.
+                        send_json(self,409,{'error':'Test bereits vorgemerkt','retryable':True})
+                        return
+                    pending={'kind':'general' if row[0] else 'trade','dueAt':now_ms+30000}
                     if scenario=='stop-target':pending.update(scenario='stop-target',stage=0)
                     elif scenario in ('early-long','early-short'):pending['scenario']=scenario
                     conn.execute('UPDATE subscriptions SET pending_test=%s::jsonb WHERE endpoint=%s',(json.dumps(pending),endpoint))
                     conn.commit()
+                print('BOB_PUSH_TEST outcome=scheduled scenario='+scenario,flush=True)
                 send_json(self,200,{'ok':True,'dueAt':pending['dueAt']})
                 return
 

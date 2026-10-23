@@ -490,7 +490,7 @@ try{
 <div class="small" style="margin-top:8px">Kein Login nötig. Auf Android die ntfy-App installieren und denselben Topic abonnieren. Der Topic-Name ist eine öffentliche Kanaladresse, kein echtes Passwort. Für sensible Inhalte sollte ein geschützter Push-Dienst verwendet werden.</div>
 <div class="warning" style="margin-top:10px"><b>Push-Regel:</b> „Marktsignale“ aktiviert auch Produktpushs: nur nach erneuter Pflichtprüfung, bei neuer Auswahl oder Rücknahme. Nicht freigegebene Kandidaten lösen keinen Empfehlungspush aus. Produktpushs benötigen ein registriertes Gerät; sie werden nicht über ntfy gesendet. Nach erfolgreicher Synchronisierung prüft der Server gespeicherte Auswahlen auch bei geschlossener Bob-App erneut. Ohne frische Bestätigung läuft die Freigabe ab. „Aktiver Trade“ meldet Stop-Loss, Ziel, Gewinnschutz, Richtungswechsel und bestätigte Fibonacci-Brüche – nur bei einem tatsächlich aktiven Trade. Dafür müssen die Server laufen; kostenlose Dienste können pausieren.</div>
 <div id="productPushStatus" class="small">Produktpush: nur bei aktiven Marktsignalen.</div>
-<div id="fibMonitorStatus" class="small" style="margin-top:8px">Fibonacci-Überwachung: kein aktiver Trade.</div><button type="button" onclick="testBackgroundPush()">Hintergrund-Push testen (30 Sekunden)</button><button type="button" onclick="testBackgroundPush('stop-target')">Stop-/Ziel-Push testen (künstliche Kurse)</button><div class="row" id="bobEarlyWarningPushTests" style="margin-top:10px"><button type="button" onclick="testBackgroundPush('early-long')">🧪 LONG-Frühwarnung testen</button><button type="button" onclick="testBackgroundPush('early-short')">🧪 SHORT-Frühwarnung testen</button></div><p class="small">Nur künstliche TEST-Nachrichten für die Push-Zustellung. Sie erzeugen keine echte Markt-Frühwarnung, kein Handelssignal, keine Produktauswahl und keine Order. Bitte die Tests nacheinander auslösen und jeweils den Empfang abwarten.</p><div id="pushStatus" class="small" style="margin-top:8px">Noch nicht registriert.</div>
+<div id="fibMonitorStatus" class="small" style="margin-top:8px">Fibonacci-Überwachung: kein aktiver Trade.</div><button type="button" onclick="testBackgroundPush()">Hintergrund-Push testen (30 Sekunden)</button><button type="button" onclick="testBackgroundPush('stop-target')">Stop-/Ziel-Push testen (künstliche Kurse)</button><div class="row" id="bobEarlyWarningPushTests" style="margin-top:10px"><button type="button" onclick="testBackgroundPush('early-long')">🧪 LONG-Frühwarnung testen</button><button type="button" onclick="testBackgroundPush('early-short')">🧪 SHORT-Frühwarnung testen</button></div><p id="bobEarlyWarningTestStatus" class="small" role="status" aria-live="polite" style="margin-top:8px">Kein Frühwarn-Test angefordert. Erst nach der Meldung „Test gespeichert“ Bob schließen und das Handy sperren.</p><p class="small">Nur künstliche TEST-Nachrichten für die Push-Zustellung. Sie erzeugen keine echte Markt-Frühwarnung, kein Handelssignal, keine Produktauswahl und keine Order. Bitte die Tests nacheinander auslösen und jeweils den Empfang abwarten.</p><div id="pushStatus" class="small" style="margin-top:8px">Noch nicht registriert.</div>
 </div>
 
 <div class="card">
@@ -2601,21 +2601,44 @@ async function syncPushPreferencesImpl(){
    return r.ok;
  }catch(e){const message=e?.message||"Push-Verbindung unterbrochen.";if(status)status.textContent="Hintergrund-Einstellungen nicht gespeichert. "+message;if($("pushStatus"))$("pushStatus").textContent="⚠️ Registrierung gespeichert, aktuelle Server-Verbindung nicht bestätigt.";return false;}
 }
+let bobEarlyWarningTestBusy=false;
 async function testBackgroundPush(scenario='delivery'){
- const status=$('fibMonitorStatus');
+ const early=scenario==='early-long'||scenario==='early-short';
+ const status=early?$('bobEarlyWarningTestStatus'):$('fibMonitorStatus');
+ const row=early?$('bobEarlyWarningPushTests'):null;
+ if(early&&bobEarlyWarningTestBusy){
+  if(status)status.textContent='Ein Frühwarn-Test wird bereits gespeichert. Nicht beide gleichzeitig drücken.';
+  return;
+ }
+ if(early){
+  bobEarlyWarningTestBusy=true;
+  for(const button of row?.querySelectorAll('button')||[])button.disabled=true;
+  if(status)status.textContent='⏳ Frühwarn-Test wird am Server gespeichert. Noch ist kein Versand bestätigt.';
+ }
  try{
-  const early=scenario==='early-long'||scenario==='early-short';
   if(!['delivery','stop-target','early-long','early-short'].includes(scenario))throw Error('Unbekannter Push-Test.');
   if(early&&!pushState.general)throw Error('Für Frühwarn-Tests zuerst Marktbeobachtung aktivieren.');
   if(!pushState.general&&!pushState.trade)throw Error("Für den Test zuerst Marktsignale oder Aktiver Trade einschalten.");
-  if(!await syncPushPreferences())return;
+  if(!await syncPushPreferences())throw Error('Push-Einstellungen nicht am Server bestätigt: '+($('fibMonitorStatus')?.textContent||'Bitte „Push aktualisieren“ und erneut testen.'));
   const reg=await navigator.serviceWorker.ready,sub=await reg.pushManager.getSubscription();
   if(!sub)throw Error('Zuerst Gerät für Push registrieren.');
   const r=await fetch('/api/push/test-background',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({endpoint:sub.endpoint,scenario})});
-  if(!r.ok)throw Error('Test nicht gespeichert. '+pushRequestError(r.status));
-  status.textContent=early?('TEST · '+(scenario==='early-long'?'LONG':'SHORT')+'-Frühwarnung vorgemerkt. Bob schließen und Bildschirm sperren. Nur künstliche Testdaten; Nachricht nach etwa 30–45 Sekunden. Erst nach Empfang den anderen Test starten. Kein Marktsignal oder Trade.'):
+  if(!r.ok){
+   if(r.status===409)throw Error('Ein anderer TEST-Push ist bereits vorgemerkt. Erst dessen Empfang prüfen, dann erneut testen.');
+   throw Error('Test nicht gespeichert. '+pushRequestError(r.status));
+  }
+  const result=await r.json();
+  if(result?.ok!==true||!Number.isFinite(result.dueAt))throw Error('Testauftrag ohne eindeutige Serverbestätigung. Nicht als gespeichert werten.');
+  const savedAt=new Date(result.dueAt).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'});
+  if(status)status.textContent=early?('✅ TEST · '+(scenario==='early-long'?'LONG':'SHORT')+'-Frühwarnung gespeichert. Geplanter Auslöser ab '+savedAt+' Uhr (Server), Zustellung danach. Bob schließen und Handy sperren. Dies bestätigt nur den Auftrag, noch nicht den Empfang.'):
    scenario==='stop-target'?'Stop-/Ziel-Test gespeichert. Bob verlassen und Handy sperren. Zwei TEST-Meldungen: Ziel nach etwa 30–45 Sekunden, Stop weitere 30–45 Sekunden später. Künstliche Kurse; kein echter Trade.':'Test gespeichert. Bob jetzt schließen und Bildschirm sperren. Die TEST-Nachricht wird nach etwa 30–45 Sekunden vom Server ausgelöst.';
- }catch(e){status.textContent=e.message;}
+ }catch(e){if(status)status.textContent=(early?'⚠️ Kein Frühwarn-Test gespeichert: ':'⚠️ Push-Test nicht gespeichert: ')+(e?.message||'Verbindung nicht bestätigt.');}
+ finally{
+  if(early){
+   bobEarlyWarningTestBusy=false;
+   for(const button of row?.querySelectorAll('button')||[])button.disabled=false;
+  }
+ }
 }
 async function togglePush(kind){
  try{
