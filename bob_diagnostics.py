@@ -1,5 +1,6 @@
 """Bounded read-only operational observations; never invoke repair or trading."""
 from datetime import datetime, timezone
+from pathlib import Path
 import math
 import time
 import re
@@ -74,6 +75,24 @@ def collect(readers):
             'scope':'operational-observations-not-complete-feature-validation', 'areas':areas}
 
 
+def recent_paper_outcomes(accounts):
+    """Only bounded saved paper-case labels, without financial performance claims."""
+    groups=[a.get('recentCases') or {} for a in accounts if isinstance(a,dict)]
+    stored=[c for group in groups if group.get('status') == 'observed'
+            for c in group.get('items',[]) if isinstance(c,dict)]
+    return {
+        'state':'partial' if any(g.get('status') != 'observed' for g in groups) else 'observed',
+        'scope':'last-five-cases-per-paper-account-only-not-full-performance',
+        'observedCases':len(stored),
+        'closed':sum(c.get('status') == 'closed' for c in stored),
+        'open':sum(c.get('status') == 'open' for c in stored),
+        'inconclusive':sum(c.get('status') == 'inconclusive' for c in stored),
+        'accountsUnavailable':sum(g.get('status') != 'observed' for g in groups),
+        'realOrders':False,'missingResultsAreLosses':False,
+        'note':'Unbestätigte Simulationen sind weder realisierte Verluste '
+               'noch automatisch behobene Datenlücken.'}
+
+
 def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
     """Only SELECT statements; fixed tables and explicit private diagnostic projections."""
     accounts = []
@@ -85,6 +104,14 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
     row = conn.execute('SELECT count(*) FROM subscriptions WHERE general_enabled=TRUE OR (trade_enabled=TRUE AND active_trade=TRUE)').fetchone()
     result = {'status':'observed', 'paper':paper_health.snapshot(conn), 'accounts':accounts,
             'push': {'activeMonitors':row[0], 'deliveryStatus':'not-verified',
+                     # Subscription eligibility is not proof of a delivered Android
+                     # notification, and no subscriptions is not a push transport failure.
+                     'monitorState':('none-enabled' if row[0] == 0 else 'subscriptions-observed'),
+                     'deliveryNote':('Keine aktiven Push-Monitore/Subscriptions nach Datenbankfilter; '
+                         'Geräteberechtigung und tatsächliche Zustellung sind nicht geprüft.'
+                         if row[0] == 0 else
+                         'Empfangsberechtigte Subscriptions vorhanden; tatsächlicher '
+                         'Geräteempfang noch nicht nachgewiesen.'),
                      'evaluator':fields(evaluator.status(), ('completed','failed','queueTimeouts','shared','busy','waiting','inFlight','lastDurationMs','lastWaitMs'))}}
     if extended:
         for account in accounts:
@@ -95,6 +122,9 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
                 account['recentCases'] = {'status':'observed','items':[project(row[0], CASE) for row in cases]}
             except Exception:
                 account['recentCases'] = {'status':'unavailable'}
+        # Evidence-only recent-case tally. Never turn unknown/deferred results
+        # into closed profits, losses, filled orders or proven source recovery.
+        result['recentPaperOutcomes'] = recent_paper_outcomes(accounts)
         # Indexed, SELECT-only probe of nearby *original Gold-API* timestamps.
         # A proximity match is not sufficient evidence to settle any paper trade.
         try:
@@ -362,7 +392,10 @@ def new_feature_snapshot(areas, *, mobile_asset_loaded=False):
             'runtime': 'not-observable',
             'voiceCommands': 'not-observable',
             'screenshotSeries': 'not-observable',
-            'note': 'Phone-local actions are not transmitted to this server diagnostic.'
+            'remotePairing': 'not-implemented',
+            'deviceConsentRequired': True,
+            'note': 'Phone-local actions are not transmitted to this server diagnostic. '
+                    'No authenticated remote Android pairing exists.'
         },
         'unifiedMobileWorkspace': {
             'serverAsset': 'loaded' if mobile_asset_loaded else 'unavailable',
@@ -381,7 +414,12 @@ def new_feature_snapshot(areas, *, mobile_asset_loaded=False):
             'connectionCode': fields(snaptrade, ('code',)).get('code'),
             'dataFresh': snaptrade.get('fresh') is True,
             'tradingEnabled': False,
-            'note': 'Read-only connection status, not a DEGIRO order or live quote.'
+            'liveBrokerQuotes': False,
+            'sourceRole':'depot-history-and-issuer-observations-only',
+            'directDegiroSync': fields(areas.get('degiroSync'), ('code','status','running')),
+            'note': 'SnapTrade holdings and separate issuer observations are not '
+                    'DEGIRO executable live quotes. Direct DEGIRO read sync is separate '
+                    'and never starts merely because SnapTrade responds.'
         }
     }
 
@@ -517,9 +555,22 @@ def read_access_coverage(manifest):
                        row.get('verified') is not False for row in rows)):
             raise ValueError('coverage manifest invalid')
         counts = {k:sum(row['state']==k for row in rows) for k in sorted(allowed)}
+        # Check only code-owned, strictly relative named paths. Mere file
+        # existence is not functional, integration or live verification.
+        paths = [row.get('codeEvidence') for row in rows]
+        if any(not isinstance(p, str) or not p or not re.fullmatch(r'[A-Za-z0-9_./-]+', p)
+               or p.startswith('/') or any(s in ('', '.', '..') for s in p.split('/'))
+               for p in paths):
+            raise ValueError('coverage manifest invalid code path')
+        root = Path(__file__).resolve().parent
+        unique_paths = sorted(set(paths))
+        present = sum((root / p).is_file() for p in unique_paths)
         return {'status':'inventory-only','total':100,'verified':0,
                 'unverified':100,'counts':counts,'recordedAt':manifest.get('asOf'),
-                'note':'Repository worklist only. No feature is complete or live-proven by inclusion.'}
+                'codeFilesMapped':len(unique_paths),'codeFilesPresent':present,
+                'codeFilesMissing':len(unique_paths)-present,
+                'codeFileScope':'existence-only-not-test-or-live-proof',
+                'note':'Repository worklist only. File presence is not a functional test. No feature is live-proven by inclusion.'}
     except (KeyError, TypeError, ValueError, AttributeError):
         return {'status':'unavailable',
                 'reason':'read-access-manifest-missing-or-inconsistent'}

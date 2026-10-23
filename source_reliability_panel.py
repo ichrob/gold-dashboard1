@@ -2,7 +2,7 @@
 PANEL = r'''<details id="bobSourceReliability" class="card" style="margin:12px 0">
 <summary><strong>Datenquellen &amp; Unterbrechungen</strong></summary>
 <p id="bobSourceReliabilityStatus" role="status">Messstand wird geladen …</p>
-<p class="small">Quellenfehler und Einschränkungen der Analyse werden getrennt gezählt. Zeiten gelten nur für beobachtete Messintervalle. Während Neustarts oder Messlücken bleibt die tatsächliche Verfügbarkeit unbekannt. Außerhalb des Handelszeitfensters pausiert die Ausfallzählung.</p>
+<p class="small">Analyse-Einschränkungen und einzelne Quellenbeobachtungen werden getrennt gezählt. Veraltete Ersatzquellen beweisen keinen Ausfall der aktuell ausgewählten Kerzenquelle. Zeiten gelten nur für beobachtete Messintervalle. Während Neustarts oder Messlücken bleibt die tatsächliche Verfügbarkeit unbekannt. Außerhalb des Handelszeitfensters pausiert die Ausfallzählung.</p>
 <div id="bobSourceReliabilityRows"></div>
 </details>
 <script>
@@ -20,7 +20,7 @@ PANEL = r'''<details id="bobSourceReliability" class="card" style="margin:12px 0
    const bad=x=>['stale','unavailable','incomplete'].includes(x.state);
    const effective=entries.filter(([k])=>k.startsWith('analysis/'));
    status.textContent=(entries.length?'':'Noch keine bestätigten Messungen · ')+effective.filter(([,v])=>bad(v)).length+' Zeitrahmen mit Dateneinschränkung · '+effective.filter(([,v])=>v.state==='unknown').length+' ungeprüft · '+
-    entries.filter(([k,v])=>!k.startsWith('analysis/')&&bad(v)).length+' Quellenprobleme · Archiv: '+
+    entries.filter(([k,v])=>!k.startsWith('analysis/')&&bad(v)).length+' Quellenbeobachtungen mit Einschränkungen (inklusive Ersatzquellen; kein pauschaler Signalausfall) · Archiv: '+
     (data.storage?.state==='ready'?'erreichbar':'noch nicht bestätigt')+' · zuletzt gespeichert: '+fmt(data.storage?.lastSavedAt)+
     ' · wiederhergestellte Kerzenserien: '+(data.storage?.restoredSeries||0);
    const out=document.getElementById('bobSourceReliabilityRows');
