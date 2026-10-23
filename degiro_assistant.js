@@ -4427,7 +4427,9 @@ async function readListBatch(files,recognize,progress=()=>{}){
  const items=[],partialRows=[];
  for(const [index,file] of files.entries()){
   progress(index+1,files.length,file.name);
-  const result=await recognize(file,'dgCentralStatus',false,'',true);
+  let result;
+  try{result=await recognize(file,'dgCentralStatus',false,'',true);}
+  catch(e){throw Error('Bild '+(index+1)+' ('+(file.name||'Listenbild')+'): '+(e?.message||'Texterkennung gescheitert'));}
   const text=result?.data?.text||'';
   partialRows.push(...(result?.data?.partialRows||[]));
   // Parse each image separately: scrolling overlap and a cut last row must
@@ -4741,7 +4743,7 @@ async function inject(){
    const chosen=await retainSelectedImages(upload);
    const prior=listAppendSourceFiles(listUploadMode,stagedListImages,listArchive);
    if(prior===null)throw Error('Kein heutiges erstes Listenbild gefunden. Bitte mit „Neue DEGIRO-Liste hochladen“ beginnen.');
-   files=[...prior.map(x=>x.blob),...chosen];
+   files=[...prior.map(x=>x.blob?.name?x.blob:new File([x.blob],x.name,{type:x.blob?.type||'image/png'})),...chosen];
    if(files.length>12)throw Error('Zu viele Listenbilder. Bitte mit einer neuen Liste beginnen und höchstens zwölf Bilder auswählen.');
    const items=await readListBatch(files,recognizeOcr,(i,total,name)=>{uploadStatus.textContent='📷 Bild '+i+' von '+total+' wird gelesen: '+name;});
    await saveListArchive(files,items);
