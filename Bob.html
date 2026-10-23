@@ -2305,6 +2305,23 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     if(summary)stabilizeGoldDeepLinkScroll(summary);
    }
   });
+  // An already installed Samsung companion can repeat the IDENTICAL URL;
+  // Android may merely foreground Chrome without firing pageshow/hashchange.
+  // In that case reset the voice-entry list position on tab visibility return.
+  // Preserve the separate screenshot-return workflow and normal manual tabs.
+  let goldVoiceTabWasHidden=false;
+  document.addEventListener('visibilitychange',()=>{
+   if(document.hidden){goldVoiceTabWasHidden=true;return;}
+   if(!goldVoiceTabWasHidden)return;
+   goldVoiceTabWasHidden=false;
+   if(!goldDeepLinkRevealed||panels.products.hidden||
+      new URLSearchParams(location.search).get('view')!=='products'||
+      location.hash!=='#products')return;
+   const screenshotReturn=byId('dgScreenshotReturn');
+   if(screenshotReturn&&!screenshotReturn.hidden)return;
+   const summary=revealGoldLeveragedProducts(panels.products);
+   if(summary)stabilizeGoldDeepLinkScroll(summary);
+  });
   for(const b of status.querySelectorAll('button'))b.addEventListener('click',()=>{show('settings');history.replaceState(null,'','#settings');if(b.dataset.status==='push')byId('bobPushSetup')?.scrollIntoView({behavior:'smooth',block:'start'});else{system.open=true;system.scrollIntoView({behavior:'smooth',block:'start'});}});
   byId('bobNextAction')?.addEventListener('click',()=>{
    const destination=byId('bobNextAction').dataset.destination;
