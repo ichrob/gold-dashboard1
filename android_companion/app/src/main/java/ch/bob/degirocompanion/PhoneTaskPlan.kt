@@ -88,7 +88,11 @@ internal object PhoneTaskPlanParser {
 
             "goldprodukte anzeigen", "gold-hebelprodukte anzeigen", "goldhebelprodukte anzeigen",
             "zeige goldprodukte", "zeige meine goldprodukte", "zeige mir meine goldprodukte",
-            "zeig mir die goldprodukte", "zeige die gold-hebelprodukte",
+            // Exact Samsung dictation: "Bob zeige mir die Goldprodukte" was
+            // transcribed correctly but rejected by the local whitelist.
+            "zeige mir die goldprodukte", "zeig mir die goldprodukte",
+            "zeige mir die gold-produkte", "zeige mir die gold hebelprodukte",
+            "zeige die gold-hebelprodukte",
             "öffne die goldprodukte", "öffne goldprodukte", "zeige mir die goldhebelprodukte",
             "meine goldprodukte", "die goldprodukte", "gold hebelprodukte",
             "gold hebel produkte", "gold-hebelprodukte", "goldhebelprodukte",
