@@ -38,6 +38,12 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('if [ "$actual" != "$expected" ]', workflow)
         self.assertIn("ch.bob.degirocompanion.stable", workflow)
         self.assertIn("gh release create", workflow)
+        # gh 'file#label' changes the label, not the downloadable asset name.
+        self.assertIn('staged="$RUNNER_TEMP/Bob-Handy.apk"', workflow)
+        self.assertIn('cp -- "$apk" "$staged"', workflow)
+        self.assertIn('cmp -- "$apk" "$staged"', workflow)
+        self.assertIn('gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets', workflow)
+        self.assertNotIn('app-release.apk#Bob-Handy.apk', workflow)
         self.assertIn("rm -f", workflow)
         self.assertNotIn("pull_request:", workflow)
 
