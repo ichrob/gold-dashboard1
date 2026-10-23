@@ -4557,6 +4557,37 @@ async function recognizeReviewedDegiroOriginal(file){
  const digest=Array.from(hashBytes,x=>x.toString(16).padStart(2,'0')).join('');
  return reviewedDegiroListReference(digest,file.size);
 }
+// Failed multi-image imports are retained separately from the active list.
+// Nothing in the pending record is a confirmed product or trading permission.
+async function savePendingDegiroList(files){
+ if(!Array.isArray(files)||!files.length||files.length>12
+   ||files.some(f=>!f||typeof f.arrayBuffer!=='function'||f.size>12000000))return false;
+ const record={storedAt:new Date().toISOString(),
+  files:files.map(file=>({name:file.name,blob:file}))};
+ await archiveTransaction('readwrite',store=>store.put(record,'pending-degiro-list'));
+ return true;
+}
+async function loadPendingDegiroList(now=Date.now()){
+ const record=await archiveTransaction('readonly',store=>store.get('pending-degiro-list'));
+ if(!record||!Number.isFinite(Date.parse(record.storedAt))
+   ||zurichListDay(Date.parse(record.storedAt)).day!==zurichListDay(now).day
+   ||!Array.isArray(record.files)||!record.files.length||record.files.length>12)return null;
+ if(record.files.some(x=>!x?.blob||!x.name||typeof x.blob.arrayBuffer!=='function'))return null;
+ return record.files.map(x=>x.blob);
+}
+async function clearPendingDegiroList(){
+ return archiveTransaction('readwrite',store=>store.delete('pending-degiro-list'));
+}
+async function degiroFileDiagnostic(file){
+ if(!file||typeof file.arrayBuffer!=='function')return 'Bildbytes unbekannt';
+ const size=Number(file.size)||0;
+ if(typeof crypto==='undefined'||!crypto.subtle)return size+' Bytes · SHA-256 im Browser nicht verfügbar';
+ try{
+  const b=await file.arrayBuffer(),hash=new Uint8Array(await crypto.subtle.digest('SHA-256',b));
+  const hex=Array.from(hash,x=>x.toString(16).padStart(2,'0')).join('');
+  return size+' Bytes · SHA-256 '+hex.slice(0,16)+'… (abweichende Bilddatei oder nicht veröffentlichte Erkennung)';
+ }catch(_){return size+' Bytes · Bildfingerabdruck fehlgeschlagen';}
+}
 async function readListBatch(files,recognize,progress=()=>{}){
  if(!files.length)throw new Error('Keine Bilder ausgewählt.');
  const items=[],partialRows=[];
@@ -4564,7 +4595,10 @@ async function readListBatch(files,recognize,progress=()=>{}){
   progress(index+1,files.length,file.name);
   let result=await recognizeReviewedDegiroOriginal(file);
   if(!result)try{result=await recognize(file,'dgCentralStatus',false,'',true);}
-  catch(e){throw Error('Bild '+(index+1)+' ('+(file.name||'Listenbild')+'): '+(e?.message||'Texterkennung gescheitert'));}
+  catch(e){
+   const detail=await degiroFileDiagnostic(file);
+   throw Error('Bild '+(index+1)+' ('+(file.name||'Listenbild')+'): '+(e?.message||'Texterkennung gescheitert')+' · '+detail);
+  }
   const text=result?.data?.text||'';
   partialRows.push(...(result?.data?.partialRows||[]));
   // Parse each image separately: scrolling overlap and a cut last row must
@@ -4866,7 +4900,8 @@ async function inject(){
   }
  }).catch(()=>{});
  const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgListUploadButton'),addButton=b.querySelector('#dgListAddButton'),uploadStatus=b.querySelector('#dgCentralStatus');
- let listUploadMode='replace',stagedListImages=[];
+ let listUploadMode='replace',stagedListImages=[],pendingRetryBusy=false;
+ uploadStatus.dataset.listReaderVersion='20261023-persist-sha-retry-v1';
  uploadButton.addEventListener('click',()=>{listUploadMode='replace';stagedListImages=[];upload.click();});
  addButton.addEventListener('click',()=>{listUploadMode='append';upload.click();});
  upload.addEventListener('change',async()=>{
@@ -4883,6 +4918,7 @@ async function inject(){
    const items=await readListBatch(files,recognizeOcr,(i,total,name)=>{uploadStatus.textContent='📷 Bild '+i+' von '+total+' wird gelesen: '+name;});
    await saveListArchive(files,items);
    stagedListImages=[];
+   await clearPendingDegiroList().catch(()=>{});
    // The old screenshot universe is now replaced. Its manual KO and PDF
    // attestations must not silently apply to the new list, even for a shared ISIN.
    window.BobCombined.resetFixedList();
@@ -4907,13 +4943,56 @@ async function inject(){
    const incomplete=/Abgeschnittene Produktzeile|Produktzeile [0-9]+|Listenaufbau nicht erkannt|Keine vollständige DEGIRO-Produktzeile/.test(message);
    if(incomplete&&files.length&&files.length<12){
     stagedListImages=files;
-    uploadStatus.textContent='⚠️ '+message+' '+files.length+' Bild(er) vorgemerkt. Bitte auf „Weiteres Listenbild hinzufügen“ tippen. Die bisherige Produktliste bleibt erhalten.';
+    const persisted=await savePendingDegiroList(files).catch(()=>false);
+    uploadStatus.textContent='⚠️ '+message+' '+files.length+' Bild(er) vorgemerkt. '
+      +(persisted?'Originalbilder für erneute automatische Prüfung gespeichert.':'Bilder nur bis zum Neuladen vorgemerkt.')
+      +' Die bisherige Produktliste bleibt erhalten.';
    }else{
     uploadStatus.textContent='⚠️ '+message+' Die bisherige Produktliste bleibt erhalten.';
    }
   }
   finally{upload.value='';upload.disabled=false;uploadButton.disabled=false;addButton.disabled=false;setTimeout(retrySavedList,1000);}
  });
+ // Retry the uncommitted screenshot batch at startup after a new code release.
+ // Only an entirely valid batch may replace the user's active saved list.
+ const retryPendingList=async()=>{
+  if(pendingRetryBusy||upload.disabled||document.hidden)return false;
+  pendingRetryBusy=true;
+  const generation=listRevision;
+  upload.disabled=true;uploadButton.disabled=true;addButton.disabled=true;
+  try{
+   const saved=await loadPendingDegiroList();
+   if(!saved?.length||generation!==listRevision)return false;
+   stagedListImages=saved;
+   uploadStatus.textContent='🔎 '+saved.length+' gespeicherte Listenbilder werden automatisch erneut geprüft …';
+   let items;
+   try{
+    items=await readListBatch(saved,recognizeOcr,(i,total)=>{uploadStatus.textContent='🔎 Gespeicherter Import: Bild '+i+' von '+total;});
+   }catch(e){
+    uploadStatus.textContent='⚠️ Gespeicherte Listenbilder noch nicht vollständig prüfbar: '+e.message+' Die aktive Liste bleibt erhalten.';
+    return false;
+   }
+   if(generation!==listRevision)return false;
+   await saveListArchive(saved,items);
+   await clearPendingDegiroList().catch(()=>{});
+   stagedListImages=[];
+   window.BobCombined.resetFixedList();
+   try{localStorage.removeItem(PDF_REFERENCE_STORE);}catch(_){}
+   populateCandidateRows(items);
+   const synced=await window.BobPaperSimulation?.sync?.(buildPaperListEvidence(),true);
+   rankUI();
+   uploadStatus.textContent='✅ Automatisch wiederhergestellt: '+saved.length+' Listenbilder · '+items.length+' unterschiedliche Produkte. '
+    +(synced?'Hintergrundübernahme bestätigt.':'Hintergrundabgleich noch offen.');
+   refreshImportedProducts(true).then(()=>refreshImportedProducts()).catch(()=>{});
+   return true;
+  }catch(e){
+   uploadStatus.textContent='⚠️ Automatische Wiederherstellung nicht bestätigt: '+(e?.message||'Fehler')+'. Die alte Liste bleibt erhalten.';
+   return false;
+  }finally{
+   pendingRetryBusy=false;upload.disabled=false;uploadButton.disabled=false;addButton.disabled=false;
+  }
+ };
+ setTimeout(()=>retryPendingList().catch(()=>{}),800);
  const retrySavedList=async()=>{
   if(document.hidden||upload.disabled||activeProductImports.size)return;
   try{
@@ -5169,7 +5248,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={reviewedDegiroListReference,recognizeReviewedDegiroOriginal,segmentedDegiroListReadings,listAppendSourceFiles,paperProductsForSync,listVenueForSync,refreshVenueAssessment:()=>rankUI(),sharedVenueStatus,renderVenueHistory,observedDegiroListRow,degiroListBlocks,parseDegiroListRow,agreedDegiroListRow,degiroListRects,clippedDegiroListReference,recognizeDegiroList,serverVenueEvidence,degiroVenueObserved,screenshotSeriesContext,applyLearnedRanking,productHelpState,renderProductHelp,calculatedLeverageEvidence,recoverArchivedList,productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,preserveReadingPosition,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,calculatedProductDisplay,renderPrimaryProductValues,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={savePendingDegiroList,loadPendingDegiroList,clearPendingDegiroList,degiroFileDiagnostic,reviewedDegiroListReference,recognizeReviewedDegiroOriginal,segmentedDegiroListReadings,listAppendSourceFiles,paperProductsForSync,listVenueForSync,refreshVenueAssessment:()=>rankUI(),sharedVenueStatus,renderVenueHistory,observedDegiroListRow,degiroListBlocks,parseDegiroListRow,agreedDegiroListRow,degiroListRects,clippedDegiroListReference,recognizeDegiroList,serverVenueEvidence,degiroVenueObserved,screenshotSeriesContext,applyLearnedRanking,productHelpState,renderProductHelp,calculatedLeverageEvidence,recoverArchivedList,productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,preserveReadingPosition,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,calculatedProductDisplay,renderPrimaryProductValues,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
