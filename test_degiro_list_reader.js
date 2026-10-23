@@ -79,7 +79,7 @@ for(const conflicting of [
  observedMiniOcr.replace('3612.4189','3612.4190'),
  observedMiniOcr.replace('BNP OTC EUR','BNP OTC CHF'),
  observedMiniOcr.replace('Mini Long','Mini Short'),
- observedMiniOcr.replace('R\\n10','R\\n20'),
+ observedMiniOcr.replace(/R\s+10/,'R 20'),
  observedMiniOcr.replace('BNP GOLD','SG GOLD')
 ])assert.notEqual(b.parseDegiroListRow(conflicting)?.isin,'DE000PJ8APE4','Never correct an identity with mismatched original context');
 assert.equal(b.agreedDegiroListRow([observedMiniOcr,observedMiniOcr.replace('DEOOOPU8APE4','DE000FG8NHQ3')]),null,'different valid product identifiers cannot be combined');
