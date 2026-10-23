@@ -3725,8 +3725,12 @@ function seriesIsinRepair(raw,isin,context){
  const token=tokens[0],normalized='DE000'+token.slice(5);
  // An unspaced valid ISIN needs no series repair. Even if it disagrees with
  // the anchor, do not overwrite it. A spaced copy of the anchor can be joined.
- if(validIsin(token)||validIsin(normalized)&&normalized!==isin)return null;
  const split=spaced.find(x=>x.token===token&&x.original!==token);
+ // A checksum-valid, *unspaced* identifier is independent evidence and must
+ // never be rewritten. Its spaced spelling can be normalized only if equal to
+ // the already independently confirmed series anchor.
+ if((validIsin(token)&&(!split||token!==isin))||
+    (validIsin(normalized)&&normalized!==isin))return null;
  if(normalized===isin){
   return split?{text:text.replace(split.original,isin),original:split.original}:null;
  }
