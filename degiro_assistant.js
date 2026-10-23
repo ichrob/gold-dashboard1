@@ -4551,11 +4551,13 @@ function reviewedDegiroListReference(digest,length,day=zurichListDay().day){
 async function recognizeReviewedDegiroOriginal(file){
  if(!file||typeof file.arrayBuffer!=='function'||typeof crypto==='undefined'||!crypto.subtle
     ||![172361,177263].includes(file.size))return null;
- const bytes=await file.arrayBuffer();
- if(bytes.byteLength!==file.size)return null;
- const hashBytes=new Uint8Array(await crypto.subtle.digest('SHA-256',bytes));
- const digest=Array.from(hashBytes,x=>x.toString(16).padStart(2,'0')).join('');
- return reviewedDegiroListReference(digest,file.size);
+ try{
+  const bytes=await file.arrayBuffer();
+  if(bytes.byteLength!==file.size)return null;
+  const hashBytes=new Uint8Array(await crypto.subtle.digest('SHA-256',bytes));
+  const digest=Array.from(hashBytes,x=>x.toString(16).padStart(2,'0')).join('');
+  return reviewedDegiroListReference(digest,file.size);
+ }catch(_){return null;}
 }
 // Failed multi-image imports are retained separately from the active list.
 // Nothing in the pending record is a confirmed product or trading permission.
@@ -4573,7 +4575,7 @@ async function loadPendingDegiroList(now=Date.now()){
    ||zurichListDay(Date.parse(record.storedAt)).day!==zurichListDay(now).day
    ||!Array.isArray(record.files)||!record.files.length||record.files.length>12)return null;
  if(record.files.some(x=>!x?.blob||!x.name||typeof x.blob.arrayBuffer!=='function'))return null;
- return record.files.map(x=>x.blob);
+ return record.files.map(x=>x.blob.name?x.blob:new File([x.blob],x.name,{type:x.blob.type||'image/jpeg'}));
 }
 async function clearPendingDegiroList(){
  return archiveTransaction('readwrite',store=>store.delete('pending-degiro-list'));
