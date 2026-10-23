@@ -2619,7 +2619,7 @@ async function testBackgroundPush(scenario='delivery'){
   if(!['delivery','stop-target','early-long','early-short'].includes(scenario))throw Error('Unbekannter Push-Test.');
   if(early&&!pushState.general)throw Error('Für Frühwarn-Tests zuerst Marktbeobachtung aktivieren.');
   if(!pushState.general&&!pushState.trade)throw Error("Für den Test zuerst Marktsignale oder Aktiver Trade einschalten.");
-  if(!await syncPushPreferences())throw Error('Push-Einstellungen nicht am Server bestätigt. Bitte „Push aktualisieren“ und erneut testen.');
+  if(!await syncPushPreferences())throw Error('Push-Einstellungen nicht am Server bestätigt: '+($('fibMonitorStatus')?.textContent||'Bitte „Push aktualisieren“ und erneut testen.'));
   const reg=await navigator.serviceWorker.ready,sub=await reg.pushManager.getSubscription();
   if(!sub)throw Error('Zuerst Gerät für Push registrieren.');
   const r=await fetch('/api/push/test-background',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({endpoint:sub.endpoint,scenario})});
