@@ -578,17 +578,34 @@ def _build_report(conn):
     result['optimizationReview']=optimization_review.report(current,outcome)
     result['optimizationReview']['marketReview']=market_optimization.report(current,outcome)
     result['optimizationReview']['entryExperiment']=entry_experiment.report(current,outcome)
+    prospective_partial = False
     try:
         with conn.transaction():
             prospective_rows = _load_prospective_rows(conn)
-        result['prospectiveReview']=signal_review.prospective([(r,(None,t,None)) for r,t in prospective_rows],outcome)
-        result['prospectiveReview']['available']=True
     except psycopg.errors.QueryCanceled:
-        # A secondary research report must not discard the decision report.
-        # No empty statistics or invented success when the query was canceled.
+        # Retry only the already indexed recent time slice in its own
+        # transaction/savepoint. Never interpret that subset as the 30-day
+        # validation archive, and never increase the global SQL timeout.
+        print('BOB_AUDIT prospective_retry scope=last-day',flush=True)
+        try:
+            with conn.transaction():
+                prospective_rows = _load_prospective_rows(conn, recent=True)
+            prospective_partial = True
+        except psycopg.errors.QueryCanceled:
+            prospective_rows = None
+    if prospective_rows is None:
         result['prospectiveReview']={'available':False,'retryable':True,
-            'reason':'Historische Strategieauswertung wegen Datenbank-Zeitüberschreitung vorübergehend nicht verfügbar'}
-        print('BOB_AUDIT prospective_unavailable reason=query-timeout', flush=True)
+            'partialHistory':True,'automaticRuleChange':False,
+            'reason':'Historische Strategieauswertung auch für das begrenzte Tagesfenster wegen Datenbank-Zeitüberschreitung nicht verfügbar'}
+        print('BOB_AUDIT prospective_unavailable reason=query-timeout',flush=True)
+    else:
+        review=signal_review.prospective([(r,(None,t,None)) for r,t in prospective_rows],outcome)
+        review['available']=True
+        review['partialHistory']=prospective_partial
+        if prospective_partial:
+            review['validationCoverage']='last-24-hours-only'
+            review['note']='Eingeschränktes Tagesfenster nach SQL-Zeitüberschreitung: keine 30-Tage-Validierung und keine Regeländerung. '+review['note']
+        result['prospectiveReview']=review
     result['fourDayComparison']=intraday_comparison.report(conn)
     result['total']=conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0]
     result['reportRecords']=len(rows)
@@ -613,19 +630,23 @@ def _build_report(conn):
     result['researchReview']={'observations':len(research),'conflicts':sum(bool(p['conflicts']) for p in research),'missingSourceOrTime':sum(not p['source'] or not p['at'] for p in research),'examples':[p for p in research if p['conflicts']][:10],'note':'Widersprüche sind Prüfhinweise, keine automatisch bewiesenen Recherchefehler. Abrufzeit beweist keine Aktualität der Produktwerte.'}
     return result
 
-def _load_prospective_rows(conn):
-    # Sort only identifiers, then load the payloads of the selected hourly cases.
-    # Preserve the full archive and the original outcome-independent sampling.
-    return conn.execute("""WITH sampled AS MATERIALIZED (
+def _load_prospective_rows(conn, recent=False):
+    # Full report preserves the original outcome-independent hourly sample.
+    # On a canceled statement, allow a strictly bounded 24h SELECT using the
+    # already present recorded_at index. Never silently widen or back-date.
+    bound = "AND recorded_at >= now()-interval '24 hours'" if recent is True else ""
+    sql = """WITH sampled AS MATERIALIZED (
         SELECT DISTINCT ON (date_trunc('hour',recorded_at)) id,recorded_at
         FROM bob_decision_audit WHERE payload->'reviewVariants'->>'version'='signal-review-v1'
         AND payload->>'origin'='background' AND payload->>'ruleVersion'=%s
         AND payload->>'direction' IN ('LONG','SHORT')
+        """ + bound + """
         ORDER BY date_trunc('hour',recorded_at),recorded_at,id
         ) SELECT a.payload,o.truth FROM sampled s
         JOIN bob_decision_audit a ON a.id=s.id
         LEFT JOIN bob_decision_outcomes o ON o.decision_id=s.id AND o.horizon=60
-        ORDER BY s.recorded_at""",(RULE_VERSION,)).fetchall()
+        ORDER BY s.recorded_at"""
+    return conn.execute(sql,(RULE_VERSION,)).fetchall()
 
 
 def product_review(records, now=None):
