@@ -85,7 +85,12 @@ class MainActivity : Activity() {
             parent.addView(it)
         }
 
-        label("BOB ANDROID-LABOR: Produktbild teilen, automatisch erkennen und in Bob prüfen. Keine Handelsorders.")
+        val appHeadline = if (packageName == "ch.bob.degirocompanion.stable") {
+            "BOB HANDY: Produktbild teilen, automatisch erkennen und in Bob prüfen. Keine Handelsorders."
+        } else {
+            "BOB ANDROID-LABOR: Produktbild teilen, automatisch erkennen und in Bob prüfen. Keine Handelsorders."
+        }
+        label(appHeadline)
         button("Produktbilder auswählen (falls Teilen nicht klappt)") { openImagePicker() }
         status = label("Noch kein Bild ausgewählt. OCR-Werte sind niemals automatisch ein Handelsnachweis.")
         button("In Bob anzeigen – ohne Kopieren") {
