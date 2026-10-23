@@ -26,6 +26,19 @@ class BobNavigationTest {
             BobNavigation.urlFor(PhoneTask.OPEN_MARKET))
     }
 
+    @Test fun repeatedPhoneOpenCreatesFreshBrowserNavigationForGoldStart() {
+        val first = BobNavigation.urlForSection("products", 1001L)
+        val second = BobNavigation.urlForSection("products", 1002L)
+        assertEquals("https://bob-private-scanner.onrender.com/?view=products&bobvisit=1001#products", first)
+        assertEquals("https://bob-private-scanner.onrender.com/?view=products&bobvisit=1002#products", second)
+        assertTrue(first != second)
+        assertEquals("https://bob-private-scanner.onrender.com/?view=products-long&bobvisit=8#products-long",
+            BobNavigation.urlForSection("products-long", 8L))
+        assertEquals("https://bob-private-scanner.onrender.com/?view=products#products",
+            BobNavigation.urlForSection("products", -1L))
+        assertNull(BobNavigation.urlForSection("https://example.invalid", 1003L))
+    }
+
     @Test fun rejectsExternalDestinationsAndNonBrowserActions() {
         assertNull(BobNavigation.urlFor(PhoneTask.PICK_IMAGES))
         assertNull(BobNavigation.urlFor(PhoneTask.OPEN_SETTINGS))
