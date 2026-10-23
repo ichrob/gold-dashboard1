@@ -73,11 +73,12 @@ jobs:
           set -euo pipefail
           # A previous release may have been published after several intervening
           # main commits; comparing only the latest commit misses pending fixes.
-          last_tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)"
+          # Never treat a temporary GitHub API failure as "no previous
+          # release"; that could cause a duplicate or improperly versioned APK.
+          last_tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
           if [ -z "$last_tag" ]; then
-            echo "No previous signed Android release; first release is required."
-            echo "needs_release=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "Latest signed Android release is unknown; fail closed." >&2
+            exit 1
           fi
           if ! [[ "$last_tag" =~ ^bob-android-v[0-9]+$ ]]; then
             echo "Unexpected latest Android release tag: refuse to guess." >&2
