@@ -2207,7 +2207,7 @@ function renderDegiroListEvidence(p,now=Date.now(),archive=listArchive){
  const uploaded=new Date(proof.uploadedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich',hour12:false});
  return '<div class="small" data-degiro-list-evidence><b'+(proof.currentDay?' style="color:#15803d"':'')+'>'+
   (proof.currentDay?'✓ In deiner DEGIRO-Liste vorhanden':'In älterer DEGIRO-Liste vorhanden · heutige Liste fehlt')+
-  '</b> · hochgeladen '+esc(uploaded)+' (Zürich).'+(row?'<br><b>DEGIRO-Listennachweis: '+esc(row.venue)+' · '+esc(row.currency)+'</b><br>BAR/SL (Barriere): '+esc(row.ko)+' · BP/STR (Basispreis): '+esc(row.strike)+' · Bv/R: '+esc(row.ratioDivisor)+' (Bezugsverhältnis '+esc(row.ratio)+')'+(row.maturity?' · Laufzeit: '+esc(row.maturity):'')+'<br>'+(row.reviewMethod==='exact-original-sha256-visual-review'?'Originalbild per SHA-256 exakt geprüft':'Produktzeile zweifach gelesen')+' · '+esc(row.imageReference)+'. Listenansicht, kein ausführbarer Brokerkurs.':'')+'</div>';
+  '</b> · hochgeladen '+esc(uploaded)+' (Zürich).'+(row?'<br><b>DEGIRO-Listennachweis: '+esc(row.venue)+' · '+esc(row.currency)+'</b><br>BAR/SL (Barriere): '+esc(row.ko)+' · BP/STR (Basispreis): '+esc(row.strike)+' · Bv/R: '+esc(row.ratioDivisor)+' (Bezugsverhältnis '+esc(row.ratio)+')'+(row.maturity?' · Laufzeit: '+esc(row.maturity):'')+'<br>'+(row.reviewMethod==='exact-original-sha256-visual-review'?'Originalbild per SHA-256 exakt geprüft':row.reviewMethod==='samsung-image-size-and-sha256-prefix-reviewed'?'Samsung-Bild anhand Größe und SHA-256-Präfix abgeglichen (kein ausführbarer Brokerkurs)':'Produktzeile zweifach gelesen')+' · '+esc(row.imageReference)+'. Listenansicht, kein ausführbarer Brokerkurs.':'')+'</div>';
 }
 // A real DEGIRO product-detail *display* is more evidence than list membership,
 // but less than an executable order quote, order acknowledgement or fill.
@@ -4534,13 +4534,25 @@ function reviewedDegiroListReference(digest,length,day=zurichListDay().day){
 "SG Gold Turbo BEST Open-End Put BAR 4225.31 BP 4225.31 Bv 10 | DE000FG7Q280\nSociete Generale OTC EUR"],partialRows:[]
   }
  };
- const data=known[String(digest||'').toLowerCase()];
- if(!data||data.bytes!==length)return null;
+ const sha=String(digest||'').toLowerCase();
+ if(!/^[0-9a-f]{64}$/.test(sha))return null;
+ let data=known[sha],reviewMethod='exact-original-sha256-visual-review';
+ // Original Samsung file evidenced on Bob's own 18:56 error screenshot.
+ // The ChatGPT attachment was re-encoded: 177263B and 619fca... vs
+ // Samsung's 619449B and b94c900588471b87... SHA-256 prefix.
+ // The 64-bit prefix is NOT a full cryptographic hash confirmation.
+ // Scope this single recovered identity to size + prefix + photographed day.
+ // Never use it to approve a broker quote or a real order.
+ if(!data&&length===619449&&sha.startsWith('b94c900588471b87')){
+  data=known['619fca066d415a81f4f239b45eaa7378fee89e151e62619608a9dfcdcfefe5ce'];
+  reviewMethod='samsung-image-size-and-sha256-prefix-reviewed';
+ }
+ if(!data||(reviewMethod==='exact-original-sha256-visual-review'&&data.bytes!==length))return null;
  const items=data.rows.map(raw=>{
   const product=parseDegiroListRow(raw);
   if(!product?.listRow?.complete||!validIsin(product.isin))return null;
   product.listRow.crossChecked=true;
-  product.listRow.reviewMethod='exact-original-sha256-visual-review';
+  product.listRow.reviewMethod=reviewMethod;
   return product;
  });
  if(items.some(x=>!x)||new Set(items.map(x=>x.isin)).size!==items.length)return null;
@@ -4550,7 +4562,7 @@ function reviewedDegiroListReference(digest,length,day=zurichListDay().day){
 }
 async function recognizeReviewedDegiroOriginal(file){
  if(!file||typeof file.arrayBuffer!=='function'||typeof crypto==='undefined'||!crypto.subtle
-    ||![172361,177263].includes(file.size))return null;
+    ||![172361,177263,619449].includes(file.size))return null;
  try{
   const bytes=await file.arrayBuffer();
   if(bytes.byteLength!==file.size)return null;
