@@ -4242,15 +4242,66 @@ function listRowSignature(x){
  return JSON.stringify([x.isin,x.direction,...['issuer','venue','currency','ko','strike','ratioDivisor','leverage','maturity'].map(k=>x.listRow[k])]);
 }
 function agreedDegiroListRow(readings){
- const votes=new Map();
+ const votes=new Map(),partial=[],observedIsins=new Set();let disallowedProduct=false;
  for(const text of readings){
   const blocks=degiroListBlocks(text);if(blocks.length!==1)continue;
-  const row=parseDegiroListRow(blocks[0]);if(!row?.listRow.complete)continue;
+  if(/\b(?:FACTOR|FAKTOR)\b/i.test(blocks[0]))disallowedProduct=true;
+  // Preserve every valid identifier before field parsing can discard a
+  // fragmented reading. A batch with different identifiers is never one row.
+  for(const match of blocks[0].matchAll(/\bDE[0OQ]{3,4}[A-Z0-9]{7}\b/gi)){
+   const isin=normalizeOcrIsin(match[0],blocks[0]).isin;
+   if(validIsin(isin))observedIsins.add(isin);
+  }
+  const row=parseDegiroListRow(blocks[0]);if(!row)continue;
+  if(validIsin(row.isin))partial.push(row);
+  if(!row.listRow.complete)continue;
   const key=listRowSignature(row),v=votes.get(key)||{row,count:0};v.count++;votes.set(key,v);
  }
  const winners=[...votes.values()].filter(v=>v.count>=2);
- if(winners.length!==1)return null;
- const row=winners[0].row;row.listRow.crossChecked=true;return row;
+ if(disallowedProduct||observedIsins.size!==1)return null;
+ // Two different, independently confirmed complete readings remain a conflict.
+ if(winners.length>1)return null;
+ if(winners.length===1){const row=winners[0].row;row.listRow.crossChecked=true;return row;}
+ // On mobile, no individual OCR pass may capture *all* columns. Accept only
+ // per-field agreement from two readings of the SAME original image and ISIN.
+ // Never infer current BAR/BP/SL/STR from an old list or an issuer quote.
+ if(partial.length<2||new Set(partial.map(x=>x.isin)).size!==1
+  ||partial.some(x=>/\b(?:FACTOR|FAKTOR)\b/i.test(x.name)))return null;
+ const fields=['issuer','venue','currency','ko','strike','ratioDivisor','direction'];
+ const chosen={};
+ for(const field of fields){
+  const counts=new Map();
+  for(const row of partial){
+   const value=field==='direction'?row.direction:row.listRow[field];
+   if(value===null||value===undefined||value==='')continue;
+   const key=JSON.stringify(value),v=counts.get(key)||{value,count:0};
+   v.count++;counts.set(key,v);
+  }
+  const verified=[...counts.values()].filter(v=>v.count>=2);
+  if(verified.length!==1)return null;
+  chosen[field]=verified[0].value;
+ }
+ if(!(chosen.ko>0&&chosen.strike>0&&chosen.ratioDivisor>0)
+   ||!['LONG','SHORT'].includes(chosen.direction)
+   ||!(chosen.issuer==='SG'?/^Soci[eé]t[eé]/i.test(chosen.venue):chosen.issuer==='BNP'&&/^BNP/i.test(chosen.venue)))return null;
+ const isin=partial[0].isin;
+ const match=partial.find(x=>x.listRow.ko===chosen.ko&&x.listRow.strike===chosen.strike
+   &&x.listRow.ratioDivisor===chosen.ratioDivisor&&x.direction===chosen.direction);
+ const maturityCounts=new Map(),leverageCounts=new Map();
+ for(const x of partial){
+  for(const [field,map] of [['maturity',maturityCounts],['leverage',leverageCounts]]){
+   const value=x.listRow[field];if(value===null||value===undefined||value==='')continue;
+   const key=JSON.stringify(value),vote=map.get(key)||{value,count:0};
+   vote.count++;map.set(key,vote);
+  }
+ }
+ const optional=map=>{const confirmed=[...map.values()].filter(v=>v.count>=2);return confirmed.length===1?confirmed[0].value:null;};
+ const ratio=1/chosen.ratioDivisor;
+ return {...partial[0],isin,direction:chosen.direction,
+  name:match?.name||((chosen.issuer==='SG'?'SG':'BNP')+' Gold '+chosen.direction+' · '+isin),
+  leverage:optional(leverageCounts)??'',
+  listRow:{...partial[0].listRow,...chosen,isin,ratio,leverage:optional(leverageCounts),
+   maturity:optional(maturityCounts),complete:true,crossChecked:true}};
 }
 function degiroListRects(data,width,height){
  const words=(data?.words||[]).filter(w=>w.bbox&&Number.isFinite(w.bbox.y0));
@@ -4360,12 +4411,25 @@ async function recognizeDegiroList(worker,prepared,first,statusId){
   return {data:{text:items.map(x=>x.name+' | '+x.isin+'\n'+x.listRow.venue+' '+x.listRow.currency).join('\n'),listItems:items,partialRows,listLayoutVersion:1}};
  }finally{bitmap.close();await worker.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});}
 }
+// A follow-up screenshot may join only the same user's pending batch or the
+// verified screenshot archive from *today*. Never revive yesterday's screenshots.
+function listAppendSourceFiles(mode,staged,archive,now=Date.now()){
+ if(mode!=='append')return [];
+ if(Array.isArray(staged)&&staged.length)return staged.map(blob=>({name:blob.name,blob}));
+ if(!archive?.storedAt||!Array.isArray(archive.files)||!archive.files.length)return null;
+ const stored=Date.parse(archive.storedAt);
+ if(!Number.isFinite(stored)||zurichListDay(stored).day!==zurichListDay(now).day)return null;
+ if(archive.files.some(x=>!x?.blob||!x?.name))return null;
+ return archive.files.map(x=>({name:x.name,blob:x.blob}));
+}
 async function readListBatch(files,recognize,progress=()=>{}){
  if(!files.length)throw new Error('Keine Bilder ausgewählt.');
  const items=[],partialRows=[];
  for(const [index,file] of files.entries()){
   progress(index+1,files.length,file.name);
-  const result=await recognize(file,'dgCentralStatus',false,'',true);
+  let result;
+  try{result=await recognize(file,'dgCentralStatus',false,'',true);}
+  catch(e){throw Error('Bild '+(index+1)+' ('+(file.name||'Listenbild')+'): '+(e?.message||'Texterkennung gescheitert'));}
   const text=result?.data?.text||'';
   partialRows.push(...(result?.data?.partialRows||[]));
   // Parse each image separately: scrolling overlap and a cut last row must
@@ -4549,9 +4613,9 @@ async function inject(){
  '<details style="margin-top:12px"><summary id="dgSavedProductsSummary" style="cursor:pointer;font-weight:700">Gold-Hebelprodukte</summary><div id="dgMissingProducts" style="margin-top:12px"></div></details>'+
  '<div id="dgScreenshotReturn" hidden style="margin-top:14px;padding:14px;background:#eaf3ff;border:2px solid #1677ff;border-radius:14px;scroll-margin-top:16px"><b>Screenshots für <span data-return-isin></span></b><p class="small">Bilder werden diesem zuvor geöffneten Produkt zugeordnet, auch wenn ISIN oder WKN im Bild fehlen. Eine eindeutig abweichende Produktkennung wird gemeldet.</p><div data-return-product-link></div><div data-return-missing></div><p class="small">Fehlenden Wert erneut aufnehmen: Produktseite öffnen, Screenshot machen und anschließend hier beim selben Produkt hinzufügen.</p><button type="button" data-return-upload style="width:100%;background:#1677ff">↑ Bilder / PDF für dieses Produkt hinzufügen</button><div class="small" style="margin:8px 0">Originaldateien: lokal auf diesem Gerät, bis zu 7 Tage / insgesamt 100 MB. Nach Erkennungsupdates prüft Bob gespeicherte Dateien erneut. Ursprüngliche Datenstände bleiben erhalten.</div><button type="button" data-return-reprocess>Gespeicherte Bilder erneut prüfen</button><button type="button" data-return-delete>Gespeicherte Originaldateien löschen</button><button type="button" data-return-close>Fertig / ausblenden</button><div role="status" data-return-status style="overflow-wrap:anywhere;min-width:0"></div><div role="status" data-return-complete hidden style="margin-top:12px;font-weight:700;color:#15803d">✅ Datenübertragung komplett</div></div>'+
  '<div style="margin-top:14px;padding:12px;background:#fff;border-radius:16px;border:1px solid #e1e7f0">'+
- '<details id="dgIssuerCatalogPanel" style="margin-bottom:12px;border:1px solid #d7e0ea;border-radius:10px;padding:10px"><summary><b>Automatische Gold-Produktrecherche · externe Kandidaten</b></summary><p class="small">Bob überprüft die früher in DEGIRO beobachteten ISINs ohne Screenshot bei Emittenten. Nicht die vollständige aktuelle DEGIRO-Liste; Handelbarkeit und neue Produkte sind nicht bestätigt. Keine automatische Top-3-Freigabe.</p><div role="status" class="small" id="dgIssuerStatus">Noch keine Serverprüfung.</div><div id="dgIssuerCandidates"></div></details>'+ '<b>📷 DEGIRO-Liste</b><button type="button" id="dgListUploadButton" style="margin-top:10px;width:100%;background:#1677ff">↑ DEGIRO-Liste hochladen</button>'+
+ '<details id="dgIssuerCatalogPanel" style="margin-bottom:12px;border:1px solid #d7e0ea;border-radius:10px;padding:10px"><summary><b>Automatische Gold-Produktrecherche · externe Kandidaten</b></summary><p class="small">Bob überprüft die früher in DEGIRO beobachteten ISINs ohne Screenshot bei Emittenten. Nicht die vollständige aktuelle DEGIRO-Liste; Handelbarkeit und neue Produkte sind nicht bestätigt. Keine automatische Top-3-Freigabe.</p><div role="status" class="small" id="dgIssuerStatus">Noch keine Serverprüfung.</div><div id="dgIssuerCandidates"></div></details>'+ '<b>📷 DEGIRO-Liste</b><button type="button" id="dgListUploadButton" style="margin-top:10px;width:100%;background:#1677ff">↑ Neue DEGIRO-Liste hochladen</button><button type="button" id="dgListAddButton" style="margin-top:8px;width:100%;background:#e9f2ff;color:#1659aa">＋ Weiteres Listenbild hinzufügen</button>'+
  '<input id="dgListUpload" type="file" accept="image/*" multiple hidden>'+
- '<details style="margin-top:8px"><summary>Hinweise zum Hochladen</summary><div class="small">Einen oder mehrere Listen-Screenshots gleichzeitig auswählen. Eine neue Auswahl ersetzt die bisherige Liste nach erfolgreichem Einlesen.</div></details>'+
+ '<details style="margin-top:8px"><summary>Hinweise zum Hochladen</summary><div class="small">Beide Screenshots können gemeinsam ausgewählt werden. Alternativ zuerst ein Bild hochladen und danach „Weiteres Listenbild hinzufügen“ wählen. Abgeschnittene Zeilen bleiben bis zum ergänzenden Bild vorgemerkt. Nur Bilder derselben Tagesliste werden kombiniert.</div></details>'+
  '<div id="dgCentralStatus" class="small" role="status" aria-live="polite" style="margin-top:9px">Gespeicherte Liste wird geladen …</div><details id="dgSavedListImages"></details></div>'+
 
  '<div id="dgStorageStatus" class="small" role="status"></div>'+
@@ -4666,16 +4730,24 @@ async function inject(){
    if(status)status.textContent='Keine gespeicherten Produktdaten in diesem Browser wiederherstellbar. Ein Serverlisten-Nachweis ist derzeit nicht verfügbar oder nicht lesbar. Bitte in dem Browser prüfen, in dem die Liste hochgeladen wurde; nichts löschen.';
   }
  }).catch(()=>{});
- const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgListUploadButton'),uploadStatus=b.querySelector('#dgCentralStatus');
- uploadButton.addEventListener('click',()=>upload.click());
+ const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgListUploadButton'),addButton=b.querySelector('#dgListAddButton'),uploadStatus=b.querySelector('#dgCentralStatus');
+ let listUploadMode='replace',stagedListImages=[];
+ uploadButton.addEventListener('click',()=>{listUploadMode='replace';stagedListImages=[];upload.click();});
+ addButton.addEventListener('click',()=>{listUploadMode='append';upload.click();});
  upload.addEventListener('change',async()=>{
   if(!upload.files?.length)return;
   listRevision++; // Invalidate an older asynchronous reread immediately.
-  uploadButton.disabled=true;upload.disabled=true;
+  uploadButton.disabled=true;addButton.disabled=true;upload.disabled=true;
+  let files=[];
   try{
-   const files=await retainSelectedImages(upload);
+   const chosen=await retainSelectedImages(upload);
+   const prior=listAppendSourceFiles(listUploadMode,stagedListImages,listArchive);
+   if(prior===null)throw Error('Kein heutiges erstes Listenbild gefunden. Bitte mit „Neue DEGIRO-Liste hochladen“ beginnen.');
+   files=[...prior.map(x=>x.blob?.name?x.blob:new File([x.blob],x.name,{type:x.blob?.type||'image/png'})),...chosen];
+   if(files.length>12)throw Error('Zu viele Listenbilder. Bitte mit einer neuen Liste beginnen und höchstens zwölf Bilder auswählen.');
    const items=await readListBatch(files,recognizeOcr,(i,total,name)=>{uploadStatus.textContent='📷 Bild '+i+' von '+total+' wird gelesen: '+name;});
    await saveListArchive(files,items);
+   stagedListImages=[];
    // The old screenshot universe is now replaced. Its manual KO and PDF
    // attestations must not silently apply to the new list, even for a shared ISIN.
    window.BobCombined.resetFixedList();
@@ -4686,15 +4758,26 @@ async function inject(){
    // Persist the new generation before any normal/periodic background snapshot.
    const backgroundSynced=await window.BobPaperSimulation?.sync?.(buildPaperListEvidence(),true);
    rankUI();
-   uploadStatus.textContent='✅ Neue aktive Liste: '+files.length+' Bild(er) · '+items.length+' unterschiedliche Produkte. Vorherige Liste ersetzt und gespeichert – bleibt bis zum nächsten Upload erhalten. Kurszeiten werden unabhängig geprüft.';
+   uploadStatus.textContent='✅ '+(listUploadMode==='append'?'Listenbild ergänzt':'Neue Liste übernommen')+': '+files.length+' Bild(er) · '+items.length+' unterschiedliche Produkte. Liste vollständig geprüft und gespeichert; ältere Nachweise bleiben nur historisch. Kurszeiten werden unabhängig geprüft.';
    uploadStatus.textContent+=backgroundSynced?' Hintergrundübernahme bestätigt.':' ⚠️ Hintergrundübernahme noch offen; automatischer Abgleich läuft.';
    const uncertain=items.filter(x=>!validIsin(x.isin)).length;
    if(uncertain)uploadStatus.textContent+=' ⚠️ '+uncertain+' ISIN(s) unsicher – unter Details prüfen.';
    // The paper/background service is refreshed immediately, independently of its
    // ordinary 60-second cadence. Never send removed ISINs from the old list.
    refreshImportedProducts(true).then(()=>refreshImportedProducts());
-  }catch(e){uploadStatus.textContent='⚠️ '+(e?.message||'Bilder konnten nicht gelesen werden')+' Die bisherige Produktliste bleibt erhalten.';}
-  finally{upload.value='';upload.disabled=false;uploadButton.disabled=false;setTimeout(retrySavedList,1000);}
+  }catch(e){
+   const message=e?.message||'Bilder konnten nicht gelesen werden';
+   // Store only in-memory originals of an incomplete multi-image set.
+   // Do not commit a partial list or mutate old DEGIRO/KO evidence.
+   const incomplete=/Abgeschnittene Produktzeile|Produktzeile [0-9]+|Listenaufbau nicht erkannt|Keine vollständige DEGIRO-Produktzeile/.test(message);
+   if(incomplete&&files.length&&files.length<12){
+    stagedListImages=files;
+    uploadStatus.textContent='⚠️ '+message+' '+files.length+' Bild(er) vorgemerkt. Bitte auf „Weiteres Listenbild hinzufügen“ tippen. Die bisherige Produktliste bleibt erhalten.';
+   }else{
+    uploadStatus.textContent='⚠️ '+message+' Die bisherige Produktliste bleibt erhalten.';
+   }
+  }
+  finally{upload.value='';upload.disabled=false;uploadButton.disabled=false;addButton.disabled=false;setTimeout(retrySavedList,1000);}
  });
  const retrySavedList=async()=>{
   if(document.hidden||upload.disabled||activeProductImports.size)return;
@@ -4951,7 +5034,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={paperProductsForSync,listVenueForSync,refreshVenueAssessment:()=>rankUI(),sharedVenueStatus,renderVenueHistory,observedDegiroListRow,degiroListBlocks,parseDegiroListRow,agreedDegiroListRow,degiroListRects,clippedDegiroListReference,recognizeDegiroList,serverVenueEvidence,degiroVenueObserved,screenshotSeriesContext,applyLearnedRanking,productHelpState,renderProductHelp,calculatedLeverageEvidence,recoverArchivedList,productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,preserveReadingPosition,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,calculatedProductDisplay,renderPrimaryProductValues,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={listAppendSourceFiles,paperProductsForSync,listVenueForSync,refreshVenueAssessment:()=>rankUI(),sharedVenueStatus,renderVenueHistory,observedDegiroListRow,degiroListBlocks,parseDegiroListRow,agreedDegiroListRow,degiroListRects,clippedDegiroListReference,recognizeDegiroList,serverVenueEvidence,degiroVenueObserved,screenshotSeriesContext,applyLearnedRanking,productHelpState,renderProductHelp,calculatedLeverageEvidence,recoverArchivedList,productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,preserveReadingPosition,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,calculatedProductDisplay,renderPrimaryProductValues,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 

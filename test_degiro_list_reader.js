@@ -3,6 +3,14 @@ const assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
 const c={window:{}};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),c);const b=c.window.BobDegiro;
 function id(n){const base='DE000ZZ'+String(n).padStart(4,'0');for(let d=0;d<10;d++)if(b.validIsin(base+d))return base+d;throw Error('id');}
 const a=id(1),z=id(2);
+const today=Date.parse('2026-10-23T11:00:00Z'),yesterday={storedAt:'2026-10-22T10:00:00Z',files:[{name:'old.png',blob:'old-blob'}]};
+const sameDay={storedAt:'2026-10-23T10:00:00Z',files:[{name:'first.png',blob:'first-blob'}]};
+assert.equal(b.listAppendSourceFiles('append',[],sameDay,today).length,1);
+assert.equal(b.listAppendSourceFiles('append',[],yesterday,today),null,'do not merge prior-day list');
+assert.equal(b.listAppendSourceFiles('replace',[],sameDay,today).length,0,'replacement starts fresh');
+assert.equal(b.listAppendSourceFiles('append',[{name:'pending.png'}],yesterday,today)[0].name,'pending.png','pending batch takes priority');
+assert.equal(b.listAppendSourceFiles('append',[],null,today),null,'append requires existing images');
+
 const row=(isin=a,amount='4012.25',currency='EUR')=>`SG Gold Turbo BEST Open-End Call BAR ${amount} BP\n${amount} Bv 10 | ${isin}\nSociete Generale OTC ${currency} (K) (V)`;
 const parsed=b.parseDegiroListRow(row());assert(parsed.listRow.complete);assert.equal(parsed.direction,'LONG');assert.equal(parsed.listRow.ko,4012.25);assert.equal(parsed.listRow.ratio,.1);assert.equal(parsed.leverage,'');assert.equal(parsed.price,'');assert.equal(parsed.listRow.sourceTime,null);
 const tomorrow=b.parseDegiroListRow(row(a,'4018,37','CHF'));assert.equal(tomorrow.listRow.ko,4018.37);assert.equal(tomorrow.listRow.currency,'CHF');
@@ -11,8 +19,50 @@ assert.equal(b.agreedDegiroListRow([row(),row(z)]),null,'different valid IDs can
 assert.equal(b.agreedDegiroListRow([row()]),null,'one pass is not enough');
 assert(b.agreedDegiroListRow([row(),row(),row(a,'4013.00')]).listRow.crossChecked);
 assert.equal(b.agreedDegiroListRow([row(),row(),row(a,'4013.00'),row(a,'4013.00')]),null);
+// Fragmented mobile OCR: no single reading has all columns, but every
+// required field has two matching observations from the same image.
+const noVenue=row().replace('Societe Generale OTC EUR','Societe Generale OTC');
+const noStrike=row().replace('BP','XX');
+const noRatio=row().replace('Bv 10','Bv O');
+assert(!b.parseDegiroListRow(noVenue).listRow.complete);
+assert(!b.parseDegiroListRow(noStrike).listRow.complete);
+assert(!b.parseDegiroListRow(noRatio).listRow.complete);
+const rescued=b.agreedDegiroListRow([noVenue,noStrike,noRatio]);
+assert(rescued?.listRow.complete,'two observations per field can safely complete one row');
+assert.equal(rescued.listRow.ko,4012.25);
+assert.equal(rescued.listRow.strike,4012.25);
+assert.equal(rescued.listRow.venue,'Societe Generale OTC');
+assert.equal(rescued.listRow.ratio,.1);
+assert.equal(b.agreedDegiroListRow([noVenue,noStrike]),null,'one observed strike is insufficient');
+assert.equal(b.agreedDegiroListRow([noVenue+' FAKTOR',noStrike+' FAKTOR',noRatio+' FAKTOR']),null,'factor products stay excluded');
+assert.equal(b.agreedDegiroListRow([noVenue,noStrike,row(z).replace('Bv 10','Bv O')]),null,'never mix different identifiers');
+assert.equal(b.agreedDegiroListRow([
+  noVenue,noStrike,noRatio,
+  row(a,'4013.00').replace('Societe Generale OTC EUR','Societe Generale OTC'),
+  row(a,'4013.00').replace('BP','XX'),
+  row(a,'4013.00').replace('Bv 10','Bv O')
+]),null,'two independently confirmed different KO values must not be merged');
+
 const mini=`BNP GOLD Mini Long SL 3700.25 STR 3650.75 R\n10 | ${a}\nBNP OTC EUR K V`;
 const m=b.parseDegiroListRow(mini);assert.equal(m.listRow.ko,3700.25);assert.equal(m.listRow.strike,3650.75);assert.equal(m.listRow.ratio,.1);
+
+// Text manually transcribed from the two October 23 DEGIRO screenshots. These
+// are parser tests only, NOT a claim that browser OCR read the original pixels.
+const secondImageRows=[
+ 'SG Gold Knock-Out Warrant Open End Put BAR 4521.97 BP 4521.97 Bv 10 | DE000FG34XV8\nSociete Generale OTC CHF K V',
+ 'BNP GOLD Mini Long SL 3684.6673 STR 3612.4189 R 10 | DE000PJ8APE4\nBNP OTC EUR K V',
+ 'SG Gold Turbo Classic Call BAR 3980 BP 3980 Bv 10 20/11/2026 | DE000FG4TJL6\nSociete Generale OTC EUR K V',
+ 'SG Gold Knock-Out Warrant Put BAR 4400 BP 4400 Bv 10 19/03/2027 | DE000FG8NHQ3\nSociete Generale OTC CHF K V',
+ 'SG Gold Turbo BEST Open-End Put BAR 4225.31 BP 4225.31 Bv 10 | DE000FG7Q280\nSociete Generale OTC EUR K V'
+];
+assert.equal(secondImageRows.length,5);
+for(const txt of secondImageRows){
+ const p=b.parseDegiroListRow(txt);
+ assert(p?.listRow.complete, 'second DEGIRO screenshot row must parse: '+txt);
+ assert(b.validIsin(p.isin));
+}
+const bottomOverlap='SG Gold Knock-Out Warrant Open End Put BAR 4521.97 BP 4521.97 Bv 10 | DE000FG34XV8';
+assert.equal(b.clippedDegiroListReference([bottomOverlap,bottomOverlap]).isin,'DE000FG34XV8');
 assert.equal(b.parseDegiroListRow(row().replace('Call','Put')).direction,'SHORT');
 assert(!b.parseDegiroListRow(row().replace('Call','Call Put')).listRow.complete);
 assert(!b.parseDegiroListRow(row().replace('Societe Generale OTC','BNP OTC')).listRow.complete);
