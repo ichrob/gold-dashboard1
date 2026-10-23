@@ -32,6 +32,13 @@ assert.equal((html.match(/id=\"tradePushBtn\"/g)||[]).length,1,"No cloned button
 assert(html.includes("gb.setAttribute('aria-pressed',String(!!pushState.general))"));
 assert(html.includes("tb.setAttribute('aria-pressed',String(!!pushState.trade))"));
 assert(html.includes("if(note)note.textContent=synced?"),"Toggling should report server-sync success/failure");
+for(const [side,label] of [['early-long','LONG'],['early-short','SHORT']]){
+  assert(html.includes('onclick="testBackgroundPush(\''+side+'\')"'),label+' test button missing');
+  assert(html.includes(label+'-Frühwarnung testen'),label+' button text missing');
+}
+assert(html.includes("if(early&&!pushState.general)throw Error"),"Synthetic warning tests must require general push enabled");
+assert(html.includes("['delivery','stop-target','early-long','early-short'].includes(scenario)"),"Only fixed notification tests are permitted");
+assert(html.includes('Kein Marktsignal oder Trade.'),"Synthetic test needs a visible no-trading disclaimer");
 assert(html.includes("#bobTradePushControls .bob-trade-push-toggles"));
 
 const scripts=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
