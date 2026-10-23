@@ -49,7 +49,7 @@ jobs:
           # A distinct applicationId is essential on devices that already have a
           # differently signed Bob lab APK. Never uninstall the existing app.
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" > /tmp/bob-android-badging.txt
-          grep -Fq "package: name='ch.bob.degirocompanion.parallel'" /tmp/bob-android-badging.txt
+          grep -Fq "package: name='ch.bob.degirocompanion.voicetest'" /tmp/bob-android-badging.txt
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" > /tmp/bob-android-actual-permissions.txt
           cat /tmp/bob-android-actual-permissions.txt
           for forbidden in android.permission.INTERNET android.permission.ACCESS_NETWORK_STATE \
@@ -72,7 +72,7 @@ jobs:
       - name: Upload debug APK (lab only)
         uses: actions/upload-artifact@v4
         with:
-          name: bob-android-lab-parallel-debug
+          name: bob-android-lab-voice-test
           path: android_companion/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 7

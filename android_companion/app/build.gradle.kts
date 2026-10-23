@@ -19,9 +19,11 @@ android {
     // of colliding with or replacing the user's existing signed package.
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = ".parallel"
-            versionNameSuffix = "-parallel"
-            manifestPlaceholders["bobAppLabel"] = "Bob: Android-Labor (Paralleltest)"
+            // Previous GitHub debug APK may have a different generated signature.
+            // Distinct temporary app ID avoids overwriting the installed parallel lab.
+            applicationIdSuffix = ".voicetest"
+            versionNameSuffix = "-voicetest"
+            manifestPlaceholders["bobAppLabel"] = "Bob: Android-Labor (Sprachtest)"
         }
     }
     compileOptions {

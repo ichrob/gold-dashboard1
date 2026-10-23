@@ -1,3 +1,15 @@
+## Samsung-Sprachfehler „Bob zeige mir die Goldprodukte“ (23.10.2026)
+
+**Auf dem echten Samsung beobachtet:** Die lokale Spracheingabe schrieb „Bob zeige mir die goldprodukte“, danach „Sprachauftrag unklar oder nicht erlaubt. Nichts ausgeführt.“. Das ist kein Netz-/Render-/Loginproblem: `PhoneTaskPlanParser` erkannte zwar „Bob“ ohne Komma, kannte aber das vollständige Satzmuster „zeige mir die goldprodukte“ noch nicht.
+
+**Gezielte Änderung:** Der vollständige exakte Satz und wenige Schreibweisen („Gold-Produkte“, „Gold Hebelprodukte“) lösen nur `OPEN_PRODUCTS` aus. Keine freie Anweisungsausführung, keine Broker-, Finanz- oder Mehrschrittaktion. Kombinierte Anweisungen mit Kauf, Login oder Ordermaske bleiben vollständig gesperrt. Positive und negative Kotlin-Tests prüfen ausdrücklich den echten Gerätewortlaut.
+
+**Für die derzeit installierte Paralleltest-App reicht ein Webdeploy nicht:** Der Satzparser arbeitet vollständig **lokal auf dem Handy**. Die gebaute Test-APK erhält deshalb die neue temporäre App-Kennung `ch.bob.degirocompanion.voicetest` und die Beschriftung **Bob: Android-Labor (Sprachtest)**. Diese Test-App kann getrennt von der bereits installierten Bob- und Paralleltest-App installiert werden, auch wenn GitHub den Debug-Signaturschlüssel pro Build wechselt. Keine bestehende App deinstallieren. Das ist ein Testbehelf, keine dauerhafte Update-Signaturstrategie.
+
+**Nach bestandenem Android-Workflow:** Auf dessen GitHub-Actions-Seite unter `Artifacts` **bob-android-lab-voice-test** herunterladen, die ZIP mit Samsung Eigene Dateien entpacken, `app-debug.apk` öffnen und **Bob: Android-Labor (Sprachtest)** installieren. Mikrofontaste einmal drücken; „Bob zeige mir die Goldprodukte“ sagen. Erwartet: sichere Bob-Webseite öffnet Goldproduktliste (Scrollanfang nach separater Webkorrektur). Ein bestandener CI-Build ist kein Beleg für den echten Samsung-Gerätetest. Keine Echtgeldorders.
+
+---
+
 ## Goldprodukte öffnen am Anfang statt beim letzten Produkt (23.10.2026)
 
 Samsung-Gerätetest: Der gesprochene Einmalauftrag „Bob zeige meine Goldprodukte“ öffnet Bob korrekt, aber Chrome zeigte eine alte Scrollposition am Ende der Produktliste. Die alte Installation muss nicht entfernt werden.
