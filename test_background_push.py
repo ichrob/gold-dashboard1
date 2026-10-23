@@ -255,6 +255,73 @@ class BackgroundDelivery(PushMonitorTests):
             self.assertTrue(message['data']['test'])
             self.assertTrue(message['title'].startswith('TEST'))
 
+    def test_early_warning_templates_are_synthetic_only(self):
+        for side in ('LONG','SHORT'):
+            with self.subTest(side=side):
+                message=push_server.early_warning_test_message(side,1800000000000)
+                self.assertEqual(message['title'],'TEST · '+side+'-Frühwarnung')
+                data=message['data']
+                self.assertEqual(data['kind'],'general')
+                self.assertEqual(data['eventKind'],'early-warning-test')
+                self.assertEqual(data['direction'],side)
+                self.assertTrue(data['test'])
+                self.assertTrue(data['synthetic'])
+                self.assertTrue(data['comparisonOnly'])
+                self.assertFalse(data['affectsApproval'])
+                self.assertNotIn('isin',json.dumps(message).lower())
+                self.assertIn('Keine echte Goldbewegung',message['body'])
+                self.assertIn('keine Order',message['body'])
+        with self.assertRaises(ValueError):
+            push_server.early_warning_test_message('NEUTRAL',1800000000000)
+
+    def test_only_registered_general_push_can_schedule_early_warning_tests(self):
+        for side in ('early-long','early-short'):
+            db,conn=self.connection()
+            conn.execute.return_value.fetchone.return_value=(True,False)
+            with patch.object(push_server,'db',db),patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'),patch.object(push_server,'webpush') as send:
+                status,response=self.request('/test-background',{'endpoint':'fixture','scenario':side})
+                self.assertEqual(status,200)
+                self.assertGreater(response['dueAt'],push_server.time.time()*1000)
+                saved=[x for x in conn.execute.call_args_list if 'SET pending_test=' in x.args[0]]
+                self.assertEqual(len(saved),1)
+                pending=json.loads(saved[0].args[1][0])
+                self.assertEqual(pending['scenario'],side)
+                self.assertEqual(pending['kind'],'general')
+                self.assertNotIn('trade',pending)
+                send.assert_not_called()
+            db,conn=self.connection()
+            conn.execute.return_value.fetchone.return_value=(False,True)
+            with patch.object(push_server,'db',db),patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'):
+                self.assertEqual(self.request('/test-background',{'endpoint':'fixture','scenario':side})[0],400)
+                self.assertFalse(any('SET pending_test=' in x.args[0] for x in conn.execute.call_args_list))
+
+    def test_invalid_early_warning_test_is_rejected_before_database_access(self):
+        db,conn=self.connection()
+        with patch.object(push_server,'db',db),patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'):
+            self.assertEqual(self.request('/test-background',{'endpoint':'fixture','scenario':'buy-gold'})[0],400)
+            conn.execute.assert_not_called()
+
+    def test_delayed_early_warning_delivers_only_general_test_without_trade(self):
+        for side in ('early-long','early-short'):
+            db,conn=self.connection()
+            due=int(push_server.time.time()*1000)-1
+            conn.execute.return_value.fetchall.return_value=[(1,{},dict(kind='general',scenario=side,dueAt=due),True,False)]
+            with patch.object(push_server,'db',db),patch.object(push_server,'vapid',return_value='fixture'),patch.object(push_server,'webpush') as send:
+                push_server.deliver_background_tests()
+                send.assert_called_once()
+                msg=json.loads(send.call_args.kwargs['data'])
+                self.assertEqual(msg['title'],'TEST · '+('LONG' if side=='early-long' else 'SHORT')+'-Frühwarnung')
+                self.assertEqual(msg['data']['kind'],'general')
+                self.assertTrue(msg['data']['test'])
+                self.assertFalse(msg['data']['affectsApproval'])
+                self.assertTrue(any('pending_test=NULL' in c.args[0] for c in conn.execute.call_args_list))
+            db,conn=self.connection()
+            conn.execute.return_value.fetchall.return_value=[(1,{},dict(kind='general',scenario=side,dueAt=due),False,True)]
+            with patch.object(push_server,'db',db),patch.object(push_server,'vapid',return_value='fixture'),patch.object(push_server,'webpush') as send:
+                push_server.deliver_background_tests()
+                send.assert_not_called()
+                self.assertTrue(any('pending_test=NULL' in c.args[0] for c in conn.execute.call_args_list))
+
     def test_target_schedules_stop_without_touching_real_trade(self):
         db,conn=self.connection()
         pending=dict(kind='general',scenario='stop-target',stage=0,dueAt=int(push_server.time.time()*1000)-1)
