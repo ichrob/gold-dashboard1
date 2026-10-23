@@ -20,9 +20,9 @@ gh auth status >/dev/null
 mkdir -p "$dir"
 chmod 700 "$dir"
 if [ -e "$file" ]; then
-  echo "Keystore already exists: $file" >&2
-  echo "Existing signing identity must NEVER be silently overwritten." >&2
-  exit 1
+  # An interrupted GitHub upload can be resumed with the SAME signing key.
+  # Never overwrite it or silently rotate the stable Android identity.
+  echo "Reusing the existing private signing key; no new key will be generated."
 fi
 
 printf 'Choose a strong password (keep it in a password manager): '
@@ -43,10 +43,12 @@ unset confirm
 
 # PKCS12 protects the private key; a matching store/key password is used
 # to simplify the one-time mobile setup. The key stays on this device.
-keytool -genkeypair -noprompt -keystore "$file" -storetype PKCS12 \
-  -alias "$alias_name" -keyalg RSA -keysize 3072 -validity 10000 \
-  -dname "CN=Bob Private Android, OU=Bob, O=Private Application" \
-  -storepass "$password" -keypass "$password" >/dev/null
+if [ ! -e "$file" ]; then
+  keytool -genkeypair -noprompt -keystore "$file" -storetype PKCS12 \
+    -alias "$alias_name" -keyalg RSA -keysize 3072 -validity 10000 \
+    -dname "CN=Bob Private Android, OU=Bob, O=Private Application" \
+    -storepass "$password" -keypass "$password" >/dev/null
+fi
 chmod 600 "$file"
 
 fingerprint="$(keytool -list -v -keystore "$file" -storepass "$password" \
@@ -55,6 +57,16 @@ fingerprint="$(keytool -list -v -keystore "$file" -storepass "$password" \
 if ! [[ "$fingerprint" =~ ^[0-9a-fA-F]{64}$ ]]; then
   echo "Could not verify the certificate fingerprint; key remains local." >&2
   exit 1
+fi
+existing_pin="$(gh variable get BOB_ANDROID_CERT_SHA256 -R "$repo" 2>/dev/null || true)"
+if [ -n "$existing_pin" ]; then
+  normalized_pin="$(printf '%s' "$existing_pin" | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+  normalized_cert="$(printf '%s' "$fingerprint" | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')"
+  if [ "$normalized_pin" != "$normalized_cert" ]; then
+    echo "Signing identity conflict: GitHub's existing fingerprint differs." >&2
+    echo "STOP. Do not replace the old signing key or publish incompatible updates." >&2
+    exit 1
+  fi
 fi
 
 # Use stdin so no large keystore or passwords appear in git, command arguments
