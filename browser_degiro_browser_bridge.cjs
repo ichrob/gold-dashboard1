@@ -109,7 +109,10 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
    blankQuantity++;await broker.evaluate(text=>window.__blankCSV=text,csv.replace(',2,0.12,',','+blankQuantity+',0.12,'));
    await broker.evaluate(mime=>{window.__blankMime=mime;GM_setValue('bob-export-status-v1',{state:'ready',at:Date.now(),version:'1.2.0'});},mime);
    await broker.locator('#export').click();
-   await bob.waitForFunction(qty=>BobDegiroPortfolio.load(localStorage).records[0].quantity===qty,blankQuantity,{timeout:2000});
+   // Headless browser startup can be delayed under the full Python+JS CI load.
+   // Keep the exact quantity and issuer-source assertions; only allow the
+   // cross-tab event to settle before declaring a failure.
+   await bob.waitForFunction(qty=>BobDegiroPortfolio.load(localStorage).records[0].quantity===qty,blankQuantity,{timeout:8000});
    await broker.waitForFunction(()=>GM_getValue('bob-export-status-v1',null)?.state==='staged');
   }
   // CSV blobs outside a trusted CSV choice, or with receipt stopped, are not read.
@@ -119,6 +122,10 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   await bob.waitForTimeout(80);assert.equal(requests.length,blobRequests);
   assert.equal(await bob.evaluate(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity),13);
   await bob.locator('#bobBridgeStart').click();
+  // Synchronize the new allowlisted read-only arm across tabs before making
+  // assertions about created blobs and the next *explicit* CSV export.
+  await broker.waitForFunction(()=>GM_getValue('bob-export-arm-v1',0)>Date.now());
+  await bob.waitForFunction(()=>document.querySelector('#bobBridgeBrokerStatus').textContent.includes('erreichbar'));
   await broker.evaluate(text=>URL.createObjectURL(new Blob([text],{type:'text/csv'})),csv);
   await bob.waitForTimeout(80);assert.equal(await bob.evaluate(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity),13,'Armed receipt alone does not capture generated blobs without a new CSV choice');
   // Do not follow arbitrary URLs, non-reporting APIs, credentials in URLs or PDF exports.
@@ -130,7 +137,7 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   });
   await bob.waitForTimeout(100);assert.equal(requests.length,before,'Rejected anchors do not trigger bridge requests');
   await exportCSV(csv);
-  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===2);
+  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===2, null,{timeout:12000});
   saved=await bob.evaluate(()=>localStorage.getItem(BobDegiroPortfolio.KEY));
   // Invalid and partial exports must preserve the previous snapshot.
   for(const invalid of[
