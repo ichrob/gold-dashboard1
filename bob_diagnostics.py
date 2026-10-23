@@ -392,7 +392,10 @@ def new_feature_snapshot(areas, *, mobile_asset_loaded=False):
             'runtime': 'not-observable',
             'voiceCommands': 'not-observable',
             'screenshotSeries': 'not-observable',
-            'note': 'Phone-local actions are not transmitted to this server diagnostic.'
+            'remotePairing': 'not-implemented',
+            'deviceConsentRequired': True,
+            'note': 'Phone-local actions are not transmitted to this server diagnostic. '
+                    'No authenticated remote Android pairing exists.'
         },
         'unifiedMobileWorkspace': {
             'serverAsset': 'loaded' if mobile_asset_loaded else 'unavailable',
@@ -411,7 +414,12 @@ def new_feature_snapshot(areas, *, mobile_asset_loaded=False):
             'connectionCode': fields(snaptrade, ('code',)).get('code'),
             'dataFresh': snaptrade.get('fresh') is True,
             'tradingEnabled': False,
-            'note': 'Read-only connection status, not a DEGIRO order or live quote.'
+            'liveBrokerQuotes': False,
+            'sourceRole':'depot-history-and-issuer-observations-only',
+            'directDegiroSync': fields(areas.get('degiroSync'), ('code','status','running')),
+            'note': 'SnapTrade holdings and separate issuer observations are not '
+                    'DEGIRO executable live quotes. Direct DEGIRO read sync is separate '
+                    'and never starts merely because SnapTrade responds.'
         }
     }
 
