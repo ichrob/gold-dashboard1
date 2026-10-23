@@ -34,6 +34,43 @@ class SeriesEvidenceTest {
         assertTrue(result.provisional)
     }
 
+    @Test fun secondImageWithSplitIsinIsRecognized() {
+        val series = SeriesEvidence.analyze(listOf(
+            "ISIN DE000PJ9NB98\nBörse BNP OTC",
+            "Kursdaten\nSymbol | ISIN\nDE 000 PJ9 NB9 8\nBörse BNP OTC\nGeld 12,34 Brief 12,35"
+        ))
+        assertNotNull(series)
+        assertEquals(isin, series!!.isin)
+        assertEquals(2, series.anchorCount)
+        assertFalse(series.provisional)
+    }
+
+    @Test fun secondImageWithTwoBoundedGlyphErrorsStaysProvisional() {
+        val series = SeriesEvidence.analyze(listOf(
+            "BNP OTC\nISIN DE000PJ9NB98",
+            "BNP OTC\nSymbol | ISIN\nDEOOOPJONB9S\nGeld 12,34"
+        ))
+        assertNotNull(series)
+        assertEquals(isin, series!!.isin)
+        assertEquals(1, series.anchorCount)
+        assertTrue(series.provisional)
+    }
+
+    @Test fun conflictingWknAndVenueStillBlockGrouping() {
+        assertNull(SeriesEvidence.analyze(listOf(
+            "BNP OTC\nISIN DE000PJ9NB98",
+            "BNP OTC\nWKN FG14AV\nGeld 12,34"
+        )))
+        assertNull(SeriesEvidence.analyze(listOf(
+            "BNP OTC\nISIN DE000PJ9NB98",
+            "Societe Generale OTC\nGeld 12,34"
+        )))
+        assertNull(SeriesEvidence.analyze(listOf(
+            "BNP OTC\nISIN DE000PJ9NB98",
+            "BNP OTC\nISIN DEOOOPJONB99"
+        )))
+    }
+
     @Test fun rejectsConflictingValidIsins() {
         assertNull(SeriesEvidence.analyze(listOf(
             "DE000PJ9NB98", "DE000FG14AV8"
