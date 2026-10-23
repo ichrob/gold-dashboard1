@@ -19,6 +19,26 @@ Bob einmal neu laden. Push-Schalter aktivieren und auf „Hintergrund-Push gespe
 
 Über „Hintergrund-Push testen (30 Sekunden)“ wird eine einmalige Testnachricht in der Datenbank gespeichert. Danach App schließen und Bildschirm sperren. Der Server löst sie nach etwa 30–45 Sekunden aus. Dieser Test benötigt keinen echten Trade.
 
+## Echte Markt-Frühwarnungen (zusätzlich zu den künstlichen Tests)
+Bei eingeschalteter **Marktbeobachtung** prüft der bestehende Hintergrunddienst
+die aus dem unveränderten Haupt-Analyserunner gelieferten Frühwarnungen (v2).
+Nur eine *aktive* LONG-/SHORT-Frühwarnung aus einer nachweislich geschlossenen
+5m-Kerze, mit frischer gemeinsamer Gold-Spot-Beobachtung, nicht abgelaufenem
+Signal und noch nicht derselben bestätigten Hauptrichtung darf den Hinweis
+`FRÜHWARNUNG · LONG/SHORT` versenden. Es gelten die normalen Zeitfenster des
+bestehenden Markteintrittssystems und die gespeicherten Geräte-Schalter.
+Die Warnung hat `comparisonOnly=true` und `affectsApproval=false`;
+es gibt **keine** Produktfreigabe, Order, Stop-/KO- oder Ranking-Änderung.
+Pro Signalkerze erfolgt höchstens ein Hinweis, dieselbe Richtung hat
+30 Minuten Ruhezeit; eine entgegengesetzte Richtung kann separat gemeldet
+werden. Eine ausdrücklich zurückgenommene Frühwarnung löst höchstens eine
+Rücknahme aus, sofern die Vorwarnung zuvor tatsächlich versendet wurde.
+Veraltete, fehlende, widerrufene oder lediglich „watch“ signalisierte
+Beobachtungen dürfen keinen neuen Frühwarn-Push auslösen.
+Gleichzeitige Hauptsignal- oder Risikomeldungen behalten ihre bisherigen
+Prioritäten. Die vom Push-Anbieter bestätigte Annahme belegt weiterhin
+nicht die Anzeige auf dem Mobiltelefon.
+
 ## Künstliche LONG-/SHORT-Frühwarn-Push-Tests
 Unter **Mehr → Einstellungen → Weitere Push-Einstellungen und Tests** gibt es
 **„LONG-Frühwarnung testen“** und **„SHORT-Frühwarnung testen“**. Nur durch
