@@ -4242,15 +4242,57 @@ function listRowSignature(x){
  return JSON.stringify([x.isin,x.direction,...['issuer','venue','currency','ko','strike','ratioDivisor','leverage','maturity'].map(k=>x.listRow[k])]);
 }
 function agreedDegiroListRow(readings){
- const votes=new Map();
+ const votes=new Map(),partial=[];
  for(const text of readings){
   const blocks=degiroListBlocks(text);if(blocks.length!==1)continue;
-  const row=parseDegiroListRow(blocks[0]);if(!row?.listRow.complete)continue;
+  const row=parseDegiroListRow(blocks[0]);if(!row)continue;
+  if(validIsin(row.isin))partial.push(row);
+  if(!row.listRow.complete)continue;
   const key=listRowSignature(row),v=votes.get(key)||{row,count:0};v.count++;votes.set(key,v);
  }
  const winners=[...votes.values()].filter(v=>v.count>=2);
- if(winners.length!==1)return null;
- const row=winners[0].row;row.listRow.crossChecked=true;return row;
+ // Two different, independently confirmed complete readings remain a conflict.
+ if(winners.length>1)return null;
+ if(winners.length===1){const row=winners[0].row;row.listRow.crossChecked=true;return row;}
+ // On mobile, no individual OCR pass may capture *all* columns. Accept only
+ // per-field agreement from two readings of the SAME original image and ISIN.
+ // Never infer current BAR/BP/SL/STR from an old list or an issuer quote.
+ if(partial.length<2||new Set(partial.map(x=>x.isin)).size!==1)return null;
+ const fields=['issuer','venue','currency','ko','strike','ratioDivisor','direction'];
+ const chosen={};
+ for(const field of fields){
+  const counts=new Map();
+  for(const row of partial){
+   const value=field==='direction'?row.direction:row.listRow[field];
+   if(value===null||value===undefined||value==='')continue;
+   const key=JSON.stringify(value),v=counts.get(key)||{value,count:0};
+   v.count++;counts.set(key,v);
+  }
+  const verified=[...counts.values()].filter(v=>v.count>=2);
+  if(verified.length!==1)return null;
+  chosen[field]=verified[0].value;
+ }
+ if(!(chosen.ko>0&&chosen.strike>0&&chosen.ratioDivisor>0)
+   ||!['LONG','SHORT'].includes(chosen.direction)
+   ||!(chosen.issuer==='SG'?/^Soci[eé]t[eé]/i.test(chosen.venue):chosen.issuer==='BNP'&&/^BNP/i.test(chosen.venue)))return null;
+ const isin=partial[0].isin;
+ const match=partial.find(x=>x.listRow.ko===chosen.ko&&x.listRow.strike===chosen.strike
+   &&x.listRow.ratioDivisor===chosen.ratioDivisor&&x.direction===chosen.direction);
+ const maturityCounts=new Map(),leverageCounts=new Map();
+ for(const x of partial){
+  for(const [field,map] of [['maturity',maturityCounts],['leverage',leverageCounts]]){
+   const value=x.listRow[field];if(value===null||value===undefined||value==='')continue;
+   const key=JSON.stringify(value),vote=map.get(key)||{value,count:0};
+   vote.count++;map.set(key,vote);
+  }
+ }
+ const optional=map=>{const confirmed=[...map.values()].filter(v=>v.count>=2);return confirmed.length===1?confirmed[0].value:null;};
+ const ratio=1/chosen.ratioDivisor;
+ return {...partial[0],isin,direction:chosen.direction,
+  name:match?.name||((chosen.issuer==='SG'?'SG':'BNP')+' Gold '+chosen.direction+' · '+isin),
+  leverage:optional(leverageCounts)??'',
+  listRow:{...partial[0].listRow,...chosen,isin,ratio,leverage:optional(leverageCounts),
+   maturity:optional(maturityCounts),complete:true,crossChecked:true}};
 }
 function degiroListRects(data,width,height){
  const words=(data?.words||[]).filter(w=>w.bbox&&Number.isFinite(w.bbox.y0));
