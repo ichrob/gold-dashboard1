@@ -84,6 +84,7 @@ function mount(){
     line(d,title+': ',!value?'noch nicht gelesen':(value.code==='READ_OK'?'gelesen':'Abruf nicht verfügbar; vorheriger Stand')+' · letzter erfolgreicher Abruf '+stamp(value.checkedAt));
     if(!value)continue;
     if(value.code!=='READ_OK'&&value.failureCode)line(d,'Letzter fehlgeschlagener Abruf: ',stamp(value.failureAt)+' · '+(failures[value.failureCode]||'Grund nicht bestätigt'));
+    if(category==='orders'&&value.conflictingOrderIdentifiers>0)line(d,'Widersprüchliche Order-Kennungen: ',value.conflictingOrderIdentifiers+' Gruppen vorsorglich ausgelassen; keine bestätigten Ausführungen daraus.');
     if(category==='activities'&&!value.complete)line(d,'','Historie unvollständig; keine vollständige Ergebnisrechnung.');
     if(!value.rows?.length)line(d,'','Keine Einträge geliefert.');
     for(const row of (value.rows||[]).slice(0,100)){
