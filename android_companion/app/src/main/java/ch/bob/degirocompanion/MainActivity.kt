@@ -187,7 +187,10 @@ class MainActivity : Activity() {
             val task = remotePendingTask
             remotePendingTask = null
             remoteInput.setText("")
-            if (task == null || !remoteCoupling.consume(task, SystemClock.elapsedRealtime())) {
+            // Always pass even a missing proposal through the audited gate.
+            // Short-circuiting on task == null used to show "rejected" without
+            // recording REJECTED in the privacy-minimal local security log.
+            if (!remoteCoupling.consume(task, SystemClock.elapsedRealtime())) {
                 remoteStatus.text = "Fernauftrag nicht erlaubt, geändert, abgelaufen oder widerrufen. Nichts gestartet."
             } else {
                 val page = BobNavigation.pageFor(task)
