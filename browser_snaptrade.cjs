@@ -59,6 +59,8 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
   assert((await page.locator('#snapHistorytest-account').innerText()).includes('Depotwert ist kein Gewinn'));
   await page.locator('#snapJournaltest-account > summary').click();
   assert((await page.locator('#snapJournaltest-account').innerText()).includes('Abruf nicht verfügbar'));
+  await page.evaluate(()=>{state.snapshot.accounts[0].journal.orders.conflictingOrderIdentifiers=2;poll();});
+  assert((await page.locator('#snapJournaltest-account').innerText()).includes('2 Gruppen vorsorglich ausgelassen'));
   assert.equal(await page.locator('#snapHoldings img').count(),0);
   await page.evaluate(()=>{state.snapshot.accounts[0].positions[0].valuationPrice='7.9';poll();});
   assert(await page.locator('#snapHistorytest-account').evaluate(el=>el.open),'Polling must preserve open history');
