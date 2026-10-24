@@ -173,6 +173,11 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
         except Exception:
             result['paperInputArchive'] = {'status':'unavailable','readOnly':True,
                 'reason':'paper-input-history-unavailable'}
+        try:
+            result['paperInputLatest'] = __import__('paper_input_evidence').latest(conn)
+        except Exception:
+            result['paperInputLatest'] = {'status':'unavailable','readOnly':True,
+                'reason':'paper-input-latest-unavailable'}
         result['history'] = collect({'journal':lambda:__import__('diagnostic_history').report(conn)})
         result['details'] = stored_details(conn)
         # Keep the research report independently addressable when oversized
@@ -395,6 +400,14 @@ def simulation_evidence_snapshot(simulation):
                 'scope':'exact-recordedAt-correlation-in-last-five-cases-per-account',
                 'note':'Distinct recorded event clocks, not independent outages. '
                        'A reason classification does not prove root cause or missing trade price.'},
+            'paperInputLatest':project(simulation.get('paperInputLatest'),
+                shape('status','readOnly','realOrders','sessionMode','state',
+                      'observedAt','ageSeconds','profilesObserved',
+                      'profilesChecked','profilesFreshReady','profilesExpected',
+                      'scope','note','reason',
+                      profiles=[shape('profile','outcome','ready','priceFresh',
+                                      'originalDataAt','originalBarAt',
+                                      'sourceAgeAtCaptureSeconds')])),
             'paperInputArchive':project(simulation.get('paperInputArchive'),
                 shape('status','readOnly','realOrders','windowSeconds','sampledDistinctClocks',
                     'totalDistinctClocks','truncated','scope','note','reason',
