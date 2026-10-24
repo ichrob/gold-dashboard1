@@ -41,6 +41,16 @@ class MainActivity : Activity() {
     private lateinit var commandStatus: TextView
     private lateinit var executeButton: Button
     private val taskApproval = PhoneTaskApproval()
+    private val remoteAudit by lazy { RemoteAuditStore(this) }
+    private val remoteCoupling by lazy {
+        RemoteCoupling(audit = { event, task ->
+            remoteAudit.append(System.currentTimeMillis(), event, task)
+        })
+    }
+    private lateinit var remoteStatus: TextView
+    private lateinit var remoteInput: EditText
+    private lateinit var remoteAuditView: TextView
+    private var remotePendingTask: PhoneTask? = null
     private val conversation = PhoneConversation()
     private var speaker: TextToSpeech? = null
     private var speakerReady = false
@@ -91,6 +101,7 @@ class MainActivity : Activity() {
             "BOB ANDROID-LABOR: Produktbild teilen, automatisch erkennen und in Bob prüfen. Keine Handelsorders."
         }
         label(appHeadline)
+        button("🛑 NOT-STOPP – alle Handy- und Fernaufträge sperren") { emergencyStop() }
         button("Produktbilder auswählen (falls Teilen nicht klappt)") { openImagePicker() }
         status = label("Noch kein Bild ausgewählt. OCR-Werte sind niemals automatisch ein Handelsnachweis.")
         button("In Bob anzeigen – ohne Kopieren") {
@@ -145,7 +156,69 @@ class MainActivity : Activity() {
         }
         demoResult = label("Demo bereit. Ein UIAutomator-Test kann Eingaben und Klicks simulieren.", additional)
 
-        label("HANDYSTEUERUNG – Bob öffnen ist vorausgewählt. Nur auf Prüfen und danach auf Ausführen tippen. Keine Fernsteuerung oder Broker-Klicks.")
+        label("SAMSUNG-FERNKOPPLUNG – freiwillige, zeitlich begrenzte Übergabe. Keine dauerhafte Fernsteuerung.")
+        remoteStatus = label("Nicht gekoppelt. Kein Fernauftrag ist zulässig. Alle vorgeschlagenen Aktionen brauchen einen eigenen Tastendruck.")
+        button("🔗 Kopplung 30 Minuten freigeben und Einladung bewusst teilen") {
+            val invitation = remoteCoupling.pair(SystemClock.elapsedRealtime())
+            remotePendingTask = null
+            remoteStatus.text = "Temporär gekoppelt. Einladung nur an ein eigenes, vertrauenswürdiges Gerät teilen. Niemals in öffentlichen Chats senden. Ohne manuelle Freigabe startet nichts."
+            val share = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, invitation)
+            }
+            try {
+                startActivity(Intent.createChooser(share, "Geheime Kopplung nur bewusst teilen"))
+            } catch (_: Exception) {
+                remoteCoupling.revoke()
+                remoteStatus.text = "Teilen nicht möglich: Kopplung sicherheitshalber widerrufen."
+            }
+        }
+        remoteInput = EditText(this).apply {
+            hint = "Signierten BOB-FERN/1-Auftrag einfügen oder per Teilen empfangen"
+            contentDescription = "Bob Fernauftrag"
+            setSingleLine(true)
+            maxLines = 1
+            stack.addView(this)
+        }
+        button("Signierten Fernauftrag prüfen – niemals automatisch ausführen") {
+            previewRemote(remoteInput.text.toString())
+        }
+        button("✅ Geprüften Fernauftrag EINMAL erlauben") {
+            val task = remotePendingTask
+            remotePendingTask = null
+            remoteInput.setText("")
+            if (task == null || !remoteCoupling.consume(task, SystemClock.elapsedRealtime())) {
+                remoteStatus.text = "Fernauftrag nicht erlaubt, geändert, abgelaufen oder widerrufen. Nichts gestartet."
+            } else {
+                val page = BobNavigation.pageFor(task)
+                // Fixed Bob-owned read-only page. No arbitrary URI, settings,
+                // other apps, input events, trade dialogs or broker access.
+                val launched = if (page == null) false else openBobPage(page)
+                remoteCoupling.recordLaunchResult(task, launched)
+                remoteStatus.text = if (launched)
+                    "Erlaubte Anzeige wurde geöffnet (Browser-Erfolg nicht verifiziert). Kein Folgeschritt."
+                else "Aufruf fehlgeschlagen. Keine weitere Aktion."
+            }
+        }
+        button("🛑 FERN-STOPP – laufende Kopplung sofort sperren") {
+            remoteCoupling.stopped()
+            remotePendingTask = null
+            remoteInput.setText("")
+            remoteStatus.text = "FERN-STOPP aktiv. Alle bisherigen Kopplungsschlüssel ungültig. Nur neue bewusste Kopplung möglich."
+        }
+        button("Kopplung und Berechtigungen widerrufen") {
+            remoteCoupling.revoke()
+            remotePendingTask = null
+            remoteInput.setText("")
+            remoteStatus.text = "Widerrufen. Alte Nachrichten und Schlüssel sind unbrauchbar."
+        }
+        button("Lokales Fernkopplungs-Protokoll ansehen") {
+            remoteAuditView.text = remoteAudit.summary()
+        }
+        remoteAuditView = label("Protokoll lokal. Keine Schlüssel, Sprachtexte, Bilder oder Kontodaten.")
+        label("Wichtig: Die Übergabe erfolgt derzeit nur bewusst per Android-Teilen oder Einfügen. Kein Netzempfang, keine Hintergrundsteuerung, keine Bedienung von DEGIRO und keine Echtgeldorders. Der Freigabeschlüssel bleibt nur bis zum App-Neustart oder maximal 30 Minuten im Speicher.")
+
+        label("HANDYSTEUERUNG – Bob öffnen ist vorausgewählt. Nur auf Prüfen und danach auf Ausführen tippen. Keine Broker-Klicks.")
         commandInput = EditText(this).apply {
             hint = "Bob öffnen oder erlaubten Auftrag eingeben"
             contentDescription = "Bob Handy-Auftrag"
@@ -252,15 +325,7 @@ class MainActivity : Activity() {
                 }
             }
         }
-        button("STOPP – Auftrag verwerfen") {
-            taskApproval.clear()
-            clearVoicePlan()
-            conversation.clear()
-            speaker?.stop()
-            setCommandTextInternally("Bob öffnen")
-            commandOutcome = DeviceDiagnosticShare.Outcome.STOPPED
-            commandStatus.text = "Gestoppt. Keine weiteren Schritte geplant. Eine schon geöffnete App wird nicht rückgängig gemacht."
-        }
+        button("STOPP – Auftrag verwerfen") { emergencyStop() }
         // Keep the ONE required action tap directly under the recognized
         // transcript/status, instead of far below all other navigation buttons.
         // Multi-step plans still need a fresh explicit check for each next step.
@@ -274,6 +339,10 @@ class MainActivity : Activity() {
     override fun onPause() {
         // No unfinished command survives a switch to another app or the background.
         taskApproval.clear()
+        if (::remoteStatus.isInitialized) {
+            remoteCoupling.discardPending()
+            remotePendingTask = null
+        }
         super.onPause()
     }
 
@@ -289,6 +358,12 @@ class MainActivity : Activity() {
             // Untrusted text coming from Android Sharesheet: only preview it.
             // No shared text is ever executed or relayed automatically.
             val received = incoming.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+            if (received.startsWith("BOB-FERN/1|")) {
+                // Android sharing is UNTRUSTED transport. Signed proposal only;
+                // it cannot trigger a browser launch without a later local tap.
+                previewRemote(received)
+                return
+            }
             commandInput.setText(received.take(100))
             previewTask(received)
             return
@@ -344,11 +419,9 @@ class MainActivity : Activity() {
             }
             clearVoicePlan()
             if (PhoneTaskPlanParser.isStop(spoken)) {
+                emergencyStop()
                 speechOutcome = DeviceDiagnosticShare.Outcome.STOPPED
-                conversation.clear()
-                speaker?.stop()
-                setCommandTextInternally("Bob öffnen")
-                commandStatus.text = "STOPP erkannt. Alle noch offenen Aufträge verworfen."
+                commandStatus.text = "STOPP erkannt. Alle noch offenen lokalen und Fernaufträge verworfen."
                 return
             }
             val plan = conversation.interpret(spoken, SystemClock.elapsedRealtime())
@@ -426,6 +499,10 @@ class MainActivity : Activity() {
         PhoneTaskProtocol.parseDisplayed(text)
 
     private fun previewTask(text: String) {
+        if (PhoneTaskPlanParser.isStop(text)) {
+            emergencyStop()
+            return
+        }
         // Accept only a fully validated bounded plan from keyboard dictation.
         // If any clause is unknown, no action is approved.
         val single = parseDisplayedTask(text)
@@ -498,6 +575,40 @@ class MainActivity : Activity() {
             commandStatus.text = "Bob konnte im Browser nicht geöffnet werden."
             false
         }
+    }
+
+    private fun emergencyStop() {
+        remoteCoupling.stopped()
+        remotePendingTask = null
+        if (::remoteInput.isInitialized) remoteInput.setText("")
+        if (::remoteStatus.isInitialized) remoteStatus.text =
+            "STOPP aktiv: Kopplung widerrufen und Fernaufträge gesperrt."
+        taskApproval.clear()
+        clearVoicePlan()
+        conversation.clear()
+        speaker?.stop()
+        if (::commandInput.isInitialized) setCommandTextInternally("Bob öffnen")
+        commandOutcome = DeviceDiagnosticShare.Outcome.STOPPED
+        if (::commandStatus.isInitialized) commandStatus.text =
+            "STOPP: alle offenen lokalen und Fernaufträge verworfen. Bereits geöffnete Apps werden nicht rückgängig gemacht."
+    }
+
+    private fun previewRemote(raw: String) {
+        if (!::remoteStatus.isInitialized) return
+        remotePendingTask = null
+        val verified = remoteCoupling.receive(
+            raw, SystemClock.elapsedRealtime(), System.currentTimeMillis())
+        // Clear raw material from UI. Never copy an authenticated envelope
+        // into the ordinary voice parser, persistent storage or audit trail.
+        remoteInput.setText("")
+        if (verified == null) {
+            remoteStatus.text = "Fernauftrag abgelehnt: Signatur, Sitzung, Uhrzeit, Wiederholung oder erlaubte Aktion ungültig. Keine Ausführung."
+            return
+        }
+        remotePendingTask = verified
+        remoteStatus.text = "Signiert geprüft: " +
+            PhoneTaskProtocol.displayLabel(verified) +
+            ". Nur diese einmalige, harmlose Anzeige. Tippe zur Freigabe ausdrücklich auf „Geprüften Fernauftrag EINMAL erlauben“. Wechseln der App oder STOPP verwirft den Auftrag."
     }
 
     private fun shareDeviceDiagnostics() {

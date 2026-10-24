@@ -9,7 +9,9 @@
     <application android:label="${bobAppLabel}"
                  android:allowBackup="false"
                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
-        <activity android:name=".MainActivity" android:exported="true">
+        <!-- Reuse the same in-memory approval session when Android Sharesheet returns a signed proposal. -->
+        <activity android:name=".MainActivity" android:exported="true"
+                  android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
