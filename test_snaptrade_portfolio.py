@@ -151,6 +151,45 @@ class PortfolioTests(unittest.TestCase):
         self.assertEqual(orders['rows'][0]['key'], p.identity('different-id'))
         self.assertEqual(result['activities']['code'], 'READ_OK')
 
+    def test_activity_coverage_partial_and_conflicting_ids(self):
+        # Historical provider pages may exceed the bounded daily read budget.
+        # Different entries under one provider ID never count as proven trades.
+        base = {'type':'BUY', 'trade_date':'2026-10-24',
+                'currency':{'code':'CHF'}, 'units':1, 'price':9, 'fee':0}
+        def get(path, config, params=None):
+            if path.endswith('/orders'):
+                return []
+            offset = params['offset']
+            batch = [dict(base, id='test-'+str(offset+i)) for i in range(500)]
+            if offset == 0:
+                batch[1] = dict(base, id='test-0', units=2)
+            return {'data':batch, 'pagination':{'total':12599}}
+        with patch.object(b, 'ACTIVITY_OFFSETS', (0, 500)):
+            result = b.read_journal(A, CONFIG, get=get)
+        activity = result['activities']
+        self.assertEqual(activity['code'], 'READ_OK')
+        self.assertFalse(activity['complete'])
+        self.assertEqual(activity['activityCoverageReason'], 'PAGE_LIMIT')
+        self.assertEqual(activity['activitySourceTotal'], 12599)
+        self.assertEqual(activity['conflictingActivityIdentifiers'], 1)
+        self.assertEqual(len(activity['rows']), 998)
+        self.assertEqual(result['orders']['code'], 'READ_OK')
+        # Partial history cannot produce realized FIFO profit.
+        journal = b.trades.build(result)
+        self.assertFalse(journal['historyComplete'])
+        self.assertEqual(journal['realized'], [])
+
+    def test_short_inconsistent_activity_page_is_not_complete(self):
+        def get(path, config, params=None):
+            if path.endswith('/orders'):
+                return []
+            return {'data':[{'id':'single', 'type':'BUY', 'trade_date':'2026-10-24'}],
+                    'pagination':{'total':100}}
+        result = b.read_journal(A, CONFIG, get=get)
+        self.assertFalse(result['activities']['complete'])
+        self.assertEqual(result['activities']['activityCoverageReason'], 'SHORT_PAGE')
+        self.assertEqual(result['activities']['activitySourceTotal'], 100)
+
     def test_history_encrypted_reload_delete_and_owner_separation(self):
         db={}
         def store(action,payload=None):
