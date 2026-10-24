@@ -188,13 +188,22 @@ def run_all(conn, bundle, market, selection, quotes, now, settings, active=None,
                                           quotes, now, profile_policy=policy)
             outcomes[profile] = 'checked'
             if input_observations is not None:
-                from paper_input_evidence import sanitized_profile
-                input_observations.append(sanitized_profile(profile, m, 'checked'))
+                try:
+                    from paper_input_evidence import sanitized_profile
+                    record = sanitized_profile(profile, m, 'checked')
+                    if record is not None: input_observations.append(record)
+                except Exception:
+                    # The optional observation must not alter a successful ledger.
+                    pass
         except Exception as exc:
             outcomes[profile] = 'error:' + type(exc).__name__
             if input_observations is not None:
-                from paper_input_evidence import sanitized_profile
-                input_observations.append(sanitized_profile(profile, {}, 'error'))
+                try:
+                    from paper_input_evidence import sanitized_profile
+                    record = sanitized_profile(profile, {}, 'error')
+                    if record is not None: input_observations.append(record)
+                except Exception:
+                    pass
             print('BOB_PAPER_PROFILE profile=' + profile +
                   ' error=' + type(exc).__name__, flush=True)
     return outcomes
