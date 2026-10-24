@@ -17,6 +17,25 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class ChatShareHandoffUiTest {
+    @Test fun sharedHttpsAppLinkShowsSamePreviewButNeverLaunchesByItself() {
+        val inst = InstrumentationRegistry.getInstrumentation()
+        val context = inst.targetContext
+        val device = UiDevice.getInstance(inst)
+        val proposal = Intent(Intent.ACTION_SEND).apply {
+            setClassName(context.packageName, "ch.bob.degirocompanion.MainActivity")
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT,
+                "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        context.startActivity(proposal)
+        assertNotNull(device.wait(Until.findObject(
+            By.textContains("Per Link/Android-Teilen vorgeschlagen: Goldprodukte anzeigen")),
+            5_000))
+        assertTrue(device.currentPackageName == context.packageName)
+        // A safe preview deliberately does not tap the approval button.
+    }
+
     @Test fun shareShowsPreviewButNeverLaunchesBrowserByItself() {
         val inst = InstrumentationRegistry.getInstrumentation()
         val context = inst.targetContext
