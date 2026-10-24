@@ -31,6 +31,17 @@
                 <data android:scheme="bobhandy" android:host="handoff"
                       android:pathPrefix="/OPEN_" />
             </intent-filter>
+            <!-- Verified HTTPS App Link. Android validates the public
+                 certificate at /.well-known/assetlinks.json. Every link is
+                 still treated as an untrusted single display proposal. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https"
+                      android:host="bob-private-scanner.onrender.com"
+                      android:pathPrefix="/handy/OPEN_" />
+            </intent-filter>
             <!-- Only a user-initiated image share; never screen-capture other apps. -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
