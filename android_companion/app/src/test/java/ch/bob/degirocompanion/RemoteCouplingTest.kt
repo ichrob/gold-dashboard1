@@ -32,6 +32,27 @@ class RemoteCouplingTest {
         assertTrue(x.isActive(1001))
     }
 
+    @Test fun rejectButtonWithoutProposalIsAuditedEvenAfterRevocation() {
+        val x = engine()
+        assertFalse(x.consume(null, 1_000))
+        assertEquals(listOf(RemoteAuditEvent.REJECTED), events)
+        x.pair(2_000)
+        x.revoke()
+        assertFalse(x.consume(null, 2_001))
+        assertEquals(RemoteAuditEvent.REJECTED, events.last())
+        assertFalse(x.isActive(2_002))
+    }
+
+    @Test fun invalidOrExpiredProposalCannotBeApprovedOrLaunched() {
+        val x = engine()
+        val invite = x.pair(1_000)
+        assertEquals(PhoneTask.OPEN_PRODUCTS, x.receive(
+            sign(invite, "OPEN_PRODUCTS", nonce, now), 1_001, now))
+        // A visible tap after TTL must be rejected and logged, not silently skipped.
+        assertFalse(x.consume(PhoneTask.OPEN_PRODUCTS, 61_001))
+        assertEquals(RemoteAuditEvent.REJECTED, events.last())
+    }
+
     @Test fun validSignedProposalStillRequiresVisibleTapAndIsOneShot() {
         val x = engine()
         val invite = x.pair(1_000L)
