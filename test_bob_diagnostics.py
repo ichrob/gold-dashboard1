@@ -413,6 +413,20 @@ class RecentPaperEvidenceStatusTests(unittest.TestCase):
         self.assertNotIn('secret',json.dumps(result))
         self.assertFalse(result['missingResultsAreLosses'])
 
+    def test_later_priced_paper_case_never_relabels_missing_exit_as_verified(self):
+        cases=[{"status":"inconclusive","productReturnKnown":True,
+                "events":[{"kind":"data-gap"},{"kind":"deferred-sale"}]},
+               {"status":"inconclusive","productReturnKnown":False,
+                "events":[{"kind":"data-gap"}]}]
+        data=diagnostics.recent_paper_outcomes([
+            {"recentCases":{"status":"observed","items":cases}}])
+        evidence=data["inconclusivePriceEvidence"]
+        self.assertEqual(evidence["laterModelPricePresentButOriginalExitUnverified"],1)
+        self.assertEqual(evidence["noConfirmedLaterModelPrice"],1)
+        self.assertEqual(evidence["originalExitStillUnverified"],2)
+        self.assertFalse(data["missingResultsAreLosses"])
+        self.assertIn("cannot reconstruct",evidence["note"])
+
     def test_all_observed_paper_cases_are_not_whole_account_profit(self):
         result=diagnostics.recent_paper_outcomes([
             {'recentCases':{'status':'observed','items':[]}} for _ in range(5)])
