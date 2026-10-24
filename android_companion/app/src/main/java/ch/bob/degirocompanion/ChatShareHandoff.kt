@@ -28,6 +28,14 @@ internal object ChatShareHandoff {
         val task = if (clean.startsWith("BOB-HANDY/1|")) {
             val name = clean.removePrefix("BOB-HANDY/1|")
             allowed.firstOrNull { it.name == name }
+        } else if (clean.startsWith("https://") || clean.startsWith("bobhandy://")) {
+            // Some ChatGPT/Android clients hand off an app link as a text
+            // share rather than an ACTION_VIEW Intent. Accept ONLY the
+            // exact canonical harmless links already permitted by the
+            // same OS-link parser; never a partial URL or extra query.
+            // BobHandyDeepLink delegates back only with BOB-HANDY/1|,
+            // so this branch cannot recurse on link input.
+            BobHandyDeepLink.parse(clean)
         } else {
             // Legacy German command shared from ChatGPT; exact local parser only.
             PhoneTaskProtocol.parseDisplayed(clean)
