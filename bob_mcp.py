@@ -71,8 +71,18 @@ def tool_definitions(diagnostics=False, products=True):
                 "offset":{"type":"integer","minimum":0,"maximum":4999}},"additionalProperties":False},
             "annotations":{"readOnlyHint":True,"destructiveHint":False,"idempotentHint":True,"openWorldHint":False},
         })
+        result.append({
+            "name":"bob_push_history",
+            "description":"Read redacted original push-provider attempts by explicit timezone-aware date window (up to 24 hours, within the seven-day best-effort journal). Separates synthetic TEST messages and non-test warnings; neither provider acceptance nor a non-TEST label proves handset display or market-event validity. Read-only, no credentials or notification contents.",
+            "inputSchema":{"type":"object","properties":{
+                "start":{"type":"string","description":"Inclusive ISO timestamp with timezone"},
+                "end":{"type":"string","description":"Exclusive ISO timestamp with timezone"},
+                "offset":{"type":"integer","minimum":0,"maximum":9900}},
+                "additionalProperties":False},
+            "annotations":{"readOnlyHint":True,"destructiveHint":False,"idempotentHint":True,"openWorldHint":False},
+        })
     for tool in result:
-        scope = DIAGNOSTICS_SCOPE if tool['name'] in ('bob_diagnostics','bob_signal_history') else SCOPE
+        scope = DIAGNOSTICS_SCOPE if tool['name'] in ('bob_diagnostics','bob_signal_history','bob_push_history') else SCOPE
         schemes = [{"type": "oauth2", "scopes": [scope]}]
         tool['securitySchemes'] = schemes
         tool['_meta'] = {"securitySchemes": schemes}
@@ -115,7 +125,7 @@ def error(request_id, code, message):
             "error": {"code": code, "message": message}}
 
 
-def handle(request, report_reader, diagnostics_reader=None, products=True, signal_history_reader=None):
+def handle(request, report_reader, diagnostics_reader=None, products=True, signal_history_reader=None, push_history_reader=None):
     """Return (HTTP status, JSON-RPC result). Only tool calls read the database."""
     if not isinstance(request, dict) or request.get("jsonrpc") != "2.0":
         return 400, error(None, -32600, "Invalid Request")
@@ -148,6 +158,12 @@ def handle(request, report_reader, diagnostics_reader=None, products=True, signa
             args=arguments(args)
         except (ValueError, TypeError, OverflowError):
             return 200, error(rid, -32602, "Invalid signal history window or offset")
+    elif params["name"] == "bob_push_history":
+        try:
+            from push_delivery_history import arguments
+            args = arguments(args)
+        except (ValueError, TypeError, OverflowError):
+            return 200, error(rid, -32602, "Invalid push history window or offset")
     elif params["name"] == "bob_diagnostics":
         from bob_diagnostics import DIAGNOSTIC_FOCUS
         if (not isinstance(args,dict) or set(args) - {"focus"} or
@@ -156,11 +172,13 @@ def handle(request, report_reader, diagnostics_reader=None, products=True, signa
             return 200, error(rid, -32602, "Invalid diagnostic focus")
     elif args != {}:
         return 200, error(rid, -32602, "Invalid tool arguments")
-    required_scope = DIAGNOSTICS_SCOPE if params["name"] in ("bob_diagnostics","bob_signal_history") else SCOPE
+    required_scope = DIAGNOSTICS_SCOPE if params["name"] in ("bob_diagnostics","bob_signal_history","bob_push_history") else SCOPE
     if (required_scope == DIAGNOSTICS_SCOPE and diagnostics_reader is None) or (required_scope == SCOPE and not products):
         return authorization_required(rid, required_scope, products, diagnostics_reader is not None)
     if params["name"] == "bob_signal_history":
         data = signal_history_reader(args) if signal_history_reader else {"status":"unavailable","readOnly":True}
+    elif params["name"] == "bob_push_history":
+        data = push_history_reader(args) if push_history_reader else {"status":"unavailable","readOnly":True}
     elif params["name"] == "bob_diagnostics":
         from bob_diagnostics import bounded_report, focused_report
         data = bounded_report(focused_report(
