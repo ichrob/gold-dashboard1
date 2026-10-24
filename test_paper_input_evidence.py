@@ -1,0 +1,131 @@
+"""Post-commit paper input evidence: only observed clocks, no synthetic outcomes."""
+import json
+import time
+import unittest
+from decimal import Decimal
+from unittest.mock import Mock, patch
+import paper_input_evidence as ev
+import diagnostic_history
+import bob_diagnostics
+
+
+class _Tx:
+    def __enter__(self): return self
+    def __exit__(self, *args): return False
+
+
+def _case(at=1000000):
+    return [{"profile":"conservative",
+        "recentCases":{"status":"observed","items":[
+            {"status":"inconclusive","events":[
+                {"kind":"data-gap","recordedAt":at}]}]}}]
+
+
+class PaperInputEvidenceTests(unittest.TestCase):
+    def test_profile_sanitization_is_allowlist_only(self):
+        value = ev.sanitized_profile("conservative",{
+            "ready":True,"priceFresh":False,"dataAt":45000,"analysisBarAt":42000,
+            "price":4123, "trade":{"isin":"PRIVATE"}, "secret":"never"}, "checked")
+        self.assertEqual(value,{"profile":"conservative", "outcome":"checked",
+            "ready":True,"priceFresh":False,"dataAt":45000,"barAt":42000})
+        self.assertIsNone(ev.sanitized_profile("private-profile",{}, "checked"))
+        self.assertIsNone(ev.sanitized_profile("conservative",{"dataAt":float("nan")}, "checked")["dataAt"])
+
+    def test_capture_is_enqueue_only_redacted_and_never_claims_delivery(self):
+        original={"spots":{"spot_price_as_of":"2026-10-23T19:00:00Z","xaus":4000}}
+        profile={"profile":"early100","ready":False,"priceFresh":False,
+                 "dataAt":2000,"barAt":1000,"outcome":"evaluation-error",
+                 "cash":10000,"isin":"SECRET"}
+        with patch.object(diagnostic_history,"emit") as emit:
+            self.assertTrue(ev.capture(original,[profile],3000))
+        self.assertEqual(emit.call_count,1)
+        name, trace, payload = emit.call_args.args
+        self.assertEqual(name, "paper-input")
+        self.assertEqual(trace,diagnostic_history.trace(original))
+        self.assertEqual(payload["phase"],"post-commit")
+        self.assertEqual(payload["profiles"][0]["outcome"],"evaluation-error")
+        self.assertNotIn("SECRET",json.dumps(payload))
+        self.assertNotIn("cash",json.dumps(payload))
+        self.assertFalse(ev.capture(original,[],3000))
+
+    def test_diagnostic_projection_has_no_secrets_and_keeps_statuses(self):
+        result=diagnostic_history.validate({
+            "id":"a"*32,"traceId":"b"*32,"stage":"paper-input",
+            "at":time.time(),"payload":{"phase":"post-commit","checkedAt":2000,
+                "profiles":[{"profile":"balanced","outcome":"checked",
+                             "ready":False,"priceFresh":False,"dataAt":1500,
+                             "barAt":1200,"price":42.0,"token":"SECRET"}],
+                "token":"SECRET"}})
+        self.assertEqual(result["payload"]["profiles"][0]["dataAt"],1500)
+        self.assertNotIn("SECRET",json.dumps(result))
+        self.assertNotIn("price",json.dumps(result).replace("priceFresh",""))
+
+    def test_archive_record_not_later_claimed_as_earlier_input(self):
+        conn=Mock()
+        conn.transaction.return_value=_Tx()
+        conn.execute.return_value.fetchone.return_value=(Decimal("1001.25"),{
+            "profiles":[{"profile":"conservative","outcome":"checked","ready":False,
+                         "priceFresh":False,"dataAt":500000,"barAt":450000,
+                         "secret":"not-visible"}]})
+        result=ev.report(conn,_case(),now_ms=1200000)
+        self.assertEqual(result["counts"]["workerInputNearby"],1)
+        row=result["items"][0]
+        self.assertEqual(row["timeRelation"],"after-event")
+        self.assertEqual(row["deltaSeconds"],1.25)
+        self.assertFalse(row["profiles"][0]["priceFresh"])
+        self.assertEqual(result["counts"]["nearbyProfileInputUnfreshOrError"],1)
+        self.assertNotIn("not-visible",json.dumps(result))
+        sql=conn.execute.call_args.args[0].upper()
+        self.assertTrue(sql.lstrip().startswith("SELECT"))
+        self.assertNotIn("INSERT ",sql)
+        self.assertNotIn("DELETE ",sql)
+        self.assertNotIn("UPDATE ",sql)
+
+    def test_missing_archive_is_unconfirmed_not_broken_or_filled(self):
+        conn=Mock()
+        conn.transaction.return_value=_Tx()
+        conn.execute.return_value.fetchone.return_value=None
+        result=ev.report(conn,_case(),now_ms=1200000)
+        self.assertEqual(result["counts"]["noWorkerCaptureNearby"],1)
+        self.assertEqual(result["items"][0]["state"],"no-worker-input-capture-in-window")
+        self.assertIn("proves nothing",result["note"])
+        conn.execute.side_effect=TimeoutError("Sensitive data")
+        result=ev.report(conn,_case(),now_ms=1200000)
+        self.assertEqual(result["status"],"partial")
+        self.assertEqual(result["counts"]["queryUnavailable"],1)
+        self.assertNotIn("Sensitive data",json.dumps(result))
+
+    def test_multiple_profiles_same_gap_only_one_query(self):
+        conn=Mock();conn.transaction.return_value=_Tx()
+        conn.execute.return_value.fetchone.return_value=(1000.,{"profiles":[]})
+        rows=_case()+[{"profile":"offensive","recentCases":_case()[0]["recentCases"]}]
+        result=ev.report(conn,rows,now_ms=1200000)
+        self.assertEqual(result["sampledDistinctClocks"],1)
+        self.assertEqual(conn.execute.call_count,1)
+
+    def test_gap_review_does_not_promote_worker_input_into_trade_outcome(self):
+        corr={"recentRecordedGapInstants":[{"recordedAt":1000000,"affectedVirtualCases":2}]}
+        source={"items":[{"eventAt":1000000,"state":"nearby-original-observed",
+                  "nearestSourceAt":999000,"deltaSeconds":1,
+                  "timeRelation":"before-or-at-event"}]}
+        worker={"items":[{"eventAt":1000000,"state":"worker-input-captured-near-gap",
+                  "capturedAt":1001000,"timeRelation":"after-event",
+                  "profiles":[{"profile":"conservative","outcome":"checked","ready":True,
+                               "priceFresh":True,"dataAt":999000,"barAt":990000,
+                               "secret":"secret-never-out"}]}]}
+        import paper_gap_triage
+        result=paper_gap_triage.assess(corr,source,{"items":[]},worker)
+        self.assertEqual(result["counts"]["workerCaptureOnlyAfterGap"],1)
+        item=result["items"][0]
+        self.assertEqual(item["paperWorkerEvidence"],"worker-capture-only-after-gap")
+        self.assertFalse(item["executedExitVerified"])
+        self.assertFalse(item["profitOrLossVerified"])
+        self.assertNotIn("secret-never-out",json.dumps(result))
+        sample={"status":"observed","accounts":_case(),"paperInputArchive":worker}
+        projected=bob_diagnostics.simulation_evidence_snapshot(sample)
+        self.assertEqual(projected["paperInputArchive"]["items"][0]["profiles"][0]["profile"],"conservative")
+        self.assertNotIn("secret-never-out",json.dumps(projected))
+
+
+if __name__ == "__main__":
+    unittest.main()
