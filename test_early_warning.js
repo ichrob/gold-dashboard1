@@ -31,5 +31,5 @@ console.log('Continuous warning: bidirectional lifecycle, invalidation, expiry, 
 
 const worker=require('./background_analysis.js').evaluate({bundle:{history:{bars_by_tf:{}}}});
 assert.equal(worker.earlyWarning.state,worker.session.entryAllowed?'unavailable':'paused','closed sessions pause early warnings; live sessions lacking bars are unavailable');
-assert.equal(worker.earlyWarning.monitoring,true);
+assert.equal(worker.earlyWarning.monitoring,worker.session.entryAllowed===true,'weekend pause does not imply a running warning monitor');
 assert.equal(worker.direction,'NEUTRAL');
