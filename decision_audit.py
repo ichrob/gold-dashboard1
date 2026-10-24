@@ -27,6 +27,7 @@ VERSION = 'decision-audit-v1'
 RULE_VERSION = 'intraday-trend-follow-v7'
 REPORT_LIMIT = 2500
 REPORT_BUSY_LIMIT = 500
+REPORT_ROW_BATCH = 500
 REPORT_CACHE_SECONDS = 300
 HARVEST_HORIZONS = (1, 5, 15, 30, 60, 240)
 HARVEST_HORIZON_BATCH = 64
@@ -540,8 +541,8 @@ def _load_report_rows(conn, limit=None):
     if not ids:
         return []
     payloads, by_id = {}, {}
-    for offset in range(0, len(ids), 500):
-        batch = ids[offset:offset + 500]
+    for offset in range(0, len(ids), REPORT_ROW_BATCH):
+        batch = ids[offset:offset + REPORT_ROW_BATCH]
         for key, payload in conn.execute(
                 "SELECT id,payload FROM bob_decision_audit WHERE id = ANY(%s::text[])",
                 (batch,)).fetchall():
