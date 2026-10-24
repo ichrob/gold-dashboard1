@@ -56,6 +56,31 @@ function readDraft(value){
  }
  return out;
 }
+// A user's shared DEGIRO screen is useful comparison evidence, not an
+// executable order quote or confirmation of an actual fill. This function is
+// deliberately local-only; no price is sent to analysis, paper or broker APIs.
+function displayedPairStatus(draft){
+ if(!draft||draft.verified!==false||draft.tradeApproved!==false||draft.sourceTime!==null
+    ||typeof draft.isin!=='string'||!validIsin(draft.isin))
+   throw Error('Nur ungeprüfte, lokale DEGIRO-Bildschirmbeobachtungen.');
+ const f=draft.fields||{};
+ const parse=(s)=>{
+  if(typeof s!=='string'||!/^(?:[1-9][0-9]{0,6}|0)(?:,[0-9]{1,4})?$/.test(s))return null;
+  const n=Number(s.replace(',','.'));return Number.isFinite(n)&&n>0?n:null;
+ };
+ const bid=parse(f.bid),ask=parse(f.ask);
+ if(bid===null||ask===null)
+  return {state:'incomplete',label:'Kein vollständiges Geld-/Briefpaar aus dem Bild',broker:'DEGIRO',
+   executable:false,canTrade:false,sourceTime:null};
+ if(bid>ask)
+  return {state:'conflict',label:'Geldpreis größer als Briefpreis: Bild prüfen',broker:'DEGIRO',
+   executable:false,canTrade:false,sourceTime:null};
+ return {state:'screen-observation',label:'DEGIRO-Bildschirmwerte für manuellen Vergleich',
+  broker:'DEGIRO',isin:draft.isin,bid,ask,
+  displayedTime:f.displayedTime||null,venue:f.venue||null,
+  sourceTime:null,originalQuoteTimeVerified:false,executable:false,canTrade:false,
+  permissions:'comparison-only',note:'OCR ungeprüft; keine bestätigte Kurszeit, Stückzahl, Ordervorschau oder Ausführung'};
+}
 function takeTransferFragment(location,history){
  const hash=String(location?.hash||'');
  if(!hash.startsWith('#bob-ocr='))return null;
@@ -66,7 +91,7 @@ function takeTransferFragment(location,history){
  readDraft(draft); // Strict parser rejects missing/multiple/invalid ISINs and unknown fields.
  return draft;
 }
-const api={validIsin,readDraft,takeTransferFragment};
+const api={validIsin,readDraft,displayedPairStatus,takeTransferFragment};
 if(typeof module==='object'&&module.exports)module.exports=api;
 if(!root.document)return;
 function mount(){
@@ -74,7 +99,7 @@ function mount(){
  if(!host||root.document.getElementById('bobAndroidEvidence'))return;
  const box=root.document.createElement('details');box.className='card bob-disclosure';box.id='bobAndroidEvidence';
  const heading=root.document.createElement('summary');heading.textContent='Android-Bildschirmdaten · OCR-Entwurf prüfen';
- const introduction=root.document.createElement('p');introduction.textContent='Ein bis vier bewusst geteilte Bilder desselben Produkts. Die Android-App liest diese lokal und übergibt nur ausdrücklich als ungeprüft markierte Angaben. Kein Handelsnachweis, kein automatischer Brokerabruf.';
+ const introduction=root.document.createElement('p');introduction.textContent='Ein bis vier bewusst geteilte Bilder desselben Produkts. Die Android-App liest diese lokal und übergibt nur ausdrücklich als ungeprüft markierte Angaben. Ein sichtbares Geld-/Briefpaar dient ausschliesslich zur manuellen Gegenprüfung. Kein echter DEGIRO-Ausführungskurs, kein automatischer Brokerabruf.';
  const textarea=root.document.createElement('textarea');
  textarea.id='bobAndroidDraft';textarea.rows=8;textarea.maxLength=8000;textarea.placeholder='BOB OCR-ENTWURF – NICHT VERIFIZIERT\nISIN: ...';
  textarea.style.width='100%';textarea.style.boxSizing='border-box';textarea.setAttribute('aria-label','Ungeprüften OCR-Entwurf einfügen');
@@ -101,6 +126,12 @@ function mount(){
     list.append(item);
    }
    preview.append(title,list);
+   const pair=displayedPairStatus(draft);
+   const note=root.document.createElement('p');
+   note.setAttribute('data-degiro-screen-quote',pair.state);
+   note.textContent=pair.label+(pair.state==='screen-observation'?' · Geld '+draft.fields.bid+' / Brief '+draft.fields.ask:'')+
+     ' · kein direkt angebundener DEGIRO-Ausführungskurs.';
+   preview.append(note);
    if(draft.series){
     const seriesNote=root.document.createElement('p');
     seriesNote.textContent=draft.series.imageCount+' Bilder gemeinsam ausgewählt · ISIN auf '+draft.series.anchorCount+
