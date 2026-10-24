@@ -44,6 +44,7 @@ class MainActivity : Activity() {
     private val chatShareApproval = PhoneTaskApproval()
     private var chatShareTask: PhoneTask? = null
     private lateinit var chatShareSection: LinearLayout
+    private lateinit var mainScroll: ScrollView
     private lateinit var chatShareStatus: TextView
     private val remoteAudit by lazy { RemoteAuditStore(this) }
     private val remoteCoupling by lazy {
@@ -379,7 +380,8 @@ class MainActivity : Activity() {
         stack.removeView(executeButton)
         stack.addView(executeButton, stack.indexOfChild(commandStatus) + 1)
         label("Freigaben gelten einmalig und höchstens 60 Sekunden. Bei Textänderung, App-Wechsel oder STOPP werden sie ungültig.")
-        setContentView(ScrollView(this).apply { addView(stack) })
+        mainScroll = ScrollView(this).apply { addView(stack) }
+        setContentView(mainScroll)
         processUserShare(intent)
     }
 
@@ -656,6 +658,9 @@ class MainActivity : Activity() {
         chatShareApproval.clear()
         chatShareTask = null
         chatShareSection.visibility = View.VISIBLE
+        // Bring user-proposed command and its explicit confirmation into view
+        // on an already-scrolled Samsung; no click or activity is triggered.
+        if (::mainScroll.isInitialized) mainScroll.post { mainScroll.smoothScrollTo(0, 0) }
         val task = ChatShareHandoff.parse(raw)
         if (task == null) {
             chatShareStatus.text = "Geteilter Auftrag abgelehnt. Erlaubt ist nur eine bekannte Bob-Anzeige. Nichts gestartet."
