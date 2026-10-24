@@ -130,6 +130,27 @@ class PortfolioTests(unittest.TestCase):
             self.assertNotIn('failureCode', recovered[category])
             self.assertNotIn('failureAt', recovered[category])
 
+    def test_conflicting_order_ids_do_not_cancel_the_entire_journal(self):
+        # SnapTrade may return different statuses/fill amounts under one
+        # brokerage_order_id. Do not choose a final order state by guesswork.
+        shared = {'brokerage_order_id':'same-provider-id','status':'PARTIAL',
+                  'filled_quantity':'1','execution_price':'10','action':'BUY'}
+        changed = dict(shared, status='EXECUTED', filled_quantity='2')
+        independent = {'brokerage_order_id':'different-id','status':'EXECUTED',
+                       'filled_quantity':'3','execution_price':'12','action':'SELL'}
+        def get(path, config, params=None):
+            if path.endswith('/orders'):
+                return [shared, changed, independent, dict(independent)]
+            return {'data': [], 'pagination': {'total': 0}}
+        result = b.read_journal(A, CONFIG, get=get)
+        orders = result['orders']
+        self.assertEqual(orders['code'], 'READ_OK')
+        self.assertFalse(orders['complete'])
+        self.assertEqual(orders['conflictingOrderIdentifiers'], 1)
+        self.assertEqual(len(orders['rows']), 1)
+        self.assertEqual(orders['rows'][0]['key'], p.identity('different-id'))
+        self.assertEqual(result['activities']['code'], 'READ_OK')
+
     def test_history_encrypted_reload_delete_and_owner_separation(self):
         db={}
         def store(action,payload=None):

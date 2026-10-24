@@ -358,14 +358,25 @@ def read_journal(aid, config, previous=None, get=api_get, max_bytes=3_000_000):
                     if len(batch) < 500 or isinstance(total, int) and offset + len(batch) >= total:
                         complete = True; break
             normalized = portfolio.journal_rows(data, category, number, text)
-            unique = {}
+            unique, conflicts = {}, set()
             for row in normalized:
-                if row['key'] in unique and unique[row['key']] != row:
-                    raise ReadError('INVALID_RESPONSE')
-                unique[row['key']] = row
+                key = row['key']
+                if key in conflicts:
+                    continue
+                if key in unique and unique[key] != row:
+                    if category != 'orders':
+                        raise ReadError('INVALID_RESPONSE')
+                    # One broker order ID may appear in multiple provider rows,
+                    # including revisions or partial fills. Neither choose a
+                    # winner nor count these as independent executions.
+                    unique.pop(key, None)
+                    conflicts.add(key)
+                    continue
+                unique[key] = row
             normalized = sorted(unique.values(), key=lambda row: row['date'], reverse=True)
             result[category] = dict(rows=normalized, checkedAt=utcnow(), attemptedEpoch=time.time(),
-                                    code='READ_OK', complete=complete, schemaVersion=trades.SCHEMA)
+                                    code='READ_OK', complete=complete and not conflicts,
+                                    conflictingOrderIdentifiers=len(conflicts), schemaVersion=trades.SCHEMA)
         except (ReadError, ValueError, TypeError) as exc:
             # Only static categories; never reflect provider errors, credentials or rows.
             allowed = ('AUTH_REQUIRED', 'ACCESS_DENIED', 'RATE_LIMITED', 'PLAN_REQUIRED',
@@ -681,6 +692,8 @@ def diagnostics():
         'journalStatus': [{k: a.get('journal', {}).get(k, {}).get('code', 'NOT_READ') for k in ('orders', 'activities')} for a in (value.get('snapshot') or {}).get('accounts', [])],
         'journalFailureCodes': [{k: a.get('journal', {}).get(k, {}).get('failureCode') for k in ('orders', 'activities')}
                                 for a in (value.get('snapshot') or {}).get('accounts', [])],
+        'journalConflictingOrderIdentifiers': [a.get('journal', {}).get('orders', {}).get('conflictingOrderIdentifiers', 0)
+                                               for a in (value.get('snapshot') or {}).get('accounts', [])],
         'issuerMonitorRunning': bool(_QUOTE_THREAD and _QUOTE_THREAD.is_alive())}
 
 
