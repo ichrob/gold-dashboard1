@@ -27,6 +27,7 @@ VERSION = 'decision-audit-v1'
 RULE_VERSION = 'intraday-trend-follow-v7'
 REPORT_LIMIT = 2500
 REPORT_BUSY_LIMIT = 500
+REPORT_ROW_BATCH = 500
 REPORT_CACHE_SECONDS = 300
 HARVEST_HORIZONS = (1, 5, 15, 30, 60, 240)
 HARVEST_HORIZON_BATCH = 64
@@ -526,23 +527,35 @@ def report(conn):
 
 
 def _load_report_rows(conn, limit=None):
-    # Fetch the bounded decision window first, then all three horizons in one
-    # indexed batch instead of 7,500 correlated subqueries on a cold report.
-    decisions = conn.execute("""SELECT id,payload FROM bob_decision_audit
-        ORDER BY recorded_at DESC LIMIT %s""", (REPORT_LIMIT if limit is None else limit,)).fetchall()
-    if not decisions:
-        return []
-    outcomes = conn.execute("""SELECT decision_id,horizon,truth
-        FROM bob_decision_outcomes
-        WHERE decision_id = ANY(%s::text[]) AND horizon IN (1,5,15,30,60,240)""",
-        ([row[0] for row in decisions],)).fetchall()
-    by_id = {}
-    for decision_id, horizon, truth in outcomes:
-        by_id.setdefault(decision_id, {})[horizon] = truth
-    return [({**payload, '_marketReviewTruths':by_id.get(key,{})} if payload.get('marketOptimization') else payload,
-             *(by_id.get(key, {}).get(h) for h in (15,60,240)))
-            for key, payload in decisions]
+    """Read the same newest decision IDs, then fetch large JSONB in bounded batches.
 
+    A single 2,500-row payload + outcome query can exhaust the fixed 10s SQL
+    statement budget on small Render Postgres. The recorded_at index identifies
+    the exact report window; primary keys fetch immutable payloads in batches.
+    No archive rows, clock, horizon, threshold or trading rule is changed.
+    """
+    count = REPORT_LIMIT if limit is None else limit
+    ids = [row[0] for row in conn.execute(
+        "SELECT id FROM bob_decision_audit ORDER BY recorded_at DESC LIMIT %s",
+        (count,)).fetchall()]
+    if not ids:
+        return []
+    payloads, by_id = {}, {}
+    for offset in range(0, len(ids), REPORT_ROW_BATCH):
+        batch = ids[offset:offset + REPORT_ROW_BATCH]
+        for key, payload in conn.execute(
+                "SELECT id,payload FROM bob_decision_audit WHERE id = ANY(%s::text[])",
+                (batch,)).fetchall():
+            payloads[key] = payload
+        for decision_id, horizon, truth in conn.execute(
+                """SELECT decision_id,horizon,truth FROM bob_decision_outcomes
+                   WHERE decision_id = ANY(%s::text[]) AND horizon IN (1,5,15,30,60,240)""",
+                (batch,)).fetchall():
+            by_id.setdefault(decision_id, {})[horizon] = truth
+    return [({**payloads[key], '_marketReviewTruths':by_id.get(key,{})}
+             if payloads[key].get('marketOptimization') else payloads[key],
+             *(by_id.get(key, {}).get(h) for h in (15,60,240)))
+            for key in ids if key in payloads]
 
 def _build_report(conn):
     # Reading must not run the seven-day outcome backfill.
@@ -633,23 +646,36 @@ def _build_report(conn):
     return result
 
 def _load_prospective_rows(conn, recent=False):
-    # Full report preserves the original outcome-independent hourly sample.
-    # On a canceled statement, allow a strictly bounded 24h SELECT using the
-    # already present recorded_at index. Never silently widen or back-date.
-    bound = "AND recorded_at >= now()-interval '24 hours'" if recent is True else ""
-    sql = """WITH sampled AS MATERIALIZED (
-        SELECT DISTINCT ON (date_trunc('hour',recorded_at)) id,recorded_at
-        FROM bob_decision_audit WHERE payload->'reviewVariants'->>'version'='signal-review-v1'
-        AND payload->>'origin'='background' AND payload->>'ruleVersion'=%s
-        AND payload->>'direction' IN ('LONG','SHORT')
-        """ + bound + """
-        ORDER BY date_trunc('hour',recorded_at),recorded_at,id
-        ) SELECT a.payload,o.truth FROM sampled s
-        JOIN bob_decision_audit a ON a.id=s.id
-        LEFT JOIN bob_decision_outcomes o ON o.decision_id=s.id AND o.horizon=60
-        ORDER BY s.recorded_at"""
-    return conn.execute(sql,(RULE_VERSION,)).fetchall()
+    """Earliest qualifying background decision per hour, independent of outcomes.
 
+    The former DISTINCT ON grouped and sorted the entire JSONB-filtered archive.
+    Traverse qualifying hourly first records via the existing recorded_at index;
+    skip empty hours without scanning/sorting the full history. Full validation
+    retains its documented 30-day window; recovery is strictly last 24 hours.
+    """
+    horizon = "24 hours" if recent is True else "30 days"
+    eligible = """payload->'reviewVariants'->>'version'='signal-review-v1'
+        AND payload->>'origin'='background' AND payload->>'ruleVersion'=%s
+        AND payload->>'direction' IN ('LONG','SHORT')"""
+    sql = """WITH RECURSIVE sampled(id,recorded_at) AS (
+        (SELECT id,recorded_at FROM bob_decision_audit
+         WHERE recorded_at >= now()-interval '""" + horizon + """'
+           AND """ + eligible + """
+         ORDER BY recorded_at,id LIMIT 1)
+        UNION ALL
+        SELECT next_hour.id,next_hour.recorded_at
+        FROM sampled previous
+        CROSS JOIN LATERAL (
+            SELECT id,recorded_at FROM bob_decision_audit
+            WHERE recorded_at >= date_trunc('hour',previous.recorded_at) + interval '1 hour'
+              AND """ + eligible + """
+            ORDER BY recorded_at,id LIMIT 1
+        ) next_hour
+    ) SELECT a.payload,o.truth FROM sampled s
+      JOIN bob_decision_audit a ON a.id=s.id
+      LEFT JOIN bob_decision_outcomes o ON o.decision_id=s.id AND o.horizon=60
+      ORDER BY s.recorded_at"""
+    return conn.execute(sql,(RULE_VERSION,RULE_VERSION)).fetchall()
 
 def product_review(records, now=None):
     """Compare real bid/ask observations; never turn estimated prices into ground truth."""
