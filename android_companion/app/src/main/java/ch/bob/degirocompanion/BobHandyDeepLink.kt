@@ -17,7 +17,7 @@ internal object BobHandyDeepLink {
     }
 
     fun parse(raw: String?): PhoneTask? {
-        if (raw == null || raw.length !in 28..90 || !raw.startsWith(PREFIX)) return null
+        if (raw == null || raw.length !in 27..90 || !raw.startsWith(PREFIX)) return null
         // Strict canonical representation: no query, fragment, userinfo, encoded
         // aliases, whitespace, authority changes or multiple commands.
         val name = raw.substring(PREFIX.length)
