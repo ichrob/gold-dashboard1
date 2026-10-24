@@ -85,7 +85,13 @@ function mount(){
     if(!value)continue;
     if(value.code!=='READ_OK'&&value.failureCode)line(d,'Letzter fehlgeschlagener Abruf: ',stamp(value.failureAt)+' · '+(failures[value.failureCode]||'Grund nicht bestätigt'));
     if(category==='orders'&&value.conflictingOrderIdentifiers>0)line(d,'Widersprüchliche Order-Kennungen: ',value.conflictingOrderIdentifiers+' Gruppen vorsorglich ausgelassen; keine bestätigten Ausführungen daraus.');
-    if(category==='activities'&&!value.complete)line(d,'','Historie unvollständig; keine vollständige Ergebnisrechnung.');
+    if(category==='activities'){
+     if(value.code==='READ_OK'&&Number.isInteger(value.activitySourceTotal))line(d,'Historische Abdeckung: ',(value.rows?.length||0)+' von '+value.activitySourceTotal+' gemeldeten Buchungen in diesem sicheren Abruffenster.');
+     const limits={SIZE_LIMIT:'Sicheres Speicherlimit erreicht',PAGE_LIMIT:'Begrenztes Abruffenster erreicht',SHORT_PAGE:'Anbieter liefert weniger Einträge als seine Gesamtzahl ausweist'};
+     if(value.activityCoverageReason)line(d,'Abrufbegrenzung: ',limits[value.activityCoverageReason]||'nicht bestätigt');
+     if(value.conflictingActivityIdentifiers>0)line(d,'Widersprüchliche Transaktionskennungen: ',value.conflictingActivityIdentifiers+' Gruppen vorsorglich ausgelassen.');
+     if(!value.complete)line(d,'','Historie unvollständig; keine vollständige Ergebnisrechnung.');
+    }
     if(!value.rows?.length)line(d,'','Keine Einträge geliefert.');
     for(const row of (value.rows||[]).slice(0,100)){
      const card=document.createElement('div');card.style.cssText='border-top:1px solid #ddd;padding:8px 0';
