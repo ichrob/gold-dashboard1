@@ -182,7 +182,7 @@ def webpush(**kwargs):
                 c not in '0123456789abcdef' for c in decision):
             decision = None
         diagnostic_history.emit('push-delivery', trace, {
-            'outcome': outcome,
+            'outcome': 'provider-rejected' if outcome == 'failed' else outcome,
             'httpStatus': status if type(status) is int else None,
             'eventKinds': event_kinds,
             'direction': direction,
@@ -196,7 +196,7 @@ def webpush(**kwargs):
         log('provider-accepted', getattr(result, 'status_code', None))
         return result
     except WebPushException as exc:
-        log('provider-rejected', getattr(getattr(exc, 'response', None), 'status_code', None))
+        log('failed', getattr(getattr(exc, 'response', None), 'status_code', None))
         raise
     except RequestException as exc:
         log('network-failed')
