@@ -1480,6 +1480,9 @@ if __name__ == "__main__":
     init_db()
     diagnostic_history.configure(db)
     print("BOB_PUSH startup=ready", flush=True)
+    # Process/child memory telemetry is read-only and never blocks Push.
+    import memory_watch
+    memory_watch.start()
     paper_simulation.start_preflight(db)
     threading.Thread(target=product_expiry_loop, name="bob-product-expiry", daemon=True).start()
     threading.Thread(target=audit_outcome_loop, name="bob-audit-outcomes", daemon=True).start()
