@@ -101,6 +101,7 @@ class MainActivity : Activity() {
             "BOB ANDROID-LABOR: Produktbild teilen, automatisch erkennen und in Bob prüfen. Keine Handelsorders."
         }
         label(appHeadline)
+        button("🛑 NOT-STOPP – alle Handy- und Fernaufträge sperren") { emergencyStop() }
         button("Produktbilder auswählen (falls Teilen nicht klappt)") { openImagePicker() }
         status = label("Noch kein Bild ausgewählt. OCR-Werte sind niemals automatisch ein Handelsnachweis.")
         button("In Bob anzeigen – ohne Kopieren") {
@@ -324,19 +325,7 @@ class MainActivity : Activity() {
                 }
             }
         }
-        button("STOPP – Auftrag verwerfen") {
-            remoteCoupling.stopped()
-            remotePendingTask = null
-            remoteInput.setText("")
-            remoteStatus.text = "STOPP aktiv: Kopplung gesperrt, neue Freigabe nötig."
-            taskApproval.clear()
-            clearVoicePlan()
-            conversation.clear()
-            speaker?.stop()
-            setCommandTextInternally("Bob öffnen")
-            commandOutcome = DeviceDiagnosticShare.Outcome.STOPPED
-            commandStatus.text = "Gestoppt. Keine weiteren Schritte geplant. Eine schon geöffnete App wird nicht rückgängig gemacht."
-        }
+        button("STOPP – Auftrag verwerfen") { emergencyStop() }
         // Keep the ONE required action tap directly under the recognized
         // transcript/status, instead of far below all other navigation buttons.
         // Multi-step plans still need a fresh explicit check for each next step.
@@ -430,11 +419,9 @@ class MainActivity : Activity() {
             }
             clearVoicePlan()
             if (PhoneTaskPlanParser.isStop(spoken)) {
+                emergencyStop()
                 speechOutcome = DeviceDiagnosticShare.Outcome.STOPPED
-                conversation.clear()
-                speaker?.stop()
-                setCommandTextInternally("Bob öffnen")
-                commandStatus.text = "STOPP erkannt. Alle noch offenen Aufträge verworfen."
+                commandStatus.text = "STOPP erkannt. Alle noch offenen lokalen und Fernaufträge verworfen."
                 return
             }
             val plan = conversation.interpret(spoken, SystemClock.elapsedRealtime())
@@ -512,6 +499,10 @@ class MainActivity : Activity() {
         PhoneTaskProtocol.parseDisplayed(text)
 
     private fun previewTask(text: String) {
+        if (PhoneTaskPlanParser.isStop(text)) {
+            emergencyStop()
+            return
+        }
         // Accept only a fully validated bounded plan from keyboard dictation.
         // If any clause is unknown, no action is approved.
         val single = parseDisplayedTask(text)
@@ -584,6 +575,22 @@ class MainActivity : Activity() {
             commandStatus.text = "Bob konnte im Browser nicht geöffnet werden."
             false
         }
+    }
+
+    private fun emergencyStop() {
+        remoteCoupling.stopped()
+        remotePendingTask = null
+        if (::remoteInput.isInitialized) remoteInput.setText("")
+        if (::remoteStatus.isInitialized) remoteStatus.text =
+            "STOPP aktiv: Kopplung widerrufen und Fernaufträge gesperrt."
+        taskApproval.clear()
+        clearVoicePlan()
+        conversation.clear()
+        speaker?.stop()
+        if (::commandInput.isInitialized) setCommandTextInternally("Bob öffnen")
+        commandOutcome = DeviceDiagnosticShare.Outcome.STOPPED
+        if (::commandStatus.isInitialized) commandStatus.text =
+            "STOPP: alle offenen lokalen und Fernaufträge verworfen. Bereits geöffnete Apps werden nicht rückgängig gemacht."
     }
 
     private fun previewRemote(raw: String) {
