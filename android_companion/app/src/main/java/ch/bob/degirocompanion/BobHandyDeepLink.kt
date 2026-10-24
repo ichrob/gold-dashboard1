@@ -24,14 +24,19 @@ internal object BobHandyDeepLink {
 
     fun parse(raw: String?): PhoneTask? {
         if (raw == null || raw.length !in 27..110) return null
+        // ChatGPT appends this fixed attribution suffix when tapping HTTPS.
+        // It cannot select a task, authorize it or carry arbitrary parameters.
+        val clean = if (raw.startsWith(VERIFIED_HTTPS_PREFIX) &&
+            raw.endsWith("?utm_source=chatgpt.com"))
+            raw.removeSuffix("?utm_source=chatgpt.com") else raw
         val prefix = when {
-            raw.startsWith(LEGACY_PREFIX) -> LEGACY_PREFIX
-            raw.startsWith(VERIFIED_HTTPS_PREFIX) -> VERIFIED_HTTPS_PREFIX
+            clean.startsWith(LEGACY_PREFIX) -> LEGACY_PREFIX
+            clean.startsWith(VERIFIED_HTTPS_PREFIX) -> VERIFIED_HTTPS_PREFIX
             else -> return null
         }
-        // No query, fragment, percent encoding, extra path, user info, custom
-        // URLs, instructions or broker actions. Case / host exact.
-        val name = raw.substring(prefix.length)
+        // Only the exact ChatGPT marker on verified HTTPS is permitted.
+        // Extra query fields, fragments, encoded paths and broker commands fail.
+        val name = clean.substring(prefix.length)
         if (!allowedName.matches(name)) return null
         return ChatShareHandoff.parse("BOB-HANDY/1|" + name)
     }
