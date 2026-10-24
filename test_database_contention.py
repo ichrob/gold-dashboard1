@@ -87,7 +87,7 @@ class DatabaseContentionTests(unittest.TestCase):
             conn.execute('CREATE TEMP TABLE bob_decision_outcomes (decision_id TEXT, horizon INTEGER, truth JSONB)')
             for n in range(20):
                 payload = dict(reviewVariants=dict(version='signal-review-v1'), origin='background' if n % 3 else 'browser', ruleVersion=decision_audit.RULE_VERSION, direction='LONG' if n % 4 else 'NEUTRAL', fixture=n)
-                conn.execute("INSERT INTO bob_decision_audit VALUES (%s,'2026-10-14 00:00Z'::timestamptz + %s * interval '20 minutes',%s)", (str(n), n, Jsonb(payload)))
+                conn.execute("INSERT INTO bob_decision_audit VALUES (%s,date_trunc('hour',now()-interval '10 days') + %s * interval '20 minutes',%s)", (str(n), n, Jsonb(payload)))
                 if n % 2:
                     conn.execute('INSERT INTO bob_decision_outcomes VALUES (%s,60,%s)', (str(n), Jsonb(dict(price=n))))
             expected = conn.execute("""SELECT a.payload,o.truth FROM (
@@ -100,6 +100,35 @@ class DatabaseContentionTests(unittest.TestCase):
                 ORDER BY a.recorded_at""", (decision_audit.RULE_VERSION,)).fetchall()
             self.assertEqual(decision_audit._load_prospective_rows(conn), expected)
             self.assertGreater(len(expected), 1)
+
+    def test_sparse_hourly_sampling_preserves_oldest_eligible_and_retention(self):
+        from psycopg.types.json import Jsonb
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute('CREATE TEMP TABLE bob_decision_audit (id TEXT PRIMARY KEY, recorded_at TIMESTAMPTZ, payload JSONB)')
+            conn.execute('CREATE INDEX ON bob_decision_audit(recorded_at)')
+            conn.execute('CREATE TEMP TABLE bob_decision_outcomes (decision_id TEXT, horizon INTEGER, truth JSONB)')
+            valid = lambda name: Jsonb(dict(id=name, reviewVariants=dict(version='signal-review-v1'),
+                                            origin='background', ruleVersion=decision_audit.RULE_VERSION,
+                                            direction='LONG'))
+            rows = [
+                ('expired', "-interval '31 days' + interval '10 minutes'"),
+                ('old-valid', "-interval '3 days' + interval '5 minutes'"),
+                ('first', "-interval '12 hours' + interval '5 minutes'"),
+                ('second', "-interval '12 hours' + interval '15 minutes'"),
+                ('later', "-interval '10 hours' + interval '5 minutes'"),
+            ]
+            for name, offset in rows:
+                conn.execute("INSERT INTO bob_decision_audit VALUES (%s,date_trunc('hour',now())" +
+                             offset + ",%s)",(name,valid(name)))
+            # Only the later event has outcome evidence; selection must never
+            # cherry-pick it instead of the first independent observation.
+            conn.execute("INSERT INTO bob_decision_outcomes VALUES ('second',60,%s)",
+                         (Jsonb({'gain':3}),))
+            full = decision_audit._load_prospective_rows(conn)
+            self.assertEqual([row[0]['id'] for row in full],['old-valid','first','later'])
+            self.assertIsNone(full[1][1])
+            last_day = decision_audit._load_prospective_rows(conn,recent=True)
+            self.assertEqual([row[0]['id'] for row in last_day],['first','later'])
 
     def test_pool_reuses_connections_and_rolls_back_failed_writes(self):
         dsn = os.environ['BOB_TEST_DATABASE_URL']
