@@ -149,6 +149,21 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
    await page.setViewportSize({width,height:844});
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth+1),'Mobile overflow');
   }
+  // Only a visible DEGIRO view enables the 10-minute backend read cadence.
+  // A hidden page must never wake the provider reader.
+  const readCount=await page.evaluate(()=>calls.filter(x=>x.url==='/api/snaptrade/check').length);
+  await page.evaluate(()=>{
+   window.__realDateNow=Date.now;
+   const actual=Date.now;Date.now=()=>actual()+120000;
+   document.getElementById('bob-view-degiro').style.display='none';
+   poll();
+  });
+  assert.equal(await page.evaluate(()=>calls.filter(x=>x.url==='/api/snaptrade/check').length),readCount,'Hidden DEGIRO view must not poll SnapTrade');
+  await page.evaluate(()=>{document.getElementById('bob-view-degiro').style.display='block';poll();});
+  await page.waitForFunction(expected=>calls.filter(x=>x.url==='/api/snaptrade/check').length>expected,readCount);
+  const nextCount=await page.evaluate(()=>calls.filter(x=>x.url==='/api/snaptrade/check').length);
+  await page.evaluate(()=>{poll();Date.now=window.__realDateNow;});
+  assert.equal(await page.evaluate(()=>calls.filter(x=>x.url==='/api/snaptrade/check').length),nextCount,'Visible heartbeat cannot exceed its 60-second gate');
   await page.locator('#snapRemove').click();await page.locator('#snapStatus').filter({hasText:'Noch nicht verbunden.'}).waitFor();
   assert.equal(await page.locator('#snapHoldings').innerText(),'');assert.deepEqual(errors,[]);
   console.log('SnapTrade mobile: setup, secret clearing, no browser persistence, unknown proof, safe rendering and deletion passed');
