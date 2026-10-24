@@ -106,6 +106,16 @@ class MainActivity : Activity() {
         }
         label(appHeadline)
         button("🛑 NOT-STOPP – alle Handy- und Fernaufträge sperren") { emergencyStop() }
+        button("📋 Kopierten ChatGPT-Auftrag prüfen") {
+            // Explicit tap only. Never monitor or persist the clipboard.
+            // Read plain text only, not URIs, images, account files or links.
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = clipboard.primaryClip
+            val shared = if (clip != null && clip.itemCount == 1 &&
+                clip.getItemAt(0).uri == null && clip.getItemAt(0).intent == null)
+                clip.getItemAt(0).text?.toString().orEmpty() else ""
+            previewChatShare(shared)
+        }
         // A shared ChatGPT message is an UNTRUSTED proposal, not remote permission.
         // Place the one required confirmation near the TOP on small Samsung screens.
         chatShareSection = LinearLayout(this).apply {
