@@ -22,6 +22,15 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
+            <!-- App-local safe link proposal: arbitrary callers can only request a
+                 predefined Bob display. Never authorizes or executes by itself. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="bobhandy" android:host="handoff"
+                      android:pathPrefix="/OPEN_" />
+            </intent-filter>
             <!-- Only a user-initiated image share; never screen-capture other apps. -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
