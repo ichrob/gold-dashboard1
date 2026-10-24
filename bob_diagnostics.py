@@ -375,6 +375,9 @@ def simulation_evidence_snapshot(simulation):
                 'scope':'exact-recordedAt-correlation-in-last-five-cases-per-account',
                 'note':'Distinct recorded event clocks, not independent outages. '
                        'A reason classification does not prove root cause or missing trade price.'},
+            'gapReview':__import__('paper_gap_triage').assess(
+                {'recentRecordedGapInstants':clusters[-10:]},
+                simulation.get('spotGapArchive'),simulation.get('analysisGapArchive')),
             'scope':'bounded-paper-case-evidence-not-fills-or-profit',
             'note':'A source data-gap cannot be repaired by interpolation or re-dating quotes.'}
 
@@ -732,6 +735,20 @@ def triage_snapshot(areas):
             add('SIMULATION_OUTCOMES_UNKNOWN','review',None, explanation,
                 'Zeitgleiche Originalkurse nachweisen; nur echte Datenlücken '
                 'reparieren, Modellverkauf nicht als echten Fill werten.')
+    # Investigate independent source samples without equating them to inputs
+    # seen by the paper worker, a product quote or a known exit.
+    review = ((areas.get('simulationEvidence') or {}).get('gapReview') or {})
+    counts = review.get('counts') or {}
+    candidates = counts.get('reviewableInputHandoffCandidates')
+    if type(candidates) is int and candidates > 0:
+        add('PAPER_INPUT_HANDOFF_REVIEW','review',None,
+            str(candidates)+' unterschiedliche Lückenzeitpunkte mit früher/zeitnah '
+            'archiviertem Gold-API-Originalkurs, aber ohne nachgewiesene '
+            'passende frische 15m-Analyse. Dies ist nur ein Prüfhinweis, '
+            'keine bestätigte Ursache oder belegter Paper-Ausstieg.',
+            'Die Originaluhrzeit von Kurs, Analyse und tatsächlich vom '
+            'Paper-Worker empfangenem Datensatz vergleichen; einen '
+            'späteren Kurs niemals rückdatieren.')
     feature = (areas.get('newFeatures') or {}).get('researchSelfReview') or {}
     if feature.get('status') == 'unavailable':
         add('RESEARCH_SELF_REVIEW_PENDING','info',feature.get('sourceReportAt'),
