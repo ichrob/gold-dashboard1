@@ -15,6 +15,20 @@ class BobHandyDeepLinkTest {
         }
     }
 
+    @Test fun verifiedHttpsHarmlessLinksRoundTripAndRequireApproval() {
+        val tasks = listOf(PhoneTask.OPEN_BOB, PhoneTask.OPEN_PRODUCTS,
+            PhoneTask.OPEN_TRADE, PhoneTask.OPEN_SIMULATION, PhoneTask.OPEN_MARKET,
+            PhoneTask.OPEN_LEARNING, PhoneTask.OPEN_RESEARCH,
+            PhoneTask.OPEN_LONG_REVIEW, PhoneTask.OPEN_LEVERAGE_REVIEW)
+        for (task in tasks) {
+            val uri = BobHandyDeepLink.httpsLinkFor(task)
+            assertEquals("https://bob-private-scanner.onrender.com/handy/" + task.name, uri)
+            assertEquals(task, BobHandyDeepLink.parse(uri))
+            val gate = PhoneTaskApproval()
+            assertFalse("A web link must not authorize itself", gate.consume(task, 100))
+        }
+    }
+
     @Test fun unknownOrBrokerDangerousLinksFailClosed() {
         listOf(null, "", "bobhandy://handoff/",
             "bobhandy://handoff/OPEN_SETTINGS",
@@ -31,6 +45,17 @@ class BobHandyDeepLinkTest {
             "bobhandy://handoff:444/OPEN_PRODUCTS",
             "BOBHANDY://handoff/OPEN_PRODUCTS",
             "https://bob-private-scanner.onrender.com/#products",
+            "https://bob-private-scanner.onrender.com/handy/OPEN_SETTINGS",
+            "https://bob-private-scanner.onrender.com/handy/PLACE_ORDER",
+            "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS?x=1",
+            "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS#trade",
+            "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS/",
+            "https://bob-private-scanner.onrender.com/handy/%4fPEN_PRODUCTS",
+            "https://bob-private-scanner.onrender.com.evil.test/handy/OPEN_PRODUCTS",
+            "https://evil.test@bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS",
+            "https://bob-private-scanner.onrender.com:443/handy/OPEN_PRODUCTS",
+            "http://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS",
+            "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS;SELL",
             "bobhandy://handoff/OPEN_PRODUCTS;BUY",
             "bobhandy://handoff/OPEN_PRODUCTS\nBUY",
             "bobhandy://handoff/" + "A".repeat(200)
