@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bob Fernauftrag – lokale Signaturhilfe</title>
+<style>
+body{font:1rem system-ui,sans-serif;max-width:720px;margin:1.5rem auto;padding:0 1rem;line-height:1.55}
+input,select,textarea,button{box-sizing:border-box;width:100%;margin:.35rem 0 1rem;padding:.75rem;font:inherit}
+textarea{height:5rem}
+.warning{padding:.8rem;border:1px solid #999;border-radius:8px}
+small{display:block}
+</style>
+</head>
+<body>
+<h1>Bob – sichere Fernübergabe</h1>
+<p class="warning"><strong>Nur auf einem eigenen, vertrauenswürdigen Zweitgerät nutzen.</strong>
+Dies ist kein Fernzugriff auf Samsung. Dieses Werkzeug signiert ausschließlich eine harmlose
+Anfrage, die der Besitzer selbst zur Bob-Handy-App teilen oder dort einfügen
+und anschließend auf dem Samsung ausdrücklich freigeben muss. Kein Netzwerkversand,
+kein automatischer Auftrag, keine Echtgeldorder.</p>
+<label for="invite">Temporäre Einladung aus „Bob – Handy“ (geheimer Schlüssel)</label>
+<textarea id="invite" autocomplete="off" autocapitalize="off" spellcheck="false"
+placeholder="BOB-FERN-KOPPLUNG/1|..."></textarea>
+<label for="action">Erlaubte Anzeige</label>
+<select id="action">
+<option value="OPEN_BOB">Bob öffnen</option>
+<option value="OPEN_PRODUCTS">Gold-Hebelprodukte</option>
+<option value="OPEN_MARKET">Goldmarkt</option>
+<option value="OPEN_LONG_REVIEW">LONG-Vergleich</option>
+<option value="OPEN_LEVERAGE_REVIEW">Hebelrisiken</option>
+<option value="OPEN_TRADE">Mein Trade (nur Anzeige)</option>
+<option value="OPEN_SIMULATION">Simulation</option>
+<option value="OPEN_LEARNING">Lernergebnisse</option>
+<option value="OPEN_RESEARCH">Recherche</option>
+</select>
+<button id="sign">Einzelauftrag lokal signieren</button>
+<label for="output">Signierter Auftrag – per Android-Teilen an Bob-Handy senden</label>
+<textarea id="output" readonly spellcheck="false"></textarea>
+<button id="copy">Signierten Auftrag kopieren</button>
+<small id="status" role="status">Kein Auftrag erstellt. Kopplung höchstens 30 Minuten, Auftrag höchstens 2 Minuten frisch.</small>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const b64url=bytes=>btoa(String.fromCharCode(...bytes)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=/g,"");
+const fromB64url=str=>Uint8Array.from(atob(str.replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0));
+$("sign").onclick=async()=>{
+ $("output").value="";
+ try{
+   if(!globalThis.crypto?.subtle || !globalThis.crypto.getRandomValues)throw Error("Sichere Browser-Kryptografie nicht verfügbar.");
+   const match=$("invite").value.trim().match(/^BOB-FERN-KOPPLUNG\/1\|([A-Za-z0-9_-]{12})\|([A-Za-z0-9_-]{43})$/);
+   if(!match)throw Error("Ungültige Einladung.");
+   const keyBytes=fromB64url(match[2]);
+   if(keyBytes.length!==32)throw Error("Ungültiger Schlüssel.");
+   const key=await crypto.subtle.importKey("raw",keyBytes,{name:"HMAC",hash:"SHA-256"},false,["sign"]);
+   keyBytes.fill(0);
+   const nonce=b64url(crypto.getRandomValues(new Uint8Array(16)));
+   const action=$("action").value;
+   const message=["BOB-FERN/1",match[1],String(Date.now()),nonce,action].join("|");
+   const mac=b64url(new Uint8Array(await crypto.subtle.sign("HMAC",key,new TextEncoder().encode(message))));
+   $("output").value=message+"|"+mac;
+   $("status").textContent="Auftrag signiert. Binnen 2 Minuten an Bob-Handy senden und dort persönlich freigeben.";
+ }catch(e){$("status").textContent="Nicht signiert: "+e.message;}
+};
+$("copy").onclick=async()=>{
+ try{
+  if(!$("output").value)throw Error("Kein signierter Auftrag.");
+  await navigator.clipboard.writeText($("output").value);
+  $("status").textContent="Nur der signierte Einzelauftrag kopiert. Keine Übertragung.";
+ }catch(e){$("status").textContent="Kopieren fehlgeschlagen; Auftrag manuell auswählen. "+e.message;}
+};
+</script>
+</body>
+</html>
