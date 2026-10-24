@@ -127,3 +127,36 @@ class PrintedPrecisionTests(ComdirectFieldsTests):
     def test_precision_is_observed_not_assumed(self):
         self.assertEqual(self.parse()['observations']['ko']['displayDecimals'],4)
         self.assertFalse(f.display_equivalent('ko',4221.294764,{'value':4221,'displayDecimals':0}))
+
+    def test_two_decimal_issuer_strike_matches_four_decimal_portal_without_override(self):
+        # DE000SQ02JQ6: list/issuer print 2117.58; comdirect reads
+        # 2117.5757. Both round to the same two-decimal printed BP.
+        fields = self.parse()
+        fields['observations']['strike'].update(value=2117.5757, displayDecimals=4)
+        primary = self.primary()
+        primary['metadata']['strike'] = 2117.58
+        primary['conditions']['strike'] = dict(
+            value=2117.58, source='issuer', at='original',
+            conditionVerified=True)
+        out = self.apply(primary, fields)
+        self.assertNotIn('strike', out['comdirectFieldsBackup']['conflicts'])
+        self.assertEqual(out['conditions']['strike'], primary['conditions']['strike'])
+        self.assertEqual(out['metadata']['strike'], 2117.58)
+        self.assertFalse(out['eligible'], 'rounded agreement does not approve trading')
+
+        for other in (2117.5657, 2117.5857, 2117.6757):
+            changed = copy.deepcopy(fields)
+            changed['observations']['strike']['value'] = other
+            bad = self.apply(primary, changed)
+            self.assertIn('strike', bad['comdirectFieldsBackup']['conflicts'])
+        bad_precision = copy.deepcopy(primary)
+        bad_precision['metadata']['strike'] = 2117.5802
+        bad_precision['conditions']['strike']['value'] = 2117.5802
+        self.assertIn('strike', self.apply(bad_precision, fields)['comdirectFieldsBackup']['conflicts'])
+        unconfirmed = copy.deepcopy(fields)
+        unconfirmed['observations']['strike'].pop('displayDecimals')
+        self.assertIn('strike', self.apply(primary, unconfirmed)['comdirectFieldsBackup']['conflicts'])
+        self.assertFalse(f.display_equivalent(
+            'ko', 2117.58, dict(value=2117.5757, displayDecimals=4)),
+            'No general KO-barrier rounding relaxation')
+

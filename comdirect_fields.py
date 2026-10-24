@@ -117,8 +117,17 @@ def display_equivalent(key, primary, item):
         return False
     try:
         a, b = Decimal(str(primary)), Decimal(str(item['value']))
-        return a.is_finite() and b.is_finite() and a > 0 and b > 0 and a.quantize(
-            Decimal(10) ** -digits, rounding=ROUND_HALF_UP) == b
+        if not (a.is_finite() and b.is_finite() and a > 0 and b > 0):
+            return False
+        # The issuer can report more decimals than the portal prints.
+        if a.quantize(Decimal(10) ** -digits, rounding=ROUND_HALF_UP) == b:
+            return True
+        # Conversely, a broker list / issuer page can print BP to two
+        # decimal places while comdirect shows the same strike to four.
+        # This is presentation equivalence only. Never replace the primary
+        # value, invent a term timestamp, or grant broker execution.
+        return (key == 'strike' and a.as_tuple().exponent == -2
+                and b.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) == a)
     except (ValueError, TypeError, KeyError, InvalidOperation):
         return False
 
