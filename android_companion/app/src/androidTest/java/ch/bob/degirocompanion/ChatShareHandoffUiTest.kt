@@ -29,7 +29,7 @@ class ChatShareHandoffUiTest {
         }
         context.startActivity(intent)
         val expected = device.wait(
-            Until.findObject(By.textContains("Aus ChatGPT/Android-Teilen vorgeschlagen: Goldprodukte anzeigen")),
+            Until.findObject(By.textContains("Per Link/Android-Teilen vorgeschlagen: Goldprodukte anzeigen")),
             5_000
         )
         assertNotNull(expected)
