@@ -2401,6 +2401,78 @@ function parseDegiroDisplayedQuote(raw,expectedIsin,venueOnly=false){
    brokerDisplayConfirmed:true,orderWindowVerified:false,orderSubmitted:false,
    executionGuaranteed:false,isExecutableQuote:false};
 }
+// DEGIRO *display* evidence from a user-selected product screenshot.
+// No logged-in brokerage API, order-book guarantee, or trading permissions.
+function degiroScreenQuoteState(q,isin,now=Date.now()){
+ const unavailable={state:'missing',displayOnly:true,brokerConnected:false,
+  executionConfirmed:false,isExecutableQuote:false,tradeApproved:false};
+ if(!validIsin(isin)||!q||q.isin!==isin||q.source!=='DEGIRO-Produktdetail'
+   ||q.brokerDisplayConfirmed!==true||q.isExecutableQuote!==false
+   ||q.orderWindowVerified!==false||q.orderSubmitted!==false
+   ||q.executionGuaranteed!==false||!['EUR','CHF'].includes(q.currency)
+   ||typeof q.venue!=='string'||q.venue.trim().length<2
+   ||!(Number.isFinite(q.bid)&&q.bid>0&&Number.isFinite(q.ask)&&q.ask>=q.bid))
+  return unavailable;
+ const observed=selectionTimeWindow(q.sourceTime),at=observed?.start;
+ if(!Number.isFinite(at)||at>now)return {...unavailable,state:'invalid-time'};
+ const ageSeconds=Math.max(0,Math.floor((now-at)/1000));
+ return {state:ageSeconds<=90?'display-recent':'historical',displayOnly:true,
+  brokerConnected:false,executionConfirmed:false,isExecutableQuote:false,
+  tradeApproved:false,isin,currency:q.currency,venue:q.venue,bid:q.bid,ask:q.ask,
+  sourceTime:q.sourceTime,timeBasis:q.timeBasis,ageSeconds};
+}
+function degiroBrokerQuotePanelState(rows,now=Date.now()){
+ if(!Array.isArray(rows))return {total:0,quotes:0,recent:0,historical:0,items:[]};
+ const seen=new Set(),items=[];
+ for(const p of rows){
+  if(!validIsin(p?.isin)||seen.has(p.isin))continue;seen.add(p.isin);
+  const status=degiroScreenQuoteState(p?.snapshot?.degiroDisplayedQuote,p.isin,now);
+  items.push({isin:p.isin,direction:p.direction||'',slot:p.slot||null,status,
+   listingConfirmed:p.listingConfirmed===true});
+ }
+ return {total:items.length,quotes:items.filter(x=>['display-recent','historical'].includes(x.status.state)).length,
+  recent:items.filter(x=>x.status.state==='display-recent').length,
+  historical:items.filter(x=>x.status.state==='historical').length,items};
+}
+function currentDegiroBrokerQuoteRows(now=Date.now()){
+ const rows=[];
+ for(let i=1;i<=12;i++){
+  const isin=document.querySelector('[data-dg="isin"][data-i="'+i+'"]')?.value?.trim().toUpperCase();
+  if(!validIsin(isin))continue;
+  const direction=document.querySelector('[data-dg="dir"][data-i="'+i+'"]')?.value;
+  const snapshot=detailScreenshots.get(i);
+  rows.push({isin,direction,slot:i,snapshot:snapshot?.isin===isin?snapshot:null,
+   listingConfirmed:!!observedDegiroListRow(isin,listArchive,now)});
+ }
+ return rows;
+}
+function refreshDegiroBrokerQuotePanel(now=Date.now()){
+ const container=document.getElementById('dgBrokerQuoteRows');
+ if(!container)return;
+ const report=degiroBrokerQuotePanelState(currentDegiroBrokerQuoteRows(now),now);
+ const heading=document.getElementById('dgBrokerQuoteCount');
+ if(heading)heading.textContent=report.total+' gelistete Produkte · '+report.quotes+
+  ' DEGIRO-Anzeigekurs-Bilder · '+report.recent+' mit höchstens 90 s alter Bild-Kurszeit';
+ const parts=[];
+ for(const p of report.items){
+  const q=p.status;
+  const quote=['display-recent','historical'].includes(q.state)
+   ?'DEGIRO-Anzeigekurs '+q.bid.toFixed(2)+' / '+q.ask.toFixed(2)+' '+esc(q.currency)+
+    ' · '+esc(q.venue)+' · Quellenanzeige '+esc(q.sourceTime)+
+    (q.state==='display-recent'?' · Zeit höchstens 90 s zurück':' · historisch')
+   :q.state==='invalid-time'?'Bild-Kurszeit ungültig oder in der Zukunft':
+    'Kein datierter DEGIRO-Anzeigekurs aus Produktdetailbild';
+  parts.push('<div data-broker-quote-isin="'+esc(p.isin)+'" style="padding:8px 0;border-top:1px solid #e3e7ee">'+
+   '<div><b>'+esc(p.isin)+'</b> · '+esc(p.direction||'Richtung offen')+
+   ' · '+(p.listingConfirmed?'✓ Listung bei DEGIRO nachgewiesen':'Listennachweis prüfen')+'</div>'+
+   '<div class="small" data-broker-display-state="'+esc(q.state)+'">'+quote+'</div>'+
+   '<div class="small" style="color:#92400e">Keine bestätigte Ausführung und keine Handelsfreigabe.</div>'+
+   (p.slot?'<button type="button" data-dg-broker-quote-upload="'+p.slot+'" style="margin-top:6px;min-height:44px;background:#e9f2ff;color:#1659aa">📷 DEGIRO-Kursdatenbild hinzufügen</button>':'')+
+   '</div>');
+ }
+ container.innerHTML=report.items.length?parts.join(''):
+  '<div class="small">Keine DEGIRO-Produkte geladen. Gespeicherte DEGIRO-Liste prüfen.</div>';
+}
 function renderDegiroDisplayedQuote(p,now=Date.now()){
  const q=p?.snapshot?.degiroDisplayedQuote;
  if(!q||q.isin!==p.isin||q.brokerDisplayConfirmed!==true||q.isExecutableQuote!==false
@@ -4823,6 +4895,10 @@ async function inject(){
  '<details style="margin-top:8px"><summary>Hinweise zum Hochladen</summary><div class="small">Beide Screenshots können gemeinsam ausgewählt werden. Alternativ zuerst ein Bild hochladen und danach „Weiteres Listenbild hinzufügen“ wählen. Abgeschnittene Zeilen bleiben bis zum ergänzenden Bild vorgemerkt. Nur Bilder derselben Tagesliste werden kombiniert.</div></details>'+
  '<div id="dgCentralStatus" class="small" role="status" aria-live="polite" style="margin-top:9px">Gespeicherte Liste wird geladen …</div><details id="dgSavedListImages"></details></div>'+
 
+ '<details id="dgBrokerQuotePanel" style="margin-top:10px;border:1px solid #cbd5e1;border-radius:12px;padding:10px"><summary><b>📈 DEGIRO-Kursdaten · Leseprüfung</b></summary>'+
+ '<p class="small">Bob liest bereits gespeicherte, bewusst ausgewählte DEGIRO-Produktdetailbilder. Die Daten stammen nicht aus einer angemeldeten DEGIRO-API; die Kursdatenzeit ist nicht zwingend eine eigene Geld-/Briefzeit.</p>'+
+ '<p class="small" id="dgBrokerQuoteCount" role="status">Kursbilder werden geprüft …</p><div id="dgBrokerQuoteRows"></div>'+
+ '<p class="small">SnapTrade ist für Depot- und Auftragsdaten gedacht, nicht als 30-Sekunden-Kursfeed für Gold-Knock-outs. Emittenten- und Vergleichskurse bleiben getrennt.</p></details>'+
  '<div id="dgStorageStatus" class="small" role="status"></div>'+
  '<div id="dgManualSnapshots" style="margin-top:12px" hidden></div>'+
  '<div id="dgConditionalOut" style="margin-top:12px" hidden></div>'+
@@ -4935,7 +5011,16 @@ async function inject(){
    if(status)status.textContent='Keine gespeicherten Produktdaten in diesem Browser wiederherstellbar. Ein Serverlisten-Nachweis ist derzeit nicht verfügbar oder nicht lesbar. Bitte in dem Browser prüfen, in dem die Liste hochgeladen wurde; nichts löschen.';
   }
  }).catch(()=>{});
- const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgListUploadButton'),addButton=b.querySelector('#dgListAddButton'),uploadStatus=b.querySelector('#dgCentralStatus');
+  const brokerQuotePanel=b.querySelector('#dgBrokerQuotePanel');
+ brokerQuotePanel?.addEventListener('click',event=>{
+  const button=event.target.closest('[data-dg-broker-quote-upload]');
+  if(!button)return;
+  const index=Number(button.dataset.dgBrokerQuoteUpload);
+  if(!Number.isInteger(index)||index<1||index>12)return;
+  const input=document.getElementById('dgDetailShot'+index);
+  if(input&&!input.disabled)input.click();
+ });
+const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgListUploadButton'),addButton=b.querySelector('#dgListAddButton'),uploadStatus=b.querySelector('#dgCentralStatus');
  let listUploadMode='replace',stagedListImages=[],pendingRetryBusy=false;
  uploadStatus.dataset.listReaderVersion='20261023-persist-sha-retry-v1';
  uploadButton.addEventListener('click',()=>{listUploadMode='replace';stagedListImages=[];upload.click();});
@@ -5163,7 +5248,7 @@ function buildPaperListEvidence(){
    }),fixedBarriers:window.BobCombined.fixedBarriers(),
    listUploadedAt:listArchive?.storedAt||null,origin:listArchive?.storedAt?'degiro-screenshot':'legacy'};
 }
-function rankUI(){if(!productRowsReady)return;return preserveReadingPosition(renderRankUI);}
+function rankUI(){if(!productRowsReady)return;const result=preserveReadingPosition(renderRankUI);refreshDegiroBrokerQuotePanel();return result;}
 function renderRankUI(){
  expireVisibleList();
  saveIdentities();
@@ -5284,7 +5369,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={goldProductBrokerListStatus,savePendingDegiroList,loadPendingDegiroList,clearPendingDegiroList,degiroFileDiagnostic,reviewedDegiroListReference,recognizeReviewedDegiroOriginal,segmentedDegiroListReadings,listAppendSourceFiles,paperProductsForSync,listVenueForSync,refreshVenueAssessment:()=>rankUI(),sharedVenueStatus,renderVenueHistory,observedDegiroListRow,degiroListBlocks,parseDegiroListRow,agreedDegiroListRow,degiroListRects,clippedDegiroListReference,recognizeDegiroList,serverVenueEvidence,degiroVenueObserved,screenshotSeriesContext,applyLearnedRanking,productHelpState,renderProductHelp,calculatedLeverageEvidence,recoverArchivedList,productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,preserveReadingPosition,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,calculatedProductDisplay,renderPrimaryProductValues,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={degiroScreenQuoteState,degiroBrokerQuotePanelState,refreshDegiroBrokerQuotePanel,goldProductBrokerListStatus,savePendingDegiroList,loadPendingDegiroList,clearPendingDegiroList,degiroFileDiagnostic,reviewedDegiroListReference,recognizeReviewedDegiroOriginal,segmentedDegiroListReadings,listAppendSourceFiles,paperProductsForSync,listVenueForSync,refreshVenueAssessment:()=>rankUI(),sharedVenueStatus,renderVenueHistory,observedDegiroListRow,degiroListBlocks,parseDegiroListRow,agreedDegiroListRow,degiroListRects,clippedDegiroListReference,recognizeDegiroList,serverVenueEvidence,degiroVenueObserved,screenshotSeriesContext,applyLearnedRanking,productHelpState,renderProductHelp,calculatedLeverageEvidence,recoverArchivedList,productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,preserveReadingPosition,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,calculatedProductDisplay,renderPrimaryProductValues,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
