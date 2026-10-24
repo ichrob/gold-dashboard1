@@ -979,9 +979,11 @@ def _worker(db):
                             except Exception as early_exc:
                                 early_selection['reasons']=['Frühimpuls-Produktprüfung nicht verfügbar: '+type(early_exc).__name__]
                                 print('BOB_EARLY_PAPER_SELECTION error='+type(early_exc).__name__,flush=True)
+                        input_observations=[]
                         outcomes=paper_portfolios.run_all(conn,bundle,market,selection,quotes,
                                                           time.time()*1000,settings,active_cases,
-                                                          early_market=early_market,early_selection=early_selection)
+                                                          early_market=early_market,early_selection=early_selection,
+                                                          input_observations=input_observations)
                         try:
                             with conn.transaction():paper_stop_study.tick(conn,market,quotes,time.time()*1000)
                         except Exception as exc:print('BOB_STOP_STUDY error='+type(exc).__name__,flush=True)
@@ -997,6 +999,13 @@ def _worker(db):
                             conn.execute('RELEASE SAVEPOINT bob_zukunft_capture')
                             print('BOB_ZUKUNFT capture_error='+type(capture_error).__name__,flush=True)
                         conn.commit()
+                        # A post-commit observation of the exact input quality passed
+                        # to each virtual account. Failure never changes paper ledgers.
+                        try:
+                            import paper_input_evidence
+                            paper_input_evidence.capture(bundle,input_observations,time.time()*1000)
+                        except Exception:
+                            print('BOB_PAPER_INPUT_AUDIT unavailable',flush=True)
                         print('BOB_PAPER checked profiles='+str(outcomes)+
                               ' direction='+str(market.get('direction'))+
                               ' ready='+str(market.get('ready'))+
