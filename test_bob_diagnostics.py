@@ -435,6 +435,12 @@ class ReadAccessManifestMappingTests(unittest.TestCase):
         self.assertEqual(report['codeFilesPresent'],10)
         self.assertEqual(report['codeFilesMissing'],0)
         self.assertEqual(sum(report['counts'].values()),100)
+        evidence = report['evidenceReview']
+        self.assertEqual(evidence['status'],'historical-evidence-baseline-not-feature-validation')
+        self.assertEqual(evidence['goalsReviewed'],100)
+        self.assertEqual(evidence['goalsWithPartialLiveObservations'],35)
+        self.assertEqual(evidence['individuallyVerified'],0)
+        self.assertNotIn('positionsReceived',json.dumps(evidence))
 
     def test_untrusted_inventory_paths_are_rejected_without_file_reads(self):
         from pathlib import Path
