@@ -10,7 +10,7 @@ def _clock(value):
     return value if type(value) in (int, float) and math.isfinite(value) and value > 0 else None
 
 
-def assess(gap_correlation, spot_archive, analysis_archive):
+def assess(gap_correlation, spot_archive, analysis_archive, paper_input_archive=None):
     """Return one read-only review row per distinct recorded gap instant.
 
     Inputs are ALREADY redacted diagnostic projections. No SQL, market fetch,
@@ -20,6 +20,7 @@ def assess(gap_correlation, spot_archive, analysis_archive):
     clusters = correlation.get("recentRecordedGapInstants") or []
     spot = spot_archive if isinstance(spot_archive, dict) else {}
     analysis = analysis_archive if isinstance(analysis_archive, dict) else {}
+    worker = paper_input_archive if isinstance(paper_input_archive,dict) else {}
     def index(archive):
         result = {}
         for item in (archive.get("items") or [])[:20]:
@@ -30,6 +31,7 @@ def assess(gap_correlation, spot_archive, analysis_archive):
         return result
     spot_by_time = index(spot)
     analysis_by_time = index(analysis)
+    worker_by_time = index(worker)
     entries = []
     counts = {
         "originalAtOrBeforeWithin60s": 0,
@@ -41,6 +43,9 @@ def assess(gap_correlation, spot_archive, analysis_archive):
         "nearby15mReadyFreshUnlinked": 0,
         "analysisEvidenceMissingOrUnavailable": 0,
         "reviewableInputHandoffCandidates": 0,
+        "workerCaptureBeforeOrAtGap": 0,
+        "workerCaptureOnlyAfterGap": 0,
+        "workerCaptureMissingOrUnavailable": 0,
     }
     for cluster in clusters[-12:]:
         if not isinstance(cluster, dict):
@@ -81,6 +86,19 @@ def assess(gap_correlation, spot_archive, analysis_archive):
             analysis_class = "no-confirmed-nearby-15m-analysis"
             counts["analysisEvidenceMissingOrUnavailable"] += 1
 
+        worker_observation = worker_by_time.get(at, {})
+        worker_state = worker_observation.get("state")
+        worker_relation = worker_observation.get("timeRelation")
+        if worker_state == "worker-input-captured-near-gap" and worker_relation == "before-or-at-event":
+            worker_class = "worker-capture-before-or-at-gap"
+            counts["workerCaptureBeforeOrAtGap"] += 1
+        elif worker_state == "worker-input-captured-near-gap" and worker_relation == "after-event":
+            worker_class = "worker-capture-only-after-gap"
+            counts["workerCaptureOnlyAfterGap"] += 1
+        else:
+            worker_class = "no-confirmed-worker-capture-for-gap"
+            counts["workerCaptureMissingOrUnavailable"] += 1
+
         # A handoff/freshness mismatch is only a hypothesis to INVESTIGATE.
         # It does not establish root cause, a missed trade, or an original bid.
         candidate = (source_class == "original-nearby-before-or-at-gap" and
@@ -99,6 +117,14 @@ def assess(gap_correlation, spot_archive, analysis_archive):
                 type(cluster.get("affectedVirtualCases")) is int else None,
             "spotEvidence": source_class,
             "analysisEvidence": analysis_class,
+            "paperWorkerEvidence": worker_class,
+            "workerCapturedAt": _clock(worker_observation.get("capturedAt")),
+            "workerInputProfiles": [
+                {key: row.get(key) for key in ("profile","outcome","ready","priceFresh","dataAt","barAt")}
+                for row in (worker_observation.get("profiles") or [])[:5]
+                if isinstance(row,dict) and row.get("profile") in
+                   ("conservative","balanced","offensive","early100","trend800")
+            ],
             "sourceAt": _clock(source.get("nearestSourceAt")),
             "analysisAt": _clock(observed.get("analysisAt")),
             "sourceRelation": relation if relation in ("before-or-at-event","after-event") else None,
@@ -117,7 +143,9 @@ def assess(gap_correlation, spot_archive, analysis_archive):
         "counts": counts,
         "items": entries,
         "scope": "last-twelve-distinct-recorded-paper-gap-clocks-only",
-        "note": "Independent near-time archives are hypotheses for investigation, not paper-worker inputs, "
-                "valid product bids, settled exits, root-cause proof or investment performance. "
-                "A later source clock cannot reconstruct an earlier missing interval.",
+        "note": "An actual paper input capture shows only what the paper worker received, "
+                "not whether an executable product quote existed. No capture before this "
+                "instrumentation is no historical absence proof. Other source/analysis "
+                "proximity remains a hypothesis, never a filled exit or P/L. "
+                "A later source clock cannot reconstruct an earlier interval.",
     }

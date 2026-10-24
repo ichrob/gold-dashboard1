@@ -85,6 +85,12 @@ def recent_paper_outcomes(accounts):
         return any(isinstance(e,dict) and e.get('kind') in kinds
                    for e in case.get('events',[])[:20]) if isinstance(case.get('events'),list) else False
     # Causes may overlap, and absent event proof does not imply a normal fill.
+    # A model may obtain a later original product quote after its missing-data
+    # interval. That is not proof of a correctly timed virtual sale.
+    later_priced = sum(c.get('productReturnKnown') is True and
+                       event_present(c,{'deferred-sale'}) for c in unresolved)
+    pending_price = sum(c.get('productReturnKnown') is False or
+                        c.get('productReturnKnown') is None for c in unresolved)
     reasons={
         'recordedGoldDataGap':sum(event_present(c,{'data-gap'}) for c in unresolved),
         'recordedKoOrProductEnd':sum(event_present(c,{'knockout-confirmed',
@@ -98,6 +104,13 @@ def recent_paper_outcomes(accounts):
         'state':'partial' if any(g.get('status') != 'observed' for g in groups) else 'observed',
         'scope':'last-five-cases-per-paper-account-only-not-full-performance',
         'inconclusiveRecordedCauses':reasons,
+        'inconclusivePriceEvidence':{
+            'laterModelPricePresentButOriginalExitUnverified':later_priced,
+            'originalExitStillUnverified':len(unresolved),
+            'noConfirmedLaterModelPrice':pending_price,
+            'note':'A fresh issuer price observed later can settle only a virtual model '
+                   'at that later clock. It cannot reconstruct the missing original exit, '
+                   'DEGIRO execution, net return or win/loss.'},
         'causeScope':'overlap-possible-recorded-events-only-not-ground-truth',
         'observedCases':len(stored),
         'closed':sum(c.get('status') == 'closed' for c in stored),
@@ -153,6 +166,13 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
         except Exception:
             result['analysisGapArchive'] = {'status':'unavailable','readOnly':True,
                 'reason':'analysis-history-inspection-unavailable'}
+        # Separate observations of market data actually handed to virtual
+        # account evaluators. Historical gaps before this capture stay unknown.
+        try:
+            result['paperInputArchive'] = __import__('paper_input_evidence').report(conn,accounts)
+        except Exception:
+            result['paperInputArchive'] = {'status':'unavailable','readOnly':True,
+                'reason':'paper-input-history-unavailable'}
         result['history'] = collect({'journal':lambda:__import__('diagnostic_history').report(conn)})
         result['details'] = stored_details(conn)
         # Keep the research report independently addressable when oversized
@@ -375,9 +395,17 @@ def simulation_evidence_snapshot(simulation):
                 'scope':'exact-recordedAt-correlation-in-last-five-cases-per-account',
                 'note':'Distinct recorded event clocks, not independent outages. '
                        'A reason classification does not prove root cause or missing trade price.'},
+            'paperInputArchive':project(simulation.get('paperInputArchive'),
+                shape('status','readOnly','realOrders','windowSeconds','sampledDistinctClocks',
+                    'totalDistinctClocks','truncated','scope','note','reason',
+                    counts=shape('workerInputNearby','noWorkerCaptureNearby','outsideRetention',
+                        'queryUnavailable','nearbyProfileInputFresh','nearbyProfileInputUnfreshOrError'),
+                    items=[shape('eventAt','state','capturedAt','timeRelation','deltaSeconds',
+                        profiles=[shape('profile','outcome','ready','priceFresh','dataAt','barAt')])])),
             'gapReview':__import__('paper_gap_triage').assess(
                 {'recentRecordedGapInstants':clusters[-10:]},
-                simulation.get('spotGapArchive'),simulation.get('analysisGapArchive')),
+                simulation.get('spotGapArchive'),simulation.get('analysisGapArchive'),
+                simulation.get('paperInputArchive')),
             'scope':'bounded-paper-case-evidence-not-fills-or-profit',
             'note':'A source data-gap cannot be repaired by interpolation or re-dating quotes.'}
 

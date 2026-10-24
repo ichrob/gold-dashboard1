@@ -164,7 +164,7 @@ def early_paper_market(market, now):
     return result
 
 
-def run_all(conn, bundle, market, selection, quotes, now, settings, active=None, early_market=None, early_selection=None):
+def run_all(conn, bundle, market, selection, quotes, now, settings, active=None, early_market=None, early_selection=None, input_observations=None):
     """One savepoint per account: a failure does not consume another account's run.
 
     Feed/selection are observational inputs, never broker orders.
@@ -187,8 +187,23 @@ def run_all(conn, bundle, market, selection, quotes, now, settings, active=None,
                 paper_simulation.run_once(Ledger(conn, profile), bundle, m, chosen,
                                           quotes, now, profile_policy=policy)
             outcomes[profile] = 'checked'
+            if input_observations is not None:
+                try:
+                    from paper_input_evidence import sanitized_profile
+                    record = sanitized_profile(profile, m, 'checked')
+                    if record is not None: input_observations.append(record)
+                except Exception:
+                    # The optional observation must not alter a successful ledger.
+                    pass
         except Exception as exc:
             outcomes[profile] = 'error:' + type(exc).__name__
+            if input_observations is not None:
+                try:
+                    from paper_input_evidence import sanitized_profile
+                    record = sanitized_profile(profile, {}, 'error')
+                    if record is not None: input_observations.append(record)
+                except Exception:
+                    pass
             print('BOB_PAPER_PROFILE profile=' + profile +
                   ' error=' + type(exc).__name__, flush=True)
     return outcomes
