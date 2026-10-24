@@ -41,6 +41,10 @@ class MainActivity : Activity() {
     private lateinit var commandStatus: TextView
     private lateinit var executeButton: Button
     private val taskApproval = PhoneTaskApproval()
+    private val chatShareApproval = PhoneTaskApproval()
+    private var chatShareTask: PhoneTask? = null
+    private lateinit var chatShareSection: LinearLayout
+    private lateinit var chatShareStatus: TextView
     private val remoteAudit by lazy { RemoteAuditStore(this) }
     private val remoteCoupling by lazy {
         RemoteCoupling(audit = { event, task ->
@@ -102,6 +106,35 @@ class MainActivity : Activity() {
         }
         label(appHeadline)
         button("🛑 NOT-STOPP – alle Handy- und Fernaufträge sperren") { emergencyStop() }
+        // A shared ChatGPT message is an UNTRUSTED proposal, not remote permission.
+        // Place the one required confirmation near the TOP on small Samsung screens.
+        chatShareSection = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            stack.addView(this)
+        }
+        label("CHATGPT → BOB – freigegebenen Anzeigeauftrag übernehmen", chatShareSection)
+        chatShareStatus = label("Noch kein gültiger geteilter Anzeigeauftrag.", chatShareSection)
+        button("✅ Geteilten Anzeigeauftrag einmalig öffnen", chatShareSection) {
+            val proposed = chatShareTask
+            chatShareTask = null
+            val approved = chatShareApproval.consume(proposed, SystemClock.elapsedRealtime())
+            if (!approved || proposed == null) {
+                chatShareStatus.text = "Geteilter Auftrag abgelaufen, verworfen oder nicht erlaubt. Nichts gestartet."
+                remoteAudit.append(System.currentTimeMillis(), RemoteAuditEvent.SHARE_REJECTED, null)
+            } else {
+                remoteAudit.append(System.currentTimeMillis(), RemoteAuditEvent.SHARE_APPROVED, proposed)
+                val page = BobNavigation.pageFor(proposed)
+                val launched = if (page == null) false else openBobPage(page)
+                remoteAudit.append(System.currentTimeMillis(),
+                    if (launched) RemoteAuditEvent.SHARE_LAUNCHED_NOT_VERIFIED
+                    else RemoteAuditEvent.SHARE_LAUNCH_FAILED, proposed)
+                chatShareStatus.text = if (launched)
+                    "Erlaubte Bob-Anzeige geöffnet. Browser-Inhalt noch nicht verifiziert. Keine Folgeaktion."
+                else "Bob konnte nicht geöffnet werden. Keine Folgeaktion."
+            }
+        }
+        label("Nur bewusst über Android-Teilen empfangene, harmlose Einzelaufträge. Keine automatische Ausführung, keine Fernkopplung und keine Echtgeldorders.", chatShareSection)
         button("Produktbilder auswählen (falls Teilen nicht klappt)") { openImagePicker() }
         status = label("Noch kein Bild ausgewählt. OCR-Werte sind niemals automatisch ein Handelsnachweis.")
         button("In Bob anzeigen – ohne Kopieren") {
@@ -343,6 +376,11 @@ class MainActivity : Activity() {
     override fun onPause() {
         // No unfinished command survives a switch to another app or the background.
         taskApproval.clear()
+        chatShareApproval.clear()
+        chatShareTask = null
+        if (::chatShareSection.isInitialized && chatShareSection.visibility == View.VISIBLE) {
+            chatShareStatus.text = "Die Freigabe wurde beim App-Wechsel verworfen. Auftrag bitte erneut teilen."
+        }
         if (::remoteStatus.isInitialized) {
             remoteCoupling.discardPending()
             remotePendingTask = null
@@ -368,8 +406,9 @@ class MainActivity : Activity() {
                 previewRemote(received)
                 return
             }
-            commandInput.setText(received.take(100))
-            previewTask(received)
+            // Ordinary Android share is NOT authenticated ChatGPT remote control.
+            // Exact allowlisted, harmless single action; owner must tap approval.
+            previewChatShare(received)
             return
         }
         if (incoming.action !in listOf(Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE) ||
@@ -588,6 +627,11 @@ class MainActivity : Activity() {
         if (::remoteStatus.isInitialized) remoteStatus.text =
             "STOPP aktiv: Kopplung widerrufen und Fernaufträge gesperrt."
         taskApproval.clear()
+        chatShareApproval.clear()
+        chatShareTask = null
+        if (::chatShareSection.isInitialized && chatShareSection.visibility == View.VISIBLE) {
+            chatShareStatus.text = "STOPP: geteilter Auftrag gesperrt. Neue ausdrückliche Freigabe erforderlich."
+        }
         clearVoicePlan()
         conversation.clear()
         speaker?.stop()
@@ -595,6 +639,25 @@ class MainActivity : Activity() {
         commandOutcome = DeviceDiagnosticShare.Outcome.STOPPED
         if (::commandStatus.isInitialized) commandStatus.text =
             "STOPP: alle offenen lokalen und Fernaufträge verworfen. Bereits geöffnete Apps werden nicht rückgängig gemacht."
+    }
+
+    private fun previewChatShare(raw: String) {
+        if (!::chatShareSection.isInitialized) return
+        chatShareApproval.clear()
+        chatShareTask = null
+        chatShareSection.visibility = View.VISIBLE
+        val task = ChatShareHandoff.parse(raw)
+        if (task == null) {
+            chatShareStatus.text = "Geteilter Auftrag abgelehnt. Erlaubt ist nur eine bekannte Bob-Anzeige. Nichts gestartet."
+            remoteAudit.append(System.currentTimeMillis(), RemoteAuditEvent.SHARE_REJECTED, null)
+            return
+        }
+        chatShareTask = task
+        chatShareApproval.approve(task, SystemClock.elapsedRealtime())
+        remoteAudit.append(System.currentTimeMillis(), RemoteAuditEvent.SHARE_PREVIEWED, task)
+        chatShareStatus.text = "Aus ChatGPT/Android-Teilen vorgeschlagen: " +
+            PhoneTaskProtocol.displayLabel(task) +
+            ". Wenn du es möchtest, innerhalb von 60 Sekunden auf „Geteilten Anzeigeauftrag einmalig öffnen“ tippen."
     }
 
     private fun previewRemote(raw: String) {
