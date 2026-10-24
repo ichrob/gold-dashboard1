@@ -40,7 +40,7 @@ function mount(){
  const status=document.getElementById('snapStatus'),clock=document.getElementById('snapClock'),list=document.getElementById('snapHoldings');
  const client=document.getElementById('snapClient'),key=document.getElementById('snapKey'),free=document.getElementById('snapFree');
  const save=document.getElementById('snapSave'),check=document.getElementById('snapCheck'),remove=document.getElementById('snapRemove');
- let busy=false,lastData=null,lastHoldings=null,csvReviewData=null;
+ let busy=false,lastData=null,lastHoldings=null,csvReviewData=null,lastVisibleReadRequestAt=Date.now();
  function feedback(message){const inline=document.getElementById('snapFormStatus'),outside=document.getElementById('snapFeedback');inline.textContent=message;outside.textContent=message;(document.getElementById('snapSetup').open?inline:outside).scrollIntoView({block:'nearest'});}
  function controls(){check.disabled=busy||!lastData?.configured||lastData.nextCheckSeconds>0;remove.disabled=busy||!lastData?.configured;}
  const messages={INVALID_CSV_LINK:'CSV-Zuordnung nicht gespeichert: Depot, Währung, stabile Anbieterkennung und Bestätigungen prüfen.',CSV_CONNECTION_REQUIRED:'Für die CSV-Zuordnung zuerst einen erfolgreichen Depotabruf abwarten.',CSV_RETRY_REQUIRED:'Depotabruf läuft oder wurde erneuert. CSV-Vergleich erneut öffnen.',HISTORY_STORE_UNAVAILABLE:'Verschlüsselte CSV-Speicherung nicht bestätigt.',SETUP_REQUIRED:'Noch nicht verbunden. Einmalige Einrichtung oben durchführen.',READY:'Schlüssel gespeichert. Lesetest wird gestartet.',CHECKING:'Depot-Lesetest läuft …',READ_OK:'✓ Depotdaten empfangen. Goldprodukt-Abdeckung noch nicht bestätigt.',CONNECT_DEGIRO:'Personal-Zugang erreichbar. DEGIRO im SnapTrade-Dashboard verbinden.',READ_CONNECTION_REQUIRED:'DEGIRO-Verbindung bei SnapTrade muss auf Lesen stehen.',AUTH_REQUIRED:'Anmeldung nicht bestätigt oder Verbindung abgelaufen. Im SnapTrade-Dashboard prüfen.',ACCESS_DENIED:'Anbieter verweigert den Zugriff. Personal-Zugang und Berechtigungen prüfen.',PLAN_REQUIRED:'Anbieter verlangt einen anderen Tarif. Kein kostenpflichtiger Abruf wird ausgelöst.',RATE_LIMITED:'Anbieter begrenzt die Abrufe. Nächster Versuch frühestens nach zehn Minuten.',PROVIDER_UNAVAILABLE:'Anbieter momentan nicht erreichbar. Letzter Stand ist nicht als aktuell bestätigt.',INVALID_RESPONSE:'Datenformat nicht vollständig erkannt. Kein vollständiger Abgleich bestätigt.',STORE_UNAVAILABLE:'Geschützter Schlüsselspeicher momentan nicht erreichbar.',SETTINGS_UNREADABLE:'Gespeicherter Schlüssel kann nicht gelesen werden. Personal-Schlüssel erneut speichern.',NO_ACCOUNTS:'Noch kein lesbares DEGIRO-Depot gefunden.',TOO_MANY_ACCOUNTS:'Mehr als drei DEGIRO-Depots/Verbindungen. Abgleich zur Prüfung angehalten.'};
@@ -317,8 +317,18 @@ function mount(){
   const payload={clientId:client.value.trim(),consumerKey:key.value.trim(),personalFreeConfirmed:true};client.value='';key.value='';
   try{const data=await call('configure',payload);feedback(data.configured?'✓ Schlüssel gespeichert. Die Eingabefelder wurden geleert. '+(messages[data.code]||'Lesetest wird gestartet.'):'Speichern nicht bestätigt.');}catch(error){feedback(error.message);status.textContent=error.message;}finally{payload.clientId='';payload.consumerKey='';busy=false;save.disabled=false;controls();}
  });
- for(const [button,action] of [[check,'check'],[remove,'disconnect']])button.addEventListener('click',async()=>{if(busy)return;busy=true;controls();try{const data=await call(action);feedback(messages[data.code]||'Status aktualisiert.');}catch(error){feedback(error.message);}finally{busy=false;controls();await refresh();}});
- refresh();setInterval(()=>{if(!document.hidden)refresh();},10000);
+ for(const [button,action] of [[check,'check'],[remove,'disconnect']])button.addEventListener('click',async()=>{if(busy)return;if(action==='check')lastVisibleReadRequestAt=Date.now();busy=true;controls();try{const data=await call(action);feedback(messages[data.code]||'Status aktualisiert.');}catch(error){feedback(error.message);}finally{busy=false;controls();await refresh();}});
+ // When the user actually views DEGIRO, keep the existing 10-minute reader
+ // interactive. Never trigger this from a hidden page or another Bob view.
+ // This POST only wakes the already rate-limited GET-only server worker.
+ async function visibleReadHeartbeat(){
+  if(busy||document.hidden||!lastData?.configured||!panel.getClientRects().length||window.getComputedStyle(panel).visibility==='hidden')return;
+  const now=Date.now();if(now-lastVisibleReadRequestAt<60000)return;
+  lastVisibleReadRequestAt=now;busy=true;controls();
+  try{await call('check');}catch(_){/* The regular status check reports failures without secrets. */}
+  finally{busy=false;controls();}
+ }
+ refresh();setInterval(()=>{if(!document.hidden){refresh();void visibleReadHeartbeat();}},10000);
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);else mount();
 })();
