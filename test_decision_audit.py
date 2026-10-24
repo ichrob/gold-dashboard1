@@ -309,13 +309,36 @@ class ReportBatchRowsTests(unittest.TestCase):
         from unittest.mock import Mock
         conn=Mock()
         conn.execute.side_effect=[
+            Mock(fetchall=lambda:[('new',),('old',)]),
             Mock(fetchall=lambda:[('new',{'id':'new'}),('old',{'id':'old'})]),
             Mock(fetchall=lambda:[('old',240,{'price':240}),('new',60,{'price':60}),('old',15,{'price':15})])]
         self.assertEqual(a._load_report_rows(conn),[
             ({'id':'new'},None,{'price':60},None),
             ({'id':'old'},{'price':15},None,{'price':240})])
-        self.assertEqual(conn.execute.call_count,2)
+        self.assertEqual(conn.execute.call_count,3)
         self.assertEqual(conn.execute.call_args.args[1],(['new','old'],))
+
+    def test_page_boundaries_preserve_selected_ids_and_outcome_alignment(self):
+        from unittest.mock import Mock, patch
+        conn=Mock()
+        conn.execute.side_effect=[
+            Mock(fetchall=lambda:[('new',),('middle',),('old',)]),
+            Mock(fetchall=lambda:[('middle',{'id':'middle'}),('new',{'id':'new'})]),
+            Mock(fetchall=lambda:[('middle',60,{'result':'middle'})]),
+            Mock(fetchall=lambda:[('old',{'id':'old'})]),
+            Mock(fetchall=lambda:[('old',15,{'result':'old'})])]
+        with patch.object(a,'REPORT_ROW_BATCH',2):
+            rows=a._load_report_rows(conn)
+        self.assertEqual([r[0]['id'] for r in rows],['new','middle','old'])
+        self.assertIsNone(rows[0][1])
+        self.assertEqual(rows[1][2],{'result':'middle'})
+        self.assertEqual(rows[2][1],{'result':'old'})
+        self.assertEqual(conn.execute.call_count,5)
+        # IDs are selected once: no OFFSET drift while fresh events are recorded.
+        self.assertIn('ORDER BY recorded_at DESC LIMIT %s',
+                      conn.execute.call_args_list[0].args[0])
+        self.assertEqual(conn.execute.call_args_list[1].args[1],(['new','middle'],))
+        self.assertEqual(conn.execute.call_args_list[3].args[1],(['old'],))
 
     @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'test database unavailable')
     def test_postgres_batch_matches_original_report_window(self):
@@ -349,11 +372,15 @@ class ProspectiveBoundedRecoveryTests(unittest.TestCase):
         db=Mock()
         db.execute.return_value.fetchall.return_value=[]
         a._load_prospective_rows(db)
-        self.assertNotIn("24 hours",db.execute.call_args.args[0])
+        full_sql=db.execute.call_args.args[0]
+        self.assertIn("recorded_at >= now()-interval '30 days'",full_sql)
+        self.assertIn('WITH RECURSIVE sampled',full_sql)
+        self.assertIn('CROSS JOIN LATERAL',full_sql)
+        self.assertNotIn('DISTINCT ON',full_sql)
         a._load_prospective_rows(db,recent=True)
         self.assertIn("recorded_at >= now()-interval '24 hours'",
                       db.execute.call_args.args[0])
-        self.assertEqual(db.execute.call_args.args[1],(a.RULE_VERSION,))
+        self.assertEqual(db.execute.call_args.args[1],(a.RULE_VERSION,a.RULE_VERSION))
 
     def test_one_timeout_produces_explicit_partial_not_30_day_result(self):
         from unittest.mock import MagicMock, Mock, patch
