@@ -1,7 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
-const {validIsin,readDraft,takeTransferFragment}=require('./degiro_android_bridge');
+const {validIsin,readDraft,displayedPairStatus,takeTransferFragment}=require('./degiro_android_bridge');
 
 const HEADER='BOB OCR-ENTWURF – NICHT VERIFIZIERT';
 const safe=(extra='')=>[
@@ -109,4 +109,20 @@ const alreadyEncoded={hash:'#bob-ocr=%E0%A4%A',pathname:'/',search:''};
 const invalidHistory={replaceState(_state,_title,url){alreadyEncoded.hash='';}};
 assert.throws(()=>takeTransferFragment(alreadyEncoded,invalidHistory));
 assert.equal(alreadyEncoded.hash,''); // Clear before decoding even on error.
+// User-shared bid/ask is a local comparison, not a binding DEGIRO order or fill.
+const pair=displayedPairStatus(parsed);
+assert.equal(pair.state,'screen-observation');
+assert.equal(pair.bid,13.22);assert.equal(pair.ask,13.35);
+assert.equal(pair.broker,'DEGIRO');
+assert.equal(pair.sourceTime,null);
+assert.equal(pair.originalQuoteTimeVerified,false);
+assert.equal(pair.executable,false);
+assert.equal(pair.canTrade,false);
+assert.equal(pair.permissions,'comparison-only');
+assert.equal(displayedPairStatus(dated).state,'incomplete');
+assert.equal(displayedPairStatus(readDraft(safe().replace('13,35','13,20'))).state,'conflict');
+assert.equal(displayedPairStatus(readDraft(safe().replace('13,22','1.322,00'))).state,'incomplete');
+assert.throws(()=>displayedPairStatus({...parsed,tradeApproved:true}));
+assert.throws(()=>displayedPairStatus({...parsed,sourceTime:'2026-10-24T09:00:00+02:00'}));
+assert(script.includes('data-degiro-screen-quote'));
 console.log('Android-OCR-Entwurf: Parser und Sicherheitsgrenzen geprüft.');
