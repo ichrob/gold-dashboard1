@@ -43,9 +43,9 @@ class MainActivity : Activity() {
     private val taskApproval = PhoneTaskApproval()
     private val remoteAudit by lazy { RemoteAuditStore(this) }
     private val remoteCoupling by lazy {
-        RemoteCoupling { event, task ->
+        RemoteCoupling(audit = { event, task ->
             remoteAudit.append(System.currentTimeMillis(), event, task)
-        }
+        })
     }
     private lateinit var remoteStatus: TextView
     private lateinit var remoteInput: EditText
