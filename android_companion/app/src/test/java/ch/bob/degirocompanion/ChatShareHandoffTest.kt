@@ -18,6 +18,37 @@ class ChatShareHandoffTest {
             ChatShareHandoff.parse("BOB-HANDY/1|OPEN_TRADE"))
     }
 
+    @Test fun exactAppLinksSharedAsPlainTextNeedFreshConsent() {
+        val links = listOf(
+            "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS",
+            "bobhandy://handoff/OPEN_PRODUCTS"
+        )
+        for (link in links) {
+            val task = ChatShareHandoff.parse(link)
+            assertEquals(PhoneTask.OPEN_PRODUCTS, task)
+            val gate = PhoneTaskApproval()
+            assertFalse("An incoming link must not execute by itself", gate.consume(task, 100L))
+            gate.approve(task!!, 101L)
+            assertTrue(gate.consume(task, 102L))
+            assertFalse(gate.consume(task, 103L))
+        }
+    }
+
+    @Test fun sharedUrlsWithExtraDataOrArbitraryDomainsStayBlocked() {
+        for (raw in listOf(
+            "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS?buy=1",
+            "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS#x",
+            "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS/",
+            "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS\nextra",
+            "https://bob-private-scanner.onrender.com/handy/PLACE_ORDER",
+            "https://bob-private-scanner.onrender.com.evil.example/handy/OPEN_PRODUCTS",
+            "https://example.org/handy/OPEN_PRODUCTS",
+            "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS and buy",
+            "bobhandy://handoff/OPEN_PRODUCTS?extra=1",
+            "bobhandy://handoff/OPEN_PRODUCTS;BUY"
+        )) assertNull(raw, ChatShareHandoff.parse(raw))
+    }
+
     @Test fun untrustedBrokerActionsArbitraryUrlsAndChainsAreRejected() {
         listOf(
             "BOB-HANDY/1|PLACE_ORDER",
