@@ -78,10 +78,12 @@ function mount(){
   function journal(parent,account){
    const d=details(parent,'snapJournal'+account.accountKey,'Handelsjournal · Orders und Transaktionen');
    line(d,'','Orders: jüngstes Anbieterfenster. Transaktionen: täglicher Abruf, üblicherweise einen Tag verzögert. Keine automatische Trade-Freigabe.');
+   const failures={AUTH_REQUIRED:'Anbieter-Anmeldung nicht bestätigt',ACCESS_DENIED:'Anbieter verweigert den Journalzugriff',RATE_LIMITED:'Anbieter-Abrufbegrenzung',PLAN_REQUIRED:'Journal im bestehenden Tarif nicht verfügbar',PROVIDER_UNAVAILABLE:'Anbieter momentan nicht erreichbar',RESPONSE_TOO_LARGE:'Anbieterantwort überschreitet das Größenlimit',INVALID_RESPONSE:'Anbieterantwort nicht vollständig verarbeitet'};
    for(const [category,title] of [['orders','Orders'],['activities','Transaktionen']]){
     const value=account.journal?.[category];
     line(d,title+': ',!value?'noch nicht gelesen':(value.code==='READ_OK'?'gelesen':'Abruf nicht verfügbar; vorheriger Stand')+' · letzter erfolgreicher Abruf '+stamp(value.checkedAt));
     if(!value)continue;
+    if(value.code!=='READ_OK'&&value.failureCode)line(d,'Letzter fehlgeschlagener Abruf: ',stamp(value.failureAt)+' · '+(failures[value.failureCode]||'Grund nicht bestätigt'));
     if(category==='activities'&&!value.complete)line(d,'','Historie unvollständig; keine vollständige Ergebnisrechnung.');
     if(!value.rows?.length)line(d,'','Keine Einträge geliefert.');
     for(const row of (value.rows||[]).slice(0,100)){
