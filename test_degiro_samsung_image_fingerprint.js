@@ -1,6 +1,13 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-const context={window:{},crypto:{subtle:{digest:async()=>Buffer.from('b94c900588471b87'+'33'.repeat(24),'hex')}}};
+// The one-day-reviewed source is intentionally valid only on 2026-10-23.
+ // Freeze the VM clock instead of relying on the day the CI runner executes.
+const observationTime=Date.UTC(2026,9,23,17,0,0);
+class HistoricalDate extends Date {
+ constructor(...args){if(args.length)super(...args);else super(observationTime);}
+ static now(){return observationTime;}
+}
+const context={window:{},Date:HistoricalDate,crypto:{subtle:{digest:async()=>Buffer.from('b94c900588471b87'+'33'.repeat(24),'hex')}}};
 vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),context);
 const b=context.window.BobDegiro;
 const samsungDigest='b94c900588471b87'+'33'.repeat(24);
