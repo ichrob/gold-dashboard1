@@ -3,6 +3,7 @@ if __name__ == '__main__':
     sys.modules.setdefault('server', sys.modules[__name__])
 import candle_reliability
 import bob_passkey
+import bob_handy_landing
 import degiro_readonly
 import degiro_sync
 import degiro_sandbox
@@ -1227,6 +1228,18 @@ class Handler(BaseHTTPRequestHandler):
                 view=query.get("view", [""])[0],
             )
             return
+        if path.startswith("/handy/"):
+            # Normal HTTPS link from ChatGPT. No public personal content:
+            # deny unknown paths and require existing Bob web authentication.
+            command = bob_handy_landing.route(path, urlparse(self.path).query)
+            if command is None:
+                bob_auth.send(self, 404)
+            elif not self.authenticated():
+                view = bob_handy_landing.PAGES[command][1]
+                bob_auth.send(self, 303, location="/login?view=" + view)
+            else:
+                bob_handy_landing.send(self, command)
+            return
         if path in ("/", "/index.html", "/bob-live", "/bob-v12") and not self.authenticated():
             # Browser fragments are invisible to servers. The Android companion
             # therefore sends the intended tab as an allowlisted ?view= value.
@@ -1877,6 +1890,16 @@ class Handler(BaseHTTPRequestHandler):
         # policy without generating a response body, so probes do not produce
         # false 501 errors and the private root stays private.
         path = urlparse(self.path).path
+        if path.startswith("/handy/"):
+            command = bob_handy_landing.route(path, urlparse(self.path).query)
+            if command is None:
+                bob_auth.send(self, 404)
+            elif not self.authenticated():
+                view = bob_handy_landing.PAGES[command][1]
+                bob_auth.send(self, 303, location="/login?view=" + view)
+            else:
+                bob_handy_landing.send(self, command, head=True)
+            return
         if path == "/health/background":
             self.send_response(200 if background_health()["status"] == "ok" else 503)
             self.send_header("Cache-Control", "no-store")
