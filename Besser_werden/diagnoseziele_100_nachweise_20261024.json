@@ -1,0 +1,1949 @@
+{
+  "reportVersion": 1,
+  "title": "Bob 100 Diagnoseziele: Nachweisabgleich",
+  "reviewedAt": "2026-10-24T09:59:22.948989+00:00",
+  "codeBaseline": {
+    "repository": "ichrob/gold-dashboard1",
+    "commit": "da7af61348919487ca9caccd12b1454886ae70bb",
+    "readOnlyEvidence": "Repository paths exist; not execution proof"
+  },
+  "ciBaseline": {
+    "workflow": "Bob CI",
+    "runId": 40083176199,
+    "commit": "da7af61348919487ca9caccd12b1454886ae70bb",
+    "conclusion": "success",
+    "scope": "Full repository suite, not 100 individual acceptance tests"
+  },
+  "liveBaseline": {
+    "observedAt": "2026-10-24T09:59:22.948989+00:00",
+    "build": "da7af61348919487ca9caccd12b1454886ae70bb",
+    "scope": "Bounded read-only operational diagnostics on weekend; no 100-target end-to-end runtime validation"
+  },
+  "overview": {
+    "goalCount": 100,
+    "counts": {
+      "withPartialLiveObservation": 35,
+      "codePathsPresent": 100,
+      "ciGroupsRepresented": 10,
+      "individuallyVerified": 0,
+      "deviceRequired": 5,
+      "blockedClient": 1
+    },
+    "originalStateCounts": {
+      "blockedClient": 1,
+      "partial": 91,
+      "planned": 3,
+      "requiresDevice": 5
+    }
+  },
+  "policy": [
+    "File existence does not prove feature correctness.",
+    "Green CI does not verify every business requirement.",
+    "Live operational snippets are not end-to-end acceptance.",
+    "No credentials, portfolio/ISIN details, raw logs or personalized trade values are stored here.",
+    "Existing unverified flags must not be promoted without target-specific evidence.",
+    "After new deployment, historic CI/live baseline must not be treated as current build proof."
+  ],
+  "goals": [
+    {
+      "id": 1,
+      "goal": "ChatGPT-Werkzeugbeschreibung aktualisieren",
+      "originalState": "blocked-client",
+      "code": {
+        "path": "bob_diagnostics.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_diagnostics.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": "client-connection-or-schema-limitation"
+    },
+    {
+      "id": 2,
+      "goal": "Neue Bob-Module erkennen",
+      "originalState": "partial",
+      "code": {
+        "path": "bob_diagnostics.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_diagnostics.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 3,
+      "goal": "Modul-/Abhängigkeitsverzeichnis",
+      "originalState": "planned",
+      "code": {
+        "path": "bob_diagnostics.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_diagnostics.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 4,
+      "goal": "Gesundheit jedes Moduls",
+      "originalState": "partial",
+      "code": {
+        "path": "bob_diagnostics.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_diagnostics.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "background-worker-heartbeat-observed"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 5,
+      "goal": "Original-/Abruf-/Prüfzeit getrennt",
+      "originalState": "partial",
+      "code": {
+        "path": "bob_diagnostics.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_diagnostics.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "separate-source-and-report-clocks-observed-in-some-areas"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 6,
+      "goal": "Gezielte Einzelabfragen",
+      "originalState": "partial",
+      "code": {
+        "path": "bob_diagnostics.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_diagnostics.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 7,
+      "goal": "Historische Diagnosefenster",
+      "originalState": "partial",
+      "code": {
+        "path": "bob_diagnostics.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_diagnostics.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 8,
+      "goal": "Vergleich früherer Zustände",
+      "originalState": "planned",
+      "code": {
+        "path": "bob_diagnostics.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_diagnostics.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 9,
+      "goal": "Fehlerursachen korrelieren",
+      "originalState": "partial",
+      "code": {
+        "path": "bob_diagnostics.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_diagnostics.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 10,
+      "goal": "Gesamtstatus mit Nachweisen",
+      "originalState": "partial",
+      "code": {
+        "path": "bob_diagnostics.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_diagnostics.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "diagnostic-summary-with-status-and-scope-observed"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 11,
+      "goal": "Workerzyklen und Fälligkeit",
+      "originalState": "partial",
+      "code": {
+        "path": "bob_self_healing.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_self_healing.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 12,
+      "goal": "Verpasste 30-Sekunden-Takte",
+      "originalState": "partial",
+      "code": {
+        "path": "bob_self_healing.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_self_healing.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 13,
+      "goal": "CPU-/RAM-Auslastung",
+      "originalState": "partial",
+      "code": {
+        "path": "bob_self_healing.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_self_healing.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 14,
+      "goal": "Serverneustarts und Crashursachen",
+      "originalState": "partial",
+      "code": {
+        "path": "bob_self_healing.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_self_healing.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 15,
+      "goal": "HTTP-Fehler je Endpunkt",
+      "originalState": "partial",
+      "code": {
+        "path": "bob_self_healing.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_self_healing.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 16,
+      "goal": "Datenbanksperren/Timeouts",
+      "originalState": "partial",
+      "code": {
+        "path": "bob_self_healing.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_self_healing.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 17,
+      "goal": "Warteschlangen und Verluste",
+      "originalState": "partial",
+      "code": {
+        "path": "bob_self_healing.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_self_healing.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "bounded-diagnostic-queue-counters-observed"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 18,
+      "goal": "Gleiche Build-Version auf Diensten",
+      "originalState": "partial",
+      "code": {
+        "path": "bob_self_healing.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_self_healing.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 19,
+      "goal": "Deployment-Regressionsvergleich",
+      "originalState": "planned",
+      "code": {
+        "path": "bob_self_healing.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_self_healing.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 20,
+      "goal": "Wirkung von Neustarts",
+      "originalState": "partial",
+      "code": {
+        "path": "bob_self_healing.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_bob_self_healing.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 21,
+      "goal": "Spot-Originalkurse",
+      "originalState": "partial",
+      "code": {
+        "path": "candle_reliability.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_candle_reliability.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "stored-spot-gap-archive-near-sample-observed-no-trade-price"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 22,
+      "goal": "CFD-Herkunft und Abweichung",
+      "originalState": "partial",
+      "code": {
+        "path": "candle_reliability.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_candle_reliability.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 23,
+      "goal": "Future-Kontrakt und Verzögerung",
+      "originalState": "partial",
+      "code": {
+        "path": "candle_reliability.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_candle_reliability.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 24,
+      "goal": "FX-Werte mit Zeitbezug",
+      "originalState": "partial",
+      "code": {
+        "path": "candle_reliability.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_candle_reliability.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 25,
+      "goal": "Qualität jeder Kursquelle",
+      "originalState": "partial",
+      "code": {
+        "path": "candle_reliability.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_candle_reliability.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "source-reliability-states-observed-not-feed-validation"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 26,
+      "goal": "Quellenwechsel dokumentieren",
+      "originalState": "partial",
+      "code": {
+        "path": "candle_reliability.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_candle_reliability.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "source-state-transitions-observed"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 27,
+      "goal": "Lücken/Fehler in Kerzen",
+      "originalState": "partial",
+      "code": {
+        "path": "candle_reliability.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_candle_reliability.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "weekend-candle-integrity-reported-missing-not-real-outage"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 28,
+      "goal": "Historisches EMA200-Backfill",
+      "originalState": "partial",
+      "code": {
+        "path": "candle_reliability.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_candle_reliability.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 29,
+      "goal": "Quellen je Zeitfenster",
+      "originalState": "partial",
+      "code": {
+        "path": "candle_reliability.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_candle_reliability.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "per-timeframe-source-state-observed-with-weekend-limits"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 30,
+      "goal": "Gemeinsame Eingangsdatensätze",
+      "originalState": "partial",
+      "code": {
+        "path": "candle_reliability.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_candle_reliability.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 31,
+      "goal": "DEGIRO-Listenstände archivieren",
+      "originalState": "partial",
+      "code": {
+        "path": "degiro_product_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_degiro_product_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "stored-degiro-list-and-checked-at-observed-not-history-verified"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 32,
+      "goal": "Neue/entfallene ISINs vergleichen",
+      "originalState": "partial",
+      "code": {
+        "path": "degiro_product_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_degiro_product_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 33,
+      "goal": "Screenshot-Serien richtig zuordnen",
+      "originalState": "partial",
+      "code": {
+        "path": "degiro_product_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_degiro_product_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 34,
+      "goal": "OCR-Felder getrennt prüfen",
+      "originalState": "partial",
+      "code": {
+        "path": "degiro_product_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_degiro_product_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 35,
+      "goal": "Herkunft jedes Produktwertes",
+      "originalState": "partial",
+      "code": {
+        "path": "degiro_product_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_degiro_product_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "bounded-issuer-source-observations-observed"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 36,
+      "goal": "SG/BNP/comdirect-Quellen prüfen",
+      "originalState": "partial",
+      "code": {
+        "path": "degiro_product_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_degiro_product_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 37,
+      "goal": "Geld-/Briefkursnachweise",
+      "originalState": "partial",
+      "code": {
+        "path": "degiro_product_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_degiro_product_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "issuer-quote-source-times-observed-not-executable-degiro-bids"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 38,
+      "goal": "Original- und berechneten Hebel trennen",
+      "originalState": "partial",
+      "code": {
+        "path": "degiro_product_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_degiro_product_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "leverage-observations-present-but-source-clock-may-be-missing"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 39,
+      "goal": "KO/Basis/Ratio/Laufzeit prüfen",
+      "originalState": "partial",
+      "code": {
+        "path": "degiro_product_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_degiro_product_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "product-evidence-states-observed-no-all-fields-proof"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 40,
+      "goal": "Produktidentität und Handelsplatz belegen",
+      "originalState": "partial",
+      "code": {
+        "path": "degiro_product_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_degiro_product_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "source-matched-product-identity-observed-not-venue-trade-approval"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 41,
+      "goal": "Haken/Kreuz pro ISIN erklären",
+      "originalState": "partial",
+      "code": {
+        "path": "decision_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_decision_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 42,
+      "goal": "Top-3-Rangfolge reproduzieren",
+      "originalState": "partial",
+      "code": {
+        "path": "decision_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_decision_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 43,
+      "goal": "Ausschlussgründe ausgeben",
+      "originalState": "partial",
+      "code": {
+        "path": "decision_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_decision_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 44,
+      "goal": "LONG/SHORT/ABWARTEN erklären",
+      "originalState": "partial",
+      "code": {
+        "path": "decision_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_decision_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 45,
+      "goal": "Indikatoren mit Daten belegen",
+      "originalState": "partial",
+      "code": {
+        "path": "decision_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_decision_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 46,
+      "goal": "MTF-Widersprüche erkennen",
+      "originalState": "partial",
+      "code": {
+        "path": "decision_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_decision_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 47,
+      "goal": "Verpasste/unterdrückte Signale",
+      "originalState": "partial",
+      "code": {
+        "path": "decision_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_decision_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 48,
+      "goal": "Einstiegsschutzgründe",
+      "originalState": "partial",
+      "code": {
+        "path": "decision_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_decision_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 49,
+      "goal": "Frühwarnung und Trendkontext",
+      "originalState": "partial",
+      "code": {
+        "path": "decision_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_decision_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 50,
+      "goal": "Entscheidung und späteres Ergebnis verbinden",
+      "originalState": "partial",
+      "code": {
+        "path": "decision_audit.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_decision_audit.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 51,
+      "goal": "SnapTrade vs. DEGIRO getrennt",
+      "originalState": "partial",
+      "code": {
+        "path": "snaptrade_bridge.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_snaptrade_bridge.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "read-only-broker-status-observed-no-live-trading-access"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 52,
+      "goal": "Maskierte Depotbestände",
+      "originalState": "partial",
+      "code": {
+        "path": "snaptrade_bridge.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_snaptrade_bridge.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 53,
+      "goal": "Bestandsänderungen",
+      "originalState": "partial",
+      "code": {
+        "path": "snaptrade_bridge.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_snaptrade_bridge.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 54,
+      "goal": "Käufe/Verkäufe/Gebühren/FX",
+      "originalState": "partial",
+      "code": {
+        "path": "snaptrade_bridge.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_snaptrade_bridge.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 55,
+      "goal": "CSV-ISIN-Zuordnung",
+      "originalState": "partial",
+      "code": {
+        "path": "snaptrade_bridge.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_snaptrade_bridge.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "csv-linked-position-count-observed-not-universal-isins-validated"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 56,
+      "goal": "Doppelte Transaktionen",
+      "originalState": "partial",
+      "code": {
+        "path": "snaptrade_bridge.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_snaptrade_bridge.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 57,
+      "goal": "FIFO-Lücken",
+      "originalState": "partial",
+      "code": {
+        "path": "snaptrade_bridge.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_snaptrade_bridge.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "unresolved-fifo-calculation-reasons-observed"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 58,
+      "goal": "Broker- vs. Emittentenkurse",
+      "originalState": "partial",
+      "code": {
+        "path": "snaptrade_bridge.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_snaptrade_bridge.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 59,
+      "goal": "Handelbarkeit je Broker",
+      "originalState": "partial",
+      "code": {
+        "path": "snaptrade_bridge.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_snaptrade_bridge.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 60,
+      "goal": "Login-/Synchronisierungsfehler",
+      "originalState": "partial",
+      "code": {
+        "path": "snaptrade_bridge.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_snaptrade_bridge.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "broker-read-status-observed-no-sustained-sync-verification"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 61,
+      "goal": "Manuelle Trades zuordnen",
+      "originalState": "partial",
+      "code": {
+        "path": "trade_stop_review.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_trade_stop_review.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 62,
+      "goal": "Einstiegswerte prüfen",
+      "originalState": "partial",
+      "code": {
+        "path": "trade_stop_review.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_trade_stop_review.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 63,
+      "goal": "Produktkurven vergleichen",
+      "originalState": "partial",
+      "code": {
+        "path": "trade_stop_review.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_trade_stop_review.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 64,
+      "goal": "Stop/Ziel-Ursprung",
+      "originalState": "partial",
+      "code": {
+        "path": "trade_stop_review.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_trade_stop_review.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 65,
+      "goal": "Stopp-Nachziehen rechtzeitig",
+      "originalState": "partial",
+      "code": {
+        "path": "trade_stop_review.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_trade_stop_review.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 66,
+      "goal": "KO-Warnungen verifizieren",
+      "originalState": "partial",
+      "code": {
+        "path": "trade_stop_review.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_trade_stop_review.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 67,
+      "goal": "Gewinnschutz/Zielketten",
+      "originalState": "partial",
+      "code": {
+        "path": "trade_stop_review.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_trade_stop_review.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 68,
+      "goal": "FX-Abrechnung pro Trade",
+      "originalState": "partial",
+      "code": {
+        "path": "trade_stop_review.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_trade_stop_review.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 69,
+      "goal": "Push-Versuch vs. Zustellung",
+      "originalState": "partial",
+      "code": {
+        "path": "trade_stop_review.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_trade_stop_review.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "active-push-subscriptions-observed-handset-delivery-not-verified"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 70,
+      "goal": "Echte Trade-Ergebnisse evaluieren",
+      "originalState": "partial",
+      "code": {
+        "path": "trade_stop_review.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_trade_stop_review.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 71,
+      "goal": "Fünf Simulationskonten",
+      "originalState": "partial",
+      "code": {
+        "path": "paper_simulation.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_paper_simulation.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "five-paper-account-heartbeats-observed-no-complete-history"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 72,
+      "goal": "Handelszeit-Durchlauf",
+      "originalState": "partial",
+      "code": {
+        "path": "paper_simulation.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_paper_simulation.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "weekend-paper-pause-reason-observed-not-weekday-continuity"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 73,
+      "goal": "Virtuelle Ein-/Ausstiege",
+      "originalState": "partial",
+      "code": {
+        "path": "paper_simulation.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_paper_simulation.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "bounded-recent-virtual-case-events-observed-no-real-fills"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 74,
+      "goal": "Kosten in Kontoständen",
+      "originalState": "partial",
+      "code": {
+        "path": "paper_simulation.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_paper_simulation.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "example-cost-model-ledger-fields-observed-not-broker-fees"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 75,
+      "goal": "Sim-/Originalkurse abgleichen",
+      "originalState": "partial",
+      "code": {
+        "path": "paper_simulation.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_paper_simulation.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "spot-proximity-sampled-no-original-product-exit-price-proof"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 76,
+      "goal": "Unklare Simulationsausgänge",
+      "originalState": "partial",
+      "code": {
+        "path": "paper_simulation.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_paper_simulation.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "inconclusive-case-counts-and-distinct-gap-clocks-observed"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 77,
+      "goal": "Simulation-Pausen begründen",
+      "originalState": "partial",
+      "code": {
+        "path": "paper_simulation.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_paper_simulation.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "weekend-session-pause-reason-observed"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 78,
+      "goal": "Strategien identisch vergleichen",
+      "originalState": "partial",
+      "code": {
+        "path": "paper_simulation.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_paper_simulation.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "multiple-profile-samples-observed-not-identical-input-test"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 79,
+      "goal": "Lernversuche dokumentieren",
+      "originalState": "partial",
+      "code": {
+        "path": "paper_simulation.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_paper_simulation.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 80,
+      "goal": "Unabhängige Vorwärtsprüfung",
+      "originalState": "partial",
+      "code": {
+        "path": "paper_simulation.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_paper_simulation.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 81,
+      "goal": "Neue MCO/NCO-Videos",
+      "originalState": "partial",
+      "code": {
+        "path": "research_learning.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_research_learning.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 82,
+      "goal": "Video-Veröffentlichungsdaten",
+      "originalState": "partial",
+      "code": {
+        "path": "research_learning.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_research_learning.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 83,
+      "goal": "Untertitel-Fehler",
+      "originalState": "partial",
+      "code": {
+        "path": "research_learning.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_research_learning.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 84,
+      "goal": "Frames und Zeitstempel",
+      "originalState": "partial",
+      "code": {
+        "path": "research_learning.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_research_learning.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 85,
+      "goal": "Browserless-Kontingent",
+      "originalState": "partial",
+      "code": {
+        "path": "research_learning.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_research_learning.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 86,
+      "goal": "MCO-vs.-Bob-Kursvergleich",
+      "originalState": "partial",
+      "code": {
+        "path": "research_learning.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_research_learning.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 87,
+      "goal": "Selbstkritik aus gespeichertem Lauf",
+      "originalState": "partial",
+      "code": {
+        "path": "research_learning.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_research_learning.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "research-self-review-observed-insufficient-evidence"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 88,
+      "goal": "Lernfortschritt",
+      "originalState": "partial",
+      "code": {
+        "path": "research_learning.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_research_learning.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "research-cycle-status-observed-no-learning-gain-proven"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 89,
+      "goal": "Überanpassung erkennen",
+      "originalState": "partial",
+      "code": {
+        "path": "research_learning.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_research_learning.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 90,
+      "goal": "Experimentelle vs. Live-Regeln",
+      "originalState": "partial",
+      "code": {
+        "path": "research_learning.py",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_research_learning.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "research-only-rule-not-applied-observed"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 91,
+      "goal": "Installierte Android-Version",
+      "originalState": "requires-device",
+      "code": {
+        "path": "android_companion/README.md",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_android_stable_release_config.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": "needs-explicit-device-evidence"
+    },
+    {
+      "id": 92,
+      "goal": "Spracherkennungsdiagnose",
+      "originalState": "requires-device",
+      "code": {
+        "path": "android_companion/README.md",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_android_stable_release_config.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": "needs-explicit-device-evidence"
+    },
+    {
+      "id": 93,
+      "goal": "Handy-Freigaben/STOPP",
+      "originalState": "requires-device",
+      "code": {
+        "path": "android_companion/README.md",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_android_stable_release_config.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": "needs-explicit-device-evidence"
+    },
+    {
+      "id": 94,
+      "goal": "OCR-Teilen auf Gerät",
+      "originalState": "requires-device",
+      "code": {
+        "path": "android_companion/README.md",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_android_stable_release_config.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": "needs-explicit-device-evidence"
+    },
+    {
+      "id": 95,
+      "goal": "Mobile Navigation/Scrollen",
+      "originalState": "requires-device",
+      "code": {
+        "path": "android_companion/README.md",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_android_stable_release_config.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": "needs-explicit-device-evidence"
+    },
+    {
+      "id": 96,
+      "goal": "Fehler mit GitHub-Issue verbinden",
+      "originalState": "partial",
+      "code": {
+        "path": "android_companion/README.md",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_android_stable_release_config.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "problem-index-observed-not-issue-end-to-end-verified"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 97,
+      "goal": "Wiederkehrende Probleme",
+      "originalState": "partial",
+      "code": {
+        "path": "android_companion/README.md",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_android_stable_release_config.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "problem-index-observed-not-dedup-history-verified"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 98,
+      "goal": "Vorher/Nachher-Reparaturprüfung",
+      "originalState": "partial",
+      "code": {
+        "path": "android_companion/README.md",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_android_stable_release_config.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "self-heal-status-observed-not-before-after-proof"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 99,
+      "goal": "Security-Prüfung und Rollback",
+      "originalState": "partial",
+      "code": {
+        "path": "android_companion/README.md",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_android_stable_release_config.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "not-individually-observed",
+        "observation": null
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    },
+    {
+      "id": 100,
+      "goal": "Reparatur-Ende-zu-Ende",
+      "originalState": "partial",
+      "code": {
+        "path": "android_companion/README.md",
+        "level": "file-exists-only"
+      },
+      "ci": {
+        "representativeGroupTest": "test_android_stable_release_config.py",
+        "level": "suite-green-but-not-individual-goal-validation"
+      },
+      "live": {
+        "level": "partial-operational-observation",
+        "observation": "repair-status-observed-not-end-to-end-proof"
+      },
+      "finalVerification": "unverified",
+      "constraints": null
+    }
+  ]
+}
