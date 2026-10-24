@@ -169,5 +169,8 @@ internal class RemoteCoupling(
 
 internal enum class RemoteAuditEvent {
     PAIRED, PREVIEWED, APPROVED, LAUNCHED_NOT_VERIFIED, LAUNCH_FAILED,
-    REJECTED, REPLAY, DISCARDED, EXPIRED, STOPPED, REVOKED
+    REJECTED, REPLAY, DISCARDED, EXPIRED, STOPPED, REVOKED,
+    // Local Android-Sharesheet handoff only: never confuse with signed remote pairing.
+    SHARE_PREVIEWED, SHARE_APPROVED, SHARE_REJECTED,
+    SHARE_LAUNCHED_NOT_VERIFIED, SHARE_LAUNCH_FAILED
 }
