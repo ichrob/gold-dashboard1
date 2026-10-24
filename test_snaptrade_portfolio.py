@@ -102,8 +102,33 @@ class PortfolioTests(unittest.TestCase):
         failure=b.read_journal(A,CONFIG,result,get=lambda *args: (_ for _ in ()).throw(b.ReadError('ACCESS_DENIED')))
         self.assertEqual(failure['orders']['code'],'UNAVAILABLE')
         self.assertEqual(failure['orders']['rows'],result['orders']['rows'])
+        self.assertEqual(failure['orders']['failureCode'], 'ACCESS_DENIED')
+        self.assertEqual(failure['orders']['checkedAt'], result['orders']['checkedAt'])
+        self.assertIsNotNone(failure['orders']['failureAt'])
         partial=b.read_journal(A,CONFIG,get=lambda path,c,params=None: [] if path.endswith('/orders') else {'data':[dict(activity,id=str(i)) for i in range(500)],'pagination':{'total':9999}})
         self.assertFalse(partial['activities']['complete'])
+
+    def test_journal_failure_codes_are_safe_and_clear_on_success(self):
+        # Even an unexpected private error must never surface its raw content.
+        def secret_failure(*args, **kwargs):
+            raise b.ReadError('PRIVATE_PROVIDER_MESSAGE_DO_NOT_ECHO')
+        failed = b.read_journal(A, CONFIG, get=secret_failure)
+        for category in ('orders', 'activities'):
+            self.assertEqual(failed[category]['code'], 'UNAVAILABLE')
+            self.assertEqual(failed[category]['failureCode'], 'PROVIDER_UNAVAILABLE')
+            self.assertNotIn('PRIVATE_PROVIDER_MESSAGE_DO_NOT_ECHO', json.dumps(failed))
+
+        def good_read(path, config, params=None):
+            if path.endswith('/orders'):
+                return []
+            return {'data': [], 'pagination': {'total': 0}}
+
+        with patch.object(b.trades, 'SCHEMA', b.trades.SCHEMA + 1):
+            recovered = b.read_journal(A, CONFIG, failed, get=good_read)
+        for category in ('orders', 'activities'):
+            self.assertEqual(recovered[category]['code'], 'READ_OK')
+            self.assertNotIn('failureCode', recovered[category])
+            self.assertNotIn('failureAt', recovered[category])
 
     def test_history_encrypted_reload_delete_and_owner_separation(self):
         db={}
