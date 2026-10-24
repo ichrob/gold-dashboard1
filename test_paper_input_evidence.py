@@ -103,6 +103,24 @@ class PaperInputEvidenceTests(unittest.TestCase):
         self.assertEqual(result["sampledDistinctClocks"],1)
         self.assertEqual(conn.execute.call_count,1)
 
+    def test_capture_failure_cannot_consume_a_paper_account_evaluation(self):
+        from contextlib import nullcontext
+        import paper_portfolios
+        class FakeConn:
+            def transaction(self):
+                return nullcontext()
+        inputs=[]
+        market={"ready": True, "priceFresh": True, "dataAt":1000000,
+                "analysisBarAt":900000, "direction":"NEUTRAL"}
+        with patch("paper_simulation.run_once") as run, \
+             patch.object(ev, "sanitized_profile", side_effect=RuntimeError("AUDIT OFFLINE")):
+            outcomes = paper_portfolios.run_all(FakeConn(), {}, market,
+                {"choices":[]}, {}, 1000000, {}, active={},
+                input_observations=inputs)
+        self.assertEqual(outcomes, {profile:"checked" for profile in paper_portfolios.POLICIES})
+        self.assertEqual(run.call_count,5)
+        self.assertEqual(inputs,[])
+
     def test_gap_review_does_not_promote_worker_input_into_trade_outcome(self):
         corr={"recentRecordedGapInstants":[{"recordedAt":1000000,"affectedVirtualCases":2}]}
         source={"items":[{"eventAt":1000000,"state":"nearby-original-observed",
