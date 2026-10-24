@@ -584,11 +584,40 @@ def read_access_coverage(manifest):
         root = Path(__file__).resolve().parent
         unique_paths = sorted(set(paths))
         present = sum((root / p).is_file() for p in unique_paths)
+        # Dated evidence matrix is not an acceptance flag. Preserve original statuses.
+        review = {'status':'not-available'}
+        try:
+            import json
+            evidence = json.loads((root/'Besser_werden/diagnoseziele_100_nachweise_20261024.json')
+                .read_text(encoding='utf-8'))
+            goals=evidence.get('goals')
+            if (evidence.get('reportVersion') == 1 and isinstance(goals,list)
+                    and len(goals)==100
+                    and sorted(row.get('id') for row in goals)==list(range(1,101))
+                    and all(row.get('finalVerification')=='unverified' for row in goals)):
+                partial_live=sum(row.get('live',{}).get('level')=='partial-operational-observation'
+                                 for row in goals)
+                baseline=evidence.get('liveBaseline') or {}
+                ci=evidence.get('ciBaseline') or {}
+                review={'status':'historical-evidence-baseline-not-feature-validation',
+                    'reviewedAt':evidence.get('reviewedAt'),
+                    'sourceBuild':baseline.get('build'),
+                    'ciConclusionAtSourceBuild':ci.get('conclusion'),
+                    'sourceCIRunId':ci.get('runId'),
+                    'goalsReviewed':100,
+                    'goalsWithPartialLiveObservations':partial_live,
+                    'individuallyVerified':0,
+                    'note':'Code file, group-level CI and sampled weekend runtime snapshots '
+                           'are not individual end-to-end acceptance; the dated baseline '
+                           'must not be mistaken for a test of a later build.'}
+        except (OSError, ValueError, TypeError, KeyError):
+            review={'status':'unavailable','reason':'evidence-matrix-missing-or-invalid'}
         return {'status':'inventory-only','total':100,'verified':0,
                 'unverified':100,'counts':counts,'recordedAt':manifest.get('asOf'),
                 'codeFilesMapped':len(unique_paths),'codeFilesPresent':present,
                 'codeFilesMissing':len(unique_paths)-present,
                 'codeFileScope':'existence-only-not-test-or-live-proof',
+                'evidenceReview':review,
                 'note':'Repository worklist only. File presence is not a functional test. No feature is live-proven by inclusion.'}
     except (KeyError, TypeError, ValueError, AttributeError):
         return {'status':'unavailable',
