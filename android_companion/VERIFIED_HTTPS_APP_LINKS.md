@@ -32,6 +32,20 @@ Bob offers the existing two-tap custom-scheme proposal link or the proven
 clipboard fallback: copy `BOB-HANDY/1|OPEN_PRODUCTS`, use
 `📋 Kopierten ChatGPT-Auftrag prüfen`, then explicitly approve.
 
+## Samsung: Link opens app but reports rejected proposal
+
+Some ChatGPT / Android versions deliver a tapped app-link through
+`ACTION_SEND` with one plain-text HTTPS URL, while others deliver
+`ACTION_VIEW`. Both now use the same exact allowlisted, read-only parser.
+A `https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS`
+string can only create a **local preview**, never authorize navigation.
+
+If the app still shows `Geteilter Auftrag abgelehnt`, it did not accept
+the actual received text or URL as one canonical harmless action.
+Do not strip arbitrary query values or scan longer messages for an embedded
+command. Confirm the signed app is the latest and retain the proven
+clipboard fallback until the one-tap preview is confirmed on the real device.
+
 ## Security
 No background handset control, accessibility permission, network
 permission in the offline Android companion, financial orders, login,
