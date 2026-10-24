@@ -363,8 +363,14 @@ def read_journal(aid, config, previous=None, get=api_get, max_bytes=3_000_000):
                         if batch: del data[-len(batch):]
                         coverage_reason = 'SIZE_LIMIT'
                         break
-                    if len(batch) < 500 or source_total is not None and offset + len(batch) >= source_total:
+                    if source_total is not None and offset + len(batch) >= source_total:
                         complete = True
+                        break
+                    if len(batch) < 500:
+                        if source_total is None:
+                            complete = True
+                        else:
+                            coverage_reason = 'SHORT_PAGE'
                         break
                 if not complete and coverage_reason is None:
                     coverage_reason = 'PAGE_LIMIT'
