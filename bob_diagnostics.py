@@ -85,6 +85,12 @@ def recent_paper_outcomes(accounts):
         return any(isinstance(e,dict) and e.get('kind') in kinds
                    for e in case.get('events',[])[:20]) if isinstance(case.get('events'),list) else False
     # Causes may overlap, and absent event proof does not imply a normal fill.
+    # A model may obtain a later original product quote after its missing-data
+    # interval. That is not proof of a correctly timed virtual sale.
+    later_priced = sum(c.get('productReturnKnown') is True and
+                       event_present(c,{'deferred-sale'}) for c in unresolved)
+    pending_price = sum(c.get('productReturnKnown') is False or
+                        c.get('productReturnKnown') is None for c in unresolved)
     reasons={
         'recordedGoldDataGap':sum(event_present(c,{'data-gap'}) for c in unresolved),
         'recordedKoOrProductEnd':sum(event_present(c,{'knockout-confirmed',
@@ -98,6 +104,13 @@ def recent_paper_outcomes(accounts):
         'state':'partial' if any(g.get('status') != 'observed' for g in groups) else 'observed',
         'scope':'last-five-cases-per-paper-account-only-not-full-performance',
         'inconclusiveRecordedCauses':reasons,
+        'inconclusivePriceEvidence':{
+            'laterModelPricePresentButOriginalExitUnverified':later_priced,
+            'originalExitStillUnverified':len(unresolved),
+            'noConfirmedLaterModelPrice':pending_price,
+            'note':'A fresh issuer price observed later can settle only a virtual model '
+                   'at that later clock. It cannot reconstruct the missing original exit, '
+                   'DEGIRO execution, net return or win/loss.'},
         'causeScope':'overlap-possible-recorded-events-only-not-ground-truth',
         'observedCases':len(stored),
         'closed':sum(c.get('status') == 'closed' for c in stored),
