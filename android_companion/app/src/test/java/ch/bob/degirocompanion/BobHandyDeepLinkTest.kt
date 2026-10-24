@@ -29,6 +29,17 @@ class BobHandyDeepLinkTest {
         }
     }
 
+    @Test fun chatgptTagKeepsPreviewAndNeverGrantsExecution() {
+        for (task in listOf(PhoneTask.OPEN_PRODUCTS, PhoneTask.OPEN_MARKET,
+                PhoneTask.OPEN_TRADE, PhoneTask.OPEN_SIMULATION)) {
+            val link = BobHandyDeepLink.httpsLinkFor(task)!!
+            assertEquals(task,
+                BobHandyDeepLink.parse(link + "?utm_source=chatgpt.com"))
+            val approval = PhoneTaskApproval()
+            assertFalse(approval.consume(task, 1000))
+        }
+    }
+
     @Test fun unknownOrBrokerDangerousLinksFailClosed() {
         listOf(null, "", "bobhandy://handoff/",
             "bobhandy://handoff/OPEN_SETTINGS",
@@ -48,6 +59,12 @@ class BobHandyDeepLinkTest {
             "https://bob-private-scanner.onrender.com/handy/OPEN_SETTINGS",
             "https://bob-private-scanner.onrender.com/handy/PLACE_ORDER",
             "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS?x=1",
+            "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS?utm_source=evil.com",
+            "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS?utm_source=chatgpt.com&buy=1",
+            "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS?utm_source=chatgpt.com&utm_source=chatgpt.com",
+            "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS?utm_source=chatgpt.com#trade",
+            "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS?utm_source=chatgpt%2Ecom",
+            "bobhandy://handoff/OPEN_PRODUCTS?utm_source=chatgpt.com",
             "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS#trade",
             "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS/",
             "https://bob-private-scanner.onrender.com/handy/%4fPEN_PRODUCTS",
