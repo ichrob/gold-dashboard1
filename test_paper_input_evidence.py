@@ -121,6 +121,87 @@ class PaperInputEvidenceTests(unittest.TestCase):
         self.assertEqual(run.call_count,5)
         self.assertEqual(inputs,[])
 
+    def test_monday_readiness_observes_all_five_without_inferring_trades(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        import paper_portfolios
+        clock = datetime(2026,10,26,8,5,tzinfo=ZoneInfo("Europe/Zurich"))
+        now_ms = clock.timestamp()*1000
+        assert clock.utcoffset().total_seconds()==3600  # DST ended Sunday
+        captured = now_ms-35000
+        conn = Mock()
+        conn.transaction.return_value = _Tx()
+        profiles = [{"profile":name,"outcome":"checked","ready":True,
+                     "priceFresh":True,"dataAt":now_ms-40000,
+                     "barAt":now_ms-300000, "price":42,
+                     "isin":"PRIVATE"} for name in paper_portfolios.POLICIES]
+        conn.execute.return_value.fetchone.return_value = (captured/1000,{"profiles":profiles})
+        result = ev.latest(conn,now_ms=now_ms,session_mode="trading")
+        self.assertEqual(result["state"],"recent-five-profile-capture")
+        self.assertEqual(result["profilesObserved"],5)
+        self.assertEqual(result["profilesChecked"],5)
+        self.assertEqual(result["profilesFreshReady"],5)
+        self.assertEqual(result["ageSeconds"],35)
+        self.assertEqual(result["profiles"][0]["sourceAgeAtCaptureSeconds"],5)
+        self.assertNotIn("PRIVATE",json.dumps(result))
+        sql = conn.execute.call_args.args[0].upper()
+        self.assertTrue(sql.lstrip().startswith("SELECT"))
+        self.assertIn("PAPER-INPUT",sql)
+        self.assertNotIn("INSERT ",sql)
+        self.assertNotIn("UPDATE ",sql)
+        self.assertNotIn("DELETE ",sql)
+        self.assertIn("do not prove trade entries",result["note"])
+
+    def test_weekend_without_capture_is_pause_not_system_failure(self):
+        conn = Mock()
+        conn.transaction.return_value = _Tx()
+        conn.execute.return_value.fetchone.return_value = None
+        weekend = ev.latest(conn,now_ms=1000000,session_mode="weekend")
+        self.assertEqual(weekend["state"],"paused-outside-user-trading-window")
+        self.assertEqual(weekend["status"],"not-yet-observed")
+        self.assertEqual(weekend["profilesObserved"],0)
+        monday = ev.latest(conn,now_ms=1000000,session_mode="trading")
+        self.assertEqual(monday["state"],"no-post-commit-capture-observed")
+        self.assertEqual(monday["status"],"not-yet-observed")
+        self.assertIn("cannot establish a worker outage",monday["note"])
+
+    def test_stale_telemetry_and_unknown_data_remain_unconfirmed(self):
+        conn=Mock()
+        conn.transaction.return_value=_Tx()
+        conn.execute.return_value.fetchone.return_value=(760.,{
+            "profiles":[{"profile":"balanced","outcome":"evaluation-error",
+                         "ready":False,"priceFresh":False,
+                         "dataAt":float("nan"),"secret":"DO-NOT-EXPOSE"}]})
+        info=ev.latest(conn,now_ms=1000000,session_mode="trading")
+        self.assertEqual(info["state"],"last-capture-not-current")
+        self.assertEqual(info["profilesChecked"],0)
+        self.assertEqual(info["profilesFreshReady"],0)
+        self.assertIsNone(info["profiles"][0]["originalDataAt"])
+        self.assertNotIn("DO-NOT-EXPOSE",json.dumps(info))
+
+    def test_database_error_never_exposes_private_message(self):
+        conn=Mock()
+        conn.transaction.return_value=_Tx()
+        conn.execute.side_effect=RuntimeError("SECRETS")
+        info=ev.latest(conn,now_ms=1000000,session_mode="trading")
+        self.assertEqual(info["status"],"unavailable")
+        self.assertNotIn("SECRETS",json.dumps(info))
+
+    def test_recent_capture_with_missing_profiles_is_partial_not_verified(self):
+        conn=Mock();conn.transaction.return_value=_Tx()
+        conn.execute.return_value.fetchone.return_value=(999.,{"profiles":[
+            {"profile":"conservative","outcome":"checked","ready":True,
+             "priceFresh":False,"dataAt":980000,"barAt":950000}]})
+        info=ev.latest(conn,now_ms=1000000,session_mode="trading")
+        self.assertEqual(info["state"],"recent-capture-partial-profile-coverage")
+        self.assertEqual(info["profilesObserved"],1)
+        self.assertEqual(info["profilesFreshReady"],0)
+        from bob_diagnostics import simulation_evidence_snapshot
+        data=simulation_evidence_snapshot({"status":"observed","accounts":_case(),
+            "paperInputLatest":info})
+        self.assertEqual(data["paperInputLatest"]["state"],info["state"])
+        self.assertEqual(data["paperInputLatest"]["profiles"][0]["profile"],"conservative")
+
     def test_gap_review_does_not_promote_worker_input_into_trade_outcome(self):
         corr={"recentRecordedGapInstants":[{"recordedAt":1000000,"affectedVirtualCases":2}]}
         source={"items":[{"eventAt":1000000,"state":"nearby-original-observed",
