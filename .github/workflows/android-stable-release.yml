@@ -65,6 +65,22 @@ jobs:
           printf '%s\n' "$ci_runs" | grep -Fxq "$GITHUB_SHA"$'\t'"success"
           echo "Exact main commit passed Bob CI."
 
+      # Signing CERTIFICATE fingerprint is public Android App Links metadata.
+      # Never print the private signing key, store passwords or keystore bytes.
+      # Keep this separate from the signing step; it works for an unchanged APK.
+      - name: Report public certificate digest for verified Android App Links
+        env:
+          CERT_SHA256: ${{ vars.BOB_ANDROID_CERT_SHA256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          fingerprint="$(printf '%s' "$CERT_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ': \r\n ')"
+          [[ "$fingerprint" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "::error::Public Android certificate pin is missing or invalid."
+            exit 1
+          }
+          echo "BOB_ANDROID_PUBLIC_CERT_SHA256=$fingerprint"
+
       - name: Detect Android app changes since last signed release
         id: update
         shell: bash
