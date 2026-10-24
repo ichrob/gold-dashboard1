@@ -366,8 +366,16 @@ def read_journal(aid, config, previous=None, get=api_get, max_bytes=3_000_000):
             normalized = sorted(unique.values(), key=lambda row: row['date'], reverse=True)
             result[category] = dict(rows=normalized, checkedAt=utcnow(), attemptedEpoch=time.time(),
                                     code='READ_OK', complete=complete, schemaVersion=trades.SCHEMA)
-        except (ReadError, ValueError, TypeError):
-            result[category] = dict(old, code='UNAVAILABLE', attemptedEpoch=time.time(), schemaVersion=trades.SCHEMA)
+        except (ReadError, ValueError, TypeError) as exc:
+            # Only static categories; never reflect provider errors, credentials or rows.
+            allowed = ('AUTH_REQUIRED', 'ACCESS_DENIED', 'RATE_LIMITED', 'PLAN_REQUIRED',
+                       'PROVIDER_UNAVAILABLE', 'RESPONSE_TOO_LARGE', 'INVALID_RESPONSE')
+            reason = exc.code if isinstance(exc, ReadError) and exc.code in allowed else (
+                'INVALID_RESPONSE' if isinstance(exc, (ValueError, TypeError)) else 'PROVIDER_UNAVAILABLE')
+            # Keep the last confirmed rows and original checkedAt, but label the
+            # failed attempt independently. A subsequent success clears this reason.
+            result[category] = dict(old, code='UNAVAILABLE', attemptedEpoch=time.time(),
+                                    schemaVersion=trades.SCHEMA, failureCode=reason, failureAt=utcnow())
     return result
 
 
@@ -671,6 +679,8 @@ def diagnostics():
         'detectedExecutions': sum(a.get('tradeInsights', {}).get('executionsCount', 0) for a in (value.get('snapshot') or {}).get('accounts', [])),
         'executionCandidatesForReview': sum(a.get('tradeInsights', {}).get('readyForHistoricalComparison', 0) for a in (value.get('snapshot') or {}).get('accounts', [])),
         'journalStatus': [{k: a.get('journal', {}).get(k, {}).get('code', 'NOT_READ') for k in ('orders', 'activities')} for a in (value.get('snapshot') or {}).get('accounts', [])],
+        'journalFailureCodes': [{k: a.get('journal', {}).get(k, {}).get('failureCode') for k in ('orders', 'activities')}
+                                for a in (value.get('snapshot') or {}).get('accounts', [])],
         'issuerMonitorRunning': bool(_QUOTE_THREAD and _QUOTE_THREAD.is_alive())}
 
 
