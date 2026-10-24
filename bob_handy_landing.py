@@ -21,8 +21,11 @@ PAGES = {
 
 
 def route(path, query=""):
-    """Exact route match only. No query, path traversal or dynamic URL data."""
-    if query or not isinstance(path, str):
+    """Exact Bob view with the fixed ChatGPT link attribution marker only.
+
+    Every other query, including multiple or encoded parameters, is denied.
+    """
+    if query not in ("", "utm_source=chatgpt.com") or not isinstance(path, str):
         return None
     prefix = "/handy/"
     if not path.startswith(prefix):
