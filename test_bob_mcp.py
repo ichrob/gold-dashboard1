@@ -44,7 +44,7 @@ class BobMcpTests(unittest.TestCase):
             if method == "tools/list":
                 tools = response["result"]["tools"]
                 self.assertEqual({x["name"] for x in tools},
-                                 {"bob_product_audit","bob_product_gaps","bob_diagnostics","bob_signal_history"})
+                                 {"bob_product_audit","bob_product_gaps","bob_diagnostics","bob_signal_history","bob_push_history"})
                 self.assertTrue(all(x["annotations"]["readOnlyHint"] for x in tools))
                 self.assertTrue(all(not x["annotations"]["destructiveHint"] for x in tools))
         status, response = bob_mcp.handle(
@@ -72,6 +72,32 @@ class BobMcpTests(unittest.TestCase):
             self.assertIs(result["items"][0]["tradeApproved"],False)
             if name == "bob_product_gaps":
                 self.assertNotIn("sourceObservations",result["items"][0])
+
+    def test_push_history_is_read_only_and_rejects_unsafe_queries(self):
+        import json
+        window = {"start":"2026-10-23T18:00:00+02:00",
+                  "end":"2026-10-23T23:00:00+02:00"}
+        calls = []
+        def history_reader(args):
+            calls.append(args)
+            return {"readOnly":True, "status":"observed", "records":[
+                {"classification":"synthetic-test", "handsetReceipt":"not-verified"}]}
+        req = {"jsonrpc":"2.0", "id":42, "method":"tools/call",
+               "params":{"name":"bob_push_history", "arguments":window}}
+        _, result = bob_mcp.handle(req, lambda: self.fail("product reader"),
+                                   lambda: {"readOnly":True},
+                                   push_history_reader=history_reader)
+        self.assertFalse(result["result"]["isError"])
+        parsed = json.loads(result["result"]["content"][0]["text"])
+        self.assertEqual(parsed["records"][0]["classification"],"synthetic-test")
+        self.assertEqual(len(calls),1)
+        self.assertEqual(calls[0]["start"],"2026-10-23T16:00:00+00:00")
+        req["params"]["arguments"]={"untrustedPath":"../../secret"}
+        _, result = bob_mcp.handle(req, lambda: self.fail("product reader"),
+                                   lambda: {"readOnly":True},
+                                   push_history_reader=history_reader)
+        self.assertEqual(result["error"]["code"],-32602)
+        self.assertEqual(len(calls),1)
 
     def test_arbitrary_methods_and_args_cannot_read(self):
         def forbidden():

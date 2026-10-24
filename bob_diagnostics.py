@@ -551,7 +551,7 @@ _FOCUS_AREAS = {
     'products': ('products', 'degiroSync', 'gapEvidence'),
     'repairs': ('selfHealing', 'problems', 'background', 'diagnosticTriage'),
     'trades': ('background', 'diagnosticTriage'),
-    'signals': ('analysis', 'background', 'diagnosticTriage'),
+    'signals': ('analysis', 'background', 'diagnosticTriage', 'pushDeliveries'),
 }
 
 

@@ -133,18 +133,64 @@ def read_video_evidence(payload):
 
 
 def webpush(**kwargs):
-    # Never hold subscription locks indefinitely on an unreachable push provider.
+    """Send Web Push and asynchronously retain a redacted attempt record.
+
+    Each provider request is a separate attempt. A 2xx response is NOT a
+    browser/service-worker/device-display acknowledgement.
+    """
     kwargs['timeout'] = 8
+    message, data = {}, {}
     try:
-        message = json.loads(kwargs.get('data') or '{}')
-        data = message.get('data') or {}
-        kinds = data.get('events') or [data.get('eventKind') or data.get('kind') or 'unknown']
+        parsed = json.loads(kwargs.get('data') or '{}')
+        if isinstance(parsed, dict):
+            message = parsed
+            data = parsed.get('data') if isinstance(parsed.get('data'), dict) else {}
     except (ValueError, TypeError, AttributeError):
-        kinds = ['unknown']
+        pass
+    raw_kinds = data.get('events')
+    if not isinstance(raw_kinds, list) or not raw_kinds:
+        raw_kinds = [data.get('eventKind') or data.get('kind') or 'unknown']
+    # Never persist the notification body, endpoint, token, user or trade data.
+    event_kinds = []
+    for item in raw_kinds[:16]:
+        if isinstance(item, str) and 0 < len(item) <= 64 and all(
+            ch in 'abcdefghijklmnopqrstuvwxyz0123456789-_' for ch in item):
+            event_kinds.append(item)
+    if not event_kinds:
+        event_kinds = ['unknown']
+    direction = data.get('direction') if data.get('direction') in ('LONG', 'SHORT') else None
+    is_test = (data.get('test') is True or data.get('synthetic') is True
+               or any(kind.endswith('-test') for kind in event_kinds))
+    is_synthetic = data.get('synthetic') is True or any(
+        kind.endswith('-test') for kind in event_kinds)
+
+    def safe_clock(field):
+        stamp = data.get(field)
+        return stamp if type(stamp) in (int, float) and 0 < stamp < 4102444800000 else None
+
     def log(outcome, status=None):
-        # Provider acceptance does not prove that Android displayed the message.
-        print('BOB_PUSH_DELIVERY '+json.dumps({'events': kinds, 'outcome': outcome,
+        print('BOB_PUSH_DELIVERY '+json.dumps({'events': event_kinds, 'outcome': outcome,
               'status': status, 'at': int(time.time()*1000)}), flush=True)
+        # The existing 7-day diagnostic queue is best effort and never holds
+        # the provider request or a subscription/database row lock.
+        trace = data.get('traceId')
+        decision = data.get('decisionId')
+        if not isinstance(trace, str) or len(trace) != 32 or any(
+                c not in '0123456789abcdef' for c in trace):
+            trace = secrets.token_hex(16)
+        if not isinstance(decision, str) or len(decision) != 32 or any(
+                c not in '0123456789abcdef' for c in decision):
+            decision = None
+        diagnostic_history.emit('push-delivery', trace, {
+            'outcome': 'provider-rejected' if outcome == 'failed' else outcome,
+            'httpStatus': status if type(status) is int else None,
+            'eventKinds': event_kinds,
+            'direction': direction,
+            'test': is_test,
+            'synthetic': is_synthetic,
+            'signalBarAt': safe_clock('signalBarAt'),
+            'dataAt': safe_clock('dataAt')}, decision)
+
     try:
         result = _webpush(**kwargs)
         log('provider-accepted', getattr(result, 'status_code', None))
@@ -153,7 +199,7 @@ def webpush(**kwargs):
         log('failed', getattr(getattr(exc, 'response', None), 'status_code', None))
         raise
     except RequestException as exc:
-        log('failed-network')
+        log('network-failed')
         raise WebPushException('Push provider connection failed') from exc
 
 
@@ -632,6 +678,9 @@ def run_background(bundle):
                 # One delivery/checkpoint per device, so a failure cannot consume an alert.
                 message = background_push.compose_events(events)
                 if linked:message['data']['journalManaged']=True
+                # Correlate the original decision, not a reconstructed market tick.
+                message['data']['traceId'] = market.get('traceId')
+                message['data']['decisionId'] = market.get('decisionId')
                 at=market.get('dataAt')
                 if at:
                     from datetime import datetime
@@ -766,6 +815,25 @@ class Handler(BaseHTTPRequestHandler):
                         print("BOB_PRODUCT_AUDIT health_error="+type(audit_exc).__name__, flush=True)
                         product_codes = None  # Unknown is NOT a confirmed repair.
                 send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "paperObservation":paper_heartbeat, "productAuditCodes":product_codes,"improvementSchedule":improvement_schedule})
+                return
+            if path == "/push-delivery-history":
+                supplied = self.headers.get("X-Bob-Push-Token", "")
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
+                    send_json(self, 401, {"error": "Unauthorized"})
+                    return
+                from urllib.parse import parse_qs
+                import push_delivery_history
+                query = parse_qs(urlparse(self.path).query, keep_blank_values=True)
+                if any(len(v) != 1 for v in query.values()):
+                    raise ValueError("Duplicate argument")
+                args = {k: v[0] for k, v in query.items()}
+                if "offset" in args:
+                    args["offset"] = int(args["offset"])
+                args = push_delivery_history.arguments(args)
+                with db() as conn:
+                    conn.execute("SET TRANSACTION READ ONLY")
+                    result = push_delivery_history.report(conn, args)
+                send_json(self, 200, result)
                 return
             if path == "/signal-history":
                 supplied = self.headers.get("X-Bob-Push-Token", "")

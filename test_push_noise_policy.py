@@ -123,6 +123,7 @@ class NoisePolicyTests(unittest.TestCase):
         provider = Mock(return_value=type('Response', (), {'status_code': 201})())
         log = Mock()
         env = dict(json=json, time=__import__('time'), _webpush=provider,
+                   secrets=__import__('secrets'), diagnostic_history=Mock(),
                    WebPushException=Failure, RequestException=ConnectionError, print=log)
         exec(compile(ast.Module(body=[function], type_ignores=[]), 'push_server.py', 'exec'), env)
         env['webpush'](data=json.dumps({'data': {'eventKind': 'stop-hit'}}))

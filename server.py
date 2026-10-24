@@ -65,7 +65,7 @@ SIGNAL_WORKER_TOKEN = os.environ.get("SIGNAL_WORKER_TOKEN", "")
 
 def read_private_report_for_mcp(path, query=None):
     """Fetch the existing internal report without adding a public database port."""
-    if path not in ("/product-audit", "/diagnostics", "/candidate-proofs", "/signal-history"):
+    if path not in ("/product-audit", "/diagnostics", "/candidate-proofs", "/signal-history", "/push-delivery-history"):
         raise ValueError("Unknown report")
     if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
         raise RuntimeError("Private audit unavailable")
@@ -73,9 +73,12 @@ def read_private_report_for_mcp(path, query=None):
     if not base.startswith(("https://", "http://")):
         base = "https://" + base
     if query is not None:
-        if path != '/signal-history': raise ValueError('Query not supported')
-        from signal_history import arguments
+        if path not in ('/signal-history', '/push-delivery-history'): raise ValueError('Query not supported')
         from urllib.parse import urlencode
+        if path == '/signal-history':
+            from signal_history import arguments
+        else:
+            from push_delivery_history import arguments
         path += '?' + urlencode(arguments(query))
     request = Request(base + path, method="GET",
                       headers={"X-Bob-Push-Token": PUSH_SERVICE_TOKEN,
@@ -129,6 +132,8 @@ def read_diagnostics_for_mcp():
         'strategyResearch':lambda:bob_diagnostics.fields(strategy_lab_background.status(),
             ('enabled','running','phase','lastSuccessAt','lastAttemptAt','lastRunDay','error')),
         'simulationAndPush':lambda:read_private_report_for_mcp('/diagnostics'),
+        # Small private 24h window; the dedicated reader can paginate prior days.
+        'pushDeliveries':lambda:read_private_report_for_mcp('/push-delivery-history'),
         'research':research,
         'problems':problems,
     })
@@ -1952,7 +1957,8 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(self.rfile.read(int(length)).decode("utf-8"))
                 status, output = bob_mcp.handle(payload, read_private_product_audit_for_mcp,
                     read_diagnostics_for_mcp if diagnostics_allowed else None, products=products_allowed,
-                    signal_history_reader=(lambda args:read_private_report_for_mcp("/signal-history", args)) if diagnostics_allowed else None)
+                    signal_history_reader=(lambda args:read_private_report_for_mcp("/signal-history", args)) if diagnostics_allowed else None,
+                    push_history_reader=(lambda args:read_private_report_for_mcp("/push-delivery-history", args)) if diagnostics_allowed else None)
             except (ValueError, UnicodeError):
                 status, output = 400, bob_mcp.error(None, -32700, "Invalid JSON request")
             except (HTTPError, URLError, OSError, TimeoutError, RuntimeError):
