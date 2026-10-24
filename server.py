@@ -4,6 +4,7 @@ if __name__ == '__main__':
 import candle_reliability
 import bob_passkey
 import bob_handy_landing
+import bob_app_links
 import degiro_readonly
 import degiro_sync
 import degiro_sandbox
@@ -1210,6 +1211,11 @@ class Handler(BaseHTTPRequestHandler):
         if bob_recovery.route(self, USER):
             return
         path = urlparse(self.path).path
+        if path == "/.well-known/assetlinks.json":
+            # Android must fetch verified public signature metadata with no Bob
+            # login, browser redirect or exposed private credentials.
+            bob_app_links.send(self, query=urlparse(self.path).query)
+            return
         if path.startswith(ocr_assets.PREFIX):
             ocr_assets.serve(self, path)
             return
@@ -1890,6 +1896,9 @@ class Handler(BaseHTTPRequestHandler):
         # policy without generating a response body, so probes do not produce
         # false 501 errors and the private root stays private.
         path = urlparse(self.path).path
+        if path == "/.well-known/assetlinks.json":
+            bob_app_links.send(self, query=urlparse(self.path).query, head=True)
+            return
         if path.startswith("/handy/"):
             command = bob_handy_landing.route(path, urlparse(self.path).query)
             if command is None:
