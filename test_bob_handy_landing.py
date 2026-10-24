@@ -16,6 +16,19 @@ class PureLandingTests(unittest.TestCase):
             self.assertNotIn("PLACE_ORDER", body)
             self.assertIn("Bob – Handy öffnen", body)
 
+    def test_allow_only_exact_chatgpt_attribution(self):
+        for command in bob_handy_landing.PAGES:
+            self.assertEqual(
+                bob_handy_landing.route("/handy/" + command,
+                                        "utm_source=chatgpt.com"), command)
+        for query in ("utm_source=other", "utm_source=chatgpt.com&action=buy",
+                      "utm_source=chatgpt.com&utm_source=chatgpt.com",
+                      "utm_source=chatgpt%2Ecom", "utm_source=chatgpt.com&"):
+            self.assertIsNone(bob_handy_landing.route(
+                "/handy/OPEN_PRODUCTS", query))
+        self.assertIsNone(bob_handy_landing.route(
+            "/handy/PLACE_ORDER", "utm_source=chatgpt.com"))
+
     def test_reject_all_unknown_query_or_attempted_injection(self):
         for path, query in (
             ("/handy/PLACE_ORDER", ""),
@@ -74,6 +87,23 @@ class HttpLandingTests(unittest.TestCase):
         self.assertNotIn(b"<script", body.lower())
         self.assertNotIn(b"window.location", body)
         self.assertNotIn(b"access_token", body)
+
+    def test_attributed_link_keeps_authentication_and_unknowns_rejected(self):
+        allowed = "/handy/OPEN_PRODUCTS?utm_source=chatgpt.com"
+        status, headers, _ = self.request("GET", allowed, False)
+        self.assertEqual(status, 303)
+        self.assertEqual(headers["Location"], "/login?view=products")
+        status, headers, body = self.request("GET", allowed, True)
+        self.assertEqual(status, 200)
+        self.assertIn(b"bobhandy://handoff/OPEN_PRODUCTS", body)
+        self.assertNotIn(b"utm_source=chatgpt.com", body)
+        status, _, body = self.request("HEAD", allowed, True)
+        self.assertEqual(status, 200)
+        self.assertEqual(body, b"")
+        for invalid in (allowed + "&buy=1", allowed + "&utm_source=chatgpt.com"):
+            status, _, body = self.request("GET", invalid, True)
+            self.assertEqual(status, 404)
+            self.assertNotIn(b"bobhandy://", body)
 
     def test_head_respects_auth_and_is_bodyless(self):
         status, headers, body = self.request("HEAD", "/handy/OPEN_PRODUCTS", True)
