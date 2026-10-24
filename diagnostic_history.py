@@ -9,7 +9,7 @@ import time
 import uuid
 import bob_diagnostics as diag
 
-STAGES = ('input','analysis','analysis-failed','push','push-delivery','health','transport')
+STAGES = ('input','analysis','analysis-failed','push','push-delivery','paper-input','health','transport')
 _QUEUE = deque(maxlen=256)
 _LOCK = threading.Lock()
 _PRUNE_LOCK = threading.Lock()
@@ -30,6 +30,8 @@ SCHEMAS = {
     'push':diag.shape('outcome','eventsCount',events=[diag.shape('kind','outcome','reason','at')]),
     'push-delivery':diag.shape('outcome','httpStatus','direction','signalBarAt','dataAt',
                                'test','synthetic',eventKinds=[None]),
+    'paper-input':diag.shape('phase','checkedAt',profiles=[diag.shape(
+        'profile','outcome','ready','priceFresh','dataAt','barAt')]),
     'health':diag.shape('status','session','sourceAt','sourceAgeSeconds','cycleAt','backgroundAt',badCodes=[None],goodCodes=[None]),
 }
 
