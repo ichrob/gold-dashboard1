@@ -59,6 +59,19 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
   assert((await page.locator('#snapHistorytest-account').innerText()).includes('Depotwert ist kein Gewinn'));
   await page.locator('#snapJournaltest-account > summary').click();
   assert((await page.locator('#snapJournaltest-account').innerText()).includes('Abruf nicht verfügbar'));
+  await page.evaluate(()=>{
+   const item=state.snapshot.accounts[0].journal.activities;
+   item.activitySourceTotal=12599;
+   item.activityCoverageReason='PAGE_LIMIT';
+   item.complete=false;
+   item.conflictingActivityIdentifiers=2;
+   poll();
+  });
+  const coverageText=await page.locator('#snapJournaltest-account').innerText();
+  assert(coverageText.includes('1 von 12599 gemeldeten Buchungen'));
+  assert(coverageText.includes('Begrenztes Abruffenster erreicht'));
+  assert(coverageText.includes('2 Gruppen vorsorglich ausgelassen'));
+  assert(coverageText.includes('keine vollständige Ergebnisrechnung'));
   await page.evaluate(()=>{state.snapshot.accounts[0].journal.orders.conflictingOrderIdentifiers=2;poll();});
   assert((await page.locator('#snapJournaltest-account').innerText()).includes('2 Gruppen vorsorglich ausgelassen'));
   assert.equal(await page.locator('#snapHoldings img').count(),0);

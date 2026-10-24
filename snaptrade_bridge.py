@@ -344,19 +344,36 @@ def read_journal(aid, config, previous=None, get=api_get, max_bytes=3_000_000):
                 complete = False  # Endpoint is a recent window, not full order history.
             else:
                 data, complete = [], False
+                source_total, coverage_reason = None, None
                 for offset in ACTIVITY_OFFSETS:
                     page = get('/accounts/' + aid + '/activities', config, {'offset': offset, 'limit': 500})
                     if not isinstance(page, dict): raise ReadError('INVALID_RESPONSE')
                     batch = rows(page.get('data'), wrapped=False)
                     if len(batch) > 500: raise ReadError('INVALID_RESPONSE')
+                    pagination = page.get('pagination') or {}
+                    if not isinstance(pagination, dict): raise ReadError('INVALID_RESPONSE')
+                    total = pagination.get('total')
+                    if isinstance(total, int) and not isinstance(total, bool) and 0 <= total <= 10_000_000:
+                        if source_total is not None and source_total != total:
+                            raise ReadError('INVALID_RESPONSE')
+                        source_total = total
                     data.extend(batch)
-                    preview=portfolio.journal_rows(data,category,number,text)
+                    preview = portfolio.journal_rows(data,category,number,text)
                     if len(json.dumps(preview).encode())+len(json.dumps(result.get('orders',{})).encode())>max_bytes:
-                        if batch:del data[-len(batch):]
+                        if batch: del data[-len(batch):]
+                        coverage_reason = 'SIZE_LIMIT'
                         break
-                    total = (page.get('pagination') or {}).get('total')
-                    if len(batch) < 500 or isinstance(total, int) and offset + len(batch) >= total:
-                        complete = True; break
+                    if source_total is not None and offset + len(batch) >= source_total:
+                        complete = True
+                        break
+                    if len(batch) < 500:
+                        if source_total is None:
+                            complete = True
+                        else:
+                            coverage_reason = 'SHORT_PAGE'
+                        break
+                if not complete and coverage_reason is None:
+                    coverage_reason = 'PAGE_LIMIT'
             normalized = portfolio.journal_rows(data, category, number, text)
             unique, conflicts = {}, set()
             for row in normalized:
@@ -364,11 +381,9 @@ def read_journal(aid, config, previous=None, get=api_get, max_bytes=3_000_000):
                 if key in conflicts:
                     continue
                 if key in unique and unique[key] != row:
-                    if category != 'orders':
-                        raise ReadError('INVALID_RESPONSE')
-                    # One broker order ID may appear in multiple provider rows,
-                    # including revisions or partial fills. Neither choose a
-                    # winner nor count these as independent executions.
+                    # One provider ID with contradictory observations is not
+                    # a confirmed event. Keep unrelated records; never choose
+                    # a supposedly final fill or activity by guesswork.
                     unique.pop(key, None)
                     conflicts.add(key)
                     continue
@@ -376,7 +391,11 @@ def read_journal(aid, config, previous=None, get=api_get, max_bytes=3_000_000):
             normalized = sorted(unique.values(), key=lambda row: row['date'], reverse=True)
             result[category] = dict(rows=normalized, checkedAt=utcnow(), attemptedEpoch=time.time(),
                                     code='READ_OK', complete=complete and not conflicts,
-                                    conflictingOrderIdentifiers=len(conflicts), schemaVersion=trades.SCHEMA)
+                                    conflictingOrderIdentifiers=len(conflicts) if category == 'orders' else 0,
+                                    conflictingActivityIdentifiers=len(conflicts) if category == 'activities' else 0,
+                                    activitySourceTotal=source_total if category == 'activities' else None,
+                                    activityCoverageReason=coverage_reason if category == 'activities' else None,
+                                    schemaVersion=trades.SCHEMA)
         except (ReadError, ValueError, TypeError) as exc:
             # Only static categories; never reflect provider errors, credentials or rows.
             allowed = ('AUTH_REQUIRED', 'ACCESS_DENIED', 'RATE_LIMITED', 'PLAN_REQUIRED',
@@ -694,6 +713,13 @@ def diagnostics():
                                 for a in (value.get('snapshot') or {}).get('accounts', [])],
         'journalConflictingOrderIdentifiers': [a.get('journal', {}).get('orders', {}).get('conflictingOrderIdentifiers', 0)
                                                for a in (value.get('snapshot') or {}).get('accounts', [])],
+        'journalActivityCoverage': [{
+            'savedRows': len(a.get('journal', {}).get('activities', {}).get('rows', [])),
+            'sourceTotal': a.get('journal', {}).get('activities', {}).get('activitySourceTotal'),
+            'reason': a.get('journal', {}).get('activities', {}).get('activityCoverageReason'),
+            'conflictingIds': a.get('journal', {}).get('activities', {}).get('conflictingActivityIdentifiers', 0),
+            'complete': a.get('journal', {}).get('activities', {}).get('complete') is True,
+        } for a in (value.get('snapshot') or {}).get('accounts', [])],
         'issuerMonitorRunning': bool(_QUOTE_THREAD and _QUOTE_THREAD.is_alive())}
 
 
