@@ -408,6 +408,14 @@ class MainActivity : Activity() {
 
     private fun processUserShare(incoming: Intent?) {
         if (incoming == null) return
+        if (incoming.action == Intent.ACTION_VIEW) {
+            // A deep link is an UNTRUSTED, user-clicked proposal, not a
+            // command authorization. Unknown/encoded/composite values are
+            // rejected before any page launch. Approval remains one-shot.
+            val task = BobHandyDeepLink.parse(incoming.dataString)
+            previewChatShare(task?.let { "BOB-HANDY/1|" + it.name } ?: "")
+            return
+        }
         if (incoming.action == Intent.ACTION_SEND && incoming.type == "text/plain") {
             // Untrusted text coming from Android Sharesheet: only preview it.
             // No shared text is ever executed or relayed automatically.
@@ -670,7 +678,7 @@ class MainActivity : Activity() {
         chatShareTask = task
         chatShareApproval.approve(task, SystemClock.elapsedRealtime())
         remoteAudit.append(System.currentTimeMillis(), RemoteAuditEvent.SHARE_PREVIEWED, task)
-        chatShareStatus.text = "Aus ChatGPT/Android-Teilen vorgeschlagen: " +
+        chatShareStatus.text = "Per Link/Android-Teilen vorgeschlagen: " +
             PhoneTaskProtocol.displayLabel(task) +
             ". Wenn du es möchtest, innerhalb von 60 Sekunden auf „Geteilten Anzeigeauftrag einmalig öffnen“ tippen."
     }
