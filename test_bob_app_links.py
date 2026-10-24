@@ -16,7 +16,7 @@ class PublicCertificateTests(unittest.TestCase):
             path=Path(temp)/"cert"
             self.assertIsNone(bob_app_links.read_public_pin(path))
             for bad in ("", "unknown", "a"*63, "g"*64, "a"*65,
-                        "AA"*32+"\nPRIVATE_KEY=123", "a"*32 + ":" + "b"*32):
+                        "AA"*32+"\nPRIVATE_KEY=123", "a"*31 + ":" + "b"*32):
                 path.write_text(bad)
                 self.assertIsNone(bob_app_links.read_public_pin(path))
             path.write_text("ab"*32 + "\n")
