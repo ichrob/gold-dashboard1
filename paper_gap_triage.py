@@ -84,7 +84,7 @@ def assess(gap_correlation, spot_archive, analysis_archive):
         # A handoff/freshness mismatch is only a hypothesis to INVESTIGATE.
         # It does not establish root cause, a missed trade, or an original bid.
         candidate = (source_class == "original-nearby-before-or-at-gap" and
-                     analysis_class == "other-15m-analysis-not-confirmed-ready-and-fresh")
+                     analysis_class != "other-15m-analysis-ready-and-fresh-unlinked")
         if candidate:
             counts["reviewableInputHandoffCandidates"] += 1
         next_check = (
