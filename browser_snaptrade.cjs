@@ -134,6 +134,7 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
    poll();
   });
   await page.locator('#snapExecutionstest-account > summary').click();
+  await page.locator('#snapOrderFillstest-account > summary').click();
   await page.locator('#snapReconciliationtest-account > summary').click();
   const review=await page.locator('#snapReconciliationtest-account').innerText();
   assert(review.includes('Eindeutige Anbieter-Prüfkandidaten: 1'));
