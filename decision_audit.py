@@ -592,20 +592,39 @@ def _build_report(conn):
     result['optimizationReview']['marketReview']=market_optimization.report(current,outcome)
     result['optimizationReview']['entryExperiment']=entry_experiment.report(current,outcome)
     prospective_partial = False
+    # Measure actual wall-clock query duration, not the amount of historical
+    # market data. Never log a row, SQL parameter, connection or exception text.
+    full_started = time.monotonic()
+    full_state = "completed"
+    fallback_state, fallback_ms = "not-needed", None
     try:
         with conn.transaction():
             prospective_rows = _load_prospective_rows(conn)
     except psycopg.errors.QueryCanceled:
+        full_state = "query-timeout"
         # Retry only the already indexed recent time slice in its own
         # transaction/savepoint. Never interpret that subset as the 30-day
         # validation archive, and never increase the global SQL timeout.
         print('BOB_AUDIT prospective_retry scope=last-day',flush=True)
+        fallback_started = time.monotonic()
         try:
             with conn.transaction():
                 prospective_rows = _load_prospective_rows(conn, recent=True)
             prospective_partial = True
+            fallback_state = "completed-partial"
         except psycopg.errors.QueryCanceled:
             prospective_rows = None
+            fallback_state = "query-timeout"
+        finally:
+            fallback_ms = max(0, int((time.monotonic() - fallback_started) * 1000))
+    full_ms = max(0, int((time.monotonic() - full_started) * 1000))
+    # Only categorical results and bounded durations; a completed 24h retry is
+    # not proof that the 30-day research query succeeded or a market error healed.
+    print('BOB_AUDIT prospective_timing scope=research'
+          ' full_state=' + full_state + ' full_plus_retry_ms=' + str(full_ms)
+          + ' fallback_state=' + fallback_state
+          + ' fallback_ms=' + (str(fallback_ms) if fallback_ms is not None else 'n/a'),
+          flush=True)
     if prospective_rows is None:
         result['prospectiveReview']={'available':False,'retryable':True,
             'partialHistory':True,'automaticRuleChange':False,
