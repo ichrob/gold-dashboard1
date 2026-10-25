@@ -132,6 +132,10 @@ internal object PhoneTaskPlanParser {
             "öffne die simulationen", "die simulationen", "simulationen",
             "zeige die tests", "zeige mir die tests" -> PhoneTask.OPEN_SIMULATION
 
+            "probleme anzeigen", "zeige mir die probleme", "zeige die fehlerdiagnose",
+            "öffne die fehlerdiagnose", "fehlerdiagnose anzeigen",
+            "zeige bobs probleme", "bob probleme anzeigen" -> PhoneTask.OPEN_PROBLEMS
+
             "lernen anzeigen", "zeige meine lernergebnisse", "lernergebnisse anzeigen",
             "zeige mir die lernergebnisse", "zeige die lernfunktion",
             "öffne lernen", "die lernergebnisse", "zeige mir die auswertungen" ->
