@@ -49,7 +49,11 @@ _LEDGER_OWNER = None
 _QUOTE_THREAD = None
 _QUOTE_CURSOR = 0
 ID = r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
-ACTIVITY_OFFSETS = tuple(range(0, 6500, 500))
+# SnapTrade Personal shares a 10-requests/minute bucket for account data.
+# One holdings cycle uses positions, balances and orders (3 calls), so reserve
+# two spare slots and cap historical activity reads to five pages (5 calls).
+# Never extend this merely to fill the provider's total historical count.
+ACTIVITY_OFFSETS = tuple(range(0, 2500, 500))
 
 
 class ReadError(Exception):
@@ -345,11 +349,13 @@ def read_journal(aid, config, previous=None, get=api_get, max_bytes=3_000_000):
             else:
                 data, complete = [], False
                 source_total, coverage_reason = None, None
+                activity_pages_received = 0
                 for offset in ACTIVITY_OFFSETS:
                     page = get('/accounts/' + aid + '/activities', config, {'offset': offset, 'limit': 500})
                     if not isinstance(page, dict): raise ReadError('INVALID_RESPONSE')
                     batch = rows(page.get('data'), wrapped=False)
                     if len(batch) > 500: raise ReadError('INVALID_RESPONSE')
+                    activity_pages_received += 1
                     pagination = page.get('pagination') or {}
                     if not isinstance(pagination, dict): raise ReadError('INVALID_RESPONSE')
                     total = pagination.get('total')
@@ -395,6 +401,7 @@ def read_journal(aid, config, previous=None, get=api_get, max_bytes=3_000_000):
                                     conflictingActivityIdentifiers=len(conflicts) if category == 'activities' else 0,
                                     activitySourceTotal=source_total if category == 'activities' else None,
                                     activityCoverageReason=coverage_reason if category == 'activities' else None,
+                                    activityPagesReceived=activity_pages_received if category == 'activities' else None,
                                     schemaVersion=trades.SCHEMA)
         except (ReadError, ValueError, TypeError) as exc:
             # Only static categories; never reflect provider errors, credentials or rows.
@@ -406,6 +413,11 @@ def read_journal(aid, config, previous=None, get=api_get, max_bytes=3_000_000):
             # failed attempt independently. A subsequent success clears this reason.
             result[category] = dict(old, code='UNAVAILABLE', attemptedEpoch=time.time(),
                                     schemaVersion=trades.SCHEMA, failureCode=reason, failureAt=utcnow())
+            if category == 'activities':
+                # Provider 429 invalidates neither the previous successful
+                # journal nor its original checkedAt. Count only completed
+                # pages; the rejected page contains no usable evidence.
+                result[category]['activityPagesReceived'] = activity_pages_received if 'activity_pages_received' in locals() else 0
     return result
 
 
@@ -717,6 +729,7 @@ def diagnostics():
             'savedRows': len(a.get('journal', {}).get('activities', {}).get('rows', [])),
             'sourceTotal': a.get('journal', {}).get('activities', {}).get('activitySourceTotal'),
             'reason': a.get('journal', {}).get('activities', {}).get('activityCoverageReason'),
+            'pagesReceived': a.get('journal', {}).get('activities', {}).get('activityPagesReceived'),
             'conflictingIds': a.get('journal', {}).get('activities', {}).get('conflictingActivityIdentifiers', 0),
             'complete': a.get('journal', {}).get('activities', {}).get('complete') is True,
         } for a in (value.get('snapshot') or {}).get('accounts', [])],
