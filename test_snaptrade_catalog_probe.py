@@ -63,6 +63,54 @@ class BrokerCatalogueProbeTests(unittest.TestCase):
         self.assertEqual(first['code'], 'CATALOG_RETURNED')
         self.assertFalse(first['tradeApproved'])
 
+    def test_automatic_catalog_probe_runs_once_after_valid_holdings_read(self):
+        before = copy.deepcopy(bridge._STATE)
+        try:
+            bridge._STATE.update(code='READ_OK')
+            with patch.object(bridge, 'load_config'), \
+                 patch.object(bridge, 'api_get', return_value={'instruments': []}) as get, \
+                 patch('builtins.print'):
+                self.assertTrue(bridge.auto_probe_catalog())
+                self.assertFalse(bridge.auto_probe_catalog())
+            get.assert_called_once()
+            self.assertEqual(get.call_args.args[0], '/brokerages/DEGIRO/instruments')
+            result = bridge.diagnostics()
+            self.assertEqual(result['catalogProbe']['code'], 'CATALOG_EMPTY')
+            self.assertEqual(result['catalogHistoricalMatchCount'], 0)
+            self.assertFalse(result['catalogFullGoldListVerified'])
+            self.assertFalse(result['catalogTradeApproved'])
+        finally:
+            bridge._STATE.clear()
+            bridge._STATE.update(before)
+
+    def test_no_automatic_catalog_probe_before_successful_holdings_read(self):
+        before = copy.deepcopy(bridge._STATE)
+        try:
+            bridge._STATE.update(code='READY')
+            with patch.object(bridge, 'api_get') as get:
+                self.assertFalse(bridge.auto_probe_catalog())
+            get.assert_not_called()
+            self.assertEqual(bridge._CATALOG_STATE['code'], 'NOT_TESTED')
+        finally:
+            bridge._STATE.clear()
+            bridge._STATE.update(before)
+
+    def test_automatic_catalog_error_does_not_retry_every_minute(self):
+        before = copy.deepcopy(bridge._STATE)
+        try:
+            bridge._STATE.update(code='READ_OK')
+            with patch.object(bridge, 'load_config'), \
+                 patch.object(bridge, 'api_get', side_effect=bridge.ReadError('ACCESS_DENIED')) as get, \
+                 patch('builtins.print'):
+                self.assertTrue(bridge.auto_probe_catalog())
+                self.assertFalse(bridge.auto_probe_catalog())
+            get.assert_called_once()
+            self.assertEqual(bridge._CATALOG_STATE['code'], 'ACCESS_DENIED')
+            self.assertFalse(bridge._CATALOG_STATE['tradeApproved'])
+        finally:
+            bridge._STATE.clear()
+            bridge._STATE.update(before)
+
     def test_bad_provider_response_fails_closed(self):
         with self.assertRaises(bridge.ReadError) as raised:
             bridge.summarize_broker_catalog({'results': [{'symbol': 'DE000FG4JXV7'}]})
