@@ -846,6 +846,9 @@ def diagnostics():
         encryption_ready = False
     return {key: value[key] for key in ('code', 'configured', 'running', 'fresh', 'intervalSeconds', 'readOnly', 'realOrders', 'liveQuotes', 'coverageVerified')} | {
         'checkedAt': value.get('checkedAt'), 'encryptionReady': encryption_ready,
+        'connectionWatch': value.get('connectionWatch'),
+        'evidenceGaps': [a.get('evidenceQuality') for a in (value.get('snapshot') or {}).get('accounts',[])],
+        'profitReadiness': [a.get('profitReadiness') for a in (value.get('snapshot') or {}).get('accounts',[])],
         'accountsReceived': len((value.get('snapshot') or {}).get('accounts', [])),
         'positionsReceived': sum(len(a['positions']) for a in (value.get('snapshot') or {}).get('accounts', [])),
         'portfolioVersion': 5,
