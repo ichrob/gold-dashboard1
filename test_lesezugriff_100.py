@@ -25,6 +25,15 @@ class ReadAccessCoverageTests(unittest.TestCase):
         self.assertEqual(result['moduleInventory']['goalCount'], 100)
         self.assertEqual(result['moduleInventory']['moduleCount'], 19)
         self.assertEqual(result['moduleInventory']['javascriptModulesScanned'], 2)
+        discovery = result['moduleDiscovery']
+        self.assertEqual(discovery['status'], 'same-as-recorded-tree')
+        self.assertGreaterEqual(discovery['currentlySeenSourceModules'], 200)
+        self.assertGreater(discovery['sourceModulesNotDirectlyGoalMapped'], 0)
+        self.assertEqual(discovery['newPathsNotInBaseline'], 0)
+        self.assertEqual(discovery['missingPathsFromBaseline'], 0)
+        self.assertEqual(discovery['individualGoalsVerified'], 0)
+        self.assertFalse(discovery['runtimeHealthVerified'])
+        self.assertFalse(discovery['newModulesFunctioningVerified'])
         self.assertEqual(result['moduleInventory']['individuallyVerified'], 0)
         self.assertEqual(result['testEvidenceInventory']['status'],
                          'test-candidates-mapped')
