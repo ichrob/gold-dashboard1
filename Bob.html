@@ -1882,8 +1882,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   mobileHelp.innerHTML=
     '<h3>Bob KI-Zentrale · Handy</h3>'+
     '<p class="small">Nutze ChatGPT direkt auf dem Handy. Die verbundenen GitHub- und Render-Werkzeuge helfen bei der Fehleranalyse, auch wenn das private Bob-Plugin als „Nur Desktop“ markiert ist.</p>'+
-    '<p class="small"><b>1.</b> Hilferuf an ChatGPT teilen oder kopieren. <b>2.</b> ChatGPT öffnen und die Nachricht absenden.</p>'+
-    '<button type="button" class="bob-primary" id="bobMobileHelpShare">1 · KI-Hilferuf teilen / kopieren</button>'+
+    '<p class="small"><b>1.</b> Technische Fehlerdiagnose per Android-Teilen an ChatGPT geben. <b>2.</b> ChatGPT als Ziel wählen und Nachricht selbst absenden. Falls Teilen nicht klappt, bleibt der Kopierweg.</p>'+
+    '<button type="button" class="bob-primary" id="bobMobileHelpShare">1 · Fehlerdiagnose ohne Kopieren teilen</button>'+
     '<a id="bobMobileHelpOpen" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer" style="display:block;padding:12px;text-align:center;margin-top:9px;border-radius:10px;background:#e8f1ff;color:#125bc0;font-weight:700;text-decoration:none;min-height:44px">2 · ChatGPT öffnen</a>'+
     '<p id="bobMobileHelpFeedback" class="small" role="status" aria-live="polite">Es werden keine Zugangsdaten oder privaten Produktwerte übertragen.</p>';
   panels.problems.prepend(mobileHelp);
@@ -1906,6 +1906,13 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   }
   byId('bobMobileHelpShare').addEventListener('click',async()=>{
     const feedback=byId('bobMobileHelpFeedback');
+    // Delegation remains inside the same deliberate tap; do not fetch first.
+    if(typeof window.BobProblems?.shareToChatGPT==='function'){
+      window.BobProblems.shareToChatGPT();
+      feedback.textContent='Diagnose vorbereitet: ChatGPT im Teilen-Menü auswählen und dort absenden. Ersatztext steht unter „Offene KI-Hilfeanfragen“.';
+      return;
+    }
+    // Defensive generic fallback if the Problems panel has not loaded.
     if(typeof navigator.share==='function'){
       try{
         await navigator.share({title:'Bob KI-Hilferuf',text:mobileHelpPrompt});
