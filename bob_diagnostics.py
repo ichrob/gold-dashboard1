@@ -760,6 +760,20 @@ def read_access_coverage(manifest):
                 'scope', 'limitations', 'individuallyVerified')}
         except Exception:
             module_summary = {'status': 'unavailable'}
+        # Goal #2: compare only bounded repository-root module filenames
+        # against the dated, read-only tree baseline. Never import discovered
+        # modules, infer health or publish source filenames/secret contents.
+        root_discovery = {'status':'unavailable', 'readOnly':True}
+        try:
+            import json
+            from bob_source_module_inventory import inspect as inspect_root_modules
+            baseline = json.loads(
+                (root / 'Besser_werden/module_root_baseline_20261025.json')
+                .read_text(encoding='utf-8'))
+            root_discovery = inspect_root_modules(root, baseline, paths)
+        except (OSError, TypeError, ValueError, KeyError):
+            root_discovery = {'status':'unavailable', 'readOnly':True,
+                              'reason':'module-baseline-not-readable'}
         # Candidate test names make the remaining 100 individual acceptance
         # tasks auditable. Presence is not proof of execution, coverage, runtime
         # correctness or a passing device test.
@@ -820,7 +834,7 @@ def read_access_coverage(manifest):
                 'codeFilesMissing':len(unique_paths)-present,
                 'codeFileScope':'existence-only-not-test-or-live-proof',
                 'evidenceReview':review, 'moduleInventory':module_summary,
-                'testEvidenceInventory':test_evidence,
+                'moduleDiscovery':root_discovery, 'testEvidenceInventory':test_evidence,
                 'note':'Four goals have narrow dated original observations: seven-day journal '
                        'sample, archived health comparison, Render CPU/RAM, and historic '
                        'dual-service build match. 96 remain unaccepted; no continuous '
