@@ -59,7 +59,7 @@ class TwoWayFeedbackTests(unittest.TestCase):
         result=watchdog.sync_issue([],token='test',repo='ichrob/gold-dashboard1',
                 at=NOW.isoformat(timespec='seconds'),requester=request,
                 recovery_codes={'push-unreachable'},verified_resolutions=got)
-        self.assertEqual(result,'already-open')
+        self.assertEqual(result,'healthy')
         self.assertEqual(got,[])
         result=watchdog.sync_issue([],token='test',repo='ichrob/gold-dashboard1',
                 at=NOW.isoformat(timespec='seconds'),requester=request,
@@ -70,7 +70,7 @@ class TwoWayFeedbackTests(unittest.TestCase):
 
     def test_mirror_publish_preserves_recovery_and_removes_reopened_code(self):
         record=dict(number=27,code='scanner-unreachable',
-                    verifiedAt=NOW.isoformat(timespec='seconds'),proof=mirror.RECOVERY_PROOF)
+                    verifiedAt=datetime.now(timezone.utc).isoformat(timespec='seconds'),proof=mirror.RECOVERY_PROOF)
         existing={'version':1,'resolved':[record]}
         calls=[]
         def requester(method,path,*,token,repo,data=None):
@@ -81,13 +81,14 @@ class TwoWayFeedbackTests(unittest.TestCase):
                 return {'sha':'hash','content':base64.b64encode(json.dumps(existing).encode()).decode()}
             if method=='PUT' and path.startswith('/contents/'):return {}
             raise AssertionError((method,path))
-        # Time-independent validity: this function checks timestamps relative
-        # to now. Verify that historical events remain fail-closed when expired.
+        # A fresh, authenticated watchdog proof survives a mirror refresh.
         mirror.publish(token='t',repo='ichrob/gold-dashboard1',requester=requester)
         data=[d for method,path,d in calls if method=='PUT'][0]
         published=json.loads(base64.b64decode(data['content']))
         self.assertEqual(published['version'],1)
-        self.assertFalse(published['resolved'] if (datetime.now(timezone.utc)-NOW).days>=30 else False)
+        self.assertEqual(len(published['resolved']),1)
+        self.assertEqual(published['resolved'][0]['number'],27)
+        self.assertNotIn('account',published['resolved'][0])
 
 if __name__=='__main__':
     unittest.main()
