@@ -296,6 +296,37 @@ class DatabaseTests(unittest.TestCase):
             self.assertTrue(sample['scope'].startswith('sampled'))
             conn.execute('DROP SCHEMA '+schema+' CASCADE')
 
+    def test_seven_day_read_window_excludes_pre_retention_record(self):
+        """An old unpruned event must never appear in a bounded archive read."""
+        import psycopg
+        import bob_repair_store
+        schema = 'diag_history_window_' + str(time.time_ns())
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute('CREATE SCHEMA '+schema)
+            conn.execute('SET search_path TO '+schema)
+            h.init(conn)
+            bob_repair_store.init(conn)
+            # Do not depend on background prune: read must itself enforce 7d.
+            conn.execute("""INSERT INTO bob_diagnostic_history
+                (id,trace_id,stage,observed_at,recorded_at,payload)
+                VALUES (%s,%s,'health',%s,now()-interval '8 days',%s::jsonb)""",
+                ('a'*32,'b'*32,time.time()-8*86400,'{"status":"ok","session":"weekend","badCodes":[]}'))
+            conn.execute("""INSERT INTO bob_diagnostic_history
+                (id,trace_id,stage,observed_at,recorded_at,payload)
+                VALUES (%s,%s,'health',%s,now(),%s::jsonb)""",
+                ('c'*32,'b'*32,time.time(),'{"status":"ok","session":"weekend","badCodes":[]}'))
+            conn.commit()
+            with conn.transaction():
+                conn.execute('SET TRANSACTION READ ONLY')
+                report=h.report(conn)
+            self.assertEqual(report['stageCoverage']['counts']['health'],1)
+            self.assertEqual(report['stageCoverage']['totalSampled'],1)
+            self.assertEqual(len(report['events']),1)
+            self.assertEqual(report['events'][0]['id'],'c'*32)
+            self.assertFalse(report['stageCoverage']['handsetDeliveryVerified'])
+            self.assertFalse(report['stageCoverage']['paperExecutionVerified'])
+            conn.execute('DROP SCHEMA '+schema+' CASCADE')
+
     def test_retention_deletes_bounded_batches_and_preserves_recent_rows(self):
         import psycopg
         schema = 'diag_prune_' + str(time.time_ns())
