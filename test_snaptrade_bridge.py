@@ -125,6 +125,31 @@ class BridgeTests(unittest.TestCase):
         with patch.object(b, 'read_snapshot', side_effect=delayed): b.refresh()
         self.assertIsNone(b.status()['snapshot']); self.assertFalse(b.status()['configured'])
 
+    def test_private_reconciliation_diagnostics_are_counters_only(self):
+        b._STATE.update(code='READ_OK', snapshot={
+            'completeConnections':False,
+            'accounts':[{
+                'positions':[],
+                'tradeInsights':{'reconciliation':{
+                    'status':'available','candidatePairs':1,'ambiguousGroups':2,
+                    'orderFillsWithoutExactActivity':3,
+                    'activityTradesWithoutExactOrder':4, 'missingEvidence':5,
+                    'accountHistoryComplete':False,
+                    'pairs':[{'isin':'DE000FG309G0','secret':'NEVER_EXPOSE',
+                              'price':'12.34','reportedActivityFee':'5.12'}]
+                }}
+            }]
+        })
+        report=b.diagnostics()
+        self.assertEqual(report['executionReconciliation'][0]['candidatePairs'],1)
+        self.assertEqual(report['executionReconciliation'][0]['ambiguousGroups'],2)
+        self.assertEqual(report['executionReconciliation'][0]['missingOrderEvidence'],5)
+        self.assertFalse(report['executionReconciliation'][0]['netProfitVerified'])
+        self.assertFalse(report['executionReconciliation'][0]['learningEligible'])
+        self.assertNotIn('DE000FG309G0',json.dumps(report))
+        self.assertNotIn('NEVER_EXPOSE',json.dumps(report))
+        self.assertNotIn('12.34',json.dumps(report))
+
     def test_errors_are_sanitized_and_not_retried_in_a_loop(self):
         opener = Mock(); opener.open.side_effect = HTTPError('https://private?secret=DO_NOT_ECHO', 429, 'DO_NOT_ECHO', {'Retry-After': '3600'}, None)
         with patch.object(b, 'build_opener', return_value=opener):
