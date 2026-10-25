@@ -417,7 +417,7 @@ def read_journal(aid, config, previous=None, get=api_get, max_bytes=3_000_000):
                 # Provider 429 invalidates neither the previous successful
                 # journal nor its original checkedAt. Count only completed
                 # pages; the rejected page contains no usable evidence.
-                result[category]['activityPagesReceived'] = activity_pages_received if 'activity_pages_received' in locals() else 0
+                result[category]['activityPagesReceived'] = activity_pages_received
     return result
 
 
