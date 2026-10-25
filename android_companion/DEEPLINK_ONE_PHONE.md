@@ -5,9 +5,11 @@
 **Ohne erneuten STOPP-Test und ohne zweiten Bildschirm** soll ein bewusst
 angetippter Link aus ChatGPT auf demselben Samsung den richtigen Bereich in
 **Bob – Handy** vorbereiten. Der Benutzer bestätigt anschließend wie bisher
-mit **„✅ Geteilten Anzeigeauftrag einmalig öffnen“**. Es wird **niemals**
-automatisch eine Webseite, ein Broker, eine Ordermaske oder eine andere
-App ausgeführt.
+mit **„✅ Geteilten Anzeigeauftrag einmalig öffnen“**.
+Eine bewusst geöffnete und streng erlaubte HTTPS-Adresse darf in der neuen
+stabilen App unmittelbar **eine feste Bob-Webansicht** öffnen. Custom-Scheme-
+und Kopieraufträge benötigen weiter die Bestätigung. Keine Brokeraktionen,
+Ordermasken oder frei wählbaren URLs.
 
 ### Erste Links (vorbehaltlich Samsung-/ChatGPT-Gerätetest)
 
@@ -36,18 +38,34 @@ keine authentifizierte Push-Nachricht von ChatGPT und kein Live-Fernzugriff.
    abgewiesen. Frei übergebene Webseiten, Einstellungen, Broker-Apps,
    OCR-Bilder und Echtgeldorders sind ausgeschlossen.
 4. Der bestehende örtliche Einmalfreigabe-Mechanismus mit maximal 60 Sekunden
-   Gültigkeit prüft **jede** Aktion. STOPP/App-Wechsel verwirft sie.
-   Es gibt **keine** automatische Ausführung aus einem Link.
+   Gültigkeit prüft **alle Text- und Custom-Scheme-Aufträge**.
+   Allein der ausdrücklich angeklickte HTTPS-Link darf unmittelbar eine
+   fest zugeordnete, rein lesende Bob-Webseite starten. STOPP/App-Wechsel
+   verwirft weiterhin alle ausstehenden Freigaben.
 5. Die bestehende lokale \`SHARE_PREVIEWED\`-/\`SHARE_REJECTED\`-/\
    \`SHARE_APPROVED\`-Protokollierung bleibt erhalten, ohne Linkinhalte.
 6. Erst ein **realer Samsung-Test** kann bestätigen, dass die ChatGPT-App
    diese benutzerdefinierten Links tatsächlich an Android weiterleitet.
    Ein CI-Erfolg bestätigt nur Build und Prüflogik.
 
-### Perspektive
+### Frühere Perspektive (historisch)
 
 Für wirklich geräte-verifizierte \`https\`-App-Links müsste die
 Eigentümerdomäne mit \`/.well-known/assetlinks.json\` und dem richtigen,
 signierten Android-Zertifikat verknüpft werden. **Nicht** öffentlich
 eingerichtet und **nicht** Teil dieses Schritts, um ohne verifizierte
 Domänenbindung keinen unzuverlässigen HTTPS-Handler zu installieren.
+
+
+### Aktualisierung: HTTPS-Anzeige ohne Kopieren (25.10.2026)
+
+HTTPS-Links wie
+`https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS`
+sind im aktuellen Code auf einen direkten Start der festen Bob-Webseite
+ausgelegt. Android muss den Link mit dem installierten stabilen Paket
+verbinden; ob ChatGPT ihn weiterleitet, kann nur das Samsung-Gerät zeigen.
+
+Falls eine Browserseite statt Bob erscheint, dort
+**„Bob direkt im Browser öffnen“** tippen. Der alte Custom-URI-Link,
+Android-Teilen und die sichere Kopierfreigabe bleiben separat bestehen.
+Das ist kein authentifizierter Fernauftrag und keine Orderfreigabe.
