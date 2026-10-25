@@ -115,7 +115,10 @@ function mount(){
      line(view,'Davon Käufe / Verkäufe: ',filtered.buyCount+' / '+filtered.sellCount);
      line(view,'Belastbare ISIN: ',filtered.validIsinCount+' Buchungen · '+filtered.distinctIsins+' verschiedene ISINs');
      line(view,'Mit den aktuell nachgewiesenen Depot-ISINs übereinstimmend: ',filtered.currentHoldingsIsinMatches+' Buchungen (keine bestätigte Positions- oder Gewinnzuordnung).');
-     if(Number.isInteger(filtered.missingOrInvalidIsinCount))line(view,'Ohne gültigen ISIN-Nachweis: ',filtered.missingOrInvalidIsinCount+' Buchungen. Keine automatische Namenszuordnung.');
+     const unknownIsin=Number.isInteger(filtered.missingOrInvalidIsinCount)?filtered.missingOrInvalidIsinCount:
+      Number.isInteger(filtered.observed)&&Number.isInteger(filtered.validIsinCount)&&filtered.observed>=filtered.validIsinCount?filtered.observed-filtered.validIsinCount:null;
+     if(unknownIsin!==null)line(view,'Ohne gültigen ISIN-Nachweis: ',unknownIsin+' Buchungen. Keine automatische Namenszuordnung.');
+     if(!Array.isArray(filtered.holdingBreakdown))line(view,'ISIN-Einzelübersicht: ','Bei der nächsten regulären wöchentlichen Anbieterprüfung verfügbar. Bisheriger Gesamtstand bleibt erhalten.');
      for(const item of (filtered.holdingBreakdown||[]).slice(0,25)){
       const isin=String(item.isin||'');
       if(!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(isin))continue;
