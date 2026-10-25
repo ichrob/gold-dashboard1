@@ -67,6 +67,30 @@ class CompareTests(unittest.TestCase):
                          ["market-feed-not-current"])
         self.assertFalse(result["stateComparison"]["isRepairVerified"])
 
+    def test_diagnostic_collector_retains_only_bounded_results(self):
+        from bob_diagnostics import collect
+        data = compare([event(2000,build=CURRENT),
+                        event(1000,build=OLD,status="degraded")])
+        report = collect({"simulationAndPush": lambda: {
+            "status": "observed",
+            "history": {"status": "observed", "areas": {
+                "journal": {"status": "observed",
+                            "stateComparison": data["stateComparison"],
+                            "deploymentComparison": data["deploymentComparison"],
+                            "events": [{"secret": "DO-NOT-PUBLISH"}]}}},
+        }})
+        area = report["areas"]["historicalComparisons"]
+        self.assertEqual(area["status"], "observed")
+        self.assertEqual(area["deploymentComparison"]["previousBuild"], OLD)
+        self.assertNotIn("DO-NOT-PUBLISH", json.dumps(area))
+        # A short report that cannot show a prior health event fails closed.
+        no_old = collect({"simulationAndPush": lambda: {
+            "status": "observed", "history": {"status": "observed",
+              "areas": {"journal": {"status": "warming",
+                "stateComparison": {"status": "insufficient-evidence"}}}}}})
+        self.assertEqual(no_old["areas"]["historicalComparisons"]["status"],
+                         "insufficient")
+
     def test_out_of_order_and_invalid_rows_are_bounded(self):
         rows=[event(1000,build=OLD),event(3000),event(2000)] + [
             {"stage":"health","observedAt":float("nan"),"payload":{"status":"ok"}},
