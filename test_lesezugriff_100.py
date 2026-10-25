@@ -12,14 +12,14 @@ class ReadAccessCoverageTests(unittest.TestCase):
         m = json.loads(MANIFEST.read_text(encoding='utf-8'))
         result = diag.read_access_coverage(m)
         self.assertEqual(result['total'], 100)
-        self.assertEqual(result['verified'], 3)
-        self.assertEqual(result['unverified'], 97)
+        self.assertEqual(result['verified'], 4)
+        self.assertEqual(result['unverified'], 96)
         self.assertEqual(result['status'], 'inventory-only')
-        self.assertEqual(result['counts']['partial'], 91)
+        self.assertEqual(result['counts']['partial'], 90)
         self.assertEqual(result['counts']['planned'], 0)
         self.assertEqual(result['counts']['verified-at-build'], 1)
-        self.assertEqual(result['counts']['verified-at-sample'], 2)
-        self.assertEqual(result['buildBoundAcceptance']['acceptedGoalIds'], [8,13,18])
+        self.assertEqual(result['counts']['verified-at-sample'], 3)
+        self.assertEqual(result['buildBoundAcceptance']['acceptedGoalIds'], [7,8,13,18])
         self.assertFalse(result['buildBoundAcceptance']['currentDeployProven'])
         self.assertEqual(result['moduleInventory']['status'], 'structural-only')
         self.assertEqual(result['moduleInventory']['goalCount'], 100)
@@ -59,8 +59,8 @@ class ReadAccessCoverageTests(unittest.TestCase):
             69: 'push_delivery_history.py',
             70: 'trade_learning_review.py',
         })
-        self.assertEqual(diag.read_access_coverage(m)['verified'], 3)
-        self.assertEqual([row['id'] for row in m['tasks'] if row['verified'] is True], [8,13,18])
+        self.assertEqual(diag.read_access_coverage(m)['verified'], 4)
+        self.assertEqual([row['id'] for row in m['tasks'] if row['verified'] is True], [7,8,13,18])
 
     def test_reject_inconsistent_or_fabricated_completion(self):
         m = json.loads(MANIFEST.read_text(encoding='utf-8'))

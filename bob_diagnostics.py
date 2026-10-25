@@ -781,9 +781,9 @@ def read_access_coverage(manifest):
             (root/'Besser_werden/diagnoseziele_100_abnahmen.json')
             .read_text(encoding='utf-8'))
         historical_acceptance = inspect_acceptance(rows, acceptance_data)
-        if (historical_acceptance.get('status') != 'three-dated-independent-acceptances'
+        if (historical_acceptance.get('status') != 'four-dated-independent-acceptances'
                 or counts.get('verified-at-build') != 1
-                or counts.get('verified-at-sample') != 2):
+                or counts.get('verified-at-sample') != 3):
             raise ValueError('acceptance proof missing or inconsistent')
         # Dated evidence matrix is not an acceptance flag. Preserve original statuses.
         review = {'status':'not-available'}
@@ -813,18 +813,18 @@ def read_access_coverage(manifest):
                            'must not be mistaken for a test of a later build.'}
         except (OSError, ValueError, TypeError, KeyError):
             review={'status':'unavailable','reason':'evidence-matrix-missing-or-invalid'}
-        return {'status':'inventory-only','total':100,'verified':3,
-                'unverified':97,'counts':counts,'recordedAt':manifest.get('asOf'),
+        return {'status':'inventory-only','total':100,'verified':4,
+                'unverified':96,'counts':counts,'recordedAt':manifest.get('asOf'),
                 'buildBoundAcceptance':historical_acceptance,
                 'codeFilesMapped':len(unique_paths),'codeFilesPresent':present,
                 'codeFilesMissing':len(unique_paths)-present,
                 'codeFileScope':'existence-only-not-test-or-live-proof',
                 'evidenceReview':review, 'moduleInventory':module_summary,
                 'testEvidenceInventory':test_evidence,
-                'note':'Three goals have dated, narrow observations: historical health comparison, '
-                       'dual-service build match, and a Render CPU/RAM series. 97 lack '
-                       'individual acceptance. No permanent deployment health, causal repair, '
-                       'or trade approval follows from these snapshots.'}
+                'note':'Four goals have narrow dated original observations: seven-day journal '
+                       'sample, archived health comparison, Render CPU/RAM, and historic '
+                       'dual-service build match. 96 remain unaccepted; no continuous '
+                       'deployment, device delivery, causal repair or trade approval.'}
     except (KeyError, TypeError, ValueError, AttributeError, OSError):
         return {'status':'unavailable',
                 'reason':'read-access-manifest-missing-or-inconsistent'}

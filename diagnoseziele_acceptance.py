@@ -130,12 +130,60 @@ def _valid_archived_health_pair(record):
     return 0 <= at.timestamp()-newer <= 300
 
 
+_STAGES = frozenset(("input", "analysis", "analysis-failed", "push",
+                     "push-delivery", "paper-input", "health", "transport"))
+
+
+def _valid_archived_stage_window(record):
+    """Verify a historic private 7-day sample's fixed, fully redacted shape.
+
+    Source observations were taken independently through the connected
+    read-only Bob diagnostics, not produced by this validator.
+    """
+    import math
+    if (record.get("kind") != "private-seven-day-bounded-multistage-archive-sample"
+            or record.get("source") != "Bob private diagnostic read-only"
+            or not isinstance(record.get("build"), str)
+            or not SHA.fullmatch(record["build"])):
+        return False
+    observed = _utc(record.get("observedAt"))
+    github = record.get("github")
+    sample = record.get("sample")
+    if (observed is None or not isinstance(github, dict)
+            or not isinstance(sample, dict)
+            or type(github.get("ciRun")) is not int or github["ciRun"] <= 0
+            or type(github.get("liveSmokeRun")) is not int
+            or github["liveSmokeRun"] <= 0
+            or github.get("ciConclusion") != "success"
+            or github.get("liveSmokeConclusion") != "success"
+            or sample.get("status") != "observed"
+            or sample.get("scope") != "sampled-seven-day-best-effort-history-stage-counts"
+            or sample.get("readOnly") is not True
+            or sample.get("realOrders") is not False
+            or sample.get("handsetDeliveryVerified") is not False
+            or sample.get("paperExecutionVerified") is not False
+            or sample.get("limitPerStage") != 20):
+        return False
+    counts = sample.get("counts")
+    total = sample.get("totalSampled")
+    if (not isinstance(counts, dict) or set(counts) != _STAGES
+            or any(type(n) is not int or n < 0 or n > 20
+                   for n in counts.values())
+            or type(total) is not int or total != sum(counts.values())
+            or total <= 0 or total > 160):
+        return False
+    # The sample record represents the successful private read performed on
+    # its recorded historic build. Code paths, dates and numbers alone do not
+    # prove future completeness or Android/market delivery.
+    return True
+
+
 def assess(goals, register):
-    """Three independent, narrowly dated target-specific kinds of acceptance.
+    """Four independent, narrowly dated target-specific kinds of acceptance.
 
     These facts were read via connected Render/GitHub tools before recording.
     Code validates the immutable record's shape, not external provider truth.
-    A fourth goal, mismatched source, or fake success fails closed.
+    A fifth goal, mismatched source, or fake success fails closed.
     """
     invalid = {"status": "unavailable", "readOnly": True,
                "reason": "invalid-or-unsupported-goal-acceptance"}
@@ -143,14 +191,14 @@ def assess(goals, register):
             or not isinstance(register, dict)
             or register.get("schemaVersion") != 1
             or not isinstance(register.get("accepted"), list)
-            or len(register["accepted"]) != 3):
+            or len(register["accepted"]) != 4):
         return invalid
     if not all(isinstance(g, dict) and type(g.get("id")) is int for g in goals):
         return invalid
     by_id = {g["id"]: g for g in goals}
     if sorted(by_id) != list(range(1, 101)):
         return invalid
-    expected = {8: "verified-at-sample", 13: "verified-at-sample", 18: "verified-at-build"}
+    expected = {7: "verified-at-sample", 8: "verified-at-sample", 13: "verified-at-sample", 18: "verified-at-build"}
     for id_, row in by_id.items():
         accepted = id_ in expected
         if row.get("verified") is not accepted:
@@ -164,22 +212,25 @@ def assess(goals, register):
            for r in records):
         return invalid
     by_record = {r["id"]: r for r in records}
-    if set(by_record) != set(expected) or len(by_record) != 3:
+    if set(by_record) != set(expected) or len(by_record) != 4:
         return invalid
     build_record = by_record[18]
     metric_record = by_record[13]
     history_record = by_record[8]
+    stage_record = by_record[7]
     if (not _valid_build_match(build_record)
             or not _valid_cpu_memory_window(metric_record)
-            or not _valid_archived_health_pair(history_record)):
+            or not _valid_archived_health_pair(history_record)
+            or not _valid_archived_stage_window(stage_record)):
         return invalid
     return {
-        "status": "three-dated-independent-acceptances",
+        "status": "four-dated-independent-acceptances",
         "readOnly": True,
         "individuallyAcceptedAtRecordedBuild": 1,
         "individuallyAcceptedAtRecordedMetricWindow": 1,
         "individuallyAcceptedAtArchivedHealthPair": 1,
-        "acceptedGoalIds": [8, 13, 18],
+        "individuallyAcceptedAtArchivedStageWindow": 1,
+        "acceptedGoalIds": [7, 8, 13, 18],
         "acceptedBuild": build_record["build"],
         "acceptedAt": build_record["checkedAt"],
         "metricSampleWindow": {
@@ -196,10 +247,21 @@ def assess(goals, register):
             "session": "weekend",
             "causalRepairVerified": False,
         },
-        "remainingUnaccepted": 97,
+        "stageWindowSample": {
+            "sourceBuild": stage_record["build"],
+            "observedAt": stage_record["observedAt"],
+            "sevenDayWindow": True,
+            "limitPerStage": stage_record["sample"]["limitPerStage"],
+            "totalSampled": stage_record["sample"]["totalSampled"],
+            "counts": dict(stage_record["sample"]["counts"]),
+            "handsetDeliveryVerified": False,
+            "paperExecutionVerified": False,
+            "noRecordedEventMeansNoRealEvent": False,
+        },
+        "remainingUnaccepted": 96,
         "currentDeployProven": False,
         "continuouslyHealthyProven": False,
-        "scope": "historical-external-ci-two-live-builds-Render-metrics-and-private-health-pair", 
+        "scope": "dated-ci-Render-metrics-private-health-pair-and-seven-day-stage-archive", 
         "note": "The recorded external observations were read through connected tools. "
                 "Local validation only checks record structure, not fresh Render data. "
                 "No dated observation proves future capacity, uptime, trading "

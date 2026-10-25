@@ -3,14 +3,14 @@
   "asOf": "2026-10-25",
   "total": 100,
   "counts": {
-    "partial": 91,
+    "partial": 90,
     "planned": 0,
     "blocked-client": 1,
     "requires-device": 5,
     "verified-at-build": 1,
-    "verified-at-sample": 2
+    "verified-at-sample": 3
   },
-  "acceptance": "Only individually original-source checked, dated narrowly scoped goals 8 (archived health comparison), 13 (Render resource measurement) and 18 (exact dual-service build at sample) accepted; latest CI and deployments do not imply continuing operation.",
+  "acceptance": "Four strictly narrow, dated independent original observations: seven-day multistage journal window (#7), archived health comparison (#8), Render CPU/RAM (#13), and two matching live service builds (#18). No continuous service/market or simulated trade proof.",
   "tasks": [
     {
       "id": 1,
@@ -64,9 +64,9 @@
       "id": 7,
       "area": "Diagnosezentrale",
       "goal": "Historische Diagnosefenster",
-      "state": "partial",
+      "state": "verified-at-sample",
       "codeEvidence": "bob_diagnostics.py",
-      "verified": false
+      "verified": true
     },
     {
       "id": 8,
