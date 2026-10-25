@@ -746,12 +746,18 @@ def focused_report(report, focus='overview'):
             areas['simulationAndPush'] = {'status':'unavailable'}
     reduced = {key:report[key] for key in ('readOnly', 'realOrders',
         'observedAt', 'schemaVersion', 'scope') if key in report}
-    reduced.update(focus=focus, status='observed', areas=areas,
-                   summary=summary(areas))
-    # Absence in a focused area is not proof of health.
-    if not areas or any(isinstance(v,dict) and v.get('status') == 'unavailable'
-                        for v in areas.values()):
+    # Reflect nested stale/partial/unavailable evidence in the focused
+    # envelope. A top-level "observed" otherwise masks exactly the problem
+    # the caller selected for diagnosis (e.g. stale 1m candles).
+    finding = summary(areas)
+    reduced.update(focus=focus, status='observed', areas=areas, summary=finding)
+    if (not areas or finding['assessment'] == 'needs-attention'
+            or any(isinstance(v,dict) and v.get('status') in
+                   ('unavailable','stale','partial','degraded','failed')
+                   for v in areas.values())):
         reduced['status'] = 'partial'
+    # "partial" describes observation coverage, not a global outage and not
+    # trading permission. Original provider timestamps are kept untouched.
     return reduced
 
 
