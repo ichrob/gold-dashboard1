@@ -495,7 +495,7 @@
       "area": "Mein Trade und Gewinnschutz",
       "goal": "Manuelle Trades zuordnen",
       "state": "partial",
-      "codeEvidence": "trade_stop_review.py",
+      "codeEvidence": "real_trade_journal.py",
       "verified": false
     },
     {
@@ -503,7 +503,7 @@
       "area": "Mein Trade und Gewinnschutz",
       "goal": "Einstiegswerte prüfen",
       "state": "partial",
-      "codeEvidence": "trade_stop_review.py",
+      "codeEvidence": "trade_risk_review.py",
       "verified": false
     },
     {
@@ -511,7 +511,7 @@
       "area": "Mein Trade und Gewinnschutz",
       "goal": "Produktkurven vergleichen",
       "state": "partial",
-      "codeEvidence": "trade_stop_review.py",
+      "codeEvidence": "product_trade_curve.js",
       "verified": false
     },
     {
@@ -519,7 +519,7 @@
       "area": "Mein Trade und Gewinnschutz",
       "goal": "Stop/Ziel-Ursprung",
       "state": "partial",
-      "codeEvidence": "trade_stop_review.py",
+      "codeEvidence": "stop_target_audit.py",
       "verified": false
     },
     {
@@ -527,7 +527,7 @@
       "area": "Mein Trade und Gewinnschutz",
       "goal": "Stopp-Nachziehen rechtzeitig",
       "state": "partial",
-      "codeEvidence": "trade_stop_review.py",
+      "codeEvidence": "bob_stop_assistant.js",
       "verified": false
     },
     {
@@ -535,7 +535,7 @@
       "area": "Mein Trade und Gewinnschutz",
       "goal": "KO-Warnungen verifizieren",
       "state": "partial",
-      "codeEvidence": "trade_stop_review.py",
+      "codeEvidence": "ko_protection.py",
       "verified": false
     },
     {
@@ -543,7 +543,7 @@
       "area": "Mein Trade und Gewinnschutz",
       "goal": "Gewinnschutz/Zielketten",
       "state": "partial",
-      "codeEvidence": "trade_stop_review.py",
+      "codeEvidence": "bob_stop_assistant.js",
       "verified": false
     },
     {
@@ -551,7 +551,7 @@
       "area": "Mein Trade und Gewinnschutz",
       "goal": "FX-Abrechnung pro Trade",
       "state": "partial",
-      "codeEvidence": "trade_stop_review.py",
+      "codeEvidence": "trade_risk_review.py",
       "verified": false
     },
     {
@@ -559,7 +559,7 @@
       "area": "Mein Trade und Gewinnschutz",
       "goal": "Push-Versuch vs. Zustellung",
       "state": "partial",
-      "codeEvidence": "trade_stop_review.py",
+      "codeEvidence": "push_delivery_history.py",
       "verified": false
     },
     {
@@ -567,7 +567,7 @@
       "area": "Mein Trade und Gewinnschutz",
       "goal": "Echte Trade-Ergebnisse evaluieren",
       "state": "partial",
-      "codeEvidence": "trade_stop_review.py",
+      "codeEvidence": "trade_learning_review.py",
       "verified": false
     },
     {
