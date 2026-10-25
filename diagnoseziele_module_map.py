@@ -37,8 +37,8 @@ def inspect(root, tasks):
     Fail closed for paths outside the source tree or invalid/incomplete goals.
     """
     if (not isinstance(tasks, list) or len(tasks) != 100
-            or sorted(x.get("id") for x in tasks if isinstance(x, dict))
-               != list(range(1, 101))):
+            or not all(isinstance(x, dict) and type(x.get("id")) is int for x in tasks)
+            or sorted(x["id"] for x in tasks) != list(range(1, 101))):
         return {"status": "unavailable", "reason": "invalid-goal-inventory"}
     base = Path(root).resolve()
     by_path = {}
