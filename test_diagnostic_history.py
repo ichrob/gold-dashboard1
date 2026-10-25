@@ -235,6 +235,9 @@ class DatabaseTests(unittest.TestCase):
                                             'ready':False, 'priceFresh':False,
                                             'price':'SECRET-QUOTE'}],
                                'account':'PRIVATE-ACCOUNT'}})
+            # Close the writer transaction, then prove the report works
+            # under a separate PostgreSQL READ ONLY transaction.
+            conn.commit()
             with conn.transaction():
                 conn.execute('SET TRANSACTION READ ONLY')
                 sample=h.report(conn)
