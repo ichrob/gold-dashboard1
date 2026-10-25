@@ -85,6 +85,13 @@ body.bob-mobile{color:#18283c;background:#f3f5f8;line-height:1.5}
 .bob-nav{position:fixed;bottom:0;left:0;right:0;z-index:50;background:#ffffffed;backdrop-filter:blur(14px);border-top:1px solid #dce3ed;padding:8px 8px calc(8px + env(safe-area-inset-bottom));display:flex;justify-content:center;gap:4px}
 .bob-nav button{max-width:180px;flex:1;min-width:0;background:transparent;color:#536176;font-size:clamp(10px,2.75vw,12px);padding:9px 1px;border-radius:12px;letter-spacing:-.1px}
 .bob-nav button[aria-current=page]{background:#e8f1ff;color:#125bc0}.bob-nav span{display:block;font-size:19px;margin-bottom:2px}
+/* Persistent mobile primary-action contract: one deliberately tapped safe
+   action per view, independent of the changing location of content cards. */
+.bob-mobile main{padding-bottom:calc(110px + var(--bob-primary-dock-space,0px))}
+.bob-primary-action-dock{position:fixed;z-index:49;left:max(10px,env(safe-area-inset-left));right:max(10px,env(safe-area-inset-right));bottom:calc(var(--bob-mobile-nav-height,80px) + 8px);max-width:860px;margin:0 auto;background:#fff;border:1px solid #dce3ed;border-radius:15px;padding:9px 11px;box-shadow:0 4px 24px #10243e25}
+.bob-primary-action-dock[hidden]{display:none!important}
+.bob-primary-action-dock button{display:block;width:100%;min-height:52px;white-space:normal;margin:0;background:#125fb6;color:#fff}
+.bob-primary-action-dock .small{font-size:11px;line-height:1.25;margin:6px 2px 0;max-height:3.8em;overflow:auto;overflow-wrap:anywhere}
 .bob-nav{gap:4px}.bob-nav button{font-size:clamp(11px,3vw,13px);position:relative;min-height:56px}
 .bob-more-menu{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .bob-more-group{margin:24px 0}.bob-back{background:transparent;color:#125bc0;padding:8px 0;margin-bottom:8px}.bob-page-note{color:#536176;margin:0 0 18px}.bob-mobile .bob-more-menu button{background:white;border:1px solid #dce3ed;border-radius:14px;line-height:1.4}.bob-more-menu small{color:#536176}
@@ -2109,7 +2116,49 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 
 
   nav.innerHTML=[['overview','◫','Übersicht'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['problems','⚠','Probleme'],['more','☰','Mehr']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+(key==='problems'?'<strong class="bob-problem-count" data-problem-count hidden aria-hidden="true"></strong>':'')+'</button>').join('');document.body.append(nav);
-  function show(key,focus=true){if(['products-long','products-leverage'].includes(key))key='products';if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&['improve','auto','future','research','learning','diagrams','degiro','degiro2','simulation','settings','help'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
+  // Mobile action dock: keep the ORIGINAL button and its listener. No
+  // synthetic click or extra permission is triggered by navigation.
+  // Register new safe per-view actions here, independent of card design.
+  const primaryActionDock=document.createElement('aside');
+  primaryActionDock.id='bobPrimaryActionDock';
+  primaryActionDock.className='bob-primary-action-dock';
+  primaryActionDock.setAttribute('aria-label','Sofortaktion des aktuellen Bereichs');
+  primaryActionDock.hidden=true;
+  document.body.append(primaryActionDock);
+  const pinnedActions=new Map();
+  function registerPinnedAction(view,buttonId,feedbackId){
+   if(!Object.hasOwn(panels,view))return false;
+   const button=byId(buttonId),feedback=byId(feedbackId);
+   if(!button||button.tagName!=='BUTTON')return false;
+   pinnedActions.set(view,{button,feedback});
+   return true;
+  }
+  registerPinnedAction('problems','bobMobileHelpShare','bobMobileHelpFeedback');
+  function alignPinnedAction(){
+   const navHeight=Math.max(0,Math.ceil(nav.getBoundingClientRect().height));
+   const dockHeight=primaryActionDock.hidden?0:Math.ceil(primaryActionDock.getBoundingClientRect().height);
+   document.documentElement.style.setProperty('--bob-mobile-nav-height',navHeight+'px');
+   document.documentElement.style.setProperty('--bob-primary-dock-space',dockHeight+'px');
+  }
+  function showPinnedAction(view){
+   const entry=pinnedActions.get(view);
+   if(entry){
+    // Replace the dock's *contents*, never the original listener. This
+    // keeps only one primary action visible if another view is registered.
+    if(entry.button.parentNode!==primaryActionDock||
+       primaryActionDock.firstElementChild!==entry.button){
+     primaryActionDock.replaceChildren(entry.button,...(entry.feedback?[entry.feedback]:[]));
+    }
+    primaryActionDock.hidden=false;
+   }else primaryActionDock.hidden=true;
+   alignPinnedAction();
+  }
+  window.addEventListener('resize',alignPinnedAction,{passive:true});
+  if(typeof ResizeObserver==='function'){
+   const pinnedObserver=new ResizeObserver(alignPinnedAction);
+   pinnedObserver.observe(nav);pinnedObserver.observe(primaryActionDock);
+  }
+  function show(key,focus=true){if(['products-long','products-leverage'].includes(key))key='products';if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&['improve','auto','future','research','learning','diagrams','degiro','degiro2','simulation','settings','help'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());showPinnedAction(key);if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
   document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b){show(b.dataset.view);history.replaceState(null,'','#'+b.dataset.view);}});
   // The Android voice command explicitly requests the Gold-Hebelprodukte list.
   // An ordinary manual tap on the Produkte tab still opens the overview normally.
