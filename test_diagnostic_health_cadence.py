@@ -64,6 +64,44 @@ class CadenceTests(unittest.TestCase):
         self.assertNotIn("NEVER-RETURN", json.dumps(result))
         self.assertFalse(result["workerStoppedVerified"])
 
+    def test_bob_diagnostics_exposes_only_sanitized_passive_cadence(self):
+        import bob_diagnostics as diag
+        captured = assess([observation(1000, "weekend"),
+                           observation(1200, "weekend")])
+        captured["token"] = "TOP-SECRET"
+        report = diag.collect({"simulationAndPush": lambda: {
+            "status": "observed",
+            "history": {"status": "observed",
+                        "areas": {"journal": {"status": "observed",
+                                             "healthCadence": captured}}}}})
+        snapshot = report["areas"]["healthCadence"]
+        self.assertEqual(snapshot["state"], "outside-trading-window-observation")
+        self.assertEqual(snapshot["latestSession"], "weekend")
+        self.assertEqual(snapshot["observedTradingWindowIntervals"], 0)
+        self.assertNotIn("TOP-SECRET", json.dumps(snapshot))
+        self.assertFalse(snapshot["workerMissed30sCyclesVerified"])
+        self.assertTrue(snapshot["readOnly"])
+        # Repair-focused reads keep the same passive, non-trading evidence.
+        focus = diag.focused_report(report, "repairs")
+        self.assertEqual(focus["areas"]["healthCadence"], snapshot)
+        self.assertNotIn("token", json.dumps(focus["areas"]["healthCadence"]))
+
+    def test_spoofed_health_cadence_cannot_claim_market_cycles_repaired(self):
+        import bob_diagnostics as diag
+        fake = {"status": "observed", "state": "worker-verified",
+                "workerMissed30sCyclesVerified": True,
+                "workerStoppedVerified": True,
+                "latestSession": "trading", "token": "SECRET"}
+        report = diag.collect({"simulationAndPush": lambda: {
+            "status": "observed",
+            "history": {"status": "observed",
+                        "areas": {"journal": {"healthCadence": fake}}}}})
+        result = report["areas"]["healthCadence"]
+        self.assertEqual(result["state"], "insufficient-evidence")
+        self.assertFalse(result["workerMissed30sCyclesVerified"])
+        self.assertFalse(result["workerStoppedVerified"])
+        self.assertNotIn("SECRET", json.dumps(result))
+
     def test_duplicate_clock_not_extra_run_and_only_twenty_samples(self):
         captures = [observation(1000 + i*30) for i in range(30)]
         captures.append(observation(1000 + 29*30))
