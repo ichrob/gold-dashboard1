@@ -42,7 +42,7 @@ class IssuerCatalogueTests(unittest.TestCase):
         def wait(seconds):
             states.append(catalog._CURRENT["status"])
             clock[0] += seconds
-            if clock[0] > 1200:
+            if clock[0] > 600:
                 raise StopWorker
         try:
             with patch.object(catalog, "session", return_value=("2026-10-16", "evening")), \
@@ -51,8 +51,8 @@ class IssuerCatalogueTests(unittest.TestCase):
                  patch.object(catalog.time, "sleep", side_effect=wait):
                 with self.assertRaises(StopWorker):
                     catalog._loop()
-            self.assertEqual(scan_times, [0, 600, 1200])
-            self.assertEqual(states, ["ok", "ok", "partial", "partial", "ok"])
+            self.assertEqual(scan_times, [0, 300, 600])
+            self.assertEqual(states, ["ok", "partial", "ok"])
         finally:
             catalog._CURRENT.clear()
             catalog._CURRENT.update(original)

@@ -2,6 +2,8 @@
 PANEL = r'''
 <section id="bobSnapTrade" class="card" style="padding:16px;overflow-wrap:anywhere">
 <h3>DEGIRO über SnapTrade Personal</h3>
+<p><button id="snapCatalogProbe" type="button" disabled>DEGIRO-Produktverzeichnis einmalig prüfen</button></p>
+<p id="snapCatalogProbeStatus" class="small" role="status">Produktverzeichnis noch nicht geprüft. Dies ist kein Nachweis aller handelbaren Gold-Knock-outs.</p>
 <p>Kostenloser Personal-Zugang für dein eigenes Depot. Bob liest Bestände und Bargeld bei aktiver Bob-Ansicht frühestens alle zehn Minuten. Im Hintergrund gilt ein sparsamer Sechs-Stunden-Takt. Eindeutig zugeordnete Produktkurse prüft Bob zusätzlich etwa alle 30 Sekunden über seine bestehenden Emittentenquellen; dies sind keine DEGIRO-Ausführungskurse.</p>
 <p id="snapStatus" role="status">Einrichtung wird geprüft …</p>
 <ol>
@@ -40,15 +42,21 @@ function mount(){
  const status=document.getElementById('snapStatus'),clock=document.getElementById('snapClock'),list=document.getElementById('snapHoldings');
  const client=document.getElementById('snapClient'),key=document.getElementById('snapKey'),free=document.getElementById('snapFree');
  const save=document.getElementById('snapSave'),check=document.getElementById('snapCheck'),remove=document.getElementById('snapRemove');
+ const catalogButton=document.getElementById('snapCatalogProbe'),catalogStatus=document.getElementById('snapCatalogProbeStatus');
  let busy=false,lastData=null,lastHoldings=null,csvReviewData=null,lastVisibleReadRequestAt=Date.now();
  function feedback(message){const inline=document.getElementById('snapFormStatus'),outside=document.getElementById('snapFeedback');inline.textContent=message;outside.textContent=message;(document.getElementById('snapSetup').open?inline:outside).scrollIntoView({block:'nearest'});}
- function controls(){check.disabled=busy||!lastData?.configured||lastData.nextCheckSeconds>0;remove.disabled=busy||!lastData?.configured;}
+ function controls(){check.disabled=busy||!lastData?.configured||lastData.nextCheckSeconds>0;remove.disabled=busy||!lastData?.configured;catalogButton.disabled=busy||!lastData?.configured;}
  const messages={INVALID_CSV_LINK:'CSV-Zuordnung nicht gespeichert: Depot, Währung, stabile Anbieterkennung und Bestätigungen prüfen.',CSV_CONNECTION_REQUIRED:'Für die CSV-Zuordnung zuerst einen erfolgreichen Depotabruf abwarten.',CSV_RETRY_REQUIRED:'Depotabruf läuft oder wurde erneuert. CSV-Vergleich erneut öffnen.',HISTORY_STORE_UNAVAILABLE:'Verschlüsselte CSV-Speicherung nicht bestätigt.',SETUP_REQUIRED:'Noch nicht verbunden. Einmalige Einrichtung oben durchführen.',READY:'Schlüssel gespeichert. Lesetest wird gestartet.',CHECKING:'Depot-Lesetest läuft …',READ_OK:'✓ Depotdaten empfangen. Goldprodukt-Abdeckung noch nicht bestätigt.',CONNECT_DEGIRO:'Personal-Zugang erreichbar. DEGIRO im SnapTrade-Dashboard verbinden.',READ_CONNECTION_REQUIRED:'DEGIRO-Verbindung bei SnapTrade muss auf Lesen stehen.',AUTH_REQUIRED:'Anmeldung nicht bestätigt oder Verbindung abgelaufen. Im SnapTrade-Dashboard prüfen.',ACCESS_DENIED:'Anbieter verweigert den Zugriff. Personal-Zugang und Berechtigungen prüfen.',PLAN_REQUIRED:'Anbieter verlangt einen anderen Tarif. Kein kostenpflichtiger Abruf wird ausgelöst.',RATE_LIMITED:'Anbieter begrenzt die Abrufe. Nächster Versuch frühestens nach zehn Minuten.',PROVIDER_UNAVAILABLE:'Anbieter momentan nicht erreichbar. Letzter Stand ist nicht als aktuell bestätigt.',INVALID_RESPONSE:'Datenformat nicht vollständig erkannt. Kein vollständiger Abgleich bestätigt.',STORE_UNAVAILABLE:'Geschützter Schlüsselspeicher momentan nicht erreichbar.',SETTINGS_UNREADABLE:'Gespeicherter Schlüssel kann nicht gelesen werden. Personal-Schlüssel erneut speichern.',NO_ACCOUNTS:'Noch kein lesbares DEGIRO-Depot gefunden.',TOO_MANY_ACCOUNTS:'Mehr als drei DEGIRO-Depots/Verbindungen. Abgleich zur Prüfung angehalten.'};
  function stamp(value){const d=new Date(value);return value&&Number.isFinite(d.getTime())?d.toLocaleString('de-CH'):'nicht geliefert';}
  function render(data){
   lastData=data;
   status.textContent=messages[data.code]||'Verbindung nicht bestätigt.';
   controls();
+  const probe=data.catalogProbe||{},pcode=probe.code||'NOT_TESTED';
+  if(pcode==='CATALOG_EMPTY')catalogStatus.textContent='Prüfung '+stamp(probe.checkedAt)+': SnapTrade liefert für DEGIRO ein leeres Instrumentenverzeichnis. Automatische Goldproduktliste damit nicht bestätigt.';
+  else if(pcode==='CATALOG_RETURNED')catalogStatus.textContent='Prüfung '+stamp(probe.checkedAt)+': '+probe.instrumentCount+' Broker-Instrumente gemeldet; '+(probe.historicalMatches?.length||0)+' von '+(probe.historicalWatchCount||0)+' historisch bekannten ISINs gefunden. Keine vollständige Gold-Knock-out-Liste oder Handelsfreigabe.';
+  else if(pcode==='NOT_TESTED')catalogStatus.textContent='DEGIRO-Produktverzeichnis über SnapTrade noch nicht geprüft. Einmaliger Lesetest ohne Orders.';
+  else catalogStatus.textContent='Produktverzeichnis-Abfrage '+stamp(probe.checkedAt)+': '+pcode+'. Kein vollständiger Katalognachweis.';
   document.getElementById('snapSetup').open=!data.configured;
   clock.textContent=(data.checkedAt?'Letzte Prüfung: '+stamp(data.checkedAt)+'. ':'')+(data.configured?'Nächster möglicher Abruf in '+data.nextCheckSeconds+' Sekunden. ':'')+(data.snapshot?(data.fresh?'Quellenstand innerhalb des Depotintervalls.':'Quellenstand nicht als aktuell bestätigt. '):'');
   const flags=[...new Set(data.connectionWatch?.codes||[])];
@@ -378,6 +386,12 @@ function mount(){
   }finally{clearTimeout(timer);}
  }
  async function refresh(){if(busy)return;try{const r=await fetch('/api/snaptrade/status',{credentials:'same-origin',cache:'no-store'});if(!r.ok)throw Error();render(await r.json());}catch(_){status.textContent='Einrichtungsstatus nicht erreichbar.';}}
+ catalogButton.addEventListener('click',async()=>{
+  if(busy)return;busy=true;controls();catalogStatus.textContent='Einmalige SnapTrade-Verzeichnisabfrage wird geprüft …';
+  try{await call('catalog-probe',{});}
+  catch(error){catalogStatus.textContent='Verzeichnisabfrage nicht bestätigt: '+error.message;}
+  finally{busy=false;controls();}
+ });
  document.getElementById('snapForm').addEventListener('submit',async event=>{
   event.preventDefault();if(busy||!free.checked)return;busy=true;save.disabled=true;controls();feedback('Schlüssel werden verschlüsselt gespeichert …');
   const payload={clientId:client.value.trim(),consumerKey:key.value.trim(),personalFreeConfirmed:true};client.value='';key.value='';
