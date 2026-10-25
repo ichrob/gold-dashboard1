@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 import re
 
-SCHEMA = 4
+SCHEMA = 5
 NON_INVENTORY = {'DIVIDEND', 'SUBSTITUTE_DIVIDEND', 'INTEREST', 'FEE', 'TAX',
                  'CONTRIBUTION', 'WITHDRAWAL'}
 UNIT_KINDS = {'cs', 'et', 'etf', 'stock', 'adr', 'cef', 'mutualfund', 'crypto'}
