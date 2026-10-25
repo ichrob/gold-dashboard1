@@ -24,6 +24,7 @@ class ReadAccessCoverageTests(unittest.TestCase):
         self.assertEqual(result['moduleInventory']['status'], 'structural-only')
         self.assertEqual(result['moduleInventory']['goalCount'], 100)
         self.assertEqual(result['moduleInventory']['moduleCount'], 19)
+        self.assertEqual(result['moduleInventory']['javascriptModulesScanned'], 2)
         self.assertEqual(result['moduleInventory']['individuallyVerified'], 0)
         self.assertEqual(result['testEvidenceInventory']['status'],
                          'test-candidates-mapped')

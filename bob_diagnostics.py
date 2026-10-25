@@ -740,7 +740,8 @@ def read_access_coverage(manifest):
             inventory = inspect_modules(root, rows)
             module_summary = {k: inventory.get(k) for k in (
                 'status', 'moduleCount', 'goalCount', 'pythonModulesParsed',
-                'otherModulesNotParsed', 'mappedDependencyEdges',
+                'javascriptModulesScanned', 'otherModulesNotParsed',
+                'mappedDependencyEdges',
                 'scope', 'limitations', 'individuallyVerified')}
         except Exception:
             module_summary = {'status': 'unavailable'}
