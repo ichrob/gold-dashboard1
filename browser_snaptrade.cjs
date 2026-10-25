@@ -125,6 +125,7 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
    p.issuerObservation={code:'CURRENT',kind:'issuer-chart',source:'Synthetic issuer chart',currency:'CHF',bid:'9',ask:'10',bidAt:'2026-10-21T12:00:00Z',askAt:'2026-10-21T12:00:00Z',bidFresh:true,askFresh:true,observedAt:'2026-10-21T12:00:01Z'};
    p.observedPositionValue='22.5';p.observedUnrealizedPnl='-2.5';
    a.evidenceQuality={orderRows:2,positiveFills:1,noPositiveFill:1,
+    filledQuantityMissing:0,filledQuantityZero:1,filledQuantityInvalid:0,
     missingExecutionTime:1,missingVerifiedIsin:1,missingPrice:0,
     activityTrades:2,activityMissingFees:1};
    a.profitReadiness={accountHistoryComplete:false,unresolvedLots:1};
@@ -140,6 +141,8 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
   await page.locator('#snapQualitytest-account > summary').click();
   const quality=await page.locator('#snapQualitytest-account').innerText();
   assert(quality.includes('Fehlende Ausführungszeit: 1'));
+  assert(quality.includes('Ausführungsmenge ausdrücklich 0: 1'));
+  assert(quality.includes('Ausführungsmenge fehlt beim Anbieter: 0'));
   assert(quality.includes('Offene Gebührenangaben bei Kauf/Verkauf: 1'));
   assert(quality.includes('Keine vollständige Gewinn- oder Steuerberechnung'));
   await page.locator('#snapExecutionstest-account > summary').click();

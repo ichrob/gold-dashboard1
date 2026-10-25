@@ -848,7 +848,8 @@ def diagnostics():
         'checkedAt': value.get('checkedAt'), 'encryptionReady': encryption_ready,
         'connectionWatch': value.get('connectionWatch'),
         'evidenceGaps': [{k: a.get('evidenceQuality',{}).get(k) for k in (
-            'orderRows','positiveFills','noPositiveFill','missingExecutionTime',
+            'orderRows','positiveFills','noPositiveFill','filledQuantityMissing',
+            'filledQuantityZero','filledQuantityInvalid','missingExecutionTime',
             'missingVerifiedIsin','missingPrice','activityTrades','activityMissingFees')}
             for a in (value.get('snapshot') or {}).get('accounts',[])],
         'profitReadiness': [{k: a.get('profitReadiness',{}).get(k) for k in (

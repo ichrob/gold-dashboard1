@@ -16,12 +16,36 @@ class QualityTests(unittest.TestCase):
         stats=quality.evidence_gaps(acc)
         self.assertEqual(stats['positiveFills'],1)
         self.assertEqual(stats['noPositiveFill'],1)
+        self.assertEqual(stats['filledQuantityZero'],1)
+        self.assertEqual(stats['filledQuantityMissing'],0)
+        self.assertEqual(stats['filledQuantityInvalid'],0)
         self.assertEqual(stats['missingExecutionTime'],1)
         self.assertEqual(stats['missingVerifiedIsin'],1)
         self.assertEqual(stats['activityMissingFees'],1)
         p=quality.profit_review(acc)
         self.assertFalse(p['netProfitVerified'])
         self.assertFalse(p['accountHistoryComplete'])
+
+    def test_missing_zero_invalid_and_positive_fill_subtypes(self):
+        acc={'journal':{'orders':{'rows':[
+            {'key':'missing','quantity':None},
+            {'key':'empty','quantity':''},
+            {'key':'zero','quantity':'0'},
+            {'key':'invalid','quantity':'NaN'},
+            {'key':'negative','quantity':'-2'},
+            {'key':'positive','quantity':'1.5','executedAt':None}
+        ]},'activities':{'rows':[]}}, 'tradeInsights':{'executions':[]}}
+        summary=quality.evidence_gaps(acc)
+        self.assertEqual(summary['orderRows'],6)
+        self.assertEqual(summary['positiveFills'],1)
+        self.assertEqual(summary['noPositiveFill'],5)
+        self.assertEqual(summary['filledQuantityMissing'],2)
+        self.assertEqual(summary['filledQuantityZero'],1)
+        self.assertEqual(summary['filledQuantityInvalid'],2)
+        self.assertEqual(summary['noPositiveFill'],
+            summary['filledQuantityMissing']+
+            summary['filledQuantityZero']+
+            summary['filledQuantityInvalid'])
 
     def test_monitor_is_deduplicated_and_not_a_push(self):
         data={'configured':True,'running':True,'code':'READ_OK',
