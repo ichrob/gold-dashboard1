@@ -396,13 +396,23 @@ class ProspectiveBoundedRecoveryTests(unittest.TestCase):
              patch.object(a.precision_learning,'report',return_value={}), \
              patch.object(a.metric_quality,'report',return_value={}), \
              patch.object(a.product_precision,'report',return_value={}):
-            result=a._build_report(conn)
+            with patch('builtins.print') as emitted:
+                result=a._build_report(conn)
         self.assertEqual(loader.call_args_list[1].kwargs,{'recent':True})
         self.assertTrue(result['prospectiveReview']['available'])
         self.assertTrue(result['prospectiveReview']['partialHistory'])
         self.assertEqual(result['prospectiveReview']['validationCoverage'],
                          'last-24-hours-only')
         self.assertFalse(result['prospectiveReview']['automaticRuleChange'])
+        statuses = [call.args[0] for call in emitted.call_args_list if call.args]
+        timing = [line for line in statuses if line.startswith('BOB_AUDIT prospective_timing')]
+        self.assertEqual(len(timing), 1)
+        self.assertIn('full_state=query-timeout', timing[0])
+        self.assertIn('fallback_state=completed-partial', timing[0])
+        self.assertIn('full_ms=', timing[0])
+        self.assertIn('fallback_ms=', timing[0])
+        self.assertNotIn('timeout', timing[0].split('fallback_ms=')[-1])
+        self.assertNotIn('password', timing[0])
         self.assertIn('keine 30-Tage-Validierung',result['prospectiveReview']['note'])
 
     def test_second_timeout_reports_unavailable_without_invented_result(self):
@@ -419,11 +429,18 @@ class ProspectiveBoundedRecoveryTests(unittest.TestCase):
              patch.object(a.precision_learning,'report',return_value={}), \
              patch.object(a.metric_quality,'report',return_value={}), \
              patch.object(a.product_precision,'report',return_value={}):
-            result=a._build_report(conn)
+            with patch('builtins.print') as emitted:
+                result=a._build_report(conn)
         self.assertFalse(result['prospectiveReview']['available'])
         self.assertTrue(result['prospectiveReview']['retryable'])
         self.assertTrue(result['prospectiveReview']['partialHistory'])
         self.assertFalse(result['prospectiveReview']['automaticRuleChange'])
+        timing = [call.args[0] for call in emitted.call_args_list if call.args
+                  and call.args[0].startswith('BOB_AUDIT prospective_timing')]
+        self.assertEqual(len(timing), 1)
+        self.assertIn('full_state=query-timeout', timing[0])
+        self.assertIn('fallback_state=query-timeout', timing[0])
+        self.assertFalse(result['prospectiveReview']['available'])
 
 
 class ReportTimeoutRecoveryTests(unittest.TestCase):
