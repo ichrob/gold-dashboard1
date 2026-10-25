@@ -21,7 +21,7 @@ def _sample(event):
     if type(t) not in (int, float) or not math.isfinite(t) or t <= 0 or not isinstance(payload, dict):
         return None
     session = payload.get("session")
-    if session not in SESSIONS:
+    if not isinstance(session, str) or session not in SESSIONS:
         session = "unknown"
     sha = event.get("build")
     if not isinstance(sha, str) or SHA.fullmatch(sha) is None:
@@ -40,7 +40,7 @@ def assess(events):
     intervals = []
     cross_boundaries = 0
     for after, before in zip(observations, observations[1:]):
-        if (before[1] != after[1] or before[2] is None or
+        if (before[1] not in SESSIONS or before[1] != after[1] or before[2] is None or
                 after[2] is None or before[2] != after[2]):
             cross_boundaries += 1
             continue
