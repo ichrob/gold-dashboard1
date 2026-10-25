@@ -197,6 +197,78 @@ def build(lookup, now=None, *, retry_limit=0, retry_wait_seconds=16, sleeper=tim
                          "müssen separat in DEGIRO bestätigt werden."))
 
 
+
+def study_history(history, lookup, offset=0, limit=HISTORY_SAMPLE_LIMIT):
+    """Issuer-check a rotating, bounded subset of historically traded instruments."""
+    history = history if isinstance(history, dict) else {}
+    records = history.get('items')
+    records = records if isinstance(records, list) else []
+    historic = {isin for isin, _ in SEEDS}
+    eligible = [x for x in records[:24] if isinstance(x, dict)
+                and valid_isin(x.get('isin')) and x.get('direction') in ('LONG', 'SHORT')
+                and x['isin'] not in historic and x.get('brokerHistoricallyTransacted') is True
+                and x.get('eligibleForTop3') is False]
+    n = len(eligible)
+    if not n:
+        return dict(code=history.get('code','NO_HISTORY'), available=0, sampled=0,
+                    items=[], historyComplete=False, tradeApproved=False)
+    picked = (eligible[offset%n:] + eligible[:offset%n])[:max(0,min(limit,HISTORY_SAMPLE_LIMIT))]
+    observed = []
+    for x in picked:
+        isin, side = x['isin'], x['direction']
+        try:
+            quote = lookup(isin)
+        except Exception:
+            quote = {}
+        quote = quote if isinstance(quote, dict) else {}
+        meta = quote.get('metadata') if isinstance(quote.get('metadata'),dict) else {}
+        verified = (quote.get('isin') == isin and quote.get('productVerified') is True
+                    and meta.get('status') == 1 and meta.get('type') != 'FACTOR'
+                    and _same_spot(meta) and meta.get('direction') == side)
+        observed.append({
+            'isin':isin, 'direction':side, 'name':str(x.get('name') or '')[:120],
+            'lastTradeDate':x.get('lastTradeDate'),
+            'brokerHistoricallyTransacted':True, 'issuerIdentityMatched':bool(verified),
+            'issuerChecked':True, 'researchOnly':True, 'currentlyDegiroListed':None,
+            'originalDegiroQuoteVerified':False, 'liveApproved':False,
+            'screenshotToday':False, 'eligibleForTop3':False, 'tradeApproved':False})
+    return dict(code=history.get('code','HISTORICAL_PARTIAL'),available=n,
+                sampled=len(observed),items=observed,
+                historyComplete=history.get('historyComplete') is True,
+                completeDegiroCatalog=False, tradeApproved=False,
+                note='Historische Transaktionen sind kein Nachweis aktueller DEGIRO-Handelbarkeit.')
+
+
+def diagnostics(now=None):
+    now = now or datetime.now(ZONE)
+    report = snapshot()
+    events = report.get('scanHistory') or []
+    recent = report.get('lastScanAt')
+    age = None
+    if isinstance(recent,str):
+        try:
+            age = max(0,(now-datetime.fromisoformat(recent)).total_seconds())
+        except (ValueError,TypeError):
+            pass
+    active = session(now) is not None
+    elapsed = events[-1].get('elapsedSeconds') if events else None
+    return dict(targetSeconds=300, scanCountObserved=len(events),
+                lastScanAt=recent, lastScanAgeSeconds=round(age) if age is not None else None,
+                recentIntervalsSeconds=[e['elapsedSeconds'] for e in events[-6:]
+                                        if e.get('elapsedSeconds') is not None],
+                latestOutcome=report.get('status'), latestErrors=report.get('errors'),
+                workerStarted=bool(_THREAD and _THREAD.is_alive()),
+                activeMarketSession=active, sessionMode='weekday' if active else 'paused',
+                healthyCadenceProven=bool(active and len(events)>=2
+                                       and elapsed is not None and elapsed <= 480
+                                       and age is not None and age <= 480),
+                historyAvailable=(report.get('historyResearch') or {}).get('available',0),
+                historySampled=(report.get('historyResearch') or {}).get('sampled',0),
+                historySourceCode=(report.get('historyResearch') or {}).get('code'),
+                completeDegiroCatalog=False, tradeApproved=False)
+
+
+
 def snapshot():
     with _LOCK:
         status=copy.deepcopy(_CURRENT)
