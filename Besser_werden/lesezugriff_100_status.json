@@ -3,8 +3,8 @@
   "asOf": "2026-10-25",
   "total": 100,
   "counts": {
-    "partial": 92,
-    "planned": 2,
+    "partial": 94,
+    "planned": 0,
     "blocked-client": 1,
     "requires-device": 5
   },
@@ -70,8 +70,8 @@
       "id": 8,
       "area": "Diagnosezentrale",
       "goal": "Vergleich früherer Zustände",
-      "state": "planned",
-      "codeEvidence": "bob_diagnostics.py",
+      "state": "partial",
+      "codeEvidence": "diagnostic_history.py",
       "verified": false
     },
     {
@@ -158,8 +158,8 @@
       "id": 19,
       "area": "Render und Hintergrundjobs",
       "goal": "Deployment-Regressionsvergleich",
-      "state": "planned",
-      "codeEvidence": "bob_self_healing.py",
+      "state": "partial",
+      "codeEvidence": "diagnostic_state_compare.py",
       "verified": false
     },
     {

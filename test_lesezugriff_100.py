@@ -15,12 +15,17 @@ class ReadAccessCoverageTests(unittest.TestCase):
         self.assertEqual(result['verified'], 0)
         self.assertEqual(result['unverified'], 100)
         self.assertEqual(result['status'], 'inventory-only')
-        self.assertEqual(result['counts']['partial'], 92)
-        self.assertEqual(result['counts']['planned'], 2)
+        self.assertEqual(result['counts']['partial'], 94)
+        self.assertEqual(result['counts']['planned'], 0)
         self.assertEqual(result['moduleInventory']['status'], 'structural-only')
         self.assertEqual(result['moduleInventory']['goalCount'], 100)
-        self.assertEqual(result['moduleInventory']['moduleCount'], 17)
+        self.assertEqual(result['moduleInventory']['moduleCount'], 19)
         self.assertEqual(result['moduleInventory']['individuallyVerified'], 0)
+        self.assertEqual({r['id']: r['codeEvidence'] for r in m['tasks']
+                          if r['id'] in (8, 19)}, {
+            8: 'diagnostic_history.py',
+            19: 'diagnostic_state_compare.py',
+        })
         self.assertEqual(sum(result['counts'].values()), 100)
         self.assertEqual(result['counts']['requires-device'], 5)
 
