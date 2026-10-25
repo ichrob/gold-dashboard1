@@ -734,9 +734,9 @@ def read_access_coverage(manifest):
             (root/'Besser_werden/diagnoseziele_100_abnahmen.json')
             .read_text(encoding='utf-8'))
         historical_acceptance = inspect_acceptance(rows, acceptance_data)
-        if (historical_acceptance.get('status') != 'two-dated-independent-acceptances'
+        if (historical_acceptance.get('status') != 'three-dated-independent-acceptances'
                 or counts.get('verified-at-build') != 1
-                or counts.get('verified-at-sample') != 1):
+                or counts.get('verified-at-sample') != 2):
             raise ValueError('acceptance proof missing or inconsistent')
         # Dated evidence matrix is not an acceptance flag. Preserve original statuses.
         review = {'status':'not-available'}
@@ -766,18 +766,18 @@ def read_access_coverage(manifest):
                            'must not be mistaken for a test of a later build.'}
         except (OSError, ValueError, TypeError, KeyError):
             review={'status':'unavailable','reason':'evidence-matrix-missing-or-invalid'}
-        return {'status':'inventory-only','total':100,'verified':2,
-                'unverified':98,'counts':counts,'recordedAt':manifest.get('asOf'),
+        return {'status':'inventory-only','total':100,'verified':3,
+                'unverified':97,'counts':counts,'recordedAt':manifest.get('asOf'),
                 'buildBoundAcceptance':historical_acceptance,
                 'codeFilesMapped':len(unique_paths),'codeFilesPresent':present,
                 'codeFilesMissing':len(unique_paths)-present,
                 'codeFileScope':'existence-only-not-test-or-live-proof',
                 'evidenceReview':review, 'moduleInventory':module_summary,
                 'testEvidenceInventory':test_evidence,
-                'note':'Two goals have dated original-source observations: a dual-service build match and '
-                       'a Render CPU/RAM series. 98 lack individual acceptance; no current '
-                       'deployment or future-capacity claim. Static import and test mappings '
-                       'do not prove feature correctness.'}
+                'note':'Three goals have dated, narrow observations: historical health comparison, '
+                       'dual-service build match, and a Render CPU/RAM series. 97 lack '
+                       'individual acceptance. No permanent deployment health, causal repair, '
+                       'or trade approval follows from these snapshots.'}
     except (KeyError, TypeError, ValueError, AttributeError, OSError):
         return {'status':'unavailable',
                 'reason':'read-access-manifest-missing-or-inconsistent'}
