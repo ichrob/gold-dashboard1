@@ -50,6 +50,21 @@ class SnapTradeHTTPTest(ReadOnlyHTTPTest):
             self.assertEqual(e.exception.code,400);self.assertNotIn(b'PRIVATE_CSV_ROW',body)
             self.assertEqual(json.loads(body)['code'],'INVALID_CSV_LINK')
 
+    def test_catalog_probe_requires_auth_and_same_origin(self):
+        bridge = self.server_module.snaptrade_bridge
+        with patch.object(bridge, 'handle', return_value={'configured': True,
+                'catalogProbe': {'code': 'CATALOG_EMPTY'}}) as handler:
+            for auth, origin, expected in ((False, True, 401), (True, False, 403)):
+                with self.assertRaises(HTTPError) as err:
+                    urlopen(self.request('/api/snaptrade/catalog-probe', auth, origin, b'{}'), timeout=5)
+                self.assertEqual(err.exception.code, expected)
+            handler.assert_not_called()
+            with urlopen(self.request('/api/snaptrade/catalog-probe', body=b'{}'), timeout=5) as response:
+                body = json.load(response)
+                self.assertEqual(body['catalogProbe']['code'], 'CATALOG_EMPTY')
+                self.assertEqual(response.headers.get('Cache-Control'), 'no-store')
+            handler.assert_called_once_with('catalog-probe', {})
+
     def test_no_broker_write_route_added(self):
         with patch.object(self.server_module.snaptrade_bridge, 'handle') as handle:
             with self.assertRaises(HTTPError):
