@@ -57,6 +57,28 @@ class HistoricalGoldResearchTests(unittest.TestCase):
         self.assertEqual(result['candidateCount'],0)
         self.assertEqual(result['suppressedConflicts'],1)
 
+    def test_all_forty_valid_candidates_eventually_receive_bounded_issuer_checks(self):
+        from snaptrade_portfolio import isin as is_valid
+        identifiers=[]
+        for index in range(40):
+            stem='DE'+str(index).zfill(9)
+            identifiers.append(next(stem+str(n) for n in range(10)
+                                    if is_valid(stem+str(n))))
+        rows=[trade(isin=i,name='BNP Gold Turbo Long') for i in identifiers]
+        history=research.discover([account(rows)])
+        self.assertEqual(history['candidateCount'],40)
+        self.assertEqual(len(history['items']),40)
+        observed=[]
+        def lookup(isin):
+            observed.append(isin)
+            return {'isin':isin, 'productVerified':False}
+        for offset in range(0,40,2):
+            batch=degiro_catalog.study_history(history,lookup,offset=offset)
+            self.assertLessEqual(batch['sampled'],2)
+            self.assertFalse(batch['tradeApproved'])
+        self.assertEqual(set(observed),set(identifiers))
+        self.assertEqual(len(observed),40)
+
     def test_no_history_has_no_candidates(self):
         result=research.discover([{}])
         self.assertEqual(result['code'],'NO_HISTORY')
