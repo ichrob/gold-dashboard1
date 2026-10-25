@@ -3,14 +3,14 @@
   "asOf": "2026-10-25",
   "total": 100,
   "counts": {
-    "partial": 92,
+    "partial": 91,
     "planned": 0,
     "blocked-client": 1,
     "requires-device": 5,
     "verified-at-build": 1,
-    "verified-at-sample": 1
+    "verified-at-sample": 2
   },
-  "acceptance": "Build-bound and metric-window-specific acceptance requires recorded independent source evidence, not file-existence or generic suite CI; new builds and windows require fresh observation.",
+  "acceptance": "Only individually original-source checked, dated narrowly scoped goals 8 (archived health comparison), 13 (Render resource measurement) and 18 (exact dual-service build at sample) accepted; latest CI and deployments do not imply continuing operation.",
   "tasks": [
     {
       "id": 1,
@@ -72,9 +72,9 @@
       "id": 8,
       "area": "Diagnosezentrale",
       "goal": "Vergleich früherer Zustände",
-      "state": "partial",
+      "state": "verified-at-sample",
       "codeEvidence": "diagnostic_history.py",
-      "verified": false
+      "verified": true
     },
     {
       "id": 9,

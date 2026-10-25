@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "scope": "Historical build-specific and provider-time-window acceptance; no current or continuous service-health proof.",
+  "scope": "Strictly dated historical CI/Render build and measured Render capacity plus privately observed two-snapshot health comparison; no continuous health or trade proof.",
   "accepted": [
     {
       "id": 18,
@@ -59,6 +59,37 @@
         }
       ],
       "limitations": "Aus Render über autorisierten schreibgeschützten Lesekanal tatsächlich abgefragte 5-Minuten-Zeitreihen. Historische Messabdeckung in diesem Fenster, keine Schwellenwert-, Ursachen-, Zukunfts- oder Marktverfügbarkeitsgarantie."
+    },
+    {
+      "id": 8,
+      "goal": "Vergleich früherer Zustände",
+      "kind": "two-private-health-observations-same-build-and-session",
+      "source": "Bob private diagnostic read-only",
+      "observedAt": "2026-10-25T18:50:03.674459+00:00",
+      "build": "61116b65b9800de141eab75837964738fa5b43ed",
+      "github": {
+        "ciRun": 40219958562,
+        "ciConclusion": "success",
+        "liveSmokeRun": 40219958490,
+        "liveSmokeConclusion": "success"
+      },
+      "sourceReport": {
+        "status": "observed",
+        "stateComparisonStatus": "observed-comparison",
+        "previousAt": 1792954152.9002683,
+        "currentAt": 1792954182.9890935,
+        "previousBuild": "61116b65b9800de141eab75837964738fa5b43ed",
+        "currentBuild": "61116b65b9800de141eab75837964738fa5b43ed",
+        "previousSession": "weekend",
+        "currentSession": "weekend",
+        "codeDeltaStatus": "observed",
+        "regressionAssessment": "no-regression-in-observed-sample",
+        "previousHealth": "ok",
+        "currentHealth": "ok",
+        "isRepairVerified": false,
+        "isDeploymentRegressionVerified": false
+      },
+      "limitations": "Begrenzt auf zwei echte archivierte Gesundheits-Samples desselben Scanner-Builds im selben Wochenendmodus; Vergleichsfunktion und Zeit-/Privacy-Bezug bestätigt, keine Marktzyklus-, Fehlerursachen-, Deployment-Reihenfolge-, Push-Handy- oder End-to-End-Handelsfreigabe."
     }
   ]
 }

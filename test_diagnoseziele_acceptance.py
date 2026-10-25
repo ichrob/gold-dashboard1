@@ -22,10 +22,10 @@ class DatedAcceptanceTests(unittest.TestCase):
     def test_one_goal_only_has_ci_and_exact_render_evidence(self):
         goals,record=self.fixtures()
         result=a.assess(goals,record)
-        self.assertEqual(result["status"],"two-dated-independent-acceptances")
-        self.assertEqual(result["acceptedGoalIds"],[13,18])
+        self.assertEqual(result["status"],"three-dated-independent-acceptances")
+        self.assertEqual(result["acceptedGoalIds"],[8,13,18])
         self.assertEqual(result["individuallyAcceptedAtRecordedBuild"],1)
-        self.assertEqual(result["remainingUnaccepted"],98)
+        self.assertEqual(result["remainingUnaccepted"],97)
         self.assertEqual(len(result["acceptedBuild"]),40)
         self.assertTrue(result["readOnly"])
         self.assertFalse(result["currentDeployProven"])
@@ -98,6 +98,47 @@ class DatedAcceptanceTests(unittest.TestCase):
         injected["accepted"][1]["id"]=19
         self.assertEqual(a.assess(goals,injected)["status"],"unavailable")
 
+    def test_real_historical_health_pair_is_dated_and_ignores_missing_proof(self):
+        goals, record = self.fixtures()
+        result = a.assess(goals, record)
+        self.assertEqual(result["individuallyAcceptedAtArchivedHealthPair"], 1)
+        self.assertEqual(result["healthPairSample"]["session"], "weekend")
+        self.assertFalse(result["healthPairSample"]["causalRepairVerified"])
+        self.assertFalse(result["continuouslyHealthyProven"])
+        self.assertTrue(result["healthPairSample"]["previousAt"] <
+                        result["healthPairSample"]["currentAt"])
+        def mutate(fn):
+            clone=json.loads(json.dumps(record))
+            fn(clone["accepted"][2])
+            self.assertEqual(a.assess(goals,clone)["status"],"unavailable")
+        cases=(
+            lambda r:r.update(kind="just-a-test"),
+            lambda r:r.update(source="unverified"),
+            lambda r:r.update(build="main"),
+            lambda r:r["github"].update(ciConclusion="pending"),
+            lambda r:r["sourceReport"].update(previousBuild="c"*40),
+            lambda r:r["sourceReport"].update(currentSession="trading"),
+            lambda r:r["sourceReport"].update(codeDeltaStatus="insufficient-evidence"),
+            lambda r:r["sourceReport"].update(isRepairVerified=True),
+            lambda r:r["sourceReport"].update(isDeploymentRegressionVerified=True),
+            lambda r:r["sourceReport"].update(previousAt=99999999999),
+            lambda r:r["sourceReport"].update(currentAt=None),
+            lambda r:r.update(observedAt="2026-10-24T08:00:00Z"),
+        )
+        for case in cases:
+            with self.subTest(case=str(case)):
+                mutate(case)
+
+    def test_only_8_13_18_may_be_accepted_even_when_count_agrees(self):
+        goals,record=self.fixtures()
+        mutated=json.loads(json.dumps(goals))
+        mutated[7]["state"]="partial"
+        mutated[7]["verified"]=False
+        self.assertEqual(a.assess(mutated,record)["status"],"unavailable")
+        forgery=json.loads(json.dumps(record))
+        forgery["accepted"][2]["id"]=19
+        self.assertEqual(a.assess(goals,forgery)["status"],"unavailable")
+
     def test_read_access_rejects_fake_extra_completions(self):
         goals,record=self.fixtures()
         original=goals[0]["verified"]
@@ -108,7 +149,7 @@ class DatedAcceptanceTests(unittest.TestCase):
                          "unavailable")
         goals[0]["verified"]=original
         manifest["tasks"]=goals
-        self.assertEqual(bob_diagnostics.read_access_coverage(manifest)["verified"],2)
+        self.assertEqual(bob_diagnostics.read_access_coverage(manifest)["verified"],3)
 
 
 if __name__=="__main__":

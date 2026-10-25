@@ -91,12 +91,51 @@ def _valid_cpu_memory_window(record):
     return names == SERVICES
 
 
+def _valid_archived_health_pair(record):
+    """Shape-check a *previously* observed private sample; never infer cause."""
+    import math
+    if (record.get("kind") != "two-private-health-observations-same-build-and-session"
+            or record.get("source") != "Bob private diagnostic read-only"
+            or not isinstance(record.get("build"), str)
+            or not SHA.fullmatch(record["build"])):
+        return False
+    report = record.get("sourceReport")
+    github = record.get("github")
+    at = _utc(record.get("observedAt"))
+    if (at is None or not isinstance(report, dict) or not isinstance(github, dict)
+            or type(github.get("ciRun")) is not int or github["ciRun"] <= 0
+            or type(github.get("liveSmokeRun")) is not int or github["liveSmokeRun"] <= 0
+            or github.get("ciConclusion") != "success"
+            or github.get("liveSmokeConclusion") != "success"
+            or report.get("status") != "observed"
+            or report.get("stateComparisonStatus") != "observed-comparison"
+            or report.get("previousBuild") != record["build"]
+            or report.get("currentBuild") != record["build"]
+            or report.get("previousSession") != "weekend"
+            or report.get("currentSession") != "weekend"
+            or report.get("codeDeltaStatus") != "observed"
+            or report.get("regressionAssessment") != "no-regression-in-observed-sample"
+            or report.get("previousHealth") != "ok"
+            or report.get("currentHealth") != "ok"
+            or report.get("isRepairVerified") is not False
+            or report.get("isDeploymentRegressionVerified") is not False):
+        return False
+    older, newer = report.get("previousAt"), report.get("currentAt")
+    if (type(older) not in (int,float) or type(newer) not in (int,float)
+            or not math.isfinite(older) or not math.isfinite(newer)
+            or not 0 < older < newer
+            or not 0 < newer-older <= 300):
+        return False
+    # Historical captures were part of the same observed bounded 7-day window.
+    return 0 <= at.timestamp()-newer <= 300
+
+
 def assess(goals, register):
-    """Two historical, independent target-specific kinds of acceptance.
+    """Three independent, narrowly dated target-specific kinds of acceptance.
 
     These facts were read via connected Render/GitHub tools before recording.
     Code validates the immutable record's shape, not external provider truth.
-    A third goal, mismatched source, or fake success fails closed.
+    A fourth goal, mismatched source, or fake success fails closed.
     """
     invalid = {"status": "unavailable", "readOnly": True,
                "reason": "invalid-or-unsupported-goal-acceptance"}
@@ -104,14 +143,14 @@ def assess(goals, register):
             or not isinstance(register, dict)
             or register.get("schemaVersion") != 1
             or not isinstance(register.get("accepted"), list)
-            or len(register["accepted"]) != 2):
+            or len(register["accepted"]) != 3):
         return invalid
     if not all(isinstance(g, dict) and type(g.get("id")) is int for g in goals):
         return invalid
     by_id = {g["id"]: g for g in goals}
     if sorted(by_id) != list(range(1, 101)):
         return invalid
-    expected = {13: "verified-at-sample", 18: "verified-at-build"}
+    expected = {8: "verified-at-sample", 13: "verified-at-sample", 18: "verified-at-build"}
     for id_, row in by_id.items():
         accepted = id_ in expected
         if row.get("verified") is not accepted:
@@ -125,18 +164,22 @@ def assess(goals, register):
            for r in records):
         return invalid
     by_record = {r["id"]: r for r in records}
-    if set(by_record) != set(expected) or len(by_record) != 2:
+    if set(by_record) != set(expected) or len(by_record) != 3:
         return invalid
     build_record = by_record[18]
     metric_record = by_record[13]
-    if not _valid_build_match(build_record) or not _valid_cpu_memory_window(metric_record):
+    history_record = by_record[8]
+    if (not _valid_build_match(build_record)
+            or not _valid_cpu_memory_window(metric_record)
+            or not _valid_archived_health_pair(history_record)):
         return invalid
     return {
-        "status": "two-dated-independent-acceptances",
+        "status": "three-dated-independent-acceptances",
         "readOnly": True,
         "individuallyAcceptedAtRecordedBuild": 1,
         "individuallyAcceptedAtRecordedMetricWindow": 1,
-        "acceptedGoalIds": [13, 18],
+        "individuallyAcceptedAtArchivedHealthPair": 1,
+        "acceptedGoalIds": [8, 13, 18],
         "acceptedBuild": build_record["build"],
         "acceptedAt": build_record["checkedAt"],
         "metricSampleWindow": {
@@ -145,12 +188,20 @@ def assess(goals, register):
             "services": 2,
             "resolutionSeconds": metric_record["resolutionSeconds"],
         },
-        "remainingUnaccepted": 98,
+        "healthPairSample": {
+            "sourceBuild": history_record["build"],
+            "observedAt": history_record["observedAt"],
+            "previousAt": history_record["sourceReport"]["previousAt"],
+            "currentAt": history_record["sourceReport"]["currentAt"],
+            "session": "weekend",
+            "causalRepairVerified": False,
+        },
+        "remainingUnaccepted": 97,
         "currentDeployProven": False,
         "continuouslyHealthyProven": False,
-        "scope": "historical-external-ci-and-two-live-builds-plus-Render-cpu-memory-series",
+        "scope": "historical-external-ci-two-live-builds-Render-metrics-and-private-health-pair", 
         "note": "The recorded external observations were read through connected tools. "
                 "Local validation only checks record structure, not fresh Render data. "
-                "Neither dated observation proves future capacity, uptime, trading "
+                "No dated observation proves future capacity, uptime, trading "
                 "signals or a permanent repair.",
     }
