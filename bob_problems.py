@@ -48,7 +48,7 @@ _REVIEW_MARKER = re.compile(
 
 def ki_review(issue):
     author = issue.get("user")
-    if not isinstance(author, dict) or author.get("login") != "ichrob":
+    if not isinstance(author, dict) or author.get("login") not in ("ichrob", "github-actions[bot]"):
         return None
     body = issue.get("body")
     if not isinstance(body, str) or len(body) > 8000:
@@ -484,7 +484,7 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
      if(matches.length)kiStatus=matches[matches.length-1][1];
    }
    let review=null;
-   if(issue.user?.login==='ichrob'&&typeof issue.body==='string'&&issue.body.length<=8000){
+   if(['ichrob','github-actions[bot]'].includes(issue.user?.login)&&typeof issue.body==='string'&&issue.body.length<=8000){
      const matches=[...issue.body.matchAll(/^<!-- BOB_KI_REVIEW:pr=([1-9][0-9]{0,7});sha=([a-f0-9]{40});phase=(proposed|ci-tested|deployed-unverified) -->$/gm)];
      if(matches.length){const m=matches[matches.length-1];review={pr:Number(m[1]),commit:m[2],phase:m[3]};}
    }
