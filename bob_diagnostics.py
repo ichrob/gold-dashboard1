@@ -78,6 +78,37 @@ def collect(readers):
                 {'status': 'insufficient-evidence'},
             'scope': 'bounded-health-journal-comparisons-not-feature-or-trade-proof',
         }
+    # Two worker-related goals: compare only previously recorded passive
+    # health captures, not trade cycles. Keep this aggregate even when the
+    # larger historical journal is omitted by the response-size cap.
+    cadence = journal.get('healthCadence') if isinstance(journal, dict) else None
+    if isinstance(cadence, dict):
+        safe_state = cadence.get('state')
+        if safe_state not in ('insufficient-evidence',
+                              'outside-trading-window-observation',
+                              'sampled-health-capture-timing'):
+            safe_state = 'insufficient-evidence'
+        safe_status = ('observed' if cadence.get('status') == 'observed'
+                       else 'insufficient')
+        numeric = ('sampledHealthCaptures', 'sameBuildSessionIntervals',
+                   'crossBuildOrSessionBoundariesSkipped',
+                   'observedTradingWindowIntervals',
+                   'tradingCaptureIntervalsOver90s',
+                   'maxTradingCaptureGapSeconds',
+                   'observedNonTradingWindowIntervals', 'latestCapturedAt')
+        area = {'status':safe_status, 'state':safe_state,
+                'readOnly':True, 'realOrders':False,
+                'workerMissed30sCyclesVerified':False,
+                'workerStoppedVerified':False,
+                'scope':'passive-archive-sample-not-worker-heartbeat-proof'}
+        area.update({key:value for key in numeric
+                     if (value := cadence.get(key)) is not None
+                     and type(value) in (int, float) and math.isfinite(value)
+                     and value >= 0})
+        session = cadence.get('latestSession')
+        area['latestSession'] = session if session in (
+            'trading','preparation','night','weekend') else 'unknown'
+        areas['healthCadence'] = area
     stored_research = (areas.get('simulationAndPush') or {}).get('researchReports')
     if isinstance(stored_research, dict):
         # A large simulation/transition area may itself be omitted. Research
@@ -627,7 +658,8 @@ _FOCUS_AREAS = {
     'research': ('research', 'strategyResearch', 'strategyReport', 'newFeatures'),
     'mobile': ('newFeatures', 'runtime', 'degiroSync', 'products'),
     'products': ('products', 'degiroSync', 'gapEvidence'),
-    'repairs': ('selfHealing', 'problems', 'background', 'diagnosticTriage'),
+    'repairs': ('selfHealing', 'problems', 'background', 'diagnosticTriage',
+                'healthCadence'),
     'trades': ('background', 'diagnosticTriage'),
     'signals': ('analysis', 'background', 'diagnosticTriage', 'pushDeliveries'),
 }
