@@ -4,8 +4,9 @@ package ch.bob.degirocompanion
  * User-tapped, allowlisted, one-shot local display proposal.
  *
  * The HTTPS form is an OS-verified Android App Link ONLY after the public
- * web domain has associated the exact stable signing certificate. An app link
- * is still never authorization to navigate without a second local approval.
+ * web domain has associated the exact stable signing certificate. An explicit
+ * HTTPS view tap may open only Bob's own fixed, read-only page; no orders,
+ * credentials, custom actions or remote permissions are ever granted.
  */
 internal object BobHandyDeepLink {
     private const val LEGACY_PREFIX = "bobhandy://handoff/"
@@ -21,6 +22,16 @@ internal object BobHandyDeepLink {
         val candidate = VERIFIED_HTTPS_PREFIX + task.name
         return candidate.takeIf { parse(it) == task }
     }
+
+    /**
+     * A deliberate Android HTTPS App Link tap may directly display one fixed
+     * Bob-owned website section, without clipboard or a second tap.
+     * This is not authentication: OS verification is handled by Android and
+     * the parser below still rejects all non-allowlisted paths.
+     * Legacy bobhandy:// links and shared text continue to require approval.
+     */
+    fun directHttpsDisplay(raw: String?): PhoneTask? =
+        if (raw?.startsWith(VERIFIED_HTTPS_PREFIX) == true) parse(raw) else null
 
     fun parse(raw: String?): PhoneTask? {
         if (raw == null || raw.length !in 27..110) return null
