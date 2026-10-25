@@ -272,6 +272,15 @@ class DatabaseTests(unittest.TestCase):
                 sample=h.report(conn)
             selected=[e for e in sample['events'] if e['stage'] in
                       ('push-delivery','paper-input')]
+            coverage=sample['stageCoverage']
+            self.assertEqual(coverage['status'],'observed')
+            self.assertEqual(coverage['totalSampled'],40)
+            self.assertEqual(coverage['counts']['push-delivery'],20)
+            self.assertEqual(coverage['counts']['paper-input'],20)
+            self.assertEqual(len(coverage['counts']),len(h.STAGES))
+            self.assertFalse(coverage['handsetDeliveryVerified'])
+            self.assertFalse(coverage['paperExecutionVerified'])
+            self.assertNotIn('PRIVATE',json.dumps(coverage))
             self.assertEqual(len(selected),40)
             self.assertEqual(sum(e['stage']=='push-delivery' for e in selected),20)
             self.assertEqual(sum(e['stage']=='paper-input' for e in selected),20)
