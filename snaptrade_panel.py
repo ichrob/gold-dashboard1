@@ -58,6 +58,18 @@ function mount(){
   function line(parent,label,value){const p=document.createElement('p');p.textContent=label+value;parent.append(p);return p;}
   function amount(value,currency){return value===null||value===undefined?'nicht geliefert':Number(value).toLocaleString('de-CH',{maximumFractionDigits:4})+' '+(currency||'');}
   function details(parent,id,title){const d=document.createElement('details'),s=document.createElement('summary');d.id=id;d.open=opened.has(id);s.textContent=title;d.append(s);parent.append(d);return d;}
+  function qualityPanel(parent,account){
+   const q=account.evidenceQuality||{},p=account.profitReadiness||{};
+   const d=details(parent,'snapQuality'+account.accountKey,'Trade-Prüfung · offene Nachweise');
+   line(d,'Orderzeilen / positive Ausführungsangaben: ',(q.orderRows??'–')+' / '+(q.positiveFills??'–'));
+   line(d,'Ohne positive Ausführung: ',String(q.noPositiveFill??'–'));
+   line(d,'Fehlende Ausführungszeit: ',String(q.missingExecutionTime??'–'));
+   line(d,'Fehlende bestätigte ISIN: ',String(q.missingVerifiedIsin??'–'));
+   line(d,'Offene Gebührenangaben bei Kauf/Verkauf: ',String(q.activityMissingFees??'–'));
+   line(d,'Historische Transaktionen vollständig: ',p.accountHistoryComplete?'Ja':'Nein');
+   line(d,'Offene Ergebnisprüfungen: ',String(p.unresolvedLots??'–'));
+   line(d,'','Keine vollständige Gewinn- oder Steuerberechnung, kein automatischer Handel.');
+  }
   function history(parent,account){
    const d=details(parent,'snapHistory'+account.accountKey,'Depotverlauf · gespeicherte Abrufe');
    line(d,'','Depotwert ist kein Gewinn: Einzahlungen, Auszahlungen und Überträge verändern ihn ebenfalls. Keine Renditeberechnung.');
