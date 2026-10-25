@@ -15,6 +15,7 @@ internal object BobNavigation {
         PhoneTask.OPEN_LEVERAGE_REVIEW to "products-leverage",
         PhoneTask.OPEN_TRADE to "trade",
         PhoneTask.OPEN_SIMULATION to "simulation",
+        PhoneTask.OPEN_PROBLEMS to "problems",
         PhoneTask.OPEN_LEARNING to "learning",
         PhoneTask.OPEN_RESEARCH to "research"
     )
