@@ -51,6 +51,8 @@ function mount(){
   controls();
   document.getElementById('snapSetup').open=!data.configured;
   clock.textContent=(data.checkedAt?'Letzte Prüfung: '+stamp(data.checkedAt)+'. ':'')+(data.configured?'Nächster möglicher Abruf in '+data.nextCheckSeconds+' Sekunden. ':'')+(data.snapshot?(data.fresh?'Quellenstand innerhalb des Depotintervalls.':'Quellenstand nicht als aktuell bestätigt. '):'');
+  const flags=[...new Set(data.connectionWatch?.codes||[])];
+  if(flags.length)clock.textContent+=' Quellenstatus: '+flags.join(', ')+'.';
   const fingerprint=JSON.stringify([data.snapshot,data.fresh]);
   if(fingerprint===lastHoldings)return;lastHoldings=fingerprint;
   const opened=new Set(Array.from(list.querySelectorAll('details[open]')).map(e=>e.id));
