@@ -51,6 +51,49 @@ class HistoricalGoldResearchTests(unittest.TestCase):
         self.assertEqual(research.classify('BNP Gold Turbo Short'),'SHORT')
         self.assertEqual(research.classify('BNP XAU/USD Open End Long'),'LONG')
 
+    def test_existing_filtered_trade_summaries_add_candidates_without_broker_calls(self):
+        row=trade(isin=A,name='BNP Gold Turbo Long')
+        hints={'items':[{'isin':B,'direction':'SHORT','name':'SG Gold Mini Short',
+                         'historicRecords':3,'lastTradeDate':'2026-10-23',
+                         'tradeApproved':False}],
+               'scope':'historical-filtered-buy-sell-not-full-account'}
+        acc=account([row])
+        acc['journal']['tradeCoverage']={'code':'READ_OK','goldHistoryHints':hints}
+        merged=research.discover([acc])
+        self.assertEqual(merged['candidateCount'],2)
+        self.assertEqual(merged['filteredHistorySources'],1)
+        self.assertFalse(merged['historyComplete'])
+        self.assertTrue(all(x['currentlyDegiroListed'] is None and
+                            x['tradeApproved'] is False and x['eligibleForTop3'] is False
+                            for x in merged['items']))
+        self.assertEqual(next(x for x in merged['items'] if x['isin']==B)['historicRecords'],3)
+
+    def test_filtered_overlap_does_not_double_count_and_conflicts_are_suppressed(self):
+        acc=account([trade(), trade()])
+        acc['journal']['tradeCoverage']={'code':'READ_OK','goldHistoryHints':{
+            'items':[{'isin':A,'direction':'LONG','name':'BNP Gold Turbo Long',
+                      'historicRecords':3,'lastTradeDate':'2026-10-23'}]}}
+        observed=research.discover([acc])
+        self.assertEqual(observed['candidateCount'],1)
+        self.assertEqual(observed['items'][0]['historicRecords'],3)
+        acc['journal']['tradeCoverage']['goldHistoryHints']['items'][0]['direction']='SHORT'
+        acc['journal']['tradeCoverage']['goldHistoryHints']['items'][0]['name']='BNP Gold Turbo Short'
+        conflicted=research.discover([acc])
+        self.assertEqual(conflicted['candidateCount'],0)
+        self.assertEqual(conflicted['suppressedConflicts'],1)
+
+    def test_filtered_summary_ignores_untrusted_or_factor_labels(self):
+        acc=account([])
+        acc['journal']['tradeCoverage']={'code':'READ_OK','goldHistoryHints':{
+            'items':[{'isin':B,'direction':'LONG','name':'SG Gold Faktor Long'},
+                     {'isin':A,'direction':'LONG','name':'BNP Gold Turbo Short'},
+                     {'isin':C,'direction':'SHORT','name':'SG Gold Future Turbo Short'}]}}
+        out=research.discover([acc])
+        self.assertEqual(out['candidateCount'],0)
+        acc['journal']['tradeCoverage']['code']='UNAVAILABLE'
+        out=research.discover([acc])
+        self.assertEqual(out['filteredHistorySources'],0)
+
     def test_conflicting_sides_are_not_guessed(self):
         result=research.discover([account([
             trade(),trade(name='BNP Gold Turbo Short',action='SELL')])])
