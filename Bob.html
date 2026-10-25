@@ -1880,13 +1880,16 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const mobileHelp=document.createElement('section');
   mobileHelp.id='bobMobileHelp';mobileHelp.className='card';
   mobileHelp.innerHTML=
-    '<h3>Bob KI-Zentrale · Handy</h3>'+
+    '<h3 style="margin:0 0 8px">Bob KI-Zentrale · Handy</h3>'+
+    '<button type="button" class="bob-primary" id="bobMobileHelpShare" style="display:block;width:100%;min-height:52px;white-space:normal">Fehlerdiagnose an ChatGPT teilen · ohne Kopieren</button>'+
+    '<p id="bobMobileHelpFeedback" class="small" role="status" aria-live="polite">Es werden keine Zugangsdaten oder privaten Produktwerte übertragen. Wähle danach ChatGPT und sende die Nachricht selbst ab.</p>'+
+    '<details class="bob-disclosure"><summary>Hilfe und Ersatzweg anzeigen</summary>'+
     '<p class="small">Nutze ChatGPT direkt auf dem Handy. Die verbundenen GitHub- und Render-Werkzeuge helfen bei der Fehleranalyse, auch wenn das private Bob-Plugin als „Nur Desktop“ markiert ist.</p>'+
-    '<p class="small"><b>1.</b> Technische Fehlerdiagnose per Android-Teilen an ChatGPT geben. <b>2.</b> ChatGPT als Ziel wählen und Nachricht selbst absenden. Falls Teilen nicht klappt, bleibt der Kopierweg.</p>'+
-    '<button type="button" class="bob-primary" id="bobMobileHelpShare">1 · Fehlerdiagnose ohne Kopieren teilen</button>'+
-    '<a id="bobMobileHelpOpen" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer" style="display:block;padding:12px;text-align:center;margin-top:9px;border-radius:10px;background:#e8f1ff;color:#125bc0;font-weight:700;text-decoration:none;min-height:44px">2 · ChatGPT öffnen</a>'+
-    '<p id="bobMobileHelpFeedback" class="small" role="status" aria-live="polite">Es werden keine Zugangsdaten oder privaten Produktwerte übertragen.</p>';
-  panels.problems.prepend(mobileHelp);
+    '<p class="small">Der Button öffnet Android-Teilen. Dort ChatGPT wählen und den Bericht selbst absenden. Wenn Teilen nicht klappt, gibt es im Bereich „Offene KI-Hilfeanfragen“ den Kopier-Ersatzweg.</p>'+
+    '<a id="bobMobileHelpOpen" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer" style="display:block;padding:12px;text-align:center;margin-top:9px;border-radius:10px;background:#e8f1ff;color:#125bc0;font-weight:700;text-decoration:none;min-height:44px">ChatGPT manuell öffnen</a></details>';
+  // Compact primary action follows the Problems heading and precedes every
+  // diagnostic list and the lengthy health statistics.
+  panels.problems.querySelector('h2')?.after(mobileHelp);
   const mobileHelpPrompt=[
     'Bitte prüfe das Projekt Bob und hilf mir, technische Probleme selbstständig zu beheben.',
     'GitHub: ichrob/gold-dashboard1',
@@ -2370,6 +2373,9 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   // Observe only original outputs, never our derived labels (avoids observer loops).
   const observer=new MutationObserver(update);for(const id of ['quickSignal','analysisQuality','analysisAge','decisionExplanation','blockTrendNote','blockMomentumNote','blockVolatilityNote','blockStructureNote','quickReason','sourceSummary','pushStatus','fibMonitorStatus','auditSave','improvementStatus','generalPushBtn','dgTop3Out','tradeStateBtn']){const el=byId(id);if(el)observer.observe(el,{childList:true,subtree:true,characterData:true});}
   document.body.classList.add('bob-mobile');update();show(location.hash.slice(1),false);
+  // A deliberate Android deep link into Problems should not restore an old
+  // scrollbar position far below the first diagnostic sharing action.
+  if(location.hash==='#problems')requestAnimationFrame(()=>window.scrollTo(0,0));
   openRequestedGoldProducts();
   // In case the archive response arrived before the navigation existed.
   window.BobProblems?.refresh?.();
