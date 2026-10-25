@@ -33,6 +33,7 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 ORIGIN = 'https://api.snaptrade.com'
 INTERVAL = 600
 BACKGROUND_INTERVAL = 21600
+CATALOG_RECHECK_SECONDS = 86400  # Manual broker instrument-list test; never an intraday price feed.
 MAX_BODY = 2_000_000
 _LOCK = threading.RLock()
 _FETCH_LOCK = threading.Lock()
@@ -49,6 +50,9 @@ _LEDGER = {}
 _LEDGER_OWNER = None
 _QUOTE_THREAD = None
 _QUOTE_CURSOR = 0
+_CATALOG_LOCK = threading.Lock()
+_CATALOG_LAST_ATTEMPT = 0.0
+_CATALOG_STATE = {'code': 'NOT_TESTED'}
 ID = r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
 # SnapTrade Personal shares a 10-requests/minute bucket for account data.
 # One holdings cycle uses positions, balances and orders (3 calls), so reserve
@@ -141,7 +145,7 @@ def load_config():
 
 
 def configure(payload):
-    global _CONFIG, _LOADED, _GENERATION, _NEXT, _LAST_ATTEMPT
+    global _CONFIG, _LOADED, _GENERATION, _NEXT, _LAST_ATTEMPT, _CATALOG_LAST_ATTEMPT
     config = validate_config(payload)
     sealed = cipher().encrypt(json.dumps(config).encode()).decode()
     with _LOCK:
@@ -153,13 +157,15 @@ def configure(payload):
         _LAST_ATTEMPT = 0
         _STATE.clear()
         _STATE.update(code='READY', snapshot=None)
+        _CATALOG_LAST_ATTEMPT = 0.0
+        _CATALOG_STATE.clear(); _CATALOG_STATE.update(code='NOT_TESTED')
     start()
     _WAKE.set()
     return status()
 
 
 def disconnect():
-    global _CONFIG, _LOADED, _GENERATION, _NEXT, _LAST_ATTEMPT, _LEDGER_OWNER
+    global _CONFIG, _LOADED, _GENERATION, _NEXT, _LAST_ATTEMPT, _LEDGER_OWNER, _CATALOG_LAST_ATTEMPT
     with _LOCK:
         if storage('delete').get('deleted') is not True:
             raise ReadError('STORE_UNAVAILABLE')
@@ -171,11 +177,13 @@ def disconnect():
         _STATE.update(code='SETUP_REQUIRED', snapshot=None)
         _LEDGER.clear()
         _LEDGER_OWNER = None
+        _CATALOG_LAST_ATTEMPT = 0.0
+        _CATALOG_STATE.clear(); _CATALOG_STATE.update(code='NOT_TESTED')
     return status()
 
 
 def permitted(path):
-    return path == '/authorizations' or any(re.fullmatch(pattern, path) for pattern in (
+    return path in ('/authorizations', '/brokerages/DEGIRO/instruments') or any(re.fullmatch(pattern, path) for pattern in (
         rf'/connections/{ID}/accounts', rf'/accounts/{ID}/positions/all', rf'/accounts/{ID}/balances/v2',
         rf'/accounts/{ID}/orders', rf'/accounts/{ID}/activities'))
 
@@ -319,6 +327,70 @@ def read_snapshot(config, get=api_get):
     return {'observedAt': utcnow(), 'accounts': accounts, 'completeConnections': not disabled,
             'limitations': limitations, 'goldProductCoverage': 'unverified', 'liveQuotes': False,
             'tradeApproved': False, 'realOrders': False}
+
+
+
+def summarize_broker_catalog(data):
+    """Metadata-only: an instrument catalogue is never a verified Gold KO list."""
+    import degiro_catalog
+    if not isinstance(data, dict) or not isinstance(data.get('instruments'), list):
+        raise ReadError('INVALID_RESPONSE')
+    instruments = data['instruments']
+    if len(instruments) > 100_000:
+        raise ReadError('RESPONSE_TOO_LARGE')
+    watched = {isin for isin, _ in degiro_catalog.SEEDS}
+    matches = {}
+    for instrument in instruments:
+        if not isinstance(instrument, dict):
+            raise ReadError('INVALID_RESPONSE')
+        symbol = instrument.get('symbol')
+        if not isinstance(symbol, str) or len(symbol) > 160:
+            continue
+        candidate = symbol.split('.', 1)[0].upper()
+        if candidate not in watched:
+            continue
+        supported = instrument.get('tradeable')
+        matches[candidate] = supported if isinstance(supported, bool) else None
+    return {'code': 'CATALOG_EMPTY' if not instruments else 'CATALOG_RETURNED',
+            'instrumentCount': len(instruments),
+            'historicalWatchCount': len(watched),
+            'historicalMatches': [{'isin': isin, 'providerTradeable': matches[isin]}
+                                  for isin in sorted(matches)],
+            'completeGoldList': False, 'accountTradabilityVerified': False,
+            'tradeApproved': False,
+            'note': 'Broker-Instrumente sind keine vollständige Gold-KO-Liste, kein Tagesnachweis und kein Originalkurs.'}
+
+
+def probe_broker_catalog():
+    """Explicit, at-most-daily read-only check; never run in the polling loop."""
+    global _CATALOG_LAST_ATTEMPT
+    if not _CATALOG_LOCK.acquire(blocking=False):
+        return status()
+    try:
+        load_config()
+        with _LOCK:
+            if not _CONFIG:
+                raise ReadError('SETUP_REQUIRED')
+            now = time.monotonic()
+            since = now - _CATALOG_LAST_ATTEMPT
+            if _CATALOG_LAST_ATTEMPT and since < (
+                    CATALOG_RECHECK_SECONDS if _CATALOG_STATE.get('code') in
+                    ('CATALOG_RETURNED', 'CATALOG_EMPTY') else 3600):
+                return status()
+            _CATALOG_LAST_ATTEMPT = now
+            config, generation = dict(_CONFIG), _GENERATION
+        try:
+            result = summarize_broker_catalog(api_get('/brokerages/DEGIRO/instruments', config))
+        except ReadError as exc:
+            result = {'code': exc.code, 'completeGoldList': False,
+                      'accountTradabilityVerified': False, 'tradeApproved': False}
+        with _LOCK:
+            if generation == _GENERATION:
+                _CATALOG_STATE.clear()
+                _CATALOG_STATE.update(result, checkedAt=utcnow())
+        return status()
+    finally:
+        _CATALOG_LOCK.release()
 
 
 def load_ledger(config):
@@ -812,7 +884,8 @@ def status():
                       nextCheckSeconds=max(0, math.ceil(_NEXT - time.monotonic())),
                       interactive=time.monotonic() < _INTERACTIVE_UNTIL,
                       readOnly=True, realOrders=False, liveQuotes=False,
-                      provider='SnapTrade Personal', coverageVerified=False)
+                      provider='SnapTrade Personal', coverageVerified=False,
+                      catalogProbe=copy.deepcopy(_CATALOG_STATE))
         # A successful HTTP request alone does not prove current provider data.
         snapshot = result.get('snapshot')
         for a in (snapshot or {}).get('accounts', []):
@@ -941,6 +1014,8 @@ def handle(action, payload):
         raise ValueError('Ungültige Anfrage.')
     if action == 'disconnect':
         return disconnect()
+    if action == 'catalog-probe':
+        return probe_broker_catalog()
     if action == 'check':
         start()
         mark_interactive()
