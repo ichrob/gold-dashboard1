@@ -123,9 +123,23 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
     realized:[{name:'Synthetic',date:'2026-10-21',quantity:'1',openQuantityAfter:'1',cost:'8',proceeds:'9',grossPnl:'1',fees:null,netPnl:null,currency:'CHF'}],
     unresolved:[{name:'Synthetic',reason:'Gebühr nicht geliefert.'}],totals:[{currency:'CHF',grossPnl:'1',netPnl:null}],separateCharges:[],cashMovements:[]};
    p.issuerObservation={code:'CURRENT',kind:'issuer-chart',source:'Synthetic issuer chart',currency:'CHF',bid:'9',ask:'10',bidAt:'2026-10-21T12:00:00Z',askAt:'2026-10-21T12:00:00Z',bidFresh:true,askFresh:true,observedAt:'2026-10-21T12:00:01Z'};
-   p.observedPositionValue='22.5';p.observedUnrealizedPnl='-2.5';poll();
+   p.observedPositionValue='22.5';p.observedUnrealizedPnl='-2.5';
+   a.tradeInsights={ordersAvailable:true,executionsCount:1,readyForHistoricalComparison:0,
+    executions:[],feesByCurrency:[],reconciliation:{
+     status:'available',candidatePairs:1,ambiguousGroups:2,
+     missingEvidence:3,orderFillsWithoutExactActivity:4,
+     accountHistoryComplete:false,netProfitVerified:false,
+     pairs:[],reportedMatchedFeesByCurrency:[]
+    }};
+   poll();
   });
   await page.locator('#snapExecutionstest-account > summary').click();
+  await page.locator('#snapReconciliationtest-account > summary').click();
+  const review=await page.locator('#snapReconciliationtest-account').innerText();
+  assert(review.includes('Eindeutige Anbieter-Prüfkandidaten: 1'));
+  assert(review.includes('Mehrdeutige Gruppen: 2'));
+  assert(review.includes('Fehlende Zeit- oder Identitätsnachweise: 3'));
+  assert(review.includes('Die vollständige Gewinnrechnung bleibt gesperrt'));
   assert((await page.locator('#snapExecutionstest-account').innerText()).includes('nicht vollständig berechenbar'));
   assert((await page.locator('#snapHoldings').innerText()).includes('Chartbeobachtung, kein ausführbarer Kurs'));
   assert((await page.locator('#snapHoldings').innerText()).includes('22.5 CHF'));
