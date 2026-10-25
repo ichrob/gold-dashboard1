@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-10-25",
+  "scope": "planning-only-not-goal-completion",
+  "safety": {
+    "readOnly": true,
+    "realOrders": false,
+    "automaticLiveTradeApproval": false,
+    "deviceControlWithoutConsent": false,
+    "emailsWithoutConsent": false
+  },
+  "groups": [
+    {
+      "code": "client-provider-schema",
+      "ids": [
+        1
+      ],
+      "sundayScope": "Read-only Bob service already supports diagnostic focus, but connected ChatGPT client tool schema does not accept the focus argument.",
+      "nextGate": "Client/plugin provider refresh with declared accepted tool arguments. Not a user-managed server bug.",
+      "marketWindowNotRequired": true
+    },
+    {
+      "code": "device-local",
+      "ids": [
+        91,
+        92,
+        93,
+        94,
+        95
+      ],
+      "sundayScope": "Build, permission and simulator regression preparation only; never claim current Samsung state.",
+      "nextGate": "Consented manual physical Android version, voice, STOP, sharing and navigation tests.",
+      "marketWindowNotRequired": true
+    },
+    {
+      "code": "market-original-clock",
+      "ids": [
+        11,
+        12,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        42,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        88,
+        89,
+        90
+      ],
+      "sundayScope": "Existing archive reviews, static regression and dry-run safety checks possible today.",
+      "nextGate": "At the next genuine market-data window, compare original source timestamps, execution/product quotes, 30-second worker inputs and truly observed results; never back-date or upgrade simulated data.",
+      "marketWindowNotRequired": false
+    },
+    {
+      "code": "broker-issuer-source",
+      "ids": [
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        70
+      ],
+      "sundayScope": "Read-only archived screenshot/CSV/SnapTrade provenance, field validation and reconciliation without submitting an order.",
+      "nextGate": "Use genuine new DEGIRO/issuer/broker dated proof when provided or available; a SnapTrade history snapshot is not a live executable DEGIRO quote.",
+      "marketWindowNotRequired": false
+    },
+    {
+      "code": "external-research-media",
+      "ids": [
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        87
+      ],
+      "sundayScope": "Read available MCO/NCO video metadata, authentic captions, media frame provenance and saved prior research.",
+      "nextGate": "Missing publication dates, restricted member videos, complete transcripts or original timed frames must remain unknown; market direction is not assumed.",
+      "marketWindowNotRequired": true
+    },
+    {
+      "code": "independent-code-and-runtime",
+      "ids": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        41,
+        43,
+        96,
+        97,
+        98,
+        99,
+        100
+      ],
+      "sundayScope": "Run independent code, CI, read-only private Bob, GitHub and safe Render diagnostics including bounded archived state comparisons.",
+      "nextGate": "Per-goal CI, original timestamp, live deployed SHA, auth, negative tests and exact accepted evidence; do not infer improvement from generic worker health.",
+      "marketWindowNotRequired": true
+    }
+  ]
+}
