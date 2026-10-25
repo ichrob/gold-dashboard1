@@ -258,7 +258,8 @@ def open_issue_index(*, token, repo, requester=github_request):
     return indexed, duplicates
 
 
-def sync_issue(codes, *, token, repo, at=None, requester=github_request):
+def sync_issue(codes, *, token, repo, at=None, requester=github_request,
+               recovery_codes=None, verified_resolutions=None):
     """Keep individual open GitHub problems in sync with confirmed health faults.
 
     The public issue list is only an incident index, not a source of raw logs.
@@ -273,6 +274,10 @@ def sync_issue(codes, *, token, repo, at=None, requester=github_request):
         token=token, repo=repo, requester=requester
     )
     detected = sorted(set(code for code in codes if code in CODES))
+    # When provided by main(), recovery_codes contains ONLY faults absent in
+    # both separate polls. Never close an issue on a single absent reading.
+    if recovery_codes is not None:
+        recovery_codes = frozenset(code for code in recovery_codes if code in CODES)
     # This public watchdog sees only anonymous error codes. It cannot verify
     # the underlying broker or issuer records, so never auto-close product issues.
     product_titles = {issue_title(code) for code in PRODUCT_CODES | {"trade-setup-stalled", "screenshot-import-failed"}}
@@ -332,6 +337,10 @@ def sync_issue(codes, *, token, repo, at=None, requester=github_request):
             # A disappearing error code (or unavailable audit) cannot prove
             # source validity. Closure requires separately confirmed evidence.
             continue
+        if title != ISSUE_TITLE:
+            code = title.removeprefix("[Bob KI-Hilfe] ")
+            if recovery_codes is not None and code not in recovery_codes:
+                continue
         if title == ISSUE_TITLE and not detected:
             # Compatibility with old combined issue title.
             message = "Neue Einzelprobleme oder normalisierte Dienste; historischer Sammelbericht geschlossen."
@@ -344,6 +353,11 @@ def sync_issue(codes, *, token, repo, at=None, requester=github_request):
         requester("PATCH", "/issues/" + str(number), token=token, repo=repo,
                   data={"state": "closed"})
         actions.append("closed-" + str(number))
+        if title != ISSUE_TITLE and verified_resolutions is not None and recovery_codes is not None:
+            verified_resolutions.append({
+                "number": number, "code": title.removeprefix("[Bob KI-Hilfe] "),
+                "verifiedAt": at, "proof": "two-clean-watchdog-polls"
+            })
     if actions:
         return ",".join(actions)
     if PRODUCT_AUDIT_UNKNOWN in codes:
@@ -355,12 +369,13 @@ def main():
     # Two consecutive independent polls prevent a single slow request or cold
     # start from generating an incident. /health performs only safe worker restarts.
     first = probe()
-    if first:
-        time.sleep(15)
-        second = probe()
-    else:
-        second = []
+    # Both polls are mandatory for a *recovery* result. Previously an empty
+    # first poll skipped the second poll and could close an issue without any
+    # independent confirmation.
+    time.sleep(15)
+    second = probe()
     detected = second
+    healthy_twice = frozenset(CODES) - set(first) - set(second)
     at = utc_now()
     print("BOB_WATCHDOG at=" + at + " codes=" + ",".join(detected or ["healthy"]), flush=True)
     token = os.environ.get("GITHUB_TOKEN", "")
@@ -368,11 +383,15 @@ def main():
     if not token or not repo:
         print("No GitHub issue token; local diagnostic mode only", flush=True)
         return 1 if any(code in CODES for code in detected) else 0
-    result = sync_issue(detected, token=token, repo=repo, at=at)
+    verified_resolutions = []
+    result = sync_issue(detected, token=token, repo=repo, at=at,
+                        recovery_codes=healthy_twice,
+                        verified_resolutions=verified_resolutions)
     print("BOB_WATCHDOG issue=" + result, flush=True)
     try:
         import bob_problem_mirror
-        count=bob_problem_mirror.publish(token=token,repo=repo)
+        count=bob_problem_mirror.publish(token=token,repo=repo,
+                                         verified_resolutions=verified_resolutions)
         print('BOB_WATCHDOG problem_snapshot=published count='+str(count),flush=True)
     except Exception as exc:
         print('BOB_WATCHDOG problem_snapshot=unavailable error='+type(exc).__name__,flush=True)

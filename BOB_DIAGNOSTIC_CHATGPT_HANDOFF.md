@@ -26,3 +26,55 @@ Auf dem Samsung zuerst Bob/Probleme öffnen, dann über den Button **„Fehlerdi
 - `test_mobile_audit_share.js`: Produktdiagnose startet Native Share ohne implizites Kopieren.
 - Kotlin-Tests der erlaubten HTTPS-Routen; CI/Android-Build, Security- und Live-Prüfung.
 - Kein CI-Nachweis ersetzt den tatsächlichen Samsung-/ChatGPT-Übernahmetest.
+
+
+## Rückweg ChatGPT → Bob: Fall-ID, Code-Nachweis und unabhängige Erholung
+
+**Stabile Fall-ID:** `BOB-<GitHub-Issue-Nummer>-<bekannter-Fehlercode>` erscheint
+in Bobs Problemansicht sowie im technischen Diagnosebericht. Derselbe Fehlercode
+ist nicht dasselbe wie dieselbe Issue-Nummer, wenn ein späterer Rückfall neu
+erfasst wird.
+
+**Nachweis einer Code-Änderung (nur Repository-Schreibberechtigte):** Nach
+einem konkreten ChatGPT-Prüfauftrag kann der berechtigte Assistent eine
+bestehende GitHub-Issue im Repository `ichrob/gold-dashboard1` lesen und im
+Issue-**Body** den vorhandenen Inhalt erhalten und folgende exakt formatierte
+Markierungen ergänzen. Dazu muss es bereits einen **wirklichen** PR und
+Commit geben:
+
+```
+<!-- BOB_KI_STATUS:testing -->
+<!-- BOB_KI_REVIEW:pr=123;sha=0123456789abcdef0123456789abcdef01234567;phase=ci-tested -->
+```
+
+Erlaubte `phase`-Werte: `proposed`, `ci-tested`,
+`deployed-unverified`. Die Markierung ist lediglich ein
+**Code-/PR-Prüfverweis**. Sie berechtigt keine Order, ändert keine Produktdaten
+und kann auch nach grüner CI **keine bestätigte Reparatur** behaupten.
+Nur Markierungen von `ichrob` oder `github-actions[bot]` an einer
+erlaubten Issue werden für Bobs Statusansicht übernommen. Beliebige
+Issues, fremde URLs und freie Kommentartexte werden nicht übernommen.
+
+**Technisch nachgeprüfte Erholung:** Der bestehende GitHub-Watchdog
+kontrolliert die anonymen technischen Gesundheitscodes. Bevor er ein
+technisches Problem automatisch schließen und als erholt melden darf,
+muss die Fehlerart in **zwei im Abstand von 15 Sekunden neu gestarteten
+Prüfungen** fehlen. Er schreibt dann eine fest definierte, datensparsame
+Erholungsbeobachtung (Issue-Nummer, Fehlercode, UTC-Zeit, fester Nachweistyp)
+in die bestehende `bob-status/problem-index.json`-Spiegeldatei.
+Bob zeigt bis zu 20 Beobachtungen aus den letzten 30 Tagen unter
+**„Technisch nachgeprüfte Erholungen“**; erneute offene Probleme derselben
+Fehlerart verdecken frühere Erholungen. Eine technische Erholung beweist
+**nicht**, dass der ChatGPT-Code-Fix die Ursache war.
+
+**Strikte Ausnahme:** Produktnachweis-, KO-, Hebel-, Screenshot-,
+Trade-Einrichtungsprobleme werden nicht allein durch fehlende
+Gesundheitscodes geschlossen oder als technisch bestätigt dargestellt.
+Dafür ist weiterhin eine eigenständige, geprüfte Originalquelle nötig.
+
+**Wichtig:** Ein neues ChatGPT-Gespräch wird durch Android-Teilen separat
+eröffnet und nicht mit diesem Gespräch synchronisiert. Das GitHub-Issue
+ist der nachvollziehbare Übergabepunkt **nur wenn** ChatGPT tatsächlich
+die berechtigten GitHub-Werkzeuge verwendet und das Ergebnis nach Prüfung
+dort protokolliert. Es gibt keinen automatischen Zugriff auf fremde
+Chatverläufe und keine unbeaufsichtigte ChatGPT-Hintergrundausführung.

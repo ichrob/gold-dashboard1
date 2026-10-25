@@ -41,6 +41,24 @@ KI_STATUS_LABELS = {
     "waiting-for-review": "Änderung wartet auf Freigabeprüfung",
 }
 _KI_MARKER = re.compile(r"(?m)^<!-- BOB_KI_STATUS:(in-progress|testing|waiting-for-evidence|waiting-for-review|needs-user) -->$")
+# Owner-authored code-review pointer. Never proof that a live fault has recovered.
+_REVIEW_MARKER = re.compile(
+    r"(?m)^<!-- BOB_KI_REVIEW:pr=([1-9][0-9]{0,7});sha=([a-f0-9]{40});phase=(proposed|ci-tested|deployed-unverified) -->$")
+
+
+def ki_review(issue):
+    author = issue.get("user")
+    if not isinstance(author, dict) or author.get("login") not in ("ichrob", "github-actions[bot]"):
+        return None
+    body = issue.get("body")
+    if not isinstance(body, str) or len(body) > 8000:
+        return None
+    matches = _REVIEW_MARKER.findall(body)
+    if not matches:
+        return None
+    pr, commit, phase = matches[-1]
+    return {"pr": int(pr), "commit": commit, "phase": phase}
+
 
 
 def ki_status(issue):
@@ -132,6 +150,8 @@ def from_issues(rows, *, now=None):
             "url": REPOSITORY_URL + "/issues/" + str(number),
             "kiStatus": state,
             "kiStatusLabel": KI_STATUS_LABELS[state],
+            "caseId": "BOB-" + str(number) + "-" + code,
+            "review": ki_review(row),
         })
     items.sort(key=lambda problem: problem["number"], reverse=True)
     at = (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")
@@ -139,6 +159,7 @@ def from_issues(rows, *, now=None):
         "status": "ok",
         "count": len(items),
         "problems": items,
+        "resolved": [],
         "checkedAt": at,
         "meaning": "offene KI-Hilfeanfragen; Lesen setzt den Zähler nicht zurück",
         "source": "sanitized-github-issues",
@@ -222,6 +243,11 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
 </div>
 <p id="bobProblemsBreakdown" class="small" role="status"></p>
 <div id="bobProblemsList"></div>
+<details id="bobVerifiedRecoveries" style="border:1px solid #dce3ed;border-radius:12px;padding:10px;margin:10px 0">
+<summary><strong>Technisch nachgeprüfte Erholungen</strong> <span id="bobRecoveriesCount">—</span></summary>
+<p class="small">Zwei Prüfungen erkennen eine frühere technische Störung nicht mehr. Dies ist kein Beweis für einen ChatGPT-Fix, und keine Produkt- oder Handelsfreigabe.</p>
+<div id="bobRecoveriesList"></div>
+</details>
 <p class="small">Der Zähler zeigt, wie viele Probleme noch KI-Hilfe benötigen. Weitere Probleme erhöhen die Zahl. Nach bestätigter Behebung sinkt sie wieder. Das Öffnen der Sparte löscht keine Einträge.</p>
 <button id="bobProblemsShare" type="button" style="width:100%;min-height:46px;background:#1563b5;color:white;font-weight:700;border-radius:10px">Fehlerdiagnose an ChatGPT teilen · ohne Kopieren</button>
 <p id="bobProblemsShareStatus" role="status" class="small">Beim Teilen ChatGPT auswählen und den Bericht dort selbst absenden. Nur freigegebene technische Fehlercodes; keine Kontodaten, Logins oder Handelsaufträge.</p>
@@ -239,6 +265,22 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
  if(source)source.after(panel);
  let latest=null, lastStats=null, browserSnapshot=null, browserSnapshotAt=0;
  const counter=()=>document.querySelector('#bobNavigation [data-problem-count]');
+ function renderRecoveries(data){
+  const list=document.getElementById('bobRecoveriesList');
+  const count=document.getElementById('bobRecoveriesCount');
+  const rows=Array.isArray(data?.resolved)?data.resolved:[];
+  list.replaceChildren();
+  count.textContent=data?.status==='stale'?'(Stand veraltet)':'('+rows.length+')';
+  if(!rows.length){list.textContent='Keine unabhängig dokumentierte Erholung im Verlauf. Das bedeutet nicht, dass keine Fehler vorliegen.';return;}
+  for(const item of rows.slice(0,20)){
+    if(!item||!Number.isInteger(item.number)||!Object.hasOwn(publicCodes,item.code))continue;
+    const p=document.createElement('p');p.className='small';
+    const a=document.createElement('a');a.href='https://github.com/ichrob/gold-dashboard1/issues/'+item.number;
+    a.textContent='Fall BOB-'+item.number+'-'+item.code;a.target='_blank';a.rel='noopener noreferrer';
+    p.append(a,document.createTextNode(' · zweimaliger Gesundheitscheck: '+readableDate(item.verifiedAt)));
+    list.append(p);
+  }
+ }
  function badge(count){
   window.BobProblemsArchiveCount=count;
   // Private per-product KI-help counts stay off public GitHub issues.
@@ -291,7 +333,8 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
     'Indexstatus: '+state+(state==='stale'?' (nicht als aktuell bestätigen)':''),
     'Indexzeit (UTC): '+checkedAt,
     'Offene technische KI-Hilfeanfragen laut Index: '+count,
-    'Produktprobleme: separat in Bob/Produkte prüfen; hier nicht enthalten.'
+    'Produktprobleme: separat in Bob/Produkte prüfen; hier nicht enthalten.',
+    'Gemeldete Codekorrekturen sind keine unabhängig bestätigten Reparaturen.'
   ];
   if(state==='unavailable')lines.push('Technische Fehlerliste derzeit nicht verfügbar; nicht als fehlerfrei interpretieren.');
   else if(count==='0')lines.push('Im Index keine offenen technischen KI-Hilfeanfragen; kein Beweis allgemeiner Fehlerfreiheit.');
@@ -301,7 +344,7 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
       'Manuelle KI-Hilfeanfrage; genauer Inhalt nicht automatisch geteilt';
     const stage=Object.hasOwn(kiStatusLabels,item.kiStatus)?kiStatusLabels[item.kiStatus]:
       kiStatusLabels.new;
-    lines.push('#'+item.number+' · '+item.code+' · '+desc+' · '+stage+
+    lines.push('Fall BOB-'+item.number+'-'+item.code+' · '+desc+' · '+stage+
       ' · https://github.com/ichrob/gold-dashboard1/issues/'+item.number);
   }
   if(state!=='unavailable'&&count!=='unbekannt'&&Number(count)>items.length)
@@ -440,12 +483,18 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
      const matches=[...issue.body.matchAll(/^<!-- BOB_KI_STATUS:(in-progress|testing|waiting-for-evidence|waiting-for-review|needs-user) -->$/gm)];
      if(matches.length)kiStatus=matches[matches.length-1][1];
    }
+   let review=null;
+   if(['ichrob','github-actions[bot]'].includes(issue.user?.login)&&typeof issue.body==='string'&&issue.body.length<=8000){
+     const matches=[...issue.body.matchAll(/^<!-- BOB_KI_REVIEW:pr=([1-9][0-9]{0,7});sha=([a-f0-9]{40});phase=(proposed|ci-tested|deployed-unverified) -->$/gm)];
+     if(matches.length){const m=matches[matches.length-1];review={pr:Number(m[1]),commit:m[2],phase:m[3]};}
+   }
    problems.push({number:issue.number,code,message,kiStatus,kiStatusLabel:kiStatusLabels[kiStatus],
+      caseId:'BOB-'+issue.number+'-'+code,review,
       createdAt:stamp(issue.created_at),updatedAt:stamp(issue.updated_at),
       url:'https://github.com/ichrob/gold-dashboard1/issues/'+issue.number});
   }
   problems.sort((x,y)=>y.number-x.number);
-  browserSnapshot={status:'ok',count:problems.length,problems,
+  browserSnapshot={status:'ok',count:problems.length,problems,resolved:[],
      checkedAt:new Date().toISOString(),source:'public-github-browser'};
   browserSnapshotAt=now;
   return browserSnapshot;
@@ -472,6 +521,7 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
    }
    latest=data;
    badge(data.count);
+   renderRecoveries(data);
    const items=document.getElementById('bobProblemsList');items.replaceChildren();
    summary.textContent=(data.count===1?'1 offenes Problem':data.count+' offene Probleme')+
     (data.status==='stale'?' · letzter bekannter Stand':'');
@@ -485,7 +535,7 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
     const article=document.createElement('article');
     article.className='bob-problem-item';
     article.style.cssText='border:1px solid #dce3ed;border-radius:12px;padding:12px;margin:10px 0';
-    const title=document.createElement('strong');title.textContent='Problem #'+issue.number+' · '+issue.message;
+    const title=document.createElement('strong');title.textContent='Fall BOB-'+issue.number+'-'+issue.code+' · '+issue.message;
     const meta=document.createElement('p');meta.className='small';
     meta.textContent='Erkannt: '+readableDate(issue.createdAt)+
       ' · Letzte Änderung: '+readableDate(issue.updatedAt)+
@@ -495,6 +545,16 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
     const note=document.createElement('p');note.className='small';note.setAttribute('role','status');
     button.addEventListener('click',()=>copy(report(issue),note));
     article.append(title,meta,link,document.createElement('br'),button,note);
+    const review=issue.review;
+    if(review&&Number.isInteger(review.pr)&&review.pr>0&&
+       typeof review.commit==='string'&&/^[a-f0-9]{40}$/.test(review.commit)&&
+       ['proposed','ci-tested','deployed-unverified'].includes(review.phase)){
+      const evidence=document.createElement('p');evidence.className='small';
+      evidence.textContent='Gemeldeter Codebericht ('+review.phase+') – noch keine unabhängig bestätigte Fehlerbehebung: ';
+      const pr=document.createElement('a');pr.href='https://github.com/ichrob/gold-dashboard1/pull/'+review.pr;
+      pr.target='_blank';pr.rel='noopener noreferrer';pr.textContent='PR #'+review.pr;
+      evidence.append(pr);article.append(evidence);
+    }
     if(issue.kiStatus==='needs-user'){
      const action=document.createElement('p');action.textContent='Deine Hilfe ist nötig. Öffne den technischen Eintrag für die konkrete Rückfrage.';action.style.fontWeight='700';article.append(action);
     }
@@ -508,6 +568,7 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
    document.getElementById('bobProblemsLastUpdate').textContent=
      'Letzte erfolgreiche Aktualisierung: '+(latest?readableDate(latest.checkedAt):'unbekannt');
    if(!latest)badge(null);
+   if(latest)renderRecoveries({...latest,status:'stale'});
   }
  }
  document.getElementById('bobProblemsRefresh').addEventListener('click',refresh);
