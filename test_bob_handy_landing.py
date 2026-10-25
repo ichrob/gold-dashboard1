@@ -15,6 +15,8 @@ class PureLandingTests(unittest.TestCase):
             self.assertNotIn("DEGIRO_LOGIN", body)
             self.assertNotIn("PLACE_ORDER", body)
             self.assertIn("Bob – Handy öffnen", body)
+            self.assertIn('href="/?view=' + bob_handy_landing.PAGES[command][1], body)
+            self.assertIn("Bob direkt im Browser öffnen", body)
 
     def test_allow_only_exact_chatgpt_attribution(self):
         for command in bob_handy_landing.PAGES:
@@ -84,6 +86,7 @@ class HttpLandingTests(unittest.TestCase):
         self.assertIn("default-src 'none'", headers["Content-Security-Policy"])
         self.assertIn(b'bobhandy://handoff/OPEN_PRODUCTS', body)
         self.assertIn(b'/?view=products#products', body)
+        self.assertIn(b"Bob direkt im Browser", body)
         self.assertNotIn(b"<script", body.lower())
         self.assertNotIn(b"window.location", body)
         self.assertNotIn(b"access_token", body)
