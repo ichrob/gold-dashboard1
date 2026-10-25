@@ -2097,7 +2097,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        if path in ('/api/snaptrade/configure', '/api/snaptrade/check', '/api/snaptrade/disconnect', '/api/snaptrade/csv-import', '/api/snaptrade/csv-clear', '/api/snaptrade/csv-auto'):
+        if path in ('/api/snaptrade/configure', '/api/snaptrade/check', '/api/snaptrade/disconnect', '/api/snaptrade/csv-import', '/api/snaptrade/csv-clear', '/api/snaptrade/csv-auto', '/api/snaptrade/catalog-probe'):
             if not self.authenticated():
                 bob_auth.send(self, 401); return
             if not bob_auth.same_origin(self.headers):
