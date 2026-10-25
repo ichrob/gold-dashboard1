@@ -2143,9 +2143,11 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   function showPinnedAction(view){
    const entry=pinnedActions.get(view);
    if(entry){
-    if(entry.button.parentNode!==primaryActionDock){
-     primaryActionDock.append(entry.button);
-     if(entry.feedback)primaryActionDock.append(entry.feedback);
+    // Replace the dock's *contents*, never the original listener. This
+    // keeps only one primary action visible if another view is registered.
+    if(entry.button.parentNode!==primaryActionDock||
+       primaryActionDock.firstElementChild!==entry.button){
+     primaryActionDock.replaceChildren(entry.button,...(entry.feedback?[entry.feedback]:[]));
     }
     primaryActionDock.hidden=false;
    }else primaryActionDock.hidden=true;
