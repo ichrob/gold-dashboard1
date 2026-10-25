@@ -310,7 +310,7 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
    '\nStatus: '+(item.kiStatusLabel||'Noch nicht geprüft')+
    '\nLetzte Bearbeitung: '+readableDate(item.updatedAt)+
    '\nFehlerprotokoll: '+item.url+
-   '\nBitte prüfe den Fehler in GitHub und Render, suche die Ursache, teste eine sichere Behebung und veröffentliche nur geprüfte Änderungen. Keine echten Trades.';
+   '\nBitte prüfe den Fehler in GitHub und Render. Dokumentiere einen echten PR-Nachweis anschließend in genau dieser GitHub-Issue gemäß BOB_DIAGNOSTIC_CHATGPT_HANDOFF.md. Nicht ohne unabhängigen Health-Nachweis als behoben melden. Keine echten Trades.';
  }
  // Privacy boundary: export ONLY allowlisted technical issue codes, safe
  // issue identifiers and aggregate counts. Never raw messages or logs.
@@ -329,7 +329,7 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
   const lines=[
     'BOB-FEHLERDIAGNOSE/1 · bewusst vom Nutzer per Android geteilt',
     'Projekt: ichrob/gold-dashboard1 · Dienste: bob-private-scanner / bob-push-service',
-    'Auftrag: Prüfe technische Fehler anhand von GitHub- und Render-Nachweisen. Suche Ursache, sichere Korrektur und Tests. Melde Unsicherheit. Keine Echtgeldorders oder Handelsfreigaben.',
+    'Auftrag: Prüfe die Fehler anhand von GitHub und Render; recherchiere Ursache, Tests und sichere Korrektur. Wenn ein echter Code-PR vorliegt, aktualisiere nur nach nachweisbarer Prüfung die bestehende GitHub-Issue (Fall-ID) mit einem BOB_KI_STATUS- und BOB_KI_REVIEW-Marker gemäß BOB_DIAGNOSTIC_CHATGPT_HANDOFF.md. Einen Code-Fix niemals als unabhängig bestätigte Reparatur melden. Keine Echtgeldorders oder Handelsfreigaben.',
     'Indexstatus: '+state+(state==='stale'?' (nicht als aktuell bestätigen)':''),
     'Indexzeit (UTC): '+checkedAt,
     'Offene technische KI-Hilfeanfragen laut Index: '+count,
