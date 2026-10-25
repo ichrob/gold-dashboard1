@@ -101,8 +101,39 @@ def restart_worker(code, stopped, starter, *, now=None):
     return True
 
 
+def _post_restart_success_time(value, code):
+    """True only for a timestamped *new successful cycle* after restart.
+
+    Market worker uses an ISO clock, other workers may use seconds or
+    milliseconds. Require an original timezone-aware source timestamp;
+    boolean/naive/future/stale/invalid values can never approve a repair.
+    """
+    from math import isfinite
+    if code not in WORKERS or not isinstance(health := _PENDING.get(code), dict):
+        return False
+    start = health.get("startedWall")
+    if type(start) not in (int, float) or not isfinite(start):
+        return False
+    if type(value) in (int, float) and isfinite(value):
+        at = float(value)
+        if at > 1e11:  # Unix milliseconds, not observation count.
+            at /= 1000.0
+    elif isinstance(value, str) and len(value) <= 48:
+        try:
+            parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            if parsed.tzinfo is None:
+                return False
+            at = parsed.timestamp()
+        except (ValueError, OverflowError):
+            return False
+    else:
+        return False
+    clock = time.time()
+    return start < at <= clock + 5 and 0 <= clock - at <= 650
+
+
 def worker_healthy(code, health):
-    """Positive, independent post-restart checks; simply being alive is not enough."""
+    """A recent original success *after* restart, not merely a running flag."""
     if code in ("cfd-worker-stopped", "spot-change-worker-stopped", "comparison-worker-stopped"):
         state=(health.get('auxiliaryWorkers') or {}).get(code) or {}
         at=state.get('successfulAt')
@@ -116,13 +147,17 @@ def worker_healthy(code, health):
     research = health.get("strategyResearch") or {}
     if code == "market-worker-stopped":
         return bool(collection.get("enabled") and collection.get("running")
+                    and collection.get("state") not in ("error","unavailable","stale","starting")
+                    and _post_restart_success_time(collection.get("lastCycleAt"), code)
                     and "market-feed-not-current" not in health.get("reasons", []))
     if code == "background-worker-stopped":
-        return bool(bg.get("configured") and bg.get("status") in ("active", "idle", "paused")
+        return bool(bg.get("configured") and bg.get("status") in ("active", "idle")
+                    and _post_restart_success_time(bg.get("lastSuccessAt"), code)
                     and "background-not-current" not in health.get("reasons", []))
     if code == "research-worker-stopped":
         return bool(research.get("enabled") and research.get("running")
-                    and research.get("phase") not in ("retry", "unconfigured", "starting"))
+                    and research.get("phase") not in ("retry", "unconfigured", "starting")
+                    and _post_restart_success_time(research.get("lastSuccessAt"), code))
     return False
 
 
