@@ -2,6 +2,8 @@
 from collections import deque
 import hashlib
 import json
+import math
+from datetime import datetime, timezone
 import os
 import re
 import threading
@@ -32,7 +34,7 @@ SCHEMAS = {
                                'test','synthetic',eventKinds=[None]),
     'paper-input':diag.shape('phase','checkedAt',profiles=[diag.shape(
         'profile','outcome','ready','priceFresh','dataAt','barAt')]),
-    'health':diag.shape('status','session','sourceAt','sourceAgeSeconds','cycleAt','backgroundAt',badCodes=[None],goodCodes=[None]),
+    'health':diag.shape('status','session','sourceAt','sourceAgeSeconds','cycleAt','backgroundAt','evidenceVersion',badCodes=[None],goodCodes=[None]),
 }
 
 
@@ -192,32 +194,97 @@ def status():
     with _LOCK:return {**_STATS,'queued':len(_QUEUE),'running':_RUNNING,'scope':'process-local-delivery-counters'}
 
 
+def _recent_original_success(value, now=None, freshness_seconds=650):
+    """Validate original post-work clock, never a mere poll/heartbeat time.
+
+    Accept UTC-aware ISO 8601, Unix seconds or Unix milliseconds, not booleans,
+    local/naive strings, futures, wall-time estimates or stale observations.
+    """
+    now = time.time() if now is None else now
+    if type(now) not in (int, float) or not math.isfinite(now):
+        return False
+    if type(value) in (int, float) and math.isfinite(value):
+        observed = float(value)
+        if observed > 1e11:
+            observed /= 1000
+    elif isinstance(value, str) and len(value) <= 48:
+        try:
+            parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            if parsed.tzinfo is None:
+                return False
+            observed = parsed.timestamp()
+        except (TypeError, ValueError, OverflowError):
+            return False
+    else:
+        return False
+    return 0 <= now - observed <= freshness_seconds
+
+
 def health(health):
+    """Archive only explicit successful source cycles, not 'running' or pause.
+
+    Legacy health event goodCodes lacked cycle proof. evidenceVersion=2
+    distinguishes reliable followups and prevents old weekend status samples
+    from being back-labelled as independently verified repair outcomes.
+    """
     import bob_self_healing
     import background_push
-    bad=bob_self_healing.classify(health)
-    good=[]
-    collection=health.get('automaticCollection') or {}
-    bg=health.get('fibonacciMonitor') or {}
-    research=health.get('strategyResearch') or {}
-    if collection.get('enabled') and collection.get('running'):
-        good+=['market-worker-stopped']
-        if 'market-feed-not-current' not in bad:good+=['market-feed-not-current']
-    if bg.get('configured') and bg.get('status') in ('active','idle','paused') and 'background-not-current' not in bad:
-        good+=['background-worker-stopped','background-not-current']
-    if research.get('enabled') and research.get('running') and research.get('phase') not in ('retry','starting','unconfigured'):
-        good+=['research-worker-stopped']
+    bad = bob_self_healing.classify(health)
+    good = []
+    collection = health.get('automaticCollection') or {}
+    bg = health.get('fibonacciMonitor') or {}
+    research = health.get('strategyResearch') or {}
+    session = background_push.degiro_session()
+    feed = collection.get('cfdFeed') or {}
+    now = time.time()
+    # An active collection thread is no proof that a cycle completed.
+    if (session != 'weekend' and collection.get('enabled')
+            and collection.get('running')
+            and collection.get('state') in ('ready', 'estimating', 'collecting')
+            and _recent_original_success(collection.get('lastCycleAt'), now)):
+        good.append('market-worker-stopped')
+        # A source quote is different from a completed worker evaluation.
+        # Never mark missing market data recovered from thread liveness alone.
+        if ('market-feed-not-current' not in bad
+                and feed.get('state') == 'current'
+                and _recent_original_success(feed.get('sourceAt'), now, 120)
+                and _recent_original_success(feed.get('successfulAt'), now, 120)):
+            good.append('market-feed-not-current')
+    if (bg.get('configured') and bg.get('status') in ('active', 'idle')
+            and 'background-not-current' not in bad
+            and _recent_original_success(bg.get('lastSuccessAt'), now)):
+        good += ['background-worker-stopped', 'background-not-current']
+    if (research.get('enabled') and research.get('running')
+            and research.get('phase') not in ('retry', 'starting', 'unconfigured', 'paused')
+            and _recent_original_success(research.get('lastSuccessAt'), now)):
+        good.append('research-worker-stopped')
     for code,state in (health.get('auxiliaryWorkers') or {}).items():
-        at=state.get('successfulAt')
-        if code in bob_self_healing.WORKERS and state.get('running') and type(at) in (int,float) and 0<=time.time()-at<=650 and state.get('state') not in ('unavailable','error','stale','starting'):
+        if not isinstance(state, dict):
+            continue
+        if (code in bob_self_healing.WORKERS and state.get('running')
+                and state.get('state') not in
+                ('unavailable', 'error', 'stale', 'starting', 'paused', 'closed')
+                and _recent_original_success(state.get('successfulAt'), now)
+                and (code != 'comparison-worker-stopped'
+                     or state.get('archiveStatus') == 'loaded')):
             good.append(code)
-    if (health.get('repairSupervision') or {}).get('state')=='ok':good+=['repair-watch-stalled']
-    feed=collection.get('cfdFeed') or {}
-    emit('health',uuid.uuid4().hex,{'status':health.get('status'),'session':background_push.degiro_session(),
-        'sourceAt':feed.get('lastCheckedAt'),'sourceAgeSeconds':feed.get('sourceAgeSeconds'),
-        'cycleAt':collection.get('lastCycleAt'),'backgroundAt':bg.get('lastSuccessAt'),
-        'badCodes':bad,'goodCodes':[c for c in good if c not in bad]})
-
+    supervision = health.get('repairSupervision') or {}
+    if (supervision.get('state') == 'ok' and supervision.get('running')
+            and type(supervision.get('lastCompletedAgeSeconds')) in (int, float)
+            and math.isfinite(supervision['lastCompletedAgeSeconds'])
+            and 0 <= supervision['lastCompletedAgeSeconds'] <= 150):
+        good.append('repair-watch-stalled')
+    emit('health', uuid.uuid4().hex, {
+        'status': health.get('status'),
+        'session': session,
+        'sourceAt': feed.get('lastCheckedAt'),
+        'sourceAgeSeconds': feed.get('sourceAgeSeconds'),
+        'cycleAt': collection.get('lastCycleAt'),
+        'backgroundAt': bg.get('lastSuccessAt'),
+        'evidenceVersion': 2,
+        'badCodes': bad,
+        'goodCodes': [code for code in good if code not in bad],
+    })
 
 def report(conn):
     with conn.transaction():
@@ -231,7 +298,7 @@ def _report(conn):
             ORDER BY recorded_at DESC LIMIT 20) h ORDER BY h.recorded_at DESC""").fetchall()
     events=[dict(id=r[0],traceId=r[1],decisionId=r[2],stage=r[3],observedAt=r[4],build=r[5],payload=diag.project(r[6],SCHEMAS[r[3]])) for r in rows]
     repairs=conn.execute('''SELECT e.code,e.kind,e.event_at,
-        count(*) FILTER (WHERE h.payload->'goodCodes' ? e.code),
+        count(*) FILTER (WHERE h.payload->>'evidenceVersion'='2' AND h.payload->'goodCodes' ? e.code),
         count(*) FILTER (WHERE h.payload->'badCodes' ? e.code),
         max(h.observed_at),min(h.observed_at),
         (SELECT count(*) FROM bob_self_heal_events again WHERE again.code=e.code
