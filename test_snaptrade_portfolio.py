@@ -268,6 +268,12 @@ class PortfolioTests(unittest.TestCase):
         self.assertEqual(got['sellCount'],1352)
         self.assertEqual(got['validIsinCount'],2704)
         self.assertEqual(got['currentHoldingsIsinMatches'],2704)
+        self.assertEqual(got['missingOrInvalidIsinCount'],0)
+        self.assertEqual(got['holdingBreakdown'],[{
+            'isin':'DE000FG309G0', 'buys':1352,'sells':1352,
+            'firstDay':'2026-06-03','lastDay':'2026-10-24'
+        }])
+        self.assertFalse(got['holdingBreakdownTruncated'])
         self.assertEqual(got['earliestTradeDay'],'2026-06-03')
         self.assertEqual(got['latestTradeDay'],'2026-10-24')
         self.assertTrue(got['completeFilteredTradeWindow'])
@@ -277,6 +283,40 @@ class PortfolioTests(unittest.TestCase):
         calls.clear()
         self.assertEqual(b.read_trade_coverage(A,CONFIG,got,get=get),got)
         self.assertEqual(calls,[])  # weekly cooldown, no paid extra refresh
+
+    def test_filtered_matches_only_checksum_confirmed_current_holding_isins(self):
+        # Unrecognized provider names/symbols must never be matched by
+        # apparent resemblance; only checksum-valid stored ISIN identity.
+        items=[
+            {'id':'a','type':'BUY','trade_date':'2026-10-01',
+             'symbol':{'raw_symbol':'DE000FG309G0'}},
+            {'id':'b','type':'SELL','trade_date':'2026-10-03',
+             'symbol':{'raw_symbol':'DE000FG309G0'}},
+            {'id':'c','type':'BUY','trade_date':'2026-10-02',
+             'symbol':{'raw_symbol':'DE000FG309G1'}},
+            {'id':'d','type':'SELL','trade_date':'2026-10-04',
+             'symbol':{'symbol':'FG309G', 'description':'DE000FG309G0'}},
+        ]
+        result=b.read_trade_coverage(A, CONFIG, known_isins={
+            'DE000FG309G0','DE000FG309G1','DE000FG14AV8'}, get=lambda path, cfg, params=None:{
+            'data':items,'pagination':{'total':4}})
+        self.assertTrue(result['completeFilteredTradeWindow'])
+        self.assertEqual(result['observed'],4)
+        self.assertEqual(result['validIsinCount'],2)
+        self.assertEqual(result['missingOrInvalidIsinCount'],2)
+        self.assertEqual(result['currentHoldingsIsinMatches'],2)
+        by_isin={x['isin']:x for x in result['holdingBreakdown']}
+        self.assertEqual(by_isin['DE000FG309G0']['buys'],1)
+        self.assertEqual(by_isin['DE000FG309G0']['sells'],1)
+        self.assertEqual(by_isin['DE000FG309G0']['firstDay'],'2026-10-01')
+        self.assertEqual(by_isin['DE000FG309G0']['lastDay'],'2026-10-03')
+        self.assertEqual(by_isin['DE000FG14AV8']['buys'],0)
+        self.assertNotIn('DE000FG309G1',by_isin)
+        self.assertFalse(result['fifoEligible'])
+        self.assertFalse(result['accountHistoryComplete'])
+        # Snapshot only contains bounded aggregates, not the trade source rows.
+        self.assertNotIn('FG309G',str([x for x in result if x not in (
+            'holdingBreakdown',)]))
 
     def test_filtered_trade_partial_and_provider_errors_fail_closed(self):
         def large(path,config,params=None):
