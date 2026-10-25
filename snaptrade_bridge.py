@@ -340,6 +340,7 @@ def summarize_broker_catalog(data):
         raise ReadError('RESPONSE_TOO_LARGE')
     watched = {isin for isin, _ in degiro_catalog.SEEDS}
     matches = {}
+    conflicting = set()
     for instrument in instruments:
         if not isinstance(instrument, dict):
             raise ReadError('INVALID_RESPONSE')
@@ -350,7 +351,14 @@ def summarize_broker_catalog(data):
         if candidate not in watched:
             continue
         supported = instrument.get('tradeable')
-        matches[candidate] = supported if isinstance(supported, bool) else None
+        value = supported if isinstance(supported, bool) else None
+        if candidate in conflicting:
+            continue
+        if candidate in matches and matches[candidate] != value:
+            matches[candidate] = None
+            conflicting.add(candidate)
+        else:
+            matches[candidate] = value
     return {'code': 'CATALOG_EMPTY' if not instruments else 'CATALOG_RETURNED',
             'instrumentCount': len(instruments),
             'historicalWatchCount': len(watched),
