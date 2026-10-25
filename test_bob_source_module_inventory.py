@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import bob_source_module_inventory as discovery
 
@@ -86,10 +87,10 @@ class DiscoveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             root=Path(t)
             (root/"a.py").write_text("x=1")
-            with unittest.mock.patch.object(discovery,"_MAX_ROOT_ENTRIES",0):
+            with patch.object(discovery,"_MAX_ROOT_ENTRIES",0):
                 self.assertEqual(discovery.inspect(root,rows(["a.py"]),
                                                   ["a.py"]*100)["status"],"unavailable")
-            with unittest.mock.patch.object(discovery,"_MAX_MODULES",0):
+            with patch.object(discovery,"_MAX_MODULES",0):
                 self.assertEqual(discovery.inspect(root,rows(["a.py"]),
                                                   ["a.py"]*100)["status"],"unavailable")
 
