@@ -642,11 +642,14 @@ def read_access_coverage(manifest):
     try:
         rows = manifest['tasks']
         ids = [row['id'] for row in rows]
-        allowed = {'partial', 'planned', 'blocked-client', 'requires-device'}
+        allowed = {'partial', 'planned', 'blocked-client', 'requires-device',
+                   'verified-at-build'}
         if (manifest.get('schemaVersion') != 1 or manifest.get('total') != 100
                 or len(rows) != 100 or sorted(ids) != list(range(1,101))
                 or any(row.get('state') not in allowed or
-                       row.get('verified') is not False for row in rows)):
+                       (row.get('verified') is True) !=
+                       (row.get('state') == 'verified-at-build')
+                       for row in rows)):
             raise ValueError('coverage manifest invalid')
         counts = {k:sum(row['state']==k for row in rows) for k in sorted(allowed)}
         # Check only code-owned, strictly relative named paths. Mere file
@@ -683,6 +686,18 @@ def read_access_coverage(manifest):
             test_evidence = inspect_test_candidates(root, rows, mapped)
         except (OSError, ValueError, TypeError, KeyError):
             test_evidence = {'status':'unavailable', 'reason':'test-map-not-readable'}
+        # A historical acceptance is a narrow, independently observed
+        # CI + two-service live-deployment sample, never automatic trade or
+        # current runtime approval. Fail closed if any proof is malformed.
+        import json
+        from diagnoseziele_acceptance import assess as inspect_acceptance
+        acceptance_data = json.loads(
+            (root/'Besser_werden/diagnoseziele_100_abnahmen.json')
+            .read_text(encoding='utf-8'))
+        historical_acceptance = inspect_acceptance(rows, acceptance_data)
+        if (historical_acceptance.get('status') != 'one-dated-build-acceptance'
+                or counts.get('verified-at-build') != 1):
+            raise ValueError('acceptance proof missing or inconsistent')
         # Dated evidence matrix is not an acceptance flag. Preserve original statuses.
         review = {'status':'not-available'}
         try:
@@ -711,14 +726,17 @@ def read_access_coverage(manifest):
                            'must not be mistaken for a test of a later build.'}
         except (OSError, ValueError, TypeError, KeyError):
             review={'status':'unavailable','reason':'evidence-matrix-missing-or-invalid'}
-        return {'status':'inventory-only','total':100,'verified':0,
-                'unverified':100,'counts':counts,'recordedAt':manifest.get('asOf'),
+        return {'status':'inventory-only','total':100,'verified':1,
+                'unverified':99,'counts':counts,'recordedAt':manifest.get('asOf'),
+                'buildBoundAcceptance':historical_acceptance,
                 'codeFilesMapped':len(unique_paths),'codeFilesPresent':present,
                 'codeFilesMissing':len(unique_paths)-present,
                 'codeFileScope':'existence-only-not-test-or-live-proof',
                 'evidenceReview':review, 'moduleInventory':module_summary,
                 'testEvidenceInventory':test_evidence,
-                'note':'Repository worklist only. Static import parsing is not module health or a functional test. No feature is live-proven by inclusion.'}
+                'note':'One goal has a dated, historically verified dual-service build match; '
+                       '99 lack individual acceptance. Static import parsing and test '
+                       'mapping do not prove functionality or current deployment health.'}
     except (KeyError, TypeError, ValueError, AttributeError):
         return {'status':'unavailable',
                 'reason':'read-access-manifest-missing-or-inconsistent'}
