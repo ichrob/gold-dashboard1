@@ -25,6 +25,9 @@ for(const side of ['LONG','SHORT']){
 }
 assert.equal(evaluate(bundle(),{}).state,'waiting');
 assert.equal(evaluate(bundle(),{},Date.UTC(2026,9,24,12)).state,'paused');
+assert.equal(evaluate(bundle(),{},Date.UTC(2026,9,25,23,5)).state,'paused','Monday night is outside the DEGIRO entry session');
+assert.equal(evaluate(bundle(),{},Date.UTC(2026,9,26,6,45)).state,'paused','preparation remains paused until 08:00 Zurich');
+assert.equal(evaluate(bundle(),{},Date.UTC(2026,9,26,7,5),true).state,'unavailable','live entry session exposes missing market bars');
 assert(html.includes("byId('bobNextStep').after(earlyWarning)"));
 assert(!html.includes("fold(byId('earlyImpulseStatus')"));
 console.log('Continuous warning: bidirectional lifecycle, invalidation, expiry, stale data, weekend, open-candle and visibility checks passed');
