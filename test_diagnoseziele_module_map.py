@@ -20,11 +20,12 @@ class ModuleMapTests(unittest.TestCase):
         self.assertEqual(result["moduleCount"], len({g["codeEvidence"] for g in goals}))
         self.assertGreater(result["pythonModulesParsed"], 0)
         self.assertGreater(result["otherModulesNotParsed"], 0)
+        self.assertGreater(result["javascriptModulesScanned"], 0)
         self.assertEqual(result["individuallyVerified"], 0)
         self.assertTrue(result["readOnly"])
         self.assertTrue(all(item["featureVerified"] is False for item in result["items"]))
         for item in result["items"]:
-            if item["analysis"] == "non-python-not-parsed":
+            if item["analysis"] == "non-source-not-parsed":
                 self.assertIsNone(item["mappedDependencies"])
 
     def test_ast_parser_reports_local_direct_deps_but_never_imports_code(self):
@@ -47,6 +48,48 @@ class ModuleMapTests(unittest.TestCase):
             mod = next(i for i in report["items"] if i["path"] == "safe_a.py")
             self.assertEqual(mod["mappedDependencies"], ["safe_b.py"])
             self.assertEqual(report["goalCount"], 100)
+
+    def test_javascript_literal_imports_are_sanitized_static_hints(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "module_a.js").write_text(
+                "import {safe} from './module_b.js';\\n"
+                "const dep = require('./module_b');\\n"
+                "export * from './module_c.js';\\n"
+                "const secret = require('../private-secret');\\n"
+                "const dynamic = import(userProvidedModule);\\n"
+                "throw Error('NOT EXECUTED');\\n",
+                encoding="utf-8")
+            (root / "module_b.js").write_text("export const safe = 1;\\n", encoding="utf-8")
+            (root / "module_c.js").write_text("export const other = 1;\\n", encoding="utf-8")
+            (root / "README.md").write_text("not a parseable module",encoding="utf-8")
+            goals = [{"id":i,"codeEvidence":(
+                "module_a.js" if i<=97 else
+                "module_b.js" if i==98 else
+                "module_c.js" if i==99 else "README.md")}
+                for i in range(1,101)]
+            report = module_map.inspect(root,goals)
+            self.assertEqual(report["status"],"structural-only")
+            self.assertEqual(report["javascriptModulesScanned"],3)
+            self.assertEqual(report["otherModulesNotParsed"],1)
+            self.assertEqual(report["mappedDependencyEdges"],2)
+            main=next(x for x in report["items"] if x["path"]=="module_a.js")
+            self.assertEqual(main["mappedDependencies"],["module_b.js","module_c.js"])
+            self.assertEqual(main["analysis"],"javascript-literal-import-hints-only")
+            self.assertFalse(main["featureVerified"])
+            self.assertNotIn("private-secret",json.dumps(report))
+            self.assertIn("not a JavaScript AST",report["limitations"])
+
+    def test_large_unreadable_javascript_fails_closed_without_execution(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            js=root/"app.js"
+            js.write_text("const x=1;\\n",encoding="utf-8")
+            goals=[{"id":i,"codeEvidence":"app.js"} for i in range(1,101)]
+            with unittest.mock.patch.object(module_map,"_MAX_SOURCE_BYTES",3):
+                self.assertEqual(module_map.inspect(root,goals)["status"],"unavailable")
+            # Never infer a linked module outside the declared mapped tree.
+            self.assertEqual(module_map.inspect(root,goals)["mappedDependencyEdges"],0)
 
     def test_bad_paths_and_invalid_inventory_fail_closed(self):
         with tempfile.TemporaryDirectory() as temp:
