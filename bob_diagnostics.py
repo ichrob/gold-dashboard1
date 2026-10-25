@@ -207,6 +207,9 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
                          'Empfangsberechtigte Subscriptions vorhanden; tatsächlicher '
                          'Geräteempfang noch nicht nachgewiesen.'),
                      'evaluator':fields(evaluator.status(), ('completed','failed','queueTimeouts','shared','busy','waiting','inFlight','lastDurationMs','lastWaitMs'))}}
+    # Separately observe report-read admission; no SQL, cached report keys or traffic identifiers.
+    import report_admission
+    result['reportAdmission'] = report_admission.status()
     if extended:
         for account in accounts:
             table = portfolios.names(account['profile'])['bob_paper_cases']
