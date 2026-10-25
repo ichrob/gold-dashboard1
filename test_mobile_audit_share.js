@@ -76,17 +76,17 @@ async function checkHandoff(){
  vm.createContext(ctx);
  vm.runInContext(panel.slice(panel.indexOf(' function handoffStatus('),panel.indexOf(' const fmt='))+';globalThis.prepare=shareMobileAudit;globalThis.copy=copyMobileAudit;globalThis.share=sharePreparedAudit;',ctx);
  await ctx.prepare();
- assert.strictEqual(copied,'Report A');assert.strictEqual(shares,0,'Primary button must not rely on Android share delivery');
+ assert.strictEqual(copied,'','Primary share must not copy reports to clipboard');assert.strictEqual(shares,1,'Primary button triggers Android share');
  assert.strictEqual(nodes.bobAuditShareFallback.value,'Report A');assert.strictEqual(nodes.bobAuditShareFallback.hidden,false);
  assert.strictEqual(nodes.bobAuditShareActions.hidden,false);
  payload='Report B';await ctx.copy();assert.strictEqual(copied,'Report A','Copy retains the displayed snapshot during refresh');
- await ctx.share();assert.strictEqual(shares,1);assert(nodes.bobAuditShareStatus.textContent.includes('nicht bestätigt'));
+ await ctx.share();assert.strictEqual(shares,2);assert(nodes.bobAuditShareStatus.textContent.includes('nicht bestätigt'));
  navigator.share=async()=>{throw Object.assign(Error(),{name:'AbortError'})};
  await ctx.share();assert(nodes.bobAuditShareStatus.textContent.includes('abgebrochen'));
  navigator.clipboard.writeText=async()=>{throw Error('denied')};
  await ctx.copy();assert(nodes.bobAuditShareFallback.selected);assert(nodes.bobAuditShareStatus.textContent.includes('markieren'));
  delete navigator.clipboard;delete navigator.share;
- await ctx.prepare();assert.strictEqual(nodes.bobAuditShareFallback.value,'Report B');assert.strictEqual(nodes.bobAuditNativeShare.hidden,true);
+ await ctx.prepare();assert.strictEqual(nodes.bobAuditShareFallback.value,'Report B');assert.strictEqual(nodes.bobAuditNativeShare.hidden,true);assert.strictEqual(copied,'Report A');assert(nodes.bobAuditShareStatus.textContent.includes('nicht verfügbar'));
  console.log('Handoff behavior: visible text, clipboard success/denied/missing, stable snapshot, native share and cancellation passed');
 }
 checkHandoff().catch(error=>{console.error(error);process.exitCode=1});
