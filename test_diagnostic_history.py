@@ -52,7 +52,7 @@ class HistoryTests(unittest.TestCase):
             'auxiliaryWorkers': {},
             'repairSupervision': {'state': 'starting'},
         }
-        with patch.object(h, 'emit') as output, \\
+        with patch.object(h, 'emit') as output, \
              patch.object(background_push, 'degiro_session', return_value='weekend'):
             h.health(health)
         stored = output.call_args.args[2]
@@ -81,7 +81,7 @@ class HistoryTests(unittest.TestCase):
             'repairSupervision': {'state':'ok','running':True,
                                   'lastCompletedAgeSeconds':2},
         }
-        with patch.object(h, 'emit') as output, \\
+        with patch.object(h, 'emit') as output, \
              patch.object(background_push, 'degiro_session', return_value='trading'):
             h.health(health)
         row = output.call_args.args[2]
