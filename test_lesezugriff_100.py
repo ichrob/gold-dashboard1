@@ -18,6 +18,28 @@ class ReadAccessCoverageTests(unittest.TestCase):
         self.assertEqual(sum(result['counts'].values()), 100)
         self.assertEqual(result['counts']['requires-device'], 5)
 
+    def test_every_declared_code_module_exists_without_claiming_completion(self):
+        m = json.loads(MANIFEST.read_text(encoding='utf-8'))
+        paths = [ROOT / row['codeEvidence'] for row in m['tasks']]
+        self.assertTrue(all(path.is_file() for path in paths),
+                        [str(path.relative_to(ROOT)) for path in paths if not path.is_file()])
+        trades = {row['id']: row['codeEvidence'] for row in m['tasks']
+                  if 61 <= row['id'] <= 70}
+        self.assertEqual(trades, {
+            61: 'real_trade_journal.py',
+            62: 'trade_risk_review.py',
+            63: 'product_trade_curve.js',
+            64: 'stop_target_audit.py',
+            65: 'bob_stop_assistant.js',
+            66: 'ko_protection.py',
+            67: 'bob_stop_assistant.js',
+            68: 'trade_risk_review.py',
+            69: 'push_delivery_history.py',
+            70: 'trade_learning_review.py',
+        })
+        self.assertEqual(diag.read_access_coverage(m)['verified'], 0)
+        self.assertTrue(all(row['verified'] is False for row in m['tasks']))
+
     def test_reject_inconsistent_or_fabricated_completion(self):
         m = json.loads(MANIFEST.read_text(encoding='utf-8'))
         m['tasks'][0]['verified'] = True
