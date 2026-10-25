@@ -130,15 +130,30 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
         row = conn.execute(f'SELECT payload FROM {table} WHERE id=1').fetchone()
         accounts.append({'profile':profile, **fields(row[0] if row else {},
             ('enabled','status','checkedAt','startAt','reason','currency','initialCapital','cash','equity','dayProfit','totalProfit','realizedProfit','costsDebitedEur','costPeriodProfit','costsStartedAt','costsNote'))})
-    row = conn.execute('SELECT count(*) FROM subscriptions WHERE general_enabled=TRUE OR (trade_enabled=TRUE AND active_trade=TRUE)').fetchone()
+    # Single bounded aggregate: distinguish no installed subscription from
+    # an existing subscription whose notifications are disabled. No endpoints,
+    # tokens, personal portfolio rows, or permission claims leave the server.
+    row = conn.execute(
+        'SELECT count(*) FILTER (WHERE general_enabled=TRUE OR '
+        '(trade_enabled=TRUE AND active_trade=TRUE)), count(*) '
+        'FROM subscriptions'
+    ).fetchone()
+    enabled, registered = row
     result = {'status':'observed', 'paper':paper_health.snapshot(conn), 'accounts':accounts,
-            'push': {'activeMonitors':row[0], 'deliveryStatus':'not-verified',
+            'push': {'activeMonitors':enabled, 'registeredSubscriptions':registered,
+                     'subscriptionState':('not-registered' if registered == 0 else
+                        'registered-disabled' if enabled == 0 else 'enabled'),
+                     'devicePermissionStatus':'not-verified',
+                     'deliveryStatus':'not-verified',
                      # Subscription eligibility is not proof of a delivered Android
                      # notification, and no subscriptions is not a push transport failure.
-                     'monitorState':('none-enabled' if row[0] == 0 else 'subscriptions-observed'),
-                     'deliveryNote':('Keine aktiven Push-Monitore/Subscriptions nach Datenbankfilter; '
+                     'monitorState':('none-enabled' if enabled == 0 else 'subscriptions-observed'),
+                     'deliveryNote':('Keine registrierten Push-Subscriptions. '
                          'Geräteberechtigung und tatsächliche Zustellung sind nicht geprüft.'
-                         if row[0] == 0 else
+                         if registered == 0 else
+                         'Registrierte Push-Subscriptions vorhanden, aber keine aktiven '
+                         'Monitore. Geräteeinstellung und tatsächliche Zustellung sind nicht geprüft.'
+                         if enabled == 0 else
                          'Empfangsberechtigte Subscriptions vorhanden; tatsächlicher '
                          'Geräteempfang noch nicht nachgewiesen.'),
                      'evaluator':fields(evaluator.status(), ('completed','failed','queueTimeouts','shared','busy','waiting','inFlight','lastDurationMs','lastWaitMs'))}}

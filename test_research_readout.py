@@ -75,7 +75,7 @@ class ResearchReadoutTests(unittest.TestCase):
 
     def test_existing_extended_reader_exposes_stored_report(self):
         portfolios=Mock(POLICIES=[]);conn=Mock()
-        conn.execute.return_value.fetchone.return_value=(0,)
+        conn.execute.return_value.fetchone.return_value=(0, 0)  # eligible and registered subscribers
         health=Mock();health.snapshot.return_value={}
         details={'status':'observed','areas':{'learning':{'status':'observed','items':[]}}}
         with patch.object(diagnostics,'stored_details',return_value=details), \
