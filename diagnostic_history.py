@@ -292,8 +292,12 @@ def report(conn):
 
 
 def _report(conn):
+    # Every SCHEMAS stage must be read, not only stored. Especially a
+    # provider-accepted push is not handset-delivered, and a paper worker's
+    # captured input is not a real product fill. Bounded 20 rows per stage.
     rows=conn.execute("""SELECT h.id,h.trace_id,h.decision_id,h.stage,h.observed_at,h.build,h.payload
-        FROM (VALUES ('input'),('analysis'),('analysis-failed'),('push'),('health'),('transport')) stages(stage)
+        FROM (VALUES ('input'),('analysis'),('analysis-failed'),('push'),
+                     ('push-delivery'),('paper-input'),('health'),('transport')) stages(stage)
         CROSS JOIN LATERAL (SELECT * FROM bob_diagnostic_history WHERE stage=stages.stage
             ORDER BY recorded_at DESC LIMIT 20) h ORDER BY h.recorded_at DESC""").fetchall()
     events=[dict(id=r[0],traceId=r[1],decisionId=r[2],stage=r[3],observedAt=r[4],build=r[5],payload=diag.project(r[6],SCHEMAS[r[3]])) for r in rows]
