@@ -2,6 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
 const source = fs.readFileSync('bob_problems.py','utf8');
+assert(source.includes("if(latest)latest={...latest,status:'stale'}"),'Failed refresh must mark the old snapshot stale');
 const start=source.indexOf(' function diagnosticShareText(');
 const end=source.indexOf(' async function copy(',start);
 assert(start>0 && end>start,'Privacy-filtered mobile diagnostic helpers exist');
