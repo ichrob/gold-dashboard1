@@ -124,6 +124,10 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
     unresolved:[{name:'Synthetic',reason:'Gebühr nicht geliefert.'}],totals:[{currency:'CHF',grossPnl:'1',netPnl:null}],separateCharges:[],cashMovements:[]};
    p.issuerObservation={code:'CURRENT',kind:'issuer-chart',source:'Synthetic issuer chart',currency:'CHF',bid:'9',ask:'10',bidAt:'2026-10-21T12:00:00Z',askAt:'2026-10-21T12:00:00Z',bidFresh:true,askFresh:true,observedAt:'2026-10-21T12:00:01Z'};
    p.observedPositionValue='22.5';p.observedUnrealizedPnl='-2.5';
+   a.evidenceQuality={orderRows:2,positiveFills:1,noPositiveFill:1,
+    missingExecutionTime:1,missingVerifiedIsin:1,missingPrice:0,
+    activityTrades:2,activityMissingFees:1};
+   a.profitReadiness={accountHistoryComplete:false,unresolvedLots:1};
    a.tradeInsights={ordersAvailable:true,executionsCount:1,readyForHistoricalComparison:0,
     executions:[],feesByCurrency:[],reconciliation:{
      status:'available',candidatePairs:1,ambiguousGroups:2,
@@ -133,6 +137,11 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
     }};
    poll();
   });
+  await page.locator('#snapQualitytest-account > summary').click();
+  const quality=await page.locator('#snapQualitytest-account').innerText();
+  assert(quality.includes('Fehlende Ausführungszeit: 1'));
+  assert(quality.includes('Offene Gebührenangaben bei Kauf/Verkauf: 1'));
+  assert(quality.includes('Keine vollständige Gewinn- oder Steuerberechnung'));
   await page.locator('#snapExecutionstest-account > summary').click();
   await page.locator('#snapOrderFillstest-account > summary').click();
   await page.locator('#snapReconciliationtest-account > summary').click();

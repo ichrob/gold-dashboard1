@@ -20,6 +20,7 @@ import zlib
 from collections import Counter
 import snaptrade_portfolio as portfolio
 import snaptrade_trade_insights as insights
+import snaptrade_quality as quality
 import snaptrade_csv_link as csv_link
 import snaptrade_identity as identity
 import snaptrade_trades as trades
@@ -581,6 +582,8 @@ def update_portfolio(snapshot, config, generation):
         a['journal'] = journal
         a['tradeJournal'] = trades.build(journal)
         a['tradeInsights'] = insights.read_account(a)
+        a['evidenceQuality'] = quality.evidence_gaps(a)
+        a['profitReadiness'] = quality.profit_review(a)
     # Keep the encrypted total bounded without dropping transaction evidence.
     # Snapshot history already has bounded retention; shorten it first when
     # the expanded journal needs more of the existing four-megabyte budget.
@@ -830,6 +833,7 @@ def status():
         result['fresh'] = bool(result['code'] == 'READ_OK' and snapshot and snapshot['completeConnections'] and all(
             a['freshnessMode'] == 'realtime' and all(t and 0 <= time.time() - datetime.fromisoformat(t).timestamp() <= INTERVAL + 90
                 for t in (a['positionsSourceAt'], a['cashSourceAt'])) for a in snapshot['accounts']))
+        result['connectionWatch'] = quality.connection_watch(result)
         return result
 
 
@@ -842,6 +846,16 @@ def diagnostics():
         encryption_ready = False
     return {key: value[key] for key in ('code', 'configured', 'running', 'fresh', 'intervalSeconds', 'readOnly', 'realOrders', 'liveQuotes', 'coverageVerified')} | {
         'checkedAt': value.get('checkedAt'), 'encryptionReady': encryption_ready,
+        'connectionWatch': value.get('connectionWatch'),
+        'evidenceGaps': [{k: a.get('evidenceQuality',{}).get(k) for k in (
+            'orderRows','positiveFills','noPositiveFill','missingExecutionTime',
+            'missingVerifiedIsin','missingPrice','activityTrades','activityMissingFees')}
+            for a in (value.get('snapshot') or {}).get('accounts',[])],
+        'profitReadiness': [{k: a.get('profitReadiness',{}).get(k) for k in (
+            'accountHistoryComplete','activityReadable','tradeRows','fifoVerifiedSales',
+            'unresolvedLots','strictReviewPairs','unmatchedOrUnverifiedEvidence',
+            'netProfitVerified','taxProfitVerified','canChangeTradeRules','readOnly')}
+            for a in (value.get('snapshot') or {}).get('accounts',[])],
         'accountsReceived': len((value.get('snapshot') or {}).get('accounts', [])),
         'positionsReceived': sum(len(a['positions']) for a in (value.get('snapshot') or {}).get('accounts', [])),
         'portfolioVersion': 5,

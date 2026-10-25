@@ -51,6 +51,8 @@ function mount(){
   controls();
   document.getElementById('snapSetup').open=!data.configured;
   clock.textContent=(data.checkedAt?'Letzte Prüfung: '+stamp(data.checkedAt)+'. ':'')+(data.configured?'Nächster möglicher Abruf in '+data.nextCheckSeconds+' Sekunden. ':'')+(data.snapshot?(data.fresh?'Quellenstand innerhalb des Depotintervalls.':'Quellenstand nicht als aktuell bestätigt. '):'');
+  const flags=[...new Set(data.connectionWatch?.codes||[])];
+  if(flags.length)clock.textContent+=' Quellenstatus: '+flags.join(', ')+'.';
   const fingerprint=JSON.stringify([data.snapshot,data.fresh]);
   if(fingerprint===lastHoldings)return;lastHoldings=fingerprint;
   const opened=new Set(Array.from(list.querySelectorAll('details[open]')).map(e=>e.id));
@@ -58,6 +60,18 @@ function mount(){
   function line(parent,label,value){const p=document.createElement('p');p.textContent=label+value;parent.append(p);return p;}
   function amount(value,currency){return value===null||value===undefined?'nicht geliefert':Number(value).toLocaleString('de-CH',{maximumFractionDigits:4})+' '+(currency||'');}
   function details(parent,id,title){const d=document.createElement('details'),s=document.createElement('summary');d.id=id;d.open=opened.has(id);s.textContent=title;d.append(s);parent.append(d);return d;}
+  function qualityPanel(parent,account){
+   const q=account.evidenceQuality||{},p=account.profitReadiness||{};
+   const d=details(parent,'snapQuality'+account.accountKey,'Trade-Prüfung · offene Nachweise');
+   line(d,'Orderzeilen / positive Ausführungsangaben: ',(q.orderRows??'–')+' / '+(q.positiveFills??'–'));
+   line(d,'Ohne positive Ausführung: ',String(q.noPositiveFill??'–'));
+   line(d,'Fehlende Ausführungszeit: ',String(q.missingExecutionTime??'–'));
+   line(d,'Fehlende bestätigte ISIN: ',String(q.missingVerifiedIsin??'–'));
+   line(d,'Offene Gebührenangaben bei Kauf/Verkauf: ',String(q.activityMissingFees??'–'));
+   line(d,'Historische Transaktionen vollständig: ',p.accountHistoryComplete?'Ja':'Nein');
+   line(d,'Offene Ergebnisprüfungen: ',String(p.unresolvedLots??'–'));
+   line(d,'','Keine vollständige Gewinn- oder Steuerberechnung, kein automatischer Handel.');
+  }
   function history(parent,account){
    const d=details(parent,'snapHistory'+account.accountKey,'Depotverlauf · gespeicherte Abrufe');
    line(d,'','Depotwert ist kein Gewinn: Einzahlungen, Auszahlungen und Überträge verändern ihn ebenfalls. Keine Renditeberechnung.');
@@ -231,7 +245,7 @@ function mount(){
    }
    if(account.csvAutoReport){const report=account.csvAutoReport;line(box,'Automatischer CSV-Abgleich: ',report.matched+' von '+report.total+' Positionen zugeordnet');for(const item of report.unresolved||[]){const p=account.positions.find(p=>p.positionKey===item.positionKey);line(box,(p?.name||'Position')+': ',item.reason);}}
    if(account.csvImportedAt){const unlink=document.createElement('button');unlink.type='button';unlink.textContent='CSV-Zuordnung für dieses Depot entfernen';unlink.addEventListener('click',async()=>{if(busy)return;busy=true;unlink.disabled=true;controls();try{await call('csv-clear',{accountKey:account.accountKey});csvMessage('CSV-Zuordnung auf dem Server gelöscht. Die lokale CSV bleibt erhalten.');}catch(error){csvMessage(error.message);}finally{busy=false;unlink.disabled=false;controls();}});box.append(unlink);}
-   history(box,account);journal(box,account);tradeJournal(box,account);tradeInsights(box,account);
+   history(box,account);journal(box,account);tradeJournal(box,account);tradeInsights(box,account);qualityPanel(box,account);
    list.append(box);
   }
   const changes=data.snapshot?.changes||[];if(changes.length){const d=details(list,'snapChanges','Beobachtete Bestandsänderungen');line(d,'','Eine Mengenänderung allein belegt keinen Kauf oder Verkauf.');for(const c of changes.slice(-20).reverse())line(d,'',stamp(c.at)+' · '+c.name+' · '+(c.before??'nicht vorhanden')+' → '+(c.after??'nicht vorhanden'));}
