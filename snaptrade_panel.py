@@ -65,6 +65,10 @@ function mount(){
    const d=details(parent,'snapQuality'+account.accountKey,'Trade-Prüfung · offene Nachweise');
    line(d,'Orderzeilen / positive Ausführungsangaben: ',(q.orderRows??'–')+' / '+(q.positiveFills??'–'));
    line(d,'Ohne positive Ausführung: ',String(q.noPositiveFill??'–'));
+   if(q.filledQuantityMissing!==undefined)line(d,'Ausführungsmenge fehlt beim Anbieter: ',String(q.filledQuantityMissing));
+   if(q.filledQuantityZero!==undefined)line(d,'Ausführungsmenge ausdrücklich 0: ',String(q.filledQuantityZero));
+   if(q.filledQuantityInvalid!==undefined)line(d,'Ungültige oder negative Menge: ',String(q.filledQuantityInvalid));
+   line(d,'','Eine fehlende Menge ist kein Nachweis für eine nicht ausgeführte Order. Eine Nullmeldung ist ebenfalls kein vollständiger Nachweis der gesamten Handelshistorie.');
    line(d,'Fehlende Ausführungszeit: ',String(q.missingExecutionTime??'–'));
    line(d,'Fehlende bestätigte ISIN: ',String(q.missingVerifiedIsin??'–'));
    line(d,'Offene Gebührenangaben bei Kauf/Verkauf: ',String(q.activityMissingFees??'–'));
