@@ -92,15 +92,15 @@ class AuditProbeTests(unittest.TestCase):
         import psycopg
         conn=MagicMock()
         conn.execute.return_value.fetchone.return_value=(0,)
-        with patch.object(audit, '_PROSPECTIVE_QUERY_LAST', None), \\
-             patch.object(audit, '_load_report_rows', return_value=[]), \\
+        with patch.object(audit, '_PROSPECTIVE_QUERY_LAST', None), \
+             patch.object(audit, '_load_report_rows', return_value=[]), \
              patch.object(audit, '_load_prospective_rows',
-                          side_effect=[psycopg.errors.QueryCanceled('timeout'), []]), \\
-             patch.object(audit.rule_learning, 'report', return_value={}), \\
-             patch.object(audit.intraday_comparison, 'report', return_value={}), \\
-             patch.object(audit.ranking_learning, 'report', return_value={}), \\
-             patch.object(audit.precision_learning, 'report', return_value={}), \\
-             patch.object(audit.metric_quality, 'report', return_value={}), \\
+                          side_effect=[psycopg.errors.QueryCanceled('timeout'), []]), \
+             patch.object(audit.rule_learning, 'report', return_value={}), \
+             patch.object(audit.intraday_comparison, 'report', return_value={}), \
+             patch.object(audit.ranking_learning, 'report', return_value={}), \
+             patch.object(audit.precision_learning, 'report', return_value={}), \
+             patch.object(audit.metric_quality, 'report', return_value={}), \
              patch.object(audit.product_precision, 'report', return_value={}):
             result = audit._build_report(conn)
             status = audit.prospective_query_probe()
