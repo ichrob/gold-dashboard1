@@ -106,6 +106,23 @@ function mount(){
     }
     if(value.rows?.length>100)line(d,'','Anzeige auf die ersten 100 gelieferten Einträge begrenzt.');
    }
+   const filtered=account.journal?.tradeCoverage;
+   if(filtered){
+    const view=details(d,'snapFilteredTrades'+account.accountKey,'Historische Käufe und Verkäufe · Anbieterfilter');
+    line(view,'','Gesonderter, höchstens wöchentlicher BUY/SELL-Leseabruf. Keine vollständige Kontohistorie; Überträge, Gebühren, Steuern und sonstige Änderungen fehlen in diesem Filter.');
+    if(filtered.code==='READ_OK'){
+     line(view,'Gelesene Handelsbuchungen: ',filtered.observed+' von '+filtered.totalMatching+' gemeldeten Käufen/Verkäufen.');
+     line(view,'Davon Käufe / Verkäufe: ',filtered.buyCount+' / '+filtered.sellCount);
+     line(view,'Belastbare ISIN: ',filtered.validIsinCount+' Buchungen · '+filtered.distinctIsins+' verschiedene ISINs');
+     line(view,'Mit den aktuell nachgewiesenen Depot-ISINs übereinstimmend: ',filtered.currentHoldingsIsinMatches+' Buchungen (keine bestätigte Positions- oder Gewinnzuordnung).');
+     line(view,'Historischer Zeitraum (Anbieter-Tagesdaten): ',(filtered.earliestTradeDay||'nicht bestätigt')+' bis '+(filtered.latestTradeDay||'nicht bestätigt'));
+     line(view,'Filter vollständig: ',filtered.completeFilteredTradeWindow?'Ja, nur für BUY/SELL':'Nein, Filter nur teilweise gelesen');
+    }else{
+     line(view,'Filterstatus: ','Abruf derzeit nicht bestätigt; zuletzt geprüfter Stand bleibt erhalten.');
+    }
+    line(view,'Letzter erfolgreicher Filterabruf: ',stamp(filtered.checkedAt));
+    line(view,'','Keine Freigabe für FIFO-Gewinne, Handelsaufträge oder Strategielernen.');
+   }
   }
   function tradeJournal(parent,account){
    const report=account.tradeJournal;if(!report)return;
