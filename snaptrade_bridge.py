@@ -583,6 +583,7 @@ def update_portfolio(snapshot, config, generation):
         a['tradeJournal'] = trades.build(journal)
         a['tradeInsights'] = insights.read_account(a)
         a['evidenceQuality'] = quality.evidence_gaps(a)
+        a['profitReadiness'] = quality.profit_review(a)
     # Keep the encrypted total bounded without dropping transaction evidence.
     # Snapshot history already has bounded retention; shorten it first when
     # the expanded journal needs more of the existing four-megabyte budget.
