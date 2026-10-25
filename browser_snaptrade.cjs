@@ -73,6 +73,24 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
   assert(coverageText.includes('2 Gruppen vorsorglich ausgelassen'));
   assert(coverageText.includes('keine vollständige Ergebnisrechnung'));
   await page.evaluate(()=>{
+   state.snapshot.accounts[0].journal.tradeCoverage={
+     code:'READ_OK', checkedAt:'2026-10-24T10:00:00Z', filter:'BUY,SELL',
+     totalMatching:2704, observed:2704, buyCount:1352, sellCount:1352,
+     validIsinCount:2704, distinctIsins:16,
+     currentHoldingsIsinMatches:42, earliestTradeDay:'2023-01-10',
+     latestTradeDay:'2026-10-24', completeFilteredTradeWindow:true,
+     accountHistoryComplete:false, fifoEligible:false
+   };
+   poll();
+  });
+  await page.locator('#snapFilteredTradestest-account > summary').click();
+  const tradesText=await page.locator('#snapFilteredTradestest-account').innerText();
+  assert(tradesText.includes('2704 von 2704'));
+  assert(tradesText.includes('42 Buchungen'));
+  assert(tradesText.includes('Keine Freigabe für FIFO-Gewinne'));
+  assert(tradesText.includes('Keine vollständige Kontohistorie')||
+         tradesText.includes('keine vollständige Kontohistorie'));
+  await page.evaluate(()=>{
    const item=state.snapshot.accounts[0].journal.activities;
    item.code='UNAVAILABLE';item.failureCode='RATE_LIMITED';item.activityPagesReceived=3;
    item.failureAt='2026-10-24T12:00:00Z';poll();
