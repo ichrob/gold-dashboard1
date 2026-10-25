@@ -851,7 +851,11 @@ def diagnostics():
             'orderRows','positiveFills','noPositiveFill','missingExecutionTime',
             'missingVerifiedIsin','missingPrice','activityTrades','activityMissingFees')}
             for a in (value.get('snapshot') or {}).get('accounts',[])],
-        'profitReadiness': [a.get('profitReadiness') for a in (value.get('snapshot') or {}).get('accounts',[])],
+        'profitReadiness': [{k: a.get('profitReadiness',{}).get(k) for k in (
+            'accountHistoryComplete','activityReadable','tradeRows','fifoVerifiedSales',
+            'unresolvedLots','strictReviewPairs','unmatchedOrUnverifiedEvidence',
+            'netProfitVerified','taxProfitVerified','canChangeTradeRules','readOnly')}
+            for a in (value.get('snapshot') or {}).get('accounts',[])],
         'accountsReceived': len((value.get('snapshot') or {}).get('accounts', [])),
         'positionsReceived': sum(len(a['positions']) for a in (value.get('snapshot') or {}).get('accounts', [])),
         'portfolioVersion': 5,
