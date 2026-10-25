@@ -2,9 +2,9 @@
 
 Aktualisiert 25.10.2026. Diese Datei bildet **alle 100 angefragten Punkte** ab. Eine vorhandene Codedatei allein bedeutet keine vollständig umgesetzte oder geprüfte Funktion.
 
-Status-Legende: `partial` = thematische Codebasis vorhanden, Ende-zu-Ende noch nicht bewiesen; `planned` = eigene Entwicklung/Prüfung offen; `blocked-client` = vorhandene Bob-API, ChatGPT-Tool-Discovery nicht aktualisiert; `requires-device` = nur mit freiwilliger Samsung-Diagnose testbar; `verified-at-build` = unabhängig beobachteter historischer, zeitpunktbezogener Nachweis für eine bestimmte Codeversion, **keine** Behauptung fortlaufender Produktionsgesundheit.
+Status-Legende: `partial` = thematische Codebasis vorhanden, Ende-zu-Ende noch nicht bewiesen; `planned` = eigene Entwicklung/Prüfung offen; `blocked-client` = vorhandene Bob-API, ChatGPT-Tool-Discovery nicht aktualisiert; `requires-device` = nur mit freiwilliger Samsung-Diagnose testbar; `verified-at-build` = unabhängig beobachteter historischer, zeitpunktbezogener Nachweis für eine bestimmte Codeversion; `verified-at-sample` = unabhängig aus einer autorisierten Originalquelle gemessene Zeitreihe in einem festgelegten Fenster. **Beides ist keine** Behauptung fortlaufender Produktionsgesundheit.
 
-**Vollständiger Nachweis pro Punkt verlangt:** fest definierte Eingabe, Originalzeit, sichere Projektion ohne Geheimnisse, Regressionstest, CI-Erfolg, verwendete GitHub-Commit-ID und anschließende Live-Prüfung. **1/100** hat jetzt eine datierte, buildgebundene Einzelabnahme: Ziel 18 (gleiche Build-Version auf beiden Render-Diensten) zum Commit `12764b1eb096061efac81380d9754d57225df696`, CI `40186063805`, Live-Smoke `40186064035`, zwei unabhängig beobachtete Render-LIVE-Deploys am 25.10.2026. Es bleiben 99 individuell unbestätigt. Die aktuelle Version muss stets gesondert überprüft werden.
+**Vollständiger Nachweis pro Punkt verlangt:** fest definierte Eingabe, Originalzeit, sichere Projektion ohne Geheimnisse, Regressionstest, CI-Erfolg, verwendete GitHub-Commit-ID und anschließende Live-Prüfung. **2/100** haben jetzt unabhängige, streng datierte Einzelbeobachtungen: Ziel 18 (gleiche Build-Version auf beiden Render-Diensten) zum Commit `12764b1eb096061efac81380d9754d57225df696`, CI `40186063805`, Live-Smoke `40186064035`, zwei unabhängig beobachtete Render-LIVE-Deploys am 25.10.2026. Hinzu kommt Ziel 13 (CPU/RAM) mit tatsächlichen Render-Zeitreihen für beide Dienste vom 25.10.2026, 10:00–11:20 UTC. Es bleiben **98 individuell unbestätigt**. Die aktuelle Version und aktuelle Ressourcenwerte müssen stets gesondert überprüft werden.
 
 **Regeln:** Kein versteckter Android-Zugriff, keine Echtgeldorders, keine Handelsfreigaben, keine automatische Änderung an KO-/Stop-/Risiko-/Strategieregeln. Die Reihenfolge ist technischer Diagnoseausbau, keine Renditegarantie.
 
@@ -30,7 +30,7 @@ Status-Legende: `partial` = thematische Codebasis vorhanden, Ende-zu-Ende noch n
 |---:|---|---|---|
 | 11 | Workerzyklen und Fälligkeit | partial | `bob_self_healing.py` |
 | 12 | Verpasste 30-Sekunden-Takte | partial | `bob_self_healing.py` |
-| 13 | CPU-/RAM-Auslastung | partial | `bob_self_healing.py` |
+| 13 | CPU-/RAM-Auslastung | verified-at-sample | `bob_self_healing.py` |
 | 14 | Serverneustarts und Crashursachen | partial | `bob_self_healing.py` |
 | 15 | HTTP-Fehler je Endpunkt | partial | `bob_self_healing.py` |
 | 16 | Datenbanksperren/Timeouts | partial | `bob_self_healing.py` |

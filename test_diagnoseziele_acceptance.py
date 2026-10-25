@@ -22,10 +22,10 @@ class DatedAcceptanceTests(unittest.TestCase):
     def test_one_goal_only_has_ci_and_exact_render_evidence(self):
         goals,record=self.fixtures()
         result=a.assess(goals,record)
-        self.assertEqual(result["status"],"one-dated-build-acceptance")
-        self.assertEqual(result["acceptedGoalIds"],[18])
+        self.assertEqual(result["status"],"two-dated-independent-acceptances")
+        self.assertEqual(result["acceptedGoalIds"],[13,18])
         self.assertEqual(result["individuallyAcceptedAtRecordedBuild"],1)
-        self.assertEqual(result["remainingUnaccepted"],99)
+        self.assertEqual(result["remainingUnaccepted"],98)
         self.assertEqual(len(result["acceptedBuild"]),40)
         self.assertTrue(result["readOnly"])
         self.assertFalse(result["currentDeployProven"])
@@ -66,6 +66,38 @@ class DatedAcceptanceTests(unittest.TestCase):
         changed["accepted"].append(dict(changed["accepted"][0],id=19))
         self.assertEqual(a.assess(goals,changed)["status"],"unavailable")
 
+    def test_render_metric_acceptance_requires_both_services_and_both_series(self):
+        goals, records = self.fixtures()
+        valid = a.assess(goals, records)
+        self.assertEqual(valid["individuallyAcceptedAtRecordedMetricWindow"], 1)
+        self.assertEqual(valid["metricSampleWindow"]["services"], 2)
+        self.assertEqual(valid["metricSampleWindow"]["resolutionSeconds"], 300)
+        self.assertFalse(valid["continuouslyHealthyProven"])
+        mutations = (
+            lambda r: r["accepted"][1]["services"][0].update(cpuObservations=0),
+            lambda r: r["accepted"][1]["services"][1].update(memoryObservations=0),
+            lambda r: r["accepted"][1]["services"][0].update(cpuCoreMin=2.),
+            lambda r: r["accepted"][1]["services"][0].update(memoryBytesMax=-1),
+            lambda r: r["accepted"][1]["services"][1].update(service="bob-private-scanner"),
+            lambda r: r["accepted"][1].update(resolutionSeconds=0),
+            lambda r: r["accepted"][1].update(source="UNVERIFIED"),
+            lambda r: r["accepted"][1].update(windowEnd="2026-10-25T09:00:00Z"),
+        )
+        for mutation in mutations:
+            changed=json.loads(json.dumps(records))
+            mutation(changed)
+            self.assertEqual(a.assess(goals,changed)["status"],"unavailable")
+
+    def test_13_and_18_are_only_accepted_ids(self):
+        goals,records=self.fixtures()
+        for index in (12,17):
+            modified=json.loads(json.dumps(goals))
+            modified[index]["verified"]=False
+            self.assertEqual(a.assess(modified,records)["status"],"unavailable")
+        injected=json.loads(json.dumps(records))
+        injected["accepted"][1]["id"]=19
+        self.assertEqual(a.assess(goals,injected)["status"],"unavailable")
+
     def test_read_access_rejects_fake_extra_completions(self):
         goals,record=self.fixtures()
         original=goals[0]["verified"]
@@ -76,7 +108,7 @@ class DatedAcceptanceTests(unittest.TestCase):
                          "unavailable")
         goals[0]["verified"]=original
         manifest["tasks"]=goals
-        self.assertEqual(bob_diagnostics.read_access_coverage(manifest)["verified"],1)
+        self.assertEqual(bob_diagnostics.read_access_coverage(manifest)["verified"],2)
 
 
 if __name__=="__main__":
