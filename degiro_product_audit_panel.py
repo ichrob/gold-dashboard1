@@ -150,6 +150,16 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    return fmt(observation.at)+' (✓ berechnet · gültiger Analysewert)';
   return 'nicht aktuell nachgewiesen';
  }
+ // A previously complete *analysis* is not a new market/issuer proof.
+ // This label never modifies stored evidence or trading gates.
+ function productCardHeadline(reportStatus,item){
+  const isin=typeof item?.isin==='string'?item.isin:'ISIN unbekannt';
+  if(item?.state==='terminated')return isin+' · Produkt beendet';
+  if(reportStatus!=='ok')return '⚠ '+isin+' · Historische Prüfdaten · aktuelle Quellenprüfung fehlt';
+  if(['issuer-evidence-complete','analysis-evidence-complete'].includes(item?.state))
+   return '✓ '+isin+' · Produktnachweise im aktuellen Prüfbericht vorhanden';
+  return '⚠ '+isin+' · Fehlende Nachweise: '+(Array.isArray(item?.missing)?item.missing.length:'unbekannt');
+ }
  function mount(){
   const products=byId('dgSavedProductsSummary')?.closest('details');
   const audit=byId('bobProductAudit');
@@ -169,6 +179,11 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   const opened=new Map([...out.children].map(el=>[el.dataset.isin,el.open]));
   out.replaceChildren();details.replaceChildren();
   const good=r.status==='ok',items=Array.isArray(r.items)?r.items:[],incomplete=Number.isInteger(r.incomplete)?r.incomplete:null;
+  // Visible warning even if detail status is hidden by mobile layout.
+  const shareHint=byId('bobAuditShareHint');
+  if(shareHint)shareHint.textContent=good?
+   'Aktuellen Produktproblembericht bewusst über Android an ChatGPT teilen; kein automatischer Versand oder Handelsfreigabe.':
+   '⚠️ Produktprüfung nicht aktuell ('+String(r.status||'unavailable').slice(0,40)+'). Historische Haken und Werte sind keine neuen Originalnachweise. Teilen nur als historischen Diagnosebericht.';
   if(r.status==='waiting-for-screenshot'){
    status.textContent='Keine aktuelle DEGIRO-Screenshotliste auf dem Hintergrundserver bestätigt.';
   }else if(r.status==='checking-new-list'){
@@ -189,9 +204,8 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   for(const item of items){
    const node=document.createElement('details'),summary=document.createElement('summary');
    node.dataset.isin=item.isin;node.dataset.productIsin=item.isin;node.open=opened.get(item.isin)===true;
-   const healthy=['issuer-evidence-complete','analysis-evidence-complete'].includes(item.state);
    const ended=item.state==='terminated';
-   summary.textContent=(ended?'⛔ ':healthy?'✓ ':'⚠ ') +(item.isin||'ISIN unbekannt')+' · '+(ended?'Beendet laut Emittent · gesperrt':healthy?'Produktnachweise vorhanden':'Fehlende Nachweise: '+(item.missing||[]).length);
+   summary.textContent=productCardHeadline(r.status,item);
    // A source-confirmed terminal instrument has no live quote/leverage problem
    // to repair. Show only the ISIN and issuer-ended state, no X or extra fields.
    // "Beendet" is intentional: terminal status alone is not KO proof.
