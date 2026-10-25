@@ -675,12 +675,12 @@ def read_access_coverage(manifest):
         rows = manifest['tasks']
         ids = [row['id'] for row in rows]
         allowed = {'partial', 'planned', 'blocked-client', 'requires-device',
-                   'verified-at-build'}
+                   'verified-at-build', 'verified-at-sample'}
         if (manifest.get('schemaVersion') != 1 or manifest.get('total') != 100
                 or len(rows) != 100 or sorted(ids) != list(range(1,101))
                 or any(row.get('state') not in allowed or
                        row.get('verified') is not
-                       (row.get('state') == 'verified-at-build')
+                       (row.get('state') in ('verified-at-build', 'verified-at-sample'))
                        for row in rows)):
             raise ValueError('coverage manifest invalid')
         counts = {k:sum(row['state']==k for row in rows) for k in sorted(allowed)}
@@ -727,8 +727,9 @@ def read_access_coverage(manifest):
             (root/'Besser_werden/diagnoseziele_100_abnahmen.json')
             .read_text(encoding='utf-8'))
         historical_acceptance = inspect_acceptance(rows, acceptance_data)
-        if (historical_acceptance.get('status') != 'one-dated-build-acceptance'
-                or counts.get('verified-at-build') != 1):
+        if (historical_acceptance.get('status') != 'two-dated-independent-acceptances'
+                or counts.get('verified-at-build') != 1
+                or counts.get('verified-at-sample') != 1):
             raise ValueError('acceptance proof missing or inconsistent')
         # Dated evidence matrix is not an acceptance flag. Preserve original statuses.
         review = {'status':'not-available'}
@@ -758,17 +759,18 @@ def read_access_coverage(manifest):
                            'must not be mistaken for a test of a later build.'}
         except (OSError, ValueError, TypeError, KeyError):
             review={'status':'unavailable','reason':'evidence-matrix-missing-or-invalid'}
-        return {'status':'inventory-only','total':100,'verified':1,
-                'unverified':99,'counts':counts,'recordedAt':manifest.get('asOf'),
+        return {'status':'inventory-only','total':100,'verified':2,
+                'unverified':98,'counts':counts,'recordedAt':manifest.get('asOf'),
                 'buildBoundAcceptance':historical_acceptance,
                 'codeFilesMapped':len(unique_paths),'codeFilesPresent':present,
                 'codeFilesMissing':len(unique_paths)-present,
                 'codeFileScope':'existence-only-not-test-or-live-proof',
                 'evidenceReview':review, 'moduleInventory':module_summary,
                 'testEvidenceInventory':test_evidence,
-                'note':'One goal has a dated, historically verified dual-service build match; '
-                       '99 lack individual acceptance. Static import parsing and test '
-                       'mapping do not prove functionality or current deployment health.'}
+                'note':'Two goals have dated original-source observations: a dual-service build match and '
+                       'a Render CPU/RAM series. 98 lack individual acceptance; no current '
+                       'deployment or future-capacity claim. Static import and test mappings '
+                       'do not prove feature correctness.'}
     except (KeyError, TypeError, ValueError, AttributeError, OSError):
         return {'status':'unavailable',
                 'reason':'read-access-manifest-missing-or-inconsistent'}
