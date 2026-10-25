@@ -59,6 +59,25 @@ def collect(readers):
         areas['gapEvidence'] = gap_evidence
         areas['simulationAndPush'] = dict(areas['simulationAndPush'])
         areas['simulationAndPush'].pop('gapEvidence', None)
+    # The full multi-stage journal may exceed the response size limit.
+    # Preserve only the strictly bounded, already-redacted comparison results
+    # as a separate area; never present missing archive data as healthy.
+    history = (areas.get('simulationAndPush') or {}).get('history')
+    journal = ((history.get('areas') or {}).get('journal')
+               if isinstance(history, dict) else None)
+    if isinstance(journal, dict):
+        before = journal.get('stateComparison')
+        deployment = journal.get('deploymentComparison')
+        areas['historicalComparisons'] = {
+            'status': ('observed' if isinstance(before, dict)
+                       and before.get('status') == 'observed-comparison'
+                       else 'insufficient'),
+            'stateComparison': before if isinstance(before, dict) else
+                {'status': 'insufficient-evidence'},
+            'deploymentComparison': deployment if isinstance(deployment, dict) else
+                {'status': 'insufficient-evidence'},
+            'scope': 'bounded-health-journal-comparisons-not-feature-or-trade-proof',
+        }
     stored_research = (areas.get('simulationAndPush') or {}).get('researchReports')
     if isinstance(stored_research, dict):
         # A large simulation/transition area may itself be omitted. Research
