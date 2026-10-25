@@ -1,5 +1,6 @@
 """Regression tests for Bob's permanent self-healing counter (no real network)."""
 import sqlite3
+import time
 import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch
@@ -99,6 +100,9 @@ class RepairStoreTests(unittest.TestCase):
         with patch.object(archive, "queue_event"):
             self.assertTrue(healing.restart_worker(
                 "research-worker-stopped", True, lambda: None, now=100))
+            # Running does not establish successful work. This is a
+            # *post-restart* original worker-success timestamp in milliseconds.
+            healthy["strategyResearch"]["lastSuccessAt"] = time.time() * 1000
             healing.observe(healthy, now=101)
             self.assertFalse(any(x["kind"] == "repair-verified" for x in healing._EVENTS))
             healing.observe(healthy, now=111)
