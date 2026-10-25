@@ -1,10 +1,10 @@
 # Bob – 100-Punkte-Audit des erweiterten Lesezugriffs
 
-Stand 22.10.2026. Diese Datei bildet **alle 100 angefragten Punkte** ab. Keiner gilt allein wegen einer vorhandenen Codedatei als vollständig umgesetzt.
+Aktualisiert 25.10.2026. Diese Datei bildet **alle 100 angefragten Punkte** ab. Eine vorhandene Codedatei allein bedeutet keine vollständig umgesetzte oder geprüfte Funktion.
 
-Status-Legende: `partial` = thematische Codebasis vorhanden, Ende-zu-Ende noch nicht bewiesen; `planned` = eigene Entwicklung/Prüfung offen; `blocked-client` = vorhandene Bob-API, ChatGPT-Tool-Discovery nicht aktualisiert; `requires-device` = nur mit freiwilliger Samsung-Diagnose testbar.
+Status-Legende: `partial` = thematische Codebasis vorhanden, Ende-zu-Ende noch nicht bewiesen; `planned` = eigene Entwicklung/Prüfung offen; `blocked-client` = vorhandene Bob-API, ChatGPT-Tool-Discovery nicht aktualisiert; `requires-device` = nur mit freiwilliger Samsung-Diagnose testbar; `verified-at-build` = unabhängig beobachteter historischer, zeitpunktbezogener Nachweis für eine bestimmte Codeversion, **keine** Behauptung fortlaufender Produktionsgesundheit.
 
-**Vollständiger Nachweis pro Punkt verlangt:** fest definierte Eingabe, Originalzeit, sichere Projektion ohne Geheimnisse, Regressionstest, CI-Erfolg, verwendete GitHub-Commit-ID und anschließende Live-Prüfung. Heute sind 0/100 nach diesem strengen Kriterium abgeschlossen.
+**Vollständiger Nachweis pro Punkt verlangt:** fest definierte Eingabe, Originalzeit, sichere Projektion ohne Geheimnisse, Regressionstest, CI-Erfolg, verwendete GitHub-Commit-ID und anschließende Live-Prüfung. **1/100** hat jetzt eine datierte, buildgebundene Einzelabnahme: Ziel 18 (gleiche Build-Version auf beiden Render-Diensten) zum Commit `12764b1eb096061efac81380d9754d57225df696`, CI `40186063805`, Live-Smoke `40186064035`, zwei unabhängig beobachtete Render-LIVE-Deploys am 25.10.2026. Es bleiben 99 individuell unbestätigt. Die aktuelle Version muss stets gesondert überprüft werden.
 
 **Regeln:** Kein versteckter Android-Zugriff, keine Echtgeldorders, keine Handelsfreigaben, keine automatische Änderung an KO-/Stop-/Risiko-/Strategieregeln. Die Reihenfolge ist technischer Diagnoseausbau, keine Renditegarantie.
 
@@ -15,12 +15,12 @@ Status-Legende: `partial` = thematische Codebasis vorhanden, Ende-zu-Ende noch n
 |---:|---|---|---|
 | 1 | ChatGPT-Werkzeugbeschreibung aktualisieren | blocked-client | `bob_diagnostics.py` |
 | 2 | Neue Bob-Module erkennen | partial | `bob_diagnostics.py` |
-| 3 | Modul-/Abhängigkeitsverzeichnis | planned | `bob_diagnostics.py` |
+| 3 | Modul-/Abhängigkeitsverzeichnis | partial | `bob_diagnostics.py` |
 | 4 | Gesundheit jedes Moduls | partial | `bob_diagnostics.py` |
 | 5 | Original-/Abruf-/Prüfzeit getrennt | partial | `bob_diagnostics.py` |
 | 6 | Gezielte Einzelabfragen | partial | `bob_diagnostics.py` |
 | 7 | Historische Diagnosefenster | partial | `bob_diagnostics.py` |
-| 8 | Vergleich früherer Zustände | planned | `bob_diagnostics.py` |
+| 8 | Vergleich früherer Zustände | partial | `diagnostic_history.py` |
 | 9 | Fehlerursachen korrelieren | partial | `bob_diagnostics.py` |
 | 10 | Gesamtstatus mit Nachweisen | partial | `bob_diagnostics.py` |
 
@@ -35,8 +35,8 @@ Status-Legende: `partial` = thematische Codebasis vorhanden, Ende-zu-Ende noch n
 | 15 | HTTP-Fehler je Endpunkt | partial | `bob_self_healing.py` |
 | 16 | Datenbanksperren/Timeouts | partial | `bob_self_healing.py` |
 | 17 | Warteschlangen und Verluste | partial | `bob_self_healing.py` |
-| 18 | Gleiche Build-Version auf Diensten | partial | `bob_self_healing.py` |
-| 19 | Deployment-Regressionsvergleich | planned | `bob_self_healing.py` |
+| 18 | Gleiche Build-Version auf Diensten | verified-at-build | `bob_self_healing.py` |
+| 19 | Deployment-Regressionsvergleich | partial | `diagnostic_state_compare.py` |
 | 20 | Wirkung von Neustarts | partial | `bob_self_healing.py` |
 
 ### Goldmarkt und Kursdaten
