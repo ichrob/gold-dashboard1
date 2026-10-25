@@ -42,6 +42,23 @@ class DiagnosticHttpErrorsTests(unittest.TestCase):
         self.assertIn("/health", txt)
         self.assertFalse(result["realOrders"])
 
+    def test_render_application_http_log_lines(self):
+        rows = [
+            {"timestamp": "2026-10-25T10:15:00Z",
+             "message": "BOB_HTTP path=/api/live?q=redacted method=GET status=503 rndr_id=123"},
+            {"timestamp": "2026-10-25T10:16:00Z",
+             "message": "BOB_PUSH_HTTP method=HEAD path=/health status=200"},
+            {"timestamp": "2026-10-25T10:17:00Z",
+             "message": "unrecognized status=200 path=/health"},
+        ]
+        result = sample(rows, has_more=True)
+        self.assertEqual(result["validRequestRecords"], 2)
+        self.assertEqual(result["httpClasses"]["5xx"], 1)
+        self.assertEqual(result["httpClasses"]["2xx"], 1)
+        self.assertEqual(result["invalidOrIgnoredRecords"], 1)
+        self.assertTrue(result["sampleTruncated"])
+        self.assertNotIn("redacted", json.dumps(result))
+
     def test_empty_and_invalid_inputs_fail_closed(self):
         for records in ([], [row(200, at="not-a-timestamp")],
                         [row(True)], [row(600)], [row("500\n")]):
