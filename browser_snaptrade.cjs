@@ -77,7 +77,7 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
      code:'READ_OK', checkedAt:'2026-10-24T10:00:00Z', filter:'BUY,SELL',
      totalMatching:2704, observed:2704, buyCount:1352, sellCount:1352,
      validIsinCount:2704, distinctIsins:16,
-     currentHoldingsIsinMatches:42, missingOrInvalidIsinCount:1503,
+     currentHoldingsIsinMatches:10, missingOrInvalidIsinCount:1503,
      holdingBreakdown:[
       {isin:'DE000FG309G0', buys:3, sells:7, firstDay:'2026-10-01',lastDay:'2026-10-24'},
       {isin:'DE000FG14AV8', buys:0, sells:0, firstDay:null,lastDay:null}
@@ -91,7 +91,7 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
   await page.locator('#snapFilteredTradestest-account > summary').click();
   const tradesText=await page.locator('#snapFilteredTradestest-account').innerText();
   assert(tradesText.includes('2704 von 2704'));
-  assert(tradesText.includes('42 Buchungen'));
+  assert(tradesText.includes('10 Buchungen'));
   assert(tradesText.includes('Keine Freigabe für FIFO-Gewinne'));
   assert(tradesText.includes('1503 Buchungen'));
   assert(tradesText.includes('DE000FG309G0: 3 Käufe · 7 Verkäufe'));
