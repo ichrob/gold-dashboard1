@@ -207,6 +207,57 @@ class HistoryTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class DatabaseTests(unittest.TestCase):
+    def test_durable_history_includes_original_paper_input_and_push_delivery(self):
+        """Newly sampled stages are SELECT-only, bounded and privacy projected."""
+        import psycopg
+        import bob_repair_store
+        schema='diag_extra_stages_'+str(time.time_ns())
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute('CREATE SCHEMA '+schema)
+            conn.execute('SET search_path TO '+schema)
+            h.init(conn)
+            bob_repair_store.init(conn)
+            for i in range(23):
+                h.write(conn, {
+                    'id':f'{i+100:032x}', 'traceId':'a'*32,
+                    'stage':'push-delivery', 'at':time.time()-23+i,
+                    'payload':{'outcome':'provider-accepted',
+                               'httpStatus':201,'direction':'LONG',
+                               'test':True,'synthetic':True,
+                               'deviceToken':'DO-NOT-PUBLISH',
+                               'phoneNumber':'PRIVATE'}})
+                h.write(conn, {
+                    'id':f'{i+200:032x}', 'traceId':'a'*32,
+                    'stage':'paper-input', 'at':time.time()-23+i,
+                    'payload':{'phase':'checked','checkedAt':time.time()-23+i,
+                               'profiles':[{'profile':'balanced',
+                                            'outcome':'not-verified',
+                                            'ready':False, 'priceFresh':False,
+                                            'price':'SECRET-QUOTE'}],
+                               'account':'PRIVATE-ACCOUNT'}})
+            # Close the writer transaction, then prove the report works
+            # under a separate PostgreSQL READ ONLY transaction.
+            conn.commit()
+            with conn.transaction():
+                conn.execute('SET TRANSACTION READ ONLY')
+                sample=h.report(conn)
+            selected=[e for e in sample['events'] if e['stage'] in
+                      ('push-delivery','paper-input')]
+            self.assertEqual(len(selected),40)
+            self.assertEqual(sum(e['stage']=='push-delivery' for e in selected),20)
+            self.assertEqual(sum(e['stage']=='paper-input' for e in selected),20)
+            self.assertTrue(all(e['stage'] in h.STAGES for e in selected))
+            serialized=json.dumps(sample)
+            self.assertNotIn('DO-NOT-PUBLISH', serialized)
+            self.assertNotIn('SECRET-QUOTE', serialized)
+            self.assertNotIn('PRIVATE-ACCOUNT', serialized)
+            self.assertIn('provider-accepted', serialized)
+            self.assertIn('paper-input', serialized)
+            self.assertIn('push-delivery', serialized)
+            self.assertNotIn('delivered-to-device', serialized)
+            self.assertTrue(sample['scope'].startswith('sampled'))
+            conn.execute('DROP SCHEMA '+schema+' CASCADE')
+
     def test_retention_deletes_bounded_batches_and_preserves_recent_rows(self):
         import psycopg
         schema = 'diag_prune_' + str(time.time_ns())
