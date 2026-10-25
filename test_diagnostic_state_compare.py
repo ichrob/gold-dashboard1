@@ -64,8 +64,9 @@ class CompareTests(unittest.TestCase):
                        "untrusted broker-key", "NEVER"):
             self.assertNotIn(secret,encoded)
         self.assertEqual(result["stateComparison"]["currentHealth"],"unknown")
-        self.assertEqual(result["stateComparison"]["newTechnicalCodes"],
-                         ["market-feed-not-current"])
+        self.assertEqual(result["stateComparison"]["newTechnicalCodes"], [])
+        self.assertEqual(result["stateComparison"]["codeDeltaStatus"],
+                         "insufficient-evidence")
         self.assertFalse(result["stateComparison"]["isRepairVerified"])
 
     def test_diagnostic_collector_retains_only_bounded_results(self):
