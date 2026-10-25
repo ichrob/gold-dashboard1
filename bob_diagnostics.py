@@ -647,7 +647,7 @@ def read_access_coverage(manifest):
         if (manifest.get('schemaVersion') != 1 or manifest.get('total') != 100
                 or len(rows) != 100 or sorted(ids) != list(range(1,101))
                 or any(row.get('state') not in allowed or
-                       (row.get('verified') is True) !=
+                       row.get('verified') is not
                        (row.get('state') == 'verified-at-build')
                        for row in rows)):
             raise ValueError('coverage manifest invalid')
