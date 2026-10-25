@@ -645,14 +645,14 @@ def _build_report(conn):
     # connection or timeout. A completed 24h fallback remains explicitly
     # INCOMPLETE evidence for the documented 30-day research horizon.
     result['prospectiveReview']['queryTiming']={
-        'scope':'bounded-read-only-sql-duration',
+        'scope':'query-and-transaction-wall-time',
         'fullWindow':'30-days',
         'fullState':full_state,
         'fullDurationMs':full_ms,
         'fallbackWindow':'24-hours',
         'fallbackState':fallback_state,
         'fallbackDurationMs':fallback_ms,
-        'fullHistoryConfirmed':full_state=='completed' and not prospective_partial,
+        'fullWindowQueryCompleted':full_state=='completed' and not prospective_partial,
     }
     result['fourDayComparison']=intraday_comparison.report(conn)
     result['total']=conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0]
