@@ -640,6 +640,18 @@ def read_access_coverage(manifest):
         root = Path(__file__).resolve().parent
         unique_paths = sorted(set(paths))
         present = sum((root / p).is_file() for p in unique_paths)
+        # Structural graph: inspect source syntax only, never import or execute Bob
+        # modules. Keep detailed paths in the code-owned inspector; the bounded
+        # runtime report publishes aggregate counts, not source or secrets.
+        try:
+            from diagnoseziele_module_map import inspect as inspect_modules
+            inventory = inspect_modules(root, rows)
+            module_summary = {k: inventory.get(k) for k in (
+                'status', 'moduleCount', 'goalCount', 'pythonModulesParsed',
+                'otherModulesNotParsed', 'mappedDependencyEdges',
+                'scope', 'limitations', 'individuallyVerified')}
+        except Exception:
+            module_summary = {'status': 'unavailable'}
         # Dated evidence matrix is not an acceptance flag. Preserve original statuses.
         review = {'status':'not-available'}
         try:
@@ -673,8 +685,8 @@ def read_access_coverage(manifest):
                 'codeFilesMapped':len(unique_paths),'codeFilesPresent':present,
                 'codeFilesMissing':len(unique_paths)-present,
                 'codeFileScope':'existence-only-not-test-or-live-proof',
-                'evidenceReview':review,
-                'note':'Repository worklist only. File presence is not a functional test. No feature is live-proven by inclusion.'}
+                'evidenceReview':review, 'moduleInventory':module_summary,
+                'note':'Repository worklist only. Static import parsing is not module health or a functional test. No feature is live-proven by inclusion.'}
     except (KeyError, TypeError, ValueError, AttributeError):
         return {'status':'unavailable',
                 'reason':'read-access-manifest-missing-or-inconsistent'}

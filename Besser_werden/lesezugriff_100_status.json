@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "asOf": "2026-10-22",
+  "asOf": "2026-10-25",
   "total": 100,
   "counts": {
-    "partial": 91,
-    "planned": 3,
+    "partial": 92,
+    "planned": 2,
     "blocked-client": 1,
     "requires-device": 5
   },
@@ -30,7 +30,7 @@
       "id": 3,
       "area": "Diagnosezentrale",
       "goal": "Modul-/Abhängigkeitsverzeichnis",
-      "state": "planned",
+      "state": "partial",
       "codeEvidence": "bob_diagnostics.py",
       "verified": false
     },
