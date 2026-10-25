@@ -115,6 +115,20 @@ function mount(){
      line(view,'Davon Käufe / Verkäufe: ',filtered.buyCount+' / '+filtered.sellCount);
      line(view,'Belastbare ISIN: ',filtered.validIsinCount+' Buchungen · '+filtered.distinctIsins+' verschiedene ISINs');
      line(view,'Mit den aktuell nachgewiesenen Depot-ISINs übereinstimmend: ',filtered.currentHoldingsIsinMatches+' Buchungen (keine bestätigte Positions- oder Gewinnzuordnung).');
+     const unknownIsin=Number.isInteger(filtered.missingOrInvalidIsinCount)?filtered.missingOrInvalidIsinCount:
+      Number.isInteger(filtered.observed)&&Number.isInteger(filtered.validIsinCount)&&filtered.observed>=filtered.validIsinCount?filtered.observed-filtered.validIsinCount:null;
+     if(unknownIsin!==null)line(view,'Ohne gültigen ISIN-Nachweis: ',unknownIsin+' Buchungen. Keine automatische Namenszuordnung.');
+     if(!Array.isArray(filtered.holdingBreakdown))line(view,'ISIN-Einzelübersicht: ','Bei der nächsten regulären wöchentlichen Anbieterprüfung verfügbar. Bisheriger Gesamtstand bleibt erhalten.');
+     for(const item of (filtered.holdingBreakdown||[]).slice(0,25)){
+      const isin=String(item.isin||'');
+      if(!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(isin))continue;
+      const row=line(view,isin+': ',(item.buys||0)+' Käufe · '+(item.sells||0)+' Verkäufe · Buchungstage '+(item.firstDay||'nicht belegt')+' bis '+(item.lastDay||'nicht belegt'));
+      const copy=document.createElement('button');copy.type='button';copy.textContent='ISIN kopieren';copy.setAttribute('aria-label',isin+' kopieren');
+      copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(isin);copy.textContent='Kopiert';}catch(_){copy.textContent='Kopieren nicht verfügbar';}});
+      row.append(document.createTextNode(' '),copy);
+     }
+     if(filtered.holdingBreakdownTruncated)line(view,'','Die Einzelübersicht ist auf 25 geprüfte ISINs begrenzt. Die Gesamtsumme umfasst alle geprüften aktuellen ISINs.');
+     line(view,'','Nur historische Anbieterbuchungen mit derselben ISIN; die genaue Zuordnung zu einer heutigen Position und deren Gewinn bleibt unbestätigt.');
      line(view,'Historischer Zeitraum (Anbieter-Tagesdaten): ',(filtered.earliestTradeDay||'nicht bestätigt')+' bis '+(filtered.latestTradeDay||'nicht bestätigt'));
      line(view,'Filter vollständig: ',filtered.completeFilteredTradeWindow?'Ja, nur für BUY/SELL':'Nein, Filter nur teilweise gelesen');
     }else{

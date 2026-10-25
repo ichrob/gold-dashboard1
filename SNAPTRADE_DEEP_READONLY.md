@@ -126,3 +126,31 @@ Cash-Sweeps und etwaige unbekannte Typen fehlen dabei. Der Filter darf
 Gewinnzahlen und das Strategielernen nicht verändern. Originale ISINs sind
 nur über die bestehende Checksumme und bestätigte CSV-Identitäten vergleichbar.
 Ohne alle Belege bleiben historische P/L-Resultate ausdrücklich offen.
+
+## ISIN-basierte Einzelübersicht ohne neue Anbieterabfrage (25.10.2026)
+
+Aus dem bestehenden wöchentlichen BUY-/SELL-Filter ergänzt Bob zukünftig
+**höchstens 25** nach Prüfziffer bestätigte, heute per CSV zugeordnete
+Depot-ISINs um die Anzahl historischer Kauf-/Verkaufsbuchungen und die
+frühesten/spätesten Anbieter-*Buchungstage*. Eine ISIN-Zuordnung ist kein
+Beweis dafür, dass ein historischer Trade zur heutigen Depotposition
+gehört: Überträge, Reinvestitionen, mehrere Konten, Gebühren und
+zwischenzeitliche Nullbestände sind dadurch nicht rekonstruiert.
+
+Für die Gesamtübersicht meldet Bob außerdem die Anzahl historischer
+BUY/SELL-Buchungen **ohne gültigen ISIN-Nachweis**. Er rät solche
+Kennungen niemals anhand von Produktnamen, WKN-Ähnlichkeiten oder
+Handelsvolumen. Die per-ISIN-Zahlen enthalten keinerlei einzelne
+Anbieter-Transaktions-IDs, Stückzahlen, Preise oder Kontonummern.
+Bobs private Diagnostik bleibt auf aggregierte Zähler begrenzt; die
+ISIN-Einzeldaten erscheinen nur in der authentifizierten DEGIRO-Ansicht
+und im bereits vorhandenen verschlüsselten Portfoliojournal.
+
+**Keine neue Händlerabfrage:** Die bestehende Wochenfrequenz und die
+bereits getesteten 3 gefilterten Anbieter-Seiten bleiben unverändert.
+Alte bestätigte Filterstände bleiben gültig und zeigen bis zum nächsten
+ohnehin fälligen Wochenabruf nur die bisherigen Summen. Es gibt
+keinen erzwungenen einmaligen Refresh wegen dieses UI-Ausbaus.
+Selbst eine vollständig eingelesene BUY-/SELL-Auswahl schaltet
+weder historische FIFO-Gewinne noch Stopps, Echtgeldorders oder
+automatisches Strategielernen frei.
