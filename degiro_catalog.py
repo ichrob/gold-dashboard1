@@ -204,7 +204,7 @@ def study_history(history, lookup, offset=0, limit=HISTORY_SAMPLE_LIMIT):
     records = history.get('items')
     records = records if isinstance(records, list) else []
     historic = {isin for isin, _ in SEEDS}
-    eligible = [x for x in records[:24] if isinstance(x, dict)
+    eligible = [x for x in records[:80] if isinstance(x, dict)
                 and valid_isin(x.get('isin')) and x.get('direction') in ('LONG', 'SHORT')
                 and x['isin'] not in historic and x.get('brokerHistoricallyTransacted') is True
                 and x.get('eligibleForTop3') is False]

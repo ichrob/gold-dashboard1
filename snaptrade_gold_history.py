@@ -7,7 +7,7 @@ import re
 from collections import Counter
 from snaptrade_portfolio import isin as valid_isin
 
-MAX_CANDIDATES = 24
+MAX_CANDIDATES = 80
 MAX_INPUT_ROWS = 2500
 MAX_DESCRIPTION = 160
 _GOLD = re.compile(r'(?<![a-z])(?:gold|xau(?:/usd)?)(?![a-z])', re.I)
