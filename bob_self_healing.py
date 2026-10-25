@@ -129,7 +129,7 @@ def _post_restart_success_time(value, code):
     else:
         return False
     clock = time.time()
-    return start < at <= clock + 5 and 0 <= clock - at <= 650
+    return start < at <= clock and 0 <= clock - at <= 650
 
 
 def worker_healthy(code, health):
