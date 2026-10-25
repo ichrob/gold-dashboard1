@@ -240,9 +240,11 @@ def _loop():
                           +" retries="+str(result["retryAttempts"])
                           +" recovered="+str(result["retryRecovered"])
                           +" bnpStaleClocks="+str(result["bnpStaleSourceClocks"]),flush=True)
-                    # Recheck both healthy and partial catalogues after ten
-                    # minutes. Active-trade 30s polling remains independent.
-                    last_retry=time.monotonic()+600
+                    # Recheck the fixed historical ISIN set every five minutes
+                    # during the existing weekday session only. This is issuer
+                    # research, NOT a SnapTrade/DEGIRO holdings poll, tradeability
+                    # proof, or permission to promote candidates into Top 3.
+                    last_retry=time.monotonic()+300
         except Exception as exc:
             with _LOCK:
                 _CURRENT.update(status="error",running=False,errors=_CURRENT["errors"]+1)
