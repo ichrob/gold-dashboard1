@@ -20,6 +20,7 @@ import zlib
 from collections import Counter
 import snaptrade_portfolio as portfolio
 import snaptrade_trade_insights as insights
+import snaptrade_quality as quality
 import snaptrade_csv_link as csv_link
 import snaptrade_identity as identity
 import snaptrade_trades as trades
@@ -581,6 +582,7 @@ def update_portfolio(snapshot, config, generation):
         a['journal'] = journal
         a['tradeJournal'] = trades.build(journal)
         a['tradeInsights'] = insights.read_account(a)
+        a['evidenceQuality'] = quality.evidence_gaps(a)
     # Keep the encrypted total bounded without dropping transaction evidence.
     # Snapshot history already has bounded retention; shorten it first when
     # the expanded journal needs more of the existing four-megabyte budget.
