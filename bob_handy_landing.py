@@ -60,17 +60,17 @@ small{color:#43566d}
 </style>
 </head>
 <body>
-<h1>Bob – Handy</h1>
-<p><strong>Vorgeschlagene Anzeige:</strong> TITLE</p>
-<p>Du kannst die Anzeige jetzt in deiner Android-App vorbereiten.
-In <strong>„Bob – Handy“</strong> musst du sie anschließend
-ausdrücklich einmalig erlauben.</p>
-<a class="action" href="APP_URI">Bob – Handy öffnen</a>
-<a class="backup" href="FALLBACK">Stattdessen Bob im Browser öffnen</a>
+<h1>Bob öffnen</h1>
+<p><strong>Gewählte Anzeige:</strong> TITLE</p>
+<p>Falls ChatGPT oder dein Browser den Android-App-Link nicht direkt an
+Bob weitergibt, kannst du Bob hier ohne Kopieren selbst öffnen.</p>
+<a class="action" href="FALLBACK">Bob direkt im Browser öffnen</a>
+<a class="backup" href="APP_URI">Stattdessen Bob – Handy öffnen (Freigabe nötig)</a>
 <div class="note"><strong>Sicherheitsgrenze:</strong> Dieser Link gibt keine
 Fernberechtigung und löst selbst keine Aktion aus. Er überträgt keine
 Zugangsdaten oder Depotinformationen. Keine DEGIRO-Bedienung oder Echtgeldorder.
-Falls Android nach der App fragt, nur „Bob – Handy“ wählen.</div>
+Falls Android nach der App fragt, nur „Bob – Handy“ wählen.
+Beim benutzerdefinierten bobhandy-Link bleibt die einmalige Freigabe nötig.</div>
 <small>Die Bob-Anmeldung bleibt erforderlich. Die App-Freigabe verfällt
 nach 60 Sekunden, bei STOPP oder beim App-Wechsel.</small>
 </body>
