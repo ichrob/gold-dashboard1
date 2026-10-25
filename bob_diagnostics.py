@@ -671,6 +671,18 @@ def read_access_coverage(manifest):
                 'scope', 'limitations', 'individuallyVerified')}
         except Exception:
             module_summary = {'status': 'unavailable'}
+        # Candidate test names make the remaining 100 individual acceptance
+        # tasks auditable. Presence is not proof of execution, coverage, runtime
+        # correctness or a passing device test.
+        test_evidence = {'status':'unavailable'}
+        try:
+            import json
+            from diagnoseziele_testplan import assess as inspect_test_candidates
+            mapped = json.loads((root/'Besser_werden/diagnoseziele_100_testzuordnung.json')
+                .read_text(encoding='utf-8'))
+            test_evidence = inspect_test_candidates(root, rows, mapped)
+        except (OSError, ValueError, TypeError, KeyError):
+            test_evidence = {'status':'unavailable', 'reason':'test-map-not-readable'}
         # Dated evidence matrix is not an acceptance flag. Preserve original statuses.
         review = {'status':'not-available'}
         try:
@@ -705,6 +717,7 @@ def read_access_coverage(manifest):
                 'codeFilesMissing':len(unique_paths)-present,
                 'codeFileScope':'existence-only-not-test-or-live-proof',
                 'evidenceReview':review, 'moduleInventory':module_summary,
+                'testEvidenceInventory':test_evidence,
                 'note':'Repository worklist only. Static import parsing is not module health or a functional test. No feature is live-proven by inclusion.'}
     except (KeyError, TypeError, ValueError, AttributeError):
         return {'status':'unavailable',
