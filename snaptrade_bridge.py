@@ -862,6 +862,18 @@ def diagnostics():
         'historyPoints': len((value.get('snapshot') or {}).get('history', [])),
         'detectedExecutions': sum(a.get('tradeInsights', {}).get('executionsCount', 0) for a in (value.get('snapshot') or {}).get('accounts', [])),
         'executionCandidatesForReview': sum(a.get('tradeInsights', {}).get('readyForHistoricalComparison', 0) for a in (value.get('snapshot') or {}).get('accounts', [])),
+        # Strictly bounded counters from the existing, authenticated history.
+        # No account IDs, ISINs, symbols, amounts, individual fees or trade rows.
+        'executionReconciliation': [{
+            'status': a.get('tradeInsights', {}).get('reconciliation', {}).get('status', 'not-observed'),
+            'candidatePairs': a.get('tradeInsights', {}).get('reconciliation', {}).get('candidatePairs', 0),
+            'ambiguousGroups': a.get('tradeInsights', {}).get('reconciliation', {}).get('ambiguousGroups', 0),
+            'unmatchedOrderFills': a.get('tradeInsights', {}).get('reconciliation', {}).get('orderFillsWithoutExactActivity', 0),
+            'unmatchedActivityTrades': a.get('tradeInsights', {}).get('reconciliation', {}).get('activityTradesWithoutExactOrder', 0),
+            'missingOrderEvidence': a.get('tradeInsights', {}).get('reconciliation', {}).get('missingEvidence', 0),
+            'accountHistoryComplete': a.get('tradeInsights', {}).get('reconciliation', {}).get('accountHistoryComplete', False),
+            'netProfitVerified': False, 'learningEligible': False, 'readOnly': True,
+        } for a in (value.get('snapshot') or {}).get('accounts', [])],
         'journalStatus': [{k: a.get('journal', {}).get(k, {}).get('code', 'NOT_READ') for k in ('orders', 'activities')} for a in (value.get('snapshot') or {}).get('accounts', [])],
         'journalFailureCodes': [{k: a.get('journal', {}).get(k, {}).get('failureCode') for k in ('orders', 'activities')}
                                 for a in (value.get('snapshot') or {}).get('accounts', [])],
