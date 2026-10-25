@@ -314,9 +314,9 @@ class PortfolioTests(unittest.TestCase):
         self.assertNotIn('DE000FG309G1',by_isin)
         self.assertFalse(result['fifoEligible'])
         self.assertFalse(result['accountHistoryComplete'])
-        # Snapshot only contains bounded aggregates, not the trade source rows.
-        self.assertNotIn('FG309G',str([x for x in result if x not in (
-            'holdingBreakdown',)]))
+        # Snapshot has bounded ISIN counts, never the provider's raw IDs.
+        self.assertNotIn("'id': 'a'", repr(result))
+        self.assertNotIn('trade_date', repr(result))
 
     def test_filtered_trade_partial_and_provider_errors_fail_closed(self):
         def large(path,config,params=None):
