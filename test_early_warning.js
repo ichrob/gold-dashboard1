@@ -5,7 +5,7 @@ const sessionStart=html.indexOf('function intradaySession('),sessionEnd=html.ind
 const step=300000,now=Date.UTC(2026,9,20,14,50),endAt=now;
 function bundle(side){return {history:{bars_by_tf:{'5m':Array.from({length:110},(_,i)=>({openTime:endAt-(110-i)*step,open:100,close:100,high:102,low:98,isOpen:false})), '15m':[]}}};}
 function evaluate(b,signals,t=now,unavailable=false){
- const env={Intl,Date,earlyImpulseContext:(input,at)=>unavailable?{available:false,reason:'stale'}:
+ const env={Intl,Date,window:{},earlyImpulseContext:(input,at)=>unavailable?{available:false,reason:'stale'}:
   ({available:true,direction:signals[at]||'NEUTRAL',barAt:at-step,extensionRisk:false,reason:'fixture'})};
  vm.createContext(env);vm.runInContext(html.slice(sessionStart,sessionEnd)+html.slice(start,end),env);return env.earlyWarningContext(b,t);
 }
