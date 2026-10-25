@@ -467,9 +467,11 @@ class ReadAccessManifestMappingTests(unittest.TestCase):
         self.assertEqual(report['total'],100)
         self.assertEqual(report['verified'],0)
         self.assertEqual(report['unverified'],100)
-        self.assertEqual(report['codeFilesMapped'],10)
-        self.assertEqual(report['codeFilesPresent'],10)
-        self.assertEqual(report['codeFilesMissing'],0)
+        expected_paths = {row['codeEvidence'] for row in manifest['tasks']}
+        self.assertEqual(report['codeFilesMapped'], len(expected_paths))
+        self.assertGreaterEqual(report['codeFilesMapped'], 10)
+        self.assertEqual(report['codeFilesPresent'], len(expected_paths))
+        self.assertEqual(report['codeFilesMissing'], 0)
         self.assertEqual(sum(report['counts'].values()),100)
         evidence = report['evidenceReview']
         self.assertEqual(evidence['status'],'historical-evidence-baseline-not-feature-validation')
