@@ -228,6 +228,41 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(conn.execute('SELECT id FROM bob_diagnostic_history').fetchall(),[('recent',)])
             conn.execute('DROP SCHEMA '+schema+' CASCADE')
 
+    def test_legacy_health_running_and_weekend_good_codes_cannot_fake_repair(self):
+        import psycopg
+        import bob_repair_store
+        schema = 'diag_proof_' + str(time.time_ns())
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute('CREATE SCHEMA '+schema)
+            conn.execute('SET search_path TO '+schema)
+            h.init(conn)
+            bob_repair_store.init(conn)
+            conn.execute("""INSERT INTO bob_self_heal_events(
+                event_id,event_at,kind,code)
+                VALUES('test',now()-interval '20 minutes',
+                       'repair-verified','background-worker-stopped')""")
+            # Both old observations claimed good from mere paused/running
+            # status, without an original clock proving completed work.
+            for i, age in enumerate((600,30)):
+                h.write(conn, {'id':f'{i:032x}', 'traceId':'b'*32,
+                    'stage':'health', 'at':time.time()-age,
+                    'payload':{'status':'ok', 'session':'weekend',
+                               'goodCodes':['background-worker-stopped']}})
+            old = h.report(conn)['repairFollowups'][0]
+            self.assertEqual(old['state'], 'pending-or-stale')
+            self.assertEqual(old['goodChecks'], 0)
+            # Even with a new bad code, recurrence remains visible; it can
+            # never be hidden by an older positive status.
+            for i,age in enumerate((600,30),start=10):
+                h.write(conn, {'id':f'{i:032x}', 'traceId':'b'*32,
+                    'stage':'health', 'at':time.time()-age,
+                    'payload':{'evidenceVersion':2,
+                               'goodCodes':['background-worker-stopped']}})
+            new = h.report(conn)['repairFollowups'][0]
+            self.assertEqual(new['goodChecks'],2)
+            self.assertEqual(new['state'],'observed-stable')
+            conn.execute('DROP SCHEMA '+schema+' CASCADE')
+
     def test_durable_restart_readonly_followup_and_recurrence(self):
         import psycopg
         import bob_repair_store
