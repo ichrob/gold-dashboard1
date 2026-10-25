@@ -7,6 +7,7 @@ def evidence_gaps(account):
     journal = account.get('journal') or {}
     orders = (journal.get('orders') or {}).get('rows') or []
     activities = (journal.get('activities') or {}).get('rows') or []
+    proved = {item.get('key'):item for item in (account.get('tradeInsights') or {}).get('executions', [])}
     counts = dict(orderRows=len(orders), positiveFills=0,
                   noPositiveFill=0, missingExecutionTime=0,
                   missingVerifiedIsin=0, missingPrice=0,
@@ -20,7 +21,7 @@ def evidence_gaps(account):
             continue
         counts['positiveFills'] += 1
         if not row.get('executedAt'): counts['missingExecutionTime'] += 1
-        if not row.get('isin'): counts['missingVerifiedIsin'] += 1
+        if not proved.get(row.get('key'), {}).get('isin'): counts['missingVerifiedIsin'] += 1
         if not row.get('price'): counts['missingPrice'] += 1
     for row in activities:
         if isinstance(row,dict) and row.get('type') in ('BUY','SELL'):
