@@ -47,10 +47,34 @@ def _route(value):
     return path if path in ROUTES else "other-unclassified"
 
 
+
+def _request(row):
+    """Take only fixed, sanitized fields from structured or Bob app logs."""
+    if not isinstance(row, dict):
+        return None
+    if row.get("type", "request") == "request" and "statusCode" in row:
+        return row.get("path"), row.get("statusCode")
+    message = row.get("message")
+    if not isinstance(message, str) or len(message) > 512:
+        return None
+    parts = message.split()
+    if not parts or parts[0] not in ("BOB_HTTP", "BOB_PUSH_HTTP"):
+        return None
+    fields = {}
+    for part in parts[1:]:
+        if "=" in part:
+            key, value = part.split("=", 1)
+            if key in ("path", "status", "method"):
+                fields[key] = value
+    if fields.get("method") not in ("GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"):
+        return None
+    return fields.get("path"), fields.get("status")
+
 def classify(logs, *, service, window_start, window_end, has_more=False):
     """Classify bounded, caller-supplied logs; original source not verified.
 
-    Log rows: timestamp (RFC3339), path, statusCode, optional type=request.
+    Input: timestamped request records OR Bob app-log lines with fixed prefixes
+    BOB_HTTP/BOB_PUSH_HTTP. Unknown log messages cannot be classified.
     Incomplete/paginated captures cannot prove the absence of HTTP errors.
     """
     start, end = _timestamp(window_start), _timestamp(window_end)
@@ -64,16 +88,18 @@ def classify(logs, *, service, window_start, window_end, has_more=False):
     considered = min(len(logs), MAX_LOGS)
     invalid = 0
     for row in logs[:MAX_LOGS]:
-        if not isinstance(row, dict) or row.get("type", "request") != "request":
+        request = _request(row)
+        if request is None:
             invalid += 1
             continue
         stamp = _timestamp(row.get("timestamp"))
-        code = _code(row.get("statusCode"))
+        path, raw_code = request
+        code = _code(raw_code)
         if stamp is None or code is None or not start <= stamp <= end:
             invalid += 1
             continue
         band = f"{code // 100}xx"
-        route = _route(row.get("path"))
+        route = _route(path)
         counts[band] += 1
         bucket = by_route.setdefault(route, Counter())
         bucket[band] += 1
