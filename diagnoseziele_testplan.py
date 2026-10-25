@@ -45,8 +45,12 @@ def assess(root, goals, mapping):
     test_kinds = {"python": 0, "javascript": 0}
     for row in rows:
         number = row["id"]
+        # This is only a mapping check. The historical goal-18 acceptance is
+        # validated separately with CI and dual Render deployment evidence.
+        evidence_state = by_id[number].get("state")
+        expected_verified = (number == 18 and evidence_state == "verified-at-build")
         if (row.get("claim") != "test-file-candidate-only"
-                or by_id[number].get("verified") is not False):
+                or by_id[number].get("verified") is not expected_verified):
             return unavailable
         filename = row.get("representativeTest")
         if not isinstance(filename, str) or not _TEST.fullmatch(filename):
