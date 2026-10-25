@@ -786,6 +786,17 @@ def read_access_coverage(manifest):
             test_evidence = inspect_test_candidates(root, rows, mapped)
         except (OSError, ValueError, TypeError, KeyError):
             test_evidence = {'status':'unavailable', 'reason':'test-map-not-readable'}
+        # Complete, non-authorizing Sunday/Monday handoff; no new SQL,
+        # broker calls or device controls. Any absent plan stays unknown.
+        work_split = {'status':'unavailable'}
+        try:
+            from diagnoseziele_work_split import assess as inspect_handoff
+            work_plan = json.loads((root/'Besser_werden/sonntag_montag_100_plan.json')
+                .read_text(encoding='utf-8'))
+            work_split = inspect_handoff(rows, work_plan)
+        except (OSError, ValueError, TypeError, KeyError):
+            work_split = {'status':'unavailable',
+                          'reason':'work-split-plan-missing-or-invalid'}
         # A historical acceptance is a narrow, independently observed
         # CI + two-service live-deployment sample, never automatic trade or
         # current runtime approval. Fail closed if any proof is malformed.
@@ -835,6 +846,7 @@ def read_access_coverage(manifest):
                 'codeFileScope':'existence-only-not-test-or-live-proof',
                 'evidenceReview':review, 'moduleInventory':module_summary,
                 'moduleDiscovery':root_discovery, 'testEvidenceInventory':test_evidence,
+                'workSplit':work_split,
                 'note':'Four goals have narrow dated original observations: seven-day journal '
                        'sample, archived health comparison, Render CPU/RAM, and historic '
                        'dual-service build match. 96 remain unaccepted; no continuous '
