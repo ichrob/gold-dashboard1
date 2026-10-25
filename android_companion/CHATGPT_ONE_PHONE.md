@@ -53,7 +53,21 @@ denn lange oder zusammengesetzte Nachrichten werden vollständig abgewiesen.
   Die reale Android-Teilen-Zielauswahl und der tatsächliche Browserwechsel
   müssen erst auf dem eigenen Gerät bestätigt werden.
 
-## Zweite Entwicklungsstufe (noch nicht implementiert)
+## HTTPS-Anzeige ohne Kopieren (Code-Änderung 25.10.2026)
+
+Ein ausdrücklich vom Nutzer angetippter, genau erlaubter
+`https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS`-Link
+darf in der neuen stabilen Android-App direkt die passende **Bob-Webansicht**
+öffnen, ohne Clipboard oder zusätzliche Freigabe. Dies betrifft
+ausschließlich feste, rein lesende Bob-Seiten. Android muss App-Links
+für das signierte stabile Paket öffnen; ChatGPT-WebViews können den
+Link weiterhin im Browser öffnen. Auf der Browser-Landingpage kann man
+„Bob direkt im Browser öffnen“ auswählen.
+
+Die sichere Clipboard-/Teilen-Übergabe und ihre Einmalfreigabe bleiben
+unverändert. Echte Gerätebestätigung ist weiterhin ausstehend.
+
+## Weitere Entwicklungsstufe (noch nicht implementiert)
 
 Ein direkter ChatGPT-zu-Bob-Auftragskanal ohne Kopieren/Teilen bräuchte
 eine separat authentifizierte, verschlüsselte Transportstrecke sowie einen

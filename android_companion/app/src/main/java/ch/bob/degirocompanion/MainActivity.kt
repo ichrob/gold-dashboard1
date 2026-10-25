@@ -409,9 +409,29 @@ class MainActivity : Activity() {
     private fun processUserShare(incoming: Intent?) {
         if (incoming == null) return
         if (incoming.action == Intent.ACTION_VIEW) {
-            // A deep link is an UNTRUSTED, user-clicked proposal, not a
-            // command authorization. Unknown/encoded/composite values are
-            // rejected before any page launch. Approval remains one-shot.
+            // One explicitly opened HTTPS App Link can show ONLY a fixed
+            // read-only page on Bob's own origin. This is not a command or
+            // broker authorization. The exact-link parser rejects all other
+            // hosts, paths, parameters and multi-action inputs.
+            val direct = BobHandyDeepLink.directHttpsDisplay(incoming.dataString)
+            if (direct != null) {
+                val section = BobNavigation.pageFor(direct)
+                val launched = section != null && openBobPage(section)
+                commandOutcome = if (launched) DeviceDiagnosticShare.Outcome.STARTED_NOT_VERIFIED
+                    else DeviceDiagnosticShare.Outcome.FAILED
+                remoteAudit.append(System.currentTimeMillis(),
+                    if (launched) RemoteAuditEvent.SHARE_LAUNCHED_NOT_VERIFIED
+                    else RemoteAuditEvent.SHARE_LAUNCH_FAILED, direct)
+                if (launched) {
+                    commandStatus.text = "HTTPS-Anzeigelink: Bob-Seite angestoßen. " +
+                        "Browser-Anzeige nicht verifiziert; Anmeldung bleibt erforderlich."
+                    return
+                }
+                // Browser unavailable: show the ordinary approved fallback.
+                // Never silently claim the target website loaded.
+            }
+            // Legacy custom scheme (or failed HTTPS browser navigation)
+            // only proposes one local action with an explicit second approval.
             val task = BobHandyDeepLink.parse(incoming.dataString)
             previewChatShare(task?.let { "BOB-HANDY/1|" + it.name } ?: "")
             return

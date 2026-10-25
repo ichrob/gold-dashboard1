@@ -3,9 +3,12 @@
 ## Goal
 A **normal HTTPS link** clicked by the user in ChatGPT should be resolved by
 Android's **verified App Links** mechanism to the installed signed `Bob – Handy`.
-The app may preview **only a single allowlisted display**; the already
-implemented local **„✅ Geteilten Anzeigeauftrag einmalig öffnen“** is still
-required. One tap to open the app is not permission to execute anything.
+On an explicit verified HTTPS App Link tap, the latest stable app now starts
+**only the matching allowlisted read-only Bob web view** immediately. This
+removes the additional local confirmation solely for the exact HTTPS links.
+The browser may still require Bob login. The link never grants broker or
+account permissions. Legacy custom-scheme links and clipboard/shared text
+continue to show the one-shot local approval preview.
 
 Example: https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS
 
@@ -27,14 +30,15 @@ Example: https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS
 ## User confirmation and unsupported clients
 ChatGPT, certain clients or Android settings may still force a browser even
 for a correctly verified link; the final confirmation is an **actual Samsung
-test**, never green CI alone. For clients that open the web landing instead,
-Bob offers the existing two-tap custom-scheme proposal link or the proven
-clipboard fallback: copy `BOB-HANDY/1|OPEN_PRODUCTS`, use
+test**, never green CI alone. For clients that open the web landing instead, use **„Bob direkt im Browser
+öffnen“**. The older two-tap custom-scheme proposal and clipboard fallback
+remain available: copy `BOB-HANDY/1|OPEN_PRODUCTS`, use
 `📋 Kopierten ChatGPT-Auftrag prüfen`, then explicitly approve.
 
 ## Security
 No background handset control, accessibility permission, network
 permission in the offline Android companion, financial orders, login,
-OTP, or untrusted arbitrary URL execution. A link is not device
-authentication. All data-bearing API endpoints remain under Bob session
-authentication and the verified association is deliberately public.
+OTP, or untrusted arbitrary URL execution. The only one-tap operation is
+opening a fixed, read-only Bob webpage upon an explicit Android HTTPS intent;
+it is not device authentication. All data-bearing API endpoints remain under
+Bob session authentication and the verified association is deliberately public.
