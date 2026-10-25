@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "scope": "Historical, build-bound feature acceptance only; not proof of current or continuous service synchrony.",
+  "accepted": [
+    {
+      "id": 18,
+      "goal": "Gleiche Build-Version auf Diensten",
+      "kind": "two-services-exact-build-at-sample",
+      "build": "12764b1eb096061efac81380d9754d57225df696",
+      "checkedAt": "2026-10-25T10:54:46.445262+00:00",
+      "github": {
+        "ciRun": 40186063805,
+        "ciConclusion": "success",
+        "liveSmokeRun": 40186064035,
+        "liveSmokeConclusion": "success"
+      },
+      "render": [
+        {
+          "service": "bob-private-scanner",
+          "build": "12764b1eb096061efac81380d9754d57225df696",
+          "status": "live",
+          "finishedAt": "2026-10-25T10:48:34.277608Z"
+        },
+        {
+          "service": "bob-push-service",
+          "build": "12764b1eb096061efac81380d9754d57225df696",
+          "status": "live",
+          "finishedAt": "2026-10-25T10:48:56.766701Z"
+        }
+      ],
+      "limitations": "Zeitpunktbezogener Code-/CI-/Render-Nachweis; keine automatische Garantie für spätere Deployments, Betrieb oder Handelsfunktionen."
+    }
+  ]
+}
