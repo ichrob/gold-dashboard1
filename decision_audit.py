@@ -737,6 +737,10 @@ def _load_prospective_rows(conn, recent=False):
     Traverse qualifying hourly first records via the existing recorded_at index;
     skip empty hours without scanning/sorting the full history. Full validation
     retains its documented 30-day window; recovery is strictly last 24 hours.
+    Explicitly cap both the seed and each recursive forward step at the
+    database's current time so that a bad future-dated archive record cannot
+    extend the historical review or trigger an unbounded forward walk.
+    No SQL timeout, index, schema, retention or live trading gate changes.
     """
     horizon = "24 hours" if recent is True else "30 days"
     eligible = """payload->'reviewVariants'->>'version'='signal-review-v1'
@@ -745,6 +749,7 @@ def _load_prospective_rows(conn, recent=False):
     sql = """WITH RECURSIVE sampled(id,recorded_at) AS (
         (SELECT id,recorded_at FROM bob_decision_audit
          WHERE recorded_at >= now()-interval '""" + horizon + """'
+           AND recorded_at <= now()
            AND """ + eligible + """
          ORDER BY recorded_at,id LIMIT 1)
         UNION ALL
@@ -753,6 +758,7 @@ def _load_prospective_rows(conn, recent=False):
         CROSS JOIN LATERAL (
             SELECT id,recorded_at FROM bob_decision_audit
             WHERE recorded_at >= date_trunc('hour',previous.recorded_at) + interval '1 hour'
+              AND recorded_at <= now()
               AND """ + eligible + """
             ORDER BY recorded_at,id LIMIT 1
         ) next_hour

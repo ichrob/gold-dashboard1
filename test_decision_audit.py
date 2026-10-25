@@ -376,10 +376,13 @@ class ProspectiveBoundedRecoveryTests(unittest.TestCase):
         self.assertIn("recorded_at >= now()-interval '30 days'",full_sql)
         self.assertIn('WITH RECURSIVE sampled',full_sql)
         self.assertIn('CROSS JOIN LATERAL',full_sql)
+        self.assertEqual(full_sql.count('AND recorded_at <= now()'), 2)
         self.assertNotIn('DISTINCT ON',full_sql)
         a._load_prospective_rows(db,recent=True)
         self.assertIn("recorded_at >= now()-interval '24 hours'",
                       db.execute.call_args.args[0])
+        self.assertEqual(db.execute.call_args.args[0].count(
+            'AND recorded_at <= now()'), 2)
         self.assertEqual(db.execute.call_args.args[1],(a.RULE_VERSION,a.RULE_VERSION))
 
     def test_one_timeout_produces_explicit_partial_not_30_day_result(self):

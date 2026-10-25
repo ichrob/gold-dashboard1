@@ -130,6 +130,44 @@ class DatabaseContentionTests(unittest.TestCase):
             last_day = decision_audit._load_prospective_rows(conn,recent=True)
             self.assertEqual([row[0]['id'] for row in last_day],['first','later'])
 
+    def test_future_dated_records_never_enter_historical_hourly_research(self):
+        """Bad future rows cannot become historical evidence or widen the scan."""
+        from psycopg.types.json import Jsonb
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute("""CREATE TEMP TABLE bob_decision_audit (
+                id TEXT PRIMARY KEY, recorded_at TIMESTAMPTZ, payload JSONB)""")
+            conn.execute('CREATE INDEX ON bob_decision_audit(recorded_at)')
+            conn.execute("""CREATE TEMP TABLE bob_decision_outcomes (
+                decision_id TEXT, horizon INTEGER, truth JSONB)""")
+            def payload(name):
+                return Jsonb(dict(id=name, reviewVariants=dict(version='signal-review-v1'),
+                                  origin='background', ruleVersion=decision_audit.RULE_VERSION,
+                                  direction='LONG'))
+            # A malformed future timestamp must never appear in a 24h or
+            # 30-day report, even though its direction/rule are otherwise valid.
+            conn.execute("""INSERT INTO bob_decision_audit
+                VALUES ('future-only', now()+interval '4 days', %s)""",
+                         (payload('future-only'),))
+            self.assertEqual(decision_audit._load_prospective_rows(conn), [])
+            self.assertEqual(decision_audit._load_prospective_rows(conn,recent=True), [])
+            # Preserve first eligible observation in every actual hour, not
+            # the most favorable outcome. Later/future outcome is not a fill.
+            for name, offset in [
+                    ('first', "-interval '10 hours'"),
+                    ('second', "-interval '10 hours' + interval '5 minutes'"),
+                    ('past', "-interval '2 hours'")]:
+                conn.execute("""INSERT INTO bob_decision_audit
+                    VALUES (%s,date_trunc('hour', now()) + """ +
+                    offset + """,%s)""", (name,payload(name)))
+            conn.execute("""INSERT INTO bob_decision_outcomes
+                VALUES ('second',60,%s)""", (Jsonb({'gain': 100}),))
+            expected=['first','past']
+            for recent in (False, True):
+                rows=decision_audit._load_prospective_rows(conn,recent=recent)
+                self.assertEqual([r[0]['id'] for r in rows], expected)
+                self.assertIsNone(rows[0][1])
+                self.assertNotIn('future-only', [r[0]['id'] for r in rows])
+
     def test_pool_reuses_connections_and_rolls_back_failed_writes(self):
         dsn = os.environ['BOB_TEST_DATABASE_URL']
         with ConnectionPool(dsn, min_size=1, max_size=1, timeout=1) as pool:
