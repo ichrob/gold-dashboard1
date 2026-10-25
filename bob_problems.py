@@ -223,6 +223,12 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
 <p id="bobProblemsBreakdown" class="small" role="status"></p>
 <div id="bobProblemsList"></div>
 <p class="small">Der Zähler zeigt, wie viele Probleme noch KI-Hilfe benötigen. Weitere Probleme erhöhen die Zahl. Nach bestätigter Behebung sinkt sie wieder. Das Öffnen der Sparte löscht keine Einträge.</p>
+<button id="bobProblemsShare" type="button" style="width:100%;min-height:46px;background:#1563b5;color:white;font-weight:700;border-radius:10px">Fehlerdiagnose an ChatGPT teilen · ohne Kopieren</button>
+<p id="bobProblemsShareStatus" role="status" class="small">Beim Teilen ChatGPT auswählen und den Bericht dort selbst absenden. Nur freigegebene technische Fehlercodes; keine Kontodaten, Logins oder Handelsaufträge.</p>
+<div id="bobProblemsShareFallback" hidden>
+  <button id="bobProblemsCopy" type="button">Ersatzweg: Bericht kopieren</button>
+  <textarea id="bobProblemsShareText" readonly aria-label="Fehlerdiagnose zum manuellen Kopieren" style="width:100%;min-height:145px"></textarea>
+</div>
 <button id="bobProblemsRefresh" type="button">Probleme aktualisieren</button>
 <p class="small"><a target="_blank" rel="noopener noreferrer" href="https://github.com/ichrob/gold-dashboard1/issues?q=is%3Aissue+%22Bob+KI-Hilfe%22">Fehlerarchiv auf GitHub öffnen</a></p>
 </section>
@@ -263,6 +269,74 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
    '\nLetzte Bearbeitung: '+readableDate(item.updatedAt)+
    '\nFehlerprotokoll: '+item.url+
    '\nBitte prüfe den Fehler in GitHub und Render, suche die Ursache, teste eine sichere Behebung und veröffentliche nur geprüfte Änderungen. Keine echten Trades.';
+ }
+ // Privacy boundary: export ONLY allowlisted technical issue codes, safe
+ // issue identifiers and aggregate counts. Never raw messages or logs.
+ function diagnosticShareText(snapshot,stats){
+  const state=['ok','stale'].includes(snapshot?.status)?snapshot.status:'unavailable';
+  const count=state==='unavailable'||!Number.isInteger(snapshot?.count)||
+    snapshot.count<0||snapshot.count>1000?'unbekannt':String(snapshot.count);
+  const checkedAt=typeof snapshot?.checkedAt==='string'&&
+    /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|\+00:00)$/.test(snapshot.checkedAt)?
+    snapshot.checkedAt:'nicht nachgewiesen';
+  const items=state==='unavailable'||!Array.isArray(snapshot?.problems)?[]:
+    snapshot.problems.filter(item=>item&&Number.isInteger(item.number)&&item.number>0&&
+      item.number<100000000&&typeof item.code==='string'&&
+      (Object.hasOwn(publicCodes,item.code)||/^manual-\d{1,8}$/.test(item.code)))
+      .slice(0,20);
+  const lines=[
+    'BOB-FEHLERDIAGNOSE/1 · bewusst vom Nutzer per Android geteilt',
+    'Projekt: ichrob/gold-dashboard1 · Dienste: bob-private-scanner / bob-push-service',
+    'Auftrag: Prüfe technische Fehler anhand von GitHub- und Render-Nachweisen. Suche Ursache, sichere Korrektur und Tests. Melde Unsicherheit. Keine Echtgeldorders oder Handelsfreigaben.',
+    'Indexstatus: '+state+(state==='stale'?' (nicht als aktuell bestätigen)':''),
+    'Indexzeit (UTC): '+checkedAt,
+    'Offene technische KI-Hilfeanfragen laut Index: '+count,
+    'Produktprobleme: separat in Bob/Produkte prüfen; hier nicht enthalten.'
+  ];
+  if(state==='unavailable')lines.push('Technische Fehlerliste derzeit nicht verfügbar; nicht als fehlerfrei interpretieren.');
+  else if(count==='0')lines.push('Im Index keine offenen technischen KI-Hilfeanfragen; kein Beweis allgemeiner Fehlerfreiheit.');
+  else if(!items.length)lines.push('Keine einzeln freigegebenen Fehlerdetails verfügbar. Bitte GitHub selbst prüfen.');
+  for(const item of items){
+    const desc=Object.hasOwn(publicCodes,item.code)?publicCodes[item.code]:
+      'Manuelle KI-Hilfeanfrage; genauer Inhalt nicht automatisch geteilt';
+    const stage=Object.hasOwn(kiStatusLabels,item.kiStatus)?kiStatusLabels[item.kiStatus]:
+      kiStatusLabels.new;
+    lines.push('#'+item.number+' · '+item.code+' · '+desc+' · '+stage+
+      ' · https://github.com/ichrob/gold-dashboard1/issues/'+item.number);
+  }
+  if(state!=='unavailable'&&count!=='unbekannt'&&Number(count)>items.length)
+    lines.push('Weitere Probleme möglich; maximal 20 geprüfte Einträge aufgeführt.');
+  const validStats=stats&&['ok','stale'].includes(stats.status);
+  for(const [key,label] of [['detected','Problemereignisse'],['verifiedRepairs','Bestätigte Reparaturen']]){
+    const num=validStats&&Number.isInteger(stats[key])&&stats[key]>=0&&stats[key]<1000000?
+      String(stats[key]):'nicht nachgewiesen';
+    lines.push(label+': '+num+(validStats&&stats.status==='stale'?' (veraltet)':''));
+  }
+  lines.push('Quelle: freigegebene Fehlercodes und aggregierte Reparaturzähler. Keine Logins, Screenshots, Depotdaten oder Originalproduktwerte.');
+  lines.push('Das Teilen bestätigt weder ChatGPT-Empfang noch Fehlerbehebung.');
+  return lines.join('\n');
+ }
+ function shareToChatGPT(){
+  // Called directly from a tap; do not await a fetch before native share.
+  const value=diagnosticShareText(latest,lastStats);
+  const status=document.getElementById('bobProblemsShareStatus');
+  document.getElementById('bobProblemsShareText').value=value;
+  document.getElementById('bobProblemsShareFallback').hidden=false;
+  if(typeof navigator.share!=='function'){
+    status.textContent='Android-Teilen hier nicht verfügbar. Bericht unten kopieren und in ChatGPT einfügen.';
+    return;
+  }
+  try{
+    const result=navigator.share({title:'Bob · technische Fehlerdiagnose',text:value});
+    status.textContent='Android-Teilen geöffnet: ChatGPT auswählen und die Nachricht dort selbst absenden. Empfang nicht bestätigt.';
+    Promise.resolve(result).then(()=>{
+      status.textContent='Teilen-Dialog beendet. Ob ChatGPT den Bericht erhalten hat, dort prüfen und selbst absenden.';
+    },error=>{
+      status.textContent=error?.name==='AbortError'?
+        'Teilen abgebrochen. Keine automatische Übertragung; Ersatzbericht verfügbar.':
+        'Android-Teilen fehlgeschlagen. Ersatzweg: Bericht kopieren und in ChatGPT einfügen.';
+    });
+  }catch(_){status.textContent='Android-Teilen nicht möglich. Bericht unten kopieren und in ChatGPT einfügen.';}
  }
  async function copy(value, label){
   try {
@@ -427,6 +501,9 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
     items.append(article);
    }
   }catch(_){
+   // The last successful snapshot is no longer independently current.
+   // Never share a failed refresh with the previous 'ok' freshness flag.
+   if(latest)latest={...latest,status:'stale'};
    summary.textContent=latest?'⚠️ Probleme können derzeit nicht neu abgefragt werden; letzter Stand bleibt sichtbar.':'⚠️ Problemarchiv momentan nicht erreichbar – Zahl unbekannt. Bitte GitHub prüfen.';
    document.getElementById('bobProblemsLastUpdate').textContent=
      'Letzte erfolgreiche Aktualisierung: '+(latest?readableDate(latest.checkedAt):'unbekannt');
@@ -434,7 +511,11 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
   }
  }
  document.getElementById('bobProblemsRefresh').addEventListener('click',refresh);
- window.BobProblems={refresh,badge};
+ document.getElementById('bobProblemsShare').addEventListener('click',shareToChatGPT);
+ document.getElementById('bobProblemsCopy').addEventListener('click',()=>{
+  copy(document.getElementById('bobProblemsShareText').value,document.getElementById('bobProblemsShareStatus'));
+ });
+ window.BobProblems={refresh,badge,shareToChatGPT};
  document.addEventListener('DOMContentLoaded',()=>{if(latest)badge(latest.count);});
  refresh();
  setInterval(refresh,60000);

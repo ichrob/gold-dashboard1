@@ -13,6 +13,7 @@ PAGES = {
     "OPEN_MARKET": ("Goldmarkt anzeigen", "overview"),
     "OPEN_TRADE": ("Mein Trade anzeigen", "trade"),
     "OPEN_SIMULATION": ("Simulationen anzeigen", "simulation"),
+    "OPEN_PROBLEMS": ("Fehlerdiagnose anzeigen", "problems"),
     "OPEN_LEARNING": ("Lernergebnisse anzeigen", "learning"),
     "OPEN_RESEARCH": ("Gold-Recherche anzeigen", "research"),
     "OPEN_LONG_REVIEW": ("LONG-Produkte vergleichen", "products-long"),

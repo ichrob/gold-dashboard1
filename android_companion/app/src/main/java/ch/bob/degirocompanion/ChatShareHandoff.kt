@@ -13,7 +13,7 @@ internal object ChatShareHandoff {
         PhoneTask.OPEN_BOB, PhoneTask.OPEN_PRODUCTS,
         PhoneTask.OPEN_LONG_REVIEW, PhoneTask.OPEN_LEVERAGE_REVIEW,
         PhoneTask.OPEN_TRADE, PhoneTask.OPEN_SIMULATION, PhoneTask.OPEN_LEARNING,
-        PhoneTask.OPEN_RESEARCH, PhoneTask.OPEN_MARKET
+        PhoneTask.OPEN_RESEARCH, PhoneTask.OPEN_MARKET, PhoneTask.OPEN_PROBLEMS
     )
 
     const val PRODUCTS = "BOB-HANDY/1|OPEN_PRODUCTS"

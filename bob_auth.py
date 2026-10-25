@@ -31,7 +31,7 @@ PASSWORD_FAILURE_LIMIT = 5
 PASSWORD_FAILURE_WINDOW = 5 * 60
 
 # UI-only return destinations; NEVER arbitrary paths or redirects.
-SAFE_RETURN_VIEWS = frozenset(("overview", "products", "products-long", "products-leverage", "trade", "simulation", "learning", "research"))
+SAFE_RETURN_VIEWS = frozenset(("overview", "products", "products-long", "products-leverage", "trade", "simulation", "learning", "research", "problems"))
 
 def safe_return_view(value):
     return value if isinstance(value, str) and value in SAFE_RETURN_VIEWS else ""

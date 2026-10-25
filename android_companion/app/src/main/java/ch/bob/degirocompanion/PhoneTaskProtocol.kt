@@ -18,6 +18,7 @@ internal enum class PhoneTask(val description: String) {
     OPEN_LEVERAGE_REVIEW("Bobs vorhandene Hebel-Risikohinweise ansehen"),
     OPEN_TRADE("Bob Mein Trade anzeigen"),
     OPEN_SIMULATION("Bob Simulation anzeigen"),
+    OPEN_PROBLEMS("Bob Probleme und technische Fehlerdiagnose anzeigen"),
     OPEN_LEARNING("Bob Lernen und Ergebnisse anzeigen"),
     OPEN_RESEARCH("Bob Gold-Recherche anzeigen"),
     OPEN_MARKET("Bob Goldmarkt-Übersicht anzeigen")
@@ -37,6 +38,7 @@ internal object PhoneTaskProtocol {
         PhoneTask.OPEN_LEVERAGE_REVIEW -> "Höchsten Hebel erklären"
         PhoneTask.OPEN_TRADE -> "Mein Trade anzeigen"
         PhoneTask.OPEN_SIMULATION -> "Simulationen anzeigen"
+        PhoneTask.OPEN_PROBLEMS -> "Fehlerdiagnose anzeigen"
         PhoneTask.OPEN_LEARNING -> "Lernen anzeigen"
         PhoneTask.OPEN_RESEARCH -> "Recherche anzeigen"
         PhoneTask.OPEN_MARKET -> "Goldmarkt anzeigen"

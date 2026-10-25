@@ -312,6 +312,7 @@ class MainActivity : Activity() {
         button("Goldprodukte direkt öffnen") { quickOpen(PhoneTask.OPEN_PRODUCTS) }
         button("Mein Trade direkt öffnen") { quickOpen(PhoneTask.OPEN_TRADE) }
         button("Simulationen direkt öffnen") { quickOpen(PhoneTask.OPEN_SIMULATION) }
+        button("Fehlerdiagnose direkt öffnen") { quickOpen(PhoneTask.OPEN_PROBLEMS) }
         button("Produktbilder auswählen – Auftrag vorbereiten") {
             commandInput.setText("Produktbilder auswählen")
         }
@@ -343,6 +344,7 @@ class MainActivity : Activity() {
                     PhoneTask.OPEN_LEVERAGE_REVIEW -> openBobPage("products-leverage")
                     PhoneTask.OPEN_TRADE -> openBobPage("trade")
                     PhoneTask.OPEN_SIMULATION -> openBobPage("simulation")
+                    PhoneTask.OPEN_PROBLEMS -> openBobPage("problems")
                     PhoneTask.OPEN_LEARNING -> openBobPage("learning")
                     PhoneTask.OPEN_RESEARCH -> openBobPage("research")
                     PhoneTask.OPEN_MARKET -> openBobPage("overview")

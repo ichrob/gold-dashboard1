@@ -8,6 +8,7 @@ class BobHandyDeepLinkTest {
         for (task in listOf(PhoneTask.OPEN_BOB, PhoneTask.OPEN_PRODUCTS,
                 PhoneTask.OPEN_TRADE, PhoneTask.OPEN_SIMULATION,
                 PhoneTask.OPEN_MARKET, PhoneTask.OPEN_LEARNING, PhoneTask.OPEN_RESEARCH,
+                PhoneTask.OPEN_PROBLEMS,
                 PhoneTask.OPEN_LEVERAGE_REVIEW, PhoneTask.OPEN_LONG_REVIEW)) {
             val link = BobHandyDeepLink.linkFor(task)
             assertNotNull(task.name, link)
@@ -18,7 +19,7 @@ class BobHandyDeepLinkTest {
     @Test fun verifiedHttpsHarmlessLinksRoundTripForDirectReadOnlyDisplay() {
         val tasks = listOf(PhoneTask.OPEN_BOB, PhoneTask.OPEN_PRODUCTS,
             PhoneTask.OPEN_TRADE, PhoneTask.OPEN_SIMULATION, PhoneTask.OPEN_MARKET,
-            PhoneTask.OPEN_LEARNING, PhoneTask.OPEN_RESEARCH,
+            PhoneTask.OPEN_LEARNING, PhoneTask.OPEN_RESEARCH, PhoneTask.OPEN_PROBLEMS,
             PhoneTask.OPEN_LONG_REVIEW, PhoneTask.OPEN_LEVERAGE_REVIEW)
         for (task in tasks) {
             val uri = BobHandyDeepLink.httpsLinkFor(task)
@@ -49,6 +50,7 @@ class BobHandyDeepLinkTest {
             "bobhandy://handoff/PICK_IMAGES",
             "bobhandy://handoff/DEGIRO_LOGIN",
             "bobhandy://handoff/PLACE_ORDER",
+            "bobhandy://handoff/OPEN_PROBLEMS/SELL",
             "bobhandy://handoff/OPEN_PRODUCTS?trade=true",
             "bobhandy://handoff/OPEN_PRODUCTS#trade",
             "bobhandy://handoff/OPEN_PRODUCTS/OPEN_TRADE",

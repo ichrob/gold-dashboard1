@@ -1,7 +1,7 @@
 """Private visualisation of server-side DEGIRO list evidence checks."""
 PANEL = r'''<section id="bobProductAudit" class="card">
 <button id="bobAuditShareChatGPT" type="button" style="width:100%;white-space:normal" aria-describedby="bobAuditShareHint">DEGIRO Goldhebelprodukte Probleme</button>
-<p id="bobAuditShareHint" class="small">Problembericht kopieren, dann in ChatGPT einfügen und absenden – ohne Screenshots.</p>
+<p id="bobAuditShareHint" class="small">Problembericht ohne Kopieren über Android an ChatGPT teilen: ChatGPT auswählen und dort selbst absenden. Falls Android-Teilen scheitert, bleibt Kopieren verfügbar.</p>
 <p id="bobAuditShareStatus" hidden role="status" class="small"></p>
 <div id="bobAuditShareActions" hidden>
 <button id="bobAuditCopyText" type="button">Bericht kopieren</button>
@@ -124,7 +124,10 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   if(target){target.value=value;target.hidden=false;}
   const actions=byId('bobAuditShareActions');if(actions)actions.hidden=false;
   const share=byId('bobAuditNativeShare');if(share)share.hidden=typeof navigator.share!=='function';
-  await copyMobileAudit();
+  // User explicitly selected sharing: avoid copying private diagnostics
+  // to the clipboard unless the fallback button is pressed.
+  if(typeof navigator.share==='function')await sharePreparedAudit();
+  else handoffStatus('Android-Teilen nicht verfügbar. Den Ersatzweg „Bericht kopieren“ wählen.');
  }
  async function sharePreparedAudit(){
   const value=preparedAuditText;

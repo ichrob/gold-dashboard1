@@ -12,7 +12,7 @@ class BobNavigationTest {
             PhoneTask.OPEN_LEVERAGE_REVIEW,
             PhoneTask.OPEN_LONG_REVIEW,
             PhoneTask.OPEN_TRADE, PhoneTask.OPEN_SIMULATION,
-            PhoneTask.OPEN_LEARNING, PhoneTask.OPEN_RESEARCH)
+            PhoneTask.OPEN_LEARNING, PhoneTask.OPEN_RESEARCH, PhoneTask.OPEN_PROBLEMS)
         for (task in sections) {
             assertTrue(BobNavigation.urlFor(task)!!.startsWith(BobNavigation.origin + "?view="))
         }
@@ -24,6 +24,8 @@ class BobNavigationTest {
             BobNavigation.urlFor(PhoneTask.OPEN_LEVERAGE_REVIEW))
         assertEquals("https://bob-private-scanner.onrender.com/?view=overview#overview",
             BobNavigation.urlFor(PhoneTask.OPEN_MARKET))
+        assertEquals("https://bob-private-scanner.onrender.com/?view=problems#problems",
+            BobNavigation.urlFor(PhoneTask.OPEN_PROBLEMS))
     }
 
     @Test fun repeatedPhoneOpenCreatesFreshBrowserNavigationForGoldStart() {
