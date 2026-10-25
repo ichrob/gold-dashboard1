@@ -49,3 +49,24 @@ def connection_watch(status):
     return dict(codes=list(dict.fromkeys(issues)),readOnly=True,
                 pushesSent=0, emailsSent=0,
                 note='Quelle und Originalzeit getrennt prüfen; alte Daten sind kein Verbindungsabbruch.')
+
+def profit_review(account):
+    """Readiness only: no financial returns calculated from partial histories."""
+    journal = account.get('journal') or {}
+    activity = journal.get('activities') or {}
+    trades = account.get('tradeJournal') or {}
+    insight = account.get('tradeInsights') or {}
+    match = insight.get('reconciliation') or {}
+    return dict(
+        accountHistoryComplete=activity.get('complete') is True,
+        activityReadable=activity.get('code') == 'READ_OK',
+        tradeRows=len(trades.get('events') or []),
+        fifoVerifiedSales=len(trades.get('realized') or []),
+        unresolvedLots=len(trades.get('unresolved') or []),
+        strictReviewPairs=match.get('candidatePairs') or 0,
+        unmatchedOrUnverifiedEvidence=(
+            (match.get('missingEvidence') or 0) +
+            (match.get('orderFillsWithoutExactActivity') or 0)),
+        netProfitVerified=False, taxProfitVerified=False,
+        canChangeTradeRules=False, readOnly=True,
+    )
