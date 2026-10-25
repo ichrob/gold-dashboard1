@@ -38,7 +38,7 @@ const sample={
 };
 const stats={status:'ok',detected:4,verifiedRepairs:2,account:'ACCOUNT_PRIVATE'};
 const body=context.build(sample,stats);
-for(const expected of ['BOB-FEHLERDIAGNOSE/1','Fall BOB-124-scanner-unreachable','Fall BOB-125-manual-125',
+for(const expected of ['BOB-FEHLERDIAGNOSE/1','BOB_KI_REVIEW','BOB_DIAGNOSTIC_CHATGPT_HANDOFF.md','Fall BOB-124-scanner-unreachable','Fall BOB-125-manual-125',
  'Offene technische KI-Hilfeanfragen laut Index: 2','Bestätigte Reparaturen: 2'])
  assert(body.includes(expected),expected);
 for(const hidden of ['SHOULD_NEVER_EXPORT','SECRET_MUST_NOT_EXPORT','user private email',
