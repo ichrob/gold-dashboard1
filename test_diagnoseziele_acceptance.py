@@ -131,6 +131,11 @@ class DatedAcceptanceTests(unittest.TestCase):
 
     def test_only_7_8_13_18_may_be_accepted_even_when_count_agrees(self):
         goals,record=self.fixtures()
+        for index in (6, 7, 12, 17):
+            mutated=json.loads(json.dumps(goals))
+            mutated[index]["state"]="partial"
+            mutated[index]["verified"]=False
+            self.assertEqual(a.assess(mutated,record)["status"],"unavailable")
         mutated=json.loads(json.dumps(goals))
         mutated[7]["state"]="partial"
         mutated[7]["verified"]=False
