@@ -30,11 +30,14 @@ class PaperGapTriageTests(unittest.TestCase):
             ]},
             {"items": [
                 {"eventAt": 3000000, "state": "nearby-15m-analysis-observed",
-                 "analysisAt": 3000000, "ready": False, "priceFresh": False},
+                 "analysisAt": 3000000, "timeRelation": "before-or-at-event", "deltaSeconds": 0,
+                 "ready": False, "priceFresh": False},
                 {"eventAt": 4000000, "state": "nearby-15m-analysis-observed",
-                 "analysisAt": 4000000, "ready": False, "priceFresh": False},
+                 "analysisAt": 4000000, "timeRelation": "before-or-at-event", "deltaSeconds": 0,
+                 "ready": False, "priceFresh": False},
                 {"eventAt": 5000000, "state": "nearby-15m-analysis-observed",
-                 "analysisAt": 5000000, "ready": False, "priceFresh": False},
+                 "analysisAt": 5000000, "timeRelation": "before-or-at-event", "deltaSeconds": 0,
+                 "ready": False, "priceFresh": False},
             ]})
 
     def test_five_distinct_clocks_not_thirteen_independent_outages(self):
@@ -57,10 +60,64 @@ class PaperGapTriageTests(unittest.TestCase):
         correlation, spot, analysis = self.sample()
         analysis["items"].append({"eventAt": 1000000,
             "state": "nearby-15m-analysis-observed",
-            "ready": True, "priceFresh": True})
+            "analysisAt": 1000000, "timeRelation": "before-or-at-event",
+            "deltaSeconds": 0, "ready": True, "priceFresh": True})
         result = t.assess(correlation, spot, analysis)
         self.assertEqual(result["counts"]["reviewableInputHandoffCandidates"], 1)
         self.assertEqual(result["counts"]["nearby15mReadyFreshUnlinked"], 1)
+        self.assertFalse(result["items"][0]["productBidVerified"])
+
+    def test_mislabelled_future_original_cannot_invent_earlier_evidence(self):
+        corr, spot, analysis = self.sample()
+        # An observed price 5 seconds *after* the event cannot be rewritten as
+        # before-or-at by changing only the descriptive archive label.
+        spot["items"][0]["nearestSourceAt"] = 1005000
+        spot["items"][0]["deltaSeconds"] = 5
+        result = t.assess(corr, spot, analysis)
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["counts"]["spotArchiveClockInconsistent"], 1)
+        self.assertEqual(result["counts"]["reviewableInputHandoffCandidates"], 1)
+        self.assertEqual(result["items"][0]["spotEvidence"], "spot-archive-clock-inconsistent")
+        self.assertEqual(result["items"][0]["nextCheck"], "inspect-inconsistent-archive-clocks")
+        self.assertFalse(result["items"][0]["executedExitVerified"])
+
+    def test_future_healthy_analysis_must_not_retroactively_clear_gap(self):
+        corr, spot, analysis = self.sample()
+        analysis["items"].append({"eventAt": 1000000,
+            "state": "nearby-15m-analysis-observed", "analysisAt": 1005000,
+            "timeRelation": "after-event", "deltaSeconds": 5,
+            "ready": True, "priceFresh": True})
+        result = t.assess(corr, spot, analysis)
+        self.assertEqual(result["counts"]["analysisOnlyAfterGap"], 1)
+        self.assertEqual(result["counts"]["nearby15mReadyFreshUnlinked"], 0)
+        self.assertEqual(result["counts"]["reviewableInputHandoffCandidates"], 2)
+        self.assertEqual(result["items"][0]["analysisEvidence"],
+                         "other-15m-analysis-only-after-gap-unlinked")
+        self.assertFalse(result["items"][0]["rootCauseVerified"])
+
+    def test_contradictory_worker_clock_withholds_profiles(self):
+        corr, spot, analysis = self.sample()
+        worker = {"items": [{"eventAt": 1000000,
+            "state": "worker-input-captured-near-gap", "capturedAt": 1006000,
+            "timeRelation": "before-or-at-event", "deltaSeconds": 6,
+            "profiles": [{"profile": "balanced", "ready": True,
+                          "priceFresh": True, "secret": "NO-LEAK"}]}]}
+        result = t.assess(corr, spot, analysis, worker)
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["counts"]["workerArchiveClockInconsistent"], 1)
+        self.assertEqual(result["items"][0]["paperWorkerEvidence"],
+                         "worker-archive-clock-inconsistent")
+        self.assertIsNone(result["items"][0]["workerCapturedAt"])
+        self.assertEqual(result["items"][0]["workerInputProfiles"], [])
+        self.assertEqual(result["counts"]["reviewableInputHandoffCandidates"], 1)
+        self.assertNotIn("NO-LEAK", json.dumps(result))
+
+    def test_incorrect_source_distance_never_becomes_past_evidence(self):
+        corr, spot, analysis = self.sample()
+        spot["items"][0]["deltaSeconds"] = 0.001  # actual 0.5 seconds
+        result = t.assess(corr, spot, analysis)
+        self.assertEqual(result["counts"]["spotArchiveClockInconsistent"], 1)
+        self.assertEqual(result["status"], "partial")
         self.assertFalse(result["items"][0]["productBidVerified"])
 
     def test_missing_data_redacted_no_false_healthy_claim(self):

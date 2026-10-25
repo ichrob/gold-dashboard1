@@ -10,6 +10,25 @@ def _clock(value):
     return value if type(value) in (int, float) and math.isfinite(value) and value > 0 else None
 
 
+def _aligned_clock(item, event_at, field):
+    """Require an original clock that agrees with its declared relation and age.
+
+    The source archives round distance to milliseconds. Reject contradictory,
+    future-as-past or out-of-window records rather than promoting their status.
+    """
+    at = _clock(item.get(field))
+    relation = 'before-or-at-event' if at is not None and at <= event_at else 'after-event'
+    if (at is None or abs(at-event_at) > 90000
+            or item.get('timeRelation') != relation):
+        return False
+    delta = item.get('deltaSeconds')
+    if delta is not None and (type(delta) not in (int, float)
+            or not math.isfinite(delta)
+            or abs(delta - abs(at-event_at)/1000) > .006):
+        return False
+    return True
+
+
 def assess(gap_correlation, spot_archive, analysis_archive, paper_input_archive=None):
     """Return one read-only review row per distinct recorded gap instant.
 
@@ -39,13 +58,17 @@ def assess(gap_correlation, spot_archive, analysis_archive, paper_input_archive=
         "originalBeforeButOlderThan60s": 0,
         "noGoldApiOriginalIn90sWindow": 0,
         "spotArchiveUnavailableOrMissing": 0,
+        "spotArchiveClockInconsistent": 0,
         "nearby15mNotReadyOrNotFresh": 0,
+        "analysisOnlyAfterGap": 0,
+        "analysisArchiveClockInconsistent": 0,
         "nearby15mReadyFreshUnlinked": 0,
         "analysisEvidenceMissingOrUnavailable": 0,
         "reviewableInputHandoffCandidates": 0,
         "workerCaptureBeforeOrAtGap": 0,
         "workerCaptureOnlyAfterGap": 0,
         "workerCaptureMissingOrUnavailable": 0,
+        "workerArchiveClockInconsistent": 0,
     }
     for cluster in clusters[-12:]:
         if not isinstance(cluster, dict):
@@ -58,7 +81,10 @@ def assess(gap_correlation, spot_archive, analysis_archive, paper_input_archive=
         relation = source.get("timeRelation")
         delta = source.get("deltaSeconds")
         delta = delta if type(delta) in (int, float) and math.isfinite(delta) and delta >= 0 else None
-        if state == "nearby-original-observed" and relation == "before-or-at-event":
+        if state == "nearby-original-observed" and not _aligned_clock(source, at, "nearestSourceAt"):
+            source_class = "spot-archive-clock-inconsistent"
+            counts["spotArchiveClockInconsistent"] += 1
+        elif state == "nearby-original-observed" and relation == "before-or-at-event":
             if delta is not None and delta <= 60:
                 source_class = "original-nearby-before-or-at-gap"
                 counts["originalAtOrBeforeWithin60s"] += 1
@@ -76,7 +102,14 @@ def assess(gap_correlation, spot_archive, analysis_archive, paper_input_archive=
             counts["spotArchiveUnavailableOrMissing"] += 1
         observed = analysis_by_time.get(at, {})
         if observed.get("state") == "nearby-15m-analysis-observed":
-            if observed.get("ready") is True and observed.get("priceFresh") is True:
+            if not _aligned_clock(observed, at, "analysisAt"):
+                analysis_class = "analysis-archive-clock-inconsistent"
+                counts["analysisArchiveClockInconsistent"] += 1
+            elif observed["analysisAt"] > at:
+                # A healthy *later* evaluator is not evidence at the gap clock.
+                analysis_class = "other-15m-analysis-only-after-gap-unlinked"
+                counts["analysisOnlyAfterGap"] += 1
+            elif observed.get("ready") is True and observed.get("priceFresh") is True:
                 analysis_class = "other-15m-analysis-ready-and-fresh-unlinked"
                 counts["nearby15mReadyFreshUnlinked"] += 1
             else:
@@ -89,10 +122,15 @@ def assess(gap_correlation, spot_archive, analysis_archive, paper_input_archive=
         worker_observation = worker_by_time.get(at, {})
         worker_state = worker_observation.get("state")
         worker_relation = worker_observation.get("timeRelation")
-        if worker_state == "worker-input-captured-near-gap" and worker_relation == "before-or-at-event":
+        worker_valid = (worker_state == "worker-input-captured-near-gap"
+                        and _aligned_clock(worker_observation, at, "capturedAt"))
+        if worker_state == "worker-input-captured-near-gap" and not worker_valid:
+            worker_class = "worker-archive-clock-inconsistent"
+            counts["workerArchiveClockInconsistent"] += 1
+        elif worker_valid and worker_relation == "before-or-at-event":
             worker_class = "worker-capture-before-or-at-gap"
             counts["workerCaptureBeforeOrAtGap"] += 1
-        elif worker_state == "worker-input-captured-near-gap" and worker_relation == "after-event":
+        elif worker_valid and worker_relation == "after-event":
             worker_class = "worker-capture-only-after-gap"
             counts["workerCaptureOnlyAfterGap"] += 1
         else:
@@ -102,10 +140,16 @@ def assess(gap_correlation, spot_archive, analysis_archive, paper_input_archive=
         # A handoff/freshness mismatch is only a hypothesis to INVESTIGATE.
         # It does not establish root cause, a missed trade, or an original bid.
         candidate = (source_class == "original-nearby-before-or-at-gap" and
-                     analysis_class != "other-15m-analysis-ready-and-fresh-unlinked")
+                     analysis_class not in ("other-15m-analysis-ready-and-fresh-unlinked",
+                                            "analysis-archive-clock-inconsistent") and
+                     worker_class != "worker-archive-clock-inconsistent")
         if candidate:
             counts["reviewableInputHandoffCandidates"] += 1
         next_check = (
+            "inspect-inconsistent-archive-clocks" if (
+                source_class == "spot-archive-clock-inconsistent" or
+                analysis_class == "analysis-archive-clock-inconsistent" or
+                worker_class == "worker-archive-clock-inconsistent") else
             "compare-original-source-clock-with-paper-worker-input" if candidate else
             "never-backdate-later-original-observation" if source_class == "original-only-observed-after-gap" else
             "inspect-original-other-feeds-and-worker-clocks" if source_class == "no-gold-api-original-in-sampled-window" else
@@ -118,13 +162,13 @@ def assess(gap_correlation, spot_archive, analysis_archive, paper_input_archive=
             "spotEvidence": source_class,
             "analysisEvidence": analysis_class,
             "paperWorkerEvidence": worker_class,
-            "workerCapturedAt": _clock(worker_observation.get("capturedAt")),
+            "workerCapturedAt": _clock(worker_observation.get("capturedAt")) if worker_valid else None,
             "workerInputProfiles": [
                 {key: row.get(key) for key in ("profile","outcome","ready","priceFresh","dataAt","barAt")}
                 for row in (worker_observation.get("profiles") or [])[:5]
                 if isinstance(row,dict) and row.get("profile") in
                    ("conservative","balanced","offensive","early100","trend800")
-            ],
+            ] if worker_valid else [],
             "sourceAt": _clock(source.get("nearestSourceAt")),
             "analysisAt": _clock(observed.get("analysisAt")),
             "sourceRelation": relation if relation in ("before-or-at-event","after-event") else None,
@@ -136,7 +180,10 @@ def assess(gap_correlation, spot_archive, analysis_archive, paper_input_archive=
             "profitOrLossVerified": False,
         })
     return {
-        "status": "observed" if entries else "unavailable",
+        "status": ("partial" if any(counts[key] for key in
+                   ("spotArchiveClockInconsistent", "analysisArchiveClockInconsistent",
+                    "workerArchiveClockInconsistent")) else
+                   "observed" if entries else "unavailable"),
         "readOnly": True,
         "realOrders": False,
         "sampledDistinctGapInstants": len(entries),
