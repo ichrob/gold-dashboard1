@@ -325,11 +325,28 @@ def _report(conn):
     from diagnostic_health_cadence import assess as assess_health_cadence
     comparison = compare_health_snapshots(events)
     cadence = assess_health_cadence(events)
+    # The full journal is often response-size truncated. Preserve a tiny
+    # aggregate with no identities, trace IDs, dates or raw payload data.
+    # Counts are 0..20 per stage: a zero is NOT evidence of no sends/fills.
+    sample_counts = {stage: sum(item['stage'] == stage for item in events)
+                     for stage in STAGES}
+    stage_coverage = {
+        'status': 'observed' if rows else 'warming',
+        'readOnly': True, 'realOrders': False,
+        'totalSampled': len(events), 'limitPerStage': 20,
+        'counts': sample_counts,
+        'handsetDeliveryVerified': False,
+        'paperExecutionVerified': False,
+        'scope': 'last-twenty-per-stage-seven-day-best-effort-journal',
+        'note': 'Missing captures, older events and asynchronous drops are not '
+                'proof that no push was sent or that no simulation ran.',
+    }
     return {'status':'observed' if rows else 'warming','retentionDays':7,'maxEvents':60000,
             'events':events,'reportLimitPerStage':20,'repairFollowups':followups,'delivery':status(),
             'stateComparison':comparison['stateComparison'],
             'deploymentComparison':comparison['deploymentComparison'],
             'healthCadence':cadence,
+            'stageCoverage':stage_coverage,
             'comparisonScope':comparison['limitations'],
             'scope':'sampled-server-observations-not-proof-of-causality-or-handset-delivery',
             'note':'No historical backfill. Unflushed queue entries may be lost on process termination. No observations means unverified.'}
