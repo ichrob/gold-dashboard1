@@ -341,23 +341,20 @@ class PortfolioTests(unittest.TestCase):
         activity={'code':'READ_OK', 'rows':[], 'attemptedEpoch':clock(),
                   'schemaVersion':b.trades.SCHEMA}
         fake={'orders':{'code':'READ_OK','rows':[]},'activities':activity}
-        with patch.object(b,'load_ledger',return_value=copy.deepcopy(base)|{
-                'journal':{'account':{}}}) as ledger, \\
-             patch.object(b,'read_journal',return_value=fake), \\
-             patch.object(b,'read_trade_coverage',return_value={'code':'READ_OK','observed':0}) as filtered, \\
-             patch.object(b,'save_ledger'):
-            # A recent standard activity attempt leaves room for three
-            # filtered GETs in the *next* regular provider cycle.
-            account_key=p.identity(A)
-            ledger.return_value['journal']={account_key:{'activities':activity}}
+        recent=copy.deepcopy(base)
+        recent['journal'][p.identity(A)]={'activities':activity}
+        with (patch.object(b,'load_ledger',return_value=recent),
+              patch.object(b,'read_journal',return_value=fake),
+              patch.object(b,'read_trade_coverage',return_value={'code':'READ_OK','observed':0}) as filtered,
+              patch.object(b,'save_ledger')):
             b.update_portfolio(copy.deepcopy(snap),CONFIG,b._GENERATION)
             filtered.assert_called_once()
-        with patch.object(b,'load_ledger',return_value=copy.deepcopy(base)), \\
-             patch.object(b,'read_journal',return_value=fake), \\
-             patch.object(b,'read_trade_coverage') as filtered, \\
-             patch.object(b,'save_ledger'):
-            # When standard activity history is due, zero extra
-            # filtered requests are permitted in the same read cycle.
+        with (patch.object(b,'load_ledger',return_value=copy.deepcopy(base)),
+              patch.object(b,'read_journal',return_value=fake),
+              patch.object(b,'read_trade_coverage') as filtered,
+              patch.object(b,'save_ledger')):
+            # When standard activity history is due, no extra filtered
+            # requests are permitted in the same read cycle.
             b.update_portfolio(copy.deepcopy(snap),CONFIG,b._GENERATION)
             filtered.assert_not_called()
 
