@@ -54,6 +54,11 @@ ID = r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{1
 # two spare slots and cap historical activity reads to five pages (5 calls).
 # Never extend this merely to fill the provider's total historical count.
 ACTIVITY_OFFSETS = tuple(range(0, 2500, 500))
+# A separate, filtered historical trade-coverage observation; these are
+# account-history BUY/SELL counts, never a complete account audit or FIFO proof.
+TRADE_COVERAGE_OFFSETS = (0, 1000, 2000)
+TRADE_COVERAGE_INTERVAL = 7 * 86400
+TRADE_COVERAGE_SCHEMA = 1
 
 
 class ReadError(Exception):
@@ -178,8 +183,14 @@ def api_get(path, config, params=None):
     if not permitted(path):
         raise ReadError('PATH_REJECTED')
     params = params or {}
-    if params and (not path.endswith('/activities') or set(params) != {'offset', 'limit'} or params['limit'] != 500 or params['offset'] not in ACTIVITY_OFFSETS):
-        raise ReadError('PATH_REJECTED')
+    if params:
+        permitted_standard = (path.endswith('/activities') and set(params) == {'offset', 'limit'}
+                              and params['limit'] == 500 and params['offset'] in ACTIVITY_OFFSETS)
+        permitted_filtered = (path.endswith('/activities') and set(params) == {'offset', 'limit', 'type'}
+                              and params['limit'] == 1000 and params['offset'] in TRADE_COVERAGE_OFFSETS
+                              and params['type'] == 'BUY,SELL')
+        if not (permitted_standard or permitted_filtered):
+            raise ReadError('PATH_REJECTED')
     query = urlencode({'clientId': config['clientId'], 'timestamp': int(time.time()), **params})
     # Current official SDK signs the exact resource path used by the request.
     signed = json.dumps({'content': None, 'path': path, 'query': query}, sort_keys=True, separators=(',', ':'))
@@ -421,6 +432,105 @@ def read_journal(aid, config, previous=None, get=api_get, max_bytes=3_000_000):
     return result
 
 
+def read_trade_coverage(aid, config, previous=None, known_isins=None, get=api_get):
+    """One bounded weekly BUY/SELL-only observation, never a FIFO proof.
+
+    It intentionally does not persist individual personal transactions. The
+    count is separate from full account activities (fees/transfers/corporate
+    actions), and incomplete / duplicate pages do not become 'complete'.
+    """
+    old = copy.deepcopy(previous or {})
+    now = time.time()
+    if old.get('schemaVersion') == TRADE_COVERAGE_SCHEMA and now - old.get('attemptedEpoch', 0) < TRADE_COVERAGE_INTERVAL:
+        return old
+    known_isins = set(known_isins or ())
+    observed_ids, conflicting_ids = {}, set()
+    observed_total, page_count = None, 0
+    buy_count, sell_count = 0, 0
+    matched_count, verified_count = 0, 0
+    distinct_isins = set()
+    first_day, last_day = None, None
+    complete, coverage_reason = False, None
+    try:
+        for offset in TRADE_COVERAGE_OFFSETS:
+            page = get('/accounts/' + aid + '/activities', config,
+                       {'offset': offset, 'limit': 1000, 'type': 'BUY,SELL'})
+            if not isinstance(page, dict):
+                raise ReadError('INVALID_RESPONSE')
+            batch = rows(page.get('data'), wrapped=False)
+            page_count += 1
+            pagination = page.get('pagination') or {}
+            if not isinstance(pagination, dict):
+                raise ReadError('INVALID_RESPONSE')
+            total = pagination.get('total')
+            if (isinstance(total, bool) or not isinstance(total, int)
+                    or not 0 <= total <= 10_000_000):
+                raise ReadError('INVALID_RESPONSE')
+            if observed_total is not None and total != observed_total:
+                raise ReadError('INVALID_RESPONSE')
+            observed_total = total
+            for raw in batch:
+                if raw.get('type') not in ('BUY', 'SELL'):
+                    raise ReadError('INVALID_RESPONSE')
+                # Build only the existing normalized view, never expose provider
+                # raw IDs. Invalid or conflicting records block completeness.
+                row = portfolio.journal_rows([raw], 'activities', number, text)[0]
+                k = row['key']
+                if k in conflicting_ids:
+                    continue
+                if k in observed_ids and observed_ids[k] != row:
+                    observed_ids.pop(k, None)
+                    conflicting_ids.add(k)
+                else:
+                    observed_ids[k] = row
+            if offset + len(batch) >= total:
+                complete = True
+                break
+            if len(batch) < 1000:
+                coverage_reason = 'SHORT_PAGE'
+                break
+        if not complete and coverage_reason is None:
+            coverage_reason = 'PAGE_LIMIT'
+        for row in observed_ids.values():
+            if row['type'] == 'BUY':
+                buy_count += 1
+            elif row['type'] == 'SELL':
+                sell_count += 1
+            valid_isin = row.get('isin')
+            if valid_isin:
+                verified_count += 1
+                distinct_isins.add(valid_isin)
+                if valid_isin in known_isins:
+                    matched_count += 1
+            date = row.get('date')
+            if isinstance(date, str) and re.fullmatch(r'\\d{4}-\\d{2}-\\d{2}', date):
+                first_day = min(first_day, date) if first_day else date
+                last_day = max(last_day, date) if last_day else date
+        if conflicting_ids:
+            complete = False
+            coverage_reason = 'CONFLICTING_IDS'
+        return {'code':'READ_OK', 'schemaVersion':TRADE_COVERAGE_SCHEMA,
+                'checkedAt':utcnow(), 'attemptedEpoch':now, 'filter':'BUY,SELL',
+                'totalMatching':observed_total, 'observed':len(observed_ids),
+                'buyCount':buy_count, 'sellCount':sell_count,
+                'validIsinCount':verified_count, 'distinctIsins':len(distinct_isins),
+                'currentHoldingsIsinMatches':matched_count,
+                'earliestTradeDay':first_day, 'latestTradeDay':last_day,
+                'pagesReceived':page_count, 'conflictingIdentifiers':len(conflicting_ids),
+                'completeFilteredTradeWindow':complete, 'coverageReason':coverage_reason,
+                'accountHistoryComplete':False, 'fifoEligible':False}
+    except (ReadError, ValueError, TypeError) as exc:
+        allowed = ('AUTH_REQUIRED','ACCESS_DENIED','RATE_LIMITED','PLAN_REQUIRED',
+                   'PROVIDER_UNAVAILABLE','RESPONSE_TOO_LARGE','INVALID_RESPONSE')
+        reason = exc.code if isinstance(exc, ReadError) and exc.code in allowed else (
+            'INVALID_RESPONSE' if isinstance(exc,(ValueError,TypeError)) else 'PROVIDER_UNAVAILABLE')
+        # Preserve confirmed summary and time, but make the new failure explicit.
+        return {**old, 'code':'UNAVAILABLE', 'schemaVersion':TRADE_COVERAGE_SCHEMA,
+                'attemptedEpoch':now, 'failureAt':utcnow(), 'failureCode':reason,
+                'pagesReceivedInFailedAttempt':page_count,
+                'accountHistoryComplete':False, 'fifoEligible':False}
+
+
 def update_portfolio(snapshot, config, generation):
     global _LEDGER_OWNER
     ledger = load_ledger(config)
@@ -434,7 +544,22 @@ def update_portfolio(snapshot, config, generation):
     for a in snapshot['accounts']:
         aid = a.pop('providerAccountId')
         key = a['accountKey']
-        journal = read_journal(aid, config, ledger['journal'].get(key), api_get, 3_000_000//len(snapshot['accounts']))
+        prior_journal = ledger['journal'].get(key) or {}
+        prior_activities = prior_journal.get('activities') or {}
+        # One mode per provider cycle: up to five standard history pages OR
+        # three filtered trade pages. Never stack both bursts in one request.
+        standard_due = (time.time() - prior_activities.get('attemptedEpoch', 0) >= 86400
+                        or prior_activities.get('schemaVersion') != trades.SCHEMA)
+        journal = read_journal(aid, config, prior_journal, api_get, 3_000_000//len(snapshot['accounts']))
+        trade_due = (time.time() - (journal.get('tradeCoverage') or {}).get('attemptedEpoch', 0)
+                     >= TRADE_COVERAGE_INTERVAL
+                     or (journal.get('tradeCoverage') or {}).get('schemaVersion') != TRADE_COVERAGE_SCHEMA)
+        if (not standard_due and trade_due and journal['activities']['code'] == 'READ_OK'
+                and journal['orders']['code'] == 'READ_OK'):
+            known_isins = {p['isin'] for p in a['positions']
+                           if p.get('csvEvidence') and p.get('isin')}
+            journal['tradeCoverage'] = read_trade_coverage(
+                aid, config, journal.get('tradeCoverage'), known_isins=known_isins)
         ledger['journal'][key] = journal
         a['journal'] = journal
         a['tradeJournal'] = trades.build(journal)
@@ -725,6 +850,12 @@ def diagnostics():
                                 for a in (value.get('snapshot') or {}).get('accounts', [])],
         'journalConflictingOrderIdentifiers': [a.get('journal', {}).get('orders', {}).get('conflictingOrderIdentifiers', 0)
                                                for a in (value.get('snapshot') or {}).get('accounts', [])],
+        'filteredTradeCoverage': [
+            {k: (a.get('journal', {}).get('tradeCoverage') or {}).get(k)
+             for k in ('code','totalMatching','observed','completeFilteredTradeWindow',
+                       'coverageReason','pagesReceived','validIsinCount','distinctIsins',
+                       'currentHoldingsIsinMatches','failureCode','checkedAt')}
+            for a in (value.get('snapshot') or {}).get('accounts', [])],
         'journalActivityCoverage': [{
             'savedRows': len(a.get('journal', {}).get('activities', {}).get('rows', [])),
             'sourceTotal': a.get('journal', {}).get('activities', {}).get('activitySourceTotal'),
