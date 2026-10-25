@@ -167,6 +167,15 @@ function mount(){
    const d=details(parent,'snapOrderFills'+account.accountKey,'Erkannte Ausführungen · Prüfliste für Bob');
    line(d,'','Nur gemeldete ausgeführte Stückzahlen zählen. Keine automatische Übernahme in Mein Trade, keine echte Order und keine automatische Lernregeländerung.');
    if(!view){line(d,'','Noch keine Auswertung vorhanden.');return;}
+   const audit=view.reconciliation;
+   if(audit){
+    const d2=details(d,'snapReconciliation'+account.accountKey,'Ausführungen und Buchungen abgleichen');
+    line(d2,'Eindeutige Anbieter-Prüfkandidaten: ',String(audit.candidatePairs||0));
+    line(d2,'Mehrdeutige Gruppen: ',String(audit.ambiguousGroups||0));
+    line(d2,'Fehlende Zeit- oder Identitätsnachweise: ',String(audit.missingEvidence||0));
+    line(d2,'Ohne passenden Transaktionseintrag: ',String(audit.orderFillsWithoutExactActivity||0));
+    line(d2,'','Diese Treffer sind keine unabhängigen Börsenbestätigungen. Die vollständige Gewinnrechnung bleibt gesperrt.');
+   }
    line(d,'Orders: ',view.ordersAvailable?'Abruf erfolgreich · '+stamp(view.ordersCheckedAt):'Anbieter-Abruf nicht bestätigt oder vorübergehend nicht verfügbar');
    line(d,'Erkannte Ausführungen: ',String(view.executionsCount));
    line(d,'Für einen späteren historischen Signalvergleich ausreichend zugeordnet: ',String(view.readyForHistoricalComparison));
