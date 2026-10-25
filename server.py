@@ -122,6 +122,7 @@ def read_diagnostics_for_mcp():
             'uptimeSeconds':round(time.monotonic()-PROCESS_STARTED_MONOTONIC),
             'sessionMode':background_push.degiro_session(),
             'snaptradePersonal':snaptrade_bridge.diagnostics(),
+            'issuerCatalog':degiro_catalog.diagnostics(),
             'diagnosticDelivery':__import__('diagnostic_history').status(),
             'fibonacci':bob_diagnostics.fields(FIB_MONITOR_HEALTH,('configured','status','lastCheckedAt','lastSuccessAt'))},
         'selfHealing':bob_self_healing.diagnostics_snapshot,

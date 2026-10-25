@@ -4811,6 +4811,29 @@ function showIssuerCandidates(data){
   list.append(item);
  }
  host.append(list);
+ // Historical broker transactions are research only; not the active DEGIRO list.
+ const history=data.historyResearch;
+ if(history&&typeof history==='object'){
+  const count=Number.isInteger(history.available)?history.available:0;
+  const sampled=Number.isInteger(history.sampled)?history.sampled:0;
+  const detail=make('details');
+  detail.append(make('summary','Weitere historische Gold-Kandidaten: '+count+' · '+sampled+' beim Emittenten geprüft'));
+  detail.append(make('p','Nur historische Transaktionen. Keine aktuelle DEGIRO-Handelbarkeit, keine Handelsfreigabe.'));
+  for(const p of (Array.isArray(history.items)?history.items:[]).slice(0,2)){
+   if(!validIsin(p?.isin)||!['LONG','SHORT'].includes(p.direction)||
+      p.eligibleForTop3!==false||p.tradeApproved!==false||p.currentlyDegiroListed!==null)continue;
+   detail.append(make('p',p.isin+' · '+p.direction+' · '+(p.issuerIdentityMatched?
+      'Gold-Spot-Identität geprüft':'Identität beim Emittenten offen')+
+      ' · historischer Trade: '+(p.lastTradeDate||'unbekannt')));
+   const copy=make('button','ISIN kopieren');copy.type='button';
+   copy.addEventListener('click',()=>{
+     if(!navigator.clipboard?.writeText){copy.textContent='Kopieren nicht verfügbar';return;}
+     navigator.clipboard.writeText(p.isin).then(()=>{copy.textContent='Kopiert';})
+      .catch(()=>{copy.textContent='Kopieren fehlgeschlagen';});
+   });detail.append(copy);
+  }
+  host.append(detail);
+ }
  if(data.excluded.length){
   const details=make('details'),heading=make('summary','Ausgeschlossene frühere Produkte ('+data.excluded.length+')');
   details.append(heading);

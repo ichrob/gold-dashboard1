@@ -19,6 +19,7 @@ import time
 import zlib
 from collections import Counter
 import snaptrade_portfolio as portfolio
+import snaptrade_gold_history as gold_history
 import snaptrade_trade_insights as insights
 import snaptrade_quality as quality
 import snaptrade_csv_link as csv_link
@@ -664,6 +665,10 @@ def update_portfolio(snapshot, config, generation):
         a['tradeInsights'] = insights.read_account(a)
         a['evidenceQuality'] = quality.evidence_gaps(a)
         a['profitReadiness'] = quality.profit_review(a)
+    # Reuse cached, already normalized activity rows (no additional broker API
+    # requests). These are research hints only, never current DEGIRO listing
+    # evidence, Top-3 entries, or permissions for orders.
+    snapshot['historicalGoldResearch'] = gold_history.discover(snapshot['accounts'])
     # Keep the encrypted total bounded without dropping transaction evidence.
     # Snapshot history already has bounded retention; shorten it first when
     # the expanded journal needs more of the existing four-megabyte budget.
@@ -918,6 +923,17 @@ def status():
         return result
 
 
+def historical_gold_candidates():
+    """A separate limited, private research view, not the active product list."""
+    with _LOCK:
+        snap = _STATE.get('snapshot')
+        result = copy.deepcopy((snap or {}).get('historicalGoldResearch'))
+    if not isinstance(result, dict):
+        return {'code':'NO_HISTORY', 'items':[], 'candidateCount':0,
+                'completeDegiroCatalog':False, 'tradeApproved':False}
+    return result
+
+
 def diagnostics():
     value = status()
     try:
@@ -990,6 +1006,11 @@ def diagnostics():
             'complete': a.get('journal', {}).get('activities', {}).get('complete') is True,
         } for a in (value.get('snapshot') or {}).get('accounts', [])],
         'issuerMonitorRunning': bool(_QUOTE_THREAD and _QUOTE_THREAD.is_alive()),
+        'historicGoldResearch': {
+            'code': (value.get('snapshot') or {}).get('historicalGoldResearch', {}).get('code', 'NO_HISTORY'),
+            'candidateCount': (value.get('snapshot') or {}).get('historicalGoldResearch', {}).get('candidateCount', 0),
+            'historyComplete': (value.get('snapshot') or {}).get('historicalGoldResearch', {}).get('historyComplete', False),
+            'excludedFromTop3': True, 'automaticOrders': False},
         # Small, credential-free result for the private read-only ChatGPT diagnostic.
         'catalogProbe': {k: (value.get('catalogProbe') or {}).get(k)
                          for k in ('code', 'checkedAt', 'instrumentCount',
