@@ -832,6 +832,7 @@ def status():
         result['fresh'] = bool(result['code'] == 'READ_OK' and snapshot and snapshot['completeConnections'] and all(
             a['freshnessMode'] == 'realtime' and all(t and 0 <= time.time() - datetime.fromisoformat(t).timestamp() <= INTERVAL + 90
                 for t in (a['positionsSourceAt'], a['cashSourceAt'])) for a in snapshot['accounts']))
+        result['connectionWatch'] = quality.connection_watch(result)
         return result
 
 
