@@ -32,6 +32,55 @@ REPORT_CACHE_SECONDS = 300
 HARVEST_HORIZONS = (1, 5, 15, 30, 60, 240)
 HARVEST_HORIZON_BATCH = 64
 
+# Last *attempted* research query on this process only. No database read,
+# account/SQL contents, credentials, result caching or synthetic market data.
+_PROSPECTIVE_QUERY_LOCK = threading.Lock()
+_PROSPECTIVE_QUERY_LAST = None
+_PROSPECTIVE_QUERY_STATES = frozenset(('completed', 'query-timeout'))
+_PROSPECTIVE_FALLBACK_STATES = frozenset(('not-needed', 'completed-partial', 'query-timeout'))
+
+
+def prospective_query_probe():
+    """Safe aggregate-only diagnostic for the last completed query attempt."""
+    with _PROSPECTIVE_QUERY_LOCK:
+        item = dict(_PROSPECTIVE_QUERY_LAST) if _PROSPECTIVE_QUERY_LAST else None
+    return item if item else {
+        'status': 'not-observed', 'readOnly': True, 'realOrders': False,
+        'causeVerified': False, 'scope': 'process-local-last-research-query-attempt',
+        'note': 'No prospective research query attempt observed in this process.',
+    }
+
+
+def _remember_prospective_query(full_state, full_ms, fallback_state, fallback_ms):
+    """Store fixed enums/finite timings, never an exception or SQL text."""
+    global _PROSPECTIVE_QUERY_LAST
+    if (full_state not in _PROSPECTIVE_QUERY_STATES
+            or fallback_state not in _PROSPECTIVE_FALLBACK_STATES
+            or type(full_ms) is not int or not 0 <= full_ms <= 86400000
+            or (fallback_ms is not None and
+                (type(fallback_ms) is not int or not 0 <= fallback_ms <= 86400000))
+            or (fallback_state == 'not-needed') != (fallback_ms is None)
+            or (full_state == 'completed') != (fallback_state == 'not-needed')):
+        raise ValueError('Invalid bounded prospective query telemetry')
+    payload = {
+        'status': 'observed', 'readOnly': True, 'realOrders': False,
+        'observedAt': datetime.now(timezone.utc).isoformat(),
+        'fullWindow': '30-days', 'fullState': full_state,
+        'fullDurationMs': full_ms,
+        'fallbackWindow': '24-hours', 'fallbackState': fallback_state,
+        'fallbackDurationMs': fallback_ms,
+        'fullWindowQueryCompleted': full_state == 'completed',
+        'causeVerified': False,
+        'scope': 'process-local-last-research-query-attempt',
+        'note': 'QueryCanceled can include statement timeout or cancellation. '
+                'A successful fallback is not full-window research validation; '
+                'the sampled state alone does not prove database root cause.',
+    }
+    with _PROSPECTIVE_QUERY_LOCK:
+        _PROSPECTIVE_QUERY_LAST = payload
+
+
+
 def milliseconds(value):
     try:
         if isinstance(value, (int, float)) and not isinstance(value, bool):
@@ -654,6 +703,7 @@ def _build_report(conn):
         'fallbackDurationMs':fallback_ms,
         'fullWindowQueryCompleted':full_state=='completed' and not prospective_partial,
     }
+    _remember_prospective_query(full_state, full_ms, fallback_state, fallback_ms)
     result['fourDayComparison']=intraday_comparison.report(conn)
     result['total']=conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0]
     result['reportRecords']=len(rows)

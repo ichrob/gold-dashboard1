@@ -210,6 +210,10 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
     # Separately observe report-read admission; no SQL, cached report keys or traffic identifiers.
     import report_admission
     result['reportAdmission'] = report_admission.status()
+    # Sample the last audit *attempt* without asking the DB for another
+    # expensive 30-day query. A fresh Render instance can correctly say unknown.
+    import decision_audit
+    result['databaseAudit'] = decision_audit.prospective_query_probe()
     if extended:
         for account in accounts:
             table = portfolios.names(account['profile'])['bob_paper_cases']

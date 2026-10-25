@@ -80,7 +80,7 @@
     },
     {
       "id": 16,
-      "representativeTest": "test_database_contention.py",
+      "representativeTest": "test_diagnostic_audit_query_probe.py",
       "claim": "test-file-candidate-only"
     },
     {
