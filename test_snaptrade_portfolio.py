@@ -233,15 +233,15 @@ class PortfolioTests(unittest.TestCase):
         # revision permits one bounded recheck, never a retry loop.
         with patch.object(b.trades,'SCHEMA',b.trades.SCHEMA+1):
             got = b.read_journal(A, CONFIG, old, get=throttled)
-        self.assertEqual(got['activities']['code'],'UNAVAILABLE')
-        self.assertEqual(got['activities']['failureCode'],'RATE_LIMITED')
-        self.assertEqual(got['activities']['activityPagesReceived'],2)
-        self.assertEqual(got['activities']['rows'],old['activities']['rows'])
-        self.assertEqual(got['activities']['checkedAt'],old['activities']['checkedAt'])
-        self.assertFalse(b.trades.build(got)['sourceAvailable'])
-        calls=[]
-        b.read_journal(A, CONFIG, got, get=lambda *args:(calls.append(args),[])[1])
-        self.assertEqual(len(calls),1)  # only orders, no immediate activity retry
+            self.assertEqual(got['activities']['code'],'UNAVAILABLE')
+            self.assertEqual(got['activities']['failureCode'],'RATE_LIMITED')
+            self.assertEqual(got['activities']['activityPagesReceived'],2)
+            self.assertEqual(got['activities']['rows'],old['activities']['rows'])
+            self.assertEqual(got['activities']['checkedAt'],old['activities']['checkedAt'])
+            self.assertFalse(b.trades.build(got)['sourceAvailable'])
+            calls=[]
+            b.read_journal(A, CONFIG, got, get=lambda *args:(calls.append(args),[])[1])
+            self.assertEqual(len(calls),1)  # only orders, no immediate activity retry
 
     def test_history_encrypted_reload_delete_and_owner_separation(self):
         db={}
