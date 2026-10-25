@@ -411,7 +411,7 @@ class ProspectiveBoundedRecoveryTests(unittest.TestCase):
         self.assertEqual(timing_record['fallbackWindow'],'24-hours')
         self.assertIsInstance(timing_record['fullDurationMs'],int)
         self.assertIsInstance(timing_record['fallbackDurationMs'],int)
-        self.assertFalse(timing_record['fullHistoryConfirmed'])
+        self.assertFalse(timing_record['fullWindowQueryCompleted'])
         statuses = [call.args[0] for call in emitted.call_args_list if call.args]
         timing = [line for line in statuses if line.startswith('BOB_AUDIT prospective_timing')]
         self.assertEqual(len(timing), 1)
@@ -452,7 +452,7 @@ class ProspectiveBoundedRecoveryTests(unittest.TestCase):
         timing_record=result['prospectiveReview']['queryTiming']
         self.assertEqual(timing_record['fullState'],'query-timeout')
         self.assertEqual(timing_record['fallbackState'],'query-timeout')
-        self.assertFalse(timing_record['fullHistoryConfirmed'])
+        self.assertFalse(timing_record['fullWindowQueryCompleted'])
 
 
 class ReportTimeoutRecoveryTests(unittest.TestCase):
