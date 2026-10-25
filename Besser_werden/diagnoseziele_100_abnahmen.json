@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "scope": "Strictly dated historical CI/Render build and measured Render capacity plus privately observed two-snapshot health comparison; no continuous health or trade proof.",
+  "scope": "Strictly dated and independently observed samples: build match, Render resources, two archived health snapshots and bounded 7-day private diagnostic stage inventory; no continuous market, repair or delivery proof.",
   "accepted": [
     {
       "id": 18,
@@ -90,6 +90,41 @@
         "isDeploymentRegressionVerified": false
       },
       "limitations": "Begrenzt auf zwei echte archivierte Gesundheits-Samples desselben Scanner-Builds im selben Wochenendmodus; Vergleichsfunktion und Zeit-/Privacy-Bezug bestätigt, keine Marktzyklus-, Fehlerursachen-, Deployment-Reihenfolge-, Push-Handy- oder End-to-End-Handelsfreigabe."
+    },
+    {
+      "id": 7,
+      "goal": "Historische Diagnosefenster",
+      "kind": "private-seven-day-bounded-multistage-archive-sample",
+      "source": "Bob private diagnostic read-only",
+      "observedAt": "2026-10-25T19:57:06.441223+00:00",
+      "build": "5d0944deb34b3ff13d20d5bc9e7d86bcf79779fe",
+      "github": {
+        "ciRun": 40225363269,
+        "ciConclusion": "success",
+        "liveSmokeRun": 40225363341,
+        "liveSmokeConclusion": "success"
+      },
+      "sample": {
+        "status": "observed",
+        "scope": "sampled-seven-day-best-effort-history-stage-counts",
+        "totalSampled": 100,
+        "limitPerStage": 20,
+        "counts": {
+          "input": 20,
+          "analysis": 20,
+          "analysis-failed": 0,
+          "push": 20,
+          "push-delivery": 0,
+          "paper-input": 0,
+          "health": 20,
+          "transport": 20
+        },
+        "readOnly": true,
+        "realOrders": false,
+        "handsetDeliveryVerified": false,
+        "paperExecutionVerified": false
+      },
+      "limitations": "Read-only operational evidence of 100 sampled journal entries in a bounded 7-day, max-20-per-stage projection on a named historical build. Zero counts do not prove no messages or device delivery; pruning, missing async captures, complete availability, restart recovery, market tick proof and cross-service correctness are not verified."
     }
   ]
 }
