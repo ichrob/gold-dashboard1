@@ -75,7 +75,7 @@
     },
     {
       "id": 15,
-      "representativeTest": "test_http_connection_bursts.py",
+      "representativeTest": "test_diagnostic_http_endpoint_errors.py",
       "claim": "test-file-candidate-only"
     },
     {
