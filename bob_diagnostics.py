@@ -634,7 +634,7 @@ _FOCUS_AREAS = {
 
 
 def read_access_coverage(manifest):
-    """Bounded, non-operational inventory of 100 *unverified* feature objectives.
+    """Bounded diagnostic inventory with one dated, build-specific service-match acceptance.
 
     This is documentation coverage, not evidence that a feature works.
     Never exposes raw repository text, credentials or individual user data.
@@ -737,7 +737,7 @@ def read_access_coverage(manifest):
                 'note':'One goal has a dated, historically verified dual-service build match; '
                        '99 lack individual acceptance. Static import parsing and test '
                        'mapping do not prove functionality or current deployment health.'}
-    except (KeyError, TypeError, ValueError, AttributeError):
+    except (KeyError, TypeError, ValueError, AttributeError, OSError):
         return {'status':'unavailable',
                 'reason':'read-access-manifest-missing-or-inconsistent'}
 
