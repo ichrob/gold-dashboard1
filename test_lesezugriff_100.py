@@ -21,6 +21,12 @@ class ReadAccessCoverageTests(unittest.TestCase):
         self.assertEqual(result['moduleInventory']['goalCount'], 100)
         self.assertEqual(result['moduleInventory']['moduleCount'], 19)
         self.assertEqual(result['moduleInventory']['individuallyVerified'], 0)
+        self.assertEqual(result['testEvidenceInventory']['status'],
+                         'test-candidates-mapped')
+        self.assertEqual(result['testEvidenceInventory']['goalTestCandidatesPresent'], 100)
+        self.assertEqual(result['testEvidenceInventory']['goalTestCandidatesMissing'], 0)
+        self.assertEqual(result['testEvidenceInventory']['individuallyVerified'], 0)
+        self.assertEqual(result['testEvidenceInventory']['ciExecutionVerifiedPerGoal'], 0)
         self.assertEqual({r['id']: r['codeEvidence'] for r in m['tasks']
                           if r['id'] in (8, 19)}, {
             8: 'diagnostic_history.py',
