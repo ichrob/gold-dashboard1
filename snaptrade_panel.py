@@ -121,7 +121,7 @@ function mount(){
      line(view,'Filterstatus: ','Abruf derzeit nicht bestätigt; zuletzt geprüfter Stand bleibt erhalten.');
     }
     line(view,'Letzter erfolgreicher Filterabruf: ',stamp(filtered.checkedAt));
-    line(view,'','**Keine Freigabe für FIFO-Gewinne, Handelsaufträge oder Strategielernen.**');
+    line(view,'','Keine Freigabe für FIFO-Gewinne, Handelsaufträge oder Strategielernen.');
    }
   }
   function tradeJournal(parent,account){
