@@ -989,12 +989,53 @@ def diagnostics():
             'conflictingIds': a.get('journal', {}).get('activities', {}).get('conflictingActivityIdentifiers', 0),
             'complete': a.get('journal', {}).get('activities', {}).get('complete') is True,
         } for a in (value.get('snapshot') or {}).get('accounts', [])],
-        'issuerMonitorRunning': bool(_QUOTE_THREAD and _QUOTE_THREAD.is_alive())}
+        'issuerMonitorRunning': bool(_QUOTE_THREAD and _QUOTE_THREAD.is_alive()),
+        # Small, credential-free result for the private read-only ChatGPT diagnostic.
+        'catalogProbe': {k: (value.get('catalogProbe') or {}).get(k)
+                         for k in ('code', 'checkedAt', 'instrumentCount',
+                                   'historicalWatchCount')},
+        'catalogHistoricalMatchCount': len((value.get('catalogProbe') or {}).get('historicalMatches') or []),
+        'catalogFullGoldListVerified': False,
+        'catalogTradeApproved': False}
+
+
+def auto_probe_catalog():
+    """Run one safe broker-catalogue check after a confirmed DEGIRO holdings read.
+
+    A successful broker connection is already configured in Bob. No mobile
+    button, additional login, order, or repeated SnapTrade holdings call.
+    Only one automatic catalogue attempt per process; manual retry remains
+    subject to the catalogue probe's own cooldown.
+    """
+    with _LOCK:
+        ready = (_CONFIG is not None and _STATE.get('code') == 'READ_OK'
+                 and _CATALOG_STATE.get('code') == 'NOT_TESTED')
+    if not ready:
+        return False
+    try:
+        probe_broker_catalog()
+    except ReadError as exc:
+        with _LOCK:
+            if _CATALOG_STATE.get('code') == 'NOT_TESTED':
+                _CATALOG_STATE.update(code=exc.code, checkedAt=utcnow(),
+                                      completeGoldList=False, tradeApproved=False)
+    with _LOCK:
+        summary = {k: _CATALOG_STATE.get(k) for k in
+                   ('code', 'instrumentCount', 'historicalMatches')}
+    code = summary.get('code') or 'UNKNOWN'
+    count = summary.get('instrumentCount')
+    matches = len(summary.get('historicalMatches') or [])
+    # No symbols, account numbers, tokens, prices, or full provider payload.
+    print('BOB_SNAPTRADE_CATALOG auto=true code=' + str(code)
+          + ' instruments=' + str(count if isinstance(count, int) else 'unknown')
+          + ' historicalMatches=' + str(matches), flush=True)
+    return True
 
 
 def _loop():
     while True:
         refresh()
+        auto_probe_catalog()
         _WAKE.wait(60)
         _WAKE.clear()
 
