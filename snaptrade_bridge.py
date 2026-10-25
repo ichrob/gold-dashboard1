@@ -519,7 +519,9 @@ def read_trade_coverage(aid, config, previous=None, known_isins=None, get=api_ge
                 'pagesReceived':page_count, 'conflictingIdentifiers':len(conflicting_ids),
                 'completeFilteredTradeWindow':complete, 'coverageReason':coverage_reason,
                 'accountHistoryComplete':False, 'fifoEligible':False}
-    except (ReadError, ValueError, TypeError) as exc:
+    except Exception as exc:
+        # An isolated optional history-filter parser failure must not bring
+        # down the already confirmed holdings reader or reveal private rows.
         allowed = ('AUTH_REQUIRED','ACCESS_DENIED','RATE_LIMITED','PLAN_REQUIRED',
                    'PROVIDER_UNAVAILABLE','RESPONSE_TOO_LARGE','INVALID_RESPONSE')
         reason = exc.code if isinstance(exc, ReadError) and exc.code in allowed else (
