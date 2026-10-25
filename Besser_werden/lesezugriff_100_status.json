@@ -3,12 +3,13 @@
   "asOf": "2026-10-25",
   "total": 100,
   "counts": {
-    "partial": 94,
+    "partial": 93,
     "planned": 0,
     "blocked-client": 1,
-    "requires-device": 5
+    "requires-device": 5,
+    "verified-at-build": 1
   },
-  "acceptance": "No verified=True without tests, timestamp, CI, deploy and runtime evidence",
+  "acceptance": "A strictly dated build-specific acceptance is allowed only with validated CI and both Render deploy observations; future builds require fresh proof",
   "tasks": [
     {
       "id": 1,
@@ -150,9 +151,9 @@
       "id": 18,
       "area": "Render und Hintergrundjobs",
       "goal": "Gleiche Build-Version auf Diensten",
-      "state": "partial",
+      "state": "verified-at-build",
       "codeEvidence": "bob_self_healing.py",
-      "verified": false
+      "verified": true
     },
     {
       "id": 19,
