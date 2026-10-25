@@ -1,12 +1,13 @@
 const assert=require('assert'),fs=require('fs'),vm=require('vm');
 const html=fs.readFileSync('Bob.html','utf8');
 const start=html.indexOf('function earlyWarningContext('),end=html.indexOf('function renderEarlyImpulseStatus()',start);
+const sessionStart=html.indexOf('function intradaySession('),sessionEnd=html.indexOf('function aggregateBrowserBars(',sessionStart);
 const step=300000,now=Date.UTC(2026,9,20,14,50),endAt=now;
 function bundle(side){return {history:{bars_by_tf:{'5m':Array.from({length:110},(_,i)=>({openTime:endAt-(110-i)*step,open:100,close:100,high:102,low:98,isOpen:false})), '15m':[]}}};}
 function evaluate(b,signals,t=now,unavailable=false){
- const env={Intl,Date,earlyImpulseContext:(input,at)=>unavailable?{available:false,reason:'stale'}:
+ const env={Intl,Date,window:{},earlyImpulseContext:(input,at)=>unavailable?{available:false,reason:'stale'}:
   ({available:true,direction:signals[at]||'NEUTRAL',barAt:at-step,extensionRisk:false,reason:'fixture'})};
- vm.createContext(env);vm.runInContext(html.slice(start,end),env);return env.earlyWarningContext(b,t);
+ vm.createContext(env);vm.runInContext(html.slice(sessionStart,sessionEnd)+html.slice(start,end),env);return env.earlyWarningContext(b,t);
 }
 for(const side of ['LONG','SHORT']){
  const b=bundle(side),signals={[now-step]:side};
@@ -25,6 +26,9 @@ for(const side of ['LONG','SHORT']){
 }
 assert.equal(evaluate(bundle(),{}).state,'waiting');
 assert.equal(evaluate(bundle(),{},Date.UTC(2026,9,24,12)).state,'paused');
+assert.equal(evaluate(bundle(),{},Date.UTC(2026,9,25,23,5)).state,'paused','Monday night is outside the DEGIRO entry session');
+assert.equal(evaluate(bundle(),{},Date.UTC(2026,9,26,6,45)).state,'paused','preparation remains paused until 08:00 Zurich');
+assert.equal(evaluate(bundle(),{},Date.UTC(2026,9,26,7,5),true).state,'unavailable','live entry session exposes missing market bars');
 assert(html.includes("byId('bobNextStep').after(earlyWarning)"));
 assert(!html.includes("fold(byId('earlyImpulseStatus')"));
 console.log('Continuous warning: bidirectional lifecycle, invalidation, expiry, stale data, weekend, open-candle and visibility checks passed');
