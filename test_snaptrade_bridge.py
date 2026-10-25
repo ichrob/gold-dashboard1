@@ -150,6 +150,19 @@ class BridgeTests(unittest.TestCase):
         self.assertNotIn('NEVER_EXPOSE',json.dumps(report))
         self.assertNotIn('12.34',json.dumps(report))
 
+    def test_quality_diagnostics_exclude_private_values(self):
+        b._STATE.update(code='READ_OK',snapshot={'completeConnections':False,
+            'accounts':[{'positions':[], 'journal':{},
+               'evidenceQuality':{'orderRows':2,'privateName':'DO_NOT_EXPOSE'},
+               'profitReadiness':{'netProfitVerified':False,'amount':'SECRET_VALUE'}}]})
+        report=b.diagnostics()
+        self.assertEqual(report['evidenceGaps'][0]['orderRows'],2)
+        self.assertFalse(report['profitReadiness'][0]['netProfitVerified'])
+        self.assertNotIn('DO_NOT_EXPOSE',json.dumps(report))
+        self.assertNotIn('SECRET_VALUE',json.dumps(report))
+        self.assertEqual(report['connectionWatch']['pushesSent'],0)
+        self.assertEqual(report['connectionWatch']['emailsSent'],0)
+
     def test_errors_are_sanitized_and_not_retried_in_a_loop(self):
         opener = Mock(); opener.open.side_effect = HTTPError('https://private?secret=DO_NOT_ECHO', 429, 'DO_NOT_ECHO', {'Retry-After': '3600'}, None)
         with patch.object(b, 'build_opener', return_value=opener):
