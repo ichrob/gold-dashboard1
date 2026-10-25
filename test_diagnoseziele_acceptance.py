@@ -22,10 +22,10 @@ class DatedAcceptanceTests(unittest.TestCase):
     def test_one_goal_only_has_ci_and_exact_render_evidence(self):
         goals,record=self.fixtures()
         result=a.assess(goals,record)
-        self.assertEqual(result["status"],"three-dated-independent-acceptances")
-        self.assertEqual(result["acceptedGoalIds"],[8,13,18])
+        self.assertEqual(result["status"],"four-dated-independent-acceptances")
+        self.assertEqual(result["acceptedGoalIds"],[7,8,13,18])
         self.assertEqual(result["individuallyAcceptedAtRecordedBuild"],1)
-        self.assertEqual(result["remainingUnaccepted"],97)
+        self.assertEqual(result["remainingUnaccepted"],96)
         self.assertEqual(len(result["acceptedBuild"]),40)
         self.assertTrue(result["readOnly"])
         self.assertFalse(result["currentDeployProven"])
@@ -129,7 +129,7 @@ class DatedAcceptanceTests(unittest.TestCase):
             with self.subTest(case=str(case)):
                 mutate(case)
 
-    def test_only_8_13_18_may_be_accepted_even_when_count_agrees(self):
+    def test_only_7_8_13_18_may_be_accepted_even_when_count_agrees(self):
         goals,record=self.fixtures()
         mutated=json.loads(json.dumps(goals))
         mutated[7]["state"]="partial"
@@ -138,6 +138,52 @@ class DatedAcceptanceTests(unittest.TestCase):
         forgery=json.loads(json.dumps(record))
         forgery["accepted"][2]["id"]=19
         self.assertEqual(a.assess(goals,forgery)["status"],"unavailable")
+
+    def test_archived_seven_day_stage_sample_has_original_provider_bounds(self):
+        goals, records = self.fixtures()
+        result = a.assess(goals, records)
+        self.assertEqual(result["individuallyAcceptedAtArchivedStageWindow"], 1)
+        self.assertEqual(result["stageWindowSample"]["totalSampled"], 100)
+        self.assertEqual(result["stageWindowSample"]["limitPerStage"], 20)
+        self.assertEqual(result["stageWindowSample"]["counts"]["health"], 20)
+        self.assertEqual(result["stageWindowSample"]["counts"]["push-delivery"], 0)
+        self.assertFalse(result["stageWindowSample"]["handsetDeliveryVerified"])
+        self.assertFalse(result["stageWindowSample"]["paperExecutionVerified"])
+        self.assertFalse(result["stageWindowSample"]["noRecordedEventMeansNoRealEvent"])
+        self.assertFalse(result["continuouslyHealthyProven"])
+        self.assertNotIn("private-token", json.dumps(result))
+
+    def test_stage_sample_missing_truncated_or_forged_status_fails_closed(self):
+        goals, records = self.fixtures()
+        def check(edit):
+            mutated=json.loads(json.dumps(records))
+            edit(mutated["accepted"][3])
+            self.assertEqual(a.assess(goals, mutated)["status"], "unavailable")
+        invalid = (
+            lambda r: r.update(id=19),
+            lambda r: r.update(kind="test-file-exists"),
+            lambda r: r.update(source="user-supplied-data"),
+            lambda r: r.update(build="main"),
+            lambda r: r.update(observedAt="no clock"),
+            lambda r: r["github"].update(ciConclusion="in_progress"),
+            lambda r: r["github"].update(liveSmokeRun=0),
+            lambda r: r["sample"].update(status="warming"),
+            lambda r: r["sample"].update(scope="all-market-orders"),
+            lambda r: r["sample"].update(limitPerStage=250),
+            lambda r: r["sample"].update(totalSampled=999),
+            lambda r: r["sample"].update(handsetDeliveryVerified=True),
+            lambda r: r["sample"].update(paperExecutionVerified=True),
+            lambda r: r["sample"].update(readOnly=False),
+            lambda r: r["sample"].update(realOrders=True),
+            lambda r: r["sample"]["counts"].update(health=21),
+            lambda r: r["sample"]["counts"].update(health=-1),
+            lambda r: r["sample"]["counts"].update(health=True),
+            lambda r: r["sample"]["counts"].pop("push-delivery"),
+            lambda r: r["sample"]["counts"].update(secret="PRIVATE_ACCOUNT"),
+        )
+        for item in invalid:
+            with self.subTest(edit=str(item)):
+                check(item)
 
     def test_read_access_rejects_fake_extra_completions(self):
         goals,record=self.fixtures()
@@ -149,7 +195,7 @@ class DatedAcceptanceTests(unittest.TestCase):
                          "unavailable")
         goals[0]["verified"]=original
         manifest["tasks"]=goals
-        self.assertEqual(bob_diagnostics.read_access_coverage(manifest)["verified"],3)
+        self.assertEqual(bob_diagnostics.read_access_coverage(manifest)["verified"],4)
 
 
 if __name__=="__main__":
