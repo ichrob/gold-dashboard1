@@ -153,6 +153,20 @@ class CompareTests(unittest.TestCase):
         self.assertIsNone(result["previousSession"])
         self.assertEqual(result["regressionAssessment"], "insufficient-evidence")
 
+    def test_twenty_health_samples_remain_visible_after_140_other_events(self):
+        # The private archive reads 8 stages * 20 entries: an observed health
+        # pair must not disappear because the other seven stages are newer.
+        other=[{"stage":"push","observedAt":3000+i,
+                "payload":{"outcome":"not-a-health-capture"}}
+               for i in range(140)]
+        rows=other + [event(1000,build=CURRENT),event(1030,build=CURRENT)]
+        result=compare(rows)
+        self.assertEqual(result["sampledHealthEvents"],2)
+        self.assertEqual(result["stateComparison"]["status"],"observed-comparison")
+        self.assertEqual(result["stateComparison"]["previousAt"],1000)
+        self.assertEqual(result["stateComparison"]["currentAt"],1030)
+        self.assertFalse(result["stateComparison"]["isRepairVerified"])
+
     def test_out_of_order_and_invalid_rows_are_bounded(self):
         rows=[event(1000,build=OLD),event(3000),event(2000)] + [
             {"stage":"health","observedAt":float("nan"),"payload":{"status":"ok"}},

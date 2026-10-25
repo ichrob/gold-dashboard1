@@ -207,6 +207,35 @@ class HistoryTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class DatabaseTests(unittest.TestCase):
+    def test_archive_reads_explicitly_refuse_old_rows_if_prune_is_delayed(self):
+        """A late retention sweep cannot expose older-than-seven-day samples."""
+        import psycopg
+        import bob_repair_store
+        schema='diag_seven_days_'+str(time.time_ns())
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute('CREATE SCHEMA '+schema)
+            conn.execute('SET search_path TO '+schema)
+            h.init(conn)
+            bob_repair_store.init(conn)
+            rows=[
+                ('old', "now()-interval '8 days'"),
+                ('kept', "now()-interval '6 days'"),
+                ('recent', "now()"),
+            ]
+            for key, clock in rows:
+                conn.execute("""INSERT INTO bob_diagnostic_history
+                    (id,trace_id,stage,observed_at,recorded_at,payload)
+                    VALUES (%s,%s,'health',extract(epoch FROM """+clock+"""),
+                            """+clock+""",'{}'::jsonb)""", (key,'a'*32))
+            report=h.report(conn)
+            event_ids=[e['id'] for e in report['events']]
+            self.assertNotIn('old', event_ids)
+            self.assertEqual(set(event_ids),{'kept','recent'})
+            # The raw old record was still present and not rewritten by read.
+            self.assertEqual(conn.execute(
+                "SELECT count(*) FROM bob_diagnostic_history").fetchone()[0],3)
+            conn.execute('DROP SCHEMA '+schema+' CASCADE')
+
     def test_durable_history_includes_original_paper_input_and_push_delivery(self):
         """Newly sampled stages are SELECT-only, bounded and privacy projected."""
         import psycopg

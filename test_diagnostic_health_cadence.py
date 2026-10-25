@@ -102,6 +102,16 @@ class CadenceTests(unittest.TestCase):
         self.assertFalse(result["workerStoppedVerified"])
         self.assertNotIn("SECRET", json.dumps(result))
 
+    def test_health_cadence_survives_maximum_other_stage_records(self):
+        others=[{"stage":"push-delivery","observedAt":3000+i,
+                 "payload":{"outcome":"provider-accepted"}}
+                for i in range(140)]
+        result=assess(others + [observation(1000), observation(1030)])
+        self.assertEqual(result["sampledHealthCaptures"],2)
+        self.assertEqual(result["sameBuildSessionIntervals"],1)
+        self.assertEqual(result["maxTradingCaptureGapSeconds"],30)
+        self.assertFalse(result["workerMissed30sCyclesVerified"])
+
     def test_duplicate_clock_not_extra_run_and_only_twenty_samples(self):
         captures = [observation(1000 + i*30) for i in range(30)]
         captures.append(observation(1000 + 29*30))

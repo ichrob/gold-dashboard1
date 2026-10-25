@@ -100,12 +100,12 @@ def _pair(before, after, scope):
 def compare(events):
     """Most recent distinct health instants; additionally compare across builds.
 
-    The caller already reads at most 20 events per diagnostic stage from the
-    existing seven-day journal. No new SQL or external service access.
+    The caller reads at most 8 stages x 20 events from the existing
+    seven-day journal. No new SQL or external service access.
     """
     if not isinstance(events, list):
         events = []
-    health = sorted((v for event in events[:120]
+    health = sorted((v for event in events[:160]
                      if (v := _sample(event)) is not None),
                     key=lambda v: v["at"], reverse=True)
     newest = health[0] if health else None
