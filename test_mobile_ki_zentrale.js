@@ -20,8 +20,12 @@ assert(titleAt>=0 && shareAt>titleAt && helpAt>shareAt,
   "On a Samsung the primary share button must precede all explanations and fallback links");
 assert(block.includes('<details class="bob-disclosure">'),
   "Long instructions must be collapsed under optional Help");
-assert(html.includes("if(location.hash==='#problems')requestAnimationFrame(()=>window.scrollTo(0,0));"),
-  "Deep link into Problems must reset an old restored scroll position");
+assert(html.includes("const handyActionTargets=Object.freeze({problems:'bobMobileHelpShare'})"),
+  "Bob-Handy must locate the intended control by stable ID despite redesigns");
+assert(html.includes("stabilizeHandyActionEntry();"),
+  "Explicit handoff must align the requested button at the top");
+assert(!html.includes("bobPrimaryActionDock"),
+  "The primary action must not remain stuck over the lower page content");
 assert(block.includes("window.BobProblems.shareToChatGPT()"),
   "Top action must delegate to the same consent-based sanitized report, never send automatically");
 assert(!block.includes("localStorage")&&!block.includes("Authorization"),"Do not copy authentication material to ChatGPT");
