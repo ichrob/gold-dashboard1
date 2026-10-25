@@ -595,13 +595,14 @@ def _build_report(conn):
     # Measure actual wall-clock query duration, not the amount of historical
     # market data. Never log a row, SQL parameter, connection or exception text.
     full_started = time.monotonic()
-    full_state = "completed"
+    full_state, full_ms = "completed", None
     fallback_state, fallback_ms = "not-needed", None
     try:
         with conn.transaction():
             prospective_rows = _load_prospective_rows(conn)
     except psycopg.errors.QueryCanceled:
         full_state = "query-timeout"
+        full_ms = max(0, int((time.monotonic() - full_started) * 1000))
         # Retry only the already indexed recent time slice in its own
         # transaction/savepoint. Never interpret that subset as the 30-day
         # validation archive, and never increase the global SQL timeout.
@@ -617,11 +618,12 @@ def _build_report(conn):
             fallback_state = "query-timeout"
         finally:
             fallback_ms = max(0, int((time.monotonic() - fallback_started) * 1000))
-    full_ms = max(0, int((time.monotonic() - full_started) * 1000))
+    if full_ms is None:
+        full_ms = max(0, int((time.monotonic() - full_started) * 1000))
     # Only categorical results and bounded durations; a completed 24h retry is
     # not proof that the 30-day research query succeeded or a market error healed.
     print('BOB_AUDIT prospective_timing scope=research'
-          ' full_state=' + full_state + ' full_plus_retry_ms=' + str(full_ms)
+          ' full_state=' + full_state + ' full_ms=' + str(full_ms)
           + ' fallback_state=' + fallback_state
           + ' fallback_ms=' + (str(fallback_ms) if fallback_ms is not None else 'n/a'),
           flush=True)
