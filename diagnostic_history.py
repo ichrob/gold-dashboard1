@@ -248,7 +248,12 @@ def _report(conn):
                else 'pending-or-stale')
         followups.append(dict(code=code,recoveryKind=kind,recoveredAt=at.isoformat(),goodChecks=good,
                               badChecks=bad,recordedRecurrences=recorded_recurrences,lastCheckAt=last,state=state))
+    from diagnostic_state_compare import compare as compare_health_snapshots
+    comparison = compare_health_snapshots(events)
     return {'status':'observed' if rows else 'warming','retentionDays':7,'maxEvents':60000,
             'events':events,'reportLimitPerStage':20,'repairFollowups':followups,'delivery':status(),
+            'stateComparison':comparison['stateComparison'],
+            'deploymentComparison':comparison['deploymentComparison'],
+            'comparisonScope':comparison['limitations'],
             'scope':'sampled-server-observations-not-proof-of-causality-or-handset-delivery',
             'note':'No historical backfill. Unflushed queue entries may be lost on process termination. No observations means unverified.'}
