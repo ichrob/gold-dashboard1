@@ -501,6 +501,9 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
     items.append(article);
    }
   }catch(_){
+   // The last successful snapshot is no longer independently current.
+   // Never share a failed refresh with the previous 'ok' freshness flag.
+   if(latest)latest={...latest,status:'stale'};
    summary.textContent=latest?'⚠️ Probleme können derzeit nicht neu abgefragt werden; letzter Stand bleibt sichtbar.':'⚠️ Problemarchiv momentan nicht erreichbar – Zahl unbekannt. Bitte GitHub prüfen.';
    document.getElementById('bobProblemsLastUpdate').textContent=
      'Letzte erfolgreiche Aktualisierung: '+(latest?readableDate(latest.checkedAt):'unbekannt');
