@@ -37,14 +37,17 @@ SEEDS = (
     ("DE000FG309G0", "SHORT"),
 )
 LIMIT = 12
+HISTORY_SAMPLE_LIMIT = 2  # Additional issuer requests per 5-minute cycle.
 # Historical user-reviewed BNP identities, not a current broker/portfolio list.
 HISTORICAL_BNP = frozenset(("DE000PJ9NCK0", "DE000PJ9NB98", "DE000PG0XK25"))
 _LOCK = threading.Lock()
 _THREAD = None
+_RESEARCH_CURSOR = 0
 _CURRENT = {
     "status": "pending", "lastScanAt": None, "lastDay": None,
     "lastSession": None, "running": False, "errors": 0, "candidates": [],
-    "excluded": [], "attempted": 0,
+    "excluded": [], "attempted": 0, "scanHistory": [],
+    "historyResearch": {"code":"NO_HISTORY", "available":0, "sampled":0, "items":[]},
 }
 
 
@@ -52,7 +55,7 @@ def _same_spot(metadata):
     return (isinstance(metadata, dict)
             and metadata.get("underlyingType") == "SPOT"
             and metadata.get("underlying") in ("Gold", "XAU/USD", "Gold Spot")
-            and metadata.get("currency") == "EUR")
+            and metadata.get("currency") in ("EUR", "CHF"))
 
 
 def normalize(isin, expected_direction, raw):
