@@ -1,0 +1,507 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Mapping to existing representative tests; file existence does not prove goal-specific test behavior, CI execution, runtime correctness or user acceptance.",
+  "testExecution": "not-individually-attested",
+  "goalEvidence": [
+    {
+      "id": 1,
+      "representativeTest": "test_bob_mcp.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 2,
+      "representativeTest": "test_diagnoseziele_module_map.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 3,
+      "representativeTest": "test_diagnoseziele_module_map.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 4,
+      "representativeTest": "test_bob_self_healing.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 5,
+      "representativeTest": "test_spot_timestamp.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 6,
+      "representativeTest": "test_bob_diagnostic_focus_truth.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 7,
+      "representativeTest": "test_diagnostic_history.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 8,
+      "representativeTest": "test_diagnostic_state_compare.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 9,
+      "representativeTest": "test_simulation_gap_correlation.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 10,
+      "representativeTest": "test_bob_diagnostics.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 11,
+      "representativeTest": "test_background_health.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 12,
+      "representativeTest": "test_auto_collection.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 13,
+      "representativeTest": "test_bob_self_healing.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 14,
+      "representativeTest": "test_resilience_drills.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 15,
+      "representativeTest": "test_http_connection_bursts.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 16,
+      "representativeTest": "test_database_contention.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 17,
+      "representativeTest": "test_evaluator_runtime.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 18,
+      "representativeTest": "test_bob_release_verify.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 19,
+      "representativeTest": "test_bob_post_deploy_check.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 20,
+      "representativeTest": "test_bob_self_healing.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 21,
+      "representativeTest": "test_spot_timestamp.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 22,
+      "representativeTest": "test_cfd_chart.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 23,
+      "representativeTest": "test_cme_reference.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 24,
+      "representativeTest": "test_fx_data.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 25,
+      "representativeTest": "test_source_permission.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 26,
+      "representativeTest": "test_market_recovery.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 27,
+      "representativeTest": "test_candle_reliability.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 28,
+      "representativeTest": "test_ema200_history_backfill.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 29,
+      "representativeTest": "test_technical_candles.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 30,
+      "representativeTest": "test_intraday_consistency.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 31,
+      "representativeTest": "test_list_archive.js",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 32,
+      "representativeTest": "test_degiro_list_reader.js",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 33,
+      "representativeTest": "test_series_identity.js",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 34,
+      "representativeTest": "test_sg_numeric_ocr.js",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 35,
+      "representativeTest": "test_degiro_product_audit.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 36,
+      "representativeTest": "test_comdirect_fields.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 37,
+      "representativeTest": "test_product_quote_preflight.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 38,
+      "representativeTest": "test_leverage_backup.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 39,
+      "representativeTest": "test_product_data_quality.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 40,
+      "representativeTest": "test_broker_venue_evidence.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 41,
+      "representativeTest": "test_gold_eight_optimizations.js",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 42,
+      "representativeTest": "test_cost_ranking.js",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 43,
+      "representativeTest": "test_bob_selection_reasons.js",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 44,
+      "representativeTest": "test_analysis_labels.js",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 45,
+      "representativeTest": "test_analysis_math.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 46,
+      "representativeTest": "test_intraday_consistency.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 47,
+      "representativeTest": "test_signal_history.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 48,
+      "representativeTest": "test_late_entry_guard.js",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 49,
+      "representativeTest": "test_early_warning.js",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 50,
+      "representativeTest": "test_decision_evidence.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 51,
+      "representativeTest": "test_snaptrade_bridge.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 52,
+      "representativeTest": "test_snaptrade_portfolio.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 53,
+      "representativeTest": "test_snaptrade_cadence.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 54,
+      "representativeTest": "test_snaptrade_trades.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 55,
+      "representativeTest": "test_snaptrade_csv_link.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 56,
+      "representativeTest": "test_snaptrade_quality.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 57,
+      "representativeTest": "test_snaptrade_trade_insights.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 58,
+      "representativeTest": "test_snaptrade_quotes.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 59,
+      "representativeTest": "test_broker_candidate_evidence.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 60,
+      "representativeTest": "test_snaptrade_http.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 61,
+      "representativeTest": "test_real_trade_journal.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 62,
+      "representativeTest": "test_trade_risk_review.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 63,
+      "representativeTest": "test_product_trade_curve.js",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 64,
+      "representativeTest": "test_stop_target_audit.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 65,
+      "representativeTest": "test_stop_assistant.js",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 66,
+      "representativeTest": "test_ko_protection.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 67,
+      "representativeTest": "test_stop_assistant.js",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 68,
+      "representativeTest": "test_trade_learning_review.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 69,
+      "representativeTest": "test_push_delivery_history.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 70,
+      "representativeTest": "test_trade_learning_review.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 71,
+      "representativeTest": "test_paper_portfolios.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 72,
+      "representativeTest": "test_paper_simulation_wakeup.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 73,
+      "representativeTest": "test_paper_entry_pipeline.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 74,
+      "representativeTest": "test_paper_ledger_costs.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 75,
+      "representativeTest": "test_paper_input_evidence.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 76,
+      "representativeTest": "test_paper_gap_triage.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 77,
+      "representativeTest": "test_paper_health.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 78,
+      "representativeTest": "test_strategy_lab.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 79,
+      "representativeTest": "test_paper_reflection.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 80,
+      "representativeTest": "test_paper_end_to_end.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 81,
+      "representativeTest": "test_youtube_research.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 82,
+      "representativeTest": "test_youtube_feed_archive.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 83,
+      "representativeTest": "test_research_transcript_provider.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 84,
+      "representativeTest": "test_video_evidence.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 85,
+      "representativeTest": "test_browserless_trial.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 86,
+      "representativeTest": "test_mco_comparison.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 87,
+      "representativeTest": "test_research_self_review.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 88,
+      "representativeTest": "test_ranking_learning.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 89,
+      "representativeTest": "test_adaptive_learning.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 90,
+      "representativeTest": "test_strategy_lab_endpoint.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 91,
+      "representativeTest": "test_android_stable_release_config.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 92,
+      "representativeTest": "test_bob_voice_long.js",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 93,
+      "representativeTest": "test_bob_handy_landing.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 94,
+      "representativeTest": "test_mobile_audit_share.js",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 95,
+      "representativeTest": "test_bob_handy_action_locator.js",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 96,
+      "representativeTest": "test_bob_diagnostic_feedback.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 97,
+      "representativeTest": "test_bob_issue_watchdog.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 98,
+      "representativeTest": "test_evidence_repair.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 99,
+      "representativeTest": "test_release_gate_configuration.py",
+      "claim": "test-file-candidate-only"
+    },
+    {
+      "id": 100,
+      "representativeTest": "test_bob_diagnostic_chatgpt_handoff.js",
+      "claim": "test-file-candidate-only"
+    }
+  ]
+}
