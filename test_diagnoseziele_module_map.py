@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import diagnoseziele_module_map as module_map
 
@@ -53,15 +54,15 @@ class ModuleMapTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "module_a.js").write_text(
-                "import {safe} from './module_b.js';\\n"
-                "const dep = require('./module_b');\\n"
-                "export * from './module_c.js';\\n"
-                "const secret = require('../private-secret');\\n"
-                "const dynamic = import(userProvidedModule);\\n"
-                "throw Error('NOT EXECUTED');\\n",
+                "import {safe} from './module_b.js';\n"
+                "const dep = require('./module_b');\n"
+                "export * from './module_c.js';\n"
+                "const secret = require('../private-secret');\n"
+                "const dynamic = import(userProvidedModule);\n"
+                "throw Error('NOT EXECUTED');\n",
                 encoding="utf-8")
-            (root / "module_b.js").write_text("export const safe = 1;\\n", encoding="utf-8")
-            (root / "module_c.js").write_text("export const other = 1;\\n", encoding="utf-8")
+            (root / "module_b.js").write_text("export const safe = 1;\n", encoding="utf-8")
+            (root / "module_c.js").write_text("export const other = 1;\n", encoding="utf-8")
             (root / "README.md").write_text("not a parseable module",encoding="utf-8")
             goals = [{"id":i,"codeEvidence":(
                 "module_a.js" if i<=97 else
@@ -84,9 +85,9 @@ class ModuleMapTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
             js=root/"app.js"
-            js.write_text("const x=1;\\n",encoding="utf-8")
+            js.write_text("const x=1;\n",encoding="utf-8")
             goals=[{"id":i,"codeEvidence":"app.js"} for i in range(1,101)]
-            with unittest.mock.patch.object(module_map,"_MAX_SOURCE_BYTES",3):
+            with patch.object(module_map,"_MAX_SOURCE_BYTES",3):
                 self.assertEqual(module_map.inspect(root,goals)["status"],"unavailable")
             # Never infer a linked module outside the declared mapped tree.
             self.assertEqual(module_map.inspect(root,goals)["mappedDependencyEdges"],0)
