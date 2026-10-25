@@ -640,6 +640,20 @@ def _build_report(conn):
             review['validationCoverage']='last-24-hours-only'
             review['note']='Eingeschränktes Tagesfenster nach SQL-Zeitüberschreitung: keine 30-Tage-Validierung und keine Regeländerung. '+review['note']
         result['prospectiveReview']=review
+    # Existing private read-only audit result receives the same coarse,
+    # monotonic timings already emitted to Render logs. No extra SQL, schema,
+    # connection or timeout. A completed 24h fallback remains explicitly
+    # INCOMPLETE evidence for the documented 30-day research horizon.
+    result['prospectiveReview']['queryTiming']={
+        'scope':'query-and-transaction-wall-time',
+        'fullWindow':'30-days',
+        'fullState':full_state,
+        'fullDurationMs':full_ms,
+        'fallbackWindow':'24-hours',
+        'fallbackState':fallback_state,
+        'fallbackDurationMs':fallback_ms,
+        'fullWindowQueryCompleted':full_state=='completed' and not prospective_partial,
+    }
     result['fourDayComparison']=intraday_comparison.report(conn)
     result['total']=conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0]
     result['reportRecords']=len(rows)
