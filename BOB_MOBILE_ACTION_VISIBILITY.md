@@ -1,62 +1,63 @@
-# Bob Samsung: Hauptaktionen ohne Scrollen (dauerhafte Designregel)
+# Bob – Handy: Gewählten Button sofort finden, ohne dauerhaftes Overlay
 
-## Verbindliche UX-Regel ab 25.10.2026
+## Korrigierter und vom Nutzer präzisierter Wunsch · 25.10.2026
 
-Die **wichtigste sichere Aktion** des aktuell geöffneten Bob-Bereichs
-muss auf dem Samsung **ohne Scrollen** erreichbar sein. Ihr Standort darf
-nicht von der Reihenfolge langer Karten, Tabellen, Statistiken oder
-Hilfeabsätze abhängen. Auch bei einer späteren Änderung von Farben,
-Navigation, Kartenlayout oder Texten bleibt die Hauptaktion unmittelbar
-sichtbar. Lange Erklärungen werden aufklappbar dargestellt.
+**Beim Öffnen über Bob – Handy** soll der ausgewählte, eindeutig erlaubte
+Button **sofort im oberen sichtbaren Bildschirmbereich** erscheinen. Der Nutzer
+soll niemals manuell nach ihm scrollen müssen – auch nicht nach einer späteren
+Änderung von Bobs Design, der Kartenreihenfolge oder der Position des Buttons.
 
-Dies gilt für neue primäre Handlungen, die der Nutzer ausdrücklich
-auslösen soll, insbesondere **„Fehlerdiagnose an ChatGPT teilen · ohne Kopieren“**.
-Es ist **nicht** die Anforderung, sämtliche sekundären Buttons gleichzeitig
-auf einem kleinen Bildschirm anzuzeigen. Die mobile Aktionsleiste zeigt
-höchstens **eine kontextbezogene Hauptaktion je Ansicht** und verdeckt weder
-die untere Navigationsleiste noch den letzten Seiteninhalt.
+**Ausdrücklich nicht gewünscht:** Ein blauer Button, der beim normalen Scrollen
+dauerhaft unten, oben oder über dem übrigen Seiteninhalt schwebt. Der Nutzer
+hat einen solchen fixierten unteren Button auf seinem Samsung per Screenshot
+als **falsche Umsetzung** zurückgemeldet.
 
-## Technische Umsetzung
+## Implementierung (keine neue Android-Berechtigung)
 
-- Die mobile Hauptaktionsleiste mit der stabilen ID `bobPrimaryActionDock`
-  ist ein eigenständiges, am sichtbaren Bildschirm befestigtes Element
-  **außerhalb der umgestaltbaren Inhaltskarten**.
-- Die explizit im Code registrierte Zuordnung
-  `registerPinnedAction(view, buttonId, feedbackId)` hängt den **bereits
-  existierenden Original-Button** samt Bedienhandler und Statusfeld um.
-  Keine zweite Aktion, kein Duplikat, keine automatische Ausführung.
-- `showPinnedAction(view)` wird bei **jedem** Bereichswechsel aufgerufen.
-  Auf nicht dafür registrierten Ansichten verschwindet die Leiste.
-  Zusätzliche Hauptaktionen lassen sich zentral aufnehmen; sie müssen
-  eine semantisch stabile ID und einen nutzerbestätigten Handler besitzen.
-- Die Leiste orientiert sich dynamisch an der Höhe der unteren Navigation.
-  Die Seite erhält zusätzlichen Innenabstand, sodass der letzte Inhalt
-  trotz feststehender Leiste erreichbar bleibt. `ResizeObserver` und
-  Fenstergrößenänderungen passen die Position an.
-- Diagnose-Teilen ruft weiterhin lediglich die nutzerinitiierte
-  native Android-Teilen-Auswahl auf; der Bericht wird nicht automatisch
-  gesendet. Kopier-Ersatzweg, STOPP- und andere Sicherheitsregeln bleiben.
-- Brokerorders, Kauf/Verkauf, Stoppänderungen, Logins und Zugriffsfreigaben
-  dürfen **nie** ohne gesondertes Sicherheitsdesign als Sofortaktion gepinnt
-  oder ausgeführt werden.
+- Bob – Handy übergibt weiterhin lediglich einen erlaubten HTTPS-Anzeigelink
+  mit `?view=problems#problems` (optional `bobvisit`). Kein HTML-Senden,
+  keine Fernsteuerung und **kein Klick auf die gesuchte Aktion**.
+- Bobs mobile UI ordnet die ausdrücklich gewünschten Ansichten stabilen
+  **semantischen Button-IDs** zu:
+  `handyActionTargets = {problems: 'bobMobileHelpShare'}`.
+  Ein späterer Umbau darf den Button und seine Karte verschieben; die ID und
+  die zugrunde liegende freigegebene Aktion müssen bestehen bleiben.
+- `stabilizeHandyActionEntry()` sucht den **Original-Button** per ID,
+  öffnet nur dessen eigene gegebenenfalls zugeklappte Anzeige-Karte und
+  richtet ihn beim Deep-Link-Einstieg **einmalig am sichtbaren oberen Rand**
+  aus. Chrome-Scroll-Wiederherstellung wird in den ersten Frames kurz
+  ausgeglichen; nach maximal ca. 850 ms oder bei der **ersten Nutzergeste**
+  enden sämtliche Korrekturen.
+- Anschließend bleibt der Button normal **im Dokumentfluss** und scrollt
+  mit seiner Karte aus dem Bild. Es gibt **keine** feste, schwebende Leiste
+  und keine doppelten oder überlagernden Hauptaktions-Buttons.
+- Gewöhnliches Öffnen anderer Ansichten und eigenes Scrollen lösen
+  **keinen** automatischen Aktionssprung aus. Neue auswählbare
+  Bob-Handy-Aktionen müssen bewusst in die kleine, geprüfte Zuordnung
+  aufgenommen werden und ihren stabilen Button besitzen.
+- Die Originalfunktion öffnet weiterhin nur nach einem **echten Tipp**
+  das Android-Teilen. ChatGPT erhält ohne Auswahl und Absenden **nichts**.
+  Die Kopieralternative und alle Handels-/Authentifizierungsschutzregeln
+  bleiben unverändert.
 
-## Definition of Done für **jede zukünftige Bob-Designänderung**
+## Pflichtregeln für zukünftige Designänderungen
 
-1. Beim Öffnen eines Bereichs auf 360px breitem Samsung-Viewport ist die
-   registrierte Hauptaktion sofort sichtbar und mindestens 44px hoch.
-2. Nach Scrollen bis zum Ende, wechselnden Kartenpositionen, Aufklappen
-   langer Informationen, wiederholten Deep Links und Tabwechsel bleibt
-   sie zuverlässig erreichbar; andere Bereiche zeigen keine falsche Aktion.
-3. Die Navigationsleiste und Hauptaktion überdecken sich nicht; am Seitenende
-   bleibt der Inhalt erreichbar. Änderungen an der Navigationshöhe werden
-   berücksichtigt.
-4. Kein automatischer Klick/Versand beim Öffnen; die echte Freigabe bleibt
-   zwingend und ein abgebrochener Teilen-Dialog sendet nichts.
-5. `node test_bob_primary_action_dock.js` und
-   `node test_mobile_ki_zentrale.js` bleiben grün. Bei größerem Layoutumbau
-   zusätzlich realen Android-Test durchführen; ein CI-Erfolg ersetzt den
-   Samsung-Test nicht.
+1. Der vom Bob-Handy-Link **gewählte** Button muss unmittelbar nach Öffnen
+   sichtbar sein; auch wenn er in einen anderen Abschnitt derselben Ansicht,
+   eine andere Karte oder ein zuvor geschlossenes Detail verschoben wurde.
+2. Sobald der Nutzer selbst nach unten scrollt, bewegt sich die gesamte
+   Seite natürlich; **kein fester blauer Button am unteren Bildschirmrand**.
+3. Ein Scrollversuch, Tastendruck oder Tipp des Nutzers stoppt spätere
+   automatische Scrollkorrekturen. Bei ungültiger, nicht freigegebener
+   Aktion findet keine Navigation oder Ausführung statt.
+4. Beim Öffnen ohne Bob-Handy-Auftrag wird **nicht** zwangsweise zu einem
+   Button gesprungen. Bei einem wiederholten neuen erlaubten Link darf
+   die gezielte Positionierung erneut stattfinden.
+5. Regressionen: `node test_bob_handy_action_locator.js` und
+   `node test_mobile_ki_zentrale.js` müssen bestanden sein.
+   Nach größeren Designänderungen zusätzlich auf dem Samsung prüfen.
+6. Keine Echtgeldorder, Stoppänderung, Zugriffsfreigabe oder Brokerbedienung
+   darf durch diese **reine Anzeige-Navigation** ausgelöst werden.
 
-Die zuerst bestätigte Fehlerdiagnose-Übergabe bleibt Referenzfall. Neue
-Ansichten erhalten eine Hauptaktion **nur**, wenn ihre erlaubte Funktion
-eindeutig und sicher spezifiziert ist.
+Diese korrigierte Regel **ersetzt** die ältere Idee einer dauerhaft
+feststehenden mobilen Hauptaktionsleiste.
