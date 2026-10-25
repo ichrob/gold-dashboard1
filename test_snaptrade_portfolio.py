@@ -243,6 +243,96 @@ class PortfolioTests(unittest.TestCase):
             b.read_journal(A, CONFIG, got, get=lambda *args:(calls.append(args),[])[1])
             self.assertEqual(len(calls),1)  # only orders, no immediate activity retry
 
+    def test_filtered_trade_coverage_complete_but_not_fifo(self):
+        # Large real account histories include cash sweeps. The provider's
+        # BUY,SELL filter should fit the smaller, separate observation budget.
+        calls = []
+        def get(path, config, params=None):
+            calls.append(params)
+            self.assertEqual(params['type'], 'BUY,SELL')
+            self.assertEqual(params['limit'], 1000)
+            offset = params['offset']
+            rows = [
+                {'id':'trade-'+str(i), 'type':'BUY' if i%2==0 else 'SELL',
+                 'trade_date':'2026-10-24' if i<2000 else '2026-06-03',
+                 'symbol':{'raw_symbol':'DE000FG309G0','symbol':'ABC','currency':{'code':'CHF'}},
+                 'currency':{'code':'CHF'}, 'units':1, 'price':5, 'fee':0}
+                for i in range(offset,min(offset+1000,2704))]
+            return {'data':rows, 'pagination':{'total':2704}}
+        got = b.read_trade_coverage(A,CONFIG,known_isins={'DE000FG309G0'},get=get)
+        self.assertEqual(got['code'],'READ_OK')
+        self.assertEqual(got['filter'],'BUY,SELL')
+        self.assertEqual(got['totalMatching'],2704)
+        self.assertEqual(got['observed'],2704)
+        self.assertEqual(got['buyCount'],1352)
+        self.assertEqual(got['sellCount'],1352)
+        self.assertEqual(got['validIsinCount'],2704)
+        self.assertEqual(got['currentHoldingsIsinMatches'],2704)
+        self.assertEqual(got['earliestTradeDay'],'2026-06-03')
+        self.assertEqual(got['latestTradeDay'],'2026-10-24')
+        self.assertTrue(got['completeFilteredTradeWindow'])
+        self.assertFalse(got['accountHistoryComplete'])
+        self.assertFalse(got['fifoEligible'])
+        self.assertEqual([q['offset'] for q in calls],[0,1000,2000])
+        calls.clear()
+        self.assertEqual(b.read_trade_coverage(A,CONFIG,got,get=get),got)
+        self.assertEqual(calls,[])  # weekly cooldown, no paid extra refresh
+
+    def test_filtered_trade_partial_and_provider_errors_fail_closed(self):
+        def large(path,config,params=None):
+            offset=params['offset']
+            return {'data':[{'id':str(offset+i),'type':'BUY','trade_date':'2026-10-20'}
+                            for i in range(1000)],'pagination':{'total':4200}}
+        partial=b.read_trade_coverage(A,CONFIG,get=large)
+        self.assertEqual(partial['code'],'READ_OK')
+        self.assertFalse(partial['completeFilteredTradeWindow'])
+        self.assertEqual(partial['coverageReason'],'PAGE_LIMIT')
+        self.assertEqual(partial['observed'],3000)
+        self.assertFalse(partial['fifoEligible'])
+        with patch.object(b,'TRADE_COVERAGE_SCHEMA',b.TRADE_COVERAGE_SCHEMA+1):
+            def error(path,config,params=None):
+                if params['offset']==1000:
+                    raise b.ReadError('RATE_LIMITED',3600)
+                return {'data':[{'id':str(i),'type':'BUY','trade_date':'2026-10-20'}
+                                for i in range(1000)],'pagination':{'total':2704}}
+            failed=b.read_trade_coverage(A,CONFIG,partial,get=error)
+        self.assertEqual(failed['code'],'UNAVAILABLE')
+        self.assertEqual(failed['failureCode'],'RATE_LIMITED')
+        self.assertEqual(failed['pagesReceivedInFailedAttempt'],1)
+        self.assertEqual(failed['checkedAt'],partial['checkedAt'])
+        self.assertEqual(failed['observed'],partial['observed'])
+        self.assertFalse(failed['fifoEligible'])
+        # If filtering is ignored, the response must not count as BUY/SELL.
+        bad=b.read_trade_coverage(A,CONFIG,get=lambda p,c,params=None: {
+            'data':[{'id':'not-a-trade','type':'CASH_TRANSACTION'}],
+            'pagination':{'total':1}})
+        self.assertEqual(bad['code'],'UNAVAILABLE')
+        self.assertEqual(bad['failureCode'],'INVALID_RESPONSE')
+        self.assertNotIn('rows',bad)
+
+    def test_only_fixed_filtered_trade_request_is_allowed(self):
+        reqs=[]
+        from unittest.mock import Mock
+        ok=Mock()
+        ok.read.return_value=b'{"data":[],"pagination":{"total":0}}'
+        ok.__enter__=Mock(return_value=ok)
+        ok.__exit__=Mock(return_value=False)
+        opener=Mock()
+        opener.open.return_value=ok
+        with patch.object(b,'build_opener',return_value=opener):
+            got=b.api_get('/accounts/'+A+'/activities',CONFIG,
+                          {'offset':1000,'limit':1000,'type':'BUY,SELL'})
+            self.assertIn('data',got)
+            for params in (
+                {'offset':3000,'limit':1000,'type':'BUY,SELL'},
+                {'offset':0,'limit':1000,'type':'SELL'},
+                {'offset':0,'limit':500,'type':'BUY,SELL'},
+                {'offset':0,'limit':1000,'type':'BUY,SELL','refresh':True},
+            ):
+                with self.assertRaises(b.ReadError):
+                    b.api_get('/accounts/'+A+'/activities',CONFIG,params)
+            self.assertEqual(opener.open.call_count,1)
+
     def test_history_encrypted_reload_delete_and_owner_separation(self):
         db={}
         def store(action,payload=None):
