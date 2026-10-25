@@ -65,6 +65,8 @@ def journal_rows(data, category, number, text):
                     type=text(row.get('action' if category == 'orders' else 'type'), 40).upper(),
                     status=text(row.get('status'), 40),
                     date=text(row.get('time_executed') or row.get('time_placed') if category == 'orders' else row.get('trade_date'), 40),
+                    # An order's placement timestamp is not proof of a fill.
+                    executedAt=text(row.get('time_executed'), 40) if category == 'orders' else None,
                     quantity=number(row.get('filled_quantity' if category == 'orders' else 'units')),
                     price=number(row.get('execution_price' if category == 'orders' else 'price')),
                     amount=number(row.get('amount')), fee=number(row.get('fee')),
