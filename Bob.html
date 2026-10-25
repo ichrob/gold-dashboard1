@@ -3136,8 +3136,11 @@ function earlyWarningContext(bundle,now=Date.now()){
  const base={version:'early-warning-v2',monitoring:true,available:false,state:'unavailable',direction:'NEUTRAL',
   checkedAt:now,signalBarAt:null,expiresAt:null,invalidationPrice:null,extensionRisk:false,
   comparisonOnly:true,affectsApproval:false,reason:'Frühwarnung wird geprüft'};
- const weekday=new Intl.DateTimeFormat('en-US',{timeZone:'Europe/Zurich',weekday:'short'}).format(new Date(now));
- if(weekday==='Sat'||weekday==='Sun')return {...base,monitoring:false,state:'paused',reason:'Wochenendpause – Prüfung startet zum nächsten Marktzeitfenster wieder'};
+ const session=intradaySession(now);
+ if(!session.entryAllowed)return {...base,monitoring:false,state:'paused',
+  reason:session.mode==='weekend'?'Wochenendpause – Prüfung startet zum nächsten Marktzeitfenster wieder':
+   session.mode==='preparation'?'Vorbereitungsphase – Frühwarnungen starten mit dem DEGIRO-Einstiegsfenster um 08:00 Uhr (Zürich)':
+   'DEGIRO-Nachtmodus – Frühwarnungen pausieren bis zum nächsten Einstiegsfenster'};
  const current=earlyImpulseContext(bundle,now);
  if(!current.available)return {...base,reason:current.reason};
  const frames=bundle.history.bars_by_tf,step=300000;
