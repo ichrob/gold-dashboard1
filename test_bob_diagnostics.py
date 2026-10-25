@@ -162,7 +162,7 @@ class ReportTests(unittest.TestCase):
 
     def test_push_snapshot_only_selects_and_excludes_private_rows(self):
         conn = Mock()
-        conn.execute.return_value.fetchone.side_effect = [({'enabled':True,'checkedAt':123,'token':'secret','isin':'private'},),(2,)]
+        conn.execute.return_value.fetchone.side_effect = [({'enabled':True,'checkedAt':123,'token':'secret','isin':'private'},),(2, 3)]
         portfolios = Mock(POLICIES={'test':{}})
         portfolios.names.return_value={'bob_paper_control':'bob_paper_test_control'}
         evaluator = Mock(); evaluator.status.return_value={'ready':True,'token':'secret'}
@@ -172,21 +172,43 @@ class ReportTests(unittest.TestCase):
         self.assertNotIn('secret',json.dumps(result))
         self.assertNotIn('private',json.dumps(result))
         self.assertEqual(result['push']['deliveryStatus'],'not-verified')
+        self.assertEqual(result['push']['registeredSubscriptions'],3)
+        self.assertEqual(result['push']['subscriptionState'],'enabled')
+        self.assertEqual(result['push']['devicePermissionStatus'],'not-verified')
         self.assertEqual(result['push']['monitorState'],'subscriptions-observed')
         self.assertIn('nicht nachgewiesen',result['push']['deliveryNote'])
 
     def test_zero_push_subscriptions_are_not_declared_failed_deliveries(self):
         conn = Mock()
-        conn.execute.return_value.fetchone.side_effect = [({'enabled':True},),(0,)]
+        conn.execute.return_value.fetchone.side_effect = [({'enabled':True},),(0, 2)]
         portfolios = Mock(POLICIES={'test':{}})
         portfolios.names.return_value={'bob_paper_control':'bob_paper_test_control'}
         evaluator = Mock(); evaluator.status.return_value={'completed':1,'failed':0}
         health = Mock(); health.snapshot.return_value={'state':'ok'}
         row = diagnostics.push_snapshot(conn,evaluator,health,portfolios)['push']
         self.assertEqual(row['activeMonitors'],0)
+        self.assertEqual(row['registeredSubscriptions'],2)
+        self.assertEqual(row['subscriptionState'],'registered-disabled')
         self.assertEqual(row['monitorState'],'none-enabled')
         self.assertEqual(row['deliveryStatus'],'not-verified')
+        self.assertIn('keine aktiven',row['deliveryNote'])
         self.assertNotIn('token',json.dumps(row))
+        self.assertEqual(conn.execute.call_count,2)
+        self.assertIn('count(*) FILTER',conn.execute.call_args.args[0])
+
+    def test_no_registered_push_subscription_is_not_a_provider_failure(self):
+        conn = Mock()
+        conn.execute.return_value.fetchone.side_effect = [({'enabled':True},),(0, 0)]
+        portfolios = Mock(POLICIES={'test':{}})
+        portfolios.names.return_value={'bob_paper_control':'bob_paper_test_control'}
+        evaluator = Mock(); evaluator.status.return_value={'completed':1}
+        health = Mock(); health.snapshot.return_value={'state':'ok'}
+        row = diagnostics.push_snapshot(conn,evaluator,health,portfolios)['push']
+        self.assertEqual(row['registeredSubscriptions'],0)
+        self.assertEqual(row['subscriptionState'],'not-registered')
+        self.assertEqual(row['deliveryStatus'],'not-verified')
+        self.assertEqual(row['devicePermissionStatus'],'not-verified')
+        self.assertNotIn('endpoint',json.dumps(row))
 
 
 class ExpandedReportTests(unittest.TestCase):
