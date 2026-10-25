@@ -4,7 +4,7 @@ Aktualisiert 25.10.2026. Diese Datei bildet **alle 100 angefragten Punkte** ab. 
 
 Status-Legende: `partial` = thematische Codebasis vorhanden, Ende-zu-Ende noch nicht bewiesen; `planned` = eigene Entwicklung/Prüfung offen; `blocked-client` = vorhandene Bob-API, ChatGPT-Tool-Discovery nicht aktualisiert; `requires-device` = nur mit freiwilliger Samsung-Diagnose testbar; `verified-at-build` = unabhängig beobachteter historischer, zeitpunktbezogener Nachweis für eine bestimmte Codeversion; `verified-at-sample` = unabhängig aus einer autorisierten Originalquelle gemessene Zeitreihe in einem festgelegten Fenster. **Beides ist keine** Behauptung fortlaufender Produktionsgesundheit.
 
-**Vollständiger Nachweis pro Punkt verlangt:** fest definierte Eingabe, Originalzeit, sichere Projektion ohne Geheimnisse, Regressionstest, CI-Erfolg, verwendete GitHub-Commit-ID und anschließende Live-Prüfung. **2/100** haben jetzt unabhängige, streng datierte Einzelbeobachtungen: Ziel 18 (gleiche Build-Version auf beiden Render-Diensten) zum Commit `12764b1eb096061efac81380d9754d57225df696`, CI `40186063805`, Live-Smoke `40186064035`, zwei unabhängig beobachtete Render-LIVE-Deploys am 25.10.2026. Hinzu kommt Ziel 13 (CPU/RAM) mit tatsächlichen Render-Zeitreihen für beide Dienste vom 25.10.2026, 10:00–11:20 UTC. Es bleiben **98 individuell unbestätigt**. Die aktuelle Version und aktuelle Ressourcenwerte müssen stets gesondert überprüft werden.
+**Vollständiger Nachweis pro Punkt verlangt:** fest definierte Eingabe, Originalzeit, sichere Projektion ohne Geheimnisse, Regressionstest, CI-Erfolg, verwendete GitHub-Commit-ID und anschließende Live-Prüfung. **3/100** haben jetzt unabhängige, streng datierte Einzelbeobachtungen: Ziel 18 (gleiche Build-Version auf beiden Render-Diensten) zum Commit `12764b1eb096061efac81380d9754d57225df696`, CI `40186063805`, Live-Smoke `40186064035`, zwei unabhängig beobachtete Render-LIVE-Deploys am 25.10.2026. Hinzu kommt Ziel 13 (CPU/RAM) mit tatsächlichen Render-Zeitreihen für beide Dienste vom 25.10.2026, 10:00–11:20 UTC. Ziel 8 ist durch zwei getrennte echte archivierte Health-Snapshots des Scanner-Builds `61116b65b9800de141eab75837964738fa5b43ed` vom 25.10.2026 (18:49–18:50 UTC, beide `weekend`) separat nachgewiesen; nur die Gesundheits-Vergleichsfunktion, kein Regressions- oder Marktbeweis. Es bleiben **97 individuell unbestätigt**. Die aktuelle Version und aktuelle Ressourcenwerte müssen stets gesondert überprüft werden.
 
 **Regeln:** Kein versteckter Android-Zugriff, keine Echtgeldorders, keine Handelsfreigaben, keine automatische Änderung an KO-/Stop-/Risiko-/Strategieregeln. Die Reihenfolge ist technischer Diagnoseausbau, keine Renditegarantie.
 
@@ -20,7 +20,7 @@ Status-Legende: `partial` = thematische Codebasis vorhanden, Ende-zu-Ende noch n
 | 5 | Original-/Abruf-/Prüfzeit getrennt | partial | `bob_diagnostics.py` |
 | 6 | Gezielte Einzelabfragen | partial | `bob_diagnostics.py` |
 | 7 | Historische Diagnosefenster | partial | `bob_diagnostics.py` |
-| 8 | Vergleich früherer Zustände | partial | `diagnostic_history.py` |
+| 8 | Vergleich früherer Zustände | verified-at-sample | `diagnostic_history.py` |
 | 9 | Fehlerursachen korrelieren | partial | `bob_diagnostics.py` |
 | 10 | Gesamtstatus mit Nachweisen | partial | `bob_diagnostics.py` |
 
