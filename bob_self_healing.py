@@ -147,7 +147,7 @@ def worker_healthy(code, health):
     research = health.get("strategyResearch") or {}
     if code == "market-worker-stopped":
         return bool(collection.get("enabled") and collection.get("running")
-                    and collection.get("state") not in ("error","unavailable","stale","starting")
+                    and collection.get("state") in ("ready", "estimating", "collecting")
                     and _post_restart_success_time(collection.get("lastCycleAt"), code)
                     and "market-feed-not-current" not in health.get("reasons", []))
     if code == "background-worker-stopped":
