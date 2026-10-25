@@ -140,10 +140,16 @@ def assess(gap_correlation, spot_archive, analysis_archive, paper_input_archive=
         # A handoff/freshness mismatch is only a hypothesis to INVESTIGATE.
         # It does not establish root cause, a missed trade, or an original bid.
         candidate = (source_class == "original-nearby-before-or-at-gap" and
-                     analysis_class != "other-15m-analysis-ready-and-fresh-unlinked")
+                     analysis_class not in ("other-15m-analysis-ready-and-fresh-unlinked",
+                                            "analysis-archive-clock-inconsistent") and
+                     worker_class != "worker-archive-clock-inconsistent")
         if candidate:
             counts["reviewableInputHandoffCandidates"] += 1
         next_check = (
+            "inspect-inconsistent-archive-clocks" if (
+                source_class == "spot-archive-clock-inconsistent" or
+                analysis_class == "analysis-archive-clock-inconsistent" or
+                worker_class == "worker-archive-clock-inconsistent") else
             "compare-original-source-clock-with-paper-worker-input" if candidate else
             "never-backdate-later-original-observation" if source_class == "original-only-observed-after-gap" else
             "inspect-original-other-feeds-and-worker-clocks" if source_class == "no-gold-api-original-in-sampled-window" else
@@ -174,7 +180,10 @@ def assess(gap_correlation, spot_archive, analysis_archive, paper_input_archive=
             "profitOrLossVerified": False,
         })
     return {
-        "status": "observed" if entries else "unavailable",
+        "status": ("partial" if any(counts[key] for key in
+                   ("spotArchiveClockInconsistent", "analysisArchiveClockInconsistent",
+                    "workerArchiveClockInconsistent")) else
+                   "observed" if entries else "unavailable"),
         "readOnly": True,
         "realOrders": False,
         "sampledDistinctGapInstants": len(entries),
