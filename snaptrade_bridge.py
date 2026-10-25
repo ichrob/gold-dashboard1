@@ -603,6 +603,16 @@ def read_trade_coverage(aid, config, previous=None, known_isins=None, get=api_ge
         if conflicting_ids:
             complete = False
             coverage_reason = 'CONFLICTING_IDS'
+        # This optional, fully bounded summary uses rows already fetched by
+        # the existing weekly coverage calculation. Never persist raw filtered
+        # trades, fees, order IDs or amounts, and never make extra API calls.
+        candidate_summary = gold_history.discover([{'journal': {'activities': {
+            'rows': list(observed_ids.values()), 'complete': complete,
+            'code': 'READ_OK'}}}])
+        gold_hints = {'items': candidate_summary.get('items', []),
+                      'candidateCount': candidate_summary.get('candidateCount', 0),
+                      'scope': 'historical-filtered-buy-sell-not-full-account',
+                      'completeFilteredTradeWindow': complete}
         return {'code':'READ_OK', 'schemaVersion':TRADE_COVERAGE_SCHEMA,
                 'checkedAt':utcnow(), 'attemptedEpoch':now, 'filter':'BUY,SELL',
                 'totalMatching':observed_total, 'observed':len(observed_ids),
@@ -615,6 +625,7 @@ def read_trade_coverage(aid, config, previous=None, known_isins=None, get=api_ge
                 'earliestTradeDay':first_day, 'latestTradeDay':last_day,
                 'pagesReceived':page_count, 'conflictingIdentifiers':len(conflicting_ids),
                 'completeFilteredTradeWindow':complete, 'coverageReason':coverage_reason,
+                'goldHistoryHints':gold_hints,
                 'accountHistoryComplete':False, 'fifoEligible':False}
     except Exception as exc:
         # An isolated optional history-filter parser failure must not bring

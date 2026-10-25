@@ -4,11 +4,10 @@ No additional provider fetches. A historic trade proves neither current DEGIRO
 listing nor issuer prices; records never enter the verified product list.
 """
 import re
-from collections import Counter
 from snaptrade_portfolio import isin as valid_isin
 
 MAX_CANDIDATES = 80
-MAX_INPUT_ROWS = 2500
+MAX_INPUT_ROWS = 3000  # Existing weekly filtered BUY/SELL read is limited to three 1k pages.
 MAX_DESCRIPTION = 160
 _GOLD = re.compile(r'(?<![a-z])(?:gold|xau(?:/usd)?)(?![a-z])', re.I)
 _KO = re.compile(r'(?<![a-z])(?:knock[ -]?out|turbo|mini\s*future|mini\s*short|mini\s*long|barrier|best|unlimited|open\s*end|bull\s*certificate|bear\s*certificate)(?![a-z])', re.I)
@@ -89,6 +88,53 @@ def discover(accounts, limit=MAX_CANDIDATES):
                     currentlyDegiroListed=None, originalBidAskConfirmed=False,
                     issuerVerified=False, eligibleForTop3=False,
                     tradeApproved=False, automaticOrders=False)
+    # A weekly filtered BUY/SELL window is already fetched to assess historical
+    # coverage. Reuse only its previously deduplicated, sanitized *candidate
+    # summaries*: never retain new raw activity rows or add broker requests.
+    filtered_sources = 0
+    for account in accounts:
+        coverage = ((account.get('journal') or {}).get('tradeCoverage') or {})
+        hints = coverage.get('goldHistoryHints') or {}
+        if coverage.get('code') != 'READ_OK' or not isinstance(hints,dict):
+            continue
+        candidate_rows = hints.get('items')
+        if not isinstance(candidate_rows,list) or len(candidate_rows)>MAX_CANDIDATES:
+            continue
+        filtered_sources += 1
+        for hint in candidate_rows:
+            if not isinstance(hint,dict):
+                continue
+            identifier = valid_isin(hint.get('isin'))
+            name = hint.get('name')
+            side = classify(name)
+            if not identifier or side != hint.get('direction') or identifier in conflicts:
+                continue
+            existing = by_isin.get(identifier)
+            if existing and existing['direction'] != side:
+                by_isin.pop(identifier,None)
+                conflicts.add(identifier)
+                continue
+            date = hint.get('lastTradeDate')
+            date = date if isinstance(date,str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}',date) else None
+            count = hint.get('historicRecords')
+            count = count if isinstance(count,int) and not isinstance(count,bool) and 0<count<=3000 else 1
+            if existing:
+                # The same transaction may occur in both history windows. Never
+                # double-count it; keep the larger observed count.
+                existing['historicRecords'] = max(existing['historicRecords'],count)
+                if date and (not existing['lastTradeDate'] or date>existing['lastTradeDate']):
+                    existing['lastTradeDate']=date
+            else:
+                by_isin[identifier]=dict(
+                    isin=identifier,direction=side,name=name.strip(),
+                    lastTradeDate=date,historicRecords=count,
+                    source='SnapTrade · historische gefilterte BUY/SELL-Daten',
+                    brokerHistoricallyTransacted=True,
+                    currentlyDegiroListed=None,originalBidAskConfirmed=False,
+                    issuerVerified=False,eligibleForTop3=False,
+                    tradeApproved=False,automaticOrders=False)
+    any_history = any_history or filtered_sources>0
+    complete = complete and filtered_sources == 0  # Filtered trade history is not full account history.
     items = sorted(by_isin.values(), key=lambda v: (v['lastTradeDate'] or '', v['historicRecords'],v['isin']), reverse=True)
     return dict(code='HISTORICAL_PARTIAL' if any_history and not complete else
                 'HISTORICAL_READ' if any_history else 'NO_HISTORY',
@@ -96,6 +142,7 @@ def discover(accounts, limit=MAX_CANDIDATES):
                 candidateCount=len(items), suppressedConflicts=len(conflicts),
                 journalRowsExamined=scan_rows, tradesExamined=scanned,
                 historyComplete=complete and any_history,
+                filteredHistorySources=filtered_sources,
                 currentlyDegiroListed=False, completeDegiroCatalog=False,
                 tradeApproved=False, automaticOrders=False,
                 note='Historische Trades sind nur Research-Hinweise, keine aktuelle DEGIRO-Liste.')
