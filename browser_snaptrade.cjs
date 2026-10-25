@@ -72,6 +72,16 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
   assert(coverageText.includes('Begrenztes Abruffenster erreicht'));
   assert(coverageText.includes('2 Gruppen vorsorglich ausgelassen'));
   assert(coverageText.includes('keine vollständige Ergebnisrechnung'));
+  await page.evaluate(()=>{
+   const item=state.snapshot.accounts[0].journal.activities;
+   item.code='UNAVAILABLE';item.failureCode='RATE_LIMITED';item.activityPagesReceived=3;
+   item.failureAt='2026-10-24T12:00:00Z';poll();
+  });
+  const throttled=await page.locator('#snapJournaltest-account').innerText();
+  assert(throttled.includes('Anbieter-Abrufbegrenzung'));
+  assert(throttled.includes('3 Seiten vor dem Fehler gelesen'));
+  assert(throttled.includes('nicht als neuer bestätigter Verlauf übernommen'));
+  await page.evaluate(()=>{state.snapshot.accounts[0].journal.activities.code='READ_OK';poll();});
   await page.evaluate(()=>{state.snapshot.accounts[0].journal.orders.conflictingOrderIdentifiers=2;poll();});
   assert((await page.locator('#snapJournaltest-account').innerText()).includes('2 Gruppen vorsorglich ausgelassen'));
   assert.equal(await page.locator('#snapHoldings img').count(),0);
