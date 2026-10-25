@@ -139,6 +139,21 @@ def collect(readers):
                 'paperExecutionVerified':False,
                 'scope':'history-stage-counts-missing-or-malformed',
             }
+    # Deliberately separate "no archived capture" from failed deliveries or
+    # market/paper events. Only the already-sanitized eight-stage aggregate is
+    # used; never fetch another database page or join private traces.
+    try:
+        from diagnostic_capture_handoff import review as review_capture_handoff
+        paper_runtime = (areas.get('simulationAndPush') or {}).get('paper')
+        areas['diagnosticCaptureHandoff'] = review_capture_handoff(
+            areas.get('diagnosticStageCoverage'), paper_runtime)
+    except Exception:
+        areas['diagnosticCaptureHandoff'] = {
+            'status':'insufficient-evidence', 'readOnly':True, 'realOrders':False,
+            'originalEventCorrelationVerified':False, 'androidDeliveryVerified':False,
+            'virtualExecutionVerified':False, 'continuousCaptureVerified':False,
+            'scope':'capture-review-unavailable',
+        }
     stored_research = (areas.get('simulationAndPush') or {}).get('researchReports')
     if isinstance(stored_research, dict):
         # A large simulation/transition area may itself be omitted. Research
@@ -690,16 +705,16 @@ def broker_sync_snapshot(value):
 DIAGNOSTIC_FOCUS = ('overview', 'simulation', 'trades', 'signals',
                     'sources', 'research', 'repairs', 'mobile', 'products')
 _FOCUS_AREAS = {
-    'simulation': ('simulationEvidence', 'simulationAndPush', 'background', 'collection', 'gapEvidence', 'diagnosticStageCoverage'),
+    'simulation': ('simulationEvidence', 'simulationAndPush', 'background', 'collection', 'gapEvidence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
     'sources': ('market', 'sourceReliability', 'collection', 'background', 'analysis'),
     'research': ('research', 'strategyResearch', 'strategyReport', 'newFeatures'),
     'mobile': ('newFeatures', 'runtime', 'degiroSync', 'products'),
     'products': ('products', 'degiroSync', 'gapEvidence'),
     'repairs': ('selfHealing', 'problems', 'background', 'diagnosticTriage',
-                'healthCadence', 'diagnosticStageCoverage'),
+                'healthCadence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
     'trades': ('background', 'diagnosticTriage'),
     'signals': ('analysis', 'background', 'diagnosticTriage', 'pushDeliveries',
-                'diagnosticStageCoverage'),
+                'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
 }
 
 
