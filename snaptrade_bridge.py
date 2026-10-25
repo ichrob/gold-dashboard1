@@ -443,7 +443,12 @@ def read_trade_coverage(aid, config, previous=None, known_isins=None, get=api_ge
     now = time.time()
     if old.get('schemaVersion') == TRADE_COVERAGE_SCHEMA and now - old.get('attemptedEpoch', 0) < TRADE_COVERAGE_INTERVAL:
         return old
-    known_isins = set(known_isins or ())
+    # Display only checksum-confirmed, currently linked holding ISINs. The
+    # complete aggregate match count still considers every confirmed ISIN.
+    known_isins = {x for x in (known_isins or ()) if portfolio.isin(x)}
+    tracked_isins = sorted(known_isins)[:25]
+    by_holding = {isin: {'isin':isin, 'buys':0, 'sells':0,
+                         'firstDay':None, 'lastDay':None} for isin in tracked_isins}
     observed_ids, conflicting_ids = {}, set()
     observed_total, page_count = None, 0
     buy_count, sell_count = 0, 0
@@ -503,9 +508,16 @@ def read_trade_coverage(aid, config, previous=None, known_isins=None, get=api_ge
                 if valid_isin in known_isins:
                     matched_count += 1
             date = row.get('date')
-            if isinstance(date, str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}', date):
-                first_day = min(first_day, date) if first_day else date
-                last_day = max(last_day, date) if last_day else date
+            valid_day = date if isinstance(date, str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}', date) else None
+            if valid_day:
+                first_day = min(first_day, valid_day) if first_day else valid_day
+                last_day = max(last_day, valid_day) if last_day else valid_day
+            if valid_isin in by_holding:
+                item = by_holding[valid_isin]
+                item['buys' if row['type'] == 'BUY' else 'sells'] += 1
+                if valid_day:
+                    item['firstDay'] = min(item['firstDay'], valid_day) if item['firstDay'] else valid_day
+                    item['lastDay'] = max(item['lastDay'], valid_day) if item['lastDay'] else valid_day
         if conflicting_ids:
             complete = False
             coverage_reason = 'CONFLICTING_IDS'
@@ -515,6 +527,9 @@ def read_trade_coverage(aid, config, previous=None, known_isins=None, get=api_ge
                 'buyCount':buy_count, 'sellCount':sell_count,
                 'validIsinCount':verified_count, 'distinctIsins':len(distinct_isins),
                 'currentHoldingsIsinMatches':matched_count,
+                'missingOrInvalidIsinCount':len(observed_ids)-verified_count,
+                'holdingBreakdown':list(by_holding.values()),
+                'holdingBreakdownTruncated':len(known_isins)>len(tracked_isins),
                 'earliestTradeDay':first_day, 'latestTradeDay':last_day,
                 'pagesReceived':page_count, 'conflictingIdentifiers':len(conflicting_ids),
                 'completeFilteredTradeWindow':complete, 'coverageReason':coverage_reason,
