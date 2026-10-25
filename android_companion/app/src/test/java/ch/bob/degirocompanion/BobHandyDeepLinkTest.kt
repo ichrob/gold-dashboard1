@@ -15,7 +15,7 @@ class BobHandyDeepLinkTest {
         }
     }
 
-    @Test fun verifiedHttpsHarmlessLinksRoundTripAndRequireApproval() {
+    @Test fun verifiedHttpsHarmlessLinksRoundTripForDirectReadOnlyDisplay() {
         val tasks = listOf(PhoneTask.OPEN_BOB, PhoneTask.OPEN_PRODUCTS,
             PhoneTask.OPEN_TRADE, PhoneTask.OPEN_SIMULATION, PhoneTask.OPEN_MARKET,
             PhoneTask.OPEN_LEARNING, PhoneTask.OPEN_RESEARCH,
@@ -24,17 +24,20 @@ class BobHandyDeepLinkTest {
             val uri = BobHandyDeepLink.httpsLinkFor(task)
             assertEquals("https://bob-private-scanner.onrender.com/handy/" + task.name, uri)
             assertEquals(task, BobHandyDeepLink.parse(uri))
+            assertEquals(task, BobHandyDeepLink.directHttpsDisplay(uri))
             val gate = PhoneTaskApproval()
             assertFalse("A web link must not authorize itself", gate.consume(task, 100))
         }
     }
 
-    @Test fun chatgptTagKeepsPreviewAndNeverGrantsExecution() {
+    @Test fun chatgptAttributionPermitsOnlyHarmlessDirectHttpsDisplay() {
         for (task in listOf(PhoneTask.OPEN_PRODUCTS, PhoneTask.OPEN_MARKET,
                 PhoneTask.OPEN_TRADE, PhoneTask.OPEN_SIMULATION)) {
             val link = BobHandyDeepLink.httpsLinkFor(task)!!
             assertEquals(task,
                 BobHandyDeepLink.parse(link + "?utm_source=chatgpt.com"))
+            assertEquals(task,
+                BobHandyDeepLink.directHttpsDisplay(link + "?utm_source=chatgpt.com"))
             val approval = PhoneTaskApproval()
             assertFalse(approval.consume(task, 1000))
         }
@@ -76,7 +79,21 @@ class BobHandyDeepLinkTest {
             "bobhandy://handoff/OPEN_PRODUCTS;BUY",
             "bobhandy://handoff/OPEN_PRODUCTS\nBUY",
             "bobhandy://handoff/" + "A".repeat(200)
-        ).forEach { assertNull(it, BobHandyDeepLink.parse(it)) }
+        ).forEach {
+            assertNull(it, BobHandyDeepLink.parse(it))
+            assertNull(it, BobHandyDeepLink.directHttpsDisplay(it))
+        }
+    }
+
+    @Test fun unverifiedCustomSchemeStillRequiresPreview() {
+        assertNull(BobHandyDeepLink.directHttpsDisplay("bobhandy://handoff/OPEN_PRODUCTS"))
+        assertNull(BobHandyDeepLink.directHttpsDisplay("BOB-HANDY/1|OPEN_PRODUCTS"))
+        assertNull(BobHandyDeepLink.directHttpsDisplay(
+            "https://bob-private-scanner.onrender.com/?view=products#products"))
+        assertNull(BobHandyDeepLink.directHttpsDisplay(
+            "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS#products"))
+        assertNull(BobHandyDeepLink.directHttpsDisplay(
+            "https://bob-private-scanner.onrender.com/handy/OPEN_PRODUCTS?buy=true"))
     }
 
     @Test fun importingALinkDoesNotGrantApproval() {
