@@ -404,6 +404,14 @@ class ProspectiveBoundedRecoveryTests(unittest.TestCase):
         self.assertEqual(result['prospectiveReview']['validationCoverage'],
                          'last-24-hours-only')
         self.assertFalse(result['prospectiveReview']['automaticRuleChange'])
+        timing_record=result['prospectiveReview']['queryTiming']
+        self.assertEqual(timing_record['fullWindow'],'30-days')
+        self.assertEqual(timing_record['fullState'],'query-timeout')
+        self.assertEqual(timing_record['fallbackState'],'completed-partial')
+        self.assertEqual(timing_record['fallbackWindow'],'24-hours')
+        self.assertIsInstance(timing_record['fullDurationMs'],int)
+        self.assertIsInstance(timing_record['fallbackDurationMs'],int)
+        self.assertFalse(timing_record['fullHistoryConfirmed'])
         statuses = [call.args[0] for call in emitted.call_args_list if call.args]
         timing = [line for line in statuses if line.startswith('BOB_AUDIT prospective_timing')]
         self.assertEqual(len(timing), 1)
@@ -441,6 +449,10 @@ class ProspectiveBoundedRecoveryTests(unittest.TestCase):
         self.assertIn('full_state=query-timeout', timing[0])
         self.assertIn('fallback_state=query-timeout', timing[0])
         self.assertFalse(result['prospectiveReview']['available'])
+        timing_record=result['prospectiveReview']['queryTiming']
+        self.assertEqual(timing_record['fullState'],'query-timeout')
+        self.assertEqual(timing_record['fallbackState'],'query-timeout')
+        self.assertFalse(timing_record['fullHistoryConfirmed'])
 
 
 class ReportTimeoutRecoveryTests(unittest.TestCase):
