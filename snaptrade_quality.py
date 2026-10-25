@@ -9,15 +9,27 @@ def evidence_gaps(account):
     activities = (journal.get('activities') or {}).get('rows') or []
     proved = {item.get('key'):item for item in (account.get('tradeInsights') or {}).get('executions', [])}
     counts = dict(orderRows=len(orders), positiveFills=0,
-                  noPositiveFill=0, missingExecutionTime=0,
-                  missingVerifiedIsin=0, missingPrice=0,
-                  activityTrades=0, activityMissingFees=0)
+                  noPositiveFill=0, filledQuantityMissing=0,
+                  filledQuantityZero=0, filledQuantityInvalid=0,
+                  missingExecutionTime=0, missingVerifiedIsin=0,
+                  missingPrice=0, activityTrades=0, activityMissingFees=0)
     for row in orders:
         if not isinstance(row, dict): continue
-        try: qty = float(row.get('quantity') or 0)
-        except (TypeError, ValueError): qty = 0
-        if not 0 < qty < 1e30:
+        raw = row.get('quantity')
+        qty = None
+        if raw is not None and raw != '' and not isinstance(raw, bool):
+            try:
+                from decimal import Decimal, InvalidOperation
+                qty = Decimal(str(raw))
+            except (ValueError, TypeError, InvalidOperation):
+                pass
+        if qty is None:
             counts['noPositiveFill'] += 1
+            counts['filledQuantityMissing' if raw is None or raw == '' else 'filledQuantityInvalid'] += 1
+            continue
+        if not qty.is_finite() or not 0 < qty < Decimal('1e30'):
+            counts['noPositiveFill'] += 1
+            counts['filledQuantityZero' if qty.is_finite() and qty == 0 else 'filledQuantityInvalid'] += 1
             continue
         counts['positiveFills'] += 1
         if not row.get('executedAt'): counts['missingExecutionTime'] += 1
