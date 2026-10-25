@@ -85,7 +85,7 @@ def match_provider_executions(fills, journal, limit=100):
         if row['type'] == 'BUY' and qty < 0:
             return None
         day=row.get('date')
-        if not isinstance(day,str) or not re.fullmatch(r'\\d{4}-\\d{2}-\\d{2}',day):
+        if not isinstance(day,str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}',day):
             return None
         return (row['isin'],row['type'],currency,abs(qty),price,day)
 
