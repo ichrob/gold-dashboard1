@@ -41,6 +41,24 @@ KI_STATUS_LABELS = {
     "waiting-for-review": "Änderung wartet auf Freigabeprüfung",
 }
 _KI_MARKER = re.compile(r"(?m)^<!-- BOB_KI_STATUS:(in-progress|testing|waiting-for-evidence|waiting-for-review|needs-user) -->$")
+# Owner-authored code-review pointer. Never proof that a live fault has recovered.
+_REVIEW_MARKER = re.compile(
+    r"(?m)^<!-- BOB_KI_REVIEW:pr=([1-9][0-9]{0,7});sha=([a-f0-9]{40});phase=(proposed|ci-tested|deployed-unverified) -->$")
+
+
+def ki_review(issue):
+    author = issue.get("user")
+    if not isinstance(author, dict) or author.get("login") != "ichrob":
+        return None
+    body = issue.get("body")
+    if not isinstance(body, str) or len(body) > 8000:
+        return None
+    matches = _REVIEW_MARKER.findall(body)
+    if not matches:
+        return None
+    pr, commit, phase = matches[-1]
+    return {"pr": int(pr), "commit": commit, "phase": phase}
+
 
 
 def ki_status(issue):
@@ -132,6 +150,8 @@ def from_issues(rows, *, now=None):
             "url": REPOSITORY_URL + "/issues/" + str(number),
             "kiStatus": state,
             "kiStatusLabel": KI_STATUS_LABELS[state],
+            "caseId": "BOB-" + str(number) + "-" + code,
+            "review": ki_review(row),
         })
     items.sort(key=lambda problem: problem["number"], reverse=True)
     at = (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")
@@ -139,6 +159,7 @@ def from_issues(rows, *, now=None):
         "status": "ok",
         "count": len(items),
         "problems": items,
+        "resolved": [],
         "checkedAt": at,
         "meaning": "offene KI-Hilfeanfragen; Lesen setzt den Zähler nicht zurück",
         "source": "sanitized-github-issues",
@@ -440,12 +461,18 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
      const matches=[...issue.body.matchAll(/^<!-- BOB_KI_STATUS:(in-progress|testing|waiting-for-evidence|waiting-for-review|needs-user) -->$/gm)];
      if(matches.length)kiStatus=matches[matches.length-1][1];
    }
+   let review=null;
+   if(issue.user?.login==='ichrob'&&typeof issue.body==='string'&&issue.body.length<=8000){
+     const matches=[...issue.body.matchAll(/^<!-- BOB_KI_REVIEW:pr=([1-9][0-9]{0,7});sha=([a-f0-9]{40});phase=(proposed|ci-tested|deployed-unverified) -->$/gm)];
+     if(matches.length){const m=matches[matches.length-1];review={pr:Number(m[1]),commit:m[2],phase:m[3]};}
+   }
    problems.push({number:issue.number,code,message,kiStatus,kiStatusLabel:kiStatusLabels[kiStatus],
+      caseId:'BOB-'+issue.number+'-'+code,review,
       createdAt:stamp(issue.created_at),updatedAt:stamp(issue.updated_at),
       url:'https://github.com/ichrob/gold-dashboard1/issues/'+issue.number});
   }
   problems.sort((x,y)=>y.number-x.number);
-  browserSnapshot={status:'ok',count:problems.length,problems,
+  browserSnapshot={status:'ok',count:problems.length,problems,resolved:[],
      checkedAt:new Date().toISOString(),source:'public-github-browser'};
   browserSnapshotAt=now;
   return browserSnapshot;
