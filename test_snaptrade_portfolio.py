@@ -190,6 +190,59 @@ class PortfolioTests(unittest.TestCase):
         self.assertEqual(result['activities']['activityCoverageReason'], 'SHORT_PAGE')
         self.assertEqual(result['activities']['activitySourceTotal'], 100)
 
+    def test_personal_activity_rate_budget_caps_burst_and_reports_partial_history(self):
+        # Holdings/positions, balances and orders already consume three of
+        # SnapTrade Personal's ten allowed account requests per minute.
+        calls = []
+        def get(path, config, params=None):
+            calls.append((path, params))
+            if path.endswith('/orders'):
+                return []
+            return {'data': [
+                {'id': 'activity-'+str(params['offset']+i), 'type':'BUY',
+                 'trade_date':'2026-10-24','currency':{'code':'CHF'}}
+                for i in range(500)], 'pagination': {'total': 12599}}
+        got = b.read_journal(A, CONFIG, get=get)
+        activities = got['activities']
+        self.assertEqual(len(b.ACTIVITY_OFFSETS), 5)
+        self.assertEqual(activities['code'], 'READ_OK')
+        self.assertEqual(activities['activityPagesReceived'], 5)
+        self.assertEqual(activities['activityCoverageReason'], 'PAGE_LIMIT')
+        self.assertEqual(activities['activitySourceTotal'], 12599)
+        self.assertEqual(len(activities['rows']), 2500)
+        self.assertFalse(activities['complete'])
+        self.assertEqual(len(calls), 6)  # one order call + five activities
+        self.assertFalse(b.trades.build(got)['historyComplete'])
+
+    def test_provider_429_keeps_previous_journal_and_counts_successful_pages(self):
+        activity = {'id':'prior','type':'BUY','trade_date':'2026-10-20',
+                    'currency':{'code':'CHF'},'units':1}
+        old = b.read_journal(A, CONFIG, get=lambda path,c,params=None:
+            [] if path.endswith('/orders') else {'data':[activity], 'pagination':{'total':1}})
+        self.assertEqual(old['activities']['code'], 'READ_OK')
+        def throttled(path, config, params=None):
+            if path.endswith('/orders'):
+                return []
+            if params['offset'] >= 1000:
+                raise b.ReadError('RATE_LIMITED', 60)
+            return {'data':[
+                {'id':'new-'+str(params['offset']+i),'type':'BUY','trade_date':'2026-10-24',
+                 'currency':{'code':'CHF'}} for i in range(500)],
+                'pagination':{'total':12599}}
+        # The existing 24-hour journal cooldown stays intact; a new parser
+        # revision permits one bounded recheck, never a retry loop.
+        with patch.object(b.trades,'SCHEMA',b.trades.SCHEMA+1):
+            got = b.read_journal(A, CONFIG, old, get=throttled)
+            self.assertEqual(got['activities']['code'],'UNAVAILABLE')
+            self.assertEqual(got['activities']['failureCode'],'RATE_LIMITED')
+            self.assertEqual(got['activities']['activityPagesReceived'],2)
+            self.assertEqual(got['activities']['rows'],old['activities']['rows'])
+            self.assertEqual(got['activities']['checkedAt'],old['activities']['checkedAt'])
+            self.assertFalse(b.trades.build(got)['sourceAvailable'])
+            calls=[]
+            b.read_journal(A, CONFIG, got, get=lambda *args:(calls.append(args),[])[1])
+            self.assertEqual(len(calls),1)  # only orders, no immediate activity retry
+
     def test_history_encrypted_reload_delete_and_owner_separation(self):
         db={}
         def store(action,payload=None):

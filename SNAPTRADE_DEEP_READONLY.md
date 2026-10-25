@@ -63,3 +63,28 @@ python -m py_compile snaptrade_trade_insights.py snaptrade_bridge.py snaptrade_p
 GitHub-CI und Render-Deployment werden nach Zusammenführung gesondert geprüft.
 Ein erfolgreicher Test mit künstlichen Daten ist **kein** Nachweis für eine
 aktuelle DEGIRO-Abdeckung eines Knock-out-Produkts.
+
+## Anbieterbegrenzung und historische Abrufe (25.10.2026)
+
+SnapTrade Personal setzt standardmäßig **10 gemeinsame Konto-API-Anfragen je
+Minute** durch (Positionsdaten, Guthaben, Orders und Aktivitäten teilen sich
+jeweils das Budget desselben Kontos). Die bisherige Batch-Liste enthielt bis
+zu 13 Aktivitätenseiten und konnte zusätzlich zu 3 weiteren Kontoanfragen
+HTTP 429 auslösen. Referenz: https://docs.snaptrade.com/docs/ratelimiting
+
+Der tägliche historische Leseversuch umfasst nun **höchstens fünf Seiten à
+500 Buchungen**; mit drei üblichen zusätzlichen Kontoendpunkten sind das
+höchstens acht kontoabhängige Requests in diesem Zyklus. Andere Clients können
+das gemeinsame Limit trotzdem ausnutzen. Ein 429 wird nicht mit sofortigen
+Neuanfragen beantwortet: Es verbleibt beim bestehenden täglichen
+Aktivitätenintervall. Früher bestätigte Datensätze und deren Quellzeitpunkte
+bleiben erhalten. Der letzte Versuch erhält einen statischen Fehlercode und
+die Zahl zuvor erfolgreich gelesener Seiten; nicht vollständig geholte Seiten
+werden nicht als neu bestätigte Daten übernommen.
+
+Der Fix hebt einmalig die Journalschema-Version an und erlaubt dadurch **einen**
+neuen, auf fünf Seiten begrenzten Prüfversuch beim nächsten regulären
+SnapTrade-Depotlinesezyklus. Dies ist kein 24-Stunden- oder Live-Order-Feed.
+Die Anbieterhistorie ist mit über 12.000 Buchungen länger als das sichere
+Tagesfenster. Eine vollständige FIFO-Gewinnrechnung bleibt deshalb gesperrt,
+bis eindeutige, vollständige Nachweise ohne Rate-Limit-Verstoß vorliegen.
