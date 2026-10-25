@@ -33,7 +33,7 @@ def assess(events):
     """Only compare two consecutive captures with SAME known build and session."""
     if not isinstance(events, list):
         events = []
-    observations = sorted(set(sample for e in events[:120]
+    observations = sorted(set(sample for e in events[:160]
                               if (sample := _sample(e)) is not None),
                           key=lambda item: item[0], reverse=True)[:MAX_ROWS]
     newest = observations[0] if observations else None
