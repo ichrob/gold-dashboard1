@@ -288,6 +288,8 @@ def session(now=None):
 
 def _loop():
     import product_quotes
+    import snaptrade_bridge
+    global _RESEARCH_CURSOR
     last_retry = 0.
     while True:
         try:
@@ -301,8 +303,25 @@ def _loop():
                         _CURRENT["running"] = True
                     result=build(product_quotes.get_issuer_quote, retry_limit=3,
                                  retry_wait_seconds=16)
+                    # Historical matches are privately derived from already saved
+                    # trades; at most two additional issuer lookups, no broker API.
+                    research=study_history(snaptrade_bridge.historical_gold_candidates(),
+                                           product_quotes.get_issuer_quote, _RESEARCH_CURSOR)
+                    _RESEARCH_CURSOR+=research['sampled']
                     with _LOCK:
-                        _CURRENT.update(result, lastSession=period[1], running=False)
+                        prior=_CURRENT.get('scanHistory') or []
+                        previous=prior[-1]['at'] if prior else None
+                        at=datetime.now(ZONE)
+                        elapsed=None
+                        if previous:
+                            try:
+                                elapsed=round((at-datetime.fromisoformat(previous)).total_seconds())
+                            except ValueError:
+                                pass
+                        history=(prior+[{'at':at.isoformat(),'elapsedSeconds':elapsed,
+                                         'outcome':result['status'],'errors':result['errors']}])[-12:]
+                        _CURRENT.update(result, lastSession=period[1], running=False,
+                                        scanHistory=history, historyResearch=research)
                     bnp = result["sourceChecks"]["historicalBNP"]
                     other = result["sourceChecks"]["otherHistorical"]
                     print("BOB_ISSUER_CATALOG status="+result["status"]
