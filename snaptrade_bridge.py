@@ -503,7 +503,7 @@ def read_trade_coverage(aid, config, previous=None, known_isins=None, get=api_ge
                 if valid_isin in known_isins:
                     matched_count += 1
             date = row.get('date')
-            if isinstance(date, str) and re.fullmatch(r'\\d{4}-\\d{2}-\\d{2}', date):
+            if isinstance(date, str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}', date):
                 first_day = min(first_day, date) if first_day else date
                 last_day = max(last_day, date) if last_day else date
         if conflicting_ids:
