@@ -109,6 +109,36 @@ def collect(readers):
         area['latestSession'] = session if session in (
             'trading','preparation','night','weekend') else 'unknown'
         areas['healthCadence'] = area
+    # Carry only the eight safe stage counts across size-limited MCP reports.
+    # Never copy the raw journal, timestamps, trace IDs or push payloads.
+    if isinstance(journal, dict):
+        source = journal.get('stageCoverage')
+        keys = ('input', 'analysis', 'analysis-failed', 'push',
+                'push-delivery', 'paper-input', 'health', 'transport')
+        values = source.get('counts') if isinstance(source, dict) else None
+        total = source.get('totalSampled') if isinstance(source, dict) else None
+        if (isinstance(values, dict) and set(values) == set(keys)
+                and all(type(values[k]) is int and 0 <= values[k] <= 20
+                        for k in keys)
+                and type(total) is int and total == sum(values.values())
+                and source.get('limitPerStage') == 20
+                and source.get('status') in ('observed', 'warming')):
+            areas['diagnosticStageCoverage'] = {
+                'status': source['status'], 'readOnly': True,
+                'realOrders': False, 'totalSampled': total,
+                'limitPerStage': 20,
+                'counts': {k: values[k] for k in keys},
+                'handsetDeliveryVerified': False,
+                'paperExecutionVerified': False,
+                'scope': 'sampled-seven-day-best-effort-history-stage-counts',
+            }
+        else:
+            areas['diagnosticStageCoverage'] = {
+                'status':'insufficient', 'readOnly':True, 'realOrders':False,
+                'handsetDeliveryVerified':False,
+                'paperExecutionVerified':False,
+                'scope':'history-stage-counts-missing-or-malformed',
+            }
     stored_research = (areas.get('simulationAndPush') or {}).get('researchReports')
     if isinstance(stored_research, dict):
         # A large simulation/transition area may itself be omitted. Research
@@ -660,15 +690,16 @@ def broker_sync_snapshot(value):
 DIAGNOSTIC_FOCUS = ('overview', 'simulation', 'trades', 'signals',
                     'sources', 'research', 'repairs', 'mobile', 'products')
 _FOCUS_AREAS = {
-    'simulation': ('simulationEvidence', 'simulationAndPush', 'background', 'collection', 'gapEvidence'),
+    'simulation': ('simulationEvidence', 'simulationAndPush', 'background', 'collection', 'gapEvidence', 'diagnosticStageCoverage'),
     'sources': ('market', 'sourceReliability', 'collection', 'background', 'analysis'),
     'research': ('research', 'strategyResearch', 'strategyReport', 'newFeatures'),
     'mobile': ('newFeatures', 'runtime', 'degiroSync', 'products'),
     'products': ('products', 'degiroSync', 'gapEvidence'),
     'repairs': ('selfHealing', 'problems', 'background', 'diagnosticTriage',
-                'healthCadence'),
+                'healthCadence', 'diagnosticStageCoverage'),
     'trades': ('background', 'diagnosticTriage'),
-    'signals': ('analysis', 'background', 'diagnosticTriage', 'pushDeliveries'),
+    'signals': ('analysis', 'background', 'diagnosticTriage', 'pushDeliveries',
+                'diagnosticStageCoverage'),
 }
 
 
