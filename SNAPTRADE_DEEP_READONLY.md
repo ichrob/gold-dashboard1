@@ -88,3 +88,41 @@ SnapTrade-Depotlinesezyklus. Dies ist kein 24-Stunden- oder Live-Order-Feed.
 Die Anbieterhistorie ist mit über 12.000 Buchungen länger als das sichere
 Tagesfenster. Eine vollständige FIFO-Gewinnrechnung bleibt deshalb gesperrt,
 bis eindeutige, vollständige Nachweise ohne Rate-Limit-Verstoß vorliegen.
+
+## Getrennte historische BUY-/SELL-Abdeckung (25.10.2026)
+
+SnapTrade erlaubt den expliziten Aktivitätenfilter `type=BUY,SELL`. Der direkte,
+autorisierte Lesetest hat **2.704** derart gekennzeichnete Buchungen gemeldet,
+während die unselektierte DEGIRO-Historie **12.599** Einträge meldete.
+Dies ist ein Anbieter-Beobachtungsstand, keine dauerhafte feste Stückzahl.
+
+Bob führt deshalb einen zusätzlichen **höchstens wöchentlichen** historischen
+GET-Lesetest durch, jedoch ausschließlich in einem regulären Depotzyklus,
+in dem die täglichen **ungefilterten** Aktivitäten noch nicht erneut fällig
+sind. Beide Historien dürfen niemals in demselben Abrufzyklus gestartet
+werden. Es werden nur maximal **3 × 1.000** gefilterte Zeilen per Konto
+abgerufen, neben höchstens einer Order- und je einer Positions-/Guthaben-
+abfrage. Nur die exakten Parameter `type=BUY,SELL`,
+`limit=1000`, `offset=0/1000/2000` sind zusätzlich freigegeben.
+Kein neues Verfahren zum Broker-Login, kein Realtime-Refresh, kein
+kostenpflichtiger Abruf, keine Orders.
+
+Es wird **keine Liste einzelner Trades** zusätzlich archiviert: Nur gezählte
+Käufe/Verkäufe, den gemeldeten Gesamtumfang, ISIN-Prüfzahlen, sichere
+Übereinstimmungen mit *bereits* nachgewiesenen aktuellen Depot-ISINs,
+Anbieter-Tagesdatenbereich und Vollständigkeit des gefilterten Ausschnitts
+werden verschlüsselt im bestehenden persönlichen Journal gespeichert.
+Rohe Konten-/Order-/Transaktions-IDs, persönliche Texte und Details werden
+nicht in die Diagnostik oder GitHub übernommen. Provider-429, ein nicht
+eingehaltenes Filterkriterium, Doppelkollisionen oder fehlende Seiten lassen
+den Datensatz ausdrücklich **unvollständig** oder **unverfügbar**. Ein früherer
+bestätigter Stand bleibt mit seiner Originalprüfzeit erhalten; keine sofortige
+Wiederholung nach Fehler.
+
+Die gefilterte BUY-/SELL-Historie ist **niemals eine vollständige
+Bestandshistorie**. Überträge, Kapitalmaßnahmen, Sonderfälle, Gebühren, Steuern,
+Cash-Sweeps und etwaige unbekannte Typen fehlen dabei. Der Filter darf
+`historyComplete`, `fifoEligible`, Trade-Freigaben, Bobs reale/virtuelle
+Gewinnzahlen und das Strategielernen nicht verändern. Originale ISINs sind
+nur über die bestehende Checksumme und bestätigte CSV-Identitäten vergleichbar.
+Ohne alle Belege bleiben historische P/L-Resultate ausdrücklich offen.
