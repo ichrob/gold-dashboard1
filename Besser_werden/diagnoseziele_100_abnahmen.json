@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "scope": "Historical, build-bound feature acceptance only; not proof of current or continuous service synchrony.",
+  "scope": "Historical build-specific and provider-time-window acceptance; no current or continuous service-health proof.",
   "accepted": [
     {
       "id": 18,
@@ -29,6 +29,36 @@
         }
       ],
       "limitations": "Zeitpunktbezogener Code-/CI-/Render-Nachweis; keine automatische Garantie für spätere Deployments, Betrieb oder Handelsfunktionen."
+    },
+    {
+      "id": 13,
+      "goal": "CPU-/RAM-Auslastung",
+      "kind": "two-services-readonly-cpu-memory-time-series",
+      "source": "Render metrics read-only",
+      "windowStart": "2026-10-25T10:00:00Z",
+      "windowEnd": "2026-10-25T11:20:00Z",
+      "resolutionSeconds": 300,
+      "services": [
+        {
+          "service": "bob-private-scanner",
+          "cpuCoreMin": 0.023120703,
+          "cpuCoreMax": 0.029584037,
+          "cpuObservations": 16,
+          "memoryBytesMin": 111017980,
+          "memoryBytesMax": 162942980,
+          "memoryObservations": 19
+        },
+        {
+          "service": "bob-push-service",
+          "cpuCoreMin": 0.0029537934,
+          "cpuCoreMax": 0.0058304267,
+          "cpuObservations": 16,
+          "memoryBytesMin": 88371200,
+          "memoryBytesMax": 125071360,
+          "memoryObservations": 19
+        }
+      ],
+      "limitations": "Aus Render über autorisierten schreibgeschützten Lesekanal tatsächlich abgefragte 5-Minuten-Zeitreihen. Historische Messabdeckung in diesem Fenster, keine Schwellenwert-, Ursachen-, Zukunfts- oder Marktverfügbarkeitsgarantie."
     }
   ]
 }
