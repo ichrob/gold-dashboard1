@@ -3,13 +3,14 @@
   "asOf": "2026-10-25",
   "total": 100,
   "counts": {
-    "partial": 93,
+    "partial": 92,
     "planned": 0,
     "blocked-client": 1,
     "requires-device": 5,
-    "verified-at-build": 1
+    "verified-at-build": 1,
+    "verified-at-sample": 1
   },
-  "acceptance": "A strictly dated build-specific acceptance is allowed only with validated CI and both Render deploy observations; future builds require fresh proof",
+  "acceptance": "Build-bound and metric-window-specific acceptance requires recorded independent source evidence, not file-existence or generic suite CI; new builds and windows require fresh observation.",
   "tasks": [
     {
       "id": 1,
@@ -111,9 +112,9 @@
       "id": 13,
       "area": "Render und Hintergrundjobs",
       "goal": "CPU-/RAM-Auslastung",
-      "state": "partial",
+      "state": "verified-at-sample",
       "codeEvidence": "bob_self_healing.py",
-      "verified": false
+      "verified": true
     },
     {
       "id": 14,
