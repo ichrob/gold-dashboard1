@@ -197,6 +197,108 @@ def evaluator_queue_log_sample(logs, *, window_start, window_end,
                    'root cause or repaired alerts. No account or message data.'}
 
 
+
+def database_contention_log_sample(logs, *, resource_id, window_start,
+                                   window_end, has_more=False):
+    """Classify caller-supplied, bounded Render *application* error logs.
+
+    QueryCanceled is NOT necessarily a server-side statement timeout;
+    LockNotAvailable is NOT proof that one specified migration caused it.
+    The tool never reads or writes a database or returns user/SQL/instance data.
+    """
+    def unavailable():
+        return {'status':'insufficient-evidence', 'readOnly':True,
+                'realOrders':False, 'providerVerified':False,
+                'fullDatabaseAuditVerified':False, 'causeVerified':False,
+                'completeTrafficProven':False}
+    def utc(value):
+        if not isinstance(value,str) or not 10 <= len(value) <= 42:
+            return None
+        try:
+            t=datetime.fromisoformat(value.replace('Z','+00:00'))
+            return t.astimezone(timezone.utc) if t.tzinfo else None
+        except (ValueError, OverflowError):
+            return None
+    start,end=utc(window_start),utc(window_end)
+    if (not isinstance(logs,list) or type(has_more) is not bool
+            or start is None or end is None or start>=end
+            or not isinstance(resource_id,str) or not resource_id.startswith('srv-')
+            or len(resource_id)>100):
+        return unavailable()
+    # Only previously observed fixed, non-personal log markers and paths.
+    markers=frozenset(('BOB_RANKING','BOB_METRIC_PRODUCT',
+                       'BOB_PRECISION_CAPTURE','BOB_METRIC_CAPTURE','BOB_VIDEO_OCR'))
+    routes=frozenset(('/diagnostic-history','/youtube-feed/write',
+                      '/research-transcript/read','/research-enhancement/read',
+                      '/market-validations/write'))
+    counts={'QueryCanceled':0,'LockNotAvailable':0}
+    source_counts={}
+    accepted=0
+    ignored=0
+    for row in logs[:100]:
+        if not isinstance(row,dict):
+            ignored+=1
+            continue
+        stamp=utc(row.get('timestamp'))
+        labels=row.get('labels')
+        if stamp is None or stamp<start or stamp>end or not isinstance(labels,list):
+            ignored+=1
+            continue
+        meta={}
+        for label in labels:
+            if isinstance(label,dict) and label.get('name') in ('resource','type','instance'):
+                meta[label['name']]=label.get('value')
+        instance=meta.get('instance')
+        if (meta.get('resource')!=resource_id or meta.get('type')!='app'
+                or not isinstance(instance,str) or len(instance)>150
+                or not instance.startswith(resource_id+'-')):
+            ignored+=1
+            continue
+        message=row.get('message')
+        if not isinstance(message,str) or len(message)>512:
+            ignored+=1
+            continue
+        parts=message.split()
+        if len(parts)==3 and parts[0]=='BOB_PUSH' and parts[1]=='database_busy':
+            path=parts[2]  # reject; normal marker needs path and error tokens
+            ignored+=1
+            continue
+        if (len(parts)==4 and parts[0]=='BOB_PUSH'
+                and parts[1]=='database_busy'
+                and parts[2].startswith('path=')
+                and parts[3].startswith('error=')):
+            raw=parts[2][len('path='):]
+            source=raw if raw in routes else 'other-unclassified'
+            error=parts[3][len('error='):]
+        elif len(parts)==2 and parts[0] in markers and parts[1].startswith('error='):
+            source=parts[0]
+            error=parts[1][len('error='):]
+        else:
+            ignored+=1
+            continue
+        if error not in counts:
+            ignored+=1
+            continue
+        accepted+=1
+        counts[error]+=1
+        entry=source_counts.setdefault(source,{'QueryCanceled':0,'LockNotAvailable':0})
+        entry[error]+=1
+    result=unavailable()
+    result.update(status='classified-sample' if accepted else 'insufficient-evidence',
+                  source='caller-supplied-bounded-Render-application-error-logs',
+                  windowStart=start.isoformat(),windowEnd=end.isoformat(),
+                  sampledRecords=min(len(logs),100),validDatabaseErrorRecords=accepted,
+                  invalidOrIgnoredRecords=ignored,sampleTruncated=(len(logs)>100 or has_more),
+                  errorTypes=counts,
+                  sources=[{'source':name,**source_counts[name]}
+                           for name in sorted(source_counts)],
+                  note='Only fixed log markers and static route names are shown. '
+                       'One observed SQL error type does not prove root cause, '
+                       'which query was canceled, or 30-day audit completion. '
+                       'Missing logs do not establish a healthy database.')
+    return result
+
+
 def market_snapshot(live, cached_at, now=None):
     now = time.time() if now is None else now
     live = live if isinstance(live, dict) else {}
