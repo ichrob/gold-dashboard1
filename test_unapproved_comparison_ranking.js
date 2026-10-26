@@ -21,6 +21,8 @@ assert.equal(b.selectionWorkflow([p],market,{}).approvedCount,0,
 assert.equal(b.selectionWorkflow([p],market,{}).groups.length,0);
 const markup=b.renderContinuingAnalysis([p,{...p,isin:'DE000FG309G0',price:null}],market);
 assert.match(markup,/data-unified-product-ranking/);
+assert.match(markup,/data-indicative-recommendations/);
+assert.match(markup,/data-selection-reason=/);
 assert.match(markup,/data-unified-ranking-isin/);
 assert.match(markup,/NICHT FREIGEGEBEN/);
 assert.match(markup,/Ohne Rang/);
@@ -39,4 +41,12 @@ for(const [why,bad] of [
 assert.equal(b.unapprovedComparisonRanking([p],{...market,spotFresh:false}).length,0);
 assert.equal(b.unapprovedComparisonRanking([p],{...market,direction:'NEUTRAL'}).length,0);
 assert.equal(b.unapprovedComparisonRanking([p],{...market,atr:null}).length,0);
+const opposite=b.renderContinuingAnalysis([p,{...q,productDirection:'SHORT'}],market);
+assert.match(opposite,/Platz 1 · DE000FG14AV8/);
+assert.match(opposite,/Ohne Rang · DE000FG4JXV7/,
+ 'Products against the current market direction stay visible but do not receive a rank');
+const stale=b.renderContinuingAnalysis([p],{...market,spotFresh:false});
+assert.doesNotMatch(stale,/Platz 1/);
+assert.match(stale,/data-selection-reason="market-data"/,
+ 'Stale market data keeps all products visible but suppresses a current rank');
 console.log('Unified research ranking keeps incomplete products visible and approval independent');
