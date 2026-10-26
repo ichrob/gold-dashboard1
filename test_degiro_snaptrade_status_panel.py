@@ -30,7 +30,7 @@ class DegiroSnapTradeStatusPanelTests(unittest.TestCase):
         self.assertIn("data.code==='READ_OK'", PANEL)
         self.assertIn('data.fresh===true', PANEL)
         self.assertIn('nicht als aktuell bestätigt', PANEL)
-        self.assertIn('keine Orderfreigabe', PANEL.lower())
+        self.assertIn('keine orderfreigabe', PANEL.lower())
 
     def test_status_never_wakes_broker_or_leaks_snapshot_fields(self):
         self.assertIn("fetch('/api/snaptrade/status',{credentials:'same-origin',cache:'no-store'})", PANEL)
