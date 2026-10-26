@@ -71,4 +71,3 @@ def legacy_exclusions(conn):
           AND payload->>'productCounted' = 'true'
           AND NOT (payload ? 'performanceAccountingVersion')
         GROUP BY day""").fetchall()}
-

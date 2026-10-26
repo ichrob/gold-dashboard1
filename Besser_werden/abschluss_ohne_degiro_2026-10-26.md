@@ -1,7 +1,7 @@
 # Bearbeitung der offenen Aufgaben – 26.10.2026
 
 Auftrag: Aufgaben 1–4 und 6–12 bearbeiten; direkten DEGIRO-Abgleich (5) ausnehmen.
-Stand: lokale Korrekturen geprüft, noch nicht zu GitHub hochgeladen oder live veröffentlicht.
+Stand: Änderungen in PR #936 veröffentlicht; CI und Live-Abnahme werden durchgeführt.
 
 | Nr. | Ergebnis | Noch erforderlich |
 | --- | --- | --- |
@@ -20,7 +20,8 @@ Stand: lokale Korrekturen geprüft, noch nicht zu GitHub hochgeladen oder live v
 
 ## Prüfung
 
-- Gesamtlauf: 2.223 Python-Tests, erfolgreich, 80 lokale Skips wegen zusätzlicher Testvoraussetzungen; keine vollständige Datenbankabnahme.
+- PostgreSQL-CI: 2.224 Python-Tests erfolgreich, keine Skips. Der erste Browserlauf fand eine veraltete Texterwartung; diese wurde angepasst.
+- Lokaler Gesamtlauf: 2.223 Python-Tests, erfolgreich, 80 lokale Skips wegen zusätzlicher Testvoraussetzungen; keine vollständige Datenbankabnahme.
 - Nach letzter Speicheroptimierung und zusätzlichem Duplikat-Test: 104 gezielte Tests erfolgreich, ein Datenbanktest lokal übersprungen.
 - Alle 139 JavaScript-Testdateien erfolgreich.
 - Isolierter OCR-Lauf: 11 Tests, erfolgreich, ein Datenbanktest übersprungen. Netzwerkverbot wurde vor Import in Eltern- und Kindprozess geprüft; der echte Bildtest lief.
