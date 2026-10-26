@@ -16,8 +16,10 @@ class OcrTests(unittest.TestCase):
             r=o.run([]);self.assertEqual(r['status'],'error');self.assertEqual(run.call_count,1)
             self.assertNotIn('GEMINI_API_KEY',run.call_args.kwargs['env']);self.assertEqual(run.call_args.kwargs['timeout'],35)
     def test_real_offline_image(self):
+        from importlib.util import find_spec
+        if find_spec('rapidocr_onnxruntime') is None:
+            self.skipTest('OCR dependencies not installed')
         try:
-            import rapidocr_onnxruntime
             from PIL import Image,ImageDraw,ImageFont
         except ImportError:self.skipTest('OCR dependencies not installed')
         im=Image.new('RGB',(480,270),'white');draw=ImageDraw.Draw(im)
