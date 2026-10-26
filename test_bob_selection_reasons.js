@@ -39,7 +39,7 @@ r=classified([product],withDirection('LONG',false),[{p:product}]);
 assert.equal(r.state,'market-data');
 assert.match(dg,/data-selection-reason/);
 assert.match(html,/reasonState&&reasonState!=='ranked'&&reasonText/);
-assert.match(html,/\/degiro_assistant\.js\?v=20261026-mini-daily-ocr-v1/);
+assert.match(html,/\/degiro_assistant\.js\?v=20261026-reviewed-list-retry-v2/);
 const vStart=html.indexOf('  function longComparisonFromCurrentUi(out){');
 const vEnd=html.indexOf('  function mountReadOnlyVoiceButton(',vStart);
 assert(vStart>0&&vEnd>vStart);
