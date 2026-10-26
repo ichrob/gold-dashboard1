@@ -4,6 +4,12 @@ on:
   schedule:
     # Short checks; market-specific false alerts are skipped outside Swiss market time.
     - cron: '4,14,24,34,44,54 * * * *'
+  # GitHub's scheduled delivery can be delayed. Re-check each deployed main
+  # revision after the existing live smoke, using this same watchdog workflow.
+  workflow_run:
+    workflows: ["Bob live smoke test"]
+    types: [completed]
+    branches: [main]
   push:
     branches: [main]
     paths:
