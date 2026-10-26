@@ -33,12 +33,55 @@ def bnp_origin(result):
             "https://derivate.bnpparibas.com/product-details/"+str(result.get("isin"))+"/")
 
 
+
+def verified_comdirect_sg_origin(result):
+    """Allow one strictly identified comdirect SG row when SG's API is 404.
+
+    This is a research-only market observation, not an SG-issuer clock, SG
+    trading-status attestation or executable DEGIRO quote.
+    """
+    origin = result.get('issuerModelSource') or result
+    isin = result.get('isin')
+    meta = result.get('metadata') or {}
+    backup = result.get('comdirectFieldsBackup') or {}
+    obs = backup.get('observations') or {}
+    from product_quotes import valid_isin
+    if (not valid_isin(isin) or origin.get('isin') != isin
+            or origin.get('source') != 'comdirect Informer · öffentliche Produktdaten'
+            or origin.get('sourceUrl') != ORIGIN+'inf/zertifikate/'+isin
+            or result.get('productVerified') is not True
+            or result.get('sourceDisabled') or result.get('terminated')
+            or meta.get('issuerExchangeCode') not in (None, '')
+            or meta.get('status') != 1 or meta.get('underlyingType') != 'SPOT'
+            or meta.get('underlying') != 'XAU/USD'
+            or meta.get('currency') != 'EUR'
+            or meta.get('direction') not in ('LONG', 'SHORT')
+            or backup.get('isin') != isin or backup.get('state') != 'active'
+            or backup.get('inactive') is not False
+            or backup.get('conflicts') or backup.get('source') != origin['sourceUrl']):
+        return False
+    for key, expected in (('issuer', 'Société Générale'),
+                          ('currency', 'EUR'), ('underlying', 'XAU/USD'),
+                          ('direction', meta['direction'])):
+        if (obs.get(key) or {}).get('value') != expected:
+            return False
+    # Require original exact terms for identity; missing/contradictory portal
+    # fields may not be patched together with last week's broker screenshot.
+    for key in ('ko', 'strike', 'ratio'):
+        observed = (obs.get(key) or {}).get('value')
+        value = meta.get(key)
+        if (type(observed) not in (int, float) or observed <= 0
+                or type(value) not in (int, float) or value <= 0
+                or not math.isclose(observed, value, rel_tol=1e-8, abs_tol=1e-5)):
+            return False
+    return True
+
 def matches_primary(result, row):
     meta = result.get('metadata') or {}
     if row.get('currency') != 'EUR' or (result.get('currency') or meta.get('currency')) != 'EUR':
         return False
     if row.get('source') == 'comdirect · SG LiveTrading' and row.get('venue') == 'LT Societe Generale':
-        return meta.get('issuerExchangeCode') == 'CBDE'
+        return meta.get('issuerExchangeCode') == 'CBDE' or verified_comdirect_sg_origin(result)
     if row.get('source') == 'comdirect · BNP LiveTrading' and row.get('venue') == 'LT BNP Paribas':
         return bnp_origin(result)
     return False
@@ -154,7 +197,8 @@ def apply(result, isin, now=None):
     if (not valid_isin(isin) or result.get('isin') != isin or not result.get('productVerified')
             or result.get('sourceDisabled')
             or meta.get('status') != 1
-            or not (meta.get('issuerExchangeCode') == 'CBDE' or bnp_origin(result))
+            or not (meta.get('issuerExchangeCode') == 'CBDE' or bnp_origin(result)
+                    or verified_comdirect_sg_origin(result))
             or (result.get('currency') or meta.get('currency')) != 'EUR'):
         return result
     now = now or datetime.now(timezone.utc)
