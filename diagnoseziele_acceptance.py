@@ -164,6 +164,15 @@ def _valid_archived_stage_window(record):
             or sample.get("paperExecutionVerified") is not False
             or sample.get("limitPerStage") != 20):
         return False
+    # This is one immutable, independently observed historical acceptance.
+    # A different yet syntactically valid SHA, timestamp or CI run must never
+    # inherit its acceptance without its own external validation.
+    if (record.get("build") !=
+            "5d0944deb34b3ff13d20d5bc9e7d86bcf79779fe"
+            or observed != _utc("2026-10-25T19:57:06.441223+00:00")
+            or github.get("ciRun") != 40225363269
+            or github.get("liveSmokeRun") != 40225363341):
+        return False
     counts = sample.get("counts")
     total = sample.get("totalSampled")
     if (not isinstance(counts, dict) or set(counts) != _STAGES
