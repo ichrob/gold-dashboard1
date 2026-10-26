@@ -126,7 +126,12 @@ function imageISIN(textValue,context){
  return ids[0];
 }
 function normalizeCatalog(data){
- const items=Array.isArray(data?.candidates)?data.candidates.slice(0,MAX_CATALOG):[];
+ const fixed=Array.isArray(data?.candidates)?data.candidates.slice(0,MAX_CATALOG):[];
+ // Private historical SnapTrade discoveries are already issuer-checked by the
+ // 5-minute worker; never confuse them with current DEGIRO listings.
+ const archived=Array.isArray(data?.historyResearchArchive)?
+  data.historyResearchArchive.filter(x=>x?.brokerHistoricallyTransacted===true).slice(0,80):[];
+ const items=[...fixed,...archived].slice(0,MAX_CATALOG);
  const map=new Map();
  for(const row of items){
   const isin=text(row?.isin,12).toUpperCase();
@@ -135,9 +140,10 @@ function normalizeCatalog(data){
   map.set(isin,{
    isin,name:text(row.name,160)||isin,
    direction:['LONG','SHORT'].includes(row.direction)?row.direction:'',
-   origin:'historical-issuer-candidate',
-   issuerVerified:row.issuerVerified===true && row.issuerStatus==='verified',
-   checkedAt:validClock(data.lastScanAt)?data.lastScanAt:null,
+   origin:row.brokerHistoricallyTransacted===true?'historical-trade-research':'historical-issuer-candidate',
+   issuerVerified:(row.issuerVerified===true && row.issuerStatus==='verified')
+       || (row.brokerHistoricallyTransacted===true && row.issuerIdentityMatched===true),
+   checkedAt:validClock(row.issuerCheckedAt)?row.issuerCheckedAt:(validClock(data.lastScanAt)?data.lastScanAt:null),
    issuerComparison:(row.issuerComparison?.sourceRole==='issuer-comparison-only'
                      && row.issuerComparison?.isin===isin)?row.issuerComparison:null,
    listingConfirmed:false,brokerStatus:'unverified',
@@ -329,6 +335,7 @@ function mount(){
    card.append(chooseImage);
    card.append(el(doc,'p','broker-research-small',
     'Herkunft: '+(item.origin==='manual-candidate'?'manuell vorgemerkt':
+      item.origin==='historical-trade-research'?'historischer DEGIRO-Buchungskandidat':
       'historischer Emittentenkandidat')+
     (item.issuerVerified?' · Emittent bestätigt':' · Emittentenidentität offen')));
    if(item.origin==='manual-candidate'&&!isVerified){
