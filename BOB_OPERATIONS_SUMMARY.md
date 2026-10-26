@@ -8,7 +8,7 @@ Produktdaten gelten nur bei aktueller, vollständiger Liste als vollständig. Ko
 
 ## Historische Fälle
 
-Ein begründet abgeschlossener historischer Fall ohne rekonstruierbare Originaldaten ist kein aktiver Reparaturauftrag und kein Gewinn oder Verlust. Wiederaufnahme erfolgt bei neuen Originalbelegen. Dieser Patch dokumentiert und zeigt diese Regel; er verändert keine historischen Fallakten oder Paper-Kontostände. Das tatsächliche Abschließen einzelner Fälle erfordert deren dokumentierte Prüfung.
+Ein begründet abgeschlossener historischer Fall ohne rekonstruierbare Originaldaten ist kein aktiver Reparaturauftrag und kein Gewinn oder Verlust. Wiederaufnahme erfolgt bei neuen Originalbelegen. Dieser Patch zeigt diese Regel und bewahrt die inzwischen in PR #936 eingeführten 13 expliziten administrativen Fallabschlüsse. Er verändert keine ursprünglichen Fallakten oder Paper-Kontostände. Neue Fälle werden nicht pauschal geschlossen.
 
 ## Vergleich
 

@@ -461,7 +461,7 @@ function mount(){
    if(operations?.version===1){
     line('Produktdaten: '+(labels[operations.productStatus.state]||'nicht bestätigt')+'. Handelsfreigabe separat.');
     for(const c of operations.productStatus.conflicts||[])line(c.isin+': '+c.fields.join(', ')+' – '+c.resolution);
-    const clock=v=>{if(!v)return 'unbekannt';const d=new Date(typeof v==='number'?v*1000:v);return Number.isFinite(d.getTime())?d.toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'unbekannt';};
+    const clock=v=>{if(!v)return 'unbekannt';const d=new Date(typeof v==='number'?(v>100000000000?v:v*1000):v);return Number.isFinite(d.getTime())?d.toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'unbekannt';};
     for(const j of operations.jobs||[])line(j.label+': '+(labels[j.state]||'nicht bestätigt')+' · Letzter Erfolg: '+clock(j.lastSuccessAt)+' · Letzte Beobachtung: '+clock(j.lastObservedAt)+' · Nächster Lauf erwartet: '+clock(j.expectedNextAt)+' (nicht bestätigt)');
     line((operations.cases||[]).length+' gebündelte Problemkategorien. Vollständige Produktfelder schließen ältere Nachweisfälle nicht automatisch.');
     line(operations.historicalPolicy.note);
