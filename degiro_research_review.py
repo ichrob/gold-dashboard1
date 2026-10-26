@@ -67,7 +67,9 @@ def issuer_observation(isin, direction, raw, now=None):
             or m.get('direction') != direction or m.get('currency') not in ('EUR', 'CHF')):
         return None
     # No stale/future clocks, even if the source's overall fresh flag was set.
-    if raw.get('found') is not True or raw.get('eligible') is not True or raw.get('fresh') is not True:
+    if (raw.get('found') is not True or raw.get('eligible') is not True
+            or raw.get('fresh') is not True or raw.get('leverageKind') == 'calculated-gearing'):
+
         return None
     timestamps = {key: _clock(raw.get(key), now) for key in ('bidAt', 'askAt', 'leverageAt', 'snapshotAt')}
     if any(v is None for v in timestamps.values()):
