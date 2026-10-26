@@ -140,6 +140,36 @@ class AutoCollectionTests(unittest.TestCase):
             a.tick(weekend)
             archive.assert_called_once_with('read', {})
 
+    def test_worker_start_cadence_is_bounded_and_not_missed_tick_proof(self):
+        with patch.object(a, '_cycle_history', []):
+            self.assertEqual(a._worker_cycle_summary()['status'], 'not-observed')
+            a._record_worker_cycle(10.0, NOW, 250, 30, 29.75)
+            a._record_worker_cycle(40.2, NOW+timedelta(seconds=30), 350, 30, 29.65)
+            summary = a._worker_cycle_summary()
+            self.assertEqual(summary['observedCycles'], 2)
+            self.assertEqual(summary['comparableStartIntervals'], 1)
+            self.assertAlmostEqual(summary['maxObservedStartGapSeconds'], 30.2)
+            self.assertEqual(summary['configuredSeconds'], 30)
+            self.assertEqual(summary['lastDurationMs'], 350)
+            self.assertFalse(summary['workerMissedCyclesVerified'])
+            self.assertTrue(summary['readOnly'])
+            self.assertNotIn('_startMono', str(summary))
+            self.assertNotIn('cycleCadence', a.health())
+            # An changed nominal interval is not comparable with the old due time.
+            a._record_worker_cycle(340.2, NOW+timedelta(seconds=330), 20, 300, 299.98)
+            self.assertIsNone(a._worker_cycle_summary()['lastObservedStartGapSeconds'])
+
+    def test_cycle_cadence_does_not_accumulate_unbounded_raw_history(self):
+        with patch.object(a, '_cycle_history', []):
+            for n in range(30):
+                a._record_worker_cycle(30*n+1.0, NOW+timedelta(seconds=30*n),
+                                       600, 30, 29.4)
+            self.assertEqual(a._worker_cycle_summary()['observedCycles'], 20)
+            self.assertEqual(len(a._cycle_history), 20)
+            report = a._worker_cycle_summary()
+            self.assertFalse(report['workerMissedCyclesVerified'])
+            self.assertNotIn('password', str(report))
+
     def test_collection_timing_is_bounded_metadata_not_a_market_or_tick_claim(self):
         research = dict(contract='GCZ26', underlyingAt=NOW.isoformat(),
                         underlyingPriceUsd=4200)
