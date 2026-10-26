@@ -31,10 +31,6 @@ REPORT_ROW_BATCH = 500
 REPORT_CACHE_SECONDS = 300
 HARVEST_HORIZONS = (1, 5, 15, 30, 60, 240)
 HARVEST_HORIZON_BATCH = 64
-PROSPECTIVE_INDEX = 'bob_audit_prospective_cursor'
-PROSPECTIVE_INDEX_PREDICATE = """payload->'reviewVariants'->>'version'='signal-review-v1'
-    AND payload->>'origin'='background'
-    AND payload->>'direction' IN ('LONG','SHORT')"""
 
 # Last *attempted* research query on this process only. No database read,
 # account/SQL contents, credentials, result caching or synthetic market data.
@@ -225,15 +221,6 @@ def init(conn):
         payload JSONB NOT NULL)''')
     conn.execute('CREATE INDEX IF NOT EXISTS bob_audit_recorded ON bob_decision_audit(recorded_at)')
     conn.execute("CREATE INDEX IF NOT EXISTS bob_audit_evaluable_cursor ON bob_decision_audit(recorded_at,id) WHERE payload->>'marketEvaluable'='true' AND jsonb_typeof(payload->'recordedAt')='number'")
-    # The prospective research query previously had to inspect every decision
-    # in its time range through the generic recorded_at index before applying
-    # its JSONB eligibility predicates. Keep only the stable eligibility
-    # subset in this cursor index and leave ruleVersion as the leading key so a
-    # future reviewed rule version can reuse the same index. No evidence row,
-    # retention window, statement timeout or trading rule is changed.
-    conn.execute("""CREATE INDEX IF NOT EXISTS """ + PROSPECTIVE_INDEX + """
-        ON bob_decision_audit ((payload->>'ruleVersion'),recorded_at,id)
-        WHERE """ + PROSPECTIVE_INDEX_PREDICATE)
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_decision_outcomes (decision_id TEXT REFERENCES bob_decision_audit(id) ON DELETE CASCADE, horizon INTEGER NOT NULL, truth JSONB NOT NULL, PRIMARY KEY(decision_id,horizon))''')
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_decision_harvest_cursor (
         horizon INTEGER PRIMARY KEY, recorded_at TIMESTAMPTZ, decision_id TEXT)''')
@@ -743,10 +730,22 @@ def _build_report(conn):
     result['researchReview']={'observations':len(research),'conflicts':sum(bool(p['conflicts']) for p in research),'missingSourceOrTime':sum(not p['source'] or not p['at'] for p in research),'examples':[p for p in research if p['conflicts']][:10],'note':'Widersprüche sind Prüfhinweise, keine automatisch bewiesenen Recherchefehler. Abrufzeit beweist keine Aktualität der Produktwerte.'}
     return result
 
-def _prospective_query(recent=False):
-    """Return the bounded hourly research query and its safe parameters."""
+def _load_prospective_rows(conn, recent=False):
+    """Earliest qualifying background decision per hour, independent of outcomes.
+
+    The former DISTINCT ON grouped and sorted the entire JSONB-filtered archive.
+    Traverse qualifying hourly first records via the existing recorded_at index;
+    skip empty hours without scanning/sorting the full history. Full validation
+    retains its documented 30-day window; recovery is strictly last 24 hours.
+    Explicitly cap both the seed and each recursive forward step at the
+    database's current time so that a bad future-dated archive record cannot
+    extend the historical review or trigger an unbounded forward walk.
+    No SQL timeout, index, schema, retention or live trading gate changes.
+    """
     horizon = "24 hours" if recent is True else "30 days"
-    eligible = PROSPECTIVE_INDEX_PREDICATE + " AND payload->>'ruleVersion'=%s"
+    eligible = """payload->'reviewVariants'->>'version'='signal-review-v1'
+        AND payload->>'origin'='background' AND payload->>'ruleVersion'=%s
+        AND payload->>'direction' IN ('LONG','SHORT')"""
     sql = """WITH RECURSIVE sampled(id,recorded_at) AS (
         (SELECT id,recorded_at FROM bob_decision_audit
          WHERE recorded_at >= now()-interval '""" + horizon + """'
@@ -767,24 +766,7 @@ def _prospective_query(recent=False):
       JOIN bob_decision_audit a ON a.id=s.id
       LEFT JOIN bob_decision_outcomes o ON o.decision_id=s.id AND o.horizon=60
       ORDER BY s.recorded_at"""
-    return sql, (RULE_VERSION, RULE_VERSION)
-
-
-def _load_prospective_rows(conn, recent=False):
-    """Earliest qualifying background decision per hour, independent of outcomes.
-
-    The former DISTINCT ON grouped and sorted the entire JSONB-filtered archive.
-    Traverse qualifying hourly first records via the existing recorded_at index;
-    skip empty hours without scanning/sorting the full history. Full validation
-    retains its documented 30-day window; recovery is strictly last 24 hours.
-    Explicitly cap both the seed and each recursive forward step at the
-    database's current time so that a bad future-dated archive record cannot
-    extend the historical review or trigger an unbounded forward walk.
-    The filtered cursor index is the only schema addition. No SQL timeout,
-    retention, evidence horizon or live trading gate changes.
-    """
-    sql, params = _prospective_query(recent)
-    return conn.execute(sql, params).fetchall()
+    return conn.execute(sql,(RULE_VERSION,RULE_VERSION)).fetchall()
 
 def product_review(records, now=None):
     """Compare real bid/ask observations; never turn estimated prices into ground truth."""
