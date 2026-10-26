@@ -428,7 +428,7 @@ class PortfolioTests(unittest.TestCase):
         self.assertEqual(calls,[0,500,1000,1500,2000])
         limited=b.read_journal(A,CONFIG,get=get,max_bytes=100000)
         self.assertFalse(limited['activities']['complete'])
-        self.assertLess(len(json.dumps(limited).encode()),110000)
+        self.assertLess(len(json.dumps(b.history_codec.encode_ledger({'journal': {'a': limited}})).encode()),110000)
 
     def test_disconnect_during_journal_does_not_resurrect_history(self):
         snap=b.read_snapshot(CONFIG,lambda path,_:fixtures()[path])
