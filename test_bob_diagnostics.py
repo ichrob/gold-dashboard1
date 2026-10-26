@@ -607,6 +607,69 @@ class EvaluatorQueueSampleTests(unittest.TestCase):
         self.assertEqual(self.report([cross])['status'],'insufficient-evidence')
 
 
+class DatabaseContentionLogSampleTests(unittest.TestCase):
+    """SQL state classifier only; no database is accessed by these tests."""
+    @staticmethod
+    def row(message, at='2026-10-26T08:03:23Z', resource='srv-sampled'):
+        return dict(timestamp=at, message=message, labels=[
+            dict(name='resource', value=resource),
+            dict(name='instance', value=resource+'-one'),
+            dict(name='type', value='app')])
+
+    def sample(self, lines, **extra):
+        return diagnostics.database_contention_log_sample(
+            lines, resource_id='srv-sampled',
+            window_start='2026-10-26T08:03:05Z',
+            window_end='2026-10-26T08:04:16Z', **extra)
+
+    def test_original_observed_error_categories_are_separate(self):
+        rows=[
+            self.row('BOB_PUSH database_busy path=/diagnostic-history error=QueryCanceled'),
+            self.row('BOB_PUSH database_busy path=/market-validations/write error=LockNotAvailable'),
+            self.row('BOB_RANKING error=LockNotAvailable'),
+            self.row('BOB_METRIC_PRODUCT error=LockNotAvailable'),
+            self.row('BOB_PRECISION_CAPTURE error=LockNotAvailable'),
+            self.row('BOB_METRIC_CAPTURE error=LockNotAvailable'),
+            self.row('BOB_VIDEO_OCR error=LockNotAvailable'),
+        ]
+        result=self.sample(rows)
+        self.assertEqual(result['status'], 'classified-sample')
+        self.assertEqual(result['errorTypes'], {'QueryCanceled':1,'LockNotAvailable':6})
+        self.assertEqual(result['validDatabaseErrorRecords'], 7)
+        self.assertFalse(result['providerVerified'])
+        self.assertFalse(result['fullDatabaseAuditVerified'])
+        self.assertFalse(result['causeVerified'])
+        self.assertFalse(result['completeTrafficProven'])
+        self.assertFalse(result['realOrders'])
+        source={r['source']:r for r in result['sources']}
+        self.assertEqual(source['/diagnostic-history']['QueryCanceled'],1)
+        self.assertEqual(source['/market-validations/write']['LockNotAvailable'],1)
+
+    def test_wrong_service_clocks_errors_and_secrets_fail_closed(self):
+        rows=[
+            self.row('BOB_PUSH database_busy path=/user/ACCOUNT?key=SECRET error=QueryCanceled'),
+            self.row('BOB_PUSH database_busy path=/diagnostic-history error=RuntimeError'),
+            self.row('BOB_PUSH database_busy path=/diagnostic-history error=QueryCanceled',
+                     resource='srv-other'),
+            self.row('BOB_METRIC_PRODUCT error=LockNotAvailable',at='2099-01-01T00:00:00Z'),
+            self.row('BOB_RANKING error=LockNotAvailable',at='no-clock'),
+            self.row('BOB_PUSH database_busy path=/diagnostic-history error=QueryCanceled'),
+        ]
+        report=self.sample(rows,has_more=True)
+        self.assertEqual(report['status'],'classified-sample')
+        self.assertEqual(report['validDatabaseErrorRecords'],2)
+        self.assertEqual(report['invalidOrIgnoredRecords'],4)
+        self.assertTrue(report['sampleTruncated'])
+        self.assertIn('other-unclassified',str(report['sources']))
+        self.assertNotIn('ACCOUNT',json.dumps(report))
+        self.assertNotIn('SECRET',json.dumps(report))
+        self.assertNotIn('srv-other',json.dumps(report))
+        self.assertFalse(report['causeVerified'])
+        self.assertEqual(self.sample([])['status'],'insufficient-evidence')
+        self.assertEqual(self.sample([self.row('BOB_RANKING error=PermissionDenied')])['status'],
+                         'insufficient-evidence')
+
+
 class ReadAccessManifestMappingTests(unittest.TestCase):
     def test_exact_100_items_are_file_mapped_not_falsely_live_verified(self):
         from pathlib import Path
