@@ -24,6 +24,38 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual(results[1]['items'],[1])
         self.assertFalse(gate._pending)
         self.assertEqual(gate.read('same',lambda:{'new':True}),{'new':True})
+    def test_copy_failure_is_shared_without_false_success_or_masked_error(self):
+        joined=threading.Event()
+        class JoiningFuture(Future):
+            def result(self, timeout=None):
+                joined.set()
+                return super().result(timeout)
+        class Uncopyable:
+            def __deepcopy__(self, memo):
+                raise ValueError('report-copy-failed')
+        entered=threading.Event()
+        def loader():
+            entered.set()
+            if not joined.wait(5):
+                raise AssertionError('follower did not join')
+            return Uncopyable()
+        counters=dict(completed=0, failed=0, capacityTimeouts=0,
+                      queueFull=0, joined=0, joiningTimeouts=0)
+        with patch.object(gate, 'Future', JoiningFuture), \
+             patch.object(gate, '_COUNTERS', counters), \
+             ThreadPoolExecutor(max_workers=2) as pool:
+            owner=pool.submit(gate.read, 'copy-error', loader)
+            self.assertTrue(entered.wait(5))
+            follower=pool.submit(gate.read, 'copy-error', Mock(side_effect=AssertionError('second loader')))
+            for result in (owner, follower):
+                with self.assertRaisesRegex(ValueError, 'report-copy-failed'):
+                    result.result(5)
+            self.assertEqual(gate.status()['completed'], 0)
+            self.assertEqual(gate.status()['failed'], 1)
+            self.assertEqual(gate.status()['activeLoads'], 0)
+            self.assertEqual(gate.status()['pendingKeys'], 0)
+            self.assertEqual(gate.read('copy-error', lambda: {'ok':True}), {'ok':True})
+
     def test_waiter_does_not_borrow_connection(self):
         entered=threading.Event();semaphore=threading.BoundedSemaphore(2)
         semaphore.acquire();semaphore.acquire()
