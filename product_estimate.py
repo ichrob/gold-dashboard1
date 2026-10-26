@@ -128,11 +128,11 @@ def calculate(model, anchor, spot, fx, now=None):
             raise ValueError('Ungültiger originaler Referenzkurs')
         change = direction*ratio*((gold-strike)*rate-(old_gold-strike)*old_rate)
         bid, ask = old_bid+change, old_ask+change
-        number(bid);number(ask)
         # Especially near KO a constant-spread/delta model can go negative.
         # Never display a nonpositive or crossed price as a current estimate.
         if bid <= 0 or ask <= 0 or ask < bid:
             raise ValueError('Berechneter Produktkurs nicht plausibel positiv')
+        number(bid);number(ask)
         out.update(available=True, bidEur=round(bid,4), askEur=round(ask,4), priceEur=round(ask,4),
                    referenceBidEur=anchor['bid'],referenceAskEur=anchor['ask'],
                    referenceAt=ref_at.isoformat(),referenceAgeSeconds=round(ref_age,1),
