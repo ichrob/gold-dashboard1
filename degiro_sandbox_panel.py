@@ -24,6 +24,18 @@ PANEL = r'''
 </details>
 </section>
 <hr>
+<section aria-label="DEGIRO Ordervorprüfung">
+<h4>Orderentwurf bei DEGIRO prüfen · ohne Bestätigung</h4>
+<p>Einzelner inoffizieller Praxistest. Noch kein automatischer Dauerbetrieb. DEGIRO unterstützt diese Automatisierung nicht. Der Broker prüft nur die eingegebenen Angaben zum Prüfzeitpunkt; eine Ausführung wird nicht garantiert.</p>
+<label>ISIN<input id="dgPreviewIsin" maxlength="12" autocomplete="off"></label>
+<label>Kauf oder Verkauf<select id="dgPreviewSide"><option value="BUY">Kauf prüfen</option><option value="SELL">Verkauf prüfen</option></select></label>
+<label>Stückzahl<input id="dgPreviewQuantity" type="number" min="1" step="1"></label>
+<label>Limitpreis je Stück<input id="dgPreviewPrice" type="number" min="0.0001" step="any"></label>
+<label>Währung<select id="dgPreviewCurrency"><option>EUR</option><option>CHF</option></select></label>
+<button id="dgPreviewRun" type="button">Nur Ordervorprüfung starten</button>
+<p id="dgPreviewResult" role="status">Noch keine Vorprüfung durchgeführt. Nutzt den Einmalcode oben, falls erforderlich.</p>
+<p class="small">Es wird keine Order bestätigt, geändert oder gelöscht. Ein laufender direkter Leseabgleich muss zuvor beendet werden. Ergebnisse ändern weder Bobs Rangliste noch die Handelsfreigabe.</p>
+</section><hr>
 <section aria-label="DEGIRO automatischer Leseabgleich">
 <h4>Depot automatisch abgleichen</h4>
 <p>Alle 30 Sekunden während der angemeldeten Sitzung, auch bei geschlossener App. Der Einmalcode oben wird auch für diesen Start verwendet.</p>
@@ -118,6 +130,19 @@ function mount(){
   }catch(error){connectionStatus.textContent='Lesetest nicht bestätigt: '+error.message;}finally{test.disabled=false;}
  });
 
+ const previewButton=document.getElementById('dgPreviewRun');
+ previewButton.addEventListener('click',async()=>{
+  const out=document.getElementById('dgPreviewResult'),read=id=>document.getElementById(id).value;
+  const payload={isin:read('dgPreviewIsin').trim().toUpperCase(),side:read('dgPreviewSide'),quantity:Number(read('dgPreviewQuantity')),price:Number(read('dgPreviewPrice')),currency:read('dgPreviewCurrency'),otp:read('dgConnectionOtp').trim()};
+  if(!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(payload.isin)||!Number.isInteger(payload.quantity)||payload.quantity<1||!Number.isFinite(payload.price)||payload.price<=0){out.textContent='ISIN, ganze Stückzahl und positiven Limitpreis ergänzen.';return;}
+  document.getElementById('dgConnectionOtp').value='';previewButton.disabled=true;out.textContent='Anmeldung und einzelne Vorprüfung laufen …';
+  try{
+   const r=await fetch('/api/degiro/preflight',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+   if(!r.ok)throw Error();const data=await r.json();
+   const labels={PRECHECK_RESPONSE:'DEGIRO hat eine Vorprüfungsantwort geliefert. Keine Order bestätigt; keine Ausführungsgarantie.',BROKER_REJECTED:'DEGIRO hat diesen Entwurf abgelehnt. Kein allgemeines Urteil über die ISIN.',UNVERIFIED_RESPONSE:'Brokerantwort nicht eindeutig bestätigt.',IDENTITY_UNCONFIRMED:'ISIN, Handelsplatzzuordnung oder Währung nicht eindeutig. Keine Vorprüfung gesendet.',AUTH_REQUIRED:'Direkte DEGIRO-Anmeldung nicht bestätigt. Einmalcode oder App-Anforderung prüfen.',BUSY:'Direkter Leseabgleich oder anderer Test läuft. Zuerst beenden.',SETUP_REQUIRED:'Direkte DEGIRO-Zugangsdaten oder passende Bibliothek fehlen. Einmalige Einrichtung oben prüfen.',COOLDOWN:'Zwischen Anmeldeversuchen mindestens 60 Sekunden warten.',TIMEOUT:'Zeitlimit erreicht. Keine bestätigte Vorprüfung.',SDK_ERROR:'Vorprüfung technisch nicht bestätigt.',INVALID_INPUT:'Eingaben ungültig.'};
+   out.textContent=(labels[data.code]||'Ergebnis unbekannt.')+(data.checkedAt?' Prüfzeit: '+new Date(data.checkedAt).toLocaleString():'')+(data.logoutConfirmed===false?' Abmeldung nicht bestätigt.':'');
+  }catch(_){out.textContent='Vorprüfung nicht bestätigt. Keine automatische Wiederholung.';}finally{previewButton.disabled=false;}
+ });
  const syncStatus=document.getElementById('dgSyncStatus'),holdings=document.getElementById('dgSyncHoldings');
  const syncStart=document.getElementById('dgSyncStart'),syncStop=document.getElementById('dgSyncStop');
  function drawSync(data){

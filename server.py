@@ -6,6 +6,7 @@ import bob_passkey
 import bob_handy_landing
 import bob_app_links
 import degiro_readonly
+import degiro_preflight
 import degiro_sync
 import degiro_sandbox
 import degiro_sandbox_panel
@@ -2127,7 +2128,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        if path in ("/api/degiro/connection-test", "/api/degiro/sync/start", "/api/degiro/sync/stop"):
+        if path in ("/api/degiro/connection-test", "/api/degiro/sync/start", "/api/degiro/sync/stop", "/api/degiro/preflight"):
             if not self.authenticated():
                 bob_auth.send(self, 401)
                 return
@@ -2136,12 +2137,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= 128:
+                if not 0 < length <= (2048 if path.endswith("/preflight") else 128):
                     raise ValueError("Ungültige Anfragegröße")
                 payload = json.loads(self.rfile.read(length))
-                if not isinstance(payload, dict) or set(payload) - {"otp"}:
+                if not isinstance(payload, dict) or (not path.endswith("/preflight") and set(payload) - {"otp"}):
                     raise ValueError("Ungültige Anfrage")
-                result = (degiro_sync.start(payload.get("otp", "")) if path.endswith("/start") else
+                result = (degiro_preflight.probe(payload) if path.endswith("/preflight") else
+                          degiro_sync.start(payload.get("otp", "")) if path.endswith("/start") else
                           degiro_sync.stop() if path.endswith("/stop") else
                           {"ok": False, "code": "BUSY"} if degiro_sync.status()["running"] else
                           degiro_readonly.probe(payload.get("otp", "")))
