@@ -1,0 +1,26 @@
+'use strict';
+// Regression contract: a DEGIRO list screenshot proves identity, not live execution.
+const assert=require('node:assert/strict');
+const fs=require('node:fs'),vm=require('node:vm');
+const c={window:{},localStorage:{getItem:()=>null,setItem:()=>{}}};
+vm.createContext(c);vm.runInContext(fs.readFileSync('degiro_assistant.js','utf8'),c);
+const b=c.window.BobDegiro;
+const isin='DE000FG4JXV7';
+const row='SG Gold Turbo BEST Open-End Put BAR 4460 BP 4460 Bv 10 | '+isin+'\nSociete Generale OTC EUR (K) (V)';
+const parsed=b.parseDegiroListRow(row);
+assert.equal(parsed.isin,isin);
+assert.equal(parsed.listRow.complete,true);
+assert.equal(parsed.price,'');
+assert.equal(parsed.leverage,'');
+assert.equal(parsed.listRow.sourceTime,null);
+const evidence=require('./product_evidence_contract.js');
+const combined=evidence.fromCombined({isin,inWatchlist:true});
+assert.equal(combined.isin,isin);
+assert.equal(combined.identity.state,'observed');
+assert.match(combined.identity.text,/Screenshotidentität/);
+assert.equal(combined.tradeable,false);
+assert.equal(combined.executableQuote,false);
+const status=evidence.productEvidence({isin});
+assert.equal(status.tradeable,false);
+assert.equal(status.venue.state,'unknown');
+console.log('DEGIRO screenshot identity / approval separation contract passed');
