@@ -40,6 +40,6 @@ const b=ctx.window.BobDegiro;
  const huge={name:'too-large.jpg',size:12000001,arrayBuffer:async()=>new ArrayBuffer(0)};
  assert.equal(await b.savePendingDegiroList([huge]),false);
  const html=fs.readFileSync('Bob.html','utf8');
- assert(html.includes('/degiro_assistant.js?v=20261023-persist-sha-retry-v1'),'browser loads new importer URL');
+ assert(html.includes('/degiro_assistant.js?v=20261026-mini-daily-ocr-v1'),'browser loads new importer URL');
  console.log('Android pending DEGIRO images survive restart, retain original bytes, stale data blocked, safe fallback, browser cache-bust.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

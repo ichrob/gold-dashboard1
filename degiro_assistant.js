@@ -221,17 +221,20 @@ function normalizeOcrIsin(value,productText=''){
  // Other substitutions require a reviewed identity and matching product context.
  if(!/^DE[0OQ]{3,4}[A-Z0-9]{7}$/.test(original))return{isin:original,originalIsin:""};
  const candidate="DE000"+original.slice(-7).replace(/O/g,"0").replace(/I/g,"1");
- // Pixel-checked DEGIRO screenshot 1000075082.jpg, row 2 (23.10.2026):
- // the original reads DE000PJ8APE4; 2x line OCR reads DEOOOPU8APE4.
- // Resolve this J/U ambiguity ONLY with the exact issuer/side, four-decimal
- // SL and STR values, ratio and broker venue from that original row.
- // Valid check digit alone is never adequate to change a product identity.
- const miniSnapshot=/\bBNP\s+GOLD\s+Mini\s+Long\s+SL\s+3684[.,]6673\s+STR\s+3612[.,]4189\s+R\s*10\b/i.test(productText)
+ // The user-reviewed 23 Oct list established one specific J/U OCR alias:
+ // DEOOOPU8APE4 -> DE000PJ8APE4 (BNP GOLD Mini Long).
+ // SL/STR are daily conditions, not permanent identity fields.
+ // Require the same BNP/EUR/Long/R10 row with positive four-decimal terms.
+ // Two independent observations of the complete row remain mandatory.
+ const miniTerms=productText.match(/\bBNP\s+GOLD\s+Mini\s+Long\s+SL\s+(\d+[.,]\d{4})\s+STR\s+(\d+[.,]\d{4})\s+R\s*10\b/i);
+ const miniSl=miniTerms?Number(miniTerms[1].replace(',','.')):null;
+ const miniStr=miniTerms?Number(miniTerms[2].replace(',','.')):null;
+ const miniSnapshot=miniSl>0&&miniStr>0&&miniSl>miniStr
   && /\bBNP\s+OTC\s+EUR\b/i.test(productText)
   && !/\b(?:SHORT|PUT|FACTOR|FAKTOR)\b/i.test(productText);
  if(candidate==='DE000PU8APE4'&&miniSnapshot&&validIsin('DE000PJ8APE4'))
   return {isin:'DE000PJ8APE4',originalIsin:original,
-   identityCorrection:'Original-DEGIRO-Listenbild 1000075082.jpg, Zeile 2: OCR J/U abgeglichen; SL/STR, R und Handelsplatz stimmen überein'};
+   identityCorrection:'Bekannte BNP-Mini-Long-ISIN: OCR J/U anhand gültiger ISIN und aktueller vollständiger Zeile abgeglichen; nur Bilddaten'};
  // User originals 1000074190.jpg and 1000074192.jpg show DE000PJ9NB98
  // in both DEGIRO layouts. Scope the observed OCR aliases to this broker
  // and these product/quote layouts; never repair arbitrary valid identifiers.
@@ -5060,7 +5063,7 @@ async function inject(){
  });
 const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgListUploadButton'),addButton=b.querySelector('#dgListAddButton'),uploadStatus=b.querySelector('#dgCentralStatus');
  let listUploadMode='replace',stagedListImages=[],pendingRetryBusy=false;
- uploadStatus.dataset.listReaderVersion='20261023-persist-sha-retry-v1';
+ uploadStatus.dataset.listReaderVersion='20261026-mini-daily-ocr-v1';
  uploadButton.addEventListener('click',()=>{listUploadMode='replace';stagedListImages=[];upload.click();});
  addButton.addEventListener('click',()=>{listUploadMode='append';upload.click();});
  upload.addEventListener('change',async()=>{

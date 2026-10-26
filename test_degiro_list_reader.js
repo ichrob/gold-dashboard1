@@ -74,14 +74,28 @@ assert.equal(correctedMini?.listRow.ko,3684.6673);
 assert.equal(correctedMini?.listRow.strike,3612.4189);
 assert.equal(correctedMini?.listRow.ratio,0.1);
 assert.equal(b.agreedDegiroListRow([observedMiniOcr,observedMiniOcr]).isin,'DE000PJ8APE4');
+// 26 October original shows the same reviewed ISIN with CHANGED SL/STR.
+// Neither last Friday's static values nor a stale issuer quote may overwrite it.
+const currentMiniOcr=observedMiniOcr.replace('3684.6673','3687.0930').replace('3612.4189','3614.7971');
+const currentMini=b.parseDegiroListRow(currentMiniOcr);
+assert.equal(currentMini?.isin,'DE000PJ8APE4','Monday values must retain the known reviewed J/U identity');
+assert.equal(currentMini?.listRow?.ko,3687.0930);
+assert.equal(currentMini?.listRow?.strike,3614.7971);
+assert.equal(currentMini?.listRow?.complete,true);
+assert.equal(currentMini?.listRow?.isExecutableQuote,false);
+assert.equal(currentMini?.listRow?.sourceTime,null);
+assert.equal(b.agreedDegiroListRow([currentMiniOcr,currentMiniOcr])?.isin,'DE000PJ8APE4');
+assert.equal(b.agreedDegiroListRow([observedMiniOcr,currentMiniOcr]),null,'never blend dated KO/STR values across observations');
+assert.equal(b.agreedDegiroListRow([currentMiniOcr,currentMiniOcr.replace('3687.0930','3687.0931')]),null,'one mismatching original term must fail');
 for(const conflicting of [
- observedMiniOcr.replace('3684.6673','3684.6674'),
- observedMiniOcr.replace('3612.4189','3612.4190'),
  observedMiniOcr.replace('BNP OTC EUR','BNP OTC CHF'),
  observedMiniOcr.replace('Mini Long','Mini Short'),
  observedMiniOcr.replace(/R\s+10/,'R 20'),
- observedMiniOcr.replace('BNP GOLD','SG GOLD')
-])assert.notEqual(b.parseDegiroListRow(conflicting)?.isin,'DE000PJ8APE4','Never correct an identity with mismatched original context');
+ observedMiniOcr.replace('BNP GOLD','SG GOLD'),
+ observedMiniOcr.replace('3684.6673','0.0000'),
+ observedMiniOcr.replace('3612.4189','4000.0000'),
+ observedMiniOcr.replace('3612.4189','3612.418')
+])assert.notEqual(b.parseDegiroListRow(conflicting)?.isin,'DE000PJ8APE4','Never correct a known alias without coherent current broker row');
 assert.equal(b.agreedDegiroListRow([observedMiniOcr,observedMiniOcr.replace('DEOOOPU8APE4','DE000FG8NHQ3')]),null,'different valid product identifiers cannot be combined');
 // Screenshot 1000075082.jpg, row two: full-row OCR can damage the
 // title/SL/STR while separately cropped title and OTC footer stay readable.
