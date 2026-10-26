@@ -69,7 +69,7 @@ const panel=cp.execFileSync('python',['-c','from snaptrade_panel import PANEL;pr
   });
   const coverageText=await page.locator('#snapJournaltest-account').innerText();
   assert(coverageText.includes('1 von 12599 gemeldeten Buchungen'));
-  assert(coverageText.includes('Begrenztes Abruffenster erreicht'));
+  assert(coverageText.includes('Teilabruf gespeichert; Fortsetzung im nächsten zulässigen Abgleich'));
   assert(coverageText.includes('2 Gruppen vorsorglich ausgelassen'));
   assert(coverageText.includes('keine vollständige Ergebnisrechnung'));
   await page.evaluate(()=>{
