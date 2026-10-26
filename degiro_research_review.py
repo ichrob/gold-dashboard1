@@ -79,8 +79,15 @@ def issuer_observation(isin, direction, raw, now=None):
         return None
     if not (bid > 0 and ask >= bid and lever >= 1):
         return None
+    # Only verified issuer origin may be paired with a DEGIRO screen venue.
+    # An unknown/secondary quote is never considered venue-compatible.
+    origin = raw.get('source')
+    issuer_kind = ('BNP' if isinstance(origin, str) and origin.startswith('BNP Paribas ·')
+                   else 'SG' if isinstance(origin, str)
+                   and origin.startswith('Société Générale ·') else None)
     # The selected input is issuer research, explicitly not an executable broker quote.
     return dict(isin=isin, direction=direction, currency=m['currency'],
+                issuerKind=issuer_kind,
                 bid=bid, ask=ask, leverage=lever, **timestamps,
                 sourceRole='issuer-comparison-only', executable=False,
                 brokerTradeApproved=False, observedAt=now.isoformat())
