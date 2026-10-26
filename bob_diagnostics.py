@@ -22,7 +22,7 @@ def fields(value, keys):
 
 
 
-def collection_cycle_snapshot(value):
+def collection_cycle_snapshot(value, now=None):
     """Project only bounded scheduler counters from Bob's in-process collection.
 
     A worker start gap is not independently verified loss of any market tick.
@@ -74,10 +74,22 @@ def collection_cycle_snapshot(value):
             clocks.append(dt.astimezone(timezone.utc))
         except (TypeError, ValueError, OverflowError):
             return unavailable
-    if (not 0 <= (clocks[1]-clocks[0]).total_seconds() <= 3600
-            or clocks[1] > datetime.now(timezone.utc) + timedelta(minutes=2)):
+    current = datetime.now(timezone.utc) if now is None else now
+    if not isinstance(current, datetime) or current.tzinfo is None:
         return unavailable
-    return {**unavailable, 'status':'observed',
+    current = current.astimezone(timezone.utc)
+    age = (current - clocks[1]).total_seconds()
+    if (not 0 <= (clocks[1]-clocks[0]).total_seconds() <= 3600
+            or age < -2):
+        return unavailable
+    age = max(0, age)
+    # Three nominal cadences distinguish recent from old process-local
+    # observations. 'stale' never asserts that a market tick was missed.
+    stale_after = max(90, value['configuredSeconds'] * 3)
+    freshness = 'stale' if age > stale_after else 'current'
+    return {**unavailable, 'status':'observed' if freshness == 'current' else 'stale',
+            'freshness':freshness, 'lastCompletionAgeSeconds':round(age, 3),
+            'staleAfterSeconds':stale_after,
             **fields(value, ('observedCycles','comparableStartIntervals',
                              'maxObservedStartGapSeconds','lastStartedAt',
                              'lastCompletedAt','lastDurationMs',
