@@ -31,7 +31,7 @@ SCHEMAS = {
     'analysis-failed':diag.shape('timeframe','errorType'),
     'push':diag.shape('outcome','eventsCount',events=[diag.shape('kind','outcome','reason','at')]),
     'push-delivery':diag.shape('outcome','httpStatus','direction','signalBarAt','dataAt',
-                               'test','synthetic',eventKinds=[None]),
+                               'test','synthetic','receiptId','receiptState',eventKinds=[None]),
     'paper-input':diag.shape('phase','checkedAt',profiles=[diag.shape(
         'profile','outcome','ready','priceFresh','dataAt','barAt')]),
     'health':diag.shape('status','session','sourceAt','sourceAgeSeconds','cycleAt','backgroundAt','evidenceVersion',badCodes=[None],goodCodes=[None]),
@@ -146,11 +146,11 @@ def prune(conn):
     return sum(value for value in counts if isinstance(value,int) and value>0)
 
 
-def emit(stage,trace_id,payload,decision_id=None):
+def emit(stage,trace_id,payload,decision_id=None,event_id=None):
     """Failure-isolated enqueue; no database/network work in caller."""
     global _RUNNING
     try:
-        event=validate({'id':uuid.uuid4().hex,'traceId':trace_id,'decisionId':decision_id,
+        event=validate({'id':event_id or uuid.uuid4().hex,'traceId':trace_id,'decisionId':decision_id,
             'stage':stage,'at':time.time(),'build':os.environ.get('RENDER_GIT_COMMIT'),'payload':payload})
         with _LOCK:
             if len(_QUEUE)==_QUEUE.maxlen:_STATS['dropped']+=1
