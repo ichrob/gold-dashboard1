@@ -17,6 +17,106 @@ def issuer(isin, side="LONG", *, spot=True, status=1, verified=True):
 
 
 class IssuerCatalogueTests(unittest.TestCase):
+    def test_confirmed_terminal_bnp_is_excluded_without_quote_failure(self):
+        ended = {"DE000PJ9NCK0", "DE000PJ9NB98"}
+        calls = {}
+        def lookup(isin):
+            calls[isin] = calls.get(isin, 0) + 1
+            side = next(d for known, d in catalog.SEEDS if known == isin)
+            row = issuer(isin, side)
+            if isin in ended:
+                row.update(found=False, fresh=False, eligible=False,
+                           source="BNP Paribas · offizielle Produktdaten",
+                           quoteFailureCode="MISSING_FIELD")
+                row["metadata"].update(status=2, tradingHalted=True)
+            return row
+
+        result = catalog.build(lookup, datetime(2026, 10, 26, 13, tzinfo=Z),
+                               retry_limit=3, sleeper=lambda _: self.fail("No KO quote retry"))
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["errors"], 0)
+        self.assertEqual(result["bnpConfirmedEnded"], 2)
+        self.assertEqual(result["sourceChecks"]["historicalBNP"]["sourceErrors"], 0)
+        self.assertTrue(ended.issubset({row["isin"] for row in result["excluded"]}))
+        self.assertFalse(ended.intersection({row["isin"] for row in result["candidates"]}))
+        self.assertTrue(all(calls[isin] == 1 for isin in ended))
+        self.assertFalse(result["automaticOrders"])
+
+    def test_terminal_bnp_requires_verified_identity_and_no_provider_failure(self):
+        isin = "DE000PJ9NB98"
+        row = issuer(isin)
+        row.update(found=False, eligible=False,
+                   source="BNP Paribas · offizielle Produktdaten",
+                   quoteFailureCode="MISSING_FIELD")
+        row["metadata"].update(status=2, tradingHalted=True)
+        self.assertTrue(catalog._confirmed_terminal_bnp(isin, row))
+        for changed in ({"isin": "DE000PJ9NCK0"}, {"productVerified": False},
+                        {"sourceFailure": True}, {"sourceDisabled": True},
+                        {"source": "comdirect · BNP LiveTrading"},
+                        {"found": True}, {"eligible": True}):
+            with self.subTest(changed=changed):
+                self.assertFalse(catalog._confirmed_terminal_bnp(isin, dict(row, **changed)))
+        self.assertFalse(catalog._confirmed_terminal_bnp(isin, dict(row, metadata={
+            **row["metadata"], "status": 1})))
+        self.assertFalse(catalog._confirmed_terminal_bnp(isin, dict(row, metadata={
+            **row["metadata"], "tradingHalted": False})))
+
+    def test_unconfirmed_knockout_does_not_hide_issuer_error(self):
+        isin = "DE000PJ9NB98"
+        def lookup(candidate):
+            side = next(d for known, d in catalog.SEEDS if known == candidate)
+            row = issuer(candidate, side)
+            if candidate == isin:
+                row.update(found=False, fresh=False, eligible=False,
+                           source="BNP Paribas · offizielle Produktdaten",
+                           productVerified=False, sourceFailure=True,
+                           quoteFailureCode="CONNECTION")
+                row["metadata"].update(status=2, tradingHalted=True)
+            return row
+        result = catalog.build(lookup, datetime(2026, 10, 26, 13, tzinfo=Z))
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["errors"], 1)
+        self.assertEqual(result["bnpConfirmedEnded"], 0)
+        self.assertEqual(result["sourceChecks"]["historicalBNP"]["sourceErrors"], 1)
+
+    def test_slow_scan_start_times_do_not_accumulate_duration(self):
+        from unittest.mock import patch
+        import copy
+        class StopWorker(BaseException):
+            pass
+        clock = [0]
+        starts, delays = [], []
+        original = copy.deepcopy(catalog._CURRENT)
+        def fake_scan(*args, **kwargs):
+            starts.append(clock[0])
+            clock[0] += 26
+            return dict(status="partial", errors=1, attempted=10,
+                sourceChecks={"historicalBNP": dict(attempted=3, verified=3,
+                    datedFreshQuote=1, sourceErrors=1),
+                    "otherHistorical": dict(sourceErrors=0)},
+                retryAttempts=1, retryRecovered=0, bnpStaleSourceClocks=0,
+                bnpConfirmedEnded=2)
+        def fake_sleep(seconds):
+            delays.append(seconds)
+            clock[0] += seconds
+            if len(delays) == 3:
+                raise StopWorker
+        try:
+            with patch.object(catalog, "session", return_value=("2026-10-26", "morning")), \
+                 patch.object(catalog, "build", side_effect=fake_scan), \
+                 patch.object(catalog, "study_history", return_value={"sampled": 0}), \
+                 patch("snaptrade_bridge.historical_gold_candidates", return_value={"items": []}), \
+                 patch.object(catalog.time, "monotonic", side_effect=lambda: clock[0]), \
+                 patch.object(catalog.time, "sleep", side_effect=fake_sleep):
+                with self.assertRaises(StopWorker):
+                    catalog._loop()
+            self.assertEqual(starts, [0, 300, 600])
+            self.assertEqual(delays, [274, 274, 274])
+        finally:
+            catalog._CURRENT.clear()
+            catalog._CURRENT.update(original)
+
+
     def test_worker_detects_relapse_and_recovery_after_success_without_restart(self):
         from unittest.mock import patch
         import copy
