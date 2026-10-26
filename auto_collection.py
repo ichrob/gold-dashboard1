@@ -26,6 +26,56 @@ _report = {}
 _source_error = None
 _next_archive = 0
 
+# At most twenty process-local scheduler observations. These record actual
+# starts/completions, not market ticks or proof of missed jobs.
+_cycle_lock = threading.Lock()
+_cycle_history = []
+
+
+def _record_worker_cycle(started_mono, started_at, duration_ms, interval, wait_seconds):
+    """Record bounded timing only; never alter the worker's sleep decision."""
+    if not isinstance(started_at, datetime) or started_at.tzinfo is None:
+        return
+    with _cycle_lock:
+        previous = _cycle_history[-1] if _cycle_history else None
+        # A gap is comparable only within one process and unchanged cadence.
+        gap = None
+        if previous and previous["configuredSeconds"] == interval:
+            delta = started_mono - previous["_startMono"]
+            if delta > 0:
+                gap = round(delta, 3)
+        item = dict(_startMono=started_mono, startedAt=started_at.isoformat(),
+                    completedAt=datetime.now(timezone.utc).isoformat(),
+                    durationMs=duration_ms, configuredSeconds=interval,
+                    plannedWaitSeconds=round(wait_seconds, 3),
+                    observedStartGapSeconds=gap)
+        _cycle_history.append(item)
+        del _cycle_history[:-20]
+
+
+def _worker_cycle_summary():
+    with _cycle_lock:
+        history = [dict(item) for item in _cycle_history]
+    if not history:
+        return dict(status="not-observed", observedCycles=0, readOnly=True,
+                    workerMissedCyclesVerified=False,
+                    scope="process-local-worker-starts-not-market-tick-proof")
+    comparable = [item["observedStartGapSeconds"] for item in history
+                  if item["observedStartGapSeconds"] is not None]
+    last = history[-1]
+    return dict(status="observed", observedCycles=len(history),
+                comparableStartIntervals=len(comparable),
+                maxObservedStartGapSeconds=max(comparable) if comparable else None,
+                lastStartedAt=last["startedAt"],
+                lastCompletedAt=last["completedAt"],
+                lastDurationMs=last["durationMs"],
+                configuredSeconds=last["configuredSeconds"],
+                plannedWaitSeconds=last["plannedWaitSeconds"],
+                lastObservedStartGapSeconds=last["observedStartGapSeconds"],
+                readOnly=True, workerMissedCyclesVerified=False,
+                scope="process-local-worker-starts-not-market-tick-proof")
+
+
 
 def enabled():
     return os.environ.get('BOB_AUTO_COLLECTION', '') == '1'
@@ -180,8 +230,11 @@ def tick(now=None):
 def _run():
     while enabled():
         started = time.monotonic()
+        started_at = datetime.now(timezone.utc)
         remaining = background_push.gold_weekend_seconds_remaining()
         if remaining:
+            with _cycle_lock:
+                _cycle_history.clear()  # A weekend break cannot be a missed cycle.
             paused_report(datetime.now(timezone.utc))
             print('BOB_COLLECTION weekend_paused until=Monday 00:00 Europe/Zurich', flush=True)
             threading.Event().wait(remaining)
@@ -202,7 +255,9 @@ def _run():
         print('BOB_COLLECTION_CYCLE duration_ms='+str(cycle_duration_ms)+
               ' exceeded_30s='+str(cycle_duration_ms > 30000), flush=True)
         interval = background_push.degiro_poll_seconds()
-        threading.Event().wait(max(1, interval-(time.monotonic()-started)))
+        planned_wait = max(1, interval-(time.monotonic()-started))
+        _record_worker_cycle(started, started_at, cycle_duration_ms, interval, planned_wait)
+        threading.Event().wait(planned_wait)
 
 
 def start():
@@ -227,7 +282,8 @@ def status():
     phase = background_push.degiro_session()
     report['updateIntervalSeconds'] = 300 if phase == 'night' else 30 if phase != 'weekend' else None
     report['sessionMode'] = phase
-    return dict(report, cfdFeed=investing_card.health(), comparison=future_comparison.status(), enabled=enabled(), running=running,
+    return dict(report, cycleCadence=_worker_cycle_summary(),
+                cfdFeed=investing_card.health(), comparison=future_comparison.status(), enabled=enabled(), running=running,
                 state=report.get('state', 'starting' if enabled() else 'disabled'))
 
 
