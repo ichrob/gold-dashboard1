@@ -5,6 +5,20 @@ self.addEventListener("activate", event => {
   event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith("bob-") && key !== CACHE_VERSION && key !== "bob-push-settings").map(key => caches.delete(key)))).then(() => self.clients.claim()));
 });
 
+// Browser confirmation is NOT proof the Android notification tray displayed it.
+function reportPushReceipt(details, receiptState) {
+  const id = details?.receiptId, proof = details?.receiptProof, exp = details?.receiptExpiry;
+  if (typeof id !== 'string' || !/^[0-9a-f]{32}$/.test(id) ||
+      typeof proof !== 'string' || !/^[0-9a-f]{64}$/.test(proof) ||
+      !Number.isSafeInteger(exp) || exp * 1000 < Date.now() ||
+      !['show-resolved', 'clicked'].includes(receiptState)) return Promise.resolve();
+  return fetch('/api/push/device-receipt', {
+    method: 'POST', credentials: 'omit', cache: 'no-store',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({receiptId:id, receiptExpiry:exp, receiptProof:proof, receiptState})
+  }).catch(() => {});
+}
+
 function safeJson(event) {
   try { return event.data ? event.data.json() : {}; }
   catch (_) { return { title: "Bob", body: event.data ? event.data.text() : "Neue Benachrichtigung" }; }
@@ -21,7 +35,7 @@ self.addEventListener("push", event => {
     tag: data.tag || "bob",
     renotify: Boolean(data.renotify),
     requireInteraction: Boolean(data.requireInteraction),
-    data: { url: details.url || "/", kind: details.kind || "general", signalId: details.signalId || null, tradeId:details.tradeId||null }
+    data: { url: details.url || "/", kind: details.kind || "general", signalId: details.signalId || null, tradeId:details.tradeId||null, receiptId:details.receiptId, receiptExpiry:details.receiptExpiry, receiptProof:details.receiptProof }
   };
   event.waitUntil((async()=>{
     if(Number.isFinite(details.expiresAt)&&Date.now()>=details.expiresAt)return;
@@ -48,20 +62,24 @@ self.addEventListener("push", event => {
       if(prefs.general!==true||!Number.isFinite(details.expiresAt)||Date.now()>=details.expiresAt)return;
     }
     await self.registration.showNotification(title, options);
+    await reportPushReceipt(details, 'show-resolved');
   })());
 });
 
 self.addEventListener("notificationclick", event => {
   event.notification.close();
   const target = (event.notification.data && event.notification.data.url) || "/";
-  event.waitUntil(clients.matchAll({ type: "window", includeUncontrolled: true }).then(list => {
+  event.waitUntil(Promise.all([
+    reportPushReceipt(event.notification.data || {}, "clicked"),
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then(list => {
     const existing = list.find(client => "focus" in client);
     if (existing) {
       existing.postMessage({ type: "BOB_PUSH_CLICK", data: event.notification.data || {} });
       return existing.focus();
     }
     if (clients.openWindow) return clients.openWindow(target);
-  }));
+    })
+  ]));
 });
 
 self.addEventListener("message", event => {
