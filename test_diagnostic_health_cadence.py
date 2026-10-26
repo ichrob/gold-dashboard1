@@ -16,6 +16,24 @@ def observation(at, session="trading", build=SHA_A, **extra):
 
 
 class CadenceTests(unittest.TestCase):
+    def test_conflicting_clock_is_order_independent_and_cannot_bridge_runs(self):
+        rows = [observation(1000), observation(1030),
+                observation(1030, build=SHA_B), observation(1060)]
+        for order in (rows, list(reversed(rows))):
+            result = assess(order)
+            self.assertEqual(result['sameBuildSessionIntervals'], 0)
+            self.assertEqual(result['crossBuildOrSessionBoundariesSkipped'], 2)
+            self.assertEqual(result['status'], 'insufficient')
+        rows[2] = observation(1030, session='weekend')
+        self.assertEqual(assess(rows)['sameBuildSessionIntervals'], 0)
+
+    def test_unknown_latest_capture_does_not_inherit_older_trading_state(self):
+        rows = [observation(1000), observation(1030), observation(1060, build=None)]
+        result = assess(rows)
+        self.assertEqual(result['sameBuildSessionIntervals'], 1)
+        self.assertEqual(result['state'], 'insufficient-evidence')
+        self.assertFalse(result['workerMissed30sCyclesVerified'])
+
     def test_trading_archive_gaps_are_review_leads_only(self):
         result = assess([observation(1000), observation(1030),
                          observation(1060), observation(1200)])
