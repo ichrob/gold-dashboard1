@@ -333,11 +333,11 @@ def _valid_dated_worker_cycles(record):
 
 
 def assess(goals, register):
-    """Five narrowly dated, independent samples with distinct target-specific proof.
+    """Six narrowly dated, independent samples with distinct target-specific proof.
 
     These facts were read via connected Render/GitHub tools before recording.
     Code validates the immutable record's shape, not external provider truth.
-    A sixth goal, mismatched source, or fake success fails closed.
+    A seventh goal, mismatched source, or fake success fails closed.
     """
     invalid = {"status": "unavailable", "readOnly": True,
                "reason": "invalid-or-unsupported-goal-acceptance"}
@@ -345,14 +345,14 @@ def assess(goals, register):
             or not isinstance(register, dict)
             or register.get("schemaVersion") != 1
             or not isinstance(register.get("accepted"), list)
-            or len(register["accepted"]) != 5):
+            or len(register["accepted"]) != 6):
         return invalid
     if not all(isinstance(g, dict) and type(g.get("id")) is int for g in goals):
         return invalid
     by_id = {g["id"]: g for g in goals}
     if sorted(by_id) != list(range(1, 101)):
         return invalid
-    expected = {2: "verified-at-sample", 7: "verified-at-sample", 8: "verified-at-sample", 13: "verified-at-sample", 18: "verified-at-build"}
+    expected = {2: "verified-at-sample", 7: "verified-at-sample", 8: "verified-at-sample", 11: "verified-at-sample", 13: "verified-at-sample", 18: "verified-at-build"}
     for id_, row in by_id.items():
         accepted = id_ in expected
         if row.get("verified") is not accepted:
@@ -366,28 +366,31 @@ def assess(goals, register):
            for r in records):
         return invalid
     by_record = {r["id"]: r for r in records}
-    if set(by_record) != set(expected) or len(by_record) != 5:
+    if set(by_record) != set(expected) or len(by_record) != 6:
         return invalid
     build_record = by_record[18]
     metric_record = by_record[13]
     history_record = by_record[8]
     stage_record = by_record[7]
     module_record = by_record[2]
+    worker_record = by_record[11]
     if (not _valid_build_match(build_record)
             or not _valid_cpu_memory_window(metric_record)
             or not _valid_archived_health_pair(history_record)
             or not _valid_archived_stage_window(stage_record)
-            or not _valid_root_module_change(module_record)):
+            or not _valid_root_module_change(module_record)
+            or not _valid_dated_worker_cycles(worker_record)):
         return invalid
     return {
-        "status": "five-dated-independent-acceptances",
+        "status": "six-dated-independent-acceptances",
         "readOnly": True,
         "individuallyAcceptedAtRecordedBuild": 1,
         "individuallyAcceptedAtRecordedMetricWindow": 1,
         "individuallyAcceptedAtArchivedHealthPair": 1,
         "individuallyAcceptedAtArchivedStageWindow": 1,
         "individuallyAcceptedAtRootModuleChange": 1,
-        "acceptedGoalIds": [2, 7, 8, 13, 18],
+        "individuallyAcceptedAtObservedWorkerCycles": 1,
+        "acceptedGoalIds": [2, 7, 8, 11, 13, 18],
         "acceptedBuild": build_record["build"],
         "acceptedAt": build_record["checkedAt"],
         "metricSampleWindow": {
@@ -424,10 +427,21 @@ def assess(goals, register):
             "runtimeHealthVerified": False,
             "newModulesFunctioningVerified": False,
         },
-        "remainingUnaccepted": 95,
+        "remainingUnaccepted": 94,
+        "workerCycleSample": {
+            "sourceBuild": worker_record["build"],
+            "observedAt": worker_record["observedAt"],
+            "windowStart": worker_record["sample"]["windowStart"],
+            "windowEnd": worker_record["sample"]["windowEnd"],
+            "workers": len(worker_record["sample"]["workers"]),
+            "observations": sum(len(w["ticks"]) for w in worker_record["sample"]["workers"]),
+            "workerMissed30sCyclesVerified": False,
+            "continuousHealthVerified": False,
+            "paperTradeOrDeliveryVerified": False,
+        },
         "currentDeployProven": False,
         "continuouslyHealthyProven": False,
-        "scope": "dated-ci-Render-metrics-private-health-stage-archive-and-repository-root-change", 
+        "scope": "dated-ci-Render-metrics-private-health-stage-root-module-and-worker-log-observations", 
         "note": "The recorded external observations were read through connected tools. "
                 "Local validation only checks record structure, not fresh Render data. "
                 "No dated observation proves future capacity, uptime, trading "
