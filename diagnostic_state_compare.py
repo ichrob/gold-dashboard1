@@ -97,6 +97,96 @@ def _pair(before, after, scope):
     }
 
 
+
+def render_deploy_event_sample(events, *, service, window_start, window_end,
+                               has_more=False):
+    """Classify bounded caller-supplied Render deploy events; do not infer repairs.
+
+    A GitHub commit in deploy_started and a succeeding deploy_ended are useful
+    provenance, not proof that startup, market data, trades or delivery work.
+    """
+    from datetime import datetime, timezone
+    valid_services = frozenset(('bob-private-scanner','bob-push-service'))
+    unavailable = {'status':'insufficient-evidence', 'readOnly':True,
+                   'realOrders':False, 'providerVerified':False,
+                   'completeEventHistoryProven':False,
+                   'isRepairVerified':False,
+                   'isDeploymentRegressionVerified':False}
+    def utc(value):
+        if not isinstance(value, str) or not 10 <= len(value) <= 42:
+            return None
+        try:
+            dt=datetime.fromisoformat(value.replace('Z','+00:00'))
+            return dt.astimezone(timezone.utc) if dt.tzinfo else None
+        except (ValueError, OverflowError):
+            return None
+    start,end=utc(window_start),utc(window_end)
+    if (service not in valid_services or not isinstance(events,list)
+            or start is None or end is None or start>=end
+            or type(has_more) is not bool):
+        return unavailable
+    accepted=[]
+    for e in events[:40]:
+        if not isinstance(e,dict):
+            continue
+        moment=utc(e.get('timestamp'))
+        if moment is None or not start<=moment<=end:
+            continue
+        typ=e.get('type')
+        details=e.get('details')
+        if typ not in ('deploy_started','deploy_ended') or not isinstance(details,dict):
+            continue
+        deploy_id=details.get('deployId')
+        if not isinstance(deploy_id,str) or not 8<=len(deploy_id)<=128:
+            continue
+        if typ=='deploy_started':
+            trigger=details.get('trigger')
+            commit=trigger.get('newCommit') if isinstance(trigger,dict) else None
+            if not isinstance(commit,str) or _BUILD.fullmatch(commit) is None:
+                continue
+            accepted.append((moment,typ,deploy_id,commit,None,None))
+        else:
+            value=details.get('deployStatus')
+            if value not in ('succeeded','failed'):
+                continue
+            failure=(details.get('reason') or {}).get('failure') if isinstance(details.get('reason'),dict) else None
+            exit_code=failure.get('nonZeroExit') if isinstance(failure,dict) else None
+            known_nonzero=type(exit_code) is int and 0<exit_code<=255
+            accepted.append((moment,typ,deploy_id,None,value,known_nonzero))
+    accepted.sort(key=lambda x:x[0])
+    starts={}
+    matched=[]
+    completed=[]
+    for event in accepted:
+        when,typ,key,build,result,exit_failure=event
+        if typ=='deploy_started':
+            starts[key]=(when,build)
+        else:
+            completed.append((when,result,exit_failure))
+            old=starts.get(key)
+            if old is not None and old[0]<when:
+                matched.append((old[1],result))
+    successes=sum(result=='succeeded' for _,result,_ in completed)
+    failures=sum(result=='failed' for _,result,_ in completed)
+    return {**unavailable,
+            'status':'observed-deploy-events' if completed else 'insufficient-evidence',
+            'service':service,
+            'source':'caller-supplied-bounded-Render-event-sample',
+            'windowStart':start.isoformat(), 'windowEnd':end.isoformat(),
+            'sampledRecords':min(len(events),40),
+            'acceptedEventRecords':len(accepted),
+            'sampleTruncated':len(events)>40 or has_more,
+            'observedSucceededDeploys':successes,
+            'observedFailedDeploys':failures,
+            'failedWithRecordedNonzeroExit':sum(result=='failed' and known
+                                                for _,result,known in completed),
+            'pairedStartedAndEndedDeploys':len(matched),
+            'distinctPairedCommits':len(set(build for build,_ in matched)),
+            'note':'An event or successful deployment is not a causally verified '
+                   'repair, continuously healthy service, absence of queue loss '
+                   'or proof of endpoint/handset/trading operation.'}
+
+
 def compare(events):
     """Most recent distinct health instants; additionally compare across builds.
 
